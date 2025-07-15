@@ -61,7 +61,7 @@ func spawnProfileEntry(
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		traceID := observability.TraceIDFromContext(r.Context())
 
-		name := strings.TrimPrefix(r.URL.Path, "/v1/account/spawn-profiles/")
+		name := strings.TrimPrefix(r.URL.Path, "/v1/accounts/me/spawn-profiles/")
 		name = strings.Trim(name, "/")
 		if name == "" {
 			httpkit.WriteError(w, nethttp.StatusBadRequest, "validation.error", "profile name is required", traceID, nil)

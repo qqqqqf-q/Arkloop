@@ -19,6 +19,8 @@ const defaultLLMProxyBaseURL = "http://api:19001/v1/llm-proxy"
 
 const envSkipLLMProxy = "ARKLOOP_ACP_SKIP_LLM_PROXY"
 
+const envLLMProxyBaseURL = "ARKLOOP_ACP_LLM_PROXY_URL"
+
 // sessionRegistry is a package-level singleton shared across all executor calls
 // within the same worker process, enabling ACP session reuse across tool invocations.
 var sessionRegistry = acp.NewRegistry()
@@ -26,6 +28,17 @@ var sessionRegistry = acp.NewRegistry()
 type ToolExecutor struct {
 	ConfigResolver sharedconfig.Resolver
 	JWTSecret      string
+	LLMProxyBaseURL string
+}
+
+func (e ToolExecutor) llmProxyBaseURL() string {
+	if e.LLMProxyBaseURL != "" {
+		return e.LLMProxyBaseURL
+	}
+	if v := os.Getenv(envLLMProxyBaseURL); v != "" {
+		return v
+	}
+	return defaultLLMProxyBaseURL
 }
 
 func (e ToolExecutor) Execute(
@@ -297,8 +310,9 @@ func (e ToolExecutor) injectProviderEnv(
 
 	env["OPENCODE_API_KEY"] = token
 	env["OPENAI_API_KEY"] = token
-	env["OPENAI_BASE_URL"] = defaultLLMProxyBaseURL
-	env["OPENCODE_CONFIG_CONTENT"] = fmt.Sprintf(`{"provider":{"opencode":{"api":%q}}}`, defaultLLMProxyBaseURL)
+	proxyURL := e.llmProxyBaseURL()
+	env["OPENAI_BASE_URL"] = proxyURL
+	env["OPENCODE_CONFIG_CONTENT"] = fmt.Sprintf(`{"provider":{"opencode":{"api":%q}}}`, proxyURL)
 	env["OPENCODE_DISABLE_AUTOUPDATE"] = "true"
 	env["OPENCODE_DISABLE_MODELS_FETCH"] = "true"
 	env["ARKLOOP_ACP_HOST_KIND"] = string(provider.HostKind)
