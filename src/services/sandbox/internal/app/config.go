@@ -14,6 +14,7 @@ import (
 
 	sharedconfig "arkloop/services/shared/config"
 	"arkloop/services/shared/objectstore"
+	"arkloop/services/shared/stringutil"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -206,7 +207,7 @@ func LoadConfigFromEnv() (Config, error) {
 		cfg.FirecrackerTapCIDR = raw
 	}
 	if raw := strings.TrimSpace(os.Getenv(firecrackerDNSEnv)); raw != "" {
-		cfg.FirecrackerDNS = splitCSV(raw)
+		cfg.FirecrackerDNS = stringutil.SplitCSV(raw)
 	}
 	if raw := strings.TrimSpace(os.Getenv(firecrackerBinEnv)); raw != "" {
 		cfg.FirecrackerBin = raw
@@ -507,18 +508,7 @@ func (c Config) MaxLifetimeSecondsFor(tier string) int {
 	}
 }
 
-func splitCSV(raw string) []string {
-	parts := strings.Split(raw, ",")
-	result := make([]string, 0, len(parts))
-	for _, part := range parts {
-		part = strings.TrimSpace(part)
-		if part == "" {
-			continue
-		}
-		result = append(result, part)
-	}
-	return result
-}
+
 
 func writeConfigWarn(event string, err error) {
 	if err == nil {

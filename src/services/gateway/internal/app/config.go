@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"arkloop/services/gateway/internal/ratelimit"
+	"arkloop/services/shared/stringutil"
 )
 
 const (
@@ -119,13 +120,13 @@ func LoadConfigFromEnv() (Config, error) {
 	}
 
 	if raw := strings.TrimSpace(os.Getenv(corsAllowedOriginsEnv)); raw != "" {
-		cfg.CORSAllowedOrigins = splitCSV(raw)
+		cfg.CORSAllowedOrigins = stringutil.SplitCSV(raw)
 	}
 	if raw := strings.TrimSpace(os.Getenv(ipModeEnv)); raw != "" {
 		cfg.IPMode = IPMode(raw)
 	}
 	if raw := strings.TrimSpace(os.Getenv(trustedCIDRsEnv)); raw != "" {
-		cfg.TrustedCIDRs = splitCSV(raw)
+		cfg.TrustedCIDRs = stringutil.SplitCSV(raw)
 	}
 
 	cfg.GeoIPDBPath = strings.TrimSpace(os.Getenv(geoIPDBPathEnv))
@@ -203,12 +204,4 @@ func validateUpstreamURL(raw string, label string) error {
 	return nil
 }
 
-func splitCSV(raw string) []string {
-	items := make([]string, 0)
-	for _, part := range strings.Split(raw, ",") {
-		if value := strings.TrimSpace(part); value != "" {
-			items = append(items, value)
-		}
-	}
-	return items
-}
+

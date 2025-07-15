@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"arkloop/services/shared/stringutil"
 )
 
 const (
@@ -72,7 +74,7 @@ func LoadConfigFromEnv() (Config, error) {
 	cfg.AuditLog = strings.TrimSpace(os.Getenv(bridgeAuditLogEnv))
 
 	if raw := strings.TrimSpace(os.Getenv(bridgeCORSOriginsEnv)); raw != "" {
-		cfg.CORSAllowedOrigins = append(cfg.CORSAllowedOrigins, splitCSV(raw)...)
+		cfg.CORSAllowedOrigins = append(cfg.CORSAllowedOrigins, stringutil.SplitCSV(raw)...)
 	}
 
 	if err := cfg.Validate(); err != nil {
@@ -151,12 +153,4 @@ func isLoopbackAddr(ip net.IP) bool {
 	return ip.IsLoopback()
 }
 
-func splitCSV(raw string) []string {
-	items := make([]string, 0)
-	for _, part := range strings.Split(raw, ",") {
-		if value := strings.TrimSpace(part); value != "" {
-			items = append(items, value)
-		}
-	}
-	return items
-}
+
