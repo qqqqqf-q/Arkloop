@@ -115,10 +115,11 @@ export function FileOpBlock({ toolName, label, output, status, errorMessage }: P
         >
           {label}
         </span>
-        {expanded
-          ? <ChevronDown size={12} style={{ flexShrink: 0, color: 'var(--c-text-muted)' }} strokeWidth={2} />
-          : <ChevronRight size={12} style={{ flexShrink: 0, color: 'var(--c-text-muted)' }} strokeWidth={2} />
-        }
+        {expandable && (
+          expanded
+            ? <ChevronDown size={12} style={{ flexShrink: 0, color: 'var(--c-text-muted)' }} strokeWidth={2} />
+            : <ChevronRight size={12} style={{ flexShrink: 0, color: 'var(--c-text-muted)' }} strokeWidth={2} />
+        )}
       </div>
 
       <AnimatePresence initial={false}>

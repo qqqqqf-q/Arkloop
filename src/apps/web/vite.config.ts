@@ -18,6 +18,14 @@ export default defineConfig(({ mode }) => {
         '/v1': {
           target: apiProxyTarget,
           changeOrigin: true,
+          configure: (proxy) => {
+            proxy.on('proxyRes', (proxyRes, _req, res) => {
+              if (proxyRes.headers['content-type']?.startsWith('text/event-stream')) {
+                res.setHeader('X-Accel-Buffering', 'no')
+                res.setHeader('Cache-Control', 'no-cache, no-transform')
+              }
+            })
+          },
         },
       },
     },

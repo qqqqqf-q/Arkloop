@@ -6,7 +6,7 @@ import remarkMath from 'remark-math'
 import rehypeHighlight from 'rehype-highlight'
 import rehypeKatex from 'rehype-katex'
 import { Copy, Check } from 'lucide-react'
-import type { Components, UrlTransform } from 'react-markdown'
+import type { Components, Options, UrlTransform } from 'react-markdown'
 import { defaultUrlTransform } from 'react-markdown'
 import { CitationBadge, WebSourcesContext } from './CitationBadge'
 import type { WebSource, ArtifactRef } from '../storage'
@@ -573,8 +573,7 @@ export function MarkdownRenderer({ content, disableMath, webSources, artifacts, 
     ? [remarkGfm]
     : [remarkGfm, remarkMath]
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const rehypePlugins: any[] = disableMath
+  const rehypePlugins: NonNullable<Options['rehypePlugins']> = disableMath
     ? [[rehypeHighlight, { ignoreMissing: true }]]
     : [
         [rehypeKatex, { throwOnError: false, output: 'htmlAndMathml' }],

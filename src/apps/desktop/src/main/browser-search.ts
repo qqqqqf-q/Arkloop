@@ -258,7 +258,6 @@ export async function startBrowserSearchServer(): Promise<string> {
   })
 
   callbackPort = port
-  console.log(`[browser-search] callback server listening on 127.0.0.1:${port}`)
   return `127.0.0.1:${port}`
 }
 
