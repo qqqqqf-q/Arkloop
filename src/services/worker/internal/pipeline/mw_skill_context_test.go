@@ -2,6 +2,8 @@ package pipeline
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -131,5 +133,47 @@ func TestSkillContextMiddlewareKeepsManualSkillsOutOfPrompt(t *testing.T) {
 	}
 	if strings.Contains(rc.SystemPrompt, "builtin-manual@1") {
 		t.Fatalf("expected manual skill omitted from prompt, got %q", rc.SystemPrompt)
+	}
+}
+
+func TestSkillContextMiddlewareExternalSkillsEmptyDirsNoEffect(t *testing.T) {
+	emptyRoot := t.TempDir() // 目录存在但无任何 skill 子目录
+
+	mw := NewSkillContextMiddleware(SkillContextConfig{
+		ExternalDirs: func(_ context.Context) []string {
+			return []string{emptyRoot}
+		},
+	})
+	rc := &RunContext{Run: data.Run{AccountID: uuid.New()}, SystemPrompt: "base"}
+	if err := mw(context.Background(), rc, func(ctx context.Context, rc *RunContext) error { return nil }); err != nil {
+		t.Fatalf("middleware failed: %v", err)
+	}
+	if rc.SystemPrompt != "base" {
+		t.Fatalf("expected prompt unchanged when external dirs are empty, got %q", rc.SystemPrompt)
+	}
+}
+
+func TestSkillContextMiddlewareExternalSkills(t *testing.T) {
+	root := t.TempDir()
+	skillDir := filepath.Join(root, "test-external")
+	os.MkdirAll(skillDir, 0o755)
+	os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# External test skill"), 0o644)
+
+	layout := skillstore.PathLayout{MountRoot: "/tmp/skills", IndexPath: "/tmp/index.json"}
+	mw := NewSkillContextMiddleware(SkillContextConfig{
+		Layout: layout,
+		ExternalDirs: func(_ context.Context) []string {
+			return []string{root}
+		},
+	})
+	rc := &RunContext{Run: data.Run{AccountID: uuid.New()}, SystemPrompt: "base"}
+	if err := mw(context.Background(), rc, func(ctx context.Context, rc *RunContext) error { return nil }); err != nil {
+		t.Fatalf("middleware failed: %v", err)
+	}
+	if !strings.Contains(rc.SystemPrompt, "<external_skills>") {
+		t.Fatalf("expected external skills block in prompt, got: %s", rc.SystemPrompt)
+	}
+	if !strings.Contains(rc.SystemPrompt, "test-external") {
+		t.Fatalf("expected 'test-external' in prompt, got: %s", rc.SystemPrompt)
 	}
 }

@@ -102,10 +102,11 @@ export function ShellExecutionBlock({ code, output, errorMessage, status }: Prop
         <span className="shell-exec-label" style={{ fontSize: '11px', fontFamily: MONO, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: '16px', color: 'var(--c-text-muted)', transition: 'color 150ms ease' }}>
           {preview || t.shellRan}
         </span>
-        {expanded
-          ? <ChevronDown size={12} style={{ flexShrink: 0, color: 'var(--c-text-muted)' }} strokeWidth={2} />
-          : <ChevronRight size={12} style={{ flexShrink: 0, color: 'var(--c-text-muted)' }} strokeWidth={2} />
-        }
+        {expandable && (
+          expanded
+            ? <ChevronDown size={12} style={{ flexShrink: 0, color: 'var(--c-text-muted)' }} strokeWidth={2} />
+            : <ChevronRight size={12} style={{ flexShrink: 0, color: 'var(--c-text-muted)' }} strokeWidth={2} />
+        )}
       </div>
 
       {/* Expanded body */}

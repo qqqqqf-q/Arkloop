@@ -1535,11 +1535,11 @@ export type ResolveOpenVikingConfigResponse = {
 }
 
 export async function listSpawnProfiles(accessToken: string): Promise<SpawnProfile[]> {
-  return apiFetch<SpawnProfile[]>('/v1/account/spawn-profiles', { accessToken })
+  return apiFetch<SpawnProfile[]>('/v1/accounts/me/spawn-profiles', { accessToken })
 }
 
 export async function setSpawnProfile(accessToken: string, name: string, model: string): Promise<void> {
-  await apiFetch<void>(`/v1/account/spawn-profiles/${name}`, {
+  await apiFetch<void>(`/v1/accounts/me/spawn-profiles/${name}`, {
     method: 'PUT',
     accessToken,
     body: JSON.stringify({ model }),
@@ -1547,7 +1547,7 @@ export async function setSpawnProfile(accessToken: string, name: string, model: 
 }
 
 export async function deleteSpawnProfile(accessToken: string, name: string): Promise<void> {
-  await apiFetch<void>(`/v1/account/spawn-profiles/${name}`, {
+  await apiFetch<void>(`/v1/accounts/me/spawn-profiles/${name}`, {
     method: 'DELETE',
     accessToken,
   })
@@ -1574,6 +1574,7 @@ export type ChannelResponse = {
   webhook_url: string | null
   is_active: boolean
   config_json: Record<string, unknown>
+  has_credentials?: boolean
   created_at: string
   updated_at: string
 }
@@ -1656,4 +1657,41 @@ export async function unbindChannelIdentity(accessToken: string, id: string): Pr
     method: 'DELETE',
     accessToken,
   })
+}
+
+// external skills
+
+export interface ExternalSkill {
+  name: string
+  path: string
+  instruction_path: string
+}
+
+export interface ExternalSkillDir {
+  path: string
+  skills: ExternalSkill[]
+}
+
+export async function discoverExternalSkills(
+  accessToken: string,
+): Promise<{ dirs: ExternalSkillDir[] }> {
+  return await apiFetch<{ dirs: ExternalSkillDir[] }>(
+    '/v1/external-skills/discover',
+    { method: 'GET', accessToken },
+  )
+}
+
+export async function getExternalDirs(accessToken: string): Promise<string[]> {
+  const res = await apiFetch<{ value: string }>(
+    '/v1/admin/platform-settings/skills.external_dirs',
+    { method: 'GET', accessToken },
+  )
+  try { return JSON.parse(res.value) as string[] } catch { return [] }
+}
+
+export async function setExternalDirs(accessToken: string, dirs: string[]): Promise<void> {
+  await apiFetch<void>(
+    '/v1/admin/platform-settings/skills.external_dirs',
+    { method: 'PUT', accessToken, body: JSON.stringify({ value: JSON.stringify(dirs) }) },
+  )
 }

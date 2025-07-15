@@ -15,16 +15,24 @@ type SkillPreparer func(ctx context.Context, skills []skillstore.ResolvedSkill, 
 
 type SkillLayoutResolver func(ctx context.Context, rc *RunContext) (skillstore.PathLayout, error)
 
+type ExternalSkillDirsResolver func(ctx context.Context) []string
+
 type SkillContextConfig struct {
 	Resolve        SkillResolver
 	Prepare        SkillPreparer
 	Layout         skillstore.PathLayout
 	LayoutResolver SkillLayoutResolver
+	ExternalDirs   ExternalSkillDirsResolver
 }
 
 func NewSkillContextMiddleware(cfg SkillContextConfig) RunMiddleware {
 	return func(ctx context.Context, rc *RunContext, next RunHandler) error {
 		if cfg.Resolve == nil || rc.Run.AccountID == uuid.Nil {
+			if cfg.ExternalDirs != nil {
+				if extSkills := skillstore.DiscoverExternalSkills(cfg.ExternalDirs(ctx)); len(extSkills) > 0 {
+					rc.SystemPrompt += buildExternalSkillPromptBlock(extSkills)
+				}
+			}
 			return next(ctx, rc)
 		}
 		skills, err := cfg.Resolve(ctx, rc.Run.AccountID, rc.ProfileRef, rc.WorkspaceRef)
@@ -44,6 +52,11 @@ func NewSkillContextMiddleware(cfg SkillContextConfig) RunMiddleware {
 		rc.EnabledSkills = append([]skillstore.ResolvedSkill(nil), skills...)
 		if block := buildSkillPromptBlock(skills, layout); block != "" {
 			rc.SystemPrompt += block
+		}
+		if cfg.ExternalDirs != nil {
+			if extSkills := skillstore.DiscoverExternalSkills(cfg.ExternalDirs(ctx)); len(extSkills) > 0 {
+				rc.SystemPrompt += buildExternalSkillPromptBlock(extSkills)
+			}
 		}
 		return next(ctx, rc)
 	}
@@ -70,6 +83,26 @@ func applySkillLayout(skills []skillstore.ResolvedSkill, layout skillstore.PathL
 		out[i].MountPath = layout.MountPath(item.SkillKey, item.Version)
 	}
 	return out
+}
+
+func buildExternalSkillPromptBlock(skills []skillstore.ExternalSkill) string {
+	if len(skills) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	sb.WriteString("\n\n<external_skills>\n")
+	sb.WriteString("- External skill directories detected. Read the SKILL.md in each directory before using.\n")
+	for _, s := range skills {
+		sb.WriteString("- ")
+		sb.WriteString(s.Name)
+		sb.WriteString(" -> ")
+		sb.WriteString(s.Path)
+		sb.WriteString("/")
+		sb.WriteString(s.InstructionPath)
+		sb.WriteString("\n")
+	}
+	sb.WriteString("</external_skills>")
+	return sb.String()
 }
 
 func buildSkillPromptBlock(skills []skillstore.ResolvedSkill, layout skillstore.PathLayout) string {

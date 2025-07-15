@@ -68,6 +68,7 @@ export function SubAgentBlock({
   // COP 激活时不显示原始 output 区域（除非最终 output 有意义且 COP 已完成）
   const showRawOutput = !hasCop && !!displayOutput
   const isWaiting = status === 'spawning' || status === 'active'
+  const expandable = isWaiting || !!displayOutput || !!currentRunId || hasCop
 
   useEffect(() => {
     const el = outputRef.current
@@ -94,9 +95,9 @@ export function SubAgentBlock({
       <div
         role="button"
         tabIndex={0}
-        onClick={() => setExpanded((p) => !p)}
+        onClick={() => { if (expandable) setExpanded((p) => !p) }}
         onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
+          if ((e.key === 'Enter' || e.key === ' ') && expandable) {
             e.preventDefault()
             setExpanded((p) => !p)
           }
@@ -107,7 +108,7 @@ export function SubAgentBlock({
           gap: '5px',
           padding: '4px 0',
           border: 'none',
-          cursor: 'pointer',
+          cursor: expandable ? 'pointer' : 'default',
           width: 'fit-content',
           maxWidth: '100%',
           background: 'transparent',
@@ -127,10 +128,11 @@ export function SubAgentBlock({
         }}>
           {label}
         </span>
-        {expanded
-          ? <ChevronDown size={12} style={{ flexShrink: 0, color: 'var(--c-text-muted)' }} strokeWidth={2} />
-          : <ChevronRight size={12} style={{ flexShrink: 0, color: 'var(--c-text-muted)' }} strokeWidth={2} />
-        }
+        {expandable && (
+          expanded
+            ? <ChevronDown size={12} style={{ flexShrink: 0, color: 'var(--c-text-muted)' }} strokeWidth={2} />
+            : <ChevronRight size={12} style={{ flexShrink: 0, color: 'var(--c-text-muted)' }} strokeWidth={2} />
+        )}
       </div>
 
       <AnimatePresence initial={false}>

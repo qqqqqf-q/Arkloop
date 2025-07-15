@@ -185,6 +185,16 @@ export interface LocaleStrings {
     builtinEmpty: string;
     restore: string;
     backToSkills: string;
+    externalTab: string;
+    externalTitle: string;
+    externalEmpty: string;
+    externalNoSkills: string;
+    externalAddDir: string;
+    externalAddPlaceholder: string;
+    externalRemoveDir: string;
+    externalLoadFailed: string;
+    externalSaveFailed: string;
+    externalRemoveFailed: string;
   };
   // invite code
   inviteCode: string;
@@ -473,6 +483,7 @@ export interface LocaleStrings {
     platform: string
     botToken: string
     botTokenPlaceholder: string
+    tokenAlreadyConfigured: string
     allowedUsers: string
     allowedUsersPlaceholder: string
     persona: string

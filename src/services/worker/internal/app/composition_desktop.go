@@ -348,6 +348,7 @@ func (e *DesktopEngine) Execute(ctx context.Context, run data.Run, traceID strin
 			Resolve:        desktopSkillResolver(e.db),
 			Prepare:        desktopSkillPreparer(e.useVM),
 			LayoutResolver: e.skillLayout,
+			ExternalDirs:   desktopExternalSkillDirs(e.db),
 		}),
 		memMiddleware,
 		desktopRouting(e.stubRouter, e.stubGateway, e.emitDebugEvents, e.db, runsRepo, eventsRepo),

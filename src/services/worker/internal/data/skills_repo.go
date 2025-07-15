@@ -35,13 +35,13 @@ func (r SkillsRepository) ResolveEnabledSkills(ctx context.Context, accountID uu
 	profileRef = strings.TrimSpace(profileRef)
 	workspaceRef = strings.TrimSpace(workspaceRef)
 
-	const platformSkillQuery = `SELECT sp.skill_key, sp.version, sp.manifest_key, sp.bundle_key, sp.instruction_path, TRUE AS auto_inject
+	const platformSkillQuery = `SELECT sp.skill_key, sp.version, sp.manifest_key, sp.bundle_key, sp.instruction_path, TRUE AS auto_inject, COALESCE(sp.content_hash, '') AS content_hash
 		   FROM skill_packages sp
 		  WHERE sp.account_id IS NULL AND sp.is_active = TRUE AND sp.sync_mode = 'platform_skill'
 		  ORDER BY sp.skill_key, sp.version`
 
-	const fullQuery = `SELECT skill_key, version, manifest_key, bundle_key, instruction_path, auto_inject FROM (
-		    SELECT sp.skill_key, sp.version, sp.manifest_key, sp.bundle_key, sp.instruction_path, TRUE AS auto_inject
+	const fullQuery = `SELECT skill_key, version, manifest_key, bundle_key, instruction_path, auto_inject, content_hash FROM (
+		    SELECT sp.skill_key, sp.version, sp.manifest_key, sp.bundle_key, sp.instruction_path, TRUE AS auto_inject, COALESCE(sp.content_hash, '') AS content_hash
 		      FROM workspace_skill_enablements wse
 		      JOIN profile_skill_installs psi
 		        ON psi.account_id = wse.account_id
@@ -59,7 +59,8 @@ func (r SkillsRepository) ResolveEnabledSkills(ctx context.Context, accountID uu
 		    UNION ALL
 
 		    SELECT sp.skill_key, sp.version, sp.manifest_key, sp.bundle_key, sp.instruction_path,
-		           CASE WHEN pso.status = 'manual' THEN FALSE ELSE TRUE END AS auto_inject
+		           CASE WHEN pso.status = 'manual' THEN FALSE ELSE TRUE END AS auto_inject,
+		           COALESCE(sp.content_hash, '') AS content_hash
 		      FROM skill_packages sp
 		      LEFT JOIN profile_platform_skill_overrides pso
 		        ON pso.profile_ref = $2
@@ -86,7 +87,7 @@ func (r SkillsRepository) ResolveEnabledSkills(ctx context.Context, accountID uu
 	items := make([]skillstore.ResolvedSkill, 0)
 	for rows.Next() {
 		var item skillstore.ResolvedSkill
-		if err := rows.Scan(&item.SkillKey, &item.Version, &item.ManifestRef, &item.BundleRef, &item.InstructionPath, &item.AutoInject); err != nil {
+		if err := rows.Scan(&item.SkillKey, &item.Version, &item.ManifestRef, &item.BundleRef, &item.InstructionPath, &item.AutoInject, &item.ContentHash); err != nil {
 			return nil, err
 		}
 		item.MountPath = skillstore.MountPath(item.SkillKey, item.Version)

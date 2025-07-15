@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -16,6 +17,7 @@ import (
 	"arkloop/services/shared/database/sqliteadapter"
 	"arkloop/services/shared/database/sqlitepgx"
 	"arkloop/services/shared/eventbus"
+	"arkloop/services/shared/objectstore"
 	"arkloop/services/shared/skillstore"
 	"arkloop/services/shared/workspaceblob"
 	"arkloop/services/worker/internal/data"
@@ -237,11 +239,11 @@ func TestDesktopSkillLayoutUsesRunScopedPaths(t *testing.T) {
 		t.Fatalf("desktop skill layout: %v", err)
 	}
 
-	root := filepath.Join(dataDir, "runtime", "skills", runID.String())
-	if layout.MountRoot != filepath.Join(root, "files") {
+	if layout.MountRoot != filepath.Join(dataDir, "skills") {
 		t.Fatalf("unexpected mount root: %s", layout.MountRoot)
 	}
-	if layout.IndexPath != filepath.Join(root, "enabled-skills.json") {
+	runtimeRoot := filepath.Join(dataDir, "runtime", "skills", runID.String())
+	if layout.IndexPath != filepath.Join(runtimeRoot, "enabled-skills.json") {
 		t.Fatalf("unexpected index path: %s", layout.IndexPath)
 	}
 }
@@ -255,19 +257,27 @@ func TestCleanupDesktopSkillRuntimeRemovesRunScopedDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("desktop skill layout: %v", err)
 	}
-	if err := os.MkdirAll(layout.MountRoot, 0o755); err != nil {
-		t.Fatalf("mkdir mount root: %v", err)
+	runtimeRoot := filepath.Dir(layout.IndexPath)
+	if err := os.MkdirAll(runtimeRoot, 0o755); err != nil {
+		t.Fatalf("mkdir runtime root: %v", err)
 	}
 	if err := os.WriteFile(layout.IndexPath, []byte("{}"), 0o644); err != nil {
 		t.Fatalf("write index: %v", err)
+	}
+	// 持久化 skill store 不应被 cleanup 删除
+	if err := os.MkdirAll(layout.MountRoot, 0o755); err != nil {
+		t.Fatalf("mkdir skill store: %v", err)
 	}
 
 	if err := cleanupDesktopSkillRuntime(runID); err != nil {
 		t.Fatalf("cleanup skill runtime: %v", err)
 	}
 
-	if _, err := os.Stat(filepath.Dir(layout.IndexPath)); !os.IsNotExist(err) {
-		t.Fatalf("expected run-scoped skill root removed, got err=%v", err)
+	if _, err := os.Stat(runtimeRoot); !os.IsNotExist(err) {
+		t.Fatalf("expected run-scoped runtime root removed, got err=%v", err)
+	}
+	if _, err := os.Stat(layout.MountRoot); err != nil {
+		t.Fatalf("expected persistent skill store preserved, got err=%v", err)
 	}
 }
 
@@ -294,10 +304,6 @@ func TestPrepareDesktopHostSkillsMaterializesBundlesAndIndex(t *testing.T) {
 	if err != nil {
 		t.Fatalf("desktop skill layout: %v", err)
 	}
-	staleDir := filepath.Join(filepath.Dir(layout.IndexPath), "stale")
-	if err := os.MkdirAll(staleDir, 0o755); err != nil {
-		t.Fatalf("create stale dir: %v", err)
-	}
 
 	skills := []skillstore.ResolvedSkill{{
 		SkillKey:        "grep-helper",
@@ -311,9 +317,6 @@ func TestPrepareDesktopHostSkillsMaterializesBundlesAndIndex(t *testing.T) {
 		t.Fatalf("prepare desktop host skills: %v", err)
 	}
 
-	if _, err := os.Stat(staleDir); !os.IsNotExist(err) {
-		t.Fatalf("expected stale dir pruned, got err=%v", err)
-	}
 	skillDocPath := filepath.Join(layout.MountPath("grep-helper", "1"), "SKILL.md")
 	rawDoc, err := os.ReadFile(skillDocPath)
 	if err != nil {
@@ -963,6 +966,195 @@ func TestDesktopChannelDeliveryRecordsFailureWhenChannelMissing(t *testing.T) {
 	}
 	if errorMessage != "channel not found or inactive" {
 		t.Fatalf("unexpected delivery failure error: %q", errorMessage)
+	}
+}
+
+// mapStore 是一个简单的内存 objectstore.Store 实现，用于测试。
+type mapStore struct {
+	data map[string][]byte
+}
+
+func newMapStore() *mapStore {
+	return &mapStore{data: make(map[string][]byte)}
+}
+
+func (m *mapStore) Put(_ context.Context, key string, d []byte) error {
+	m.data[key] = d
+	return nil
+}
+func (m *mapStore) PutObject(_ context.Context, key string, d []byte, _ objectstore.PutOptions) error {
+	m.data[key] = d
+	return nil
+}
+func (m *mapStore) Get(_ context.Context, key string) ([]byte, error) {
+	d, ok := m.data[key]
+	if !ok {
+		return nil, fmt.Errorf("key not found: %s", key)
+	}
+	return d, nil
+}
+func (m *mapStore) GetWithContentType(_ context.Context, key string) ([]byte, string, error) {
+	d, ok := m.data[key]
+	if !ok {
+		return nil, "", fmt.Errorf("key not found: %s", key)
+	}
+	return d, "application/octet-stream", nil
+}
+func (m *mapStore) Head(_ context.Context, key string) (objectstore.ObjectInfo, error) {
+	_, ok := m.data[key]
+	if !ok {
+		return objectstore.ObjectInfo{}, fmt.Errorf("key not found: %s", key)
+	}
+	return objectstore.ObjectInfo{Key: key}, nil
+}
+func (m *mapStore) Delete(_ context.Context, key string) error {
+	delete(m.data, key)
+	return nil
+}
+
+func TestEnsureSkillExtractedSkipsWhenHashMatches(t *testing.T) {
+	ctx := context.Background()
+	storeRoot := t.TempDir()
+
+	store := newMapStore()
+	bundleKey := skillstore.DerivedBundleKey("cached-skill", "1")
+	store.Put(ctx, bundleKey, buildDesktopSkillBundle(t, map[string]string{
+		"skill.yaml": "skill_key: cached-skill\nversion: \"1\"\ndisplay_name: Cached Skill\n",
+		"SKILL.md":   "# cached\n",
+	}))
+
+	skill := skillstore.ResolvedSkill{
+		SkillKey:    "cached-skill",
+		Version:     "1",
+		BundleRef:   bundleKey,
+		ContentHash: "abc123",
+	}
+
+	// 首次解包
+	if err := ensureSkillExtracted(ctx, store, skill, storeRoot); err != nil {
+		t.Fatalf("first extraction: %v", err)
+	}
+	skillDocPath := filepath.Join(storeRoot, "cached-skill@1", "SKILL.md")
+	if _, err := os.Stat(skillDocPath); err != nil {
+		t.Fatalf("skill doc not extracted: %v", err)
+	}
+
+	// 篡改文件内容，验证 hash 匹配时不会重新解包
+	os.WriteFile(skillDocPath, []byte("tampered"), 0o644)
+
+	if err := ensureSkillExtracted(ctx, store, skill, storeRoot); err != nil {
+		t.Fatalf("second extraction: %v", err)
+	}
+	content, _ := os.ReadFile(skillDocPath)
+	if string(content) != "tampered" {
+		t.Fatalf("expected file not overwritten when hash matches, got %q", string(content))
+	}
+}
+
+func TestEnsureSkillExtractedReExtractsWhenHashDiffers(t *testing.T) {
+	ctx := context.Background()
+	storeRoot := t.TempDir()
+
+	store := newMapStore()
+	bundleKey := skillstore.DerivedBundleKey("updating-skill", "1")
+	store.Put(ctx, bundleKey, buildDesktopSkillBundle(t, map[string]string{
+		"skill.yaml": "skill_key: updating-skill\nversion: \"1\"\ndisplay_name: Updating Skill\n",
+		"SKILL.md":   "# version 1\n",
+	}))
+
+	skill := skillstore.ResolvedSkill{
+		SkillKey:    "updating-skill",
+		Version:     "1",
+		BundleRef:   bundleKey,
+		ContentHash: "hash-v1",
+	}
+
+	if err := ensureSkillExtracted(ctx, store, skill, storeRoot); err != nil {
+		t.Fatalf("first extraction: %v", err)
+	}
+
+	// 更新 bundle 和 hash
+	store.Put(ctx, bundleKey, buildDesktopSkillBundle(t, map[string]string{
+		"skill.yaml": "skill_key: updating-skill\nversion: \"1\"\ndisplay_name: Updating Skill\n",
+		"SKILL.md":   "# version 2\n",
+	}))
+	skill.ContentHash = "hash-v2"
+
+	if err := ensureSkillExtracted(ctx, store, skill, storeRoot); err != nil {
+		t.Fatalf("re-extraction: %v", err)
+	}
+	content, _ := os.ReadFile(filepath.Join(storeRoot, "updating-skill@1", "SKILL.md"))
+	if string(content) != "# version 2\n" {
+		t.Fatalf("expected re-extracted content, got %q", string(content))
+	}
+}
+
+func TestEnsureSkillExtractedAlwaysExtractsWhenHashEmpty(t *testing.T) {
+	ctx := context.Background()
+	storeRoot := t.TempDir()
+
+	store := newMapStore()
+	bundleKey := skillstore.DerivedBundleKey("no-hash-skill", "1")
+	store.Put(ctx, bundleKey, buildDesktopSkillBundle(t, map[string]string{
+		"skill.yaml": "skill_key: no-hash-skill\nversion: \"1\"\ndisplay_name: No Hash Skill\n",
+		"SKILL.md":   "# no hash\n",
+	}))
+
+	skill := skillstore.ResolvedSkill{
+		SkillKey:    "no-hash-skill",
+		Version:     "1",
+		BundleRef:   bundleKey,
+		ContentHash: "", // 空 hash
+	}
+
+	if err := ensureSkillExtracted(ctx, store, skill, storeRoot); err != nil {
+		t.Fatalf("first extraction: %v", err)
+	}
+
+	// 更新 bundle，因为 hash 为空应总是重新解包
+	store.Put(ctx, bundleKey, buildDesktopSkillBundle(t, map[string]string{
+		"skill.yaml": "skill_key: no-hash-skill\nversion: \"1\"\ndisplay_name: No Hash Skill\n",
+		"SKILL.md":   "# updated no hash\n",
+	}))
+
+	if err := ensureSkillExtracted(ctx, store, skill, storeRoot); err != nil {
+		t.Fatalf("second extraction: %v", err)
+	}
+	content, _ := os.ReadFile(filepath.Join(storeRoot, "no-hash-skill@1", "SKILL.md"))
+	if string(content) != "# updated no hash\n" {
+		t.Fatalf("expected re-extracted when hash empty, got %q", string(content))
+	}
+}
+
+func TestEnsureSkillExtractedExtractsWhenHashFileMissing(t *testing.T) {
+	ctx := context.Background()
+	storeRoot := t.TempDir()
+
+	store := newMapStore()
+	bundleKey := skillstore.DerivedBundleKey("fresh-skill", "1")
+	store.Put(ctx, bundleKey, buildDesktopSkillBundle(t, map[string]string{
+		"skill.yaml": "skill_key: fresh-skill\nversion: \"1\"\ndisplay_name: Fresh Skill\n",
+		"SKILL.md":   "# fresh\n",
+	}))
+
+	skill := skillstore.ResolvedSkill{
+		SkillKey:    "fresh-skill",
+		Version:     "1",
+		BundleRef:   bundleKey,
+		ContentHash: "some-hash",
+	}
+
+	// 目标目录不存在 .content_hash 文件，应正常解包
+	if err := ensureSkillExtracted(ctx, store, skill, storeRoot); err != nil {
+		t.Fatalf("extraction: %v", err)
+	}
+	content, _ := os.ReadFile(filepath.Join(storeRoot, "fresh-skill@1", "SKILL.md"))
+	if string(content) != "# fresh\n" {
+		t.Fatalf("expected extracted content, got %q", string(content))
+	}
+	hashContent, _ := os.ReadFile(filepath.Join(storeRoot, "fresh-skill@1", ".content_hash"))
+	if string(hashContent) != "some-hash" {
+		t.Fatalf("expected hash file written, got %q", string(hashContent))
 	}
 }
 

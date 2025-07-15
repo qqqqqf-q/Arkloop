@@ -4,6 +4,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -33,17 +34,29 @@ func desktopSkillLayoutResolver(useVM bool) pipeline.SkillLayoutResolver {
 	}
 }
 
+func desktopSkillStoreRoot() (string, error) {
+	dataDir, err := desktop.ResolveDataDir("")
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dataDir, "skills"), nil
+}
+
 func desktopSkillLayout(useVM bool, runID uuid.UUID) (skillstore.PathLayout, error) {
 	if useVM {
 		return skillstore.DefaultPathLayout(), nil
 	}
-	root, err := desktopSkillRuntimeRoot(runID)
+	storeRoot, err := desktopSkillStoreRoot()
+	if err != nil {
+		return skillstore.PathLayout{}, err
+	}
+	indexRoot, err := desktopSkillRuntimeRoot(runID)
 	if err != nil {
 		return skillstore.PathLayout{}, err
 	}
 	return skillstore.PathLayout{
-		MountRoot: filepath.Join(root, "files"),
-		IndexPath: filepath.Join(root, "enabled-skills.json"),
+		MountRoot: storeRoot,
+		IndexPath: filepath.Join(indexRoot, "enabled-skills.json"),
 	}, nil
 }
 
@@ -52,6 +65,34 @@ func desktopSkillPreparer(useVM bool) pipeline.SkillPreparer {
 		return nil
 	}
 	return prepareDesktopHostSkills
+}
+
+func desktopExternalSkillDirs(db data.DesktopDB) pipeline.ExternalSkillDirsResolver {
+	return func(ctx context.Context) []string {
+		var dirs []string
+		if envDirs := strings.TrimSpace(os.Getenv("ARKLOOP_EXTERNAL_SKILL_DIRS")); envDirs != "" {
+			dirs = append(dirs, strings.Split(envDirs, string(os.PathListSeparator))...)
+		}
+		dirs = append(dirs, loadExternalSkillDirsFromDB(ctx, db)...)
+		dirs = append(dirs, skillstore.WellKnownSkillDirs()...)
+		return dirs
+	}
+}
+
+func loadExternalSkillDirsFromDB(ctx context.Context, db data.DesktopDB) []string {
+	if db == nil {
+		return nil
+	}
+	var value string
+	err := db.QueryRow(ctx, `SELECT value FROM platform_settings WHERE key = $1`, "skills.external_dirs").Scan(&value)
+	if err != nil {
+		return nil
+	}
+	var dirs []string
+	if err := json.Unmarshal([]byte(value), &dirs); err != nil {
+		return nil
+	}
+	return dirs
 }
 
 func desktopSkillRuntimeRoot(runID uuid.UUID) (string, error) {
@@ -76,37 +117,58 @@ func cleanupDesktopSkillRuntime(runID uuid.UUID) error {
 	return nil
 }
 
+func ensureSkillExtracted(ctx context.Context, store objectstore.Store, skill skillstore.ResolvedSkill, storeRoot string) error {
+	targetRoot := filepath.Join(storeRoot, strings.TrimSpace(skill.SkillKey)+"@"+strings.TrimSpace(skill.Version))
+	hashFile := filepath.Join(targetRoot, ".content_hash")
+
+	if skill.ContentHash != "" {
+		if existing, err := os.ReadFile(hashFile); err == nil {
+			if strings.TrimSpace(string(existing)) == skill.ContentHash {
+				return nil
+			}
+		}
+	}
+
+	bundleRef := strings.TrimSpace(skill.BundleRef)
+	if bundleRef == "" {
+		return fmt.Errorf("skill %s@%s bundle_ref is empty", skill.SkillKey, skill.Version)
+	}
+	encoded, err := store.Get(ctx, bundleRef)
+	if err != nil {
+		return fmt.Errorf("load skill bundle %s@%s: %w", skill.SkillKey, skill.Version, err)
+	}
+	bundle, err := skillstore.DecodeBundle(encoded)
+	if err != nil {
+		return fmt.Errorf("decode skill bundle %s@%s: %w", skill.SkillKey, skill.Version, err)
+	}
+	if err := writeDesktopSkillBundle(targetRoot, bundle); err != nil {
+		return err
+	}
+
+	if skill.ContentHash != "" {
+		_ = atomicWriteDesktopFile(hashFile, []byte(skill.ContentHash), 0o644)
+	}
+	return nil
+}
+
 func prepareDesktopHostSkills(ctx context.Context, skills []skillstore.ResolvedSkill, layout skillstore.PathLayout) error {
 	store, err := openDesktopSkillStore(ctx)
 	if err != nil {
 		return err
 	}
 	layout = skillstore.NormalizePathLayout(layout)
-	runtimeRoot := filepath.Dir(layout.IndexPath)
-	if err := os.RemoveAll(runtimeRoot); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("reset desktop skill runtime: %w", err)
+
+	storeRoot := layout.MountRoot
+	if err := os.MkdirAll(storeRoot, 0o755); err != nil {
+		return fmt.Errorf("create desktop skill store: %w", err)
 	}
-	if err := os.MkdirAll(layout.MountRoot, 0o755); err != nil {
-		return fmt.Errorf("create desktop skills dir: %w", err)
-	}
+
 	for _, item := range skills {
-		bundleRef := strings.TrimSpace(item.BundleRef)
-		if bundleRef == "" {
-			return fmt.Errorf("skill %s@%s bundle_ref is empty", item.SkillKey, item.Version)
-		}
-		encoded, err := store.Get(ctx, bundleRef)
-		if err != nil {
-			return fmt.Errorf("load skill bundle %s@%s: %w", item.SkillKey, item.Version, err)
-		}
-		bundle, err := skillstore.DecodeBundle(encoded)
-		if err != nil {
-			return fmt.Errorf("decode skill bundle %s@%s: %w", item.SkillKey, item.Version, err)
-		}
-		targetRoot := layout.MountPath(item.SkillKey, item.Version)
-		if err := writeDesktopSkillBundle(targetRoot, bundle); err != nil {
+		if err := ensureSkillExtracted(ctx, store, item, storeRoot); err != nil {
 			return err
 		}
 	}
+
 	indexJSON, err := skillstore.BuildIndex(skills)
 	if err != nil {
 		return fmt.Errorf("build desktop skill index: %w", err)

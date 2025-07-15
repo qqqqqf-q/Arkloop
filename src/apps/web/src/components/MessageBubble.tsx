@@ -1,11 +1,11 @@
 import type { MessageResponse } from '../api'
 import type { WebSource, ArtifactRef, BrowserActionRef, WidgetRef } from '../storage'
-import { useTypewriter } from '../hooks/useTypewriter'
 import { MarkdownRenderer } from './MarkdownRenderer'
 import { BrowserScreenshotCard } from './BrowserScreenshotCard'
 import { UserMessage } from './messagebubble/UserMessage'
 import { AssistantMessage } from './messagebubble/AssistantMessage'
 import type { ArtifactAction } from './ArtifactIframe'
+import { useTypewriter } from '../hooks/useTypewriter'
 
 type Props = {
   message: MessageResponse

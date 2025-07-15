@@ -4,11 +4,13 @@ import {
   ChevronLeft,
   ChevronRight,
   Download,
+  FolderOpen,
   Github,
   Loader2,
   MessageSquare,
   MoreHorizontal,
   PackagePlus,
+  Plus,
   RefreshCw,
   Search,
   ShieldCheck,
@@ -25,6 +27,9 @@ import {
   type SkillPackageResponse,
   type SkillReference,
   deleteSkill,
+  discoverExternalSkills,
+  type ExternalSkillDir,
+  getExternalDirs,
   importRegistrySkill,
   importSkillFromGitHub,
   importSkillFromUpload,
@@ -36,6 +41,7 @@ import {
   type PlatformSkillItem,
   replaceDefaultSkills,
   searchMarketSkills,
+  setExternalDirs,
   setPlatformSkillOverride,
 } from '../api'
 import { useLocale } from '../contexts/LocaleContext'
@@ -45,7 +51,7 @@ type Props = {
   onTrySkill?: (prompt: string) => void
 }
 
-type ViewMode = 'installed' | 'builtin' | 'marketplace'
+type ViewMode = 'installed' | 'builtin' | 'marketplace' | 'external'
 
 type ViewSkill = {
   id: string
@@ -558,6 +564,20 @@ export function SkillsSettingsContent({ accessToken, onTrySkill }: Props) {
           {skillText.builtinTab}
         </button>
 
+        <button
+          type="button"
+          onClick={() => setViewMode((v) => v === 'external' ? 'installed' : 'external')}
+          className="flex h-9 items-center gap-1.5 rounded-lg px-3 text-sm font-medium transition-colors"
+          style={{
+            border: '0.5px solid var(--c-border-subtle)',
+            background: viewMode === 'external' ? 'var(--c-btn-bg)' : 'var(--c-bg-page)',
+            color: viewMode === 'external' ? 'var(--c-btn-text)' : 'var(--c-text-heading)',
+          }}
+        >
+          <FolderOpen size={14} />
+          {skillText.externalTab}
+        </button>
+
         <div className="relative" ref={addMenuRef}>
           <button
             type="button"
@@ -738,8 +758,13 @@ export function SkillsSettingsContent({ accessToken, onTrySkill }: Props) {
         </div>
       )}
 
+      {/* 外部技能视图 */}
+      {viewMode === 'external' && (
+        <ExternalSkillsView accessToken={accessToken} skillText={skillText} />
+      )}
+
       {/* 技能列表 */}
-      {viewMode !== 'builtin' && (
+      {viewMode !== 'builtin' && viewMode !== 'external' && (
       <div className="flex flex-col gap-2">
         <span className="text-xs font-medium text-[var(--c-text-tertiary)]">
           {skillText.searchResults(items.length)}
@@ -1238,6 +1263,171 @@ export function SkillsSettingsContent({ accessToken, onTrySkill }: Props) {
           </div>
         )
       })()}
+    </div>
+  )
+}
+
+function ExternalSkillsView({ accessToken, skillText }: { accessToken: string; skillText: Props extends never ? never : ReturnType<typeof useLocale>['t']['skills'] }) {
+  const [dirs, setDirs] = useState<ExternalSkillDir[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({})
+  const [newDir, setNewDir] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const refresh = useCallback(async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const res = await discoverExternalSkills(accessToken)
+      setDirs(res.dirs ?? [])
+    } catch {
+      setError(skillText.externalLoadFailed)
+    } finally {
+      setLoading(false)
+    }
+  }, [accessToken, skillText.externalLoadFailed])
+
+  useEffect(() => { void refresh() }, [refresh])
+
+  const handleAddDir = async () => {
+    const trimmed = newDir.trim()
+    if (!trimmed) return
+    setSaving(true)
+    setError('')
+    try {
+      const current = await getExternalDirs(accessToken)
+      if (!current.includes(trimmed)) {
+        await setExternalDirs(accessToken, [...current, trimmed])
+      }
+      setNewDir('')
+      await refresh()
+    } catch {
+      setError(skillText.externalSaveFailed)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleRemoveDir = async (path: string) => {
+    setSaving(true)
+    setError('')
+    try {
+      const current = await getExternalDirs(accessToken)
+      await setExternalDirs(accessToken, current.filter((d) => d !== path))
+      await refresh()
+    } catch {
+      setError(skillText.externalRemoveFailed)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const toggle = (path: string) => {
+    setExpanded((prev) => ({ ...prev, [path]: !prev[path] }))
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      <span className="text-xs font-medium text-[var(--c-text-tertiary)]">
+        {skillText.externalTitle}
+      </span>
+
+      {error && (
+        <p className="text-xs" style={{ color: 'var(--c-status-error-text)' }}>{error}</p>
+      )}
+
+      {loading ? (
+        <div className="flex h-40 items-center justify-center">
+          <Loader2 size={16} className="animate-spin text-[var(--c-text-tertiary)]" />
+        </div>
+      ) : dirs.length === 0 ? (
+        <div
+          className="flex flex-col items-center justify-center gap-1 rounded-xl py-12 text-center"
+          style={{ border: '0.5px solid var(--c-border-subtle)' }}
+        >
+          <span className="text-sm font-medium text-[var(--c-text-heading)]">{skillText.externalEmpty}</span>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {dirs.map((dir) => {
+            const open = expanded[dir.path] !== false
+            return (
+              <div
+                key={dir.path}
+                className="rounded-xl transition-colors duration-100"
+                style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-menu)' }}
+              >
+                <div
+                  className="flex items-center gap-2 p-3 cursor-pointer select-none"
+                  onClick={() => toggle(dir.path)}
+                >
+                  {open ? <ChevronDown size={14} className="shrink-0 text-[var(--c-text-tertiary)]" /> : <ChevronRight size={14} className="shrink-0 text-[var(--c-text-tertiary)]" />}
+                  <FolderOpen size={14} className="shrink-0 text-[var(--c-text-tertiary)]" />
+                  <span className="min-w-0 flex-1 truncate text-sm font-medium text-[var(--c-text-heading)]">
+                    {dir.path}
+                  </span>
+                  <span className="shrink-0 rounded px-1.5 py-px text-[10px] font-medium leading-tight text-[var(--c-text-secondary)]" style={{ background: 'var(--c-bg-deep)' }}>
+                    {dir.skills.length}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={(e) => { e.stopPropagation(); void handleRemoveDir(dir.path) }}
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-[var(--c-error-bg)]"
+                    style={{ color: 'var(--c-status-error-text)' }}
+                  >
+                    {saving ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                  </button>
+                </div>
+                {open && (
+                  <div className="flex flex-col gap-1 px-3 pb-3">
+                    {dir.skills.length === 0 ? (
+                      <span className="pl-7 text-xs text-[var(--c-text-muted)]">{skillText.externalNoSkills}</span>
+                    ) : (
+                      dir.skills.map((skill) => (
+                        <div
+                          key={skill.path}
+                          className="flex items-center gap-2 rounded-lg px-2 py-1.5 pl-7"
+                          style={{ background: 'var(--c-bg-page)' }}
+                        >
+                          <span className="min-w-0 flex-1 truncate text-sm text-[var(--c-text-heading)]">
+                            {skill.name}
+                          </span>
+                          <span className="shrink-0 truncate text-[10px] text-[var(--c-text-muted)]">
+                            {skill.instruction_path.split('/').pop()}
+                          </span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      <div className="flex items-center gap-2">
+        <input
+          value={newDir}
+          onChange={(e) => setNewDir(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') void handleAddDir() }}
+          placeholder={skillText.externalAddPlaceholder}
+          className="h-9 min-w-0 flex-1 rounded-lg pl-3 pr-3 text-sm text-[var(--c-text-heading)] outline-none placeholder:text-[var(--c-text-tertiary)]"
+          style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-page)' }}
+        />
+        <button
+          type="button"
+          disabled={saving || !newDir.trim()}
+          onClick={() => void handleAddDir()}
+          className="flex h-9 shrink-0 items-center gap-1.5 rounded-lg px-3 text-sm font-medium transition-colors disabled:opacity-40"
+          style={{ background: 'var(--c-btn-bg)', color: 'var(--c-btn-text)' }}
+        >
+          {saving ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
+          {skillText.externalAddDir}
+        </button>
+      </div>
     </div>
   )
 }

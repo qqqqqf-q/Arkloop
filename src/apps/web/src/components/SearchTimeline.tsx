@@ -338,6 +338,7 @@ export function SearchTimeline({ steps, sources, narratives, isComplete, codeExe
     if (wf.seq != null) allUnified.push({ kind: 'fetch', id: wf.id, seq: wf.seq, item: wf })
   }
   const totalUnifiableItems = visibleSteps.length + textEntries.length + codeExecCount + subAgentCount + fileOpCount + webFetchCount
+  const hasContent = totalUnifiableItems > 0 || sources.length > 0
   const useUnified = allUnified.length === totalUnifiableItems && totalUnifiableItems > 0
   if (useUnified) {
     const priority: Record<UEntry['kind'], number> = {
@@ -370,7 +371,7 @@ export function SearchTimeline({ steps, sources, narratives, isComplete, codeExe
     <div style={{ maxWidth: '663px' }}>
       <button
         type="button"
-        onClick={() => setCollapsed((p) => !p)}
+        onClick={() => { if (!hasContent && isComplete) return; setCollapsed((p) => !p) }}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
         style={{
@@ -380,7 +381,7 @@ export function SearchTimeline({ steps, sources, narratives, isComplete, codeExe
           padding: '6px 0',
           background: 'none',
           border: 'none',
-          cursor: 'pointer',
+          cursor: (!hasContent && isComplete) ? 'default' : 'pointer',
           color: hovered
             ? 'var(--c-text-primary)'
             : isComplete && collapsed
@@ -397,7 +398,7 @@ export function SearchTimeline({ steps, sources, narratives, isComplete, codeExe
             {sources.length} sources
           </span>
         )}
-        {isComplete && (
+        {isComplete && hasContent && (
           <motion.div
             animate={{ rotate: collapsed ? 0 : 90 }}
             transition={{ duration: 0.2, ease: 'easeOut' }}
