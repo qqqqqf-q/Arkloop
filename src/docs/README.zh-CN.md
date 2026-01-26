@@ -30,10 +30,10 @@ Windows：先启动 Docker Desktop（Linux Engine）再执行下述命令。
 连通性检查（不依赖本机安装 psql）：
 - `docker compose exec -T postgres psql -U arkloop -d arkloop -c "select 1;"`
 
-应用侧 `DATABASE_URL`：
-- 把 `.env` 里的 `DATABASE_URL` 配到你运行 API 的环境变量里（IDE Run Config 或终端）
-  - Windows（PowerShell）：`$env:DATABASE_URL="postgresql://..."; python -m uvicorn services.api.main:configure_app --factory --app-dir src`
-  - Linux/macOS：`DATABASE_URL="postgresql://..." python -m uvicorn services.api.main:configure_app --factory --app-dir src`
+应用侧 `ARKLOOP_DATABASE_URL`（优先）：
+- 把 `.env` 里的 `ARKLOOP_DATABASE_URL`（或兼容的 `DATABASE_URL`）配到你运行 API 的环境变量里（IDE Run Config 或终端）
+  - Windows（PowerShell）：`$env:ARKLOOP_DATABASE_URL="postgresql+asyncpg://..."; python -m uvicorn services.api.main:configure_app --factory --app-dir src`
+  - Linux/macOS：`ARKLOOP_DATABASE_URL="postgresql+asyncpg://..." python -m uvicorn services.api.main:configure_app --factory --app-dir src`
 
 ## 1. 项目概述
 

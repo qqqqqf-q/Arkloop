@@ -19,6 +19,9 @@ force-sort-within-sections = true
 [tool.pytest.ini_options]
 testpaths = ["src/tests"]
 pythonpath = ["src"]
+markers = [
+  "integration: 需要外部依赖的集成测试",
+]
 
 [tool.mypy]
 # Pxx：引入 mypy 后补齐

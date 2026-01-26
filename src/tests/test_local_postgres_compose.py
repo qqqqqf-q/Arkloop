@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import re
 from pathlib import Path
+import re
 
 
 def _repo_root() -> Path:
@@ -26,7 +26,7 @@ def test_env_example_and_gitignore_for_dotenv() -> None:
     root = _repo_root()
 
     env_example = (root / ".env.example").read_text(encoding="utf-8")
-    for key in ("POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB", "DATABASE_URL"):
+    for key in ("POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB", "DATABASE_URL", "ARKLOOP_DATABASE_URL"):
         assert re.search(rf"(?m)^{re.escape(key)}=", env_example)
 
     gitignore = (root / ".gitignore").read_text(encoding="utf-8")
