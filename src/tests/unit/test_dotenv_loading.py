@@ -53,4 +53,3 @@ def test_dotenv_is_not_loaded_when_disabled(monkeypatch, tmp_path: Path) -> None
 
     config = DatabaseConfig.from_env(allow_fallback=False)
     assert config is None
-

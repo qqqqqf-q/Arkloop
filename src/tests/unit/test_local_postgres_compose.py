@@ -5,7 +5,11 @@ import re
 
 
 def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[2]
+    current = Path(__file__).resolve()
+    for parent in current.parents:
+        if (parent / "pyproject.toml").exists():
+            return parent
+    raise AssertionError("未找到仓库根目录（pyproject.toml）")
 
 
 def test_compose_yaml_defines_postgres_without_hardcoded_password() -> None:

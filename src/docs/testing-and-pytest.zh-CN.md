@@ -22,6 +22,18 @@ Arkloop 的核心风险不在 UI，而在“工具执行 + 权限预算 + 审计
 
 后续落地时建议至少分三层（命名与目录可调整）：
 
+### 3.0 目录与命令约定
+
+目录结构（当前约定）：
+- `src/tests/unit/`：单元测试（默认执行）
+- `src/tests/integration/`：集成测试（默认不执行）
+- `src/tests/functional/`：功能级测试（默认不执行）
+
+常用命令：
+- `python -m pytest`：只跑 unit（默认已排除 integration/functional）
+- `python -m pytest -m integration`：跑 integration（通常需要先 `docker compose up -d`，并配置 `ARKLOOP_DATABASE_URL`；本地可用 `.env` 配合受控 dotenv 加载）
+- `python -m pytest -m functional`：跑 functional（依赖按用例说明）
+
 ### 3.1 单元测试（unit）
 - 纯逻辑：schema 校验、路由策略、prompt 拼装、技能清单解析、错误分类
 - 不触网、不起子进程、不依赖真实数据库

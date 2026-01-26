@@ -22,4 +22,3 @@ def test_select_1_succeeds_against_configured_database() -> None:
             await database.dispose()
 
     anyio.run(_run)
-
