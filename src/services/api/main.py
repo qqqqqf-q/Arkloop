@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Dict
 
 from fastapi import APIRouter, FastAPI
@@ -21,6 +23,14 @@ async def healthz() -> Dict[str, str]:
     return {"status": "ok"}
 
 
+@asynccontextmanager
+async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
+    yield
+    database = getattr(app.state, "database", None)
+    if isinstance(database, Database):
+        await database.dispose()
+
+
 def configure_logging() -> None:
     configure_json_logging(component="api")
 
@@ -33,13 +43,9 @@ def configure_database(app: FastAPI) -> None:
     database = Database.from_config(config)
     install_database(app, database)
 
-    @app.on_event("shutdown")
-    async def _shutdown_database() -> None:
-        await database.dispose()
-
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Arkloop API")
+    app = FastAPI(title="Arkloop API", lifespan=_lifespan)
     install_unhandled_exception_middleware(app)
     install_error_handlers(app)
     install_trace_id_middleware(app)
