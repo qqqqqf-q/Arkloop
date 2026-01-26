@@ -4,7 +4,7 @@ from typing import Dict
 
 from fastapi import APIRouter, FastAPI
 
-from packages.observability.logging import install_trace_log_record_factory
+from packages.observability.logging import configure_json_logging
 
 from .error_envelope import install_error_handlers, install_unhandled_exception_middleware
 from .trace import install_trace_id_middleware
@@ -18,11 +18,11 @@ async def healthz() -> Dict[str, str]:
 
 
 def create_app() -> FastAPI:
+    configure_json_logging(component="api")
     app = FastAPI(title="Arkloop API")
     install_unhandled_exception_middleware(app)
     install_error_handlers(app)
     install_trace_id_middleware(app)
-    install_trace_log_record_factory(component="api")
     app.include_router(_health_router)
     return app
 

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import contextvars
 from dataclasses import dataclass
+import logging
+import time
 from typing import Awaitable, Callable, Optional
 
 from fastapi import FastAPI, Request
@@ -51,12 +53,14 @@ def install_trace_id_middleware(
     config: Optional[TraceIdMiddlewareConfig] = None,
 ) -> None:
     cfg = config or TraceIdMiddlewareConfig()
+    logger = logging.getLogger("arkloop.http")
 
     @app.middleware("http")
     async def _trace_id_middleware(
         request: Request,
         call_next: Callable[[Request], Awaitable[Response]],
     ) -> Response:
+        start = time.perf_counter()
         trace_id = _choose_trace_id(request, config=cfg)
         token = set_trace_id(trace_id)
         request.state.trace_id = trace_id
@@ -67,4 +71,14 @@ def install_trace_id_middleware(
             raise
         _attach_trace_reset(response, token=token)
         response.headers[TRACE_ID_HEADER] = trace_id
+        duration_ms = int((time.perf_counter() - start) * 1000)
+        logger.info(
+            "http request",
+            extra={
+                "method": request.method,
+                "path": request.url.path,
+                "status_code": response.status_code,
+                "duration_ms": duration_ms,
+            },
+        )
         return response
