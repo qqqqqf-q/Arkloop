@@ -3,6 +3,16 @@
 本目录（`src/docs`）用于存放工程文档与使用说明。
 商业/法律相关文档请放在仓库根目录的 `docs/`。
 
+## 0. 本地启动（API）
+
+由于工程代码全部位于 `src/` 下，从仓库根目录启动时需要把 `src` 加到模块搜索路径：
+
+- 推荐（跨平台）：`python -m uvicorn services.api.main:app --app-dir src --host 127.0.0.1 --port 8000`
+- Windows 备选（PowerShell）：`$env:PYTHONPATH="src"; python -m uvicorn services.api.main:app --host 127.0.0.1 --port 8000`
+- Linux/macOS 备选（bash/zsh）：`PYTHONPATH=src python -m uvicorn services.api.main:app --host 127.0.0.1 --port 8000`
+
+说明：当前结构化 JSON 只覆盖 Arkloop 应用日志；uvicorn 自身的启动/访问日志仍由 uvicorn 默认配置控制。
+
 ## 1. 项目概述
 
 Arkloop 是一个面向企业场景的「Agent Loop」系统，包含：
