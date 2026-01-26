@@ -72,6 +72,7 @@
 * Node.js 项目优先使用 pnpm
 * 提交标题限制为 70 个字符以内，并使用小写
 * 保持此文件简洁，避免冗余
+* `requirements*.txt` 需要显式补齐关键运行依赖（例如 FastAPI 的 `starlette`、Pydantic 的 `pydantic-core`/`annotated-types`/`typing-inspection`、pytest 的 `pluggy`/`pygments`），避免在 `--no-deps` 或受限镜像环境中出现缺包
 
 ### 一般规范
 
