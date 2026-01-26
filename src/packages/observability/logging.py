@@ -57,12 +57,12 @@ def default_redaction_rules() -> list[RedactionRule]:
             action="drop",
         ),
         RedactionRule(
-            name="mask_common_secrets",
-            match_key=_match_suffix(("_key", "_token", "_secret", "_password")),
-            action="mask",
+            name="drop_common_key_fields",
+            match_key=_match_suffix(("_key",)),
+            action="drop",
         ),
         RedactionRule(
-            name="mask_common_secret_keys",
+            name="drop_common_key_names",
             match_key=_match_exact(
                 {
                     "key",
@@ -71,12 +71,18 @@ def default_redaction_rules() -> list[RedactionRule]:
                     "access_key",
                     "secret_key",
                     "private_key",
-                    "token",
-                    "password",
-                    "passwd",
-                    "secret",
                 }
             ),
+            action="drop",
+        ),
+        RedactionRule(
+            name="mask_common_secret_fields",
+            match_key=_match_suffix(("_token", "_secret", "_password")),
+            action="mask",
+        ),
+        RedactionRule(
+            name="mask_common_secret_names",
+            match_key=_match_exact({"token", "password", "passwd", "secret"}),
             action="mask",
         ),
     ]

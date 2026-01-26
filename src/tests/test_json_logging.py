@@ -13,9 +13,10 @@ def test_json_logging_redacts_authorization_by_default(capsys) -> None:
 
     logger = logging.getLogger("tests.json_logging")
     secret = "Bearer should-not-appear"
+    api_key = "sk-should-not-appear"
 
     with trace_id_context("0" * 32):
-        logger.info("脱敏测试", extra={"Authorization": secret, "foo": "bar"})
+        logger.info("脱敏测试", extra={"Authorization": secret, "api_key": api_key, "foo": "bar"})
 
     output = capsys.readouterr().out.strip().splitlines()
     assert output
@@ -29,5 +30,6 @@ def test_json_logging_redacts_authorization_by_default(capsys) -> None:
     assert payload["trace_id"] == "0" * 32
     assert payload["foo"] == "bar"
     assert "Authorization" not in payload
+    assert "api_key" not in payload
     assert secret not in output[-1]
-
+    assert api_key not in output[-1]
