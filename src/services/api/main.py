@@ -14,6 +14,7 @@ from packages.observability.logging import configure_json_logging
 from .db import install_database
 from .error_envelope import install_error_handlers, install_unhandled_exception_middleware
 from .trace import install_trace_id_middleware
+from .v1 import configure_auth, v1_router
 
 _health_router = APIRouter()
 
@@ -50,6 +51,7 @@ def create_app() -> FastAPI:
     install_error_handlers(app)
     install_trace_id_middleware(app)
     app.include_router(_health_router)
+    app.include_router(v1_router)
     return app
 
 
@@ -57,4 +59,5 @@ def configure_app() -> FastAPI:
     configure_logging()
     app = create_app()
     configure_database(app)
+    configure_auth(app)
     return app
