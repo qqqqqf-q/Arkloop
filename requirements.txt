@@ -16,3 +16,6 @@ h11>=0.8
 sqlalchemy>=2.0,<3.0
 greenlet>=3.0.0
 asyncpg>=0.29,<1
+alembic>=1.13,<2.0
+mako>=1.2
+markupsafe>=2.0
