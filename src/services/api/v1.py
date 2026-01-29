@@ -26,6 +26,7 @@ from packages.data.identity import (
     User,
     UserRepository,
 )
+from packages.data.runs import RunEventRepository, SqlAlchemyRunEventRepository
 from packages.data.threads import (
     MessageRepository,
     SqlAlchemyMessageRepository,
@@ -111,6 +112,9 @@ async def _get_thread_repo(session: AsyncSession = Depends(get_db_session)) -> T
 
 async def _get_message_repo(session: AsyncSession = Depends(get_db_session)) -> MessageRepository:
     return SqlAlchemyMessageRepository(session)
+
+async def _get_run_event_repo(session: AsyncSession = Depends(get_db_session)) -> RunEventRepository:
+    return SqlAlchemyRunEventRepository(session)
 
 
 async def _get_authorizer() -> Authorizer:
@@ -201,6 +205,11 @@ class MessageResponse(BaseModel):
     role: str
     content: str
     created_at: datetime
+
+
+class CreateRunResponse(BaseModel):
+    run_id: uuid.UUID
+    trace_id: str
 
 
 async def _get_thread_or_404(*, thread_id: uuid.UUID, thread_repo: ThreadRepository):
@@ -321,6 +330,36 @@ async def list_messages(
         )
         for item in messages
     ]
+
+
+@_v1_router.post("/threads/{thread_id}/runs", response_model=CreateRunResponse, status_code=201)
+async def create_run(
+    thread_id: uuid.UUID,
+    request: Request,
+    actor: Actor = Depends(_get_current_actor),
+    authorizer: Authorizer = Depends(_get_authorizer),
+    thread_repo: ThreadRepository = Depends(_get_thread_repo),
+    run_event_repo: RunEventRepository = Depends(_get_run_event_repo),
+) -> CreateRunResponse:
+    thread = await _get_thread_or_404(thread_id=thread_id, thread_repo=thread_repo)
+    await authorizer.authorize(
+        "runs.create",
+        actor=actor,
+        resource_org_id=thread.org_id,
+        resource_owner_user_id=thread.created_by_user_id,
+    )
+
+    trace_id = getattr(request.state, "trace_id", None)
+    if not isinstance(trace_id, str) or not trace_id:
+        trace_id = uuid.uuid4().hex
+        request.state.trace_id = trace_id
+
+    run, _started = await run_event_repo.create_run_with_started_event(
+        org_id=thread.org_id,
+        thread_id=thread.id,
+        created_by_user_id=actor.user_id,
+    )
+    return CreateRunResponse(run_id=run.id, trace_id=trace_id)
 
 
 __all__ = ["configure_auth", "install_auth", "v1_router"]
