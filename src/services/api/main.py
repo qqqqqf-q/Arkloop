@@ -13,6 +13,7 @@ from packages.observability.logging import configure_json_logging
 
 from .db import install_database
 from .error_envelope import install_error_handlers, install_unhandled_exception_middleware
+from .run_executor import configure_run_executor
 from .sse import configure_sse
 from .trace import install_trace_id_middleware
 from .v1 import configure_auth, v1_router
@@ -27,7 +28,12 @@ async def healthz() -> Dict[str, str]:
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
+    run_executor = getattr(app.state, "run_executor", None)
+    if run_executor is not None:
+        await run_executor.start()
     yield
+    if run_executor is not None:
+        await run_executor.stop()
     database = getattr(app.state, "database", None)
     if isinstance(database, Database):
         await database.dispose()
@@ -60,6 +66,7 @@ def configure_app() -> FastAPI:
     configure_logging()
     app = create_app()
     configure_database(app)
+    configure_run_executor(app)
     configure_auth(app)
     configure_sse(app)
     return app

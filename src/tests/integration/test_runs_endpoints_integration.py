@@ -114,16 +114,27 @@ async def _list_events(sqlalchemy_url: str, run_id: uuid.UUID) -> list[tuple[int
         await database.dispose()
 
 
-async def _append_events(sqlalchemy_url: str, run_id: uuid.UUID) -> None:
+async def _wait_for_stub_events(
+    sqlalchemy_url: str,
+    run_id: uuid.UUID,
+    *,
+    min_deltas: int = 2,
+    timeout_seconds: float = 5.0,
+) -> list[tuple[int, str]]:
     database = Database.from_config(DatabaseConfig(url=sqlalchemy_url))
     try:
-        async with database.sessionmaker() as session:
-            repo = SqlAlchemyRunEventRepository(session)
-            await repo.append_event(
-                run_id=run_id, type="message.delta", data_json={"content_delta": "hi"}
-            )
-            await repo.append_event(run_id=run_id, type="run.completed", data_json={})
-            await session.commit()
+        deadline = time.monotonic() + timeout_seconds
+        while True:
+            async with database.sessionmaker() as session:
+                repo = SqlAlchemyRunEventRepository(session)
+                events = await repo.list_events(run_id=run_id, after_seq=0)
+            pairs = [(event.seq, event.type) for event in events]
+            delta_count = sum(1 for _seq, typ in pairs if typ == "message.delta")
+            if pairs and pairs[-1][1] == "run.completed" and delta_count >= min_deltas:
+                return pairs
+            if time.monotonic() > deadline:
+                raise AssertionError("等待 stub agent 事件超时")
+            await anyio.sleep(0.02)
     finally:
         await database.dispose()
 
@@ -209,7 +220,7 @@ def test_create_run_persists_run_started_event(monkeypatch) -> None:
 
                 run_id = uuid.UUID(payload["run_id"])
                 events = anyio.run(_list_events, test_sqlalchemy_url, run_id)
-                assert events == [(1, "run.started")]
+                assert events[0] == (1, "run.started")
     finally:
         anyio.run(_drop_database, admin_dsn, database)
 
@@ -235,6 +246,8 @@ def test_run_events_sse_streams_and_resumes(monkeypatch) -> None:
             m.setenv("ARKLOOP_AUTH_JWT_SECRET", "test-secret-should-be-long-enough-32chars")
             m.setenv("ARKLOOP_SSE_POLL_SECONDS", "0.01")
             m.setenv("ARKLOOP_SSE_HEARTBEAT_SECONDS", "0.05")
+            m.setenv("ARKLOOP_STUB_AGENT_DELTA_COUNT", "3")
+            m.setenv("ARKLOOP_STUB_AGENT_DELTA_INTERVAL_SECONDS", "0.01")
             command.upgrade(alembic_cfg, "head")
 
             login = "alice"
@@ -256,7 +269,7 @@ def test_run_events_sse_streams_and_resumes(monkeypatch) -> None:
                 assert run_resp.status_code == 201
                 run_id = uuid.UUID(run_resp.json()["run_id"])
 
-                anyio.run(_append_events, test_sqlalchemy_url, run_id)
+                expected = anyio.run(_wait_for_stub_events, test_sqlalchemy_url, run_id)
 
                 unauth = client.get(f"/v1/runs/{run_id}/events?after_seq=0&follow=0")
                 assert unauth.status_code == 401
@@ -270,14 +283,9 @@ def test_run_events_sse_streams_and_resumes(monkeypatch) -> None:
                     assert resp.headers["content-type"].startswith("text/event-stream")
                     assert TRACE_ID_HEADER in resp.headers
                     assert resp.headers[TRACE_ID_HEADER]
-                    events = _collect_sse_json_events(resp, expected=3)
+                    events = _collect_sse_json_events(resp, expected=len(expected))
 
-                assert [event["seq"] for event in events] == [1, 2, 3]
-                assert [event["type"] for event in events] == [
-                    "run.started",
-                    "message.delta",
-                    "run.completed",
-                ]
+                assert [(event["seq"], event["type"]) for event in events] == expected
                 for event in events:
                     assert event["run_id"] == str(run_id)
                     assert event["event_id"]
@@ -290,9 +298,8 @@ def test_run_events_sse_streams_and_resumes(monkeypatch) -> None:
                     headers=headers,
                 ) as resp:
                     assert resp.status_code == 200
-                    resumed = _collect_sse_json_events(resp, expected=2)
+                    resumed = _collect_sse_json_events(resp, expected=len(expected) - 1)
 
-                assert [event["seq"] for event in resumed] == [2, 3]
-                assert [event["type"] for event in resumed] == ["message.delta", "run.completed"]
+                assert [(event["seq"], event["type"]) for event in resumed] == expected[1:]
     finally:
         anyio.run(_drop_database, admin_dsn, database)

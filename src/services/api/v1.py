@@ -42,6 +42,7 @@ from packages.data.threads import (
 from .authorization import Actor, Authorizer
 from .db import get_db_session
 from .error_envelope import ApiError
+from .run_executor import RunExecutor, get_run_executor
 from .sse import SseConfig, get_sse_config, sse_comment, sse_event
 
 _v1_router = APIRouter(prefix="/v1")
@@ -356,6 +357,7 @@ async def create_run(
     authorizer: Authorizer = Depends(_get_authorizer),
     thread_repo: ThreadRepository = Depends(_get_thread_repo),
     run_event_repo: RunEventRepository = Depends(_get_run_event_repo),
+    run_executor: RunExecutor = Depends(get_run_executor),
 ) -> CreateRunResponse:
     thread = await _get_thread_or_404(thread_id=thread_id, thread_repo=thread_repo)
     await authorizer.authorize(
@@ -375,6 +377,7 @@ async def create_run(
         thread_id=thread.id,
         created_by_user_id=actor.user_id,
     )
+    run_executor.enqueue(run_id=run.id)
     return CreateRunResponse(run_id=run.id, trace_id=trace_id)
 
 
