@@ -144,6 +144,9 @@ class RunEventRepository(ABC):
     ) -> tuple[Run, RunEvent]: ...
 
     @abstractmethod
+    async def get_run(self, *, run_id: uuid.UUID) -> Run | None: ...
+
+    @abstractmethod
     async def append_event(
         self,
         *,
@@ -204,6 +207,22 @@ class SqlAlchemyRunEventRepository(RunEventRepository):
                 data_json={} if started_data is None else started_data,
             )
             return run, event
+
+    async def get_run(self, *, run_id: uuid.UUID) -> Run | None:
+        stmt = (
+            sa.select(
+                _runs.c.id,
+                _runs.c.org_id,
+                _runs.c.thread_id,
+                _runs.c.created_by_user_id,
+                _runs.c.status,
+                _runs.c.created_at,
+            )
+            .where(_runs.c.id == run_id)
+            .limit(1)
+        )
+        row = (await self._session.execute(stmt)).mappings().one_or_none()
+        return None if row is None else Run(**row)
 
     async def append_event(
         self,

@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
+import json
+import time
 import uuid
 
 from fastapi import APIRouter, Depends, FastAPI, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.responses import StreamingResponse
 
 from packages.auth import (
     AuthConfig,
@@ -38,6 +42,7 @@ from packages.data.threads import (
 from .authorization import Actor, Authorizer
 from .db import get_db_session
 from .error_envelope import ApiError
+from .sse import SseConfig, get_sse_config, sse_comment, sse_event
 
 _v1_router = APIRouter(prefix="/v1")
 
@@ -98,11 +103,15 @@ async def _get_user_repo(session: AsyncSession = Depends(get_db_session)) -> Use
     return SqlAlchemyUserRepository(session)
 
 
-async def _get_credential_repo(session: AsyncSession = Depends(get_db_session)) -> UserCredentialRepository:
+async def _get_credential_repo(
+    session: AsyncSession = Depends(get_db_session),
+) -> UserCredentialRepository:
     return SqlAlchemyUserCredentialRepository(session)
 
 
-async def _get_org_membership_repo(session: AsyncSession = Depends(get_db_session)) -> OrgMembershipRepository:
+async def _get_org_membership_repo(
+    session: AsyncSession = Depends(get_db_session),
+) -> OrgMembershipRepository:
     return SqlAlchemyOrgMembershipRepository(session)
 
 
@@ -113,7 +122,10 @@ async def _get_thread_repo(session: AsyncSession = Depends(get_db_session)) -> T
 async def _get_message_repo(session: AsyncSession = Depends(get_db_session)) -> MessageRepository:
     return SqlAlchemyMessageRepository(session)
 
-async def _get_run_event_repo(session: AsyncSession = Depends(get_db_session)) -> RunEventRepository:
+
+async def _get_run_event_repo(
+    session: AsyncSession = Depends(get_db_session),
+) -> RunEventRepository:
     return SqlAlchemyRunEventRepository(session)
 
 
@@ -220,7 +232,9 @@ async def _get_thread_or_404(*, thread_id: uuid.UUID, thread_repo: ThreadReposit
 
 
 @_v1_router.post("/auth/login", response_model=LoginResponse)
-async def login(body: LoginRequest, auth_service: AuthService = Depends(_get_auth_service)) -> LoginResponse:
+async def login(
+    body: LoginRequest, auth_service: AuthService = Depends(_get_auth_service)
+) -> LoginResponse:
     try:
         token = await auth_service.issue_access_token(login=body.login, password=body.password)
     except InvalidCredentialsError as exc:
@@ -317,7 +331,9 @@ async def list_messages(
         resource_owner_user_id=thread.created_by_user_id,
     )
 
-    messages = await message_repo.list_by_thread(org_id=actor.org_id, thread_id=thread_id, limit=limit)
+    messages = await message_repo.list_by_thread(
+        org_id=actor.org_id, thread_id=thread_id, limit=limit
+    )
     return [
         MessageResponse(
             id=item.id,
@@ -360,6 +376,95 @@ async def create_run(
         created_by_user_id=actor.user_id,
     )
     return CreateRunResponse(run_id=run.id, trace_id=trace_id)
+
+
+def _to_rfc3339_millis_z(value: datetime) -> str:
+    aware = value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+    utc = aware.astimezone(timezone.utc)
+    return utc.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+@_v1_router.get("/runs/{run_id}/events")
+async def stream_run_events(
+    run_id: uuid.UUID,
+    request: Request,
+    after_seq: int = Query(0, ge=0),
+    follow: bool = Query(True),
+    actor: Actor = Depends(_get_current_actor),
+    authorizer: Authorizer = Depends(_get_authorizer),
+    run_event_repo: RunEventRepository = Depends(_get_run_event_repo),
+    sse_config: SseConfig = Depends(get_sse_config),
+) -> StreamingResponse:
+    run = await run_event_repo.get_run(run_id=run_id)
+    if run is None:
+        raise ApiError(code="runs.not_found", message="Run 不存在", status_code=404)
+
+    await authorizer.authorize(
+        "runs.events",
+        actor=actor,
+        resource_org_id=run.org_id,
+        resource_owner_user_id=run.created_by_user_id,
+    )
+
+    async def _stream():
+        cursor = after_seq
+        last_send = time.monotonic()
+
+        try:
+            if follow:
+                yield sse_comment("ping")
+                last_send = time.monotonic()
+            while True:
+                if await request.is_disconnected():
+                    return
+
+                events = await run_event_repo.list_events(
+                    run_id=run_id,
+                    after_seq=cursor,
+                    limit=sse_config.batch_limit,
+                )
+                if events:
+                    for item in events:
+                        cursor = item.seq
+                        payload = {
+                            "event_id": str(item.event_id),
+                            "run_id": str(item.run_id),
+                            "seq": item.seq,
+                            "ts": _to_rfc3339_millis_z(item.ts),
+                            "type": item.type,
+                            "data": item.data_json,
+                        }
+                        yield sse_event(
+                            event=item.type,
+                            event_id=str(item.seq),
+                            data=json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+                        )
+                        last_send = time.monotonic()
+                    continue
+
+                if not follow:
+                    return
+
+                now = time.monotonic()
+                if (
+                    sse_config.heartbeat_seconds > 0
+                    and (now - last_send) >= sse_config.heartbeat_seconds
+                ):
+                    yield sse_comment("ping")
+                    last_send = now
+
+                await asyncio.sleep(sse_config.poll_seconds)
+        except asyncio.CancelledError:
+            return
+
+    return StreamingResponse(
+        _stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 __all__ = ["configure_auth", "install_auth", "v1_router"]
