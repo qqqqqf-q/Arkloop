@@ -76,6 +76,22 @@ class AuditLogWriter:
                     _logger.exception("回滚登录审计失败", extra={"user_id": str(user_id)})
                 _logger.exception("写入登录成功审计失败", extra={"user_id": str(user_id)})
 
+    async def write_user_registered(self, *, trace_id: str, user_id: uuid.UUID, login: str) -> None:
+        if self.database is None:
+            return
+        login_hash = _sha256_hex(login)
+        await self._write(
+            org_id=None,
+            actor_user_id=user_id,
+            action="auth.register",
+            target_type="user",
+            target_id=str(user_id),
+            trace_id=trace_id,
+            metadata_json={
+                "login_hash": login_hash,
+            },
+        )
+
     async def write_access_denied(
         self,
         *,

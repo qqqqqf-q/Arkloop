@@ -25,7 +25,9 @@ from packages.auth import (
 from packages.data.credentials import SqlAlchemyUserCredentialRepository, UserCredentialRepository
 from packages.data.identity import (
     OrgMembershipRepository,
+    OrgRepository,
     SqlAlchemyOrgMembershipRepository,
+    SqlAlchemyOrgRepository,
     SqlAlchemyUserRepository,
     User,
     UserRepository,
@@ -162,6 +164,10 @@ async def _get_org_membership_repo(
     return SqlAlchemyOrgMembershipRepository(session)
 
 
+async def _get_org_repo(session: AsyncSession = Depends(get_db_session)) -> OrgRepository:
+    return SqlAlchemyOrgRepository(session)
+
+
 async def _get_thread_repo(session: AsyncSession = Depends(get_db_session)) -> ThreadRepository:
     return SqlAlchemyThreadRepository(session)
 
@@ -234,6 +240,18 @@ class LoginResponse(BaseModel):
     token_type: str = "bearer"
 
 
+class RegisterRequest(BaseModel):
+    login: str = Field(min_length=1, max_length=256, description="登录名（唯一）")
+    password: str = Field(min_length=8, max_length=1024, description="密码（至少8位）")
+    display_name: str = Field(min_length=1, max_length=256, description="显示名称")
+
+
+class RegisterResponse(BaseModel):
+    user_id: uuid.UUID
+    access_token: str
+    token_type: str = "bearer"
+
+
 class MeResponse(BaseModel):
     id: uuid.UUID
     display_name: str
@@ -297,6 +315,58 @@ async def login(
         ) from exc
     await audit.write_login_succeeded(trace_id=trace_id, user_id=issued.user_id, login=body.login)
     return LoginResponse(access_token=issued.token, token_type="bearer")
+
+
+@_v1_router.post("/auth/register", response_model=RegisterResponse, status_code=201)
+async def register(
+    request: Request,
+    body: RegisterRequest,
+    session: AsyncSession = Depends(get_db_session),
+    installed: _InstalledAuth = Depends(_get_installed_auth_from_request),
+    user_repo: UserRepository = Depends(_get_user_repo),
+    credential_repo: UserCredentialRepository = Depends(_get_credential_repo),
+    org_repo: OrgRepository = Depends(_get_org_repo),
+    org_membership_repo: OrgMembershipRepository = Depends(_get_org_membership_repo),
+    audit: AuditLogWriter = Depends(get_audit_log_writer),
+) -> RegisterResponse:
+    trace_id = _request_trace_id(request)
+
+    # 检查 login 是否已存在
+    existing = await credential_repo.get_by_login(body.login)
+    if existing is not None:
+        raise ApiError(
+            code="auth.login_exists",
+            message="该登录名已被使用",
+            status_code=409,
+        )
+
+    # 创建用户
+    user = await user_repo.create(display_name=body.display_name)
+
+    # 创建凭证
+    password_hash = installed.password_hasher.hash_password(body.password)
+    await credential_repo.create(
+        user_id=user.id,
+        login=body.login,
+        password_hash=password_hash,
+    )
+
+    # 创建个人组织
+    org_slug = f"user-{user.id.hex[:8]}"
+    org = await org_repo.create(slug=org_slug, name=f"{body.display_name} 的空间")
+
+    # 创建组织成员关系
+    await org_membership_repo.create(org_id=org.id, user_id=user.id, role="owner")
+
+    # 提交事务
+    await session.commit()
+
+    # 签发 token
+    token = installed.token_service.issue(user_id=user.id)
+
+    await audit.write_user_registered(trace_id=trace_id, user_id=user.id, login=body.login)
+
+    return RegisterResponse(user_id=user.id, access_token=token, token_type="bearer")
 
 
 @_v1_router.get("/me", response_model=MeResponse)

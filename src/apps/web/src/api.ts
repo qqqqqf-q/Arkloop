@@ -10,6 +10,18 @@ export type LoginResponse = {
   access_token: string
 }
 
+export type RegisterRequest = {
+  login: string
+  password: string
+  display_name: string
+}
+
+export type RegisterResponse = {
+  user_id: string
+  token_type: string
+  access_token: string
+}
+
 export type MeResponse = {
   id: string
   display_name: string
@@ -125,6 +137,13 @@ export async function login(req: LoginRequest): Promise<LoginResponse> {
   })
 }
 
+export async function register(req: RegisterRequest): Promise<RegisterResponse> {
+  return await apiFetch<RegisterResponse>('/v1/auth/register', {
+    method: 'POST',
+    body: JSON.stringify(req),
+  })
+}
+
 export async function getMe(accessToken: string): Promise<MeResponse> {
   return await apiFetch<MeResponse>('/v1/me', {
     method: 'GET',
@@ -132,3 +151,86 @@ export async function getMe(accessToken: string): Promise<MeResponse> {
   })
 }
 
+// Threads API
+
+export type CreateThreadRequest = {
+  title?: string
+}
+
+export type ThreadResponse = {
+  id: string
+  org_id: string
+  created_by_user_id: string
+  title: string | null
+  created_at: string
+}
+
+export async function createThread(
+  accessToken: string,
+  req?: CreateThreadRequest,
+): Promise<ThreadResponse> {
+  return await apiFetch<ThreadResponse>('/v1/threads', {
+    method: 'POST',
+    accessToken,
+    body: JSON.stringify(req ?? {}),
+  })
+}
+
+// Messages API
+
+export type CreateMessageRequest = {
+  content: string
+}
+
+export type MessageResponse = {
+  id: string
+  org_id: string
+  thread_id: string
+  created_by_user_id: string
+  role: string
+  content: string
+  created_at: string
+}
+
+export async function createMessage(
+  accessToken: string,
+  threadId: string,
+  req: CreateMessageRequest,
+): Promise<MessageResponse> {
+  return await apiFetch<MessageResponse>(`/v1/threads/${threadId}/messages`, {
+    method: 'POST',
+    accessToken,
+    body: JSON.stringify(req),
+  })
+}
+
+export async function listMessages(
+  accessToken: string,
+  threadId: string,
+  limit = 200,
+): Promise<MessageResponse[]> {
+  return await apiFetch<MessageResponse[]>(
+    `/v1/threads/${threadId}/messages?limit=${limit}`,
+    {
+      method: 'GET',
+      accessToken,
+    },
+  )
+}
+
+// Runs API
+
+export type CreateRunResponse = {
+  run_id: string
+  trace_id: string
+}
+
+export async function createRun(
+  accessToken: string,
+  threadId: string,
+): Promise<CreateRunResponse> {
+  return await apiFetch<CreateRunResponse>(`/v1/threads/${threadId}/runs`, {
+    method: 'POST',
+    accessToken,
+  })
+}
