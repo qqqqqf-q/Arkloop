@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import json
 import uuid
 
 import anyio
@@ -157,7 +158,7 @@ def _assert_policy_error_has_trace_id(response) -> None:
     assert payload["code"].startswith("policy.")
 
 
-def test_threads_messages_create_list_and_policy_denied(monkeypatch) -> None:
+def test_threads_messages_create_list_and_policy_denied(monkeypatch, capsys) -> None:
     monkeypatch.setenv("ARKLOOP_AUTH_JWT_SECRET", "test-secret-should-be-long-enough-32chars")
 
     app = configure_app()
@@ -256,11 +257,25 @@ def test_threads_messages_create_list_and_policy_denied(monkeypatch) -> None:
     list_payload = list_messages_response.json()
     assert [item["id"] for item in list_payload] == [message_payload["id"]]
 
+    capsys.readouterr()
     denied_list_response = client.get(
         f"/v1/threads/{thread_id}/messages",
         headers={"Authorization": f"Bearer {bob_token}"},
     )
     _assert_policy_error_has_trace_id(denied_list_response)
+    denied_trace_id = denied_list_response.headers[TRACE_ID_HEADER]
+
+    audit_lines = capsys.readouterr().out.strip().splitlines()
+    audit_payloads = [json.loads(line) for line in audit_lines if line.strip().startswith("{")]
+    denied_audits = [
+        item
+        for item in audit_payloads
+        if item.get("logger") == "arkloop.audit"
+        and item.get("trace_id") == denied_trace_id
+        and item.get("action") == "messages.list"
+        and item.get("deny_reason")
+    ]
+    assert denied_audits
 
     denied_create_response = client.post(
         f"/v1/threads/{thread_id}/messages",

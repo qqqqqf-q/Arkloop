@@ -40,7 +40,7 @@ from packages.data.threads import (
 )
 
 from .audit import AuditLogWriter, get_audit_log_writer
-from .authorization import Actor, Authorizer
+from .authorization import Actor, Authorizer, Resource
 from .db import get_db_session
 from .error_envelope import ApiError
 from .run_executor import RunExecutor, get_run_executor
@@ -116,27 +116,21 @@ async def _authorize_or_audit(
     authorizer: Authorizer,
     audit: AuditLogWriter,
     actor: Actor,
-    resource_org_id: uuid.UUID,
-    resource_owner_user_id: uuid.UUID | None,
+    resource: Resource,
     target_type: str,
     target_id: str,
 ) -> None:
     try:
-        await authorizer.authorize(
-            action,
-            actor=actor,
-            resource_org_id=resource_org_id,
-            resource_owner_user_id=resource_owner_user_id,
-        )
+        await authorizer.authorize(action, actor=actor, resource=resource)
     except ApiError as exc:
         if exc.status_code != 403 or exc.code != "policy.denied":
             raise
 
         trace_id = _request_trace_id(request)
         deny_reason = "owner_mismatch"
-        if actor.org_id != resource_org_id:
+        if actor.org_id != resource.org_id:
             deny_reason = "org_mismatch"
-        elif resource_owner_user_id is None:
+        elif resource.owner_user_id is None:
             deny_reason = "no_owner"
 
         await audit.write_access_denied(
@@ -145,8 +139,8 @@ async def _authorize_or_audit(
             action=action,
             target_type=target_type,
             target_id=target_id,
-            resource_org_id=resource_org_id,
-            resource_owner_user_id=resource_owner_user_id,
+            resource_org_id=resource.org_id,
+            resource_owner_user_id=resource.owner_user_id,
             deny_reason=deny_reason,
         )
         raise
@@ -352,8 +346,7 @@ async def create_message(
         authorizer=authorizer,
         audit=audit,
         actor=actor,
-        resource_org_id=thread.org_id,
-        resource_owner_user_id=thread.created_by_user_id,
+        resource=Resource(org_id=thread.org_id, owner_user_id=thread.created_by_user_id),
         target_type="thread",
         target_id=str(thread.id),
     )
@@ -398,8 +391,7 @@ async def list_messages(
         authorizer=authorizer,
         audit=audit,
         actor=actor,
-        resource_org_id=thread.org_id,
-        resource_owner_user_id=thread.created_by_user_id,
+        resource=Resource(org_id=thread.org_id, owner_user_id=thread.created_by_user_id),
         target_type="thread",
         target_id=str(thread.id),
     )
@@ -439,8 +431,7 @@ async def create_run(
         authorizer=authorizer,
         audit=audit,
         actor=actor,
-        resource_org_id=thread.org_id,
-        resource_owner_user_id=thread.created_by_user_id,
+        resource=Resource(org_id=thread.org_id, owner_user_id=thread.created_by_user_id),
         target_type="thread",
         target_id=str(thread.id),
     )
@@ -487,8 +478,7 @@ async def stream_run_events(
         authorizer=authorizer,
         audit=audit,
         actor=actor,
-        resource_org_id=run.org_id,
-        resource_owner_user_id=run.created_by_user_id,
+        resource=Resource(org_id=run.org_id, owner_user_id=run.created_by_user_id),
         target_type="run",
         target_id=str(run.id),
     )
