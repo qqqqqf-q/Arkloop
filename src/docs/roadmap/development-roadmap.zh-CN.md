@@ -30,11 +30,20 @@
 
 ### 1.4 Provider / Key / BYOK（你已明确的选择）
 - Provider 路由按“路由规则”决定：模型/场景/预算/风险等共同参与，BYOK 只是 credential 来源之一，不是硬编码优先级。
+- 创建「Provider 凭证（API）」时必须选择 `provider_kind=openai|anthropic`（行业通用做法）；下游始终调用同一个 Gateway 接口，上游由凭证与路由自动适配。
 - Key 来源必须同时支持：
   - 环境变量注入（适合平台全局 key 或自部署）
   - 数据库加密存储（适合 SaaS、BYOK、轮换）
+- 为了兼容第三方与多端点：
+  - `base_url` 必须可配置（OpenAI-compatible 第三方通常只需改 base_url）。
+  - OpenAI 侧需要同时兼容 `chat_completions` 与 `responses`，并由凭证（或路由）选择 `openai_api_mode=auto|responses|chat_completions`。
+- 第三方的“少数特殊参数”（例如额外 header/query/timeout）允许通过「高级 JSON 配置」提供，但必须：
+  - 只允许白名单键（例如 `extra_headers`、`extra_query`、`timeout_ms`）
+  - 严禁在 JSON 中写入任何 secret（secret 只能走 env/db/vault）
+  - 有大小/字段数上限，并把变更写入审计（至少存 hash + actor + trace_id）
 - BYOK 需要有，但必须由后台开启 org 权限（org 未开启时不允许录入 BYOK 凭证，也不允许路由到 BYOK）。
 - 平台管理员查看明文：默认允许，但必须可被关闭（全局策略 + org 覆盖均可做）；无论是否允许，都要求强审计可追溯。
+- Azure OpenAI 等“协议相近但不完全一致”的接入不作为 v1 目标；后期可以新增一个 provider（而不是强行塞进 OpenAI-compatible）。
 - Vault：作为长期路线；前期不实现 Vault 兼容层代码，但在数据模型与服务边界上保留“迁移点”（见后续 P9x）。
 
 ## 2. 任务拆分规则（Pxx 粒度）
@@ -57,7 +66,7 @@
 - 主线 B：让企业能“真正管理”（Console + 权限 + 审计 + Key 管控）
 
 推荐执行顺序（不强制，但能减少互相阻塞）：
-- 主线 A：P30 → P31 → P32 → P34 → P35（P33 视配置需求插入）
+- 主线 A：P30 → P31 → P32 → P33 → P34 → P35 → P36
 - 主线 B：P40 → P41 → P42 → P60 → P43 → P62 → P44 → P45 → P46
 
 ### 3.1 已完成（仓库现状对应的 Pxx）
@@ -99,9 +108,10 @@
 #### P30 — LLM Gateway 内部契约（不触网）
 - 目标：定义“提供商无关”的内部请求/响应/错误/成本模型，作为 API 与 Provider 的稳定边界。
 - 关键点：
-  - 明确 streaming 的最小事件集合：至少能映射到 `message.delta`、`run.failed`、`run.completed`。
+  - 明确 streaming 的最小事件集合：至少能映射到 `message.delta`、`run.failed`、`run.completed`，并为后续 tool-calling 预留事件类型（不要求 v1 执行工具）。
   - 错误分类要稳定：`provider.*`（可重试/不可重试）、`budget.*`、`policy.*`、`internal.*`。
   - 成本与用量字段先占位（后续计费/配额都要用）。
+  - 内部契约要能覆盖两类上游差异：OpenAI（chat completions / responses）与 Anthropic（messages/streaming）。
 - 依赖：无
 - 验收：
   - unit pytest：给定 stub stream，能生成稳定的 `message.delta` 事件序列与最终状态事件。
@@ -115,41 +125,55 @@
 - 验收：
   - integration pytest：原有 stub 场景仍能稳定产出 delta 与 completed。
 
-#### P32 — 接入首个真实 Provider（先做“能流式回答”）
-- 目标：接入 1 个真实 provider（建议先选 OpenAI-compatible 方向），跑通 streaming 输出并落 `message.delta`。
+#### P32 — OpenAI Adapter v1（兼容 chat completions + responses）
+- 目标：实现 OpenAI provider 的 streaming 适配器，统一输出内部事件（再映射到 `message.delta/run.*`），并支持 OpenAI-compatible 第三方 `base_url`。
 - 关键点：
+  - 同时支持两条上游路径：`chat_completions` 与 `responses`（由 `openai_api_mode` 决定，可选 `auto|responses|chat_completions`）。
+  - 兼容第三方：`base_url` 必须可配置；`auto` 模式下如 `responses` 不可用可回退到 `chat_completions`（回退行为要可观测、可审计）。
   - Key 永不下发前端；日志与事件不写明文 key。
   - 超时/重试要保守（先保证“不会挂死 run”，再谈吞吐）。
   - 失败必须落 `run.failed`，并带稳定错误码与 `trace_id`。
 - 依赖：P30、P31
 - 验收：
   - integration pytest：默认仍走 stub（不连公网）；另提供可选的“手工验收步骤”用于本地连真 provider（不进 CI）。
+  - 手工：验证 `openai_api_mode=responses` 与 `openai_api_mode=chat_completions` 两种模式均可流式输出。
 
-#### P33 — Provider 路由规则 v1（模型/场景/预算/风险）
-- 目标：实现最小可用的路由规则引擎：同一个 run 根据输入与策略选择模型与 credential。
+#### P33 — Anthropic Adapter v1（messages streaming）
+- 目标：实现 Anthropic provider 的 streaming 适配器，统一输出内部事件（再映射到 `message.delta/run.*`），并支持 `base_url`。
 - 关键点：
-  - 路由规则是配置，不是写死 if/else；但 v1 不追求复杂 UI，先后端可配置/可测试。
+  - 先只做“能流式回答”的最小能力；tool-calling 事件先占位，不强行在 v1 做工具执行。
+  - 允许通过「高级 JSON 配置」传入少数第三方必需参数（header/query/timeout），但必须白名单校验且不得包含 secret。
+  - 失败必须落 `run.failed`，并带稳定错误码与 `trace_id`。
+- 依赖：P30、P31
+- 验收：
+  - integration pytest：默认仍走 stub（不连公网）；另提供可选的“手工验收步骤”用于本地连真 provider（不进 CI）。
+
+#### P34 — Provider 路由规则 v1（openai/anthropic + base_url + openai_api_mode）
+- 目标：实现最小可用的路由规则引擎：同一个 run 根据输入与策略选择 provider、模型与凭证，并把上游差异隐藏在 adapter 后面。
+- 关键点：
+  - 路由规则是配置，不是写死 if/else；v1 先保证“可配置、可测试、可回放”，UI 可以后置。
+  - 凭证维度必须包含：`provider_kind`、`base_url`、（OpenAI 专用）`openai_api_mode`、（可选）高级 JSON 配置。
   - BYOK 不是默认可用：只有 org 开启 BYOK 权限后，路由才允许选择 org 级凭证。
-- 依赖：P43、P44（若只做平台全局 env key，可先不依赖 P44）
+- 依赖：P32、P33（至少一个 provider adapter）、P43（BYOK 开关）、P44（凭证）
 - 验收：
   - unit pytest：给定固定规则与 org 设置，路由选择可预测、可回放。
   - integration pytest：未开启 BYOK 的 org 无法使用 BYOK credential（返回稳定错误码/事件）。
 
-#### P34 — 把流式输出“沉淀成消息”（让 Chat 可用）
+#### P35 — 把流式输出“沉淀成消息”（让 Chat 可用）
 - 目标：assistant 输出不只停留在 `run_events`，还要能沉淀到 `messages`（用于对话历史/刷新恢复）。
 - 关键点：
   - `run_events` 仍是唯一真相；`messages` 是“可用视图”（materialized view），可由事件重建。
   - 需要定义“归并规则”：如何把多条 `message.delta` 聚合成最终 assistant 消息（含失败/取消边界）。
-- 依赖：P32（或至少 P31 的稳定 runner 路径）
+- 依赖：P31（稳定 runner 路径）+ P32/P33（至少一个真实 provider；stub 也必须可用）
 - 验收：
   - integration pytest：完成 run 后，`GET /threads/{id}/messages` 能看到 assistant 消息。
 
-#### P35 — Web Chat MVP（从演示页走向可用页）
+#### P36 — Web Chat MVP（从演示页走向可用页）
 - 目标：Web 侧提供最小可用聊天体验：线程、消息列表、输入框、流式渲染、刷新后恢复。
 - 关键点：
   - SSE 断线重连用 `after_seq`，前端只做消费与展示，不拼接敏感策略。
   - 错误展示要能定位：至少显示 `code` + `trace_id`。
-- 依赖：P34
+- 依赖：P35
 - 验收：
   - 手工：正常对话、断线重连、刷新恢复。
   - unit/组件测试：关键 hook（SSE parser、重连策略）有基础覆盖。
@@ -198,6 +222,12 @@
   - ENV：只保存 env var 名称/引用，不保存明文
   - DB：保存加密后的密文（明文仅在创建/轮换时出现）
 - 关键点：
+  - 创建凭证必须选择 `provider_kind=openai|anthropic`，并配置 `base_url`（官方可用默认值，第三方直接填其网关地址）。
+  - OpenAI 凭证必须配置 `openai_api_mode=auto|responses|chat_completions`（第三方常用 `chat_completions`；官方可用 `auto`）。
+  - 支持“高级 JSON 配置”（默认隐藏）：
+    - 仅允许白名单键（例如 `extra_headers`、`extra_query`、`timeout_ms`）
+    - 禁止写入任何 secret（secret 只能走 env/db/vault）
+    - 有大小/字段数上限，并写入审计（至少存 hash + actor + trace_id）
   - org 级 BYOK 凭证仅在 org 开启 BYOK 后可创建。
   - “显示明文 key”默认不提供；需要也只能走受控流程（并强审计）。
 - 依赖：P62、P43
@@ -210,7 +240,7 @@
   - 路由规则（哪些场景用哪些模型/凭证来源）
 - 关键点：
   - 先后端可配置，UI 可简化；规则必须可测试、可回放。
-- 依赖：P33（路由引擎）或至少 P30（内部契约）
+- 依赖：P34（路由引擎）或至少 P30（内部契约）
 - 验收：
   - unit pytest：规则变更不破坏既有 schema；对同一输入路由结果确定。
 
