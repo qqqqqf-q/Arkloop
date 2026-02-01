@@ -116,7 +116,7 @@
 - 验收：
   - unit pytest：给定 stub stream，能生成稳定的 `message.delta` 事件序列与最终状态事件（见 `src/tests/unit/test_llm_gateway_contract.py`）。
 
-#### P31 — 把 stub executor 收敛到“runner/gateway”路径
+#### P31 — 把 stub executor 收敛到“runner/gateway”路径（已完成）
 - 目标：让“执行器写事件”的逻辑归一：executor 只编排，事件由 runner/gateway 产出并写入 `run_events`。
 - 关键点：
   - 保留现有 stub 能力（测试稳定性不能退化）。
