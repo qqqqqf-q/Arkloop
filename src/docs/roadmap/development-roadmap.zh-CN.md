@@ -105,7 +105,7 @@
 
 ### 3.2 主线 A：Provider + Chat（先让产品“能回答”）
 
-#### P30 — LLM Gateway 内部契约（不触网）
+#### P30 — LLM Gateway 内部契约（不触网）（已完成）
 - 目标：定义“提供商无关”的内部请求/响应/错误/成本模型，作为 API 与 Provider 的稳定边界。
 - 关键点：
   - 明确 streaming 的最小事件集合：至少能映射到 `message.delta`、`run.failed`、`run.completed`，并为后续 tool-calling 预留事件类型（不要求 v1 执行工具）。
@@ -114,7 +114,7 @@
   - 内部契约要能覆盖两类上游差异：OpenAI（chat completions / responses）与 Anthropic（messages/streaming）。
 - 依赖：无
 - 验收：
-  - unit pytest：给定 stub stream，能生成稳定的 `message.delta` 事件序列与最终状态事件。
+  - unit pytest：给定 stub stream，能生成稳定的 `message.delta` 事件序列与最终状态事件（见 `src/tests/unit/test_llm_gateway_contract.py`）。
 
 #### P31 — 把 stub executor 收敛到“runner/gateway”路径
 - 目标：让“执行器写事件”的逻辑归一：executor 只编排，事件由 runner/gateway 产出并写入 `run_events`。
