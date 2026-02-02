@@ -13,6 +13,7 @@ from .contract import (
     LlmGatewayRequest,
     LlmMessage,
     LlmStreamMessageDelta,
+    LlmStreamProviderFallback,
     LlmStreamRunCompleted,
     LlmStreamRunFailed,
     LlmStreamToolCall,
@@ -38,6 +39,7 @@ __all__ = [
     "LlmStreamMessageDelta",
     "LlmStreamRunCompleted",
     "LlmStreamRunFailed",
+    "LlmStreamProviderFallback",
     "LlmStreamToolCall",
     "LlmStreamToolResult",
     "LlmTextPart",
@@ -45,4 +47,3 @@ __all__ = [
     "ToolSpec",
     "run_events_from_llm_stream",
 ]
-

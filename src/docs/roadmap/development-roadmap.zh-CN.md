@@ -135,8 +135,15 @@
   - 失败必须落 `run.failed`，并带稳定错误码与 `trace_id`。
 - 依赖：P30、P31
 - 验收：
+  - unit pytest（离线）：`src/tests/unit/test_openai_llm_gateway.py` 覆盖 chat_completions、responses 与 auto 回退。
   - integration pytest：默认仍走 stub（不连公网）；另提供可选的“手工验收步骤”用于本地连真 provider（不进 CI）。
-  - 手工：验证 `openai_api_mode=responses` 与 `openai_api_mode=chat_completions` 两种模式均可流式输出。
+  - 手工（连真 provider）：
+    - 设置环境变量（建议 `base_url` 带 `/v1`；例如官方 `https://api.openai.com/v1`）：
+      - `ARKLOOP_OPENAI_API_KEY=...`
+      - `ARKLOOP_OPENAI_BASE_URL=https://api.openai.com/v1`（可选）
+      - `ARKLOOP_OPENAI_API_MODE=responses`（或 `chat_completions`）
+    - 本地执行（示例以 PowerShell 为主；Linux/macOS 把 `$env:XXX=...` 换成 `export XXX=...`）：
+      - `.\.venv\Scripts\python -c "exec('import anyio\\nfrom packages.llm_gateway.openai import OpenAiGatewayConfig, OpenAiLlmGateway\\nfrom packages.llm_gateway import LlmGatewayRequest, LlmMessage, LlmTextPart\\ncfg=OpenAiGatewayConfig.from_env(required=True)\\ngw=OpenAiLlmGateway(config=cfg)\\nreq=LlmGatewayRequest(model=\"gpt-4.1-mini\", messages=[LlmMessage(role=\"user\", content=[LlmTextPart(text=\"hello\")])])\\nasync def main():\\n  async for e in gw.stream(request=req):\\n    print(type(e).__name__, getattr(e, \"content_delta\", \"\"), getattr(getattr(e, \"usage\", None), \"total_tokens\", None))\\nanyio.run(main)\\n')"`。
 
 #### P33 — Anthropic Adapter v1（messages streaming）
 - 目标：实现 Anthropic provider 的 streaming 适配器，统一输出内部事件（再映射到 `message.delta/run.*`），并支持 `base_url`。

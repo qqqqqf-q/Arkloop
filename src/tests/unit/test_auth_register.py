@@ -10,7 +10,6 @@ from packages.auth import BcryptPasswordHasher
 from packages.data.credentials import UserCredential
 from packages.data.identity import Org, OrgMembership, User
 from services.api.main import configure_app
-from services.api.trace import TRACE_ID_HEADER
 import services.api.v1 as api_v1
 
 

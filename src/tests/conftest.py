@@ -6,6 +6,7 @@ import re
 
 import pytest
 
+
 def _selects_marker(markexpr: str, marker: str) -> bool:
     return bool(re.search(rf"(?<![A-Za-z0-9_]){re.escape(marker)}(?![A-Za-z0-9_])", markexpr))
 

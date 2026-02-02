@@ -159,6 +159,26 @@ class LlmStreamToolResult:
 
 
 @dataclass(frozen=True, slots=True)
+class LlmStreamProviderFallback:
+    provider_kind: str
+    from_api_mode: str
+    to_api_mode: str
+    reason: str
+    status_code: int | None = None
+
+    def to_data_json(self) -> JsonObject:
+        payload: JsonObject = {
+            "provider_kind": self.provider_kind,
+            "from_api_mode": self.from_api_mode,
+            "to_api_mode": self.to_api_mode,
+            "reason": self.reason,
+        }
+        if self.status_code is not None:
+            payload["status_code"] = int(self.status_code)
+        return payload
+
+
+@dataclass(frozen=True, slots=True)
 class LlmStreamRunCompleted:
     usage: LlmUsage | None = None
     cost: LlmCost | None = None
@@ -191,6 +211,7 @@ LlmGatewayStreamEvent = (
     LlmStreamMessageDelta
     | LlmStreamToolCall
     | LlmStreamToolResult
+    | LlmStreamProviderFallback
     | LlmStreamRunCompleted
     | LlmStreamRunFailed
 )
@@ -232,6 +253,10 @@ async def run_events_from_llm_stream(
             )
             continue
 
+        if isinstance(item, LlmStreamProviderFallback):
+            yield emitter.emit(type="run.provider_fallback", data_json=item.to_data_json())
+            continue
+
         if isinstance(item, LlmStreamRunCompleted):
             yield emitter.emit(type="run.completed", data_json=item.to_data_json())
             return
@@ -270,6 +295,7 @@ __all__ = [
     "LlmStreamMessageDelta",
     "LlmStreamRunCompleted",
     "LlmStreamRunFailed",
+    "LlmStreamProviderFallback",
     "LlmStreamToolCall",
     "LlmStreamToolResult",
     "LlmTextPart",
@@ -277,4 +303,3 @@ __all__ = [
     "ToolSpec",
     "run_events_from_llm_stream",
 ]
-

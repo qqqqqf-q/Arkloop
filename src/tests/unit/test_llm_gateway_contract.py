@@ -12,6 +12,7 @@ from packages.llm_gateway import (
     LlmCost,
     LlmGatewayError,
     LlmStreamMessageDelta,
+    LlmStreamProviderFallback,
     LlmStreamRunCompleted,
     LlmStreamRunFailed,
     LlmUsage,
@@ -125,3 +126,37 @@ def test_llm_gateway_stream_ends_without_final_emits_internal_failed() -> None:
     assert [event.type for event in events] == ["message.delta", "run.failed"]
     assert events[1].error_class == ERROR_CLASS_INTERNAL_STREAM_ENDED
 
+
+def test_llm_gateway_stream_emits_provider_fallback_as_run_event() -> None:
+    emitter = RunEventEmitter(
+        run_id=uuid.UUID(int=9),
+        trace_id="d" * 32,
+        event_id_factory=_FakeEventIdFactory(),
+        clock=_fixed_clock,
+    )
+
+    async def _stub_stream():
+        yield LlmStreamProviderFallback(
+            provider_kind="openai",
+            from_api_mode="responses",
+            to_api_mode="chat_completions",
+            reason="responses_endpoint_not_supported",
+            status_code=404,
+        )
+        yield LlmStreamRunCompleted()
+
+    async def _collect():
+        events = []
+        async for event in run_events_from_llm_stream(emitter=emitter, stream=_stub_stream()):
+            events.append(event)
+        return events
+
+    events = anyio.run(_collect)
+
+    assert [event.seq for event in events] == [1, 2]
+    assert [event.type for event in events] == ["run.provider_fallback", "run.completed"]
+    assert events[0].data_json["provider_kind"] == "openai"
+    assert events[0].data_json["from_api_mode"] == "responses"
+    assert events[0].data_json["to_api_mode"] == "chat_completions"
+    assert events[0].data_json["status_code"] == 404
+    assert events[0].data_json["trace_id"] == "d" * 32
