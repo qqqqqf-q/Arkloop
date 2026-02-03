@@ -180,6 +180,31 @@ async def _aiter_sse_data(lines: AsyncIterator[str]) -> AsyncIterator[str]:
         yield "\n".join(data_lines)
 
 
+async def _iter_with_total_timeout(
+    stream: AsyncIterator[LlmGatewayStreamEvent], *, total_timeout_seconds: float
+) -> AsyncIterator[LlmGatewayStreamEvent]:
+    close = getattr(stream, "aclose", None)
+    iterator = stream.__aiter__()
+    deadline = anyio.current_time() + float(total_timeout_seconds)
+    try:
+        while True:
+            remaining = deadline - anyio.current_time()
+            if remaining <= 0:
+                raise TimeoutError
+            with anyio.fail_after(remaining):
+                try:
+                    item = await iterator.__anext__()
+                except StopAsyncIteration:
+                    return
+            yield item
+    finally:
+        if close is not None:
+            try:
+                await close()
+            except Exception:
+                pass
+
+
 class _ResponsesNotSupportedError(RuntimeError):
     def __init__(self, *, status_code: int, message: str) -> None:
         super().__init__(message)
@@ -317,15 +342,17 @@ class OpenAiLlmGateway(LlmGateway):
             if request.max_output_tokens is not None:
                 payload["max_tokens"] = int(request.max_output_tokens)
 
-        with anyio.fail_after(self._config.total_timeout_seconds):
-            async for item in self._stream_http(
-                httpx=httpx,
-                path=path,
-                payload=payload,
-                headers=headers,
-                api_mode=api_mode,
-            ):
-                yield item
+        stream = self._stream_http(
+            httpx=httpx,
+            path=path,
+            payload=payload,
+            headers=headers,
+            api_mode=api_mode,
+        )
+        async for item in _iter_with_total_timeout(
+            stream, total_timeout_seconds=self._config.total_timeout_seconds
+        ):
+            yield item
 
     async def _stream_http(
         self,

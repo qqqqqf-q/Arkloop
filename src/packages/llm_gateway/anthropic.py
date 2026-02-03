@@ -276,6 +276,31 @@ async def _aiter_sse_events(lines: AsyncIterator[str]) -> AsyncIterator[str]:
         yield "\n".join(data_lines)
 
 
+async def _iter_with_total_timeout(
+    stream: AsyncIterator[LlmGatewayStreamEvent], *, total_timeout_seconds: float
+) -> AsyncIterator[LlmGatewayStreamEvent]:
+    close = getattr(stream, "aclose", None)
+    iterator = stream.__aiter__()
+    deadline = anyio.current_time() + float(total_timeout_seconds)
+    try:
+        while True:
+            remaining = deadline - anyio.current_time()
+            if remaining <= 0:
+                raise TimeoutError
+            with anyio.fail_after(remaining):
+                try:
+                    item = await iterator.__anext__()
+                except StopAsyncIteration:
+                    return
+            yield item
+    finally:
+        if close is not None:
+            try:
+                await close()
+            except Exception:
+                pass
+
+
 @dataclass(frozen=True, slots=True)
 class AnthropicGatewayConfig:
     api_key: str = field(repr=False)
@@ -401,9 +426,9 @@ class AnthropicLlmGateway(LlmGateway):
         if request.temperature is not None:
             payload["temperature"] = float(request.temperature)
 
-        with anyio.fail_after(timeout_seconds):
-            async for item in self._stream_http(httpx=httpx, payload=payload, headers=headers):
-                yield item
+        stream = self._stream_http(httpx=httpx, payload=payload, headers=headers)
+        async for item in _iter_with_total_timeout(stream, total_timeout_seconds=timeout_seconds):
+            yield item
 
     async def _stream_http(
         self,
