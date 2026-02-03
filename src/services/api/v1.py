@@ -501,6 +501,7 @@ async def create_run(
     audit: AuditLogWriter = Depends(get_audit_log_writer),
     thread_repo: ThreadRepository = Depends(_get_thread_repo),
     run_event_repo: RunEventRepository = Depends(_get_run_event_repo),
+    session: AsyncSession = Depends(get_db_session),
     run_executor: RunExecutor = Depends(get_run_executor),
 ) -> CreateRunResponse:
     thread = await _get_thread_or_404(thread_id=thread_id, thread_repo=thread_repo)
@@ -530,6 +531,7 @@ async def create_run(
         created_by_user_id=actor.user_id,
         started_data=started_data,
     )
+    await session.commit()
     run_executor.enqueue(run_id=run.id)
     return CreateRunResponse(run_id=run.id, trace_id=trace_id)
 
