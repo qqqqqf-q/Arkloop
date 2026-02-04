@@ -151,6 +151,7 @@ class RunEventRepository(ABC):
         self,
         *,
         run_id: uuid.UUID,
+        ts: datetime | None = None,
         type: str,
         data_json: Any,
         tool_name: str | None = None,
@@ -228,6 +229,7 @@ class SqlAlchemyRunEventRepository(RunEventRepository):
         self,
         *,
         run_id: uuid.UUID,
+        ts: datetime | None = None,
         type: str,
         data_json: Any,
         tool_name: str | None = None,
@@ -236,6 +238,7 @@ class SqlAlchemyRunEventRepository(RunEventRepository):
         async with self._session.begin_nested():
             return await self._insert_event(
                 run_id=run_id,
+                ts=ts,
                 type=type,
                 data_json=data_json,
                 tool_name=tool_name,
@@ -288,22 +291,26 @@ class SqlAlchemyRunEventRepository(RunEventRepository):
         self,
         *,
         run_id: uuid.UUID,
+        ts: datetime | None = None,
         type: str,
         data_json: Any,
         tool_name: str | None = None,
         error_class: str | None = None,
     ) -> RunEvent:
         seq = await self._allocate_seq(run_id=run_id)
+        values: dict[str, Any] = {
+            "run_id": run_id,
+            "seq": seq,
+            "type": type,
+            "data_json": data_json,
+            "tool_name": tool_name,
+            "error_class": error_class,
+        }
+        if ts is not None:
+            values["ts"] = ts
         stmt = (
             sa.insert(_run_events)
-            .values(
-                run_id=run_id,
-                seq=seq,
-                type=type,
-                data_json=data_json,
-                tool_name=tool_name,
-                error_class=error_class,
-            )
+            .values(values)
             .returning(
                 _run_events.c.event_id,
                 _run_events.c.run_id,

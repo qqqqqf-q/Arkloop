@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import time
 import uuid
 
 from packages.agent_core import AgentRunContext, AgentRunner
 from packages.data import Database
 from packages.data.runs import RunNotFoundError, SqlAlchemyRunEventRepository
 from packages.data.threads import SqlAlchemyMessageRepository
+
+_EVENT_COMMIT_BATCH_SIZE = 20
+_EVENT_COMMIT_MAX_INTERVAL_SECONDS = 0.2
 
 
 class RunEngine:
@@ -35,20 +39,40 @@ class RunEngine:
             context = AgentRunContext(run_id=run_id, trace_id=trace_id, input_json=input_json)
             assistant_deltas: list[str] = []
             completed = False
+            pending_events_since_commit = 0
+            last_commit_at = time.monotonic()
             async for event in self._runner.run(context=context):
                 await repo.append_event(
                     run_id=run_id,
+                    ts=event.ts,
                     type=event.type,
                     data_json=event.data_json,
                     tool_name=event.tool_name,
                     error_class=event.error_class,
                 )
+                pending_events_since_commit += 1
                 if event.type == "message.delta":
                     delta = _extract_assistant_delta(event.data_json)
                     if delta is not None:
                         assistant_deltas.append(delta)
                 elif event.type == "run.completed":
                     completed = True
+                    continue
+
+                if event.type != "message.delta":
+                    await session.commit()
+                    pending_events_since_commit = 0
+                    last_commit_at = time.monotonic()
+                    continue
+
+                now = time.monotonic()
+                if (
+                    pending_events_since_commit >= _EVENT_COMMIT_BATCH_SIZE
+                    or (now - last_commit_at) >= _EVENT_COMMIT_MAX_INTERVAL_SECONDS
+                ):
+                    await session.commit()
+                    pending_events_since_commit = 0
+                    last_commit_at = now
 
             if completed:
                 content = "".join(assistant_deltas)
