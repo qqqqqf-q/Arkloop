@@ -66,7 +66,7 @@
 - 主线 B：让企业能“真正管理”（Console + 权限 + 审计 + Key 管控）
 
 推荐执行顺序（不强制，但能减少互相阻塞）：
-- 主线 A：P30 → P31 → P32 → P33 → P34 → P35 → P36
+- 主线 A：P30 → P31 → P32 → P33 → P34 → P35 → P35.1 → P35.2 → P35.3 → P36
 - 主线 B：P40 → P41 → P42 → P60 → P43 → P62 → P44 → P45 → P46
 
 ### 3.1 已完成（仓库现状对应的 Pxx）
@@ -184,12 +184,45 @@
 - 验收：
   - integration pytest：完成 run 后，`GET /threads/{id}/messages` 能看到 assistant 消息。
 
+#### P35.1 — Threads API 完整化 v1（列表/详情/标题更新）
+- 目标：补齐 Chat 必需的 threads 端点，让 Web/CLI 能稳定管理会话：
+  - `GET /v1/threads`：列出当前用户可见的 threads（最小分页/排序）。
+  - `GET /v1/threads/{thread_id}`：获取 thread 详情（用于刷新恢复与校验）。
+  - `PATCH /v1/threads/{thread_id}`：更新 thread 的 `title`（可选但强烈建议，便于可用产品形态）。
+- 关键点：
+  - 列表排序必须稳定：默认按 `created_at desc, id desc`；分页建议用 cursor（例如 `before_created_at + before_id`），不要用 offset。
+  - 多租户与权限边界要一致：只能访问当前 actor 的 org；早期可沿用 owner-only 策略，后续再扩展到 org 共享。
+  - 错误要可定位：`threads.not_found`、`policy.denied` 等错误码保持稳定，并包含 `trace_id`。
+- 依赖：P21（鉴权）+ 现有 threads/messages 表
+- 验收：
+  - integration pytest：创建多个 thread 后 `GET /v1/threads` 顺序稳定且只返回本 org 可见数据；`PATCH title` 后 `GET /v1/threads/{id}` 能读到更新结果。
+
+#### P35.2 — Token Refresh v1（不引入 refresh token）
+- 目标：提供 `POST /v1/auth/refresh`，在 access token 仍有效时签发新 token，避免长会话中频繁重新登录。
+- 关键点：
+  - Phase 1 不引入 refresh token 与会话表：仅校验现有 bearer token + 用户存在，再签发新 token。
+  - 审计与日志不记录 token 明文；只记录 user_id、trace_id 与操作类型。
+  - 错误语义明确：过期/无效 token 统一 401，并返回稳定错误码与 `trace_id`。
+- 依赖：P21（JWT 鉴权与审计）
+- 验收：
+  - unit pytest：有效 token 可 refresh 并获得新 token；过期/无效 token 返回 401 且 `code + trace_id` 可读。
+
+#### P35.3 — Logout v1（明确 token 失效策略）
+- 目标：提供 `POST /v1/auth/logout`，并定义“登出后 token 何时失效”的稳定策略，保证 Web/CLI 行为一致且可审计。
+- 关键点：
+  - 不能只做前端清 token：需要服务端可验证的失效策略（例如 `users.tokens_invalid_before` 或 `users.token_version`），避免泄露 token 后无法止损。
+  - Logout 必须幂等：重复调用不报错，并且审计可追溯（actor、user_id、trace_id）。
+  - 不做 token 黑名单（存储与查询会膨胀）；优先用“用户级版本/时间戳”实现全局失效。
+- 依赖：P21（JWT 鉴权与审计）
+- 验收：
+  - integration pytest：logout 后旧 token 访问受保护接口被拒绝；重新登录或 refresh 后的新 token 可正常访问。
+
 #### P36 — Web Chat MVP（从演示页走向可用页）
 - 目标：Web 侧提供最小可用聊天体验：线程、消息列表、输入框、流式渲染、刷新后恢复。
 - 关键点：
   - SSE 断线重连用 `after_seq`，前端只做消费与展示，不拼接敏感策略。
   - 错误展示要能定位：至少显示 `code` + `trace_id`。
-- 依赖：P35
+- 依赖：P35、P35.1、P35.2、P35.3
 - 验收：
   - 手工：正常对话、断线重连、刷新恢复。
   - unit/组件测试：关键 hook（SSE parser、重连策略）有基础覆盖。
