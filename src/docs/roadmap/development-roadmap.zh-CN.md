@@ -250,7 +250,7 @@
 - 验收：
   - integration pytest：同 thread 创建多次 run 后顺序稳定；跨 thread/跨 org 不返回数据；错误码与 `trace_id` 可定位。
 
-#### P36 — Web Chat MVP（从演示页走向可用页）
+#### P36 — Web Chat MVP（从演示页走向可用页）(已完成)
 - 目标：Web 侧提供最小可用聊天体验：线程、消息列表、输入框、流式渲染、刷新后恢复。
 - 关键点：
   - SSE 断线重连用 `after_seq`，前端只做消费与展示，不拼接敏感策略。
