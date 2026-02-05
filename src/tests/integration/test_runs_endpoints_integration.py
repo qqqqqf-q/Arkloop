@@ -104,6 +104,35 @@ async def _seed_auth(sqlalchemy_url: str, login: str, password: str) -> None:
         await database.dispose()
 
 
+async def _seed_org_with_users(
+    sqlalchemy_url: str,
+    users: list[tuple[str, str, str]],
+) -> None:
+    database = Database.from_config(DatabaseConfig(url=sqlalchemy_url))
+    try:
+        async with database.sessionmaker() as session:
+            org_repo = SqlAlchemyOrgRepository(session)
+            user_repo = SqlAlchemyUserRepository(session)
+            membership_repo = SqlAlchemyOrgMembershipRepository(session)
+            credential_repo = SqlAlchemyUserCredentialRepository(session)
+
+            slug = f"org_{uuid.uuid4().hex}"
+            org = await org_repo.create(slug=slug, name=f"Org {slug}")
+
+            hasher = BcryptPasswordHasher()
+            for login, password, display_name in users:
+                user = await user_repo.create(display_name=display_name)
+                await credential_repo.create(
+                    user_id=user.id,
+                    login=login,
+                    password_hash=hasher.hash_password(password),
+                )
+                await membership_repo.create(org_id=org.id, user_id=user.id, role="member")
+            await session.commit()
+    finally:
+        await database.dispose()
+
+
 async def _list_events(sqlalchemy_url: str, run_id: uuid.UUID) -> list[tuple[int, str]]:
     database = Database.from_config(DatabaseConfig(url=sqlalchemy_url))
     try:
@@ -244,6 +273,120 @@ def test_create_run_persists_run_started_event(monkeypatch) -> None:
                 run_id = uuid.UUID(payload["run_id"])
                 events = anyio.run(_list_events, test_sqlalchemy_url, run_id)
                 assert events[0] == (1, "run.started")
+    finally:
+        anyio.run(_drop_database, admin_dsn, database)
+
+
+def test_get_run_returns_status_and_enforces_policy(monkeypatch) -> None:
+    config = DatabaseConfig.from_env(allow_fallback=True)
+    if config is None:
+        pytest.skip("未设置 ARKLOOP_DATABASE_URL（或兼容的 DATABASE_URL）")
+
+    repo_root = _repo_root()
+    alembic_cfg = Config(str(repo_root / "alembic.ini"))
+
+    database = f"arkloop_runs_get_{uuid.uuid4().hex}"
+    sqlalchemy_url = config.url
+    admin_dsn = _replace_database(_to_asyncpg_dsn(sqlalchemy_url), "postgres")
+    test_sqlalchemy_url = _replace_database(sqlalchemy_url, database)
+
+    anyio.run(_create_database, admin_dsn, database)
+    try:
+        with monkeypatch.context() as m:
+            m.setenv("DATABASE_URL", test_sqlalchemy_url)
+            m.setenv("ARKLOOP_DATABASE_URL", test_sqlalchemy_url)
+            m.setenv("ARKLOOP_AUTH_JWT_SECRET", "test-secret-should-be-long-enough-32chars")
+            m.setenv("ARKLOOP_STUB_AGENT_DELTA_COUNT", "2")
+            m.setenv("ARKLOOP_STUB_AGENT_DELTA_INTERVAL_SECONDS", "0.01")
+            command.upgrade(alembic_cfg, "head")
+
+            alice_login = "alice"
+            alice_password = "pwdpwdpwd"
+            bob_login = "bob"
+            bob_password = "pwdpwdpwd"
+            anyio.run(
+                _seed_org_with_users,
+                test_sqlalchemy_url,
+                [
+                    (alice_login, alice_password, "Alice"),
+                    (bob_login, bob_password, "Bob"),
+                ],
+            )
+
+            mallory_login = "mallory"
+            mallory_password = "pwdpwdpwd"
+            anyio.run(_seed_auth, test_sqlalchemy_url, mallory_login, mallory_password)
+
+            app = configure_app()
+            with TestClient(app) as client:
+                alice_auth = client.post(
+                    "/v1/auth/login",
+                    json={"login": alice_login, "password": alice_password},
+                )
+                assert alice_auth.status_code == 200
+                alice_token = alice_auth.json()["access_token"]
+                alice_headers = {"Authorization": f"Bearer {alice_token}"}
+
+                bob_auth = client.post(
+                    "/v1/auth/login",
+                    json={"login": bob_login, "password": bob_password},
+                )
+                assert bob_auth.status_code == 200
+                bob_token = bob_auth.json()["access_token"]
+                bob_headers = {"Authorization": f"Bearer {bob_token}"}
+
+                mallory_auth = client.post(
+                    "/v1/auth/login",
+                    json={"login": mallory_login, "password": mallory_password},
+                )
+                assert mallory_auth.status_code == 200
+                mallory_token = mallory_auth.json()["access_token"]
+                mallory_headers = {"Authorization": f"Bearer {mallory_token}"}
+
+                thread_resp = client.post("/v1/threads", json={"title": "t"}, headers=alice_headers)
+                assert thread_resp.status_code == 201
+                thread_id = thread_resp.json()["id"]
+
+                run_resp = client.post(f"/v1/threads/{thread_id}/runs", headers=alice_headers)
+                assert run_resp.status_code == 201
+                run_id = uuid.UUID(run_resp.json()["run_id"])
+
+                anyio.run(_wait_for_stub_events, test_sqlalchemy_url, run_id)
+
+                get_resp = client.get(f"/v1/runs/{run_id}", headers=alice_headers)
+                assert get_resp.status_code == 200
+                assert TRACE_ID_HEADER in get_resp.headers
+                assert get_resp.headers[TRACE_ID_HEADER]
+
+                body = get_resp.json()
+                assert body["trace_id"] == get_resp.headers[TRACE_ID_HEADER]
+                assert body["run_id"] == str(run_id)
+                assert body["thread_id"] == thread_id
+                assert body["status"] == "completed"
+                assert body["created_at"]
+
+                owner_denied = client.get(f"/v1/runs/{run_id}", headers=bob_headers)
+                assert owner_denied.status_code == 403
+                assert TRACE_ID_HEADER in owner_denied.headers
+                owner_payload = owner_denied.json()
+                assert owner_payload["code"] == "policy.denied"
+                assert owner_payload["trace_id"] == owner_denied.headers[TRACE_ID_HEADER]
+                assert owner_payload.get("details", {}).get("action") == "runs.get"
+
+                org_denied = client.get(f"/v1/runs/{run_id}", headers=mallory_headers)
+                assert org_denied.status_code == 403
+                assert TRACE_ID_HEADER in org_denied.headers
+                org_payload = org_denied.json()
+                assert org_payload["code"] == "policy.denied"
+                assert org_payload["trace_id"] == org_denied.headers[TRACE_ID_HEADER]
+
+                not_found_id = uuid.uuid4()
+                missing = client.get(f"/v1/runs/{not_found_id}", headers=alice_headers)
+                assert missing.status_code == 404
+                assert TRACE_ID_HEADER in missing.headers
+                missing_payload = missing.json()
+                assert missing_payload["code"] == "runs.not_found"
+                assert missing_payload["trace_id"] == missing.headers[TRACE_ID_HEADER]
     finally:
         anyio.run(_drop_database, admin_dsn, database)
 

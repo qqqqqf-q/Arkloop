@@ -3,7 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
+from typing import Any, Sequence
 import uuid
 
 import sqlalchemy as sa
@@ -147,6 +147,14 @@ class RunEventRepository(ABC):
     async def get_run(self, *, run_id: uuid.UUID) -> Run | None: ...
 
     @abstractmethod
+    async def get_latest_event_type(
+        self,
+        *,
+        run_id: uuid.UUID,
+        types: Sequence[str] | None = None,
+    ) -> str | None: ...
+
+    @abstractmethod
     async def append_event(
         self,
         *,
@@ -224,6 +232,26 @@ class SqlAlchemyRunEventRepository(RunEventRepository):
         )
         row = (await self._session.execute(stmt)).mappings().one_or_none()
         return None if row is None else Run(**row)
+
+    async def get_latest_event_type(
+        self,
+        *,
+        run_id: uuid.UUID,
+        types: Sequence[str] | None = None,
+    ) -> str | None:
+        if types is not None and not types:
+            return None
+
+        stmt = sa.select(_run_events.c.type).where(_run_events.c.run_id == run_id)
+        if types is not None:
+            stmt = stmt.where(_run_events.c.type.in_(tuple(types)))
+
+        stmt = stmt.order_by(_run_events.c.seq.desc()).limit(1)
+        row = (await self._session.execute(stmt)).one_or_none()
+        if row is None:
+            return None
+        value = row[0]
+        return None if value is None else str(value)
 
     async def append_event(
         self,

@@ -295,6 +295,16 @@ class CreateRunResponse(BaseModel):
     trace_id: str
 
 
+class RunResponse(BaseModel):
+    run_id: uuid.UUID
+    org_id: uuid.UUID
+    thread_id: uuid.UUID
+    created_by_user_id: uuid.UUID | None
+    status: str
+    created_at: datetime
+    trace_id: str
+
+
 class CreateRunRequest(BaseModel):
     route_id: str | None = Field(
         default=None,
@@ -679,6 +689,57 @@ async def create_run(
     await session.commit()
     run_executor.enqueue(run_id=run.id)
     return CreateRunResponse(run_id=run.id, trace_id=trace_id)
+
+
+_RUN_TERMINAL_EVENT_TYPES: tuple[str, ...] = ("run.completed", "run.failed", "run.cancelled")
+
+
+def _derive_run_status(terminal_event_type: str | None) -> str:
+    if terminal_event_type == "run.completed":
+        return "completed"
+    if terminal_event_type == "run.failed":
+        return "failed"
+    if terminal_event_type == "run.cancelled":
+        return "cancelled"
+    return "running"
+
+
+@_v1_router.get("/runs/{run_id}", response_model=RunResponse)
+async def get_run(
+    run_id: uuid.UUID,
+    request: Request,
+    actor: Actor = Depends(_get_current_actor),
+    authorizer: Authorizer = Depends(_get_authorizer),
+    audit: AuditLogWriter = Depends(get_audit_log_writer),
+    run_event_repo: RunEventRepository = Depends(_get_run_event_repo),
+) -> RunResponse:
+    run = await run_event_repo.get_run(run_id=run_id)
+    if run is None:
+        raise ApiError(code="runs.not_found", message="Run 不存在", status_code=404)
+
+    await _authorize_or_audit(
+        "runs.get",
+        request=request,
+        authorizer=authorizer,
+        audit=audit,
+        actor=actor,
+        resource=Resource(org_id=run.org_id, owner_user_id=run.created_by_user_id),
+        target_type="run",
+        target_id=str(run.id),
+    )
+
+    terminal_event_type = await run_event_repo.get_latest_event_type(
+        run_id=run.id, types=_RUN_TERMINAL_EVENT_TYPES
+    )
+    return RunResponse(
+        run_id=run.id,
+        org_id=run.org_id,
+        thread_id=run.thread_id,
+        created_by_user_id=run.created_by_user_id,
+        status=_derive_run_status(terminal_event_type),
+        created_at=run.created_at,
+        trace_id=_request_trace_id(request),
+    )
 
 
 def _to_rfc3339_millis_z(value: datetime) -> str:
