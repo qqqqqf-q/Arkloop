@@ -6,6 +6,7 @@ import logging
 import os
 import re
 from typing import Any, AsyncIterator, Mapping, Optional
+import uuid
 
 import anyio
 
@@ -18,6 +19,8 @@ from .contract import (
     LlmGatewayError,
     LlmGatewayRequest,
     LlmGatewayStreamEvent,
+    LlmStreamLlmRequest,
+    LlmStreamLlmResponseChunk,
     LlmStreamMessageDelta,
     LlmStreamRunCompleted,
     LlmStreamRunFailed,
@@ -31,6 +34,7 @@ _ANTHROPIC_BASE_URL_ENV = "ARKLOOP_ANTHROPIC_BASE_URL"
 _ANTHROPIC_VERSION_ENV = "ARKLOOP_ANTHROPIC_VERSION"
 _ANTHROPIC_TOTAL_TIMEOUT_SECONDS_ENV = "ARKLOOP_ANTHROPIC_TOTAL_TIMEOUT_SECONDS"
 _ANTHROPIC_ADVANCED_JSON_ENV = "ARKLOOP_ANTHROPIC_ADVANCED_JSON"
+_LLM_DEBUG_EVENTS_ENV = "ARKLOOP_LLM_DEBUG_EVENTS"
 
 _DEFAULT_ANTHROPIC_BASE_URL = "https://api.anthropic.com/v1"
 _DEFAULT_ANTHROPIC_VERSION = "2023-06-01"
@@ -38,6 +42,10 @@ _DEFAULT_ANTHROPIC_TOTAL_TIMEOUT_SECONDS = 60.0
 
 _DEFAULT_MAX_OUTPUT_TOKENS = 1024
 _MAX_ERROR_BODY_BYTES = 4096
+_MAX_DEBUG_CHUNK_BYTES = 8192
+
+_TRUTHY = {"1", "true", "yes", "y", "on"}
+_FALSY = {"0", "false", "no", "n", "off"}
 
 _ALLOWED_ADVANCED_KEYS = {"extra_headers", "extra_query", "timeout_ms"}
 _MAX_ADVANCED_FIELDS = 20
@@ -68,6 +76,15 @@ def _parse_non_negative_float(value: str) -> float:
     return parsed
 
 
+def _parse_bool(value: str) -> bool:
+    cleaned = value.strip().casefold()
+    if cleaned in _TRUTHY:
+        return True
+    if cleaned in _FALSY:
+        return False
+    raise ValueError("必须为布尔值（0/1、true/false）")
+
+
 def _normalize_base_url(value: str) -> str:
     cleaned = value.strip()
     if not cleaned:
@@ -80,6 +97,16 @@ def _try_parse_json(raw: str | bytes) -> Any | None:
         return json.loads(raw)
     except json.JSONDecodeError:
         return None
+
+
+def _truncate_utf8(value: str, *, max_bytes: int) -> tuple[str, bool]:
+    raw = value.encode("utf-8")
+    if len(raw) <= max_bytes:
+        return value, False
+    truncated = raw[:max_bytes]
+    while truncated and (truncated[-1] & 0xC0) == 0x80:
+        truncated = truncated[:-1]
+    return truncated.decode("utf-8", errors="ignore"), True
 
 
 def _usage_from_mapping(data: Mapping[str, Any]) -> LlmUsage | None:
@@ -308,6 +335,7 @@ class AnthropicGatewayConfig:
     anthropic_version: str = _DEFAULT_ANTHROPIC_VERSION
     total_timeout_seconds: float = _DEFAULT_ANTHROPIC_TOTAL_TIMEOUT_SECONDS
     advanced_json: Mapping[str, Any] = field(default_factory=dict)
+    emit_llm_debug_events: bool = False
 
     @classmethod
     def from_env(cls, *, required: bool = False) -> Optional["AnthropicGatewayConfig"]:
@@ -347,12 +375,18 @@ class AnthropicGatewayConfig:
                 raise ValueError(f"环境变量 {_ANTHROPIC_ADVANCED_JSON_ENV} 必须为 JSON 对象")
             advanced_json = parsed
 
+        emit_llm_debug_events = False
+        raw_debug = os.getenv(_LLM_DEBUG_EVENTS_ENV)
+        if raw_debug:
+            emit_llm_debug_events = _parse_bool(raw_debug)
+
         return cls(
             api_key=api_key,
             base_url=base_url,
             anthropic_version=anthropic_version,
             total_timeout_seconds=total_timeout_seconds,
             advanced_json=advanced_json,
+            emit_llm_debug_events=emit_llm_debug_events,
         )
 
 
@@ -391,6 +425,7 @@ class AnthropicLlmGateway(LlmGateway):
 
     async def _stream_once(self, *, request: LlmGatewayRequest) -> AsyncIterator[LlmGatewayStreamEvent]:
         httpx = _import_httpx()
+        llm_call_id = uuid.uuid4().hex
 
         timeout_seconds = (
             self._timeout_seconds_override
@@ -426,7 +461,22 @@ class AnthropicLlmGateway(LlmGateway):
         if request.temperature is not None:
             payload["temperature"] = float(request.temperature)
 
-        stream = self._stream_http(httpx=httpx, payload=payload, headers=headers)
+        if self._config.emit_llm_debug_events:
+            yield LlmStreamLlmRequest(
+                llm_call_id=llm_call_id,
+                provider_kind="anthropic",
+                api_mode="messages",
+                base_url=self._config.base_url,
+                path="/messages",
+                payload_json=dict(payload),
+            )
+
+        stream = self._stream_http(
+            httpx=httpx,
+            payload=payload,
+            headers=headers,
+            llm_call_id=llm_call_id,
+        )
         async for item in _iter_with_total_timeout(stream, total_timeout_seconds=timeout_seconds):
             yield item
 
@@ -436,6 +486,7 @@ class AnthropicLlmGateway(LlmGateway):
         httpx: Any,
         payload: Mapping[str, Any],
         headers: Mapping[str, str],
+        llm_call_id: str,
     ) -> AsyncIterator[LlmGatewayStreamEvent]:
         client = self._client
         if client is None:
@@ -446,6 +497,7 @@ class AnthropicLlmGateway(LlmGateway):
                     client=client,
                     payload=payload,
                     headers=headers,
+                    llm_call_id=llm_call_id,
                 ):
                     yield item
             return
@@ -455,6 +507,7 @@ class AnthropicLlmGateway(LlmGateway):
             client=client,
             payload=payload,
             headers=headers,
+            llm_call_id=llm_call_id,
         ):
             yield item
 
@@ -465,6 +518,7 @@ class AnthropicLlmGateway(LlmGateway):
         client: Any,
         payload: Mapping[str, Any],
         headers: Mapping[str, str],
+        llm_call_id: str,
     ) -> AsyncIterator[LlmGatewayStreamEvent]:
         try:
             async with client.stream(
@@ -473,11 +527,23 @@ class AnthropicLlmGateway(LlmGateway):
                 params=dict(self._extra_query),
                 json=dict(payload),
                 headers=dict(headers),
-            ) as resp:
+                ) as resp:
                 if resp.status_code != 200:
                     body = await resp.aread()
                     body = body[:_MAX_ERROR_BODY_BYTES]
                     error_json = _try_parse_json(body)
+                    if self._config.emit_llm_debug_events:
+                        response_text = body.decode("utf-8", errors="replace")
+                        raw, truncated = _truncate_utf8(response_text, max_bytes=_MAX_DEBUG_CHUNK_BYTES)
+                        yield LlmStreamLlmResponseChunk(
+                            llm_call_id=llm_call_id,
+                            provider_kind="anthropic",
+                            api_mode="messages",
+                            raw=raw,
+                            chunk_json=error_json,
+                            status_code=int(resp.status_code),
+                            truncated=truncated,
+                        )
                     error_class = _provider_error_class_from_status(int(resp.status_code))
                     message = _anthropic_error_message(
                         error_json,
@@ -495,11 +561,21 @@ class AnthropicLlmGateway(LlmGateway):
 
                 usage: LlmUsage | None = None
                 async for data in _aiter_sse_events(resp.aiter_lines()):
+                    item = _try_parse_json(data)
+                    if self._config.emit_llm_debug_events:
+                        raw, truncated = _truncate_utf8(data, max_bytes=_MAX_DEBUG_CHUNK_BYTES)
+                        yield LlmStreamLlmResponseChunk(
+                            llm_call_id=llm_call_id,
+                            provider_kind="anthropic",
+                            api_mode="messages",
+                            raw=raw,
+                            chunk_json=item,
+                            truncated=truncated,
+                        )
                     if data.strip() == "[DONE]":
                         yield LlmStreamRunCompleted(usage=usage)
                         return
 
-                    item = _try_parse_json(data)
                     if item is None:
                         continue
                     if not isinstance(item, Mapping):

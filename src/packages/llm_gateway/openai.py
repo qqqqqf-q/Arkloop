@@ -5,6 +5,7 @@ import json
 import logging
 import os
 from typing import Any, AsyncIterator, Mapping, Optional, Sequence
+import uuid
 
 import anyio
 
@@ -17,6 +18,8 @@ from .contract import (
     LlmGatewayError,
     LlmGatewayRequest,
     LlmGatewayStreamEvent,
+    LlmStreamLlmRequest,
+    LlmStreamLlmResponseChunk,
     LlmStreamMessageDelta,
     LlmStreamProviderFallback,
     LlmStreamRunCompleted,
@@ -29,6 +32,7 @@ _OPENAI_API_KEY_ENV = "ARKLOOP_OPENAI_API_KEY"
 _OPENAI_BASE_URL_ENV = "ARKLOOP_OPENAI_BASE_URL"
 _OPENAI_API_MODE_ENV = "ARKLOOP_OPENAI_API_MODE"
 _OPENAI_TOTAL_TIMEOUT_SECONDS_ENV = "ARKLOOP_OPENAI_TOTAL_TIMEOUT_SECONDS"
+_LLM_DEBUG_EVENTS_ENV = "ARKLOOP_LLM_DEBUG_EVENTS"
 
 _DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1"
 _DEFAULT_OPENAI_API_MODE = "auto"
@@ -36,6 +40,10 @@ _DEFAULT_OPENAI_TOTAL_TIMEOUT_SECONDS = 60.0
 
 _SUPPORTED_OPENAI_API_MODES = ("auto", "responses", "chat_completions")
 _MAX_ERROR_BODY_BYTES = 4096
+_MAX_DEBUG_CHUNK_BYTES = 8192
+
+_TRUTHY = {"1", "true", "yes", "y", "on"}
+_FALSY = {"0", "false", "no", "n", "off"}
 
 
 def _parse_non_negative_float(value: str) -> float:
@@ -44,6 +52,15 @@ def _parse_non_negative_float(value: str) -> float:
     if parsed < 0:
         raise ValueError("必须为非负数")
     return parsed
+
+
+def _parse_bool(value: str) -> bool:
+    cleaned = value.strip().casefold()
+    if cleaned in _TRUTHY:
+        return True
+    if cleaned in _FALSY:
+        return False
+    raise ValueError("必须为布尔值（0/1、true/false）")
 
 
 def _parse_openai_api_mode(value: str) -> str:
@@ -65,6 +82,16 @@ def _try_parse_json(raw: str | bytes) -> Any | None:
         return json.loads(raw)
     except json.JSONDecodeError:
         return None
+
+
+def _truncate_utf8(value: str, *, max_bytes: int) -> tuple[str, bool]:
+    raw = value.encode("utf-8")
+    if len(raw) <= max_bytes:
+        return value, False
+    truncated = raw[:max_bytes]
+    while truncated and (truncated[-1] & 0xC0) == 0x80:
+        truncated = truncated[:-1]
+    return truncated.decode("utf-8", errors="ignore"), True
 
 
 def _usage_from_mapping(data: Mapping[str, Any]) -> LlmUsage | None:
@@ -217,6 +244,7 @@ class OpenAiGatewayConfig:
     base_url: str = _DEFAULT_OPENAI_BASE_URL
     api_mode: str = _DEFAULT_OPENAI_API_MODE
     total_timeout_seconds: float = _DEFAULT_OPENAI_TOTAL_TIMEOUT_SECONDS
+    emit_llm_debug_events: bool = False
 
     @classmethod
     def from_env(cls, *, required: bool = False) -> Optional["OpenAiGatewayConfig"]:
@@ -243,11 +271,17 @@ class OpenAiGatewayConfig:
         if raw_timeout:
             total_timeout_seconds = _parse_non_negative_float(raw_timeout)
 
+        emit_llm_debug_events = False
+        raw_debug = os.getenv(_LLM_DEBUG_EVENTS_ENV)
+        if raw_debug:
+            emit_llm_debug_events = _parse_bool(raw_debug)
+
         return cls(
             api_key=api_key,
             base_url=base_url,
             api_mode=api_mode,
             total_timeout_seconds=total_timeout_seconds,
+            emit_llm_debug_events=emit_llm_debug_events,
         )
 
 
@@ -322,6 +356,8 @@ class OpenAiLlmGateway(LlmGateway):
     ) -> AsyncIterator[LlmGatewayStreamEvent]:
         httpx = _import_httpx()
 
+        llm_call_id = uuid.uuid4().hex
+
         headers = {
             "Authorization": f"Bearer {self._config.api_key}",
             "Accept": "text/event-stream",
@@ -342,12 +378,23 @@ class OpenAiLlmGateway(LlmGateway):
             if request.max_output_tokens is not None:
                 payload["max_tokens"] = int(request.max_output_tokens)
 
+        if self._config.emit_llm_debug_events:
+            yield LlmStreamLlmRequest(
+                llm_call_id=llm_call_id,
+                provider_kind="openai",
+                api_mode=api_mode,
+                base_url=self._config.base_url,
+                path=path,
+                payload_json=dict(payload),
+            )
+
         stream = self._stream_http(
             httpx=httpx,
             path=path,
             payload=payload,
             headers=headers,
             api_mode=api_mode,
+            llm_call_id=llm_call_id,
         )
         async for item in _iter_with_total_timeout(
             stream, total_timeout_seconds=self._config.total_timeout_seconds
@@ -362,6 +409,7 @@ class OpenAiLlmGateway(LlmGateway):
         payload: Mapping[str, Any],
         headers: Mapping[str, str],
         api_mode: str,
+        llm_call_id: str,
     ) -> AsyncIterator[LlmGatewayStreamEvent]:
         client = self._client
         if client is None:
@@ -374,6 +422,7 @@ class OpenAiLlmGateway(LlmGateway):
                     payload=payload,
                     headers=headers,
                     api_mode=api_mode,
+                    llm_call_id=llm_call_id,
                 ):
                     yield item
             return
@@ -385,6 +434,7 @@ class OpenAiLlmGateway(LlmGateway):
             payload=payload,
             headers=headers,
             api_mode=api_mode,
+            llm_call_id=llm_call_id,
         ):
             yield item
 
@@ -397,6 +447,7 @@ class OpenAiLlmGateway(LlmGateway):
         payload: Mapping[str, Any],
         headers: Mapping[str, str],
         api_mode: str,
+        llm_call_id: str,
     ) -> AsyncIterator[LlmGatewayStreamEvent]:
         try:
             async with client.stream("POST", path, json=dict(payload), headers=dict(headers)) as resp:
@@ -405,6 +456,21 @@ class OpenAiLlmGateway(LlmGateway):
                     body = body[:_MAX_ERROR_BODY_BYTES]
                     error_json = _try_parse_json(body)
                     response_text = body.decode("utf-8", errors="replace")
+
+                    if self._config.emit_llm_debug_events:
+                        raw, truncated = _truncate_utf8(
+                            response_text,
+                            max_bytes=_MAX_DEBUG_CHUNK_BYTES,
+                        )
+                        yield LlmStreamLlmResponseChunk(
+                            llm_call_id=llm_call_id,
+                            provider_kind="openai",
+                            api_mode=api_mode,
+                            raw=raw,
+                            chunk_json=error_json,
+                            status_code=int(resp.status_code),
+                            truncated=truncated,
+                        )
 
                     if api_mode == "responses" and self._config.api_mode == "auto":
                         if _is_responses_endpoint_not_supported(
@@ -434,11 +500,22 @@ class OpenAiLlmGateway(LlmGateway):
 
                 usage: LlmUsage | None = None
                 async for data in _aiter_sse_data(resp.aiter_lines()):
+                    item = _try_parse_json(data)
+                    if self._config.emit_llm_debug_events:
+                        raw, truncated = _truncate_utf8(data, max_bytes=_MAX_DEBUG_CHUNK_BYTES)
+                        yield LlmStreamLlmResponseChunk(
+                            llm_call_id=llm_call_id,
+                            provider_kind="openai",
+                            api_mode=api_mode,
+                            raw=raw,
+                            chunk_json=item,
+                            truncated=truncated,
+                        )
+
                     if data.strip() == "[DONE]":
                         yield LlmStreamRunCompleted(usage=usage)
                         return
 
-                    item = _try_parse_json(data)
                     if item is None:
                         continue
 

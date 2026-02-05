@@ -123,6 +123,54 @@ class LlmStreamMessageDelta:
 
 
 @dataclass(frozen=True, slots=True)
+class LlmStreamLlmRequest:
+    llm_call_id: str
+    provider_kind: str
+    api_mode: str
+    base_url: str | None = None
+    path: str | None = None
+    payload_json: Mapping[str, Any] = field(default_factory=dict)
+
+    def to_data_json(self) -> JsonObject:
+        payload: JsonObject = {
+            "llm_call_id": self.llm_call_id,
+            "provider_kind": self.provider_kind,
+            "api_mode": self.api_mode,
+            "payload": dict(self.payload_json),
+        }
+        if self.base_url is not None:
+            payload["base_url"] = self.base_url
+        if self.path is not None:
+            payload["path"] = self.path
+        return payload
+
+
+@dataclass(frozen=True, slots=True)
+class LlmStreamLlmResponseChunk:
+    llm_call_id: str
+    provider_kind: str
+    api_mode: str
+    raw: str
+    chunk_json: Any | None = None
+    status_code: int | None = None
+    truncated: bool = False
+
+    def to_data_json(self) -> JsonObject:
+        payload: JsonObject = {
+            "llm_call_id": self.llm_call_id,
+            "provider_kind": self.provider_kind,
+            "api_mode": self.api_mode,
+            "raw": self.raw,
+            "truncated": bool(self.truncated),
+        }
+        if self.chunk_json is not None:
+            payload["json"] = self.chunk_json
+        if self.status_code is not None:
+            payload["status_code"] = int(self.status_code)
+        return payload
+
+
+@dataclass(frozen=True, slots=True)
 class LlmStreamToolCall:
     tool_call_id: str
     tool_name: str
@@ -209,6 +257,8 @@ class LlmStreamRunFailed:
 
 LlmGatewayStreamEvent = (
     LlmStreamMessageDelta
+    | LlmStreamLlmRequest
+    | LlmStreamLlmResponseChunk
     | LlmStreamToolCall
     | LlmStreamToolResult
     | LlmStreamProviderFallback
@@ -236,6 +286,14 @@ async def run_events_from_llm_stream(
                 if not item.content_delta:
                     continue
                 yield emitter.emit(type="message.delta", data_json=item.to_data_json())
+                continue
+
+            if isinstance(item, LlmStreamLlmRequest):
+                yield emitter.emit(type="llm.request", data_json=item.to_data_json())
+                continue
+
+            if isinstance(item, LlmStreamLlmResponseChunk):
+                yield emitter.emit(type="llm.response.chunk", data_json=item.to_data_json())
                 continue
 
             if isinstance(item, LlmStreamToolCall):
@@ -300,6 +358,8 @@ __all__ = [
     "LlmGatewayRequest",
     "LlmGatewayStreamEvent",
     "LlmMessage",
+    "LlmStreamLlmRequest",
+    "LlmStreamLlmResponseChunk",
     "LlmStreamMessageDelta",
     "LlmStreamRunCompleted",
     "LlmStreamRunFailed",
