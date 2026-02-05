@@ -4,9 +4,15 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+import logging
+from pathlib import Path
 from typing import Dict
 
+from alembic.config import Config
+from alembic.runtime.migration import MigrationContext
+from alembic.script import ScriptDirectory
 from fastapi import APIRouter, FastAPI
+from sqlalchemy.ext.asyncio import AsyncEngine
 
 from packages.data import Database, DatabaseConfig
 from packages.observability.logging import configure_json_logging
@@ -25,16 +31,50 @@ _health_router = APIRouter()
 async def healthz() -> Dict[str, str]:
     return {"status": "ok"}
 
+def _alembic_script_dir() -> ScriptDirectory:
+    src_root = Path(__file__).resolve().parents[2]
+    cfg = Config()
+    cfg.set_main_option("script_location", str(src_root / "migrations"))
+    return ScriptDirectory.from_config(cfg)
+
+
+async def _alembic_current_revision(engine: AsyncEngine) -> str | None:
+    async with engine.connect() as conn:
+        def _get_revision(sync_conn) -> str | None:
+            return MigrationContext.configure(sync_conn).get_current_revision()
+
+        return await conn.run_sync(_get_revision)
+
+
+async def _ensure_database_is_up_to_date(engine: AsyncEngine) -> None:
+    logger = logging.getLogger("arkloop.api")
+    head = _alembic_script_dir().get_current_head()
+    current = await _alembic_current_revision(engine)
+    if not head or current == head:
+        return
+
+    logger.error(
+        "database schema out of date",
+        extra={"current_revision": current, "head_revision": head},
+    )
+    raise RuntimeError(
+        f"数据库迁移未执行：当前 {current or 'none'}，需要 {head}。"
+        "请先运行: python -m alembic upgrade head"
+    )
+
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
+    database = getattr(app.state, "database", None)
+    if isinstance(database, Database):
+        await _ensure_database_is_up_to_date(database.engine)
+
     run_executor = getattr(app.state, "run_executor", None)
     if run_executor is not None:
         await run_executor.start()
     yield
     if run_executor is not None:
         await run_executor.stop()
-    database = getattr(app.state, "database", None)
     if isinstance(database, Database):
         await database.dispose()
 
