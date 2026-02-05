@@ -789,6 +789,85 @@ def test_run_completed_materializes_assistant_message(monkeypatch) -> None:
         anyio.run(_drop_database, admin_dsn, database)
 
 
+def test_run_records_llm_debug_events_when_enabled(monkeypatch) -> None:
+    config = DatabaseConfig.from_env(allow_fallback=True)
+    if config is None:
+        pytest.skip("未设置 ARKLOOP_DATABASE_URL（或兼容的 DATABASE_URL）")
+
+    repo_root = _repo_root()
+    alembic_cfg = Config(str(repo_root / "alembic.ini"))
+
+    database = f"arkloop_runs_llm_debug_{uuid.uuid4().hex}"
+    sqlalchemy_url = config.url
+    admin_dsn = _replace_database(_to_asyncpg_dsn(sqlalchemy_url), "postgres")
+    test_sqlalchemy_url = _replace_database(sqlalchemy_url, database)
+
+    anyio.run(_create_database, admin_dsn, database)
+    try:
+        with monkeypatch.context() as m:
+            m.setenv("DATABASE_URL", test_sqlalchemy_url)
+            m.setenv("ARKLOOP_DATABASE_URL", test_sqlalchemy_url)
+            m.setenv("ARKLOOP_AUTH_JWT_SECRET", "test-secret-should-be-long-enough-32chars")
+            m.setenv("ARKLOOP_LLM_DEBUG_EVENTS", "1")
+            m.setenv("ARKLOOP_STUB_AGENT_DELTA_COUNT", "2")
+            m.setenv("ARKLOOP_STUB_AGENT_DELTA_INTERVAL_SECONDS", "0.01")
+            command.upgrade(alembic_cfg, "head")
+
+            login = "alice"
+            password = "pwdpwdpwd"
+            anyio.run(_seed_auth, test_sqlalchemy_url, login, password)
+
+            app = configure_app()
+            with TestClient(app) as client:
+                auth = client.post("/v1/auth/login", json={"login": login, "password": password})
+                assert auth.status_code == 200
+                token = auth.json()["access_token"]
+                headers = {"Authorization": f"Bearer {token}"}
+
+                thread_resp = client.post("/v1/threads", json={"title": "t"}, headers=headers)
+                assert thread_resp.status_code == 201
+                thread_id = thread_resp.json()["id"]
+
+                message_resp = client.post(
+                    f"/v1/threads/{thread_id}/messages",
+                    json={"content": "hello"},
+                    headers=headers,
+                )
+                assert message_resp.status_code == 201
+
+                run_resp = client.post(f"/v1/threads/{thread_id}/runs", headers=headers)
+                assert run_resp.status_code == 201
+                run_id = uuid.UUID(run_resp.json()["run_id"])
+
+                events = anyio.run(_wait_for_final_event, test_sqlalchemy_url, run_id, "run.completed")
+
+                types = [event.type for event in events]
+                assert "llm.request" in types
+                assert "llm.response.chunk" in types
+
+                request_events = [event for event in events if event.type == "llm.request"]
+                assert len(request_events) == 1
+
+                payload = request_events[0].data_json.get("payload")
+                assert isinstance(payload, dict)
+                messages = payload.get("messages")
+                assert isinstance(messages, list)
+                assert any(
+                    isinstance(item, dict)
+                    and item.get("role") == "user"
+                    and isinstance(item.get("content"), list)
+                    and any(
+                        isinstance(part, dict) and part.get("type") == "text" and part.get("text") == "hello"
+                        for part in item.get("content")
+                    )
+                    for item in messages
+                )
+
+                assert isinstance(request_events[0].data_json.get("trace_id"), str)
+    finally:
+        anyio.run(_drop_database, admin_dsn, database)
+
+
 def test_worker_job_restores_trace_id_and_is_replayable_via_sse(monkeypatch) -> None:
     config = DatabaseConfig.from_env(allow_fallback=True)
     if config is None:

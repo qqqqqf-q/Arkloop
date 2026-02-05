@@ -8,6 +8,8 @@ import httpx
 from packages.llm_gateway import (
     LlmGatewayRequest,
     LlmMessage,
+    LlmStreamLlmRequest,
+    LlmStreamLlmResponseChunk,
     LlmStreamMessageDelta,
     LlmStreamProviderFallback,
     LlmStreamRunCompleted,
@@ -186,3 +188,62 @@ def test_openai_gateway_auto_falls_back_from_responses_to_chat_completions() -> 
     assert items[0].from_api_mode == "responses"
     assert items[0].to_api_mode == "chat_completions"
     assert items[0].status_code == 404
+
+
+def test_openai_gateway_emits_llm_debug_events_when_enabled() -> None:
+    sse = (
+        'data: {"choices":[{"delta":{"role":"assistant","content":"hello"}}]}\n\n'
+        'data: {"choices":[{"delta":{"content":" world"}}]}\n\n'
+        "data: [DONE]\n\n"
+    )
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1/chat/completions"
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            content=sse.encode("utf-8"),
+        )
+
+    transport = httpx.MockTransport(_handler)
+    client = httpx.AsyncClient(base_url="https://example.test/v1", transport=transport)
+    gateway = OpenAiLlmGateway(
+        config=OpenAiGatewayConfig(
+            api_key="sk-test",
+            base_url="https://example.test/v1",
+            api_mode="chat_completions",
+            total_timeout_seconds=5.0,
+            emit_llm_debug_events=True,
+        ),
+        client=client,
+    )
+
+    request = LlmGatewayRequest(
+        model="gpt-test",
+        messages=[LlmMessage(role="user", content=[LlmTextPart(text="hi")])],
+    )
+
+    async def _collect() -> list[object]:
+        items: list[object] = []
+        async for item in gateway.stream(request=request):
+            items.append(item)
+        await client.aclose()
+        return items
+
+    items = anyio.run(_collect)
+
+    assert [type(item) for item in items] == [
+        LlmStreamLlmRequest,
+        LlmStreamLlmResponseChunk,
+        LlmStreamMessageDelta,
+        LlmStreamLlmResponseChunk,
+        LlmStreamMessageDelta,
+        LlmStreamLlmResponseChunk,
+        LlmStreamRunCompleted,
+    ]
+    assert items[0].payload_json["model"] == "gpt-test"
+    assert items[1].raw.startswith('{"choices"')
+    assert items[2].content_delta == "hello"
+    assert items[4].content_delta == " world"
+    assert items[5].raw == "[DONE]"
+    assert {item.llm_call_id for item in items if hasattr(item, "llm_call_id")} == {items[0].llm_call_id}

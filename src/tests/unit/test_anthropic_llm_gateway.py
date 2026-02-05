@@ -10,6 +10,8 @@ from packages.llm_gateway import (
     ERROR_CLASS_PROVIDER_NON_RETRYABLE,
     LlmGatewayRequest,
     LlmMessage,
+    LlmStreamLlmRequest,
+    LlmStreamLlmResponseChunk,
     LlmStreamMessageDelta,
     LlmStreamRunCompleted,
     LlmStreamRunFailed,
@@ -227,3 +229,56 @@ def test_anthropic_gateway_emits_tool_call_placeholder_events() -> None:
     assert items[0].tool_call_id == "toolu_1"
     assert items[0].tool_name == "search"
     assert items[0].arguments_json == {"q": "hi"}
+
+
+def test_anthropic_gateway_emits_llm_debug_events_when_enabled() -> None:
+    sse = (
+        'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"ok"}}\n\n'
+        'data: {"type":"message_stop"}\n\n'
+    )
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1/messages"
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            content=sse.encode("utf-8"),
+        )
+
+    transport = httpx.MockTransport(_handler)
+    client = httpx.AsyncClient(base_url="https://example.test/v1", transport=transport)
+    gateway = AnthropicLlmGateway(
+        config=AnthropicGatewayConfig(
+            api_key="sk-test",
+            base_url="https://example.test/v1",
+            total_timeout_seconds=5.0,
+            emit_llm_debug_events=True,
+        ),
+        client=client,
+    )
+
+    request = LlmGatewayRequest(
+        model="claude-test",
+        messages=[LlmMessage(role="user", content=[LlmTextPart(text="hi")])],
+        max_output_tokens=5,
+    )
+
+    async def _collect() -> list[object]:
+        items: list[object] = []
+        async for item in gateway.stream(request=request):
+            items.append(item)
+        await client.aclose()
+        return items
+
+    items = anyio.run(_collect)
+
+    assert [type(item) for item in items] == [
+        LlmStreamLlmRequest,
+        LlmStreamLlmResponseChunk,
+        LlmStreamMessageDelta,
+        LlmStreamLlmResponseChunk,
+        LlmStreamRunCompleted,
+    ]
+    assert items[0].payload_json["model"] == "claude-test"
+    assert items[2].content_delta == "ok"
+    assert {item.llm_call_id for item in items if hasattr(item, "llm_call_id")} == {items[0].llm_call_id}

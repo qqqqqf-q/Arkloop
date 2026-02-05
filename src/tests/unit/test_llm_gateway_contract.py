@@ -11,6 +11,8 @@ from packages.llm_gateway import (
     ERROR_CLASS_PROVIDER_RETRYABLE,
     LlmCost,
     LlmGatewayError,
+    LlmStreamLlmRequest,
+    LlmStreamLlmResponseChunk,
     LlmStreamMessageDelta,
     LlmStreamProviderFallback,
     LlmStreamRunCompleted,
@@ -160,6 +162,56 @@ def test_llm_gateway_stream_emits_provider_fallback_as_run_event() -> None:
     assert events[0].data_json["to_api_mode"] == "chat_completions"
     assert events[0].data_json["status_code"] == 404
     assert events[0].data_json["trace_id"] == "d" * 32
+
+
+def test_llm_gateway_stream_maps_llm_debug_events_to_run_events() -> None:
+    run_id = uuid.UUID(int=7)
+    emitter = RunEventEmitter(
+        run_id=run_id,
+        trace_id="f" * 32,
+        event_id_factory=_FakeEventIdFactory(),
+        clock=_fixed_clock,
+    )
+
+    async def _stub_stream():
+        yield LlmStreamLlmRequest(
+            llm_call_id="call_1",
+            provider_kind="openai",
+            api_mode="chat_completions",
+            base_url="https://example.test/v1",
+            path="/chat/completions",
+            payload_json={"model": "gpt-test", "stream": True},
+        )
+        yield LlmStreamLlmResponseChunk(
+            llm_call_id="call_1",
+            provider_kind="openai",
+            api_mode="chat_completions",
+            raw='{"foo":"bar"}',
+            chunk_json={"foo": "bar"},
+        )
+        yield LlmStreamMessageDelta(content_delta="ok", role="assistant")
+        yield LlmStreamRunCompleted()
+
+    async def _collect():
+        events = []
+        async for event in run_events_from_llm_stream(emitter=emitter, stream=_stub_stream()):
+            events.append(event)
+        return events
+
+    events = anyio.run(_collect)
+
+    assert [event.seq for event in events] == [1, 2, 3, 4]
+    assert [event.type for event in events] == [
+        "llm.request",
+        "llm.response.chunk",
+        "message.delta",
+        "run.completed",
+    ]
+    assert events[0].data_json["llm_call_id"] == "call_1"
+    assert events[0].data_json["provider_kind"] == "openai"
+    assert events[1].data_json["raw"] == '{"foo":"bar"}'
+    assert events[1].data_json["json"] == {"foo": "bar"}
+    assert all(event.data_json.get("trace_id") == "f" * 32 for event in events)
 
 
 def test_llm_gateway_stream_closes_underlying_stream_on_completed() -> None:
