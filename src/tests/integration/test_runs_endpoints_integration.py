@@ -688,6 +688,10 @@ def test_run_events_sse_streams_and_resumes(monkeypatch) -> None:
 
                 unauth = client.get(f"/v1/runs/{run_id}/events?after_seq=0&follow=0")
                 assert unauth.status_code == 401
+                assert TRACE_ID_HEADER in unauth.headers
+                payload = unauth.json()
+                assert payload["code"] == "auth.missing_token"
+                assert payload["trace_id"] == unauth.headers[TRACE_ID_HEADER]
 
                 with client.stream(
                     "GET",
