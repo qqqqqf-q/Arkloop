@@ -414,6 +414,135 @@ def test_get_run_returns_status_and_enforces_policy(monkeypatch) -> None:
         anyio.run(_drop_database, admin_dsn, database)
 
 
+def test_list_thread_runs_returns_stable_order_and_enforces_policy(monkeypatch) -> None:
+    config = DatabaseConfig.from_env(allow_fallback=True)
+    if config is None:
+        pytest.skip("未设置 ARKLOOP_DATABASE_URL（或兼容的 DATABASE_URL）")
+
+    repo_root = _repo_root()
+    alembic_cfg = Config(str(repo_root / "alembic.ini"))
+
+    database = f"arkloop_threads_runs_list_{uuid.uuid4().hex}"
+    sqlalchemy_url = config.url
+    admin_dsn = _replace_database(_to_asyncpg_dsn(sqlalchemy_url), "postgres")
+    test_sqlalchemy_url = _replace_database(sqlalchemy_url, database)
+
+    anyio.run(_create_database, admin_dsn, database)
+    try:
+        with monkeypatch.context() as m:
+            m.setenv("DATABASE_URL", test_sqlalchemy_url)
+            m.setenv("ARKLOOP_DATABASE_URL", test_sqlalchemy_url)
+            m.setenv("ARKLOOP_AUTH_JWT_SECRET", "test-secret-should-be-long-enough-32chars")
+            m.setenv("ARKLOOP_STUB_AGENT_DELTA_COUNT", "2")
+            m.setenv("ARKLOOP_STUB_AGENT_DELTA_INTERVAL_SECONDS", "0.01")
+            command.upgrade(alembic_cfg, "head")
+
+            alice_login = "alice"
+            alice_password = "pwdpwdpwd"
+            bob_login = "bob"
+            bob_password = "pwdpwdpwd"
+            anyio.run(
+                _seed_org_with_users,
+                test_sqlalchemy_url,
+                [
+                    (alice_login, alice_password, "Alice"),
+                    (bob_login, bob_password, "Bob"),
+                ],
+            )
+
+            mallory_login = "mallory"
+            mallory_password = "pwdpwdpwd"
+            anyio.run(_seed_auth, test_sqlalchemy_url, mallory_login, mallory_password)
+
+            app = configure_app()
+            with TestClient(app) as client:
+                alice_auth = client.post(
+                    "/v1/auth/login",
+                    json={"login": alice_login, "password": alice_password},
+                )
+                assert alice_auth.status_code == 200
+                alice_token = alice_auth.json()["access_token"]
+                alice_headers = {"Authorization": f"Bearer {alice_token}"}
+
+                bob_auth = client.post(
+                    "/v1/auth/login",
+                    json={"login": bob_login, "password": bob_password},
+                )
+                assert bob_auth.status_code == 200
+                bob_token = bob_auth.json()["access_token"]
+                bob_headers = {"Authorization": f"Bearer {bob_token}"}
+
+                mallory_auth = client.post(
+                    "/v1/auth/login",
+                    json={"login": mallory_login, "password": mallory_password},
+                )
+                assert mallory_auth.status_code == 200
+                mallory_token = mallory_auth.json()["access_token"]
+                mallory_headers = {"Authorization": f"Bearer {mallory_token}"}
+
+                thread1_resp = client.post("/v1/threads", json={"title": "t1"}, headers=alice_headers)
+                assert thread1_resp.status_code == 201
+                thread1_id = thread1_resp.json()["id"]
+
+                thread2_resp = client.post("/v1/threads", json={"title": "t2"}, headers=alice_headers)
+                assert thread2_resp.status_code == 201
+                thread2_id = thread2_resp.json()["id"]
+
+                run1_resp = client.post(f"/v1/threads/{thread1_id}/runs", headers=alice_headers)
+                assert run1_resp.status_code == 201
+                run1_id = uuid.UUID(run1_resp.json()["run_id"])
+
+                time.sleep(0.01)
+                run2_resp = client.post(f"/v1/threads/{thread1_id}/runs", headers=alice_headers)
+                assert run2_resp.status_code == 201
+                run2_id = uuid.UUID(run2_resp.json()["run_id"])
+
+                time.sleep(0.01)
+                run3_resp = client.post(f"/v1/threads/{thread2_id}/runs", headers=alice_headers)
+                assert run3_resp.status_code == 201
+                run3_id = uuid.UUID(run3_resp.json()["run_id"])
+
+                anyio.run(_wait_for_stub_events, test_sqlalchemy_url, run1_id)
+                anyio.run(_wait_for_stub_events, test_sqlalchemy_url, run2_id)
+                anyio.run(_wait_for_stub_events, test_sqlalchemy_url, run3_id)
+
+                list_resp = client.get(f"/v1/threads/{thread1_id}/runs?limit=50", headers=alice_headers)
+                assert list_resp.status_code == 200
+                items = list_resp.json()
+                assert [item["run_id"] for item in items] == [str(run2_id), str(run1_id)]
+                assert [item["status"] for item in items] == ["completed", "completed"]
+                assert all(item.get("created_at") for item in items)
+
+                limit_resp = client.get(f"/v1/threads/{thread1_id}/runs?limit=1", headers=alice_headers)
+                assert limit_resp.status_code == 200
+                assert [item["run_id"] for item in limit_resp.json()] == [str(run2_id)]
+
+                owner_denied = client.get(f"/v1/threads/{thread1_id}/runs?limit=50", headers=bob_headers)
+                assert owner_denied.status_code == 403
+                assert TRACE_ID_HEADER in owner_denied.headers
+                owner_payload = owner_denied.json()
+                assert owner_payload["code"] == "policy.denied"
+                assert owner_payload["trace_id"] == owner_denied.headers[TRACE_ID_HEADER]
+                assert owner_payload.get("details", {}).get("action") == "runs.list"
+
+                org_denied = client.get(f"/v1/threads/{thread1_id}/runs?limit=50", headers=mallory_headers)
+                assert org_denied.status_code == 403
+                assert TRACE_ID_HEADER in org_denied.headers
+                org_payload = org_denied.json()
+                assert org_payload["code"] == "policy.denied"
+                assert org_payload["trace_id"] == org_denied.headers[TRACE_ID_HEADER]
+
+                missing_thread = uuid.uuid4()
+                missing = client.get(f"/v1/threads/{missing_thread}/runs?limit=50", headers=alice_headers)
+                assert missing.status_code == 404
+                assert TRACE_ID_HEADER in missing.headers
+                missing_payload = missing.json()
+                assert missing_payload["code"] == "threads.not_found"
+                assert missing_payload["trace_id"] == missing.headers[TRACE_ID_HEADER]
+    finally:
+        anyio.run(_drop_database, admin_dsn, database)
+
+
 def test_cancel_run_writes_cancel_events_and_stops_deltas(monkeypatch) -> None:
     config = DatabaseConfig.from_env(allow_fallback=True)
     if config is None:

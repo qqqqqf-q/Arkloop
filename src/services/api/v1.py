@@ -305,6 +305,12 @@ class RunResponse(BaseModel):
     trace_id: str
 
 
+class ThreadRunResponse(BaseModel):
+    run_id: uuid.UUID
+    status: str
+    created_at: datetime
+
+
 class CancelRunResponse(BaseModel):
     ok: bool = True
 
@@ -706,6 +712,45 @@ def _derive_run_status(terminal_event_type: str | None) -> str:
     if terminal_event_type == "run.cancelled":
         return "cancelled"
     return "running"
+
+
+@_v1_router.get("/threads/{thread_id}/runs", response_model=list[ThreadRunResponse])
+async def list_thread_runs(
+    thread_id: uuid.UUID,
+    request: Request,
+    actor: Actor = Depends(_get_current_actor),
+    authorizer: Authorizer = Depends(_get_authorizer),
+    audit: AuditLogWriter = Depends(get_audit_log_writer),
+    thread_repo: ThreadRepository = Depends(_get_thread_repo),
+    run_event_repo: RunEventRepository = Depends(_get_run_event_repo),
+    limit: int = Query(50, ge=1, le=200),
+) -> list[ThreadRunResponse]:
+    thread = await _get_thread_or_404(thread_id=thread_id, thread_repo=thread_repo)
+    await _authorize_or_audit(
+        "runs.list",
+        request=request,
+        authorizer=authorizer,
+        audit=audit,
+        actor=actor,
+        resource=Resource(org_id=thread.org_id, owner_user_id=thread.created_by_user_id),
+        target_type="thread",
+        target_id=str(thread.id),
+    )
+
+    runs = await run_event_repo.list_runs_by_thread(org_id=actor.org_id, thread_id=thread_id, limit=limit)
+    response: list[ThreadRunResponse] = []
+    for run in runs:
+        terminal_event_type = await run_event_repo.get_latest_event_type(
+            run_id=run.id, types=_RUN_TERMINAL_EVENT_TYPES
+        )
+        response.append(
+            ThreadRunResponse(
+                run_id=run.id,
+                status=_derive_run_status(terminal_event_type),
+                created_at=run.created_at,
+            )
+        )
+    return response
 
 
 @_v1_router.get("/runs/{run_id}", response_model=RunResponse)

@@ -176,6 +176,15 @@ class RunEventRepository(ABC):
     ) -> RunEvent | None: ...
 
     @abstractmethod
+    async def list_runs_by_thread(
+        self,
+        *,
+        org_id: uuid.UUID,
+        thread_id: uuid.UUID,
+        limit: int = 50,
+    ) -> list[Run]: ...
+
+    @abstractmethod
     async def list_events(
         self,
         *,
@@ -314,6 +323,33 @@ class SqlAlchemyRunEventRepository(RunEventRepository):
                 type="run.cancel_requested",
                 data_json=data_json,
             )
+
+    async def list_runs_by_thread(
+        self,
+        *,
+        org_id: uuid.UUID,
+        thread_id: uuid.UUID,
+        limit: int = 50,
+    ) -> list[Run]:
+        if limit <= 0:
+            raise ValueError("limit 必须为正数")
+
+        stmt = (
+            sa.select(
+                _runs.c.id,
+                _runs.c.org_id,
+                _runs.c.thread_id,
+                _runs.c.created_by_user_id,
+                _runs.c.status,
+                _runs.c.created_at,
+            )
+            .where(_runs.c.org_id == org_id)
+            .where(_runs.c.thread_id == thread_id)
+            .order_by(_runs.c.created_at.desc(), _runs.c.id.desc())
+            .limit(limit)
+        )
+        rows = (await self._session.execute(stmt)).mappings().all()
+        return [Run(**row) for row in rows]
 
     async def list_events(
         self,

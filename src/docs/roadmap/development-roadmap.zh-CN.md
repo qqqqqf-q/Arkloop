@@ -239,7 +239,7 @@
 - 验收：
   - integration pytest：对运行中的 run 调用 cancel 后，事件流出现取消事件且后续不再产生新 delta；重复 cancel 仍 200；无权限返回 403 且 `trace_id` 可定位。
 
-#### P35.6 — Thread 最近 Run 查询 v1（刷新恢复增强，可选但建议）
+#### P35.6 — Thread 最近 Run 查询 v1（刷新恢复增强，可选但建议）(已完成)
 - 目标：提供“从 thread 找回 run”的后端能力，降低仅依赖前端本地持久化的脆弱性：
   - `GET /v1/threads/{thread_id}/runs?limit=...`：按时间倒序返回 run 列表（至少 `run_id/status/created_at`），用于刷新恢复与“是否仍在生成”的判断。
 - 关键点：
