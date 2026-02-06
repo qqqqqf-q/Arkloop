@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from .events import RunEvent, RunEventEmitter
-from .runner import AgentRunContext, AgentRunner
+from .runner import AgentRunContext, AgentRunner, CancelSignal
 from .tools import (
     DENY_REASON_TOOL_ARGS_INVALID,
     DENY_REASON_TOOL_NOT_IN_ALLOWLIST,
@@ -17,6 +17,7 @@ from .tools import (
 __all__ = [
     "AgentRunContext",
     "AgentRunner",
+    "CancelSignal",
     "DENY_REASON_TOOL_ARGS_INVALID",
     "DENY_REASON_TOOL_NOT_IN_ALLOWLIST",
     "DENY_REASON_TOOL_UNKNOWN",

@@ -5,6 +5,7 @@ from typing import AsyncIterator, Protocol
 import uuid
 
 from packages.agent_core import AgentRunContext, AgentRunner, RunEvent, RunEventEmitter
+from packages.agent_core.loop import AgentLoop
 from packages.data import Database
 from packages.data.threads import SqlAlchemyMessageRepository
 from packages.llm_gateway import (
@@ -13,7 +14,7 @@ from packages.llm_gateway import (
     LlmGatewayRequest,
     LlmMessage,
     LlmTextPart,
-    run_events_from_llm_stream,
+    ToolSpec,
 )
 from packages.llm_gateway.anthropic import AnthropicGatewayConfig, AnthropicLlmGateway
 from packages.llm_gateway.gateway import LlmGateway
@@ -137,6 +138,7 @@ class ProviderRoutedAgentRunner(AgentRunner):
                 org_id=org_id,
                 thread_id=thread_id,
                 model=decision.route.model,
+                tool_specs=context.tool_specs,
             )
             gateway = self._gateway_factory.create(credential=decision.credential)
         except Exception:
@@ -144,9 +146,11 @@ class ProviderRoutedAgentRunner(AgentRunner):
             yield emitter.emit(type="run.failed", error_class=error.error_class, data_json=error.to_json())
             return
 
-        async for event in run_events_from_llm_stream(
+        loop = AgentLoop(gateway=gateway)
+        async for event in loop.run(
+            context=context,
             emitter=emitter,
-            stream=gateway.stream(request=request),
+            request=request,
         ):
             yield event
 
@@ -156,6 +160,7 @@ class ProviderRoutedAgentRunner(AgentRunner):
         org_id: uuid.UUID,
         thread_id: uuid.UUID,
         model: str,
+        tool_specs: tuple[ToolSpec, ...],
     ) -> LlmGatewayRequest:
         async with self._database.sessionmaker() as session:
             repo = SqlAlchemyMessageRepository(session)
@@ -164,7 +169,7 @@ class ProviderRoutedAgentRunner(AgentRunner):
         llm_messages = [
             LlmMessage(role=item.role, content=[LlmTextPart(text=item.content)]) for item in messages
         ]
-        return LlmGatewayRequest(model=model, messages=llm_messages)
+        return LlmGatewayRequest(model=model, messages=llm_messages, tools=list(tool_specs))
 
 
 def _required_uuid(value: object, *, label: str) -> uuid.UUID:

@@ -392,7 +392,7 @@
 
 这是从"只能聊天"到"真正的 Agent"的关键路径。
 
-#### P50 -- Agent Loop 多轮循环骨架
+#### P50 -- Agent Loop 多轮循环骨架（已完成）
 
 - 目标：改造 `ProviderRoutedAgentRunner`（或新建 `LoopingAgentRunner`），支持"LLM 返回 tool_call -> 执行 tool -> 把 tool_result 拼回 messages -> 再次调用 LLM"的循环，直到 LLM 不再返回 tool_call 或达到最大轮次。
 - 现状分析：
