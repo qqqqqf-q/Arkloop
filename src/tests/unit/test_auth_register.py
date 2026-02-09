@@ -248,6 +248,33 @@ def test_register_rejects_short_password(monkeypatch) -> None:
     monkeypatch.setenv("ARKLOOP_AUTH_JWT_SECRET", "test-secret-should-be-long-enough-32chars")
 
     app = configure_app()
+    user_repo = InMemoryUserRepository()
+    credential_repo = InMemoryUserCredentialRepository()
+    org_repo = InMemoryOrgRepository()
+    org_membership_repo = InMemoryOrgMembershipRepository()
+    fake_session = FakeAsyncSession()
+
+    async def _override_user_repo():
+        return user_repo
+
+    async def _override_credential_repo():
+        return credential_repo
+
+    async def _override_org_repo():
+        return org_repo
+
+    async def _override_org_membership_repo():
+        return org_membership_repo
+
+    async def _override_session():
+        return fake_session
+
+    app.dependency_overrides[api_v1._get_user_repo] = _override_user_repo
+    app.dependency_overrides[api_v1._get_credential_repo] = _override_credential_repo
+    app.dependency_overrides[api_v1._get_org_repo] = _override_org_repo
+    app.dependency_overrides[api_v1._get_org_membership_repo] = _override_org_membership_repo
+    app.dependency_overrides[api_v1.get_db_session] = _override_session
+
     client = TestClient(app)
 
     # 密码太短（少于8位）
@@ -259,4 +286,7 @@ def test_register_rejects_short_password(monkeypatch) -> None:
             "display_name": "New User",
         },
     )
-    assert register_response.status_code == 422  # Validation error
+    assert register_response.status_code == 422, register_response.json()
+    payload = register_response.json()
+    assert payload["code"] == "validation_error"
+    assert any(d.get("loc") == ["body", "password"] for d in (payload.get("details") or []))
