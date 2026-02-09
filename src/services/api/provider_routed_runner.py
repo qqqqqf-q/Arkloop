@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 from typing import AsyncIterator, Protocol
 import uuid
@@ -30,6 +31,7 @@ from packages.llm_routing import ProviderCredential, ProviderRouteDenied, Provid
 _LLM_DEBUG_EVENTS_ENV = "ARKLOOP_LLM_DEBUG_EVENTS"
 _TRUTHY = {"1", "true", "yes", "y", "on"}
 _FALSY = {"0", "false", "no", "n", "off"}
+_LOGGER = logging.getLogger("arkloop.api")
 
 
 def _parse_bool(value: str) -> bool:
@@ -110,12 +112,14 @@ class ProviderRoutedAgentRunner(AgentRunner):
         byok_policy: OrgByokPolicy,
         gateway_factory: ProviderGatewayFactory,
         tool_executor: ToolExecutor,
+        tool_specs: tuple[ToolSpec, ...] = (),
     ) -> None:
         self._database = database
         self._router = router
         self._byok_policy = byok_policy
         self._gateway_factory = gateway_factory
         self._tool_executor = tool_executor
+        self._tool_specs = tool_specs
 
     async def run(self, *, context: AgentRunContext) -> AsyncIterator[RunEvent]:
         emitter = RunEventEmitter(run_id=context.run_id, trace_id=context.trace_id)
@@ -146,7 +150,7 @@ class ProviderRoutedAgentRunner(AgentRunner):
                 org_id=org_id,
                 thread_id=thread_id,
                 model=decision.route.model,
-                tool_specs=context.tool_specs,
+                tool_specs=_merge_tool_specs(self._tool_specs, context.tool_specs),
             )
             gateway = self._gateway_factory.create(credential=decision.credential)
         except Exception:
@@ -187,6 +191,37 @@ def _required_uuid(value: object, *, label: str) -> uuid.UUID:
         return uuid.UUID(value.strip())
     except ValueError as exc:
         raise ValueError(f"{label} 非法") from exc
+
+
+def _merge_tool_specs(
+    base: tuple[ToolSpec, ...],
+    extra: tuple[ToolSpec, ...],
+) -> tuple[ToolSpec, ...]:
+    order: list[str] = []
+    spec_by_name: dict[str, ToolSpec] = {}
+
+    for spec in base:
+        if spec.name in spec_by_name:
+            continue
+        spec_by_name[spec.name] = spec
+        order.append(spec.name)
+
+    for spec in extra:
+        existing = spec_by_name.get(spec.name)
+        if existing is not None and existing != spec:
+            _LOGGER.warning(
+                "tool spec 冲突，使用 context 覆盖 base",
+                extra={
+                    "tool_name": spec.name,
+                    "base_spec": existing.to_json(),
+                    "context_spec": spec.to_json(),
+                },
+            )
+        if spec.name not in spec_by_name:
+            order.append(spec.name)
+        spec_by_name[spec.name] = spec
+
+    return tuple(spec_by_name[name] for name in order)
 
 
 __all__ = [

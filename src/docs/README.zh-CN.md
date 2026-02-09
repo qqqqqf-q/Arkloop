@@ -42,6 +42,10 @@ Windows：先启动 Docker Desktop（Linux Engine）再执行下述命令。
   - Linux/macOS：`ARKLOOP_DATABASE_URL="postgresql+asyncpg://..." python -m uvicorn services.api.main:configure_app --factory --app-dir src`
   - 或设置 `ARKLOOP_LOAD_DOTENV=1`，让应用从仓库根目录 `.env` 读取（不覆盖已存在 env）
 
+工具 allowlist（Phase 1）：
+- 通过 `ARKLOOP_TOOL_ALLOWLIST` 控制允许对 LLM 暴露并执行的内置工具（逗号分隔）；默认空表示禁用全部工具
+- 示例：`ARKLOOP_TOOL_ALLOWLIST=echo,noop`
+
 集成测试（会自动读取仓库根目录 `.env`）：
 - `python -m pytest -q -m integration`
 
