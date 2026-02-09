@@ -464,7 +464,7 @@ web_search 和 web_fetch 不绑死一种实现，采用策略模式做多 backen
 下面按四条主线拆成薄片。每条线内部有依赖顺序，跨线尽量减少阻塞。
 
 **推荐执行顺序（主线 C 优先，这是产品核心价值）：**
-- 主线 C（Agent Loop）先行：P50 -> P51 -> P52 -> P53 -> P54 -> P54.5 -> P55 -> P56 -> P57 -> P58 -> P59
+- 主线 C（Agent Loop）先行：P50 -> P51 -> P52 -> P53 -> P54 -> P54.2 -> P54.3 -> P54.5 -> P55 -> P56 -> P57 -> P58 -> P59
 - 主线 B（Console 管理后台）跟进：P40 -> P41 -> P42 -> P60 -> P43 -> P62 -> P44 -> P45 -> P46
 - 主线 D（前端产品化）穿插：可在 P53 之后开始（此时 tool_call 事件流已稳定）
 - 主线 E（Vault/高级安全）最后
@@ -584,6 +584,42 @@ web_search 和 web_fetch 不绑死一种实现，采用策略模式做多 backen
   - integration pytest：创建 run（stub gateway 模拟 tool_call echo），SSE 事件流包含 tool.call(echo) -> tool.result -> message.delta -> run.completed。
   - unit pytest：echo 工具输入输出稳定。
 
+#### P54.2 -- JobQueue 抽象 + PostgreSQL 队列 v1（占位但可用）
+
+- 目标：把“run 执行投递/领取/确认”从 API/Worker 业务代码中抽成稳定边界，避免后续在 Redis/NATS/Kafka 等队列之间迁移时返工。
+- 关键点：
+  - **抽象先行**：定义 `JobQueue.enqueue_run(...) / lease(...) / ack(...) / nack(...)`（至少能重试与退避）。
+  - **v1 实现不引入新基础设施**：基于 PostgreSQL（表 + `SELECT ... FOR UPDATE SKIP LOCKED`），可选 `LISTEN/NOTIFY` 做唤醒信号。
+  - job payload 需要版本化（schema version），为未来多语言 worker（含 Rust）共存留空间。
+  - 失败语义要稳定：可观测（日志/metrics）、可追责（审计/trace_id）、可重放（DB 可查询）。
+- 具体改动范围：
+  - 新建 `src/packages/job_queue/`（或放入现有 `src/packages/*` 的合适目录）：
+    - `protocol.py`：抽象接口与 payload schema（含版本）。
+    - `pg_queue.py`：PG 实现（enqueue/lease/ack/nack）。
+  - 新建 Alembic migration：创建 `jobs` 表（最小字段：id、job_type、payload_json、status、available_at、leased_until、attempts、created_at、updated_at）。
+  - `src/services/api/`：提供 enqueue 的调用点（仅投递，不执行）。
+  - `src/services/worker/`：提供 lease/ack/nack 的调用点（仅消费，不提供 HTTP）。
+- 依赖：无（可独立落地）
+- 验收：
+  - unit pytest：PG lease 具备互斥（并发 worker 不重复领取同一 job），并能 ack/nack 后改变状态。
+  - integration pytest：API 投递 job 后，worker 能从 DB lease 到 job。
+
+#### P54.3 -- Worker composition root + 并发消费 loop（可水平扩容）
+
+- 目标：让 Worker 成为可独立部署的执行面：单独启动即可消费 job、执行 `RunEngine.execute()` 并落 `run_events`，同时具备清晰的依赖注入入口。
+- 关键点：
+  - Worker 侧建立 composition root：组装 Database、ProviderRouter、GatewayFactory、ToolRegistry/Allowlist、ToolExecutor、RunEngine。
+  - 消费 loop 需要并发上限（`asyncio.Semaphore`）与可配置的 lease/heartbeat，避免长 run 被误判丢失。
+  - 支持幂等：重复投递/重复领取不导致重复执行（至少保证“同一 run_id 不并发执行”）。
+- 具体改动范围：
+  - 新建 `src/services/worker/composition.py`：集中依赖组装。
+  - 调整 `src/services/worker/worker.py`：从 “写 received 事件” 升级为 “执行 RunEngine + 写事件 + ack/nack job”。
+  - 新增 `src/services/worker/main.py`（或复用现有入口）：启动消费 loop（支持环境变量配置并发/轮询间隔）。
+- 依赖：P54.2
+- 验收：
+  - integration pytest：启动 worker loop 后，能消费 job 并写入 `run_events`，SSE 可回放。
+  - 手工验证：`docker compose up` 同时启动 API + Worker，run 能在 worker 中完成而非 API 中完成。
+
 #### P54.5 -- RunEngine 迁移到 Worker（API 不再执行 Agent Loop）
 
 - 目标：把 `RunEngine.execute()` 从 API 进程迁移到 Worker 进程，API 侧改为投递 job 到队列，实现 1.5 节约定的服务边界。
@@ -602,7 +638,7 @@ web_search 和 web_fetch 不绑死一种实现，采用策略模式做多 backen
   - `src/services/worker/composition.py`（新建）：Worker 的依赖组装（Database、ProviderRouter、ToolRegistry、ToolExecutor、RunEngine）。
   - `src/services/api/run_executor.py`：新增 `QueuedRunExecutor`（投递 job 到队列）；`InProcessStubRunExecutor` 保留但降级为开发模式。
   - `src/services/api/main.py`：根据配置选择 executor 模式。
-- 依赖：P54（echo/noop 验证全链路通过后再迁移，降低风险）
+- 依赖：P54、P54.2、P54.3（echo/noop 验证全链路通过后再迁移，降低风险）
 - 验收：
   - integration pytest：通过 API 创建 run -> Worker 消费 job -> 事件写入 -> SSE 可回放。
   - integration pytest：API 进程内不再 import AgentLoop 或 LlmGateway（可通过 import 检查或进程隔离测试验证）。
