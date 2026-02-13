@@ -606,20 +606,22 @@ web_search 和 web_fetch 不绑死一种实现，采用策略模式做多 backen
   - integration pytest：API 投递 job 后，worker 能从 DB lease 到 job。
   - 参考用例：`src/tests/integration/test_job_queue_pg_integration.py`。
 
-#### P54.3 -- Worker composition root + 并发消费 loop（可水平扩容）
+#### P54.3 -- Worker composition root + 并发消费 loop（可水平扩容）(已完成)
 
 - 目标：让 Worker 成为可独立部署的执行面：单独启动即可消费 job、执行 `RunEngine.execute()` 并落 `run_events`，同时具备清晰的依赖注入入口。
 - 关键点：
   - Worker 侧建立 composition root：组装 Database、ProviderRouter、GatewayFactory、ToolRegistry/Allowlist、ToolExecutor、RunEngine。
-  - 消费 loop 需要并发上限（`asyncio.Semaphore`）与可配置的 lease/heartbeat，避免长 run 被误判丢失。
+  - 消费 loop 需要并发上限（`asyncio.Semaphore`）与可配置的 lease/heartbeat（`JobQueue.heartbeat(...)`），避免长 run 被误判丢失。
   - 支持幂等：重复投递/重复领取不导致重复执行（至少保证“同一 run_id 不并发执行”）。
 - 具体改动范围：
-  - 新建 `src/services/worker/composition.py`：集中依赖组装。
-  - 调整 `src/services/worker/worker.py`：从 “写 received 事件” 升级为 “执行 RunEngine + 写事件 + ack/nack job”。
-  - 新增 `src/services/worker/main.py`（或复用现有入口）：启动消费 loop（支持环境变量配置并发/轮询间隔）。
+  - 新建 `src/services/worker/composition.py`：集中依赖组装（Database/Router/ToolExecutor/RunEngine）。
+  - 新建 `src/services/worker/consumer_loop.py`：并发消费 loop（lease/heartbeat + ack/nack）。
+  - 调整 `src/services/worker/worker.py`：对 `run.execute` 调用 `RunEngine.execute()`，并写 `worker.job.received`。
+  - 新增 `src/services/worker/main.py`：启动消费 loop（支持环境变量配置并发/轮询间隔/lease/heartbeat）。
+  - 扩展 `packages.job_queue.JobQueue`：新增 `heartbeat(...)`，PG 实现更新 `leased_until`。
 - 依赖：P54.2
 - 验收：
-  - integration pytest：启动 worker loop 后，能消费 job 并写入 `run_events`，SSE 可回放。
+  - integration pytest：`src/tests/integration/test_worker_consumer_loop_integration.py` 覆盖 enqueue -> worker loop 消费 -> job ack(done) -> SSE 回放/续传。
   - 手工验证：`docker compose up` 同时启动 API + Worker，run 能在 worker 中完成而非 API 中完成。
 
 #### P54.5 -- RunEngine 迁移到 Worker（API 不再执行 Agent Loop）
