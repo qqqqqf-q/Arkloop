@@ -60,6 +60,9 @@ class JobQueue(ABC):
     async def lease(self, *, lease_seconds: int = 30) -> JobLease | None: ...
 
     @abstractmethod
+    async def heartbeat(self, *, lease: JobLease, lease_seconds: int = 30) -> None: ...
+
+    @abstractmethod
     async def ack(self, *, lease: JobLease) -> None: ...
 
     @abstractmethod

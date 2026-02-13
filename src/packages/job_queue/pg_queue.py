@@ -124,6 +124,23 @@ class SqlAlchemyPgJobQueue(JobQueue):
                 return None
         return None
 
+    async def heartbeat(self, *, lease: JobLease, lease_seconds: int = 30) -> None:
+        if lease_seconds <= 0:
+            raise ValueError("lease_seconds 必须为正数")
+
+        now = sa.func.now()
+        lease_until = now + sa.func.make_interval(0, 0, 0, 0, 0, 0, lease_seconds)
+        stmt = (
+            sa.update(_jobs)
+            .where(_jobs.c.id == lease.job_id)
+            .where(_jobs.c.status == JOB_STATUS_LEASED)
+            .where(_jobs.c.lease_token == lease.lease_token)
+            .values(leased_until=lease_until, updated_at=now)
+        )
+        result = await self._session.execute(stmt)
+        if result.rowcount != 1:
+            raise JobLeaseLostError(job_id=lease.job_id)
+
     async def ack(self, *, lease: JobLease) -> None:
         stmt = (
             sa.update(_jobs)
