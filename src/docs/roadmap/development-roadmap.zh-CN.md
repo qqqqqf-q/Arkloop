@@ -693,7 +693,7 @@ web_search 和 web_fetch 不绑死一种实现，采用策略模式做多 backen
   - unit pytest：两个 backend 的输出都符合 `WebSearchResult` schema。
   - 手工验证：切换 backend 后 Agent 搜索行为一致。
 
-#### P56 -- 内置工具 #3：web_fetch（多 backend、只读、中风险）
+#### P56 -- 内置工具 #3：web_fetch（多 backend、只读、中风险）(已完成)
 
 - 目标：实现 web_fetch 工具，使 Agent 能抓取网页内容。采用策略模式支持多种抓取后端（见 1.7 节）。
 - 关键点：
