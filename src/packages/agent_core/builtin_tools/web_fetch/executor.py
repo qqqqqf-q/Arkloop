@@ -15,6 +15,8 @@ from packages.llm_gateway import ToolSpec as LlmToolSpec
 
 from .basic import BasicWebFetchHttpError, BasicWebFetchProvider
 from .config import WebFetchConfig
+from .firecrawl import FirecrawlWebFetchHttpError, FirecrawlWebFetchProvider
+from .jina import JinaWebFetchHttpError, JinaWebFetchProvider
 from .provider import WebFetchProvider, WebFetchResult
 from .url_policy import UrlPolicyDeniedError, ensure_url_allowed
 
@@ -57,6 +59,19 @@ def _provider_from_env() -> WebFetchProvider | None:
 
     if config.provider_kind == "basic":
         return BasicWebFetchProvider()
+
+    if config.provider_kind == "firecrawl":
+        if config.firecrawl_base_url:
+            return FirecrawlWebFetchProvider(
+                api_key=config.firecrawl_api_key,
+                base_url=config.firecrawl_base_url,
+            )
+        return FirecrawlWebFetchProvider(api_key=config.firecrawl_api_key)
+
+    if config.provider_kind == "jina":
+        if not config.jina_api_key:
+            raise ValueError("Jina api_key 未配置")
+        return JinaWebFetchProvider(api_key=config.jina_api_key)
 
     raise ValueError(f"web_fetch provider 未实现：{config.provider_kind}")
 
@@ -132,7 +147,7 @@ class WebFetchToolExecutor:
                 ),
                 duration_ms=_duration_ms(started),
             )
-        except BasicWebFetchHttpError as exc:
+        except (BasicWebFetchHttpError, FirecrawlWebFetchHttpError, JinaWebFetchHttpError) as exc:
             return ToolExecutionResult(
                 error=ToolExecutionError(
                     error_class=_ERROR_CLASS_FETCH_FAILED,
@@ -210,4 +225,3 @@ __all__ = [
     "WEB_FETCH_LLM_TOOL_SPEC",
     "WebFetchToolExecutor",
 ]
-

@@ -721,7 +721,7 @@ web_search 和 web_fetch 不绑死一种实现，采用策略模式做多 backen
   - unit pytest：超时返回明确错误。
   - unit pytest：未配置 backend 时 fallback 到 basic。
 
-#### P56.1 -- web_fetch 增强 backend（Firecrawl / Jina Reader）
+#### P56.1 -- web_fetch 增强 backend（Firecrawl / Jina Reader）（已完成）
 
 - 目标：为 web_fetch 增加增强 backend adapter（Firecrawl 或 Jina Reader），处理 JS 渲染页面和 anti-bot 场景。
 - 关键点：

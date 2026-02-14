@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import uuid
 
 import anyio
@@ -7,7 +8,10 @@ import httpx
 import pytest
 
 from packages.agent_core.builtin_tools.web_fetch.basic import BasicWebFetchProvider
+from packages.agent_core.builtin_tools.web_fetch.config import WebFetchConfig
 from packages.agent_core.builtin_tools.web_fetch.executor import WebFetchToolExecutor
+from packages.agent_core.builtin_tools.web_fetch.firecrawl import FirecrawlWebFetchProvider
+from packages.agent_core.builtin_tools.web_fetch.jina import JinaWebFetchProvider
 from packages.agent_core.builtin_tools.web_fetch.provider import WebFetchResult
 from packages.agent_core.builtin_tools.web_fetch.url_policy import UrlPolicyDeniedError, ensure_url_allowed
 from packages.agent_core.executor import ToolExecutionContext
@@ -93,6 +97,195 @@ def test_basic_provider_truncates_content() -> None:
     result = anyio.run(_run)
     assert result.truncated is True
     assert len(result.content) == 3
+
+
+def test_firecrawl_provider_maps_markdown_response() -> None:
+    def _handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "POST"
+        assert request.url.path == "/v1/scrape"
+        assert request.headers.get("authorization") == "Bearer fc-test"
+        payload = json.loads(request.content.decode("utf-8"))
+        assert payload["url"] == "https://example.test/page"
+        assert payload["formats"] == ["markdown"]
+        assert payload["onlyMainContent"] is True
+        return httpx.Response(
+            200,
+            json={
+                "success": True,
+                "data": {
+                    "url": "https://example.test/page",
+                    "markdown": "# Heading\n\nHello",
+                    "metadata": {"title": "Example Title"},
+                },
+            },
+        )
+
+    transport = httpx.MockTransport(_handler)
+
+    async def _run() -> WebFetchResult:
+        async with httpx.AsyncClient(
+            base_url="https://api.firecrawl.example.test",
+            transport=transport,
+        ) as client:
+            provider = FirecrawlWebFetchProvider(
+                api_key="fc-test",
+                base_url="https://api.firecrawl.example.test",
+                client=client,
+            )
+            return await provider.fetch(url="https://example.test/page", max_length=10_000)
+
+    result = anyio.run(_run)
+    assert result.url == "https://example.test/page"
+    assert result.title == "Example Title"
+    assert "Hello" in result.content
+    assert result.truncated is False
+
+
+def test_firecrawl_provider_works_without_api_key() -> None:
+    def _handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "POST"
+        assert request.url.path == "/v1/scrape"
+        assert request.headers.get("authorization") is None
+        assert request.headers.get("x-api-key") is None
+        return httpx.Response(
+            200,
+            json={
+                "success": True,
+                "data": {
+                    "url": "https://example.test/page",
+                    "markdown": "Hello",
+                    "metadata": {"title": "Example Title"},
+                },
+            },
+        )
+
+    transport = httpx.MockTransport(_handler)
+
+    async def _run() -> WebFetchResult:
+        async with httpx.AsyncClient(
+            base_url="https://api.firecrawl.example.test",
+            transport=transport,
+        ) as client:
+            provider = FirecrawlWebFetchProvider(
+                api_key=None,
+                base_url="https://api.firecrawl.example.test",
+                client=client,
+            )
+            return await provider.fetch(url="https://example.test/page", max_length=10_000)
+
+    result = anyio.run(_run)
+    assert result.title == "Example Title"
+    assert result.content == "Hello"
+
+
+def test_firecrawl_provider_truncates_content() -> None:
+    def _handler(request: httpx.Request) -> httpx.Response:
+        _ = request
+        return httpx.Response(
+            200,
+            json={
+                "success": True,
+                "data": {
+                    "url": "https://example.test/page",
+                    "markdown": "abcdef",
+                    "metadata": {"title": "t"},
+                },
+            },
+        )
+
+    transport = httpx.MockTransport(_handler)
+
+    async def _run() -> WebFetchResult:
+        async with httpx.AsyncClient(
+            base_url="https://api.firecrawl.example.test",
+            transport=transport,
+        ) as client:
+            provider = FirecrawlWebFetchProvider(
+                api_key="fc-test",
+                base_url="https://api.firecrawl.example.test",
+                client=client,
+            )
+            return await provider.fetch(url="https://example.test/page", max_length=3)
+
+    result = anyio.run(_run)
+    assert result.truncated is True
+    assert len(result.content) == 3
+
+
+def test_jina_provider_fetches_markdown_and_extracts_title() -> None:
+    def _handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        assert str(request.url) == "https://r.jina.example.test/https://example.test/page"
+        assert request.headers.get("authorization") == "Bearer jina-test"
+        return httpx.Response(200, text="# Example Title\n\nHello")
+
+    transport = httpx.MockTransport(_handler)
+
+    async def _run() -> WebFetchResult:
+        async with httpx.AsyncClient(transport=transport) as client:
+            provider = JinaWebFetchProvider(
+                api_key="jina-test",
+                base_url="https://r.jina.example.test",
+                client=client,
+            )
+            return await provider.fetch(url="https://example.test/page", max_length=10_000)
+
+    result = anyio.run(_run)
+    assert result.url == "https://example.test/page"
+    assert result.title == "Example Title"
+    assert "Hello" in result.content
+    assert result.truncated is False
+
+
+def test_web_fetch_config_reads_firecrawl_api_key_env(monkeypatch) -> None:
+    monkeypatch.delenv("ARKLOOP_LOAD_DOTENV", raising=False)
+    monkeypatch.delenv("ARKLOOP_DOTENV_FILE", raising=False)
+    monkeypatch.setenv("ARKLOOP_WEB_FETCH_PROVIDER", "firecrawl")
+    monkeypatch.setenv("ARKLOOP_WEB_FETCH_FIRECRAWL_API_KEY", "fc-test")
+    monkeypatch.setenv("ARKLOOP_WEB_FETCH_FIRECRAWL_BASE_URL", "https://firecrawl.example.test/")
+
+    config = WebFetchConfig.from_env(required=True)
+    assert config is not None
+    assert config.provider_kind == "firecrawl"
+    assert config.firecrawl_api_key == "fc-test"
+    assert config.firecrawl_base_url == "https://firecrawl.example.test"
+    assert "fc-test" not in repr(config)
+
+
+def test_web_fetch_config_allows_missing_firecrawl_api_key(monkeypatch) -> None:
+    monkeypatch.delenv("ARKLOOP_LOAD_DOTENV", raising=False)
+    monkeypatch.delenv("ARKLOOP_DOTENV_FILE", raising=False)
+    monkeypatch.setenv("ARKLOOP_WEB_FETCH_PROVIDER", "firecrawl")
+    monkeypatch.delenv("ARKLOOP_WEB_FETCH_FIRECRAWL_API_KEY", raising=False)
+
+    config = WebFetchConfig.from_env(required=True)
+    assert config is not None
+    assert config.provider_kind == "firecrawl"
+    assert config.firecrawl_api_key is None
+
+
+def test_web_fetch_config_reads_jina_api_key_env(monkeypatch) -> None:
+    monkeypatch.delenv("ARKLOOP_LOAD_DOTENV", raising=False)
+    monkeypatch.delenv("ARKLOOP_DOTENV_FILE", raising=False)
+    monkeypatch.setenv("ARKLOOP_WEB_FETCH_PROVIDER", "jina")
+    monkeypatch.setenv("ARKLOOP_WEB_FETCH_JINA_API_KEY", "jina-test")
+
+    config = WebFetchConfig.from_env(required=True)
+    assert config is not None
+    assert config.provider_kind == "jina"
+    assert config.jina_api_key == "jina-test"
+    assert "jina-test" not in repr(config)
+
+
+def test_web_fetch_config_rejects_missing_jina_api_key(monkeypatch) -> None:
+    monkeypatch.delenv("ARKLOOP_LOAD_DOTENV", raising=False)
+    monkeypatch.delenv("ARKLOOP_DOTENV_FILE", raising=False)
+    monkeypatch.setenv("ARKLOOP_WEB_FETCH_PROVIDER", "jina")
+    monkeypatch.delenv("ARKLOOP_WEB_FETCH_JINA_API_KEY", raising=False)
+
+    with pytest.raises(ValueError) as exc:
+        WebFetchConfig.from_env(required=True)
+    assert "ARKLOOP_WEB_FETCH_JINA_API_KEY" in str(exc.value)
 
 
 def test_web_fetch_executor_returns_schema() -> None:
@@ -187,4 +380,3 @@ def test_web_fetch_executor_falls_back_when_backend_not_configured() -> None:
     assert result.error is None
     assert result.result_json is not None
     assert result.result_json["title"] == "ok"
-
