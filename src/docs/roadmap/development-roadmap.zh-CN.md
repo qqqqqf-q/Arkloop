@@ -648,9 +648,17 @@ web_search 和 web_fetch 不绑死一种实现，采用策略模式做多 backen
   - integration pytest：API 进程内不再 import AgentLoop 或 LlmGateway（可通过 import 检查或进程隔离测试验证）。
   - 手工验证：`docker compose up` 同时启动 API + Worker，创建 run 后事件流正常。
 
-#### P55 -- 内置工具 #2：web_search（多 backend、只读、低风险）
+#### P55 -- 内置工具 #2：web_search（多 backend、只读、低风险）(已完成)
 
 - 目标：实现 web_search 工具，使 Agent 能搜索互联网。采用策略模式支持多种搜索后端（见 1.7 节）。
+- 完成情况：
+  - v1 已落地 `searxng` 与 `tavily` 两个 backend（`serper` 留作后续）。
+  - 配置项（SearXNG）：
+    - `ARKLOOP_WEB_SEARCH_PROVIDER=searxng`
+    - `ARKLOOP_WEB_SEARCH_SEARXNG_BASE_URL=http://...`（SearXNG 实例 base_url）
+  - 配置项（Tavily）：
+    - `ARKLOOP_WEB_SEARCH_PROVIDER=tavily`
+    - `ARKLOOP_WEB_SEARCH_TAVILY_API_KEY=tvly-...`
 - 关键点：
   - 输入：`{ "query": "...", "max_results": 5 }`。
   - 输出：`{ "results": [{ "title": "...", "url": "...", "snippet": "..." }] }`。
@@ -674,7 +682,7 @@ web_search 和 web_fetch 不绑死一种实现，采用策略模式做多 backen
   - unit pytest：未配置 backend 时返回明确错误。
   - 手工验证：连接真实搜索 API，Agent 能搜索并引用结果回答。
 
-#### P55.1 -- web_search 第二 backend（可选，按需跟进）
+#### P55.1 -- web_search 第二 backend（可选，按需跟进）(已完成)
 
 - 目标：为 web_search 增加第二个 backend adapter，验证 `WebSearchProvider` 协议的可扩展性。
 - 关键点：
