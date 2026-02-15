@@ -9,7 +9,11 @@ from .client import (
 )
 from .config import McpConfig, McpServerConfig
 from .executor import McpToolExecutor
-from .registry import McpToolRegistration, load_mcp_tool_registration_from_env
+from .registry import (
+    McpToolRegistration,
+    load_mcp_tool_registration_from_env,
+    load_mcp_tool_registration_from_env_async,
+)
 
 __all__ = [
     "McpClientError",
@@ -22,4 +26,5 @@ __all__ = [
     "McpToolExecutor",
     "McpToolRegistration",
     "load_mcp_tool_registration_from_env",
+    "load_mcp_tool_registration_from_env_async",
 ]

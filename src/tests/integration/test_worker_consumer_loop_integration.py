@@ -210,7 +210,7 @@ def test_worker_loop_consumes_pg_job_and_is_replayable_via_sse(monkeypatch) -> N
                 assert job_id
 
                 async def _run_worker_once() -> None:
-                    database, loop = create_container(
+                    database, loop = await create_container(
                         database_config=DatabaseConfig(url=test_sqlalchemy_url),
                         loop_config=WorkerLoopConfig(),
                     )
@@ -338,11 +338,11 @@ def test_worker_loop_dedupes_duplicate_run_jobs_via_run_lock(monkeypatch) -> Non
 
                 async def _run_workers_concurrently() -> None:
                     loop_config = WorkerLoopConfig(concurrency=1, poll_seconds=0, heartbeat_seconds=0)
-                    database1, loop1 = create_container(
+                    database1, loop1 = await create_container(
                         database_config=DatabaseConfig(url=test_sqlalchemy_url),
                         loop_config=loop_config,
                     )
-                    database2, loop2 = create_container(
+                    database2, loop2 = await create_container(
                         database_config=DatabaseConfig(url=test_sqlalchemy_url),
                         loop_config=loop_config,
                     )

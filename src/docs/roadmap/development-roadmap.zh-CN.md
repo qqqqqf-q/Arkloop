@@ -778,7 +778,7 @@ web_search 和 web_fetch 不绑死一种实现，采用策略模式做多 backen
   - unit pytest：TTL 到期会在归还后重建会话；进程异常退出可自动重启并返回明确错误。
   - 性能 smoke：高频调用下进程数稳定（不随调用次数线性增长）。
 
-#### P57.2 -- MCP 工具注册加载 async 化 v1（startup 可用，可选缓存）
+#### P57.2 -- MCP 工具注册加载 async 化 v1（startup 可用，可选缓存）（已完成）
 
 - 目标：提供 async 版加载入口，确保 Worker 的 async startup 能真正加载 MCP 工具；同时避免在事件循环里误用 sync 入口导致“看似启用了但实际没生效”。
 - 关键点：

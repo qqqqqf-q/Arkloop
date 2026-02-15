@@ -21,7 +21,7 @@ from packages.job_queue import JobQueue, SqlAlchemyPgJobQueue
 from packages.llm_gateway import ToolSpec as LlmToolSpec
 from packages.llm_gateway.stub import StubLlmGateway, StubLlmGatewayConfig
 from packages.llm_routing import ProviderRouter, ProviderRoutingConfig
-from packages.mcp import load_mcp_tool_registration_from_env
+from packages.mcp import load_mcp_tool_registration_from_env_async
 from services.api.provider_routed_runner import (
     AlwaysDisabledOrgByokPolicy,
     EnvProviderGatewayFactory,
@@ -49,7 +49,7 @@ def create_job_queue_factory() -> JobQueueFactory:
     return _factory
 
 
-def create_worker(*, database: Database) -> Worker:
+async def create_worker(*, database: Database) -> Worker:
     stub_config = StubLlmGatewayConfig.from_env()
     stub_gateway = StubLlmGateway(config=stub_config)
 
@@ -57,7 +57,7 @@ def create_worker(*, database: Database) -> Worker:
     router = ProviderRouter(config=routing_config)
 
     tool_registry = ToolRegistry(specs=builtin_agent_tool_specs())
-    mcp_registration = load_mcp_tool_registration_from_env()
+    mcp_registration = await load_mcp_tool_registration_from_env_async()
     for spec in mcp_registration.agent_specs:
         tool_registry.register(spec)
     tool_allowlist_names = _parse_tool_allowlist_names()
@@ -109,14 +109,14 @@ def create_loop(
     )
 
 
-def create_container(
+async def create_container(
     *,
     database_config: DatabaseConfig | None = None,
     loop_config: WorkerLoopConfig | None = None,
 ) -> tuple[Database, WorkerConsumerLoop]:
     database = create_database(config=database_config)
     job_queue_factory = create_job_queue_factory()
-    worker = create_worker(database=database)
+    worker = await create_worker(database=database)
     loop = create_loop(
         database=database,
         job_queue_factory=job_queue_factory,

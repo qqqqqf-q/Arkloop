@@ -10,7 +10,7 @@ from .composition import create_container
 
 
 async def _run() -> None:
-    database, loop = create_container()
+    database, loop = await create_container()
     try:
         await loop.run_forever()
     finally:

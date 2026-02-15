@@ -98,6 +98,17 @@ async def discover_mcp_tools(*, config: McpConfig, pool: McpStdioClientPool | No
 
 def load_mcp_tool_registration_from_env(*, pool: McpStdioClientPool | None = None) -> McpToolRegistration:
     empty = McpToolRegistration(agent_specs=(), llm_specs=(), executors={})
+
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        pass
+    else:
+        raise RuntimeError(
+            "检测到运行中的事件循环：禁止调用同步 MCP 工具发现。"
+            "请改用 load_mcp_tool_registration_from_env_async(...)"
+        )
+
     try:
         cfg = McpConfig.from_env()
     except Exception as exc:
@@ -108,15 +119,25 @@ def load_mcp_tool_registration_from_env(*, pool: McpStdioClientPool | None = Non
         return empty
 
     try:
-        asyncio.get_running_loop()
-    except RuntimeError:
-        pass
-    else:
-        _LOGGER.warning("检测到运行中的事件循环，跳过同步 MCP 工具发现")
+        return asyncio.run(discover_mcp_tools(config=cfg, pool=pool))
+    except Exception as exc:
+        _LOGGER.warning("MCP 工具发现失败，已禁用", extra={"reason": str(exc)})
+        return empty
+
+
+async def load_mcp_tool_registration_from_env_async(*, pool: McpStdioClientPool | None = None) -> McpToolRegistration:
+    empty = McpToolRegistration(agent_specs=(), llm_specs=(), executors={})
+    try:
+        cfg = McpConfig.from_env()
+    except Exception as exc:
+        _LOGGER.warning("读取 MCP 配置失败，已禁用", extra={"reason": str(exc)})
+        return empty
+
+    if cfg is None or not cfg.servers:
         return empty
 
     try:
-        return asyncio.run(discover_mcp_tools(config=cfg, pool=pool))
+        return await discover_mcp_tools(config=cfg, pool=pool)
     except Exception as exc:
         _LOGGER.warning("MCP 工具发现失败，已禁用", extra={"reason": str(exc)})
         return empty
@@ -158,4 +179,9 @@ def _ensure_unique_tool_name(name: str, used: set[str]) -> str:
         index += 1
 
 
-__all__ = ["McpToolRegistration", "discover_mcp_tools", "load_mcp_tool_registration_from_env"]
+__all__ = [
+    "McpToolRegistration",
+    "discover_mcp_tools",
+    "load_mcp_tool_registration_from_env",
+    "load_mcp_tool_registration_from_env_async",
+]
