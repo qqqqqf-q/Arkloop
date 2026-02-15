@@ -759,37 +759,41 @@ web_search 和 web_fetch 不绑死一种实现，采用策略模式做多 backen
   - unit pytest：MCP server 超时/崩溃时返回明确错误。
   - integration pytest：启动一个简单的 MCP server（echo 工具），通过 Agent Loop 调用成功。
 
-#### P57.1 -- MCP stdio 会话复用 v1（连接/进程池 + TTL）
+#### P57.1 -- MCP stdio 会话复用 v1（进程/连接池 + TTL）
 
-- 目标：避免每次 `tools/call` 都新起子进程 + 重复 `initialize`，降低高频工具调用的 CPU/IO 开销。
+- 目标：避免每次 `tools/call` 都新起子进程 + 重复 `initialize`，把“高频工具调用”从进程风暴里救出来（降低 CPU/IO 与延迟抖动）。
 - 关键点：
-  - 复用粒度：以 `server_id` 为 key 维护连接/进程（默认），并提供 TTL 与异常重启。
-  - 并发与隔离：同一 server 的并发调用需要串行化（或限定并发），避免 stdout 混线；不跨 server 共享进程。
+  - 复用粒度：默认以 `(org_id, server_id)` 为 key 复用会话（`org_id` 缺失时回退 `server_id`），避免跨租户共享进程状态；提供 TTL 与异常重启。
+  - 并发策略：v1 默认单会话单飞（同一 client 内串行），需要并行时用“同 server 多 client”实现（受 `max_clients_per_server` 限制）；不跨 server 共享进程。
+  - 生命周期：Worker 退出时显式关闭池，避免遗留子进程；TTL 只在归还后触发回收（不打断 in-flight）。
   - 事件流仍是唯一真相：`tool.call`/`tool.result` 的语义不变，只优化执行通道。
 - 具体改动范围：
-  - 新建 `src/packages/mcp/pool.py`：进程/连接池（server_id → client/session）。
-  - `src/packages/mcp/executor.py`：从“每次新建 client”改为“从池里借用/归还”。
+  - 新建 `src/packages/mcp/pool.py`：会话池（key → `McpStdioClient`），提供 borrow/return、TTL、evict、close_all。
+  - `src/packages/mcp/executor.py`：从“每次新建 client”改为“从池里借用/归还”；遇到断线/协议错误时驱逐会话并重建。
+  - `src/services/worker/main.py`（或 composition root）：在启动/退出生命周期里管理池（启动可 lazy；退出必须 close）。
   - 配置：增加 `ARKLOOP_MCP_POOL_TTL_SECONDS`、`ARKLOOP_MCP_POOL_MAX_CLIENTS_PER_SERVER`（可选）。
 - 依赖：P57
 - 验收：
-  - unit pytest：同一 tool 连续调用不重复 initialize（通过 mock client 计数）。
-  - unit pytest：TTL 到期会重建会话；进程异常退出可自动重启并返回明确错误。
+  - unit pytest：同一 tool 连续调用不重复 initialize（mock client 计数）。
+  - unit pytest：TTL 到期会在归还后重建会话；进程异常退出可自动重启并返回明确错误。
   - 性能 smoke：高频调用下进程数稳定（不随调用次数线性增长）。
 
-#### P57.2 -- MCP 工具发现 async 化 v1（可缓存入口）
+#### P57.2 -- MCP 工具注册加载 async 化 v1（startup 可用，可选缓存）
 
-- 目标：提供 async 版加载入口，便于在服务生命周期（startup hook）或未来动态租户配置中安全启用 MCP。
+- 目标：提供 async 版加载入口，确保 Worker 的 async startup 能真正加载 MCP 工具；同时避免在事件循环里误用 sync 入口导致“看似启用了但实际没生效”。
 - 关键点：
-  - 同步入口仅用于“纯启动阶段”；在运行中事件循环存在时，不应静默失效。
-  - 提供可选缓存：按配置文件路径 + mtime 缓存 discovery 结果，避免重复启动 MCP server 探测。
+  - 入口约束：sync 入口只用于无事件循环的场景（CLI/一次性脚本）；在事件循环中调用应直接抛错并提示改用 async 入口，禁止静默跳过。
+  - 服务边界：MCP 工具发现/握手会启动子进程，必须只发生在 Worker（符合 1.5 节）；API 仅在 `in_process` 开发模式下允许同步加载。
+  - 可选缓存（如确有需要再做）：进程内缓存（配置文件路径 + mtime → registration），避免同进程重复探测；不做跨进程持久化，避免 stale。
 - 具体改动范围：
-  - `src/packages/mcp/registry.py`：增加 `async def load_mcp_tool_registration_from_env_async(...)`。
-  - `src/services/api/main.py`/`src/services/worker/...`：在 async lifespan/startup 中调用 async 入口（可选开关）。
-  - 新建 `src/packages/mcp/cache.py`（如需要）：基于 mtime 的轻量缓存。
+  - `src/packages/mcp/registry.py`：增加 `async def load_mcp_tool_registration_from_env_async(...)`；并调整 sync 入口在事件循环中的行为（改为显式报错）。
+  - `src/services/worker/main.py`/`src/services/worker/composition.py`：在 async 启动阶段 `await` async 入口，并把 registration 注入 ToolRegistry/ToolExecutor 组装流程。
+  - （可选）不要急着新建 `src/packages/mcp/cache.py`：先把缓存做在 `registry.py` 内的私有模块变量，等复杂度上来再拆。
 - 依赖：P57
 - 验收：
-  - unit pytest：async 入口在事件循环中可用；配置错误/握手失败会降级为禁用且有明确日志。
-  - unit pytest：缓存命中/失效逻辑正确（mtime 变化触发刷新）。
+  - integration pytest：在真实事件循环（worker 启动路径）里能加载 MCP 工具并完成一次 tool 调用。
+  - unit pytest：async 入口在事件循环中可用；配置错误/握手失败行为可观测（不静默）。
+  - （如实现缓存）unit pytest：缓存命中/失效逻辑正确（mtime 变化触发刷新）。
 
 #### P58 -- MCP SSE 传输层
 
