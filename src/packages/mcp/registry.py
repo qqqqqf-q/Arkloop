@@ -14,6 +14,7 @@ from packages.llm_gateway import ToolSpec as LlmToolSpec
 from .client import McpStdioClient, McpTool
 from .config import McpConfig, McpServerConfig
 from .executor import McpToolExecutor
+from .pool import McpStdioClientPool
 
 _TOOL_NAME_SAFE_RE = re.compile(r"[^A-Za-z0-9_-]+")
 _LOGGER = logging.getLogger("arkloop.mcp")
@@ -26,7 +27,7 @@ class McpToolRegistration:
     executors: Mapping[str, ToolExecutor]
 
 
-async def discover_mcp_tools(*, config: McpConfig) -> McpToolRegistration:
+async def discover_mcp_tools(*, config: McpConfig, pool: McpStdioClientPool | None = None) -> McpToolRegistration:
     agent_specs: list[AgentToolSpec] = []
     llm_specs: list[LlmToolSpec] = []
     executors: dict[str, ToolExecutor] = {}
@@ -84,7 +85,7 @@ async def discover_mcp_tools(*, config: McpConfig) -> McpToolRegistration:
                 )
             )
 
-        executor = McpToolExecutor(server=server, remote_tool_name_by_tool_name=tool_map)
+        executor = McpToolExecutor(server=server, remote_tool_name_by_tool_name=tool_map, pool=pool)
         for internal_name in tool_map.keys():
             executors[internal_name] = executor
 
@@ -95,7 +96,7 @@ async def discover_mcp_tools(*, config: McpConfig) -> McpToolRegistration:
     )
 
 
-def load_mcp_tool_registration_from_env() -> McpToolRegistration:
+def load_mcp_tool_registration_from_env(*, pool: McpStdioClientPool | None = None) -> McpToolRegistration:
     empty = McpToolRegistration(agent_specs=(), llm_specs=(), executors={})
     try:
         cfg = McpConfig.from_env()
@@ -115,7 +116,7 @@ def load_mcp_tool_registration_from_env() -> McpToolRegistration:
         return empty
 
     try:
-        return asyncio.run(discover_mcp_tools(config=cfg))
+        return asyncio.run(discover_mcp_tools(config=cfg, pool=pool))
     except Exception as exc:
         _LOGGER.warning("MCP 工具发现失败，已禁用", extra={"reason": str(exc)})
         return empty

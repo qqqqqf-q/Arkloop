@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import time
 from typing import Any, Mapping
 
@@ -17,6 +18,7 @@ from .client import (
     McpTimeoutError,
 )
 from .config import McpServerConfig
+from .pool import McpStdioClientPool, McpStdioPoolKey, get_default_mcp_stdio_client_pool
 
 ERROR_CLASS_MCP_TIMEOUT = "mcp.timeout"
 ERROR_CLASS_MCP_DISCONNECTED = "mcp.disconnected"
@@ -31,9 +33,11 @@ class McpToolExecutor:
         *,
         server: McpServerConfig,
         remote_tool_name_by_tool_name: Mapping[str, str],
+        pool: McpStdioClientPool | None = None,
     ) -> None:
         self._server = server
         self._remote_tool_name_by_tool_name = dict(remote_tool_name_by_tool_name)
+        self._pool = pool
 
     async def execute(
         self,
@@ -45,6 +49,8 @@ class McpToolExecutor:
     ) -> ToolExecutionResult:
         _ = (context, tool_call_id)
         started = time.monotonic()
+        key = McpStdioPoolKey.from_context(org_id=context.org_id, server_id=self._server.server_id)
+        pool = self._pool or get_default_mcp_stdio_client_pool()
 
         remote_name = self._remote_tool_name_by_tool_name.get(tool_name)
         if remote_name is None:
@@ -59,11 +65,16 @@ class McpToolExecutor:
 
         timeout_ms = context.timeout_ms or self._server.call_timeout_ms
 
+        client: McpStdioClient | None = None
+        should_evict = False
+        error_result: ToolExecutionResult | None = None
+        result = None
+
         try:
-            async with McpStdioClient(server=self._server) as client:
-                result = await client.call_tool(name=remote_name, arguments=args, timeout_ms=timeout_ms)
+            client = await pool.borrow(key=key, server=self._server)
+            result = await client.call_tool(name=remote_name, arguments=args, timeout_ms=timeout_ms)
         except McpTimeoutError as exc:
-            return ToolExecutionResult(
+            error_result = ToolExecutionResult(
                 error=ToolExecutionError(
                     error_class=ERROR_CLASS_MCP_TIMEOUT,
                     message=str(exc),
@@ -72,7 +83,8 @@ class McpToolExecutor:
                 duration_ms=_duration_ms(started),
             )
         except McpDisconnectedError as exc:
-            return ToolExecutionResult(
+            should_evict = True
+            error_result = ToolExecutionResult(
                 error=ToolExecutionError(
                     error_class=ERROR_CLASS_MCP_DISCONNECTED,
                     message=str(exc),
@@ -81,7 +93,7 @@ class McpToolExecutor:
                 duration_ms=_duration_ms(started),
             )
         except McpRpcError as exc:
-            return ToolExecutionResult(
+            error_result = ToolExecutionResult(
                 error=ToolExecutionError(
                     error_class=ERROR_CLASS_MCP_RPC_ERROR,
                     message=str(exc),
@@ -95,10 +107,48 @@ class McpToolExecutor:
                 duration_ms=_duration_ms(started),
             )
         except McpClientError as exc:
-            return ToolExecutionResult(
+            should_evict = True
+            error_result = ToolExecutionResult(
                 error=ToolExecutionError(
                     error_class=ERROR_CLASS_MCP_PROTOCOL_ERROR,
                     message=str(exc),
+                    details={"tool_name": tool_name, "server_id": self._server.server_id},
+                ),
+                duration_ms=_duration_ms(started),
+            )
+        except asyncio.CancelledError:
+            should_evict = True
+            raise
+        except Exception as exc:
+            should_evict = True
+            error_result = ToolExecutionResult(
+                error=ToolExecutionError(
+                    error_class=ERROR_CLASS_MCP_PROTOCOL_ERROR,
+                    message="MCP 工具调用失败",
+                    details={
+                        "tool_name": tool_name,
+                        "server_id": self._server.server_id,
+                        "exception_type": type(exc).__name__,
+                    },
+                ),
+                duration_ms=_duration_ms(started),
+            )
+        finally:
+            if client is None:
+                pass
+            elif should_evict:
+                await _safe_pool_evict(pool=pool, key=key, client=client)
+            else:
+                await _safe_pool_release(pool=pool, key=key, client=client)
+
+        if error_result is not None:
+            return error_result
+
+        if result is None:
+            return ToolExecutionResult(
+                error=ToolExecutionError(
+                    error_class=ERROR_CLASS_MCP_PROTOCOL_ERROR,
+                    message="MCP 工具返回空结果",
                     details={"tool_name": tool_name, "server_id": self._server.server_id},
                 ),
                 duration_ms=_duration_ms(started),
@@ -128,6 +178,20 @@ def _duration_ms(started: float) -> int:
     elapsed = time.monotonic() - started
     millis = int(elapsed * 1000)
     return millis if millis >= 0 else 0
+
+
+async def _safe_pool_release(*, pool: McpStdioClientPool, key: McpStdioPoolKey, client: McpStdioClient) -> None:
+    try:
+        await pool.release(key=key, client=client)
+    except Exception:
+        pass
+
+
+async def _safe_pool_evict(*, pool: McpStdioClientPool, key: McpStdioPoolKey, client: McpStdioClient) -> None:
+    try:
+        await pool.evict(key=key, client=client)
+    except Exception:
+        pass
 
 
 __all__ = [

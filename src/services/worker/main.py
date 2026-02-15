@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
+from packages.mcp.pool import close_default_mcp_stdio_client_pool
 from packages.observability.logging import configure_json_logging
 
 from .composition import create_container
@@ -13,6 +14,7 @@ async def _run() -> None:
     try:
         await loop.run_forever()
     finally:
+        await close_default_mcp_stdio_client_pool()
         await database.dispose()
 
 
@@ -26,4 +28,3 @@ def run() -> None:
 
 if __name__ == "__main__":
     run()
-

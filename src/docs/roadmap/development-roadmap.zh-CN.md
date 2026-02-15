@@ -759,7 +759,7 @@ web_search 和 web_fetch 不绑死一种实现，采用策略模式做多 backen
   - unit pytest：MCP server 超时/崩溃时返回明确错误。
   - integration pytest：启动一个简单的 MCP server（echo 工具），通过 Agent Loop 调用成功。
 
-#### P57.1 -- MCP stdio 会话复用 v1（进程/连接池 + TTL）
+#### P57.1 -- MCP stdio 会话复用 v1（进程/连接池 + TTL）（已完成）
 
 - 目标：避免每次 `tools/call` 都新起子进程 + 重复 `initialize`，把“高频工具调用”从进程风暴里救出来（降低 CPU/IO 与延迟抖动）。
 - 关键点：

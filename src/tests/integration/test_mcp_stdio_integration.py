@@ -25,6 +25,7 @@ from packages.llm_gateway import (
     ToolSpec as LlmToolSpec,
 )
 from packages.mcp.config import McpConfig, McpServerConfig
+from packages.mcp.pool import McpStdioClientPool
 from packages.mcp.registry import discover_mcp_tools
 
 
@@ -157,50 +158,58 @@ def test_mcp_stdio_integration_can_call_tool_via_agent_loop(tmp_path: Path) -> N
     _write_mcp_server(path=server_script)
     server = _server_config(script=server_script)
 
-    async def _discover():
-        return await discover_mcp_tools(config=McpConfig(servers=(server,)))
+    async def _run():
+        pool = McpStdioClientPool(ttl_seconds=None, max_clients_per_server=1)
+        try:
+            registration = await discover_mcp_tools(config=McpConfig(servers=(server,)), pool=pool)
+            assert len(registration.agent_specs) == 1
+            tool_name = registration.agent_specs[0].name
 
-    registration = anyio.run(_discover)
-    assert len(registration.agent_specs) == 1
-    tool_name = registration.agent_specs[0].name
+            registry = ToolRegistry(specs=registration.agent_specs)
+            allowlist = ToolAllowlist.from_names([tool_name])
+            dispatcher = DispatchingToolExecutor(
+                registry=registry,
+                policy_enforcer=ToolPolicyEnforcer(registry=registry, allowlist=allowlist),
+                executors=registration.executors,
+            )
 
-    registry = ToolRegistry(specs=registration.agent_specs)
-    allowlist = ToolAllowlist.from_names([tool_name])
-    dispatcher = DispatchingToolExecutor(
-        registry=registry,
-        policy_enforcer=ToolPolicyEnforcer(registry=registry, allowlist=allowlist),
-        executors=registration.executors,
-    )
+            gateway = _ScriptedGateway(
+                turns=[
+                    [
+                        LlmStreamToolCall(
+                            tool_call_id="call_1",
+                            tool_name=tool_name,
+                            arguments_json={"text": "ping"},
+                        ),
+                        LlmStreamRunCompleted(),
+                    ],
+                    [
+                        LlmStreamMessageDelta(content_delta="done", role="assistant"),
+                        LlmStreamRunCompleted(),
+                    ],
+                ]
+            )
+            loop = AgentLoop(gateway=gateway, tool_executor=dispatcher)
+            context = AgentRunContext(run_id=uuid.uuid4(), trace_id="t" * 32)
 
-    gateway = _ScriptedGateway(
-        turns=[
-            [
-                LlmStreamToolCall(
-                    tool_call_id="call_1",
-                    tool_name=tool_name,
-                    arguments_json={"text": "ping"},
-                ),
-                LlmStreamRunCompleted(),
-            ],
-            [
-                LlmStreamMessageDelta(content_delta="done", role="assistant"),
-                LlmStreamRunCompleted(),
-            ],
-        ]
-    )
-    loop = AgentLoop(gateway=gateway, tool_executor=dispatcher)
-    context = AgentRunContext(run_id=uuid.uuid4(), trace_id="t" * 32)
+            request = LlmGatewayRequest(
+                model="stub-model",
+                messages=[LlmMessage(role="user", content=[LlmTextPart(text="hi")])],
+                tools=[LlmToolSpec(name=tool_name, description="mcp echo", json_schema={"type": "object"})],
+            )
 
-    request = LlmGatewayRequest(
-        model="stub-model",
-        messages=[LlmMessage(role="user", content=[LlmTextPart(text="hi")])],
-        tools=[LlmToolSpec(name=tool_name, description="mcp echo", json_schema={"type": "object"})],
-    )
-    events = _collect_events(loop=loop, context=context, request=request)
+            emitter = RunEventEmitter(run_id=context.run_id, trace_id=context.trace_id)
+            events = []
+            async for event in loop.run(context=context, emitter=emitter, request=request):
+                events.append(event)
+            return tool_name, events
+        finally:
+            await pool.close_all()
+
+    tool_name, events = anyio.run(_run)
 
     assert [event.type for event in events] == ["tool.call", "tool.result", "message.delta", "run.completed"]
     tool_result = events[1].data_json
     assert tool_result["tool_name"] == tool_name
     assert tool_result["tool_call_id"] == "call_1"
     assert tool_result["result"]["content"] == [{"type": "text", "text": "ping"}]
-
