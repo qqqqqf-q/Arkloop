@@ -464,7 +464,7 @@ web_search 和 web_fetch 不绑死一种实现，采用策略模式做多 backen
 下面按四条主线拆成薄片。每条线内部有依赖顺序，跨线尽量减少阻塞。
 
 **推荐执行顺序（主线 C 优先，这是产品核心价值）：**
-- 主线 C（Agent Loop）先行：P50 -> P51 -> P52 -> P53 -> P54 -> P54.2 -> P54.3 -> P54.5 -> P55 -> P56 -> P57 -> P58 -> P59
+- 主线 C（Agent Loop）先行：P50 -> P51 -> P52 -> P53 -> P54 -> P54.2 -> P54.3 -> P54.5 -> P55 -> P56 -> P57 -> P57.1 -> P57.2 -> P58 -> P59
 - 主线 B（Console 管理后台）跟进：P40 -> P41 -> P42 -> P60 -> P43 -> P62 -> P44 -> P45 -> P46
 - 主线 D（前端产品化）穿插：可在 P53 之后开始（此时 tool_call 事件流已稳定）
 - 主线 E（Vault/高级安全）最后
@@ -733,7 +733,7 @@ web_search 和 web_fetch 不绑死一种实现，采用策略模式做多 backen
   - unit pytest：mock Firecrawl/Jina API 响应，输出符合 `WebFetchResult` schema。
   - 手工验证：抓取 JS 渲染页面，内容提取正确。
 
-#### P57 -- MCP 客户端协议适配 v1
+#### P57 -- MCP 客户端协议适配 v1（已完成）
 
 - 目标：实现 MCP（Model Context Protocol）客户端，让 Agent Loop 能调用外部 MCP 工具服务器提供的工具。
 - 现状分析：
@@ -744,6 +744,7 @@ web_search 和 web_fetch 不绑死一种实现，采用策略模式做多 backen
   - MCP 握手：`initialize` -> `initialized` -> `tools/list` -> 动态注册到 `ToolRegistry`。
   - MCP 工具调用：`tools/call` -> 返回结果。
   - MCP server 配置从环境变量/配置文件读取（类似 Claude Desktop 的 `claude_desktop_config.json`）。
+    - 实现约定：通过 `ARKLOOP_MCP_CONFIG_FILE` 指向 JSON 文件，顶层字段使用 `mcpServers`。
   - 安全边界：MCP server 是子进程，需要限制其权限（文件访问、网络访问）。
   - 超时与错误处理：MCP server 无响应/崩溃不能让 run 挂死。
 - 具体改动范围：
@@ -757,6 +758,38 @@ web_search 和 web_fetch 不绑死一种实现，采用策略模式做多 backen
   - unit pytest：mock stdio 通信，验证 initialize -> tools/list -> tools/call 流程。
   - unit pytest：MCP server 超时/崩溃时返回明确错误。
   - integration pytest：启动一个简单的 MCP server（echo 工具），通过 Agent Loop 调用成功。
+
+#### P57.1 -- MCP stdio 会话复用 v1（连接/进程池 + TTL）
+
+- 目标：避免每次 `tools/call` 都新起子进程 + 重复 `initialize`，降低高频工具调用的 CPU/IO 开销。
+- 关键点：
+  - 复用粒度：以 `server_id` 为 key 维护连接/进程（默认），并提供 TTL 与异常重启。
+  - 并发与隔离：同一 server 的并发调用需要串行化（或限定并发），避免 stdout 混线；不跨 server 共享进程。
+  - 事件流仍是唯一真相：`tool.call`/`tool.result` 的语义不变，只优化执行通道。
+- 具体改动范围：
+  - 新建 `src/packages/mcp/pool.py`：进程/连接池（server_id → client/session）。
+  - `src/packages/mcp/executor.py`：从“每次新建 client”改为“从池里借用/归还”。
+  - 配置：增加 `ARKLOOP_MCP_POOL_TTL_SECONDS`、`ARKLOOP_MCP_POOL_MAX_CLIENTS_PER_SERVER`（可选）。
+- 依赖：P57
+- 验收：
+  - unit pytest：同一 tool 连续调用不重复 initialize（通过 mock client 计数）。
+  - unit pytest：TTL 到期会重建会话；进程异常退出可自动重启并返回明确错误。
+  - 性能 smoke：高频调用下进程数稳定（不随调用次数线性增长）。
+
+#### P57.2 -- MCP 工具发现 async 化 v1（可缓存入口）
+
+- 目标：提供 async 版加载入口，便于在服务生命周期（startup hook）或未来动态租户配置中安全启用 MCP。
+- 关键点：
+  - 同步入口仅用于“纯启动阶段”；在运行中事件循环存在时，不应静默失效。
+  - 提供可选缓存：按配置文件路径 + mtime 缓存 discovery 结果，避免重复启动 MCP server 探测。
+- 具体改动范围：
+  - `src/packages/mcp/registry.py`：增加 `async def load_mcp_tool_registration_from_env_async(...)`。
+  - `src/services/api/main.py`/`src/services/worker/...`：在 async lifespan/startup 中调用 async 入口（可选开关）。
+  - 新建 `src/packages/mcp/cache.py`（如需要）：基于 mtime 的轻量缓存。
+- 依赖：P57
+- 验收：
+  - unit pytest：async 入口在事件循环中可用；配置错误/握手失败会降级为禁用且有明确日志。
+  - unit pytest：缓存命中/失效逻辑正确（mtime 变化触发刷新）。
 
 #### P58 -- MCP SSE 传输层
 
