@@ -42,16 +42,33 @@ func (p *BasicProvider) Fetch(ctx context.Context, targetURL string, maxLength i
 	if limit <= 0 {
 		limit = 1
 	}
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, limit))
+
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, limit+1))
+	truncated := int64(len(body)) > limit
+	if truncated {
+		body = body[:limit]
+	}
+
 	text := string(body)
 	title := extractTitle(text)
 	content := stripHTML(text)
 	if len(content) > maxLength {
 		content = content[:maxLength]
+		truncated = true
+	}
+	if len(title) > 512 {
+		title = title[:512]
+	}
+
+	finalURL := targetURL
+	if resp.Request != nil && resp.Request.URL != nil {
+		finalURL = resp.Request.URL.String()
 	}
 	return Result{
-		Title:   title,
-		Content: strings.TrimSpace(content),
+		URL:       finalURL,
+		Title:     title,
+		Content:   strings.TrimSpace(content),
+		Truncated: truncated,
 	}, nil
 }
 
@@ -69,4 +86,3 @@ func stripHTML(html string) string {
 	out = strings.Join(strings.Fields(out), " ")
 	return out
 }
-

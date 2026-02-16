@@ -171,9 +171,9 @@ func providerFromEnv() (Provider, error) {
 	case ProviderKindBasic:
 		return NewBasicProvider(), nil
 	case ProviderKindFirecrawl:
-		return nil, fmt.Errorf("web_fetch provider 未实现：firecrawl")
+		return NewFirecrawlProvider(cfg.FirecrawlAPIKey, cfg.FirecrawlBaseURL), nil
 	case ProviderKindJina:
-		return nil, fmt.Errorf("web_fetch provider 未实现：jina")
+		return NewJinaProvider(cfg.JinaAPIKey)
 	default:
 		return nil, fmt.Errorf("web_fetch provider 未实现")
 	}
@@ -245,4 +245,3 @@ func durationMs(started time.Time) int {
 	}
 	return millis
 }
-

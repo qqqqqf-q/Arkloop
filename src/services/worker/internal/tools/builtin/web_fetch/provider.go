@@ -3,16 +3,19 @@ package webfetch
 import "context"
 
 type Result struct {
-	Title   string
-	Content string
+	URL       string
+	Title     string
+	Content   string
+	Truncated bool
 }
 
 func (r Result) ToJSON() map[string]any {
-	payload := map[string]any{}
-	if r.Title != "" {
-		payload["title"] = r.Title
+	payload := map[string]any{
+		"url":       r.URL,
+		"title":     r.Title,
+		"content":   r.Content,
+		"truncated": r.Truncated,
 	}
-	payload["content"] = r.Content
 	return payload
 }
 
@@ -27,4 +30,3 @@ type HttpError struct {
 func (e HttpError) Error() string {
 	return "http error"
 }
-
