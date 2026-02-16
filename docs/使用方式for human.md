@@ -20,6 +20,17 @@ export ARKLOOP_WORKER_BRIDGE_TOKEN=please_change_me
 cd /Users/qqqqqf/Documents/Arkloop/src/services/worker_go
 go run ./cmd/worker
 
+# Go Worker 全量接管（桥接模式）
+# 说明：需要在启动 API 前设置 ARKLOOP_WORKER_GO_TRAFFIC_PERCENT=100，让 enqueue 统一投递 go_bridge job_type。
+# - API: export ARKLOOP_WORKER_GO_TRAFFIC_PERCENT=100
+# - Go Worker: export ARKLOOP_WORKER_QUEUE_JOB_TYPES=run.execute.go_bridge
+# - Python Worker: 停用（保留冷备）
+#
+# 回滚（秒级）
+# - API: export ARKLOOP_WORKER_GO_TRAFFIC_PERCENT=0
+# - Python Worker（冷备启动）：export ARKLOOP_WORKER_QUEUE_JOB_TYPES=run.execute,run.execute.go_bridge
+# - 停用 Go Worker（bridge 可同时停用）
+
 # 前端
 pnpm -C src/apps/web dev
 

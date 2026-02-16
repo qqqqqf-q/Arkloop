@@ -218,16 +218,25 @@ src/services/worker_go/
   - API 侧把 `ARKLOOP_WORKER_GO_TRAFFIC_PERCENT` 设为 0，恢复投递到 Python job_type。
   - Worker 侧把 `ARKLOOP_WORKER_QUEUE_JOB_TYPES` 调整为包含目标类型即可接管残留队列。
 
-### WG-06 Go Worker 全量接管（桥接模式）
+### WG-06 Go Worker 全量接管（桥接模式）（已完成）
 
-- 目标：Go Worker 接管所有消费，但执行内核仍可先走 Python。
+- 目标：Go Worker 接管所有消费，但执行内核仍先走 Python bridge。
 - 改动：
-  - 生产默认消费者改为 Go Worker。
-  - Python Worker 保留为冷备。
+  - 通过环境变量完成“默认消费者”切换（避免在代码里硬编码生产路径）：
+    - API：`ARKLOOP_WORKER_GO_TRAFFIC_PERCENT=100`（enqueue 统一投递 `jobs.job_type=run.execute.go_bridge`）
+    - Go Worker：`ARKLOOP_WORKER_QUEUE_JOB_TYPES=run.execute.go_bridge`（只消费 go_bridge 队列 job_type）
+    - Python bridge：保持运行（`ARKLOOP_WORKER_BRIDGE_TOKEN` 必填）
+  - Python Worker 保留为冷备：
+    - 冷备接管：`ARKLOOP_WORKER_QUEUE_JOB_TYPES=run.execute,run.execute.go_bridge`
+  - 补齐示例配置与运行说明：
+    - `.env.example` / `.env.test.example`
+    - `docs/使用方式for human.md`
 - 验收：
-  - 稳定运行一个发布周期，无关键故障。
+  - 桥接模式 functional 测试可跑通（WG04）。
+  - 切换 `ARKLOOP_WORKER_GO_TRAFFIC_PERCENT` 后，队列路由可控且可回滚。
 - 回滚：
-  - 切换消费者开关恢复 Python Worker。
+  - API 把 `ARKLOOP_WORKER_GO_TRAFFIC_PERCENT` 设为 0。
+  - 启动 Python Worker（包含 go_bridge job_type），停用 Go Worker。
 
 ### WG-07 原生 Go RunEngine v1（先不做复杂工具）
 
