@@ -285,16 +285,37 @@ src/services/worker_go/
 
 ### WG-08 原生 Provider + Tool 框架
 
-- 目标：替换 Python 的核心执行依赖。
+- 目标：让 Go 原生 RunEngine 具备“可用的 Provider + Tool 执行”能力，覆盖桥接模式的主干功能，为 WG-10 移除 python bridge 做准备。
 - 改动：
-  - Go 实现 OpenAI/Anthropic 最小网关适配。
-  - Go 实现 Tool Registry/Allowlist/Policy。
-  - 先迁移低风险工具：`echo`、`noop`、`web_search`、`web_fetch`。
+  - Go 侧实现 Provider 路由（对齐 `packages.llm_routing` 的 JSON 配置与决策语义）：
+    - 复用现有环境变量：`ARKLOOP_PROVIDER_ROUTING_JSON`
+    - 输出 `run.route.selected` 事件字段尽量对齐 Python（至少包含 `route_id/model/provider_kind/scope/credential_id`）
+  - Go 侧实现最小 LLM Gateway 抽象与 provider 适配：
+    - OpenAI：先覆盖项目现有用法（与 `openai_api_mode` 兼容）
+    - Anthropic：先覆盖流式
+    - Stub provider：用于 CI/本地可重复测试（不依赖真实 key）
+  - Go 侧实现 Agent Loop（对齐 `packages.agent_core.loop.AgentLoop` 的核心语义）：
+    - 流式输出写 `message.delta`
+    - LLM debug 事件（默认关闭）：`ARKLOOP_LLM_DEBUG_EVENTS=1` 时追加 `llm.request/llm.response.chunk`
+    - tool call/result、终态 completed/failed、max_iterations 等边界条件行为对齐
+  - Go 侧实现 Tool 框架（注册表 + allowlist + policy）：
+    - allowlist 复用 `ARKLOOP_TOOL_ALLOWLIST`（语义与 Python 保持一致）
+    - 事件对齐：`tool.call` / `tool.result` / `policy.denied` / `budget.exceeded`
+  - 首批迁移低风险工具（与 Python builtin_tools 保持协议一致，优先复用同名 env）：
+    - `echo`、`noop`
+    - `web_search`（沿用 `ARKLOOP_WEB_SEARCH_PROVIDER` 等配置）
+    - `web_fetch`（沿用 `ARKLOOP_WEB_FETCH_PROVIDER` 等配置）
+  - 代码产出（建议路径）：
+    - `src/services/worker_go/internal/routing/*`（provider routing config 解析 + decision）
+    - `src/services/worker_go/internal/llm/*`（gateway 抽象 + openai/anthropic/stub）
+    - `src/services/worker_go/internal/agent/loop.go`（Agent Loop）
+    - `src/services/worker_go/internal/tools/*`（tool spec + executor）
 - 验收：
-  - 关键工具链路端到端通过。
-  - 错误分类与审计字段保持兼容。
+  - `go test ./...` 全通过（含 provider/tool contract）
+  - 端到端 run：SSE 回放可用，`run_events.seq` 单调递增，终态事件唯一
+  - 错误分类与字段兼容：`error_class/tool_name/trace_id` 与 Python 保持一致语义
 - 回滚：
-  - 单工具级别可回退到桥接执行。
+  - WG-10 删除 bridge 前：把 `ARKLOOP_WORKER_GO_EXECUTOR` 切回 `bridge`，回到 Python engine 执行路径。
 
 ### WG-09 MCP/Skill 迁移策略收口
 
