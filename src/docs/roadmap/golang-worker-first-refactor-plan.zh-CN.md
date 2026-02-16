@@ -128,13 +128,15 @@ src/services/worker_go/
 - 回滚：
   - 无需回滚，仅文档与测试资产。
 
-### WG-01 Go Worker 工程骨架
+### WG-01 Go Worker 工程骨架（已完成）
 
 - 目标：建立可运行的 Go Worker 最小骨架，不接管流量。
 - 改动：
   - 新建 Go 模块（建议 `src/services/worker_go/`）。
   - 实现配置加载与日志字段规范（对齐 `trace_id/org_id/run_id/job_id`）。
   - 支持 Linux/Windows/macOS 构建与本地运行。
+  - 产出骨架代码：`src/services/worker_go/cmd/worker/main.go`、`src/services/worker_go/internal/app/*`。
+  - 产出说明文档：`src/services/worker_go/README.zh-CN.md`。
 - 验收：
   - `go test ./...` 基本通过。
   - Worker 可启动并优雅退出（不消费任务）。

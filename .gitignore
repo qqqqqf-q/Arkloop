@@ -33,3 +33,5 @@ Thumbs.db
 
 .venv312/
 arkilo-ui-example
+src/services/worker_go/worker
+src/services/worker_go/worker.exe
