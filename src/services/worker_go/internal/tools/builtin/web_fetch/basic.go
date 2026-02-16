@@ -1,0 +1,72 @@
+package webfetch
+
+import (
+	"context"
+	"io"
+	"net/http"
+	"regexp"
+	"strings"
+	"time"
+)
+
+var titleRegex = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)
+
+type BasicProvider struct {
+	client *http.Client
+}
+
+func NewBasicProvider() *BasicProvider {
+	return &BasicProvider{
+		client: &http.Client{Timeout: 20 * time.Second},
+	}
+}
+
+func (p *BasicProvider) Fetch(ctx context.Context, targetURL string, maxLength int) (Result, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
+	if err != nil {
+		return Result{}, err
+	}
+	req.Header.Set("User-Agent", "arkloop-web-fetch/1.0")
+
+	resp, err := p.client.Do(req)
+	if err != nil {
+		return Result{}, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return Result{}, HttpError{StatusCode: resp.StatusCode}
+	}
+
+	limit := int64(maxLength)
+	if limit <= 0 {
+		limit = 1
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, limit))
+	text := string(body)
+	title := extractTitle(text)
+	content := stripHTML(text)
+	if len(content) > maxLength {
+		content = content[:maxLength]
+	}
+	return Result{
+		Title:   title,
+		Content: strings.TrimSpace(content),
+	}, nil
+}
+
+func extractTitle(html string) string {
+	matches := titleRegex.FindStringSubmatch(html)
+	if len(matches) < 2 {
+		return ""
+	}
+	return strings.TrimSpace(stripHTML(matches[1]))
+}
+
+func stripHTML(html string) string {
+	out := regexp.MustCompile(`(?s)<[^>]+>`).ReplaceAllString(html, " ")
+	out = strings.ReplaceAll(out, "\u00a0", " ")
+	out = strings.Join(strings.Fields(out), " ")
+	return out
+}
+

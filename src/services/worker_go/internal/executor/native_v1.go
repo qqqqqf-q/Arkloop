@@ -27,10 +27,14 @@ func NewNativeRunEngineV1Handler(pool *pgxpool.Pool, logger *app.JSONLogger) (*N
 	if logger == nil {
 		logger = app.NewJSONLogger("worker_go", nil)
 	}
+	engine, err := runengine.NewEngineV1()
+	if err != nil {
+		return nil, err
+	}
 	return &NativeRunEngineV1Handler{
 		pool:   pool,
 		logger: logger,
-		engine: runengine.NewEngineV1(),
+		engine: engine,
 	}, nil
 }
 
@@ -97,17 +101,17 @@ func (h *NativeRunEngineV1Handler) Handle(ctx context.Context, lease queue.JobLe
 		return err
 	}
 
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+
 	err = h.engine.Execute(
 		ctx,
-		tx,
+		h.pool,
 		*run,
 		runengine.ExecuteInput{TraceID: payload.TraceID},
 	)
 	if err != nil {
-		return err
-	}
-
-	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
 	return nil

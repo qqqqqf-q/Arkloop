@@ -111,8 +111,6 @@ async def _seed_auth(sqlalchemy_url: str, login: str, password: str) -> None:
     finally:
         await database.dispose()
 
-
-def _free_port() -> int:
 async def _wait_terminal_events(sqlalchemy_url: str, run_id: uuid.UUID, timeout_seconds: float) -> list[str]:
     database = Database.from_config(DatabaseConfig(url=sqlalchemy_url))
     deadline = time.monotonic() + timeout_seconds
@@ -151,6 +149,8 @@ def test_go_worker_executes_run_via_native_engine(monkeypatch) -> None:
             m.setenv("ARKLOOP_AUTH_JWT_SECRET", "test-secret-should-be-long-enough-32chars")
             m.setenv("ARKLOOP_RUN_EXECUTOR", "worker")
             m.setenv("ARKLOOP_PROVIDER_ROUTING_JSON", _STUB_PROVIDER_ROUTING_JSON)
+            m.setenv("ARKLOOP_STUB_AGENT_DELTA_COUNT", "2")
+            m.setenv("ARKLOOP_STUB_AGENT_DELTA_INTERVAL_SECONDS", "0")
 
             m.setenv("ARKLOOP_WORKER_GO_TRAFFIC_PERCENT", "100")
             m.setenv("ARKLOOP_WORKER_GO_EXECUTOR", "native")

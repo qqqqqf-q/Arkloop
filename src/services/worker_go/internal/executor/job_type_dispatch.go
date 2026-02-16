@@ -36,4 +36,3 @@ func (h *JobTypeDispatchHandler) Handle(ctx context.Context, lease queue.JobLeas
 	}
 	return handler.Handle(ctx, lease)
 }
-

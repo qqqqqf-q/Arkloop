@@ -147,4 +147,3 @@ func mapOrEmpty(value map[string]any) map[string]any {
 	}
 	return value
 }
-

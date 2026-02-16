@@ -3,6 +3,7 @@ package data
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -35,3 +36,21 @@ func (RunsRepository) GetRun(ctx context.Context, tx pgx.Tx, runID uuid.UUID) (*
 	return &run, nil
 }
 
+func (RunsRepository) LockRunRow(ctx context.Context, tx pgx.Tx, runID uuid.UUID) error {
+	var ignored int
+	err := tx.QueryRow(
+		ctx,
+		`SELECT 1
+		 FROM runs
+		 WHERE id = $1
+		 FOR UPDATE`,
+		runID,
+	).Scan(&ignored)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("run 不存在: %s", runID)
+		}
+		return err
+	}
+	return nil
+}

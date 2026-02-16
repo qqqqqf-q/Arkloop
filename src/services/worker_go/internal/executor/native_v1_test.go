@@ -13,6 +13,9 @@ import (
 )
 
 func TestNativeRunEngineV1HandlerWritesEventsAndMessage(t *testing.T) {
+	t.Setenv("ARKLOOP_STUB_AGENT_DELTA_COUNT", "2")
+	t.Setenv("ARKLOOP_STUB_AGENT_DELTA_INTERVAL_SECONDS", "0")
+
 	db := testutil.SetupPostgresDatabase(t, "arkloop_wg07")
 	pool, err := pgxpool.New(context.Background(), db.DSN)
 	if err != nil {
@@ -70,14 +73,23 @@ func TestNativeRunEngineV1HandlerWritesEventsAndMessage(t *testing.T) {
 	if routeData["route_id"] != "default" {
 		t.Fatalf("unexpected route_id: %v", routeData["route_id"])
 	}
+	if routeData["model"] != "stub" {
+		t.Fatalf("unexpected model: %v", routeData["model"])
+	}
+	if routeData["provider_kind"] != "stub" {
+		t.Fatalf("unexpected provider_kind: %v", routeData["provider_kind"])
+	}
 
 	content := readAssistantMessage(t, pool, threadID)
-	if content != "go native delta 1go native delta 2" {
+	if content != "stub delta 1stub delta 2" {
 		t.Fatalf("unexpected assistant message: %q", content)
 	}
 }
 
 func TestNativeRunEngineV1HandlerCancelsWhenRequested(t *testing.T) {
+	t.Setenv("ARKLOOP_STUB_AGENT_DELTA_COUNT", "2")
+	t.Setenv("ARKLOOP_STUB_AGENT_DELTA_INTERVAL_SECONDS", "0")
+
 	db := testutil.SetupPostgresDatabase(t, "arkloop_wg07_cancel")
 	pool, err := pgxpool.New(context.Background(), db.DSN)
 	if err != nil {
@@ -299,4 +311,3 @@ func hasMessages(t *testing.T, pool *pgxpool.Pool, threadID uuid.UUID) bool {
 	}
 	return count > 0
 }
-
