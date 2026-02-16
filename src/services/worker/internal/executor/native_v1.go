@@ -44,6 +44,8 @@ func (h *NativeRunEngineV1Handler) Handle(ctx context.Context, lease queue.JobLe
 		return err
 	}
 
+	h.logger.Info("worker 收到 job", payload.LogFields(lease), map[string]any{"job_type": payload.JobType})
+
 	tx, err := h.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return err
