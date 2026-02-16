@@ -1,0 +1,166 @@
+package tools
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"arkloop/services/worker/internal/events"
+	"github.com/google/uuid"
+)
+
+const (
+	ErrorClassToolNotRegistered   = "tool.not_registered"
+	ErrorClassToolExecutionFailed = "tool.execution_failed"
+)
+
+type ExecutionContext struct {
+	RunID     uuid.UUID
+	TraceID   string
+	OrgID     *uuid.UUID
+	TimeoutMs *int
+	Budget    map[string]any
+	Emitter   events.Emitter
+}
+
+type ExecutionError struct {
+	ErrorClass string
+	Message    string
+	Details    map[string]any
+}
+
+func (e ExecutionError) ToJSON() map[string]any {
+	payload := map[string]any{
+		"error_class": e.ErrorClass,
+		"message":     e.Message,
+	}
+	if len(e.Details) > 0 {
+		payload["details"] = e.Details
+	}
+	return payload
+}
+
+type ExecutionResult struct {
+	ResultJSON map[string]any
+	Error      *ExecutionError
+	DurationMs int
+	Usage      map[string]any
+	Events     []events.RunEvent
+}
+
+type Executor interface {
+	Execute(
+		ctx context.Context,
+		toolName string,
+		args map[string]any,
+		context ExecutionContext,
+		toolCallID string,
+	) ExecutionResult
+}
+
+type DispatchingExecutor struct {
+	registry       *Registry
+	policyEnforcer *PolicyEnforcer
+	executors      map[string]Executor
+}
+
+func NewDispatchingExecutor(registry *Registry, policyEnforcer *PolicyEnforcer) *DispatchingExecutor {
+	return &DispatchingExecutor{
+		registry:       registry,
+		policyEnforcer: policyEnforcer,
+		executors:      map[string]Executor{},
+	}
+}
+
+func (e *DispatchingExecutor) Bind(toolName string, executor Executor) error {
+	if _, ok := e.registry.Get(toolName); !ok {
+		return fmt.Errorf("工具未注册：%s", toolName)
+	}
+	e.executors[toolName] = executor
+	return nil
+}
+
+func (e *DispatchingExecutor) Execute(
+	ctx context.Context,
+	toolName string,
+	args map[string]any,
+	context ExecutionContext,
+	toolCallID string,
+) ExecutionResult {
+	started := time.Now()
+
+	decision := e.policyEnforcer.RequestToolCall(context.Emitter, toolName, args, toolCallID)
+	policyEvents := append([]events.RunEvent{}, decision.Events...)
+
+	if !decision.Allowed {
+		denyReason := ""
+		if len(policyEvents) > 0 {
+			last := policyEvents[len(policyEvents)-1]
+			if value, ok := last.DataJSON["deny_reason"].(string); ok {
+				denyReason = value
+			}
+		}
+		return ExecutionResult{
+			Error: &ExecutionError{
+				ErrorClass: PolicyDeniedCode,
+				Message:    "工具调用被策略拒绝",
+				Details: map[string]any{
+					"tool_name":    toolName,
+					"tool_call_id": decision.ToolCallID,
+					"deny_reason":  denyReason,
+				},
+			},
+			DurationMs: durationMs(started),
+			Events:     policyEvents,
+		}
+	}
+
+	executor := e.executors[toolName]
+	if executor == nil {
+		return ExecutionResult{
+			Error: &ExecutionError{
+				ErrorClass: ErrorClassToolNotRegistered,
+				Message:    "工具未绑定执行器",
+				Details: map[string]any{
+					"tool_name":    toolName,
+					"tool_call_id": decision.ToolCallID,
+				},
+			},
+			DurationMs: durationMs(started),
+			Events:     policyEvents,
+		}
+	}
+
+	var result ExecutionResult
+	func() {
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				result = ExecutionResult{
+					Error: &ExecutionError{
+						ErrorClass: ErrorClassToolExecutionFailed,
+						Message:    "工具执行失败",
+						Details: map[string]any{
+							"tool_name":    toolName,
+							"tool_call_id": decision.ToolCallID,
+							"panic":        recovered,
+						},
+					},
+				}
+			}
+		}()
+		result = executor.Execute(ctx, toolName, args, context, decision.ToolCallID)
+	}()
+
+	result.DurationMs = durationMs(started)
+	result.Events = append(policyEvents, result.Events...)
+	return result
+}
+
+func durationMs(started time.Time) int {
+	elapsed := time.Since(started)
+	millis := int(elapsed / time.Millisecond)
+	if millis < 0 {
+		return 0
+	}
+	return millis
+}

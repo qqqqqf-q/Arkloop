@@ -173,7 +173,7 @@ def test_go_worker_executes_run_via_native_engine(monkeypatch) -> None:
                 assert run_resp.status_code == 201
                 run_id = uuid.UUID(run_resp.json()["run_id"])
 
-            worker_go_root = repo_root / "src/services/worker_go"
+            worker_go_root = repo_root / "src/services/worker"
             env = os.environ.copy()
             env["ARKLOOP_WORKER_CONCURRENCY"] = "1"
             env["ARKLOOP_WORKER_POLL_SECONDS"] = "0.05"
