@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -13,8 +14,8 @@ import (
 	"arkloop/services/worker_go/internal/events"
 	"arkloop/services/worker_go/internal/llm"
 	"arkloop/services/worker_go/internal/routing"
+	"arkloop/services/worker_go/internal/skills"
 	"arkloop/services/worker_go/internal/tools"
-	"arkloop/services/worker_go/internal/tools/builtin"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -43,70 +44,79 @@ type EngineV1 struct {
 	messagesRepo data.MessagesRepository
 
 	router          *routing.ProviderRouter
-	routingConfig   routing.ProviderRoutingConfig
-	stubGateway     *llm.StubGateway
+	stubGateway     llm.Gateway
 	emitDebugEvents bool
 
-	toolExecutor *tools.DispatchingExecutor
-	llmToolSpecs []llm.ToolSpec
+	toolRegistry      *tools.Registry
+	toolExecutors     map[string]tools.Executor
+	allLlmToolSpecs   []llm.ToolSpec
+	baseAllowlistSet  map[string]struct{}
+	baseToolExecutor  *tools.DispatchingExecutor
+	baseLlmToolSpecs  []llm.ToolSpec
+
+	skillRegistry *skills.Registry
 }
 
 type ExecuteInput struct {
 	TraceID string
 }
 
-func NewEngineV1() (*EngineV1, error) {
-	routingCfg, err := routing.LoadRoutingConfigFromEnv()
+type EngineV1Deps struct {
+	Router         *routing.ProviderRouter
+	StubGateway    llm.Gateway
+	EmitDebugEvents bool
+
+	ToolRegistry          *tools.Registry
+	ToolExecutors         map[string]tools.Executor
+	AllLlmToolSpecs       []llm.ToolSpec
+	BaseToolAllowlistNames []string
+
+	SkillRegistry *skills.Registry
+}
+
+func NewEngineV1(deps EngineV1Deps) (*EngineV1, error) {
+	if deps.Router == nil {
+		return nil, fmt.Errorf("router 不能为空")
+	}
+	if deps.StubGateway == nil {
+		return nil, fmt.Errorf("stub gateway 不能为空")
+	}
+	if deps.ToolRegistry == nil {
+		return nil, fmt.Errorf("tool registry 不能为空")
+	}
+	if deps.ToolExecutors == nil {
+		deps.ToolExecutors = map[string]tools.Executor{}
+	}
+
+	baseAllowlistSet := map[string]struct{}{}
+	for _, name := range deps.BaseToolAllowlistNames {
+		cleaned := strings.TrimSpace(name)
+		if cleaned == "" {
+			continue
+		}
+		baseAllowlistSet[cleaned] = struct{}{}
+	}
+
+	baseToolExecutor, err := buildDispatchExecutor(deps.ToolRegistry, deps.ToolExecutors, baseAllowlistSet)
 	if err != nil {
 		return nil, err
 	}
-
-	stubCfg, err := llm.StubGatewayConfigFromEnv()
-	if err != nil {
-		return nil, err
-	}
-	stubGateway := llm.NewStubGateway(stubCfg)
-
-	registry := tools.NewRegistry()
-	for _, spec := range builtin.AgentSpecs() {
-		if err := registry.Register(spec); err != nil {
-			return nil, err
-		}
-	}
-
-	allowlistNames := tools.ParseAllowlistNamesFromEnv()
-	allowlist := tools.AllowlistFromNames(allowlistNames)
-	policy := tools.NewPolicyEnforcer(registry, allowlist)
-	executor := tools.NewDispatchingExecutor(registry, policy)
-	for toolName, bound := range builtin.Executors() {
-		if err := executor.Bind(toolName, bound); err != nil {
-			return nil, err
-		}
-	}
-
-	allowedSet := map[string]struct{}{}
-	for _, name := range allowlistNames {
-		allowedSet[name] = struct{}{}
-	}
-	llmSpecs := []llm.ToolSpec{}
-	if len(allowedSet) > 0 {
-		for _, spec := range builtin.LlmSpecs() {
-			if _, ok := allowedSet[spec.Name]; ok {
-				llmSpecs = append(llmSpecs, spec)
-			}
-		}
-	}
+	baseLlmSpecs := filterToolSpecs(deps.AllLlmToolSpecs, baseAllowlistSet)
 
 	return &EngineV1{
-		runsRepo:        data.RunsRepository{},
-		eventsRepo:      data.RunEventsRepository{},
-		messagesRepo:    data.MessagesRepository{},
-		router:          routing.NewProviderRouter(routingCfg),
-		routingConfig:   routingCfg,
-		stubGateway:     stubGateway,
-		emitDebugEvents: stubCfg.EmitDebugEvents,
-		toolExecutor:    executor,
-		llmToolSpecs:    llmSpecs,
+		runsRepo:         data.RunsRepository{},
+		eventsRepo:       data.RunEventsRepository{},
+		messagesRepo:     data.MessagesRepository{},
+		router:           deps.Router,
+		stubGateway:      deps.StubGateway,
+		emitDebugEvents:  deps.EmitDebugEvents,
+		toolRegistry:     deps.ToolRegistry,
+		toolExecutors:    copyToolExecutors(deps.ToolExecutors),
+		allLlmToolSpecs:  append([]llm.ToolSpec{}, deps.AllLlmToolSpecs...),
+		baseAllowlistSet: baseAllowlistSet,
+		baseToolExecutor: baseToolExecutor,
+		baseLlmToolSpecs: baseLlmSpecs,
+		skillRegistry:    deps.SkillRegistry,
 	}, nil
 }
 
@@ -140,6 +150,24 @@ func (e *EngineV1) Execute(ctx context.Context, pool *pgxpool.Pool, run data.Run
 	inputJSON, threadMessages, err := e.loadRunInputs(ctx, pool, run)
 	if err != nil {
 		return err
+	}
+
+	skillResolution := skills.ResolveSkill(inputJSON, e.skillRegistry)
+	if skillResolution.Error != nil {
+		payload := map[string]any{
+			"error_class": skillResolution.Error.ErrorClass,
+			"message":     skillResolution.Error.Message,
+		}
+		if len(skillResolution.Error.Details) > 0 {
+			payload["details"] = skillResolution.Error.Details
+		}
+		failed := emitter.Emit(
+			"run.failed",
+			payload,
+			nil,
+			stringPtr(skillResolution.Error.ErrorClass),
+		)
+		return e.appendAndCommit(ctx, pool, run.ID, failed)
 	}
 
 	decision := e.router.Decide(inputJSON, false)
@@ -213,19 +241,66 @@ func (e *EngineV1) Execute(ctx context.Context, pool *pgxpool.Pool, run data.Run
 		})
 	}
 
+	toolExecutor := e.baseToolExecutor
+	toolSpecs := e.baseLlmToolSpecs
+	maxIterations := defaultAgentMaxIterations
+	var maxOutputTokens *int
+	var toolTimeoutMs *int
+	toolBudget := map[string]any{}
+	systemPrompt := ""
+
+	if skillResolution.Definition != nil {
+		def := skillResolution.Definition
+		systemPrompt = def.PromptMD
+		if def.Budgets.MaxIterations != nil {
+			maxIterations = *def.Budgets.MaxIterations
+		}
+		maxOutputTokens = def.Budgets.MaxOutputTokens
+		toolTimeoutMs = def.Budgets.ToolTimeoutMs
+		for key, value := range def.Budgets.ToolBudget {
+			toolBudget[key] = value
+		}
+
+		effectiveAllowlist := map[string]struct{}{}
+		for _, name := range def.ToolAllowlist {
+			if _, ok := e.baseAllowlistSet[name]; !ok {
+				continue
+			}
+			effectiveAllowlist[name] = struct{}{}
+		}
+		exec, err := buildDispatchExecutor(e.toolRegistry, e.toolExecutors, effectiveAllowlist)
+		if err != nil {
+			return err
+		}
+		toolExecutor = exec
+		toolSpecs = filterToolSpecs(e.allLlmToolSpecs, effectiveAllowlist)
+	}
+
+	if strings.TrimSpace(systemPrompt) != "" {
+		llmMessages = append([]llm.Message{
+			{
+				Role:    "system",
+				Content: []llm.TextPart{{Text: systemPrompt}},
+			},
+		}, llmMessages...)
+	}
+
 	agentRequest := llm.Request{
 		Model:    selected.Route.Model,
 		Messages: llmMessages,
-		Tools:    append([]llm.ToolSpec{}, e.llmToolSpecs...),
+		Tools:    append([]llm.ToolSpec{}, toolSpecs...),
+		MaxOutputTokens: maxOutputTokens,
 	}
 
-	loop := agent.NewLoop(gateway, e.toolExecutor)
+	loop := agent.NewLoop(gateway, toolExecutor)
 	runCtx := agent.RunContext{
 		RunID:         run.ID,
 		TraceID:       traceID,
 		InputJSON:     inputJSON,
-		MaxIterations: defaultAgentMaxIterations,
-		ToolExecutor:  e.toolExecutor,
+		MaxIterations: maxIterations,
+		ToolExecutor:  toolExecutor,
+		ToolTimeoutMs: toolTimeoutMs,
+		ToolBudget:    toolBudget,
 		CancelSignal: func() bool {
 			return ctx.Err() != nil
 		},
@@ -377,6 +452,50 @@ func stringPtr(value string) *string {
 		return nil
 	}
 	return &cleaned
+}
+
+func copyToolExecutors(values map[string]tools.Executor) map[string]tools.Executor {
+	out := map[string]tools.Executor{}
+	for key, executor := range values {
+		out[key] = executor
+	}
+	return out
+}
+
+func buildDispatchExecutor(
+	registry *tools.Registry,
+	executors map[string]tools.Executor,
+	allowlistSet map[string]struct{},
+) (*tools.DispatchingExecutor, error) {
+	allowlistNames := make([]string, 0, len(allowlistSet))
+	for name := range allowlistSet {
+		allowlistNames = append(allowlistNames, name)
+	}
+	sort.Strings(allowlistNames)
+
+	allowlist := tools.AllowlistFromNames(allowlistNames)
+	policy := tools.NewPolicyEnforcer(registry, allowlist)
+	dispatch := tools.NewDispatchingExecutor(registry, policy)
+	for toolName, bound := range executors {
+		if err := dispatch.Bind(toolName, bound); err != nil {
+			return nil, err
+		}
+	}
+	return dispatch, nil
+}
+
+func filterToolSpecs(specs []llm.ToolSpec, allowlistSet map[string]struct{}) []llm.ToolSpec {
+	if len(allowlistSet) == 0 {
+		return nil
+	}
+	out := make([]llm.ToolSpec, 0, len(specs))
+	for _, spec := range specs {
+		if _, ok := allowlistSet[spec.Name]; !ok {
+			continue
+		}
+		out = append(out, spec)
+	}
+	return out
 }
 
 type eventWriter struct {
