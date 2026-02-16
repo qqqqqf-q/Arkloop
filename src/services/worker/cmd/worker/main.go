@@ -24,6 +24,10 @@ func main() {
 }
 
 func run() error {
+	if _, err := app.LoadDotenvIfEnabled(false); err != nil {
+		return err
+	}
+
 	cfg, err := app.LoadConfigFromEnv()
 	if err != nil {
 		return err
