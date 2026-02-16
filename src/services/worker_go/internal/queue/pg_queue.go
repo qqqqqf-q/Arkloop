@@ -37,6 +37,7 @@ func (q *PgQueue) EnqueueRun(
 	orgID uuid.UUID,
 	runID uuid.UUID,
 	traceID string,
+	queueJobType string,
 	payload map[string]any,
 	availableAt *time.Time,
 ) (uuid.UUID, error) {
@@ -67,6 +68,11 @@ func (q *PgQueue) EnqueueRun(
 		return uuid.Nil, err
 	}
 
+	chosenJobType := strings.TrimSpace(queueJobType)
+	if chosenJobType == "" {
+		chosenJobType = RunExecuteJobType
+	}
+
 	_, err = q.pool.Exec(
 		ctx,
 		`INSERT INTO jobs (
@@ -77,7 +83,7 @@ func (q *PgQueue) EnqueueRun(
 			NULL, NULL, 0, now(), now()
 		)`,
 		jobID,
-		RunExecuteJobType,
+		chosenJobType,
 		string(encoded),
 		JobStatusQueued,
 		availableAt,
@@ -89,13 +95,18 @@ func (q *PgQueue) EnqueueRun(
 	return jobID, nil
 }
 
-func (q *PgQueue) Lease(ctx context.Context, leaseSeconds int) (*JobLease, error) {
+func (q *PgQueue) Lease(ctx context.Context, leaseSeconds int, jobTypes []string) (*JobLease, error) {
 	if leaseSeconds <= 0 {
 		return nil, fmt.Errorf("lease_seconds 必须为正数")
 	}
 
+	chosenJobTypes := normalizeJobTypes(jobTypes)
+	if len(chosenJobTypes) == 0 {
+		return nil, nil
+	}
+
 	for i := 0; i < leaseAttemptsReapLimit; i++ {
-		lease, err := q.tryLeaseOne(ctx, leaseSeconds)
+		lease, err := q.tryLeaseOne(ctx, leaseSeconds, chosenJobTypes)
 		if err != nil {
 			return nil, err
 		}
@@ -103,7 +114,7 @@ func (q *PgQueue) Lease(ctx context.Context, leaseSeconds int) (*JobLease, error
 			return lease, nil
 		}
 
-		marked, err := q.tryMarkDeadOne(ctx)
+		marked, err := q.tryMarkDeadOne(ctx, chosenJobTypes)
 		if err != nil {
 			return nil, err
 		}
@@ -206,7 +217,7 @@ func (q *PgQueue) Nack(ctx context.Context, lease JobLease, delaySeconds *int) e
 	return nil
 }
 
-func (q *PgQueue) tryLeaseOne(ctx context.Context, leaseSeconds int) (*JobLease, error) {
+func (q *PgQueue) tryLeaseOne(ctx context.Context, leaseSeconds int, jobTypes []string) (*JobLease, error) {
 	tx, err := q.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return nil, err
@@ -229,12 +240,14 @@ func (q *PgQueue) tryLeaseOne(ctx context.Context, leaseSeconds int) (*JobLease,
 		   (status = $2 AND leased_until IS NOT NULL AND leased_until <= now())
 		 )
 		 AND attempts < $3
+		 AND job_type = ANY($4)
 		 ORDER BY available_at ASC, created_at ASC, id ASC
 		 FOR UPDATE SKIP LOCKED
 		 LIMIT 1`,
 		JobStatusQueued,
 		JobStatusLeased,
 		q.maxAttempts,
+		jobTypes,
 	).Scan(&jobID, &jobType, &payloadRaw, &currentTrys)
 	if err != nil {
 		if err == pgx.ErrNoRows {
@@ -288,7 +301,7 @@ func (q *PgQueue) tryLeaseOne(ctx context.Context, leaseSeconds int) (*JobLease,
 	}, nil
 }
 
-func (q *PgQueue) tryMarkDeadOne(ctx context.Context) (bool, error) {
+func (q *PgQueue) tryMarkDeadOne(ctx context.Context, jobTypes []string) (bool, error) {
 	tx, err := q.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return false, err
@@ -305,12 +318,14 @@ func (q *PgQueue) tryMarkDeadOne(ctx context.Context) (bool, error) {
 		   (status = $2 AND leased_until IS NOT NULL AND leased_until <= now())
 		 )
 		 AND attempts >= $3
+		 AND job_type = ANY($4)
 		 ORDER BY available_at ASC, created_at ASC, id ASC
 		 FOR UPDATE SKIP LOCKED
 		 LIMIT 1`,
 		JobStatusQueued,
 		JobStatusLeased,
 		q.maxAttempts,
+		jobTypes,
 	).Scan(&jobID)
 	if err != nil {
 		if err == pgx.ErrNoRows {
@@ -373,4 +388,21 @@ func normalizeTraceID(value string) string {
 		return ""
 	}
 	return strings.ToLower(cleaned)
+}
+
+func normalizeJobTypes(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	deduped := make([]string, 0, len(values))
+	for _, item := range values {
+		cleaned := strings.TrimSpace(item)
+		if cleaned == "" {
+			continue
+		}
+		if _, ok := seen[cleaned]; ok {
+			continue
+		}
+		seen[cleaned] = struct{}{}
+		deduped = append(deduped, cleaned)
+	}
+	return deduped
 }

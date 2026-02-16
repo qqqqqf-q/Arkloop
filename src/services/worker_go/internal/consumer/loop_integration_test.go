@@ -22,15 +22,37 @@ func TestLoopDedupesDuplicateRunJobsViaAdvisoryLock(t *testing.T) {
 	runID := uuid.New()
 	traceID := "0123456789abcdef0123456789abcdef"
 
-	if _, err := fixture.queue.EnqueueRun(context.Background(), orgID, runID, traceID, nil, nil); err != nil {
+	if _, err := fixture.queue.EnqueueRun(
+		context.Background(),
+		orgID,
+		runID,
+		traceID,
+		queue.RunExecuteJobType,
+		nil,
+		nil,
+	); err != nil {
 		t.Fatalf("enqueue #1 failed: %v", err)
 	}
-	if _, err := fixture.queue.EnqueueRun(context.Background(), orgID, runID, traceID, nil, nil); err != nil {
+	if _, err := fixture.queue.EnqueueRun(
+		context.Background(),
+		orgID,
+		runID,
+		traceID,
+		queue.RunExecuteJobType,
+		nil,
+		nil,
+	); err != nil {
 		t.Fatalf("enqueue #2 failed: %v", err)
 	}
 
 	handler := &blockingHandler{started: make(chan struct{}), release: make(chan struct{})}
-	cfg := Config{Concurrency: 1, PollSeconds: 0, LeaseSeconds: 30, HeartbeatSeconds: 0}
+	cfg := Config{
+		Concurrency:      1,
+		PollSeconds:      0,
+		LeaseSeconds:     30,
+		HeartbeatSeconds: 0,
+		QueueJobTypes:    []string{queue.RunExecuteJobType},
+	}
 	logger := app.NewJSONLogger("worker_go_test", nil)
 
 	loop1, err := NewLoop(fixture.queue, handler, fixture.locker, cfg, logger)
@@ -100,14 +122,28 @@ func TestLoopNacksWhenHeartbeatFailsRepeatedly(t *testing.T) {
 	runID := uuid.New()
 	traceID := "0123456789abcdef0123456789abcdef"
 
-	jobID, err := fixture.queue.EnqueueRun(context.Background(), orgID, runID, traceID, nil, nil)
+	jobID, err := fixture.queue.EnqueueRun(
+		context.Background(),
+		orgID,
+		runID,
+		traceID,
+		queue.RunExecuteJobType,
+		nil,
+		nil,
+	)
 	if err != nil {
 		t.Fatalf("enqueue failed: %v", err)
 	}
 
 	handler := &blockingUntilCancelledHandler{}
 	flakyQueue := &flakyHeartbeatQueue{base: fixture.queue, failuresLeft: 3}
-	cfg := Config{Concurrency: 1, PollSeconds: 0, LeaseSeconds: 30, HeartbeatSeconds: 0.01}
+	cfg := Config{
+		Concurrency:      1,
+		PollSeconds:      0,
+		LeaseSeconds:     30,
+		HeartbeatSeconds: 0.01,
+		QueueJobTypes:    []string{queue.RunExecuteJobType},
+	}
 	logger := app.NewJSONLogger("worker_go_test", nil)
 
 	loop, err := NewLoop(flakyQueue, handler, fixture.locker, cfg, logger)
@@ -205,14 +241,15 @@ func (q *flakyHeartbeatQueue) EnqueueRun(
 	orgID uuid.UUID,
 	runID uuid.UUID,
 	traceID string,
+	queueJobType string,
 	payload map[string]any,
 	availableAt *time.Time,
 ) (uuid.UUID, error) {
-	return q.base.EnqueueRun(ctx, orgID, runID, traceID, payload, availableAt)
+	return q.base.EnqueueRun(ctx, orgID, runID, traceID, queueJobType, payload, availableAt)
 }
 
-func (q *flakyHeartbeatQueue) Lease(ctx context.Context, leaseSeconds int) (*queue.JobLease, error) {
-	return q.base.Lease(ctx, leaseSeconds)
+func (q *flakyHeartbeatQueue) Lease(ctx context.Context, leaseSeconds int, jobTypes []string) (*queue.JobLease, error) {
+	return q.base.Lease(ctx, leaseSeconds, jobTypes)
 }
 
 func (q *flakyHeartbeatQueue) Heartbeat(ctx context.Context, lease queue.JobLease, leaseSeconds int) error {

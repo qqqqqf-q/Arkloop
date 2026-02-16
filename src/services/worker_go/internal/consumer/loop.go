@@ -111,7 +111,7 @@ func (l *Loop) Run(ctx context.Context) error {
 }
 
 func (l *Loop) RunOnce(ctx context.Context) (bool, error) {
-	lease, err := l.queue.Lease(ctx, l.config.LeaseSeconds)
+	lease, err := l.queue.Lease(ctx, l.config.LeaseSeconds, l.config.QueueJobTypes)
 	if err != nil {
 		l.logger.Error("lease job 失败", app.LogFields{}, map[string]any{"error": err.Error()})
 		return false, err
@@ -127,7 +127,8 @@ func (l *Loop) RunOnce(ctx context.Context) (bool, error) {
 func (l *Loop) processLease(ctx context.Context, lease queue.JobLease) {
 	fields := fieldsFromLease(lease)
 
-	if l.locker != nil && lease.JobType == queue.RunExecuteJobType {
+	payloadType := stringValue(lease.PayloadJSON, "type")
+	if l.locker != nil && payloadType == queue.RunExecuteJobType {
 		runID, ok := extractRunID(lease.PayloadJSON)
 		if ok {
 			unlock, acquired, err := l.locker.TryAcquire(ctx, runID)

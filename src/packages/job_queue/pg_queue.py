@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 import uuid
 
 import sqlalchemy as sa
@@ -82,11 +82,15 @@ class SqlAlchemyPgJobQueue(JobQueue):
         org_id: uuid.UUID,
         run_id: uuid.UUID,
         trace_id: str | None,
+        queue_job_type: str | None = None,
         payload: Mapping[str, Any] | None = None,
         available_at: datetime | None = None,
     ) -> uuid.UUID:
         job_id = uuid.uuid4()
         chosen_trace_id = normalize_trace_id(trace_id) or new_trace_id()
+        chosen_job_type = (queue_job_type or "").strip() or RUN_EXECUTE_JOB_TYPE
+        if not chosen_job_type:
+            raise ValueError("queue_job_type 不能为空")
         # 约定：jobs.id 与 payload_json.job_id 必须一致，便于 worker 只看 payload 即可回放/审计。
         payload_json: dict[str, Any] = {
             "v": JOB_PAYLOAD_VERSION_V1,
@@ -99,7 +103,7 @@ class SqlAlchemyPgJobQueue(JobQueue):
         }
         values: dict[str, Any] = {
             "id": job_id,
-            "job_type": RUN_EXECUTE_JOB_TYPE,
+            "job_type": chosen_job_type,
             "payload_json": payload_json,
             "status": JOB_STATUS_QUEUED,
             "leased_until": None,
@@ -112,15 +116,34 @@ class SqlAlchemyPgJobQueue(JobQueue):
         await self._session.execute(stmt)
         return job_id
 
-    async def lease(self, *, lease_seconds: int = 30) -> JobLease | None:
+    async def lease(
+        self,
+        *,
+        lease_seconds: int = 30,
+        job_types: Sequence[str] | None = None,
+    ) -> JobLease | None:
         if lease_seconds <= 0:
             raise ValueError("lease_seconds 必须为正数")
 
+        chosen_job_types: tuple[str, ...] | None = None
+        if job_types is not None:
+            cleaned = [item.strip() for item in job_types if item and item.strip()]
+            if not cleaned:
+                return None
+            seen: set[str] = set()
+            deduped: list[str] = []
+            for item in cleaned:
+                if item in seen:
+                    continue
+                seen.add(item)
+                deduped.append(item)
+            chosen_job_types = tuple(deduped)
+
         for _ in range(_LEASE_ATTEMPTS_REAP_LIMIT):
-            lease = await self._try_lease_one(lease_seconds=lease_seconds)
+            lease = await self._try_lease_one(lease_seconds=lease_seconds, job_types=chosen_job_types)
             if lease is not None:
                 return lease
-            if not await self._try_mark_dead_one():
+            if not await self._try_mark_dead_one(job_types=chosen_job_types):
                 return None
         return None
 
@@ -188,10 +211,15 @@ class SqlAlchemyPgJobQueue(JobQueue):
         if result.rowcount != 1:
             raise JobLeaseLostError(job_id=lease.job_id)
 
-    async def _try_lease_one(self, *, lease_seconds: int) -> JobLease | None:
+    async def _try_lease_one(
+        self,
+        *,
+        lease_seconds: int,
+        job_types: tuple[str, ...] | None,
+    ) -> JobLease | None:
         now = sa.func.now()
         lease_until = now + sa.func.make_interval(0, 0, 0, 0, 0, 0, lease_seconds)
-        candidate = self._candidate_job_cte(now=now, attempts_lt=self._max_attempts)
+        candidate = self._candidate_job_cte(now=now, attempts_lt=self._max_attempts, job_types=job_types)
         stmt = (
             sa.update(_jobs)
             .where(_jobs.c.id == candidate.c.id)
@@ -223,9 +251,9 @@ class SqlAlchemyPgJobQueue(JobQueue):
             lease_token=row["lease_token"],
         )
 
-    async def _try_mark_dead_one(self) -> bool:
+    async def _try_mark_dead_one(self, *, job_types: tuple[str, ...] | None) -> bool:
         now = sa.func.now()
-        candidate = self._candidate_job_cte(now=now, attempts_gte=self._max_attempts)
+        candidate = self._candidate_job_cte(now=now, attempts_gte=self._max_attempts, job_types=job_types)
         stmt = (
             sa.update(_jobs)
             .where(_jobs.c.id == candidate.c.id)
@@ -262,6 +290,7 @@ class SqlAlchemyPgJobQueue(JobQueue):
         now: sa.SQLColumnExpression[Any],
         attempts_lt: int | None = None,
         attempts_gte: int | None = None,
+        job_types: tuple[str, ...] | None = None,
     ) -> sa.CTE:
         if attempts_lt is not None and attempts_gte is not None:
             raise ValueError("attempts_lt 与 attempts_gte 不能同时设置")
@@ -283,6 +312,8 @@ class SqlAlchemyPgJobQueue(JobQueue):
             conditions.append(_jobs.c.attempts < attempts_lt)
         if attempts_gte is not None:
             conditions.append(_jobs.c.attempts >= attempts_gte)
+        if job_types is not None:
+            conditions.append(_jobs.c.job_type.in_(job_types))
 
         return (
             sa.select(_jobs.c.id)

@@ -24,6 +24,7 @@ src/services/worker_go/
 - `ARKLOOP_WORKER_POLL_SECONDS`（默认 0.25）
 - `ARKLOOP_WORKER_LEASE_SECONDS`（默认 30）
 - `ARKLOOP_WORKER_HEARTBEAT_SECONDS`（默认 10）
+- `ARKLOOP_WORKER_QUEUE_JOB_TYPES`：消费的 `jobs.job_type` 列表（逗号分隔，默认 `run.execute`）
 - `ARKLOOP_DATABASE_URL` / `DATABASE_URL`：Postgres 连接串（设置后进入消费模式）
 - `ARKLOOP_WORKER_BRIDGE_URL`：Python bridge base url（例如 `http://127.0.0.1:18080`）
 - `ARKLOOP_WORKER_BRIDGE_TOKEN`：bridge 的 shared token（bridge 模式必填）

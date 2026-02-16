@@ -12,6 +12,7 @@ const (
 	workerPollSecondsEnv      = "ARKLOOP_WORKER_POLL_SECONDS"
 	workerLeaseSecondsEnv     = "ARKLOOP_WORKER_LEASE_SECONDS"
 	workerHeartbeatSecondsEnv = "ARKLOOP_WORKER_HEARTBEAT_SECONDS"
+	workerQueueJobTypesEnv    = "ARKLOOP_WORKER_QUEUE_JOB_TYPES"
 )
 
 // Config 与 Python WorkerLoopConfig 对齐。
@@ -20,6 +21,7 @@ type Config struct {
 	PollSeconds      float64
 	LeaseSeconds     int
 	HeartbeatSeconds float64
+	QueueJobTypes    []string
 }
 
 func DefaultConfig() Config {
@@ -28,6 +30,7 @@ func DefaultConfig() Config {
 		PollSeconds:      0.25,
 		LeaseSeconds:     30,
 		HeartbeatSeconds: 10,
+		QueueJobTypes:    []string{"run.execute"},
 	}
 }
 
@@ -66,6 +69,14 @@ func LoadConfigFromEnv() (Config, error) {
 		cfg.HeartbeatSeconds = value
 	}
 
+	if raw, ok := lookupEnv(workerQueueJobTypesEnv); ok {
+		parsed := parseCSVList(raw)
+		if len(parsed) == 0 {
+			return Config{}, fmt.Errorf("%s: 不能为空", workerQueueJobTypesEnv)
+		}
+		cfg.QueueJobTypes = parsed
+	}
+
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err
 	}
@@ -85,6 +96,9 @@ func (c Config) Validate() error {
 	}
 	if c.HeartbeatSeconds < 0 {
 		return fmt.Errorf("heartbeat_seconds 必须为非负数")
+	}
+	if len(c.QueueJobTypes) == 0 {
+		return fmt.Errorf("queue_job_types 不能为空")
 	}
 	return nil
 }
@@ -121,4 +135,22 @@ func parseNonNegativeFloat(raw string) (float64, error) {
 		return 0, fmt.Errorf("必须大于等于 0")
 	}
 	return value, nil
+}
+
+func parseCSVList(raw string) []string {
+	items := strings.Split(raw, ",")
+	seen := make(map[string]struct{}, len(items))
+	deduped := make([]string, 0, len(items))
+	for _, item := range items {
+		cleaned := strings.TrimSpace(item)
+		if cleaned == "" {
+			continue
+		}
+		if _, ok := seen[cleaned]; ok {
+			continue
+		}
+		seen[cleaned] = struct{}{}
+		deduped = append(deduped, cleaned)
+	}
+	return deduped
 }

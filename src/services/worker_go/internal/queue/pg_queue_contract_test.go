@@ -20,7 +20,15 @@ func TestPgQueueLeaseIsMutuallyExclusive(t *testing.T) {
 	traceID := uuid.NewString()
 	traceID = traceID[:8] + traceID[9:13] + traceID[14:18] + traceID[19:23] + traceID[24:]
 
-	jobID, err := queue.EnqueueRun(context.Background(), orgID, runID, traceID, map[string]any{"source": "test"}, nil)
+	jobID, err := queue.EnqueueRun(
+		context.Background(),
+		orgID,
+		runID,
+		traceID,
+		RunExecuteJobType,
+		map[string]any{"source": "test"},
+		nil,
+	)
 	if err != nil {
 		t.Fatalf("enqueue run failed: %v", err)
 	}
@@ -35,7 +43,7 @@ func TestPgQueueLeaseIsMutuallyExclusive(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			<-start
-			lease, err := queue.Lease(context.Background(), 60)
+			lease, err := queue.Lease(context.Background(), 60, []string{RunExecuteJobType})
 			if err != nil {
 				errCh <- err
 				return
@@ -83,6 +91,7 @@ func TestPgQueuePayloadIsCompatible(t *testing.T) {
 		orgID,
 		runID,
 		traceID,
+		RunExecuteJobType,
 		map[string]any{"note": "compat"},
 		nil,
 	)
@@ -90,7 +99,7 @@ func TestPgQueuePayloadIsCompatible(t *testing.T) {
 		t.Fatalf("enqueue run failed: %v", err)
 	}
 
-	lease, err := queue.Lease(context.Background(), 60)
+	lease, err := queue.Lease(context.Background(), 60, []string{RunExecuteJobType})
 	if err != nil {
 		t.Fatalf("lease failed: %v", err)
 	}
@@ -130,6 +139,7 @@ func TestPgQueueDeadLettersAfterMaxAttempts(t *testing.T) {
 		orgID,
 		runID,
 		"0123456789abcdef0123456789abcdef",
+		RunExecuteJobType,
 		map[string]any{"note": "dead_letter"},
 		nil,
 	)
@@ -137,7 +147,7 @@ func TestPgQueueDeadLettersAfterMaxAttempts(t *testing.T) {
 		t.Fatalf("enqueue run failed: %v", err)
 	}
 
-	lease1, err := queue.Lease(context.Background(), 60)
+	lease1, err := queue.Lease(context.Background(), 60, []string{RunExecuteJobType})
 	if err != nil {
 		t.Fatalf("lease #1 failed: %v", err)
 	}
@@ -149,7 +159,7 @@ func TestPgQueueDeadLettersAfterMaxAttempts(t *testing.T) {
 		t.Fatalf("nack #1 failed: %v", err)
 	}
 
-	lease2, err := queue.Lease(context.Background(), 60)
+	lease2, err := queue.Lease(context.Background(), 60, []string{RunExecuteJobType})
 	if err != nil {
 		t.Fatalf("lease #2 failed: %v", err)
 	}
@@ -160,7 +170,7 @@ func TestPgQueueDeadLettersAfterMaxAttempts(t *testing.T) {
 		t.Fatalf("nack #2 failed: %v", err)
 	}
 
-	lease3, err := queue.Lease(context.Background(), 60)
+	lease3, err := queue.Lease(context.Background(), 60, []string{RunExecuteJobType})
 	if err != nil {
 		t.Fatalf("lease #3 failed: %v", err)
 	}
@@ -177,6 +187,68 @@ func TestPgQueueDeadLettersAfterMaxAttempts(t *testing.T) {
 	}
 }
 
+func TestPgQueueLeaseCanFilterByJobType(t *testing.T) {
+	fixture := newQueueFixture(t, 25)
+	queue := fixture.queue
+
+	orgID := uuid.New()
+	runID := uuid.New()
+
+	pythonJobID, err := queue.EnqueueRun(
+		context.Background(),
+		orgID,
+		runID,
+		"0123456789abcdef0123456789abcdef",
+		RunExecuteJobType,
+		map[string]any{"note": "python"},
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("enqueue python job failed: %v", err)
+	}
+
+	goJobID, err := queue.EnqueueRun(
+		context.Background(),
+		orgID,
+		runID,
+		"0123456789abcdef0123456789abcdef",
+		RunExecuteQueueJobTypeGoBridge,
+		map[string]any{"note": "go_bridge"},
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("enqueue go job failed: %v", err)
+	}
+
+	leaseGo, err := queue.Lease(context.Background(), 60, []string{RunExecuteQueueJobTypeGoBridge})
+	if err != nil {
+		t.Fatalf("lease go job failed: %v", err)
+	}
+	if leaseGo == nil {
+		t.Fatal("expected go lease but got nil")
+	}
+	if leaseGo.JobID != goJobID || leaseGo.JobType != RunExecuteQueueJobTypeGoBridge {
+		t.Fatalf("unexpected go lease: %+v", leaseGo)
+	}
+	if err := queue.Ack(context.Background(), *leaseGo); err != nil {
+		t.Fatalf("ack go job failed: %v", err)
+	}
+
+	leasePython, err := queue.Lease(context.Background(), 60, []string{RunExecuteJobType})
+	if err != nil {
+		t.Fatalf("lease python job failed: %v", err)
+	}
+	if leasePython == nil {
+		t.Fatal("expected python lease but got nil")
+	}
+	if leasePython.JobID != pythonJobID || leasePython.JobType != RunExecuteJobType {
+		t.Fatalf("unexpected python lease: %+v", leasePython)
+	}
+	if err := queue.Ack(context.Background(), *leasePython); err != nil {
+		t.Fatalf("ack python job failed: %v", err)
+	}
+}
+
 func TestPgQueueRejectsLeaseTokenMismatch(t *testing.T) {
 	fixture := newQueueFixture(t, 25)
 	queue := fixture.queue
@@ -189,6 +261,7 @@ func TestPgQueueRejectsLeaseTokenMismatch(t *testing.T) {
 		orgID,
 		runID,
 		"0123456789abcdef0123456789abcdef",
+		RunExecuteJobType,
 		nil,
 		nil,
 	)
@@ -196,7 +269,7 @@ func TestPgQueueRejectsLeaseTokenMismatch(t *testing.T) {
 		t.Fatalf("enqueue run failed: %v", err)
 	}
 
-	lease, err := queue.Lease(context.Background(), 60)
+	lease, err := queue.Lease(context.Background(), 60, []string{RunExecuteJobType})
 	if err != nil {
 		t.Fatalf("lease failed: %v", err)
 	}

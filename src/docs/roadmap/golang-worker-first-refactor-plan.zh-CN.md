@@ -193,16 +193,30 @@ src/services/worker_go/
 - 回滚：
   - 取消 `ARKLOOP_WORKER_BRIDGE_URL`，Go Worker 回到 noop handler；或直接停用 Go Worker，恢复 Python Worker 消费。
 
-### WG-05 灰度路由（按 job_type/比例切流）
+### WG-05 灰度路由（按 job_type/比例切流）（已完成）
 
 - 目标：让 Go Worker 可灰度，不做一次性总切换。
 - 改动：
-  - 增加 job 路由策略（例如独立 `job_type` 或按比例投递）。
-  - 建立对照监控：吞吐、失败率、平均执行时长、重试率。
+  - 增加 queue job_type 分流常量：
+    - Python：`packages.job_queue.RUN_EXECUTE_QUEUE_JOB_TYPE_GO_BRIDGE`
+    - Go：`worker_go/internal/queue.RunExecuteQueueJobTypeGoBridge`
+  - API enqueue 增加灰度开关：`ARKLOOP_WORKER_GO_TRAFFIC_PERCENT`（0~100，按 `run_id` 分桶，确定性路由）。
+    - 0：投递 `jobs.job_type=run.execute`
+    - 100：投递 `jobs.job_type=run.execute.go_bridge`
+    - `payload_json["type"]` 始终保持 `run.execute`（冻结契约不变）
+  - Worker 增加 lease 过滤：`ARKLOOP_WORKER_QUEUE_JOB_TYPES`
+    - Python Worker/Go Worker 均可配置消费的 `jobs.job_type` allowlist
+  - advisory lock 去重判断改为基于 `payload_json["type"]`，避免 job_type 分流导致去重失效。
+  - 补齐测试：
+    - Python integration：`test_job_queue_lease_can_filter_by_job_type`
+    - Go contract：`TestPgQueueLeaseCanFilterByJobType`
+    - Python unit：`test_run_executor_go_traffic_routing.py`
 - 验收：
-  - 5% -> 20% -> 50% -> 100% 灰度期间指标不劣化。
+  - 默认配置（0%）下所有 unit 测试通过。
+  - `jobs.job_type` 过滤后仅消费目标类型，不误 ack/nack 其它类型。
 - 回滚：
-  - 秒级回切到 Python Worker 路径。
+  - API 侧把 `ARKLOOP_WORKER_GO_TRAFFIC_PERCENT` 设为 0，恢复投递到 Python job_type。
+  - Worker 侧把 `ARKLOOP_WORKER_QUEUE_JOB_TYPES` 调整为包含目标类型即可接管残留队列。
 
 ### WG-06 Go Worker 全量接管（桥接模式）
 

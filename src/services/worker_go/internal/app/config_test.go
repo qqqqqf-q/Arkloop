@@ -1,6 +1,7 @@
 package app
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
@@ -17,8 +18,20 @@ func TestLoadConfigFromEnv_Defaults(t *testing.T) {
 	}
 
 	want := DefaultConfig()
-	if cfg != want {
-		t.Fatalf("config mismatch: got %+v want %+v", cfg, want)
+	if cfg.Concurrency != want.Concurrency {
+		t.Fatalf("config mismatch: concurrency got %d want %d", cfg.Concurrency, want.Concurrency)
+	}
+	if cfg.PollSeconds != want.PollSeconds {
+		t.Fatalf("config mismatch: poll_seconds got %v want %v", cfg.PollSeconds, want.PollSeconds)
+	}
+	if cfg.LeaseSeconds != want.LeaseSeconds {
+		t.Fatalf("config mismatch: lease_seconds got %d want %d", cfg.LeaseSeconds, want.LeaseSeconds)
+	}
+	if cfg.HeartbeatSeconds != want.HeartbeatSeconds {
+		t.Fatalf("config mismatch: heartbeat_seconds got %v want %v", cfg.HeartbeatSeconds, want.HeartbeatSeconds)
+	}
+	if !slices.Equal(cfg.QueueJobTypes, want.QueueJobTypes) {
+		t.Fatalf("config mismatch: queue_job_types got %#v want %#v", cfg.QueueJobTypes, want.QueueJobTypes)
 	}
 }
 
@@ -27,6 +40,7 @@ func TestLoadConfigFromEnv_ParsesOverrides(t *testing.T) {
 	t.Setenv(workerPollSecondsEnv, "0.5")
 	t.Setenv(workerLeaseSecondsEnv, "45")
 	t.Setenv(workerHeartbeatSecondsEnv, "9")
+	t.Setenv(workerQueueJobTypesEnv, "run.execute,run.execute.go_bridge")
 
 	cfg, err := LoadConfigFromEnv()
 	if err != nil {
@@ -44,6 +58,9 @@ func TestLoadConfigFromEnv_ParsesOverrides(t *testing.T) {
 	}
 	if cfg.HeartbeatSeconds != 9 {
 		t.Fatalf("unexpected heartbeat seconds: %v", cfg.HeartbeatSeconds)
+	}
+	if !slices.Equal(cfg.QueueJobTypes, []string{"run.execute", "run.execute.go_bridge"}) {
+		t.Fatalf("unexpected queue_job_types: %#v", cfg.QueueJobTypes)
 	}
 }
 

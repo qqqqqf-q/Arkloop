@@ -36,6 +36,7 @@ func (a *Application) Run(ctx context.Context) error {
 		"poll_seconds":      a.config.PollSeconds,
 		"lease_seconds":     a.config.LeaseSeconds,
 		"heartbeat_seconds": a.config.HeartbeatSeconds,
+		"queue_job_types":   a.config.QueueJobTypes,
 	})
 
 	signals := make(chan os.Signal, 1)

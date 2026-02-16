@@ -18,6 +18,7 @@ from packages.job_queue import (
     JOB_STATUS_DEAD,
     JOB_STATUS_DONE,
     RUN_EXECUTE_JOB_TYPE,
+    RUN_EXECUTE_QUEUE_JOB_TYPE_GO_BRIDGE,
     SqlAlchemyPgJobQueue,
 )
 from services.worker import WorkerJobPayload
@@ -253,6 +254,74 @@ def test_pg_job_queue_dead_letters_after_max_attempts(migrated_database_url: str
                 assert row is not None
                 assert row[0] == JOB_STATUS_DEAD
                 assert int(row[1]) == 2
+        finally:
+            await database.dispose()
+
+    anyio.run(_run)
+
+
+def test_pg_job_queue_lease_can_filter_by_job_type(migrated_database_url: str) -> None:
+    database = Database.from_config(DatabaseConfig(url=migrated_database_url))
+
+    async def _run() -> None:
+        try:
+            org_id = uuid.uuid4()
+            run_id = uuid.uuid4()
+            trace_id = uuid.uuid4().hex
+
+            async with database.sessionmaker() as session:
+                queue = SqlAlchemyPgJobQueue(session)
+                python_job_id = await queue.enqueue_run(
+                    org_id=org_id,
+                    run_id=run_id,
+                    trace_id=trace_id,
+                    payload={"note": "python"},
+                )
+                go_job_id = await queue.enqueue_run(
+                    org_id=org_id,
+                    run_id=run_id,
+                    trace_id=trace_id,
+                    queue_job_type=RUN_EXECUTE_QUEUE_JOB_TYPE_GO_BRIDGE,
+                    payload={"note": "go_bridge"},
+                )
+                await session.commit()
+
+            async with database.sessionmaker() as session:
+                queue = get_worker_job_queue(session)
+                lease = await queue.lease(
+                    lease_seconds=60,
+                    job_types=(RUN_EXECUTE_QUEUE_JOB_TYPE_GO_BRIDGE,),
+                )
+                assert lease is not None
+                assert lease.job_id == go_job_id
+                await queue.ack(lease=lease)
+                await session.commit()
+
+            async with database.sessionmaker() as session:
+                queue = get_worker_job_queue(session)
+                lease = await queue.lease(lease_seconds=60, job_types=(RUN_EXECUTE_JOB_TYPE,))
+                assert lease is not None
+                assert lease.job_id == python_job_id
+                await queue.ack(lease=lease)
+                await session.commit()
+
+            async with database.sessionmaker() as session:
+                python_status = (
+                    await session.execute(
+                        sa.text("SELECT status FROM jobs WHERE id = :job_id"),
+                        {"job_id": python_job_id},
+                    )
+                ).one_or_none()
+                go_status = (
+                    await session.execute(
+                        sa.text("SELECT status FROM jobs WHERE id = :job_id"),
+                        {"job_id": go_job_id},
+                    )
+                ).one_or_none()
+                assert python_status is not None
+                assert go_status is not None
+                assert python_status[0] == JOB_STATUS_DONE
+                assert go_status[0] == JOB_STATUS_DONE
         finally:
             await database.dispose()
 

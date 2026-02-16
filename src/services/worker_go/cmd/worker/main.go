@@ -71,6 +71,7 @@ func run() error {
 			PollSeconds:      cfg.PollSeconds,
 			LeaseSeconds:     cfg.LeaseSeconds,
 			HeartbeatSeconds: cfg.HeartbeatSeconds,
+			QueueJobTypes:    cfg.QueueJobTypes,
 		},
 		logger,
 	)

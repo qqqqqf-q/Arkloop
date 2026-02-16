@@ -23,6 +23,7 @@ _WORKER_CONCURRENCY_ENV = "ARKLOOP_WORKER_CONCURRENCY"
 _WORKER_POLL_SECONDS_ENV = "ARKLOOP_WORKER_POLL_SECONDS"
 _WORKER_LEASE_SECONDS_ENV = "ARKLOOP_WORKER_LEASE_SECONDS"
 _WORKER_HEARTBEAT_SECONDS_ENV = "ARKLOOP_WORKER_HEARTBEAT_SECONDS"
+_WORKER_QUEUE_JOB_TYPES_ENV = "ARKLOOP_WORKER_QUEUE_JOB_TYPES"
 
 _HEARTBEAT_MAX_CONSECUTIVE_ERRORS = 3
 
@@ -60,12 +61,25 @@ def _extract_uuid(payload_json: Mapping[str, object], key: str) -> uuid.UUID | N
         return None
 
 
+def _parse_queue_job_types(raw: str) -> tuple[str, ...]:
+    items = [item.strip() for item in raw.split(",")]
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        if not item or item in seen:
+            continue
+        seen.add(item)
+        deduped.append(item)
+    return tuple(deduped)
+
+
 @dataclass(frozen=True, slots=True)
 class WorkerLoopConfig:
     concurrency: int = 4
     poll_seconds: float = 0.25
     lease_seconds: int = 30
     heartbeat_seconds: float = 10.0
+    queue_job_types: tuple[str, ...] = (RUN_EXECUTE_JOB_TYPE,)
 
     @classmethod
     def from_env(cls) -> "WorkerLoopConfig":
@@ -93,11 +107,19 @@ class WorkerLoopConfig:
         if raw_heartbeat:
             heartbeat_seconds = _parse_non_negative_float(raw_heartbeat, label=_WORKER_HEARTBEAT_SECONDS_ENV)
 
+        queue_job_types = defaults.queue_job_types
+        raw_job_types = os.getenv(_WORKER_QUEUE_JOB_TYPES_ENV)
+        if raw_job_types:
+            parsed = _parse_queue_job_types(raw_job_types)
+            if parsed:
+                queue_job_types = parsed
+
         return cls(
             concurrency=concurrency,
             poll_seconds=poll_seconds,
             lease_seconds=lease_seconds,
             heartbeat_seconds=heartbeat_seconds,
+            queue_job_types=queue_job_types,
         )
 
 
@@ -118,6 +140,8 @@ class WorkerConsumerLoop:
             raise ValueError("lease_seconds 必须为正整数")
         if config.heartbeat_seconds < 0:
             raise ValueError("heartbeat_seconds 必须为非负数")
+        if not config.queue_job_types:
+            raise ValueError("queue_job_types 不能为空")
 
         self._database = database
         self._job_queue_factory = job_queue_factory
@@ -167,7 +191,10 @@ class WorkerConsumerLoop:
         try:
             async with self._database.sessionmaker() as session:
                 queue = self._job_queue_factory(session)
-                lease = await queue.lease(lease_seconds=self._config.lease_seconds)
+                lease = await queue.lease(
+                    lease_seconds=self._config.lease_seconds,
+                    job_types=self._config.queue_job_types,
+                )
                 await session.commit()
                 return lease
         except Exception:
@@ -178,7 +205,8 @@ class WorkerConsumerLoop:
         lock_conn: sa.ext.asyncio.AsyncConnection | None = None
         run_id = _extract_uuid(lease.payload_json, "run_id")
         lock_key: int | None = None
-        if lease.job_type == RUN_EXECUTE_JOB_TYPE and run_id is not None:
+        payload_type = lease.payload_json.get("type")
+        if isinstance(payload_type, str) and payload_type.strip() == RUN_EXECUTE_JOB_TYPE and run_id is not None:
             lock_key = _advisory_lock_key(run_id)
 
         heartbeat_task: asyncio.Task[str] | None = None

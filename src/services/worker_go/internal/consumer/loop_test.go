@@ -16,7 +16,7 @@ func TestRunOnceNacksWhenRunLockIsBusy(t *testing.T) {
 	lease := queue.JobLease{
 		JobID:       uuid.New(),
 		JobType:     queue.RunExecuteJobType,
-		PayloadJSON: map[string]any{"run_id": uuid.New().String()},
+		PayloadJSON: map[string]any{"type": queue.RunExecuteJobType, "run_id": uuid.New().String()},
 		Attempts:    1,
 		LeaseToken:  uuid.New(),
 	}
@@ -30,6 +30,7 @@ func TestRunOnceNacksWhenRunLockIsBusy(t *testing.T) {
 		PollSeconds:      0,
 		LeaseSeconds:     30,
 		HeartbeatSeconds: 0,
+		QueueJobTypes:    []string{queue.RunExecuteJobType},
 	})
 
 	processed, err := loop.RunOnce(context.Background())
@@ -57,7 +58,7 @@ func TestRunOnceNacksAfterHeartbeatConsecutiveFailures(t *testing.T) {
 	lease := queue.JobLease{
 		JobID:       uuid.New(),
 		JobType:     queue.RunExecuteJobType,
-		PayloadJSON: map[string]any{"run_id": uuid.New().String()},
+		PayloadJSON: map[string]any{"type": queue.RunExecuteJobType, "run_id": uuid.New().String()},
 		LeaseToken:  uuid.New(),
 	}
 
@@ -77,6 +78,7 @@ func TestRunOnceNacksAfterHeartbeatConsecutiveFailures(t *testing.T) {
 		PollSeconds:      0,
 		LeaseSeconds:     1,
 		HeartbeatSeconds: 0.01,
+		QueueJobTypes:    []string{queue.RunExecuteJobType},
 	})
 
 	processed, err := loop.RunOnce(context.Background())
@@ -101,7 +103,7 @@ func TestRunOnceStopsOnLeaseLostWithoutAckOrNack(t *testing.T) {
 	lease := queue.JobLease{
 		JobID:       uuid.New(),
 		JobType:     queue.RunExecuteJobType,
-		PayloadJSON: map[string]any{"run_id": uuid.New().String()},
+		PayloadJSON: map[string]any{"type": queue.RunExecuteJobType, "run_id": uuid.New().String()},
 		LeaseToken:  uuid.New(),
 	}
 
@@ -119,6 +121,7 @@ func TestRunOnceStopsOnLeaseLostWithoutAckOrNack(t *testing.T) {
 		PollSeconds:      0,
 		LeaseSeconds:     1,
 		HeartbeatSeconds: 0.01,
+		QueueJobTypes:    []string{queue.RunExecuteJobType},
 	})
 
 	processed, err := loop.RunOnce(context.Background())
@@ -162,13 +165,14 @@ func (s *stubQueue) EnqueueRun(
 	_ uuid.UUID,
 	_ uuid.UUID,
 	_ string,
+	_ string,
 	_ map[string]any,
 	_ *time.Time,
 ) (uuid.UUID, error) {
 	return uuid.New(), nil
 }
 
-func (s *stubQueue) Lease(_ context.Context, _ int) (*queue.JobLease, error) {
+func (s *stubQueue) Lease(_ context.Context, _ int, _ []string) (*queue.JobLease, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.leased {
