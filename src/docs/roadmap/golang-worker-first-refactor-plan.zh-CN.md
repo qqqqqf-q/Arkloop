@@ -319,14 +319,28 @@ src/services/worker_go/
 
 ### WG-09 MCP/Skill 迁移策略收口
 
-- 目标：处理最复杂的 Python 特有能力。
-- 改动（两选一，建议先 A 后 B）：
-  - A：MCP/Skill 继续由 Python sidecar 提供，Go 只做编排。
-  - B：逐步原生化 MCP 会话池与 Skill runtime。
+- 目标：解决最复杂的 Python 特有能力，并收敛到“Go Worker 单栈可运行”（不依赖 Python sidecar 才算完成）。
+- 改动：
+  - Skill runtime 原生化（对齐 `packages.skill_runtime` 行为与 error_class）：
+    - 复用现有 skills 目录结构：`src/skills/<skill_id>/skill.yaml + prompt.md`
+    - 对齐 skill 解析与校验：
+      - `skill.not_found`、`skill.version_mismatch`、`skill.invalid_id` 等错误类型
+    - 对齐注入策略：把 skill 的 `prompt_md/tool_allowlist/budgets` 注入到单次 run 的上下文
+  - MCP 工具原生化（优先覆盖项目当前实际用法，避免过度设计）：
+    - 复用现有配置入口：`ARKLOOP_MCP_CONFIG_FILE`（JSON schema 与 Python 保持一致）
+    - 优先实现 `transport=stdio`（覆盖当前 `mcp.config.json` 的用法：spawn command + stdio 协议）
+    - 实现最小 session pool（复用进程，避免每次 tool call 都启动新进程）
+    - 把 MCP tools 注册进 Go ToolRegistry，并纳入 allowlist/policy 体系（统一审计与风险控制）
+    - 超时语义对齐：遵循 `callTimeoutMs`（超时转为 `tool.result` 的 error_class，而不是静默失败）
+  - 兼容性要求：
+    - `run_events` 的事件类型、seq、终态语义保持不变量
+    - `tool.call/tool.result` 需要可关联（`tool_call_id` 等字段不丢）
 - 验收：
-  - 关键 MCP 工具与 skill 调用可稳定运行。
+  - Skill：至少用 `src/skills/demo_no_tools` 跑通一条 run（能看到 skill prompt 生效且不调用工具）
+  - MCP：用本地 fake MCP server（测试夹具）验证一次完整 tool call/result 闭环；同时验证 stdio transport 的跨平台可运行性
+  - Go 单栈：在不启动 Python bridge/worker 的情况下，端到端 run 可完成（completed/failed/cancelled 均可测）
 - 回滚：
-  - 保留 sidecar 路径作为长期兜底。
+  - 在 WG-10 删除 bridge 前，如 MCP/skill 原生化出现 P1/P2：允许短期回到 `ARKLOOP_WORKER_GO_EXECUTOR=bridge` 回避风险，但必须在 WG-10 前再次收敛回 Go 单栈。
 
 ### WG-10 下线 Python Worker
 
