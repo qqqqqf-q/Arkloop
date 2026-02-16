@@ -5,7 +5,6 @@ from contextlib import asynccontextmanager
 import json
 import logging
 import os
-from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 from starlette.responses import JSONResponse, Response
@@ -121,4 +120,3 @@ def configure_app() -> FastAPI:
 
 
 __all__ = ["configure_app", "create_app"]
-

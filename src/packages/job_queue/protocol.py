@@ -3,7 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 import uuid
 
 RUN_EXECUTE_JOB_TYPE = "run.execute"
