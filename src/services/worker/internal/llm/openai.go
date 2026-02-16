@@ -4,21 +4,23 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
 	"time"
 
+	"arkloop/services/worker/internal/stablejson"
 	"github.com/google/uuid"
 )
 
 type OpenAIGatewayConfig struct {
-	APIKey           string
-	BaseURL          string
-	APIMode          string
-	EmitDebugEvents  bool
-	TotalTimeout     time.Duration
+	APIKey          string
+	BaseURL         string
+	APIMode         string
+	EmitDebugEvents bool
+	TotalTimeout    time.Duration
 }
 
 type OpenAIGateway struct {
@@ -145,7 +147,7 @@ func (g *OpenAIGateway) chatCompletions(ctx context.Context, request Request, yi
 	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096*4))
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024*1024))
 
 	status := resp.StatusCode
 	if status < 200 || status >= 300 {
@@ -191,8 +193,18 @@ func (g *OpenAIGateway) chatCompletions(ctx context.Context, request Request, yi
 		}
 	}
 
-	content, err := parseOpenAIChatContent(body)
+	content, toolCalls, err := parseOpenAIChatCompletion(body)
 	if err != nil {
+		if errors.Is(err, errOpenAIToolCallArguments) {
+			failed := StreamRunFailed{
+				Error: GatewayError{
+					ErrorClass: ErrorClassProviderNonRetryable,
+					Message:    "OpenAI tool_call 参数解析失败",
+					Details:    map[string]any{"reason": err.Error()},
+				},
+			}
+			return yield(failed)
+		}
 		failed := StreamRunFailed{
 			Error: GatewayError{
 				ErrorClass: ErrorClassInternalError,
@@ -205,6 +217,12 @@ func (g *OpenAIGateway) chatCompletions(ctx context.Context, request Request, yi
 
 	if strings.TrimSpace(content) != "" {
 		if err := yield(StreamMessageDelta{ContentDelta: content, Role: "assistant"}); err != nil {
+			return err
+		}
+	}
+
+	for _, call := range toolCalls {
+		if err := yield(call); err != nil {
 			return err
 		}
 	}
@@ -228,10 +246,22 @@ func toOpenAIChatMessages(messages []Message) []map[string]any {
 	out := make([]map[string]any, 0, len(messages))
 	for _, message := range messages {
 		text := joinParts(message.Content)
-		out = append(out, map[string]any{
-			"role":    message.Role,
-			"content": text,
-		})
+
+		if message.Role == "assistant" && len(message.ToolCalls) > 0 {
+			out = append(out, map[string]any{
+				"role":       "assistant",
+				"content":    text,
+				"tool_calls": toOpenAIAssistantToolCalls(message.ToolCalls),
+			})
+			continue
+		}
+
+		if message.Role == "tool" {
+			out = append(out, toOpenAIToolMessage(text))
+			continue
+		}
+
+		out = append(out, map[string]any{"role": message.Role, "content": text})
 	}
 	return out
 }
@@ -262,28 +292,143 @@ func toOpenAITools(specs []ToolSpec) []map[string]any {
 	return out
 }
 
-func parseOpenAIChatContent(body []byte) (string, error) {
-	var parsed any
-	if err := json.Unmarshal(body, &parsed); err != nil {
-		return "", err
-	}
-	root, ok := parsed.(map[string]any)
-	if !ok {
-		return "", fmt.Errorf("response 根不是对象")
-	}
-	choices, ok := root["choices"].([]any)
-	if !ok || len(choices) == 0 {
-		return "", fmt.Errorf("response 缺少 choices")
-	}
-	first, ok := choices[0].(map[string]any)
-	if !ok {
-		return "", fmt.Errorf("choices[0] 类型错误")
-	}
-	message, ok := first["message"].(map[string]any)
-	if !ok {
-		return "", fmt.Errorf("choices[0].message 类型错误")
-	}
-	content, _ := message["content"].(string)
-	return content, nil
+var errOpenAIToolCallArguments = errors.New("openai_tool_call_arguments")
+
+type openAIChatCompletionResponse struct {
+	Choices []struct {
+		Message struct {
+			Content   *string `json:"content"`
+			ToolCalls []struct {
+				ID       string `json:"id"`
+				Type     string `json:"type"`
+				Function struct {
+					Name      string `json:"name"`
+					Arguments string `json:"arguments"`
+				} `json:"function"`
+			} `json:"tool_calls"`
+		} `json:"message"`
+	} `json:"choices"`
 }
 
+func parseOpenAIChatCompletion(body []byte) (string, []ToolCall, error) {
+	var parsed openAIChatCompletionResponse
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return "", nil, err
+	}
+	if len(parsed.Choices) == 0 {
+		return "", nil, fmt.Errorf("response 缺少 choices")
+	}
+
+	message := parsed.Choices[0].Message
+	content := ""
+	if message.Content != nil {
+		content = *message.Content
+	}
+
+	toolCalls := make([]ToolCall, 0, len(message.ToolCalls))
+	for idx, raw := range message.ToolCalls {
+		toolCallID := strings.TrimSpace(raw.ID)
+		if toolCallID == "" {
+			return "", nil, fmt.Errorf("tool_calls[%d] 缺少 id", idx)
+		}
+
+		toolName := strings.TrimSpace(raw.Function.Name)
+		if toolName == "" {
+			return "", nil, fmt.Errorf("tool_calls[%d] 缺少 function.name", idx)
+		}
+
+		argumentsJSON := map[string]any{}
+		arguments := strings.TrimSpace(raw.Function.Arguments)
+		if arguments != "" {
+			var parsedArgs any
+			if err := json.Unmarshal([]byte(arguments), &parsedArgs); err != nil {
+				return "", nil, fmt.Errorf("%w: tool_calls[%d].function.arguments 不是合法 JSON", errOpenAIToolCallArguments, idx)
+			}
+			obj, ok := parsedArgs.(map[string]any)
+			if !ok {
+				return "", nil, fmt.Errorf("%w: tool_calls[%d].function.arguments 必须是 JSON object", errOpenAIToolCallArguments, idx)
+			}
+			argumentsJSON = obj
+		}
+
+		toolCalls = append(toolCalls, ToolCall{
+			ToolCallID:    toolCallID,
+			ToolName:      toolName,
+			ArgumentsJSON: argumentsJSON,
+		})
+	}
+
+	return content, toolCalls, nil
+}
+
+func toOpenAIAssistantToolCalls(calls []ToolCall) []map[string]any {
+	out := make([]map[string]any, 0, len(calls))
+	for _, call := range calls {
+		argumentsJSON, err := stablejson.Encode(mapOrEmpty(call.ArgumentsJSON))
+		if err != nil {
+			argumentsJSON = "{}"
+		}
+
+		out = append(out, map[string]any{
+			"id":   call.ToolCallID,
+			"type": "function",
+			"function": map[string]any{
+				"name":      call.ToolName,
+				"arguments": argumentsJSON,
+			},
+		})
+	}
+	return out
+}
+
+func toOpenAIToolMessage(text string) map[string]any {
+	var parsed any
+	if err := json.Unmarshal([]byte(text), &parsed); err != nil {
+		return map[string]any{"role": "tool", "content": text}
+	}
+
+	envelope, ok := parsed.(map[string]any)
+	if !ok {
+		return map[string]any{"role": "tool", "content": text}
+	}
+
+	toolCallID, _ := envelope["tool_call_id"].(string)
+	toolCallID = strings.TrimSpace(toolCallID)
+	if toolCallID == "" {
+		return map[string]any{"role": "tool", "content": text}
+	}
+
+	return map[string]any{
+		"role":         "tool",
+		"tool_call_id": toolCallID,
+		"content":      toolOutputTextFromEnvelope(envelope),
+	}
+}
+
+func toolOutputTextFromEnvelope(envelope map[string]any) string {
+	if result, ok := envelope["result"]; ok && result != nil {
+		encoded, err := stablejson.Encode(result)
+		if err == nil && encoded != "" {
+			return encoded
+		}
+	}
+
+	if errObj, ok := envelope["error"]; ok && errObj != nil {
+		payload := map[string]any{"error": errObj}
+		encoded, err := stablejson.Encode(payload)
+		if err == nil && encoded != "" {
+			return encoded
+		}
+	}
+
+	encoded, err := stablejson.Encode(envelope)
+	if err == nil && encoded != "" {
+		return encoded
+	}
+
+	encodedBytes, err := json.Marshal(envelope)
+	if err != nil {
+		return "{}"
+	}
+	return string(encodedBytes)
+}
