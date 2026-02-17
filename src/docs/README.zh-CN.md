@@ -218,6 +218,7 @@ Prompt 拼装与模型调用必须在服务端（或受控网关）完成。
 - 后端 API 与 SSE（Phase 1 规范草案）：`src/docs/specs/api-and-sse.zh-CN.md`
 - 项目开发路线（从 0 到可用）：`src/docs/roadmap/development-roadmap.zh-CN.md`
 - Go 重构路线（Worker 先行，薄片设计）：`src/docs/roadmap/golang-worker-first-refactor-plan.zh-CN.md`
+- Go 重构路线（Backend / API 迁移，薄片设计）：`src/docs/roadmap/golang-backend-refactor-plan.zh-CN.md`
 - Tools 与 Skills 规范：`src/docs/guides/skills-and-tools.zh-CN.md`
 - pytest 与测试策略：`src/docs/specs/testing-and-pytest.zh-CN.md`
 - 日志与可观测性：`src/docs/specs/logging-and-observability.zh-CN.md`
