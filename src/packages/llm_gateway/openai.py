@@ -221,12 +221,13 @@ def _to_openai_responses_input(request: LlmGatewayRequest) -> list[dict[str, Any
     items: list[dict[str, Any]] = []
     for message in request.messages:
         text = "".join(part.text for part in message.content)
+        content_type = "output_text" if message.role == "assistant" else "input_text"
         if message.role == "assistant" and message.tool_calls:
             if text:
                 items.append(
                     {
                         "role": "assistant",
-                        "content": [{"type": "input_text", "text": text}],
+                        "content": [{"type": content_type, "text": text}],
                     }
                 )
             for tool_call in message.tool_calls:
@@ -264,7 +265,7 @@ def _to_openai_responses_input(request: LlmGatewayRequest) -> list[dict[str, Any
         items.append(
             {
                 "role": message.role,
-                "content": [{"type": "input_text", "text": text}],
+                "content": [{"type": content_type, "text": text}],
             }
         )
     return items

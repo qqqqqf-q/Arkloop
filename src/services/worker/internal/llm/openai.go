@@ -55,33 +55,43 @@ func (g *OpenAIGateway) Stream(ctx context.Context, request Request, yield func(
 	if apiMode != "auto" && apiMode != "responses" && apiMode != "chat_completions" {
 		apiMode = "auto"
 	}
-	if apiMode == "responses" {
-		if err := yield(StreamProviderFallback{
-			ProviderKind: "openai",
-			FromAPIMode:  "responses",
-			ToAPIMode:    "chat_completions",
-			Reason:       "go gateway 暂未实现 responses，回退到 chat_completions",
-		}); err != nil {
-			return err
-		}
-		apiMode = "chat_completions"
-	}
-	if apiMode == "auto" {
-		apiMode = "chat_completions"
+
+	if apiMode == "chat_completions" {
+		return g.chatCompletions(ctx, request, yield)
 	}
 
-	if apiMode != "chat_completions" {
-		failed := StreamRunFailed{
+	if apiMode == "responses" {
+		return g.responses(ctx, request, yield, false)
+	}
+
+	if apiMode != "auto" {
+		return yield(StreamRunFailed{
 			Error: GatewayError{
 				ErrorClass: ErrorClassInternalError,
 				Message:    "OpenAI api_mode 未实现",
 				Details:    map[string]any{"api_mode": apiMode},
 			},
-		}
-		return yield(failed)
+		})
 	}
 
-	return g.chatCompletions(ctx, request, yield)
+	if err := g.responses(ctx, request, yield, true); err != nil {
+		var notSupported *openAIResponsesNotSupportedError
+		if errors.As(err, &notSupported) {
+			if err := yield(StreamProviderFallback{
+				ProviderKind: "openai",
+				FromAPIMode:  "responses",
+				ToAPIMode:    "chat_completions",
+				Reason:       "responses_endpoint_not_supported",
+				StatusCode:   &notSupported.StatusCode,
+			}); err != nil {
+				return err
+			}
+			return g.chatCompletions(ctx, request, yield)
+		}
+		return err
+	}
+
+	return nil
 }
 
 func (g *OpenAIGateway) chatCompletions(ctx context.Context, request Request, yield func(StreamEvent) error) error {
@@ -230,6 +240,156 @@ func (g *OpenAIGateway) chatCompletions(ctx context.Context, request Request, yi
 	return yield(StreamRunCompleted{})
 }
 
+type openAIResponsesNotSupportedError struct {
+	StatusCode int
+}
+
+func (e *openAIResponsesNotSupportedError) Error() string {
+	return fmt.Sprintf("openai responses not supported (status=%d)", e.StatusCode)
+}
+
+func (g *OpenAIGateway) responses(ctx context.Context, request Request, yield func(StreamEvent) error, allowFallback bool) error {
+	llmCallID := uuid.NewString()
+
+	input, err := toOpenAIResponsesInput(request.Messages)
+	if err != nil {
+		return yield(StreamRunFailed{
+			Error: GatewayError{
+				ErrorClass: ErrorClassInternalError,
+				Message:    "OpenAI responses 输入构造失败",
+				Details:    map[string]any{"reason": err.Error()},
+			},
+		})
+	}
+
+	payload := map[string]any{
+		"model": request.Model,
+		"input": input,
+	}
+	if request.Temperature != nil {
+		payload["temperature"] = *request.Temperature
+	}
+	if request.MaxOutputTokens != nil {
+		payload["max_output_tokens"] = *request.MaxOutputTokens
+	}
+	if len(request.Tools) > 0 {
+		payload["tools"] = toOpenAIResponsesTools(request.Tools)
+		payload["tool_choice"] = "auto"
+	}
+
+	if g.cfg.EmitDebugEvents {
+		baseURL := g.cfg.BaseURL
+		path := "/responses"
+		if err := yield(StreamLlmRequest{
+			LlmCallID:    llmCallID,
+			ProviderKind: "openai",
+			APIMode:      "responses",
+			BaseURL:      &baseURL,
+			Path:         &path,
+			PayloadJSON:  payload,
+		}); err != nil {
+			return err
+		}
+	}
+
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return yield(StreamRunFailed{
+			Error: GatewayError{
+				ErrorClass: ErrorClassInternalError,
+				Message:    "OpenAI 请求序列化失败",
+			},
+		})
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, g.cfg.BaseURL+"/responses", bytes.NewReader(encoded))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(g.cfg.APIKey))
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := g.client.Do(req)
+	if err != nil {
+		return yield(StreamRunFailed{
+			Error: GatewayError{
+				ErrorClass: ErrorClassProviderRetryable,
+				Message:    "OpenAI 网络错误",
+			},
+		})
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024*1024))
+	status := resp.StatusCode
+
+	if g.cfg.EmitDebugEvents {
+		raw := string(body)
+		chunk := StreamLlmResponseChunk{
+			LlmCallID:    llmCallID,
+			ProviderKind: "openai",
+			APIMode:      "responses",
+			Raw:          raw,
+			StatusCode:   &status,
+			Truncated:    true,
+		}
+		_ = yield(chunk)
+	}
+
+	if status < 200 || status >= 300 {
+		if allowFallback && isOpenAIResponsesNotSupported(status, body) {
+			return &openAIResponsesNotSupportedError{StatusCode: status}
+		}
+
+		errClass := errorClassFromStatus(status)
+		message := "OpenAI 请求失败"
+		if strings.TrimSpace(string(body)) != "" {
+			message = "OpenAI 请求失败（响应体已截断）"
+		}
+		return yield(StreamRunFailed{
+			Error: GatewayError{
+				ErrorClass: errClass,
+				Message:    message,
+				Details:    map[string]any{"status_code": status},
+			},
+		})
+	}
+
+	content, toolCalls, err := parseOpenAIResponses(body)
+	if err != nil {
+		if errors.Is(err, errOpenAIToolCallArguments) {
+			return yield(StreamRunFailed{
+				Error: GatewayError{
+					ErrorClass: ErrorClassProviderNonRetryable,
+					Message:    "OpenAI responses tool_call 参数解析失败",
+					Details:    map[string]any{"reason": err.Error()},
+				},
+			})
+		}
+		return yield(StreamRunFailed{
+			Error: GatewayError{
+				ErrorClass: ErrorClassInternalError,
+				Message:    "OpenAI responses 响应解析失败",
+				Details:    map[string]any{"reason": err.Error()},
+			},
+		})
+	}
+
+	if strings.TrimSpace(content) != "" {
+		if err := yield(StreamMessageDelta{ContentDelta: content, Role: "assistant"}); err != nil {
+			return err
+		}
+	}
+
+	for _, call := range toolCalls {
+		if err := yield(call); err != nil {
+			return err
+		}
+	}
+
+	return yield(StreamRunCompleted{})
+}
+
 func errorClassFromStatus(status int) string {
 	switch status {
 	case 408, 425, 429:
@@ -288,6 +448,22 @@ func toOpenAITools(specs []ToolSpec) []map[string]any {
 			"type":     "function",
 			"function": fn,
 		})
+	}
+	return out
+}
+
+func toOpenAIResponsesTools(specs []ToolSpec) []map[string]any {
+	out := make([]map[string]any, 0, len(specs))
+	for _, spec := range specs {
+		payload := map[string]any{
+			"type":       "function",
+			"name":       spec.Name,
+			"parameters": mapOrEmpty(spec.JSONSchema),
+		}
+		if spec.Description != nil {
+			payload["description"] = *spec.Description
+		}
+		out = append(out, payload)
 	}
 	return out
 }
@@ -361,6 +537,68 @@ func parseOpenAIChatCompletion(body []byte) (string, []ToolCall, error) {
 	return content, toolCalls, nil
 }
 
+func toOpenAIResponsesInput(messages []Message) ([]map[string]any, error) {
+	items := make([]map[string]any, 0, len(messages))
+	for _, message := range messages {
+		text := joinParts(message.Content)
+		contentType := "input_text"
+		if message.Role == "assistant" {
+			contentType = "output_text"
+		}
+
+		if message.Role == "assistant" && len(message.ToolCalls) > 0 {
+			if strings.TrimSpace(text) != "" {
+				items = append(items, map[string]any{
+					"role": "assistant",
+					"content": []map[string]any{
+						{"type": contentType, "text": text},
+					},
+				})
+			}
+
+			for _, call := range message.ToolCalls {
+				argumentsJSON, err := stablejson.Encode(mapOrEmpty(call.ArgumentsJSON))
+				if err != nil {
+					argumentsJSON = "{}"
+				}
+				items = append(items, map[string]any{
+					"type":      "function_call",
+					"call_id":   call.ToolCallID,
+					"name":      call.ToolName,
+					"arguments": argumentsJSON,
+				})
+			}
+			continue
+		}
+
+		if message.Role == "tool" {
+			parsed := map[string]any{}
+			if err := json.Unmarshal([]byte(text), &parsed); err != nil {
+				return nil, fmt.Errorf("tool message 不是合法 JSON")
+			}
+			toolCallID, _ := parsed["tool_call_id"].(string)
+			toolCallID = strings.TrimSpace(toolCallID)
+			if toolCallID == "" {
+				return nil, fmt.Errorf("tool message 缺少 tool_call_id")
+			}
+			items = append(items, map[string]any{
+				"type":    "function_call_output",
+				"call_id": toolCallID,
+				"output":  toolOutputTextFromEnvelope(parsed),
+			})
+			continue
+		}
+
+		items = append(items, map[string]any{
+			"role": message.Role,
+			"content": []map[string]any{
+				{"type": contentType, "text": text},
+			},
+		})
+	}
+	return items, nil
+}
+
 func toOpenAIAssistantToolCalls(calls []ToolCall) []map[string]any {
 	out := make([]map[string]any, 0, len(calls))
 	for _, call := range calls {
@@ -431,4 +669,145 @@ func toolOutputTextFromEnvelope(envelope map[string]any) string {
 		return "{}"
 	}
 	return string(encodedBytes)
+}
+
+func isOpenAIResponsesNotSupported(status int, body []byte) bool {
+	switch status {
+	case http.StatusNotFound, http.StatusMethodNotAllowed:
+		return true
+	case http.StatusBadRequest:
+	default:
+		return false
+	}
+
+	rawBody := strings.ToLower(strings.TrimSpace(string(body)))
+	if strings.Contains(rawBody, "responses") && (strings.Contains(rawBody, "unknown") || strings.Contains(rawBody, "not found")) {
+		return true
+	}
+
+	var parsed any
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return false
+	}
+	root, ok := parsed.(map[string]any)
+	if !ok {
+		return false
+	}
+	errObj, _ := root["error"].(map[string]any)
+	message, _ := errObj["message"].(string)
+	joined := strings.ToLower(strings.TrimSpace(message) + " " + strings.TrimSpace(string(body)))
+	return strings.Contains(joined, "responses") && (strings.Contains(joined, "unknown") || strings.Contains(joined, "not found"))
+}
+
+func parseOpenAIResponses(body []byte) (string, []ToolCall, error) {
+	var parsed any
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return "", nil, err
+	}
+	root, ok := parsed.(map[string]any)
+	if !ok {
+		return "", nil, fmt.Errorf("response 根不是对象")
+	}
+
+	var contentBuilder strings.Builder
+	hasTopLevelText := false
+	if rawOutputText, ok := root["output_text"].(string); ok {
+		if strings.TrimSpace(rawOutputText) != "" {
+			contentBuilder.WriteString(rawOutputText)
+			hasTopLevelText = true
+		}
+	}
+
+	rawOutput, ok := root["output"].([]any)
+	if !ok {
+		if contentBuilder.Len() > 0 {
+			return contentBuilder.String(), nil, nil
+		}
+		return "", nil, fmt.Errorf("response 缺少 output")
+	}
+
+	toolCalls := []ToolCall{}
+	for idx, rawItem := range rawOutput {
+		item, ok := rawItem.(map[string]any)
+		if !ok {
+			continue
+		}
+		typ, _ := item["type"].(string)
+
+		if typ == "message" {
+			if hasTopLevelText {
+				continue
+			}
+			parts, ok := item["content"].([]any)
+			if !ok {
+				continue
+			}
+			for _, rawPart := range parts {
+				part, ok := rawPart.(map[string]any)
+				if !ok {
+					continue
+				}
+				partType, _ := part["type"].(string)
+				if partType != "output_text" && partType != "text" {
+					continue
+				}
+				text, _ := part["text"].(string)
+				contentBuilder.WriteString(text)
+			}
+			continue
+		}
+
+		if typ != "function_call" {
+			continue
+		}
+
+		toolCallID, _ := item["call_id"].(string)
+		if strings.TrimSpace(toolCallID) == "" {
+			toolCallID, _ = item["id"].(string)
+		}
+		toolCallID = strings.TrimSpace(toolCallID)
+		if toolCallID == "" {
+			return "", nil, fmt.Errorf("output[%d] 缺少 function_call.id", idx)
+		}
+
+		toolName, _ := item["name"].(string)
+		if strings.TrimSpace(toolName) == "" {
+			toolName, _ = item["tool_name"].(string)
+		}
+		toolName = strings.TrimSpace(toolName)
+		if toolName == "" {
+			return "", nil, fmt.Errorf("output[%d] 缺少 function_call.name", idx)
+		}
+
+		argumentsJSON := map[string]any{}
+		if rawArgs, ok := item["arguments"]; ok && rawArgs != nil {
+			switch casted := rawArgs.(type) {
+			case map[string]any:
+				argumentsJSON = casted
+			case string:
+				arguments := strings.TrimSpace(casted)
+				if arguments != "" {
+					var parsedArgs any
+					if err := json.Unmarshal([]byte(arguments), &parsedArgs); err != nil {
+						return "", nil, fmt.Errorf("%w: output[%d].arguments 不是合法 JSON", errOpenAIToolCallArguments, idx)
+					}
+					obj, ok := parsedArgs.(map[string]any)
+					if !ok {
+						return "", nil, fmt.Errorf("%w: output[%d].arguments 必须是 JSON object", errOpenAIToolCallArguments, idx)
+					}
+					argumentsJSON = obj
+				}
+			default:
+				return "", nil, fmt.Errorf("%w: output[%d].arguments 类型不支持", errOpenAIToolCallArguments, idx)
+			}
+		}
+
+		toolCalls = append(toolCalls, ToolCall{
+			ToolCallID:    toolCallID,
+			ToolName:      toolName,
+			ArgumentsJSON: argumentsJSON,
+		})
+	}
+
+	return contentBuilder.String(), toolCalls, nil
 }
