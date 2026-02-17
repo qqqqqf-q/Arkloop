@@ -68,13 +68,13 @@ func (e ProtocolError) Error() string {
 type StdioClient struct {
 	server ServerConfig
 
-	mu        sync.Mutex
-	cmd       *exec.Cmd
-	stdin     io.WriteCloser
-	stdout    io.ReadCloser
-	closed    bool
-	nextID    int64
-	pending   map[int64]chan map[string]any
+	mu          sync.Mutex
+	cmd         *exec.Cmd
+	stdin       io.WriteCloser
+	stdout      io.ReadCloser
+	closed      bool
+	nextID      int64
+	pending     map[int64]chan map[string]any
 	initialized bool
 
 	writeMu sync.Mutex
@@ -82,9 +82,9 @@ type StdioClient struct {
 
 func NewStdioClient(server ServerConfig) *StdioClient {
 	return &StdioClient{
-		server:    server,
-		nextID:    1,
-		pending:   map[int64]chan map[string]any{},
+		server:  server,
+		nextID:  1,
+		pending: map[int64]chan map[string]any{},
 	}
 }
 
@@ -144,7 +144,7 @@ func (c *StdioClient) ensureStarted(ctx context.Context) error {
 		_ = stdin.Close()
 		return err
 	}
-	_, _ = cmd.StderrPipe()
+	cmd.Stderr = os.Stderr
 
 	if err := cmd.Start(); err != nil {
 		_ = stdin.Close()
