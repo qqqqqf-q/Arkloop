@@ -1,66 +1,74 @@
-# worker_go（WG01）
+# Worker（Go）
 
-`worker_go` 是 Go 版 Worker 的最小骨架，当前仅负责：
-- 解析 Worker 环境变量配置
-- 输出 JSON 日志（包含 `trace_id/org_id/run_id/job_id`）
-- 消费 `jobs` 队列（可选）
+这是 Arkloop 的 Go Worker，实现一条完整的执行闭环：
+- 消费 Postgres `jobs` 队列中的 `run.execute`
+- 执行原生 RunEngine（Provider 路由 + Agent Loop + Tools + Skills + MCP）
+- 把事件写入 `run_events`（API 的 SSE 回放基于同一张表）
 
-执行模式：
-- 未设置 `ARKLOOP_DATABASE_URL` / `DATABASE_URL`：只启动并等待退出（用于快速验证二进制与配置）。
-- 设置了数据库连接串：进入消费模式，默认使用 noop handler（会 ack job，但不执行引擎）。
-- 设置 `ARKLOOP_WORKER_BRIDGE_URL`：进入桥接模式，把 `payload_json` 转发给 Python bridge 执行。
+## 运行模式
 
-## 目录结构
+- 未设置 `ARKLOOP_DATABASE_URL` / `DATABASE_URL`：只启动并等待退出（用于验证二进制与配置）。
+- 设置了数据库连接串：进入消费模式，执行 native handler（默认）。
 
-```text
-src/services/worker_go/
-  cmd/worker/main.go
-  internal/app/
-```
+## 常用环境变量
 
-## 环境变量
-
-- `ARKLOOP_WORKER_CONCURRENCY`（默认 4）
-- `ARKLOOP_WORKER_POLL_SECONDS`（默认 0.25）
-- `ARKLOOP_WORKER_LEASE_SECONDS`（默认 30）
-- `ARKLOOP_WORKER_HEARTBEAT_SECONDS`（默认 10）
-- `ARKLOOP_WORKER_QUEUE_JOB_TYPES`：消费的 `jobs.job_type` 列表（逗号分隔，默认 `run.execute`）
-- `ARKLOOP_DATABASE_URL` / `DATABASE_URL`：Postgres 连接串（设置后进入消费模式）
-- `ARKLOOP_WORKER_BRIDGE_URL`：Python bridge base url（例如 `http://127.0.0.1:18080`）
-- `ARKLOOP_WORKER_BRIDGE_TOKEN`：bridge 的 shared token（bridge 模式必填）
+- 数据库：
+  - `ARKLOOP_DATABASE_URL` / `DATABASE_URL`
+- Worker loop：
+  - `ARKLOOP_WORKER_CONCURRENCY`（默认 4）
+  - `ARKLOOP_WORKER_POLL_SECONDS`（默认 0.25）
+  - `ARKLOOP_WORKER_LEASE_SECONDS`（默认 30）
+  - `ARKLOOP_WORKER_HEARTBEAT_SECONDS`（默认 10；设为 0 可禁用 heartbeat）
+  - `ARKLOOP_WORKER_QUEUE_JOB_TYPES`（默认 `run.execute`）
+- Provider 路由：
+  - `ARKLOOP_PROVIDER_ROUTING_JSON`（为空时默认走 stub）
+- Tools：
+  - `ARKLOOP_TOOL_ALLOWLIST`（为空时禁用全部工具）
+- 调试：
+  - `ARKLOOP_LLM_DEBUG_EVENTS=1`：把 `llm.request/llm.response.chunk` 写入 `run_events`
+- MCP（可选）：
+  - `ARKLOOP_MCP_CONFIG_FILE=./mcp.config.json`
+- dotenv（可选）：
+  - `ARKLOOP_LOAD_DOTENV=1`
+  - `ARKLOOP_DOTENV_FILE=.env`（不设置时默认在仓库根目录找 `.env`）
 
 ## 本地测试
 
 ```bash
-cd /Users/qqqqqf/Documents/Arkloop/src/services/worker_go
+cd src/services/worker
 go test ./...
 ```
 
 ## 多平台构建
 
 ```bash
-cd /Users/qqqqqf/Documents/Arkloop/src/services/worker_go
+cd src/services/worker
 GOOS=linux GOARCH=amd64 go build ./cmd/worker
 GOOS=darwin GOARCH=arm64 go build ./cmd/worker
 GOOS=windows GOARCH=amd64 go build ./cmd/worker
 ```
 
-## 本地桥接运行（WG04）
+## 本地运行（配合 API）
 
-先启动 Python bridge：
+启动 Postgres（示例）：
 
 ```bash
-cd /Users/qqqqqf/Documents/Arkloop
-export ARKLOOP_LOAD_DOTENV=1
-export ARKLOOP_WORKER_BRIDGE_TOKEN=please_change_me
-python -m uvicorn services.worker_bridge.main:configure_app --factory --app-dir src --host 127.0.0.1 --port 18080
+docker compose up -d postgres
 ```
 
-再启动 Go Worker（桥接模式）：
+启动 API（示例）：
 
 ```bash
-cd /Users/qqqqqf/Documents/Arkloop/src/services/worker_go
-export ARKLOOP_WORKER_BRIDGE_URL=http://127.0.0.1:18080
-export ARKLOOP_WORKER_BRIDGE_TOKEN=please_change_me
+export ARKLOOP_LOAD_DOTENV=1
+./.venv312/bin/python -m alembic upgrade head
+./.venv312/bin/python -m uvicorn services.api.main:configure_app --factory --app-dir src --host 127.0.0.1 --port 8000
+```
+
+另开终端启动 Worker：
+
+```bash
+export ARKLOOP_LOAD_DOTENV=1
+cd src/services/worker
 go run ./cmd/worker
 ```
+

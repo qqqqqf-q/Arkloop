@@ -21,7 +21,7 @@ ARKLOOP_LLM_DEBUG_EVENTS=1
 测试
 pytest
 pytest -m integration
-
+cd src/services/worker && go test ./...
 # integration 优先使用.env.test,请不要配置真实大模型,integration会报错
 
 #llm发消息
