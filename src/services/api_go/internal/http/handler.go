@@ -7,9 +7,12 @@ import (
 	"arkloop/services/api_go/internal/auth"
 	"arkloop/services/api_go/internal/data"
 	"arkloop/services/api_go/internal/observability"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type HandlerConfig struct {
+	Pool                 *pgxpool.Pool
 	Logger               *observability.JSONLogger
 	SchemaRepository     *data.SchemaRepository
 	TrustIncomingTraceID bool
@@ -19,6 +22,7 @@ type HandlerConfig struct {
 	OrgMembershipRepo   *data.OrgMembershipRepository
 	ThreadRepo          *data.ThreadRepository
 	MessageRepo         *data.MessageRepository
+	RunEventRepo        *data.RunEventRepository
 	AuditWriter         *audit.Writer
 }
 
@@ -35,7 +39,19 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 	mux.HandleFunc("/v1/threads", threadsEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.ThreadRepo))
 	mux.HandleFunc(
 		"/v1/threads/",
-		threadEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.ThreadRepo, cfg.MessageRepo, cfg.AuditWriter),
+		threadEntry(
+			cfg.AuthService,
+			cfg.OrgMembershipRepo,
+			cfg.ThreadRepo,
+			cfg.MessageRepo,
+			cfg.RunEventRepo,
+			cfg.AuditWriter,
+			cfg.Pool,
+		),
+	)
+	mux.HandleFunc(
+		"/v1/runs/",
+		runEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.RunEventRepo, cfg.AuditWriter, cfg.Pool),
 	)
 
 	notFound := nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {

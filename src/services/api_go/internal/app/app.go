@@ -78,6 +78,7 @@ func (a *Application) Run(ctx context.Context) error {
 		membershipRepo *data.OrgMembershipRepository
 		threadRepo     *data.ThreadRepository
 		messageRepo    *data.MessageRepository
+		runEventRepo   *data.RunEventRepository
 		auditRepo      *data.AuditLogRepository
 
 		authService         *auth.Service
@@ -104,6 +105,10 @@ func (a *Application) Run(ctx context.Context) error {
 			return err
 		}
 		messageRepo, err = data.NewMessageRepository(pool)
+		if err != nil {
+			return err
+		}
+		runEventRepo, err = data.NewRunEventRepository(pool)
 		if err != nil {
 			return err
 		}
@@ -144,6 +149,7 @@ func (a *Application) Run(ctx context.Context) error {
 
 	server := &http.Server{
 		Handler: apihttp.NewHandler(apihttp.HandlerConfig{
+			Pool:                 pool,
 			Logger:               a.logger,
 			TrustIncomingTraceID: a.config.TrustIncomingTraceID,
 			SchemaRepository:     schemaRepo,
@@ -152,6 +158,7 @@ func (a *Application) Run(ctx context.Context) error {
 			OrgMembershipRepo:    membershipRepo,
 			ThreadRepo:           threadRepo,
 			MessageRepo:          messageRepo,
+			RunEventRepo:         runEventRepo,
 			AuditWriter:          auditWriter,
 		}),
 		ReadHeaderTimeout: 5 * time.Second,

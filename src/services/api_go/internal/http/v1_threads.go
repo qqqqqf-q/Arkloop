@@ -15,6 +15,7 @@ import (
 	"arkloop/services/api_go/internal/observability"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type createThreadRequest struct {
@@ -285,12 +286,16 @@ func threadEntry(
 	membershipRepo *data.OrgMembershipRepository,
 	threadRepo *data.ThreadRepository,
 	messageRepo *data.MessageRepository,
+	runRepo *data.RunEventRepository,
 	auditWriter *audit.Writer,
+	pool *pgxpool.Pool,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	get := getThread(authService, membershipRepo, threadRepo, auditWriter)
 	patch := patchThread(authService, membershipRepo, threadRepo, auditWriter)
 	createMessage := createThreadMessage(authService, membershipRepo, threadRepo, messageRepo, auditWriter)
 	listMessages := listThreadMessages(authService, membershipRepo, threadRepo, messageRepo, auditWriter)
+	createRun := createThreadRun(authService, membershipRepo, threadRepo, auditWriter, pool)
+	listRuns := listThreadRuns(authService, membershipRepo, threadRepo, runRepo, auditWriter)
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		if r.URL.Path == "/v1/threads/" {
 			threadsEntry(authService, membershipRepo, threadRepo)(w, r)
@@ -340,7 +345,14 @@ func threadEntry(
 			}
 		case "runs":
 			// P07: thread runs
-			writeNotFound(w, r)
+			switch r.Method {
+			case nethttp.MethodPost:
+				createRun(w, r, threadID)
+			case nethttp.MethodGet:
+				listRuns(w, r, threadID)
+			default:
+				writeMethodNotAllowed(w, r)
+			}
 		default:
 			writeNotFound(w, r)
 		}

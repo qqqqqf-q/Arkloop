@@ -159,6 +159,34 @@ func (w *Writer) WriteUserRegistered(ctx context.Context, traceID string, userID
 	}
 }
 
+func (w *Writer) WriteRunCancelRequested(
+	ctx context.Context,
+	traceID string,
+	actorOrgID uuid.UUID,
+	actorUserID uuid.UUID,
+	runID uuid.UUID,
+) {
+	if w == nil || w.auditRepo == nil {
+		return
+	}
+
+	targetType := "run"
+	targetID := runID.String()
+	if err := w.auditRepo.Create(ctx, data.AuditLogCreateParams{
+		OrgID:       &actorOrgID,
+		ActorUserID: &actorUserID,
+		Action:      "runs.cancel",
+		TargetType:  &targetType,
+		TargetID:    &targetID,
+		TraceID:     traceID,
+		Metadata: map[string]any{
+			"result": "requested",
+		},
+	}); err != nil {
+		w.logError(traceID, "写入 cancel 审计失败", err)
+	}
+}
+
 func (w *Writer) WriteAccessDenied(
 	ctx context.Context,
 	traceID string,
