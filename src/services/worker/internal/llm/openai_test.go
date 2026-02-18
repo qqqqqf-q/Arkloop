@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -727,6 +728,97 @@ func TestOpenAIGateway_Stream_ErrorMessageAndDetails(t *testing.T) {
 	if gotFailed.Error.Details["openai_error_code"] != "invalid_api_key" {
 		t.Fatalf("missing openai_error_code: %#v", gotFailed.Error.Details)
 	}
+}
+
+func TestOpenAIGateway_StreamChatCompletionsSSE_ReadError_YieldsRunFailed(t *testing.T) {
+	// 模拟网络错误：发送一个 delta 后连接中断，未发送 [DONE]
+	partial := "data: {\"choices\":[{\"delta\":{\"role\":\"assistant\",\"content\":\"hello\"}}]}\n\n"
+	reader := &sseErrorReader{data: []byte(partial), err: fmt.Errorf("connection reset by peer")}
+
+	gateway := &OpenAIGateway{cfg: OpenAIGatewayConfig{}}
+	var events []StreamEvent
+	err := gateway.streamChatCompletionsSSE(context.Background(), reader, "test", 200, func(ev StreamEvent) error {
+		events = append(events, ev)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("expected nil error from gateway, got: %v", err)
+	}
+	if len(events) == 0 {
+		t.Fatal("expected events, got none")
+	}
+	if _, ok := events[len(events)-1].(StreamRunFailed); !ok {
+		t.Fatalf("expected StreamRunFailed as last event, got %T", events[len(events)-1])
+	}
+	failed := events[len(events)-1].(StreamRunFailed)
+	if failed.Error.ErrorClass != ErrorClassProviderRetryable {
+		t.Fatalf("unexpected error class: %s", failed.Error.ErrorClass)
+	}
+}
+
+func TestOpenAIGateway_StreamChatCompletionsSSE_CtxCanceled_YieldsRunFailed(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	pr, pw := io.Pipe()
+	defer pw.Close()
+
+	gateway := &OpenAIGateway{cfg: OpenAIGatewayConfig{}}
+	var events []StreamEvent
+	err := gateway.streamChatCompletionsSSE(ctx, pr, "test", 200, func(ev StreamEvent) error {
+		events = append(events, ev)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("expected nil error from gateway, got: %v", err)
+	}
+	if len(events) == 0 {
+		t.Fatal("expected events, got none")
+	}
+	if _, ok := events[len(events)-1].(StreamRunFailed); !ok {
+		t.Fatalf("expected StreamRunFailed as last event, got %T", events[len(events)-1])
+	}
+}
+
+func TestOpenAIGateway_StreamResponsesSSE_ReadError_YieldsRunFailed(t *testing.T) {
+	partial := "data: {\"type\":\"response.output_text.delta\",\"delta\":\"hello\"}\n\n"
+	reader := &sseErrorReader{data: []byte(partial), err: fmt.Errorf("connection reset by peer")}
+
+	gateway := &OpenAIGateway{cfg: OpenAIGatewayConfig{}}
+	var events []StreamEvent
+	err := gateway.streamResponsesSSE(context.Background(), reader, "test", 200, func(ev StreamEvent) error {
+		events = append(events, ev)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("expected nil error from gateway, got: %v", err)
+	}
+	if len(events) == 0 {
+		t.Fatal("expected events, got none")
+	}
+	if _, ok := events[len(events)-1].(StreamRunFailed); !ok {
+		t.Fatalf("expected StreamRunFailed as last event, got %T", events[len(events)-1])
+	}
+	failed := events[len(events)-1].(StreamRunFailed)
+	if failed.Error.ErrorClass != ErrorClassProviderRetryable {
+		t.Fatalf("unexpected error class: %s", failed.Error.ErrorClass)
+	}
+}
+
+// sseErrorReader 在发完 data 后返回指定错误，模拟网络读取中断
+type sseErrorReader struct {
+	data []byte
+	pos  int
+	err  error
+}
+
+func (r *sseErrorReader) Read(p []byte) (int, error) {
+	if r.pos < len(r.data) {
+		n := copy(p, r.data[r.pos:])
+		r.pos += n
+		return n, nil
+	}
+	return 0, r.err
 }
 
 func streamEventTypes(events []StreamEvent) []string {

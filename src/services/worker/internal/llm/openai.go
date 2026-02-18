@@ -516,8 +516,14 @@ func (g *OpenAIGateway) streamChatCompletionsSSE(
 ) error {
 	toolBuffer := newOpenAIChatToolCallBuffer()
 	terminalEmitted := false
+	var handlerFailed bool
 
-	err := forEachSSEData(ctx, body, func(data string) error {
+	err := forEachSSEData(ctx, body, func(data string) (retErr error) {
+		defer func() {
+			if retErr != nil {
+				handlerFailed = true
+			}
+		}()
 		raw, rawTruncated := truncateUTF8(data, openAIMaxDebugChunkBytes)
 		var chunkJSON any
 		if strings.TrimSpace(data) != "" && data != "[DONE]" {
@@ -588,7 +594,19 @@ func (g *OpenAIGateway) streamChatCompletionsSSE(
 		return nil
 	})
 	if err != nil {
-		return err
+		if handlerFailed {
+			return err
+		}
+		if terminalEmitted {
+			return nil
+		}
+		return yield(StreamRunFailed{
+			Error: GatewayError{
+				ErrorClass: ErrorClassProviderRetryable,
+				Message:    "SSE 流读取中断",
+				Details:    map[string]any{"reason": err.Error()},
+			},
+		})
 	}
 	if terminalEmitted {
 		return nil
@@ -604,8 +622,14 @@ func (g *OpenAIGateway) streamResponsesSSE(
 	yield func(StreamEvent) error,
 ) error {
 	terminalEmitted := false
+	var handlerFailed bool
 
-	err := forEachSSEData(ctx, body, func(data string) error {
+	err := forEachSSEData(ctx, body, func(data string) (retErr error) {
+		defer func() {
+			if retErr != nil {
+				handlerFailed = true
+			}
+		}()
 		raw, rawTruncated := truncateUTF8(data, openAIMaxDebugChunkBytes)
 		var chunkJSON any
 		if strings.TrimSpace(data) != "" && data != "[DONE]" {
@@ -700,7 +724,19 @@ func (g *OpenAIGateway) streamResponsesSSE(
 		return nil
 	})
 	if err != nil {
-		return err
+		if handlerFailed {
+			return err
+		}
+		if terminalEmitted {
+			return nil
+		}
+		return yield(StreamRunFailed{
+			Error: GatewayError{
+				ErrorClass: ErrorClassProviderRetryable,
+				Message:    "SSE 流读取中断",
+				Details:    map[string]any{"reason": err.Error()},
+			},
+		})
 	}
 	if terminalEmitted {
 		return nil
