@@ -15,7 +15,7 @@ from packages.config import load_dotenv_if_enabled, read_dotenv
 
 from .profiles import ProfileLocator
 
-_DEFAULT_API_BASE_URL = "http://127.0.0.1:8000"
+_DEFAULT_API_BASE_URL = "http://127.0.0.1:8001"
 _ACCESS_TOKEN_ENV = "ARKLOOP_ACCESS_TOKEN"
 _API_BASE_URL_ENV = "ARKLOOP_API_BASE_URL"
 _LOGIN_ENV = "ARKLOOP_LOGIN"
@@ -266,7 +266,7 @@ def profile_show(name: str, *, reveal_values: bool) -> None:
     "--api-base-url",
     default=None,
     show_default=_DEFAULT_API_BASE_URL,
-    help="API Base URL（例如 http://127.0.0.1:8000）",
+    help="API Base URL（例如 http://127.0.0.1:8001）",
 )
 @click.option(
     "--token", default=None, help="复用已有 access token（也可在 env 里设置 ARKLOOP_ACCESS_TOKEN）"
@@ -417,7 +417,7 @@ def events_group() -> None:
     "--api-base-url",
     default=None,
     show_default=_DEFAULT_API_BASE_URL,
-    help="API Base URL（例如 http://127.0.0.1:8000）",
+    help="API Base URL（例如 http://127.0.0.1:8001）",
 )
 @click.option(
     "--token", default=None, help="复用已有 access token（也可在 env 里设置 ARKLOOP_ACCESS_TOKEN）"

@@ -15,12 +15,12 @@ Fetch API
 Testing Framework
 Vitest
 HTTP Server Framework
-FastAPI
+net/http
 Server Runtime
 Node.js v20
 Package Manager
 pnpm
 Language backend
-Python
+Go
 Language frontend
 TypeScript

@@ -22,14 +22,11 @@ Arkloop 至少会同时存在三类记录，它们用途不同，不能混为一
 
 ## 2. logger 放在哪里（代码归属建议）
 
-推荐把“日志/trace/context 这套能力”做成共享包，供 `api` 与 `worker` 复用：
+当前实现（P.10 收口后）：
 
-- `src/packages/observability/`
-  - `context.py`：基于 `contextvars` 的上下文（`trace_id`、`org_id`、`run_id` 等）
-  - `logging.py`：日志初始化与结构化输出（JSON）、脱敏、采样
-  - `http.py`：FastAPI 中间件（注入/生成 `trace_id`、请求摘要、错误统一）
-  - `worker.py`：任务上下文传播（从 job payload 恢复上下文）
-  - `otel.py`（可选）：OpenTelemetry 接入（trace/span 与日志字段对齐）
+- API：`src/services/api/internal/observability/` + `src/services/api/internal/http/`
+- Worker：`src/services/worker/internal/app/logger.go`（以及 job payload 的 `trace_id` 透传/恢复）
+- Python 侧 `src/packages/observability/` 仍保留给 CLI/脚本与历史代码（后续可再收敛）
 
 原则：
 - **`agent-core` 不直接依赖 logging**：核心逻辑应通过产出 Run Events 来表达过程；真正的日志落点在 `api/worker` 这类“边界层”。
@@ -112,14 +109,13 @@ Arkloop 至少会同时存在三类记录，它们用途不同，不能混为一
 - Run Events 保留业务语义
 - 应用日志只保留关联字段 + hash + 耗时，不重复写敏感明文
 
-## 6. 实现选型建议（Python/FastAPI）
+## 6. 实现选型建议（Go）
 
-不追求“花哨”，追求“可组合与可演进”：
+不追求“花哨”，追求“字段稳定 + 易采集”：
 
-- 日志底座：Python `logging`
-- 结构化与上下文绑定：优先 `structlog`（方便自动注入字段、JSON 输出、processor 链做脱敏）
-- trace：Phase 0 先用自研 `trace_id`；Phase 1/2 再接 OpenTelemetry，把 `trace_id/span_id` 对齐到日志字段
-- 异常聚合：可选 Sentry（或同类），但要明确“脱敏后上报”
+- API/Worker：stdout 单行 JSON（字段对齐：`ts/level/msg/component/trace_id` 等）
+- trace：Phase 1 先以 `trace_id` 贯穿；OpenTelemetry 作为 Phase 2+ 的增强接入（要求与日志字段对齐）
+- 异常聚合：可选 Sentry（或同类），但必须先做脱敏与采样策略
 
 ## 7. 最小验收口径（建议写进 Phase 0）
 

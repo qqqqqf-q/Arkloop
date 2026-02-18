@@ -19,7 +19,7 @@
 2. 启动 Postgres + API + Go Worker：
    - `docker compose up -d postgres`
    - `python -m alembic upgrade head`
-   - `python -m uvicorn services.api.main:configure_app --factory --app-dir src --host 127.0.0.1 --port 8000`
+   - `cd src/services/api && go run ./cmd/api`
    - `cd src/services/worker && go run ./cmd/worker`
 3. 发起一次 run（CLI 或 curl 均可），让模型输出一段相对长的内容（便于观察多段 `message.delta`）：
    - `python -m arkloop chat --profile llm --message "请输出一段较长的文本，并在中途调用 echo 工具，参数 text=hello"`
@@ -59,4 +59,3 @@
 ## 4) 小清理（P3）
 
 - 删除不可达的 `api_mode 未实现` 分支，减少误导性的分支噪音。
-

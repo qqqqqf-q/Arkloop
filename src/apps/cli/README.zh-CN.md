@@ -21,9 +21,8 @@ Profile 文件推荐放在用户目录（不进入仓库）：
 
 - `src/apps/cli/env/.env.<name>`（例如 `src/apps/cli/env/.env.llm_test`）
 
-仓库内已内置两个不含敏感信息的 profile，便于在 Python / Go API 之间切换：
-- `api_py`：`http://127.0.0.1:8000`
-- `api_go`：`http://127.0.0.1:8001`
+仓库内已内置一个不含敏感信息的 profile（本地 API 默认端口 8001）：
+- `api`：`http://127.0.0.1:8001`
 
 如果你要新增包含明文 secret 的 profile，请放到用户目录，或确保 repo 内文件被 gitignore 忽略。
 
@@ -48,7 +47,7 @@ Profile 名称规则：
 
 - `src/apps/cli/config/routing.dev.json`
 
-注意：CLI 是独立进程的 HTTP 客户端，routing 配置真正生效在 API 进程；如果你是单独启动的 `uvicorn`，需要让 API 进程也加载同一份 routing 配置。
+注意：CLI 是独立进程的 HTTP 客户端，routing 配置真正生效在 API 进程；需要确保 API 进程也加载同一份 routing 配置。
 
 ## 命令（Phase 1）
 

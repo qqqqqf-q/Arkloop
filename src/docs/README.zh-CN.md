@@ -10,13 +10,23 @@
 
 ## 0. 本地启动（API）
 
-由于工程代码全部位于 `src/` 下，从仓库根目录启动时需要把 `src` 加到模块搜索路径：
+Arkloop 的控制面 API 由 Go 实现，默认监听 `127.0.0.1:8001`：
 
-- 推荐（跨平台）：`python -m uvicorn services.api.main:configure_app --factory --app-dir src --host 127.0.0.1 --port 8000`
-- Windows 备选（PowerShell）：`$env:PYTHONPATH="src"; python -m uvicorn services.api.main:configure_app --factory --host 127.0.0.1 --port 8000`
-- Linux/macOS 备选（bash/zsh）：`PYTHONPATH=src python -m uvicorn services.api.main:configure_app --factory --host 127.0.0.1 --port 8000`
+- Linux/macOS（bash/zsh）：
+  - `export ARKLOOP_LOAD_DOTENV=1`
+  - `export ARKLOOP_DOTENV_FILE=.env`
+  - `cd src/services/api && go run ./cmd/api`
+- Windows（PowerShell）：
+  - `$env:ARKLOOP_LOAD_DOTENV="1"; $env:ARKLOOP_DOTENV_FILE=".env"; cd src/services/api; go run ./cmd/api`
 
-说明：当前结构化 JSON 只覆盖 Arkloop 应用日志；uvicorn 自身的启动/访问日志仍由 uvicorn 默认配置控制。
+可通过以下方式覆盖监听地址：
+- `ARKLOOP_API_GO_ADDR=127.0.0.1:8001`
+- 或 `PORT=8001`
+
+说明：
+- 连接串读取 `ARKLOOP_DATABASE_URL` / `DATABASE_URL`
+- migrations 仍由 Alembic 驱动（P.11 会 Go 化）
+- Python API 与 `in_process` 执行模式已下线；不再支持 `ARKLOOP_RUN_EXECUTOR`
 
 ## 0.1 本地启动（PostgreSQL / docker compose）
 
@@ -38,8 +48,8 @@ Windows：先启动 Docker Desktop（Linux Engine）再执行下述命令。
 
 应用侧 `ARKLOOP_DATABASE_URL`：
 - 把 `.env` 里的 `ARKLOOP_DATABASE_URL` 配到你运行 API 的环境变量里（IDE Run Config 或终端）
-  - Windows（PowerShell）：`$env:ARKLOOP_DATABASE_URL="postgresql+asyncpg://..."; python -m uvicorn services.api.main:configure_app --factory --app-dir src`
-  - Linux/macOS：`ARKLOOP_DATABASE_URL="postgresql+asyncpg://..." python -m uvicorn services.api.main:configure_app --factory --app-dir src`
+  - Windows（PowerShell）：`$env:ARKLOOP_DATABASE_URL="postgresql://..."; cd src/services/api; go run ./cmd/api`
+  - Linux/macOS：`cd src/services/api && ARKLOOP_DATABASE_URL="postgresql://..." go run ./cmd/api`
   - 或设置 `ARKLOOP_LOAD_DOTENV=1`，让应用从仓库根目录 `.env` 读取（不覆盖已存在 env）
 
 工具 allowlist（Phase 1）：
@@ -124,7 +134,7 @@ Arkloop 不是“纯 SaaS”，规划支持多形态交付：
 ## 5. 后端技术方向
 
 ### 5.1 技术栈
-- 后端：Python（推荐 FastAPI）
+- 后端：Go（API 控制面 + Worker 执行面；migrations 暂时仍由 Alembic 驱动）
 - 数据库：PostgreSQL（本地部署 + SaaS；开发环境同生产）
 - Redis：后期引入（缓存、限流、队列）
 - 前端：React + Tailwind（用户侧 + 后台）
@@ -176,8 +186,8 @@ Prompt 拼装与模型调用必须在服务端（或受控网关）完成。
 
 - `src/apps/web/`：用户侧 Web
 - `src/apps/console/`：后台管理
-- `src/services/api/`：后端 API（FastAPI）
-- `src/services/worker/`：异步任务（索引、入库、长文档处理）
+- `src/services/api/`：后端 API（Go；控制面：鉴权、编排、审计、SSE 回放、enqueue）
+- `src/services/worker/`：执行面 Worker（Go；消费 jobs，执行 RunEngine，写 `run_events/messages`）
 - `src/packages/api-client/`：从 OpenAPI 生成的 TS client/types
 - `src/packages/ui/`：共享 UI 组件
 - `src/packages/shared/`：共享工具与跨端类型

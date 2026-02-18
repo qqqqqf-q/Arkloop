@@ -630,10 +630,10 @@ web_search 和 web_fetch 不绑死一种实现，采用策略模式做多 backen
 - 完成情况：
   - API 默认只做编排：创建 run 后投递 `run.execute` job，不再在 API 进程内执行 Agent Loop。
   - Worker `handle_job()` 在 `run.execute` 下调用 `RunEngine.execute()`，并把执行过程统一写入 `run_events`。
-  - `InProcessStubRunExecutor` 作为开发/测试模式保留（`ARKLOOP_RUN_EXECUTOR=in_process`），用于本地演示与稳定测试。
+  - Python API 与 `in_process` stub 已删除；不再支持 `ARKLOOP_RUN_EXECUTOR`。
 - 关键点：
   - 任务队列 v1 建议用 PostgreSQL `LISTEN/NOTIFY` + `run` 表状态轮询（避免过早引入 Redis 依赖）；后续可替换为 Redis Stream / BullMQ 等。
-  - `InProcessStubRunExecutor` 保留作为开发/测试模式（通过配置切换：`ARKLOOP_RUN_EXECUTOR=in_process|worker`），但默认模式改为 `worker`。
+  - 执行面严格收敛到 Worker；API 不允许引入 Provider SDK、工具执行与子进程能力。
   - Worker 内的 `RunEngine` 组装逻辑（ToolRegistry、ToolExecutor、ProviderRouter 等）从 `configure_run_executor` 迁移到 Worker 的 composition root。
   - API 侧 `POST /v1/threads/{thread_id}/runs` 改为：写 `runs` 表 + 投递 job -> 立即返回 `run_id`；不再等待执行完成。
   - SSE 推送不受影响（已经是从 `run_events` 表读取）。

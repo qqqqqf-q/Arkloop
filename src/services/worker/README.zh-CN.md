@@ -60,8 +60,8 @@ docker compose up -d postgres
 
 ```bash
 export ARKLOOP_LOAD_DOTENV=1
-./.venv312/bin/python -m alembic upgrade head
-./.venv312/bin/python -m uvicorn services.api.main:configure_app --factory --app-dir src --host 127.0.0.1 --port 8000
+python -m alembic upgrade head
+cd src/services/api && go run ./cmd/api
 ```
 
 另开终端启动 Worker：
@@ -71,4 +71,3 @@ export ARKLOOP_LOAD_DOTENV=1
 cd src/services/worker
 go run ./cmd/worker
 ```
-
