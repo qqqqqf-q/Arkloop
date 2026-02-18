@@ -17,7 +17,7 @@ Profile 文件推荐放在用户目录（不进入仓库）：
 
 - `~/.arkloop/profiles/<name>.env`（例如 `~/.arkloop/profiles/llm_test.env`）
 
-也支持 repo 内的本机文件（需被 gitignore 忽略）：
+也支持 repo 内的 profile 文件（建议只提交不含敏感信息的示例）：
 
 - `src/apps/cli/env/.env.<name>`（例如 `src/apps/cli/env/.env.llm_test`）
 
