@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -34,8 +33,7 @@ func (r *UserRepository) Create(ctx context.Context, displayName string) (User, 
 		ctx = context.Background()
 	}
 
-	cleaned := strings.TrimSpace(displayName)
-	if cleaned == "" {
+	if displayName == "" {
 		return User{}, fmt.Errorf("display_name 不能为空")
 	}
 
@@ -45,7 +43,7 @@ func (r *UserRepository) Create(ctx context.Context, displayName string) (User, 
 		`INSERT INTO users (display_name)
 		 VALUES ($1)
 		 RETURNING id, display_name, tokens_invalid_before, created_at`,
-		cleaned,
+		displayName,
 	).Scan(&user.ID, &user.DisplayName, &user.TokensInvalidBefore, &user.CreatedAt)
 	if err != nil {
 		return User{}, err

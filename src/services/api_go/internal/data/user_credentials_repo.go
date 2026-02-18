@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -40,12 +39,10 @@ func (r *UserCredentialRepository) Create(
 		ctx = context.Background()
 	}
 
-	cleanedLogin := strings.TrimSpace(login)
-	if cleanedLogin == "" {
+	if login == "" {
 		return UserCredential{}, fmt.Errorf("login 不能为空")
 	}
-	cleanedHash := strings.TrimSpace(passwordHash)
-	if cleanedHash == "" {
+	if passwordHash == "" {
 		return UserCredential{}, fmt.Errorf("password_hash 不能为空")
 	}
 
@@ -56,8 +53,8 @@ func (r *UserCredentialRepository) Create(
 		 VALUES ($1, $2, $3)
 		 RETURNING id, user_id, login, password_hash, created_at`,
 		userID,
-		cleanedLogin,
-		cleanedHash,
+		login,
+		passwordHash,
 	).Scan(&credential.ID, &credential.UserID, &credential.Login, &credential.PasswordHash, &credential.CreatedAt)
 	if err != nil {
 		return UserCredential{}, err
@@ -70,8 +67,7 @@ func (r *UserCredentialRepository) GetByLogin(ctx context.Context, login string)
 		ctx = context.Background()
 	}
 
-	cleaned := strings.TrimSpace(login)
-	if cleaned == "" {
+	if login == "" {
 		return nil, nil
 	}
 
@@ -82,7 +78,7 @@ func (r *UserCredentialRepository) GetByLogin(ctx context.Context, login string)
 		 FROM user_credentials
 		 WHERE login = $1
 		 LIMIT 1`,
-		cleaned,
+		login,
 	).Scan(&credential.ID, &credential.UserID, &credential.Login, &credential.PasswordHash, &credential.CreatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {

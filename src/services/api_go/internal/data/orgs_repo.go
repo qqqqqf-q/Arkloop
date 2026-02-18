@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -33,12 +32,10 @@ func (r *OrgRepository) Create(ctx context.Context, slug string, name string) (O
 		ctx = context.Background()
 	}
 
-	cleanedSlug := strings.TrimSpace(slug)
-	if cleanedSlug == "" {
+	if slug == "" {
 		return Org{}, fmt.Errorf("slug 不能为空")
 	}
-	cleanedName := strings.TrimSpace(name)
-	if cleanedName == "" {
+	if name == "" {
 		return Org{}, fmt.Errorf("name 不能为空")
 	}
 
@@ -48,8 +45,8 @@ func (r *OrgRepository) Create(ctx context.Context, slug string, name string) (O
 		`INSERT INTO orgs (slug, name)
 		 VALUES ($1, $2)
 		 RETURNING id, slug, name, created_at`,
-		cleanedSlug,
-		cleanedName,
+		slug,
+		name,
 	).Scan(&org.ID, &org.Slug, &org.Name, &org.CreatedAt)
 	if err != nil {
 		return Org{}, err
