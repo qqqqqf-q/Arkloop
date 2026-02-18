@@ -3,6 +3,7 @@ package llm
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -182,5 +183,76 @@ func TestAnthropicGateway_Stream_ToolUse(t *testing.T) {
 
 	if _, ok := events[len(events)-1].(StreamRunCompleted); !ok {
 		t.Fatalf("expected StreamRunCompleted as last event, got %T", events[len(events)-1])
+	}
+}
+
+func TestAnthropicGateway_Stream_AdvancedJSON_Merged(t *testing.T) {
+	var capturedBody []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"msg_test","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}]}`))
+	}))
+	t.Cleanup(server.Close)
+
+	gateway := NewAnthropicGateway(AnthropicGatewayConfig{
+		APIKey:  "test",
+		BaseURL: server.URL,
+		AdvancedJSON: map[string]any{
+			"stop_sequences": []any{"STOP"},
+			"metadata":       map[string]any{"user_id": "u1"},
+		},
+	})
+
+	_ = gateway.Stream(context.Background(), Request{
+		Model:    "claude-test",
+		Messages: []Message{{Role: "user", Content: []TextPart{{Text: "hi"}}}},
+	}, func(ev StreamEvent) error { return nil })
+
+	var body map[string]any
+	if err := json.Unmarshal(capturedBody, &body); err != nil {
+		t.Fatalf("request body not valid json: %v", err)
+	}
+	if body["stop_sequences"] == nil {
+		t.Fatalf("expected stop_sequences in request, got: %v", body)
+	}
+	if body["metadata"] == nil {
+		t.Fatalf("expected metadata in request, got: %v", body)
+	}
+}
+
+func TestAnthropicGateway_Stream_AdvancedJSON_NoOverrideProtectedFields(t *testing.T) {
+	var capturedBody []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"msg_test","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}]}`))
+	}))
+	t.Cleanup(server.Close)
+
+	gateway := NewAnthropicGateway(AnthropicGatewayConfig{
+		APIKey:  "test",
+		BaseURL: server.URL,
+		// 尝试用 advanced_json 覆盖关键字段
+		AdvancedJSON: map[string]any{
+			"model":      "attacker-model",
+			"max_tokens": 1,
+		},
+	})
+
+	_ = gateway.Stream(context.Background(), Request{
+		Model:    "claude-real",
+		Messages: []Message{{Role: "user", Content: []TextPart{{Text: "hi"}}}},
+	}, func(ev StreamEvent) error { return nil })
+
+	var body map[string]any
+	if err := json.Unmarshal(capturedBody, &body); err != nil {
+		t.Fatalf("request body not valid json: %v", err)
+	}
+	if body["model"] != "claude-real" {
+		t.Fatalf("model was overridden by advanced_json, got: %v", body["model"])
+	}
+	if body["max_tokens"].(float64) == 1 {
+		t.Fatalf("max_tokens was overridden by advanced_json")
 	}
 }

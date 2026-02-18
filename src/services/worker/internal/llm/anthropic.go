@@ -91,6 +91,12 @@ func (g *AnthropicGateway) Stream(ctx context.Context, request Request, yield fu
 	if len(request.Tools) > 0 {
 		payload["tools"] = toAnthropicTools(request.Tools)
 	}
+	// advanced_json 补充未被显式字段占用的 key，已存在的 key 不覆盖
+	for k, v := range g.cfg.AdvancedJSON {
+		if _, exists := payload[k]; !exists {
+			payload[k] = v
+		}
+	}
 
 	if g.cfg.EmitDebugEvents {
 		baseURL := g.cfg.BaseURL
