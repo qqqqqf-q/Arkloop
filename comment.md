@@ -14,7 +14,7 @@
 1. 准备环境变量（示例，注意不要把 key 写进仓库文件）：
    - `export ARKLOOP_OPENAI_API_KEY=...`
    - `export ARKLOOP_TOOL_ALLOWLIST=echo`
-   - `export ARKLOOP_LLM_DEBUG_EVENTS=1`（可选，用于把上游 chunk 记录进 run_events）
+   - `export ARKLOOP_LLM_DEBUG_EVENTS=1`（可选，用于把上游 chunk 记录进 run_events；**注意：该选项会把请求 payload 与响应内容写入数据库，仅限本地排障短期开启，切勿用于生产**）
    - `export ARKLOOP_PROVIDER_ROUTING_JSON='{"default_route_id":"r1","credentials":[{"id":"c1","scope":"platform","provider_kind":"openai","api_key_env":"ARKLOOP_OPENAI_API_KEY","openai_api_mode":"responses"}],"routes":[{"id":"r1","model":"gpt-4o-mini","credential_id":"c1"}]}'`
 2. 启动 Postgres + API + Go Worker：
    - `docker compose up -d postgres`
