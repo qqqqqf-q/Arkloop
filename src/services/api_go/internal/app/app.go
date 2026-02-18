@@ -11,9 +11,13 @@ import (
 	"syscall"
 	"time"
 
+	"arkloop/services/api_go/internal/audit"
+	"arkloop/services/api_go/internal/auth"
 	"arkloop/services/api_go/internal/data"
 	apihttp "arkloop/services/api_go/internal/http"
 	"arkloop/services/api_go/internal/observability"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type Application struct {
@@ -42,26 +46,84 @@ func (a *Application) Run(ctx context.Context) error {
 	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	var schemaRepo *data.SchemaRepository
+	var (
+		pool       *pgxpool.Pool
+		schemaRepo *data.SchemaRepository
+	)
 	var poolCloser func()
 
 	dsn := strings.TrimSpace(a.config.DatabaseDSN)
 	if dsn != "" {
-		pool, err := data.NewPool(ctx, dsn)
+		createdPool, err := data.NewPool(ctx, dsn)
 		if err != nil {
 			return err
 		}
-		poolCloser = pool.Close
+		pool = createdPool
+		poolCloser = createdPool.Close
 
-		repo, err := data.NewSchemaRepository(pool)
+		repo, err := data.NewSchemaRepository(createdPool)
 		if err != nil {
-			pool.Close()
+			createdPool.Close()
 			return err
 		}
 		schemaRepo = repo
 	}
 	if poolCloser != nil {
 		defer poolCloser()
+	}
+
+	var (
+		userRepo       *data.UserRepository
+		credentialRepo *data.UserCredentialRepository
+		membershipRepo *data.OrgMembershipRepository
+		auditRepo      *data.AuditLogRepository
+
+		authService         *auth.Service
+		registrationService *auth.RegistrationService
+		auditWriter         *audit.Writer
+	)
+
+	if pool != nil {
+		var err error
+		userRepo, err = data.NewUserRepository(pool)
+		if err != nil {
+			return err
+		}
+		credentialRepo, err = data.NewUserCredentialRepository(pool)
+		if err != nil {
+			return err
+		}
+		membershipRepo, err = data.NewOrgMembershipRepository(pool)
+		if err != nil {
+			return err
+		}
+		auditRepo, err = data.NewAuditLogRepository(pool)
+		if err != nil {
+			return err
+		}
+	}
+
+	if pool != nil && a.config.Auth != nil {
+		passwordHasher, err := auth.NewBcryptPasswordHasher(0)
+		if err != nil {
+			return err
+		}
+		tokenService, err := auth.NewJwtAccessTokenService(a.config.Auth.JWTSecret, a.config.Auth.AccessTokenTTLSeconds)
+		if err != nil {
+			return err
+		}
+		authService, err = auth.NewService(userRepo, credentialRepo, passwordHasher, tokenService)
+		if err != nil {
+			return err
+		}
+		registrationService, err = auth.NewRegistrationService(pool, passwordHasher, tokenService)
+		if err != nil {
+			return err
+		}
+
+		if auditRepo != nil {
+			auditWriter = audit.NewWriter(auditRepo, membershipRepo, a.logger)
+		}
 	}
 
 	listener, err := net.Listen("tcp", a.config.Addr)
@@ -75,6 +137,9 @@ func (a *Application) Run(ctx context.Context) error {
 			Logger:               a.logger,
 			TrustIncomingTraceID: a.config.TrustIncomingTraceID,
 			SchemaRepository:     schemaRepo,
+			AuthService:          authService,
+			RegistrationService:  registrationService,
+			AuditWriter:          auditWriter,
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
 	}

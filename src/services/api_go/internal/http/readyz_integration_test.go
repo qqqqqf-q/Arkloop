@@ -59,4 +59,3 @@ func TestReadyzOKWhenDatabaseReachable(t *testing.T) {
 		t.Fatalf("unexpected alembic revision: %q", payload["alembic_revision"])
 	}
 }
-

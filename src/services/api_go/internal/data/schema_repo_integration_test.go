@@ -40,4 +40,3 @@ func TestSchemaRepositoryCurrentAlembicVersion(t *testing.T) {
 		t.Fatalf("unexpected revision: %q", got)
 	}
 }
-

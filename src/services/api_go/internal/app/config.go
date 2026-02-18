@@ -6,6 +6,8 @@ import (
 	"os"
 	"strconv"
 	"strings"
+
+	"arkloop/services/api_go/internal/auth"
 )
 
 const (
@@ -20,6 +22,7 @@ type Config struct {
 	Addr                 string
 	DatabaseDSN          string
 	TrustIncomingTraceID bool
+	Auth                 *auth.Config
 }
 
 func DefaultConfig() Config {
@@ -55,6 +58,12 @@ func LoadConfigFromEnv() (Config, error) {
 		cfg.DatabaseDSN = raw
 	}
 
+	authConfig, err := auth.LoadConfigFromEnv(false)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.Auth = authConfig
+
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err
 	}
@@ -68,6 +77,12 @@ func (c Config) Validate() error {
 	}
 	if _, err := net.ResolveTCPAddr("tcp", addr); err != nil {
 		return fmt.Errorf("addr 无效: %w", err)
+	}
+
+	if c.Auth != nil {
+		if err := c.Auth.Validate(); err != nil {
+			return err
+		}
 	}
 	return nil
 }

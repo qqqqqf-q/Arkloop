@@ -69,4 +69,3 @@ func readyz(schemaRepo *data.SchemaRepository, logger *observability.JSONLogger)
 		_, _ = w.Write(payload)
 	}
 }
-

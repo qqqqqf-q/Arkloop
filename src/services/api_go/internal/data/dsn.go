@@ -23,4 +23,3 @@ func NormalizePostgresDSN(raw string) string {
 
 	return cleaned
 }
-

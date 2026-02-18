@@ -35,4 +35,3 @@ func (r *SchemaRepository) CurrentAlembicVersion(ctx context.Context) (string, e
 	}
 	return version, nil
 }
-
