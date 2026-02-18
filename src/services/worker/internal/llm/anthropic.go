@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -17,6 +16,7 @@ import (
 
 const defaultAnthropicVersion = "2023-06-01"
 const maxAnthropicResponseBytes = 4096 * 4
+const anthropicMaxDebugChunkBytes = 8192
 
 var errAnthropicToolUseInput = errors.New("anthropic_tool_use_input")
 
@@ -149,28 +149,29 @@ func (g *AnthropicGateway) Stream(ctx context.Context, request Request, yield fu
 	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxAnthropicResponseBytes))
+	body, bodyTruncated, _ := readAllWithLimit(resp.Body, maxAnthropicResponseBytes)
 	status := resp.StatusCode
 
 	if g.cfg.EmitDebugEvents {
-		raw := string(body)
+		raw, rawTruncated := truncateUTF8(string(body), anthropicMaxDebugChunkBytes)
 		chunk := StreamLlmResponseChunk{
 			LlmCallID:    llmCallID,
 			ProviderKind: "anthropic",
 			APIMode:      "messages",
 			Raw:          raw,
 			StatusCode:   &status,
-			Truncated:    true,
+			Truncated:    bodyTruncated || rawTruncated,
 		}
 		_ = yield(chunk)
 	}
 
 	if status < 200 || status >= 300 {
+		message, details := anthropicErrorMessageAndDetails(body, status)
 		return yield(StreamRunFailed{
 			Error: GatewayError{
 				ErrorClass: errorClassFromStatus(status),
-				Message:    "Anthropic 请求失败",
-				Details:    map[string]any{"status_code": status},
+				Message:    message,
+				Details:    details,
 			},
 		})
 	}
@@ -394,4 +395,28 @@ func parseAnthropicMessage(body []byte) (string, []ToolCall, error) {
 	}
 
 	return b.String(), toolCalls, nil
+}
+
+func anthropicErrorMessageAndDetails(body []byte, status int) (string, map[string]any) {
+	details := map[string]any{"status_code": status}
+
+	var parsed any
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return "Anthropic 请求失败", details
+	}
+	root, ok := parsed.(map[string]any)
+	if !ok {
+		return "Anthropic 请求失败", details
+	}
+	errObj, ok := root["error"].(map[string]any)
+	if !ok {
+		return "Anthropic 请求失败", details
+	}
+	if errType, ok := errObj["type"].(string); ok && strings.TrimSpace(errType) != "" {
+		details["anthropic_error_type"] = strings.TrimSpace(errType)
+	}
+	if msg, ok := errObj["message"].(string); ok && strings.TrimSpace(msg) != "" {
+		return strings.TrimSpace(msg), details
+	}
+	return "Anthropic 请求失败", details
 }

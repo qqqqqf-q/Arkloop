@@ -186,6 +186,123 @@ func TestAnthropicGateway_Stream_ToolUse(t *testing.T) {
 	}
 }
 
+func TestAnthropicGateway_Stream_DebugChunk_NotTruncated(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"msg_test","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}]}`))
+	}))
+	t.Cleanup(server.Close)
+
+	gateway := NewAnthropicGateway(AnthropicGatewayConfig{
+		APIKey:          "test",
+		BaseURL:         server.URL,
+		EmitDebugEvents: true,
+	})
+
+	var chunks []StreamLlmResponseChunk
+	_ = gateway.Stream(context.Background(), Request{
+		Model:    "claude-test",
+		Messages: []Message{{Role: "user", Content: []TextPart{{Text: "hi"}}}},
+	}, func(ev StreamEvent) error {
+		if c, ok := ev.(StreamLlmResponseChunk); ok {
+			chunks = append(chunks, c)
+		}
+		return nil
+	})
+
+	if len(chunks) == 0 {
+		t.Fatal("expected at least one debug chunk")
+	}
+	// body 远小于 maxAnthropicResponseBytes，不应标记为截断
+	if chunks[0].Truncated {
+		t.Fatalf("expected truncated=false for small body, got true")
+	}
+}
+
+func TestAnthropicGateway_Stream_DebugChunk_Truncated(t *testing.T) {
+	// 构造一个超过 maxAnthropicResponseBytes 的响应体（不是合法 JSON，但足以触发截断路径）
+	bigPayload := make([]byte, maxAnthropicResponseBytes+100)
+	for i := range bigPayload {
+		bigPayload[i] = 'x'
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(bigPayload)
+	}))
+	t.Cleanup(server.Close)
+
+	gateway := NewAnthropicGateway(AnthropicGatewayConfig{
+		APIKey:          "test",
+		BaseURL:         server.URL,
+		EmitDebugEvents: true,
+	})
+
+	var chunks []StreamLlmResponseChunk
+	_ = gateway.Stream(context.Background(), Request{
+		Model:    "claude-test",
+		Messages: []Message{{Role: "user", Content: []TextPart{{Text: "hi"}}}},
+	}, func(ev StreamEvent) error {
+		if c, ok := ev.(StreamLlmResponseChunk); ok {
+			chunks = append(chunks, c)
+		}
+		return nil
+	})
+
+	if len(chunks) == 0 {
+		t.Fatal("expected at least one debug chunk")
+	}
+	if !chunks[0].Truncated {
+		t.Fatalf("expected truncated=true for oversized body, got false")
+	}
+}
+
+func TestAnthropicGateway_Stream_ErrorMessageExtracted(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}`))
+	}))
+	t.Cleanup(server.Close)
+
+	gateway := NewAnthropicGateway(AnthropicGatewayConfig{
+		APIKey:  "test",
+		BaseURL: server.URL,
+	})
+
+	var events []StreamEvent
+	err := gateway.Stream(context.Background(), Request{
+		Model:    "claude-test",
+		Messages: []Message{{Role: "user", Content: []TextPart{{Text: "hi"}}}},
+	}, func(ev StreamEvent) error {
+		events = append(events, ev)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("stream failed: %v", err)
+	}
+
+	var gotFailed *StreamRunFailed
+	for _, ev := range events {
+		if f, ok := ev.(StreamRunFailed); ok {
+			copied := f
+			gotFailed = &copied
+			break
+		}
+	}
+	if gotFailed == nil {
+		t.Fatal("expected StreamRunFailed")
+	}
+	if gotFailed.Error.Message != "invalid x-api-key" {
+		t.Fatalf("unexpected error message: %q", gotFailed.Error.Message)
+	}
+	if gotFailed.Error.Details["anthropic_error_type"] != "authentication_error" {
+		t.Fatalf("unexpected anthropic_error_type: %v", gotFailed.Error.Details)
+	}
+	if gotFailed.Error.Details["status_code"] != http.StatusUnauthorized {
+		t.Fatalf("unexpected status_code: %v", gotFailed.Error.Details)
+	}
+}
+
 func TestAnthropicGateway_Stream_AdvancedJSON_Merged(t *testing.T) {
 	var capturedBody []byte
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
