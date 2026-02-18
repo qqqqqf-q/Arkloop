@@ -138,3 +138,28 @@ func TestTraceMiddlewarePreservesHttpFlusher(t *testing.T) {
 		t.Fatal("TraceMiddleware 包装后 ResponseWriter 丢失了 http.Flusher 接口")
 	}
 }
+
+// TestThreadSubResourceRouting 验证 /v1/threads/{uuid}/messages 等 sub-resource 路径返回 404，
+// 而不是 422（uuid parse 错误），证明路由拆分逻辑正确识别 segment。
+func TestThreadSubResourceRouting(t *testing.T) {
+	logger := observability.NewJSONLogger("test", io.Discard)
+	handler := NewHandler(HandlerConfig{Logger: logger})
+
+	cases := []struct {
+		path string
+	}{
+		{"/v1/threads/00000000-0000-0000-0000-000000000001/messages"},
+		{"/v1/threads/00000000-0000-0000-0000-000000000001/runs"},
+		{"/v1/threads/00000000-0000-0000-0000-000000000001/unknown"},
+	}
+
+	for _, tc := range cases {
+		req := httptest.NewRequest(nethttp.MethodGet, tc.path, nil)
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, req)
+
+		if recorder.Code != nethttp.StatusNotFound {
+			t.Fatalf("path=%s: expected 404, got %d body=%s", tc.path, recorder.Code, recorder.Body.String())
+		}
+	}
+}

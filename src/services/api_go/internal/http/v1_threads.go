@@ -294,18 +294,45 @@ func threadEntry(
 			return
 		}
 
-		id, ok := parseThreadIDFromPath(w, r)
-		if !ok {
+		traceID := observability.TraceIDFromContext(r.Context())
+
+		tail := strings.TrimPrefix(r.URL.Path, "/v1/threads/")
+		tail = strings.Trim(tail, "/")
+		if tail == "" {
+			writeNotFound(w, r)
 			return
 		}
 
-		switch r.Method {
-		case nethttp.MethodGet:
-			get(w, r, id)
-		case nethttp.MethodPatch:
-			patch(w, r, id)
+		// 最多分两段：{uuid} 和可选的 sub-resource
+		parts := strings.SplitN(tail, "/", 2)
+		threadID, err := uuid.Parse(parts[0])
+		if err != nil {
+			WriteError(w, nethttp.StatusUnprocessableEntity, "validation_error", "请求参数校验失败", traceID, nil)
+			return
+		}
+
+		if len(parts) == 1 {
+			switch r.Method {
+			case nethttp.MethodGet:
+				get(w, r, threadID)
+			case nethttp.MethodPatch:
+				patch(w, r, threadID)
+			default:
+				writeMethodNotAllowed(w, r)
+			}
+			return
+		}
+
+		// sub-resource 分发，P06/P07 在此接入各自 handler
+		switch parts[1] {
+		case "messages":
+			// P06: thread messages
+			writeNotFound(w, r)
+		case "runs":
+			// P07: thread runs
+			writeNotFound(w, r)
 		default:
-			writeMethodNotAllowed(w, r)
+			writeNotFound(w, r)
 		}
 	}
 }
@@ -366,28 +393,6 @@ func first(values url.Values, key string) string {
 		return ""
 	}
 	return raw[0]
-}
-
-func parseThreadIDFromPath(w nethttp.ResponseWriter, r *nethttp.Request) (uuid.UUID, bool) {
-	traceID := observability.TraceIDFromContext(r.Context())
-
-	trimmed := strings.TrimPrefix(r.URL.Path, "/v1/threads/")
-	trimmed = strings.Trim(trimmed, "/")
-	if trimmed == "" {
-		writeNotFound(w, r)
-		return uuid.Nil, false
-	}
-	if strings.Contains(trimmed, "/") {
-		writeNotFound(w, r)
-		return uuid.Nil, false
-	}
-
-	parsed, err := uuid.Parse(trimmed)
-	if err != nil {
-		WriteError(w, nethttp.StatusUnprocessableEntity, "validation_error", "请求参数校验失败", traceID, nil)
-		return uuid.Nil, false
-	}
-	return parsed, true
 }
 
 func authorizeThreadOrAudit(
