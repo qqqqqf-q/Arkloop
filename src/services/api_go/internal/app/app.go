@@ -160,6 +160,11 @@ func (a *Application) Run(ctx context.Context) error {
 			MessageRepo:          messageRepo,
 			RunEventRepo:         runEventRepo,
 			AuditWriter:          auditWriter,
+			SSEConfig: apihttp.SSEConfig{
+				PollSeconds:      a.config.SSE.PollSeconds,
+				HeartbeatSeconds: a.config.SSE.HeartbeatSeconds,
+				BatchLimit:       a.config.SSE.BatchLimit,
+			},
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
 	}

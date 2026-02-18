@@ -11,6 +11,21 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// SSEConfig 控制 SSE 流的轮询与心跳行为，对标 Python 端的 SseConfig。
+type SSEConfig struct {
+	PollSeconds      float64
+	HeartbeatSeconds float64
+	BatchLimit       int
+}
+
+func defaultSSEConfig() SSEConfig {
+	return SSEConfig{
+		PollSeconds:      0.25,
+		HeartbeatSeconds: 15.0,
+		BatchLimit:       500,
+	}
+}
+
 type HandlerConfig struct {
 	Pool                 *pgxpool.Pool
 	Logger               *observability.JSONLogger
@@ -24,6 +39,8 @@ type HandlerConfig struct {
 	MessageRepo         *data.MessageRepository
 	RunEventRepo        *data.RunEventRepository
 	AuditWriter         *audit.Writer
+
+	SSEConfig SSEConfig
 }
 
 func NewHandler(cfg HandlerConfig) nethttp.Handler {
@@ -49,9 +66,14 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 			cfg.Pool,
 		),
 	)
+	sseConfig := cfg.SSEConfig
+	if sseConfig.BatchLimit <= 0 {
+		sseConfig = defaultSSEConfig()
+	}
+
 	mux.HandleFunc(
 		"/v1/runs/",
-		runEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.RunEventRepo, cfg.AuditWriter, cfg.Pool),
+		runEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.RunEventRepo, cfg.AuditWriter, cfg.Pool, sseConfig),
 	)
 
 	notFound := nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {

@@ -16,18 +16,42 @@ const (
 	databaseURLFallbackEnv  = "DATABASE_URL"
 	trustIncomingTraceIDEnv = "ARKLOOP_TRUST_INCOMING_TRACE_ID"
 	defaultAddr             = "127.0.0.1:8001"
+
+	ssePollSecondsEnv      = "ARKLOOP_SSE_POLL_SECONDS"
+	sseHeartbeatSecondsEnv = "ARKLOOP_SSE_HEARTBEAT_SECONDS"
+	sseBatchLimitEnv       = "ARKLOOP_SSE_BATCH_LIMIT"
+
+	defaultSSEPollSeconds      = 0.25
+	defaultSSEHeartbeatSeconds = 15.0
+	defaultSSEBatchLimit       = 500
 )
+
+type SSEConfig struct {
+	PollSeconds      float64
+	HeartbeatSeconds float64
+	BatchLimit       int
+}
+
+func defaultSSEConfig() SSEConfig {
+	return SSEConfig{
+		PollSeconds:      defaultSSEPollSeconds,
+		HeartbeatSeconds: defaultSSEHeartbeatSeconds,
+		BatchLimit:       defaultSSEBatchLimit,
+	}
+}
 
 type Config struct {
 	Addr                 string
 	DatabaseDSN          string
 	TrustIncomingTraceID bool
 	Auth                 *auth.Config
+	SSE                  SSEConfig
 }
 
 func DefaultConfig() Config {
 	return Config{
 		Addr: defaultAddr,
+		SSE:  defaultSSEConfig(),
 	}
 }
 
@@ -63,6 +87,28 @@ func LoadConfigFromEnv() (Config, error) {
 		return Config{}, err
 	}
 	cfg.Auth = authConfig
+
+	if raw, ok := lookupEnv(ssePollSecondsEnv); ok {
+		v, err := parseNonNegativeFloat(raw)
+		if err != nil {
+			return Config{}, fmt.Errorf("%s: %w", ssePollSecondsEnv, err)
+		}
+		cfg.SSE.PollSeconds = v
+	}
+	if raw, ok := lookupEnv(sseHeartbeatSecondsEnv); ok {
+		v, err := parseNonNegativeFloat(raw)
+		if err != nil {
+			return Config{}, fmt.Errorf("%s: %w", sseHeartbeatSecondsEnv, err)
+		}
+		cfg.SSE.HeartbeatSeconds = v
+	}
+	if raw, ok := lookupEnv(sseBatchLimitEnv); ok {
+		v, err := parsePositiveInt(raw)
+		if err != nil {
+			return Config{}, fmt.Errorf("%s: %w", sseBatchLimitEnv, err)
+		}
+		cfg.SSE.BatchLimit = v
+	}
 
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err
@@ -108,4 +154,26 @@ func parsePort(raw string) (int, error) {
 		return 0, fmt.Errorf("必须在 1-65535 之间")
 	}
 	return value, nil
+}
+
+func parseNonNegativeFloat(raw string) (float64, error) {
+	v, err := strconv.ParseFloat(strings.TrimSpace(raw), 64)
+	if err != nil {
+		return 0, fmt.Errorf("必须为数字")
+	}
+	if v < 0 {
+		return 0, fmt.Errorf("必须为非负数")
+	}
+	return v, nil
+}
+
+func parsePositiveInt(raw string) (int, error) {
+	v, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil {
+		return 0, fmt.Errorf("必须为整数")
+	}
+	if v <= 0 {
+		return 0, fmt.Errorf("必须为正整数")
+	}
+	return v, nil
 }

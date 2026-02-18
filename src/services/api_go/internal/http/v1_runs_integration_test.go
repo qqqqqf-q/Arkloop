@@ -1,9 +1,11 @@
 package http
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"io"
+	"strings"
 	"testing"
 
 	nethttp "net/http"
@@ -339,4 +341,214 @@ func setupJobsSchema(ctx context.Context, db data.Querier) error {
 		}
 	}
 	return nil
+}
+
+func TestStreamRunEvents(t *testing.T) {
+	db := testutil.SetupPostgresDatabase(t, "api_go_sse")
+
+	ctx := context.Background()
+	pool, err := data.NewPool(ctx, db.DSN)
+	if err != nil {
+		t.Fatalf("new pool: %v", err)
+	}
+	defer pool.Close()
+
+	if err := setupAuthSchema(ctx, pool); err != nil {
+		t.Fatalf("setup auth schema: %v", err)
+	}
+	if err := setupThreadsSchema(ctx, pool); err != nil {
+		t.Fatalf("setup threads schema: %v", err)
+	}
+	if err := setupRunsSchema(ctx, pool); err != nil {
+		t.Fatalf("setup runs schema: %v", err)
+	}
+	if err := setupJobsSchema(ctx, pool); err != nil {
+		t.Fatalf("setup jobs schema: %v", err)
+	}
+
+	logger := observability.NewJSONLogger("test", io.Discard)
+
+	passwordHasher, err := auth.NewBcryptPasswordHasher(0)
+	if err != nil {
+		t.Fatalf("new password hasher: %v", err)
+	}
+	tokenService, err := auth.NewJwtAccessTokenService("test-secret-should-be-long-enough-32chars", 3600)
+	if err != nil {
+		t.Fatalf("new token service: %v", err)
+	}
+
+	userRepo, err := data.NewUserRepository(pool)
+	if err != nil {
+		t.Fatalf("new user repo: %v", err)
+	}
+	credentialRepo, err := data.NewUserCredentialRepository(pool)
+	if err != nil {
+		t.Fatalf("new credential repo: %v", err)
+	}
+	membershipRepo, err := data.NewOrgMembershipRepository(pool)
+	if err != nil {
+		t.Fatalf("new membership repo: %v", err)
+	}
+	auditRepo, err := data.NewAuditLogRepository(pool)
+	if err != nil {
+		t.Fatalf("new audit repo: %v", err)
+	}
+	threadRepo, err := data.NewThreadRepository(pool)
+	if err != nil {
+		t.Fatalf("new thread repo: %v", err)
+	}
+	runRepo, err := data.NewRunEventRepository(pool)
+	if err != nil {
+		t.Fatalf("new run repo: %v", err)
+	}
+
+	authService, err := auth.NewService(userRepo, credentialRepo, passwordHasher, tokenService)
+	if err != nil {
+		t.Fatalf("new auth service: %v", err)
+	}
+	registrationService, err := auth.NewRegistrationService(pool, passwordHasher, tokenService)
+	if err != nil {
+		t.Fatalf("new registration service: %v", err)
+	}
+
+	auditWriter := audit.NewWriter(auditRepo, membershipRepo, logger)
+
+	handler := NewHandler(HandlerConfig{
+		Pool:                pool,
+		Logger:              logger,
+		AuthService:         authService,
+		RegistrationService: registrationService,
+		OrgMembershipRepo:   membershipRepo,
+		ThreadRepo:          threadRepo,
+		RunEventRepo:        runRepo,
+		AuditWriter:         auditWriter,
+		SSEConfig: SSEConfig{
+			PollSeconds:      0.01,
+			HeartbeatSeconds: 60.0,
+			BatchLimit:       100,
+		},
+	})
+
+	aliceRegister := doJSON(
+		handler,
+		nethttp.MethodPost,
+		"/v1/auth/register",
+		map[string]any{"login": "alice_sse", "password": "pwdpwdpwd", "display_name": "Alice"},
+		nil,
+	)
+	if aliceRegister.Code != nethttp.StatusCreated {
+		t.Fatalf("register: %d body=%s", aliceRegister.Code, aliceRegister.Body.String())
+	}
+	alice := decodeJSONBody[registerResponse](t, aliceRegister.Body.Bytes())
+	aliceHeaders := authHeader(alice.AccessToken)
+
+	threadResp := doJSON(handler, nethttp.MethodPost, "/v1/threads", map[string]any{"title": "sse-test"}, aliceHeaders)
+	if threadResp.Code != nethttp.StatusCreated {
+		t.Fatalf("create thread: %d body=%s", threadResp.Code, threadResp.Body.String())
+	}
+	threadPayload := decodeJSONBody[threadResponse](t, threadResp.Body.Bytes())
+
+	runResp := doJSON(handler, nethttp.MethodPost, "/v1/threads/"+threadPayload.ID+"/runs", nil, aliceHeaders)
+	if runResp.Code != nethttp.StatusCreated {
+		t.Fatalf("create run: %d body=%s", runResp.Code, runResp.Body.String())
+	}
+	runPayload := decodeJSONBody[createRunResponse](t, runResp.Body.Bytes())
+
+	t.Run("未认证返回401", func(t *testing.T) {
+		resp := doJSON(handler, nethttp.MethodGet, "/v1/runs/"+runPayload.RunID+"/events?follow=false", nil, nil)
+		assertErrorEnvelope(t, resp, nethttp.StatusUnauthorized, "auth.missing_token")
+	})
+
+	t.Run("run不存在返回404", func(t *testing.T) {
+		fakeID := "00000000-0000-0000-0000-000000000099"
+		resp := doJSON(handler, nethttp.MethodGet, "/v1/runs/"+fakeID+"/events?follow=false", nil, aliceHeaders)
+		assertErrorEnvelope(t, resp, nethttp.StatusNotFound, "runs.not_found")
+	})
+
+	t.Run("after_seq负数返回422", func(t *testing.T) {
+		resp := doJSON(handler, nethttp.MethodGet, "/v1/runs/"+runPayload.RunID+"/events?follow=false&after_seq=-1", nil, aliceHeaders)
+		assertErrorEnvelope(t, resp, nethttp.StatusUnprocessableEntity, "validation_error")
+	})
+
+	t.Run("follow=false拉取已有事件并校验SSE格式", func(t *testing.T) {
+		resp := doJSON(handler, nethttp.MethodGet, "/v1/runs/"+runPayload.RunID+"/events?follow=false", nil, aliceHeaders)
+		if resp.Code != nethttp.StatusOK {
+			t.Fatalf("unexpected status: %d body=%s", resp.Code, resp.Body.String())
+		}
+		if ct := resp.Header().Get("Content-Type"); ct != "text/event-stream" {
+			t.Fatalf("unexpected Content-Type: %q", ct)
+		}
+		if cc := resp.Header().Get("Cache-Control"); cc != "no-cache" {
+			t.Fatalf("unexpected Cache-Control: %q", cc)
+		}
+
+		events := parseSseEvents(t, resp.Body.String())
+		if len(events) != 1 {
+			t.Fatalf("expected 1 event, got %d body=%s", len(events), resp.Body.String())
+		}
+		ev := events[0]
+		if ev["type"] != "run.started" {
+			t.Fatalf("unexpected type: %q", ev["type"])
+		}
+		if ev["run_id"] != runPayload.RunID {
+			t.Fatalf("unexpected run_id: %q", ev["run_id"])
+		}
+		seqRaw, ok := ev["seq"].(float64)
+		if !ok || seqRaw != 1 {
+			t.Fatalf("unexpected seq: %v", ev["seq"])
+		}
+	})
+
+	t.Run("after_seq=1跳过已有事件返回空", func(t *testing.T) {
+		resp := doJSON(handler, nethttp.MethodGet, "/v1/runs/"+runPayload.RunID+"/events?follow=false&after_seq=1", nil, aliceHeaders)
+		if resp.Code != nethttp.StatusOK {
+			t.Fatalf("unexpected status: %d body=%s", resp.Code, resp.Body.String())
+		}
+		events := parseSseEvents(t, resp.Body.String())
+		if len(events) != 0 {
+			t.Fatalf("expected 0 events, got %d", len(events))
+		}
+	})
+
+	t.Run("其他用户访问返回403", func(t *testing.T) {
+		bobRegister := doJSON(
+			handler,
+			nethttp.MethodPost,
+			"/v1/auth/register",
+			map[string]any{"login": "bob_sse", "password": "pwdpwdpwd", "display_name": "Bob"},
+			nil,
+		)
+		if bobRegister.Code != nethttp.StatusCreated {
+			t.Fatalf("register bob: %d body=%s", bobRegister.Code, bobRegister.Body.String())
+		}
+		bob := decodeJSONBody[registerResponse](t, bobRegister.Body.Bytes())
+		resp := doJSON(handler, nethttp.MethodGet, "/v1/runs/"+runPayload.RunID+"/events?follow=false", nil, authHeader(bob.AccessToken))
+		assertErrorEnvelope(t, resp, nethttp.StatusForbidden, "policy.denied")
+	})
+
+	t.Run("非GET方法返回405", func(t *testing.T) {
+		resp := doJSON(handler, nethttp.MethodPost, "/v1/runs/"+runPayload.RunID+"/events", nil, aliceHeaders)
+		if resp.Code != nethttp.StatusMethodNotAllowed {
+			t.Fatalf("expected 405, got %d body=%s", resp.Code, resp.Body.String())
+		}
+	})
+}
+
+// parseSseEvents 解析 SSE 流文本，提取所有 data 行并反序列化为 map。
+func parseSseEvents(t *testing.T, body string) []map[string]any {
+	t.Helper()
+	var events []map[string]any
+	scanner := bufio.NewScanner(strings.NewReader(body))
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(line, "data: ") {
+			raw := strings.TrimPrefix(line, "data: ")
+			var ev map[string]any
+			if err := json.Unmarshal([]byte(raw), &ev); err != nil {
+				t.Fatalf("unmarshal sse data: %v raw=%s", err, raw)
+			}
+			events = append(events, ev)
+		}
+	}
+	return events
 }

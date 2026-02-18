@@ -1,7 +1,9 @@
 package http
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"regexp"
 	"strings"
@@ -386,15 +388,209 @@ func cancelRun(
 	}
 }
 
+func streamRunEvents(
+	authService *auth.Service,
+	membershipRepo *data.OrgMembershipRepository,
+	runRepo *data.RunEventRepository,
+	auditWriter *audit.Writer,
+	sseConfig SSEConfig,
+) func(nethttp.ResponseWriter, *nethttp.Request, uuid.UUID) {
+	return func(w nethttp.ResponseWriter, r *nethttp.Request, runID uuid.UUID) {
+		traceID := observability.TraceIDFromContext(r.Context())
+		if authService == nil {
+			writeAuthNotConfigured(w, traceID)
+			return
+		}
+		if runRepo == nil {
+			WriteError(w, nethttp.StatusServiceUnavailable, "database.not_configured", "数据库未配置", traceID, nil)
+			return
+		}
+
+		actor, ok := authenticateActor(w, r, traceID, authService, membershipRepo)
+		if !ok {
+			return
+		}
+
+		run, err := runRepo.GetRun(r.Context(), runID)
+		if err != nil {
+			WriteError(w, nethttp.StatusInternalServerError, "internal_error", "内部错误", traceID, nil)
+			return
+		}
+		if run == nil {
+			WriteError(w, nethttp.StatusNotFound, "runs.not_found", "Run 不存在", traceID, nil)
+			return
+		}
+
+		if !authorizeRunOrAudit(w, r, traceID, actor, "runs.events", run, auditWriter) {
+			return
+		}
+
+		afterSeq, follow, ok := parseSSEQueryParams(w, traceID, r)
+		if !ok {
+			return
+		}
+
+		batchLimit := sseConfig.BatchLimit
+		if batchLimit <= 0 {
+			batchLimit = 500
+		}
+		pollDuration := time.Duration(float64(time.Second) * sseConfig.PollSeconds)
+		heartbeatDuration := time.Duration(float64(time.Second) * sseConfig.HeartbeatSeconds)
+
+		flusher, canFlush := w.(nethttp.Flusher)
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("X-Accel-Buffering", "no")
+		w.WriteHeader(nethttp.StatusOK)
+
+		if follow {
+			_, _ = fmt.Fprint(w, ": ping\n\n")
+			if canFlush {
+				flusher.Flush()
+			}
+		}
+
+		cursor := afterSeq
+		lastSend := time.Now()
+
+		for {
+			select {
+			case <-r.Context().Done():
+				return
+			default:
+			}
+
+			events, err := runRepo.ListEvents(r.Context(), runID, cursor, batchLimit)
+			if err != nil {
+				return
+			}
+
+			if len(events) > 0 {
+				for _, item := range events {
+					cursor = item.Seq
+					if err := writeSseEvent(w, item); err != nil {
+						return
+					}
+				}
+				lastSend = time.Now()
+				if canFlush {
+					flusher.Flush()
+				}
+				continue
+			}
+
+			if !follow {
+				return
+			}
+
+			now := time.Now()
+			if heartbeatDuration > 0 && now.Sub(lastSend) >= heartbeatDuration {
+				_, _ = fmt.Fprint(w, ": ping\n\n")
+				if canFlush {
+					flusher.Flush()
+				}
+				lastSend = now
+			}
+
+			select {
+			case <-r.Context().Done():
+				return
+			case <-time.After(pollDuration):
+			}
+		}
+	}
+}
+
+// writeSseEvent 将单条 RunEvent 按 SSE 格式写入响应流。
+func writeSseEvent(w nethttp.ResponseWriter, item data.RunEvent) error {
+	ts := item.TS.UTC()
+	millis := ts.Format("2006-01-02T15:04:05.999Z07:00")
+
+	payload := map[string]any{
+		"event_id": item.EventID.String(),
+		"run_id":   item.RunID.String(),
+		"seq":      item.Seq,
+		"ts":       millis,
+		"type":     item.Type,
+		"data":     item.DataJSON,
+	}
+	if payload["data"] == nil {
+		payload["data"] = map[string]any{}
+	}
+
+	dataBytes, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+
+	_, err = fmt.Fprintf(w, "id: %d\nevent: %s\ndata: %s\n\n", item.Seq, item.Type, dataBytes)
+	return err
+}
+
+func parseSSEQueryParams(
+	w nethttp.ResponseWriter,
+	traceID string,
+	r *nethttp.Request,
+) (afterSeq int64, follow bool, ok bool) {
+	follow = true
+	afterSeq = 0
+
+	if raw := strings.TrimSpace(r.URL.Query().Get("after_seq")); raw != "" {
+		parsed, err := parseInt64NonNegative(raw)
+		if err != nil {
+			WriteError(w, nethttp.StatusUnprocessableEntity, "validation_error", "请求参数校验失败", traceID, nil)
+			return 0, false, false
+		}
+		afterSeq = parsed
+	}
+
+	if raw := strings.TrimSpace(r.URL.Query().Get("follow")); raw != "" {
+		switch raw {
+		case "true", "1":
+			follow = true
+		case "false", "0":
+			follow = false
+		default:
+			WriteError(w, nethttp.StatusUnprocessableEntity, "validation_error", "请求参数校验失败", traceID, nil)
+			return 0, false, false
+		}
+	}
+
+	return afterSeq, follow, true
+}
+
+func parseInt64NonNegative(raw string) (int64, error) {
+	v, err := parseInt64(raw)
+	if err != nil {
+		return 0, err
+	}
+	if v < 0 {
+		return 0, fmt.Errorf("不能为负数")
+	}
+	return v, nil
+}
+
+func parseInt64(raw string) (int64, error) {
+	var v int64
+	_, err := fmt.Sscanf(strings.TrimSpace(raw), "%d", &v)
+	if err != nil {
+		return 0, fmt.Errorf("必须为整数")
+	}
+	return v, nil
+}
+
 func runEntry(
 	authService *auth.Service,
 	membershipRepo *data.OrgMembershipRepository,
 	runRepo *data.RunEventRepository,
 	auditWriter *audit.Writer,
 	pool *pgxpool.Pool,
+	sseConfig SSEConfig,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	get := getRun(authService, membershipRepo, runRepo, auditWriter)
 	cancel := cancelRun(authService, membershipRepo, runRepo, auditWriter, pool)
+	streamEvents := streamRunEvents(authService, membershipRepo, runRepo, auditWriter, sseConfig)
 
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		traceID := observability.TraceIDFromContext(r.Context())
@@ -437,7 +633,15 @@ func runEntry(
 			return
 		}
 
-		// P08: /events
+		if parts[1] == "events" {
+			if r.Method != nethttp.MethodGet {
+				writeMethodNotAllowed(w, r)
+				return
+			}
+			streamEvents(w, r, runID)
+			return
+		}
+
 		writeNotFound(w, r)
 	}
 }
