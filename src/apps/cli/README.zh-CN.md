@@ -21,6 +21,12 @@ Profile 文件推荐放在用户目录（不进入仓库）：
 
 - `src/apps/cli/env/.env.<name>`（例如 `src/apps/cli/env/.env.llm_test`）
 
+仓库内已内置两个不含敏感信息的 profile，便于在 Python / Go API 之间切换：
+- `api_py`：`http://127.0.0.1:8000`
+- `api_go`：`http://127.0.0.1:8001`
+
+如果你要新增包含明文 secret 的 profile，请放到用户目录，或确保 repo 内文件被 gitignore 忽略。
+
 Profile 名称规则：
 - 用户目录：`<name>.env` → `--profile <name>`（例如 `llm.env` 对应 `--profile llm`）
 - repo 内：`.env.<name>` → `--profile <name>`

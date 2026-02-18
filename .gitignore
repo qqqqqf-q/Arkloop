@@ -29,6 +29,11 @@ Thumbs.db
 .env.*
 !.env.example
 !.env.test.example
+!src/apps/cli/env/
+!src/apps/cli/env/.env.api_go
+!src/apps/cli/env/.env.api_py
+!src/apps/web/.env.api_go
+!src/apps/web/.env.api_py
 .VSCodeCounter
 
 .venv312/
