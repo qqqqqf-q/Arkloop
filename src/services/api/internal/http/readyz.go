@@ -61,7 +61,7 @@ func readyz(schemaRepo *data.SchemaRepository, logger *observability.JSONLogger)
 
 		if !match {
 			if logger != nil {
-				logger.Error(
+				logger.Warn(
 					"readyz: schema version mismatch",
 					observability.LogFields{TraceID: &traceID},
 					map[string]any{"current": version, "expected": expected},

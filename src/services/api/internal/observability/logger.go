@@ -39,6 +39,10 @@ func (l *JSONLogger) Info(msg string, fields LogFields, extra map[string]any) {
 	l.log("info", msg, fields, extra)
 }
 
+func (l *JSONLogger) Warn(msg string, fields LogFields, extra map[string]any) {
+	l.log("warn", msg, fields, extra)
+}
+
 func (l *JSONLogger) Error(msg string, fields LogFields, extra map[string]any) {
 	l.log("error", msg, fields, extra)
 }

@@ -102,6 +102,11 @@ func cmdStatus(ctx context.Context, dsn string) error {
 // matches this value, preventing silent schema drift.
 const alembicHeadRevision = "0009_jobs_add_lease_token"
 
+// baselineGooseVersion is the goose version that corresponds to the
+// final Alembic head revision. Baseline seeds versions 0..baselineGooseVersion
+// and never beyond, so future goose-only migrations won't be skipped.
+const baselineGooseVersion int64 = 9
+
 func cmdBaseline(ctx context.Context, dsn string) error {
 	db, err := sql.Open("pgx", dsn)
 	if err != nil {
@@ -138,7 +143,7 @@ func cmdBaseline(ctx context.Context, dsn string) error {
 	}
 
 	// 3. Write goose_db_version in a single transaction: create table,
-	//    clear any stale rows (idempotent), then seed versions 0..ExpectedVersion.
+	//    clear any stale rows (idempotent), then seed versions 0..baselineGooseVersion.
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
@@ -162,7 +167,7 @@ func cmdBaseline(ctx context.Context, dsn string) error {
 		return fmt.Errorf("clear goose_db_version: %w", err)
 	}
 
-	for v := int64(0); v <= migrate.ExpectedVersion; v++ {
+	for v := int64(0); v <= baselineGooseVersion; v++ {
 		_, err = tx.ExecContext(ctx,
 			`INSERT INTO goose_db_version (version_id, is_applied) VALUES ($1, true)`,
 			v,
@@ -176,7 +181,7 @@ func cmdBaseline(ctx context.Context, dsn string) error {
 		return fmt.Errorf("commit baseline: %w", err)
 	}
 	fmt.Printf("baseline: alembic revision %q verified, marked goose versions 0..%d as applied\n",
-		alembicRevision, migrate.ExpectedVersion)
+		alembicRevision, baselineGooseVersion)
 	return nil
 }
 
