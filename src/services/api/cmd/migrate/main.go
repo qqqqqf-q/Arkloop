@@ -97,6 +97,11 @@ func cmdStatus(ctx context.Context, dsn string) error {
 	return nil
 }
 
+// alembicHeadRevision is the expected Alembic revision for a fully-migrated
+// database. baseline refuses to proceed unless alembic_version.version_num
+// matches this value, preventing silent schema drift.
+const alembicHeadRevision = "0009_jobs_add_lease_token"
+
 func cmdBaseline(ctx context.Context, dsn string) error {
 	db, err := sql.Open("pgx", dsn)
 	if err != nil {
@@ -104,6 +109,7 @@ func cmdBaseline(ctx context.Context, dsn string) error {
 	}
 	defer db.Close()
 
+	// 1. Verify alembic_version table exists.
 	var hasAlembic bool
 	err = db.QueryRowContext(ctx,
 		`SELECT EXISTS (
@@ -118,20 +124,21 @@ func cmdBaseline(ctx context.Context, dsn string) error {
 		return fmt.Errorf("alembic_version table not found; baseline only applies to existing databases migrated by alembic")
 	}
 
-	// run goose up to create goose_db_version table and apply all migrations
-	// that already exist in the database (goose skips CREATE TABLE IF EXISTS via provider)
-	// Instead, we use goose provider to mark versions without running SQL
-	_, err = migrate.Up(ctx, dsn)
+	// 2. Verify the Alembic revision matches the expected head.
+	var alembicRevision string
+	err = db.QueryRowContext(ctx, `SELECT version_num FROM alembic_version LIMIT 1`).Scan(&alembicRevision)
 	if err != nil {
-		// if tables already exist, the migration will fail
-		// fall back to manual version seeding
-		return baselineManual(ctx, db)
+		return fmt.Errorf("read alembic_version: %w", err)
 	}
-	fmt.Println("baseline: migrations applied successfully")
-	return nil
-}
+	if alembicRevision != alembicHeadRevision {
+		return fmt.Errorf(
+			"alembic revision mismatch: got %q, expected %q; run pending alembic migrations first or use --force (not supported)",
+			alembicRevision, alembicHeadRevision,
+		)
+	}
 
-func baselineManual(ctx context.Context, db *sql.DB) error {
+	// 3. Write goose_db_version in a single transaction: create table,
+	//    clear any stale rows (idempotent), then seed versions 0..ExpectedVersion.
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
@@ -150,14 +157,9 @@ func baselineManual(ctx context.Context, db *sql.DB) error {
 		return fmt.Errorf("create goose_db_version: %w", err)
 	}
 
-	var count int
-	err = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM goose_db_version WHERE version_id = $1`, migrate.ExpectedVersion).Scan(&count)
+	_, err = tx.ExecContext(ctx, `DELETE FROM goose_db_version`)
 	if err != nil {
-		return fmt.Errorf("check existing baseline: %w", err)
-	}
-	if count > 0 {
-		fmt.Println("baseline: already applied")
-		return nil
+		return fmt.Errorf("clear goose_db_version: %w", err)
 	}
 
 	for v := int64(0); v <= migrate.ExpectedVersion; v++ {
@@ -173,7 +175,8 @@ func baselineManual(ctx context.Context, db *sql.DB) error {
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit baseline: %w", err)
 	}
-	fmt.Printf("baseline: marked versions 0..%d as applied\n", migrate.ExpectedVersion)
+	fmt.Printf("baseline: alembic revision %q verified, marked goose versions 0..%d as applied\n",
+		alembicRevision, migrate.ExpectedVersion)
 	return nil
 }
 

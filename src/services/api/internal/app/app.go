@@ -71,12 +71,12 @@ func (a *Application) Run(ctx context.Context) error {
 
 		schemaVersion, vErr := repo.CurrentSchemaVersion(ctx)
 		if vErr != nil {
-			a.logger.Info("schema version check skipped",
+			a.logger.Error("schema version check skipped",
 				observability.LogFields{},
 				map[string]any{"reason": vErr.Error()},
 			)
 		} else if schemaVersion != migrate.ExpectedVersion {
-			a.logger.Info("schema version mismatch",
+			a.logger.Error("schema version mismatch",
 				observability.LogFields{},
 				map[string]any{
 					"current":  schemaVersion,
