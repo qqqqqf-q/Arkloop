@@ -15,10 +15,19 @@
 docker compose up -d postgres
 ```
 
-准备数据库迁移（仍由 Alembic 驱动）：
+准备数据库迁移（goose / Go）：
 
 ```bash
-python -m alembic upgrade head
+cd src/services/api
+go run ./cmd/migrate up
+```
+
+其他迁移命令：
+
+```bash
+go run ./cmd/migrate status    # 查看当前版本与期望版本
+go run ./cmd/migrate down      # 回滚一个版本
+go run ./cmd/migrate baseline  # 为已有 Alembic 数据库标记 goose 基线
 ```
 
 启动 Go API：

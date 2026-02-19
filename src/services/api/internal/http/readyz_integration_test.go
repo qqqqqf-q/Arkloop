@@ -1,7 +1,6 @@
 package http
 
 import (
-	"context"
 	"encoding/json"
 	"io"
 	"testing"
@@ -11,26 +10,16 @@ import (
 
 	"arkloop/services/api/internal/data"
 	"arkloop/services/api/internal/observability"
-	"arkloop/services/api/internal/testutil"
 )
 
 func TestReadyzOKWhenDatabaseReachable(t *testing.T) {
-	db := testutil.SetupPostgresDatabase(t, "api_go_readyz_http")
+	db := setupTestDatabase(t, "api_go_readyz_http")
 
-	ctx := context.Background()
-	pool, err := data.NewPool(ctx, db.DSN)
+	pool, err := data.NewPool(t.Context(), db.DSN)
 	if err != nil {
 		t.Fatalf("new pool: %v", err)
 	}
 	defer pool.Close()
-
-	const revision = "test_revision_002"
-	if _, err := pool.Exec(ctx, `CREATE TABLE alembic_version (version_num VARCHAR(32) NOT NULL)`); err != nil {
-		t.Fatalf("create alembic_version: %v", err)
-	}
-	if _, err := pool.Exec(ctx, `INSERT INTO alembic_version (version_num) VALUES ($1)`, revision); err != nil {
-		t.Fatalf("insert revision: %v", err)
-	}
 
 	schemaRepo, err := data.NewSchemaRepository(pool)
 	if err != nil {
@@ -48,14 +37,15 @@ func TestReadyzOKWhenDatabaseReachable(t *testing.T) {
 		t.Fatalf("unexpected status: %d", recorder.Code)
 	}
 
-	var payload map[string]string
+	var payload map[string]any
 	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
 	if payload["status"] != "ok" {
 		t.Fatalf("unexpected payload: %#v", payload)
 	}
-	if payload["alembic_revision"] != revision {
-		t.Fatalf("unexpected alembic revision: %q", payload["alembic_revision"])
+	version, ok := payload["schema_version"].(float64)
+	if !ok || int64(version) != 9 {
+		t.Fatalf("unexpected schema_version: %v", payload["schema_version"])
 	}
 }

@@ -14,13 +14,12 @@ import (
 	"arkloop/services/api/internal/auth"
 	"arkloop/services/api/internal/data"
 	"arkloop/services/api/internal/observability"
-	"arkloop/services/api/internal/testutil"
 
 	"github.com/google/uuid"
 )
 
 func TestRunsCreateListGetCancelAndEnqueue(t *testing.T) {
-	db := testutil.SetupPostgresDatabase(t, "api_go_runs")
+	db := setupTestDatabase(t, "api_go_runs")
 
 	ctx := context.Background()
 	pool, err := data.NewPool(ctx, db.DSN)
@@ -28,19 +27,6 @@ func TestRunsCreateListGetCancelAndEnqueue(t *testing.T) {
 		t.Fatalf("new pool: %v", err)
 	}
 	defer pool.Close()
-
-	if err := setupAuthSchema(ctx, pool); err != nil {
-		t.Fatalf("setup auth schema: %v", err)
-	}
-	if err := setupThreadsSchema(ctx, pool); err != nil {
-		t.Fatalf("setup threads schema: %v", err)
-	}
-	if err := setupRunsSchema(ctx, pool); err != nil {
-		t.Fatalf("setup runs schema: %v", err)
-	}
-	if err := setupJobsSchema(ctx, pool); err != nil {
-		t.Fatalf("setup jobs schema: %v", err)
-	}
 
 	logger := observability.NewJSONLogger("test", io.Discard)
 
@@ -275,76 +261,8 @@ func TestRunsCreateListGetCancelAndEnqueue(t *testing.T) {
 	}
 }
 
-func setupRunsSchema(ctx context.Context, db data.Querier) error {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-
-	statements := []string{
-		`CREATE TABLE runs (
-		   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-		   org_id UUID NOT NULL,
-		   thread_id UUID NOT NULL,
-		   created_by_user_id UUID NULL,
-		   status TEXT NOT NULL DEFAULT 'running',
-		   next_event_seq BIGINT NOT NULL DEFAULT 1,
-		   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-		   CONSTRAINT fk_runs_org_id_orgs FOREIGN KEY (org_id) REFERENCES orgs(id) ON DELETE CASCADE,
-		   CONSTRAINT fk_runs_thread_id_threads FOREIGN KEY (thread_id) REFERENCES threads(id) ON DELETE CASCADE,
-		   CONSTRAINT fk_runs_created_by_user_id_users FOREIGN KEY (created_by_user_id) REFERENCES users(id) ON DELETE SET NULL
-		 )`,
-		`CREATE TABLE run_events (
-		   event_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-		   run_id UUID NOT NULL,
-		   seq BIGINT NOT NULL,
-		   ts TIMESTAMPTZ NOT NULL DEFAULT now(),
-		   type TEXT NOT NULL,
-		   data_json JSONB NOT NULL DEFAULT '{}'::jsonb,
-		   tool_name TEXT NULL,
-		   error_class TEXT NULL,
-		   CONSTRAINT fk_run_events_run_id_runs FOREIGN KEY (run_id) REFERENCES runs(id) ON DELETE CASCADE,
-		   CONSTRAINT uq_run_events_run_id_seq UNIQUE (run_id, seq)
-		 )`,
-	}
-
-	for _, stmt := range statements {
-		if _, err := db.Exec(ctx, stmt); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func setupJobsSchema(ctx context.Context, db data.Querier) error {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-
-	statements := []string{
-		`CREATE TABLE jobs (
-		   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-		   job_type TEXT NOT NULL,
-		   payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
-		   status TEXT NOT NULL DEFAULT 'queued',
-		   available_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-		   leased_until TIMESTAMPTZ NULL,
-		   lease_token UUID NULL,
-		   attempts INTEGER NOT NULL DEFAULT 0,
-		   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-		   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-		 )`,
-	}
-
-	for _, stmt := range statements {
-		if _, err := db.Exec(ctx, stmt); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 func TestStreamRunEvents(t *testing.T) {
-	db := testutil.SetupPostgresDatabase(t, "api_go_sse")
+	db := setupTestDatabase(t, "api_go_sse")
 
 	ctx := context.Background()
 	pool, err := data.NewPool(ctx, db.DSN)
@@ -352,19 +270,6 @@ func TestStreamRunEvents(t *testing.T) {
 		t.Fatalf("new pool: %v", err)
 	}
 	defer pool.Close()
-
-	if err := setupAuthSchema(ctx, pool); err != nil {
-		t.Fatalf("setup auth schema: %v", err)
-	}
-	if err := setupThreadsSchema(ctx, pool); err != nil {
-		t.Fatalf("setup threads schema: %v", err)
-	}
-	if err := setupRunsSchema(ctx, pool); err != nil {
-		t.Fatalf("setup runs schema: %v", err)
-	}
-	if err := setupJobsSchema(ctx, pool); err != nil {
-		t.Fatalf("setup jobs schema: %v", err)
-	}
 
 	logger := observability.NewJSONLogger("test", io.Discard)
 

@@ -11,11 +11,10 @@ import (
 	"arkloop/services/api/internal/auth"
 	"arkloop/services/api/internal/data"
 	"arkloop/services/api/internal/observability"
-	"arkloop/services/api/internal/testutil"
 )
 
 func TestMessagesCreateListAndAudit(t *testing.T) {
-	db := testutil.SetupPostgresDatabase(t, "api_go_messages")
+	db := setupTestDatabase(t, "api_go_messages")
 
 	ctx := context.Background()
 	pool, err := data.NewPool(ctx, db.DSN)
@@ -23,16 +22,6 @@ func TestMessagesCreateListAndAudit(t *testing.T) {
 		t.Fatalf("new pool: %v", err)
 	}
 	defer pool.Close()
-
-	if err := setupAuthSchema(ctx, pool); err != nil {
-		t.Fatalf("setup auth schema: %v", err)
-	}
-	if err := setupThreadsSchema(ctx, pool); err != nil {
-		t.Fatalf("setup threads schema: %v", err)
-	}
-	if err := setupMessagesSchema(ctx, pool); err != nil {
-		t.Fatalf("setup messages schema: %v", err)
-	}
 
 	logger := observability.NewJSONLogger("test", io.Discard)
 
@@ -179,30 +168,3 @@ func TestMessagesCreateListAndAudit(t *testing.T) {
 	}
 }
 
-func setupMessagesSchema(ctx context.Context, db data.Querier) error {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-
-	statements := []string{
-		`CREATE TABLE messages (
-		   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-		   org_id UUID NOT NULL,
-		   thread_id UUID NOT NULL,
-		   created_by_user_id UUID NULL,
-		   role TEXT NOT NULL,
-		   content TEXT NOT NULL,
-		   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-		   CONSTRAINT fk_messages_org_id_orgs FOREIGN KEY (org_id) REFERENCES orgs(id) ON DELETE CASCADE,
-		   CONSTRAINT fk_messages_created_by_user_id_users FOREIGN KEY (created_by_user_id) REFERENCES users(id) ON DELETE SET NULL,
-		   CONSTRAINT fk_messages_thread_org FOREIGN KEY (thread_id, org_id) REFERENCES threads(id, org_id) ON DELETE CASCADE
-		 )`,
-	}
-
-	for _, stmt := range statements {
-		if _, err := db.Exec(ctx, stmt); err != nil {
-			return err
-		}
-	}
-	return nil
-}

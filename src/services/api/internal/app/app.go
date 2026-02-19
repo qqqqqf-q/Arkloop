@@ -15,6 +15,7 @@ import (
 	"arkloop/services/api/internal/auth"
 	"arkloop/services/api/internal/data"
 	apihttp "arkloop/services/api/internal/http"
+	"arkloop/services/api/internal/migrate"
 	"arkloop/services/api/internal/observability"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -67,6 +68,22 @@ func (a *Application) Run(ctx context.Context) error {
 			return err
 		}
 		schemaRepo = repo
+
+		schemaVersion, vErr := repo.CurrentSchemaVersion(ctx)
+		if vErr != nil {
+			a.logger.Info("schema version check skipped",
+				observability.LogFields{},
+				map[string]any{"reason": vErr.Error()},
+			)
+		} else if schemaVersion != migrate.ExpectedVersion {
+			a.logger.Info("schema version mismatch",
+				observability.LogFields{},
+				map[string]any{
+					"current":  schemaVersion,
+					"expected": migrate.ExpectedVersion,
+				},
+			)
+		}
 	}
 	if poolCloser != nil {
 		defer poolCloser()

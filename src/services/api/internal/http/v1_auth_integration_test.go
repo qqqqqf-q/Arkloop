@@ -13,12 +13,13 @@ import (
 	"arkloop/services/api/internal/audit"
 	"arkloop/services/api/internal/auth"
 	"arkloop/services/api/internal/data"
+	"arkloop/services/api/internal/migrate"
 	"arkloop/services/api/internal/observability"
 	"arkloop/services/api/internal/testutil"
 )
 
 func TestAuthRegisterLoginRefreshLogoutFlow(t *testing.T) {
-	db := testutil.SetupPostgresDatabase(t, "api_go_auth")
+	db := setupTestDatabase(t, "api_go_auth")
 
 	ctx := context.Background()
 	pool, err := data.NewPool(ctx, db.DSN)
@@ -26,10 +27,6 @@ func TestAuthRegisterLoginRefreshLogoutFlow(t *testing.T) {
 		t.Fatalf("new pool: %v", err)
 	}
 	defer pool.Close()
-
-	if err := setupAuthSchema(ctx, pool); err != nil {
-		t.Fatalf("setup schema: %v", err)
-	}
 
 	logger := observability.NewJSONLogger("test", io.Discard)
 
@@ -146,7 +143,7 @@ func TestAuthRegisterLoginRefreshLogoutFlow(t *testing.T) {
 // (strict less-than). Float64 round-trip may lose nanosecond precision; if the new iat
 // is truncated to before the logout timestamp, the new token would be incorrectly rejected.
 func TestAuthLogoutThenReLoginNewTokenStillValid(t *testing.T) {
-	db := testutil.SetupPostgresDatabase(t, "api_go_auth_relogin")
+	db := setupTestDatabase(t, "api_go_auth_relogin")
 
 	ctx := context.Background()
 	pool, err := data.NewPool(ctx, db.DSN)
@@ -154,10 +151,6 @@ func TestAuthLogoutThenReLoginNewTokenStillValid(t *testing.T) {
 		t.Fatalf("new pool: %v", err)
 	}
 	defer pool.Close()
-
-	if err := setupAuthSchema(ctx, pool); err != nil {
-		t.Fatalf("setup schema: %v", err)
-	}
 
 	logger := observability.NewJSONLogger("test", io.Discard)
 
@@ -258,68 +251,13 @@ func TestAuthLogoutThenReLoginNewTokenStillValid(t *testing.T) {
 	}
 }
 
-func setupAuthSchema(ctx context.Context, db data.Querier) error {
-	if ctx == nil {
-		ctx = context.Background()
+func setupTestDatabase(t *testing.T, prefix string) *testutil.PostgresDatabase {
+	t.Helper()
+	db := testutil.SetupPostgresDatabase(t, prefix)
+	if _, err := migrate.Up(context.Background(), db.DSN); err != nil {
+		t.Fatalf("migrate: %v", err)
 	}
-
-	statements := []string{
-		"CREATE EXTENSION IF NOT EXISTS pgcrypto",
-		`CREATE TABLE orgs (
-		   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-		   slug TEXT NOT NULL,
-		   name TEXT NOT NULL,
-		   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-		   CONSTRAINT uq_orgs_slug UNIQUE (slug)
-		 )`,
-		`CREATE TABLE users (
-		   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-		   display_name TEXT NOT NULL,
-		   tokens_invalid_before TIMESTAMPTZ NOT NULL DEFAULT to_timestamp(0),
-		   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-		 )`,
-		`CREATE TABLE user_credentials (
-		   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-		   user_id UUID NOT NULL,
-		   login TEXT NOT NULL,
-		   password_hash TEXT NOT NULL,
-		   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-		   CONSTRAINT fk_user_credentials_user_id_users FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-		   CONSTRAINT uq_user_credentials_user_id UNIQUE (user_id),
-		   CONSTRAINT uq_user_credentials_login UNIQUE (login)
-		 )`,
-		`CREATE TABLE org_memberships (
-		   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-		   org_id UUID NOT NULL,
-		   user_id UUID NOT NULL,
-		   role TEXT NOT NULL DEFAULT 'member',
-		   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-		   CONSTRAINT uq_org_memberships_org_id_user_id UNIQUE (org_id, user_id),
-		   CONSTRAINT fk_org_memberships_org_id_orgs FOREIGN KEY (org_id) REFERENCES orgs(id) ON DELETE CASCADE,
-		   CONSTRAINT fk_org_memberships_user_id_users FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-		 )`,
-		`CREATE TABLE audit_logs (
-		   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-		   org_id UUID NULL,
-		   actor_user_id UUID NULL,
-		   action TEXT NOT NULL,
-		   target_type TEXT NULL,
-		   target_id TEXT NULL,
-		   ts TIMESTAMPTZ NOT NULL DEFAULT now(),
-		   trace_id TEXT NOT NULL,
-		   metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
-		   CONSTRAINT fk_audit_logs_org_id_orgs FOREIGN KEY (org_id) REFERENCES orgs(id) ON DELETE CASCADE,
-		   CONSTRAINT fk_audit_logs_actor_user_id_users FOREIGN KEY (actor_user_id) REFERENCES users(id) ON DELETE SET NULL
-		 )`,
-	}
-
-	for _, stmt := range statements {
-		if _, err := db.Exec(ctx, stmt); err != nil {
-			return err
-		}
-	}
-
-	return nil
+	return db
 }
 
 func doJSON(handler nethttp.Handler, method string, path string, payload any, headers map[string]string) *httptest.ResponseRecorder {

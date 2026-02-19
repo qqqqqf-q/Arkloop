@@ -13,11 +13,10 @@ import (
 	"arkloop/services/api/internal/auth"
 	"arkloop/services/api/internal/data"
 	"arkloop/services/api/internal/observability"
-	"arkloop/services/api/internal/testutil"
 )
 
 func TestThreadsCreateListGetPatchAndAudit(t *testing.T) {
-	db := testutil.SetupPostgresDatabase(t, "api_go_threads")
+	db := setupTestDatabase(t, "api_go_threads")
 
 	ctx := context.Background()
 	pool, err := data.NewPool(ctx, db.DSN)
@@ -25,13 +24,6 @@ func TestThreadsCreateListGetPatchAndAudit(t *testing.T) {
 		t.Fatalf("new pool: %v", err)
 	}
 	defer pool.Close()
-
-	if err := setupAuthSchema(ctx, pool); err != nil {
-		t.Fatalf("setup auth schema: %v", err)
-	}
-	if err := setupThreadsSchema(ctx, pool); err != nil {
-		t.Fatalf("setup threads schema: %v", err)
-	}
 
 	logger := observability.NewJSONLogger("test", io.Discard)
 
@@ -154,32 +146,6 @@ func TestThreadsCreateListGetPatchAndAudit(t *testing.T) {
 	if deniedCount != 1 {
 		t.Fatalf("unexpected denied audit count: %d", deniedCount)
 	}
-}
-
-func setupThreadsSchema(ctx context.Context, db data.Querier) error {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-
-	statements := []string{
-		`CREATE TABLE threads (
-		   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-		   org_id UUID NOT NULL,
-		   created_by_user_id UUID NULL,
-		   title TEXT NULL,
-		   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-		   CONSTRAINT fk_threads_org_id_orgs FOREIGN KEY (org_id) REFERENCES orgs(id) ON DELETE CASCADE,
-		   CONSTRAINT fk_threads_created_by_user_id_users FOREIGN KEY (created_by_user_id) REFERENCES users(id) ON DELETE SET NULL,
-		   CONSTRAINT uq_threads_id_org_id UNIQUE (id, org_id)
-		 )`,
-	}
-
-	for _, stmt := range statements {
-		if _, err := db.Exec(ctx, stmt); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func assertErrorEnvelopePayload(t *testing.T, recorder *httptest.ResponseRecorder, statusCode int, code string) ErrorEnvelope {

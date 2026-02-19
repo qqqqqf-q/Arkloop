@@ -3,7 +3,6 @@ package data
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -19,19 +18,17 @@ func NewSchemaRepository(pool *pgxpool.Pool) (*SchemaRepository, error) {
 	return &SchemaRepository{pool: pool}, nil
 }
 
-func (r *SchemaRepository) CurrentAlembicVersion(ctx context.Context) (string, error) {
+func (r *SchemaRepository) CurrentSchemaVersion(ctx context.Context) (int64, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 
-	var version string
-	if err := r.pool.QueryRow(ctx, `SELECT version_num FROM alembic_version LIMIT 1`).Scan(&version); err != nil {
-		return "", err
-	}
-
-	version = strings.TrimSpace(version)
-	if version == "" {
-		return "", fmt.Errorf("alembic_version is empty")
+	var version int64
+	err := r.pool.QueryRow(ctx,
+		`SELECT COALESCE(MAX(version_id), 0) FROM goose_db_version WHERE is_applied = true`,
+	).Scan(&version)
+	if err != nil {
+		return 0, fmt.Errorf("query goose_db_version: %w", err)
 	}
 	return version, nil
 }

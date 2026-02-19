@@ -35,7 +35,7 @@ func readyz(schemaRepo *data.SchemaRepository, logger *observability.JSONLogger)
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
 
-		revision, err := schemaRepo.CurrentAlembicVersion(ctx)
+		version, err := schemaRepo.CurrentSchemaVersion(ctx)
 		if err != nil {
 			if logger != nil {
 				logger.Error(
@@ -55,9 +55,9 @@ func readyz(schemaRepo *data.SchemaRepository, logger *observability.JSONLogger)
 			return
 		}
 
-		payload, err := json.Marshal(map[string]string{
-			"status":           "ok",
-			"alembic_revision": revision,
+		payload, err := json.Marshal(map[string]any{
+			"status":         "ok",
+			"schema_version": version,
 		})
 		if err != nil {
 			WriteError(w, nethttp.StatusInternalServerError, "internal_error", "internal error", traceID, nil)
