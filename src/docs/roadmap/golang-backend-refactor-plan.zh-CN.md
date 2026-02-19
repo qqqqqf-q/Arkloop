@@ -374,13 +374,13 @@ src/services/api/
 - 回滚：
   - 迁移工具切换本质是“运维收口动作”，应单独发布并提供一次性回滚窗口（例如保留 Alembic 升级脚本一段时间）。
 
-### P.12 Python 清理与仓库收敛（Everyone to Go 收尾）
+### P.12 Python 清理与仓库收敛（Everyone to Go 收尾）✅ 已完成
 
 - 目标：仓库内不再依赖 Python 作为运行时（可保留少量一次性迁移脚本，但不作为主路径）。
 - 改动：
   - 移除 Python packages（data/auth/job_queue/config/observability 等）与依赖文件（requirements/pyproject），或迁到 tools/ 作为非生产资产
   - 测试体系迁移到 Go（或 Node），替换 pytest 作为主回归入口
-  - CLI 是否迁 Go：视团队优先级；若不迁，也至少把“生产后端”彻底 Go 化
+  - CLI 是否迁 Go：视团队优先级；若不迁，也至少把”生产后端”彻底 Go 化
 - 验收：
   - `go test ./...` 覆盖核心契约（auth、threads/messages/runs、SSE、jobs payload）
   - 本地与 CI 不再要求 Python 才能跑通主流程

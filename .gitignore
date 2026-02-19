@@ -1,24 +1,3 @@
-__pycache__/
-*.py[cod]
-*.pyd
-
-.pytest_cache/
-.ruff_cache/
-.mypy_cache/
-.pyre/
-
-.venv/
-venv/
-env/
-
-build/
-dist/
-*.egg-info/
-
-.coverage
-coverage.xml
-htmlcov/
-
 .idea/
 .vscode/
 
@@ -29,14 +8,13 @@ Thumbs.db
 .env.*
 !.env.example
 !.env.test.example
-!src/apps/cli/env/
-!src/apps/cli/env/.env.api_go
-!src/apps/cli/env/.env.api_py
-!src/apps/web/.env.api_go
-!src/apps/web/.env.api_py
+!tools/cli/env/.env.api
+!src/apps/web/.env.api
 .VSCodeCounter
 
-.venv312/
 arkilo-ui-example
-src/services/worker_go/worker
-src/services/worker_go/worker.exe
+
+*.exe
+*.test
+
+.claude

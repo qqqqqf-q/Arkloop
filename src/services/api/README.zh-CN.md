@@ -53,4 +53,4 @@ go run ./cmd/api
 ## 前端与 CLI
 
 - Web：Vite dev proxy 默认走 `http://127.0.0.1:8001`；如需覆盖可设置 `ARKLOOP_API_PROXY_TARGET`
-- CLI：`PYTHONPATH=src python -m arkloop chat --profile api --message "hello"`
+- CLI：`PYTHONPATH=. python -m tools.cli.cli chat --profile api --message "hello"`（参考客户端，位于 `tools/cli/`）

@@ -25,7 +25,7 @@ Arkloop 的控制面 API 由 Go 实现，默认监听 `127.0.0.1:8001`：
 
 说明：
 - 连接串读取 `ARKLOOP_DATABASE_URL` / `DATABASE_URL`
-- migrations 仍由 Alembic 驱动（P.11 会 Go 化）
+- migrations 由 goose 驱动（详见 src/services/api/README.zh-CN.md）
 - Python API 与 `in_process` 执行模式已下线；不再支持 `ARKLOOP_RUN_EXECUTOR`
 
 ## 0.1 本地启动（PostgreSQL / docker compose）
@@ -57,7 +57,7 @@ Windows：先启动 Docker Desktop（Linux Engine）再执行下述命令。
 - 示例：`ARKLOOP_TOOL_ALLOWLIST=echo,noop`
 
 集成测试（会自动读取仓库根目录 `.env`）：
-- `python -m pytest -q -m integration`
+- `cd src/services/api && go test -tags integration ./...`
 
 ## 1. 项目概述
 
@@ -134,7 +134,7 @@ Arkloop 不是“纯 SaaS”，规划支持多形态交付：
 ## 5. 后端技术方向
 
 ### 5.1 技术栈
-- 后端：Go（API 控制面 + Worker 执行面；migrations 暂时仍由 Alembic 驱动）
+- 后端：Go（API 控制面 + Worker 执行面；migrations 由 goose 驱动）
 - 数据库：PostgreSQL（本地部署 + SaaS；开发环境同生产）
 - Redis：后期引入（缓存、限流、队列）
 - 前端：React + Tailwind（用户侧 + 后台）
@@ -230,6 +230,6 @@ Prompt 拼装与模型调用必须在服务端（或受控网关）完成。
 - Go 重构路线（Worker 先行，薄片设计）：`src/docs/roadmap/golang-worker-first-refactor-plan.zh-CN.md`
 - Go 重构路线（Backend / API 迁移，薄片设计）：`src/docs/roadmap/golang-backend-refactor-plan.zh-CN.md`
 - Tools 与 Skills 规范：`src/docs/guides/skills-and-tools.zh-CN.md`
-- pytest 与测试策略：`src/docs/specs/testing-and-pytest.zh-CN.md`
+- Go 测试策略：`src/docs/specs/testing-and-pytest.zh-CN.md`
 - 日志与可观测性：`src/docs/specs/logging-and-observability.zh-CN.md`
 - 数据库架构与数据模型：`src/docs/specs/database-architecture.zh-CN.md`
