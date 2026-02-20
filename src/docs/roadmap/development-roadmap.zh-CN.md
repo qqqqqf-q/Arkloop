@@ -1,15 +1,17 @@
 # 项目开发路线（从仓库现状到企业可用）
 
-目标：把 Arkloop 这种“工具执行 + 审计 + 多租户 + 流式”系统拆成一条条可验收纵切；每一步都按「AI 一次可完成」的工作量拆分，并且能在 pytest 里回放验证，不靠“堆模块”碰运气。
+目标：把 Arkloop 这种“工具执行 + 审计 + 多租户 + 流式”系统拆成一条条可验收纵切；每一步都按「AI 一次可完成」的工作量拆分，并且能在 go test 里回放验证，不靠“堆模块”碰运气。
 
 ## 0. 当前仓库状态（作为基线）
 
-当前仓库已经具备一条“可跑通的最小纵切”，并且有集成测试兜底：
-- API：登录/注册、`/me`、threads/messages、创建 run、SSE 拉取 run_events（断线可续传）。
-- 数据：已迁移 `orgs/users/org_memberships/user_credentials/threads/messages/runs/run_events/audit_logs` 等核心表。
-- 运行：默认是 in-process stub executor 往 `run_events` 写 `message.delta`/`run.completed`（便于稳定测试与前端演示）。
-- 前端：`src/apps/web/` 是端到端演示 UI（登录→发消息→创建 run→消费 SSE 事件并渲染）。
-- 测试：包含 integration pytest（验证 SSE 回放与 worker trace_id 恢复）。
+当前仓库已具备完整的双服务架构，后端全面 Go 化：
+- API：Go（`net/http`，`src/services/api/`），JWT 鉴权，goose 管理 migrations，`go test -tags integration ./...` 覆盖核心契约。
+- Worker：Go（`src/services/worker/`），消费 PG jobs 队列，执行 RunEngine（AgentLoop + ToolExecutor），写 `run_events/messages`。
+- 数据：已迁移 `orgs/users/org_memberships/user_credentials/threads/messages/runs/run_events/audit_logs/jobs` 等核心表。
+- 运行：Worker 消费 `jobs` 表，执行完整 Agent Loop（内置工具：echo/noop/web_search/web_fetch；MCP stdio/SSE；Skill 运行时）。
+- 前端：`src/apps/web/`，组件驱动结构（AuthPage/ChatPage/Sidebar/WelcomePage + react-router），SSE 流式渲染。
+- 测试：`go test ./...` 覆盖 auth、threads/messages/runs、SSE 回放、jobs payload。
+- Python API 与 in_process 执行模式已下线，不再支持 `ARKLOOP_RUN_EXECUTOR`。
 
 ## 1. 不变量与决策记录（先写死，减少返工）
 
@@ -59,23 +61,16 @@
   - 所有工具执行（web_search、web_fetch、echo、noop、未来的 shell/code_execute）都在 Worker 内发生。
   - Worker 是无状态的，水平扩缩容 = 加实例数（k8s HPA / docker compose replicas）。
   - 多用户并发 = 队列里多个 job 分配给 N 个 Worker 实例。
-- **`agent-core`（`src/packages/agent_core/`）是纯逻辑层**：
-  - 不触网、不读写文件、不起进程（已在 `skills-and-tools.zh-CN.md` 约定）。
-  - 不关心自己跑在 API 进程还是 Worker 进程里。
-- **当前过渡状态**：
-  - `InProcessStubRunExecutor` 在 API 进程内通过 `asyncio.Queue` 直接执行 `RunEngine`，这是为了开发调试方便。
-  - 在引入真实外部 I/O 工具（P55 web_search / P56 web_fetch）时，必须完成 Worker 迁移（见 P54.5）。
-  - 迁移路径：把 `InProcessStubRunExecutor._execute()` 的逻辑搬到 `Worker.handle_job()` 调用 `RunEngine.execute()`，API 侧改为往队列投递 job payload。
 - **未来扩展（不在当前阶段实现，但架构必须兼容）**：
-  - sub-agent 并行调用多个工具（例如同时跑 10-20 个 web_fetch）：Worker 内部用 `asyncio.gather()` + `asyncio.Semaphore` 限流，不需要额外服务。
-  - 当单 Worker 的并发 I/O 成为瓶颈时（信号：连接池打满影响 LLM 调用延迟），可以引入 `RemoteToolExecutor`，把工具执行通过消息队列委托给独立的 tool execution service。`ToolExecutor` 协议已经是异步的，上层 `DispatchingToolExecutor` 不需要改动。
+  - sub-agent 并行调用多个工具（例如同时跑 10-20 个 web_fetch）：Worker 内部用 goroutine + `sync.Semaphore` 限流，不需要额外服务。
+  - 当单 Worker 的并发 I/O 成为瓶颈时（信号：连接池打满影响 LLM 调用延迟），可以引入 `RemoteToolExecutor`，把工具执行通过消息队列委托给独立的 tool execution service。上层 `DispatchingToolExecutor` 不需要改动。
   - Sandbox 执行（P91 的 shell/code_execute）天然需要独立容器/nsjail，走的是 `SandboxToolExecutor` 实现，和进程内工具执行是同一个 `ToolExecutor` 协议的不同实现。
 
 ### 1.6 工具执行分层策略（按风险等级划分执行边界）
 
 工具的执行位置不按功能类别划分，按风险等级划分：
 
-- **进程内执行（Worker 进程内，asyncio）**：
+- **进程内执行（Worker 进程内，goroutine 池）**：
   - 适用于：只读、无代码执行、I/O 密集型工具（web_search、web_fetch、memory_search、echo、noop）。
   - 安全边界：URL 黑名单（禁止内网访问）、超时、信号量限流。
   - 不需要容器隔离，不需要独立服务。
@@ -95,38 +90,36 @@
 web_search 和 web_fetch 不绑死一种实现，采用策略模式做多 backend 抽象（与 LLM Gateway 的 provider 模式一致）：
 
 - **web_search**：
-  - 定义 `WebSearchProvider` 协议：`async def search(*, query: str, max_results: int) -> list[WebSearchResult]`。
+  - 定义 `WebSearchProvider` 接口：`Search(ctx, query string, maxResults int) ([]WebSearchResult, error)`。
   - SearXNG adapter：自部署、免费、私有化部署友好；通过 HTTP API 调用本地/远程 SearXNG 实例。
   - Tavily / Serper adapter：付费 API、开箱即用。
   - 通过配置选择 backend（环境变量 `ARKLOOP_WEB_SEARCH_PROVIDER=searxng|tavily|serper`）；未来可扩展为 org 级配置。
 - **web_fetch**：
-  - 定义 `WebFetchProvider` 协议：`async def fetch(*, url: str, max_length: int) -> WebFetchResult`。
-  - Basic adapter：纯 HTTP fetch（`httpx.AsyncClient`）+ HTML 正文提取（readability / trafilatura）。轻量、零外部服务依赖。
+  - 定义 `WebFetchProvider` 接口：`Fetch(ctx, url string, maxLength int) (WebFetchResult, error)`。
+  - Basic adapter：纯 HTTP fetch（`net/http`）+ HTML 正文提取（go-readability）。轻量、零外部服务依赖。
   - Firecrawl / Jina Reader adapter：处理 JS 渲染、anti-bot、结构化提取。通过 HTTP API 调用外部服务。
   - 通过配置选择 backend（环境变量 `ARKLOOP_WEB_FETCH_PROVIDER=basic|firecrawl|jina`）。
 - **好处**：
   - Console 管理后台可以让管理员选择搜索/抓取引擎后端。
   - 前端 debug 面板可以显示实际走了哪个 provider。
-  - 新增 backend 只需实现协议，不改上层工具代码。
+  - 新增 backend 只需实现接口，不改上层工具代码。
   - 与 LLM Gateway 的 provider 抽象保持架构一致性。
-- **目录结构（建议）**：
+- **目录结构（实际）**：
   ```
-  src/packages/agent_core/builtin_tools/
+  src/services/worker/internal/tools/
       web_search/
-          __init__.py
-          provider.py       # WebSearchProvider 协议 + WebSearchResult
-          searxng.py         # SearXNG adapter
-          tavily.py          # Tavily adapter
-          executor.py        # WebSearchToolExecutor（实现 ToolExecutor）
-          config.py          # 从环境变量/配置读取 backend 选择
+          provider.go       # WebSearchProvider 接口 + WebSearchResult
+          searxng.go        # SearXNG adapter
+          tavily.go         # Tavily adapter
+          executor.go       # WebSearchToolExecutor（实现 ToolExecutor）
+          config.go         # 从环境变量/配置读取 backend 选择
       web_fetch/
-          __init__.py
-          provider.py        # WebFetchProvider 协议 + WebFetchResult
-          basic.py           # 纯 HTTP + readability
-          firecrawl.py       # Firecrawl adapter
-          executor.py        # WebFetchToolExecutor（实现 ToolExecutor）
-          config.py
-          url_policy.py      # URL 安全策略（内网黑名单）
+          provider.go       # WebFetchProvider 接口 + WebFetchResult
+          basic.go          # 纯 HTTP + go-readability
+          firecrawl.go      # Firecrawl adapter
+          executor.go       # WebFetchToolExecutor（实现 ToolExecutor）
+          config.go
+          url_policy.go     # URL 安全策略（内网黑名单）
   ```
 
 ## 2. 任务拆分规则（Pxx 粒度）
@@ -475,6 +468,8 @@ web_search 和 web_fetch 不绑死一种实现，采用策略模式做多 backen
 
 这是从"只能聊天"到"真正的 Agent"的关键路径。
 
+> 历史说明：P50-P59 均已完成。原始实现为 Python（`src/packages/agent_core/`、`src/packages/llm_gateway/` 等），在完成本主线后已通过 Go 重构（`golang-backend-refactor-plan.zh-CN.md`）全量替换为 Go Worker（`src/services/worker/internal/`）。以下条目中的 Python 文件路径与 `asyncio` 相关描述均为历史记录，当前代码以 Go Worker 为准。
+
 #### P50 -- Agent Loop 多轮循环骨架（已完成）
 
 - 目标：改造 `ProviderRoutedAgentRunner`（或新建 `LoopingAgentRunner`），支持"LLM 返回 tool_call -> 执行 tool -> 把 tool_result 拼回 messages -> 再次调用 LLM"的循环，直到 LLM 不再返回 tool_call 或达到最大轮次。
@@ -611,7 +606,7 @@ web_search 和 web_fetch 不绑死一种实现，采用策略模式做多 backen
 - 目标：让 Worker 成为可独立部署的执行面：单独启动即可消费 job、执行 `RunEngine.execute()` 并落 `run_events`，同时具备清晰的依赖注入入口。
 - 关键点：
   - Worker 侧建立 composition root：组装 Database、ProviderRouter、GatewayFactory、ToolRegistry/Allowlist、ToolExecutor、RunEngine。
-  - 消费 loop 需要并发上限（`asyncio.Semaphore`）与可配置的 lease/heartbeat（`JobQueue.heartbeat(...)`），避免长 run 被误判丢失。
+  - 消费 loop 需要并发上限（goroutine semaphore）与可配置的 lease/heartbeat（`JobQueue.heartbeat(...)`），避免长 run 被误判丢失。
   - 支持幂等：重复投递/重复领取不导致重复执行（至少保证“同一 run_id 不并发执行”）。
 - 具体改动范围：
   - 新建 `src/services/worker/composition.py`：集中依赖组装（Database/Router/ToolExecutor/RunEngine）。
@@ -668,7 +663,7 @@ web_search 和 web_fetch 不绑死一种实现，采用策略模式做多 backen
   - API key 通过环境变量注入，不落库、不下发前端、不落日志明文。
   - risk_level: "low"，side_effects: false。
   - 必须有 timeout（建议 10 秒）和错误处理（搜索失败不能让整个 run 崩溃）。
-  - 在 Worker 进程内执行（asyncio），不需要容器隔离（见 1.6 节）。
+  - 在 Worker 进程内执行（goroutine 池），不需要容器隔离（见 1.6 节）。
 - 具体改动范围：
   - 新建 `src/packages/agent_core/builtin_tools/web_search/` 目录。
   - 新建 `provider.py`：`WebSearchProvider` 协议 + `WebSearchResult` 数据类。
@@ -707,7 +702,7 @@ web_search 和 web_fetch 不绑死一种实现，采用策略模式做多 backen
   - HTML -> 纯文本/Markdown 转换（建议 readability 算法或 trafilatura）。
   - risk_level: "medium"，side_effects: false。
   - timeout: 15 秒。
-  - 在 Worker 进程内执行（asyncio），不需要容器隔离（见 1.6 节）。
+  - 在 Worker 进程内执行（goroutine 池），不需要容器隔离（见 1.6 节）。
 - 具体改动范围：
   - 新建 `src/packages/agent_core/builtin_tools/web_fetch/` 目录。
   - 新建 `provider.py`：`WebFetchProvider` 协议 + `WebFetchResult` 数据类。
@@ -831,7 +826,7 @@ web_search 和 web_fetch 不绑死一种实现，采用策略模式做多 backen
   - 新建 `src/packages/skill_runtime/loader.py`：从目录加载 skill 定义。
   - 新建 `src/packages/skill_runtime/runner.py`：`SkillRunner`（包装 AgentLoop，注入 skill 约束）。
   - 新建 `src/skills/` 目录 + 至少一个示例 skill。
-  - `src/services/api/v1.py`：`CreateRunRequest` 增加可选 `skill_id` 字段。
+  - `src/services/api/internal/http/`：`CreateRunRequest` 增加可选 `skill_id` 字段。
 - 依赖：P52（AgentLoop 集成）
 - 验收：
   - unit pytest：skill 加载正确；约束注入正确（tool_allowlist 生效、budget 生效）。
@@ -847,9 +842,8 @@ web_search 和 web_fetch 不绑死一种实现，采用策略模式做多 backen
 #### P40 -- Console 路由与布局
 
 - 具体改动范围：
-  - 决策点：Console 是 `src/apps/console/`（独立 app）还是 `src/apps/web/` 内的 `/console` 路由？
-    - 建议：先做独立 app（`src/apps/console/`），与 web 共享 `src/packages/ui/` 组件库；共享 token 存储策略。
-  - 新建 `src/apps/console/` 骨架：Vite + React + TailwindCSS v4。
+  - 决策：采用 `src/apps/console/`（独立 app），与 `src/apps/web/` 共享 token 存储策略，组件各自维护（不提取共享包）。
+  - 新建 `src/apps/console/` 骨架：Vite + React + TailwindCSS v4（与 web 相同技术栈）。
   - 实现布局：侧边栏导航（审计、运行、提供商、组织等菜单项）+ 主内容区。
   - 实现路由守卫：无 token 时跳转登录页；权限不足时显示 403。
 - 依赖：P21
@@ -859,9 +853,9 @@ web_search 和 web_fetch 不绑死一种实现，采用策略模式做多 backen
 #### P41 -- 审计查询 API + Console 列表页
 
 - 具体改动范围：
-  - 后端 `src/services/api/v1.py`：新增 `GET /v1/audit-logs`（分页、过滤：时间范围、actor_user_id、action、target_type、target_id）。
-  - 后端 `src/services/api/v1.py`：新增 `GET /v1/audit-logs/{log_id}`（详情）。
-  - `src/packages/data/audit_logs.py`：新增查询方法（当前只有写入）。
+  - `src/services/api/internal/http/`：新增 `GET /v1/audit-logs`（分页、过滤：时间范围、actor_user_id、action、target_type、target_id）。
+  - `src/services/api/internal/http/`：新增 `GET /v1/audit-logs/{log_id}`（详情）。
+  - `src/services/api/internal/data/`：新增 audit_logs 查询方法（当前只有写入）。
   - Console 前端：审计日志列表页 + 详情弹窗/页。
 - 依赖：P40 + P21
 - 验收：
@@ -883,8 +877,8 @@ web_search 和 web_fetch 不绑死一种实现，采用策略模式做多 backen
 - 具体改动范围：
   - 新建数据表 `org_settings`（org_id, byok_enabled, platform_access_enabled, ...）。
   - Alembic 迁移。
-  - 新建 `src/packages/data/org_settings.py`：Repository。
-  - 后端 `src/services/api/v1.py`：
+  - 新建 `src/services/api/internal/data/org_settings.go`：Repository。
+  - `src/services/api/internal/http/`：
     - `GET /v1/orgs/{org_id}/settings`
     - `PATCH /v1/orgs/{org_id}/settings`（仅 org 管理员或平台管理员）
   - 审计：设置变更必须写审计日志。
@@ -898,8 +892,8 @@ web_search 和 web_fetch 不绑死一种实现，采用策略模式做多 backen
 - 具体改动范围：
   - 新建数据表 `provider_credentials`（id, org_id, provider_kind, api_key_source, api_key_env, encrypted_api_key, base_url, openai_api_mode, advanced_json, status, ...）。
   - Alembic 迁移。
-  - 新建 `src/packages/data/provider_credentials.py`：Repository。
-  - 后端 `src/services/api/v1.py`：
+  - 新建 `src/services/api/internal/data/provider_credentials.go`：Repository。
+  - `src/services/api/internal/http/`：
     - `POST /v1/provider-credentials`（创建凭证）
     - `GET /v1/provider-credentials`（列表）
     - `GET /v1/provider-credentials/{id}`（详情，不返回明文 key）
@@ -917,8 +911,8 @@ web_search 和 web_fetch 不绑死一种实现，采用策略模式做多 backen
 - 具体改动范围：
   - 新建数据表 `model_catalog`（id, name, display_name, description, provider_kind, status, input_price_per_1m, output_price_per_1m, multiplier, ...）。
   - Alembic 迁移。
-  - 新建 `src/packages/data/model_catalog.py`：Repository。
-  - 后端 `src/services/api/v1.py`：
+  - 新建 `src/services/api/internal/data/model_catalog.go`：Repository。
+  - `src/services/api/internal/http/`：
     - `GET /v1/models`（列表，面向前端用户，只返回可用模型 + 描述 + 倍率）
     - `POST /v1/admin/models`（平台管理员创建）
     - `PATCH /v1/admin/models/{id}`（平台管理员更新）
@@ -930,12 +924,12 @@ web_search 和 web_fetch 不绑死一种实现，采用策略模式做多 backen
 #### P46 -- 平台租户管理 API
 
 - 具体改动范围：
-  - 后端 `src/services/api/v1.py`：
+  - `src/services/api/internal/http/`：
     - `GET /v1/admin/orgs`（平台管理员列出所有 org）
     - `POST /v1/admin/orgs`（平台管理员创建 org）
     - `PATCH /v1/admin/orgs/{org_id}`（更新 org 名称/状态）
     - `GET /v1/admin/orgs/{org_id}/members`（成员列表）
-  - 新建 `src/packages/data/identity.py` 扩展：增加 `list_all_orgs`、`list_members_by_org` 等查询方法。
+  - `src/services/api/internal/data/identity.go` 扩展：增加 `ListAllOrgs`、`ListMembersByOrg` 等查询方法。
 - 依赖：P60 + P43
 - 验收：
   - integration pytest：平台管理员可列出/创建 org；非平台管理员被拒绝。
@@ -948,10 +942,10 @@ web_search 和 web_fetch 不绑死一种实现，采用策略模式做多 backen
 #### P60 -- 权限点与 RBAC v1
 
 - 具体改动范围：
-  - 新建 `src/packages/auth/permissions.py`：定义权限点常量（`platform.orgs.manage`、`org.settings.manage`、`org.threads.read`、`data.sensitive.read` 等）。
-  - 新建 `src/packages/auth/roles.py`：内置角色定义（`platform_admin`、`org_admin`、`org_member`），每个角色映射一组权限点。
-  - 修改 `src/services/api/authorization.py`：`Authorizer` 不再只做 owner-only 校验，改为基于权限点 + 角色映射的策略。
-  - 修改 `src/packages/data/identity.py`：`org_memberships.role` 需要支持新角色。
+  - 新建 `src/services/api/internal/auth/permissions.go`：定义权限点常量（`platform.orgs.manage`、`org.settings.manage`、`org.threads.read`、`data.sensitive.read` 等）。
+  - 新建 `src/services/api/internal/auth/roles.go`：内置角色定义（`platform_admin`、`org_admin`、`org_member`），每个角色映射一组权限点。
+  - 修改 `src/services/api/internal/auth/authorizer.go`：不再只做 owner-only 校验，改为基于权限点 + 角色映射的策略。
+  - 修改 `src/services/api/internal/data/identity.go`：`org_memberships.role` 需要支持新角色。
   - 新建 Alembic 迁移：可能需要 `platform_roles` 表或直接在 org_memberships 中扩展。
 - 依赖：P21
 - 验收：
@@ -961,7 +955,7 @@ web_search 和 web_fetch 不绑死一种实现，采用策略模式做多 backen
 #### P61 -- 敏感明文访问审计
 
 - 具体改动范围：
-  - 新建 `src/services/api/sensitive_access.py`：统一的敏感明文访问拦截中间件。
+  - 新建 `src/services/api/internal/http/sensitive_access.go`：统一的敏感明文访问拦截中间件。
   - 拦截逻辑：检查 org_settings.platform_access_enabled + actor 角色 -> 决定放行/拒绝 -> 无论结果都写审计。
   - 应用于：provider_credentials 明文查看、messages 内容导出等端点。
 - 依赖：P43 + P60
@@ -972,9 +966,9 @@ web_search 和 web_fetch 不绑死一种实现，采用策略模式做多 backen
 #### P62 -- 数据库加密存储 v1
 
 - 具体改动范围：
-  - 新建 `src/packages/crypto/` 包。
-  - 新建 `src/packages/crypto/envelope.py`：应用层加密（AES-256-GCM），主密钥从 `ARKLOOP_MASTER_KEY` 环境变量读取。
-  - 新建 `src/packages/crypto/key_version.py`：密钥版本管理（支持解密旧版本密文）。
+  - 新建 `src/services/api/internal/crypto/` 包。
+  - 新建 `src/services/api/internal/crypto/envelope.go`：应用层加密（AES-256-GCM），主密钥从 `ARKLOOP_MASTER_KEY` 环境变量读取。
+  - 新建 `src/services/api/internal/crypto/key_version.go`：密钥版本管理（支持解密旧版本密文）。
   - 用于 `provider_credentials.encrypted_api_key` 字段。
 - 依赖：无
 - 验收：
@@ -999,22 +993,29 @@ web_search 和 web_fetch 不绑死一种实现，采用策略模式做多 backen
 - 验收：
   - 现有功能不退化（登录、发消息、SSE、刷新恢复全部正常）。
 
-#### P71 -- 前端组件拆分与路由
+#### P71 -- 前端组件拆分与路由（已完成）
 
 - 目标：把 App.tsx 中的 `AuthCard`、`ChatMvp`、sidebar、message list 等拆分为独立组件文件；引入 react-router。
 - 具体改动范围：
   - 引入 react-router-dom。
-  - 路由：`/` -> 聊天页、`/login` -> 登录页。
+  - 路由：`/` -> WelcomePage，`/t/:threadId` -> ChatPage，无 token -> AuthPage。
   - 组件拆分：
-    - `src/apps/web/src/pages/ChatPage.tsx`
-    - `src/apps/web/src/pages/LoginPage.tsx`
-    - `src/apps/web/src/components/chat/MessageList.tsx`
-    - `src/apps/web/src/components/chat/ChatInput.tsx`
-    - `src/apps/web/src/components/chat/ThreadList.tsx`
-    - `src/apps/web/src/components/layout/AppLayout.tsx`
+    - `src/apps/web/src/components/AuthPage.tsx`
+    - `src/apps/web/src/components/ChatPage.tsx`
+    - `src/apps/web/src/components/ChatInput.tsx`
+    - `src/apps/web/src/components/MessageBubble.tsx`
+    - `src/apps/web/src/components/Sidebar.tsx`
+    - `src/apps/web/src/components/WelcomePage.tsx`
+    - `src/apps/web/src/components/ErrorCallout.tsx`
+    - `src/apps/web/src/components/DebugFloatingPanel.tsx`
+    - `src/apps/web/src/layouts/AppLayout.tsx`
 - 依赖：P70
 - 验收：
   - 现有功能不退化；路由切换流畅；刷新后能恢复状态。
+- 已完成情况：
+  - BrowserRouter + Routes 已在 `main.tsx` 引入。
+  - 路由：`/` → WelcomePage，`/t/:threadId` → ChatPage，未登录直接跳 AuthPage。
+  - 组件与 layout 已按上述路径拆分完毕，App.tsx 缩减至路由编排层。
 
 #### P72 -- 前端 Tool Call 渲染
 
@@ -1089,3 +1090,73 @@ web_search 和 web_fetch 不绑死一种实现，采用策略模式做多 backen
 
 #### P97 -- 离线部署包
 - 目标：一体机打包、BYOK/托管网关切换、授权激活流程。
+
+### 4.6 主线 F：第三方集成通道（前端 Agent 完整化后推进）
+
+> 执行前提：P70-P74（前端 Agent 完整化）+ P40-P46（Console）完成后再启动本主线。
+> 第三方平台接入属于"通道扩展"，不影响 Agent Loop 核心，每个平台是独立薄片，互不阻塞。
+
+#### P100 -- 统一 Channel 协议（消息通道抽象层）
+
+- 目标：定义"消息进来 → 创建 run → 结果推出去"的通道抽象，支持后续多平台接入而不改核心。
+- 关键点：
+  - Channel 是单向编排层，不参与 Agent Loop；只负责消息格式转换与 run 生命周期对接。
+  - 接收端（inbound）：把平台消息归一化为 `CreateRunRequest`；发送端（outbound）：消费 SSE 事件流，将结果推回平台。
+  - 每个平台的 app 凭证（bot token / webhook secret）走 P44 凭证管理，按 org 级别隔离。
+  - 审计：channel 触发的 run 必须记录来源平台与原始消息 ID，便于溯源。
+- 依赖：P59（Skill 运行时）+ P44（凭证管理）
+- 验收：
+  - unit test：Channel 接口可被 mock 替换，上层路由不需感知具体平台。
+  - integration test：通过 Channel 触发 run，事件流可通过 SSE 回放。
+
+#### P101 -- Feishu/Lark 通道接入
+
+- 目标：飞书机器人监听消息 → 触发 run → 回复结果，支持消息卡片渲染。
+- 关键点：
+  - 接入方式：飞书开放平台事件订阅（webhook），订阅 `im.message.receive_v1` 事件。
+  - 消息回复：使用飞书 Bot 消息发送 API（`/open-apis/im/v1/messages`）。
+  - 多租户：每个 org 独立配置飞书 App ID / App Secret，走 P44 凭证管理（`provider_kind=feishu`）。
+  - 流式结果处理：SSE 事件流 → 等待 `run.completed` 后发送完整回复（v1 不做逐字更新）；v2 可用"编辑消息"模拟流式。
+  - 消息卡片：支持 Markdown → 飞书富文本转换（tool_call 结果以折叠卡片展示）。
+  - Webhook 鉴权：校验飞书签名（`X-Lark-Signature`）。
+- 具体改动范围：
+  - 新建 `src/services/api/internal/channels/feishu/`：webhook handler + 消息格式转换 + Bot API 客户端。
+  - `src/services/api/internal/http/`：注册 `POST /v1/channels/feishu/webhook` 端点（不需要 JWT 鉴权，走飞书签名校验）。
+- 依赖：P100
+- 验收：
+  - unit test：飞书签名校验逻辑；消息格式转换正确。
+  - 手工验证：飞书机器人能收消息、触发 run、回复结果。
+
+#### P102 -- Telegram 通道接入
+
+- 目标：Telegram Bot API 接入，监听私聊/群组消息 → 触发 run → Markdown 回复。
+- 关键点：
+  - 接入方式：webhook 模式（`setWebhook`），接收 `Message` 更新。
+  - 消息回复：`sendMessage`（Markdown parse_mode）；流式结果 v1 等 `run.completed` 后一次性发送，v2 用 `editMessageText` 模拟流式。
+  - Bot token 走 P44 凭证管理（`provider_kind=telegram`）。
+  - Webhook 鉴权：校验 Telegram secret token（`setWebhook` 时设置 `secret_token`）。
+- 具体改动范围：
+  - 新建 `src/services/api/internal/channels/telegram/`：webhook handler + Telegram Bot API 客户端。
+  - `src/services/api/internal/http/`：注册 `POST /v1/channels/telegram/webhook` 端点。
+- 依赖：P100
+- 验收：
+  - unit test：Telegram webhook 解析与签名校验。
+  - 手工验证：Telegram bot 能收消息并回复 run 结果。
+
+#### P103 -- 外部 Agent 框架接入（OpenClaw 等）
+
+- 目标：为外部 Agent 框架提供标准化接入点，允许其作为调用者触发 Arkloop run 并消费结果。
+- 关键点：
+  - 接入方式：标准 REST API（`POST /v1/threads/{id}/runs` + SSE 事件流），不需要新协议；外部框架使用 API Key 鉴权。
+  - API Key 管理：新增 `api_keys` 表，支持 org 级 API Key 的生成/吊销/审计。
+  - 权限隔离：API Key 绑定 org 和权限范围（scope），不允许跨 org 访问。
+  - 状态：OpenClaw 等框架的具体接入细节（是否需要 MCP 适配或 SDK）待确认后补充。
+- 具体改动范围（v1，最小可用）：
+  - 新建 `src/services/api/internal/data/api_keys.go`：`api_keys` 表 Repository。
+  - Alembic/goose migration：`api_keys` 表（id, org_id, key_hash, name, scope, created_at, revoked_at）。
+  - `src/services/api/internal/auth/`：支持 `Authorization: Bearer <api-key>` 鉴权路径（区分 JWT token 与 API Key）。
+  - Console P44 扩展：API Key 管理页面（生成/列表/吊销）。
+- 依赖：P100 + P60（权限点）
+- 验收：
+  - integration test：API Key 创建 → 使用 API Key 触发 run → 通过 SSE 消费结果。
+  - integration test：吊销 API Key 后请求被拒绝且写审计。
