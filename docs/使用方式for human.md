@@ -5,7 +5,8 @@
 - `export ARKLOOP_LOAD_DOTENV=1`
 - `export ARKLOOP_DOTENV_FILE=".env.test"`（或 `.env`）
 - `docker compose up -d postgres`
-- `python -m alembic upgrade head`
+cd src/services/api
+go run ./cmd/migrate up
 
 启动 API（默认 8001；可用 `ARKLOOP_API_GO_ADDR` 或 `PORT` 覆盖）：
 `cd src/services/api && go run ./cmd/api`
