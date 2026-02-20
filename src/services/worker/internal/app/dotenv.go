@@ -125,7 +125,7 @@ func findRepoRoot() string {
 		}
 		next := filepath.Dir(dir)
 		if next == dir {
-			return dir
+			return ""
 		}
 		dir = next
 	}
@@ -262,4 +262,3 @@ func parseBool(raw string) (bool, error) {
 		return false, fmt.Errorf("must be a boolean (0/1, true/false)")
 	}
 }
-

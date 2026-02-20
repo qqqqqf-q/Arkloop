@@ -125,7 +125,7 @@ func findRepoRoot() string {
 		}
 		next := filepath.Dir(dir)
 		if next == dir {
-			return dir
+			return ""
 		}
 		dir = next
 	}
