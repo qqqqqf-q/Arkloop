@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"reflect"
 	"regexp"
 	"strings"
 
@@ -72,7 +73,7 @@ func (r ProviderRouteRule) Matches(input map[string]any) bool {
 		return true
 	}
 	for key, expected := range r.When {
-		if input[key] != expected {
+		if !reflect.DeepEqual(input[key], expected) {
 			return false
 		}
 	}
@@ -371,4 +372,3 @@ func parseScope(value string) (CredentialScope, error) {
 		return "", fmt.Errorf("必须为 platform/org")
 	}
 }
-
