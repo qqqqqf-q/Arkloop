@@ -1,1 +1,14 @@
 @import "tailwindcss";
+
+@layer base {
+  html, body, #root {
+    height: 100%;
+  }
+
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    background: #262624;
+    color: #faf9f5;
+    overflow: hidden;
+  }
+}

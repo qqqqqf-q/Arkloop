@@ -1,3 +1,4 @@
+const ACCESS_TOKEN_KEY = 'arkloop:web:access_token'
 const ACTIVE_THREAD_ID_KEY = 'arkloop:web:active_thread_id'
 
 function canUseLocalStorage(): boolean {
@@ -10,6 +11,34 @@ function canUseLocalStorage(): boolean {
 
 function lastSeqStorageKey(runId: string): string {
   return `arkloop:sse:last_seq:${runId}`
+}
+
+export function readAccessTokenFromStorage(): string | null {
+  if (!canUseLocalStorage()) return null
+  try {
+    const raw = localStorage.getItem(ACCESS_TOKEN_KEY)
+    return raw?.trim() ? raw : null
+  } catch {
+    return null
+  }
+}
+
+export function writeAccessTokenToStorage(token: string): void {
+  if (!canUseLocalStorage() || !token.trim()) return
+  try {
+    localStorage.setItem(ACCESS_TOKEN_KEY, token)
+  } catch {
+    // ignore
+  }
+}
+
+export function clearAccessTokenFromStorage(): void {
+  if (!canUseLocalStorage()) return
+  try {
+    localStorage.removeItem(ACCESS_TOKEN_KEY)
+  } catch {
+    // ignore
+  }
 }
 
 export function readActiveThreadIdFromStorage(): string | null {
