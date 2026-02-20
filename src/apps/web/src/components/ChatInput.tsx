@@ -1,6 +1,14 @@
-import { useRef, useEffect, useCallback } from 'react'
-import { Plus, Clock, ChevronDown, ArrowUp, Square } from 'lucide-react'
+import { useRef, useEffect, useCallback, useState } from 'react'
+import { Plus, Clock, ChevronDown, ArrowUp, Square, Paperclip } from 'lucide-react'
 import type { FormEvent, KeyboardEvent } from 'react'
+
+export type Attachment = {
+  id: string
+  name: string
+  size: number
+  content: string
+  encoding: 'text' | 'base64'
+}
 
 type Props = {
   value: string
@@ -13,6 +21,14 @@ type Props = {
   canCancel?: boolean
   cancelSubmitting?: boolean
   variant?: 'welcome' | 'chat'
+  attachments?: Attachment[]
+  onAttachFiles?: (files: File[]) => void
+}
+
+export function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
 export function ChatInput({
@@ -26,8 +42,14 @@ export function ChatInput({
   canCancel = false,
   cancelSubmitting = false,
   variant = 'chat',
+  attachments = [],
+  onAttachFiles,
 }: Props) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+  const plusBtnRef = useRef<HTMLButtonElement>(null)
+  const [menuOpen, setMenuOpen] = useState(false)
 
   const adjustHeight = useCallback(() => {
     const el = textareaRef.current
@@ -40,6 +62,20 @@ export function ChatInput({
     adjustHeight()
   }, [value, adjustHeight])
 
+  // 点击外部关闭菜单
+  useEffect(() => {
+    if (!menuOpen) return
+    const handleClick = (e: MouseEvent) => {
+      if (
+        menuRef.current?.contains(e.target as Node) ||
+        plusBtnRef.current?.contains(e.target as Node)
+      ) return
+      setMenuOpen(false)
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [menuOpen])
+
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
@@ -47,6 +83,14 @@ export function ChatInput({
         e.currentTarget.form?.requestSubmit()
       }
     }
+  }
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? [])
+    if (files.length > 0) onAttachFiles?.(files)
+    // 重置 input 以允许重复选择同一文件
+    e.target.value = ''
+    setMenuOpen(false)
   }
 
   const borderColor = variant === 'welcome' ? '#40403d' : '#5e5e5c'
@@ -82,12 +126,42 @@ export function ChatInput({
         />
 
         <div className="flex items-center" style={{ gap: '12px' }}>
-          <button
-            type="button"
-            className="relative top-px flex h-8 w-8 items-center justify-center rounded-lg text-[#c2c0b6] opacity-70 transition-[opacity,background] duration-150 hover:bg-[#141413] hover:opacity-100"
-          >
-            <Plus size={20} />
-          </button>
+          {/* + 按钮及菜单 */}
+          <div className="relative">
+            <button
+              ref={plusBtnRef}
+              type="button"
+              onClick={() => setMenuOpen((v) => !v)}
+              className="relative top-px flex h-8 w-8 items-center justify-center rounded-lg text-[#c2c0b6] opacity-70 transition-[opacity,background] duration-150 hover:bg-[#141413] hover:opacity-100"
+            >
+              <Plus size={20} />
+            </button>
+
+            {menuOpen && (
+              <div
+                ref={menuRef}
+                className="absolute left-0 z-50 overflow-hidden rounded-xl"
+                style={{
+                  top: 'calc(100% + 8px)',
+                  background: '#2a2a28',
+                  border: '0.5px solid #3a3a38',
+                  boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+                  minWidth: '200px',
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="flex w-full items-center gap-3 px-4 py-3 text-sm transition-colors duration-100 hover:bg-[#333330]"
+                  style={{ color: '#c2c0b6' }}
+                >
+                  <Paperclip size={15} style={{ color: '#7b7970' }} />
+                  从本地文件添加
+                </button>
+              </div>
+            )}
+          </div>
+
           <button
             type="button"
             className="relative top-px -ml-1 flex h-8 w-8 items-center justify-center rounded-lg text-[#c2c0b6] opacity-70 transition-[opacity,background] duration-150 hover:bg-[#141413] hover:opacity-100"
@@ -115,7 +189,7 @@ export function ChatInput({
             ) : (
               <button
                 type="submit"
-                disabled={disabled || isStreaming || !value.trim()}
+                disabled={disabled || isStreaming || (!value.trim() && attachments.length === 0)}
                 className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#7b4937] text-[#e8e8e3] transition-colors duration-150 hover:bg-[#8d5541] active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <ArrowUp size={16} />
@@ -124,6 +198,15 @@ export function ChatInput({
           </div>
         </div>
       </form>
+
+      {/* 隐藏的 file input */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        className="hidden"
+        onChange={handleFileChange}
+      />
     </div>
   )
 }
