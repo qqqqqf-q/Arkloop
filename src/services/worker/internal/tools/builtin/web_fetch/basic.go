@@ -17,7 +17,15 @@ type BasicProvider struct {
 
 func NewBasicProvider() *BasicProvider {
 	return &BasicProvider{
-		client: &http.Client{Timeout: 20 * time.Second},
+		client: &http.Client{
+			Timeout: 20 * time.Second,
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				if len(via) >= 10 {
+					return http.ErrUseLastResponse
+				}
+				return EnsureURLAllowed(req.URL.String())
+			},
+		},
 	}
 }
 

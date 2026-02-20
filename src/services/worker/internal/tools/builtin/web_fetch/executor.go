@@ -122,6 +122,21 @@ func (e *ToolExecutor) Execute(
 
 	result, err := provider.Fetch(fetchCtx, targetURL, maxLength)
 	if err != nil {
+		var denied UrlPolicyDeniedError
+		if errors.As(err, &denied) {
+			details := map[string]any{"reason": denied.Reason}
+			for key, value := range denied.Details {
+				details[key] = value
+			}
+			return tools.ExecutionResult{
+				Error: &tools.ExecutionError{
+					ErrorClass: errorURLDenied,
+					Message:    "web_fetch URL denied by security policy",
+					Details:    details,
+				},
+				DurationMs: durationMs(started),
+			}
+		}
 		if errors.Is(err, context.DeadlineExceeded) {
 			return tools.ExecutionResult{
 				Error: &tools.ExecutionError{
