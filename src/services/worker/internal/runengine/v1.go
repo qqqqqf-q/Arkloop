@@ -646,10 +646,3 @@ func extractAssistantDelta(dataJSON map[string]any) string {
 	}
 	return delta
 }
-
-func mapOrEmpty(value map[string]any) map[string]any {
-	if value == nil {
-		return map[string]any{}
-	}
-	return value
-}

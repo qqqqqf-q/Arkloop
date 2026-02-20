@@ -18,7 +18,7 @@ const (
 	errorTimeout       = "tool.timeout"
 	errorSearchFailed  = "tool.search_failed"
 
-	defaultTimeout = 10 * time.Second
+	defaultTimeout  = 10 * time.Second
 	maxResultsLimit = 20
 )
 
@@ -36,7 +36,7 @@ var LlmSpec = llm.ToolSpec{
 	JSONSchema: map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"query":      map[string]any{"type": "string", "minLength": 1},
+			"query":       map[string]any{"type": "string", "minLength": 1},
 			"max_results": map[string]any{"type": "integer", "minimum": 1, "maximum": maxResultsLimit},
 		},
 		"required":             []string{"query", "max_results"},
@@ -157,12 +157,12 @@ func providerFromEnv() (Provider, error) {
 	switch cfg.ProviderKind {
 	case ProviderKindSearxng:
 		if strings.TrimSpace(cfg.SearxngBaseURL) == "" {
-			return nil, fmt.Errorf("SearXNG base_url not configured")
+			return nil, fmt.Errorf("searxng base_url not configured")
 		}
 		return NewSearxngProvider(cfg.SearxngBaseURL), nil
 	case ProviderKindTavily:
 		if strings.TrimSpace(cfg.TavilyAPIKey) == "" {
-			return nil, fmt.Errorf("Tavily api_key not configured")
+			return nil, fmt.Errorf("tavily api_key not configured")
 		}
 		return NewTavilyProvider(cfg.TavilyAPIKey), nil
 	case ProviderKindSerper:

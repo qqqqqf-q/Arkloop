@@ -1,7 +1,6 @@
 package builtin
 
 import (
-	"sort"
 	"strings"
 	"time"
 )
@@ -22,13 +21,3 @@ func stringPtr(value string) *string {
 	}
 	return &cleaned
 }
-
-func sortedKeys(values map[string]any) []string {
-	keys := make([]string, 0, len(values))
-	for key := range values {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	return keys
-}
-
