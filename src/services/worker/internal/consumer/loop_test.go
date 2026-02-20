@@ -139,6 +139,50 @@ func TestRunOnceStopsOnLeaseLostWithoutAckOrNack(t *testing.T) {
 	}
 }
 
+func TestRun_ShutdownDoesNotReturnContextCanceled(t *testing.T) {
+	for i := 0; i < 30; i++ {
+		started := make(chan struct{})
+		fakeQueue := &cancelLeaseQueue{started: started}
+		handler := &stubHandler{}
+
+		logger := app.NewJSONLogger("worker_go_test", nil)
+		loop, err := NewLoop(fakeQueue, handler, nil, Config{
+			Concurrency:      1,
+			PollSeconds:      0,
+			LeaseSeconds:     30,
+			HeartbeatSeconds: 0,
+			QueueJobTypes:    []string{queue.RunExecuteJobType},
+		}, logger)
+		if err != nil {
+			t.Fatalf("NewLoop failed: %v", err)
+		}
+
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan error, 1)
+		go func() {
+			done <- loop.Run(ctx)
+		}()
+
+		select {
+		case <-started:
+		case <-time.After(2 * time.Second):
+			cancel()
+			t.Fatal("Lease 未启动")
+		}
+
+		cancel()
+
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatalf("expected nil, got %v", err)
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatal("Run 未在预期时间内退出")
+		}
+	}
+}
+
 func newLoopForTest(t *testing.T, q *stubQueue, h *stubHandler, locker RunLocker, cfg Config) *Loop {
 	t.Helper()
 	logger := app.NewJSONLogger("worker_go_test", nil)
@@ -159,6 +203,37 @@ type stubQueue struct {
 	nackCount       int
 	nackDelays      []int
 }
+
+type cancelLeaseQueue struct {
+	started     chan struct{}
+	startedOnce sync.Once
+}
+
+func (q *cancelLeaseQueue) EnqueueRun(
+	_ context.Context,
+	_ uuid.UUID,
+	_ uuid.UUID,
+	_ string,
+	_ string,
+	_ map[string]any,
+	_ *time.Time,
+) (uuid.UUID, error) {
+	return uuid.New(), nil
+}
+
+func (q *cancelLeaseQueue) Lease(ctx context.Context, _ int, _ []string) (*queue.JobLease, error) {
+	q.startedOnce.Do(func() {
+		if q.started != nil {
+			close(q.started)
+		}
+	})
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+func (q *cancelLeaseQueue) Heartbeat(_ context.Context, _ queue.JobLease, _ int) error { return nil }
+func (q *cancelLeaseQueue) Ack(_ context.Context, _ queue.JobLease) error              { return nil }
+func (q *cancelLeaseQueue) Nack(_ context.Context, _ queue.JobLease, _ *int) error     { return nil }
 
 func (s *stubQueue) EnqueueRun(
 	_ context.Context,

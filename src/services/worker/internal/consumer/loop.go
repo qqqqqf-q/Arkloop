@@ -74,6 +74,9 @@ func (l *Loop) Run(ctx context.Context) error {
 
 				processed, err := l.RunOnce(ctx)
 				if err != nil {
+					if ctx.Err() != nil {
+						return
+					}
 					errCh <- err
 					return
 				}
@@ -113,7 +116,10 @@ func (l *Loop) Run(ctx context.Context) error {
 func (l *Loop) RunOnce(ctx context.Context) (bool, error) {
 	lease, err := l.queue.Lease(ctx, l.config.LeaseSeconds, l.config.QueueJobTypes)
 	if err != nil {
-		l.logger.Error("lease job failed", app.LogFields{}, map[string]any{"error": err.Error()})
+		if ctx.Err() != nil {
+			return false, err
+		}
+		l.logger.Error("lease job 失败", app.LogFields{}, map[string]any{"error": err.Error()})
 		return false, err
 	}
 	if lease == nil {

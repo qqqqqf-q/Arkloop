@@ -19,3 +19,5 @@ arkilo-ui-example
 
 .claude
 CLAUDE.md
+src/services/worker/worker
+src/services/worker/worker.exe

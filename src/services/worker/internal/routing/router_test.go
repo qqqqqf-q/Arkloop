@@ -104,6 +104,33 @@ func TestProviderRouterDecide_ByokDisabled(t *testing.T) {
 	}
 }
 
+func TestProviderRouteRuleMatches_WhenContainsObjectDoesNotPanic(t *testing.T) {
+	rule := ProviderRouteRule{
+		ID:   "r1",
+		When: map[string]any{"meta": map[string]any{"a": "b"}},
+	}
+
+	input := map[string]any{"meta": map[string]any{"a": "b"}}
+	if !rule.Matches(input) {
+		t.Fatalf("expected match")
+	}
+}
+
+func TestProviderRouteRuleMatches_WhenContainsArrayDoesNotPanic(t *testing.T) {
+	rule := ProviderRouteRule{
+		ID:   "r1",
+		When: map[string]any{"tags": []any{"a", "b"}},
+	}
+
+	input := map[string]any{"tags": []any{"a", "b"}}
+	if !rule.Matches(input) {
+		t.Fatalf("expected match")
+	}
+	if rule.Matches(map[string]any{"tags": []any{"a"}}) {
+		t.Fatalf("expected mismatch")
+	}
+}
+
 func stringPtr(value string) *string {
 	return &value
 }
