@@ -48,17 +48,17 @@ export function AuthPage({ onLoggedIn }: Props) {
   }
 
   const inputStyle = {
-    border: '0.5px solid #3A3A3A',
+    border: '0.5px solid var(--c-border-auth)',
   }
 
   return (
     <div
       className="flex min-h-screen flex-col items-center justify-center px-5"
-      style={{ background: '#141413', padding: '72px 20px', gap: '48px' }}
+      style={{ background: 'var(--c-bg-page)', padding: '72px 20px', gap: '48px' }}
     >
       <header className="flex flex-col items-center" style={{ gap: '10px' }}>
-        <div style={{ fontSize: '32px', fontWeight: 500, color: '#FAF9F5' }}>Arkloop</div>
-        <div style={{ fontSize: '14px', fontWeight: 500, color: 'rgba(255,255,255,0.42)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
+        <div style={{ fontSize: '32px', fontWeight: 500, color: 'var(--c-text-primary)' }}>Arkloop</div>
+        <div style={{ fontSize: '14px', fontWeight: 500, color: 'var(--c-placeholder)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
           Console
         </div>
       </header>
@@ -68,13 +68,13 @@ export function AuthPage({ onLoggedIn }: Props) {
           width: 'min(400px, 100%)',
           borderRadius: '16px',
           padding: '32px 36px',
-          background: '#1a1a18',
-          border: '0.5px solid #3A3A3A',
+          background: 'var(--c-bg-deep2)',
+          border: '0.5px solid var(--c-border-auth)',
         }}
       >
         <form className="flex flex-col" style={{ gap: '14px' }} onSubmit={onSubmit}>
           <input
-            className="w-full rounded-[10px] bg-[#262624] text-[#FAF9F5] outline-none placeholder:text-[rgba(255,255,255,0.3)]"
+            className="w-full rounded-[10px] bg-[var(--c-bg-input)] text-[var(--c-text-primary)] outline-none placeholder:text-[var(--c-placeholder)]"
             style={{ ...inputStyle, height: '44px', padding: '0 14px', fontSize: '14px', fontFamily: 'inherit' }}
             type="text"
             placeholder="Username"
@@ -86,7 +86,7 @@ export function AuthPage({ onLoggedIn }: Props) {
           />
 
           <input
-            className="w-full rounded-[10px] bg-[#262624] text-[#FAF9F5] outline-none placeholder:text-[rgba(255,255,255,0.3)]"
+            className="w-full rounded-[10px] bg-[var(--c-bg-input)] text-[var(--c-text-primary)] outline-none placeholder:text-[var(--c-placeholder)]"
             style={{ ...inputStyle, height: '44px', padding: '0 14px', fontSize: '14px', fontFamily: 'inherit' }}
             type="password"
             placeholder="Password"
@@ -106,8 +106,8 @@ export function AuthPage({ onLoggedIn }: Props) {
               cursor: 'pointer',
               fontSize: '14px',
               fontWeight: 500,
-              background: '#FAF9F6',
-              color: '#141413',
+              background: 'var(--c-btn-bg)',
+              color: 'var(--c-btn-text)',
             }}
             className="disabled:cursor-not-allowed disabled:opacity-40"
           >

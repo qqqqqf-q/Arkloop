@@ -34,12 +34,14 @@ function normalizeError(error: unknown): AppError {
 type OutletContext = {
   accessToken: string
   onLoggedOut: () => void
+  onRunStarted: (threadId: string) => void
+  onRunEnded: (threadId: string) => void
 }
 
 type LocationState = { initialRunId?: string } | null
 
 export function ChatPage() {
-  const { accessToken, onLoggedOut } = useOutletContext<OutletContext>()
+  const { accessToken, onLoggedOut, onRunStarted, onRunEnded } = useOutletContext<OutletContext>()
   const { threadId } = useParams<{ threadId: string }>()
   const location = useLocation()
   const locationState = location.state as LocationState
@@ -93,10 +95,14 @@ export function ChatPage() {
           listThreadRuns(accessToken, threadId, 1),
         ])
         setMessages(items)
-        // 若 location state 已提供 initialRunId，优先使用
-        if (!locationState?.initialRunId) {
+        // 若 location state 已提供 initialRunId，优先使用（来自 WelcomePage 新建后导航）
+        if (locationState?.initialRunId) {
+          if (threadId) onRunStarted(threadId)
+        } else {
           const latest = runs[0]
-          setActiveRunId(latest?.status === 'running' ? latest.run_id : null)
+          const isRunning = latest?.status === 'running'
+          setActiveRunId(isRunning ? latest.run_id : null)
+          if (isRunning && threadId) onRunStarted(threadId)
         }
       } catch (err) {
         if (isApiError(err) && err.status === 401) {
@@ -157,6 +163,7 @@ export function ChatPage() {
         sse.disconnect()
         setActiveRunId(null)
         setAssistantDraft('')
+        if (threadId) onRunEnded(threadId)
         void refreshMessages()
         continue
       }
@@ -164,6 +171,7 @@ export function ChatPage() {
       if (event.type === 'run.cancelled') {
         sse.disconnect()
         setActiveRunId(null)
+        if (threadId) onRunEnded(threadId)
         const data = event.data as { trace_id?: unknown }
         const traceId = typeof data?.trace_id === 'string' ? data.trace_id : undefined
         setError({ message: '已停止生成', traceId })
@@ -173,6 +181,7 @@ export function ChatPage() {
       if (event.type === 'run.failed') {
         sse.disconnect()
         setActiveRunId(null)
+        if (threadId) onRunEnded(threadId)
         const obj = event.data as { message?: unknown; error_class?: unknown }
         setError({
           message: typeof obj?.message === 'string' ? obj.message : '运行失败',
@@ -258,6 +267,7 @@ export function ChatPage() {
 
       const run = await createRun(accessToken, threadId)
       setActiveRunId(run.run_id)
+      onRunStarted(threadId)
     } catch (err) {
       if (isApiError(err) && err.status === 401) {
         onLoggedOut()
@@ -287,22 +297,22 @@ export function ChatPage() {
   }, [sse.error])
 
   return (
-    <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-[#262624]">
+    <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-[var(--c-bg-page)]">
       {/* 顶部 header */}
       <div className="flex min-h-[51px] items-center justify-end px-[15px] py-[15px]">
-        <button className="flex h-5 w-5 items-center justify-center text-[#c2c0b6] opacity-80 transition-opacity hover:opacity-100">
+        <button className="flex h-5 w-5 items-center justify-center text-[var(--c-text-secondary)] opacity-80 transition-opacity hover:opacity-100">
           <Glasses size={20} />
         </button>
       </div>
 
       {/* 消息列表 */}
-      <div className="flex-1 overflow-y-auto bg-[#262624]">
+      <div className="flex-1 overflow-y-auto bg-[var(--c-bg-page)]">
         <div
           style={{ maxWidth: 800, margin: '0 auto', padding: '50px 60px' }}
           className="flex w-full flex-col gap-6"
         >
           {messagesLoading ? (
-            <div className="py-20 text-center text-sm text-[#6b6b68]">加载中...</div>
+            <div className="py-20 text-center text-sm text-[var(--c-text-muted)]">加载中...</div>
           ) : (
             <>
               {messages.map((msg) => (
@@ -330,23 +340,23 @@ export function ChatPage() {
               <div
                 key={att.id}
                 className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5"
-                style={{ background: '#1e1e1c', border: '0.5px solid #3a3a38' }}
+                style={{ background: 'var(--c-bg-sub)', border: '0.5px solid var(--c-border-subtle)' }}
               >
-                <Paperclip size={12} style={{ color: '#7b7970', flexShrink: 0 }} />
+                <Paperclip size={12} style={{ color: 'var(--c-text-icon)', flexShrink: 0 }} />
                 <span
                   className="text-xs"
-                  style={{ color: '#c2c0b6', maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                  style={{ color: 'var(--c-text-secondary)', maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                 >
                   {att.name}
                 </span>
-                <span className="text-xs" style={{ color: '#6b6b68', flexShrink: 0 }}>
+                <span className="text-xs" style={{ color: 'var(--c-text-muted)', flexShrink: 0 }}>
                   {formatFileSize(att.size)}
                 </span>
                 <button
                   type="button"
                   onClick={() => handleRemoveAttachment(att.id)}
                   className="flex items-center justify-center rounded transition-opacity duration-100 hover:opacity-100"
-                  style={{ color: '#6b6b68', opacity: 0.7, marginLeft: '2px' }}
+                  style={{ color: 'var(--c-text-muted)', opacity: 0.7, marginLeft: '2px' }}
                 >
                   <X size={12} />
                 </button>
@@ -367,7 +377,7 @@ export function ChatPage() {
           attachments={attachments}
           onAttachFiles={handleAttachFiles}
         />
-        <p style={{ color: '#96948d', fontSize: '13px', letterSpacing: '-0.52px', textAlign: 'center' }}>
+        <p style={{ color: 'var(--c-text-muted)', fontSize: '13px', letterSpacing: '-0.52px', textAlign: 'center' }}>
           Arkloop is AI and can make mistakes. Please double-check responses.
         </p>
 

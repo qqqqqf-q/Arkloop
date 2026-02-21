@@ -68,11 +68,11 @@ export function ConsoleLayout({ accessToken, onLoggedOut }: Props) {
   const context: ConsoleOutletContext = { accessToken, onLoggedOut, me }
 
   return (
-    <div className="flex h-screen overflow-hidden bg-[#141413]">
+    <div className="flex h-screen overflow-hidden bg-[var(--c-bg-page)]">
       {sidebarCollapsed && (
         <button
           onClick={() => setSidebarCollapsed(false)}
-          className="fixed left-3 top-3 z-40 flex h-8 w-8 items-center justify-center rounded-lg text-[#9c9a92] transition-colors hover:bg-[#1e1e1c] hover:text-[#c2c0b6]"
+          className="fixed left-3 top-3 z-40 flex h-8 w-8 items-center justify-center rounded-lg text-[var(--c-text-tertiary)] transition-colors hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-secondary)]"
         >
           <PanelLeftOpen size={18} />
         </button>
@@ -80,21 +80,21 @@ export function ConsoleLayout({ accessToken, onLoggedOut }: Props) {
 
       <aside
         className={[
-          'flex h-full shrink-0 flex-col border-r border-[#2a2a28] bg-[#141413] transition-all duration-300',
+          'flex h-full shrink-0 flex-col border-r border-[var(--c-border-console)] bg-[var(--c-bg-sidebar)] transition-all duration-300',
           sidebarCollapsed ? 'w-0 overflow-hidden border-r-0' : 'w-[240px]',
         ].join(' ')}
       >
         {/* 标题栏 */}
         <div className="flex min-h-[46px] items-center justify-between px-4 py-3">
           <div className="flex items-center gap-2">
-            <h1 className="text-sm font-semibold tracking-wide text-[#faf9f5]">Arkloop</h1>
-            <span className="rounded bg-[#2a2a28] px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-[#6b6b68]">
+            <h1 className="text-sm font-semibold tracking-wide text-[var(--c-text-primary)]">Arkloop</h1>
+            <span className="rounded bg-[var(--c-bg-tag)] px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-[var(--c-text-muted)]">
               Console
             </span>
           </div>
           <button
             onClick={() => setSidebarCollapsed(true)}
-            className="flex h-5 w-5 items-center justify-center text-[#9c9a92] transition-opacity hover:opacity-70"
+            className="flex h-5 w-5 items-center justify-center text-[var(--c-text-tertiary)] transition-opacity hover:opacity-70"
           >
             <PanelLeftClose size={18} />
           </button>
@@ -111,8 +111,8 @@ export function ConsoleLayout({ accessToken, onLoggedOut }: Props) {
                 className={[
                   'flex h-[30px] items-center gap-[11px] rounded-[5px] px-2 py-[7px] text-sm font-medium transition-colors',
                   active
-                    ? 'bg-[#1e1e1c] text-[#faf9f5]'
-                    : 'text-[#9c9a92] hover:bg-[#1e1e1c] hover:text-[#c2c0b6]',
+                    ? 'bg-[var(--c-bg-sub)] text-[var(--c-text-primary)]'
+                    : 'text-[var(--c-text-tertiary)] hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-secondary)]',
                 ].join(' ')}
               >
                 <span className="flex h-[22px] w-[22px] shrink-0 items-center justify-center">
@@ -125,17 +125,20 @@ export function ConsoleLayout({ accessToken, onLoggedOut }: Props) {
         </nav>
 
         {/* 用户信息 */}
-        <div className="mt-auto flex min-h-[56px] items-center gap-3 border-t border-[#2a2a28] px-4 py-3">
-          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#3a3a38] text-xs font-medium text-[#c2c0b6]">
+        <div className="mt-auto flex min-h-[56px] items-center gap-3 border-t border-[var(--c-border-console)] px-4 py-3">
+          <div
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-medium text-[var(--c-text-secondary)]"
+            style={{ background: 'var(--c-avatar-console-bg)' }}
+          >
             {userInitial}
           </div>
           <div className="flex min-w-0 flex-1 flex-col gap-[2px]">
-            <div className="truncate text-sm font-medium text-[#c2c0b6]">
+            <div className="truncate text-sm font-medium text-[var(--c-text-secondary)]">
               {me?.display_name ?? '...'}
             </div>
             <button
               onClick={handleLogout}
-              className="text-left text-xs font-normal text-[#6b6b68] transition-opacity hover:opacity-70"
+              className="text-left text-xs font-normal text-[var(--c-text-muted)] transition-opacity hover:opacity-70"
             >
               退出登录
             </button>

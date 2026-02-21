@@ -18,6 +18,11 @@ type Thread struct {
 	CreatedAt       time.Time
 }
 
+type ThreadWithActiveRun struct {
+	Thread
+	ActiveRunID *uuid.UUID // nil 表示当前无 running run
+}
+
 type ThreadRepository struct {
 	db Querier
 }
@@ -88,7 +93,7 @@ func (r *ThreadRepository) ListByOwner(
 	limit int,
 	beforeCreatedAt *time.Time,
 	beforeID *uuid.UUID,
-) ([]Thread, error) {
+) ([]ThreadWithActiveRun, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -105,22 +110,28 @@ func (r *ThreadRepository) ListByOwner(
 		return nil, fmt.Errorf("before_created_at and before_id must be provided together")
 	}
 
-	sql := `SELECT id, org_id, created_by_user_id, title, created_at
-		FROM threads
-		WHERE org_id = $1
-		  AND created_by_user_id = $2`
+	sql := `SELECT t.id, t.org_id, t.created_by_user_id, t.title, t.created_at, r.id AS active_run_id
+		FROM threads t
+		LEFT JOIN LATERAL (
+			SELECT id FROM runs
+			WHERE thread_id = t.id AND status = 'running'
+			ORDER BY created_at DESC
+			LIMIT 1
+		) r ON true
+		WHERE t.org_id = $1
+		  AND t.created_by_user_id = $2`
 	args := []any{orgID, ownerUserID}
 
 	if beforeCreatedAt != nil && beforeID != nil {
 		sql += `
 		  AND (
-		    created_at < $3 OR (created_at = $3 AND id < $4)
+		    t.created_at < $3 OR (t.created_at = $3 AND t.id < $4)
 		  )`
 		args = append(args, beforeCreatedAt.UTC(), *beforeID)
 	}
 
 	sql += `
-		ORDER BY created_at DESC, id DESC
+		ORDER BY t.created_at DESC, t.id DESC
 		LIMIT $` + fmt.Sprintf("%d", len(args)+1)
 	args = append(args, limit)
 
@@ -130,13 +141,16 @@ func (r *ThreadRepository) ListByOwner(
 	}
 	defer rows.Close()
 
-	var threads []Thread
+	var threads []ThreadWithActiveRun
 	for rows.Next() {
-		var thread Thread
-		if err := rows.Scan(&thread.ID, &thread.OrgID, &thread.CreatedByUserID, &thread.Title, &thread.CreatedAt); err != nil {
+		var item ThreadWithActiveRun
+		if err := rows.Scan(
+			&item.ID, &item.OrgID, &item.CreatedByUserID, &item.Title, &item.CreatedAt,
+			&item.ActiveRunID,
+		); err != nil {
 			return nil, err
 		}
-		threads = append(threads, thread)
+		threads = append(threads, item)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

@@ -31,15 +31,15 @@ export function MessageBubble({ message }: Props) {
                     display: 'flex',
                     alignItems: 'center',
                     gap: '6px',
-                    background: '#1e1e1c',
-                    border: '0.5px solid #3a3a38',
+                    background: 'var(--c-bg-sub)',
+                    border: '0.5px solid var(--c-border-subtle)',
                     borderRadius: '8px',
                     padding: '4px 10px',
                     fontSize: '12px',
-                    color: '#c2c0b6',
+                    color: 'var(--c-text-secondary)',
                   }}
                 >
-                  <Paperclip size={11} style={{ color: '#7b7970', flexShrink: 0 }} />
+                  <Paperclip size={11} style={{ color: 'var(--c-text-icon)', flexShrink: 0 }} />
                   <span style={{ maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {name}
                   </span>
@@ -50,10 +50,10 @@ export function MessageBubble({ message }: Props) {
           {text && (
             <div
               style={{
-                background: '#141413',
+                background: 'var(--c-bg-deep)',
                 borderRadius: '11px',
                 padding: '10px 16px',
-                color: '#ffffff',
+                color: 'var(--c-text-primary)',
                 fontSize: '16px',
                 lineHeight: 1.6,
                 letterSpacing: '-0.64px',
@@ -74,7 +74,7 @@ export function MessageBubble({ message }: Props) {
       <div style={{ maxWidth: '663px' }}>
         <p
           style={{
-            color: '#faf9f5',
+            color: 'var(--c-text-primary)',
             fontSize: '16px',
             lineHeight: 1.6,
             letterSpacing: '0.16px',
@@ -85,16 +85,16 @@ export function MessageBubble({ message }: Props) {
           {message.content}
         </p>
         <div style={{ display: 'flex', gap: '4px', marginTop: '16px' }}>
-          <button className="flex h-7 w-7 items-center justify-center rounded-lg text-[#c2c0b6] opacity-60 transition-[opacity,background] duration-150 hover:bg-[#141413] hover:opacity-100 cursor-pointer border-none bg-transparent">
+          <button className="flex h-7 w-7 items-center justify-center rounded-lg text-[var(--c-text-secondary)] opacity-60 transition-[opacity,background] duration-150 hover:bg-[var(--c-bg-deep)] hover:opacity-100 cursor-pointer border-none bg-transparent">
             <Copy size={15} />
           </button>
-          <button className="flex h-7 w-7 items-center justify-center rounded-lg text-[#c2c0b6] opacity-60 transition-[opacity,background] duration-150 hover:bg-[#141413] hover:opacity-100 cursor-pointer border-none bg-transparent">
+          <button className="flex h-7 w-7 items-center justify-center rounded-lg text-[var(--c-text-secondary)] opacity-60 transition-[opacity,background] duration-150 hover:bg-[var(--c-bg-deep)] hover:opacity-100 cursor-pointer border-none bg-transparent">
             <RefreshCw size={15} />
           </button>
-          <button className="flex h-7 w-7 items-center justify-center rounded-lg text-[#c2c0b6] opacity-60 transition-[opacity,background] duration-150 hover:bg-[#141413] hover:opacity-100 cursor-pointer border-none bg-transparent">
+          <button className="flex h-7 w-7 items-center justify-center rounded-lg text-[var(--c-text-secondary)] opacity-60 transition-[opacity,background] duration-150 hover:bg-[var(--c-bg-deep)] hover:opacity-100 cursor-pointer border-none bg-transparent">
             <Share2 size={15} />
           </button>
-          <button className="flex h-7 w-7 items-center justify-center rounded-lg text-[#c2c0b6] opacity-60 transition-[opacity,background] duration-150 hover:bg-[#141413] hover:opacity-100 cursor-pointer border-none bg-transparent">
+          <button className="flex h-7 w-7 items-center justify-center rounded-lg text-[var(--c-text-secondary)] opacity-60 transition-[opacity,background] duration-150 hover:bg-[var(--c-bg-deep)] hover:opacity-100 cursor-pointer border-none bg-transparent">
             <Split size={15} />
           </button>
         </div>
@@ -113,7 +113,7 @@ export function StreamingBubble({ content }: StreamingBubbleProps) {
       <div style={{ maxWidth: '663px' }}>
         <p
           style={{
-            color: '#faf9f5',
+            color: 'var(--c-text-primary)',
             fontSize: '16px',
             lineHeight: 1.6,
             letterSpacing: '0.16px',

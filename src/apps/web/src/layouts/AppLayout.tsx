@@ -22,6 +22,7 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
 
   const [me, setMe] = useState<MeResponse | null>(null)
   const [threads, setThreads] = useState<ThreadResponse[]>([])
+  const [runningThreadIds, setRunningThreadIds] = useState<Set<string>>(new Set())
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const mountedRef = useRef(true)
 
@@ -41,6 +42,9 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
         if (!mountedRef.current) return
         setMe(meResp)
         setThreads(threadItems)
+        setRunningThreadIds(
+          new Set(threadItems.filter((t) => t.active_run_id != null).map((t) => t.id)),
+        )
       } catch (err) {
         if (!mountedRef.current) return
         if (isApiError(err) && err.status === 401) {
@@ -72,13 +76,25 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
     })
   }, [])
 
+  const handleRunStarted = useCallback((threadId: string) => {
+    setRunningThreadIds((prev) => new Set(prev).add(threadId))
+  }, [])
+
+  const handleRunEnded = useCallback((threadId: string) => {
+    setRunningThreadIds((prev) => {
+      const next = new Set(prev)
+      next.delete(threadId)
+      return next
+    })
+  }, [])
+
   return (
-    <div className="flex h-screen overflow-hidden bg-[#262624]">
+    <div className="flex h-screen overflow-hidden bg-[var(--c-bg-page)]">
       {/* 侧边栏折叠时的展开按钮 */}
       {sidebarCollapsed && (
         <button
           onClick={() => setSidebarCollapsed(false)}
-          className="fixed left-3 top-3 z-40 flex h-8 w-8 items-center justify-center rounded-lg text-[#9c9a92] transition-colors hover:bg-[#141413] hover:text-[#c2c0b6]"
+          className="fixed left-3 top-3 z-40 flex h-8 w-8 items-center justify-center rounded-lg text-[var(--c-text-tertiary)] transition-colors hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-secondary)]"
         >
           <PanelLeftOpen size={18} />
         </button>
@@ -87,6 +103,7 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
       <Sidebar
         me={me}
         threads={threads}
+        runningThreadIds={runningThreadIds}
         onNewThread={handleNewThread}
         onLogout={handleLogout}
         collapsed={sidebarCollapsed}
@@ -94,7 +111,7 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
       />
 
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <Outlet context={{ accessToken, onLoggedOut, me, onThreadCreated: handleThreadCreated }} />
+        <Outlet context={{ accessToken, onLoggedOut, me, onThreadCreated: handleThreadCreated, onRunStarted: handleRunStarted, onRunEnded: handleRunEnded }} />
       </main>
     </div>
   )

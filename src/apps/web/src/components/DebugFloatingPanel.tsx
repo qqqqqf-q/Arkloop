@@ -31,16 +31,16 @@ export function DebugFloatingPanel({
   return (
     <div className="fixed bottom-4 right-4 z-50 flex flex-col items-end gap-2">
       {open && (
-        <div className="w-[480px] max-h-[60vh] overflow-hidden rounded-2xl border border-[#40403d] bg-[#1a1a18] shadow-2xl flex flex-col">
-          <div className="flex items-center justify-between border-b border-[#40403d] px-4 py-3">
+        <div className="w-[480px] max-h-[60vh] overflow-hidden rounded-2xl border border-[var(--c-border)] bg-[var(--c-bg-input)] shadow-2xl flex flex-col">
+          <div className="flex items-center justify-between border-b border-[var(--c-border)] px-4 py-3">
             <div className="flex gap-1">
               <button
                 onClick={() => setTab('events')}
                 className={[
                   'rounded-lg px-3 py-1.5 text-xs font-medium transition-colors',
                   tab === 'events'
-                    ? 'bg-[#30302e] text-[#faf9f5]'
-                    : 'text-[#9c9a92] hover:text-[#c2c0b6]',
+                    ? 'bg-[var(--c-bg-deep)] text-[var(--c-text-primary)]'
+                    : 'text-[var(--c-text-tertiary)] hover:text-[var(--c-text-secondary)]',
                 ].join(' ')}
               >
                 事件
@@ -50,8 +50,8 @@ export function DebugFloatingPanel({
                 className={[
                   'rounded-lg px-3 py-1.5 text-xs font-medium transition-colors',
                   tab === 'debug'
-                    ? 'bg-[#30302e] text-[#faf9f5]'
-                    : 'text-[#9c9a92] hover:text-[#c2c0b6]',
+                    ? 'bg-[var(--c-bg-deep)] text-[var(--c-text-primary)]'
+                    : 'text-[var(--c-text-tertiary)] hover:text-[var(--c-text-secondary)]',
                 ].join(' ')}
               >
                 LLM 调试
@@ -59,7 +59,7 @@ export function DebugFloatingPanel({
             </div>
             <button
               onClick={() => setOpen(false)}
-              className="text-[#9c9a92] transition-opacity hover:opacity-70"
+              className="text-[var(--c-text-tertiary)] transition-opacity hover:opacity-70"
             >
               <X size={16} />
             </button>
@@ -84,7 +84,7 @@ export function DebugFloatingPanel({
 
       <button
         onClick={() => setOpen((v) => !v)}
-        className="flex h-10 w-10 items-center justify-center rounded-full border border-[#40403d] bg-[#30302e] text-[#9c9a92] shadow-lg transition-colors hover:bg-[#3d3d3b] hover:text-[#c2c0b6]"
+        className="flex h-10 w-10 items-center justify-center rounded-full border border-[var(--c-border)] bg-[var(--c-bg-input)] text-[var(--c-text-tertiary)] shadow-lg transition-colors hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-secondary)]"
         title="调试面板"
       >
         <Bug size={18} />

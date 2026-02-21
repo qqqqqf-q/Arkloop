@@ -95,23 +95,23 @@ export function ChatInput({
     setMenuOpen(false)
   }
 
-  const borderColor = variant === 'welcome' ? '#40403d' : '#5e5e5c'
+  const borderColor = variant === 'welcome' ? 'var(--c-border)' : 'var(--c-border-mid)'
 
   return (
     <div
-      className="w-full max-w-[756px] rounded-2xl bg-[#30302e]"
+      className="w-full max-w-[756px] rounded-2xl bg-[var(--c-bg-input)]"
       style={{
         border: `0.5px solid ${borderColor}`,
         borderRadius: '16px',
         padding: '20px 24px',
-        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
+        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
       }}
     >
       <form onSubmit={onSubmit}>
         <textarea
           ref={textareaRef}
           rows={1}
-          className="w-full resize-none bg-transparent outline-none placeholder:text-[#6b6b68] disabled:cursor-not-allowed"
+          className="w-full resize-none bg-transparent outline-none placeholder:text-[var(--c-text-muted)] disabled:cursor-not-allowed"
           value={value}
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={handleKeyDown}
@@ -120,7 +120,7 @@ export function ChatInput({
           style={{
             fontFamily: 'inherit',
             fontSize: '16px',
-            color: '#9c9a92',
+            color: 'var(--c-text-tertiary)',
             marginBottom: '16px',
             letterSpacing: '-0.16px',
             overflow: 'hidden',
@@ -134,7 +134,7 @@ export function ChatInput({
               ref={plusBtnRef}
               type="button"
               onClick={() => setMenuOpen((v) => !v)}
-              className="relative top-px flex h-8 w-8 items-center justify-center rounded-lg text-[#c2c0b6] opacity-70 transition-[opacity,background] duration-150 hover:bg-[#141413] hover:opacity-100"
+              className="relative top-px flex h-8 w-8 items-center justify-center rounded-lg text-[var(--c-text-secondary)] opacity-70 transition-[opacity,background] duration-150 hover:bg-[var(--c-bg-deep)] hover:opacity-100"
             >
               <Plus size={20} />
             </button>
@@ -145,19 +145,19 @@ export function ChatInput({
                 className="absolute left-0 z-50 overflow-hidden rounded-xl"
                 style={{
                   top: 'calc(100% + 8px)',
-                  background: '#2a2a28',
-                  border: '0.5px solid #3a3a38',
-                  boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+                  background: 'var(--c-bg-menu)',
+                  border: '0.5px solid var(--c-border-subtle)',
+                  boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
                   minWidth: '200px',
                 }}
               >
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
-                  className="flex w-full items-center gap-3 px-4 py-3 text-sm transition-colors duration-100 hover:bg-[#333330]"
-                  style={{ color: '#c2c0b6' }}
+                  className="flex w-full items-center gap-3 px-4 py-3 text-sm transition-colors duration-100 hover:bg-[var(--c-bg-deep)]"
+                  style={{ color: 'var(--c-text-secondary)' }}
                 >
-                  <Paperclip size={15} style={{ color: '#7b7970' }} />
+                  <Paperclip size={15} style={{ color: 'var(--c-text-icon)' }} />
                   从本地文件添加
                 </button>
               </div>
@@ -175,8 +175,8 @@ export function ChatInput({
               alignItems: 'center',
               justifyContent: 'flex-start',
               paddingLeft: '12px',
-              background: proExpanded ? '#3A4250' : proHovered ? '#141413' : 'transparent',
-              color: proExpanded ? '#4691F6' : '#c2c0b6',
+              background: proExpanded ? '#EAF2FC' : proHovered ? 'var(--c-bg-deep)' : 'transparent',
+              color: proExpanded ? '#4691F6' : 'var(--c-text-secondary)',
               opacity: proExpanded ? 1 : proHovered ? 1 : 0.7,
               fontSize: '15px',
               width: proExpanded ? '48px' : '32px',
@@ -201,7 +201,7 @@ export function ChatInput({
 
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '6px' }}>
             <div
-              style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', color: '#c2c0b6', fontSize: '14px', padding: '4px 8px', borderRadius: '6px' }}
+              style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', color: 'var(--c-text-secondary)', fontSize: '14px', padding: '4px 8px', borderRadius: '6px' }}
             >
               <span>Sonnet 4.5</span>
               <ChevronDown size={14} />
@@ -212,7 +212,7 @@ export function ChatInput({
                 type="button"
                 onClick={onCancel}
                 disabled={cancelSubmitting}
-                className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#7b4937] text-[#e8e8e3] transition-colors duration-150 hover:bg-[#8d5541] disabled:cursor-not-allowed disabled:opacity-50"
+                className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--c-accent-send)] text-[var(--c-accent-send-text)] transition-colors duration-150 hover:bg-[var(--c-accent-send-hover)] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Square size={14} fill="currentColor" />
               </button>
@@ -220,7 +220,7 @@ export function ChatInput({
               <button
                 type="submit"
                 disabled={disabled || isStreaming || (!value.trim() && attachments.length === 0)}
-                className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#7b4937] text-[#e8e8e3] transition-colors duration-150 hover:bg-[#8d5541] active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-50"
+                className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--c-accent-send)] text-[var(--c-accent-send-text)] transition-colors duration-150 hover:bg-[var(--c-accent-send-hover)] active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <ArrowUp size={16} />
               </button>

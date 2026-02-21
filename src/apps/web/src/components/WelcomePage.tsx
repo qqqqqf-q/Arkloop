@@ -114,14 +114,14 @@ export function WelcomePage() {
     <div className="flex h-full flex-col">
       {/* 顶部 header */}
       <div className="flex min-h-[51px] items-center justify-end px-[15px] py-[15px]">
-        <button className="flex h-5 w-5 items-center justify-center text-[#c2c0b6] transition-opacity hover:opacity-70">
+        <button className="flex h-5 w-5 items-center justify-center text-[var(--c-text-secondary)] transition-opacity hover:opacity-70">
           <Glasses size={20} />
         </button>
       </div>
 
       {/* 居中内容 */}
       <div className="flex flex-1 flex-col items-center justify-center px-5" style={{ marginTop: '-100px' }}>
-        <h2 className="mb-[60px] text-[40px] font-normal tracking-[-0.5px] text-[#e8e8e3]">
+        <h2 className="mb-[60px] text-[40px] font-normal tracking-[-0.5px] text-[var(--c-text-heading)]">
           Arkloop Team
         </h2>
 
@@ -132,23 +132,23 @@ export function WelcomePage() {
                 <div
                   key={att.id}
                   className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5"
-                  style={{ background: '#1e1e1c', border: '0.5px solid #3a3a38' }}
+                  style={{ background: 'var(--c-bg-sub)', border: '0.5px solid var(--c-border-subtle)' }}
                 >
-                  <Paperclip size={12} style={{ color: '#7b7970', flexShrink: 0 }} />
+                  <Paperclip size={12} style={{ color: 'var(--c-text-icon)', flexShrink: 0 }} />
                   <span
                     className="text-xs"
-                    style={{ color: '#c2c0b6', maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                    style={{ color: 'var(--c-text-secondary)', maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                   >
                     {att.name}
                   </span>
-                  <span className="text-xs" style={{ color: '#6b6b68', flexShrink: 0 }}>
+                  <span className="text-xs" style={{ color: 'var(--c-text-muted)', flexShrink: 0 }}>
                     {formatFileSize(att.size)}
                   </span>
                   <button
                     type="button"
                     onClick={() => handleRemoveAttachment(att.id)}
                     className="flex items-center justify-center rounded transition-opacity duration-100 hover:opacity-100"
-                    style={{ color: '#6b6b68', opacity: 0.7, marginLeft: '2px' }}
+                    style={{ color: 'var(--c-text-muted)', opacity: 0.7, marginLeft: '2px' }}
                   >
                     <X size={12} />
                   </button>

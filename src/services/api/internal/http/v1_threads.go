@@ -32,6 +32,7 @@ type threadResponse struct {
 	CreatedByUserID *string `json:"created_by_user_id"`
 	Title           *string `json:"title"`
 	CreatedAt       string  `json:"created_at"`
+	ActiveRunID     *string `json:"active_run_id"`
 }
 
 type optionalString struct {
@@ -152,7 +153,7 @@ func listThreads(
 
 		resp := make([]threadResponse, 0, len(threads))
 		for _, item := range threads {
-			resp = append(resp, toThreadResponse(item))
+			resp = append(resp, toThreadWithActiveRunResponse(item))
 		}
 		writeJSON(w, traceID, nethttp.StatusOK, resp)
 	}
@@ -478,5 +479,15 @@ func toThreadResponse(thread data.Thread) threadResponse {
 		CreatedByUserID: createdByUserID,
 		Title:           thread.Title,
 		CreatedAt:       thread.CreatedAt.UTC().Format(time.RFC3339Nano),
+		ActiveRunID:     nil,
 	}
+}
+
+func toThreadWithActiveRunResponse(item data.ThreadWithActiveRun) threadResponse {
+	resp := toThreadResponse(item.Thread)
+	if item.ActiveRunID != nil {
+		value := item.ActiveRunID.String()
+		resp.ActiveRunID = &value
+	}
+	return resp
 }

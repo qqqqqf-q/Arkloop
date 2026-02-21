@@ -52,17 +52,17 @@ export function AuthPage({ onLoggedIn }: Props) {
   }
 
   const inputStyle = {
-    border: '0.5px solid #5E5A5A',
+    border: '0.5px solid var(--c-border-auth)',
   }
 
   return (
     <div
       className="flex min-h-screen flex-col items-center justify-center px-5"
-      style={{ background: '#141413', padding: '72px 20px', gap: '48px' }}
+      style={{ background: 'var(--c-bg-deep)', padding: '72px 20px', gap: '48px' }}
     >
       <header className="flex flex-col items-center" style={{ gap: '10px' }}>
-        <div style={{ fontSize: '36px', fontWeight: 500, color: '#FAF9F5' }}>Arkloop</div>
-        <div style={{ fontSize: '20px', fontWeight: 500, color: 'rgba(255, 255, 255, 0.42)' }}>
+        <div style={{ fontSize: '36px', fontWeight: 500, color: 'var(--c-text-primary)' }}>Arkloop</div>
+        <div style={{ fontSize: '20px', fontWeight: 500, color: 'var(--c-placeholder)' }}>
           {mode === 'login' ? 'Login' : 'Register'}
         </div>
       </header>
@@ -72,8 +72,8 @@ export function AuthPage({ onLoggedIn }: Props) {
           width: 'min(480px, 100%)',
           borderRadius: '24px',
           padding: '40px 44px',
-          background: '#141413',
-          border: '0.5px solid #3A3A3A',
+          background: 'var(--c-bg-deep)',
+          border: '0.5px solid var(--c-border-auth)',
           fontSize: '20px',
           fontWeight: 500,
         }}
@@ -81,7 +81,7 @@ export function AuthPage({ onLoggedIn }: Props) {
         <form className="flex flex-col" style={{ gap: '18px' }} onSubmit={onSubmit}>
           {mode === 'register' && (
             <input
-              className="w-full rounded-[12px] bg-[#30302e] text-[#FAF9F5] outline-none placeholder:text-[rgba(255,255,255,0.42)]"
+              className="w-full rounded-[12px] bg-[var(--c-bg-input)] text-[var(--c-text-primary)] outline-none placeholder:text-[var(--c-placeholder)]"
               style={{ ...inputStyle, height: '54px', padding: '0 18px', fontSize: '15px', fontWeight: 500, fontFamily: 'inherit' }}
               type="text"
               placeholder="Enter your display name"
@@ -92,7 +92,7 @@ export function AuthPage({ onLoggedIn }: Props) {
           )}
 
           <input
-            className="w-full rounded-[12px] bg-[#30302e] text-[#FAF9F5] outline-none placeholder:text-[rgba(255,255,255,0.42)]"
+            className="w-full rounded-[12px] bg-[var(--c-bg-input)] text-[var(--c-text-primary)] outline-none placeholder:text-[var(--c-placeholder)]"
             style={{ ...inputStyle, height: '54px', padding: '0 18px', fontSize: '15px', fontWeight: 500, fontFamily: 'inherit' }}
             type="text"
             placeholder="Enter your username"
@@ -104,7 +104,7 @@ export function AuthPage({ onLoggedIn }: Props) {
           />
 
           <input
-            className="w-full rounded-[12px] bg-[#30302e] text-[#FAF9F5] outline-none placeholder:text-[rgba(255,255,255,0.42)]"
+            className="w-full rounded-[12px] bg-[var(--c-bg-input)] text-[var(--c-text-primary)] outline-none placeholder:text-[var(--c-placeholder)]"
             style={{ ...inputStyle, height: '54px', padding: '0 18px', fontSize: '15px', fontWeight: 500, fontFamily: 'inherit' }}
             type="password"
             placeholder="Enter your password"
@@ -124,8 +124,8 @@ export function AuthPage({ onLoggedIn }: Props) {
               cursor: 'pointer',
               fontSize: '20px',
               fontWeight: 500,
-              background: '#FAF9F6',
-              color: '#141413',
+              background: 'var(--c-btn-bg)',
+              color: 'var(--c-btn-text)',
             }}
             className="disabled:cursor-not-allowed disabled:opacity-50"
           >
@@ -139,7 +139,7 @@ export function AuthPage({ onLoggedIn }: Props) {
       <button
         type="button"
         onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setError(null) }}
-        style={{ fontSize: '14px', color: 'rgba(255, 255, 255, 0.42)', background: 'none', border: 'none', cursor: 'pointer' }}
+        style={{ fontSize: '14px', color: 'var(--c-placeholder)', background: 'none', border: 'none', cursor: 'pointer' }}
       >
         {mode === 'login' ? '没有账号？注册' : '已有账号？登录'}
       </button>

@@ -1,5 +1,69 @@
 @import "tailwindcss";
 
+:root {
+  --c-bg-page: #262624;
+  --c-bg-sidebar: #242422;
+  --c-bg-deep: #141413;
+  --c-bg-sub: #1e1e1c;
+  --c-bg-input: #30302e;
+  --c-bg-plus: #363633;
+  --c-bg-menu: #2a2a28;
+  --c-border: #40403d;
+  --c-border-subtle: #3a3a38;
+  --c-border-mid: #5e5e5c;
+  --c-border-auth: #5E5A5A;
+  --c-text-primary: #faf9f5;
+  --c-text-heading: #e8e8e3;
+  --c-text-secondary: #c2c0b6;
+  --c-text-tertiary: #9c9a92;
+  --c-text-muted: #6b6b68;
+  --c-text-icon: #7b7970;
+  --c-text-icon2: #87867f;
+  --c-placeholder: rgba(255, 255, 255, 0.42);
+  --c-scrollbar: #40403d;
+  --c-scrollbar-hover: #5e5e5c;
+  --c-avatar-bg: #c2c0b6;
+  --c-avatar-text: #242422;
+  --c-btn-bg: #FAF9F6;
+  --c-btn-text: #141413;
+  --c-accent-send: #1A1A19;
+  --c-accent-send-hover: #2e2e2c;
+  --c-accent-send-text: #e8e8e3;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --c-bg-page: #F8F8F7;
+    --c-bg-sidebar: #FAFAFA;
+    --c-bg-deep: #EBEBEB;
+    --c-bg-sub: #EBEBEB;
+    --c-bg-input: #FFFFFF;
+    --c-bg-plus: #E5E5E3;
+    --c-bg-menu: #F0F0EE;
+    --c-border: #B9B9B7;
+    --c-border-subtle: #DEDEDE;
+    --c-border-mid: #C0C0BE;
+    --c-border-auth: #C8C8C8;
+    --c-text-primary: #141412;
+    --c-text-heading: #1A1A18;
+    --c-text-secondary: #3D3D3B;
+    --c-text-tertiary: #6B6B68;
+    --c-text-muted: #8C8C8A;
+    --c-text-icon: #7A7A78;
+    --c-text-icon2: #6E6E6C;
+    --c-placeholder: rgba(0, 0, 0, 0.35);
+    --c-scrollbar: #B9B9B7;
+    --c-scrollbar-hover: #9A9A98;
+    --c-avatar-bg: #3D3D3B;
+    --c-avatar-text: #FAFAFA;
+    --c-btn-bg: #1A1A18;
+    --c-btn-text: #FAFAFA;
+    --c-accent-send: #FFFFFF;
+    --c-accent-send-hover: #F0F0EE;
+    --c-accent-send-text: #1A1A19;
+  }
+}
+
 @layer base {
   html, body, #root {
     height: 100%;
@@ -7,8 +71,8 @@
 
   body {
     font-family: 'Inter', system-ui, sans-serif;
-    background: #262624;
-    color: #faf9f5;
+    background: var(--c-bg-page);
+    color: var(--c-text-primary);
     overflow: hidden;
   }
 
@@ -22,16 +86,16 @@
   }
 
   ::-webkit-scrollbar-thumb {
-    background: #40403d;
+    background: var(--c-scrollbar);
     border-radius: 99px;
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    background: #5e5e5c;
+    background: var(--c-scrollbar-hover);
   }
 
   * {
     scrollbar-width: thin;
-    scrollbar-color: #40403d transparent;
+    scrollbar-color: var(--c-scrollbar) transparent;
   }
 }

@@ -174,6 +174,7 @@ export type ThreadResponse = {
   created_by_user_id: string
   title: string | null
   created_at: string
+  active_run_id: string | null
 }
 
 export async function createThread(
