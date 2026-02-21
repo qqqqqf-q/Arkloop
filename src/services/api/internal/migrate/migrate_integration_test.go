@@ -16,9 +16,9 @@ func TestUpFromScratch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("up: %v", err)
 	}
-	// 9 migrations (00001..00009)
-	if len(results) != 9 {
-		t.Fatalf("expected 9 migrations, got %d", len(results))
+	// 13 migrations (00001..00013)
+	if len(results) != 13 {
+		t.Fatalf("expected 13 migrations, got %d", len(results))
 	}
 
 	version, err := CurrentVersion(ctx, db.DSN)

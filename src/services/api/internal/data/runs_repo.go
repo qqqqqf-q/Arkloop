@@ -18,6 +18,19 @@ type Run struct {
 	CreatedByUserID *uuid.UUID
 	Status          string
 	CreatedAt       time.Time
+
+	// R12 lifecycle fields
+	ParentRunID       *uuid.UUID
+	StatusUpdatedAt   *time.Time
+	CompletedAt       *time.Time
+	FailedAt          *time.Time
+	DurationMs        *int64
+	TotalInputTokens  *int64
+	TotalOutputTokens *int64
+	TotalCostUSD      *float64
+	Model             *string
+	SkillID           *string
+	DeletedAt         *time.Time
 }
 
 type RunEvent struct {
@@ -78,11 +91,19 @@ func (r *RunEventRepository) CreateRunWithStartedEvent(
 		ctx,
 		`INSERT INTO runs (org_id, thread_id, created_by_user_id, status)
 		 VALUES ($1, $2, $3, 'running')
-		 RETURNING id, org_id, thread_id, created_by_user_id, status, created_at`,
+		 RETURNING id, org_id, thread_id, created_by_user_id, status, created_at,
+		           parent_run_id, status_updated_at, completed_at, failed_at,
+		           duration_ms, total_input_tokens, total_output_tokens, total_cost_usd,
+		           model, skill_id, deleted_at`,
 		orgID,
 		threadID,
 		createdByUserID,
-	).Scan(&run.ID, &run.OrgID, &run.ThreadID, &run.CreatedByUserID, &run.Status, &run.CreatedAt)
+	).Scan(
+		&run.ID, &run.OrgID, &run.ThreadID, &run.CreatedByUserID, &run.Status, &run.CreatedAt,
+		&run.ParentRunID, &run.StatusUpdatedAt, &run.CompletedAt, &run.FailedAt,
+		&run.DurationMs, &run.TotalInputTokens, &run.TotalOutputTokens, &run.TotalCostUSD,
+		&run.Model, &run.SkillID, &run.DeletedAt,
+	)
 	if err != nil {
 		return Run{}, RunEvent{}, err
 	}
@@ -106,12 +127,20 @@ func (r *RunEventRepository) GetRun(ctx context.Context, runID uuid.UUID) (*Run,
 	var run Run
 	err := r.db.QueryRow(
 		ctx,
-		`SELECT id, org_id, thread_id, created_by_user_id, status, created_at
+		`SELECT id, org_id, thread_id, created_by_user_id, status, created_at,
+		        parent_run_id, status_updated_at, completed_at, failed_at,
+		        duration_ms, total_input_tokens, total_output_tokens, total_cost_usd,
+		        model, skill_id, deleted_at
 		 FROM runs
 		 WHERE id = $1
 		 LIMIT 1`,
 		runID,
-	).Scan(&run.ID, &run.OrgID, &run.ThreadID, &run.CreatedByUserID, &run.Status, &run.CreatedAt)
+	).Scan(
+		&run.ID, &run.OrgID, &run.ThreadID, &run.CreatedByUserID, &run.Status, &run.CreatedAt,
+		&run.ParentRunID, &run.StatusUpdatedAt, &run.CompletedAt, &run.FailedAt,
+		&run.DurationMs, &run.TotalInputTokens, &run.TotalOutputTokens, &run.TotalCostUSD,
+		&run.Model, &run.SkillID, &run.DeletedAt,
+	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
@@ -142,7 +171,10 @@ func (r *RunEventRepository) ListRunsByThread(
 
 	rows, err := r.db.Query(
 		ctx,
-		`SELECT id, org_id, thread_id, created_by_user_id, status, created_at
+		`SELECT id, org_id, thread_id, created_by_user_id, status, created_at,
+		        parent_run_id, status_updated_at, completed_at, failed_at,
+		        duration_ms, total_input_tokens, total_output_tokens, total_cost_usd,
+		        model, skill_id, deleted_at
 		 FROM runs
 		 WHERE org_id = $1
 		   AND thread_id = $2
@@ -161,12 +193,10 @@ func (r *RunEventRepository) ListRunsByThread(
 	for rows.Next() {
 		var run Run
 		if err := rows.Scan(
-			&run.ID,
-			&run.OrgID,
-			&run.ThreadID,
-			&run.CreatedByUserID,
-			&run.Status,
-			&run.CreatedAt,
+			&run.ID, &run.OrgID, &run.ThreadID, &run.CreatedByUserID, &run.Status, &run.CreatedAt,
+			&run.ParentRunID, &run.StatusUpdatedAt, &run.CompletedAt, &run.FailedAt,
+			&run.DurationMs, &run.TotalInputTokens, &run.TotalOutputTokens, &run.TotalCostUSD,
+			&run.Model, &run.SkillID, &run.DeletedAt,
 		); err != nil {
 			return nil, err
 		}
