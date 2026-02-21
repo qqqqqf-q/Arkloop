@@ -13,6 +13,14 @@ import (
 type User struct {
 	ID                  uuid.UUID
 	DisplayName         string
+	Email               *string
+	EmailVerifiedAt     *time.Time
+	Status              string
+	DeletedAt           *time.Time
+	AvatarURL           *string
+	Locale              *string
+	Timezone            *string
+	LastLoginAt         *time.Time
 	TokensInvalidBefore time.Time
 	CreatedAt           time.Time
 }
@@ -42,9 +50,14 @@ func (r *UserRepository) Create(ctx context.Context, displayName string) (User, 
 		ctx,
 		`INSERT INTO users (display_name)
 		 VALUES ($1)
-		 RETURNING id, display_name, tokens_invalid_before, created_at`,
+		 RETURNING id, display_name, email, email_verified_at, status, deleted_at,
+		           avatar_url, locale, timezone, last_login_at, tokens_invalid_before, created_at`,
 		displayName,
-	).Scan(&user.ID, &user.DisplayName, &user.TokensInvalidBefore, &user.CreatedAt)
+	).Scan(
+		&user.ID, &user.DisplayName, &user.Email, &user.EmailVerifiedAt,
+		&user.Status, &user.DeletedAt, &user.AvatarURL, &user.Locale,
+		&user.Timezone, &user.LastLoginAt, &user.TokensInvalidBefore, &user.CreatedAt,
+	)
 	if err != nil {
 		return User{}, err
 	}
@@ -59,12 +72,17 @@ func (r *UserRepository) GetByID(ctx context.Context, userID uuid.UUID) (*User, 
 	var user User
 	err := r.db.QueryRow(
 		ctx,
-		`SELECT id, display_name, tokens_invalid_before, created_at
+		`SELECT id, display_name, email, email_verified_at, status, deleted_at,
+		        avatar_url, locale, timezone, last_login_at, tokens_invalid_before, created_at
 		 FROM users
 		 WHERE id = $1
 		 LIMIT 1`,
 		userID,
-	).Scan(&user.ID, &user.DisplayName, &user.TokensInvalidBefore, &user.CreatedAt)
+	).Scan(
+		&user.ID, &user.DisplayName, &user.Email, &user.EmailVerifiedAt,
+		&user.Status, &user.DeletedAt, &user.AvatarURL, &user.Locale,
+		&user.Timezone, &user.LastLoginAt, &user.TokensInvalidBefore, &user.CreatedAt,
+	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil

@@ -86,6 +86,14 @@ func login(authService *auth.Service, auditWriter *audit.Writer) func(nethttp.Re
 				WriteError(w, nethttp.StatusUnauthorized, "auth.invalid_credentials", "invalid credentials", traceID, nil)
 				return
 			}
+			var suspended auth.SuspendedUserError
+			if errors.As(err, &suspended) {
+				if auditWriter != nil {
+					auditWriter.WriteLoginFailed(r.Context(), traceID, body.Login)
+				}
+				WriteError(w, nethttp.StatusForbidden, "auth.user_suspended", "account suspended", traceID, nil)
+				return
+			}
 			WriteError(w, nethttp.StatusInternalServerError, "internal_error", "internal error", traceID, nil)
 			return
 		}
@@ -310,6 +318,8 @@ func authenticateUser(
 			WriteError(w, nethttp.StatusUnauthorized, "auth.invalid_token", typed.Error(), traceID, nil)
 		case auth.UserNotFoundError:
 			WriteError(w, nethttp.StatusUnauthorized, "auth.user_not_found", "user not found", traceID, nil)
+		case auth.SuspendedUserError:
+			WriteError(w, nethttp.StatusForbidden, "auth.user_suspended", "account suspended", traceID, nil)
 		default:
 			WriteError(w, nethttp.StatusInternalServerError, "internal_error", "internal error", traceID, nil)
 		}
