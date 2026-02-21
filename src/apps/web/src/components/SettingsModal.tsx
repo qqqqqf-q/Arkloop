@@ -54,20 +54,21 @@ export function SettingsModal({ me, initialTab = 'account', onClose, onLogout }:
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-[2px]"
+      className="fixed inset-0 z-50 flex items-center justify-center backdrop-blur-[2px]"
+      style={{ background: 'var(--c-overlay)' }}
       onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}
     >
       <div
-        className="flex h-[624px] w-[832px] overflow-hidden rounded-2xl shadow-2xl"
-        style={{ background: '#FAFAF8' }}
+        className="flex h-[624px] w-[832px] overflow-hidden rounded-2xl shadow-2xl bg-[var(--c-bg-page)]"
+        style={{ boxShadow: 'inset 0 0 0 0.5px var(--c-modal-ring)' }}
       >
         {/* 左侧导航 */}
         <div
-          className="flex w-[200px] shrink-0 flex-col py-4"
-          style={{ background: '#F2F2F0', borderRight: '0.5px solid #E2E2E0' }}
+          className="flex w-[200px] shrink-0 flex-col py-4 bg-[var(--c-bg-sub)]"
+          style={{ borderRight: '0.5px solid var(--c-border-subtle)' }}
         >
           <div className="mb-2 px-4 py-1">
-            <span className="text-sm font-semibold" style={{ color: '#1A1A18' }}>Arkloop</span>
+            <span className="text-sm font-semibold text-[var(--c-text-heading)]">Arkloop</span>
           </div>
 
           <nav className="flex flex-col gap-[2px] px-2">
@@ -75,11 +76,12 @@ export function SettingsModal({ me, initialTab = 'account', onClose, onLogout }:
               <button
                 key={key}
                 onClick={() => setActiveKey(key)}
-                className="flex h-8 items-center gap-2 rounded-md px-2 text-sm transition-colors"
-                style={{
-                  background: activeKey === key ? '#E4E4E2' : 'transparent',
-                  color: activeKey === key ? '#1A1A18' : '#4A4A48',
-                }}
+                className={[
+                  'flex h-8 items-center gap-2 rounded-md px-2 text-sm transition-colors',
+                  activeKey === key
+                    ? 'bg-[var(--c-bg-deep)] text-[var(--c-text-heading)]'
+                    : 'text-[var(--c-text-secondary)] hover:bg-[var(--c-bg-deep)]',
+                ].join(' ')}
               >
                 <Icon size={15} />
                 <span>{label}</span>
@@ -88,12 +90,9 @@ export function SettingsModal({ me, initialTab = 'account', onClose, onLogout }:
           </nav>
 
           <div className="mt-auto px-2">
-            <div style={{ borderTop: '0.5px solid #E2E2E0', marginBottom: '8px' }} />
+            <div style={{ borderTop: '0.5px solid var(--c-border-subtle)', marginBottom: '8px' }} />
             <button
-              className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-sm transition-colors"
-              style={{ color: '#4A4A48' }}
-              onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = '#E4E4E2' }}
-              onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent' }}
+              className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-sm text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)]"
             >
               <HelpCircle size={15} />
               <span>获取帮助</span>
@@ -106,15 +105,12 @@ export function SettingsModal({ me, initialTab = 'account', onClose, onLogout }:
         <div className="flex flex-1 flex-col overflow-hidden">
           <div
             className="flex items-center justify-between px-6 py-4"
-            style={{ borderBottom: '0.5px solid #E2E2E0' }}
+            style={{ borderBottom: '0.5px solid var(--c-border-subtle)' }}
           >
-            <h2 className="text-base font-medium" style={{ color: '#1A1A18' }}>{activeLabel}</h2>
+            <h2 className="text-base font-medium text-[var(--c-text-heading)]">{activeLabel}</h2>
             <button
               onClick={onClose}
-              className="flex h-7 w-7 items-center justify-center rounded-md transition-colors"
-              style={{ color: '#6B6B68' }}
-              onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = '#E4E4E2' }}
-              onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent' }}
+              className="flex h-7 w-7 items-center justify-center rounded-md text-[var(--c-text-tertiary)] transition-colors hover:bg-[var(--c-bg-deep)]"
             >
               <X size={16} />
             </button>
@@ -128,10 +124,7 @@ export function SettingsModal({ me, initialTab = 'account', onClose, onLogout }:
                 onLogout={() => { onLogout(); onClose() }}
               />
             ) : (
-              <div
-                className="flex h-full items-center justify-center text-sm"
-                style={{ color: '#8C8C8A' }}
-              >
+              <div className="flex h-full items-center justify-center text-sm text-[var(--c-text-muted)]">
                 暂未开放
               </div>
             )}
@@ -155,27 +148,24 @@ function AccountContent({
     <div className="flex flex-col gap-3">
       {/* 用户信息卡片 */}
       <div
-        className="flex items-center gap-3 rounded-xl p-4"
-        style={{ background: '#F2F2F0', border: '0.5px solid #E2E2E0' }}
+        className="flex items-center gap-3 rounded-xl p-4 bg-[var(--c-bg-sub)]"
+        style={{ border: '0.5px solid var(--c-border-subtle)' }}
       >
         <div
           className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-lg font-medium"
-          style={{ background: '#c2c0b6', color: '#242422' }}
+          style={{ background: 'var(--c-avatar-bg)', color: 'var(--c-avatar-text)' }}
         >
           {userInitial}
         </div>
         <div className="flex min-w-0 flex-1 flex-col">
-          <span className="truncate text-sm font-medium" style={{ color: '#1A1A18' }}>
+          <span className="truncate text-sm font-medium text-[var(--c-text-heading)]">
             {me?.display_name ?? '加载中...'}
           </span>
         </div>
         <button
           onClick={onLogout}
-          className="flex h-7 w-7 items-center justify-center rounded-md transition-colors"
-          style={{ color: '#6B6B68' }}
+          className="flex h-7 w-7 items-center justify-center rounded-md text-[var(--c-text-tertiary)] transition-colors hover:bg-[var(--c-bg-deep)]"
           title="退出登录"
-          onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = '#E4E4E2' }}
-          onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent' }}
         >
           <LogOut size={15} />
         </button>
@@ -183,11 +173,11 @@ function AccountContent({
 
       {/* 方案信息 */}
       <div
-        className="rounded-xl p-4"
-        style={{ background: '#F2F2F0', border: '0.5px solid #E2E2E0' }}
+        className="rounded-xl p-4 bg-[var(--c-bg-sub)]"
+        style={{ border: '0.5px solid var(--c-border-subtle)' }}
       >
         <div className="flex items-center justify-between">
-          <span className="text-sm font-medium" style={{ color: '#1A1A18' }}>Enterprise plan</span>
+          <span className="text-sm font-medium text-[var(--c-text-heading)]">Enterprise plan</span>
         </div>
       </div>
     </div>

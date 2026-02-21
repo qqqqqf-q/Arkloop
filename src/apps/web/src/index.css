@@ -29,6 +29,9 @@
   --c-accent-send: #1A1A19;
   --c-accent-send-hover: #2e2e2c;
   --c-accent-send-text: #e8e8e3;
+  --c-pro-bg: rgba(70, 145, 246, 0.12);
+  --c-overlay: rgba(0, 0, 0, 0.60);
+  --c-modal-ring: rgba(255, 255, 255, 0.07);
 }
 
 @media (prefers-color-scheme: light) {
@@ -61,6 +64,9 @@
     --c-accent-send: #FFFFFF;
     --c-accent-send-hover: #F0F0EE;
     --c-accent-send-text: #1A1A19;
+    --c-pro-bg: #EAF2FC;
+    --c-overlay: rgba(0, 0, 0, 0.25);
+    --c-modal-ring: rgba(0, 0, 0, 0.09);
   }
 }
 

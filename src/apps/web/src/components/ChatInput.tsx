@@ -173,7 +173,7 @@ export function ChatInput({
               alignItems: 'center',
               justifyContent: 'flex-start',
               paddingLeft: '12px',
-              background: proExpanded ? '#EAF2FC' : proHovered ? 'var(--c-bg-deep)' : 'transparent',
+              background: proExpanded ? 'var(--c-pro-bg)' : proHovered ? 'var(--c-bg-deep)' : 'transparent',
               color: proExpanded ? '#4691F6' : 'var(--c-text-secondary)',
               opacity: proExpanded ? 1 : proHovered ? 1 : 0.7,
               fontSize: '15px',

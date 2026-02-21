@@ -44,20 +44,6 @@ export function Sidebar({
 
   return (
     <aside
-      style={{
-        '--c-bg-sidebar': '#EBEBEB',
-        '--c-bg-deep': '#DEDEDC',
-        '--c-bg-plus': '#D5D5D3',
-        '--c-bg-menu': '#F0F0EE',
-        '--c-text-primary': '#141412',
-        '--c-text-secondary': '#3D3D3B',
-        '--c-text-tertiary': '#6B6B68',
-        '--c-text-muted': '#8C8C8A',
-        '--c-text-icon': '#7A7A78',
-        '--c-text-icon2': '#6E6E6C',
-        '--c-border': '#B9B9B7',
-        '--c-border-subtle': '#DEDEDE',
-      } as React.CSSProperties}
       className={[
         'flex h-full shrink-0 flex-col border-r border-[var(--c-border)] bg-[var(--c-bg-sidebar)] transition-all duration-300',
         collapsed ? 'w-0 overflow-hidden border-r-0' : 'w-[288px]',
