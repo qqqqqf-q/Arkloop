@@ -2,6 +2,8 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { Outlet, useNavigate } from 'react-router-dom'
 import { PanelLeftOpen } from 'lucide-react'
 import { Sidebar } from '../components/Sidebar'
+import { SettingsModal } from '../components/SettingsModal'
+import type { SettingsTab } from '../components/SettingsModal'
 import {
   getMe,
   listThreads,
@@ -24,6 +26,8 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
   const [threads, setThreads] = useState<ThreadResponse[]>([])
   const [runningThreadIds, setRunningThreadIds] = useState<Set<string>>(new Set())
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsInitialTab, setSettingsInitialTab] = useState<SettingsTab>('account')
   const mountedRef = useRef(true)
 
   useEffect(() => {
@@ -106,9 +110,19 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
         runningThreadIds={runningThreadIds}
         onNewThread={handleNewThread}
         onLogout={handleLogout}
+        onOpenSettings={(tab = 'account') => { setSettingsInitialTab(tab); setSettingsOpen(true) }}
         collapsed={sidebarCollapsed}
         onToggleCollapse={() => setSidebarCollapsed(true)}
       />
+
+      {settingsOpen && (
+        <SettingsModal
+          me={me}
+          initialTab={settingsInitialTab}
+          onClose={() => setSettingsOpen(false)}
+          onLogout={handleLogout}
+        />
+      )}
 
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <Outlet context={{ accessToken, onLoggedOut, me, onThreadCreated: handleThreadCreated, onRunStarted: handleRunStarted, onRunEnded: handleRunEnded }} />

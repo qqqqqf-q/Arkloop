@@ -64,7 +64,6 @@ export function ChatInput({
     adjustHeight()
   }, [value, adjustHeight])
 
-  // 点击外部关闭菜单
   useEffect(() => {
     if (!menuOpen) return
     const handleClick = (e: MouseEvent) => {
@@ -90,7 +89,6 @@ export function ChatInput({
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? [])
     if (files.length > 0) onAttachFiles?.(files)
-    // 重置 input 以允许重复选择同一文件
     e.target.value = ''
     setMenuOpen(false)
   }

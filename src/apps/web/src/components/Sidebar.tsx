@@ -6,8 +6,9 @@ import {
   SearchCheck,
   Scale,
   PanelLeftClose,
-  ChevronsUpDown,
+  Bolt,
 } from 'lucide-react'
+import type { SettingsTab } from './SettingsModal'
 import type { ThreadResponse, MeResponse } from '../api'
 
 type Props = {
@@ -16,6 +17,7 @@ type Props = {
   runningThreadIds: Set<string>
   onNewThread: () => void
   onLogout: () => void
+  onOpenSettings: (tab?: SettingsTab) => void
   collapsed: boolean
   onToggleCollapse: () => void
 }
@@ -30,7 +32,8 @@ export function Sidebar({
   threads,
   runningThreadIds,
   onNewThread,
-  onLogout,
+  onLogout: _onLogout,
+  onOpenSettings,
   collapsed,
   onToggleCollapse,
 }: Props) {
@@ -41,6 +44,20 @@ export function Sidebar({
 
   return (
     <aside
+      style={{
+        '--c-bg-sidebar': '#EBEBEB',
+        '--c-bg-deep': '#DEDEDC',
+        '--c-bg-plus': '#D5D5D3',
+        '--c-bg-menu': '#F0F0EE',
+        '--c-text-primary': '#141412',
+        '--c-text-secondary': '#3D3D3B',
+        '--c-text-tertiary': '#6B6B68',
+        '--c-text-muted': '#8C8C8A',
+        '--c-text-icon': '#7A7A78',
+        '--c-text-icon2': '#6E6E6C',
+        '--c-border': '#B9B9B7',
+        '--c-border-subtle': '#DEDEDE',
+      } as React.CSSProperties}
       className={[
         'flex h-full shrink-0 flex-col border-r border-[var(--c-border)] bg-[var(--c-bg-sidebar)] transition-all duration-300',
         collapsed ? 'w-0 overflow-hidden border-r-0' : 'w-[288px]',
@@ -128,27 +145,36 @@ export function Sidebar({
       </div>
 
       {/* 用户信息 */}
-      <div className="mt-auto flex min-h-[62px] items-center gap-3 border-t border-[var(--c-border)] bg-[var(--c-bg-sidebar)] px-4 py-[14px]">
-        <div
-          className="flex h-[37px] w-[37px] shrink-0 items-center justify-center rounded-full text-[15px] font-medium"
-          style={{ background: 'var(--c-avatar-bg)', color: 'var(--c-avatar-text)' }}
+      <div className="mt-auto border-t border-[var(--c-border)] p-2">
+        <button
+          onClick={() => onOpenSettings('account')}
+          className="flex w-full items-center gap-3 rounded-xl border-[0.5px] border-[var(--c-border)] px-3 py-[10px] transition-colors hover:bg-[var(--c-bg-deep)]"
         >
-          {userInitial}
-        </div>
-        <div className="flex min-w-0 flex-1 flex-col gap-[2px]">
-          <div className="truncate text-sm font-medium text-[var(--c-text-secondary)]">
-            {me?.display_name ?? '加载中...'}
-          </div>
-          <button
-            onClick={onLogout}
-            className="text-left text-xs font-normal text-[var(--c-text-tertiary)] transition-opacity hover:opacity-70"
+          <div
+            className="flex h-[37px] w-[37px] shrink-0 items-center justify-center rounded-full text-[15px] font-medium"
+            style={{ background: 'var(--c-avatar-bg)', color: 'var(--c-avatar-text)' }}
           >
-            退出登录
+            {userInitial}
+          </div>
+          <div className="flex min-w-0 flex-1 flex-col gap-[2px] text-left">
+            <div className="truncate text-sm font-medium text-[var(--c-text-secondary)]">
+              {me?.display_name ?? '加载中...'}
+            </div>
+            <div className="text-xs font-normal text-[var(--c-text-tertiary)]">
+              Enterprise plan
+            </div>
+          </div>
+        </button>
+
+        {/* 底部快捷图标 */}
+        <div className="mt-1 flex items-center gap-[2px] px-1">
+          <button
+            onClick={() => onOpenSettings('settings')}
+            className="flex h-7 w-7 items-center justify-center rounded-md text-[var(--c-text-icon)] transition-colors hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-secondary)]"
+          >
+            <Bolt size={15} />
           </button>
         </div>
-        <button className="flex h-4 w-4 shrink-0 items-center justify-center text-[var(--c-text-icon2)] transition-opacity hover:opacity-70">
-          <ChevronsUpDown size={16} />
-        </button>
       </div>
     </aside>
   )
