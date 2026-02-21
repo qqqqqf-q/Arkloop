@@ -2,6 +2,7 @@ package runengine
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -23,7 +24,7 @@ import (
 
 const (
 	eventCommitBatchSize      = 20
-	eventCommitMaxInterval    = 200 * time.Millisecond
+	eventCommitMaxInterval    = 50 * time.Millisecond
 	defaultAgentMaxIterations = 10
 	threadMessageLimit        = 200
 )
@@ -414,7 +415,23 @@ func (e *EngineV1) appendAndCommit(ctx context.Context, pool *pgxpool.Pool, runI
 	if _, err := e.eventsRepo.AppendEvent(ctx, tx, runID, ev.Type, ev.DataJSON, ev.ToolName, ev.ErrorClass); err != nil {
 		return err
 	}
-	return tx.Commit(ctx)
+
+	if status, ok := terminalStatuses[ev.Type]; ok {
+		if err := e.runsRepo.UpdateRunTerminalStatus(ctx, tx, runID, data.TerminalStatusUpdate{
+			Status: status,
+		}); err != nil {
+			return err
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+
+	channel := fmt.Sprintf("run_events:%s", runID.String())
+	_, _ = pool.Exec(ctx, "SELECT pg_notify($1, '')", channel)
+
+	return nil
 }
 
 func (e *EngineV1) gatewayFromCredential(credential routing.ProviderCredential) (llm.Gateway, error) {
@@ -524,6 +541,13 @@ func filterToolSpecs(specs []llm.ToolSpec, allowlistSet map[string]struct{}) []l
 	return out
 }
 
+// terminalStatuses maps terminal event types to runs.status values.
+var terminalStatuses = map[string]string{
+	"run.completed": "completed",
+	"run.failed":    "failed",
+	"run.cancelled": "cancelled",
+}
+
 type eventWriter struct {
 	pool    *pgxpool.Pool
 	run     data.Run
@@ -534,6 +558,10 @@ type eventWriter struct {
 	lastCommitAt             time.Time
 	assistantDeltas          []string
 	completed                bool
+
+	totalInputTokens  int64
+	totalOutputTokens int64
+	totalCostUSD      float64
 }
 
 func newEventWriter(pool *pgxpool.Pool, run data.Run, traceID string) *eventWriter {
@@ -583,6 +611,14 @@ func (w *eventWriter) Append(
 		if _, err := eventsRepo.AppendEvent(ctx, w.tx, runID, cancelled.Type, cancelled.DataJSON, cancelled.ToolName, cancelled.ErrorClass); err != nil {
 			return err
 		}
+		if err := runsRepo.UpdateRunTerminalStatus(ctx, w.tx, runID, data.TerminalStatusUpdate{
+			Status:            "cancelled",
+			TotalInputTokens:  w.totalInputTokens,
+			TotalOutputTokens: w.totalOutputTokens,
+			TotalCostUSD:      w.totalCostUSD,
+		}); err != nil {
+			return err
+		}
 		if err := w.commit(ctx); err != nil {
 			return err
 		}
@@ -600,12 +636,26 @@ func (w *eventWriter) Append(
 	}
 	w.pendingEventsSinceCommit++
 
+	w.accumUsage(ev.DataJSON)
+
 	if ev.Type == "message.delta" {
 		if delta := extractAssistantDelta(ev.DataJSON); delta != "" {
 			w.assistantDeltas = append(w.assistantDeltas, delta)
 		}
-	} else if ev.Type == "run.completed" {
-		w.completed = true
+	}
+
+	if status, ok := terminalStatuses[ev.Type]; ok {
+		if status == "completed" {
+			w.completed = true
+		}
+		if err := runsRepo.UpdateRunTerminalStatus(ctx, w.tx, runID, data.TerminalStatusUpdate{
+			Status:            status,
+			TotalInputTokens:  w.totalInputTokens,
+			TotalOutputTokens: w.totalOutputTokens,
+			TotalCostUSD:      w.totalCostUSD,
+		}); err != nil {
+			return err
+		}
 		return nil
 	}
 
@@ -630,6 +680,11 @@ func (w *eventWriter) commit(ctx context.Context) error {
 	w.tx = nil
 	w.pendingEventsSinceCommit = 0
 	w.lastCommitAt = time.Now()
+
+	// notify SSE listeners
+	channel := fmt.Sprintf("run_events:%s", w.run.ID.String())
+	_, _ = w.pool.Exec(ctx, "SELECT pg_notify($1, '')", channel)
+
 	return nil
 }
 
@@ -671,4 +726,40 @@ func extractAssistantDelta(dataJSON map[string]any) string {
 		return ""
 	}
 	return delta
+}
+
+// accumUsage extracts usage/cost from event data and accumulates into writer totals.
+func (w *eventWriter) accumUsage(dataJSON map[string]any) {
+	if dataJSON == nil {
+		return
+	}
+	if usage, ok := dataJSON["usage"].(map[string]any); ok {
+		if v, ok := toInt64(usage["input_tokens"]); ok {
+			w.totalInputTokens += v
+		}
+		if v, ok := toInt64(usage["output_tokens"]); ok {
+			w.totalOutputTokens += v
+		}
+	}
+	if cost, ok := dataJSON["cost"].(map[string]any); ok {
+		if v, ok := toInt64(cost["amount_micros"]); ok {
+			w.totalCostUSD += float64(v) / 1_000_000.0
+		}
+	}
+}
+
+func toInt64(v any) (int64, bool) {
+	switch n := v.(type) {
+	case float64:
+		return int64(n), true
+	case int64:
+		return n, true
+	case int:
+		return int64(n), true
+	case json.Number:
+		i, err := n.Int64()
+		return i, err == nil
+	default:
+		return 0, false
+	}
 }

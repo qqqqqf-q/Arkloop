@@ -1,0 +1,7 @@
+go 1.26.0
+
+use (
+	./src/services/api
+	./src/services/shared
+	./src/services/worker
+)

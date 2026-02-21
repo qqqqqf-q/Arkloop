@@ -9,13 +9,6 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// terminal event type → runs.status
-var terminalRunStatus = map[string]string{
-	"run.completed": "completed",
-	"run.failed":    "failed",
-	"run.cancelled": "cancelled",
-}
-
 type RunEventsRepository struct{}
 
 func (RunEventsRepository) GetLatestEventType(
@@ -84,15 +77,6 @@ func (r RunEventsRepository) AppendEvent(
 	)
 	if err != nil {
 		return 0, err
-	}
-
-	if newStatus, ok := terminalRunStatus[eventType]; ok {
-		if _, err := tx.Exec(ctx,
-			`UPDATE runs SET status = $1 WHERE id = $2`,
-			newStatus, runID,
-		); err != nil {
-			return 0, err
-		}
 	}
 
 	return seq, nil

@@ -16,5 +16,42 @@ services:
       timeout: 3s
       retries: 20
 
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: >
+      redis-server
+      --requirepass ${ARKLOOP_REDIS_PASSWORD:-arkloop_redis}
+      --appendonly yes
+    ports:
+      - "${ARKLOOP_REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${ARKLOOP_REDIS_PASSWORD:-arkloop_redis}", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  minio:
+    image: minio/minio:RELEASE.2025-02-18T23-48-18Z
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${ARKLOOP_S3_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${ARKLOOP_S3_SECRET_KEY:?请在 .env 中设置 ARKLOOP_S3_SECRET_KEY}
+    ports:
+      - "${ARKLOOP_S3_API_PORT:-9000}:9000"
+      - "${ARKLOOP_S3_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
 volumes:
   postgres_data:
+  redis_data:
+  minio_data:

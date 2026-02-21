@@ -238,14 +238,18 @@ func listThreadRuns(
 
 		resp := make([]threadRunResponse, 0, len(runs))
 		for _, run := range runs {
-			terminal, err := runRepo.GetLatestEventType(r.Context(), run.ID, runTerminalEventTypes)
-			if err != nil {
-				WriteError(w, nethttp.StatusInternalServerError, "internal_error", "internal error", traceID, nil)
-				return
+			status := run.Status
+			if status == "running" {
+				terminal, err := runRepo.GetLatestEventType(r.Context(), run.ID, runTerminalEventTypes)
+				if err != nil {
+					WriteError(w, nethttp.StatusInternalServerError, "internal_error", "internal error", traceID, nil)
+					return
+				}
+				status = deriveRunStatus(terminal)
 			}
 			resp = append(resp, threadRunResponse{
 				RunID:     run.ID.String(),
-				Status:    deriveRunStatus(terminal),
+				Status:    status,
 				CreatedAt: run.CreatedAt.UTC().Format(time.RFC3339Nano),
 			})
 		}
@@ -290,10 +294,14 @@ func getRun(
 			return
 		}
 
-		terminal, err := runRepo.GetLatestEventType(r.Context(), run.ID, runTerminalEventTypes)
-		if err != nil {
-			WriteError(w, nethttp.StatusInternalServerError, "internal_error", "internal error", traceID, nil)
-			return
+		status := run.Status
+		if status == "running" {
+			terminal, err := runRepo.GetLatestEventType(r.Context(), run.ID, runTerminalEventTypes)
+			if err != nil {
+				WriteError(w, nethttp.StatusInternalServerError, "internal_error", "internal error", traceID, nil)
+				return
+			}
+			status = deriveRunStatus(terminal)
 		}
 
 		var createdByUserID *string
@@ -307,7 +315,7 @@ func getRun(
 			OrgID:           run.OrgID.String(),
 			ThreadID:        run.ThreadID.String(),
 			CreatedByUserID: createdByUserID,
-			Status:          deriveRunStatus(terminal),
+			Status:          status,
 			CreatedAt:       run.CreatedAt.UTC().Format(time.RFC3339Nano),
 			TraceID:         traceID,
 		})
@@ -396,6 +404,7 @@ func streamRunEvents(
 	membershipRepo *data.OrgMembershipRepository,
 	runRepo *data.RunEventRepository,
 	auditWriter *audit.Writer,
+	pool *pgxpool.Pool,
 	sseConfig SSEConfig,
 ) func(nethttp.ResponseWriter, *nethttp.Request, uuid.UUID) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request, runID uuid.UUID) {
@@ -437,7 +446,6 @@ func streamRunEvents(
 		if batchLimit <= 0 {
 			batchLimit = 500
 		}
-		pollDuration := time.Duration(float64(time.Second) * sseConfig.PollSeconds)
 		heartbeatDuration := time.Duration(float64(time.Second) * sseConfig.HeartbeatSeconds)
 
 		flusher, canFlush := w.(nethttp.Flusher)
@@ -451,6 +459,33 @@ func streamRunEvents(
 			_, _ = fmt.Fprint(w, ": ping\n\n")
 			if canFlush {
 				flusher.Flush()
+			}
+		}
+
+		// LISTEN for pg_notify from worker commits
+		var notifyCh <-chan struct{}
+		if follow && pool != nil {
+			listenConn, err := pool.Acquire(r.Context())
+			if err == nil {
+				channel := fmt.Sprintf(`"run_events:%s"`, runID.String())
+				if _, err := listenConn.Exec(r.Context(), "LISTEN "+channel); err == nil {
+					ch := make(chan struct{}, 1)
+					notifyCh = ch
+					go func() {
+						defer listenConn.Release()
+						for {
+							if err := listenConn.Conn().PgConn().WaitForNotification(r.Context()); err != nil {
+								return
+							}
+							select {
+							case ch <- struct{}{}:
+							default:
+							}
+						}
+					}()
+				} else {
+					listenConn.Release()
+				}
 			}
 		}
 
@@ -496,10 +531,20 @@ func streamRunEvents(
 				lastSend = now
 			}
 
-			select {
-			case <-r.Context().Done():
-				return
-			case <-time.After(pollDuration):
+			if notifyCh != nil {
+				select {
+				case <-r.Context().Done():
+					return
+				case <-notifyCh:
+				case <-time.After(heartbeatDuration):
+				}
+			} else {
+				// fallback: poll at heartbeat interval
+				select {
+				case <-r.Context().Done():
+					return
+				case <-time.After(heartbeatDuration):
+				}
 			}
 		}
 	}
@@ -593,7 +638,7 @@ func runEntry(
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	get := getRun(authService, membershipRepo, runRepo, auditWriter)
 	cancel := cancelRun(authService, membershipRepo, runRepo, auditWriter, pool)
-	streamEvents := streamRunEvents(authService, membershipRepo, runRepo, auditWriter, sseConfig)
+	streamEvents := streamRunEvents(authService, membershipRepo, runRepo, auditWriter, pool, sseConfig)
 
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		traceID := observability.TraceIDFromContext(r.Context())
