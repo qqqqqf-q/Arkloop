@@ -18,6 +18,13 @@ type Message struct {
 	Role            string
 	Content         string
 	CreatedAt       time.Time
+	Hidden          bool
+}
+
+type NoAssistantMessageError struct{}
+
+func (e NoAssistantMessageError) Error() string {
+	return "no assistant message to hide"
 }
 
 type ThreadNotFoundError struct {
@@ -76,7 +83,7 @@ func (r *MessageRepository) Create(
 		 INSERT INTO messages (org_id, thread_id, created_by_user_id, role, content)
 		 SELECT $1, $2, $3, $4, $5
 		 FROM thread
-		 RETURNING id, org_id, thread_id, created_by_user_id, role, content, created_at`,
+		 RETURNING id, org_id, thread_id, created_by_user_id, role, content, created_at, hidden`,
 		orgID,
 		threadID,
 		createdByUserID,
@@ -90,6 +97,7 @@ func (r *MessageRepository) Create(
 		&message.Role,
 		&message.Content,
 		&message.CreatedAt,
+		&message.Hidden,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -122,10 +130,11 @@ func (r *MessageRepository) ListByThread(
 
 	rows, err := r.db.Query(
 		ctx,
-		`SELECT id, org_id, thread_id, created_by_user_id, role, content, created_at
+		`SELECT id, org_id, thread_id, created_by_user_id, role, content, created_at, hidden
 		 FROM messages
 		 WHERE org_id = $1
 		   AND thread_id = $2
+		   AND hidden = FALSE
 		 ORDER BY created_at ASC, id ASC
 		 LIMIT $3`,
 		orgID,
@@ -148,6 +157,7 @@ func (r *MessageRepository) ListByThread(
 			&message.Role,
 			&message.Content,
 			&message.CreatedAt,
+			&message.Hidden,
 		); err != nil {
 			return nil, err
 		}
@@ -158,4 +168,50 @@ func (r *MessageRepository) ListByThread(
 	}
 
 	return messages, nil
+}
+
+// HideLastAssistantMessage 将该 thread 最后一条可见的 assistant 消息标记为 hidden。
+// 若不存在这样的消息，返回 NoAssistantMessageError。
+func (r *MessageRepository) HideLastAssistantMessage(
+	ctx context.Context,
+	orgID uuid.UUID,
+	threadID uuid.UUID,
+) (uuid.UUID, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if orgID == uuid.Nil {
+		return uuid.Nil, fmt.Errorf("org_id must not be empty")
+	}
+	if threadID == uuid.Nil {
+		return uuid.Nil, fmt.Errorf("thread_id must not be empty")
+	}
+
+	var hiddenID uuid.UUID
+	err := r.db.QueryRow(
+		ctx,
+		`UPDATE messages
+		 SET hidden = TRUE
+		 WHERE id = (
+		   SELECT id FROM messages
+		   WHERE org_id = $1
+		     AND thread_id = $2
+		     AND role = 'assistant'
+		     AND hidden = FALSE
+		   ORDER BY created_at DESC, id DESC
+		   LIMIT 1
+		 )
+		 AND org_id = $1
+		 RETURNING id`,
+		orgID,
+		threadID,
+	).Scan(&hiddenID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return uuid.Nil, NoAssistantMessageError{}
+		}
+		return uuid.Nil, err
+	}
+
+	return hiddenID, nil
 }

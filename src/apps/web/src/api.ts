@@ -301,3 +301,18 @@ export async function cancelRun(
     accessToken,
   })
 }
+
+export type RetryThreadResponse = {
+  run_id: string
+  trace_id: string
+}
+
+export async function retryThread(
+  accessToken: string,
+  threadId: string,
+): Promise<RetryThreadResponse> {
+  return await apiFetch<RetryThreadResponse>(`/v1/threads/${threadId}:retry`, {
+    method: 'POST',
+    accessToken,
+  })
+}

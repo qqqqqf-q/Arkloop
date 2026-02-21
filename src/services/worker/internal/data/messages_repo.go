@@ -56,6 +56,7 @@ func (MessagesRepository) ListByThread(
 		 FROM messages
 		 WHERE org_id = $1
 		   AND thread_id = $2
+		   AND hidden = FALSE
 		 ORDER BY created_at ASC
 		 LIMIT $3`,
 		orgID,

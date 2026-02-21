@@ -12,6 +12,7 @@ import {
   createMessage,
   createRun,
   cancelRun,
+  retryThread,
   listMessages,
   listThreadRuns,
   isApiError,
@@ -279,6 +280,32 @@ export function ChatPage() {
     }
   }
 
+  const handleRetry = useCallback(async () => {
+    if (isStreaming || sending || !threadId) return
+    setSending(true)
+    setError(null)
+    setAssistantDraft('')
+    try {
+      const run = await retryThread(accessToken, threadId)
+      // 乐观地移除最后一条 assistant 消息（后端已标记 hidden）
+      setMessages((prev) => {
+        const lastAssistantIdx = prev.map((m) => m.role).lastIndexOf('assistant')
+        if (lastAssistantIdx === -1) return prev
+        return prev.filter((_, i) => i !== lastAssistantIdx)
+      })
+      setActiveRunId(run.run_id)
+      onRunStarted(threadId)
+    } catch (err) {
+      if (isApiError(err) && err.status === 401) {
+        onLoggedOut()
+        return
+      }
+      setError(normalizeError(err))
+    } finally {
+      setSending(false)
+    }
+  }, [accessToken, threadId, isStreaming, sending, onRunStarted, onLoggedOut])
+
   const handleCancel = () => {
     if (!activeRunId || cancelSubmitting) return
     const runId = activeRunId
@@ -310,7 +337,7 @@ export function ChatPage() {
       </div>
 
       {/* 消息列表 */}
-      <div className="flex-1 overflow-y-auto bg-[var(--c-bg-page)]">
+      <div className="flex-1 min-h-0 overflow-y-auto bg-[var(--c-bg-page)]">
         <div
           style={{ maxWidth: 800, margin: '0 auto', padding: '50px 60px' }}
           className="flex w-full flex-col gap-6"
@@ -319,8 +346,16 @@ export function ChatPage() {
             <div className="py-20 text-center text-sm text-[var(--c-text-muted)]">加载中...</div>
           ) : (
             <>
-              {messages.map((msg) => (
-                <MessageBubble key={msg.id} message={msg} />
+              {messages.map((msg, idx) => (
+                <MessageBubble
+                  key={msg.id}
+                  message={msg}
+                  onRetry={
+                    msg.role === 'assistant' && idx === messages.length - 1 && !isStreaming && !sending
+                      ? handleRetry
+                      : undefined
+                  }
+                />
               ))}
 
               {assistantDraft && <StreamingBubble content={assistantDraft} />}
@@ -335,7 +370,7 @@ export function ChatPage() {
 
       {/* 输入区域 */}
       <div
-        style={{ maxWidth: 1200, margin: '0 auto', padding: '20px 60px 24px' }}
+        style={{ maxWidth: 1200, margin: '0 auto', padding: '20px 60px 24px', flexShrink: 0 }}
         className="flex w-full flex-col items-center gap-2"
       >
         {attachments.length > 0 && (
