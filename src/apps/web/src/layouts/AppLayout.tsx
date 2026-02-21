@@ -6,12 +6,11 @@ import {
   getMe,
   listThreads,
   logout,
-  createThread,
   isApiError,
   type MeResponse,
   type ThreadResponse,
 } from '../api'
-import { clearActiveThreadIdInStorage, writeActiveThreadIdToStorage } from '../storage'
+import { clearActiveThreadIdInStorage } from '../storage'
 
 type Props = {
   accessToken: string
@@ -61,18 +60,9 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
     onLoggedOut()
   }, [accessToken, onLoggedOut])
 
-  const handleNewThread = useCallback(async () => {
-    try {
-      const thread = await createThread(accessToken, { title: '新会话' })
-      writeActiveThreadIdToStorage(thread.id)
-      setThreads((prev) => [thread, ...prev])
-      navigate(`/t/${thread.id}`)
-    } catch (err) {
-      if (isApiError(err) && err.status === 401) {
-        onLoggedOut()
-      }
-    }
-  }, [accessToken, navigate, onLoggedOut])
+  const handleNewThread = useCallback(() => {
+    navigate('/')
+  }, [navigate])
 
   // 从 WelcomePage 新建的 thread 需要注入到列表
   const handleThreadCreated = useCallback((thread: ThreadResponse) => {

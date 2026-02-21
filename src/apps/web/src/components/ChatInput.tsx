@@ -1,5 +1,5 @@
 import { useRef, useEffect, useCallback, useState } from 'react'
-import { Plus, Clock, ChevronDown, ArrowUp, Square, Paperclip } from 'lucide-react'
+import { Plus, ChevronDown, ArrowUp, Square, Paperclip } from 'lucide-react'
 import type { FormEvent, KeyboardEvent } from 'react'
 
 export type Attachment = {
@@ -50,6 +50,8 @@ export function ChatInput({
   const menuRef = useRef<HTMLDivElement>(null)
   const plusBtnRef = useRef<HTMLButtonElement>(null)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [proExpanded, setProExpanded] = useState(false)
+  const [proHovered, setProHovered] = useState(false)
 
   const adjustHeight = useCallback(() => {
     const el = textareaRef.current
@@ -164,9 +166,37 @@ export function ChatInput({
 
           <button
             type="button"
-            className="relative top-px -ml-1 flex h-8 w-8 items-center justify-center rounded-lg text-[#c2c0b6] opacity-70 transition-[opacity,background] duration-150 hover:bg-[#141413] hover:opacity-100"
+            onClick={() => setProExpanded((v) => !v)}
+            onMouseEnter={() => setProHovered(true)}
+            onMouseLeave={() => setProHovered(false)}
+            className="relative top-px -ml-1 h-8 rounded-lg font-semibold"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'flex-start',
+              paddingLeft: '12px',
+              background: proExpanded ? '#3A4250' : proHovered ? '#141413' : 'transparent',
+              color: proExpanded ? '#4691F6' : '#c2c0b6',
+              opacity: proExpanded ? 1 : proHovered ? 1 : 0.7,
+              fontSize: '15px',
+              width: proExpanded ? '48px' : '32px',
+              overflow: 'hidden',
+              flexShrink: 0,
+              whiteSpace: 'nowrap',
+              transition: 'width 0.22s ease, background-color 0.15s ease, color 0.2s ease, opacity 0.15s ease',
+            }}
           >
-            <Clock size={18} />
+            P<span
+              style={{
+                display: 'inline-block',
+                overflow: 'hidden',
+                maxWidth: proExpanded ? '20px' : '0px',
+                opacity: proExpanded ? 1 : 0,
+                transition: proExpanded
+                  ? 'max-width 0.22s ease, opacity 0.15s ease 0.07s'
+                  : 'opacity 0.07s ease, max-width 0.18s ease 0.04s',
+              }}
+            >ro</span>
           </button>
 
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '6px' }}>
