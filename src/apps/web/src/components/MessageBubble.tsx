@@ -1,5 +1,6 @@
 import { Copy, RefreshCw, Share2, Split, Paperclip } from 'lucide-react'
 import type { MessageResponse } from '../api'
+import { MarkdownRenderer } from './MarkdownRenderer'
 
 type Props = {
   message: MessageResponse
@@ -72,18 +73,7 @@ export function MessageBubble({ message }: Props) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column' }}>
       <div style={{ maxWidth: '663px' }}>
-        <p
-          style={{
-            color: 'var(--c-text-primary)',
-            fontSize: '16px',
-            lineHeight: 1.6,
-            letterSpacing: '0.16px',
-            marginBottom: '16px',
-            whiteSpace: 'pre-wrap',
-          }}
-        >
-          {message.content}
-        </p>
+        <MarkdownRenderer content={message.content} />
         <div style={{ display: 'flex', gap: '4px', marginTop: '16px' }}>
           <button className="flex h-7 w-7 items-center justify-center rounded-lg text-[var(--c-text-secondary)] opacity-60 transition-[opacity,background] duration-150 hover:bg-[var(--c-bg-deep)] hover:opacity-100 cursor-pointer border-none bg-transparent">
             <Copy size={15} />
@@ -111,17 +101,7 @@ export function StreamingBubble({ content }: StreamingBubbleProps) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column' }}>
       <div style={{ maxWidth: '663px' }}>
-        <p
-          style={{
-            color: 'var(--c-text-primary)',
-            fontSize: '16px',
-            lineHeight: 1.6,
-            letterSpacing: '0.16px',
-            whiteSpace: 'pre-wrap',
-          }}
-        >
-          {content}
-        </p>
+        <MarkdownRenderer content={content} />
       </div>
     </div>
   )
