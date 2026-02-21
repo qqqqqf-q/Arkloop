@@ -1,7 +1,9 @@
 import { useState, useCallback, useRef } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import remarkMath from 'remark-math'
 import rehypeHighlight from 'rehype-highlight'
+import rehypeKatex from 'rehype-katex'
 import { Copy, Check } from 'lucide-react'
 import type { Components } from 'react-markdown'
 
@@ -182,14 +184,26 @@ const mdComponents: Components = {
   ),
 }
 
-type Props = { content: string }
+type Props = { content: string; disableMath?: boolean }
 
-export function MarkdownRenderer({ content }: Props) {
+export function MarkdownRenderer({ content, disableMath }: Props) {
+  const remarkPlugins = disableMath
+    ? [remarkGfm]
+    : [remarkGfm, remarkMath]
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rehypePlugins: any[] = disableMath
+    ? [[rehypeHighlight, { ignoreMissing: true }]]
+    : [
+        [rehypeKatex, { throwOnError: false, output: 'htmlAndMathml' }],
+        [rehypeHighlight, { ignoreMissing: true }],
+      ]
+
   return (
     <div style={{ maxWidth: '100%' }}>
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        rehypePlugins={[[rehypeHighlight, { ignoreMissing: true }]]}
+        remarkPlugins={remarkPlugins}
+        rehypePlugins={rehypePlugins}
         components={mdComponents}
       >
         {content}

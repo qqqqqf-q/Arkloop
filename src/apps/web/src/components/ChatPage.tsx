@@ -337,7 +337,7 @@ export function ChatPage() {
       </div>
 
       {/* 消息列表 */}
-      <div className="flex-1 min-h-0 overflow-y-auto bg-[var(--c-bg-page)]">
+      <div className="relative flex-1 min-h-0 overflow-y-auto bg-[var(--c-bg-page)]">
         <div
           style={{ maxWidth: 800, margin: '0 auto', padding: '50px 60px' }}
           className="flex w-full flex-col gap-6"

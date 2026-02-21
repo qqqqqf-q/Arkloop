@@ -1,3 +1,4 @@
+@import "katex/dist/katex.min.css";
 @import "tailwindcss";
 
 :root {
@@ -129,6 +130,18 @@
   .hljs-symbol,
   .hljs-bullet,
   .hljs-link { color: #0969da; }
+}
+
+/* KaTeX 主题适配 */
+.katex { color: var(--c-text-primary); }
+.katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.5em 0;
+  margin: 0.5em 0;
+}
+.katex-display > .katex {
+  max-width: 100%;
 }
 
 @layer base {
