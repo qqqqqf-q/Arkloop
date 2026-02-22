@@ -139,14 +139,14 @@ func (r *TeamRepository) IsMember(ctx context.Context, teamID, userID uuid.UUID)
 		ctx = context.Background()
 	}
 
-	var count int
+	var exists bool
 	err := r.db.QueryRow(
 		ctx,
-		`SELECT COUNT(*) FROM team_memberships WHERE team_id = $1 AND user_id = $2`,
+		`SELECT EXISTS(SELECT 1 FROM team_memberships WHERE team_id = $1 AND user_id = $2)`,
 		teamID, userID,
-	).Scan(&count)
+	).Scan(&exists)
 	if err != nil {
 		return false, err
 	}
-	return count > 0, nil
+	return exists, nil
 }

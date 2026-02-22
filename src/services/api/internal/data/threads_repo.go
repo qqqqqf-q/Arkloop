@@ -195,25 +195,40 @@ func (r *ThreadRepository) UpdateTitle(ctx context.Context, threadID uuid.UUID, 
 	return &thread, nil
 }
 
-// UpdateProjectID 设置或清除 thread 的 project_id。返回 nil 表示 thread 不存在或已删除。
-func (r *ThreadRepository) UpdateProjectID(ctx context.Context, threadID uuid.UUID, projectID *uuid.UUID) (*Thread, error) {
+// ThreadUpdateFields 描述 PATCH 操作中要更新的字段集合。
+// SetTitle/SetProjectID 为 true 才写对应列，允许单独或同时更新。
+type ThreadUpdateFields struct {
+	SetTitle     bool
+	Title        *string
+	SetProjectID bool
+	ProjectID    *uuid.UUID
+}
+
+// UpdateFields 原子更新 thread 的一个或多个字段，单条 SQL 保证原子性。
+// 返回 nil 表示 thread 不存在或已删除。
+func (r *ThreadRepository) UpdateFields(ctx context.Context, threadID uuid.UUID, params ThreadUpdateFields) (*Thread, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	if threadID == uuid.Nil {
 		return nil, fmt.Errorf("thread_id must not be empty")
 	}
+	if !params.SetTitle && !params.SetProjectID {
+		return nil, fmt.Errorf("no fields to update")
+	}
 
 	var thread Thread
 	err := r.db.QueryRow(
 		ctx,
 		`UPDATE threads
-		 SET project_id = $1
-		 WHERE id = $2
+		 SET title      = CASE WHEN $2 THEN $3 ELSE title END,
+		     project_id = CASE WHEN $4 THEN $5 ELSE project_id END
+		 WHERE id = $1
 		   AND deleted_at IS NULL
 		 RETURNING id, org_id, created_by_user_id, title, created_at, deleted_at, project_id`,
-		projectID,
 		threadID,
+		params.SetTitle, params.Title,
+		params.SetProjectID, params.ProjectID,
 	).Scan(&thread.ID, &thread.OrgID, &thread.CreatedByUserID, &thread.Title, &thread.CreatedAt,
 		&thread.DeletedAt, &thread.ProjectID)
 	if err != nil {

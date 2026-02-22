@@ -226,6 +226,19 @@ func addTeamMember(
 		return
 	}
 
+	// 确保被添加的用户确实是同一 org 的成员，防止跨 org 数据注入
+	if membershipRepo != nil {
+		exists, err := membershipRepo.ExistsForOrgAndUser(r.Context(), actor.OrgID, userID)
+		if err != nil {
+			WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			return
+		}
+		if !exists {
+			WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "user is not a member of this org", traceID, nil)
+			return
+		}
+	}
+
 	role := strings.TrimSpace(req.Role)
 	if role == "" {
 		role = "member"

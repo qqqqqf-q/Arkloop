@@ -17,6 +17,6 @@ const (
 	PermDataLLMCreds      = "data.llm_credentials.manage"
 	PermDataMCPConfigs    = "data.mcp_configs.manage"
 	PermDataSecrets       = "data.secrets.manage"
-	PermDataProjectsRead  = "data.projects.read"
+	PermDataProjectsRead   = "data.projects.read"
 	PermDataProjectsManage = "data.projects.manage"
 )

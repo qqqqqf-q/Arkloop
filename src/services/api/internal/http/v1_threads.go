@@ -284,8 +284,12 @@ func patchThread(
 			return
 		}
 
-		// 验证新的 project_id 归属于同一 org
-		if body.ProjectID.Present && body.ProjectID.Value != nil && projectRepo != nil {
+		// 验证新的 project_id 归属于同一 org；projectRepo 必须可用才能做 org 隔离校验
+		if body.ProjectID.Present && body.ProjectID.Value != nil {
+			if projectRepo == nil {
+				WriteError(w, nethttp.StatusServiceUnavailable, "database.not_configured", "database not configured", traceID, nil)
+				return
+			}
 			project, err := projectRepo.GetByID(r.Context(), *body.ProjectID.Value)
 			if err != nil {
 				WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
@@ -297,31 +301,23 @@ func patchThread(
 			}
 		}
 
-		var current *data.Thread
-		if body.Title.Present {
-			current, err = threadRepo.UpdateTitle(r.Context(), threadID, body.Title.Value)
-			if err != nil {
-				WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
-				return
-			}
-			if current == nil {
-				WriteError(w, nethttp.StatusNotFound, "threads.not_found", "thread not found", traceID, nil)
-				return
-			}
+		// 原子更新：单条 SQL 同时写 title 和/或 project_id，避免局部写入
+		updated, err := threadRepo.UpdateFields(r.Context(), threadID, data.ThreadUpdateFields{
+			SetTitle:     body.Title.Present,
+			Title:        body.Title.Value,
+			SetProjectID: body.ProjectID.Present,
+			ProjectID:    body.ProjectID.Value,
+		})
+		if err != nil {
+			WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			return
 		}
-		if body.ProjectID.Present {
-			current, err = threadRepo.UpdateProjectID(r.Context(), threadID, body.ProjectID.Value)
-			if err != nil {
-				WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
-				return
-			}
-			if current == nil {
-				WriteError(w, nethttp.StatusNotFound, "threads.not_found", "thread not found", traceID, nil)
-				return
-			}
+		if updated == nil {
+			WriteError(w, nethttp.StatusNotFound, "threads.not_found", "thread not found", traceID, nil)
+			return
 		}
 
-		writeJSON(w, traceID, nethttp.StatusOK, toThreadResponse(*current))
+		writeJSON(w, traceID, nethttp.StatusOK, toThreadResponse(*updated))
 	}
 }
 
@@ -642,14 +638,22 @@ func authorizeThreadReadOrAudit(
 	// 通过 project visibility 授权
 	if thread.ProjectID != nil && projectRepo != nil {
 		project, err := projectRepo.GetByID(r.Context(), *thread.ProjectID)
-		if err == nil && project != nil {
+		if err != nil {
+			WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			return false
+		}
+		if project != nil {
 			switch project.Visibility {
 			case "org":
 				return true
 			case "team":
 				if project.TeamID != nil && teamRepo != nil {
 					isMember, err := teamRepo.IsMember(r.Context(), *project.TeamID, actor.UserID)
-					if err == nil && isMember {
+					if err != nil {
+						WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+						return false
+					}
+					if isMember {
 						return true
 					}
 				}
