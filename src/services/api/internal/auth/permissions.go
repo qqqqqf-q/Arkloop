@@ -1,0 +1,18 @@
+package auth
+
+// 系统权限点常量。
+const (
+	PermPlatformAdmin     = "platform.admin"
+	PermOrgMembersInvite  = "org.members.invite"
+	PermOrgMembersList    = "org.members.list"
+	PermOrgMembersRevoke  = "org.members.revoke"
+	PermDataThreadsRead   = "data.threads.read"
+	PermDataThreadsWrite  = "data.threads.write"
+	PermDataRunsRead      = "data.runs.read"
+	PermDataRunsWrite     = "data.runs.write"
+	PermDataAPIKeysManage = "data.api_keys.manage"
+	PermDataSkillsRead    = "data.skills.read"
+	PermDataLLMCreds      = "data.llm_credentials.manage"
+	PermDataMCPConfigs    = "data.mcp_configs.manage"
+	PermDataSecrets       = "data.secrets.manage"
+)

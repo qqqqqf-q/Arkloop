@@ -142,7 +142,7 @@ func (r *OrgInvitationsRepository) MarkAccepted(ctx context.Context, invitationI
 		ctx,
 		`UPDATE org_invitations
 		 SET accepted_at = now(), accepted_by_user_id = $2
-		 WHERE id = $1 AND accepted_at IS NULL`,
+		 WHERE id = $1 AND accepted_at IS NULL AND expires_at > now()`,
 		invitationID, acceptedByUserID,
 	)
 	if err != nil {

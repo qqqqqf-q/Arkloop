@@ -146,8 +146,7 @@ func createOrgInvitation(
 		WriteError(w, nethttp.StatusForbidden, "auth.forbidden", "access denied", traceID, nil)
 		return
 	}
-	if actor.OrgRole != "owner" {
-		WriteError(w, nethttp.StatusForbidden, "auth.forbidden", "owner role required", traceID, nil)
+	if !requirePerm(actor, auth.PermOrgMembersInvite, w, traceID) {
 		return
 	}
 
@@ -213,8 +212,7 @@ func listOrgInvitations(
 		WriteError(w, nethttp.StatusForbidden, "auth.forbidden", "access denied", traceID, nil)
 		return
 	}
-	if actor.OrgRole != "owner" {
-		WriteError(w, nethttp.StatusForbidden, "auth.forbidden", "owner role required", traceID, nil)
+	if !requirePerm(actor, auth.PermOrgMembersList, w, traceID) {
 		return
 	}
 
@@ -369,8 +367,7 @@ func revokeOrgInvitation(
 	if !ok {
 		return
 	}
-	if actor.OrgRole != "owner" {
-		WriteError(w, nethttp.StatusForbidden, "auth.forbidden", "owner role required", traceID, nil)
+	if !requirePerm(actor, auth.PermOrgMembersRevoke, w, traceID) {
 		return
 	}
 

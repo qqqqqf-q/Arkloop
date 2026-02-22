@@ -10,6 +10,16 @@ import (
 	"arkloop/services/api/internal/observability"
 )
 
+// requirePerm 校验 actor 是否拥有指定权限点。
+// 无权或 actor 为 nil 时写 403 响应并返回 false，调用方应立即 return。
+func requirePerm(a *actor, perm string, w nethttp.ResponseWriter, traceID string) bool {
+	if a != nil && a.HasPermission(perm) {
+		return true
+	}
+	WriteError(w, nethttp.StatusForbidden, "auth.forbidden", "access denied", traceID, nil)
+	return false
+}
+
 type statusRecorder struct {
 	nethttp.ResponseWriter
 	statusCode  int

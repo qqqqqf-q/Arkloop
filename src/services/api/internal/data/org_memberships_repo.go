@@ -15,6 +15,7 @@ type OrgMembership struct {
 	OrgID     uuid.UUID
 	UserID    uuid.UUID
 	Role      string
+	RoleID    *uuid.UUID
 	CreatedAt time.Time
 }
 
@@ -49,11 +50,11 @@ func (r *OrgMembershipRepository) Create(
 		ctx,
 		`INSERT INTO org_memberships (org_id, user_id, role)
 		 VALUES ($1, $2, $3)
-		 RETURNING id, org_id, user_id, role, created_at`,
+		 RETURNING id, org_id, user_id, role, role_id, created_at`,
 		orgID,
 		userID,
 		cleanedRole,
-	).Scan(&membership.ID, &membership.OrgID, &membership.UserID, &membership.Role, &membership.CreatedAt)
+	).Scan(&membership.ID, &membership.OrgID, &membership.UserID, &membership.Role, &membership.RoleID, &membership.CreatedAt)
 	if err != nil {
 		return OrgMembership{}, err
 	}
@@ -68,13 +69,13 @@ func (r *OrgMembershipRepository) GetDefaultForUser(ctx context.Context, userID 
 	var membership OrgMembership
 	err := r.db.QueryRow(
 		ctx,
-		`SELECT id, org_id, user_id, role, created_at
+		`SELECT id, org_id, user_id, role, role_id, created_at
 		 FROM org_memberships
 		 WHERE user_id = $1
 		 ORDER BY created_at ASC
 		 LIMIT 1`,
 		userID,
-	).Scan(&membership.ID, &membership.OrgID, &membership.UserID, &membership.Role, &membership.CreatedAt)
+	).Scan(&membership.ID, &membership.OrgID, &membership.UserID, &membership.Role, &membership.RoleID, &membership.CreatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil

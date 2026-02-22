@@ -15,9 +15,19 @@ import (
 )
 
 type actor struct {
-	OrgID   uuid.UUID
-	UserID  uuid.UUID
-	OrgRole string
+	OrgID       uuid.UUID
+	UserID      uuid.UUID
+	OrgRole     string
+	Permissions []string
+}
+
+func (a *actor) HasPermission(perm string) bool {
+	for _, p := range a.Permissions {
+		if p == perm {
+			return true
+		}
+	}
+	return false
 }
 
 func authenticateActor(
@@ -47,10 +57,13 @@ func authenticateActor(
 		return nil, false
 	}
 
+	// v1：权限通过 PermissionsForRole 静态映射，无额外 DB 查询。
+	// membership.RoleID 为后续自定义角色动态加载预留，届时改为查询 rbac_roles 表。
 	return &actor{
-		OrgID:   membership.OrgID,
-		UserID:  user.ID,
-		OrgRole: membership.Role,
+		OrgID:       membership.OrgID,
+		UserID:      user.ID,
+		OrgRole:     membership.Role,
+		Permissions: auth.PermissionsForRole(membership.Role),
 	}, true
 }
 
@@ -132,10 +145,12 @@ func resolveActorFromAPIKey(
 		auditWriter.WriteAPIKeyUsed(r.Context(), traceID, orgID, userID, keyID, "api_key.used")
 	}
 
+	// v1：同 authenticateActor，静态映射；RoleID 为自定义角色预留。
 	return &actor{
-		OrgID:   membership.OrgID,
-		UserID:  apiKey.UserID,
-		OrgRole: membership.Role,
+		OrgID:       membership.OrgID,
+		UserID:      apiKey.UserID,
+		OrgRole:     membership.Role,
+		Permissions: auth.PermissionsForRole(membership.Role),
 	}, true
 }
 
