@@ -9,7 +9,8 @@ import (
 )
 
 const (
-	RunExecuteJobType = "run.execute"
+	RunExecuteJobType      = "run.execute"
+	WebhookDeliverJobType  = "webhook.deliver"
 
 	JobStatusQueued = "queued"
 	JobStatusLeased = "leased"

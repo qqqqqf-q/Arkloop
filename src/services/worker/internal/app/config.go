@@ -36,8 +36,8 @@ func DefaultConfig() Config {
 		PollSeconds:      0.25,
 		LeaseSeconds:     30,
 		HeartbeatSeconds: 10,
-		QueueJobTypes:    []string{queue.RunExecuteJobType},
-		Capabilities:     []string{queue.RunExecuteJobType},
+		QueueJobTypes:    []string{queue.RunExecuteJobType, queue.WebhookDeliverJobType},
+		Capabilities:     []string{queue.RunExecuteJobType, queue.WebhookDeliverJobType},
 		Version:          "unknown",
 	}
 }
@@ -116,9 +116,13 @@ func (c Config) Validate() error {
 	if len(c.QueueJobTypes) == 0 {
 		return fmt.Errorf("queue_job_types must not be empty")
 	}
+	supported := map[string]struct{}{
+		queue.RunExecuteJobType:     {},
+		queue.WebhookDeliverJobType: {},
+	}
 	for _, jobType := range c.QueueJobTypes {
-		if jobType != queue.RunExecuteJobType {
-			return fmt.Errorf("queue_job_types only supports %s", queue.RunExecuteJobType)
+		if _, ok := supported[jobType]; !ok {
+			return fmt.Errorf("unsupported job type: %s", jobType)
 		}
 	}
 	return nil

@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"arkloop/services/worker/internal/app"
 	"arkloop/services/worker/internal/data"
 	"arkloop/services/worker/internal/queue"
 	"arkloop/services/worker/internal/runengine"
+	"arkloop/services/worker/internal/webhook"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -19,9 +21,10 @@ type NativeRunEngineV1Handler struct {
 	pool   *pgxpool.Pool
 	logger *app.JSONLogger
 	engine *runengine.EngineV1
+	queue  queue.JobQueue
 }
 
-func NewNativeRunEngineV1Handler(pool *pgxpool.Pool, logger *app.JSONLogger, rdb *redis.Client) (*NativeRunEngineV1Handler, error) {
+func NewNativeRunEngineV1Handler(pool *pgxpool.Pool, logger *app.JSONLogger, rdb *redis.Client, q queue.JobQueue) (*NativeRunEngineV1Handler, error) {
 	if pool == nil {
 		return nil, fmt.Errorf("pool must not be nil")
 	}
@@ -36,6 +39,7 @@ func NewNativeRunEngineV1Handler(pool *pgxpool.Pool, logger *app.JSONLogger, rdb
 		pool:   pool,
 		logger: logger,
 		engine: engine,
+		queue:  q,
 	}, nil
 }
 
@@ -117,7 +121,48 @@ func (h *NativeRunEngineV1Handler) Handle(ctx context.Context, lease queue.JobLe
 	if err != nil {
 		return err
 	}
+
+	// run 执行完毕后触发 webhook 投递（非阻塞，失败不影响主流程）
+	if h.queue != nil {
+		h.dispatchWebhooks(ctx, payload, run)
+	}
 	return nil
+}
+
+// dispatchWebhooks 在 run 终态后为订阅了该事件的端点入队投递 job。
+func (h *NativeRunEngineV1Handler) dispatchWebhooks(ctx context.Context, payload workerPayload, run *data.Run) {
+	status, createdAt, err := getRunStatus(ctx, h.pool, run.ID)
+	if err != nil || status == "" {
+		return
+	}
+
+	eventType := "run." + status
+	runPayload := map[string]any{
+		"event":      eventType,
+		"run_id":     run.ID.String(),
+		"org_id":     run.OrgID.String(),
+		"thread_id":  run.ThreadID.String(),
+		"status":     status,
+		"created_at": createdAt.UTC().Format(time.RFC3339Nano),
+	}
+
+	if err := webhook.EnqueueDeliveries(ctx, h.pool, h.queue, run.OrgID, run.ID, payload.TraceID, eventType, runPayload); err != nil {
+		h.logger.Error("enqueue webhook deliveries failed", payload.LogFields(queue.JobLease{}), map[string]any{"error": err.Error()})
+	}
+}
+
+// getRunStatus 查询 run 的当前终态状态和创建时间。
+func getRunStatus(ctx context.Context, pool *pgxpool.Pool, runID uuid.UUID) (string, time.Time, error) {
+	var status string
+	var createdAt time.Time
+	err := pool.QueryRow(ctx,
+		`SELECT status, created_at FROM runs WHERE id = $1`,
+		runID,
+	).Scan(&status, &createdAt)
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	return status, createdAt, nil
 }
 
 type workerPayload struct {

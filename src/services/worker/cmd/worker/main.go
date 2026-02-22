@@ -15,6 +15,7 @@ import (
 	"arkloop/services/worker/internal/executor"
 	"arkloop/services/worker/internal/queue"
 	"arkloop/services/worker/internal/registration"
+	"arkloop/services/worker/internal/webhook"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
@@ -79,7 +80,7 @@ func run() error {
 		return err
 	}
 
-	handler, err := chooseHandler(logger, pool, rdb, cfg.QueueJobTypes)
+	handler, err := chooseHandler(logger, pool, rdb, queueClient, cfg.QueueJobTypes)
 	if err != nil {
 		return err
 	}
@@ -178,7 +179,7 @@ func normalizePostgresDSN(raw string) string {
 	return raw
 }
 
-func chooseHandler(logger *app.JSONLogger, pool *pgxpool.Pool, rdb *redis.Client, queueJobTypes []string) (consumer.Handler, error) {
+func chooseHandler(logger *app.JSONLogger, pool *pgxpool.Pool, rdb *redis.Client, q queue.JobQueue, queueJobTypes []string) (consumer.Handler, error) {
 	_ = queueJobTypes
 	if logger == nil {
 		logger = app.NewJSONLogger("worker_go", nil)
@@ -187,12 +188,39 @@ func chooseHandler(logger *app.JSONLogger, pool *pgxpool.Pool, rdb *redis.Client
 		return nil, fmt.Errorf("pool must not be nil")
 	}
 
-	native, err := executor.NewNativeRunEngineV1Handler(pool, logger, rdb)
+	native, err := executor.NewNativeRunEngineV1Handler(pool, logger, rdb, q)
 	if err != nil {
 		return nil, err
 	}
 	logger.Info("worker_go native handler enabled", app.LogFields{}, map[string]any{"job_type": queue.RunExecuteJobType})
-	return native, nil
+
+	delivery, err := webhook.NewDeliveryHandler(pool, q, logger)
+	if err != nil {
+		return nil, err
+	}
+	logger.Info("webhook delivery handler enabled", app.LogFields{}, map[string]any{"job_type": queue.WebhookDeliverJobType})
+
+	return &dispatchHandler{
+		handlers: map[string]consumer.Handler{
+			queue.RunExecuteJobType: native,
+			webhook.DeliverJobType:  delivery,
+		},
+		fallback: native,
+	}, nil
+}
+
+// dispatchHandler 按 job type 路由到对应 handler。
+type dispatchHandler struct {
+	handlers map[string]consumer.Handler
+	fallback consumer.Handler
+}
+
+func (d *dispatchHandler) Handle(ctx context.Context, lease queue.JobLease) error {
+	jobType, _ := lease.PayloadJSON["type"].(string)
+	if h, ok := d.handlers[jobType]; ok {
+		return h.Handle(ctx, lease)
+	}
+	return d.fallback.Handle(ctx, lease)
 }
 
 // loadAwareHandler 在 job 处理前后更新注册管理器的负载计数。

@@ -150,6 +150,7 @@ func (a *Application) Run(ctx context.Context) error {
 		orgInvitationsRepo *data.OrgInvitationsRepository
 		teamRepo           *data.TeamRepository
 		projectRepo        *data.ProjectRepository
+		webhookRepo        *data.WebhookEndpointRepository
 
 		authService         *auth.Service
 		registrationService *auth.RegistrationService
@@ -223,6 +224,10 @@ func (a *Application) Run(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		webhookRepo, err = data.NewWebhookEndpointRepository(pool)
+		if err != nil {
+			return err
+		}
 
 		// 加密 key 未配置时 secrets/llm-credentials 端点不可用，但不影响其他功能启动
 		keyRing, keyRingErr := crypto.NewKeyRingFromEnv()
@@ -292,6 +297,7 @@ func (a *Application) Run(ctx context.Context) error {
 			OrgInvitationsRepo:   orgInvitationsRepo,
 			TeamRepo:             teamRepo,
 			ProjectRepo:          projectRepo,
+			WebhookRepo:          webhookRepo,
 			RedisClient:          redisClient,
 			RunLimiter:           runLimiter,
 			SSEConfig: apihttp.SSEConfig{
