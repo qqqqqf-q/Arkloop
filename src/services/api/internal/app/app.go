@@ -104,6 +104,18 @@ func (a *Application) Run(ctx context.Context) error {
 		a.logger.Info("redis connected", observability.LogFields{}, nil)
 	}
 
+	var runLimiter *data.RunLimiter
+	if redisClient != nil && a.config.MaxConcurrentRunsPerOrg > 0 {
+		rl, err := data.NewRunLimiter(redisClient, a.config.MaxConcurrentRunsPerOrg)
+		if err != nil {
+			return fmt.Errorf("run limiter: %w", err)
+		}
+		runLimiter = rl
+		a.logger.Info("run limiter enabled", observability.LogFields{}, map[string]any{
+			"max_per_org": a.config.MaxConcurrentRunsPerOrg,
+		})
+	}
+
 	if strings.TrimSpace(a.config.S3Endpoint) != "" {
 		_, err := objectstore.New(
 			ctx,
@@ -263,6 +275,7 @@ func (a *Application) Run(ctx context.Context) error {
 			IPRulesRepo:          ipRulesRepo,
 			APIKeysRepo:          apiKeysRepo,
 			RedisClient:          redisClient,
+			RunLimiter:           runLimiter,
 			SSEConfig: apihttp.SSEConfig{
 				HeartbeatSeconds: a.config.SSE.HeartbeatSeconds,
 				BatchLimit:       a.config.SSE.BatchLimit,

@@ -56,6 +56,20 @@ func run() error {
 	}
 	defer pool.Close()
 
+	// Redis 在 chooseHandler 之前初始化，以便传入 run limiter
+	var rdb *redis.Client
+	if redisURL := lookupRedisURL(); redisURL != "" {
+		rc, err := newRedisClient(ctx, redisURL)
+		if err != nil {
+			logger.Error("redis connect failed, run limiter and registration disabled", app.LogFields{}, map[string]any{"error": err.Error()})
+		} else {
+			defer rc.Close()
+			rdb = rc
+		}
+	} else {
+		logger.Info("ARKLOOP_REDIS_URL not set, worker registration disabled", app.LogFields{}, nil)
+	}
+
 	queueClient, err := queue.NewPgQueue(pool, 25, cfg.Capabilities)
 	if err != nil {
 		return err
@@ -65,7 +79,7 @@ func run() error {
 		return err
 	}
 
-	handler, err := chooseHandler(logger, pool, cfg.QueueJobTypes)
+	handler, err := chooseHandler(logger, pool, rdb, cfg.QueueJobTypes)
 	if err != nil {
 		return err
 	}
@@ -88,28 +102,20 @@ func run() error {
 	}
 
 	var reg *registration.Manager
-	if redisURL := lookupRedisURL(); redisURL != "" {
-		rdb, err := newRedisClient(ctx, redisURL)
+	if rdb != nil {
+		reg, err = registration.NewManager(pool, rdb, registration.Config{
+			Version:        cfg.Version,
+			Capabilities:   cfg.Capabilities,
+			MaxConcurrency: cfg.Concurrency,
+		}, logger)
 		if err != nil {
-			logger.Error("redis connect failed, skipping registration", app.LogFields{}, map[string]any{"error": err.Error()})
-		} else {
-			defer rdb.Close()
-			reg, err = registration.NewManager(pool, rdb, registration.Config{
-				Version:        cfg.Version,
-				Capabilities:   cfg.Capabilities,
-				MaxConcurrency: cfg.Concurrency,
-			}, logger)
-			if err != nil {
-				return fmt.Errorf("registration: %w", err)
-			}
-			if err := reg.Register(ctx); err != nil {
-				return fmt.Errorf("register worker: %w", err)
-			}
-			reg.StartHeartbeat(ctx)
-			handler = &loadAwareHandler{inner: handler, reg: reg}
+			return fmt.Errorf("registration: %w", err)
 		}
-	} else {
-		logger.Info("ARKLOOP_REDIS_URL not set, worker registration disabled", app.LogFields{}, nil)
+		if err := reg.Register(ctx); err != nil {
+			return fmt.Errorf("register worker: %w", err)
+		}
+		reg.StartHeartbeat(ctx)
+		handler = &loadAwareHandler{inner: handler, reg: reg}
 	}
 
 	logger.Info("worker_go entering consume mode", app.LogFields{}, nil)
@@ -172,7 +178,7 @@ func normalizePostgresDSN(raw string) string {
 	return raw
 }
 
-func chooseHandler(logger *app.JSONLogger, pool *pgxpool.Pool, queueJobTypes []string) (consumer.Handler, error) {
+func chooseHandler(logger *app.JSONLogger, pool *pgxpool.Pool, rdb *redis.Client, queueJobTypes []string) (consumer.Handler, error) {
 	_ = queueJobTypes
 	if logger == nil {
 		logger = app.NewJSONLogger("worker_go", nil)
@@ -181,7 +187,7 @@ func chooseHandler(logger *app.JSONLogger, pool *pgxpool.Pool, queueJobTypes []s
 		return nil, fmt.Errorf("pool must not be nil")
 	}
 
-	native, err := executor.NewNativeRunEngineV1Handler(pool, logger)
+	native, err := executor.NewNativeRunEngineV1Handler(pool, logger, rdb)
 	if err != nil {
 		return nil, err
 	}

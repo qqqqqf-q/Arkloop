@@ -354,13 +354,14 @@ func threadEntry(
 	auditWriter *audit.Writer,
 	pool *pgxpool.Pool,
 	apiKeysRepo *data.APIKeysRepository,
+	runLimiter *data.RunLimiter,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	get := getThread(authService, membershipRepo, threadRepo, auditWriter, apiKeysRepo)
 	patch := patchThread(authService, membershipRepo, threadRepo, auditWriter, apiKeysRepo)
 	del := deleteThread(authService, membershipRepo, threadRepo, auditWriter, apiKeysRepo)
 	createMessage := createThreadMessage(authService, membershipRepo, threadRepo, messageRepo, auditWriter, apiKeysRepo)
 	listMessages := listThreadMessages(authService, membershipRepo, threadRepo, messageRepo, auditWriter, apiKeysRepo)
-	createRun := createThreadRun(authService, membershipRepo, threadRepo, auditWriter, pool, apiKeysRepo)
+	createRun := createThreadRun(authService, membershipRepo, threadRepo, auditWriter, pool, apiKeysRepo, runLimiter)
 	listRuns := listThreadRuns(authService, membershipRepo, threadRepo, runRepo, auditWriter, apiKeysRepo)
 	retry := retryThread(authService, membershipRepo, threadRepo, messageRepo, auditWriter, pool, apiKeysRepo)
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {

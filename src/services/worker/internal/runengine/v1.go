@@ -22,6 +22,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 )
 
 const (
@@ -50,6 +51,7 @@ type EngineV1 struct {
 	dbPool          *pgxpool.Pool // 非 nil 时每个 run 独立从 DB 加载路由配置
 	stubGateway     llm.Gateway
 	emitDebugEvents bool
+	runLimiterRDB   *redis.Client // nil 时跳过并发计数 DECR
 
 	toolRegistry     *tools.Registry
 	toolExecutors    map[string]tools.Executor
@@ -71,6 +73,7 @@ type EngineV1Deps struct {
 	DBPool          *pgxpool.Pool // nil 时跳过 per-run DB 路由加载，回退到静态 Router
 	StubGateway     llm.Gateway
 	EmitDebugEvents bool
+	RunLimiterRDB   *redis.Client // nil 时不执行并发计数 DECR
 
 	ToolRegistry           *tools.Registry
 	ToolExecutors          map[string]tools.Executor
@@ -118,6 +121,7 @@ func NewEngineV1(deps EngineV1Deps) (*EngineV1, error) {
 		dbPool:           deps.DBPool,
 		stubGateway:      deps.StubGateway,
 		emitDebugEvents:  deps.EmitDebugEvents,
+		runLimiterRDB:    deps.RunLimiterRDB,
 		toolRegistry:     deps.ToolRegistry,
 		toolExecutors:    copyToolExecutors(deps.ToolExecutors),
 		allLlmToolSpecs:  append([]llm.ToolSpec{}, deps.AllLlmToolSpecs...),
@@ -145,7 +149,7 @@ func (e *EngineV1) Execute(ctx context.Context, pool *pgxpool.Pool, run data.Run
 		return nil
 	}
 	if cancelType == "run.cancel_requested" {
-		return e.appendAndCommit(ctx, pool, run.ID, emitter.Emit("run.cancelled", map[string]any{}, nil, nil))
+		return e.appendAndCommit(ctx, pool, run, emitter.Emit("run.cancelled", map[string]any{}, nil, nil))
 	}
 
 	terminalType, err := e.readLatestEventType(ctx, pool, run.ID, terminalEventTypes)
@@ -240,7 +244,7 @@ func (e *EngineV1) Execute(ctx context.Context, pool *pgxpool.Pool, run data.Run
 			nil,
 			stringPtr(skillResolution.Error.ErrorClass),
 		)
-		return e.appendAndCommit(execCtx, pool, run.ID, failed)
+		return e.appendAndCommit(execCtx, pool, run, failed)
 	}
 
 	// per-run 动态路由：每次 run 独立从 DB 加载，与 MCP 动态加载对齐
@@ -262,7 +266,7 @@ func (e *EngineV1) Execute(ctx context.Context, pool *pgxpool.Pool, run data.Run
 			nil,
 			stringPtr(decision.Denied.ErrorClass),
 		)
-		return e.appendAndCommit(execCtx, pool, run.ID, failed)
+		return e.appendAndCommit(execCtx, pool, run, failed)
 	}
 
 	selected := decision.Selected
@@ -277,7 +281,7 @@ func (e *EngineV1) Execute(ctx context.Context, pool *pgxpool.Pool, run data.Run
 			nil,
 			stringPtr(llm.ErrorClassInternalError),
 		)
-		return e.appendAndCommit(execCtx, pool, run.ID, failed)
+		return e.appendAndCommit(execCtx, pool, run, failed)
 	}
 
 	gateway, err := e.gatewayFromCredential(selected.Credential)
@@ -292,13 +296,13 @@ func (e *EngineV1) Execute(ctx context.Context, pool *pgxpool.Pool, run data.Run
 			nil,
 			stringPtr(llm.ErrorClassInternalError),
 		)
-		if err := e.appendAndCommit(execCtx, pool, run.ID, failed); err != nil {
+		if err := e.appendAndCommit(execCtx, pool, run, failed); err != nil {
 			return err
 		}
 		return nil
 	}
 
-	writer := newEventWriter(pool, run, traceID)
+	writer := newEventWriter(pool, run, traceID, e.runLimiterRDB)
 	defer writer.Close(execCtx)
 
 	routeSelected := emitter.Emit("run.route.selected", selected.ToRunEventDataJSON(), nil, nil)
@@ -462,19 +466,19 @@ func (e *EngineV1) readLatestEventType(
 	return e.eventsRepo.GetLatestEventType(ctx, tx, runID, types)
 }
 
-func (e *EngineV1) appendAndCommit(ctx context.Context, pool *pgxpool.Pool, runID uuid.UUID, ev events.RunEvent) error {
+func (e *EngineV1) appendAndCommit(ctx context.Context, pool *pgxpool.Pool, run data.Run, ev events.RunEvent) error {
 	tx, err := pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
 
-	if _, err := e.eventsRepo.AppendEvent(ctx, tx, runID, ev.Type, ev.DataJSON, ev.ToolName, ev.ErrorClass); err != nil {
+	if _, err := e.eventsRepo.AppendEvent(ctx, tx, run.ID, ev.Type, ev.DataJSON, ev.ToolName, ev.ErrorClass); err != nil {
 		return err
 	}
 
 	if status, ok := terminalStatuses[ev.Type]; ok {
-		if err := e.runsRepo.UpdateRunTerminalStatus(ctx, tx, runID, data.TerminalStatusUpdate{
+		if err := e.runsRepo.UpdateRunTerminalStatus(ctx, tx, run.ID, data.TerminalStatusUpdate{
 			Status: status,
 		}); err != nil {
 			return err
@@ -485,10 +489,26 @@ func (e *EngineV1) appendAndCommit(ctx context.Context, pool *pgxpool.Pool, runI
 		return err
 	}
 
-	channel := fmt.Sprintf("run_events:%s", runID.String())
+	channel := fmt.Sprintf("run_events:%s", run.ID.String())
 	_, _ = pool.Exec(ctx, "SELECT pg_notify($1, '')", channel)
 
+	if _, ok := terminalStatuses[ev.Type]; ok {
+		e.releaseRunSlot(ctx, run.OrgID)
+	}
+
 	return nil
+}
+
+// releaseRunSlot 将 org 的并发 run 计数减 1，计数不低于 0。
+func (e *EngineV1) releaseRunSlot(ctx context.Context, orgID uuid.UUID) {
+	if e.runLimiterRDB == nil {
+		return
+	}
+	key := "arkloop:org:active_runs:" + orgID.String()
+	result := e.runLimiterRDB.Decr(ctx, key)
+	if result.Err() == nil && result.Val() < 0 {
+		_ = e.runLimiterRDB.Set(ctx, key, 0, 0)
+	}
 }
 
 func (e *EngineV1) gatewayFromCredential(credential routing.ProviderCredential) (llm.Gateway, error) {
@@ -640,27 +660,30 @@ var terminalStatuses = map[string]string{
 }
 
 type eventWriter struct {
-	pool    *pgxpool.Pool
-	run     data.Run
-	traceID string
+	pool          *pgxpool.Pool
+	run           data.Run
+	traceID       string
+	runLimiterRDB *redis.Client
 
 	tx                       pgx.Tx
 	pendingEventsSinceCommit int
 	lastCommitAt             time.Time
 	assistantDeltas          []string
 	completed                bool
+	hasTerminal              bool
 
 	totalInputTokens  int64
 	totalOutputTokens int64
 	totalCostUSD      float64
 }
 
-func newEventWriter(pool *pgxpool.Pool, run data.Run, traceID string) *eventWriter {
+func newEventWriter(pool *pgxpool.Pool, run data.Run, traceID string, runLimiterRDB *redis.Client) *eventWriter {
 	return &eventWriter{
-		pool:         pool,
-		run:          run,
-		traceID:      strings.TrimSpace(traceID),
-		lastCommitAt: time.Now(),
+		pool:          pool,
+		run:           run,
+		traceID:       strings.TrimSpace(traceID),
+		lastCommitAt:  time.Now(),
+		runLimiterRDB: runLimiterRDB,
 	}
 }
 
@@ -710,6 +733,7 @@ func (w *eventWriter) Append(
 		}); err != nil {
 			return err
 		}
+		w.hasTerminal = true
 		if err := w.commit(ctx); err != nil {
 			return err
 		}
@@ -747,6 +771,7 @@ func (w *eventWriter) Append(
 		}); err != nil {
 			return err
 		}
+		w.hasTerminal = true
 		return nil
 	}
 
@@ -775,6 +800,17 @@ func (w *eventWriter) commit(ctx context.Context) error {
 	// notify SSE listeners
 	channel := fmt.Sprintf("run_events:%s", w.run.ID.String())
 	_, _ = w.pool.Exec(ctx, "SELECT pg_notify($1, '')", channel)
+
+	if w.hasTerminal {
+		w.hasTerminal = false
+		if w.runLimiterRDB != nil {
+			key := "arkloop:org:active_runs:" + w.run.OrgID.String()
+			result := w.runLimiterRDB.Decr(ctx, key)
+			if result.Err() == nil && result.Val() < 0 {
+				_ = w.runLimiterRDB.Set(ctx, key, 0, 0)
+			}
+		}
+	}
 
 	return nil
 }

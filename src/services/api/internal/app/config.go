@@ -18,7 +18,9 @@ const (
 	trustXForwardedForEnv     = "ARKLOOP_TRUST_X_FORWARDED_FOR"
 	defaultAddr               = "127.0.0.1:8001"
 
-	redisURLEnv = "ARKLOOP_REDIS_URL"
+	redisURLEnv                   = "ARKLOOP_REDIS_URL"
+	maxConcurrentRunsPerOrgEnv    = "ARKLOOP_MAX_CONCURRENT_RUNS_PER_ORG"
+	defaultMaxConcurrentRunsPerOrg = int64(10)
 
 	s3EndpointEnv  = "ARKLOOP_S3_ENDPOINT"
 	s3AccessKeyEnv = "ARKLOOP_S3_ACCESS_KEY"
@@ -53,7 +55,8 @@ type Config struct {
 	Auth                 *auth.Config
 	SSE                  SSEConfig
 
-	RedisURL string
+	RedisURL                  string
+	MaxConcurrentRunsPerOrg   int64
 
 	S3Endpoint  string
 	S3AccessKey string
@@ -64,8 +67,9 @@ type Config struct {
 
 func DefaultConfig() Config {
 	return Config{
-		Addr: defaultAddr,
-		SSE:  defaultSSEConfig(),
+		Addr:                    defaultAddr,
+		SSE:                     defaultSSEConfig(),
+		MaxConcurrentRunsPerOrg: defaultMaxConcurrentRunsPerOrg,
 	}
 }
 
@@ -112,6 +116,13 @@ func LoadConfigFromEnv() (Config, error) {
 
 	if raw, ok := lookupEnv(redisURLEnv); ok {
 		cfg.RedisURL = raw
+	}
+	if raw, ok := lookupEnv(maxConcurrentRunsPerOrgEnv); ok {
+		v, err := parsePositiveInt64(raw)
+		if err != nil {
+			return Config{}, fmt.Errorf("%s: %w", maxConcurrentRunsPerOrgEnv, err)
+		}
+		cfg.MaxConcurrentRunsPerOrg = v
 	}
 	if raw, ok := lookupEnv(s3EndpointEnv); ok {
 		cfg.S3Endpoint = raw
@@ -199,6 +210,17 @@ func parseNonNegativeFloat(raw string) (float64, error) {
 		return 0, fmt.Errorf("must be non-negative")
 	}
 	return v, nil
+}
+
+func parsePositiveInt64(raw string) (int64, error) {
+	value, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("must be an integer")
+	}
+	if value <= 0 {
+		return 0, fmt.Errorf("must be greater than 0")
+	}
+	return value, nil
 }
 
 func parsePositiveInt(raw string) (int, error) {

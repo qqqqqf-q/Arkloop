@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 )
 
 type NativeRunEngineV1Handler struct {
@@ -20,14 +21,14 @@ type NativeRunEngineV1Handler struct {
 	engine *runengine.EngineV1
 }
 
-func NewNativeRunEngineV1Handler(pool *pgxpool.Pool, logger *app.JSONLogger) (*NativeRunEngineV1Handler, error) {
+func NewNativeRunEngineV1Handler(pool *pgxpool.Pool, logger *app.JSONLogger, rdb *redis.Client) (*NativeRunEngineV1Handler, error) {
 	if pool == nil {
 		return nil, fmt.Errorf("pool must not be nil")
 	}
 	if logger == nil {
 		logger = app.NewJSONLogger("worker_go", nil)
 	}
-	engine, err := app.ComposeNativeEngine(context.Background(), pool)
+	engine, err := app.ComposeNativeEngine(context.Background(), pool, rdb)
 	if err != nil {
 		return nil, err
 	}

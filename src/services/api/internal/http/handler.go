@@ -49,6 +49,7 @@ type HandlerConfig struct {
 	APIKeysRepo        *data.APIKeysRepository
 
 	RedisClient *redis.Client
+	RunLimiter  *data.RunLimiter
 
 	SSEConfig SSEConfig
 }
@@ -75,6 +76,7 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 			cfg.AuditWriter,
 			cfg.Pool,
 			cfg.APIKeysRepo,
+			cfg.RunLimiter,
 		),
 	)
 	sseConfig := cfg.SSEConfig

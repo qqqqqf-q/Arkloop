@@ -33,7 +33,7 @@ func TestNativeRunEngineV1HandlerWritesEventsAndMessage(t *testing.T) {
 		t.Fatalf("seed run failed: %v", err)
 	}
 
-	handler, err := NewNativeRunEngineV1Handler(pool, nil)
+	handler, err := NewNativeRunEngineV1Handler(pool, nil, nil)
 	if err != nil {
 		t.Fatalf("NewNativeRunEngineV1Handler failed: %v", err)
 	}
@@ -110,7 +110,7 @@ func TestNativeRunEngineV1HandlerCancelsWhenRequested(t *testing.T) {
 		t.Fatalf("seed cancel_requested failed: %v", err)
 	}
 
-	handler, err := NewNativeRunEngineV1Handler(pool, nil)
+	handler, err := NewNativeRunEngineV1Handler(pool, nil, nil)
 	if err != nil {
 		t.Fatalf("NewNativeRunEngineV1Handler failed: %v", err)
 	}

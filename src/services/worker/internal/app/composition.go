@@ -13,11 +13,13 @@ import (
 	"arkloop/services/worker/internal/tools/builtin"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 )
 
 // ComposeNativeEngine 组装原生运行引擎。
 // pool 不为 nil 时优先从数据库加载路由配置，若数据库无配置则回退到环境变量。
-func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool) (*runengine.EngineV1, error) {
+// rdb 不为 nil 时在 run 终态时 DECR 并发计数器。
+func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client) (*runengine.EngineV1, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -82,6 +84,7 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool) (*runengine.En
 		BaseToolAllowlistNames: baseAllowlistNames,
 		SkillRegistry:          skillRegistry,
 		MCPPool:                mcpPool,
+		RunLimiterRDB:          rdb,
 	})
 }
 

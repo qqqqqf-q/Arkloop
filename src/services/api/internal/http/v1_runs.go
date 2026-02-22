@@ -65,6 +65,7 @@ func createThreadRun(
 	auditWriter *audit.Writer,
 	pool *pgxpool.Pool,
 	apiKeysRepo *data.APIKeysRepository,
+	limiter *data.RunLimiter,
 ) func(nethttp.ResponseWriter, *nethttp.Request, uuid.UUID) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request, threadID uuid.UUID) {
 		if r.Method != nethttp.MethodPost {
@@ -127,6 +128,20 @@ func createThreadRun(
 			return
 		}
 
+		var acquired bool
+		if limiter != nil {
+			if !limiter.TryAcquire(r.Context(), thread.OrgID) {
+				WriteError(w, nethttp.StatusTooManyRequests, "runs.concurrent_limit_exceeded", "concurrent run limit exceeded", traceID, nil)
+				return
+			}
+			acquired = true
+			defer func() {
+				if acquired {
+					limiter.Release(r.Context(), thread.OrgID)
+				}
+			}()
+		}
+
 		tx, err := pool.BeginTx(r.Context(), pgx.TxOptions{})
 		if err != nil {
 			WriteError(w, nethttp.StatusInternalServerError, "internal_error", "internal error", traceID, nil)
@@ -176,6 +191,9 @@ func createThreadRun(
 			WriteError(w, nethttp.StatusInternalServerError, "internal_error", "internal error", traceID, nil)
 			return
 		}
+
+		// Commit 成功，计数器由 Worker 在终态时 DECR
+		acquired = false
 
 		writeJSON(w, traceID, nethttp.StatusCreated, createRunResponse{
 			RunID:   run.ID.String(),
