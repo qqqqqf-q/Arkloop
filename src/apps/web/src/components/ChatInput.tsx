@@ -96,7 +96,7 @@ export function ChatInput({
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
-      if (!disabled && !isStreaming && value.trim()) {
+      if (!disabled && value.trim()) {
         e.currentTarget.form?.requestSubmit()
       }
     }
@@ -139,7 +139,7 @@ export function ChatInput({
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
-          disabled={disabled || isStreaming}
+          disabled={disabled}
           style={{
             fontFamily: 'inherit',
             fontSize: '16px',

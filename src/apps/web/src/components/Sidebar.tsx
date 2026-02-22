@@ -48,11 +48,17 @@ export function Sidebar({
   return (
     <aside
       className={[
-        'flex h-full shrink-0 flex-col bg-[var(--c-bg-sidebar)] transition-all duration-300',
-        collapsed ? 'w-0 overflow-hidden' : 'w-[288px]',
+        'flex h-full shrink-0 flex-col overflow-hidden bg-[var(--c-bg-sidebar)] transition-all duration-300',
+        collapsed ? 'w-0' : 'w-[288px]',
       ].join(' ')}
       style={collapsed ? undefined : { borderRight: '0.5px solid rgba(0,0,0,0.16)' }}
     >
+      <div
+        className={[
+          'flex min-h-0 min-w-[288px] flex-1 flex-col transition-opacity',
+          collapsed ? 'opacity-0 duration-100' : 'opacity-100 delay-150 duration-200',
+        ].join(' ')}
+      >
       {/* 顶部标题栏 */}
       <div className="flex min-h-[52px] items-center justify-between px-4 py-3">
         <h1 className="text-[15px] font-semibold tracking-tight text-[var(--c-text-primary)]">Arkloop</h1>
@@ -68,9 +74,9 @@ export function Sidebar({
       <nav className="flex flex-col gap-px px-2">
         <button
           onClick={onNewThread}
-          className="flex h-9 items-center gap-2.5 rounded-lg px-2 text-[15px] text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]"
+          className="group flex h-9 items-center gap-2.5 rounded-lg px-2 text-[15px] text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]"
         >
-          <SquarePen size={15} className="shrink-0" />
+          <SquarePen size={15} className="shrink-0 transition-transform duration-200 group-hover:scale-[1.1]" />
           <span>{t.newChat}</span>
         </button>
 
@@ -80,24 +86,24 @@ export function Sidebar({
             const searchPath = basePath.endsWith('/') ? `${basePath}search` : `${basePath}/search`
             navigate(searchPath)
           }}
-          className="flex h-9 items-center gap-2.5 rounded-lg px-2 text-[15px] text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]"
+          className="group flex h-9 items-center gap-2.5 rounded-lg px-2 text-[15px] text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]"
         >
-          <Search size={15} className="shrink-0" />
+          <Search size={15} className="shrink-0 transition-transform duration-200 group-hover:scale-[1.1]" />
           <span>{t.chats}</span>
         </button>
 
-        <button className="flex h-9 items-center gap-2.5 rounded-lg px-2 text-[15px] text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]">
-          <FolderKanban size={15} className="shrink-0" />
+        <button className="group flex h-9 items-center gap-2.5 rounded-lg px-2 text-[15px] text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]">
+          <FolderKanban size={15} className="shrink-0 transition-transform duration-200 group-hover:scale-[1.1]" />
           <span>{t.projects}</span>
         </button>
 
-        <button className="flex h-9 items-center gap-2.5 rounded-lg px-2 text-[15px] text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]">
-          <SearchCheck size={15} className="shrink-0" />
+        <button className="group flex h-9 items-center gap-2.5 rounded-lg px-2 text-[15px] text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]">
+          <SearchCheck size={15} className="shrink-0 transition-transform duration-200 group-hover:scale-[1.1]" />
           <span>{t.retrieve}</span>
         </button>
 
-        <button className="flex h-9 items-center gap-2.5 rounded-lg px-2 text-[15px] text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]">
-          <Scale size={15} className="shrink-0" />
+        <button className="group flex h-9 items-center gap-2.5 rounded-lg px-2 text-[15px] text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]">
+          <Scale size={15} className="shrink-0 transition-transform duration-200 group-hover:scale-[1.1]" />
           <span>{t.legal}</span>
         </button>
       </nav>
@@ -158,6 +164,7 @@ export function Sidebar({
             <Bolt size={15} />
           </button>
         </div>
+      </div>
       </div>
     </aside>
   )

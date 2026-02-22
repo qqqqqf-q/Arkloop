@@ -70,7 +70,7 @@ export function SettingsModal({ me, initialTab = 'account', onClose, onLogout }:
       onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}
     >
       <div
-        className="flex h-[624px] w-[832px] overflow-hidden rounded-2xl shadow-2xl bg-[var(--c-bg-page)]"
+        className="modal-enter flex h-[624px] w-[832px] overflow-hidden rounded-2xl shadow-2xl bg-[var(--c-bg-page)]"
         style={{ boxShadow: 'inset 0 0 0 0.5px var(--c-modal-ring)' }}
       >
         {/* 左侧导航 */}

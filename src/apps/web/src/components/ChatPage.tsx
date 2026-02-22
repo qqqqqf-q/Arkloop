@@ -60,9 +60,11 @@ export function ChatPage() {
   const [sending, setSending] = useState(false)
   const [cancelSubmitting, setCancelSubmitting] = useState(false)
   const [error, setError] = useState<AppError | null>(null)
+  const [queuedDraft, setQueuedDraft] = useState<string | null>(null)
 
   const bottomRef = useRef<HTMLDivElement>(null)
   const processedEventCountRef = useRef(0)
+  const pendingMessageRef = useRef<string | null>(null)
 
   const sse = useSSE({ runId: activeRunId ?? '', accessToken, baseUrl })
 
@@ -80,6 +82,33 @@ export function ChatPage() {
       setError(normalizeError(err))
     }
   }, [accessToken, threadId])
+
+  // 仅用于 streaming 结束后自动发送排队消息（无附件）
+  const sendMessage = useCallback(async (text: string) => {
+    if (!threadId) return
+    setSending(true)
+    setError(null)
+    try {
+      const message = await createMessage(accessToken, threadId, { content: text })
+      setMessages((prev) => [...prev, message])
+      setAssistantDraft('')
+      const run = await createRun(accessToken, threadId)
+      setActiveRunId(run.run_id)
+      onRunStarted(threadId)
+    } catch (err) {
+      if (isApiError(err) && err.status === 401) {
+        onLoggedOut()
+        return
+      }
+      setError(normalizeError(err))
+    } finally {
+      setSending(false)
+    }
+  }, [accessToken, threadId, onLoggedOut, onRunStarted])
+
+  // 用 ref 持有最新的 sendMessage，避免 SSE 事件闭包中捕获旧引用
+  const sendMessageRef = useRef(sendMessage)
+  useEffect(() => { sendMessageRef.current = sendMessage }, [sendMessage])
 
   // 加载 thread 数据
   useEffect(() => {
@@ -119,10 +148,12 @@ export function ChatPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accessToken, threadId])
 
-  // 切换 thread 时清理 SSE
+  // 切换 thread 时清理 SSE 和排队消息
   useEffect(() => {
     setAssistantDraft('')
     setCancelSubmitting(false)
+    pendingMessageRef.current = null
+    setQueuedDraft(null)
     sse.disconnect()
     sse.clearEvents()
     processedEventCountRef.current = 0
@@ -164,8 +195,15 @@ export function ChatPage() {
         sse.disconnect()
         setActiveRunId(null)
         setAssistantDraft('')
+        setQueuedDraft(null)
         if (threadId) onRunEnded(threadId)
-        void refreshMessages()
+        void refreshMessages().then(() => {
+          const pending = pendingMessageRef.current
+          if (pending) {
+            pendingMessageRef.current = null
+            void sendMessageRef.current(pending)
+          }
+        })
         continue
       }
 
@@ -245,7 +283,19 @@ export function ChatPage() {
 
   const handleSend = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
-    if (sending || isStreaming || !threadId) return
+    if (sending || !threadId) return
+
+    // streaming 期间排队，输出结束后自动发送
+    if (isStreaming) {
+      const text = draft.trim()
+      if (text) {
+        pendingMessageRef.current = text
+        setQueuedDraft(text)
+        setDraft('')
+      }
+      return
+    }
+
     const text = draft.trim()
     if (!text && attachments.length === 0) return
 
@@ -315,6 +365,8 @@ export function ChatPage() {
     setAssistantDraft('')
     setCancelSubmitting(true)
     setError(null)
+    pendingMessageRef.current = null
+    setQueuedDraft(null)
     if (threadId) onRunEnded(threadId)
 
     void cancelRun(accessToken, runId).catch((err: unknown) => {
@@ -373,6 +425,27 @@ export function ChatPage() {
         style={{ maxWidth: 1200, margin: '0 auto', padding: '20px 60px 24px', flexShrink: 0 }}
         className="flex w-full flex-col items-center gap-2"
       >
+        {queuedDraft && (
+          <div
+            className="flex w-full max-w-[756px] items-center gap-2 rounded-xl px-3 py-2"
+            style={{ background: 'var(--c-bg-sub)', border: '0.5px solid var(--c-border-subtle)' }}
+          >
+            <span
+              className="flex-1 truncate text-sm"
+              style={{ color: 'var(--c-text-secondary)' }}
+            >
+              {queuedDraft}
+            </span>
+            <button
+              type="button"
+              onClick={() => { pendingMessageRef.current = null; setQueuedDraft(null) }}
+              className="flex items-center justify-center rounded opacity-70 transition-opacity hover:opacity-100"
+              style={{ color: 'var(--c-text-muted)' }}
+            >
+              <X size={12} />
+            </button>
+          </div>
+        )}
         {attachments.length > 0 && (
           <div className="flex w-full max-w-[756px] flex-wrap gap-2">
             {attachments.map((att) => (
