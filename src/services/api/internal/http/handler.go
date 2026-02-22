@@ -48,9 +48,11 @@ type HandlerConfig struct {
 	IPRulesRepo        *data.IPRulesRepository
 	APIKeysRepo        *data.APIKeysRepository
 	OrgInvitationsRepo *data.OrgInvitationsRepository
-	TeamRepo           *data.TeamRepository
-	ProjectRepo        *data.ProjectRepository
-	WebhookRepo        *data.WebhookEndpointRepository
+	TeamRepo               *data.TeamRepository
+	ProjectRepo            *data.ProjectRepository
+	WebhookRepo            *data.WebhookEndpointRepository
+	PromptTemplatesRepo    *data.PromptTemplateRepository
+	AgentConfigsRepo       *data.AgentConfigRepository
 
 	RedisClient *redis.Client
 	RunLimiter  *data.RunLimiter
@@ -174,6 +176,24 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 	mux.HandleFunc(
 		"/v1/webhook-endpoints/",
 		webhookEndpointEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.WebhookRepo, cfg.APIKeysRepo),
+	)
+
+	mux.HandleFunc(
+		"/v1/prompt-templates",
+		promptTemplatesEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.PromptTemplatesRepo, cfg.APIKeysRepo),
+	)
+	mux.HandleFunc(
+		"/v1/prompt-templates/",
+		promptTemplateEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.PromptTemplatesRepo, cfg.APIKeysRepo),
+	)
+
+	mux.HandleFunc(
+		"/v1/agent-configs",
+		agentConfigsEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.AgentConfigsRepo, cfg.APIKeysRepo),
+	)
+	mux.HandleFunc(
+		"/v1/agent-configs/",
+		agentConfigEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.AgentConfigsRepo, cfg.APIKeysRepo),
 	)
 
 	notFound := nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {

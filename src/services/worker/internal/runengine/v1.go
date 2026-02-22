@@ -93,6 +93,7 @@ func NewEngineV1(deps EngineV1Deps) (*EngineV1, error) {
 			baseAllowlistSet,
 			deps.ToolRegistry,
 		),
+		pipeline.NewAgentConfigMiddleware(deps.DBPool),
 		pipeline.NewSkillResolutionMiddleware(deps.SkillRegistry, deps.DBPool, runsRepo, eventsRepo, releaseSlot),
 		pipeline.NewRoutingMiddleware(deps.Router, deps.DBPool, deps.StubGateway, deps.EmitDebugEvents, runsRepo, eventsRepo, releaseSlot),
 		pipeline.NewToolBuildMiddleware(),

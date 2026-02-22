@@ -19,5 +19,7 @@ const (
 	PermDataSecrets       = "data.secrets.manage"
 	PermDataProjectsRead   = "data.projects.read"
 	PermDataProjectsManage = "data.projects.manage"
-	PermDataWebhooksManage = "data.webhooks.manage"
+	PermDataWebhooksManage     = "data.webhooks.manage"
+	PermDataAgentConfigsRead   = "data.agent_configs.read"
+	PermDataAgentConfigsManage = "data.agent_configs.manage"
 )

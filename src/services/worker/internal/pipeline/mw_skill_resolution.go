@@ -60,6 +60,17 @@ func NewSkillResolutionMiddleware(
 		rc.ToolBudget = map[string]any{}
 		rc.SkillDefinition = resolution.Definition
 
+		// AgentConfigMiddleware 已解析的配置作为基础 fallback
+		if rc.AgentConfig != nil {
+			if rc.AgentConfig.SystemPrompt != nil {
+				rc.SystemPrompt = *rc.AgentConfig.SystemPrompt
+			}
+			if rc.AgentConfig.MaxOutputTokens != nil {
+				rc.MaxOutputTokens = rc.AgentConfig.MaxOutputTokens
+			}
+		}
+
+		// skill 定义覆盖 agent_config 的对应字段
 		if resolution.Definition != nil {
 			def := resolution.Definition
 			rc.SystemPrompt = def.PromptMD

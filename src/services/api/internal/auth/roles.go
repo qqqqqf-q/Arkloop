@@ -18,6 +18,7 @@ var orgAdminPerms = []string{
 	PermDataMCPConfigs,
 	PermDataSecrets,
 	PermDataProjectsRead, PermDataProjectsManage,
+	PermDataAgentConfigsRead, PermDataAgentConfigsManage,
 }
 
 var orgMemberPerms = []string{
@@ -28,6 +29,7 @@ var orgMemberPerms = []string{
 	PermDataAPIKeysManage,
 	PermDataSkillsRead,
 	PermDataProjectsRead,
+	PermDataAgentConfigsRead,
 }
 
 var platformAdminPerms = append([]string{PermPlatformAdmin}, orgAdminPerms...)

@@ -17,8 +17,9 @@ type Thread struct {
 	Title           *string
 	CreatedAt       time.Time
 	// R15: 软删除 + Phase 5 project 预留
-	DeletedAt *time.Time
-	ProjectID *uuid.UUID
+	DeletedAt     *time.Time
+	ProjectID     *uuid.UUID
+	AgentConfigID *uuid.UUID
 }
 
 type ThreadWithActiveRun struct {
@@ -55,12 +56,12 @@ func (r *ThreadRepository) Create(
 		ctx,
 		`INSERT INTO threads (org_id, created_by_user_id, title)
 		 VALUES ($1, $2, $3)
-		 RETURNING id, org_id, created_by_user_id, title, created_at, deleted_at, project_id`,
+		 RETURNING id, org_id, created_by_user_id, title, created_at, deleted_at, project_id, agent_config_id`,
 		orgID,
 		createdByUserID,
 		title,
 	).Scan(&thread.ID, &thread.OrgID, &thread.CreatedByUserID, &thread.Title, &thread.CreatedAt,
-		&thread.DeletedAt, &thread.ProjectID)
+		&thread.DeletedAt, &thread.ProjectID, &thread.AgentConfigID)
 	if err != nil {
 		return Thread{}, err
 	}
@@ -75,14 +76,14 @@ func (r *ThreadRepository) GetByID(ctx context.Context, threadID uuid.UUID) (*Th
 	var thread Thread
 	err := r.db.QueryRow(
 		ctx,
-		`SELECT id, org_id, created_by_user_id, title, created_at, deleted_at, project_id
+		`SELECT id, org_id, created_by_user_id, title, created_at, deleted_at, project_id, agent_config_id
 		 FROM threads
 		 WHERE id = $1
 		   AND deleted_at IS NULL
 		 LIMIT 1`,
 		threadID,
 	).Scan(&thread.ID, &thread.OrgID, &thread.CreatedByUserID, &thread.Title, &thread.CreatedAt,
-		&thread.DeletedAt, &thread.ProjectID)
+		&thread.DeletedAt, &thread.ProjectID, &thread.AgentConfigID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
@@ -117,7 +118,7 @@ func (r *ThreadRepository) ListByOwner(
 	}
 
 	sql := `SELECT t.id, t.org_id, t.created_by_user_id, t.title, t.created_at,
-		       t.deleted_at, t.project_id, r.id AS active_run_id
+		       t.deleted_at, t.project_id, t.agent_config_id, r.id AS active_run_id
 		FROM threads t
 		LEFT JOIN LATERAL (
 			SELECT id FROM runs
@@ -154,7 +155,7 @@ func (r *ThreadRepository) ListByOwner(
 		var item ThreadWithActiveRun
 		if err := rows.Scan(
 			&item.ID, &item.OrgID, &item.CreatedByUserID, &item.Title, &item.CreatedAt,
-			&item.DeletedAt, &item.ProjectID, &item.ActiveRunID,
+			&item.DeletedAt, &item.ProjectID, &item.AgentConfigID, &item.ActiveRunID,
 		); err != nil {
 			return nil, err
 		}
@@ -181,11 +182,11 @@ func (r *ThreadRepository) UpdateTitle(ctx context.Context, threadID uuid.UUID, 
 		 SET title = $1
 		 WHERE id = $2
 		   AND deleted_at IS NULL
-		 RETURNING id, org_id, created_by_user_id, title, created_at, deleted_at, project_id`,
+		 RETURNING id, org_id, created_by_user_id, title, created_at, deleted_at, project_id, agent_config_id`,
 		title,
 		threadID,
 	).Scan(&thread.ID, &thread.OrgID, &thread.CreatedByUserID, &thread.Title, &thread.CreatedAt,
-		&thread.DeletedAt, &thread.ProjectID)
+		&thread.DeletedAt, &thread.ProjectID, &thread.AgentConfigID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
@@ -196,12 +197,14 @@ func (r *ThreadRepository) UpdateTitle(ctx context.Context, threadID uuid.UUID, 
 }
 
 // ThreadUpdateFields 描述 PATCH 操作中要更新的字段集合。
-// SetTitle/SetProjectID 为 true 才写对应列，允许单独或同时更新。
+// Set* 为 true 才写对应列，允许单独或同时更新。
 type ThreadUpdateFields struct {
-	SetTitle     bool
-	Title        *string
-	SetProjectID bool
-	ProjectID    *uuid.UUID
+	SetTitle          bool
+	Title             *string
+	SetProjectID      bool
+	ProjectID         *uuid.UUID
+	SetAgentConfigID  bool
+	AgentConfigID     *uuid.UUID
 }
 
 // UpdateFields 原子更新 thread 的一个或多个字段，单条 SQL 保证原子性。
@@ -213,7 +216,7 @@ func (r *ThreadRepository) UpdateFields(ctx context.Context, threadID uuid.UUID,
 	if threadID == uuid.Nil {
 		return nil, fmt.Errorf("thread_id must not be empty")
 	}
-	if !params.SetTitle && !params.SetProjectID {
+	if !params.SetTitle && !params.SetProjectID && !params.SetAgentConfigID {
 		return nil, fmt.Errorf("no fields to update")
 	}
 
@@ -221,16 +224,18 @@ func (r *ThreadRepository) UpdateFields(ctx context.Context, threadID uuid.UUID,
 	err := r.db.QueryRow(
 		ctx,
 		`UPDATE threads
-		 SET title      = CASE WHEN $2 THEN $3 ELSE title END,
-		     project_id = CASE WHEN $4 THEN $5 ELSE project_id END
+		 SET title           = CASE WHEN $2 THEN $3 ELSE title END,
+		     project_id      = CASE WHEN $4 THEN $5 ELSE project_id END,
+		     agent_config_id = CASE WHEN $6 THEN $7 ELSE agent_config_id END
 		 WHERE id = $1
 		   AND deleted_at IS NULL
-		 RETURNING id, org_id, created_by_user_id, title, created_at, deleted_at, project_id`,
+		 RETURNING id, org_id, created_by_user_id, title, created_at, deleted_at, project_id, agent_config_id`,
 		threadID,
 		params.SetTitle, params.Title,
 		params.SetProjectID, params.ProjectID,
+		params.SetAgentConfigID, params.AgentConfigID,
 	).Scan(&thread.ID, &thread.OrgID, &thread.CreatedByUserID, &thread.Title, &thread.CreatedAt,
-		&thread.DeletedAt, &thread.ProjectID)
+		&thread.DeletedAt, &thread.ProjectID, &thread.AgentConfigID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil

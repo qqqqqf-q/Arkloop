@@ -23,8 +23,9 @@ type createThreadRequest struct {
 }
 
 type updateThreadRequest struct {
-	Title     optionalString `json:"title"`
-	ProjectID optionalUUID   `json:"project_id"`
+	Title         optionalString `json:"title"`
+	ProjectID     optionalUUID   `json:"project_id"`
+	AgentConfigID optionalUUID   `json:"agent_config_id"`
 }
 
 type threadResponse struct {
@@ -261,7 +262,7 @@ func patchThread(
 			WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "request validation failed", traceID, nil)
 			return
 		}
-		if !body.Title.Present && !body.ProjectID.Present {
+		if !body.Title.Present && !body.ProjectID.Present && !body.AgentConfigID.Present {
 			WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "request validation failed", traceID, nil)
 			return
 		}
@@ -301,12 +302,14 @@ func patchThread(
 			}
 		}
 
-		// 原子更新：单条 SQL 同时写 title 和/或 project_id，避免局部写入
+		// 原子更新：单条 SQL 同时写多个字段，避免局部写入
 		updated, err := threadRepo.UpdateFields(r.Context(), threadID, data.ThreadUpdateFields{
-			SetTitle:     body.Title.Present,
-			Title:        body.Title.Value,
-			SetProjectID: body.ProjectID.Present,
-			ProjectID:    body.ProjectID.Value,
+			SetTitle:         body.Title.Present,
+			Title:            body.Title.Value,
+			SetProjectID:     body.ProjectID.Present,
+			ProjectID:        body.ProjectID.Value,
+			SetAgentConfigID: body.AgentConfigID.Present,
+			AgentConfigID:    body.AgentConfigID.Value,
 		})
 		if err != nil {
 			WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
