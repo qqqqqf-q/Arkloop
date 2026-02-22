@@ -145,9 +145,11 @@ func (a *Application) Run(ctx context.Context) error {
 		llmRoutesRepo  *data.LlmRoutesRepository
 		mcpConfigsRepo *data.MCPConfigsRepository
 		skillsRepo     *data.SkillsRepository
-		ipRulesRepo         *data.IPRulesRepository
-		apiKeysRepo         *data.APIKeysRepository
-		orgInvitationsRepo  *data.OrgInvitationsRepository
+		ipRulesRepo        *data.IPRulesRepository
+		apiKeysRepo        *data.APIKeysRepository
+		orgInvitationsRepo *data.OrgInvitationsRepository
+		teamRepo           *data.TeamRepository
+		projectRepo        *data.ProjectRepository
 
 		authService         *auth.Service
 		registrationService *auth.RegistrationService
@@ -210,6 +212,14 @@ func (a *Application) Run(ctx context.Context) error {
 			return err
 		}
 		orgInvitationsRepo, err = data.NewOrgInvitationsRepository(pool)
+		if err != nil {
+			return err
+		}
+		teamRepo, err = data.NewTeamRepository(pool)
+		if err != nil {
+			return err
+		}
+		projectRepo, err = data.NewProjectRepository(pool)
 		if err != nil {
 			return err
 		}
@@ -280,6 +290,8 @@ func (a *Application) Run(ctx context.Context) error {
 			IPRulesRepo:          ipRulesRepo,
 			APIKeysRepo:          apiKeysRepo,
 			OrgInvitationsRepo:   orgInvitationsRepo,
+			TeamRepo:             teamRepo,
+			ProjectRepo:          projectRepo,
 			RedisClient:          redisClient,
 			RunLimiter:           runLimiter,
 			SSEConfig: apihttp.SSEConfig{

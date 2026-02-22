@@ -23,7 +23,8 @@ type createThreadRequest struct {
 }
 
 type updateThreadRequest struct {
-	Title optionalString `json:"title"`
+	Title     optionalString `json:"title"`
+	ProjectID optionalUUID   `json:"project_id"`
 }
 
 type threadResponse struct {
@@ -31,6 +32,7 @@ type threadResponse struct {
 	OrgID           string  `json:"org_id"`
 	CreatedByUserID *string `json:"created_by_user_id"`
 	Title           *string `json:"title"`
+	ProjectID       *string `json:"project_id,omitempty"`
 	CreatedAt       string  `json:"created_at"`
 	ActiveRunID     *string `json:"active_run_id"`
 }
@@ -52,6 +54,30 @@ func (s *optionalString) UnmarshalJSON(raw []byte) error {
 		return err
 	}
 	s.Value = &value
+	return nil
+}
+
+type optionalUUID struct {
+	Present bool
+	Value   *uuid.UUID
+}
+
+func (u *optionalUUID) UnmarshalJSON(raw []byte) error {
+	u.Present = true
+	if string(raw) == "null" {
+		u.Value = nil
+		return nil
+	}
+
+	var s string
+	if err := json.Unmarshal(raw, &s); err != nil {
+		return err
+	}
+	parsed, err := uuid.Parse(s)
+	if err != nil {
+		return err
+	}
+	u.Value = &parsed
 	return nil
 }
 
@@ -167,6 +193,8 @@ func getThread(
 	authService *auth.Service,
 	membershipRepo *data.OrgMembershipRepository,
 	threadRepo *data.ThreadRepository,
+	projectRepo *data.ProjectRepository,
+	teamRepo *data.TeamRepository,
 	auditWriter *audit.Writer,
 	apiKeysRepo *data.APIKeysRepository,
 ) func(nethttp.ResponseWriter, *nethttp.Request, uuid.UUID) {
@@ -196,7 +224,7 @@ func getThread(
 			return
 		}
 
-		if !authorizeThreadOrAudit(w, r, traceID, actor, "threads.get", thread, auditWriter) {
+		if !authorizeThreadReadOrAudit(w, r, traceID, actor, "threads.get", thread, projectRepo, teamRepo, auditWriter) {
 			return
 		}
 
@@ -208,6 +236,7 @@ func patchThread(
 	authService *auth.Service,
 	membershipRepo *data.OrgMembershipRepository,
 	threadRepo *data.ThreadRepository,
+	projectRepo *data.ProjectRepository,
 	auditWriter *audit.Writer,
 	apiKeysRepo *data.APIKeysRepository,
 ) func(nethttp.ResponseWriter, *nethttp.Request, uuid.UUID) {
@@ -232,11 +261,11 @@ func patchThread(
 			WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "request validation failed", traceID, nil)
 			return
 		}
-		if !body.Title.Present {
+		if !body.Title.Present && !body.ProjectID.Present {
 			WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "request validation failed", traceID, nil)
 			return
 		}
-		if body.Title.Value != nil && len(*body.Title.Value) > 200 {
+		if body.Title.Present && body.Title.Value != nil && len(*body.Title.Value) > 200 {
 			WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "request validation failed", traceID, nil)
 			return
 		}
@@ -255,17 +284,44 @@ func patchThread(
 			return
 		}
 
-		updated, err := threadRepo.UpdateTitle(r.Context(), threadID, body.Title.Value)
-		if err != nil {
-			WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
-			return
-		}
-		if updated == nil {
-			WriteError(w, nethttp.StatusNotFound, "threads.not_found", "thread not found", traceID, nil)
-			return
+		// 验证新的 project_id 归属于同一 org
+		if body.ProjectID.Present && body.ProjectID.Value != nil && projectRepo != nil {
+			project, err := projectRepo.GetByID(r.Context(), *body.ProjectID.Value)
+			if err != nil {
+				WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+				return
+			}
+			if project == nil || project.OrgID != actor.OrgID {
+				WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "project not found in org", traceID, nil)
+				return
+			}
 		}
 
-		writeJSON(w, traceID, nethttp.StatusOK, toThreadResponse(*updated))
+		var current *data.Thread
+		if body.Title.Present {
+			current, err = threadRepo.UpdateTitle(r.Context(), threadID, body.Title.Value)
+			if err != nil {
+				WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+				return
+			}
+			if current == nil {
+				WriteError(w, nethttp.StatusNotFound, "threads.not_found", "thread not found", traceID, nil)
+				return
+			}
+		}
+		if body.ProjectID.Present {
+			current, err = threadRepo.UpdateProjectID(r.Context(), threadID, body.ProjectID.Value)
+			if err != nil {
+				WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+				return
+			}
+			if current == nil {
+				WriteError(w, nethttp.StatusNotFound, "threads.not_found", "thread not found", traceID, nil)
+				return
+			}
+		}
+
+		writeJSON(w, traceID, nethttp.StatusOK, toThreadResponse(*current))
 	}
 }
 
@@ -351,13 +407,15 @@ func threadEntry(
 	threadRepo *data.ThreadRepository,
 	messageRepo *data.MessageRepository,
 	runRepo *data.RunEventRepository,
+	projectRepo *data.ProjectRepository,
+	teamRepo *data.TeamRepository,
 	auditWriter *audit.Writer,
 	pool *pgxpool.Pool,
 	apiKeysRepo *data.APIKeysRepository,
 	runLimiter *data.RunLimiter,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
-	get := getThread(authService, membershipRepo, threadRepo, auditWriter, apiKeysRepo)
-	patch := patchThread(authService, membershipRepo, threadRepo, auditWriter, apiKeysRepo)
+	get := getThread(authService, membershipRepo, threadRepo, projectRepo, teamRepo, auditWriter, apiKeysRepo)
+	patch := patchThread(authService, membershipRepo, threadRepo, projectRepo, auditWriter, apiKeysRepo)
 	del := deleteThread(authService, membershipRepo, threadRepo, auditWriter, apiKeysRepo)
 	createMessage := createThreadMessage(authService, membershipRepo, threadRepo, messageRepo, auditWriter, apiKeysRepo)
 	listMessages := listThreadMessages(authService, membershipRepo, threadRepo, messageRepo, auditWriter, apiKeysRepo)
@@ -549,17 +607,85 @@ func authorizeThreadOrAudit(
 	return false
 }
 
+// authorizeThreadReadOrAudit 用于只读操作，额外检查 project 级别的可见性。
+// 优先级：自己是创建者 > project visibility 规则 > 拒绝。
+func authorizeThreadReadOrAudit(
+	w nethttp.ResponseWriter,
+	r *nethttp.Request,
+	traceID string,
+	actor *actor,
+	action string,
+	thread *data.Thread,
+	projectRepo *data.ProjectRepository,
+	teamRepo *data.TeamRepository,
+	auditWriter *audit.Writer,
+) bool {
+	if actor == nil || thread == nil {
+		WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+		return false
+	}
+
+	if actor.OrgID != thread.OrgID {
+		if auditWriter != nil {
+			auditWriter.WriteAccessDenied(r.Context(), traceID, actor.OrgID, actor.UserID,
+				action, "thread", thread.ID.String(), thread.OrgID, thread.CreatedByUserID, "org_mismatch")
+		}
+		WriteError(w, nethttp.StatusForbidden, "policy.denied", "access denied", traceID, map[string]any{"action": action})
+		return false
+	}
+
+	// 创建者直接允许
+	if thread.CreatedByUserID != nil && *thread.CreatedByUserID == actor.UserID {
+		return true
+	}
+
+	// 通过 project visibility 授权
+	if thread.ProjectID != nil && projectRepo != nil {
+		project, err := projectRepo.GetByID(r.Context(), *thread.ProjectID)
+		if err == nil && project != nil {
+			switch project.Visibility {
+			case "org":
+				return true
+			case "team":
+				if project.TeamID != nil && teamRepo != nil {
+					isMember, err := teamRepo.IsMember(r.Context(), *project.TeamID, actor.UserID)
+					if err == nil && isMember {
+						return true
+					}
+				}
+			}
+		}
+	}
+
+	denyReason := "owner_mismatch"
+	if thread.CreatedByUserID == nil {
+		denyReason = "no_owner"
+	}
+	if auditWriter != nil {
+		auditWriter.WriteAccessDenied(r.Context(), traceID, actor.OrgID, actor.UserID,
+			action, "thread", thread.ID.String(), thread.OrgID, thread.CreatedByUserID, denyReason)
+	}
+	WriteError(w, nethttp.StatusForbidden, "policy.denied", "access denied", traceID, map[string]any{"action": action})
+	return false
+}
+
 func toThreadResponse(thread data.Thread) threadResponse {
 	var createdByUserID *string
 	if thread.CreatedByUserID != nil {
 		value := thread.CreatedByUserID.String()
 		createdByUserID = &value
 	}
+	var projectID *string
+	if thread.ProjectID != nil {
+		value := thread.ProjectID.String()
+		projectID = &value
+	}
 	return threadResponse{
 		ID:              thread.ID.String(),
 		OrgID:           thread.OrgID.String(),
 		CreatedByUserID: createdByUserID,
 		Title:           thread.Title,
+		ProjectID:       projectID,
 		CreatedAt:       thread.CreatedAt.UTC().Format(time.RFC3339Nano),
 		ActiveRunID:     nil,
 	}

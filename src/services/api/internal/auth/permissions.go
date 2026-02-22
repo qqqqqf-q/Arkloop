@@ -6,6 +6,8 @@ const (
 	PermOrgMembersInvite  = "org.members.invite"
 	PermOrgMembersList    = "org.members.list"
 	PermOrgMembersRevoke  = "org.members.revoke"
+	PermOrgTeamsRead      = "org.teams.read"
+	PermOrgTeamsManage    = "org.teams.manage"
 	PermDataThreadsRead   = "data.threads.read"
 	PermDataThreadsWrite  = "data.threads.write"
 	PermDataRunsRead      = "data.runs.read"
@@ -15,4 +17,6 @@ const (
 	PermDataLLMCreds      = "data.llm_credentials.manage"
 	PermDataMCPConfigs    = "data.mcp_configs.manage"
 	PermDataSecrets       = "data.secrets.manage"
+	PermDataProjectsRead  = "data.projects.read"
+	PermDataProjectsManage = "data.projects.manage"
 )

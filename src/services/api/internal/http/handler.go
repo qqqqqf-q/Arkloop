@@ -48,6 +48,8 @@ type HandlerConfig struct {
 	IPRulesRepo        *data.IPRulesRepository
 	APIKeysRepo        *data.APIKeysRepository
 	OrgInvitationsRepo *data.OrgInvitationsRepository
+	TeamRepo           *data.TeamRepository
+	ProjectRepo        *data.ProjectRepository
 
 	RedisClient *redis.Client
 	RunLimiter  *data.RunLimiter
@@ -74,6 +76,8 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 			cfg.ThreadRepo,
 			cfg.MessageRepo,
 			cfg.RunEventRepo,
+			cfg.ProjectRepo,
+			cfg.TeamRepo,
 			cfg.AuditWriter,
 			cfg.Pool,
 			cfg.APIKeysRepo,
@@ -133,6 +137,24 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 	mux.HandleFunc(
 		"/v1/api-keys/",
 		apiKeyEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.APIKeysRepo, cfg.AuditWriter, cfg.RedisClient),
+	)
+
+	mux.HandleFunc(
+		"/v1/teams",
+		teamsEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.TeamRepo, cfg.APIKeysRepo),
+	)
+	mux.HandleFunc(
+		"/v1/teams/",
+		teamEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.TeamRepo, cfg.APIKeysRepo),
+	)
+
+	mux.HandleFunc(
+		"/v1/projects",
+		projectsEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.ProjectRepo, cfg.TeamRepo, cfg.APIKeysRepo),
+	)
+	mux.HandleFunc(
+		"/v1/projects/",
+		projectEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.ProjectRepo, cfg.APIKeysRepo),
 	)
 
 	mux.HandleFunc(

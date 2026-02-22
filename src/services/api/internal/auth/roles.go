@@ -9,6 +9,7 @@ const (
 
 var orgAdminPerms = []string{
 	PermOrgMembersInvite, PermOrgMembersList, PermOrgMembersRevoke,
+	PermOrgTeamsRead, PermOrgTeamsManage,
 	PermDataThreadsRead, PermDataThreadsWrite,
 	PermDataRunsRead, PermDataRunsWrite,
 	PermDataAPIKeysManage,
@@ -16,14 +17,17 @@ var orgAdminPerms = []string{
 	PermDataLLMCreds,
 	PermDataMCPConfigs,
 	PermDataSecrets,
+	PermDataProjectsRead, PermDataProjectsManage,
 }
 
 var orgMemberPerms = []string{
+	PermOrgTeamsRead,
 	PermDataThreadsRead, PermDataThreadsWrite,
 	PermDataRunsRead, PermDataRunsWrite,
 	// 成员可管理自己名下的 API Key，符合最小特权原则——Key 归属于创建者，不涉及 org 级写操作。
 	PermDataAPIKeysManage,
 	PermDataSkillsRead,
+	PermDataProjectsRead,
 }
 
 var platformAdminPerms = append([]string{PermPlatformAdmin}, orgAdminPerms...)

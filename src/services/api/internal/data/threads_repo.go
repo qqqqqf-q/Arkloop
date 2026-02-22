@@ -195,6 +195,36 @@ func (r *ThreadRepository) UpdateTitle(ctx context.Context, threadID uuid.UUID, 
 	return &thread, nil
 }
 
+// UpdateProjectID 设置或清除 thread 的 project_id。返回 nil 表示 thread 不存在或已删除。
+func (r *ThreadRepository) UpdateProjectID(ctx context.Context, threadID uuid.UUID, projectID *uuid.UUID) (*Thread, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if threadID == uuid.Nil {
+		return nil, fmt.Errorf("thread_id must not be empty")
+	}
+
+	var thread Thread
+	err := r.db.QueryRow(
+		ctx,
+		`UPDATE threads
+		 SET project_id = $1
+		 WHERE id = $2
+		   AND deleted_at IS NULL
+		 RETURNING id, org_id, created_by_user_id, title, created_at, deleted_at, project_id`,
+		projectID,
+		threadID,
+	).Scan(&thread.ID, &thread.OrgID, &thread.CreatedByUserID, &thread.Title, &thread.CreatedAt,
+		&thread.DeletedAt, &thread.ProjectID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &thread, nil
+}
+
 // Delete 软删除 thread，返回 false 表示 thread 不存在或已删除。
 func (r *ThreadRepository) Delete(ctx context.Context, threadID uuid.UUID) (bool, error) {
 	if ctx == nil {
