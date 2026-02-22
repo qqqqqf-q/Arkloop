@@ -1,5 +1,9 @@
 const ACCESS_TOKEN_KEY = 'arkloop:web:access_token'
 const ACTIVE_THREAD_ID_KEY = 'arkloop:web:active_thread_id'
+const LOCALE_KEY = 'arkloop:web:locale'
+const THEME_KEY = 'arkloop:web:theme'
+
+export type Theme = 'system' | 'light' | 'dark'
 
 function canUseLocalStorage(): boolean {
   try {
@@ -97,6 +101,46 @@ export function clearLastSeqInStorage(runId: string): void {
   if (!runId || !canUseLocalStorage()) return
   try {
     localStorage.removeItem(lastSeqStorageKey(runId))
+  } catch {
+    // 忽略存储失败
+  }
+}
+
+export function readLocaleFromStorage(): import('./locales').Locale {
+  if (!canUseLocalStorage()) return 'zh'
+  try {
+    const raw = localStorage.getItem(LOCALE_KEY)
+    if (raw === 'zh' || raw === 'en') return raw
+    return 'zh'
+  } catch {
+    return 'zh'
+  }
+}
+
+export function writeLocaleToStorage(locale: import('./locales').Locale): void {
+  if (!canUseLocalStorage()) return
+  try {
+    localStorage.setItem(LOCALE_KEY, locale)
+  } catch {
+    // 忽略存储失败
+  }
+}
+
+export function readThemeFromStorage(): Theme {
+  if (!canUseLocalStorage()) return 'system'
+  try {
+    const raw = localStorage.getItem(THEME_KEY)
+    if (raw === 'system' || raw === 'light' || raw === 'dark') return raw
+    return 'system'
+  } catch {
+    return 'system'
+  }
+}
+
+export function writeThemeToStorage(theme: Theme): void {
+  if (!canUseLocalStorage()) return
+  try {
+    localStorage.setItem(THEME_KEY, theme)
   } catch {
     // 忽略存储失败
   }

@@ -1,8 +1,9 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { Outlet, useNavigate } from 'react-router-dom'
+import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { PanelLeftOpen } from 'lucide-react'
 import { Sidebar } from '../components/Sidebar'
 import { SettingsModal } from '../components/SettingsModal'
+import { ChatsSearchModal } from '../components/ChatsSearchModal'
 import type { SettingsTab } from '../components/SettingsModal'
 import {
   getMe,
@@ -21,6 +22,14 @@ type Props = {
 
 export function AppLayout({ accessToken, onLoggedOut }: Props) {
   const navigate = useNavigate()
+  const location = useLocation()
+
+  const isSearchOpen = location.pathname.endsWith('/search')
+
+  const handleCloseSearch = useCallback(() => {
+    const basePath = location.pathname.replace(/\/search$/, '') || '/'
+    navigate(basePath)
+  }, [location.pathname, navigate])
 
   const [me, setMe] = useState<MeResponse | null>(null)
   const [threads, setThreads] = useState<ThreadResponse[]>([])
@@ -122,6 +131,10 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
           onClose={() => setSettingsOpen(false)}
           onLogout={handleLogout}
         />
+      )}
+
+      {isSearchOpen && (
+        <ChatsSearchModal threads={threads} onClose={handleCloseSearch} />
       )}
 
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden">

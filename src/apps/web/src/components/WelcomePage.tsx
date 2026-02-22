@@ -5,20 +5,21 @@ import { ChatInput, type Attachment, formatFileSize } from './ChatInput'
 import { ErrorCallout, type AppError } from './ErrorCallout'
 import { createThread, createMessage, createRun, isApiError, type ThreadResponse } from '../api'
 import { writeActiveThreadIdToStorage } from '../storage'
+import { useLocale } from '../contexts/LocaleContext'
 
-function normalizeError(error: unknown): AppError {
+function normalizeError(error: unknown, fallback: string): AppError {
   if (isApiError(error)) {
     return { message: error.message, traceId: error.traceId, code: error.code }
   }
   if (error instanceof Error) {
     return { message: error.message }
   }
-  return { message: '请求失败' }
+  return { message: fallback }
 }
 
-function deriveTitle(content: string): string {
+function deriveTitle(content: string, defaultTitle: string): string {
   const cleaned = content.trim().replace(/\s+/g, ' ')
-  if (!cleaned) return '新会话'
+  if (!cleaned) return defaultTitle
   return cleaned.length > 40 ? `${cleaned.slice(0, 40)}…` : cleaned
 }
 
@@ -35,6 +36,7 @@ export function WelcomePage() {
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<AppError | null>(null)
   const navigate = useNavigate()
+  const { t } = useLocale()
 
   const handleAttachFiles = useCallback((files: File[]) => {
     const readers = files.map((file) => {
@@ -84,7 +86,7 @@ export function WelcomePage() {
     setError(null)
 
     try {
-      const title = deriveTitle(text)
+      const title = deriveTitle(text, t.newChatTitle)
       const thread = await createThread(accessToken, { title })
 
       const fileParts = attachments.map(
@@ -105,7 +107,7 @@ export function WelcomePage() {
         onLoggedOut()
         return
       }
-      setError(normalizeError(err))
+      setError(normalizeError(err, t.requestFailed))
       setSending(false)
     }
   }
@@ -160,7 +162,7 @@ export function WelcomePage() {
             value={draft}
             onChange={setDraft}
             onSubmit={handleSubmit}
-            placeholder="How can I help you today?"
+            placeholder={t.chatPlaceholder}
             disabled={sending}
             isStreaming={false}
             variant="welcome"

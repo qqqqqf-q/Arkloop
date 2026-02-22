@@ -356,6 +356,23 @@
   - `go test -tags integration ./...`
   - 手工：通过 API 创建 MCP 配置 -> Worker 使用远程 MCP Server 执行工具调用。
 
+### R34.5 -- LLM 路由配置 per-run 动态加载
+
+- **背景**：R33 实现了 Worker 启动时从 DB 一次性加载 LLM 路由配置，但 R34 的 MCP 工具已实现 per-run 动态加载。两者行为不一致：凭证/路由变更后必须重启 Worker 才能生效，而 MCP 配置变更无需重启。
+- **目标**：将 LLM 路由配置的加载时机从「Worker 启动」改为「per-run 执行」，与 MCP 工具的动态加载模式对齐。
+- **关键点**：
+  - `EngineV1` 不再在构造时持有静态 `Router`，改为在 `Execute` 时按需从 DB 加载路由配置并构建 `ProviderRouter`。
+  - 路由解析结果不跨 run 缓存（每个 run 独立查询），保证配置变更实时生效，无需重启 Worker。
+  - `ComposeNativeEngine` 中的 `loadRoutingConfig` 仍保留，用于初始化 stub/env-only 路由配置作为 fallback。
+  - `EngineV1Deps` 新增 `DBPool *pgxpool.Pool` 字段，供 `Execute` 内部按 run 加载路由。
+  - 回退逻辑：DB 无可用路由时回退到 `EngineV1` 初始化时的静态路由配置（即当前 env var 加载结果）。
+- **具体改动范围**：
+  - 修改 `src/services/worker/internal/runengine/v1.go`：`Execute` 方法开始时调用 `routing.LoadRoutingConfigFromDB`，构建 per-run `ProviderRouter`；DB 失败时回退到 `e.router`（静态 fallback）。
+  - 修改 `src/services/worker/internal/app/composition.go`：`EngineV1Deps` 注入 `DBPool`。
+- **验收**：
+  - `go test -tags integration ./...`（worker）
+  - 手工：Worker 运行中通过 API 修改 LLM 凭证 -> 无需重启，下一个 run 立即使用新凭证。
+
 ### R35 -- Skills 入库
 
 - **关联审计**：三.3.4「Skills 绑定在文件系统」；P1
@@ -714,7 +731,7 @@ Phase 2（基础设施）
   （compose.yaml + 连通性验证）
 
 Phase 3（Worker 重构）
-  R30 → R31 → R32 → R33 → R34 → R35 → R36
+  R30 → R31 → R32 → R33 → R34 → R34.5 → R35 → R36
   （R32 先行，R33/R34/R35 依赖 R32；R36 依赖 R20）
 
 Phase 4（Gateway + 安全）

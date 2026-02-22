@@ -53,7 +53,7 @@ export function ChatInput({
   const chevronBtnRef = useRef<HTMLButtonElement>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const [tierMenuOpen, setTierMenuOpen] = useState(false)
-  const [selectedTier, setSelectedTier] = useState<'Lite' | 'Pro' | 'Ultra'>('Lite')
+  const [selectedTier, setSelectedTier] = useState<'Auto' | 'Lite' | 'Pro' | 'Ultra'>('Lite')
   const [proHovered, setProHovered] = useState(false)
 
   const adjustHeight = useCallback(() => {
@@ -109,11 +109,11 @@ export function ChatInput({
     setMenuOpen(false)
   }
 
-  const handleProClick = () => {
-    setSelectedTier((prev) => (prev === 'Lite' ? 'Pro' : 'Lite'))
+  const cycleTier = () => {
+    setSelectedTier((prev) => prev === 'Lite' ? 'Pro' : prev === 'Pro' ? 'Ultra' : prev === 'Ultra' ? 'Auto' : 'Lite')
   }
 
-  const handleTierSelect = (tier: 'Lite' | 'Pro' | 'Ultra') => {
+  const handleTierSelect = (tier: 'Auto' | 'Lite' | 'Pro' | 'Ultra') => {
     setSelectedTier(tier)
     setTierMenuOpen(false)
   }
@@ -127,7 +127,7 @@ export function ChatInput({
         border: `0.5px solid ${borderColor}`,
         borderRadius: '16px',
         padding: '20px 24px',
-        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
+        boxShadow: '0 1px 4px rgba(0, 0, 0, 0.04)',
       }}
     >
       <form onSubmit={onSubmit}>
@@ -152,7 +152,7 @@ export function ChatInput({
 
         <div className="flex items-center" style={{ gap: '12px' }}>
           {/* + 按钮及菜单 */}
-          <div className="relative">
+          <div className="relative -ml-1.5">
             <button
               ref={plusBtnRef}
               type="button"
@@ -165,72 +165,71 @@ export function ChatInput({
             {menuOpen && (
               <div
                 ref={menuRef}
-                className="absolute left-0 z-50 overflow-hidden rounded-xl"
+                className="absolute left-0 z-50"
                 style={{
                   ...(variant === 'welcome'
                     ? { top: 'calc(100% + 8px)' }
                     : { bottom: 'calc(100% + 8px)' }),
-                  background: 'var(--c-bg-menu)',
                   border: '0.5px solid var(--c-border-subtle)',
-                  boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
+                  borderRadius: '10px',
+                  padding: '4px',
+                  background: '#FFFFFF',
                   minWidth: '200px',
                 }}
               >
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="flex w-full items-center gap-3 px-4 py-3 text-sm transition-colors duration-100 hover:bg-[var(--c-bg-deep)]"
-                  style={{ color: 'var(--c-text-secondary)' }}
-                >
-                  <Paperclip size={15} style={{ color: 'var(--c-text-icon)' }} />
-                  从本地文件添加
-                </button>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-sm transition-colors duration-100"
+                    style={{ color: '#000000', background: '#FFFFFF', borderRadius: '8px' }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = '#F3F3F3')}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = '#FFFFFF')}
+                  >
+                    <Paperclip size={14} style={{ color: '#000000' }} />
+                    从本地文件添加
+                  </button>
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-2 px-3 py-2 text-sm transition-colors duration-100"
+                    style={{ color: '#000000', background: '#FFFFFF', borderRadius: '8px' }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = '#F3F3F3')}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = '#FFFFFF')}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style={{ color: '#000000', flexShrink: 0 }}>
+                      <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z" />
+                    </svg>
+                    从 GitHub 添加
+                  </button>
+                </div>
               </div>
             )}
           </div>
 
-          <button
-            type="button"
-            onClick={handleProClick}
-            onMouseEnter={() => setProHovered(true)}
-            onMouseLeave={() => setProHovered(false)}
-            className="relative top-px -ml-1 h-8 rounded-lg font-semibold"
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'flex-start',
-              paddingLeft: '12px',
-              background: selectedTier !== 'Lite' ? 'var(--c-pro-bg)' : proHovered ? 'var(--c-bg-deep)' : 'transparent',
-              color: selectedTier !== 'Lite' ? '#4691F6' : 'var(--c-text-secondary)',
-              opacity: selectedTier !== 'Lite' ? 1 : proHovered ? 1 : 0.7,
-              fontSize: '15px',
-              width: selectedTier === 'Lite' ? '32px' : selectedTier === 'Pro' ? '48px' : '60px',
-              overflow: 'hidden',
-              flexShrink: 0,
-              whiteSpace: 'nowrap',
-              transition: 'width 0.22s ease, background-color 0.15s ease, color 0.2s ease, opacity 0.15s ease',
-            }}
-          >
-            {selectedTier === 'Ultra' ? (
-              <span style={{ display: 'inline-block' }}>Ultra</span>
-            ) : (
-              <>
-                P<span
-                  style={{
-                    display: 'inline-block',
-                    overflow: 'hidden',
-                    maxWidth: selectedTier === 'Pro' ? '20px' : '0px',
-                    opacity: selectedTier === 'Pro' ? 1 : 0,
-                    transition: selectedTier === 'Pro'
-                      ? 'max-width 0.22s ease, opacity 0.15s ease 0.07s'
-                      : 'opacity 0.07s ease, max-width 0.18s ease 0.04s',
-                  }}
-                >ro</span>
-              </>
-            )}
-          </button>
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <button
+              type="button"
+              onClick={cycleTier}
+              onMouseEnter={() => setProHovered(true)}
+              onMouseLeave={() => setProHovered(false)}
+              className="relative top-px flex h-8 items-center rounded-lg font-semibold"
+              style={{
+                padding: '0 10px',
+                justifyContent: 'center',
+                width: selectedTier === 'Lite' ? '50px' : selectedTier === 'Pro' ? '44px' : selectedTier === 'Ultra' ? '58px' : '54px',
+                overflow: 'hidden',
+                whiteSpace: 'nowrap',
+                flexShrink: 0,
+                background: (selectedTier === 'Pro' || selectedTier === 'Ultra') ? 'var(--c-pro-bg)' : proHovered ? 'var(--c-bg-deep)' : 'transparent',
+                color: (selectedTier === 'Pro' || selectedTier === 'Ultra') ? '#4691F6' : 'var(--c-text-secondary)',
+                opacity: (selectedTier === 'Pro' || selectedTier === 'Ultra') ? 1 : proHovered ? 1 : 0.7,
+                fontSize: '14px',
+                transition: 'width 0.22s ease, background-color 0.15s ease, color 0.2s ease, opacity 0.15s ease',
+              }}
+            >
+              {selectedTier}
+            </button>
 
-          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '6px' }}>
             <div className="relative">
               <button
                 ref={chevronBtnRef}
@@ -244,31 +243,43 @@ export function ChatInput({
               {tierMenuOpen && (
                 <div
                   ref={tierMenuRef}
-                  className="absolute right-0 z-50 overflow-hidden rounded-xl"
+                  className="absolute right-0 z-50"
                   style={{
                     ...(variant === 'welcome'
                       ? { top: 'calc(100% + 8px)' }
                       : { bottom: 'calc(100% + 8px)' }),
-                    background: 'var(--c-bg-menu)',
                     border: '0.5px solid var(--c-border-subtle)',
-                    boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
+                    borderRadius: '10px',
+                    padding: '4px',
+                    background: '#FFFFFF',
                     minWidth: '120px',
+                    boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
                   }}
                 >
-                  {(['Lite', 'Pro', 'Ultra'] as const).map((tier) => (
-                    <button
-                      key={tier}
-                      type="button"
-                      onClick={() => handleTierSelect(tier)}
-                      className="flex w-full items-center px-4 py-3 text-sm transition-colors duration-100 hover:bg-[var(--c-bg-deep)]"
-                      style={{
-                        color: selectedTier === tier ? '#4691F6' : 'var(--c-text-secondary)',
-                        fontWeight: selectedTier === tier ? 600 : 400,
-                      }}
-                    >
-                      {tier}
-                    </button>
-                  ))}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                    {(['Auto', 'Lite', 'Pro', 'Ultra'] as const).map((tier) => {
+                      const isBlue = tier === 'Pro' || tier === 'Ultra'
+                      const isSelected = selectedTier === tier
+                      return (
+                        <button
+                          key={tier}
+                          type="button"
+                          onClick={() => handleTierSelect(tier)}
+                          className="flex w-full items-center px-3 py-2 text-sm transition-colors duration-100"
+                          style={{
+                            borderRadius: '8px',
+                            background: '#FFFFFF',
+                            color: isSelected && isBlue ? '#4691F6' : 'var(--c-text-secondary)',
+                            fontWeight: isSelected ? 600 : 400,
+                          }}
+                          onMouseEnter={(e) => (e.currentTarget.style.background = '#F3F3F3')}
+                          onMouseLeave={(e) => (e.currentTarget.style.background = '#FFFFFF')}
+                        >
+                          {tier}
+                        </button>
+                      )
+                    })}
+                  </div>
                 </div>
               )}
             </div>

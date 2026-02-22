@@ -1,7 +1,7 @@
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useLocation } from 'react-router-dom'
 import {
-  Plus,
-  MessagesSquare,
+  SquarePen,
+  Search,
   FolderKanban,
   SearchCheck,
   Scale,
@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 import type { SettingsTab } from './SettingsModal'
 import type { ThreadResponse, MeResponse } from '../api'
+import { useLocale } from '../contexts/LocaleContext'
 
 type Props = {
   me: MeResponse | null
@@ -22,9 +23,9 @@ type Props = {
   onToggleCollapse: () => void
 }
 
-function threadTitle(thread: ThreadResponse): string {
+function threadTitle(thread: ThreadResponse, untitled: string): string {
   const title = (thread.title ?? '').trim()
-  return title.length > 0 ? title : '未命名会话'
+  return title.length > 0 ? title : untitled
 }
 
 export function Sidebar({
@@ -38,77 +39,72 @@ export function Sidebar({
   onToggleCollapse,
 }: Props) {
   const navigate = useNavigate()
+  const location = useLocation()
   const { threadId } = useParams<{ threadId: string }>()
+  const { t } = useLocale()
 
   const userInitial = me?.display_name?.charAt(0).toUpperCase() ?? '?'
 
   return (
     <aside
       className={[
-        'flex h-full shrink-0 flex-col border-r border-[var(--c-border)] bg-[var(--c-bg-sidebar)] transition-all duration-300',
-        collapsed ? 'w-0 overflow-hidden border-r-0' : 'w-[288px]',
+        'flex h-full shrink-0 flex-col bg-[var(--c-bg-sidebar)] transition-all duration-300',
+        collapsed ? 'w-0 overflow-hidden' : 'w-[288px]',
       ].join(' ')}
+      style={collapsed ? undefined : { borderRight: '0.5px solid rgba(0,0,0,0.16)' }}
     >
       {/* 顶部标题栏 */}
-      <div className="flex min-h-[46px] items-center justify-between px-[18px] py-3">
-        <h1 className="text-lg font-medium text-[var(--c-text-primary)]">Arkloop</h1>
+      <div className="flex min-h-[52px] items-center justify-between px-4 py-3">
+        <h1 className="text-[15px] font-semibold tracking-tight text-[var(--c-text-primary)]">Arkloop</h1>
         <button
           onClick={onToggleCollapse}
-          className="flex h-5 w-5 items-center justify-center text-[var(--c-text-tertiary)] transition-opacity hover:opacity-70"
+          className="flex h-6 w-6 items-center justify-center rounded-md text-[var(--c-text-tertiary)] transition-colors hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-secondary)]"
         >
-          <PanelLeftClose size={18} />
+          <PanelLeftClose size={16} />
         </button>
       </div>
 
       {/* 导航 */}
-      <nav className="flex flex-col gap-[3px] p-2">
+      <nav className="flex flex-col gap-px px-2">
         <button
           onClick={onNewThread}
-          className="flex h-[30px] items-center gap-[11px] rounded-[5px] px-2 py-[7px] text-sm font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)]"
+          className="flex h-9 items-center gap-2.5 rounded-lg px-2 text-[15px] text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]"
         >
-          <span className="flex h-[22px] w-[22px] shrink-0 items-center justify-center">
-            <span className="flex h-[22px] w-[22px] items-center justify-center rounded-full bg-[var(--c-bg-plus)]">
-              <Plus size={12} />
-            </span>
-          </span>
-          <span>New chat</span>
+          <SquarePen size={15} className="shrink-0" />
+          <span>{t.newChat}</span>
         </button>
 
         <button
-          onClick={() => navigate('/')}
-          className="flex h-[30px] items-center gap-[11px] rounded-[5px] px-2 py-[7px] text-sm font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)]"
+          onClick={() => {
+            const basePath = location.pathname.replace(/\/search$/, '') || '/'
+            const searchPath = basePath.endsWith('/') ? `${basePath}search` : `${basePath}/search`
+            navigate(searchPath)
+          }}
+          className="flex h-9 items-center gap-2.5 rounded-lg px-2 text-[15px] text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]"
         >
-          <span className="flex h-[22px] w-[22px] shrink-0 items-center justify-center">
-            <MessagesSquare size={17} />
-          </span>
-          <span>Chats</span>
+          <Search size={15} className="shrink-0" />
+          <span>{t.chats}</span>
         </button>
 
-        <button className="flex h-[30px] items-center gap-[11px] rounded-[5px] px-2 py-[7px] text-sm font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)]">
-          <span className="flex h-[22px] w-[22px] shrink-0 items-center justify-center">
-            <FolderKanban size={17} />
-          </span>
-          <span>Projects</span>
+        <button className="flex h-9 items-center gap-2.5 rounded-lg px-2 text-[15px] text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]">
+          <FolderKanban size={15} className="shrink-0" />
+          <span>{t.projects}</span>
         </button>
 
-        <button className="flex h-[30px] items-center gap-[11px] rounded-[5px] px-2 py-[7px] text-sm font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)]">
-          <span className="flex h-[22px] w-[22px] shrink-0 items-center justify-center">
-            <SearchCheck size={17} />
-          </span>
-          <span>Retrieve</span>
+        <button className="flex h-9 items-center gap-2.5 rounded-lg px-2 text-[15px] text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]">
+          <SearchCheck size={15} className="shrink-0" />
+          <span>{t.retrieve}</span>
         </button>
 
-        <button className="flex h-[30px] items-center gap-[11px] rounded-[5px] px-2 py-[7px] text-sm font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)]">
-          <span className="flex h-[22px] w-[22px] shrink-0 items-center justify-center">
-            <Scale size={17} />
-          </span>
-          <span>Legal</span>
+        <button className="flex h-9 items-center gap-2.5 rounded-lg px-2 text-[15px] text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]">
+          <Scale size={15} className="shrink-0" />
+          <span>{t.legal}</span>
         </button>
       </nav>
 
       {/* 最近会话 */}
       <div className="mt-6 flex min-h-0 flex-1 flex-col overflow-y-auto px-2">
-        <h3 className="mb-[12px] shrink-0 px-2 text-xs font-normal tracking-[0.5px] text-[var(--c-text-muted)]">Recents</h3>
+        <h3 className="mb-[12px] shrink-0 px-2 text-sm font-medium tracking-[0.3px] text-[var(--c-text-muted)]">{t.recents}</h3>
         <div className="flex flex-col gap-[2px]">
           {threads.map((thread) => (
             <button
@@ -121,7 +117,7 @@ export function Sidebar({
                   : 'text-[var(--c-text-secondary)] hover:bg-[var(--c-bg-deep)]',
               ].join(' ')}
             >
-              <span className="min-w-0 flex-1 truncate">{threadTitle(thread)}</span>
+              <span className="min-w-0 flex-1 truncate">{threadTitle(thread, t.untitled)}</span>
               {runningThreadIds.has(thread.id) && (
                 <span className="shrink-0 h-3 w-3 animate-spin rounded-full border border-[var(--c-text-muted)] border-t-transparent" />
               )}
@@ -131,10 +127,11 @@ export function Sidebar({
       </div>
 
       {/* 用户信息 */}
-      <div className="mt-auto border-t border-[var(--c-border)] p-2">
+      <div className="mt-auto p-2" style={{ borderTop: '0.5px solid var(--c-border-subtle)' }}>
         <button
           onClick={() => onOpenSettings('account')}
-          className="flex w-full items-center gap-3 rounded-xl border-[0.5px] border-[var(--c-border)] px-3 py-[10px] transition-colors hover:bg-[var(--c-bg-deep)]"
+          className="flex w-full items-center gap-3 rounded-xl px-3 py-[10px] transition-colors hover:bg-[var(--c-bg-deep)]"
+          style={{ border: '0.5px solid var(--c-border-subtle)' }}
         >
           <div
             className="flex h-[37px] w-[37px] shrink-0 items-center justify-center rounded-full text-[15px] font-medium"
@@ -144,10 +141,10 @@ export function Sidebar({
           </div>
           <div className="flex min-w-0 flex-1 flex-col gap-[2px] text-left">
             <div className="truncate text-sm font-medium text-[var(--c-text-secondary)]">
-              {me?.display_name ?? '加载中...'}
+              {me?.display_name ?? t.loading}
             </div>
             <div className="text-xs font-normal text-[var(--c-text-tertiary)]">
-              Enterprise plan
+              {t.enterprisePlan}
             </div>
           </div>
         </button>

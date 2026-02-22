@@ -35,7 +35,9 @@ function App() {
         element={<AppLayout accessToken={accessToken} onLoggedOut={handleLoggedOut} />}
       >
         <Route index element={<WelcomePage />} />
+        <Route path="search" element={<WelcomePage />} />
         <Route path="t/:threadId" element={<ChatPage />} />
+        <Route path="t/:threadId/search" element={<ChatPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>
