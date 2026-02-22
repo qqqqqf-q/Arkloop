@@ -20,20 +20,6 @@ type WebhookEndpoint struct {
 	CreatedAt     time.Time
 }
 
-type WebhookDelivery struct {
-	ID             uuid.UUID
-	EndpointID     uuid.UUID
-	OrgID          uuid.UUID
-	EventType      string
-	PayloadJSON    []byte
-	Status         string
-	Attempts       int
-	LastAttemptAt  *time.Time
-	ResponseStatus *int
-	ResponseBody   *string
-	CreatedAt      time.Time
-}
-
 type WebhookEndpointRepository struct {
 	db Querier
 }
@@ -53,16 +39,16 @@ func (r *WebhookEndpointRepository) Create(
 	events []string,
 ) (WebhookEndpoint, error) {
 	if orgID == uuid.Nil {
-		return WebhookEndpoint{}, fmt.Errorf("org_id must not be empty")
+		return WebhookEndpoint{}, fmt.Errorf("webhooks: org_id must not be empty")
 	}
 	if url == "" {
-		return WebhookEndpoint{}, fmt.Errorf("url must not be empty")
+		return WebhookEndpoint{}, fmt.Errorf("webhooks: url must not be empty")
 	}
 	if signingSecret == "" {
-		return WebhookEndpoint{}, fmt.Errorf("signing_secret must not be empty")
+		return WebhookEndpoint{}, fmt.Errorf("webhooks: signing_secret must not be empty")
 	}
 	if len(events) == 0 {
-		return WebhookEndpoint{}, fmt.Errorf("events must not be empty")
+		return WebhookEndpoint{}, fmt.Errorf("webhooks: events must not be empty")
 	}
 
 	var ep WebhookEndpoint
@@ -77,7 +63,7 @@ func (r *WebhookEndpointRepository) Create(
 		&ep.Events, &ep.Enabled, &ep.CreatedAt,
 	)
 	if err != nil {
-		return WebhookEndpoint{}, err
+		return WebhookEndpoint{}, fmt.Errorf("webhooks.Create: %w", err)
 	}
 	return ep, nil
 }
@@ -97,7 +83,7 @@ func (r *WebhookEndpointRepository) GetByID(ctx context.Context, id uuid.UUID) (
 		return nil, nil
 	}
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("webhooks.GetByID: %w", err)
 	}
 	return &ep, nil
 }
@@ -112,7 +98,7 @@ func (r *WebhookEndpointRepository) ListByOrg(ctx context.Context, orgID uuid.UU
 		orgID,
 	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("webhooks.ListByOrg: %w", err)
 	}
 	defer rows.Close()
 
@@ -123,11 +109,14 @@ func (r *WebhookEndpointRepository) ListByOrg(ctx context.Context, orgID uuid.UU
 			&ep.ID, &ep.OrgID, &ep.URL, &ep.SigningSecret,
 			&ep.Events, &ep.Enabled, &ep.CreatedAt,
 		); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("webhooks.ListByOrg scan: %w", err)
 		}
 		endpoints = append(endpoints, ep)
 	}
-	return endpoints, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("webhooks.ListByOrg rows: %w", err)
+	}
+	return endpoints, nil
 }
 
 func (r *WebhookEndpointRepository) SetEnabled(ctx context.Context, id uuid.UUID, enabled bool) (*WebhookEndpoint, error) {
@@ -146,16 +135,23 @@ func (r *WebhookEndpointRepository) SetEnabled(ctx context.Context, id uuid.UUID
 		return nil, nil
 	}
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("webhooks.SetEnabled: %w", err)
 	}
 	return &ep, nil
 }
 
-func (r *WebhookEndpointRepository) Delete(ctx context.Context, id uuid.UUID) error {
-	_, err := r.db.Exec(
+// Delete 删除指定 org 下的 webhook 端点，通过 org_id 条件避免越权删除。
+func (r *WebhookEndpointRepository) Delete(ctx context.Context, id uuid.UUID, orgID uuid.UUID) error {
+	tag, err := r.db.Exec(
 		ctx,
-		`DELETE FROM webhook_endpoints WHERE id = $1`,
-		id,
+		`DELETE FROM webhook_endpoints WHERE id = $1 AND org_id = $2`,
+		id, orgID,
 	)
-	return err
+	if err != nil {
+		return fmt.Errorf("webhooks.Delete: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return nil // 不存在或无权限，已由调用方的 GetByID 预校验
+	}
+	return nil
 }

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -25,13 +26,14 @@ const (
 	maxDeliveryAttempts = 5
 	deliveryTimeoutSec  = 10
 	baseRetryDelaySec   = 15
+	maxRetryDelaySec    = 3600
 )
 
 // DeliveryHandler 处理 webhook.deliver 类型的 job。
 type DeliveryHandler struct {
-	pool      *pgxpool.Pool
-	queue     queue.JobQueue
-	logger    *app.JSONLogger
+	pool       *pgxpool.Pool
+	queue      queue.JobQueue
+	logger     *app.JSONLogger
 	httpClient *http.Client
 }
 
@@ -46,13 +48,70 @@ func NewDeliveryHandler(pool *pgxpool.Pool, q queue.JobQueue, logger *app.JSONLo
 		logger = app.NewJSONLogger("webhook", nil)
 	}
 	return &DeliveryHandler{
-		pool:  pool,
-		queue: q,
-		logger: logger,
-		httpClient: &http.Client{
-			Timeout: deliveryTimeoutSec * time.Second,
-		},
+		pool:       pool,
+		queue:      q,
+		logger:     logger,
+		httpClient: newSafeHTTPClient(),
 	}, nil
+}
+
+// newSafeHTTPClient 创建阻断内网地址的 HTTP 客户端，防止 SSRF。
+func newSafeHTTPClient() *http.Client {
+	dialer := &net.Dialer{
+		Timeout: deliveryTimeoutSec * time.Second,
+	}
+	transport := &http.Transport{
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			host, port, err := net.SplitHostPort(addr)
+			if err != nil {
+				return nil, fmt.Errorf("webhook: invalid addr %q: %w", addr, err)
+			}
+			ips, err := net.DefaultResolver.LookupHost(ctx, host)
+			if err != nil {
+				return nil, fmt.Errorf("webhook: dns lookup %q: %w", host, err)
+			}
+			for _, ipStr := range ips {
+				ip := net.ParseIP(ipStr)
+				if ip == nil {
+					continue
+				}
+				if isPrivateIP(ip) {
+					return nil, fmt.Errorf("webhook: target IP %s is not allowed (private/loopback/link-local)", ipStr)
+				}
+			}
+			return dialer.DialContext(ctx, network, net.JoinHostPort(host, port))
+		},
+	}
+	return &http.Client{
+		Timeout:   deliveryTimeoutSec * time.Second,
+		Transport: transport,
+	}
+}
+
+// isPrivateIP 判断 IP 是否属于禁止访问的地址范围。
+func isPrivateIP(ip net.IP) bool {
+	privateRanges := []string{
+		"10.0.0.0/8",
+		"172.16.0.0/12",
+		"192.168.0.0/16",
+		"127.0.0.0/8",
+		"::1/128",
+		"169.254.0.0/16",  // link-local
+		"fe80::/10",       // IPv6 link-local
+		"fc00::/7",        // IPv6 unique local
+		"100.64.0.0/10",   // RFC 6598 carrier-grade NAT
+		"198.18.0.0/15",   // RFC 2544 benchmarking
+	}
+	for _, cidr := range privateRanges {
+		_, network, err := net.ParseCIDR(cidr)
+		if err != nil {
+			continue
+		}
+		if network.Contains(ip) {
+			return true
+		}
+	}
+	return false
 }
 
 func (h *DeliveryHandler) Handle(ctx context.Context, lease queue.JobLease) error {
@@ -69,24 +128,30 @@ func (h *DeliveryHandler) Handle(ctx context.Context, lease queue.JobLease) erro
 	}
 
 	// 查询端点配置
-	ep, err := getWebhookEndpoint(ctx, h.pool, p.EndpointID)
+	ep, disabled, err := getWebhookEndpoint(ctx, h.pool, p.EndpointID)
 	if err != nil {
 		h.logger.Error("fetch webhook endpoint failed", fields, map[string]any{"error": err.Error()})
-		return err
+		return fmt.Errorf("get webhook endpoint: %w", err)
 	}
 	if ep == nil {
-		// 端点已删除，跳过
-		h.logger.Info("webhook endpoint deleted, skip", fields, nil)
-		_ = markDeliveryFailed(ctx, h.pool, p.DeliveryID, lease.Attempts, nil, nil)
+		if disabled {
+			h.logger.Info("webhook endpoint disabled, skip", fields, nil)
+		} else {
+			h.logger.Info("webhook endpoint not found, skip", fields, nil)
+			if err := markDeliveryFailed(ctx, h.pool, p.DeliveryID, lease.Attempts, nil, nil); err != nil {
+				h.logger.Error("mark delivery failed error", fields, map[string]any{"error": err.Error()})
+			}
+		}
 		return nil
 	}
 
-	// 构建签名
+	// 构建带时间戳的签名（防重放）
+	timestamp := time.Now().Unix()
 	payloadBytes, err := json.Marshal(p.Payload)
 	if err != nil {
-		return err
+		return fmt.Errorf("marshal webhook payload: %w", err)
 	}
-	signature := computeHMAC(payloadBytes, ep.SigningSecret)
+	signature := computeHMAC(timestamp, payloadBytes, ep.SigningSecret)
 
 	// 发起 HTTP POST
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, ep.URL, strings.NewReader(string(payloadBytes)))
@@ -96,6 +161,7 @@ func (h *DeliveryHandler) Handle(ctx context.Context, lease queue.JobLease) erro
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Arkloop-Signature", "sha256="+signature)
+	req.Header.Set("X-Arkloop-Timestamp", fmt.Sprintf("%d", timestamp))
 	req.Header.Set("X-Arkloop-Event", p.EventType)
 	req.Header.Set("X-Arkloop-Delivery", p.DeliveryID.String())
 
@@ -106,12 +172,17 @@ func (h *DeliveryHandler) Handle(ctx context.Context, lease queue.JobLease) erro
 	}
 	defer resp.Body.Close()
 
-	bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	bodyBytes, readErr := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if readErr != nil {
+		h.logger.Error("read webhook response body failed", fields, map[string]any{"error": readErr.Error()})
+	}
 	bodyStr := string(bodyBytes)
 	statusCode := resp.StatusCode
 
 	if statusCode >= 200 && statusCode < 300 {
-		_ = markDeliveryDelivered(ctx, h.pool, p.DeliveryID, lease.Attempts+1, statusCode, bodyStr)
+		if err := markDeliveryDelivered(ctx, h.pool, p.DeliveryID, lease.Attempts+1, statusCode, bodyStr); err != nil {
+			h.logger.Error("mark delivery delivered failed", fields, map[string]any{"error": err.Error()})
+		}
 		h.logger.Info("webhook delivered", fields, map[string]any{"url": ep.URL, "status": statusCode})
 		return nil
 	}
@@ -130,16 +201,23 @@ func (h *DeliveryHandler) handleFailure(
 	responseBody string,
 ) error {
 	attempts := lease.Attempts + 1
-	_ = updateDeliveryAttempt(ctx, h.pool, p.DeliveryID, attempts, statusCode, responseBody)
+	if err := updateDeliveryAttempt(ctx, h.pool, p.DeliveryID, attempts, statusCode, responseBody); err != nil {
+		h.logger.Error("update delivery attempt failed", fields, map[string]any{"error": err.Error()})
+	}
 
 	if attempts >= maxDeliveryAttempts {
 		h.logger.Info("webhook max attempts reached, mark failed", fields, map[string]any{"attempts": attempts})
-		_ = markDeliveryFailed(ctx, h.pool, p.DeliveryID, attempts, statusCode, &responseBody)
+		if err := markDeliveryFailed(ctx, h.pool, p.DeliveryID, attempts, statusCode, &responseBody); err != nil {
+			h.logger.Error("mark delivery failed error", fields, map[string]any{"error": err.Error()})
+		}
 		return nil
 	}
 
-	// 指数退避重入队：delay = baseRetryDelaySec * 2^attempts
+	// 指数退避重入队：delay = baseRetryDelaySec * 2^attempts（有上界保护）
 	delaySec := baseRetryDelaySec * (1 << attempts)
+	if delaySec > maxRetryDelaySec || delaySec < 0 {
+		delaySec = maxRetryDelaySec
+	}
 	availableAt := time.Now().Add(time.Duration(delaySec) * time.Second)
 
 	newPayload := map[string]any{
@@ -148,17 +226,11 @@ func (h *DeliveryHandler) handleFailure(
 		"event_type":  p.EventType,
 		"payload":     p.Payload,
 	}
-	_, err := h.queue.EnqueueRun(
-		ctx,
-		p.OrgID,
-		p.RunID,
-		p.TraceID,
-		DeliverJobType,
-		newPayload,
-		&availableAt,
-	)
-	if err != nil {
-		h.logger.Error("re-enqueue webhook deliver failed", fields, map[string]any{"error": err.Error()})
+	if _, err := h.queue.EnqueueRun(ctx, p.OrgID, p.RunID, p.TraceID, DeliverJobType, newPayload, &availableAt); err != nil {
+		h.logger.Error("re-enqueue webhook deliver failed, marking delivery as failed", fields, map[string]any{"error": err.Error()})
+		if markErr := markDeliveryFailed(ctx, h.pool, p.DeliveryID, attempts, statusCode, &responseBody); markErr != nil {
+			h.logger.Error("mark delivery failed error", fields, map[string]any{"error": markErr.Error()})
+		}
 	}
 	return nil
 }
@@ -215,8 +287,10 @@ func parseDeliveryPayload(raw map[string]any) (deliveryPayload, error) {
 	}, nil
 }
 
-func computeHMAC(payload []byte, secret string) string {
+// computeHMAC 计算带时间戳的 HMAC-SHA256 签名，格式为 HMAC(secret, "timestamp.payload")。
+func computeHMAC(timestamp int64, payload []byte, secret string) string {
 	mac := hmac.New(sha256.New, []byte(secret))
+	fmt.Fprintf(mac, "%d.", timestamp)
 	mac.Write(payload)
 	return hex.EncodeToString(mac.Sum(nil))
 }

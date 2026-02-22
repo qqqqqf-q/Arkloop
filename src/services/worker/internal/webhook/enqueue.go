@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 
 	"arkloop/services/worker/internal/queue"
 
@@ -38,7 +39,11 @@ func EnqueueDeliveries(
 	for _, ep := range endpoints {
 		deliveryID, err := insertDelivery(ctx, pool, ep.ID, orgID, eventType, payloadBytes)
 		if err != nil {
-			// 单条记录插入失败不影响其他端点
+			slog.ErrorContext(ctx, "webhook: insert delivery record failed",
+				"endpoint_id", ep.ID.String(),
+				"org_id", orgID.String(),
+				"error", err.Error(),
+			)
 			continue
 		}
 
@@ -48,7 +53,20 @@ func EnqueueDeliveries(
 			"event_type":  eventType,
 			"payload":     runPayload,
 		}
-		_, _ = q.EnqueueRun(ctx, orgID, runID, traceID, DeliverJobType, jobPayload, nil)
+		if _, err := q.EnqueueRun(ctx, orgID, runID, traceID, DeliverJobType, jobPayload, nil); err != nil {
+			slog.ErrorContext(ctx, "webhook: enqueue delivery job failed",
+				"delivery_id", deliveryID.String(),
+				"endpoint_id", ep.ID.String(),
+				"error", err.Error(),
+			)
+			// 入队失败时将 delivery 标记为 failed，避免孤儿记录停留在 pending
+			if markErr := markDeliveryFailed(ctx, pool, deliveryID, 0, nil, nil); markErr != nil {
+				slog.ErrorContext(ctx, "webhook: mark delivery failed error",
+					"delivery_id", deliveryID.String(),
+					"error", markErr.Error(),
+				)
+			}
+		}
 	}
 	return nil
 }

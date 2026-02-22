@@ -18,7 +18,8 @@ type endpointRow struct {
 	Enabled       bool
 }
 
-func getWebhookEndpoint(ctx context.Context, pool *pgxpool.Pool, id uuid.UUID) (*endpointRow, error) {
+// getWebhookEndpoint 查询端点，返回 (nil, true, nil) 表示端点存在但已禁用，(nil, false, nil) 表示不存在。
+func getWebhookEndpoint(ctx context.Context, pool *pgxpool.Pool, id uuid.UUID) (*endpointRow, bool, error) {
 	var ep endpointRow
 	err := pool.QueryRow(ctx,
 		`SELECT id, url, signing_secret, events, enabled
@@ -26,15 +27,15 @@ func getWebhookEndpoint(ctx context.Context, pool *pgxpool.Pool, id uuid.UUID) (
 		id,
 	).Scan(&ep.ID, &ep.URL, &ep.SigningSecret, &ep.Events, &ep.Enabled)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, nil
+		return nil, false, nil
 	}
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if !ep.Enabled {
-		return nil, nil
+		return nil, true, nil
 	}
-	return &ep, nil
+	return &ep, false, nil
 }
 
 // listEndpointsForEvent 返回指定 org 中订阅了给定事件类型的所有启用端点。

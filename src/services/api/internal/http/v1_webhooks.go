@@ -338,7 +338,7 @@ func deleteWebhookEndpoint(
 		return
 	}
 
-	if err := webhookRepo.Delete(r.Context(), endpointID); err != nil {
+	if err := webhookRepo.Delete(r.Context(), endpointID, actor.OrgID); err != nil {
 		WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
 	}

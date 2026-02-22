@@ -122,9 +122,10 @@ func (h *NativeRunEngineV1Handler) Handle(ctx context.Context, lease queue.JobLe
 		return err
 	}
 
-	// run 执行完毕后触发 webhook 投递（非阻塞，失败不影响主流程）
+	// run 执行完毕后触发 webhook 投递
+	// 使用独立 context，避免 job lease ctx 取消导致入队失败
 	if h.queue != nil {
-		h.dispatchWebhooks(ctx, payload, run)
+		h.dispatchWebhooks(context.WithoutCancel(ctx), payload, run)
 	}
 	return nil
 }
