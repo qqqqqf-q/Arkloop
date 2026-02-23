@@ -6,6 +6,7 @@ import (
 	"arkloop/services/api/internal/audit"
 	"arkloop/services/api/internal/auth"
 	"arkloop/services/api/internal/data"
+	"arkloop/services/api/internal/entitlement"
 	"arkloop/services/api/internal/observability"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -53,6 +54,10 @@ type HandlerConfig struct {
 	WebhookRepo         *data.WebhookEndpointRepository
 	PromptTemplatesRepo *data.PromptTemplateRepository
 	AgentConfigsRepo    *data.AgentConfigRepository
+	PlansRepo           *data.PlanRepository
+	SubscriptionsRepo   *data.SubscriptionRepository
+	EntitlementsRepo    *data.EntitlementsRepository
+	EntitlementService  *entitlement.Service
 
 	RedisClient *redis.Client
 	RunLimiter  *data.RunLimiter
@@ -195,6 +200,33 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 	mux.HandleFunc(
 		"/v1/agent-configs/",
 		agentConfigEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.AgentConfigsRepo, cfg.APIKeysRepo),
+	)
+
+	mux.HandleFunc(
+		"/v1/plans",
+		plansEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.PlansRepo, cfg.EntitlementsRepo, cfg.APIKeysRepo),
+	)
+	mux.HandleFunc(
+		"/v1/plans/",
+		planEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.PlansRepo, cfg.EntitlementsRepo, cfg.APIKeysRepo),
+	)
+
+	mux.HandleFunc(
+		"/v1/subscriptions",
+		subscriptionsEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.SubscriptionsRepo, cfg.APIKeysRepo),
+	)
+	mux.HandleFunc(
+		"/v1/subscriptions/",
+		subscriptionEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.SubscriptionsRepo, cfg.APIKeysRepo),
+	)
+
+	mux.HandleFunc(
+		"/v1/entitlement-overrides",
+		entitlementOverridesEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.EntitlementsRepo, cfg.EntitlementService, cfg.APIKeysRepo),
+	)
+	mux.HandleFunc(
+		"/v1/entitlement-overrides/",
+		entitlementOverrideEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.EntitlementsRepo, cfg.EntitlementService, cfg.APIKeysRepo),
 	)
 
 	notFound := nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {

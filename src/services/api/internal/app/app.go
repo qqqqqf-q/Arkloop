@@ -15,6 +15,7 @@ import (
 	"arkloop/services/api/internal/auth"
 	"arkloop/services/api/internal/crypto"
 	"arkloop/services/api/internal/data"
+	"arkloop/services/api/internal/entitlement"
 	apihttp "arkloop/services/api/internal/http"
 	"arkloop/services/api/internal/migrate"
 	"arkloop/services/api/internal/observability"
@@ -153,6 +154,10 @@ func (a *Application) Run(ctx context.Context) error {
 		webhookRepo         *data.WebhookEndpointRepository
 		promptTemplatesRepo *data.PromptTemplateRepository
 		agentConfigsRepo    *data.AgentConfigRepository
+		plansRepo           *data.PlanRepository
+		subscriptionsRepo   *data.SubscriptionRepository
+		entitlementsRepo    *data.EntitlementsRepository
+		entitlementSvc      *entitlement.Service
 
 		authService         *auth.Service
 		registrationService *auth.RegistrationService
@@ -238,6 +243,22 @@ func (a *Application) Run(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		plansRepo, err = data.NewPlanRepository(pool)
+		if err != nil {
+			return err
+		}
+		subscriptionsRepo, err = data.NewSubscriptionRepository(pool)
+		if err != nil {
+			return err
+		}
+		entitlementsRepo, err = data.NewEntitlementsRepository(pool)
+		if err != nil {
+			return err
+		}
+		entitlementSvc, err = entitlement.NewService(entitlementsRepo, subscriptionsRepo, plansRepo, redisClient)
+		if err != nil {
+			return err
+		}
 
 		// 加密 key 未配置时 secrets/llm-credentials 端点不可用，但不影响其他功能启动
 		keyRing, keyRingErr := crypto.NewKeyRingFromEnv()
@@ -310,6 +331,10 @@ func (a *Application) Run(ctx context.Context) error {
 			WebhookRepo:          webhookRepo,
 			PromptTemplatesRepo:  promptTemplatesRepo,
 			AgentConfigsRepo:     agentConfigsRepo,
+			PlansRepo:            plansRepo,
+			SubscriptionsRepo:    subscriptionsRepo,
+			EntitlementsRepo:     entitlementsRepo,
+			EntitlementService:   entitlementSvc,
 			RedisClient:          redisClient,
 			RunLimiter:           runLimiter,
 			SSEConfig: apihttp.SSEConfig{

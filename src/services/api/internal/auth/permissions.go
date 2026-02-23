@@ -22,4 +22,9 @@ const (
 	PermDataWebhooksManage     = "data.webhooks.manage"
 	PermDataAgentConfigsRead   = "data.agent_configs.read"
 	PermDataAgentConfigsManage = "data.agent_configs.manage"
+	PermDataSubscriptionsRead  = "data.subscriptions.read"
+
+	PermPlatformPlansManage         = "platform.plans.manage"
+	PermPlatformSubscriptionsManage = "platform.subscriptions.manage"
+	PermPlatformEntitlementsManage  = "platform.entitlements.manage"
 )

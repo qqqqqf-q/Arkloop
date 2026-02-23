@@ -19,6 +19,7 @@ var orgAdminPerms = []string{
 	PermDataSecrets,
 	PermDataProjectsRead, PermDataProjectsManage,
 	PermDataAgentConfigsRead, PermDataAgentConfigsManage,
+	PermDataSubscriptionsRead,
 }
 
 var orgMemberPerms = []string{
@@ -30,9 +31,18 @@ var orgMemberPerms = []string{
 	PermDataSkillsRead,
 	PermDataProjectsRead,
 	PermDataAgentConfigsRead,
+	PermDataSubscriptionsRead,
 }
 
-var platformAdminPerms = append([]string{PermPlatformAdmin}, orgAdminPerms...)
+var platformAdminPerms = append(
+	[]string{
+		PermPlatformAdmin,
+		PermPlatformPlansManage,
+		PermPlatformSubscriptionsManage,
+		PermPlatformEntitlementsManage,
+	},
+	orgAdminPerms...,
+)
 
 // PermissionsForRole 根据角色名返回权限集合的副本，同时兼容旧值 "owner"/"member"。
 // 返回副本防止调用方修改底层全局切片。未知角色返回 nil。
