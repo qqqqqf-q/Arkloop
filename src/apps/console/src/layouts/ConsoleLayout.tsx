@@ -9,8 +9,10 @@ import {
   Package, Receipt, BadgeCheck, BarChart3,
   Flag,
   PanelLeftClose, PanelLeftOpen, ChevronDown,
+  Settings,
 } from 'lucide-react'
 import { getMe, logout, isApiError, type MeResponse } from '../api'
+import { ConsoleSettingsModal } from '../components/SettingsModal'
 
 type Props = {
   accessToken: string
@@ -105,6 +107,7 @@ export function ConsoleLayout({ accessToken, onLoggedOut }: Props) {
   const [meLoaded, setMeLoaded] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const mountedRef = useRef(true)
 
   useEffect(() => {
@@ -221,7 +224,7 @@ export function ConsoleLayout({ accessToken, onLoggedOut }: Props) {
                 )}
                 <button
                   onClick={() => toggleGroup(group.id)}
-                  className="flex w-full items-center justify-between rounded px-2 py-1.5"
+                  className="flex w-full items-center justify-between rounded px-2 py-1.5 transition-colors hover:bg-[var(--c-bg-sub)]"
                 >
                   <span className="text-[10px] font-medium uppercase tracking-wider text-[var(--c-text-muted)]">
                     {group.label}
@@ -229,13 +232,13 @@ export function ConsoleLayout({ accessToken, onLoggedOut }: Props) {
                   <ChevronDown
                     size={12}
                     className={[
-                      'text-[var(--c-text-muted)] transition-transform',
-                      collapsed ? '-rotate-90' : '',
+                      'text-[var(--c-text-muted)] transition-transform duration-200',
+                      collapsed ? '-rotate-90' : 'rotate-0',
                     ].join(' ')}
                   />
                 </button>
-                {!collapsed && (
-                  <div className="flex flex-col gap-[3px]">
+                <div className={`nav-group-content${collapsed ? ' nav-group-collapsed' : ''}`}>
+                  <div className="flex flex-col gap-[3px]" style={{ overflow: 'hidden', minHeight: 0 }}>
                     {group.items.map((item) => {
                       const active = location.pathname.startsWith(item.path)
                       return (
@@ -257,29 +260,30 @@ export function ConsoleLayout({ accessToken, onLoggedOut }: Props) {
                       )
                     })}
                   </div>
-                )}
+                </div>
               </div>
             )
           })}
         </nav>
 
         {/* 用户信息 */}
-        <div className="mt-auto flex min-h-[56px] items-center gap-3 border-t border-[var(--c-border-console)] px-4 py-3">
-          <div
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-medium text-[var(--c-text-secondary)]"
-            style={{ background: 'var(--c-avatar-console-bg)' }}
-          >
-            {userInitial}
-          </div>
-          <div className="flex min-w-0 flex-1 flex-col gap-[2px]">
-            <div className="truncate text-sm font-medium text-[var(--c-text-secondary)]">
+        <div className="mt-auto border-t border-[var(--c-border-console)] px-3 py-3">
+          <div className="flex items-center gap-2">
+            <div
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-medium text-[var(--c-text-secondary)]"
+              style={{ background: 'var(--c-avatar-console-bg)' }}
+            >
+              {userInitial}
+            </div>
+            <div className="min-w-0 flex-1 truncate text-sm font-medium text-[var(--c-text-secondary)]">
               {me?.display_name ?? '...'}
             </div>
             <button
-              onClick={handleLogout}
-              className="text-left text-xs font-normal text-[var(--c-text-muted)] transition-opacity hover:opacity-70"
+              onClick={() => setSettingsOpen(true)}
+              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[var(--c-text-tertiary)] transition-colors hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-secondary)]"
+              title="Settings"
             >
-              退出登录
+              <Settings size={14} />
             </button>
           </div>
         </div>
@@ -288,6 +292,14 @@ export function ConsoleLayout({ accessToken, onLoggedOut }: Props) {
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <Outlet context={context} />
       </main>
+
+      {settingsOpen && (
+        <ConsoleSettingsModal
+          me={me}
+          onClose={() => setSettingsOpen(false)}
+          onLogout={handleLogout}
+        />
+      )}
     </div>
   )
 }

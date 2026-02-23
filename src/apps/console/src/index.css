@@ -3,15 +3,18 @@
 :root {
   --c-bg-page: #141413;
   --c-bg-sidebar: #141413;
-  --c-bg-deep: #141413;
+  --c-bg-deep: #1e1e1c;
   --c-bg-deep2: #1a1a18;
   --c-bg-sub: #1e1e1c;
+  --c-bg-menu: #2a2a28;
   --c-bg-input: #262624;
   --c-bg-tag: #2a2a28;
   --c-border: #40403d;
   --c-border-console: #2a2a28;
+  --c-border-subtle: #3a3a38;
   --c-border-auth: #3A3A3A;
   --c-text-primary: #faf9f5;
+  --c-text-heading: #e8e8e3;
   --c-text-secondary: #c2c0b6;
   --c-text-tertiary: #9c9a92;
   --c-text-muted: #6b6b68;
@@ -19,8 +22,12 @@
   --c-scrollbar: #40403d;
   --c-scrollbar-hover: #5e5e5c;
   --c-avatar-console-bg: #3a3a38;
+  --c-avatar-bg: #c2c0b6;
+  --c-avatar-text: #242422;
   --c-btn-bg: #FAF9F6;
   --c-btn-text: #141413;
+  --c-overlay: rgba(0, 0, 0, 0.60);
+  --c-modal-ring: rgba(255, 255, 255, 0.07);
   --c-status-success-bg: rgba(16, 185, 129, 0.12);
   --c-status-success-text: #34d399;
   --c-status-warning-bg: rgba(245, 158, 11, 0.12);
@@ -30,18 +37,21 @@
 }
 
 @media (prefers-color-scheme: light) {
-  :root {
+  :root:not([data-theme="dark"]) {
     --c-bg-page: #F8F8F7;
     --c-bg-sidebar: #FAFAFA;
     --c-bg-deep: #EBEBEB;
     --c-bg-deep2: #EFEFEF;
     --c-bg-sub: #EBEBEB;
+    --c-bg-menu: #F0F0EE;
     --c-bg-input: #FFFFFF;
     --c-bg-tag: #EBEBEB;
     --c-border: #B9B9B7;
     --c-border-console: #EBEBEB;
+    --c-border-subtle: #DEDEDE;
     --c-border-auth: #C8C8C8;
     --c-text-primary: #141412;
+    --c-text-heading: #1A1A18;
     --c-text-secondary: #3D3D3B;
     --c-text-tertiary: #6B6B68;
     --c-text-muted: #8C8C8A;
@@ -49,8 +59,12 @@
     --c-scrollbar: #B9B9B7;
     --c-scrollbar-hover: #9A9A98;
     --c-avatar-console-bg: #E0E0DE;
+    --c-avatar-bg: #3D3D3B;
+    --c-avatar-text: #FAFAFA;
     --c-btn-bg: #1A1A18;
     --c-btn-text: #FAFAFA;
+    --c-overlay: rgba(0, 0, 0, 0.25);
+    --c-modal-ring: rgba(0, 0, 0, 0.09);
     --c-status-success-bg: rgba(16, 185, 129, 0.1);
     --c-status-success-text: #059669;
     --c-status-warning-bg: rgba(245, 158, 11, 0.1);
@@ -58,6 +72,42 @@
     --c-status-error-bg: rgba(239, 68, 68, 0.1);
     --c-status-error-text: #dc2626;
   }
+}
+
+:root[data-theme="light"] {
+  --c-bg-page: #F8F8F7;
+  --c-bg-sidebar: #FAFAFA;
+  --c-bg-deep: #EBEBEB;
+  --c-bg-deep2: #EFEFEF;
+  --c-bg-sub: #EBEBEB;
+  --c-bg-menu: #F0F0EE;
+  --c-bg-input: #FFFFFF;
+  --c-bg-tag: #EBEBEB;
+  --c-border: #B9B9B7;
+  --c-border-console: #EBEBEB;
+  --c-border-subtle: #DEDEDE;
+  --c-border-auth: #C8C8C8;
+  --c-text-primary: #141412;
+  --c-text-heading: #1A1A18;
+  --c-text-secondary: #3D3D3B;
+  --c-text-tertiary: #6B6B68;
+  --c-text-muted: #8C8C8A;
+  --c-placeholder: rgba(0, 0, 0, 0.3);
+  --c-scrollbar: #B9B9B7;
+  --c-scrollbar-hover: #9A9A98;
+  --c-avatar-console-bg: #E0E0DE;
+  --c-avatar-bg: #3D3D3B;
+  --c-avatar-text: #FAFAFA;
+  --c-btn-bg: #1A1A18;
+  --c-btn-text: #FAFAFA;
+  --c-overlay: rgba(0, 0, 0, 0.25);
+  --c-modal-ring: rgba(0, 0, 0, 0.09);
+  --c-status-success-bg: rgba(16, 185, 129, 0.1);
+  --c-status-success-text: #059669;
+  --c-status-warning-bg: rgba(245, 158, 11, 0.1);
+  --c-status-warning-text: #d97706;
+  --c-status-error-bg: rgba(239, 68, 68, 0.1);
+  --c-status-error-text: #dc2626;
 }
 
 @layer base {
@@ -94,4 +144,25 @@
     scrollbar-width: thin;
     scrollbar-color: var(--c-scrollbar) transparent;
   }
+}
+
+@keyframes modal-enter {
+  from { opacity: 0; transform: scale(0.96) translateY(6px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+.modal-enter {
+  animation: modal-enter 0.18s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* 导航分组展开/收缩动画 */
+.nav-group-content {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows 220ms cubic-bezier(0.4, 0, 0.2, 1),
+              opacity 180ms ease;
+  opacity: 1;
+}
+.nav-group-content.nav-group-collapsed {
+  grid-template-rows: 0fr;
+  opacity: 0;
 }
