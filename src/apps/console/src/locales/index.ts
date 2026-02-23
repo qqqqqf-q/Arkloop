@@ -392,6 +392,23 @@ export interface LocaleStrings {
       toastMemberRemoveFailed: string
       toastMembersLoadFailed: string
     }
+    usage: {
+      title: string
+      labelOrgId: string
+      placeholderOrgId: string
+      labelYear: string
+      labelMonth: string
+      queryButton: string
+      cardInputTokens: string
+      cardOutputTokens: string
+      cardCostUSD: string
+      cardRecordCount: string
+      emptyHint: string
+      // toasts
+      toastLoadFailed: string
+      // errors
+      errOrgIdRequired: string
+    }
   }
 }
 

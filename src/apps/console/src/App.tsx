@@ -13,6 +13,7 @@ import { SkillsPage } from './pages/skills/SkillsPage'
 import { APIKeysPage } from './pages/api-keys/APIKeysPage'
 import { IPRulesPage } from './pages/ip-rules/IPRulesPage'
 import { TeamsPage } from './pages/teams/TeamsPage'
+import { UsagePage } from './pages/usage/UsagePage'
 import { OrgsPage } from './pages/OrgsPage'
 import {
   readAccessTokenFromStorage,
@@ -76,7 +77,7 @@ function App() {
         <Route path="plans" element={<PlaceholderPage title="Plans" />} />
         <Route path="subscriptions" element={<PlaceholderPage title="Subscriptions" />} />
         <Route path="entitlements" element={<PlaceholderPage title="Entitlements" />} />
-        <Route path="usage" element={<PlaceholderPage title="Usage" />} />
+        <Route path="usage" element={<UsagePage />} />
         {/* Platform */}
         <Route path="feature-flags" element={<PlaceholderPage title="Feature Flags" />} />
         {/* Redirects */}
