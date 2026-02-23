@@ -1,5 +1,6 @@
 import { useState, useMemo, type FormEvent } from 'react'
 import { login, isApiError } from '../api'
+import { useLocale } from '../contexts/LocaleContext'
 
 type AppError = {
   message: string
@@ -7,14 +8,14 @@ type AppError = {
   code?: string
 }
 
-function normalizeError(error: unknown): AppError {
+function normalizeError(error: unknown, fallback: string): AppError {
   if (isApiError(error)) {
     return { message: error.message, traceId: error.traceId, code: error.code }
   }
   if (error instanceof Error) {
     return { message: error.message }
   }
-  return { message: '请求失败' }
+  return { message: fallback }
 }
 
 type Props = {
@@ -22,6 +23,7 @@ type Props = {
 }
 
 export function AuthPage({ onLoggedIn }: Props) {
+  const { t } = useLocale()
   const [loginValue, setLoginValue] = useState('')
   const [password, setPassword] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -41,7 +43,7 @@ export function AuthPage({ onLoggedIn }: Props) {
       const resp = await login({ login: loginValue, password })
       onLoggedIn(resp.access_token)
     } catch (err) {
-      setError(normalizeError(err))
+      setError(normalizeError(err, t.loading))
     } finally {
       setSubmitting(false)
     }
@@ -77,7 +79,7 @@ export function AuthPage({ onLoggedIn }: Props) {
             className="w-full rounded-[10px] bg-[var(--c-bg-input)] text-[var(--c-text-primary)] outline-none placeholder:text-[var(--c-placeholder)]"
             style={{ ...inputStyle, height: '44px', padding: '0 14px', fontSize: '14px', fontFamily: 'inherit' }}
             type="text"
-            placeholder="Username"
+            placeholder={t.username}
             value={loginValue}
             onChange={(e) => setLoginValue(e.target.value)}
             autoComplete="username"
@@ -89,7 +91,7 @@ export function AuthPage({ onLoggedIn }: Props) {
             className="w-full rounded-[10px] bg-[var(--c-bg-input)] text-[var(--c-text-primary)] outline-none placeholder:text-[var(--c-placeholder)]"
             style={{ ...inputStyle, height: '44px', padding: '0 14px', fontSize: '14px', fontFamily: 'inherit' }}
             type="password"
-            placeholder="Password"
+            placeholder={t.password}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             autoComplete="current-password"
@@ -111,7 +113,7 @@ export function AuthPage({ onLoggedIn }: Props) {
             }}
             className="disabled:cursor-not-allowed disabled:opacity-40"
           >
-            {submitting ? '...' : 'Sign in'}
+            {submitting ? '...' : t.signIn}
           </button>
         </form>
 

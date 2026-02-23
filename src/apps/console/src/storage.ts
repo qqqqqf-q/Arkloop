@@ -59,3 +59,25 @@ export function writeThemeToStorage(theme: Theme): void {
     // ignore
   }
 }
+
+const LOCALE_KEY = 'arkloop:console:locale'
+
+export function readLocaleFromStorage(): import('./locales').Locale {
+  if (!canUseLocalStorage()) return 'zh'
+  try {
+    const raw = localStorage.getItem(LOCALE_KEY)
+    if (raw === 'zh' || raw === 'en') return raw
+    return 'zh'
+  } catch {
+    return 'zh'
+  }
+}
+
+export function writeLocaleToStorage(locale: import('./locales').Locale): void {
+  if (!canUseLocalStorage()) return
+  try {
+    localStorage.setItem(LOCALE_KEY, locale)
+  } catch {
+    // ignore
+  }
+}

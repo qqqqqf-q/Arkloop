@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef, type ReactNode } from 'react'
+import { useEffect, useState, useCallback, useRef, useMemo, type ReactNode } from 'react'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import {
   Play, ClipboardList,
@@ -13,6 +13,8 @@ import {
 } from 'lucide-react'
 import { getMe, logout, isApiError, type MeResponse } from '../api'
 import { ConsoleSettingsModal } from '../components/SettingsModal'
+import { useLocale } from '../contexts/LocaleContext'
+import type { LocaleStrings } from '../locales'
 
 type Props = {
   accessToken: string
@@ -31,68 +33,70 @@ type NavGroup = {
   items: NavItem[]
 }
 
-const NAV_GROUPS: NavGroup[] = [
-  {
-    id: 'operations',
-    label: 'Operations',
-    items: [
-      { label: 'Runs', path: '/runs', icon: <Play size={17} /> },
-      { label: 'Audit Logs', path: '/audit', icon: <ClipboardList size={17} /> },
-    ],
-  },
-  {
-    id: 'configuration',
-    label: 'Configuration',
-    items: [
-      { label: 'LLM Credentials', path: '/credentials', icon: <KeyRound size={17} /> },
-      { label: 'Agent Configs', path: '/agent-configs', icon: <Bot size={17} /> },
-      { label: 'Prompt Templates', path: '/prompt-templates', icon: <FileText size={17} /> },
-      { label: 'MCP Configs', path: '/mcp-configs', icon: <Plug size={17} /> },
-      { label: 'Skills', path: '/skills', icon: <Sparkles size={17} /> },
-    ],
-  },
-  {
-    id: 'integration',
-    label: 'Integration',
-    items: [
-      { label: 'API Keys', path: '/api-keys', icon: <Key size={17} /> },
-      { label: 'Webhooks', path: '/webhooks', icon: <Webhook size={17} /> },
-    ],
-  },
-  {
-    id: 'security',
-    label: 'Security',
-    items: [
-      { label: 'IP Rules', path: '/ip-rules', icon: <ShieldCheck size={17} /> },
-    ],
-  },
-  {
-    id: 'organization',
-    label: 'Organization',
-    items: [
-      { label: 'Members', path: '/members', icon: <Users size={17} /> },
-      { label: 'Teams', path: '/teams', icon: <UsersRound size={17} /> },
-      { label: 'Projects', path: '/projects', icon: <FolderOpen size={17} /> },
-    ],
-  },
-  {
-    id: 'billing',
-    label: 'Billing',
-    items: [
-      { label: 'Plans', path: '/plans', icon: <Package size={17} /> },
-      { label: 'Subscriptions', path: '/subscriptions', icon: <Receipt size={17} /> },
-      { label: 'Entitlements', path: '/entitlements', icon: <BadgeCheck size={17} /> },
-      { label: 'Usage', path: '/usage', icon: <BarChart3 size={17} /> },
-    ],
-  },
-  {
-    id: 'platform',
-    label: 'Platform',
-    items: [
-      { label: 'Feature Flags', path: '/feature-flags', icon: <Flag size={17} /> },
-    ],
-  },
-]
+function buildNavGroups(t: LocaleStrings): NavGroup[] {
+  return [
+    {
+      id: 'operations',
+      label: t.groups.operations,
+      items: [
+        { label: t.nav.runs,      path: '/runs',  icon: <Play size={17} /> },
+        { label: t.nav.auditLogs, path: '/audit', icon: <ClipboardList size={17} /> },
+      ],
+    },
+    {
+      id: 'configuration',
+      label: t.groups.configuration,
+      items: [
+        { label: t.nav.credentials,      path: '/credentials',      icon: <KeyRound size={17} /> },
+        { label: t.nav.agentConfigs,     path: '/agent-configs',    icon: <Bot size={17} /> },
+        { label: t.nav.promptTemplates,  path: '/prompt-templates', icon: <FileText size={17} /> },
+        { label: t.nav.mcpConfigs,       path: '/mcp-configs',      icon: <Plug size={17} /> },
+        { label: t.nav.skills,           path: '/skills',           icon: <Sparkles size={17} /> },
+      ],
+    },
+    {
+      id: 'integration',
+      label: t.groups.integration,
+      items: [
+        { label: t.nav.apiKeys,   path: '/api-keys',  icon: <Key size={17} /> },
+        { label: t.nav.webhooks,  path: '/webhooks',  icon: <Webhook size={17} /> },
+      ],
+    },
+    {
+      id: 'security',
+      label: t.groups.security,
+      items: [
+        { label: t.nav.ipRules, path: '/ip-rules', icon: <ShieldCheck size={17} /> },
+      ],
+    },
+    {
+      id: 'organization',
+      label: t.groups.organization,
+      items: [
+        { label: t.nav.members,  path: '/members',  icon: <Users size={17} /> },
+        { label: t.nav.teams,    path: '/teams',    icon: <UsersRound size={17} /> },
+        { label: t.nav.projects, path: '/projects', icon: <FolderOpen size={17} /> },
+      ],
+    },
+    {
+      id: 'billing',
+      label: t.groups.billing,
+      items: [
+        { label: t.nav.plans,         path: '/plans',         icon: <Package size={17} /> },
+        { label: t.nav.subscriptions, path: '/subscriptions', icon: <Receipt size={17} /> },
+        { label: t.nav.entitlements,  path: '/entitlements',  icon: <BadgeCheck size={17} /> },
+        { label: t.nav.usage,         path: '/usage',         icon: <BarChart3 size={17} /> },
+      ],
+    },
+    {
+      id: 'platform',
+      label: t.groups.platform,
+      items: [
+        { label: t.nav.featureFlags, path: '/feature-flags', icon: <Flag size={17} /> },
+      ],
+    },
+  ]
+}
 
 export type ConsoleOutletContext = {
   accessToken: string
@@ -103,12 +107,15 @@ export type ConsoleOutletContext = {
 export function ConsoleLayout({ accessToken, onLoggedOut }: Props) {
   const navigate = useNavigate()
   const location = useLocation()
+  const { t } = useLocale()
   const [me, setMe] = useState<MeResponse | null>(null)
   const [meLoaded, setMeLoaded] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
   const [settingsOpen, setSettingsOpen] = useState(false)
   const mountedRef = useRef(true)
+
+  const navGroups = useMemo(() => buildNavGroups(t), [t])
 
   useEffect(() => {
     mountedRef.current = true
@@ -154,13 +161,12 @@ export function ConsoleLayout({ accessToken, onLoggedOut }: Props) {
   }, [])
 
   const userInitial = me?.display_name?.charAt(0).toUpperCase() ?? '?'
-
   const context: ConsoleOutletContext = { accessToken, onLoggedOut, me }
 
   if (!meLoaded) {
     return (
       <div className="flex h-screen items-center justify-center bg-[var(--c-bg-page)]">
-        <span className="text-sm text-[var(--c-text-muted)]">Loading...</span>
+        <span className="text-sm text-[var(--c-text-muted)]">{t.loading}</span>
       </div>
     )
   }
@@ -169,13 +175,13 @@ export function ConsoleLayout({ accessToken, onLoggedOut }: Props) {
     return (
       <div className="flex h-screen flex-col items-center justify-center gap-3 bg-[var(--c-bg-page)]">
         <ShieldCheck size={32} className="text-[var(--c-text-muted)]" />
-        <p className="text-sm font-medium text-[var(--c-text-secondary)]">Access denied</p>
-        <p className="text-xs text-[var(--c-text-muted)]">Your account does not have platform admin access.</p>
+        <p className="text-sm font-medium text-[var(--c-text-secondary)]">{t.accessDenied}</p>
+        <p className="text-xs text-[var(--c-text-muted)]">{t.noAdminAccess}</p>
         <button
           onClick={onLoggedOut}
           className="mt-2 text-xs text-[var(--c-text-muted)] underline hover:opacity-70"
         >
-          Sign out
+          {t.signOut}
         </button>
       </div>
     )
@@ -215,7 +221,7 @@ export function ConsoleLayout({ accessToken, onLoggedOut }: Props) {
         </div>
 
         <nav className="flex-1 overflow-y-auto p-2">
-          {NAV_GROUPS.map((group, groupIdx) => {
+          {navGroups.map((group, groupIdx) => {
             const collapsed = collapsedGroups.has(group.id)
             return (
               <div key={group.id}>
@@ -281,7 +287,7 @@ export function ConsoleLayout({ accessToken, onLoggedOut }: Props) {
             <button
               onClick={() => setSettingsOpen(true)}
               className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[var(--c-text-tertiary)] transition-colors hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-secondary)]"
-              title="Settings"
+              title={t.settings}
             >
               <Settings size={14} />
             </button>

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import {
   X,
   User,
@@ -7,10 +7,13 @@ import {
   Sun,
   Moon,
   LogOut,
+  ChevronDown,
   type LucideIcon,
 } from 'lucide-react'
 import { useTheme } from '../contexts/ThemeContext'
+import { useLocale } from '../contexts/LocaleContext'
 import type { Theme } from '../storage'
+import type { Locale } from '../locales'
 import type { MeResponse } from '../api'
 
 type Tab = 'account' | 'settings'
@@ -21,14 +24,15 @@ type Props = {
   onLogout: () => void
 }
 
-const NAV_ITEMS: { key: Tab; label: string; icon: LucideIcon }[] = [
-  { key: 'account',  label: 'Account',  icon: User     },
-  { key: 'settings', label: 'Settings', icon: Settings },
-]
-
 export function ConsoleSettingsModal({ me, onClose, onLogout }: Props) {
+  const { t } = useLocale()
   const [active, setActive] = useState<Tab>('account')
   const userInitial = me?.display_name?.charAt(0).toUpperCase() ?? '?'
+
+  const NAV_ITEMS: { key: Tab; label: string; icon: LucideIcon }[] = [
+    { key: 'account',  label: t.account,  icon: User     },
+    { key: 'settings', label: t.settings, icon: Settings },
+  ]
 
   return (
     <div
@@ -78,7 +82,7 @@ export function ConsoleSettingsModal({ me, onClose, onLogout }: Props) {
             style={{ borderBottom: '0.5px solid var(--c-border-subtle)' }}
           >
             <h2 className="text-sm font-medium text-[var(--c-text-heading)]">
-              {active === 'account' ? 'Account' : 'Settings'}
+              {active === 'account' ? t.account : t.settings}
             </h2>
             <button
               onClick={onClose}
@@ -109,6 +113,8 @@ function AccountTab({
   userInitial: string
   onLogout: () => void
 }) {
+  const { t } = useLocale()
+
   return (
     <div className="flex flex-col gap-3">
       <div
@@ -125,12 +131,12 @@ function AccountTab({
           <div className="truncate text-sm font-medium text-[var(--c-text-heading)]">
             {me?.display_name ?? '...'}
           </div>
-          <div className="text-xs text-[var(--c-text-muted)]">Platform Admin</div>
+          <div className="text-xs text-[var(--c-text-muted)]">{t.platformAdmin}</div>
         </div>
         <button
           onClick={onLogout}
           className="flex h-7 w-7 items-center justify-center rounded-md text-[var(--c-text-tertiary)] transition-colors hover:bg-[var(--c-bg-sub)]"
-          title="Sign out"
+          title={t.signOut}
         >
           <LogOut size={14} />
         </button>
@@ -139,43 +145,117 @@ function AccountTab({
   )
 }
 
+const LOCALE_OPTIONS: { value: Locale; label: string }[] = [
+  { value: 'zh', label: '中文' },
+  { value: 'en', label: 'English' },
+]
+
 type ThemeOption = { value: Theme; label: string; icon: LucideIcon }
 
 function SettingsTab() {
   const { theme, setTheme } = useTheme()
+  const { t, locale, setLocale } = useLocale()
+  const [langOpen, setLangOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
+  const btnRef = useRef<HTMLButtonElement>(null)
 
-  const options: ThemeOption[] = [
-    { value: 'system', label: 'System', icon: Monitor },
-    { value: 'light',  label: 'Light',  icon: Sun     },
-    { value: 'dark',   label: 'Dark',   icon: Moon    },
+  useEffect(() => {
+    if (!langOpen) return
+    const handler = (e: MouseEvent) => {
+      if (
+        menuRef.current?.contains(e.target as Node) ||
+        btnRef.current?.contains(e.target as Node)
+      ) return
+      setLangOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [langOpen])
+
+  const themeOptions: ThemeOption[] = [
+    { value: 'system', label: t.themeSystem, icon: Monitor },
+    { value: 'light',  label: t.themeLight,  icon: Sun     },
+    { value: 'dark',   label: t.themeDark,   icon: Moon    },
   ]
 
+  const currentLocaleLabel = LOCALE_OPTIONS.find(o => o.value === locale)?.label ?? locale
+
   return (
-    <div className="flex flex-col gap-2">
-      <span className="text-sm font-medium text-[var(--c-text-heading)]">Appearance</span>
-      <div
-        className="flex w-[240px] rounded-lg p-[3px]"
-        style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-page)' }}
-      >
-        {options.map(({ value, label, icon: Icon }) => {
-          const active = theme === value
-          return (
-            <button
-              key={value}
-              type="button"
-              onClick={() => setTheme(value)}
-              className="flex flex-1 items-center justify-center gap-1.5 rounded-md py-1.5 text-xs transition-colors duration-100"
+    <div className="flex flex-col gap-6">
+      {/* 语言 */}
+      <div className="flex flex-col gap-2">
+        <span className="text-sm font-medium text-[var(--c-text-heading)]">{t.language}</span>
+        <div className="relative">
+          <button
+            ref={btnRef}
+            type="button"
+            onClick={() => setLangOpen(v => !v)}
+            className="flex h-9 w-[200px] items-center justify-between rounded-lg px-3 text-sm text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-sub)]"
+            style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-page)' }}
+          >
+            <span>{currentLocaleLabel}</span>
+            <ChevronDown size={13} />
+          </button>
+          {langOpen && (
+            <div
+              ref={menuRef}
+              className="absolute left-0 top-[calc(100%+4px)] z-50 rounded-[10px] p-1"
               style={{
-                background: active ? 'var(--c-bg-sub)' : 'transparent',
-                color: active ? 'var(--c-text-heading)' : 'var(--c-text-tertiary)',
-                fontWeight: active ? 500 : 400,
+                border: '0.5px solid var(--c-border-subtle)',
+                background: 'var(--c-bg-menu)',
+                width: '200px',
+                boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
               }}
             >
-              <Icon size={13} />
-              <span>{label}</span>
-            </button>
-          )
-        })}
+              {LOCALE_OPTIONS.map(({ value, label }) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => { setLocale(value); setLangOpen(false) }}
+                  className="flex w-full items-center rounded-lg px-3 py-2 text-sm transition-colors duration-100"
+                  style={{
+                    fontWeight: locale === value ? 600 : 400,
+                    color: locale === value ? 'var(--c-text-heading)' : 'var(--c-text-secondary)',
+                    background: 'transparent',
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--c-bg-sub)')}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* 外观 */}
+      <div className="flex flex-col gap-2">
+        <span className="text-sm font-medium text-[var(--c-text-heading)]">{t.appearance}</span>
+        <div
+          className="flex w-[240px] rounded-lg p-[3px]"
+          style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-page)' }}
+        >
+          {themeOptions.map(({ value, label, icon: Icon }) => {
+            const active = theme === value
+            return (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setTheme(value)}
+                className="flex flex-1 items-center justify-center gap-1.5 rounded-md py-1.5 text-xs transition-colors duration-100"
+                style={{
+                  background: active ? 'var(--c-bg-sub)' : 'transparent',
+                  color: active ? 'var(--c-text-heading)' : 'var(--c-text-tertiary)',
+                  fontWeight: active ? 500 : 400,
+                }}
+              >
+                <Icon size={13} />
+                <span>{label}</span>
+              </button>
+            )
+          })}
+        </div>
       </div>
     </div>
   )
