@@ -264,6 +264,48 @@ export interface LocaleStrings {
       toastLoadFailed: string
       toastSaveFailed: string
     }
+    apiKeys: {
+      title: string
+      addKey: string
+      // table columns
+      colKeyPrefix: string
+      colName: string
+      colScopes: string
+      colLastUsedAt: string
+      colStatus: string
+      colCreatedAt: string
+      // status badge labels
+      statusActive: string
+      statusRevoked: string
+      // empty state
+      empty: string
+      // create modal
+      modalTitleCreate: string
+      fieldName: string
+      fieldScopes: string
+      fieldScopesPlaceholder: string
+      // key reveal modal
+      modalTitleKeyCreated: string
+      keyRevealNote: string
+      copyKey: string
+      copied: string
+      done: string
+      // revoke dialog
+      revokeTitle: string
+      revokeMessage: (prefix: string) => string
+      revokeConfirm: string
+      // buttons
+      cancel: string
+      create: string
+      // errors
+      errRequired: string
+      // toasts
+      toastCreated: string
+      toastRevoked: string
+      toastLoadFailed: string
+      toastCreateFailed: string
+      toastRevokeFailed: string
+    }
   }
 }
 
