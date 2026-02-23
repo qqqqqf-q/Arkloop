@@ -344,6 +344,54 @@ export interface LocaleStrings {
       toastCreateFailed: string
       toastDeleteFailed: string
     }
+    teams: {
+      title: string
+      addTeam: string
+      // table columns
+      colName: string
+      colMembersCount: string
+      colCreatedAt: string
+      // empty state
+      empty: string
+      // create modal
+      modalTitleCreate: string
+      fieldName: string
+      // members section
+      addMember: string
+      colUserId: string
+      colRole: string
+      colMemberCreatedAt: string
+      emptyMembers: string
+      // add member modal
+      addMemberTitle: string
+      fieldUserId: string
+      fieldRole: string
+      // remove member dialog
+      removeTitle: string
+      removeMessage: (userId: string) => string
+      removeConfirm: string
+      // delete team dialog
+      deleteTitle: string
+      deleteMessage: (name: string) => string
+      deleteConfirm: string
+      // buttons
+      cancel: string
+      create: string
+      // errors
+      errRequired: string
+      errRequiredMember: string
+      // toasts
+      toastCreated: string
+      toastDeleted: string
+      toastLoadFailed: string
+      toastCreateFailed: string
+      toastDeleteFailed: string
+      toastMemberAdded: string
+      toastMemberAddFailed: string
+      toastMemberRemoved: string
+      toastMemberRemoveFailed: string
+      toastMembersLoadFailed: string
+    }
   }
 }
 

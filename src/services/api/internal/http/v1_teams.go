@@ -17,10 +17,11 @@ import (
 )
 
 type teamResponse struct {
-	ID        string `json:"id"`
-	OrgID     string `json:"org_id"`
-	Name      string `json:"name"`
-	CreatedAt string `json:"created_at"`
+	ID           string `json:"id"`
+	OrgID        string `json:"org_id"`
+	Name         string `json:"name"`
+	MembersCount int64  `json:"members_count"`
+	CreatedAt    string `json:"created_at"`
 }
 
 type createTeamRequest struct {
@@ -77,20 +78,50 @@ func teamEntry(
 			return
 		}
 
-		// {team_id}/members
-		parts := strings.SplitN(tail, "/", 2)
+		// /{team_id} or /{team_id}/members or /{team_id}/members/{user_id}
+		parts := strings.SplitN(tail, "/", 3)
 		teamID, err := uuid.Parse(parts[0])
 		if err != nil {
 			WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "invalid team id", traceID, nil)
 			return
 		}
 
-		if len(parts) == 2 && parts[1] == "members" {
-			if r.Method != nethttp.MethodPost {
+		// DELETE /v1/teams/{id}
+		if len(parts) == 1 {
+			if r.Method != nethttp.MethodDelete {
 				writeMethodNotAllowed(w, r)
 				return
 			}
-			addTeamMember(w, r, traceID, teamID, authService, membershipRepo, teamRepo, apiKeysRepo, entSvc, pool)
+			deleteTeam(w, r, traceID, teamID, authService, membershipRepo, teamRepo, apiKeysRepo)
+			return
+		}
+
+		if parts[1] != "members" {
+			writeNotFound(w, r)
+			return
+		}
+
+		// GET/POST /v1/teams/{id}/members
+		if len(parts) == 2 {
+			switch r.Method {
+			case nethttp.MethodGet:
+				listTeamMembers(w, r, traceID, teamID, authService, membershipRepo, teamRepo, apiKeysRepo)
+			case nethttp.MethodPost:
+				addTeamMember(w, r, traceID, teamID, authService, membershipRepo, teamRepo, apiKeysRepo, entSvc, pool)
+			default:
+				writeMethodNotAllowed(w, r)
+			}
+			return
+		}
+
+		// DELETE /v1/teams/{id}/members/{user_id}
+		if len(parts) == 3 && r.Method == nethttp.MethodDelete {
+			userID, err := uuid.Parse(parts[2])
+			if err != nil {
+				WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "invalid user id", traceID, nil)
+				return
+			}
+			removeTeamMember(w, r, traceID, teamID, userID, authService, membershipRepo, teamRepo, apiKeysRepo)
 			return
 		}
 
@@ -171,7 +202,7 @@ func listTeams(
 		return
 	}
 
-	teams, err := teamRepo.ListByOrg(r.Context(), actor.OrgID)
+	teams, err := teamRepo.ListByOrgWithCounts(r.Context(), actor.OrgID)
 	if err != nil {
 		WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
@@ -179,7 +210,7 @@ func listTeams(
 
 	resp := make([]teamResponse, 0, len(teams))
 	for _, t := range teams {
-		resp = append(resp, toTeamResponse(t))
+		resp = append(resp, toTeamWithCountResponse(t))
 	}
 	writeJSON(w, traceID, nethttp.StatusOK, resp)
 }
@@ -304,6 +335,16 @@ func toTeamResponse(t data.Team) teamResponse {
 	}
 }
 
+func toTeamWithCountResponse(t data.TeamWithCount) teamResponse {
+	return teamResponse{
+		ID:           t.ID.String(),
+		OrgID:        t.OrgID.String(),
+		Name:         t.Name,
+		MembersCount: t.MembersCount,
+		CreatedAt:    t.CreatedAt.UTC().Format(time.RFC3339Nano),
+	}
+}
+
 func toTeamMemberResponse(m data.TeamMembership) teamMemberResponse {
 	return teamMemberResponse{
 		TeamID:    m.TeamID.String(),
@@ -311,4 +352,134 @@ func toTeamMemberResponse(m data.TeamMembership) teamMemberResponse {
 		Role:      m.Role,
 		CreatedAt: m.CreatedAt.UTC().Format(time.RFC3339Nano),
 	}
+}
+
+func listTeamMembers(
+	w nethttp.ResponseWriter,
+	r *nethttp.Request,
+	traceID string,
+	teamID uuid.UUID,
+	authService *auth.Service,
+	membershipRepo *data.OrgMembershipRepository,
+	teamRepo *data.TeamRepository,
+	apiKeysRepo *data.APIKeysRepository,
+) {
+	if authService == nil {
+		writeAuthNotConfigured(w, traceID)
+		return
+	}
+	if teamRepo == nil {
+		WriteError(w, nethttp.StatusServiceUnavailable, "database.not_configured", "database not configured", traceID, nil)
+		return
+	}
+
+	actor, ok := resolveActor(w, r, traceID, authService, membershipRepo, apiKeysRepo, nil)
+	if !ok {
+		return
+	}
+	if !requirePerm(actor, auth.PermOrgTeamsRead, w, traceID) {
+		return
+	}
+
+	team, err := teamRepo.GetByID(r.Context(), teamID)
+	if err != nil {
+		WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+		return
+	}
+	if team == nil || team.OrgID != actor.OrgID {
+		WriteError(w, nethttp.StatusNotFound, "teams.not_found", "team not found", traceID, nil)
+		return
+	}
+
+	members, err := teamRepo.ListMembers(r.Context(), teamID)
+	if err != nil {
+		WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+		return
+	}
+
+	resp := make([]teamMemberResponse, 0, len(members))
+	for _, m := range members {
+		resp = append(resp, toTeamMemberResponse(m))
+	}
+	writeJSON(w, traceID, nethttp.StatusOK, resp)
+}
+
+func removeTeamMember(
+	w nethttp.ResponseWriter,
+	r *nethttp.Request,
+	traceID string,
+	teamID, userID uuid.UUID,
+	authService *auth.Service,
+	membershipRepo *data.OrgMembershipRepository,
+	teamRepo *data.TeamRepository,
+	apiKeysRepo *data.APIKeysRepository,
+) {
+	if authService == nil {
+		writeAuthNotConfigured(w, traceID)
+		return
+	}
+	if teamRepo == nil {
+		WriteError(w, nethttp.StatusServiceUnavailable, "database.not_configured", "database not configured", traceID, nil)
+		return
+	}
+
+	actor, ok := resolveActor(w, r, traceID, authService, membershipRepo, apiKeysRepo, nil)
+	if !ok {
+		return
+	}
+	if !requirePerm(actor, auth.PermOrgTeamsManage, w, traceID) {
+		return
+	}
+
+	team, err := teamRepo.GetByID(r.Context(), teamID)
+	if err != nil {
+		WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+		return
+	}
+	if team == nil || team.OrgID != actor.OrgID {
+		WriteError(w, nethttp.StatusNotFound, "teams.not_found", "team not found", traceID, nil)
+		return
+	}
+
+	if err := teamRepo.RemoveMember(r.Context(), teamID, userID); err != nil {
+		WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+		return
+	}
+
+	w.WriteHeader(nethttp.StatusNoContent)
+}
+
+func deleteTeam(
+	w nethttp.ResponseWriter,
+	r *nethttp.Request,
+	traceID string,
+	teamID uuid.UUID,
+	authService *auth.Service,
+	membershipRepo *data.OrgMembershipRepository,
+	teamRepo *data.TeamRepository,
+	apiKeysRepo *data.APIKeysRepository,
+) {
+	if authService == nil {
+		writeAuthNotConfigured(w, traceID)
+		return
+	}
+	if teamRepo == nil {
+		WriteError(w, nethttp.StatusServiceUnavailable, "database.not_configured", "database not configured", traceID, nil)
+		return
+	}
+
+	actor, ok := resolveActor(w, r, traceID, authService, membershipRepo, apiKeysRepo, nil)
+	if !ok {
+		return
+	}
+	if !requirePerm(actor, auth.PermOrgTeamsManage, w, traceID) {
+		return
+	}
+
+	if err := teamRepo.Delete(r.Context(), actor.OrgID, teamID); err != nil {
+		WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+		return
+	}
+
+	w.WriteHeader(nethttp.StatusNoContent)
 }

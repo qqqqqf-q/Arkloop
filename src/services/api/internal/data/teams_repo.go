@@ -169,3 +169,99 @@ func (r *TeamRepository) CountMembers(ctx context.Context, teamID uuid.UUID) (in
 	}
 	return count, nil
 }
+
+// TeamWithCount 是携带成员数量的 Team 视图。
+type TeamWithCount struct {
+	Team
+	MembersCount int64
+}
+
+// ListByOrgWithCounts 返回 org 下所有 team，每行含当前成员数。
+func (r *TeamRepository) ListByOrgWithCounts(ctx context.Context, orgID uuid.UUID) ([]TeamWithCount, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if orgID == uuid.Nil {
+		return nil, fmt.Errorf("org_id must not be empty")
+	}
+
+	rows, err := r.db.Query(
+		ctx,
+		`SELECT t.id, t.org_id, t.name, t.created_at, COUNT(m.user_id)
+		 FROM teams t
+		 LEFT JOIN team_memberships m ON m.team_id = t.id
+		 WHERE t.org_id = $1
+		 GROUP BY t.id
+		 ORDER BY t.created_at ASC`,
+		orgID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := []TeamWithCount{}
+	for rows.Next() {
+		var twc TeamWithCount
+		if err := rows.Scan(&twc.ID, &twc.OrgID, &twc.Name, &twc.CreatedAt, &twc.MembersCount); err != nil {
+			return nil, err
+		}
+		result = append(result, twc)
+	}
+	return result, rows.Err()
+}
+
+// ListMembers 返回团队的所有成员。
+func (r *TeamRepository) ListMembers(ctx context.Context, teamID uuid.UUID) ([]TeamMembership, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	rows, err := r.db.Query(
+		ctx,
+		`SELECT team_id, user_id, role, created_at FROM team_memberships WHERE team_id = $1 ORDER BY created_at ASC`,
+		teamID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	members := []TeamMembership{}
+	for rows.Next() {
+		var m TeamMembership
+		if err := rows.Scan(&m.TeamID, &m.UserID, &m.Role, &m.CreatedAt); err != nil {
+			return nil, err
+		}
+		members = append(members, m)
+	}
+	return members, rows.Err()
+}
+
+// RemoveMember 将用户从团队中移除。
+func (r *TeamRepository) RemoveMember(ctx context.Context, teamID, userID uuid.UUID) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	_, err := r.db.Exec(
+		ctx,
+		`DELETE FROM team_memberships WHERE team_id = $1 AND user_id = $2`,
+		teamID, userID,
+	)
+	return err
+}
+
+// Delete 删除团队，org_id 用于防止跨 org 误删。
+func (r *TeamRepository) Delete(ctx context.Context, orgID, teamID uuid.UUID) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	_, err := r.db.Exec(
+		ctx,
+		`DELETE FROM teams WHERE id = $1 AND org_id = $2`,
+		teamID, orgID,
+	)
+	return err
+}

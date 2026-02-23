@@ -12,6 +12,7 @@ import { MCPConfigsPage } from './pages/mcp-configs/MCPConfigsPage'
 import { SkillsPage } from './pages/skills/SkillsPage'
 import { APIKeysPage } from './pages/api-keys/APIKeysPage'
 import { IPRulesPage } from './pages/ip-rules/IPRulesPage'
+import { TeamsPage } from './pages/teams/TeamsPage'
 import { OrgsPage } from './pages/OrgsPage'
 import {
   readAccessTokenFromStorage,
@@ -69,7 +70,7 @@ function App() {
         <Route path="ip-rules" element={<IPRulesPage />} />
         {/* Organization */}
         <Route path="members" element={<OrgsPage />} />
-        <Route path="teams" element={<PlaceholderPage title="Teams" />} />
+        <Route path="teams" element={<TeamsPage />} />
         <Route path="projects" element={<PlaceholderPage title="Projects" />} />
         {/* Billing */}
         <Route path="plans" element={<PlaceholderPage title="Plans" />} />
