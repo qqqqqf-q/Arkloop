@@ -81,9 +81,10 @@ func adminUserEntry(
 	usersRepo *data.UserRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,
+	inviteCodesRepo *data.InviteCodeRepository,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	get := getAdminUser(authService, membershipRepo, usersRepo, apiKeysRepo)
-	patch := patchAdminUser(authService, membershipRepo, usersRepo, apiKeysRepo, auditWriter)
+	patch := patchAdminUser(authService, membershipRepo, usersRepo, apiKeysRepo, auditWriter, inviteCodesRepo)
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		traceID := observability.TraceIDFromContext(r.Context())
 
@@ -220,6 +221,7 @@ func patchAdminUser(
 	usersRepo *data.UserRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,
+	inviteCodesRepo *data.InviteCodeRepository,
 ) func(nethttp.ResponseWriter, *nethttp.Request, uuid.UUID) {
 	type patchBody struct {
 		Status        *string `json:"status"`
@@ -288,6 +290,11 @@ func patchAdminUser(
 
 			if auditWriter != nil {
 				auditWriter.WriteUserStatusChanged(r.Context(), traceID, actor.UserID, userID, oldStatus, newStatus)
+			}
+
+			// 封禁时停用该用户的所有邀请码
+			if newStatus == "suspended" && inviteCodesRepo != nil {
+				_ = inviteCodesRepo.DeactivateByUserID(r.Context(), userID)
 			}
 
 			writeJSON(w, traceID, nethttp.StatusOK, toAdminUserResponse(*updated))

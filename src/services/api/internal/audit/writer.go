@@ -529,6 +529,121 @@ func (w *Writer) WriteUserStatusChanged(
 	}
 }
 
+func (w *Writer) WriteInviteCodeCreated(
+	ctx context.Context,
+	traceID string,
+	userID uuid.UUID,
+	codeID uuid.UUID,
+) {
+	if w == nil || w.auditRepo == nil {
+		return
+	}
+
+	ip, ua := requestMetaFromContext(ctx)
+	targetType := "invite_code"
+	targetID := codeID.String()
+	if err := w.auditRepo.Create(ctx, data.AuditLogCreateParams{
+		ActorUserID: &userID,
+		Action:      "invite_codes.create",
+		TargetType:  &targetType,
+		TargetID:    &targetID,
+		TraceID:     traceID,
+		IPAddress:   ip,
+		UserAgent:   ua,
+		Metadata:    map[string]any{},
+	}); err != nil {
+		w.logError(traceID, "failed to write invite_code-created audit log", err)
+	}
+}
+
+func (w *Writer) WriteInviteCodeReset(
+	ctx context.Context,
+	traceID string,
+	userID uuid.UUID,
+	oldCodeID uuid.UUID,
+	newCodeID uuid.UUID,
+) {
+	if w == nil || w.auditRepo == nil {
+		return
+	}
+
+	ip, ua := requestMetaFromContext(ctx)
+	targetType := "invite_code"
+	targetID := newCodeID.String()
+	if err := w.auditRepo.Create(ctx, data.AuditLogCreateParams{
+		ActorUserID: &userID,
+		Action:      "invite_codes.reset",
+		TargetType:  &targetType,
+		TargetID:    &targetID,
+		TraceID:     traceID,
+		IPAddress:   ip,
+		UserAgent:   ua,
+		Metadata:    map[string]any{"old_code_id": oldCodeID.String()},
+	}); err != nil {
+		w.logError(traceID, "failed to write invite_code-reset audit log", err)
+	}
+}
+
+func (w *Writer) WriteInviteCodeUpdated(
+	ctx context.Context,
+	traceID string,
+	actorUserID uuid.UUID,
+	codeID uuid.UUID,
+	changes map[string]any,
+) {
+	if w == nil || w.auditRepo == nil {
+		return
+	}
+
+	ip, ua := requestMetaFromContext(ctx)
+	targetType := "invite_code"
+	targetID := codeID.String()
+	if err := w.auditRepo.Create(ctx, data.AuditLogCreateParams{
+		ActorUserID: &actorUserID,
+		Action:      "invite_codes.update",
+		TargetType:  &targetType,
+		TargetID:    &targetID,
+		TraceID:     traceID,
+		IPAddress:   ip,
+		UserAgent:   ua,
+		Metadata:    changes,
+	}); err != nil {
+		w.logError(traceID, "failed to write invite_code-updated audit log", err)
+	}
+}
+
+func (w *Writer) WriteReferralCreated(
+	ctx context.Context,
+	traceID string,
+	inviterUserID uuid.UUID,
+	inviteeUserID uuid.UUID,
+	codeID uuid.UUID,
+	referralID uuid.UUID,
+) {
+	if w == nil || w.auditRepo == nil {
+		return
+	}
+
+	ip, ua := requestMetaFromContext(ctx)
+	targetType := "referral"
+	targetID := referralID.String()
+	if err := w.auditRepo.Create(ctx, data.AuditLogCreateParams{
+		ActorUserID: &inviteeUserID,
+		Action:      "referrals.create",
+		TargetType:  &targetType,
+		TargetID:    &targetID,
+		TraceID:     traceID,
+		IPAddress:   ip,
+		UserAgent:   ua,
+		Metadata: map[string]any{
+			"inviter_user_id": inviterUserID.String(),
+			"invite_code_id":  codeID.String(),
+		},
+	}); err != nil {
+		w.logError(traceID, "failed to write referral-created audit log", err)
+	}
+}
+
 func (w *Writer) logError(traceID string, msg string, err error) {
 	if w == nil || w.logger == nil || err == nil {
 		return

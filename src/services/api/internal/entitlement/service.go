@@ -23,6 +23,8 @@ var platformDefaults = map[string]EntitlementValue{
 	"limit.team_members":         {Raw: "50", Type: "int"},
 	"feature.byok_enabled":       {Raw: "false", Type: "bool"},
 	"feature.mcp_remote_enabled": {Raw: "false", Type: "bool"},
+	"invite.max_codes_per_user":  {Raw: "1", Type: "int"},
+	"invite.default_max_uses":    {Raw: "1", Type: "int"},
 }
 
 type EntitlementValue struct {

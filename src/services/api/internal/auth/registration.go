@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -30,7 +31,24 @@ type RegistrationService struct {
 	pool           *pgxpool.Pool
 	passwordHasher *BcryptPasswordHasher
 	tokenService   *JwtAccessTokenService
+	entitlementSvc EntitlementResolver
 	now            func() time.Time
+}
+
+// EntitlementResolver 注册时读取 entitlement 默认值。
+type EntitlementResolver interface {
+	Resolve(ctx context.Context, orgID uuid.UUID, key string) (EntitlementValue, error)
+}
+
+// EntitlementValue 对 entitlement.EntitlementValue 的镜像，避免循环依赖。
+type EntitlementValue struct {
+	Raw  string
+	Type string
+}
+
+func (v EntitlementValue) Int() int64 {
+	n, _ := strconv.ParseInt(v.Raw, 10, 64)
+	return n
 }
 
 func NewRegistrationService(
@@ -53,6 +71,11 @@ func NewRegistrationService(
 		tokenService:   tokenService,
 		now:            func() time.Time { return time.Now().UTC() },
 	}, nil
+}
+
+// SetEntitlementResolver 设置 entitlement 解析器，用于注册时读取默认配额。
+func (s *RegistrationService) SetEntitlementResolver(resolver EntitlementResolver) {
+	s.entitlementSvc = resolver
 }
 
 func (s *RegistrationService) Register(
@@ -121,6 +144,30 @@ func (s *RegistrationService) Register(
 	}
 
 	if _, err := membershipRepo.Create(ctx, org.ID, user.ID, "owner"); err != nil {
+		return RegisterResult{}, err
+	}
+
+	// 自动为新用户生成邀请码
+	inviteCodeRepo, err := data.NewInviteCodeRepository(tx)
+	if err != nil {
+		return RegisterResult{}, err
+	}
+
+	maxUses := 1
+	if s.entitlementSvc != nil {
+		val, resolveErr := s.entitlementSvc.Resolve(ctx, org.ID, "invite.default_max_uses")
+		if resolveErr == nil {
+			if v := val.Int(); v > 0 {
+				maxUses = int(v)
+			}
+		}
+	}
+
+	code, err := data.GenerateCode()
+	if err != nil {
+		return RegisterResult{}, err
+	}
+	if _, err := inviteCodeRepo.Create(ctx, user.ID, code, maxUses); err != nil {
 		return RegisterResult{}, err
 	}
 

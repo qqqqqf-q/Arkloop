@@ -43,6 +43,7 @@ var platformAdminPerms = append(
 		PermPlatformSubscriptionsManage,
 		PermPlatformEntitlementsManage,
 		PermPlatformFeatureFlagsManage,
+		PermPlatformInviteCodesManage,
 	},
 	orgAdminPerms...,
 )

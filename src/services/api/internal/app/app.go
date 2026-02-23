@@ -23,6 +23,7 @@ import (
 	"arkloop/services/shared/objectstore"
 	sharedredis "arkloop/services/shared/redis"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 )
@@ -167,6 +168,9 @@ func (a *Application) Run(ctx context.Context) error {
 
 		notificationsRepo *data.NotificationsRepository
 
+		inviteCodesRepo *data.InviteCodeRepository
+		referralsRepo   *data.ReferralRepository
+
 		authService         *auth.Service
 		registrationService *auth.RegistrationService
 		auditWriter         *audit.Writer
@@ -287,6 +291,14 @@ func (a *Application) Run(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		inviteCodesRepo, err = data.NewInviteCodeRepository(pool)
+		if err != nil {
+			return err
+		}
+		referralsRepo, err = data.NewReferralRepository(pool)
+		if err != nil {
+			return err
+		}
 
 		// 加密 key 未配置时 secrets/llm-credentials 端点不可用，但不影响其他功能启动
 		keyRing, keyRingErr := crypto.NewKeyRingFromEnv()
@@ -319,6 +331,9 @@ func (a *Application) Run(ctx context.Context) error {
 		registrationService, err = auth.NewRegistrationService(pool, passwordHasher, tokenService)
 		if err != nil {
 			return err
+		}
+		if entitlementSvc != nil {
+			registrationService.SetEntitlementResolver(&entitlementAdapter{svc: entitlementSvc})
 		}
 
 		if auditRepo != nil {
@@ -376,6 +391,8 @@ func (a *Application) Run(ctx context.Context) error {
 			AuditLogRepo:         auditRepo,
 			UsersRepo:            userRepo,
 			OrgRepo:              orgRepo,
+			InviteCodesRepo:      inviteCodesRepo,
+			ReferralsRepo:        referralsRepo,
 			RedisClient:          redisClient,
 			RunLimiter:           runLimiter,
 			SSEConfig: apihttp.SSEConfig{
@@ -436,4 +453,17 @@ func bootstrapPlatformAdmin(
 	}
 	logger.Info("platform_admin promoted", observability.LogFields{}, map[string]any{"login": login})
 	return nil
+}
+
+// entitlementAdapter 将 entitlement.Service 适配为 auth.EntitlementResolver 接口。
+type entitlementAdapter struct {
+	svc *entitlement.Service
+}
+
+func (a *entitlementAdapter) Resolve(ctx context.Context, orgID uuid.UUID, key string) (auth.EntitlementValue, error) {
+	val, err := a.svc.Resolve(ctx, orgID, key)
+	if err != nil {
+		return auth.EntitlementValue{}, err
+	}
+	return auth.EntitlementValue{Raw: val.Raw, Type: val.Type}, nil
 }

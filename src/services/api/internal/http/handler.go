@@ -67,6 +67,9 @@ type HandlerConfig struct {
 	NotificationsRepo *data.NotificationsRepository
 	AuditLogRepo      *data.AuditLogRepository
 
+	InviteCodesRepo *data.InviteCodeRepository
+	ReferralsRepo   *data.ReferralRepository
+
 	UsersRepo *data.UserRepository
 	OrgRepo   *data.OrgRepository
 
@@ -286,7 +289,32 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 	)
 	mux.HandleFunc(
 		"/v1/admin/users/",
-		adminUserEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.UsersRepo, cfg.APIKeysRepo, cfg.AuditWriter),
+		adminUserEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.UsersRepo, cfg.APIKeysRepo, cfg.AuditWriter, cfg.InviteCodesRepo),
+	)
+
+	mux.HandleFunc(
+		"/v1/me/invite-code/reset",
+		meInviteCodeReset(cfg.AuthService, cfg.OrgMembershipRepo, cfg.InviteCodesRepo, cfg.EntitlementService, cfg.APIKeysRepo, cfg.AuditWriter),
+	)
+	mux.HandleFunc(
+		"/v1/me/invite-code",
+		meInviteCode(cfg.AuthService, cfg.OrgMembershipRepo, cfg.InviteCodesRepo, cfg.EntitlementService, cfg.APIKeysRepo, cfg.AuditWriter),
+	)
+	mux.HandleFunc(
+		"/v1/admin/invite-codes",
+		adminInviteCodesEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.InviteCodesRepo, cfg.APIKeysRepo),
+	)
+	mux.HandleFunc(
+		"/v1/admin/invite-codes/",
+		adminInviteCodeEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.InviteCodesRepo, cfg.APIKeysRepo, cfg.AuditWriter),
+	)
+	mux.HandleFunc(
+		"/v1/admin/referrals/tree",
+		adminReferralTree(cfg.AuthService, cfg.OrgMembershipRepo, cfg.ReferralsRepo, cfg.APIKeysRepo),
+	)
+	mux.HandleFunc(
+		"/v1/admin/referrals",
+		adminReferralsEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.ReferralsRepo, cfg.APIKeysRepo),
 	)
 
 	notFound := nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
