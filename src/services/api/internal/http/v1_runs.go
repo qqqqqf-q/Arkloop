@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -59,6 +60,22 @@ type runResponse struct {
 
 type cancelRunResponse struct {
 	OK bool `json:"ok"`
+}
+
+type globalRunResponse struct {
+	RunID              string   `json:"run_id"`
+	OrgID              string   `json:"org_id"`
+	ThreadID           string   `json:"thread_id"`
+	Status             string   `json:"status"`
+	Model              *string  `json:"model,omitempty"`
+	SkillID            *string  `json:"skill_id,omitempty"`
+	TotalInputTokens   *int64   `json:"total_input_tokens,omitempty"`
+	TotalOutputTokens  *int64   `json:"total_output_tokens,omitempty"`
+	TotalCostUSD       *float64 `json:"total_cost_usd,omitempty"`
+	DurationMs         *int64   `json:"duration_ms,omitempty"`
+	CreatedAt          string   `json:"created_at"`
+	CompletedAt        *string  `json:"completed_at,omitempty"`
+	FailedAt           *string  `json:"failed_at,omitempty"`
 }
 
 func createThreadRun(
@@ -801,4 +818,132 @@ func authorizeRunOrAudit(
 		map[string]any{"action": action},
 	)
 	return false
+}
+
+func listGlobalRuns(
+	authService *auth.Service,
+	membershipRepo *data.OrgMembershipRepository,
+	runRepo *data.RunEventRepository,
+	apiKeysRepo *data.APIKeysRepository,
+) nethttp.HandlerFunc {
+	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		if r.Method != nethttp.MethodGet {
+			writeMethodNotAllowed(w, r)
+			return
+		}
+
+		traceID := observability.TraceIDFromContext(r.Context())
+		if authService == nil {
+			writeAuthNotConfigured(w, traceID)
+			return
+		}
+		if runRepo == nil {
+			WriteError(w, nethttp.StatusServiceUnavailable, "database.not_configured", "database not configured", traceID, nil)
+			return
+		}
+
+		actor, ok := resolveActor(w, r, traceID, authService, membershipRepo, apiKeysRepo, nil)
+		if !ok {
+			return
+		}
+
+		isPlatformAdmin := actor.HasPermission(auth.PermPlatformAdmin)
+		if !isPlatformAdmin {
+			if !requirePerm(actor, auth.PermDataRunsRead, w, traceID) {
+				return
+			}
+		}
+
+		q := r.URL.Query()
+		params := data.ListRunsParams{}
+
+		if rawOrg := q.Get("org_id"); rawOrg != "" {
+			parsed, err := uuid.Parse(rawOrg)
+			if err != nil {
+				WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "invalid org_id", traceID, nil)
+				return
+			}
+			if !isPlatformAdmin && parsed != actor.OrgID {
+				WriteError(w, nethttp.StatusForbidden, "auth.forbidden", "access denied", traceID, nil)
+				return
+			}
+			params.OrgID = &parsed
+		} else if !isPlatformAdmin {
+			params.OrgID = &actor.OrgID
+		}
+
+		if v := q.Get("status"); v != "" {
+			v = strings.TrimSpace(v)
+			params.Status = &v
+		}
+		if v := q.Get("since"); v != "" {
+			t, err := time.Parse(time.RFC3339, v)
+			if err != nil {
+				WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "invalid since: must be RFC3339", traceID, nil)
+				return
+			}
+			params.Since = &t
+		}
+		if v := q.Get("until"); v != "" {
+			t, err := time.Parse(time.RFC3339, v)
+			if err != nil {
+				WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "invalid until: must be RFC3339", traceID, nil)
+				return
+			}
+			params.Until = &t
+		}
+		if v := q.Get("limit"); v != "" {
+			n, err := strconv.Atoi(v)
+			if err != nil || n < 1 || n > 200 {
+				WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "limit must be 1-200", traceID, nil)
+				return
+			}
+			params.Limit = n
+		}
+		if v := q.Get("offset"); v != "" {
+			n, err := strconv.Atoi(v)
+			if err != nil || n < 0 {
+				WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "offset must be >= 0", traceID, nil)
+				return
+			}
+			params.Offset = n
+		}
+
+		runs, total, err := runRepo.ListRuns(r.Context(), params)
+		if err != nil {
+			WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			return
+		}
+
+		resp := make([]globalRunResponse, 0, len(runs))
+		for _, run := range runs {
+			item := globalRunResponse{
+				RunID:             run.ID.String(),
+				OrgID:             run.OrgID.String(),
+				ThreadID:          run.ThreadID.String(),
+				Status:            run.Status,
+				Model:             run.Model,
+				SkillID:           run.SkillID,
+				TotalInputTokens:  run.TotalInputTokens,
+				TotalOutputTokens: run.TotalOutputTokens,
+				TotalCostUSD:      run.TotalCostUSD,
+				DurationMs:        run.DurationMs,
+				CreatedAt:         run.CreatedAt.UTC().Format(time.RFC3339Nano),
+			}
+			if run.CompletedAt != nil {
+				s := run.CompletedAt.UTC().Format(time.RFC3339Nano)
+				item.CompletedAt = &s
+			}
+			if run.FailedAt != nil {
+				s := run.FailedAt.UTC().Format(time.RFC3339Nano)
+				item.FailedAt = &s
+			}
+			resp = append(resp, item)
+		}
+
+		writeJSON(w, traceID, nethttp.StatusOK, map[string]any{
+			"data":  resp,
+			"total": total,
+		})
+	}
 }

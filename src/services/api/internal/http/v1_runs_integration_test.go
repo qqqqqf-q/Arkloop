@@ -456,3 +456,237 @@ func parseSseEvents(t *testing.T, body string) []map[string]any {
 	}
 	return events
 }
+
+func TestListGlobalRuns(t *testing.T) {
+	db := setupTestDatabase(t, "api_go_global_runs")
+
+	ctx := context.Background()
+	pool, err := data.NewPool(ctx, db.DSN)
+	if err != nil {
+		t.Fatalf("new pool: %v", err)
+	}
+	defer pool.Close()
+
+	logger := observability.NewJSONLogger("test", io.Discard)
+
+	passwordHasher, err := auth.NewBcryptPasswordHasher(0)
+	if err != nil {
+		t.Fatalf("new password hasher: %v", err)
+	}
+	tokenService, err := auth.NewJwtAccessTokenService("test-secret-should-be-long-enough-32chars", 3600)
+	if err != nil {
+		t.Fatalf("new token service: %v", err)
+	}
+
+	userRepo, err := data.NewUserRepository(pool)
+	if err != nil {
+		t.Fatalf("new user repo: %v", err)
+	}
+	credentialRepo, err := data.NewUserCredentialRepository(pool)
+	if err != nil {
+		t.Fatalf("new credential repo: %v", err)
+	}
+	membershipRepo, err := data.NewOrgMembershipRepository(pool)
+	if err != nil {
+		t.Fatalf("new membership repo: %v", err)
+	}
+	auditRepo, err := data.NewAuditLogRepository(pool)
+	if err != nil {
+		t.Fatalf("new audit repo: %v", err)
+	}
+	threadRepo, err := data.NewThreadRepository(pool)
+	if err != nil {
+		t.Fatalf("new thread repo: %v", err)
+	}
+	runRepo, err := data.NewRunEventRepository(pool)
+	if err != nil {
+		t.Fatalf("new run repo: %v", err)
+	}
+
+	authService, err := auth.NewService(userRepo, credentialRepo, membershipRepo, passwordHasher, tokenService)
+	if err != nil {
+		t.Fatalf("new auth service: %v", err)
+	}
+	registrationService, err := auth.NewRegistrationService(pool, passwordHasher, tokenService)
+	if err != nil {
+		t.Fatalf("new registration service: %v", err)
+	}
+
+	auditWriter := audit.NewWriter(auditRepo, membershipRepo, logger)
+
+	handler := NewHandler(HandlerConfig{
+		Pool:                pool,
+		Logger:              logger,
+		AuthService:         authService,
+		RegistrationService: registrationService,
+		OrgMembershipRepo:   membershipRepo,
+		ThreadRepo:          threadRepo,
+		RunEventRepo:        runRepo,
+		AuditWriter:         auditWriter,
+		TrustIncomingTraceID: true,
+	})
+
+	// alice 注册并创建 thread + run
+	aliceReg := doJSON(handler, nethttp.MethodPost, "/v1/auth/register",
+		map[string]any{"login": "alice_gr", "password": "pwdpwdpwd", "display_name": "Alice"}, nil)
+	if aliceReg.Code != nethttp.StatusCreated {
+		t.Fatalf("register alice: %d body=%s", aliceReg.Code, aliceReg.Body.String())
+	}
+	alice := decodeJSONBody[registerResponse](t, aliceReg.Body.Bytes())
+	aliceHeaders := authHeader(alice.AccessToken)
+
+	threadResp := doJSON(handler, nethttp.MethodPost, "/v1/threads", map[string]any{"title": "t1"}, aliceHeaders)
+	if threadResp.Code != nethttp.StatusCreated {
+		t.Fatalf("create thread: %d", threadResp.Code)
+	}
+	threadPayload := decodeJSONBody[threadResponse](t, threadResp.Body.Bytes())
+
+	runResp := doJSON(handler, nethttp.MethodPost, "/v1/threads/"+threadPayload.ID+"/runs", nil, aliceHeaders)
+	if runResp.Code != nethttp.StatusCreated {
+		t.Fatalf("create run: %d", runResp.Code)
+	}
+	runPayload := decodeJSONBody[createRunResponse](t, runResp.Body.Bytes())
+
+	// bob 注册（不同 org）
+	bobReg := doJSON(handler, nethttp.MethodPost, "/v1/auth/register",
+		map[string]any{"login": "bob_gr", "password": "pwdpwdpwd", "display_name": "Bob"}, nil)
+	if bobReg.Code != nethttp.StatusCreated {
+		t.Fatalf("register bob: %d body=%s", bobReg.Code, bobReg.Body.String())
+	}
+	bob := decodeJSONBody[registerResponse](t, bobReg.Body.Bytes())
+	bobHeaders := authHeader(bob.AccessToken)
+
+	t.Run("unauthenticated returns 401", func(t *testing.T) {
+		resp := doJSON(handler, nethttp.MethodGet, "/v1/runs", nil, nil)
+		assertErrorEnvelope(t, resp, nethttp.StatusUnauthorized, "auth.missing_token")
+	})
+
+	t.Run("org member sees own runs", func(t *testing.T) {
+		resp := doJSON(handler, nethttp.MethodGet, "/v1/runs", nil, aliceHeaders)
+		if resp.Code != nethttp.StatusOK {
+			t.Fatalf("unexpected status: %d body=%s", resp.Code, resp.Body.String())
+		}
+		var body struct {
+			Data  []globalRunResponse `json:"data"`
+			Total int64               `json:"total"`
+		}
+		if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+			t.Fatalf("unmarshal: %v body=%s", err, resp.Body.String())
+		}
+		if body.Total != 1 {
+			t.Fatalf("expected total=1, got %d", body.Total)
+		}
+		if len(body.Data) != 1 || body.Data[0].RunID != runPayload.RunID {
+			t.Fatalf("unexpected data: %#v", body.Data)
+		}
+		if body.Data[0].OrgID != threadPayload.OrgID {
+			t.Fatalf("unexpected org_id: %q", body.Data[0].OrgID)
+		}
+	})
+
+	t.Run("org member cannot query another org_id", func(t *testing.T) {
+		// 用一个随机的合法 UUID 当作其他 org
+		fakeOrgID := uuid.New().String()
+		resp := doJSON(handler, nethttp.MethodGet, "/v1/runs?org_id="+fakeOrgID, nil, aliceHeaders)
+		assertErrorEnvelope(t, resp, nethttp.StatusForbidden, "auth.forbidden")
+	})
+
+	t.Run("bob sees own org (empty)", func(t *testing.T) {
+		resp := doJSON(handler, nethttp.MethodGet, "/v1/runs", nil, bobHeaders)
+		if resp.Code != nethttp.StatusOK {
+			t.Fatalf("unexpected status: %d body=%s", resp.Code, resp.Body.String())
+		}
+		var body struct {
+			Data  []globalRunResponse `json:"data"`
+			Total int64               `json:"total"`
+		}
+		if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if body.Total != 0 {
+			t.Fatalf("expected total=0, got %d", body.Total)
+		}
+	})
+
+	t.Run("status filter", func(t *testing.T) {
+		resp := doJSON(handler, nethttp.MethodGet, "/v1/runs?status=running", nil, aliceHeaders)
+		if resp.Code != nethttp.StatusOK {
+			t.Fatalf("unexpected status: %d body=%s", resp.Code, resp.Body.String())
+		}
+		var body struct {
+			Data  []globalRunResponse `json:"data"`
+			Total int64               `json:"total"`
+		}
+		if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if body.Total != 1 {
+			t.Fatalf("expected total=1 for status=running, got %d", body.Total)
+		}
+
+		// 不存在的 status 返回空
+		resp2 := doJSON(handler, nethttp.MethodGet, "/v1/runs?status=completed", nil, aliceHeaders)
+		if resp2.Code != nethttp.StatusOK {
+			t.Fatalf("unexpected status: %d", resp2.Code)
+		}
+		var body2 struct {
+			Total int64 `json:"total"`
+		}
+		if err := json.Unmarshal(resp2.Body.Bytes(), &body2); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if body2.Total != 0 {
+			t.Fatalf("expected total=0 for status=completed, got %d", body2.Total)
+		}
+	})
+
+	t.Run("limit and offset", func(t *testing.T) {
+		resp := doJSON(handler, nethttp.MethodGet, "/v1/runs?limit=1&offset=0", nil, aliceHeaders)
+		if resp.Code != nethttp.StatusOK {
+			t.Fatalf("unexpected status: %d body=%s", resp.Code, resp.Body.String())
+		}
+		var body struct {
+			Data  []globalRunResponse `json:"data"`
+			Total int64               `json:"total"`
+		}
+		if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if body.Total != 1 || len(body.Data) != 1 {
+			t.Fatalf("expected 1 item, total=1: data=%d total=%d", len(body.Data), body.Total)
+		}
+
+		// offset=1 结果为空，但 total 不变
+		resp2 := doJSON(handler, nethttp.MethodGet, "/v1/runs?limit=1&offset=1", nil, aliceHeaders)
+		if resp2.Code != nethttp.StatusOK {
+			t.Fatalf("unexpected status: %d", resp2.Code)
+		}
+		var body2 struct {
+			Data  []globalRunResponse `json:"data"`
+			Total int64               `json:"total"`
+		}
+		if err := json.Unmarshal(resp2.Body.Bytes(), &body2); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if body2.Total != 1 || len(body2.Data) != 0 {
+			t.Fatalf("expected 0 items total=1: data=%d total=%d", len(body2.Data), body2.Total)
+		}
+	})
+
+	t.Run("invalid limit returns 422", func(t *testing.T) {
+		resp := doJSON(handler, nethttp.MethodGet, "/v1/runs?limit=999", nil, aliceHeaders)
+		assertErrorEnvelope(t, resp, nethttp.StatusUnprocessableEntity, "validation.error")
+	})
+
+	t.Run("invalid org_id returns 422", func(t *testing.T) {
+		resp := doJSON(handler, nethttp.MethodGet, "/v1/runs?org_id=notauuid", nil, aliceHeaders)
+		assertErrorEnvelope(t, resp, nethttp.StatusUnprocessableEntity, "validation.error")
+	})
+
+	t.Run("non-GET returns 405", func(t *testing.T) {
+		resp := doJSON(handler, nethttp.MethodPost, "/v1/runs", nil, aliceHeaders)
+		if resp.Code != nethttp.StatusMethodNotAllowed {
+			t.Fatalf("expected 405, got %d body=%s", resp.Code, resp.Body.String())
+		}
+	})
+}

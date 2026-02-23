@@ -109,6 +109,10 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 	}
 
 	mux.HandleFunc(
+		"/v1/runs",
+		listGlobalRuns(cfg.AuthService, cfg.OrgMembershipRepo, cfg.RunEventRepo, cfg.APIKeysRepo),
+	)
+	mux.HandleFunc(
 		"/v1/runs/",
 		runEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.RunEventRepo, cfg.AuditWriter, cfg.Pool, sseConfig, cfg.APIKeysRepo),
 	)
