@@ -20,6 +20,7 @@ var orgAdminPerms = []string{
 	PermDataProjectsRead, PermDataProjectsManage,
 	PermDataAgentConfigsRead, PermDataAgentConfigsManage,
 	PermDataSubscriptionsRead,
+	PermDataUsageRead,
 }
 
 var orgMemberPerms = []string{

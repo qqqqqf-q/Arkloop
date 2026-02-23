@@ -12,10 +12,12 @@ import (
 	"arkloop/services/api/internal/audit"
 	"arkloop/services/api/internal/auth"
 	"arkloop/services/api/internal/data"
+	"arkloop/services/api/internal/entitlement"
 	"arkloop/services/api/internal/observability"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 )
 
 type createThreadRequest struct {
@@ -431,13 +433,15 @@ func threadEntry(
 	pool *pgxpool.Pool,
 	apiKeysRepo *data.APIKeysRepository,
 	runLimiter *data.RunLimiter,
+	entSvc *entitlement.Service,
+	rdb *redis.Client,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	get := getThread(authService, membershipRepo, threadRepo, projectRepo, teamRepo, auditWriter, apiKeysRepo)
 	patch := patchThread(authService, membershipRepo, threadRepo, projectRepo, agentConfigRepo, auditWriter, apiKeysRepo)
 	del := deleteThread(authService, membershipRepo, threadRepo, auditWriter, apiKeysRepo)
 	createMessage := createThreadMessage(authService, membershipRepo, threadRepo, messageRepo, auditWriter, apiKeysRepo)
 	listMessages := listThreadMessages(authService, membershipRepo, threadRepo, messageRepo, auditWriter, apiKeysRepo)
-	createRun := createThreadRun(authService, membershipRepo, threadRepo, auditWriter, pool, apiKeysRepo, runLimiter)
+	createRun := createThreadRun(authService, membershipRepo, threadRepo, auditWriter, pool, apiKeysRepo, runLimiter, entSvc, rdb)
 	listRuns := listThreadRuns(authService, membershipRepo, threadRepo, runRepo, auditWriter, apiKeysRepo)
 	retry := retryThread(authService, membershipRepo, threadRepo, messageRepo, auditWriter, pool, apiKeysRepo)
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {

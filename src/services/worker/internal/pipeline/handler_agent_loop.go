@@ -40,11 +40,12 @@ func NewAgentLoopHandler(
 	eventsRepo data.RunEventsRepository,
 	messagesRepo data.MessagesRepository,
 	runLimiterRDB *redis.Client,
+	usageRepo data.UsageRecordsRepository,
 ) RunHandler {
 	return func(ctx context.Context, rc *RunContext) error {
 		selected := rc.SelectedRoute
 
-		writer := newEventWriter(rc.Pool, rc.Run, rc.TraceID, runLimiterRDB)
+		writer := newEventWriter(rc.Pool, rc.Run, rc.TraceID, runLimiterRDB, selected.Route.Model, usageRepo)
 		defer writer.Close(ctx)
 
 		routeSelected := rc.Emitter.Emit("run.route.selected", selected.ToRunEventDataJSON(), nil, nil)
@@ -111,12 +112,14 @@ func NewAgentLoopHandler(
 	}
 }
 
-// eventWriter 批提交事件并在终态时更新 runs.status + DECR 并发计数。
+// eventWriter 批提交事件并在终态时更新 runs.status + DECR 并发计数 + 写入 usage_records。
 type eventWriter struct {
 	pool          *pgxpool.Pool
 	run           data.Run
 	traceID       string
 	runLimiterRDB *redis.Client
+	model         string
+	usageRepo     data.UsageRecordsRepository
 
 	tx                       pgx.Tx
 	pendingEventsSinceCommit int
@@ -130,13 +133,15 @@ type eventWriter struct {
 	totalCostUSD      float64
 }
 
-func newEventWriter(pool *pgxpool.Pool, run data.Run, traceID string, runLimiterRDB *redis.Client) *eventWriter {
+func newEventWriter(pool *pgxpool.Pool, run data.Run, traceID string, runLimiterRDB *redis.Client, model string, usageRepo data.UsageRecordsRepository) *eventWriter {
 	return &eventWriter{
 		pool:          pool,
 		run:           run,
 		traceID:       strings.TrimSpace(traceID),
 		lastCommitAt:  time.Now(),
 		runLimiterRDB: runLimiterRDB,
+		model:         model,
+		usageRepo:     usageRepo,
 	}
 }
 
@@ -186,6 +191,9 @@ func (w *eventWriter) Append(
 		}); err != nil {
 			return err
 		}
+		if err := w.usageRepo.Insert(ctx, w.tx, w.run.OrgID, runID, w.model, w.totalInputTokens, w.totalOutputTokens, w.totalCostUSD); err != nil {
+			return err
+		}
 		w.hasTerminal = true
 		if err := w.commit(ctx); err != nil {
 			return err
@@ -222,6 +230,9 @@ func (w *eventWriter) Append(
 			TotalOutputTokens: w.totalOutputTokens,
 			TotalCostUSD:      w.totalCostUSD,
 		}); err != nil {
+			return err
+		}
+		if err := w.usageRepo.Insert(ctx, w.tx, w.run.OrgID, runID, w.model, w.totalInputTokens, w.totalOutputTokens, w.totalCostUSD); err != nil {
 			return err
 		}
 		w.hasTerminal = true

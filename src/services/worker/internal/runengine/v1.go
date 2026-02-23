@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	sharedent "arkloop/services/shared/entitlement"
 	"arkloop/services/shared/runlimit"
 	"arkloop/services/worker/internal/data"
 	"arkloop/services/worker/internal/events"
@@ -76,6 +77,7 @@ func NewEngineV1(deps EngineV1Deps) (*EngineV1, error) {
 	runsRepo := data.RunsRepository{}
 	eventsRepo := data.RunEventsRepository{}
 	messagesRepo := data.MessagesRepository{}
+	usageRepo := data.UsageRecordsRepository{}
 
 	rdb := deps.RunLimiterRDB
 	releaseSlot := func(ctx context.Context, run data.Run) {
@@ -83,9 +85,12 @@ func NewEngineV1(deps EngineV1Deps) (*EngineV1, error) {
 		runlimit.Release(ctx, rdb, key)
 	}
 
+	resolver := sharedent.NewResolver(deps.DBPool, rdb)
+
 	middlewares := []pipeline.RunMiddleware{
 		pipeline.NewCancelGuardMiddleware(runsRepo, eventsRepo),
 		pipeline.NewInputLoaderMiddleware(eventsRepo, messagesRepo),
+		pipeline.NewEntitlementMiddleware(resolver, runsRepo, eventsRepo, releaseSlot),
 		pipeline.NewMCPDiscoveryMiddleware(
 			deps.MCPPool,
 			pipeline.CopyToolExecutors(deps.ToolExecutors),
@@ -99,7 +104,7 @@ func NewEngineV1(deps EngineV1Deps) (*EngineV1, error) {
 		pipeline.NewToolBuildMiddleware(),
 	}
 
-	terminal := pipeline.NewAgentLoopHandler(runsRepo, eventsRepo, messagesRepo, deps.RunLimiterRDB)
+	terminal := pipeline.NewAgentLoopHandler(runsRepo, eventsRepo, messagesRepo, deps.RunLimiterRDB, usageRepo)
 
 	return &EngineV1{
 		middlewares: middlewares,

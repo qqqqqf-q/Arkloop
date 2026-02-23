@@ -150,3 +150,22 @@ func (r *TeamRepository) IsMember(ctx context.Context, teamID, userID uuid.UUID)
 	}
 	return exists, nil
 }
+
+// WithTx 返回一个使用给定事务的 TeamRepository 副本。
+func (r *TeamRepository) WithTx(tx pgx.Tx) *TeamRepository {
+	return &TeamRepository{db: tx}
+}
+
+// CountMembers 统计团队当前成员数。
+func (r *TeamRepository) CountMembers(ctx context.Context, teamID uuid.UUID) (int64, error) {
+	var count int64
+	err := r.db.QueryRow(
+		ctx,
+		`SELECT COUNT(*) FROM team_memberships WHERE team_id = $1`,
+		teamID,
+	).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("teams.CountMembers: %w", err)
+	}
+	return count, nil
+}

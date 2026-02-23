@@ -58,6 +58,7 @@ type HandlerConfig struct {
 	SubscriptionsRepo   *data.SubscriptionRepository
 	EntitlementsRepo    *data.EntitlementsRepository
 	EntitlementService  *entitlement.Service
+	UsageRepo           *data.UsageRepository
 
 	RedisClient *redis.Client
 	RunLimiter  *data.RunLimiter
@@ -91,6 +92,8 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 			cfg.Pool,
 			cfg.APIKeysRepo,
 			cfg.RunLimiter,
+			cfg.EntitlementService,
+			cfg.RedisClient,
 		),
 	)
 	sseConfig := cfg.SSEConfig
@@ -150,11 +153,11 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 
 	mux.HandleFunc(
 		"/v1/teams",
-		teamsEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.TeamRepo, cfg.APIKeysRepo),
+		teamsEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.TeamRepo, cfg.APIKeysRepo, cfg.EntitlementService, cfg.Pool),
 	)
 	mux.HandleFunc(
 		"/v1/teams/",
-		teamEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.TeamRepo, cfg.APIKeysRepo),
+		teamEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.TeamRepo, cfg.APIKeysRepo, cfg.EntitlementService, cfg.Pool),
 	)
 
 	mux.HandleFunc(
@@ -227,6 +230,11 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 	mux.HandleFunc(
 		"/v1/entitlement-overrides/",
 		entitlementOverrideEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.EntitlementsRepo, cfg.EntitlementService, cfg.APIKeysRepo),
+	)
+
+	mux.HandleFunc(
+		"/v1/orgs/{id}/usage",
+		orgUsageEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.UsageRepo, cfg.APIKeysRepo),
 	)
 
 	notFound := nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {

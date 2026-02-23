@@ -8,9 +8,12 @@ import (
 
 	"arkloop/services/api/internal/auth"
 	"arkloop/services/api/internal/data"
+	"arkloop/services/api/internal/entitlement"
 	"arkloop/services/api/internal/observability"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type teamResponse struct {
@@ -41,6 +44,8 @@ func teamsEntry(
 	membershipRepo *data.OrgMembershipRepository,
 	teamRepo *data.TeamRepository,
 	apiKeysRepo *data.APIKeysRepository,
+	entSvc *entitlement.Service,
+	pool *pgxpool.Pool,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		switch r.Method {
@@ -59,6 +64,8 @@ func teamEntry(
 	membershipRepo *data.OrgMembershipRepository,
 	teamRepo *data.TeamRepository,
 	apiKeysRepo *data.APIKeysRepository,
+	entSvc *entitlement.Service,
+	pool *pgxpool.Pool,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		traceID := observability.TraceIDFromContext(r.Context())
@@ -66,7 +73,7 @@ func teamEntry(
 		tail := strings.TrimPrefix(r.URL.Path, "/v1/teams/")
 		tail = strings.Trim(tail, "/")
 		if tail == "" {
-			teamsEntry(authService, membershipRepo, teamRepo, apiKeysRepo)(w, r)
+			teamsEntry(authService, membershipRepo, teamRepo, apiKeysRepo, entSvc, pool)(w, r)
 			return
 		}
 
@@ -83,7 +90,7 @@ func teamEntry(
 				writeMethodNotAllowed(w, r)
 				return
 			}
-			addTeamMember(w, r, traceID, teamID, authService, membershipRepo, teamRepo, apiKeysRepo)
+			addTeamMember(w, r, traceID, teamID, authService, membershipRepo, teamRepo, apiKeysRepo, entSvc, pool)
 			return
 		}
 
@@ -186,6 +193,8 @@ func addTeamMember(
 	membershipRepo *data.OrgMembershipRepository,
 	teamRepo *data.TeamRepository,
 	apiKeysRepo *data.APIKeysRepository,
+	entSvc *entitlement.Service,
+	pool *pgxpool.Pool,
 ) {
 	if authService == nil {
 		writeAuthNotConfigured(w, traceID)
@@ -244,8 +253,41 @@ func addTeamMember(
 		role = "member"
 	}
 
-	membership, err := teamRepo.AddMember(r.Context(), teamID, userID, role)
+	// 在事务内锁定 team 行，避免并发 addTeamMember 导致软配额超额
+	if pool == nil {
+		WriteError(w, nethttp.StatusServiceUnavailable, "database.not_configured", "database not configured", traceID, nil)
+		return
+	}
+	tx, err := pool.BeginTx(r.Context(), pgx.TxOptions{})
 	if err != nil {
+		WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+		return
+	}
+	defer tx.Rollback(r.Context())
+
+	// 行级锁：防止同一 team 的并发添加操作同时通过配额检查
+	if _, err := tx.Exec(r.Context(), `SELECT id FROM teams WHERE id = $1 FOR UPDATE`, teamID); err != nil {
+		WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+		return
+	}
+
+	txTeamRepo := teamRepo.WithTx(tx)
+	currentCount, err := txTeamRepo.CountMembers(r.Context(), teamID)
+	if err != nil {
+		WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+		return
+	}
+	if !requireEntitlementInt(r.Context(), w, traceID, entSvc, actor.OrgID, "limit.team_members", currentCount, "quota.team_members_exceeded", "team member limit reached") {
+		return
+	}
+
+	membership, err := txTeamRepo.AddMember(r.Context(), teamID, userID, role)
+	if err != nil {
+		WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+		return
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
 		WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
 	}
