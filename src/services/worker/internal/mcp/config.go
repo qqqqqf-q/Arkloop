@@ -295,7 +295,7 @@ func LoadConfigFromDB(ctx context.Context, pool *pgxpool.Pool, orgID uuid.UUID) 
 	servers := make([]ServerConfig, 0, len(allRows))
 	for _, rd := range allRows {
 		server := ServerConfig{
-			ServerID:      rd.id.String(),
+			ServerID:      rd.name, // 用 name 保证工具名可读，和 env 文件行为一致
 			OrgID:         orgID.String(),
 			Transport:     rd.transport,
 			CallTimeoutMs: rd.callTimeoutMs,

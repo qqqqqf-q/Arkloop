@@ -22,7 +22,7 @@ var defaults = map[string]entry{
 	"quota.tokens_per_month":     {raw: "1000000", typ: "int"},
 	"limit.concurrent_runs":      {raw: "10", typ: "int"},
 	"limit.team_members":         {raw: "50", typ: "int"},
-	"feature.byok_enabled":       {raw: "false", typ: "bool"},
+	"feature.byok_enabled":       {raw: "true", typ: "bool"},
 	"feature.mcp_remote_enabled": {raw: "false", typ: "bool"},
 }
 

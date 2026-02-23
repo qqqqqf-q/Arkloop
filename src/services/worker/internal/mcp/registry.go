@@ -16,7 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-var toolNameSafeRegex = regexp.MustCompile(`[^A-Za-z0-9_-]+`)
+var toolNameSafeRegex = regexp.MustCompile(`[^A-Za-z0-9_]+`)
 
 type Registration struct {
 	AgentSpecs []tools.AgentToolSpec

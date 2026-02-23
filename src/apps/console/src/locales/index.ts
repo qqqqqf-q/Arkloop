@@ -184,6 +184,48 @@ export interface LocaleStrings {
       toastSaveFailed: string
       toastDeleteFailed: string
     }
+    mcpConfigs: {
+      title: string
+      addConfig: string
+      // table columns
+      colName: string
+      colTransport: string
+      colActive: string
+      colCreatedAt: string
+      // empty state
+      empty: string
+      // create/edit modal
+      modalTitleCreate: string
+      modalTitleEdit: string
+      fieldName: string
+      fieldTransport: string
+      fieldUrl: string
+      fieldBearerToken: string
+      fieldBearerTokenPlaceholder: string
+      fieldBearerTokenSet: string
+      fieldCommand: string
+      fieldArgs: string
+      fieldIsActive: string
+      // buttons
+      cancel: string
+      create: string
+      save: string
+      // delete dialog
+      deleteTitle: string
+      deleteMessage: (name: string) => string
+      deleteConfirm: string
+      // errors
+      errRequired: string
+      errUrlRequired: string
+      errCommandRequired: string
+      // toasts
+      toastCreated: string
+      toastUpdated: string
+      toastDeleted: string
+      toastLoadFailed: string
+      toastSaveFailed: string
+      toastDeleteFailed: string
+    }
   }
 }
 

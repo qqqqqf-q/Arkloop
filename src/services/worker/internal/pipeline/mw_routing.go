@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	sharedent "arkloop/services/shared/entitlement"
 	"arkloop/services/worker/internal/data"
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/routing"
@@ -23,6 +24,7 @@ func NewRoutingMiddleware(
 	runsRepo data.RunsRepository,
 	eventsRepo data.RunEventsRepository,
 	releaseSlot func(ctx context.Context, run data.Run),
+	resolver *sharedent.Resolver,
 ) RunMiddleware {
 	return func(ctx context.Context, rc *RunContext, next RunHandler) error {
 		activeRouter := staticRouter
@@ -35,7 +37,15 @@ func NewRoutingMiddleware(
 			}
 		}
 
-		decision := activeRouter.Decide(rc.InputJSON, false)
+		byokEnabled := false
+		if resolver != nil {
+			raw, err := resolver.Resolve(ctx, rc.Run.OrgID, "feature.byok_enabled")
+			if err == nil {
+				byokEnabled = raw == "true"
+			}
+		}
+
+		decision := activeRouter.Decide(rc.InputJSON, byokEnabled)
 
 		var releaseFn func()
 		if releaseSlot != nil {
