@@ -10,6 +10,7 @@ import { FormField } from '../../components/FormField'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { useToast } from '../../components/useToast'
 import { isApiError } from '../../api'
+import { useLocale } from '../../contexts/LocaleContext'
 import {
   listLlmCredentials,
   createLlmCredential,
@@ -65,6 +66,8 @@ type DeleteTarget = { id: string; name: string }
 export function CredentialsPage() {
   const { accessToken } = useOutletContext<ConsoleOutletContext>()
   const { addToast } = useToast()
+  const { t } = useLocale()
+  const tc = t.pages.credentials
 
   const [creds, setCreds] = useState<LlmCredential[]>([])
   const [loading, setLoading] = useState(false)
@@ -81,7 +84,7 @@ export function CredentialsPage() {
       const data = await listLlmCredentials(accessToken)
       setCreds(data)
     } catch {
-      addToast('Failed to load credentials', 'error')
+      addToast(tc.toastLoadFailed, 'error')
     } finally {
       setLoading(false)
     }
@@ -134,7 +137,7 @@ export function CredentialsPage() {
     const provider = form.provider.trim()
 
     if (!name || !api_key || !provider) {
-      setFormError('Name, Provider, and API Key are required.')
+      setFormError(tc.errRequired)
       return
     }
 
@@ -149,7 +152,7 @@ export function CredentialsPage() {
         try {
           when = JSON.parse(whenStr) as Record<string, unknown>
         } catch {
-          setFormError(`Invalid JSON in "when" field for model "${model}".`)
+          setFormError(tc.errInvalidJson(model))
           return
         }
       }
@@ -178,21 +181,21 @@ export function CredentialsPage() {
       )
       setCreateOpen(false)
       await fetchCreds()
-      addToast('Credential created', 'success')
+      addToast(tc.toastCreated, 'success')
     } catch (err) {
       if (isApiError(err)) {
         if (err.code === 'database.not_configured') {
-          setFormError('Encryption key not configured on server. Set ARKLOOP_ENCRYPTION_KEY and restart.')
+          setFormError(tc.errEncryptionKey)
         } else {
           setFormError(err.message)
         }
       } else {
-        setFormError('Failed to create credential')
+        setFormError(tc.errRequired)
       }
     } finally {
       setSubmitting(false)
     }
-  }, [form, accessToken, fetchCreds, addToast])
+  }, [form, accessToken, fetchCreds, addToast, tc])
 
   const handleDelete = useCallback(async () => {
     if (!deleteTarget) return
@@ -201,9 +204,9 @@ export function CredentialsPage() {
       await deleteLlmCredential(deleteTarget.id, accessToken)
       setDeleteTarget(null)
       await fetchCreds()
-      addToast('Credential deleted', 'success')
+      addToast(tc.toastDeleted, 'success')
     } catch {
-      addToast('Failed to delete credential', 'error')
+      addToast(tc.toastDeleteFailed, 'error')
     } finally {
       setDeleting(false)
     }
@@ -212,17 +215,17 @@ export function CredentialsPage() {
   const columns: Column<LlmCredential>[] = [
     {
       key: 'name',
-      header: 'Name',
+      header: tc.colName,
       render: (row) => <span className="font-medium text-[var(--c-text-primary)]">{row.name}</span>,
     },
     {
       key: 'provider',
-      header: 'Provider',
+      header: tc.colProvider,
       render: (row) => <Badge variant={providerVariant(row.provider)}>{row.provider}</Badge>,
     },
     {
       key: 'key_prefix',
-      header: 'Key Prefix',
+      header: tc.colKeyPrefix,
       render: (row) =>
         row.key_prefix ? (
           <span className="font-mono text-xs">{row.key_prefix}…</span>
@@ -232,14 +235,14 @@ export function CredentialsPage() {
     },
     {
       key: 'base_url',
-      header: 'Base URL',
+      header: tc.colBaseUrl,
       render: (row) => (
         <span className="text-xs">{row.base_url ?? <span className="text-[var(--c-text-muted)]">--</span>}</span>
       ),
     },
     {
       key: 'openai_api_mode',
-      header: 'OpenAI API Mode',
+      header: tc.colApiMode,
       render: (row) =>
         row.openai_api_mode ? (
           <Badge variant="neutral">{row.openai_api_mode}</Badge>
@@ -249,12 +252,12 @@ export function CredentialsPage() {
     },
     {
       key: 'routes_count',
-      header: 'Routes',
+      header: tc.colRoutes,
       render: (row) => <span className="tabular-nums">{row.routes.length}</span>,
     },
     {
       key: 'created_at',
-      header: 'Created At',
+      header: tc.colCreatedAt,
       render: (row) => (
         <span className="text-xs tabular-nums">
           {new Date(row.created_at).toLocaleString()}
@@ -271,7 +274,7 @@ export function CredentialsPage() {
             setDeleteTarget({ id: row.id, name: row.name })
           }}
           className="flex items-center justify-center rounded p-1 text-[var(--c-text-muted)] transition-colors hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-status-error-text)]"
-          title="Delete"
+          title={tc.deleteConfirm}
         >
           <Trash2 size={14} />
         </button>
@@ -285,13 +288,13 @@ export function CredentialsPage() {
       className="flex items-center gap-1.5 rounded-lg bg-[var(--c-bg-tag)] px-3 py-1.5 text-xs font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-sub)]"
     >
       <Plus size={13} />
-      Add Credential
+      {tc.addCredential}
     </button>
   )
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <PageHeader title="LLM Credentials" actions={actions} />
+      <PageHeader title={tc.title} actions={actions} />
 
       <div className="flex flex-1 flex-col overflow-auto">
         <DataTable
@@ -299,15 +302,15 @@ export function CredentialsPage() {
           data={creds}
           rowKey={(row) => row.id}
           loading={loading}
-          emptyMessage="No credentials"
+          emptyMessage={tc.empty}
           emptyIcon={<KeyRound size={28} />}
         />
       </div>
 
       {/* Create Modal */}
-      <Modal open={createOpen} onClose={handleCloseCreate} title="Add Credential" width="560px">
+      <Modal open={createOpen} onClose={handleCloseCreate} title={tc.modalTitle} width="560px">
         <div className="flex flex-col gap-4">
-          <FormField label="Name">
+          <FormField label={tc.fieldName}>
             <input
               type="text"
               value={form.name}
@@ -317,7 +320,7 @@ export function CredentialsPage() {
             />
           </FormField>
 
-          <FormField label="Provider">
+          <FormField label={tc.fieldProvider}>
             <select
               value={form.provider}
               onChange={(e) => handleFormField('provider', e.target.value)}
@@ -329,7 +332,7 @@ export function CredentialsPage() {
             </select>
           </FormField>
 
-          <FormField label="API Key">
+          <FormField label={tc.fieldApiKey}>
             <input
               type="password"
               value={form.api_key}
@@ -340,7 +343,7 @@ export function CredentialsPage() {
             />
           </FormField>
 
-          <FormField label="Base URL (optional)">
+          <FormField label={tc.fieldBaseUrl}>
             <input
               type="text"
               value={form.base_url}
@@ -351,7 +354,7 @@ export function CredentialsPage() {
           </FormField>
 
           {form.provider === 'openai' && (
-            <FormField label="OpenAI API Mode (optional)">
+            <FormField label={tc.fieldApiMode}>
               <select
                 value={form.openai_api_mode}
                 onChange={(e) => handleFormField('openai_api_mode', e.target.value)}
@@ -367,13 +370,13 @@ export function CredentialsPage() {
 
           {/* Routes */}
           <div className="flex flex-col gap-2">
-            <span className="text-xs font-medium text-[var(--c-text-tertiary)]">Routes</span>
+            <span className="text-xs font-medium text-[var(--c-text-tertiary)]">{tc.fieldRoutes}</span>
             {form.routes.map((route, idx) => (
               <div key={idx} className="flex items-start gap-2 rounded-lg border border-[var(--c-border)] bg-[var(--c-bg-sub)] p-3">
                 <div className="flex flex-1 flex-col gap-2">
                   <div className="flex gap-2">
                     <div className="flex flex-1 flex-col gap-1">
-                      <span className="text-[10px] text-[var(--c-text-muted)]">Model</span>
+                      <span className="text-[10px] text-[var(--c-text-muted)]">{tc.routeModel}</span>
                       <input
                         type="text"
                         value={route.model}
@@ -383,7 +386,7 @@ export function CredentialsPage() {
                       />
                     </div>
                     <div className="flex w-20 flex-col gap-1">
-                      <span className="text-[10px] text-[var(--c-text-muted)]">Priority</span>
+                      <span className="text-[10px] text-[var(--c-text-muted)]">{tc.routePriority}</span>
                       <input
                         type="number"
                         value={route.priority}
@@ -401,11 +404,11 @@ export function CredentialsPage() {
                       className="h-3.5 w-3.5 rounded"
                     />
                     <label htmlFor={`route-default-${idx}`} className="text-xs text-[var(--c-text-secondary)]">
-                      Default
+                      {tc.routeDefault}
                     </label>
                   </div>
                   <div className="flex flex-col gap-1">
-                    <span className="text-[10px] text-[var(--c-text-muted)]">When (JSON)</span>
+                    <span className="text-[10px] text-[var(--c-text-muted)]">{tc.routeWhen}</span>
                     <input
                       type="text"
                       value={route.when}
@@ -429,7 +432,7 @@ export function CredentialsPage() {
               className="flex items-center gap-1.5 self-start rounded border border-dashed border-[var(--c-border)] px-2.5 py-1.5 text-xs text-[var(--c-text-muted)] transition-colors hover:border-[var(--c-text-muted)] hover:text-[var(--c-text-secondary)]"
             >
               <Plus size={12} />
-              Add Route
+              {tc.addRoute}
             </button>
           </div>
 
@@ -443,14 +446,14 @@ export function CredentialsPage() {
               disabled={submitting}
               className="rounded-lg border border-[var(--c-border)] px-3.5 py-1.5 text-sm text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-sub)] disabled:opacity-50"
             >
-              Cancel
+              {tc.cancel}
             </button>
             <button
               onClick={handleSubmit}
               disabled={submitting}
               className="rounded-lg bg-[var(--c-bg-tag)] px-3.5 py-1.5 text-sm font-medium text-[var(--c-text-primary)] transition-colors hover:bg-[var(--c-bg-sub)] disabled:opacity-50"
             >
-              {submitting ? '...' : 'Create'}
+              {submitting ? '...' : tc.create}
             </button>
           </div>
         </div>
@@ -461,9 +464,9 @@ export function CredentialsPage() {
         open={deleteTarget !== null}
         onClose={() => setDeleteTarget(null)}
         onConfirm={handleDelete}
-        title="Delete Credential"
-        message={`Delete "${deleteTarget?.name ?? ''}"? This cannot be undone.`}
-        confirmLabel="Delete"
+        title={tc.deleteTitle}
+        message={tc.deleteMessage(deleteTarget?.name ?? '')}
+        confirmLabel={tc.deleteConfirm}
         loading={deleting}
       />
     </div>
