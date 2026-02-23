@@ -25,6 +25,8 @@ var platformDefaults = map[string]EntitlementValue{
 	"feature.mcp_remote_enabled": {Raw: "false", Type: "bool"},
 	"invite.max_codes_per_user":  {Raw: "1", Type: "int"},
 	"invite.default_max_uses":    {Raw: "1", Type: "int"},
+	"credit.initial_grant":       {Raw: "1000", Type: "int"},
+	"credit.invite_reward":       {Raw: "500", Type: "int"},
 }
 
 type EntitlementValue struct {

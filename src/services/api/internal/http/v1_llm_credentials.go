@@ -26,10 +26,13 @@ type createLlmCredentialRequest struct {
 }
 
 type createLlmCredentialRouteRequest struct {
-	Model     string          `json:"model"`
-	IsDefault bool            `json:"is_default"`
-	Priority  int             `json:"priority"`
-	WhenJSON  json.RawMessage `json:"when"`
+	Model           string          `json:"model"`
+	IsDefault       bool            `json:"is_default"`
+	Priority        int             `json:"priority"`
+	WhenJSON        json.RawMessage `json:"when"`
+	Multiplier      *float64        `json:"multiplier"`
+	CostPer1kInput  *float64        `json:"cost_per_1k_input"`
+	CostPer1kOutput *float64        `json:"cost_per_1k_output"`
 }
 
 type llmCredentialResponse struct {
@@ -49,12 +52,15 @@ type llmCredentialWithRoutesResponse struct {
 }
 
 type llmRouteResponse struct {
-	ID           string          `json:"id"`
-	CredentialID string          `json:"credential_id"`
-	Model        string          `json:"model"`
-	Priority     int             `json:"priority"`
-	IsDefault    bool            `json:"is_default"`
-	WhenJSON     json.RawMessage `json:"when"`
+	ID              string          `json:"id"`
+	CredentialID    string          `json:"credential_id"`
+	Model           string          `json:"model"`
+	Priority        int             `json:"priority"`
+	IsDefault       bool            `json:"is_default"`
+	WhenJSON        json.RawMessage `json:"when"`
+	Multiplier      float64         `json:"multiplier"`
+	CostPer1kInput  *float64        `json:"cost_per_1k_input,omitempty"`
+	CostPer1kOutput *float64        `json:"cost_per_1k_output,omitempty"`
 }
 
 var validProviders = map[string]bool{
@@ -225,6 +231,10 @@ func createLlmCredential(
 			if len(whenJSON) == 0 {
 				whenJSON = json.RawMessage("{}")
 			}
+			multiplier := 1.0
+			if rr.Multiplier != nil && *rr.Multiplier > 0 {
+				multiplier = *rr.Multiplier
+			}
 			route, err := txRoutes.Create(
 				r.Context(),
 				actor.OrgID,
@@ -233,6 +243,9 @@ func createLlmCredential(
 				rr.Priority,
 				rr.IsDefault,
 				whenJSON,
+				multiplier,
+				rr.CostPer1kInput,
+				rr.CostPer1kOutput,
 			)
 			if err != nil {
 				WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
@@ -370,12 +383,15 @@ func toLlmRouteResponse(r data.LlmRoute) llmRouteResponse {
 		whenJSON = json.RawMessage("{}")
 	}
 	return llmRouteResponse{
-		ID:           r.ID.String(),
-		CredentialID: r.CredentialID.String(),
-		Model:        r.Model,
-		Priority:     r.Priority,
-		IsDefault:    r.IsDefault,
-		WhenJSON:     whenJSON,
+		ID:              r.ID.String(),
+		CredentialID:    r.CredentialID.String(),
+		Model:           r.Model,
+		Priority:        r.Priority,
+		IsDefault:       r.IsDefault,
+		WhenJSON:        whenJSON,
+		Multiplier:      r.Multiplier,
+		CostPer1kInput:  r.CostPer1kInput,
+		CostPer1kOutput: r.CostPer1kOutput,
 	}
 }
 

@@ -24,6 +24,8 @@ var defaults = map[string]entry{
 	"limit.team_members":         {raw: "50", typ: "int"},
 	"feature.byok_enabled":       {raw: "true", typ: "bool"},
 	"feature.mcp_remote_enabled": {raw: "false", typ: "bool"},
+	"credit.initial_grant":       {raw: "1000", typ: "int"},
+	"credit.invite_reward":       {raw: "500", typ: "int"},
 }
 
 type entry struct {
@@ -110,6 +112,23 @@ func (r *Resolver) SumMonthlyTokens(ctx context.Context, orgID uuid.UUID, year, 
 		return 0, fmt.Errorf("entitlement: sum monthly tokens: %w", err)
 	}
 	return total, nil
+}
+
+// GetCreditBalance 查询 org 的积分余额。无记录时返回 0（不报错，允许 org 尚未初始化积分）。
+func (r *Resolver) GetCreditBalance(ctx context.Context, orgID uuid.UUID) (int64, error) {
+	if r.pool == nil {
+		return 0, nil
+	}
+	var balance int64
+	err := r.pool.QueryRow(ctx,
+		`SELECT COALESCE(balance, 0) FROM credits WHERE org_id = $1`,
+		orgID,
+	).Scan(&balance)
+	if err != nil {
+		// 无记录视为余额 0
+		return 0, nil
+	}
+	return balance, nil
 }
 
 // monthRange 返回给定年月的 [start, end) UTC 时间范围。

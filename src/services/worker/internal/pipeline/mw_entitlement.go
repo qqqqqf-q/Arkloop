@@ -85,6 +85,25 @@ func NewEntitlementMiddleware(
 			}
 		}
 
+		// 检查积分余额
+		creditBalance, err := resolver.GetCreditBalance(ctx, orgID)
+		if err != nil {
+			return fmt.Errorf("entitlement middleware: get credit balance: %w", err)
+		}
+		if creditBalance <= 0 {
+			failed := rc.Emitter.Emit(
+				"run.failed",
+				map[string]any{
+					"error_class": errorClassQuotaExceeded,
+					"code":        "entitlement.credits_exhausted",
+					"message":     "credit balance exhausted",
+				},
+				nil,
+				StringPtr(errorClassQuotaExceeded),
+			)
+			return appendAndCommitSingle(ctx, rc.Pool, rc.Run, runsRepo, eventsRepo, failed, releaseFn)
+		}
+
 		return next(ctx, rc)
 	}
 }

@@ -147,6 +147,24 @@ func (s *RegistrationService) Register(
 		return RegisterResult{}, err
 	}
 
+	// 初始化积分余额
+	creditsRepo, err := data.NewCreditsRepository(tx)
+	if err != nil {
+		return RegisterResult{}, err
+	}
+	initialGrant := int64(1000)
+	if s.entitlementSvc != nil {
+		val, resolveErr := s.entitlementSvc.Resolve(ctx, org.ID, "credit.initial_grant")
+		if resolveErr == nil {
+			if v := val.Int(); v > 0 {
+				initialGrant = v
+			}
+		}
+	}
+	if _, err := creditsRepo.InitBalance(ctx, org.ID, initialGrant); err != nil {
+		return RegisterResult{}, err
+	}
+
 	// 自动为新用户生成邀请码
 	inviteCodeRepo, err := data.NewInviteCodeRepository(tx)
 	if err != nil {

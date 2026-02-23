@@ -78,6 +78,7 @@ func NewEngineV1(deps EngineV1Deps) (*EngineV1, error) {
 	eventsRepo := data.RunEventsRepository{}
 	messagesRepo := data.MessagesRepository{}
 	usageRepo := data.UsageRecordsRepository{}
+	creditsRepo := data.CreditsRepository{}
 
 	rdb := deps.RunLimiterRDB
 	releaseSlot := func(ctx context.Context, run data.Run) {
@@ -104,7 +105,7 @@ func NewEngineV1(deps EngineV1Deps) (*EngineV1, error) {
 		pipeline.NewToolBuildMiddleware(),
 	}
 
-	terminal := pipeline.NewAgentLoopHandler(runsRepo, eventsRepo, messagesRepo, deps.RunLimiterRDB, usageRepo)
+	terminal := pipeline.NewAgentLoopHandler(runsRepo, eventsRepo, messagesRepo, deps.RunLimiterRDB, usageRepo, creditsRepo)
 
 	return &EngineV1{
 		middlewares: middlewares,

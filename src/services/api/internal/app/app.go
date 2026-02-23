@@ -170,6 +170,7 @@ func (a *Application) Run(ctx context.Context) error {
 
 		inviteCodesRepo *data.InviteCodeRepository
 		referralsRepo   *data.ReferralRepository
+		creditsRepo     *data.CreditsRepository
 
 		authService         *auth.Service
 		registrationService *auth.RegistrationService
@@ -299,6 +300,10 @@ func (a *Application) Run(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		creditsRepo, err = data.NewCreditsRepository(pool)
+		if err != nil {
+			return err
+		}
 
 		// 加密 key 未配置时 secrets/llm-credentials 端点不可用，但不影响其他功能启动
 		keyRing, keyRingErr := crypto.NewKeyRingFromEnv()
@@ -393,6 +398,7 @@ func (a *Application) Run(ctx context.Context) error {
 			OrgRepo:              orgRepo,
 			InviteCodesRepo:      inviteCodesRepo,
 			ReferralsRepo:        referralsRepo,
+			CreditsRepo:          creditsRepo,
 			RedisClient:          redisClient,
 			RunLimiter:           runLimiter,
 			SSEConfig: apihttp.SSEConfig{

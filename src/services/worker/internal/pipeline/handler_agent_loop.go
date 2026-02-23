@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -41,11 +42,16 @@ func NewAgentLoopHandler(
 	messagesRepo data.MessagesRepository,
 	runLimiterRDB *redis.Client,
 	usageRepo data.UsageRecordsRepository,
+	creditsRepo data.CreditsRepository,
 ) RunHandler {
 	return func(ctx context.Context, rc *RunContext) error {
 		selected := rc.SelectedRoute
 
-		writer := newEventWriter(rc.Pool, rc.Run, rc.TraceID, runLimiterRDB, selected.Route.Model, usageRepo)
+		writer := newEventWriter(
+			rc.Pool, rc.Run, rc.TraceID, runLimiterRDB,
+			selected.Route.Model, usageRepo, creditsRepo,
+			selected.Route.Multiplier, selected.Route.CostPer1kInput, selected.Route.CostPer1kOutput,
+		)
 		defer writer.Close(ctx)
 
 		routeSelected := rc.Emitter.Emit("run.route.selected", selected.ToRunEventDataJSON(), nil, nil)
@@ -120,6 +126,11 @@ type eventWriter struct {
 	runLimiterRDB *redis.Client
 	model         string
 	usageRepo     data.UsageRecordsRepository
+	creditsRepo   data.CreditsRepository
+
+	multiplier      float64
+	costPer1kInput  *float64
+	costPer1kOutput *float64
 
 	tx                       pgx.Tx
 	pendingEventsSinceCommit int
@@ -133,15 +144,33 @@ type eventWriter struct {
 	totalCostUSD      float64
 }
 
-func newEventWriter(pool *pgxpool.Pool, run data.Run, traceID string, runLimiterRDB *redis.Client, model string, usageRepo data.UsageRecordsRepository) *eventWriter {
+func newEventWriter(
+	pool *pgxpool.Pool,
+	run data.Run,
+	traceID string,
+	runLimiterRDB *redis.Client,
+	model string,
+	usageRepo data.UsageRecordsRepository,
+	creditsRepo data.CreditsRepository,
+	multiplier float64,
+	costPer1kInput *float64,
+	costPer1kOutput *float64,
+) *eventWriter {
+	if multiplier <= 0 {
+		multiplier = 1.0
+	}
 	return &eventWriter{
-		pool:          pool,
-		run:           run,
-		traceID:       strings.TrimSpace(traceID),
-		lastCommitAt:  time.Now(),
-		runLimiterRDB: runLimiterRDB,
-		model:         model,
-		usageRepo:     usageRepo,
+		pool:            pool,
+		run:             run,
+		traceID:         strings.TrimSpace(traceID),
+		lastCommitAt:    time.Now(),
+		runLimiterRDB:   runLimiterRDB,
+		model:           model,
+		usageRepo:       usageRepo,
+		creditsRepo:     creditsRepo,
+		multiplier:      multiplier,
+		costPer1kInput:  costPer1kInput,
+		costPer1kOutput: costPer1kOutput,
 	}
 }
 
@@ -183,6 +212,10 @@ func (w *eventWriter) Append(
 		if _, err := eventsRepo.AppendEvent(ctx, w.tx, runID, cancelled.Type, cancelled.DataJSON, cancelled.ToolName, cancelled.ErrorClass); err != nil {
 			return err
 		}
+		// 如果配置了平台成本费率，覆盖 LLM 返回的原始 cost
+		if platformCost := w.calcPlatformCost(); platformCost >= 0 {
+			w.totalCostUSD = platformCost
+		}
 		if err := runsRepo.UpdateRunTerminalStatus(ctx, w.tx, runID, data.TerminalStatusUpdate{
 			Status:            "cancelled",
 			TotalInputTokens:  w.totalInputTokens,
@@ -193,6 +226,11 @@ func (w *eventWriter) Append(
 		}
 		if err := w.usageRepo.Insert(ctx, w.tx, w.run.OrgID, runID, w.model, w.totalInputTokens, w.totalOutputTokens, w.totalCostUSD); err != nil {
 			return err
+		}
+		if credits := w.calcCreditDeduction(); credits > 0 {
+			if err := w.creditsRepo.Deduct(ctx, w.tx, w.run.OrgID, credits, runID); err != nil {
+				return err
+			}
 		}
 		w.hasTerminal = true
 		if err := w.commit(ctx); err != nil {
@@ -224,6 +262,10 @@ func (w *eventWriter) Append(
 		if status == "completed" {
 			w.completed = true
 		}
+		// 如果配置了平台成本费率，覆盖 LLM 返回的原始 cost
+		if platformCost := w.calcPlatformCost(); platformCost >= 0 {
+			w.totalCostUSD = platformCost
+		}
 		if err := runsRepo.UpdateRunTerminalStatus(ctx, w.tx, runID, data.TerminalStatusUpdate{
 			Status:            status,
 			TotalInputTokens:  w.totalInputTokens,
@@ -234,6 +276,11 @@ func (w *eventWriter) Append(
 		}
 		if err := w.usageRepo.Insert(ctx, w.tx, w.run.OrgID, runID, w.model, w.totalInputTokens, w.totalOutputTokens, w.totalCostUSD); err != nil {
 			return err
+		}
+		if credits := w.calcCreditDeduction(); credits > 0 {
+			if err := w.creditsRepo.Deduct(ctx, w.tx, w.run.OrgID, credits, runID); err != nil {
+				return err
+			}
 		}
 		w.hasTerminal = true
 		return nil
@@ -346,4 +393,33 @@ func toInt64(v any) (int64, bool) {
 	default:
 		return 0, false
 	}
+}
+
+// calcCreditDeduction 按公式计算积分消耗：ceil((input + output) / 1000 * multiplier)，最小 1。
+func (w *eventWriter) calcCreditDeduction() int64 {
+	totalTokens := w.totalInputTokens + w.totalOutputTokens
+	if totalTokens <= 0 {
+		return 0
+	}
+	raw := float64(totalTokens) / 1000.0 * w.multiplier
+	credits := int64(math.Ceil(raw))
+	if credits < 1 {
+		credits = 1
+	}
+	return credits
+}
+
+// calcPlatformCost 按配置的成本费率计算实际成本（USD）。未配置时返回 -1 表示使用 LLM 返回的原始值。
+func (w *eventWriter) calcPlatformCost() float64 {
+	if w.costPer1kInput == nil && w.costPer1kOutput == nil {
+		return -1
+	}
+	var cost float64
+	if w.costPer1kInput != nil {
+		cost += float64(w.totalInputTokens) / 1000.0 * *w.costPer1kInput
+	}
+	if w.costPer1kOutput != nil {
+		cost += float64(w.totalOutputTokens) / 1000.0 * *w.costPer1kOutput
+	}
+	return cost
 }

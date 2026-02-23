@@ -69,10 +69,13 @@ func (c ProviderCredential) ToPublicJSON() map[string]any {
 }
 
 type ProviderRouteRule struct {
-	ID           string
-	Model        string
-	CredentialID string
-	When         map[string]any
+	ID              string
+	Model           string
+	CredentialID    string
+	When            map[string]any
+	Multiplier      float64
+	CostPer1kInput  *float64
+	CostPer1kOutput *float64
 }
 
 func (r ProviderRouteRule) Matches(input map[string]any) bool {
@@ -394,6 +397,7 @@ func LoadRoutingConfigFromDB(ctx context.Context, pool *pgxpool.Pool) (ProviderR
 	// 一次 JOIN 拿到所有需要的字段，包含 secrets 的加密值
 	rows, err := pool.Query(ctx, `
 		SELECT r.id, r.credential_id, r.model, r.when_json, r.is_default,
+		       r.multiplier, r.cost_per_1k_input, r.cost_per_1k_output,
 		       c.id, c.provider, c.base_url, c.openai_api_mode,
 		       s.encrypted_value, s.key_version
 		FROM llm_routes r
@@ -408,17 +412,20 @@ func LoadRoutingConfigFromDB(ctx context.Context, pool *pgxpool.Pool) (ProviderR
 	defer rows.Close()
 
 	type rowData struct {
-		routeID        uuid.UUID
-		credentialID   uuid.UUID
-		model          string
-		whenJSON       []byte
-		isDefault      bool
-		credID         uuid.UUID
-		provider       string
-		baseURL        *string
-		openaiAPIMode  *string
-		encryptedValue *string
-		keyVersion     *int
+		routeID         uuid.UUID
+		credentialID    uuid.UUID
+		model           string
+		whenJSON        []byte
+		isDefault       bool
+		multiplier      float64
+		costPer1kInput  *float64
+		costPer1kOutput *float64
+		credID          uuid.UUID
+		provider        string
+		baseURL         *string
+		openaiAPIMode   *string
+		encryptedValue  *string
+		keyVersion      *int
 	}
 
 	var allRows []rowData
@@ -426,6 +433,7 @@ func LoadRoutingConfigFromDB(ctx context.Context, pool *pgxpool.Pool) (ProviderR
 		var rd rowData
 		if err := rows.Scan(
 			&rd.routeID, &rd.credentialID, &rd.model, &rd.whenJSON, &rd.isDefault,
+			&rd.multiplier, &rd.costPer1kInput, &rd.costPer1kOutput,
 			&rd.credID, &rd.provider, &rd.baseURL, &rd.openaiAPIMode,
 			&rd.encryptedValue, &rd.keyVersion,
 		); err != nil {
@@ -502,11 +510,19 @@ func LoadRoutingConfigFromDB(ctx context.Context, pool *pgxpool.Pool) (ProviderR
 			_ = json.Unmarshal(rd.whenJSON, &when)
 		}
 
+		multiplier := rd.multiplier
+		if multiplier <= 0 {
+			multiplier = 1.0
+		}
+
 		route := ProviderRouteRule{
-			ID:           routeIDStr,
-			Model:        rd.model,
-			CredentialID: credIDStr,
-			When:         when,
+			ID:              routeIDStr,
+			Model:           rd.model,
+			CredentialID:    credIDStr,
+			When:            when,
+			Multiplier:      multiplier,
+			CostPer1kInput:  rd.costPer1kInput,
+			CostPer1kOutput: rd.costPer1kOutput,
 		}
 		routes = append(routes, route)
 
