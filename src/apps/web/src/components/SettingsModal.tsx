@@ -1,18 +1,9 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import type { LucideIcon } from 'lucide-react'
 import {
   X,
   User,
   Settings,
-  BarChart2,
-  CalendarClock,
-  Mail,
-  Database,
-  Globe,
-  Sliders,
-  Zap,
-  Cable,
-  Layers,
   HelpCircle,
   LogOut,
   ArrowUpRight,
@@ -20,43 +11,42 @@ import {
   Monitor,
   Sun,
   Moon,
+  Copy,
+  Check,
+  RefreshCw,
+  Ticket,
 } from 'lucide-react'
-import type { MeResponse } from '../api'
+import {
+  type MeResponse,
+  type InviteCodeResponse,
+  getMyInviteCode,
+  resetMyInviteCode,
+  isApiError,
+} from '../api'
 import { useLocale } from '../contexts/LocaleContext'
 import { useTheme } from '../contexts/ThemeContext'
 import type { Locale } from '../locales'
 import type { Theme } from '../storage'
 
 
-export type SettingsTab =
-  | 'account' | 'settings' | 'usage' | 'scheduled'
-  | 'mail' | 'data' | 'browser' | 'personal'
-  | 'skills' | 'connectors' | 'integrations'
+export type SettingsTab = 'account' | 'settings'
 
 type NavItem = { key: SettingsTab; icon: LucideIcon }
 
 const NAV_ITEMS: NavItem[] = [
-  { key: 'account',      icon: User         },
-  { key: 'settings',     icon: Settings     },
-  { key: 'usage',        icon: BarChart2    },
-  { key: 'scheduled',    icon: CalendarClock },
-  { key: 'mail',         icon: Mail         },
-  { key: 'data',         icon: Database     },
-  { key: 'browser',      icon: Globe        },
-  { key: 'personal',     icon: Sliders      },
-  { key: 'skills',       icon: Zap          },
-  { key: 'connectors',   icon: Cable        },
-  { key: 'integrations', icon: Layers       },
+  { key: 'account',  icon: User     },
+  { key: 'settings', icon: Settings },
 ]
 
 type Props = {
   me: MeResponse | null
+  accessToken: string
   initialTab?: SettingsTab
   onClose: () => void
   onLogout: () => void
 }
 
-export function SettingsModal({ me, initialTab = 'account', onClose, onLogout }: Props) {
+export function SettingsModal({ me, accessToken, initialTab = 'account', onClose, onLogout }: Props) {
   const { t, locale, setLocale } = useLocale()
   const { theme, setTheme } = useTheme()
   const [activeKey, setActiveKey] = useState<SettingsTab>(initialTab)
@@ -99,17 +89,6 @@ export function SettingsModal({ me, initialTab = 'account', onClose, onLogout }:
               </button>
             ))}
           </nav>
-
-          <div className="mt-auto px-2">
-            <div style={{ borderTop: '0.5px solid var(--c-border-subtle)', marginBottom: '8px' }} />
-            <button
-              className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-sm text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-heading)]"
-            >
-              <HelpCircle size={15} />
-              <span>{t.getHelp}</span>
-              <ArrowUpRight size={12} style={{ marginLeft: 'auto' }} />
-            </button>
-          </div>
         </div>
 
         {/* 右侧内容 */}
@@ -139,11 +118,8 @@ export function SettingsModal({ me, initialTab = 'account', onClose, onLogout }:
               <div className="flex flex-col gap-6">
                 <LanguageContent locale={locale} setLocale={setLocale} label={t.language} />
                 <ThemeContent theme={theme} setTheme={setTheme} label={t.appearance} t={t} />
-              </div>
-            )}
-            {activeKey !== 'account' && activeKey !== 'settings' && (
-              <div className="flex h-full items-center justify-center text-sm text-[var(--c-text-muted)]">
-                {t.comingSoon}
+                <InviteCodeContent accessToken={accessToken} />
+                <HelpContent label={t.getHelp} />
               </div>
             )}
           </div>
@@ -332,6 +308,122 @@ function ThemeContent({
           )
         })}
       </div>
+    </div>
+  )
+}
+
+function InviteCodeContent({ accessToken }: { accessToken: string }) {
+  const { t } = useLocale()
+  const [inviteCode, setInviteCode] = useState<InviteCodeResponse | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [copied, setCopied] = useState(false)
+  const [resetting, setResetting] = useState(false)
+  const [error, setError] = useState('')
+  const copiedTimerRef = useRef<ReturnType<typeof setTimeout>>()
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const code = await getMyInviteCode(accessToken)
+        setInviteCode(code)
+      } catch {
+        setError(t.requestFailed)
+      } finally {
+        setLoading(false)
+      }
+    })()
+  }, [accessToken, t.requestFailed])
+
+  const handleCopy = useCallback(async () => {
+    if (!inviteCode) return
+    await navigator.clipboard.writeText(inviteCode.code)
+    setCopied(true)
+    if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current)
+    copiedTimerRef.current = setTimeout(() => setCopied(false), 2000)
+  }, [inviteCode])
+
+  const handleReset = useCallback(async () => {
+    setResetting(true)
+    setError('')
+    try {
+      const code = await resetMyInviteCode(accessToken)
+      setInviteCode(code)
+    } catch (err) {
+      if (isApiError(err) && err.code === 'invite_codes.reset_cooldown') {
+        setError(t.inviteCodeResetCooldown)
+      } else {
+        setError(t.requestFailed)
+      }
+    } finally {
+      setResetting(false)
+    }
+  }, [accessToken, t])
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center gap-2">
+        <Ticket size={15} className="text-[var(--c-text-heading)]" />
+        <span className="text-sm font-medium text-[var(--c-text-heading)]">{t.inviteCode}</span>
+      </div>
+      <p className="text-xs text-[var(--c-text-tertiary)]">{t.inviteCodeDesc}</p>
+
+      {loading ? (
+        <div className="flex h-9 w-[240px] items-center px-3 text-sm text-[var(--c-text-tertiary)]">
+          ...
+        </div>
+      ) : inviteCode ? (
+        <div className="flex flex-col gap-2">
+          <div
+            className="flex w-[360px] items-center gap-2 rounded-lg px-3 py-2"
+            style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-page)' }}
+          >
+            <span className="flex-1 font-mono text-sm font-medium tracking-wider text-[var(--c-text-heading)]">
+              {inviteCode.code}
+            </span>
+            <span className="text-xs text-[var(--c-text-tertiary)]">
+              {t.inviteCodeUses(inviteCode.use_count, inviteCode.max_uses)}
+            </span>
+            <button
+              onClick={handleCopy}
+              className="flex h-6 w-6 items-center justify-center rounded text-[var(--c-text-tertiary)] transition-colors hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-secondary)]"
+              title={copied ? t.inviteCodeCopied : t.inviteCodeCopy}
+            >
+              {copied ? <Check size={13} /> : <Copy size={13} />}
+            </button>
+            <button
+              onClick={handleReset}
+              disabled={resetting}
+              className="flex h-6 w-6 items-center justify-center rounded text-[var(--c-text-tertiary)] transition-colors hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-secondary)] disabled:opacity-50"
+              title={t.inviteCodeReset}
+            >
+              <RefreshCw size={13} className={resetting ? 'animate-spin' : ''} />
+            </button>
+          </div>
+          {error && (
+            <p className="text-xs text-[var(--c-status-error-text,#ef4444)]">{error}</p>
+          )}
+        </div>
+      ) : error ? (
+        <p className="text-xs text-[var(--c-status-error-text,#ef4444)]">{error}</p>
+      ) : null}
+    </div>
+  )
+}
+
+function HelpContent({ label }: { label: string }) {
+  return (
+    <div className="flex flex-col gap-2">
+      <a
+        href="https://docs.arkloop.com"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="flex h-9 w-[240px] items-center gap-2 rounded-lg px-3 text-sm text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-heading)]"
+        style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-page)' }}
+      >
+        <HelpCircle size={15} />
+        <span>{label}</span>
+        <ArrowUpRight size={12} style={{ marginLeft: 'auto' }} />
+      </a>
     </div>
   )
 }

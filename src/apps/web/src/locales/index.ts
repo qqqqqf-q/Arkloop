@@ -18,15 +18,6 @@ export interface LocaleStrings {
   nav: {
     account: string
     settings: string
-    usage: string
-    scheduled: string
-    mail: string
-    data: string
-    browser: string
-    personal: string
-    skills: string
-    connectors: string
-    integrations: string
   }
   // settings
   getHelp: string
@@ -37,6 +28,15 @@ export interface LocaleStrings {
   themeSystem: string
   themeLight: string
   themeDark: string
+  // invite code
+  inviteCode: string
+  inviteCodeDesc: string
+  inviteCodeCopy: string
+  inviteCodeCopied: string
+  inviteCodeReset: string
+  inviteCodeResetting: string
+  inviteCodeUses: (used: number, max: number) => string
+  inviteCodeResetCooldown: string
   // auth
   loginMode: string
   registerMode: string

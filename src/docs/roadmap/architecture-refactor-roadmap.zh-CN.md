@@ -1483,26 +1483,46 @@ Platform:       Feature Flags
   - integration test：广播到 all -> 所有用户的 unread 通知中出现该条目。
   - integration test：广播到指定 org -> 仅该 org 用户收到。
 
-### R87 -- 注册流程集成（邀请码校验 + 积分发放）
+### R87 -- 注册流程集成（注册模式控制 + 邀请码校验 + 积分发放）
 
-- **目标**：将邀请码和积分发放集成到注册流程中。注册时可选填邀请码，填写则建立推荐关系并触发积分奖励。
+- **目标**：实现可切换的注册模式（邀请制 / 开放注册），并将邀请码和积分发放集成到注册流程中。
 - **关键点**：
-  - `POST /v1/auth/register` 增加可选字段 `invite_code`。
+  - **注册模式控制**（通过已有的 Feature Flag 基础设施实现，不新建表）：
+    - feature flag：`registration.open`，`default_value = false`（默认邀请制）。
+    - 新增公开端点 `GET /v1/auth/registration-mode`（不需要鉴权），返回 `{ "mode": "invite_only" | "open" }`。内部读取 `feature_flags` 表的 `default_value`。
+    - `FeatureFlagService` 新增 `IsGloballyEnabled(ctx, flagKey)` 方法：只查全局 `default_value`，不需要 org_id（注册场景无 org 上下文）。
+    - 管理员在 Console Feature Flags 页面切换 `registration.open` 即可在邀请制和开放注册之间切换，无需改代码或重启。
+  - **注册行为**：
+    - `POST /v1/auth/register` 增加可选字段 `invite_code`。
+    - 邀请制模式（`registration.open = false`）：`invite_code` 必填，为空直接拒绝（返回 `auth.invite_code_required`）。
+    - 开放注册模式（`registration.open = true`）：`invite_code` 选填，提供则建立推荐关系。
   - 注册事务内的操作序列：
-    1. 创建 user + 默认 org + org_membership（已有逻辑）。
-    2. 为新 org 初始化积分余额（credit.initial_grant）。
-    3. 为新用户生成邀请码。
-    4. 如果提供了 invite_code：校验有效性 -> 写入 referrals -> 给邀请人 org 发放奖励积分。
-  - 无效邀请码不阻止注册（仅跳过推荐关系建立），但返回 warning 字段提示。
-  - 审计：注册 + 推荐关系 + 积分发放全部写审计。
+    1. 检查注册模式，邀请制下校验 invite_code 有效性。
+    2. 创建 user + 默认 org + org_membership（已有逻辑）。
+    3. 为新 org 初始化积分余额（credit.initial_grant）。
+    4. 为新用户生成邀请码。
+    5. 如果提供了有效 invite_code：写入 referrals -> 给邀请人 org 发放奖励积分。
+  - 开放注册模式下，无效邀请码不阻止注册（仅跳过推荐关系建立），但返回 warning 字段提示。
+  - **Web 前端 AuthPage 适配**：
+    - 页面加载时调 `GET /v1/auth/registration-mode` 获取当前模式。
+    - 邀请制：注册表单新增"邀请码"输入框（必填）。
+    - 开放注册：邀请码输入框选填或隐藏。
+  - 审计：注册 + 推荐关系 + 积分发放 + 模式切换全部写审计。
 - **具体改动范围**：
+  - `src/services/api/internal/featureflag/service.go`：新增 `IsGloballyEnabled` 方法。
+  - `src/services/api/internal/http/v1_auth.go`：`registerRequest` 增加 `InviteCode` 字段；`register` handler 增加模式检查；新增 `GET /v1/auth/registration-mode` handler。
   - `src/services/api/internal/auth/registration.go`：扩展注册逻辑。
-  - `src/services/api/internal/http/v1_auth.go`：`registerRequest` 增加 `InviteCode` 字段。
-- **依赖**：R82（邀请码系统）、R84（积分体系）
+  - `src/apps/web/src/components/AuthPage.tsx`：加载注册模式，条件性显示邀请码输入框。
+  - `src/apps/web/src/api/`：新增 `getRegistrationMode` API client。
+- **依赖**：R82（邀请码系统）、R84（积分体系）、R63（Feature Flags，已完成）
 - **验收**：
+  - integration test：`registration.open = false` 时不带邀请码注册被拒绝（`auth.invite_code_required`）。
+  - integration test：`registration.open = false` 时带有效邀请码注册成功。
+  - integration test：`registration.open = true` 时不带邀请码注册成功。
   - integration test：带有效邀请码注册 -> referrals 记录存在 -> 邀请人 org 余额增加。
-  - integration test：带无效邀请码注册 -> 用户正常创建但无推荐关系。
+  - integration test：切换 flag 后行为立即改变。
   - integration test：新用户 org 初始积分余额正确。
+  - 手工：Web AuthPage 在两种模式下表现正确。
 
 ### R88 -- Console Phase 8 页面
 

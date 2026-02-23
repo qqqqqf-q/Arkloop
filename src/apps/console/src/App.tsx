@@ -18,6 +18,8 @@ import { UsagePage } from './pages/usage/UsagePage'
 import { MyUsagePage } from './pages/my-usage/MyUsagePage'
 import { OrgsPage } from './pages/OrgsPage'
 import { UsersPage } from './pages/users/UsersPage'
+import { InviteCodesPage } from './pages/invite-codes/InviteCodesPage'
+import { RedemptionCodesPage } from './pages/redemption-codes/RedemptionCodesPage'
 import {
   readAccessTokenFromStorage,
   writeAccessTokenToStorage,
@@ -86,6 +88,8 @@ function App() {
         {/* Platform */}
         <Route path="feature-flags" element={<PlaceholderPage title="Feature Flags" />} />
         <Route path="users" element={<UsersPage />} />
+        <Route path="invite-codes" element={<InviteCodesPage />} />
+        <Route path="redemption-codes" element={<RedemptionCodesPage />} />
         {/* Redirects */}
         <Route path="providers" element={<Navigate to="/credentials" replace />} />
         <Route path="orgs" element={<Navigate to="/members" replace />} />

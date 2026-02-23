@@ -127,6 +127,7 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
       {settingsOpen && (
         <SettingsModal
           me={me}
+          accessToken={accessToken}
           initialTab={settingsInitialTab}
           onClose={() => setSettingsOpen(false)}
           onLogout={handleLogout}

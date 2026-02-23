@@ -37,6 +37,8 @@ export interface LocaleStrings {
     myUsage: string
     featureFlags: string
     users: string
+    inviteCodes: string
+    redemptionCodes: string
   }
   // settings
   account: string
@@ -485,6 +487,95 @@ export interface LocaleStrings {
       editErrNameRequired: string
       toastEditSaved: string
       toastEditFailed: string
+    }
+    inviteCodes: {
+      title: string
+      searchPlaceholder: string
+      colId: string
+      colCode: string
+      colUser: string
+      colEmail: string
+      colMaxUses: string
+      colUseCount: string
+      colStatus: string
+      colCreatedAt: string
+      statusActive: string
+      statusInactive: string
+      empty: string
+      loadMore: string
+      // edit modal
+      editTitle: string
+      editMaxUses: string
+      editCancel: string
+      editSave: string
+      editErrPositive: string
+      // deactivate dialog
+      deactivateTitle: string
+      deactivateMessage: (code: string) => string
+      deactivateConfirm: string
+      activateTitle: string
+      activateMessage: (code: string) => string
+      activateConfirm: string
+      // referrals
+      referralsTitle: string
+      referralsEmpty: string
+      refColInvitee: string
+      refColCredited: string
+      refColCreatedAt: string
+      refCreditedYes: string
+      refCreditedNo: string
+      // toasts
+      toastLoadFailed: string
+      toastUpdated: string
+      toastUpdateFailed: string
+      toastStatusChanged: string
+      toastStatusFailed: string
+      toastReferralsFailed: string
+    }
+    redemptionCodes: {
+      title: string
+      searchPlaceholder: string
+      addBatch: string
+      colId: string
+      colCode: string
+      colType: string
+      colValue: string
+      colMaxUses: string
+      colUseCount: string
+      colExpiresAt: string
+      colStatus: string
+      colBatchId: string
+      colCreatedAt: string
+      statusActive: string
+      statusInactive: string
+      typeCredit: string
+      typeFeature: string
+      filterAllTypes: string
+      empty: string
+      loadMore: string
+      // batch create modal
+      batchTitle: string
+      fieldCount: string
+      fieldType: string
+      fieldValue: string
+      fieldMaxUses: string
+      fieldExpiresAt: string
+      fieldBatchId: string
+      cancel: string
+      create: string
+      // deactivate dialog
+      deactivateTitle: string
+      deactivateMessage: (code: string) => string
+      deactivateConfirm: string
+      // errors
+      errRequired: string
+      errCountRange: string
+      // toasts
+      toastLoadFailed: string
+      toastCreated: (count: number) => string
+      toastCreateFailed: string
+      toastDeactivated: string
+      toastDeactivateFailed: string
     }
   }
 }

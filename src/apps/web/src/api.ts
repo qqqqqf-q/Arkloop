@@ -316,3 +316,33 @@ export async function retryThread(
     accessToken,
   })
 }
+
+// Invite Code API
+
+export type InviteCodeResponse = {
+  id: string
+  user_id: string
+  code: string
+  max_uses: number
+  use_count: number
+  is_active: boolean
+  created_at: string
+}
+
+export async function getMyInviteCode(
+  accessToken: string,
+): Promise<InviteCodeResponse> {
+  return await apiFetch<InviteCodeResponse>('/v1/me/invite-code', {
+    method: 'GET',
+    accessToken,
+  })
+}
+
+export async function resetMyInviteCode(
+  accessToken: string,
+): Promise<InviteCodeResponse> {
+  return await apiFetch<InviteCodeResponse>('/v1/me/invite-code/reset', {
+    method: 'POST',
+    accessToken,
+  })
+}
