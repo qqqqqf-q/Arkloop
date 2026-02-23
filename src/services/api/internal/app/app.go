@@ -16,6 +16,7 @@ import (
 	"arkloop/services/api/internal/crypto"
 	"arkloop/services/api/internal/data"
 	"arkloop/services/api/internal/entitlement"
+	"arkloop/services/api/internal/featureflag"
 	apihttp "arkloop/services/api/internal/http"
 	"arkloop/services/api/internal/migrate"
 	"arkloop/services/api/internal/observability"
@@ -160,6 +161,9 @@ func (a *Application) Run(ctx context.Context) error {
 		entitlementSvc      *entitlement.Service
 		usageRepo           *data.UsageRepository
 
+		featureFlagsRepo *data.FeatureFlagRepository
+		featureFlagSvc   *featureflag.Service
+
 		authService         *auth.Service
 		registrationService *auth.RegistrationService
 		auditWriter         *audit.Writer
@@ -264,6 +268,14 @@ func (a *Application) Run(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		featureFlagsRepo, err = data.NewFeatureFlagRepository(pool)
+		if err != nil {
+			return err
+		}
+		featureFlagSvc, err = featureflag.NewService(featureFlagsRepo, redisClient)
+		if err != nil {
+			return err
+		}
 
 		// 加密 key 未配置时 secrets/llm-credentials 端点不可用，但不影响其他功能启动
 		keyRing, keyRingErr := crypto.NewKeyRingFromEnv()
@@ -341,6 +353,8 @@ func (a *Application) Run(ctx context.Context) error {
 			EntitlementsRepo:     entitlementsRepo,
 			EntitlementService:   entitlementSvc,
 			UsageRepo:            usageRepo,
+			FeatureFlagsRepo:     featureFlagsRepo,
+			FeatureFlagService:   featureFlagSvc,
 			RedisClient:          redisClient,
 			RunLimiter:           runLimiter,
 			SSEConfig: apihttp.SSEConfig{

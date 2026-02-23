@@ -7,6 +7,7 @@ import (
 	"arkloop/services/api/internal/auth"
 	"arkloop/services/api/internal/data"
 	"arkloop/services/api/internal/entitlement"
+	"arkloop/services/api/internal/featureflag"
 	"arkloop/services/api/internal/observability"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -59,6 +60,9 @@ type HandlerConfig struct {
 	EntitlementsRepo    *data.EntitlementsRepository
 	EntitlementService  *entitlement.Service
 	UsageRepo           *data.UsageRepository
+
+	FeatureFlagsRepo   *data.FeatureFlagRepository
+	FeatureFlagService *featureflag.Service
 
 	RedisClient *redis.Client
 	RunLimiter  *data.RunLimiter
@@ -230,6 +234,15 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 	mux.HandleFunc(
 		"/v1/entitlement-overrides/",
 		entitlementOverrideEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.EntitlementsRepo, cfg.EntitlementService, cfg.APIKeysRepo),
+	)
+
+	mux.HandleFunc(
+		"/v1/feature-flags",
+		featureFlagsEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.FeatureFlagsRepo, cfg.APIKeysRepo),
+	)
+	mux.HandleFunc(
+		"/v1/feature-flags/",
+		featureFlagEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.FeatureFlagsRepo, cfg.FeatureFlagService, cfg.APIKeysRepo),
 	)
 
 	mux.HandleFunc(

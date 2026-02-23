@@ -108,3 +108,5 @@ refactor(core): simplify redundant error handling loops
 3. [ ] 这个提交是否只包含一个逻辑变动（原子化）？
 4. [ ] 标题是否使用了祈使句且没有句号？
 5. [ ] 是否使用了正确的语言？
+
+## 6.请勿提交共贡献人

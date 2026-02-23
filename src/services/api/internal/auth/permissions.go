@@ -28,4 +28,5 @@ const (
 	PermPlatformPlansManage         = "platform.plans.manage"
 	PermPlatformSubscriptionsManage = "platform.subscriptions.manage"
 	PermPlatformEntitlementsManage  = "platform.entitlements.manage"
+	PermPlatformFeatureFlagsManage  = "platform.feature_flags.manage"
 )
