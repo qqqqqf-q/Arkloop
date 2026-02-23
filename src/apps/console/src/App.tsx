@@ -11,6 +11,7 @@ import { PromptTemplatesPage } from './pages/prompt-templates/PromptTemplatesPag
 import { MCPConfigsPage } from './pages/mcp-configs/MCPConfigsPage'
 import { SkillsPage } from './pages/skills/SkillsPage'
 import { APIKeysPage } from './pages/api-keys/APIKeysPage'
+import { IPRulesPage } from './pages/ip-rules/IPRulesPage'
 import { OrgsPage } from './pages/OrgsPage'
 import {
   readAccessTokenFromStorage,
@@ -65,7 +66,7 @@ function App() {
         <Route path="api-keys" element={<APIKeysPage />} />
         <Route path="webhooks" element={<PlaceholderPage title="Webhooks" />} />
         {/* Security */}
-        <Route path="ip-rules" element={<PlaceholderPage title="IP Rules" />} />
+        <Route path="ip-rules" element={<IPRulesPage />} />
         {/* Organization */}
         <Route path="members" element={<OrgsPage />} />
         <Route path="teams" element={<PlaceholderPage title="Teams" />} />

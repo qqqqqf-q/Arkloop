@@ -306,6 +306,44 @@ export interface LocaleStrings {
       toastCreateFailed: string
       toastRevokeFailed: string
     }
+    ipRules: {
+      title: string
+      addRule: string
+      // table columns
+      colType: string
+      colCIDR: string
+      colNote: string
+      colCreatedAt: string
+      // badge labels
+      typeAllowlist: string
+      typeBlocklist: string
+      // empty state
+      empty: string
+      // create modal
+      modalTitleCreate: string
+      fieldType: string
+      typeOptionAllowlist: string
+      typeOptionBlocklist: string
+      fieldCIDR: string
+      fieldCIDRPlaceholder: string
+      fieldNote: string
+      fieldNotePlaceholder: string
+      // delete dialog
+      deleteTitle: string
+      deleteMessage: (cidr: string) => string
+      deleteConfirm: string
+      // buttons
+      cancel: string
+      create: string
+      // errors
+      errRequired: string
+      // toasts
+      toastCreated: string
+      toastDeleted: string
+      toastLoadFailed: string
+      toastCreateFailed: string
+      toastDeleteFailed: string
+    }
   }
 }
 
