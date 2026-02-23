@@ -1,12 +1,13 @@
 import { useEffect, useState, useCallback, useRef, useMemo, type ReactNode } from 'react'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import {
+  LayoutDashboard,
   Play, ClipboardList,
   KeyRound, Bot, FileText, Plug, Sparkles,
   Key, Webhook,
   ShieldCheck,
   Users, UsersRound, FolderOpen,
-  Package, Receipt, BadgeCheck, BarChart3,
+  Package, Receipt, BadgeCheck, BarChart3, Activity,
   Flag,
   PanelLeftClose, PanelLeftOpen, ChevronDown,
   Settings,
@@ -39,6 +40,7 @@ function buildNavGroups(t: LocaleStrings): NavGroup[] {
       id: 'operations',
       label: t.groups.operations,
       items: [
+        { label: t.nav.dashboard, path: '/dashboard', icon: <LayoutDashboard size={17} /> },
         { label: t.nav.runs,      path: '/runs',  icon: <Play size={17} /> },
         { label: t.nav.auditLogs, path: '/audit', icon: <ClipboardList size={17} /> },
       ],
@@ -86,6 +88,7 @@ function buildNavGroups(t: LocaleStrings): NavGroup[] {
         { label: t.nav.subscriptions, path: '/subscriptions', icon: <Receipt size={17} /> },
         { label: t.nav.entitlements,  path: '/entitlements',  icon: <BadgeCheck size={17} /> },
         { label: t.nav.usage,         path: '/usage',         icon: <BarChart3 size={17} /> },
+        { label: t.nav.myUsage,       path: '/my-usage',      icon: <Activity size={17} /> },
       ],
     },
     {

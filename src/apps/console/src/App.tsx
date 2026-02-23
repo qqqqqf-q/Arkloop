@@ -5,6 +5,7 @@ import { PageHeader } from './components/PageHeader'
 import { AuthPage } from './pages/AuthPage'
 import { AuditPage } from './pages/AuditPage'
 import { RunsPage } from './pages/RunsPage'
+import { DashboardPage } from './pages/dashboard/DashboardPage'
 import { CredentialsPage } from './pages/credentials/CredentialsPage'
 import { AgentConfigsPage } from './pages/agent-configs/AgentConfigsPage'
 import { PromptTemplatesPage } from './pages/prompt-templates/PromptTemplatesPage'
@@ -14,6 +15,7 @@ import { APIKeysPage } from './pages/api-keys/APIKeysPage'
 import { IPRulesPage } from './pages/ip-rules/IPRulesPage'
 import { TeamsPage } from './pages/teams/TeamsPage'
 import { UsagePage } from './pages/usage/UsagePage'
+import { MyUsagePage } from './pages/my-usage/MyUsagePage'
 import { OrgsPage } from './pages/OrgsPage'
 import {
   readAccessTokenFromStorage,
@@ -54,8 +56,9 @@ function App() {
       <Route
         element={<ConsoleLayout accessToken={accessToken} onLoggedOut={handleLoggedOut} />}
       >
-        <Route index element={<Navigate to="/runs" replace />} />
+        <Route index element={<Navigate to="/dashboard" replace />} />
         {/* Operations */}
+        <Route path="dashboard" element={<DashboardPage />} />
         <Route path="runs" element={<RunsPage />} />
         <Route path="audit" element={<AuditPage />} />
         {/* Configuration */}
@@ -78,12 +81,13 @@ function App() {
         <Route path="subscriptions" element={<PlaceholderPage title="Subscriptions" />} />
         <Route path="entitlements" element={<PlaceholderPage title="Entitlements" />} />
         <Route path="usage" element={<UsagePage />} />
+        <Route path="my-usage" element={<MyUsagePage />} />
         {/* Platform */}
         <Route path="feature-flags" element={<PlaceholderPage title="Feature Flags" />} />
         {/* Redirects */}
         <Route path="providers" element={<Navigate to="/credentials" replace />} />
         <Route path="orgs" element={<Navigate to="/members" replace />} />
-        <Route path="*" element={<Navigate to="/runs" replace />} />
+        <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Route>
     </Routes>
   )

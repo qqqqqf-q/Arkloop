@@ -16,6 +16,7 @@ export interface LocaleStrings {
   }
   // nav item labels
   nav: {
+    dashboard: string
     runs: string
     auditLogs: string
     credentials: string
@@ -33,6 +34,7 @@ export interface LocaleStrings {
     subscriptions: string
     entitlements: string
     usage: string
+    myUsage: string
     featureFlags: string
   }
   // settings
@@ -408,6 +410,29 @@ export interface LocaleStrings {
       toastLoadFailed: string
       // errors
       errOrgIdRequired: string
+    }
+    dashboard: {
+      title: string
+      refresh: string
+      cardTotalUsers: string
+      cardActiveUsers30d: string
+      cardTotalRuns: string
+      cardRunsToday: string
+      cardInputTokens: string
+      cardOutputTokens: string
+      cardCostUSD: string
+      cardActiveOrgs: string
+      toastLoadFailed: string
+    }
+    myUsage: {
+      title: string
+      queryButton: string
+      cardInputTokens: string
+      cardOutputTokens: string
+      cardCostUSD: string
+      cardRecordCount: string
+      emptyHint: string
+      toastLoadFailed: string
     }
   }
 }
