@@ -1,5 +1,5 @@
 import { useRef, useEffect, useCallback, useState } from 'react'
-import { Plus, ChevronDown, ArrowUp, Square, Paperclip, Mic, MicOff } from 'lucide-react'
+import { Plus, ChevronDown, ArrowUp, Square, Paperclip, Mic, X, Check, Loader2 } from 'lucide-react'
 import type { FormEvent, KeyboardEvent } from 'react'
 import { transcribeAudio } from '../api'
 
@@ -33,6 +33,8 @@ export function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
+const BAR_COUNT = 52
+
 export function ChatInput({
   value,
   onChange,
@@ -56,6 +58,19 @@ export function ChatInput({
   const chevronBtnRef = useRef<HTMLButtonElement>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
+  const analyserRef = useRef<AnalyserNode | null>(null)
+  const waveformHistoryRef = useRef<number[]>(Array(BAR_COUNT).fill(0))
+  const animFrameRef = useRef<number>(0)
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const discardRef = useRef(false)
+  // stable refs so closures inside startRecording always see latest values
+  const valueRef = useRef(value)
+  const onChangeRef = useRef(onChange)
+  const accessTokenRef = useRef(accessToken)
+  useEffect(() => { valueRef.current = value }, [value])
+  useEffect(() => { onChangeRef.current = onChange }, [onChange])
+  useEffect(() => { accessTokenRef.current = accessToken }, [accessToken])
+
   const [menuOpen, setMenuOpen] = useState(false)
   const [tierMenuOpen, setTierMenuOpen] = useState(false)
   const [selectedTier, setSelectedTier] = useState<'Auto' | 'Lite' | 'Pro' | 'Ultra'>('Lite')
@@ -63,21 +78,25 @@ export function ChatInput({
   const [focused, setFocused] = useState(false)
   const [isRecording, setIsRecording] = useState(false)
   const [isTranscribing, setIsTranscribing] = useState(false)
+  const [recordingSeconds, setRecordingSeconds] = useState(0)
+  const [waveformBars, setWaveformBars] = useState<number[]>(Array(BAR_COUNT).fill(0))
 
-  const adjustHeight = useCallback(() => {
-    const el = textareaRef.current
-    if (!el) return
-    el.style.height = 'auto'
-    el.style.height = `${Math.min(el.scrollHeight, 200)}px`
+  // cleanup on unmount
+  useEffect(() => {
+    return () => {
+      cancelAnimationFrame(animFrameRef.current)
+      if (timerRef.current) clearInterval(timerRef.current)
+    }
   }, [])
 
-  const handleMicClick = useCallback(async () => {
-    if (isTranscribing) return
+  const formatRecordingTime = (secs: number) => {
+    const m = Math.floor(secs / 60)
+    const s = secs % 60
+    return `${m}:${String(s).padStart(2, '0')}`
+  }
 
-    if (isRecording) {
-      mediaRecorderRef.current?.stop()
-      return
-    }
+  const startRecording = useCallback(async () => {
+    if (isRecording || isTranscribing || !accessTokenRef.current) return
 
     let stream: MediaStream
     try {
@@ -86,37 +105,92 @@ export function ChatInput({
       return
     }
 
+    const audioCtx = new AudioContext()
+    const analyser = audioCtx.createAnalyser()
+    analyser.fftSize = 1024
+    analyser.smoothingTimeConstant = 0.5
+    audioCtx.createMediaStreamSource(stream).connect(analyser)
+    analyserRef.current = analyser
+    waveformHistoryRef.current = Array(BAR_COUNT).fill(0)
+
+    const dataArray = new Float32Array(analyser.fftSize)
+    let lastSample = 0
+    const tick = () => {
+      analyser.getFloatTimeDomainData(dataArray)
+      const now = performance.now()
+      if (now - lastSample >= 80) {
+        lastSample = now
+        let sum = 0
+        for (let i = 0; i < dataArray.length; i++) sum += dataArray[i] ** 2
+        const rms = Math.sqrt(sum / dataArray.length)
+        const history = waveformHistoryRef.current
+        history.shift()
+        history.push(Math.min(1, rms * 8))
+        setWaveformBars([...history])
+      }
+      animFrameRef.current = requestAnimationFrame(tick)
+    }
+    animFrameRef.current = requestAnimationFrame(tick)
+
+    setRecordingSeconds(0)
+    timerRef.current = setInterval(() => setRecordingSeconds((s) => s + 1), 1000)
+
     const recorder = new MediaRecorder(stream)
     mediaRecorderRef.current = recorder
     audioChunksRef.current = []
+    discardRef.current = false
 
     recorder.ondataavailable = (e) => {
       if (e.data.size > 0) audioChunksRef.current.push(e.data)
     }
 
     recorder.onstop = async () => {
+      cancelAnimationFrame(animFrameRef.current)
+      if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null }
+      try { audioCtx.close() } catch { /* ignore */ }
       stream.getTracks().forEach((t) => t.stop())
       setIsRecording(false)
 
-      if (!accessToken || audioChunksRef.current.length === 0) return
+      if (discardRef.current) {
+        discardRef.current = false
+        audioChunksRef.current = []
+        setWaveformBars(Array(BAR_COUNT).fill(0))
+        return
+      }
+
+      const token = accessTokenRef.current
+      if (!token || audioChunksRef.current.length === 0) return
 
       const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
       setIsTranscribing(true)
       try {
-        const result = await transcribeAudio(accessToken, blob, 'audio.webm')
+        const result = await transcribeAudio(token, blob, 'audio.webm')
         if (result.text) {
-          onChange(value ? `${value} ${result.text}` : result.text)
+          const prev = valueRef.current
+          onChangeRef.current(prev ? `${prev} ${result.text}` : result.text)
         }
       } catch {
-        // silently ignore transcription errors
+        // ignore
       } finally {
         setIsTranscribing(false)
+        setWaveformBars(Array(BAR_COUNT).fill(0))
       }
     }
 
     recorder.start()
     setIsRecording(true)
-  }, [isRecording, isTranscribing, accessToken, value, onChange])
+  }, [isRecording, isTranscribing])
+
+  const stopAndTranscribe = useCallback(() => {
+    discardRef.current = false
+    mediaRecorderRef.current?.stop()
+  }, [])
+
+  const cancelRecording = useCallback(() => {
+    discardRef.current = true
+    mediaRecorderRef.current?.stop()
+  }, [])
+
 
   useEffect(() => {
     adjustHeight()
@@ -174,23 +248,106 @@ export function ChatInput({
   }
 
   return (
-    <div
-      className="w-full max-w-[840px] bg-[var(--c-bg-input)]"
-      style={{
-        border: 'var(--c-input-border)',
-        borderRadius: '18px',
-        padding: '26px 24px 20px',
-        boxShadow: focused ? 'var(--c-input-shadow-focus)' : 'var(--c-input-shadow)',
-        transition: 'box-shadow 0.15s ease',
-        cursor: 'default',
-      }}
-      onClick={(e) => {
-        const tag = (e.target as HTMLElement).tagName
-        if (tag !== 'BUTTON' && tag !== 'TEXTAREA' && tag !== 'INPUT' && tag !== 'SVG' && tag !== 'PATH') {
-          textareaRef.current?.focus()
-        }
-      }}
-    >
+    <div className="w-full max-w-[840px]" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+      {/* 录音 / 转写进行中时显示的波形条 */}
+      {(isRecording || isTranscribing) && (
+        <div
+          style={{
+            border: 'var(--c-input-border)',
+            borderRadius: '18px',
+            padding: '10px 20px',
+            background: 'var(--c-bg-input)',
+            boxShadow: 'var(--c-input-shadow)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px',
+          }}
+        >
+          {/* 波形可视化 */}
+          <div
+            style={{
+              flex: 1,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '3px',
+              height: '40px',
+              overflow: 'hidden',
+              // 左侧渐隐效果
+              WebkitMaskImage: 'linear-gradient(to right, rgba(0,0,0,0.15) 0%, rgba(0,0,0,1) 60%)',
+              maskImage: 'linear-gradient(to right, rgba(0,0,0,0.15) 0%, rgba(0,0,0,1) 60%)',
+            }}
+          >
+            {waveformBars.map((h, i) => (
+              <div
+                key={i}
+                style={{
+                  width: '2px',
+                  height: `${Math.max(3, Math.round(h * 38))}px`,
+                  borderRadius: '999px',
+                  background: 'var(--c-text-secondary)',
+                  flexShrink: 0,
+                  transition: 'height 0.06s ease',
+                }}
+              />
+            ))}
+          </div>
+
+          {/* 计时器 */}
+          <span
+            style={{
+              fontVariantNumeric: 'tabular-nums',
+              fontSize: '14px',
+              color: 'var(--c-text-secondary)',
+              flexShrink: 0,
+              minWidth: '36px',
+              textAlign: 'right',
+            }}
+          >
+            {formatRecordingTime(recordingSeconds)}
+          </span>
+
+          {/* 取消 */}
+          <button
+            type="button"
+            onClick={cancelRecording}
+            disabled={isTranscribing}
+            className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-[var(--c-bg-deep)] text-[var(--c-text-secondary)] transition-opacity duration-150 hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <X size={14} />
+          </button>
+
+          {/* 确认 */}
+          <button
+            type="button"
+            onClick={stopAndTranscribe}
+            disabled={isTranscribing}
+            className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-[var(--c-accent-send)] text-[var(--c-accent-send-text)] transition-opacity duration-150 hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isTranscribing
+              ? <Loader2 size={14} className="animate-spin" />
+              : <Check size={14} />}
+          </button>
+        </div>
+      )}
+
+      {/* 主输入框 */}
+      <div
+        className="bg-[var(--c-bg-input)]"
+        style={{
+          border: 'var(--c-input-border)',
+          borderRadius: '18px',
+          padding: '26px 24px 20px',
+          boxShadow: focused ? 'var(--c-input-shadow-focus)' : 'var(--c-input-shadow)',
+          transition: 'box-shadow 0.15s ease',
+          cursor: 'default',
+        }}
+        onClick={(e) => {
+          const tag = (e.target as HTMLElement).tagName
+          if (tag !== 'BUTTON' && tag !== 'TEXTAREA' && tag !== 'INPUT' && tag !== 'SVG' && tag !== 'PATH') {
+            textareaRef.current?.focus()
+          }
+        }}
+      >
       <form onSubmit={onSubmit}>
         <textarea
           ref={textareaRef}
@@ -362,15 +519,11 @@ export function ChatInput({
               <>
                 <button
                   type="button"
-                  onClick={handleMicClick}
-                  disabled={isTranscribing || !accessToken}
-                  className={`flex h-8 w-8 items-center justify-center rounded-lg transition-[opacity,background,color] duration-150 disabled:cursor-not-allowed disabled:opacity-40 ${
-                    isRecording
-                      ? 'bg-red-500 text-white opacity-100'
-                      : 'text-[var(--c-text-secondary)] opacity-70 hover:bg-[var(--c-bg-deep)] hover:opacity-100'
-                  }`}
+                  onClick={startRecording}
+                  disabled={isRecording || isTranscribing || !accessToken}
+                  className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--c-text-secondary)] opacity-70 transition-[opacity,background] duration-150 hover:bg-[var(--c-bg-deep)] hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-30"
                 >
-                  {isRecording ? <MicOff size={16} /> : <Mic size={16} />}
+                  <Mic size={16} />
                 </button>
                 <button
                   type="submit"
@@ -393,6 +546,7 @@ export function ChatInput({
         className="hidden"
         onChange={handleFileChange}
       />
+      </div>
     </div>
   )
 }
