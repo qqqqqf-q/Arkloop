@@ -24,6 +24,7 @@ import { CreditsAdminPage } from './pages/credits-admin/CreditsAdminPage'
 import { BroadcastsPage } from './pages/broadcasts/BroadcastsPage'
 import { FeatureFlagsPage } from './pages/feature-flags/FeatureFlagsPage'
 import { RegistrationPage } from './pages/registration/RegistrationPage'
+import { AsrCredentialsPage } from './pages/asr-credentials/AsrCredentialsPage'
 import {
   readAccessTokenFromStorage,
   writeAccessTokenToStorage,
@@ -97,6 +98,7 @@ function App() {
         <Route path="redemption-codes" element={<RedemptionCodesPage />} />
         <Route path="credits-admin" element={<CreditsAdminPage />} />
         <Route path="broadcasts" element={<BroadcastsPage />} />
+        <Route path="asr-credentials" element={<AsrCredentialsPage />} />
         {/* Redirects */}
         <Route path="providers" element={<Navigate to="/credentials" replace />} />
         <Route path="orgs" element={<Navigate to="/members" replace />} />

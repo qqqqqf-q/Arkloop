@@ -42,6 +42,7 @@ export interface LocaleStrings {
     redemptionCodes: string
     creditsAdmin: string
     broadcasts: string
+    asrCredentials: string
   }
   // settings
   account: string
@@ -729,6 +730,38 @@ export interface LocaleStrings {
       toastUpdateFailed: string
       toastSettingsSaved: string
       toastSettingsFailed: string
+    }
+    asrCredentials: {
+      title: string
+      addCredential: string
+      colName: string
+      colProvider: string
+      colModel: string
+      colKeyPrefix: string
+      colBaseUrl: string
+      colCreatedAt: string
+      empty: string
+      modalTitle: string
+      fieldName: string
+      fieldProvider: string
+      fieldModel: string
+      fieldApiKey: string
+      fieldBaseUrl: string
+      fieldIsDefault: string
+      setDefault: string
+      cancel: string
+      create: string
+      deleteTitle: string
+      deleteMessage: (name: string) => string
+      deleteConfirm: string
+      errRequired: string
+      errEncryptionKey: string
+      toastCreated: string
+      toastDeleted: string
+      toastDefaultSet: string
+      toastLoadFailed: string
+      toastDeleteFailed: string
+      toastDefaultFailed: string
     }
   }
 }

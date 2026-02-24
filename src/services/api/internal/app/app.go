@@ -175,6 +175,8 @@ func (a *Application) Run(ctx context.Context) error {
 
 		platformSettingsRepo *data.PlatformSettingsRepository
 
+		asrCredRepo *data.AsrCredentialsRepository
+
 		authService         *auth.Service
 		registrationService *auth.RegistrationService
 		auditWriter         *audit.Writer
@@ -319,6 +321,11 @@ func (a *Application) Run(ctx context.Context) error {
 			return err
 		}
 
+		asrCredRepo, err = data.NewAsrCredentialsRepository(pool)
+		if err != nil {
+			return err
+		}
+
 		// 加密 key 未配置时 secrets/llm-credentials 端点不可用，但不影响其他功能启动
 		keyRing, keyRingErr := crypto.NewKeyRingFromEnv()
 		if keyRingErr == nil {
@@ -418,6 +425,7 @@ func (a *Application) Run(ctx context.Context) error {
 			PlatformSettingsRepo: platformSettingsRepo,
 			RedisClient:          redisClient,
 			RunLimiter:           runLimiter,
+			AsrCredentialsRepo:   asrCredRepo,
 			SSEConfig: apihttp.SSEConfig{
 				HeartbeatSeconds: a.config.SSE.HeartbeatSeconds,
 				BatchLimit:       a.config.SSE.BatchLimit,

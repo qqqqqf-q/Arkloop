@@ -471,3 +471,32 @@ export async function markNotificationRead(
     accessToken,
   })
 }
+
+export async function transcribeAudio(
+  accessToken: string,
+  audioBlob: Blob,
+  filename: string,
+): Promise<{ text: string }> {
+  const form = new FormData()
+  form.append('file', audioBlob, filename)
+
+  const base = apiBaseUrl()
+  const url = base ? `${base}/v1/asr/transcribe` : `/v1/asr/transcribe`
+
+  const headers = new Headers()
+  headers.set('Accept', 'application/json')
+  headers.set('Authorization', `Bearer ${accessToken}`)
+
+  const response = await fetch(url, { method: 'POST', body: form, headers })
+  if (!response.ok) {
+    const headerTraceId = response.headers.get(TRACE_ID_HEADER) ?? undefined
+    const payload = await readJsonSafely(response)
+    const env = payload && typeof payload === 'object' ? (payload as ErrorEnvelope) : null
+    throw new ApiError({
+      status: response.status,
+      message: typeof env?.message === 'string' ? env.message : `转写失败（HTTP ${response.status}）`,
+      traceId: headerTraceId,
+    })
+  }
+  return response.json() as Promise<{ text: string }>
+}

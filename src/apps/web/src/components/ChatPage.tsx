@@ -497,6 +497,7 @@ export function ChatPage() {
           cancelSubmitting={cancelSubmitting}
           attachments={attachments}
           onAttachFiles={handleAttachFiles}
+          accessToken={accessToken}
         />
         <p style={{ color: 'var(--c-text-muted)', fontSize: '13px', letterSpacing: '-0.52px', textAlign: 'center' }}>
           Arkloop is AI and can make mistakes. Please double-check responses.

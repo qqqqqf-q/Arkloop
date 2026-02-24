@@ -1,6 +1,7 @@
 import { useRef, useEffect, useCallback, useState } from 'react'
-import { Plus, ChevronDown, ArrowUp, Square, Paperclip, Mic } from 'lucide-react'
+import { Plus, ChevronDown, ArrowUp, Square, Paperclip, Mic, MicOff } from 'lucide-react'
 import type { FormEvent, KeyboardEvent } from 'react'
+import { transcribeAudio } from '../api'
 
 export type Attachment = {
   id: string
@@ -23,6 +24,7 @@ type Props = {
   variant?: 'welcome' | 'chat'
   attachments?: Attachment[]
   onAttachFiles?: (files: File[]) => void
+  accessToken?: string
 }
 
 export function formatFileSize(bytes: number): string {
@@ -44,6 +46,7 @@ export function ChatInput({
   variant = 'chat',
   attachments = [],
   onAttachFiles,
+  accessToken,
 }: Props) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -51,11 +54,15 @@ export function ChatInput({
   const plusBtnRef = useRef<HTMLButtonElement>(null)
   const tierMenuRef = useRef<HTMLDivElement>(null)
   const chevronBtnRef = useRef<HTMLButtonElement>(null)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const audioChunksRef = useRef<Blob[]>([])
   const [menuOpen, setMenuOpen] = useState(false)
   const [tierMenuOpen, setTierMenuOpen] = useState(false)
   const [selectedTier, setSelectedTier] = useState<'Auto' | 'Lite' | 'Pro' | 'Ultra'>('Lite')
   const [proHovered, setProHovered] = useState(false)
   const [focused, setFocused] = useState(false)
+  const [isRecording, setIsRecording] = useState(false)
+  const [isTranscribing, setIsTranscribing] = useState(false)
 
   const adjustHeight = useCallback(() => {
     const el = textareaRef.current
@@ -63,6 +70,53 @@ export function ChatInput({
     el.style.height = 'auto'
     el.style.height = `${Math.min(el.scrollHeight, 200)}px`
   }, [])
+
+  const handleMicClick = useCallback(async () => {
+    if (isTranscribing) return
+
+    if (isRecording) {
+      mediaRecorderRef.current?.stop()
+      return
+    }
+
+    let stream: MediaStream
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    } catch {
+      return
+    }
+
+    const recorder = new MediaRecorder(stream)
+    mediaRecorderRef.current = recorder
+    audioChunksRef.current = []
+
+    recorder.ondataavailable = (e) => {
+      if (e.data.size > 0) audioChunksRef.current.push(e.data)
+    }
+
+    recorder.onstop = async () => {
+      stream.getTracks().forEach((t) => t.stop())
+      setIsRecording(false)
+
+      if (!accessToken || audioChunksRef.current.length === 0) return
+
+      const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
+      setIsTranscribing(true)
+      try {
+        const result = await transcribeAudio(accessToken, blob, 'audio.webm')
+        if (result.text) {
+          onChange(value ? `${value} ${result.text}` : result.text)
+        }
+      } catch {
+        // silently ignore transcription errors
+      } finally {
+        setIsTranscribing(false)
+      }
+    }
+
+    recorder.start()
+    setIsRecording(true)
+  }, [isRecording, isTranscribing, accessToken, value, onChange])
 
   useEffect(() => {
     adjustHeight()
@@ -308,9 +362,15 @@ export function ChatInput({
               <>
                 <button
                   type="button"
-                  className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--c-text-secondary)] opacity-70 transition-[opacity,background] duration-150 hover:bg-[var(--c-bg-deep)] hover:opacity-100"
+                  onClick={handleMicClick}
+                  disabled={isTranscribing || !accessToken}
+                  className={`flex h-8 w-8 items-center justify-center rounded-lg transition-[opacity,background,color] duration-150 disabled:cursor-not-allowed disabled:opacity-40 ${
+                    isRecording
+                      ? 'bg-red-500 text-white opacity-100'
+                      : 'text-[var(--c-text-secondary)] opacity-70 hover:bg-[var(--c-bg-deep)] hover:opacity-100'
+                  }`}
                 >
-                  <Mic size={16} />
+                  {isRecording ? <MicOff size={16} /> : <Mic size={16} />}
                 </button>
                 <button
                   type="submit"

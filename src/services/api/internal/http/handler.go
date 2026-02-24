@@ -45,6 +45,7 @@ type HandlerConfig struct {
 	LlmCredentialsRepo  *data.LlmCredentialsRepository
 	LlmRoutesRepo       *data.LlmRoutesRepository
 	SecretsRepo         *data.SecretsRepository
+	AsrCredentialsRepo  *data.AsrCredentialsRepository
 	MCPConfigsRepo      *data.MCPConfigsRepository
 	SkillsRepo          *data.SkillsRepository
 	IPRulesRepo         *data.IPRulesRepository
@@ -141,6 +142,19 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 	mux.HandleFunc(
 		"/v1/llm-credentials/",
 		llmCredentialEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.LlmCredentialsRepo),
+	)
+
+	mux.HandleFunc(
+		"/v1/asr-credentials",
+		asrCredentialsEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.AsrCredentialsRepo, cfg.SecretsRepo, cfg.Pool),
+	)
+	mux.HandleFunc(
+		"/v1/asr-credentials/",
+		asrCredentialEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.AsrCredentialsRepo),
+	)
+	mux.HandleFunc(
+		"/v1/asr/transcribe",
+		asrTranscribeEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.AsrCredentialsRepo, cfg.SecretsRepo),
 	)
 
 	mux.HandleFunc(

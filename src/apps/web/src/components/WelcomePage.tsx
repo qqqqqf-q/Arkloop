@@ -291,6 +291,7 @@ export function WelcomePage() {
             variant="welcome"
             attachments={attachments}
             onAttachFiles={handleAttachFiles}
+            accessToken={accessToken}
           />
 
           {error && <ErrorCallout error={error} />}
