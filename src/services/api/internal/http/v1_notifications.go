@@ -33,11 +33,14 @@ func notificationsEntry(
 	apiKeysRepo *data.APIKeysRepository,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
-		if r.Method != nethttp.MethodGet {
+		switch r.Method {
+		case nethttp.MethodGet:
+			listNotifications(w, r, authService, membershipRepo, notifRepo, apiKeysRepo)
+		case nethttp.MethodPatch:
+			markAllNotificationsRead(w, r, authService, membershipRepo, notifRepo, apiKeysRepo)
+		default:
 			writeMethodNotAllowed(w, r)
-			return
 		}
-		listNotifications(w, r, authService, membershipRepo, notifRepo, apiKeysRepo)
 	}
 }
 
@@ -80,7 +83,15 @@ func listNotifications(
 		return
 	}
 
-	items, err := notifRepo.ListUnread(r.Context(), actor.UserID)
+	unreadOnly := r.URL.Query().Get("unread_only") == "true"
+
+	var items []data.Notification
+	var err error
+	if unreadOnly {
+		items, err = notifRepo.ListUnread(r.Context(), actor.UserID)
+	} else {
+		items, err = notifRepo.List(r.Context(), actor.UserID, 100)
+	}
 	if err != nil {
 		WriteError(w, nethttp.StatusInternalServerError, "internal_error", "failed to list notifications", traceID, nil)
 		return
@@ -146,6 +157,39 @@ func markNotificationRead(
 	}
 
 	writeJSON(w, traceID, nethttp.StatusOK, map[string]bool{"ok": true})
+}
+
+func markAllNotificationsRead(
+	w nethttp.ResponseWriter,
+	r *nethttp.Request,
+	authService *auth.Service,
+	membershipRepo *data.OrgMembershipRepository,
+	notifRepo *data.NotificationsRepository,
+	apiKeysRepo *data.APIKeysRepository,
+) {
+	traceID := observability.TraceIDFromContext(r.Context())
+
+	if authService == nil {
+		writeAuthNotConfigured(w, traceID)
+		return
+	}
+	if notifRepo == nil {
+		WriteError(w, nethttp.StatusServiceUnavailable, "database.not_configured", "database not configured", traceID, nil)
+		return
+	}
+
+	actor, ok := resolveActor(w, r, traceID, authService, membershipRepo, apiKeysRepo, nil)
+	if !ok {
+		return
+	}
+
+	count, err := notifRepo.MarkAllRead(r.Context(), actor.UserID)
+	if err != nil {
+		WriteError(w, nethttp.StatusInternalServerError, "internal_error", "failed to mark notifications as read", traceID, nil)
+		return
+	}
+
+	writeJSON(w, traceID, nethttp.StatusOK, map[string]any{"ok": true, "count": count})
 }
 
 func toNotificationResponse(n data.Notification) notificationResponse {

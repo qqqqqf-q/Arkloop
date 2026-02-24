@@ -429,11 +429,23 @@ export type NotificationItem = {
 
 export async function listNotifications(
   accessToken: string,
-  typeFilter?: string,
+  opts?: { unreadOnly?: boolean; type?: string },
 ): Promise<{ data: NotificationItem[] }> {
-  const query = typeFilter ? `?type=${encodeURIComponent(typeFilter)}` : ''
-  return await apiFetch<{ data: NotificationItem[] }>(`/v1/notifications${query}`, {
+  const params = new URLSearchParams()
+  if (opts?.unreadOnly) params.set('unread_only', 'true')
+  if (opts?.type) params.set('type', opts.type)
+  const query = params.toString()
+  return await apiFetch<{ data: NotificationItem[] }>(`/v1/notifications${query ? `?${query}` : ''}`, {
     method: 'GET',
+    accessToken,
+  })
+}
+
+export async function markAllNotificationsRead(
+  accessToken: string,
+): Promise<{ ok: boolean; count: number }> {
+  return await apiFetch<{ ok: boolean; count: number }>('/v1/notifications', {
+    method: 'PATCH',
     accessToken,
   })
 }

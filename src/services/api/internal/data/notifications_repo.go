@@ -124,6 +124,60 @@ func (r *NotificationsRepository) ListUnread(ctx context.Context, userID uuid.UU
 	return results, nil
 }
 
+func (r *NotificationsRepository) List(ctx context.Context, userID uuid.UUID, limit int) ([]Notification, error) {
+	if userID == uuid.Nil {
+		return nil, fmt.Errorf("notifications: user_id must not be empty")
+	}
+	if limit <= 0 || limit > 200 {
+		limit = 100
+	}
+
+	rows, err := r.db.Query(
+		ctx,
+		`SELECT id, user_id, org_id, type, title, body, payload_json, read_at, created_at
+		 FROM notifications
+		 WHERE user_id = $1
+		 ORDER BY created_at DESC
+		 LIMIT $2`,
+		userID, limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("notifications.List: %w", err)
+	}
+	defer rows.Close()
+
+	var results []Notification
+	for rows.Next() {
+		var n Notification
+		if err := rows.Scan(
+			&n.ID, &n.UserID, &n.OrgID, &n.Type, &n.Title,
+			&n.Body, &n.PayloadJSON, &n.ReadAt, &n.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("notifications.List scan: %w", err)
+		}
+		results = append(results, n)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("notifications.List rows: %w", err)
+	}
+	return results, nil
+}
+
+func (r *NotificationsRepository) MarkAllRead(ctx context.Context, userID uuid.UUID) (int, error) {
+	if userID == uuid.Nil {
+		return 0, fmt.Errorf("notifications: user_id must not be empty")
+	}
+	tag, err := r.db.Exec(
+		ctx,
+		`UPDATE notifications SET read_at = now() WHERE user_id = $1 AND read_at IS NULL`,
+		userID,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("notifications.MarkAllRead: %w", err)
+	}
+	return int(tag.RowsAffected()), nil
+}
+
 func (r *NotificationsRepository) MarkRead(ctx context.Context, userID uuid.UUID, id uuid.UUID) error {
 	if userID == uuid.Nil {
 		return fmt.Errorf("notifications: user_id must not be empty")
