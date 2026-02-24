@@ -1,5 +1,6 @@
-import { useState, useMemo, type FormEvent } from 'react'
-import { login, register, isApiError } from '../api'
+import { useState, useMemo, useEffect, type FormEvent } from 'react'
+import { login, register, getRegistrationMode, isApiError } from '../api'
+import type { RegistrationModeResponse } from '../api'
 import { ErrorCallout, type AppError } from './ErrorCallout'
 import { useLocale } from '../contexts/LocaleContext'
 
@@ -30,16 +31,27 @@ export function AuthPage({ onLoggedIn }: Props) {
   const [loginValue, setLoginValue] = useState('')
   const [password, setPassword] = useState('')
   const [displayName, setDisplayName] = useState('')
+  const [inviteCode, setInviteCode] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<AppError | null>(null)
+  const [registrationMode, setRegistrationMode] = useState<RegistrationModeResponse['mode']>('invite_only')
   const { t } = useLocale()
+
+  useEffect(() => {
+    getRegistrationMode()
+      .then((res) => setRegistrationMode(res.mode))
+      .catch(() => {})
+  }, [])
+
+  const inviteRequired = registrationMode === 'invite_only'
 
   const canSubmit = useMemo(() => {
     if (submitting) return false
     if (!loginValue.trim() || !password) return false
     if (mode === 'register' && (!displayName.trim() || password.length < 8)) return false
+    if (mode === 'register' && inviteRequired && !inviteCode.trim()) return false
     return true
-  }, [loginValue, password, displayName, submitting, mode])
+  }, [loginValue, password, displayName, inviteCode, submitting, mode, inviteRequired])
 
   const onSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
@@ -51,7 +63,12 @@ export function AuthPage({ onLoggedIn }: Props) {
         const resp = await login({ login: loginValue, password })
         onLoggedIn(resp.access_token)
       } else {
-        const resp = await register({ login: loginValue, password, display_name: displayName })
+        const resp = await register({
+          login: loginValue,
+          password,
+          display_name: displayName,
+          ...(inviteCode.trim() ? { invite_code: inviteCode.trim() } : {}),
+        })
         onLoggedIn(resp.access_token)
       }
     } catch (err) {
@@ -126,6 +143,19 @@ export function AuthPage({ onLoggedIn }: Props) {
             autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
           />
 
+          {mode === 'register' && (
+            <input
+              className="w-full rounded-[10px] bg-[var(--c-bg-input)] text-[var(--c-text-primary)] outline-none placeholder:text-[var(--c-placeholder)]"
+              style={inputStyle}
+              type="text"
+              placeholder={t.enterInviteCode}
+              value={inviteCode}
+              onChange={(e) => setInviteCode(e.target.value)}
+              autoComplete="off"
+              required={inviteRequired}
+            />
+          )}
+
           <button
             type="submit"
             disabled={!canSubmit}
@@ -181,7 +211,7 @@ export function AuthPage({ onLoggedIn }: Props) {
 
       <button
         type="button"
-        onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setError(null) }}
+        onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setError(null); setInviteCode('') }}
         style={{ fontSize: '13px', color: 'var(--c-placeholder)', background: 'none', border: 'none', cursor: 'pointer' }}
       >
         {mode === 'login' ? t.noAccount : t.hasAccount}

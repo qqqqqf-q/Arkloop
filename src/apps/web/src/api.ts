@@ -14,12 +14,18 @@ export type RegisterRequest = {
   login: string
   password: string
   display_name: string
+  invite_code?: string
 }
 
 export type RegisterResponse = {
   user_id: string
   token_type: string
   access_token: string
+  warning?: string
+}
+
+export type RegistrationModeResponse = {
+  mode: 'invite_only' | 'open'
 }
 
 export type MeResponse = {
@@ -144,6 +150,12 @@ export async function register(req: RegisterRequest): Promise<RegisterResponse> 
   return await apiFetch<RegisterResponse>('/v1/auth/register', {
     method: 'POST',
     body: JSON.stringify(req),
+  })
+}
+
+export async function getRegistrationMode(): Promise<RegistrationModeResponse> {
+  return await apiFetch<RegistrationModeResponse>('/v1/auth/registration-mode', {
+    method: 'GET',
   })
 }
 

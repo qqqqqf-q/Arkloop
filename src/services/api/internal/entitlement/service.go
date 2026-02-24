@@ -49,10 +49,11 @@ func (v EntitlementValue) String() string {
 }
 
 type Service struct {
-	entitlementsRepo *data.EntitlementsRepository
-	subscriptionRepo *data.SubscriptionRepository
-	planRepo         *data.PlanRepository
-	rdb              *redis.Client
+	entitlementsRepo     *data.EntitlementsRepository
+	subscriptionRepo     *data.SubscriptionRepository
+	planRepo             *data.PlanRepository
+	platformSettingsRepo *data.PlatformSettingsRepository
+	rdb                  *redis.Client
 }
 
 func NewService(
@@ -76,6 +77,11 @@ func NewService(
 		planRepo:         planRepo,
 		rdb:              rdb,
 	}, nil
+}
+
+// SetPlatformSettingsRepo 注入平台设置仓储（可选，未注入时仅使用硬编码默认值）。
+func (s *Service) SetPlatformSettingsRepo(repo *data.PlatformSettingsRepository) {
+	s.platformSettingsRepo = repo
 }
 
 // Resolve 按优先级返回权益值：org override (未过期) > plan entitlement > 平台默认值。
@@ -126,7 +132,19 @@ func (s *Service) resolveFromDB(ctx context.Context, orgID uuid.UUID, key string
 		}
 	}
 
-	// 3. 平台默认值
+	// 3. 平台设置（数据库可配置的默认值）
+	if s.platformSettingsRepo != nil {
+		setting, err := s.platformSettingsRepo.Get(ctx, key)
+		if err == nil && setting != nil {
+			valType := "string"
+			if _, ok := platformDefaults[key]; ok {
+				valType = platformDefaults[key].Type
+			}
+			return EntitlementValue{Raw: setting.Value, Type: valType}, nil
+		}
+	}
+
+	// 4. 硬编码平台默认值
 	if def, ok := platformDefaults[key]; ok {
 		return def, nil
 	}

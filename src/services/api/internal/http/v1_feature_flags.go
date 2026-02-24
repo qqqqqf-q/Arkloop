@@ -40,6 +40,10 @@ type setOrgOverrideRequest struct {
 	Enabled bool   `json:"enabled"`
 }
 
+type updateFeatureFlagRequest struct {
+	DefaultValue *bool `json:"default_value"`
+}
+
 func featureFlagsEntry(
 	authService *auth.Service,
 	membershipRepo *data.OrgMembershipRepository,
@@ -85,6 +89,8 @@ func featureFlagEntry(
 			switch r.Method {
 			case nethttp.MethodGet:
 				getFeatureFlag(w, r, traceID, flagKey, authService, membershipRepo, flagRepo, apiKeysRepo)
+			case nethttp.MethodPatch:
+				updateFeatureFlag(w, r, traceID, flagKey, authService, membershipRepo, flagRepo, flagService, apiKeysRepo)
 			case nethttp.MethodDelete:
 				deleteFeatureFlag(w, r, traceID, flagKey, authService, membershipRepo, flagRepo, flagService, apiKeysRepo)
 			default:
@@ -249,6 +255,61 @@ func getFeatureFlag(
 	if flag == nil {
 		WriteError(w, nethttp.StatusNotFound, "feature_flags.not_found", "feature flag not found", traceID, nil)
 		return
+	}
+
+	writeJSON(w, traceID, nethttp.StatusOK, toFeatureFlagResponse(*flag))
+}
+
+func updateFeatureFlag(
+	w nethttp.ResponseWriter,
+	r *nethttp.Request,
+	traceID string,
+	flagKey string,
+	authService *auth.Service,
+	membershipRepo *data.OrgMembershipRepository,
+	flagRepo *data.FeatureFlagRepository,
+	flagService *featureflag.Service,
+	apiKeysRepo *data.APIKeysRepository,
+) {
+	if authService == nil {
+		writeAuthNotConfigured(w, traceID)
+		return
+	}
+	if flagRepo == nil {
+		WriteError(w, nethttp.StatusServiceUnavailable, "database.not_configured", "database not configured", traceID, nil)
+		return
+	}
+
+	actor, ok := resolveActor(w, r, traceID, authService, membershipRepo, apiKeysRepo, nil)
+	if !ok {
+		return
+	}
+	if !requirePerm(actor, auth.PermPlatformFeatureFlagsManage, w, traceID) {
+		return
+	}
+
+	var req updateFeatureFlagRequest
+	if err := decodeJSON(r, &req); err != nil {
+		WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "request validation failed", traceID, nil)
+		return
+	}
+	if req.DefaultValue == nil {
+		WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "default_value is required", traceID, nil)
+		return
+	}
+
+	flag, err := flagRepo.UpdateFlagDefaultValue(r.Context(), flagKey, *req.DefaultValue)
+	if err != nil {
+		WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+		return
+	}
+	if flag == nil {
+		WriteError(w, nethttp.StatusNotFound, "feature_flags.not_found", "feature flag not found", traceID, nil)
+		return
+	}
+
+	if flagService != nil {
+		flagService.InvalidateGlobalCache(r.Context(), flagKey)
 	}
 
 	writeJSON(w, traceID, nethttp.StatusOK, toFeatureFlagResponse(*flag))

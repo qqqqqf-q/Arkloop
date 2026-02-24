@@ -49,6 +49,7 @@ export const en: LocaleStrings = {
   enterDisplayName: 'Enter your display name',
   enterUsername: 'Enter your username',
   enterPassword: 'Enter your password',
+  enterInviteCode: 'Enter invite code',
   continueBtn: 'Continue',
   orDivider: 'or',
   githubLogin: 'Continue with GitHub',

@@ -173,6 +173,8 @@ func (a *Application) Run(ctx context.Context) error {
 		creditsRepo         *data.CreditsRepository
 		redemptionCodesRepo *data.RedemptionCodesRepository
 
+		platformSettingsRepo *data.PlatformSettingsRepository
+
 		authService         *auth.Service
 		registrationService *auth.RegistrationService
 		auditWriter         *audit.Writer
@@ -277,6 +279,9 @@ func (a *Application) Run(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		if platformSettingsRepo != nil {
+			entitlementSvc.SetPlatformSettingsRepo(platformSettingsRepo)
+		}
 		usageRepo, err = data.NewUsageRepository(pool)
 		if err != nil {
 			return err
@@ -306,6 +311,10 @@ func (a *Application) Run(ctx context.Context) error {
 			return err
 		}
 		redemptionCodesRepo, err = data.NewRedemptionCodesRepository(pool)
+		if err != nil {
+			return err
+		}
+		platformSettingsRepo, err = data.NewPlatformSettingsRepository(pool)
 		if err != nil {
 			return err
 		}
@@ -406,6 +415,7 @@ func (a *Application) Run(ctx context.Context) error {
 			ReferralsRepo:        referralsRepo,
 			CreditsRepo:          creditsRepo,
 			RedemptionCodesRepo:  redemptionCodesRepo,
+			PlatformSettingsRepo: platformSettingsRepo,
 			RedisClient:          redisClient,
 			RunLimiter:           runLimiter,
 			SSEConfig: apihttp.SSEConfig{

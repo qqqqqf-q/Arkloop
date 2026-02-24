@@ -93,6 +93,55 @@ func (s *Service) setCache(ctx context.Context, orgID uuid.UUID, flagKey string,
 	_ = s.rdb.Set(ctx, cacheKey, v, cacheTTL).Err()
 }
 
+// IsGloballyEnabled 返回 flag 的全局 default_value，不涉及 org override。
+// 用于注册等无 org 上下文的场景。flag 不存在时返回 false + error。
+func (s *Service) IsGloballyEnabled(ctx context.Context, flagKey string) (bool, error) {
+	if s.rdb != nil {
+		if cached, ok := s.getGlobalFromCache(ctx, flagKey); ok {
+			return cached, nil
+		}
+	}
+
+	flag, err := s.repo.GetFlag(ctx, flagKey)
+	if err != nil {
+		return false, fmt.Errorf("featureflag.IsGloballyEnabled: %w", err)
+	}
+	if flag == nil {
+		return false, fmt.Errorf("featureflag: unknown flag %q", flagKey)
+	}
+
+	if s.rdb != nil {
+		s.setGlobalCache(ctx, flagKey, flag.DefaultValue)
+	}
+	return flag.DefaultValue, nil
+}
+
+func (s *Service) getGlobalFromCache(ctx context.Context, flagKey string) (bool, bool) {
+	cacheKey := cachePrefix + "global:" + flagKey
+	val, err := s.rdb.Get(ctx, cacheKey).Result()
+	if err != nil {
+		return false, false
+	}
+	return val == "1", true
+}
+
+func (s *Service) setGlobalCache(ctx context.Context, flagKey string, enabled bool) {
+	cacheKey := cachePrefix + "global:" + flagKey
+	v := "0"
+	if enabled {
+		v = "1"
+	}
+	_ = s.rdb.Set(ctx, cacheKey, v, cacheTTL).Err()
+}
+
+// InvalidateGlobalCache 清除 flag 全局 default_value 的缓存。
+func (s *Service) InvalidateGlobalCache(ctx context.Context, flagKey string) {
+	if s.rdb == nil {
+		return
+	}
+	_ = s.rdb.Del(ctx, cachePrefix+"global:"+flagKey).Err()
+}
+
 // InvalidateCache 清除指定 org + flag 的缓存，用于 override 变更后立即生效。
 func (s *Service) InvalidateCache(ctx context.Context, orgID uuid.UUID, flagKey string) {
 	if s.rdb == nil {

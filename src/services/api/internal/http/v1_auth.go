@@ -11,6 +11,7 @@ import (
 	"arkloop/services/api/internal/audit"
 	"arkloop/services/api/internal/auth"
 	"arkloop/services/api/internal/data"
+	"arkloop/services/api/internal/featureflag"
 	"arkloop/services/api/internal/observability"
 
 	"github.com/google/uuid"
@@ -34,12 +35,18 @@ type registerRequest struct {
 	Login       string `json:"login"`
 	Password    string `json:"password"`
 	DisplayName string `json:"display_name"`
+	InviteCode  string `json:"invite_code"`
 }
 
 type registerResponse struct {
-	UserID      string `json:"user_id"`
-	AccessToken string `json:"access_token"`
-	TokenType   string `json:"token_type"`
+	UserID      string  `json:"user_id"`
+	AccessToken string  `json:"access_token"`
+	TokenType   string  `json:"token_type"`
+	Warning     *string `json:"warning,omitempty"`
+}
+
+type registrationModeResponse struct {
+	Mode string `json:"mode"`
 }
 
 type meResponse struct {
@@ -186,7 +193,31 @@ func logout(authService *auth.Service, auditWriter *audit.Writer) func(nethttp.R
 	}
 }
 
-func register(registrationService *auth.RegistrationService, auditWriter *audit.Writer) func(nethttp.ResponseWriter, *nethttp.Request) {
+func registrationMode(flagService *featureflag.Service) func(nethttp.ResponseWriter, *nethttp.Request) {
+	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		if r.Method != nethttp.MethodGet {
+			writeMethodNotAllowed(w, r)
+			return
+		}
+
+		traceID := observability.TraceIDFromContext(r.Context())
+		mode := "invite_only"
+		if flagService != nil {
+			open, err := flagService.IsGloballyEnabled(r.Context(), "registration.open")
+			if err == nil && open {
+				mode = "open"
+			}
+		}
+
+		writeJSON(w, traceID, nethttp.StatusOK, registrationModeResponse{Mode: mode})
+	}
+}
+
+func register(
+	registrationService *auth.RegistrationService,
+	flagService *featureflag.Service,
+	auditWriter *audit.Writer,
+) func(nethttp.ResponseWriter, *nethttp.Request) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		if r.Method != nethttp.MethodPost {
 			writeMethodNotAllowed(w, r)
@@ -207,6 +238,7 @@ func register(registrationService *auth.RegistrationService, auditWriter *audit.
 
 		body.Login = strings.TrimSpace(body.Login)
 		body.DisplayName = strings.TrimSpace(body.DisplayName)
+		body.InviteCode = strings.TrimSpace(body.InviteCode)
 		if body.Login == "" || len(body.Login) > 256 {
 			WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "request validation failed", traceID, nil)
 			return
@@ -220,11 +252,30 @@ func register(registrationService *auth.RegistrationService, auditWriter *audit.
 			return
 		}
 
-		created, err := registrationService.Register(r.Context(), body.Login, body.Password, body.DisplayName)
+		// 注册模式检查
+		openRegistration := false
+		if flagService != nil {
+			open, err := flagService.IsGloballyEnabled(r.Context(), "registration.open")
+			if err == nil {
+				openRegistration = open
+			}
+		}
+
+		if !openRegistration && body.InviteCode == "" {
+			WriteError(w, nethttp.StatusUnprocessableEntity, "auth.invite_code_required", "invite code is required", traceID, nil)
+			return
+		}
+
+		created, err := registrationService.Register(r.Context(), body.Login, body.Password, body.DisplayName, body.InviteCode, !openRegistration)
 		if err != nil {
 			var loginExists auth.LoginExistsError
 			if errors.As(err, &loginExists) {
 				WriteError(w, nethttp.StatusConflict, "auth.login_exists", "login already taken", traceID, nil)
+				return
+			}
+			var codeErr auth.InviteCodeInvalidError
+			if errors.As(err, &codeErr) {
+				WriteError(w, nethttp.StatusUnprocessableEntity, "auth.invite_code_invalid", codeErr.Error(), traceID, nil)
 				return
 			}
 			WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
@@ -233,13 +284,20 @@ func register(registrationService *auth.RegistrationService, auditWriter *audit.
 
 		if auditWriter != nil {
 			auditWriter.WriteUserRegistered(r.Context(), traceID, created.UserID, body.Login)
+			if created.ReferralID != nil {
+				auditWriter.WriteReferralCreated(r.Context(), traceID, created.InviterUserID, created.UserID, created.InviteCodeID, *created.ReferralID)
+			}
 		}
 
-		writeJSON(w, traceID, nethttp.StatusCreated, registerResponse{
+		resp := registerResponse{
 			UserID:      created.UserID.String(),
 			AccessToken: created.AccessToken,
 			TokenType:   "bearer",
-		})
+		}
+		if created.Warning != "" {
+			resp.Warning = &created.Warning
+		}
+		writeJSON(w, traceID, nethttp.StatusCreated, resp)
 	}
 }
 

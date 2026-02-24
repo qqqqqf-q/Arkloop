@@ -37,6 +37,7 @@ export interface LocaleStrings {
     myUsage: string
     featureFlags: string
     users: string
+    registration: string
     inviteCodes: string
     redemptionCodes: string
     creditsAdmin: string
@@ -657,6 +658,76 @@ export interface LocaleStrings {
       toastLoadFailed: string
       toastCreated: string
       toastCreateFailed: string
+    }
+    featureFlags: {
+      title: string
+      addFlag: string
+      colKey: string
+      colDescription: string
+      colDefaultValue: string
+      colCreatedAt: string
+      empty: string
+      enabled: string
+      disabled: string
+      // create modal
+      modalTitleCreate: string
+      fieldKey: string
+      fieldDescription: string
+      fieldDefaultValue: string
+      cancel: string
+      create: string
+      // delete dialog
+      deleteTitle: string
+      deleteMessage: (key: string) => string
+      deleteConfirm: string
+      // org overrides
+      orgOverrides: string
+      overridesEmpty: string
+      addOverride: string
+      overrideOrgId: string
+      overrideEnabled: string
+      deleteOverride: string
+      deleteOverrideTitle: string
+      deleteOverrideMessage: (orgId: string) => string
+      deleteOverrideConfirm: string
+      // errors
+      errKeyRequired: string
+      errOrgIdRequired: string
+      // toasts
+      toastCreated: string
+      toastUpdated: string
+      toastDeleted: string
+      toastLoadFailed: string
+      toastCreateFailed: string
+      toastUpdateFailed: string
+      toastDeleteFailed: string
+      toastOverrideSet: string
+      toastOverrideSetFailed: string
+      toastOverrideDeleted: string
+      toastOverrideDeleteFailed: string
+    }
+    registration: {
+      title: string
+      modeLabel: string
+      modeOpen: string
+      modeInvite: string
+      modeOpenDesc: string
+      modeInviteDesc: string
+      switchToOpen: string
+      switchToInvite: string
+      inviteCodeTitle: string
+      inviteCodeOpenHint: string
+      inviteCodeInviteHint: string
+      referralTitle: string
+      initialGrantLabel: string
+      inviteRewardLabel: string
+      saveSettings: string
+      settingsErrPositive: string
+      toastLoadFailed: string
+      toastUpdated: string
+      toastUpdateFailed: string
+      toastSettingsSaved: string
+      toastSettingsFailed: string
     }
   }
 }

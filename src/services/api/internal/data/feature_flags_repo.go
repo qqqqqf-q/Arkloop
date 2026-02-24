@@ -101,6 +101,28 @@ func (r *FeatureFlagRepository) ListFlags(ctx context.Context) ([]FeatureFlag, e
 	return items, rows.Err()
 }
 
+// UpdateFlagDefaultValue 更新 flag 的全局默认值。
+func (r *FeatureFlagRepository) UpdateFlagDefaultValue(
+	ctx context.Context,
+	key string,
+	defaultValue bool,
+) (*FeatureFlag, error) {
+	var f FeatureFlag
+	err := r.db.QueryRow(
+		ctx,
+		`UPDATE feature_flags SET default_value = $1 WHERE key = $2
+		 RETURNING id, key, description, default_value, created_at`,
+		defaultValue, key,
+	).Scan(&f.ID, &f.Key, &f.Description, &f.DefaultValue, &f.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("feature_flags.UpdateFlagDefaultValue: %w", err)
+	}
+	return &f, nil
+}
+
 func (r *FeatureFlagRepository) DeleteFlag(ctx context.Context, key string) error {
 	_, err := r.db.Exec(
 		ctx,

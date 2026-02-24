@@ -49,6 +49,7 @@ export const zh: LocaleStrings = {
   enterDisplayName: '输入显示名称',
   enterUsername: '输入用户名',
   enterPassword: '输入密码',
+  enterInviteCode: '输入邀请码',
   continueBtn: '继续',
   orDivider: '或',
   githubLogin: '使用 GitHub 登录',

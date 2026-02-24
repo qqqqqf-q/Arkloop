@@ -22,9 +22,21 @@ func (LoginExistsError) Error() string {
 	return "login exists"
 }
 
+type InviteCodeInvalidError struct {
+	Reason string
+}
+
+func (e InviteCodeInvalidError) Error() string {
+	return e.Reason
+}
+
 type RegisterResult struct {
-	UserID      uuid.UUID
-	AccessToken string
+	UserID       uuid.UUID
+	AccessToken  string
+	Warning      string
+	ReferralID   *uuid.UUID
+	InviterUserID uuid.UUID
+	InviteCodeID  uuid.UUID
 }
 
 type RegistrationService struct {
@@ -83,6 +95,8 @@ func (s *RegistrationService) Register(
 	login string,
 	password string,
 	displayName string,
+	inviteCode string,
+	requireValidCode bool,
 ) (RegisterResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -189,6 +203,68 @@ func (s *RegistrationService) Register(
 		return RegisterResult{}, err
 	}
 
+	// 处理邀请码推荐关系
+	var result RegisterResult
+	inviteCode = strings.TrimSpace(inviteCode)
+	if inviteCode != "" {
+		existingCode, err := inviteCodeRepo.GetByCode(ctx, inviteCode)
+		if err != nil {
+			return RegisterResult{}, err
+		}
+
+		codeValid := existingCode != nil && existingCode.IsActive && existingCode.UseCount < existingCode.MaxUses
+		if codeValid {
+			referralRepo, err := data.NewReferralRepository(tx)
+			if err != nil {
+				return RegisterResult{}, err
+			}
+
+			// 增加使用次数
+			if _, err := inviteCodeRepo.IncrementUseCount(ctx, existingCode.ID); err != nil {
+				return RegisterResult{}, err
+			}
+
+			// 创建推荐关系
+			referral, err := referralRepo.Create(ctx, existingCode.UserID, user.ID, existingCode.ID)
+			if err != nil {
+				return RegisterResult{}, err
+			}
+
+			// 查找邀请人的默认 org
+			inviterMembership, err := membershipRepo.GetDefaultForUser(ctx, existingCode.UserID)
+			if err == nil && inviterMembership != nil {
+				// 推荐奖励积分
+				referralReward := int64(100)
+				if s.entitlementSvc != nil {
+					val, resolveErr := s.entitlementSvc.Resolve(ctx, inviterMembership.OrgID, "credit.invite_reward")
+					if resolveErr == nil {
+						if v := val.Int(); v > 0 {
+							referralReward = v
+						}
+					}
+				}
+
+				refType := "referral"
+				if err := creditsRepo.Add(ctx, inviterMembership.OrgID, referralReward, "referral_reward", &refType, &referral.ID, nil); err != nil {
+					return RegisterResult{}, err
+				}
+
+				if err := referralRepo.MarkCredited(ctx, referral.ID); err != nil {
+					return RegisterResult{}, err
+				}
+			}
+
+			result.ReferralID = &referral.ID
+			result.InviterUserID = existingCode.UserID
+			result.InviteCodeID = existingCode.ID
+		} else {
+			if requireValidCode {
+				return RegisterResult{}, InviteCodeInvalidError{Reason: "invite code is invalid or exhausted"}
+			}
+			result.Warning = "invalid invite code, skipped referral"
+		}
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return RegisterResult{}, err
 	}
@@ -197,10 +273,9 @@ func (s *RegistrationService) Register(
 	if err != nil {
 		return RegisterResult{}, err
 	}
-	return RegisterResult{
-		UserID:      user.ID,
-		AccessToken: token,
-	}, nil
+	result.UserID = user.ID
+	result.AccessToken = token
+	return result, nil
 }
 
 func uuidHexPrefix(value uuid.UUID, n int) string {

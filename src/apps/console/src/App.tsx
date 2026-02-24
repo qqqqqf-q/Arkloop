@@ -22,6 +22,8 @@ import { InviteCodesPage } from './pages/invite-codes/InviteCodesPage'
 import { RedemptionCodesPage } from './pages/redemption-codes/RedemptionCodesPage'
 import { CreditsAdminPage } from './pages/credits-admin/CreditsAdminPage'
 import { BroadcastsPage } from './pages/broadcasts/BroadcastsPage'
+import { FeatureFlagsPage } from './pages/feature-flags/FeatureFlagsPage'
+import { RegistrationPage } from './pages/registration/RegistrationPage'
 import {
   readAccessTokenFromStorage,
   writeAccessTokenToStorage,
@@ -88,8 +90,9 @@ function App() {
         <Route path="usage" element={<UsagePage />} />
         <Route path="my-usage" element={<MyUsagePage />} />
         {/* Platform */}
-        <Route path="feature-flags" element={<PlaceholderPage title="Feature Flags" />} />
+        <Route path="feature-flags" element={<FeatureFlagsPage />} />
         <Route path="users" element={<UsersPage />} />
+        <Route path="registration" element={<RegistrationPage />} />
         <Route path="invite-codes" element={<InviteCodesPage />} />
         <Route path="redemption-codes" element={<RedemptionCodesPage />} />
         <Route path="credits-admin" element={<CreditsAdminPage />} />

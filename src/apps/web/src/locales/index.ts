@@ -58,6 +58,7 @@ export interface LocaleStrings {
   enterDisplayName: string
   enterUsername: string
   enterPassword: string
+  enterInviteCode: string
   continueBtn: string
   orDivider: string
   githubLogin: string

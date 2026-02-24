@@ -6,7 +6,7 @@ import {
   KeyRound, Bot, FileText, Plug, Sparkles,
   Key, Webhook,
   ShieldCheck,
-  Users, UsersRound, FolderOpen,
+  Users, UsersRound, FolderOpen, UserPlus,
   Package, Receipt, BadgeCheck, BarChart3,
   Flag, Ticket, Gift, Coins, Megaphone,
   PanelLeftClose, PanelLeftOpen, ChevronDown,
@@ -51,6 +51,7 @@ function buildNavGroups(t: LocaleStrings): NavGroup[] {
       items: [
         { label: t.nav.featureFlags, path: '/feature-flags', icon: <Flag size={17} /> },
         { label: t.nav.users,        path: '/users',         icon: <Users size={17} /> },
+        { label: t.nav.registration, path: '/registration',  icon: <UserPlus size={17} /> },
         { label: t.nav.inviteCodes,   path: '/invite-codes',  icon: <Ticket size={17} /> },
         { label: t.nav.redemptionCodes, path: '/redemption-codes', icon: <Gift size={17} /> },
         { label: t.nav.creditsAdmin, path: '/credits-admin', icon: <Coins size={17} /> },

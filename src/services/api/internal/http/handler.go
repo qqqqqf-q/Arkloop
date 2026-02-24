@@ -73,6 +73,8 @@ type HandlerConfig struct {
 	CreditsRepo         *data.CreditsRepository
 	RedemptionCodesRepo *data.RedemptionCodesRepository
 
+	PlatformSettingsRepo *data.PlatformSettingsRepository
+
 	UsersRepo *data.UserRepository
 	OrgRepo   *data.OrgRepository
 
@@ -92,7 +94,8 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 	mux.HandleFunc("/v1/auth/login", login(cfg.AuthService, cfg.AuditWriter))
 	mux.HandleFunc("/v1/auth/refresh", refreshToken(cfg.AuthService, cfg.AuditWriter))
 	mux.HandleFunc("/v1/auth/logout", logout(cfg.AuthService, cfg.AuditWriter))
-	mux.HandleFunc("/v1/auth/register", register(cfg.RegistrationService, cfg.AuditWriter))
+	mux.HandleFunc("/v1/auth/register", register(cfg.RegistrationService, cfg.FeatureFlagService, cfg.AuditWriter))
+	mux.HandleFunc("/v1/auth/registration-mode", registrationMode(cfg.FeatureFlagService))
 	mux.HandleFunc("/v1/me", me(cfg.AuthService, cfg.OrgMembershipRepo, cfg.OrgRepo))
 	mux.HandleFunc("/v1/me/usage", meUsage(cfg.AuthService, cfg.OrgMembershipRepo, cfg.UsageRepo, cfg.APIKeysRepo))
 	mux.HandleFunc("/v1/me/usage/daily", meDailyUsage(cfg.AuthService, cfg.OrgMembershipRepo, cfg.UsageRepo, cfg.APIKeysRepo))
@@ -389,6 +392,15 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 	mux.HandleFunc(
 		"/v1/admin/notifications/broadcasts",
 		adminBroadcastsEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.NotificationsRepo, cfg.APIKeysRepo, cfg.AuditWriter, cfg.Pool, cfg.Logger),
+	)
+
+	mux.HandleFunc(
+		"/v1/admin/platform-settings",
+		platformSettingsEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.PlatformSettingsRepo, cfg.APIKeysRepo),
+	)
+	mux.HandleFunc(
+		"/v1/admin/platform-settings/",
+		platformSettingEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.PlatformSettingsRepo, cfg.APIKeysRepo),
 	)
 
 	notFound := nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
