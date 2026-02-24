@@ -19,7 +19,7 @@ function normalizeError(error: unknown, fallback: string): AppError {
 }
 
 type Props = {
-  onLoggedIn: (accessToken: string) => void
+  onLoggedIn: (accessToken: string, refreshToken: string) => void
 }
 
 export function AuthPage({ onLoggedIn }: Props) {
@@ -41,7 +41,7 @@ export function AuthPage({ onLoggedIn }: Props) {
     setError(null)
     try {
       const resp = await login({ login: loginValue, password })
-      onLoggedIn(resp.access_token)
+      onLoggedIn(resp.access_token, resp.refresh_token)
     } catch (err) {
       setError(normalizeError(err, t.loading))
     } finally {

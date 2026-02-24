@@ -1,5 +1,12 @@
 export const TRACE_ID_HEADER = 'X-Trace-Id'
 
+import {
+  readRefreshTokenFromStorage,
+  writeRefreshTokenToStorage,
+  clearRefreshTokenFromStorage,
+  writeAccessTokenToStorage,
+} from './storage'
+
 export type LoginRequest = {
   login: string
   password: string
@@ -8,6 +15,7 @@ export type LoginRequest = {
 export type LoginResponse = {
   token_type: string
   access_token: string
+  refresh_token: string
 }
 
 export type RegisterRequest = {
@@ -21,6 +29,7 @@ export type RegisterResponse = {
   user_id: string
   token_type: string
   access_token: string
+  refresh_token: string
   warning?: string
 }
 
@@ -78,6 +87,38 @@ function buildUrl(path: string): string {
   return `${base}${path}`
 }
 
+// 模块级静默刷新状态
+let refreshPromise: Promise<string> | null = null
+let unauthenticatedHandler: (() => void) | null = null
+let accessTokenHandler: ((token: string) => void) | null = null
+
+export function setUnauthenticatedHandler(fn: () => void): void {
+  unauthenticatedHandler = fn
+}
+
+export function setAccessTokenHandler(fn: (token: string) => void): void {
+  accessTokenHandler = fn
+}
+
+async function silentRefresh(): Promise<string> {
+  if (refreshPromise) return refreshPromise
+
+  refreshPromise = (async () => {
+    const refreshToken = readRefreshTokenFromStorage()
+    if (!refreshToken) throw new Error('no refresh token')
+
+    const resp = await refreshAccessToken(refreshToken)
+    writeAccessTokenToStorage(resp.access_token)
+    writeRefreshTokenToStorage(resp.refresh_token)
+    accessTokenHandler?.(resp.access_token)
+    return resp.access_token
+  })().finally(() => {
+    refreshPromise = null
+  })
+
+  return refreshPromise
+}
+
 async function readJsonSafely(response: Response): Promise<unknown | null> {
   const text = await response.text()
   if (!text) return null
@@ -90,7 +131,7 @@ async function readJsonSafely(response: Response): Promise<unknown | null> {
 
 export async function apiFetch<T>(
   path: string,
-  init?: RequestInit & { accessToken?: string },
+  init?: RequestInit & { accessToken?: string; _isRetry?: boolean },
 ): Promise<T> {
   const headers = new Headers(init?.headers)
   headers.set('Accept', 'application/json')
@@ -109,6 +150,17 @@ export async function apiFetch<T>(
       return undefined as T
     }
     return (await response.json()) as T
+  }
+
+  // 401 静默刷新（只在非重试请求上触发，防递归）
+  if (response.status === 401 && !init?._isRetry) {
+    try {
+      const newToken = await silentRefresh()
+      return await apiFetch<T>(path, { ...init, accessToken: newToken, _isRetry: true })
+    } catch {
+      clearRefreshTokenFromStorage()
+      unauthenticatedHandler?.()
+    }
   }
 
   const headerTraceId = response.headers.get(TRACE_ID_HEADER) ?? undefined
@@ -143,6 +195,14 @@ export async function login(req: LoginRequest): Promise<LoginResponse> {
   return await apiFetch<LoginResponse>('/v1/auth/login', {
     method: 'POST',
     body: JSON.stringify(req),
+  })
+}
+
+export async function refreshAccessToken(refreshToken: string): Promise<LoginResponse> {
+  return await apiFetch<LoginResponse>('/v1/auth/refresh', {
+    method: 'POST',
+    body: JSON.stringify({ refresh_token: refreshToken }),
+    _isRetry: true,
   })
 }
 

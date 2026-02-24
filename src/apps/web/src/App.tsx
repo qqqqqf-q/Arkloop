@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Routes, Route, Navigate, useNavigate } from 'react-router-dom'
 import { AppLayout } from './layouts/AppLayout'
 import { AuthPage } from './components/AuthPage'
@@ -9,21 +9,39 @@ import {
   readAccessTokenFromStorage,
   writeAccessTokenToStorage,
   clearAccessTokenFromStorage,
+  writeRefreshTokenToStorage,
+  clearRefreshTokenFromStorage,
 } from './storage'
+import { setUnauthenticatedHandler, setAccessTokenHandler } from './api'
 
 function App() {
   const [accessToken, setAccessToken] = useState<string | null>(() => readAccessTokenFromStorage())
   const navigate = useNavigate()
 
-  const handleLoggedIn = useCallback((token: string) => {
+  useEffect(() => {
+    setUnauthenticatedHandler(() => {
+      clearAccessTokenFromStorage()
+      clearRefreshTokenFromStorage()
+      clearActiveThreadIdInStorage()
+      setAccessToken(null)
+    })
+    setAccessTokenHandler((token: string) => {
+      writeAccessTokenToStorage(token)
+      setAccessToken(token)
+    })
+  }, [])
+
+  const handleLoggedIn = useCallback((token: string, refreshToken: string) => {
     clearActiveThreadIdInStorage()
     writeAccessTokenToStorage(token)
+    writeRefreshTokenToStorage(refreshToken)
     setAccessToken(token)
     navigate('/', { replace: true })
   }, [navigate])
 
   const handleLoggedOut = useCallback(() => {
     clearAccessTokenFromStorage()
+    clearRefreshTokenFromStorage()
     clearActiveThreadIdInStorage()
     setAccessToken(null)
   }, [])

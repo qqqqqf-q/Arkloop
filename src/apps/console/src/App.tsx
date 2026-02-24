@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { ConsoleLayout } from './layouts/ConsoleLayout'
 import { PageHeader } from './components/PageHeader'
@@ -29,7 +29,10 @@ import {
   readAccessTokenFromStorage,
   writeAccessTokenToStorage,
   clearAccessTokenFromStorage,
+  writeRefreshTokenToStorage,
+  clearRefreshTokenFromStorage,
 } from './storage'
+import { setUnauthenticatedHandler, setAccessTokenHandler } from './api'
 
 function PlaceholderPage({ title }: { title: string }) {
   return (
@@ -45,13 +48,27 @@ function PlaceholderPage({ title }: { title: string }) {
 function App() {
   const [accessToken, setAccessToken] = useState<string | null>(() => readAccessTokenFromStorage())
 
-  const handleLoggedIn = useCallback((token: string) => {
+  useEffect(() => {
+    setUnauthenticatedHandler(() => {
+      clearAccessTokenFromStorage()
+      clearRefreshTokenFromStorage()
+      setAccessToken(null)
+    })
+    setAccessTokenHandler((token: string) => {
+      writeAccessTokenToStorage(token)
+      setAccessToken(token)
+    })
+  }, [])
+
+  const handleLoggedIn = useCallback((token: string, refreshToken: string) => {
     writeAccessTokenToStorage(token)
+    writeRefreshTokenToStorage(refreshToken)
     setAccessToken(token)
   }, [])
 
   const handleLoggedOut = useCallback(() => {
     clearAccessTokenFromStorage()
+    clearRefreshTokenFromStorage()
     setAccessToken(null)
   }, [])
 

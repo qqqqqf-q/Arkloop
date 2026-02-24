@@ -1,4 +1,5 @@
 const ACCESS_TOKEN_KEY = 'arkloop:web:access_token'
+const REFRESH_TOKEN_KEY = 'arkloop:web:refresh_token'
 const ACTIVE_THREAD_ID_KEY = 'arkloop:web:active_thread_id'
 const LOCALE_KEY = 'arkloop:web:locale'
 const THEME_KEY = 'arkloop:web:theme'
@@ -40,6 +41,34 @@ export function clearAccessTokenFromStorage(): void {
   if (!canUseLocalStorage()) return
   try {
     localStorage.removeItem(ACCESS_TOKEN_KEY)
+  } catch {
+    // ignore
+  }
+}
+
+export function readRefreshTokenFromStorage(): string | null {
+  if (!canUseLocalStorage()) return null
+  try {
+    const raw = localStorage.getItem(REFRESH_TOKEN_KEY)
+    return raw?.trim() ? raw : null
+  } catch {
+    return null
+  }
+}
+
+export function writeRefreshTokenToStorage(token: string): void {
+  if (!canUseLocalStorage() || !token.trim()) return
+  try {
+    localStorage.setItem(REFRESH_TOKEN_KEY, token)
+  } catch {
+    // ignore
+  }
+}
+
+export function clearRefreshTokenFromStorage(): void {
+  if (!canUseLocalStorage()) return
+  try {
+    localStorage.removeItem(REFRESH_TOKEN_KEY)
   } catch {
     // ignore
   }
