@@ -61,4 +61,9 @@ export const en: LocaleStrings = {
   notificationsTitle: 'Notifications',
   notificationsEmpty: 'No notifications',
   notificationsMarkRead: 'Mark as read',
+  freePlan: 'Free plan',
+  freeTrial: 'Start free trial',
+  freeTrialDesc: "We're currently free. Run out of credits? Come find us.",
+  addFromLocal: 'Add from local files',
+  addFromGitHub: 'Add from GitHub',
 }

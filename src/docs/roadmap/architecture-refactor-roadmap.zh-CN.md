@@ -1154,6 +1154,92 @@ Platform:       Feature Flags
 
 ---
 
+## 8.6 Phase 6.6 -- 双 Token 认证强化
+
+目标：将当前单一 Access Token 模式升级为 Access Token + Refresh Token 双 Token 体系，实现「只要用户持续活跃就永不掉线」的用户体验，同时保持对 token 吊销（强制下线、账号封禁）的精确控制能力。
+
+**背景与动机：**
+
+当前认证机制为纯无状态 JWT Access Token，TTL 默认 3600 秒（已调整为 30 天作为过渡）。单 Token 模式存在两个根本矛盾：TTL 短则用户频繁掉线，TTL 长则 token 泄漏后吊销窗口过大。对于面向外部用户的 SaaS，两者都不可接受。
+
+代码库中 `/v1/auth/refresh` 路由和 `Service.RefreshAccessToken()` 方法已存在，但实现有缺陷：当前 refresh 接受 Access Token 作为输入，一旦 Access Token 过期即无法完成刷新，语义等同于「续命」而非真正的 Refresh Token。本 Phase 在已有骨架上做语义替换，不重建路由。
+
+**设计决策：**
+
+- Access Token TTL：15 分钟（短命，泄漏影响面小）
+- Refresh Token TTL：90 天（长命，持续活跃则自动续）
+- Refresh Token 存储：DB 表 `refresh_tokens`，存哈希值；每次 refresh 原子性轮换（旧 token 作废、签发新 token），防重放攻击
+- Refresh Token 形式：随机 32 字节，base64url 编码；不用 JWT，避免无法在 DB 侧主动失效
+- 前端静默刷新：`apiFetch` 拦截 401 → 用 Refresh Token 换新 Access Token → 自动重试原请求；并发 401 时只触发一次 refresh，其余请求排队等结果
+
+### R69.1 -- 双 Token 后端基础设施
+
+- **依赖**：无新依赖，在现有 auth 包上修改
+- **目标**：
+  - 新建 `refresh_tokens` 表，提供 Refresh Token 的签发、验证、轮换、吊销能力
+  - 重写 `Service.IssueAccessToken` 同时返回 Access + Refresh Token
+  - 重写 `/v1/auth/refresh` 端点：改为接受 Refresh Token（请求体），不再接受 Access Token（Bearer header）；完成原子轮换后返回新的两个 token
+  - 更新 `Logout`：同时吊销用户所有 Refresh Token
+  - 将 Access Token TTL 默认值改回 900 秒（15 分钟）；新增 `RefreshTokenTTLSeconds` 默认值 7776000（90 天）
+- **关键点**：
+  - `refresh_tokens` 表字段：`id UUID PK`、`user_id UUID NOT NULL`、`token_hash TEXT NOT NULL UNIQUE`（SHA-256，hex）、`expires_at TIMESTAMPTZ NOT NULL`、`revoked_at TIMESTAMPTZ`、`created_at TIMESTAMPTZ`、`last_used_at TIMESTAMPTZ`。索引：`user_id`、`token_hash`。
+  - **轮换语义**（原子操作，单事务）：`UPDATE refresh_tokens SET revoked_at = now() WHERE token_hash = $old AND revoked_at IS NULL AND expires_at > now()` → 若更新行数为 0 则返回 `TokenInvalidError`（检测重放）→ `INSERT INTO refresh_tokens` 写入新 token → 签发新 Access Token。
+  - `Logout` 逻辑：`UPDATE refresh_tokens SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL`，同时保留现有 `BumpTokensInvalidBefore` 逻辑使所有存量 Access Token 一并失效。
+  - `/v1/auth/refresh` 请求体：`{ "refresh_token": "..." }`；响应体：`{ "access_token": "...", "refresh_token": "...", "token_type": "bearer" }`。
+  - `/v1/auth/login` 和 `/v1/auth/register` 响应体新增 `refresh_token` 字段。
+  - 定期清理：`refresh_tokens` 表中过期且已吊销的记录可通过后台 job 清理（留给运维，本 R 不实现 job，只确保查询走索引）。
+- **具体改动范围**：
+  - 新建 `src/services/api/internal/migrate/migrations/00044_create_refresh_tokens.sql`
+  - 新建 `src/services/api/internal/data/refresh_tokens_repo.go`：`Create`、`GetByHash`（校验 revoked_at IS NULL AND expires_at > now）、`RevokeByHash`、`RevokeAllForUser`
+  - 修改 `src/services/api/internal/auth/config.go`：`defaultAccessTokenTTL` 改为 900；新增 `RefreshTokenTTLSeconds`（默认 7776000）；`Config` 结构加 `RefreshTokenTTLSeconds int`；`Validate` 补检查
+  - 修改 `src/services/api/internal/auth/tokens.go`：新增 `IssueRefreshToken(userID uuid.UUID) (plaintext string, hash string, expiresAt time.Time, error)` — `crypto/rand` 生成 32 字节，base64url 编码为 plaintext，`sha256` 计算 hash
+  - 修改 `src/services/api/internal/auth/service.go`：`Service` 结构加 `refreshTokenRepo`；`IssueAccessToken` 返回新类型 `IssuedTokenPair{AccessToken, RefreshToken}`；新增 `ConsumeRefreshToken(ctx, plaintext) (IssuedTokenPair, error)` 实现轮换；`Logout` 调用 `RevokeAllForUser`
+  - 修改 `src/services/api/internal/http/v1_auth.go`：更新 `loginResponse` / `registerResponse` 类型加 `refresh_token`；重写 `refreshToken` handler（从 body 读而非 header）；更新 `login` / `register` handler 传递新的 `IssuedTokenPair`
+  - 修改 `src/services/api/internal/http/handler.go`：`HandlerConfig` 加 `RefreshTokenRepo`，传入 `refreshToken` handler
+  - 修改 `src/services/api/internal/app/app.go`：初始化 `RefreshTokenRepository`，注入 handler
+  - 修改 `.env.example`：`ARKLOOP_AUTH_ACCESS_TOKEN_TTL_SECONDS` 改为 900，新增 `ARKLOOP_AUTH_REFRESH_TOKEN_TTL_SECONDS=7776000`
+- **验收**：
+  - `go test -tags integration ./...`
+  - `go test ./internal/auth/...`：覆盖轮换重放检测（旧 token 被二次使用返回 401）、过期 refresh token 返回 401、logout 后 refresh 返回 401。
+  - 手工：登录获取两个 token → 等待 Access Token 过期（本地测试可将 TTL 设为 5s）→ 用 Refresh Token 调 `/v1/auth/refresh` 获得新 token 对 → 旧 Refresh Token 再次调用返回 401（轮换生效）。
+
+### R69.2 -- 双 Token 前端静默刷新
+
+- **依赖**：R69.1（后端 Refresh Token 接口）
+- **目标**：
+  - Web App（`src/apps/web/`）和 Console（`src/apps/console/`）均实现静默刷新：Access Token 过期时自动换新，用户无感知；Refresh Token 失效时才跳登录页
+  - 解决并发 401 竞态：多个请求同时 401，只执行一次 refresh，其余请求挂起等待结果后重试
+- **关键点**：
+  - **存储**：`storage.ts`（两个 app 各自）新增 `readRefreshTokenFromStorage` / `writeRefreshTokenToStorage` / `clearRefreshTokenFromStorage`，key 为 `arkloop:web:refresh_token` / `arkloop:console:refresh_token`。
+  - **并发控制**：在 `api.ts` 模块级维护一个 `refreshPromise: Promise<string> | null` 变量。收到 401 时：若 `refreshPromise` 已存在则等待它；否则发起 refresh 并将 promise 存入，完成后置 null。这样 N 个并发 401 只触发一次 refresh 请求。
+  - **拦截逻辑**（`apiFetch` 改造）：
+    1. 正常发请求
+    2. 若响应 401 且存在 Refresh Token → 进入静默刷新流程（见并发控制）
+    3. refresh 成功 → 更新内存中的 access token → 用新 token 重试原请求（只重试一次，防死循环）
+    4. refresh 失败（401/403）→ 清除所有 token 存储 → 调用全局 `onUnauthenticated` 回调（跳登录页）
+  - **全局回调注册**：`api.ts` 导出 `setUnauthenticatedHandler(fn: () => void)`，在 `App.tsx` 的 mount 阶段调用，传入 `handleLoggedOut`。这样 `apiFetch` 不直接依赖 React，保持可测试性。
+  - **token 同步**：`apiFetch` 调用 `refresh` 后须同时更新传给 React 状态的 access token。通过 `setAccessTokenHandler` 全局回调（与 `setUnauthenticatedHandler` 同模式）注入，`App.tsx` 在 mount 时注册。
+  - SSE 连接（`sse.ts`）：SSE 使用 URL 参数传 token，refresh 后需重建连接；`useSSE` hook 已有 `reconnect` 接口，refresh 成功后调用即可（由 `sse.ts` 层处理 401 事件触发）。
+- **具体改动范围**（web 和 console 各做一份，下述为 web，console 对称）：
+  - 修改 `src/apps/web/src/storage.ts`：新增 refresh token 的 read / write / clear
+  - 修改 `src/apps/web/src/api.ts`：
+    - `LoginResponse` / `RegisterResponse` 加 `refresh_token` 字段
+    - 新增 `refreshAccessToken(refreshToken: string): Promise<LoginResponse>` 函数
+    - 新增模块级 `let refreshPromise: Promise<string> | null = null`
+    - 新增 `setUnauthenticatedHandler` / `setAccessTokenHandler` 注册函数
+    - `apiFetch` 加 401 拦截 + 静默刷新 + 原请求重试逻辑
+  - 修改 `src/apps/web/src/App.tsx`：登录/注册时保存 refresh token；mount 时注册 `setUnauthenticatedHandler` / `setAccessTokenHandler`；登出时清除 refresh token
+  - 修改 `src/apps/console/src/storage.ts`：同上
+  - 修改 `src/apps/console/src/api/auth.ts`（或等效文件）：同上
+  - 修改 `src/apps/console/src/App.tsx`：同上
+- **验收**：
+  - `pnpm --filter web tsc --noEmit` / `pnpm --filter console tsc --noEmit` 通过
+  - 手工（web）：登录 → 将 localStorage 中的 access token 替换为已过期的合法 JWT → 发任意请求 → 观察 Network 面板：自动出现一次 `/v1/auth/refresh` 请求，原请求自动重试并成功，用户无感知跳转
+  - 手工（web）：清除 refresh token → 发任意请求 → 被跳转到登录页
+  - 手工（并发）：同时触发 3 个 API 请求（均 401）→ Network 面板确认只有一次 refresh 请求
+
+---
+
 ## 9. Phase 7 -- 性能与可扩展性
 
 目标：解决 Phase 1-6 功能完成后暴露的扩展性瓶颈，使系统能支撑 50+ Worker 实例、1000+ 并发 Run、多 API 实例部署。

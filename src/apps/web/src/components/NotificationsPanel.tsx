@@ -9,16 +9,30 @@ type Props = {
   onMarkedRead: () => void
 }
 
-function formatDate(iso: string): string {
+function formatDate(iso: string, locale: string): string {
   const d = new Date(iso)
-  const y = d.getFullYear()
-  const m = d.getMonth() + 1
-  const day = d.getDate()
-  return `${y}年${m}月${day}日`
+  if (locale === 'zh') {
+    const y = d.getFullYear()
+    const m = d.getMonth() + 1
+    const day = d.getDate()
+    return `${y}年${m}月${day}日`
+  }
+  return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
+}
+
+// 从 payload.i18n 中取当前语言版本，找不到则 fallback 到原始字段。
+function resolveI18nField(
+  payload: Record<string, unknown> | undefined,
+  field: 'title' | 'body',
+  locale: string,
+  fallback: string,
+): string {
+  const i18n = payload?.i18n as Record<string, Record<string, string>> | undefined
+  return i18n?.[field]?.[locale] ?? fallback
 }
 
 export function NotificationsPanel({ accessToken, onClose, onMarkedRead }: Props) {
-  const { t } = useLocale()
+  const { t, locale } = useLocale()
   const [items, setItems] = useState<NotificationItem[]>([])
   const [loading, setLoading] = useState(true)
   const mountedRef = useRef(true)
@@ -88,12 +102,16 @@ export function NotificationsPanel({ accessToken, onClose, onMarkedRead }: Props
                 className={`flex items-start gap-8 border-b border-[var(--c-border)] py-6${n.read_at ? ' opacity-60' : ''}`}
               >
                 <span className="mt-0.5 shrink-0 text-sm text-[var(--c-text-muted)]">
-                  {formatDate(n.created_at)}
+                  {formatDate(n.created_at, locale)}
                 </span>
                 <div className="min-w-0 flex-1">
-                  <p className={`text-base text-[var(--c-text-primary)]${n.read_at ? '' : ' font-semibold'}`}>{n.title}</p>
+                  <p className={`text-base text-[var(--c-text-primary)]${n.read_at ? '' : ' font-semibold'}`}>
+                    {resolveI18nField(n.payload, 'title', locale, n.title)}
+                  </p>
                   {n.body && (
-                    <p className="mt-1.5 text-sm text-[var(--c-text-muted)]">{n.body}</p>
+                    <p className="mt-1.5 text-sm text-[var(--c-text-muted)]">
+                      {resolveI18nField(n.payload, 'body', locale, n.body)}
+                    </p>
                   )}
                 </div>
               </div>

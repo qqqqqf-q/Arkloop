@@ -360,7 +360,16 @@ export function ChatPage() {
     }
   }, [accessToken, threadId, isStreaming, sending, onRunStarted, onLoggedOut])
 
-  const handleCancel = () => {
+  const handleAsrError = useCallback((err: unknown) => {
+    if (isApiError(err) && err.status === 401) {
+      onLoggedOut()
+      return
+    }
+    setError(normalizeError(err))
+  }, [onLoggedOut])
+
+
+  const handleCancel = useCallback(() => {
     if (!activeRunId || cancelSubmitting) return
     const runId = activeRunId
 
@@ -376,7 +385,7 @@ export function ChatPage() {
     void cancelRun(accessToken, runId).catch((err: unknown) => {
       setError(normalizeError(err))
     })
-  }
+  }, [activeRunId, cancelSubmitting, sse.disconnect, accessToken, threadId, onRunEnded])
 
   const terminalSseError = useMemo(() => {
     if (!sse.error) return null
@@ -498,6 +507,7 @@ export function ChatPage() {
           attachments={attachments}
           onAttachFiles={handleAttachFiles}
           accessToken={accessToken}
+          onAsrError={handleAsrError}
         />
         <p style={{ color: 'var(--c-text-muted)', fontSize: '13px', letterSpacing: '-0.52px', textAlign: 'center' }}>
           Arkloop is AI and can make mistakes. Please double-check responses.

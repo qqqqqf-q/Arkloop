@@ -61,4 +61,9 @@ export const zh: LocaleStrings = {
   notificationsTitle: '通知',
   notificationsEmpty: '暂无通知',
   notificationsMarkRead: '标记已读',
+  freePlan: '免费计划',
+  freeTrial: '开始免费试用',
+  freeTrialDesc: '哈哈，我们目前暂时不收费哦，如果不够用了可以找我来换一点积分。',
+  addFromLocal: '从本地文件添加',
+  addFromGitHub: '从 GitHub 添加',
 }

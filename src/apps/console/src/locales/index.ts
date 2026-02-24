@@ -644,8 +644,10 @@ export interface LocaleStrings {
       // create modal
       modalTitle: string
       fieldType: string
-      fieldTitle: string
-      fieldBody: string
+      fieldTitleZh: string
+      fieldTitleEn: string
+      fieldBodyZh: string
+      fieldBodyEn: string
       fieldTarget: string
       fieldTargetPlaceholder: string
       typeAnnouncement: string

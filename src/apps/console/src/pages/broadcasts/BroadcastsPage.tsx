@@ -37,7 +37,7 @@ export function BroadcastsPage() {
   const [loadingMore, setLoadingMore] = useState(false)
 
   const [createOpen, setCreateOpen] = useState(false)
-  const [form, setForm] = useState({ type: 'announcement', title: '', body: '', target: 'all' })
+  const [form, setForm] = useState({ type: 'announcement', titleZh: '', titleEn: '', bodyZh: '', bodyEn: '', target: 'all' })
   const [formError, setFormError] = useState('')
   const [creating, setCreating] = useState(false)
 
@@ -77,7 +77,7 @@ export function BroadcastsPage() {
   }, [items, accessToken, addToast, tc])
 
   const handleOpenCreate = useCallback(() => {
-    setForm({ type: 'announcement', title: '', body: '', target: 'all' })
+    setForm({ type: 'announcement', titleZh: '', titleEn: '', bodyZh: '', bodyEn: '', target: 'all' })
     setFormError('')
     setCreateOpen(true)
   }, [])
@@ -87,18 +87,31 @@ export function BroadcastsPage() {
   }, [creating])
 
   const handleCreate = useCallback(async () => {
-    if (!form.title.trim()) {
+    const titleFallback = form.titleZh.trim() || form.titleEn.trim()
+    if (!titleFallback) {
       setFormError(tc.errTitleRequired)
       return
     }
     setCreating(true)
+
+    // 构建 i18n payload — 只包含非空语言版本
+    const i18nTitle: Record<string, string> = {}
+    const i18nBody: Record<string, string> = {}
+    if (form.titleZh.trim()) i18nTitle['zh'] = form.titleZh.trim()
+    if (form.titleEn.trim()) i18nTitle['en'] = form.titleEn.trim()
+    if (form.bodyZh.trim()) i18nBody['zh'] = form.bodyZh.trim()
+    if (form.bodyEn.trim()) i18nBody['en'] = form.bodyEn.trim()
+
+    const bodyFallback = form.bodyZh.trim() || form.bodyEn.trim()
+
     try {
       await createBroadcast(
         {
           type: form.type,
-          title: form.title.trim(),
-          body: form.body.trim(),
+          title: titleFallback,
+          body: bodyFallback,
           target: form.target,
+          payload: { i18n: { title: i18nTitle, body: i18nBody } },
         },
         accessToken,
       )
@@ -219,23 +232,41 @@ export function BroadcastsPage() {
               <option value="update">{tc.typeUpdate}</option>
             </select>
           </FormField>
-          <FormField label={tc.fieldTitle}>
+          <FormField label={tc.fieldTitleZh}>
             <input
               type="text"
-              value={form.title}
+              value={form.titleZh}
               onChange={(e) => {
-                setForm((f) => ({ ...f, title: e.target.value }))
+                setForm((f) => ({ ...f, titleZh: e.target.value }))
                 setFormError('')
               }}
               className={inputCls}
               autoFocus
             />
           </FormField>
-          <FormField label={tc.fieldBody}>
+          <FormField label={tc.fieldTitleEn}>
+            <input
+              type="text"
+              value={form.titleEn}
+              onChange={(e) => {
+                setForm((f) => ({ ...f, titleEn: e.target.value }))
+                setFormError('')
+              }}
+              className={inputCls}
+            />
+          </FormField>
+          <FormField label={tc.fieldBodyZh}>
             <textarea
-              value={form.body}
-              onChange={(e) => setForm((f) => ({ ...f, body: e.target.value }))}
-              className={`${inputCls} min-h-[80px] resize-y`}
+              value={form.bodyZh}
+              onChange={(e) => setForm((f) => ({ ...f, bodyZh: e.target.value }))}
+              className={`${inputCls} min-h-[72px] resize-y`}
+            />
+          </FormField>
+          <FormField label={tc.fieldBodyEn}>
+            <textarea
+              value={form.bodyEn}
+              onChange={(e) => setForm((f) => ({ ...f, bodyEn: e.target.value }))}
+              className={`${inputCls} min-h-[72px] resize-y`}
             />
           </FormField>
           <FormField label={tc.fieldTarget}>

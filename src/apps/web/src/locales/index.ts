@@ -72,6 +72,13 @@ export interface LocaleStrings {
   notificationsTitle: string
   notificationsEmpty: string
   notificationsMarkRead: string
+  // free plan badge
+  freePlan: string
+  freeTrial: string
+  freeTrialDesc: string
+  // chat input menu
+  addFromLocal: string
+  addFromGitHub: string
 }
 
 export const locales: Record<Locale, LocaleStrings> = { zh, en }

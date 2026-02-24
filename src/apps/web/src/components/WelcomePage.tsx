@@ -102,24 +102,24 @@ function buildGreeting(name: string | null, now: Date): string {
 
 function FreePlanBadge() {
   const [expanded, setExpanded] = useState(false)
+  const { t } = useLocale()
 
   return (
-    <div
-      className="overflow-hidden rounded-2xl transition-all duration-300 ease-in-out"
-      style={{
-        background: 'var(--c-bg-deep)',
-        border: '0.5px solid var(--c-border-subtle)',
-        width: expanded ? '300px' : '200px',
-        maxHeight: expanded ? '120px' : '38px',
-      }}
-    >
-      {/* 顶部按钮行 */}
-      <div className="flex w-fit items-center" style={{ height: '38px' }}>
+    <div className="relative">
+      {/* pill - 自然宽度，不固定 */}
+      <div
+        className="flex items-center rounded-2xl"
+        style={{
+          background: 'var(--c-bg-deep)',
+          border: '0.5px solid var(--c-border-subtle)',
+          height: '38px',
+        }}
+      >
         <span
           className="px-4 text-sm"
           style={{ color: 'var(--c-text-muted)', whiteSpace: 'nowrap' }}
         >
-          免费计划
+          {t.freePlan}
         </span>
         <div style={{ width: '0.5px', height: '16px', background: 'var(--c-border)', flexShrink: 0 }} />
         <button
@@ -128,16 +128,26 @@ function FreePlanBadge() {
           className="flex-none pl-4 pr-3 text-sm font-medium transition-opacity duration-150 hover:opacity-80"
           style={{ color: '#4691F6', whiteSpace: 'nowrap' }}
         >
-          开始免费试用
+          {t.freeTrial}
         </button>
       </div>
 
-      {/* 展开内容 */}
+      {/* 展开内容：absolute 向下弹出，不影响 pill 尺寸和布局 */}
       <div
-        className="px-4 pb-4 text-sm leading-relaxed"
-        style={{ color: 'var(--c-text-secondary)', width: '300px' }}
+        className="absolute left-0 top-full mt-2 rounded-2xl px-4 py-3 text-sm leading-relaxed"
+        style={{
+          background: 'var(--c-bg-deep)',
+          border: '0.5px solid var(--c-border-subtle)',
+          color: 'var(--c-text-secondary)',
+          width: '300px',
+          zIndex: 10,
+          opacity: expanded ? 1 : 0,
+          transform: expanded ? 'translateY(0)' : 'translateY(-6px)',
+          transition: 'opacity 0.2s ease, transform 0.2s ease',
+          pointerEvents: expanded ? 'auto' : 'none',
+        }}
       >
-        哈哈，我们目前暂时不收费哦，如果不够用了可以找我来换一点积分。
+        {t.freeTrialDesc}
       </div>
     </div>
   )
@@ -192,6 +202,14 @@ export function WelcomePage() {
   const handleRemoveAttachment = useCallback((id: string) => {
     setAttachments((prev) => prev.filter((a) => a.id !== id))
   }, [])
+
+  const handleAsrError = useCallback((err: unknown) => {
+    if (isApiError(err) && err.status === 401) {
+      onLoggedOut()
+      return
+    }
+    setError(normalizeError(err, t.requestFailed))
+  }, [onLoggedOut, t.requestFailed])
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
@@ -292,6 +310,7 @@ export function WelcomePage() {
             attachments={attachments}
             onAttachFiles={handleAttachFiles}
             accessToken={accessToken}
+            onAsrError={handleAsrError}
           />
 
           {error && <ErrorCallout error={error} />}

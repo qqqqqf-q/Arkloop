@@ -10,7 +10,7 @@ import (
 const (
 	jwtSecretEnv            = "ARKLOOP_AUTH_JWT_SECRET"
 	accessTokenTTLEnv       = "ARKLOOP_AUTH_ACCESS_TOKEN_TTL_SECONDS"
-	defaultAccessTokenTTL   = 3600
+	defaultAccessTokenTTL   = 2592000 // 30 days
 	minJWTSecretLengthBytes = 32
 )
 
