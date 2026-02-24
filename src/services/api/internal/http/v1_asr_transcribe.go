@@ -63,7 +63,7 @@ func asrTranscribeEntry(
 			WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "invalid multipart form", traceID, nil)
 			return
 		}
-		file, header, err := r.FormFile("audio")
+		file, header, err := r.FormFile("file")
 		if err != nil {
 			WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "audio file is required", traceID, nil)
 			return
