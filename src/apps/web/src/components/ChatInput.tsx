@@ -161,10 +161,13 @@ export function ChatInput({
       const token = accessTokenRef.current
       if (!token || audioChunksRef.current.length === 0) return
 
+      // 取浏览器语言的 ISO-639-1 部分（"zh-CN" → "zh"）
+      const lang = navigator.language?.split('-')[0] ?? undefined
+
       const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
       setIsTranscribing(true)
       try {
-        const result = await transcribeAudio(token, blob, 'audio.webm')
+        const result = await transcribeAudio(token, blob, 'audio.webm', lang)
         if (result.text) {
           const prev = valueRef.current
           onChangeRef.current(prev ? `${prev} ${result.text}` : result.text)
@@ -318,7 +321,7 @@ export function ChatInput({
             type="button"
             onClick={cancelRecording}
             disabled={isTranscribing}
-            className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-[var(--c-bg-deep)] text-[var(--c-text-secondary)] transition-opacity duration-150 hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-40"
+            className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-[var(--c-bg-deep)] text-[var(--c-text-secondary)] transition-[opacity,background] duration-150 hover:bg-[var(--c-bg-deep)] hover:opacity-100 opacity-70 disabled:cursor-not-allowed disabled:opacity-40"
           >
             <X size={14} />
           </button>
@@ -328,7 +331,7 @@ export function ChatInput({
             type="button"
             onClick={stopAndTranscribe}
             disabled={isTranscribing}
-            className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-[var(--c-accent-send)] text-[var(--c-accent-send-text)] transition-opacity duration-150 hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-60"
+            className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-[var(--c-accent-send)] text-[var(--c-accent-send-text)] transition-colors duration-150 hover:bg-[var(--c-accent-send-hover)] active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-60"
           >
             {isTranscribing
               ? <Loader2 size={14} className="animate-spin" />

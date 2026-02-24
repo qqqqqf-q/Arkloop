@@ -90,6 +90,12 @@ func asrTranscribeEntry(
 			WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
 		}
+		if lang := r.FormValue("language"); lang != "" {
+			if err := mw.WriteField("language", lang); err != nil {
+				WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+				return
+			}
+		}
 		mw.Close()
 
 		upstreamURL := resolveAsrBaseURL(cred) + "/audio/transcriptions"

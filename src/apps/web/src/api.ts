@@ -476,9 +476,11 @@ export async function transcribeAudio(
   accessToken: string,
   audioBlob: Blob,
   filename: string,
+  language?: string,
 ): Promise<{ text: string }> {
   const form = new FormData()
   form.append('file', audioBlob, filename)
+  if (language) form.append('language', language)
 
   const base = apiBaseUrl()
   const url = base ? `${base}/v1/asr/transcribe` : `/v1/asr/transcribe`
