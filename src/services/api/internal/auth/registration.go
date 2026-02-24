@@ -257,6 +257,23 @@ func (s *RegistrationService) Register(
 			result.ReferralID = &referral.ID
 			result.InviterUserID = existingCode.UserID
 			result.InviteCodeID = existingCode.ID
+
+			// 被邀请人奖励
+			inviteeReward := int64(0)
+			if s.entitlementSvc != nil {
+				val, resolveErr := s.entitlementSvc.Resolve(ctx, org.ID, "credit.invitee_reward")
+				if resolveErr == nil {
+					if v := val.Int(); v > 0 {
+						inviteeReward = v
+					}
+				}
+			}
+			if inviteeReward > 0 {
+				refType := "referral"
+				if err := creditsRepo.Add(ctx, org.ID, inviteeReward, "invitee_reward", &refType, &referral.ID, nil); err != nil {
+					return RegisterResult{}, err
+				}
+			}
 		} else {
 			if requireValidCode {
 				return RegisterResult{}, InviteCodeInvalidError{Reason: "invite code is invalid or exhausted"}

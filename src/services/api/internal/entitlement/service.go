@@ -27,6 +27,7 @@ var platformDefaults = map[string]EntitlementValue{
 	"invite.default_max_uses":    {Raw: "1", Type: "int"},
 	"credit.initial_grant":       {Raw: "1000", Type: "int"},
 	"credit.invite_reward":       {Raw: "500", Type: "int"},
+	"credit.invitee_reward":      {Raw: "200", Type: "int"},
 }
 
 type EntitlementValue struct {

@@ -721,6 +721,7 @@ export interface LocaleStrings {
       referralTitle: string
       initialGrantLabel: string
       inviteRewardLabel: string
+      inviteeRewardLabel: string
       saveSettings: string
       settingsErrPositive: string
       toastLoadFailed: string
