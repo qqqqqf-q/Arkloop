@@ -237,12 +237,12 @@ function LanguageContent({
             ref={menuRef}
             className="dropdown-menu absolute left-0 top-[calc(100%+4px)] z-50"
             style={{
-              border: '0.5px solid var(--c-border-subtle)',
+              border: '0.5px solid #F3F3F3',
               borderRadius: '10px',
               padding: '4px',
-              background: 'var(--c-bg-menu)',
+              background: '#FFFFFF',
               width: '240px',
-              boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
+              boxShadow: '0 4px 16px rgba(0,0,0,0.08)',
             }}
           >
             {LOCALE_OPTIONS.map(({ value, label: optLabel }) => (
@@ -254,11 +254,11 @@ function LanguageContent({
                 style={{
                   borderRadius: '8px',
                   fontWeight: locale === value ? 600 : 400,
-                  color: locale === value ? 'var(--c-text-heading)' : 'var(--c-text-secondary)',
-                  background: 'transparent',
+                  color: locale === value ? '#111111' : '#333333',
+                  background: '#FFFFFF',
                 }}
-                onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--c-bg-deep)')}
-                onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                onMouseEnter={(e) => (e.currentTarget.style.background = '#F3F3F3')}
+                onMouseLeave={(e) => (e.currentTarget.style.background = '#FFFFFF')}
               >
                 {optLabel}
               </button>

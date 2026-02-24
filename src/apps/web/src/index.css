@@ -34,6 +34,9 @@
   --c-overlay: rgba(0, 0, 0, 0.60);
   --c-modal-ring: rgba(255, 255, 255, 0.07);
   --c-bg-github-btn: #3d3d3b;
+  --c-input-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+  --c-input-border: 1px solid rgba(255, 255, 255, 0.15);
+  --c-input-shadow-focus: 0 2px 8px rgba(0, 0, 0, 0.18);
 }
 
 @media (prefers-color-scheme: light) {
@@ -70,6 +73,9 @@
     --c-overlay: rgba(0, 0, 0, 0.25);
     --c-modal-ring: rgba(0, 0, 0, 0.09);
     --c-bg-github-btn: #F5F5F3;
+    --c-input-shadow: 0 2px 12px rgba(0, 0, 0, 0.06), 0 0 0 0.5px rgba(0, 0, 0, 0.05);
+    --c-input-border: 0.5px solid rgba(0, 0, 0, 0.07);
+    --c-input-shadow-focus: 0 3px 16px rgba(0, 0, 0, 0.10), 0 0 0 1px rgba(0, 0, 0, 0.09);
   }
 }
 
@@ -106,9 +112,10 @@
   --c-overlay: rgba(0, 0, 0, 0.25);
   --c-modal-ring: rgba(0, 0, 0, 0.09);
   --c-bg-github-btn: #F5F5F3;
+  --c-input-shadow: 0 2px 12px rgba(0, 0, 0, 0.06), 0 0 0 0.5px rgba(0, 0, 0, 0.05);
+  --c-input-border: 0.5px solid rgba(0, 0, 0, 0.07);
+  --c-input-shadow-focus: 0 3px 16px rgba(0, 0, 0, 0.10), 0 0 0 1px rgba(0, 0, 0, 0.09);
 }
-
-/* highlight.js 主题 - 深色（默认） */
 .hljs { background: transparent; color: var(--c-text-primary); }
 .hljs-comment,
 .hljs-quote { color: #6e7a6e; font-style: italic; }
@@ -223,18 +230,21 @@
   animation: modal-enter 0.18s cubic-bezier(0.22, 1, 0.36, 1);
 }
 @keyframes dropdown-slide-in {
-  from {
-    opacity: 0;
-    transform: translateY(-6px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes dropdown-slide-up {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
 .dropdown-menu {
   animation: dropdown-slide-in 0.15s ease-out;
+}
+
+.dropdown-menu-up {
+  animation: dropdown-slide-up 0.15s ease-out;
 }
 
 @layer base {

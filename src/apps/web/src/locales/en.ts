@@ -9,7 +9,7 @@ export const en: LocaleStrings = {
   recents: 'Recents',
   untitled: 'Untitled',
   loading: 'Loading...',
-  enterprisePlan: 'Enterprise plan',
+  enterprisePlan: 'Early Access',
   nav: {
     account: 'Account',
     settings: 'Settings',

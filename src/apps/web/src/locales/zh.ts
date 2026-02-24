@@ -9,7 +9,7 @@ export const zh: LocaleStrings = {
   recents: '最近',
   untitled: '未命名会话',
   loading: '加载中...',
-  enterprisePlan: 'Enterprise plan',
+  enterprisePlan: 'Early Access',
   nav: {
     account: '账户',
     settings: '设置',

@@ -10,6 +10,7 @@ import {
   getMe,
   listThreads,
   logout,
+  getMyCredits,
   isApiError,
   type MeResponse,
   type ThreadResponse,
@@ -40,6 +41,7 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
   const [settingsInitialTab, setSettingsInitialTab] = useState<SettingsTab>('account')
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [notificationVersion, setNotificationVersion] = useState(0)
+  const [creditsBalance, setCreditsBalance] = useState(0)
 
   const handleNotificationMarkedRead = useCallback(() => {
     setNotificationVersion((v) => v + 1)
@@ -55,13 +57,15 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
   useEffect(() => {
     void (async () => {
       try {
-        const [meResp, threadItems] = await Promise.all([
+        const [meResp, threadItems, creditsResp] = await Promise.all([
           getMe(accessToken),
           listThreads(accessToken, { limit: 200 }),
+          getMyCredits(accessToken),
         ])
         if (!mountedRef.current) return
         setMe(meResp)
         setThreads(threadItems)
+        setCreditsBalance(creditsResp.balance)
         setRunningThreadIds(
           new Set(threadItems.filter((t) => t.active_run_id != null).map((t) => t.id)),
         )
@@ -146,7 +150,7 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
       )}
 
       <main className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
-        <Outlet context={{ accessToken, onLoggedOut, me, onThreadCreated: handleThreadCreated, onRunStarted: handleRunStarted, onRunEnded: handleRunEnded, onOpenNotifications: () => setNotificationsOpen(true), notificationVersion }} />
+        <Outlet context={{ accessToken, onLoggedOut, me, creditsBalance, onThreadCreated: handleThreadCreated, onRunStarted: handleRunStarted, onRunEnded: handleRunEnded, onOpenNotifications: () => setNotificationsOpen(true), notificationVersion }} />
         {notificationsOpen && (
           <NotificationsPanel accessToken={accessToken} onClose={() => setNotificationsOpen(false)} onMarkedRead={handleNotificationMarkedRead} />
         )}

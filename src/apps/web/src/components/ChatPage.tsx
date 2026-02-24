@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo, type FormEvent } from 'react'
 import { useParams, useLocation, useOutletContext } from 'react-router-dom'
-import { Glasses, Paperclip, X } from 'lucide-react'
+import { Glasses, Paperclip, X, Zap } from 'lucide-react'
 import { ChatInput, type Attachment, formatFileSize } from './ChatInput'
 import { MessageBubble, StreamingBubble } from './MessageBubble'
 import { ErrorCallout, type AppError } from './ErrorCallout'
@@ -40,12 +40,13 @@ type OutletContext = {
   onRunEnded: (threadId: string) => void
   onOpenNotifications: () => void
   notificationVersion: number
+  creditsBalance: number
 }
 
 type LocationState = { initialRunId?: string } | null
 
 export function ChatPage() {
-  const { accessToken, onLoggedOut, onRunStarted, onRunEnded, onOpenNotifications, notificationVersion } = useOutletContext<OutletContext>()
+  const { accessToken, onLoggedOut, onRunStarted, onRunEnded, onOpenNotifications, notificationVersion, creditsBalance } = useOutletContext<OutletContext>()
   const { threadId } = useParams<{ threadId: string }>()
   const location = useLocation()
   const locationState = location.state as LocationState
@@ -386,6 +387,10 @@ export function ChatPage() {
     <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-[var(--c-bg-page)]">
       {/* 顶部 header */}
       <div className="flex min-h-[51px] items-center justify-end gap-2 px-[15px] py-[15px]">
+        <div className="flex items-center gap-1 text-[var(--c-text-secondary)]" style={{ opacity: 0.8 }}>
+          <Zap size={13} strokeWidth={2.2} />
+          <span className="text-sm font-medium tabular-nums">{creditsBalance.toLocaleString()}</span>
+        </div>
         <NotificationBell accessToken={accessToken} onClick={onOpenNotifications} refreshKey={notificationVersion} />
         <button className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]">
           <Glasses size={18} />
