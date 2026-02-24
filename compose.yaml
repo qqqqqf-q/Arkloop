@@ -34,7 +34,7 @@ services:
       retries: 20
 
   minio:
-    image: minio/minio:RELEASE.2025-02-18T23-48-18Z
+    image: minio/minio:latest
     restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
@@ -76,20 +76,51 @@ services:
       timeout: 3s
       retries: 20
 
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    restart: unless-stopped
+    environment:
+      DB_USER: ${ARKLOOP_POSTGRES_USER:-arkloop}
+      DB_PASSWORD: ${ARKLOOP_POSTGRES_PASSWORD:?请在 .env 中设置 ARKLOOP_POSTGRES_PASSWORD}
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: ${ARKLOOP_POSTGRES_DB:-arkloop}
+      POOL_MODE: transaction
+      DEFAULT_POOL_SIZE: "${ARKLOOP_PGBOUNCER_POOL_SIZE:-200}"
+      MAX_CLIENT_CONN: "${ARKLOOP_PGBOUNCER_MAX_CLIENT_CONN:-1000}"
+      SERVER_RESET_QUERY: ""
+      AUTH_TYPE: scram-sha-256
+      ADMIN_USERS: "${ARKLOOP_POSTGRES_USER:-arkloop}"
+      STATS_USERS: "${ARKLOOP_POSTGRES_USER:-arkloop}"
+    ports:
+      - "${ARKLOOP_PGBOUNCER_PORT:-5433}:5432"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 -U ${ARKLOOP_POSTGRES_USER:-arkloop}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
   worker:
     build:
       context: .
       dockerfile: src/services/worker/Dockerfile
     restart: unless-stopped
+    env_file:
+      - .env
     environment:
-      ARKLOOP_DATABASE_URL: "postgresql://${ARKLOOP_POSTGRES_USER:-arkloop}:${ARKLOOP_POSTGRES_PASSWORD:?请在 .env 中设置 ARKLOOP_POSTGRES_PASSWORD}@postgres:5432/${ARKLOOP_POSTGRES_DB:-arkloop}"
+      # 以下覆盖 .env 中同名变量，使用 Docker 内部服务名
+      ARKLOOP_DATABASE_URL: "postgresql://${ARKLOOP_POSTGRES_USER:-arkloop}:${ARKLOOP_POSTGRES_PASSWORD:?请在 .env 中设置 ARKLOOP_POSTGRES_PASSWORD}@pgbouncer:5432/${ARKLOOP_POSTGRES_DB:-arkloop}"
+      ARKLOOP_DATABASE_DIRECT_URL: "postgresql://${ARKLOOP_POSTGRES_USER:-arkloop}:${ARKLOOP_POSTGRES_PASSWORD:?请在 .env 中设置 ARKLOOP_POSTGRES_PASSWORD}@postgres:5432/${ARKLOOP_POSTGRES_DB:-arkloop}"
       ARKLOOP_REDIS_URL: "redis://:${ARKLOOP_REDIS_PASSWORD:-arkloop_redis}@redis:6379/0"
       ARKLOOP_WORKER_QUEUE_JOB_TYPES: "${ARKLOOP_WORKER_QUEUE_JOB_TYPES:-run.execute}"
       ARKLOOP_WORKER_CONCURRENCY: "${ARKLOOP_WORKER_CONCURRENCY:-4}"
-      ARKLOOP_TOOL_ALLOWLIST: "${ARKLOOP_TOOL_ALLOWLIST:-}"
-      ARKLOOP_LLM_DEBUG_EVENTS: "${ARKLOOP_LLM_DEBUG_EVENTS:-0}"
+      # 容器内无宿主机文件系统，MCP 配置从数据库读取
+      ARKLOOP_MCP_CONFIG_FILE: ""
     depends_on:
-      postgres:
+      pgbouncer:
         condition: service_healthy
       redis:
         condition: service_healthy

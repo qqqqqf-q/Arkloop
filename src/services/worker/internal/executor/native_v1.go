@@ -24,14 +24,14 @@ type NativeRunEngineV1Handler struct {
 	queue  queue.JobQueue
 }
 
-func NewNativeRunEngineV1Handler(pool *pgxpool.Pool, logger *app.JSONLogger, rdb *redis.Client, q queue.JobQueue) (*NativeRunEngineV1Handler, error) {
+func NewNativeRunEngineV1Handler(pool *pgxpool.Pool, directPool *pgxpool.Pool, logger *app.JSONLogger, rdb *redis.Client, q queue.JobQueue) (*NativeRunEngineV1Handler, error) {
 	if pool == nil {
 		return nil, fmt.Errorf("pool must not be nil")
 	}
 	if logger == nil {
 		logger = app.NewJSONLogger("worker_go", nil)
 	}
-	engine, err := app.ComposeNativeEngine(context.Background(), pool, rdb)
+	engine, err := app.ComposeNativeEngine(context.Background(), pool, directPool, rdb)
 	if err != nil {
 		return nil, err
 	}

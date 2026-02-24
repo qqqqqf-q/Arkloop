@@ -51,11 +51,30 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	pool, err := pgxpool.New(ctx, normalizePostgresDSN(databaseDSN))
+	// advisory lock 每个并发 job 持有 1 个连接直到 job 完成，
+	// 加上 pipeline 各阶段并发的 BeginTx，pool 大小必须足够：concurrency * 3 + margin
+	poolMinConns := int32(cfg.Concurrency*3 + 8)
+	poolCfg, err := pgxpool.ParseConfig(normalizePostgresDSN(databaseDSN))
+	if err != nil {
+		return err
+	}
+	poolCfg.MaxConns = poolMinConns
+	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
 	if err != nil {
 		return err
 	}
 	defer pool.Close()
+
+	// 直连 pool，用于 LISTEN/NOTIFY（绕过 PgBouncer transaction mode）
+	var directPool *pgxpool.Pool
+	if directDSN := lookupDirectDatabaseDSN(); directDSN != "" {
+		dp, err := pgxpool.New(ctx, normalizePostgresDSN(directDSN))
+		if err != nil {
+			return fmt.Errorf("direct pool: %w", err)
+		}
+		defer dp.Close()
+		directPool = dp
+	}
 
 	// Redis 在 chooseHandler 之前初始化，以便传入 run limiter
 	var rdb *redis.Client
@@ -80,7 +99,7 @@ func run() error {
 		return err
 	}
 
-	handler, err := chooseHandler(logger, pool, rdb, queueClient, cfg.QueueJobTypes)
+	handler, err := chooseHandler(logger, pool, directPool, rdb, queueClient, cfg.QueueJobTypes)
 	if err != nil {
 		return err
 	}
@@ -146,6 +165,10 @@ func lookupDatabaseDSN() string {
 	return ""
 }
 
+func lookupDirectDatabaseDSN() string {
+	return strings.TrimSpace(os.Getenv("ARKLOOP_DATABASE_DIRECT_URL"))
+}
+
 func lookupRedisURL() string {
 	return strings.TrimSpace(os.Getenv("ARKLOOP_REDIS_URL"))
 }
@@ -179,7 +202,7 @@ func normalizePostgresDSN(raw string) string {
 	return raw
 }
 
-func chooseHandler(logger *app.JSONLogger, pool *pgxpool.Pool, rdb *redis.Client, q queue.JobQueue, queueJobTypes []string) (consumer.Handler, error) {
+func chooseHandler(logger *app.JSONLogger, pool *pgxpool.Pool, directPool *pgxpool.Pool, rdb *redis.Client, q queue.JobQueue, queueJobTypes []string) (consumer.Handler, error) {
 	_ = queueJobTypes
 	if logger == nil {
 		logger = app.NewJSONLogger("worker_go", nil)
@@ -188,7 +211,7 @@ func chooseHandler(logger *app.JSONLogger, pool *pgxpool.Pool, rdb *redis.Client
 		return nil, fmt.Errorf("pool must not be nil")
 	}
 
-	native, err := executor.NewNativeRunEngineV1Handler(pool, logger, rdb, q)
+	native, err := executor.NewNativeRunEngineV1Handler(pool, directPool, logger, rdb, q)
 	if err != nil {
 		return nil, err
 	}

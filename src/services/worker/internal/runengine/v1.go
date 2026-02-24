@@ -24,6 +24,7 @@ type EngineV1 struct {
 	middlewares []pipeline.RunMiddleware
 	terminal    pipeline.RunHandler
 	router      *routing.ProviderRouter
+	directPool  *pgxpool.Pool
 }
 
 type ExecuteInput struct {
@@ -33,6 +34,7 @@ type ExecuteInput struct {
 type EngineV1Deps struct {
 	Router          *routing.ProviderRouter
 	DBPool          *pgxpool.Pool
+	DirectDBPool    *pgxpool.Pool // LISTEN/NOTIFY 专用直连；nil 时 LISTEN 回落 DBPool
 	StubGateway     llm.Gateway
 	EmitDebugEvents bool
 	RunLimiterRDB   *redis.Client
@@ -111,6 +113,7 @@ func NewEngineV1(deps EngineV1Deps) (*EngineV1, error) {
 		middlewares: middlewares,
 		terminal:    terminal,
 		router:      deps.Router,
+		directPool:  deps.DirectDBPool,
 	}, nil
 }
 
@@ -124,6 +127,7 @@ func (e *EngineV1) Execute(ctx context.Context, pool *pgxpool.Pool, run data.Run
 	rc := &pipeline.RunContext{
 		Run:           run,
 		Pool:          pool,
+		DirectPool:    e.directPool,
 		TraceID:       traceID,
 		Emitter:       events.NewEmitter(traceID),
 		Router:        e.router,

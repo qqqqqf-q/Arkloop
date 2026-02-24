@@ -467,6 +467,7 @@ func streamRunEvents(
 	runRepo *data.RunEventRepository,
 	auditWriter *audit.Writer,
 	pool *pgxpool.Pool,
+	directPool *pgxpool.Pool,
 	sseConfig SSEConfig,
 	apiKeysRepo *data.APIKeysRepository,
 ) func(nethttp.ResponseWriter, *nethttp.Request, uuid.UUID) {
@@ -526,9 +527,15 @@ func streamRunEvents(
 		}
 
 		// LISTEN for pg_notify from worker commits
+		// directPool 不经过 PgBouncer（transaction mode 下 LISTEN 不可用）
+		// directPool 为 nil 时 fallback 到 pool（本地开发直连 PostgreSQL 场景）
 		var notifyCh <-chan struct{}
 		if follow && pool != nil {
-			listenConn, err := pool.Acquire(r.Context())
+			listenPool := directPool
+			if listenPool == nil {
+				listenPool = pool
+			}
+			listenConn, err := listenPool.Acquire(r.Context())
 			if err == nil {
 				channel := fmt.Sprintf(`"run_events:%s"`, runID.String())
 				if _, err := listenConn.Exec(r.Context(), "LISTEN "+channel); err == nil {
@@ -697,12 +704,13 @@ func runEntry(
 	runRepo *data.RunEventRepository,
 	auditWriter *audit.Writer,
 	pool *pgxpool.Pool,
+	directPool *pgxpool.Pool,
 	sseConfig SSEConfig,
 	apiKeysRepo *data.APIKeysRepository,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	get := getRun(authService, membershipRepo, runRepo, auditWriter, apiKeysRepo)
 	cancel := cancelRun(authService, membershipRepo, runRepo, auditWriter, pool, apiKeysRepo)
-	streamEvents := streamRunEvents(authService, membershipRepo, runRepo, auditWriter, pool, sseConfig, apiKeysRepo)
+	streamEvents := streamRunEvents(authService, membershipRepo, runRepo, auditWriter, pool, directPool, sseConfig, apiKeysRepo)
 
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		traceID := observability.TraceIDFromContext(r.Context())

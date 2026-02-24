@@ -14,6 +14,7 @@ const (
 	apiGoAddrEnv              = "ARKLOOP_API_GO_ADDR"
 	databaseURLPrimaryEnv     = "ARKLOOP_DATABASE_URL"
 	databaseURLFallbackEnv    = "DATABASE_URL"
+	databaseDirectURLEnv      = "ARKLOOP_DATABASE_DIRECT_URL"
 	trustIncomingTraceIDEnv   = "ARKLOOP_TRUST_INCOMING_TRACE_ID"
 	trustXForwardedForEnv     = "ARKLOOP_TRUST_X_FORWARDED_FOR"
 	defaultAddr               = "127.0.0.1:8001"
@@ -52,6 +53,7 @@ func defaultSSEConfig() SSEConfig {
 type Config struct {
 	Addr                 string
 	DatabaseDSN          string
+	DirectDatabaseDSN    string // SSE LISTEN/NOTIFY 专用直连，不走 PgBouncer
 	TrustIncomingTraceID bool
 	TrustXForwardedFor   bool
 	Auth                 *auth.Config
@@ -110,6 +112,10 @@ func LoadConfigFromEnv() (Config, error) {
 		cfg.DatabaseDSN = raw
 	} else if raw, ok := lookupEnv(databaseURLFallbackEnv); ok {
 		cfg.DatabaseDSN = raw
+	}
+
+	if raw, ok := lookupEnv(databaseDirectURLEnv); ok {
+		cfg.DirectDatabaseDSN = raw
 	}
 
 	authConfig, err := auth.LoadConfigFromEnv(false)

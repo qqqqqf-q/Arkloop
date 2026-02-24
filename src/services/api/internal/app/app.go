@@ -56,6 +56,7 @@ func (a *Application) Run(ctx context.Context) error {
 
 	var (
 		pool       *pgxpool.Pool
+		directPool *pgxpool.Pool
 		schemaRepo *data.SchemaRepository
 	)
 	var poolCloser func()
@@ -94,6 +95,16 @@ func (a *Application) Run(ctx context.Context) error {
 	}
 	if poolCloser != nil {
 		defer poolCloser()
+	}
+
+	if directDSN := strings.TrimSpace(a.config.DirectDatabaseDSN); directDSN != "" {
+		dp, err := data.NewDirectPool(ctx, directDSN)
+		if err != nil {
+			return fmt.Errorf("direct pool: %w", err)
+		}
+		directPool = dp
+		defer directPool.Close()
+		a.logger.Info("direct pool connected", observability.LogFields{}, nil)
 	}
 
 	var redisClient *redis.Client
@@ -389,6 +400,7 @@ func (a *Application) Run(ctx context.Context) error {
 	server := &http.Server{
 		Handler: apihttp.NewHandler(apihttp.HandlerConfig{
 			Pool:                 pool,
+			DirectPool:           directPool,
 			Logger:               a.logger,
 			TrustIncomingTraceID: a.config.TrustIncomingTraceID,
 			TrustXForwardedFor:   a.config.TrustXForwardedFor,

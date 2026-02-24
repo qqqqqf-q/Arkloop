@@ -47,8 +47,12 @@ func NewCancelGuardMiddleware(
 			return nil
 		}
 
-		// LISTEN/NOTIFY 桥接
-		listenConn, err := pool.Acquire(ctx)
+		// LISTEN/NOTIFY 桥接：优先用直连 pool 避免 PgBouncer transaction mode 断联
+		listenPool := rc.DirectPool
+		if listenPool == nil {
+			listenPool = pool
+		}
+		listenConn, err := listenPool.Acquire(ctx)
 		if err != nil {
 			return err
 		}

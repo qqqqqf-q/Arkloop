@@ -31,9 +31,10 @@ type ResolvedAgentConfig struct {
 // RunContext 承载单次 Execute 调用的全部运行时状态，在 Pipeline 各中间件间共享。
 type RunContext struct {
 	// -- 初始化时写入 --
-	Run     data.Run
-	Pool    *pgxpool.Pool
-	TraceID string
+	Run        data.Run
+	Pool       *pgxpool.Pool
+	DirectPool *pgxpool.Pool // LISTEN/NOTIFY 专用直连，绕过 PgBouncer；nil 时回落 Pool
+	TraceID    string
 	Emitter events.Emitter
 	Router  *routing.ProviderRouter
 

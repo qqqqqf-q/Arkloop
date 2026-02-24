@@ -28,7 +28,8 @@ func defaultSSEConfig() SSEConfig {
 }
 
 type HandlerConfig struct {
-	Pool                 *pgxpool.Pool
+	Pool       *pgxpool.Pool
+	DirectPool *pgxpool.Pool // LISTEN/NOTIFY 专用，不走 PgBouncer；nil 时 fallback 到 Pool
 	Logger               *observability.JSONLogger
 	SchemaRepository     *data.SchemaRepository
 	TrustIncomingTraceID bool
@@ -132,7 +133,7 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 	)
 	mux.HandleFunc(
 		"/v1/runs/",
-		runEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.RunEventRepo, cfg.AuditWriter, cfg.Pool, sseConfig, cfg.APIKeysRepo),
+		runEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.RunEventRepo, cfg.AuditWriter, cfg.Pool, cfg.DirectPool, sseConfig, cfg.APIKeysRepo),
 	)
 
 	mux.HandleFunc(
