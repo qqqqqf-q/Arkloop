@@ -3,6 +3,7 @@ import { useNavigate, useOutletContext } from 'react-router-dom'
 import { Glasses, Paperclip, X } from 'lucide-react'
 import { ChatInput, type Attachment, formatFileSize } from './ChatInput'
 import { ErrorCallout, type AppError } from './ErrorCallout'
+import { NotificationBell } from './NotificationBell'
 import { createThread, createMessage, createRun, isApiError, type ThreadResponse } from '../api'
 import { writeActiveThreadIdToStorage } from '../storage'
 import { useLocale } from '../contexts/LocaleContext'
@@ -115,7 +116,8 @@ export function WelcomePage() {
   return (
     <div className="flex h-full flex-col">
       {/* 顶部 header */}
-      <div className="flex min-h-[51px] items-center justify-end px-[15px] py-[15px]">
+      <div className="flex min-h-[51px] items-center justify-end gap-1 px-[15px] py-[15px]">
+        <NotificationBell accessToken={accessToken} />
         <button className="flex h-5 w-5 items-center justify-center text-[var(--c-text-secondary)] transition-opacity hover:opacity-70">
           <Glasses size={20} />
         </button>

@@ -86,8 +86,13 @@ func listNotifications(
 		return
 	}
 
+	typeFilter := r.URL.Query().Get("type")
+
 	resp := make([]notificationResponse, 0, len(items))
 	for _, n := range items {
+		if typeFilter != "" && n.Type != typeFilter {
+			continue
+		}
 		resp = append(resp, toNotificationResponse(n))
 	}
 

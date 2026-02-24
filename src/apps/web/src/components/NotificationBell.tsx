@@ -23,7 +23,7 @@ export function NotificationBell({ accessToken }: Props) {
 
   const fetchNotifications = useCallback(async () => {
     try {
-      const resp = await listNotifications(accessToken)
+      const resp = await listNotifications(accessToken, 'broadcast')
       if (mountedRef.current) {
         setItems(resp.data ?? [])
       }
@@ -65,9 +65,9 @@ export function NotificationBell({ accessToken }: Props) {
     <div className="relative" ref={panelRef}>
       <button
         onClick={() => setOpen((v) => !v)}
-        className="relative flex h-8 w-8 items-center justify-center rounded-lg text-[var(--c-text-tertiary)] transition-colors hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-secondary)]"
+        className="relative flex h-5 w-5 items-center justify-center text-[var(--c-text-secondary)] opacity-80 transition-opacity hover:opacity-100"
       >
-        <Bell size={18} />
+        <Bell size={20} />
         {unreadCount > 0 && (
           <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-[var(--c-status-error-bg,#ef4444)] px-1 text-[10px] font-medium text-white">
             {unreadCount > 99 ? '99+' : unreadCount}

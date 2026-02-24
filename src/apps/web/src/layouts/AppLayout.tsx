@@ -4,7 +4,6 @@ import { PanelLeftOpen } from 'lucide-react'
 import { Sidebar } from '../components/Sidebar'
 import { SettingsModal } from '../components/SettingsModal'
 import { ChatsSearchModal } from '../components/ChatsSearchModal'
-import { NotificationBell } from '../components/NotificationBell'
 import type { SettingsTab } from '../components/SettingsModal'
 import {
   getMe,
@@ -113,10 +112,6 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
           <PanelLeftOpen size={18} />
         </button>
       )}
-
-      <div className="fixed right-3 top-3 z-40">
-        <NotificationBell accessToken={accessToken} />
-      </div>
 
       <Sidebar
         me={me}

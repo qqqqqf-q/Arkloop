@@ -429,8 +429,10 @@ export type NotificationItem = {
 
 export async function listNotifications(
   accessToken: string,
+  typeFilter?: string,
 ): Promise<{ data: NotificationItem[] }> {
-  return await apiFetch<{ data: NotificationItem[] }>('/v1/notifications', {
+  const query = typeFilter ? `?type=${encodeURIComponent(typeFilter)}` : ''
+  return await apiFetch<{ data: NotificationItem[] }>(`/v1/notifications${query}`, {
     method: 'GET',
     accessToken,
   })

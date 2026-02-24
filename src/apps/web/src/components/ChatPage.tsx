@@ -5,6 +5,7 @@ import { ChatInput, type Attachment, formatFileSize } from './ChatInput'
 import { MessageBubble, StreamingBubble } from './MessageBubble'
 import { ErrorCallout, type AppError } from './ErrorCallout'
 import { DebugFloatingPanel } from './DebugFloatingPanel'
+import { NotificationBell } from './NotificationBell'
 import { useSSE } from '../hooks/useSSE'
 import { SSEApiError } from '../sse'
 import { selectFreshRunEvents } from '../runEventProcessing'
@@ -382,7 +383,8 @@ export function ChatPage() {
   return (
     <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-[var(--c-bg-page)]">
       {/* 顶部 header */}
-      <div className="flex min-h-[51px] items-center justify-end px-[15px] py-[15px]">
+      <div className="flex min-h-[51px] items-center justify-end gap-1 px-[15px] py-[15px]">
+        <NotificationBell accessToken={accessToken} />
         <button className="flex h-5 w-5 items-center justify-center text-[var(--c-text-secondary)] opacity-80 transition-opacity hover:opacity-100">
           <Glasses size={20} />
         </button>
