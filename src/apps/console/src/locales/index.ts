@@ -91,6 +91,9 @@ export interface LocaleStrings {
       routePriority: string
       routeDefault: string
       routeWhen: string
+      routeMultiplier: string
+      routeCostInput: string
+      routeCostOutput: string
       addRoute: string
       // buttons
       cancel: string

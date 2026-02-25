@@ -86,8 +86,8 @@ function routeToEditRow(route: LlmRoute): RouteEditRow {
     draftIsDefault: route.is_default,
     draftWhen: route.when && Object.keys(route.when).length > 0 ? JSON.stringify(route.when) : '',
     draftMultiplier: route.multiplier != null ? String(route.multiplier) : '1',
-    draftCostInput: route.cost_per_1k_input != null ? String(route.cost_per_1k_input) : '',
-    draftCostOutput: route.cost_per_1k_output != null ? String(route.cost_per_1k_output) : '',
+    draftCostInput: route.cost_per_1k_input != null ? String(route.cost_per_1k_input * 1000) : '',
+    draftCostOutput: route.cost_per_1k_output != null ? String(route.cost_per_1k_output * 1000) : '',
     saving: false,
     copied: false,
   }
@@ -203,8 +203,8 @@ export function CredentialsPage() {
         is_default: r.is_default,
         when,
         multiplier: parseFloat(r.multiplier) > 0 ? parseFloat(r.multiplier) : undefined,
-        cost_per_1k_input: r.cost_per_1k_input !== '' ? parseFloat(r.cost_per_1k_input) : undefined,
-        cost_per_1k_output: r.cost_per_1k_output !== '' ? parseFloat(r.cost_per_1k_output) : undefined,
+        cost_per_1k_input: r.cost_per_1k_input !== '' ? parseFloat(r.cost_per_1k_input) / 1000 : undefined,
+        cost_per_1k_output: r.cost_per_1k_output !== '' ? parseFloat(r.cost_per_1k_output) / 1000 : undefined,
       })
     }
 
@@ -303,8 +303,8 @@ export function CredentialsPage() {
             is_default: row.draftIsDefault,
             when,
             multiplier: parseFloat(row.draftMultiplier) > 0 ? parseFloat(row.draftMultiplier) : undefined,
-            cost_per_1k_input: row.draftCostInput !== '' ? parseFloat(row.draftCostInput) : undefined,
-            cost_per_1k_output: row.draftCostOutput !== '' ? parseFloat(row.draftCostOutput) : undefined,
+            cost_per_1k_input: row.draftCostInput !== '' ? parseFloat(row.draftCostInput) / 1000 : undefined,
+            cost_per_1k_output: row.draftCostOutput !== '' ? parseFloat(row.draftCostOutput) / 1000 : undefined,
           },
           accessToken,
         )
@@ -783,6 +783,44 @@ export function CredentialsPage() {
                     placeholder="{}"
                     className="rounded border border-[var(--c-border)] bg-[var(--c-bg-deep2)] px-2.5 py-1 font-mono text-xs text-[var(--c-text-primary)] placeholder:text-[var(--c-text-muted)] focus:outline-none"
                   />
+                </div>
+                <div className="flex gap-2">
+                  <div className="flex w-24 flex-col gap-1">
+                    <span className="text-[10px] text-[var(--c-text-muted)]">{tc.routeMultiplier}</span>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      value={row.draftMultiplier}
+                      onChange={(e) => handleEditRowField(idx, 'draftMultiplier', e.target.value)}
+                      placeholder="1"
+                      className="rounded border border-[var(--c-border)] bg-[var(--c-bg-deep2)] px-2.5 py-1 text-xs text-[var(--c-text-primary)] focus:outline-none"
+                    />
+                  </div>
+                  <div className="flex flex-1 flex-col gap-1">
+                    <span className="text-[10px] text-[var(--c-text-muted)]">{tc.routeCostInput}</span>
+                    <input
+                      type="number"
+                      step="0.001"
+                      min="0"
+                      value={row.draftCostInput}
+                      onChange={(e) => handleEditRowField(idx, 'draftCostInput', e.target.value)}
+                      placeholder="0.00"
+                      className="rounded border border-[var(--c-border)] bg-[var(--c-bg-deep2)] px-2.5 py-1 text-xs text-[var(--c-text-primary)] focus:outline-none"
+                    />
+                  </div>
+                  <div className="flex flex-1 flex-col gap-1">
+                    <span className="text-[10px] text-[var(--c-text-muted)]">{tc.routeCostOutput}</span>
+                    <input
+                      type="number"
+                      step="0.001"
+                      min="0"
+                      value={row.draftCostOutput}
+                      onChange={(e) => handleEditRowField(idx, 'draftCostOutput', e.target.value)}
+                      placeholder="0.00"
+                      className="rounded border border-[var(--c-border)] bg-[var(--c-bg-deep2)] px-2.5 py-1 text-xs text-[var(--c-text-primary)] focus:outline-none"
+                    />
+                  </div>
                 </div>
                 <div className="flex justify-end">
                   <button
