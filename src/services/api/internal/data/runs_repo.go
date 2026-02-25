@@ -547,6 +547,81 @@ func (r *RunEventRepository) CountAll(ctx context.Context) (int64, error) {
 	return count, nil
 }
 
+// ListStaleRunning 查询所有 status='running' 且最后活跃时间早于 staleBefore 的 run。
+func (r *RunEventRepository) ListStaleRunning(ctx context.Context, staleBefore time.Time) ([]Run, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	rows, err := r.db.Query(
+		ctx,
+		`SELECT id, org_id, thread_id, created_by_user_id, status, created_at,
+		        parent_run_id, status_updated_at, completed_at, failed_at,
+		        duration_ms, total_input_tokens, total_output_tokens, total_cost_usd,
+		        model, skill_id, deleted_at
+		 FROM runs
+		 WHERE status = 'running'
+		   AND COALESCE(status_updated_at, created_at) < $1`,
+		staleBefore.UTC(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("ListStaleRunning: %w", err)
+	}
+	defer rows.Close()
+
+	var runs []Run
+	for rows.Next() {
+		var run Run
+		if err := rows.Scan(
+			&run.ID, &run.OrgID, &run.ThreadID, &run.CreatedByUserID, &run.Status, &run.CreatedAt,
+			&run.ParentRunID, &run.StatusUpdatedAt, &run.CompletedAt, &run.FailedAt,
+			&run.DurationMs, &run.TotalInputTokens, &run.TotalOutputTokens, &run.TotalCostUSD,
+			&run.Model, &run.SkillID, &run.DeletedAt,
+		); err != nil {
+			return nil, fmt.Errorf("ListStaleRunning scan: %w", err)
+		}
+		runs = append(runs, run)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("ListStaleRunning rows: %w", err)
+	}
+	return runs, nil
+}
+
+// ForceFailRun 原子地将一个 running 的 run 标记为 failed 并写入 run.failed 事件。
+// 返回 (true, nil) 表示实际执行了更新；(false, nil) 表示 run 已不在 running 状态（no-op）。
+func (r *RunEventRepository) ForceFailRun(ctx context.Context, runID uuid.UUID) (bool, error) {
+	if runID == uuid.Nil {
+		return false, fmt.Errorf("run_id must not be empty")
+	}
+
+	// 单条 CTE 原子完成：UPDATE + event INSERT，seq/ts/event_id 均由列默认值生成。
+	// 若 run 已不在 running 状态，UPDATE 返回 0 行，INSERT 也插入 0 行。
+	tag, err := r.db.Exec(
+		ctx,
+		`WITH updated AS (
+		     UPDATE runs
+		     SET status = 'failed',
+		         failed_at = now(),
+		         status_updated_at = now()
+		     WHERE id = $1
+		       AND status = 'running'
+		     RETURNING id
+		 )
+		 INSERT INTO run_events (run_id, type, data_json, error_class)
+		 SELECT updated.id,
+		        'run.failed',
+		        '{"reason":"stale run reaped by system"}'::jsonb,
+		        'worker.timeout'
+		 FROM updated`,
+		runID,
+	)
+	if err != nil {
+		return false, fmt.Errorf("ForceFailRun: %w", err)
+	}
+	return tag.RowsAffected() == 1, nil
+}
+
 func (r *RunEventRepository) CountSince(ctx context.Context, since time.Time) (int64, error) {
 	if ctx == nil {
 		ctx = context.Background()

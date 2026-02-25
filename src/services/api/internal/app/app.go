@@ -18,6 +18,7 @@ import (
 	"arkloop/services/api/internal/entitlement"
 	"arkloop/services/api/internal/featureflag"
 	apihttp "arkloop/services/api/internal/http"
+	"arkloop/services/api/internal/jobs"
 	"arkloop/services/api/internal/migrate"
 	"arkloop/services/api/internal/observability"
 	"arkloop/services/shared/objectstore"
@@ -402,6 +403,12 @@ func (a *Application) Run(ctx context.Context) error {
 	if pool != nil {
 		partitionMgr := data.NewPartitionManager(pool, a.logger)
 		go partitionMgr.Run(ctx)
+	}
+
+	// 启动卡死 run 清理器（R73: 修复 Redis 并发计数器泄漏）
+	if pool != nil && runLimiter != nil {
+		reaper := jobs.NewStaleRunReaper(runEventRepo, runLimiter, auditRepo, pool, a.logger, a.config.RunTimeoutMinutes)
+		go reaper.Run(ctx)
 	}
 
 	listener, err := net.Listen("tcp", a.config.Addr)

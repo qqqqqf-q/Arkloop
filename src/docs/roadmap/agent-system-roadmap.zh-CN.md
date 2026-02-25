@@ -135,6 +135,10 @@ Playground 服务已开发完成，但 Worker 侧没有对应的 `ToolExecutor` 
 
 第一层是 Gateway 合规性问题：`StreamMessageDelta.Channel` 已定义但从未填充——Anthropic 非流式路径丢弃 thinking blocks，OpenAI chatCompletions 流式路径不处理 `<think>` 标签，导致 thinking 内容要么消失要么混入主输出。第二层是前端渲染问题：`message.delta` channel 字段从未被读取，`run.segment.start/end` 事件不存在，前端对 Lite 的 Playground 内嵌窗口和 Ultra 的默认隐藏无法区分——这两种 display 策略需要后端主动声明。
 
+**E7 — Tool Provider 注册碎片化**
+
+`web_search` 的 SearXNG/Tavily 后端、`web_fetch` 的 Jina/Firecrawl/Basic 后端，当前全部通过单一 env var 全局切换，无法做到：per-org 激活不同后端、Console 里可视化管理和配置（API Key、Base URL）、Skill 声明偏好某个特定后端。根本原因是 `AgentToolSpec.Name` 同时承担了"内部注册键"和"LLM 暴露名"两个职责，导致无法区分同一 LLM 名下的多个实现。
+
 ---
 
 ## 2. Phase 总览
@@ -151,6 +155,7 @@ Playground 服务已开发完成，但 Worker 侧没有对应的 `ToolExecutor` 
 | AS-8 | Cost Budget 执行侧 | Loop 内 token 消耗追踪 + 超限终止 | 顺序 | AS-1 |
 | AS-9 | Sub-agent Spawning | `spawn_agent` tool + 父子 run 关系追踪 | 顺序 | AS-1, AS-3 |
 | AS-10 | Thinking 展示协议 | LLM 原生 thinking channel 分离 + Agent 段落事件 + 前端折叠渲染 | 两个独立子轨道 | AS-10.1/2 独立；AS-10.3/4 依赖 AS-1 |
+| AS-11 | Tool Provider 管理 | AgentToolSpec.LlmName 字段 + 每工具多后端注册 + per-org 激活配置 + Console 管理页 | 顺序，四层 | 无（完全独立） |
 
 ---
 
@@ -687,7 +692,150 @@ rc.Emitter.Emit("run.segment.end", map[string]any{"segment_id": segID}, nil, nil
 
 ---
 
-## 13. 整体执行编排
+## 13. AS-11 — Tool Provider 管理
+
+**目标**：将同名工具的多个后端（web_search 的 SearXNG/Tavily、web_fetch 的 Jina/Firecrawl/Basic）显式注册为独立 Provider，支持 per-org 激活指定 Provider 并在 Console 里配置参数（API Key、Base URL）。
+
+**解决的问题**：E7
+
+**依赖**：完全独立，可与其他所有 AS 并行推进。
+
+---
+
+### AS-11.1 — AgentToolSpec 加 LlmName 字段 + 多后端注册
+
+**概念模型**：
+- **Tool Group**：以 `LlmName` 为键，是 LLM 看到的工具名（如 `web_search`）。一个 Group 内只有一个 Provider 在 run 时生效。
+- **Provider**：具体实现，内部注册名（如 `web_search.tavily`）。`AgentToolSpec.Name` 是 Provider 键，`AgentToolSpec.LlmName` 是其所属 Group。
+
+修改 `src/services/worker/internal/tools/spec.go`：
+```go
+type AgentToolSpec struct {
+    Name    string    // 内部 Provider 键，allowlist 和 executor 绑定用此名
+    LlmName string    // Tool Group 名，传给 LLM。空 → 与 Name 相同（向后兼容）
+    // ...其余字段不变
+}
+```
+
+修改 `tools/dispatch_executor.go`：
+- `Bind()` 时若 `spec.LlmName != ""` 则建立反向索引 `llmNameIndex[spec.LlmName] = internalName`
+- `Execute()` 时若 `executors[toolName]` 未找到，查 `llmNameIndex[toolName]` 后再找
+
+修改 `pipeline/helpers.go` 的 `FilterToolSpecs`：
+- allowlist 含 `web_search.tavily` → 发给 LLM 的 spec 用 `LlmName = "web_search"`（去重）
+
+修改 `tools/builtin/web_search/executor.go`：
+```go
+// 保留向后兼容的 AgentSpec（无 LlmName，用 env var 选后端）
+var AgentSpec = tools.AgentToolSpec{Name: "web_search", ...}
+
+// 新增显式 Provider spec
+var AgentSpecSearxng = tools.AgentToolSpec{
+    Name: "web_search.searxng", LlmName: "web_search", ...}
+var AgentSpecTavily = tools.AgentToolSpec{
+    Name: "web_search.tavily", LlmName: "web_search", ...}
+```
+
+同样拆分 `web_fetch`：`web_fetch.jina`、`web_fetch.firecrawl`、`web_fetch.basic`，LlmName 均为 `web_fetch`。
+
+**验收**：
+- Skill YAML 写 `tool_allowlist: [web_search.tavily]`，LLM 收到的 tool spec 名为 `web_search`，执行时走 Tavily executor。
+- Skill YAML 写 `tool_allowlist: [web_search]`（旧格式），行为与今天一致（env var 控制后端）。
+
+---
+
+### AS-11.2 — DB Schema：per-org Provider 激活与凭证存储
+
+API key 等敏感值复用现有 `secrets` 表（与 `llm_credentials`、`asr_credentials`、`mcp_configs` 一致），不存入 `config_json`。
+
+新建 migration：
+
+```sql
+CREATE TABLE tool_provider_configs (
+    id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id        uuid NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
+    group_name    text NOT NULL,        -- "web_search" / "web_fetch"（LlmName）
+    provider_name text NOT NULL,        -- "web_search.tavily"（AgentToolSpec.Name）
+    is_active     boolean NOT NULL DEFAULT false,
+    secret_id     uuid REFERENCES secrets(id) ON DELETE SET NULL,  -- API key 加密存储
+    key_prefix    text,                 -- 前端展示用（如 "tvly-****1234"），不含完整密钥
+    base_url      text,                 -- 自定义 endpoint（SearXNG、自部署 Firecrawl 等）
+    config_json   jsonb NOT NULL DEFAULT '{}',  -- 仅非敏感参数（语言、超时等）
+    created_at    timestamptz NOT NULL DEFAULT now(),
+    updated_at    timestamptz NOT NULL DEFAULT now(),
+    UNIQUE(org_id, provider_name)
+);
+-- 应用层保证：同一 org + group_name 最多一条 is_active = true
+CREATE INDEX ON tool_provider_configs (org_id, group_name) WHERE is_active = true;
+```
+
+各 Provider 的字段使用：
+| Provider | secret_id（API Key） | base_url | config_json |
+|---|---|---|---|
+| `web_search.tavily` | Tavily API Key | - | - |
+| `web_search.searxng` | - | SearXNG 实例地址 | 语言等 |
+| `web_fetch.jina` | Jina API Key | - | - |
+| `web_fetch.firecrawl` | Firecrawl API Key | 自部署地址（可选） | - |
+| `web_fetch.basic` | - | - | - |
+
+Worker 读取时复用现有路径：`LEFT JOIN secrets ON s.id = c.secret_id` + `crypto.DecryptGCM`（同 `routing/config.go:423`）。
+
+---
+
+### AS-11.3 — Worker Pipeline：从 DB 注入 per-org Provider
+
+新建 `src/services/worker/internal/pipeline/mw_tool_provider.go`：
+
+- 在 Pipeline 靠前位置（MCPDiscovery 之后、ToolBuild 之前）插入。
+- 从 DB 查询 `tool_provider_configs LEFT JOIN secrets WHERE org_id = rc.Run.OrgID AND is_active = true`，解密 API key。
+- 对每条激活记录，用解密后的 key + base_url 构建对应的 Provider（覆盖 `rc.ToolExecutors[providerName]`）。
+- 若 DB 无记录，不做任何事，回落到已有 env var 逻辑（backward compat）。
+
+读取逻辑需要缓存（内存 TTL 或复用 MCP Discovery 的缓存策略），避免每个 run 都查 DB。
+
+---
+
+### AS-11.4 — Console API：Tool Provider 管理接口
+
+新增接口（挂在现有 API 服务的 `/v1/tool-providers` 路径下）：
+
+| 方法 | 路径 | 描述 |
+|---|---|---|
+| `GET` | `/v1/tool-providers` | 列出所有 Tool Groups 及其 Provider 状态（含是否激活、是否已配置） |
+| `PUT` | `/v1/tool-providers/{group}/{provider}/activate` | 激活指定 Provider（原子操作：deactivate 同 group 内其他） |
+| `PUT` | `/v1/tool-providers/{group}/{provider}/credential` | 写入 API Key（存入 secrets 表加密）、Base URL |
+| `DELETE` | `/v1/tool-providers/{group}/{provider}/credential` | 删除凭证，回退到 env var |
+
+Response 中 API Key 只返回 `key_prefix`（如 `"tvly-****1234"`），不返回完整值，与 `llm_credentials` 接口一致。
+
+---
+
+### AS-11.5 — Console UI：Tool Provider 管理页
+
+在 Console 的 Settings / Tools 下新增管理页，布局：
+
+```
+web_search
+  ● web_search.tavily    [激活]  API Key: tvly-****1234  [编辑] [停用]
+  ○ web_search.searxng   [未激活]  Base URL: (未配置)  [配置] [激活]
+
+web_fetch
+  ● web_fetch.jina       [激活]  API Key: jina-****abcd  [编辑] [停用]
+  ○ web_fetch.firecrawl  [未激活]  API Key: (未配置)  [配置] [激活]
+  ○ web_fetch.basic      [无需配置]                   [激活]
+```
+
+规则：
+- Group 内同时只有一个 Provider 激活，切换时自动停用当前激活项。
+- 配置表单字段由各 Provider 静态声明（需要 API Key / Base URL / 无需配置），Console 后端注册各 Provider 的字段列表。
+- 未配置但被激活的 Provider → run 时报 `tool.not_configured`，Console 里显示警告状态。
+- 凭证写入走 `secrets` 表加密路径，与 LLM 凭证管理页完全一致的交互模式。
+
+**执行顺序**：AS-11.1 → AS-11.2 → AS-11.3（后端全通路）→ AS-11.4 → AS-11.5（Console 层）
+
+---
+
+## 14. 整体执行编排
 
 ```
 并行轨道 1（核心架构，有依赖链）：
@@ -722,13 +870,16 @@ rc.Emitter.Emit("run.segment.end", map[string]any{"segment_id": segID}, nil, nil
 
 并行轨道 7（前端，与轨道 6 同步或独立）：
   AS-10.B3（ThinkingBlock 组件，不依赖 AS-1）
+
+并行轨道 8（完全独立，穿越后端+Console）：
+  AS-11.1 → AS-11.2 → AS-11.3 → AS-11.4 → AS-11.5
 ```
 
-**关键路径**：AS-1 是所有其他 AS 的地基。AS-4、AS-6、AS-7 完全独立，可以与 AS-1 同步推进。AS-5（OpenViking）需要等 AS-1 完成后在 Pipeline 里接入。**AS-10.A 是 Bug 修复，应最先完成，不阻塞其他轨道**。
+**关键路径**：AS-1 是所有其他 AS 的地基。AS-4、AS-6、AS-7、AS-11 完全独立，可以与 AS-1 同步推进。AS-5（OpenViking）需要等 AS-1 完成后在 Pipeline 里接入。**AS-10.A 是 Bug 修复，应最先完成，不阻塞其他轨道**。
 
 ---
 
-## 14. 不变量与决策记录
+## 15. 不变量与决策记录
 
 以下决策在本 Roadmap 内固定，不再重复讨论：
 
@@ -742,3 +893,4 @@ rc.Emitter.Emit("run.segment.end", map[string]any{"segment_id": segID}, nil, nil
 - **Model 优先级链固定**：显式 route_id > Skill.preferred_route_id > AgentConfig.Model > Default，不允许其他插入点。
 - **Sub-agent 层级限制**：嵌套深度 ≤ 2，超限返回 `agent.max_depth_exceeded`。
 - **Thinking 渲染协议**：`channel: "thinking"` 用于 LLM 原生 thinking 分流（不渲染进气泡）；`run.segment.start/end` 用于 Agent 级别的执行过程分组（折叠/展开/隐藏）；前端按 `kind` 选样式，后端不传 CSS 类名。Lite 的 Playground 默认 `visible`（内嵌窗口），Ultra 的规划轮和方向校验默认 `collapsed`（手动展开）。
+- **Tool Provider 双名机制**：`AgentToolSpec.Name` 是 Provider 键（allowlist 和 executor dispatch 用）；`AgentToolSpec.LlmName` 是 Group 名（LLM 看到的工具名）。同 Group 内 per-org 只允许一个 Provider 激活，应用层保证互斥。API Key 等敏感值走 `secrets` 表加密存储（与 LLM 凭证同一路径），不存 `config_json`；env var 是系统级默认，DB 配置优先。

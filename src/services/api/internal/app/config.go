@@ -34,6 +34,9 @@ const (
 
 	bootstrapPlatformAdminEnv = "ARKLOOP_BOOTSTRAP_PLATFORM_ADMIN"
 
+	runTimeoutMinutesEnv        = "ARKLOOP_RUN_TIMEOUT_MINUTES"
+	defaultRunTimeoutMinutes    = 5
+
 	defaultSSEHeartbeatSeconds = 15.0
 	defaultSSEBatchLimit       = 500
 )
@@ -69,6 +72,7 @@ type Config struct {
 	S3Region    string
 
 	BootstrapPlatformAdmin string
+	RunTimeoutMinutes      int
 }
 
 func DefaultConfig() Config {
@@ -76,6 +80,7 @@ func DefaultConfig() Config {
 		Addr:                    defaultAddr,
 		SSE:                     defaultSSEConfig(),
 		MaxConcurrentRunsPerOrg: defaultMaxConcurrentRunsPerOrg,
+		RunTimeoutMinutes:       defaultRunTimeoutMinutes,
 	}
 }
 
@@ -167,6 +172,14 @@ func LoadConfigFromEnv() (Config, error) {
 
 	if raw, ok := lookupEnv(bootstrapPlatformAdminEnv); ok {
 		cfg.BootstrapPlatformAdmin = raw
+	}
+
+	if raw, ok := lookupEnv(runTimeoutMinutesEnv); ok {
+		v, err := parsePositiveInt(raw)
+		if err != nil {
+			return Config{}, fmt.Errorf("%s: %w", runTimeoutMinutesEnv, err)
+		}
+		cfg.RunTimeoutMinutes = v
 	}
 
 	if err := cfg.Validate(); err != nil {
