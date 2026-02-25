@@ -96,10 +96,12 @@ func (r *NotificationsRepository) ListUnread(ctx context.Context, userID uuid.UU
 
 	rows, err := r.db.Query(
 		ctx,
-		`SELECT id, user_id, org_id, type, title, body, payload_json, read_at, created_at
-		 FROM notifications
-		 WHERE user_id = $1 AND read_at IS NULL
-		 ORDER BY created_at DESC`,
+		`SELECT n.id, n.user_id, n.org_id, n.type, n.title, n.body, n.payload_json, n.read_at, n.created_at
+		 FROM notifications n
+		 LEFT JOIN notification_broadcasts nb ON nb.id = n.broadcast_id
+		 WHERE n.user_id = $1 AND n.read_at IS NULL
+		   AND (n.broadcast_id IS NULL OR nb.deleted_at IS NULL)
+		 ORDER BY n.created_at DESC`,
 		userID,
 	)
 	if err != nil {
@@ -134,10 +136,12 @@ func (r *NotificationsRepository) List(ctx context.Context, userID uuid.UUID, li
 
 	rows, err := r.db.Query(
 		ctx,
-		`SELECT id, user_id, org_id, type, title, body, payload_json, read_at, created_at
-		 FROM notifications
-		 WHERE user_id = $1
-		 ORDER BY created_at DESC
+		`SELECT n.id, n.user_id, n.org_id, n.type, n.title, n.body, n.payload_json, n.read_at, n.created_at
+		 FROM notifications n
+		 LEFT JOIN notification_broadcasts nb ON nb.id = n.broadcast_id
+		 WHERE n.user_id = $1
+		   AND (n.broadcast_id IS NULL OR nb.deleted_at IS NULL)
+		 ORDER BY n.created_at DESC
 		 LIMIT $2`,
 		userID, limit,
 	)
