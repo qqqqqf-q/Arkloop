@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, type FormEvent } from 'react'
+import { useState, useCallback, useMemo, useRef, useEffect, type FormEvent } from 'react'
 import { useNavigate, useOutletContext } from 'react-router-dom'
 import { Glasses, Paperclip, X, Zap } from 'lucide-react'
 import { ChatInput, type Attachment, formatFileSize } from './ChatInput'
@@ -104,9 +104,21 @@ function buildGreeting(name: string | null, now: Date): string {
 function FreePlanBadge() {
   const [expanded, setExpanded] = useState(false)
   const { t } = useLocale()
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!expanded) return
+    function handleClick(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setExpanded(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [expanded])
 
   return (
-    <div className="relative">
+    <div className="relative" ref={containerRef}>
       {/* pill - 自然宽度，不固定 */}
       <div
         className="flex items-center rounded-2xl"
