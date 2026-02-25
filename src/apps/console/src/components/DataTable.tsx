@@ -22,6 +22,8 @@ type Props<T> = {
   emptyMessage?: string
   emptyIcon?: ReactNode
   onSort?: (key: string, direction: 'asc' | 'desc') => void
+  onRowClick?: (row: T) => void
+  activeRowKey?: string
 }
 
 export function DataTable<T>({
@@ -32,6 +34,8 @@ export function DataTable<T>({
   emptyMessage,
   emptyIcon,
   onSort,
+  onRowClick,
+  activeRowKey,
 }: Props<T>) {
   const [sort, setSort] = useState<SortState>(null)
 
@@ -89,18 +93,27 @@ export function DataTable<T>({
           </tr>
         </thead>
         <tbody>
-          {data.map((row) => (
-            <tr
-              key={rowKey(row)}
-              className="border-b border-[var(--c-border-console)] transition-colors hover:bg-[var(--c-bg-sub)]"
-            >
-              {columns.map((col) => (
-                <td key={col.key} className="whitespace-nowrap px-4 py-2.5 text-[var(--c-text-secondary)]">
-                  {col.render(row)}
-                </td>
-              ))}
-            </tr>
-          ))}
+          {data.map((row) => {
+            const key = rowKey(row)
+            const isActive = activeRowKey === key
+            return (
+              <tr
+                key={key}
+                onClick={onRowClick ? () => onRowClick(row) : undefined}
+                className={[
+                  'border-b border-[var(--c-border-console)] transition-colors',
+                  onRowClick ? 'cursor-pointer' : '',
+                  isActive ? 'bg-[var(--c-bg-sub)]' : 'hover:bg-[var(--c-bg-sub)]',
+                ].join(' ')}
+              >
+                {columns.map((col) => (
+                  <td key={col.key} className="whitespace-nowrap px-4 py-2.5 text-[var(--c-text-secondary)]">
+                    {col.render(row)}
+                  </td>
+                ))}
+              </tr>
+            )
+          })}
         </tbody>
       </table>
     </div>

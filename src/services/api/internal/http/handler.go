@@ -317,6 +317,10 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 		adminDashboard(cfg.AuthService, cfg.OrgMembershipRepo, cfg.UsersRepo, cfg.RunEventRepo, cfg.UsageRepo, cfg.OrgRepo, cfg.APIKeysRepo),
 	)
 	mux.HandleFunc(
+		"/v1/admin/runs/",
+		adminRunsEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.RunEventRepo, cfg.UsersRepo, cfg.APIKeysRepo),
+	)
+	mux.HandleFunc(
 		"/v1/admin/usage/daily",
 		adminGlobalDailyUsage(cfg.AuthService, cfg.OrgMembershipRepo, cfg.UsageRepo, cfg.APIKeysRepo),
 	)

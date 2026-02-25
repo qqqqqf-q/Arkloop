@@ -63,19 +63,23 @@ type cancelRunResponse struct {
 }
 
 type globalRunResponse struct {
-	RunID              string   `json:"run_id"`
-	OrgID              string   `json:"org_id"`
-	ThreadID           string   `json:"thread_id"`
-	Status             string   `json:"status"`
-	Model              *string  `json:"model,omitempty"`
-	SkillID            *string  `json:"skill_id,omitempty"`
-	TotalInputTokens   *int64   `json:"total_input_tokens,omitempty"`
-	TotalOutputTokens  *int64   `json:"total_output_tokens,omitempty"`
-	TotalCostUSD       *float64 `json:"total_cost_usd,omitempty"`
-	DurationMs         *int64   `json:"duration_ms,omitempty"`
-	CreatedAt          string   `json:"created_at"`
-	CompletedAt        *string  `json:"completed_at,omitempty"`
-	FailedAt           *string  `json:"failed_at,omitempty"`
+	RunID             string   `json:"run_id"`
+	OrgID             string   `json:"org_id"`
+	ThreadID          string   `json:"thread_id"`
+	Status            string   `json:"status"`
+	Model             *string  `json:"model,omitempty"`
+	SkillID           *string  `json:"skill_id,omitempty"`
+	TotalInputTokens  *int64   `json:"total_input_tokens,omitempty"`
+	TotalOutputTokens *int64   `json:"total_output_tokens,omitempty"`
+	TotalCostUSD      *float64 `json:"total_cost_usd,omitempty"`
+	DurationMs        *int64   `json:"duration_ms,omitempty"`
+	CreatedAt         string   `json:"created_at"`
+	CompletedAt       *string  `json:"completed_at,omitempty"`
+	FailedAt          *string  `json:"failed_at,omitempty"`
+	// 创建者信息（LEFT JOIN users）
+	CreatedByUserID   *string `json:"created_by_user_id,omitempty"`
+	CreatedByUserName *string `json:"created_by_user_name,omitempty"`
+	CreatedByEmail    *string `json:"created_by_email,omitempty"`
 }
 
 func createThreadRun(
@@ -840,6 +844,11 @@ func authorizeRunOrAudit(
 		return false
 	}
 
+	// platform_admin 可访问所有 run
+	if actor.HasPermission(auth.PermPlatformAdmin) {
+		return true
+	}
+
 	denyReason := "owner_mismatch"
 	if actor.OrgID != run.OrgID {
 		denyReason = "org_mismatch"
@@ -927,6 +936,20 @@ func listGlobalRuns(
 			params.OrgID = &actor.OrgID
 		}
 
+		// user_id 筛选：仅 platform_admin 可跨用户过滤
+		if rawUser := q.Get("user_id"); rawUser != "" {
+			if !isPlatformAdmin {
+				WriteError(w, nethttp.StatusForbidden, "auth.forbidden", "access denied", traceID, nil)
+				return
+			}
+			parsed, err := uuid.Parse(rawUser)
+			if err != nil {
+				WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "invalid user_id", traceID, nil)
+				return
+			}
+			params.UserID = &parsed
+		}
+
 		if v := q.Get("status"); v != "" {
 			v = strings.TrimSpace(v)
 			params.Status = &v
@@ -971,26 +994,32 @@ func listGlobalRuns(
 		}
 
 		resp := make([]globalRunResponse, 0, len(runs))
-		for _, run := range runs {
+		for _, rw := range runs {
 			item := globalRunResponse{
-				RunID:             run.ID.String(),
-				OrgID:             run.OrgID.String(),
-				ThreadID:          run.ThreadID.String(),
-				Status:            run.Status,
-				Model:             run.Model,
-				SkillID:           run.SkillID,
-				TotalInputTokens:  run.TotalInputTokens,
-				TotalOutputTokens: run.TotalOutputTokens,
-				TotalCostUSD:      run.TotalCostUSD,
-				DurationMs:        run.DurationMs,
-				CreatedAt:         run.CreatedAt.UTC().Format(time.RFC3339Nano),
+				RunID:             rw.ID.String(),
+				OrgID:             rw.OrgID.String(),
+				ThreadID:          rw.ThreadID.String(),
+				Status:            rw.Status,
+				Model:             rw.Model,
+				SkillID:           rw.SkillID,
+				TotalInputTokens:  rw.TotalInputTokens,
+				TotalOutputTokens: rw.TotalOutputTokens,
+				TotalCostUSD:      rw.TotalCostUSD,
+				DurationMs:        rw.DurationMs,
+				CreatedAt:         rw.CreatedAt.UTC().Format(time.RFC3339Nano),
+				CreatedByUserName: rw.UserDisplayName,
+				CreatedByEmail:    rw.UserEmail,
 			}
-			if run.CompletedAt != nil {
-				s := run.CompletedAt.UTC().Format(time.RFC3339Nano)
+			if rw.CreatedByUserID != nil {
+				s := rw.CreatedByUserID.String()
+				item.CreatedByUserID = &s
+			}
+			if rw.CompletedAt != nil {
+				s := rw.CompletedAt.UTC().Format(time.RFC3339Nano)
 				item.CompletedAt = &s
 			}
-			if run.FailedAt != nil {
-				s := run.FailedAt.UTC().Format(time.RFC3339Nano)
+			if rw.FailedAt != nil {
+				s := rw.FailedAt.UTC().Format(time.RFC3339Nano)
 				item.FailedAt = &s
 			}
 			resp = append(resp, item)

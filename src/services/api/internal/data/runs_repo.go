@@ -445,10 +445,18 @@ func mapOrEmpty(value map[string]any) map[string]any {
 	return value
 }
 
+// RunWithUser 在 Run 基础上附加创建者的用户信息（LEFT JOIN users）。
+type RunWithUser struct {
+	Run
+	UserDisplayName *string
+	UserEmail       *string
+}
+
 // ListRunsParams 控制 ListRuns 的过滤和分页行为。
 // OrgID 为 nil 时不按 org 过滤（平台管理员全局查询专用）。
 type ListRunsParams struct {
 	OrgID  *uuid.UUID
+	UserID *uuid.UUID
 	Status *string
 	Since  *time.Time
 	Until  *time.Time
@@ -456,8 +464,8 @@ type ListRunsParams struct {
 	Offset int
 }
 
-// ListRuns 跨 thread 查询 runs，返回结果列表和满足条件的总行数。
-func (r *RunEventRepository) ListRuns(ctx context.Context, params ListRunsParams) ([]Run, int64, error) {
+// ListRuns 跨 thread 查询 runs，LEFT JOIN users 附带创建者信息，返回结果列表和满足条件的总行数。
+func (r *RunEventRepository) ListRuns(ctx context.Context, params ListRunsParams) ([]RunWithUser, int64, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -472,7 +480,7 @@ func (r *RunEventRepository) ListRuns(ctx context.Context, params ListRunsParams
 	}
 
 	args := []any{}
-	conds := []string{"deleted_at IS NULL"}
+	conds := []string{"r.deleted_at IS NULL"}
 
 	addArg := func(v any) string {
 		args = append(args, v)
@@ -480,31 +488,39 @@ func (r *RunEventRepository) ListRuns(ctx context.Context, params ListRunsParams
 	}
 
 	if params.OrgID != nil {
-		conds = append(conds, "org_id = "+addArg(*params.OrgID))
+		conds = append(conds, "r.org_id = "+addArg(*params.OrgID))
+	}
+	if params.UserID != nil {
+		conds = append(conds, "r.created_by_user_id = "+addArg(*params.UserID))
 	}
 	if params.Status != nil {
-		conds = append(conds, "status = "+addArg(*params.Status))
+		conds = append(conds, "r.status = "+addArg(*params.Status))
 	}
 	if params.Since != nil {
-		conds = append(conds, "created_at >= "+addArg(*params.Since))
+		conds = append(conds, "r.created_at >= "+addArg(*params.Since))
 	}
 	if params.Until != nil {
-		conds = append(conds, "created_at <= "+addArg(*params.Until))
+		conds = append(conds, "r.created_at <= "+addArg(*params.Until))
 	}
 
 	where := " WHERE " + strings.Join(conds, " AND ")
 
 	var total int64
-	if err := r.db.QueryRow(ctx, "SELECT COUNT(*) FROM runs"+where, args...).Scan(&total); err != nil {
+	if err := r.db.QueryRow(ctx,
+		"SELECT COUNT(*) FROM runs r LEFT JOIN users u ON u.id = r.created_by_user_id"+where,
+		args...,
+	).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("count runs: %w", err)
 	}
 
-	query := fmt.Sprintf(`SELECT id, org_id, thread_id, created_by_user_id, status, created_at,
-		        parent_run_id, status_updated_at, completed_at, failed_at,
-		        duration_ms, total_input_tokens, total_output_tokens, total_cost_usd,
-		        model, skill_id, deleted_at
-		 FROM runs%s
-		 ORDER BY created_at DESC, id DESC
+	query := fmt.Sprintf(`SELECT r.id, r.org_id, r.thread_id, r.created_by_user_id, r.status, r.created_at,
+		        r.parent_run_id, r.status_updated_at, r.completed_at, r.failed_at,
+		        r.duration_ms, r.total_input_tokens, r.total_output_tokens, r.total_cost_usd,
+		        r.model, r.skill_id, r.deleted_at,
+		        u.display_name, u.email
+		 FROM runs r
+		 LEFT JOIN users u ON u.id = r.created_by_user_id%s
+		 ORDER BY r.created_at DESC, r.id DESC
 		 LIMIT %s OFFSET %s`,
 		where, addArg(limit), addArg(offset),
 	)
@@ -515,18 +531,19 @@ func (r *RunEventRepository) ListRuns(ctx context.Context, params ListRunsParams
 	}
 	defer rows.Close()
 
-	runs := []Run{}
+	runs := []RunWithUser{}
 	for rows.Next() {
-		var run Run
+		var rw RunWithUser
 		if err := rows.Scan(
-			&run.ID, &run.OrgID, &run.ThreadID, &run.CreatedByUserID, &run.Status, &run.CreatedAt,
-			&run.ParentRunID, &run.StatusUpdatedAt, &run.CompletedAt, &run.FailedAt,
-			&run.DurationMs, &run.TotalInputTokens, &run.TotalOutputTokens, &run.TotalCostUSD,
-			&run.Model, &run.SkillID, &run.DeletedAt,
+			&rw.ID, &rw.OrgID, &rw.ThreadID, &rw.CreatedByUserID, &rw.Status, &rw.CreatedAt,
+			&rw.ParentRunID, &rw.StatusUpdatedAt, &rw.CompletedAt, &rw.FailedAt,
+			&rw.DurationMs, &rw.TotalInputTokens, &rw.TotalOutputTokens, &rw.TotalCostUSD,
+			&rw.Model, &rw.SkillID, &rw.DeletedAt,
+			&rw.UserDisplayName, &rw.UserEmail,
 		); err != nil {
 			return nil, 0, err
 		}
-		runs = append(runs, run)
+		runs = append(runs, rw)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, 0, err
