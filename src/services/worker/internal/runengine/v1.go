@@ -115,7 +115,7 @@ func NewEngineV1(deps EngineV1Deps) (*EngineV1, error) {
 		terminal:     terminal,
 		router:       deps.Router,
 		directPool:   deps.DirectDBPool,
-		broadcastRDB: deps.RunLimiterRDB,
+		broadcastRDB: deps.RunLimiterRDB, // 复用 RunLimiterRDB；middleware 错误路径通过 RunContext.BroadcastRDB 发布，terminal handler 通过 eventWriter.runLimiterRDB 发布
 	}, nil
 }
 

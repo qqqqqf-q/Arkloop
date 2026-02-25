@@ -123,7 +123,7 @@ type eventWriter struct {
 	pool          *pgxpool.Pool
 	run           data.Run
 	traceID       string
-	runLimiterRDB *redis.Client
+	runLimiterRDB *redis.Client // 双职责：并发槽释放（runlimit.Release）+ 跨实例 SSE 广播（Publish）
 	model         string
 	usageRepo     data.UsageRecordsRepository
 	creditsRepo   data.CreditsRepository

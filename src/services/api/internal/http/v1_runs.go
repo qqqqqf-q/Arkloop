@@ -558,11 +558,11 @@ func streamRunEvents(
 		if follow && rdb != nil {
 			redisChannel := fmt.Sprintf("arkloop:sse:run_events:%s", runID.String())
 			sub := rdb.Subscribe(r.Context(), redisChannel)
+			msgCh := sub.Channel()
 			ch := make(chan struct{}, 1)
 			redisCh = ch
 			go func() {
 				defer sub.Close()
-				msgCh := sub.Channel()
 				for {
 					select {
 					case <-r.Context().Done():
@@ -691,7 +691,6 @@ func writeSseEvent(w nethttp.ResponseWriter, item data.RunEvent) error {
 	_, err = fmt.Fprintf(w, "id: %d\nevent: %s\ndata: %s\n\n", item.Seq, item.Type, dataBytes)
 	return err
 }
-
 
 func parseSSEQueryParams(
 	w nethttp.ResponseWriter,
