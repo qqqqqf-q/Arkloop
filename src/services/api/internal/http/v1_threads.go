@@ -420,6 +420,63 @@ func threadsEntry(
 	}
 }
 
+func searchThreads(
+	authService *auth.Service,
+	membershipRepo *data.OrgMembershipRepository,
+	threadRepo *data.ThreadRepository,
+	apiKeysRepo *data.APIKeysRepository,
+	auditWriter *audit.Writer,
+) func(nethttp.ResponseWriter, *nethttp.Request) {
+	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		if r.Method != nethttp.MethodGet {
+			writeMethodNotAllowed(w, r)
+			return
+		}
+
+		traceID := observability.TraceIDFromContext(r.Context())
+		if authService == nil {
+			writeAuthNotConfigured(w, traceID)
+			return
+		}
+		if threadRepo == nil {
+			WriteError(w, nethttp.StatusServiceUnavailable, "database.not_configured", "database not configured", traceID, nil)
+			return
+		}
+
+		actor, ok := resolveActor(w, r, traceID, authService, membershipRepo, apiKeysRepo, auditWriter)
+		if !ok {
+			return
+		}
+
+		q := strings.TrimSpace(r.URL.Query().Get("q"))
+		if q == "" {
+			WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "q is required", traceID, nil)
+			return
+		}
+		if len(q) > 200 {
+			WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "q too long", traceID, nil)
+			return
+		}
+
+		limit, ok := parseLimit(w, traceID, r.URL.Query().Get("limit"))
+		if !ok {
+			return
+		}
+
+		threads, err := threadRepo.SearchByQuery(r.Context(), actor.OrgID, actor.UserID, q, limit)
+		if err != nil {
+			WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			return
+		}
+
+		resp := make([]threadResponse, 0, len(threads))
+		for _, item := range threads {
+			resp = append(resp, toThreadWithActiveRunResponse(item))
+		}
+		writeJSON(w, traceID, nethttp.StatusOK, resp)
+	}
+}
+
 func threadEntry(
 	authService *auth.Service,
 	membershipRepo *data.OrgMembershipRepository,

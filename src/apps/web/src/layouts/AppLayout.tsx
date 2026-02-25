@@ -153,7 +153,7 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
       )}
 
       {isSearchOpen && (
-        <ChatsSearchModal threads={threads} onClose={handleCloseSearch} />
+        <ChatsSearchModal threads={threads} accessToken={accessToken} onClose={handleCloseSearch} />
       )}
 
       <main className="relative flex min-w-0 flex-1 flex-col overflow-hidden">

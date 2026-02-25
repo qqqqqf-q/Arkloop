@@ -79,6 +79,13 @@ export interface LocaleStrings {
   // chat input menu
   addFromLocal: string
   addFromGitHub: string
+  // chats search modal
+  searchChatsPlaceholder: string
+  searchNoResults: string
+  searchToday: string
+  searchYesterday: string
+  searchLastWeek: string
+  searchEarlier: string
 }
 
 export const locales: Record<Locale, LocaleStrings> = { zh, en }

@@ -264,3 +264,78 @@ func (r *ThreadRepository) Delete(ctx context.Context, threadID uuid.UUID) (bool
 	}
 	return tag.RowsAffected() > 0, nil
 }
+
+// SearchByQuery 在 thread title 和 message content 中全文检索，返回匹配的 thread 列表（去重）。
+func (r *ThreadRepository) SearchByQuery(
+	ctx context.Context,
+	orgID uuid.UUID,
+	ownerUserID uuid.UUID,
+	query string,
+	limit int,
+) ([]ThreadWithActiveRun, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if orgID == uuid.Nil {
+		return nil, fmt.Errorf("org_id must not be empty")
+	}
+	if ownerUserID == uuid.Nil {
+		return nil, fmt.Errorf("owner_user_id must not be empty")
+	}
+	if limit <= 0 {
+		return nil, fmt.Errorf("limit must be positive")
+	}
+	if query == "" {
+		return nil, fmt.Errorf("query must not be empty")
+	}
+
+	like := "%" + query + "%"
+
+	rows, err := r.db.Query(
+		ctx,
+		`SELECT DISTINCT ON (t.created_at, t.id)
+		        t.id, t.org_id, t.created_by_user_id, t.title, t.created_at,
+		        t.deleted_at, t.project_id, t.agent_config_id, r.id AS active_run_id
+		 FROM threads t
+		 LEFT JOIN messages m
+		   ON m.thread_id = t.id
+		  AND m.deleted_at IS NULL
+		  AND m.hidden = FALSE
+		 LEFT JOIN LATERAL (
+		   SELECT id FROM runs
+		   WHERE thread_id = t.id AND status = 'running'
+		   ORDER BY created_at DESC
+		   LIMIT 1
+		 ) r ON true
+		 WHERE t.org_id = $1
+		   AND t.created_by_user_id = $2
+		   AND t.deleted_at IS NULL
+		   AND (
+		     t.title ILIKE $3
+		     OR m.content ILIKE $3
+		   )
+		 ORDER BY t.created_at DESC, t.id DESC
+		 LIMIT $4`,
+		orgID, ownerUserID, like, limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var threads []ThreadWithActiveRun
+	for rows.Next() {
+		var item ThreadWithActiveRun
+		if err := rows.Scan(
+			&item.ID, &item.OrgID, &item.CreatedByUserID, &item.Title, &item.CreatedAt,
+			&item.DeletedAt, &item.ProjectID, &item.AgentConfigID, &item.ActiveRunID,
+		); err != nil {
+			return nil, err
+		}
+		threads = append(threads, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return threads, nil
+}

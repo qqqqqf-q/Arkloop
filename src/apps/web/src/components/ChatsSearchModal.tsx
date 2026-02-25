@@ -1,24 +1,31 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Search, X, Plus } from 'lucide-react'
+import { Search, X, SquarePen } from 'lucide-react'
 import type { ThreadResponse } from '../api'
+import { searchThreads } from '../api'
+import { useLocale } from '../contexts/LocaleContext'
 
 type DateGroup = {
   label: string
   threads: ThreadResponse[]
 }
 
-function groupByDate(threads: ThreadResponse[]): DateGroup[] {
+function groupByDate(threads: ThreadResponse[], labels: {
+  today: string
+  yesterday: string
+  lastWeek: string
+  earlier: string
+}): DateGroup[] {
   const now = new Date()
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
   const yesterdayStart = new Date(todayStart.getTime() - 86_400_000)
   const weekStart = new Date(todayStart.getTime() - 6 * 86_400_000)
 
   const buckets: [string, ThreadResponse[]][] = [
-    ['今天', []],
-    ['昨天', []],
-    ['最近7天', []],
-    ['更早', []],
+    [labels.today, []],
+    [labels.yesterday, []],
+    [labels.lastWeek, []],
+    [labels.earlier, []],
   ]
 
   for (const thread of threads) {
@@ -41,13 +48,18 @@ function groupByDate(threads: ThreadResponse[]): DateGroup[] {
 
 type Props = {
   threads: ThreadResponse[]
+  accessToken: string
   onClose: () => void
 }
 
-export function ChatsSearchModal({ threads, onClose }: Props) {
+export function ChatsSearchModal({ threads, accessToken, onClose }: Props) {
   const navigate = useNavigate()
+  const { t } = useLocale()
   const [query, setQuery] = useState('')
+  const [searchResults, setSearchResults] = useState<ThreadResponse[] | null>(null)
+  const [searching, setSearching] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     inputRef.current?.focus()
@@ -61,13 +73,43 @@ export function ChatsSearchModal({ threads, onClose }: Props) {
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    if (!q) return threads
-    return threads.filter((t) => (t.title ?? '').toLowerCase().includes(q))
-  }, [threads, query])
+  // 全文搜索：debounce 300ms 后调后端
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current)
 
-  const groups = useMemo(() => groupByDate(filtered), [filtered])
+    const q = query.trim()
+    if (!q) {
+      setSearchResults(null)
+      setSearching(false)
+      return
+    }
+
+    setSearching(true)
+    debounceRef.current = setTimeout(() => {
+      void searchThreads(accessToken, q).then((results) => {
+        setSearchResults(results)
+      }).catch(() => {
+        setSearchResults([])
+      }).finally(() => {
+        setSearching(false)
+      })
+    }, 300)
+
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+    }
+  }, [query, accessToken])
+
+  const displayThreads = searchResults ?? threads
+
+  const dateLabels = useMemo(() => ({
+    today: t.searchToday,
+    yesterday: t.searchYesterday,
+    lastWeek: t.searchLastWeek,
+    earlier: t.searchEarlier,
+  }), [t])
+
+  const groups = useMemo(() => groupByDate(displayThreads, dateLabels), [displayThreads, dateLabels])
 
   const handleThreadClick = useCallback(
     (threadId: string) => {
@@ -108,7 +150,7 @@ export function ChatsSearchModal({ threads, onClose }: Props) {
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="搜索会话..."
+            placeholder={t.searchChatsPlaceholder}
             className="flex-1 bg-transparent text-sm outline-none"
             style={{
               color: 'var(--c-text-primary)',
@@ -146,13 +188,13 @@ export function ChatsSearchModal({ threads, onClose }: Props) {
                 className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full"
                 style={{ background: 'var(--c-bg-plus)' }}
               >
-                <Plus size={11} />
+                <SquarePen size={11} />
               </span>
-              <span>New chat</span>
+              <span>{t.newChat}</span>
             </button>
           </div>
 
-          {groups.length > 0 && (
+          {!searching && groups.length > 0 && (
             <div className="pb-2">
               {groups.map(({ label, threads: groupItems }) => (
                 <div key={label}>
@@ -170,7 +212,7 @@ export function ChatsSearchModal({ threads, onClose }: Props) {
                         className="flex w-full items-center rounded-lg px-3 py-[8px] text-left text-sm transition-colors hover:bg-[var(--c-bg-deep)]"
                         style={{ color: 'var(--c-text-secondary)' }}
                       >
-                        <span className="truncate">{thread.title ?? '未命名会话'}</span>
+                        <span className="truncate">{thread.title ?? t.untitled}</span>
                       </button>
                     ))}
                   </div>
@@ -179,12 +221,12 @@ export function ChatsSearchModal({ threads, onClose }: Props) {
             </div>
           )}
 
-          {query.trim() && groups.length === 0 && (
+          {!searching && query.trim() && groups.length === 0 && (
             <div
               className="px-4 py-8 text-center text-sm"
               style={{ color: 'var(--c-text-muted)' }}
             >
-              无匹配结果
+              {t.searchNoResults}
             </div>
           )}
         </div>

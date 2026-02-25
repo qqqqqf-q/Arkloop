@@ -284,6 +284,18 @@ export async function listThreads(
   })
 }
 
+export async function searchThreads(
+  accessToken: string,
+  q: string,
+  limit = 50,
+): Promise<ThreadResponse[]> {
+  const sp = new URLSearchParams({ q, limit: String(limit) })
+  return await apiFetch<ThreadResponse[]>(`/v1/threads/search?${sp.toString()}`, {
+    method: 'GET',
+    accessToken,
+  })
+}
+
 // Messages API
 
 export type CreateMessageRequest = {

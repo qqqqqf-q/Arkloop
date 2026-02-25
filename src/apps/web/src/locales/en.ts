@@ -66,4 +66,10 @@ export const en: LocaleStrings = {
   freeTrialDesc: "We're currently free. Run out of credits? Come find us.",
   addFromLocal: 'Add from local files',
   addFromGitHub: 'Add from GitHub',
+  searchChatsPlaceholder: 'Search chats...',
+  searchNoResults: 'No results',
+  searchToday: 'Today',
+  searchYesterday: 'Yesterday',
+  searchLastWeek: 'Last 7 days',
+  searchEarlier: 'Earlier',
 }

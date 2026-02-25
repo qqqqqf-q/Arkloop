@@ -66,4 +66,10 @@ export const zh: LocaleStrings = {
   freeTrialDesc: '哈哈，我们目前暂时不收费哦，如果不够用了可以找我来换一点积分。',
   addFromLocal: '从本地文件添加',
   addFromGitHub: '从 GitHub 添加',
+  searchChatsPlaceholder: '搜索会话...',
+  searchNoResults: '无匹配结果',
+  searchToday: '今天',
+  searchYesterday: '昨天',
+  searchLastWeek: '最近 7 天',
+  searchEarlier: '更早',
 }
