@@ -1,6 +1,7 @@
 package http
 
 import (
+	"context"
 	"strings"
 	"time"
 
@@ -128,11 +129,19 @@ func adminRunsEntry(
 			model = run.Model
 		}
 
-		// 旧 run 事件中没有 agent_config_name 时，按 thread 的 agent_config_id 从 DB 补查
+		// 旧 run 事件中没有 agent_config_name 时，复用 Worker 的解析链：thread→project→org 默认
 		if agentConfigName == nil && threadRepo != nil && agentConfigsRepo != nil {
-			if thread, tErr := threadRepo.GetByID(r.Context(), run.ThreadID); tErr == nil && thread != nil && thread.AgentConfigID != nil {
-				if ac, acErr := agentConfigsRepo.GetByID(r.Context(), *thread.AgentConfigID); acErr == nil && ac != nil {
-					agentConfigName = &ac.Name
+			if thread, tErr := threadRepo.GetByID(r.Context(), run.ThreadID); tErr == nil && thread != nil {
+				var resolvedID *uuid.UUID
+				if thread.AgentConfigID != nil {
+					resolvedID = thread.AgentConfigID
+				} else {
+					resolvedID = resolveDefaultAgentConfigID(r.Context(), agentConfigsRepo, run.OrgID, thread.ProjectID)
+				}
+				if resolvedID != nil {
+					if ac, acErr := agentConfigsRepo.GetByID(r.Context(), *resolvedID); acErr == nil && ac != nil {
+						agentConfigName = &ac.Name
+					}
 				}
 			}
 		}
@@ -278,4 +287,22 @@ func stringFromData(dataJSON any, key string) (string, bool) {
 	}
 	s, ok := v.(string)
 	return s, ok
+}
+
+// resolveDefaultAgentConfigID 按 project→org 优先级查找默认 agent config。
+func resolveDefaultAgentConfigID(
+	ctx context.Context,
+	repo *data.AgentConfigRepository,
+	orgID uuid.UUID,
+	projectID *uuid.UUID,
+) *uuid.UUID {
+	if projectID != nil {
+		if ac, err := repo.GetDefaultForProject(ctx, orgID, *projectID); err == nil && ac != nil {
+			return &ac.ID
+		}
+	}
+	if ac, err := repo.GetDefaultForOrg(ctx, orgID); err == nil && ac != nil {
+		return &ac.ID
+	}
+	return nil
 }
