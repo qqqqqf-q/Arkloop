@@ -52,6 +52,48 @@ export async function createLlmCredential(
   })
 }
 
+export type UpdateLlmCredentialRequest = {
+  name: string
+  base_url?: string | null
+  openai_api_mode?: string | null
+  api_key?: string
+}
+
+export async function updateLlmCredential(
+  id: string,
+  req: UpdateLlmCredentialRequest,
+  accessToken: string,
+): Promise<LlmCredential> {
+  return apiFetch<LlmCredential>(`/v1/llm-credentials/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(req),
+    accessToken,
+  })
+}
+
+export type UpdateLlmRouteRequest = {
+  model: string
+  priority: number
+  is_default: boolean
+  when: Record<string, unknown>
+  multiplier?: number
+  cost_per_1k_input?: number
+  cost_per_1k_output?: number
+}
+
+export async function updateLlmRoute(
+  credentialId: string,
+  routeId: string,
+  req: UpdateLlmRouteRequest,
+  accessToken: string,
+): Promise<LlmRoute> {
+  return apiFetch<LlmRoute>(`/v1/llm-credentials/${credentialId}/routes/${routeId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(req),
+    accessToken,
+  })
+}
+
 export async function deleteLlmCredential(
   id: string,
   accessToken: string,

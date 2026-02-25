@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -206,4 +207,43 @@ func (r *LlmCredentialsRepository) Delete(ctx context.Context, orgID, id uuid.UU
 		id, orgID,
 	)
 	return err
+}
+
+// Update 更新凭证的可编辑字段（名称、base_url、openai_api_mode）。
+func (r *LlmCredentialsRepository) Update(
+	ctx context.Context,
+	orgID uuid.UUID,
+	id uuid.UUID,
+	name string,
+	baseURL *string,
+	openAIAPIMode *string,
+) (LlmCredential, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	var c LlmCredential
+	err := r.db.QueryRow(
+		ctx,
+		`UPDATE llm_credentials
+		 SET name = $3, base_url = $4, openai_api_mode = $5, updated_at = NOW()
+		 WHERE id = $1 AND org_id = $2 AND revoked_at IS NULL
+		 RETURNING id, org_id, provider, name, secret_id, key_prefix, base_url, openai_api_mode,
+		           revoked_at, last_used_at, created_at, updated_at`,
+		id, orgID, name, baseURL, openAIAPIMode,
+	).Scan(
+		&c.ID, &c.OrgID, &c.Provider, &c.Name, &c.SecretID, &c.KeyPrefix,
+		&c.BaseURL, &c.OpenAIAPIMode, &c.RevokedAt, &c.LastUsedAt, &c.CreatedAt, &c.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return LlmCredential{}, fmt.Errorf("credential not found")
+		}
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return LlmCredential{}, LlmCredentialNameConflictError{Name: name}
+		}
+		return LlmCredential{}, err
+	}
+	return c, nil
 }

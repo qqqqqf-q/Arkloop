@@ -1046,7 +1046,13 @@ func isOpenAIResponsesNotSupported(status int, body []byte) bool {
 	}
 
 	rawBody := strings.ToLower(strings.TrimSpace(string(body)))
-	if strings.Contains(rawBody, "responses") && (strings.Contains(rawBody, "unknown") || strings.Contains(rawBody, "not found")) {
+	// 包含 "responses" 且有任意错误指示词（含 OpenRouter 的 "invalid" 格式）
+	if strings.Contains(rawBody, "responses") &&
+		(strings.Contains(rawBody, "unknown") ||
+			strings.Contains(rawBody, "not found") ||
+			strings.Contains(rawBody, "invalid") ||
+			strings.Contains(rawBody, "not supported") ||
+			strings.Contains(rawBody, "unsupported")) {
 		return true
 	}
 

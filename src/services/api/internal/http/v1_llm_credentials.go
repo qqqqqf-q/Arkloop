@@ -35,6 +35,16 @@ type createLlmCredentialRouteRequest struct {
 	CostPer1kOutput *float64        `json:"cost_per_1k_output"`
 }
 
+type updateLlmRouteRequest struct {
+	Model           string          `json:"model"`
+	IsDefault       bool            `json:"is_default"`
+	Priority        int             `json:"priority"`
+	WhenJSON        json.RawMessage `json:"when"`
+	Multiplier      *float64        `json:"multiplier"`
+	CostPer1kInput  *float64        `json:"cost_per_1k_input"`
+	CostPer1kOutput *float64        `json:"cost_per_1k_output"`
+}
+
 type llmCredentialResponse struct {
 	ID            string  `json:"id"`
 	OrgID         string  `json:"org_id"`
@@ -100,6 +110,9 @@ func llmCredentialEntry(
 	authService *auth.Service,
 	membershipRepo *data.OrgMembershipRepository,
 	credRepo *data.LlmCredentialsRepository,
+	routeRepo *data.LlmRoutesRepository,
+	secretsRepo *data.SecretsRepository,
+	pool *pgxpool.Pool,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		traceID := observability.TraceIDFromContext(r.Context())
@@ -111,18 +124,45 @@ func llmCredentialEntry(
 			return
 		}
 
+		// /v1/llm-credentials/{cred_id}/routes/{route_id}
+		if idx := strings.Index(tail, "/routes/"); idx != -1 {
+			credIDStr := tail[:idx]
+			routeIDStr := strings.TrimPrefix(tail[idx:], "/routes/")
+			routeIDStr = strings.Trim(routeIDStr, "/")
+
+			credID, err := uuid.Parse(credIDStr)
+			if err != nil {
+				WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "invalid credential id", traceID, nil)
+				return
+			}
+			routeID, err := uuid.Parse(routeIDStr)
+			if err != nil {
+				WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "invalid route id", traceID, nil)
+				return
+			}
+			if r.Method != nethttp.MethodPatch {
+				writeMethodNotAllowed(w, r)
+				return
+			}
+			updateLlmRoute(w, r, traceID, credID, routeID, authService, membershipRepo, routeRepo)
+			return
+		}
+
+		// /v1/llm-credentials/{cred_id}
 		credID, err := uuid.Parse(tail)
 		if err != nil {
 			WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "request validation failed", traceID, nil)
 			return
 		}
 
-		if r.Method != nethttp.MethodDelete {
+		switch r.Method {
+		case nethttp.MethodPatch:
+			updateLlmCredential(w, r, traceID, credID, authService, membershipRepo, credRepo, secretsRepo, pool)
+		case nethttp.MethodDelete:
+			deleteLlmCredential(w, r, traceID, credID, authService, membershipRepo, credRepo)
+		default:
 			writeMethodNotAllowed(w, r)
-			return
 		}
-
-		deleteLlmCredential(w, r, traceID, credID, authService, membershipRepo, credRepo)
 	}
 }
 
@@ -321,6 +361,197 @@ func listLlmCredentials(
 	}
 
 	writeJSON(w, traceID, nethttp.StatusOK, resp)
+}
+
+type updateLlmCredentialRequest struct {
+	Name          string  `json:"name"`
+	BaseURL       *string `json:"base_url"`
+	OpenAIAPIMode *string `json:"openai_api_mode"`
+	APIKey        *string `json:"api_key"` // 可选，提供则覆盖
+}
+
+func updateLlmCredential(
+	w nethttp.ResponseWriter,
+	r *nethttp.Request,
+	traceID string,
+	credID uuid.UUID,
+	authService *auth.Service,
+	membershipRepo *data.OrgMembershipRepository,
+	credRepo *data.LlmCredentialsRepository,
+	secretsRepo *data.SecretsRepository,
+	pool *pgxpool.Pool,
+) {
+	if authService == nil {
+		writeAuthNotConfigured(w, traceID)
+		return
+	}
+	if credRepo == nil {
+		WriteError(w, nethttp.StatusServiceUnavailable, "database.not_configured", "database not configured", traceID, nil)
+		return
+	}
+
+	actor, ok := authenticateActor(w, r, traceID, authService, membershipRepo)
+	if !ok {
+		return
+	}
+
+	var req updateLlmCredentialRequest
+	if err := decodeJSON(r, &req); err != nil {
+		WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "request validation failed", traceID, nil)
+		return
+	}
+
+	req.Name = strings.TrimSpace(req.Name)
+	if req.Name == "" {
+		WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "name is required", traceID, nil)
+		return
+	}
+	if req.OpenAIAPIMode != nil {
+		mode := strings.TrimSpace(*req.OpenAIAPIMode)
+		if mode == "" {
+			req.OpenAIAPIMode = nil
+		} else {
+			if !validOpenAIAPIModes[mode] {
+				WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "invalid openai_api_mode", traceID, nil)
+				return
+			}
+			req.OpenAIAPIMode = &mode
+		}
+	}
+	if req.BaseURL != nil {
+		u := strings.TrimRight(strings.TrimSpace(*req.BaseURL), "/")
+		if u == "" {
+			req.BaseURL = nil
+		} else {
+			req.BaseURL = &u
+		}
+	}
+
+	// 若要更新 API Key，需要事务
+	if req.APIKey != nil && strings.TrimSpace(*req.APIKey) != "" {
+		if secretsRepo == nil || pool == nil {
+			WriteError(w, nethttp.StatusServiceUnavailable, "database.not_configured", "database not configured", traceID, nil)
+			return
+		}
+
+		tx, err := pool.BeginTx(r.Context(), pgx.TxOptions{})
+		if err != nil {
+			WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			return
+		}
+		defer tx.Rollback(r.Context())
+
+		newKey := strings.TrimSpace(*req.APIKey)
+		secretName := "llm_cred:" + credID.String()
+		if _, err := secretsRepo.WithTx(tx).Upsert(r.Context(), actor.OrgID, secretName, newKey); err != nil {
+			WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			return
+		}
+
+		keyPrefix := computeKeyPrefix(newKey)
+		if _, err := tx.Exec(r.Context(),
+			`UPDATE llm_credentials SET key_prefix=$3 WHERE id=$1 AND org_id=$2`,
+			credID, actor.OrgID, keyPrefix,
+		); err != nil {
+			WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			return
+		}
+
+		if err := tx.Commit(r.Context()); err != nil {
+			WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			return
+		}
+	}
+
+	updated, err := credRepo.Update(r.Context(), actor.OrgID, credID, req.Name, req.BaseURL, req.OpenAIAPIMode)
+	if err != nil {
+		var nameConflict data.LlmCredentialNameConflictError
+		if errors.As(err, &nameConflict) {
+			WriteError(w, nethttp.StatusConflict, "llm_credentials.name_conflict", "credential name already exists", traceID, nil)
+			return
+		}
+		WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+		return
+	}
+
+	writeJSON(w, traceID, nethttp.StatusOK, toLlmCredentialResponse(updated))
+}
+
+func updateLlmRoute(
+	w nethttp.ResponseWriter,
+	r *nethttp.Request,
+	traceID string,
+	credID uuid.UUID,
+	routeID uuid.UUID,
+	authService *auth.Service,
+	membershipRepo *data.OrgMembershipRepository,
+	routeRepo *data.LlmRoutesRepository,
+) {
+	if authService == nil {
+		writeAuthNotConfigured(w, traceID)
+		return
+	}
+	if routeRepo == nil {
+		WriteError(w, nethttp.StatusServiceUnavailable, "database.not_configured", "database not configured", traceID, nil)
+		return
+	}
+
+	actor, ok := authenticateActor(w, r, traceID, authService, membershipRepo)
+	if !ok {
+		return
+	}
+
+	var req updateLlmRouteRequest
+	if err := decodeJSON(r, &req); err != nil {
+		WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "request validation failed", traceID, nil)
+		return
+	}
+
+	req.Model = strings.TrimSpace(req.Model)
+	if req.Model == "" {
+		WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "model is required", traceID, nil)
+		return
+	}
+
+	whenJSON := req.WhenJSON
+	if len(whenJSON) == 0 {
+		whenJSON = []byte("{}")
+	}
+
+	multiplier := 1.0
+	if req.Multiplier != nil && *req.Multiplier > 0 {
+		multiplier = *req.Multiplier
+	}
+
+	// 验证路由属于该凭证
+	existing, err := routeRepo.GetByID(r.Context(), actor.OrgID, routeID)
+	if err != nil {
+		WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+		return
+	}
+	if existing == nil || existing.CredentialID != credID {
+		WriteError(w, nethttp.StatusNotFound, "llm_routes.not_found", "route not found", traceID, nil)
+		return
+	}
+
+	updated, err := routeRepo.Update(
+		r.Context(),
+		actor.OrgID,
+		routeID,
+		req.Model,
+		req.Priority,
+		req.IsDefault,
+		whenJSON,
+		multiplier,
+		req.CostPer1kInput,
+		req.CostPer1kOutput,
+	)
+	if err != nil {
+		WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+		return
+	}
+
+	writeJSON(w, traceID, nethttp.StatusOK, toLlmRouteResponse(updated))
 }
 
 func deleteLlmCredential(

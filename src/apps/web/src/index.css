@@ -2,6 +2,7 @@
 @import "tailwindcss";
 
 :root {
+  color-scheme: dark;
   --c-bg-page: #262624;
   --c-bg-sidebar: #242422;
   --c-bg-deep: #141413;
@@ -37,10 +38,16 @@
   --c-input-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
   --c-input-border: 1px solid rgba(255, 255, 255, 0.15);
   --c-input-shadow-focus: 0 2px 8px rgba(0, 0, 0, 0.18);
+  --c-error-bg: rgba(69, 10, 10, 0.30);
+  --c-error-border: rgba(127, 29, 29, 0.40);
+  --c-error-text: #fca5a5;
+  --c-error-subtext: rgba(248, 113, 113, 0.70);
+  --c-dropdown-shadow: 0 4px 16px rgba(0,0,0,0.32);
 }
 
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]) {
+    color-scheme: light;
     --c-bg-page: #F8F8F7;
     --c-bg-sidebar: #FAFAFA;
     --c-bg-deep: #EBEBEB;
@@ -76,10 +83,16 @@
     --c-input-shadow: 0 2px 12px rgba(0, 0, 0, 0.06), 0 0 0 0.5px rgba(0, 0, 0, 0.05);
     --c-input-border: 0.5px solid rgba(0, 0, 0, 0.07);
     --c-input-shadow-focus: 0 3px 16px rgba(0, 0, 0, 0.10), 0 0 0 1px rgba(0, 0, 0, 0.09);
+    --c-error-bg: #fef2f2;
+    --c-error-border: #fecaca;
+    --c-error-text: #b91c1c;
+    --c-error-subtext: #ef4444;
+    --c-dropdown-shadow: 0 4px 16px rgba(0,0,0,0.08);
   }
 }
 
 :root[data-theme="light"] {
+  color-scheme: light;
   --c-bg-page: #F8F8F7;
   --c-bg-sidebar: #FAFAFA;
   --c-bg-deep: #EBEBEB;
@@ -115,6 +128,11 @@
   --c-input-shadow: 0 2px 12px rgba(0, 0, 0, 0.06), 0 0 0 0.5px rgba(0, 0, 0, 0.05);
   --c-input-border: 0.5px solid rgba(0, 0, 0, 0.07);
   --c-input-shadow-focus: 0 3px 16px rgba(0, 0, 0, 0.10), 0 0 0 1px rgba(0, 0, 0, 0.09);
+  --c-error-bg: #fef2f2;
+  --c-error-border: #fecaca;
+  --c-error-text: #b91c1c;
+  --c-error-subtext: #ef4444;
+  --c-dropdown-shadow: 0 4px 16px rgba(0,0,0,0.08);
 }
 .hljs { background: transparent; color: var(--c-text-primary); }
 .hljs-comment,

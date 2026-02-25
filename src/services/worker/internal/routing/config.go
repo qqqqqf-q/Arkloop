@@ -41,6 +41,7 @@ const (
 
 type ProviderCredential struct {
 	ID           string
+	Name         string // llm_credentials.name，用于 AgentConfig.Model 匹配
 	Scope        CredentialScope
 	ProviderKind ProviderKind
 	APIKeyEnv    *string  // 环境变量名（env var 加载路径使用）
@@ -325,6 +326,31 @@ func (c ProviderRoutingConfig) GetCredential(credentialID string) (ProviderCrede
 	return ProviderCredential{}, false
 }
 
+// GetHighestPriorityRouteByCredentialName 按凭证显示名称找到优先级最高的路由。
+// routes 已按 priority DESC 排好序，直接取第一个匹配项即可。
+func (c ProviderRoutingConfig) GetHighestPriorityRouteByCredentialName(name string) (ProviderRouteRule, ProviderCredential, bool) {
+	if strings.TrimSpace(name) == "" {
+		return ProviderRouteRule{}, ProviderCredential{}, false
+	}
+	credIDByName := ""
+	for _, cred := range c.Credentials {
+		if strings.EqualFold(cred.Name, name) {
+			credIDByName = cred.ID
+			break
+		}
+	}
+	if credIDByName == "" {
+		return ProviderRouteRule{}, ProviderCredential{}, false
+	}
+	for _, route := range c.Routes {
+		if route.CredentialID == credIDByName {
+			cred, _ := c.GetCredential(credIDByName)
+			return route, cred, true
+		}
+	}
+	return ProviderRouteRule{}, ProviderCredential{}, false
+}
+
 func (c ProviderRoutingConfig) GetRoute(routeID string) (ProviderRouteRule, bool) {
 	for _, route := range c.Routes {
 		if route.ID == routeID {
@@ -398,7 +424,7 @@ func LoadRoutingConfigFromDB(ctx context.Context, pool *pgxpool.Pool) (ProviderR
 	rows, err := pool.Query(ctx, `
 		SELECT r.id, r.credential_id, r.model, r.when_json, r.is_default,
 		       r.multiplier, r.cost_per_1k_input, r.cost_per_1k_output,
-		       c.id, c.provider, c.base_url, c.openai_api_mode,
+		       c.id, c.name, c.provider, c.base_url, c.openai_api_mode,
 		       s.encrypted_value, s.key_version
 		FROM llm_routes r
 		JOIN llm_credentials c ON c.id = r.credential_id
@@ -421,6 +447,7 @@ func LoadRoutingConfigFromDB(ctx context.Context, pool *pgxpool.Pool) (ProviderR
 		costPer1kInput  *float64
 		costPer1kOutput *float64
 		credID          uuid.UUID
+		credName        string
 		provider        string
 		baseURL         *string
 		openaiAPIMode   *string
@@ -434,7 +461,7 @@ func LoadRoutingConfigFromDB(ctx context.Context, pool *pgxpool.Pool) (ProviderR
 		if err := rows.Scan(
 			&rd.routeID, &rd.credentialID, &rd.model, &rd.whenJSON, &rd.isDefault,
 			&rd.multiplier, &rd.costPer1kInput, &rd.costPer1kOutput,
-			&rd.credID, &rd.provider, &rd.baseURL, &rd.openaiAPIMode,
+			&rd.credID, &rd.credName, &rd.provider, &rd.baseURL, &rd.openaiAPIMode,
 			&rd.encryptedValue, &rd.keyVersion,
 		); err != nil {
 			return ProviderRoutingConfig{}, fmt.Errorf("routing: scan: %w", err)
@@ -477,6 +504,7 @@ func LoadRoutingConfigFromDB(ctx context.Context, pool *pgxpool.Pool) (ProviderR
 
 		cred := ProviderCredential{
 			ID:           credIDStr,
+			Name:         rd.credName,
 			Scope:        CredentialScopeOrg,
 			ProviderKind: kind,
 			APIKeyValue:  apiKeyValue,

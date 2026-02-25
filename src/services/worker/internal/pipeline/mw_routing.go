@@ -28,11 +28,13 @@ func NewRoutingMiddleware(
 ) RunMiddleware {
 	return func(ctx context.Context, rc *RunContext, next RunHandler) error {
 		activeRouter := staticRouter
+		var dbCfg routing.ProviderRoutingConfig
 		if dbPool != nil {
-			dbCfg, dbErr := routing.LoadRoutingConfigFromDB(ctx, dbPool)
+			loaded, dbErr := routing.LoadRoutingConfigFromDB(ctx, dbPool)
 			if dbErr != nil {
 				slog.WarnContext(ctx, "routing: per-run db load failed, using static", "err", dbErr.Error())
-			} else if len(dbCfg.Routes) > 0 {
+			} else if len(loaded.Routes) > 0 {
+				dbCfg = loaded
 				activeRouter = routing.NewProviderRouter(dbCfg)
 			}
 		}
@@ -45,7 +47,32 @@ func NewRoutingMiddleware(
 			}
 		}
 
-		decision := activeRouter.Decide(rc.InputJSON, byokEnabled)
+		// AgentConfig.Model 存的是凭证显示名称，优先按名称选择凭证下优先级最高的路由
+		var decision routing.ProviderRouteDecision
+		if rc.AgentConfig != nil && rc.AgentConfig.Model != nil && strings.TrimSpace(*rc.AgentConfig.Model) != "" {
+			credName := strings.TrimSpace(*rc.AgentConfig.Model)
+			if len(dbCfg.Routes) > 0 {
+				if route, cred, ok := dbCfg.GetHighestPriorityRouteByCredentialName(credName); ok {
+					if cred.Scope == routing.CredentialScopeOrg && !byokEnabled {
+						decision = routing.ProviderRouteDecision{
+							Denied: &routing.ProviderRouteDenied{
+								ErrorClass: "policy.denied",
+								Code:       "policy.byok_disabled",
+								Message:    "BYOK not enabled for this organization",
+							},
+						}
+					} else {
+						decision = routing.ProviderRouteDecision{
+							Selected: &routing.SelectedProviderRoute{Route: route, Credential: cred},
+						}
+					}
+				}
+			}
+		}
+		// 未命中凭证名称时，走正常路由决策
+		if decision.Selected == nil && decision.Denied == nil {
+			decision = activeRouter.Decide(rc.InputJSON, byokEnabled)
+		}
 
 		var releaseFn func()
 		if releaseSlot != nil {

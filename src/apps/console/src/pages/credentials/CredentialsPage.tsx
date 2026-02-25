@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react'
 import { useOutletContext } from 'react-router-dom'
-import { KeyRound, Plus, Trash2 } from 'lucide-react'
+import { KeyRound, Plus, Trash2, Pencil, Copy, Check } from 'lucide-react'
 import type { ConsoleOutletContext } from '../../layouts/ConsoleLayout'
 import { PageHeader } from '../../components/PageHeader'
 import { DataTable, type Column } from '../../components/DataTable'
@@ -15,7 +15,10 @@ import {
   listLlmCredentials,
   createLlmCredential,
   deleteLlmCredential,
+  updateLlmCredential,
+  updateLlmRoute,
   type LlmCredential,
+  type LlmRoute,
   type CreateLlmRouteRequest,
 } from '../../api/llm-credentials'
 
@@ -59,6 +62,28 @@ function emptyForm(): CreateFormState {
 
 type DeleteTarget = { id: string; name: string }
 
+// 编辑路由时每行的草稿状态
+type RouteEditRow = LlmRoute & {
+  draftModel: string
+  draftPriority: string
+  draftIsDefault: boolean
+  draftWhen: string
+  saving: boolean
+  copied: boolean
+}
+
+function routeToEditRow(route: LlmRoute): RouteEditRow {
+  return {
+    ...route,
+    draftModel: route.model,
+    draftPriority: String(route.priority),
+    draftIsDefault: route.is_default,
+    draftWhen: route.when && Object.keys(route.when).length > 0 ? JSON.stringify(route.when) : '',
+    saving: false,
+    copied: false,
+  }
+}
+
 export function CredentialsPage() {
   const { accessToken } = useOutletContext<ConsoleOutletContext>()
   const { addToast } = useToast()
@@ -73,6 +98,16 @@ export function CredentialsPage() {
   const [submitting, setSubmitting] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null)
   const [deleting, setDeleting] = useState(false)
+
+  // 编辑 modal
+  const [editCred, setEditCred] = useState<LlmCredential | null>(null)
+  const [editRows, setEditRows] = useState<RouteEditRow[]>([])
+  // 凭证元数据草稿
+  const [editCredName, setEditCredName] = useState('')
+  const [editCredBaseUrl, setEditCredBaseUrl] = useState('')
+  const [editCredApiMode, setEditCredApiMode] = useState('')
+  const [editCredApiKey, setEditCredApiKey] = useState('')
+  const [savingCred, setSavingCred] = useState(false)
 
   const fetchCreds = useCallback(async () => {
     setLoading(true)
@@ -208,6 +243,114 @@ export function CredentialsPage() {
     }
   }, [deleteTarget, accessToken, fetchCreds, addToast])
 
+  const handleOpenEdit = useCallback((cred: LlmCredential) => {
+    setEditCred(cred)
+    setEditRows(cred.routes.map(routeToEditRow))
+    setEditCredName(cred.name)
+    setEditCredBaseUrl(cred.base_url ?? '')
+    setEditCredApiMode(cred.openai_api_mode ?? '')
+    setEditCredApiKey('')
+  }, [])
+
+  const handleCloseEdit = useCallback(() => {
+    setEditCred(null)
+    setEditRows([])
+  }, [])
+
+  const handleEditRowField = useCallback(
+    <K extends keyof RouteEditRow>(idx: number, key: K, value: RouteEditRow[K]) => {
+      setEditRows((prev) => prev.map((r, i) => (i === idx ? { ...r, [key]: value } : r)))
+    },
+    [],
+  )
+
+  const handleSaveRoute = useCallback(
+    async (idx: number) => {
+      if (!editCred) return
+      const row = editRows[idx]
+
+      let when: Record<string, unknown> = {}
+      const whenStr = row.draftWhen.trim()
+      if (whenStr) {
+        try {
+          when = JSON.parse(whenStr) as Record<string, unknown>
+        } catch {
+          addToast(tc.errInvalidJson(row.draftModel), 'error')
+          return
+        }
+      }
+
+      setEditRows((prev) => prev.map((r, i) => (i === idx ? { ...r, saving: true } : r)))
+      try {
+        const updated = await updateLlmRoute(
+          editCred.id,
+          row.id,
+          {
+            model: row.draftModel.trim(),
+            priority: parseInt(row.draftPriority, 10) || 0,
+            is_default: row.draftIsDefault,
+            when,
+          },
+          accessToken,
+        )
+        setEditRows((prev) =>
+          prev.map((r, i) =>
+            i === idx ? { ...routeToEditRow(updated), saving: false } : r,
+          ),
+        )
+        // 同步更新主列表
+        setCreds((prev) =>
+          prev.map((c) =>
+            c.id === editCred.id
+              ? { ...c, routes: c.routes.map((rt) => (rt.id === updated.id ? updated : rt)) }
+              : c,
+          ),
+        )
+        addToast(tc.toastRouteUpdated, 'success')
+      } catch {
+        setEditRows((prev) => prev.map((r, i) => (i === idx ? { ...r, saving: false } : r)))
+        addToast(tc.toastRouteUpdateFailed, 'error')
+      }
+    },
+    [editCred, editRows, accessToken, addToast, tc],
+  )
+
+  const handleCopyModel = useCallback((idx: number) => {
+    const row = editRows[idx]
+    void navigator.clipboard.writeText(row.model)
+    setEditRows((prev) => prev.map((r, i) => (i === idx ? { ...r, copied: true } : r)))
+    setTimeout(() => {
+      setEditRows((prev) => prev.map((r, i) => (i === idx ? { ...r, copied: false } : r)))
+    }, 1500)
+  }, [editRows])
+
+  const handleSaveCred = useCallback(async () => {
+    if (!editCred) return
+    const name = editCredName.trim()
+    if (!name) return
+    setSavingCred(true)
+    try {
+      const updated = await updateLlmCredential(
+        editCred.id,
+        {
+          name,
+          base_url: editCredBaseUrl.trim() || null,
+          openai_api_mode: editCredApiMode || null,
+          ...(editCredApiKey.trim() ? { api_key: editCredApiKey.trim() } : {}),
+        },
+        accessToken,
+      )
+      setCreds((prev) => prev.map((c) => (c.id === updated.id ? { ...updated, routes: c.routes } : c)))
+      setEditCred((prev) => prev ? { ...prev, name: updated.name, base_url: updated.base_url, openai_api_mode: updated.openai_api_mode } : null)
+      setEditCredApiKey('')
+      addToast(tc.toastCredUpdated, 'success')
+    } catch {
+      addToast(tc.toastCredUpdateFailed, 'error')
+    } finally {
+      setSavingCred(false)
+    }
+  }, [editCred, editCredName, editCredBaseUrl, editCredApiMode, editCredApiKey, accessToken, addToast, tc])
+
   const columns: Column<LlmCredential>[] = [
     {
       key: 'name',
@@ -264,16 +407,28 @@ export function CredentialsPage() {
       key: 'actions',
       header: '',
       render: (row) => (
-        <button
-          onClick={(e) => {
-            e.stopPropagation()
-            setDeleteTarget({ id: row.id, name: row.name })
-          }}
-          className="flex items-center justify-center rounded p-1 text-[var(--c-text-muted)] transition-colors hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-status-error-text)]"
-          title={tc.deleteConfirm}
-        >
-          <Trash2 size={14} />
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              handleOpenEdit(row)
+            }}
+            className="flex items-center justify-center rounded p-1 text-[var(--c-text-muted)] transition-colors hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-secondary)]"
+            title={tc.editRoutesTitle}
+          >
+            <Pencil size={14} />
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              setDeleteTarget({ id: row.id, name: row.name })
+            }}
+            className="flex items-center justify-center rounded p-1 text-[var(--c-text-muted)] transition-colors hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-status-error-text)]"
+            title={tc.deleteConfirm}
+          >
+            <Trash2 size={14} />
+          </button>
+        </div>
       ),
     },
   ]
@@ -450,6 +605,151 @@ export function CredentialsPage() {
               className="rounded-lg bg-[var(--c-bg-tag)] px-3.5 py-1.5 text-sm font-medium text-[var(--c-text-primary)] transition-colors hover:bg-[var(--c-bg-sub)] disabled:opacity-50"
             >
               {submitting ? '...' : tc.create}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Edit Credential Modal */}
+      <Modal
+        open={editCred !== null}
+        onClose={handleCloseEdit}
+        title={`${tc.editRoutesTitle} — ${editCred?.name ?? ''}`}
+        width="560px"
+      >
+        <div className="flex flex-col gap-4">
+          {/* 凭证元数据编辑 */}
+          <div className="flex flex-col gap-3 rounded-lg border border-[var(--c-border)] bg-[var(--c-bg-sub)] p-3">
+            <span className="text-xs font-medium text-[var(--c-text-tertiary)]">{tc.editCredTitle}</span>
+            <FormField label={tc.fieldName}>
+              <input
+                type="text"
+                value={editCredName}
+                onChange={(e) => setEditCredName(e.target.value)}
+                className="rounded-lg border border-[var(--c-border)] bg-[var(--c-bg-deep2)] px-3 py-1.5 text-sm text-[var(--c-text-primary)] focus:outline-none"
+              />
+            </FormField>
+            <FormField label={tc.fieldBaseUrl}>
+              <input
+                type="text"
+                value={editCredBaseUrl}
+                onChange={(e) => setEditCredBaseUrl(e.target.value)}
+                placeholder="https://openrouter.ai/api/v1"
+                className="rounded-lg border border-[var(--c-border)] bg-[var(--c-bg-deep2)] px-3 py-1.5 text-sm text-[var(--c-text-primary)] placeholder:text-[var(--c-text-muted)] focus:outline-none"
+              />
+            </FormField>
+            {editCred?.provider === 'openai' && (
+              <FormField label={tc.fieldApiMode}>
+                <select
+                  value={editCredApiMode}
+                  onChange={(e) => setEditCredApiMode(e.target.value)}
+                  className="rounded-lg border border-[var(--c-border)] bg-[var(--c-bg-deep2)] px-3 py-1.5 text-sm text-[var(--c-text-secondary)] focus:outline-none"
+                >
+                  <option value="">-- none --</option>
+                  {OPENAI_API_MODES.map((m) => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
+              </FormField>
+            )}
+            <FormField label={tc.fieldApiKeyOptional}>
+              <input
+                type="password"
+                value={editCredApiKey}
+                onChange={(e) => setEditCredApiKey(e.target.value)}
+                autoComplete="new-password"
+                className="rounded-lg border border-[var(--c-border)] bg-[var(--c-bg-deep2)] px-3 py-1.5 text-sm text-[var(--c-text-primary)] focus:outline-none"
+              />
+            </FormField>
+            <div className="flex justify-end">
+              <button
+                onClick={() => void handleSaveCred()}
+                disabled={savingCred}
+                className="rounded-lg bg-[var(--c-bg-tag)] px-3.5 py-1.5 text-sm font-medium text-[var(--c-text-primary)] transition-colors hover:bg-[var(--c-bg-sub)] disabled:opacity-50"
+              >
+                {savingCred ? '...' : tc.editCredSave}
+              </button>
+            </div>
+          </div>
+
+          {/* 路由编辑 */}
+          <div className="flex flex-col gap-2">
+            <span className="text-xs font-medium text-[var(--c-text-tertiary)]">{tc.fieldRoutes}</span>
+            {editRows.length === 0 && (
+              <p className="text-xs text-[var(--c-text-muted)]">{tc.empty}</p>
+            )}
+            {editRows.map((row, idx) => (
+              <div key={row.id} className="flex flex-col gap-2 rounded-lg border border-[var(--c-border)] bg-[var(--c-bg-sub)] p-3">
+                <div className="flex gap-2">
+                  <div className="flex flex-1 flex-col gap-1">
+                    <span className="text-[10px] text-[var(--c-text-muted)]">{tc.routeModel}</span>
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="text"
+                        value={row.draftModel}
+                        onChange={(e) => handleEditRowField(idx, 'draftModel', e.target.value)}
+                        className="flex-1 rounded border border-[var(--c-border)] bg-[var(--c-bg-deep2)] px-2.5 py-1 text-xs text-[var(--c-text-primary)] focus:outline-none"
+                      />
+                      <button
+                        onClick={() => handleCopyModel(idx)}
+                        className="flex items-center justify-center rounded p-1 text-[var(--c-text-muted)] transition-colors hover:text-[var(--c-text-secondary)]"
+                        title="Copy model ID"
+                      >
+                        {row.copied ? <Check size={13} className="text-[var(--c-status-success-text)]" /> : <Copy size={13} />}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex w-20 flex-col gap-1">
+                    <span className="text-[10px] text-[var(--c-text-muted)]">{tc.routePriority}</span>
+                    <input
+                      type="number"
+                      value={row.draftPriority}
+                      onChange={(e) => handleEditRowField(idx, 'draftPriority', e.target.value)}
+                      className="rounded border border-[var(--c-border)] bg-[var(--c-bg-deep2)] px-2.5 py-1 text-xs text-[var(--c-text-primary)] focus:outline-none"
+                    />
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id={`edit-route-default-${idx}`}
+                    checked={row.draftIsDefault}
+                    onChange={(e) => handleEditRowField(idx, 'draftIsDefault', e.target.checked)}
+                    className="h-3.5 w-3.5 rounded"
+                  />
+                  <label htmlFor={`edit-route-default-${idx}`} className="text-xs text-[var(--c-text-secondary)]">
+                    {tc.routeDefault}
+                  </label>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <span className="text-[10px] text-[var(--c-text-muted)]">{tc.routeWhen}</span>
+                  <input
+                    type="text"
+                    value={row.draftWhen}
+                    onChange={(e) => handleEditRowField(idx, 'draftWhen', e.target.value)}
+                    placeholder="{}"
+                    className="rounded border border-[var(--c-border)] bg-[var(--c-bg-deep2)] px-2.5 py-1 font-mono text-xs text-[var(--c-text-primary)] placeholder:text-[var(--c-text-muted)] focus:outline-none"
+                  />
+                </div>
+                <div className="flex justify-end">
+                  <button
+                    onClick={() => void handleSaveRoute(idx)}
+                    disabled={row.saving}
+                    className="rounded-lg bg-[var(--c-bg-tag)] px-3 py-1 text-xs font-medium text-[var(--c-text-primary)] transition-colors hover:bg-[var(--c-bg-sub)] disabled:opacity-50"
+                  >
+                    {row.saving ? '...' : tc.editRoutesSave}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="flex justify-end border-t border-[var(--c-border)] pt-3">
+            <button
+              onClick={handleCloseEdit}
+              className="rounded-lg border border-[var(--c-border)] px-3.5 py-1.5 text-sm text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-sub)]"
+            >
+              {tc.cancel}
             </button>
           </div>
         </div>

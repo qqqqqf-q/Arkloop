@@ -228,6 +228,56 @@ func (r *LlmRoutesRepository) GetByID(ctx context.Context, orgID, id uuid.UUID) 
 	return &route, nil
 }
 
+// Update 更新路由的可变字段。
+func (r *LlmRoutesRepository) Update(
+	ctx context.Context,
+	orgID uuid.UUID,
+	routeID uuid.UUID,
+	model string,
+	priority int,
+	isDefault bool,
+	whenJSON json.RawMessage,
+	multiplier float64,
+	costPer1kInput *float64,
+	costPer1kOutput *float64,
+) (LlmRoute, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if strings.TrimSpace(model) == "" {
+		return LlmRoute{}, fmt.Errorf("model must not be empty")
+	}
+	if len(whenJSON) == 0 {
+		whenJSON = json.RawMessage("{}")
+	}
+	if multiplier <= 0 {
+		multiplier = 1.0
+	}
+
+	var route LlmRoute
+	err := r.db.QueryRow(
+		ctx,
+		`UPDATE llm_routes
+		 SET model = $3, priority = $4, is_default = $5, when_json = $6::jsonb,
+		     multiplier = $7, cost_per_1k_input = $8, cost_per_1k_output = $9
+		 WHERE id = $1 AND org_id = $2
+		 RETURNING id, org_id, credential_id, model, priority, is_default, when_json, multiplier, cost_per_1k_input, cost_per_1k_output, created_at`,
+		routeID, orgID, model, priority, isDefault, string(whenJSON), multiplier, costPer1kInput, costPer1kOutput,
+	).Scan(
+		&route.ID, &route.OrgID, &route.CredentialID, &route.Model,
+		&route.Priority, &route.IsDefault, &route.WhenJSON,
+		&route.Multiplier, &route.CostPer1kInput, &route.CostPer1kOutput,
+		&route.CreatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return LlmRoute{}, fmt.Errorf("route not found")
+		}
+		return LlmRoute{}, err
+	}
+	return route, nil
+}
+
 // DeleteByCredential 删除凭证的所有路由。
 func (r *LlmRoutesRepository) DeleteByCredential(ctx context.Context, orgID, credentialID uuid.UUID) error {
 	if ctx == nil {

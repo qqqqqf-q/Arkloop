@@ -125,6 +125,10 @@ func (r *ProviderRouter) pickFirstMatchingRoute(inputJSON map[string]any) Provid
 		if route.ID == r.config.DefaultRouteID {
 			continue
 		}
+		// 空 when 的路由只能通过 route_id 显式选择，不参与自动匹配
+		if len(route.When) == 0 {
+			continue
+		}
 		if route.Matches(inputJSON) {
 			return route
 		}
