@@ -580,6 +580,31 @@ func streamRunEvents(
 			}()
 		}
 
+		// 合并 pg_notify + Redis Pub/Sub 为单一持久信号 channel，避免循环内重复创建 goroutine。
+		var sigCh <-chan struct{}
+		if notifyCh != nil && redisCh != nil {
+			merged := make(chan struct{}, 1)
+			sigCh = merged
+			go func() {
+				for {
+					select {
+					case <-r.Context().Done():
+						return
+					case <-notifyCh:
+					case <-redisCh:
+					}
+					select {
+					case merged <- struct{}{}:
+					default:
+					}
+				}
+			}()
+		} else if notifyCh != nil {
+			sigCh = notifyCh
+		} else if redisCh != nil {
+			sigCh = redisCh
+		}
+
 		cursor := afterSeq
 		lastSend := time.Now()
 
@@ -622,9 +647,7 @@ func streamRunEvents(
 				lastSend = now
 			}
 
-			if notifyCh != nil || redisCh != nil {
-				// 合并 pg_notify + Redis Pub/Sub 信号
-				sigCh := mergeSignals(notifyCh, redisCh)
+			if sigCh != nil {
 				select {
 				case <-r.Context().Done():
 					return
@@ -669,27 +692,6 @@ func writeSseEvent(w nethttp.ResponseWriter, item data.RunEvent) error {
 	return err
 }
 
-// mergeSignals 将两个可能为 nil 的信号 channel 合并为一个，任一触发即返回。
-func mergeSignals(a, b <-chan struct{}) <-chan struct{} {
-	if a == nil {
-		return b
-	}
-	if b == nil {
-		return a
-	}
-	merged := make(chan struct{}, 1)
-	go func() {
-		select {
-		case <-a:
-		case <-b:
-		}
-		select {
-		case merged <- struct{}{}:
-		default:
-		}
-	}()
-	return merged
-}
 
 func parseSSEQueryParams(
 	w nethttp.ResponseWriter,
