@@ -72,6 +72,10 @@ export interface LocaleStrings {
   hasAccount: string
   useEmailOtpHint: string
   creatingAccountHint: string
+  enterYourPasswordTitle: string
+  fieldIdentity: string
+  fieldPassword: string
+  backBtn: string
   // profile editing
   profileTitle: string
   profileName: string

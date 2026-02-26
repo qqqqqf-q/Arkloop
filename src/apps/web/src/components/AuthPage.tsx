@@ -6,17 +6,7 @@ import { useLocale } from '../contexts/LocaleContext'
 
 function SpinnerIcon() {
   return (
-    <svg
-      className="animate-spin"
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.5"
-      strokeLinecap="round"
-      aria-hidden="true"
-    >
+    <svg className="animate-spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true">
       <path d="M21 12a9 9 0 1 1-6.219-8.56" />
     </svg>
   )
@@ -30,51 +20,50 @@ function GitHubIcon() {
   )
 }
 
+function EyeIcon({ open }: { open: boolean }) {
+  return open ? (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+      <path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  ) : (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-6 0-10-8-10-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c6 0 10 8 10 8a18.5 18.5 0 0 1-2.16 3.19M1 1l22 22" />
+    </svg>
+  )
+}
+
 function normalizeError(error: unknown, fallback: string): AppError {
-  if (isApiError(error)) {
-    return { message: error.message, traceId: error.traceId, code: error.code }
-  }
-  if (error instanceof Error) {
-    return { message: error.message }
-  }
+  if (isApiError(error)) return { message: error.message, traceId: error.traceId, code: error.code }
+  if (error instanceof Error) return { message: error.message }
   return { message: fallback }
 }
 
-// 内嵌阶段：展开哪些额外字段
-type Phase =
-  | 'identity'           // 初始：只有身份输入框
-  | 'password'           // 展开：密码框
-  | 'otp-email'          // 展开：邮箱输入框（脱敏提示）
-  | 'otp-code'           // 展开：验证码输入框
-  | 'register'           // 展开：注册字段
+type Phase = 'identity' | 'password' | 'otp-email' | 'otp-code' | 'register'
 
 type Props = {
   onLoggedIn: (accessToken: string, refreshToken: string) => void
 }
 
-const isEmail = (v: string) => v.includes('@')
+const isEmailStr = (v: string) => v.includes('@')
 
 export function AuthPage({ onLoggedIn }: Props) {
-  // 身份输入
   const [identity, setIdentity] = useState('')
   const [phase, setPhase] = useState<Phase>('identity')
   const [maskedEmail, setMaskedEmail] = useState('')
   const [checking, setChecking] = useState(false)
 
-  // 密码登录
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [submitting, setSubmitting] = useState(false)
 
-  // OTP
   const [otpEmail, setOtpEmail] = useState('')
   const [otpCode, setOtpCode] = useState('')
-  const [otpSent, setOtpSent] = useState(false)
   const [otpCountdown, setOtpCountdown] = useState(0)
   const [otpSending, setOtpSending] = useState(false)
   const [otpSubmitting, setOtpSubmitting] = useState(false)
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  // 注册
   const [regLogin, setRegLogin] = useState('')
   const [regEmail, setRegEmail] = useState('')
   const [regPassword, setRegPassword] = useState('')
@@ -86,7 +75,6 @@ export function AuthPage({ onLoggedIn }: Props) {
 
   const { t } = useLocale()
 
-  // 登录页跟随系统主题
   useEffect(() => {
     const root = document.documentElement
     const prev = root.getAttribute('data-theme')
@@ -102,20 +90,18 @@ export function AuthPage({ onLoggedIn }: Props) {
 
   const inviteRequired = registrationMode === 'invite_only'
 
-  // 重置到初始状态（切换身份时）
   const resetToIdentity = () => {
     setPhase('identity')
     setPassword('')
+    setShowPassword(false)
     setOtpEmail('')
     setOtpCode('')
-    setOtpSent(false)
     setOtpCountdown(0)
     if (countdownRef.current) clearInterval(countdownRef.current)
     setMaskedEmail('')
     setError(null)
   }
 
-  // 倒计时
   const startCountdown = () => {
     setOtpCountdown(60)
     if (countdownRef.current) clearInterval(countdownRef.current)
@@ -127,17 +113,13 @@ export function AuthPage({ onLoggedIn }: Props) {
     }, 1000)
   }
 
-  // 切换到 OTP 邮箱阶段
   const switchToOtp = () => {
-    const email = isEmail(identity.trim()) ? identity.trim() : ''
-    setOtpEmail(email)
-    setOtpSent(false)
+    setOtpEmail(isEmailStr(identity.trim()) ? identity.trim() : '')
     setOtpCode('')
     setPhase('otp-email')
     setError(null)
   }
 
-  // 处理主按钮提交
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
     setError(null)
@@ -152,15 +134,9 @@ export function AuthPage({ onLoggedIn }: Props) {
           setMaskedEmail(res.masked_email ?? '')
           setPhase('password')
         } else {
-          if (isEmail(id)) {
-            setRegEmail(id)
-            setRegLogin(id.split('@')[0])
-          } else {
-            setRegLogin(id)
-            setRegEmail('')
-          }
-          setRegPassword('')
-          setRegInviteCode('')
+          if (isEmailStr(id)) { setRegEmail(id); setRegLogin(id.split('@')[0]) }
+          else { setRegLogin(id); setRegEmail('') }
+          setRegPassword(''); setRegInviteCode('')
           setPhase('register')
         }
       } catch (err) {
@@ -178,10 +154,7 @@ export function AuthPage({ onLoggedIn }: Props) {
         const resp = await login({ login: identity.trim(), password })
         onLoggedIn(resp.access_token, resp.refresh_token)
       } catch (err) {
-        if (isApiError(err) && err.code === 'auth.email_not_verified') {
-          switchToOtp()
-          return
-        }
+        if (isApiError(err) && err.code === 'auth.email_not_verified') { switchToOtp(); return }
         setError(normalizeError(err, t.requestFailed))
       } finally {
         setSubmitting(false)
@@ -195,7 +168,6 @@ export function AuthPage({ onLoggedIn }: Props) {
       setOtpSending(true)
       try { await sendEmailOTP(email) } catch { /* 静默 */ } finally {
         setOtpSending(false)
-        setOtpSent(true)
         setPhase('otp-code')
         startCountdown()
       }
@@ -233,7 +205,6 @@ export function AuthPage({ onLoggedIn }: Props) {
       } finally {
         setRegSubmitting(false)
       }
-      return
     }
   }
 
@@ -259,6 +230,13 @@ export function AuthPage({ onLoggedIn }: Props) {
     return t.continueBtn
   }, [phase, t])
 
+  const phaseSubtitle: Partial<Record<Phase, string>> = {
+    password: t.enterYourPasswordTitle,
+    'otp-email': t.otpLoginTab,
+    'otp-code': t.otpLoginTab,
+    register: t.registerMode,
+  }
+
   const inputStyle = {
     border: '0.5px solid var(--c-border-auth)',
     height: '36px',
@@ -266,10 +244,63 @@ export function AuthPage({ onLoggedIn }: Props) {
     fontSize: '13px',
     fontWeight: 500,
     fontFamily: 'inherit',
-  }
+  } as const
   const inputCls = 'w-full rounded-[10px] bg-[var(--c-bg-input)] text-[var(--c-text-primary)] outline-none placeholder:text-[var(--c-placeholder)]'
 
-  const stepTitle = phase === 'register' ? t.registerMode : t.loginMode
+  const FieldLabel = ({ text }: { text: string }) => (
+    <div style={{ fontSize: '11px', fontWeight: 500, color: 'var(--c-placeholder)', marginBottom: '4px', paddingLeft: '2px' }}>
+      {text}
+    </div>
+  )
+
+  // Continue / Submit 按钮（全宽）
+  const SubmitBtn = () => (
+    <button
+      type="submit"
+      disabled={!canSubmit}
+      style={{
+        height: '38px',
+        borderRadius: '10px',
+        border: 'none',
+        cursor: 'pointer',
+        fontSize: '14px',
+        fontWeight: 500,
+        fontFamily: 'inherit',
+        background: 'var(--c-btn-bg)',
+        color: 'var(--c-btn-text)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: '6px',
+        width: '100%',
+      }}
+      className="disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      {isLoading ? <><SpinnerIcon />{btnLabel}</> : btnLabel}
+    </button>
+  )
+
+  // 返回按钮（全宽 ghost，与 Continue 同高）
+  const BackBtn = () => (
+    <button
+      type="button"
+      onClick={resetToIdentity}
+      style={{
+        height: '38px',
+        width: '100%',
+        borderRadius: '10px',
+        border: 'none',
+        background: 'transparent',
+        cursor: 'pointer',
+        fontSize: '14px',
+        fontWeight: 500,
+        fontFamily: 'inherit',
+        color: 'var(--c-placeholder)',
+      }}
+    >
+      {t.backBtn}
+    </button>
+  )
 
   return (
     <div
@@ -288,76 +319,111 @@ export function AuthPage({ onLoggedIn }: Props) {
 
       <div
         className="flex flex-col items-center justify-center"
-        style={{ flex: 1, gap: '32px', padding: '48px 20px', position: 'relative', zIndex: 1 }}
+        style={{ flex: 1, padding: '48px 20px', position: 'relative', zIndex: 1 }}
       >
-        <header className="flex flex-col items-center" style={{ gap: '8px' }}>
-          <div style={{ fontSize: '28px', fontWeight: 500, color: 'var(--c-text-primary)' }}>Arkloop</div>
-          <div style={{ fontSize: '15px', fontWeight: 500, color: 'var(--c-placeholder)' }}>{stepTitle}</div>
-        </header>
+        {/* identity 阶段：居中 header */}
+        {phase === 'identity' && (
+          <header className="flex flex-col items-center" style={{ gap: '8px', marginBottom: '32px' }}>
+            <div style={{ fontSize: '28px', fontWeight: 500, color: 'var(--c-text-primary)' }}>Arkloop</div>
+            <div style={{ fontSize: '15px', fontWeight: 500, color: 'var(--c-placeholder)' }}>{t.loginMode}</div>
+          </header>
+        )}
 
         <section style={{ width: 'min(400px, 100%)' }}>
+          {/* 非 identity 阶段：左对齐 header 放在 section 内 */}
+          {phase !== 'identity' && (
+            <div style={{ marginBottom: '24px' }}>
+              <div style={{ fontSize: '26px', fontWeight: 500, color: 'var(--c-text-primary)' }}>Arkloop</div>
+              <div style={{ fontSize: '13px', fontWeight: 500, color: 'var(--c-placeholder)', marginTop: '4px' }}>
+                {phaseSubtitle[phase]}
+              </div>
+            </div>
+          )}
+
           {phase === 'register' && (
-            <div style={{ fontSize: '12px', color: 'var(--c-placeholder)', marginBottom: '12px' }}>
+            <div style={{ fontSize: '12px', color: 'var(--c-placeholder)', marginBottom: '14px' }}>
               {t.creatingAccountHint}
             </div>
           )}
 
           <form className="flex flex-col" style={{ gap: '10px' }} onSubmit={handleSubmit}>
-            {/* 身份输入框 — 始终可见，非 identity 阶段时只读展示 */}
-            {phase === 'identity' ? (
+
+            {/* identity 阶段：可编辑输入框 */}
+            {phase === 'identity' && (
               <input
                 className={inputCls}
                 style={inputStyle}
                 type="text"
                 placeholder={t.identityPlaceholder}
                 value={identity}
-                onChange={(e) => { setIdentity(e.target.value); resetToIdentity() }}
+                onChange={(e) => setIdentity(e.target.value)}
                 autoComplete="username"
                 autoCapitalize="none"
                 spellCheck={false}
                 autoFocus
               />
-            ) : (
-              <button
-                type="button"
-                onClick={resetToIdentity}
-                style={{
-                  ...inputStyle,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  borderRadius: '10px',
-                  background: 'var(--c-bg-input)',
-                  color: 'var(--c-text-secondary)',
-                  cursor: 'pointer',
-                  textAlign: 'left' as const,
-                  width: '100%',
-                }}
-              >
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
-                  <path d="M8 2L4 6l4 4" />
-                </svg>
-                <span style={{ flex: 1 }}>{identity.trim()}</span>
-              </button>
             )}
 
-            {/* 密码框 */}
+            {/* 密码阶段：静态 identity 显示 + 密码框 */}
             {phase === 'password' && (
-              <input
-                className={inputCls}
-                style={inputStyle}
-                type="password"
-                placeholder={t.enterPassword}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                autoComplete="current-password"
-                autoFocus
-              />
+              <>
+                <div>
+                  <FieldLabel text={t.fieldIdentity} />
+                  <div
+                    className={inputCls}
+                    style={{
+                      ...inputStyle,
+                      borderRadius: '10px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      color: 'var(--c-text-secondary)',
+                    }}
+                  >
+                    {identity.trim()}
+                  </div>
+                </div>
+                <div>
+                  <FieldLabel text={t.fieldPassword} />
+                  <div style={{ position: 'relative' }}>
+                    <input
+                      className={inputCls}
+                      style={{ ...inputStyle, paddingRight: '40px' }}
+                      type={showPassword ? 'text' : 'password'}
+                      placeholder={t.enterPassword}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      autoComplete="current-password"
+                      autoFocus
+                    />
+                    <button
+                      type="button"
+                      tabIndex={-1}
+                      onClick={() => setShowPassword((v) => !v)}
+                      style={{
+                        position: 'absolute',
+                        right: '10px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        background: 'none',
+                        border: 'none',
+                        cursor: 'pointer',
+                        color: 'var(--c-placeholder)',
+                        padding: '2px',
+                        display: 'flex',
+                        alignItems: 'center',
+                      }}
+                    >
+                      <EyeIcon open={showPassword} />
+                    </button>
+                  </div>
+                </div>
+              </>
             )}
 
-            {/* OTP 邮箱输入框 */}
+            {/* OTP 邮箱输入 */}
             {(phase === 'otp-email' || phase === 'otp-code') && (
-              <div className="flex flex-col" style={{ gap: '4px' }}>
+              <div>
+                <FieldLabel text={t.otpEmailPlaceholder} />
                 <input
                   className={inputCls}
                   style={inputStyle}
@@ -371,125 +437,135 @@ export function AuthPage({ onLoggedIn }: Props) {
                   spellCheck={false}
                   autoFocus={phase === 'otp-email' && !otpEmail}
                 />
+                {/* 脱敏邮箱提示：仅在 otp-email 阶段且有 maskedEmail 时展示 */}
                 {maskedEmail && phase === 'otp-email' && (
-                  <div style={{ fontSize: '11px', color: 'var(--c-placeholder)', paddingLeft: '4px' }}>
+                  <div style={{ fontSize: '11px', color: 'var(--c-placeholder)', marginTop: '4px', paddingLeft: '2px' }}>
                     {maskedEmail}
-                  </div>
-                )}
-                {phase === 'otp-code' && otpCountdown > 0 && (
-                  <div style={{ fontSize: '11px', color: 'var(--c-placeholder)', paddingLeft: '4px' }}>
-                    {t.otpSendingCountdown(otpCountdown)}
                   </div>
                 )}
               </div>
             )}
 
-            {/* 验证码输入框 */}
+            {/* OTP 验证码输入 */}
             {phase === 'otp-code' && (
-              <input
-                className={inputCls}
-                style={inputStyle}
-                type="text"
-                inputMode="numeric"
-                placeholder={t.otpCodePlaceholder}
-                value={otpCode}
-                onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                autoComplete="one-time-code"
-                autoFocus
-              />
+              <div>
+                <FieldLabel text={t.otpCodePlaceholder} />
+                <input
+                  className={inputCls}
+                  style={inputStyle}
+                  type="text"
+                  inputMode="numeric"
+                  placeholder={t.otpCodePlaceholder}
+                  value={otpCode}
+                  onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  autoComplete="one-time-code"
+                  autoFocus
+                />
+              </div>
             )}
 
             {/* 注册字段 */}
             {phase === 'register' && (
               <>
-                {isEmail(identity.trim()) ? (
-                  // identity 是邮箱：展示用户名输入（预填邮箱前缀）
+                {isEmailStr(identity.trim()) ? (
+                  <div>
+                    <FieldLabel text={t.enterUsername} />
+                    <input
+                      className={inputCls}
+                      style={inputStyle}
+                      type="text"
+                      placeholder={t.enterUsername}
+                      value={regLogin}
+                      onChange={(e) => setRegLogin(e.target.value)}
+                      autoComplete="username"
+                      autoCapitalize="none"
+                      spellCheck={false}
+                      autoFocus
+                    />
+                  </div>
+                ) : (
+                  <div>
+                    <FieldLabel text={t.enterEmail} />
+                    <input
+                      className={inputCls}
+                      style={inputStyle}
+                      type="email"
+                      placeholder={t.enterEmail}
+                      value={regEmail}
+                      onChange={(e) => setRegEmail(e.target.value)}
+                      autoComplete="email"
+                      autoCapitalize="none"
+                      spellCheck={false}
+                      autoFocus
+                    />
+                  </div>
+                )}
+                <div>
+                  <FieldLabel text={t.fieldPassword} />
+                  <div style={{ position: 'relative' }}>
+                    <input
+                      className={inputCls}
+                      style={{ ...inputStyle, paddingRight: '40px' }}
+                      type={showPassword ? 'text' : 'password'}
+                      placeholder={t.enterPassword}
+                      value={regPassword}
+                      onChange={(e) => setRegPassword(e.target.value)}
+                      autoComplete="new-password"
+                    />
+                    <button
+                      type="button"
+                      tabIndex={-1}
+                      onClick={() => setShowPassword((v) => !v)}
+                      style={{
+                        position: 'absolute',
+                        right: '10px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        background: 'none',
+                        border: 'none',
+                        cursor: 'pointer',
+                        color: 'var(--c-placeholder)',
+                        padding: '2px',
+                        display: 'flex',
+                        alignItems: 'center',
+                      }}
+                    >
+                      <EyeIcon open={showPassword} />
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <FieldLabel text={inviteRequired ? t.enterInviteCode : t.enterInviteCodeOptional} />
                   <input
                     className={inputCls}
                     style={inputStyle}
                     type="text"
-                    placeholder={t.enterUsername}
-                    value={regLogin}
-                    onChange={(e) => setRegLogin(e.target.value)}
-                    autoComplete="username"
-                    autoCapitalize="none"
-                    spellCheck={false}
-                    autoFocus
+                    placeholder={inviteRequired ? t.enterInviteCode : t.enterInviteCodeOptional}
+                    value={regInviteCode}
+                    onChange={(e) => setRegInviteCode(e.target.value)}
+                    autoComplete="off"
                   />
-                ) : (
-                  // identity 是用户名：展示邮箱输入
-                  <input
-                    className={inputCls}
-                    style={inputStyle}
-                    type="email"
-                    placeholder={t.enterEmail}
-                    value={regEmail}
-                    onChange={(e) => setRegEmail(e.target.value)}
-                    autoComplete="email"
-                    autoCapitalize="none"
-                    spellCheck={false}
-                    autoFocus
-                  />
-                )}
-                <input
-                  className={inputCls}
-                  style={inputStyle}
-                  type="password"
-                  placeholder={t.enterPassword}
-                  value={regPassword}
-                  onChange={(e) => setRegPassword(e.target.value)}
-                  autoComplete="new-password"
-                />
-                <input
-                  className={inputCls}
-                  style={inputStyle}
-                  type="text"
-                  placeholder={inviteRequired ? t.enterInviteCode : t.enterInviteCodeOptional}
-                  value={regInviteCode}
-                  onChange={(e) => setRegInviteCode(e.target.value)}
-                  autoComplete="off"
-                />
+                </div>
               </>
             )}
 
-            <button
-              type="submit"
-              disabled={!canSubmit}
-              style={{
-                height: '38px',
-                marginTop: '2px',
-                borderRadius: '10px',
-                border: 'none',
-                cursor: 'pointer',
-                fontSize: '14px',
-                fontWeight: 500,
-                fontFamily: 'inherit',
-                background: 'var(--c-btn-bg)',
-                color: 'var(--c-btn-text)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '6px',
-              }}
-              className="disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {isLoading ? <><SpinnerIcon />{btnLabel}</> : btnLabel}
-            </button>
+            <SubmitBtn />
+            {phase !== 'identity' && <BackBtn />}
           </form>
 
-          {/* 密码阶段：OTP 跳转提示 */}
+          {/* 密码阶段：OTP 跳转提示（在表单外，Back 按钮下方） */}
           {phase === 'password' && (
             <button
               type="button"
               onClick={switchToOtp}
               style={{
-                marginTop: '10px',
+                marginTop: '2px',
                 fontSize: '12px',
                 color: 'var(--c-placeholder)',
                 background: 'none',
                 border: 'none',
                 cursor: 'pointer',
-                padding: 0,
+                padding: '4px 0',
                 display: 'block',
               }}
             >
@@ -497,7 +573,7 @@ export function AuthPage({ onLoggedIn }: Props) {
             </button>
           )}
 
-          {/* OTP code 阶段：重发验证码 */}
+          {/* OTP code 阶段：重发（只在这里显示，不重复） */}
           {phase === 'otp-code' && (
             <button
               type="button"
@@ -512,13 +588,13 @@ export function AuthPage({ onLoggedIn }: Props) {
                 }
               }}
               style={{
-                marginTop: '10px',
+                marginTop: '2px',
                 fontSize: '12px',
                 color: 'var(--c-placeholder)',
                 background: 'none',
                 border: 'none',
                 cursor: 'pointer',
-                padding: 0,
+                padding: '4px 0',
                 display: 'block',
               }}
               className="disabled:opacity-40 disabled:cursor-not-allowed"
