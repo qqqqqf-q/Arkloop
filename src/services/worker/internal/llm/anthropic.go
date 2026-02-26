@@ -93,7 +93,7 @@ func (g *AnthropicGateway) Stream(ctx context.Context, request Request, yield fu
 		"messages":   messages,
 		"max_tokens": maxTokens,
 	}
-	if system != "" {
+	if len(system) > 0 {
 		payload["system"] = system
 	}
 	if request.Temperature != nil {
@@ -234,8 +234,8 @@ func (g *AnthropicGateway) Stream(ctx context.Context, request Request, yield fu
 	return yield(StreamRunCompleted{Usage: parseAnthropicUsage(body)})
 }
 
-func toAnthropicMessages(messages []Message) (string, []map[string]any, error) {
-	systemParts := []string{}
+func toAnthropicMessages(messages []Message) ([]map[string]any, []map[string]any, error) {
+	systemBlocks := []map[string]any{}
 	out := []map[string]any{}
 	pendingToolResults := []map[string]any{}
 
@@ -254,7 +254,15 @@ func toAnthropicMessages(messages []Message) (string, []map[string]any, error) {
 		text := joinParts(message.Content)
 		if message.Role == "system" {
 			if strings.TrimSpace(text) != "" {
-				systemParts = append(systemParts, text)
+				block := map[string]any{"type": "text", "text": text}
+				// 若任意 system TextPart 带 cache_control，取第一个非空值
+				for _, part := range message.Content {
+					if part.CacheControl != nil && strings.TrimSpace(*part.CacheControl) != "" {
+						block["cache_control"] = map[string]any{"type": *part.CacheControl}
+						break
+					}
+				}
+				systemBlocks = append(systemBlocks, block)
 			}
 			continue
 		}
@@ -262,7 +270,7 @@ func toAnthropicMessages(messages []Message) (string, []map[string]any, error) {
 		if message.Role == "tool" {
 			block, err := anthropicToolResultBlock(text)
 			if err != nil {
-				return "", nil, err
+				return nil, nil, err
 			}
 			pendingToolResults = append(pendingToolResults, block)
 			continue
@@ -290,16 +298,25 @@ func toAnthropicMessages(messages []Message) (string, []map[string]any, error) {
 			continue
 		}
 
+		blocks := []map[string]any{}
+		for _, part := range message.Content {
+			block := map[string]any{"type": "text", "text": part.Text}
+			if part.CacheControl != nil && strings.TrimSpace(*part.CacheControl) != "" {
+				block["cache_control"] = map[string]any{"type": *part.CacheControl}
+			}
+			blocks = append(blocks, block)
+		}
+		if len(blocks) == 0 {
+			blocks = []map[string]any{{"type": "text", "text": text}}
+		}
 		out = append(out, map[string]any{
-			"role": message.Role,
-			"content": []map[string]any{
-				{"type": "text", "text": text},
-			},
+			"role":    message.Role,
+			"content": blocks,
 		})
 	}
 
 	flushToolResults()
-	return strings.TrimSpace(strings.Join(systemParts, "\n")), out, nil
+	return systemBlocks, out, nil
 }
 
 func anthropicToolResultBlock(text string) (map[string]any, error) {
@@ -455,7 +472,10 @@ func parseAnthropicUsage(body []byte) *Usage {
 	}
 	input, hasInput := usageObj["input_tokens"].(float64)
 	output, hasOutput := usageObj["output_tokens"].(float64)
-	if !hasInput && !hasOutput {
+	cacheCreate, hasCacheCreate := usageObj["cache_creation_input_tokens"].(float64)
+	cacheRead, hasCacheRead := usageObj["cache_read_input_tokens"].(float64)
+
+	if !hasInput && !hasOutput && !hasCacheCreate && !hasCacheRead {
 		return nil
 	}
 	u := &Usage{}
@@ -466,6 +486,14 @@ func parseAnthropicUsage(body []byte) *Usage {
 	if hasOutput {
 		ov := int(output)
 		u.OutputTokens = &ov
+	}
+	if hasCacheCreate {
+		cv := int(cacheCreate)
+		u.CacheCreationInputTokens = &cv
+	}
+	if hasCacheRead {
+		rv := int(cacheRead)
+		u.CacheReadInputTokens = &rv
 	}
 	return u
 }

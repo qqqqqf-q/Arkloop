@@ -71,13 +71,15 @@ func (c ProviderCredential) ToPublicJSON() map[string]any {
 }
 
 type ProviderRouteRule struct {
-	ID              string
-	Model           string
-	CredentialID    string
-	When            map[string]any
-	Multiplier      float64
-	CostPer1kInput  *float64
-	CostPer1kOutput *float64
+	ID               string
+	Model            string
+	CredentialID     string
+	When             map[string]any
+	Multiplier       float64
+	CostPer1kInput   *float64
+	CostPer1kOutput  *float64
+	CostPer1kCacheWrite *float64
+	CostPer1kCacheRead  *float64
 }
 
 func (r ProviderRouteRule) Matches(input map[string]any) bool {
@@ -425,7 +427,8 @@ func LoadRoutingConfigFromDB(ctx context.Context, pool *pgxpool.Pool) (ProviderR
 	rows, err := pool.Query(ctx, `
 		SELECT r.id, r.credential_id, r.model, r.when_json, r.is_default,
 		       r.multiplier, r.cost_per_1k_input, r.cost_per_1k_output,
-		       c.id, c.name, c.provider, c.base_url, c.openai_api_mode,
+		       r.cost_per_1k_cache_write, r.cost_per_1k_cache_read,
+		       c.id, c.name, c.provider, c.base_url, c.openai_api_mode, c.advanced_json,
 		       s.encrypted_value, s.key_version
 		FROM llm_routes r
 		JOIN llm_credentials c ON c.id = r.credential_id
@@ -439,21 +442,24 @@ func LoadRoutingConfigFromDB(ctx context.Context, pool *pgxpool.Pool) (ProviderR
 	defer rows.Close()
 
 	type rowData struct {
-		routeID         uuid.UUID
-		credentialID    uuid.UUID
-		model           string
-		whenJSON        []byte
-		isDefault       bool
-		multiplier      float64
-		costPer1kInput  *float64
-		costPer1kOutput *float64
-		credID          uuid.UUID
-		credName        string
-		provider        string
-		baseURL         *string
-		openaiAPIMode   *string
-		encryptedValue  *string
-		keyVersion      *int
+		routeID             uuid.UUID
+		credentialID        uuid.UUID
+		model               string
+		whenJSON            []byte
+		isDefault           bool
+		multiplier          float64
+		costPer1kInput      *float64
+		costPer1kOutput     *float64
+		costPer1kCacheWrite *float64
+		costPer1kCacheRead  *float64
+		credID              uuid.UUID
+		credName            string
+		provider            string
+		baseURL             *string
+		openaiAPIMode       *string
+		advancedJSON        []byte
+		encryptedValue      *string
+		keyVersion          *int
 	}
 
 	var allRows []rowData
@@ -462,7 +468,8 @@ func LoadRoutingConfigFromDB(ctx context.Context, pool *pgxpool.Pool) (ProviderR
 		if err := rows.Scan(
 			&rd.routeID, &rd.credentialID, &rd.model, &rd.whenJSON, &rd.isDefault,
 			&rd.multiplier, &rd.costPer1kInput, &rd.costPer1kOutput,
-			&rd.credID, &rd.credName, &rd.provider, &rd.baseURL, &rd.openaiAPIMode,
+			&rd.costPer1kCacheWrite, &rd.costPer1kCacheRead,
+			&rd.credID, &rd.credName, &rd.provider, &rd.baseURL, &rd.openaiAPIMode, &rd.advancedJSON,
 			&rd.encryptedValue, &rd.keyVersion,
 		); err != nil {
 			return ProviderRoutingConfig{}, fmt.Errorf("routing: scan: %w", err)
@@ -503,6 +510,11 @@ func LoadRoutingConfigFromDB(ctx context.Context, pool *pgxpool.Pool) (ProviderR
 			apiKeyValue = &plaintext
 		}
 
+		advancedJSON := map[string]any{}
+		if len(rd.advancedJSON) > 0 {
+			_ = json.Unmarshal(rd.advancedJSON, &advancedJSON)
+		}
+
 		cred := ProviderCredential{
 			ID:           credIDStr,
 			Name:         rd.credName,
@@ -511,15 +523,12 @@ func LoadRoutingConfigFromDB(ctx context.Context, pool *pgxpool.Pool) (ProviderR
 			APIKeyValue:  apiKeyValue,
 			BaseURL:      rd.baseURL,
 			OpenAIMode:   rd.openaiAPIMode,
-			AdvancedJSON: map[string]any{},
+			AdvancedJSON: advancedJSON,
 		}
 		credentialsByID[credIDStr] = cred
 	}
 
-	var (
-		routes         []ProviderRouteRule
-		defaultRouteID string
-	)
+	var routes []ProviderRouteRule
 
 	seen := map[string]struct{}{}
 	for _, rd := range allRows {
@@ -545,37 +554,33 @@ func LoadRoutingConfigFromDB(ctx context.Context, pool *pgxpool.Pool) (ProviderR
 		}
 
 		route := ProviderRouteRule{
-			ID:              routeIDStr,
-			Model:           rd.model,
-			CredentialID:    credIDStr,
-			When:            when,
-			Multiplier:      multiplier,
-			CostPer1kInput:  rd.costPer1kInput,
-			CostPer1kOutput: rd.costPer1kOutput,
+			ID:                  routeIDStr,
+			Model:               rd.model,
+			CredentialID:        credIDStr,
+			When:                when,
+			Multiplier:          multiplier,
+			CostPer1kInput:      rd.costPer1kInput,
+			CostPer1kOutput:     rd.costPer1kOutput,
+			CostPer1kCacheWrite: rd.costPer1kCacheWrite,
+			CostPer1kCacheRead:  rd.costPer1kCacheRead,
 		}
 		routes = append(routes, route)
-
-		if rd.isDefault && defaultRouteID == "" {
-			defaultRouteID = routeIDStr
-		}
 	}
 
 	if len(routes) == 0 {
 		return ProviderRoutingConfig{}, nil
 	}
-	if defaultRouteID == "" {
-		defaultRouteID = routes[0].ID
-	}
 
+	// DB 配置没有全局默认路由：is_default 只在凭证内部排序时有意义
+	// （SQL ORDER BY ... is_default DESC 已保证凭证内默认路由优先被选中）
 	credentials := make([]ProviderCredential, 0, len(credentialsByID))
 	for _, cred := range credentialsByID {
 		credentials = append(credentials, cred)
 	}
 
 	return ProviderRoutingConfig{
-		DefaultRouteID: defaultRouteID,
-		Credentials:    credentials,
-		Routes:         routes,
+		Credentials: credentials,
+		Routes:      routes,
 	}, nil
 }
 

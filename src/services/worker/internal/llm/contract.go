@@ -13,6 +13,12 @@ type Usage struct {
 	InputTokens  *int
 	OutputTokens *int
 	TotalTokens  *int
+	// Anthropic: cache_creation_input_tokens（1.25× input price）
+	CacheCreationInputTokens *int
+	// Anthropic: cache_read_input_tokens（0.10× input price）
+	CacheReadInputTokens *int
+	// OpenAI: prompt_tokens_details.cached_tokens（0.50× input price）
+	CachedTokens *int
 }
 
 func (u Usage) ToJSON() map[string]any {
@@ -25,6 +31,15 @@ func (u Usage) ToJSON() map[string]any {
 	}
 	if u.TotalTokens != nil {
 		payload["total_tokens"] = *u.TotalTokens
+	}
+	if u.CacheCreationInputTokens != nil {
+		payload["cache_creation_input_tokens"] = *u.CacheCreationInputTokens
+	}
+	if u.CacheReadInputTokens != nil {
+		payload["cache_read_input_tokens"] = *u.CacheReadInputTokens
+	}
+	if u.CachedTokens != nil {
+		payload["cached_tokens"] = *u.CachedTokens
 	}
 	return payload
 }
@@ -59,7 +74,8 @@ func (e GatewayError) ToJSON() map[string]any {
 }
 
 type TextPart struct {
-	Text string
+	Text         string
+	CacheControl *string // "ephemeral"（Anthropic prompt caching）
 }
 
 func (p TextPart) ToJSON() map[string]any {

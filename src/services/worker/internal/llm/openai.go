@@ -22,6 +22,7 @@ type OpenAIGatewayConfig struct {
 	APIKey          string
 	BaseURL         string
 	APIMode         string
+	AdvancedJSON    map[string]any
 	EmitDebugEvents bool
 	TotalTimeout    time.Duration
 }
@@ -37,6 +38,17 @@ const (
 	openAIMaxResponseBytes   = 1024 * 1024
 )
 
+// critical fields denied in advanced_json to prevent overriding core request structure
+var openAIAdvancedJSONDenylist = map[string]struct{}{
+	"model":          {},
+	"messages":       {},
+	"input":          {},
+	"stream":         {},
+	"stream_options": {},
+	"tools":          {},
+	"tool_choice":    {},
+}
+
 func NewOpenAIGateway(cfg OpenAIGatewayConfig) *OpenAIGateway {
 	timeout := cfg.TotalTimeout
 	if timeout <= 0 {
@@ -51,6 +63,9 @@ func NewOpenAIGateway(cfg OpenAIGatewayConfig) *OpenAIGateway {
 		cfg.APIMode = "auto"
 	}
 	cfg.TotalTimeout = timeout
+	if cfg.AdvancedJSON == nil {
+		cfg.AdvancedJSON = map[string]any{}
+	}
 	return &OpenAIGateway{
 		cfg:    cfg,
 		client: &http.Client{},
@@ -112,6 +127,22 @@ func (g *OpenAIGateway) chatCompletions(ctx context.Context, request Request, yi
 	if len(request.Tools) > 0 {
 		payload["tools"] = toOpenAITools(request.Tools)
 		payload["tool_choice"] = "auto"
+	}
+	for k := range g.cfg.AdvancedJSON {
+		if _, denied := openAIAdvancedJSONDenylist[k]; denied {
+			return yield(StreamRunFailed{
+				Error: GatewayError{
+					ErrorClass: ErrorClassInternalError,
+					Message:    fmt.Sprintf("advanced_json must not set critical field: %s", k),
+					Details:    map[string]any{"denied_key": k},
+				},
+			})
+		}
+	}
+	for k, v := range g.cfg.AdvancedJSON {
+		if _, exists := payload[k]; !exists {
+			payload[k] = v
+		}
 	}
 
 	if g.cfg.EmitDebugEvents {
@@ -271,6 +302,22 @@ func (g *OpenAIGateway) responses(ctx context.Context, request Request, yield fu
 		payload["tools"] = toOpenAIResponsesTools(request.Tools)
 		payload["tool_choice"] = "auto"
 	}
+	for k := range g.cfg.AdvancedJSON {
+		if _, denied := openAIAdvancedJSONDenylist[k]; denied {
+			return yield(StreamRunFailed{
+				Error: GatewayError{
+					ErrorClass: ErrorClassInternalError,
+					Message:    fmt.Sprintf("advanced_json must not set critical field: %s", k),
+					Details:    map[string]any{"denied_key": k},
+				},
+			})
+		}
+	}
+	for k, v := range g.cfg.AdvancedJSON {
+		if _, exists := payload[k]; !exists {
+			payload[k] = v
+		}
+	}
 
 	if g.cfg.EmitDebugEvents {
 		baseURL := g.cfg.BaseURL
@@ -415,6 +462,9 @@ type openAIChatCompletionStreamChunk struct {
 	Usage *struct {
 		PromptTokens     int `json:"prompt_tokens"`
 		CompletionTokens int `json:"completion_tokens"`
+		PromptTokensDetails *struct {
+			CachedTokens int `json:"cached_tokens"`
+		} `json:"prompt_tokens_details"`
 	} `json:"usage"`
 }
 
@@ -569,11 +619,16 @@ func (g *OpenAIGateway) streamChatCompletionsSSE(
 		if err := json.Unmarshal([]byte(data), &parsed); err != nil {
 			return nil
 		}
-		if len(parsed.Choices) == 0 {
-			// usage chunk sent when stream_options.include_usage is true
-			if parsed.Usage != nil {
-				streamedUsage = parseChatCompletionUsage(parsed.Usage.PromptTokens, parsed.Usage.CompletionTokens)
+		// 不论 choices 是否为空，只要 chunk 携带了 usage 就捕获（取最后一次）
+		// OpenRouter 等代理会把 usage 附在最后一个有 choices 的 chunk 上
+		if parsed.Usage != nil {
+			cached := 0
+			if parsed.Usage.PromptTokensDetails != nil {
+				cached = parsed.Usage.PromptTokensDetails.CachedTokens
 			}
+			streamedUsage = parseChatCompletionUsage(parsed.Usage.PromptTokens, parsed.Usage.CompletionTokens, cached)
+		}
+		if len(parsed.Choices) == 0 {
 			return nil
 		}
 		choice := parsed.Choices[0]
@@ -843,6 +898,9 @@ type openAIChatCompletionResponse struct {
 	Usage *struct {
 		PromptTokens     int `json:"prompt_tokens"`
 		CompletionTokens int `json:"completion_tokens"`
+		PromptTokensDetails *struct {
+			CachedTokens int `json:"cached_tokens"`
+		} `json:"prompt_tokens_details"`
 	} `json:"usage"`
 }
 
@@ -896,7 +954,11 @@ func parseOpenAIChatCompletion(body []byte) (string, []ToolCall, *Usage, error) 
 
 	var usage *Usage
 	if parsed.Usage != nil {
-		usage = parseChatCompletionUsage(parsed.Usage.PromptTokens, parsed.Usage.CompletionTokens)
+		cached := 0
+		if parsed.Usage.PromptTokensDetails != nil {
+			cached = parsed.Usage.PromptTokensDetails.CachedTokens
+		}
+		usage = parseChatCompletionUsage(parsed.Usage.PromptTokens, parsed.Usage.CompletionTokens, cached)
 	}
 
 	return content, toolCalls, usage, nil
@@ -1385,7 +1447,7 @@ func readAllWithLimit(r io.Reader, maxBytes int) ([]byte, bool, error) {
 	return body[:maxBytes], true, nil
 }
 
-func parseChatCompletionUsage(promptTokens, completionTokens int) *Usage {
+func parseChatCompletionUsage(promptTokens, completionTokens, cachedTokens int) *Usage {
 	if promptTokens == 0 && completionTokens == 0 {
 		return nil
 	}
@@ -1395,6 +1457,9 @@ func parseChatCompletionUsage(promptTokens, completionTokens int) *Usage {
 	}
 	if completionTokens > 0 {
 		u.OutputTokens = &completionTokens
+	}
+	if cachedTokens > 0 {
+		u.CachedTokens = &cachedTokens
 	}
 	return u
 }
@@ -1413,6 +1478,13 @@ func parseResponsesUsage(usageObj map[string]any) *Usage {
 	if hasOutput {
 		ov := int(output)
 		u.OutputTokens = &ov
+	}
+	// OpenAI Responses API: input_tokens_details.cached_tokens
+	if details, ok := usageObj["input_tokens_details"].(map[string]any); ok {
+		if cached, ok := details["cached_tokens"].(float64); ok && cached > 0 {
+			cv := int(cached)
+			u.CachedTokens = &cv
+		}
 	}
 	return u
 }

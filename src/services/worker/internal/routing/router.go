@@ -101,6 +101,10 @@ func (r *ProviderRouter) Decide(inputJSON map[string]any, byokEnabled bool) Prov
 	}
 
 	selectedRoute := r.pickFirstMatchingRoute(inputJSON)
+	if selectedRoute.ID == "" {
+		// DB 配置无全局默认，未匹配任何路由
+		return ProviderRouteDecision{Selected: nil}
+	}
 	credential, _ := r.config.GetCredential(selectedRoute.CredentialID)
 	if credential.Scope == CredentialScopeOrg && !byokEnabled {
 		return ProviderRouteDecision{

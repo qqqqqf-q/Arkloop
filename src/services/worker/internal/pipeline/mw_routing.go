@@ -151,6 +151,7 @@ func gatewayFromCredential(credential routing.ProviderCredential, stubGateway ll
 			APIKey:          apiKey,
 			BaseURL:         baseURL,
 			APIMode:         apiMode,
+			AdvancedJSON:    credential.AdvancedJSON,
 			EmitDebugEvents: emitDebugEvents,
 		}), nil
 	case routing.ProviderKindAnthropic:
