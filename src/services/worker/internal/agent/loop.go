@@ -32,6 +32,10 @@ type RunContext struct {
 	// LLM 调用重试配置，0 值表示不重试
 	LlmRetryMaxAttempts int
 	LlmRetryBaseDelayMs int
+
+	// IterHook 在每轮迭代完成（pending 工具调用已处理，准备进入下一轮）时被调用。
+	// 返回 (text, true, nil) 时，将 text 作为 user message 注入 messages；nil 时不触发。
+	IterHook func(ctx context.Context, iter int) (string, bool, error)
 }
 
 type Loop struct {
@@ -154,6 +158,20 @@ func (l *Loop) Run(
 			}
 			if err := yield(emitter.Emit("tool.result", toolResult.ToDataJSON(), stringPtr(toolResult.ToolName), errorClass)); err != nil {
 				return err
+			}
+		}
+
+		// 每轮迭代结束（工具调用已处理），给 InteractiveExecutor 注入用户消息的机会。
+		if runCtx.IterHook != nil {
+			injected, inject, hookErr := runCtx.IterHook(ctx, iter)
+			if hookErr != nil {
+				return hookErr
+			}
+			if inject && injected != "" {
+				messages = append(messages, llm.Message{
+					Role:    "user",
+					Content: []llm.TextPart{{Text: injected}},
+				})
 			}
 		}
 	}

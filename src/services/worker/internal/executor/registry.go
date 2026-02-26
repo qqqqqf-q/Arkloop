@@ -47,6 +47,7 @@ func (r *Registry) Build(executorType string, config map[string]any) (pipeline.A
 func DefaultExecutorRegistry() *Registry {
 	reg := NewAgentRegistry()
 	_ = reg.Register("agent.simple", NewSimpleExecutor)
+	_ = reg.Register("agent.interactive", NewInteractiveExecutor)
 	_ = reg.Register("task.classify_route", NewClassifyRouteExecutor)
 	return reg
 }
