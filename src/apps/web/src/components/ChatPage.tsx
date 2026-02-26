@@ -21,6 +21,7 @@ import {
   isApiError,
   type MessageResponse,
 } from '../api'
+import { type SelectedTier } from '../storage'
 
 function normalizeError(error: unknown): AppError {
   if (isApiError(error)) {
@@ -323,7 +324,7 @@ export function ChatPage() {
     setAttachments((prev) => prev.filter((a) => a.id !== id))
   }, [])
 
-  const handleSend = async (e: FormEvent<HTMLFormElement>) => {
+  const handleSend = async (e: FormEvent<HTMLFormElement>, tier: SelectedTier) => {
     e.preventDefault()
     if (sending || !threadId) return
 
@@ -358,7 +359,8 @@ export function ChatPage() {
       setAttachments([])
       setAssistantDraft('')
 
-      const run = await createRun(accessToken, threadId)
+      const skillId = tier === 'Auto' ? 'test_interactive' : undefined
+      const run = await createRun(accessToken, threadId, skillId)
       setActiveRunId(run.run_id)
       onRunStarted(threadId)
       scrollToBottom()

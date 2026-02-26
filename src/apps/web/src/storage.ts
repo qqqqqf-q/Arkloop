@@ -3,6 +3,7 @@ const REFRESH_TOKEN_KEY = 'arkloop:web:refresh_token'
 const ACTIVE_THREAD_ID_KEY = 'arkloop:web:active_thread_id'
 const LOCALE_KEY = 'arkloop:web:locale'
 const THEME_KEY = 'arkloop:web:theme'
+const SELECTED_TIER_KEY = 'arkloop:web:selected_tier'
 
 export type Theme = 'system' | 'light' | 'dark'
 
@@ -170,6 +171,28 @@ export function writeThemeToStorage(theme: Theme): void {
   if (!canUseLocalStorage()) return
   try {
     localStorage.setItem(THEME_KEY, theme)
+  } catch {
+    // 忽略存储失败
+  }
+}
+
+export type SelectedTier = 'Auto' | 'Lite' | 'Pro' | 'Ultra'
+
+export function readSelectedTierFromStorage(): SelectedTier {
+  if (!canUseLocalStorage()) return 'Lite'
+  try {
+    const raw = localStorage.getItem(SELECTED_TIER_KEY)
+    if (raw === 'Auto' || raw === 'Lite' || raw === 'Pro' || raw === 'Ultra') return raw
+    return 'Lite'
+  } catch {
+    return 'Lite'
+  }
+}
+
+export function writeSelectedTierToStorage(tier: SelectedTier): void {
+  if (!canUseLocalStorage()) return
+  try {
+    localStorage.setItem(SELECTED_TIER_KEY, tier)
   } catch {
     // 忽略存储失败
   }

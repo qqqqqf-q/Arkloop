@@ -5,7 +5,7 @@ import { ChatInput, type Attachment, formatFileSize } from './ChatInput'
 import { ErrorCallout, type AppError } from './ErrorCallout'
 import { NotificationBell } from './NotificationBell'
 import { createThread, createMessage, createRun, isApiError, type ThreadResponse, type MeResponse } from '../api'
-import { writeActiveThreadIdToStorage } from '../storage'
+import { writeActiveThreadIdToStorage, type SelectedTier } from '../storage'
 import { useLocale } from '../contexts/LocaleContext'
 
 function normalizeError(error: unknown, fallback: string): AppError {
@@ -227,7 +227,7 @@ export function WelcomePage() {
     setError(normalizeError(err, t.requestFailed))
   }, [onLoggedOut, t.requestFailed])
 
-  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: FormEvent<HTMLFormElement>, tier: SelectedTier) => {
     e.preventDefault()
     const text = draft.trim()
     if ((!text && attachments.length === 0) || sending) return
@@ -247,7 +247,8 @@ export function WelcomePage() {
         : text
 
       await createMessage(accessToken, thread.id, { content })
-      const run = await createRun(accessToken, thread.id)
+      const skillId = tier === 'Auto' ? 'test_interactive' : undefined
+      const run = await createRun(accessToken, thread.id, skillId)
 
       writeActiveThreadIdToStorage(thread.id)
       onThreadCreated(thread)
@@ -270,10 +271,10 @@ export function WelcomePage() {
           <Zap size={13} strokeWidth={2.2} />
           <span className="text-sm font-medium tabular-nums">{creditsBalance.toLocaleString()}</span>
         </div>
-        <NotificationBell accessToken={accessToken} onClick={onOpenNotifications} refreshKey={notificationVersion} />
+        <NotificationBell accessToken={accessToken} onClick={onOpenNotifications} refreshKey={notificationVersion} title={t.notificationsTitle} />
         <button
           onClick={onTogglePrivateMode}
-          title={isPrivateMode ? '关闭私密模式' : '开启私密模式'}
+          title={isPrivateMode ? t.disableIncognito : t.enableIncognito}
           className={[
             'flex h-8 w-8 items-center justify-center rounded-lg transition-colors',
             isPrivateMode
@@ -287,13 +288,25 @@ export function WelcomePage() {
 
       {/* 居中内容 */}
       <div
-        className="flex flex-1 flex-col items-center justify-center px-5 transition-all duration-300 ease-in-out"
-        style={{ marginTop: isPrivateMode ? '-80px' : '-120px' }}
+        className="flex flex-1 flex-col items-center justify-center px-5"
       >
-        {!isPrivateMode && <FreePlanBadge />}
+        {/* FreePlanBadge: 平滑展开/收起，collapsed 时才 clip */}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateRows: isPrivateMode ? '0fr' : '1fr',
+            opacity: isPrivateMode ? 0 : 1,
+            overflow: isPrivateMode ? 'hidden' : 'visible',
+            transition: 'grid-template-rows 0.2s ease, opacity 0.15s ease',
+          }}
+        >
+          <div style={{ minHeight: 0 }}>
+            <FreePlanBadge />
+          </div>
+        </div>
 
         <h2 className="mt-[40px] mb-[40px] text-[40px] font-normal tracking-[-0.5px] text-[var(--c-text-heading)]">
-          {isPrivateMode ? 'You are incognito' : greeting}
+          {isPrivateMode ? t.youAreIncognito : greeting}
         </h2>
 
         <div className="w-full max-w-[750px]">
@@ -340,11 +353,22 @@ export function WelcomePage() {
             accessToken={accessToken}
             onAsrError={handleAsrError}
           />
-          {isPrivateMode && (
-            <p className="mt-2 text-center text-xs" style={{ color: 'var(--c-text-muted)' }}>
-              New threads will be permanently deleted after 24 hours.
-            </p>
-          )}
+          {/* incognito note: 平滑展开/收起 */}
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateRows: isPrivateMode ? '1fr' : '0fr',
+              opacity: isPrivateMode ? 1 : 0,
+              transition: 'grid-template-rows 0.2s ease, opacity 0.15s ease',
+              overflow: 'hidden',
+            }}
+          >
+            <div style={{ minHeight: 0 }}>
+              <p className="mt-2 text-center text-xs" style={{ color: 'var(--c-text-muted)' }}>
+                {t.incognitoThreadNote}
+              </p>
+            </div>
+          </div>
           {error && <ErrorCallout error={error} />}
         </div>
       </div>

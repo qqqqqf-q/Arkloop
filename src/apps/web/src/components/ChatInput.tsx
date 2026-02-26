@@ -3,6 +3,7 @@ import { Plus, ChevronDown, ArrowUp, Square, Paperclip, Mic, X, Check, Loader2 }
 import type { FormEvent, KeyboardEvent } from 'react'
 import { transcribeAudio } from '../api'
 import { useLocale } from '../contexts/LocaleContext'
+import { readSelectedTierFromStorage, writeSelectedTierToStorage, type SelectedTier } from '../storage'
 
 export type Attachment = {
   id: string
@@ -15,7 +16,7 @@ export type Attachment = {
 type Props = {
   value: string
   onChange: (val: string) => void
-  onSubmit: (e: FormEvent<HTMLFormElement>) => void
+  onSubmit: (e: FormEvent<HTMLFormElement>, tier: SelectedTier) => void
   onCancel?: () => void
   placeholder?: string
   disabled?: boolean
@@ -80,7 +81,7 @@ export function ChatInput({
 
   const [menuOpen, setMenuOpen] = useState(false)
   const [tierMenuOpen, setTierMenuOpen] = useState(false)
-  const [selectedTier, setSelectedTier] = useState<'Auto' | 'Lite' | 'Pro' | 'Ultra'>('Lite')
+  const [selectedTier, setSelectedTier] = useState<SelectedTier>(readSelectedTierFromStorage)
   const [proHovered, setProHovered] = useState(false)
   const [focused, setFocused] = useState(false)
   const [isRecording, setIsRecording] = useState(false)
@@ -256,11 +257,16 @@ export function ChatInput({
   }
 
   const cycleTier = () => {
-    setSelectedTier((prev) => prev === 'Lite' ? 'Pro' : prev === 'Pro' ? 'Ultra' : prev === 'Ultra' ? 'Auto' : 'Lite')
+    setSelectedTier((prev) => {
+      const next: SelectedTier = prev === 'Lite' ? 'Pro' : prev === 'Pro' ? 'Ultra' : prev === 'Ultra' ? 'Auto' : 'Lite'
+      writeSelectedTierToStorage(next)
+      return next
+    })
   }
 
-  const handleTierSelect = (tier: 'Auto' | 'Lite' | 'Pro' | 'Ultra') => {
+  const handleTierSelect = (tier: SelectedTier) => {
     setSelectedTier(tier)
+    writeSelectedTierToStorage(tier)
     setTierMenuOpen(false)
   }
 
@@ -365,7 +371,7 @@ export function ChatInput({
           }
         }}
       >
-      <form onSubmit={onSubmit}>
+      <form onSubmit={(e) => onSubmit(e, selectedTier)}>
         <textarea
           ref={textareaRef}
           rows={1}
