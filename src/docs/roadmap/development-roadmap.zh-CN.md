@@ -1,5 +1,10 @@
 # 项目开发路线（从仓库现状到企业可用）
 
+::: warning 已过时
+此路线图已反映历史阶段的开发计划，当前进展以 [Agent System 路线图](/roadmap/agent-system-roadmap.zh-CN) 为准。架构重构路线参见 [架构重构路线图](/roadmap/architecture-refactor-roadmap.zh-CN)。
+:::
+
+
 目标：把 Arkloop 这种“工具执行 + 审计 + 多租户 + 流式”系统拆成一条条可验收纵切；每一步都按「AI 一次可完成」的工作量拆分，并且能在 go test 里回放验证，不靠“堆模块”碰运气。
 
 ## 0. 当前仓库状态（作为基线）

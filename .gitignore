@@ -23,3 +23,6 @@ CLAUDE.md
 src/services/worker/worker
 src/services/worker/worker.exe
 language.md
+# VitePress build output
+src/docs/.vitepress/dist
+src/docs/.vitepress/cache
