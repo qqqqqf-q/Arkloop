@@ -129,6 +129,16 @@ export interface LocaleStrings {
   searchYesterday: string
   searchLastWeek: string
   searchEarlier: string
+  // incognito
+  incognitoMode: string
+  incognitoHistoryNote: string
+  youAreIncognito: string
+  enableIncognito: string
+  disableIncognito: string
+  incognitoThreadNote: string
+  incognitoLabel: string
+  thisThreadIsIncognito: string
+  toggleIncognito: string
 }
 
 export const locales: Record<Locale, LocaleStrings> = { zh, en }

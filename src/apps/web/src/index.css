@@ -42,7 +42,7 @@ button:not(:disabled) {
   --c-github-btn-border: rgba(255, 255, 255, 0.10);
   --c-input-shadow: 0 2px 3px -1px rgba(0, 0, 0, 0.08);
   --c-input-border: 1px solid rgba(255, 255, 255, 0.15);
-  --c-input-shadow-focus: 0 2px 8px -1px rgba(0, 0, 0, 0.12);
+  --c-input-shadow-focus: 0 4px 10px -2px rgba(0, 0, 0, 0.10);
   --c-error-bg: rgba(69, 10, 10, 0.30);
   --c-error-border: rgba(127, 29, 29, 0.40);
   --c-error-text: #fca5a5;
@@ -88,7 +88,7 @@ button:not(:disabled) {
     --c-github-btn-border: rgba(0, 0, 0, 0.08);
     --c-input-shadow: 0 2px 3px -1px rgba(0, 0, 0, 0.10);
     --c-input-border: 0.5px solid rgba(0, 0, 0, 0.07);
-    --c-input-shadow-focus: 0 3px 8px -1px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(0, 0, 0, 0.06);
+    --c-input-shadow-focus: 0 4px 10px -2px rgba(0, 0, 0, 0.09), 0 0 0 1px rgba(0, 0, 0, 0.05);
     --c-error-bg: #fef2f2;
     --c-error-border: #fecaca;
     --c-error-text: #b91c1c;
@@ -134,7 +134,7 @@ button:not(:disabled) {
   --c-github-btn-border: rgba(0, 0, 0, 0.08);
   --c-input-shadow: 0 2px 3px -1px rgba(0, 0, 0, 0.10);
   --c-input-border: 0.5px solid rgba(0, 0, 0, 0.07);
-  --c-input-shadow-focus: 0 3px 8px -1px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(0, 0, 0, 0.06);
+  --c-input-shadow-focus: 0 4px 10px -2px rgba(0, 0, 0, 0.09), 0 0 0 1px rgba(0, 0, 0, 0.05);
   --c-error-bg: #fef2f2;
   --c-error-border: #fecaca;
   --c-error-text: #b91c1c;

@@ -64,18 +64,27 @@ export function Sidebar({
       >
       {/* 顶部标题栏 */}
       <div className="flex min-h-[56px] items-center justify-between px-4 py-3">
-        <div className="flex items-center gap-2">
-          <h1 className="text-[16px] font-semibold tracking-tight text-[var(--c-text-primary)]">Arkloop</h1>
-          {isPrivateMode && (
-            <>
-              <span className="h-[5px] w-[5px] rounded-full bg-[var(--c-text-tertiary)]" style={{ opacity: 0.5 }} />
-              <span className="text-[12px] font-medium text-[var(--c-text-tertiary)]">Incognito mode</span>
-            </>
-          )}
+        <div className="flex items-center gap-2 overflow-hidden">
+          <h1 className="text-[16px] font-semibold tracking-tight text-[var(--c-text-primary)] shrink-0">Arkloop</h1>
+          {/* 从右滑入 */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              opacity: isPrivateMode ? 1 : 0,
+              transform: isPrivateMode ? 'translateX(0)' : 'translateX(14px)',
+              transition: 'opacity 0.18s ease, transform 0.18s ease',
+              pointerEvents: 'none',
+            }}
+          >
+            <span className="h-[5px] w-[5px] shrink-0 rounded-full bg-[var(--c-text-tertiary)]" style={{ opacity: 0.5 }} />
+            <span className="text-[12px] font-medium text-[var(--c-text-tertiary)] whitespace-nowrap">{t.incognitoMode}</span>
+          </div>
         </div>
         <button
           onClick={onToggleCollapse}
-          className="flex h-6 w-6 items-center justify-center rounded-md text-[var(--c-text-tertiary)] transition-colors hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-secondary)]"
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[var(--c-text-tertiary)] transition-colors hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-secondary)]"
         >
           <PanelLeftClose size={16} />
         </button>
@@ -127,38 +136,59 @@ export function Sidebar({
           </h3>
         </div>
         <div className="flex flex-col gap-[2px]">
-          {isPrivateMode ? (
-            <div
-              className="flex flex-col items-center gap-3 rounded-xl px-4 py-6 text-center"
-              style={{
-                border: '1px dashed var(--c-border-subtle)',
-                color: 'var(--c-text-muted)',
-              }}
-            >
-              <Glasses size={22} strokeWidth={1.5} style={{ opacity: 0.6 }} />
-              <p className="text-[13px] leading-snug">
-                Threads aren't saved to history while incognito
-              </p>
+          {/* incognito 占位：平滑展开/收起 */}
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateRows: isPrivateMode ? '1fr' : '0fr',
+              opacity: isPrivateMode ? 1 : 0,
+              overflow: 'hidden',
+              transition: 'grid-template-rows 0.15s ease, opacity 0.12s ease',
+            }}
+          >
+            <div style={{ minHeight: 0 }}>
+              <div
+                className="flex items-center gap-2 rounded-lg px-3 py-2.5"
+                style={{
+                  border: '1px dashed var(--c-border-subtle)',
+                  color: 'var(--c-text-muted)',
+                }}
+              >
+                <Glasses size={14} strokeWidth={1.5} style={{ opacity: 0.6, flexShrink: 0 }} />
+                <p className="text-[12px] leading-snug">{t.incognitoHistoryNote}</p>
+              </div>
             </div>
-          ) : threads.length === 0 ? (
-            <p className="px-2 py-1 text-[12px] text-[var(--c-text-muted)]">{t.recentsEmpty}</p>
-          ) : threads.map((thread) => (
-            <button
-              key={thread.id}
-              onClick={() => navigate(`/t/${thread.id}`)}
-              className={[
-                'flex items-center gap-2 rounded-[6px] px-2 py-[9px] text-left text-[13px] font-[350] transition-colors',
-                thread.id === threadId
-                  ? 'bg-[var(--c-bg-deep)] text-[var(--c-text-primary)]'
-                  : 'text-[var(--c-text-secondary)] hover:bg-[var(--c-bg-deep)]',
-              ].join(' ')}
-            >
-              <span className="min-w-0 flex-1 truncate">{threadTitle(thread, t.untitled)}</span>
-              {runningThreadIds.has(thread.id) && (
-                <span className="shrink-0 h-3 w-3 animate-spin rounded-full border border-[var(--c-text-muted)] border-t-transparent" />
-              )}
-            </button>
-          ))}
+          </div>
+
+          {/* 线程列表：始终渲染，淡入避免位移感 */}
+          <div
+            className="w-full flex flex-col gap-[2px]"
+            style={{
+              opacity: isPrivateMode ? 0 : 1,
+              transition: 'opacity 0.15s ease',
+              pointerEvents: isPrivateMode ? 'none' : 'auto',
+            }}
+          >
+            {threads.length === 0 ? (
+              <p className="px-2 py-1 text-[12px] text-[var(--c-text-muted)]">{t.recentsEmpty}</p>
+            ) : threads.map((thread) => (
+              <button
+                key={thread.id}
+                onClick={() => navigate(`/t/${thread.id}`)}
+                className={[
+                  'flex w-full items-center gap-2 rounded-[6px] px-2 py-[9px] text-left text-[13px] font-[350] transition-colors',
+                  thread.id === threadId
+                    ? 'bg-[var(--c-bg-deep)] text-[var(--c-text-primary)]'
+                    : 'text-[var(--c-text-secondary)] hover:bg-[var(--c-bg-deep)]',
+                ].join(' ')}
+              >
+                <span className="min-w-0 flex-1 truncate">{threadTitle(thread, t.untitled)}</span>
+                {runningThreadIds.has(thread.id) && (
+                  <span className="shrink-0 h-3 w-3 animate-spin rounded-full border border-[var(--c-text-muted)] border-t-transparent" />
+                )}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 

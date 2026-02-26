@@ -135,7 +135,7 @@ export function ChatsSearchModal({ threads, accessToken, onClose }: Props) {
         style={{
           background: 'var(--c-bg-menu)',
           border: '1px solid var(--c-border)',
-          boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
+          boxShadow: '0 8px 24px rgba(0,0,0,0.22)',
           maxHeight: '70vh',
         }}
       >

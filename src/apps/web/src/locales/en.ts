@@ -127,4 +127,13 @@ export const en: LocaleStrings = {
   searchYesterday: 'Yesterday',
   searchLastWeek: 'Last 7 days',
   searchEarlier: 'Earlier',
+  incognitoMode: 'Incognito mode',
+  incognitoHistoryNote: "Threads aren't saved to history while incognito",
+  youAreIncognito: 'You are incognito',
+  enableIncognito: 'Enable incognito',
+  disableIncognito: 'Disable incognito',
+  incognitoThreadNote: 'New threads will be permanently deleted after 24 hours.',
+  incognitoLabel: 'Incognito',
+  thisThreadIsIncognito: 'This thread is incognito',
+  toggleIncognito: 'Toggle incognito',
 }

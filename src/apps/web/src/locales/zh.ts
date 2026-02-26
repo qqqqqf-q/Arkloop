@@ -127,4 +127,13 @@ export const zh: LocaleStrings = {
   searchYesterday: '昨天',
   searchLastWeek: '最近 7 天',
   searchEarlier: '更早',
+  incognitoMode: '无痕模式',
+  incognitoHistoryNote: '无痕模式下，会话不会保存到历史记录',
+  youAreIncognito: '你已进入无痕模式',
+  enableIncognito: '开启无痕模式',
+  disableIncognito: '关闭无痕模式',
+  incognitoThreadNote: '新会话将在 24 小时后永久删除。',
+  incognitoLabel: '无痕',
+  thisThreadIsIncognito: '此会话处于无痕模式',
+  toggleIncognito: '切换无痕模式',
 }

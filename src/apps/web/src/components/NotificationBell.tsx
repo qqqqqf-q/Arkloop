@@ -8,9 +8,10 @@ type Props = {
   accessToken: string
   onClick: () => void
   refreshKey?: number
+  title?: string
 }
 
-export function NotificationBell({ accessToken, onClick, refreshKey }: Props) {
+export function NotificationBell({ accessToken, onClick, refreshKey, title }: Props) {
   const [items, setItems] = useState<NotificationItem[]>([])
   const mountedRef = useRef(true)
 
@@ -41,6 +42,7 @@ export function NotificationBell({ accessToken, onClick, refreshKey }: Props) {
   return (
     <button
       onClick={onClick}
+      title={title}
       className="relative flex h-8 w-8 items-center justify-center rounded-lg text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]"
     >
       <Bell size={18} />
