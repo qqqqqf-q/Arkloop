@@ -483,6 +483,7 @@ func threadEntry(
 	authService *auth.Service,
 	membershipRepo *data.OrgMembershipRepository,
 	threadRepo *data.ThreadRepository,
+	threadStarRepo *data.ThreadStarRepository,
 	messageRepo *data.MessageRepository,
 	runRepo *data.RunEventRepository,
 	projectRepo *data.ProjectRepository,
@@ -529,15 +530,18 @@ func threadEntry(
 		}
 
 		if hasAction {
-			if actionPart != "retry" {
+			switch actionPart {
+			case "retry":
+				if r.Method != nethttp.MethodPost {
+					writeMethodNotAllowed(w, r)
+					return
+				}
+				retry(w, r, threadID)
+			case "star":
+				handleThreadStar(w, r, traceID, authService, membershipRepo, threadRepo, threadStarRepo, apiKeysRepo, auditWriter, threadID)
+			default:
 				writeNotFound(w, r)
-				return
 			}
-			if r.Method != nethttp.MethodPost {
-				writeMethodNotAllowed(w, r)
-				return
-			}
-			retry(w, r, threadID)
 			return
 		}
 
@@ -788,4 +792,100 @@ func toThreadWithActiveRunResponse(item data.ThreadWithActiveRun) threadResponse
 		resp.ActiveRunID = &value
 	}
 	return resp
+}
+
+// handleThreadStar 处理 POST /v1/threads/{id}:star（收藏）和 DELETE /v1/threads/{id}:star（取消收藏）。
+func handleThreadStar(
+	w nethttp.ResponseWriter,
+	r *nethttp.Request,
+	traceID string,
+	authService *auth.Service,
+	membershipRepo *data.OrgMembershipRepository,
+	threadRepo *data.ThreadRepository,
+	threadStarRepo *data.ThreadStarRepository,
+	apiKeysRepo *data.APIKeysRepository,
+	auditWriter *audit.Writer,
+	threadID uuid.UUID,
+) {
+	if r.Method != nethttp.MethodPost && r.Method != nethttp.MethodDelete {
+		writeMethodNotAllowed(w, r)
+		return
+	}
+	if threadStarRepo == nil {
+		WriteError(w, nethttp.StatusServiceUnavailable, "database.not_configured", "database not configured", traceID, nil)
+		return
+	}
+
+	actor, ok := resolveActor(w, r, traceID, authService, membershipRepo, apiKeysRepo, auditWriter)
+	if !ok {
+		return
+	}
+
+	thread, err := threadRepo.GetByID(r.Context(), threadID)
+	if err != nil {
+		WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+		return
+	}
+	if thread == nil {
+		WriteError(w, nethttp.StatusNotFound, "threads.not_found", "thread not found", traceID, nil)
+		return
+	}
+	if thread.OrgID != actor.OrgID {
+		WriteError(w, nethttp.StatusForbidden, "policy.denied", "access denied", traceID, nil)
+		return
+	}
+
+	if r.Method == nethttp.MethodPost {
+		if err := threadStarRepo.Star(r.Context(), actor.UserID, threadID); err != nil {
+			WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			return
+		}
+	} else {
+		if err := threadStarRepo.Unstar(r.Context(), actor.UserID, threadID); err != nil {
+			WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			return
+		}
+	}
+
+	w.WriteHeader(nethttp.StatusNoContent)
+}
+
+// listStarredThreads 处理 GET /v1/threads/starred，返回当前用户收藏的 thread ID 列表。
+func listStarredThreads(
+	authService *auth.Service,
+	membershipRepo *data.OrgMembershipRepository,
+	threadStarRepo *data.ThreadStarRepository,
+	apiKeysRepo *data.APIKeysRepository,
+	auditWriter *audit.Writer,
+) func(nethttp.ResponseWriter, *nethttp.Request) {
+	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		if r.Method != nethttp.MethodGet {
+			writeMethodNotAllowed(w, r)
+			return
+		}
+
+		traceID := observability.TraceIDFromContext(r.Context())
+		if threadStarRepo == nil {
+			WriteError(w, nethttp.StatusServiceUnavailable, "database.not_configured", "database not configured", traceID, nil)
+			return
+		}
+
+		actor, ok := resolveActor(w, r, traceID, authService, membershipRepo, apiKeysRepo, auditWriter)
+		if !ok {
+			return
+		}
+
+		ids, err := threadStarRepo.ListByUser(r.Context(), actor.UserID)
+		if err != nil {
+			WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			return
+		}
+
+		// 返回字符串 ID 列表，空时返回空数组而非 null
+		result := make([]string, 0, len(ids))
+		for _, id := range ids {
+			result = append(result, id.String())
+		}
+		writeJSON(w, traceID, nethttp.StatusOK, result)
+	}
 }

@@ -136,4 +136,7 @@ export const en: LocaleStrings = {
   incognitoLabel: 'Incognito',
   thisThreadIsIncognito: 'This thread is incognito',
   toggleIncognito: 'Toggle incognito',
+  starThread: 'Star',
+  unstarThread: 'Unstar',
+  shareThread: 'Share',
 }

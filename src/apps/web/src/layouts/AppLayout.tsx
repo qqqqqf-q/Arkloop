@@ -171,6 +171,7 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
         threads={threads}
         runningThreadIds={runningThreadIds}
         isPrivateMode={isPrivateMode}
+        accessToken={accessToken}
         onNewThread={handleNewThread}
         onLogout={handleLogout}
         onOpenSettings={(tab = 'account') => { setSettingsInitialTab(tab); setSettingsOpen(true) }}

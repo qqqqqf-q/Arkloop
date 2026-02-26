@@ -139,6 +139,10 @@ export interface LocaleStrings {
   incognitoLabel: string
   thisThreadIsIncognito: string
   toggleIncognito: string
+  // thread context menu
+  starThread: string
+  unstarThread: string
+  shareThread: string
 }
 
 export const locales: Record<Locale, LocaleStrings> = { zh, en }

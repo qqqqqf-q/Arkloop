@@ -159,6 +159,7 @@ func (a *Application) Run(ctx context.Context) error {
 		membershipRepo *data.OrgMembershipRepository
 		orgRepo        *data.OrgRepository
 		threadRepo     *data.ThreadRepository
+		threadStarRepo *data.ThreadStarRepository
 		messageRepo    *data.MessageRepository
 		runEventRepo   *data.RunEventRepository
 		auditRepo      *data.AuditLogRepository
@@ -230,6 +231,10 @@ func (a *Application) Run(ctx context.Context) error {
 			return err
 		}
 		threadRepo, err = data.NewThreadRepository(pool)
+		if err != nil {
+			return err
+		}
+		threadStarRepo, err = data.NewThreadStarRepository(pool)
 		if err != nil {
 			return err
 		}
@@ -484,6 +489,7 @@ func (a *Application) Run(ctx context.Context) error {
 			OrgService:           orgService,
 			OrgMembershipRepo:    membershipRepo,
 			ThreadRepo:           threadRepo,
+			ThreadStarRepo:       threadStarRepo,
 			MessageRepo:          messageRepo,
 			RunEventRepo:         runEventRepo,
 			AuditWriter:          auditWriter,

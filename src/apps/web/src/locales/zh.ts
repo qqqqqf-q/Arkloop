@@ -136,4 +136,7 @@ export const zh: LocaleStrings = {
   incognitoLabel: '无痕',
   thisThreadIsIncognito: '此会话处于无痕模式',
   toggleIncognito: '切换无痕模式',
+  starThread: '收藏',
+  unstarThread: '取消收藏',
+  shareThread: '分享',
 }

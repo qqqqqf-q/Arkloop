@@ -1,4 +1,7 @@
+import { useState, useRef, useEffect, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { useNavigate, useParams, useLocation } from 'react-router-dom'
+import { motion, AnimatePresence } from 'framer-motion'
 import {
   SquarePen,
   Search,
@@ -8,9 +11,13 @@ import {
   PanelLeftClose,
   Bolt,
   Glasses,
+  MoreHorizontal,
+  Star,
+  Share2,
 } from 'lucide-react'
 import type { SettingsTab } from './SettingsModal'
 import type { ThreadResponse, MeResponse } from '../api'
+import { listStarredThreadIds, starThread, unstarThread } from '../api'
 import { useLocale } from '../contexts/LocaleContext'
 
 type Props = {
@@ -18,6 +25,7 @@ type Props = {
   threads: ThreadResponse[]
   runningThreadIds: Set<string>
   isPrivateMode: boolean
+  accessToken: string
   onNewThread: () => void
   onLogout: () => void
   onOpenSettings: (tab?: SettingsTab) => void
@@ -35,6 +43,7 @@ export function Sidebar({
   threads,
   runningThreadIds,
   isPrivateMode,
+  accessToken,
   onNewThread,
   onLogout: _onLogout,
   onOpenSettings,
@@ -46,9 +55,57 @@ export function Sidebar({
   const { threadId } = useParams<{ threadId: string }>()
   const { t } = useLocale()
 
+  const [starredIds, setStarredIds] = useState<string[]>([])
+  const [menuThreadId, setMenuThreadId] = useState<string | null>(null)
+  const [menuPos, setMenuPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  // 初始化时从服务端拉取收藏列表
+  useEffect(() => {
+    listStarredThreadIds(accessToken)
+      .then((ids) => setStarredIds(ids))
+      .catch(() => {})
+  }, [accessToken])
+
+  const toggleStar = useCallback((id: string) => {
+    const wasStarred = starredIds.includes(id)
+    // 乐观更新：新收藏插到最前，取消收藏直接移除
+    setStarredIds((prev) =>
+      wasStarred ? prev.filter((x) => x !== id) : [id, ...prev.filter((x) => x !== id)]
+    )
+    setMenuThreadId(null)
+    // API 调用失败时回滚
+    const req = wasStarred ? unstarThread(accessToken, id) : starThread(accessToken, id)
+    req.catch(() => {
+      setStarredIds((prev) =>
+        wasStarred ? [id, ...prev.filter((x) => x !== id)] : prev.filter((x) => x !== id)
+      )
+    })
+  }, [accessToken, starredIds])
+
+  const openMenu = useCallback((e: React.MouseEvent, id: string) => {
+    e.stopPropagation()
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    setMenuPos({ x: rect.right, y: rect.bottom + 4 })
+    setMenuThreadId((prev) => (prev === id ? null : id))
+  }, [])
+
+  // 点击外部关闭菜单
+  useEffect(() => {
+    if (!menuThreadId) return
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuThreadId(null)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [menuThreadId])
+
   const userInitial = me?.username?.charAt(0).toUpperCase() ?? '?'
 
   return (
+    <>
     <aside
       className={[
         'flex h-full shrink-0 flex-col overflow-hidden bg-[var(--c-bg-sidebar)] transition-all duration-300',
@@ -171,23 +228,79 @@ export function Sidebar({
           >
             {threads.length === 0 ? (
               <p className="px-2 py-1 text-[12px] text-[var(--c-text-muted)]">{t.recentsEmpty}</p>
-            ) : threads.map((thread) => (
-              <button
-                key={thread.id}
-                onClick={() => navigate(`/t/${thread.id}`)}
-                className={[
-                  'flex w-full items-center gap-2 rounded-[6px] px-2 py-[9px] text-left text-[13px] font-[350] transition-colors',
-                  thread.id === threadId
-                    ? 'bg-[var(--c-bg-deep)] text-[var(--c-text-primary)]'
-                    : 'text-[var(--c-text-secondary)] hover:bg-[var(--c-bg-deep)]',
-                ].join(' ')}
-              >
-                <span className="min-w-0 flex-1 truncate">{threadTitle(thread, t.untitled)}</span>
-                {runningThreadIds.has(thread.id) && (
-                  <span className="shrink-0 h-3 w-3 animate-spin rounded-full border border-[var(--c-text-muted)] border-t-transparent" />
-                )}
-              </button>
-            ))}
+            ) : (() => {
+              const starredSet = new Set(starredIds)
+              const starredThreads = starredIds
+                .map((id) => threads.find((t) => t.id === id))
+                .filter((t): t is ThreadResponse => t !== undefined)
+              const regularThreads = threads.filter((t) => !starredSet.has(t.id))
+
+              const renderThread = (thread: ThreadResponse, section: 'starred' | 'regular') => (
+                <motion.div
+                  key={`${thread.id}-${section}`}
+                  initial={{ opacity: 0, scale: 0.97 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.97 }}
+                  transition={{ duration: 0.15, ease: 'easeOut' }}
+                  className={[
+                    'group relative flex w-full items-center rounded-[6px]',
+                    thread.id === threadId
+                      ? 'bg-[var(--c-bg-deep)]'
+                      : 'hover:bg-[var(--c-bg-deep)]',
+                  ].join(' ')}
+                >
+                  <button
+                    onClick={() => navigate(`/t/${thread.id}`)}
+                    className={[
+                      'flex min-w-0 flex-1 items-center gap-2 px-2 py-[9px] text-left text-[13px] font-[350]',
+                      thread.id === threadId
+                        ? 'text-[var(--c-text-primary)]'
+                        : 'text-[var(--c-text-secondary)]',
+                    ].join(' ')}
+                  >
+                    {starredSet.has(thread.id) && (
+                      <Star size={11} className="shrink-0 fill-[var(--c-text-muted)] text-[var(--c-text-muted)] opacity-70" />
+                    )}
+                    <span className="min-w-0 flex-1 truncate">{threadTitle(thread, t.untitled)}</span>
+                    {runningThreadIds.has(thread.id) && (
+                      <span className="shrink-0 h-3 w-3 animate-spin rounded-full border border-[var(--c-text-muted)] border-t-transparent" />
+                    )}
+                  </button>
+                  {/* hover 时显示三点按钮 */}
+                  <button
+                    onClick={(e) => openMenu(e, thread.id)}
+                    onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = 'rgba(0,0,0,0.18)' }}
+                    onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = 'transparent' }}
+                    className={[
+                      'mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-md',
+                      'text-[var(--c-text-muted)] transition-colors hover:text-[var(--c-text-secondary)]',
+                      'opacity-0 group-hover:opacity-100',
+                      menuThreadId === thread.id ? '!opacity-100 !bg-[rgba(0,0,0,0.18)]' : '',
+                    ].join(' ')}
+                    style={{ background: 'transparent' }}
+                  >
+                    <MoreHorizontal size={14} />
+                  </button>
+                </motion.div>
+              )
+
+              return (
+                <AnimatePresence initial={false}>
+                  {starredThreads.map((t) => renderThread(t, 'starred'))}
+                  {starredThreads.length > 0 && regularThreads.length > 0 && (
+                    <motion.div
+                      key="__divider__"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.15 }}
+                      className="my-1 mx-2 h-px bg-[var(--c-bg-deep)]"
+                    />
+                  )}
+                  {regularThreads.map((t) => renderThread(t, 'regular'))}
+                </AnimatePresence>
+              )
+            })()}
           </div>
         </div>
       </div>
@@ -227,5 +340,55 @@ export function Sidebar({
       </div>
       </div>
     </aside>
+
+    {/* 三点菜单 - portal 挂到 body 避免被 overflow 裁切 */}
+    {menuThreadId !== null && createPortal(
+      <div
+        ref={menuRef}
+        style={{
+          position: 'fixed',
+          right: `calc(100vw - ${menuPos.x}px)`,
+          top: menuPos.y,
+          zIndex: 9999,
+          border: '0.5px solid var(--c-border-subtle)',
+          borderRadius: '10px',
+          padding: '4px',
+          background: 'var(--c-bg-menu)',
+          minWidth: '120px',
+          boxShadow: 'var(--c-dropdown-shadow)',
+        }}
+        className="dropdown-menu"
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+          <button
+            onClick={() => toggleStar(menuThreadId)}
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-[13px] transition-colors duration-100"
+            style={{ color: 'var(--c-text-secondary)', background: 'var(--c-bg-menu)', borderRadius: '8px' }}
+            onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = 'var(--c-bg-deep)' }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = 'var(--c-bg-menu)' }}
+          >
+            <Star
+              size={13}
+              style={{
+                flexShrink: 0,
+                color: 'var(--c-text-secondary)',
+                fill: starredIds.includes(menuThreadId) ? 'var(--c-text-secondary)' : 'none',
+              }}
+            />
+            {starredIds.includes(menuThreadId) ? t.unstarThread : t.starThread}
+          </button>
+          <button
+            disabled
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-[13px]"
+            style={{ color: 'var(--c-text-muted)', background: 'var(--c-bg-menu)', borderRadius: '8px', opacity: 0.4, cursor: 'not-allowed' }}
+          >
+            <Share2 size={13} style={{ flexShrink: 0 }} />
+            {t.shareThread}
+          </button>
+        </div>
+      </div>,
+      document.body,
+    )}
+    </>
   )
 }

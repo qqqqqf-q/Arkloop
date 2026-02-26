@@ -357,6 +357,27 @@ export async function searchThreads(
   })
 }
 
+export async function listStarredThreadIds(accessToken: string): Promise<string[]> {
+  return await apiFetch<string[]>('/v1/threads/starred', {
+    method: 'GET',
+    accessToken,
+  })
+}
+
+export async function starThread(accessToken: string, threadId: string): Promise<void> {
+  await apiFetch<void>(`/v1/threads/${threadId}:star`, {
+    method: 'POST',
+    accessToken,
+  })
+}
+
+export async function unstarThread(accessToken: string, threadId: string): Promise<void> {
+  await apiFetch<void>(`/v1/threads/${threadId}:star`, {
+    method: 'DELETE',
+    accessToken,
+  })
+}
+
 // Messages API
 
 export type CreateMessageRequest = {
