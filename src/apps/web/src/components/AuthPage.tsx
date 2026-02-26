@@ -1,8 +1,27 @@
 import { useState, useMemo, useEffect, type FormEvent } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { login, register, getRegistrationMode, isApiError } from '../api'
 import type { RegistrationModeResponse } from '../api'
 import { ErrorCallout, type AppError } from './ErrorCallout'
 import { useLocale } from '../contexts/LocaleContext'
+
+function SpinnerIcon() {
+  return (
+    <svg
+      className="animate-spin"
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      aria-hidden="true"
+    >
+      <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+    </svg>
+  )
+}
 
 function GitHubIcon() {
   return (
@@ -23,11 +42,12 @@ function normalizeError(error: unknown, fallback: string): AppError {
 }
 
 type Props = {
+  mode: 'login' | 'register'
   onLoggedIn: (accessToken: string, refreshToken: string) => void
 }
 
-export function AuthPage({ onLoggedIn }: Props) {
-  const [mode, setMode] = useState<'login' | 'register'>('login')
+export function AuthPage({ mode, onLoggedIn }: Props) {
+  const navigate = useNavigate()
   const [loginValue, setLoginValue] = useState('')
   const [password, setPassword] = useState('')
   const [inviteCode, setInviteCode] = useState('')
@@ -35,6 +55,16 @@ export function AuthPage({ onLoggedIn }: Props) {
   const [error, setError] = useState<AppError | null>(null)
   const [registrationMode, setRegistrationMode] = useState<RegistrationModeResponse['mode']>('invite_only')
   const { t } = useLocale()
+
+  // 登录页始终跟随系统，用户还没机会进设置改主题
+  useEffect(() => {
+    const root = document.documentElement
+    const prev = root.getAttribute('data-theme')
+    root.removeAttribute('data-theme')
+    return () => {
+      if (prev) root.setAttribute('data-theme', prev)
+    }
+  }, [])
 
   useEffect(() => {
     getRegistrationMode()
@@ -78,7 +108,7 @@ export function AuthPage({ onLoggedIn }: Props) {
 
   const inputStyle = {
     border: '0.5px solid var(--c-border-auth)',
-    height: '42px',
+    height: '36px',
     padding: '0 14px',
     fontSize: '13px',
     fontWeight: 500,
@@ -87,121 +117,132 @@ export function AuthPage({ onLoggedIn }: Props) {
 
   return (
     <div
-      className="flex min-h-screen flex-col items-center justify-center px-5"
-      style={{ background: 'var(--c-bg-deep)', padding: '48px 20px', gap: '32px' }}
+      style={{
+        minHeight: '100vh',
+        background: 'var(--c-bg-page)',
+        display: 'flex',
+        flexDirection: 'column' as const,
+        position: 'relative' as const,
+        overflow: 'hidden',
+      }}
     >
-      <header className="flex flex-col items-center" style={{ gap: '8px' }}>
-        <div style={{ fontSize: '28px', fontWeight: 500, color: 'var(--c-text-primary)' }}>Arkloop</div>
-        <div style={{ fontSize: '15px', fontWeight: 500, color: 'var(--c-placeholder)' }}>
-          {mode === 'login' ? t.loginMode : t.registerMode}
-        </div>
-      </header>
+      <div className="auth-dots" />
+      <div className="auth-glow auth-glow-top" />
+      <div className="auth-glow auth-glow-bottom" />
 
-      <section
-        style={{
-          width: 'min(400px, 100%)',
-          borderRadius: '20px',
-          padding: '28px 32px',
-          background: 'var(--c-bg-deep)',
-          border: '0.5px solid var(--c-border-auth)',
-        }}
+      <div
+        className="flex flex-col items-center justify-center"
+        style={{ flex: 1, gap: '32px', padding: '48px 20px', position: 'relative', zIndex: 1 }}
       >
-        <form className="flex flex-col" style={{ gap: '12px' }} onSubmit={onSubmit}>
-          <input
-            className="w-full rounded-[10px] bg-[var(--c-bg-input)] text-[var(--c-text-primary)] outline-none placeholder:text-[var(--c-placeholder)]"
-            style={inputStyle}
-            type="text"
-            placeholder={t.enterUsername}
-            value={loginValue}
-            onChange={(e) => setLoginValue(e.target.value)}
-            autoComplete="username"
-            autoCapitalize="none"
-            spellCheck={false}
-          />
+        <header className="flex flex-col items-center" style={{ gap: '8px' }}>
+          <div style={{ fontSize: '28px', fontWeight: 500, color: 'var(--c-text-primary)' }}>Arkloop</div>
+          <div style={{ fontSize: '15px', fontWeight: 500, color: 'var(--c-placeholder)' }}>
+            {mode === 'login' ? t.loginMode : t.registerMode}
+          </div>
+        </header>
 
-          <input
-            className="w-full rounded-[10px] bg-[var(--c-bg-input)] text-[var(--c-text-primary)] outline-none placeholder:text-[var(--c-placeholder)]"
-            style={inputStyle}
-            type="password"
-            placeholder={t.enterPassword}
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-          />
-
-          {mode === 'register' && (
+        <section style={{ width: 'min(400px, 100%)' }}>
+          <form className="flex flex-col" style={{ gap: '12px' }} onSubmit={onSubmit}>
             <input
               className="w-full rounded-[10px] bg-[var(--c-bg-input)] text-[var(--c-text-primary)] outline-none placeholder:text-[var(--c-placeholder)]"
               style={inputStyle}
               type="text"
-              placeholder={inviteRequired ? t.enterInviteCode : t.enterInviteCodeOptional}
-              value={inviteCode}
-              onChange={(e) => setInviteCode(e.target.value)}
-              autoComplete="off"
-              required={inviteRequired}
+              placeholder={t.enterUsername}
+              value={loginValue}
+              onChange={(e) => setLoginValue(e.target.value)}
+              autoComplete="username"
+              autoCapitalize="none"
+              spellCheck={false}
             />
-          )}
 
-          <button
-            type="submit"
-            disabled={!canSubmit}
-            style={{
-              height: '44px',
-              marginTop: '4px',
-              borderRadius: '10px',
-              border: 'none',
-              cursor: 'pointer',
-              fontSize: '14px',
-              fontWeight: 500,
-              fontFamily: 'inherit',
-              background: 'var(--c-btn-bg)',
-              color: 'var(--c-btn-text)',
-            }}
-            className="disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {submitting ? '...' : t.continueBtn}
+            <input
+              className="w-full rounded-[10px] bg-[var(--c-bg-input)] text-[var(--c-text-primary)] outline-none placeholder:text-[var(--c-placeholder)]"
+              style={inputStyle}
+              type="password"
+              placeholder={t.enterPassword}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+            />
+
+            {mode === 'register' && (
+              <input
+                className="w-full rounded-[10px] bg-[var(--c-bg-input)] text-[var(--c-text-primary)] outline-none placeholder:text-[var(--c-placeholder)]"
+                style={inputStyle}
+                type="text"
+                placeholder={inviteRequired ? t.enterInviteCode : t.enterInviteCodeOptional}
+                value={inviteCode}
+                onChange={(e) => setInviteCode(e.target.value)}
+                autoComplete="off"
+                required={inviteRequired}
+              />
+            )}
+
+            <button
+              type="submit"
+              disabled={!canSubmit}
+              style={{
+                height: '38px',
+                marginTop: '4px',
+                borderRadius: '10px',
+                border: 'none',
+                cursor: 'pointer',
+                fontSize: '14px',
+                fontWeight: 500,
+                fontFamily: 'inherit',
+                background: 'var(--c-btn-bg)',
+                color: 'var(--c-btn-text)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '6px',
+              }}
+              className="disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {submitting ? (
+                <>
+                  <SpinnerIcon />
+                  {t.continueBtn}
+                </>
+              ) : t.continueBtn}
+            </button>
+          </form>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', margin: '16px 0' }}>
+            <div style={{ flex: 1, height: '0.5px', background: 'var(--c-border-auth)' }} />
+            <span style={{ fontSize: '11px', color: 'var(--c-placeholder)', fontWeight: 500 }}>{t.orDivider}</span>
+            <div style={{ flex: 1, height: '0.5px', background: 'var(--c-border-auth)' }} />
+          </div>
+
+          <button type="button" className="github-btn">
+            <GitHubIcon />
+            {t.githubLogin}
           </button>
-        </form>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', margin: '16px 0' }}>
-          <div style={{ flex: 1, height: '0.5px', background: 'var(--c-border-auth)' }} />
-          <span style={{ fontSize: '11px', color: 'var(--c-placeholder)', fontWeight: 500 }}>{t.orDivider}</span>
-          <div style={{ flex: 1, height: '0.5px', background: 'var(--c-border-auth)' }} />
-        </div>
+          {error && <ErrorCallout error={error} />}
+        </section>
 
         <button
           type="button"
-          style={{
-            width: '100%',
-            height: '48px',
-            borderRadius: '10px',
-            border: '0.5px solid var(--c-border-auth)',
-            cursor: 'default',
-            fontSize: '13px',
-            fontWeight: 500,
-            fontFamily: 'inherit',
-            background: 'var(--c-bg-github-btn)',
-            color: 'var(--c-text-primary)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '8px',
-          }}
+          onClick={() => navigate(mode === 'login' ? '/register' : '/login')}
+          style={{ fontSize: '13px', color: 'var(--c-placeholder)', background: 'none', border: 'none', cursor: 'pointer' }}
         >
-          <GitHubIcon />
-          {t.githubLogin}
+          {mode === 'login' ? t.noAccount : t.hasAccount}
         </button>
+      </div>
 
-        {error && <ErrorCallout error={error} />}
-      </section>
-
-      <button
-        type="button"
-        onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setError(null); setInviteCode('') }}
-        style={{ fontSize: '13px', color: 'var(--c-placeholder)', background: 'none', border: 'none', cursor: 'pointer' }}
+      <footer
+        style={{
+          textAlign: 'center',
+          padding: '16px',
+          fontSize: '12px',
+          color: 'var(--c-text-muted)',
+          position: 'relative',
+          zIndex: 1,
+        }}
       >
-        {mode === 'login' ? t.noAccount : t.hasAccount}
-      </button>
+        © 2026 Arkloop
+      </footer>
     </div>
   )
 }

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Routes, Route, Navigate, useNavigate } from 'react-router-dom'
+import { Routes, Route, Navigate } from 'react-router-dom'
 import { AppLayout } from './layouts/AppLayout'
 import { AuthPage } from './components/AuthPage'
 import { WelcomePage } from './components/WelcomePage'
@@ -16,7 +16,6 @@ import { setUnauthenticatedHandler, setAccessTokenHandler } from './api'
 
 function App() {
   const [accessToken, setAccessToken] = useState<string | null>(() => readAccessTokenFromStorage())
-  const navigate = useNavigate()
 
   useEffect(() => {
     setUnauthenticatedHandler(() => {
@@ -36,8 +35,8 @@ function App() {
     writeAccessTokenToStorage(token)
     writeRefreshTokenToStorage(refreshToken)
     setAccessToken(token)
-    navigate('/', { replace: true })
-  }, [navigate])
+    // accessToken 变化后路由树切换，/login 自动 redirect 到 /
+  }, [])
 
   const handleLoggedOut = useCallback(() => {
     clearAccessTokenFromStorage()
@@ -46,21 +45,27 @@ function App() {
     setAccessToken(null)
   }, [])
 
-  if (!accessToken) {
-    return <AuthPage onLoggedIn={handleLoggedIn} />
-  }
-
   return (
     <Routes>
-      <Route
-        element={<AppLayout accessToken={accessToken} onLoggedOut={handleLoggedOut} />}
-      >
-        <Route index element={<WelcomePage />} />
-        <Route path="search" element={<WelcomePage />} />
-        <Route path="t/:threadId" element={<ChatPage />} />
-        <Route path="t/:threadId/search" element={<ChatPage />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Route>
+      {!accessToken ? (
+        <>
+          <Route path="/login" element={<AuthPage mode="login" onLoggedIn={handleLoggedIn} />} />
+          <Route path="/register" element={<AuthPage mode="register" onLoggedIn={handleLoggedIn} />} />
+          <Route path="*" element={<Navigate to="/login" replace />} />
+        </>
+      ) : (
+        <>
+          <Route path="/login" element={<Navigate to="/" replace />} />
+          <Route path="/register" element={<Navigate to="/" replace />} />
+          <Route element={<AppLayout accessToken={accessToken} onLoggedOut={handleLoggedOut} />}>
+            <Route index element={<WelcomePage />} />
+            <Route path="search" element={<WelcomePage />} />
+            <Route path="t/:threadId" element={<ChatPage />} />
+            <Route path="t/:threadId/search" element={<ChatPage />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Route>
+        </>
+      )}
     </Routes>
   )
 }
