@@ -4,6 +4,7 @@ import (
 	nethttp "net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"arkloop/services/api/internal/auth"
 	"arkloop/services/api/internal/data"
@@ -25,6 +26,7 @@ type creditTransactionResponse struct {
 	ReferenceType *string `json:"reference_type,omitempty"`
 	ReferenceID   *string `json:"reference_id,omitempty"`
 	Note          *string `json:"note,omitempty"`
+	ThreadTitle   *string `json:"thread_title,omitempty"`
 	CreatedAt     string  `json:"created_at"`
 }
 
@@ -80,7 +82,20 @@ func meCredits(
 			balance = credit.Balance
 		}
 
-		txns, err := creditsRepo.ListTransactions(ctx, actor.OrgID, 20, 0)
+		var fromDate, toDate *time.Time
+		if v := r.URL.Query().Get("from"); v != "" {
+			if t, err := time.Parse("2006-01-02", v); err == nil {
+				fromDate = &t
+			}
+		}
+		if v := r.URL.Query().Get("to"); v != "" {
+			if t, err := time.Parse("2006-01-02", v); err == nil {
+				next := t.AddDate(0, 0, 1)
+				toDate = &next
+			}
+		}
+
+		txns, err := creditsRepo.ListTransactionsWithDetails(ctx, actor.OrgID, 50, 0, fromDate, toDate)
 		if err != nil {
 			WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
@@ -88,7 +103,7 @@ func meCredits(
 
 		writeJSON(w, traceID, nethttp.StatusOK, meCreditsResponse{
 			Balance:      balance,
-			Transactions: toCreditTransactionResponses(txns),
+			Transactions: toCreditTransactionDetailResponses(txns),
 		})
 	}
 }
@@ -278,6 +293,30 @@ func toCreditTransactionResponses(txns []data.CreditTransaction) []creditTransac
 			Type:      t.Type,
 			Note:      t.Note,
 			CreatedAt: t.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
+		}
+		if t.ReferenceType != nil {
+			resp.ReferenceType = t.ReferenceType
+		}
+		if t.ReferenceID != nil {
+			s := t.ReferenceID.String()
+			resp.ReferenceID = &s
+		}
+		result = append(result, resp)
+	}
+	return result
+}
+
+func toCreditTransactionDetailResponses(txns []data.CreditTransactionDetail) []creditTransactionResponse {
+	result := make([]creditTransactionResponse, 0, len(txns))
+	for _, t := range txns {
+		resp := creditTransactionResponse{
+			ID:          t.ID.String(),
+			OrgID:       t.OrgID.String(),
+			Amount:      t.Amount,
+			Type:        t.Type,
+			Note:        t.Note,
+			ThreadTitle: t.ThreadTitle,
+			CreatedAt:   t.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
 		}
 		if t.ReferenceType != nil {
 			resp.ReferenceType = t.ReferenceType

@@ -37,10 +37,12 @@ type RouteRow = {
   multiplier: string
   cost_per_1k_input: string
   cost_per_1k_output: string
+  cost_per_1k_cache_write: string
+  cost_per_1k_cache_read: string
 }
 
 function emptyRoute(): RouteRow {
-  return { model: '', priority: '0', is_default: false, when: '', multiplier: '1', cost_per_1k_input: '', cost_per_1k_output: '' }
+  return { model: '', priority: '0', is_default: false, when: '', multiplier: '1', cost_per_1k_input: '', cost_per_1k_output: '', cost_per_1k_cache_write: '', cost_per_1k_cache_read: '' }
 }
 
 type CreateFormState = {
@@ -49,6 +51,7 @@ type CreateFormState = {
   api_key: string
   base_url: string
   openai_api_mode: string
+  advanced_json: string
   routes: RouteRow[]
 }
 
@@ -59,6 +62,7 @@ function emptyForm(): CreateFormState {
     api_key: '',
     base_url: '',
     openai_api_mode: '',
+    advanced_json: '',
     routes: [],
   }
 }
@@ -74,6 +78,8 @@ type RouteEditRow = LlmRoute & {
   draftMultiplier: string
   draftCostInput: string
   draftCostOutput: string
+  draftCostCacheWrite: string
+  draftCostCacheRead: string
   saving: boolean
   copied: boolean
 }
@@ -88,6 +94,8 @@ function routeToEditRow(route: LlmRoute): RouteEditRow {
     draftMultiplier: route.multiplier != null ? String(route.multiplier) : '1',
     draftCostInput: route.cost_per_1k_input != null ? String(route.cost_per_1k_input * 1000) : '',
     draftCostOutput: route.cost_per_1k_output != null ? String(route.cost_per_1k_output * 1000) : '',
+    draftCostCacheWrite: route.cost_per_1k_cache_write != null ? String(route.cost_per_1k_cache_write * 1000) : '',
+    draftCostCacheRead: route.cost_per_1k_cache_read != null ? String(route.cost_per_1k_cache_read * 1000) : '',
     saving: false,
     copied: false,
   }
@@ -113,9 +121,11 @@ export function CredentialsPage() {
   const [editRows, setEditRows] = useState<RouteEditRow[]>([])
   // 凭证元数据草稿
   const [editCredName, setEditCredName] = useState('')
+  const [editCredProvider, setEditCredProvider] = useState('')
   const [editCredBaseUrl, setEditCredBaseUrl] = useState('')
   const [editCredApiMode, setEditCredApiMode] = useState('')
   const [editCredApiKey, setEditCredApiKey] = useState('')
+  const [editCredAdvancedJson, setEditCredAdvancedJson] = useState('')
   const [savingCred, setSavingCred] = useState(false)
 
   const fetchCreds = useCallback(async () => {
@@ -205,11 +215,24 @@ export function CredentialsPage() {
         multiplier: parseFloat(r.multiplier) > 0 ? parseFloat(r.multiplier) : undefined,
         cost_per_1k_input: r.cost_per_1k_input !== '' ? parseFloat(r.cost_per_1k_input) / 1000 : undefined,
         cost_per_1k_output: r.cost_per_1k_output !== '' ? parseFloat(r.cost_per_1k_output) / 1000 : undefined,
+        cost_per_1k_cache_write: r.cost_per_1k_cache_write !== '' ? parseFloat(r.cost_per_1k_cache_write) / 1000 : undefined,
+        cost_per_1k_cache_read: r.cost_per_1k_cache_read !== '' ? parseFloat(r.cost_per_1k_cache_read) / 1000 : undefined,
       })
     }
 
     setSubmitting(true)
     setFormError('')
+    let advancedJson: Record<string, unknown> | undefined
+    const advStr = form.advanced_json.trim()
+    if (advStr) {
+      try {
+        advancedJson = JSON.parse(advStr) as Record<string, unknown>
+      } catch {
+        setFormError(tc.errInvalidJson('advanced_json'))
+        setSubmitting(false)
+        return
+      }
+    }
     try {
       await createLlmCredential(
         {
@@ -218,6 +241,7 @@ export function CredentialsPage() {
           api_key,
           base_url: form.base_url.trim() || undefined,
           openai_api_mode: (provider === 'openai' && form.openai_api_mode) ? form.openai_api_mode : undefined,
+          advanced_json: advancedJson,
           routes,
         },
         accessToken,
@@ -259,8 +283,10 @@ export function CredentialsPage() {
     setEditCred(cred)
     setEditRows(cred.routes.map(routeToEditRow))
     setEditCredName(cred.name)
+    setEditCredProvider(cred.provider)
     setEditCredBaseUrl(cred.base_url ?? '')
     setEditCredApiMode(cred.openai_api_mode ?? '')
+    setEditCredAdvancedJson(cred.advanced_json ? JSON.stringify(cred.advanced_json, null, 2) : '')
     setEditCredApiKey('')
   }, [])
 
@@ -305,6 +331,8 @@ export function CredentialsPage() {
             multiplier: parseFloat(row.draftMultiplier) > 0 ? parseFloat(row.draftMultiplier) : undefined,
             cost_per_1k_input: row.draftCostInput !== '' ? parseFloat(row.draftCostInput) / 1000 : undefined,
             cost_per_1k_output: row.draftCostOutput !== '' ? parseFloat(row.draftCostOutput) / 1000 : undefined,
+            cost_per_1k_cache_write: row.draftCostCacheWrite !== '' ? parseFloat(row.draftCostCacheWrite) / 1000 : undefined,
+            cost_per_1k_cache_read: row.draftCostCacheRead !== '' ? parseFloat(row.draftCostCacheRead) / 1000 : undefined,
           },
           accessToken,
         )
@@ -345,18 +373,31 @@ export function CredentialsPage() {
     if (!name) return
     setSavingCred(true)
     try {
+      let advancedJson: Record<string, unknown> | undefined
+      const advStr = editCredAdvancedJson.trim()
+      if (advStr) {
+        try {
+          advancedJson = JSON.parse(advStr) as Record<string, unknown>
+        } catch {
+          addToast(tc.errInvalidJson('advanced_json'), 'error')
+          setSavingCred(false)
+          return
+        }
+      }
       const updated = await updateLlmCredential(
         editCred.id,
         {
           name,
+          provider: editCredProvider || undefined,
           base_url: editCredBaseUrl.trim() || null,
-          openai_api_mode: editCredApiMode || null,
+          openai_api_mode: editCredProvider === 'openai' ? (editCredApiMode || null) : null,
+          advanced_json: advancedJson,
           ...(editCredApiKey.trim() ? { api_key: editCredApiKey.trim() } : {}),
         },
         accessToken,
       )
       setCreds((prev) => prev.map((c) => (c.id === updated.id ? { ...updated, routes: c.routes } : c)))
-      setEditCred((prev) => prev ? { ...prev, name: updated.name, base_url: updated.base_url, openai_api_mode: updated.openai_api_mode } : null)
+      setEditCred((prev) => prev ? { ...prev, provider: updated.provider, name: updated.name, base_url: updated.base_url, openai_api_mode: updated.openai_api_mode } : null)
       setEditCredApiKey('')
       addToast(tc.toastCredUpdated, 'success')
     } catch {
@@ -364,7 +405,7 @@ export function CredentialsPage() {
     } finally {
       setSavingCred(false)
     }
-  }, [editCred, editCredName, editCredBaseUrl, editCredApiMode, editCredApiKey, accessToken, addToast, tc])
+  }, [editCred, editCredName, editCredProvider, editCredBaseUrl, editCredApiMode, editCredAdvancedJson, editCredApiKey, accessToken, addToast, tc])
 
   const columns: Column<LlmCredential>[] = [
     {
@@ -534,6 +575,16 @@ export function CredentialsPage() {
             </FormField>
           )}
 
+          <FormField label={tc.fieldAdvancedJson}>
+            <textarea
+              value={form.advanced_json}
+              onChange={(e) => handleFormField('advanced_json', e.target.value)}
+              placeholder="{}"
+              rows={3}
+              className="w-full rounded-lg border border-[var(--c-border)] bg-[var(--c-bg-deep2)] px-3 py-1.5 font-mono text-xs text-[var(--c-text-secondary)] focus:outline-none"
+            />
+          </FormField>
+
           {/* Routes */}
           <div className="flex flex-col gap-2">
             <span className="text-xs font-medium text-[var(--c-text-tertiary)]">{tc.fieldRoutes}</span>
@@ -583,42 +634,70 @@ export function CredentialsPage() {
                       className="rounded border border-[var(--c-border)] bg-[var(--c-bg-deep2)] px-2.5 py-1 font-mono text-xs text-[var(--c-text-primary)] placeholder:text-[var(--c-text-muted)] focus:outline-none"
                     />
                   </div>
-                  <div className="flex gap-2">
-                    <div className="flex w-24 flex-col gap-1">
-                      <span className="text-[10px] text-[var(--c-text-muted)]">{tc.routeMultiplier}</span>
-                      <input
-                        type="number"
-                        step="0.1"
-                        min="0"
-                        value={route.multiplier}
-                        onChange={(e) => handleRouteField(idx, 'multiplier', e.target.value)}
-                        placeholder="1"
-                        className="rounded border border-[var(--c-border)] bg-[var(--c-bg-deep2)] px-2.5 py-1 text-xs text-[var(--c-text-primary)] focus:outline-none"
-                      />
+                  <div className="flex flex-col gap-2">
+                    <div className="flex gap-2">
+                      <div className="flex w-24 flex-col gap-1">
+                        <span className="text-[10px] text-[var(--c-text-muted)]">{tc.routeMultiplier}</span>
+                        <input
+                          type="number"
+                          step="0.1"
+                          min="0"
+                          value={route.multiplier}
+                          onChange={(e) => handleRouteField(idx, 'multiplier', e.target.value)}
+                          placeholder="1"
+                          className="rounded border border-[var(--c-border)] bg-[var(--c-bg-deep2)] px-2.5 py-1 text-xs text-[var(--c-text-primary)] focus:outline-none"
+                        />
+                      </div>
+                      <div className="flex flex-1 flex-col gap-1">
+                        <span className="text-[10px] text-[var(--c-text-muted)]">{tc.routeCostInput}</span>
+                        <input
+                          type="number"
+                          step="0.001"
+                          min="0"
+                          value={route.cost_per_1k_input}
+                          onChange={(e) => handleRouteField(idx, 'cost_per_1k_input', e.target.value)}
+                          placeholder="0.00"
+                          className="rounded border border-[var(--c-border)] bg-[var(--c-bg-deep2)] px-2.5 py-1 text-xs text-[var(--c-text-primary)] focus:outline-none"
+                        />
+                      </div>
+                      <div className="flex flex-1 flex-col gap-1">
+                        <span className="text-[10px] text-[var(--c-text-muted)]">{tc.routeCostOutput}</span>
+                        <input
+                          type="number"
+                          step="0.001"
+                          min="0"
+                          value={route.cost_per_1k_output}
+                          onChange={(e) => handleRouteField(idx, 'cost_per_1k_output', e.target.value)}
+                          placeholder="0.00"
+                          className="rounded border border-[var(--c-border)] bg-[var(--c-bg-deep2)] px-2.5 py-1 text-xs text-[var(--c-text-primary)] focus:outline-none"
+                        />
+                      </div>
                     </div>
-                    <div className="flex flex-1 flex-col gap-1">
-                      <span className="text-[10px] text-[var(--c-text-muted)]">{tc.routeCostInput}</span>
-                      <input
-                        type="number"
-                        step="0.001"
-                        min="0"
-                        value={route.cost_per_1k_input}
-                        onChange={(e) => handleRouteField(idx, 'cost_per_1k_input', e.target.value)}
-                        placeholder="0.00"
-                        className="rounded border border-[var(--c-border)] bg-[var(--c-bg-deep2)] px-2.5 py-1 text-xs text-[var(--c-text-primary)] focus:outline-none"
-                      />
-                    </div>
-                    <div className="flex flex-1 flex-col gap-1">
-                      <span className="text-[10px] text-[var(--c-text-muted)]">{tc.routeCostOutput}</span>
-                      <input
-                        type="number"
-                        step="0.001"
-                        min="0"
-                        value={route.cost_per_1k_output}
-                        onChange={(e) => handleRouteField(idx, 'cost_per_1k_output', e.target.value)}
-                        placeholder="0.00"
-                        className="rounded border border-[var(--c-border)] bg-[var(--c-bg-deep2)] px-2.5 py-1 text-xs text-[var(--c-text-primary)] focus:outline-none"
-                      />
+                    <div className="flex gap-2">
+                      <div className="flex flex-1 flex-col gap-1">
+                        <span className="text-[10px] text-[var(--c-text-muted)]">{tc.routeCostCacheRead}</span>
+                        <input
+                          type="number"
+                          step="0.001"
+                          min="0"
+                          value={route.cost_per_1k_cache_read}
+                          onChange={(e) => handleRouteField(idx, 'cost_per_1k_cache_read', e.target.value)}
+                          placeholder="0.00"
+                          className="rounded border border-[var(--c-border)] bg-[var(--c-bg-deep2)] px-2.5 py-1 text-xs text-[var(--c-text-primary)] focus:outline-none"
+                        />
+                      </div>
+                      <div className="flex flex-1 flex-col gap-1">
+                        <span className="text-[10px] text-[var(--c-text-muted)]">{tc.routeCostCacheWrite}</span>
+                        <input
+                          type="number"
+                          step="0.001"
+                          min="0"
+                          value={route.cost_per_1k_cache_write}
+                          onChange={(e) => handleRouteField(idx, 'cost_per_1k_cache_write', e.target.value)}
+                          placeholder="0.00"
+                          className="rounded border border-[var(--c-border)] bg-[var(--c-bg-deep2)] px-2.5 py-1 text-xs text-[var(--c-text-primary)] focus:outline-none"
+                        />
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -682,6 +761,20 @@ export function CredentialsPage() {
                 className="rounded-lg border border-[var(--c-border)] bg-[var(--c-bg-deep2)] px-3 py-1.5 text-sm text-[var(--c-text-primary)] focus:outline-none"
               />
             </FormField>
+            <FormField label="Provider">
+              <select
+                value={editCredProvider}
+                onChange={(e) => {
+                  setEditCredProvider(e.target.value)
+                  if (e.target.value !== 'openai') setEditCredApiMode('')
+                }}
+                className="rounded-lg border border-[var(--c-border)] bg-[var(--c-bg-deep2)] px-3 py-1.5 text-sm text-[var(--c-text-secondary)] focus:outline-none"
+              >
+                {PROVIDERS.map((p) => (
+                  <option key={p} value={p}>{p}</option>
+                ))}
+              </select>
+            </FormField>
             <FormField label={tc.fieldBaseUrl}>
               <input
                 type="text"
@@ -691,7 +784,7 @@ export function CredentialsPage() {
                 className="rounded-lg border border-[var(--c-border)] bg-[var(--c-bg-deep2)] px-3 py-1.5 text-sm text-[var(--c-text-primary)] placeholder:text-[var(--c-text-muted)] focus:outline-none"
               />
             </FormField>
-            {editCred?.provider === 'openai' && (
+            {editCredProvider === 'openai' && (
               <FormField label={tc.fieldApiMode}>
                 <select
                   value={editCredApiMode}
@@ -712,6 +805,15 @@ export function CredentialsPage() {
                 onChange={(e) => setEditCredApiKey(e.target.value)}
                 autoComplete="new-password"
                 className="rounded-lg border border-[var(--c-border)] bg-[var(--c-bg-deep2)] px-3 py-1.5 text-sm text-[var(--c-text-primary)] focus:outline-none"
+              />
+            </FormField>
+            <FormField label={tc.fieldAdvancedJson}>
+              <textarea
+                value={editCredAdvancedJson}
+                onChange={(e) => setEditCredAdvancedJson(e.target.value)}
+                placeholder="{}"
+                rows={3}
+                className="w-full rounded-lg border border-[var(--c-border)] bg-[var(--c-bg-deep2)] px-3 py-1.5 font-mono text-xs text-[var(--c-text-secondary)] focus:outline-none"
               />
             </FormField>
             <div className="flex justify-end">
@@ -784,42 +886,70 @@ export function CredentialsPage() {
                     className="rounded border border-[var(--c-border)] bg-[var(--c-bg-deep2)] px-2.5 py-1 font-mono text-xs text-[var(--c-text-primary)] placeholder:text-[var(--c-text-muted)] focus:outline-none"
                   />
                 </div>
-                <div className="flex gap-2">
-                  <div className="flex w-24 flex-col gap-1">
-                    <span className="text-[10px] text-[var(--c-text-muted)]">{tc.routeMultiplier}</span>
-                    <input
-                      type="number"
-                      step="0.1"
-                      min="0"
-                      value={row.draftMultiplier}
-                      onChange={(e) => handleEditRowField(idx, 'draftMultiplier', e.target.value)}
-                      placeholder="1"
-                      className="rounded border border-[var(--c-border)] bg-[var(--c-bg-deep2)] px-2.5 py-1 text-xs text-[var(--c-text-primary)] focus:outline-none"
-                    />
+                <div className="flex flex-col gap-2">
+                  <div className="flex gap-2">
+                    <div className="flex w-24 flex-col gap-1">
+                      <span className="text-[10px] text-[var(--c-text-muted)]">{tc.routeMultiplier}</span>
+                      <input
+                        type="number"
+                        step="0.1"
+                        min="0"
+                        value={row.draftMultiplier}
+                        onChange={(e) => handleEditRowField(idx, 'draftMultiplier', e.target.value)}
+                        placeholder="1"
+                        className="rounded border border-[var(--c-border)] bg-[var(--c-bg-deep2)] px-2.5 py-1 text-xs text-[var(--c-text-primary)] focus:outline-none"
+                      />
+                    </div>
+                    <div className="flex flex-1 flex-col gap-1">
+                      <span className="text-[10px] text-[var(--c-text-muted)]">{tc.routeCostInput}</span>
+                      <input
+                        type="number"
+                        step="0.001"
+                        min="0"
+                        value={row.draftCostInput}
+                        onChange={(e) => handleEditRowField(idx, 'draftCostInput', e.target.value)}
+                        placeholder="0.00"
+                        className="rounded border border-[var(--c-border)] bg-[var(--c-bg-deep2)] px-2.5 py-1 text-xs text-[var(--c-text-primary)] focus:outline-none"
+                      />
+                    </div>
+                    <div className="flex flex-1 flex-col gap-1">
+                      <span className="text-[10px] text-[var(--c-text-muted)]">{tc.routeCostOutput}</span>
+                      <input
+                        type="number"
+                        step="0.001"
+                        min="0"
+                        value={row.draftCostOutput}
+                        onChange={(e) => handleEditRowField(idx, 'draftCostOutput', e.target.value)}
+                        placeholder="0.00"
+                        className="rounded border border-[var(--c-border)] bg-[var(--c-bg-deep2)] px-2.5 py-1 text-xs text-[var(--c-text-primary)] focus:outline-none"
+                      />
+                    </div>
                   </div>
-                  <div className="flex flex-1 flex-col gap-1">
-                    <span className="text-[10px] text-[var(--c-text-muted)]">{tc.routeCostInput}</span>
-                    <input
-                      type="number"
-                      step="0.001"
-                      min="0"
-                      value={row.draftCostInput}
-                      onChange={(e) => handleEditRowField(idx, 'draftCostInput', e.target.value)}
-                      placeholder="0.00"
-                      className="rounded border border-[var(--c-border)] bg-[var(--c-bg-deep2)] px-2.5 py-1 text-xs text-[var(--c-text-primary)] focus:outline-none"
-                    />
-                  </div>
-                  <div className="flex flex-1 flex-col gap-1">
-                    <span className="text-[10px] text-[var(--c-text-muted)]">{tc.routeCostOutput}</span>
-                    <input
-                      type="number"
-                      step="0.001"
-                      min="0"
-                      value={row.draftCostOutput}
-                      onChange={(e) => handleEditRowField(idx, 'draftCostOutput', e.target.value)}
-                      placeholder="0.00"
-                      className="rounded border border-[var(--c-border)] bg-[var(--c-bg-deep2)] px-2.5 py-1 text-xs text-[var(--c-text-primary)] focus:outline-none"
-                    />
+                  <div className="flex gap-2">
+                    <div className="flex flex-1 flex-col gap-1">
+                      <span className="text-[10px] text-[var(--c-text-muted)]">{tc.routeCostCacheRead}</span>
+                      <input
+                        type="number"
+                        step="0.001"
+                        min="0"
+                        value={row.draftCostCacheRead}
+                        onChange={(e) => handleEditRowField(idx, 'draftCostCacheRead', e.target.value)}
+                        placeholder="0.00"
+                        className="rounded border border-[var(--c-border)] bg-[var(--c-bg-deep2)] px-2.5 py-1 text-xs text-[var(--c-text-primary)] focus:outline-none"
+                      />
+                    </div>
+                    <div className="flex flex-1 flex-col gap-1">
+                      <span className="text-[10px] text-[var(--c-text-muted)]">{tc.routeCostCacheWrite}</span>
+                      <input
+                        type="number"
+                        step="0.001"
+                        min="0"
+                        value={row.draftCostCacheWrite}
+                        onChange={(e) => handleEditRowField(idx, 'draftCostCacheWrite', e.target.value)}
+                        placeholder="0.00"
+                        className="rounded border border-[var(--c-border)] bg-[var(--c-bg-deep2)] px-2.5 py-1 text-xs text-[var(--c-text-primary)] focus:outline-none"
+                      />
+                    </div>
                   </div>
                 </div>
                 <div className="flex justify-end">

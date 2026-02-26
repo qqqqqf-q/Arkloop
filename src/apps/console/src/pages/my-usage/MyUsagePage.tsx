@@ -43,7 +43,8 @@ function formatNumber(n: number): string {
 }
 
 function formatCost(n: number): string {
-  return n.toFixed(4)
+  const decimals = Math.abs(n) < 0.01 ? 6 : 4
+  return n.toFixed(decimals)
 }
 
 function dateRangeForMonth(year: number, month: number): { start: string; end: string } {

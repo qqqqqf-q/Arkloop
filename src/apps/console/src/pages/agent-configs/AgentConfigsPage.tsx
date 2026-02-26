@@ -22,8 +22,11 @@ import {
 import { listPromptTemplates, type PromptTemplate } from '../../api/prompt-templates'
 
 const TOOL_POLICIES = ['allowlist', 'denylist', 'none'] as const
+const PROMPT_CACHE_CONTROLS = ['none', 'system_prompt'] as const
+const SCOPES = ['org', 'platform'] as const
 
 type FormState = {
+  scope: string
   name: string
   system_prompt_template_id: string
   system_prompt_override: string
@@ -36,10 +39,12 @@ type FormState = {
   tool_denylist: string
   content_filter_level: string
   is_default: boolean
+  prompt_cache_control: string
 }
 
 function emptyForm(): FormState {
   return {
+    scope: 'org',
     name: '',
     system_prompt_template_id: '',
     system_prompt_override: '',
@@ -52,11 +57,13 @@ function emptyForm(): FormState {
     tool_denylist: '',
     content_filter_level: '',
     is_default: false,
+    prompt_cache_control: 'none',
   }
 }
 
 function configToForm(ac: AgentConfig): FormState {
   return {
+    scope: ac.scope ?? 'org',
     name: ac.name,
     system_prompt_template_id: ac.system_prompt_template_id ?? '',
     system_prompt_override: ac.system_prompt_override ?? '',
@@ -69,6 +76,7 @@ function configToForm(ac: AgentConfig): FormState {
     tool_denylist: ac.tool_denylist.join(', '),
     content_filter_level: ac.content_filter_level,
     is_default: ac.is_default,
+    prompt_cache_control: ac.prompt_cache_control ?? 'none',
   }
 }
 
@@ -96,7 +104,8 @@ function parseOptionalInt(value: string): number | undefined {
 type DeleteTarget = { id: string; name: string }
 
 export function AgentConfigsPage() {
-  const { accessToken } = useOutletContext<ConsoleOutletContext>()
+  const { accessToken, me } = useOutletContext<ConsoleOutletContext>()
+  const isPlatformAdmin = me?.role === 'platform_admin'
   const { addToast } = useToast()
   const { t } = useLocale()
   const tc = t.pages.agentConfigs
@@ -175,24 +184,27 @@ export function AgentConfigsPage() {
         await updateAgentConfig(
           editTarget.id,
           {
+            ...(isPlatformAdmin && { scope: form.scope }),
             name,
-            system_prompt_template_id: form.system_prompt_template_id || undefined,
-            system_prompt_override: form.system_prompt_override || undefined,
-            model: form.model.trim() || undefined,
+            system_prompt_template_id: form.system_prompt_template_id,
+            system_prompt_override: form.system_prompt_override,
+            model: form.model.trim(),
             temperature: parseOptionalFloat(form.temperature),
             max_output_tokens: parseOptionalInt(form.max_output_tokens),
             top_p: parseOptionalFloat(form.top_p),
             tool_policy: form.tool_policy,
             tool_allowlist: parseCommaSeparated(form.tool_allowlist),
             tool_denylist: parseCommaSeparated(form.tool_denylist),
-            content_filter_level: form.content_filter_level.trim() || undefined,
+            content_filter_level: form.content_filter_level.trim(),
             is_default: form.is_default,
+            prompt_cache_control: form.prompt_cache_control,
           },
           accessToken,
         )
         addToast(tc.toastUpdated, 'success')
       } else {
         const req: CreateAgentConfigRequest = {
+          scope: isPlatformAdmin ? form.scope : 'org',
           name,
           system_prompt_template_id: form.system_prompt_template_id || undefined,
           system_prompt_override: form.system_prompt_override || undefined,
@@ -205,6 +217,7 @@ export function AgentConfigsPage() {
           tool_denylist: parseCommaSeparated(form.tool_denylist),
           content_filter_level: form.content_filter_level.trim() || undefined,
           is_default: form.is_default,
+          prompt_cache_control: form.prompt_cache_control || undefined,
         }
         await createAgentConfig(req, accessToken)
         addToast(tc.toastCreated, 'success')
@@ -291,6 +304,16 @@ export function AgentConfigsPage() {
         ),
     },
     {
+      key: 'scope',
+      header: 'scope',
+      render: (row) =>
+        row.scope === 'platform' ? (
+          <Badge variant="warning">platform</Badge>
+        ) : (
+          <span className="text-[var(--c-text-muted)]">org</span>
+        ),
+    },
+    {
       key: 'project_id',
       header: tc.colProject,
       render: (row) =>
@@ -312,30 +335,34 @@ export function AgentConfigsPage() {
     {
       key: 'actions',
       header: '',
-      render: (row) => (
-        <div className="flex items-center gap-1">
-          <button
-            onClick={(e) => {
-              e.stopPropagation()
-              handleOpenEdit(row)
-            }}
-            className="flex items-center justify-center rounded p-1 text-[var(--c-text-muted)] transition-colors hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-secondary)]"
-            title={tc.modalTitleEdit}
-          >
-            <Pencil size={13} />
-          </button>
-          <button
-            onClick={(e) => {
-              e.stopPropagation()
-              setDeleteTarget({ id: row.id, name: row.name })
-            }}
-            className="flex items-center justify-center rounded p-1 text-[var(--c-text-muted)] transition-colors hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-status-error-text)]"
-            title={tc.deleteConfirm}
-          >
-            <Trash2 size={13} />
-          </button>
-        </div>
-      ),
+      render: (row) => {
+        const canEdit = row.scope !== 'platform' || isPlatformAdmin
+        if (!canEdit) return null
+        return (
+          <div className="flex items-center gap-1">
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                handleOpenEdit(row)
+              }}
+              className="flex items-center justify-center rounded p-1 text-[var(--c-text-muted)] transition-colors hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-secondary)]"
+              title={tc.modalTitleEdit}
+            >
+              <Pencil size={13} />
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                setDeleteTarget({ id: row.id, name: row.name })
+              }}
+              className="flex items-center justify-center rounded p-1 text-[var(--c-text-muted)] transition-colors hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-status-error-text)]"
+              title={tc.deleteConfirm}
+            >
+              <Trash2 size={13} />
+            </button>
+          </div>
+        )
+      },
     },
   ]
 
@@ -375,6 +402,20 @@ export function AgentConfigsPage() {
         width="560px"
       >
         <div className="flex flex-col gap-4">
+          {isPlatformAdmin && (
+            <FormField label="scope">
+              <select
+                value={form.scope}
+                onChange={(e) => handleFormField('scope', e.target.value)}
+                className="rounded-lg border border-[var(--c-border)] bg-[var(--c-bg-deep2)] px-3 py-1.5 text-sm text-[var(--c-text-secondary)] focus:outline-none"
+              >
+                {SCOPES.map((s) => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+            </FormField>
+          )}
+
           <FormField label={tc.fieldName}>
             <input
               type="text"
@@ -516,6 +557,20 @@ export function AgentConfigsPage() {
               {tc.fieldIsDefault}
             </label>
           </div>
+
+          <FormField label={tc.fieldPromptCacheControl}>
+            <select
+              value={form.prompt_cache_control}
+              onChange={(e) => handleFormField('prompt_cache_control', e.target.value)}
+              className="rounded-lg border border-[var(--c-border)] bg-[var(--c-bg-deep2)] px-3 py-1.5 text-sm text-[var(--c-text-secondary)] focus:outline-none"
+            >
+              {PROMPT_CACHE_CONTROLS.map((p) => (
+                <option key={p} value={p}>
+                  {p}
+                </option>
+              ))}
+            </select>
+          </FormField>
 
           {formError && (
             <p className="text-xs text-[var(--c-status-error-text)]">{formError}</p>

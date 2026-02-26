@@ -49,10 +49,12 @@ export interface LocaleStrings {
   creditsRedeemError: (code: string) => string
   creditsUsage: string
   creditsUsageQuery: string
-  creditsUsageInputTokens: string
-  creditsUsageOutputTokens: string
-  creditsUsageRuns: string
-  creditsUsageEmpty: string
+  creditsHistoryDetails: string
+  creditsHistoryDate: string
+  creditsHistoryCreditChange: string
+  creditsHistoryEmpty: string
+  creditsHistoryRecent: string
+  creditsHistoryMonthly: string
   // auth
   loginMode: string
   registerMode: string

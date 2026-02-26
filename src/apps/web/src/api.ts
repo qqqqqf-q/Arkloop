@@ -423,6 +423,7 @@ export type CreditTransaction = {
   reference_type?: string
   reference_id?: string
   note?: string
+  thread_title?: string
   created_at: string
 }
 
@@ -431,8 +432,16 @@ export type MeCreditsResponse = {
   transactions: CreditTransaction[]
 }
 
-export async function getMyCredits(accessToken: string): Promise<MeCreditsResponse> {
-  return await apiFetch<MeCreditsResponse>('/v1/me/credits', {
+export async function getMyCredits(
+  accessToken: string,
+  from?: string,
+  to?: string,
+): Promise<MeCreditsResponse> {
+  const params = new URLSearchParams()
+  if (from) params.set('from', from)
+  if (to) params.set('to', to)
+  const qs = params.size > 0 ? `?${params.toString()}` : ''
+  return await apiFetch<MeCreditsResponse>(`/v1/me/credits${qs}`, {
     method: 'GET',
     accessToken,
   })

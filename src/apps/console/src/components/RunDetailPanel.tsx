@@ -26,7 +26,8 @@ function formatDuration(ms?: number): string {
 
 function formatCost(usd?: number): string {
   if (usd == null) return '--'
-  return `$${usd.toFixed(4)}`
+  const decimals = Math.abs(usd) < 0.01 ? 6 : 4
+  return `$${usd.toFixed(decimals)}`
 }
 
 type MetaRowProps = {
@@ -218,6 +219,15 @@ export function RunDetailPanel({ run, accessToken, onClose }: Props) {
                   }
                 />
                 <MetaRow label={rt.labelCost} value={formatCost(d?.total_cost_usd ?? run.total_cost_usd)} />
+                {run.credits_used != null && (
+                  <MetaRow label={rt.labelCreditsUsed} value={String(run.credits_used)} />
+                )}
+                {run.cache_hit_rate != null && (
+                  <MetaRow
+                    label={rt.labelCacheHit}
+                    value={`${(run.cache_hit_rate * 100).toFixed(0)}%`}
+                  />
+                )}
               </div>
               <div className="pt-2">
                 <MetaRow label={rt.labelCreated} value={new Date(run.created_at).toLocaleString()} />

@@ -33,7 +33,8 @@ function formatDuration(ms?: number): string {
 
 function formatCost(usd?: number): string {
   if (usd == null) return '--'
-  return `$${usd.toFixed(4)}`
+  const decimals = Math.abs(usd) < 0.01 ? 6 : 4
+  return `$${usd.toFixed(decimals)}`
 }
 
 function truncateId(id: string): string {
@@ -192,6 +193,28 @@ export function RunsPage() {
       render: (row) => (
         <span className="text-xs tabular-nums">{formatCost(row.total_cost_usd)}</span>
       ),
+    },
+    {
+      key: 'cache_hit_rate',
+      header: rt.colCacheHit,
+      render: (row) =>
+        row.cache_hit_rate != null ? (
+          <span className="text-xs tabular-nums text-[var(--c-status-success-text)]">
+            {(row.cache_hit_rate * 100).toFixed(0)}%
+          </span>
+        ) : (
+          <span className="text-[var(--c-text-muted)]">--</span>
+        ),
+    },
+    {
+      key: 'credits_used',
+      header: rt.colCredits,
+      render: (row) =>
+        row.credits_used != null ? (
+          <span className="text-xs tabular-nums">{row.credits_used}</span>
+        ) : (
+          <span className="text-[var(--c-text-muted)]">--</span>
+        ),
     },
     {
       key: 'created_at',

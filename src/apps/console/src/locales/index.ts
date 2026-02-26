@@ -85,6 +85,7 @@ export interface LocaleStrings {
       fieldApiKey: string
       fieldBaseUrl: string
       fieldApiMode: string
+      fieldAdvancedJson: string
       fieldRoutes: string
       // route row
       routeModel: string
@@ -94,6 +95,8 @@ export interface LocaleStrings {
       routeMultiplier: string
       routeCostInput: string
       routeCostOutput: string
+      routeCostCacheWrite: string
+      routeCostCacheRead: string
       addRoute: string
       // buttons
       cancel: string
@@ -111,6 +114,13 @@ export interface LocaleStrings {
       toastDeleted: string
       toastLoadFailed: string
       toastDeleteFailed: string
+      // edit cred modal
+      fieldApiKeyOptional: string
+      editCredSave: string
+      toastCredUpdated: string
+      toastCredUpdateFailed: string
+      toastRouteUpdated: string
+      toastRouteUpdateFailed: string
     }
     agentConfigs: {
       title: string
@@ -142,6 +152,7 @@ export interface LocaleStrings {
       fieldToolDenylist: string
       fieldContentFilterLevel: string
       fieldIsDefault: string
+      fieldPromptCacheControl: string
       // buttons
       cancel: string
       create: string

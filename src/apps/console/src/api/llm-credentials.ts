@@ -10,6 +10,8 @@ export type LlmRoute = {
   multiplier: number
   cost_per_1k_input?: number | null
   cost_per_1k_output?: number | null
+  cost_per_1k_cache_write?: number | null
+  cost_per_1k_cache_read?: number | null
 }
 
 export type LlmCredential = {
@@ -20,6 +22,7 @@ export type LlmCredential = {
   key_prefix: string | null
   base_url: string | null
   openai_api_mode: string | null
+  advanced_json?: Record<string, unknown> | null
   created_at: string
   routes: LlmRoute[]
 }
@@ -32,6 +35,8 @@ export type CreateLlmRouteRequest = {
   multiplier?: number
   cost_per_1k_input?: number
   cost_per_1k_output?: number
+  cost_per_1k_cache_write?: number
+  cost_per_1k_cache_read?: number
 }
 
 export type CreateLlmCredentialRequest = {
@@ -40,6 +45,7 @@ export type CreateLlmCredentialRequest = {
   api_key: string
   base_url?: string
   openai_api_mode?: string
+  advanced_json?: Record<string, unknown>
   routes: CreateLlmRouteRequest[]
 }
 
@@ -60,8 +66,10 @@ export async function createLlmCredential(
 
 export type UpdateLlmCredentialRequest = {
   name: string
+  provider?: string
   base_url?: string | null
   openai_api_mode?: string | null
+  advanced_json?: Record<string, unknown>
   api_key?: string
 }
 
@@ -85,6 +93,8 @@ export type UpdateLlmRouteRequest = {
   multiplier?: number
   cost_per_1k_input?: number
   cost_per_1k_output?: number
+  cost_per_1k_cache_write?: number
+  cost_per_1k_cache_read?: number
 }
 
 export async function updateLlmRoute(

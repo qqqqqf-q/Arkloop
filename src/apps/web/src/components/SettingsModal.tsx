@@ -22,11 +22,11 @@ import {
 import {
   type MeResponse,
   type InviteCodeResponse,
+  type CreditTransaction,
   getMyInviteCode,
   resetMyInviteCode,
   isApiError,
   getMyCredits,
-  getMyUsage,
   redeemCode,
   updateMe,
 } from '../api'
@@ -601,27 +601,25 @@ function HelpContent({ label }: { label: string }) {
 
 function CreditsContent({ accessToken, onCreditsChanged }: { accessToken: string; onCreditsChanged?: (balance: number) => void }) {
   const { t } = useLocale()
-  const now = new Date()
   const [balance, setBalance] = useState<number | null>(null)
   const [balanceLoading, setBalanceLoading] = useState(true)
   const [redeemInput, setRedeemInput] = useState('')
   const [redeemLoading, setRedeemLoading] = useState(false)
   const [redeemMsg, setRedeemMsg] = useState<{ ok: boolean; text: string } | null>(null)
-  const [usageYear, setUsageYear] = useState(now.getFullYear())
-  const [usageMonth, setUsageMonth] = useState(now.getMonth() + 1)
-  const [usageData, setUsageData] = useState<{
-    total_input_tokens: number
-    total_output_tokens: number
-    record_count: number
-  } | null>(null)
-  const [usageLoading, setUsageLoading] = useState(false)
-  const [usageError, setUsageError] = useState('')
+  const [transactions, setTransactions] = useState<CreditTransaction[] | null>(null)
+  const [monthlyTransactions, setMonthlyTransactions] = useState<CreditTransaction[] | null>(null)
+  const [txLoading, setTxLoading] = useState(false)
+  const [txError, setTxError] = useState('')
+  const now = new Date()
+  const [filterYear, setFilterYear] = useState(now.getFullYear())
+  const [filterMonth, setFilterMonth] = useState(now.getMonth() + 1)
 
   useEffect(() => {
     void (async () => {
       try {
         const data = await getMyCredits(accessToken)
         setBalance(data.balance)
+        setTransactions(data.transactions)
         onCreditsChanged?.(data.balance)
       } catch {
         setBalance(null)
@@ -640,9 +638,9 @@ function CreditsContent({ accessToken, onCreditsChanged }: { accessToken: string
       const res = await redeemCode(accessToken, code)
       setRedeemMsg({ ok: true, text: t.creditsRedeemSuccess(res.value) })
       setRedeemInput('')
-      // 刷新余额
       const updated = await getMyCredits(accessToken)
       setBalance(updated.balance)
+      setTransactions(updated.transactions)
       onCreditsChanged?.(updated.balance)
     } catch {
       setRedeemMsg({ ok: false, text: t.creditsRedeemError(code) })
@@ -652,21 +650,22 @@ function CreditsContent({ accessToken, onCreditsChanged }: { accessToken: string
   }, [accessToken, redeemInput, t])
 
   const handleQueryUsage = useCallback(async () => {
-    setUsageLoading(true)
-    setUsageError('')
+    setTxLoading(true)
+    setTxError('')
     try {
-      const data = await getMyUsage(accessToken, usageYear, usageMonth)
-      setUsageData(data)
+      const from = `${filterYear}-${String(filterMonth).padStart(2, '0')}-01`
+      // to = 下个月第一天（后端用 < 做过滤）
+      const nextMonth = filterMonth === 12 ? 1 : filterMonth + 1
+      const nextYear = filterMonth === 12 ? filterYear + 1 : filterYear
+      const to = `${nextYear}-${String(nextMonth).padStart(2, '0')}-01`
+      const data = await getMyCredits(accessToken, from, to)
+      setMonthlyTransactions(data.transactions)
     } catch {
-      setUsageError(t.requestFailed)
-      setUsageData(null)
+      setTxError(t.requestFailed)
     } finally {
-      setUsageLoading(false)
+      setTxLoading(false)
     }
-  }, [accessToken, usageYear, usageMonth, t])
-
-  const months = Array.from({ length: 12 }, (_, i) => i + 1)
-  const years = Array.from({ length: 3 }, (_, i) => now.getFullYear() - i)
+  }, [accessToken, filterYear, filterMonth, t])
 
   return (
     <div className="flex flex-col gap-6">
@@ -723,61 +722,137 @@ function CreditsContent({ accessToken, onCreditsChanged }: { accessToken: string
         )}
       </div>
 
-      {/* 用量查询 */}
-      <div className="flex flex-col gap-2">
+      {/* 我的用量 */}
+      <div className="flex flex-col gap-4">
         <span className="text-sm font-medium text-[var(--c-text-heading)]">{t.creditsUsage}</span>
-        <div className="flex items-center gap-2">
-          <select
-            value={usageYear}
-            onChange={(e) => setUsageYear(Number(e.target.value))}
-            className="h-9 rounded-lg px-2 text-sm text-[var(--c-text-heading)] outline-none"
-            style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-page)' }}
-          >
-            {years.map(y => <option key={y} value={y}>{y}</option>)}
-          </select>
-          <select
-            value={usageMonth}
-            onChange={(e) => setUsageMonth(Number(e.target.value))}
-            className="h-9 rounded-lg px-2 text-sm text-[var(--c-text-heading)] outline-none"
-            style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-page)' }}
-          >
-            {months.map(m => <option key={m} value={m}>{String(m).padStart(2, '0')}</option>)}
-          </select>
-          <button
-            onClick={() => void handleQueryUsage()}
-            disabled={usageLoading}
-            className="flex h-9 items-center rounded-lg px-3 text-sm font-medium text-[var(--c-text-heading)] transition-colors hover:bg-[var(--c-bg-deep)] disabled:opacity-50"
-            style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-page)' }}
-          >
-            {t.creditsUsageQuery}
-          </button>
+
+        {/* 最近 */}
+        <div className="flex flex-col gap-2">
+          <span className="text-xs font-medium text-[var(--c-text-tertiary)]">{t.creditsHistoryRecent}</span>
+          <CreditTransactionTable transactions={transactions} loading={balanceLoading} t={t} />
         </div>
-        {usageError && (
-          <p className="text-xs text-[var(--c-status-error-text,#ef4444)]">{usageError}</p>
-        )}
-        {usageData && (
-          <div
-            className="mt-1 grid grid-cols-3 gap-3 rounded-xl p-4"
-            style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-page)' }}
-          >
-            <UsageStat label={t.creditsUsageInputTokens} value={usageData.total_input_tokens.toLocaleString()} />
-            <UsageStat label={t.creditsUsageOutputTokens} value={usageData.total_output_tokens.toLocaleString()} />
-            <UsageStat label={t.creditsUsageRuns} value={usageData.record_count.toLocaleString()} />
+
+        {/* 按月度查询 */}
+        <div className="flex flex-col gap-2">
+          <span className="text-xs font-medium text-[var(--c-text-tertiary)]">{t.creditsHistoryMonthly}</span>
+          <div className="flex items-center gap-2">
+            <select
+              value={filterYear}
+              onChange={(e) => setFilterYear(Number(e.target.value))}
+              className="h-8 rounded-lg px-2 text-sm text-[var(--c-text-heading)] outline-none"
+              style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-page)' }}
+            >
+              {Array.from({ length: 3 }, (_, i) => now.getFullYear() - i).map(y => (
+                <option key={y} value={y}>{y}</option>
+              ))}
+            </select>
+            <select
+              value={filterMonth}
+              onChange={(e) => setFilterMonth(Number(e.target.value))}
+              className="h-8 rounded-lg px-2 text-sm text-[var(--c-text-heading)] outline-none"
+              style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-page)' }}
+            >
+              {Array.from({ length: 12 }, (_, i) => i + 1).map(m => (
+                <option key={m} value={m}>{new Date(2000, m - 1).toLocaleString(undefined, { month: 'long' })}</option>
+              ))}
+            </select>
+            <button
+              onClick={() => void handleQueryUsage()}
+              disabled={txLoading}
+              className="flex h-8 items-center rounded-lg px-3 text-sm font-medium text-[var(--c-text-heading)] transition-colors hover:bg-[var(--c-bg-deep)] disabled:opacity-50"
+              style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-page)' }}
+            >
+              {t.creditsUsageQuery}
+            </button>
           </div>
-        )}
-        {!usageLoading && !usageData && !usageError && (
-          <p className="text-xs text-[var(--c-text-tertiary)]">{t.creditsUsageEmpty}</p>
-        )}
+          {txError && (
+            <p className="text-xs text-[var(--c-status-error-text,#ef4444)]">{txError}</p>
+          )}
+          {monthlyTransactions !== null && (
+            <CreditTransactionTable transactions={monthlyTransactions} loading={txLoading} t={t} />
+          )}
+        </div>
       </div>
     </div>
   )
 }
 
-function UsageStat({ label, value }: { label: string; value: string }) {
+type TableLocale = {
+  creditsHistoryDetails: string
+  creditsHistoryDate: string
+  creditsHistoryCreditChange: string
+  creditsHistoryEmpty: string
+}
+
+function CreditTransactionTable({
+  transactions,
+  loading,
+  t,
+}: {
+  transactions: CreditTransaction[] | null
+  loading: boolean
+  t: TableLocale
+}) {
+  if (loading) {
+    return <p className="text-xs text-[var(--c-text-tertiary)]">...</p>
+  }
+  if (!transactions || transactions.length === 0) {
+    return <p className="text-xs text-[var(--c-text-tertiary)]">{t.creditsHistoryEmpty}</p>
+  }
+
   return (
-    <div className="flex flex-col gap-1">
-      <span className="text-xs text-[var(--c-text-tertiary)]">{label}</span>
-      <span className="text-sm font-semibold tabular-nums text-[var(--c-text-heading)]">{value}</span>
+    <div
+      className="overflow-y-auto rounded-xl"
+      style={{ border: '0.5px solid var(--c-border-subtle)', maxHeight: '320px' }}
+    >
+      <table className="w-full text-sm">
+        <thead className="sticky top-0" style={{ background: 'var(--c-bg-page)', zIndex: 1 }}>
+          <tr style={{ borderBottom: '0.5px solid var(--c-border-subtle)' }}>
+            <th className="px-4 py-2 text-left text-xs font-medium text-[var(--c-text-tertiary)]">
+              {t.creditsHistoryDetails}
+            </th>
+            <th className="px-4 py-2 text-left text-xs font-medium text-[var(--c-text-tertiary)] whitespace-nowrap">
+              {t.creditsHistoryDate}
+            </th>
+            <th className="px-4 py-2 text-right text-xs font-medium text-[var(--c-text-tertiary)] whitespace-nowrap">
+              {t.creditsHistoryCreditChange}
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {transactions.map((tx) => {
+            const detail = tx.thread_title ?? tx.note ?? tx.type.replace(/_/g, ' ')
+            const dateStr = new Date(tx.created_at).toLocaleDateString(undefined, {
+              year: 'numeric',
+              month: 'short',
+              day: 'numeric',
+            })
+            const isPositive = tx.amount >= 0
+            return (
+              <tr
+                key={tx.id}
+                style={{ borderBottom: '0.5px solid var(--c-border-subtle)' }}
+              >
+                <td
+                  className="max-w-[240px] truncate px-4 py-2 text-[var(--c-text-heading)]"
+                  title={detail}
+                >
+                  {detail}
+                </td>
+                <td className="whitespace-nowrap px-4 py-2 text-xs text-[var(--c-text-tertiary)]">
+                  {dateStr}
+                </td>
+                <td
+                  className="whitespace-nowrap px-4 py-2 text-right font-medium tabular-nums"
+                  style={{ color: isPositive ? 'var(--c-status-success-text, #22c55e)' : 'var(--c-status-error-text, #ef4444)' }}
+                >
+                  {isPositive ? '+' : ''}{tx.amount}
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
     </div>
   )
 }

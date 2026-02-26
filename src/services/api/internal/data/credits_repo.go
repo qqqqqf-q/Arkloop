@@ -29,6 +29,11 @@ type CreditTransaction struct {
 	CreatedAt     time.Time
 }
 
+type CreditTransactionDetail struct {
+	CreditTransaction
+	ThreadTitle *string
+}
+
 type InsufficientCreditsError struct {
 	Required  int64
 	Available int64
@@ -195,6 +200,64 @@ func (r *CreditsRepository) ListTransactions(ctx context.Context, orgID uuid.UUI
 			return nil, fmt.Errorf("credits.ListTransactions scan: %w", err)
 		}
 		txns = append(txns, t)
+	}
+	return txns, rows.Err()
+}
+
+// ListTransactionsWithDetails 查询积分流水，LEFT JOIN runs+threads 获取对话标题，支持可选日期过滤。
+func (r *CreditsRepository) ListTransactionsWithDetails(
+	ctx context.Context,
+	orgID uuid.UUID,
+	limit, offset int,
+	fromDate, toDate *time.Time,
+) ([]CreditTransactionDetail, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 100 {
+		limit = 100
+	}
+
+	args := []any{orgID}
+	where := "ct.org_id = $1"
+	if fromDate != nil {
+		args = append(args, *fromDate)
+		where += fmt.Sprintf(" AND ct.created_at >= $%d", len(args))
+	}
+	if toDate != nil {
+		args = append(args, *toDate)
+		where += fmt.Sprintf(" AND ct.created_at < $%d", len(args))
+	}
+	args = append(args, limit, offset)
+
+	query := fmt.Sprintf(`
+		SELECT ct.id, ct.org_id, ct.amount, ct.type, ct.reference_type, ct.reference_id, ct.note, ct.created_at,
+		       t.title
+		FROM credit_transactions ct
+		LEFT JOIN runs r ON ct.reference_type = 'run' AND r.id = ct.reference_id
+		LEFT JOIN threads t ON t.id = r.thread_id
+		WHERE %s
+		ORDER BY ct.created_at DESC
+		LIMIT $%d OFFSET $%d`,
+		where, len(args)-1, len(args),
+	)
+
+	rows, err := r.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("credits.ListTransactionsWithDetails: %w", err)
+	}
+	defer rows.Close()
+
+	txns := []CreditTransactionDetail{}
+	for rows.Next() {
+		var d CreditTransactionDetail
+		if err := rows.Scan(
+			&d.ID, &d.OrgID, &d.Amount, &d.Type, &d.ReferenceType, &d.ReferenceID, &d.Note, &d.CreatedAt,
+			&d.ThreadTitle,
+		); err != nil {
+			return nil, fmt.Errorf("credits.ListTransactionsWithDetails scan: %w", err)
+		}
+		txns = append(txns, d)
 	}
 	return txns, rows.Err()
 }

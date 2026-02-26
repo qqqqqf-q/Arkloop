@@ -11,6 +11,8 @@ export type GlobalRun = {
   total_output_tokens?: number
   total_cost_usd?: number
   duration_ms?: number
+  cache_hit_rate?: number
+  credits_used?: number
   created_at: string
   completed_at?: string
   failed_at?: string
