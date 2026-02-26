@@ -9,10 +9,12 @@ import { NotificationBell } from './NotificationBell'
 import { useSSE } from '../hooks/useSSE'
 import { SSEApiError } from '../sse'
 import { selectFreshRunEvents } from '../runEventProcessing'
+import { useLocale } from '../contexts/LocaleContext'
 import {
   createMessage,
   createRun,
   cancelRun,
+  provideInput,
   retryThread,
   listMessages,
   listThreadRuns,
@@ -54,6 +56,7 @@ export function ChatPage() {
   const { threadId } = useParams<{ threadId: string }>()
   const location = useLocation()
   const locationState = location.state as LocationState
+  const { t } = useLocale()
 
   const baseUrl = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? ''
 
@@ -69,6 +72,9 @@ export function ChatPage() {
   const [cancelSubmitting, setCancelSubmitting] = useState(false)
   const [error, setError] = useState<AppError | null>(null)
   const [queuedDraft, setQueuedDraft] = useState<string | null>(null)
+  const [awaitingInput, setAwaitingInput] = useState(false)
+  const [checkInDraft, setCheckInDraft] = useState('')
+  const [checkInSubmitting, setCheckInSubmitting] = useState(false)
 
   const bottomRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -208,11 +214,18 @@ export function ChatPage() {
         continue
       }
 
+      if (event.type === 'run.input_requested') {
+        setAwaitingInput(true)
+        continue
+      }
+
       if (event.type === 'run.completed') {
         sse.disconnect()
         setActiveRunId(null)
         setAssistantDraft('')
         setQueuedDraft(null)
+        setAwaitingInput(false)
+        setCheckInDraft('')
         if (threadId) onRunEnded(threadId)
         refreshCredits()
         void refreshMessages().then(() => {
@@ -228,6 +241,8 @@ export function ChatPage() {
       if (event.type === 'run.cancelled') {
         sse.disconnect()
         setActiveRunId(null)
+        setAwaitingInput(false)
+        setCheckInDraft('')
         if (threadId) onRunEnded(threadId)
         const data = event.data as { trace_id?: unknown }
         const traceId = typeof data?.trace_id === 'string' ? data.trace_id : undefined
@@ -238,6 +253,8 @@ export function ChatPage() {
       if (event.type === 'run.failed') {
         sse.disconnect()
         setActiveRunId(null)
+        setAwaitingInput(false)
+        setCheckInDraft('')
         if (threadId) onRunEnded(threadId)
         const obj = event.data as { message?: unknown; error_class?: unknown }
         setError({
@@ -391,6 +408,27 @@ export function ChatPage() {
     setError(normalizeError(err))
   }, [onLoggedOut])
 
+  const handleCheckInSubmit = useCallback(async () => {
+    if (!activeRunId || checkInSubmitting) return
+    const text = checkInDraft.trim()
+    if (!text) return
+
+    setCheckInSubmitting(true)
+    setError(null)
+    try {
+      await provideInput(accessToken, activeRunId, text)
+      setCheckInDraft('')
+      setAwaitingInput(false)
+    } catch (err) {
+      if (isApiError(err) && err.status === 401) {
+        onLoggedOut()
+        return
+      }
+      setError(normalizeError(err))
+    } finally {
+      setCheckInSubmitting(false)
+    }
+  }, [activeRunId, accessToken, checkInDraft, checkInSubmitting, onLoggedOut])
 
   const handleCancel = useCallback(() => {
     if (!activeRunId || cancelSubmitting) return
@@ -399,6 +437,8 @@ export function ChatPage() {
     sse.disconnect()
     setActiveRunId(null)
     setAssistantDraft('')
+    setAwaitingInput(false)
+    setCheckInDraft('')
     setCancelSubmitting(true)
     setError(null)
     pendingMessageRef.current = null
@@ -420,16 +460,16 @@ export function ChatPage() {
       {/* 顶部 header */}
       <div className="flex min-h-[51px] items-center justify-end gap-2 px-[15px] py-[15px]">
         {threadId && privateThreadIds.has(threadId) && (
-          <span className="text-xs font-medium text-[var(--c-text-muted)]">Incognito</span>
+          <span className="text-xs font-medium text-[var(--c-text-muted)]">{t.incognitoLabel}</span>
         )}
         <div className="flex items-center gap-1 text-[var(--c-text-secondary)]" style={{ opacity: 0.8 }}>
           <Zap size={13} strokeWidth={2.2} />
           <span className="text-sm font-medium tabular-nums">{creditsBalance.toLocaleString()}</span>
         </div>
-        <NotificationBell accessToken={accessToken} onClick={onOpenNotifications} refreshKey={notificationVersion} />
+        <NotificationBell accessToken={accessToken} onClick={onOpenNotifications} refreshKey={notificationVersion} title={t.notificationsTitle} />
         <button
           onClick={threadId && privateThreadIds.has(threadId) ? undefined : onTogglePrivateMode}
-          title={threadId && privateThreadIds.has(threadId) ? 'This thread is incognito' : '开启/关闭私密模式'}
+          title={threadId && privateThreadIds.has(threadId) ? t.thisThreadIsIncognito : t.toggleIncognito}
           className={[
             'flex h-8 w-8 items-center justify-center rounded-lg transition-colors',
             threadId && privateThreadIds.has(threadId)
@@ -468,6 +508,41 @@ export function ChatPage() {
               ))}
 
               {assistantDraft && <StreamingBubble content={assistantDraft} />}
+
+              {awaitingInput && (
+                <div
+                  className="flex flex-col gap-2 rounded-xl px-4 py-3"
+                  style={{ background: 'var(--c-bg-sub)', border: '0.5px solid var(--c-border-subtle)' }}
+                >
+                  <textarea
+                    autoFocus
+                    rows={3}
+                    value={checkInDraft}
+                    onChange={(e) => setCheckInDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault()
+                        void handleCheckInSubmit()
+                      }
+                    }}
+                    disabled={checkInSubmitting}
+                    className="w-full resize-none rounded-lg bg-transparent px-1 py-0.5 text-sm outline-none"
+                    style={{ color: 'var(--c-text-primary)', caretColor: 'var(--c-text-primary)' }}
+                    placeholder="Type your response..."
+                  />
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => void handleCheckInSubmit()}
+                      disabled={checkInSubmitting || !checkInDraft.trim()}
+                      className="rounded-lg px-3 py-1 text-xs font-medium transition-opacity disabled:opacity-40"
+                      style={{ background: 'var(--c-brand)', color: '#fff' }}
+                    >
+                      {checkInSubmitting ? '...' : 'Send'}
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {terminalSseError && <ErrorCallout error={terminalSseError} />}
 

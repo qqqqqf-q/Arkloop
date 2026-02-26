@@ -450,6 +450,22 @@ export async function cancelRun(
   })
 }
 
+export type ProvideInputResponse = {
+  ok: boolean
+}
+
+export async function provideInput(
+  accessToken: string,
+  runId: string,
+  content: string,
+): Promise<ProvideInputResponse> {
+  return await apiFetch<ProvideInputResponse>(`/v1/runs/${runId}/input`, {
+    method: 'POST',
+    body: JSON.stringify({ content }),
+    accessToken,
+  })
+}
+
 export type RetryThreadResponse = {
   run_id: string
   trace_id: string
