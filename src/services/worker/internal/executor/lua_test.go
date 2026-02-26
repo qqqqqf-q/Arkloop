@@ -367,3 +367,183 @@ func buildLuaRC(gateway llm.Gateway) *pipeline.RunContext {
 	}
 	return rc
 }
+
+func TestLuaExecutor_AgentRunParallel_SpawnChildRunNil(t *testing.T) {
+	ex, _ := NewLuaExecutor(map[string]any{
+		"script": `
+local results, errs = agent.run_parallel({{skill="lite", input="q"}})
+if errs == nil then
+  context.set_output("err:" .. tostring(results))
+else
+  context.set_output("err:nil_spawn")
+end
+`,
+	})
+	rc := buildLuaRC(nil)
+	rc.SpawnChildRun = nil
+
+	emitter := events.NewEmitter("trace")
+	var got []events.RunEvent
+	_ = ex.Execute(context.Background(), rc, emitter, func(ev events.RunEvent) error {
+		got = append(got, ev)
+		return nil
+	})
+
+	for _, ev := range got {
+		if ev.Type == "message.delta" {
+			if delta, _ := ev.DataJSON["content_delta"].(string); strings.HasPrefix(delta, "err:") {
+				return
+			}
+		}
+	}
+	t.Fatal("expected error output when SpawnChildRun is nil")
+}
+
+func TestLuaExecutor_AgentRunParallel_EmptyTasks(t *testing.T) {
+	ex, _ := NewLuaExecutor(map[string]any{
+		"script": `
+local results, errs = agent.run_parallel({})
+context.set_output(tostring(#results) .. ":" .. tostring(#errs))
+`,
+	})
+	rc := buildLuaRC(nil)
+	rc.SpawnChildRun = func(_ context.Context, _ string, _ string) (string, error) {
+		return "x", nil
+	}
+
+	emitter := events.NewEmitter("trace")
+	var got []events.RunEvent
+	err := ex.Execute(context.Background(), rc, emitter, func(ev events.RunEvent) error {
+		got = append(got, ev)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+	for _, ev := range got {
+		if ev.Type == "message.delta" {
+			if delta, _ := ev.DataJSON["content_delta"].(string); delta == "0:0" {
+				return
+			}
+		}
+	}
+	t.Fatal("expected '0:0' for empty tasks")
+}
+
+func TestLuaExecutor_AgentRunParallel_AllSucceed(t *testing.T) {
+	ex, _ := NewLuaExecutor(map[string]any{
+		"script": `
+local tasks = {
+  {skill="lite", input="q1"},
+  {skill="lite", input="q2"},
+  {skill="lite", input="q3"},
+}
+local results, errs = agent.run_parallel(tasks)
+local out = ""
+for i = 1, #results do
+  if errs[i] ~= nil then error("unexpected error at " .. i) end
+  out = out .. results[i]
+end
+context.set_output(out)
+`,
+	})
+	rc := buildLuaRC(nil)
+	rc.SpawnChildRun = func(_ context.Context, _ string, input string) (string, error) {
+		return input + "_ok", nil
+	}
+
+	emitter := events.NewEmitter("trace")
+	var got []events.RunEvent
+	err := ex.Execute(context.Background(), rc, emitter, func(ev events.RunEvent) error {
+		got = append(got, ev)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+	for _, ev := range got {
+		if ev.Type == "message.delta" {
+			if delta, _ := ev.DataJSON["content_delta"].(string); delta == "q1_okq2_okq3_ok" {
+				return
+			}
+		}
+	}
+	t.Fatal("expected concatenated results from parallel tasks")
+}
+
+func TestLuaExecutor_AgentRunParallel_PartialFailure(t *testing.T) {
+	ex, _ := NewLuaExecutor(map[string]any{
+		"script": `
+local tasks = {
+  {skill="lite", input="ok"},
+  {skill="lite", input="fail"},
+}
+local results, errs = agent.run_parallel(tasks)
+local out = ""
+if results[1] ~= nil then out = out .. "r1:" .. results[1] end
+if errs[2] ~= nil then out = out .. ";e2:yes" end
+context.set_output(out)
+`,
+	})
+	rc := buildLuaRC(nil)
+	rc.SpawnChildRun = func(_ context.Context, _ string, input string) (string, error) {
+		if input == "fail" {
+			return "", errors.New("task failed")
+		}
+		return input + "_done", nil
+	}
+
+	emitter := events.NewEmitter("trace")
+	var got []events.RunEvent
+	err := ex.Execute(context.Background(), rc, emitter, func(ev events.RunEvent) error {
+		got = append(got, ev)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+	for _, ev := range got {
+		if ev.Type == "message.delta" {
+			if delta, _ := ev.DataJSON["content_delta"].(string); delta == "r1:ok_done;e2:yes" {
+				return
+			}
+		}
+	}
+	t.Fatal("expected partial failure output")
+}
+
+func TestLuaExecutor_AgentRunParallel_ContextCancelled(t *testing.T) {
+	ex, _ := NewLuaExecutor(map[string]any{
+		"script": `
+local results, errs = agent.run_parallel({{skill="lite", input="q"}})
+if errs == nil then
+  context.set_output("early_cancel_err:" .. tostring(results))
+else
+  context.set_output("early_cancel_ok")
+end
+`,
+	})
+	rc := buildLuaRC(nil)
+	rc.SpawnChildRun = func(_ context.Context, _ string, _ string) (string, error) {
+		return "", errors.New("irrelevant")
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // 立即取消
+
+	emitter := events.NewEmitter("trace")
+	var got []events.RunEvent
+	_ = ex.Execute(ctx, rc, emitter, func(ev events.RunEvent) error {
+		got = append(got, ev)
+		return nil
+	})
+
+	for _, ev := range got {
+		if ev.Type == "message.delta" {
+			if delta, _ := ev.DataJSON["content_delta"].(string); strings.HasPrefix(delta, "early_cancel") {
+				return
+			}
+		}
+	}
+	t.Fatal("expected output after cancelled context")
+}

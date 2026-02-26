@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 
 	"arkloop/services/worker/internal/events"
 	"arkloop/services/worker/internal/llm"
@@ -79,6 +80,7 @@ type luaRuntime struct {
 func (rt *luaRuntime) register(L *lua.LState) {
 	agentTable := L.NewTable()
 	L.SetField(agentTable, "run", L.NewFunction(rt.agentRun))
+	L.SetField(agentTable, "run_parallel", L.NewFunction(rt.agentRunParallel))
 	L.SetField(agentTable, "classify", L.NewFunction(rt.agentClassify))
 	L.SetGlobal("agent", agentTable)
 
@@ -124,6 +126,89 @@ func (rt *luaRuntime) agentRun(L *lua.LState) int {
 
 	L.Push(lua.LString(output))
 	L.Push(lua.LNil)
+	return 2
+}
+
+// agent.run_parallel(tasks) -> (results, errors)
+// tasks 是 Lua table，每项为 {skill="...", input="..."}，索引从 1 开始。
+// 所有子任务并行执行，全部完成后返回两个等长 table：
+//   results[i] = 输出文本（失败时为 nil）
+//   errors[i]  = 错误信息（成功时为 nil）
+func (rt *luaRuntime) agentRunParallel(L *lua.LState) int {
+	if rt.ctx.Err() != nil {
+		L.Push(lua.LNil)
+		L.Push(lua.LString(rt.ctx.Err().Error()))
+		return 2
+	}
+
+	if rt.rc.SpawnChildRun == nil {
+		L.Push(lua.LNil)
+		L.Push(lua.LString("agent.run_parallel not available: SpawnChildRun not initialized"))
+		return 2
+	}
+
+	tasksTable := L.CheckTable(1)
+	n := tasksTable.Len()
+
+	type taskEntry struct {
+		skillID string
+		input   string
+	}
+
+	tasks := make([]taskEntry, n)
+	for i := 0; i < n; i++ {
+		v := tasksTable.RawGetInt(i + 1)
+		tbl, ok := v.(*lua.LTable)
+		if !ok {
+			L.Push(lua.LNil)
+			L.Push(lua.LString(fmt.Sprintf("tasks[%d] must be a table with skill and input fields", i+1)))
+			return 2
+		}
+		skillLV, ok := tbl.RawGetString("skill").(lua.LString)
+		if !ok || string(skillLV) == "" {
+			L.Push(lua.LNil)
+			L.Push(lua.LString(fmt.Sprintf("tasks[%d].skill must be a non-empty string", i+1)))
+			return 2
+		}
+		inputLV, ok := tbl.RawGetString("input").(lua.LString)
+		if !ok {
+			L.Push(lua.LNil)
+			L.Push(lua.LString(fmt.Sprintf("tasks[%d].input must be a string", i+1)))
+			return 2
+		}
+		tasks[i] = taskEntry{skillID: string(skillLV), input: string(inputLV)}
+	}
+
+	outputs := make([]string, n)
+	errs := make([]error, n)
+
+	var wg sync.WaitGroup
+	wg.Add(n)
+	for i, t := range tasks {
+		i, t := i, t
+		go func() {
+			defer wg.Done()
+			out, err := rt.rc.SpawnChildRun(rt.ctx, t.skillID, t.input)
+			outputs[i] = out
+			errs[i] = err
+		}()
+	}
+	wg.Wait()
+
+	resultsTable := L.NewTable()
+	errorsTable := L.NewTable()
+	for i := 0; i < n; i++ {
+		if errs[i] != nil {
+			resultsTable.RawSetInt(i+1, lua.LNil)
+			errorsTable.RawSetInt(i+1, lua.LString(errs[i].Error()))
+		} else {
+			resultsTable.RawSetInt(i+1, lua.LString(outputs[i]))
+			errorsTable.RawSetInt(i+1, lua.LNil)
+		}
+	}
+
+	L.Push(resultsTable)
+	L.Push(errorsTable)
 	return 2
 }
 
