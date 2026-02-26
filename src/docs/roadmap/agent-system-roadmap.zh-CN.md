@@ -154,6 +154,7 @@ Playground 服务已开发完成，但 Worker 侧没有对应的 `ToolExecutor` 
 | AS-1 | Executor 策略层 | 引入 AgentExecutor 接口 + 注册表；AS-1 完成后，Lite/Pro/Ultra 新增 = 写 YAML + 可选新建 executor 文件 | 顺序 | 无 |
 | AS-2 | Skill 路由绑定 | Skill 声明 `preferred_credential`，接入 `AgentConfig.Model` → 路由层（均按凭证名称匹配） | 顺序 | AS-1 |
 | AS-3 | Human-in-the-loop | RunContext 加 WaitForInput 钩子；Ultra executor 可用，Lite 零成本 | 顺序 | AS-1 |
+| AS-3.5 | Orchestrator 执行层 | Skill 绑定 AgentConfig；Lua executor；父子 Run 跨实例调度 | 顺序 | AS-1, AS-3 |
 | AS-4 | MCP 健康与缓存 | DiscoverFromDB 缓存 + Pool 健康检查/重连 | 并行（可与 AS-1 同步） | 无 |
 | AS-5 | Memory System | MemoryProvider 接口 + OpenViking 适配器 + Pipeline 接入 + compose.yaml 服务 | 顺序 | AS-1 |
 | AS-6 | Sandbox 服务 | Firecracker microVM + Sandbox Controller（warm pool）+ MinIO 快照 + SandboxToolExecutor | 独立（可并行启动） | 无 |
@@ -334,6 +335,237 @@ CheckInAt    func(iter int) bool
 **执行顺序**：AS-3.1 → AS-3.2（API 端和 Worker 端可并行）→ AS-3.3 → AS-3.4
 
 **依赖**：AS-1.2（InteractiveExecutor 内嵌 Simple 逻辑）
+
+---
+
+## 5.5. AS-3.5 — Orchestrator 执行层
+
+**目标**：为 Skill 提供真正的多 Agent 编排能力。三件事必须同时落地才能形成闭环：Skill 显式绑定 AgentConfig（解决模型选择问题）、Lua executor（解决编排逻辑描述问题）、父子 Run 跨实例异步调度（解决执行隔离和性能问题）。
+
+**解决的问题**：Ultra 无法在内部使用小模型做子任务；Agent 编排逻辑写死在 Go 代码里导致扩展成本高；Sub-agent 阻塞父 run 连接。
+
+**依赖**：AS-1（ExecutorRegistry）、AS-3（WaitForInput 机制，父子 run 等待子任务完成时复用该挂起模型）
+
+---
+
+### AS-3.5.1 — Skill 绑定 AgentConfig
+
+**目标**：Skill 可以通过 `agent_config` 字段（AgentConfig 名称）显式指定使用哪个 AgentConfig，覆盖继承链解析结果。这是子任务使用不同模型的关键前提。
+
+**当前问题**：Skill 不知道自己的上层 AgentConfig，AgentConfig 由 thread → project → org 继承链自动解析。Ultra skill 内部的 Lua 子任务和主任务会用同一个 AgentConfig，无法让子任务使用更便宜的模型。
+
+**DB schema**：无变更，AgentConfig 已有 `name` 字段，查询按 name + org_id 匹配。
+
+**Skill YAML 新增字段**：
+
+```yaml
+id: ultra
+version: "1"
+agent_config: "Gemini Flash"    # 按名称引用 AgentConfig；nil 则走继承链
+budgets:
+  max_iterations: 20
+  max_output_tokens: 8192
+  temperature: 0.7
+```
+
+**代码变更**：
+
+`src/services/worker/internal/skills/registry.go`：`Definition` 加 `AgentConfigName *string` 字段。
+
+`src/services/worker/internal/skills/loader.go`：YAML 解析 `agent_config` 字段；`LoadFromDB` scan `agent_config_name` 列（需 migration 加列）。
+
+`src/services/api/internal/migrate/migrations/00061_skills_add_agent_config_name.sql`：
+
+```sql
+ALTER TABLE skills ADD COLUMN agent_config_name TEXT;
+```
+
+`src/services/worker/internal/pipeline/mw_skill_resolution.go`：解析出 `AgentConfigName` 后，若非 nil，执行按名称重新查 AgentConfig 的逻辑，覆盖 `rc.AgentConfig`。
+
+```go
+if def.AgentConfigName != nil {
+    ac, name, err := loadAgentConfigByName(ctx, dbPool, *def.AgentConfigName, rc.Run.OrgID)
+    if err == nil && ac != nil {
+        rc.AgentConfig = ac
+        rc.AgentConfigName = name
+    }
+}
+```
+
+`mw_agent_config.go`：提取 `loadAgentConfigByName(ctx, pool, name, orgID)` 辅助函数，供上面调用。
+
+**执行顺序**：migration → registry.go → loader.go → mw_skill_resolution.go → mw_agent_config.go 提取辅助函数
+
+---
+
+### AS-3.5.2 — 父子 Run 跨实例异步调度
+
+**目标**：父 Run 调度子 Run 时，父 Run 挂起不占 DB 连接，子 Run 可被任意 Worker 实例执行，完成后通过 Redis Pub/Sub 唤醒父 Run。
+
+**当前 AS-9.2 的问题**：`spawn_agent` tool 用 LISTEN/NOTIFY 同步等待，父 Run 挂起期间占着 pgx 直连，大量并发子任务会耗尽直连池。
+
+**架构设计**：
+
+```
+父 Run 执行到 agent.run_child() 调用
+  → 在 runs 表创建子 Run（parent_run_id = 父 Run ID，status = pending）
+  → 父 Run 订阅 Redis channel: "run.child.{child_run_id}.done"
+  → 父 Run goroutine 挂起在 Redis Subscribe（释放 DB 连接）
+  → 子 Run 被任意 Worker 实例的调度器捡起执行
+  → 子 Run 完成后向 Redis 发布 "run.child.{child_run_id}.done"，payload = 子 Run 的最终输出
+  → 父 Run 被唤醒，拿到 payload，继续执行
+  → 子 Run 结果同时写入 run_events 表（持久化，Console 可查）
+```
+
+**资源消耗模型**：父 Run 挂起时只占 1 goroutine + 1 Redis subscription，不占 DB 连接。Redis subscription 在 go-redis 里是共享连接的（multiplexed），1000 个挂起的父 Run 不会开 1000 条 Redis 连接。
+
+**DB schema**：
+
+```sql
+-- migration 00062
+ALTER TABLE runs ADD COLUMN parent_run_id UUID REFERENCES runs(id);
+CREATE INDEX idx_runs_parent_run_id ON runs(parent_run_id) WHERE parent_run_id IS NOT NULL;
+```
+
+**新增文件**：`src/services/worker/internal/runengine/child_run.go`
+
+```go
+// SpawnChildRun 创建子 Run 并异步等待其完成。
+// 父 Run 挂起期间不持有 DB 连接。
+// ctx 取消时立即返回 error，子 Run 继续执行直到超时。
+func SpawnChildRun(ctx context.Context, rc *pipeline.RunContext, skillID string, input string) (string, error)
+```
+
+内部：创建子 Run → 发布到 worker 调度队列（复用现有 `runqueue`）→ Redis Subscribe 等待完成事件 → 返回输出文本。
+
+**Lua binding**：
+
+```lua
+-- Lua 脚本中调用
+local result, err = agent.run(skill_id, input_text)
+-- 底层映射到 SpawnChildRun
+```
+
+**Console 展示**：API `GET /v1/runs?parent_run_id={id}` 返回子 Run 列表；Run 详情页展示父子树形结构，子 Run 默认折叠。
+
+**执行顺序**：migration(00062) → child_run.go → RunContext 暴露 SpawnChildRun → Lua binding（等 AS-3.5.3 完成后接入）
+
+---
+
+### AS-3.5.3 — Lua Executor
+
+**目标**：引入 `agent.lua` executor type，Skill 的 `executor_config.script` 字段包含 Lua 脚本，脚本通过 Go binding 访问 Agent 能力，实现可编程编排逻辑。
+
+**选型确认**：使用 [gopher-lua](https://github.com/yuin/gopher-lua)（纯 Go Lua 5.1 解释器）。Lua 是嵌入式脚本，底层完全是 Go 执行，无 CGO，无额外进程，性能开销主要来自 binding call，而非 Lua 本身。Lua 脚本只负责描述"做什么、以什么顺序"，所有重活（LLM 调用、工具执行、DB 写入）在 Go 层。
+
+**Skill YAML 示例**：
+
+```yaml
+id: research_agent
+executor_type: agent.lua
+executor_config:
+  script: |
+    local prompt = context.get("user_prompt")
+
+    -- 第一步：用小模型分解任务
+    local plan, err = agent.run("lite_planner", "把以下任务分解成3个子问题：\n" .. prompt)
+    if err then return end
+
+    -- 第二步：并行执行子问题（顺序版本，并行在 AS-3.5.4 扩展）
+    local results = {}
+    for i, sub in ipairs(parse_list(plan)) do
+      local r, e = agent.run("pro", sub)
+      if not e then results[i] = r end
+    end
+
+    -- 第三步：用大模型综合
+    local synthesis = table.concat(results, "\n\n")
+    local final, err = agent.run("ultra_synthesis", "综合以下研究结果：\n" .. synthesis)
+    context.set_output(final)
+```
+
+**Go binding 接口设计**：
+
+```go
+// LuaRuntime 暴露给 Lua 脚本的 Go API
+type LuaRuntime struct {
+    rc    *pipeline.RunContext
+    yield func(events.RunEvent) error
+}
+
+// 注册到 Lua state 的函数
+// agent.run(skill_id, input) -> (output, err)
+// agent.classify(prompt, labels) -> (label, err)   轻量分类，不创建子 Run
+// tools.call(name, args_json) -> (result_json, err)
+// context.get(key) -> value
+// context.set_output(text)                          写入最终输出
+// memory.search(query) -> results_json              依赖 AS-5
+```
+
+**执行隔离**：每个 Run 创建独立的 `*lua.LState`，不共享，无需加锁。`LState` 在 Execute() 返回后 GC。
+
+**超时控制**：通过 `luar` 或手动在每个 binding call 里检查 `ctx.Done()`，Lua 脚本无法无限循环。每次 binding call 返回前检查 ctx，若取消则注入 Lua error。
+
+**新增文件**：`src/services/worker/internal/executor/lua.go`
+
+```go
+func NewLuaExecutor(config map[string]any) (pipeline.AgentExecutor, error)
+
+// LuaExecutor 实现 AgentExecutor 接口
+type LuaExecutor struct {
+    script string
+}
+```
+
+注册到 `DefaultExecutorRegistry()`：
+
+```go
+_ = reg.Register("agent.lua", NewLuaExecutor)
+```
+
+**依赖**：AS-3.5.2（`agent.run` binding 内部调用 `SpawnChildRun`）
+
+**执行顺序**：lua.go（executor skeleton）→ Go binding 设计 → 接入 SpawnChildRun → 沙箱超时机制 → 测试
+
+---
+
+### AS-3.5.4 — 并行子任务原语（可选，后续扩展）
+
+**目标**：Lua 脚本可以并行启动多个子 Run，等待所有完成后聚合结果。
+
+```lua
+local tasks = {
+  { skill = "lite", input = chunk_1 },
+  { skill = "lite", input = chunk_2 },
+  { skill = "lite", input = chunk_3 },
+}
+local results, errors = agent.run_parallel(tasks)
+```
+
+**实现**：Go 层开 N 个 goroutine 并行调用 `SpawnChildRun`，用 `sync.WaitGroup` 聚合结果，返回结果数组给 Lua。子任务间无依赖关系，全部在 Redis Pub/Sub 层等待完成信号。
+
+**此子节点依赖 AS-3.5.2 和 AS-3.5.3 完全完成后才开始。**
+
+---
+
+### AS-3.5 执行顺序
+
+```
+AS-3.5.1（Skill 绑定 AgentConfig）
+  独立，可最先完成，改动集中在 mw_skill_resolution.go
+
+AS-3.5.2（父子 Run 跨实例调度）
+  migration 00062 → child_run.go → API 暴露 parent_run_id
+
+AS-3.5.3（Lua Executor）
+  依赖 AS-3.5.2（agent.run binding）
+  lua.go → binding 设计 → SpawnChildRun 接入 → 测试
+
+AS-3.5.4（并行原语）
+  依赖 AS-3.5.2 + AS-3.5.3 完全完成
+```
+
+**AS-3.5.1 与 AS-3.5.2 可并行执行，AS-3.5.3 等 AS-3.5.2 完成后启动。**
 
 ---
 
@@ -945,6 +1177,9 @@ web_fetch
            ↓
   AS-3.1 → AS-3.2 → AS-3.3 → AS-3.4
            ↓
+  AS-3.5.1（可与 AS-3.5.2 并行）
+  AS-3.5.2 → AS-3.5.3 → AS-3.5.4
+           ↓
   AS-5.0 → AS-5.1 → AS-5.2 → AS-5.3 → AS-5.4
            ↓
   AS-8.1 → AS-8.2
@@ -994,3 +1229,6 @@ web_fetch
 - **Sub-agent 层级限制**：嵌套深度 ≤ 2，超限返回 `agent.max_depth_exceeded`。
 - **Thinking 渲染协议**：`channel: "thinking"` 用于 LLM 原生 thinking 分流（不渲染进气泡）；`run.segment.start/end` 用于 Agent 级别的执行过程分组（折叠/展开/隐藏）；前端按 `kind` 选样式，后端不传 CSS 类名。Lite 的 Playground 默认 `visible`（内嵌窗口），Ultra 的规划轮和方向校验默认 `collapsed`（手动展开）。
 - **Tool Provider 双名机制**：`AgentToolSpec.Name` 是 Provider 键（allowlist 和 executor dispatch 用）；`AgentToolSpec.LlmName` 是 Group 名（LLM 看到的工具名）。同 Group 内 per-org 只允许一个 Provider 激活，应用层保证互斥。API Key 等敏感值走 `secrets` 表加密存储（与 LLM 凭证同一路径），不存 `config_json`；env var 是系统级默认，DB 配置优先。
+- **Lua Executor 技术选型**：使用 gopher-lua（纯 Go Lua 5.1 解释器，无 CGO）。Lua 只描述编排逻辑，不实现工具；所有 tool 执行、LLM 调用、DB 写入均在 Go binding 层。每个 Run 独立 LState，不共享，无锁。
+- **子 Run 等待机制**：父 Run 挂起时通过 Redis Pub/Sub 等待，不持有 DB 连接。子 Run 完成事件发布到 `run.child.{id}.done` channel，payload 含最终输出文本。父子 Run 均完整写入 run_events，Console 按 parent_run_id 聚合展示。
+- **Skill 绑定 AgentConfig**：Skill 的 `agent_config` 字段（名称）覆盖继承链解析结果；nil 则走原有 thread → project → org → platform 链。绑定在 mw_skill_resolution.go 内完成，mw_agent_config.go 先于其执行，skill 覆盖后不回退。
