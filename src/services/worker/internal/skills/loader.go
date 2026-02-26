@@ -141,6 +141,7 @@ func loadSingleSkill(yamlPath string, promptPath string) (Definition, error) {
 		executorType = *raw
 	}
 	executorConfig := asOptionalMap(obj["executor_config"])
+	preferredRouteID := asOptionalString(obj["preferred_route_id"])
 
 	rawPrompt, err := os.ReadFile(promptPath)
 	if err != nil {
@@ -152,15 +153,16 @@ func loadSingleSkill(yamlPath string, promptPath string) (Definition, error) {
 	}
 
 	return Definition{
-		ID:             skillID,
-		Version:        version,
-		Title:          title,
-		Description:    description,
-		ToolAllowlist:  allowlist,
-		Budgets:        budgets,
-		PromptMD:       prompt,
-		ExecutorType:   executorType,
-		ExecutorConfig: executorConfig,
+		ID:               skillID,
+		Version:          version,
+		Title:            title,
+		Description:      description,
+		ToolAllowlist:    allowlist,
+		Budgets:          budgets,
+		PromptMD:         prompt,
+		ExecutorType:     executorType,
+		ExecutorConfig:   executorConfig,
+		PreferredRouteID: preferredRouteID,
 	}, nil
 }
 
@@ -299,7 +301,8 @@ func LoadFromDB(ctx context.Context, pool *pgxpool.Pool, orgID uuid.UUID) ([]Def
 		ctx,
 		`SELECT skill_key, version, display_name, description,
 		        prompt_md, tool_allowlist, budgets_json,
-		        executor_type, executor_config_json
+		        executor_type, executor_config_json,
+		        preferred_route_id
 		 FROM skills
 		 WHERE org_id = $1 AND is_active = TRUE
 		 ORDER BY created_at ASC`,
@@ -322,10 +325,11 @@ func LoadFromDB(ctx context.Context, pool *pgxpool.Pool, orgID uuid.UUID) ([]Def
 			budgetsRaw         []byte
 			executorType       string
 			executorConfigRaw  []byte
+			preferredRouteID   *string
 		)
 		if err := rows.Scan(&skillKey, &version, &displayName, &description,
 			&promptMD, &toolAllowlist, &budgetsRaw,
-			&executorType, &executorConfigRaw); err != nil {
+			&executorType, &executorConfigRaw, &preferredRouteID); err != nil {
 			return nil, err
 		}
 
@@ -344,14 +348,15 @@ func LoadFromDB(ctx context.Context, pool *pgxpool.Pool, orgID uuid.UUID) ([]Def
 		}
 
 		def := Definition{
-			ID:             skillKey,
-			Version:        version,
-			Title:          displayName,
-			ToolAllowlist:  toolAllowlist,
-			Budgets:        budgets,
-			PromptMD:       promptMD,
-			ExecutorType:   executorType,
-			ExecutorConfig: executorConfig,
+			ID:               skillKey,
+			Version:          version,
+			Title:            displayName,
+			ToolAllowlist:    toolAllowlist,
+			Budgets:          budgets,
+			PromptMD:         promptMD,
+			ExecutorType:     executorType,
+			ExecutorConfig:   executorConfig,
+			PreferredRouteID: preferredRouteID,
 		}
 		if description != nil && strings.TrimSpace(*description) != "" {
 			s := strings.TrimSpace(*description)

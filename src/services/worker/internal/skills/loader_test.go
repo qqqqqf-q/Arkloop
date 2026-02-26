@@ -113,3 +113,46 @@ func writeSkillFiles(t *testing.T, root, name, yamlContent, promptContent string
 	}
 }
 
+// TestLoadSkillWithPreferredRouteID 验证 preferred_route_id 字段可正确解析。
+func TestLoadSkillWithPreferredRouteID(t *testing.T) {
+	dir := t.TempDir()
+	writeSkillFiles(t, dir, "test_route",
+		"id: test_route\nversion: \"1\"\ntitle: Test\npreferred_route_id: anthropic-opus\n",
+		"# prompt",
+	)
+
+	registry, err := LoadRegistry(dir)
+	if err != nil {
+		t.Fatalf("LoadRegistry failed: %v", err)
+	}
+	def, ok := registry.Get("test_route")
+	if !ok {
+		t.Fatalf("expected test_route skill loaded")
+	}
+	if def.PreferredRouteID == nil {
+		t.Fatal("expected PreferredRouteID to be set")
+	}
+	if *def.PreferredRouteID != "anthropic-opus" {
+		t.Fatalf("expected preferred_route_id 'anthropic-opus', got %q", *def.PreferredRouteID)
+	}
+}
+
+// TestLoadSkillWithoutPreferredRouteID 验证无 preferred_route_id 字段时 PreferredRouteID 为 nil。
+func TestLoadSkillWithoutPreferredRouteID(t *testing.T) {
+	root, err := BuiltinSkillsRoot()
+	if err != nil {
+		t.Fatalf("BuiltinSkillsRoot failed: %v", err)
+	}
+	registry, err := LoadRegistry(root)
+	if err != nil {
+		t.Fatalf("LoadRegistry failed: %v", err)
+	}
+	def, ok := registry.Get("demo_no_tools")
+	if !ok {
+		t.Fatalf("expected demo_no_tools skill loaded")
+	}
+	if def.PreferredRouteID != nil {
+		t.Fatalf("expected PreferredRouteID nil, got %q", *def.PreferredRouteID)
+	}
+}
+

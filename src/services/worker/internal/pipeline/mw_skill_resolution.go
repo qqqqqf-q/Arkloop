@@ -100,6 +100,12 @@ func NewSkillResolutionMiddleware(
 			for key, value := range def.Budgets.ToolBudget {
 				rc.ToolBudget[key] = value
 			}
+			// 用户未显式指定 route_id 时，Skill 声明的偏好路由作为第二优先级
+			if def.PreferredRouteID != nil {
+				if _, hasRouteID := rc.InputJSON["route_id"]; !hasRouteID {
+					rc.InputJSON["route_id"] = *def.PreferredRouteID
+				}
+			}
 		}
 
 		return next(ctx, rc)

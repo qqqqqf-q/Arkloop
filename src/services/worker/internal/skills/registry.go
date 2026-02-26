@@ -13,15 +13,16 @@ type Budgets struct {
 }
 
 type Definition struct {
-	ID             string
-	Version        string
-	Title          string
-	Description    *string
-	ToolAllowlist  []string
-	Budgets        Budgets
-	PromptMD       string
-	ExecutorType   string         // 执行策略类型，默认 "agent.simple"
-	ExecutorConfig map[string]any // Executor 配置，默认 {}
+	ID               string
+	Version          string
+	Title            string
+	Description      *string
+	ToolAllowlist    []string
+	Budgets          Budgets
+	PromptMD         string
+	ExecutorType     string         // 执行策略类型，默认 "agent.simple"
+	ExecutorConfig   map[string]any // Executor 配置，默认 {}
+	PreferredRouteID *string        // 偏好路由 ID，nil 表示不绑定
 }
 
 type Registry struct {
