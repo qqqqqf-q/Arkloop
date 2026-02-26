@@ -265,82 +265,157 @@ export function WelcomePage() {
   return (
     <div className="flex h-full flex-col">
       {/* 顶部 header */}
-      <div className="flex min-h-[51px] items-center justify-end gap-2 px-[15px] py-[15px]">
+      <div className="relative z-10 flex min-h-[51px] items-center justify-end gap-2 px-[15px] py-[15px]">
         <div className="flex items-center gap-1 text-[var(--c-text-secondary)]" style={{ opacity: 0.8 }}>
           <Zap size={13} strokeWidth={2.2} />
           <span className="text-sm font-medium tabular-nums">{creditsBalance.toLocaleString()}</span>
         </div>
         <NotificationBell accessToken={accessToken} onClick={onOpenNotifications} refreshKey={notificationVersion} />
         <button
-            onClick={onTogglePrivateMode}
-            title={isPrivateMode ? '关闭私密模式' : '开启私密模式'}
-            className={[
-              'flex h-8 w-8 items-center justify-center rounded-lg transition-colors',
-              isPrivateMode
-                ? 'bg-[var(--c-bg-deep)] text-[var(--c-text-primary)]'
-                : 'text-[var(--c-text-secondary)] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]',
-            ].join(' ')}
-          >
-            <Glasses size={18} />
-          </button>
+          onClick={onTogglePrivateMode}
+          title={isPrivateMode ? '关闭私密模式' : '开启私密模式'}
+          className={[
+            'flex h-8 w-8 items-center justify-center rounded-lg transition-colors',
+            isPrivateMode
+              ? 'bg-[var(--c-bg-deep)] text-[var(--c-text-primary)]'
+              : 'text-[var(--c-text-secondary)] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]',
+          ].join(' ')}
+        >
+          <Glasses size={18} />
+        </button>
       </div>
 
-      {/* 居中内容 */}
-      <div className="flex flex-1 flex-col items-center justify-center px-5" style={{ marginTop: '-120px' }}>
-        <FreePlanBadge />
-
-        <h2 className="mt-[40px] mb-[40px] text-[40px] font-normal tracking-[-0.5px] text-[var(--c-text-heading)]">
-          {greeting}
-        </h2>
-
-        <div className="w-full max-w-[750px]">
-          {attachments.length > 0 && (
-            <div className="mb-2 flex flex-wrap gap-2">
-              {attachments.map((att) => (
-                <div
-                  key={att.id}
-                  className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5"
-                  style={{ background: 'var(--c-bg-sub)', border: '0.5px solid var(--c-border-subtle)' }}
-                >
-                  <Paperclip size={12} style={{ color: 'var(--c-text-icon)', flexShrink: 0 }} />
-                  <span
-                    className="text-xs"
-                    style={{ color: 'var(--c-text-secondary)', maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                  >
-                    {att.name}
-                  </span>
-                  <span className="text-xs" style={{ color: 'var(--c-text-muted)', flexShrink: 0 }}>
-                    {formatFileSize(att.size)}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveAttachment(att.id)}
-                    className="flex items-center justify-center rounded transition-opacity duration-100 hover:opacity-100"
-                    style={{ color: 'var(--c-text-muted)', opacity: 0.7, marginLeft: '2px' }}
-                  >
-                    <X size={12} />
-                  </button>
-                </div>
-              ))}
+      {isPrivateMode ? (
+        /* Incognito 模式屏 */
+        <div className="flex flex-1 flex-col items-center justify-center px-5" style={{ marginTop: '-60px' }}>
+          <div className="mb-10 flex flex-col items-center gap-5 text-center" style={{ maxWidth: 480 }}>
+            <div
+              className="flex h-14 w-14 items-center justify-center rounded-2xl"
+              style={{ background: 'var(--c-bg-deep)' }}
+            >
+              <Glasses size={28} style={{ color: 'var(--c-text-secondary)' }} />
             </div>
-          )}
-          <ChatInput
-            value={draft}
-            onChange={setDraft}
-            onSubmit={handleSubmit}
-            placeholder={t.chatPlaceholder}
-            disabled={sending}
-            isStreaming={false}
-            variant="welcome"
-            attachments={attachments}
-            onAttachFiles={handleAttachFiles}
-            accessToken={accessToken}
-            onAsrError={handleAsrError}
-          />
+            <div className="flex flex-col gap-2">
+              <h2
+                className="text-xl font-semibold"
+                style={{ color: 'var(--c-text-heading)' }}
+              >
+                You've gone incognito
+              </h2>
+              <p className="text-sm leading-relaxed" style={{ color: 'var(--c-text-secondary)' }}>
+                Threads aren't saved to history while incognito.
+              </p>
+              <p className="text-xs" style={{ color: 'var(--c-text-muted)' }}>
+                New threads will be permanently deleted after 24 hours.
+              </p>
+            </div>
+          </div>
 
-          {error && <ErrorCallout error={error} />}
+          <div className="w-full max-w-[750px]">
+            {attachments.length > 0 && (
+              <div className="mb-2 flex flex-wrap gap-2">
+                {attachments.map((att) => (
+                  <div
+                    key={att.id}
+                    className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5"
+                    style={{ background: 'var(--c-bg-sub)', border: '0.5px solid var(--c-border-subtle)' }}
+                  >
+                    <Paperclip size={12} style={{ color: 'var(--c-text-icon)', flexShrink: 0 }} />
+                    <span
+                      className="text-xs"
+                      style={{ color: 'var(--c-text-secondary)', maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                    >
+                      {att.name}
+                    </span>
+                    <span className="text-xs" style={{ color: 'var(--c-text-muted)', flexShrink: 0 }}>
+                      {formatFileSize(att.size)}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveAttachment(att.id)}
+                      className="flex items-center justify-center rounded transition-opacity duration-100 hover:opacity-100"
+                      style={{ color: 'var(--c-text-muted)', opacity: 0.7, marginLeft: '2px' }}
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <ChatInput
+              value={draft}
+              onChange={setDraft}
+              onSubmit={handleSubmit}
+              placeholder={t.chatPlaceholder}
+              disabled={sending}
+              isStreaming={false}
+              variant="welcome"
+              attachments={attachments}
+              onAttachFiles={handleAttachFiles}
+              accessToken={accessToken}
+              onAsrError={handleAsrError}
+            />
+            {error && <ErrorCallout error={error} />}
+          </div>
         </div>
-      </div>
+      ) : (
+        /* 正常欢迎屏 */
+        <div className="flex flex-1 flex-col items-center justify-center px-5" style={{ marginTop: '-120px' }}>
+          <FreePlanBadge />
+
+          <h2 className="mt-[40px] mb-[40px] text-[40px] font-normal tracking-[-0.5px] text-[var(--c-text-heading)]">
+            {greeting}
+          </h2>
+
+          <div className="w-full max-w-[750px]">
+            {attachments.length > 0 && (
+              <div className="mb-2 flex flex-wrap gap-2">
+                {attachments.map((att) => (
+                  <div
+                    key={att.id}
+                    className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5"
+                    style={{ background: 'var(--c-bg-sub)', border: '0.5px solid var(--c-border-subtle)' }}
+                  >
+                    <Paperclip size={12} style={{ color: 'var(--c-text-icon)', flexShrink: 0 }} />
+                    <span
+                      className="text-xs"
+                      style={{ color: 'var(--c-text-secondary)', maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                    >
+                      {att.name}
+                    </span>
+                    <span className="text-xs" style={{ color: 'var(--c-text-muted)', flexShrink: 0 }}>
+                      {formatFileSize(att.size)}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveAttachment(att.id)}
+                      className="flex items-center justify-center rounded transition-opacity duration-100 hover:opacity-100"
+                      style={{ color: 'var(--c-text-muted)', opacity: 0.7, marginLeft: '2px' }}
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <ChatInput
+              value={draft}
+              onChange={setDraft}
+              onSubmit={handleSubmit}
+              placeholder={t.chatPlaceholder}
+              disabled={sending}
+              isStreaming={false}
+              variant="welcome"
+              attachments={attachments}
+              onAttachFiles={handleAttachFiles}
+              accessToken={accessToken}
+              onAsrError={handleAsrError}
+            />
+
+            {error && <ErrorCallout error={error} />}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

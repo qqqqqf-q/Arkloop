@@ -420,7 +420,7 @@ export function ChatPage() {
       {/* 顶部 header */}
       <div className="flex min-h-[51px] items-center justify-end gap-2 px-[15px] py-[15px]">
         {threadId && privateThreadIds.has(threadId) && (
-          <span className="text-xs font-medium text-[var(--c-text-muted)]">Private</span>
+          <span className="text-xs font-medium text-[var(--c-text-muted)]">Incognito</span>
         )}
         <div className="flex items-center gap-1 text-[var(--c-text-secondary)]" style={{ opacity: 0.8 }}>
           <Zap size={13} strokeWidth={2.2} />
@@ -428,12 +428,12 @@ export function ChatPage() {
         </div>
         <NotificationBell accessToken={accessToken} onClick={onOpenNotifications} refreshKey={notificationVersion} />
         <button
-          onClick={onTogglePrivateMode}
-          title={threadId && privateThreadIds.has(threadId) ? '私密对话' : '开启/关闭私密模式'}
+          onClick={threadId && privateThreadIds.has(threadId) ? undefined : onTogglePrivateMode}
+          title={threadId && privateThreadIds.has(threadId) ? 'This thread is incognito' : '开启/关闭私密模式'}
           className={[
             'flex h-8 w-8 items-center justify-center rounded-lg transition-colors',
             threadId && privateThreadIds.has(threadId)
-              ? 'bg-[var(--c-bg-deep)] text-[var(--c-text-primary)]'
+              ? 'bg-[var(--c-bg-deep)] text-[var(--c-text-primary)] cursor-default'
               : 'text-[var(--c-text-secondary)] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]',
           ].join(' ')}
         >
