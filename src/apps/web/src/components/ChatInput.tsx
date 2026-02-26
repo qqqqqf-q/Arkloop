@@ -338,7 +338,7 @@ export function ChatInput({
             type="button"
             onClick={stopAndTranscribe}
             disabled={isTranscribing}
-            className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-[var(--c-accent-send)] text-[var(--c-accent-send-text)] transition-colors duration-150 hover:bg-[var(--c-accent-send-hover)] active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-60"
+            className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-[var(--c-accent-send)] text-[var(--c-accent-send-text)] transition-opacity duration-150 hover:opacity-[0.82] active:opacity-[0.75] active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-60"
           >
             {isTranscribing
               ? <Loader2 size={14} className="animate-spin" />
@@ -536,7 +536,7 @@ export function ChatInput({
                 type="button"
                 onClick={onCancel}
                 disabled={cancelSubmitting}
-                className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--c-accent-send)] text-[var(--c-accent-send-text)] transition-colors duration-150 hover:bg-[var(--c-accent-send-hover)] disabled:cursor-not-allowed disabled:opacity-50"
+                className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--c-accent-send)] text-[var(--c-accent-send-text)] transition-opacity duration-150 hover:opacity-[0.82] active:opacity-[0.75] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Square size={14} fill="currentColor" />
               </button>
@@ -544,7 +544,7 @@ export function ChatInput({
               <button
                 type="submit"
                 disabled={disabled || isStreaming || (!value.trim() && attachments.length === 0)}
-                className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--c-accent-send)] text-[var(--c-accent-send-text)] transition-colors duration-150 hover:bg-[var(--c-accent-send-hover)] active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-50"
+                className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--c-accent-send)] text-[var(--c-accent-send-text)] transition-opacity duration-150 hover:opacity-[0.82] active:opacity-[0.75] active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <ArrowUp size={16} />
               </button>

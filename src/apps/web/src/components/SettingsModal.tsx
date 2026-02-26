@@ -908,6 +908,7 @@ type TableLocale = {
   creditsHistoryDate: string
   creditsHistoryCreditChange: string
   creditsHistoryEmpty: string
+  creditsTxTypeLabel: (type: string) => string
 }
 
 function CreditTransactionTable({
@@ -947,7 +948,7 @@ function CreditTransactionTable({
         </thead>
         <tbody>
           {transactions.map((tx) => {
-            const detail = tx.thread_title ?? tx.note ?? tx.type.replace(/_/g, ' ')
+            const detail = tx.thread_title ?? tx.note ?? t.creditsTxTypeLabel(tx.type)
             const dateStr = new Date(tx.created_at).toLocaleDateString(undefined, {
               year: 'numeric',
               month: 'short',

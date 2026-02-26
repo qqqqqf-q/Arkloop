@@ -47,6 +47,19 @@ export const en: LocaleStrings = {
   creditsHistoryEmpty: 'No transactions',
   creditsHistoryRecent: 'Recent',
   creditsHistoryMonthly: 'Monthly Query',
+  creditsTxTypeLabel: (type) => {
+    const labels: Record<string, string> = {
+      initial_grant: 'Registration Bonus',
+      invite_reward: 'Invite Reward',
+      invitee_reward: 'Sign-up Bonus',
+      redemption: 'Redemption Code',
+      consumption: 'Usage',
+      admin_adjustment: 'Admin Adjustment',
+      admin_bulk_adjustment: 'Admin Bulk Adjustment',
+      admin_reset: 'Admin Reset',
+    }
+    return labels[type] ?? type.replace(/_/g, ' ')
+  },
   loginMode: 'Login',
   registerMode: 'Register',
   identityPlaceholder: 'Username or email',

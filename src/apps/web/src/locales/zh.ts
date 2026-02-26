@@ -47,6 +47,19 @@ export const zh: LocaleStrings = {
   creditsHistoryEmpty: '暂无记录',
   creditsHistoryRecent: '最近',
   creditsHistoryMonthly: '按月度查询',
+  creditsTxTypeLabel: (type) => {
+    const labels: Record<string, string> = {
+      initial_grant: '账号注册赠送',
+      invite_reward: '邀请奖励',
+      invitee_reward: '注册奖励',
+      redemption: '兑换码',
+      consumption: '消耗',
+      admin_adjustment: '管理员调整',
+      admin_bulk_adjustment: '管理员批量调整',
+      admin_reset: '管理员重置',
+    }
+    return labels[type] ?? type.replace(/_/g, ' ')
+  },
   loginMode: '登录',
   registerMode: '注册',
   identityPlaceholder: '用户名或邮箱',

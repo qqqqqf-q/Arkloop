@@ -55,6 +55,7 @@ export interface LocaleStrings {
   creditsHistoryEmpty: string
   creditsHistoryRecent: string
   creditsHistoryMonthly: string
+  creditsTxTypeLabel: (type: string) => string
   // auth
   loginMode: string
   registerMode: string
