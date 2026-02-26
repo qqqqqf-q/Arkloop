@@ -316,7 +316,7 @@ func patchThread(
 				WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 				return
 			}
-			if ac == nil || ac.OrgID != actor.OrgID {
+			if ac == nil || (ac.Scope != "platform" && (ac.OrgID == nil || *ac.OrgID != actor.OrgID)) {
 				WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "agent config not found in org", traceID, nil)
 				return
 			}

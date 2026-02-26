@@ -17,7 +17,7 @@ const cachePrefix = "arkloop:entitlement:"
 
 // 平台默认值，所有层级都无配置时使用。
 var platformDefaults = map[string]EntitlementValue{
-	"quota.runs_per_month":       {Raw: "100", Type: "int"},
+	"quota.runs_per_month":       {Raw: "999999", Type: "int"},
 	"quota.tokens_per_month":     {Raw: "1000000", Type: "int"},
 	"limit.concurrent_runs":      {Raw: "10", Type: "int"},
 	"limit.team_members":         {Raw: "50", Type: "int"},

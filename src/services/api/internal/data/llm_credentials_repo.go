@@ -2,6 +2,7 @@ package data
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -34,6 +35,7 @@ type LlmCredential struct {
 	KeyPrefix     *string
 	BaseURL       *string
 	OpenAIAPIMode *string
+	AdvancedJSON  map[string]any
 	RevokedAt     *time.Time
 	LastUsedAt    *time.Time
 	CreatedAt     time.Time
@@ -63,6 +65,7 @@ func (r *LlmCredentialsRepository) Create(
 	keyPrefix *string,
 	baseURL *string,
 	openaiAPIMode *string,
+	advancedJSON map[string]any,
 ) (LlmCredential, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -80,24 +83,33 @@ func (r *LlmCredentialsRepository) Create(
 		return LlmCredential{}, fmt.Errorf("name must not be empty")
 	}
 
+	advJSONBytes, err := json.Marshal(advancedJSON)
+	if err != nil {
+		return LlmCredential{}, fmt.Errorf("marshal advanced_json: %w", err)
+	}
+
 	var c LlmCredential
-	err := r.db.QueryRow(
+	var advJSON []byte
+	err = r.db.QueryRow(
 		ctx,
 		`INSERT INTO llm_credentials
-		    (id, org_id, provider, name, secret_id, key_prefix, base_url, openai_api_mode)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		    (id, org_id, provider, name, secret_id, key_prefix, base_url, openai_api_mode, advanced_json)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)
 		 RETURNING id, org_id, provider, name, secret_id, key_prefix,
-		           base_url, openai_api_mode, revoked_at, last_used_at, created_at, updated_at`,
-		id, orgID, provider, name, secretID, keyPrefix, baseURL, openaiAPIMode,
+		           base_url, openai_api_mode, advanced_json, revoked_at, last_used_at, created_at, updated_at`,
+		id, orgID, provider, name, secretID, keyPrefix, baseURL, openaiAPIMode, string(advJSONBytes),
 	).Scan(
 		&c.ID, &c.OrgID, &c.Provider, &c.Name, &c.SecretID, &c.KeyPrefix,
-		&c.BaseURL, &c.OpenAIAPIMode, &c.RevokedAt, &c.LastUsedAt, &c.CreatedAt, &c.UpdatedAt,
+		&c.BaseURL, &c.OpenAIAPIMode, &advJSON, &c.RevokedAt, &c.LastUsedAt, &c.CreatedAt, &c.UpdatedAt,
 	)
 	if err != nil {
 		if isUniqueViolation(err) {
 			return LlmCredential{}, LlmCredentialNameConflictError{Name: name}
 		}
 		return LlmCredential{}, err
+	}
+	if len(advJSON) > 0 {
+		_ = json.Unmarshal(advJSON, &c.AdvancedJSON)
 	}
 	return c, nil
 }
@@ -109,22 +121,26 @@ func (r *LlmCredentialsRepository) GetByID(ctx context.Context, orgID, id uuid.U
 	}
 
 	var c LlmCredential
+	var advJSON []byte
 	err := r.db.QueryRow(
 		ctx,
 		`SELECT id, org_id, provider, name, secret_id, key_prefix,
-		        base_url, openai_api_mode, revoked_at, last_used_at, created_at, updated_at
+		        base_url, openai_api_mode, advanced_json, revoked_at, last_used_at, created_at, updated_at
 		 FROM llm_credentials
 		 WHERE id = $1 AND org_id = $2`,
 		id, orgID,
 	).Scan(
 		&c.ID, &c.OrgID, &c.Provider, &c.Name, &c.SecretID, &c.KeyPrefix,
-		&c.BaseURL, &c.OpenAIAPIMode, &c.RevokedAt, &c.LastUsedAt, &c.CreatedAt, &c.UpdatedAt,
+		&c.BaseURL, &c.OpenAIAPIMode, &advJSON, &c.RevokedAt, &c.LastUsedAt, &c.CreatedAt, &c.UpdatedAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, err
+	}
+	if len(advJSON) > 0 {
+		_ = json.Unmarshal(advJSON, &c.AdvancedJSON)
 	}
 	return &c, nil
 }
@@ -138,7 +154,7 @@ func (r *LlmCredentialsRepository) ListByOrg(ctx context.Context, orgID uuid.UUI
 	rows, err := r.db.Query(
 		ctx,
 		`SELECT id, org_id, provider, name, secret_id, key_prefix,
-		        base_url, openai_api_mode, revoked_at, last_used_at, created_at, updated_at
+		        base_url, openai_api_mode, advanced_json, revoked_at, last_used_at, created_at, updated_at
 		 FROM llm_credentials
 		 WHERE org_id = $1 AND revoked_at IS NULL
 		 ORDER BY created_at DESC`,
@@ -152,11 +168,15 @@ func (r *LlmCredentialsRepository) ListByOrg(ctx context.Context, orgID uuid.UUI
 	creds := []LlmCredential{}
 	for rows.Next() {
 		var c LlmCredential
+		var advJSON []byte
 		if err := rows.Scan(
 			&c.ID, &c.OrgID, &c.Provider, &c.Name, &c.SecretID, &c.KeyPrefix,
-			&c.BaseURL, &c.OpenAIAPIMode, &c.RevokedAt, &c.LastUsedAt, &c.CreatedAt, &c.UpdatedAt,
+			&c.BaseURL, &c.OpenAIAPIMode, &advJSON, &c.RevokedAt, &c.LastUsedAt, &c.CreatedAt, &c.UpdatedAt,
 		); err != nil {
 			return nil, err
+		}
+		if len(advJSON) > 0 {
+			_ = json.Unmarshal(advJSON, &c.AdvancedJSON)
 		}
 		creds = append(creds, c)
 	}
@@ -172,7 +192,7 @@ func (r *LlmCredentialsRepository) ListAllActive(ctx context.Context) ([]LlmCred
 	rows, err := r.db.Query(
 		ctx,
 		`SELECT id, org_id, provider, name, secret_id, key_prefix,
-		        base_url, openai_api_mode, revoked_at, last_used_at, created_at, updated_at
+		        base_url, openai_api_mode, advanced_json, revoked_at, last_used_at, created_at, updated_at
 		 FROM llm_credentials
 		 WHERE revoked_at IS NULL`,
 	)
@@ -184,11 +204,15 @@ func (r *LlmCredentialsRepository) ListAllActive(ctx context.Context) ([]LlmCred
 	creds := []LlmCredential{}
 	for rows.Next() {
 		var c LlmCredential
+		var advJSON []byte
 		if err := rows.Scan(
 			&c.ID, &c.OrgID, &c.Provider, &c.Name, &c.SecretID, &c.KeyPrefix,
-			&c.BaseURL, &c.OpenAIAPIMode, &c.RevokedAt, &c.LastUsedAt, &c.CreatedAt, &c.UpdatedAt,
+			&c.BaseURL, &c.OpenAIAPIMode, &advJSON, &c.RevokedAt, &c.LastUsedAt, &c.CreatedAt, &c.UpdatedAt,
 		); err != nil {
 			return nil, err
+		}
+		if len(advJSON) > 0 {
+			_ = json.Unmarshal(advJSON, &c.AdvancedJSON)
 		}
 		creds = append(creds, c)
 	}
@@ -209,31 +233,40 @@ func (r *LlmCredentialsRepository) Delete(ctx context.Context, orgID, id uuid.UU
 	return err
 }
 
-// Update 更新凭证的可编辑字段（名称、base_url、openai_api_mode）。
+// Update 更新凭证的可编辑字段（名称、base_url、openai_api_mode、advanced_json）。
 func (r *LlmCredentialsRepository) Update(
 	ctx context.Context,
 	orgID uuid.UUID,
 	id uuid.UUID,
+	provider string,
 	name string,
 	baseURL *string,
 	openAIAPIMode *string,
+	advancedJSON map[string]any,
 ) (LlmCredential, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 
+	advJSONBytes, err := json.Marshal(advancedJSON)
+	if err != nil {
+		return LlmCredential{}, fmt.Errorf("marshal advanced_json: %w", err)
+	}
+
 	var c LlmCredential
-	err := r.db.QueryRow(
+	var advJSON []byte
+	err = r.db.QueryRow(
 		ctx,
 		`UPDATE llm_credentials
-		 SET name = $3, base_url = $4, openai_api_mode = $5, updated_at = NOW()
+		 SET provider = COALESCE(NULLIF($3, ''), provider), name = $4, base_url = $5,
+		     openai_api_mode = $6, advanced_json = $7::jsonb, updated_at = NOW()
 		 WHERE id = $1 AND org_id = $2 AND revoked_at IS NULL
 		 RETURNING id, org_id, provider, name, secret_id, key_prefix, base_url, openai_api_mode,
-		           revoked_at, last_used_at, created_at, updated_at`,
-		id, orgID, name, baseURL, openAIAPIMode,
+		           advanced_json, revoked_at, last_used_at, created_at, updated_at`,
+		id, orgID, provider, name, baseURL, openAIAPIMode, string(advJSONBytes),
 	).Scan(
 		&c.ID, &c.OrgID, &c.Provider, &c.Name, &c.SecretID, &c.KeyPrefix,
-		&c.BaseURL, &c.OpenAIAPIMode, &c.RevokedAt, &c.LastUsedAt, &c.CreatedAt, &c.UpdatedAt,
+		&c.BaseURL, &c.OpenAIAPIMode, &advJSON, &c.RevokedAt, &c.LastUsedAt, &c.CreatedAt, &c.UpdatedAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -244,6 +277,9 @@ func (r *LlmCredentialsRepository) Update(
 			return LlmCredential{}, LlmCredentialNameConflictError{Name: name}
 		}
 		return LlmCredential{}, err
+	}
+	if len(advJSON) > 0 {
+		_ = json.Unmarshal(advJSON, &c.AdvancedJSON)
 	}
 	return c, nil
 }

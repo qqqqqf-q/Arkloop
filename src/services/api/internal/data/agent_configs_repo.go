@@ -12,7 +12,8 @@ import (
 
 type AgentConfig struct {
 	ID                     uuid.UUID
-	OrgID                  uuid.UUID
+	OrgID                  *uuid.UUID // nil = platform scope
+	Scope                  string     // "org" | "platform"
 	Name                   string
 	SystemPromptTemplateID *uuid.UUID
 	SystemPromptOverride   *string
@@ -29,10 +30,12 @@ type AgentConfig struct {
 	ProjectID              *uuid.UUID
 	SkillID                *uuid.UUID
 	IsDefault              bool
+	PromptCacheControl     string
 	CreatedAt              time.Time
 }
 
 type CreateAgentConfigRequest struct {
+	Scope                  string // "org" | "platform"; default "org"
 	Name                   string
 	SystemPromptTemplateID *uuid.UUID
 	SystemPromptOverride   *string
@@ -49,6 +52,7 @@ type CreateAgentConfigRequest struct {
 	ProjectID              *uuid.UUID
 	SkillID                *uuid.UUID
 	IsDefault              bool
+	PromptCacheControl     string
 }
 
 type AgentConfigUpdateFields struct {
@@ -78,6 +82,10 @@ type AgentConfigUpdateFields struct {
 	ContentFilterLevel        string
 	SetIsDefault              bool
 	IsDefault                 bool
+	SetPromptCacheControl     bool
+	PromptCacheControl        string
+	SetScope                  bool
+	Scope                     string // "org" | "platform"
 }
 
 type AgentConfigRepository struct {
@@ -91,10 +99,10 @@ func NewAgentConfigRepository(db Querier) (*AgentConfigRepository, error) {
 	return &AgentConfigRepository{db: db}, nil
 }
 
-const agentConfigColumns = `id, org_id, name, system_prompt_template_id, system_prompt_override,
+const agentConfigColumns = `id, org_id, scope, name, system_prompt_template_id, system_prompt_override,
 	model, temperature, max_output_tokens, top_p, context_window_limit,
 	tool_policy, tool_allowlist, tool_denylist, content_filter_level, safety_rules_json,
-	project_id, skill_id, is_default, created_at`
+	project_id, skill_id, is_default, prompt_cache_control, created_at`
 
 // agentConfigScanner 覆盖 pgx.Row（struct）和 pgx.Rows（interface）共有的 Scan 方法。
 type agentConfigScanner interface {
@@ -104,20 +112,37 @@ type agentConfigScanner interface {
 func scanAgentConfig(row agentConfigScanner) (AgentConfig, error) {
 	var ac AgentConfig
 	err := row.Scan(
-		&ac.ID, &ac.OrgID, &ac.Name, &ac.SystemPromptTemplateID, &ac.SystemPromptOverride,
+		&ac.ID, &ac.OrgID, &ac.Scope, &ac.Name, &ac.SystemPromptTemplateID, &ac.SystemPromptOverride,
 		&ac.Model, &ac.Temperature, &ac.MaxOutputTokens, &ac.TopP, &ac.ContextWindowLimit,
 		&ac.ToolPolicy, &ac.ToolAllowlist, &ac.ToolDenylist, &ac.ContentFilterLevel, &ac.SafetyRulesJSON,
-		&ac.ProjectID, &ac.SkillID, &ac.IsDefault, &ac.CreatedAt,
+		&ac.ProjectID, &ac.SkillID, &ac.IsDefault, &ac.PromptCacheControl, &ac.CreatedAt,
 	)
 	return ac, err
 }
 
+// Create 创建 agent config。platform scope 时 orgID 传 uuid.Nil，repo 内部转为 NULL。
 func (r *AgentConfigRepository) Create(ctx context.Context, orgID uuid.UUID, req CreateAgentConfigRequest) (AgentConfig, error) {
-	if orgID == uuid.Nil {
-		return AgentConfig{}, fmt.Errorf("agent_configs: org_id must not be empty")
-	}
 	if req.Name == "" {
 		return AgentConfig{}, fmt.Errorf("agent_configs: name must not be empty")
+	}
+
+	scope := req.Scope
+	if scope == "" {
+		scope = "org"
+	}
+	if scope != "org" && scope != "platform" {
+		return AgentConfig{}, fmt.Errorf("agent_configs: scope must be org or platform")
+	}
+	if scope == "org" && orgID == uuid.Nil {
+		return AgentConfig{}, fmt.Errorf("agent_configs: org_id must not be empty for org scope")
+	}
+
+	// platform scope 存 NULL
+	var orgIDParam any
+	if scope == "platform" {
+		orgIDParam = nil
+	} else {
+		orgIDParam = orgID
 	}
 
 	toolPolicy := req.ToolPolicy
@@ -138,19 +163,24 @@ func (r *AgentConfigRepository) Create(ctx context.Context, orgID uuid.UUID, req
 		req.SafetyRulesJSON = map[string]any{}
 	}
 
+	promptCacheControl := req.PromptCacheControl
+	if promptCacheControl == "" {
+		promptCacheControl = "none"
+	}
+
 	ac, err := scanAgentConfig(r.db.QueryRow(
 		ctx,
 		`INSERT INTO agent_configs (
-			org_id, name, system_prompt_template_id, system_prompt_override,
+			org_id, scope, name, system_prompt_template_id, system_prompt_override,
 			model, temperature, max_output_tokens, top_p, context_window_limit,
 			tool_policy, tool_allowlist, tool_denylist, content_filter_level, safety_rules_json,
-			project_id, skill_id, is_default
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,$15,$16,$17)
+			project_id, skill_id, is_default, prompt_cache_control
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::jsonb,$16,$17,$18,$19)
 		RETURNING `+agentConfigColumns,
-		orgID, req.Name, req.SystemPromptTemplateID, req.SystemPromptOverride,
+		orgIDParam, scope, req.Name, req.SystemPromptTemplateID, req.SystemPromptOverride,
 		req.Model, req.Temperature, req.MaxOutputTokens, req.TopP, req.ContextWindowLimit,
 		toolPolicy, req.ToolAllowlist, req.ToolDenylist, contentFilterLevel, req.SafetyRulesJSON,
-		req.ProjectID, req.SkillID, req.IsDefault,
+		req.ProjectID, req.SkillID, req.IsDefault, promptCacheControl,
 	))
 	if err != nil {
 		return AgentConfig{}, fmt.Errorf("agent_configs.Create: %w", err)
@@ -173,10 +203,14 @@ func (r *AgentConfigRepository) GetByID(ctx context.Context, id uuid.UUID) (*Age
 	return &ac, nil
 }
 
+// ListByOrg 返回 org 自己的 config + platform 级 config（共同展示）。
 func (r *AgentConfigRepository) ListByOrg(ctx context.Context, orgID uuid.UUID) ([]AgentConfig, error) {
 	rows, err := r.db.Query(
 		ctx,
-		`SELECT `+agentConfigColumns+` FROM agent_configs WHERE org_id = $1 ORDER BY created_at ASC`,
+		`SELECT `+agentConfigColumns+`
+		 FROM agent_configs
+		 WHERE (org_id = $1 AND scope = 'org') OR scope = 'platform'
+		 ORDER BY scope DESC, created_at ASC`,
 		orgID,
 	)
 	if err != nil {
@@ -236,12 +270,12 @@ func (r *AgentConfigRepository) GetDefaultForProject(ctx context.Context, orgID 
 	return &ac, nil
 }
 
-func (r *AgentConfigRepository) Update(ctx context.Context, id uuid.UUID, orgID uuid.UUID, fields AgentConfigUpdateFields) (*AgentConfig, error) {
+func (r *AgentConfigRepository) Update(ctx context.Context, id uuid.UUID, orgID uuid.UUID, isPlatformAdmin bool, fields AgentConfigUpdateFields) (*AgentConfig, error) {
 	if !fields.SetName && !fields.SetSystemPromptTemplateID && !fields.SetSystemPromptOverride &&
 		!fields.SetModel && !fields.SetTemperature && !fields.SetMaxOutputTokens &&
 		!fields.SetTopP && !fields.SetContextWindowLimit && !fields.SetToolPolicy &&
 		!fields.SetToolAllowlist && !fields.SetToolDenylist && !fields.SetContentFilterLevel &&
-		!fields.SetIsDefault {
+		!fields.SetIsDefault && !fields.SetPromptCacheControl && !fields.SetScope {
 		return nil, fmt.Errorf("agent_configs.Update: no fields to update")
 	}
 
@@ -252,6 +286,18 @@ func (r *AgentConfigRepository) Update(ctx context.Context, id uuid.UUID, orgID 
 	denylist := fields.ToolDenylist
 	if denylist == nil {
 		denylist = []string{}
+	}
+
+	// platform admin 可更新 platform-scope 或自己 org 的 config
+	// 普通 org admin 只能更新自己 org 的 config
+	var whereClause string
+	var whereArgs []any
+	if isPlatformAdmin {
+		whereClause = `id = $1 AND (org_id = $2 OR scope = 'platform')`
+		whereArgs = []any{id, orgID}
+	} else {
+		whereClause = `id = $1 AND org_id = $2 AND scope = 'org'`
+		whereArgs = []any{id, orgID}
 	}
 
 	ac, err := scanAgentConfig(r.db.QueryRow(
@@ -269,23 +315,31 @@ func (r *AgentConfigRepository) Update(ctx context.Context, id uuid.UUID, orgID 
 		     tool_allowlist            = CASE WHEN $23 THEN $24 ELSE tool_allowlist END,
 		     tool_denylist             = CASE WHEN $25 THEN $26 ELSE tool_denylist END,
 		     content_filter_level      = CASE WHEN $27 THEN $28 ELSE content_filter_level END,
-		     is_default                = CASE WHEN $21 THEN $22 ELSE is_default END
-		 WHERE id = $1 AND org_id = $2
+		     is_default                = CASE WHEN $21 THEN $22 ELSE is_default END,
+		     prompt_cache_control      = CASE WHEN $29 THEN $30 ELSE prompt_cache_control END,
+		     scope                     = CASE WHEN $31 THEN $32 ELSE scope END,
+		     org_id                    = CASE WHEN $31 AND $32='platform' THEN NULL
+		                                      WHEN $31 THEN $2
+		                                      ELSE org_id END
+		 WHERE `+whereClause+`
 		 RETURNING `+agentConfigColumns,
-		id, orgID,
-		fields.SetName, fields.Name,
-		fields.SetSystemPromptTemplateID, fields.SystemPromptTemplateID,
-		fields.SetSystemPromptOverride, fields.SystemPromptOverride,
-		fields.SetModel, fields.Model,
-		fields.SetTemperature, fields.Temperature,
-		fields.SetMaxOutputTokens, fields.MaxOutputTokens,
-		fields.SetTopP, fields.TopP,
-		fields.SetContextWindowLimit, fields.ContextWindowLimit,
-		fields.SetToolPolicy, fields.ToolPolicy,
-		fields.SetIsDefault, fields.IsDefault,
-		fields.SetToolAllowlist, allowlist,
-		fields.SetToolDenylist, denylist,
-		fields.SetContentFilterLevel, fields.ContentFilterLevel,
+		append(whereArgs,
+			fields.SetName, fields.Name,
+			fields.SetSystemPromptTemplateID, fields.SystemPromptTemplateID,
+			fields.SetSystemPromptOverride, fields.SystemPromptOverride,
+			fields.SetModel, fields.Model,
+			fields.SetTemperature, fields.Temperature,
+			fields.SetMaxOutputTokens, fields.MaxOutputTokens,
+			fields.SetTopP, fields.TopP,
+			fields.SetContextWindowLimit, fields.ContextWindowLimit,
+			fields.SetToolPolicy, fields.ToolPolicy,
+			fields.SetIsDefault, fields.IsDefault,
+			fields.SetToolAllowlist, allowlist,
+			fields.SetToolDenylist, denylist,
+			fields.SetContentFilterLevel, fields.ContentFilterLevel,
+			fields.SetPromptCacheControl, fields.PromptCacheControl,
+			fields.SetScope, fields.Scope,
+		)...,
 	))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
@@ -296,12 +350,22 @@ func (r *AgentConfigRepository) Update(ctx context.Context, id uuid.UUID, orgID 
 	return &ac, nil
 }
 
-func (r *AgentConfigRepository) Delete(ctx context.Context, id uuid.UUID, orgID uuid.UUID) error {
-	tag, err := r.db.Exec(
-		ctx,
-		`DELETE FROM agent_configs WHERE id = $1 AND org_id = $2`,
-		id, orgID,
-	)
+func (r *AgentConfigRepository) Delete(ctx context.Context, id uuid.UUID, orgID uuid.UUID, isPlatformAdmin bool) error {
+	var tag interface{ RowsAffected() int64 }
+	var err error
+	if isPlatformAdmin {
+		tag, err = r.db.Exec(
+			ctx,
+			`DELETE FROM agent_configs WHERE id = $1 AND (org_id = $2 OR scope = 'platform')`,
+			id, orgID,
+		)
+	} else {
+		tag, err = r.db.Exec(
+			ctx,
+			`DELETE FROM agent_configs WHERE id = $1 AND org_id = $2 AND scope = 'org'`,
+			id, orgID,
+		)
+	}
 	if err != nil {
 		return fmt.Errorf("agent_configs.Delete: %w", err)
 	}

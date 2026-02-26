@@ -448,8 +448,12 @@ func mapOrEmpty(value map[string]any) map[string]any {
 // RunWithUser 在 Run 基础上附加创建者的用户信息（LEFT JOIN users）。
 type RunWithUser struct {
 	Run
-	UserDisplayName *string
-	UserEmail       *string
+	UserDisplayName     *string
+	UserEmail           *string
+	CacheReadTokens     *int64
+	CacheCreationTokens *int64
+	CachedTokens        *int64
+	CreditsUsed         *int64 // 本次 run 扣除的积分（来自 credit_transactions）
 }
 
 // ListRunsParams 控制 ListRuns 的过滤和分页行为。
@@ -517,9 +521,13 @@ func (r *RunEventRepository) ListRuns(ctx context.Context, params ListRunsParams
 		        r.parent_run_id, r.status_updated_at, r.completed_at, r.failed_at,
 		        r.duration_ms, r.total_input_tokens, r.total_output_tokens, r.total_cost_usd,
 		        r.model, r.skill_id, r.deleted_at,
-		        u.display_name, u.email
+		        u.display_name, u.email,
+		        ur.cache_read_tokens, ur.cache_creation_tokens, ur.cached_tokens,
+		        ABS(ct.amount) AS credits_used
 		 FROM runs r
-		 LEFT JOIN users u ON u.id = r.created_by_user_id%s
+		 LEFT JOIN users u ON u.id = r.created_by_user_id
+		 LEFT JOIN usage_records ur ON ur.run_id = r.id
+		 LEFT JOIN credit_transactions ct ON ct.reference_id = r.id AND ct.type = 'consumption'%s
 		 ORDER BY r.created_at DESC, r.id DESC
 		 LIMIT %s OFFSET %s`,
 		where, addArg(limit), addArg(offset),
@@ -540,6 +548,8 @@ func (r *RunEventRepository) ListRuns(ctx context.Context, params ListRunsParams
 			&rw.DurationMs, &rw.TotalInputTokens, &rw.TotalOutputTokens, &rw.TotalCostUSD,
 			&rw.Model, &rw.SkillID, &rw.DeletedAt,
 			&rw.UserDisplayName, &rw.UserEmail,
+			&rw.CacheReadTokens, &rw.CacheCreationTokens, &rw.CachedTokens,
+			&rw.CreditsUsed,
 		); err != nil {
 			return nil, 0, err
 		}

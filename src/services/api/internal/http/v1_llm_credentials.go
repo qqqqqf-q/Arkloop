@@ -22,38 +22,44 @@ type createLlmCredentialRequest struct {
 	APIKey        string                            `json:"api_key"`
 	BaseURL       *string                           `json:"base_url"`
 	OpenAIAPIMode *string                           `json:"openai_api_mode"`
+	AdvancedJSON  map[string]any                    `json:"advanced_json"`
 	Routes        []createLlmCredentialRouteRequest `json:"routes"`
 }
 
 type createLlmCredentialRouteRequest struct {
-	Model           string          `json:"model"`
-	IsDefault       bool            `json:"is_default"`
-	Priority        int             `json:"priority"`
-	WhenJSON        json.RawMessage `json:"when"`
-	Multiplier      *float64        `json:"multiplier"`
-	CostPer1kInput  *float64        `json:"cost_per_1k_input"`
-	CostPer1kOutput *float64        `json:"cost_per_1k_output"`
+	Model               string          `json:"model"`
+	IsDefault           bool            `json:"is_default"`
+	Priority            int             `json:"priority"`
+	WhenJSON            json.RawMessage `json:"when"`
+	Multiplier          *float64        `json:"multiplier"`
+	CostPer1kInput      *float64        `json:"cost_per_1k_input"`
+	CostPer1kOutput     *float64        `json:"cost_per_1k_output"`
+	CostPer1kCacheWrite *float64        `json:"cost_per_1k_cache_write"`
+	CostPer1kCacheRead  *float64        `json:"cost_per_1k_cache_read"`
 }
 
 type updateLlmRouteRequest struct {
-	Model           string          `json:"model"`
-	IsDefault       bool            `json:"is_default"`
-	Priority        int             `json:"priority"`
-	WhenJSON        json.RawMessage `json:"when"`
-	Multiplier      *float64        `json:"multiplier"`
-	CostPer1kInput  *float64        `json:"cost_per_1k_input"`
-	CostPer1kOutput *float64        `json:"cost_per_1k_output"`
+	Model               string          `json:"model"`
+	IsDefault           bool            `json:"is_default"`
+	Priority            int             `json:"priority"`
+	WhenJSON            json.RawMessage `json:"when"`
+	Multiplier          *float64        `json:"multiplier"`
+	CostPer1kInput      *float64        `json:"cost_per_1k_input"`
+	CostPer1kOutput     *float64        `json:"cost_per_1k_output"`
+	CostPer1kCacheWrite *float64        `json:"cost_per_1k_cache_write"`
+	CostPer1kCacheRead  *float64        `json:"cost_per_1k_cache_read"`
 }
 
 type llmCredentialResponse struct {
-	ID            string  `json:"id"`
-	OrgID         string  `json:"org_id"`
-	Provider      string  `json:"provider"`
-	Name          string  `json:"name"`
-	KeyPrefix     *string `json:"key_prefix"`
-	BaseURL       *string `json:"base_url"`
-	OpenAIAPIMode *string `json:"openai_api_mode"`
-	CreatedAt     string  `json:"created_at"`
+	ID            string         `json:"id"`
+	OrgID         string         `json:"org_id"`
+	Provider      string         `json:"provider"`
+	Name          string         `json:"name"`
+	KeyPrefix     *string        `json:"key_prefix"`
+	BaseURL       *string        `json:"base_url"`
+	OpenAIAPIMode *string        `json:"openai_api_mode"`
+	AdvancedJSON  map[string]any `json:"advanced_json,omitempty"`
+	CreatedAt     string         `json:"created_at"`
 }
 
 type llmCredentialWithRoutesResponse struct {
@@ -62,15 +68,17 @@ type llmCredentialWithRoutesResponse struct {
 }
 
 type llmRouteResponse struct {
-	ID              string          `json:"id"`
-	CredentialID    string          `json:"credential_id"`
-	Model           string          `json:"model"`
-	Priority        int             `json:"priority"`
-	IsDefault       bool            `json:"is_default"`
-	WhenJSON        json.RawMessage `json:"when"`
-	Multiplier      float64         `json:"multiplier"`
-	CostPer1kInput  *float64        `json:"cost_per_1k_input,omitempty"`
-	CostPer1kOutput *float64        `json:"cost_per_1k_output,omitempty"`
+	ID                  string          `json:"id"`
+	CredentialID        string          `json:"credential_id"`
+	Model               string          `json:"model"`
+	Priority            int             `json:"priority"`
+	IsDefault           bool            `json:"is_default"`
+	WhenJSON            json.RawMessage `json:"when"`
+	Multiplier          float64         `json:"multiplier"`
+	CostPer1kInput      *float64        `json:"cost_per_1k_input,omitempty"`
+	CostPer1kOutput     *float64        `json:"cost_per_1k_output,omitempty"`
+	CostPer1kCacheWrite *float64        `json:"cost_per_1k_cache_write,omitempty"`
+	CostPer1kCacheRead  *float64        `json:"cost_per_1k_cache_read,omitempty"`
 }
 
 var validProviders = map[string]bool{
@@ -248,6 +256,7 @@ func createLlmCredential(
 		&keyPrefix,
 		req.BaseURL,
 		req.OpenAIAPIMode,
+		req.AdvancedJSON,
 	)
 	if err != nil {
 		var nameConflict data.LlmCredentialNameConflictError
@@ -286,6 +295,8 @@ func createLlmCredential(
 				multiplier,
 				rr.CostPer1kInput,
 				rr.CostPer1kOutput,
+				rr.CostPer1kCacheWrite,
+				rr.CostPer1kCacheRead,
 			)
 			if err != nil {
 				WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
@@ -364,10 +375,12 @@ func listLlmCredentials(
 }
 
 type updateLlmCredentialRequest struct {
-	Name          string  `json:"name"`
-	BaseURL       *string `json:"base_url"`
-	OpenAIAPIMode *string `json:"openai_api_mode"`
-	APIKey        *string `json:"api_key"` // 可选，提供则覆盖
+	Provider      string         `json:"provider"`
+	Name          string         `json:"name"`
+	BaseURL       *string        `json:"base_url"`
+	OpenAIAPIMode *string        `json:"openai_api_mode"`
+	APIKey        *string        `json:"api_key"` // 可选，提供则覆盖
+	AdvancedJSON  map[string]any `json:"advanced_json"`
 }
 
 func updateLlmCredential(
@@ -402,8 +415,13 @@ func updateLlmCredential(
 	}
 
 	req.Name = strings.TrimSpace(req.Name)
+	req.Provider = strings.TrimSpace(req.Provider)
 	if req.Name == "" {
 		WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "name is required", traceID, nil)
+		return
+	}
+	if req.Provider != "" && !validProviders[req.Provider] {
+		WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "invalid provider", traceID, nil)
 		return
 	}
 	if req.OpenAIAPIMode != nil {
@@ -463,7 +481,7 @@ func updateLlmCredential(
 		}
 	}
 
-	updated, err := credRepo.Update(r.Context(), actor.OrgID, credID, req.Name, req.BaseURL, req.OpenAIAPIMode)
+	updated, err := credRepo.Update(r.Context(), actor.OrgID, credID, req.Provider, req.Name, req.BaseURL, req.OpenAIAPIMode, req.AdvancedJSON)
 	if err != nil {
 		var nameConflict data.LlmCredentialNameConflictError
 		if errors.As(err, &nameConflict) {
@@ -545,6 +563,8 @@ func updateLlmRoute(
 		multiplier,
 		req.CostPer1kInput,
 		req.CostPer1kOutput,
+		req.CostPer1kCacheWrite,
+		req.CostPer1kCacheRead,
 	)
 	if err != nil {
 		WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
@@ -604,6 +624,7 @@ func toLlmCredentialResponse(c data.LlmCredential) llmCredentialResponse {
 		KeyPrefix:     c.KeyPrefix,
 		BaseURL:       c.BaseURL,
 		OpenAIAPIMode: c.OpenAIAPIMode,
+		AdvancedJSON:  c.AdvancedJSON,
 		CreatedAt:     c.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
 	}
 }
@@ -614,15 +635,17 @@ func toLlmRouteResponse(r data.LlmRoute) llmRouteResponse {
 		whenJSON = json.RawMessage("{}")
 	}
 	return llmRouteResponse{
-		ID:              r.ID.String(),
-		CredentialID:    r.CredentialID.String(),
-		Model:           r.Model,
-		Priority:        r.Priority,
-		IsDefault:       r.IsDefault,
-		WhenJSON:        whenJSON,
-		Multiplier:      r.Multiplier,
-		CostPer1kInput:  r.CostPer1kInput,
-		CostPer1kOutput: r.CostPer1kOutput,
+		ID:                  r.ID.String(),
+		CredentialID:        r.CredentialID.String(),
+		Model:               r.Model,
+		Priority:            r.Priority,
+		IsDefault:           r.IsDefault,
+		WhenJSON:            whenJSON,
+		Multiplier:          r.Multiplier,
+		CostPer1kInput:      r.CostPer1kInput,
+		CostPer1kOutput:     r.CostPer1kOutput,
+		CostPer1kCacheWrite: r.CostPer1kCacheWrite,
+		CostPer1kCacheRead:  r.CostPer1kCacheRead,
 	}
 }
 

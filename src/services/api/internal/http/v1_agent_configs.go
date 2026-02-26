@@ -363,7 +363,8 @@ func toPromptTemplateResponse(pt data.PromptTemplate) promptTemplateResponse {
 
 type agentConfigResponse struct {
 	ID                     string         `json:"id"`
-	OrgID                  string         `json:"org_id"`
+	OrgID                  *string        `json:"org_id,omitempty"` // nil for platform scope
+	Scope                  string         `json:"scope"`
 	Name                   string         `json:"name"`
 	SystemPromptTemplateID *string        `json:"system_prompt_template_id,omitempty"`
 	SystemPromptOverride   *string        `json:"system_prompt_override,omitempty"`
@@ -380,10 +381,12 @@ type agentConfigResponse struct {
 	ProjectID              *string        `json:"project_id,omitempty"`
 	SkillID                *string        `json:"skill_id,omitempty"`
 	IsDefault              bool           `json:"is_default"`
+	PromptCacheControl     string         `json:"prompt_cache_control"`
 	CreatedAt              string         `json:"created_at"`
 }
 
 type createAgentConfigRequest struct {
+	Scope                  string         `json:"scope"` // "org" | "platform"; default "org"
 	Name                   string         `json:"name"`
 	SystemPromptTemplateID *string        `json:"system_prompt_template_id"`
 	SystemPromptOverride   *string        `json:"system_prompt_override"`
@@ -400,6 +403,7 @@ type createAgentConfigRequest struct {
 	ProjectID              *string        `json:"project_id"`
 	SkillID                *string        `json:"skill_id"`
 	IsDefault              bool           `json:"is_default"`
+	PromptCacheControl     string         `json:"prompt_cache_control"`
 }
 
 type updateAgentConfigRequest struct {
@@ -416,6 +420,8 @@ type updateAgentConfigRequest struct {
 	ToolDenylist           *[]string `json:"tool_denylist"`
 	ContentFilterLevel     *string   `json:"content_filter_level"`
 	IsDefault              *bool     `json:"is_default"`
+	PromptCacheControl     *string   `json:"prompt_cache_control"`
+	Scope                  *string   `json:"scope"` // "org" | "platform"; platform_admin only
 }
 
 func agentConfigsEntry(
@@ -513,6 +519,18 @@ func createAgentConfig(
 		WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "tool_policy must be allowlist, denylist, or none", traceID, nil)
 		return
 	}
+	if req.PromptCacheControl != "" && req.PromptCacheControl != "none" && req.PromptCacheControl != "system_prompt" {
+		WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "prompt_cache_control must be none or system_prompt", traceID, nil)
+		return
+	}
+	if req.Scope != "" && req.Scope != "org" && req.Scope != "platform" {
+		WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "scope must be org or platform", traceID, nil)
+		return
+	}
+	if req.Scope == "platform" && !actor.HasPermission(auth.PermPlatformAdmin) {
+		WriteError(w, nethttp.StatusForbidden, "auth.forbidden", "platform scope requires platform_admin", traceID, nil)
+		return
+	}
 
 	createReq, err := toCreateAgentConfigRequest(req)
 	if err != nil {
@@ -600,7 +618,8 @@ func getAgentConfig(
 		WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
 	}
-	if ac == nil || ac.OrgID != actor.OrgID {
+	// platform scope 对所有鉴权用户可见；org scope 仅限本 org
+	if ac == nil || (ac.Scope != "platform" && (ac.OrgID == nil || *ac.OrgID != actor.OrgID)) {
 		WriteError(w, nethttp.StatusNotFound, "agent_configs.not_found", "agent config not found", traceID, nil)
 		return
 	}
@@ -644,13 +663,28 @@ func updateAgentConfig(
 		req.Model == nil && req.Temperature == nil && req.MaxOutputTokens == nil &&
 		req.TopP == nil && req.ContextWindowLimit == nil && req.ToolPolicy == nil &&
 		req.ToolAllowlist == nil && req.ToolDenylist == nil && req.ContentFilterLevel == nil &&
-		req.IsDefault == nil {
+		req.IsDefault == nil && req.PromptCacheControl == nil && req.Scope == nil {
 		WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "no fields to update", traceID, nil)
 		return
 	}
 
+	if req.Scope != nil {
+		if *req.Scope != "org" && *req.Scope != "platform" {
+			WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "scope must be org or platform", traceID, nil)
+			return
+		}
+		if !actor.HasPermission(auth.PermPlatformAdmin) {
+			WriteError(w, nethttp.StatusForbidden, "auth.forbidden", "platform scope requires platform_admin", traceID, nil)
+			return
+		}
+	}
+
 	if req.ToolPolicy != nil && *req.ToolPolicy != "allowlist" && *req.ToolPolicy != "denylist" && *req.ToolPolicy != "none" {
 		WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "tool_policy must be allowlist, denylist, or none", traceID, nil)
+		return
+	}
+	if req.PromptCacheControl != nil && *req.PromptCacheControl != "none" && *req.PromptCacheControl != "system_prompt" {
+		WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "prompt_cache_control must be none or system_prompt", traceID, nil)
 		return
 	}
 
@@ -677,11 +711,19 @@ func updateAgentConfig(
 	}
 	if req.SystemPromptOverride != nil {
 		fields.SetSystemPromptOverride = true
-		fields.SystemPromptOverride = req.SystemPromptOverride
+		if *req.SystemPromptOverride == "" {
+			fields.SystemPromptOverride = nil
+		} else {
+			fields.SystemPromptOverride = req.SystemPromptOverride
+		}
 	}
 	if req.Model != nil {
 		fields.SetModel = true
-		fields.Model = req.Model
+		if *req.Model == "" {
+			fields.Model = nil
+		} else {
+			fields.Model = req.Model
+		}
 	}
 	if req.Temperature != nil {
 		fields.SetTemperature = true
@@ -719,9 +761,16 @@ func updateAgentConfig(
 		fields.SetIsDefault = true
 		fields.IsDefault = *req.IsDefault
 	}
-
-	// Update 内含 org_id 约束，原子完成所有权校验和更新
-	updated, err := agentConfigRepo.Update(r.Context(), id, actor.OrgID, fields)
+	if req.PromptCacheControl != nil {
+		fields.SetPromptCacheControl = true
+		fields.PromptCacheControl = *req.PromptCacheControl
+	}
+	if req.Scope != nil {
+		fields.SetScope = true
+		fields.Scope = *req.Scope
+	}
+	isPlatformAdmin := actor.HasPermission(auth.PermPlatformAdmin)
+	updated, err := agentConfigRepo.Update(r.Context(), id, actor.OrgID, isPlatformAdmin, fields)
 	if err != nil {
 		WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
@@ -766,12 +815,14 @@ func deleteAgentConfig(
 		WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
 	}
-	if existing == nil || existing.OrgID != actor.OrgID {
+	isPlatformAdmin := actor.HasPermission(auth.PermPlatformAdmin)
+	if existing == nil || (existing.Scope == "platform" && !isPlatformAdmin) ||
+		(existing.Scope == "org" && (existing.OrgID == nil || *existing.OrgID != actor.OrgID)) {
 		WriteError(w, nethttp.StatusNotFound, "agent_configs.not_found", "agent config not found", traceID, nil)
 		return
 	}
 
-	if err := agentConfigRepo.Delete(r.Context(), id, actor.OrgID); err != nil {
+	if err := agentConfigRepo.Delete(r.Context(), id, actor.OrgID, isPlatformAdmin); err != nil {
 		WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
 	}
@@ -781,6 +832,7 @@ func deleteAgentConfig(
 
 func toCreateAgentConfigRequest(req createAgentConfigRequest) (data.CreateAgentConfigRequest, error) {
 	createReq := data.CreateAgentConfigRequest{
+		Scope:                req.Scope,
 		Name:                 req.Name,
 		SystemPromptOverride: req.SystemPromptOverride,
 		Model:                req.Model,
@@ -794,6 +846,7 @@ func toCreateAgentConfigRequest(req createAgentConfigRequest) (data.CreateAgentC
 		ContentFilterLevel:   req.ContentFilterLevel,
 		SafetyRulesJSON:      req.SafetyRulesJSON,
 		IsDefault:            req.IsDefault,
+		PromptCacheControl:   req.PromptCacheControl,
 	}
 
 	if req.SystemPromptTemplateID != nil && *req.SystemPromptTemplateID != "" {
@@ -836,7 +889,7 @@ func toAgentConfigResponse(ac data.AgentConfig) agentConfigResponse {
 
 	resp := agentConfigResponse{
 		ID:                   ac.ID.String(),
-		OrgID:                ac.OrgID.String(),
+		Scope:                ac.Scope,
 		Name:                 ac.Name,
 		SystemPromptOverride: ac.SystemPromptOverride,
 		Model:                ac.Model,
@@ -850,7 +903,12 @@ func toAgentConfigResponse(ac data.AgentConfig) agentConfigResponse {
 		ContentFilterLevel:   ac.ContentFilterLevel,
 		SafetyRulesJSON:      safetyRules,
 		IsDefault:            ac.IsDefault,
+		PromptCacheControl:   ac.PromptCacheControl,
 		CreatedAt:            ac.CreatedAt.UTC().Format(time.RFC3339Nano),
+	}
+	if ac.OrgID != nil {
+		s := ac.OrgID.String()
+		resp.OrgID = &s
 	}
 
 	if ac.SystemPromptTemplateID != nil {

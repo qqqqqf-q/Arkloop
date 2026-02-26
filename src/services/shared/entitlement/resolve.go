@@ -18,7 +18,7 @@ const (
 
 // 平台默认值，三级均无配置时使用。与 API 侧 platformDefaults 保持同步。
 var defaults = map[string]entry{
-	"quota.runs_per_month":       {raw: "100", typ: "int"},
+	"quota.runs_per_month":       {raw: "999999", typ: "int"},
 	"quota.tokens_per_month":     {raw: "1000000", typ: "int"},
 	"limit.concurrent_runs":      {raw: "10", typ: "int"},
 	"limit.team_members":         {raw: "50", typ: "int"},

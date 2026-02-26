@@ -73,6 +73,8 @@ type globalRunResponse struct {
 	TotalOutputTokens *int64   `json:"total_output_tokens,omitempty"`
 	TotalCostUSD      *float64 `json:"total_cost_usd,omitempty"`
 	DurationMs        *int64   `json:"duration_ms,omitempty"`
+	CacheHitRate      *float64 `json:"cache_hit_rate,omitempty"`
+	CreditsUsed       *int64   `json:"credits_used,omitempty"`
 	CreatedAt         string   `json:"created_at"`
 	CompletedAt       *string  `json:"completed_at,omitempty"`
 	FailedAt          *string  `json:"failed_at,omitempty"`
@@ -1006,6 +1008,8 @@ func listGlobalRuns(
 				TotalOutputTokens: rw.TotalOutputTokens,
 				TotalCostUSD:      rw.TotalCostUSD,
 				DurationMs:        rw.DurationMs,
+				CacheHitRate:      calcCacheHitRate(rw.TotalInputTokens, rw.CacheReadTokens, rw.CachedTokens),
+				CreditsUsed:       rw.CreditsUsed,
 				CreatedAt:         rw.CreatedAt.UTC().Format(time.RFC3339Nano),
 				CreatedByUserName: rw.UserDisplayName,
 				CreatedByEmail:    rw.UserEmail,
@@ -1030,4 +1034,26 @@ func listGlobalRuns(
 			"total": total,
 		})
 	}
+}
+
+// calcCacheHitRate 计算命中率（0-1），无 cache 时返回 nil。
+// Anthropic: cacheRead / (input + cacheRead)，input = 非 cached 部分
+// OpenAI: cachedTokens / input（input 含 cached）
+func calcCacheHitRate(inputTokens, cacheRead, cachedTokens *int64) *float64 {
+if cacheRead != nil && *cacheRead > 0 {
+total := float64(*cacheRead)
+if inputTokens != nil {
+total += float64(*inputTokens)
+}
+if total <= 0 {
+return nil
+}
+r := float64(*cacheRead) / total
+return &r
+}
+if cachedTokens != nil && *cachedTokens > 0 && inputTokens != nil && *inputTokens > 0 {
+r := float64(*cachedTokens) / float64(*inputTokens)
+return &r
+}
+return nil
 }
