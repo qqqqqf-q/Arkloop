@@ -178,6 +178,14 @@ func (s *RegistrationService) Register(
 		return RegisterResult{}, err
 	}
 
+	notifRepo, err := data.NewNotificationsRepository(tx)
+	if err != nil {
+		return RegisterResult{}, err
+	}
+	if _, err := notifRepo.BackfillBroadcastsForMembership(ctx, user.ID, org.ID); err != nil {
+		return RegisterResult{}, err
+	}
+
 	// 初始化积分余额
 	creditsRepo, err := data.NewCreditsRepository(tx)
 	if err != nil {

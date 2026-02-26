@@ -346,6 +346,30 @@ func (r *NotificationsRepository) DeleteBroadcast(ctx context.Context, id uuid.U
 	return nil
 }
 
+// BackfillBroadcastsForMembership 为新成员补发加入前已存在的历史广播通知。
+func (r *NotificationsRepository) BackfillBroadcastsForMembership(ctx context.Context, userID, orgID uuid.UUID) (int, error) {
+	if userID == uuid.Nil {
+		return 0, fmt.Errorf("notifications: user_id must not be empty")
+	}
+	if orgID == uuid.Nil {
+		return 0, fmt.Errorf("notifications: org_id must not be empty")
+	}
+	tag, err := r.db.Exec(
+		ctx,
+		`INSERT INTO notifications (user_id, org_id, type, title, body, payload_json, broadcast_id)
+		 SELECT $1, $2, nb.type, nb.title, nb.body, nb.payload_json, nb.id
+		 FROM notification_broadcasts nb
+		 WHERE nb.deleted_at IS NULL
+		   AND (nb.target_type = 'all' OR (nb.target_type = 'org' AND nb.target_id = $2))
+		 ON CONFLICT DO NOTHING`,
+		userID, orgID,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("notifications.BackfillBroadcasts: %w", err)
+	}
+	return int(tag.RowsAffected()), nil
+}
+
 func (r *NotificationsRepository) ListBroadcasts(
 	ctx context.Context,
 	limit int,

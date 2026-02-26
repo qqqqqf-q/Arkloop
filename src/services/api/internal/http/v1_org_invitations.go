@@ -347,6 +347,17 @@ func acceptOrgInvitation(
 		WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
 	}
+
+	txNotifRepo, err := data.NewNotificationsRepository(tx)
+	if err != nil {
+		WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+		return
+	}
+	if _, err := txNotifRepo.BackfillBroadcastsForMembership(r.Context(), user.ID, inv.OrgID); err != nil {
+		WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+		return
+	}
+
 	if err := tx.Commit(r.Context()); err != nil {
 		WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
