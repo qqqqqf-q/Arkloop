@@ -47,11 +47,19 @@ func NewRoutingMiddleware(
 			}
 		}
 
-		// AgentConfig.Model 存的是凭证显示名称，优先按名称选择凭证下优先级最高的路由
+		// 优先级链：
+		// 1. 用户显式 route_id → Decide() 直接处理
+		// 2. Skill.preferred_credential / AgentConfig.Model → 凭证名称查找
+		// 3. 兜底 → Decide() fallback
 		var decision routing.ProviderRouteDecision
-		if rc.AgentConfig != nil && rc.AgentConfig.Model != nil && strings.TrimSpace(*rc.AgentConfig.Model) != "" {
-			credName := strings.TrimSpace(*rc.AgentConfig.Model)
-			if len(dbCfg.Routes) > 0 {
+		if _, hasRouteID := rc.InputJSON["route_id"]; hasRouteID {
+			decision = activeRouter.Decide(rc.InputJSON, byokEnabled)
+		} else {
+			credName := rc.PreferredCredentialName
+			if credName == "" && rc.AgentConfig != nil && rc.AgentConfig.Model != nil {
+				credName = strings.TrimSpace(*rc.AgentConfig.Model)
+			}
+			if credName != "" && len(dbCfg.Routes) > 0 {
 				if route, cred, ok := dbCfg.GetHighestPriorityRouteByCredentialName(credName); ok {
 					if cred.Scope == routing.CredentialScopeOrg && !byokEnabled {
 						decision = routing.ProviderRouteDecision{
@@ -68,10 +76,9 @@ func NewRoutingMiddleware(
 					}
 				}
 			}
-		}
-		// 未命中凭证名称时，走正常路由决策
-		if decision.Selected == nil && decision.Denied == nil {
-			decision = activeRouter.Decide(rc.InputJSON, byokEnabled)
+			if decision.Selected == nil && decision.Denied == nil {
+				decision = activeRouter.Decide(rc.InputJSON, byokEnabled)
+			}
 		}
 
 		var releaseFn func()

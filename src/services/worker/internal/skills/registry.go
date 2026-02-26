@@ -22,7 +22,7 @@ type Definition struct {
 	PromptMD         string
 	ExecutorType     string         // 执行策略类型，默认 "agent.simple"
 	ExecutorConfig   map[string]any // Executor 配置，默认 {}
-	PreferredRouteID *string        // 偏好路由 ID，nil 表示不绑定
+	PreferredCredential *string     // 偏好凭证名称，nil 表示不绑定
 }
 
 type Registry struct {

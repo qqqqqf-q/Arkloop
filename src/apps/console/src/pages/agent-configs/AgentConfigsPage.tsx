@@ -456,7 +456,7 @@ export function AgentConfigsPage() {
               type="text"
               value={form.model}
               onChange={(e) => handleFormField('model', e.target.value)}
-              placeholder="gpt-4o"
+              placeholder="my-anthropic"
               className={inputCls}
             />
           </FormField>

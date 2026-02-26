@@ -113,11 +113,11 @@ func writeSkillFiles(t *testing.T, root, name, yamlContent, promptContent string
 	}
 }
 
-// TestLoadSkillWithPreferredRouteID 验证 preferred_route_id 字段可正确解析。
-func TestLoadSkillWithPreferredRouteID(t *testing.T) {
+// TestLoadSkillWithPreferredCredential 验证 preferred_credential 字段可正确解析。
+func TestLoadSkillWithPreferredCredential(t *testing.T) {
 	dir := t.TempDir()
 	writeSkillFiles(t, dir, "test_route",
-		"id: test_route\nversion: \"1\"\ntitle: Test\npreferred_route_id: anthropic-opus\n",
+		"id: test_route\nversion: \"1\"\ntitle: Test\npreferred_credential: my-anthropic\n",
 		"# prompt",
 	)
 
@@ -129,16 +129,16 @@ func TestLoadSkillWithPreferredRouteID(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected test_route skill loaded")
 	}
-	if def.PreferredRouteID == nil {
-		t.Fatal("expected PreferredRouteID to be set")
+	if def.PreferredCredential == nil {
+		t.Fatal("expected PreferredCredential to be set")
 	}
-	if *def.PreferredRouteID != "anthropic-opus" {
-		t.Fatalf("expected preferred_route_id 'anthropic-opus', got %q", *def.PreferredRouteID)
+	if *def.PreferredCredential != "my-anthropic" {
+		t.Fatalf("expected preferred_credential 'my-anthropic', got %q", *def.PreferredCredential)
 	}
 }
 
-// TestLoadSkillWithoutPreferredRouteID 验证无 preferred_route_id 字段时 PreferredRouteID 为 nil。
-func TestLoadSkillWithoutPreferredRouteID(t *testing.T) {
+// TestLoadSkillWithoutPreferredCredential 验证无 preferred_credential 字段时 PreferredCredential 为 nil。
+func TestLoadSkillWithoutPreferredCredential(t *testing.T) {
 	root, err := BuiltinSkillsRoot()
 	if err != nil {
 		t.Fatalf("BuiltinSkillsRoot failed: %v", err)
@@ -151,8 +151,8 @@ func TestLoadSkillWithoutPreferredRouteID(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected demo_no_tools skill loaded")
 	}
-	if def.PreferredRouteID != nil {
-		t.Fatalf("expected PreferredRouteID nil, got %q", *def.PreferredRouteID)
+	if def.PreferredCredential != nil {
+		t.Fatalf("expected PreferredCredential nil, got %q", *def.PreferredCredential)
 	}
 }
 

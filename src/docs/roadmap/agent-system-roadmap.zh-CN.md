@@ -32,7 +32,7 @@ API → Worker
 
 **尚未存在的能力：**
 - Executor 策略抽象（不同 Agent 类型的不同执行行为）
-- Skill 级别的 model/route 绑定（`preferred_route_id`）
+- Skill 级别的 model/route 绑定（`preferred_credential`）
 - Memory System（OpenViking 接入）
 - Sandbox（Firecracker microVM 隔离执行）
 - Human-in-the-loop（mid-loop 用户输入注入）
@@ -62,7 +62,7 @@ API → Worker
 
 **A3 — Model 选择与 Skill/Tier 脱节**
 
-Lite/Pro/Ultra 对应不同的 LLM（haiku/sonnet/opus），但 Skill 定义里没有 `preferred_route_id`，`AgentConfig.Model` 虽然存在但从未被路由层读取。Model 的选择完全依赖外部传入 `route_id`，Skill 本身无法声明偏好。
+Lite/Pro/Ultra 对应不同的 LLM（haiku/sonnet/opus），但 Skill 定义里没有 `preferred_credential`，`AgentConfig.Model` 虽然存在但从未被路由层读取。Model 的选择完全依赖外部传入 `route_id`，Skill 本身无法声明偏好。
 
 **A4 — Sandbox 层级不清**
 
@@ -152,7 +152,7 @@ Playground 服务已开发完成，但 Worker 侧没有对应的 `ToolExecutor` 
 | Phase | 编号 | 主题 | 执行模式 | 前置依赖 |
 |---|---|---|---|---|
 | AS-1 | Executor 策略层 | 引入 AgentExecutor 接口 + 注册表；AS-1 完成后，Lite/Pro/Ultra 新增 = 写 YAML + 可选新建 executor 文件 | 顺序 | 无 |
-| AS-2 | Skill 路由绑定 | Skill 声明 `preferred_route_id`，接入 `AgentConfig.Model` → 路由层 | 顺序 | AS-1 |
+| AS-2 | Skill 路由绑定 | Skill 声明 `preferred_credential`，接入 `AgentConfig.Model` → 路由层（均按凭证名称匹配） | 顺序 | AS-1 |
 | AS-3 | Human-in-the-loop | RunContext 加 WaitForInput 钩子；Ultra executor 可用，Lite 零成本 | 顺序 | AS-1 |
 | AS-4 | MCP 健康与缓存 | DiscoverFromDB 缓存 + Pool 健康检查/重连 | 并行（可与 AS-1 同步） | 无 |
 | AS-5 | Memory System | MemoryProvider 接口 + OpenViking 适配器 + Pipeline 接入 + compose.yaml 服务 | 顺序 | AS-1 |
@@ -170,7 +170,7 @@ Playground 服务已开发完成，但 Worker 侧没有对应的 `ToolExecutor` 
 **目标**：引入 `AgentExecutor` 接口和注册表，将硬编码的 `agent.NewLoop` 调用替换为 dispatch 机制。Skill 通过 `executor_type` 字段声明自己的执行策略。
 
 **AS-1 完成后的效果**：新增任何 Agent 行为（Lite、Pro、Ultra、新的内置任务）只需：
-1. 在 `src/skills/agent-xxx/` 写 `skill.yaml`（声明 `executor_type`、`preferred_route_id`、`tool_allowlist`）和 `prompt.md`
+1. 在 `src/skills/agent-xxx/` 写 `skill.yaml`（声明 `executor_type`、`preferred_credential`、`tool_allowlist`）和 `prompt.md`
 2. 如果执行逻辑有差异，新建一个 `executor/xxx.go` 文件并注册
 3. 如果只是 prompt/model/tool 不同，`"agent.simple"` 作为 executor_type 即可复用
 
@@ -246,32 +246,33 @@ type Factory func(config map[string]any) (AgentExecutor, error)
 
 **解决的问题**：A3
 
-### AS-2.1 — Skill 加 preferred_route_id
+### AS-2.1 — Skill 加 preferred_credential
 
-- **修改** `src/services/worker/internal/skills/registry.go`：`Definition` 增加 `PreferredRouteID *string`。
-- **修改** `src/services/worker/internal/skills/loader.go`：解析 `preferred_route_id`（可选）。
-- **修改** `src/services/worker/internal/pipeline/mw_skill_resolution.go`：解析完 Skill 后，若 `def.PreferredRouteID != nil` 且 `rc.InputJSON["route_id"]` 未设置，则注入：
+- **修改** `src/services/worker/internal/skills/registry.go`：`Definition` 增加 `PreferredCredential *string`（凭证显示名称）。
+- **修改** `src/services/worker/internal/skills/loader.go`：解析 YAML 字段 `preferred_credential`（可选）；DB 查询列名为 `preferred_credential`。
+- **修改** `src/services/worker/internal/pipeline/context.go`：`RunContext` 增加 `PreferredCredentialName string`。
+- **修改** `src/services/worker/internal/pipeline/mw_skill_resolution.go`：解析完 Skill 后，若 `def.PreferredCredential != nil`，则设置：
 
 ```go
-rc.InputJSON["route_id"] = *def.PreferredRouteID
+rc.PreferredCredentialName = *def.PreferredCredential
 ```
 
-**验收**：单测：skill 有 `preferred_route_id` 时路由到指定 route；skill 没有时走 default；用户显式传 `route_id` 优先。
+**验收**：单测：skill 有 `preferred_credential` 时，`rc.PreferredCredentialName` 正确设置；skill 没有时为空；用户显式传 `route_id` 不受影响。
 
-### AS-2.2 — AgentConfig.Model 接入路由层
+### AS-2.2 — AgentConfig.Model 接入路由层（已完成）
 
-- **修改** `src/services/worker/internal/routing/router.go`：新增 `FindRouteByModel(model string) (routeID string, ok bool)`，遍历 routes 返回第一个 `route.Model == model` 的 route ID。
-- **修改** `src/services/worker/internal/pipeline/mw_routing.go`：在调 `Decide` 之前，若 `rc.AgentConfig.Model != nil` 且 `rc.InputJSON["route_id"]` 未设置，通过 `FindRouteByModel` 注入 route_id。
+- `AgentConfig.Model` 和 `Skill.preferred_credential` 均存储凭证显示名称（`llm_credentials.name`），语义统一。
+- **路由决策**在 `mw_routing.go` 中通过 `ProviderRoutingConfig.GetHighestPriorityRouteByCredentialName(name)` 实现（不是 `FindRouteByModel`，不匹配 `route.Model`）。
 
 **优先级链（最终）：**
 ```
-InputJSON["route_id"]       ← 用户显式指定（不变）
+InputJSON["route_id"]          ← 用户显式 route ID → Decide() 直接处理
    ↓ 无
-Skill.preferred_route_id    ← 平台内置 tier 绑定（AS-2.1）
-   ↓ 无
-AgentConfig.Model           ← org 管理员覆盖（AS-2.2）
-   ↓ 无
-DefaultRouteID              ← 兜底（不变）
+Skill.preferred_credential     ← rc.PreferredCredentialName → 凭证名称查找
+   ↓ 无匹配
+AgentConfig.Model              → 凭证名称查找（与上述共用同一路径）
+   ↓ 无匹配 / 无 DB 路由
+Decide() fallback              ← 静态路由 / 默认路由
 ```
 
 **Skill YAML 示例（完成 AS-2 后）：**
@@ -280,7 +281,7 @@ id: agent-ultra
 version: "1.0"
 title: "Ultra"
 executor_type: agent.interactive
-preferred_route_id: "anthropic-opus"
+preferred_credential: "my-anthropic"
 budgets:
   max_iterations: 25
 ```
@@ -985,11 +986,11 @@ web_fetch
 - **Sandbox 独立服务**：Worker 不直接执行不可信代码；Sandbox 和 Worker 通过 HTTP 协议通信；Sandbox 崩溃不影响 Worker。
 - **Sandbox 技术路线**：直接上 Firecracker（KVM 环境已满足）；MinIO 存储快照（复用已有基础设施）；不走 gVisor 过渡。
 - **Executor 注册表**：新增 Agent 类型 = 写 YAML + 可选新增 Go 文件 + 调用 `Register`，不修改 Loop 或 Pipeline。
-- **Lite/Pro/Ultra 是 Research，不是架构**：架构只提供 executor_type 钩子、preferred_route_id 绑定、tool_allowlist 约束。具体 prompt/model/tool 的选择是调优问题，不进入 Roadmap。
+- **Lite/Pro/Ultra 是 Research，不是架构**：架构只提供 executor_type 钩子、preferred_credential 绑定、tool_allowlist 约束。具体 prompt/model/tool 的选择是调优问题，不进入 Roadmap。
 - **Memory 降级策略**：`MemoryProvider` 为 nil 时 Memory 功能静默关闭，run 正常执行，不报错。
 - **OpenViking 部署方式**：独立 Python HTTP 服务，Go 通过 `MemoryProvider` 接口调用，OpenViking 自身配置独立管理。
 - **Human-in-the-loop 通信机制**：复用已有 Postgres LISTEN/NOTIFY 路径，不引入新的消息队列。
-- **Model 优先级链固定**：显式 route_id > Skill.preferred_route_id > AgentConfig.Model > Default，不允许其他插入点。
+- **Model 优先级链固定**：显式 route_id > Skill.preferred_credential > AgentConfig.Model > Default，不允许其他插入点。
 - **Sub-agent 层级限制**：嵌套深度 ≤ 2，超限返回 `agent.max_depth_exceeded`。
 - **Thinking 渲染协议**：`channel: "thinking"` 用于 LLM 原生 thinking 分流（不渲染进气泡）；`run.segment.start/end` 用于 Agent 级别的执行过程分组（折叠/展开/隐藏）；前端按 `kind` 选样式，后端不传 CSS 类名。Lite 的 Playground 默认 `visible`（内嵌窗口），Ultra 的规划轮和方向校验默认 `collapsed`（手动展开）。
 - **Tool Provider 双名机制**：`AgentToolSpec.Name` 是 Provider 键（allowlist 和 executor dispatch 用）；`AgentToolSpec.LlmName` 是 Group 名（LLM 看到的工具名）。同 Group 内 per-org 只允许一个 Provider 激活，应用层保证互斥。API Key 等敏感值走 `secrets` 表加密存储（与 LLM 凭证同一路径），不存 `config_json`；env var 是系统级默认，DB 配置优先。

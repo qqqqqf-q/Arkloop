@@ -9,11 +9,11 @@ import (
 	"arkloop/services/worker/internal/skills"
 )
 
-// TestSkillResolutionPreferredRouteIDInjected 验证 skill 有 preferred_route_id 且用户未指定 route_id 时，注入到 InputJSON。
-func TestSkillResolutionPreferredRouteIDInjected(t *testing.T) {
-	routeID := "anthropic-opus"
+// TestSkillResolutionPreferredCredentialSet 验证 skill 有 preferred_credential 时，设置 rc.PreferredCredentialName。
+func TestSkillResolutionPreferredCredentialSet(t *testing.T) {
+	credName := "my-anthropic"
 	mw := pipeline.NewSkillResolutionMiddleware(
-		buildSkillRegistry(t, "test-skill", &routeID),
+		buildSkillRegistry(t, "test-skill", &credName),
 		nil, data.RunsRepository{}, data.RunEventsRepository{}, nil,
 	)
 
@@ -21,9 +21,9 @@ func TestSkillResolutionPreferredRouteIDInjected(t *testing.T) {
 		InputJSON: map[string]any{"skill_id": "test-skill"},
 	}
 
-	var capturedRouteID any
+	var capturedCredName string
 	terminal := func(ctx context.Context, rc *pipeline.RunContext) error {
-		capturedRouteID = rc.InputJSON["route_id"]
+		capturedCredName = rc.PreferredCredentialName
 		return nil
 	}
 
@@ -31,13 +31,13 @@ func TestSkillResolutionPreferredRouteIDInjected(t *testing.T) {
 	if err := h(context.Background(), rc); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if capturedRouteID != routeID {
-		t.Fatalf("expected route_id %q, got %v", routeID, capturedRouteID)
+	if capturedCredName != credName {
+		t.Fatalf("expected PreferredCredentialName %q, got %q", credName, capturedCredName)
 	}
 }
 
-// TestSkillResolutionNoPreferredRouteIDNotInjected 验证 skill 无 preferred_route_id 时，InputJSON 中不注入 route_id。
-func TestSkillResolutionNoPreferredRouteIDNotInjected(t *testing.T) {
+// TestSkillResolutionNoPreferredCredentialEmpty 验证 skill 无 preferred_credential 时，PreferredCredentialName 为空。
+func TestSkillResolutionNoPreferredCredentialEmpty(t *testing.T) {
 	mw := pipeline.NewSkillResolutionMiddleware(
 		buildSkillRegistry(t, "test-skill", nil),
 		nil, data.RunsRepository{}, data.RunEventsRepository{}, nil,
@@ -47,9 +47,9 @@ func TestSkillResolutionNoPreferredRouteIDNotInjected(t *testing.T) {
 		InputJSON: map[string]any{"skill_id": "test-skill"},
 	}
 
-	var routeIDPresent bool
+	var credName string
 	terminal := func(ctx context.Context, rc *pipeline.RunContext) error {
-		_, routeIDPresent = rc.InputJSON["route_id"]
+		credName = rc.PreferredCredentialName
 		return nil
 	}
 
@@ -57,17 +57,17 @@ func TestSkillResolutionNoPreferredRouteIDNotInjected(t *testing.T) {
 	if err := h(context.Background(), rc); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if routeIDPresent {
-		t.Fatal("expected route_id not to be injected when skill has no preferred_route_id")
+	if credName != "" {
+		t.Fatalf("expected PreferredCredentialName empty, got %q", credName)
 	}
 }
 
-// TestSkillResolutionUserRouteIDTakesPriority 验证用户显式传 route_id 时，优先于 skill 的 preferred_route_id。
-func TestSkillResolutionUserRouteIDTakesPriority(t *testing.T) {
-	skillRouteID := "anthropic-opus"
+// TestSkillResolutionUserRouteIDNotAffectedBySkillCredential 验证用户显式传 route_id 时不被 skill credential 覆盖。
+func TestSkillResolutionUserRouteIDNotAffectedBySkillCredential(t *testing.T) {
+	skillCred := "my-anthropic"
 	userRouteID := "openai-gpt4"
 	mw := pipeline.NewSkillResolutionMiddleware(
-		buildSkillRegistry(t, "test-skill", &skillRouteID),
+		buildSkillRegistry(t, "test-skill", &skillCred),
 		nil, data.RunsRepository{}, data.RunEventsRepository{}, nil,
 	)
 
@@ -89,21 +89,21 @@ func TestSkillResolutionUserRouteIDTakesPriority(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if capturedRouteID != userRouteID {
-		t.Fatalf("expected user route_id %q to take priority, got %v", userRouteID, capturedRouteID)
+		t.Fatalf("expected user route_id %q to be preserved, got %v", userRouteID, capturedRouteID)
 	}
 }
 
-func buildSkillRegistry(t *testing.T, id string, preferredRouteID *string) *skills.Registry {
+func buildSkillRegistry(t *testing.T, id string, preferredCredential *string) *skills.Registry {
 	t.Helper()
 	reg := skills.NewRegistry()
 	def := skills.Definition{
-		ID:               id,
-		Version:          "1",
-		Title:            "Test Skill",
-		PromptMD:         "# test",
-		ExecutorType:     "agent.simple",
-		ExecutorConfig:   map[string]any{},
-		PreferredRouteID: preferredRouteID,
+		ID:                  id,
+		Version:             "1",
+		Title:               "Test Skill",
+		PromptMD:            "# test",
+		ExecutorType:        "agent.simple",
+		ExecutorConfig:      map[string]any{},
+		PreferredCredential: preferredCredential,
 	}
 	if err := reg.Register(def); err != nil {
 		t.Fatalf("register skill failed: %v", err)
