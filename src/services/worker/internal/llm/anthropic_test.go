@@ -36,8 +36,8 @@ func TestToAnthropicMessages_ToolEnvelope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("toAnthropicMessages failed: %v", err)
 	}
-	if system != "sys" {
-		t.Fatalf("unexpected system: %q", system)
+	if len(system) != 1 || system[0]["text"] != "sys" {
+		t.Fatalf("unexpected system: %#v", system)
 	}
 	if len(messages) != 3 {
 		t.Fatalf("unexpected messages len: %d", len(messages))

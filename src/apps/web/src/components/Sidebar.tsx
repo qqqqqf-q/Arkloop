@@ -7,6 +7,7 @@ import {
   Scale,
   PanelLeftClose,
   Bolt,
+  Glasses,
 } from 'lucide-react'
 import type { SettingsTab } from './SettingsModal'
 import type { ThreadResponse, MeResponse } from '../api'
@@ -16,6 +17,7 @@ type Props = {
   me: MeResponse | null
   threads: ThreadResponse[]
   runningThreadIds: Set<string>
+  isPrivateMode: boolean
   onNewThread: () => void
   onLogout: () => void
   onOpenSettings: (tab?: SettingsTab) => void
@@ -32,6 +34,7 @@ export function Sidebar({
   me,
   threads,
   runningThreadIds,
+  isPrivateMode,
   onNewThread,
   onLogout: _onLogout,
   onOpenSettings,
@@ -61,7 +64,15 @@ export function Sidebar({
       >
       {/* 顶部标题栏 */}
       <div className="flex min-h-[56px] items-center justify-between px-4 py-3">
-        <h1 className="text-[16px] font-semibold tracking-tight text-[var(--c-text-primary)]">Arkloop</h1>
+        <div className="flex items-center gap-2">
+          <h1 className="text-[16px] font-semibold tracking-tight text-[var(--c-text-primary)]">Arkloop</h1>
+          {isPrivateMode && (
+            <>
+              <span className="h-[5px] w-[5px] rounded-full bg-[var(--c-text-tertiary)]" style={{ opacity: 0.5 }} />
+              <span className="text-[12px] font-medium text-[var(--c-text-tertiary)]">Incognito mode</span>
+            </>
+          )}
+        </div>
         <button
           onClick={onToggleCollapse}
           className="flex h-6 w-6 items-center justify-center rounded-md text-[var(--c-text-tertiary)] transition-colors hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-secondary)]"
@@ -110,9 +121,26 @@ export function Sidebar({
 
       {/* 最近会话 */}
       <div className="mt-6 flex min-h-0 flex-1 flex-col overflow-y-auto px-2">
-        <h3 className="mb-[12px] shrink-0 px-2 text-[14px] font-medium tracking-[0.3px] text-[var(--c-text-muted)]">{t.recents}</h3>
+        <div className="mb-[12px] flex shrink-0 items-center gap-2 px-2">
+          <h3 className="text-[14px] font-medium tracking-[0.3px] text-[var(--c-text-muted)]">
+            {t.recents}
+          </h3>
+        </div>
         <div className="flex flex-col gap-[2px]">
-          {threads.length === 0 ? (
+          {isPrivateMode ? (
+            <div
+              className="flex flex-col items-center gap-3 rounded-xl px-4 py-6 text-center"
+              style={{
+                border: '1px dashed var(--c-border-subtle)',
+                color: 'var(--c-text-muted)',
+              }}
+            >
+              <Glasses size={22} strokeWidth={1.5} style={{ opacity: 0.6 }} />
+              <p className="text-[13px] leading-snug">
+                Threads aren't saved to history while incognito
+              </p>
+            </div>
+          ) : threads.length === 0 ? (
             <p className="px-2 py-1 text-[12px] text-[var(--c-text-muted)]">{t.recentsEmpty}</p>
           ) : threads.map((thread) => (
             <button

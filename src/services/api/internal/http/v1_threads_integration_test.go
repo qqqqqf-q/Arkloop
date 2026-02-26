@@ -65,7 +65,11 @@ func TestThreadsCreateListGetPatchAndAudit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new auth service: %v", err)
 	}
-	registrationService, err := auth.NewRegistrationService(pool, passwordHasher, tokenService, refreshTokenRepo)
+	jobRepo, err := data.NewJobRepository(pool)
+	if err != nil {
+		t.Fatalf("new job repo: %v", err)
+	}
+	registrationService, err := auth.NewRegistrationService(pool, passwordHasher, tokenService, refreshTokenRepo, jobRepo)
 	if err != nil {
 		t.Fatalf("new registration service: %v", err)
 	}
@@ -182,7 +186,8 @@ func TestThreadListActiveRunID(t *testing.T) {
 	runRepo, _ := data.NewRunEventRepository(pool)
 
 	authService, _ := auth.NewService(userRepo, credentialRepo, membershipRepo, passwordHasher, tokenService, refreshTokenRepo)
-	registrationService, _ := auth.NewRegistrationService(pool, passwordHasher, tokenService, refreshTokenRepo)
+	jobRepo, _ := data.NewJobRepository(pool)
+	registrationService, _ := auth.NewRegistrationService(pool, passwordHasher, tokenService, refreshTokenRepo, jobRepo)
 	auditWriter := audit.NewWriter(auditRepo, membershipRepo, logger)
 
 	handler := NewHandler(HandlerConfig{
