@@ -50,6 +50,7 @@ export const en: LocaleStrings = {
   loginMode: 'Login',
   registerMode: 'Register',
   enterUsername: 'Enter your username',
+  enterEmail: 'Enter your email',
   enterPassword: 'Enter your password',
   enterInviteCode: 'Enter invite code',
   enterInviteCodeOptional: 'Enter invite code (optional)',

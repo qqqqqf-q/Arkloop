@@ -37,6 +37,7 @@ type HandlerConfig struct {
 
 	AuthService         *auth.Service
 	RegistrationService *auth.RegistrationService
+	EmailVerifyService  *auth.EmailVerifyService
 	OrgService          *auth.OrgService
 	OrgMembershipRepo   *data.OrgMembershipRepository
 	ThreadRepo          *data.ThreadRepository
@@ -83,6 +84,11 @@ type HandlerConfig struct {
 
 	UserCredentialRepo *data.UserCredentialRepository
 
+	JobRepo *data.JobRepository
+
+	EmailConfigured bool
+	EmailFrom       string
+
 	RedisClient *redis.Client
 	RunLimiter  *data.RunLimiter
 
@@ -99,6 +105,8 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 	mux.HandleFunc("/v1/auth/logout", logout(cfg.AuthService, cfg.AuditWriter))
 	mux.HandleFunc("/v1/auth/register", register(cfg.RegistrationService, cfg.FeatureFlagService, cfg.AuditWriter))
 	mux.HandleFunc("/v1/auth/registration-mode", registrationMode(cfg.FeatureFlagService))
+	mux.HandleFunc("/v1/auth/email/verify/send", emailVerifySend(cfg.AuthService, cfg.EmailVerifyService))
+	mux.HandleFunc("/v1/auth/email/verify/confirm", emailVerifyConfirm(cfg.EmailVerifyService))
 	mux.HandleFunc("/v1/me", me(cfg.AuthService, cfg.OrgMembershipRepo, cfg.OrgRepo, cfg.UserCredentialRepo, cfg.UsersRepo))
 	mux.HandleFunc("/v1/me/usage", meUsage(cfg.AuthService, cfg.OrgMembershipRepo, cfg.UsageRepo, cfg.APIKeysRepo))
 	mux.HandleFunc("/v1/me/usage/daily", meDailyUsage(cfg.AuthService, cfg.OrgMembershipRepo, cfg.UsageRepo, cfg.APIKeysRepo))
@@ -430,6 +438,15 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 	mux.HandleFunc(
 		"/v1/admin/platform-settings/",
 		platformSettingEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.PlatformSettingsRepo, cfg.APIKeysRepo),
+	)
+
+	mux.HandleFunc(
+		"/v1/admin/email/status",
+		adminEmailStatus(cfg.AuthService, cfg.OrgMembershipRepo, cfg.APIKeysRepo, cfg.EmailFrom, cfg.EmailConfigured),
+	)
+	mux.HandleFunc(
+		"/v1/admin/email/test",
+		adminEmailTest(cfg.AuthService, cfg.OrgMembershipRepo, cfg.APIKeysRepo, cfg.JobRepo, cfg.EmailConfigured),
 	)
 
 	notFound := nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {

@@ -21,7 +21,7 @@ export type LoginResponse = {
 export type RegisterRequest = {
   login: string
   password: string
-  display_name?: string
+  email: string
   invite_code?: string
 }
 
@@ -40,7 +40,9 @@ export type RegistrationModeResponse = {
 export type MeResponse = {
   id: string
   login: string
-  display_name: string
+  username: string
+  email?: string
+  email_verified: boolean
 }
 
 type ErrorEnvelope = {
@@ -227,11 +229,11 @@ export async function getMe(accessToken: string): Promise<MeResponse> {
   })
 }
 
-export async function updateMe(accessToken: string, displayName: string): Promise<{ display_name: string }> {
-  return await apiFetch<{ display_name: string }>('/v1/me', {
+export async function updateMe(accessToken: string, username: string): Promise<{ username: string }> {
+  return await apiFetch<{ username: string }>('/v1/me', {
     method: 'PATCH',
     accessToken,
-    body: JSON.stringify({ display_name: displayName }),
+    body: JSON.stringify({ username }),
   })
 }
 

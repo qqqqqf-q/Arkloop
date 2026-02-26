@@ -12,6 +12,7 @@ import (
 
 	"arkloop/services/worker/internal/app"
 	"arkloop/services/worker/internal/consumer"
+	"arkloop/services/worker/internal/email"
 	"arkloop/services/worker/internal/executor"
 	"arkloop/services/worker/internal/queue"
 	"arkloop/services/worker/internal/registration"
@@ -231,10 +232,26 @@ func chooseHandler(logger *app.JSONLogger, pool *pgxpool.Pool, directPool *pgxpo
 	}
 	logger.Info("webhook delivery handler enabled", app.LogFields{}, map[string]any{"job_type": queue.WebhookDeliverJobType})
 
+	emailCfg, err := email.LoadConfigFromEnv()
+	if err != nil {
+		return nil, fmt.Errorf("email config: %w", err)
+	}
+	mailer := email.NewMailer(emailCfg)
+	emailHandler, err := email.NewSendHandler(mailer, logger)
+	if err != nil {
+		return nil, err
+	}
+	if emailCfg.Enabled() {
+		logger.Info("email send handler enabled", app.LogFields{}, map[string]any{"job_type": queue.EmailSendJobType, "from": emailCfg.From})
+	} else {
+		logger.Info("email send handler using noop (ARKLOOP_EMAIL_FROM not set)", app.LogFields{}, nil)
+	}
+
 	return &dispatchHandler{
 		handlers: map[string]consumer.Handler{
 			queue.RunExecuteJobType: native,
 			webhook.DeliverJobType:  delivery,
+			queue.EmailSendJobType:  emailHandler,
 		},
 		fallback: native,
 	}, nil

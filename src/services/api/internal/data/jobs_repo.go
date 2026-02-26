@@ -14,7 +14,8 @@ import (
 )
 
 const (
-	RunExecuteJobType = "run.execute"
+	RunExecuteJobType  = "run.execute"
+	EmailSendJobType   = "email.send"
 
 	JobStatusQueued = "queued"
 
@@ -97,6 +98,60 @@ func (r *JobRepository) EnqueueRun(
 		string(encoded),
 		JobStatusQueued,
 		availableAt,
+	)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	return jobID, nil
+}
+
+// EnqueueEmail 将一封邮件加入异步队列，由 Worker 的 email.send handler 发送。
+func (r *JobRepository) EnqueueEmail(ctx context.Context, to, subject, html, text string) (uuid.UUID, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if to == "" {
+		return uuid.Nil, fmt.Errorf("to must not be empty")
+	}
+	if subject == "" {
+		return uuid.Nil, fmt.Errorf("subject must not be empty")
+	}
+	if html == "" && text == "" {
+		return uuid.Nil, fmt.Errorf("html or text body is required")
+	}
+
+	jobID := uuid.New()
+	payloadJSON := map[string]any{
+		"v":        JobPayloadVersionV1,
+		"job_id":   jobID.String(),
+		"type":     EmailSendJobType,
+		"trace_id": observability.NewTraceID(),
+		"payload": map[string]any{
+			"to":      to,
+			"subject": subject,
+			"html":    html,
+			"text":    text,
+		},
+	}
+
+	encoded, err := json.Marshal(payloadJSON)
+	if err != nil {
+		return uuid.Nil, err
+	}
+
+	_, err = r.db.Exec(
+		ctx,
+		`INSERT INTO jobs (
+		   id, job_type, payload_json, status, available_at,
+		   leased_until, lease_token, attempts, created_at, updated_at
+		 ) VALUES (
+		   $1, $2, $3::jsonb, $4, now(),
+		   NULL, NULL, 0, now(), now()
+		 )`,
+		jobID,
+		EmailSendJobType,
+		string(encoded),
+		JobStatusQueued,
 	)
 	if err != nil {
 		return uuid.Nil, err

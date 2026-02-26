@@ -144,6 +144,7 @@ func (c Config) Validate() error {
 	supported := map[string]struct{}{
 		queue.RunExecuteJobType:     {},
 		queue.WebhookDeliverJobType: {},
+		queue.EmailSendJobType:      {},
 	}
 	for _, jobType := range c.QueueJobTypes {
 		if _, ok := supported[jobType]; !ok {

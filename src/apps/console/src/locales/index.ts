@@ -43,6 +43,7 @@ export interface LocaleStrings {
     creditsAdmin: string
     broadcasts: string
     asrCredentials: string
+    email: string
   }
   // settings
   account: string
@@ -784,6 +785,22 @@ export interface LocaleStrings {
       toastLoadFailed: string
       toastDeleteFailed: string
       toastDefaultFailed: string
+    }
+    email: {
+      title: string
+      statusTitle: string
+      labelStatus: string
+      labelFrom: string
+      labelProvider: string
+      statusConfigured: string
+      statusNotConfigured: string
+      testTitle: string
+      testPlaceholder: string
+      testSend: string
+      errInvalidTo: string
+      toastLoadFailed: string
+      toastSent: string
+      toastSendFailed: string
     }
     runs: {
       title: string

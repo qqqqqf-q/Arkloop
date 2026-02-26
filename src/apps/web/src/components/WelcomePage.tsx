@@ -175,7 +175,7 @@ export function WelcomePage() {
   const navigate = useNavigate()
   const { t } = useLocale()
 
-  const greeting = useMemo(() => buildGreeting(me?.display_name ?? null, new Date()), [me?.display_name])
+  const greeting = useMemo(() => buildGreeting(me?.username ?? null, new Date()), [me?.username])
 
   const handleAttachFiles = useCallback((files: File[]) => {
     const readers = files.map((file) => {

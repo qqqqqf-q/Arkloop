@@ -33,10 +33,10 @@ type logoutResponse struct {
 }
 
 type registerRequest struct {
-	Login       string `json:"login"`
-	Password    string `json:"password"`
-	DisplayName string `json:"display_name"`
-	InviteCode  string `json:"invite_code"`
+	Login      string `json:"login"`
+	Password   string `json:"password"`
+	Email      string `json:"email"`
+	InviteCode string `json:"invite_code"`
 }
 
 type registerResponse struct {
@@ -52,22 +52,23 @@ type registrationModeResponse struct {
 }
 
 type meResponse struct {
-	ID          string   `json:"id"`
-	Login       string   `json:"login"`
-	DisplayName string   `json:"display_name"`
-	CreatedAt   string   `json:"created_at"`
-	OrgID       string   `json:"org_id,omitempty"`
-	OrgName     string   `json:"org_name,omitempty"`
-	Role        string   `json:"role,omitempty"`
-	Permissions []string `json:"permissions"`
+	ID            string   `json:"id"`
+	Username      string   `json:"username"`
+	Email         *string  `json:"email,omitempty"`
+	EmailVerified bool     `json:"email_verified"`
+	CreatedAt     string   `json:"created_at"`
+	OrgID         string   `json:"org_id,omitempty"`
+	OrgName       string   `json:"org_name,omitempty"`
+	Role          string   `json:"role,omitempty"`
+	Permissions   []string `json:"permissions"`
 }
 
 type updateMeRequest struct {
-	DisplayName string `json:"display_name"`
+	Username string `json:"username"`
 }
 
 type updateMeResponse struct {
-	DisplayName string `json:"display_name"`
+	Username string `json:"username"`
 }
 
 func login(authService *auth.Service, auditWriter *audit.Writer) func(nethttp.ResponseWriter, *nethttp.Request) {
@@ -262,7 +263,7 @@ func register(
 		}
 
 		body.Login = strings.TrimSpace(body.Login)
-		body.DisplayName = strings.TrimSpace(body.DisplayName)
+		body.Email = strings.TrimSpace(body.Email)
 		body.InviteCode = strings.TrimSpace(body.InviteCode)
 		if body.Login == "" || len(body.Login) > 256 {
 			WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "request validation failed", traceID, nil)
@@ -272,11 +273,8 @@ func register(
 			WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "request validation failed", traceID, nil)
 			return
 		}
-		if body.DisplayName == "" {
-			body.DisplayName = body.Login
-		}
-		if len(body.DisplayName) > 256 {
-			WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "request validation failed", traceID, nil)
+		if body.Email == "" || len(body.Email) > 256 || !strings.Contains(body.Email, "@") {
+			WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "email is required and must be valid", traceID, nil)
 			return
 		}
 
@@ -294,7 +292,7 @@ func register(
 			return
 		}
 
-		created, err := registrationService.Register(r.Context(), body.Login, body.Password, body.DisplayName, body.InviteCode, !openRegistration)
+		created, err := registrationService.Register(r.Context(), body.Login, body.Password, body.Email, body.InviteCode, !openRegistration)
 		if err != nil {
 			var loginExists auth.LoginExistsError
 			if errors.As(err, &loginExists) {
@@ -347,14 +345,15 @@ func me(authService *auth.Service, membershipRepo *data.OrgMembershipRepository,
 
 			var permissions []string
 			resp := meResponse{
-				ID:          user.ID.String(),
-				DisplayName: user.DisplayName,
-				CreatedAt:   user.CreatedAt.UTC().Format(time.RFC3339Nano),
+				ID:            user.ID.String(),
+				Email:         user.Email,
+				EmailVerified: user.EmailVerifiedAt != nil,
+				CreatedAt:     user.CreatedAt.UTC().Format(time.RFC3339Nano),
 			}
 
 			if credentialRepo != nil {
 				if cred, err := credentialRepo.GetByUserID(r.Context(), user.ID); err == nil && cred != nil {
-					resp.Login = cred.Login
+					resp.Username = cred.Login
 				}
 			}
 
@@ -394,21 +393,21 @@ func me(authService *auth.Service, membershipRepo *data.OrgMembershipRepository,
 				WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "request validation failed", traceID, nil)
 				return
 			}
-			body.DisplayName = strings.TrimSpace(body.DisplayName)
-			if body.DisplayName == "" || len(body.DisplayName) > 256 {
-				WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "display_name is invalid", traceID, nil)
+			body.Username = strings.TrimSpace(body.Username)
+			if body.Username == "" || len(body.Username) > 256 {
+				WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "username is invalid", traceID, nil)
 				return
 			}
 
 			updated, err := usersRepo.UpdateProfile(r.Context(), user.ID, data.UpdateProfileParams{
-				DisplayName: body.DisplayName,
+				DisplayName: body.Username,
 			})
 			if err != nil || updated == nil {
 				WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 				return
 			}
 
-			writeJSON(w, traceID, nethttp.StatusOK, updateMeResponse{DisplayName: updated.DisplayName})
+			writeJSON(w, traceID, nethttp.StatusOK, updateMeResponse{Username: updated.DisplayName})
 
 		default:
 			writeMethodNotAllowed(w, r)
@@ -479,18 +478,20 @@ func authenticateUser(
 	}
 
 	return &authUser{
-		ID:          user.ID,
-		DisplayName: user.DisplayName,
-		Email:       user.Email,
-		CreatedAt:   user.CreatedAt,
+		ID:              user.ID,
+		DisplayName:     user.DisplayName,
+		Email:           user.Email,
+		EmailVerifiedAt: user.EmailVerifiedAt,
+		CreatedAt:       user.CreatedAt,
 	}, true
 }
 
 type authUser struct {
-	ID          uuid.UUID
-	DisplayName string
-	Email       *string
-	CreatedAt   time.Time
+	ID              uuid.UUID
+	DisplayName     string
+	Email           *string
+	EmailVerifiedAt *time.Time
+	CreatedAt       time.Time
 }
 
 func writeMethodNotAllowed(w nethttp.ResponseWriter, r *nethttp.Request) {
@@ -500,4 +501,72 @@ func writeMethodNotAllowed(w nethttp.ResponseWriter, r *nethttp.Request) {
 
 func writeAuthNotConfigured(w nethttp.ResponseWriter, traceID string) {
 	WriteError(w, nethttp.StatusServiceUnavailable, "auth.not_configured", "auth not configured", traceID, nil)
+}
+
+type emailVerifyConfirmRequest struct {
+	Token string `json:"token"`
+}
+
+func emailVerifySend(authService *auth.Service, emailVerifyService *auth.EmailVerifyService) func(nethttp.ResponseWriter, *nethttp.Request) {
+	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		if r.Method != nethttp.MethodPost {
+			writeMethodNotAllowed(w, r)
+			return
+		}
+
+		traceID := observability.TraceIDFromContext(r.Context())
+		if authService == nil || emailVerifyService == nil {
+			writeAuthNotConfigured(w, traceID)
+			return
+		}
+
+		user, ok := authenticateUser(w, r, traceID, authService)
+		if !ok {
+			return
+		}
+
+		if err := emailVerifyService.SendVerification(r.Context(), user.ID, user.DisplayName); err != nil {
+			if err.Error() == "user has no email address" {
+				WriteError(w, nethttp.StatusUnprocessableEntity, "email.no_address", "user has no email address", traceID, nil)
+				return
+			}
+			WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			return
+		}
+
+		w.WriteHeader(nethttp.StatusNoContent)
+	}
+}
+
+func emailVerifyConfirm(emailVerifyService *auth.EmailVerifyService) func(nethttp.ResponseWriter, *nethttp.Request) {
+	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		if r.Method != nethttp.MethodPost {
+			writeMethodNotAllowed(w, r)
+			return
+		}
+
+		traceID := observability.TraceIDFromContext(r.Context())
+		if emailVerifyService == nil {
+			writeAuthNotConfigured(w, traceID)
+			return
+		}
+
+		var body emailVerifyConfirmRequest
+		if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.Token) == "" {
+			WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "token is required", traceID, nil)
+			return
+		}
+
+		if err := emailVerifyService.ConfirmVerification(r.Context(), strings.TrimSpace(body.Token)); err != nil {
+			var expired auth.TokenAlreadyUsedOrExpiredError
+			if errors.As(err, &expired) {
+				WriteError(w, nethttp.StatusUnprocessableEntity, "email.token_invalid", "token invalid or expired", traceID, nil)
+				return
+			}
+			WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			return
+		}
+
+		writeJSON(w, traceID, nethttp.StatusOK, map[string]bool{"ok": true})
+	}
 }

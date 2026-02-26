@@ -36,7 +36,7 @@ func NewUserRepository(db Querier) (*UserRepository, error) {
 	return &UserRepository{db: db}, nil
 }
 
-func (r *UserRepository) Create(ctx context.Context, displayName string) (User, error) {
+func (r *UserRepository) Create(ctx context.Context, displayName string, email string) (User, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -48,11 +48,11 @@ func (r *UserRepository) Create(ctx context.Context, displayName string) (User, 
 	var user User
 	err := r.db.QueryRow(
 		ctx,
-		`INSERT INTO users (display_name)
-		 VALUES ($1)
+		`INSERT INTO users (display_name, email)
+		 VALUES ($1, NULLIF($2, ''))
 		 RETURNING id, display_name, email, email_verified_at, status, deleted_at,
 		           avatar_url, locale, timezone, last_login_at, tokens_invalid_before, created_at`,
-		displayName,
+		displayName, email,
 	).Scan(
 		&user.ID, &user.DisplayName, &user.Email, &user.EmailVerifiedAt,
 		&user.Status, &user.DeletedAt, &user.AvatarURL, &user.Locale,
@@ -299,4 +299,26 @@ if tag.RowsAffected() == 0 {
 return fmt.Errorf("users.SoftDelete: not found")
 }
 return nil
+}
+
+// SetEmailVerified 将 email_verified_at 标记为当前时间，表示邮箱已通过验证。
+func (r *UserRepository) SetEmailVerified(ctx context.Context, userID uuid.UUID) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if userID == uuid.Nil {
+		return fmt.Errorf("user_id must not be empty")
+	}
+	tag, err := r.db.Exec(
+		ctx,
+		`UPDATE users SET email_verified_at = now() WHERE id = $1 AND deleted_at IS NULL`,
+		userID,
+	)
+	if err != nil {
+		return fmt.Errorf("users.SetEmailVerified: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("users.SetEmailVerified: not found")
+	}
+	return nil
 }

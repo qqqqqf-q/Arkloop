@@ -43,7 +43,7 @@ export function Sidebar({
   const { threadId } = useParams<{ threadId: string }>()
   const { t } = useLocale()
 
-  const userInitial = me?.display_name?.charAt(0).toUpperCase() ?? '?'
+  const userInitial = me?.username?.charAt(0).toUpperCase() ?? '?'
 
   return (
     <aside
@@ -149,7 +149,7 @@ export function Sidebar({
           </div>
           <div className="flex min-w-0 flex-1 flex-col gap-[2px] text-left">
             <div className="truncate text-sm font-medium text-[var(--c-text-secondary)]">
-              {me?.display_name ?? t.loading}
+              {me?.username ?? t.loading}
             </div>
             <div className="text-xs font-normal text-[var(--c-text-tertiary)]">
               {t.enterprisePlan}

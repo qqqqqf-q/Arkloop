@@ -50,6 +50,7 @@ export const zh: LocaleStrings = {
   loginMode: '登录',
   registerMode: '注册',
   enterUsername: '输入用户名',
+  enterEmail: '输入邮箱',
   enterPassword: '输入密码',
   enterInviteCode: '输入邀请码',
   enterInviteCodeOptional: '输入邀请码（可选）',

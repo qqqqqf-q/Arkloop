@@ -45,6 +45,7 @@ type RegistrationService struct {
 	passwordHasher   *BcryptPasswordHasher
 	tokenService     *JwtAccessTokenService
 	refreshTokenRepo *data.RefreshTokenRepository
+	jobRepo          *data.JobRepository
 	entitlementSvc   EntitlementResolver
 	now              func() time.Time
 }
@@ -70,6 +71,7 @@ func NewRegistrationService(
 	passwordHasher *BcryptPasswordHasher,
 	tokenService *JwtAccessTokenService,
 	refreshTokenRepo *data.RefreshTokenRepository,
+	jobRepo *data.JobRepository,
 ) (*RegistrationService, error) {
 	if pool == nil {
 		return nil, errors.New("pool must not be nil")
@@ -88,6 +90,7 @@ func NewRegistrationService(
 		passwordHasher:   passwordHasher,
 		tokenService:     tokenService,
 		refreshTokenRepo: refreshTokenRepo,
+		jobRepo:          jobRepo,
 		now:              func() time.Time { return time.Now().UTC() },
 	}, nil
 }
@@ -101,7 +104,7 @@ func (s *RegistrationService) Register(
 	ctx context.Context,
 	login string,
 	password string,
-	displayName string,
+	email string,
 	inviteCode string,
 	requireValidCode bool,
 ) (RegisterResult, error) {
@@ -140,7 +143,7 @@ func (s *RegistrationService) Register(
 		return RegisterResult{}, LoginExistsError{}
 	}
 
-	user, err := userRepo.Create(ctx, displayName)
+	user, err := userRepo.Create(ctx, login, email)
 	if err != nil {
 		return RegisterResult{}, err
 	}
@@ -159,7 +162,7 @@ func (s *RegistrationService) Register(
 	}
 
 	slugSuffix := uuidHexPrefix(user.ID, 8)
-	org, err := orgRepo.Create(ctx, fmt.Sprintf("personal-%s", slugSuffix), fmt.Sprintf("%s's workspace", displayName), "personal")
+	org, err := orgRepo.Create(ctx, fmt.Sprintf("personal-%s", slugSuffix), fmt.Sprintf("%s's workspace", login), "personal")
 	if err != nil {
 		return RegisterResult{}, err
 	}
@@ -310,6 +313,19 @@ func (s *RegistrationService) Register(
 	result.UserID = user.ID
 	result.AccessToken = token
 	result.RefreshToken = plaintext
+
+	// 注册完成后异步发送验证邮件；失败不阻断注册流程。
+	if email != "" && s.jobRepo != nil {
+		verifySubject := "Verify your email"
+		verifyHTML := fmt.Sprintf(
+			`<p>Hi %s,</p><p>Welcome to Arkloop! Please verify your email address by using your platform's verification flow.</p>`,
+			login,
+		)
+		if _, enqErr := s.jobRepo.EnqueueEmail(ctx, email, verifySubject, verifyHTML, ""); enqErr != nil {
+			result.Warning = appendWarning(result.Warning, "verification email could not be queued")
+		}
+	}
+
 	return result, nil
 }
 
@@ -319,6 +335,13 @@ func uuidHexPrefix(value uuid.UUID, n int) string {
 		return hex
 	}
 	return hex[:n]
+}
+
+func appendWarning(existing, msg string) string {
+	if existing == "" {
+		return msg
+	}
+	return existing + "; " + msg
 }
 
 func isUniqueViolation(err error, constraint string) bool {

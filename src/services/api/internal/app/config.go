@@ -19,8 +19,8 @@ const (
 	trustXForwardedForEnv     = "ARKLOOP_TRUST_X_FORWARDED_FOR"
 	defaultAddr               = "127.0.0.1:8001"
 
-	redisURLEnv                   = "ARKLOOP_REDIS_URL"
-	maxConcurrentRunsPerOrgEnv    = "ARKLOOP_MAX_CONCURRENT_RUNS_PER_ORG"
+	redisURLEnv                    = "ARKLOOP_REDIS_URL"
+	maxConcurrentRunsPerOrgEnv     = "ARKLOOP_MAX_CONCURRENT_RUNS_PER_ORG"
 	defaultMaxConcurrentRunsPerOrg = int64(10)
 
 	s3EndpointEnv  = "ARKLOOP_S3_ENDPOINT"
@@ -34,11 +34,13 @@ const (
 
 	bootstrapPlatformAdminEnv = "ARKLOOP_BOOTSTRAP_PLATFORM_ADMIN"
 
-	runTimeoutMinutesEnv        = "ARKLOOP_RUN_TIMEOUT_MINUTES"
-	defaultRunTimeoutMinutes    = 5
+	runTimeoutMinutesEnv     = "ARKLOOP_RUN_TIMEOUT_MINUTES"
+	defaultRunTimeoutMinutes = 5
 
 	runEventsRetentionMonthsEnv     = "ARKLOOP_RUN_EVENTS_RETENTION_MONTHS"
 	defaultRunEventsRetentionMonths = 3
+
+	emailFromEnv = "ARKLOOP_EMAIL_FROM"
 
 	defaultSSEHeartbeatSeconds = 15.0
 	defaultSSEBatchLimit       = 500
@@ -74,9 +76,10 @@ type Config struct {
 	S3Bucket    string
 	S3Region    string
 
-	BootstrapPlatformAdmin string
-	RunTimeoutMinutes      int
+	BootstrapPlatformAdmin   string
+	RunTimeoutMinutes        int
 	RunEventsRetentionMonths int
+	EmailFrom                string
 }
 
 func DefaultConfig() Config {
@@ -193,6 +196,10 @@ func LoadConfigFromEnv() (Config, error) {
 			return Config{}, fmt.Errorf("%s: %w", runEventsRetentionMonthsEnv, err)
 		}
 		cfg.RunEventsRetentionMonths = v
+	}
+
+	if raw, ok := lookupEnv(emailFromEnv); ok {
+		cfg.EmailFrom = raw
 	}
 
 	if err := cfg.Validate(); err != nil {

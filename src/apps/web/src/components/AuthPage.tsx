@@ -49,6 +49,7 @@ type Props = {
 export function AuthPage({ mode, onLoggedIn }: Props) {
   const navigate = useNavigate()
   const [loginValue, setLoginValue] = useState('')
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [inviteCode, setInviteCode] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -78,9 +79,10 @@ export function AuthPage({ mode, onLoggedIn }: Props) {
     if (submitting) return false
     if (!loginValue.trim() || !password) return false
     if (mode === 'register' && password.length < 8) return false
+    if (mode === 'register' && !email.trim()) return false
     if (mode === 'register' && inviteRequired && !inviteCode.trim()) return false
     return true
-  }, [loginValue, password, inviteCode, submitting, mode, inviteRequired])
+  }, [loginValue, email, password, inviteCode, submitting, mode, inviteRequired])
 
   const onSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
@@ -95,6 +97,7 @@ export function AuthPage({ mode, onLoggedIn }: Props) {
         const resp = await register({
           login: loginValue,
           password,
+          email: email.trim(),
           ...(inviteCode.trim() ? { invite_code: inviteCode.trim() } : {}),
         })
         onLoggedIn(resp.access_token, resp.refresh_token)
@@ -154,6 +157,21 @@ export function AuthPage({ mode, onLoggedIn }: Props) {
               autoCapitalize="none"
               spellCheck={false}
             />
+
+            {mode === 'register' && (
+              <input
+                className="w-full rounded-[10px] bg-[var(--c-bg-input)] text-[var(--c-text-primary)] outline-none placeholder:text-[var(--c-placeholder)]"
+                style={inputStyle}
+                type="email"
+                placeholder={t.enterEmail}
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                autoComplete="email"
+                autoCapitalize="none"
+                spellCheck={false}
+                required
+              />
+            )}
 
             <input
               className="w-full rounded-[10px] bg-[var(--c-bg-input)] text-[var(--c-text-primary)] outline-none placeholder:text-[var(--c-placeholder)]"

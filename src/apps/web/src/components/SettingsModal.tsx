@@ -61,7 +61,7 @@ export function SettingsModal({ me, accessToken, initialTab = 'account', onClose
   const { theme, setTheme } = useTheme()
   const [activeKey, setActiveKey] = useState<SettingsTab>(initialTab)
   const [profileView, setProfileView] = useState(false)
-  const userInitial = me?.display_name?.charAt(0).toUpperCase() ?? '?'
+  const userInitial = me?.username?.charAt(0).toUpperCase() ?? '?'
   const activeLabel = t.nav[activeKey as keyof typeof t.nav] ?? t.nav.account
 
   const handleTabChange = (key: SettingsTab) => {
@@ -197,7 +197,7 @@ function AccountContent({
 
         <div className="flex min-w-0 flex-1 flex-col">
           <span className="truncate text-base font-semibold text-[var(--c-text-heading)]">
-            {me?.display_name ?? t.loading}
+            {me?.username ?? t.loading}
           </span>
           {me?.login && (
             <span className="truncate text-xs text-[var(--c-text-tertiary)]">
@@ -248,13 +248,13 @@ function ProfileContent({
   onMeUpdated?: (me: MeResponse) => void
 }) {
   const { t } = useLocale()
-  const [displayName, setDisplayName] = useState(me?.display_name ?? '')
+  const [displayName, setDisplayName] = useState(me?.username ?? '')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [copied, setCopied] = useState(false)
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout>>()
 
-  const isDirty = displayName.trim() !== (me?.display_name ?? '')
+  const isDirty = displayName.trim() !== (me?.username ?? '')
 
   const handleSave = useCallback(async () => {
     const name = displayName.trim()
@@ -264,7 +264,7 @@ function ProfileContent({
     try {
       const res = await updateMe(accessToken, name)
       if (me && onMeUpdated) {
-        onMeUpdated({ ...me, display_name: res.display_name })
+        onMeUpdated({ ...me, username: res.username })
       }
     } catch {
       setError(t.requestFailed)

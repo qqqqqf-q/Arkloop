@@ -8,7 +8,7 @@ import {
   ShieldCheck,
   Users, UsersRound, FolderOpen, UserPlus,
   Package, Receipt, BadgeCheck, BarChart3,
-  Flag, Ticket, Gift, Coins, Megaphone, Mic,
+  Flag, Ticket, Gift, Coins, Megaphone, Mic, Mail,
   PanelLeftClose, PanelLeftOpen, ChevronDown,
   Settings,
 } from 'lucide-react'
@@ -56,6 +56,7 @@ function buildNavGroups(t: LocaleStrings): NavGroup[] {
         { label: t.nav.redemptionCodes, path: '/redemption-codes', icon: <Gift size={17} /> },
         { label: t.nav.creditsAdmin, path: '/credits-admin', icon: <Coins size={17} /> },
         { label: t.nav.broadcasts, path: '/broadcasts', icon: <Megaphone size={17} /> },
+        { label: t.nav.email, path: '/email', icon: <Mail size={17} /> },
       ],
     },
     {

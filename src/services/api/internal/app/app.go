@@ -197,9 +197,13 @@ func (a *Application) Run(ctx context.Context) error {
 		asrCredRepo *data.AsrCredentialsRepository
 
 		refreshTokenRepo *data.RefreshTokenRepository
+		jobRepo          *data.JobRepository
+
+		emailVerifyTokenRepo *data.EmailVerificationTokenRepository
 
 		authService         *auth.Service
 		registrationService *auth.RegistrationService
+		emailVerifyService  *auth.EmailVerifyService
 		orgService          *auth.OrgService
 		auditWriter         *audit.Writer
 	)
@@ -353,6 +357,16 @@ func (a *Application) Run(ctx context.Context) error {
 			return err
 		}
 
+		jobRepo, err = data.NewJobRepository(pool)
+		if err != nil {
+			return err
+		}
+
+		emailVerifyTokenRepo, err = data.NewEmailVerificationTokenRepository(pool)
+		if err != nil {
+			return err
+		}
+
 		// 加密 key 未配置时 secrets/llm-credentials 端点不可用，但不影响其他功能启动
 		keyRing, keyRingErr := crypto.NewKeyRingFromEnv()
 		if keyRingErr == nil {
@@ -381,7 +395,7 @@ func (a *Application) Run(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		registrationService, err = auth.NewRegistrationService(pool, passwordHasher, tokenService, refreshTokenRepo)
+		registrationService, err = auth.NewRegistrationService(pool, passwordHasher, tokenService, refreshTokenRepo, jobRepo)
 		if err != nil {
 			return err
 		}
@@ -391,6 +405,13 @@ func (a *Application) Run(ctx context.Context) error {
 		}
 		if entitlementSvc != nil {
 			registrationService.SetEntitlementResolver(&entitlementAdapter{svc: entitlementSvc})
+		}
+
+		if emailVerifyTokenRepo != nil && userRepo != nil && jobRepo != nil {
+			emailVerifyService, err = auth.NewEmailVerifyService(emailVerifyTokenRepo, userRepo, jobRepo)
+			if err != nil {
+				return err
+			}
 		}
 
 		if auditRepo != nil {
@@ -471,6 +492,10 @@ func (a *Application) Run(ctx context.Context) error {
 			RedisClient:          redisClient,
 			RunLimiter:           runLimiter,
 			AsrCredentialsRepo:   asrCredRepo,
+			EmailVerifyService:   emailVerifyService,
+			JobRepo:              jobRepo,
+			EmailConfigured:      strings.TrimSpace(a.config.EmailFrom) != "",
+			EmailFrom:            strings.TrimSpace(a.config.EmailFrom),
 			SSEConfig: apihttp.SSEConfig{
 				HeartbeatSeconds: a.config.SSE.HeartbeatSeconds,
 				BatchLimit:       a.config.SSE.BatchLimit,

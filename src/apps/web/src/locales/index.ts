@@ -59,6 +59,7 @@ export interface LocaleStrings {
   loginMode: string
   registerMode: string
   enterUsername: string
+  enterEmail: string
   enterPassword: string
   enterInviteCode: string
   enterInviteCodeOptional: string
