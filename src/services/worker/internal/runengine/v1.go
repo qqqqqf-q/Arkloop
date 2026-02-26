@@ -101,6 +101,10 @@ func NewEngineV1(deps EngineV1Deps) (*EngineV1, error) {
 
 	rdb := deps.RunLimiterRDB
 	releaseSlot := func(ctx context.Context, run data.Run) {
+		// 子 Run 没有通过 API 层 TryAcquire，不释放并发槽
+		if run.ParentRunID != nil {
+			return
+		}
 		key := runlimit.Key(run.OrgID.String())
 		runlimit.Release(ctx, rdb, key)
 	}

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"arkloop/services/worker/internal/data"
 	"arkloop/services/worker/internal/queue"
@@ -14,6 +15,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 )
+
+// childThreadTTL 是子 Run 独立临时线程的自动过期时长。
+const childThreadTTL = 7 * 24 * time.Hour
 
 // newSpawnChildRunFunc 构建一个绑定了运行时依赖的 SpawnChildRun 闭包，注入到 RunContext。
 func newSpawnChildRunFunc(pool *pgxpool.Pool, rdb *redis.Client, jobQueue queue.JobQueue, parentRun data.Run, traceID string) func(ctx context.Context, skillID string, input string) (string, error) {
@@ -44,7 +48,7 @@ func spawnChildRun(
 		return "", fmt.Errorf("subscribe child run channel: %w", err)
 	}
 
-	if err := createAndEnqueueChildRun(ctx, pool, jobQueue, childRunID, parentRun, traceID, skillID, input); err != nil {
+	if err := createAndEnqueueChildRun(ctx, pool, rdb, jobQueue, childRunID, parentRun, traceID, skillID, input); err != nil {
 		return "", fmt.Errorf("create child run: %w", err)
 	}
 
@@ -62,6 +66,7 @@ func spawnChildRun(
 func createAndEnqueueChildRun(
 	ctx context.Context,
 	pool *pgxpool.Pool,
+	rdb *redis.Client,
 	jobQueue queue.JobQueue,
 	childRunID uuid.UUID,
 	parentRun data.Run,
@@ -79,9 +84,10 @@ func createAndEnqueueChildRun(
 	var childThreadID uuid.UUID
 	if err := tx.QueryRow(ctx,
 		`INSERT INTO threads (org_id, is_private, expires_at)
-		 VALUES ($1, TRUE, now() + interval '7 days')
+		 VALUES ($1, TRUE, now() + make_interval(secs => $2))
 		 RETURNING id`,
 		parentRun.OrgID,
+		int64(childThreadTTL.Seconds()),
 	).Scan(&childThreadID); err != nil {
 		return fmt.Errorf("create child thread: %w", err)
 	}
@@ -114,7 +120,10 @@ func createAndEnqueueChildRun(
 	if err := tx.QueryRow(ctx, `SELECT nextval('run_events_seq_global')`).Scan(&seq); err != nil {
 		return fmt.Errorf("alloc seq: %w", err)
 	}
-	eventData, _ := json.Marshal(map[string]any{"skill_id": skillID})
+	eventData, err := json.Marshal(map[string]any{"skill_id": skillID})
+	if err != nil {
+		return fmt.Errorf("marshal run.started data: %w", err)
+	}
 	if _, err := tx.Exec(ctx,
 		`INSERT INTO run_events (run_id, seq, type, data_json)
 		 VALUES ($1, $2, 'run.started', $3::jsonb)`,
@@ -128,10 +137,55 @@ func createAndEnqueueChildRun(
 	}
 
 	// 事务提交后投递 job（job queue 使用独立连接池，不需要在同一事务中）
-	if _, err := jobQueue.EnqueueRun(ctx, parentRun.OrgID, childRunID, traceID, queue.RunExecuteJobType, map[string]any{}, nil); err != nil {
-		return fmt.Errorf("enqueue child run: %w", err)
+	_, enqueueErr := jobQueue.EnqueueRun(ctx, parentRun.OrgID, childRunID, traceID, queue.RunExecuteJobType, map[string]any{}, nil)
+	if enqueueErr != nil {
+		// 入队失败：子 Run 已持久化但无 worker 处理。
+		// best-effort 标记为 failed 并通知父 Run，避免父 Run 永久等待 ctx 超时。
+		markChildRunFailed(context.WithoutCancel(ctx), pool, rdb, childRunID)
+		return fmt.Errorf("enqueue child run: %w", enqueueErr)
 	}
 	return nil
+}
+
+// markChildRunFailed 在入队失败后 best-effort 将子 Run 标记为 failed 并广播通知。
+// 使用独立 context 避免调用方 ctx 已取消时操作失败。
+func markChildRunFailed(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, childRunID uuid.UUID) {
+	tx, err := pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return
+	}
+	defer tx.Rollback(ctx)
+
+	var seq int64
+	if err := tx.QueryRow(ctx, `SELECT nextval('run_events_seq_global')`).Scan(&seq); err != nil {
+		return
+	}
+	errData, _ := json.Marshal(map[string]any{
+		"error_class": "worker.enqueue_failed",
+		"message":     "failed to enqueue child run job",
+	})
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO run_events (run_id, seq, type, data_json)
+		 VALUES ($1, $2, 'run.failed', $3::jsonb)`,
+		childRunID, seq, string(errData),
+	); err != nil {
+		return
+	}
+	if _, err := tx.Exec(ctx,
+		`UPDATE runs SET status = 'failed', status_updated_at = now(), failed_at = now()
+		 WHERE id = $1`,
+		childRunID,
+	); err != nil {
+		return
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return
+	}
+
+	if rdb != nil {
+		ch := fmt.Sprintf("run.child.%s.done", childRunID.String())
+		_, _ = rdb.Publish(ctx, ch, "failed\n").Result()
+	}
 }
 
 // parseChildRunResult 解析 Redis 消息格式 "status\noutput"。

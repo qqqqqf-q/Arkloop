@@ -24,6 +24,8 @@ import (
 const (
 	eventCommitBatchSize   = 20
 	eventCommitMaxInterval = 50 * time.Millisecond
+	// maxChildRunOutputBytes 限制通过 Redis Pub/Sub 传递的子 Run 输出大小，防止大消息导致延迟或丢失
+	maxChildRunOutputBytes = 64 * 1024
 )
 
 var (
@@ -340,14 +342,21 @@ func (w *eventWriter) commit(ctx context.Context) error {
 			// 通知可能正在等待的父 Run（无父 Run 时此 publish 为空操作）
 			output := ""
 			if w.terminalRunStatus == "completed" {
-				output = strings.Join(w.assistantDeltas, "")
+				full := strings.Join(w.assistantDeltas, "")
+				if len(full) > maxChildRunOutputBytes {
+					full = full[:maxChildRunOutputBytes]
+				}
+				output = full
 			}
 			ch := fmt.Sprintf("run.child.%s.done", w.run.ID.String())
 			_, _ = w.runLimiterRDB.Publish(ctx, ch, w.terminalRunStatus+"\n"+output).Result()
 		}
 		w.hasTerminal = false
-		key := runlimit.Key(w.run.OrgID.String())
-		runlimit.Release(ctx, w.runLimiterRDB, key)
+		// 子 Run 没有通过 API 层 TryAcquire，不释放并发槽
+		if w.run.ParentRunID == nil {
+			key := runlimit.Key(w.run.OrgID.String())
+			runlimit.Release(ctx, w.runLimiterRDB, key)
+		}
 	}
 
 	return nil
