@@ -223,5 +223,3 @@ func parseRoutes(config map[string]any) (map[string]RouteConfig, error) {
 	}
 	return routes, nil
 }
-
-

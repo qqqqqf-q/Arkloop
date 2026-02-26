@@ -3,7 +3,6 @@ package executor
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"arkloop/services/worker/internal/app"
@@ -16,6 +15,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 )
+
+// 工具函数 requiredString / requiredUUID / stringPtr 定义在 helpers.go
 
 type NativeRunEngineV1Handler struct {
 	pool   *pgxpool.Pool
@@ -215,38 +216,4 @@ func (p workerPayload) LogFields(lease queue.JobLease) app.LogFields {
 	return fields
 }
 
-func requiredString(values map[string]any, key string) (string, error) {
-	raw, ok := values[key]
-	if !ok {
-		return "", fmt.Errorf("missing %s", key)
-	}
-	text, ok := raw.(string)
-	if !ok {
-		return "", fmt.Errorf("%s must be a string", key)
-	}
-	cleaned := strings.TrimSpace(text)
-	if cleaned == "" {
-		return "", fmt.Errorf("%s must not be empty", key)
-	}
-	return cleaned, nil
-}
 
-func requiredUUID(values map[string]any, key string) (uuid.UUID, error) {
-	text, err := requiredString(values, key)
-	if err != nil {
-		return uuid.Nil, err
-	}
-	id, err := uuid.Parse(text)
-	if err != nil {
-		return uuid.Nil, fmt.Errorf("%s is not a valid UUID", key)
-	}
-	return id, nil
-}
-
-func stringPtr(value string) *string {
-	cleaned := strings.TrimSpace(value)
-	if cleaned == "" {
-		return nil
-	}
-	return &cleaned
-}

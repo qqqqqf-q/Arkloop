@@ -298,7 +298,8 @@ func LoadFromDB(ctx context.Context, pool *pgxpool.Pool, orgID uuid.UUID) ([]Def
 	rows, err := pool.Query(
 		ctx,
 		`SELECT skill_key, version, display_name, description,
-		        prompt_md, tool_allowlist, budgets_json
+		        prompt_md, tool_allowlist, budgets_json,
+		        executor_type, executor_config_json
 		 FROM skills
 		 WHERE org_id = $1 AND is_active = TRUE
 		 ORDER BY created_at ASC`,
@@ -312,22 +313,34 @@ func LoadFromDB(ctx context.Context, pool *pgxpool.Pool, orgID uuid.UUID) ([]Def
 	var defs []Definition
 	for rows.Next() {
 		var (
-			skillKey      string
-			version       string
-			displayName   string
-			description   *string
-			promptMD      string
-			toolAllowlist []string
-			budgetsRaw    []byte
+			skillKey           string
+			version            string
+			displayName        string
+			description        *string
+			promptMD           string
+			toolAllowlist      []string
+			budgetsRaw         []byte
+			executorType       string
+			executorConfigRaw  []byte
 		)
 		if err := rows.Scan(&skillKey, &version, &displayName, &description,
-			&promptMD, &toolAllowlist, &budgetsRaw); err != nil {
+			&promptMD, &toolAllowlist, &budgetsRaw,
+			&executorType, &executorConfigRaw); err != nil {
 			return nil, err
 		}
 
 		budgets, err := parseBudgetsJSON(budgetsRaw)
 		if err != nil {
 			return nil, fmt.Errorf("skill %q: %w", skillKey, err)
+		}
+
+		executorConfig, err := parseExecutorConfigJSON(executorConfigRaw)
+		if err != nil {
+			return nil, fmt.Errorf("skill %q executor_config_json: %w", skillKey, err)
+		}
+
+		if strings.TrimSpace(executorType) == "" {
+			executorType = defaultExecutorType
 		}
 
 		def := Definition{
@@ -337,8 +350,8 @@ func LoadFromDB(ctx context.Context, pool *pgxpool.Pool, orgID uuid.UUID) ([]Def
 			ToolAllowlist:  toolAllowlist,
 			Budgets:        budgets,
 			PromptMD:       promptMD,
-			ExecutorType:   defaultExecutorType,
-			ExecutorConfig: map[string]any{},
+			ExecutorType:   executorType,
+			ExecutorConfig: executorConfig,
 		}
 		if description != nil && strings.TrimSpace(*description) != "" {
 			s := strings.TrimSpace(*description)
@@ -372,6 +385,17 @@ func parseBudgetsJSON(raw []byte) (Budgets, error) {
 		return Budgets{}, fmt.Errorf("invalid budgets_json: %w", err)
 	}
 	return asBudgets(obj)
+}
+
+func parseExecutorConfigJSON(raw []byte) (map[string]any, error) {
+	if len(raw) == 0 {
+		return map[string]any{}, nil
+	}
+	var obj map[string]any
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return nil, fmt.Errorf("invalid executor_config_json: %w", err)
+	}
+	return obj, nil
 }
 
 func asOptionalPositiveInt(value any, label string) (*int, error) {
