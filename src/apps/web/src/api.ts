@@ -237,6 +237,20 @@ export async function updateMe(accessToken: string, username: string): Promise<{
   })
 }
 
+export async function sendEmailVerification(accessToken: string): Promise<void> {
+  await apiFetch<void>('/v1/auth/email/verify/send', {
+    method: 'POST',
+    accessToken,
+  })
+}
+
+export async function confirmEmailVerification(token: string): Promise<{ ok: boolean }> {
+  return await apiFetch<{ ok: boolean }>('/v1/auth/email/verify/confirm', {
+    method: 'POST',
+    body: JSON.stringify({ token }),
+  })
+}
+
 export type LogoutResponse = {
   ok: boolean
 }

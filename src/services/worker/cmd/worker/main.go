@@ -236,15 +236,14 @@ func chooseHandler(logger *app.JSONLogger, pool *pgxpool.Pool, directPool *pgxpo
 	if err != nil {
 		return nil, fmt.Errorf("email config: %w", err)
 	}
-	mailer := email.NewMailer(emailCfg)
-	emailHandler, err := email.NewSendHandler(mailer, logger)
+	emailHandler, err := email.NewSendHandler(pool, emailCfg, logger)
 	if err != nil {
 		return nil, err
 	}
 	if emailCfg.Enabled() {
 		logger.Info("email send handler enabled", app.LogFields{}, map[string]any{"job_type": queue.EmailSendJobType, "from": emailCfg.From})
 	} else {
-		logger.Info("email send handler using noop (ARKLOOP_EMAIL_FROM not set)", app.LogFields{}, nil)
+		logger.Info("email send handler ready (ARKLOOP_EMAIL_FROM not set, will read from DB)", app.LogFields{}, nil)
 	}
 
 	return &dispatchHandler{

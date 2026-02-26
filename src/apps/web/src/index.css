@@ -1,6 +1,10 @@
 @import "katex/dist/katex.min.css";
 @import "tailwindcss";
 
+button:not(:disabled) {
+  cursor: pointer;
+}
+
 :root {
   color-scheme: dark;
   --c-bg-page: #262624;

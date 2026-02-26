@@ -40,7 +40,8 @@ const (
 	runEventsRetentionMonthsEnv     = "ARKLOOP_RUN_EVENTS_RETENTION_MONTHS"
 	defaultRunEventsRetentionMonths = 3
 
-	emailFromEnv = "ARKLOOP_EMAIL_FROM"
+	emailFromEnv    = "ARKLOOP_EMAIL_FROM"
+	appBaseURLEnv   = "ARKLOOP_APP_BASE_URL"
 
 	defaultSSEHeartbeatSeconds = 15.0
 	defaultSSEBatchLimit       = 500
@@ -80,6 +81,7 @@ type Config struct {
 	RunTimeoutMinutes        int
 	RunEventsRetentionMonths int
 	EmailFrom                string
+	AppBaseURL               string
 }
 
 func DefaultConfig() Config {
@@ -200,6 +202,10 @@ func LoadConfigFromEnv() (Config, error) {
 
 	if raw, ok := lookupEnv(emailFromEnv); ok {
 		cfg.EmailFrom = raw
+	}
+
+	if raw, ok := lookupEnv(appBaseURLEnv); ok {
+		cfg.AppBaseURL = raw
 	}
 
 	if err := cfg.Validate(); err != nil {

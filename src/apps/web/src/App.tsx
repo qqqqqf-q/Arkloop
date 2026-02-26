@@ -4,6 +4,7 @@ import { AppLayout } from './layouts/AppLayout'
 import { AuthPage } from './components/AuthPage'
 import { WelcomePage } from './components/WelcomePage'
 import { ChatPage } from './components/ChatPage'
+import { VerifyEmailPage } from './components/VerifyEmailPage'
 import {
   clearActiveThreadIdInStorage,
   readAccessTokenFromStorage,
@@ -47,6 +48,7 @@ function App() {
 
   return (
     <Routes>
+      <Route path="/verify" element={<VerifyEmailPage />} />
       {!accessToken ? (
         <>
           <Route path="/login" element={<AuthPage mode="login" onLoggedIn={handleLoggedIn} />} />

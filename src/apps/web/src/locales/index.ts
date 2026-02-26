@@ -75,6 +75,16 @@ export interface LocaleStrings {
   profileUsername: string
   profileUserId: string
   profileSave: string
+  profileEmail: string
+  emailUnverified: string
+  emailVerified: string
+  emailVerifySend: string
+  emailVerifySent: string
+  emailVerifyCodePlaceholder: string
+  emailVerifyConfirmBtn: string
+  emailVerifySuccess: string
+  emailVerifyFailed: string
+  emailVerifyGoToApp: string
   newChatTitle: string
   chatPlaceholder: string
   // notifications

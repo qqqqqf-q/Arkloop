@@ -47,6 +47,7 @@ type RegistrationService struct {
 	refreshTokenRepo *data.RefreshTokenRepository
 	jobRepo          *data.JobRepository
 	entitlementSvc   EntitlementResolver
+	emailVerifySvc   *EmailVerifyService
 	now              func() time.Time
 }
 
@@ -98,6 +99,11 @@ func NewRegistrationService(
 // SetEntitlementResolver 设置 entitlement 解析器，用于注册时读取默认配额。
 func (s *RegistrationService) SetEntitlementResolver(resolver EntitlementResolver) {
 	s.entitlementSvc = resolver
+}
+
+// SetEmailVerifyService 设置邮箱验证服务，注册完成后自动发送验证邮件。
+func (s *RegistrationService) SetEmailVerifyService(svc *EmailVerifyService) {
+	s.emailVerifySvc = svc
 }
 
 func (s *RegistrationService) Register(
@@ -315,13 +321,8 @@ func (s *RegistrationService) Register(
 	result.RefreshToken = plaintext
 
 	// 注册完成后异步发送验证邮件；失败不阻断注册流程。
-	if email != "" && s.jobRepo != nil {
-		verifySubject := "Verify your email"
-		verifyHTML := fmt.Sprintf(
-			`<p>Hi %s,</p><p>Welcome to Arkloop! Please verify your email address by using your platform's verification flow.</p>`,
-			login,
-		)
-		if _, enqErr := s.jobRepo.EnqueueEmail(ctx, email, verifySubject, verifyHTML, ""); enqErr != nil {
+	if email != "" && s.emailVerifySvc != nil {
+		if enqErr := s.emailVerifySvc.SendVerification(ctx, user.ID, login); enqErr != nil {
 			result.Warning = appendWarning(result.Warning, "verification email could not be queued")
 		}
 	}

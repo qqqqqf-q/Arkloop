@@ -412,7 +412,10 @@ func (a *Application) Run(ctx context.Context) error {
 			if err != nil {
 				return err
 			}
+			emailVerifyService.SetAppBaseURL(a.config.AppBaseURL, platformSettingsRepo)
 		}
+
+		registrationService.SetEmailVerifyService(emailVerifyService)
 
 		if auditRepo != nil {
 			auditWriter = audit.NewWriter(auditRepo, membershipRepo, a.logger)
@@ -494,7 +497,6 @@ func (a *Application) Run(ctx context.Context) error {
 			AsrCredentialsRepo:   asrCredRepo,
 			EmailVerifyService:   emailVerifyService,
 			JobRepo:              jobRepo,
-			EmailConfigured:      strings.TrimSpace(a.config.EmailFrom) != "",
 			EmailFrom:            strings.TrimSpace(a.config.EmailFrom),
 			SSEConfig: apihttp.SSEConfig{
 				HeartbeatSeconds: a.config.SSE.HeartbeatSeconds,

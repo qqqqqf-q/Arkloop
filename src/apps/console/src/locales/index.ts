@@ -789,18 +789,38 @@ export interface LocaleStrings {
     email: {
       title: string
       statusTitle: string
-      labelStatus: string
-      labelFrom: string
-      labelProvider: string
       statusConfigured: string
       statusNotConfigured: string
+      sourceDb: string
+      sourceEnv: string
+      configTitle: string
+      fieldFrom: string
+      fieldHost: string
+      fieldPort: string
+      fieldUser: string
+      fieldPass: string
+      fieldPassPlaceholder: string
+      fieldPassSet: string
+      fieldTLSMode: string
+      tls_starttls: string
+      tls_tls: string
+      tls_none: string
+      save: string
       testTitle: string
       testPlaceholder: string
       testSend: string
       errInvalidTo: string
       toastLoadFailed: string
+      toastSaved: string
+      toastSaveFailed: string
       toastSent: string
       toastSendFailed: string
+      appUrlTitle: string
+      appUrlField: string
+      appUrlPlaceholder: string
+      appUrlHint: string
+      appUrlSaved: string
+      appUrlSaveFailed: string
     }
     runs: {
       title: string

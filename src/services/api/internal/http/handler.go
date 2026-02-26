@@ -86,8 +86,7 @@ type HandlerConfig struct {
 
 	JobRepo *data.JobRepository
 
-	EmailConfigured bool
-	EmailFrom       string
+	EmailFrom string
 
 	RedisClient *redis.Client
 	RunLimiter  *data.RunLimiter
@@ -442,11 +441,15 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 
 	mux.HandleFunc(
 		"/v1/admin/email/status",
-		adminEmailStatus(cfg.AuthService, cfg.OrgMembershipRepo, cfg.APIKeysRepo, cfg.EmailFrom, cfg.EmailConfigured),
+		adminEmailStatus(cfg.AuthService, cfg.OrgMembershipRepo, cfg.APIKeysRepo, cfg.PlatformSettingsRepo, cfg.EmailFrom),
+	)
+	mux.HandleFunc(
+		"/v1/admin/email/config",
+		adminEmailConfig(cfg.AuthService, cfg.OrgMembershipRepo, cfg.APIKeysRepo, cfg.PlatformSettingsRepo),
 	)
 	mux.HandleFunc(
 		"/v1/admin/email/test",
-		adminEmailTest(cfg.AuthService, cfg.OrgMembershipRepo, cfg.APIKeysRepo, cfg.JobRepo, cfg.EmailConfigured),
+		adminEmailTest(cfg.AuthService, cfg.OrgMembershipRepo, cfg.APIKeysRepo, cfg.JobRepo, cfg.PlatformSettingsRepo, cfg.EmailFrom),
 	)
 
 	notFound := nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
