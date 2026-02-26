@@ -183,6 +183,13 @@ func appendAndCommitSingle(
 		releaseSlot()
 	}
 
+	if rdb != nil {
+		if termStatus, ok := TerminalStatuses[ev.Type]; ok {
+			ch := fmt.Sprintf("run.child.%s.done", run.ID.String())
+			_, _ = rdb.Publish(ctx, ch, termStatus+"\n").Result()
+		}
+	}
+
 	return nil
 }
 

@@ -32,7 +32,7 @@ func NewNativeRunEngineV1Handler(pool *pgxpool.Pool, directPool *pgxpool.Pool, l
 	if logger == nil {
 		logger = app.NewJSONLogger("worker_go", nil)
 	}
-	engine, err := app.ComposeNativeEngine(context.Background(), pool, directPool, rdb, cfg, DefaultExecutorRegistry())
+	engine, err := app.ComposeNativeEngine(context.Background(), pool, directPool, rdb, cfg, DefaultExecutorRegistry(), q)
 	if err != nil {
 		return nil, err
 	}

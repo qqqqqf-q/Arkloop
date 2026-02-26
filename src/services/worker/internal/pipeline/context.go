@@ -95,4 +95,9 @@ type RunContext struct {
 	WaitForInput func(ctx context.Context) (string, bool)
 	// CheckInAt 判断当前迭代 iter 是否为 check-in 边界，仅当 WaitForInput 非 nil 时有效。
 	CheckInAt func(iter int) bool
+
+	// -- AS-3.5.2 父子 Run 调度（由 EngineV1.Execute 注入，nil 时表示未启用）--
+	// SpawnChildRun 创建子 Run 并异步等待其完成，父 Run 挂起期间不持有 DB 连接。
+	// ctx 取消时立即返回 error，子 Run 继续执行直至超时。
+	SpawnChildRun func(ctx context.Context, skillID string, input string) (string, error)
 }

@@ -1057,6 +1057,15 @@ func listGlobalRuns(
 			params.UserID = &parsed
 		}
 
+		if rawPR := q.Get("parent_run_id"); rawPR != "" {
+			parsed, err := uuid.Parse(rawPR)
+			if err != nil {
+				WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "invalid parent_run_id", traceID, nil)
+				return
+			}
+			params.ParentRunID = &parsed
+		}
+
 		if v := q.Get("status"); v != "" {
 			v = strings.TrimSpace(v)
 			params.Status = &v

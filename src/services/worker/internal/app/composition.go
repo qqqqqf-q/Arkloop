@@ -7,6 +7,7 @@ import (
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/mcp"
 	"arkloop/services/worker/internal/pipeline"
+	"arkloop/services/worker/internal/queue"
 	"arkloop/services/worker/internal/routing"
 	"arkloop/services/worker/internal/runengine"
 	"arkloop/services/worker/internal/skills"
@@ -22,7 +23,8 @@ import (
 // directPool 不为 nil 时用于 LISTEN/NOTIFY 直连（绕过 PgBouncer）。
 // rdb 不为 nil 时在 run 终态时 DECR 并发计数器。
 // execRegistry 为 executor 注册表，不得为 nil。
-func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pgxpool.Pool, rdb *redis.Client, cfg Config, execRegistry pipeline.AgentExecutorBuilder) (*runengine.EngineV1, error) {
+// jobQueue 可选；非 nil 时启用 SpawnChildRun（AS-3.5.2）。
+func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pgxpool.Pool, rdb *redis.Client, cfg Config, execRegistry pipeline.AgentExecutorBuilder, jobQueue queue.JobQueue) (*runengine.EngineV1, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -89,6 +91,7 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 		SkillRegistry:          skillRegistry,
 		MCPPool:                mcpPool,
 		ExecutorRegistry:       execRegistry,
+		JobQueue:               jobQueue,
 		RunLimiterRDB:          rdb,
 		LlmRetryMaxAttempts:    cfg.LlmRetryMaxAttempts,
 		LlmRetryBaseDelayMs:    cfg.LlmRetryBaseDelayMs,

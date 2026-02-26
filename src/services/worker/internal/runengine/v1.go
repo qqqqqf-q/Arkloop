@@ -12,6 +12,7 @@ import (
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/mcp"
 	"arkloop/services/worker/internal/pipeline"
+	"arkloop/services/worker/internal/queue"
 	"arkloop/services/worker/internal/routing"
 	"arkloop/services/worker/internal/skills"
 	"arkloop/services/worker/internal/tools"
@@ -26,6 +27,7 @@ type EngineV1 struct {
 	router              *routing.ProviderRouter
 	directPool          *pgxpool.Pool
 	broadcastRDB        *redis.Client
+	jobQueue            queue.JobQueue
 	executorRegistry    pipeline.AgentExecutorBuilder
 	llmRetryMaxAttempts int
 	llmRetryBaseDelayMs int
@@ -51,6 +53,9 @@ type EngineV1Deps struct {
 	SkillRegistry   *skills.Registry
 	MCPPool         *mcp.Pool
 	ExecutorRegistry pipeline.AgentExecutorBuilder // 必填，nil 时 NewEngineV1 返回错误
+
+	// JobQueue 可选；非 nil 时启用 SpawnChildRun（AS-3.5.2）
+	JobQueue queue.JobQueue
 
 	// LLM 请求重试配置
 	LlmRetryMaxAttempts int
@@ -127,6 +132,7 @@ func NewEngineV1(deps EngineV1Deps) (*EngineV1, error) {
 		router:              deps.Router,
 		directPool:          deps.DirectDBPool,
 		broadcastRDB:        deps.RunLimiterRDB,
+		jobQueue:            deps.JobQueue,
 		executorRegistry:    deps.ExecutorRegistry,
 		llmRetryMaxAttempts: deps.LlmRetryMaxAttempts,
 		llmRetryBaseDelayMs: deps.LlmRetryBaseDelayMs,
@@ -157,6 +163,10 @@ func (e *EngineV1) Execute(ctx context.Context, pool *pgxpool.Pool, run data.Run
 		ToolBudget:          map[string]any{},
 		LlmRetryMaxAttempts: e.llmRetryMaxAttempts,
 		LlmRetryBaseDelayMs: e.llmRetryBaseDelayMs,
+	}
+
+	if e.jobQueue != nil && e.broadcastRDB != nil {
+		rc.SpawnChildRun = newSpawnChildRunFunc(pool, e.broadcastRDB, e.jobQueue, run, traceID)
 	}
 
 	handler := pipeline.Build(e.middlewares, e.terminal)

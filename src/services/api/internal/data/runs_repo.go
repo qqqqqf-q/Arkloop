@@ -510,13 +510,14 @@ type RunWithUser struct {
 // ListRunsParams 控制 ListRuns 的过滤和分页行为。
 // OrgID 为 nil 时不按 org 过滤（平台管理员全局查询专用）。
 type ListRunsParams struct {
-	OrgID  *uuid.UUID
-	UserID *uuid.UUID
-	Status *string
-	Since  *time.Time
-	Until  *time.Time
-	Limit  int
-	Offset int
+	OrgID       *uuid.UUID
+	UserID      *uuid.UUID
+	ParentRunID *uuid.UUID
+	Status      *string
+	Since       *time.Time
+	Until       *time.Time
+	Limit       int
+	Offset      int
 }
 
 // ListRuns 跨 thread 查询 runs，LEFT JOIN users 附带创建者信息，返回结果列表和满足条件的总行数。
@@ -547,6 +548,9 @@ func (r *RunEventRepository) ListRuns(ctx context.Context, params ListRunsParams
 	}
 	if params.UserID != nil {
 		conds = append(conds, "r.created_by_user_id = "+addArg(*params.UserID))
+	}
+	if params.ParentRunID != nil {
+		conds = append(conds, "r.parent_run_id = "+addArg(*params.ParentRunID))
 	}
 	if params.Status != nil {
 		conds = append(conds, "r.status = "+addArg(*params.Status))

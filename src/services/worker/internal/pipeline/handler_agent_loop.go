@@ -145,6 +145,9 @@ type eventWriter struct {
 	totalCacheReadTokens     int64
 	totalCachedTokens        int64
 	totalCostUSD             float64
+
+	// 子 Run 完成通知：commit 时将终态状态发布到 run.child.{runID}.done
+	terminalRunStatus string
 }
 
 func newEventWriter(
@@ -244,6 +247,7 @@ func (w *eventWriter) Append(
 				return err
 			}
 		}
+		w.terminalRunStatus = "cancelled"
 		w.hasTerminal = true
 		if err := w.commit(ctx); err != nil {
 			return err
@@ -256,7 +260,6 @@ func (w *eventWriter) Append(
 		}
 		return errStopProcessing
 	}
-
 	if _, err := eventsRepo.AppendEvent(ctx, w.tx, runID, ev.Type, ev.DataJSON, ev.ToolName, ev.ErrorClass); err != nil {
 		return err
 	}
@@ -297,6 +300,7 @@ func (w *eventWriter) Append(
 				return err
 			}
 		}
+		w.terminalRunStatus = status
 		w.hasTerminal = true
 		return nil
 	}
@@ -332,6 +336,15 @@ func (w *eventWriter) commit(ctx context.Context) error {
 	}
 
 	if w.hasTerminal {
+		if w.runLimiterRDB != nil && w.terminalRunStatus != "" {
+			// 通知可能正在等待的父 Run（无父 Run 时此 publish 为空操作）
+			output := ""
+			if w.terminalRunStatus == "completed" {
+				output = strings.Join(w.assistantDeltas, "")
+			}
+			ch := fmt.Sprintf("run.child.%s.done", w.run.ID.String())
+			_, _ = w.runLimiterRDB.Publish(ctx, ch, w.terminalRunStatus+"\n"+output).Result()
+		}
 		w.hasTerminal = false
 		key := runlimit.Key(w.run.OrgID.String())
 		runlimit.Release(ctx, w.runLimiterRDB, key)
