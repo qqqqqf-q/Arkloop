@@ -17,7 +17,7 @@ func (s *stubExecutor) Execute(_ context.Context, _ *pipeline.RunContext, _ even
 }
 
 func makeStubFactory(err error) Factory {
-	return func(config map[string]any) (AgentExecutor, error) {
+	return func(config map[string]any) (pipeline.AgentExecutor, error) {
 		if err != nil {
 			return nil, err
 		}

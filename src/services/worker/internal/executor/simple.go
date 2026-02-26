@@ -15,7 +15,7 @@ import (
 type SimpleExecutor struct{}
 
 // NewSimpleExecutor 是 "agent.simple" 的工厂函数，config 参数无效。
-func NewSimpleExecutor(_ map[string]any) (AgentExecutor, error) {
+func NewSimpleExecutor(_ map[string]any) (pipeline.AgentExecutor, error) {
 	return &SimpleExecutor{}, nil
 }
 

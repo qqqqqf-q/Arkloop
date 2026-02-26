@@ -26,6 +26,7 @@ type EngineV1 struct {
 	router              *routing.ProviderRouter
 	directPool          *pgxpool.Pool
 	broadcastRDB        *redis.Client
+	executorRegistry    pipeline.AgentExecutorBuilder
 	llmRetryMaxAttempts int
 	llmRetryBaseDelayMs int
 }
@@ -47,8 +48,9 @@ type EngineV1Deps struct {
 	AllLlmToolSpecs        []llm.ToolSpec
 	BaseToolAllowlistNames []string
 
-	SkillRegistry *skills.Registry
-	MCPPool       *mcp.Pool
+	SkillRegistry   *skills.Registry
+	MCPPool         *mcp.Pool
+	ExecutorRegistry pipeline.AgentExecutorBuilder // 必填，nil 时 NewEngineV1 返回错误
 
 	// LLM 请求重试配置
 	LlmRetryMaxAttempts int
@@ -64,6 +66,9 @@ func NewEngineV1(deps EngineV1Deps) (*EngineV1, error) {
 	}
 	if deps.ToolRegistry == nil {
 		return nil, fmt.Errorf("tool registry must not be nil")
+	}
+	if deps.ExecutorRegistry == nil {
+		return nil, fmt.Errorf("executor registry must not be nil")
 	}
 	if deps.ToolExecutors == nil {
 		deps.ToolExecutors = map[string]tools.Executor{}
@@ -122,6 +127,7 @@ func NewEngineV1(deps EngineV1Deps) (*EngineV1, error) {
 		router:              deps.Router,
 		directPool:          deps.DirectDBPool,
 		broadcastRDB:        deps.RunLimiterRDB,
+		executorRegistry:    deps.ExecutorRegistry,
 		llmRetryMaxAttempts: deps.LlmRetryMaxAttempts,
 		llmRetryBaseDelayMs: deps.LlmRetryBaseDelayMs,
 	}, nil
@@ -146,6 +152,7 @@ func (e *EngineV1) Execute(ctx context.Context, pool *pgxpool.Pool, run data.Run
 		TraceID:             traceID,
 		Emitter:             events.NewEmitter(traceID),
 		Router:              e.router,
+		ExecutorBuilder:     e.executorRegistry,
 		MaxIterations:       10,
 		ToolBudget:          map[string]any{},
 		LlmRetryMaxAttempts: e.llmRetryMaxAttempts,

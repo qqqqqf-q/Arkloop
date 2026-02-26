@@ -26,7 +26,7 @@ type ClassifyRouteExecutor struct {
 }
 
 // NewClassifyRouteExecutor 是 "task.classify_route" 的 Factory 函数。
-func NewClassifyRouteExecutor(config map[string]any) (AgentExecutor, error) {
+func NewClassifyRouteExecutor(config map[string]any) (pipeline.AgentExecutor, error) {
 	if config == nil {
 		return nil, fmt.Errorf("executor_config is required for task.classify_route")
 	}

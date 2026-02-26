@@ -1,22 +1,7 @@
 package executor
 
-import (
-	"context"
-
-	"arkloop/services/worker/internal/events"
-	"arkloop/services/worker/internal/pipeline"
-)
-
-// AgentExecutor 定义 Agent 的执行策略。
-// Lite/Pro/Ultra/Task 各自实现不同行为，通过注册表按 executor_type 分发。
-type AgentExecutor interface {
-	Execute(
-		ctx context.Context,
-		rc *pipeline.RunContext,
-		emitter events.Emitter,
-		yield func(events.RunEvent) error,
-	) error
-}
+import "arkloop/services/worker/internal/pipeline"
 
 // Factory 根据 executor_config 构建 AgentExecutor 实例。
-type Factory func(config map[string]any) (AgentExecutor, error)
+// AgentExecutor 接口定义在 pipeline 包，避免循环导入。
+type Factory func(config map[string]any) (pipeline.AgentExecutor, error)

@@ -10,10 +10,8 @@ import (
 	"time"
 
 	"arkloop/services/shared/runlimit"
-	"arkloop/services/worker/internal/agent"
 	"arkloop/services/worker/internal/data"
 	"arkloop/services/worker/internal/events"
-	"arkloop/services/worker/internal/llm"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -70,48 +68,21 @@ func NewAgentLoopHandler(
 			return err
 		}
 
-		toolExecutor := rc.ToolExecutor
-		toolSpecs := rc.FinalSpecs
-
-		messages := append([]llm.Message{}, rc.Messages...)
-		if strings.TrimSpace(rc.SystemPrompt) != "" {
-			systemPart := llm.TextPart{Text: rc.SystemPrompt}
-			if rc.AgentConfig != nil && rc.AgentConfig.PromptCacheControl == "system_prompt" {
-				ephemeral := "ephemeral"
-				systemPart.CacheControl = &ephemeral
+		executorType := "agent.simple"
+		var executorConfig map[string]any
+		if rc.SkillDefinition != nil {
+			if rc.SkillDefinition.ExecutorType != "" {
+				executorType = rc.SkillDefinition.ExecutorType
 			}
-			messages = append([]llm.Message{
-				{
-					Role:    "system",
-					Content: []llm.TextPart{systemPart},
-				},
-			}, messages...)
+			executorConfig = rc.SkillDefinition.ExecutorConfig
 		}
 
-		agentRequest := llm.Request{
-			Model:           selected.Route.Model,
-			Messages:        messages,
-			Tools:           append([]llm.ToolSpec{}, toolSpecs...),
-			MaxOutputTokens: rc.MaxOutputTokens,
+		exec, execBuildErr := rc.ExecutorBuilder.Build(executorType, executorConfig)
+		if execBuildErr != nil {
+			return fmt.Errorf("build executor %q: %w", executorType, execBuildErr)
 		}
 
-		loop := agent.NewLoop(rc.Gateway, toolExecutor)
-		runCtx := agent.RunContext{
-			RunID:               rc.Run.ID,
-			TraceID:             rc.TraceID,
-			InputJSON:           rc.InputJSON,
-			MaxIterations:       rc.MaxIterations,
-			ToolExecutor:        toolExecutor,
-			ToolTimeoutMs:       rc.ToolTimeoutMs,
-			ToolBudget:          rc.ToolBudget,
-			LlmRetryMaxAttempts: rc.LlmRetryMaxAttempts,
-			LlmRetryBaseDelayMs: rc.LlmRetryBaseDelayMs,
-			CancelSignal: func() bool {
-				return ctx.Err() != nil
-			},
-		}
-
-		err := loop.Run(ctx, runCtx, agentRequest, rc.Emitter, func(ev events.RunEvent) error {
+		err := exec.Execute(ctx, rc, rc.Emitter, func(ev events.RunEvent) error {
 			if appendErr := writer.Append(ctx, runsRepo, eventsRepo, rc.Run.ID, ev); appendErr != nil {
 				if errors.Is(appendErr, errStopProcessing) {
 					return errStopProcessing

@@ -1,4 +1,4 @@
-package runengine
+package runengine_test
 
 import (
 	"context"
@@ -6,8 +6,10 @@ import (
 	"testing"
 
 	"arkloop/services/worker/internal/data"
+	"arkloop/services/worker/internal/executor"
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/routing"
+	"arkloop/services/worker/internal/runengine"
 	"arkloop/services/worker/internal/skills"
 	"arkloop/services/worker/internal/testutil"
 	"arkloop/services/worker/internal/tools"
@@ -65,7 +67,7 @@ func TestEngineV1InjectsSkillSystemPromptAndBudgets(t *testing.T) {
 		t.Fatalf("LoadRegistry failed: %v", err)
 	}
 
-	engine, err := NewEngineV1(EngineV1Deps{
+	engine, err := runengine.NewEngineV1(runengine.EngineV1Deps{
 		Router:                 router,
 		StubGateway:            gateway,
 		EmitDebugEvents:        false,
@@ -74,13 +76,14 @@ func TestEngineV1InjectsSkillSystemPromptAndBudgets(t *testing.T) {
 		AllLlmToolSpecs:        builtin.LlmSpecs(),
 		BaseToolAllowlistNames: []string{"echo"},
 		SkillRegistry:          skillRegistry,
+		ExecutorRegistry:       executor.DefaultExecutorRegistry(),
 	})
 	if err != nil {
 		t.Fatalf("NewEngineV1 failed: %v", err)
 	}
 
 	run := data.Run{ID: runID, OrgID: orgID, ThreadID: threadID}
-	if err := engine.Execute(context.Background(), pool, run, ExecuteInput{TraceID: "trace"}); err != nil {
+	if err := engine.Execute(context.Background(), pool, run, runengine.ExecuteInput{TraceID: "trace"}); err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
 

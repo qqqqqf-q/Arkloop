@@ -1,6 +1,10 @@
 package executor
 
-import "fmt"
+import (
+	"fmt"
+
+	"arkloop/services/worker/internal/pipeline"
+)
 
 // Registry 管理 AgentExecutor 工厂函数，按 executor_type 键控。
 type Registry struct {
@@ -28,7 +32,7 @@ func (r *Registry) Register(executorType string, factory Factory) error {
 }
 
 // Build 根据类型和配置构建 AgentExecutor 实例。未知类型返回描述性错误。
-func (r *Registry) Build(executorType string, config map[string]any) (AgentExecutor, error) {
+func (r *Registry) Build(executorType string, config map[string]any) (pipeline.AgentExecutor, error) {
 	factory, ok := r.factories[executorType]
 	if !ok {
 		return nil, fmt.Errorf("unknown executor type: %s", executorType)
@@ -38,3 +42,12 @@ func (r *Registry) Build(executorType string, config map[string]any) (AgentExecu
 	}
 	return factory(config)
 }
+
+// DefaultExecutorRegistry 返回注册了所有内置 executor 类型的注册表。
+func DefaultExecutorRegistry() *Registry {
+	reg := NewAgentRegistry()
+	_ = reg.Register("agent.simple", NewSimpleExecutor)
+	_ = reg.Register("task.classify_route", NewClassifyRouteExecutor)
+	return reg
+}
+

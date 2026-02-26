@@ -6,6 +6,7 @@ import (
 
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/mcp"
+	"arkloop/services/worker/internal/pipeline"
 	"arkloop/services/worker/internal/routing"
 	"arkloop/services/worker/internal/runengine"
 	"arkloop/services/worker/internal/skills"
@@ -20,7 +21,8 @@ import (
 // pool 不为 nil 时优先从数据库加载路由配置，若数据库无配置则回退到环境变量。
 // directPool 不为 nil 时用于 LISTEN/NOTIFY 直连（绕过 PgBouncer）。
 // rdb 不为 nil 时在 run 终态时 DECR 并发计数器。
-func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pgxpool.Pool, rdb *redis.Client, cfg Config) (*runengine.EngineV1, error) {
+// execRegistry 为 executor 注册表，不得为 nil。
+func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pgxpool.Pool, rdb *redis.Client, cfg Config, execRegistry pipeline.AgentExecutorBuilder) (*runengine.EngineV1, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -86,6 +88,7 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 		BaseToolAllowlistNames: baseAllowlistNames,
 		SkillRegistry:          skillRegistry,
 		MCPPool:                mcpPool,
+		ExecutorRegistry:       execRegistry,
 		RunLimiterRDB:          rdb,
 		LlmRetryMaxAttempts:    cfg.LlmRetryMaxAttempts,
 		LlmRetryBaseDelayMs:    cfg.LlmRetryBaseDelayMs,
