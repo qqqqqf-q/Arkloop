@@ -43,6 +43,7 @@ type HandlerConfig struct {
 	OrgMembershipRepo   *data.OrgMembershipRepository
 	ThreadRepo          *data.ThreadRepository
 	ThreadStarRepo      *data.ThreadStarRepository
+	ThreadShareRepo     *data.ThreadShareRepository
 	MessageRepo         *data.MessageRepository
 	RunEventRepo        *data.RunEventRepository
 	AuditWriter         *audit.Writer
@@ -130,6 +131,7 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 			cfg.OrgMembershipRepo,
 			cfg.ThreadRepo,
 			cfg.ThreadStarRepo,
+			cfg.ThreadShareRepo,
 			cfg.MessageRepo,
 			cfg.RunEventRepo,
 			cfg.ProjectRepo,
@@ -143,6 +145,12 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 			cfg.RedisClient,
 		),
 	)
+
+	mux.HandleFunc(
+		"/v1/s/",
+		publicShareEntry(cfg.ThreadShareRepo, cfg.ThreadRepo, cfg.MessageRepo),
+	)
+
 	sseConfig := cfg.SSEConfig
 	if sseConfig.BatchLimit <= 0 {
 		sseConfig = defaultSSEConfig()

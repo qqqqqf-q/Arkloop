@@ -484,6 +484,7 @@ func threadEntry(
 	membershipRepo *data.OrgMembershipRepository,
 	threadRepo *data.ThreadRepository,
 	threadStarRepo *data.ThreadStarRepository,
+	threadShareRepo *data.ThreadShareRepository,
 	messageRepo *data.MessageRepository,
 	runRepo *data.RunEventRepository,
 	projectRepo *data.ProjectRepository,
@@ -504,6 +505,7 @@ func threadEntry(
 	createRun := createThreadRun(authService, membershipRepo, threadRepo, auditWriter, pool, apiKeysRepo, runLimiter, entSvc, rdb)
 	listRuns := listThreadRuns(authService, membershipRepo, threadRepo, runRepo, auditWriter, apiKeysRepo)
 	retry := retryThread(authService, membershipRepo, threadRepo, messageRepo, auditWriter, pool, apiKeysRepo)
+	share := shareEntry(authService, membershipRepo, threadRepo, threadShareRepo, messageRepo, auditWriter, apiKeysRepo)
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		if r.URL.Path == "/v1/threads/" {
 			threadsEntry(authService, membershipRepo, threadRepo, apiKeysRepo, auditWriter)(w, r)
@@ -539,6 +541,8 @@ func threadEntry(
 				retry(w, r, threadID)
 			case "star":
 				handleThreadStar(w, r, traceID, authService, membershipRepo, threadRepo, threadStarRepo, apiKeysRepo, auditWriter, threadID)
+			case "share":
+				share(w, r, threadID)
 			default:
 				writeNotFound(w, r)
 			}
