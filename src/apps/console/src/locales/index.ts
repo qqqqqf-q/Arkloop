@@ -402,6 +402,7 @@ export interface LocaleStrings {
       colStatus: string
       colDuration: string
       empty: string
+      emptyFiltered: string
       loadMore: string
       toastLoadFailed: string
       riskLow: string
@@ -414,6 +415,8 @@ export interface LocaleStrings {
       filterIP: string
       filterRiskMin: string
       filterAll: string
+      apply: string
+      clearFilters: string
     }
     teams: {
       title: string

@@ -138,10 +138,10 @@ func listAccessLog(
 	hasFilters := filters.method != "" || filters.path != "" || filters.ip != "" ||
 		filters.country != "" || filters.riskMin > 0 || filters.uaType != ""
 
-	// 有过滤条件时需要多读一些再筛选
+	// 有过滤条件时需要扫描全量数据（stream MAXLEN = 10000）
 	fetchSize := int64(count + 1)
 	if hasFilters {
-		fetchSize = int64(count*5 + 1)
+		fetchSize = 10001
 	}
 
 	messages, err := rdb.XRevRangeN(r.Context(), accessLogStreamKey, end, start, fetchSize).Result()

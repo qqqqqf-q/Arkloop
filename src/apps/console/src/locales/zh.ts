@@ -341,6 +341,7 @@ export const zh: LocaleStrings = {
       colStatus: '状态码',
       colDuration: '耗时',
       empty: '暂无访问记录',
+      emptyFiltered: '没有符合条件的记录',
       loadMore: '加载更多',
       toastLoadFailed: '加载访问日志失败',
       riskLow: '低',
@@ -353,6 +354,8 @@ export const zh: LocaleStrings = {
       filterIP: 'IP',
       filterRiskMin: '最低风险',
       filterAll: '全部',
+      apply: '应用',
+      clearFilters: '清除筛选',
     },
     teams: {
       title: '团队',

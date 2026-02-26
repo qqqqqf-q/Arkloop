@@ -341,6 +341,7 @@ export const en: LocaleStrings = {
       colStatus: 'Status',
       colDuration: 'Duration',
       empty: 'No access records',
+      emptyFiltered: 'No records match current filters',
       loadMore: 'Load More',
       toastLoadFailed: 'Failed to load access log',
       riskLow: 'Low',
@@ -353,6 +354,8 @@ export const en: LocaleStrings = {
       filterIP: 'IP',
       filterRiskMin: 'Min Risk',
       filterAll: 'All',
+      apply: 'Apply',
+      clearFilters: 'Clear Filters',
     },
     teams: {
       title: 'Teams',

@@ -1,6 +1,6 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { useOutletContext } from 'react-router-dom'
-import { RefreshCw, Shield } from 'lucide-react'
+import { RefreshCw, Shield, Search, X } from 'lucide-react'
 import type { ConsoleOutletContext } from '../../layouts/ConsoleLayout'
 import { PageHeader } from '../../components/PageHeader'
 import { EmptyState } from '../../components/EmptyState'
@@ -10,8 +10,21 @@ import { listAccessLog, type AccessLogEntry, type AccessLogParams } from '../../
 
 const PAGE_SIZE = 50
 
-const METHOD_OPTIONS = ['', 'GET', 'POST', 'PUT', 'PATCH', 'DELETE']
-const RISK_OPTIONS = [0, 20, 50, 80]
+const METHOD_OPTIONS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']
+const RISK_OPTIONS = [20, 50, 80]
+
+type AppliedFilters = {
+  method: string
+  path: string
+  ip: string
+  riskMin: number
+}
+
+const emptyFilters: AppliedFilters = { method: '', path: '', ip: '', riskMin: 0 }
+
+function hasActiveFilters(f: AppliedFilters): boolean {
+  return f.method !== '' || f.path !== '' || f.ip !== '' || f.riskMin > 0
+}
 
 function riskBadge(score: number, t: { riskLow: string; riskMedium: string; riskHigh: string; riskCritical: string }) {
   if (score >= 80) {
@@ -70,29 +83,25 @@ export function AccessLogPage() {
   const [hasMore, setHasMore] = useState(false)
   const [nextBefore, setNextBefore] = useState<string | undefined>()
 
-  // filters
-  const [method, setMethod] = useState('')
-  const [pathFilter, setPathFilter] = useState('')
-  const [ipFilter, setIpFilter] = useState('')
-  const [riskMin, setRiskMin] = useState(0)
+  // 草稿状态：用户编辑中，未提交
+  const [draft, setDraft] = useState<AppliedFilters>(emptyFilters)
+  // 已应用状态：触发实际请求
+  const [applied, setApplied] = useState<AppliedFilters>(emptyFilters)
 
   const p = t.pages.accessLog
 
-  const buildParams = useCallback((before?: string): AccessLogParams => {
-    const params: AccessLogParams = { limit: PAGE_SIZE }
-    if (before) params.before = before
-    if (method) params.method = method
-    if (pathFilter) params.path = pathFilter
-    if (ipFilter) params.ip = ipFilter
-    if (riskMin > 0) params.risk_min = riskMin
-    return params
-  }, [method, pathFilter, ipFilter, riskMin])
-
-  const fetchEntries = useCallback(
-    async (before?: string, append = false) => {
+  const fetchWithFilters = useCallback(
+    async (filters: AppliedFilters, before?: string, append = false) => {
       setLoading(true)
       try {
-        const resp = await listAccessLog(buildParams(before), accessToken)
+        const params: AccessLogParams = { limit: PAGE_SIZE }
+        if (before) params.before = before
+        if (filters.method) params.method = filters.method
+        if (filters.path) params.path = filters.path
+        if (filters.ip) params.ip = filters.ip
+        if (filters.riskMin > 0) params.risk_min = filters.riskMin
+
+        const resp = await listAccessLog(params, accessToken)
         if (append) {
           setEntries((prev) => [...prev, ...resp.data])
         } else {
@@ -106,65 +115,131 @@ export function AccessLogPage() {
         setLoading(false)
       }
     },
-    [accessToken, addToast, p.toastLoadFailed, buildParams],
+    [accessToken, addToast, p.toastLoadFailed],
   )
 
+  // 初始加载
+  const initialLoadDone = useRef(false)
   useEffect(() => {
-    void fetchEntries()
-  }, [fetchEntries])
+    if (!initialLoadDone.current) {
+      initialLoadDone.current = true
+      void fetchWithFilters(emptyFilters)
+    }
+  }, [fetchWithFilters])
+
+  const handleApply = useCallback(() => {
+    setApplied(draft)
+    setNextBefore(undefined)
+    void fetchWithFilters(draft)
+  }, [draft, fetchWithFilters])
+
+  const handleClear = useCallback(() => {
+    const reset = emptyFilters
+    setDraft(reset)
+    setApplied(reset)
+    setNextBefore(undefined)
+    void fetchWithFilters(reset)
+  }, [fetchWithFilters])
 
   const handleRefresh = useCallback(() => {
-    void fetchEntries()
-  }, [fetchEntries])
+    setNextBefore(undefined)
+    void fetchWithFilters(applied)
+  }, [applied, fetchWithFilters])
 
   const handleLoadMore = useCallback(() => {
     if (nextBefore) {
-      void fetchEntries(nextBefore, true)
+      void fetchWithFilters(applied, nextBefore, true)
     }
-  }, [fetchEntries, nextBefore])
+  }, [applied, fetchWithFilters, nextBefore])
 
-  const actions = (
-    <>
-      <select value={method} onChange={(e) => setMethod(e.target.value)} className={selectClass}>
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === 'Enter') handleApply()
+    },
+    [handleApply],
+  )
+
+  const active = hasActiveFilters(applied)
+
+  const filterBar = (
+    <div className="flex flex-wrap items-center gap-2 border-b border-[var(--c-border-console)] px-4 py-2.5">
+      <select
+        value={draft.method}
+        onChange={(e) => setDraft((d) => ({ ...d, method: e.target.value }))}
+        className={selectClass}
+      >
         <option value="">{p.filterMethod}: {p.filterAll}</option>
-        {METHOD_OPTIONS.filter(Boolean).map((m) => (
+        {METHOD_OPTIONS.map((m) => (
           <option key={m} value={m}>{m}</option>
         ))}
       </select>
+
       <input
         type="text"
         placeholder={p.filterPath}
-        value={pathFilter}
-        onChange={(e) => setPathFilter(e.target.value)}
+        value={draft.path}
+        onChange={(e) => setDraft((d) => ({ ...d, path: e.target.value }))}
+        onKeyDown={handleKeyDown}
         className={inputClass}
       />
+
       <input
         type="text"
         placeholder={p.filterIP}
-        value={ipFilter}
-        onChange={(e) => setIpFilter(e.target.value)}
+        value={draft.ip}
+        onChange={(e) => setDraft((d) => ({ ...d, ip: e.target.value }))}
+        onKeyDown={handleKeyDown}
         className={inputClass}
       />
-      <select value={riskMin} onChange={(e) => setRiskMin(Number(e.target.value))} className={selectClass}>
+
+      <select
+        value={draft.riskMin}
+        onChange={(e) => setDraft((d) => ({ ...d, riskMin: Number(e.target.value) }))}
+        className={selectClass}
+      >
         <option value={0}>{p.filterRiskMin}: {p.filterAll}</option>
-        {RISK_OPTIONS.filter(Boolean).map((v) => (
+        {RISK_OPTIONS.map((v) => (
           <option key={v} value={v}>&ge; {v}</option>
         ))}
       </select>
+
       <button
-        onClick={handleRefresh}
+        onClick={handleApply}
         disabled={loading}
-        className="flex items-center gap-1.5 rounded-lg border border-[var(--c-border)] px-2.5 py-1.5 text-xs text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-sub)] disabled:opacity-50"
+        className="flex items-center gap-1.5 rounded-lg bg-[var(--c-primary,#6366f1)] px-2.5 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
       >
-        <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
-        Refresh
+        <Search size={12} />
+        {p.apply}
       </button>
-    </>
+
+      {active && (
+        <button
+          onClick={handleClear}
+          disabled={loading}
+          className="flex items-center gap-1 text-xs text-[var(--c-text-muted)] transition-colors hover:text-[var(--c-text-secondary)] disabled:opacity-50"
+        >
+          <X size={12} />
+          {p.clearFilters}
+        </button>
+      )}
+    </div>
+  )
+
+  const actions = (
+    <button
+      onClick={handleRefresh}
+      disabled={loading}
+      className="flex items-center gap-1.5 rounded-lg border border-[var(--c-border)] px-2.5 py-1.5 text-xs text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-sub)] disabled:opacity-50"
+    >
+      <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
+      Refresh
+    </button>
   )
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
       <PageHeader title={p.title} actions={actions} />
+      {filterBar}
 
       <div className="flex flex-1 flex-col overflow-auto">
         {loading && entries.length === 0 ? (
@@ -172,7 +247,10 @@ export function AccessLogPage() {
             <p className="text-sm text-[var(--c-text-muted)]">{t.loading}</p>
           </div>
         ) : entries.length === 0 ? (
-          <EmptyState icon={<Shield size={28} />} message={p.empty} />
+          <EmptyState
+            icon={<Shield size={28} />}
+            message={active ? p.emptyFiltered : p.empty}
+          />
         ) : (
           <>
             <table className="w-full text-left text-sm">
