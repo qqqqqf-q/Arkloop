@@ -83,6 +83,7 @@ export const zh: LocaleStrings = {
   fieldIdentity: '用户名 / 邮箱',
   fieldPassword: '密码',
   backBtn: '返回',
+  editIdentity: '编辑',
   otpLoginTab: '邮箱验证码',
   passwordLoginTab: '密码登录',
   otpEmailPlaceholder: '邮箱地址',

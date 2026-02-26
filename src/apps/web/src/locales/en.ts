@@ -83,6 +83,7 @@ export const en: LocaleStrings = {
   fieldIdentity: 'Username / Email',
   fieldPassword: 'Password',
   backBtn: 'Back',
+  editIdentity: 'Edit',
   otpLoginTab: 'Email Code',
   passwordLoginTab: 'Password',
   otpEmailPlaceholder: 'Email address',

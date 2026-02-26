@@ -714,11 +714,9 @@ func checkUser(credentialRepo *data.UserCredentialRepository, usersRepo *data.Us
 			}
 		}
 		if !exists {
-			if user, err := usersRepo.GetByEmail(r.Context(), body.Login); err == nil && user != nil {
+			if cred, err := credentialRepo.GetByUserEmail(r.Context(), body.Login); err == nil && cred != nil {
 				exists = true
-				if user.Email != nil {
-					maskedEmail = maskEmail(*user.Email)
-				}
+				maskedEmail = maskEmail(body.Login)
 			}
 		}
 

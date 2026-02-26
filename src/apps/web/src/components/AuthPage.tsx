@@ -22,12 +22,11 @@ function GitHubIcon() {
 
 function EyeIcon({ open }: { open: boolean }) {
   return open ? (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
-      <path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z" />
-      <circle cx="12" cy="12" r="3" />
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+      <path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z" /><circle cx="12" cy="12" r="3" />
     </svg>
   ) : (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
       <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-6 0-10-8-10-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c6 0 10 8 10 8a18.5 18.5 0 0 1-2.16 3.19M1 1l22 22" />
     </svg>
   )
@@ -39,13 +38,78 @@ function normalizeError(error: unknown, fallback: string): AppError {
   return { message: fallback }
 }
 
-type Phase = 'identity' | 'password' | 'otp-email' | 'otp-code' | 'register'
-
-type Props = {
-  onLoggedIn: (accessToken: string, refreshToken: string) => void
+// CSS grid 0fr→1fr 展开动效，无需预知高度
+function Reveal({ active, children }: { active: boolean; children: React.ReactNode }) {
+  return (
+    <div style={{
+      display: 'grid',
+      gridTemplateRows: active ? '1fr' : '0fr',
+      opacity: active ? 1 : 0,
+      transition: 'grid-template-rows 0.38s cubic-bezier(0.4,0,0.2,1), opacity 0.25s ease',
+    }}>
+      <div style={{ overflow: 'hidden' }}>{children}</div>
+    </div>
+  )
 }
 
+type Phase = 'identity' | 'password' | 'otp-email' | 'otp-code' | 'register'
+
+type Props = { onLoggedIn: (accessToken: string, refreshToken: string) => void }
+
 const isEmailStr = (v: string) => v.includes('@')
+const TRANSITION = '0.42s cubic-bezier(0.4,0,0.2,1)'
+
+const inputCls = 'w-full rounded-[10px] bg-[var(--c-bg-input)] text-[var(--c-text-primary)] outline-none placeholder:text-[var(--c-placeholder)]'
+const inputStyle = {
+  border: '0.5px solid var(--c-border-auth)',
+  height: '36px',
+  padding: '0 14px',
+  fontSize: '13px',
+  fontWeight: 500,
+  fontFamily: 'inherit',
+} as const
+const labelStyle = {
+  fontSize: '11px',
+  fontWeight: 500 as const,
+  color: 'var(--c-placeholder)',
+  paddingLeft: '2px',
+  marginBottom: '4px',
+  display: 'block',
+} as const
+
+interface PasswordEyeProps {
+  inputRef: React.RefObject<HTMLInputElement>
+  placeholder: string
+  value: string
+  onChange: (v: string) => void
+  showPassword: boolean
+  onToggleShow: () => void
+}
+
+function PasswordEye({ inputRef, placeholder, value, onChange, showPassword, onToggleShow }: PasswordEyeProps) {
+  return (
+    <div style={{ position: 'relative' }}>
+      <input
+        ref={inputRef}
+        className={inputCls}
+        style={{ ...inputStyle, paddingRight: '38px' }}
+        type={showPassword ? 'text' : 'password'}
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        autoComplete="current-password"
+      />
+      <button
+        type="button"
+        tabIndex={-1}
+        onClick={onToggleShow}
+        style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--c-placeholder)', padding: '2px', display: 'flex', alignItems: 'center' }}
+      >
+        <EyeIcon open={showPassword} />
+      </button>
+    </div>
+  )
+}
 
 export function AuthPage({ onLoggedIn }: Props) {
   const [identity, setIdentity] = useState('')
@@ -73,6 +137,11 @@ export function AuthPage({ onLoggedIn }: Props) {
   const [error, setError] = useState<AppError | null>(null)
   const [registrationMode, setRegistrationMode] = useState<RegistrationModeResponse['mode']>('invite_only')
 
+  const passwordRef = useRef<HTMLInputElement>(null)
+  const otpEmailRef = useRef<HTMLInputElement>(null)
+  const otpCodeRef = useRef<HTMLInputElement>(null)
+  const regFirstRef = useRef<HTMLInputElement>(null)
+
   const { t } = useLocale()
 
   useEffect(() => {
@@ -87,6 +156,21 @@ export function AuthPage({ onLoggedIn }: Props) {
   }, [])
 
   useEffect(() => () => { if (countdownRef.current) clearInterval(countdownRef.current) }, [])
+
+  // 阶段切换后自动聚焦（等动效完成）
+  useEffect(() => {
+    const delay = 420
+    const refs: Record<string, React.RefObject<HTMLInputElement | null>> = {
+      password: passwordRef,
+      'otp-email': otpEmailRef,
+      'otp-code': otpCodeRef,
+      register: regFirstRef,
+    }
+    const ref = refs[phase]
+    if (!ref) return
+    const t = setTimeout(() => ref.current?.focus(), delay)
+    return () => clearTimeout(t)
+  }, [phase])
 
   const inviteRequired = registrationMode === 'invite_only'
 
@@ -114,10 +198,19 @@ export function AuthPage({ onLoggedIn }: Props) {
   }
 
   const switchToOtp = () => {
-    setOtpEmail(isEmailStr(identity.trim()) ? identity.trim() : '')
-    setOtpCode('')
-    setPhase('otp-email')
     setError(null)
+    if (isEmailStr(identity.trim())) {
+      // identity 已是邮箱：直接发送 OTP，跳过邮箱输入阶段
+      const email = identity.trim()
+      setOtpEmail(email)
+      setPhase('otp-code')
+      startCountdown()
+      sendEmailOTP(email).catch(() => {})
+    } else {
+      setOtpEmail('')
+      setOtpCode('')
+      setPhase('otp-email')
+    }
   }
 
   const handleSubmit = async (e: FormEvent) => {
@@ -230,126 +323,88 @@ export function AuthPage({ onLoggedIn }: Props) {
     return t.continueBtn
   }, [phase, t])
 
-  const phaseSubtitle: Partial<Record<Phase, string>> = {
+  const phaseSubtitles: Partial<Record<Phase, string>> = {
     password: t.enterYourPasswordTitle,
     'otp-email': t.otpLoginTab,
     'otp-code': t.otpLoginTab,
     register: t.registerMode,
   }
 
-  const inputStyle = {
-    border: '0.5px solid var(--c-border-auth)',
-    height: '36px',
-    padding: '0 14px',
-    fontSize: '13px',
-    fontWeight: 500,
-    fontFamily: 'inherit',
-  } as const
-  const inputCls = 'w-full rounded-[10px] bg-[var(--c-bg-input)] text-[var(--c-text-primary)] outline-none placeholder:text-[var(--c-placeholder)]'
-
-  const FieldLabel = ({ text }: { text: string }) => (
-    <div style={{ fontSize: '11px', fontWeight: 500, color: 'var(--c-placeholder)', marginBottom: '4px', paddingLeft: '2px' }}>
-      {text}
-    </div>
-  )
-
-  // Continue / Submit 按钮（全宽）
-  const SubmitBtn = () => (
-    <button
-      type="submit"
-      disabled={!canSubmit}
-      style={{
-        height: '38px',
-        borderRadius: '10px',
-        border: 'none',
-        cursor: 'pointer',
-        fontSize: '14px',
-        fontWeight: 500,
-        fontFamily: 'inherit',
-        background: 'var(--c-btn-bg)',
-        color: 'var(--c-btn-text)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: '6px',
-        width: '100%',
-      }}
-      className="disabled:cursor-not-allowed disabled:opacity-50"
-    >
-      {isLoading ? <><SpinnerIcon />{btnLabel}</> : btnLabel}
-    </button>
-  )
-
-  // 返回按钮（全宽 ghost，与 Continue 同高）
-  const BackBtn = () => (
-    <button
-      type="button"
-      onClick={resetToIdentity}
-      style={{
-        height: '38px',
-        width: '100%',
-        borderRadius: '10px',
-        border: 'none',
-        background: 'transparent',
-        cursor: 'pointer',
-        fontSize: '14px',
-        fontWeight: 500,
-        fontFamily: 'inherit',
-        color: 'var(--c-placeholder)',
-      }}
-    >
-      {t.backBtn}
-    </button>
-  )
-
   return (
-    <div
-      style={{
-        minHeight: '100vh',
-        background: 'var(--c-bg-page)',
-        display: 'flex',
-        flexDirection: 'column' as const,
-        position: 'relative' as const,
-        overflow: 'hidden',
-      }}
-    >
+    <div style={{ minHeight: '100vh', background: 'var(--c-bg-page)', display: 'flex', flexDirection: 'column' as const, position: 'relative' as const, overflow: 'hidden' }}>
       <div className="auth-dots" />
       <div className="auth-glow auth-glow-top" />
       <div className="auth-glow auth-glow-bottom" />
 
+      {/* 使用 padding-top 固定 section 顶部位置，section 向下展开，identity 输入框不移动 */}
       <div
-        className="flex flex-col items-center justify-center"
-        style={{ flex: 1, padding: '48px 20px', position: 'relative', zIndex: 1 }}
+        style={{ flex: 1, display: 'flex', flexDirection: 'column' as const, alignItems: 'center', padding: 'max(48px, calc(50vh - 140px)) 20px 48px', position: 'relative', zIndex: 1 }}
       >
-        {/* identity 阶段：居中 header */}
-        {phase === 'identity' && (
-          <header className="flex flex-col items-center" style={{ gap: '8px', marginBottom: '32px' }}>
-            <div style={{ fontSize: '28px', fontWeight: 500, color: 'var(--c-text-primary)' }}>Arkloop</div>
-            <div style={{ fontSize: '15px', fontWeight: 500, color: 'var(--c-placeholder)' }}>{t.loginMode}</div>
-          </header>
-        )}
-
         <section style={{ width: 'min(400px, 100%)' }}>
-          {/* 非 identity 阶段：左对齐 header 放在 section 内 */}
-          {phase !== 'identity' && (
-            <div style={{ marginBottom: '24px' }}>
-              <div style={{ fontSize: '26px', fontWeight: 500, color: 'var(--c-text-primary)' }}>Arkloop</div>
-              <div style={{ fontSize: '13px', fontWeight: 500, color: 'var(--c-placeholder)', marginTop: '4px' }}>
-                {phaseSubtitle[phase]}
+
+          {/* ── HEADER ── 固定高度，内部动效 */}
+          <div style={{ height: '64px', marginBottom: '20px' }}>
+            {/* Arkloop：居中 → 左对齐 */}
+            <div style={{
+              display: 'block',
+              width: 'fit-content',
+              position: 'relative',
+              left: phase === 'identity' ? '50%' : '0',
+              transform: phase === 'identity' ? 'translateX(-50%)' : 'translateX(0)',
+              transition: `left ${TRANSITION}, transform ${TRANSITION}`,
+              fontSize: '28px',
+              fontWeight: 500,
+              color: 'var(--c-text-primary)',
+              lineHeight: 1,
+            }}>
+              Arkloop
+            </div>
+
+            {/* 副标题区（固定高度，两层叠加淡入淡出） */}
+            <div style={{ position: 'relative', height: '22px', marginTop: '8px' }}>
+              {/* "登录" - 居中，淡出 */}
+              <div style={{
+                position: 'absolute', width: '100%', textAlign: 'center',
+                fontSize: '15px', fontWeight: 500, color: 'var(--c-placeholder)',
+                opacity: phase === 'identity' ? 1 : 0,
+                transition: 'opacity 0.2s ease',
+                pointerEvents: 'none',
+                userSelect: 'none',
+              }}>
+                {t.loginMode}
+              </div>
+              {/* 阶段副标题 - 左对齐，淡入 */}
+              <div style={{
+                position: 'absolute', left: 0, top: 0,
+                fontSize: '13px', fontWeight: 500, color: 'var(--c-placeholder)',
+                opacity: phase !== 'identity' ? 1 : 0,
+                transform: phase !== 'identity' ? 'translateY(0)' : 'translateY(3px)',
+                transition: 'opacity 0.25s ease 0.12s, transform 0.25s ease 0.12s',
+                pointerEvents: 'none',
+                userSelect: 'none',
+                whiteSpace: 'nowrap',
+              }}>
+                {phaseSubtitles[phase] ?? ''}
               </div>
             </div>
-          )}
+          </div>
 
-          {phase === 'register' && (
-            <div style={{ fontSize: '12px', color: 'var(--c-placeholder)', marginBottom: '14px' }}>
-              {t.creatingAccountHint}
+          {/* ── FORM ── */}
+          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column' as const }}>
+
+            {/* identity label：占位始终存在，非 identity 阶段才可见 → identity 输入框 Y 位置固定 */}
+            <div style={{
+              height: '18px',
+              marginBottom: '4px',
+              opacity: phase !== 'identity' ? 1 : 0,
+              transition: `opacity ${TRANSITION}`,
+              ...labelStyle,
+            }}>
+              {t.fieldIdentity}
             </div>
-          )}
 
-          <form className="flex flex-col" style={{ gap: '10px' }} onSubmit={handleSubmit}>
-
-            {/* identity 阶段：可编辑输入框 */}
-            {phase === 'identity' && (
+            {/* identity 输入框 / 静态展示 */}
+            {phase === 'identity' ? (
               <input
                 className={inputCls}
                 style={inputStyle}
@@ -362,69 +417,43 @@ export function AuthPage({ onLoggedIn }: Props) {
                 spellCheck={false}
                 autoFocus
               />
+            ) : (
+              <div
+                className={inputCls}
+                style={{ ...inputStyle, borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', color: 'var(--c-text-secondary)' }}
+              >
+                <span>{identity.trim()}</span>
+                <button
+                  type="button"
+                  onClick={goBack}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#3b82f6', fontSize: '12px', fontWeight: 500, padding: '0 2px', flexShrink: 0 }}
+                >
+                  {t.editIdentity}
+                </button>
+              </div>
             )}
 
-            {/* 密码阶段：静态 identity 显示 + 密码框 */}
-            {phase === 'password' && (
-              <>
-                <div>
-                  <FieldLabel text={t.fieldIdentity} />
-                  <div
-                    className={inputCls}
-                    style={{
-                      ...inputStyle,
-                      borderRadius: '10px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      color: 'var(--c-text-secondary)',
-                    }}
-                  >
-                    {identity.trim()}
-                  </div>
-                </div>
-                <div>
-                  <FieldLabel text={t.fieldPassword} />
-                  <div style={{ position: 'relative' }}>
-                    <input
-                      className={inputCls}
-                      style={{ ...inputStyle, paddingRight: '40px' }}
-                      type={showPassword ? 'text' : 'password'}
-                      placeholder={t.enterPassword}
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      autoComplete="current-password"
-                      autoFocus
-                    />
-                    <button
-                      type="button"
-                      tabIndex={-1}
-                      onClick={() => setShowPassword((v) => !v)}
-                      style={{
-                        position: 'absolute',
-                        right: '10px',
-                        top: '50%',
-                        transform: 'translateY(-50%)',
-                        background: 'none',
-                        border: 'none',
-                        cursor: 'pointer',
-                        color: 'var(--c-placeholder)',
-                        padding: '2px',
-                        display: 'flex',
-                        alignItems: 'center',
-                      }}
-                    >
-                      <EyeIcon open={showPassword} />
-                    </button>
-                  </div>
-                </div>
-              </>
-            )}
+            {/* ── 密码组 ── */}
+            <Reveal active={phase === 'password'}>
+              <div style={{ paddingTop: '10px' }}>
+                <label style={labelStyle}>{t.fieldPassword}</label>
+                <PasswordEye
+                  inputRef={passwordRef}
+                  placeholder={t.enterPassword}
+                  value={password}
+                  onChange={setPassword}
+                  showPassword={showPassword}
+                  onToggleShow={() => setShowPassword((v) => !v)}
+                />
+              </div>
+            </Reveal>
 
-            {/* OTP 邮箱输入 */}
-            {(phase === 'otp-email' || phase === 'otp-code') && (
-              <div>
-                <FieldLabel text={t.otpEmailPlaceholder} />
+            {/* ── OTP 邮箱组：identity 是邮箱时不展开（上方已显示） ── */}
+            <Reveal active={phase === 'otp-email' || (phase === 'otp-code' && !isEmailStr(identity.trim()))}>
+              <div style={{ paddingTop: '10px' }}>
+                <label style={labelStyle}>{t.otpEmailPlaceholder}</label>
                 <input
+                  ref={otpEmailRef}
                   className={inputCls}
                   style={inputStyle}
                   type="email"
@@ -435,22 +464,21 @@ export function AuthPage({ onLoggedIn }: Props) {
                   autoComplete="email"
                   autoCapitalize="none"
                   spellCheck={false}
-                  autoFocus={phase === 'otp-email' && !otpEmail}
                 />
-                {/* 脱敏邮箱提示：仅在 otp-email 阶段且有 maskedEmail 时展示 */}
                 {maskedEmail && phase === 'otp-email' && (
                   <div style={{ fontSize: '11px', color: 'var(--c-placeholder)', marginTop: '4px', paddingLeft: '2px' }}>
                     {maskedEmail}
                   </div>
                 )}
               </div>
-            )}
+            </Reveal>
 
-            {/* OTP 验证码输入 */}
-            {phase === 'otp-code' && (
-              <div>
-                <FieldLabel text={t.otpCodePlaceholder} />
+            {/* ── OTP 验证码组 ── */}
+            <Reveal active={phase === 'otp-code'}>
+              <div style={{ paddingTop: '10px' }}>
+                <label style={labelStyle}>{t.otpCodePlaceholder}</label>
                 <input
+                  ref={otpCodeRef}
                   className={inputCls}
                   style={inputStyle}
                   type="text"
@@ -459,18 +487,19 @@ export function AuthPage({ onLoggedIn }: Props) {
                   value={otpCode}
                   onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
                   autoComplete="one-time-code"
-                  autoFocus
                 />
               </div>
-            )}
+            </Reveal>
 
-            {/* 注册字段 */}
-            {phase === 'register' && (
-              <>
+            {/* ── 注册组 ── */}
+            <Reveal active={phase === 'register'}>
+              <div style={{ paddingTop: '6px' }}>
+                <div style={{ fontSize: '12px', color: 'var(--c-placeholder)', marginBottom: '10px' }}>{t.creatingAccountHint}</div>
                 {isEmailStr(identity.trim()) ? (
-                  <div>
-                    <FieldLabel text={t.enterUsername} />
+                  <div style={{ marginBottom: '10px' }}>
+                    <label style={labelStyle}>{t.enterUsername}</label>
                     <input
+                      ref={regFirstRef}
                       className={inputCls}
                       style={inputStyle}
                       type="text"
@@ -480,13 +509,13 @@ export function AuthPage({ onLoggedIn }: Props) {
                       autoComplete="username"
                       autoCapitalize="none"
                       spellCheck={false}
-                      autoFocus
                     />
                   </div>
                 ) : (
-                  <div>
-                    <FieldLabel text={t.enterEmail} />
+                  <div style={{ marginBottom: '10px' }}>
+                    <label style={labelStyle}>{t.enterEmail}</label>
                     <input
+                      ref={regFirstRef}
                       className={inputCls}
                       style={inputStyle}
                       type="email"
@@ -496,16 +525,15 @@ export function AuthPage({ onLoggedIn }: Props) {
                       autoComplete="email"
                       autoCapitalize="none"
                       spellCheck={false}
-                      autoFocus
                     />
                   </div>
                 )}
-                <div>
-                  <FieldLabel text={t.fieldPassword} />
+                <div style={{ marginBottom: '10px' }}>
+                  <label style={labelStyle}>{t.fieldPassword}</label>
                   <div style={{ position: 'relative' }}>
                     <input
                       className={inputCls}
-                      style={{ ...inputStyle, paddingRight: '40px' }}
+                      style={{ ...inputStyle, paddingRight: '38px' }}
                       type={showPassword ? 'text' : 'password'}
                       placeholder={t.enterPassword}
                       value={regPassword}
@@ -516,26 +544,14 @@ export function AuthPage({ onLoggedIn }: Props) {
                       type="button"
                       tabIndex={-1}
                       onClick={() => setShowPassword((v) => !v)}
-                      style={{
-                        position: 'absolute',
-                        right: '10px',
-                        top: '50%',
-                        transform: 'translateY(-50%)',
-                        background: 'none',
-                        border: 'none',
-                        cursor: 'pointer',
-                        color: 'var(--c-placeholder)',
-                        padding: '2px',
-                        display: 'flex',
-                        alignItems: 'center',
-                      }}
+                      style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--c-placeholder)', padding: '2px', display: 'flex', alignItems: 'center' }}
                     >
                       <EyeIcon open={showPassword} />
                     </button>
                   </div>
                 </div>
                 <div>
-                  <FieldLabel text={inviteRequired ? t.enterInviteCode : t.enterInviteCodeOptional} />
+                  <label style={labelStyle}>{inviteRequired ? t.enterInviteCode : t.enterInviteCodeOptional}</label>
                   <input
                     className={inputCls}
                     style={inputStyle}
@@ -546,35 +562,73 @@ export function AuthPage({ onLoggedIn }: Props) {
                     autoComplete="off"
                   />
                 </div>
-              </>
-            )}
+              </div>
+            </Reveal>
 
-            <SubmitBtn />
-            {phase !== 'identity' && <BackBtn />}
+            {/* Continue 按钮 */}
+            <button
+              type="submit"
+              disabled={!canSubmit}
+              style={{
+                height: '38px',
+                marginTop: '12px',
+                borderRadius: '10px',
+                border: 'none',
+                cursor: 'pointer',
+                fontSize: '14px',
+                fontWeight: 500,
+                fontFamily: 'inherit',
+                background: 'var(--c-btn-bg)',
+                color: 'var(--c-btn-text)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '6px',
+                width: '100%',
+              }}
+              className="disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isLoading ? <><SpinnerIcon />{btnLabel}</> : btnLabel}
+            </button>
+
+            {/* 返回按钮（全宽 ghost，与 Continue 同高） */}
+            <Reveal active={phase !== 'identity'}>
+              <button
+                type="button"
+                onClick={resetToIdentity}
+                style={{
+                  height: '38px',
+                  marginTop: '4px',
+                  width: '100%',
+                  borderRadius: '10px',
+                  border: 'none',
+                  background: 'transparent',
+                  cursor: 'pointer',
+                  fontSize: '14px',
+                  fontWeight: 500,
+                  fontFamily: 'inherit',
+                  color: 'var(--c-placeholder)',
+                }}
+              >
+                {t.backBtn}
+              </button>
+            </Reveal>
+
           </form>
 
-          {/* 密码阶段：OTP 跳转提示（在表单外，Back 按钮下方） */}
-          {phase === 'password' && (
+          {/* 密码阶段：OTP 提示 */}
+          <Reveal active={phase === 'password'}>
             <button
               type="button"
               onClick={switchToOtp}
-              style={{
-                marginTop: '2px',
-                fontSize: '12px',
-                color: 'var(--c-placeholder)',
-                background: 'none',
-                border: 'none',
-                cursor: 'pointer',
-                padding: '4px 0',
-                display: 'block',
-              }}
+              style={{ marginTop: '6px', fontSize: '12px', color: 'var(--c-placeholder)', background: 'none', border: 'none', cursor: 'pointer', padding: '4px 0', display: 'block' }}
             >
               {t.useEmailOtpHint}
             </button>
-          )}
+          </Reveal>
 
-          {/* OTP code 阶段：重发（只在这里显示，不重复） */}
-          {phase === 'otp-code' && (
+          {/* OTP code 阶段：重发（只此一处） */}
+          <Reveal active={phase === 'otp-code'}>
             <button
               type="button"
               disabled={otpCountdown > 0 || otpSending}
@@ -587,51 +641,32 @@ export function AuthPage({ onLoggedIn }: Props) {
                   startCountdown()
                 }
               }}
-              style={{
-                marginTop: '2px',
-                fontSize: '12px',
-                color: 'var(--c-placeholder)',
-                background: 'none',
-                border: 'none',
-                cursor: 'pointer',
-                padding: '4px 0',
-                display: 'block',
-              }}
+              style={{ marginTop: '6px', fontSize: '12px', color: 'var(--c-placeholder)', background: 'none', border: 'none', cursor: 'pointer', padding: '4px 0', display: 'block' }}
               className="disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {otpCountdown > 0 ? t.otpSendingCountdown(otpCountdown) : t.otpSendBtn}
             </button>
-          )}
+          </Reveal>
 
           {/* identity 阶段：GitHub 登录 */}
-          {phase === 'identity' && (
-            <>
+          <Reveal active={phase === 'identity'}>
+            <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px', margin: '16px 0' }}>
                 <div style={{ flex: 1, height: '0.5px', background: 'var(--c-border-auth)' }} />
                 <span style={{ fontSize: '11px', color: 'var(--c-placeholder)', fontWeight: 500 }}>{t.orDivider}</span>
                 <div style={{ flex: 1, height: '0.5px', background: 'var(--c-border-auth)' }} />
               </div>
               <button type="button" className="github-btn">
-                <GitHubIcon />
-                {t.githubLogin}
+                <GitHubIcon />{t.githubLogin}
               </button>
-            </>
-          )}
+            </div>
+          </Reveal>
 
           {error && <ErrorCallout error={error} />}
         </section>
       </div>
 
-      <footer
-        style={{
-          textAlign: 'center',
-          padding: '16px',
-          fontSize: '12px',
-          color: 'var(--c-text-muted)',
-          position: 'relative',
-          zIndex: 1,
-        }}
-      >
+      <footer style={{ textAlign: 'center', padding: '16px', fontSize: '12px', color: 'var(--c-text-muted)', position: 'relative', zIndex: 1 }}>
         © 2026 Arkloop
       </footer>
     </div>

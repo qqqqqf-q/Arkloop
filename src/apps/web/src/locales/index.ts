@@ -76,6 +76,7 @@ export interface LocaleStrings {
   fieldIdentity: string
   fieldPassword: string
   backBtn: string
+  editIdentity: string
   // profile editing
   profileTitle: string
   profileName: string
