@@ -6,12 +6,17 @@ import (
 	"fmt"
 	"net/http"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"time"
 
+	"arkloop/services/gateway/internal/accesslog"
 	"arkloop/services/gateway/internal/clientip"
 	"arkloop/services/gateway/internal/geoip"
+	"arkloop/services/gateway/internal/identity"
 	"arkloop/services/gateway/internal/ua"
+
+	goredis "github.com/redis/go-redis/v9"
 )
 
 const traceIDHeader = "X-Trace-Id"
@@ -45,7 +50,12 @@ func (r *statusRecorder) Flush() {
 	}
 }
 
-func traceMiddleware(next http.Handler, logger *JSONLogger, geo geoip.Lookup) http.Handler {
+func traceMiddleware(next http.Handler, logger *JSONLogger, geo geoip.Lookup, rdb *goredis.Client) http.Handler {
+	var logWriter *accesslog.Writer
+	if rdb != nil {
+		logWriter = accesslog.NewWriter(rdb)
+	}
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 
@@ -59,38 +69,65 @@ func traceMiddleware(next http.Handler, logger *JSONLogger, geo geoip.Lookup) ht
 
 		next.ServeHTTP(recorder, r)
 
-		if logger == nil {
-			return
-		}
-
-		// 日志字段：clientip 中间件在 next.ServeHTTP 之前已写入 context
+		// clientip 中间件在 next.ServeHTTP 之前已写入 context
 		ip := clientip.FromContext(r.Context())
 		uaInfo := ua.Parse(r)
+		durationMs := time.Since(start).Milliseconds()
 
-		extra := map[string]any{
-			"method":      r.Method,
-			"path":        r.URL.Path,
-			"status_code": recorder.statusCode,
-			"duration_ms": time.Since(start).Milliseconds(),
-			"client_ip":   ip,
-			"user_agent":  uaInfo.Raw,
-			"ua_type":     string(uaInfo.Type),
-		}
-
+		var geoResult geoip.Result
 		if geo != nil && ip != "" {
-			result := geo.LookupIP(ip)
-			if result.Country != "" {
-				extra["country"] = result.Country
+			geoResult = geo.LookupIP(ip)
+		}
+
+		riskScore := 0
+		if s := r.Header.Get("X-Risk-Score"); s != "" {
+			riskScore, _ = strconv.Atoi(s)
+		}
+
+		// 身份提取
+		ident := identity.ExtractInfo(r.Context(), r.Header.Get("Authorization"), rdb)
+
+		// 结构化日志
+		if logger != nil {
+			extra := map[string]any{
+				"method":      r.Method,
+				"path":        r.URL.Path,
+				"status_code": recorder.statusCode,
+				"duration_ms": durationMs,
+				"client_ip":   ip,
+				"user_agent":  uaInfo.Raw,
+				"ua_type":     string(uaInfo.Type),
 			}
+			if geoResult.Country != "" {
+				extra["country"] = geoResult.Country
+			}
+			if riskScore > 0 {
+				extra["risk_score"] = riskScore
+			}
+			tid := traceID
+			logger.Info("request", LogFields{TraceID: &tid}, extra)
 		}
 
-		// risk_score 由 riskMiddleware 写在 X-Risk-Score 请求头（已转发给上游）
-		if score := r.Header.Get("X-Risk-Score"); score != "" {
-			extra["risk_score"] = score
+		// 访问日志写入 Redis（异步，不阻塞请求）
+		if logWriter != nil {
+			go logWriter.Write(accesslog.Entry{
+				Timestamp:    start.UTC().Format(time.RFC3339),
+				TraceID:      traceID,
+				Method:       r.Method,
+				Path:         r.URL.Path,
+				StatusCode:   recorder.statusCode,
+				DurationMs:   durationMs,
+				ClientIP:     ip,
+				Country:      geoResult.Country,
+				City:         geoResult.City,
+				UserAgent:    uaInfo.Raw,
+				UAType:       string(uaInfo.Type),
+				RiskScore:    riskScore,
+				IdentityType: string(ident.Type),
+				OrgID:        ident.OrgID,
+				UserID:       ident.UserID,
+			})
 		}
-
-		tid := traceID
-		logger.Info("request", LogFields{TraceID: &tid}, extra)
 	})
 }
 

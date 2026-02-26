@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -23,11 +24,14 @@ const (
 	trustedCIDRsEnv = "ARKLOOP_GATEWAY_TRUSTED_CIDRS"
 	// MaxMind GeoLite2 数据库文件路径，留空则禁用 GeoIP
 	geoIPDBPathEnv = "ARKLOOP_GEOIP_DB_PATH"
+	// MaxMind License Key，配置后自动下载和每日更新 GeoLite2 数据库
+	geoIPLicenseKeyEnv = "ARKLOOP_GEOIP_LICENSE_KEY"
 	// 风险评分拒绝阈值（0-100），0 表示只记录不拒绝
 	riskRejectThresholdEnv = "ARKLOOP_GATEWAY_RISK_REJECT_THRESHOLD"
 
-	defaultAddr     = "0.0.0.0:8000"
-	defaultUpstream = "http://127.0.0.1:8001"
+	defaultAddr       = "0.0.0.0:8000"
+	defaultUpstream   = "http://127.0.0.1:8001"
+	defaultGeoIPDBDir = "/data/geoip"
 )
 
 // IPMode 定义 Gateway 的 IP 来源信任策略。
@@ -49,6 +53,7 @@ type Config struct {
 	IPMode              IPMode
 	TrustedCIDRs        []string // CIDR 字符串列表
 	GeoIPDBPath         string
+	GeoIPLicenseKey     string
 	RiskRejectThreshold int // 0 = 禁用拒绝
 }
 
@@ -91,6 +96,12 @@ func LoadConfigFromEnv() (Config, error) {
 	}
 
 	cfg.GeoIPDBPath = strings.TrimSpace(os.Getenv(geoIPDBPathEnv))
+	cfg.GeoIPLicenseKey = strings.TrimSpace(os.Getenv(geoIPLicenseKeyEnv))
+
+	// 有 license key 但没指定 db path 时，使用默认路径
+	if cfg.GeoIPLicenseKey != "" && cfg.GeoIPDBPath == "" {
+		cfg.GeoIPDBPath = filepath.Join(defaultGeoIPDBDir, "GeoLite2-City.mmdb")
+	}
 
 	if raw := strings.TrimSpace(os.Getenv(riskRejectThresholdEnv)); raw != "" {
 		v, err := strconv.Atoi(raw)

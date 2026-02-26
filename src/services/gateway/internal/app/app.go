@@ -16,6 +16,7 @@ import (
 
 	"arkloop/services/gateway/internal/clientip"
 	"arkloop/services/gateway/internal/geoip"
+	"arkloop/services/gateway/internal/identity"
 	"arkloop/services/gateway/internal/ipfilter"
 	"arkloop/services/gateway/internal/proxy"
 	"arkloop/services/gateway/internal/ratelimit"
@@ -129,7 +130,17 @@ func (a *Application) Run(ctx context.Context) error {
 
 	// GeoIP 初始化
 	var geo geoip.Lookup = geoip.Noop{}
-	if a.config.GeoIPDBPath != "" {
+	if a.config.GeoIPLicenseKey != "" {
+		updater := geoip.NewUpdater(a.config.GeoIPDBPath, a.config.GeoIPLicenseKey, &geoipLogAdapter{logger: a.logger})
+		if err := updater.Init(); err != nil {
+			a.logger.Error("geoip init failed", LogFields{}, map[string]any{"error": err.Error()})
+		} else {
+			defer updater.Close()
+			geo = updater
+			a.logger.Info("geoip enabled (auto-update)", LogFields{}, map[string]any{"path": a.config.GeoIPDBPath})
+			go updater.Run(ctx)
+		}
+	} else if a.config.GeoIPDBPath != "" {
 		mm, err := geoip.NewMaxMind(a.config.GeoIPDBPath)
 		if err != nil {
 			a.logger.Error("geoip init failed", LogFields{}, map[string]any{"path": a.config.GeoIPDBPath, "error": err.Error()})
@@ -195,7 +206,7 @@ func (a *Application) Run(ctx context.Context) error {
 	inner := http.Handler(mux)
 
 	// risk 中间件：评分 + 可配置拒绝 + 透传 header
-	inner = a.riskMiddleware(inner, geo, scorer)
+	inner = a.riskMiddleware(inner, geo, scorer, rdb)
 
 	if limiter != nil {
 		inner = ratelimit.NewRateLimitMiddleware(inner, limiter, a.config.JWTSecret, rdb)
@@ -204,10 +215,13 @@ func (a *Application) Run(ctx context.Context) error {
 		inner = ipFilter.Middleware(inner)
 	}
 
-	// clientip 中间件：最靠近请求入口，将真实 IP 写入 context
+	// trace 在 clientip 内层，可以从 context 读到 IP
+	inner = traceMiddleware(inner, a.logger, geo, rdb)
+
+	// clientip 中间件：最外层（recover 之后），将真实 IP 写入 context
 	inner = clientip.Middleware(a.buildResolver(), inner)
 
-	handler := recoverMiddleware(traceMiddleware(inner, a.logger, geo), a.logger)
+	handler := recoverMiddleware(inner, a.logger)
 
 	listener, err := net.Listen("tcp", a.config.Addr)
 	if err != nil {
@@ -256,15 +270,19 @@ func (a *Application) Run(ctx context.Context) error {
 }
 
 // riskMiddleware 计算风险分，注入 X-Risk-Score / X-UA-Type / X-Client-Country header。
-func (a *Application) riskMiddleware(next http.Handler, geo geoip.Lookup, scorer *risk.Scorer) http.Handler {
+func (a *Application) riskMiddleware(next http.Handler, geo geoip.Lookup, scorer *risk.Scorer, rdb *goredis.Client) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ip := clientip.FromContext(r.Context())
 		geoResult := geo.LookupIP(ip)
 		uaInfo := ua.Parse(r)
 
+		// 判断是否匿名请求
+		ident := identity.ExtractInfo(r.Context(), r.Header.Get("Authorization"), rdb)
+		anonymous := ident.Type == identity.IdentityAnonymous
+
 		// 动态读取当前阈值
 		scorer.RejectThreshold = a.effectiveRiskThreshold()
-		score := scorer.Evaluate(r, geoResult, uaInfo)
+		score := scorer.Evaluate(r, geoResult, uaInfo, anonymous)
 
 		if scorer.ShouldReject(score) {
 			w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -293,4 +311,17 @@ func healthz(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(payload)
+}
+
+// geoipLogAdapter 将 JSONLogger 适配为 geoip.Logger 接口。
+type geoipLogAdapter struct {
+	logger *JSONLogger
+}
+
+func (a *geoipLogAdapter) Info(msg string, extra map[string]any) {
+	a.logger.Info(msg, LogFields{}, extra)
+}
+
+func (a *geoipLogAdapter) Error(msg string, extra map[string]any) {
+	a.logger.Error(msg, LogFields{}, extra)
 }

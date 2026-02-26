@@ -28,6 +28,8 @@ export interface LocaleStrings {
     webhooks: string
     ipRules: string
     captcha: string
+    gatewayConfig: string
+    accessLog: string
     members: string
     teams: string
     projects: string
@@ -274,6 +276,9 @@ export interface LocaleStrings {
       fieldToolAllowlistPlaceholder: string
       fieldBudgetsJSON: string
       fieldIsActive: string
+      fieldExecutorType: string
+      fieldExecutorConfig: string
+      fieldPreferredCredential: string
       // read-only label for global skills
       labelGlobal: string
       // buttons
@@ -368,6 +373,47 @@ export interface LocaleStrings {
       toastLoadFailed: string
       toastCreateFailed: string
       toastDeleteFailed: string
+    }
+    gatewayConfig: {
+      title: string
+      fieldIPMode: string
+      ipModeDirect: string
+      ipModeCloudflare: string
+      ipModeTrustedProxy: string
+      fieldTrustedCIDRs: string
+      fieldTrustedCIDRsHint: string
+      fieldRiskThreshold: string
+      fieldRiskThresholdHint: string
+      save: string
+      toastSaved: string
+      toastLoadFailed: string
+      toastSaveFailed: string
+    }
+    accessLog: {
+      title: string
+      colTimestamp: string
+      colIdentity: string
+      colIP: string
+      colLocation: string
+      colUserAgent: string
+      colRisk: string
+      colMethod: string
+      colPath: string
+      colStatus: string
+      colDuration: string
+      empty: string
+      loadMore: string
+      toastLoadFailed: string
+      riskLow: string
+      riskMedium: string
+      riskHigh: string
+      riskCritical: string
+      identityAnonymous: string
+      filterMethod: string
+      filterPath: string
+      filterIP: string
+      filterRiskMin: string
+      filterAll: string
     }
     teams: {
       title: string

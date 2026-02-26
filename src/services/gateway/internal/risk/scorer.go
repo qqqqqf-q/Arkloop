@@ -15,9 +15,15 @@ type Scorer struct {
 }
 
 // Evaluate 计算请求的风险分。
-func (s *Scorer) Evaluate(r *http.Request, geo geoip.Result, uaInfo ua.Info) Score {
+func (s *Scorer) Evaluate(r *http.Request, geo geoip.Result, uaInfo ua.Info, anonymous bool) Score {
 	var score int
 	var signals []string
+
+	// 无身份认证
+	if anonymous {
+		score += 10
+		signals = append(signals, "no_auth")
+	}
 
 	// Tor 出口节点或匿名 VPN
 	if geo.Type == geoip.IPTypeTor {

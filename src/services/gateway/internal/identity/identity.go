@@ -81,3 +81,63 @@ func extractOrgIDFromJWTPayload(token string) string {
 
 	return strings.TrimSpace(claims.Org)
 }
+
+// IdentityType 标识身份来源。
+type IdentityType string
+
+const (
+	IdentityJWT       IdentityType = "jwt"
+	IdentityAPIKey    IdentityType = "api_key"
+	IdentityAnonymous IdentityType = "anonymous"
+)
+
+// Info 包含从请求中提取的身份信息。
+type Info struct {
+	Type   IdentityType
+	OrgID  string
+	UserID string
+}
+
+// ExtractInfo 从 Authorization header 提取完整身份信息。
+func ExtractInfo(ctx context.Context, authHeader string, rdb *redis.Client) Info {
+	token, ok := strings.CutPrefix(authHeader, "Bearer ")
+	if !ok || token == "" {
+		return Info{Type: IdentityAnonymous}
+	}
+
+	if strings.HasPrefix(token, "ak-") {
+		orgID := extractOrgIDFromAPIKey(ctx, token, rdb)
+		if orgID == "" {
+			return Info{Type: IdentityAnonymous}
+		}
+		return Info{Type: IdentityAPIKey, OrgID: orgID}
+	}
+
+	return extractInfoFromJWTPayload(token)
+}
+
+func extractInfoFromJWTPayload(token string) Info {
+	parts := strings.SplitN(token, ".", 3)
+	if len(parts) != 3 {
+		return Info{Type: IdentityAnonymous}
+	}
+
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return Info{Type: IdentityAnonymous}
+	}
+
+	var claims struct {
+		Sub string `json:"sub"`
+		Org string `json:"org"`
+	}
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		return Info{Type: IdentityAnonymous}
+	}
+
+	return Info{
+		Type:   IdentityJWT,
+		OrgID:  strings.TrimSpace(claims.Org),
+		UserID: strings.TrimSpace(claims.Sub),
+	}
+}

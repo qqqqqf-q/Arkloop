@@ -92,6 +92,33 @@ func (r *UserRepository) GetByID(ctx context.Context, userID uuid.UUID) (*User, 
 	return &user, nil
 }
 
+// GetDisplayNames 批量获取用户 display_name，返回 map[user_id]display_name。
+func (r *UserRepository) GetDisplayNames(ctx context.Context, userIDs []uuid.UUID) (map[uuid.UUID]string, error) {
+	if len(userIDs) == 0 {
+		return nil, nil
+	}
+
+	rows, err := r.db.Query(ctx,
+		`SELECT id, display_name FROM users WHERE id = ANY($1)`,
+		userIDs,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("users.GetDisplayNames: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[uuid.UUID]string, len(userIDs))
+	for rows.Next() {
+		var id uuid.UUID
+		var name string
+		if err := rows.Scan(&id, &name); err != nil {
+			return nil, fmt.Errorf("users.GetDisplayNames scan: %w", err)
+		}
+		result[id] = name
+	}
+	return result, rows.Err()
+}
+
 func (r *UserRepository) GetByEmail(ctx context.Context, email string) (*User, error) {
 	if ctx == nil {
 		ctx = context.Background()

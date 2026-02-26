@@ -10,7 +10,7 @@ import {
   Package, Receipt, BadgeCheck, BarChart3,
   Flag, Ticket, Gift, Coins, Megaphone, Mic, Mail,
   PanelLeftClose, PanelLeftOpen, ChevronDown,
-  Settings,
+  Settings, ScrollText,
 } from 'lucide-react'
 import { getMe, logout, isApiError, type MeResponse } from '../api'
 import { ConsoleSettingsModal } from '../components/SettingsModal'
@@ -85,8 +85,10 @@ function buildNavGroups(t: LocaleStrings): NavGroup[] {
       id: 'security',
       label: t.groups.security,
       items: [
-        { label: t.nav.ipRules, path: '/ip-rules', icon: <ShieldCheck size={17} /> },
-        { label: t.nav.captcha, path: '/captcha',  icon: <Bot size={17} /> },
+        { label: t.nav.ipRules,       path: '/ip-rules',       icon: <ShieldCheck size={17} /> },
+        { label: t.nav.captcha,       path: '/captcha',        icon: <Bot size={17} /> },
+        { label: t.nav.gatewayConfig, path: '/gateway-config', icon: <Settings size={17} /> },
+        { label: t.nav.accessLog,    path: '/access-log',    icon: <ScrollText size={17} /> },
       ],
     },
     {

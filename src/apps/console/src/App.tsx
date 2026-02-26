@@ -27,6 +27,8 @@ import { FeatureFlagsPage } from './pages/feature-flags/FeatureFlagsPage'
 import { RegistrationPage } from './pages/registration/RegistrationPage'
 import { AsrCredentialsPage } from './pages/asr-credentials/AsrCredentialsPage'
 import { EmailPage } from './pages/email/EmailPage'
+import { GatewayConfigPage } from './pages/gateway-config/GatewayConfigPage'
+import { AccessLogPage } from './pages/access-log/AccessLogPage'
 import {
   readAccessTokenFromStorage,
   writeAccessTokenToStorage,
@@ -100,6 +102,8 @@ function App() {
         {/* Security */}
         <Route path="ip-rules" element={<IPRulesPage />} />
         <Route path="captcha" element={<CaptchaPage />} />
+        <Route path="gateway-config" element={<GatewayConfigPage />} />
+        <Route path="access-log" element={<AccessLogPage />} />
         {/* Organization */}
         <Route path="members" element={<OrgsPage />} />
         <Route path="teams" element={<TeamsPage />} />
