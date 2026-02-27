@@ -7,8 +7,10 @@
 #   -v /path/to/rootfs.ext4:/opt/sandbox/rootfs.ext4
 FROM golang:1.26-alpine AS builder
 WORKDIR /workspace
-COPY src/services/sandbox src/services/sandbox
+COPY src/services/sandbox/go.mod src/services/sandbox/go.sum src/services/sandbox/
 RUN printf 'go 1.26.0\nuse (\n\t./src/services/sandbox\n)\n' > go.work
+RUN go mod download
+COPY src/services/sandbox src/services/sandbox
 RUN go build -ldflags="-s -w" -o /sandbox     ./src/services/sandbox/cmd/sandbox
 RUN GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
     go build -ldflags="-s -w" -o /sandbox-agent ./src/services/sandbox/agent
