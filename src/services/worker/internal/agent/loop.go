@@ -21,6 +21,7 @@ type RunContext struct {
 	OrgID           *uuid.UUID
 	UserID          *uuid.UUID
 	AgentID         string
+	ThreadID        *uuid.UUID
 	TraceID         string
 	InputJSON       map[string]any
 	MaxIterations   int
@@ -131,6 +132,7 @@ func (l *Loop) Run(
 				RunID:     runCtx.RunID,
 				TraceID:   runCtx.TraceID,
 				OrgID:     runCtx.OrgID,
+				ThreadID:  runCtx.ThreadID,
 				UserID:    runCtx.UserID,
 				AgentID:   runCtx.AgentID,
 				TimeoutMs: runCtx.ToolTimeoutMs,

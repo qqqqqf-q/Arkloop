@@ -18,6 +18,7 @@ type ExecutionContext struct {
 	RunID     uuid.UUID
 	TraceID   string
 	OrgID     *uuid.UUID
+	ThreadID  *uuid.UUID
 	UserID    *uuid.UUID
 	AgentID   string
 	TimeoutMs *int

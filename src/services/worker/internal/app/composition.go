@@ -15,6 +15,7 @@ import (
 	"arkloop/services/worker/internal/skills"
 	"arkloop/services/worker/internal/tools"
 	"arkloop/services/worker/internal/tools/builtin"
+	browsertool "arkloop/services/worker/internal/tools/builtin/browser"
 	memorytool "arkloop/services/worker/internal/tools/memory"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -99,6 +100,18 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 			executors[spec.Name] = memExecutor
 		}
 		allLlmSpecs = append(allLlmSpecs, memorytool.LlmSpecs()...)
+	}
+
+	if browserBaseURL := browsertool.BaseURLFromEnv(); browserBaseURL != "" {
+		browserExecutor := browsertool.NewToolExecutor(browserBaseURL)
+		for _, spec := range browsertool.AgentSpecs() {
+			if err := toolRegistry.Register(spec); err != nil {
+				return nil, err
+			}
+			executors[spec.Name] = browserExecutor
+		}
+		allLlmSpecs = append(allLlmSpecs, browsertool.LlmSpecs()...)
+		slog.InfoContext(ctx, "browser: tools registered", "base_url", browserBaseURL)
 	}
 
 	skillsRoot, err := skills.BuiltinSkillsRoot()

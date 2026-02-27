@@ -187,6 +187,8 @@ services:
       ARKLOOP_MCP_CONFIG_FILE: ""
       # Memory System：容器内用服务名寻址；OpenViking 不可用时 Worker 降级为无记忆模式
       ARKLOOP_OPENVIKING_BASE_URL: "http://openviking:1933"
+      # Browser Service：容器内用服务名寻址；不可用时 Worker 无浏览器工具
+      ARKLOOP_BROWSER_BASE_URL: "http://browser:3000"
     depends_on:
       pgbouncer:
         condition: service_healthy

@@ -360,6 +360,7 @@ func (rt *luaRuntime) toolsCall(L *lua.LState) int {
 		RunID:     rt.rc.Run.ID,
 		TraceID:   rt.rc.TraceID,
 		OrgID:     &rt.rc.Run.OrgID,
+		ThreadID:  &rt.rc.Run.ThreadID,
 		UserID:    rt.rc.UserID,
 		AgentID:   agentIDFromSkill(rt.rc),
 		TimeoutMs: rt.rc.ToolTimeoutMs,
