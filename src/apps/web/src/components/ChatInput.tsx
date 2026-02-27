@@ -24,6 +24,7 @@ type Props = {
   canCancel?: boolean
   cancelSubmitting?: boolean
   variant?: 'welcome' | 'chat'
+  searchMode?: boolean
   attachments?: Attachment[]
   onAttachFiles?: (files: File[]) => void
   accessToken?: string
@@ -49,6 +50,7 @@ export function ChatInput({
   canCancel = false,
   cancelSubmitting = false,
   variant = 'chat',
+  searchMode = false,
   attachments = [],
   onAttachFiles,
   accessToken,
@@ -394,7 +396,7 @@ export function ChatInput({
           }}
         />
 
-        <div className="flex items-center" style={{ gap: '12px' }}>
+        <div className="flex items-center" style={{ gap: '2px' }}>
           {/* + 按钮及菜单 */}
           <div className="relative -ml-1.5">
             <button
@@ -451,31 +453,47 @@ export function ChatInput({
             )}
           </div>
 
-          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '4px' }}>
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '2px', position: 'relative' }}>
+            {/* 单个变形按钮：searchMode 时文字变为 Search，bg/color/width 平滑过渡 */}
             <button
               type="button"
-              onClick={cycleTier}
-              onMouseEnter={() => setProHovered(true)}
-              onMouseLeave={() => setProHovered(false)}
+              onClick={searchMode ? undefined : cycleTier}
+              onMouseEnter={() => { if (!searchMode) setProHovered(true) }}
+              onMouseLeave={() => { if (!searchMode) setProHovered(false) }}
               className="relative top-px flex h-8 items-center rounded-lg font-semibold"
               style={{
-                padding: (selectedTier === 'Pro' || selectedTier === 'Ultra') ? '0 10px' : '0 7px',
+                padding: '0 10px',
                 justifyContent: 'center',
-                width: selectedTier === 'Lite' ? '40px' : selectedTier === 'Pro' ? '44px' : selectedTier === 'Ultra' ? '58px' : '44px',
                 overflow: 'hidden',
                 whiteSpace: 'nowrap',
                 flexShrink: 0,
-                background: (selectedTier === 'Pro' || selectedTier === 'Ultra') ? 'var(--c-pro-bg)' : proHovered ? 'var(--c-bg-deep)' : 'transparent',
-                color: (selectedTier === 'Pro' || selectedTier === 'Ultra') ? '#4691F6' : 'var(--c-text-secondary)',
-                opacity: (selectedTier === 'Pro' || selectedTier === 'Ultra') ? 1 : proHovered ? 1 : 0.7,
+                cursor: searchMode ? 'default' : 'pointer',
+                width: searchMode ? '64px' : (selectedTier === 'Lite' ? '40px' : selectedTier === 'Pro' ? '44px' : selectedTier === 'Ultra' ? '58px' : '44px'),
+                background: (searchMode || selectedTier === 'Pro' || selectedTier === 'Ultra')
+                  ? 'var(--c-pro-bg)'
+                  : proHovered ? 'var(--c-bg-deep)' : 'transparent',
+                color: (searchMode || selectedTier === 'Pro' || selectedTier === 'Ultra')
+                  ? '#4691F6'
+                  : 'var(--c-text-secondary)',
+                opacity: (searchMode || selectedTier === 'Pro' || selectedTier === 'Ultra')
+                  ? 1 : proHovered ? 1 : 0.7,
                 fontSize: '14px',
                 transition: 'width 0.22s ease, background-color 0.15s ease, color 0.2s ease, opacity 0.15s ease',
               }}
             >
-              {selectedTier}
+              {searchMode ? 'Search' : selectedTier}
             </button>
 
-            <div className="relative">
+            {/* chevron：进入 searchMode 后宽度收缩到 0 淡出；dropdown 提升到外层 position:relative 容器，不被 overflow:hidden 裁剪 */}
+            <div
+              style={{
+                width: searchMode ? '0px' : '32px',
+                overflow: 'hidden',
+                opacity: searchMode ? 0 : 1,
+                flexShrink: 0,
+                transition: 'width 0.22s ease, opacity 0.18s ease',
+              }}
+            >
               <button
                 ref={chevronBtnRef}
                 type="button"
@@ -484,50 +502,51 @@ export function ChatInput({
               >
                 <ChevronDown size={16} />
               </button>
-
-              {tierMenuOpen && (
-                <div
-                  ref={tierMenuRef}
-                  className={`absolute right-0 z-50 ${variant === 'welcome' ? 'dropdown-menu' : 'dropdown-menu-up'}`}
-                  style={{
-                    ...(variant === 'welcome'
-                      ? { top: 'calc(100% + 8px)' }
-                      : { bottom: 'calc(100% + 8px)' }),
-                    border: '0.5px solid var(--c-border-subtle)',
-                    borderRadius: '10px',
-                    padding: '4px',
-                    background: 'var(--c-bg-menu)',
-                    minWidth: '120px',
-                    boxShadow: 'var(--c-dropdown-shadow)',
-                  }}
-                >
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                    {(['Auto', 'Lite', 'Pro', 'Ultra'] as const).map((tier) => {
-                      const isBlue = tier === 'Pro' || tier === 'Ultra'
-                      const isSelected = selectedTier === tier
-                      return (
-                        <button
-                          key={tier}
-                          type="button"
-                          onClick={() => handleTierSelect(tier)}
-                          className="flex w-full items-center px-3 py-2 text-sm transition-colors duration-100"
-                          style={{
-                            borderRadius: '8px',
-                            background: 'var(--c-bg-menu)',
-                            color: isSelected && isBlue ? '#4691F6' : 'var(--c-text-secondary)',
-                            fontWeight: isSelected ? 600 : 400,
-                          }}
-                          onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--c-bg-deep)')}
-                          onMouseLeave={(e) => (e.currentTarget.style.background = 'var(--c-bg-menu)')}
-                        >
-                          {tier}
-                        </button>
-                      )
-                    })}
-                  </div>
-                </div>
-              )}
             </div>
+
+            {tierMenuOpen && !searchMode && (
+              <div
+                ref={tierMenuRef}
+                className={`absolute right-0 z-50 ${variant === 'welcome' ? 'dropdown-menu' : 'dropdown-menu-up'}`}
+                style={{
+                  ...(variant === 'welcome'
+                    ? { top: 'calc(100% + 8px)' }
+                    : { bottom: 'calc(100% + 8px)' }),
+                  border: '0.5px solid var(--c-border-subtle)',
+                  borderRadius: '10px',
+                  padding: '4px',
+                  background: 'var(--c-bg-menu)',
+                  minWidth: '120px',
+                  boxShadow: 'var(--c-dropdown-shadow)',
+                }}
+              >
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                  {(['Auto', 'Lite', 'Pro', 'Ultra'] as const).map((tier) => {
+                    const isBlue = tier === 'Pro' || tier === 'Ultra'
+                    const isSelected = selectedTier === tier
+                    return (
+                      <button
+                        key={tier}
+                        type="button"
+                        onClick={() => handleTierSelect(tier)}
+                        className="flex w-full items-center px-3 py-2 text-sm transition-colors duration-100"
+                        style={{
+                          borderRadius: '8px',
+                          background: 'var(--c-bg-menu)',
+                          color: isSelected && isBlue ? '#4691F6' : 'var(--c-text-secondary)',
+                          fontWeight: isSelected ? 600 : 400,
+                        }}
+                        onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--c-bg-deep)')}
+                        onMouseLeave={(e) => (e.currentTarget.style.background = 'var(--c-bg-menu)')}
+                      >
+                        {tier}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
 
             <button
               type="button"
@@ -556,7 +575,6 @@ export function ChatInput({
               </button>
             )}
           </div>
-        </div>
       </form>
 
       {/* 隐藏的 file input */}

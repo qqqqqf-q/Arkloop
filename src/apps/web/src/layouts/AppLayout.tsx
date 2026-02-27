@@ -41,6 +41,9 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
   const [privateThreadIds, setPrivateThreadIds] = useState<Set<string>>(new Set())
   const [isPrivateMode, setIsPrivateMode] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [isSearchMode, setIsSearchMode] = useState(false)
+  // ref 用于在 popstate 回调里读取最新值，避免闭包过期
+  const isSearchModeRef = useRef(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsInitialTab, setSettingsInitialTab] = useState<SettingsTab>('account')
   const [notificationsOpen, setNotificationsOpen] = useState(false)
@@ -51,6 +54,18 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
     setNotificationVersion((v) => v + 1)
   }, [])
   const mountedRef = useRef(true)
+
+  // 同步 ref，使 popstate 回调始终拿到最新值
+  useEffect(() => { isSearchModeRef.current = isSearchMode }, [isSearchMode])
+
+  // Mouse 5 / 浏览器返回键：退出搜索模式而非离开页面
+  useEffect(() => {
+    const onPopState = () => {
+      if (isSearchModeRef.current) setIsSearchMode(false)
+    }
+    window.addEventListener('popstate', onPopState)
+    return () => window.removeEventListener('popstate', onPopState)
+  }, [])
 
   useEffect(() => {
     mountedRef.current = true
@@ -96,11 +111,13 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
   }, [accessToken, onLoggedOut])
 
   const handleNewThread = useCallback(() => {
+    setIsSearchMode(false)
     navigate('/')
   }, [navigate])
 
   // 从 WelcomePage 新建的 thread 需要注入到列表
   const handleThreadCreated = useCallback((thread: ThreadResponse) => {
+    setIsSearchMode(false)
     if (thread.is_private) {
       setPrivateThreadIds((prev) => new Set(prev).add(thread.id))
       return
@@ -177,6 +194,12 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
         onOpenSettings={(tab = 'account') => { setSettingsInitialTab(tab); setSettingsOpen(true) }}
         collapsed={sidebarCollapsed}
         onToggleCollapse={() => setSidebarCollapsed(true)}
+        onOpenSearch={() => {
+            if (location.pathname !== '/') navigate('/')
+            window.history.pushState({ searchMode: true }, '', '/')
+            setIsSearchMode(true)
+          }}
+        isSearchMode={isSearchMode}
       />
 
       {settingsOpen && (
@@ -196,7 +219,7 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
       )}
 
       <main className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
-        <Outlet context={{ accessToken, onLoggedOut, me, creditsBalance, onThreadCreated: handleThreadCreated, onRunStarted: handleRunStarted, onRunEnded: handleRunEnded, refreshCredits, onOpenNotifications: () => setNotificationsOpen(true), notificationVersion, isPrivateMode, onTogglePrivateMode: handleTogglePrivateMode, privateThreadIds }} />
+        <Outlet context={{ accessToken, onLoggedOut, me, creditsBalance, onThreadCreated: handleThreadCreated, onRunStarted: handleRunStarted, onRunEnded: handleRunEnded, refreshCredits, onOpenNotifications: () => setNotificationsOpen(true), notificationVersion, isPrivateMode, onTogglePrivateMode: handleTogglePrivateMode, privateThreadIds, isSearchMode }} />
         {notificationsOpen && (
           <NotificationsPanel accessToken={accessToken} onClose={() => setNotificationsOpen(false)} onMarkedRead={handleNotificationMarkedRead} />
         )}

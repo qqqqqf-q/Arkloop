@@ -31,6 +31,8 @@ type Props = {
   onOpenSettings: (tab?: SettingsTab) => void
   collapsed: boolean
   onToggleCollapse: () => void
+  onOpenSearch: () => void
+  isSearchMode: boolean
 }
 
 function threadTitle(thread: ThreadResponse, untitled: string): string {
@@ -49,6 +51,8 @@ export function Sidebar({
   onOpenSettings,
   collapsed,
   onToggleCollapse,
+  onOpenSearch,
+  isSearchMode,
 }: Props) {
   const navigate = useNavigate()
   const location = useLocation()
@@ -174,7 +178,13 @@ export function Sidebar({
           <span>{t.projects}</span>
         </button>
 
-        <button className="group flex h-9 items-center gap-2.5 rounded-lg px-2 text-[16px] text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]">
+        <button
+          onClick={onOpenSearch}
+          className={[
+            'group flex h-9 items-center gap-2.5 rounded-lg px-2 text-[16px] transition-colors hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]',
+            isSearchMode ? 'bg-[var(--c-bg-deep)] text-[var(--c-text-primary)]' : 'text-[var(--c-text-secondary)]',
+          ].join(' ')}
+        >
           <SearchCheck size={16} className="shrink-0 transition-transform duration-200 group-hover:scale-[1.1]" />
           <span>{t.retrieve}</span>
         </button>
@@ -235,54 +245,72 @@ export function Sidebar({
                 .filter((t): t is ThreadResponse => t !== undefined)
               const regularThreads = threads.filter((t) => !starredSet.has(t.id))
 
-              const renderThread = (thread: ThreadResponse, section: 'starred' | 'regular') => (
-                <motion.div
-                  key={`${thread.id}-${section}`}
-                  initial={{ opacity: 0, scale: 0.97 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.97 }}
-                  transition={{ duration: 0.15, ease: 'easeOut' }}
-                  className={[
-                    'group relative flex w-full items-center rounded-[6px]',
-                    thread.id === threadId
-                      ? 'bg-[var(--c-bg-deep)]'
-                      : 'hover:bg-[var(--c-bg-deep)]',
-                  ].join(' ')}
-                >
-                  <button
-                    onClick={() => navigate(`/t/${thread.id}`)}
+              const renderThread = (thread: ThreadResponse, section: 'starred' | 'regular') => {
+                const isRunning = runningThreadIds.has(thread.id)
+                const isMenuOpen = menuThreadId === thread.id
+                return (
+                  <motion.div
+                    key={`${thread.id}-${section}`}
+                    initial={{ opacity: 0, scale: 0.97 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.97 }}
+                    transition={{ duration: 0.15, ease: 'easeOut' }}
                     className={[
-                      'flex min-w-0 flex-1 items-center gap-2 px-2 py-[9px] text-left text-[13px] font-[350]',
+                      'group relative flex w-full items-center rounded-[6px]',
                       thread.id === threadId
-                        ? 'text-[var(--c-text-primary)]'
-                        : 'text-[var(--c-text-secondary)]',
+                        ? 'bg-[var(--c-bg-deep)]'
+                        : 'hover:bg-[var(--c-bg-deep)]',
                     ].join(' ')}
                   >
-                    {starredSet.has(thread.id) && (
-                      <Star size={11} className="shrink-0 fill-[var(--c-text-muted)] text-[var(--c-text-muted)] opacity-70" />
-                    )}
-                    <span className="min-w-0 flex-1 truncate">{threadTitle(thread, t.untitled)}</span>
-                    {runningThreadIds.has(thread.id) && (
-                      <span className="shrink-0 h-3 w-3 animate-spin rounded-full border border-[var(--c-text-muted)] border-t-transparent" />
-                    )}
-                  </button>
-                  {/* hover 时显示三点按钮 */}
-                  <button
-                    onClick={(e) => openMenu(e, thread.id)}
-                    onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = 'rgba(0,0,0,0.18)' }}
-                    onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = 'transparent' }}
-                    className={[
-                      'mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-md',
-                      'text-[var(--c-text-muted)] transition-colors hover:text-[var(--c-text-secondary)]',
-                      'opacity-0 group-hover:opacity-100',
-                      menuThreadId === thread.id ? '!opacity-100 !bg-[rgba(0,0,0,0.18)]' : '',
-                    ].join(' ')}
-                    style={{ background: 'transparent' }}
-                  >
-                    <MoreHorizontal size={14} />
-                  </button>
-                </motion.div>
-              )
+                    <button
+                      onClick={() => navigate(`/t/${thread.id}`)}
+                      className={[
+                        'flex min-w-0 flex-1 items-center gap-2 px-2 py-[9px] text-left text-[13px] font-[350]',
+                        thread.id === threadId
+                          ? 'text-[var(--c-text-primary)]'
+                          : 'text-[var(--c-text-secondary)]',
+                      ].join(' ')}
+                    >
+                      {starredSet.has(thread.id) && (
+                        <Star size={11} className="shrink-0 fill-[var(--c-text-muted)] text-[var(--c-text-muted)] opacity-70" />
+                      )}
+                      <span className="min-w-0 flex-1 truncate">{threadTitle(thread, t.untitled)}</span>
+                    </button>
+
+                    {/* 右侧操作区 */}
+                    <div className="flex shrink-0 items-center mr-1">
+                      {isRunning && (
+                        <span className="shrink-0 h-3 w-3 animate-spin rounded-full border border-[var(--c-text-muted)] border-t-transparent mr-1" />
+                      )}
+                      {/*
+                        运行中：width 0→6 滑入（spinner 在左，三点从右挤入）
+                        静止时：w-6 固定占位，纯 opacity 渐显，无位移感
+                      */}
+                      <div
+                        className={[
+                          'shrink-0',
+                          isRunning
+                            ? `overflow-hidden transition-[width] duration-150 ${isMenuOpen ? 'w-6' : 'w-0 group-hover:w-6'}`
+                            : 'w-6',
+                        ].join(' ')}
+                      >
+                        <button
+                          onClick={(e) => openMenu(e, thread.id)}
+                          className={[
+                            'flex h-6 w-6 shrink-0 items-center justify-center rounded-md',
+                            'transition-[opacity,background-color,color] duration-150',
+                            isMenuOpen
+                              ? 'opacity-100 bg-[rgba(0,0,0,0.18)] text-[var(--c-text-secondary)]'
+                              : 'opacity-0 group-hover:opacity-100 text-[var(--c-text-muted)] hover:bg-[rgba(0,0,0,0.18)] hover:text-[var(--c-text-secondary)]',
+                          ].join(' ')}
+                        >
+                          <MoreHorizontal size={14} />
+                        </button>
+                      </div>
+                    </div>
+                  </motion.div>
+                )
+              }
 
               return (
                 <AnimatePresence initial={false}>

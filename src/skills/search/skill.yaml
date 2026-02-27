@@ -1,0 +1,9 @@
+id: search
+version: "1"
+title: Search
+description: 联网搜索模式，自动检索网络信息并综合输出。
+tool_denylist:
+  - spawn_agent
+budgets:
+  max_iterations: 5
+  max_output_tokens: 4096

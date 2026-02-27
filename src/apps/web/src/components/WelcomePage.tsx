@@ -36,6 +36,7 @@ type OutletContext = {
   isPrivateMode: boolean
   onTogglePrivateMode: () => void
   privateThreadIds: Set<string>
+  isSearchMode: boolean
 }
 
 // 按时段、星期、节日生成问候语，全部基于浏览器本地时间。
@@ -170,7 +171,7 @@ function FreePlanBadge() {
 }
 
 export function WelcomePage() {
-  const { accessToken, onLoggedOut, onThreadCreated, onOpenNotifications, notificationVersion, creditsBalance, me, isPrivateMode, onTogglePrivateMode } = useOutletContext<OutletContext>()
+  const { accessToken, onLoggedOut, onThreadCreated, onOpenNotifications, notificationVersion, creditsBalance, me, isPrivateMode, onTogglePrivateMode, isSearchMode } = useOutletContext<OutletContext>()
   const [draft, setDraft] = useState('')
   const [attachments, setAttachments] = useState<Attachment[]>([])
   const [sending, setSending] = useState(false)
@@ -253,7 +254,8 @@ export function WelcomePage() {
         Pro: 'pro',
         Ultra: 'ultra',
       }
-      const run = await createRun(accessToken, thread.id, tierToSkillId[tier])
+      const skillId = isSearchMode ? 'search' : tierToSkillId[tier]
+      const run = await createRun(accessToken, thread.id, skillId)
 
       writeActiveThreadIdToStorage(thread.id)
       onThreadCreated(thread)
@@ -295,14 +297,14 @@ export function WelcomePage() {
       <div
         className="flex flex-1 flex-col items-center justify-center px-5"
       >
-        {/* FreePlanBadge: 平滑展开/收起，collapsed 时才 clip */}
+        {/* FreePlanBadge: 无痕模式或搜索模式下平滑收起 */}
         <div
           style={{
             display: 'grid',
-            gridTemplateRows: isPrivateMode ? '0fr' : '1fr',
-            opacity: isPrivateMode ? 0 : 1,
-            overflow: isPrivateMode ? 'hidden' : 'visible',
-            transition: 'grid-template-rows 0.2s ease, opacity 0.15s ease',
+            gridTemplateRows: (isPrivateMode || isSearchMode) ? '0fr' : '1fr',
+            opacity: (isPrivateMode || isSearchMode) ? 0 : 1,
+            overflow: (isPrivateMode || isSearchMode) ? 'hidden' : 'visible',
+            transition: 'grid-template-rows 0.22s ease, opacity 0.18s ease',
           }}
         >
           <div style={{ minHeight: 0 }}>
@@ -310,9 +312,34 @@ export function WelcomePage() {
           </div>
         </div>
 
-        <h2 className="mt-[40px] mb-[40px] text-[40px] font-normal tracking-[-0.5px] text-[var(--c-text-heading)]">
-          {isPrivateMode ? t.youAreIncognito : greeting}
-        </h2>
+        {/* 标题：两层绝对定位交叉淡出，容器高度由下层撑开 */}
+        <div className="mt-[40px] mb-[40px]" style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          {/* 常规问候 / 无痕文本 */}
+          <h2
+            className="text-[40px] font-normal tracking-[-0.5px] text-[var(--c-text-heading)]"
+            style={{
+              opacity: isSearchMode ? 0 : 1,
+              transform: isSearchMode ? 'translateY(-6px)' : 'translateY(0)',
+              transition: 'opacity 0.2s ease, transform 0.22s ease',
+              pointerEvents: isSearchMode ? 'none' : 'auto',
+            }}
+          >
+            {isPrivateMode ? t.youAreIncognito : greeting}
+          </h2>
+          {/* Search for everything — 绝对覆盖，不撑开高度 */}
+          <h2
+            className="absolute text-[40px] font-normal tracking-[-0.5px] text-[var(--c-text-heading)]"
+            style={{
+              opacity: isSearchMode ? 1 : 0,
+              transform: isSearchMode ? 'translateY(0)' : 'translateY(6px)',
+              transition: 'opacity 0.2s ease, transform 0.22s ease',
+              pointerEvents: isSearchMode ? 'auto' : 'none',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            Search for everything
+          </h2>
+        </div>
 
         <div className="w-full max-w-[750px]">
           {attachments.length > 0 && (
@@ -349,10 +376,11 @@ export function WelcomePage() {
             value={draft}
             onChange={setDraft}
             onSubmit={handleSubmit}
-            placeholder={t.chatPlaceholder}
+            placeholder={isSearchMode ? '今天有什么想搜索的吗？' : t.chatPlaceholder}
             disabled={sending}
             isStreaming={false}
             variant="welcome"
+            searchMode={isSearchMode}
             attachments={attachments}
             onAttachFiles={handleAttachFiles}
             accessToken={accessToken}
