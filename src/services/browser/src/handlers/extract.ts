@@ -1,4 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { BrowserPool } from '../pool/browser-pool.js';
+import type { StorageClient } from '../storage/minio-client.js';
 
 export type ExtractMode = 'text' | 'accessibility' | 'html_clean';
 
@@ -17,6 +19,8 @@ export async function handleExtract(
   _req: IncomingMessage,
   res: ServerResponse,
   _body: ExtractRequest,
+  _pool: BrowserPool,
+  _storage: StorageClient,
 ): Promise<void> {
   res.writeHead(501, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify({ code: 'not_implemented', message: 'extract not yet implemented (AS-7.4)' }));

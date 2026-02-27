@@ -23,3 +23,28 @@ export function sessionStatePath(orgId: string, sessionId: string): string {
 export function screenshotPath(runId: string, step: number): string {
   return `${runId}/${step}.png`;
 }
+
+// MinioClient 完整实现在 AS-7.3 中完成。
+export class MinioClient implements StorageClient {
+  private readonly config: MinioClientConfig;
+
+  constructor(config: MinioClientConfig) {
+    this.config = config;
+  }
+
+  async uploadScreenshot(_runId: string, _step: number, _imageBuffer: Buffer): Promise<string> {
+    throw new Error(`MinioClient not implemented (AS-7.3): ${this.config.endpoint}`);
+  }
+
+  async saveSessionState(_orgId: string, _sessionId: string, _state: object): Promise<void> {
+    throw new Error('MinioClient not implemented (AS-7.3)');
+  }
+
+  async loadSessionState(_orgId: string, _sessionId: string): Promise<object | null> {
+    throw new Error('MinioClient not implemented (AS-7.3)');
+  }
+
+  async deleteSessionState(_orgId: string, _sessionId: string): Promise<void> {
+    throw new Error('MinioClient not implemented (AS-7.3)');
+  }
+}

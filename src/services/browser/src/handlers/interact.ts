@@ -1,4 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { BrowserPool } from '../pool/browser-pool.js';
+import type { StorageClient } from '../storage/minio-client.js';
 
 export type InteractAction = 'click' | 'type' | 'scroll' | 'select' | 'hover';
 
@@ -29,6 +31,8 @@ export async function handleInteract(
   _req: IncomingMessage,
   res: ServerResponse,
   _body: InteractRequest,
+  _pool: BrowserPool,
+  _storage: StorageClient,
 ): Promise<void> {
   res.writeHead(501, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify({ code: 'not_implemented', message: 'interact not yet implemented (AS-7.4)' }));

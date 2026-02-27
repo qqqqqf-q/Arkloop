@@ -1,4 +1,6 @@
 import { loadConfig } from './config.js';
+import { MinioClient } from './storage/minio-client.js';
+import { BrowserPool } from './pool/browser-pool.js';
 import { createHttpServer } from './server.js';
 
 process.on('uncaughtException', (err) => {
@@ -13,21 +15,33 @@ process.on('unhandledRejection', (reason) => {
 });
 
 const config = loadConfig();
-const server = createHttpServer();
+const storage = new MinioClient(config.minio);
+const pool = new BrowserPool({
+  maxBrowsers: config.maxBrowsers,
+  maxContextsPerBrowser: config.maxContextsPerBrowser,
+  contextIdleTimeoutMs: config.contextIdleTimeoutMs,
+  contextMaxLifetimeMs: config.contextMaxLifetimeMs,
+  browserMemoryThresholdBytes: config.browserMemoryThresholdBytes,
+  storage,
+});
+
+await pool.init();
+
+const server = createHttpServer(pool, storage);
 
 server.listen(config.port, '0.0.0.0', () => {
   process.stdout.write(JSON.stringify({ level: 'info', event: 'server_started', port: config.port }) + '\n');
 });
 
-process.on('SIGTERM', () => {
-  server.close(() => {
-    process.stdout.write(JSON.stringify({ level: 'info', event: 'server_stopped' }) + '\n');
-    process.exit(0);
-  });
+process.on('SIGTERM', async () => {
+  server.close();
+  await pool.shutdown();
+  process.stdout.write(JSON.stringify({ level: 'info', event: 'server_stopped' }) + '\n');
+  process.exit(0);
 });
 
-process.on('SIGINT', () => {
-  server.close(() => {
-    process.exit(0);
-  });
+process.on('SIGINT', async () => {
+  server.close();
+  await pool.shutdown();
+  process.exit(0);
 });
