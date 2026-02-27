@@ -9,6 +9,7 @@ import (
 
 	"arkloop/services/worker/internal/events"
 	"arkloop/services/worker/internal/llm"
+	"arkloop/services/worker/internal/memory"
 	"arkloop/services/worker/internal/pipeline"
 	"arkloop/services/worker/internal/tools"
 
@@ -93,9 +94,12 @@ func (rt *luaRuntime) register(L *lua.LState) {
 	L.SetField(contextTable, "set_output", L.NewFunction(rt.contextSetOutput))
 	L.SetGlobal("context", contextTable)
 
-	// memory 依赖 AS-5，暂为 stub
+	// memory binding：MemoryProvider 非 nil 时调用真实 provider，否则返回空/错误
 	memoryTable := L.NewTable()
 	L.SetField(memoryTable, "search", L.NewFunction(rt.memorySearch))
+	L.SetField(memoryTable, "read", L.NewFunction(rt.memoryRead))
+	L.SetField(memoryTable, "write", L.NewFunction(rt.memoryWrite))
+	L.SetField(memoryTable, "forget", L.NewFunction(rt.memoryForget))
 	L.SetGlobal("memory", memoryTable)
 }
 
@@ -355,6 +359,9 @@ func (rt *luaRuntime) toolsCall(L *lua.LState) int {
 	execCtx := tools.ExecutionContext{
 		RunID:     rt.rc.Run.ID,
 		TraceID:   rt.rc.TraceID,
+		OrgID:     &rt.rc.Run.OrgID,
+		UserID:    rt.rc.UserID,
+		AgentID:   agentIDFromSkill(rt.rc),
 		TimeoutMs: rt.rc.ToolTimeoutMs,
 		Budget:    rt.rc.ToolBudget,
 		Emitter:   rt.emitter,
@@ -419,10 +426,133 @@ func (rt *luaRuntime) contextSetOutput(L *lua.LState) int {
 	return 0
 }
 
-// memory.search(query) -> (results_json, err)
-// 依赖 AS-5，暂为 stub，返回空数组。
+// memory.search(query, [scope], [limit]) -> (results_json, err)
 func (rt *luaRuntime) memorySearch(L *lua.LState) int {
-	L.Push(lua.LString("[]"))
+	if rt.rc.MemoryProvider == nil {
+		L.Push(lua.LString("[]"))
+		L.Push(lua.LNil)
+		return 2
+	}
+
+	query := L.CheckString(1)
+	scope := memory.MemoryScopeUser
+	if s := L.OptString(2, "user"); s == "agent" {
+		scope = memory.MemoryScopeAgent
+	}
+	limit := L.OptInt(3, 5)
+
+	ident := rt.memoryIdentity()
+	hits, err := rt.rc.MemoryProvider.Find(rt.ctx, ident, scope, query, limit)
+	if err != nil {
+		L.Push(lua.LString("[]"))
+		L.Push(lua.LString(err.Error()))
+		return 2
+	}
+
+	results := make([]map[string]any, 0, len(hits))
+	for _, h := range hits {
+		results = append(results, map[string]any{
+			"uri":          h.URI,
+			"abstract":     h.Abstract,
+			"score":        h.Score,
+			"match_reason": h.MatchReason,
+		})
+	}
+	encoded, _ := json.Marshal(results)
+	L.Push(lua.LString(string(encoded)))
 	L.Push(lua.LNil)
 	return 2
+}
+
+// memory.read(uri, [depth]) -> (content, err)
+func (rt *luaRuntime) memoryRead(L *lua.LState) int {
+	if rt.rc.MemoryProvider == nil {
+		L.Push(lua.LNil)
+		L.Push(lua.LString("memory provider not available"))
+		return 2
+	}
+
+	uri := L.CheckString(1)
+	layer := memory.MemoryLayerOverview
+	if d := L.OptString(2, "overview"); d == "full" {
+		layer = memory.MemoryLayerRead
+	}
+
+	ident := rt.memoryIdentity()
+	content, err := rt.rc.MemoryProvider.Content(rt.ctx, ident, uri, layer)
+	if err != nil {
+		L.Push(lua.LNil)
+		L.Push(lua.LString(err.Error()))
+		return 2
+	}
+
+	L.Push(lua.LString(content))
+	L.Push(lua.LNil)
+	return 2
+}
+
+// memory.write(category, key, content, [scope]) -> (uri, err)
+func (rt *luaRuntime) memoryWrite(L *lua.LState) int {
+	if rt.rc.MemoryProvider == nil {
+		L.Push(lua.LNil)
+		L.Push(lua.LString("memory provider not available"))
+		return 2
+	}
+
+	category := L.CheckString(1)
+	key := L.CheckString(2)
+	content := L.CheckString(3)
+	scope := memory.MemoryScopeUser
+	if s := L.OptString(4, "user"); s == "agent" {
+		scope = memory.MemoryScopeAgent
+	}
+
+	writable := "[" + string(scope) + "/" + category + "/" + key + "] " + content
+	entry := memory.MemoryEntry{Content: writable}
+
+	ident := rt.memoryIdentity()
+	if err := rt.rc.MemoryProvider.Write(rt.ctx, ident, scope, entry); err != nil {
+		L.Push(lua.LNil)
+		L.Push(lua.LString(err.Error()))
+		return 2
+	}
+
+	uri := memory.BuildURI(scope, memory.MemoryCategory(category), key)
+	L.Push(lua.LString(uri))
+	L.Push(lua.LNil)
+	return 2
+}
+
+// memory.forget(uri) -> (ok, err)
+func (rt *luaRuntime) memoryForget(L *lua.LState) int {
+	if rt.rc.MemoryProvider == nil {
+		L.Push(lua.LFalse)
+		L.Push(lua.LString("memory provider not available"))
+		return 2
+	}
+
+	uri := L.CheckString(1)
+
+	ident := rt.memoryIdentity()
+	if err := rt.rc.MemoryProvider.Delete(rt.ctx, ident, uri); err != nil {
+		L.Push(lua.LFalse)
+		L.Push(lua.LString(err.Error()))
+		return 2
+	}
+
+	L.Push(lua.LTrue)
+	L.Push(lua.LNil)
+	return 2
+}
+
+// memoryIdentity 从 RunContext 构造 MemoryIdentity。
+func (rt *luaRuntime) memoryIdentity() memory.MemoryIdentity {
+	ident := memory.MemoryIdentity{
+		OrgID:   rt.rc.Run.OrgID,
+		AgentID: agentIDFromSkill(rt.rc),
+	}
+	if rt.rc.UserID != nil {
+		ident.UserID = *rt.rc.UserID
+	}
+	return ident
 }

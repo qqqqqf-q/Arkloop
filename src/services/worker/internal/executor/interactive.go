@@ -91,6 +91,9 @@ func (e *InteractiveExecutor) Execute(
 
 	runCtx := agent.RunContext{
 		RunID:               rc.Run.ID,
+		OrgID:               &rc.Run.OrgID,
+		UserID:              rc.UserID,
+		AgentID:             agentIDFromSkill(rc),
 		TraceID:             rc.TraceID,
 		InputJSON:           rc.InputJSON,
 		MaxIterations:       rc.MaxIterations,

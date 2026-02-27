@@ -6,6 +6,7 @@ import (
 	"arkloop/services/worker/internal/data"
 	"arkloop/services/worker/internal/events"
 	"arkloop/services/worker/internal/llm"
+	"arkloop/services/worker/internal/memory"
 	"arkloop/services/worker/internal/routing"
 	"arkloop/services/worker/internal/skills"
 	"arkloop/services/worker/internal/tools"
@@ -91,6 +92,9 @@ type RunContext struct {
 
 	// -- EngineV1.Execute 注入 --
 	ExecutorBuilder     AgentExecutorBuilder
+
+	// -- MemoryProvider，由 EngineV1.Execute 注入；nil 时 Lua binding 返回空结果 --
+	MemoryProvider memory.MemoryProvider
 
 	// -- LLM 重试，由 EngineV1.Execute 注入 --
 	LlmRetryMaxAttempts int

@@ -15,6 +15,7 @@ import (
 	"arkloop/services/worker/internal/skills"
 	"arkloop/services/worker/internal/tools"
 	"arkloop/services/worker/internal/tools/builtin"
+	memorytool "arkloop/services/worker/internal/tools/memory"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
@@ -88,6 +89,16 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 	memoryProvider := openviking.NewProvider(ovCfg)
 	if memoryProvider == nil {
 		slog.InfoContext(ctx, "memory: openviking not configured, running without memory")
+	} else {
+		// MemoryProvider 可用时条件注册 memory tools
+		memExecutor := memorytool.NewToolExecutor(memoryProvider)
+		for _, spec := range memorytool.AgentSpecs() {
+			if err := toolRegistry.Register(spec); err != nil {
+				return nil, err
+			}
+			executors[spec.Name] = memExecutor
+		}
+		allLlmSpecs = append(allLlmSpecs, memorytool.LlmSpecs()...)
 	}
 
 	skillsRoot, err := skills.BuiltinSkillsRoot()

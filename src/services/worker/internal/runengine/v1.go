@@ -176,6 +176,7 @@ func (e *EngineV1) Execute(ctx context.Context, pool *pgxpool.Pool, run data.Run
 		Router:              e.router,
 		UserID:              run.CreatedByUserID,
 		ExecutorBuilder:     e.executorRegistry,
+		MemoryProvider:      e.memoryProvider,
 		MaxIterations:       10,
 		ToolBudget:          map[string]any{},
 		LlmRetryMaxAttempts: e.llmRetryMaxAttempts,

@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"arkloop/services/worker/internal/memory"
+
+	"github.com/google/uuid"
 )
 
 // retryBaseDelay 是重试的初始等待时间，每次翻倍。
@@ -292,18 +294,25 @@ type createSessionResult struct {
 	SessionID string `json:"session_id"`
 }
 
-// Write 通过"建立专属 session → 写入内容 → commit 触发提取"将结构化记忆写入用户空间。
+// Write 通过"建立专属 session → 写入内容 → commit 触发提取"将结构化记忆写入指定 scope。
 //
 // OpenViking 的 commit 会在服务端异步处理 LLM 提取和向量化；
-// POST /api/v1/sessions 不支持 target_uri，存储路径由服务端根据 identity headers 决定。
-func (c *client) Write(ctx context.Context, ident memory.MemoryIdentity, _ memory.MemoryScope, entry memory.MemoryEntry) error {
+// scope 通过 identity headers 传递：user scope 发送 X-OpenViking-User，
+// agent scope 仅发送 X-OpenViking-Agent（不发送 User header），使 OpenViking 路由到 agent 命名空间。
+func (c *client) Write(ctx context.Context, ident memory.MemoryIdentity, scope memory.MemoryScope, entry memory.MemoryEntry) error {
 	if strings.TrimSpace(entry.Content) == "" {
 		return errors.New("memory write: content is empty")
 	}
 
+	// agent scope 写入时使用独立 identity：清除 UserID，让 OpenViking 识别为 agent 命名空间
+	writeIdent := ident
+	if scope == memory.MemoryScopeAgent {
+		writeIdent.UserID = uuid.Nil
+	}
+
 	// 1. 创建临时 session
 	var createResp apiResponse
-	if err := c.doJSON(ctx, http.MethodPost, "/api/v1/sessions", nil, ident, &createResp); err != nil {
+	if err := c.doJSON(ctx, http.MethodPost, "/api/v1/sessions", nil, writeIdent, &createResp); err != nil {
 		return fmt.Errorf("memory write create session: %w", err)
 	}
 	if createResp.Error != nil {
@@ -321,7 +330,7 @@ func (c *client) Write(ctx context.Context, ident memory.MemoryIdentity, _ memor
 		{Role: "user", Content: entry.Content},
 		{Role: "assistant", Content: "Noted."},
 	} {
-		if err := c.doJSON(ctx, http.MethodPost, msgPath, msg, ident, nil); err != nil {
+		if err := c.doJSON(ctx, http.MethodPost, msgPath, msg, writeIdent, nil); err != nil {
 			slog.WarnContext(ctx, "memory write: message failed, session leaked",
 				"session_id", sid, "role", msg.Role, "err", err.Error())
 			return fmt.Errorf("memory write add message role=%s: %w", msg.Role, err)
@@ -330,7 +339,7 @@ func (c *client) Write(ctx context.Context, ident memory.MemoryIdentity, _ memor
 
 	// 3. commit 触发 LLM 提取（commit HTTP 调用本身会快速返回，提取为异步）
 	commitPath := fmt.Sprintf("/api/v1/sessions/%s/commit", url.PathEscape(sid))
-	if err := c.doJSON(ctx, http.MethodPost, commitPath, nil, ident, nil); err != nil {
+	if err := c.doJSON(ctx, http.MethodPost, commitPath, nil, writeIdent, nil); err != nil {
 		slog.WarnContext(ctx, "memory write: commit failed, session leaked",
 			"session_id", sid, "err", err.Error())
 		return fmt.Errorf("memory write commit session=%s: %w", sid, err)

@@ -18,6 +18,9 @@ const ErrorClassAgentMaxIterationsExceeded = "agent.max_iterations_exceeded"
 
 type RunContext struct {
 	RunID           uuid.UUID
+	OrgID           *uuid.UUID
+	UserID          *uuid.UUID
+	AgentID         string
 	TraceID         string
 	InputJSON       map[string]any
 	MaxIterations   int
@@ -127,6 +130,9 @@ func (l *Loop) Run(
 			execCtx := tools.ExecutionContext{
 				RunID:     runCtx.RunID,
 				TraceID:   runCtx.TraceID,
+				OrgID:     runCtx.OrgID,
+				UserID:    runCtx.UserID,
+				AgentID:   runCtx.AgentID,
 				TimeoutMs: runCtx.ToolTimeoutMs,
 				Budget:    copyMap(runCtx.ToolBudget),
 				Emitter:   emitter,

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	"arkloop/services/worker/internal/pipeline"
+
 	"github.com/google/uuid"
 )
 
@@ -41,4 +43,12 @@ func stringPtr(value string) *string {
 		return nil
 	}
 	return &cleaned
+}
+
+// agentIDFromSkill 从 RunContext 的 SkillDefinition 中提取 agent_id。
+func agentIDFromSkill(rc *pipeline.RunContext) string {
+	if rc.SkillDefinition != nil && strings.TrimSpace(rc.SkillDefinition.ID) != "" {
+		return rc.SkillDefinition.ID
+	}
+	return "default"
 }
