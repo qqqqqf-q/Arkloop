@@ -33,6 +33,8 @@ var (
 	streamingEventTypes = map[string]struct{}{
 		"message.delta":      {},
 		"llm.response.chunk": {},
+		"run.segment.start":  {},
+		"run.segment.end":    {},
 	}
 	errStopProcessing = errors.New("stop_processing")
 )
@@ -271,8 +273,11 @@ func (w *eventWriter) Append(
 	w.accumUsage(ev.DataJSON)
 
 	if ev.Type == "message.delta" {
-		if delta := extractAssistantDelta(ev.DataJSON); delta != "" {
-			w.assistantDeltas = append(w.assistantDeltas, delta)
+		// 只累积主内容，thinking channel 不计入最终消息文本
+		if channel, _ := ev.DataJSON["channel"].(string); channel == "" {
+			if delta := extractAssistantDelta(ev.DataJSON); delta != "" {
+				w.assistantDeltas = append(w.assistantDeltas, delta)
+			}
 		}
 	}
 

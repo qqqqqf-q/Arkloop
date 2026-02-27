@@ -40,6 +40,9 @@ type RunContext struct {
 	// IterHook 在每轮迭代完成（pending 工具调用已处理，准备进入下一轮）时被调用。
 	// 返回 (text, true, nil) 时，将 text 作为 user message 注入 messages；nil 时不触发。
 	IterHook func(ctx context.Context, iter int) (string, bool, error)
+
+	// PreIterHook 在每轮迭代开始（LLM 调用之前）时被调用。
+	PreIterHook func(ctx context.Context, iter int) error
 }
 
 type Loop struct {
@@ -75,6 +78,12 @@ func (l *Loop) Run(
 	for iter := 1; iter <= runCtx.MaxIterations; iter++ {
 		if cancelled(runCtx) {
 			return yield(emitter.Emit("run.cancelled", map[string]any{"reason": "cancel_signal"}, nil, nil))
+		}
+
+		if runCtx.PreIterHook != nil {
+			if err := runCtx.PreIterHook(ctx, iter); err != nil {
+				return err
+			}
 		}
 
 		turnRequest := copyRequest(request, messages)
@@ -297,11 +306,20 @@ func (l *Loop) runSingleTurn(
 		}
 
 		switch typed := item.(type) {
+		case llm.StreamSegmentStart:
+			eventsOut = append(eventsOut, emitter.Emit("run.segment.start", typed.ToDataJSON(), nil, nil))
+			return nil
+		case llm.StreamSegmentEnd:
+			eventsOut = append(eventsOut, emitter.Emit("run.segment.end", typed.ToDataJSON(), nil, nil))
+			return nil
 		case llm.StreamMessageDelta:
 			if typed.ContentDelta == "" {
 				return nil
 			}
-			assistantChunks = append(assistantChunks, typed.ContentDelta)
+			// thinking 内容不计入对话上下文
+			if typed.Channel == nil {
+				assistantChunks = append(assistantChunks, typed.ContentDelta)
+			}
 			eventsOut = append(eventsOut, emitter.Emit("message.delta", typed.ToDataJSON(), nil, nil))
 			return nil
 		case llm.StreamLlmRequest:

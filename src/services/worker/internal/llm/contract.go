@@ -323,6 +323,44 @@ func (f StreamRunFailed) ToDataJSON() map[string]any {
 	return payload
 }
 
+type SegmentDisplay struct {
+	Mode  string // "visible" | "collapsed" | "hidden"
+	Label string // 前端折叠块标题
+}
+
+func (d SegmentDisplay) ToJSON() map[string]any {
+	return map[string]any{
+		"mode":  d.Mode,
+		"label": d.Label,
+	}
+}
+
+// StreamSegmentStart 通知前端：后续事件直到 StreamSegmentEnd 属于此段落。
+type StreamSegmentStart struct {
+	SegmentID string
+	Kind      string // "thinking" | "planning_round" | "direction_check" | "tool_group"
+	Display   SegmentDisplay
+}
+
+func (s StreamSegmentStart) ToDataJSON() map[string]any {
+	return map[string]any{
+		"segment_id": s.SegmentID,
+		"kind":       s.Kind,
+		"display":    s.Display.ToJSON(),
+	}
+}
+
+// StreamSegmentEnd 标记段落结束。
+type StreamSegmentEnd struct {
+	SegmentID string
+}
+
+func (s StreamSegmentEnd) ToDataJSON() map[string]any {
+	return map[string]any{
+		"segment_id": s.SegmentID,
+	}
+}
+
 func InternalStreamEndedError() GatewayError {
 	return GatewayError{
 		ErrorClass: ErrorClassInternalStreamEnded,

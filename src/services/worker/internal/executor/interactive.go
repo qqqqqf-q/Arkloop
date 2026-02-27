@@ -10,6 +10,7 @@ import (
 	"arkloop/services/worker/internal/events"
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/pipeline"
+	"github.com/google/uuid"
 )
 
 const (
@@ -85,10 +86,13 @@ func (e *InteractiveExecutor) Execute(
 		Tools:           append([]llm.ToolSpec{}, rc.FinalSpecs...),
 		MaxOutputTokens: rc.MaxOutputTokens,
 		Temperature:     rc.Temperature,
-	}
 		ReasoningMode:   rc.ReasoningMode,
+	}
 
 	maxWait := time.Duration(e.maxWaitSeconds) * time.Second
+
+	// currentSegID 追踪当前活跃的 segment，供 PreIterHook/IterHook 共享。
+	var currentSegID string
 
 	runCtx := agent.RunContext{
 		RunID:               rc.Run.ID,
@@ -106,6 +110,29 @@ func (e *InteractiveExecutor) Execute(
 		LlmRetryBaseDelayMs: rc.LlmRetryBaseDelayMs,
 		CancelSignal: func() bool {
 			return ctx.Err() != nil
+		},
+		PreIterHook: func(_ context.Context, iter int) error {
+			// 关闭上一轮 segment（第 2 轮开始时关闭第 1 轮）
+			if currentSegID != "" {
+				ev := emitter.Emit("run.segment.end", map[string]any{
+					"segment_id": currentSegID,
+				}, nil, nil)
+				if err := yield(ev); err != nil {
+					return err
+				}
+			}
+			// 开启新一轮 segment
+			segID := uuid.NewString()
+			currentSegID = segID
+			ev := emitter.Emit("run.segment.start", map[string]any{
+				"segment_id": segID,
+				"kind":       "planning_round",
+				"display": map[string]any{
+					"mode":  "collapsed",
+					"label": fmt.Sprintf("第 %d 轮规划", iter),
+				},
+			}, nil, nil)
+			return yield(ev)
 		},
 		IterHook: func(hookCtx context.Context, iter int) (string, bool, error) {
 			if iter%e.checkInEvery != 0 {
@@ -131,7 +158,17 @@ func (e *InteractiveExecutor) Execute(
 	}
 
 	loop := agent.NewLoop(rc.Gateway, rc.ToolExecutor)
-	return loop.Run(ctx, runCtx, agentRequest, emitter, yield)
+	runErr := loop.Run(ctx, runCtx, agentRequest, emitter, yield)
+
+	// 关闭最后一轮未关闭的 segment（最后一轮没有下一轮 PreIterHook 来关闭它）
+	if currentSegID != "" {
+		ev := emitter.Emit("run.segment.end", map[string]any{
+			"segment_id": currentSegID,
+		}, nil, nil)
+		_ = yield(ev)
+	}
+
+	return runErr
 }
 
 // toPositiveInt 将 map 值转为正整数，用于解析 executor_config 字段。
