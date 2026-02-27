@@ -20,6 +20,7 @@ type Definition struct {
 	Title            string
 	Description      *string
 	ToolAllowlist    []string
+	ToolDenylist     []string
 	Budgets          Budgets
 	PromptMD         string
 	ExecutorType     string         // 执行策略类型，默认 "agent.simple"

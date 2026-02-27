@@ -670,6 +670,31 @@ func (r *RunEventRepository) ListStaleRunning(ctx context.Context, staleBefore t
 	return runs, nil
 }
 
+// ListChildRunIDs 返回指定 run 的所有子 run ID，按创建时间升序。
+func (r *RunEventRepository) ListChildRunIDs(ctx context.Context, parentRunID uuid.UUID) ([]uuid.UUID, error) {
+	if parentRunID == uuid.Nil {
+		return nil, nil
+	}
+	rows, err := r.db.Query(ctx,
+		`SELECT id FROM runs WHERE parent_run_id = $1 ORDER BY created_at ASC`,
+		parentRunID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("ListChildRunIDs: %w", err)
+	}
+	defer rows.Close()
+
+	var ids []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("ListChildRunIDs scan: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
 // ForceFailRun 原子地将一个 running 的 run 标记为 failed 并写入 run.failed 事件。
 // 返回 (true, nil) 表示实际执行了更新；(false, nil) 表示 run 已不在 running 状态（no-op）。
 func (r *RunEventRepository) ForceFailRun(ctx context.Context, runID uuid.UUID) (bool, error) {

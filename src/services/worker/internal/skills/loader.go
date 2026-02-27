@@ -127,7 +127,11 @@ func loadSingleSkill(yamlPath string, promptPath string) (Definition, error) {
 	}
 
 	description := asOptionalString(obj["description"])
-	allowlist, err := asToolAllowlist(obj["tool_allowlist"])
+	allowlist, err := asToolNameList(obj["tool_allowlist"], "tool_allowlist")
+	if err != nil {
+		return Definition{}, err
+	}
+	denylist, err := asToolNameList(obj["tool_denylist"], "tool_denylist")
 	if err != nil {
 		return Definition{}, err
 	}
@@ -162,6 +166,7 @@ func loadSingleSkill(yamlPath string, promptPath string) (Definition, error) {
 		Title:            title,
 		Description:      description,
 		ToolAllowlist:    allowlist,
+		ToolDenylist:     denylist,
 		Budgets:          budgets,
 		PromptMD:         prompt,
 		ExecutorType:     executorType,
@@ -217,27 +222,27 @@ func asID(value any, label string) (string, error) {
 	return cleaned, nil
 }
 
-func asToolAllowlist(value any) ([]string, error) {
+func asToolNameList(value any, label string) ([]string, error) {
 	if value == nil {
 		return nil, nil
 	}
 	rawList, ok := value.([]any)
 	if !ok {
-		return nil, fmt.Errorf("tool_allowlist must be an array")
+		return nil, fmt.Errorf("%s must be an array", label)
 	}
 	seen := map[string]struct{}{}
 	out := []string{}
 	for idx, item := range rawList {
 		text, ok := item.(string)
 		if !ok {
-			return nil, fmt.Errorf("tool_allowlist[%d] must be a string", idx)
+			return nil, fmt.Errorf("%s[%d] must be a string", label, idx)
 		}
 		cleaned := strings.TrimSpace(text)
 		if cleaned == "" {
-			return nil, fmt.Errorf("tool_allowlist[%d] must not be empty", idx)
+			return nil, fmt.Errorf("%s[%d] must not be empty", label, idx)
 		}
 		if !idRegex.MatchString(cleaned) {
-			return nil, fmt.Errorf("tool_allowlist[%d] is invalid: %s", idx, cleaned)
+			return nil, fmt.Errorf("%s[%d] is invalid: %s", label, idx, cleaned)
 		}
 		if _, exists := seen[cleaned]; exists {
 			continue
@@ -316,7 +321,7 @@ func LoadFromDB(ctx context.Context, pool *pgxpool.Pool, orgID uuid.UUID) ([]Def
 	rows, err := pool.Query(
 		ctx,
 		`SELECT skill_key, version, display_name, description,
-		        prompt_md, tool_allowlist, budgets_json,
+		        prompt_md, tool_allowlist, COALESCE(tool_denylist, '{}'), budgets_json,
 		        executor_type, executor_config_json,
 		        preferred_credential, agent_config_name
 		 FROM skills
@@ -338,6 +343,7 @@ func LoadFromDB(ctx context.Context, pool *pgxpool.Pool, orgID uuid.UUID) ([]Def
 			description         *string
 			promptMD            string
 			toolAllowlist       []string
+			toolDenylist        []string
 			budgetsRaw          []byte
 			executorType        string
 			executorConfigRaw   []byte
@@ -345,7 +351,7 @@ func LoadFromDB(ctx context.Context, pool *pgxpool.Pool, orgID uuid.UUID) ([]Def
 			agentConfigName     *string
 		)
 		if err := rows.Scan(&skillKey, &version, &displayName, &description,
-			&promptMD, &toolAllowlist, &budgetsRaw,
+			&promptMD, &toolAllowlist, &toolDenylist, &budgetsRaw,
 			&executorType, &executorConfigRaw, &preferredCredential, &agentConfigName); err != nil {
 			return nil, err
 		}
@@ -369,6 +375,7 @@ func LoadFromDB(ctx context.Context, pool *pgxpool.Pool, orgID uuid.UUID) ([]Def
 			Version:          version,
 			Title:            displayName,
 			ToolAllowlist:    toolAllowlist,
+			ToolDenylist:     toolDenylist,
 			Budgets:          budgets,
 			PromptMD:         promptMD,
 			ExecutorType:     executorType,

@@ -49,13 +49,15 @@ type threadRunResponse struct {
 }
 
 type runResponse struct {
-	RunID           string  `json:"run_id"`
-	OrgID           string  `json:"org_id"`
-	ThreadID        string  `json:"thread_id"`
-	CreatedByUserID *string `json:"created_by_user_id"`
-	Status          string  `json:"status"`
-	CreatedAt       string  `json:"created_at"`
-	TraceID         string  `json:"trace_id"`
+	RunID           string   `json:"run_id"`
+	OrgID           string   `json:"org_id"`
+	ThreadID        string   `json:"thread_id"`
+	CreatedByUserID *string  `json:"created_by_user_id"`
+	ParentRunID     *string  `json:"parent_run_id,omitempty"`
+	ChildRunIDs     []string `json:"child_run_ids,omitempty"`
+	Status          string   `json:"status"`
+	CreatedAt       string   `json:"created_at"`
+	TraceID         string   `json:"trace_id"`
 }
 
 type cancelRunResponse struct {
@@ -75,6 +77,7 @@ type globalRunResponse struct {
 	Status            string   `json:"status"`
 	Model             *string  `json:"model,omitempty"`
 	SkillID           *string  `json:"skill_id,omitempty"`
+	ParentRunID       *string  `json:"parent_run_id,omitempty"`
 	TotalInputTokens  *int64   `json:"total_input_tokens,omitempty"`
 	TotalOutputTokens *int64   `json:"total_output_tokens,omitempty"`
 	TotalCostUSD      *float64 `json:"total_cost_usd,omitempty"`
@@ -383,11 +386,29 @@ func getRun(
 			createdByUserID = &value
 		}
 
+		var parentRunID *string
+		if run.ParentRunID != nil {
+			s := run.ParentRunID.String()
+			parentRunID = &s
+		}
+
+		childIDs, err := runRepo.ListChildRunIDs(r.Context(), run.ID)
+		if err != nil {
+			WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			return
+		}
+		var childRunIDs []string
+		for _, cid := range childIDs {
+			childRunIDs = append(childRunIDs, cid.String())
+		}
+
 		writeJSON(w, traceID, nethttp.StatusOK, runResponse{
 			RunID:           run.ID.String(),
 			OrgID:           run.OrgID.String(),
 			ThreadID:        run.ThreadID.String(),
 			CreatedByUserID: createdByUserID,
+			ParentRunID:     parentRunID,
+			ChildRunIDs:     childRunIDs,
 			Status:          status,
 			CreatedAt:       run.CreatedAt.UTC().Format(time.RFC3339Nano),
 			TraceID:         traceID,
@@ -1131,6 +1152,10 @@ func listGlobalRuns(
 			if rw.CreatedByUserID != nil {
 				s := rw.CreatedByUserID.String()
 				item.CreatedByUserID = &s
+			}
+			if rw.ParentRunID != nil {
+				s := rw.ParentRunID.String()
+				item.ParentRunID = &s
 			}
 			if rw.CompletedAt != nil {
 				s := rw.CompletedAt.UTC().Format(time.RFC3339Nano)

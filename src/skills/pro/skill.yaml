@@ -3,6 +3,8 @@ version: "1"
 title: Pro
 description: 标准工作模式，支持工具调用和多轮推理。
 tool_allowlist: []
+tool_denylist:
+  - spawn_agent
 budgets:
   max_iterations: 10
   max_output_tokens: 4096

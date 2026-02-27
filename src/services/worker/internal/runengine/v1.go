@@ -133,6 +133,7 @@ func NewEngineV1(deps EngineV1Deps) (*EngineV1, error) {
 			baseAllowlistSet,
 			deps.ToolRegistry,
 		),
+		pipeline.NewSpawnAgentMiddleware(),
 		pipeline.NewAgentConfigMiddleware(deps.DBPool),
 		pipeline.NewSkillResolutionMiddleware(deps.SkillRegistry, deps.DBPool, runsRepo, eventsRepo, releaseSlot),
 		pipeline.NewMemoryMiddleware(deps.MemoryProvider),

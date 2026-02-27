@@ -3,6 +3,7 @@ package builtin
 import (
 	"arkloop/services/worker/internal/tools/builtin/browser"
 	"arkloop/services/worker/internal/tools/builtin/sandbox"
+	spawnagent "arkloop/services/worker/internal/tools/builtin/spawn_agent"
 	webfetch "arkloop/services/worker/internal/tools/builtin/web_fetch"
 	websearch "arkloop/services/worker/internal/tools/builtin/web_search"
 
@@ -17,6 +18,7 @@ func AgentSpecs() []tools.AgentToolSpec {
 		NoopAgentSpec,
 		websearch.AgentSpec,
 		webfetch.AgentSpec,
+		spawnagent.AgentSpec,
 	}
 	if browser.BaseURLFromEnv() != "" {
 		specs = append(specs, browser.AgentSpecs()...)
@@ -33,6 +35,7 @@ func LlmSpecs() []llm.ToolSpec {
 		NoopLlmSpec,
 		websearch.LlmSpec,
 		webfetch.LlmSpec,
+		spawnagent.LlmSpec,
 	}
 	if browser.BaseURLFromEnv() != "" {
 		specs = append(specs, browser.LlmSpecs()...)

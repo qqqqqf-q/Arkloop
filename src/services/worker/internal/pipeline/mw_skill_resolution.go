@@ -167,6 +167,11 @@ func NewSkillResolutionMiddleware(
 				rc.AllowlistSet = narrowed
 			}
 
+			// Skill 的 tool_denylist 从当前池中排除
+			for _, name := range def.ToolDenylist {
+				delete(rc.AllowlistSet, name)
+			}
+
 			if def.PreferredCredential != nil {
 				rc.PreferredCredentialName = *def.PreferredCredential
 			}
