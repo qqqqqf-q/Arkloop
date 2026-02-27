@@ -11,6 +11,7 @@ import (
 	"arkloop/services/worker/internal/events"
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/mcp"
+	"arkloop/services/worker/internal/memory"
 	"arkloop/services/worker/internal/pipeline"
 	"arkloop/services/worker/internal/queue"
 	"arkloop/services/worker/internal/routing"
@@ -29,6 +30,7 @@ type EngineV1 struct {
 	broadcastRDB        *redis.Client
 	jobQueue            queue.JobQueue
 	executorRegistry    pipeline.AgentExecutorBuilder
+	memoryProvider      memory.MemoryProvider
 	llmRetryMaxAttempts int
 	llmRetryBaseDelayMs int
 }
@@ -61,6 +63,9 @@ type EngineV1Deps struct {
 	// LLM 请求重试配置
 	LlmRetryMaxAttempts int
 	LlmRetryBaseDelayMs int
+
+	// MemoryProvider 可选；nil 时跳过整个 MemoryMiddleware（AS-5.4）
+	MemoryProvider memory.MemoryProvider
 }
 
 func NewEngineV1(deps EngineV1Deps) (*EngineV1, error) {
@@ -129,6 +134,7 @@ func NewEngineV1(deps EngineV1Deps) (*EngineV1, error) {
 		),
 		pipeline.NewAgentConfigMiddleware(deps.DBPool),
 		pipeline.NewSkillResolutionMiddleware(deps.SkillRegistry, deps.DBPool, runsRepo, eventsRepo, releaseSlot),
+		pipeline.NewMemoryMiddleware(deps.MemoryProvider),
 		pipeline.NewRoutingMiddleware(deps.Router, deps.DBPool, deps.StubGateway, deps.EmitDebugEvents, runsRepo, eventsRepo, releaseSlot, resolver),
 		pipeline.NewToolBuildMiddleware(),
 	}
@@ -143,6 +149,7 @@ func NewEngineV1(deps EngineV1Deps) (*EngineV1, error) {
 		broadcastRDB:        deps.RunLimiterRDB,
 		jobQueue:            deps.JobQueue,
 		executorRegistry:    deps.ExecutorRegistry,
+		memoryProvider:      deps.MemoryProvider,
 		llmRetryMaxAttempts: deps.LlmRetryMaxAttempts,
 		llmRetryBaseDelayMs: deps.LlmRetryBaseDelayMs,
 	}, nil
