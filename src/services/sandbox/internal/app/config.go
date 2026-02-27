@@ -17,6 +17,10 @@ const (
 	bootTimeoutSecondsEnv     = "ARKLOOP_SANDBOX_BOOT_TIMEOUT_SECONDS"
 	guestAgentPortEnv         = "ARKLOOP_SANDBOX_AGENT_PORT"
 	maxSessionsEnv            = "ARKLOOP_SANDBOX_MAX_SESSIONS"
+	s3EndpointEnv             = "ARKLOOP_S3_ENDPOINT"
+	s3AccessKeyEnv            = "ARKLOOP_S3_ACCESS_KEY"
+	s3SecretKeyEnv            = "ARKLOOP_S3_SECRET_KEY"
+	templatesPathEnv          = "ARKLOOP_SANDBOX_TEMPLATES_PATH"
 )
 
 type Config struct {
@@ -28,6 +32,10 @@ type Config struct {
 	BootTimeoutSeconds int
 	GuestAgentPort     uint32
 	MaxSessions        int
+	S3Endpoint         string
+	S3AccessKey        string
+	S3SecretKey        string
+	TemplatesPath      string
 }
 
 func DefaultConfig() Config {
@@ -40,6 +48,7 @@ func DefaultConfig() Config {
 		BootTimeoutSeconds: 30,
 		GuestAgentPort:     8080,
 		MaxSessions:        50,
+		TemplatesPath:      "/opt/sandbox/templates.json",
 	}
 }
 
@@ -81,6 +90,18 @@ func LoadConfigFromEnv() (Config, error) {
 			return Config{}, fmt.Errorf("%s: must be a positive integer", maxSessionsEnv)
 		}
 		cfg.MaxSessions = v
+	}
+	if raw := strings.TrimSpace(os.Getenv(s3EndpointEnv)); raw != "" {
+		cfg.S3Endpoint = raw
+	}
+	if raw := strings.TrimSpace(os.Getenv(s3AccessKeyEnv)); raw != "" {
+		cfg.S3AccessKey = raw
+	}
+	if raw := strings.TrimSpace(os.Getenv(s3SecretKeyEnv)); raw != "" {
+		cfg.S3SecretKey = raw
+	}
+	if raw := strings.TrimSpace(os.Getenv(templatesPathEnv)); raw != "" {
+		cfg.TemplatesPath = raw
 	}
 
 	return cfg, cfg.Validate()

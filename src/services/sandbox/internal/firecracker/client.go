@@ -83,12 +83,84 @@ func (c *Client) Start(ctx context.Context) error {
 	return nil
 }
 
+// Pause 暂停 microVM（打快照前必须暂停）。
+func (c *Client) Pause(ctx context.Context) error {
+	if err := c.patch(ctx, "/vm", map[string]string{"state": "Paused"}); err != nil {
+		return fmt.Errorf("pause vm: %w", err)
+	}
+	return nil
+}
+
+// Resume 恢复 microVM 运行。
+func (c *Client) Resume(ctx context.Context) error {
+	if err := c.patch(ctx, "/vm", map[string]string{"state": "Resumed"}); err != nil {
+		return fmt.Errorf("resume vm: %w", err)
+	}
+	return nil
+}
+
+// createSnapshotRequest 对应 Firecracker PUT /snapshot/create。
+type createSnapshotRequest struct {
+	SnapshotType string `json:"snapshot_type"`
+	SnapshotPath string `json:"snapshot_path"`
+	MemFilePath  string `json:"mem_file_path"`
+}
+
+// CreateSnapshot 创建全量快照，snapshotPath 和 memFilePath 均为宿主机上的本地路径。
+func (c *Client) CreateSnapshot(ctx context.Context, snapshotPath, memFilePath string) error {
+	req := createSnapshotRequest{
+		SnapshotType: "Full",
+		SnapshotPath: snapshotPath,
+		MemFilePath:  memFilePath,
+	}
+	if err := c.put(ctx, "/snapshot/create", req); err != nil {
+		return fmt.Errorf("create snapshot: %w", err)
+	}
+	return nil
+}
+
+// memBackend 描述快照内存文件的后端类型，当前仅支持 File 模式。
+type memBackend struct {
+	BackendType string `json:"backend_type"` // "File"
+	BackendPath string `json:"backend_path"`
+}
+
+// loadSnapshotRequest 对应 Firecracker PUT /snapshot/load。
+type loadSnapshotRequest struct {
+	SnapshotPath        string     `json:"snapshot_path"`
+	MemBackend          memBackend `json:"mem_backend"`
+	EnableDiffSnapshots bool       `json:"enable_diff_snapshots"`
+	ResumeVM            bool       `json:"resume_vm"`
+}
+
+// LoadSnapshot 从快照恢复 microVM。resumeVM 为 true 时加载后立即恢复运行。
+func (c *Client) LoadSnapshot(ctx context.Context, snapshotPath, memBackendPath string, resumeVM bool) error {
+	req := loadSnapshotRequest{
+		SnapshotPath:        snapshotPath,
+		MemBackend:          memBackend{BackendType: "File", BackendPath: memBackendPath},
+		EnableDiffSnapshots: false,
+		ResumeVM:            resumeVM,
+	}
+	if err := c.put(ctx, "/snapshot/load", req); err != nil {
+		return fmt.Errorf("load snapshot: %w", err)
+	}
+	return nil
+}
+
 func (c *Client) put(ctx context.Context, path string, body any) error {
+	return c.doJSON(ctx, http.MethodPut, path, body)
+}
+
+func (c *Client) patch(ctx context.Context, path string, body any) error {
+	return c.doJSON(ctx, http.MethodPatch, path, body)
+}
+
+func (c *Client) doJSON(ctx context.Context, method, path string, body any) error {
 	data, err := json.Marshal(body)
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, "http://localhost"+path, bytes.NewReader(data))
+	req, err := http.NewRequestWithContext(ctx, method, "http://localhost"+path, bytes.NewReader(data))
 	if err != nil {
 		return err
 	}

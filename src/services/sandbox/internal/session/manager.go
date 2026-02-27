@@ -63,7 +63,7 @@ func (m *Manager) GetOrCreate(ctx context.Context, sessionID, tier string) (*Ses
 // Delete 停止并销毁指定 Session 的 microVM。
 func (m *Manager) Delete(ctx context.Context, sessionID string) error {
 	m.mu.Lock()
-	s, ok := m.sessions[sessionID]
+	_, ok := m.sessions[sessionID]
 	proc := m.procs[sessionID]
 	if ok {
 		delete(m.sessions, sessionID)
@@ -75,9 +75,6 @@ func (m *Manager) Delete(ctx context.Context, sessionID string) error {
 		return fmt.Errorf("session not found: %s", sessionID)
 	}
 
-	if s.cancelFn != nil {
-		s.cancelFn()
-	}
 	if proc != nil {
 		_ = proc.Kill()
 		_, _ = proc.Wait()
@@ -153,22 +150,17 @@ func (m *Manager) create(ctx context.Context, sessionID, tier string) (*Session,
 		return nil, fmt.Errorf("start microvm: %w", err)
 	}
 
-	vmCtx, cancelFn := context.WithCancel(context.Background())
-	_ = vmCtx // 仅用于 cancel
-
 	s := &Session{
 		ID:        sessionID,
 		Tier:      tier,
 		VsockPath: vsockPath,
 		AgentPort: m.cfg.GuestAgentPort,
 		CreatedAt: time.Now(),
-		cancelFn:  cancelFn,
 	}
 
 	// 等待 Guest Agent 在 vsock 端口就绪
 	bootTimeout := time.Duration(m.cfg.BootTimeoutSeconds) * time.Second
 	if err := waitForAgent(ctx, s, bootTimeout); err != nil {
-		cancelFn()
 		_ = proc.Kill()
 		_, _ = proc.Wait()
 		_ = os.RemoveAll(socketDir)
@@ -179,7 +171,6 @@ func (m *Manager) create(ctx context.Context, sessionID, tier string) (*Session,
 	// 双重检查：防止并发 create 竞争
 	if existing, ok := m.sessions[sessionID]; ok {
 		m.mu.Unlock()
-		cancelFn()
 		_ = proc.Kill()
 		_, _ = proc.Wait()
 		_ = os.RemoveAll(socketDir)
@@ -193,8 +184,10 @@ func (m *Manager) create(ctx context.Context, sessionID, tier string) (*Session,
 }
 
 // startFirecracker 以非阻塞方式启动 Firecracker 进程，返回 os.Process。
-func (m *Manager) startFirecracker(ctx context.Context, apiSocket string) (*os.Process, error) {
-	cmd := exec.CommandContext(ctx, m.cfg.FirecrackerBin,
+// 使用 exec.Command 而非 exec.CommandContext：Firecracker 进程的生命周期由 Manager.Delete
+// 显式管理，不应随请求 ctx 取消而被 SIGKILL。
+func (m *Manager) startFirecracker(_ context.Context, apiSocket string) (*os.Process, error) {
+	cmd := exec.Command(m.cfg.FirecrackerBin,
 		"--api-sock", apiSocket,
 		"--log-level", "Error",
 	)

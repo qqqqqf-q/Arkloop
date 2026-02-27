@@ -26,12 +26,11 @@ type ExecResult struct {
 
 // Session は一つの Firecracker microVM に対応する実行コンテキスト。
 type Session struct {
-	ID         string
-	Tier       string
-	VsockPath  string    // Firecracker vsock UDS パス
-	AgentPort  uint32    // Guest Agent の vsock ポート番号
-	CreatedAt  time.Time
-	cancelFn   context.CancelFunc // microVM プロセスの context キャンセル関数
+	ID        string
+	Tier      string
+	VsockPath string    // Firecracker vsock UDS パス
+	AgentPort uint32    // Guest Agent の vsock ポート番号
+	CreatedAt time.Time
 }
 
 // Exec は Session に紐づく microVM の Guest Agent でコードを実行する。

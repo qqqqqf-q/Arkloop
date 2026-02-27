@@ -1,0 +1,23 @@
+[
+  {
+    "id": "python3.12-lite",
+    "kernel_image_path": "/opt/sandbox/vmlinux",
+    "rootfs_path": "/opt/sandbox/rootfs/python3.12.ext4",
+    "tier": "lite",
+    "languages": ["python", "shell"]
+  },
+  {
+    "id": "python3.12-pro",
+    "kernel_image_path": "/opt/sandbox/vmlinux",
+    "rootfs_path": "/opt/sandbox/rootfs/python3.12.ext4",
+    "tier": "pro",
+    "languages": ["python", "shell"]
+  },
+  {
+    "id": "python3.12-ultra",
+    "kernel_image_path": "/opt/sandbox/vmlinux",
+    "rootfs_path": "/opt/sandbox/rootfs/python3.12.ext4",
+    "tier": "ultra",
+    "languages": ["python", "shell"]
+  }
+]
