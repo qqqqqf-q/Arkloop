@@ -310,3 +310,40 @@ func (r *MessageRepository) HideLastAssistantMessage(
 
 	return hiddenID, nil
 }
+
+// CopyUpTo 将 sourceThreadID 中截止到 upToMessageID（含）的所有可见消息复制到 targetThreadID。
+// 返回复制的行数。
+func (r *MessageRepository) CopyUpTo(
+	ctx context.Context,
+	orgID uuid.UUID,
+	sourceThreadID uuid.UUID,
+	targetThreadID uuid.UUID,
+	upToMessageID uuid.UUID,
+) (int64, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if orgID == uuid.Nil || sourceThreadID == uuid.Nil || targetThreadID == uuid.Nil || upToMessageID == uuid.Nil {
+		return 0, fmt.Errorf("orgID, sourceThreadID, targetThreadID and upToMessageID must not be empty")
+	}
+
+	tag, err := r.db.Exec(
+		ctx,
+		`INSERT INTO messages (org_id, thread_id, created_by_user_id, role, content, content_json, metadata_json, created_at)
+		 SELECT $1, $3, created_by_user_id, role, content, content_json, metadata_json, created_at
+		 FROM messages
+		 WHERE org_id = $1
+		   AND thread_id = $2
+		   AND hidden = FALSE
+		   AND deleted_at IS NULL
+		   AND (created_at, id) <= (
+		     SELECT created_at, id FROM messages WHERE id = $4 AND org_id = $1
+		   )
+		 ORDER BY created_at ASC, id ASC`,
+		orgID, sourceThreadID, targetThreadID, upToMessageID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}

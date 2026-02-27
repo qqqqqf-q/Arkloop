@@ -16,6 +16,7 @@ import (
 	"arkloop/services/api/internal/observability"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 )
@@ -40,6 +41,7 @@ type threadResponse struct {
 	CreatedAt       string  `json:"created_at"`
 	ActiveRunID     *string `json:"active_run_id"`
 	IsPrivate       bool    `json:"is_private"`
+	ParentThreadID  *string `json:"parent_thread_id,omitempty"`
 }
 
 type optionalString struct {
@@ -479,6 +481,108 @@ func searchThreads(
 	}
 }
 
+type forkThreadRequest struct {
+	MessageID string `json:"message_id"`
+}
+
+func forkThread(
+	authService *auth.Service,
+	membershipRepo *data.OrgMembershipRepository,
+	threadRepo *data.ThreadRepository,
+	messageRepo *data.MessageRepository,
+	auditWriter *audit.Writer,
+	pool *pgxpool.Pool,
+	apiKeysRepo *data.APIKeysRepository,
+) func(nethttp.ResponseWriter, *nethttp.Request, uuid.UUID) {
+	return func(w nethttp.ResponseWriter, r *nethttp.Request, threadID uuid.UUID) {
+		if r.Method != nethttp.MethodPost {
+			writeMethodNotAllowed(w, r)
+			return
+		}
+
+		traceID := observability.TraceIDFromContext(r.Context())
+		if authService == nil {
+			writeAuthNotConfigured(w, traceID)
+			return
+		}
+		if threadRepo == nil || messageRepo == nil || pool == nil {
+			WriteError(w, nethttp.StatusServiceUnavailable, "database.not_configured", "database not configured", traceID, nil)
+			return
+		}
+
+		actor, ok := resolveActor(w, r, traceID, authService, membershipRepo, apiKeysRepo, auditWriter)
+		if !ok {
+			return
+		}
+
+		var body forkThreadRequest
+		if err := decodeJSON(r, &body); err != nil {
+			WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "request validation failed", traceID, nil)
+			return
+		}
+		messageID, err := uuid.Parse(body.MessageID)
+		if err != nil || messageID == uuid.Nil {
+			WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "invalid message_id", traceID, nil)
+			return
+		}
+
+		thread, err := threadRepo.GetByID(r.Context(), threadID)
+		if err != nil {
+			WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			return
+		}
+		if thread == nil {
+			WriteError(w, nethttp.StatusNotFound, "threads.not_found", "thread not found", traceID, nil)
+			return
+		}
+
+		if !authorizeThreadOrAudit(w, r, traceID, actor, "threads.fork", thread, auditWriter) {
+			return
+		}
+
+		tx, err := pool.BeginTx(r.Context(), pgx.TxOptions{})
+		if err != nil {
+			WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			return
+		}
+		defer tx.Rollback(r.Context()) //nolint:errcheck
+
+		txThreadRepo, err := data.NewThreadRepository(tx)
+		if err != nil {
+			WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			return
+		}
+		txMessageRepo, err := data.NewMessageRepository(tx)
+		if err != nil {
+			WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			return
+		}
+
+		forked, err := txThreadRepo.Fork(r.Context(), actor.OrgID, &actor.UserID, threadID, messageID, thread.IsPrivate)
+		if err != nil {
+			WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			return
+		}
+
+		copied, err := txMessageRepo.CopyUpTo(r.Context(), actor.OrgID, threadID, forked.ID, messageID)
+		if err != nil {
+			WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			return
+		}
+		if copied == 0 {
+			WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "no messages to copy", traceID, nil)
+			return
+		}
+
+		if err := tx.Commit(r.Context()); err != nil {
+			WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			return
+		}
+
+		writeJSON(w, traceID, nethttp.StatusCreated, toThreadResponse(forked))
+	}
+}
+
 func threadEntry(
 	authService *auth.Service,
 	membershipRepo *data.OrgMembershipRepository,
@@ -507,6 +611,7 @@ func threadEntry(
 	retry := retryThread(authService, membershipRepo, threadRepo, messageRepo, auditWriter, pool, apiKeysRepo)
 	editMessage := editThreadMessage(authService, membershipRepo, threadRepo, messageRepo, auditWriter, pool, apiKeysRepo)
 	share := shareEntry(authService, membershipRepo, threadRepo, threadShareRepo, messageRepo, auditWriter, apiKeysRepo)
+	fork := forkThread(authService, membershipRepo, threadRepo, messageRepo, auditWriter, pool, apiKeysRepo)
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		if r.URL.Path == "/v1/threads/" {
 			threadsEntry(authService, membershipRepo, threadRepo, apiKeysRepo, auditWriter)(w, r)
@@ -544,6 +649,8 @@ func threadEntry(
 				handleThreadStar(w, r, traceID, authService, membershipRepo, threadRepo, threadStarRepo, apiKeysRepo, auditWriter, threadID)
 			case "share":
 				share(w, r, threadID)
+			case "fork":
+				fork(w, r, threadID)
 			default:
 				writeNotFound(w, r)
 			}
@@ -792,6 +899,11 @@ func toThreadResponse(thread data.Thread) threadResponse {
 		value := thread.ProjectID.String()
 		projectID = &value
 	}
+	var parentThreadID *string
+	if thread.ParentThreadID != nil {
+		value := thread.ParentThreadID.String()
+		parentThreadID = &value
+	}
 	return threadResponse{
 		ID:              thread.ID.String(),
 		OrgID:           thread.OrgID.String(),
@@ -801,6 +913,7 @@ func toThreadResponse(thread data.Thread) threadResponse {
 		CreatedAt:       thread.CreatedAt.UTC().Format(time.RFC3339Nano),
 		ActiveRunID:     nil,
 		IsPrivate:       thread.IsPrivate,
+		ParentThreadID:  parentThreadID,
 	}
 }
 

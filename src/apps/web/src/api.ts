@@ -378,6 +378,18 @@ export async function unstarThread(accessToken: string, threadId: string): Promi
   })
 }
 
+export async function forkThread(
+  accessToken: string,
+  threadId: string,
+  messageId: string,
+): Promise<ThreadResponse> {
+  return await apiFetch<ThreadResponse>(`/v1/threads/${threadId}:fork`, {
+    method: 'POST',
+    accessToken,
+    body: JSON.stringify({ message_id: messageId }),
+  })
+}
+
 // Messages API
 
 export type CreateMessageRequest = {

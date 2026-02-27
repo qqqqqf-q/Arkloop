@@ -7,6 +7,7 @@ type Props = {
   message: MessageResponse
   onRetry?: () => void
   onEdit?: (newContent: string) => void
+  onFork?: () => void
 }
 
 function extractFilesFromContent(content: string): { text: string; fileNames: string[] } {
@@ -20,7 +21,7 @@ function extractFilesFromContent(content: string): { text: string; fileNames: st
   return { text, fileNames }
 }
 
-export function MessageBubble({ message, onRetry, onEdit }: Props) {
+export function MessageBubble({ message, onRetry, onEdit, onFork }: Props) {
   const [copied, setCopied] = useState(false)
   const [hovered, setHovered] = useState(false)
   const [editing, setEditing] = useState(false)
@@ -337,9 +338,12 @@ export function MessageBubble({ message, onRetry, onEdit }: Props) {
               <Share2 size={15} />
             </button>
             <button
-              disabled
-              className="flex h-7 w-7 items-center justify-center rounded-lg text-[var(--c-text-secondary)] border-none bg-transparent"
-              style={{ opacity: 0.25, cursor: 'default' }}
+              onClick={onFork}
+              disabled={!onFork}
+              className="flex h-7 w-7 items-center justify-center rounded-lg text-[var(--c-text-secondary)] transition-[opacity,background] duration-150 border-none bg-transparent"
+              style={{ opacity: onFork ? 0.6 : 0.25, cursor: onFork ? 'pointer' : 'default' }}
+              onMouseEnter={(e) => { if (onFork) (e.currentTarget as HTMLButtonElement).style.opacity = '1' }}
+              onMouseLeave={(e) => { if (onFork) (e.currentTarget as HTMLButtonElement).style.opacity = '0.6' }}
             >
               <Split size={15} />
             </button>

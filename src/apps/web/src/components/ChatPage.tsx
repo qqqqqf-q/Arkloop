@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo, type FormEvent } from 'react'
-import { useParams, useLocation, useOutletContext } from 'react-router-dom'
+import { useParams, useLocation, useOutletContext, useNavigate } from 'react-router-dom'
 import { Glasses, Paperclip, Share2, X, Zap } from 'lucide-react'
 import { ChatInput, type Attachment, formatFileSize } from './ChatInput'
 import { MessageBubble, StreamingBubble } from './MessageBubble'
@@ -19,12 +19,13 @@ import {
   provideInput,
   retryThread,
   editMessage,
+  forkThread,
   listMessages,
   listThreadRuns,
   isApiError,
   type MessageResponse,
 } from '../api'
-import { type SelectedTier } from '../storage'
+import { type SelectedTier, isSearchThreadId } from '../storage'
 
 function normalizeError(error: unknown): AppError {
   if (isApiError(error)) {
@@ -44,6 +45,8 @@ type OutletContext = {
   onLoggedOut: () => void
   onRunStarted: (threadId: string) => void
   onRunEnded: (threadId: string) => void
+  onThreadCreated: (thread: ThreadResponse) => void
+  onThreadTitleUpdated: (threadId: string, title: string) => void
   refreshCredits: () => void
   onOpenNotifications: () => void
   notificationVersion: number
@@ -56,13 +59,16 @@ type OutletContext = {
 type LocationState = { initialRunId?: string; isSearch?: boolean } | null
 
 export function ChatPage() {
-  const { accessToken, onLoggedOut, onRunStarted, onRunEnded, refreshCredits, onOpenNotifications, notificationVersion, creditsBalance, onTogglePrivateMode, privateThreadIds } = useOutletContext<OutletContext>()
+  const { accessToken, onLoggedOut, onRunStarted, onRunEnded, onThreadCreated, onThreadTitleUpdated, refreshCredits, onOpenNotifications, notificationVersion, creditsBalance, onTogglePrivateMode, privateThreadIds } = useOutletContext<OutletContext>()
   const { threadId } = useParams<{ threadId: string }>()
   const location = useLocation()
   const locationState = location.state as LocationState
+  const navigate = useNavigate()
   const { t } = useLocale()
 
   const baseUrl = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? ''
+
+  const isSearchThread = locationState?.isSearch === true || isSearchThreadId(threadId ?? '')
 
   const [messages, setMessages] = useState<MessageResponse[]>([])
   const [messagesLoading, setMessagesLoading] = useState(false)
@@ -273,6 +279,14 @@ export function ChatPage() {
         continue
       }
 
+      if (event.type === 'thread.title.updated') {
+        const obj = event.data as { thread_id?: unknown; title?: unknown }
+        const tid = typeof obj.thread_id === 'string' ? obj.thread_id : threadId
+        const title = typeof obj.title === 'string' ? obj.title : ''
+        if (tid && title) onThreadTitleUpdated(tid, title)
+        continue
+      }
+
       if (event.type === 'run.input_requested') {
         setAwaitingInput(true)
         continue
@@ -431,6 +445,7 @@ export function ChatPage() {
         Lite: 'lite',
         Pro: 'pro',
         Ultra: 'ultra',
+        Search: 'search',
       }
       const run = await createRun(accessToken, threadId, tierToSkillId[tier])
       setActiveRunId(run.run_id)
@@ -510,6 +525,22 @@ export function ChatPage() {
     }
     setError(normalizeError(err))
   }, [onLoggedOut])
+
+  const handleFork = useCallback(async (messageId: string) => {
+    if (!threadId || isStreaming || sending) return
+    setError(null)
+    try {
+      const forked = await forkThread(accessToken, threadId, messageId)
+      onThreadCreated(forked)
+      navigate(`/t/${forked.id}`)
+    } catch (err) {
+      if (isApiError(err) && err.status === 401) {
+        onLoggedOut()
+        return
+      }
+      setError(normalizeError(err))
+    }
+  }, [accessToken, threadId, isStreaming, sending, onLoggedOut, onThreadCreated, navigate])
 
   const handleCheckInSubmit = useCallback(async () => {
     if (!activeRunId || checkInSubmitting) return
@@ -619,6 +650,11 @@ export function ChatPage() {
                   onEdit={
                     msg.role === 'user' && !isStreaming && !sending
                       ? (newContent) => handleEditMessage(msg.id, newContent)
+                      : undefined
+                  }
+                  onFork={
+                    msg.role === 'assistant' && !isStreaming && !sending
+                      ? () => void handleFork(msg.id)
                       : undefined
                   }
                 />
@@ -760,7 +796,7 @@ export function ChatPage() {
           onAttachFiles={handleAttachFiles}
           accessToken={accessToken}
           onAsrError={handleAsrError}
-          searchMode={locationState?.isSearch === true}
+          searchMode={isSearchThread}
         />
         <p style={{ color: 'var(--c-text-muted)', fontSize: '13px', letterSpacing: '-0.52px', textAlign: 'center' }}>
           Arkloop is AI and can make mistakes. Please double-check responses.
