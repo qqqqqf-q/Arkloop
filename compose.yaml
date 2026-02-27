@@ -77,6 +77,7 @@ services:
       ARKLOOP_DATABASE_URL: "postgresql://${ARKLOOP_POSTGRES_USER:-arkloop}:${ARKLOOP_POSTGRES_PASSWORD:?请在 .env 中设置 ARKLOOP_POSTGRES_PASSWORD}@pgbouncer:5432/${ARKLOOP_POSTGRES_DB:-arkloop}"
       ARKLOOP_DATABASE_DIRECT_URL: "postgresql://${ARKLOOP_POSTGRES_USER:-arkloop}:${ARKLOOP_POSTGRES_PASSWORD:?请在 .env 中设置 ARKLOOP_POSTGRES_PASSWORD}@postgres:5432/${ARKLOOP_POSTGRES_DB:-arkloop}"
       ARKLOOP_REDIS_URL: "redis://:${ARKLOOP_REDIS_PASSWORD:-arkloop_redis}@redis:6379/0"
+      ARKLOOP_S3_ENDPOINT: "http://minio:9000"
       ARKLOOP_API_GO_ADDR: "0.0.0.0:8001"
     ports:
       - "${ARKLOOP_API_PORT:-8001}:8001"
@@ -197,7 +198,7 @@ services:
       retries: 5
 
   openviking:
-    image: ghcr.io/volcengine/openviking:main
+    image: ghcr.io/volcengine/openviking:v0.1.18.dev0
     restart: unless-stopped
     ports:
       - "${ARKLOOP_OPENVIKING_PORT:-1933}:1933"

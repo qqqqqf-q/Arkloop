@@ -7,6 +7,7 @@ import (
 
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/mcp"
+	"arkloop/services/worker/internal/memory/openviking"
 	"arkloop/services/worker/internal/pipeline"
 	"arkloop/services/worker/internal/queue"
 	"arkloop/services/worker/internal/routing"
@@ -76,6 +77,19 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 
 	baseAllowlistNames := tools.ParseAllowlistNamesFromEnv()
 
+	// MemoryProvider：DB 优先，ENV 兜底；未配置时传 nil，MemoryMiddleware 自动降级为 no-op
+	ovCfg, found, err := openviking.LoadConfigFromDB(ctx, pool)
+	if err != nil {
+		slog.WarnContext(ctx, "memory: db config load failed, falling back to env", "err", err.Error())
+	}
+	if !found {
+		ovCfg = openviking.LoadConfigFromEnv()
+	}
+	memoryProvider := openviking.NewProvider(ovCfg)
+	if memoryProvider == nil {
+		slog.InfoContext(ctx, "memory: openviking not configured, running without memory")
+	}
+
 	skillsRoot, err := skills.BuiltinSkillsRoot()
 	if err != nil {
 		return nil, err
@@ -103,6 +117,7 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 		RunLimiterRDB:          rdb,
 		LlmRetryMaxAttempts:    cfg.LlmRetryMaxAttempts,
 		LlmRetryBaseDelayMs:    cfg.LlmRetryBaseDelayMs,
+		MemoryProvider:         memoryProvider,
 	})
 }
 
