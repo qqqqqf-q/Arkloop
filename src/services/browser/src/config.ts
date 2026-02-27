@@ -5,6 +5,7 @@ export interface Config {
   contextIdleTimeoutMs: number;
   contextMaxLifetimeMs: number;
   browserMemoryThresholdBytes: number;
+  contentTextMaxLength: number;
   minio: MinioConfig;
   blockedHosts: string[];
 }
@@ -29,6 +30,7 @@ export function loadConfig(): Config {
     contextIdleTimeoutMs: parseInt(requireEnv('BROWSER_CONTEXT_IDLE_TIMEOUT_S', '60'), 10) * 1000,
     contextMaxLifetimeMs: parseInt(requireEnv('BROWSER_CONTEXT_MAX_LIFETIME_S', '1800'), 10) * 1000,
     browserMemoryThresholdBytes: parseInt(requireEnv('BROWSER_MEMORY_THRESHOLD_BYTES', String(1024 * 1024 * 1024)), 10),
+    contentTextMaxLength: parseInt(requireEnv('BROWSER_CONTENT_TEXT_MAX_LENGTH', '8000'), 10),
     minio: {
       endpoint: requireEnv('BROWSER_MINIO_ENDPOINT', 'minio:9000'),
       accessKey: requireEnv('BROWSER_MINIO_ACCESS_KEY', 'minioadmin'),

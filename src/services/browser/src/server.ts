@@ -1,5 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { BrowserPool } from './pool/browser-pool.js';
+import type { SessionManager } from './pool/session-manager.js';
 import type { StorageClient } from './storage/minio-client.js';
 import { handleNavigate, type NavigateRequest } from './handlers/navigate.js';
 import { handleInteract, type InteractRequest } from './handlers/interact.js';
@@ -7,11 +8,27 @@ import { handleExtract, type ExtractRequest } from './handlers/extract.js';
 import { handleScreenshot, type ScreenshotRequest } from './handlers/screenshot.js';
 import { handleSessionClose } from './handlers/session.js';
 
-// 从 request body 读取并解析 JSON。
+export interface RequestContext {
+  sessionId: string;
+  orgId: string;
+  runId: string;
+}
+
+const MAX_BODY_BYTES = 1024 * 1024; // 1 MB
+
 async function readBody<T>(req: IncomingMessage): Promise<T> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
-    req.on('data', (chunk: Buffer) => chunks.push(chunk));
+    let totalBytes = 0;
+    req.on('data', (chunk: Buffer) => {
+      totalBytes += chunk.length;
+      if (totalBytes > MAX_BODY_BYTES) {
+        req.destroy();
+        reject(new BodyTooLargeError());
+        return;
+      }
+      chunks.push(chunk);
+    });
     req.on('end', () => {
       const raw = Buffer.concat(chunks).toString('utf-8');
       if (!raw) {
@@ -28,6 +45,12 @@ async function readBody<T>(req: IncomingMessage): Promise<T> {
   });
 }
 
+class BodyTooLargeError extends Error {
+  constructor() {
+    super('request body too large');
+  }
+}
+
 function writeJSON(res: ServerResponse, status: number, body: unknown): void {
   const payload = JSON.stringify(body);
   res.writeHead(status, {
@@ -37,58 +60,85 @@ function writeJSON(res: ServerResponse, status: number, body: unknown): void {
   res.end(payload);
 }
 
-function extractSessionId(url: string): string | null {
-  // DELETE /v1/sessions/:id → 提取 :id
+function extractRequestContext(req: IncomingMessage): RequestContext | null {
+  const sessionId = req.headers['x-session-id'];
+  const orgId = req.headers['x-org-id'];
+  const runId = req.headers['x-run-id'];
+  if (typeof sessionId !== 'string' || !sessionId) return null;
+  if (typeof orgId !== 'string' || !orgId) return null;
+  if (typeof runId !== 'string' || !runId) return null;
+  return { sessionId, orgId, runId };
+}
+
+function extractSessionIdFromUrl(url: string): string | null {
   const match = /^\/v1\/sessions\/([^/?]+)$/.exec(url);
   return match ? decodeURIComponent(match[1]) : null;
 }
 
-export function createHttpServer(pool: BrowserPool, storage: StorageClient): ReturnType<typeof createServer> {
+export function createHttpServer(
+  pool: BrowserPool,
+  storage: StorageClient,
+  sessionManager: SessionManager,
+  contentTextMaxLength: number,
+): ReturnType<typeof createServer> {
   const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
     const url = req.url ?? '/';
     const method = req.method ?? 'GET';
 
     try {
-      // 健康检查
       if (method === 'GET' && url === '/healthz') {
         writeJSON(res, 200, { status: 'ok' });
         return;
       }
 
       if (method === 'POST' && url === '/v1/navigate') {
+        const ctx = extractRequestContext(req);
+        if (!ctx) { writeJSON(res, 400, { code: 'missing_headers', message: 'X-Session-ID, X-Org-ID, X-Run-ID required' }); return; }
         const body = await readBody<NavigateRequest>(req);
-        await handleNavigate(req, res, body, pool, storage);
+        await handleNavigate(res, body, ctx, pool, sessionManager, storage, contentTextMaxLength);
         return;
       }
 
       if (method === 'POST' && url === '/v1/interact') {
+        const ctx = extractRequestContext(req);
+        if (!ctx) { writeJSON(res, 400, { code: 'missing_headers', message: 'X-Session-ID, X-Org-ID, X-Run-ID required' }); return; }
         const body = await readBody<InteractRequest>(req);
-        await handleInteract(req, res, body, pool, storage);
+        await handleInteract(res, body, ctx, pool, sessionManager, storage, contentTextMaxLength);
         return;
       }
 
       if (method === 'POST' && url === '/v1/extract') {
+        const ctx = extractRequestContext(req);
+        if (!ctx) { writeJSON(res, 400, { code: 'missing_headers', message: 'X-Session-ID, X-Org-ID, X-Run-ID required' }); return; }
         const body = await readBody<ExtractRequest>(req);
-        await handleExtract(req, res, body, pool, storage);
+        await handleExtract(res, body, ctx, pool, sessionManager, contentTextMaxLength);
         return;
       }
 
       if (method === 'POST' && url === '/v1/screenshot') {
+        const ctx = extractRequestContext(req);
+        if (!ctx) { writeJSON(res, 400, { code: 'missing_headers', message: 'X-Session-ID, X-Org-ID, X-Run-ID required' }); return; }
         const body = await readBody<ScreenshotRequest>(req);
-        await handleScreenshot(req, res, body, pool, storage);
+        await handleScreenshot(res, body, ctx, pool, sessionManager, storage);
         return;
       }
 
       if (method === 'DELETE') {
-        const sessionId = extractSessionId(url);
+        const sessionId = extractSessionIdFromUrl(url);
         if (sessionId !== null) {
-          await handleSessionClose(req, res, sessionId, pool, storage);
+          const ctx = extractRequestContext(req);
+          if (!ctx) { writeJSON(res, 400, { code: 'missing_headers', message: 'X-Session-ID, X-Org-ID, X-Run-ID required' }); return; }
+          await handleSessionClose(res, ctx, pool, storage);
           return;
         }
       }
 
       writeJSON(res, 404, { code: 'not_found', message: `${method} ${url}` });
     } catch (err) {
+      if (err instanceof BodyTooLargeError) {
+        writeJSON(res, 413, { code: 'body_too_large', message: 'request body exceeds 1 MB' });
+        return;
+      }
       const message = err instanceof Error ? err.message : 'internal error';
       writeJSON(res, 500, { code: 'internal_error', message });
     }

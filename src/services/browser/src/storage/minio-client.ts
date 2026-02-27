@@ -67,7 +67,7 @@ export class MinioClient implements StorageClient {
       await this.s3.send(new HeadBucketCommand({ Bucket: bucket }));
     } catch (err: unknown) {
       const status = (err as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode;
-      if (status === 404 || status === 403) {
+      if (status === 404) {
         await this.s3.send(new CreateBucketCommand({ Bucket: bucket }));
         return;
       }

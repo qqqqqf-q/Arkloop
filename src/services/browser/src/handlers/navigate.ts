@@ -1,6 +1,9 @@
-import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { ServerResponse } from 'node:http';
+import type { RequestContext } from '../server.js';
 import type { BrowserPool } from '../pool/browser-pool.js';
+import type { SessionManager } from '../pool/session-manager.js';
 import type { StorageClient } from '../storage/minio-client.js';
+import { getActivePage, capturePageState } from './shared.js';
 
 export type WaitUntil = 'load' | 'domcontentloaded' | 'networkidle';
 
@@ -19,14 +22,58 @@ export interface NavigateResponse {
   accessibility_tree: string;
 }
 
-// handleNavigate 在 AS-7.4 中完整实现。
 export async function handleNavigate(
-  _req: IncomingMessage,
   res: ServerResponse,
-  _body: NavigateRequest,
-  _pool: BrowserPool,
-  _storage: StorageClient,
+  body: NavigateRequest,
+  ctx: RequestContext,
+  pool: BrowserPool,
+  sessionManager: SessionManager,
+  storage: StorageClient,
+  contentTextMaxLength: number,
 ): Promise<void> {
-  res.writeHead(501, { 'Content-Type': 'application/json' });
-  res.end(JSON.stringify({ code: 'not_implemented', message: 'navigate not yet implemented (AS-7.4)' }));
+  if (!body.url) {
+    writeError(res, 400, 'missing_param', 'url is required');
+    return;
+  }
+
+  const waitUntil = body.wait_until ?? 'load';
+  const timeout = body.timeout_ms ?? 30_000;
+  const handle = await pool.getContext(ctx.orgId, ctx.sessionId, body.fresh_session);
+
+  try {
+    const page = await getActivePage(handle.context);
+    await page.goto(body.url, { waitUntil, timeout });
+
+    const state = await capturePageState(page, storage, ctx.runId, contentTextMaxLength);
+
+    // 持久化 storageState
+    const storageState = await handle.context.storageState();
+    await sessionManager.saveState({ orgId: ctx.orgId, sessionId: ctx.sessionId }, storageState);
+
+    const payload: NavigateResponse = {
+      page_url: state.pageUrl,
+      page_title: state.pageTitle,
+      screenshot_url: state.screenshotUrl,
+      content_text: state.contentText,
+      accessibility_tree: state.accessibilityTree,
+    };
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(payload));
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'navigate failed';
+    const code = isTimeoutError(err) ? 'timeout' : 'browser_error';
+    writeError(res, code === 'timeout' ? 504 : 500, code, message);
+  } finally {
+    pool.releaseContext(ctx.sessionId);
+  }
+}
+
+function isTimeoutError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  return err.name === 'TimeoutError' || err.message.includes('Timeout');
+}
+
+function writeError(res: ServerResponse, status: number, code: string, message: string): void {
+  res.writeHead(status, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify({ code, message }));
 }

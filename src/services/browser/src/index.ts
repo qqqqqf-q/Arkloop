@@ -1,6 +1,7 @@
 import { loadConfig } from './config.js';
 import { MinioClient } from './storage/minio-client.js';
 import { BrowserPool } from './pool/browser-pool.js';
+import { SessionManager } from './pool/session-manager.js';
 import { createHttpServer } from './server.js';
 
 process.on('uncaughtException', (err) => {
@@ -22,13 +23,15 @@ const pool = new BrowserPool({
   contextIdleTimeoutMs: config.contextIdleTimeoutMs,
   contextMaxLifetimeMs: config.contextMaxLifetimeMs,
   browserMemoryThresholdBytes: config.browserMemoryThresholdBytes,
+  blockedHosts: config.blockedHosts,
   storage,
 });
+const sessionManager = new SessionManager(storage);
 
 await storage.init();
 await pool.init();
 
-const server = createHttpServer(pool, storage);
+const server = createHttpServer(pool, storage, sessionManager, config.contentTextMaxLength);
 
 server.listen(config.port, '0.0.0.0', () => {
   process.stdout.write(JSON.stringify({ level: 'info', event: 'server_started', port: config.port }) + '\n');

@@ -8,6 +8,7 @@ export interface BrowserPoolConfig {
   contextIdleTimeoutMs: number;
   contextMaxLifetimeMs: number;
   browserMemoryThresholdBytes: number;
+  blockedHosts: string[];
   storage: StorageClient;
 }
 
@@ -69,10 +70,8 @@ export class BrowserPool {
 
   async getContext(orgId: string, sessionId: string, freshSession = false): Promise<ContextHandle> {
     if (!freshSession) {
-      // 复用已有 active context
       const active = this.activeContexts.get(sessionId);
       if (active) {
-        // 使用中，清除 idle timer（防止在请求处理期间触发 idle 关闭）
         if (active.idleTimer !== null) {
           clearTimeout(active.idleTimer);
           active.idleTimer = null;
@@ -81,11 +80,14 @@ export class BrowserPool {
         return { context: active.context, sessionId: active.sessionId, orgId: active.orgId };
       }
 
-      // 已有 pending 创建中，等待同一个 Promise 而不是重复创建
       const pending = this.pendingContexts.get(sessionId);
       if (pending) return pending;
     } else {
-      // fresh_session: 关闭已有 context（不持久化），忽略 pending 去重
+      // 等待已有 pending 创建完成，避免覆盖导致 context 泄漏
+      const pending = this.pendingContexts.get(sessionId);
+      if (pending) {
+        try { await pending; } catch { /* 忽略，随后 forceClose 会处理 */ }
+      }
       await this.forceCloseContext(sessionId);
     }
 
@@ -107,6 +109,9 @@ export class BrowserPool {
       : {};
     const context = await entry.browser.newContext(contextOptions);
     entry.contextCount++;
+
+    // AS-7.5: SSRF 防护 route 拦截在此注册（context.route('**/*', ...)）
+    // blockedHosts 通过 this.config.blockedHosts 获取
 
     const lifetimeTimer = setTimeout(() => {
       void this.expireContext(sessionId, 'lifetime');
@@ -207,7 +212,10 @@ export class BrowserPool {
     if (this.browsers.length < this.config.maxBrowsers) {
       return this.launchNewBrowser();
     }
-    // 超出最大 browser 数，等待负载最低的实例（选 contextCount 最小的）
+    // 超出最大 browser 数，选 contextCount 最小的实例（允许超出 maxContextsPerBrowser）
+    process.stderr.write(
+      JSON.stringify({ level: 'warn', event: 'browser_pool_overloaded', browsers: this.browsers.length, max: this.config.maxBrowsers }) + '\n',
+    );
     return this.browsers.reduce((min, b) => (b.contextCount < min.contextCount ? b : min));
   }
 
@@ -301,10 +309,6 @@ export class BrowserPool {
       }),
     );
     this.browsers.length = 0;
-  }
-
-  get poolConfig(): Readonly<BrowserPoolConfig> {
-    return this.config;
   }
 }
 
