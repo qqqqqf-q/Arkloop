@@ -11,6 +11,7 @@ import (
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
+	"golang.org/x/sync/singleflight"
 )
 
 const snapshotBucket = "sandbox-snapshots"
@@ -37,7 +38,8 @@ type etagCache struct {
 // MinIOStore 实现 SnapshotStore，使用 MinIO 作为后端并维护本地缓存。
 type MinIOStore struct {
 	client       *minio.Client
-	cacheBaseDir string // 本地缓存根目录，通常为 {socketBaseDir}/_snapshots
+	cacheBaseDir string                // 本地缓存根目录，通常为 {socketBaseDir}/_snapshots
+	dlGroup      singleflight.Group    // 防止同一 templateID 并发下载
 }
 
 // NewMinIOStore 创建 MinIOStore。endpoint 支持 http:// 或 https:// 前缀，也可以不带前缀。
@@ -117,7 +119,29 @@ func (s *MinIOStore) uploadFile(ctx context.Context, templateID, fileName, local
 }
 
 // Download 下载快照到本地缓存目录并返回路径。通过 ETag 比较避免重复下载。
+// 使用 singleflight 保证同一 templateID 同时只有一个 goroutine 执行实际下载。
 func (s *MinIOStore) Download(ctx context.Context, templateID string) (memPath, diskPath string, err error) {
+	type result struct {
+		memPath  string
+		diskPath string
+	}
+
+	v, err, _ := s.dlGroup.Do(templateID, func() (any, error) {
+		mem, disk, err := s.download(ctx, templateID)
+		if err != nil {
+			return nil, err
+		}
+		return &result{memPath: mem, diskPath: disk}, nil
+	})
+	if err != nil {
+		return "", "", err
+	}
+	r := v.(*result)
+	return r.memPath, r.diskPath, nil
+}
+
+// download 执行实际的下载逻辑（由 singleflight 保证同一 templateID 不并发执行）。
+func (s *MinIOStore) download(ctx context.Context, templateID string) (memPath, diskPath string, err error) {
 	cacheDir := filepath.Join(s.cacheBaseDir, templateID)
 	if err := os.MkdirAll(cacheDir, 0o700); err != nil {
 		return "", "", fmt.Errorf("create cache dir: %w", err)

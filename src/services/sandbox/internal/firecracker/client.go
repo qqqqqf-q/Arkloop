@@ -8,7 +8,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"time"
 )
 
 // Client 是 Firecracker HTTP API 的轻量封装，通过 Unix domain socket 通信。
@@ -17,6 +16,7 @@ type Client struct {
 }
 
 // NewClient 创建绑定到指定 API socket 路径的客户端。
+// 不设全局 Timeout，由每个请求的 ctx deadline 控制超时。
 func NewClient(apiSocketPath string) *Client {
 	return &Client{
 		http: &http.Client{
@@ -25,7 +25,6 @@ func NewClient(apiSocketPath string) *Client {
 					return (&net.Dialer{}).DialContext(ctx, "unix", apiSocketPath)
 				},
 			},
-			Timeout: 10 * time.Second,
 		},
 	}
 }

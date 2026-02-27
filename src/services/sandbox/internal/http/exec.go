@@ -10,7 +10,7 @@ import (
 	"arkloop/services/sandbox/internal/session"
 )
 
-// ExecRequest は POST /v1/exec のリクエストボディ。
+// ExecRequest 是 POST /v1/exec 的请求体。
 type ExecRequest struct {
 	SessionID string `json:"session_id"`
 	Tier      string `json:"tier"`       // "lite" | "pro" | "ultra"
@@ -19,7 +19,7 @@ type ExecRequest struct {
 	TimeoutMs int    `json:"timeout_ms"` // 0 表示使用服务端默认值（30s）
 }
 
-// ExecResponse は POST /v1/exec のレスポンスボディ。
+// ExecResponse 是 POST /v1/exec 的响应体。
 type ExecResponse struct {
 	SessionID  string `json:"session_id"`
 	Stdout     string `json:"stdout"`

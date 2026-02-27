@@ -10,30 +10,30 @@ import (
 	"time"
 )
 
-// ExecJob は Guest Agent へ送信する実行ジョブ。
+// ExecJob 是发送给 Guest Agent 的执行任务。
 type ExecJob struct {
 	Language  string `json:"language"`   // "python" | "shell"
 	Code      string `json:"code"`
 	TimeoutMs int    `json:"timeout_ms"`
 }
 
-// ExecResult は Guest Agent から受信する実行結果。
+// ExecResult 是 Guest Agent 返回的执行结果。
 type ExecResult struct {
 	Stdout   string `json:"stdout"`
 	Stderr   string `json:"stderr"`
 	ExitCode int    `json:"exit_code"`
 }
 
-// Session は一つの Firecracker microVM に対応する実行コンテキスト。
+// Session 对应一个 Firecracker microVM 的执行上下文。
 type Session struct {
 	ID        string
 	Tier      string
-	VsockPath string    // Firecracker vsock UDS パス
-	AgentPort uint32    // Guest Agent の vsock ポート番号
+	VsockPath string    // Firecracker vsock UDS 路径
+	AgentPort uint32    // Guest Agent 的 vsock 端口号
 	CreatedAt time.Time
 }
 
-// Exec は Session に紐づく microVM の Guest Agent でコードを実行する。
+// Exec 在 Session 关联的 microVM Guest Agent 中执行代码。
 func (s *Session) Exec(ctx context.Context, job ExecJob) (*ExecResult, error) {
 	timeout := time.Duration(job.TimeoutMs) * time.Millisecond
 	if timeout <= 0 {
