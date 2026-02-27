@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { AnimatePresence, motion } from 'framer-motion'
 import { X, Copy, Check, Link, Lock, Globe, Trash2 } from 'lucide-react'
 import { createThreadShare, getThreadShare, deleteThreadShare, isApiError, type ShareResponse } from '../api'
 import { useLocale } from '../contexts/LocaleContext'
@@ -103,12 +104,12 @@ export function ShareModal({ accessToken, threadId, open, onClose }: Props) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center"
+      className="overlay-fade-in fixed inset-0 z-50 flex items-center justify-center"
       style={{ background: 'rgba(0,0,0,0.5)' }}
       onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
     >
       <div
-        className="relative w-full max-w-md rounded-2xl p-6"
+        className="modal-enter relative w-full max-w-md rounded-2xl p-6"
         style={{ background: 'var(--c-bg-page)', border: '0.5px solid var(--c-border-subtle)' }}
       >
         {/* Header */}
@@ -125,6 +126,7 @@ export function ShareModal({ accessToken, threadId, open, onClose }: Props) {
           </button>
         </div>
 
+        <div style={{ minHeight: '144px' }}>
         {loading ? (
           <div className="py-8 text-center text-sm" style={{ color: 'var(--c-text-muted)' }}>
             {t.loading}
@@ -174,9 +176,9 @@ export function ShareModal({ accessToken, threadId, open, onClose }: Props) {
           </div>
         ) : (
           /* 创建分享 */
-          <div className="flex flex-col gap-4">
+          <div className="flex flex-col">
             {/* 访问类型选择 */}
-            <div className="flex flex-col gap-2">
+            <div className="mb-4 flex flex-col gap-2">
               <label className="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-[var(--c-bg-sub)]">
                 <input
                   type="radio"
@@ -205,25 +207,36 @@ export function ShareModal({ accessToken, threadId, open, onClose }: Props) {
               </label>
             </div>
 
-            {accessType === 'password' && (
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder={t.sharePasswordPlaceholder}
-                autoFocus
-                className="w-full rounded-lg px-3 py-2 text-sm outline-none"
-                style={{
-                  background: 'var(--c-bg-sub)',
-                  border: '0.5px solid var(--c-border-subtle)',
-                  color: 'var(--c-text-primary)',
-                }}
-                onKeyDown={(e) => { if (e.key === 'Enter') void handleCreate() }}
-              />
-            )}
+            <AnimatePresence>
+              {accessType === 'password' && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0, marginBottom: 0 }}
+                  animate={{ opacity: 1, height: 'auto', marginBottom: 16 }}
+                  exit={{ opacity: 0, height: 0, marginBottom: 0 }}
+                  transition={{ duration: 0.18, ease: 'easeOut' }}
+                  style={{ overflow: 'hidden' }}
+                >
+                  <input
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder={t.sharePasswordPlaceholder}
+                    autoComplete="off"
+                    autoFocus
+                    className="w-full rounded-lg px-3 py-2 text-sm outline-none"
+                    style={{
+                      background: 'var(--c-bg-sub)',
+                      border: '0.5px solid var(--c-border-subtle)',
+                      color: 'var(--c-text-primary)',
+                    }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') void handleCreate() }}
+                  />
+                </motion.div>
+              )}
+            </AnimatePresence>
 
             {error && (
-              <p className="text-xs" style={{ color: 'var(--c-destructive, #ef4444)' }}>{error}</p>
+              <p className="mb-4 text-xs" style={{ color: 'var(--c-destructive, #ef4444)' }}>{error}</p>
             )}
 
             <button
@@ -237,6 +250,7 @@ export function ShareModal({ accessToken, threadId, open, onClose }: Props) {
             </button>
           </div>
         )}
+        </div>
       </div>
     </div>
   )
