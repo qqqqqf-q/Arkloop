@@ -505,6 +505,7 @@ func threadEntry(
 	createRun := createThreadRun(authService, membershipRepo, threadRepo, auditWriter, pool, apiKeysRepo, runLimiter, entSvc, rdb)
 	listRuns := listThreadRuns(authService, membershipRepo, threadRepo, runRepo, auditWriter, apiKeysRepo)
 	retry := retryThread(authService, membershipRepo, threadRepo, messageRepo, auditWriter, pool, apiKeysRepo)
+	editMessage := editThreadMessage(authService, membershipRepo, threadRepo, messageRepo, auditWriter, pool, apiKeysRepo)
 	share := shareEntry(authService, membershipRepo, threadRepo, threadShareRepo, messageRepo, auditWriter, apiKeysRepo)
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		if r.URL.Path == "/v1/threads/" {
@@ -564,8 +565,22 @@ func threadEntry(
 		}
 
 		// sub-resource dispatch
-		switch parts[1] {
+		subResource, subID, hasSub := strings.Cut(parts[1], "/")
+		switch subResource {
 		case "messages":
+			if hasSub {
+				messageID, err := uuid.Parse(subID)
+				if err != nil {
+					WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "request validation failed", traceID, nil)
+					return
+				}
+				if r.Method != nethttp.MethodPatch {
+					writeMethodNotAllowed(w, r)
+					return
+				}
+				editMessage(w, r, threadID, messageID)
+				return
+			}
 			switch r.Method {
 			case nethttp.MethodPost:
 				createMessage(w, r, threadID)

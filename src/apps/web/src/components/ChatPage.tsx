@@ -18,6 +18,7 @@ import {
   cancelRun,
   provideInput,
   retryThread,
+  editMessage,
   listMessages,
   listThreadRuns,
   isApiError,
@@ -52,7 +53,7 @@ type OutletContext = {
   privateThreadIds: Set<string>
 }
 
-type LocationState = { initialRunId?: string } | null
+type LocationState = { initialRunId?: string; isSearch?: boolean } | null
 
 export function ChatPage() {
   const { accessToken, onLoggedOut, onRunStarted, onRunEnded, refreshCredits, onOpenNotifications, notificationVersion, creditsBalance, onTogglePrivateMode, privateThreadIds } = useOutletContext<OutletContext>()
@@ -446,6 +447,35 @@ export function ChatPage() {
     }
   }
 
+  const handleEditMessage = useCallback(async (messageId: string, newContent: string) => {
+    if (isStreaming || sending || !threadId) return
+    setSending(true)
+    setError(null)
+    setAssistantDraft('')
+    try {
+      const run = await editMessage(accessToken, threadId, messageId, newContent)
+      // 乐观更新：替换消息内容，移除其后所有消息
+      setMessages((prev) => {
+        const idx = prev.findIndex((m) => m.id === messageId)
+        if (idx === -1) return prev
+        return prev.slice(0, idx + 1).map((m, i) =>
+          i === idx ? { ...m, content: newContent } : m,
+        )
+      })
+      setActiveRunId(run.run_id)
+      onRunStarted(threadId)
+      scrollToBottom()
+    } catch (err) {
+      if (isApiError(err) && err.status === 401) {
+        onLoggedOut()
+        return
+      }
+      setError(normalizeError(err))
+    } finally {
+      setSending(false)
+    }
+  }, [accessToken, threadId, isStreaming, sending, onRunStarted, onLoggedOut, scrollToBottom])
+
   const handleRetry = useCallback(async () => {
     if (isStreaming || sending || !threadId) return
     setSending(true)
@@ -584,6 +614,11 @@ export function ChatPage() {
                   onRetry={
                     msg.role === 'assistant' && idx === messages.length - 1 && !isStreaming && !sending
                       ? handleRetry
+                      : undefined
+                  }
+                  onEdit={
+                    msg.role === 'user' && !isStreaming && !sending
+                      ? (newContent) => handleEditMessage(msg.id, newContent)
                       : undefined
                   }
                 />
@@ -725,6 +760,7 @@ export function ChatPage() {
           onAttachFiles={handleAttachFiles}
           accessToken={accessToken}
           onAsrError={handleAsrError}
+          searchMode={locationState?.isSearch === true}
         />
         <p style={{ color: 'var(--c-text-muted)', fontSize: '13px', letterSpacing: '-0.52px', textAlign: 'center' }}>
           Arkloop is AI and can make mistakes. Please double-check responses.

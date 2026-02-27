@@ -187,6 +187,83 @@ func (r *MessageRepository) ListByThread(
 	return messages, nil
 }
 
+// UpdateContent 更新指定用户消息的内容。仅允许更新 role=user 的可见消息。
+func (r *MessageRepository) UpdateContent(
+	ctx context.Context,
+	orgID uuid.UUID,
+	threadID uuid.UUID,
+	messageID uuid.UUID,
+	newContent string,
+) (Message, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if orgID == uuid.Nil || threadID == uuid.Nil || messageID == uuid.Nil {
+		return Message{}, fmt.Errorf("orgID, threadID and messageID must not be empty")
+	}
+	if newContent == "" {
+		return Message{}, fmt.Errorf("content must not be empty")
+	}
+
+	var message Message
+	err := r.db.QueryRow(
+		ctx,
+		`UPDATE messages
+		 SET content = $4
+		 WHERE id = $3
+		   AND thread_id = $2
+		   AND org_id = $1
+		   AND role = 'user'
+		   AND hidden = FALSE
+		   AND deleted_at IS NULL
+		 RETURNING id, org_id, thread_id, created_by_user_id, role, content,
+		           content_json, metadata_json, token_count, deleted_at, created_at, hidden`,
+		orgID, threadID, messageID, newContent,
+	).Scan(
+		&message.ID, &message.OrgID, &message.ThreadID, &message.CreatedByUserID,
+		&message.Role, &message.Content, &message.ContentJSON, &message.MetadataJSON,
+		&message.TokenCount, &message.DeletedAt, &message.CreatedAt, &message.Hidden,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Message{}, fmt.Errorf("message not found or not editable")
+		}
+		return Message{}, err
+	}
+	return message, nil
+}
+
+// HideMessagesAfter 隐藏该 thread 中在指定消息之后的所有可见消息。
+// "之后"按 (created_at, id) 排序判断，确保与 ListByThread 顺序一致。
+func (r *MessageRepository) HideMessagesAfter(
+	ctx context.Context,
+	orgID uuid.UUID,
+	threadID uuid.UUID,
+	afterMessageID uuid.UUID,
+) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if orgID == uuid.Nil || threadID == uuid.Nil || afterMessageID == uuid.Nil {
+		return fmt.Errorf("orgID, threadID and afterMessageID must not be empty")
+	}
+
+	_, err := r.db.Exec(
+		ctx,
+		`UPDATE messages
+		 SET hidden = TRUE
+		 WHERE org_id = $1
+		   AND thread_id = $2
+		   AND hidden = FALSE
+		   AND deleted_at IS NULL
+		   AND (created_at, id) > (
+		     SELECT created_at, id FROM messages WHERE id = $3 AND org_id = $1
+		   )`,
+		orgID, threadID, afterMessageID,
+	)
+	return err
+}
+
 // HideLastAssistantMessage 将该 thread 最后一条可见的 assistant 消息标记为 hidden。
 // 若不存在这样的消息，返回 NoAssistantMessageError。
 func (r *MessageRepository) HideLastAssistantMessage(
