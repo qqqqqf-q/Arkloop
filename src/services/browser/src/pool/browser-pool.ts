@@ -1,6 +1,7 @@
 import { chromium, type Browser, type BrowserContext, type BrowserContextOptions } from 'playwright';
 import { promises as fs } from 'node:fs';
 import type { StorageClient } from '../storage/minio-client.js';
+import { checkNetworkAccess } from '../security/network-filter.js';
 
 export interface BrowserPoolConfig {
   maxBrowsers: number;
@@ -110,8 +111,24 @@ export class BrowserPool {
     const context = await entry.browser.newContext(contextOptions);
     entry.contextCount++;
 
-    // AS-7.5: SSRF 防护 route 拦截在此注册（context.route('**/*', ...)）
-    // blockedHosts 通过 this.config.blockedHosts 获取
+    await context.route('**/*', async (route) => {
+      let hostname: string;
+      try {
+        hostname = new URL(route.request().url()).hostname;
+      } catch {
+        await route.continue();
+        return;
+      }
+      const result = await checkNetworkAccess(hostname, this.config.blockedHosts);
+      if (result.blocked) {
+        process.stdout.write(
+          JSON.stringify({ level: 'warn', event: 'ssrf_blocked', reason: result.reason, target: result.target, session_id: sessionId }) + '\n',
+        );
+        await route.abort('blockedbyclient');
+        return;
+      }
+      await route.continue();
+    });
 
     const lifetimeTimer = setTimeout(() => {
       void this.expireContext(sessionId, 'lifetime');
