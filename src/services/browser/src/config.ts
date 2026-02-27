@@ -15,6 +15,10 @@ export interface MinioConfig {
   secretKey: string;
   bucketSessions: string;
   bucketScreenshots: string;
+  // 截图 URL 前缀，供外部访问；默认 http://{endpoint}
+  publicEndpoint: string;
+  // sessions bucket lifecycle rule TTL（天）
+  sessionTtlDays: number;
 }
 
 export function loadConfig(): Config {
@@ -31,6 +35,11 @@ export function loadConfig(): Config {
       secretKey: requireEnvRequired('BROWSER_MINIO_SECRET_KEY'),
       bucketSessions: requireEnv('BROWSER_MINIO_BUCKET_SESSIONS', 'browser-sessions'),
       bucketScreenshots: requireEnv('BROWSER_MINIO_BUCKET_SCREENSHOTS', 'browser-screenshots'),
+      publicEndpoint: requireEnv(
+        'BROWSER_MINIO_PUBLIC_ENDPOINT',
+        `http://${requireEnv('BROWSER_MINIO_ENDPOINT', 'minio:9000')}`,
+      ),
+      sessionTtlDays: parseInt(requireEnv('BROWSER_SESSION_TTL_DAYS', '7'), 10),
     },
     blockedHosts: parseBlockedHosts(
       requireEnv('BROWSER_BLOCKED_HOSTS', 'postgres,redis,minio,openviking,api,worker,gateway,pgbouncer'),

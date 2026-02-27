@@ -25,6 +25,7 @@ const pool = new BrowserPool({
   storage,
 });
 
+await storage.init();
 await pool.init();
 
 const server = createHttpServer(pool, storage);

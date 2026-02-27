@@ -67,24 +67,29 @@ export class BrowserPool {
     this.startMemoryMonitor();
   }
 
-  async getContext(orgId: string, sessionId: string): Promise<ContextHandle> {
-    // 复用已有 active context
-    const active = this.activeContexts.get(sessionId);
-    if (active) {
-      // 使用中，清除 idle timer（防止在请求处理期间触发 idle 关闭）
-      if (active.idleTimer !== null) {
-        clearTimeout(active.idleTimer);
-        active.idleTimer = null;
+  async getContext(orgId: string, sessionId: string, freshSession = false): Promise<ContextHandle> {
+    if (!freshSession) {
+      // 复用已有 active context
+      const active = this.activeContexts.get(sessionId);
+      if (active) {
+        // 使用中，清除 idle timer（防止在请求处理期间触发 idle 关闭）
+        if (active.idleTimer !== null) {
+          clearTimeout(active.idleTimer);
+          active.idleTimer = null;
+        }
+        active.lastActive = Date.now();
+        return { context: active.context, sessionId: active.sessionId, orgId: active.orgId };
       }
-      active.lastActive = Date.now();
-      return { context: active.context, sessionId: active.sessionId, orgId: active.orgId };
+
+      // 已有 pending 创建中，等待同一个 Promise 而不是重复创建
+      const pending = this.pendingContexts.get(sessionId);
+      if (pending) return pending;
+    } else {
+      // fresh_session: 关闭已有 context（不持久化），忽略 pending 去重
+      await this.forceCloseContext(sessionId);
     }
 
-    // 已有 pending 创建中，等待同一个 Promise 而不是重复创建
-    const pending = this.pendingContexts.get(sessionId);
-    if (pending) return pending;
-
-    const creation = this.createContext(orgId, sessionId);
+    const creation = this.createContext(orgId, sessionId, freshSession);
     this.pendingContexts.set(sessionId, creation);
     try {
       return await creation;
@@ -93,8 +98,9 @@ export class BrowserPool {
     }
   }
 
-  private async createContext(orgId: string, sessionId: string): Promise<ContextHandle> {
-    const state = await this.config.storage.loadSessionState(orgId, sessionId);
+  private async createContext(orgId: string, sessionId: string, freshSession = false): Promise<ContextHandle> {
+    // fresh_session=true 时跳过加载已有状态，从空白 context 开始
+    const state = freshSession ? null : await this.config.storage.loadSessionState(orgId, sessionId);
     const entry = await this.pickBrowser();
     const contextOptions: BrowserContextOptions = state
       ? { storageState: state as BrowserContextOptions['storageState'] }
@@ -133,6 +139,31 @@ export class BrowserPool {
       void this.expireContext(sessionId, 'idle');
     }, this.config.contextIdleTimeoutMs);
     active.idleTimer.unref();
+  }
+
+  // forceCloseContext 关闭 context 但不持久化 storageState。
+  // 用于 fresh_session 和 closeAndDeleteContext。
+  private async forceCloseContext(sessionId: string): Promise<void> {
+    const active = this.activeContexts.get(sessionId);
+    if (!active) return;
+
+    this.activeContexts.delete(sessionId);
+    if (active.idleTimer !== null) clearTimeout(active.idleTimer);
+    clearTimeout(active.lifetimeTimer);
+
+    try {
+      await active.context.close();
+    } catch {
+      // context 可能已断线，忽略
+    }
+    active.browserEntry.contextCount--;
+  }
+
+  // closeAndDeleteContext 供 DELETE /v1/sessions/:id handler 调用：
+  // 关闭 context（不持久化）并删除 MinIO 上的 state.json。
+  async closeAndDeleteContext(sessionId: string, orgId: string): Promise<void> {
+    await this.forceCloseContext(sessionId);
+    await this.config.storage.deleteSessionState(orgId, sessionId);
   }
 
   private async expireContext(sessionId: string, reason: 'idle' | 'lifetime' | 'drain' | 'shutdown'): Promise<void> {
