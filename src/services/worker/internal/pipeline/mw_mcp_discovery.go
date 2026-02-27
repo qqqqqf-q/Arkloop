@@ -2,15 +2,16 @@ package pipeline
 
 import (
 	"context"
+	"log/slog"
 
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/mcp"
 	"arkloop/services/worker/internal/tools"
 )
 
-// NewMCPDiscoveryMiddleware 按 org 从 DB 加载 MCP 工具，合并到 RunContext 的工具集。
+// NewMCPDiscoveryMiddleware 按 org 从 DB 加载 MCP 工具（带缓存），合并到 RunContext 的工具集。
 func NewMCPDiscoveryMiddleware(
-	mcpPool *mcp.Pool,
+	discoveryCache *mcp.DiscoveryCache,
 	baseToolExecutors map[string]tools.Executor,
 	baseAllLlmSpecs []llm.ToolSpec,
 	baseAllowlistSet map[string]struct{},
@@ -22,8 +23,11 @@ func NewMCPDiscoveryMiddleware(
 		runAllowlistSet := CopyStringSet(baseAllowlistSet)
 		runRegistry := baseRegistry
 
-		if mcpPool != nil {
-			orgReg, orgErr := mcp.DiscoverFromDB(ctx, rc.Pool, rc.Run.OrgID, mcpPool)
+		if discoveryCache != nil {
+			orgReg, orgErr := discoveryCache.Get(ctx, rc.Pool, rc.Run.OrgID)
+			if orgErr != nil {
+				slog.WarnContext(ctx, "mcp discovery failed, falling back to base tools", "org_id", rc.Run.OrgID, "err", orgErr)
+			}
 			if orgErr == nil && len(orgReg.Executors) > 0 {
 				runRegistry = ForkRegistry(baseRegistry, orgReg.AgentSpecs)
 				for name, exec := range orgReg.Executors {

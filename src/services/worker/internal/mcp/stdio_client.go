@@ -67,13 +67,17 @@ func (e ProtocolError) Error() string {
 type StdioClient struct {
 	server ServerConfig
 
-	mu          sync.Mutex
-	cmd         *exec.Cmd
-	stdin       io.WriteCloser
-	stdout      io.ReadCloser
-	closed      bool
-	nextID      int64
-	pending     map[int64]chan map[string]any
+	mu           sync.Mutex
+	cmd          *exec.Cmd
+	stdin        io.WriteCloser
+	stdout       io.ReadCloser
+	closed       bool
+	disconnected bool // 子进程意外退出后由 handleDisconnect 设置
+	nextID       int64
+	pending      map[int64]chan map[string]any
+
+	// initMu 保证并发调用时 initialize 握手只发送一次
+	initMu      sync.Mutex
 	initialized bool
 
 	writeMu sync.Mutex
@@ -117,6 +121,20 @@ func (c *StdioClient) Close() error {
 		_, _ = cmd.Process.Wait()
 	}
 	return nil
+}
+
+// IsHealthy 返回 false 表示子进程已退出或 client 已被关闭，Pool 应重建。
+// 未启动（lazy init）的 client 视为健康。
+func (c *StdioClient) IsHealthy(_ context.Context) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed || c.disconnected {
+		return false
+	}
+	if c.cmd != nil && c.cmd.ProcessState != nil {
+		return false
+	}
+	return true
 }
 
 func (c *StdioClient) ensureStarted(ctx context.Context) error {
@@ -239,6 +257,7 @@ func (c *StdioClient) handleDisconnect() {
 	c.stdin = nil
 	c.stdout = nil
 	c.initialized = false
+	c.disconnected = true
 	c.mu.Unlock()
 
 	for _, ch := range pending {
@@ -280,12 +299,12 @@ func parseID(value any) (int64, bool) {
 }
 
 func (c *StdioClient) Initialize(ctx context.Context, timeoutMs int) error {
-	c.mu.Lock()
+	c.initMu.Lock()
+	defer c.initMu.Unlock()
+
 	if c.initialized {
-		c.mu.Unlock()
 		return nil
 	}
-	c.mu.Unlock()
 
 	_, err := c.request(ctx, "initialize", map[string]any{
 		"protocolVersion": defaultProtocolVersion,

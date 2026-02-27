@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"log/slog"
+	"time"
 
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/mcp"
@@ -67,6 +68,12 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 	}
 	allLlmSpecs = append(allLlmSpecs, mcpRegistration.LlmSpecs...)
 
+	cacheTTL := time.Duration(cfg.MCPCacheTTLSeconds) * time.Second
+	discoveryCache := mcp.NewDiscoveryCache(cacheTTL, mcpPool)
+	if directPool != nil {
+		discoveryCache.StartInvalidationListener(ctx, directPool)
+	}
+
 	baseAllowlistNames := tools.ParseAllowlistNamesFromEnv()
 
 	skillsRoot, err := skills.BuiltinSkillsRoot()
@@ -90,6 +97,7 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 		BaseToolAllowlistNames: baseAllowlistNames,
 		SkillRegistry:          skillRegistry,
 		MCPPool:                mcpPool,
+		MCPDiscoveryCache:      discoveryCache,
 		ExecutorRegistry:       execRegistry,
 		JobQueue:               jobQueue,
 		RunLimiterRDB:          rdb,

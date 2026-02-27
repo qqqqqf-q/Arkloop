@@ -28,6 +28,7 @@
   - `ARKLOOP_LLM_DEBUG_EVENTS=1`：把 `llm.request/llm.response.chunk` 写入 `run_events`
 - MCP（可选）：
   - `ARKLOOP_MCP_CONFIG_FILE=./mcp.config.json`
+  - `ARKLOOP_MCP_CACHE_TTL_SECONDS`（默认 `60`；0 表示不缓存，每次 run 都查 DB）
 - dotenv（可选）：
   - `ARKLOOP_LOAD_DOTENV=1`
   - `ARKLOOP_DOTENV_FILE=.env`（不设置时默认在仓库根目录找 `.env`）

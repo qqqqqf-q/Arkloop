@@ -10,6 +10,7 @@ import (
 type Client interface {
 	ListTools(ctx context.Context, timeoutMs int) ([]Tool, error)
 	CallTool(ctx context.Context, name string, arguments map[string]any, timeoutMs int) (ToolCallResult, error)
+	IsHealthy(ctx context.Context) bool
 	Close() error
 }
 
@@ -25,15 +26,19 @@ func NewPool() *Pool {
 }
 
 // Borrow 返回现有 client 或根据 transport 类型新建一个。
+// 若现有 client 不健康（子进程已退出、被显式关闭等），关闭并重建。
 func (p *Pool) Borrow(ctx context.Context, server ServerConfig) (Client, error) {
-	_ = ctx
 	key := poolKey(server.OrgID, server.ServerID)
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	if client := p.clients[key]; client != nil {
-		return client, nil
+		if client.IsHealthy(ctx) {
+			return client, nil
+		}
+		_ = client.Close()
+		delete(p.clients, key)
 	}
 
 	var client Client

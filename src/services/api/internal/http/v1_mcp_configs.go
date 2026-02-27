@@ -107,7 +107,7 @@ func mcpConfigEntry(
 		case nethttp.MethodPatch:
 			patchMCPConfig(w, r, traceID, configID, authService, membershipRepo, mcpRepo, secretsRepo, pool)
 		case nethttp.MethodDelete:
-			deleteMCPConfig(w, r, traceID, configID, authService, membershipRepo, mcpRepo)
+			deleteMCPConfig(w, r, traceID, configID, authService, membershipRepo, mcpRepo, pool)
 		default:
 			writeMethodNotAllowed(w, r)
 		}
@@ -231,6 +231,9 @@ func createMCPConfig(
 		WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
 	}
+
+	// 主动失效 Worker 侧 MCP 发现缓存
+	_, _ = pool.Exec(r.Context(), "SELECT pg_notify('mcp_config_changed', $1)", actor.OrgID.String())
 
 	writeJSON(w, traceID, nethttp.StatusCreated, toMCPConfigResponse(cfg))
 }
@@ -369,6 +372,9 @@ func patchMCPConfig(
 		return
 	}
 
+	// 主动失效 Worker 侧 MCP 发现缓存
+	_, _ = pool.Exec(r.Context(), "SELECT pg_notify('mcp_config_changed', $1)", actor.OrgID.String())
+
 	writeJSON(w, traceID, nethttp.StatusOK, toMCPConfigResponse(*updated))
 }
 
@@ -380,6 +386,7 @@ func deleteMCPConfig(
 	authService *auth.Service,
 	membershipRepo *data.OrgMembershipRepository,
 	mcpRepo *data.MCPConfigsRepository,
+	pool *pgxpool.Pool,
 ) {
 	if authService == nil {
 		writeAuthNotConfigured(w, traceID)
@@ -408,6 +415,11 @@ func deleteMCPConfig(
 	if err := mcpRepo.Delete(r.Context(), actor.OrgID, configID); err != nil {
 		WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
+	}
+
+	// 主动失效 Worker 侧 MCP 发现缓存
+	if pool != nil {
+		_, _ = pool.Exec(r.Context(), "SELECT pg_notify('mcp_config_changed', $1)", actor.OrgID.String())
 	}
 
 	writeJSON(w, traceID, nethttp.StatusOK, map[string]bool{"ok": true})

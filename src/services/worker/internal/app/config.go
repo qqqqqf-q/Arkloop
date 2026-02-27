@@ -18,8 +18,9 @@ const (
 	workerCapabilitiesEnv     = "ARKLOOP_WORKER_CAPABILITIES"
 	workerVersionEnv          = "ARKLOOP_WORKER_VERSION"
 
-	llmRetryMaxAttemptsEnv = "ARKLOOP_LLM_RETRY_MAX_ATTEMPTS"
-	llmRetryBaseDelayMsEnv = "ARKLOOP_LLM_RETRY_BASE_DELAY_MS"
+	llmRetryMaxAttemptsEnv  = "ARKLOOP_LLM_RETRY_MAX_ATTEMPTS"
+	llmRetryBaseDelayMsEnv  = "ARKLOOP_LLM_RETRY_BASE_DELAY_MS"
+	mcpCacheTTLSecondsEnv   = "ARKLOOP_MCP_CACHE_TTL_SECONDS"
 )
 
 // Config aligns with worker loop behavior.
@@ -35,6 +36,9 @@ type Config struct {
 	// LLM 请求重试配置
 	LlmRetryMaxAttempts int
 	LlmRetryBaseDelayMs int
+
+	// MCP 发现结果缓存 TTL（秒），0 表示不缓存
+	MCPCacheTTLSeconds int
 }
 
 func DefaultConfig() Config {
@@ -48,6 +52,7 @@ func DefaultConfig() Config {
 		Version:             "unknown",
 		LlmRetryMaxAttempts: 3,
 		LlmRetryBaseDelayMs: 1000,
+		MCPCacheTTLSeconds:  60,
 	}
 }
 
@@ -116,6 +121,17 @@ func LoadConfigFromEnv() (Config, error) {
 			return Config{}, fmt.Errorf("%s: %w", llmRetryBaseDelayMsEnv, err)
 		}
 		cfg.LlmRetryBaseDelayMs = value
+	}
+
+	if raw, ok := lookupEnv(mcpCacheTTLSecondsEnv); ok {
+		value, err := strconv.Atoi(strings.TrimSpace(raw))
+		if err != nil {
+			return Config{}, fmt.Errorf("%s: must be an integer", mcpCacheTTLSecondsEnv)
+		}
+		if value < 0 {
+			return Config{}, fmt.Errorf("%s: must be >= 0", mcpCacheTTLSecondsEnv)
+		}
+		cfg.MCPCacheTTLSeconds = value
 	}
 
 	if err := cfg.Validate(); err != nil {

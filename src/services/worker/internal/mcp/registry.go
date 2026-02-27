@@ -29,7 +29,7 @@ type Registration struct {
 func DiscoverFromDB(ctx context.Context, dbPool *pgxpool.Pool, orgID uuid.UUID, mcpPool *Pool) (Registration, error) {
 	cfg, err := LoadConfigFromDB(ctx, dbPool, orgID)
 	if err != nil {
-		return Registration{Executors: map[string]tools.Executor{}}, err
+		return Registration{}, err
 	}
 	if cfg == nil || len(cfg.Servers) == 0 {
 		return Registration{Executors: map[string]tools.Executor{}}, nil

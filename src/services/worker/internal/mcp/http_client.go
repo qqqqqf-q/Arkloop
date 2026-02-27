@@ -44,6 +44,12 @@ func (c *HTTPClient) Close() error {
 	return nil
 }
 
+func (c *HTTPClient) IsHealthy(_ context.Context) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return !c.closed
+}
+
 func (c *HTTPClient) ListTools(ctx context.Context, timeoutMs int) ([]Tool, error) {
 	if err := c.checkClosed(); err != nil {
 		return nil, err

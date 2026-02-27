@@ -122,8 +122,8 @@ func NewEngineV1(deps EngineV1Deps) (*EngineV1, error) {
 		pipeline.NewEntitlementMiddleware(resolver, runsRepo, eventsRepo, releaseSlot),
 		pipeline.NewMCPDiscoveryMiddleware(
 			deps.MCPDiscoveryCache,
-			pipeline.CopyToolExecutors(deps.ToolExecutors),
-			append([]llm.ToolSpec{}, deps.AllLlmToolSpecs...),
+			deps.ToolExecutors,
+			deps.AllLlmToolSpecs,
 			baseAllowlistSet,
 			deps.ToolRegistry,
 		),
