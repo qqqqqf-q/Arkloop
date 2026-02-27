@@ -2444,7 +2444,94 @@ web_fetch
 
 ---
 
-## 14. 整体执行编排
+## 14. AS-12 — 可扩展性与性能基线
+
+**目标**：在核心服务（Browser、Sandbox、Memory、MCP Pool、Worker）交付完成后，建立各服务的单节点容量上限，明确横向扩展路径，并通过基线压测验证架构不存在隐性瓶颈。
+
+**依赖**：AS-4、AS-5、AS-6、AS-7 均已完成。
+
+**不做什么**：本 Phase 不优化已知性能。基线的目的是定位瓶颈在哪，具体优化是后续迭代的事。
+
+---
+
+### AS-12.1 — Browser Service 横向扩展路径
+
+Browser Service 是三个服务中状态最重的（BrowserContext 按 sessionId 挂载在进程内存中）。单节点天花板约 30-75 个并发 session（受 Chromium 内存限制，非代码瓶颈）。
+
+多节点部署时，同一 sessionId 的请求必须路由到持有该 Context 的节点，否则需要从 MinIO 重新加载 storageState。两个可选方案，在本 Sub-phase 内做决策并文档化：
+
+**方案 A — Session Affinity（低延迟，强一致）**
+- 网关层按 sessionId 哈希到固定节点（例如 Nginx `hash $session_id consistent`）
+- 节点宕机时由网关重路由，新节点从 MinIO 加载 storageState 冷恢复
+- 适合 session 复用率高、页面交互密集的场景
+
+**方案 B — Stateless Mode（无状态，弹性强）**
+- 每次请求：load storageState → 创建临时 Context → 执行 → persist → 销毁
+- 无需 affinity，任意节点可处理任意请求
+- 单次请求延迟 +50-200ms（MinIO IO），但可无限横向扩
+- 适合请求频率低、对延迟不敏感的场景
+
+**交付物**：
+- 在 `src/services/browser/README.zh-CN.md` 中记录选定方案及理由
+- 方案 A：在 `compose.yaml` 补充 Nginx session affinity 示例配置
+- 方案 B：`BrowserPool` 新增 stateless 模式（`BROWSER_STATELESS=true`），每次请求强制 `fresh_session=true`，执行后立即 `expireContext`
+
+### AS-12.2 — Sandbox 多节点调度接口
+
+当前 Sandbox 是单节点 HTTP 服务，`MaxSessions=50` 是硬上限（受宿主机 vCPU 限制）。Sandbox 本身无状态（快照在 MinIO，VM 一次性），适合横向扩展，但 Worker 侧当前是硬编码 HTTP 调用，扩展路径被堵死。
+
+**方案**：在 Worker 侧抽象 `SandboxClient` 接口，将节点选择逻辑封装在实现层：
+
+```go
+// internal/sandbox/client.go
+type Client interface {
+    Acquire(ctx context.Context, tier string) (SessionHandle, error)
+    Execute(ctx context.Context, handle SessionHandle, req ExecRequest) (ExecResult, error)
+    Release(ctx context.Context, handle SessionHandle) error
+}
+```
+
+- 单节点实现：直接调用已有 `sandbox` HTTP API
+- 多节点实现（不在本 Phase 实现，但接口兼容）：Worker 持有 N 个 HTTP 端点，Acquire 时轮询各节点 `/health/stats` 取负载最低节点（best-of-k）
+
+**交付物**：
+- `src/services/worker/internal/sandbox/client.go`：接口定义 + 单节点实现
+- `src/docs/architecture/sandbox-scaling.zh-CN.md`：多节点扩展路径文档
+
+### AS-12.3 — MCP Pool 运行时指标暴露
+
+AS-4 完成了 DB 查询缓存和健康检查/重连。但当前无运行时可观测性，无法判断连接池是否成为瓶颈。
+
+- 在 MCP Pool 上新增 `Stats()` 方法，返回：活跃连接数、缓存命中/未命中计数、重连次数、挂起请求数
+- 通过 Worker 的 `/health/stats` 端点聚合输出（与 Sandbox 的 stats 接口格式对齐）
+- 暴露为结构化 JSON，便于 Prometheus scrape 或 Console 展示
+
+### AS-12.4 — OpenViking 容量基线
+
+OpenViking 是 Python HTTP 服务，单实例并发能力受 GIL + 向量检索 CPU 开销限制，需要实测而非估算。
+
+**压测内容**：
+- 并发检索：50/100/200 并发的 `/api/v1/search/find` 请求，记录 P50/P99 延迟和错误率
+- 并发写入：模拟记忆提炼路径（`/api/v1/content/write`），验证底层向量索引无锁竞争导致的性能崩溃
+
+**交付物**：
+- 压测脚本（k6 或 Go test）放在 `src/services/worker/internal/memory/bench_test.go`
+- 单实例 QPS 上限记录在 OpenViking 的部署文档中
+- 如果底层向量存储不支持并发写，明确 single-writer 架构约束
+
+### AS-12.5 — Worker DB 连接池配置暴露
+
+Worker 是 Go 服务，goroutine 本身不是瓶颈，但 AgentLoop 每次迭代都持有 DB 连接（通过 pipeline 中间件），高并发下 DB 连接池先到达上限。
+
+- 确认 `database/sql` 的 `SetMaxOpenConns` / `SetMaxIdleConns` 是否已通过环境变量暴露；若硬编码则改为可配置
+- 压测：并发 50 个 run，观察 DB 连接池使用率、P99 请求排队时间
+- 将推荐配置写入 `compose.yaml` 注释（`ARKLOOP_DB_MAX_OPEN_CONNS` 等）
+
+**执行顺序**：AS-12.1、AS-12.2、AS-12.4、AS-12.5 可并行；AS-12.3 依赖 AS-4 完成。所有 Sub-phase 均不依赖 AS-9/10/11。
+
+---
+
+## 15. 整体执行编排
 
 ```
 并行轨道 1（核心架构，有依赖链）：
@@ -2485,13 +2572,20 @@ web_fetch
 
 并行轨道 8（完全独立，穿越后端+Console）：
   AS-11.1 → AS-11.2 → AS-11.3 → AS-11.4 → AS-11.5
+
+并行轨道 9（AS-4/5/6/7 完成后启动，各 Sub-phase 可并行）：
+  AS-12.1（Browser 横向扩展路径）
+  AS-12.2（Sandbox 多节点接口）
+  AS-12.3（MCP Pool 指标，依赖 AS-4）
+  AS-12.4（OpenViking 容量基线）
+  AS-12.5（Worker DB 连接池）
 ```
 
-**关键路径**：AS-1 是所有其他 AS 的地基。AS-4、AS-6、AS-7、AS-11 完全独立，可以与 AS-1 同步推进。AS-5（OpenViking）需要等 AS-1 完成后在 Pipeline 里接入。**AS-10.A 是 Bug 修复，应最先完成，不阻塞其他轨道**。
+**关键路径**：AS-1 是所有其他 AS 的地基。AS-4、AS-6、AS-7、AS-11 完全独立，可以与 AS-1 同步推进。AS-5（OpenViking）需要等 AS-1 完成后在 Pipeline 里接入。**AS-10.A 是 Bug 修复，应最先完成，不阻塞其他轨道**。AS-12 是在核心服务全部交付后启动的压后轨道，不阻塞任何功能上线。
 
 ---
 
-## 15. 不变量与决策记录
+## 16. 不变量与决策记录
 
 以下决策在本 Roadmap 内固定，不再重复讨论：
 
