@@ -1,0 +1,45 @@
+{
+  "server": {
+    "host": "0.0.0.0",
+    "port": 1933,
+    "root_api_key": null,
+    "cors_origins": ["*"]
+  },
+  "storage": {
+    "vectordb": {
+      "name": "context",
+      "backend": "local",
+      "path": "/app/data"
+    },
+    "agfs": {
+      "port": 1833,
+      "log_level": "warn",
+      "backend": "local",
+      "path": "/app/data"
+    }
+  },
+  "embedding": {
+    "dense": {
+      "model": "doubao-embedding-vision-250615",
+      "api_key": "{your-embedding-api-key}",
+      "api_base": "https://ark.cn-beijing.volces.com/api/v3",
+      "dimension": 1024,
+      "provider": "volcengine",
+      "input": "multimodal"
+    }
+  },
+  "vlm": {
+    "model": "doubao-seed-1-8-251228",
+    "api_key": "{your-vlm-api-key}",
+    "api_base": "https://ark.cn-beijing.volces.com/api/v3",
+    "temperature": 0.0,
+    "max_retries": 2,
+    "provider": "volcengine"
+  },
+  "log": {
+    "level": "INFO",
+    "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    "output": "stdout",
+    "rotation": false
+  }
+}

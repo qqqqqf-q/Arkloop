@@ -693,9 +693,11 @@ type MemoryProvider interface {
 - 数据目录：挂载持久化卷到 `/app/data`
 - 健康检查：`GET /health`；就绪探针可用 `GET /ready`
 
-Worker 侧新增 env：
-- `ARKLOOP_OPENVIKING_BASE_URL`（Docker 内建议 `http://openviking:1933`）
-- `ARKLOOP_OPENVIKING_ROOT_API_KEY`（与 `ov.conf.server.root_api_key` 一致；未启用 auth 时可为空）
+Worker 侧配置（DB 主，ENV 兜底，与 email/LLM 凭证同模式）：
+- **主路径**：`platform_settings` 表，key 前缀 `openviking.*`
+  - `openviking.base_url`（如 `http://openviking:1933`）
+  - `openviking.root_api_key`（与 `ov.conf.server.root_api_key` 一致；未启用 auth 时留空）
+- **兜底**：ENV `ARKLOOP_OPENVIKING_BASE_URL` / `ARKLOOP_OPENVIKING_ROOT_API_KEY`（本地开发 / 无 DB 时）
 
 `ov.conf` 至少需要：
 - `storage.agfs.path=/app/data`
@@ -705,7 +707,8 @@ Worker 侧新增 env：
 ### AS-5.3 — OpenViking 适配器（HTTP Client）
 
 - **新建** `src/services/worker/internal/memory/openviking/client.go`：通过 OpenViking HTTP API 实现 `MemoryProvider`。
-- ROOT key 路线的 HTTP 请求头：
+- **新建** `src/services/worker/internal/memory/openviking/config.go`：配置加载，DB 主（`platform_settings.openviking.*`）+ ENV 兜底（参考 `email/config_db.go` 模式）。
+- ROOT key 路线的 HTTP 请求头（`base_url` 和 `root_api_key` 从上述配置加载，运行时无需 ENV 直接存在）：
   - `X-API-Key: ${ARKLOOP_OPENVIKING_ROOT_API_KEY}`
   - `X-OpenViking-Account: <org_id>`
   - `X-OpenViking-User: <user_id>`
