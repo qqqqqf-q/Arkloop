@@ -121,6 +121,7 @@ if err := server.Shutdown(shutdownCtx); err != nil {
 _ = server.Close()
 }
 a.manager.CloseAll(shutdownCtx)
+a.manager.DrainPool(shutdownCtx)
 
 if err, ok := <-errCh; ok && err != nil && !errors.Is(err, http.ErrServerClosed) {
 return err

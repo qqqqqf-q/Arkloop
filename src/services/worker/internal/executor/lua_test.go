@@ -9,6 +9,7 @@ import (
 	"arkloop/services/worker/internal/data"
 	"arkloop/services/worker/internal/events"
 	"arkloop/services/worker/internal/llm"
+	"arkloop/services/worker/internal/memory"
 	"arkloop/services/worker/internal/pipeline"
 	"arkloop/services/worker/internal/routing"
 	"github.com/google/uuid"
@@ -635,5 +636,199 @@ context.set_output("ok")
 	}
 	if !completeFound {
 		t.Error("agent.parallel_complete event with success_count=3 not found")
+	}
+}
+
+// --- mock MemoryProvider for Lua binding tests ---
+
+type luaMemMock struct {
+	findHits    []memory.MemoryHit
+	findErr     error
+	contentText string
+	contentErr  error
+	writeErr    error
+	deleteErr   error
+}
+
+func (m *luaMemMock) Find(_ context.Context, _ memory.MemoryIdentity, _ memory.MemoryScope, _ string, _ int) ([]memory.MemoryHit, error) {
+	return m.findHits, m.findErr
+}
+
+func (m *luaMemMock) Content(_ context.Context, _ memory.MemoryIdentity, _ string, _ memory.MemoryLayer) (string, error) {
+	return m.contentText, m.contentErr
+}
+
+func (m *luaMemMock) AppendSessionMessages(_ context.Context, _ memory.MemoryIdentity, _ string, _ []memory.MemoryMessage) error {
+	return nil
+}
+
+func (m *luaMemMock) CommitSession(_ context.Context, _ memory.MemoryIdentity, _ string) error {
+	return nil
+}
+
+func (m *luaMemMock) Write(_ context.Context, _ memory.MemoryIdentity, _ memory.MemoryScope, _ memory.MemoryEntry) error {
+	return m.writeErr
+}
+
+func (m *luaMemMock) Delete(_ context.Context, _ memory.MemoryIdentity, _ string) error {
+	return m.deleteErr
+}
+
+// buildLuaRCWithMemory 构造注入了 MemoryProvider 和 UserID 的 RunContext。
+func buildLuaRCWithMemory(mp memory.MemoryProvider) *pipeline.RunContext {
+	rc := buildLuaRC(nil)
+	uid := uuid.New()
+	rc.UserID = &uid
+	rc.MemoryProvider = mp
+	return rc
+}
+
+func runLuaScript(t *testing.T, script string, rc *pipeline.RunContext) []events.RunEvent {
+	t.Helper()
+	ex, err := NewLuaExecutor(map[string]any{"script": script})
+	if err != nil {
+		t.Fatalf("NewLuaExecutor failed: %v", err)
+	}
+	emitter := events.NewEmitter("trace")
+	var got []events.RunEvent
+	if err := ex.Execute(context.Background(), rc, emitter, func(ev events.RunEvent) error {
+		got = append(got, ev)
+		return nil
+	}); err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+	return got
+}
+
+func deltaTexts(evs []events.RunEvent) []string {
+	var out []string
+	for _, ev := range evs {
+		if ev.Type == "message.delta" {
+			if d, ok := ev.DataJSON["content_delta"].(string); ok {
+				out = append(out, d)
+			}
+		}
+	}
+	return out
+}
+
+func TestLuaExecutor_MemorySearch_WithProvider(t *testing.T) {
+	mp := &luaMemMock{
+		findHits: []memory.MemoryHit{
+			{URI: "viking://user/memories/prefs/lang", Abstract: "Go", Score: 0.9},
+		},
+	}
+	rc := buildLuaRCWithMemory(mp)
+	evs := runLuaScript(t, `
+local res, err = memory.search("language")
+if err then error(err) end
+context.set_output(res)
+`, rc)
+
+	texts := deltaTexts(evs)
+	if len(texts) == 0 {
+		t.Fatal("expected message.delta output")
+	}
+	if !strings.Contains(texts[0], "viking://user/memories/prefs/lang") {
+		t.Fatalf("expected URI in output, got: %q", texts[0])
+	}
+}
+
+func TestLuaExecutor_MemoryRead_WithProvider(t *testing.T) {
+	mp := &luaMemMock{contentText: "user prefers Go"}
+	rc := buildLuaRCWithMemory(mp)
+	evs := runLuaScript(t, `
+local content, err = memory.read("viking://user/memories/prefs/lang")
+if err then error(err) end
+context.set_output(content)
+`, rc)
+
+	texts := deltaTexts(evs)
+	if len(texts) == 0 || texts[0] != "user prefers Go" {
+		t.Fatalf("expected 'user prefers Go', got: %v", texts)
+	}
+}
+
+func TestLuaExecutor_MemoryWrite_WithProvider(t *testing.T) {
+	mp := &luaMemMock{}
+	rc := buildLuaRCWithMemory(mp)
+	evs := runLuaScript(t, `
+local uri, err = memory.write("preferences", "language", "Go")
+if err then error(err) end
+context.set_output(uri)
+`, rc)
+
+	texts := deltaTexts(evs)
+	if len(texts) == 0 {
+		t.Fatal("expected URI output from memory.write")
+	}
+	if !strings.HasPrefix(texts[0], "viking://") {
+		t.Fatalf("expected viking:// URI, got: %q", texts[0])
+	}
+}
+
+func TestLuaExecutor_MemoryForget_WithProvider(t *testing.T) {
+	mp := &luaMemMock{}
+	rc := buildLuaRCWithMemory(mp)
+	evs := runLuaScript(t, `
+local ok, err = memory.forget("viking://user/memories/prefs/lang")
+if err then error(err) end
+if ok then context.set_output("deleted") end
+`, rc)
+
+	texts := deltaTexts(evs)
+	if len(texts) == 0 || texts[0] != "deleted" {
+		t.Fatalf("expected 'deleted', got: %v", texts)
+	}
+}
+
+func TestLuaExecutor_MemoryRead_ProviderNil(t *testing.T) {
+	rc := buildLuaRC(nil) // provider nil
+	evs := runLuaScript(t, `
+local content, err = memory.read("viking://user/memories/prefs/lang")
+if err then
+  context.set_output("err:" .. err)
+else
+  context.set_output("ok")
+end
+`, rc)
+
+	texts := deltaTexts(evs)
+	if len(texts) == 0 || !strings.HasPrefix(texts[0], "err:") {
+		t.Fatalf("expected error when provider is nil, got: %v", texts)
+	}
+}
+
+func TestLuaExecutor_MemoryWrite_ProviderNil(t *testing.T) {
+	rc := buildLuaRC(nil)
+	evs := runLuaScript(t, `
+local uri, err = memory.write("preferences", "language", "Go")
+if err then
+  context.set_output("err:" .. err)
+else
+  context.set_output("ok")
+end
+`, rc)
+
+	texts := deltaTexts(evs)
+	if len(texts) == 0 || !strings.HasPrefix(texts[0], "err:") {
+		t.Fatalf("expected error when provider is nil, got: %v", texts)
+	}
+}
+
+func TestLuaExecutor_MemoryForget_ProviderNil(t *testing.T) {
+	rc := buildLuaRC(nil)
+	evs := runLuaScript(t, `
+local ok, err = memory.forget("viking://user/memories/prefs/lang")
+if err then
+  context.set_output("err:" .. err)
+else
+  context.set_output("ok")
+end
+`, rc)
+
+	texts := deltaTexts(evs)
+	if len(texts) == 0 || !strings.HasPrefix(texts[0], "err:") {
+		t.Fatalf("expected error when provider is nil, got: %v", texts)
 	}
 }

@@ -13,6 +13,7 @@ import (
 func NewHandler(mgr *session.Manager, logger *logging.JSONLogger) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", healthz(mgr))
+	mux.HandleFunc("GET /v1/stats", stats(mgr))
 	mux.HandleFunc("POST /v1/exec", handleExec(mgr, logger))
 	mux.HandleFunc("DELETE /v1/sessions/", handleDeleteSession(mgr, logger))
 	return recoverMiddleware(mux, logger)
@@ -20,9 +21,42 @@ func NewHandler(mgr *session.Manager, logger *logging.JSONLogger) http.Handler {
 
 func healthz(mgr *session.Manager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		active := mgr.ActiveCount()
+		poolReady := mgr.PoolReady()
+
+		status := "ok"
+		if !poolReady {
+			status = "starting"
+		}
+
 		writeJSON(w, http.StatusOK, map[string]any{
-			"status":   "ok",
-			"sessions": mgr.ActiveCount(),
+			"status":          status,
+			"sessions":        active,
+			"warm_pool_ready": poolReady,
+		})
+	}
+}
+
+func stats(mgr *session.Manager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		poolStats := mgr.PoolStats()
+
+		warmPool := make(map[string]any)
+		for tier, target := range poolStats.TargetByTier {
+			ready := poolStats.ReadyByTier[tier]
+			warmPool[tier] = map[string]any{
+				"ready":  ready,
+				"target": target,
+			}
+		}
+
+		writeJSON(w, http.StatusOK, map[string]any{
+			"active_sessions":        mgr.ActiveCount(),
+			"sessions_by_tier":       mgr.SessionsByTier(),
+			"warm_pool":              warmPool,
+			"total_created":          poolStats.TotalCreated,
+			"total_destroyed":        poolStats.TotalDestroyed,
+			"total_timeout_reclaimed": mgr.TotalReclaimed(),
 		})
 	}
 }

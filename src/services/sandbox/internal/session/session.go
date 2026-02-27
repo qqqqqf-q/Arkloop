@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -31,10 +32,73 @@ type Session struct {
 	VsockPath string    // Firecracker vsock UDS 路径
 	AgentPort uint32    // Guest Agent 的 vsock 端口号
 	CreatedAt time.Time
+	SocketDir string    // microVM socket 目录的实际路径（用于清理）
+
+	// 超时管理
+	LastActiveAt time.Time
+	IdleTimeout  time.Duration
+	MaxLifetime  time.Duration
+
+	timerMu       sync.Mutex
+	idleTimer     *time.Timer
+	lifetimeTimer *time.Timer
+	onExpired     func(string) // callback: session ID -> 由 Manager 设置
+}
+
+// StartTimers 启动空闲超时和最大存活 timer。
+// onExpired 在 timer 触发时被调用（在独立 goroutine 中）。
+func (s *Session) StartTimers(onExpired func(string)) {
+	s.timerMu.Lock()
+	defer s.timerMu.Unlock()
+
+	s.onExpired = onExpired
+	s.LastActiveAt = time.Now()
+
+	if s.MaxLifetime > 0 {
+		s.lifetimeTimer = time.AfterFunc(s.MaxLifetime, func() {
+			s.onExpired(s.ID)
+		})
+	}
+	if s.IdleTimeout > 0 {
+		s.idleTimer = time.AfterFunc(s.IdleTimeout, func() {
+			s.onExpired(s.ID)
+		})
+	}
+}
+
+// TouchActivity 更新最近活跃时间并重置空闲 timer。
+func (s *Session) TouchActivity() {
+	s.timerMu.Lock()
+	defer s.timerMu.Unlock()
+
+	s.LastActiveAt = time.Now()
+	if s.idleTimer != nil && s.IdleTimeout > 0 {
+		s.idleTimer.Stop()
+		s.idleTimer = time.AfterFunc(s.IdleTimeout, func() {
+			s.onExpired(s.ID)
+		})
+	}
+}
+
+// StopTimers 停止所有 timer。Delete session 时调用。
+func (s *Session) StopTimers() {
+	s.timerMu.Lock()
+	defer s.timerMu.Unlock()
+
+	if s.idleTimer != nil {
+		s.idleTimer.Stop()
+		s.idleTimer = nil
+	}
+	if s.lifetimeTimer != nil {
+		s.lifetimeTimer.Stop()
+		s.lifetimeTimer = nil
+	}
 }
 
 // Exec 在 Session 关联的 microVM Guest Agent 中执行代码。
 func (s *Session) Exec(ctx context.Context, job ExecJob) (*ExecResult, error) {
+	s.TouchActivity()
+
 	timeout := time.Duration(job.TimeoutMs) * time.Millisecond
 	if timeout <= 0 {
 		timeout = 30 * time.Second

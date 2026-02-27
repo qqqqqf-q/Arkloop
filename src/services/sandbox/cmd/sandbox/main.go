@@ -8,6 +8,7 @@ import (
 	"arkloop/services/sandbox/internal/app"
 	sandboxhttp "arkloop/services/sandbox/internal/http"
 	"arkloop/services/sandbox/internal/logging"
+	"arkloop/services/sandbox/internal/pool"
 	"arkloop/services/sandbox/internal/session"
 	"arkloop/services/sandbox/internal/snapshot"
 	"arkloop/services/sandbox/internal/storage"
@@ -54,7 +55,7 @@ func run() error {
 		registry = reg
 	}
 
-	// 启动时自动检查并构建缺失快照（带超时保护，超时则降级冷启动）
+	// 启动时自动检查并构建缺失快照
 	if snapshotStore != nil && registry != nil {
 		builder := snapshot.NewBuilder(
 			cfg.FirecrackerBin,
@@ -71,16 +72,30 @@ func run() error {
 		ensureCancel()
 	}
 
+	// 创建 WarmPool
+	warmPool := pool.New(pool.Config{
+		WarmSizes:             cfg.WarmSizes(),
+		RefillIntervalSeconds: cfg.RefillIntervalSeconds,
+		MaxRefillConcurrency:  cfg.RefillConcurrency,
+		FirecrackerBin:        cfg.FirecrackerBin,
+		KernelImagePath:       cfg.KernelImagePath,
+		RootfsPath:            cfg.RootfsPath,
+		SocketBaseDir:         cfg.SocketBaseDir,
+		BootTimeoutSeconds:    cfg.BootTimeoutSeconds,
+		GuestAgentPort:        cfg.GuestAgentPort,
+		SnapshotStore:         snapshotStore,
+		Registry:              registry,
+		Logger:                logger,
+	})
+	warmPool.Start()
+
 	mgr := session.NewManager(session.ManagerConfig{
-		FirecrackerBin:     cfg.FirecrackerBin,
-		KernelImagePath:    cfg.KernelImagePath,
-		RootfsPath:         cfg.RootfsPath,
-		SocketBaseDir:      cfg.SocketBaseDir,
-		BootTimeoutSeconds: cfg.BootTimeoutSeconds,
-		GuestAgentPort:     cfg.GuestAgentPort,
 		MaxSessions:        cfg.MaxSessions,
-		SnapshotStore:      snapshotStore,
-		Registry:           registry,
+		Pool:               warmPool,
+		IdleTimeoutLite:    cfg.IdleTimeoutLite,
+		IdleTimeoutPro:     cfg.IdleTimeoutPro,
+		IdleTimeoutUltra:   cfg.IdleTimeoutUltra,
+		MaxLifetimeSeconds: cfg.MaxLifetimeSeconds,
 	})
 
 	handler := sandboxhttp.NewHandler(mgr, logger)
