@@ -14,7 +14,7 @@ import {
 
 export interface StorageClient {
   init(): Promise<void>;
-  uploadScreenshot(runId: string, step: number, imageBuffer: Buffer): Promise<string>;
+  uploadScreenshot(runId: string, step: number, imageBuffer: Buffer, format?: 'png' | 'jpeg'): Promise<string>;
   saveSessionState(orgId: string, sessionId: string, state: object): Promise<void>;
   loadSessionState(orgId: string, sessionId: string): Promise<object | null>;
   deleteSessionState(orgId: string, sessionId: string): Promise<void>;
@@ -34,8 +34,8 @@ export function sessionStatePath(orgId: string, sessionId: string): string {
   return `${orgId}/${sessionId}/state.json`;
 }
 
-export function screenshotPath(runId: string, step: number): string {
-  return `${runId}/${step}.png`;
+export function screenshotPath(runId: string, step: number, ext: 'png' | 'jpeg' = 'png'): string {
+  return `${runId}/${step}.${ext}`;
 }
 
 export class MinioClient implements StorageClient {
@@ -113,14 +113,19 @@ export class MinioClient implements StorageClient {
     );
   }
 
-  async uploadScreenshot(runId: string, step: number, imageBuffer: Buffer): Promise<string> {
-    const key = screenshotPath(runId, step);
+  async uploadScreenshot(
+    runId: string,
+    step: number,
+    imageBuffer: Buffer,
+    format: 'png' | 'jpeg' = 'png',
+  ): Promise<string> {
+    const key = screenshotPath(runId, step, format);
     await this.s3.send(
       new PutObjectCommand({
         Bucket: this.config.bucketScreenshots,
         Key: key,
         Body: imageBuffer,
-        ContentType: 'image/png',
+        ContentType: format === 'jpeg' ? 'image/jpeg' : 'image/png',
       }),
     );
     return `${this.config.publicEndpoint}/${this.config.bucketScreenshots}/${key}`;

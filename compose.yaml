@@ -148,6 +148,28 @@ services:
       timeout: 3s
       retries: 20
 
+  browser:
+    build:
+      context: .
+      dockerfile: src/services/browser/Dockerfile
+    restart: unless-stopped
+    environment:
+      BROWSER_PORT: "3000"
+      BROWSER_MINIO_ENDPOINT: "minio:9000"
+      BROWSER_MINIO_ACCESS_KEY: "${ARKLOOP_S3_ACCESS_KEY:-minioadmin}"
+      BROWSER_MINIO_SECRET_KEY: "${ARKLOOP_S3_SECRET_KEY:?请在 .env 中设置 ARKLOOP_S3_SECRET_KEY}"
+      BROWSER_MINIO_PUBLIC_ENDPOINT: "${BROWSER_MINIO_PUBLIC_ENDPOINT:-http://localhost:9000}"
+    ports:
+      - "${BROWSER_SERVICE_PORT:-3100}:3000"
+    depends_on:
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
   worker:
     build:
       context: .

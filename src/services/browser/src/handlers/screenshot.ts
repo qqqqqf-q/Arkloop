@@ -38,6 +38,8 @@ export async function handleScreenshot(
     // quality 仅 jpeg 支持，png 忽略
     const useJpeg = quality < 100;
 
+    const format = useJpeg ? 'jpeg' : 'png';
+
     let imageBuffer: Buffer;
     let width: number;
     let height: number;
@@ -70,7 +72,7 @@ export async function handleScreenshot(
     }
 
     const step = Date.now();
-    const screenshotUrl = await storage.uploadScreenshot(ctx.runId, step, imageBuffer);
+    const screenshotUrl = await storage.uploadScreenshot(ctx.runId, step, imageBuffer, format);
 
     const payload: ScreenshotResponse = {
       screenshot_url: screenshotUrl,

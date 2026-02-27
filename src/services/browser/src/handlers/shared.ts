@@ -1,6 +1,5 @@
 import type { Page, BrowserContext } from 'playwright';
 import type { StorageClient } from '../storage/minio-client.js';
-import type { Config } from '../config.js';
 
 export interface PageState {
   pageUrl: string;
