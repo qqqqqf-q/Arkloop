@@ -94,6 +94,11 @@ func (rt *luaRuntime) register(L *lua.LState) {
 	L.SetField(contextTable, "set_output", L.NewFunction(rt.contextSetOutput))
 	L.SetGlobal("context", contextTable)
 
+	jsonTable := L.NewTable()
+	L.SetField(jsonTable, "encode", L.NewFunction(jsonEncode))
+	L.SetField(jsonTable, "decode", L.NewFunction(jsonDecode))
+	L.SetGlobal("json", jsonTable)
+
 	// memory binding：MemoryProvider 非 nil 时调用真实 provider，否则返回空/错误
 	memoryTable := L.NewTable()
 	L.SetField(memoryTable, "search", L.NewFunction(rt.memorySearch))
@@ -556,4 +561,107 @@ func (rt *luaRuntime) memoryIdentity() memory.MemoryIdentity {
 		ident.UserID = *rt.rc.UserID
 	}
 	return ident
+}
+
+// json.encode(value) -> (json_string, err)
+func jsonEncode(L *lua.LState) int {
+	v := L.CheckAny(1)
+	encoded, err := json.Marshal(luaToGoValue(v))
+	if err != nil {
+		L.Push(lua.LNil)
+		L.Push(lua.LString(err.Error()))
+		return 2
+	}
+	L.Push(lua.LString(string(encoded)))
+	L.Push(lua.LNil)
+	return 2
+}
+
+// json.decode(json_string) -> (value, err)
+func jsonDecode(L *lua.LState) int {
+	s := L.CheckString(1)
+	var v any
+	if err := json.Unmarshal([]byte(s), &v); err != nil {
+		L.Push(lua.LNil)
+		L.Push(lua.LString(err.Error()))
+		return 2
+	}
+	L.Push(goToLuaValue(L, v))
+	L.Push(lua.LNil)
+	return 2
+}
+
+// luaToGoValue 将 Lua 值递归转换为 Go 原生类型，供 json.Marshal 使用。
+func luaToGoValue(v lua.LValue) any {
+	switch typed := v.(type) {
+	case *lua.LNilType:
+		return nil
+	case lua.LBool:
+		return bool(typed)
+	case lua.LNumber:
+		f := float64(typed)
+		if f == float64(int64(f)) {
+			return int64(typed)
+		}
+		return f
+	case lua.LString:
+		return string(typed)
+	case *lua.LTable:
+		n := typed.Len()
+		// 若顺序整数键从 1 到 n 覆盖全部条目，视为数组
+		if n > 0 {
+			allInt := true
+			typed.ForEach(func(k, _ lua.LValue) {
+				if _, ok := k.(lua.LNumber); !ok {
+					allInt = false
+				}
+			})
+			if allInt {
+				arr := make([]any, n)
+				for i := 1; i <= n; i++ {
+					arr[i-1] = luaToGoValue(typed.RawGetInt(i))
+				}
+				return arr
+			}
+		}
+		obj := map[string]any{}
+		typed.ForEach(func(k, val lua.LValue) {
+			obj[fmt.Sprintf("%v", k)] = luaToGoValue(val)
+		})
+		return obj
+	default:
+		return fmt.Sprintf("%v", v)
+	}
+}
+
+// goToLuaValue 将 Go json.Unmarshal 产出的原生类型递归转换为 Lua 值。
+func goToLuaValue(L *lua.LState, v any) lua.LValue {
+	if v == nil {
+		return lua.LNil
+	}
+	switch typed := v.(type) {
+	case bool:
+		if typed {
+			return lua.LTrue
+		}
+		return lua.LFalse
+	case float64:
+		return lua.LNumber(typed)
+	case string:
+		return lua.LString(typed)
+	case []any:
+		t := L.NewTable()
+		for i, item := range typed {
+			t.RawSetInt(i+1, goToLuaValue(L, item))
+		}
+		return t
+	case map[string]any:
+		t := L.NewTable()
+		for k, item := range typed {
+			L.SetField(t, k, goToLuaValue(L, item))
+		}
+		return t
+	default:
+		return lua.LString(fmt.Sprintf("%v", v))
+	}
 }

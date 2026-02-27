@@ -84,5 +84,13 @@ func loadRunInputs(
 		return nil, nil, err
 	}
 
+	// 提取最后一条用户消息，供 Lua 脚本通过 context.get("last_user_message") 访问
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role == "user" && strings.TrimSpace(messages[i].Content) != "" {
+			inputJSON["last_user_message"] = strings.TrimSpace(messages[i].Content)
+			break
+		}
+	}
+
 	return inputJSON, messages, nil
 }
