@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 
+	"arkloop/services/worker/internal/agent"
 	"arkloop/services/worker/internal/events"
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/memory"
@@ -57,6 +58,11 @@ func (e *LuaExecutor) Execute(
 		}, nil, &errClass))
 	}
 
+	// agent.loop() 已处理终态事件，无需重复发送
+	if rt.loopTerminal {
+		return nil
+	}
+
 	// 脚本执行完成，emit 最终输出
 	output := strings.TrimSpace(rt.output)
 	if output != "" {
@@ -82,6 +88,8 @@ type luaRuntime struct {
 	output  string
 	// 累积 agent.generate / agent.stream 消耗的 token，随最终 run.completed 上报
 	accumulatedUsage llm.Usage
+	// agent.loop() 内部循环已发送终态事件，外层 Execute 不再重复发送
+	loopTerminal bool
 }
 
 // mergeUsage 将一次 LLM 调用的 usage 累加到 accumulatedUsage。
@@ -114,6 +122,7 @@ func (rt *luaRuntime) register(L *lua.LState) {
 	L.SetField(agentTable, "classify", L.NewFunction(rt.agentClassify))
 	L.SetField(agentTable, "generate", L.NewFunction(rt.agentGenerate))
 	L.SetField(agentTable, "stream", L.NewFunction(rt.agentStream))
+	L.SetField(agentTable, "loop", L.NewFunction(rt.agentLoop))
 	L.SetGlobal("agent", agentTable)
 
 	toolsTable := L.NewTable()
@@ -708,6 +717,134 @@ func (rt *luaRuntime) agentStream(L *lua.LState) int {
 	}
 
 	L.Push(lua.LString(strings.Join(chunks, "")))
+	L.Push(lua.LNil)
+	return 2
+}
+
+// agent.loop(system_prompt, messages, [opts]) -> (ok, err)
+// 完整 agent 循环：LLM 自主决定调用哪些工具，工具执行后继续对话，
+// 直到 LLM 输出最终文本或达到迭代上限。
+// 与 agent.stream 的区别：此方法将可用工具传递给 LLM 并自动处理 tool calling loop。
+func (rt *luaRuntime) agentLoop(L *lua.LState) int {
+	if rt.ctx.Err() != nil {
+		L.Push(lua.LNil)
+		L.Push(lua.LString(rt.ctx.Err().Error()))
+		return 2
+	}
+
+	if rt.rc.Gateway == nil || rt.rc.SelectedRoute == nil {
+		L.Push(lua.LNil)
+		L.Push(lua.LString("agent.loop not available: gateway not initialized"))
+		return 2
+	}
+
+	sysPrompt := L.CheckString(1)
+	messagesArg := L.CheckAny(2)
+
+	messages := []llm.Message{
+		{Role: "system", Content: []llm.TextPart{{Text: sysPrompt}}},
+	}
+
+	switch v := messagesArg.(type) {
+	case lua.LString:
+		messages = append(messages, llm.Message{
+			Role:    "user",
+			Content: []llm.TextPart{{Text: string(v)}},
+		})
+	case *lua.LTable:
+		n := v.Len()
+		for i := 1; i <= n; i++ {
+			item := v.RawGetInt(i)
+			tbl, ok := item.(*lua.LTable)
+			if !ok {
+				continue
+			}
+			role := ""
+			if r, ok := tbl.RawGetString("role").(lua.LString); ok {
+				role = string(r)
+			}
+			content := ""
+			if c, ok := tbl.RawGetString("content").(lua.LString); ok {
+				content = string(c)
+			}
+			if role != "" && content != "" {
+				messages = append(messages, llm.Message{
+					Role:    role,
+					Content: []llm.TextPart{{Text: content}},
+				})
+			}
+		}
+	default:
+		L.Push(lua.LNil)
+		L.Push(lua.LString("agent.loop: messages must be a string or table"))
+		return 2
+	}
+
+	var maxTokens *int
+	if opts := L.OptTable(3, nil); opts != nil {
+		if mt := opts.RawGetString("max_tokens"); mt != lua.LNil {
+			if n, ok := mt.(lua.LNumber); ok {
+				v := int(n)
+				maxTokens = &v
+			}
+		}
+	}
+
+	request := llm.Request{
+		Model:           rt.rc.SelectedRoute.Route.Model,
+		Messages:        messages,
+		Tools:           append([]llm.ToolSpec{}, rt.rc.FinalSpecs...),
+		MaxOutputTokens: maxTokens,
+		ReasoningMode:   rt.rc.ReasoningMode,
+	}
+
+	maxIter := rt.rc.MaxIterations
+	if maxIter <= 0 {
+		maxIter = 10
+	}
+
+	runCtx := agent.RunContext{
+		RunID:               rt.rc.Run.ID,
+		OrgID:               &rt.rc.Run.OrgID,
+		UserID:              rt.rc.UserID,
+		AgentID:             agentIDFromSkill(rt.rc),
+		ThreadID:            &rt.rc.Run.ThreadID,
+		TraceID:             rt.rc.TraceID,
+		InputJSON:           rt.rc.InputJSON,
+		MaxIterations:       maxIter,
+		ToolExecutor:        rt.rc.ToolExecutor,
+		ToolTimeoutMs:       rt.rc.ToolTimeoutMs,
+		ToolBudget:          rt.rc.ToolBudget,
+		LlmRetryMaxAttempts: rt.rc.LlmRetryMaxAttempts,
+		LlmRetryBaseDelayMs: rt.rc.LlmRetryBaseDelayMs,
+		CancelSignal: func() bool {
+			return rt.ctx.Err() != nil
+		},
+	}
+
+	// 拦截 run.completed 以避免与外层 Execute 重复发送
+	wrappedYield := func(ev events.RunEvent) error {
+		switch ev.Type {
+		case "run.completed":
+			rt.loopTerminal = true
+			return nil
+		case "run.failed":
+			rt.loopTerminal = true
+			return rt.yield(ev)
+		default:
+			return rt.yield(ev)
+		}
+	}
+
+	loop := agent.NewLoop(rt.rc.Gateway, rt.rc.ToolExecutor)
+	err := loop.Run(rt.ctx, runCtx, request, rt.emitter, wrappedYield)
+	if err != nil {
+		L.Push(lua.LNil)
+		L.Push(lua.LString(err.Error()))
+		return 2
+	}
+
+	L.Push(lua.LTrue)
 	L.Push(lua.LNil)
 	return 2
 }
