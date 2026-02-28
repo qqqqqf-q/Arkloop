@@ -1207,20 +1207,20 @@ func listGlobalRuns(
 // Anthropic: cacheRead / (input + cacheRead)，input = 非 cached 部分
 // OpenAI: cachedTokens / input（input 含 cached）
 func calcCacheHitRate(inputTokens, cacheRead, cachedTokens *int64) *float64 {
-if cacheRead != nil && *cacheRead > 0 {
-total := float64(*cacheRead)
-if inputTokens != nil {
-total += float64(*inputTokens)
-}
-if total <= 0 {
-return nil
-}
-r := float64(*cacheRead) / total
-return &r
-}
-if cachedTokens != nil && *cachedTokens > 0 && inputTokens != nil && *inputTokens > 0 {
-r := float64(*cachedTokens) / float64(*inputTokens)
-return &r
-}
-return nil
+	if cacheRead != nil && *cacheRead > 0 {
+		total := float64(*cacheRead)
+		if inputTokens != nil {
+			total += float64(*inputTokens)
+		}
+		if total <= 0 {
+			return nil
+		}
+		r := float64(*cacheRead) / total
+		return &r
+	}
+	if cachedTokens != nil && *cachedTokens > 0 && inputTokens != nil && *inputTokens > 0 {
+		r := float64(*cachedTokens) / float64(*inputTokens)
+		return &r
+	}
+	return nil
 }
