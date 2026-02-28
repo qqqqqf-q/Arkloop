@@ -207,6 +207,14 @@ export function ChatInput({
   }, [])
 
 
+  // 进入 search 模式时同步 tier 状态
+  useEffect(() => {
+    if (searchMode) {
+      setSelectedTier('Search')
+      writeSelectedTierToStorage('Search')
+    }
+  }, [searchMode])
+
   const adjustHeight = useCallback(() => {
     const el = textareaRef.current
     if (!el) return
@@ -376,7 +384,7 @@ export function ChatInput({
           }
         }}
       >
-      <form onSubmit={(e) => onSubmit(e, searchMode ? 'Search' : selectedTier)}>
+      <form onSubmit={(e) => onSubmit(e, selectedTier)}>
         <textarea
           ref={textareaRef}
           rows={1}
@@ -457,12 +465,12 @@ export function ChatInput({
           </div>
 
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '2px', position: 'relative' }}>
-            {/* tier 按钮：searchMode 时显示 'Search'，其余显示当前 tier */}
+            {/* tier 按钮 */}
             <button
               type="button"
-              onClick={searchMode ? undefined : cycleTier}
-              onMouseEnter={() => { if (!searchMode) setProHovered(true) }}
-              onMouseLeave={() => { if (!searchMode) setProHovered(false) }}
+              onClick={cycleTier}
+              onMouseEnter={() => setProHovered(true)}
+              onMouseLeave={() => setProHovered(false)}
               className="relative top-px flex h-8 items-center rounded-lg font-semibold"
               style={{
                 padding: '0 10px',
@@ -470,23 +478,21 @@ export function ChatInput({
                 overflow: 'hidden',
                 whiteSpace: 'nowrap',
                 flexShrink: 0,
-                cursor: searchMode ? 'default' : 'pointer',
-                width: searchMode
-                  ? '68px'
-                  : (selectedTier === 'Lite' ? '40px' : selectedTier === 'Pro' ? '44px' : selectedTier === 'Ultra' ? '58px' : selectedTier === 'Search' ? '68px' : '44px'),
-                background: (searchMode || selectedTier === 'Pro' || selectedTier === 'Ultra' || selectedTier === 'Search')
+                cursor: 'pointer',
+                width: selectedTier === 'Lite' ? '40px' : selectedTier === 'Pro' ? '44px' : selectedTier === 'Ultra' ? '58px' : selectedTier === 'Search' ? '68px' : '44px',
+                background: (selectedTier === 'Pro' || selectedTier === 'Ultra' || selectedTier === 'Search')
                   ? 'var(--c-pro-bg)'
                   : proHovered ? 'var(--c-bg-deep)' : 'transparent',
-                color: (searchMode || selectedTier === 'Pro' || selectedTier === 'Ultra' || selectedTier === 'Search')
+                color: (selectedTier === 'Pro' || selectedTier === 'Ultra' || selectedTier === 'Search')
                   ? '#4691F6'
                   : 'var(--c-text-secondary)',
-                opacity: (searchMode || selectedTier === 'Pro' || selectedTier === 'Ultra' || selectedTier === 'Search')
+                opacity: (selectedTier === 'Pro' || selectedTier === 'Ultra' || selectedTier === 'Search')
                   ? 1 : proHovered ? 1 : 0.7,
                 fontSize: '14px',
                 transition: 'width 0.22s ease, background-color 0.15s ease, color 0.2s ease, opacity 0.15s ease',
               }}
             >
-              {searchMode ? 'Search' : selectedTier}
+              {selectedTier}
             </button>
 
             {/* chevron：始终可见，searchMode 下打开下拉可切换其他 tier */}
@@ -518,8 +524,7 @@ export function ChatInput({
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                   {(['Auto', 'Lite', 'Pro', 'Ultra', 'Search'] as const).map((tier) => {
                     const isBlue = tier === 'Pro' || tier === 'Ultra' || tier === 'Search'
-                    const effectiveSelected = searchMode ? 'Search' : selectedTier
-                    const isSelected = effectiveSelected === tier
+                    const isSelected = selectedTier === tier
                     return (
                       <button
                         key={tier}

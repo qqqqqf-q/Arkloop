@@ -37,6 +37,7 @@ type OutletContext = {
   onTogglePrivateMode: () => void
   privateThreadIds: Set<string>
   isSearchMode: boolean
+  onEnterSearchMode: () => void
   onExitSearchMode: () => void
 }
 
@@ -172,7 +173,7 @@ function FreePlanBadge() {
 }
 
 export function WelcomePage() {
-  const { accessToken, onLoggedOut, onThreadCreated, onOpenNotifications, notificationVersion, creditsBalance, me, isPrivateMode, onTogglePrivateMode, isSearchMode, onExitSearchMode } = useOutletContext<OutletContext>()
+  const { accessToken, onLoggedOut, onThreadCreated, onOpenNotifications, notificationVersion, creditsBalance, me, isPrivateMode, onTogglePrivateMode, isSearchMode, onEnterSearchMode, onExitSearchMode } = useOutletContext<OutletContext>()
   const [draft, setDraft] = useState('')
   const [attachments, setAttachments] = useState<Attachment[]>([])
   const [sending, setSending] = useState(false)
@@ -300,14 +301,15 @@ export function WelcomePage() {
       <div
         className="flex flex-1 flex-col items-center justify-center px-5"
       >
-        {/* FreePlanBadge: 无痕模式或搜索模式下平滑收起 */}
+        {/* FreePlanBadge: 无痕模式折叠收起，搜索模式仅淡出(保持高度避免输入框跳动) */}
         <div
           style={{
             display: 'grid',
-            gridTemplateRows: (isPrivateMode || isSearchMode) ? '0fr' : '1fr',
+            gridTemplateRows: isPrivateMode ? '0fr' : '1fr',
             opacity: (isPrivateMode || isSearchMode) ? 0 : 1,
             overflow: (isPrivateMode || isSearchMode) ? 'hidden' : 'visible',
             transition: 'grid-template-rows 0.22s ease, opacity 0.18s ease',
+            pointerEvents: isSearchMode ? 'none' : 'auto',
           }}
         >
           <div style={{ minHeight: 0 }}>
@@ -388,7 +390,7 @@ export function WelcomePage() {
             onAttachFiles={handleAttachFiles}
             accessToken={accessToken}
             onAsrError={handleAsrError}
-            onTierChange={(tier) => { if (tier !== 'Search' && isSearchMode) onExitSearchMode() }}
+            onTierChange={(tier) => { if (tier === 'Search' && !isSearchMode) onEnterSearchMode(); else if (tier !== 'Search' && isSearchMode) onExitSearchMode() }}
           />
           {/* incognito note: 平滑展开/收起 */}
           <div
