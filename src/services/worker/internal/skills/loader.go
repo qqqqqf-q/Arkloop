@@ -406,7 +406,19 @@ func MergeRegistry(base *Registry, overrides []Definition) *Registry {
 		merged.Set(def)
 	}
 	for _, def := range overrides {
+		if baseDef, ok := merged.Get(def.ID); ok {
+			merged.Set(mergeDefinition(baseDef, def))
+			continue
+		}
 		merged.Set(def)
+	}
+	return merged
+}
+
+func mergeDefinition(base Definition, override Definition) Definition {
+	merged := override
+	if merged.TitleSummarizer == nil {
+		merged.TitleSummarizer = base.TitleSummarizer
 	}
 	return merged
 }
@@ -502,4 +514,3 @@ func asTitleSummarizer(value any) (*TitleSummarizerConfig, error) {
 		MaxTokens: maxTokens,
 	}, nil
 }
-

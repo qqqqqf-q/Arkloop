@@ -158,3 +158,39 @@ func TestLoadSkillWithoutPreferredCredential(t *testing.T) {
 	}
 }
 
+func TestMergeRegistryKeepsBaseTitleSummarizerWhenOverrideMissing(t *testing.T) {
+	base := NewRegistry()
+	if err := base.Register(Definition{
+		ID:      "pro",
+		Version: "1",
+		Title:   "Pro",
+		TitleSummarizer: &TitleSummarizerConfig{
+			Prompt:    "base prompt",
+			MaxTokens: 15,
+		},
+	}); err != nil {
+		t.Fatalf("register base failed: %v", err)
+	}
+
+	merged := MergeRegistry(base, []Definition{
+		{
+			ID:      "pro",
+			Version: "1",
+			Title:   "Pro Override",
+		},
+	})
+
+	def, ok := merged.Get("pro")
+	if !ok {
+		t.Fatal("expected merged registry has pro")
+	}
+	if def.TitleSummarizer == nil {
+		t.Fatal("expected title summarizer preserved from base")
+	}
+	if def.TitleSummarizer.Prompt != "base prompt" {
+		t.Fatalf("unexpected prompt: %q", def.TitleSummarizer.Prompt)
+	}
+	if def.Title != "Pro Override" {
+		t.Fatalf("expected override title, got %q", def.Title)
+	}
+}
