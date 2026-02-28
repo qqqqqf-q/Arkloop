@@ -381,27 +381,29 @@ export function MessageBubble({ message, onRetry, onEdit, onFork, onShare, onRep
                 </button>
                 {moreOpen && (
                   <div
-                    className="dropdown-slide-in"
+                    className="dropdown-menu"
                     style={{
                       position: 'absolute',
                       top: '100%',
                       left: 0,
                       marginTop: '4px',
-                      background: 'var(--c-bg-page)',
+                      background: 'var(--c-bg-menu)',
                       border: '0.5px solid var(--c-border-subtle)',
                       borderRadius: '10px',
                       padding: '4px',
                       zIndex: 20,
                       minWidth: '120px',
-                      boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
+                      boxShadow: 'var(--c-dropdown-shadow)',
                     }}
                   >
                     <button
                       onClick={() => { setMoreOpen(false); onReport() }}
-                      className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors hover:bg-[var(--c-bg-deep)]"
-                      style={{ color: 'var(--c-text-primary)', border: 'none', background: 'transparent', cursor: 'pointer', fontFamily: 'inherit' }}
+                      className="flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-[13px] transition-colors duration-100"
+                      style={{ color: 'var(--c-text-secondary)', background: 'var(--c-bg-menu)', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}
+                      onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = 'var(--c-bg-deep)' }}
+                      onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = 'var(--c-bg-menu)' }}
                     >
-                      <Flag size={14} style={{ color: 'var(--c-text-muted)' }} />
+                      <Flag size={13} style={{ color: 'var(--c-text-muted)', flexShrink: 0 }} />
                       {t.reportButton}
                     </button>
                   </div>

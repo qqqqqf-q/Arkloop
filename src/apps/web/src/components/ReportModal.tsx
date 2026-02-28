@@ -1,7 +1,15 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { X, ImageOff, CalendarClock, FileText, FileWarning, ShieldAlert, Globe } from 'lucide-react'
 import { createThreadReport, isApiError } from '../api'
 import { useLocale } from '../contexts/LocaleContext'
+
+function SpinnerIcon() {
+  return (
+    <svg className="animate-spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true">
+      <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+    </svg>
+  )
+}
 
 type Props = {
   accessToken: string
@@ -32,6 +40,8 @@ export function ReportModal({ accessToken, threadId, open, onClose }: Props) {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
+  const formRef = useRef<HTMLDivElement>(null)
+  const successRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (open) {
@@ -65,7 +75,7 @@ export function ReportModal({ accessToken, threadId, open, onClose }: Props) {
     try {
       await createThreadReport(accessToken, threadId, Array.from(selected), feedback.trim() || undefined)
       setSuccess(true)
-      setTimeout(onClose, 800)
+      setTimeout(onClose, 2000)
     } catch (err) {
       if (isApiError(err)) setError(err.message)
       else setError('unexpected error')
@@ -104,12 +114,36 @@ export function ReportModal({ accessToken, threadId, open, onClose }: Props) {
           {t.reportSubtitle}
         </p>
 
-        {success ? (
-          <div className="py-8 text-center text-sm" style={{ color: 'var(--c-text-secondary)' }}>
-            {t.reportSuccess}
+        {/* content wrapper with height transition */}
+        <div style={{ position: 'relative', overflow: 'hidden' }}>
+          {/* success state */}
+          <div
+            ref={successRef}
+            style={{
+              position: success ? 'relative' : 'absolute',
+              inset: 0,
+              opacity: success ? 1 : 0,
+              transform: success ? 'translateY(0)' : 'translateY(8px)',
+              transition: 'opacity 0.25s ease, transform 0.25s ease',
+              pointerEvents: success ? 'auto' : 'none',
+            }}
+          >
+            <div className="py-8 text-center text-sm" style={{ color: 'var(--c-text-secondary)' }}>
+              {t.reportSuccess}
+            </div>
           </div>
-        ) : (
-          <>
+
+          {/* form state */}
+          <div
+            ref={formRef}
+            style={{
+              opacity: success ? 0 : 1,
+              transform: success ? 'translateY(-8px)' : 'translateY(0)',
+              transition: 'opacity 0.25s ease, transform 0.25s ease',
+              pointerEvents: success ? 'none' : 'auto',
+              ...(success ? { position: 'absolute', inset: 0 } : {}),
+            }}
+          >
             {/* categories grid */}
             <div className="mb-4 grid grid-cols-2 gap-2">
               {categories.map(cat => {
@@ -170,7 +204,7 @@ export function ReportModal({ accessToken, threadId, open, onClose }: Props) {
               <button
                 onClick={handleSubmit}
                 disabled={selected.size === 0 || submitting}
-                className="rounded-lg px-4 py-2 text-sm font-medium transition-colors"
+                className="flex items-center justify-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium transition-colors"
                 style={{
                   background: selected.size === 0 || submitting ? 'var(--c-bg-sub)' : 'var(--c-text-primary)',
                   color: selected.size === 0 || submitting ? 'var(--c-text-muted)' : 'var(--c-bg-page)',
@@ -178,11 +212,12 @@ export function ReportModal({ accessToken, threadId, open, onClose }: Props) {
                   border: 'none',
                 }}
               >
-                {submitting ? t.reportSubmitting : t.reportSubmit}
+                {submitting && <SpinnerIcon />}
+                {t.reportSubmit}
               </button>
             </div>
-          </>
-        )}
+          </div>
+        </div>
       </div>
     </div>
   )
