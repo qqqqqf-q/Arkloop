@@ -12,6 +12,8 @@ import (
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/routing"
 
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -70,6 +72,44 @@ func NewRoutingMiddleware(
 				return nil, nil, gwErr
 			}
 			return gw, routeDecision.Selected, nil
+		}
+		resolveGatewayForAgentName := func(resolveCtx context.Context, agentName string) (llm.Gateway, *routing.SelectedProviderRoute, error) {
+			cleanedName := strings.TrimSpace(agentName)
+			if cleanedName == "" {
+				if rc.Gateway == nil || rc.SelectedRoute == nil {
+					return nil, nil, fmt.Errorf("current route is not initialized")
+				}
+				return rc.Gateway, rc.SelectedRoute, nil
+			}
+			if dbPool == nil {
+				return nil, nil, fmt.Errorf("db pool is not initialized")
+			}
+
+			var preferredCredentialName *string
+			agentScope := "org"
+			if err := dbPool.QueryRow(
+				resolveCtx,
+				`SELECT model, scope
+				 FROM agent_configs
+				 WHERE name = $1
+				   AND ((scope = 'org' AND org_id = $2) OR scope = 'platform')
+				 ORDER BY CASE WHEN scope = 'org' THEN 0 ELSE 1 END, created_at DESC
+				 LIMIT 1`,
+				cleanedName,
+				rc.Run.OrgID,
+			).Scan(&preferredCredentialName, &agentScope); err != nil {
+				return nil, nil, fmt.Errorf("agent lookup failed: %w", err)
+			}
+
+			allowGlobalFallback := strings.EqualFold(strings.TrimSpace(agentScope), "platform")
+			routeID, err := resolveRouteIDByCredentialName(resolveCtx, dbPool, rc.Run.OrgID, preferredCredentialName, allowGlobalFallback)
+			if err != nil {
+				return nil, nil, err
+			}
+			if routeID == "" {
+				return nil, nil, fmt.Errorf("route not found for agent: %s", cleanedName)
+			}
+			return resolveGatewayForRouteID(resolveCtx, routeID)
 		}
 
 		// 优先级链：
@@ -158,9 +198,134 @@ func NewRoutingMiddleware(
 		rc.Gateway = gateway
 		rc.SelectedRoute = selected
 		rc.ResolveGatewayForRouteID = resolveGatewayForRouteID
+		rc.ResolveGatewayForAgentName = resolveGatewayForAgentName
 
 		return next(ctx, rc)
 	}
+}
+
+func resolveRouteIDByCredentialName(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	orgID uuid.UUID,
+	credentialName *string,
+	allowGlobalFallback bool,
+) (string, error) {
+	name := ""
+	if credentialName != nil {
+		name = strings.TrimSpace(*credentialName)
+	}
+	if name == "" {
+		return "", fmt.Errorf("agent model is empty")
+	}
+
+	routeID, err := queryRouteIDByCredentialName(ctx, pool, &orgID, name)
+	if err == nil {
+		return routeID.String(), nil
+	}
+	if err != pgx.ErrNoRows {
+		return "", err
+	}
+
+	routeID, err = queryRouteIDByModel(ctx, pool, &orgID, name)
+	if err == nil {
+		return routeID.String(), nil
+	}
+	if err != pgx.ErrNoRows {
+		return "", err
+	}
+
+	if !allowGlobalFallback {
+		return "", err
+	}
+
+	routeID, err = queryRouteIDByCredentialName(ctx, pool, nil, name)
+	if err == nil {
+		return routeID.String(), nil
+	}
+	if err != pgx.ErrNoRows {
+		return "", err
+	}
+
+	routeID, err = queryRouteIDByModel(ctx, pool, nil, name)
+	if err != nil {
+		return "", err
+	}
+	return routeID.String(), nil
+}
+
+func queryRouteIDByCredentialName(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	orgID *uuid.UUID,
+	name string,
+) (uuid.UUID, error) {
+	var routeID uuid.UUID
+	if orgID != nil {
+		err := pool.QueryRow(
+			ctx,
+			`SELECT r.id
+			 FROM llm_routes r
+			 JOIN llm_credentials c ON c.id = r.credential_id
+			 WHERE r.org_id = $1
+			   AND c.revoked_at IS NULL
+			   AND lower(c.name) = lower($2)
+			 ORDER BY r.priority DESC, r.is_default DESC
+			 LIMIT 1`,
+			*orgID,
+			name,
+		).Scan(&routeID)
+		return routeID, err
+	}
+	err := pool.QueryRow(
+		ctx,
+		`SELECT r.id
+		 FROM llm_routes r
+		 JOIN llm_credentials c ON c.id = r.credential_id
+		 WHERE c.revoked_at IS NULL
+		   AND lower(c.name) = lower($1)
+		 ORDER BY r.priority DESC, r.is_default DESC
+		 LIMIT 1`,
+		name,
+	).Scan(&routeID)
+	return routeID, err
+}
+
+func queryRouteIDByModel(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	orgID *uuid.UUID,
+	model string,
+) (uuid.UUID, error) {
+	var routeID uuid.UUID
+	if orgID != nil {
+		err := pool.QueryRow(
+			ctx,
+			`SELECT r.id
+			 FROM llm_routes r
+			 JOIN llm_credentials c ON c.id = r.credential_id
+			 WHERE r.org_id = $1
+			   AND c.revoked_at IS NULL
+			   AND lower(r.model) = lower($2)
+			 ORDER BY r.priority DESC, r.is_default DESC
+			 LIMIT 1`,
+			*orgID,
+			model,
+		).Scan(&routeID)
+		return routeID, err
+	}
+	err := pool.QueryRow(
+		ctx,
+		`SELECT r.id
+		 FROM llm_routes r
+		 JOIN llm_credentials c ON c.id = r.credential_id
+		 WHERE c.revoked_at IS NULL
+		   AND lower(r.model) = lower($1)
+		 ORDER BY r.priority DESC, r.is_default DESC
+		 LIMIT 1`,
+		model,
+	).Scan(&routeID)
+	return routeID, err
 }
 
 func gatewayFromCredential(credential routing.ProviderCredential, stubGateway llm.Gateway, emitDebugEvents bool) (llm.Gateway, error) {

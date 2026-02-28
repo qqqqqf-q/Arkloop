@@ -18,19 +18,19 @@ import (
 
 // ResolvedAgentConfig 保存继承链解析后的合并配置。
 type ResolvedAgentConfig struct {
-	SystemPrompt        *string
-	Model               *string
-	Temperature         *float64
-	MaxOutputTokens     *int
-	TopP                *float64
-	ContextWindowLimit  *int
-	ToolPolicy          string // "allowlist" | "denylist" | "none"
-	ToolAllowlist       []string
-	ToolDenylist        []string
-	ContentFilterLevel  string
-	SafetyRulesJSON     map[string]any
-	PromptCacheControl  string // "none" | "system_prompt"
-	ReasoningMode       string // "auto" | "enabled" | "disabled" | "none"
+	SystemPrompt       *string
+	Model              *string
+	Temperature        *float64
+	MaxOutputTokens    *int
+	TopP               *float64
+	ContextWindowLimit *int
+	ToolPolicy         string // "allowlist" | "denylist" | "none"
+	ToolAllowlist      []string
+	ToolDenylist       []string
+	ContentFilterLevel string
+	SafetyRulesJSON    map[string]any
+	PromptCacheControl string // "none" | "system_prompt"
+	ReasoningMode      string // "auto" | "enabled" | "disabled" | "none"
 }
 
 // RunContext 承载单次 Execute 调用的全部运行时状态，在 Pipeline 各中间件间共享。
@@ -38,11 +38,11 @@ type RunContext struct {
 	// -- 初始化时写入 --
 	Run          data.Run
 	Pool         *pgxpool.Pool
-	DirectPool   *pgxpool.Pool  // LISTEN/NOTIFY 专用直连，不走 PgBouncer；由 Execute 保证非 nil
-	BroadcastRDB *redis.Client  // 跨实例 SSE 广播，nil 时仅走 pg_notify
+	DirectPool   *pgxpool.Pool // LISTEN/NOTIFY 专用直连，不走 PgBouncer；由 Execute 保证非 nil
+	BroadcastRDB *redis.Client // 跨实例 SSE 广播，nil 时仅走 pg_notify
 	TraceID      string
-	Emitter events.Emitter
-	Router  *routing.ProviderRouter
+	Emitter      events.Emitter
+	Router       *routing.ProviderRouter
 
 	// -- EngineV1.Execute 从 Run.CreatedByUserID 注入；nil 时 MemoryMiddleware 跳过写入 --
 	// agent_id 约定：默认取 SkillDefinition.ID；OpenViking 要求字符集 [a-zA-Z0-9_-]，adapter 层 sanitize
@@ -65,15 +65,15 @@ type RunContext struct {
 	AgentConfigName string
 
 	// -- SkillResolutionMiddleware 写入 --
-	SystemPrompt           string
-	SkillDefinition        *skills.Definition
-	MaxOutputTokens        *int
-	Temperature            *float64
-	TopP                   *float64
-	ToolTimeoutMs          *int
-	ToolBudget             map[string]any
+	SystemPrompt            string
+	SkillDefinition         *skills.Definition
+	MaxOutputTokens         *int
+	Temperature             *float64
+	TopP                    *float64
+	ToolTimeoutMs           *int
+	ToolBudget              map[string]any
 	PreferredCredentialName string // Skill.PreferredCredential 解析结果，供 RoutingMiddleware 使用
-	ReasoningMode          string // "auto" | "enabled" | "disabled" | "none"
+	ReasoningMode           string // "auto" | "enabled" | "disabled" | "none"
 
 	// -- 初始化时写入 base 值，MCPDiscovery/ToolBuild 覆盖 --
 	ToolSpecs     []llm.ToolSpec
@@ -87,6 +87,8 @@ type RunContext struct {
 	// ResolveGatewayForRouteID 按 route_id 构建目标 Gateway，用于同一 run 内切换输出模型。
 	// route_id 为空时应回退当前主路由；返回 error 时由上层决定是否降级。
 	ResolveGatewayForRouteID func(ctx context.Context, routeID string) (llm.Gateway, *routing.SelectedProviderRoute, error)
+	// ResolveGatewayForAgentName 按 Agent 配置名称构建目标 Gateway，用于 Lua 中直接按 agent 名称切换输出模型。
+	ResolveGatewayForAgentName func(ctx context.Context, agentName string) (llm.Gateway, *routing.SelectedProviderRoute, error)
 
 	// -- ToolBuildMiddleware 写入 --
 	ToolExecutor *tools.DispatchingExecutor
@@ -96,7 +98,7 @@ type RunContext struct {
 	MaxIterations int
 
 	// -- EngineV1.Execute 注入 --
-	ExecutorBuilder     AgentExecutorBuilder
+	ExecutorBuilder AgentExecutorBuilder
 
 	// -- MemoryProvider，由 EngineV1.Execute 注入；nil 时 Lua binding 返回空结果 --
 	MemoryProvider memory.MemoryProvider
