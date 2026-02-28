@@ -26,7 +26,7 @@ var (
 
 var CodeExecuteLlmSpec = llm.ToolSpec{
 	Name:        "code_execute",
-	Description: stringPtr("execute Python code in an isolated sandbox environment"),
+	Description: stringPtr("execute Python code in an isolated sandbox environment. To produce output files (images, CSVs, HTML, etc.), write them to /tmp/output/. Files there are automatically uploaded; the tool result includes an artifacts array with each file's key, filename, size and mime_type. To display an artifact in your response, reference it using the key from the artifacts array: use ![alt](artifact:<key>) for images/SVG, or [label](artifact:<key>) for other files. NEVER use /tmp/output/ paths as links."),
 	JSONSchema: map[string]any{
 		"type": "object",
 		"properties": map[string]any{
