@@ -8,7 +8,6 @@ import { ThinkingBlock, CodeExecutionCard, type CodeExecution } from './Thinking
 import { SearchTimeline, type SearchStep } from './SearchTimeline'
 import { resolveMessageSourcesForRender } from './chatSourceResolver'
 import { ErrorCallout, type AppError } from './ErrorCallout'
-import { DebugFloatingPanel } from './DebugFloatingPanel'
 import { ShareModal } from './ShareModal'
 import { ReportModal } from './ReportModal'
 import { NotificationBell } from './NotificationBell'
@@ -1513,17 +1512,6 @@ export function ChatPage() {
           )}
         </div>
       </div>
-
-      {/* 调试悬浮面板 */}
-      <DebugFloatingPanel
-        events={sse.events}
-        state={sse.state}
-        lastSeq={sse.lastSeq}
-        error={sse.error}
-        activeRunId={activeRunId}
-        onReconnect={sse.reconnect}
-        onClear={sse.clearEvents}
-      />
 
       {threadId && (
         <ShareModal
