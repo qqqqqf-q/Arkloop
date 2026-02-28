@@ -89,10 +89,16 @@ function ArtifactAwareLink({ href, children }: { href?: string; children?: React
       mime_type: guessMimeType(key),
     }
 
-    if (accessToken) {
-      return <ArtifactDownload artifact={resolved} accessToken={accessToken} />
+    if (!accessToken) return null
+
+    // LLM 可能用 [text](artifact:key) 而非 ![text](artifact:key)，统一按 mime_type 分派
+    if (resolved.mime_type.startsWith('image/')) {
+      return <ArtifactImage artifact={resolved} accessToken={accessToken} />
     }
-    return null
+    if (resolved.mime_type === 'text/html') {
+      return <ArtifactHtmlPreview artifact={resolved} accessToken={accessToken} />
+    }
+    return <ArtifactDownload artifact={resolved} accessToken={accessToken} />
   }
 
   return (
@@ -215,8 +221,6 @@ function processChildren(children: ReactNode, prefix: string): ReactNode {
 }
 
 function WithCitations({ children, prefix }: { children: ReactNode; prefix: string }) {
-  const webSources = useContext(WebSourcesContext)
-  if (webSources.length === 0) return <>{children}</>
   return <>{processChildren(children, prefix)}</>
 }
 
