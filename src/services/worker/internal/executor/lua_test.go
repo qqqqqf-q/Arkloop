@@ -353,8 +353,8 @@ func buildLuaRC(gateway llm.Gateway) *pipeline.RunContext {
 			OrgID:    uuid.New(),
 			ThreadID: uuid.New(),
 		},
-		TraceID:   "lua-test-trace",
-		InputJSON: map[string]any{},
+		TraceID:    "lua-test-trace",
+		InputJSON:  map[string]any{},
 		ToolBudget: map[string]any{},
 	}
 	if gateway != nil {
@@ -367,6 +367,19 @@ func buildLuaRC(gateway llm.Gateway) *pipeline.RunContext {
 		}
 	}
 	return rc
+}
+
+type luaSeqGateway struct {
+	events []llm.StreamEvent
+}
+
+func (g *luaSeqGateway) Stream(_ context.Context, _ llm.Request, yield func(llm.StreamEvent) error) error {
+	for _, event := range g.events {
+		if err := yield(event); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func TestLuaExecutor_AgentRunParallel_SpawnChildRunNil(t *testing.T) {
@@ -1035,6 +1048,278 @@ end
 	texts := deltaTexts(evs)
 	if len(texts) == 0 || !strings.HasPrefix(texts[0], "err:") {
 		t.Fatalf("expected error when gateway is nil, got: %v", texts)
+	}
+}
+
+func TestLuaExecutor_AgentLoopCapture_CapturesTextWithoutDirectDelta(t *testing.T) {
+	inputTokens := 11
+	outputTokens := 29
+	gw := &luaSeqGateway{
+		events: []llm.StreamEvent{
+			llm.StreamSegmentStart{
+				SegmentID: "s1",
+				Kind:      "thinking",
+				Display:   llm.SegmentDisplay{Mode: "visible", Label: "Step"},
+			},
+			llm.StreamMessageDelta{ContentDelta: "captured-", Role: "assistant"},
+			llm.StreamMessageDelta{ContentDelta: "result", Role: "assistant"},
+			llm.StreamSegmentEnd{SegmentID: "s1"},
+			llm.StreamRunCompleted{
+				Usage: &llm.Usage{
+					InputTokens:  &inputTokens,
+					OutputTokens: &outputTokens,
+				},
+			},
+		},
+	}
+	rc := buildLuaRC(gw)
+	evs := runLuaScript(t, `
+local out, err = agent.loop_capture("system", "query")
+if err then error(err) end
+context.set_output(out)
+`, rc)
+
+	deltas := deltaTexts(evs)
+	if len(deltas) != 1 || deltas[0] != "captured-result" {
+		t.Fatalf("expected only set_output delta 'captured-result', got: %v", deltas)
+	}
+
+	var hasSegmentStart bool
+	var hasSegmentEnd bool
+	var usage map[string]any
+	for _, ev := range evs {
+		switch ev.Type {
+		case "run.segment.start":
+			hasSegmentStart = true
+		case "run.segment.end":
+			hasSegmentEnd = true
+		case "run.completed":
+			raw, ok := ev.DataJSON["usage"].(map[string]any)
+			if ok {
+				usage = raw
+			}
+		}
+	}
+	if !hasSegmentStart || !hasSegmentEnd {
+		t.Fatalf("expected run.segment events passthrough, start=%v end=%v", hasSegmentStart, hasSegmentEnd)
+	}
+	if usage == nil {
+		t.Fatal("expected run.completed usage from loop_capture")
+	}
+	if usage["input_tokens"] != inputTokens || usage["output_tokens"] != outputTokens {
+		t.Fatalf("unexpected usage payload: %#v", usage)
+	}
+}
+
+func TestLuaExecutor_AgentStreamRoute_UsesResolvedRoute(t *testing.T) {
+	mainGW := &luaSeqGateway{
+		events: []llm.StreamEvent{
+			llm.StreamMessageDelta{ContentDelta: "main", Role: "assistant"},
+			llm.StreamRunCompleted{},
+		},
+	}
+	routeGW := &luaSeqGateway{
+		events: []llm.StreamEvent{
+			llm.StreamMessageDelta{ContentDelta: "route", Role: "assistant"},
+			llm.StreamRunCompleted{},
+		},
+	}
+	rc := buildLuaRC(mainGW)
+	var resolvedRouteID string
+	rc.ResolveGatewayForRouteID = func(_ context.Context, routeID string) (llm.Gateway, *routing.SelectedProviderRoute, error) {
+		resolvedRouteID = routeID
+		return routeGW, &routing.SelectedProviderRoute{
+			Route: routing.ProviderRouteRule{
+				ID:    routeID,
+				Model: "route-model",
+			},
+		}, nil
+	}
+
+	evs := runLuaScript(t, `
+local out, err = agent.stream_route("final-route", "sys", "msg")
+if err then error(err) end
+`, rc)
+	if resolvedRouteID != "final-route" {
+		t.Fatalf("expected resolver called with final-route, got %q", resolvedRouteID)
+	}
+	deltas := deltaTexts(evs)
+	if len(deltas) == 0 || deltas[0] != "route" {
+		t.Fatalf("expected route gateway delta, got %v", deltas)
+	}
+}
+
+func TestLuaExecutor_AgentStreamRoute_EmptyRouteFallsBackToPrimaryGateway(t *testing.T) {
+	mainGW := &luaSeqGateway{
+		events: []llm.StreamEvent{
+			llm.StreamMessageDelta{ContentDelta: "primary", Role: "assistant"},
+			llm.StreamRunCompleted{},
+		},
+	}
+	rc := buildLuaRC(mainGW)
+	resolverCalled := false
+	rc.ResolveGatewayForRouteID = func(_ context.Context, _ string) (llm.Gateway, *routing.SelectedProviderRoute, error) {
+		resolverCalled = true
+		return nil, nil, errors.New("should not be called")
+	}
+
+	evs := runLuaScript(t, `
+local out, err = agent.stream_route("", "sys", "msg")
+if err then error(err) end
+`, rc)
+	if resolverCalled {
+		t.Fatal("resolver should not be called when route_id is empty")
+	}
+	deltas := deltaTexts(evs)
+	if len(deltas) == 0 || deltas[0] != "primary" {
+		t.Fatalf("expected primary gateway delta, got %v", deltas)
+	}
+}
+
+func TestLuaExecutor_AgentStreamRoute_RouteResolveFailedCanFallback(t *testing.T) {
+	mainGW := &luaSeqGateway{
+		events: []llm.StreamEvent{
+			llm.StreamMessageDelta{ContentDelta: "fallback", Role: "assistant"},
+			llm.StreamRunCompleted{},
+		},
+	}
+	rc := buildLuaRC(mainGW)
+	rc.ResolveGatewayForRouteID = func(_ context.Context, _ string) (llm.Gateway, *routing.SelectedProviderRoute, error) {
+		return nil, nil, errors.New("route missing")
+	}
+
+	evs := runLuaScript(t, `
+local out, err = agent.stream_route("missing-route", "sys", "msg")
+if err and string.find(err, "route_resolve_failed:", 1, true) == 1 then
+  local fb, fbErr = agent.stream("sys", "msg")
+  if fbErr then error(fbErr) end
+end
+`, rc)
+	deltas := deltaTexts(evs)
+	if len(deltas) == 0 || deltas[0] != "fallback" {
+		t.Fatalf("expected fallback gateway delta after resolve error, got %v", deltas)
+	}
+	for _, ev := range evs {
+		if ev.Type == "run.failed" {
+			t.Fatalf("did not expect run.failed in resolve fallback path: %#v", ev.DataJSON)
+		}
+	}
+}
+
+func TestLuaExecutor_AgentStreamRoute_StreamStartedFailureEmitsRunFailed(t *testing.T) {
+	mainGW := &luaSeqGateway{
+		events: []llm.StreamEvent{
+			llm.StreamMessageDelta{ContentDelta: "main", Role: "assistant"},
+			llm.StreamRunCompleted{},
+		},
+	}
+	routeGW := &luaSeqGateway{
+		events: []llm.StreamEvent{
+			llm.StreamMessageDelta{ContentDelta: "partial", Role: "assistant"},
+			llm.StreamRunFailed{
+				Error: llm.GatewayError{
+					ErrorClass: llm.ErrorClassProviderNonRetryable,
+					Message:    "route stream failed",
+				},
+			},
+		},
+	}
+	rc := buildLuaRC(mainGW)
+	rc.ResolveGatewayForRouteID = func(_ context.Context, routeID string) (llm.Gateway, *routing.SelectedProviderRoute, error) {
+		return routeGW, &routing.SelectedProviderRoute{
+			Route: routing.ProviderRouteRule{
+				ID:    routeID,
+				Model: "route-model",
+			},
+		}, nil
+	}
+
+	evs := runLuaScript(t, `
+local out, err = agent.stream_route("final-route", "sys", "msg")
+if err and string.find(err, "stream_terminal_failed:", 1, true) == 1 then
+  return
+end
+if err then error(err) end
+`, rc)
+
+	deltas := deltaTexts(evs)
+	if len(deltas) == 0 || deltas[0] != "partial" {
+		t.Fatalf("expected partial delta before failure, got %v", deltas)
+	}
+	runFailedCount := 0
+	for _, ev := range evs {
+		if ev.Type == "run.failed" {
+			runFailedCount++
+			if msg, _ := ev.DataJSON["message"].(string); msg != "route stream failed" {
+				t.Fatalf("unexpected run.failed message: %#v", ev.DataJSON)
+			}
+		}
+	}
+	if runFailedCount != 1 {
+		t.Fatalf("expected 1 run.failed event, got %d", runFailedCount)
+	}
+}
+
+func TestLuaExecutor_AgentStreamAgent_UsesResolvedAgentName(t *testing.T) {
+	mainGW := &luaSeqGateway{
+		events: []llm.StreamEvent{
+			llm.StreamMessageDelta{ContentDelta: "main", Role: "assistant"},
+			llm.StreamRunCompleted{},
+		},
+	}
+	agentGW := &luaSeqGateway{
+		events: []llm.StreamEvent{
+			llm.StreamMessageDelta{ContentDelta: "agent", Role: "assistant"},
+			llm.StreamRunCompleted{},
+		},
+	}
+	rc := buildLuaRC(mainGW)
+	var resolvedAgentName string
+	rc.ResolveGatewayForAgentName = func(_ context.Context, agentName string) (llm.Gateway, *routing.SelectedProviderRoute, error) {
+		resolvedAgentName = agentName
+		return agentGW, &routing.SelectedProviderRoute{
+			Route: routing.ProviderRouteRule{
+				ID:    "agent-route",
+				Model: "agent-model",
+			},
+		}, nil
+	}
+
+	evs := runLuaScript(t, `
+local out, err = agent.stream_agent("sub-haiku-4.5", "sys", "msg")
+if err then error(err) end
+`, rc)
+	if resolvedAgentName != "sub-haiku-4.5" {
+		t.Fatalf("expected resolver called with sub-haiku-4.5, got %q", resolvedAgentName)
+	}
+	deltas := deltaTexts(evs)
+	if len(deltas) == 0 || deltas[0] != "agent" {
+		t.Fatalf("expected agent gateway delta, got %v", deltas)
+	}
+}
+
+func TestLuaExecutor_AgentStreamAgent_ResolveFailedCanFallback(t *testing.T) {
+	mainGW := &luaSeqGateway{
+		events: []llm.StreamEvent{
+			llm.StreamMessageDelta{ContentDelta: "fallback", Role: "assistant"},
+			llm.StreamRunCompleted{},
+		},
+	}
+	rc := buildLuaRC(mainGW)
+	rc.ResolveGatewayForAgentName = func(_ context.Context, _ string) (llm.Gateway, *routing.SelectedProviderRoute, error) {
+		return nil, nil, errors.New("agent not found")
+	}
+
+	evs := runLuaScript(t, `
+local out, err = agent.stream_agent("sub-haiku-4.5", "sys", "msg")
+if err and string.find(err, "agent_resolve_failed:", 1, true) == 1 then
+  local fb, fbErr = agent.stream("sys", "msg")
+  if fbErr then error(fbErr) end
+end
+`, rc)
+	deltas := deltaTexts(evs)
+	if len(deltas) == 0 || deltas[0] != "fallback" {
+		t.Fatalf("expected fallback delta after agent resolve error, got %v", deltas)
 	}
 }
 

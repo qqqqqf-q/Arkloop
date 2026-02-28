@@ -1,10 +1,12 @@
 package http
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -31,12 +33,26 @@ var (
 	uuidPrefixRegex = regexp.MustCompile(`^[0-9a-fA-F-]{1,36}$`)
 )
 
+const (
+	searchOutputModelKeyGPT5    = "gpt5"
+	searchOutputModelKeyClaude4 = "claude4"
+	searchOutputModelKeyGemini3 = "gemini3"
+
+	searchOutputRouteEnvGPT5    = "ARKLOOP_SEARCH_OUTPUT_ROUTE_GPT5"
+	searchOutputRouteEnvClaude4 = "ARKLOOP_SEARCH_OUTPUT_ROUTE_CLAUDE4"
+	searchOutputRouteEnvGemini3 = "ARKLOOP_SEARCH_OUTPUT_ROUTE_GEMINI3"
+
+	searchHybridOutputRoutesKey = "search_hybrid_output_routes"
+	searchHybridOutputAgentsKey = "search_hybrid_output_agents"
+)
+
 var runTerminalEventTypes = []string{"run.completed", "run.failed", "run.cancelled"}
 
 type createRunRequest struct {
-	RouteID       *string `json:"route_id"`
-	SkillID       *string `json:"skill_id"`
-	OutputRouteID *string `json:"output_route_id"`
+	RouteID        *string `json:"route_id"`
+	SkillID        *string `json:"skill_id"`
+	OutputRouteID  *string `json:"output_route_id"`
+	OutputModelKey *string `json:"output_model_key"`
 }
 
 type createRunResponse struct {
@@ -138,12 +154,16 @@ func createThreadRun(
 		}
 
 		startedData := map[string]any{}
+		outputRouteID := ""
+		outputModelKey := ""
+
 		if body != nil && body.RouteID != nil {
-			if !routeIDRegex.MatchString(*body.RouteID) {
+			routeID := strings.TrimSpace(*body.RouteID)
+			if !routeIDRegex.MatchString(routeID) {
 				WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "request validation failed", traceID, nil)
 				return
 			}
-			startedData["route_id"] = *body.RouteID
+			startedData["route_id"] = routeID
 		}
 		if body != nil && body.SkillID != nil {
 			if !skillIDRegex.MatchString(*body.SkillID) {
@@ -153,11 +173,20 @@ func createThreadRun(
 			startedData["skill_id"] = strings.TrimSpace(*body.SkillID)
 		}
 		if body != nil && body.OutputRouteID != nil {
-			if !routeIDRegex.MatchString(*body.OutputRouteID) {
+			outputRouteID = strings.TrimSpace(*body.OutputRouteID)
+			if !routeIDRegex.MatchString(outputRouteID) {
 				WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "request validation failed", traceID, nil)
 				return
 			}
-			startedData["output_route_id"] = strings.TrimSpace(*body.OutputRouteID)
+			startedData["output_route_id"] = outputRouteID
+		}
+		if body != nil && body.OutputModelKey != nil {
+			outputModelKey = normalizeSearchOutputModelKey(*body.OutputModelKey)
+			if outputModelKey == "" {
+				WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "request validation failed", traceID, nil)
+				return
+			}
+			startedData["output_model_key"] = outputModelKey
 		}
 
 		thread, err := threadRepo.GetByID(r.Context(), threadID)
@@ -172,6 +201,16 @@ func createThreadRun(
 
 		if !authorizeThreadOrAudit(w, r, traceID, actor, "runs.create", thread, auditWriter) {
 			return
+		}
+		if outputRouteID == "" && outputModelKey != "" {
+			resolvedOutputRouteID, err := resolveSearchOutputRouteID(r.Context(), pool, thread, outputModelKey)
+			if err != nil {
+				WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+				return
+			}
+			if resolvedOutputRouteID != "" {
+				startedData["output_route_id"] = resolvedOutputRouteID
+			}
 		}
 
 		var acquired bool
@@ -264,6 +303,294 @@ func createThreadRun(
 			TraceID: traceID,
 		})
 	}
+}
+
+func normalizeSearchOutputModelKey(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case searchOutputModelKeyGPT5:
+		return searchOutputModelKeyGPT5
+	case searchOutputModelKeyClaude4:
+		return searchOutputModelKeyClaude4
+	case searchOutputModelKeyGemini3:
+		return searchOutputModelKeyGemini3
+	default:
+		return ""
+	}
+}
+
+func resolveSearchOutputRouteID(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	thread *data.Thread,
+	outputModelKey string,
+) (string, error) {
+	if pool != nil && thread != nil {
+		routeID, err := resolveSearchOutputRouteIDFromAgentConfig(ctx, pool, thread, outputModelKey)
+		if err != nil {
+			return "", err
+		}
+		if routeID != "" {
+			return routeID, nil
+		}
+	}
+	return resolveSearchOutputRouteIDFromEnv(outputModelKey), nil
+}
+
+func resolveSearchOutputRouteIDFromAgentConfig(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	thread *data.Thread,
+	outputModelKey string,
+) (string, error) {
+	agentConfigID, err := resolveThreadAgentConfigID(ctx, pool, thread)
+	if err != nil || agentConfigID == nil {
+		return "", err
+	}
+
+	var safetyRules map[string]any
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT safety_rules_json FROM agent_configs WHERE id = $1`,
+		*agentConfigID,
+	).Scan(&safetyRules); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", nil
+		}
+		return "", err
+	}
+
+	if routeID := pickSearchOutputRouteID(safetyRules, outputModelKey); routeID != "" {
+		return routeID, nil
+	}
+
+	agentConfigName := pickSearchOutputAgentConfigName(safetyRules, outputModelKey)
+	if agentConfigName == "" {
+		return "", nil
+	}
+
+	return resolveSearchOutputRouteIDByAgentConfigName(ctx, pool, thread.OrgID, agentConfigName)
+}
+
+func resolveThreadAgentConfigID(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	thread *data.Thread,
+) (*uuid.UUID, error) {
+	if thread == nil {
+		return nil, nil
+	}
+	if thread.AgentConfigID != nil {
+		return thread.AgentConfigID, nil
+	}
+
+	if thread.ProjectID != nil {
+		var id uuid.UUID
+		err := pool.QueryRow(
+			ctx,
+			`SELECT id FROM agent_configs
+			 WHERE org_id = $1 AND project_id = $2 AND is_default = true
+			 LIMIT 1`,
+			thread.OrgID,
+			*thread.ProjectID,
+		).Scan(&id)
+		if err == nil {
+			return &id, nil
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return nil, err
+		}
+	}
+
+	var id uuid.UUID
+	err := pool.QueryRow(
+		ctx,
+		`SELECT id FROM agent_configs
+		 WHERE org_id = $1
+		   AND scope = 'org'
+		   AND is_default = true
+		   AND project_id IS NULL
+		 LIMIT 1`,
+		thread.OrgID,
+	).Scan(&id)
+	if err == nil {
+		return &id, nil
+	}
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return nil, err
+	}
+
+	err = pool.QueryRow(
+		ctx,
+		`SELECT id FROM agent_configs
+		 WHERE scope = 'platform' AND is_default = true
+		 LIMIT 1`,
+	).Scan(&id)
+	if err == nil {
+		return &id, nil
+	}
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return nil, err
+	}
+
+	return nil, nil
+}
+
+func pickSearchOutputRouteID(safetyRules map[string]any, outputModelKey string) string {
+	if safetyRules == nil {
+		return ""
+	}
+	rawRoutes, ok := safetyRules[searchHybridOutputRoutesKey]
+	if !ok {
+		return ""
+	}
+
+	routes, ok := rawRoutes.(map[string]any)
+	if !ok {
+		return ""
+	}
+
+	rawRouteID, ok := routes[outputModelKey]
+	if !ok {
+		return ""
+	}
+
+	routeID, ok := rawRouteID.(string)
+	if !ok {
+		return ""
+	}
+
+	routeID = strings.TrimSpace(routeID)
+	if routeID == "" || !routeIDRegex.MatchString(routeID) {
+		return ""
+	}
+	return routeID
+}
+
+func pickSearchOutputAgentConfigName(safetyRules map[string]any, outputModelKey string) string {
+	if safetyRules == nil {
+		return ""
+	}
+	rawAgents, ok := safetyRules[searchHybridOutputAgentsKey]
+	if !ok {
+		return ""
+	}
+
+	agents, ok := rawAgents.(map[string]any)
+	if !ok {
+		return ""
+	}
+
+	rawName, ok := agents[outputModelKey]
+	if !ok {
+		return ""
+	}
+
+	name, ok := rawName.(string)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(name)
+}
+
+func resolveSearchOutputRouteIDByAgentConfigName(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	orgID uuid.UUID,
+	agentConfigName string,
+) (string, error) {
+	cleanedName := strings.TrimSpace(agentConfigName)
+	if cleanedName == "" {
+		return "", nil
+	}
+
+	var preferredCredentialName *string
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT model
+		 FROM agent_configs
+		 WHERE name = $1
+		   AND ((scope = 'org' AND org_id = $2) OR scope = 'platform')
+		 ORDER BY CASE WHEN scope = 'org' THEN 0 ELSE 1 END, created_at DESC
+		 LIMIT 1`,
+		cleanedName,
+		orgID,
+	).Scan(&preferredCredentialName); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", nil
+		}
+		return "", err
+	}
+
+	credentialName := ""
+	if preferredCredentialName != nil {
+		credentialName = strings.TrimSpace(*preferredCredentialName)
+	}
+	if credentialName == "" {
+		return "", nil
+	}
+
+	var routeID uuid.UUID
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT r.id
+		 FROM llm_routes r
+		 JOIN llm_credentials c ON c.id = r.credential_id
+		 WHERE r.org_id = $1
+		   AND c.revoked_at IS NULL
+		   AND lower(c.name) = lower($2)
+		 ORDER BY r.priority DESC, r.is_default DESC
+		 LIMIT 1`,
+		orgID,
+		credentialName,
+	).Scan(&routeID); err != nil {
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return "", err
+		}
+		if err := pool.QueryRow(
+			ctx,
+			`SELECT r.id
+			 FROM llm_routes r
+			 JOIN llm_credentials c ON c.id = r.credential_id
+			 WHERE r.org_id = $1
+			   AND c.revoked_at IS NULL
+			   AND lower(r.model) = lower($2)
+			 ORDER BY r.priority DESC, r.is_default DESC
+			 LIMIT 1`,
+			orgID,
+			credentialName,
+		).Scan(&routeID); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return "", nil
+			}
+			return "", err
+		}
+	}
+
+	cleanedRouteID := strings.TrimSpace(routeID.String())
+	if cleanedRouteID == "" || !routeIDRegex.MatchString(cleanedRouteID) {
+		return "", nil
+	}
+	return cleanedRouteID, nil
+}
+
+func resolveSearchOutputRouteIDFromEnv(outputModelKey string) string {
+	var envKey string
+	switch outputModelKey {
+	case searchOutputModelKeyGPT5:
+		envKey = searchOutputRouteEnvGPT5
+	case searchOutputModelKeyClaude4:
+		envKey = searchOutputRouteEnvClaude4
+	case searchOutputModelKeyGemini3:
+		envKey = searchOutputRouteEnvGemini3
+	default:
+		return ""
+	}
+
+	routeID := strings.TrimSpace(os.Getenv(envKey))
+	if routeID == "" || !routeIDRegex.MatchString(routeID) {
+		return ""
+	}
+	return routeID
 }
 
 func listThreadRuns(

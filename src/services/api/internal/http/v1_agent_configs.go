@@ -409,22 +409,23 @@ type createAgentConfigRequest struct {
 }
 
 type updateAgentConfigRequest struct {
-	Name                   *string   `json:"name"`
-	SystemPromptTemplateID *string   `json:"system_prompt_template_id"`
-	SystemPromptOverride   *string   `json:"system_prompt_override"`
-	Model                  *string   `json:"model"`
-	Temperature            *float64  `json:"temperature"`
-	MaxOutputTokens        *int      `json:"max_output_tokens"`
-	TopP                   *float64  `json:"top_p"`
-	ContextWindowLimit     *int      `json:"context_window_limit"`
-	ToolPolicy             *string   `json:"tool_policy"`
-	ToolAllowlist          *[]string `json:"tool_allowlist"`
-	ToolDenylist           *[]string `json:"tool_denylist"`
-	ContentFilterLevel     *string   `json:"content_filter_level"`
-	IsDefault              *bool     `json:"is_default"`
-	PromptCacheControl     *string   `json:"prompt_cache_control"`
-	ReasoningMode          *string   `json:"reasoning_mode"`
-	Scope                  *string   `json:"scope"` // "org" | "platform"; platform_admin only
+	Name                   *string         `json:"name"`
+	SystemPromptTemplateID *string         `json:"system_prompt_template_id"`
+	SystemPromptOverride   *string         `json:"system_prompt_override"`
+	Model                  *string         `json:"model"`
+	Temperature            *float64        `json:"temperature"`
+	MaxOutputTokens        *int            `json:"max_output_tokens"`
+	TopP                   *float64        `json:"top_p"`
+	ContextWindowLimit     *int            `json:"context_window_limit"`
+	ToolPolicy             *string         `json:"tool_policy"`
+	ToolAllowlist          *[]string       `json:"tool_allowlist"`
+	ToolDenylist           *[]string       `json:"tool_denylist"`
+	ContentFilterLevel     *string         `json:"content_filter_level"`
+	SafetyRulesJSON        *map[string]any `json:"safety_rules_json"`
+	IsDefault              *bool           `json:"is_default"`
+	PromptCacheControl     *string         `json:"prompt_cache_control"`
+	ReasoningMode          *string         `json:"reasoning_mode"`
+	Scope                  *string         `json:"scope"` // "org" | "platform"; platform_admin only
 }
 
 func agentConfigsEntry(
@@ -670,7 +671,8 @@ func updateAgentConfig(
 		req.Model == nil && req.Temperature == nil && req.MaxOutputTokens == nil &&
 		req.TopP == nil && req.ContextWindowLimit == nil && req.ToolPolicy == nil &&
 		req.ToolAllowlist == nil && req.ToolDenylist == nil && req.ContentFilterLevel == nil &&
-		req.IsDefault == nil && req.PromptCacheControl == nil && req.ReasoningMode == nil && req.Scope == nil {
+		req.SafetyRulesJSON == nil && req.IsDefault == nil && req.PromptCacheControl == nil &&
+		req.ReasoningMode == nil && req.Scope == nil {
 		WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "no fields to update", traceID, nil)
 		return
 	}
@@ -767,6 +769,10 @@ func updateAgentConfig(
 	if req.ContentFilterLevel != nil {
 		fields.SetContentFilterLevel = true
 		fields.ContentFilterLevel = *req.ContentFilterLevel
+	}
+	if req.SafetyRulesJSON != nil {
+		fields.SetSafetyRulesJSON = true
+		fields.SafetyRulesJSON = *req.SafetyRulesJSON
 	}
 	if req.IsDefault != nil {
 		fields.SetIsDefault = true

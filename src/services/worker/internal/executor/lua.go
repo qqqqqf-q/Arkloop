@@ -124,6 +124,7 @@ func (rt *luaRuntime) register(L *lua.LState) {
 	L.SetField(agentTable, "generate", L.NewFunction(rt.agentGenerate))
 	L.SetField(agentTable, "stream", L.NewFunction(rt.agentStream))
 	L.SetField(agentTable, "stream_route", L.NewFunction(rt.agentStreamRoute))
+	L.SetField(agentTable, "stream_agent", L.NewFunction(rt.agentStreamAgent))
 	L.SetField(agentTable, "loop", L.NewFunction(rt.agentLoop))
 	L.SetField(agentTable, "loop_capture", L.NewFunction(rt.agentLoopCapture))
 	L.SetGlobal("agent", agentTable)
@@ -758,73 +759,265 @@ func (rt *luaRuntime) agentStream(L *lua.LState) int {
 
 	sysPrompt := L.CheckString(1)
 	messagesArg := L.CheckAny(2)
-
-	messages := []llm.Message{
-		{Role: "system", Content: []llm.TextPart{{Text: sysPrompt}}},
-	}
-
-	switch v := messagesArg.(type) {
-	case lua.LString:
-		messages = append(messages, llm.Message{
-			Role:    "user",
-			Content: []llm.TextPart{{Text: string(v)}},
-		})
-	case *lua.LTable:
-		n := v.Len()
-		for i := 1; i <= n; i++ {
-			item := v.RawGetInt(i)
-			tbl, ok := item.(*lua.LTable)
-			if !ok {
-				continue
-			}
-			role := ""
-			if r, ok := tbl.RawGetString("role").(lua.LString); ok {
-				role = string(r)
-			}
-			content := ""
-			if c, ok := tbl.RawGetString("content").(lua.LString); ok {
-				content = string(c)
-			}
-			if role != "" && content != "" {
-				messages = append(messages, llm.Message{
-					Role:    role,
-					Content: []llm.TextPart{{Text: content}},
-				})
-			}
-		}
-	default:
+	messages, parseErr := parseAgentMessages(sysPrompt, messagesArg, "agent.stream")
+	if parseErr != nil {
 		L.Push(lua.LNil)
-		L.Push(lua.LString("agent.stream: messages must be a string or table"))
+		L.Push(lua.LString(parseErr.Error()))
+		return 2
+	}
+	maxTokens := parseMaxTokensOption(L.OptTable(3, nil))
+
+	outputText, _, streamFailed, streamErr := rt.streamWithGateway(
+		rt.rc.Gateway,
+		rt.rc.SelectedRoute.Route.Model,
+		messages,
+		maxTokens,
+		true,
+	)
+	if streamErr != nil {
+		L.Push(lua.LNil)
+		L.Push(lua.LString(streamErr.Error()))
+		return 2
+	}
+	if streamFailed != nil {
+		L.Push(lua.LNil)
+		L.Push(lua.LString(streamFailed.Error.Message))
 		return 2
 	}
 
-	req := llm.Request{
-		Model:    rt.rc.SelectedRoute.Route.Model,
-		Messages: messages,
+	L.Push(lua.LString(outputText))
+	L.Push(lua.LNil)
+	return 2
+}
+
+// agent.stream_route(route_id, system_prompt, messages, [opts]) -> (output, err)
+// 与 agent.stream 类似，但允许按 route_id 指定输出模型。
+func (rt *luaRuntime) agentStreamRoute(L *lua.LState) int {
+	if rt.ctx.Err() != nil {
+		L.Push(lua.LNil)
+		L.Push(lua.LString(rt.ctx.Err().Error()))
+		return 2
 	}
-	if opts := L.OptTable(3, nil); opts != nil {
-		if mt := opts.RawGetString("max_tokens"); mt != lua.LNil {
-			if n, ok := mt.(lua.LNumber); ok {
-				v := int(n)
-				req.MaxOutputTokens = &v
-			}
+	if rt.rc.Gateway == nil || rt.rc.SelectedRoute == nil {
+		L.Push(lua.LNil)
+		L.Push(lua.LString("agent.stream_route not available: gateway not initialized"))
+		return 2
+	}
+
+	routeID := strings.TrimSpace(L.OptString(1, ""))
+	sysPrompt := L.CheckString(2)
+	messagesArg := L.CheckAny(3)
+	messages, parseErr := parseAgentMessages(sysPrompt, messagesArg, "agent.stream_route")
+	if parseErr != nil {
+		L.Push(lua.LNil)
+		L.Push(lua.LString(parseErr.Error()))
+		return 2
+	}
+	maxTokens := parseMaxTokensOption(L.OptTable(4, nil))
+
+	gateway := rt.rc.Gateway
+	model := rt.rc.SelectedRoute.Route.Model
+	if routeID != "" {
+		if rt.rc.ResolveGatewayForRouteID == nil {
+			L.Push(lua.LNil)
+			L.Push(lua.LString("route_resolve_failed: resolver not initialized"))
+			return 2
 		}
+		resolvedGateway, resolvedRoute, resolveErr := rt.rc.ResolveGatewayForRouteID(rt.ctx, routeID)
+		if resolveErr != nil {
+			L.Push(lua.LNil)
+			L.Push(lua.LString("route_resolve_failed: " + resolveErr.Error()))
+			return 2
+		}
+		if resolvedGateway == nil || resolvedRoute == nil {
+			L.Push(lua.LNil)
+			L.Push(lua.LString("route_resolve_failed: resolved gateway or route is nil"))
+			return 2
+		}
+		gateway = resolvedGateway
+		model = resolvedRoute.Route.Model
+	}
+
+	outputText, streamStarted, streamFailed, streamErr := rt.streamWithGateway(
+		gateway,
+		model,
+		messages,
+		maxTokens,
+		true,
+	)
+	if streamErr != nil {
+		if streamStarted {
+			errorClass := llm.ErrorClassInternalError
+			if emitErr := rt.yield(rt.emitter.Emit("run.failed", map[string]any{
+				"error_class": errorClass,
+				"message":     streamErr.Error(),
+			}, nil, &errorClass)); emitErr != nil {
+				L.Push(lua.LNil)
+				L.Push(lua.LString(emitErr.Error()))
+				return 2
+			}
+			rt.loopTerminal = true
+			L.Push(lua.LNil)
+			L.Push(lua.LString("stream_terminal_failed: " + streamErr.Error()))
+			return 2
+		}
+		L.Push(lua.LNil)
+		L.Push(lua.LString(streamErr.Error()))
+		return 2
+	}
+	if streamFailed != nil {
+		if streamStarted {
+			if emitErr := rt.yield(rt.emitter.Emit("run.failed", streamFailed.ToDataJSON(), nil, stringPtr(streamFailed.Error.ErrorClass))); emitErr != nil {
+				L.Push(lua.LNil)
+				L.Push(lua.LString(emitErr.Error()))
+				return 2
+			}
+			rt.loopTerminal = true
+			L.Push(lua.LNil)
+			L.Push(lua.LString("stream_terminal_failed: " + streamFailed.Error.Message))
+			return 2
+		}
+		L.Push(lua.LNil)
+		L.Push(lua.LString(streamFailed.Error.Message))
+		return 2
+	}
+
+	L.Push(lua.LString(outputText))
+	L.Push(lua.LNil)
+	return 2
+}
+
+// agent.stream_agent(agent_name, system_prompt, messages, [opts]) -> (output, err)
+// 与 agent.stream_route 类似，但按 Agent 配置名称解析输出模型。
+func (rt *luaRuntime) agentStreamAgent(L *lua.LState) int {
+	if rt.ctx.Err() != nil {
+		L.Push(lua.LNil)
+		L.Push(lua.LString(rt.ctx.Err().Error()))
+		return 2
+	}
+	if rt.rc.Gateway == nil || rt.rc.SelectedRoute == nil {
+		L.Push(lua.LNil)
+		L.Push(lua.LString("agent.stream_agent not available: gateway not initialized"))
+		return 2
+	}
+
+	agentName := strings.TrimSpace(L.OptString(1, ""))
+	sysPrompt := L.CheckString(2)
+	messagesArg := L.CheckAny(3)
+	messages, parseErr := parseAgentMessages(sysPrompt, messagesArg, "agent.stream_agent")
+	if parseErr != nil {
+		L.Push(lua.LNil)
+		L.Push(lua.LString(parseErr.Error()))
+		return 2
+	}
+	maxTokens := parseMaxTokensOption(L.OptTable(4, nil))
+
+	gateway := rt.rc.Gateway
+	model := rt.rc.SelectedRoute.Route.Model
+	if agentName != "" {
+		if rt.rc.ResolveGatewayForAgentName == nil {
+			L.Push(lua.LNil)
+			L.Push(lua.LString("agent_resolve_failed: resolver not initialized"))
+			return 2
+		}
+		resolvedGateway, resolvedRoute, resolveErr := rt.rc.ResolveGatewayForAgentName(rt.ctx, agentName)
+		if resolveErr != nil {
+			L.Push(lua.LNil)
+			L.Push(lua.LString("agent_resolve_failed: " + resolveErr.Error()))
+			return 2
+		}
+		if resolvedGateway == nil || resolvedRoute == nil {
+			L.Push(lua.LNil)
+			L.Push(lua.LString("agent_resolve_failed: resolved gateway or route is nil"))
+			return 2
+		}
+		gateway = resolvedGateway
+		model = resolvedRoute.Route.Model
+	}
+
+	outputText, streamStarted, streamFailed, streamErr := rt.streamWithGateway(
+		gateway,
+		model,
+		messages,
+		maxTokens,
+		true,
+	)
+	if streamErr != nil {
+		if streamStarted {
+			errorClass := llm.ErrorClassInternalError
+			if emitErr := rt.yield(rt.emitter.Emit("run.failed", map[string]any{
+				"error_class": errorClass,
+				"message":     streamErr.Error(),
+			}, nil, &errorClass)); emitErr != nil {
+				L.Push(lua.LNil)
+				L.Push(lua.LString(emitErr.Error()))
+				return 2
+			}
+			rt.loopTerminal = true
+			L.Push(lua.LNil)
+			L.Push(lua.LString("stream_terminal_failed: " + streamErr.Error()))
+			return 2
+		}
+		L.Push(lua.LNil)
+		L.Push(lua.LString(streamErr.Error()))
+		return 2
+	}
+	if streamFailed != nil {
+		if streamStarted {
+			if emitErr := rt.yield(rt.emitter.Emit("run.failed", streamFailed.ToDataJSON(), nil, stringPtr(streamFailed.Error.ErrorClass))); emitErr != nil {
+				L.Push(lua.LNil)
+				L.Push(lua.LString(emitErr.Error()))
+				return 2
+			}
+			rt.loopTerminal = true
+			L.Push(lua.LNil)
+			L.Push(lua.LString("stream_terminal_failed: " + streamFailed.Error.Message))
+			return 2
+		}
+		L.Push(lua.LNil)
+		L.Push(lua.LString(streamFailed.Error.Message))
+		return 2
+	}
+
+	L.Push(lua.LString(outputText))
+	L.Push(lua.LNil)
+	return 2
+}
+
+func (rt *luaRuntime) streamWithGateway(
+	gateway llm.Gateway,
+	model string,
+	messages []llm.Message,
+	maxTokens *int,
+	emitDelta bool,
+) (string, bool, *llm.StreamRunFailed, error) {
+	req := llm.Request{
+		Model:           model,
+		Messages:        messages,
+		MaxOutputTokens: maxTokens,
 	}
 
 	var chunks []string
 	var streamFailed *llm.StreamRunFailed
+	streamStarted := false
 	sentinel := fmt.Errorf("stop")
 
-	err := rt.rc.Gateway.Stream(rt.ctx, req, func(ev llm.StreamEvent) error {
+	err := gateway.Stream(rt.ctx, req, func(ev llm.StreamEvent) error {
 		switch typed := ev.(type) {
 		case llm.StreamMessageDelta:
-			if typed.ContentDelta != "" {
-				chunks = append(chunks, typed.ContentDelta)
+			if typed.ContentDelta == "" {
+				return nil
+			}
+			chunks = append(chunks, typed.ContentDelta)
+			if emitDelta {
+				streamStarted = true
 				if yieldErr := rt.yield(rt.emitter.Emit("message.delta", typed.ToDataJSON(), nil, nil)); yieldErr != nil {
 					return yieldErr
 				}
 			}
+			return nil
 		case llm.StreamRunFailed:
+			rt.mergeUsage(typed.Usage)
 			streamFailed = &typed
 			return sentinel
 		case llm.StreamRunCompleted:
@@ -834,19 +1027,9 @@ func (rt *luaRuntime) agentStream(L *lua.LState) int {
 		return nil
 	})
 	if err != nil && err != sentinel {
-		L.Push(lua.LNil)
-		L.Push(lua.LString(err.Error()))
-		return 2
+		return "", streamStarted, nil, err
 	}
-	if streamFailed != nil {
-		L.Push(lua.LNil)
-		L.Push(lua.LString(streamFailed.Error.Message))
-		return 2
-	}
-
-	L.Push(lua.LString(strings.Join(chunks, "")))
-	L.Push(lua.LNil)
-	return 2
+	return strings.Join(chunks, ""), streamStarted, streamFailed, nil
 }
 
 // agent.loop(system_prompt, messages, [opts]) -> (ok, err)
@@ -868,56 +1051,78 @@ func (rt *luaRuntime) agentLoop(L *lua.LState) int {
 
 	sysPrompt := L.CheckString(1)
 	messagesArg := L.CheckAny(2)
-
-	messages := []llm.Message{
-		{Role: "system", Content: []llm.TextPart{{Text: sysPrompt}}},
-	}
-
-	switch v := messagesArg.(type) {
-	case lua.LString:
-		messages = append(messages, llm.Message{
-			Role:    "user",
-			Content: []llm.TextPart{{Text: string(v)}},
-		})
-	case *lua.LTable:
-		n := v.Len()
-		for i := 1; i <= n; i++ {
-			item := v.RawGetInt(i)
-			tbl, ok := item.(*lua.LTable)
-			if !ok {
-				continue
-			}
-			role := ""
-			if r, ok := tbl.RawGetString("role").(lua.LString); ok {
-				role = string(r)
-			}
-			content := ""
-			if c, ok := tbl.RawGetString("content").(lua.LString); ok {
-				content = string(c)
-			}
-			if role != "" && content != "" {
-				messages = append(messages, llm.Message{
-					Role:    role,
-					Content: []llm.TextPart{{Text: content}},
-				})
-			}
-		}
-	default:
+	messages, parseErr := parseAgentMessages(sysPrompt, messagesArg, "agent.loop")
+	if parseErr != nil {
 		L.Push(lua.LNil)
-		L.Push(lua.LString("agent.loop: messages must be a string or table"))
+		L.Push(lua.LString(parseErr.Error()))
+		return 2
+	}
+	maxTokens := parseMaxTokensOption(L.OptTable(3, nil))
+	if _, runErr := rt.runAgentLoop(messages, maxTokens, false, true, false); runErr != nil {
+		L.Push(lua.LNil)
+		L.Push(lua.LString(runErr.Error()))
 		return 2
 	}
 
-	var maxTokens *int
-	if opts := L.OptTable(3, nil); opts != nil {
-		if mt := opts.RawGetString("max_tokens"); mt != lua.LNil {
-			if n, ok := mt.(lua.LNumber); ok {
-				v := int(n)
-				maxTokens = &v
-			}
-		}
+	L.Push(lua.LTrue)
+	L.Push(lua.LNil)
+	return 2
+}
+
+// agent.loop_capture(system_prompt, messages, [opts]) -> (captured_text, err)
+// 完整 agent 循环 + 工具调用，默认不透传普通文本 delta，返回捕获到的文本。
+func (rt *luaRuntime) agentLoopCapture(L *lua.LState) int {
+	if rt.ctx.Err() != nil {
+		L.Push(lua.LNil)
+		L.Push(lua.LString(rt.ctx.Err().Error()))
+		return 2
+	}
+	if rt.rc.Gateway == nil || rt.rc.SelectedRoute == nil {
+		L.Push(lua.LNil)
+		L.Push(lua.LString("agent.loop_capture not available: gateway not initialized"))
+		return 2
 	}
 
+	sysPrompt := L.CheckString(1)
+	messagesArg := L.CheckAny(2)
+	messages, parseErr := parseAgentMessages(sysPrompt, messagesArg, "agent.loop_capture")
+	if parseErr != nil {
+		L.Push(lua.LNil)
+		L.Push(lua.LString(parseErr.Error()))
+		return 2
+	}
+	maxTokens := parseMaxTokensOption(L.OptTable(3, nil))
+	capturedText, runErr := rt.runAgentLoop(messages, maxTokens, true, false, true)
+	if runErr != nil {
+		if !rt.loopTerminal {
+			errorClass := llm.ErrorClassInternalError
+			if emitErr := rt.yield(rt.emitter.Emit("run.failed", map[string]any{
+				"error_class": errorClass,
+				"message":     runErr.Error(),
+			}, nil, &errorClass)); emitErr != nil {
+				L.Push(lua.LNil)
+				L.Push(lua.LString(emitErr.Error()))
+				return 2
+			}
+			rt.loopTerminal = true
+		}
+		L.Push(lua.LNil)
+		L.Push(lua.LString(runErr.Error()))
+		return 2
+	}
+
+	L.Push(lua.LString(capturedText))
+	L.Push(lua.LNil)
+	return 2
+}
+
+func (rt *luaRuntime) runAgentLoop(
+	messages []llm.Message,
+	maxTokens *int,
+	capturePlainText bool,
+	terminalOnCompleted bool,
+	returnFailureError bool,
+) (string, error) {
 	request := llm.Request{
 		Model:           rt.rc.SelectedRoute.Route.Model,
 		Messages:        messages,
@@ -950,31 +1155,55 @@ func (rt *luaRuntime) agentLoop(L *lua.LState) int {
 		},
 	}
 
-	// 拦截 run.completed 以避免与外层 Execute 重复发送
+	capturedChunks := make([]string, 0, 16)
+	terminalFailureMessage := ""
 	wrappedYield := func(ev events.RunEvent) error {
 		switch ev.Type {
 		case "run.completed":
-			rt.loopTerminal = true
+			rt.mergeUsage(usageFromRunEvent(ev.DataJSON))
+			if terminalOnCompleted {
+				rt.loopTerminal = true
+			}
 			return nil
 		case "run.failed":
 			rt.loopTerminal = true
+			terminalFailureMessage = runFailedMessage(ev.DataJSON)
 			return rt.yield(ev)
+		case "message.delta":
+			if !capturePlainText {
+				return rt.yield(ev)
+			}
+			channel, _ := ev.DataJSON["channel"].(string)
+			if channel != "" {
+				return rt.yield(ev)
+			}
+			if text, ok := ev.DataJSON["content_delta"].(string); ok && text != "" {
+				capturedChunks = append(capturedChunks, text)
+			}
+			return nil
 		default:
 			return rt.yield(ev)
 		}
 	}
 
 	loop := agent.NewLoop(rt.rc.Gateway, rt.rc.ToolExecutor)
-	err := loop.Run(rt.ctx, runCtx, request, rt.emitter, wrappedYield)
-	if err != nil {
-		L.Push(lua.LNil)
-		L.Push(lua.LString(err.Error()))
-		return 2
+	if err := loop.Run(rt.ctx, runCtx, request, rt.emitter, wrappedYield); err != nil {
+		return "", err
 	}
+	if returnFailureError && terminalFailureMessage != "" {
+		return "", fmt.Errorf("%s", terminalFailureMessage)
+	}
+	return strings.Join(capturedChunks, ""), nil
+}
 
-	L.Push(lua.LTrue)
-	L.Push(lua.LNil)
-	return 2
+func runFailedMessage(data map[string]any) string {
+	if data == nil {
+		return "agent loop failed"
+	}
+	if message, ok := data["message"].(string); ok && strings.TrimSpace(message) != "" {
+		return strings.TrimSpace(message)
+	}
+	return "agent loop failed"
 }
 
 // tools.call_parallel(calls) -> (results, errors)

@@ -166,8 +166,8 @@ func TestRunsCreateListGetCancelAndEnqueue(t *testing.T) {
 		nethttp.MethodPost,
 		"/v1/threads/"+threadPayload.ID+"/runs",
 		map[string]any{
-			"skill_id":         "search",
-			"output_route_id":  "final-output-route",
+			"skill_id":        "search",
+			"output_route_id": "final-output-route",
 		},
 		aliceHeaders,
 	)
@@ -195,6 +195,231 @@ func TestRunsCreateListGetCancelAndEnqueue(t *testing.T) {
 		t.Fatalf("unexpected started output_route_id: %#v", startedDataWithOutputRoute["output_route_id"])
 	}
 
+	threadOrgID := uuid.MustParse(threadPayload.OrgID)
+	threadUUID := uuid.MustParse(threadPayload.ID)
+	var outputCredentialID uuid.UUID
+	if err := pool.QueryRow(
+		ctx,
+		`INSERT INTO llm_credentials (org_id, provider, name)
+		 VALUES ($1, 'anthropic', 'hybrid-output-cred')
+		 RETURNING id`,
+		threadOrgID,
+	).Scan(&outputCredentialID); err != nil {
+		t.Fatalf("create output credential: %v", err)
+	}
+	var outputRouteFromAgent uuid.UUID
+	if err := pool.QueryRow(
+		ctx,
+		`INSERT INTO llm_routes (org_id, credential_id, model, priority, is_default, when_json, multiplier)
+		 VALUES ($1, $2, 'claude-3-5-haiku', 120, true, '{}'::jsonb, 1.0)
+		 RETURNING id`,
+		threadOrgID,
+		outputCredentialID,
+	).Scan(&outputRouteFromAgent); err != nil {
+		t.Fatalf("create output route for output agent: %v", err)
+	}
+	if _, err := pool.Exec(
+		ctx,
+		`INSERT INTO agent_configs (org_id, scope, name, model, is_default)
+		 VALUES ($1, 'org', 'sub-haiku-4.5', 'hybrid-output-cred', false)`,
+		threadOrgID,
+	); err != nil {
+		t.Fatalf("create output agent config by name: %v", err)
+	}
+
+	var agentConfigID uuid.UUID
+	if err := pool.QueryRow(
+		ctx,
+		`INSERT INTO agent_configs (org_id, scope, name, safety_rules_json, is_default)
+		 VALUES ($1, 'org', 'search-hybrid', $2::jsonb, false)
+		 RETURNING id`,
+		threadOrgID,
+		`{"search_hybrid_output_routes":{"gpt5":"pg-gpt5-route"},"search_hybrid_output_agents":{"claude4":"sub-haiku-4.5"}}`,
+	).Scan(&agentConfigID); err != nil {
+		t.Fatalf("create agent config: %v", err)
+	}
+	if _, err := pool.Exec(
+		ctx,
+		`UPDATE threads SET agent_config_id = $1 WHERE id = $2`,
+		agentConfigID,
+		threadUUID,
+	); err != nil {
+		t.Fatalf("bind thread agent config: %v", err)
+	}
+
+	runWithOutputModelResp := doJSON(
+		handler,
+		nethttp.MethodPost,
+		"/v1/threads/"+threadPayload.ID+"/runs",
+		map[string]any{
+			"skill_id":         "search",
+			"output_model_key": "gpt5",
+		},
+		aliceHeaders,
+	)
+	if runWithOutputModelResp.Code != nethttp.StatusCreated {
+		t.Fatalf("unexpected create run with output_model_key status: %d body=%s", runWithOutputModelResp.Code, runWithOutputModelResp.Body.String())
+	}
+	runWithOutputModel := decodeJSONBody[createRunResponse](t, runWithOutputModelResp.Body.Bytes())
+	runWithOutputModelID := uuid.MustParse(runWithOutputModel.RunID)
+	var startedJSONWithOutputModel []byte
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT data_json FROM run_events WHERE run_id = $1 AND type = 'run.started' LIMIT 1`,
+		runWithOutputModelID,
+	).Scan(&startedJSONWithOutputModel); err != nil {
+		t.Fatalf("load started event with output_model_key: %v", err)
+	}
+	var startedDataWithOutputModel map[string]any
+	if err := json.Unmarshal(startedJSONWithOutputModel, &startedDataWithOutputModel); err != nil {
+		t.Fatalf("decode started json with output_model_key: %v raw=%s", err, string(startedJSONWithOutputModel))
+	}
+	if startedDataWithOutputModel["output_model_key"] != "gpt5" {
+		t.Fatalf("unexpected started output_model_key: %#v", startedDataWithOutputModel["output_model_key"])
+	}
+	if startedDataWithOutputModel["output_route_id"] != "pg-gpt5-route" {
+		t.Fatalf("unexpected started output_route_id from model key: %#v", startedDataWithOutputModel["output_route_id"])
+	}
+
+	runWithBothOutputResp := doJSON(
+		handler,
+		nethttp.MethodPost,
+		"/v1/threads/"+threadPayload.ID+"/runs",
+		map[string]any{
+			"skill_id":         "search",
+			"output_model_key": "gpt5",
+			"output_route_id":  "manual-final-route",
+		},
+		aliceHeaders,
+	)
+	if runWithBothOutputResp.Code != nethttp.StatusCreated {
+		t.Fatalf("unexpected create run with output_model_key + output_route_id status: %d body=%s", runWithBothOutputResp.Code, runWithBothOutputResp.Body.String())
+	}
+	runWithBothOutput := decodeJSONBody[createRunResponse](t, runWithBothOutputResp.Body.Bytes())
+	runWithBothOutputID := uuid.MustParse(runWithBothOutput.RunID)
+	var startedJSONWithBothOutput []byte
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT data_json FROM run_events WHERE run_id = $1 AND type = 'run.started' LIMIT 1`,
+		runWithBothOutputID,
+	).Scan(&startedJSONWithBothOutput); err != nil {
+		t.Fatalf("load started event with output_model_key + output_route_id: %v", err)
+	}
+	var startedDataWithBothOutput map[string]any
+	if err := json.Unmarshal(startedJSONWithBothOutput, &startedDataWithBothOutput); err != nil {
+		t.Fatalf("decode started json with output_model_key + output_route_id: %v raw=%s", err, string(startedJSONWithBothOutput))
+	}
+	if startedDataWithBothOutput["output_model_key"] != "gpt5" {
+		t.Fatalf("unexpected output_model_key when both fields provided: %#v", startedDataWithBothOutput["output_model_key"])
+	}
+	if startedDataWithBothOutput["output_route_id"] != "manual-final-route" {
+		t.Fatalf("unexpected output_route_id precedence when both fields provided: %#v", startedDataWithBothOutput["output_route_id"])
+	}
+
+	runWithOutputModelFromAgentNameResp := doJSON(
+		handler,
+		nethttp.MethodPost,
+		"/v1/threads/"+threadPayload.ID+"/runs",
+		map[string]any{
+			"skill_id":         "search",
+			"output_model_key": "claude4",
+		},
+		aliceHeaders,
+	)
+	if runWithOutputModelFromAgentNameResp.Code != nethttp.StatusCreated {
+		t.Fatalf("unexpected create run with output agent name mapping status: %d body=%s", runWithOutputModelFromAgentNameResp.Code, runWithOutputModelFromAgentNameResp.Body.String())
+	}
+	runWithOutputModelFromAgentName := decodeJSONBody[createRunResponse](t, runWithOutputModelFromAgentNameResp.Body.Bytes())
+	runWithOutputModelFromAgentNameID := uuid.MustParse(runWithOutputModelFromAgentName.RunID)
+	var startedJSONWithOutputModelFromAgentName []byte
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT data_json FROM run_events WHERE run_id = $1 AND type = 'run.started' LIMIT 1`,
+		runWithOutputModelFromAgentNameID,
+	).Scan(&startedJSONWithOutputModelFromAgentName); err != nil {
+		t.Fatalf("load started event with output agent name mapping: %v", err)
+	}
+	var startedDataWithOutputModelFromAgentName map[string]any
+	if err := json.Unmarshal(startedJSONWithOutputModelFromAgentName, &startedDataWithOutputModelFromAgentName); err != nil {
+		t.Fatalf("decode started json with output agent name mapping: %v raw=%s", err, string(startedJSONWithOutputModelFromAgentName))
+	}
+	if startedDataWithOutputModelFromAgentName["output_model_key"] != "claude4" {
+		t.Fatalf("unexpected started output_model_key from output agent name path: %#v", startedDataWithOutputModelFromAgentName["output_model_key"])
+	}
+	if startedDataWithOutputModelFromAgentName["output_route_id"] != outputRouteFromAgent.String() {
+		t.Fatalf("unexpected output_route_id from output agent name mapping: %#v", startedDataWithOutputModelFromAgentName["output_route_id"])
+	}
+
+	t.Setenv("ARKLOOP_SEARCH_OUTPUT_ROUTE_GEMINI3", "env-gemini3-route")
+	runWithOutputModelEnvResp := doJSON(
+		handler,
+		nethttp.MethodPost,
+		"/v1/threads/"+threadPayload.ID+"/runs",
+		map[string]any{
+			"skill_id":         "search",
+			"output_model_key": "gemini3",
+		},
+		aliceHeaders,
+	)
+	if runWithOutputModelEnvResp.Code != nethttp.StatusCreated {
+		t.Fatalf("unexpected create run with env output model status: %d body=%s", runWithOutputModelEnvResp.Code, runWithOutputModelEnvResp.Body.String())
+	}
+	runWithOutputModelEnv := decodeJSONBody[createRunResponse](t, runWithOutputModelEnvResp.Body.Bytes())
+	runWithOutputModelEnvID := uuid.MustParse(runWithOutputModelEnv.RunID)
+	var startedJSONWithOutputModelEnv []byte
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT data_json FROM run_events WHERE run_id = $1 AND type = 'run.started' LIMIT 1`,
+		runWithOutputModelEnvID,
+	).Scan(&startedJSONWithOutputModelEnv); err != nil {
+		t.Fatalf("load started event with env output model: %v", err)
+	}
+	var startedDataWithOutputModelEnv map[string]any
+	if err := json.Unmarshal(startedJSONWithOutputModelEnv, &startedDataWithOutputModelEnv); err != nil {
+		t.Fatalf("decode started json with env output model: %v raw=%s", err, string(startedJSONWithOutputModelEnv))
+	}
+	if startedDataWithOutputModelEnv["output_model_key"] != "gemini3" {
+		t.Fatalf("unexpected started output_model_key from env path: %#v", startedDataWithOutputModelEnv["output_model_key"])
+	}
+	if startedDataWithOutputModelEnv["output_route_id"] != "env-gemini3-route" {
+		t.Fatalf("unexpected env fallback output_route_id: %#v", startedDataWithOutputModelEnv["output_route_id"])
+	}
+
+	t.Setenv("ARKLOOP_SEARCH_OUTPUT_ROUTE_GEMINI3", "")
+	runWithOutputModelNoMappingResp := doJSON(
+		handler,
+		nethttp.MethodPost,
+		"/v1/threads/"+threadPayload.ID+"/runs",
+		map[string]any{
+			"skill_id":         "search",
+			"output_model_key": "gemini3",
+		},
+		aliceHeaders,
+	)
+	if runWithOutputModelNoMappingResp.Code != nethttp.StatusCreated {
+		t.Fatalf("unexpected create run with no mapping status: %d body=%s", runWithOutputModelNoMappingResp.Code, runWithOutputModelNoMappingResp.Body.String())
+	}
+	runWithOutputModelNoMapping := decodeJSONBody[createRunResponse](t, runWithOutputModelNoMappingResp.Body.Bytes())
+	runWithOutputModelNoMappingID := uuid.MustParse(runWithOutputModelNoMapping.RunID)
+	var startedJSONWithOutputModelNoMapping []byte
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT data_json FROM run_events WHERE run_id = $1 AND type = 'run.started' LIMIT 1`,
+		runWithOutputModelNoMappingID,
+	).Scan(&startedJSONWithOutputModelNoMapping); err != nil {
+		t.Fatalf("load started event with no mapping output model: %v", err)
+	}
+	var startedDataWithOutputModelNoMapping map[string]any
+	if err := json.Unmarshal(startedJSONWithOutputModelNoMapping, &startedDataWithOutputModelNoMapping); err != nil {
+		t.Fatalf("decode started json with no mapping output model: %v raw=%s", err, string(startedJSONWithOutputModelNoMapping))
+	}
+	if startedDataWithOutputModelNoMapping["output_model_key"] != "gemini3" {
+		t.Fatalf("unexpected started output_model_key from no mapping path: %#v", startedDataWithOutputModelNoMapping["output_model_key"])
+	}
+	if _, ok := startedDataWithOutputModelNoMapping["output_route_id"]; ok {
+		t.Fatalf("unexpected output_route_id on no mapping path: %#v", startedDataWithOutputModelNoMapping["output_route_id"])
+	}
+
 	invalidOutputRouteResp := doJSON(
 		handler,
 		nethttp.MethodPost,
@@ -206,12 +431,30 @@ func TestRunsCreateListGetCancelAndEnqueue(t *testing.T) {
 	)
 	assertErrorEnvelope(t, invalidOutputRouteResp, nethttp.StatusUnprocessableEntity, "validation.error")
 
+	invalidOutputModelResp := doJSON(
+		handler,
+		nethttp.MethodPost,
+		"/v1/threads/"+threadPayload.ID+"/runs",
+		map[string]any{
+			"output_model_key": "invalid_model",
+		},
+		aliceHeaders,
+	)
+	assertErrorEnvelope(t, invalidOutputModelResp, nethttp.StatusUnprocessableEntity, "validation.error")
+
 	var (
 		jobID      uuid.UUID
 		jobType    string
 		jobPayload []byte
 	)
-	if err := pool.QueryRow(ctx, `SELECT id, job_type, payload_json FROM jobs LIMIT 1`).Scan(&jobID, &jobType, &jobPayload); err != nil {
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT id, job_type, payload_json
+		 FROM jobs
+		 WHERE payload_json->>'run_id' = $1
+		 LIMIT 1`,
+		runPayload.RunID,
+	).Scan(&jobID, &jobType, &jobPayload); err != nil {
 		t.Fatalf("load job: %v", err)
 	}
 	if jobType != data.RunExecuteJobType {

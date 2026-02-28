@@ -62,7 +62,6 @@ mmon_source_types>
 - `generated_image`: 你生成的图片
 - `generated_video`: 你生成的视频
 - `chart`: 你生成的图表
-- `memory`: 你回忆起的用户特定信息
 - `file`: 用户上传的文件
 - `calendar_event`: 用户日历事件
 </common_source_types>

@@ -82,6 +82,8 @@ type AgentConfigUpdateFields struct {
 	ToolDenylist              []string
 	SetContentFilterLevel     bool
 	ContentFilterLevel        string
+	SetSafetyRulesJSON        bool
+	SafetyRulesJSON           map[string]any
 	SetIsDefault              bool
 	IsDefault                 bool
 	SetPromptCacheControl     bool
@@ -283,7 +285,8 @@ func (r *AgentConfigRepository) Update(ctx context.Context, id uuid.UUID, orgID 
 		!fields.SetModel && !fields.SetTemperature && !fields.SetMaxOutputTokens &&
 		!fields.SetTopP && !fields.SetContextWindowLimit && !fields.SetToolPolicy &&
 		!fields.SetToolAllowlist && !fields.SetToolDenylist && !fields.SetContentFilterLevel &&
-		!fields.SetIsDefault && !fields.SetPromptCacheControl && !fields.SetReasoningMode && !fields.SetScope {
+		!fields.SetSafetyRulesJSON && !fields.SetIsDefault && !fields.SetPromptCacheControl &&
+		!fields.SetReasoningMode && !fields.SetScope {
 		return nil, fmt.Errorf("agent_configs.Update: no fields to update")
 	}
 
@@ -294,6 +297,10 @@ func (r *AgentConfigRepository) Update(ctx context.Context, id uuid.UUID, orgID 
 	denylist := fields.ToolDenylist
 	if denylist == nil {
 		denylist = []string{}
+	}
+	safetyRules := fields.SafetyRulesJSON
+	if safetyRules == nil {
+		safetyRules = map[string]any{}
 	}
 
 	// platform admin 可更新 platform-scope 或自己 org 的 config
@@ -326,6 +333,7 @@ func (r *AgentConfigRepository) Update(ctx context.Context, id uuid.UUID, orgID 
 		     is_default                = CASE WHEN $21 THEN $22 ELSE is_default END,
 		     prompt_cache_control      = CASE WHEN $29 THEN $30 ELSE prompt_cache_control END,
 		     reasoning_mode            = CASE WHEN $33 THEN $34 ELSE reasoning_mode END,
+		     safety_rules_json         = CASE WHEN $35 THEN $36::jsonb ELSE safety_rules_json END,
 		     scope                     = CASE WHEN $31 THEN $32 ELSE scope END,
 		     org_id                    = CASE WHEN $31 AND $32='platform' THEN NULL
 		                                      WHEN $31 THEN $2
@@ -349,6 +357,7 @@ func (r *AgentConfigRepository) Update(ctx context.Context, id uuid.UUID, orgID 
 			fields.SetPromptCacheControl, fields.PromptCacheControl,
 			fields.SetScope, fields.Scope,
 			fields.SetReasoningMode, fields.ReasoningMode,
+			fields.SetSafetyRulesJSON, safetyRules,
 		)...,
 	))
 	if errors.Is(err, pgx.ErrNoRows) {
