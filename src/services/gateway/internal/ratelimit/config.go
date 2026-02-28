@@ -10,8 +10,8 @@ import (
 const (
 	capacityEnv        = "ARKLOOP_RATELIMIT_CAPACITY"
 	ratePerMinuteEnv   = "ARKLOOP_RATELIMIT_RATE_PER_MINUTE"
-	defaultCapacity    = 60
-	defaultPerMinute   = 60
+	defaultCapacity    = 600
+	defaultPerMinute   = 300
 )
 
 type Config struct {
