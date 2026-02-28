@@ -539,14 +539,14 @@ func TestListGlobalRuns(t *testing.T) {
 	auditWriter := audit.NewWriter(auditRepo, membershipRepo, logger)
 
 	handler := NewHandler(HandlerConfig{
-		Pool:                pool,
-		Logger:              logger,
-		AuthService:         authService,
-		RegistrationService: registrationService,
-		OrgMembershipRepo:   membershipRepo,
-		ThreadRepo:          threadRepo,
-		RunEventRepo:        runRepo,
-		AuditWriter:         auditWriter,
+		Pool:                 pool,
+		Logger:               logger,
+		AuthService:          authService,
+		RegistrationService:  registrationService,
+		OrgMembershipRepo:    membershipRepo,
+		ThreadRepo:           threadRepo,
+		RunEventRepo:         runRepo,
+		AuditWriter:          auditWriter,
 		TrustIncomingTraceID: true,
 	})
 
@@ -570,6 +570,14 @@ func TestListGlobalRuns(t *testing.T) {
 		t.Fatalf("create run: %d", runResp.Code)
 	}
 	runPayload := decodeJSONBody[createRunResponse](t, runResp.Body.Bytes())
+	runID, err := uuid.Parse(runPayload.RunID)
+	if err != nil {
+		t.Fatalf("parse run id: %v", err)
+	}
+	_, err = pool.Exec(ctx, "UPDATE runs SET model = $1, skill_id = $2 WHERE id = $3", "gpt-4o-mini", "ops-trace", runID)
+	if err != nil {
+		t.Fatalf("seed run model/skill: %v", err)
+	}
 
 	// bob 注册（不同 org）
 	bobReg := doJSON(handler, nethttp.MethodPost, "/v1/auth/register",
@@ -662,6 +670,73 @@ func TestListGlobalRuns(t *testing.T) {
 		if body2.Total != 0 {
 			t.Fatalf("expected total=0 for status=completed, got %d", body2.Total)
 		}
+	})
+
+	t.Run("thread_id filter", func(t *testing.T) {
+		resp := doJSON(handler, nethttp.MethodGet, "/v1/runs?thread_id="+threadPayload.ID, nil, aliceHeaders)
+		if resp.Code != nethttp.StatusOK {
+			t.Fatalf("unexpected status: %d body=%s", resp.Code, resp.Body.String())
+		}
+		var body struct {
+			Data  []globalRunResponse `json:"data"`
+			Total int64               `json:"total"`
+		}
+		if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if body.Total != 1 || len(body.Data) != 1 || body.Data[0].ThreadID != threadPayload.ID {
+			t.Fatalf("unexpected thread filter result: %#v total=%d", body.Data, body.Total)
+		}
+	})
+
+	t.Run("run_id filter", func(t *testing.T) {
+		resp := doJSON(handler, nethttp.MethodGet, "/v1/runs?run_id="+runPayload.RunID, nil, aliceHeaders)
+		if resp.Code != nethttp.StatusOK {
+			t.Fatalf("unexpected status: %d body=%s", resp.Code, resp.Body.String())
+		}
+		var body struct {
+			Data  []globalRunResponse `json:"data"`
+			Total int64               `json:"total"`
+		}
+		if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if body.Total != 1 || len(body.Data) != 1 || body.Data[0].RunID != runPayload.RunID {
+			t.Fatalf("unexpected run_id filter result: %#v total=%d", body.Data, body.Total)
+		}
+	})
+
+	t.Run("model and skill filters", func(t *testing.T) {
+		resp := doJSON(handler, nethttp.MethodGet, "/v1/runs?model=gpt-4o&skill_id=ops", nil, aliceHeaders)
+		if resp.Code != nethttp.StatusOK {
+			t.Fatalf("unexpected status: %d body=%s", resp.Code, resp.Body.String())
+		}
+		var body struct {
+			Data  []globalRunResponse `json:"data"`
+			Total int64               `json:"total"`
+		}
+		if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if body.Total != 1 || len(body.Data) != 1 {
+			t.Fatalf("expected model/skill filter to match one run, got total=%d data=%d", body.Total, len(body.Data))
+		}
+	})
+
+	t.Run("invalid thread_id returns 422", func(t *testing.T) {
+		resp := doJSON(handler, nethttp.MethodGet, "/v1/runs?thread_id=invalid", nil, aliceHeaders)
+		assertErrorEnvelope(t, resp, nethttp.StatusUnprocessableEntity, "validation.error")
+	})
+
+	t.Run("since after until returns 422", func(t *testing.T) {
+		resp := doJSON(
+			handler,
+			nethttp.MethodGet,
+			"/v1/runs?since=2026-03-01T00:00:00Z&until=2026-02-01T00:00:00Z",
+			nil,
+			aliceHeaders,
+		)
+		assertErrorEnvelope(t, resp, nethttp.StatusUnprocessableEntity, "validation.error")
 	})
 
 	t.Run("limit and offset", func(t *testing.T) {
