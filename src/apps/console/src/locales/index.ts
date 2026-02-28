@@ -927,6 +927,9 @@ export interface LocaleStrings {
       filterUserPlaceholder: string
       filterOrgPlaceholder: string
       filterParentRunPlaceholder: string
+      filterStatusLabel: string
+      filterModelLabel: string
+      filterSkillLabel: string
       filterModelPlaceholder: string
       filterSkillPlaceholder: string
       filterSinceLabel: string
@@ -946,6 +949,8 @@ export interface LocaleStrings {
       colDuration: string
       colTokens: string
       colCost: string
+      colCacheHit: string
+      colCredits: string
       colCreatedAt: string
       // empty state
       empty: string
@@ -974,6 +979,8 @@ export interface LocaleStrings {
       labelModel: string
       labelTokens: string
       labelCost: string
+      labelCacheHit: string
+      labelCreditsUsed: string
       labelCreated: string
       labelCompleted: string
       labelFailedAt: string

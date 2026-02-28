@@ -5,6 +5,7 @@ import type { ConsoleOutletContext } from '../../layouts/ConsoleLayout'
 import { PageHeader } from '../../components/PageHeader'
 import { EmptyState } from '../../components/EmptyState'
 import { useToast } from '../../components/useToast'
+import { isApiError } from '../../api'
 import { useLocale } from '../../contexts/LocaleContext'
 import { listReports, type Report } from '../../api/reports'
 
@@ -50,10 +51,6 @@ function CategoryBadge({ category }: { category: string }) {
       {category.replace(/_/g, ' ')}
     </span>
   )
-}
-
-function truncateId(id: string): string {
-  return id.length > 8 ? id.slice(0, 8) : id
 }
 
 function parseInitialFilters(searchParams: URLSearchParams): ReportFilters {
@@ -136,8 +133,8 @@ export function ReportsPage() {
         )
         setReports(resp.data)
         setTotal(resp.total)
-      } catch {
-        addToast(p.toastLoadFailed, 'error')
+      } catch (err) {
+        addToast(isApiError(err) ? err.message : p.toastLoadFailed, 'error')
       } finally {
         setLoading(false)
       }
@@ -316,21 +313,21 @@ export function ReportsPage() {
                   </td>
                   <td className="whitespace-nowrap px-4 py-2.5 text-[var(--c-text-secondary)]">
                     <span className="font-mono text-xs" title={r.id}>
-                      {truncateId(r.id)}
+                      {r.id}
                     </span>
                   </td>
                   <td className="whitespace-nowrap px-4 py-2.5 text-[var(--c-text-secondary)]">
                     <div className="flex flex-col gap-0.5">
                       <span className="text-xs">{r.reporter_email || '--'}</span>
                       <span className="font-mono text-[11px] text-[var(--c-text-muted)]" title={r.reporter_id}>
-                        {truncateId(r.reporter_id)}
+                        {r.reporter_id}
                       </span>
                     </div>
                   </td>
                   <td className="whitespace-nowrap px-4 py-2.5 text-[var(--c-text-secondary)]">
                     <div className="flex flex-col gap-1">
                       <span className="font-mono text-xs" title={r.thread_id}>
-                        {truncateId(r.thread_id)}
+                        {r.thread_id}
                       </span>
                       <Link
                         to={`/runs?thread_id=${encodeURIComponent(r.thread_id)}`}

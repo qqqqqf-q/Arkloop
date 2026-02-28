@@ -7,6 +7,7 @@ import { DataTable, type Column } from '../components/DataTable'
 import { Badge, type BadgeVariant } from '../components/Badge'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { useToast } from '../components/useToast'
+import { isApiError } from '../api'
 import { useLocale } from '../contexts/LocaleContext'
 import { RunDetailPanel } from '../components/RunDetailPanel'
 import { listRuns, cancelRun, type GlobalRun } from '../api/runs'
@@ -166,8 +167,8 @@ export function RunsPage() {
         )
         setRuns(resp.data)
         setTotal(resp.total)
-      } catch {
-        addToast(rt.toastLoadFailed, 'error')
+      } catch (err) {
+        addToast(isApiError(err) ? err.message : rt.toastLoadFailed, 'error')
       } finally {
         setLoading(false)
       }
@@ -211,8 +212,8 @@ export function RunsPage() {
       await cancelRun(cancelTarget.run_id, accessToken)
       setCancelTarget(null)
       void fetchRuns(appliedFilters, offset)
-    } catch {
-      addToast(rt.toastCancelFailed, 'error')
+    } catch (err) {
+      addToast(isApiError(err) ? err.message : rt.toastCancelFailed, 'error')
     } finally {
       setCancelling(false)
     }
@@ -386,7 +387,7 @@ export function RunsPage() {
       <PageHeader title={rt.title} actions={actions} />
 
       <div className="border-b border-[var(--c-border-console)] px-6 py-3">
-        <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-5">
+        <div className="grid grid-cols-1 items-start gap-2 md:grid-cols-2 xl:grid-cols-5">
           <input
             type="text"
             placeholder={rt.filterRunPlaceholder}
@@ -422,31 +423,40 @@ export function RunsPage() {
             onChange={(e) => updateDraftFilter('parentRunId', e.target.value)}
             className={filterInputCls}
           />
-          <select
-            value={draftFilters.status}
-            onChange={(e) => updateDraftFilter('status', e.target.value)}
-            className={filterInputCls}
-          >
-            {statusOptions.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
-          <input
-            type="text"
-            placeholder={rt.filterModelPlaceholder}
-            value={draftFilters.model}
-            onChange={(e) => updateDraftFilter('model', e.target.value)}
-            className={filterInputCls}
-          />
-          <input
-            type="text"
-            placeholder={rt.filterSkillPlaceholder}
-            value={draftFilters.skillId}
-            onChange={(e) => updateDraftFilter('skillId', e.target.value)}
-            className={filterInputCls}
-          />
+          <div className="flex flex-col gap-1">
+            <span className="text-[11px] text-[var(--c-text-muted)]">{rt.filterStatusLabel}</span>
+            <select
+              value={draftFilters.status}
+              onChange={(e) => updateDraftFilter('status', e.target.value)}
+              className={filterInputCls}
+            >
+              {statusOptions.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex flex-col gap-1">
+            <span className="text-[11px] text-[var(--c-text-muted)]">{rt.filterModelLabel}</span>
+            <input
+              type="text"
+              placeholder={rt.filterModelPlaceholder}
+              value={draftFilters.model}
+              onChange={(e) => updateDraftFilter('model', e.target.value)}
+              className={filterInputCls}
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <span className="text-[11px] text-[var(--c-text-muted)]">{rt.filterSkillLabel}</span>
+            <input
+              type="text"
+              placeholder={rt.filterSkillPlaceholder}
+              value={draftFilters.skillId}
+              onChange={(e) => updateDraftFilter('skillId', e.target.value)}
+              className={filterInputCls}
+            />
+          </div>
           <div className="flex flex-col gap-1">
             <span className="text-[11px] text-[var(--c-text-muted)]">{rt.filterSinceLabel}</span>
             <input
