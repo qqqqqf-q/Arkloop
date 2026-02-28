@@ -3,13 +3,13 @@ import { Copy, Check, RefreshCw, Share2, Split, Paperclip, Pencil } from 'lucide
 import type { MessageResponse } from '../api'
 import type { WebSource, ArtifactRef } from '../storage'
 import { MarkdownRenderer } from './MarkdownRenderer'
-import { ArtifactImage } from './ArtifactImage'
 
 type Props = {
   message: MessageResponse
   onRetry?: () => void
   onEdit?: (newContent: string) => void
   onFork?: () => void
+  onShare?: () => void
   webSources?: WebSource[]
   artifacts?: ArtifactRef[]
   accessToken?: string
@@ -35,7 +35,7 @@ function extractFilesFromContent(content: string): { text: string; fileNames: st
   return { text, fileNames }
 }
 
-export function MessageBubble({ message, onRetry, onEdit, onFork, webSources, artifacts, accessToken, onShowSources }: Props) {
+export function MessageBubble({ message, onRetry, onEdit, onFork, onShare, webSources, artifacts, accessToken, onShowSources }: Props) {
   const [copied, setCopied] = useState(false)
   const [hovered, setHovered] = useState(false)
   const [editing, setEditing] = useState(false)
@@ -296,19 +296,10 @@ export function MessageBubble({ message, onRetry, onEdit, onFork, webSources, ar
     )
   }
 
-  const imageArtifacts = artifacts?.filter((a) => a.mime_type.startsWith('image/'))
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column' }}>
       <div style={{ maxWidth: '663px' }}>
-        <MarkdownRenderer content={message.content} webSources={webSources} />
-        {imageArtifacts && imageArtifacts.length > 0 && accessToken && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '12px' }}>
-            {imageArtifacts.map((a) => (
-              <ArtifactImage key={a.key} artifact={a} accessToken={accessToken} />
-            ))}
-          </div>
-        )}
+        <MarkdownRenderer content={message.content} webSources={webSources} artifacts={artifacts} accessToken={accessToken} />
         <div style={{ marginTop: '16px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
             <div style={{ position: 'relative' }}>
@@ -347,27 +338,21 @@ export function MessageBubble({ message, onRetry, onEdit, onFork, webSources, ar
             <button
               onClick={onRetry}
               disabled={!onRetry}
-              className="flex h-7 w-7 items-center justify-center rounded-lg text-[var(--c-text-secondary)] transition-[opacity,background] duration-150 border-none bg-transparent"
-              style={{ opacity: onRetry ? 0.6 : 0.25, cursor: onRetry ? 'pointer' : 'default' }}
-              onMouseEnter={(e) => { if (onRetry) (e.currentTarget as HTMLButtonElement).style.opacity = '1' }}
-              onMouseLeave={(e) => { if (onRetry) (e.currentTarget as HTMLButtonElement).style.opacity = '0.6' }}
+              className={`flex h-7 w-7 items-center justify-center rounded-lg text-[var(--c-text-secondary)] transition-[opacity,background] duration-150 border-none bg-transparent ${onRetry ? 'opacity-60 hover:bg-[var(--c-bg-deep)] hover:opacity-100 cursor-pointer' : 'opacity-25 cursor-default'}`}
             >
               <RefreshCw size={15} />
             </button>
             <button
-              disabled
-              className="flex h-7 w-7 items-center justify-center rounded-lg text-[var(--c-text-secondary)] border-none bg-transparent"
-              style={{ opacity: 0.25, cursor: 'default' }}
+              onClick={onShare}
+              disabled={!onShare}
+              className={`flex h-7 w-7 items-center justify-center rounded-lg text-[var(--c-text-secondary)] transition-[opacity,background] duration-150 border-none bg-transparent ${onShare ? 'opacity-60 hover:bg-[var(--c-bg-deep)] hover:opacity-100 cursor-pointer' : 'opacity-25 cursor-default'}`}
             >
               <Share2 size={15} />
             </button>
             <button
               onClick={onFork}
               disabled={!onFork}
-              className="flex h-7 w-7 items-center justify-center rounded-lg text-[var(--c-text-secondary)] transition-[opacity,background] duration-150 border-none bg-transparent"
-              style={{ opacity: onFork ? 0.6 : 0.25, cursor: onFork ? 'pointer' : 'default' }}
-              onMouseEnter={(e) => { if (onFork) (e.currentTarget as HTMLButtonElement).style.opacity = '1' }}
-              onMouseLeave={(e) => { if (onFork) (e.currentTarget as HTMLButtonElement).style.opacity = '0.6' }}
+              className={`flex h-7 w-7 items-center justify-center rounded-lg text-[var(--c-text-secondary)] transition-[opacity,background] duration-150 border-none bg-transparent ${onFork ? 'opacity-60 hover:bg-[var(--c-bg-deep)] hover:opacity-100 cursor-pointer' : 'opacity-25 cursor-default'}`}
             >
               <Split size={15} />
             </button>

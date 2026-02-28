@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useContext, Fragment, isValidElement, cloneElement } from 'react'
+import { useState, useCallback, useRef, useContext, createContext, Fragment, isValidElement, cloneElement } from 'react'
 import type { ReactNode } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -8,7 +8,97 @@ import rehypeKatex from 'rehype-katex'
 import { Copy, Check } from 'lucide-react'
 import type { Components } from 'react-markdown'
 import { CitationBadge, WebSourcesContext } from './CitationBadge'
-import type { WebSource } from '../storage'
+import type { WebSource, ArtifactRef } from '../storage'
+import { ArtifactImage } from './ArtifactImage'
+import { ArtifactHtmlPreview } from './ArtifactHtmlPreview'
+import { ArtifactDownload } from './ArtifactDownload'
+
+type ArtifactsContextValue = {
+  artifacts: ArtifactRef[]
+  accessToken: string
+}
+
+const ArtifactsContext = createContext<ArtifactsContextValue>({ artifacts: [], accessToken: '' })
+
+const ARTIFACT_PREFIX = 'artifact:'
+
+function findArtifactByKey(artifacts: ArtifactRef[], key: string): ArtifactRef | undefined {
+  return artifacts.find((a) => a.key === key)
+}
+
+const EXT_MIME: Record<string, string> = {
+  png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif',
+  svg: 'image/svg+xml', webp: 'image/webp', html: 'text/html', htm: 'text/html',
+  pdf: 'application/pdf', csv: 'text/csv', txt: 'text/plain',
+}
+
+function guessMimeType(key: string): string {
+  const ext = key.split('.').pop()?.toLowerCase() ?? ''
+  return EXT_MIME[ext] ?? 'application/octet-stream'
+}
+
+// artifact: 协议感知的 img 渲染器
+function ArtifactAwareImg({ src, alt }: { src?: string; alt?: string }) {
+  const { artifacts, accessToken } = useContext(ArtifactsContext)
+
+  if (src?.startsWith(ARTIFACT_PREFIX)) {
+    const key = src.slice(ARTIFACT_PREFIX.length)
+    const artifact = findArtifactByKey(artifacts, key)
+
+    // 从 key 推断的回退 artifact（当 SSE 事件尚未到达或 artifacts 为空时）
+    const resolved: ArtifactRef = artifact ?? {
+      key,
+      filename: key.split('/').pop() ?? key,
+      size: 0,
+      mime_type: guessMimeType(key),
+    }
+
+    if (!accessToken) return null
+
+    if (resolved.mime_type.startsWith('image/')) {
+      return <ArtifactImage artifact={resolved} accessToken={accessToken} />
+    }
+    if (resolved.mime_type === 'text/html') {
+      return <ArtifactHtmlPreview artifact={resolved} accessToken={accessToken} />
+    }
+    return <ArtifactDownload artifact={resolved} accessToken={accessToken} />
+  }
+
+  return <img src={src} alt={alt ?? ''} style={{ maxWidth: '100%', borderRadius: '8px' }} />
+}
+
+// artifact: 协议感知的 a 渲染器
+function ArtifactAwareLink({ href, children }: { href?: string; children?: ReactNode }) {
+  const { artifacts, accessToken } = useContext(ArtifactsContext)
+
+  if (href?.startsWith(ARTIFACT_PREFIX)) {
+    const key = href.slice(ARTIFACT_PREFIX.length)
+    const artifact = findArtifactByKey(artifacts, key)
+
+    const resolved: ArtifactRef = artifact ?? {
+      key,
+      filename: key.split('/').pop() ?? key,
+      size: 0,
+      mime_type: guessMimeType(key),
+    }
+
+    if (accessToken) {
+      return <ArtifactDownload artifact={resolved} accessToken={accessToken} />
+    }
+    return null
+  }
+
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      style={{ color: 'var(--c-text-secondary)', textDecoration: 'underline', textDecorationColor: 'var(--c-border-mid)' }}
+    >
+      {children}
+    </a>
+  )
+}
 
 function CodeBlockWrapper({ children }: { children: React.ReactNode }) {
   const [copied, setCopied] = useState(false)
@@ -198,16 +288,9 @@ const mdComponents: Components = {
     </blockquote>
   ),
 
-  a: ({ href, children }) => (
-    <a
-      href={href}
-      target="_blank"
-      rel="noopener noreferrer"
-      style={{ color: 'var(--c-text-secondary)', textDecoration: 'underline', textDecorationColor: 'var(--c-border-mid)' }}
-    >
-      {children}
-    </a>
-  ),
+  a: ({ href, children }) => <ArtifactAwareLink href={href}>{children}</ArtifactAwareLink>,
+
+  img: ({ src, alt }) => <ArtifactAwareImg src={src} alt={alt} />,
 
   table: ({ children }) => (
     <div style={{ overflowX: 'auto', margin: '1em 0' }}>
@@ -244,9 +327,15 @@ const mdComponents: Components = {
   ),
 }
 
-type Props = { content: string; disableMath?: boolean; webSources?: WebSource[] }
+type Props = {
+  content: string
+  disableMath?: boolean
+  webSources?: WebSource[]
+  artifacts?: ArtifactRef[]
+  accessToken?: string
+}
 
-export function MarkdownRenderer({ content, disableMath, webSources }: Props) {
+export function MarkdownRenderer({ content, disableMath, webSources, artifacts, accessToken }: Props) {
   const remarkPlugins = disableMath
     ? [remarkGfm]
     : [remarkGfm, remarkMath]
@@ -259,17 +348,24 @@ export function MarkdownRenderer({ content, disableMath, webSources }: Props) {
         [rehypeHighlight, { ignoreMissing: true }],
       ]
 
+  const artifactsValue: ArtifactsContextValue = {
+    artifacts: artifacts ?? [],
+    accessToken: accessToken ?? '',
+  }
+
   return (
-    <WebSourcesContext.Provider value={webSources ?? []}>
-      <div style={{ maxWidth: '100%' }}>
-        <ReactMarkdown
-          remarkPlugins={remarkPlugins}
-          rehypePlugins={rehypePlugins}
-          components={mdComponents}
-        >
-          {content}
-        </ReactMarkdown>
-      </div>
-    </WebSourcesContext.Provider>
+    <ArtifactsContext.Provider value={artifactsValue}>
+      <WebSourcesContext.Provider value={webSources ?? []}>
+        <div style={{ maxWidth: '100%' }}>
+          <ReactMarkdown
+            remarkPlugins={remarkPlugins}
+            rehypePlugins={rehypePlugins}
+            components={mdComponents}
+          >
+            {content}
+          </ReactMarkdown>
+        </div>
+      </WebSourcesContext.Provider>
+    </ArtifactsContext.Provider>
   )
 }
