@@ -139,6 +139,7 @@ export interface LocaleStrings {
   incognitoLabel: string
   thisThreadIsIncognito: string
   toggleIncognito: string
+  incognitoForkDivider: string
   // thread context menu
   starThread: string
   unstarThread: string

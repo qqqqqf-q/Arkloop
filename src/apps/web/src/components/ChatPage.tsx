@@ -3,7 +3,7 @@ import { useParams, useLocation, useOutletContext, useNavigate } from 'react-rou
 import { Glasses, Paperclip, Share2, X, Zap } from 'lucide-react'
 import { ChatInput, type Attachment, formatFileSize } from './ChatInput'
 import { MessageBubble, StreamingBubble } from './MessageBubble'
-import { ThinkingBlock } from './ThinkingBlock'
+import { ThinkingBlock, type CodeExecution } from './ThinkingBlock'
 import { SearchTimeline, type SearchStep } from './SearchTimeline'
 import { ErrorCallout, type AppError } from './ErrorCallout'
 import { DebugFloatingPanel } from './DebugFloatingPanel'
@@ -59,7 +59,7 @@ type OutletContext = {
   privateThreadIds: Set<string>
 }
 
-type LocationState = { initialRunId?: string; isSearch?: boolean } | null
+type LocationState = { initialRunId?: string; isSearch?: boolean; isIncognitoFork?: boolean } | null
 
 export function ChatPage() {
   const { accessToken, onLoggedOut, onRunStarted, onRunEnded, onThreadCreated, onThreadTitleUpdated, refreshCredits, onOpenNotifications, notificationVersion, creditsBalance, onTogglePrivateMode, privateThreadIds } = useOutletContext<OutletContext>()
@@ -89,6 +89,7 @@ export function ChatPage() {
   const [checkInDraft, setCheckInDraft] = useState('')
   const [checkInSubmitting, setCheckInSubmitting] = useState(false)
   const [shareModalOpen, setShareModalOpen] = useState(false)
+  const [pendingIncognito, setPendingIncognito] = useState(false)
 
   // web 引用来源：messageId -> WebSource[]
   const [messageSourcesMap, setMessageSourcesMap] = useState<Map<string, WebSource[]>>(new Map())
@@ -103,7 +104,7 @@ export function ChatPage() {
   const lastPanelSourcesRef = useRef<WebSource[] | undefined>(undefined)
   const lastPanelQueryRef = useRef<string | undefined>(undefined)
   // segment 状态：用于渲染 Agent 规划轮折叠块
-  type Segment = { segmentId: string; kind: string; mode: string; label: string; content: string; isStreaming: boolean }
+  type Segment = { segmentId: string; kind: string; mode: string; label: string; content: string; isStreaming: boolean; codeExecutions: CodeExecution[] }
   const [segments, setSegments] = useState<Segment[]>([])
   const activeSegmentIdRef = useRef<string | null>(null)
   // Pro 路径的 LLM 原生 thinking 内容（channel: "thinking"）
@@ -210,6 +211,7 @@ export function ChatPage() {
           const isRunning = latest?.status === 'running'
           setActiveRunId(isRunning ? latest.run_id : null)
           if (isRunning && threadId) onRunStarted(threadId)
+          else if (threadId) onRunEnded(threadId)
         }
       } catch (err) {
         if (isApiError(err) && err.status === 401) {
@@ -263,6 +265,20 @@ export function ChatPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeRunId])
 
+  // 页面从后台回到前台时，若 SSE 已断开则重连
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.visibilityState !== 'visible') return
+      if (!activeRunId) return
+      const s = sse.state
+      if (s === 'closed' || s === 'error' || s === 'idle') {
+        sse.reconnect()
+      }
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange)
+  }, [activeRunId, sse.state, sse.reconnect]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // 处理 SSE 事件
   useEffect(() => {
     if (!activeRunId) return
@@ -301,7 +317,7 @@ export function ChatPage() {
             queries,
           }])
         } else {
-          setSegments((prev) => [...prev, { segmentId, kind, mode, label, content: '', isStreaming: true }])
+          setSegments((prev) => [...prev, { segmentId, kind, mode, label, content: '', isStreaming: true, codeExecutions: [] }])
         }
         continue
       }
@@ -341,6 +357,26 @@ export function ChatPage() {
           setThinkingDraft((prev) => prev + delta)
         } else {
           setAssistantDraft((prev) => prev + delta)
+        }
+        continue
+      }
+
+      if (event.type === 'tool.call') {
+        const obj = event.data as { tool_name?: unknown; tool_call_id?: unknown }
+        const toolName = typeof obj.tool_name === 'string' ? obj.tool_name : event.tool_name
+        if (toolName === 'code_execute' || toolName === 'shell_execute') {
+          const activeSeg = activeSegmentIdRef.current
+          if (activeSeg) {
+            const callId = typeof obj.tool_call_id === 'string' ? obj.tool_call_id : event.event_id
+            const language: CodeExecution['language'] = toolName === 'code_execute' ? 'python' : 'shell'
+            setSegments((prev) =>
+              prev.map((s) =>
+                s.segmentId === activeSeg
+                  ? { ...s, codeExecutions: [...s.codeExecutions, { id: callId, language }] }
+                  : s,
+              ),
+            )
+          }
         }
         continue
       }
@@ -577,6 +613,26 @@ export function ChatPage() {
         ? `${fileParts.join('\n\n')}${text ? `\n\n${text}` : ''}`
         : text
 
+      // 首次在无痕模式下发送：先 fork 出一个 private thread，再在其中发送
+      if (pendingIncognito && messages.length > 0) {
+        const lastMessageId = messages[messages.length - 1].id
+        const forked = await forkThread(accessToken, threadId, lastMessageId, true)
+        onThreadCreated(forked)
+        await createMessage(accessToken, forked.id, { content })
+        const tierToSkillId: Record<SelectedTier, string> = {
+          Auto: 'auto', Lite: 'lite', Pro: 'pro', Ultra: 'ultra', Search: 'search',
+        }
+        const run = await createRun(accessToken, forked.id, tierToSkillId[tier])
+        setDraft('')
+        setAttachments([])
+        navigate(`/t/${forked.id}`, {
+          state: { isIncognitoFork: true, initialRunId: run.run_id },
+          replace: false,
+        })
+        onRunStarted(forked.id)
+        return
+      }
+
       const message = await createMessage(accessToken, threadId, { content })
       setMessages((prev) => [...prev, message])
       setDraft('')
@@ -778,13 +834,22 @@ export function ChatPage() {
           </button>
         )}
         <button
-          onClick={threadId && privateThreadIds.has(threadId) ? undefined : onTogglePrivateMode}
+          onClick={
+            threadId && privateThreadIds.has(threadId)
+              ? undefined
+              : pendingIncognito
+                ? () => setPendingIncognito(false)
+                : messages.length > 0
+                  ? () => setPendingIncognito(true)
+                  : onTogglePrivateMode
+          }
           title={threadId && privateThreadIds.has(threadId) ? t.thisThreadIsIncognito : t.toggleIncognito}
           className={[
             'flex h-8 w-8 items-center justify-center rounded-lg transition-colors',
-            threadId && privateThreadIds.has(threadId)
-              ? 'bg-[var(--c-bg-deep)] text-[var(--c-text-primary)] cursor-default'
+            threadId && privateThreadIds.has(threadId) || pendingIncognito
+              ? 'bg-[var(--c-bg-deep)] text-[var(--c-text-primary)]'
               : 'text-[var(--c-text-secondary)] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]',
+            threadId && privateThreadIds.has(threadId) ? 'cursor-default' : 'cursor-pointer',
           ].join(' ')}
         >
           <Glasses size={18} />
@@ -837,6 +902,11 @@ export function ChatPage() {
                         ? () => void handleFork(msg.id)
                         : undefined
                     }
+                    onShare={
+                      msg.role === 'assistant' && !isStreaming && !sending && threadId && !privateThreadIds.has(threadId)
+                        ? () => setShareModalOpen(true)
+                        : undefined
+                    }
                     webSources={msg.role === 'assistant' ? messageSourcesMap.get(msg.id) : undefined}
                     artifacts={msg.role === 'assistant' ? messageArtifactsMap.get(msg.id) : undefined}
                     accessToken={accessToken}
@@ -867,6 +937,7 @@ export function ChatPage() {
                   mode={seg.mode as 'visible' | 'collapsed' | 'hidden'}
                   content={seg.content}
                   isStreaming={seg.isStreaming}
+                  codeExecutions={seg.codeExecutions}
                 />
               ))}
 
@@ -923,6 +994,17 @@ export function ChatPage() {
               )}
 
               {terminalSseError && <ErrorCallout error={terminalSseError} />}
+
+              {(pendingIncognito || locationState?.isIncognitoFork) && !isStreaming && (
+                <div className="flex items-center gap-3 py-1">
+                  <div className="h-px flex-1" style={{ background: 'var(--c-border-subtle)' }} />
+                  <span className="flex items-center gap-1.5 text-xs text-[var(--c-text-muted)]">
+                    <Glasses size={12} />
+                    {t.incognitoForkDivider}
+                  </span>
+                  <div className="h-px flex-1" style={{ background: 'var(--c-border-subtle)' }} />
+                </div>
+              )}
 
               <div ref={bottomRef} />
             </>

@@ -311,6 +311,7 @@ export type ThreadResponse = {
   created_at: string
   active_run_id: string | null
   is_private: boolean
+  parent_thread_id?: string | null
 }
 
 export async function createThread(
@@ -401,11 +402,14 @@ export async function forkThread(
   accessToken: string,
   threadId: string,
   messageId: string,
+  isPrivate?: boolean,
 ): Promise<ThreadResponse> {
+  const body: Record<string, unknown> = { message_id: messageId }
+  if (isPrivate !== undefined) body.is_private = isPrivate
   return await apiFetch<ThreadResponse>(`/v1/threads/${threadId}:fork`, {
     method: 'POST',
     accessToken,
-    body: JSON.stringify({ message_id: messageId }),
+    body: JSON.stringify(body),
   })
 }
 

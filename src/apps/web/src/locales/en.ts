@@ -136,6 +136,7 @@ export const en: LocaleStrings = {
   incognitoLabel: 'Incognito',
   thisThreadIsIncognito: 'This thread is incognito',
   toggleIncognito: 'Toggle incognito',
+  incognitoForkDivider: 'From this point on, messages will not be saved and will be permanently deleted within 24 hours.',
   starThread: 'Star',
   unstarThread: 'Unstar',
   shareThread: 'Share',

@@ -486,6 +486,7 @@ func searchThreads(
 
 type forkThreadRequest struct {
 	MessageID string `json:"message_id"`
+	IsPrivate *bool  `json:"is_private,omitempty"`
 }
 
 func forkThread(
@@ -561,7 +562,12 @@ func forkThread(
 			return
 		}
 
-		forked, err := txThreadRepo.Fork(r.Context(), actor.OrgID, &actor.UserID, threadID, messageID, thread.IsPrivate)
+		isPrivate := thread.IsPrivate
+		if body.IsPrivate != nil {
+			isPrivate = *body.IsPrivate
+		}
+
+		forked, err := txThreadRepo.Fork(r.Context(), actor.OrgID, &actor.UserID, threadID, messageID, isPrivate)
 		if err != nil {
 			WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
