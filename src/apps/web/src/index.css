@@ -40,6 +40,11 @@ button:not(:disabled) {
   --c-modal-ring: rgba(255, 255, 255, 0.07);
   --c-bg-github-btn: #3d3d3b;
   --c-github-btn-border: rgba(255, 255, 255, 0.10);
+  --c-md-code-block-bg: #1E1D1C;
+  --c-md-code-label-bg: #2B2A29;
+  --c-md-table-bg: #1E1D1C;
+  --c-md-table-head-bg: #242322;
+  --c-md-inline-code-bg: #242322;
   --c-input-shadow: 0 2px 3px -1px rgba(0, 0, 0, 0.08);
   --c-input-border: 1px solid rgba(255, 255, 255, 0.15);
   --c-input-shadow-focus: 0 4px 10px -2px rgba(0, 0, 0, 0.10);
@@ -86,6 +91,11 @@ button:not(:disabled) {
     --c-modal-ring: rgba(0, 0, 0, 0.09);
     --c-bg-github-btn: #FFFFFF;
     --c-github-btn-border: rgba(0, 0, 0, 0.08);
+    --c-md-code-block-bg: #F6F4F2;
+    --c-md-code-label-bg: #ECE9E6;
+    --c-md-table-bg: #FEFDFD;
+    --c-md-table-head-bg: #F8F7F6;
+    --c-md-inline-code-bg: #F0EEEC;
     --c-input-shadow: 0 2px 3px -1px rgba(0, 0, 0, 0.10);
     --c-input-border: 0.5px solid rgba(0, 0, 0, 0.07);
     --c-input-shadow-focus: 0 4px 10px -2px rgba(0, 0, 0, 0.09), 0 0 0 1px rgba(0, 0, 0, 0.05);
@@ -132,6 +142,11 @@ button:not(:disabled) {
   --c-modal-ring: rgba(0, 0, 0, 0.09);
   --c-bg-github-btn: #FFFFFF;
   --c-github-btn-border: rgba(0, 0, 0, 0.08);
+  --c-md-code-block-bg: #F6F4F2;
+  --c-md-code-label-bg: #ECE9E6;
+  --c-md-table-bg: #FEFDFD;
+  --c-md-table-head-bg: #F8F7F6;
+  --c-md-inline-code-bg: #F0EEEC;
   --c-input-shadow: 0 2px 3px -1px rgba(0, 0, 0, 0.10);
   --c-input-border: 0.5px solid rgba(0, 0, 0, 0.07);
   --c-input-shadow-focus: 0 4px 10px -2px rgba(0, 0, 0, 0.09), 0 0 0 1px rgba(0, 0, 0, 0.05);
@@ -141,6 +156,52 @@ button:not(:disabled) {
   --c-error-subtext: #ef4444;
   --c-dropdown-shadow: 0 4px 16px rgba(0,0,0,0.08);
 }
+
+.md-table-wrap {
+  overflow-x: auto;
+  margin: 1em 0;
+  border: 0.5px solid var(--c-border-subtle);
+  border-radius: 12px;
+  background: var(--c-md-table-bg, transparent);
+}
+
+.md-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 15px;
+}
+
+.md-table th,
+.md-table td {
+  padding: 8px 12px;
+  text-align: left;
+  border-right: 0.5px solid var(--c-border-subtle);
+  border-bottom: 0.5px solid var(--c-border-subtle);
+}
+
+.md-table th {
+  color: var(--c-text-secondary);
+  font-weight: 600;
+  font-size: 14px;
+  white-space: nowrap;
+  background: var(--c-md-table-head-bg, transparent);
+}
+
+.md-table td {
+  color: var(--c-text-primary);
+  vertical-align: top;
+  background: var(--c-md-table-bg, transparent);
+}
+
+.md-table tr > :last-child {
+  border-right: none;
+}
+
+.md-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
 .hljs { background: transparent; color: var(--c-text-primary); }
 .hljs-comment,
 .hljs-quote { color: #6e7a6e; font-style: italic; }

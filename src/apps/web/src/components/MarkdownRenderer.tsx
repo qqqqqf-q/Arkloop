@@ -160,7 +160,7 @@ function CodeBlockWrapper({ children }: { children: React.ReactNode }) {
         margin: '1em 0',
         border: '0.5px solid var(--c-border-subtle)',
         borderRadius: `${frameRadius}px`,
-        background: 'var(--c-bg-deep)',
+        background: 'var(--c-md-code-block-bg, var(--c-bg-deep))',
         overflow: 'hidden',
       }}
     >
@@ -179,7 +179,7 @@ function CodeBlockWrapper({ children }: { children: React.ReactNode }) {
           borderBottomRightRadius: '8px',
           borderRight: '0.5px solid var(--c-border-subtle)',
           borderBottom: '0.5px solid var(--c-border-subtle)',
-          background: 'var(--c-bg-sub)',
+          background: 'var(--c-md-code-label-bg, var(--c-bg-sub))',
           color: 'var(--c-text-secondary)',
           fontSize: '11px',
           letterSpacing: '0.18px',
@@ -341,7 +341,7 @@ const mdComponents: Components = {
     return (
       <code
         style={{
-          background: 'var(--c-bg-deep)',
+          background: 'var(--c-md-inline-code-bg, var(--c-bg-deep))',
           borderRadius: '4px',
           padding: '1px 5px',
           fontSize: '0.875em',
@@ -410,21 +410,21 @@ const mdComponents: Components = {
   img: ({ src, alt }) => <ArtifactAwareImg src={src} alt={alt} />,
 
   table: ({ children }) => (
-    <div style={{ overflowX: 'auto', margin: '1em 0' }}>
-      <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: '15px' }}>
+    <div className="md-table-wrap">
+      <table className="md-table">
         {children}
       </table>
     </div>
   ),
 
   th: ({ children }) => (
-    <th style={{ borderBottom: '1px solid var(--c-border)', padding: '8px 12px', textAlign: 'left', color: 'var(--c-text-secondary)', fontWeight: 600, fontSize: '14px', whiteSpace: 'nowrap' }}>
+    <th>
       {children}
     </th>
   ),
 
   td: ({ children }) => (
-    <td style={{ borderBottom: '0.5px solid var(--c-border-subtle)', padding: '8px 12px', color: 'var(--c-text-primary)', verticalAlign: 'top' }}>
+    <td>
       <WithCitations prefix="td">{children}</WithCitations>
     </td>
   ),
