@@ -69,8 +69,14 @@ export type ListRunsResponse = {
 }
 
 export type ListRunsParams = {
+  run_id?: string
   status?: string
+  org_id?: string
+  thread_id?: string
   user_id?: string
+  parent_run_id?: string
+  model?: string
+  skill_id?: string
   since?: string
   until?: string
   limit?: number
@@ -82,8 +88,14 @@ export async function listRuns(
   accessToken: string,
 ): Promise<ListRunsResponse> {
   const qs = new URLSearchParams()
+  if (params.run_id) qs.set('run_id', params.run_id)
   if (params.status) qs.set('status', params.status)
+  if (params.org_id) qs.set('org_id', params.org_id)
+  if (params.thread_id) qs.set('thread_id', params.thread_id)
   if (params.user_id) qs.set('user_id', params.user_id)
+  if (params.parent_run_id) qs.set('parent_run_id', params.parent_run_id)
+  if (params.model) qs.set('model', params.model)
+  if (params.skill_id) qs.set('skill_id', params.skill_id)
   if (params.since) qs.set('since', params.since)
   if (params.until) qs.set('until', params.until)
   if (params.limit != null) qs.set('limit', String(params.limit))
@@ -136,4 +148,3 @@ export async function fetchRunEventsOnce(
 
   return events
 }
-

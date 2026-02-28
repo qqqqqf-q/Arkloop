@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useMemo, type ReactNode } from 'react'
-import { useOutletContext } from 'react-router-dom'
+import { useOutletContext, useSearchParams } from 'react-router-dom'
 import { RefreshCw, Play } from 'lucide-react'
 import type { ConsoleOutletContext } from '../layouts/ConsoleLayout'
 import { PageHeader } from '../components/PageHeader'
@@ -12,6 +12,32 @@ import { RunDetailPanel } from '../components/RunDetailPanel'
 import { listRuns, cancelRun, type GlobalRun } from '../api/runs'
 
 const PAGE_SIZE = 50
+
+type RunFilters = {
+  runId: string
+  threadId: string
+  userId: string
+  orgId: string
+  parentRunId: string
+  status: string
+  model: string
+  skillId: string
+  since: string
+  until: string
+}
+
+const EMPTY_RUN_FILTERS: RunFilters = {
+  runId: '',
+  threadId: '',
+  userId: '',
+  orgId: '',
+  parentRunId: '',
+  status: '',
+  model: '',
+  skillId: '',
+  since: '',
+  until: '',
+}
 
 function statusVariant(status: string): BadgeVariant {
   switch (status) {
@@ -41,11 +67,63 @@ function truncateId(id: string): string {
   return id.length > 8 ? id.slice(0, 8) : id
 }
 
+function parseInitialFilters(searchParams: URLSearchParams): RunFilters {
+  return {
+    ...EMPTY_RUN_FILTERS,
+    runId: searchParams.get('run_id') ?? '',
+    threadId: searchParams.get('thread_id') ?? '',
+    userId: searchParams.get('user_id') ?? '',
+    orgId: searchParams.get('org_id') ?? '',
+    parentRunId: searchParams.get('parent_run_id') ?? '',
+    status: searchParams.get('status') ?? '',
+    model: searchParams.get('model') ?? '',
+    skillId: searchParams.get('skill_id') ?? '',
+  }
+}
+
+function normalizeFilters(filters: RunFilters): RunFilters {
+  return {
+    ...filters,
+    runId: filters.runId.trim(),
+    threadId: filters.threadId.trim(),
+    userId: filters.userId.trim(),
+    orgId: filters.orgId.trim(),
+    parentRunId: filters.parentRunId.trim(),
+    status: filters.status.trim(),
+    model: filters.model.trim(),
+    skillId: filters.skillId.trim(),
+  }
+}
+
+function toRFC3339(value: string): string | undefined {
+  if (!value.trim()) return undefined
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return undefined
+  return parsed.toISOString()
+}
+
+function countActiveFilters(filters: RunFilters): number {
+  const values = [
+    filters.runId,
+    filters.threadId,
+    filters.userId,
+    filters.orgId,
+    filters.parentRunId,
+    filters.status,
+    filters.model,
+    filters.skillId,
+    filters.since,
+    filters.until,
+  ]
+  return values.filter((value) => value.trim() !== '').length
+}
+
 export function RunsPage() {
   const { accessToken } = useOutletContext<ConsoleOutletContext>()
   const { addToast } = useToast()
   const { t } = useLocale()
   const rt = t.pages.runs
+  const [searchParams] = useSearchParams()
 
   const statusOptions = useMemo(() => [
     { value: '', label: rt.filterAll },
@@ -58,21 +136,29 @@ export function RunsPage() {
   const [runs, setRuns] = useState<GlobalRun[]>([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(false)
-  const [statusFilter, setStatusFilter] = useState('')
-  const [userIdFilter, setUserIdFilter] = useState('')
+  const [draftFilters, setDraftFilters] = useState<RunFilters>(() => parseInitialFilters(searchParams))
+  const [appliedFilters, setAppliedFilters] = useState<RunFilters>(() => parseInitialFilters(searchParams))
   const [offset, setOffset] = useState(0)
   const [cancelTarget, setCancelTarget] = useState<GlobalRun | null>(null)
   const [cancelling, setCancelling] = useState(false)
   const [selectedRun, setSelectedRun] = useState<GlobalRun | null>(null)
 
   const fetchRuns = useCallback(
-    async (status: string, userId: string, currentOffset: number) => {
+    async (filters: RunFilters, currentOffset: number) => {
       setLoading(true)
       try {
         const resp = await listRuns(
           {
-            status: status || undefined,
-            user_id: userId.trim() || undefined,
+            run_id: filters.runId || undefined,
+            thread_id: filters.threadId || undefined,
+            user_id: filters.userId || undefined,
+            org_id: filters.orgId || undefined,
+            parent_run_id: filters.parentRunId || undefined,
+            status: filters.status || undefined,
+            model: filters.model || undefined,
+            skill_id: filters.skillId || undefined,
+            since: toRFC3339(filters.since),
+            until: toRFC3339(filters.until),
             limit: PAGE_SIZE,
             offset: currentOffset,
           },
@@ -86,26 +172,37 @@ export function RunsPage() {
         setLoading(false)
       }
     },
-    [accessToken, addToast],
+    [accessToken, addToast, rt.toastLoadFailed],
   )
 
   useEffect(() => {
-    void fetchRuns(statusFilter, userIdFilter, offset)
-  }, [fetchRuns, statusFilter, userIdFilter, offset])
+    void fetchRuns(appliedFilters, offset)
+  }, [fetchRuns, appliedFilters, offset])
 
-  const handleStatusChange = useCallback((value: string) => {
-    setStatusFilter(value)
+  const updateDraftFilter = useCallback(
+    (key: keyof RunFilters, value: string) => {
+      setDraftFilters((prev) => ({ ...prev, [key]: value }))
+    },
+    [],
+  )
+
+  const handleApplyFilters = useCallback(() => {
+    const normalized = normalizeFilters(draftFilters)
+    setDraftFilters(normalized)
+    setAppliedFilters(normalized)
     setOffset(0)
-  }, [])
+  }, [draftFilters])
 
-  const handleUserIdChange = useCallback((value: string) => {
-    setUserIdFilter(value)
+  const handleResetFilters = useCallback(() => {
+    const cleared = { ...EMPTY_RUN_FILTERS }
+    setDraftFilters(cleared)
+    setAppliedFilters(cleared)
     setOffset(0)
   }, [])
 
   const handleRefresh = useCallback(() => {
-    void fetchRuns(statusFilter, userIdFilter, offset)
-  }, [fetchRuns, statusFilter, userIdFilter, offset])
+    void fetchRuns(appliedFilters, offset)
+  }, [fetchRuns, appliedFilters, offset])
 
   const handleCancelConfirm = useCallback(async () => {
     if (!cancelTarget) return
@@ -113,13 +210,13 @@ export function RunsPage() {
     try {
       await cancelRun(cancelTarget.run_id, accessToken)
       setCancelTarget(null)
-      void fetchRuns(statusFilter, userIdFilter, offset)
+      void fetchRuns(appliedFilters, offset)
     } catch {
       addToast(rt.toastCancelFailed, 'error')
     } finally {
       setCancelling(false)
     }
-  }, [cancelTarget, accessToken, fetchRuns, statusFilter, userIdFilter, offset, addToast])
+  }, [cancelTarget, accessToken, fetchRuns, appliedFilters, offset, addToast, rt.toastCancelFailed])
 
   const columns: Column<GlobalRun>[] = [
     {
@@ -144,6 +241,15 @@ export function RunsPage() {
       ),
     },
     {
+      key: 'org_id',
+      header: rt.colOrg,
+      render: (row) => (
+        <span className="font-mono text-xs" title={row.org_id}>
+          {truncateId(row.org_id)}
+        </span>
+      ),
+    },
+    {
       key: 'thread_id',
       header: rt.colThread,
       render: (row) => (
@@ -163,7 +269,18 @@ export function RunsPage() {
       key: 'model',
       header: rt.colModel,
       render: (row) => (
-        <span className="text-xs">{row.model ?? '--'}</span>
+        <span className="inline-block max-w-[120px] truncate text-xs" title={row.model ?? undefined}>
+          {row.model ?? '--'}
+        </span>
+      ),
+    },
+    {
+      key: 'skill_id',
+      header: rt.colSkill,
+      render: (row) => (
+        <span className="inline-block max-w-[140px] truncate text-xs" title={row.skill_id ?? undefined}>
+          {row.skill_id ?? '--'}
+        </span>
       ),
     },
     {
@@ -244,27 +361,13 @@ export function RunsPage() {
 
   const totalPages = Math.ceil(total / PAGE_SIZE)
   const currentPage = Math.floor(offset / PAGE_SIZE) + 1
+  const activeFilterCount = useMemo(() => countActiveFilters(appliedFilters), [appliedFilters])
 
   const actions = (
     <>
-      <input
-        type="text"
-        placeholder={rt.filterUserPlaceholder}
-        value={userIdFilter}
-        onChange={(e) => handleUserIdChange(e.target.value)}
-        className="w-60 rounded-lg border border-[var(--c-border)] bg-[var(--c-bg-deep2)] px-2.5 py-1.5 text-xs text-[var(--c-text-secondary)] placeholder:text-[var(--c-text-muted)] focus:outline-none"
-      />
-      <select
-        value={statusFilter}
-        onChange={(e) => handleStatusChange(e.target.value)}
-        className="rounded-lg border border-[var(--c-border)] bg-[var(--c-bg-deep2)] px-2.5 py-1.5 text-xs text-[var(--c-text-secondary)] focus:outline-none"
-      >
-        {statusOptions.map((opt) => (
-          <option key={opt.value} value={opt.value}>
-            {opt.label}
-          </option>
-        ))}
-      </select>
+      <span className="rounded-md border border-[var(--c-border)] px-2 py-1 text-xs text-[var(--c-text-muted)]">
+        {rt.filterActiveCount(activeFilterCount)}
+      </span>
       <button
         onClick={handleRefresh}
         disabled={loading}
@@ -276,9 +379,108 @@ export function RunsPage() {
     </>
   )
 
+  const filterInputCls = 'rounded-lg border border-[var(--c-border)] bg-[var(--c-bg-deep2)] px-2.5 py-1.5 text-xs text-[var(--c-text-secondary)] placeholder:text-[var(--c-text-muted)] focus:outline-none'
+
   return (
     <div className="flex h-full flex-col overflow-hidden">
       <PageHeader title={rt.title} actions={actions} />
+
+      <div className="border-b border-[var(--c-border-console)] px-6 py-3">
+        <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-5">
+          <input
+            type="text"
+            placeholder={rt.filterRunPlaceholder}
+            value={draftFilters.runId}
+            onChange={(e) => updateDraftFilter('runId', e.target.value)}
+            className={filterInputCls}
+          />
+          <input
+            type="text"
+            placeholder={rt.filterThreadPlaceholder}
+            value={draftFilters.threadId}
+            onChange={(e) => updateDraftFilter('threadId', e.target.value)}
+            className={filterInputCls}
+          />
+          <input
+            type="text"
+            placeholder={rt.filterUserPlaceholder}
+            value={draftFilters.userId}
+            onChange={(e) => updateDraftFilter('userId', e.target.value)}
+            className={filterInputCls}
+          />
+          <input
+            type="text"
+            placeholder={rt.filterOrgPlaceholder}
+            value={draftFilters.orgId}
+            onChange={(e) => updateDraftFilter('orgId', e.target.value)}
+            className={filterInputCls}
+          />
+          <input
+            type="text"
+            placeholder={rt.filterParentRunPlaceholder}
+            value={draftFilters.parentRunId}
+            onChange={(e) => updateDraftFilter('parentRunId', e.target.value)}
+            className={filterInputCls}
+          />
+          <select
+            value={draftFilters.status}
+            onChange={(e) => updateDraftFilter('status', e.target.value)}
+            className={filterInputCls}
+          >
+            {statusOptions.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+          <input
+            type="text"
+            placeholder={rt.filterModelPlaceholder}
+            value={draftFilters.model}
+            onChange={(e) => updateDraftFilter('model', e.target.value)}
+            className={filterInputCls}
+          />
+          <input
+            type="text"
+            placeholder={rt.filterSkillPlaceholder}
+            value={draftFilters.skillId}
+            onChange={(e) => updateDraftFilter('skillId', e.target.value)}
+            className={filterInputCls}
+          />
+          <div className="flex flex-col gap-1">
+            <span className="text-[11px] text-[var(--c-text-muted)]">{rt.filterSinceLabel}</span>
+            <input
+              type="datetime-local"
+              value={draftFilters.since}
+              onChange={(e) => updateDraftFilter('since', e.target.value)}
+              className={filterInputCls}
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <span className="text-[11px] text-[var(--c-text-muted)]">{rt.filterUntilLabel}</span>
+            <input
+              type="datetime-local"
+              value={draftFilters.until}
+              onChange={(e) => updateDraftFilter('until', e.target.value)}
+              className={filterInputCls}
+            />
+          </div>
+        </div>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <button
+            onClick={handleApplyFilters}
+            className="rounded-lg bg-[var(--c-bg-tag)] px-3 py-1.5 text-xs font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-sub)]"
+          >
+            {rt.applyFilters}
+          </button>
+          <button
+            onClick={handleResetFilters}
+            className="rounded-lg border border-[var(--c-border)] px-3 py-1.5 text-xs text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-sub)]"
+          >
+            {rt.resetFilters}
+          </button>
+        </div>
+      </div>
 
       <div className="flex flex-1 flex-col overflow-auto">
         <DataTable
@@ -338,4 +540,3 @@ export function RunsPage() {
     </div>
   )
 }
-
