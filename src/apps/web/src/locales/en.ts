@@ -121,6 +121,7 @@ export const en: LocaleStrings = {
   freeTrialDesc: "We're currently free. Run out of credits? Come find us.",
   addFromLocal: 'Add from local files',
   addFromGitHub: 'Add from GitHub',
+  dragToAttach: 'Drop files here',
   searchChatsPlaceholder: 'Search chats...',
   searchNoResults: 'No results',
   searchToday: 'Today',

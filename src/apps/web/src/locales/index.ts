@@ -122,6 +122,7 @@ export interface LocaleStrings {
   // chat input menu
   addFromLocal: string
   addFromGitHub: string
+  dragToAttach: string
   // chats search modal
   searchChatsPlaceholder: string
   searchNoResults: string

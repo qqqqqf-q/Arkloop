@@ -1,6 +1,6 @@
 import { useRef, useEffect, useCallback, useState } from 'react'
 import { Plus, ChevronDown, ArrowUp, Square, Paperclip, Mic, X, Check, Loader2 } from 'lucide-react'
-import type { FormEvent, KeyboardEvent } from 'react'
+import type { FormEvent, KeyboardEvent, ClipboardEvent as ReactClipboardEvent } from 'react'
 import { transcribeAudio } from '../api'
 import { useLocale } from '../contexts/LocaleContext'
 import { readSelectedTierFromStorage, writeSelectedTierToStorage, type SelectedTier } from '../storage'
@@ -30,6 +30,39 @@ type Props = {
   accessToken?: string
   onAsrError?: (error: unknown) => void
   onTierChange?: (tier: SelectedTier) => void
+}
+function hasTransferFiles(dataTransfer?: DataTransfer | null): boolean {
+  if (!dataTransfer) return false
+  if (Array.from(dataTransfer.types).includes('Files')) return true
+  if (dataTransfer.files.length > 0) return true
+  return Array.from(dataTransfer.items).some((item) => item.kind === 'file')
+}
+
+function extractFilesFromTransfer(dataTransfer?: DataTransfer | null): File[] {
+  if (!dataTransfer) return []
+  const files: File[] = []
+  const seen = new Set<string>()
+  const pushFile = (file: File | null | undefined) => {
+    if (!file) return
+    const key = `${file.name}:${file.size}:${file.lastModified}`
+    if (seen.has(key)) return
+    seen.add(key)
+    files.push(file)
+  }
+
+  Array.from(dataTransfer.items)
+    .filter((item) => item.kind === 'file')
+    .forEach((item) => pushFile(item.getAsFile()))
+
+  Array.from(dataTransfer.files).forEach((file) => pushFile(file))
+  return files
+}
+
+function isEditableElement(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false
+  if (target.isContentEditable) return true
+  const tagName = target.tagName
+  return tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT'
 }
 
 export function formatFileSize(bytes: number): string {
@@ -71,6 +104,7 @@ export function ChatInput({
   const animFrameRef = useRef<number>(0)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const discardRef = useRef(false)
+  const dragDepthRef = useRef(0)
   // stable refs so closures inside startRecording always see latest values
   const valueRef = useRef(value)
   const onChangeRef = useRef(onChange)
@@ -92,6 +126,7 @@ export function ChatInput({
   const [isTranscribing, setIsTranscribing] = useState(false)
   const [recordingSeconds, setRecordingSeconds] = useState(0)
   const [waveformBars, setWaveformBars] = useState<number[]>(Array(BAR_COUNT).fill(0))
+  const [isFileDragging, setIsFileDragging] = useState(false)
 
   // cleanup on unmount
   useEffect(() => {
@@ -252,6 +287,86 @@ export function ChatInput({
     return () => document.removeEventListener('mousedown', handleClick)
   }, [tierMenuOpen])
 
+  const handleAttachTransfer = useCallback((dataTransfer?: DataTransfer | null) => {
+    const files = extractFilesFromTransfer(dataTransfer)
+    if (files.length === 0 || !onAttachFiles) return false
+    onAttachFiles(files)
+    textareaRef.current?.focus()
+    setMenuOpen(false)
+    return true
+  }, [onAttachFiles])
+
+  useEffect(() => {
+    if (!onAttachFiles) return
+
+    const resetDragState = () => {
+      dragDepthRef.current = 0
+      setIsFileDragging(false)
+    }
+
+    const handleDragEnter = (e: DragEvent) => {
+      if (!hasTransferFiles(e.dataTransfer)) return
+      e.preventDefault()
+      dragDepthRef.current += 1
+      setIsFileDragging(true)
+    }
+
+    const handleDragOver = (e: DragEvent) => {
+      if (!hasTransferFiles(e.dataTransfer)) return
+      e.preventDefault()
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
+      setIsFileDragging(true)
+    }
+
+    const handleDragLeave = (e: DragEvent) => {
+      if (dragDepthRef.current === 0 && !hasTransferFiles(e.dataTransfer)) return
+      e.preventDefault()
+      dragDepthRef.current = Math.max(0, dragDepthRef.current - 1)
+      if (dragDepthRef.current === 0) {
+        setIsFileDragging(false)
+      }
+    }
+
+    const handleDrop = (e: DragEvent) => {
+      if (dragDepthRef.current === 0 && !hasTransferFiles(e.dataTransfer)) return
+      e.preventDefault()
+      handleAttachTransfer(e.dataTransfer)
+      resetDragState()
+    }
+
+    const handleWindowBlur = () => {
+      resetDragState()
+    }
+
+    window.addEventListener('dragenter', handleDragEnter)
+    window.addEventListener('dragover', handleDragOver)
+    window.addEventListener('dragleave', handleDragLeave)
+    window.addEventListener('drop', handleDrop)
+    window.addEventListener('blur', handleWindowBlur)
+
+    return () => {
+      window.removeEventListener('dragenter', handleDragEnter)
+      window.removeEventListener('dragover', handleDragOver)
+      window.removeEventListener('dragleave', handleDragLeave)
+      window.removeEventListener('drop', handleDrop)
+      window.removeEventListener('blur', handleWindowBlur)
+      resetDragState()
+    }
+  }, [handleAttachTransfer, onAttachFiles])
+
+  useEffect(() => {
+    if (!onAttachFiles) return
+    const handlePaste = (e: ClipboardEvent) => {
+      if (e.target === textareaRef.current) return
+      if (isEditableElement(e.target)) return
+      if (!hasTransferFiles(e.clipboardData)) return
+      if (!handleAttachTransfer(e.clipboardData)) return
+      e.preventDefault()
+    }
+    document.addEventListener('paste', handlePaste)
+    return () => document.removeEventListener('paste', handlePaste)
+  }, [handleAttachTransfer, onAttachFiles])
+
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault()
@@ -266,6 +381,12 @@ export function ChatInput({
     if (files.length > 0) onAttachFiles?.(files)
     e.target.value = ''
     setMenuOpen(false)
+  }
+
+  const handleTextareaPaste = (e: ReactClipboardEvent<HTMLTextAreaElement>) => {
+    if (!hasTransferFiles(e.clipboardData)) return
+    if (!handleAttachTransfer(e.clipboardData)) return
+    e.preventDefault()
   }
 
   const cycleTier = () => {
@@ -285,6 +406,19 @@ export function ChatInput({
 
   return (
     <div className="w-full max-w-[840px]" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+      {isFileDragging && (
+        <div
+          className="flex items-center justify-center rounded-xl px-4 py-2 text-sm"
+          style={{
+            border: '0.5px dashed var(--c-border-subtle)',
+            background: 'var(--c-bg-sub)',
+            color: 'var(--c-text-secondary)',
+          }}
+        >
+          {t.dragToAttach}
+        </div>
+      )}
+
       {/* 录音 / 转写进行中时显示的波形条 */}
       {(isRecording || isTranscribing) && (
         <div
@@ -392,6 +526,7 @@ export function ChatInput({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={handleKeyDown}
+          onPaste={handleTextareaPaste}
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
           placeholder={placeholder}
