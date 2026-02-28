@@ -85,6 +85,14 @@ func injectFromCacheOrFind(ctx context.Context, rc *RunContext, provider memory.
 	block := renderMemoryBlock(findCtx, provider, ident, query)
 	if block != "" {
 		rc.SystemPrompt += block
+		// 降级 Find 成功时顺便写入快照，引导缓存
+		if pool != nil {
+			go func() {
+				uCtx, uCancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer uCancel()
+				_ = snapshotRepo.Upsert(uCtx, pool, ident.OrgID, ident.UserID, ident.AgentID, block)
+			}()
+		}
 	}
 }
 
@@ -127,10 +135,26 @@ func renderMemoryBlock(ctx context.Context, provider memory.MemoryProvider, iden
 	return block
 }
 
-// commitAndSnapshotAsync 归档对话后快照最新记忆到 PG，供下次 run 直接读取。
+// commitAndSnapshotAsync 先快照当前记忆到 PG（在 commit 阻塞 OV 之前），再归档对话。
 func commitAndSnapshotAsync(ident memory.MemoryIdentity, provider memory.MemoryProvider, pool *pgxpool.Pool, sessionID string, msgs []memory.MemoryMessage, lastQuery string) {
 	ctx, cancel := context.WithTimeout(context.Background(), memoryCommitTimeout)
 	defer cancel()
+
+	// 先快照：commit 会阻塞 OpenViking 数分钟，必须在 commit 之前 Find
+	if pool != nil {
+		snapCtx, snapCancel := context.WithTimeout(ctx, snapshotFindTimeout)
+		block := renderMemoryBlock(snapCtx, provider, ident, lastQuery)
+		snapCancel()
+		if block != "" {
+			if err := snapshotRepo.Upsert(ctx, pool, ident.OrgID, ident.UserID, ident.AgentID, block); err != nil {
+				slog.Warn("memory: snapshot upsert failed",
+					"org_id", ident.OrgID.String(),
+					"user_id", ident.UserID.String(),
+					"err", err.Error(),
+				)
+			}
+		}
+	}
 
 	if err := provider.AppendSessionMessages(ctx, ident, sessionID, msgs); err != nil {
 		slog.Warn("memory: append session messages failed",
@@ -142,26 +166,6 @@ func commitAndSnapshotAsync(ident memory.MemoryIdentity, provider memory.MemoryP
 	if err := provider.CommitSession(ctx, ident, sessionID); err != nil {
 		slog.Warn("memory: commit session failed",
 			"session_id", sessionID,
-			"err", err.Error(),
-		)
-		// commit 失败也尝试快照，因为记忆可能已部分更新
-	}
-
-	// commit 完成后立即快照最新记忆到 PG
-	if pool == nil {
-		return
-	}
-	snapCtx, snapCancel := context.WithTimeout(context.Background(), snapshotFindTimeout)
-	defer snapCancel()
-
-	block := renderMemoryBlock(snapCtx, provider, ident, lastQuery)
-	if block == "" {
-		return
-	}
-	if err := snapshotRepo.Upsert(snapCtx, pool, ident.OrgID, ident.UserID, ident.AgentID, block); err != nil {
-		slog.Warn("memory: snapshot upsert failed",
-			"org_id", ident.OrgID.String(),
-			"user_id", ident.UserID.String(),
 			"err", err.Error(),
 		)
 	}
