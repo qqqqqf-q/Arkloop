@@ -10,6 +10,8 @@ import (
 	"arkloop/services/api/internal/auth"
 	"arkloop/services/api/internal/data"
 	"arkloop/services/api/internal/observability"
+
+	"github.com/google/uuid"
 )
 
 type adminReportItem struct {
@@ -73,7 +75,65 @@ func adminReportsEntry(
 			offset = parsed
 		}
 
-		rows, total, err := reportRepo.List(r.Context(), limit, offset)
+		params := data.ThreadReportListParams{
+			Limit:  limit,
+			Offset: offset,
+		}
+		if raw := strings.TrimSpace(r.URL.Query().Get("report_id")); raw != "" {
+			parsed, err := uuid.Parse(raw)
+			if err != nil {
+				WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "invalid report_id", traceID, nil)
+				return
+			}
+			params.ReportID = &parsed
+		}
+		if raw := strings.TrimSpace(r.URL.Query().Get("thread_id")); raw != "" {
+			parsed, err := uuid.Parse(raw)
+			if err != nil {
+				WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "invalid thread_id", traceID, nil)
+				return
+			}
+			params.ThreadID = &parsed
+		}
+		if raw := strings.TrimSpace(r.URL.Query().Get("reporter_id")); raw != "" {
+			parsed, err := uuid.Parse(raw)
+			if err != nil {
+				WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "invalid reporter_id", traceID, nil)
+				return
+			}
+			params.ReporterID = &parsed
+		}
+		if raw := strings.TrimSpace(r.URL.Query().Get("reporter_email")); raw != "" {
+			params.ReporterEmail = &raw
+		}
+		if raw := strings.TrimSpace(r.URL.Query().Get("category")); raw != "" {
+			params.Category = &raw
+		}
+		if raw := strings.TrimSpace(r.URL.Query().Get("feedback")); raw != "" {
+			params.FeedbackKeyword = &raw
+		}
+		if raw := strings.TrimSpace(r.URL.Query().Get("since")); raw != "" {
+			since, err := time.Parse(time.RFC3339, raw)
+			if err != nil {
+				WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "invalid since: must be RFC3339", traceID, nil)
+				return
+			}
+			params.Since = &since
+		}
+		if raw := strings.TrimSpace(r.URL.Query().Get("until")); raw != "" {
+			until, err := time.Parse(time.RFC3339, raw)
+			if err != nil {
+				WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "invalid until: must be RFC3339", traceID, nil)
+				return
+			}
+			params.Until = &until
+		}
+		if params.Since != nil && params.Until != nil && params.Since.After(*params.Until) {
+			WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "since must be <= until", traceID, nil)
+			return
+		}
+
+		rows, total, err := reportRepo.List(r.Context(), params)
 		if err != nil {
 			WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
