@@ -78,6 +78,46 @@ func TestRoutingUserRouteIDTakesPriority(t *testing.T) {
 	}
 }
 
+// TestRoutingResolverByRouteID 验证 RoutingMiddleware 会注入 ResolveGatewayForRouteID，
+// 且可按 route_id 解析出目标路由。
+func TestRoutingResolverByRouteID(t *testing.T) {
+	cfg := routing.ProviderRoutingConfig{
+		DefaultRouteID: "default",
+		Credentials: []routing.ProviderCredential{
+			{ID: "c-default", Scope: routing.CredentialScopePlatform, ProviderKind: routing.ProviderKindStub, AdvancedJSON: map[string]any{}},
+			{ID: "c-final", Scope: routing.CredentialScopePlatform, ProviderKind: routing.ProviderKindStub, AdvancedJSON: map[string]any{}},
+		},
+		Routes: []routing.ProviderRouteRule{
+			{ID: "default", Model: "stub-default", CredentialID: "c-default", When: map[string]any{}},
+			{ID: "final-route", Model: "stub-final", CredentialID: "c-final", When: map[string]any{}},
+		},
+	}
+	mw := buildRoutingMW(routing.NewProviderRouter(cfg))
+
+	rc := &pipeline.RunContext{
+		InputJSON: map[string]any{},
+	}
+	h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(ctx context.Context, rc *pipeline.RunContext) error {
+		if rc.ResolveGatewayForRouteID == nil {
+			t.Fatal("expected ResolveGatewayForRouteID to be injected")
+		}
+		gw, selected, err := rc.ResolveGatewayForRouteID(ctx, "final-route")
+		if err != nil {
+			t.Fatalf("ResolveGatewayForRouteID returned error: %v", err)
+		}
+		if gw == nil {
+			t.Fatal("expected non-nil gateway")
+		}
+		if selected == nil || selected.Route.ID != "final-route" {
+			t.Fatalf("expected final-route selected, got %+v", selected)
+		}
+		return nil
+	})
+	if err := h(context.Background(), rc); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 // TestRoutingCredentialNameNoDBFallsToDefault 验证无 DB 路由时，凭证名称匹配不到，兜底走静态路由默认路由。
 func TestRoutingCredentialNameNoDBFallsToDefault(t *testing.T) {
 	mw := buildRoutingMW(routing.NewProviderRouter(routing.DefaultRoutingConfig()))

@@ -47,6 +47,31 @@ func NewRoutingMiddleware(
 			}
 		}
 
+		resolveGatewayForRouteID := func(resolveCtx context.Context, routeID string) (llm.Gateway, *routing.SelectedProviderRoute, error) {
+			_ = resolveCtx
+			cleaned := strings.TrimSpace(routeID)
+			if cleaned == "" {
+				if rc.Gateway == nil || rc.SelectedRoute == nil {
+					return nil, nil, fmt.Errorf("current route is not initialized")
+				}
+				return rc.Gateway, rc.SelectedRoute, nil
+			}
+
+			routeDecision := activeRouter.Decide(map[string]any{"route_id": cleaned}, byokEnabled)
+			if routeDecision.Denied != nil {
+				return nil, nil, fmt.Errorf("%s: %s", routeDecision.Denied.Code, routeDecision.Denied.Message)
+			}
+			if routeDecision.Selected == nil {
+				return nil, nil, fmt.Errorf("route not found: %s", cleaned)
+			}
+
+			gw, gwErr := gatewayFromCredential(routeDecision.Selected.Credential, stubGateway, emitDebugEvents)
+			if gwErr != nil {
+				return nil, nil, gwErr
+			}
+			return gw, routeDecision.Selected, nil
+		}
+
 		// 优先级链：
 		// 1. 用户显式 route_id → Decide() 直接处理
 		// 2. Skill.preferred_credential / AgentConfig.Model → 凭证名称查找
@@ -132,6 +157,7 @@ func NewRoutingMiddleware(
 
 		rc.Gateway = gateway
 		rc.SelectedRoute = selected
+		rc.ResolveGatewayForRouteID = resolveGatewayForRouteID
 
 		return next(ctx, rc)
 	}

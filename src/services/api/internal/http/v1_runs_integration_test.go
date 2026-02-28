@@ -161,6 +161,51 @@ func TestRunsCreateListGetCancelAndEnqueue(t *testing.T) {
 		t.Fatalf("unexpected started data: %#v", startedData)
 	}
 
+	runWithOutputRouteResp := doJSON(
+		handler,
+		nethttp.MethodPost,
+		"/v1/threads/"+threadPayload.ID+"/runs",
+		map[string]any{
+			"skill_id":         "search",
+			"output_route_id":  "final-output-route",
+		},
+		aliceHeaders,
+	)
+	if runWithOutputRouteResp.Code != nethttp.StatusCreated {
+		t.Fatalf("unexpected create run with output_route_id status: %d body=%s", runWithOutputRouteResp.Code, runWithOutputRouteResp.Body.String())
+	}
+	runWithOutputRoute := decodeJSONBody[createRunResponse](t, runWithOutputRouteResp.Body.Bytes())
+	runWithOutputRouteID := uuid.MustParse(runWithOutputRoute.RunID)
+	var startedJSONWithOutputRoute []byte
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT data_json FROM run_events WHERE run_id = $1 AND type = 'run.started' LIMIT 1`,
+		runWithOutputRouteID,
+	).Scan(&startedJSONWithOutputRoute); err != nil {
+		t.Fatalf("load started event with output_route_id: %v", err)
+	}
+	var startedDataWithOutputRoute map[string]any
+	if err := json.Unmarshal(startedJSONWithOutputRoute, &startedDataWithOutputRoute); err != nil {
+		t.Fatalf("decode started json with output_route_id: %v raw=%s", err, string(startedJSONWithOutputRoute))
+	}
+	if startedDataWithOutputRoute["skill_id"] != "search" {
+		t.Fatalf("unexpected started skill_id: %#v", startedDataWithOutputRoute["skill_id"])
+	}
+	if startedDataWithOutputRoute["output_route_id"] != "final-output-route" {
+		t.Fatalf("unexpected started output_route_id: %#v", startedDataWithOutputRoute["output_route_id"])
+	}
+
+	invalidOutputRouteResp := doJSON(
+		handler,
+		nethttp.MethodPost,
+		"/v1/threads/"+threadPayload.ID+"/runs",
+		map[string]any{
+			"output_route_id": "invalid route id with spaces",
+		},
+		aliceHeaders,
+	)
+	assertErrorEnvelope(t, invalidOutputRouteResp, nethttp.StatusUnprocessableEntity, "validation.error")
+
 	var (
 		jobID      uuid.UUID
 		jobType    string
@@ -703,6 +748,42 @@ func TestListGlobalRuns(t *testing.T) {
 		}
 		if body.Total != 1 || len(body.Data) != 1 || body.Data[0].RunID != runPayload.RunID {
 			t.Fatalf("unexpected run_id filter result: %#v total=%d", body.Data, body.Total)
+		}
+	})
+
+	t.Run("run_id prefix filter", func(t *testing.T) {
+		prefix := runPayload.RunID[:8]
+		resp := doJSON(handler, nethttp.MethodGet, "/v1/runs?run_id="+prefix, nil, aliceHeaders)
+		if resp.Code != nethttp.StatusOK {
+			t.Fatalf("unexpected status: %d body=%s", resp.Code, resp.Body.String())
+		}
+		var body struct {
+			Data  []globalRunResponse `json:"data"`
+			Total int64               `json:"total"`
+		}
+		if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if body.Total != 1 || len(body.Data) != 1 || body.Data[0].RunID != runPayload.RunID {
+			t.Fatalf("unexpected run_id prefix result: %#v total=%d", body.Data, body.Total)
+		}
+	})
+
+	t.Run("thread_id prefix filter", func(t *testing.T) {
+		prefix := threadPayload.ID[:8]
+		resp := doJSON(handler, nethttp.MethodGet, "/v1/runs?thread_id="+prefix, nil, aliceHeaders)
+		if resp.Code != nethttp.StatusOK {
+			t.Fatalf("unexpected status: %d body=%s", resp.Code, resp.Body.String())
+		}
+		var body struct {
+			Data  []globalRunResponse `json:"data"`
+			Total int64               `json:"total"`
+		}
+		if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if body.Total != 1 || len(body.Data) != 1 || body.Data[0].ThreadID != threadPayload.ID {
+			t.Fatalf("unexpected thread_id prefix result: %#v total=%d", body.Data, body.Total)
 		}
 	})
 

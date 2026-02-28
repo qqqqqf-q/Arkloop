@@ -26,15 +26,17 @@ import (
 )
 
 var (
-	routeIDRegex = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$`)
-	skillIDRegex = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}(?:@[A-Za-z0-9][A-Za-z0-9._:-]{0,63})?$`)
+	routeIDRegex    = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$`)
+	skillIDRegex    = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}(?:@[A-Za-z0-9][A-Za-z0-9._:-]{0,63})?$`)
+	uuidPrefixRegex = regexp.MustCompile(`^[0-9a-fA-F-]{1,36}$`)
 )
 
 var runTerminalEventTypes = []string{"run.completed", "run.failed", "run.cancelled"}
 
 type createRunRequest struct {
-	RouteID *string `json:"route_id"`
-	SkillID *string `json:"skill_id"`
+	RouteID       *string `json:"route_id"`
+	SkillID       *string `json:"skill_id"`
+	OutputRouteID *string `json:"output_route_id"`
 }
 
 type createRunResponse struct {
@@ -149,6 +151,13 @@ func createThreadRun(
 				return
 			}
 			startedData["skill_id"] = strings.TrimSpace(*body.SkillID)
+		}
+		if body != nil && body.OutputRouteID != nil {
+			if !routeIDRegex.MatchString(*body.OutputRouteID) {
+				WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "request validation failed", traceID, nil)
+				return
+			}
+			startedData["output_route_id"] = strings.TrimSpace(*body.OutputRouteID)
 		}
 
 		thread, err := threadRepo.GetByID(r.Context(), threadID)
@@ -1051,11 +1060,15 @@ func listGlobalRuns(
 
 		if rawRunID := strings.TrimSpace(q.Get("run_id")); rawRunID != "" {
 			parsed, err := uuid.Parse(rawRunID)
-			if err != nil {
-				WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "invalid run_id", traceID, nil)
-				return
+			if err == nil {
+				params.RunID = &parsed
+			} else {
+				if !uuidPrefixRegex.MatchString(rawRunID) {
+					WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "invalid run_id", traceID, nil)
+					return
+				}
+				params.RunIDPrefix = &rawRunID
 			}
-			params.RunID = &parsed
 		}
 
 		if rawOrg := q.Get("org_id"); rawOrg != "" {
@@ -1075,11 +1088,15 @@ func listGlobalRuns(
 
 		if rawThreadID := strings.TrimSpace(q.Get("thread_id")); rawThreadID != "" {
 			parsed, err := uuid.Parse(rawThreadID)
-			if err != nil {
-				WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "invalid thread_id", traceID, nil)
-				return
+			if err == nil {
+				params.ThreadID = &parsed
+			} else {
+				if !uuidPrefixRegex.MatchString(rawThreadID) {
+					WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "invalid thread_id", traceID, nil)
+					return
+				}
+				params.ThreadIDPrefix = &rawThreadID
 			}
-			params.ThreadID = &parsed
 		}
 
 		// user_id 筛选：仅 platform_admin 可跨用户过滤

@@ -77,6 +77,9 @@ func loadRunInputs(
 		if rawSkillID, ok := dataJSON["skill_id"].(string); ok && strings.TrimSpace(rawSkillID) != "" {
 			inputJSON["skill_id"] = strings.TrimSpace(rawSkillID)
 		}
+		if rawOutputRouteID, ok := dataJSON["output_route_id"].(string); ok && strings.TrimSpace(rawOutputRouteID) != "" {
+			inputJSON["output_route_id"] = strings.TrimSpace(rawOutputRouteID)
+		}
 	}
 
 	messages, err := messagesRepo.ListByThread(ctx, tx, run.OrgID, run.ThreadID, threadMessageLimit)
