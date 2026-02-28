@@ -33,11 +33,19 @@ type execRequest struct {
 }
 
 type execResponse struct {
-	SessionID  string `json:"session_id"`
-	Stdout     string `json:"stdout"`
-	Stderr     string `json:"stderr"`
-	ExitCode   int    `json:"exit_code"`
-	DurationMs int64  `json:"duration_ms"`
+	SessionID  string        `json:"session_id"`
+	Stdout     string        `json:"stdout"`
+	Stderr     string        `json:"stderr"`
+	ExitCode   int           `json:"exit_code"`
+	DurationMs int64         `json:"duration_ms"`
+	Artifacts  []artifactRef `json:"artifacts,omitempty"`
+}
+
+type artifactRef struct {
+	Key      string `json:"key"`
+	Filename string `json:"filename"`
+	Size     int64  `json:"size"`
+	MimeType string `json:"mime_type"`
 }
 
 type ToolExecutor struct {
@@ -128,13 +136,17 @@ func (e *ToolExecutor) Execute(
 		if err := json.Unmarshal(respBody, &result); err != nil {
 			return errResult(errorSandboxError, "decode response failed", started)
 		}
+		resultJSON := map[string]any{
+			"stdout":      truncateOutput(result.Stdout),
+			"stderr":      truncateOutput(result.Stderr),
+			"exit_code":   result.ExitCode,
+			"duration_ms": result.DurationMs,
+		}
+		if len(result.Artifacts) > 0 {
+			resultJSON["artifacts"] = result.Artifacts
+		}
 		return tools.ExecutionResult{
-			ResultJSON: map[string]any{
-				"stdout":      truncateOutput(result.Stdout),
-				"stderr":      truncateOutput(result.Stderr),
-				"exit_code":   result.ExitCode,
-				"duration_ms": result.DurationMs,
-			},
+			ResultJSON: resultJSON,
 			DurationMs: durationMs(started),
 		}
 	}

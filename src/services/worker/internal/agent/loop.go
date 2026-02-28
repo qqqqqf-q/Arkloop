@@ -465,10 +465,14 @@ func toolResultFromExecution(toolCallID string, toolName string, result tools.Ex
 			Details:    copyMap(result.Error.Details),
 		}
 	}
+	var resultJSON map[string]any
+	if result.ResultJSON != nil {
+		resultJSON = copyMap(result.ResultJSON)
+	}
 	return llm.StreamToolResult{
 		ToolCallID: toolCallID,
 		ToolName:   toolName,
-		ResultJSON: copyMap(result.ResultJSON),
+		ResultJSON: resultJSON,
 		Error:      errObj,
 	}
 }
