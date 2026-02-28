@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { selectFreshRunEvents } from '../runEventProcessing'
+import { buildMessageThinkingFromRunEvents, selectFreshRunEvents } from '../runEventProcessing'
 import type { RunEvent } from '../sse'
 
 function makeRunEvent(params: {
@@ -82,3 +82,89 @@ describe('selectFreshRunEvents', () => {
   })
 })
 
+describe('buildMessageThinkingFromRunEvents', () => {
+  it('应提取顶层 thinking 文本', () => {
+    const events = [
+      makeRunEvent({
+        runId: 'run_1',
+        seq: 1,
+        type: 'message.delta',
+        data: { role: 'assistant', channel: 'thinking', content_delta: 'A' },
+      }),
+      makeRunEvent({
+        runId: 'run_1',
+        seq: 2,
+        type: 'message.delta',
+        data: { role: 'assistant', channel: 'thinking', content_delta: 'B' },
+      }),
+    ]
+
+    const snapshot = buildMessageThinkingFromRunEvents(events)
+    expect(snapshot).not.toBeNull()
+    expect(snapshot?.thinkingText).toBe('AB')
+    expect(snapshot?.segments).toEqual([])
+  })
+
+  it('应提取 segment 文本并过滤 hidden 段', () => {
+    const events = [
+      makeRunEvent({
+        runId: 'run_1',
+        seq: 1,
+        type: 'run.segment.start',
+        data: { segment_id: 'seg_1', kind: 'planning_round', display: { mode: 'collapsed', label: 'Plan' } },
+      }),
+      makeRunEvent({
+        runId: 'run_1',
+        seq: 2,
+        type: 'message.delta',
+        data: { role: 'assistant', content_delta: 'P1' },
+      }),
+      makeRunEvent({
+        runId: 'run_1',
+        seq: 3,
+        type: 'run.segment.end',
+        data: { segment_id: 'seg_1' },
+      }),
+      makeRunEvent({
+        runId: 'run_1',
+        seq: 4,
+        type: 'run.segment.start',
+        data: { segment_id: 'seg_2', kind: 'planning_round', display: { mode: 'hidden', label: 'Hidden' } },
+      }),
+      makeRunEvent({
+        runId: 'run_1',
+        seq: 5,
+        type: 'message.delta',
+        data: { role: 'assistant', content_delta: 'H1' },
+      }),
+    ]
+
+    const snapshot = buildMessageThinkingFromRunEvents(events)
+    expect(snapshot).not.toBeNull()
+    expect(snapshot?.segments).toHaveLength(1)
+    expect(snapshot?.segments[0]).toMatchObject({
+      segmentId: 'seg_1',
+      label: 'Plan',
+      content: 'P1',
+    })
+  })
+
+  it('没有 thinking 内容时应返回 null', () => {
+    const events = [
+      makeRunEvent({
+        runId: 'run_1',
+        seq: 1,
+        type: 'message.delta',
+        data: { role: 'assistant', content_delta: 'Final answer' },
+      }),
+      makeRunEvent({
+        runId: 'run_1',
+        seq: 2,
+        type: 'run.completed',
+      }),
+    ]
+
+    const snapshot = buildMessageThinkingFromRunEvents(events)
+    expect(snapshot).toBeNull()
+  })
+})

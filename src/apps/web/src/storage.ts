@@ -285,6 +285,56 @@ export function writeMessageCodeExecutions(messageId: string, executions: CodeEx
   } catch { /* ignore */ }
 }
 
+export type ThinkingSegmentRef = {
+  segmentId: string
+  kind: string
+  mode: string
+  label: string
+  content: string
+}
+
+export type MessageThinkingRef = {
+  thinkingText: string
+  segments: ThinkingSegmentRef[]
+}
+
+function messageThinkingKey(messageId: string): string {
+  return `arkloop:web:msg_thinking:${messageId}`
+}
+
+export function readMessageThinking(messageId: string): MessageThinkingRef | null {
+  if (!canUseLocalStorage() || !messageId) return null
+  try {
+    const raw = localStorage.getItem(messageThinkingKey(messageId))
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as MessageThinkingRef
+    if (!parsed || typeof parsed !== 'object') return null
+    const segments = Array.isArray(parsed.segments)
+      ? parsed.segments.filter(
+        (s): s is ThinkingSegmentRef =>
+          !!s &&
+          typeof s.segmentId === 'string' &&
+          typeof s.kind === 'string' &&
+          typeof s.mode === 'string' &&
+          typeof s.label === 'string' &&
+          typeof s.content === 'string',
+      )
+      : []
+    const thinkingText = typeof parsed.thinkingText === 'string' ? parsed.thinkingText : ''
+    return { thinkingText, segments }
+  } catch {
+    return null
+  }
+}
+
+export function writeMessageThinking(messageId: string, thinking: MessageThinkingRef): void {
+  if (!canUseLocalStorage() || !messageId) return
+  if (thinking.thinkingText.trim() === '' && thinking.segments.length === 0) return
+  try {
+    localStorage.setItem(messageThinkingKey(messageId), JSON.stringify(thinking))
+  } catch { /* ignore */ }
+}
+
 const SEARCH_THREAD_IDS_KEY = 'arkloop:web:search_thread_ids'
 
 export function addSearchThreadId(threadId: string): void {
