@@ -29,7 +29,7 @@ const (
 	listenPort   = 8080
 	maxCodeBytes = 4 * 1024 * 1024 // 4 MB
 
-	artifactOutputDir  = "/home/user/output"
+	artifactOutputDir  = "/tmp/output"
 	maxArtifactFiles   = 5
 	maxArtifactBytes   = 5 * 1024 * 1024  // 单文件 5 MB
 	maxTotalArtifacts  = 10 * 1024 * 1024  // 总上限 10 MB
