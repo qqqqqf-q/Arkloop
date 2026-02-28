@@ -244,12 +244,16 @@ export function ChatPage() {
 
   // 切换 thread 时清理 SSE 和排队消息，并重置 pendingIncognito
   useEffect(() => {
+    setActiveRunId(null)
     setAssistantDraft('')
     setSegments([])
     activeSegmentIdRef.current = null
     setThinkingDraft('')
     setTopLevelCodeExecutions([])
+    setSearchSteps([])
     setCancelSubmitting(false)
+    setAwaitingInput(false)
+    setCheckInDraft('')
     pendingMessageRef.current = null
     setQueuedDraft(null)
     currentRunSourcesRef.current = []
@@ -261,7 +265,9 @@ export function ChatPage() {
     setSourcePanelMessageId(null)
     sse.disconnect()
     sse.clearEvents()
-    processedEventCountRef.current = 0
+    // 不重置 processedEventCountRef: clearEvents 是异步的，若此处归零，
+    // 同一 effects 阶段内事件处理 effect 会重放旧事件导致 thinkingDraft 串线。
+    // activeRunId effect 在新 run 启动时负责归零。
     setPendingIncognito(false)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [threadId])
@@ -586,6 +592,60 @@ export function ChatPage() {
       onLoggedOut()
     }
   }, [sse.error, onLoggedOut])
+
+  // SSE 流结束但未收到终端事件时的兜底清理
+  // 正常流程中 run.completed 会先 setActiveRunId(null)，所以此处不会触发
+  // 仅在 SSE 异常断连（如网络中断达到重试上限）时才生效
+  useEffect(() => {
+    if (!activeRunId) return
+    if (sse.state !== 'closed' && sse.state !== 'error') return
+
+    // run.completed 等终端事件处理中会同步 setActiveRunId(null)，
+    // React 批量更新后 activeRunId 已经为 null，不会到达此处。
+    // 到达此处说明 SSE 关闭时确实没有处理过终端事件。
+    const runSources = [...currentRunSourcesRef.current]
+    const runArtifacts = [...currentRunArtifactsRef.current]
+    const runCodeExecs = [...currentRunCodeExecutionsRef.current]
+    currentRunArtifactsRef.current = []
+    currentRunCodeExecutionsRef.current = []
+
+    setActiveRunId(null)
+    setAssistantDraft('')
+    setThinkingDraft('')
+    setTopLevelCodeExecutions([])
+    setSegments([])
+    activeSegmentIdRef.current = null
+    if (isSearchThread) {
+      setSearchSteps((prev) =>
+        prev.length > 0
+          ? [...prev, { id: 'finished', kind: 'finished', label: 'Finished', status: 'done' }]
+          : prev,
+      )
+    }
+    setQueuedDraft(null)
+    setAwaitingInput(false)
+    setCheckInDraft('')
+    if (threadId) onRunEnded(threadId)
+    refreshCredits()
+
+    void refreshMessages().then((items) => {
+      const lastAssistant = [...items].reverse().find((m) => m.role === 'assistant')
+      if (lastAssistant) {
+        if (runSources.length > 0) {
+          writeMessageSources(lastAssistant.id, runSources)
+          setMessageSourcesMap((prev) => new Map(prev).set(lastAssistant.id, runSources))
+        }
+        if (runArtifacts.length > 0) {
+          writeMessageArtifacts(lastAssistant.id, runArtifacts)
+          setMessageArtifactsMap((prev) => new Map(prev).set(lastAssistant.id, runArtifacts))
+        }
+        if (runCodeExecs.length > 0) {
+          writeMessageCodeExecutions(lastAssistant.id, runCodeExecs)
+          setMessageCodeExecutionsMap((prev) => new Map(prev).set(lastAssistant.id, runCodeExecs))
+        }
+      }
+    })
+  }, [activeRunId, sse.state]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // 初始加载完成后，将最后一条 user 消息滚动至顶部
   useEffect(() => {

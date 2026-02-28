@@ -75,6 +75,7 @@ func (l *Loop) Run(
 	}
 
 	messages := append([]llm.Message{}, request.Messages...)
+	webSourceCount := 0
 	for iter := 1; iter <= runCtx.MaxIterations; iter++ {
 		if cancelled(runCtx) {
 			return yield(emitter.Emit("run.cancelled", map[string]any{"reason": "cancel_signal"}, nil, nil))
@@ -175,6 +176,12 @@ func (l *Loop) Run(
 
 			resolvedID := resolveToolCallID(call.ToolCallID, result.Events)
 			toolResult := toolResultFromExecution(resolvedID, call.ToolName, result)
+
+			// web_search 结果注入累计的 1-based 引用 ID（web:N）
+			if call.ToolName == "web_search" {
+				webSourceCount = injectWebSourceIDs(toolResult.ResultJSON, webSourceCount)
+			}
+
 			messages = append(messages, toolResultMessage(toolResult))
 
 			var errorClass *string
@@ -515,4 +522,34 @@ func stringPtr(value string) *string {
 		return nil
 	}
 	return &cleaned
+}
+
+// injectWebSourceIDs 给 web_search 结果中的每条记录注入 1-based 的引用 ID（web:N），
+// 保证跨多次 web_search 调用的 ID 全局唯一递增。返回更新后的累计计数。
+func injectWebSourceIDs(resultJSON map[string]any, currentCount int) int {
+	if resultJSON == nil {
+		return currentCount
+	}
+	results, ok := resultJSON["results"].([]map[string]any)
+	if !ok {
+		// 兼容 []any 类型（JSON 反序列化后的常见类型）
+		raw, ok := resultJSON["results"].([]any)
+		if !ok {
+			return currentCount
+		}
+		for _, item := range raw {
+			entry, ok := item.(map[string]any)
+			if !ok {
+				continue
+			}
+			currentCount++
+			entry["id"] = fmt.Sprintf("web:%d", currentCount)
+		}
+		return currentCount
+	}
+	for _, entry := range results {
+		currentCount++
+		entry["id"] = fmt.Sprintf("web:%d", currentCount)
+	}
+	return currentCount
 }

@@ -45,7 +45,12 @@ export function CitationBadge({ indices }: Props) {
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const validSources = indices
-    .map((i) => webSources[i - 1])
+    .map((i) => {
+      // 优先 1-based 查找；若越界则回退到 0-based（兼容 LLM 偶尔输出 web:0 的情况）
+      const src = webSources[i - 1]
+      if (src != null && src.url) return src
+      return webSources[i]
+    })
     .filter((s): s is WebSource => s != null && !!s.url)
 
   const openPopover = () => {
