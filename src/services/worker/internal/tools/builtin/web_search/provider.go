@@ -1,6 +1,10 @@
 package websearch
 
-import "context"
+import (
+	"context"
+	"strings"
+	"unicode/utf8"
+)
 
 type Result struct {
 	Title   string
@@ -9,12 +13,16 @@ type Result struct {
 }
 
 func (r Result) ToJSON() map[string]any {
+	title := normalizeInlineText(r.Title, 120)
+	urlText := strings.TrimSpace(r.URL)
+	snippet := normalizeInlineText(r.Snippet, 240)
+
 	payload := map[string]any{
-		"title": r.Title,
-		"url":   r.URL,
+		"title": title,
+		"url":   urlText,
 	}
-	if r.Snippet != "" {
-		payload["snippet"] = r.Snippet
+	if snippet != "" {
+		payload["snippet"] = snippet
 	}
 	return payload
 }
@@ -31,3 +39,28 @@ func (e HttpError) Error() string {
 	return "http error"
 }
 
+func normalizeInlineText(value string, maxChars int) string {
+	cleaned := strings.TrimSpace(value)
+	if cleaned == "" {
+		return ""
+	}
+	cleaned = strings.Join(strings.Fields(cleaned), " ")
+	return truncateRunes(cleaned, maxChars)
+}
+
+func truncateRunes(value string, maxChars int) string {
+	if maxChars <= 0 || value == "" {
+		return ""
+	}
+	if utf8.RuneCountInString(value) <= maxChars {
+		return value
+	}
+	out := make([]rune, 0, maxChars)
+	for _, r := range value {
+		if len(out) >= maxChars {
+			break
+		}
+		out = append(out, r)
+	}
+	return string(out)
+}

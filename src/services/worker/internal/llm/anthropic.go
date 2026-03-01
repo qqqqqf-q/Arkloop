@@ -15,7 +15,7 @@ import (
 )
 
 const defaultAnthropicVersion = "2023-06-01"
-const maxAnthropicResponseBytes = 4096 * 4
+const defaultAnthropicMaxResponseBytes = 16 * 1024
 const anthropicMaxDebugChunkBytes = 8192
 
 var errAnthropicToolUseInput = errors.New("anthropic_tool_use_input")
@@ -56,6 +56,7 @@ type AnthropicGatewayConfig struct {
 	AnthropicVersion string
 	EmitDebugEvents  bool
 	TotalTimeout     time.Duration
+	MaxResponseBytes int
 	AdvancedJSON     map[string]any
 }
 
@@ -78,6 +79,9 @@ func NewAnthropicGateway(cfg AnthropicGatewayConfig) *AnthropicGateway {
 		cfg.AnthropicVersion = defaultAnthropicVersion
 	}
 	cfg.TotalTimeout = timeout
+	if cfg.MaxResponseBytes <= 0 {
+		cfg.MaxResponseBytes = defaultAnthropicMaxResponseBytes
+	}
 	if cfg.AdvancedJSON == nil {
 		cfg.AdvancedJSON = map[string]any{}
 	}
@@ -199,7 +203,7 @@ func (g *AnthropicGateway) Stream(ctx context.Context, request Request, yield fu
 	}
 	defer resp.Body.Close()
 
-	body, bodyTruncated, _ := readAllWithLimit(resp.Body, maxAnthropicResponseBytes)
+	body, bodyTruncated, _ := readAllWithLimit(resp.Body, g.cfg.MaxResponseBytes)
 	status := resp.StatusCode
 
 	if g.cfg.EmitDebugEvents {

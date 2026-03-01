@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"time"
 
+	sharedconfig "arkloop/services/shared/config"
 	"arkloop/services/shared/creditpolicy"
 
 	"github.com/google/uuid"
@@ -18,34 +19,31 @@ const (
 	cacheTTL    = 5 * time.Minute
 )
 
-// 平台默认值，三级均无配置时使用。与 API 侧 platformDefaults 保持同步。
-var defaults = map[string]entry{
-	"quota.runs_per_month":       {raw: "999999", typ: "int"},
-	"quota.tokens_per_month":     {raw: "1000000", typ: "int"},
-	"limit.concurrent_runs":      {raw: "10", typ: "int"},
-	"limit.team_members":         {raw: "50", typ: "int"},
-	"feature.byok_enabled":       {raw: "true", typ: "bool"},
-	"feature.mcp_remote_enabled": {raw: "false", typ: "bool"},
-	"credit.initial_grant":       {raw: "1000", typ: "int"},
-	"credit.invite_reward":       {raw: "500", typ: "int"},
-	"credit.deduction_policy":    {raw: creditpolicy.DefaultPolicyJSON, typ: "json"},
-}
-
-type entry struct {
-	raw string
-	typ string
-}
-
 // Resolver 提供直接 SQL 的三级权益解析，适合 Worker 等无 DI 容器的服务。
 // pool/rdb 均可为 nil：pool 为 nil 时 Resolve 退化为平台默认值；rdb 为 nil 时不使用缓存。
 type Resolver struct {
 	pool *pgxpool.Pool
 	rdb  *redis.Client
+
+	cfgResolver sharedconfig.Resolver
+	registry    *sharedconfig.Registry
 }
 
 // NewResolver 创建 Resolver。pool/rdb 均可为 nil（fail-open）。
 func NewResolver(pool *pgxpool.Pool, rdb *redis.Client) *Resolver {
-	return &Resolver{pool: pool, rdb: rdb}
+	registry := sharedconfig.DefaultRegistry()
+	var cache sharedconfig.Cache
+	cacheTTL := sharedconfig.CacheTTLFromEnv()
+	if rdb != nil && cacheTTL > 0 {
+		cache = sharedconfig.NewRedisCache(rdb)
+	}
+	cfgResolver, _ := sharedconfig.NewResolver(registry, sharedconfig.NewPGXStore(pool), cache, cacheTTL)
+	return &Resolver{
+		pool:        pool,
+		rdb:         rdb,
+		cfgResolver: cfgResolver,
+		registry:    registry,
+	}
 }
 
 // Resolve 返回权益原始字符串值，优先级：org override > plan entitlement > 平台默认值。
@@ -62,7 +60,7 @@ func (r *Resolver) Resolve(ctx context.Context, orgID uuid.UUID, key string) (st
 	}
 
 	if r.rdb != nil {
-		writeCache(ctx, r.rdb, orgID, key, val)
+		writeCache(ctx, r.rdb, r.registry, orgID, key, val)
 	}
 	return val, nil
 }
@@ -142,55 +140,51 @@ func monthRange(year, month int) (start, end time.Time) {
 }
 
 func (r *Resolver) resolveFromDB(ctx context.Context, orgID uuid.UUID, key string) (string, error) {
-	if r.pool == nil {
-		if def, ok := defaults[key]; ok {
-			return def.raw, nil
-		}
-		return "", fmt.Errorf("entitlement: unknown key %q", key)
+	if r == nil {
+		return "", fmt.Errorf("entitlement resolver not initialized")
+	}
+	if r.cfgResolver == nil {
+		registry := sharedconfig.DefaultRegistry()
+		fallback, _ := sharedconfig.NewResolver(registry, sharedconfig.NewPGXStore(r.pool), nil, 0)
+		r.cfgResolver = fallback
+		r.registry = registry
 	}
 
 	// 1. org override（未过期）
-	var overrideVal string
-	err := r.pool.QueryRow(ctx,
-		`SELECT value FROM org_entitlement_overrides
-		 WHERE org_id = $1 AND key = $2
-		   AND (expires_at IS NULL OR expires_at > now())
-		 LIMIT 1`,
-		orgID, key,
-	).Scan(&overrideVal)
-	if err == nil {
-		return overrideVal, nil
+	if r.pool != nil {
+		var overrideVal string
+		err := r.pool.QueryRow(ctx,
+			`SELECT value FROM org_entitlement_overrides
+			 WHERE org_id = $1 AND key = $2
+			   AND (expires_at IS NULL OR expires_at > now())
+			 LIMIT 1`,
+			orgID, key,
+		).Scan(&overrideVal)
+		if err == nil {
+			return overrideVal, nil
+		}
+
+		// 2. plan entitlement（active subscription → plan）
+		var planVal string
+		err = r.pool.QueryRow(ctx,
+			`SELECT pe.value
+			 FROM plan_entitlements pe
+			 JOIN subscriptions s ON s.plan_id = pe.plan_id
+			 WHERE s.org_id = $1 AND s.status = 'active' AND pe.key = $2
+			 LIMIT 1`,
+			orgID, key,
+		).Scan(&planVal)
+		if err == nil {
+			return planVal, nil
+		}
 	}
 
-	// 2. plan entitlement（active subscription → plan）
-	var planVal string
-	err = r.pool.QueryRow(ctx,
-		`SELECT pe.value
-		 FROM plan_entitlements pe
-		 JOIN subscriptions s ON s.plan_id = pe.plan_id
-		 WHERE s.org_id = $1 AND s.status = 'active' AND pe.key = $2
-		 LIMIT 1`,
-		orgID, key,
-	).Scan(&planVal)
-	if err == nil {
-		return planVal, nil
+	// 平台默认值：ENV > platform_settings > registry default
+	val, err := r.cfgResolver.Resolve(ctx, key, sharedconfig.Scope{})
+	if err != nil {
+		return "", fmt.Errorf("entitlement: resolve platform default %q: %w", key, err)
 	}
-
-	// 3. 平台设置（可覆盖硬编码默认值）
-	var settingVal string
-	err = r.pool.QueryRow(ctx,
-		`SELECT value FROM platform_settings WHERE key = $1 LIMIT 1`,
-		key,
-	).Scan(&settingVal)
-	if err == nil {
-		return settingVal, nil
-	}
-
-	// 4. 平台默认值
-	if def, ok := defaults[key]; ok {
-		return def.raw, nil
-	}
-	return "", fmt.Errorf("entitlement: unknown key %q", key)
+	return val, nil
 }
 
 // fromCache 从 Redis 读取缓存值。缓存格式与 API entitlement.Service 一致："type:value"。
@@ -208,11 +202,8 @@ func fromCache(ctx context.Context, rdb *redis.Client, orgID uuid.UUID, key stri
 	return "", false
 }
 
-func writeCache(ctx context.Context, rdb *redis.Client, orgID uuid.UUID, key, val string) {
-	typ := "string"
-	if def, ok := defaults[key]; ok {
-		typ = def.typ
-	}
+func writeCache(ctx context.Context, rdb *redis.Client, registry *sharedconfig.Registry, orgID uuid.UUID, key, val string) {
+	typ := cacheTypeForKey(key, registry)
 	_ = rdb.Set(ctx, cachePrefix+orgID.String()+":"+key, typ+":"+val, cacheTTL).Err()
 }
 
@@ -224,4 +215,24 @@ func (r *Resolver) ResolveDeductionPolicy(ctx context.Context, orgID uuid.UUID) 
 		return creditpolicy.DefaultPolicy, nil
 	}
 	return creditpolicy.Parse(raw), nil
+}
+
+func cacheTypeForKey(key string, registry *sharedconfig.Registry) string {
+	if key == "credit.deduction_policy" {
+		return "json"
+	}
+	if registry == nil {
+		registry = sharedconfig.DefaultRegistry()
+	}
+	if entry, ok := registry.Get(key); ok {
+		switch entry.Type {
+		case sharedconfig.TypeInt:
+			return "int"
+		case sharedconfig.TypeBool:
+			return "bool"
+		default:
+			return "string"
+		}
+	}
+	return "string"
 }

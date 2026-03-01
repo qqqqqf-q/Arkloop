@@ -10,15 +10,17 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-const threadMessageLimit = 200
-
 // NewInputLoaderMiddleware 加载 run 的 inputJSON 和线程历史消息到 RunContext。
 func NewInputLoaderMiddleware(
 	eventsRepo data.RunEventsRepository,
 	messagesRepo data.MessagesRepository,
 ) RunMiddleware {
 	return func(ctx context.Context, rc *RunContext, next RunHandler) error {
-		inputJSON, threadMessages, err := loadRunInputs(ctx, rc.Pool, rc.Run, eventsRepo, messagesRepo)
+		messageLimit := rc.ThreadMessageHistoryLimit
+		if messageLimit <= 0 {
+			messageLimit = 200
+		}
+		inputJSON, threadMessages, err := loadRunInputs(ctx, rc.Pool, rc.Run, eventsRepo, messagesRepo, messageLimit)
 		if err != nil {
 			return err
 		}
@@ -54,6 +56,7 @@ func loadRunInputs(
 	run data.Run,
 	eventsRepo data.RunEventsRepository,
 	messagesRepo data.MessagesRepository,
+	messageLimit int,
 ) (map[string]any, []data.ThreadMessage, error) {
 	tx, err := pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -82,7 +85,7 @@ func loadRunInputs(
 		}
 	}
 
-	messages, err := messagesRepo.ListByThread(ctx, tx, run.OrgID, run.ThreadID, threadMessageLimit)
+	messages, err := messagesRepo.ListByThread(ctx, tx, run.OrgID, run.ThreadID, messageLimit)
 	if err != nil {
 		return nil, nil, err
 	}

@@ -194,7 +194,7 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 	)
 	mux.HandleFunc(
 		"/v1/runs/",
-		runEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.RunEventRepo, cfg.AuditWriter, cfg.Pool, cfg.DirectPool, sseConfig, cfg.APIKeysRepo, cfg.RedisClient),
+		runEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.RunEventRepo, cfg.AuditWriter, cfg.Pool, cfg.DirectPool, sseConfig, cfg.APIKeysRepo, resolver, cfg.RedisClient),
 	)
 
 	mux.HandleFunc(

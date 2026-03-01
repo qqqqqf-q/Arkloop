@@ -15,7 +15,7 @@ process.on('unhandledRejection', (reason) => {
   process.exit(1);
 });
 
-const config = loadConfig();
+const config = await loadConfig();
 const storage = new MinioClient(config.minio);
 const pool = new BrowserPool({
   maxBrowsers: config.maxBrowsers,
@@ -31,7 +31,7 @@ const sessionManager = new SessionManager(storage);
 await storage.init();
 await pool.init();
 
-const server = createHttpServer(pool, storage, sessionManager, config.contentTextMaxLength);
+const server = createHttpServer(pool, storage, sessionManager, config.maxBodyBytes, config.contentTextMaxLength);
 
 server.listen(config.port, '0.0.0.0', () => {
   process.stdout.write(JSON.stringify({ level: 'info', event: 'server_started', port: config.port }) + '\n');

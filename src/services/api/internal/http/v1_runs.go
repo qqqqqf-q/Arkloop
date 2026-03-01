@@ -19,6 +19,7 @@ import (
 	"arkloop/services/api/internal/data"
 	"arkloop/services/api/internal/entitlement"
 	"arkloop/services/api/internal/observability"
+	sharedconfig "arkloop/services/shared/config"
 	"arkloop/services/shared/runlimit"
 
 	"github.com/google/uuid"
@@ -29,7 +30,7 @@ import (
 
 var (
 	routeIDRegex    = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$`)
-	personaIDRegex    = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}(?:@[A-Za-z0-9][A-Za-z0-9._:-]{0,63})?$`)
+	personaIDRegex  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}(?:@[A-Za-z0-9][A-Za-z0-9._:-]{0,63})?$`)
 	uuidPrefixRegex = regexp.MustCompile(`^[0-9a-fA-F-]{1,36}$`)
 )
 
@@ -50,7 +51,7 @@ var runTerminalEventTypes = []string{"run.completed", "run.failed", "run.cancell
 
 type createRunRequest struct {
 	RouteID        *string `json:"route_id"`
-	PersonaID        *string `json:"persona_id"`
+	PersonaID      *string `json:"persona_id"`
 	OutputRouteID  *string `json:"output_route_id"`
 	OutputModelKey *string `json:"output_model_key"`
 }
@@ -86,15 +87,13 @@ type submitInputResponse struct {
 	OK bool `json:"ok"`
 }
 
-const maxInputContentBytes = 32 * 1024 // 32KB
-
 type globalRunResponse struct {
 	RunID             string   `json:"run_id"`
 	OrgID             string   `json:"org_id"`
 	ThreadID          string   `json:"thread_id"`
 	Status            string   `json:"status"`
 	Model             *string  `json:"model,omitempty"`
-	PersonaID           *string  `json:"persona_id,omitempty"`
+	PersonaID         *string  `json:"persona_id,omitempty"`
 	ParentRunID       *string  `json:"parent_run_id,omitempty"`
 	TotalInputTokens  *int64   `json:"total_input_tokens,omitempty"`
 	TotalOutputTokens *int64   `json:"total_output_tokens,omitempty"`
@@ -837,6 +836,7 @@ func submitRunInput(
 	auditWriter *audit.Writer,
 	pool *pgxpool.Pool,
 	apiKeysRepo *data.APIKeysRepository,
+	resolver sharedconfig.Resolver,
 ) func(nethttp.ResponseWriter, *nethttp.Request, uuid.UUID) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request, runID uuid.UUID) {
 		traceID := observability.TraceIDFromContext(r.Context())
@@ -865,7 +865,19 @@ func submitRunInput(
 			WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "content must not be empty", traceID, nil)
 			return
 		}
-		if len(body.Content) > maxInputContentBytes {
+
+		limitBytes := 32768
+		if resolver != nil {
+			orgID := actor.OrgID
+			raw, err := resolver.Resolve(r.Context(), "limit.max_input_content_bytes", sharedconfig.Scope{OrgID: &orgID})
+			if err == nil {
+				if v, err := strconv.Atoi(strings.TrimSpace(raw)); err == nil && v > 0 {
+					limitBytes = v
+				}
+			}
+		}
+
+		if len(body.Content) > limitBytes {
 			WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "content too large", traceID, nil)
 			return
 		}
@@ -1211,11 +1223,12 @@ func runEntry(
 	directPool *pgxpool.Pool,
 	sseConfig SSEConfig,
 	apiKeysRepo *data.APIKeysRepository,
+	resolver sharedconfig.Resolver,
 	rdb *redis.Client,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	get := getRun(authService, membershipRepo, runRepo, auditWriter, apiKeysRepo)
 	cancel := cancelRun(authService, membershipRepo, runRepo, auditWriter, pool, apiKeysRepo)
-	submitInput := submitRunInput(authService, membershipRepo, runRepo, auditWriter, pool, apiKeysRepo)
+	submitInput := submitRunInput(authService, membershipRepo, runRepo, auditWriter, pool, apiKeysRepo, resolver)
 	streamEvents := streamRunEvents(authService, membershipRepo, runRepo, auditWriter, directPool, sseConfig, apiKeysRepo, rdb)
 
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
@@ -1510,7 +1523,7 @@ func listGlobalRuns(
 				ThreadID:          rw.ThreadID.String(),
 				Status:            rw.Status,
 				Model:             rw.Model,
-				PersonaID:           rw.PersonaID,
+				PersonaID:         rw.PersonaID,
 				TotalInputTokens:  rw.TotalInputTokens,
 				TotalOutputTokens: rw.TotalOutputTokens,
 				TotalCostUSD:      rw.TotalCostUSD,

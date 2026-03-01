@@ -154,6 +154,7 @@ services:
       dockerfile: src/services/browser/Dockerfile
     restart: unless-stopped
     environment:
+      ARKLOOP_DATABASE_URL: "postgresql://${ARKLOOP_POSTGRES_USER:-arkloop}:${ARKLOOP_POSTGRES_PASSWORD:?请在 .env 中设置 ARKLOOP_POSTGRES_PASSWORD}@pgbouncer:5432/${ARKLOOP_POSTGRES_DB:-arkloop}"
       BROWSER_PORT: "3000"
       BROWSER_MAX_BROWSERS: "${ARKLOOP_BROWSER_MAX_BROWSERS:-2}"
       BROWSER_MAX_CONTEXTS_PER_BROWSER: "${ARKLOOP_BROWSER_MAX_CONTEXTS:-20}"
@@ -170,6 +171,8 @@ services:
       - "${ARKLOOP_BROWSER_PORT:-3100}:3000"
     depends_on:
       minio:
+        condition: service_healthy
+      pgbouncer:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:3000/healthz || exit 1"]
@@ -214,6 +217,7 @@ services:
       - /dev/kvm:/dev/kvm
     privileged: true
     environment:
+      ARKLOOP_DATABASE_URL: "postgresql://${ARKLOOP_POSTGRES_USER:-arkloop}:${ARKLOOP_POSTGRES_PASSWORD:?请在 .env 中设置 ARKLOOP_POSTGRES_PASSWORD}@pgbouncer:5432/${ARKLOOP_POSTGRES_DB:-arkloop}"
       ARKLOOP_SANDBOX_ADDR: "0.0.0.0:8002"
       ARKLOOP_FIRECRACKER_BIN: "${ARKLOOP_FIRECRACKER_BIN:-/usr/bin/firecracker}"
       ARKLOOP_SANDBOX_KERNEL_IMAGE: "${ARKLOOP_SANDBOX_KERNEL_IMAGE:-/opt/sandbox/vmlinux}"
@@ -231,6 +235,9 @@ services:
       - /opt/sandbox/rootfs:/opt/sandbox/rootfs:ro
     ports:
       - "${ARKLOOP_SANDBOX_PORT:-8002}:8002"
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8002/healthz"]
       interval: 10s

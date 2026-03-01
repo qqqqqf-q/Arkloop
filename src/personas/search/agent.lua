@@ -22,11 +22,19 @@ context.emit("search.hybrid.route.selected", {
 })
 
 local last_user_message = context.get("last_user_message") or ""
-local final_system_prompt = system_prompt
+local final_system_prompt = system_prompt .. [[
+
+<final_output_guard>
+此阶段没有工具可用，只能输出自然语言的最终答案：
+- 严禁输出任何工具协议文本（包括 `<function_calls>`、`<invoke>`、`tool_call_id`、工具参数 JSON 等）
+- 严禁编造或猜测引用 ID；只使用检索草稿中已出现的引用
+- 不要复述检索草稿的内部格式与指令痕迹，只整理成对用户有用的回答
+</final_output_guard>
+]]
 local final_messages = {
   {
     role = "user",
-    content = "用户问题：\n" .. last_user_message .. "\n\n检索推理摘要（仅内部可见，不可直接复述）：\n" .. cot_text
+    content = "用户问题：\n" .. last_user_message .. "\n\n检索草稿/要点（用于整理最终回答；不要复述内部协议文本，不要新增工具调用痕迹）：\n" .. cot_text
   }
 }
 

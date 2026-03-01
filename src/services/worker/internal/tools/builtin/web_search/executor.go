@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"sort"
 	"strings"
 	"sync"
@@ -395,8 +396,9 @@ func buildSearchPayload(items []searchJobResult, timeout time.Duration) (map[str
 		if item.Err != nil {
 			errPayload := searchErrorPayload(item.Query, item.Err, timeout)
 			byQuery = append(byQuery, map[string]any{
-				"query": item.Query,
-				"error": errPayload,
+				"query":        item.Query,
+				"result_count": 0,
+				"error":        errPayload,
 			})
 			errorsOut = append(errorsOut, errPayload)
 			continue
@@ -404,8 +406,8 @@ func buildSearchPayload(items []searchJobResult, timeout time.Duration) (map[str
 
 		successCount++
 		byQuery = append(byQuery, map[string]any{
-			"query":   item.Query,
-			"results": resultsToJSON(item.Results),
+			"query":        item.Query,
+			"result_count": len(item.Results),
 		})
 		for _, hit := range item.Results {
 			key := normalizeURL(hit.URL)
@@ -479,7 +481,23 @@ func searchErrorPayload(query string, err error, timeout time.Duration) map[stri
 }
 
 func normalizeURL(raw string) string {
-	return strings.ToLower(strings.TrimSpace(raw))
+	cleaned := strings.TrimSpace(raw)
+	if cleaned == "" {
+		return ""
+	}
+
+	parsed, err := url.Parse(cleaned)
+	if err == nil && parsed != nil {
+		parsed.Fragment = ""
+		parsed.RawFragment = ""
+		cleaned = parsed.String()
+	} else {
+		if idx := strings.Index(cleaned, "#"); idx >= 0 {
+			cleaned = cleaned[:idx]
+		}
+	}
+
+	return strings.ToLower(strings.TrimSpace(cleaned))
 }
 
 func stringPtr(value string) *string {

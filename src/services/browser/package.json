@@ -11,10 +11,12 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.806.0",
+    "pg": "^8.16.0",
     "playwright": "1.50.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "@types/pg": "^8.15.5",
     "typescript": "^5.8.0",
     "vitest": "^2.0.0"
   },

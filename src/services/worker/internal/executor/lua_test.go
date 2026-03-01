@@ -601,6 +601,45 @@ end
 	t.Fatal("expected limit_exceeded when task count exceeds maxParallelTasks")
 }
 
+func TestLuaExecutor_AgentRunParallel_ExceedsCustomLimit(t *testing.T) {
+	ex, _ := NewLuaExecutor(map[string]any{"script": `
+local tasks = {
+  {persona="lite", input="q1"},
+  {persona="lite", input="q2"},
+  {persona="lite", input="q3"},
+}
+local results, errs = agent.run_parallel(tasks)
+if errs == nil then
+  context.set_output("unexpected_success")
+else
+  context.set_output("limit_exceeded")
+end
+`})
+	rc := buildLuaRC(nil)
+	rc.MaxParallelTasks = 2
+	rc.SpawnChildRun = func(_ context.Context, _ string, _ string) (string, error) {
+		return "x", nil
+	}
+
+	emitter := events.NewEmitter("trace")
+	var got []events.RunEvent
+	err := ex.Execute(context.Background(), rc, emitter, func(ev events.RunEvent) error {
+		got = append(got, ev)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+	for _, ev := range got {
+		if ev.Type == "message.delta" {
+			if delta, _ := ev.DataJSON["content_delta"].(string); delta == "limit_exceeded" {
+				return
+			}
+		}
+	}
+	t.Fatal("expected limit_exceeded when task count exceeds rc.MaxParallelTasks")
+}
+
 func TestLuaExecutor_AgentRunParallel_ObservabilityEvents(t *testing.T) {
 	ex, _ := NewLuaExecutor(map[string]any{
 		"script": `

@@ -14,15 +14,13 @@ export interface RequestContext {
   runId: string;
 }
 
-const MAX_BODY_BYTES = 1024 * 1024; // 1 MB
-
-async function readBody<T>(req: IncomingMessage): Promise<T> {
+async function readBody<T>(req: IncomingMessage, maxBodyBytes: number): Promise<T> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     let totalBytes = 0;
     req.on('data', (chunk: Buffer) => {
       totalBytes += chunk.length;
-      if (totalBytes > MAX_BODY_BYTES) {
+      if (totalBytes > maxBodyBytes) {
         req.destroy();
         reject(new BodyTooLargeError());
         return;
@@ -79,6 +77,7 @@ export function createHttpServer(
   pool: BrowserPool,
   storage: StorageClient,
   sessionManager: SessionManager,
+  maxBodyBytes: number,
   contentTextMaxLength: number,
 ): ReturnType<typeof createServer> {
   const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
@@ -94,7 +93,7 @@ export function createHttpServer(
       if (method === 'POST' && url === '/v1/navigate') {
         const ctx = extractRequestContext(req);
         if (!ctx) { writeJSON(res, 400, { code: 'missing_headers', message: 'X-Session-ID, X-Org-ID, X-Run-ID required' }); return; }
-        const body = await readBody<NavigateRequest>(req);
+        const body = await readBody<NavigateRequest>(req, maxBodyBytes);
         await handleNavigate(res, body, ctx, pool, sessionManager, storage, contentTextMaxLength);
         return;
       }
@@ -102,7 +101,7 @@ export function createHttpServer(
       if (method === 'POST' && url === '/v1/interact') {
         const ctx = extractRequestContext(req);
         if (!ctx) { writeJSON(res, 400, { code: 'missing_headers', message: 'X-Session-ID, X-Org-ID, X-Run-ID required' }); return; }
-        const body = await readBody<InteractRequest>(req);
+        const body = await readBody<InteractRequest>(req, maxBodyBytes);
         await handleInteract(res, body, ctx, pool, sessionManager, storage, contentTextMaxLength);
         return;
       }
@@ -110,7 +109,7 @@ export function createHttpServer(
       if (method === 'POST' && url === '/v1/extract') {
         const ctx = extractRequestContext(req);
         if (!ctx) { writeJSON(res, 400, { code: 'missing_headers', message: 'X-Session-ID, X-Org-ID, X-Run-ID required' }); return; }
-        const body = await readBody<ExtractRequest>(req);
+        const body = await readBody<ExtractRequest>(req, maxBodyBytes);
         await handleExtract(res, body, ctx, pool, sessionManager, contentTextMaxLength);
         return;
       }
@@ -118,7 +117,7 @@ export function createHttpServer(
       if (method === 'POST' && url === '/v1/screenshot') {
         const ctx = extractRequestContext(req);
         if (!ctx) { writeJSON(res, 400, { code: 'missing_headers', message: 'X-Session-ID, X-Org-ID, X-Run-ID required' }); return; }
-        const body = await readBody<ScreenshotRequest>(req);
+        const body = await readBody<ScreenshotRequest>(req, maxBodyBytes);
         await handleScreenshot(res, body, ctx, pool, sessionManager, storage);
         return;
       }
@@ -136,7 +135,7 @@ export function createHttpServer(
       writeJSON(res, 404, { code: 'not_found', message: `${method} ${url}` });
     } catch (err) {
       if (err instanceof BodyTooLargeError) {
-        writeJSON(res, 413, { code: 'body_too_large', message: 'request body exceeds 1 MB' });
+        writeJSON(res, 413, { code: 'body_too_large', message: 'request body too large' });
         return;
       }
       const message = err instanceof Error ? err.message : 'internal error';

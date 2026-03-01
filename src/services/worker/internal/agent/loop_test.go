@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -255,6 +256,125 @@ func TestAgentLoopAggregatesUsageAcrossTurns(t *testing.T) {
 	}
 }
 
+func TestAgentLoopSearchToolTurnDoesNotInjectAssistantText(t *testing.T) {
+	registry := tools.NewRegistry()
+	if err := registry.Register(builtin.EchoAgentSpec); err != nil {
+		t.Fatalf("register echo failed: %v", err)
+	}
+
+	allowlist := tools.AllowlistFromNames([]string{"echo"})
+	policy := tools.NewPolicyEnforcer(registry, allowlist)
+	executor := tools.NewDispatchingExecutor(registry, policy)
+	if err := executor.Bind("echo", builtin.EchoExecutor{}); err != nil {
+		t.Fatalf("bind echo failed: %v", err)
+	}
+
+	gateway := &captureRequestsGateway{}
+	loop := NewLoop(gateway, executor)
+	emitter := events.NewEmitter("trace")
+
+	err := loop.Run(
+		context.Background(),
+		RunContext{
+			RunID:         uuid.New(),
+			TraceID:       "trace",
+			AgentID:       "search",
+			InputJSON:     map[string]any{},
+			MaxIterations: 3,
+			ToolExecutor:  executor,
+			CancelSignal:  func() bool { return false },
+		},
+		llm.Request{Model: "stub"},
+		emitter,
+		func(ev events.RunEvent) error { return nil },
+	)
+	if err != nil {
+		t.Fatalf("loop.Run failed: %v", err)
+	}
+
+	if len(gateway.requests) < 2 {
+		t.Fatalf("expected at least 2 llm requests, got %d", len(gateway.requests))
+	}
+	second := gateway.requests[1]
+
+	var toolTurn *llm.Message
+	for i := len(second.Messages) - 1; i >= 0; i-- {
+		msg := second.Messages[i]
+		if msg.Role == "assistant" && len(msg.ToolCalls) > 0 {
+			toolTurn = &msg
+			break
+		}
+	}
+	if toolTurn == nil {
+		t.Fatalf("expected assistant tool-call message in second request")
+	}
+	if len(toolTurn.Content) != 0 {
+		t.Fatalf("expected assistant content to be empty for search tool turns, got %#v", toolTurn.Content)
+	}
+}
+
+func TestAgentLoopDedupToolResultMessageInjection(t *testing.T) {
+	registry := tools.NewRegistry()
+	if err := registry.Register(builtin.EchoAgentSpec); err != nil {
+		t.Fatalf("register echo failed: %v", err)
+	}
+
+	allowlist := tools.AllowlistFromNames([]string{"echo"})
+	policy := tools.NewPolicyEnforcer(registry, allowlist)
+	executor := tools.NewDispatchingExecutor(registry, policy)
+	if err := executor.Bind("echo", builtin.EchoExecutor{}); err != nil {
+		t.Fatalf("bind echo failed: %v", err)
+	}
+
+	gateway := &dupToolCallCaptureGateway{
+		text: strings.Repeat("x", 2000),
+	}
+	loop := NewLoop(gateway, executor)
+	emitter := events.NewEmitter("trace")
+
+	err := loop.Run(
+		context.Background(),
+		RunContext{
+			RunID:         uuid.New(),
+			TraceID:       "trace",
+			InputJSON:     map[string]any{},
+			MaxIterations: 4,
+			ToolExecutor:  executor,
+			CancelSignal:  func() bool { return false },
+		},
+		llm.Request{Model: "stub"},
+		emitter,
+		func(ev events.RunEvent) error { return nil },
+	)
+	if err != nil {
+		t.Fatalf("loop.Run failed: %v", err)
+	}
+
+	if len(gateway.requests) < 3 {
+		t.Fatalf("expected at least 3 llm requests, got %d", len(gateway.requests))
+	}
+	third := gateway.requests[2]
+
+	toolMsgs := []llm.Message{}
+	for _, msg := range third.Messages {
+		if msg.Role == "tool" {
+			toolMsgs = append(toolMsgs, msg)
+		}
+	}
+	if len(toolMsgs) != 2 {
+		t.Fatalf("expected 2 tool messages in third request, got %d", len(toolMsgs))
+	}
+
+	first := toolMsgs[0].Content[0].Text
+	second := toolMsgs[1].Content[0].Text
+	if len(second) >= len(first) {
+		t.Fatalf("expected dedup tool message to be shorter, got %d >= %d", len(second), len(first))
+	}
+	if !strings.Contains(second, "same_args_as_previous") {
+		t.Fatalf("expected dedup marker in tool message, got %q", second)
+	}
+}
+
 type scriptedGateway struct {
 	calls int
 }
@@ -414,4 +534,70 @@ func mustInt64(t *testing.T, value any) int64 {
 		t.Fatalf("unexpected numeric type %T", value)
 		return 0
 	}
+}
+
+type captureRequestsGateway struct {
+	requests []llm.Request
+	calls    int
+}
+
+func (g *captureRequestsGateway) Stream(ctx context.Context, request llm.Request, yield func(llm.StreamEvent) error) error {
+	_ = ctx
+	g.requests = append(g.requests, request)
+	g.calls++
+	if g.calls == 1 {
+		if err := yield(llm.StreamMessageDelta{ContentDelta: `{"tool":"echo","args":{"text":"hi"}}`, Role: "assistant"}); err != nil {
+			return err
+		}
+		if err := yield(llm.ToolCall{
+			ToolCallID:    "call_1",
+			ToolName:      "echo",
+			ArgumentsJSON: map[string]any{"text": "hi"},
+		}); err != nil {
+			return err
+		}
+		return yield(llm.StreamRunCompleted{})
+	}
+	if err := yield(llm.StreamMessageDelta{ContentDelta: "done", Role: "assistant"}); err != nil {
+		return err
+	}
+	return yield(llm.StreamRunCompleted{})
+}
+
+type dupToolCallCaptureGateway struct {
+	requests []llm.Request
+	calls    int
+	text     string
+}
+
+func (g *dupToolCallCaptureGateway) Stream(ctx context.Context, request llm.Request, yield func(llm.StreamEvent) error) error {
+	_ = ctx
+	g.requests = append(g.requests, request)
+	g.calls++
+
+	if g.calls == 1 {
+		if err := yield(llm.ToolCall{
+			ToolCallID:    "call_1",
+			ToolName:      "echo",
+			ArgumentsJSON: map[string]any{"text": g.text},
+		}); err != nil {
+			return err
+		}
+		return yield(llm.StreamRunCompleted{})
+	}
+	if g.calls == 2 {
+		if err := yield(llm.ToolCall{
+			ToolCallID:    "call_2",
+			ToolName:      "echo",
+			ArgumentsJSON: map[string]any{"text": g.text},
+		}); err != nil {
+			return err
+		}
+		return yield(llm.StreamRunCompleted{})
+	}
+
+	if err := yield(llm.StreamMessageDelta{ContentDelta: "done", Role: "assistant"}); err != nil {
+		return err
+	}
+	return yield(llm.StreamRunCompleted{})
 }

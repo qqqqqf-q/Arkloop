@@ -29,7 +29,7 @@ const (
 )
 
 var (
-	cancelEvtTypes = []string{"run.cancel_requested", "run.cancelled"}
+	cancelEvtTypes      = []string{"run.cancel_requested", "run.cancelled"}
 	streamingEventTypes = map[string]struct{}{
 		"message.delta":      {},
 		"llm.response.chunk": {},
@@ -59,9 +59,15 @@ func NewAgentLoopHandler(
 			}
 		}
 
+		creditsPerUSD := float64(rc.CreditPerUSD)
+		if creditsPerUSD <= 0 {
+			creditsPerUSD = 1000.0
+		}
+
 		writer := newEventWriter(
 			rc.Pool, rc.Run, rc.TraceID, runLimiterRDB,
 			selected.Route.Model, usageRepo, creditsRepo,
+			creditsPerUSD,
 			selected.Route.Multiplier, selected.Route.CostPer1kInput, selected.Route.CostPer1kOutput,
 			selected.Route.CostPer1kCacheWrite, selected.Route.CostPer1kCacheRead,
 			policy,
@@ -136,6 +142,7 @@ type eventWriter struct {
 	costPer1kCacheWrite *float64
 	costPer1kCacheRead  *float64
 	policy              creditpolicy.CreditDeductionPolicy
+	creditsPerUSD       float64
 
 	tx                       pgx.Tx
 	pendingEventsSinceCommit int
@@ -163,6 +170,7 @@ func newEventWriter(
 	model string,
 	usageRepo data.UsageRecordsRepository,
 	creditsRepo data.CreditsRepository,
+	creditsPerUSD float64,
 	multiplier float64,
 	costPer1kInput *float64,
 	costPer1kOutput *float64,
@@ -170,6 +178,9 @@ func newEventWriter(
 	costPer1kCacheRead *float64,
 	policy creditpolicy.CreditDeductionPolicy,
 ) *eventWriter {
+	if creditsPerUSD <= 0 {
+		creditsPerUSD = 1000.0
+	}
 	if multiplier <= 0 {
 		multiplier = 1.0
 	}
@@ -182,6 +193,7 @@ func newEventWriter(
 		model:               model,
 		usageRepo:           usageRepo,
 		creditsRepo:         creditsRepo,
+		creditsPerUSD:       creditsPerUSD,
 		multiplier:          multiplier,
 		costPer1kInput:      costPer1kInput,
 		costPer1kOutput:     costPer1kOutput,
@@ -458,11 +470,9 @@ func toInt64(v any) (int64, bool) {
 }
 
 // calcCreditDeduction 按实际 cost（USD）计算积分消耗。
-// 汇率：1 积分 = $0.0001（CREDITS_PER_USD = 10000）× multiplier。
+// 汇率：creditsPerUSD（credit.per_usd）× multiplier。
 // totalCostUSD 为 0 时退回按 token 计算的兜底值。
 func (w *eventWriter) calcCreditDeduction() int64 {
-	const creditsPerUSD = 1000.0 // 1 credit = $0.001
-
 	totalTokens := w.totalInputTokens + w.totalOutputTokens
 	policyMultiplier := w.policy.MultiplierFor(totalTokens, w.totalCostUSD)
 	if policyMultiplier == 0 {
@@ -470,7 +480,7 @@ func (w *eventWriter) calcCreditDeduction() int64 {
 	}
 
 	if w.totalCostUSD > 0 {
-		raw := w.totalCostUSD * creditsPerUSD * w.multiplier * policyMultiplier
+		raw := w.totalCostUSD * w.creditsPerUSD * w.multiplier * policyMultiplier
 		credits := int64(math.Ceil(raw))
 		if credits < 1 {
 			credits = 1

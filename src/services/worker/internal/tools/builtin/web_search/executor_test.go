@@ -2,7 +2,9 @@ package websearch
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -118,6 +120,105 @@ func TestExecuteMultiSearchAllFailed(t *testing.T) {
 	}
 	if result.Error.ErrorClass != errorSearchFailed {
 		t.Fatalf("unexpected error class: %s", result.Error.ErrorClass)
+	}
+}
+
+func TestBuildSearchPayloadSlimByQuery(t *testing.T) {
+	payload, err := buildSearchPayload([]searchJobResult{
+		{
+			Query: "ok",
+			Results: []Result{
+				{Title: "A", URL: "https://a.example", Snippet: "x"},
+				{Title: "B", URL: "https://b.example", Snippet: "y"},
+			},
+		},
+		{
+			Query: "bad",
+			Err:   HttpError{StatusCode: 500},
+		},
+	}, 2*time.Second)
+	if err != nil {
+		t.Fatalf("buildSearchPayload returned error: %#v", err)
+	}
+
+	byQuery, ok := payload["by_query"].([]map[string]any)
+	if !ok {
+		t.Fatalf("unexpected by_query type: %T", payload["by_query"])
+	}
+	if len(byQuery) != 2 {
+		t.Fatalf("expected 2 by_query entries, got %d", len(byQuery))
+	}
+	if _, has := byQuery[0]["results"]; has {
+		t.Fatalf("by_query should not include results field: %#v", byQuery[0])
+	}
+	if byQuery[0]["result_count"] != 2 {
+		t.Fatalf("expected result_count=2, got %#v", byQuery[0]["result_count"])
+	}
+	if _, has := byQuery[1]["results"]; has {
+		t.Fatalf("by_query should not include results field: %#v", byQuery[1])
+	}
+	if byQuery[1]["result_count"] != 0 {
+		t.Fatalf("expected result_count=0, got %#v", byQuery[1]["result_count"])
+	}
+	if _, has := byQuery[1]["error"]; !has {
+		t.Fatalf("expected error payload in failed by_query: %#v", byQuery[1])
+	}
+}
+
+func TestResultToJSONTruncatesAndNormalizes(t *testing.T) {
+	item := Result{
+		Title:   strings.Repeat("a", 200),
+		URL:     "  https://x.example  ",
+		Snippet: " \n\n" + strings.Repeat("b", 300) + "\n  c  ",
+	}
+
+	payload := item.ToJSON()
+	title, _ := payload["title"].(string)
+	if len(title) != 120 {
+		t.Fatalf("expected title truncated to 120 chars, got %d", len(title))
+	}
+
+	urlText, _ := payload["url"].(string)
+	if urlText != "https://x.example" {
+		t.Fatalf("expected url trimmed, got %q", urlText)
+	}
+
+	snippet, _ := payload["snippet"].(string)
+	if len(snippet) != 240 {
+		t.Fatalf("expected snippet truncated to 240 chars, got %d", len(snippet))
+	}
+	if strings.Contains(snippet, "\n") || strings.Contains(snippet, "\t") {
+		t.Fatalf("expected snippet whitespace normalized, got %q", snippet)
+	}
+	if strings.Contains(snippet, "  ") {
+		t.Fatalf("expected snippet single-spaced, got %q", snippet)
+	}
+}
+
+func TestBuildSearchPayloadJSONSizeBounded(t *testing.T) {
+	results := make([]Result, 0, 5)
+	for i := 0; i < 5; i++ {
+		results = append(results, Result{
+			Title:   strings.Repeat("t", 250),
+			URL:     "https://example.com/" + strings.Repeat("p", i+1),
+			Snippet: strings.Repeat("s", 2000),
+		})
+	}
+
+	payload, err := buildSearchPayload([]searchJobResult{
+		{Query: "q1", Results: results},
+		{Query: "q2", Results: results},
+	}, 2*time.Second)
+	if err != nil {
+		t.Fatalf("buildSearchPayload returned error: %#v", err)
+	}
+
+	encoded, encErr := json.Marshal(payload)
+	if encErr != nil {
+		t.Fatalf("json.Marshal failed: %v", encErr)
+	}
+	if len(encoded) > 8000 {
+		t.Fatalf("expected payload JSON to be small, got %d bytes", len(encoded))
 	}
 }
 

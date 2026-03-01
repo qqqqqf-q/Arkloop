@@ -184,9 +184,6 @@ func (rt *luaRuntime) agentRun(L *lua.LState) int {
 	return 2
 }
 
-// maxParallelTasks 防止 Lua 脚本一次性爆发过多 goroutine 和 Redis 连接。
-const maxParallelTasks = 32
-
 // agent.run_parallel(tasks) -> (results, errors)
 // tasks 是 Lua table，每项为 {persona="...", input="..."}，索引从 1 开始。
 // 所有子任务并行执行，全部完成后返回两个等长 table：
@@ -209,15 +206,19 @@ func (rt *luaRuntime) agentRunParallel(L *lua.LState) int {
 	tasksTable := L.CheckTable(1)
 	n := tasksTable.Len()
 
-	if n > maxParallelTasks {
+	limit := rt.rc.MaxParallelTasks
+	if limit <= 0 {
+		limit = 32
+	}
+	if n > limit {
 		L.Push(lua.LNil)
-		L.Push(lua.LString(fmt.Sprintf("agent.run_parallel: task count %d exceeds limit %d", n, maxParallelTasks)))
+		L.Push(lua.LString(fmt.Sprintf("agent.run_parallel: task count %d exceeds limit %d", n, limit)))
 		return 2
 	}
 
 	type taskEntry struct {
 		personaID string
-		input   string
+		input     string
 	}
 
 	tasks := make([]taskEntry, n)
@@ -249,8 +250,8 @@ func (rt *luaRuntime) agentRunParallel(L *lua.LState) int {
 		personaIDs[i] = t.personaID
 	}
 	if err := rt.yield(rt.emitter.Emit("agent.parallel_dispatch", map[string]any{
-		"task_count": n,
-		"persona_ids":  personaIDs,
+		"task_count":  n,
+		"persona_ids": personaIDs,
 	}, nil, nil)); err != nil {
 		L.Push(lua.LNil)
 		L.Push(lua.LString(err.Error()))
@@ -1229,9 +1230,13 @@ func (rt *luaRuntime) toolsCallParallel(L *lua.LState) int {
 		L.Push(lua.LString("tools.call_parallel not available: tool executor not initialized"))
 		return 2
 	}
-	if n > maxParallelTasks {
+	limit := rt.rc.MaxParallelTasks
+	if limit <= 0 {
+		limit = 32
+	}
+	if n > limit {
 		L.Push(lua.LNil)
-		L.Push(lua.LString(fmt.Sprintf("tools.call_parallel: count %d exceeds limit %d", n, maxParallelTasks)))
+		L.Push(lua.LString(fmt.Sprintf("tools.call_parallel: count %d exceeds limit %d", n, limit)))
 		return 2
 	}
 

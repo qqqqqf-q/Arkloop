@@ -213,15 +213,16 @@ func TestAnthropicGateway_Stream_DebugChunk_NotTruncated(t *testing.T) {
 	if len(chunks) == 0 {
 		t.Fatal("expected at least one debug chunk")
 	}
-	// body is well under maxAnthropicResponseBytes, should not be marked as truncated
+	// body is well under MaxResponseBytes, should not be marked as truncated
 	if chunks[0].Truncated {
 		t.Fatalf("expected truncated=false for small body, got true")
 	}
 }
 
 func TestAnthropicGateway_Stream_DebugChunk_Truncated(t *testing.T) {
-	// build a response body exceeding maxAnthropicResponseBytes (not valid JSON, but enough to trigger truncation path)
-	bigPayload := make([]byte, maxAnthropicResponseBytes+100)
+	limit := 1024
+	// build a response body exceeding MaxResponseBytes (not valid JSON, but enough to trigger truncation path)
+	bigPayload := make([]byte, limit+100)
 	for i := range bigPayload {
 		bigPayload[i] = 'x'
 	}
@@ -232,9 +233,10 @@ func TestAnthropicGateway_Stream_DebugChunk_Truncated(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	gateway := NewAnthropicGateway(AnthropicGatewayConfig{
-		APIKey:          "test",
-		BaseURL:         server.URL,
-		EmitDebugEvents: true,
+		APIKey:           "test",
+		BaseURL:          server.URL,
+		EmitDebugEvents:  true,
+		MaxResponseBytes: limit,
 	})
 
 	var chunks []StreamLlmResponseChunk

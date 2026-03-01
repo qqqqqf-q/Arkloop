@@ -77,6 +77,7 @@ func (l *Loop) Run(
 
 	messages := append([]llm.Message{}, request.Messages...)
 	webSourceCount := 0
+	seenToolResultKeys := map[string]toolResultDedupInfo{}
 	completionTotals := newCompletionTotals()
 	for iter := 1; iter <= runCtx.MaxIterations; iter++ {
 		if cancelled(runCtx) {
@@ -117,7 +118,11 @@ func (l *Loop) Run(
 		}
 
 		if turn.AssistantText != "" || len(turn.ToolCalls) > 0 {
-			messages = append(messages, assistantMessage(turn.AssistantText, turn.ToolCalls))
+			assistantText := turn.AssistantText
+			if runCtx.AgentID == "search" && len(turn.ToolCalls) > 0 {
+				assistantText = ""
+			}
+			messages = append(messages, assistantMessage(assistantText, turn.ToolCalls))
 		}
 
 		for _, toolResult := range turn.ToolResults {
@@ -174,7 +179,20 @@ func (l *Loop) Run(
 				webSourceCount = injectWebSourceIDs(toolResult.ResultJSON, webSourceCount)
 			}
 
-			messages = append(messages, toolResultMessage(toolResult))
+			dedupKey, sig, ok := toolResultDedupKey(call.ToolName, call.ArgumentsJSON, toolResult)
+			if ok {
+				if prev, exists := seenToolResultKeys[dedupKey]; exists && prev.Signature == sig {
+					messages = append(messages, toolResultMessageDedup(toolResult, prev.ToolCallID))
+				} else {
+					seenToolResultKeys[dedupKey] = toolResultDedupInfo{
+						ToolCallID: toolResult.ToolCallID,
+						Signature:  sig,
+					}
+					messages = append(messages, toolResultMessage(toolResult))
+				}
+			} else {
+				messages = append(messages, toolResultMessage(toolResult))
+			}
 
 			var errorClass *string
 			if toolResult.Error != nil {
@@ -564,6 +582,116 @@ func toolResultMessage(result llm.StreamToolResult) llm.Message {
 	}
 	if result.Error != nil {
 		envelope["error"] = result.Error.ToJSON()
+	}
+	text, err := stablejson.Encode(envelope)
+	if err != nil {
+		encoded, _ := json.Marshal(envelope)
+		text = string(encoded)
+	}
+	return llm.Message{
+		Role:    "tool",
+		Content: []llm.TextPart{{Text: text}},
+	}
+}
+
+type toolResultDedupInfo struct {
+	ToolCallID string
+	Signature  string
+}
+
+func toolResultDedupKey(toolName string, args map[string]any, result llm.StreamToolResult) (string, string, bool) {
+	if strings.TrimSpace(toolName) == "" || args == nil {
+		return "", "", false
+	}
+	argsHash, err := stablejson.Sha256(args)
+	if err != nil || strings.TrimSpace(argsHash) == "" {
+		return "", "", false
+	}
+
+	normalizedResult := result.ResultJSON
+	if toolName == "web_search" {
+		normalizedResult = stripWebSearchResultIDs(result.ResultJSON)
+	}
+
+	sigPayload := map[string]any{
+		"result": normalizedResult,
+	}
+	if result.Error != nil {
+		sigPayload["error_class"] = result.Error.ErrorClass
+		if strings.TrimSpace(result.Error.Message) != "" {
+			sigPayload["error_message"] = result.Error.Message
+		}
+	}
+	sig, sigErr := stablejson.Sha256(sigPayload)
+	if sigErr != nil || strings.TrimSpace(sig) == "" {
+		return "", "", false
+	}
+	return toolName + ":" + argsHash, sig, true
+}
+
+func stripWebSearchResultIDs(resultJSON map[string]any) map[string]any {
+	if resultJSON == nil {
+		return nil
+	}
+	out := copyMap(resultJSON)
+	raw, has := resultJSON["results"]
+	if !has || raw == nil {
+		return out
+	}
+
+	switch typed := raw.(type) {
+	case []map[string]any:
+		results := make([]map[string]any, 0, len(typed))
+		for _, item := range typed {
+			entry := map[string]any{}
+			for key, value := range item {
+				if key == "id" {
+					continue
+				}
+				entry[key] = value
+			}
+			results = append(results, entry)
+		}
+		out["results"] = results
+		return out
+	case []any:
+		results := make([]map[string]any, 0, len(typed))
+		for _, rawItem := range typed {
+			item, ok := rawItem.(map[string]any)
+			if !ok {
+				continue
+			}
+			entry := map[string]any{}
+			for key, value := range item {
+				if key == "id" {
+					continue
+				}
+				entry[key] = value
+			}
+			results = append(results, entry)
+		}
+		out["results"] = results
+		return out
+	default:
+		return out
+	}
+}
+
+func toolResultMessageDedup(result llm.StreamToolResult, refToolCallID string) llm.Message {
+	ref := strings.TrimSpace(refToolCallID)
+	if ref == "" {
+		return toolResultMessage(result)
+	}
+	dedup := map[string]any{
+		"dedup":            "same_args_as_previous",
+		"ref_tool_call_id": ref,
+	}
+	envelope := map[string]any{
+		"tool_call_id": result.ToolCallID,
+		"result":       dedup,
+	}
+	if result.Error != nil {
+		envelope["error"] = dedup
 	}
 	text, err := stablejson.Encode(envelope)
 	if err != nil {

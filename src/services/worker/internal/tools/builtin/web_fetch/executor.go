@@ -253,6 +253,7 @@ func parseArgs(args map[string]any) (string, int, *tools.ExecutionError) {
 			Details:    map[string]any{"field": "url"},
 		}
 	}
+	targetURL := normalizeTargetURL(rawURL)
 
 	rawMax, ok := args["max_length"]
 	maxLength, okInt := rawMax.(int)
@@ -276,7 +277,46 @@ func parseArgs(args map[string]any) (string, int, *tools.ExecutionError) {
 			Details:    map[string]any{"field": "max_length", "max": maxLengthLimit},
 		}
 	}
-	return strings.TrimSpace(rawURL), maxLength, nil
+	return targetURL, maxLength, nil
+}
+
+func normalizeTargetURL(raw string) string {
+	cleaned := strings.TrimSpace(raw)
+	if cleaned == "" {
+		return ""
+	}
+
+	cleaned = fixDuplicatedScheme(cleaned)
+	cleaned = unwrapJinaWrapper(cleaned)
+	cleaned = fixDuplicatedScheme(cleaned)
+	return strings.TrimSpace(cleaned)
+}
+
+func fixDuplicatedScheme(raw string) string {
+	if strings.HasPrefix(raw, "httpshttps://") {
+		return "https://" + strings.TrimPrefix(raw, "httpshttps://")
+	}
+	if strings.HasPrefix(raw, "httphttp://") {
+		return "http://" + strings.TrimPrefix(raw, "httphttp://")
+	}
+	return raw
+}
+
+func unwrapJinaWrapper(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	for {
+		stripped := false
+		for _, prefix := range []string{"https://r.jina.ai/", "http://r.jina.ai/"} {
+			if strings.HasPrefix(trimmed, prefix) {
+				trimmed = strings.TrimSpace(strings.TrimPrefix(trimmed, prefix))
+				stripped = true
+			}
+		}
+		if !stripped {
+			break
+		}
+	}
+	return trimmed
 }
 
 func stringPtr(value string) *string {

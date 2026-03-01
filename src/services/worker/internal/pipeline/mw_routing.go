@@ -67,7 +67,7 @@ func NewRoutingMiddleware(
 				return nil, nil, fmt.Errorf("route not found: %s", cleaned)
 			}
 
-			gw, gwErr := gatewayFromCredential(routeDecision.Selected.Credential, stubGateway, emitDebugEvents)
+			gw, gwErr := gatewayFromCredential(routeDecision.Selected.Credential, stubGateway, emitDebugEvents, rc.LlmMaxResponseBytes)
 			if gwErr != nil {
 				return nil, nil, gwErr
 			}
@@ -177,7 +177,7 @@ func NewRoutingMiddleware(
 			return appendAndCommitSingle(ctx, rc.Pool, rc.Run, runsRepo, eventsRepo, failed, releaseFn, rc.BroadcastRDB)
 		}
 
-		gateway, err := gatewayFromCredential(selected.Credential, stubGateway, emitDebugEvents)
+		gateway, err := gatewayFromCredential(selected.Credential, stubGateway, emitDebugEvents, rc.LlmMaxResponseBytes)
 		if err != nil {
 			failed := rc.Emitter.Emit(
 				"run.failed",
@@ -328,7 +328,7 @@ func queryRouteIDByModel(
 	return routeID, err
 }
 
-func gatewayFromCredential(credential routing.ProviderCredential, stubGateway llm.Gateway, emitDebugEvents bool) (llm.Gateway, error) {
+func gatewayFromCredential(credential routing.ProviderCredential, stubGateway llm.Gateway, emitDebugEvents bool, llmMaxResponseBytes int) (llm.Gateway, error) {
 	switch credential.ProviderKind {
 	case routing.ProviderKindStub:
 		return stubGateway, nil
@@ -362,10 +362,11 @@ func gatewayFromCredential(credential routing.ProviderCredential, stubGateway ll
 			baseURL = *credential.BaseURL
 		}
 		return llm.NewAnthropicGateway(llm.AnthropicGatewayConfig{
-			APIKey:          apiKey,
-			BaseURL:         baseURL,
-			AdvancedJSON:    credential.AdvancedJSON,
-			EmitDebugEvents: emitDebugEvents,
+			APIKey:           apiKey,
+			BaseURL:          baseURL,
+			AdvancedJSON:     credential.AdvancedJSON,
+			EmitDebugEvents:  emitDebugEvents,
+			MaxResponseBytes: llmMaxResponseBytes,
 		}), nil
 	default:
 		return nil, fmt.Errorf("unknown provider_kind: %s", credential.ProviderKind)

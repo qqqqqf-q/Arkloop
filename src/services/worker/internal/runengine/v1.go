@@ -3,8 +3,10 @@ package runengine
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
+	sharedconfig "arkloop/services/shared/config"
 	sharedent "arkloop/services/shared/entitlement"
 	"arkloop/services/shared/runlimit"
 	"arkloop/services/worker/internal/data"
@@ -34,6 +36,7 @@ type EngineV1 struct {
 	memoryProvider      memory.MemoryProvider
 	llmRetryMaxAttempts int
 	llmRetryBaseDelayMs int
+	configResolver      sharedconfig.Resolver
 }
 
 type ExecuteInput struct {
@@ -47,6 +50,8 @@ type EngineV1Deps struct {
 	StubGateway     llm.Gateway
 	EmitDebugEvents bool
 	RunLimiterRDB   *redis.Client
+
+	ConfigResolver sharedconfig.Resolver
 
 	ToolRegistry           *tools.Registry
 	ToolExecutors          map[string]tools.Executor
@@ -122,6 +127,13 @@ func NewEngineV1(deps EngineV1Deps) (*EngineV1, error) {
 		resolver = sharedent.NewResolver(deps.DBPool, rdb)
 	}
 
+	cfgResolver := deps.ConfigResolver
+	if cfgResolver == nil {
+		registry := sharedconfig.DefaultRegistry()
+		fallback, _ := sharedconfig.NewResolver(registry, sharedconfig.NewPGXStore(deps.DBPool), nil, 0)
+		cfgResolver = fallback
+	}
+
 	middlewares := []pipeline.RunMiddleware{
 		pipeline.NewCancelGuardMiddleware(runsRepo, eventsRepo),
 		pipeline.NewInputLoaderMiddleware(eventsRepo, messagesRepo),
@@ -155,6 +167,7 @@ func NewEngineV1(deps EngineV1Deps) (*EngineV1, error) {
 		memoryProvider:      deps.MemoryProvider,
 		llmRetryMaxAttempts: deps.LlmRetryMaxAttempts,
 		llmRetryBaseDelayMs: deps.LlmRetryBaseDelayMs,
+		configResolver:      cfgResolver,
 	}, nil
 }
 
@@ -180,11 +193,19 @@ func (e *EngineV1) Execute(ctx context.Context, pool *pgxpool.Pool, run data.Run
 		UserID:              run.CreatedByUserID,
 		ExecutorBuilder:     e.executorRegistry,
 		MemoryProvider:      e.memoryProvider,
-		MaxIterations:       10,
 		ToolBudget:          map[string]any{},
 		LlmRetryMaxAttempts: e.llmRetryMaxAttempts,
 		LlmRetryBaseDelayMs: e.llmRetryBaseDelayMs,
 	}
+
+	registry := sharedconfig.DefaultRegistry()
+	orgScope := sharedconfig.Scope{OrgID: &run.OrgID}
+	rc.ThreadMessageHistoryLimit = resolvePositiveInt(ctx, e.configResolver, registry, "limit.thread_message_history", orgScope, 200)
+	rc.AgentMaxIterationsLimit = resolvePositiveInt(ctx, e.configResolver, registry, "limit.agent_max_iterations", orgScope, 10)
+	rc.MaxParallelTasks = resolvePositiveInt(ctx, e.configResolver, registry, "limit.max_parallel_tasks", sharedconfig.Scope{}, 32)
+	rc.CreditPerUSD = resolvePositiveInt(ctx, e.configResolver, registry, "credit.per_usd", sharedconfig.Scope{}, 1000)
+	rc.LlmMaxResponseBytes = resolvePositiveInt(ctx, e.configResolver, registry, "llm.max_response_bytes", sharedconfig.Scope{}, 16384)
+	rc.MaxIterations = rc.AgentMaxIterationsLimit
 
 	if e.jobQueue != nil && e.broadcastRDB != nil {
 		rc.SpawnChildRun = newSpawnChildRunFunc(pool, e.broadcastRDB, e.jobQueue, run, traceID)
@@ -199,4 +220,28 @@ func (e *EngineV1) Execute(ctx context.Context, pool *pgxpool.Pool, run data.Run
 	}
 
 	return err
+}
+
+func resolvePositiveInt(ctx context.Context, resolver sharedconfig.Resolver, registry *sharedconfig.Registry, key string, scope sharedconfig.Scope, lastResort int) int {
+	fallback := lastResort
+	if registry != nil {
+		if entry, ok := registry.Get(key); ok {
+			if v, err := strconv.Atoi(strings.TrimSpace(entry.Default)); err == nil && v > 0 {
+				fallback = v
+			}
+		}
+	}
+
+	if resolver == nil {
+		return fallback
+	}
+	raw, err := resolver.Resolve(ctx, key, scope)
+	if err != nil {
+		return fallback
+	}
+	v, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || v <= 0 {
+		return fallback
+	}
+	return v
 }

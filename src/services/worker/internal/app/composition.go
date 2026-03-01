@@ -182,6 +182,7 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 		DirectDBPool:           directPool,
 		StubGateway:            stubGateway,
 		EmitDebugEvents:        stubCfg.EmitDebugEvents,
+		ConfigResolver:         configResolver,
 		ToolRegistry:           toolRegistry,
 		ToolExecutors:          executors,
 		AllLlmToolSpecs:        allLlmSpecs,

@@ -345,12 +345,9 @@ func (a *Application) Run(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		entitlementSvc, err = entitlement.NewService(entitlementsRepo, subscriptionsRepo, plansRepo, redisClient)
+		entitlementSvc, err = entitlement.NewService(entitlementsRepo, subscriptionsRepo, plansRepo, redisClient, configResolver)
 		if err != nil {
 			return err
-		}
-		if platformSettingsRepo != nil {
-			entitlementSvc.SetPlatformSettingsRepo(platformSettingsRepo)
 		}
 		usageRepo, err = data.NewUsageRepository(pool)
 		if err != nil {

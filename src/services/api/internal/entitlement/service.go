@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"arkloop/services/api/internal/data"
+	sharedconfig "arkloop/services/shared/config"
 
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
@@ -14,22 +15,6 @@ import (
 
 const cacheTTL = 5 * time.Minute
 const cachePrefix = "arkloop:entitlement:"
-
-// 平台默认值，所有层级都无配置时使用。
-var platformDefaults = map[string]EntitlementValue{
-	"quota.runs_per_month":       {Raw: "999999", Type: "int"},
-	"quota.tokens_per_month":     {Raw: "1000000", Type: "int"},
-	"limit.concurrent_runs":      {Raw: "10", Type: "int"},
-	"limit.team_members":         {Raw: "50", Type: "int"},
-	"feature.byok_enabled":       {Raw: "false", Type: "bool"},
-	"feature.mcp_remote_enabled": {Raw: "false", Type: "bool"},
-	"invite.max_codes_per_user":  {Raw: "1", Type: "int"},
-	"invite.default_max_uses":    {Raw: "1", Type: "int"},
-	"credit.initial_grant":       {Raw: "1000", Type: "int"},
-	"credit.invite_reward":       {Raw: "500", Type: "int"},
-	"credit.invitee_reward":      {Raw: "200", Type: "int"},
-	"credit.deduction_policy":    {Raw: `{"tiers":[{"up_to_tokens":2000,"multiplier":0},{"multiplier":1}]}`, Type: "json"},
-}
 
 type EntitlementValue struct {
 	Raw  string
@@ -51,11 +36,13 @@ func (v EntitlementValue) String() string {
 }
 
 type Service struct {
-	entitlementsRepo     *data.EntitlementsRepository
-	subscriptionRepo     *data.SubscriptionRepository
-	planRepo             *data.PlanRepository
-	platformSettingsRepo *data.PlatformSettingsRepository
-	rdb                  *redis.Client
+	entitlementsRepo *data.EntitlementsRepository
+	subscriptionRepo *data.SubscriptionRepository
+	planRepo         *data.PlanRepository
+	rdb              *redis.Client
+
+	configResolver sharedconfig.Resolver
+	registry       *sharedconfig.Registry
 }
 
 func NewService(
@@ -63,6 +50,7 @@ func NewService(
 	subscriptionRepo *data.SubscriptionRepository,
 	planRepo *data.PlanRepository,
 	rdb *redis.Client,
+	configResolver sharedconfig.Resolver,
 ) (*Service, error) {
 	if entitlementsRepo == nil {
 		return nil, fmt.Errorf("entitlement: entitlements_repo must not be nil")
@@ -73,17 +61,20 @@ func NewService(
 	if planRepo == nil {
 		return nil, fmt.Errorf("entitlement: plan_repo must not be nil")
 	}
+
+	registry := sharedconfig.DefaultRegistry()
+	if configResolver == nil {
+		fallback, _ := sharedconfig.NewResolver(registry, nil, nil, 0)
+		configResolver = fallback
+	}
 	return &Service{
 		entitlementsRepo: entitlementsRepo,
 		subscriptionRepo: subscriptionRepo,
 		planRepo:         planRepo,
 		rdb:              rdb,
+		configResolver:   configResolver,
+		registry:         registry,
 	}, nil
-}
-
-// SetPlatformSettingsRepo 注入平台设置仓储（可选，未注入时仅使用硬编码默认值）。
-func (s *Service) SetPlatformSettingsRepo(repo *data.PlatformSettingsRepository) {
-	s.platformSettingsRepo = repo
 }
 
 // Resolve 按优先级返回权益值：org override (未过期) > plan entitlement > 平台默认值。
@@ -134,24 +125,15 @@ func (s *Service) resolveFromDB(ctx context.Context, orgID uuid.UUID, key string
 		}
 	}
 
-	// 3. 平台设置（数据库可配置的默认值）
-	if s.platformSettingsRepo != nil {
-		setting, err := s.platformSettingsRepo.Get(ctx, key)
-		if err == nil && setting != nil {
-			valType := "string"
-			if _, ok := platformDefaults[key]; ok {
-				valType = platformDefaults[key].Type
-			}
-			return EntitlementValue{Raw: setting.Value, Type: valType}, nil
-		}
+	// 3. 平台默认值：ENV > platform_settings > registry default
+	if s == nil || s.configResolver == nil {
+		return EntitlementValue{}, fmt.Errorf("entitlement: config resolver not initialized")
 	}
-
-	// 4. 硬编码平台默认值
-	if def, ok := platformDefaults[key]; ok {
-		return def, nil
+	raw, err := s.configResolver.Resolve(ctx, key, sharedconfig.Scope{})
+	if err != nil {
+		return EntitlementValue{}, fmt.Errorf("entitlement: resolve platform default %q: %w", key, err)
 	}
-
-	return EntitlementValue{}, fmt.Errorf("entitlement: unknown key %q", key)
+	return EntitlementValue{Raw: raw, Type: entitlementTypeForKey(key, s.registry)}, nil
 }
 
 func (s *Service) getFromCache(ctx context.Context, orgID uuid.UUID, key string) (*EntitlementValue, error) {
@@ -185,4 +167,24 @@ func (s *Service) InvalidateCache(ctx context.Context, orgID uuid.UUID, key stri
 	}
 	cacheKey := cachePrefix + orgID.String() + ":" + key
 	_ = s.rdb.Del(ctx, cacheKey).Err()
+}
+
+func entitlementTypeForKey(key string, registry *sharedconfig.Registry) string {
+	if key == "credit.deduction_policy" {
+		return "json"
+	}
+	if registry == nil {
+		registry = sharedconfig.DefaultRegistry()
+	}
+	if entry, ok := registry.Get(key); ok {
+		switch entry.Type {
+		case sharedconfig.TypeInt:
+			return "int"
+		case sharedconfig.TypeBool:
+			return "bool"
+		default:
+			return "string"
+		}
+	}
+	return "string"
 }

@@ -1,36 +1,43 @@
 package app
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"os"
 	"strconv"
 	"strings"
+	"time"
+
+	sharedconfig "arkloop/services/shared/config"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 const (
-	sandboxAddrEnv            = "ARKLOOP_SANDBOX_ADDR"
-	firecrackerBinEnv         = "ARKLOOP_FIRECRACKER_BIN"
-	kernelImagePathEnv        = "ARKLOOP_SANDBOX_KERNEL_IMAGE"
-	rootfsPathEnv             = "ARKLOOP_SANDBOX_ROOTFS"
-	socketBaseDirEnv          = "ARKLOOP_SANDBOX_SOCKET_DIR"
-	bootTimeoutSecondsEnv     = "ARKLOOP_SANDBOX_BOOT_TIMEOUT_SECONDS"
-	guestAgentPortEnv         = "ARKLOOP_SANDBOX_AGENT_PORT"
-	maxSessionsEnv            = "ARKLOOP_SANDBOX_MAX_SESSIONS"
-	s3EndpointEnv             = "ARKLOOP_S3_ENDPOINT"
-	s3AccessKeyEnv            = "ARKLOOP_S3_ACCESS_KEY"
-	s3SecretKeyEnv            = "ARKLOOP_S3_SECRET_KEY"
-	templatesPathEnv          = "ARKLOOP_SANDBOX_TEMPLATES_PATH"
+	sandboxAddrEnv        = "ARKLOOP_SANDBOX_ADDR"
+	firecrackerBinEnv     = "ARKLOOP_FIRECRACKER_BIN"
+	kernelImagePathEnv    = "ARKLOOP_SANDBOX_KERNEL_IMAGE"
+	rootfsPathEnv         = "ARKLOOP_SANDBOX_ROOTFS"
+	socketBaseDirEnv      = "ARKLOOP_SANDBOX_SOCKET_DIR"
+	bootTimeoutSecondsEnv = "ARKLOOP_SANDBOX_BOOT_TIMEOUT_SECONDS"
+	guestAgentPortEnv     = "ARKLOOP_SANDBOX_AGENT_PORT"
+	maxSessionsEnv        = "ARKLOOP_SANDBOX_MAX_SESSIONS"
+	s3EndpointEnv         = "ARKLOOP_S3_ENDPOINT"
+	s3AccessKeyEnv        = "ARKLOOP_S3_ACCESS_KEY"
+	s3SecretKeyEnv        = "ARKLOOP_S3_SECRET_KEY"
+	templatesPathEnv      = "ARKLOOP_SANDBOX_TEMPLATES_PATH"
 
-	warmLiteEnv               = "ARKLOOP_SANDBOX_WARM_LITE"
-	warmProEnv                = "ARKLOOP_SANDBOX_WARM_PRO"
-	warmUltraEnv              = "ARKLOOP_SANDBOX_WARM_ULTRA"
-	refillIntervalEnv         = "ARKLOOP_SANDBOX_REFILL_INTERVAL"
-	refillConcurrencyEnv      = "ARKLOOP_SANDBOX_REFILL_CONCURRENCY"
-	idleTimeoutLiteEnv        = "ARKLOOP_SANDBOX_IDLE_TIMEOUT_LITE"
-	idleTimeoutProEnv         = "ARKLOOP_SANDBOX_IDLE_TIMEOUT_PRO"
-	idleTimeoutUltraEnv       = "ARKLOOP_SANDBOX_IDLE_TIMEOUT_ULTRA"
-	maxLifetimeEnv            = "ARKLOOP_SANDBOX_MAX_LIFETIME"
+	warmLiteEnv          = "ARKLOOP_SANDBOX_WARM_LITE"
+	warmProEnv           = "ARKLOOP_SANDBOX_WARM_PRO"
+	warmUltraEnv         = "ARKLOOP_SANDBOX_WARM_ULTRA"
+	refillIntervalEnv    = "ARKLOOP_SANDBOX_REFILL_INTERVAL"
+	refillConcurrencyEnv = "ARKLOOP_SANDBOX_REFILL_CONCURRENCY"
+	idleTimeoutLiteEnv   = "ARKLOOP_SANDBOX_IDLE_TIMEOUT_LITE"
+	idleTimeoutProEnv    = "ARKLOOP_SANDBOX_IDLE_TIMEOUT_PRO"
+	idleTimeoutUltraEnv  = "ARKLOOP_SANDBOX_IDLE_TIMEOUT_ULTRA"
+	maxLifetimeEnv       = "ARKLOOP_SANDBOX_MAX_LIFETIME"
 )
 
 type Config struct {
@@ -190,6 +197,53 @@ func LoadConfigFromEnv() (Config, error) {
 		cfg.MaxLifetimeSeconds = v
 	}
 
+	dbURL := strings.TrimSpace(os.Getenv("ARKLOOP_DATABASE_URL"))
+	if dbURL != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		poolCfg, err := pgxpool.ParseConfig(dbURL)
+		if err != nil {
+			writeConfigWarn("platform_settings_parse_failed", err)
+		} else {
+			poolCfg.MaxConns = 2
+			dbPool, err := pgxpool.NewWithConfig(ctx, poolCfg)
+			if err != nil {
+				writeConfigWarn("platform_settings_connect_failed", err)
+			} else {
+				registry := sharedconfig.DefaultRegistry()
+				resolver, _ := sharedconfig.NewResolver(registry, sharedconfig.NewPGXStore(dbPool), nil, 0)
+
+				overrideInt := func(key string) int {
+					raw, err := resolver.Resolve(ctx, key, sharedconfig.Scope{})
+					if err != nil {
+						return 0
+					}
+					v, err := strconv.Atoi(strings.TrimSpace(raw))
+					if err != nil || v <= 0 {
+						return 0
+					}
+					return v
+				}
+
+				if v := overrideInt("sandbox.idle_timeout_lite_s"); v > 0 {
+					cfg.IdleTimeoutLite = v
+				}
+				if v := overrideInt("sandbox.idle_timeout_pro_s"); v > 0 {
+					cfg.IdleTimeoutPro = v
+				}
+				if v := overrideInt("sandbox.idle_timeout_ultra_s"); v > 0 {
+					cfg.IdleTimeoutUltra = v
+				}
+				if v := overrideInt("sandbox.max_lifetime_s"); v > 0 {
+					cfg.MaxLifetimeSeconds = v
+				}
+
+				dbPool.Close()
+			}
+		}
+	}
+
 	return cfg, cfg.Validate()
 }
 
@@ -247,4 +301,16 @@ func envPositiveInt(key string) (int, error) {
 		return 0, fmt.Errorf("%s: must be a positive integer", key)
 	}
 	return v, nil
+}
+
+func writeConfigWarn(event string, err error) {
+	if err == nil {
+		return
+	}
+	raw, _ := json.Marshal(map[string]any{
+		"level": "warn",
+		"event": event,
+		"error": err.Error(),
+	})
+	_, _ = os.Stderr.Write(append(raw, '\n'))
 }

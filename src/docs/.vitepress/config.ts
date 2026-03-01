@@ -90,6 +90,14 @@ export default defineConfig({
           ],
         },
       ],
+      '/reference/': [
+        {
+          text: 'Reference',
+          items: [
+            { text: 'Configuration Registry', link: '/reference/configuration.zh-CN' },
+          ],
+        },
+      ],
       '/specs/': [
         {
           text: '技术规范',

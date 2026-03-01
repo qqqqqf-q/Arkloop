@@ -10,8 +10,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-const defaultAgentMaxIterations = 10
-
 // NewPersonaResolutionMiddleware 加载 org personas 并解析 persona_id，设置 RunContext 的 persona 相关字段。
 // persona 解析失败时写入 run.failed 并短路。
 // getBaseRegistry 每次 run 调用时获取最新 registry，支持热重载。
@@ -58,9 +56,15 @@ func NewPersonaResolutionMiddleware(
 			return appendAndCommitSingle(ctx, rc.Pool, rc.Run, runsRepo, eventsRepo, failed, releaseFn, rc.BroadcastRDB)
 		}
 
-		rc.MaxIterations = defaultAgentMaxIterations
 		rc.ToolBudget = map[string]any{}
 		rc.PersonaDefinition = resolution.Definition
+
+		maxIterLimit := rc.AgentMaxIterationsLimit
+		if maxIterLimit <= 0 {
+			maxIterLimit = 10
+		}
+		rc.AgentMaxIterationsLimit = maxIterLimit
+		rc.MaxIterations = maxIterLimit
 
 		// 若 persona 显式绑定了 AgentConfig，按名称覆盖继承链解析结果
 		if resolution.Definition != nil && resolution.Definition.AgentConfigName != nil && dbPool != nil {
@@ -132,7 +136,9 @@ func NewPersonaResolutionMiddleware(
 			}
 
 			if def.Budgets.MaxIterations != nil {
-				rc.MaxIterations = *def.Budgets.MaxIterations
+				if v := *def.Budgets.MaxIterations; v > 0 && v < maxIterLimit {
+					rc.MaxIterations = v
+				}
 			}
 
 			// MaxOutputTokens：取 Persona 值，但不超过 AgentConfig 上界

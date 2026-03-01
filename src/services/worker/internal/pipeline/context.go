@@ -94,7 +94,14 @@ type RunContext struct {
 	ToolExecutor *tools.DispatchingExecutor
 	FinalSpecs   []llm.ToolSpec
 
-	// -- 默认 10，PersonaResolution 可覆盖 --
+	// -- EngineV1.Execute 注入：平台限制 --
+	ThreadMessageHistoryLimit int
+	AgentMaxIterationsLimit   int
+	MaxParallelTasks          int
+	CreditPerUSD              int
+	LlmMaxResponseBytes       int
+
+	// -- 默认来自 AgentMaxIterationsLimit，PersonaResolution 可缩小 --
 	MaxIterations int
 
 	// -- EngineV1.Execute 注入 --
