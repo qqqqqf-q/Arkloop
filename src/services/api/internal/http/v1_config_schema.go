@@ -31,7 +31,8 @@ func configSchemaEntry(
 		}
 
 		traceID := observability.TraceIDFromContext(r.Context())
-		if _, ok := resolveActor(w, r, traceID, authService, membershipRepo, apiKeysRepo, nil); !ok {
+		actor, ok := resolveActor(w, r, traceID, authService, membershipRepo, apiKeysRepo, nil)
+		if !ok {
 			return
 		}
 
@@ -39,6 +40,7 @@ func configSchemaEntry(
 			registry = sharedconfig.DefaultRegistry()
 		}
 		entries := registry.List()
+		entries = filterSchemaEntries(entries, actor != nil && actor.HasPermission(auth.PermPlatformAdmin))
 
 		out := make([]configSchemaItem, 0, len(entries))
 		for _, e := range entries {
@@ -53,4 +55,18 @@ func configSchemaEntry(
 		}
 		writeJSON(w, traceID, nethttp.StatusOK, out)
 	}
+}
+
+func filterSchemaEntries(entries []sharedconfig.Entry, isPlatformAdmin bool) []sharedconfig.Entry {
+	if isPlatformAdmin {
+		return entries
+	}
+
+	out := make([]sharedconfig.Entry, 0, len(entries))
+	for _, e := range entries {
+		if e.Scope == sharedconfig.ScopeOrg || e.Scope == sharedconfig.ScopeBoth {
+			out = append(out, e)
+		}
+	}
+	return out
 }
