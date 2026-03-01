@@ -154,7 +154,7 @@ func (rt *luaRuntime) register(L *lua.LState) {
 	L.SetGlobal("memory", memoryTable)
 }
 
-// agent.run(skill_id, input) -> (output, err)
+// agent.run(persona_id, input) -> (output, err)
 // 内部调用 SpawnChildRun，父 Run 挂起等待子 Run 完成。
 func (rt *luaRuntime) agentRun(L *lua.LState) int {
 	if rt.ctx.Err() != nil {
@@ -163,7 +163,7 @@ func (rt *luaRuntime) agentRun(L *lua.LState) int {
 		return 2
 	}
 
-	skillID := L.CheckString(1)
+	personaID := L.CheckString(1)
 	input := L.CheckString(2)
 
 	if rt.rc.SpawnChildRun == nil {
@@ -172,7 +172,7 @@ func (rt *luaRuntime) agentRun(L *lua.LState) int {
 		return 2
 	}
 
-	output, err := rt.rc.SpawnChildRun(rt.ctx, skillID, input)
+	output, err := rt.rc.SpawnChildRun(rt.ctx, personaID, input)
 	if err != nil {
 		L.Push(lua.LNil)
 		L.Push(lua.LString(err.Error()))
@@ -188,7 +188,7 @@ func (rt *luaRuntime) agentRun(L *lua.LState) int {
 const maxParallelTasks = 32
 
 // agent.run_parallel(tasks) -> (results, errors)
-// tasks 是 Lua table，每项为 {skill="...", input="..."}，索引从 1 开始。
+// tasks 是 Lua table，每项为 {persona="...", input="..."}，索引从 1 开始。
 // 所有子任务并行执行，全部完成后返回两个等长 table：
 //
 //	results[i] = 输出文本（失败时为 nil）
@@ -216,7 +216,7 @@ func (rt *luaRuntime) agentRunParallel(L *lua.LState) int {
 	}
 
 	type taskEntry struct {
-		skillID string
+		personaID string
 		input   string
 	}
 
@@ -226,13 +226,13 @@ func (rt *luaRuntime) agentRunParallel(L *lua.LState) int {
 		tbl, ok := v.(*lua.LTable)
 		if !ok {
 			L.Push(lua.LNil)
-			L.Push(lua.LString(fmt.Sprintf("tasks[%d] must be a table with skill and input fields", i+1)))
+			L.Push(lua.LString(fmt.Sprintf("tasks[%d] must be a table with persona and input fields", i+1)))
 			return 2
 		}
-		skillLV, ok := tbl.RawGetString("skill").(lua.LString)
-		if !ok || string(skillLV) == "" {
+		personaLV, ok := tbl.RawGetString("persona").(lua.LString)
+		if !ok || string(personaLV) == "" {
 			L.Push(lua.LNil)
-			L.Push(lua.LString(fmt.Sprintf("tasks[%d].skill must be a non-empty string", i+1)))
+			L.Push(lua.LString(fmt.Sprintf("tasks[%d].persona must be a non-empty string", i+1)))
 			return 2
 		}
 		inputLV, ok := tbl.RawGetString("input").(lua.LString)
@@ -241,16 +241,16 @@ func (rt *luaRuntime) agentRunParallel(L *lua.LState) int {
 			L.Push(lua.LString(fmt.Sprintf("tasks[%d].input must be a string", i+1)))
 			return 2
 		}
-		tasks[i] = taskEntry{skillID: string(skillLV), input: string(inputLV)}
+		tasks[i] = taskEntry{personaID: string(personaLV), input: string(inputLV)}
 	}
 
-	skillIDs := make([]string, n)
+	personaIDs := make([]string, n)
 	for i, t := range tasks {
-		skillIDs[i] = t.skillID
+		personaIDs[i] = t.personaID
 	}
 	if err := rt.yield(rt.emitter.Emit("agent.parallel_dispatch", map[string]any{
 		"task_count": n,
-		"skill_ids":  skillIDs,
+		"persona_ids":  personaIDs,
 	}, nil, nil)); err != nil {
 		L.Push(lua.LNil)
 		L.Push(lua.LString(err.Error()))
@@ -266,7 +266,7 @@ func (rt *luaRuntime) agentRunParallel(L *lua.LState) int {
 		i, t := i, t
 		go func() {
 			defer wg.Done()
-			out, err := rt.rc.SpawnChildRun(rt.ctx, t.skillID, t.input)
+			out, err := rt.rc.SpawnChildRun(rt.ctx, t.personaID, t.input)
 			outputs[i] = out
 			errs[i] = err
 		}()
@@ -413,7 +413,7 @@ func (rt *luaRuntime) toolsCall(L *lua.LState) int {
 		OrgID:     &rt.rc.Run.OrgID,
 		ThreadID:  &rt.rc.Run.ThreadID,
 		UserID:    rt.rc.UserID,
-		AgentID:   agentIDFromSkill(rt.rc),
+		AgentID:   agentIDFromPersona(rt.rc),
 		TimeoutMs: rt.rc.ToolTimeoutMs,
 		Budget:    rt.rc.ToolBudget,
 		Emitter:   rt.emitter,
@@ -1140,7 +1140,7 @@ func (rt *luaRuntime) runAgentLoop(
 		RunID:               rt.rc.Run.ID,
 		OrgID:               &rt.rc.Run.OrgID,
 		UserID:              rt.rc.UserID,
-		AgentID:             agentIDFromSkill(rt.rc),
+		AgentID:             agentIDFromPersona(rt.rc),
 		ThreadID:            &rt.rc.Run.ThreadID,
 		TraceID:             rt.rc.TraceID,
 		InputJSON:           rt.rc.InputJSON,
@@ -1291,7 +1291,7 @@ func (rt *luaRuntime) toolsCallParallel(L *lua.LState) int {
 				OrgID:     &rt.rc.Run.OrgID,
 				ThreadID:  &rt.rc.Run.ThreadID,
 				UserID:    rt.rc.UserID,
-				AgentID:   agentIDFromSkill(rt.rc),
+				AgentID:   agentIDFromPersona(rt.rc),
 				TimeoutMs: rt.rc.ToolTimeoutMs,
 				Budget:    rt.rc.ToolBudget,
 				Emitter:   rt.emitter,
@@ -1491,7 +1491,7 @@ func (rt *luaRuntime) memoryForget(L *lua.LState) int {
 func (rt *luaRuntime) memoryIdentity() memory.MemoryIdentity {
 	ident := memory.MemoryIdentity{
 		OrgID:   rt.rc.Run.OrgID,
-		AgentID: agentIDFromSkill(rt.rc),
+		AgentID: agentIDFromPersona(rt.rc),
 	}
 	if rt.rc.UserID != nil {
 		ident.UserID = *rt.rc.UserID

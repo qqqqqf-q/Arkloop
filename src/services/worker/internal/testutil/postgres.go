@@ -180,7 +180,7 @@ func initRunsSchema(t *testing.T, dsn string) error {
 			total_output_tokens BIGINT      NULL,
 			total_cost_usd      NUMERIC     NULL,
 			model               TEXT        NULL,
-			skill_id            TEXT        NULL,
+			persona_id            TEXT        NULL,
 			deleted_at          TIMESTAMPTZ NULL,
 			created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
 		)`,

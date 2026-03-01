@@ -22,7 +22,7 @@ type RunFilters = {
   parentRunId: string
   status: string
   model: string
-  skillId: string
+  personaId: string
   since: string
   until: string
 }
@@ -35,7 +35,7 @@ const EMPTY_RUN_FILTERS: RunFilters = {
   parentRunId: '',
   status: '',
   model: '',
-  skillId: '',
+  personaId: '',
   since: '',
   until: '',
 }
@@ -78,7 +78,7 @@ function parseInitialFilters(searchParams: URLSearchParams): RunFilters {
     parentRunId: searchParams.get('parent_run_id') ?? '',
     status: searchParams.get('status') ?? '',
     model: searchParams.get('model') ?? '',
-    skillId: searchParams.get('skill_id') ?? '',
+    personaId: searchParams.get('persona_id') ?? '',
   }
 }
 
@@ -92,7 +92,7 @@ function normalizeFilters(filters: RunFilters): RunFilters {
     parentRunId: filters.parentRunId.trim(),
     status: filters.status.trim(),
     model: filters.model.trim(),
-    skillId: filters.skillId.trim(),
+    personaId: filters.personaId.trim(),
   }
 }
 
@@ -112,7 +112,7 @@ function countActiveFilters(filters: RunFilters): number {
     filters.parentRunId,
     filters.status,
     filters.model,
-    filters.skillId,
+    filters.personaId,
     filters.since,
     filters.until,
   ]
@@ -157,7 +157,7 @@ export function RunsPage() {
             parent_run_id: filters.parentRunId || undefined,
             status: filters.status || undefined,
             model: filters.model || undefined,
-            skill_id: filters.skillId || undefined,
+            persona_id: filters.personaId || undefined,
             since: toRFC3339(filters.since),
             until: toRFC3339(filters.until),
             limit: PAGE_SIZE,
@@ -276,11 +276,11 @@ export function RunsPage() {
       ),
     },
     {
-      key: 'skill_id',
-      header: rt.colSkill,
+      key: 'persona_id',
+      header: rt.colPersona,
       render: (row) => (
-        <span className="inline-block max-w-[140px] truncate text-xs" title={row.skill_id ?? undefined}>
-          {row.skill_id ?? '--'}
+        <span className="inline-block max-w-[140px] truncate text-xs" title={row.persona_id ?? undefined}>
+          {row.persona_id ?? '--'}
         </span>
       ),
     },
@@ -448,12 +448,12 @@ export function RunsPage() {
             />
           </div>
           <div className="flex flex-col gap-1">
-            <span className="text-[11px] text-[var(--c-text-muted)]">{rt.filterSkillLabel}</span>
+            <span className="text-[11px] text-[var(--c-text-muted)]">{rt.filterPersonaLabel}</span>
             <input
               type="text"
-              placeholder={rt.filterSkillPlaceholder}
-              value={draftFilters.skillId}
-              onChange={(e) => updateDraftFilter('skillId', e.target.value)}
+              placeholder={rt.filterPersonaPlaceholder}
+              value={draftFilters.personaId}
+              onChange={(e) => updateDraftFilter('personaId', e.target.value)}
               className={filterInputCls}
             />
           </div>

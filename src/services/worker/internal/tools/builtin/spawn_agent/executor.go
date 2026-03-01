@@ -18,31 +18,31 @@ const (
 var AgentSpec = tools.AgentToolSpec{
 	Name:        "spawn_agent",
 	Version:     "1",
-	Description: "spawn a sub-agent to execute a task with a specific skill",
+	Description: "spawn a sub-agent to execute a task with a specific persona",
 	RiskLevel:   tools.RiskLevelMedium,
 	SideEffects: true,
 }
 
 var LlmSpec = llm.ToolSpec{
 	Name:        "spawn_agent",
-	Description: stringPtr("spawn a sub-agent to execute a task with a specific skill, returns the sub-agent output"),
+	Description: stringPtr("spawn a sub-agent to execute a task with a specific persona, returns the sub-agent output"),
 	JSONSchema: map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"skill_id": map[string]any{
+			"persona_id": map[string]any{
 				"type": "string",
 			},
 			"input": map[string]any{
 				"type": "string",
 			},
 		},
-		"required":             []string{"skill_id", "input"},
+		"required":             []string{"persona_id", "input"},
 		"additionalProperties": false,
 	},
 }
 
 // SpawnFunc 是 SpawnChildRun 的函数签名，per-run 注入。
-type SpawnFunc func(ctx context.Context, skillID string, input string) (string, error)
+type SpawnFunc func(ctx context.Context, personaID string, input string) (string, error)
 
 type ToolExecutor struct {
 	SpawnFn SpawnFunc
@@ -67,7 +67,7 @@ func (e *ToolExecutor) Execute(
 		}
 	}
 
-	skillID, input, argErr := parseArgs(args)
+	personaID, input, argErr := parseArgs(args)
 	if argErr != nil {
 		return tools.ExecutionResult{
 			Error:      argErr,
@@ -75,7 +75,7 @@ func (e *ToolExecutor) Execute(
 		}
 	}
 
-	output, err := e.SpawnFn(ctx, skillID, input)
+	output, err := e.SpawnFn(ctx, personaID, input)
 	if err != nil {
 		return tools.ExecutionResult{
 			Error: &tools.ExecutionError{
@@ -96,7 +96,7 @@ func (e *ToolExecutor) Execute(
 
 func parseArgs(args map[string]any) (string, string, *tools.ExecutionError) {
 	for key := range args {
-		if key != "skill_id" && key != "input" {
+		if key != "persona_id" && key != "input" {
 			return "", "", &tools.ExecutionError{
 				ErrorClass: errorArgsInvalid,
 				Message:    "unknown parameter: " + key,
@@ -104,11 +104,11 @@ func parseArgs(args map[string]any) (string, string, *tools.ExecutionError) {
 		}
 	}
 
-	skillID, ok := args["skill_id"].(string)
-	if !ok || strings.TrimSpace(skillID) == "" {
+	personaID, ok := args["persona_id"].(string)
+	if !ok || strings.TrimSpace(personaID) == "" {
 		return "", "", &tools.ExecutionError{
 			ErrorClass: errorArgsInvalid,
-			Message:    "skill_id must be a non-empty string",
+			Message:    "persona_id must be a non-empty string",
 		}
 	}
 
@@ -120,7 +120,7 @@ func parseArgs(args map[string]any) (string, string, *tools.ExecutionError) {
 		}
 	}
 
-	return strings.TrimSpace(skillID), strings.TrimSpace(input), nil
+	return strings.TrimSpace(personaID), strings.TrimSpace(input), nil
 }
 
 func stringPtr(s string) *string { return &s }

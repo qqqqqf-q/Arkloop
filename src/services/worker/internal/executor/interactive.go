@@ -98,7 +98,7 @@ func (e *InteractiveExecutor) Execute(
 		RunID:               rc.Run.ID,
 		OrgID:               &rc.Run.OrgID,
 		UserID:              rc.UserID,
-		AgentID:             agentIDFromSkill(rc),
+		AgentID:             agentIDFromPersona(rc),
 		ThreadID:            &rc.Run.ThreadID,
 		TraceID:             rc.TraceID,
 		InputJSON:           rc.InputJSON,

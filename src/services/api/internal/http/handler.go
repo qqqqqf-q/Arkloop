@@ -55,7 +55,7 @@ type HandlerConfig struct {
 	SecretsRepo         *data.SecretsRepository
 	AsrCredentialsRepo  *data.AsrCredentialsRepository
 	MCPConfigsRepo      *data.MCPConfigsRepository
-	SkillsRepo          *data.SkillsRepository
+	PersonasRepo          *data.PersonasRepository
 	IPRulesRepo         *data.IPRulesRepository
 	APIKeysRepo         *data.APIKeysRepository
 	OrgInvitationsRepo  *data.OrgInvitationsRepository
@@ -203,12 +203,12 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 	)
 
 	mux.HandleFunc(
-		"/v1/skills",
-		skillsEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.SkillsRepo),
+		"/v1/personas",
+		personasEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.PersonasRepo),
 	)
 	mux.HandleFunc(
-		"/v1/skills/",
-		skillEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.SkillsRepo),
+		"/v1/personas/",
+		personaEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.PersonasRepo),
 	)
 
 	mux.HandleFunc(

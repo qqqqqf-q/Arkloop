@@ -12,7 +12,7 @@ import (
 	"arkloop/services/worker/internal/queue"
 	"arkloop/services/worker/internal/routing"
 	"arkloop/services/worker/internal/runengine"
-	"arkloop/services/worker/internal/skills"
+	"arkloop/services/worker/internal/personas"
 	"arkloop/services/worker/internal/tools"
 	"arkloop/services/worker/internal/tools/builtin"
 	browsertool "arkloop/services/worker/internal/tools/builtin/browser"
@@ -127,19 +127,19 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 		slog.InfoContext(ctx, "sandbox: tools registered", "base_url", sandboxBaseURL)
 	}
 
-	skillsRoot, err := skills.BuiltinSkillsRoot()
+	personasRoot, err := personas.BuiltinPersonasRoot()
 	if err != nil {
 		return nil, err
 	}
-	initialSkillRegistry, err := skills.LoadRegistry(skillsRoot)
+	initialPersonaRegistry, err := personas.LoadRegistry(personasRoot)
 	if err != nil {
 		return nil, err
 	}
-	if err := skills.SyncBuiltinSkillsToDB(ctx, pool, initialSkillRegistry); err != nil {
+	if err := personas.SyncBuiltinPersonasToDB(ctx, pool, initialPersonaRegistry); err != nil {
 		return nil, err
 	}
-	watchedSkills := skills.NewWatchedRegistry(skillsRoot, initialSkillRegistry)
-	watchedSkills.Watch(ctx)
+	watchedPersonas := personas.NewWatchedRegistry(personasRoot, initialPersonaRegistry)
+	watchedPersonas.Watch(ctx)
 
 	return runengine.NewEngineV1(runengine.EngineV1Deps{
 		Router:                 router,
@@ -151,7 +151,7 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 		ToolExecutors:          executors,
 		AllLlmToolSpecs:        allLlmSpecs,
 		BaseToolAllowlistNames: baseAllowlistNames,
-		SkillRegistryGetter:    watchedSkills.Get,
+		PersonaRegistryGetter:    watchedPersonas.Get,
 		MCPPool:                mcpPool,
 		MCPDiscoveryCache:      discoveryCache,
 		ExecutorRegistry:       execRegistry,

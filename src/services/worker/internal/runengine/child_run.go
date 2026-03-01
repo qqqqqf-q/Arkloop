@@ -19,10 +19,9 @@ import (
 // childThreadTTL 是子 Run 独立临时线程的自动过期时长。
 const childThreadTTL = 7 * 24 * time.Hour
 
-// newSpawnChildRunFunc 构建一个绑定了运行时依赖的 SpawnChildRun 闭包，注入到 RunContext。
-func newSpawnChildRunFunc(pool *pgxpool.Pool, rdb *redis.Client, jobQueue queue.JobQueue, parentRun data.Run, traceID string) func(ctx context.Context, skillID string, input string) (string, error) {
-	return func(ctx context.Context, skillID string, input string) (string, error) {
-		return spawnChildRun(ctx, pool, rdb, jobQueue, parentRun, traceID, skillID, input)
+func newSpawnChildRunFunc(pool *pgxpool.Pool, rdb *redis.Client, jobQueue queue.JobQueue, parentRun data.Run, traceID string) func(ctx context.Context, personaID string, input string) (string, error) {
+	return func(ctx context.Context, personaID string, input string) (string, error) {
+		return spawnChildRun(ctx, pool, rdb, jobQueue, parentRun, traceID, personaID, input)
 	}
 }
 
@@ -33,7 +32,7 @@ func spawnChildRun(
 	jobQueue queue.JobQueue,
 	parentRun data.Run,
 	traceID string,
-	skillID string,
+	personaID string,
 	input string,
 ) (string, error) {
 	childRunID := uuid.New()
@@ -48,7 +47,7 @@ func spawnChildRun(
 		return "", fmt.Errorf("subscribe child run channel: %w", err)
 	}
 
-	if err := createAndEnqueueChildRun(ctx, pool, rdb, jobQueue, childRunID, parentRun, traceID, skillID, input); err != nil {
+	if err := createAndEnqueueChildRun(ctx, pool, rdb, jobQueue, childRunID, parentRun, traceID, personaID, input); err != nil {
 		return "", fmt.Errorf("create child run: %w", err)
 	}
 
@@ -71,7 +70,7 @@ func createAndEnqueueChildRun(
 	childRunID uuid.UUID,
 	parentRun data.Run,
 	traceID string,
-	skillID string,
+	personaID string,
 	input string,
 ) error {
 	tx, err := pool.BeginTx(ctx, pgx.TxOptions{})
@@ -115,12 +114,12 @@ func createAndEnqueueChildRun(
 		return fmt.Errorf("insert child run: %w", err)
 	}
 
-	// 分配 seq 并插入 run.started 事件（携带 skill_id，供 InputLoaderMiddleware 解析）
+	// 分配 seq 并插入 run.started 事件（携带 persona_id，供 InputLoaderMiddleware 解析）
 	var seq int64
 	if err := tx.QueryRow(ctx, `SELECT nextval('run_events_seq_global')`).Scan(&seq); err != nil {
 		return fmt.Errorf("alloc seq: %w", err)
 	}
-	eventData, err := json.Marshal(map[string]any{"skill_id": skillID})
+	eventData, err := json.Marshal(map[string]any{"persona_id": personaID})
 	if err != nil {
 		return fmt.Errorf("marshal run.started data: %w", err)
 	}

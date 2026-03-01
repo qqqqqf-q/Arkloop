@@ -27,7 +27,7 @@ type adminRunDetailResponse struct {
 	ThreadID          string   `json:"thread_id"`
 	Status            string   `json:"status"`
 	Model             *string  `json:"model,omitempty"`
-	SkillID           *string  `json:"skill_id,omitempty"`
+	PersonaID           *string  `json:"persona_id,omitempty"`
 	ProviderKind      *string  `json:"provider_kind,omitempty"`
 	CredentialName    *string  `json:"credential_name,omitempty"`
 	AgentConfigName   *string  `json:"agent_config_name,omitempty"`
@@ -152,7 +152,7 @@ func adminRunsEntry(
 			ThreadID:          run.ThreadID.String(),
 			Status:            run.Status,
 			Model:             model,
-			SkillID:           run.SkillID,
+			PersonaID:           run.PersonaID,
 			ProviderKind:      providerKind,
 			CredentialName:    credentialName,
 			AgentConfigName:   agentConfigName,

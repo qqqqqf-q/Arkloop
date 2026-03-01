@@ -13,7 +13,7 @@ var orgAdminPerms = []string{
 	PermDataThreadsRead, PermDataThreadsWrite,
 	PermDataRunsRead, PermDataRunsWrite,
 	PermDataAPIKeysManage,
-	PermDataSkillsRead,
+	PermDataPersonasRead,
 	PermDataLLMCreds,
 	PermDataMCPConfigs,
 	PermDataSecrets,
@@ -30,7 +30,7 @@ var orgMemberPerms = []string{
 	PermDataRunsRead, PermDataRunsWrite,
 	// 成员可管理自己名下的 API Key，符合最小特权原则——Key 归属于创建者，不涉及 org 级写操作。
 	PermDataAPIKeysManage,
-	PermDataSkillsRead,
+	PermDataPersonasRead,
 	PermDataProjectsRead,
 	PermDataAgentConfigsRead,
 	PermDataSubscriptionsRead,

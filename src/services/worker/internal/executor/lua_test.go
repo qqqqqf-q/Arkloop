@@ -201,7 +201,7 @@ end
 func TestLuaExecutor_AgentRun_SpawnChildRunNil(t *testing.T) {
 	ex, _ := NewLuaExecutor(map[string]any{
 		"script": `
-local out, err = agent.run("some_skill", "input")
+local out, err = agent.run("some_persona", "input")
 if err then
   context.set_output("err:" .. err)
 end
@@ -229,7 +229,7 @@ end
 }
 
 func TestLuaExecutor_AgentRun_SpawnChildRunCalled(t *testing.T) {
-	var capturedSkill, capturedInput string
+	var capturedPersona, capturedInput string
 	ex, _ := NewLuaExecutor(map[string]any{
 		"script": `
 local out, err = agent.run("lite", "what is 2+2?")
@@ -238,8 +238,8 @@ context.set_output(out)
 `,
 	})
 	rc := buildLuaRC(nil)
-	rc.SpawnChildRun = func(_ context.Context, skillID string, input string) (string, error) {
-		capturedSkill = skillID
+	rc.SpawnChildRun = func(_ context.Context, personaID string, input string) (string, error) {
+		capturedPersona = personaID
 		capturedInput = input
 		return "4", nil
 	}
@@ -253,8 +253,8 @@ context.set_output(out)
 	if err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
-	if capturedSkill != "lite" {
-		t.Fatalf("expected skill 'lite', got %q", capturedSkill)
+	if capturedPersona != "lite" {
+		t.Fatalf("expected persona 'lite', got %q", capturedPersona)
 	}
 	if capturedInput != "what is 2+2?" {
 		t.Fatalf("unexpected input: %q", capturedInput)
@@ -385,7 +385,7 @@ func (g *luaSeqGateway) Stream(_ context.Context, _ llm.Request, yield func(llm.
 func TestLuaExecutor_AgentRunParallel_SpawnChildRunNil(t *testing.T) {
 	ex, _ := NewLuaExecutor(map[string]any{
 		"script": `
-local results, errs = agent.run_parallel({{skill="lite", input="q"}})
+local results, errs = agent.run_parallel({{persona="lite", input="q"}})
 if errs == nil then
   context.set_output("err:" .. tostring(results))
 else
@@ -448,9 +448,9 @@ func TestLuaExecutor_AgentRunParallel_AllSucceed(t *testing.T) {
 	ex, _ := NewLuaExecutor(map[string]any{
 		"script": `
 local tasks = {
-  {skill="lite", input="q1"},
-  {skill="lite", input="q2"},
-  {skill="lite", input="q3"},
+  {persona="lite", input="q1"},
+  {persona="lite", input="q2"},
+  {persona="lite", input="q3"},
 }
 local results, errs = agent.run_parallel(tasks)
 local out = ""
@@ -489,8 +489,8 @@ func TestLuaExecutor_AgentRunParallel_PartialFailure(t *testing.T) {
 	ex, _ := NewLuaExecutor(map[string]any{
 		"script": `
 local tasks = {
-  {skill="lite", input="ok"},
-  {skill="lite", input="fail"},
+  {persona="lite", input="ok"},
+  {persona="lite", input="fail"},
 }
 local results, errs = agent.run_parallel(tasks)
 local out = ""
@@ -529,7 +529,7 @@ context.set_output(out)
 func TestLuaExecutor_AgentRunParallel_ContextAlreadyCancelled(t *testing.T) {
 	ex, _ := NewLuaExecutor(map[string]any{
 		"script": `
-local results, errs = agent.run_parallel({{skill="lite", input="q"}})
+local results, errs = agent.run_parallel({{persona="lite", input="q"}})
 if errs == nil then
   context.set_output("early_cancel_err:" .. tostring(results))
 else
@@ -567,7 +567,7 @@ func TestLuaExecutor_AgentRunParallel_ExceedsLimit(t *testing.T) {
 	script := `
 local tasks = {}
 for i = 1, 33 do
-  tasks[i] = {skill="lite", input="q"}
+  tasks[i] = {persona="lite", input="q"}
 end
 local results, errs = agent.run_parallel(tasks)
 if errs == nil then
@@ -605,9 +605,9 @@ func TestLuaExecutor_AgentRunParallel_ObservabilityEvents(t *testing.T) {
 	ex, _ := NewLuaExecutor(map[string]any{
 		"script": `
 local tasks = {
-  {skill="lite", input="q1"},
-  {skill="pro",  input="q2"},
-  {skill="lite", input="q3"},
+  {persona="lite", input="q1"},
+  {persona="pro",  input="q2"},
+  {persona="lite", input="q3"},
 }
 local results, errs = agent.run_parallel(tasks)
 context.set_output("ok")

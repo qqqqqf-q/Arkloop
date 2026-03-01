@@ -8,7 +8,7 @@ import (
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/memory"
 	"arkloop/services/worker/internal/routing"
-	"arkloop/services/worker/internal/skills"
+	"arkloop/services/worker/internal/personas"
 	"arkloop/services/worker/internal/tools"
 
 	"github.com/google/uuid"
@@ -45,7 +45,7 @@ type RunContext struct {
 	Router       *routing.ProviderRouter
 
 	// -- EngineV1.Execute 从 Run.CreatedByUserID 注入；nil 时 MemoryMiddleware 跳过写入 --
-	// agent_id 约定：默认取 SkillDefinition.ID；OpenViking 要求字符集 [a-zA-Z0-9_-]，adapter 层 sanitize
+	// agent_id 约定：默认取 PersonaDefinition.ID；OpenViking 要求字符集 [a-zA-Z0-9_-]，adapter 层 sanitize
 	UserID *uuid.UUID
 
 	// -- AgentLoopHandler 写入：run 完成后的 assistant 最终拼接文本，供 MemoryMiddleware 写入 OpenViking --
@@ -64,15 +64,15 @@ type RunContext struct {
 	AgentConfigID   *uuid.UUID
 	AgentConfigName string
 
-	// -- SkillResolutionMiddleware 写入 --
+	// -- PersonaResolutionMiddleware 写入 --
 	SystemPrompt            string
-	SkillDefinition         *skills.Definition
+	PersonaDefinition         *personas.Definition
 	MaxOutputTokens         *int
 	Temperature             *float64
 	TopP                    *float64
 	ToolTimeoutMs           *int
 	ToolBudget              map[string]any
-	PreferredCredentialName string // Skill.PreferredCredential 解析结果，供 RoutingMiddleware 使用
+	PreferredCredentialName string // Persona.PreferredCredential 解析结果，供 RoutingMiddleware 使用
 	ReasoningMode           string // "auto" | "enabled" | "disabled" | "none"
 
 	// -- 初始化时写入 base 值，MCPDiscovery/ToolBuild 覆盖 --
@@ -94,7 +94,7 @@ type RunContext struct {
 	ToolExecutor *tools.DispatchingExecutor
 	FinalSpecs   []llm.ToolSpec
 
-	// -- 默认 10，SkillResolution 可覆盖 --
+	// -- 默认 10，PersonaResolution 可覆盖 --
 	MaxIterations int
 
 	// -- EngineV1.Execute 注入 --
@@ -117,8 +117,8 @@ type RunContext struct {
 	// -- AS-3.5.2 父子 Run 调度（由 EngineV1.Execute 注入，nil 时表示未启用）--
 	// SpawnChildRun 创建子 Run 并异步等待其完成，父 Run 挂起期间不持有 DB 连接。
 	// ctx 取消时立即返回 error，子 Run 继续执行直至超时。
-	SpawnChildRun func(ctx context.Context, skillID string, input string) (string, error)
+	SpawnChildRun func(ctx context.Context, personaID string, input string) (string, error)
 
-	// -- SkillResolutionMiddleware 写入，TitleSummarizerMiddleware 读取 --
-	TitleSummarizer *skills.TitleSummarizerConfig
+	// -- PersonaResolutionMiddleware 写入，TitleSummarizerMiddleware 读取 --
+	TitleSummarizer *personas.TitleSummarizerConfig
 }

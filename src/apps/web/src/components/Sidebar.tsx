@@ -315,7 +315,7 @@ export function Sidebar({
                     exit={{ opacity: 0, scale: 0.97 }}
                     transition={{ duration: 0.15, ease: 'easeOut' }}
                     className={[
-                      'group relative flex w-full items-center rounded-[6px]',
+                      'group relative flex w-full items-center rounded-[6px] transition-colors',
                       thread.id === threadId || isMenuOpen
                         ? 'bg-[var(--c-bg-deep)]'
                         : 'hover:bg-[var(--c-bg-deep)]',

@@ -97,7 +97,7 @@ POST /v1/agent-configs
 | `tool_denylist` | `[]string` | 否 | 禁止的工具列表 |
 | `content_filter_level` | `string` | 否 | |
 | `project_id` | `string` | 否 | 关联项目 |
-| `skill_id` | `string` | 否 | 关联 Skill |
+| `persona_id` | `string` | 否 | 关联 Persona |
 | `is_default` | `bool` | 否 | 是否为默认配置 |
 | `prompt_cache_control` | `string` | 否 | `none`（默认）或 `system_prompt` |
 
@@ -122,7 +122,7 @@ POST /v1/agent-configs
   "content_filter_level": "",
   "safety_rules_json": null,
   "project_id": null,
-  "skill_id": null,
+  "persona_id": null,
   "is_default": false,
   "prompt_cache_control": "none",
   "created_at": "2024-01-01T00:00:00Z"

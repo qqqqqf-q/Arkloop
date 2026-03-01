@@ -1,4 +1,4 @@
-package skills
+package personas
 
 import (
 	"fmt"
@@ -33,7 +33,7 @@ type Definition struct {
 	ExecutorConfig   map[string]any // Executor 配置，默认 {}
 	PreferredCredential *string     // 偏好凭证名称，nil 表示不绑定
 	AgentConfigName  *string        // 显式绑定 AgentConfig 名称，nil 则走继承链
-	TitleSummarizer  *TitleSummarizerConfig // nil 表示此 skill 不自动生成标题
+	TitleSummarizer  *TitleSummarizerConfig // nil 表示此 persona 不自动生成标题
 }
 
 type Registry struct {
@@ -46,21 +46,21 @@ func NewRegistry() *Registry {
 
 func (r *Registry) Register(def Definition) error {
 	if def.ID == "" {
-		return fmt.Errorf("skill.id must not be empty")
+		return fmt.Errorf("persona.id must not be empty")
 	}
 	if _, exists := r.byID[def.ID]; exists {
-		return fmt.Errorf("skill.id duplicate: %s", def.ID)
+		return fmt.Errorf("persona.id duplicate: %s", def.ID)
 	}
 	r.byID[def.ID] = def
 	return nil
 }
 
-func (r *Registry) Get(skillID string) (Definition, bool) {
-	def, ok := r.byID[skillID]
+func (r *Registry) Get(personaID string) (Definition, bool) {
+	def, ok := r.byID[personaID]
 	return def, ok
 }
 
-// Set 覆盖写入，用于 DB skill 覆盖同 ID 的文件系统 skill。
+// Set 覆盖写入，用于 DB persona 覆盖同 ID 的文件系统 persona。
 func (r *Registry) Set(def Definition) {
 	r.byID[def.ID] = def
 }

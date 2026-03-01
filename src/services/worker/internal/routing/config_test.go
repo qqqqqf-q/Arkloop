@@ -88,15 +88,15 @@ func TestGetHighestPriorityRouteByCredentialName_PrefersWhenMatch(t *testing.T) 
 			{ID: "cred-a", Name: "my-anthropic", Scope: CredentialScopePlatform, ProviderKind: ProviderKindStub, AdvancedJSON: map[string]any{}},
 		},
 		Routes: []ProviderRouteRule{
-			// 第一条：有 When 条件，匹配特定 skill
-			{ID: "route-specific", Model: "claude-3-opus", CredentialID: "cred-a", When: map[string]any{"skill_id": "code-review"}},
+			// 第一条：有 When 条件，匹配特定 persona
+			{ID: "route-specific", Model: "claude-3-opus", CredentialID: "cred-a", When: map[string]any{"persona_id": "code-review"}},
 			// 第二条：无 When 条件，兜底
 			{ID: "route-fallback", Model: "claude-3-haiku", CredentialID: "cred-a", When: map[string]any{}},
 		},
 	}
 
 	// inputJSON 命中第一条路由的 When 条件
-	input := map[string]any{"skill_id": "code-review"}
+	input := map[string]any{"persona_id": "code-review"}
 	route, _, ok := cfg.GetHighestPriorityRouteByCredentialName("my-anthropic", input)
 	if !ok {
 		t.Fatal("expected route to be found")
@@ -113,13 +113,13 @@ func TestGetHighestPriorityRouteByCredentialName_FallbackWhenNoMatch(t *testing.
 			{ID: "cred-a", Name: "my-anthropic", Scope: CredentialScopePlatform, ProviderKind: ProviderKindStub, AdvancedJSON: map[string]any{}},
 		},
 		Routes: []ProviderRouteRule{
-			{ID: "route-specific", Model: "claude-3-opus", CredentialID: "cred-a", When: map[string]any{"skill_id": "code-review"}},
+			{ID: "route-specific", Model: "claude-3-opus", CredentialID: "cred-a", When: map[string]any{"persona_id": "code-review"}},
 			{ID: "route-fallback", Model: "claude-3-haiku", CredentialID: "cred-a", When: map[string]any{}},
 		},
 	}
 
 	// inputJSON 不匹配任何 When 条件
-	input := map[string]any{"skill_id": "chat"}
+	input := map[string]any{"persona_id": "chat"}
 	route, _, ok := cfg.GetHighestPriorityRouteByCredentialName("my-anthropic", input)
 	if !ok {
 		t.Fatal("expected fallback route to be found")

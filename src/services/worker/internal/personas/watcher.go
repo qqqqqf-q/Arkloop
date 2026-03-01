@@ -1,4 +1,4 @@
-package skills
+package personas
 
 import (
 	"context"
@@ -43,11 +43,11 @@ func (w *WatchedRegistry) Watch(ctx context.Context) {
 					snapshot = current
 					reg, err := LoadRegistry(w.root)
 					if err != nil {
-						slog.Warn("skills: reload failed", "err", err.Error())
+						slog.Warn("personas: reload failed", "err", err.Error())
 						continue
 					}
 					w.ptr.Store(reg)
-					slog.Info("skills: reloaded", "root", w.root)
+					slog.Info("personas: reloaded", "root", w.root)
 				}
 			}
 		}
@@ -64,7 +64,7 @@ func (w *WatchedRegistry) collectMtimes() map[string]time.Time {
 		if !entry.IsDir() {
 			continue
 		}
-		for _, name := range []string{"skill.yaml", "prompt.md"} {
+		for _, name := range []string{"persona.yaml", "prompt.md"} {
 			p := filepath.Join(w.root, entry.Name(), name)
 			info, err := os.Stat(p)
 			if err == nil {

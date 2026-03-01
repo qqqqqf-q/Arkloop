@@ -6,20 +6,20 @@ import (
 
 	"arkloop/services/worker/internal/data"
 	"arkloop/services/worker/internal/pipeline"
-	"arkloop/services/worker/internal/skills"
+	"arkloop/services/worker/internal/personas"
 )
 
-// TestSkillResolutionPreferredCredentialSet 验证 skill 有 preferred_credential 时，设置 rc.PreferredCredentialName。
-func TestSkillResolutionPreferredCredentialSet(t *testing.T) {
+// TestPersonaResolutionPreferredCredentialSet 验证 persona 有 preferred_credential 时，设置 rc.PreferredCredentialName。
+func TestPersonaResolutionPreferredCredentialSet(t *testing.T) {
 	credName := "my-anthropic"
-	reg := buildSkillRegistry(t, "test-skill", &credName)
-	mw := pipeline.NewSkillResolutionMiddleware(
-		func() *skills.Registry { return reg },
+	reg := buildPersonaRegistry(t, "test-persona", &credName)
+	mw := pipeline.NewPersonaResolutionMiddleware(
+		func() *personas.Registry { return reg },
 		nil, data.RunsRepository{}, data.RunEventsRepository{}, nil,
 	)
 
 	rc := &pipeline.RunContext{
-		InputJSON: map[string]any{"skill_id": "test-skill"},
+		InputJSON: map[string]any{  "persona_id": "test-persona"},
 	}
 
 	var capturedCredName string
@@ -37,16 +37,16 @@ func TestSkillResolutionPreferredCredentialSet(t *testing.T) {
 	}
 }
 
-// TestSkillResolutionNoPreferredCredentialEmpty 验证 skill 无 preferred_credential 时，PreferredCredentialName 为空。
-func TestSkillResolutionNoPreferredCredentialEmpty(t *testing.T) {
-	reg := buildSkillRegistry(t, "test-skill", nil)
-	mw := pipeline.NewSkillResolutionMiddleware(
-		func() *skills.Registry { return reg },
+// TestPersonaResolutionNoPreferredCredentialEmpty 验证 persona 无 preferred_credential 时，PreferredCredentialName 为空。
+func TestPersonaResolutionNoPreferredCredentialEmpty(t *testing.T) {
+	reg := buildPersonaRegistry(t, "test-persona", nil)
+	mw := pipeline.NewPersonaResolutionMiddleware(
+		func() *personas.Registry { return reg },
 		nil, data.RunsRepository{}, data.RunEventsRepository{}, nil,
 	)
 
 	rc := &pipeline.RunContext{
-		InputJSON: map[string]any{"skill_id": "test-skill"},
+		InputJSON: map[string]any{  "persona_id": "test-persona"},
 	}
 
 	var credName string
@@ -64,19 +64,19 @@ func TestSkillResolutionNoPreferredCredentialEmpty(t *testing.T) {
 	}
 }
 
-// TestSkillResolutionUserRouteIDNotAffectedBySkillCredential 验证用户显式传 route_id 时不被 skill credential 覆盖。
-func TestSkillResolutionUserRouteIDNotAffectedBySkillCredential(t *testing.T) {
-	skillCred := "my-anthropic"
+// TestPersonaResolutionUserRouteIDNotAffectedByPersonaCredential 验证用户显式传 route_id 时不被 persona credential 覆盖。
+func TestPersonaResolutionUserRouteIDNotAffectedByPersonaCredential(t *testing.T) {
+	personaCred := "my-anthropic"
 	userRouteID := "openai-gpt4"
-	reg := buildSkillRegistry(t, "test-skill", &skillCred)
-	mw := pipeline.NewSkillResolutionMiddleware(
-		func() *skills.Registry { return reg },
+	reg := buildPersonaRegistry(t, "test-persona", &personaCred)
+	mw := pipeline.NewPersonaResolutionMiddleware(
+		func() *personas.Registry { return reg },
 		nil, data.RunsRepository{}, data.RunEventsRepository{}, nil,
 	)
 
 	rc := &pipeline.RunContext{
 		InputJSON: map[string]any{
-			"skill_id": "test-skill",
+			  "persona_id": "test-persona",
 			"route_id": userRouteID,
 		},
 	}
@@ -96,18 +96,18 @@ func TestSkillResolutionUserRouteIDNotAffectedBySkillCredential(t *testing.T) {
 	}
 }
 
-func buildSkillRegistry(t *testing.T, id string, preferredCredential *string) *skills.Registry {
+func buildPersonaRegistry(t *testing.T, id string, preferredCredential *string) *personas.Registry {
 	t.Helper()
-	return buildSkillRegistryFull(t, id, preferredCredential, nil)
+	return buildPersonaRegistryFull(t, id, preferredCredential, nil)
 }
 
-func buildSkillRegistryFull(t *testing.T, id string, preferredCredential *string, agentConfigName *string) *skills.Registry {
+func buildPersonaRegistryFull(t *testing.T, id string, preferredCredential *string, agentConfigName *string) *personas.Registry {
 	t.Helper()
-	reg := skills.NewRegistry()
-	def := skills.Definition{
+	reg := personas.NewRegistry()
+	def := personas.Definition{
 		ID:                  id,
 		Version:             "1",
-		Title:               "Test Skill",
+		Title:               "Test Persona",
 		PromptMD:            "# test",
 		ExecutorType:        "agent.simple",
 		ExecutorConfig:      map[string]any{},
@@ -115,22 +115,22 @@ func buildSkillRegistryFull(t *testing.T, id string, preferredCredential *string
 		AgentConfigName:     agentConfigName,
 	}
 	if err := reg.Register(def); err != nil {
-		t.Fatalf("register skill failed: %v", err)
+		t.Fatalf("register persona failed: %v", err)
 	}
 	return reg
 }
 
-// TestSkillResolutionAgentConfigNameNilPreservesInheritance 验证 skill 无 agent_config_name 时，rc.AgentConfig 保持继承链结果不变。
-func TestSkillResolutionAgentConfigNameNilPreservesInheritance(t *testing.T) {
-	reg := buildSkillRegistryFull(t, "test-skill", nil, nil)
-	mw := pipeline.NewSkillResolutionMiddleware(
-		func() *skills.Registry { return reg },
+// TestPersonaResolutionAgentConfigNameNilPreservesInheritance 验证 persona 无 agent_config_name 时，rc.AgentConfig 保持继承链结果不变。
+func TestPersonaResolutionAgentConfigNameNilPreservesInheritance(t *testing.T) {
+	reg := buildPersonaRegistryFull(t, "test-persona", nil, nil)
+	mw := pipeline.NewPersonaResolutionMiddleware(
+		func() *personas.Registry { return reg },
 		nil, data.RunsRepository{}, data.RunEventsRepository{}, nil,
 	)
 
 	existing := &pipeline.ResolvedAgentConfig{Model: strPtr("inherited-model")}
 	rc := &pipeline.RunContext{
-		InputJSON:   map[string]any{"skill_id": "test-skill"},
+		InputJSON:   map[string]any{  "persona_id": "test-persona"},
 		AgentConfig: existing,
 	}
 

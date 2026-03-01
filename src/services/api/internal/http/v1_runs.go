@@ -29,7 +29,7 @@ import (
 
 var (
 	routeIDRegex    = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$`)
-	skillIDRegex    = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}(?:@[A-Za-z0-9][A-Za-z0-9._:-]{0,63})?$`)
+	personaIDRegex    = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}(?:@[A-Za-z0-9][A-Za-z0-9._:-]{0,63})?$`)
 	uuidPrefixRegex = regexp.MustCompile(`^[0-9a-fA-F-]{1,36}$`)
 )
 
@@ -50,7 +50,7 @@ var runTerminalEventTypes = []string{"run.completed", "run.failed", "run.cancell
 
 type createRunRequest struct {
 	RouteID        *string `json:"route_id"`
-	SkillID        *string `json:"skill_id"`
+	PersonaID        *string `json:"persona_id"`
 	OutputRouteID  *string `json:"output_route_id"`
 	OutputModelKey *string `json:"output_model_key"`
 }
@@ -94,7 +94,7 @@ type globalRunResponse struct {
 	ThreadID          string   `json:"thread_id"`
 	Status            string   `json:"status"`
 	Model             *string  `json:"model,omitempty"`
-	SkillID           *string  `json:"skill_id,omitempty"`
+	PersonaID           *string  `json:"persona_id,omitempty"`
 	ParentRunID       *string  `json:"parent_run_id,omitempty"`
 	TotalInputTokens  *int64   `json:"total_input_tokens,omitempty"`
 	TotalOutputTokens *int64   `json:"total_output_tokens,omitempty"`
@@ -165,12 +165,12 @@ func createThreadRun(
 			}
 			startedData["route_id"] = routeID
 		}
-		if body != nil && body.SkillID != nil {
-			if !skillIDRegex.MatchString(*body.SkillID) {
+		if body != nil && body.PersonaID != nil {
+			if !personaIDRegex.MatchString(*body.PersonaID) {
 				WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "request validation failed", traceID, nil)
 				return
 			}
-			startedData["skill_id"] = strings.TrimSpace(*body.SkillID)
+			startedData["persona_id"] = strings.TrimSpace(*body.PersonaID)
 		}
 		if body != nil && body.OutputRouteID != nil {
 			outputRouteID = strings.TrimSpace(*body.OutputRouteID)
@@ -1456,8 +1456,8 @@ func listGlobalRuns(
 		if v := strings.TrimSpace(q.Get("model")); v != "" {
 			params.Model = &v
 		}
-		if v := strings.TrimSpace(q.Get("skill_id")); v != "" {
-			params.SkillID = &v
+		if v := strings.TrimSpace(q.Get("persona_id")); v != "" {
+			params.PersonaID = &v
 		}
 		if v := q.Get("since"); v != "" {
 			t, err := time.Parse(time.RFC3339, v)
@@ -1510,7 +1510,7 @@ func listGlobalRuns(
 				ThreadID:          rw.ThreadID.String(),
 				Status:            rw.Status,
 				Model:             rw.Model,
-				SkillID:           rw.SkillID,
+				PersonaID:           rw.PersonaID,
 				TotalInputTokens:  rw.TotalInputTokens,
 				TotalOutputTokens: rw.TotalOutputTokens,
 				TotalCostUSD:      rw.TotalCostUSD,

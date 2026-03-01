@@ -10,7 +10,7 @@ import (
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/routing"
 	"arkloop/services/worker/internal/runengine"
-	"arkloop/services/worker/internal/skills"
+	"arkloop/services/worker/internal/personas"
 	"arkloop/services/worker/internal/testutil"
 	"arkloop/services/worker/internal/tools"
 	"arkloop/services/worker/internal/tools/builtin"
@@ -32,8 +32,8 @@ func (g *recordingGateway) Stream(ctx context.Context, request llm.Request, yiel
 	return yield(llm.StreamRunCompleted{})
 }
 
-func TestEngineV1InjectsSkillSystemPromptAndBudgets(t *testing.T) {
-	db := testutil.SetupPostgresDatabase(t, "arkloop_wg09_skill")
+func TestEngineV1InjectsPersonaSystemPromptAndBudgets(t *testing.T) {
+	db := testutil.SetupPostgresDatabase(t, "arkloop_wg09_persona")
 	pool, err := pgxpool.New(context.Background(), db.DSN)
 	if err != nil {
 		t.Fatalf("pgxpool.New failed: %v", err)
@@ -44,7 +44,7 @@ func TestEngineV1InjectsSkillSystemPromptAndBudgets(t *testing.T) {
 	threadID := uuid.New()
 	runID := uuid.New()
 
-	if err := seedRunStartedWithSkill(t, pool, orgID, threadID, runID, "lite@1"); err != nil {
+	if err := seedRunStartedWithPersona(t, pool, orgID, threadID, runID, "lite@1"); err != nil {
 		t.Fatalf("seed run failed: %v", err)
 	}
 
@@ -58,11 +58,11 @@ func TestEngineV1InjectsSkillSystemPromptAndBudgets(t *testing.T) {
 		}
 	}
 
-	skillsRoot, err := skills.BuiltinSkillsRoot()
+	personasRoot, err := personas.BuiltinPersonasRoot()
 	if err != nil {
-		t.Fatalf("BuiltinSkillsRoot failed: %v", err)
+		t.Fatalf("BuiltinPersonasRoot failed: %v", err)
 	}
-	skillRegistry, err := skills.LoadRegistry(skillsRoot)
+	personaRegistry, err := personas.LoadRegistry(personasRoot)
 	if err != nil {
 		t.Fatalf("LoadRegistry failed: %v", err)
 	}
@@ -75,7 +75,7 @@ func TestEngineV1InjectsSkillSystemPromptAndBudgets(t *testing.T) {
 		ToolExecutors:          builtin.Executors(nil, nil),
 		AllLlmToolSpecs:        builtin.LlmSpecs(),
 		BaseToolAllowlistNames: []string{"echo"},
-		SkillRegistryGetter:    func() *skills.Registry { return skillRegistry },
+		PersonaRegistryGetter:    func() *personas.Registry { return personaRegistry },
 		ExecutorRegistry:       executor.DefaultExecutorRegistry(),
 	})
 	if err != nil {
@@ -97,26 +97,26 @@ func TestEngineV1InjectsSkillSystemPromptAndBudgets(t *testing.T) {
 		t.Fatalf("expected system prompt injected, got role=%s", gateway.request.Messages[0].Role)
 	}
 	if len(gateway.request.Messages[0].Content) == 0 || gateway.request.Messages[0].Content[0].Text == "" {
-		t.Fatalf("expected non-empty system prompt from lite skill")
+		t.Fatalf("expected non-empty system prompt from lite persona")
 	}
 	if gateway.request.MaxOutputTokens == nil || *gateway.request.MaxOutputTokens != 2048 {
 		t.Fatalf("expected max_output_tokens 2048, got %v", gateway.request.MaxOutputTokens)
 	}
 }
 
-func seedRunStartedWithSkill(
+func seedRunStartedWithPersona(
 	t *testing.T,
 	pool *pgxpool.Pool,
 	orgID uuid.UUID,
 	threadID uuid.UUID,
 	runID uuid.UUID,
-	skillRef string,
+	personaRef string,
 ) error {
 	t.Helper()
 
 	startedData := map[string]any{
 		"route_id": "default",
-		"skill_id": skillRef,
+		"persona_id": personaRef,
 	}
 	encoded, err := json.Marshal(startedData)
 	if err != nil {

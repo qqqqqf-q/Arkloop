@@ -15,7 +15,7 @@ POST /v1/threads/{thread_id}/runs
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | `route_id` | `string` | 否 | Provider 路由 ID，指定后按此路由选择模型 |
-| `skill_id` | `string` | 否 | Skill ID，格式 `skill_key@version`，不填则使用默认 |
+| `persona_id` | `string` | 否 | Persona ID，格式 `persona_key@version`，不填则使用默认 |
 
 **响应** `201 Created`
 
@@ -80,7 +80,7 @@ GET /v1/runs
     "thread_id": "...",
     "status": "completed",
     "model": "claude-3-5-sonnet",
-    "skill_id": null,
+    "persona_id": null,
     "total_input_tokens": 1000,
     "total_output_tokens": 500,
     "total_cost_usd": 0.005,

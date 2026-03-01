@@ -19,7 +19,7 @@
 
 **API 服务**：JWT 双 Token 认证、RBAC、Teams/Projects、Org 邀请、API Key 管理、IP 过滤、Rate Limiting、SSE 推送、run_events 月分区、Feature Flags、邀请码/兑换码/积分体系、Webhooks、Entitlements/Plans。
 
-**Worker 执行引擎**：Pipeline 中间件链、Executor 注册表（SimpleExecutor / InteractiveExecutor / ClassifyRouteExecutor / LuaExecutor）、Skills（YAML + DB 双源）、MCP 连接池、Provider 路由（when 条件匹配 + default fallback）、Human-in-the-loop（WaitForInput + input_requested）、Sub-agent Spawning（parent_run_id + spawn_agent tool）、Memory System（OpenViking 适配 + memory_search/read/write/forget tool）、Cost Budget 追踪（RunContext.ToolBudget 预留，执行侧未强制）。
+**Worker 执行引擎**：Pipeline 中间件链、Executor 注册表（SimpleExecutor / InteractiveExecutor / ClassifyRouteExecutor / LuaExecutor）、Personas（YAML + DB 双源）、MCP 连接池、Provider 路由（when 条件匹配 + default fallback）、Human-in-the-loop（WaitForInput + input_requested）、Sub-agent Spawning（parent_run_id + spawn_agent tool）、Memory System（OpenViking 适配 + memory_search/read/write/forget tool）、Cost Budget 追踪（RunContext.ToolBudget 预留，执行侧未强制）。
 
 **独立服务**：Sandbox（Firecracker microVM + Warm Pool + Snapshot + MinIO 持久化）、Browser Service（Playwright + Session Manager + BrowserPool）、OpenViking（Python HTTP 记忆服务）。
 
@@ -97,9 +97,9 @@ Go：359 个源文件中仅 67 个有对应测试文件（~18.7%）；TypeScript
 
 `architecture-problems.zh-CN.md` 撰写于系统没有 Redis、没有 Gateway、没有对象存储的阶段，多个章节描述的问题已在后续开发中解决，但文档未更新。开源后外部读者看到"没有 Redis"、"没有 Gateway"、"用户身份残缺"等描述会产生严重误解。需要在开源前更新该文档，标注各项的当前状态（已解决/部分解决/仍存在）。
 
-**P18 -- Skill prompt 中文硬编码**
+**P18 -- Persona prompt 中文硬编码**
 
-Skill YAML 中的 `title_summarize.prompt` 直接写了中文相关指令（如 "Keep it under 8 Chinese characters"）。非中文用户使用时会得到不符合预期的标题摘要。如果 Skill 是面向社区可扩展的资产，prompt 的语言应可配置或至少支持按 locale 选择。
+Persona YAML 中的 `title_summarize.prompt` 直接写了中文相关指令（如 "Keep it under 8 Chinese characters"）。非中文用户使用时会得到不符合预期的标题摘要。如果 Persona 是面向社区可扩展的资产，prompt 的语言应可配置或至少支持按 locale 选择。
 
 **P19 -- 错误码无集中注册与文档**
 
@@ -225,7 +225,7 @@ CREATE TABLE org_settings (
 |-----|---------------|--------|-------|
 | `limit.thread_message_history` | mw_input_loader.go | 200 | org |
 | `limit.max_input_content_bytes` | v1_runs.go | 32768 | org |
-| `limit.agent_max_iterations` | mw_skill_resolution.go | 10 | org |
+| `limit.agent_max_iterations` | mw_persona_resolution.go | 10 | org |
 | `limit.max_parallel_tasks` | lua.go | 32 | platform |
 | `limit.concurrent_runs` | entitlement resolve.go | 10 | org |
 | `limit.team_members` | entitlement resolve.go | 50 | org |
@@ -337,11 +337,11 @@ Web 和 Console 的 `package.json` 添加：
 
 以下 AS-* 项在 agent-system-roadmap 中已有完整设计薄片，此处仅列出状态和执行优先级。
 
-### E1 -- Skill 路由绑定（AS-2.1）
+### E1 -- Persona 路由绑定（AS-2.1）
 
-状态：未实现。Skill 缺少 `preferred_credential` 字段，model 选择完全依赖外部传入 route_id。
+状态：未实现。Persona 缺少 `preferred_credential` 字段，model 选择完全依赖外部传入 route_id。
 
-内容：Skill YAML 增加 `preferred_credential` 字段；mw_routing.go 中的选路逻辑读取此字段作为 hint。
+内容：Persona YAML 增加 `preferred_credential` 字段；mw_routing.go 中的选路逻辑读取此字段作为 hint。
 
 ### E2 -- Memory 提炼管线（AS-5.7）
 
@@ -517,7 +517,7 @@ docs/investor-deep-research.zh-CN.md
 - 加密：envelope encrypt/decrypt 对称性、key rotation
 
 **第二优先级（核心业务）**：
-- Pipeline 中间件链：消息加载、Skill 解析、路由选择、Budget 检查
+- Pipeline 中间件链：消息加载、Persona 解析、路由选择、Budget 检查
 - SSE 推送：事件序列正确性、断线续传（after_seq）
 - Entitlement 解析：plan -> org -> platform fallback
 
@@ -619,12 +619,12 @@ API 返回的错误码散落在各模块中，需要集中治理：
 - 端点废弃通过响应 header（`Deprecation`、`Sunset`）通知客户端
 - 何时考虑 `/v2/`：当 `/v1/` 的兼容性约束阻碍核心架构演进时
 
-### H12 -- Skill prompt 语言配置化
+### H12 -- Persona prompt 语言配置化
 
-当前 Skill YAML 中的 `title_summarize.prompt` 硬编码了中文相关指令。处理方式：
+当前 Persona YAML 中的 `title_summarize.prompt` 硬编码了中文相关指令。处理方式：
 
 - `title_summarize.prompt` 支持按 locale 选择（从 thread/org 配置读取用户语言偏好）
-- 默认 Skill YAML 提供中英文两套 prompt 模板
+- 默认 Persona YAML 提供中英文两套 prompt 模板
 - 或将 title_summarize prompt 移到 Config Registry（走 Track A），让部署者自行配置
 
 ---
@@ -645,7 +645,7 @@ Track D（前端共享）—— 独立，可与 A/C 并行
   D1 → D2 → D3
 
 Track E（Agent System 未完成）—— 各项独立
-  E1（Skill 路由绑定）
+  E1（Persona 路由绑定）
   E2 → E3（Memory 提炼 → 测试）
   E4（Cost Budget）
   E5（Thinking 协议）
@@ -670,7 +670,7 @@ Track H（开源发布与治理）—— 与 A/G 并行，发布前必须收敛
   H9（历史文档清理）—— 独立
   H10（错误码注册）—— 与 H7 协同
   H11（API 版本策略）—— 依赖 H3/H7
-  H12（Skill prompt i18n）—— 依赖 Track A
+  H12（Persona prompt i18n）—— 依赖 Track A
 ```
 
 **建议执行顺序**：
@@ -692,7 +692,7 @@ Track H（开源发布与治理）—— 与 A/G 并行，发布前必须收敛
 - Track E 各项（按产品优先级排序）
 - Track F（第一个外部集成需求出现时启动）
 - Track G（G2 压测）
-- Track H（H4-H6, H11, H12）：发布策略/供应链/部署 profile/API 版本策略/Skill i18n（开源发布前必须完成）
+- Track H（H4-H6, H11, H12）：发布策略/供应链/部署 profile/API 版本策略/Persona i18n（开源发布前必须完成）
 
 ---
 

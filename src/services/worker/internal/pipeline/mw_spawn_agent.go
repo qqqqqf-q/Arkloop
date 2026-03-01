@@ -8,7 +8,7 @@ import (
 )
 
 // NewSpawnAgentMiddleware 在 SpawnChildRun 可用时，将 spawn_agent 工具动态注入到 per-run 工具集。
-// 位于 MCPDiscovery 之后、AgentConfig 之前，使后续 SkillResolution 的 denylist 能正常排除。
+// 位于 MCPDiscovery 之后、AgentConfig 之前，使后续 PersonaResolution 的 denylist 能正常排除。
 func NewSpawnAgentMiddleware() RunMiddleware {
 	return func(ctx context.Context, rc *RunContext, next RunHandler) error {
 		if rc.SpawnChildRun == nil {

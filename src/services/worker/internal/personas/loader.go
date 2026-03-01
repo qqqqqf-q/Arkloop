@@ -1,4 +1,4 @@
-package skills
+package personas
 
 import (
 	"context"
@@ -23,18 +23,18 @@ var (
 
 const defaultExecutorType = "agent.simple"
 
-func BuiltinSkillsRoot() (string, error) {
-	if envRoot := os.Getenv("ARKLOOP_SKILLS_ROOT"); envRoot != "" {
+func BuiltinPersonasRoot() (string, error) {
+	if envRoot := os.Getenv("ARKLOOP_PERSONAS_ROOT"); envRoot != "" {
 		return envRoot, nil
 	}
 	_, filename, _, ok := runtime.Caller(0)
 	if !ok {
-		return "", fmt.Errorf("cannot locate skills root directory")
+		return "", fmt.Errorf("cannot locate personas root directory")
 	}
 	dir := filepath.Dir(filename)
 	for {
 		if filepath.Base(dir) == "src" {
-			return filepath.Join(dir, "skills"), nil
+			return filepath.Join(dir, "personas"), nil
 		}
 		next := filepath.Dir(dir)
 		if next == dir {
@@ -42,7 +42,7 @@ func BuiltinSkillsRoot() (string, error) {
 		}
 		dir = next
 	}
-	return "", fmt.Errorf("src directory not found, cannot locate skills root directory")
+	return "", fmt.Errorf("src directory not found, cannot locate personas root directory")
 }
 
 func LoadRegistry(root string) (*Registry, error) {
@@ -59,7 +59,7 @@ func LoadRegistry(root string) (*Registry, error) {
 		return nil, err
 	}
 	if !info.IsDir() {
-		return nil, fmt.Errorf("skills root must be a directory")
+		return nil, fmt.Errorf("personas root must be a directory")
 	}
 
 	entries, err := os.ReadDir(root)
@@ -77,7 +77,7 @@ func LoadRegistry(root string) (*Registry, error) {
 
 	for _, name := range dirs {
 		dir := filepath.Join(root, name)
-		yamlPath := filepath.Join(dir, "skill.yaml")
+		yamlPath := filepath.Join(dir, "persona.yaml")
 		promptPath := filepath.Join(dir, "prompt.md")
 		if _, err := os.Stat(yamlPath); err != nil {
 			continue
@@ -86,7 +86,7 @@ func LoadRegistry(root string) (*Registry, error) {
 			continue
 		}
 
-		def, err := loadSingleSkill(yamlPath, promptPath)
+		def, err := loadSinglePersona(yamlPath, promptPath)
 		if err != nil {
 			return nil, err
 		}
@@ -98,22 +98,22 @@ func LoadRegistry(root string) (*Registry, error) {
 	return registry, nil
 }
 
-func loadSingleSkill(yamlPath string, promptPath string) (Definition, error) {
+func loadSinglePersona(yamlPath string, promptPath string) (Definition, error) {
 	rawYAML, err := os.ReadFile(yamlPath)
 	if err != nil {
 		return Definition{}, err
 	}
 	trimmed := strings.TrimSpace(string(rawYAML))
 	if trimmed == "" {
-		return Definition{}, fmt.Errorf("skill.yaml must not be empty: %s", yamlPath)
+		return Definition{}, fmt.Errorf("persona.yaml must not be empty: %s", yamlPath)
 	}
 
 	var obj map[string]any
 	if err := yaml.Unmarshal([]byte(trimmed), &obj); err != nil {
-		return Definition{}, fmt.Errorf("failed to parse skill.yaml: %s", yamlPath)
+		return Definition{}, fmt.Errorf("failed to parse persona.yaml: %s", yamlPath)
 	}
 
-	skillID, err := asID(obj["id"], "id")
+	personaID, err := asID(obj["id"], "id")
 	if err != nil {
 		return Definition{}, err
 	}
@@ -168,7 +168,7 @@ func loadSingleSkill(yamlPath string, promptPath string) (Definition, error) {
 	}
 
 	return Definition{
-		ID:                  skillID,
+		ID:                  personaID,
 		Version:             version,
 		Title:               title,
 		Description:         description,
@@ -219,7 +219,7 @@ func asOptionalMap(value any) map[string]any {
 	return m
 }
 
-func parseExecutorConfig(value any, executorType string, skillDir string) (map[string]any, error) {
+func parseExecutorConfig(value any, executorType string, personaDir string) (map[string]any, error) {
 	config := asOptionalMap(value)
 	out := map[string]any{}
 	for key, val := range config {
@@ -241,7 +241,7 @@ func parseExecutorConfig(value any, executorType string, skillDir string) (map[s
 	if err != nil {
 		return nil, err
 	}
-	scriptPath, err := resolveSkillLocalPath(skillDir, scriptFile)
+	scriptPath, err := resolvePersonaLocalPath(personaDir, scriptFile)
 	if err != nil {
 		return nil, fmt.Errorf("executor_config.script_file: %w", err)
 	}
@@ -258,15 +258,15 @@ func parseExecutorConfig(value any, executorType string, skillDir string) (map[s
 	return out, nil
 }
 
-func resolveSkillLocalPath(skillDir string, pathValue string) (string, error) {
+func resolvePersonaLocalPath(personaDir string, pathValue string) (string, error) {
 	if filepath.IsAbs(pathValue) {
 		return "", fmt.Errorf("must be a relative path")
 	}
 	cleaned := filepath.Clean(pathValue)
 	if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("path escapes skill directory")
+		return "", fmt.Errorf("path escapes persona directory")
 	}
-	return filepath.Join(skillDir, cleaned), nil
+	return filepath.Join(personaDir, cleaned), nil
 }
 
 func asID(value any, label string) (string, error) {
@@ -370,7 +370,7 @@ func asBudgets(value any) (Budgets, error) {
 	}, nil
 }
 
-// LoadFromDB 从数据库加载 orgID 对应的活跃 skill，用于 per-run 动态覆盖。
+// LoadFromDB 从数据库加载 orgID 对应的活跃 persona，用于 per-run 动态覆盖。
 func LoadFromDB(ctx context.Context, pool *pgxpool.Pool, orgID uuid.UUID) ([]Definition, error) {
 	if pool == nil {
 		return nil, fmt.Errorf("pool must not be nil")
@@ -378,11 +378,11 @@ func LoadFromDB(ctx context.Context, pool *pgxpool.Pool, orgID uuid.UUID) ([]Def
 
 	rows, err := pool.Query(
 		ctx,
-		`SELECT skill_key, version, display_name, description,
+		`SELECT persona_key, version, display_name, description,
 		        prompt_md, tool_allowlist, COALESCE(tool_denylist, '{}'), budgets_json,
 		        executor_type, executor_config_json,
 		        preferred_credential, agent_config_name
-		 FROM skills
+		 FROM personas
 		 WHERE (org_id = $1 OR org_id IS NULL) AND is_active = TRUE
 		 ORDER BY (org_id IS NULL) DESC, created_at ASC`,
 		orgID,
@@ -395,7 +395,7 @@ func LoadFromDB(ctx context.Context, pool *pgxpool.Pool, orgID uuid.UUID) ([]Def
 	var defs []Definition
 	for rows.Next() {
 		var (
-			skillKey            string
+			personaKey            string
 			version             string
 			displayName         string
 			description         *string
@@ -408,7 +408,7 @@ func LoadFromDB(ctx context.Context, pool *pgxpool.Pool, orgID uuid.UUID) ([]Def
 			preferredCredential *string
 			agentConfigName     *string
 		)
-		if err := rows.Scan(&skillKey, &version, &displayName, &description,
+		if err := rows.Scan(&personaKey, &version, &displayName, &description,
 			&promptMD, &toolAllowlist, &toolDenylist, &budgetsRaw,
 			&executorType, &executorConfigRaw, &preferredCredential, &agentConfigName); err != nil {
 			return nil, err
@@ -416,12 +416,12 @@ func LoadFromDB(ctx context.Context, pool *pgxpool.Pool, orgID uuid.UUID) ([]Def
 
 		budgets, err := parseBudgetsJSON(budgetsRaw)
 		if err != nil {
-			return nil, fmt.Errorf("skill %q: %w", skillKey, err)
+			return nil, fmt.Errorf("persona %q: %w", personaKey, err)
 		}
 
 		executorConfig, err := parseExecutorConfigJSON(executorConfigRaw)
 		if err != nil {
-			return nil, fmt.Errorf("skill %q executor_config_json: %w", skillKey, err)
+			return nil, fmt.Errorf("persona %q executor_config_json: %w", personaKey, err)
 		}
 
 		if strings.TrimSpace(executorType) == "" {
@@ -429,7 +429,7 @@ func LoadFromDB(ctx context.Context, pool *pgxpool.Pool, orgID uuid.UUID) ([]Def
 		}
 
 		def := Definition{
-			ID:                  skillKey,
+			ID:                  personaKey,
 			Version:             version,
 			Title:               displayName,
 			ToolAllowlist:       toolAllowlist,
@@ -451,7 +451,7 @@ func LoadFromDB(ctx context.Context, pool *pgxpool.Pool, orgID uuid.UUID) ([]Def
 	return defs, rows.Err()
 }
 
-// MergeRegistry 以 base 为底，DB skill 按 ID 覆盖同名文件系统 skill。
+// MergeRegistry 以 base 为底，DB persona 按 ID 覆盖同名文件系统 persona。
 func MergeRegistry(base *Registry, overrides []Definition) *Registry {
 	merged := NewRegistry()
 	for _, id := range base.ListIDs() {

@@ -12,23 +12,23 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-func (r *SkillsRepository) WithTx(tx pgx.Tx) *SkillsRepository {
-	return &SkillsRepository{db: tx}
+func (r *PersonasRepository) WithTx(tx pgx.Tx) *PersonasRepository {
+	return &PersonasRepository{db: tx}
 }
 
-type SkillConflictError struct {
-	SkillKey string
+type PersonaConflictError struct {
+	PersonaKey string
 	Version  string
 }
 
-func (e SkillConflictError) Error() string {
-	return fmt.Sprintf("skill %q@%q already exists", e.SkillKey, e.Version)
+func (e PersonaConflictError) Error() string {
+	return fmt.Sprintf("persona %q@%q already exists", e.PersonaKey, e.Version)
 }
 
-type Skill struct {
+type Persona struct {
 	ID                  uuid.UUID
 	OrgID               *uuid.UUID
-	SkillKey            string
+	PersonaKey            string
 	Version             string
 	DisplayName         string
 	Description         *string
@@ -42,7 +42,7 @@ type Skill struct {
 	ExecutorConfigJSON  json.RawMessage
 }
 
-type SkillPatch struct {
+type PersonaPatch struct {
 	DisplayName         *string
 	Description         *string
 	PromptMD            *string
@@ -54,21 +54,21 @@ type SkillPatch struct {
 	ExecutorConfigJSON  json.RawMessage
 }
 
-type SkillsRepository struct {
+type PersonasRepository struct {
 	db Querier
 }
 
-func NewSkillsRepository(db Querier) (*SkillsRepository, error) {
+func NewPersonasRepository(db Querier) (*PersonasRepository, error) {
 	if db == nil {
 		return nil, errors.New("db must not be nil")
 	}
-	return &SkillsRepository{db: db}, nil
+	return &PersonasRepository{db: db}, nil
 }
 
-func (r *SkillsRepository) Create(
+func (r *PersonasRepository) Create(
 	ctx context.Context,
 	orgID uuid.UUID,
-	skillKey string,
+	personaKey string,
 	version string,
 	displayName string,
 	description *string,
@@ -78,24 +78,24 @@ func (r *SkillsRepository) Create(
 	preferredCredential *string,
 	executorType string,
 	executorConfigJSON json.RawMessage,
-) (Skill, error) {
+) (Persona, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	if orgID == uuid.Nil {
-		return Skill{}, fmt.Errorf("org_id must not be nil")
+		return Persona{}, fmt.Errorf("org_id must not be nil")
 	}
-	if strings.TrimSpace(skillKey) == "" {
-		return Skill{}, fmt.Errorf("skill_key must not be empty")
+	if strings.TrimSpace(personaKey) == "" {
+		return Persona{}, fmt.Errorf("persona_key must not be empty")
 	}
 	if strings.TrimSpace(version) == "" {
-		return Skill{}, fmt.Errorf("version must not be empty")
+		return Persona{}, fmt.Errorf("version must not be empty")
 	}
 	if strings.TrimSpace(displayName) == "" {
-		return Skill{}, fmt.Errorf("display_name must not be empty")
+		return Persona{}, fmt.Errorf("display_name must not be empty")
 	}
 	if strings.TrimSpace(promptMD) == "" {
-		return Skill{}, fmt.Errorf("prompt_md must not be empty")
+		return Persona{}, fmt.Errorf("prompt_md must not be empty")
 	}
 
 	if len(budgetsJSON) == 0 {
@@ -114,54 +114,54 @@ func (r *SkillsRepository) Create(
 		executorConfigJSON = json.RawMessage("{}")
 	}
 
-	var skill Skill
+	var persona Persona
 	err := r.db.QueryRow(
 		ctx,
-		`INSERT INTO skills
-		    (org_id, skill_key, version, display_name, description, prompt_md,
+		`INSERT INTO personas
+		    (org_id, persona_key, version, display_name, description, prompt_md,
 		     tool_allowlist, budgets_json, preferred_credential,
 		     executor_type, executor_config_json)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-		 RETURNING id, org_id, skill_key, version, display_name, description,
+		 RETURNING id, org_id, persona_key, version, display_name, description,
 		           prompt_md, tool_allowlist, budgets_json, is_active, created_at,
 		           preferred_credential, executor_type, executor_config_json`,
-		orgID, skillKey, version, displayName, description, promptMD,
+		orgID, personaKey, version, displayName, description, promptMD,
 		toolAllowlist, budgetsJSON, preferredCredential,
 		executorType, executorConfigJSON,
 	).Scan(
-		&skill.ID, &skill.OrgID, &skill.SkillKey, &skill.Version,
-		&skill.DisplayName, &skill.Description, &skill.PromptMD,
-		&skill.ToolAllowlist, &skill.BudgetsJSON, &skill.IsActive, &skill.CreatedAt,
-		&skill.PreferredCredential, &skill.ExecutorType, &skill.ExecutorConfigJSON,
+		&persona.ID, &persona.OrgID, &persona.PersonaKey, &persona.Version,
+		&persona.DisplayName, &persona.Description, &persona.PromptMD,
+		&persona.ToolAllowlist, &persona.BudgetsJSON, &persona.IsActive, &persona.CreatedAt,
+		&persona.PreferredCredential, &persona.ExecutorType, &persona.ExecutorConfigJSON,
 	)
 	if err != nil {
 		if isUniqueViolation(err) {
-			return Skill{}, SkillConflictError{SkillKey: skillKey, Version: version}
+			return Persona{}, PersonaConflictError{PersonaKey: personaKey, Version: version}
 		}
-		return Skill{}, err
+		return Persona{}, err
 	}
-	return skill, nil
+	return persona, nil
 }
 
-func (r *SkillsRepository) GetByID(ctx context.Context, orgID, id uuid.UUID) (*Skill, error) {
+func (r *PersonasRepository) GetByID(ctx context.Context, orgID, id uuid.UUID) (*Persona, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 
-	var skill Skill
+	var persona Persona
 	err := r.db.QueryRow(
 		ctx,
-		`SELECT id, org_id, skill_key, version, display_name, description,
+		`SELECT id, org_id, persona_key, version, display_name, description,
 		        prompt_md, tool_allowlist, budgets_json, is_active, created_at,
 		        preferred_credential, executor_type, executor_config_json
-		 FROM skills
+		 FROM personas
 		 WHERE id = $1 AND org_id = $2`,
 		id, orgID,
 	).Scan(
-		&skill.ID, &skill.OrgID, &skill.SkillKey, &skill.Version,
-		&skill.DisplayName, &skill.Description, &skill.PromptMD,
-		&skill.ToolAllowlist, &skill.BudgetsJSON, &skill.IsActive, &skill.CreatedAt,
-		&skill.PreferredCredential, &skill.ExecutorType, &skill.ExecutorConfigJSON,
+		&persona.ID, &persona.OrgID, &persona.PersonaKey, &persona.Version,
+		&persona.DisplayName, &persona.Description, &persona.PromptMD,
+		&persona.ToolAllowlist, &persona.BudgetsJSON, &persona.IsActive, &persona.CreatedAt,
+		&persona.PreferredCredential, &persona.ExecutorType, &persona.ExecutorConfigJSON,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -169,21 +169,21 @@ func (r *SkillsRepository) GetByID(ctx context.Context, orgID, id uuid.UUID) (*S
 		}
 		return nil, err
 	}
-	return &skill, nil
+	return &persona, nil
 }
 
-// ListByOrg 返回该 org 的所有 skill（含 org_id IS NULL 的全局 skill）。
-func (r *SkillsRepository) ListByOrg(ctx context.Context, orgID uuid.UUID) ([]Skill, error) {
+// ListByOrg 返回该 org 的所有 persona（含 org_id IS NULL 的全局 persona）。
+func (r *PersonasRepository) ListByOrg(ctx context.Context, orgID uuid.UUID) ([]Persona, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 
 	rows, err := r.db.Query(
 		ctx,
-		`SELECT id, org_id, skill_key, version, display_name, description,
+		`SELECT id, org_id, persona_key, version, display_name, description,
 		        prompt_md, tool_allowlist, budgets_json, is_active, created_at,
 		        preferred_credential, executor_type, executor_config_json
-		 FROM skills
+		 FROM personas
 		 WHERE org_id = $1 OR org_id IS NULL
 		 ORDER BY created_at ASC`,
 		orgID,
@@ -193,22 +193,22 @@ func (r *SkillsRepository) ListByOrg(ctx context.Context, orgID uuid.UUID) ([]Sk
 	}
 	defer rows.Close()
 
-	return scanSkills(rows)
+	return scanPersonas(rows)
 }
 
-// ListActiveByOrg 仅返回该 org 的 is_active=true 的 skill，供 Worker 执行时使用。
-// 不包含全局（org_id IS NULL）skill，全局 skill 由文件系统负责。
-func (r *SkillsRepository) ListActiveByOrg(ctx context.Context, orgID uuid.UUID) ([]Skill, error) {
+// ListActiveByOrg 仅返回该 org 的 is_active=true 的 persona，供 Worker 执行时使用。
+// 不包含全局（org_id IS NULL）persona，全局 persona 由文件系统负责。
+func (r *PersonasRepository) ListActiveByOrg(ctx context.Context, orgID uuid.UUID) ([]Persona, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 
 	rows, err := r.db.Query(
 		ctx,
-		`SELECT id, org_id, skill_key, version, display_name, description,
+		`SELECT id, org_id, persona_key, version, display_name, description,
 		        prompt_md, tool_allowlist, budgets_json, is_active, created_at,
 		        preferred_credential, executor_type, executor_config_json
-		 FROM skills
+		 FROM personas
 		 WHERE org_id = $1 AND is_active = TRUE
 		 ORDER BY created_at ASC`,
 		orgID,
@@ -218,10 +218,10 @@ func (r *SkillsRepository) ListActiveByOrg(ctx context.Context, orgID uuid.UUID)
 	}
 	defer rows.Close()
 
-	return scanSkills(rows)
+	return scanPersonas(rows)
 }
 
-func (r *SkillsRepository) Patch(ctx context.Context, orgID, id uuid.UUID, patch SkillPatch) (*Skill, error) {
+func (r *PersonasRepository) Patch(ctx context.Context, orgID, id uuid.UUID, patch PersonaPatch) (*Persona, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -300,48 +300,48 @@ func (r *SkillsRepository) Patch(ctx context.Context, orgID, id uuid.UUID, patch
 	idIdx := argIdx
 	orgIdx := argIdx + 1
 
-	var skill Skill
+	var persona Persona
 	err := r.db.QueryRow(
 		ctx,
-		fmt.Sprintf(`UPDATE skills
+		fmt.Sprintf(`UPDATE personas
 		 SET %s
 		 WHERE id = $%d AND org_id = $%d
-		 RETURNING id, org_id, skill_key, version, display_name, description,
+		 RETURNING id, org_id, persona_key, version, display_name, description,
 		           prompt_md, tool_allowlist, budgets_json, is_active, created_at,
 		           preferred_credential, executor_type, executor_config_json`,
 			strings.Join(setClauses, ", "), idIdx, orgIdx),
 		args...,
 	).Scan(
-		&skill.ID, &skill.OrgID, &skill.SkillKey, &skill.Version,
-		&skill.DisplayName, &skill.Description, &skill.PromptMD,
-		&skill.ToolAllowlist, &skill.BudgetsJSON, &skill.IsActive, &skill.CreatedAt,
-		&skill.PreferredCredential, &skill.ExecutorType, &skill.ExecutorConfigJSON,
+		&persona.ID, &persona.OrgID, &persona.PersonaKey, &persona.Version,
+		&persona.DisplayName, &persona.Description, &persona.PromptMD,
+		&persona.ToolAllowlist, &persona.BudgetsJSON, &persona.IsActive, &persona.CreatedAt,
+		&persona.PreferredCredential, &persona.ExecutorType, &persona.ExecutorConfigJSON,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
 		if isUniqueViolation(err) {
-			return nil, SkillConflictError{}
+			return nil, PersonaConflictError{}
 		}
 		return nil, err
 	}
-	return &skill, nil
+	return &persona, nil
 }
 
-func scanSkills(rows pgx.Rows) ([]Skill, error) {
-	skills := []Skill{}
+func scanPersonas(rows pgx.Rows) ([]Persona, error) {
+	personas := []Persona{}
 	for rows.Next() {
-		var s Skill
+		var s Persona
 		if err := rows.Scan(
-			&s.ID, &s.OrgID, &s.SkillKey, &s.Version,
+			&s.ID, &s.OrgID, &s.PersonaKey, &s.Version,
 			&s.DisplayName, &s.Description, &s.PromptMD,
 			&s.ToolAllowlist, &s.BudgetsJSON, &s.IsActive, &s.CreatedAt,
 			&s.PreferredCredential, &s.ExecutorType, &s.ExecutorConfigJSON,
 		); err != nil {
 			return nil, err
 		}
-		skills = append(skills, s)
+		personas = append(personas, s)
 	}
-	return skills, rows.Err()
+	return personas, rows.Err()
 }

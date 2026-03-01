@@ -1,4 +1,4 @@
-package skills
+package personas
 
 import (
 	"os"
@@ -6,10 +6,10 @@ import (
 	"testing"
 )
 
-func TestLoadRegistryLoadsLiteSkill(t *testing.T) {
-	root, err := BuiltinSkillsRoot()
+func TestLoadRegistryLoadsLitePersona(t *testing.T) {
+	root, err := BuiltinPersonasRoot()
 	if err != nil {
-		t.Fatalf("BuiltinSkillsRoot failed: %v", err)
+		t.Fatalf("BuiltinPersonasRoot failed: %v", err)
 	}
 	registry, err := LoadRegistry(root)
 	if err != nil {
@@ -17,7 +17,7 @@ func TestLoadRegistryLoadsLiteSkill(t *testing.T) {
 	}
 	def, ok := registry.Get("lite")
 	if !ok {
-		t.Fatalf("expected lite skill loaded")
+		t.Fatalf("expected lite persona loaded")
 	}
 	if def.Version != "1" {
 		t.Fatalf("unexpected version: %s", def.Version)
@@ -27,23 +27,23 @@ func TestLoadRegistryLoadsLiteSkill(t *testing.T) {
 	}
 }
 
-func TestResolveSkillVersionMismatch(t *testing.T) {
+func TestResolvePersonaVersionMismatch(t *testing.T) {
 	registry := NewRegistry()
 	if err := registry.Register(Definition{ID: "demo", Version: "1", Title: "t"}); err != nil {
 		t.Fatalf("register failed: %v", err)
 	}
 
-	decision := ResolveSkill(map[string]any{"skill_id": "demo@2"}, registry)
-	if decision.Error == nil || decision.Error.ErrorClass != ErrorClassSkillVersionMismatch {
+	decision := ResolvePersona(map[string]any{"persona_id": "demo@2"}, registry)
+	if decision.Error == nil || decision.Error.ErrorClass != ErrorClassPersonaVersionMismatch {
 		t.Fatalf("expected version mismatch, got %+v", decision)
 	}
 }
 
-// TestLoadSkillDefaultExecutorType 验证无 executor_type 字段的 yaml 使用默认值，向后兼容。
-func TestLoadSkillDefaultExecutorType(t *testing.T) {
-	root, err := BuiltinSkillsRoot()
+// TestLoadPersonaDefaultExecutorType 验证无 executor_type 字段的 yaml 使用默认值，向后兼容。
+func TestLoadPersonaDefaultExecutorType(t *testing.T) {
+	root, err := BuiltinPersonasRoot()
 	if err != nil {
-		t.Fatalf("BuiltinSkillsRoot failed: %v", err)
+		t.Fatalf("BuiltinPersonasRoot failed: %v", err)
 	}
 	registry, err := LoadRegistry(root)
 	if err != nil {
@@ -51,7 +51,7 @@ func TestLoadSkillDefaultExecutorType(t *testing.T) {
 	}
 	def, ok := registry.Get("lite")
 	if !ok {
-		t.Fatalf("expected lite skill loaded")
+		t.Fatalf("expected lite persona loaded")
 	}
 	if def.ExecutorType != "agent.simple" {
 		t.Fatalf("expected default executor_type 'agent.simple', got %q", def.ExecutorType)
@@ -61,10 +61,10 @@ func TestLoadSkillDefaultExecutorType(t *testing.T) {
 	}
 }
 
-// TestLoadSkillWithExecutorType 验证 executor_type 和 executor_config 字段可正确解析。
-func TestLoadSkillWithExecutorType(t *testing.T) {
+// TestLoadPersonaWithExecutorType 验证 executor_type 和 executor_config 字段可正确解析。
+func TestLoadPersonaWithExecutorType(t *testing.T) {
 	dir := t.TempDir()
-	writeSkillFiles(t, dir, "test_exec",
+	writePersonaFiles(t, dir, "test_exec",
 		"id: test_exec\nversion: \"1\"\ntitle: Test\nexecutor_type: task.classify_route\nexecutor_config:\n  check_in_every: 5\n",
 		"# prompt",
 	)
@@ -75,7 +75,7 @@ func TestLoadSkillWithExecutorType(t *testing.T) {
 	}
 	def, ok := registry.Get("test_exec")
 	if !ok {
-		t.Fatalf("expected test_exec skill loaded")
+		t.Fatalf("expected test_exec persona loaded")
 	}
 	if def.ExecutorType != "task.classify_route" {
 		t.Fatalf("expected executor_type 'task.classify_route', got %q", def.ExecutorType)
@@ -85,9 +85,9 @@ func TestLoadSkillWithExecutorType(t *testing.T) {
 	}
 }
 
-func TestLoadSkillWithExecutorScriptFile(t *testing.T) {
+func TestLoadPersonaWithExecutorScriptFile(t *testing.T) {
 	dir := t.TempDir()
-	writeSkillFiles(t, dir, "test_lua",
+	writePersonaFiles(t, dir, "test_lua",
 		"id: test_lua\nversion: \"1\"\ntitle: Test Lua\nexecutor_type: agent.lua\nexecutor_config:\n  script_file: agent.lua\n",
 		"# prompt",
 	)
@@ -101,7 +101,7 @@ func TestLoadSkillWithExecutorScriptFile(t *testing.T) {
 	}
 	def, ok := registry.Get("test_lua")
 	if !ok {
-		t.Fatalf("expected test_lua skill loaded")
+		t.Fatalf("expected test_lua persona loaded")
 	}
 	script, ok := def.ExecutorConfig["script"].(string)
 	if !ok || script == "" {
@@ -112,9 +112,9 @@ func TestLoadSkillWithExecutorScriptFile(t *testing.T) {
 	}
 }
 
-func TestLoadSkillWithExecutorScriptFileConflict(t *testing.T) {
+func TestLoadPersonaWithExecutorScriptFileConflict(t *testing.T) {
 	dir := t.TempDir()
-	writeSkillFiles(t, dir, "bad_lua",
+	writePersonaFiles(t, dir, "bad_lua",
 		"id: bad_lua\nversion: \"1\"\ntitle: Bad Lua\nexecutor_type: agent.lua\nexecutor_config:\n  script: |\n    context.set_output('inline')\n  script_file: agent.lua\n",
 		"# prompt",
 	)
@@ -128,9 +128,9 @@ func TestLoadSkillWithExecutorScriptFileConflict(t *testing.T) {
 	}
 }
 
-func TestLoadSkillWithExecutorScriptFileEscape(t *testing.T) {
+func TestLoadPersonaWithExecutorScriptFileEscape(t *testing.T) {
 	dir := t.TempDir()
-	writeSkillFiles(t, dir, "escape_lua",
+	writePersonaFiles(t, dir, "escape_lua",
 		"id: escape_lua\nversion: \"1\"\ntitle: Escape Lua\nexecutor_type: agent.lua\nexecutor_config:\n  script_file: ../agent.lua\n",
 		"# prompt",
 	)
@@ -141,9 +141,9 @@ func TestLoadSkillWithExecutorScriptFileEscape(t *testing.T) {
 	}
 }
 
-func TestLoadSkillWithNonLuaExecutorKeepsScriptFileRaw(t *testing.T) {
+func TestLoadPersonaWithNonLuaExecutorKeepsScriptFileRaw(t *testing.T) {
 	dir := t.TempDir()
-	writeSkillFiles(t, dir, "route_keep_raw",
+	writePersonaFiles(t, dir, "route_keep_raw",
 		"id: route_keep_raw\nversion: \"1\"\ntitle: Route Keep Raw\nexecutor_type: task.classify_route\nexecutor_config:\n  script_file: untouched.lua\n",
 		"# prompt",
 	)
@@ -154,7 +154,7 @@ func TestLoadSkillWithNonLuaExecutorKeepsScriptFileRaw(t *testing.T) {
 	}
 	def, ok := registry.Get("route_keep_raw")
 	if !ok {
-		t.Fatalf("expected route_keep_raw skill loaded")
+		t.Fatalf("expected route_keep_raw persona loaded")
 	}
 	raw, ok := def.ExecutorConfig["script_file"].(string)
 	if !ok || raw != "untouched.lua" {
@@ -162,10 +162,10 @@ func TestLoadSkillWithNonLuaExecutorKeepsScriptFileRaw(t *testing.T) {
 	}
 }
 
-// TestLoadSkillInvalidExecutorType 验证非法 executor_type 返回错误。
-func TestLoadSkillInvalidExecutorType(t *testing.T) {
+// TestLoadPersonaInvalidExecutorType 验证非法 executor_type 返回错误。
+func TestLoadPersonaInvalidExecutorType(t *testing.T) {
 	dir := t.TempDir()
-	writeSkillFiles(t, dir, "bad_exec",
+	writePersonaFiles(t, dir, "bad_exec",
 		"id: bad_exec\nversion: \"1\"\ntitle: Bad\nexecutor_type: \"!!invalid type!!\"\n",
 		"# prompt",
 	)
@@ -176,24 +176,24 @@ func TestLoadSkillInvalidExecutorType(t *testing.T) {
 	}
 }
 
-func writeSkillFiles(t *testing.T, root, name, yamlContent, promptContent string) {
+func writePersonaFiles(t *testing.T, root, name, yamlContent, promptContent string) {
 	t.Helper()
 	dir := filepath.Join(root, name)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		t.Fatalf("MkdirAll failed: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "skill.yaml"), []byte(yamlContent), 0644); err != nil {
-		t.Fatalf("WriteFile skill.yaml failed: %v", err)
+	if err := os.WriteFile(filepath.Join(dir, "persona.yaml"), []byte(yamlContent), 0644); err != nil {
+		t.Fatalf("WriteFile persona.yaml failed: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "prompt.md"), []byte(promptContent), 0644); err != nil {
 		t.Fatalf("WriteFile prompt.md failed: %v", err)
 	}
 }
 
-// TestLoadSkillWithPreferredCredential 验证 preferred_credential 字段可正确解析。
-func TestLoadSkillWithPreferredCredential(t *testing.T) {
+// TestLoadPersonaWithPreferredCredential 验证 preferred_credential 字段可正确解析。
+func TestLoadPersonaWithPreferredCredential(t *testing.T) {
 	dir := t.TempDir()
-	writeSkillFiles(t, dir, "test_route",
+	writePersonaFiles(t, dir, "test_route",
 		"id: test_route\nversion: \"1\"\ntitle: Test\npreferred_credential: my-anthropic\n",
 		"# prompt",
 	)
@@ -204,7 +204,7 @@ func TestLoadSkillWithPreferredCredential(t *testing.T) {
 	}
 	def, ok := registry.Get("test_route")
 	if !ok {
-		t.Fatalf("expected test_route skill loaded")
+		t.Fatalf("expected test_route persona loaded")
 	}
 	if def.PreferredCredential == nil {
 		t.Fatal("expected PreferredCredential to be set")
@@ -214,11 +214,11 @@ func TestLoadSkillWithPreferredCredential(t *testing.T) {
 	}
 }
 
-// TestLoadSkillWithoutPreferredCredential 验证无 preferred_credential 字段时 PreferredCredential 为 nil。
-func TestLoadSkillWithoutPreferredCredential(t *testing.T) {
+// TestLoadPersonaWithoutPreferredCredential 验证无 preferred_credential 字段时 PreferredCredential 为 nil。
+func TestLoadPersonaWithoutPreferredCredential(t *testing.T) {
 	dir := t.TempDir()
-	writeSkillFiles(t, dir, "no_cred_skill",
-		"id: no_cred_skill\nversion: \"1\"\ntitle: No Cred\n",
+	writePersonaFiles(t, dir, "no_cred_persona",
+		"id: no_cred_persona\nversion: \"1\"\ntitle: No Cred\n",
 		"# prompt",
 	)
 
@@ -226,9 +226,9 @@ func TestLoadSkillWithoutPreferredCredential(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadRegistry failed: %v", err)
 	}
-	def, ok := registry.Get("no_cred_skill")
+	def, ok := registry.Get("no_cred_persona")
 	if !ok {
-		t.Fatal("expected no_cred_skill to be loaded")
+		t.Fatal("expected no_cred_persona to be loaded")
 	}
 	if def.PreferredCredential != nil {
 		t.Fatalf("expected PreferredCredential nil, got %q", *def.PreferredCredential)

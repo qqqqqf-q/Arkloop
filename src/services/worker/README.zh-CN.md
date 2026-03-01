@@ -2,7 +2,7 @@
 
 这是 Arkloop 的 Go Worker，实现一条完整的执行闭环：
 - 消费 Postgres `jobs` 队列中的 `run.execute`
-- 执行原生 RunEngine（Provider 路由 + Agent Loop + Tools + Skills + MCP）
+- 执行原生 RunEngine（Provider 路由 + Agent Loop + Tools + Personas + MCP）
 - 把事件写入 `run_events`（API 的 SSE 回放基于同一张表）
 
 ## 运行模式

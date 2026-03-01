@@ -34,8 +34,8 @@ func NewMemoryMiddleware(provider memory.MemoryProvider, pool *pgxpool.Pool) Run
 		}
 
 		agentID := "default"
-		if rc.SkillDefinition != nil && strings.TrimSpace(rc.SkillDefinition.ID) != "" {
-			agentID = rc.SkillDefinition.ID
+		if rc.PersonaDefinition != nil && strings.TrimSpace(rc.PersonaDefinition.ID) != "" {
+			agentID = rc.PersonaDefinition.ID
 		}
 
 		ident := memory.MemoryIdentity{

@@ -204,7 +204,7 @@ export function RunDetailPanel({ run, accessToken, onClose }: Props) {
                 } />
                 <MetaRow label={rt.labelThread} value={run.thread_id} mono />
                 <MetaRow label={rt.labelOrg} value={run.org_id} mono />
-                <MetaRow label={rt.labelSkill} value={d?.skill_id ?? run.skill_id} />
+                <MetaRow label={rt.labelPersona} value={d?.persona_id ?? run.persona_id} />
               </div>
               <div className="pt-2">
                 <MetaRow label={rt.labelAgentConfig} value={d?.agent_config_name} />

@@ -11,14 +11,14 @@ import { useToast } from '../../components/useToast'
 import { isApiError } from '../../api'
 import { useLocale } from '../../contexts/LocaleContext'
 import {
-  listSkills,
-  createSkill,
-  patchSkill,
-  type Skill,
-} from '../../api/skills'
+  listPersonas,
+  createPersona,
+  patchPersona,
+  type Persona,
+} from '../../api/personas'
 
 type CreateFormState = {
-  skillKey: string
+  personaKey: string
   version: string
   displayName: string
   description: string
@@ -45,7 +45,7 @@ type EditFormState = {
 
 function emptyCreateForm(): CreateFormState {
   return {
-    skillKey: '',
+    personaKey: '',
     version: '1.0.0',
     displayName: '',
     description: '',
@@ -59,17 +59,17 @@ function emptyCreateForm(): CreateFormState {
   }
 }
 
-function skillToEditForm(skill: Skill): EditFormState {
+function personaToEditForm(persona: Persona): EditFormState {
   return {
-    displayName: skill.display_name,
-    description: skill.description ?? '',
-    prompt: skill.prompt_md,
-    toolAllowlist: skill.tool_allowlist.join(', '),
-    budgetsJSON: JSON.stringify(skill.budgets, null, 2),
-    isActive: skill.is_active,
-    executorType: skill.executor_type || 'agent.simple',
-    executorConfigJSON: JSON.stringify(skill.executor_config ?? {}, null, 2),
-    preferredCredential: skill.preferred_credential ?? '',
+    displayName: persona.display_name,
+    description: persona.description ?? '',
+    prompt: persona.prompt_md,
+    toolAllowlist: persona.tool_allowlist.join(', '),
+    budgetsJSON: JSON.stringify(persona.budgets, null, 2),
+    isActive: persona.is_active,
+    executorType: persona.executor_type || 'agent.simple',
+    executorConfigJSON: JSON.stringify(persona.executor_config ?? {}, null, 2),
+    preferredCredential: persona.preferred_credential ?? '',
   }
 }
 
@@ -90,13 +90,13 @@ function tryParseJSON(raw: string): { ok: true; value: Record<string, unknown> }
   }
 }
 
-export function SkillsPage() {
+export function PersonasPage() {
   const { accessToken } = useOutletContext<ConsoleOutletContext>()
   const { addToast } = useToast()
   const { t } = useLocale()
-  const tc = t.pages.skills
+  const tc = t.pages.personas
 
-  const [skills, setSkills] = useState<Skill[]>([])
+  const [personas, setPersonas] = useState<Persona[]>([])
   const [loading, setLoading] = useState(false)
 
   // create modal
@@ -106,7 +106,7 @@ export function SkillsPage() {
   const [creating, setCreating] = useState(false)
 
   // edit modal
-  const [editTarget, setEditTarget] = useState<Skill | null>(null)
+  const [editTarget, setEditTarget] = useState<Persona | null>(null)
   const [editForm, setEditForm] = useState<EditFormState>({
     displayName: '',
     description: '',
@@ -124,8 +124,8 @@ export function SkillsPage() {
   const fetchAll = useCallback(async () => {
     setLoading(true)
     try {
-      const list = await listSkills(accessToken)
-      setSkills(list)
+      const list = await listPersonas(accessToken)
+      setPersonas(list)
     } catch {
       addToast(tc.toastLoadFailed, 'error')
     } finally {
@@ -143,9 +143,9 @@ export function SkillsPage() {
     setCreateOpen(true)
   }, [])
 
-  const handleOpenEdit = useCallback((skill: Skill) => {
-    setEditTarget(skill)
-    setEditForm(skillToEditForm(skill))
+  const handleOpenEdit = useCallback((persona: Persona) => {
+    setEditTarget(persona)
+    setEditForm(personaToEditForm(persona))
     setEditError('')
   }, [])
 
@@ -176,12 +176,12 @@ export function SkillsPage() {
   )
 
   const handleCreate = useCallback(async () => {
-    const skillKey = createForm.skillKey.trim()
+    const personaKey = createForm.personaKey.trim()
     const version = createForm.version.trim()
     const displayName = createForm.displayName.trim()
     const prompt = createForm.prompt.trim()
 
-    if (!skillKey || !version || !displayName || !prompt) {
+    if (!personaKey || !version || !displayName || !prompt) {
       setCreateError(tc.errRequired)
       return
     }
@@ -201,9 +201,9 @@ export function SkillsPage() {
     setCreating(true)
     setCreateError('')
     try {
-      await createSkill(
+      await createPersona(
         {
-          skill_key: skillKey,
+          persona_key: personaKey,
           version,
           display_name: displayName,
           description: createForm.description.trim() || undefined,
@@ -251,7 +251,7 @@ export function SkillsPage() {
     setSaving(true)
     setEditError('')
     try {
-      await patchSkill(
+      await patchPersona(
         editTarget.id,
         {
           display_name: displayName,
@@ -276,12 +276,12 @@ export function SkillsPage() {
     }
   }, [editForm, editTarget, accessToken, fetchAll, addToast, tc])
 
-  const columns: Column<Skill>[] = [
+  const columns: Column<Persona>[] = [
     {
-      key: 'skill_key',
-      header: tc.colSkillKey,
+      key: 'persona_key',
+      header: tc.colPersonaKey,
       render: (row) => (
-        <span className="font-mono text-xs text-[var(--c-text-primary)]">{row.skill_key}</span>
+        <span className="font-mono text-xs text-[var(--c-text-primary)]">{row.persona_key}</span>
       ),
     },
     {
@@ -319,7 +319,7 @@ export function SkillsPage() {
       key: 'actions',
       header: '',
       render: (row) => {
-        // global skills (org_id is null) are read-only
+        // global personas (org_id is null) are read-only
         const isGlobal = row.org_id === null
         return (
           <div className="flex items-center gap-1">
@@ -351,7 +351,7 @@ export function SkillsPage() {
       className="flex items-center gap-1.5 rounded-lg bg-[var(--c-bg-tag)] px-3 py-1.5 text-xs font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-sub)]"
     >
       <Plus size={13} />
-      {tc.addSkill}
+      {tc.addPersona}
     </button>
   )
 
@@ -368,7 +368,7 @@ export function SkillsPage() {
       <div className="flex flex-1 flex-col overflow-auto">
         <DataTable
           columns={columns}
-          data={skills}
+          data={personas}
           rowKey={(row) => row.id}
           loading={loading}
           emptyMessage={tc.empty}
@@ -385,12 +385,12 @@ export function SkillsPage() {
       >
         <div className="flex flex-col gap-4">
           <div className="grid grid-cols-2 gap-3">
-            <FormField label={tc.fieldSkillKey}>
+            <FormField label={tc.fieldPersonaKey}>
               <input
                 type="text"
-                value={createForm.skillKey}
-                onChange={(e) => setCreateField('skillKey', e.target.value)}
-                placeholder="my_skill"
+                value={createForm.personaKey}
+                onChange={(e) => setCreateField('personaKey', e.target.value)}
+                placeholder="my_persona"
                 className={inputCls}
               />
             </FormField>
@@ -410,7 +410,7 @@ export function SkillsPage() {
               type="text"
               value={createForm.displayName}
               onChange={(e) => setCreateField('displayName', e.target.value)}
-              placeholder="My Skill"
+              placeholder="My Persona"
               className={inputCls}
             />
           </FormField>
@@ -483,13 +483,13 @@ export function SkillsPage() {
           <div className="flex items-center gap-2">
             <input
               type="checkbox"
-              id="skill-create-is-active"
+              id="persona-create-is-active"
               checked={createForm.isActive}
               onChange={(e) => setCreateField('isActive', e.target.checked)}
               className="h-3.5 w-3.5 rounded"
             />
             <label
-              htmlFor="skill-create-is-active"
+              htmlFor="persona-create-is-active"
               className="text-sm text-[var(--c-text-secondary)]"
             >
               {tc.fieldIsActive}
@@ -527,11 +527,11 @@ export function SkillsPage() {
         width="560px"
       >
         <div className="flex flex-col gap-4">
-          {/* skill_key / version — read-only */}
+          {/* persona_key / version — read-only */}
           <div className="grid grid-cols-2 gap-3">
-            <FormField label={tc.fieldSkillKey}>
+            <FormField label={tc.fieldPersonaKey}>
               <div className="flex items-center px-3 py-1.5 text-sm font-mono text-[var(--c-text-muted)]">
-                {editTarget?.skill_key}
+                {editTarget?.persona_key}
               </div>
             </FormField>
             <FormField label={tc.fieldVersion}>
@@ -618,13 +618,13 @@ export function SkillsPage() {
           <div className="flex items-center gap-2">
             <input
               type="checkbox"
-              id="skill-edit-is-active"
+              id="persona-edit-is-active"
               checked={editForm.isActive}
               onChange={(e) => setEditField('isActive', e.target.checked)}
               className="h-3.5 w-3.5 rounded"
             />
             <label
-              htmlFor="skill-edit-is-active"
+              htmlFor="persona-edit-is-active"
               className="text-sm text-[var(--c-text-secondary)]"
             >
               {tc.fieldIsActive}

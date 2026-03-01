@@ -1,4 +1,4 @@
-package skills
+package personas
 
 import (
 	"context"
@@ -9,24 +9,24 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// SyncBuiltinSkillsToDB 将文件系统加载的 skill 定义以 org_id IS NULL 写入 DB。
-// 已存在的 skill 按 (skill_key, version) 匹配后 UPDATE，不存在的 INSERT。
-func SyncBuiltinSkillsToDB(ctx context.Context, pool *pgxpool.Pool, registry *Registry) error {
+// SyncBuiltinPersonasToDB 将文件系统加载的 persona 定义以 org_id IS NULL 写入 DB。
+// 已存在的 persona 按 (persona_key, version) 匹配后 UPDATE，不存在的 INSERT。
+func SyncBuiltinPersonasToDB(ctx context.Context, pool *pgxpool.Pool, registry *Registry) error {
 	if pool == nil || registry == nil {
 		return nil
 	}
 
 	for _, id := range registry.ListIDs() {
 		def, _ := registry.Get(id)
-		if err := upsertGlobalSkill(ctx, pool, def); err != nil {
-			return fmt.Errorf("sync skill %q: %w", def.ID, err)
+		if err := upsertGlobalPersona(ctx, pool, def); err != nil {
+			return fmt.Errorf("sync persona %q: %w", def.ID, err)
 		}
-		slog.InfoContext(ctx, "skills: synced builtin", "skill_id", def.ID, "version", def.Version)
+		slog.InfoContext(ctx, "personas: synced builtin", "persona_id", def.ID, "version", def.Version)
 	}
 	return nil
 }
 
-func upsertGlobalSkill(ctx context.Context, pool *pgxpool.Pool, def Definition) error {
+func upsertGlobalPersona(ctx context.Context, pool *pgxpool.Pool, def Definition) error {
 	budgetsJSON, err := marshalBudgets(def.Budgets)
 	if err != nil {
 		return err
@@ -43,13 +43,13 @@ func upsertGlobalSkill(ctx context.Context, pool *pgxpool.Pool, def Definition) 
 	}
 
 	_, err = pool.Exec(ctx,
-		`INSERT INTO skills
-			(org_id, skill_key, version, display_name, description,
+		`INSERT INTO personas
+			(org_id, persona_key, version, display_name, description,
 			 prompt_md, tool_allowlist, tool_denylist, budgets_json,
 			 executor_type, executor_config_json, preferred_credential, agent_config_name)
 		 VALUES
 			(NULL, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-		 ON CONFLICT (org_id, skill_key, version) DO UPDATE SET
+		 ON CONFLICT (org_id, persona_key, version) DO UPDATE SET
 			display_name        = EXCLUDED.display_name,
 			description         = EXCLUDED.description,
 			prompt_md           = EXCLUDED.prompt_md,

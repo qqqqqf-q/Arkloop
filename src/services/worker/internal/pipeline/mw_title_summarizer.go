@@ -276,7 +276,7 @@ return joined
 }
 
 // buildSummarizeSystem 构建标题生成的 system prompt。
-// 外层固定指令确保 LLM 只输出纯标题，skill 的 prompt 作为风格说明追加。
+// 外层固定指令确保 LLM 只输出纯标题，persona 的 prompt 作为风格说明追加。
 func buildSummarizeSystem(styleHint string) string {
 base := "Generate a concise title for the conversation. Output ONLY the title text — no quotes, no punctuation at the end, no explanation, no prefix like 'Title:'. The title must be in the same language as the user's message."
 if styleHint != "" {

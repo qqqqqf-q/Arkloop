@@ -34,7 +34,7 @@
 | `llm_routes` | 模型路由规则（credential + model + priority + multiplier） |
 | `asr_credentials` | 语音转文字凭证 |
 | `mcp_configs` | MCP 服务器配置（stdio/HTTP 类型） |
-| `skills` | 技能定义（executor_type + prompt + tool_allowlist） |
+| `personas` | 人格定义（executor_type + prompt + tool_allowlist） |
 | `agent_configs` | Agent 配置（system_prompt、reasoning_mode、model 路由） |
 | `prompt_templates` | 提示词模板 |
 
@@ -99,10 +99,10 @@
 
 ### 3.5 运行（Run）
 
-Run 把「输入消息 + Skill 配置 + 路由策略」变成一次可审计的执行链路。
+Run 把「输入消息 + Persona 配置 + 路由策略」变成一次可审计的执行链路。
 
 - `POST /v1/threads/{id}/runs` -- 创建 run
-  - 入参：`skill_id`（可选）、`route_id`（可选）、配置覆盖
+  - 入参：`persona_id`（可选）、`route_id`（可选）、配置覆盖
   - API 同一事务内：写 `runs` 行 + 写 `run.started` 事件 + 插入 `jobs`（`run.execute`）
 - `GET /v1/runs` -- 列表
 - `GET /v1/runs/{id}` -- SSE 事件流（`Content-Type: text/event-stream`）
@@ -139,10 +139,12 @@ SSE 约定：
 - `GET/POST /v1/mcp-configs`
 - `GET/PUT/DELETE /v1/mcp-configs/{id}`
 
-### 3.10 Skills 与 Agent 配置
+### 3.10 Personas 与 Agent 配置
 
-- `GET/POST /v1/skills`
-- `GET/PUT/DELETE /v1/skills/{id}`
+说明：对外命名已从 `skills` 迁移为 `personas`（`/v1/skills` -> `/v1/personas`，`skill_key/skill_id` -> `persona_key/persona_id`），当前不提供旧命名兼容。
+
+- `GET/POST /v1/personas`
+- `GET/PUT/DELETE /v1/personas/{id}`
 - `GET/POST /v1/agent-configs`
 - `GET/PUT/DELETE /v1/agent-configs/{id}`
 - `GET/POST /v1/prompt-templates`

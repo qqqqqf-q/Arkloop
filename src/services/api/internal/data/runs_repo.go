@@ -30,7 +30,7 @@ type Run struct {
 	TotalOutputTokens *int64
 	TotalCostUSD      *float64
 	Model             *string
-	SkillID           *string
+	PersonaID           *string
 	DeletedAt         *time.Time
 }
 
@@ -95,7 +95,7 @@ func (r *RunEventRepository) CreateRunWithStartedEvent(
 		 RETURNING id, org_id, thread_id, created_by_user_id, status, created_at,
 		           parent_run_id, status_updated_at, completed_at, failed_at,
 		           duration_ms, total_input_tokens, total_output_tokens, total_cost_usd,
-		           model, skill_id, deleted_at`,
+		           model, persona_id, deleted_at`,
 		orgID,
 		threadID,
 		createdByUserID,
@@ -103,7 +103,7 @@ func (r *RunEventRepository) CreateRunWithStartedEvent(
 		&run.ID, &run.OrgID, &run.ThreadID, &run.CreatedByUserID, &run.Status, &run.CreatedAt,
 		&run.ParentRunID, &run.StatusUpdatedAt, &run.CompletedAt, &run.FailedAt,
 		&run.DurationMs, &run.TotalInputTokens, &run.TotalOutputTokens, &run.TotalCostUSD,
-		&run.Model, &run.SkillID, &run.DeletedAt,
+		&run.Model, &run.PersonaID, &run.DeletedAt,
 	)
 	if err != nil {
 		return Run{}, RunEvent{}, err
@@ -131,7 +131,7 @@ func (r *RunEventRepository) GetRun(ctx context.Context, runID uuid.UUID) (*Run,
 		`SELECT id, org_id, thread_id, created_by_user_id, status, created_at,
 		        parent_run_id, status_updated_at, completed_at, failed_at,
 		        duration_ms, total_input_tokens, total_output_tokens, total_cost_usd,
-		        model, skill_id, deleted_at
+		        model, persona_id, deleted_at
 		 FROM runs
 		 WHERE id = $1
 		 LIMIT 1`,
@@ -140,7 +140,7 @@ func (r *RunEventRepository) GetRun(ctx context.Context, runID uuid.UUID) (*Run,
 		&run.ID, &run.OrgID, &run.ThreadID, &run.CreatedByUserID, &run.Status, &run.CreatedAt,
 		&run.ParentRunID, &run.StatusUpdatedAt, &run.CompletedAt, &run.FailedAt,
 		&run.DurationMs, &run.TotalInputTokens, &run.TotalOutputTokens, &run.TotalCostUSD,
-		&run.Model, &run.SkillID, &run.DeletedAt,
+		&run.Model, &run.PersonaID, &run.DeletedAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -175,7 +175,7 @@ func (r *RunEventRepository) ListRunsByThread(
 		`SELECT id, org_id, thread_id, created_by_user_id, status, created_at,
 		        parent_run_id, status_updated_at, completed_at, failed_at,
 		        duration_ms, total_input_tokens, total_output_tokens, total_cost_usd,
-		        model, skill_id, deleted_at
+		        model, persona_id, deleted_at
 		 FROM runs
 		 WHERE org_id = $1
 		   AND thread_id = $2
@@ -197,7 +197,7 @@ func (r *RunEventRepository) ListRunsByThread(
 			&run.ID, &run.OrgID, &run.ThreadID, &run.CreatedByUserID, &run.Status, &run.CreatedAt,
 			&run.ParentRunID, &run.StatusUpdatedAt, &run.CompletedAt, &run.FailedAt,
 			&run.DurationMs, &run.TotalInputTokens, &run.TotalOutputTokens, &run.TotalCostUSD,
-			&run.Model, &run.SkillID, &run.DeletedAt,
+			&run.Model, &run.PersonaID, &run.DeletedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -519,7 +519,7 @@ type ListRunsParams struct {
 	ParentRunID    *uuid.UUID
 	Status         *string
 	Model          *string
-	SkillID        *string
+	PersonaID        *string
 	Since          *time.Time
 	Until          *time.Time
 	Limit          int
@@ -574,8 +574,8 @@ func (r *RunEventRepository) ListRuns(ctx context.Context, params ListRunsParams
 	if params.Model != nil {
 		conds = append(conds, "COALESCE(r.model, '') ILIKE '%' || "+addArg(*params.Model)+" || '%'")
 	}
-	if params.SkillID != nil {
-		conds = append(conds, "COALESCE(r.skill_id, '') ILIKE '%' || "+addArg(*params.SkillID)+" || '%'")
+	if params.PersonaID != nil {
+		conds = append(conds, "COALESCE(r.persona_id, '') ILIKE '%' || "+addArg(*params.PersonaID)+" || '%'")
 	}
 	if params.Since != nil {
 		conds = append(conds, "r.created_at >= "+addArg(*params.Since))
@@ -597,7 +597,7 @@ func (r *RunEventRepository) ListRuns(ctx context.Context, params ListRunsParams
 	query := fmt.Sprintf(`SELECT r.id, r.org_id, r.thread_id, r.created_by_user_id, r.status, r.created_at,
 		        r.parent_run_id, r.status_updated_at, r.completed_at, r.failed_at,
 		        r.duration_ms, r.total_input_tokens, r.total_output_tokens, r.total_cost_usd,
-		        r.model, r.skill_id, r.deleted_at,
+		        r.model, r.persona_id, r.deleted_at,
 		        u.username, u.email,
 		        ur.cache_read_tokens, ur.cache_creation_tokens, ur.cached_tokens,
 		        ABS(ct.amount) AS credits_used
@@ -623,7 +623,7 @@ func (r *RunEventRepository) ListRuns(ctx context.Context, params ListRunsParams
 			&rw.ID, &rw.OrgID, &rw.ThreadID, &rw.CreatedByUserID, &rw.Status, &rw.CreatedAt,
 			&rw.ParentRunID, &rw.StatusUpdatedAt, &rw.CompletedAt, &rw.FailedAt,
 			&rw.DurationMs, &rw.TotalInputTokens, &rw.TotalOutputTokens, &rw.TotalCostUSD,
-			&rw.Model, &rw.SkillID, &rw.DeletedAt,
+			&rw.Model, &rw.PersonaID, &rw.DeletedAt,
 			&rw.UserUsername, &rw.UserEmail,
 			&rw.CacheReadTokens, &rw.CacheCreationTokens, &rw.CachedTokens,
 			&rw.CreditsUsed,
@@ -662,7 +662,7 @@ func (r *RunEventRepository) ListStaleRunning(ctx context.Context, staleBefore t
 		`SELECT id, org_id, thread_id, created_by_user_id, status, created_at,
 		        parent_run_id, status_updated_at, completed_at, failed_at,
 		        duration_ms, total_input_tokens, total_output_tokens, total_cost_usd,
-		        model, skill_id, deleted_at
+		        model, persona_id, deleted_at
 		 FROM runs
 		 WHERE status = 'running'
 		   AND COALESCE(status_updated_at, created_at) < $1`,
@@ -680,7 +680,7 @@ func (r *RunEventRepository) ListStaleRunning(ctx context.Context, staleBefore t
 			&run.ID, &run.OrgID, &run.ThreadID, &run.CreatedByUserID, &run.Status, &run.CreatedAt,
 			&run.ParentRunID, &run.StatusUpdatedAt, &run.CompletedAt, &run.FailedAt,
 			&run.DurationMs, &run.TotalInputTokens, &run.TotalOutputTokens, &run.TotalCostUSD,
-			&run.Model, &run.SkillID, &run.DeletedAt,
+			&run.Model, &run.PersonaID, &run.DeletedAt,
 		); err != nil {
 			return nil, fmt.Errorf("ListStaleRunning scan: %w", err)
 		}

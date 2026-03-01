@@ -45,10 +45,10 @@ func stringPtr(value string) *string {
 	return &cleaned
 }
 
-// agentIDFromSkill 从 RunContext 的 SkillDefinition 中提取 agent_id。
-func agentIDFromSkill(rc *pipeline.RunContext) string {
-	if rc.SkillDefinition != nil && strings.TrimSpace(rc.SkillDefinition.ID) != "" {
-		return rc.SkillDefinition.ID
+// agentIDFromPersona 从 RunContext 的 PersonaDefinition 中提取 agent_id。
+func agentIDFromPersona(rc *pipeline.RunContext) string {
+	if rc.PersonaDefinition != nil && strings.TrimSpace(rc.PersonaDefinition.ID) != "" {
+		return rc.PersonaDefinition.ID
 	}
 	return "default"
 }

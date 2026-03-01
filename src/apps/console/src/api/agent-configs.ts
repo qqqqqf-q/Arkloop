@@ -18,7 +18,7 @@ export type AgentConfig = {
   content_filter_level: string
   safety_rules_json: Record<string, unknown>
   project_id?: string
-  skill_id?: string
+  persona_id?: string
   is_default: boolean
   prompt_cache_control: string
   reasoning_mode: string

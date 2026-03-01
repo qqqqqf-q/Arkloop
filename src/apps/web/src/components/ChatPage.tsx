@@ -943,10 +943,10 @@ export function ChatPage() {
         const forked = await forkThread(accessToken, threadId, lastMessageId, true)
         onThreadCreated(forked)
         await createMessage(accessToken, forked.id, { content })
-        const tierToSkillId: Record<SelectedTier, string> = {
+        const tierToPersonaId: Record<SelectedTier, string> = {
           Auto: 'auto', Lite: 'lite', Pro: 'pro', Ultra: 'ultra', Search: 'search',
         }
-        const run = await createRun(accessToken, forked.id, tierToSkillId[tier])
+        const run = await createRun(accessToken, forked.id, tierToPersonaId[tier])
         setDraft('')
         setAttachments([])
         navigate(`/t/${forked.id}`, {
@@ -963,14 +963,14 @@ export function ChatPage() {
       setAttachments([])
       setAssistantDraft('')
 
-      const tierToSkillId: Record<SelectedTier, string> = {
+      const tierToPersonaId: Record<SelectedTier, string> = {
         Auto: 'auto',
         Lite: 'lite',
         Pro: 'pro',
         Ultra: 'ultra',
         Search: 'search',
       }
-      const run = await createRun(accessToken, threadId, tierToSkillId[tier])
+      const run = await createRun(accessToken, threadId, tierToPersonaId[tier])
       setActiveRunId(run.run_id)
       onRunStarted(threadId)
       scrollToBottom()

@@ -67,7 +67,7 @@ Worker 使用中间件链模式处理 run，顺序执行：
 |------|--------|------|
 | 1 | `mw_input_loader` | 加载 run 输入与上下文 |
 | 2 | `mw_routing` | Provider 路由决策 |
-| 3 | `mw_skill_resolution` | 从配置/请求解析 Skill |
+| 3 | `mw_persona_resolution` | 从配置/请求解析 Persona |
 | 4 | `mw_agent_config` | 加载 Agent 配置 |
 | 5 | `mw_tool_build` | 构建工具执行器分发器 |
 | 6 | `mw_mcp_discovery` | 发现 MCP 工具 |
@@ -91,16 +91,16 @@ Worker 通过 Executor Registry 支持多种执行器：
 | `interactive` | Human-in-the-loop 模式 |
 | `noop` | 空操作（测试用） |
 
-## 6. Skills 体系
+## 6. Personas 体系
 
-Skills 从 `src/skills/` 目录和数据库加载，每个 Skill 包含：
-- `skill.yaml` -- 元数据与配置
+Personas 从 `src/personas/` 目录和数据库加载，每个 Persona 包含：
+- `persona.yaml` -- 元数据与配置
 - `prompt.md` -- System Prompt
 - `agent.lua` -- Lua 脚本（可选）
 
-当前内置 Skills：
+当前内置 Personas：
 
-| Skill | 执行器 | 说明 |
+| Persona | 执行器 | 说明 |
 |-------|--------|------|
 | `auto` | `task.classify_route` | 任务复杂度分类，路由到 Pro/Ultra |
 | `lite` | `agent.simple` | 轻量快速响应 |
@@ -108,7 +108,7 @@ Skills 从 `src/skills/` 目录和数据库加载，每个 Skill 包含：
 | `search` | `agent.simple` | 搜索优化（含 `web_search` 工具） |
 | `ultra` | `agent.simple` | 最大推理深度 |
 
-Skill 配置字段：`id`、`executor_type`、`executor_config`、`tool_allowlist`、`tool_denylist`、`budgets`（max_iterations、max_output_tokens、temperature、top_p）。
+Persona 配置字段：`id`、`executor_type`、`executor_config`、`tool_allowlist`、`tool_denylist`、`budgets`（max_iterations、max_output_tokens、temperature、top_p）。
 
 ## 7. 工具执行
 
@@ -128,7 +128,7 @@ Skill 配置字段：`id`、`executor_type`、`executor_config`、`tool_allowlis
 ### 7.2 工具安全
 
 - **Allowlist**：`ARKLOOP_TOOL_ALLOWLIST`（逗号分隔，为空则禁用全部工具）
-- **Denylist**：Skill 级 `tool_denylist`
+- **Denylist**：Persona 级 `tool_denylist`
 - LLM 只能看到白名单内的工具
 - 每个工具执行有超时控制（`tool_timeout_ms`）
 

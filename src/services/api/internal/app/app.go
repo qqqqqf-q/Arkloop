@@ -185,7 +185,7 @@ func (a *Application) Run(ctx context.Context) error {
 		llmCredRepo         *data.LlmCredentialsRepository
 		llmRoutesRepo       *data.LlmRoutesRepository
 		mcpConfigsRepo      *data.MCPConfigsRepository
-		skillsRepo          *data.SkillsRepository
+		personasRepo          *data.PersonasRepository
 		ipRulesRepo         *data.IPRulesRepository
 		apiKeysRepo         *data.APIKeysRepository
 		orgInvitationsRepo  *data.OrgInvitationsRepository
@@ -288,7 +288,7 @@ func (a *Application) Run(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		skillsRepo, err = data.NewSkillsRepository(pool)
+		personasRepo, err = data.NewPersonasRepository(pool)
 		if err != nil {
 			return err
 		}
@@ -524,7 +524,7 @@ func (a *Application) Run(ctx context.Context) error {
 			LlmRoutesRepo:        llmRoutesRepo,
 			SecretsRepo:          secretsRepo,
 			MCPConfigsRepo:       mcpConfigsRepo,
-			SkillsRepo:           skillsRepo,
+			PersonasRepo:           personasRepo,
 			IPRulesRepo:          ipRulesRepo,
 			APIKeysRepo:          apiKeysRepo,
 			OrgInvitationsRepo:   orgInvitationsRepo,

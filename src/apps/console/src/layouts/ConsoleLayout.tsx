@@ -68,7 +68,7 @@ function buildNavGroups(t: LocaleStrings): NavGroup[] {
         { label: t.nav.agentConfigs,     path: '/agent-configs',    icon: <Bot size={17} /> },
         { label: t.nav.promptTemplates,  path: '/prompt-templates', icon: <FileText size={17} /> },
         { label: t.nav.mcpConfigs,       path: '/mcp-configs',      icon: <Plug size={17} /> },
-        { label: t.nav.skills,           path: '/skills',           icon: <Sparkles size={17} /> },
+        { label: t.nav.personas,           path: '/personas',           icon: <Sparkles size={17} /> },
         { label: t.nav.asrCredentials,   path: '/asr-credentials',  icon: <Mic size={17} /> },
         { label: t.nav.titleSummarizer,  path: '/title-summarizer', icon: <AlignLeft size={17} /> },
       ],

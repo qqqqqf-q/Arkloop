@@ -23,7 +23,7 @@ export interface LocaleStrings {
     agentConfigs: string
     promptTemplates: string
     mcpConfigs: string
-    skills: string
+    personas: string
     apiKeys: string
     webhooks: string
     ipRules: string
@@ -262,11 +262,11 @@ export interface LocaleStrings {
       toastSaveFailed: string
       toastDeleteFailed: string
     }
-    skills: {
+    personas: {
       title: string
-      addSkill: string
+      addPersona: string
       // table columns
-      colSkillKey: string
+      colPersonaKey: string
       colDisplayName: string
       colVersion: string
       colActive: string
@@ -276,7 +276,7 @@ export interface LocaleStrings {
       // create/edit modal
       modalTitleCreate: string
       modalTitleEdit: string
-      fieldSkillKey: string
+      fieldPersonaKey: string
       fieldVersion: string
       fieldDisplayName: string
       fieldDescription: string
@@ -288,7 +288,7 @@ export interface LocaleStrings {
       fieldExecutorType: string
       fieldExecutorConfig: string
       fieldPreferredCredential: string
-      // read-only label for global skills
+      // read-only label for global personas
       labelGlobal: string
       // buttons
       cancel: string
@@ -935,9 +935,9 @@ export interface LocaleStrings {
       filterParentRunPlaceholder: string
       filterStatusLabel: string
       filterModelLabel: string
-      filterSkillLabel: string
+      filterPersonaLabel: string
       filterModelPlaceholder: string
-      filterSkillPlaceholder: string
+      filterPersonaPlaceholder: string
       filterSinceLabel: string
       filterUntilLabel: string
       applyFilters: string
@@ -951,7 +951,7 @@ export interface LocaleStrings {
       colThread: string
       colStatus: string
       colModel: string
-      colSkill: string
+      colPersona: string
       colDuration: string
       colTokens: string
       colCost: string
@@ -979,7 +979,7 @@ export interface LocaleStrings {
       labelUser: string
       labelThread: string
       labelOrg: string
-      labelSkill: string
+      labelPersona: string
       labelAgentConfig: string
       labelCredential: string
       labelModel: string

@@ -111,7 +111,7 @@ GET /v1/admin/runs/{run_id}
   "thread_id": "...",
   "status": "completed",
   "model": "claude-3-5-sonnet-20241022",
-  "skill_id": null,
+  "persona_id": null,
   "provider_kind": "anthropic",
   "credential_name": "主 Anthropic 账号",
   "agent_config_name": "标准顾问",

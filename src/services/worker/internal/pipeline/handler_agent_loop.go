@@ -85,11 +85,11 @@ func NewAgentLoopHandler(
 
 		executorType := "agent.simple"
 		var executorConfig map[string]any
-		if rc.SkillDefinition != nil {
-			if rc.SkillDefinition.ExecutorType != "" {
-				executorType = rc.SkillDefinition.ExecutorType
+		if rc.PersonaDefinition != nil {
+			if rc.PersonaDefinition.ExecutorType != "" {
+				executorType = rc.PersonaDefinition.ExecutorType
 			}
-			executorConfig = rc.SkillDefinition.ExecutorConfig
+			executorConfig = rc.PersonaDefinition.ExecutorConfig
 		}
 
 		exec, execBuildErr := rc.ExecutorBuilder.Build(executorType, executorConfig)

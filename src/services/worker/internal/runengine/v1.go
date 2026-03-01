@@ -15,7 +15,7 @@ import (
 	"arkloop/services/worker/internal/pipeline"
 	"arkloop/services/worker/internal/queue"
 	"arkloop/services/worker/internal/routing"
-	"arkloop/services/worker/internal/skills"
+	"arkloop/services/worker/internal/personas"
 	"arkloop/services/worker/internal/tools"
 	"arkloop/services/worker/internal/tools/builtin/sandbox"
 
@@ -53,7 +53,7 @@ type EngineV1Deps struct {
 	AllLlmToolSpecs        []llm.ToolSpec
 	BaseToolAllowlistNames []string
 
-	SkillRegistryGetter func() *skills.Registry
+	PersonaRegistryGetter func() *personas.Registry
 	MCPPool         *mcp.Pool
 	MCPDiscoveryCache *mcp.DiscoveryCache  // 缓存 DiscoverFromDB 结果，nil 时跳过 per-org MCP 发现
 	ExecutorRegistry pipeline.AgentExecutorBuilder // 必填，nil 时 NewEngineV1 返回错误
@@ -135,7 +135,7 @@ func NewEngineV1(deps EngineV1Deps) (*EngineV1, error) {
 		),
 		pipeline.NewSpawnAgentMiddleware(),
 		pipeline.NewAgentConfigMiddleware(deps.DBPool),
-		pipeline.NewSkillResolutionMiddleware(deps.SkillRegistryGetter, deps.DBPool, runsRepo, eventsRepo, releaseSlot),
+		pipeline.NewPersonaResolutionMiddleware(deps.PersonaRegistryGetter, deps.DBPool, runsRepo, eventsRepo, releaseSlot),
 		pipeline.NewMemoryMiddleware(deps.MemoryProvider, deps.DBPool),
 		pipeline.NewRoutingMiddleware(deps.Router, deps.DBPool, deps.StubGateway, deps.EmitDebugEvents, runsRepo, eventsRepo, releaseSlot, resolver),
 		pipeline.NewTitleSummarizerMiddleware(deps.DBPool, deps.RunLimiterRDB, deps.StubGateway, deps.EmitDebugEvents),

@@ -250,20 +250,20 @@ export function WelcomePage() {
         : text
 
       await createMessage(accessToken, thread.id, { content })
-      const tierToSkillId: Record<SelectedTier, string> = {
+      const tierToPersonaId: Record<SelectedTier, string> = {
         Auto: 'auto',
         Lite: 'lite',
         Pro: 'pro',
         Ultra: 'ultra',
         Search: 'search',
       }
-      const skillId = tierToSkillId[tier]
-      const run = await createRun(accessToken, thread.id, skillId)
+      const personaId = tierToPersonaId[tier]
+      const run = await createRun(accessToken, thread.id, personaId)
 
-      if (skillId === 'search') addSearchThreadId(thread.id)
+      if (personaId === 'search') addSearchThreadId(thread.id)
       writeActiveThreadIdToStorage(thread.id)
       onThreadCreated(thread)
-      navigate(`/t/${thread.id}`, { state: { initialRunId: run.run_id, isSearch: skillId === 'search' } })
+      navigate(`/t/${thread.id}`, { state: { initialRunId: run.run_id, isSearch: personaId === 'search' } })
     } catch (err) {
       if (isApiError(err) && err.status === 401) {
         onLoggedOut()

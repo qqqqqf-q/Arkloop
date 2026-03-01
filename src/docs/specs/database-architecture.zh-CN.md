@@ -157,22 +157,22 @@
 
 AES-256-GCM 加密，密钥由 `ARKLOOP_ENCRYPTION_KEY` 提供。
 
-## 6. Skills 与 Agent 配置
+## 6. Personas 与 Agent 配置
 
-### 6.1 `skills`（技能定义）
+### 6.1 `personas`（人格定义）
 
 | 列 | 说明 |
 |----|------|
 | `id` | PK |
 | `org_id` | FK -> orgs |
-| `skill_key` | 技能标识 |
+| `persona_key` | 人格标识 |
 | `version` | 版本 |
 | `display_name` | 显示名称 |
 | `description` | 描述 |
 | `prompt_md` | system prompt |
 | `tool_allowlist` | 允许的工具列表 |
 | `tool_denylist` | 禁止的工具列表 |
-| `preferred_route_id` | 首选路由 |
+| `preferred_credential` | 首选凭证 |
 | `agent_config_name` | 关联 agent 配置 |
 
 ### 6.2 `agent_configs`（Agent 配置）

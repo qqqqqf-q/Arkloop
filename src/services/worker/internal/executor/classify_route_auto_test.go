@@ -3,21 +3,21 @@ package executor
 import (
 "testing"
 
-"arkloop/services/worker/internal/skills"
+"arkloop/services/worker/internal/personas"
 )
 
-func TestClassifyRouteBuildsFromAutoSkillConfig(t *testing.T) {
-root, err := skills.BuiltinSkillsRoot()
+func TestClassifyRouteBuildsFromAutoPersonaConfig(t *testing.T) {
+root, err := personas.BuiltinPersonasRoot()
 if err != nil {
-t.Fatalf("BuiltinSkillsRoot failed: %v", err)
+t.Fatalf("BuiltinPersonasRoot failed: %v", err)
 }
-registry, err := skills.LoadRegistry(root)
+registry, err := personas.LoadRegistry(root)
 if err != nil {
 t.Fatalf("LoadRegistry failed: %v", err)
 }
 def, ok := registry.Get("auto")
 if !ok {
-t.Fatalf("expected auto skill loaded")
+t.Fatalf("expected auto persona loaded")
 }
 
 exec, err := NewClassifyRouteExecutor(def.ExecutorConfig)

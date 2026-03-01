@@ -166,7 +166,7 @@ func TestRunsCreateListGetCancelAndEnqueue(t *testing.T) {
 		nethttp.MethodPost,
 		"/v1/threads/"+threadPayload.ID+"/runs",
 		map[string]any{
-			"skill_id":        "search",
+			"persona_id":        "search",
 			"output_route_id": "final-output-route",
 		},
 		aliceHeaders,
@@ -188,8 +188,8 @@ func TestRunsCreateListGetCancelAndEnqueue(t *testing.T) {
 	if err := json.Unmarshal(startedJSONWithOutputRoute, &startedDataWithOutputRoute); err != nil {
 		t.Fatalf("decode started json with output_route_id: %v raw=%s", err, string(startedJSONWithOutputRoute))
 	}
-	if startedDataWithOutputRoute["skill_id"] != "search" {
-		t.Fatalf("unexpected started skill_id: %#v", startedDataWithOutputRoute["skill_id"])
+	if startedDataWithOutputRoute["persona_id"] != "search" {
+		t.Fatalf("unexpected started persona_id: %#v", startedDataWithOutputRoute["persona_id"])
 	}
 	if startedDataWithOutputRoute["output_route_id"] != "final-output-route" {
 		t.Fatalf("unexpected started output_route_id: %#v", startedDataWithOutputRoute["output_route_id"])
@@ -252,7 +252,7 @@ func TestRunsCreateListGetCancelAndEnqueue(t *testing.T) {
 		nethttp.MethodPost,
 		"/v1/threads/"+threadPayload.ID+"/runs",
 		map[string]any{
-			"skill_id":         "search",
+			"persona_id":         "search",
 			"output_model_key": "gpt5",
 		},
 		aliceHeaders,
@@ -286,7 +286,7 @@ func TestRunsCreateListGetCancelAndEnqueue(t *testing.T) {
 		nethttp.MethodPost,
 		"/v1/threads/"+threadPayload.ID+"/runs",
 		map[string]any{
-			"skill_id":         "search",
+			"persona_id":         "search",
 			"output_model_key": "gpt5",
 			"output_route_id":  "manual-final-route",
 		},
@@ -321,7 +321,7 @@ func TestRunsCreateListGetCancelAndEnqueue(t *testing.T) {
 		nethttp.MethodPost,
 		"/v1/threads/"+threadPayload.ID+"/runs",
 		map[string]any{
-			"skill_id":         "search",
+			"persona_id":         "search",
 			"output_model_key": "claude4",
 		},
 		aliceHeaders,
@@ -356,7 +356,7 @@ func TestRunsCreateListGetCancelAndEnqueue(t *testing.T) {
 		nethttp.MethodPost,
 		"/v1/threads/"+threadPayload.ID+"/runs",
 		map[string]any{
-			"skill_id":         "search",
+			"persona_id":         "search",
 			"output_model_key": "gemini3",
 		},
 		aliceHeaders,
@@ -391,7 +391,7 @@ func TestRunsCreateListGetCancelAndEnqueue(t *testing.T) {
 		nethttp.MethodPost,
 		"/v1/threads/"+threadPayload.ID+"/runs",
 		map[string]any{
-			"skill_id":         "search",
+			"persona_id":         "search",
 			"output_model_key": "gemini3",
 		},
 		aliceHeaders,
@@ -862,9 +862,9 @@ func TestListGlobalRuns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse run id: %v", err)
 	}
-	_, err = pool.Exec(ctx, "UPDATE runs SET model = $1, skill_id = $2 WHERE id = $3", "gpt-4o-mini", "ops-trace", runID)
+	_, err = pool.Exec(ctx, "UPDATE runs SET model = $1, persona_id = $2 WHERE id = $3", "gpt-4o-mini", "ops-trace", runID)
 	if err != nil {
-		t.Fatalf("seed run model/skill: %v", err)
+		t.Fatalf("seed run model/persona: %v", err)
 	}
 
 	// bob 注册（不同 org）
@@ -1030,8 +1030,8 @@ func TestListGlobalRuns(t *testing.T) {
 		}
 	})
 
-	t.Run("model and skill filters", func(t *testing.T) {
-		resp := doJSON(handler, nethttp.MethodGet, "/v1/runs?model=gpt-4o&skill_id=ops", nil, aliceHeaders)
+	t.Run("model and persona filters", func(t *testing.T) {
+		resp := doJSON(handler, nethttp.MethodGet, "/v1/runs?model=gpt-4o&persona_id=ops", nil, aliceHeaders)
 		if resp.Code != nethttp.StatusOK {
 			t.Fatalf("unexpected status: %d body=%s", resp.Code, resp.Body.String())
 		}
@@ -1043,7 +1043,7 @@ func TestListGlobalRuns(t *testing.T) {
 			t.Fatalf("unmarshal: %v", err)
 		}
 		if body.Total != 1 || len(body.Data) != 1 {
-			t.Fatalf("expected model/skill filter to match one run, got total=%d data=%d", body.Total, len(body.Data))
+			t.Fatalf("expected model/persona filter to match one run, got total=%d data=%d", body.Total, len(body.Data))
 		}
 	})
 

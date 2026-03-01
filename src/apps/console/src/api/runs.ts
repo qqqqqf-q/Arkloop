@@ -6,7 +6,7 @@ export type GlobalRun = {
   thread_id: string
   status: string
   model?: string
-  skill_id?: string
+  persona_id?: string
   total_input_tokens?: number
   total_output_tokens?: number
   total_cost_usd?: number
@@ -34,7 +34,7 @@ export type AdminRunDetail = {
   thread_id: string
   status: string
   model?: string
-  skill_id?: string
+  persona_id?: string
   provider_kind?: string
   credential_name?: string
   agent_config_name?: string
@@ -76,7 +76,7 @@ export type ListRunsParams = {
   user_id?: string
   parent_run_id?: string
   model?: string
-  skill_id?: string
+  persona_id?: string
   since?: string
   until?: string
   limit?: number
@@ -95,7 +95,7 @@ export async function listRuns(
   if (params.user_id) qs.set('user_id', params.user_id)
   if (params.parent_run_id) qs.set('parent_run_id', params.parent_run_id)
   if (params.model) qs.set('model', params.model)
-  if (params.skill_id) qs.set('skill_id', params.skill_id)
+  if (params.persona_id) qs.set('persona_id', params.persona_id)
   if (params.since) qs.set('since', params.since)
   if (params.until) qs.set('until', params.until)
   if (params.limit != null) qs.set('limit', String(params.limit))

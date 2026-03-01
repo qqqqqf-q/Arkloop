@@ -10,7 +10,7 @@ import (
 type MemoryIdentity struct {
 	OrgID   uuid.UUID // -> OpenViking account_id
 	UserID  uuid.UUID // -> OpenViking user_id
-	AgentID string    // -> OpenViking agent_id（默认取 SkillDefinition.ID，adapter 层 sanitize 到 [a-zA-Z0-9_-]）
+	AgentID string    // -> OpenViking agent_id（默认取 PersonaDefinition.ID，adapter 层 sanitize 到 [a-zA-Z0-9_-]）
 }
 
 // MemoryScope 控制检索/写入的命名空间。

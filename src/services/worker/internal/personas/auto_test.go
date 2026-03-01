@@ -1,11 +1,11 @@
-package skills
+package personas
 
 import "testing"
 
-func TestLoadAutoSkillExecutorConfig(t *testing.T) {
-root, err := BuiltinSkillsRoot()
+func TestLoadAutoPersonaExecutorConfig(t *testing.T) {
+root, err := BuiltinPersonasRoot()
 if err != nil {
-t.Fatalf("BuiltinSkillsRoot failed: %v", err)
+t.Fatalf("BuiltinPersonasRoot failed: %v", err)
 }
 registry, err := LoadRegistry(root)
 if err != nil {
@@ -13,7 +13,7 @@ t.Fatalf("LoadRegistry failed: %v", err)
 }
 def, ok := registry.Get("auto")
 if !ok {
-t.Fatalf("expected auto skill loaded")
+t.Fatalf("expected auto persona loaded")
 }
 if def.ExecutorType != "task.classify_route" {
 t.Fatalf("expected executor_type 'task.classify_route', got %q", def.ExecutorType)

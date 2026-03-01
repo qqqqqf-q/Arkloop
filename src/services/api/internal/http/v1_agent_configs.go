@@ -379,7 +379,7 @@ type agentConfigResponse struct {
 	ContentFilterLevel     string         `json:"content_filter_level"`
 	SafetyRulesJSON        map[string]any `json:"safety_rules_json"`
 	ProjectID              *string        `json:"project_id,omitempty"`
-	SkillID                *string        `json:"skill_id,omitempty"`
+	PersonaID                *string        `json:"persona_id,omitempty"`
 	IsDefault              bool           `json:"is_default"`
 	PromptCacheControl     string         `json:"prompt_cache_control"`
 	ReasoningMode          string         `json:"reasoning_mode"`
@@ -402,7 +402,7 @@ type createAgentConfigRequest struct {
 	ContentFilterLevel     string         `json:"content_filter_level"`
 	SafetyRulesJSON        map[string]any `json:"safety_rules_json"`
 	ProjectID              *string        `json:"project_id"`
-	SkillID                *string        `json:"skill_id"`
+	PersonaID                *string        `json:"persona_id"`
 	IsDefault              bool           `json:"is_default"`
 	PromptCacheControl     string         `json:"prompt_cache_control"`
 	ReasoningMode          string         `json:"reasoning_mode"`
@@ -885,12 +885,12 @@ func toCreateAgentConfigRequest(req createAgentConfigRequest) (data.CreateAgentC
 		}
 		createReq.ProjectID = &parsed
 	}
-	if req.SkillID != nil && *req.SkillID != "" {
-		parsed, err := uuid.Parse(*req.SkillID)
+	if req.PersonaID != nil && *req.PersonaID != "" {
+		parsed, err := uuid.Parse(*req.PersonaID)
 		if err != nil {
 			return data.CreateAgentConfigRequest{}, err
 		}
-		createReq.SkillID = &parsed
+		createReq.PersonaID = &parsed
 	}
 	return createReq, nil
 }
@@ -942,9 +942,9 @@ func toAgentConfigResponse(ac data.AgentConfig) agentConfigResponse {
 		s := ac.ProjectID.String()
 		resp.ProjectID = &s
 	}
-	if ac.SkillID != nil {
-		s := ac.SkillID.String()
-		resp.SkillID = &s
+	if ac.PersonaID != nil {
+		s := ac.PersonaID.String()
+		resp.PersonaID = &s
 	}
 	return resp
 }

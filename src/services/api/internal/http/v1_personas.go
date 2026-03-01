@@ -14,8 +14,8 @@ import (
 	"github.com/google/uuid"
 )
 
-type createSkillRequest struct {
-	SkillKey            string          `json:"skill_key"`
+type createPersonaRequest struct {
+	PersonaKey            string          `json:"persona_key"`
 	Version             string          `json:"version"`
 	DisplayName         string          `json:"display_name"`
 	Description         *string         `json:"description"`
@@ -27,7 +27,7 @@ type createSkillRequest struct {
 	ExecutorConfigJSON  json.RawMessage `json:"executor_config"`
 }
 
-type patchSkillRequest struct {
+type patchPersonaRequest struct {
 	DisplayName         *string         `json:"display_name"`
 	Description         *string         `json:"description"`
 	PromptMD            *string         `json:"prompt_md"`
@@ -39,10 +39,10 @@ type patchSkillRequest struct {
 	ExecutorConfigJSON  json.RawMessage `json:"executor_config"`
 }
 
-type skillResponse struct {
+type personaResponse struct {
 	ID                  string          `json:"id"`
 	OrgID               *string         `json:"org_id"`
-	SkillKey            string          `json:"skill_key"`
+	PersonaKey            string          `json:"persona_key"`
 	Version             string          `json:"version"`
 	DisplayName         string          `json:"display_name"`
 	Description         *string         `json:"description,omitempty"`
@@ -56,40 +56,40 @@ type skillResponse struct {
 	ExecutorConfigJSON  json.RawMessage `json:"executor_config"`
 }
 
-func skillsEntry(
+func personasEntry(
 	authService *auth.Service,
 	membershipRepo *data.OrgMembershipRepository,
-	skillsRepo *data.SkillsRepository,
+	personasRepo *data.PersonasRepository,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		traceID := observability.TraceIDFromContext(r.Context())
 		switch r.Method {
 		case nethttp.MethodPost:
-			createSkill(w, r, traceID, authService, membershipRepo, skillsRepo)
+			createPersona(w, r, traceID, authService, membershipRepo, personasRepo)
 		case nethttp.MethodGet:
-			listSkills(w, r, traceID, authService, membershipRepo, skillsRepo)
+			listPersonas(w, r, traceID, authService, membershipRepo, personasRepo)
 		default:
 			writeMethodNotAllowed(w, r)
 		}
 	}
 }
 
-func skillEntry(
+func personaEntry(
 	authService *auth.Service,
 	membershipRepo *data.OrgMembershipRepository,
-	skillsRepo *data.SkillsRepository,
+	personasRepo *data.PersonasRepository,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		traceID := observability.TraceIDFromContext(r.Context())
 
-		tail := strings.TrimPrefix(r.URL.Path, "/v1/skills/")
+		tail := strings.TrimPrefix(r.URL.Path, "/v1/personas/")
 		tail = strings.Trim(tail, "/")
 		if tail == "" {
 			writeNotFound(w, r)
 			return
 		}
 
-		skillID, err := uuid.Parse(tail)
+		personaID, err := uuid.Parse(tail)
 		if err != nil {
 			WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "request validation failed", traceID, nil)
 			return
@@ -97,26 +97,26 @@ func skillEntry(
 
 		switch r.Method {
 		case nethttp.MethodPatch:
-			patchSkill(w, r, traceID, skillID, authService, membershipRepo, skillsRepo)
+			patchPersona(w, r, traceID, personaID, authService, membershipRepo, personasRepo)
 		default:
 			writeMethodNotAllowed(w, r)
 		}
 	}
 }
 
-func createSkill(
+func createPersona(
 	w nethttp.ResponseWriter,
 	r *nethttp.Request,
 	traceID string,
 	authService *auth.Service,
 	membershipRepo *data.OrgMembershipRepository,
-	skillsRepo *data.SkillsRepository,
+	personasRepo *data.PersonasRepository,
 ) {
 	if authService == nil {
 		writeAuthNotConfigured(w, traceID)
 		return
 	}
-	if skillsRepo == nil {
+	if personasRepo == nil {
 		WriteError(w, nethttp.StatusServiceUnavailable, "database.not_configured", "database not configured", traceID, nil)
 		return
 	}
@@ -126,26 +126,26 @@ func createSkill(
 		return
 	}
 
-	var req createSkillRequest
+	var req createPersonaRequest
 	if err := decodeJSON(r, &req); err != nil {
 		WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "request validation failed", traceID, nil)
 		return
 	}
 
-	req.SkillKey = strings.TrimSpace(req.SkillKey)
+	req.PersonaKey = strings.TrimSpace(req.PersonaKey)
 	req.Version = strings.TrimSpace(req.Version)
 	req.DisplayName = strings.TrimSpace(req.DisplayName)
 	req.PromptMD = strings.TrimSpace(req.PromptMD)
 
-	if req.SkillKey == "" || req.Version == "" || req.DisplayName == "" || req.PromptMD == "" {
-		WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "skill_key, version, display_name, and prompt_md are required", traceID, nil)
+	if req.PersonaKey == "" || req.Version == "" || req.DisplayName == "" || req.PromptMD == "" {
+		WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "persona_key, version, display_name, and prompt_md are required", traceID, nil)
 		return
 	}
 
-	skill, err := skillsRepo.Create(
+	persona, err := personasRepo.Create(
 		r.Context(),
 		actor.OrgID,
-		req.SkillKey,
+		req.PersonaKey,
 		req.Version,
 		req.DisplayName,
 		req.Description,
@@ -157,31 +157,31 @@ func createSkill(
 		req.ExecutorConfigJSON,
 	)
 	if err != nil {
-		var conflict data.SkillConflictError
+		var conflict data.PersonaConflictError
 		if errors.As(err, &conflict) {
-			WriteError(w, nethttp.StatusConflict, "skills.conflict", "skill with this key and version already exists", traceID, nil)
+			WriteError(w, nethttp.StatusConflict, "personas.conflict", "persona with this key and version already exists", traceID, nil)
 			return
 		}
 		WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
 	}
 
-	writeJSON(w, traceID, nethttp.StatusCreated, toSkillResponse(skill))
+	writeJSON(w, traceID, nethttp.StatusCreated, toPersonaResponse(persona))
 }
 
-func listSkills(
+func listPersonas(
 	w nethttp.ResponseWriter,
 	r *nethttp.Request,
 	traceID string,
 	authService *auth.Service,
 	membershipRepo *data.OrgMembershipRepository,
-	skillsRepo *data.SkillsRepository,
+	personasRepo *data.PersonasRepository,
 ) {
 	if authService == nil {
 		writeAuthNotConfigured(w, traceID)
 		return
 	}
-	if skillsRepo == nil {
+	if personasRepo == nil {
 		WriteError(w, nethttp.StatusServiceUnavailable, "database.not_configured", "database not configured", traceID, nil)
 		return
 	}
@@ -191,34 +191,34 @@ func listSkills(
 		return
 	}
 
-	skills, err := skillsRepo.ListByOrg(r.Context(), actor.OrgID)
+	personas, err := personasRepo.ListByOrg(r.Context(), actor.OrgID)
 	if err != nil {
 		WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
 	}
 
-	resp := make([]skillResponse, 0, len(skills))
-	for _, s := range skills {
-		resp = append(resp, toSkillResponse(s))
+	resp := make([]personaResponse, 0, len(personas))
+	for _, s := range personas {
+		resp = append(resp, toPersonaResponse(s))
 	}
 
 	writeJSON(w, traceID, nethttp.StatusOK, resp)
 }
 
-func patchSkill(
+func patchPersona(
 	w nethttp.ResponseWriter,
 	r *nethttp.Request,
 	traceID string,
-	skillID uuid.UUID,
+	personaID uuid.UUID,
 	authService *auth.Service,
 	membershipRepo *data.OrgMembershipRepository,
-	skillsRepo *data.SkillsRepository,
+	personasRepo *data.PersonasRepository,
 ) {
 	if authService == nil {
 		writeAuthNotConfigured(w, traceID)
 		return
 	}
-	if skillsRepo == nil {
+	if personasRepo == nil {
 		WriteError(w, nethttp.StatusServiceUnavailable, "database.not_configured", "database not configured", traceID, nil)
 		return
 	}
@@ -228,23 +228,23 @@ func patchSkill(
 		return
 	}
 
-	existing, err := skillsRepo.GetByID(r.Context(), actor.OrgID, skillID)
+	existing, err := personasRepo.GetByID(r.Context(), actor.OrgID, personaID)
 	if err != nil {
 		WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
 	}
 	if existing == nil {
-		WriteError(w, nethttp.StatusNotFound, "skills.not_found", "skill not found", traceID, nil)
+		WriteError(w, nethttp.StatusNotFound, "personas.not_found", "persona not found", traceID, nil)
 		return
 	}
 
-	var req patchSkillRequest
+	var req patchPersonaRequest
 	if err := decodeJSON(r, &req); err != nil {
 		WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "request validation failed", traceID, nil)
 		return
 	}
 
-	patch := data.SkillPatch{
+	patch := data.PersonaPatch{
 		DisplayName:         req.DisplayName,
 		Description:         req.Description,
 		PromptMD:            req.PromptMD,
@@ -256,20 +256,20 @@ func patchSkill(
 		ExecutorConfigJSON:  req.ExecutorConfigJSON,
 	}
 
-	updated, err := skillsRepo.Patch(r.Context(), actor.OrgID, skillID, patch)
+	updated, err := personasRepo.Patch(r.Context(), actor.OrgID, personaID, patch)
 	if err != nil {
 		WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
 	}
 	if updated == nil {
-		WriteError(w, nethttp.StatusNotFound, "skills.not_found", "skill not found", traceID, nil)
+		WriteError(w, nethttp.StatusNotFound, "personas.not_found", "persona not found", traceID, nil)
 		return
 	}
 
-	writeJSON(w, traceID, nethttp.StatusOK, toSkillResponse(*updated))
+	writeJSON(w, traceID, nethttp.StatusOK, toPersonaResponse(*updated))
 }
 
-func toSkillResponse(s data.Skill) skillResponse {
+func toPersonaResponse(s data.Persona) personaResponse {
 	allowlist := s.ToolAllowlist
 	if allowlist == nil {
 		allowlist = []string{}
@@ -296,10 +296,10 @@ func toSkillResponse(s data.Skill) skillResponse {
 		orgIDStr = &str
 	}
 
-	return skillResponse{
+	return personaResponse{
 		ID:                  s.ID.String(),
 		OrgID:               orgIDStr,
-		SkillKey:            s.SkillKey,
+		PersonaKey:            s.PersonaKey,
 		Version:             s.Version,
 		DisplayName:         s.DisplayName,
 		Description:         s.Description,

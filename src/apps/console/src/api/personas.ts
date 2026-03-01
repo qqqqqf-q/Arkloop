@@ -1,9 +1,9 @@
 import { apiFetch } from './client'
 
-export type Skill = {
+export type Persona = {
   id: string
   org_id: string | null
-  skill_key: string
+  persona_key: string
   version: string
   display_name: string
   description?: string
@@ -17,8 +17,8 @@ export type Skill = {
   executor_config: Record<string, unknown>
 }
 
-export type CreateSkillRequest = {
-  skill_key: string
+export type CreatePersonaRequest = {
+  persona_key: string
   version: string
   display_name: string
   description?: string
@@ -31,7 +31,7 @@ export type CreateSkillRequest = {
   executor_config?: Record<string, unknown>
 }
 
-export type PatchSkillRequest = {
+export type PatchPersonaRequest = {
   display_name?: string
   description?: string
   prompt_md?: string
@@ -43,27 +43,27 @@ export type PatchSkillRequest = {
   executor_config?: Record<string, unknown>
 }
 
-export async function listSkills(accessToken: string): Promise<Skill[]> {
-  return apiFetch<Skill[]>('/v1/skills', { accessToken })
+export async function listPersonas(accessToken: string): Promise<Persona[]> {
+  return apiFetch<Persona[]>('/v1/personas', { accessToken })
 }
 
-export async function createSkill(
-  req: CreateSkillRequest,
+export async function createPersona(
+  req: CreatePersonaRequest,
   accessToken: string,
-): Promise<Skill> {
-  return apiFetch<Skill>('/v1/skills', {
+): Promise<Persona> {
+  return apiFetch<Persona>('/v1/personas', {
     method: 'POST',
     body: JSON.stringify(req),
     accessToken,
   })
 }
 
-export async function patchSkill(
+export async function patchPersona(
   id: string,
-  req: PatchSkillRequest,
+  req: PatchPersonaRequest,
   accessToken: string,
-): Promise<Skill> {
-  return apiFetch<Skill>(`/v1/skills/${id}`, {
+): Promise<Persona> {
+  return apiFetch<Persona>(`/v1/personas/${id}`, {
     method: 'PATCH',
     body: JSON.stringify(req),
     accessToken,

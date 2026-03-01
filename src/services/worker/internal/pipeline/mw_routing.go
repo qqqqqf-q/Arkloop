@@ -114,7 +114,7 @@ func NewRoutingMiddleware(
 
 		// 优先级链：
 		// 1. 用户显式 route_id → Decide() 直接处理
-		// 2. Skill.preferred_credential / AgentConfig.Model → 凭证名称查找
+		// 2. Persona.preferred_credential / AgentConfig.Model → 凭证名称查找
 		// 3. 兜底 → Decide() fallback
 		var decision routing.ProviderRouteDecision
 		if _, hasRouteID := rc.InputJSON["route_id"]; hasRouteID {

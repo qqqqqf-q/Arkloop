@@ -22,7 +22,7 @@ export default defineConfig({
           items: [
             { text: '本地启动', link: '/guide/' },
             { text: '部署', link: '/guide/deployment' },
-            { text: 'Skills & Tools', link: '/guide/skills-and-tools.zh-CN' },
+            { text: 'Personas & Tools', link: '/guide/personas-and-tools.zh-CN' },
           ],
         },
       ],

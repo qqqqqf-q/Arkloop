@@ -5,37 +5,37 @@ import (
 	"log/slog"
 
 	"arkloop/services/worker/internal/data"
-	"arkloop/services/worker/internal/skills"
+	"arkloop/services/worker/internal/personas"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 const defaultAgentMaxIterations = 10
 
-// NewSkillResolutionMiddleware 加载 org skills 并解析 skill_id，设置 RunContext 的 skill 相关字段。
-// skill 解析失败时写入 run.failed 并短路。
+// NewPersonaResolutionMiddleware 加载 org personas 并解析 persona_id，设置 RunContext 的 persona 相关字段。
+// persona 解析失败时写入 run.failed 并短路。
 // getBaseRegistry 每次 run 调用时获取最新 registry，支持热重载。
-func NewSkillResolutionMiddleware(
-	getBaseRegistry func() *skills.Registry,
+func NewPersonaResolutionMiddleware(
+	getBaseRegistry func() *personas.Registry,
 	dbPool *pgxpool.Pool,
 	runsRepo data.RunsRepository,
 	eventsRepo data.RunEventsRepository,
 	releaseSlot func(ctx context.Context, run data.Run),
 ) RunMiddleware {
 	return func(ctx context.Context, rc *RunContext, next RunHandler) error {
-		baseSkillRegistry := getBaseRegistry()
-		// per-run 动态加载 org skill
-		runSkillRegistry := baseSkillRegistry
+		basePersonaRegistry := getBaseRegistry()
+		// per-run 动态加载 org persona
+		runPersonaRegistry := basePersonaRegistry
 		if dbPool != nil {
-			dbDefs, dbErr := skills.LoadFromDB(ctx, dbPool, rc.Run.OrgID)
+			dbDefs, dbErr := personas.LoadFromDB(ctx, dbPool, rc.Run.OrgID)
 			if dbErr != nil {
-				slog.WarnContext(ctx, "skills: db load failed, using static registry", "err", dbErr.Error())
+				slog.WarnContext(ctx, "personas: db load failed, using static registry", "err", dbErr.Error())
 			} else if len(dbDefs) > 0 {
-				runSkillRegistry = skills.MergeRegistry(baseSkillRegistry, dbDefs)
+				runPersonaRegistry = personas.MergeRegistry(basePersonaRegistry, dbDefs)
 			}
 		}
 
-		resolution := skills.ResolveSkill(rc.InputJSON, runSkillRegistry)
+		resolution := personas.ResolvePersona(rc.InputJSON, runPersonaRegistry)
 		if resolution.Error != nil {
 			payload := map[string]any{
 				"error_class": resolution.Error.ErrorClass,
@@ -60,14 +60,14 @@ func NewSkillResolutionMiddleware(
 
 		rc.MaxIterations = defaultAgentMaxIterations
 		rc.ToolBudget = map[string]any{}
-		rc.SkillDefinition = resolution.Definition
+		rc.PersonaDefinition = resolution.Definition
 
-		// 若 skill 显式绑定了 AgentConfig，按名称覆盖继承链解析结果
+		// 若 persona 显式绑定了 AgentConfig，按名称覆盖继承链解析结果
 		if resolution.Definition != nil && resolution.Definition.AgentConfigName != nil && dbPool != nil {
 			ac, acName, err := loadAgentConfigByName(ctx, dbPool, *resolution.Definition.AgentConfigName, rc.Run.OrgID)
 			if err != nil {
-				slog.WarnContext(ctx, "skill: agent_config_name lookup failed",
-					"skill_id", resolution.Definition.ID,
+				slog.WarnContext(ctx, "persona: agent_config_name lookup failed",
+					"persona_id", resolution.Definition.ID,
 					"agent_config_name", *resolution.Definition.AgentConfigName,
 					"err", err.Error(),
 				)
@@ -80,9 +80,9 @@ func NewSkillResolutionMiddleware(
 
 		// -- 分层遮罩逻辑 --
 		// 1. AgentConfig 提供基线配置（模型、凭证、安全约束、SystemPrompt 前缀）
-		// 2. Skill 在 AgentConfig 约束内设置执行参数（prompt 追加、预算、温度）
-		// 3. 工具策略：AgentConfig 定义可用池，Skill 从池中选取（交集）
-		// 4. MaxOutputTokens：AgentConfig 设上界，Skill 可以设更小值但不能超过
+		// 2. Persona 在 AgentConfig 约束内设置执行参数（prompt 追加、预算、温度）
+		// 3. 工具策略：AgentConfig 定义可用池，Persona 从池中选取（交集）
+		// 4. MaxOutputTokens：AgentConfig 设上界，Persona 可以设更小值但不能超过
 
 		var agentConfigPromptPrefix string
 		var agentConfigMaxOutputTokens *int
@@ -118,11 +118,11 @@ func NewSkillResolutionMiddleware(
 			}
 		}
 
-		// Skill 在 AgentConfig 约束内设置执行参数
+		// Persona 在 AgentConfig 约束内设置执行参数
 		if resolution.Definition != nil {
 			def := resolution.Definition
 
-			// SystemPrompt：AgentConfig 前缀 + Skill prompt 追加
+			// SystemPrompt：AgentConfig 前缀 + Persona prompt 追加
 			if agentConfigPromptPrefix != "" && def.PromptMD != "" {
 				rc.SystemPrompt = agentConfigPromptPrefix + "\n\n" + def.PromptMD
 			} else if def.PromptMD != "" {
@@ -135,7 +135,7 @@ func NewSkillResolutionMiddleware(
 				rc.MaxIterations = *def.Budgets.MaxIterations
 			}
 
-			// MaxOutputTokens：取 Skill 值，但不超过 AgentConfig 上界
+			// MaxOutputTokens：取 Persona 值，但不超过 AgentConfig 上界
 			if def.Budgets.MaxOutputTokens != nil {
 				if agentConfigMaxOutputTokens != nil && *def.Budgets.MaxOutputTokens > *agentConfigMaxOutputTokens {
 					rc.MaxOutputTokens = agentConfigMaxOutputTokens
@@ -146,7 +146,7 @@ func NewSkillResolutionMiddleware(
 				rc.MaxOutputTokens = agentConfigMaxOutputTokens
 			}
 
-			// Temperature/TopP：Skill 设置优先（在合理范围内）
+			// Temperature/TopP：Persona 设置优先（在合理范围内）
 			if def.Budgets.Temperature != nil {
 				rc.Temperature = def.Budgets.Temperature
 			}
@@ -159,7 +159,7 @@ func NewSkillResolutionMiddleware(
 				rc.ToolBudget[key] = value
 			}
 
-			// Skill 的 tool_allowlist 从 AgentConfig 已缩窄的池中取交集
+			// Persona 的 tool_allowlist 从 AgentConfig 已缩窄的池中取交集
 			if len(def.ToolAllowlist) > 0 {
 				narrowed := make(map[string]struct{}, len(def.ToolAllowlist))
 				for _, name := range def.ToolAllowlist {
@@ -170,7 +170,7 @@ func NewSkillResolutionMiddleware(
 				rc.AllowlistSet = narrowed
 			}
 
-			// Skill 的 tool_denylist 从当前池中排除
+			// Persona 的 tool_denylist 从当前池中排除
 			for _, name := range def.ToolDenylist {
 				delete(rc.AllowlistSet, name)
 			}
@@ -181,7 +181,7 @@ func NewSkillResolutionMiddleware(
 
 			rc.TitleSummarizer = def.TitleSummarizer
 		} else {
-			// 无 skill 定义时，使用 AgentConfig 的值
+			// 无 persona 定义时，使用 AgentConfig 的值
 			rc.SystemPrompt = agentConfigPromptPrefix
 			rc.MaxOutputTokens = agentConfigMaxOutputTokens
 		}

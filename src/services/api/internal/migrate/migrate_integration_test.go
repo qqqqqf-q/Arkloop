@@ -140,7 +140,7 @@ func TestTablesExist(t *testing.T) {
 		"llm_credentials",
 		"llm_routes",
 		"mcp_configs",
-		"skills",
+		"personas",
 		"worker_registrations",
 		"ip_rules",
 		"api_keys",

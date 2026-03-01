@@ -479,12 +479,12 @@ export type CreateRunResponse = {
 export async function createRun(
   accessToken: string,
   threadId: string,
-  skillId?: string,
+  personaId?: string,
 ): Promise<CreateRunResponse> {
   return await apiFetch<CreateRunResponse>(`/v1/threads/${threadId}/runs`, {
     method: 'POST',
     accessToken,
-    body: skillId ? JSON.stringify({ skill_id: skillId }) : undefined,
+    body: personaId ? JSON.stringify({ persona_id: personaId }) : undefined,
   })
 }
 
