@@ -222,6 +222,24 @@ func RegisterTrackA(r *Registry) error {
 			Sensitive:   false,
 			Scope:       ScopePlatform,
 		},
+
+		{
+			Key:         "app.base_url",
+			Type:        TypeString,
+			Default:     "",
+			Description: "应用基础 URL，用于邮件中的链接等",
+			Sensitive:   false,
+			Scope:       ScopePlatform,
+			EnvKeys:     []string{"ARKLOOP_APP_BASE_URL"},
+		},
+		{
+			Key:         "title_summarizer.agent_config_id",
+			Type:        TypeString,
+			Default:     "",
+			Description: "标题摘要生成器使用的 Agent Config ID",
+			Sensitive:   false,
+			Scope:       ScopePlatform,
+		},
 	}
 
 	for _, e := range entries {

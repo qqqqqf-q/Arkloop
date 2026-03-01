@@ -7,8 +7,8 @@ import {
   Key, Webhook,
   ShieldCheck,
   Users, UsersRound, FolderOpen, UserPlus,
-  Package, Receipt, BadgeCheck, BarChart3,
-  Flag, Ticket, Gift, Coins, Megaphone, Mic, Mail, AlignLeft,
+  Package, Receipt, BarChart3,
+  Flag, Ticket, Gift, Coins, Megaphone, Mic, Mail,
   PanelLeftClose, PanelLeftOpen, ChevronDown,
   Settings, ScrollText,
 } from 'lucide-react'
@@ -70,7 +70,7 @@ function buildNavGroups(t: LocaleStrings): NavGroup[] {
         { label: t.nav.mcpConfigs,       path: '/mcp-configs',      icon: <Plug size={17} /> },
         { label: t.nav.personas,           path: '/personas',           icon: <Sparkles size={17} /> },
         { label: t.nav.asrCredentials,   path: '/asr-credentials',  icon: <Mic size={17} /> },
-        { label: t.nav.titleSummarizer,  path: '/title-summarizer', icon: <AlignLeft size={17} /> },
+        { label: t.nav.platformConfig,   path: '/platform-config',  icon: <Settings size={17} /> },
       ],
     },
     {
@@ -80,7 +80,6 @@ function buildNavGroups(t: LocaleStrings): NavGroup[] {
         { label: t.nav.usage,         path: '/usage',         icon: <BarChart3 size={17} /> },
         { label: t.nav.plans,         path: '/plans',         icon: <Package size={17} /> },
         { label: t.nav.subscriptions, path: '/subscriptions', icon: <Receipt size={17} /> },
-        { label: t.nav.entitlements,  path: '/entitlements',  icon: <BadgeCheck size={17} /> },
       ],
     },
     {
@@ -88,8 +87,6 @@ function buildNavGroups(t: LocaleStrings): NavGroup[] {
       label: t.groups.security,
       items: [
         { label: t.nav.ipRules,       path: '/ip-rules',       icon: <ShieldCheck size={17} /> },
-        { label: t.nav.captcha,       path: '/captcha',        icon: <Bot size={17} /> },
-        { label: t.nav.gatewayConfig, path: '/gateway-config', icon: <Settings size={17} /> },
         { label: t.nav.accessLog,    path: '/access-log',    icon: <ScrollText size={17} /> },
       ],
     },

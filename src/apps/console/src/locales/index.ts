@@ -48,6 +48,7 @@ export interface LocaleStrings {
     asrCredentials: string
     email: string
     titleSummarizer: string
+    platformConfig: string
     reports: string
   }
   // settings
@@ -919,6 +920,16 @@ export interface LocaleStrings {
       appUrlHint: string
       appUrlSaved: string
       appUrlSaveFailed: string
+    }
+    platformConfig: {
+      title: string
+      orgOverrideTitle: string
+      orgLoad: string
+      toastLoadFailed: string
+      toastSaved: string
+      toastSaveFailed: string
+      toastDeleted: string
+      toastDeleteFailed: string
     }
     runs: {
       title: string

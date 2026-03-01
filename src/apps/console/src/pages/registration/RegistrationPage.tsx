@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react'
 import { useOutletContext } from 'react-router-dom'
-import { Loader2, Save } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 import type { ConsoleOutletContext } from '../../layouts/ConsoleLayout'
 import { PageHeader } from '../../components/PageHeader'
 import { Badge } from '../../components/Badge'
@@ -12,21 +12,9 @@ import {
   createFeatureFlag,
   updateFeatureFlagDefault,
 } from '../../api/feature-flags'
-import {
-  getPlatformSetting,
-  setPlatformSetting,
-} from '../../api/platform-settings'
 
 const FLAG_KEY = 'registration.open'
 const EMAIL_VERIFY_FLAG_KEY = 'auth.require_email_verification'
-
-const DEFAULTS = {
-  'credit.initial_grant': '1000',
-  'credit.invite_reward': '500',
-  'credit.invitee_reward': '200',
-} as const
-
-type SettingKey = keyof typeof DEFAULTS
 
 export function RegistrationPage() {
   const { accessToken } = useOutletContext<ConsoleOutletContext>()
@@ -39,15 +27,6 @@ export function RegistrationPage() {
   const [openRegistration, setOpenRegistration] = useState<boolean | null>(null)
   const [emailVerifyRequired, setEmailVerifyRequired] = useState<boolean | null>(null)
   const [togglingEmailVerify, setTogglingEmailVerify] = useState(false)
-
-  // 平台设置
-  const [initialGrant, setInitialGrant] = useState('')
-  const [inviteReward, setInviteReward] = useState('')
-  const [inviteeReward, setInviteeReward] = useState('')
-  const [savedInitialGrant, setSavedInitialGrant] = useState('')
-  const [savedInviteReward, setSavedInviteReward] = useState('')
-  const [savedInviteeReward, setSavedInviteeReward] = useState('')
-  const [savingSettings, setSavingSettings] = useState(false)
 
   const loadMode = useCallback(async () => {
     setLoading(true)
@@ -63,28 +42,6 @@ export function RegistrationPage() {
         throw err
       })
       setEmailVerifyRequired(emailVerifyFlag?.default_value ?? false)
-
-      // 加载平台设置
-      const loadSetting = async (key: SettingKey) => {
-        try {
-          const s = await getPlatformSetting(key, accessToken)
-          return s.value
-        } catch (err) {
-          if (isApiError(err) && err.status === 404) return DEFAULTS[key]
-          throw err
-        }
-      }
-      const [grant, reward, inviteeRwd] = await Promise.all([
-        loadSetting('credit.initial_grant'),
-        loadSetting('credit.invite_reward'),
-        loadSetting('credit.invitee_reward'),
-      ])
-      setInitialGrant(grant)
-      setSavedInitialGrant(grant)
-      setInviteReward(reward)
-      setSavedInviteReward(reward)
-      setInviteeReward(inviteeRwd)
-      setSavedInviteeReward(inviteeRwd)
     } catch {
       addToast(tc.toastLoadFailed, 'error')
     } finally {
@@ -138,52 +95,6 @@ export function RegistrationPage() {
     }
   }, [emailVerifyRequired, accessToken, addToast, tc])
 
-  const settingsChanged = initialGrant !== savedInitialGrant || inviteReward !== savedInviteReward || inviteeReward !== savedInviteeReward
-
-  const handleSaveSettings = useCallback(async () => {
-    const grantNum = parseInt(initialGrant, 10)
-    const rewardNum = parseInt(inviteReward, 10)
-    const inviteeNum = parseInt(inviteeReward, 10)
-    if (isNaN(grantNum) || grantNum < 0) {
-      addToast(tc.settingsErrPositive, 'error')
-      return
-    }
-    if (isNaN(rewardNum) || rewardNum < 0) {
-      addToast(tc.settingsErrPositive, 'error')
-      return
-    }
-    if (isNaN(inviteeNum) || inviteeNum < 0) {
-      addToast(tc.settingsErrPositive, 'error')
-      return
-    }
-
-    setSavingSettings(true)
-    try {
-      const tasks: Promise<unknown>[] = []
-      if (initialGrant !== savedInitialGrant) {
-        tasks.push(setPlatformSetting('credit.initial_grant', String(grantNum), accessToken))
-      }
-      if (inviteReward !== savedInviteReward) {
-        tasks.push(setPlatformSetting('credit.invite_reward', String(rewardNum), accessToken))
-      }
-      if (inviteeReward !== savedInviteeReward) {
-        tasks.push(setPlatformSetting('credit.invitee_reward', String(inviteeNum), accessToken))
-      }
-      await Promise.all(tasks)
-      setSavedInitialGrant(String(grantNum))
-      setSavedInviteReward(String(rewardNum))
-      setSavedInviteeReward(String(inviteeNum))
-      setInitialGrant(String(grantNum))
-      setInviteReward(String(rewardNum))
-      setInviteeReward(String(inviteeNum))
-      addToast(tc.toastSettingsSaved, 'success')
-    } catch {
-      addToast(tc.toastSettingsFailed, 'error')
-    } finally {
-      setSavingSettings(false)
-    }
-  }, [initialGrant, inviteReward, inviteeReward, savedInitialGrant, savedInviteReward, savedInviteeReward, accessToken, addToast, tc])
-
   const isOpen = openRegistration ?? false
   const isEmailVerifyRequired = emailVerifyRequired ?? false
 
@@ -197,7 +108,7 @@ export function RegistrationPage() {
           </div>
         ) : (
           <div className="mx-auto max-w-xl space-y-6">
-            {/* 注册模式 */}
+            {/* Registration Mode */}
             <div className="rounded-lg border border-[var(--c-border-console)] bg-[var(--c-bg-card)] p-5">
               <div className="flex items-center justify-between">
                 <div className="space-y-1">
@@ -224,7 +135,7 @@ export function RegistrationPage() {
               </div>
             </div>
 
-            {/* 邀请码说明 */}
+            {/* Invite Code Info */}
             <div className="rounded-lg border border-[var(--c-border-console)] bg-[var(--c-bg-card)] p-5">
               <h3 className="text-sm font-medium text-[var(--c-text-primary)]">
                 {tc.inviteCodeTitle}
@@ -234,7 +145,7 @@ export function RegistrationPage() {
               </p>
             </div>
 
-            {/* 邮箱验证强制开关 */}
+            {/* Email Verification */}
             <div className="rounded-lg border border-[var(--c-border-console)] bg-[var(--c-bg-card)] p-5">
               <div className="flex items-center justify-between">
                 <div className="space-y-1">
@@ -257,59 +168,6 @@ export function RegistrationPage() {
                 >
                   {togglingEmailVerify && <Loader2 size={12} className="animate-spin" />}
                   {isEmailVerifyRequired ? tc.emailVerifyToggleOff : tc.emailVerifyToggleOn}
-                </button>
-              </div>
-            </div>
-
-            {/* 推荐奖励设置 */}
-            <div className="rounded-lg border border-[var(--c-border-console)] bg-[var(--c-bg-card)] p-5">
-              <h3 className="text-sm font-medium text-[var(--c-text-primary)]">
-                {tc.referralTitle}
-              </h3>
-              <div className="mt-4 space-y-4">
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-[var(--c-text-secondary)]">
-                    {tc.initialGrantLabel}
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={initialGrant}
-                    onChange={(e) => setInitialGrant(e.target.value)}
-                    className="w-full rounded-md border border-[var(--c-border-console)] bg-[var(--c-bg-input)] px-3 py-1.5 text-sm text-[var(--c-text-primary)] outline-none focus:border-[var(--c-border-focus)]"
-                  />
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-[var(--c-text-secondary)]">
-                    {tc.inviteRewardLabel}
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={inviteReward}
-                    onChange={(e) => setInviteReward(e.target.value)}
-                    className="w-full rounded-md border border-[var(--c-border-console)] bg-[var(--c-bg-input)] px-3 py-1.5 text-sm text-[var(--c-text-primary)] outline-none focus:border-[var(--c-border-focus)]"
-                  />
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-[var(--c-text-secondary)]">
-                    {tc.inviteeRewardLabel}
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={inviteeReward}
-                    onChange={(e) => setInviteeReward(e.target.value)}
-                    className="w-full rounded-md border border-[var(--c-border-console)] bg-[var(--c-bg-input)] px-3 py-1.5 text-sm text-[var(--c-text-primary)] outline-none focus:border-[var(--c-border-focus)]"
-                  />
-                </div>
-                <button
-                  onClick={handleSaveSettings}
-                  disabled={savingSettings || !settingsChanged}
-                  className="inline-flex items-center gap-1.5 rounded-md border border-[var(--c-border-console)] px-3 py-1.5 text-xs font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-sub)] disabled:opacity-50"
-                >
-                  {savingSettings ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
-                  {tc.saveSettings}
                 </button>
               </div>
             </div>
