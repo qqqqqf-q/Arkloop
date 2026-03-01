@@ -87,6 +87,11 @@ func resolveActor(
 		return resolveActorFromAPIKey(w, r, traceID, token, membershipRepo, apiKeysRepo, auditWriter)
 	}
 
+	if authService == nil {
+		writeAuthNotConfigured(w, traceID)
+		return nil, false
+	}
+
 	return authenticateActor(w, r, traceID, authService, membershipRepo)
 }
 
