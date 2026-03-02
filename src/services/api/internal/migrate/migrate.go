@@ -80,6 +80,32 @@ func DownOne(ctx context.Context, dsn string) (*goose.MigrationResult, error) {
 	return result, nil
 }
 
+func DownAll(ctx context.Context, dsn string) (int, error) {
+	db, err := openDB(dsn)
+	if err != nil {
+		return 0, err
+	}
+	defer db.Close()
+
+	provider, err := newProvider(db)
+	if err != nil {
+		return 0, err
+	}
+
+	count := 0
+	for {
+		result, err := provider.Down(ctx)
+		if err != nil {
+			return count, fmt.Errorf("migrate: down all at step %d: %w", count+1, err)
+		}
+		if result == nil {
+			break
+		}
+		count++
+	}
+	return count, nil
+}
+
 func CurrentVersion(ctx context.Context, dsn string) (int64, error) {
 	db, err := openDB(dsn)
 	if err != nil {

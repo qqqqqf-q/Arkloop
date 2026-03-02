@@ -111,6 +111,54 @@ func TestCheckVersionMismatch(t *testing.T) {
 	}
 }
 
+func TestFullRoundTrip(t *testing.T) {
+	db := testutil.SetupPostgresDatabase(t, "migrate_roundtrip")
+	ctx := context.Background()
+
+	// apply all
+	upResults, err := Up(ctx, db.DSN)
+	if err != nil {
+		t.Fatalf("first up: %v", err)
+	}
+	if len(upResults) == 0 {
+		t.Fatal("expected migrations on first up")
+	}
+
+	// rollback all
+	downCount, err := DownAll(ctx, db.DSN)
+	if err != nil {
+		t.Fatalf("down all: %v", err)
+	}
+	if downCount != len(upResults) {
+		t.Fatalf("down count %d != up count %d", downCount, len(upResults))
+	}
+
+	version, err := CurrentVersion(ctx, db.DSN)
+	if err != nil {
+		t.Fatalf("version after down all: %v", err)
+	}
+	if version != 0 {
+		t.Fatalf("expected version 0 after down all, got %d", version)
+	}
+
+	// reapply all
+	reapplyResults, err := Up(ctx, db.DSN)
+	if err != nil {
+		t.Fatalf("reapply up: %v", err)
+	}
+	if len(reapplyResults) != len(upResults) {
+		t.Fatalf("reapply count %d != first up count %d", len(reapplyResults), len(upResults))
+	}
+
+	_, _, match, err := CheckVersion(ctx, db.DSN)
+	if err != nil {
+		t.Fatalf("check version after reapply: %v", err)
+	}
+	if !match {
+		t.Fatal("version mismatch after reapply")
+	}
+}
+
 func TestTablesExist(t *testing.T) {
 	db := testutil.SetupPostgresDatabase(t, "migrate_tables")
 	ctx := context.Background()

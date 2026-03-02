@@ -1,0 +1,143 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go-check:
+    name: Go (${{ matrix.module }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module: [api, gateway, worker, sandbox, shared]
+    defaults:
+      run:
+        working-directory: src/services/${{ matrix.module }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.work
+          cache-dependency-path: src/services/${{ matrix.module }}/go.sum
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: staticcheck
+        run: |
+          go install honnef.co/go/tools/cmd/staticcheck@latest
+          staticcheck ./...
+
+      - name: go build
+        run: go build ./...
+
+      - name: go test
+        run: go test -race -coverprofile=coverage.out ./...
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-go-${{ matrix.module }}
+          path: src/services/${{ matrix.module }}/coverage.out
+          retention-days: 7
+
+  go-integration:
+    name: Go Integration
+    runs-on: ubuntu-latest
+    needs: [go-check]
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: arkloop
+          POSTGRES_PASSWORD: ci_test_password
+          POSTGRES_DB: arkloop
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://arkloop:ci_test_password@localhost:5432/arkloop
+      ARKLOOP_DATABASE_URL: postgresql://arkloop:ci_test_password@localhost:5432/arkloop
+      ARKLOOP_AUTH_JWT_SECRET: ci_test_jwt_secret_at_least_32_chars_long
+      ARKLOOP_PROVIDER_ROUTING_JSON: '{"default_route_id":"default","credentials":[{"id":"stub_default","scope":"platform","provider_kind":"stub"}],"routes":[{"id":"default","model":"stub","credential_id":"stub_default"}]}'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.work
+
+      - name: Run integration tests
+        run: |
+          modules=(api gateway worker sandbox shared)
+          failed=0
+          for module in "${modules[@]}"; do
+            echo "::group::src/services/$module"
+            cd src/services/$module
+            if ! go test -v -count=1 -race ./...; then
+              failed=1
+            fi
+            cd "$GITHUB_WORKSPACE"
+            echo "::endgroup::"
+          done
+          exit $failed
+
+  typescript:
+    name: TypeScript
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint (web)
+        run: pnpm --filter web lint
+
+      - name: Lint (console)
+        run: pnpm --filter console lint
+
+      - name: Type check (web)
+        run: pnpm --filter web type-check
+
+      - name: Type check (console)
+        run: pnpm --filter console type-check
+
+      - name: Test (web)
+        run: pnpm --filter web test
+
+      - name: Test (console)
+        run: pnpm --filter console test
+
+      - name: Install browser dependencies
+        working-directory: src/services/browser
+        run: pnpm install --frozen-lockfile
+
+      - name: Type check (browser)
+        working-directory: src/services/browser
+        run: pnpm type-check
+
+      - name: Test (browser)
+        working-directory: src/services/browser
+        run: pnpm test
