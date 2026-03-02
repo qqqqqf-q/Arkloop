@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"arkloop/services/worker/internal/events"
@@ -65,6 +66,7 @@ type DispatchingExecutor struct {
 	registry       *Registry
 	policyEnforcer *PolicyEnforcer
 	executors      map[string]Executor
+	llmNameIndex   map[string]string
 }
 
 func NewDispatchingExecutor(registry *Registry, policyEnforcer *PolicyEnforcer) *DispatchingExecutor {
@@ -72,14 +74,27 @@ func NewDispatchingExecutor(registry *Registry, policyEnforcer *PolicyEnforcer) 
 		registry:       registry,
 		policyEnforcer: policyEnforcer,
 		executors:      map[string]Executor{},
+		llmNameIndex:   map[string]string{},
 	}
 }
 
 func (e *DispatchingExecutor) Bind(toolName string, executor Executor) error {
-	if _, ok := e.registry.Get(toolName); !ok {
+	spec, ok := e.registry.Get(toolName)
+	if !ok {
 		return fmt.Errorf("tool not registered: %s", toolName)
 	}
 	e.executors[toolName] = executor
+
+	llmName := strings.TrimSpace(spec.LlmName)
+	if llmName == "" {
+		llmName = spec.Name
+	}
+	if llmName != "" {
+		if existing, exists := e.llmNameIndex[llmName]; exists && existing != toolName {
+			return fmt.Errorf("tool llm name conflict: %s mapped to %s and %s", llmName, existing, toolName)
+		}
+		e.llmNameIndex[llmName] = toolName
+	}
 	return nil
 }
 
@@ -92,7 +107,9 @@ func (e *DispatchingExecutor) Execute(
 ) ExecutionResult {
 	started := time.Now()
 
-	decision := e.policyEnforcer.RequestToolCall(context.Emitter, toolName, args, toolCallID)
+	resolvedName := e.resolveToolName(toolName)
+
+	decision := e.policyEnforcer.RequestToolCall(context.Emitter, resolvedName, args, toolCallID)
 	policyEvents := append([]events.RunEvent{}, decision.Events...)
 
 	if !decision.Allowed {
@@ -108,7 +125,7 @@ func (e *DispatchingExecutor) Execute(
 				ErrorClass: PolicyDeniedCode,
 				Message:    "tool call denied by policy",
 				Details: map[string]any{
-					"tool_name":    toolName,
+					"tool_name":    resolvedName,
 					"tool_call_id": decision.ToolCallID,
 					"deny_reason":  denyReason,
 				},
@@ -118,14 +135,14 @@ func (e *DispatchingExecutor) Execute(
 		}
 	}
 
-	executor := e.executors[toolName]
+	executor := e.executors[resolvedName]
 	if executor == nil {
 		return ExecutionResult{
 			Error: &ExecutionError{
 				ErrorClass: ErrorClassToolNotRegistered,
 				Message:    "tool executor not bound",
 				Details: map[string]any{
-					"tool_name":    toolName,
+					"tool_name":    resolvedName,
 					"tool_call_id": decision.ToolCallID,
 				},
 			},
@@ -143,7 +160,7 @@ func (e *DispatchingExecutor) Execute(
 						ErrorClass: ErrorClassToolExecutionFailed,
 						Message:    "tool execution failed",
 						Details: map[string]any{
-							"tool_name":    toolName,
+							"tool_name":    resolvedName,
 							"tool_call_id": decision.ToolCallID,
 							"panic":        recovered,
 						},
@@ -151,12 +168,26 @@ func (e *DispatchingExecutor) Execute(
 				}
 			}
 		}()
-		result = executor.Execute(ctx, toolName, args, context, decision.ToolCallID)
+		result = executor.Execute(ctx, resolvedName, args, context, decision.ToolCallID)
 	}()
 
 	result.DurationMs = durationMs(started)
 	result.Events = append(policyEvents, result.Events...)
 	return result
+}
+
+func (e *DispatchingExecutor) resolveToolName(toolName string) string {
+	cleaned := strings.TrimSpace(toolName)
+	if cleaned == "" {
+		return toolName
+	}
+	if e.executors[cleaned] != nil {
+		return cleaned
+	}
+	if mapped, ok := e.llmNameIndex[cleaned]; ok && strings.TrimSpace(mapped) != "" {
+		return mapped
+	}
+	return cleaned
 }
 
 func durationMs(started time.Time) int {

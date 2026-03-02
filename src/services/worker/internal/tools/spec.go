@@ -2,6 +2,7 @@ package tools
 
 import (
 	"fmt"
+	"strings"
 
 	"arkloop/services/worker/internal/llm"
 )
@@ -16,6 +17,7 @@ const (
 
 type AgentToolSpec struct {
 	Name           string
+	LlmName        string
 	Version        string
 	Description    string
 	RiskLevel      RiskLevel
@@ -25,11 +27,14 @@ type AgentToolSpec struct {
 
 func (s AgentToolSpec) ToToolCallJSON() map[string]any {
 	payload := map[string]any{
-		"tool_name":      s.Name,
-		"tool_version":   s.Version,
-		"risk_level":     string(s.RiskLevel),
+		"tool_name":       s.Name,
+		"tool_version":    s.Version,
+		"risk_level":      string(s.RiskLevel),
 		"required_scopes": append([]string{}, s.RequiredScopes...),
-		"side_effects":   s.SideEffects,
+		"side_effects":    s.SideEffects,
+	}
+	if s.LlmName != "" {
+		payload["llm_name"] = s.LlmName
 	}
 	return payload
 }
@@ -37,6 +42,9 @@ func (s AgentToolSpec) ToToolCallJSON() map[string]any {
 func (s AgentToolSpec) Validate() error {
 	if s.Name == "" {
 		return fmt.Errorf("tool name must not be empty")
+	}
+	if s.LlmName != "" && strings.TrimSpace(s.LlmName) == "" {
+		return fmt.Errorf("tool llm_name must not be empty when set")
 	}
 	if s.Version == "" {
 		return fmt.Errorf("tool version must not be empty")

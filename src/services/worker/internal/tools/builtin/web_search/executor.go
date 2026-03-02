@@ -35,6 +35,24 @@ var AgentSpec = tools.AgentToolSpec{
 	SideEffects: false,
 }
 
+var AgentSpecSearxng = tools.AgentToolSpec{
+	Name:        "web_search.searxng",
+	LlmName:     "web_search",
+	Version:     "1",
+	Description: "search the internet and return summary results",
+	RiskLevel:   tools.RiskLevelLow,
+	SideEffects: false,
+}
+
+var AgentSpecTavily = tools.AgentToolSpec{
+	Name:        "web_search.tavily",
+	LlmName:     "web_search",
+	Version:     "1",
+	Description: "search the internet and return summary results",
+	RiskLevel:   tools.RiskLevelLow,
+	SideEffects: false,
+}
+
 var LlmSpec = llm.ToolSpec{
 	Name:        "web_search",
 	Description: stringPtr(fmt.Sprintf("search the internet and return title/link/summary. Always set max_results (default %d). Use queries for multi-search in one call.", defaultMaxResults)),
@@ -69,13 +87,26 @@ var LlmSpec = llm.ToolSpec{
 }
 
 type ToolExecutor struct {
-	provider Provider
-	resolver sharedconfig.Resolver
-	timeout  time.Duration
+	provider   Provider
+	resolver   sharedconfig.Resolver
+	timeout    time.Duration
+	forcedKind ProviderKind
 }
 
 func NewToolExecutor(resolver sharedconfig.Resolver) *ToolExecutor {
 	return &ToolExecutor{resolver: resolver, timeout: defaultTimeout}
+}
+
+func NewSearxngExecutor(resolver sharedconfig.Resolver) *ToolExecutor {
+	return &ToolExecutor{resolver: resolver, timeout: defaultTimeout, forcedKind: ProviderKindSearxng}
+}
+
+func NewTavilyExecutor(resolver sharedconfig.Resolver) *ToolExecutor {
+	return &ToolExecutor{resolver: resolver, timeout: defaultTimeout, forcedKind: ProviderKindTavily}
+}
+
+func NewToolExecutorWithProvider(provider Provider) *ToolExecutor {
+	return &ToolExecutor{provider: provider, timeout: defaultTimeout}
 }
 
 func (e *ToolExecutor) Execute(
@@ -151,7 +182,7 @@ func (e *ToolExecutor) loadProvider(ctx context.Context, execCtx tools.Execution
 		return nil, err
 	}
 
-	cfg, ok, err := configFromSettings(m)
+	cfg, ok, err := configFromSettings(m, e.forcedKind)
 	if err != nil {
 		return nil, err
 	}
@@ -180,14 +211,18 @@ func buildProvider(cfg *Config) (Provider, error) {
 	}
 }
 
-func configFromSettings(m map[string]string) (*Config, bool, error) {
-	raw := strings.TrimSpace(m[settingProvider])
-	if raw == "" {
-		return nil, false, nil
-	}
-	kind, err := parseProviderKind(raw)
-	if err != nil {
-		return nil, false, err
+func configFromSettings(m map[string]string, forcedKind ProviderKind) (*Config, bool, error) {
+	kind := forcedKind
+	if kind == "" {
+		raw := strings.TrimSpace(m[settingProvider])
+		if raw == "" {
+			return nil, false, nil
+		}
+		parsed, err := parseProviderKind(raw)
+		if err != nil {
+			return nil, false, err
+		}
+		kind = parsed
 	}
 
 	cfg := &Config{

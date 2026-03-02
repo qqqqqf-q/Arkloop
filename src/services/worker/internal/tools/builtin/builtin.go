@@ -19,7 +19,12 @@ func AgentSpecs() []tools.AgentToolSpec {
 		NoopAgentSpec,
 		SearchPlanningTitleAgentSpec,
 		websearch.AgentSpec,
+		websearch.AgentSpecTavily,
+		websearch.AgentSpecSearxng,
 		webfetch.AgentSpec,
+		webfetch.AgentSpecJina,
+		webfetch.AgentSpecFirecrawl,
+		webfetch.AgentSpecBasic,
 		spawnagent.AgentSpec,
 		summarizethread.AgentSpec,
 	}
@@ -41,11 +46,16 @@ func LlmSpecs() []llm.ToolSpec {
 // rdb 可选；非 nil 时用于跨实例通知推送。
 func Executors(pool *pgxpool.Pool, rdb *redis.Client, resolver sharedconfig.Resolver) map[string]tools.Executor {
 	return map[string]tools.Executor{
-		EchoAgentSpec.Name:             EchoExecutor{},
-		NoopAgentSpec.Name:             NoopExecutor{},
+		EchoAgentSpec.Name:               EchoExecutor{},
+		NoopAgentSpec.Name:               NoopExecutor{},
 		SearchPlanningTitleAgentSpec.Name: SearchPlanningTitleExecutor{},
-		websearch.AgentSpec.Name:       websearch.NewToolExecutor(resolver),
-		webfetch.AgentSpec.Name:        webfetch.NewToolExecutor(resolver),
-		summarizethread.AgentSpec.Name: &summarizethread.ToolExecutor{Pool: pool, RDB: rdb},
+		websearch.AgentSpec.Name:         websearch.NewToolExecutor(resolver),
+		websearch.AgentSpecTavily.Name:   websearch.NewTavilyExecutor(resolver),
+		websearch.AgentSpecSearxng.Name:  websearch.NewSearxngExecutor(resolver),
+		webfetch.AgentSpec.Name:          webfetch.NewToolExecutor(resolver),
+		webfetch.AgentSpecJina.Name:      webfetch.NewJinaExecutor(resolver),
+		webfetch.AgentSpecFirecrawl.Name: webfetch.NewFirecrawlExecutor(resolver),
+		webfetch.AgentSpecBasic.Name:     webfetch.NewBasicExecutor(resolver),
+		summarizethread.AgentSpec.Name:   &summarizethread.ToolExecutor{Pool: pool, RDB: rdb},
 	}
 }

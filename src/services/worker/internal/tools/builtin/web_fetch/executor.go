@@ -32,6 +32,33 @@ var AgentSpec = tools.AgentToolSpec{
 	SideEffects: false,
 }
 
+var AgentSpecJina = tools.AgentToolSpec{
+	Name:        "web_fetch.jina",
+	LlmName:     "web_fetch",
+	Version:     "1",
+	Description: "fetch web page content and extract body text",
+	RiskLevel:   tools.RiskLevelMedium,
+	SideEffects: false,
+}
+
+var AgentSpecFirecrawl = tools.AgentToolSpec{
+	Name:        "web_fetch.firecrawl",
+	LlmName:     "web_fetch",
+	Version:     "1",
+	Description: "fetch web page content and extract body text",
+	RiskLevel:   tools.RiskLevelMedium,
+	SideEffects: false,
+}
+
+var AgentSpecBasic = tools.AgentToolSpec{
+	Name:        "web_fetch.basic",
+	LlmName:     "web_fetch",
+	Version:     "1",
+	Description: "fetch web page content and extract body text",
+	RiskLevel:   tools.RiskLevelMedium,
+	SideEffects: false,
+}
+
 var LlmSpec = llm.ToolSpec{
 	Name:        "web_fetch",
 	Description: stringPtr("fetch web page content, return title/content (plain text)"),
@@ -47,14 +74,46 @@ var LlmSpec = llm.ToolSpec{
 }
 
 type ToolExecutor struct {
-	provider Provider
-	resolver sharedconfig.Resolver
-	timeout  time.Duration
+	provider   Provider
+	resolver   sharedconfig.Resolver
+	timeout    time.Duration
+	forcedKind ProviderKind
 }
 
 func NewToolExecutor(resolver sharedconfig.Resolver) *ToolExecutor {
 	return &ToolExecutor{
 		resolver: resolver,
+		timeout:  defaultTimeout,
+	}
+}
+
+func NewBasicExecutor(resolver sharedconfig.Resolver) *ToolExecutor {
+	return &ToolExecutor{
+		resolver:   resolver,
+		timeout:    defaultTimeout,
+		forcedKind: ProviderKindBasic,
+	}
+}
+
+func NewFirecrawlExecutor(resolver sharedconfig.Resolver) *ToolExecutor {
+	return &ToolExecutor{
+		resolver:   resolver,
+		timeout:    defaultTimeout,
+		forcedKind: ProviderKindFirecrawl,
+	}
+}
+
+func NewJinaExecutor(resolver sharedconfig.Resolver) *ToolExecutor {
+	return &ToolExecutor{
+		resolver:   resolver,
+		timeout:    defaultTimeout,
+		forcedKind: ProviderKindJina,
+	}
+}
+
+func NewToolExecutorWithProvider(provider Provider) *ToolExecutor {
+	return &ToolExecutor{
+		provider: provider,
 		timeout:  defaultTimeout,
 	}
 }
@@ -91,6 +150,15 @@ func (e *ToolExecutor) Execute(
 			}
 		}
 		if built == nil {
+			if e.forcedKind != "" && e.forcedKind != ProviderKindBasic {
+				return tools.ExecutionResult{
+					Error: &tools.ExecutionError{
+						ErrorClass: errorNotConfigured,
+						Message:    "web_fetch backend not configured",
+					},
+					DurationMs: durationMs(started),
+				}
+			}
 			provider = NewBasicProvider()
 		} else {
 			provider = built
@@ -186,7 +254,7 @@ func (e *ToolExecutor) loadProvider(ctx context.Context, execCtx tools.Execution
 		return nil, err
 	}
 
-	cfg, ok, err := configFromSettings(m)
+	cfg, ok, err := configFromSettings(m, e.forcedKind)
 	if err != nil {
 		return nil, err
 	}
@@ -209,15 +277,19 @@ func buildProvider(cfg *Config) (Provider, error) {
 	}
 }
 
-func configFromSettings(m map[string]string) (*Config, bool, error) {
-	raw := strings.TrimSpace(m[settingProvider])
-	if raw == "" {
-		return nil, false, nil
-	}
+func configFromSettings(m map[string]string, forcedKind ProviderKind) (*Config, bool, error) {
+	kind := forcedKind
+	if kind == "" {
+		raw := strings.TrimSpace(m[settingProvider])
+		if raw == "" {
+			return nil, false, nil
+		}
 
-	kind, err := parseProviderKind(raw)
-	if err != nil {
-		return nil, false, err
+		parsed, err := parseProviderKind(raw)
+		if err != nil {
+			return nil, false, err
+		}
+		kind = parsed
 	}
 
 	cfg := &Config{

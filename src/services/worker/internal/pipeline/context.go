@@ -7,8 +7,8 @@ import (
 	"arkloop/services/worker/internal/events"
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/memory"
-	"arkloop/services/worker/internal/routing"
 	"arkloop/services/worker/internal/personas"
+	"arkloop/services/worker/internal/routing"
 	"arkloop/services/worker/internal/tools"
 
 	"github.com/google/uuid"
@@ -66,7 +66,7 @@ type RunContext struct {
 
 	// -- PersonaResolutionMiddleware 写入 --
 	SystemPrompt            string
-	PersonaDefinition         *personas.Definition
+	PersonaDefinition       *personas.Definition
 	MaxOutputTokens         *int
 	Temperature             *float64
 	TopP                    *float64
@@ -80,6 +80,8 @@ type RunContext struct {
 	ToolExecutors map[string]tools.Executor
 	AllowlistSet  map[string]struct{}
 	ToolRegistry  *tools.Registry
+	// group_name -> provider_name
+	ActiveToolProviderByGroup map[string]string
 
 	// -- RoutingMiddleware 写入 --
 	Gateway       llm.Gateway

@@ -109,7 +109,7 @@ func NewPersonaResolutionMiddleware(
 				if len(rc.AgentConfig.ToolAllowlist) > 0 {
 					narrowed := make(map[string]struct{}, len(rc.AgentConfig.ToolAllowlist))
 					for _, name := range rc.AgentConfig.ToolAllowlist {
-						if _, ok := rc.AllowlistSet[name]; ok {
+						if ToolAllowed(rc.AllowlistSet, rc.ToolRegistry, name) {
 							narrowed[name] = struct{}{}
 						}
 					}
@@ -117,7 +117,7 @@ func NewPersonaResolutionMiddleware(
 				}
 			case "denylist":
 				for _, name := range rc.AgentConfig.ToolDenylist {
-					delete(rc.AllowlistSet, name)
+					RemoveToolOrGroup(rc.AllowlistSet, rc.ToolRegistry, name)
 				}
 			}
 		}
@@ -169,7 +169,7 @@ func NewPersonaResolutionMiddleware(
 			if len(def.ToolAllowlist) > 0 {
 				narrowed := make(map[string]struct{}, len(def.ToolAllowlist))
 				for _, name := range def.ToolAllowlist {
-					if _, ok := rc.AllowlistSet[name]; ok {
+					if ToolAllowed(rc.AllowlistSet, rc.ToolRegistry, name) {
 						narrowed[name] = struct{}{}
 					}
 				}
@@ -178,7 +178,7 @@ func NewPersonaResolutionMiddleware(
 
 			// Persona 的 tool_denylist 从当前池中排除
 			for _, name := range def.ToolDenylist {
-				delete(rc.AllowlistSet, name)
+				RemoveToolOrGroup(rc.AllowlistSet, rc.ToolRegistry, name)
 			}
 
 			if def.PreferredCredential != nil {
