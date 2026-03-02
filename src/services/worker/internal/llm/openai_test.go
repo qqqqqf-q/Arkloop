@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -558,6 +559,92 @@ func TestOpenAIGateway_Stream_ChatCompletions_SSE_ToolCalls(t *testing.T) {
 		t.Fatalf("unexpected tool call: %#v", gotCall)
 	}
 
+	if _, ok := events[len(events)-1].(StreamRunCompleted); !ok {
+		t.Fatalf("expected StreamRunCompleted as last event, got %T", events[len(events)-1])
+	}
+}
+
+func TestOpenAIGateway_StreamChatCompletionsSSE_EOFWithoutDone_FinishReasonStop_Completes(t *testing.T) {
+	chunk1, _ := json.Marshal(map[string]any{
+		"choices": []any{
+			map[string]any{
+				"delta": map[string]any{
+					"role":    "assistant",
+					"content": "hello",
+				},
+				"finish_reason": "stop",
+			},
+		},
+	})
+	reader := strings.NewReader("data: " + string(chunk1) + "\n\n")
+
+	gateway := &OpenAIGateway{cfg: OpenAIGatewayConfig{}}
+	var events []StreamEvent
+	err := gateway.streamChatCompletionsSSE(context.Background(), reader, "test", 200, func(ev StreamEvent) error {
+		events = append(events, ev)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("expected nil error from gateway, got: %v", err)
+	}
+	if len(events) == 0 {
+		t.Fatal("expected events, got none")
+	}
+	if _, ok := events[len(events)-1].(StreamRunCompleted); !ok {
+		t.Fatalf("expected StreamRunCompleted as last event, got %T", events[len(events)-1])
+	}
+}
+
+func TestOpenAIGateway_StreamChatCompletionsSSE_EOFWithoutDone_ToolCalls_Completes(t *testing.T) {
+	chunk1, _ := json.Marshal(map[string]any{
+		"choices": []any{
+			map[string]any{
+				"delta": map[string]any{
+					"tool_calls": []any{
+						map[string]any{
+							"index": 0,
+							"id":    "call_1",
+							"type":  "function",
+							"function": map[string]any{
+								"name":      "web_search",
+								"arguments": `{"query":"hello"}`,
+							},
+						},
+					},
+				},
+			},
+		},
+	})
+	reader := strings.NewReader("data: " + string(chunk1) + "\n\n")
+
+	gateway := &OpenAIGateway{cfg: OpenAIGatewayConfig{}}
+	var events []StreamEvent
+	err := gateway.streamChatCompletionsSSE(context.Background(), reader, "test", 200, func(ev StreamEvent) error {
+		events = append(events, ev)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("expected nil error from gateway, got: %v", err)
+	}
+	if len(events) == 0 {
+		t.Fatal("expected events, got none")
+	}
+	var gotCall *ToolCall
+	for _, item := range events {
+		call, ok := item.(ToolCall)
+		if !ok {
+			continue
+		}
+		copied := call
+		gotCall = &copied
+		break
+	}
+	if gotCall == nil {
+		t.Fatalf("expected ToolCall event, got %d events: %v", len(events), streamEventTypes(events))
+	}
+	if gotCall.ToolCallID != "call_1" || gotCall.ToolName != "web_search" || gotCall.ArgumentsJSON["query"] != "hello" {
+		t.Fatalf("unexpected tool call: %#v", gotCall)
+	}
 	if _, ok := events[len(events)-1].(StreamRunCompleted); !ok {
 		t.Fatalf("expected StreamRunCompleted as last event, got %T", events[len(events)-1])
 	}

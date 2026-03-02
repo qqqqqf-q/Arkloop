@@ -595,6 +595,7 @@ func (g *OpenAIGateway) streamChatCompletionsSSE(
 	var handlerFailed bool
 	var streamedUsage *Usage
 	var inThink bool
+	emittedAnyOutput := false
 
 	err := forEachSSEData(ctx, body, func(data string) (retErr error) {
 		defer func() {
@@ -660,6 +661,7 @@ func (g *OpenAIGateway) streamChatCompletionsSSE(
 		}
 		if choice.Delta.ReasoningContent != nil && *choice.Delta.ReasoningContent != "" {
 			thinkingChannel := "thinking"
+			emittedAnyOutput = true
 			if err := yield(StreamMessageDelta{ContentDelta: *choice.Delta.ReasoningContent, Role: role, Channel: &thinkingChannel}); err != nil {
 				return err
 			}
@@ -668,11 +670,13 @@ func (g *OpenAIGateway) streamChatCompletionsSSE(
 			thinkingPart, mainPart := splitThinkContent(&inThink, *choice.Delta.Content)
 			thinkingChannel := "thinking"
 			if thinkingPart != "" {
+				emittedAnyOutput = true
 				if err := yield(StreamMessageDelta{ContentDelta: thinkingPart, Role: role, Channel: &thinkingChannel}); err != nil {
 					return err
 				}
 			}
 			if mainPart != "" {
+				emittedAnyOutput = true
 				if err := yield(StreamMessageDelta{ContentDelta: mainPart, Role: role}); err != nil {
 					return err
 				}
@@ -682,15 +686,23 @@ func (g *OpenAIGateway) streamChatCompletionsSSE(
 			toolBuffer.Add(toolDelta, idx)
 		}
 
-		if choice.FinishReason != nil && strings.EqualFold(strings.TrimSpace(*choice.FinishReason), "tool_calls") {
-			calls, err := toolBuffer.Drain()
-			if err != nil {
-				return yield(openAIParseFailure(err, "OpenAI response parse failed", "OpenAI tool_call arguments parse failed"))
-			}
-			for _, call := range calls {
-				if err := yield(call); err != nil {
-					return err
+		if choice.FinishReason != nil {
+			reason := strings.TrimSpace(*choice.FinishReason)
+			if reason != "" {
+				if strings.EqualFold(reason, "tool_calls") {
+					calls, err := toolBuffer.Drain()
+					if err != nil {
+						return yield(openAIParseFailure(err, "OpenAI response parse failed", "OpenAI tool_call arguments parse failed"))
+					}
+					for _, call := range calls {
+						if err := yield(call); err != nil {
+							return err
+						}
+					}
 				}
+
+				terminalEmitted = true
+				return yield(StreamRunCompleted{Usage: streamedUsage})
 			}
 		}
 		return nil
@@ -712,6 +724,28 @@ func (g *OpenAIGateway) streamChatCompletionsSSE(
 	}
 	if terminalEmitted {
 		return nil
+	}
+
+	// 一些 OpenAI 兼容代理在流式结束时不会发送 [DONE]。
+	// 尝试在 EOF 时回收未 drain 的 tool_calls，并视情况完成本次流。
+	calls, drainErr := toolBuffer.Drain()
+	if drainErr != nil {
+		return yield(StreamRunFailed{
+			Error: GatewayError{
+				ErrorClass: ErrorClassProviderRetryable,
+				Message:    "SSE stream ended before tool_calls completed",
+				Details:    map[string]any{"reason": drainErr.Error()},
+			},
+		})
+	}
+	for _, call := range calls {
+		if err := yield(call); err != nil {
+			return err
+		}
+	}
+	if streamedUsage != nil || emittedAnyOutput || len(calls) > 0 {
+		terminalEmitted = true
+		return yield(StreamRunCompleted{Usage: streamedUsage})
 	}
 	return yield(StreamRunFailed{Error: InternalStreamEndedError()})
 }
