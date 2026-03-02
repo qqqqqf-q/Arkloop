@@ -85,10 +85,42 @@ type LocationState = { initialRunId?: string; isSearch?: boolean; isIncognitoFor
 
 const SHOW_EXPLICIT_THINKING = false
 
+const DEFAULT_SEARCH_PLANNING_LABEL = 'Planning'
+const SEARCH_PLANNING_LABEL_MAX_LEN = 60
+const SEARCH_PLANNING_TOOL_NAME = 'search_planning_title'
+
+function compactSingleLine(raw: string | undefined, maxLen = SEARCH_PLANNING_LABEL_MAX_LEN): string {
+  const withoutFiles = (raw ?? '').replace(/<file[\s\S]*?<\/file>/g, ' ')
+  const text = withoutFiles.replace(/\s+/g, ' ').trim()
+  if (!text) return ''
+  if (text.length <= maxLen) return text
+  if (maxLen <= 3) return text.slice(0, maxLen)
+  return text.slice(0, maxLen - 3).trimEnd() + '...'
+}
+
+function patchLegacySearchSteps(
+  steps: MessageSearchStepRef[],
+): { steps: MessageSearchStepRef[]; changed: boolean } {
+  const idx = steps.findIndex((s) => s.kind === 'planning')
+  if (idx < 0) return { steps, changed: false }
+  const planning = steps[idx]
+  // 旧版本的 planning 步骤 id 形如 `plan-${callId}`，且 label 是前端占位符。
+  // 这里不做内容匹配，只按结构做一次性迁移。
+  if (!planning.id.startsWith('plan-')) return { steps, changed: false }
+
+  const firstSearchingQuery =
+    steps.find((s) => s.kind === 'searching' && Array.isArray(s.queries) && s.queries.length > 0)?.queries?.[0]
+
+  const nextLabel = compactSingleLine(firstSearchingQuery) || DEFAULT_SEARCH_PLANNING_LABEL
+  if (planning.label === nextLabel) return { steps, changed: false }
+  const patched = steps.map((s, i) => (i === idx ? { ...s, label: nextLabel } : s))
+  return { steps: patched, changed: true }
+}
+
 function buildHistoricalSearchSteps(userQuery?: string): SearchStep[] {
-  const query = userQuery?.trim()
+  const query = compactSingleLine(userQuery)
   return [
-    { id: 'history-plan', kind: 'planning', label: 'Analyzing query', status: 'done' },
+    { id: 'history-plan', kind: 'planning', label: DEFAULT_SEARCH_PLANNING_LABEL, status: 'done' },
     {
       id: 'history-search',
       kind: 'searching',
@@ -311,17 +343,21 @@ export function ChatPage() {
         const thinkingMap = new Map<string, MessageThinkingRef>()
         const searchStepsMap = new Map<string, MessageSearchStepRef[]>()
         for (const msg of items) {
-          if (msg.role === 'assistant') {
-            const cached = readMessageSources(msg.id)
-            if (cached) sourcesMap.set(msg.id, cached)
-            const cachedArt = readMessageArtifacts(msg.id)
-            if (cachedArt) artifactsMap.set(msg.id, cachedArt)
-            const cachedExec = readMessageCodeExecutions(msg.id)
-            if (cachedExec) codeExecMap.set(msg.id, cachedExec)
-            const cachedThinking = readMessageThinking(msg.id)
-            if (cachedThinking) thinkingMap.set(msg.id, cachedThinking)
-            const cachedSearchSteps = readMessageSearchSteps(msg.id)
-            if (cachedSearchSteps) searchStepsMap.set(msg.id, cachedSearchSteps)
+          if (msg.role !== 'assistant') continue
+
+          const cached = readMessageSources(msg.id)
+          if (cached) sourcesMap.set(msg.id, cached)
+          const cachedArt = readMessageArtifacts(msg.id)
+          if (cachedArt) artifactsMap.set(msg.id, cachedArt)
+          const cachedExec = readMessageCodeExecutions(msg.id)
+          if (cachedExec) codeExecMap.set(msg.id, cachedExec)
+          const cachedThinking = readMessageThinking(msg.id)
+          if (cachedThinking) thinkingMap.set(msg.id, cachedThinking)
+          const cachedSearchSteps = readMessageSearchSteps(msg.id)
+          if (cachedSearchSteps) {
+            const patched = patchLegacySearchSteps(cachedSearchSteps)
+            if (patched.changed) writeMessageSearchSteps(msg.id, patched.steps)
+            searchStepsMap.set(msg.id, patched.steps)
           }
         }
 
@@ -547,8 +583,9 @@ export function ChatPage() {
       }
 
       if (event.type === 'tool.call') {
-        const obj = event.data as { tool_name?: unknown; tool_call_id?: unknown; arguments?: unknown }
+        const obj = event.data as { tool_name?: unknown; llm_name?: unknown; tool_call_id?: unknown; arguments?: unknown }
         const toolName = typeof obj.tool_name === 'string' ? obj.tool_name : event.tool_name
+        const llmName = typeof obj.llm_name === 'string' ? obj.llm_name : undefined
         if (toolName === 'code_execute' || toolName === 'shell_execute') {
           const callId = typeof obj.tool_call_id === 'string' ? obj.tool_call_id : event.event_id
           const language: CodeExecution['language'] = toolName === 'code_execute' ? 'python' : 'shell'
@@ -572,8 +609,24 @@ export function ChatPage() {
             setTopLevelCodeExecutions((prev) => [...prev, entry])
           }
         }
+        // 搜索模式：模型输出的 planning 小标题
+        if (isSearchThread && toolName === SEARCH_PLANNING_TOOL_NAME) {
+          const args = obj.arguments as Record<string, unknown> | undefined
+          const rawLabel = typeof args?.label === 'string' ? args.label : undefined
+          const label = compactSingleLine(rawLabel) || DEFAULT_SEARCH_PLANNING_LABEL
+          applySearchSteps((prev) => {
+            const idx = prev.findIndex((s) => s.kind === 'planning')
+            if (idx >= 0) {
+              const next = [...prev]
+              next[idx] = { ...next[idx], label, status: 'done' }
+              return next
+            }
+            return [{ id: 'planning', kind: 'planning', label, status: 'done' }, ...prev]
+          })
+          continue
+        }
         // 搜索模式：web_search tool.call 驱动 SearchTimeline
-        if (isSearchThread && toolName === 'web_search') {
+        if (isSearchThread && (toolName === 'web_search' || llmName === 'web_search')) {
           const callId = typeof obj.tool_call_id === 'string' ? obj.tool_call_id : event.event_id
           const args = obj.arguments as Record<string, unknown> | undefined
           const query = typeof args?.query === 'string' ? args.query : undefined
@@ -585,11 +638,11 @@ export function ChatPage() {
             : query
               ? [query]
               : undefined
-          // 首次 web_search 调用时插入 planning 步骤
+          // 若缺少 planning 标题（后端没发 `search_planning_title`），则兜底插入一个占位
           applySearchSteps((prev) => {
             const steps: SearchStep[] = []
-            if (prev.length === 0) {
-              steps.push({ id: `plan-${callId}`, kind: 'planning', label: 'Analyzing query', status: 'done' })
+            if (!prev.some((s) => s.kind === 'planning')) {
+              steps.push({ id: 'planning', kind: 'planning', label: DEFAULT_SEARCH_PLANNING_LABEL, status: 'done' })
             }
             steps.push({
               id: callId,
@@ -606,7 +659,8 @@ export function ChatPage() {
 
       if (event.type === 'tool.result') {
         const obj = event.data as { tool_name?: unknown; tool_call_id?: unknown; result?: unknown }
-        if (obj.tool_name === 'web_search') {
+        const resultToolName = typeof obj.tool_name === 'string' ? obj.tool_name : ''
+        if (resultToolName === 'web_search' || resultToolName.startsWith('web_search.')) {
           const result = obj.result as { results?: unknown[] } | undefined
           if (Array.isArray(result?.results)) {
             const newSources: WebSource[] = result.results

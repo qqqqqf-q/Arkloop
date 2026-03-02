@@ -17,6 +17,7 @@ func AgentSpecs() []tools.AgentToolSpec {
 	return []tools.AgentToolSpec{
 		EchoAgentSpec,
 		NoopAgentSpec,
+		SearchPlanningTitleAgentSpec,
 		websearch.AgentSpec,
 		webfetch.AgentSpec,
 		spawnagent.AgentSpec,
@@ -28,6 +29,7 @@ func LlmSpecs() []llm.ToolSpec {
 	return []llm.ToolSpec{
 		EchoLlmSpec,
 		NoopLlmSpec,
+		SearchPlanningTitleLlmSpec,
 		websearch.LlmSpec,
 		webfetch.LlmSpec,
 		spawnagent.LlmSpec,
@@ -41,6 +43,7 @@ func Executors(pool *pgxpool.Pool, rdb *redis.Client, resolver sharedconfig.Reso
 	return map[string]tools.Executor{
 		EchoAgentSpec.Name:             EchoExecutor{},
 		NoopAgentSpec.Name:             NoopExecutor{},
+		SearchPlanningTitleAgentSpec.Name: SearchPlanningTitleExecutor{},
 		websearch.AgentSpec.Name:       websearch.NewToolExecutor(resolver),
 		webfetch.AgentSpec.Name:        webfetch.NewToolExecutor(resolver),
 		summarizethread.AgentSpec.Name: &summarizethread.ToolExecutor{Pool: pool, RDB: rdb},
