@@ -62,7 +62,7 @@ export function UsersPage() {
 
   const [query, setQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
-  const searchTimerRef = useRef<ReturnType<typeof setTimeout>>()
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [detail, setDetail] = useState<AdminUserDetail | null>(null)

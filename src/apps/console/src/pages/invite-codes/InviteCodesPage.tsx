@@ -46,7 +46,7 @@ export function InviteCodesPage() {
   const [loadingMore, setLoadingMore] = useState(false)
 
   const [query, setQuery] = useState('')
-  const searchTimerRef = useRef<ReturnType<typeof setTimeout>>()
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
   // 展开行
   const [expandedId, setExpandedId] = useState<string | null>(null)

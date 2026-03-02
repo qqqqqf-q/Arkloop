@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react'
 import { useOutletContext } from 'react-router-dom'
-import { Coins, Plus, Minus, RotateCcw } from 'lucide-react'
+import { Plus, Minus, RotateCcw } from 'lucide-react'
 import type { ConsoleOutletContext } from '../../layouts/ConsoleLayout'
 import { PageHeader } from '../../components/PageHeader'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
@@ -30,17 +30,17 @@ export function CreditsAdminPage() {
     try {
       if (pending.type === 'add') {
         await bulkAdjustCredits(pending.amount, pending.note, accessToken)
-        addToast('success', tc.toastAddOk)
+        addToast(tc.toastAddOk, 'success')
       } else if (pending.type === 'deduct') {
         await bulkAdjustCredits(-pending.amount, pending.note, accessToken)
-        addToast('success', tc.toastDeductOk)
+        addToast(tc.toastDeductOk, 'success')
       } else {
         await resetAllCredits(pending.note, accessToken)
-        addToast('success', tc.toastResetOk)
+        addToast(tc.toastResetOk, 'success')
       }
       setPending(null)
     } catch (err) {
-      addToast('error', isApiError(err) ? err.message : tc.toastFailed)
+      addToast(isApiError(err) ? err.message : tc.toastFailed, 'error')
     } finally {
       setSubmitting(false)
     }
@@ -55,7 +55,7 @@ export function CreditsAdminPage() {
 
   return (
     <div className="flex flex-col gap-6 p-6">
-      <PageHeader icon={<Coins size={20} />} title={tc.title} />
+      <PageHeader title={tc.title} />
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         <AmountCard

@@ -245,7 +245,7 @@ export function FeatureFlagsPage() {
           onClick={(e) => { e.stopPropagation(); void handleToggleDefault(row) }}
           className="cursor-pointer"
         >
-          <Badge variant={row.default_value ? 'success' : 'muted'}>
+          <Badge variant={row.default_value ? 'success' : 'neutral'}>
             {row.default_value ? tc.enabled : tc.disabled}
           </Badge>
         </button>
@@ -334,7 +334,7 @@ export function FeatureFlagsPage() {
                     <tr key={o.org_id} className="border-t border-[var(--c-border)]">
                       <td className="py-2 font-mono text-[var(--c-text-primary)]">{o.org_id}</td>
                       <td className="py-2">
-                        <Badge variant={o.enabled ? 'success' : 'muted'}>
+                        <Badge variant={o.enabled ? 'success' : 'neutral'}>
                           {o.enabled ? tc.enabled : tc.disabled}
                         </Badge>
                       </td>

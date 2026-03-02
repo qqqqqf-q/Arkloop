@@ -26,7 +26,7 @@ const STATUS_BADGE: Record<string, BadgeVariant> = {
 }
 
 const TYPE_BADGE: Record<string, BadgeVariant> = {
-  credit: 'info',
+  credit: 'neutral',
   feature: 'warning',
 }
 
@@ -43,7 +43,7 @@ export function RedemptionCodesPage() {
 
   const [query, setQuery] = useState('')
   const [typeFilter, setTypeFilter] = useState('')
-  const searchTimerRef = useRef<ReturnType<typeof setTimeout>>()
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
   // 停用确认
   const [deactivateTarget, setDeactivateTarget] = useState<RedemptionCode | null>(null)
