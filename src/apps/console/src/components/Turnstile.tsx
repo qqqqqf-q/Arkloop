@@ -34,34 +34,46 @@ export function Turnstile({ siteKey, onSuccess, onExpire }: TurnstileProps) {
   onExpireRef.current = onExpire
 
   useEffect(() => {
-    if (!containerRef.current || !siteKey) return
+    const container = containerRef.current
+    if (!container || !siteKey) return
 
-    const mount = () => {
-      if (!containerRef.current || !window.turnstile) return
-      widgetIdRef.current = window.turnstile.render(containerRef.current, {
-        sitekey: siteKey,
-        size: 'flexible',
-        callback: (token) => onSuccessRef.current(token),
-        'expired-callback': () => onExpireRef.current?.(),
-        'error-callback': () => onExpireRef.current?.(),
-      })
+    let intervalId: ReturnType<typeof setInterval> | null = null
+    let active = true
+
+    const render = () => {
+      if (!active || !container || !window.turnstile) return
+      if (widgetIdRef.current) {
+        try { window.turnstile.remove(widgetIdRef.current) } catch { /* noop */ }
+        widgetIdRef.current = null
+      }
+      try {
+        widgetIdRef.current = window.turnstile.render(container, {
+          sitekey: siteKey,
+          size: 'flexible',
+          callback: (token) => onSuccessRef.current(token),
+          'expired-callback': () => onExpireRef.current?.(),
+          'error-callback': () => onExpireRef.current?.(),
+        })
+      } catch { /* noop */ }
     }
 
     if (window.turnstile) {
-      mount()
+      render()
     } else {
-      const interval = setInterval(() => {
+      intervalId = setInterval(() => {
         if (window.turnstile) {
-          clearInterval(interval)
-          mount()
+          if (intervalId) clearInterval(intervalId)
+          intervalId = null
+          render()
         }
       }, 100)
-      return () => clearInterval(interval)
     }
 
     return () => {
+      active = false
+      if (intervalId) clearInterval(intervalId)
       if (widgetIdRef.current && window.turnstile) {
-        window.turnstile.remove(widgetIdRef.current)
+        try { window.turnstile.remove(widgetIdRef.current) } catch { /* noop */ }
         widgetIdRef.current = null
       }
     }

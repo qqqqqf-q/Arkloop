@@ -68,6 +68,23 @@ export interface LocaleStrings {
   username: string
   password: string
   signIn: string
+  requestFailed: string
+  loginMode: string
+  enterYourPasswordTitle: string
+  fieldIdentity: string
+  fieldPassword: string
+  identityPlaceholder: string
+  enterPassword: string
+  continueBtn: string
+  backBtn: string
+  editIdentity: string
+  useEmailOtpHint: string
+  otpLoginTab: string
+  otpEmailPlaceholder: string
+  otpCodePlaceholder: string
+  otpSendBtn: string
+  otpSendingCountdown: (s: number) => string
+  otpVerifyBtn: string
   // common
   loading: string
   // pages

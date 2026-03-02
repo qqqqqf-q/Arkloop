@@ -42,6 +42,27 @@ export async function getCaptchaConfig(): Promise<CaptchaConfigResponse> {
   return await apiFetch<CaptchaConfigResponse>('/v1/auth/captcha-config')
 }
 
+export async function checkUser(login: string): Promise<{ exists: boolean; masked_email?: string }> {
+  return await apiFetch<{ exists: boolean; masked_email?: string }>('/v1/auth/check', {
+    method: 'POST',
+    body: JSON.stringify({ login }),
+  })
+}
+
+export async function sendEmailOTP(email: string, cfTurnstileToken?: string): Promise<void> {
+  await apiFetch<void>('/v1/auth/email/otp/send', {
+    method: 'POST',
+    body: JSON.stringify({ email, cf_turnstile_token: cfTurnstileToken }),
+  })
+}
+
+export async function verifyEmailOTP(email: string, code: string): Promise<LoginResponse> {
+  return await apiFetch<LoginResponse>('/v1/auth/email/otp/verify', {
+    method: 'POST',
+    body: JSON.stringify({ email, code }),
+  })
+}
+
 export async function getMe(accessToken: string): Promise<MeResponse> {
   return await apiFetch<MeResponse>('/v1/me', {
     method: 'GET',
