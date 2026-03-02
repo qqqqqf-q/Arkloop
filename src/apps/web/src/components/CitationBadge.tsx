@@ -108,15 +108,14 @@ export function CitationBadge({ indices }: Props) {
         {indices.map((i) => `web:${i}`).join(' ')}
       </span>
     )
-  }
+	}
 
-  const firstSource = validSources[0]
-  const domain = getDomain(firstSource.url)
-  const displayName = formatDomain(firstSource.url)
-  const extraCount = validSources.length - 1
-  const currentSource = validSources[page]
-  const currentDomain = getDomain(currentSource.url)
-  const multiSource = validSources.length > 1
+	const firstSource = validSources[0]
+	const displayName = formatDomain(firstSource.url)
+	const extraCount = validSources.length - 1
+	const currentSource = validSources[page]
+	const currentDomain = getDomain(currentSource.url)
+	const multiSource = validSources.length > 1
 
   return (
     <span style={{ position: 'relative', display: 'inline-block' }}>

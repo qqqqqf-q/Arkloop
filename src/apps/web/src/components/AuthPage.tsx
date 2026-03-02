@@ -79,7 +79,7 @@ const labelStyle = {
 } as const
 
 interface PasswordEyeProps {
-  inputRef: React.RefObject<HTMLInputElement>
+  inputRef: React.RefObject<HTMLInputElement | null>
   placeholder: string
   value: string
   onChange: (v: string) => void
@@ -412,7 +412,6 @@ export function AuthPage({ onLoggedIn }: Props) {
             {/* identity label：占位始终存在，非 identity 阶段才可见 → identity 输入框 Y 位置固定 */}
             <div style={{
               height: '18px',
-              marginBottom: '4px',
               opacity: phase !== 'identity' ? 1 : 0,
               transition: `opacity ${TRANSITION}`,
               ...labelStyle,

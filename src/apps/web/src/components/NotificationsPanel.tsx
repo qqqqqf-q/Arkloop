@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { X } from 'lucide-react'
 import { listNotifications, markAllNotificationsRead, type NotificationItem } from '../api'
 import { useLocale } from '../contexts/LocaleContext'

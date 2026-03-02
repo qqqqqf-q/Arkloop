@@ -44,7 +44,7 @@ export function EmailVerificationGate({ accessToken, email, onVerified, onPollVe
   const resendTimer = useRef<ReturnType<typeof setInterval> | null>(null)
   const otpTimer = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  const startCountdown = (set: (n: number) => void, ref: React.MutableRefObject<ReturnType<typeof setInterval> | null>) => {
+  const startCountdown = (set: React.Dispatch<React.SetStateAction<number>>, ref: React.MutableRefObject<ReturnType<typeof setInterval> | null>) => {
     set(60)
     if (ref.current) clearInterval(ref.current)
     ref.current = setInterval(() => {

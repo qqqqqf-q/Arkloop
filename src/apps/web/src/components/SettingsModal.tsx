@@ -277,7 +277,7 @@ function ProfileContent({
   const [verifyCode, setVerifyCode] = useState('')
   const [verifying, setVerifying] = useState(false)
   const [verifyError, setVerifyError] = useState('')
-  const copiedTimerRef = useRef<ReturnType<typeof setTimeout>>()
+  const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const isDirty = displayName.trim() !== (me?.username ?? '')
 
@@ -621,7 +621,7 @@ function InviteCodeContent({ accessToken }: { accessToken: string }) {
   const [copied, setCopied] = useState(false)
   const [resetting, setResetting] = useState(false)
   const [error, setError] = useState('')
-  const copiedTimerRef = useRef<ReturnType<typeof setTimeout>>()
+  const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     void (async () => {
