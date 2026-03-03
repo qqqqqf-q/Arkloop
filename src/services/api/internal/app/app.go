@@ -127,6 +127,19 @@ func (a *Application) Run(ctx context.Context) error {
 		a.logger.Info("redis connected", observability.LogFields{}, nil)
 	}
 
+	gatewayRedisClient := redisClient
+	gatewayRedisURL := strings.TrimSpace(a.config.GatewayRedisURL)
+	redisURL := strings.TrimSpace(a.config.RedisURL)
+	if gatewayRedisURL != "" && gatewayRedisURL != redisURL {
+		rc, err := sharedredis.NewClient(ctx, gatewayRedisURL)
+		if err != nil {
+			return fmt.Errorf("gateway redis: %w", err)
+		}
+		defer rc.Close()
+		gatewayRedisClient = rc
+		a.logger.Info("gateway redis connected", observability.LogFields{}, nil)
+	}
+
 	var runLimiter *data.RunLimiter
 	if redisClient != nil && a.config.MaxConcurrentRunsPerOrg > 0 {
 		rl, err := data.NewRunLimiter(redisClient, a.config.MaxConcurrentRunsPerOrg)
@@ -563,6 +576,7 @@ func (a *Application) Run(ctx context.Context) error {
 			RedemptionCodesRepo:     redemptionCodesRepo,
 			PlatformSettingsRepo:    platformSettingsRepo,
 			RedisClient:             redisClient,
+			GatewayRedisClient:      gatewayRedisClient,
 			RunLimiter:              runLimiter,
 			AsrCredentialsRepo:      asrCredRepo,
 			EmailVerifyService:      emailVerifyService,

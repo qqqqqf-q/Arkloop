@@ -1,6 +1,7 @@
 package ratelimit
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"time"
 
 	"arkloop/services/gateway/internal/clientip"
 	"arkloop/services/gateway/internal/identity"
@@ -16,8 +18,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 )
-
-
 
 const (
 	rateLimitOrgKeyPrefix = "arkloop:ratelimit:org:"
@@ -28,7 +28,7 @@ const (
 // SSE 请求（Accept: text/event-stream 且路径匹配已知 SSE 端点）跳过限流。
 // 有效 JWT 或 API Key 按 org_id 限流；否则按客户端 IP 限流。
 // Redis 不可用时 fail-open：放行请求，不阻断流量。
-func NewRateLimitMiddleware(next http.Handler, limiter Limiter, jwtSecret string, rdb ...*redis.Client) http.Handler {
+func NewRateLimitMiddleware(next http.Handler, limiter Limiter, jwtSecret string, redisTimeout time.Duration, rdb ...*redis.Client) http.Handler {
 	parser := jwt.NewParser(jwt.WithValidMethods([]string{"HS256"}))
 	secretBytes := []byte(jwtSecret)
 
@@ -43,9 +43,16 @@ func NewRateLimitMiddleware(next http.Handler, limiter Limiter, jwtSecret string
 			return
 		}
 
-		key := rateLimitKeyFromRequest(r, parser, secretBytes, redisClient)
+		ctx := r.Context()
+		cancel := func() {}
+		if redisTimeout > 0 {
+			ctx, cancel = context.WithTimeout(ctx, redisTimeout)
+		}
 
-		result, err := limiter.Consume(r.Context(), key)
+		key := rateLimitKeyFromRequest(ctx, r, parser, secretBytes, redisClient)
+
+		result, err := limiter.Consume(ctx, key)
+		cancel()
 		if err != nil {
 			// Redis 不可用时放行，避免限流器故障阻断所有流量
 			next.ServeHTTP(w, r)
@@ -64,13 +71,13 @@ func NewRateLimitMiddleware(next http.Handler, limiter Limiter, jwtSecret string
 
 // rateLimitKeyFromRequest 提取限流 key。
 // 优先从 JWT 或 API Key（Redis 缓存）取 org_id；失败时降级到客户端 IP。
-func rateLimitKeyFromRequest(r *http.Request, parser *jwt.Parser, secret []byte, rdb *redis.Client) string {
+func rateLimitKeyFromRequest(ctx context.Context, r *http.Request, parser *jwt.Parser, secret []byte, rdb *redis.Client) string {
 	auth := strings.TrimSpace(r.Header.Get("Authorization"))
 	bearer, ok := strings.CutPrefix(auth, "Bearer ")
 
 	// API Key 路径：通过 identity 包查缓存
 	if ok && strings.HasPrefix(bearer, "ak-") {
-		if orgStr := identity.ExtractOrgID(r.Context(), auth, rdb); orgStr != "" {
+		if orgStr := identity.ExtractOrgID(ctx, auth, rdb); orgStr != "" {
 			return rateLimitOrgKeyPrefix + orgStr
 		}
 		return rateLimitIPKeyPrefix + clientIP(r)

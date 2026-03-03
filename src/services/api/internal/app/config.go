@@ -11,15 +11,16 @@ import (
 )
 
 const (
-	apiGoAddrEnv              = "ARKLOOP_API_GO_ADDR"
-	databaseURLPrimaryEnv     = "ARKLOOP_DATABASE_URL"
-	databaseURLFallbackEnv    = "DATABASE_URL"
-	databaseDirectURLEnv      = "ARKLOOP_DATABASE_DIRECT_URL"
-	trustIncomingTraceIDEnv   = "ARKLOOP_TRUST_INCOMING_TRACE_ID"
-	trustXForwardedForEnv     = "ARKLOOP_TRUST_X_FORWARDED_FOR"
-	defaultAddr               = "127.0.0.1:8001"
+	apiGoAddrEnv            = "ARKLOOP_API_GO_ADDR"
+	databaseURLPrimaryEnv   = "ARKLOOP_DATABASE_URL"
+	databaseURLFallbackEnv  = "DATABASE_URL"
+	databaseDirectURLEnv    = "ARKLOOP_DATABASE_DIRECT_URL"
+	trustIncomingTraceIDEnv = "ARKLOOP_TRUST_INCOMING_TRACE_ID"
+	trustXForwardedForEnv   = "ARKLOOP_TRUST_X_FORWARDED_FOR"
+	defaultAddr             = "127.0.0.1:8001"
 
 	redisURLEnv                    = "ARKLOOP_REDIS_URL"
+	gatewayRedisURLEnv             = "ARKLOOP_GATEWAY_REDIS_URL"
 	maxConcurrentRunsPerOrgEnv     = "ARKLOOP_MAX_CONCURRENT_RUNS_PER_ORG"
 	defaultMaxConcurrentRunsPerOrg = int64(10)
 
@@ -40,11 +41,11 @@ const (
 	runEventsRetentionMonthsEnv     = "ARKLOOP_RUN_EVENTS_RETENTION_MONTHS"
 	defaultRunEventsRetentionMonths = 3
 
-	emailFromEnv    = "ARKLOOP_EMAIL_FROM"
-	appBaseURLEnv   = "ARKLOOP_APP_BASE_URL"
+	emailFromEnv  = "ARKLOOP_EMAIL_FROM"
+	appBaseURLEnv = "ARKLOOP_APP_BASE_URL"
 
-	turnstileSecretKeyEnv  = "ARKLOOP_TURNSTILE_SECRET_KEY"
-	turnstileSiteKeyEnv    = "ARKLOOP_TURNSTILE_SITE_KEY"
+	turnstileSecretKeyEnv   = "ARKLOOP_TURNSTILE_SECRET_KEY"
+	turnstileSiteKeyEnv     = "ARKLOOP_TURNSTILE_SITE_KEY"
 	turnstileAllowedHostEnv = "ARKLOOP_TURNSTILE_ALLOWED_HOST"
 
 	defaultSSEHeartbeatSeconds = 15.0
@@ -73,6 +74,7 @@ type Config struct {
 	SSE                  SSEConfig
 
 	RedisURL                string
+	GatewayRedisURL         string
 	MaxConcurrentRunsPerOrg int64
 
 	S3Endpoint  string
@@ -87,8 +89,8 @@ type Config struct {
 	EmailFrom                string
 	AppBaseURL               string
 
-	TurnstileSecretKey  string
-	TurnstileSiteKey    string
+	TurnstileSecretKey   string
+	TurnstileSiteKey     string
 	TurnstileAllowedHost string
 }
 
@@ -149,6 +151,9 @@ func LoadConfigFromEnv() (Config, error) {
 
 	if raw, ok := lookupEnv(redisURLEnv); ok {
 		cfg.RedisURL = raw
+	}
+	if raw, ok := lookupEnv(gatewayRedisURLEnv); ok {
+		cfg.GatewayRedisURL = raw
 	}
 	if raw, ok := lookupEnv(maxConcurrentRunsPerOrgEnv); ok {
 		v, err := parsePositiveInt64(raw)

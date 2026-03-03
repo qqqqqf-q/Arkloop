@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"os/signal"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -192,7 +193,7 @@ func (a *Application) Run(ctx context.Context) error {
 			return fmt.Errorf("ratelimit: %w", err)
 		}
 		limiter = bucket
-		ipFilter = ipfilter.NewFilter(rdb)
+		ipFilter = ipfilter.NewFilter(rdb, a.config.RedisTimeout)
 
 		effectiveRL := a.effectiveRateLimit()
 		a.logger.Info("ratelimit enabled", LogFields{}, map[string]any{
@@ -226,14 +227,14 @@ func (a *Application) Run(ctx context.Context) error {
 	inner = a.riskMiddleware(inner, geo, scorer, rdb)
 
 	if limiter != nil {
-		inner = ratelimit.NewRateLimitMiddleware(inner, limiter, a.config.JWTSecret, rdb)
+		inner = ratelimit.NewRateLimitMiddleware(inner, limiter, a.config.JWTSecret, a.config.RedisTimeout, rdb)
 	}
 	if ipFilter != nil {
 		inner = ipFilter.Middleware(inner)
 	}
 
 	// trace 在 clientip 内层，可以从 context 读到 IP
-	inner = traceMiddleware(inner, a.logger, geo, rdb)
+	inner = traceMiddleware(inner, a.logger, geo, rdb, a.config.RedisTimeout)
 
 	// clientip 中间件：最外层（recover 之后），将真实 IP 写入 context
 	inner = clientip.Middleware(a.buildResolver(), inner)
@@ -297,7 +298,16 @@ func (a *Application) riskMiddleware(next http.Handler, geo geoip.Lookup, scorer
 		uaInfo := ua.Parse(r)
 
 		// 判断是否匿名请求
-		ident := identity.ExtractInfo(r.Context(), r.Header.Get("Authorization"), rdb)
+		auth := strings.TrimSpace(r.Header.Get("Authorization"))
+		identCtx := r.Context()
+		cancel := func() {}
+		if rdb != nil && a.config.RedisTimeout > 0 {
+			if bearer, ok := strings.CutPrefix(auth, "Bearer "); ok && strings.HasPrefix(bearer, "ak-") {
+				identCtx, cancel = context.WithTimeout(identCtx, a.config.RedisTimeout)
+			}
+		}
+		ident := identity.ExtractInfo(identCtx, auth, rdb)
+		cancel()
 		anonymous := ident.Type == identity.IdentityAnonymous
 
 		// 动态读取当前阈值
@@ -322,15 +332,18 @@ func (a *Application) riskMiddleware(next http.Handler, geo geoip.Lookup, scorer
 	})
 }
 
+var healthzPayload = []byte(`{"status":"ok"}`)
+var healthzContentLength = strconv.Itoa(len(healthzPayload))
+
 func healthz(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, `{"code":"http.method_not_allowed","message":"Method Not Allowed"}`, http.StatusMethodNotAllowed)
 		return
 	}
-	payload, _ := json.Marshal(map[string]string{"status": "ok"})
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Content-Length", healthzContentLength)
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(payload)
+	_, _ = w.Write(healthzPayload)
 }
 
 // geoipLogAdapter 将 JSONLogger 适配为 geoip.Logger 接口。

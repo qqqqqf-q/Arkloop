@@ -1,13 +1,16 @@
 package app
 
 import (
+	"context"
 	"crypto/rand"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"net/http"
 	"runtime/debug"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"arkloop/services/gateway/internal/accesslog"
@@ -50,7 +53,7 @@ func (r *statusRecorder) Flush() {
 	}
 }
 
-func traceMiddleware(next http.Handler, logger *JSONLogger, geo geoip.Lookup, rdb *goredis.Client) http.Handler {
+func traceMiddleware(next http.Handler, logger *JSONLogger, geo geoip.Lookup, rdb *goredis.Client, redisTimeout time.Duration) http.Handler {
 	var logWriter *accesslog.Writer
 	if rdb != nil {
 		logWriter = accesslog.NewWriter(rdb)
@@ -85,7 +88,16 @@ func traceMiddleware(next http.Handler, logger *JSONLogger, geo geoip.Lookup, rd
 		}
 
 		// 身份提取
-		ident := identity.ExtractInfo(r.Context(), r.Header.Get("Authorization"), rdb)
+		auth := strings.TrimSpace(r.Header.Get("Authorization"))
+		identCtx := r.Context()
+		cancel := func() {}
+		if rdb != nil && redisTimeout > 0 {
+			if bearer, ok := strings.CutPrefix(auth, "Bearer "); ok && strings.HasPrefix(bearer, "ak-") {
+				identCtx, cancel = context.WithTimeout(identCtx, redisTimeout)
+			}
+		}
+		ident := identity.ExtractInfo(identCtx, auth, rdb)
+		cancel()
 
 		// 结构化日志
 		if logger != nil {
@@ -108,9 +120,9 @@ func traceMiddleware(next http.Handler, logger *JSONLogger, geo geoip.Lookup, rd
 			logger.Info("request", LogFields{TraceID: &tid}, extra)
 		}
 
-		// 访问日志写入 Redis（异步，不阻塞请求）
+		// 访问日志写入 Redis Stream（尽力而为，不阻塞请求）。
 		if logWriter != nil {
-			go logWriter.Write(accesslog.Entry{
+			logWriter.Write(accesslog.Entry{
 				Timestamp:    start.UTC().Format(time.RFC3339),
 				TraceID:      traceID,
 				Method:       r.Method,
@@ -154,11 +166,13 @@ func recoverMiddleware(next http.Handler, logger *JSONLogger) http.Handler {
 }
 
 func newTraceID() string {
-	buf := make([]byte, 16)
-	if _, err := rand.Read(buf); err != nil {
-		return "00000000000000000000000000000000"
-	}
-	return hex.EncodeToString(buf)
+	hi := nextTrace64()
+	lo := nextTrace64()
+
+	var buf [16]byte
+	binary.BigEndian.PutUint64(buf[:8], hi)
+	binary.BigEndian.PutUint64(buf[8:], lo)
+	return hex.EncodeToString(buf[:])
 }
 
 func normalizeTraceID(value string) string {
@@ -174,4 +188,21 @@ func normalizeTraceID(value string) string {
 		return ""
 	}
 	return strings.ToLower(candidate)
+}
+
+var traceState uint64 = initTraceSeed()
+
+func initTraceSeed() uint64 {
+	var buf [8]byte
+	if _, err := rand.Read(buf[:]); err != nil {
+		return uint64(time.Now().UnixNano())
+	}
+	return binary.LittleEndian.Uint64(buf[:])
+}
+
+func nextTrace64() uint64 {
+	x := atomic.AddUint64(&traceState, 0x9e3779b97f4a7c15)
+	x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9
+	x = (x ^ (x >> 27)) * 0x94d049bb133111eb
+	return x ^ (x >> 31)
 }

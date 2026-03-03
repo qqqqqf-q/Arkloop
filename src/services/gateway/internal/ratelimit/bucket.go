@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"strconv"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -113,9 +114,9 @@ func (b *TokenBucket) Consume(ctx context.Context, key string) (ConsumeResult, e
 	}
 
 	result, err := tokenBucketScript.Run(ctx, b.rdb, []string{key},
-		fmt.Sprintf("%g", capacity),
-		fmt.Sprintf("%g", rate),
-		fmt.Sprintf("%.6f", now),
+		strconv.FormatFloat(capacity, 'g', -1, 64),
+		strconv.FormatFloat(rate, 'g', -1, 64),
+		strconv.FormatFloat(now, 'f', 6, 64),
 	).Slice()
 	if err != nil {
 		return ConsumeResult{}, fmt.Errorf("token bucket script: %w", err)

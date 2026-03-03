@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"sync"
 	"time"
 )
 
@@ -16,7 +15,7 @@ type JSONLogger struct {
 	component string
 	writer    io.Writer
 	now       func() time.Time
-	mu        sync.Mutex
+	ch        chan []byte
 }
 
 func NewJSONLogger(component string, writer io.Writer) *JSONLogger {
@@ -26,11 +25,14 @@ func NewJSONLogger(component string, writer io.Writer) *JSONLogger {
 	if component == "" {
 		component = "gateway"
 	}
-	return &JSONLogger{
+	l := &JSONLogger{
 		component: component,
 		writer:    writer,
 		now:       time.Now,
+		ch:        make(chan []byte, 4096),
 	}
+	go l.loop()
+	return l
 }
 
 func (l *JSONLogger) Info(msg string, fields LogFields, extra map[string]any) {
@@ -42,6 +44,9 @@ func (l *JSONLogger) Error(msg string, fields LogFields, extra map[string]any) {
 }
 
 func (l *JSONLogger) log(level string, msg string, fields LogFields, extra map[string]any) {
+	if l == nil {
+		return
+	}
 	record := map[string]any{
 		"ts":        formatTimestamp(l.now()),
 		"level":     level,
@@ -58,10 +63,17 @@ func (l *JSONLogger) log(level string, msg string, fields LogFields, extra map[s
 		payload = []byte(fmt.Sprintf(`{"level":"error","msg":"marshal log record failed","component":"%s"}`, l.component))
 	}
 
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	_, _ = l.writer.Write(payload)
-	_, _ = l.writer.Write([]byte("\n"))
+	buf := append(payload, '\n')
+	select {
+	case l.ch <- buf:
+	default:
+	}
+}
+
+func (l *JSONLogger) loop() {
+	for buf := range l.ch {
+		_, _ = l.writer.Write(buf)
+	}
 }
 
 func formatTimestamp(now time.Time) string {

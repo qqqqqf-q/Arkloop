@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"arkloop/services/gateway/internal/ratelimit"
 )
@@ -16,8 +17,10 @@ const (
 	gatewayAddrEnv     = "ARKLOOP_GATEWAY_ADDR"
 	gatewayUpstreamEnv = "ARKLOOP_GATEWAY_UPSTREAM"
 	redisURLEnv        = "ARKLOOP_REDIS_URL"
+	gatewayRedisURLEnv = "ARKLOOP_GATEWAY_REDIS_URL"
 	jwtSecretEnv       = "ARKLOOP_AUTH_JWT_SECRET"
 	enableBenchzEnv    = "ARKLOOP_GATEWAY_ENABLE_BENCHZ"
+	redisTimeoutMsEnv  = "ARKLOOP_GATEWAY_REDIS_TIMEOUT_MS"
 
 	// IP 透传模式：direct | cloudflare | trusted_proxy
 	ipModeEnv = "ARKLOOP_GATEWAY_IP_MODE"
@@ -33,6 +36,8 @@ const (
 	defaultAddr       = "0.0.0.0:8000"
 	defaultUpstream   = "http://127.0.0.1:8001"
 	defaultGeoIPDBDir = "/data/geoip"
+
+	defaultRedisTimeoutMs = 10
 )
 
 // IPMode 定义 Gateway 的 IP 来源信任策略。
@@ -48,6 +53,7 @@ type Config struct {
 	Addr         string
 	Upstream     string
 	RedisURL     string
+	RedisTimeout time.Duration
 	JWTSecret    string
 	RateLimit    ratelimit.Config
 	EnableBenchz bool
@@ -61,9 +67,10 @@ type Config struct {
 
 func DefaultConfig() Config {
 	return Config{
-		Addr:      defaultAddr,
-		Upstream:  defaultUpstream,
-		RateLimit: ratelimit.DefaultConfig(),
+		Addr:         defaultAddr,
+		Upstream:     defaultUpstream,
+		RateLimit:    ratelimit.DefaultConfig(),
+		RedisTimeout: defaultRedisTimeoutMs * time.Millisecond,
 	}
 }
 
@@ -76,7 +83,10 @@ func LoadConfigFromEnv() (Config, error) {
 	if raw := strings.TrimSpace(os.Getenv(gatewayUpstreamEnv)); raw != "" {
 		cfg.Upstream = raw
 	}
-	cfg.RedisURL = strings.TrimSpace(os.Getenv(redisURLEnv))
+	cfg.RedisURL = strings.TrimSpace(os.Getenv(gatewayRedisURLEnv))
+	if cfg.RedisURL == "" {
+		cfg.RedisURL = strings.TrimSpace(os.Getenv(redisURLEnv))
+	}
 	cfg.JWTSecret = strings.TrimSpace(os.Getenv(jwtSecretEnv))
 
 	rlCfg, err := ratelimit.LoadConfigFromEnv()
@@ -119,6 +129,14 @@ func LoadConfigFromEnv() (Config, error) {
 			return Config{}, fmt.Errorf("%s: must be an integer 0-100", riskRejectThresholdEnv)
 		}
 		cfg.RiskRejectThreshold = v
+	}
+
+	if raw := strings.TrimSpace(os.Getenv(redisTimeoutMsEnv)); raw != "" {
+		v, err := strconv.Atoi(raw)
+		if err != nil || v < 0 {
+			return Config{}, fmt.Errorf("%s: must be a non-negative integer", redisTimeoutMsEnv)
+		}
+		cfg.RedisTimeout = time.Duration(v) * time.Millisecond
 	}
 
 	if err := cfg.Validate(); err != nil {

@@ -128,7 +128,7 @@ func TestFilterMiddlewarePassesWithoutOrgID(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	handler := NewFilter(nil).Middleware(next)
+	handler := NewFilter(nil, 0).Middleware(next)
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -148,7 +148,7 @@ func TestFilterMiddlewareFailOpenOnNilRedis(t *testing.T) {
 	orgID := "550e8400-e29b-41d4-a716-446655440000"
 	token := fakeToken(t, map[string]any{"sub": "u", "org": orgID})
 
-	handler := NewFilter(nil).Middleware(next)
+	handler := NewFilter(nil, 0).Middleware(next)
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.RemoteAddr = "1.2.3.4:9000"

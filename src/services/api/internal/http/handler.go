@@ -102,7 +102,9 @@ type HandlerConfig struct {
 	TurnstileEnvAllowedHost string
 
 	RedisClient *redis.Client
-	RunLimiter  *data.RunLimiter
+	// 网关相关 key 专用 Redis（未设置时回退到 RedisClient）。
+	GatewayRedisClient *redis.Client
+	RunLimiter         *data.RunLimiter
 
 	SSEConfig SSEConfig
 
@@ -131,6 +133,11 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 		if inv, ok := resolver.(sharedconfig.Invalidator); ok {
 			invalidator = inv
 		}
+	}
+
+	gatewayRedis := cfg.GatewayRedisClient
+	if gatewayRedis == nil {
+		gatewayRedis = cfg.RedisClient
 	}
 
 	mux := nethttp.NewServeMux()
@@ -249,20 +256,20 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 
 	mux.HandleFunc(
 		"/v1/ip-rules",
-		ipRulesEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.IPRulesRepo, cfg.RedisClient),
+		ipRulesEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.IPRulesRepo, gatewayRedis),
 	)
 	mux.HandleFunc(
 		"/v1/ip-rules/",
-		ipRuleEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.IPRulesRepo, cfg.RedisClient),
+		ipRuleEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.IPRulesRepo, gatewayRedis),
 	)
 
 	mux.HandleFunc(
 		"/v1/api-keys",
-		apiKeysEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.APIKeysRepo, cfg.AuditWriter, cfg.RedisClient),
+		apiKeysEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.APIKeysRepo, cfg.AuditWriter, gatewayRedis),
 	)
 	mux.HandleFunc(
 		"/v1/api-keys/",
-		apiKeyEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.APIKeysRepo, cfg.AuditWriter, cfg.RedisClient),
+		apiKeyEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.APIKeysRepo, cfg.AuditWriter, gatewayRedis),
 	)
 
 	mux.HandleFunc(
@@ -498,12 +505,12 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 
 	mux.HandleFunc(
 		"/v1/admin/gateway-config",
-		adminGatewayConfigEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.PlatformSettingsRepo, cfg.APIKeysRepo, cfg.RedisClient, resolver, invalidator),
+		adminGatewayConfigEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.PlatformSettingsRepo, cfg.APIKeysRepo, gatewayRedis, resolver, invalidator),
 	)
 
 	mux.HandleFunc(
 		"/v1/admin/access-log",
-		adminAccessLogEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.APIKeysRepo, cfg.UsersRepo, cfg.RedisClient),
+		adminAccessLogEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.APIKeysRepo, cfg.UsersRepo, gatewayRedis),
 	)
 
 	mux.HandleFunc(

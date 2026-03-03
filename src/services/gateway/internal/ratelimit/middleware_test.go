@@ -16,14 +16,21 @@ const testJWTSecret = "this-is-a-test-secret-that-is-at-least-32-chars"
 
 // mockLimiter 可控的限流器 mock。
 type mockLimiter struct {
-	result ConsumeResult
-	err    error
+	result  ConsumeResult
+	err     error
 	lastKey string
 }
 
 func (m *mockLimiter) Consume(_ context.Context, key string) (ConsumeResult, error) {
 	m.lastKey = key
 	return m.result, m.err
+}
+
+type blockingLimiter struct{}
+
+func (b *blockingLimiter) Consume(ctx context.Context, _ string) (ConsumeResult, error) {
+	<-ctx.Done()
+	return ConsumeResult{}, ctx.Err()
 }
 
 func makeJWT(t *testing.T, orgID uuid.UUID) string {
@@ -56,7 +63,7 @@ func TestMiddleware_AllowedRequest(t *testing.T) {
 	orgID := uuid.New()
 	token := makeJWT(t, orgID)
 
-	h := NewRateLimitMiddleware(okHandler(), ml, testJWTSecret)
+	h := NewRateLimitMiddleware(okHandler(), ml, testJWTSecret, 0)
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/threads", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -77,7 +84,7 @@ func TestMiddleware_BlockedRequest(t *testing.T) {
 	orgID := uuid.New()
 	token := makeJWT(t, orgID)
 
-	h := NewRateLimitMiddleware(okHandler(), ml, testJWTSecret)
+	h := NewRateLimitMiddleware(okHandler(), ml, testJWTSecret, 0)
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/threads", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -96,7 +103,7 @@ func TestMiddleware_BlockedRequest(t *testing.T) {
 func TestMiddleware_NoJWT_FallsBackToIP(t *testing.T) {
 	ml := &mockLimiter{result: ConsumeResult{Allowed: true}}
 
-	h := NewRateLimitMiddleware(okHandler(), ml, testJWTSecret)
+	h := NewRateLimitMiddleware(okHandler(), ml, testJWTSecret, 0)
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/threads", nil)
 	req.RemoteAddr = "203.0.113.7:8080"
@@ -114,7 +121,7 @@ func TestMiddleware_NoJWT_FallsBackToIP(t *testing.T) {
 func TestMiddleware_SSEByAcceptHeader_Skipped(t *testing.T) {
 	ml := &mockLimiter{result: ConsumeResult{Allowed: false}} // 即使超限也应放行
 
-	h := NewRateLimitMiddleware(okHandler(), ml, testJWTSecret)
+	h := NewRateLimitMiddleware(okHandler(), ml, testJWTSecret, 0)
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/runs/abc/events", nil)
 	req.Header.Set("Accept", "text/event-stream")
@@ -133,7 +140,7 @@ func TestMiddleware_SSEByAcceptHeader_Skipped(t *testing.T) {
 func TestMiddleware_SSEPathOnly_NotSkipped(t *testing.T) {
 	ml := &mockLimiter{result: ConsumeResult{Allowed: false, RetryAfterSecs: 5}}
 
-	h := NewRateLimitMiddleware(okHandler(), ml, testJWTSecret)
+	h := NewRateLimitMiddleware(okHandler(), ml, testJWTSecret, 0)
 
 	// 只有路径匹配但缺少 Accept header 时不应跳过限流
 	req := httptest.NewRequest(http.MethodGet, "/v1/runs/abc/events", nil)
@@ -149,7 +156,7 @@ func TestMiddleware_SSEPathOnly_NotSkipped(t *testing.T) {
 func TestMiddleware_SSEAcceptOnly_NotSkipped(t *testing.T) {
 	ml := &mockLimiter{result: ConsumeResult{Allowed: false, RetryAfterSecs: 5}}
 
-	h := NewRateLimitMiddleware(okHandler(), ml, testJWTSecret)
+	h := NewRateLimitMiddleware(okHandler(), ml, testJWTSecret, 0)
 
 	// 只有 Accept header 但路径不匹配时不应跳过限流
 	req := httptest.NewRequest(http.MethodGet, "/v1/threads", nil)
@@ -166,7 +173,7 @@ func TestMiddleware_SSEAcceptOnly_NotSkipped(t *testing.T) {
 func TestMiddleware_SSEThreadsPath_Skipped(t *testing.T) {
 	ml := &mockLimiter{result: ConsumeResult{Allowed: false}}
 
-	h := NewRateLimitMiddleware(okHandler(), ml, testJWTSecret)
+	h := NewRateLimitMiddleware(okHandler(), ml, testJWTSecret, 0)
 
 	// /v1/threads/{id}/runs/{id}/events 也是合法 SSE 端点
 	req := httptest.NewRequest(http.MethodGet, "/v1/threads/t1/runs/r1/events", nil)
@@ -183,7 +190,7 @@ func TestMiddleware_SSEThreadsPath_Skipped(t *testing.T) {
 func TestMiddleware_LimiterError_FailOpen(t *testing.T) {
 	ml := &mockLimiter{err: io.ErrUnexpectedEOF}
 
-	h := NewRateLimitMiddleware(okHandler(), ml, testJWTSecret)
+	h := NewRateLimitMiddleware(okHandler(), ml, testJWTSecret, 0)
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/threads", nil)
 	req.RemoteAddr = "10.0.0.1:1234"
@@ -196,10 +203,29 @@ func TestMiddleware_LimiterError_FailOpen(t *testing.T) {
 	}
 }
 
+func TestMiddleware_ContextTimeout_FailOpen(t *testing.T) {
+	bl := &blockingLimiter{}
+
+	h := NewRateLimitMiddleware(okHandler(), bl, testJWTSecret, 10*time.Millisecond)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/threads", nil)
+	req.RemoteAddr = "10.0.0.1:1234"
+	rec := httptest.NewRecorder()
+
+	start := time.Now()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("timeout should fail open, got %d", rec.Code)
+	}
+	if time.Since(start) > 500*time.Millisecond {
+		t.Fatalf("request should not hang, took %s", time.Since(start))
+	}
+}
+
 func TestMiddleware_InvalidJWT_FallsBackToIP(t *testing.T) {
 	ml := &mockLimiter{result: ConsumeResult{Allowed: true}}
 
-	h := NewRateLimitMiddleware(okHandler(), ml, testJWTSecret)
+	h := NewRateLimitMiddleware(okHandler(), ml, testJWTSecret, 0)
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/threads", nil)
 	req.Header.Set("Authorization", "Bearer not.a.valid.jwt")

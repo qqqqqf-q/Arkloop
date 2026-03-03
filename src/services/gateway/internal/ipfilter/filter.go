@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"time"
 
 	"arkloop/services/gateway/internal/clientip"
 
@@ -20,18 +21,35 @@ type rules struct {
 
 // Filter 从 Redis 缓存加载 org IP 规则并执行过滤检查，同时支持从 API Key 缓存提取 org_id。
 type Filter struct {
-	redis *redis.Client
+	redis   *redis.Client
+	timeout time.Duration
 }
 
-func NewFilter(redisClient *redis.Client) *Filter {
-	return &Filter{redis: redisClient}
+func NewFilter(redisClient *redis.Client, timeout time.Duration) *Filter {
+	return &Filter{redis: redisClient, timeout: timeout}
 }
 
 // Middleware 返回检查请求 IP 的 HTTP 中间件。
 // 无 org_id 或 Redis 不可用时 fail-open，让下游 API 处理认证。
 func (f *Filter) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		orgID := extractOrgIDWithRedis(r.Header.Get("Authorization"), f.redis, r.Context())
+		auth := strings.TrimSpace(r.Header.Get("Authorization"))
+		if auth == "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		ctx := r.Context()
+		orgCtx := ctx
+		cancelOrg := func() {}
+		if f.redis != nil && f.timeout > 0 {
+			if bearer, ok := strings.CutPrefix(auth, "Bearer "); ok && strings.HasPrefix(bearer, "ak-") {
+				orgCtx, cancelOrg = context.WithTimeout(ctx, f.timeout)
+			}
+		}
+
+		orgID := extractOrgIDWithRedis(auth, f.redis, orgCtx)
+		cancelOrg()
 		if orgID != "" {
 			// 优先从 context 取 clientip 中间件解析的真实 IP，降级到 RemoteAddr
 			clientIPStr := clientip.FromContext(r.Context())
@@ -39,7 +57,14 @@ func (f *Filter) Middleware(next http.Handler) http.Handler {
 				clientIPStr = extractClientIP(r)
 			}
 			if clientIPStr != "" {
-				if blocked := f.check(r.Context(), orgID, clientIPStr); blocked {
+				checkCtx := ctx
+				cancelCheck := func() {}
+				if f.redis != nil && f.timeout > 0 {
+					checkCtx, cancelCheck = context.WithTimeout(ctx, f.timeout)
+				}
+				blocked := f.check(checkCtx, orgID, clientIPStr)
+				cancelCheck()
+				if blocked {
 					w.Header().Set("Content-Type", "application/json; charset=utf-8")
 					w.WriteHeader(http.StatusForbidden)
 					_, _ = w.Write([]byte(`{"code":"ip.blocked","message":"Forbidden"}`))

@@ -33,6 +33,20 @@ services:
       timeout: 3s
       retries: 20
 
+  redis_gateway:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: >
+      redis-server
+      --requirepass ${ARKLOOP_REDIS_PASSWORD:-arkloop_redis}
+      --appendonly no
+      --save ""
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${ARKLOOP_REDIS_PASSWORD:-arkloop_redis}", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
   minio:
     image: minio/minio:latest
     restart: unless-stopped
@@ -77,6 +91,7 @@ services:
       ARKLOOP_DATABASE_URL: "postgresql://${ARKLOOP_POSTGRES_USER:-arkloop}:${ARKLOOP_POSTGRES_PASSWORD:?请在 .env 中设置 ARKLOOP_POSTGRES_PASSWORD}@pgbouncer:5432/${ARKLOOP_POSTGRES_DB:-arkloop}"
       ARKLOOP_DATABASE_DIRECT_URL: "postgresql://${ARKLOOP_POSTGRES_USER:-arkloop}:${ARKLOOP_POSTGRES_PASSWORD:?请在 .env 中设置 ARKLOOP_POSTGRES_PASSWORD}@postgres:5432/${ARKLOOP_POSTGRES_DB:-arkloop}"
       ARKLOOP_REDIS_URL: "redis://:${ARKLOOP_REDIS_PASSWORD:-arkloop_redis}@redis:6379/0"
+      ARKLOOP_GATEWAY_REDIS_URL: "redis://:${ARKLOOP_REDIS_PASSWORD:-arkloop_redis}@redis_gateway:6379/0"
       ARKLOOP_S3_ENDPOINT: "${ARKLOOP_S3_ENDPOINT:-http://minio:9000}"
       ARKLOOP_API_GO_ADDR: "0.0.0.0:8001"
     ports:
@@ -87,6 +102,8 @@ services:
       pgbouncer:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      redis_gateway:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8001/healthz"]
@@ -103,6 +120,7 @@ services:
       ARKLOOP_GATEWAY_ADDR: "0.0.0.0:8000"
       ARKLOOP_GATEWAY_UPSTREAM: "${ARKLOOP_GATEWAY_UPSTREAM:-http://api:8001}"
       ARKLOOP_REDIS_URL: "redis://:${ARKLOOP_REDIS_PASSWORD:-arkloop_redis}@redis:6379/0"
+      ARKLOOP_GATEWAY_REDIS_URL: "redis://:${ARKLOOP_REDIS_PASSWORD:-arkloop_redis}@redis_gateway:6379/0"
       ARKLOOP_AUTH_JWT_SECRET: "${ARKLOOP_AUTH_JWT_SECRET}"
       ARKLOOP_RATELIMIT_CAPACITY: "${ARKLOOP_RATELIMIT_CAPACITY:-600}"
       ARKLOOP_RATELIMIT_RATE_PER_MINUTE: "${ARKLOOP_RATELIMIT_RATE_PER_MINUTE:-300}"
@@ -114,6 +132,8 @@ services:
       api:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      redis_gateway:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8000/healthz"]

@@ -38,6 +38,8 @@ export DATABASE_URL="postgresql://arkloop:<你的 ARKLOOP_POSTGRES_PASSWORD>@127
 
 `compose.bench.yaml` 已内置基线推荐值（通常不需要你再额外设置）：
 
+- bench compose 默认启用 `redis_gateway`（禁用持久化），并将 `ARKLOOP_GATEWAY_REDIS_URL` 指向它，避免 Redis 持久化抖动影响 Gateway p99
+
 ```bash
 # Gateway：避免 429 干扰吞吐与延迟
 ARKLOOP_RATELIMIT_CAPACITY=120000
