@@ -15,6 +15,7 @@ import (
 type APICRUDConfig struct {
 	BaseURL     string
 	Token       string
+	DBDSN       string
 	Warmup      time.Duration
 	Duration    time.Duration
 	Concurrency int
@@ -76,6 +77,11 @@ func RunAPICRUD(ctx context.Context, cfg APICRUDConfig) report.ScenarioResult {
 		"Authorization": "Bearer " + cfg.Token,
 	}
 
+	mon := startPGStatActivityMonitor(ctx, cfg.DBDSN)
+	if mon != nil {
+		defer mon.Stop()
+	}
+
 	// warmup
 	_, _ = runAPICRUDPhase(ctx, client, headers, baseCreate, cfg.Concurrency, cfg.Warmup)
 
@@ -108,6 +114,19 @@ func RunAPICRUD(ctx context.Context, cfg APICRUDConfig) report.ScenarioResult {
 	result.Stats["responses_2xx"] = phase.Status2xx
 	result.Stats["rate_2xx"] = rate2xx
 	result.Stats["status_codes"] = phase.StatusCounts
+	if phase.NetErrorKinds != nil {
+		result.Stats["net_error_kinds"] = phase.NetErrorKinds
+	}
+	if mon != nil {
+		result.Stats["pg_stat_activity_max_total"] = mon.MaxTotal()
+		result.Stats["pg_stat_activity_max_active"] = mon.MaxActive()
+		if code := mon.ErrCode(); code != "" {
+			result.Errors = append(result.Errors, "api_crud."+code)
+		}
+	} else {
+		result.Stats["pg_stat_activity_max_total"] = int64(0)
+		result.Stats["pg_stat_activity_max_active"] = int64(0)
+	}
 
 	pass := overall.Count > 0 &&
 		overall.P99Ms > 0 &&
@@ -124,6 +143,7 @@ type apiCRUDPhaseStats struct {
 	PatchLatMs   []float64
 	DeleteLatMs  []float64
 
+	NetErrorKinds  map[string]int64
 	StatusCounts   map[string]int64
 	TotalResponses int64
 	Status2xx      int64
@@ -152,6 +172,7 @@ func runAPICRUDPhase(
 	statusCounts := map[string]int64{}
 	var statusMu sync.Mutex
 	errSet := sync.Map{}
+	var netErrKinds sync.Map
 
 	type workerStats struct {
 		overall []float64
@@ -177,6 +198,7 @@ func runAPICRUDPhase(
 				start := time.Now()
 				var created threadResponse
 				err := httpx.DoJSON(ctx, client, http.MethodPost, createThreadsURL, headers, map[string]any{"title": title}, &created)
+				addNetErrorKind(&netErrKinds, err)
 				durCreate := float64(time.Since(start).Nanoseconds()) / 1e6
 				atomic.AddInt64(&total, 1)
 				recordResult(statusCounts, &statusMu, &errSet, "create", 201, err, &ok2xx)
@@ -191,6 +213,7 @@ func runAPICRUDPhase(
 				start = time.Now()
 				var got threadResponse
 				err = httpx.DoJSON(ctx, client, http.MethodGet, threadURL, headers, nil, &got)
+				addNetErrorKind(&netErrKinds, err)
 				durGet := float64(time.Since(start).Nanoseconds()) / 1e6
 				atomic.AddInt64(&total, 1)
 				recordResult(statusCounts, &statusMu, &errSet, "get", 200, err, &ok2xx)
@@ -204,6 +227,7 @@ func runAPICRUDPhase(
 				newTitle := "bench-upd-" + RandHex(6)
 				var patched threadResponse
 				err = httpx.DoJSON(ctx, client, http.MethodPatch, threadURL, headers, map[string]any{"title": newTitle}, &patched)
+				addNetErrorKind(&netErrKinds, err)
 				durPatch := float64(time.Since(start).Nanoseconds()) / 1e6
 				atomic.AddInt64(&total, 1)
 				recordResult(statusCounts, &statusMu, &errSet, "patch", 200, err, &ok2xx)
@@ -215,6 +239,7 @@ func runAPICRUDPhase(
 				// 4. delete
 				start = time.Now()
 				err = httpx.DoJSON(ctx, client, http.MethodDelete, threadURL, headers, nil, nil)
+				addNetErrorKind(&netErrKinds, err)
 				durDel := float64(time.Since(start).Nanoseconds()) / 1e6
 				atomic.AddInt64(&total, 1)
 				recordResult(statusCounts, &statusMu, &errSet, "delete", 204, err, &ok2xx)
@@ -256,6 +281,7 @@ func runAPICRUDPhase(
 		GetLatMs:       getLat,
 		PatchLatMs:     patchLat,
 		DeleteLatMs:    delLat,
+		NetErrorKinds:  snapshotNetErrorKinds(&netErrKinds),
 		StatusCounts:   statusCounts,
 		TotalResponses: atomic.LoadInt64(&total),
 		Status2xx:      atomic.LoadInt64(&ok2xx),

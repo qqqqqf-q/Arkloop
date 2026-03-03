@@ -156,6 +156,7 @@ services:
       retries: 20
 
   browser:
+    profiles: ["tools"]
     build:
       context: .
       dockerfile: src/services/browser/Dockerfile

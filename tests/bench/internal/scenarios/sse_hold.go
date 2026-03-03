@@ -10,14 +10,16 @@ import (
 
 	"arkloop/tests/bench/internal/httpx"
 	"arkloop/tests/bench/internal/report"
+	"arkloop/tests/bench/internal/stats"
 )
 
 type SSEHoldConfig struct {
-	APIBaseURL  string
-	Token       string
-	Hold        time.Duration
-	Concurrency int
-	Threshold   SSEHoldThresholds
+	APIBaseURL     string
+	Token          string
+	Hold           time.Duration
+	ConnectTimeout time.Duration
+	Concurrency    int
+	Threshold      SSEHoldThresholds
 }
 
 type SSEHoldThresholds struct {
@@ -26,10 +28,11 @@ type SSEHoldThresholds struct {
 
 func DefaultSSEHoldConfig(apiBaseURL, token string) SSEHoldConfig {
 	return SSEHoldConfig{
-		APIBaseURL:  apiBaseURL,
-		Token:       token,
-		Hold:        60 * time.Second,
-		Concurrency: 500,
+		APIBaseURL:     apiBaseURL,
+		Token:          token,
+		Hold:           60 * time.Second,
+		ConnectTimeout: 5 * time.Second,
+		Concurrency:    500,
 		Threshold: SSEHoldThresholds{
 			MinRetention: 0.99,
 		},
@@ -46,6 +49,7 @@ func RunSSEHold(ctx context.Context, cfg SSEHoldConfig) report.ScenarioResult {
 	}
 
 	result.Config["hold_s"] = cfg.Hold.Seconds()
+	result.Config["connect_timeout_s"] = cfg.ConnectTimeout.Seconds()
 	result.Config["concurrency"] = cfg.Concurrency
 	result.Thresholds["min_retention"] = cfg.Threshold.MinRetention
 
@@ -59,7 +63,7 @@ func RunSSEHold(ctx context.Context, cfg SSEHoldConfig) report.ScenarioResult {
 	}
 
 	client := httpx.NewClient(2 * time.Second)
-	sseClient := httpx.NewNoTimeoutClient()
+	sseClient := httpx.NewNoTimeoutClientWithHeaderTimeout(cfg.ConnectTimeout)
 	headers := map[string]string{
 		"Authorization": "Bearer " + cfg.Token,
 	}
@@ -84,10 +88,14 @@ func RunSSEHold(ctx context.Context, cfg SSEHoldConfig) report.ScenarioResult {
 
 	var attempted int64 = int64(cfg.Concurrency)
 	var success int64
+	var connected int64
 	var connectErr int64
 	var readErr int64
 
 	errSet := sync.Map{}
+	var netErrKinds sync.Map
+	connectLat := make([]float64, 0, cfg.Concurrency)
+	var connectLatMu sync.Mutex
 	var wg sync.WaitGroup
 
 	for i := 0; i < cfg.Concurrency; i++ {
@@ -103,8 +111,10 @@ func RunSSEHold(ctx context.Context, cfg SSEHoldConfig) report.ScenarioResult {
 			req.Header.Set("Authorization", "Bearer "+cfg.Token)
 			req.Header.Set("Accept", "text/event-stream")
 
+			connectStart := time.Now()
 			resp, err := sseClient.Do(req)
 			if err != nil {
+				addNetErrorKind(&netErrKinds, err)
 				atomic.AddInt64(&connectErr, 1)
 				_, _ = errSet.LoadOrStore("sse.connect.net.error", struct{}{})
 				cancel()
@@ -118,6 +128,11 @@ func RunSSEHold(ctx context.Context, cfg SSEHoldConfig) report.ScenarioResult {
 				cancel()
 				return
 			}
+			atomic.AddInt64(&connected, 1)
+			connectMs := float64(time.Since(connectStart).Nanoseconds()) / 1e6
+			connectLatMu.Lock()
+			connectLat = append(connectLat, connectMs)
+			connectLatMu.Unlock()
 
 			readDone := make(chan error, 1)
 			go func() {
@@ -161,10 +176,19 @@ func RunSSEHold(ctx context.Context, cfg SSEHoldConfig) report.ScenarioResult {
 	}
 
 	result.Stats["attempted"] = attempted
+	result.Stats["connected"] = connected
 	result.Stats["held_success"] = success
 	result.Stats["connect_error"] = connectErr
 	result.Stats["read_error"] = readErr
 	result.Stats["retention"] = retention
+	if len(connectLat) > 0 {
+		if sum, err := stats.SummarizeMs(connectLat); err == nil {
+			result.Stats["connect_latency_ms"] = sum
+		}
+	}
+	if kinds := snapshotNetErrorKinds(&netErrKinds); kinds != nil {
+		result.Stats["net_error_kinds"] = kinds
+	}
 
 	errors := make([]string, 0, 8)
 	errSet.Range(func(key, value any) bool {

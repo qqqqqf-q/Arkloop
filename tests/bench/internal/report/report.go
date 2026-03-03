@@ -64,6 +64,7 @@ func BuildMeta(ctx context.Context, targets Targets) Meta {
 			"env.docker_compose_single_node",
 			"worker.llm_stub_by_default",
 			"openviking.skipped_in_baseline_by_default",
+			"browser.separate_benchmark_command",
 			"browser_memory.sample_only",
 		},
 	}

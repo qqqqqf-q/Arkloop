@@ -108,6 +108,14 @@ func resolveToken(ctx context.Context, apiBaseURL string, accessToken string, db
 	return "", "auth.register.net.error"
 }
 
+func resolveDBDSN(flagValue string) string {
+	cleaned := strings.TrimSpace(flagValue)
+	if cleaned != "" {
+		return cleaned
+	}
+	return strings.TrimSpace(os.Getenv(envDatabaseURL))
+}
+
 func waitHealth(ctx context.Context, url string) error {
 	client := httpx.NewClient(2 * time.Second)
 	deadline := time.Now().Add(60 * time.Second)
@@ -167,6 +175,7 @@ func runBaseline(args []string) {
 	fs.Parse(args)
 
 	ctx := context.Background()
+	effectiveDBDSN := resolveDBDSN(*dbDSN)
 
 	targets := report.Targets{
 		GatewayBaseURL:    strings.TrimSpace(*gateway),
@@ -180,7 +189,6 @@ func runBaseline(args []string) {
 
 	gatewayReadyErr := waitServiceReady(ctx, targets.GatewayBaseURL, "/healthz", "gateway.not_ready")
 	apiReadyErr := waitServiceReady(ctx, targets.APIBaseURL, "/healthz", "api.not_ready")
-	browserReadyErr := waitServiceReady(ctx, targets.BrowserBaseURL, "/healthz", "browser.not_ready")
 	openVikingReadyErr := ""
 	if *includeOpenViking {
 		openVikingReadyErr = waitServiceReady(ctx, targets.OpenVikingBaseURL, "/health", "openviking.not_ready")
@@ -197,24 +205,20 @@ func runBaseline(args []string) {
 		rep.Results = append(rep.Results, tokenRequiredResult("sse_hold", apiReadyErr))
 		rep.Results = append(rep.Results, tokenRequiredResult("worker_runs", apiReadyErr))
 	} else {
-		token, tokenErr := resolveToken(ctx, targets.APIBaseURL, *accessToken, *dbDSN, *forceOpen)
+		token, tokenErr := resolveToken(ctx, targets.APIBaseURL, *accessToken, effectiveDBDSN, *forceOpen)
 		if tokenErr != "" {
 			rep.Results = append(rep.Results, tokenRequiredResult("api_crud", tokenErr))
 			rep.Results = append(rep.Results, tokenRequiredResult("sse_hold", tokenErr))
 			rep.Results = append(rep.Results, tokenRequiredResult("worker_runs", tokenErr))
 		} else {
-			rep.Results = append(rep.Results, scenarios.RunAPICRUD(ctx, scenarios.DefaultAPICRUDConfig(targets.APIBaseURL, token)))
+			apiCfg := scenarios.DefaultAPICRUDConfig(targets.APIBaseURL, token)
+			apiCfg.DBDSN = effectiveDBDSN
+			rep.Results = append(rep.Results, scenarios.RunAPICRUD(ctx, apiCfg))
 			rep.Results = append(rep.Results, scenarios.RunSSEHold(ctx, scenarios.DefaultSSEHoldConfig(targets.APIBaseURL, token)))
 			workerCfg := scenarios.DefaultWorkerRunsConfig(targets.APIBaseURL, token)
-			workerCfg.DBDSN = strings.TrimSpace(*dbDSN)
+			workerCfg.DBDSN = effectiveDBDSN
 			rep.Results = append(rep.Results, scenarios.RunWorkerRuns(ctx, workerCfg))
 		}
-	}
-
-	if browserReadyErr != "" {
-		rep.Results = append(rep.Results, tokenRequiredResult("browser_navigate", browserReadyErr))
-	} else {
-		rep.Results = append(rep.Results, scenarios.RunBrowserNavigate(ctx, scenarios.DefaultBrowserNavigateConfig(targets.BrowserBaseURL)))
 	}
 
 	if *includeOpenViking {
@@ -267,6 +271,7 @@ func runAPICRUD(args []string) {
 	fs.Parse(args)
 
 	ctx := context.Background()
+	effectiveDBDSN := resolveDBDSN(*dbDSN)
 	rep := report.Report{
 		Meta: report.BuildMeta(ctx, report.Targets{APIBaseURL: strings.TrimSpace(*api)}),
 	}
@@ -277,13 +282,15 @@ func runAPICRUD(args []string) {
 		writeReportAndExit(rep, *out)
 	}
 
-	token, tokenErr := resolveToken(ctx, strings.TrimSpace(*api), *accessToken, *dbDSN, *forceOpen)
+	token, tokenErr := resolveToken(ctx, strings.TrimSpace(*api), *accessToken, effectiveDBDSN, *forceOpen)
 	if tokenErr != "" {
 		rep.Results = append(rep.Results, tokenRequiredResult("api_crud", tokenErr))
 		rep.OverallPass = false
 		writeReportAndExit(rep, *out)
 	}
-	rep.Results = append(rep.Results, scenarios.RunAPICRUD(ctx, scenarios.DefaultAPICRUDConfig(strings.TrimSpace(*api), token)))
+	cfg := scenarios.DefaultAPICRUDConfig(strings.TrimSpace(*api), token)
+	cfg.DBDSN = effectiveDBDSN
+	rep.Results = append(rep.Results, scenarios.RunAPICRUD(ctx, cfg))
 	rep.OverallPass = rep.Results[0].Pass
 	writeReportAndExit(rep, *out)
 }
@@ -294,6 +301,7 @@ func runSSE(args []string) {
 	fs.Parse(args)
 
 	ctx := context.Background()
+	effectiveDBDSN := resolveDBDSN(*dbDSN)
 	rep := report.Report{
 		Meta: report.BuildMeta(ctx, report.Targets{APIBaseURL: strings.TrimSpace(*api)}),
 	}
@@ -304,7 +312,7 @@ func runSSE(args []string) {
 		writeReportAndExit(rep, *out)
 	}
 
-	token, tokenErr := resolveToken(ctx, strings.TrimSpace(*api), *accessToken, *dbDSN, *forceOpen)
+	token, tokenErr := resolveToken(ctx, strings.TrimSpace(*api), *accessToken, effectiveDBDSN, *forceOpen)
 	if tokenErr != "" {
 		rep.Results = append(rep.Results, tokenRequiredResult("sse_hold", tokenErr))
 		rep.OverallPass = false
@@ -321,6 +329,7 @@ func runWorker(args []string) {
 	fs.Parse(args)
 
 	ctx := context.Background()
+	effectiveDBDSN := resolveDBDSN(*dbDSN)
 	rep := report.Report{
 		Meta: report.BuildMeta(ctx, report.Targets{APIBaseURL: strings.TrimSpace(*api)}),
 	}
@@ -331,7 +340,7 @@ func runWorker(args []string) {
 		writeReportAndExit(rep, *out)
 	}
 
-	token, tokenErr := resolveToken(ctx, strings.TrimSpace(*api), *accessToken, *dbDSN, *forceOpen)
+	token, tokenErr := resolveToken(ctx, strings.TrimSpace(*api), *accessToken, effectiveDBDSN, *forceOpen)
 	if tokenErr != "" {
 		rep.Results = append(rep.Results, tokenRequiredResult("worker_runs", tokenErr))
 		rep.OverallPass = false
@@ -339,7 +348,7 @@ func runWorker(args []string) {
 	}
 
 	cfg := scenarios.DefaultWorkerRunsConfig(strings.TrimSpace(*api), token)
-	cfg.DBDSN = strings.TrimSpace(*dbDSN)
+	cfg.DBDSN = effectiveDBDSN
 	rep.Results = append(rep.Results, scenarios.RunWorkerRuns(ctx, cfg))
 	rep.OverallPass = rep.Results[0].Pass
 	writeReportAndExit(rep, *out)

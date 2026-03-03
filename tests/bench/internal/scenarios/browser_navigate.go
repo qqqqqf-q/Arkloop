@@ -28,6 +28,7 @@ type BrowserNavigateConfig struct {
 
 type BrowserNavigateThresholds struct {
 	MaxMemoryBytes int64
+	Min2xxRate     float64
 }
 
 func DefaultBrowserNavigateConfig(baseURL string) BrowserNavigateConfig {
@@ -39,6 +40,7 @@ func DefaultBrowserNavigateConfig(baseURL string) BrowserNavigateConfig {
 		TimeoutMs:   30_000,
 		Threshold: BrowserNavigateThresholds{
 			MaxMemoryBytes: 4 * 1024 * 1024 * 1024,
+			Min2xxRate:     0.95,
 		},
 	}
 }
@@ -58,6 +60,7 @@ func RunBrowserNavigate(ctx context.Context, cfg BrowserNavigateConfig) report.S
 	result.Config["timeout_ms"] = cfg.TimeoutMs
 
 	result.Thresholds["max_memory_bytes"] = cfg.Threshold.MaxMemoryBytes
+	result.Thresholds["min_2xx_rate"] = cfg.Threshold.Min2xxRate
 
 	if cfg.Concurrency <= 0 {
 		result.Errors = append(result.Errors, "config.invalid")
@@ -93,6 +96,14 @@ func RunBrowserNavigate(ctx context.Context, cfg BrowserNavigateConfig) report.S
 	result.Stats["responses_total"] = phase.TotalResponses
 	result.Stats["responses_2xx"] = phase.Status2xx
 	result.Stats["status_codes"] = phase.StatusCounts
+	rate2xx := 0.0
+	if phase.TotalResponses > 0 {
+		rate2xx = float64(phase.Status2xx) / float64(phase.TotalResponses)
+	}
+	result.Stats["rate_2xx"] = rate2xx
+	if phase.NetErrorKinds != nil {
+		result.Stats["net_error_kinds"] = phase.NetErrorKinds
+	}
 
 	// docker memory sample
 	memEnd := sampleBrowserMemory(ctx, cfg.BaseURL)
@@ -102,6 +113,9 @@ func RunBrowserNavigate(ctx context.Context, cfg BrowserNavigateConfig) report.S
 
 	pass := true
 	if lat.Count == 0 {
+		pass = false
+	}
+	if cfg.Threshold.Min2xxRate > 0 && rate2xx < cfg.Threshold.Min2xxRate {
 		pass = false
 	}
 	if memEnd != nil {
@@ -115,6 +129,7 @@ func RunBrowserNavigate(ctx context.Context, cfg BrowserNavigateConfig) report.S
 
 type browserPhaseStats struct {
 	LatenciesMs    []float64
+	NetErrorKinds  map[string]int64
 	StatusCounts   map[string]int64
 	TotalResponses int64
 	Status2xx      int64
@@ -140,6 +155,7 @@ func runBrowserNavigatePhase(
 	statusCounts := map[string]int64{}
 	var statusMu sync.Mutex
 	errSet := sync.Map{}
+	var netErrKinds sync.Map
 
 	type workerStats struct {
 		lat []float64
@@ -189,9 +205,17 @@ func runBrowserNavigatePhase(
 				latMs := float64(time.Since(start).Nanoseconds()) / 1e6
 
 				atomic.AddInt64(&total, 1)
+				addNetErrorKind(&netErrKinds, err)
 				recordBrowserStatus(statusCounts, &statusMu, &errSet, err, &ok2xx)
 				if record && err == nil {
 					workers[idx].lat = append(workers[idx].lat, latMs)
+				} else if err != nil {
+					// 服务不可用时避免无休止的紧密重试，把错误“打爆”掩盖真实行为。
+					select {
+					case <-ctx.Done():
+						return
+					case <-time.After(50 * time.Millisecond):
+					}
 				}
 			}
 		}(i)
@@ -212,6 +236,7 @@ func runBrowserNavigatePhase(
 
 	return browserPhaseStats{
 		LatenciesMs:    latencies,
+		NetErrorKinds:  snapshotNetErrorKinds(&netErrKinds),
 		StatusCounts:   statusCounts,
 		TotalResponses: atomic.LoadInt64(&total),
 		Status2xx:      atomic.LoadInt64(&ok2xx),

@@ -45,11 +45,16 @@ func NewClient(timeout time.Duration) *http.Client {
 }
 
 func NewNoTimeoutClient() *http.Client {
+	return NewNoTimeoutClientWithHeaderTimeout(0)
+}
+
+func NewNoTimeoutClientWithHeaderTimeout(headerTimeout time.Duration) *http.Client {
 	transport := &http.Transport{
-		Proxy:               http.ProxyFromEnvironment,
-		MaxIdleConns:        1024,
-		MaxIdleConnsPerHost: 1024,
-		IdleConnTimeout:     90 * time.Second,
+		Proxy:                 http.ProxyFromEnvironment,
+		MaxIdleConns:          1024,
+		MaxIdleConnsPerHost:   1024,
+		IdleConnTimeout:       90 * time.Second,
+		ResponseHeaderTimeout: headerTimeout,
 	}
 	return &http.Client{
 		Transport: transport,

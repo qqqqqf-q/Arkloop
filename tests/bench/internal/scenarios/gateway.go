@@ -87,6 +87,7 @@ func RunGatewayRatelimit(ctx context.Context, cfg GatewayConfig) report.Scenario
 	if sumErr != nil {
 		result.Errors = append(result.Errors, "gateway.latency.empty")
 	}
+	errLatSummary, _ := stats.SummarizeMs(phase.ErrorLatenciesMs)
 	var rate2xx float64
 	if phase.TotalResponses > 0 {
 		rate2xx = float64(phase.Status2xx) / float64(phase.TotalResponses)
@@ -95,14 +96,28 @@ func RunGatewayRatelimit(ctx context.Context, cfg GatewayConfig) report.Scenario
 	if cfg.Duration > 0 {
 		achieved = float64(phase.TotalResponses) / cfg.Duration.Seconds()
 	}
+	successRPS := 0.0
+	if cfg.Duration > 0 {
+		successRPS = float64(phase.Status2xx) / cfg.Duration.Seconds()
+	}
 
 	result.Stats["latency_ms"] = latSummary
+	if errLatSummary.Count > 0 {
+		result.Stats["latency_ms_error"] = errLatSummary
+	}
 	result.Stats["status_codes"] = phase.StatusCounts
 	result.Stats["achieved_rps"] = achieved
+	result.Stats["success_rps"] = successRPS
 	result.Stats["responses_total"] = phase.TotalResponses
 	result.Stats["responses_2xx"] = phase.Status2xx
 	result.Stats["rate_2xx"] = rate2xx
 	result.Stats["dropped_jobs"] = phase.DroppedJobs
+	result.Stats["attempted_jobs"] = phase.AttemptedJobs
+	result.Stats["started_jobs"] = phase.AttemptedJobs - phase.DroppedJobs
+	result.Stats["net_errors"] = phase.NetErrors
+	if phase.NetErrorKinds != nil {
+		result.Stats["net_error_kinds"] = phase.NetErrorKinds
+	}
 
 	pass := latSummary.Count > 0 &&
 		latSummary.P99Ms > 0 &&
@@ -114,11 +129,15 @@ func RunGatewayRatelimit(ctx context.Context, cfg GatewayConfig) report.Scenario
 }
 
 type gatewayPhaseStats struct {
-	LatenciesMs    []float64
-	StatusCounts   map[string]int64
-	TotalResponses int64
-	Status2xx      int64
-	DroppedJobs    int64
+	LatenciesMs      []float64
+	ErrorLatenciesMs []float64
+	NetErrorKinds    map[string]int64
+	StatusCounts     map[string]int64
+	TotalResponses   int64
+	Status2xx        int64
+	DroppedJobs      int64
+	NetErrors        int64
+	AttemptedJobs    int64
 }
 
 func runGatewayPhase(ctx context.Context, client *http.Client, url string, qps int, workers int, duration time.Duration) (gatewayPhaseStats, []string) {
@@ -130,6 +149,7 @@ func runGatewayPhase(ctx context.Context, client *http.Client, url string, qps i
 
 	jobs := make(chan struct{}, qps)
 	var dropped int64
+	var attempted int64
 
 	stop := make(chan struct{})
 
@@ -140,9 +160,12 @@ func runGatewayPhase(ctx context.Context, client *http.Client, url string, qps i
 	if expected < 1 {
 		expected = 1
 	}
-	latCh := make(chan float64, expected)
+	latOKCh := make(chan float64, expected)
+	latErrCh := make(chan float64, expected)
 	statusCh := make(chan int, expected)
 	errCh := make(chan string, 16)
+	var netErrKinds sync.Map
+	var netErrors int64
 
 	var wg sync.WaitGroup
 	for i := 0; i < workers; i++ {
@@ -155,8 +178,14 @@ func runGatewayPhase(ctx context.Context, client *http.Client, url string, qps i
 				resp, err := client.Do(req)
 				latMs := float64(time.Since(start).Nanoseconds()) / 1e6
 				if err != nil {
+					atomic.AddInt64(&netErrors, 1)
+					addNetErrorKind(&netErrKinds, err)
 					select {
-					case errCh <- "gateway.http_error":
+					case latErrCh <- latMs:
+					default:
+					}
+					select {
+					case errCh <- "gateway.net.error":
 					default:
 					}
 					continue
@@ -164,7 +193,7 @@ func runGatewayPhase(ctx context.Context, client *http.Client, url string, qps i
 				_, _ = io.Copy(io.Discard, resp.Body)
 				_ = resp.Body.Close()
 
-				latCh <- latMs
+				latOKCh <- latMs
 				statusCh <- resp.StatusCode
 			}
 		}()
@@ -186,6 +215,7 @@ func runGatewayPhase(ctx context.Context, client *http.Client, url string, qps i
 			case <-end.C:
 				return
 			case <-ticker.C:
+				atomic.AddInt64(&attempted, 1)
 				select {
 				case jobs <- struct{}{}:
 				default:
@@ -198,12 +228,17 @@ func runGatewayPhase(ctx context.Context, client *http.Client, url string, qps i
 	<-stop
 	close(jobs)
 	wg.Wait()
-	close(latCh)
+	close(latOKCh)
+	close(latErrCh)
 	close(statusCh)
 
-	latencies := make([]float64, 0, len(latCh))
-	for v := range latCh {
+	latencies := make([]float64, 0, expected)
+	for v := range latOKCh {
 		latencies = append(latencies, v)
+	}
+	errLatencies := make([]float64, 0, len(latErrCh))
+	for v := range latErrCh {
+		errLatencies = append(errLatencies, v)
 	}
 
 	statusCounts := map[string]int64{}
@@ -216,6 +251,11 @@ func runGatewayPhase(ctx context.Context, client *http.Client, url string, qps i
 		}
 		key := "http." + itoa(code)
 		statusCounts[key]++
+	}
+	netErrN := atomic.LoadInt64(&netErrors)
+	if netErrN > 0 {
+		statusCounts["net.error"] = netErrN
+		total += netErrN
 	}
 
 	errSet := map[string]struct{}{}
@@ -237,11 +277,15 @@ DONE:
 	}
 
 	return gatewayPhaseStats{
-		LatenciesMs:    latencies,
-		StatusCounts:   statusCounts,
-		TotalResponses: total,
-		Status2xx:      status2xx,
-		DroppedJobs:    atomic.LoadInt64(&dropped),
+		LatenciesMs:      latencies,
+		ErrorLatenciesMs: errLatencies,
+		NetErrorKinds:    snapshotNetErrorKinds(&netErrKinds),
+		StatusCounts:     statusCounts,
+		TotalResponses:   total,
+		Status2xx:        status2xx,
+		DroppedJobs:      atomic.LoadInt64(&dropped),
+		NetErrors:        netErrN,
+		AttemptedJobs:    atomic.LoadInt64(&attempted),
 	}, errors
 }
 

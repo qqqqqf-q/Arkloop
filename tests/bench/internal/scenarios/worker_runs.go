@@ -13,8 +13,6 @@ import (
 	"arkloop/tests/bench/internal/httpx"
 	"arkloop/tests/bench/internal/report"
 	"arkloop/tests/bench/internal/stats"
-
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type WorkerRunsConfig struct {
@@ -74,14 +72,23 @@ func RunWorkerRuns(ctx context.Context, cfg WorkerRunsConfig) report.ScenarioRes
 		"Authorization": "Bearer " + cfg.Token,
 	}
 
+	mon := startPGStatActivityMonitor(ctx, cfg.DBDSN)
+	if mon != nil {
+		defer mon.Stop()
+	}
+
 	threads := make([]string, 0, cfg.RunCount)
+	threadCreateMs := make([]float64, 0, cfg.RunCount)
 	for i := 0; i < cfg.RunCount; i++ {
+		start := time.Now()
 		threadID, errCode := createThread(ctx, client, cfg.APIBaseURL, headers)
+		durMs := float64(time.Since(start).Nanoseconds()) / 1e6
 		if errCode != "" {
 			result.Errors = append(result.Errors, errCode)
 			return result
 		}
 		threads = append(threads, threadID)
+		threadCreateMs = append(threadCreateMs, durMs)
 	}
 
 	type createdRun struct {
@@ -93,21 +100,28 @@ func RunWorkerRuns(ctx context.Context, cfg WorkerRunsConfig) report.ScenarioRes
 	var created int64
 	var createFail int64
 	errSet := sync.Map{}
+	runCreateMs := make([]float64, 0, cfg.RunCount)
+	var runCreateMu sync.Mutex
 
 	var createWG sync.WaitGroup
 	for _, tid := range threads {
 		createWG.Add(1)
 		go func(threadID string) {
 			defer createWG.Done()
+			start := time.Now()
 			runID, errCode := createRun(ctx, client, cfg.APIBaseURL, threadID, headers, "lite")
+			durMs := float64(time.Since(start).Nanoseconds()) / 1e6
 			if errCode != "" {
 				atomic.AddInt64(&createFail, 1)
 				_, _ = errSet.LoadOrStore("worker_runs."+errCode, struct{}{})
 				return
 			}
-			start := time.Now()
+			runCreateMu.Lock()
+			runCreateMs = append(runCreateMs, durMs)
+			runCreateMu.Unlock()
+			startedAt := time.Now()
 			atomic.AddInt64(&created, 1)
-			runCh <- createdRun{RunID: runID, StartedAt: start}
+			runCh <- createdRun{RunID: runID, StartedAt: startedAt}
 		}(tid)
 	}
 	createWG.Wait()
@@ -125,63 +139,7 @@ func RunWorkerRuns(ctx context.Context, cfg WorkerRunsConfig) report.ScenarioRes
 
 	completionMs := make([]float64, 0, len(createdRuns))
 	var completionMu sync.Mutex
-
-	var maxTotalConns int64
-	var maxActiveConns int64
-	monitorStop := make(chan struct{})
-	cancelMonitor := func() {}
-	if strings.TrimSpace(cfg.DBDSN) != "" {
-		monitorCtx, cancel := context.WithCancel(ctx)
-		cancelMonitor = cancel
-		go func() {
-			defer close(monitorStop)
-			pool, err := pgxpool.New(monitorCtx, cfg.DBDSN)
-			if err != nil {
-				_, _ = errSet.LoadOrStore("worker_runs.db.connect_error", struct{}{})
-				return
-			}
-			defer pool.Close()
-
-			ticker := time.NewTicker(1 * time.Second)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-monitorCtx.Done():
-					return
-				case <-ticker.C:
-					var total int64
-					var active int64
-					q := `
-						SELECT
-						  COUNT(*)::bigint AS total,
-						  COUNT(*) FILTER (WHERE state = 'active')::bigint AS active
-						FROM pg_stat_activity
-						WHERE datname = current_database()
-					`
-					qctx, qcancel := context.WithTimeout(monitorCtx, 500*time.Millisecond)
-					err := pool.QueryRow(qctx, q).Scan(&total, &active)
-					qcancel()
-					if err != nil {
-						continue
-					}
-					for {
-						prev := atomic.LoadInt64(&maxTotalConns)
-						if total <= prev || atomic.CompareAndSwapInt64(&maxTotalConns, prev, total) {
-							break
-						}
-					}
-					for {
-						prev := atomic.LoadInt64(&maxActiveConns)
-						if active <= prev || atomic.CompareAndSwapInt64(&maxActiveConns, prev, active) {
-							break
-						}
-					}
-				}
-			}
-		}()
-	} else {
-		close(monitorStop)
-	}
+	var netErrKinds sync.Map
 
 	var wg sync.WaitGroup
 	for _, run := range createdRuns {
@@ -205,6 +163,7 @@ func RunWorkerRuns(ctx context.Context, cfg WorkerRunsConfig) report.ScenarioRes
 
 			resp, err := sseClient.Do(req)
 			if err != nil {
+				addNetErrorKind(&netErrKinds, err)
 				atomic.AddInt64(&timedOut, 1)
 				_, _ = errSet.LoadOrStore("worker_runs.sse.net.error", struct{}{})
 				return
@@ -244,8 +203,6 @@ func RunWorkerRuns(ctx context.Context, cfg WorkerRunsConfig) report.ScenarioRes
 	}
 
 	wg.Wait()
-	cancelMonitor()
-	<-monitorStop
 
 	createdN := atomic.LoadInt64(&created)
 	createFailN := atomic.LoadInt64(&createFail)
@@ -276,13 +233,34 @@ func RunWorkerRuns(ctx context.Context, cfg WorkerRunsConfig) report.ScenarioRes
 	result.Stats["runs_terminal_total"] = termTotal
 	result.Stats["failed_rate"] = failedRate
 	result.Stats["timeout_rate"] = timeoutRate
+	if len(threadCreateMs) > 0 {
+		if sum, err := stats.SummarizeMs(threadCreateMs); err == nil {
+			result.Stats["threads_create_ms"] = sum
+		}
+	}
+	if len(runCreateMs) > 0 {
+		if sum, err := stats.SummarizeMs(runCreateMs); err == nil {
+			result.Stats["runs_create_ms"] = sum
+		}
+	}
 	completionSummary, sumErr := stats.SummarizeMs(completionMs)
 	if sumErr != nil {
 		_, _ = errSet.LoadOrStore("worker_runs.completion.empty", struct{}{})
 	}
 	result.Stats["run_completion_ms"] = completionSummary
-	result.Stats["pg_stat_activity_max_total"] = atomic.LoadInt64(&maxTotalConns)
-	result.Stats["pg_stat_activity_max_active"] = atomic.LoadInt64(&maxActiveConns)
+	if mon != nil {
+		result.Stats["pg_stat_activity_max_total"] = mon.MaxTotal()
+		result.Stats["pg_stat_activity_max_active"] = mon.MaxActive()
+		if code := mon.ErrCode(); code != "" {
+			_, _ = errSet.LoadOrStore("worker_runs."+code, struct{}{})
+		}
+	} else {
+		result.Stats["pg_stat_activity_max_total"] = int64(0)
+		result.Stats["pg_stat_activity_max_active"] = int64(0)
+	}
+	if kinds := snapshotNetErrorKinds(&netErrKinds); kinds != nil {
+		result.Stats["net_error_kinds"] = kinds
+	}
 
 	errors := make([]string, 0, 16)
 	errSet.Range(func(key, value any) bool {
