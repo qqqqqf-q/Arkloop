@@ -411,43 +411,422 @@ packages:
 
 ---
 
-## 6. Track F -- 插件体系规划
+## 6. Track F -- 插件体系（OpenCore / BusinessCore 分离）
 
-**目标**：为未来的插件化扩展建立接口契约，但不在核心路径上引入插件运行时。
+**目标**：建立 OpenCore（开源核心）与 BusinessCore（商业扩展）的架构分裂线。商业功能（Stripe 订阅、企业 SSO、多渠道通知、高级审计等）以独立 Go module 的形式存在于私有仓库，通过编译时注册接入 OSS 核心，不引入运行时插件加载。
 
-### F1 -- 插件边界识别
+**核心动机**：开源仓库必须完整可用——无任何商业插件时，系统以内置积分/JWT/Email 作为默认实现正常运行。商业功能只做能力增强，不做功能阉割。
 
-以下功能未来可能以插件形式提供，当前开发时需预留接口边界：
+### F0 -- 设计决策与技术选型
 
-| 候选插件 | 当前状态 | 接口要求 |
-|----------|---------|---------|
-| Stripe 订阅 | 未接入 | 计费接口抽象（BillingProvider） |
-| OAuth Provider | 未实现 | 认证接口抽象（AuthProvider） |
-| 通知渠道（Slack/Discord/Telegram） | 仅邮件 | 通知接口抽象（NotificationChannel） |
-| 存储后端（AWS S3/GCS/Azure Blob） | 仅 MinIO | 对象存储接口（ObjectStore，已由 MinIO SDK 抽象） |
-| LLM Provider 扩展 | 硬编码 Anthropic/OpenAI 等 | Provider 路由已抽象 |
+**为什么不用运行时插件加载？**
 
-### F2 -- 接口契约原则
+Go 的运行时插件方案均存在根本性缺陷：
+- `plugin` 包（.so）：编译器版本、依赖版本必须严格一致，跨平台不可用，社区已事实弃用
+- HashiCorp go-plugin（独立进程 + gRPC）：适合 Terraform 式的 CLI 工具链，但对 Agent Loop 热路径上的高频调用（计费扣费、权限校验）引入不必要的 IPC 开销和运维复杂度
 
-- 插件是接口实现，不是 hook 或 event bus。核心系统依赖接口，插件提供实现
-- 核心功能不依赖任何插件。无插件时系统完整可用，插件只提供扩展能力
-- 插件配置走 Config Resolver（Track A），不引入新的配置路径
-- 第一个正式插件（预计 Stripe）落地时再制定插件发现和加载机制，不提前过度设计
+**采用方案：`database/sql` 式 init() 注册模式**
 
-### F3 -- BillingProvider 接口预留
+Go 标准库验证过的范式——`import _ "github.com/lib/pq"` 在 `init()` 中注册 driver，应用代码通过 `sql.Open("postgres", ...)` 使用。所有 Go 开发者都理解这个模式，无学习成本。
 
-当前积分和 Plan 体系是硬编码逻辑。预留接口供 Stripe 等外部计费系统接入：
+工作方式：
+1. OSS 核心在 `shared/plugin/` 定义扩展点接口和类型安全的注册表
+2. 每个商业插件是独立 Go package，在 `init()` 中调用 `plugin.RegisterXxx()` 注册自身
+3. OSS 版 `main.go` 只 import 核心代码；商业版 `main.go` 额外 import 商业插件包
+4. 编译时决定包含哪些插件，运行时无发现/加载开销
+
+### F1 -- 仓库与构建模型
+
+**双仓库结构**：
+
+```
+arkloop/                           (公开仓库 - OpenCore)
+├── src/services/shared/plugin/    ← 扩展点注册表 + 接口定义
+│   ├── registry.go                ← 全局注册表（各扩展点的 typed map）
+│   ├── billing.go                 ← BillingProvider 接口 + OSS 默认实现
+│   ├── auth.go                    ← AuthProvider 接口 + OSS 默认实现
+│   ├── notify.go                  ← NotificationChannel 接口 + OSS 默认实现
+│   └── audit.go                   ← AuditSink 接口 + OSS 默认实现
+├── src/services/api/cmd/api/main.go       ← OSS 入口（无商业 import）
+├── src/services/worker/cmd/worker/main.go ← OSS 入口（无商业 import）
+└── ...
+
+arkloop-enterprise/                (私有仓库 - BusinessCore)
+├── go.mod                         ← require arkloop OSS core as dependency
+├── billing/
+│   └── stripe/                    ← BillingProvider 的 Stripe 实现
+│       ├── provider.go
+│       └── webhook.go
+├── auth/
+│   └── oidc/                      ← AuthProvider 的 OIDC/SAML 实现
+│       └── provider.go
+├── notify/
+│   ├── slack/                     ← NotificationChannel 的 Slack 实现
+│   └── discord/                   ← NotificationChannel 的 Discord 实现
+├── audit/
+│   └── external/                  ← AuditSink 的企业级外发实现
+├── cmd/
+│   ├── api/main.go                ← 商业版 API 入口
+│   └── worker/main.go             ← 商业版 Worker 入口
+└── ...
+```
+
+**商业版入口示例**（`arkloop-enterprise/cmd/api/main.go`）：
 
 ```go
-type BillingProvider interface {
-    CreateSubscription(ctx context.Context, orgID uuid.UUID, planID string) error
-    CancelSubscription(ctx context.Context, orgID uuid.UUID) error
-    SyncUsage(ctx context.Context, orgID uuid.UUID, usage UsageRecord) error
-    HandleWebhook(ctx context.Context, payload []byte) error
+package main
+
+import (
+    api "arkloop.dev/services/api/cmd/api"
+
+    // 商业插件（side-effect import，init() 中自动注册）
+    _ "arkloop.dev/enterprise/billing/stripe"
+    _ "arkloop.dev/enterprise/auth/oidc"
+    _ "arkloop.dev/enterprise/notify/slack"
+)
+
+func main() {
+    api.Run()
 }
 ```
 
-默认实现为内置积分系统（现有逻辑）。Stripe 插件实现此接口后通过配置切换。
+与 OSS 版 `main.go` 的唯一区别是多了几行 import。构建产物是单一二进制，无额外进程、无 .so 文件。
+
+**版本同步**：`arkloop-enterprise` 的 `go.mod` 通过 Git tag 引用 OSS core 的版本，CI 确保两个仓库的兼容性。
+
+### F2 -- 扩展点注册表
+
+在 `src/services/shared/plugin/` 中建立统一注册机制。每个扩展点一个 typed registry，不搞泛型万能容器。
+
+```go
+// shared/plugin/registry.go
+package plugin
+
+import "sync"
+
+// 全局注册表，各扩展点独立管理
+var (
+    mu sync.RWMutex
+
+    billingProvider  BillingProvider
+    authProviders    = map[string]AuthProvider{}
+    notifyChannels   = map[string]NotificationChannel{}
+    auditSinks       []AuditSink
+)
+
+// RegisterBillingProvider 注册计费实现，覆盖 OSS 默认。
+// 同一进程只允许一个 BillingProvider（Stripe 或内置，不能并存）。
+func RegisterBillingProvider(p BillingProvider) {
+    mu.Lock()
+    defer mu.Unlock()
+    billingProvider = p
+}
+
+// RegisterAuthProvider 注册认证实现。name 为 provider 标识（如 "oidc", "saml"）。
+// 可注册多个，运行时通过配置选择激活哪个。
+func RegisterAuthProvider(name string, p AuthProvider) {
+    mu.Lock()
+    defer mu.Unlock()
+    authProviders[name] = p
+}
+
+// RegisterNotificationChannel 注册通知渠道。name 为渠道标识（如 "slack", "discord"）。
+// 可注册多个，按配置激活。
+func RegisterNotificationChannel(name string, ch NotificationChannel) {
+    mu.Lock()
+    defer mu.Unlock()
+    notifyChannels[name] = ch
+}
+
+// RegisterAuditSink 注册审计日志输出。可注册多个，事件同时写入所有 sink。
+func RegisterAuditSink(s AuditSink) {
+    mu.Lock()
+    defer mu.Unlock()
+    auditSinks = append(auditSinks, s)
+}
+
+// GetBillingProvider 返回当前生效的 BillingProvider。
+// 无注册时返回 OSS 内置实现（在 registry init 阶段设置）。
+func GetBillingProvider() BillingProvider { ... }
+func GetAuthProvider(name string) (AuthProvider, bool) { ... }
+func ListNotificationChannels() map[string]NotificationChannel { ... }
+func GetAuditSinks() []AuditSink { ... }
+```
+
+注册表在进程启动阶段（`init()` 之后、`main()` 中服务初始化之前）冻结。运行时只读，无并发写入风险。
+
+### F3 -- 扩展点接口定义
+
+以下四个接口构成 OpenCore/BusinessCore 分裂线。每个接口在 OSS 核心中有完整的默认实现，商业插件通过注册覆盖。
+
+#### F3.1 -- BillingProvider（计费）
+
+当前状态：积分扣减（`credits_repo.go`）、订阅管理（`subscriptions_repo.go`）、Plan 解析（`plans_repo.go`）直接操作 DB，逻辑分散在 handler 层和 `entitlement.Service` 中。
+
+```go
+// shared/plugin/billing.go
+type BillingProvider interface {
+    // 订阅管理
+    CreateSubscription(ctx context.Context, orgID uuid.UUID, planID string) error
+    CancelSubscription(ctx context.Context, orgID uuid.UUID) error
+    GetActiveSubscription(ctx context.Context, orgID uuid.UUID) (*Subscription, error)
+
+    // 用量同步（Agent run 完成后上报 token 消耗）
+    ReportUsage(ctx context.Context, orgID uuid.UUID, usage UsageRecord) error
+
+    // 额度检查（run 启动前调用，决定是否允许执行）
+    CheckQuota(ctx context.Context, orgID uuid.UUID, resource string) (allowed bool, err error)
+
+    // Webhook 处理（Stripe/Paddle 回调）
+    HandleWebhook(ctx context.Context, provider string, payload []byte, signature string) error
+}
+
+type UsageRecord struct {
+    RunID       uuid.UUID
+    TokensIn    int64
+    TokensOut   int64
+    ToolCalls   int
+    DurationMs  int64
+}
+```
+
+OSS 默认实现：封装现有 `credits_repo` + `subscriptions_repo` + `entitlement.Resolver` 的逻辑，行为与当前完全一致。
+
+商业实现示例：Stripe 插件调用 Stripe API 管理订阅，将 usage 同步到 Stripe Metered Billing，webhook 处理 `invoice.paid` / `customer.subscription.updated` 等事件。
+
+迁移路径：
+1. 将 handler 层直接调用 `credits_repo.Deduct()` / `subscriptions_repo.Create()` 的代码收拢到 `BillingProvider` 接口后面
+2. Worker 的 `handler_agent_loop.go` 中 run 结束后的 token 扣费改为调用 `plugin.GetBillingProvider().ReportUsage()`
+3. API 的 entitlement 检查点（run 启动前）改为调用 `CheckQuota()`
+
+#### F3.2 -- AuthProvider（认证扩展）
+
+当前状态：JWT 双 Token（HS256 签发/验证/刷新）+ bcrypt 密码 + Email OTP 登录。`auth.Service` 直接耦合 `JwtAccessTokenService`，无接口层。RBAC 为静态角色映射（`permissions.go`），但 `RBACRolesRepository` 已预留动态角色能力。
+
+AuthProvider 不替换 JWT 签发——JWT 是内部 session 令牌，始终由 OSS 核心签发。AuthProvider 扩展的是"用户身份如何进入系统"，即外部 IdP 联合登录。
+
+```go
+// shared/plugin/auth.go
+type AuthProvider interface {
+    // Name 返回 provider 标识（如 "oidc", "saml"）
+    Name() string
+
+    // AuthCodeURL 返回 IdP 登录页 URL（OAuth2 Authorization Code Flow）
+    AuthCodeURL(ctx context.Context, state string) (string, error)
+
+    // ExchangeToken 用 IdP 回调的 code 换取用户身份
+    ExchangeToken(ctx context.Context, code string) (*ExternalIdentity, error)
+
+    // RefreshExternalToken 刷新 IdP 侧的 token（可选，部分 IdP 不支持）
+    RefreshExternalToken(ctx context.Context, refreshToken string) (*ExternalIdentity, error)
+}
+
+type ExternalIdentity struct {
+    ProviderName string // "oidc", "saml", "github"
+    ExternalID   string // IdP 侧用户唯一标识
+    Email        string
+    DisplayName  string
+    AvatarURL    string
+    RawClaims    map[string]any // IdP 原始声明，供审计和自定义映射
+}
+```
+
+联合登录流程：
+1. 用户访问 `/v1/auth/sso/{provider}` -> 核心调用 `AuthCodeURL()` -> 重定向到 IdP
+2. IdP 回调 `/v1/auth/sso/{provider}/callback?code=xxx` -> 核心调用 `ExchangeToken()`
+3. 核心拿到 `ExternalIdentity` 后，查找或创建本地用户（`external_identities` 表关联）
+4. 核心用现有 JWT 逻辑签发 access_token + refresh_token，后续请求走标准 JWT 验证
+
+OSS 默认实现：无外部 AuthProvider 注册时，SSO 端点返回 404。现有 username/password + Email OTP 登录不受影响。
+
+迁移路径：
+1. 新增 `external_identities` 表（provider_name, external_id, user_id 三列联合唯一）
+2. API 新增 `/v1/auth/sso/{provider}` 和 `/v1/auth/sso/{provider}/callback` 两个 handler
+3. handler 内部调用 `plugin.GetAuthProvider(provider)` 获取实现，不存在则 404
+
+#### F3.3 -- NotificationChannel（通知渠道）
+
+当前状态：
+- Email：`Mailer` 接口（`Send(ctx, Message) error`），SMTP + NoOp 双实现，通过 Worker job queue 异步发送
+- Webhook：独立的 `webhook.DeliveryHandler`，HMAC-SHA256 签名，SSRF 防护，指数退避重试
+- 应用内通知：`notifications` + `notification_broadcasts` 表，REST API 查询
+
+三套通知系统各自独立，无统一调度。
+
+```go
+// shared/plugin/notify.go
+type NotificationChannel interface {
+    // Name 返回渠道标识（如 "slack", "discord", "telegram"）
+    Name() string
+
+    // Send 发送通知，返回渠道侧的投递标识（用于追踪）
+    Send(ctx context.Context, notification Notification) (deliveryRef string, err error)
+}
+
+type Notification struct {
+    EventType string         // "run.completed", "run.failed", "invite.received" 等
+    OrgID     uuid.UUID
+    Title     string
+    Body      string
+    Metadata  map[string]any // 事件特定数据
+}
+```
+
+OSS 默认实现：不注册任何 NotificationChannel 时，通知仅走 Email（现有 Mailer）和应用内通知。Webhook 保持独立（它是用户自配的集成，不是"渠道"）。
+
+商业实现示例：Slack 插件接收 Notification，格式化为 Slack Block Kit 消息，通过 Incoming Webhook 或 Bot Token 投递到指定 Channel。
+
+注意事项：
+- NotificationChannel 是对外推送的扩展点，不改变现有 Email/Webhook/应用内通知的逻辑
+- 渠道激活和目标配置（发到哪个 Slack channel）走 Config Resolver（Track A），per-org 可配
+- 通知路由逻辑（哪些事件发到哪些渠道）由核心的通知调度器管理，不下放给插件
+
+#### F3.4 -- AuditSink（审计日志外发）
+
+当前状态：无集中审计日志系统。操作记录散布在各 handler 的业务日志中。
+
+```go
+// shared/plugin/audit.go
+type AuditSink interface {
+    // Name 返回 sink 标识（如 "splunk", "datadog", "s3-archive"）
+    Name() string
+
+    // Emit 发送审计事件。实现应异步处理，不阻塞调用方。
+    Emit(ctx context.Context, event AuditEvent) error
+}
+
+type AuditEvent struct {
+    Timestamp time.Time
+    ActorID   uuid.UUID      // 操作人
+    OrgID     uuid.UUID
+    Action    string         // "user.login", "run.create", "apikey.rotate" 等
+    Resource  string         // 被操作资源类型
+    ResourceID string        // 被操作资源 ID
+    Detail    map[string]any // 操作详情
+    IP        string
+    UserAgent string
+}
+```
+
+OSS 默认实现：`DBSink`——将审计事件写入 `audit_events` 表（新建 migration），提供基础查询 API。
+
+商业实现示例：Splunk/Datadog 插件将事件异步推送到企业 SIEM 系统。
+
+AuditSink 允许注册多个（`RegisterAuditSink` 是 append 语义），事件同时写入所有已注册的 sink。OSS 的 `DBSink` 始终存在，商业 sink 是额外的输出通道。
+
+### F4 -- 插件配置集成
+
+插件的运行时配置走 Config Resolver（Track A），不引入新的配置路径。
+
+**注册时声明配置项**：每个插件在 `init()` 中同时调用 `config.Register()` 注册自己需要的配置 key：
+
+```go
+// arkloop-enterprise/billing/stripe/provider.go
+func init() {
+    config.Register(config.Entry{
+        Key:       "billing.stripe.secret_key",
+        Type:      "string",
+        Sensitive: true,
+        Scope:     "platform",
+    })
+    config.Register(config.Entry{
+        Key:       "billing.stripe.webhook_secret",
+        Type:      "string",
+        Sensitive: true,
+        Scope:     "platform",
+    })
+    config.Register(config.Entry{
+        Key:       "billing.stripe.price_id",
+        Type:      "string",
+        Scope:     "platform",
+    })
+
+    plugin.RegisterBillingProvider(&StripeProvider{})
+}
+```
+
+Console 的配置管理页（Track A5）通过 `GET /v1/config/schema` 获取所有注册项，商业插件注册的配置项会自动出现在 Console 中，无需前端改动。
+
+**插件激活配置**：通过 Config Resolver 中的 key 控制哪个实现生效：
+
+| Key | 含义 | 默认值 |
+|-----|------|--------|
+| `plugin.billing.provider` | 计费实现（`builtin` / `stripe`） | `builtin` |
+| `plugin.auth.sso.enabled` | 是否启用 SSO 登录 | `false` |
+| `plugin.auth.sso.provider` | SSO 实现（`oidc` / `saml`） | 空 |
+| `plugin.notify.channels` | 激活的通知渠道（逗号分隔） | 空 |
+| `plugin.audit.sinks` | 激活的审计 sink（逗号分隔） | `db` |
+
+### F5 -- OSS 默认实现与降级保证
+
+每个扩展点必须有 OSS 内置实现，保证无商业插件时系统完整可用：
+
+| 扩展点 | OSS 默认实现 | 行为 |
+|--------|-------------|------|
+| BillingProvider | `BuiltinBillingProvider` | 封装现有 credits_repo + subscriptions_repo + entitlement 逻辑 |
+| AuthProvider | 无注册 | SSO 端点返回 404，现有 JWT + password + OTP 登录不受影响 |
+| NotificationChannel | 无注册 | 通知仅走 Email + 应用内 + Webhook（现有逻辑） |
+| AuditSink | `DBSink` | 审计事件写入本地 DB，Console 可查 |
+
+**降级规则**：
+- 注册了商业插件但配置缺失（如 Stripe secret_key 为空）：启动时日志 warn，运行时调用返回明确错误（`ErrProviderNotConfigured`），不 panic、不静默降级到 OSS 实现
+- 这样做是因为运维人员显式选择了商业实现，静默降级会掩盖配置问题
+
+### F6 -- 现有接口盘点（非插件边界）
+
+以下接口已存在于代码库中，属于良好的内部抽象，**不是 OpenCore/BusinessCore 分裂线**（不需要成为插件扩展点）：
+
+| 接口 | 位置 | 说明 |
+|------|------|------|
+| `llm.Gateway` | worker/llm/gateway.go | LLM 调用抽象。Provider 扩展通过 Track C（Tool Provider）和路由配置解决，不需要插件机制 |
+| `VMPool` | sandbox/session/manager.go | Sandbox VM 池。Firecracker 可替换为 Docker 等，但这是部署选择，不是商业功能 |
+| `SnapshotStore` | sandbox/storage/store.go | 快照存储。MinIO 实现，S3 兼容，已足够 |
+| `Mailer` | worker/email/mailer.go | 邮件发送。SMTP + NoOp 双实现，是 NotificationChannel 的子集 |
+| `MemoryProvider` | worker/memory/provider.go | 记忆系统。OpenViking 实现，fail-open 设计 |
+| `config.Resolver` | shared/config/resolver.go | 配置解析。多级 fallback，是基础设施，不是插件 |
+| `tools.Executor` | worker/tools/ | 工具执行。MCP 已覆盖动态扩展 |
+| `executor.Registry` | worker/executor/ | Agent 执行器注册。工厂模式，内部使用 |
+
+这些接口如需扩展（如增加新的 LLM Provider），通过现有的注册/配置机制完成，不经过 `shared/plugin/` 注册表。
+
+### F7 -- 数据库迁移
+
+插件体系需要的 schema 变更：
+
+```sql
+-- F3.2: 外部身份关联（SSO 联合登录）
+CREATE TABLE external_identities (
+    id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id       uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    provider_name text NOT NULL,           -- "oidc", "saml", "github"
+    external_id   text NOT NULL,           -- IdP 侧用户唯一标识
+    email         text,
+    display_name  text,
+    raw_claims    jsonb,
+    created_at    timestamptz NOT NULL DEFAULT now(),
+    updated_at    timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (provider_name, external_id)
+);
+CREATE INDEX idx_external_identities_user ON external_identities(user_id);
+
+-- F3.4: 审计事件（OSS DBSink 使用）
+CREATE TABLE audit_events (
+    id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    timestamp   timestamptz NOT NULL DEFAULT now(),
+    actor_id    uuid REFERENCES users(id),
+    org_id      uuid REFERENCES orgs(id),
+    action      text NOT NULL,
+    resource    text NOT NULL,
+    resource_id text,
+    detail      jsonb,
+    ip          text,
+    user_agent  text
+);
+CREATE INDEX idx_audit_events_org_time ON audit_events(org_id, timestamp DESC);
+CREATE INDEX idx_audit_events_actor ON audit_events(actor_id, timestamp DESC);
+```
+
+这些 migration 属于 OSS 核心（为默认实现服务），随 Track F 落地时一并提交。
 
 ---
 
@@ -488,6 +867,11 @@ GitHub Actions 配置，触发条件：PR 和 main 分支 push。
 | Browser 并发 session | 20 并发 | 内存 < 4GB |
 
 压测脚本放在 `tests/bench/`，结果记录在 `docs/benchmark/`。
+
+已落地：
+- 脚本：`tests/bench/`（`go run ./tests/bench/cmd/bench baseline`）
+- 基线结果：`docs/benchmark/baseline-2026-03-03.json`
+- OpenViking 场景默认不进 baseline suite（需显式开启）
 
 ### G3 -- 开发环境一键启动
 
@@ -675,8 +1059,12 @@ Track E（Agent System 未完成）—— 各项独立
   E6（Browser SSRF）
   E7（性能基线，依赖 E6）
 
-Track F（插件体系）—— 最低优先，仅预留接口
-  F1 → F2 → F3
+Track F（插件体系 / OpenCore-BusinessCore 分离）—— 依赖 Track A（配置集成）
+  F0（设计决策）
+  F2（注册表）→ F3（扩展点接口 + OSS 默认实现）→ F4（配置集成，依赖 A2）→ F7（DB migration）
+  F1（仓库模型，与 F2 并行）
+  F5（降级保证，依赖 F3）
+  F6（现有接口盘点，文档性质，独立）
 
 Track G（基础设施）—— 独立，建议与 A 同步启动
   G1（CI）
@@ -713,7 +1101,7 @@ Track H（开源发布与治理）—— 与 A/G 并行，发布前必须收敛
 
 第三批（按需推进）：
 - Track E 各项（按产品优先级排序）
-- Track F（第一个外部集成需求出现时启动）
+- Track F（F0-F2 可与第二批并行；F3-F7 依赖 Track A 完成后推进；首个商业插件实现在 arkloop-enterprise 仓库独立推进）
 - Track G（G2 压测）
 - Track H（H4-H6, H11, H12）：发布策略/供应链/部署 profile/API 版本策略/Persona i18n（开源发布前必须完成）
 
@@ -727,7 +1115,9 @@ Track H（开源发布与治理）—— 与 A/G 并行，发布前必须收敛
 - **所有配置必须注册**：未注册的 key 调用 Resolve 返回错误，不允许"悄悄"读取未声明的配置。
 - **Scope 模型固定**：platform 和 org 两级。不引入 user 级、team 级配置（过度设计）。thread/project 级别的配置走 AgentConfig 继承链（已有机制），不经过 Config Resolver。
 - **前端共享包仅包含确定重复的代码**：不做预设抽象，不建 UI 组件库。Web 和 Console 的 UI 层保持独立。
-- **插件不是当前重点**：只预留接口边界，不实现插件发现/加载/沙箱机制。第一个正式插件需求落地时再设计运行时。
+- **插件体系采用编译时注册模式**：Go `init()` + typed registry，不引入运行时插件加载（no .so、no gRPC go-plugin）。商业功能在独立私有仓库，通过 `import _` side-effect 注册。OSS 核心无商业代码。
+- **插件边界接口限定四个扩展点**：BillingProvider、AuthProvider、NotificationChannel、AuditSink。其余已有接口（llm.Gateway、VMPool、tools.Executor 等）属于内部抽象，不经过 plugin registry。
+- **无插件时系统完整可用**：所有扩展点有 OSS 默认实现。商业插件只做能力增强，不做功能阉割。
 - **CI 不阻塞开发**：CI 失败产生警告，不阻塞合并（开源发布前切换为强制门禁）。
 - **旧 roadmap 归档不删除**：三份旧 roadmap 保留作为历史参考，不再新增内容。所有新工作在本文档中追踪。
 - **Browser SSRF 在开源前必须完成**：这是安全底线，不可妥协。
