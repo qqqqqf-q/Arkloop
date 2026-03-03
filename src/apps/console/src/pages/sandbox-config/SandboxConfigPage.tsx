@@ -9,6 +9,7 @@ import { useLocale } from '../../contexts/LocaleContext'
 import { getPlatformSetting, setPlatformSetting } from '../../api/platform-settings'
 
 const KEYS = {
+  baseUrl:           'sandbox.base_url',
   provider:          'sandbox.provider',
   dockerImage:       'sandbox.docker_image',
   maxSessions:       'sandbox.max_sessions',
@@ -28,6 +29,7 @@ const KEYS = {
 type FormState = Record<keyof typeof KEYS, string>
 
 const DEFAULTS: FormState = {
+  baseUrl: '',
   provider: 'firecracker',
   dockerImage: 'arkloop/sandbox-agent:latest',
   maxSessions: '50',
@@ -131,6 +133,16 @@ export function SandboxConfigPage() {
                     <option value="firecracker">Firecracker</option>
                     <option value="docker">Docker</option>
                   </select>
+                </div>
+                <div>
+                  <label className={labelCls}>{tc.fieldBaseUrl}</label>
+                  <input
+                    type="text"
+                    className={inputCls}
+                    value={form.baseUrl}
+                    onChange={set('baseUrl')}
+                    placeholder="http://sandbox:8002"
+                  />
                 </div>
                 {form.provider === 'docker' && (
                   <div>

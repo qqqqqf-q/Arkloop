@@ -825,6 +825,7 @@ export const zh: LocaleStrings = {
       sectionProvider: 'Provider',
       sectionPool: 'Warm Pool',
       sectionTimeout: 'Session Timeout',
+      fieldBaseUrl: 'Base URL',
       fieldProvider: 'Provider',
       fieldDockerImage: 'Docker Image',
       fieldMaxSessions: 'Max Sessions',

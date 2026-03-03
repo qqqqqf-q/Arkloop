@@ -180,6 +180,15 @@ func RegisterTrackB(r *Registry) error {
 		},
 
 		{
+			Key:         "sandbox.base_url",
+			Type:        TypeString,
+			Default:     "",
+			Description: "Sandbox Service 地址，Worker 通过此 URL 调用 Sandbox；为空则不注册 sandbox 工具",
+			Sensitive:   false,
+			Scope:       ScopePlatform,
+			EnvKeys:     []string{"ARKLOOP_SANDBOX_BASE_URL"},
+		},
+		{
 			Key:         "sandbox.provider",
 			Type:        TypeString,
 			Default:     "firecracker",

@@ -137,7 +137,9 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 		slog.InfoContext(ctx, "browser: tools registered", "base_url", browserBaseURL)
 	}
 
-	if sandboxBaseURL := sandboxtool.BaseURLFromEnv(); sandboxBaseURL != "" {
+	sandboxBaseURL, _ := configResolver.Resolve(ctx, "sandbox.base_url", sharedconfig.Scope{})
+	sandboxBaseURL = strings.TrimRight(strings.TrimSpace(sandboxBaseURL), "/")
+	if sandboxBaseURL != "" {
 		sandboxExecutor := sandboxtool.NewToolExecutor(sandboxBaseURL)
 		for _, spec := range sandboxtool.AgentSpecs() {
 			if err := toolRegistry.Register(spec); err != nil {
