@@ -13,6 +13,7 @@ import type { WebSource, ArtifactRef } from '../storage'
 import { ArtifactImage } from './ArtifactImage'
 import { ArtifactHtmlPreview } from './ArtifactHtmlPreview'
 import { ArtifactDownload } from './ArtifactDownload'
+import { MindmapBlock } from './MindmapBlock'
 
 type ArtifactsContextValue = {
   artifacts: ArtifactRef[]
@@ -136,6 +137,16 @@ function normalizeCodeLanguageLabel(language: string | null): string {
   if (!language) return 'text'
   if (language === 'plaintext' || language === 'plain' || language === 'txt') return 'text'
   return language
+}
+
+function extractTextFromChildren(node: ReactNode): string {
+  if (typeof node === 'string') return node
+  if (typeof node === 'number') return String(node)
+  if (Array.isArray(node)) return node.map(extractTextFromChildren).join('')
+  if (isValidElement<{ children?: ReactNode }>(node) && node.props?.children != null) {
+    return extractTextFromChildren(node.props.children)
+  }
+  return ''
 }
 
 function CodeBlockWrapper({ children }: { children: React.ReactNode }) {
@@ -331,7 +342,13 @@ function WithCitations({ children, prefix }: { children: ReactNode; prefix: stri
 }
 
 const mdComponents: Components = {
-  pre: ({ children }) => <CodeBlockWrapper>{children}</CodeBlockWrapper>,
+  pre: ({ children }) => {
+    const lang = extractCodeLanguage(children)
+    if (lang === 'mindmap') {
+      return <MindmapBlock content={extractTextFromChildren(children)} />
+    }
+    return <CodeBlockWrapper>{children}</CodeBlockWrapper>
+  },
 
   code: ({ className, children }) => {
     // block code (inside pre) - pass className through for hljs

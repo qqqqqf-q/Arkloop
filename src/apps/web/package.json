@@ -17,6 +17,8 @@
     "framer-motion": "^12.34.3",
     "katex": "^0.16.28",
     "lucide-react": "^0.575.0",
+    "markmap-lib": "^0.18.12",
+    "markmap-view": "^0.18.12",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-markdown": "^10.1.0",
