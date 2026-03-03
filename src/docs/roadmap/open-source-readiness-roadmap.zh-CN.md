@@ -409,6 +409,30 @@ packages:
 - AS-12.4：OpenViking 容量基线压测
 - AS-12.5：Worker DB 连接池配置暴露
 
+### Track E.1 -- BoxLite Sandbox（非 Firecracker）
+
+状态：未实现。当前 Sandbox 服务强依赖 Firecracker（Linux/KVM），需要补一条基于 BoxLite/BoxRun 的后端，用于 Mac/Windows（WSL2）开发与 OSS 自部署场景。
+
+内容：
+- **后端选择权**：Sandbox 后端由管理员显式配置（Console/平台设置），不根据运行环境自动推断。
+- **工具双名机制**（对齐 web_search/web_fetch）：
+  - LLM 暴露名保持不变：`code_execute`、`shell_execute`
+  - Provider 显示名用于后端/运维与灰度：`code_execute.firecracker`、`code_execute.boxlite`、`shell_execute.firecracker`、`shell_execute.boxlite`
+  - provider spec 的 `LlmName` 统一映射到 `code_execute` / `shell_execute`，同一 run 只允许启用一个 provider（避免 LlmName 冲突）
+- **配置项（platform scope）**：
+  - `sandbox.provider`：默认后端（`firecracker` / `boxlite` / `disabled`）
+  - `sandbox.base_url`：Worker 调用 Sandbox 服务地址（ENV 仍可 override，用于开源开发者无 Console 场景）
+  - `sandbox.boxlite.base_url`：Sandbox 服务连接 BoxRun 的地址（http 或 unix socket）
+- **Sandbox 服务内部抽象**：
+  - 引入最小 `Backend` 接口（按现有 `/v1/exec`、`/v1/stats` 的需要拆分），支持在同一服务进程内路由到不同后端
+  - `FirecrackerBackend`：复用现有 warm pool + snapshot 能力
+  - `BoxLiteBackend`：通过 BoxRun REST + SSE events 聚合 stdout/stderr，实现 session_id ↔ box_id 映射与回收；产物仍按 `/tmp/output/` 约定收集并上传
+  - 用 capability 标记表达差异（例如 boxlite 后端不提供 Firecracker-style snapshot restore），避免强行对齐语义
+- **验收**：
+  - 管理员切换 `sandbox.provider` 后，新 run 的 `code_execute` 走对应后端，同一 run 内后端固定
+  - Linux 下 Firecracker 路径无回归；macOS/Windows（WSL2）可通过 BoxLite/BoxRun 跑通 `code_execute` 与 artifact 上传
+  - run 结束清理 session；Worker 异常退出时由 sandbox idle timeout 兜底回收
+
 ---
 
 ## 6. Track F -- 插件体系（OpenCore / BusinessCore 分离）
