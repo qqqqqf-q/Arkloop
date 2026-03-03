@@ -57,10 +57,13 @@ func TestCalcCreditDeduction_AnthropicCacheFamilyFallback(t *testing.T) {
 		},
 	}
 
-	credits := w.calcCreditDeduction()
+	r := w.calcCreditDeduction()
 	// effective = 3000 + 2000*1.25 + 5000*0.1 + 1000 = 7000 => ceil(7.0) = 7
-	if credits != 7 {
-		t.Fatalf("expected credits=7, got %d", credits)
+	if r.Credits != 7 {
+		t.Fatalf("expected credits=7, got %d", r.Credits)
+	}
+	if r.Metadata["method"] != "token_fallback" {
+		t.Fatalf("expected method=token_fallback, got %v", r.Metadata["method"])
 	}
 }
 
@@ -76,10 +79,10 @@ func TestCalcCreditDeduction_OpenAICacheFamilyFallback(t *testing.T) {
 		},
 	}
 
-	credits := w.calcCreditDeduction()
+	r := w.calcCreditDeduction()
 	// effective = (10000-4000) + 4000*0.5 + 2000 = 10000 => 10 credits
-	if credits != 10 {
-		t.Fatalf("expected credits=10, got %d", credits)
+	if r.Credits != 10 {
+		t.Fatalf("expected credits=10, got %d", r.Credits)
 	}
 }
 
@@ -97,11 +100,11 @@ func TestCalcCreditDeduction_MixedCacheFamilyKeepsLegacy(t *testing.T) {
 		},
 	}
 
-	credits := w.calcCreditDeduction()
+	r := w.calcCreditDeduction()
 	// legacy: nonCached=10000-2000-3000=5000
 	// effective=5000 + 2000*1.25 + 2000*0.1 + 3000*0.5 + 1000 = 10200 => ceil(10.2)=11
-	if credits != 11 {
-		t.Fatalf("expected legacy credits=11, got %d", credits)
+	if r.Credits != 11 {
+		t.Fatalf("expected legacy credits=11, got %d", r.Credits)
 	}
 }
 

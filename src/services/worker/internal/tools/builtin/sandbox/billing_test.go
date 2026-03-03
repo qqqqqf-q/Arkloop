@@ -17,9 +17,15 @@ func TestCalcCredits_Normal(t *testing.T) {
 	}
 
 	// 10 秒执行: ceil(1 + 10*0.5) = ceil(6.0) = 6
-	got := CalcCredits(cfg, 10_000, policy)
+	got, meta := CalcCredits(cfg, 10_000, policy)
 	if got != 6 {
 		t.Errorf("expected 6, got %d", got)
+	}
+	if meta["type"] != "sandbox" {
+		t.Errorf("expected type=sandbox, got %v", meta["type"])
+	}
+	if meta["raw_credits"] != 6.0 {
+		t.Errorf("expected raw_credits=6.0, got %v", meta["raw_credits"])
 	}
 }
 
@@ -29,8 +35,7 @@ func TestCalcCredits_ZeroDuration(t *testing.T) {
 		Tiers: []creditpolicy.CreditTier{{Multiplier: 1.0}},
 	}
 
-	// 0ms: ceil(1 + 0) = 1
-	got := CalcCredits(cfg, 0, policy)
+	got, _ := CalcCredits(cfg, 0, policy)
 	if got != 1 {
 		t.Errorf("expected 1, got %d", got)
 	}
@@ -42,7 +47,7 @@ func TestCalcCredits_NegativeDuration(t *testing.T) {
 		Tiers: []creditpolicy.CreditTier{{Multiplier: 1.0}},
 	}
 
-	got := CalcCredits(cfg, -100, policy)
+	got, _ := CalcCredits(cfg, -100, policy)
 	if got != 1 {
 		t.Errorf("expected 1 for negative duration, got %d", got)
 	}
@@ -55,7 +60,7 @@ func TestCalcCredits_SubSecond(t *testing.T) {
 	}
 
 	// 500ms: ceil(1 + 0.5*0.5) = ceil(1.25) = 2
-	got := CalcCredits(cfg, 500, policy)
+	got, _ := CalcCredits(cfg, 500, policy)
 	if got != 2 {
 		t.Errorf("expected 2, got %d", got)
 	}
@@ -63,13 +68,12 @@ func TestCalcCredits_SubSecond(t *testing.T) {
 
 func TestCalcCredits_PolicyMultiplier(t *testing.T) {
 	cfg := BillingConfig{BaseFee: 1, RatePerSecond: 0.5}
-	// catch-all multiplier = 2.0
 	policy := creditpolicy.CreditDeductionPolicy{
 		Tiers: []creditpolicy.CreditTier{{Multiplier: 2.0}},
 	}
 
 	// 10s: ceil((1 + 5.0) * 2.0) = ceil(12.0) = 12
-	got := CalcCredits(cfg, 10_000, policy)
+	got, _ := CalcCredits(cfg, 10_000, policy)
 	if got != 12 {
 		t.Errorf("expected 12, got %d", got)
 	}
@@ -77,9 +81,7 @@ func TestCalcCredits_PolicyMultiplier(t *testing.T) {
 
 func TestCalcCredits_DefaultPolicySkipsTokenFreeZone(t *testing.T) {
 	cfg := BillingConfig{BaseFee: 1, RatePerSecond: 0.5}
-	// DefaultPolicy: <2000 tokens -> multiplier 0, catch-all -> 1.0
-	// sandbox 使用 MaxInt64 跳过 token 阈值，应命中 catch-all (1.0)
-	got := CalcCredits(cfg, 5000, creditpolicy.DefaultPolicy)
+	got, _ := CalcCredits(cfg, 5000, creditpolicy.DefaultPolicy)
 	// ceil(1 + 5*0.5) = ceil(3.5) = 4
 	if got != 4 {
 		t.Errorf("expected 4, got %d", got)
@@ -92,9 +94,12 @@ func TestCalcCredits_ZeroMultiplier(t *testing.T) {
 		Tiers: []creditpolicy.CreditTier{{Multiplier: 0}},
 	}
 
-	got := CalcCredits(cfg, 10_000, policy)
+	got, meta := CalcCredits(cfg, 10_000, policy)
 	if got != 0 {
 		t.Errorf("expected 0 for zero multiplier, got %d", got)
+	}
+	if meta != nil {
+		t.Errorf("expected nil metadata for zero multiplier")
 	}
 }
 
@@ -104,9 +109,12 @@ func TestCalcBaseOnlyCredits(t *testing.T) {
 		Tiers: []creditpolicy.CreditTier{{Multiplier: 1.0}},
 	}
 
-	got := CalcBaseOnlyCredits(cfg, policy)
+	got, meta := CalcBaseOnlyCredits(cfg, policy)
 	if got != 2 {
 		t.Errorf("expected 2, got %d", got)
+	}
+	if meta["failed"] != true {
+		t.Errorf("expected failed=true in metadata")
 	}
 }
 
@@ -117,7 +125,7 @@ func TestCalcBaseOnlyCredits_WithMultiplier(t *testing.T) {
 	}
 
 	// ceil(1 * 1.5) = 2
-	got := CalcBaseOnlyCredits(cfg, policy)
+	got, _ := CalcBaseOnlyCredits(cfg, policy)
 	if got != 2 {
 		t.Errorf("expected 2, got %d", got)
 	}

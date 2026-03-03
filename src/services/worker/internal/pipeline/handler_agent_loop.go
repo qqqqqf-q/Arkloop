@@ -273,8 +273,8 @@ func (w *eventWriter) Append(
 			w.totalCostUSD); err != nil {
 			return err
 		}
-		if credits := w.calcCreditDeduction(); credits > 0 {
-			if err := w.creditsRepo.Deduct(ctx, w.tx, w.run.OrgID, credits, runID); err != nil {
+		if r := w.calcCreditDeduction(); r.Credits > 0 {
+			if err := w.creditsRepo.Deduct(ctx, w.tx, w.run.OrgID, r.Credits, runID, r.Metadata); err != nil {
 				return err
 			}
 		}
@@ -329,8 +329,8 @@ func (w *eventWriter) Append(
 			w.totalCostUSD); err != nil {
 			return err
 		}
-		if credits := w.calcCreditDeduction(); credits > 0 {
-			if err := w.creditsRepo.Deduct(ctx, w.tx, w.run.OrgID, credits, runID); err != nil {
+		if r := w.calcCreditDeduction(); r.Credits > 0 {
+			if err := w.creditsRepo.Deduct(ctx, w.tx, w.run.OrgID, r.Credits, runID, r.Metadata); err != nil {
 				return err
 			}
 		}
@@ -483,14 +483,31 @@ func toInt64(v any) (int64, bool) {
 	}
 }
 
-// calcCreditDeduction 按实际 cost（USD）计算积分消耗。
-// 汇率：creditsPerUSD（credit.per_usd）× multiplier。
+// creditDeductionResult 封装积分计算结果和明细。
+type creditDeductionResult struct {
+	Credits  int64
+	Metadata map[string]any
+}
+
+// calcCreditDeduction 按实际 cost（USD）计算积分消耗，并返回计算明细。
+// 汇率：creditsPerUSD（credit.per_usd）* multiplier。
 // totalCostUSD 为 0 时退回按 token 计算的兜底值。
-func (w *eventWriter) calcCreditDeduction() int64 {
+func (w *eventWriter) calcCreditDeduction() creditDeductionResult {
 	totalTokens := w.totalInputTokens + w.totalOutputTokens
 	policyMultiplier := w.policy.MultiplierFor(totalTokens, w.totalCostUSD)
 	if policyMultiplier == 0 {
-		return 0
+		return creditDeductionResult{}
+	}
+
+	meta := map[string]any{
+		"type":              "llm",
+		"model":             w.model,
+		"input_tokens":      w.totalInputTokens,
+		"output_tokens":     w.totalOutputTokens,
+		"cost_usd":          w.totalCostUSD,
+		"credits_per_usd":   w.creditsPerUSD,
+		"multiplier":        w.multiplier,
+		"policy_multiplier": policyMultiplier,
 	}
 
 	if w.totalCostUSD > 0 {
@@ -499,12 +516,15 @@ func (w *eventWriter) calcCreditDeduction() int64 {
 		if credits < 1 {
 			credits = 1
 		}
-		return credits
+		meta["method"] = "cost_usd"
+		meta["raw_credits"] = raw
+		meta["credits"] = credits
+		return creditDeductionResult{Credits: credits, Metadata: meta}
 	}
 
 	// 兜底：无 cost 数据时按加权 token 计算
 	if w.totalInputTokens <= 0 && w.totalOutputTokens <= 0 {
-		return 0
+		return creditDeductionResult{}
 	}
 	hasAnthropicCache := w.totalCacheCreationTokens > 0 || w.totalCacheReadTokens > 0
 	hasOpenAICache := w.totalCachedTokens > 0
@@ -512,13 +532,11 @@ func (w *eventWriter) calcCreditDeduction() int64 {
 	effective := 0.0
 	switch {
 	case hasAnthropicCache && !hasOpenAICache:
-		// Anthropic: input_tokens 为非缓存输入，cache_read/cache_creation 单独计量
 		effective = float64(w.totalInputTokens)*1.0 +
 			float64(w.totalCacheCreationTokens)*1.25 +
 			float64(w.totalCacheReadTokens)*0.1 +
 			float64(w.totalOutputTokens)*1.0
 	case hasOpenAICache && !hasAnthropicCache:
-		// OpenAI: input_tokens 含 cached_tokens，未命中部分按全价计
 		nonCached := w.totalInputTokens - w.totalCachedTokens
 		if nonCached < 0 {
 			nonCached = 0
@@ -527,7 +545,6 @@ func (w *eventWriter) calcCreditDeduction() int64 {
 			float64(w.totalCachedTokens)*0.5 +
 			float64(w.totalOutputTokens)*1.0
 	case hasAnthropicCache && hasOpenAICache:
-		// TODO: 混合 provider 缓存口径统一后再替换；当前保留旧逻辑避免行为突变。
 		nonCached := w.totalInputTokens - w.totalCacheReadTokens - w.totalCachedTokens
 		if nonCached < 0 {
 			nonCached = 0
@@ -545,7 +562,14 @@ func (w *eventWriter) calcCreditDeduction() int64 {
 	if credits < 1 {
 		credits = 1
 	}
-	return credits
+	meta["method"] = "token_fallback"
+	meta["effective_tokens"] = effective
+	meta["cache_creation_tokens"] = w.totalCacheCreationTokens
+	meta["cache_read_tokens"] = w.totalCacheReadTokens
+	meta["cached_tokens"] = w.totalCachedTokens
+	meta["raw_credits"] = raw
+	meta["credits"] = credits
+	return creditDeductionResult{Credits: credits, Metadata: meta}
 }
 
 // calcPlatformCost 分段计算实际成本（USD）。

@@ -19,40 +19,59 @@ type BillingConfig struct {
 	RatePerSecond float64 // 每秒执行积分费率
 }
 
-// CalcCredits 计算 sandbox 调用应扣减的积分。
+// CalcCredits 计算 sandbox 调用应扣减的积分，并返回计算明细。
 // durationMs 为 sandbox 服务返回的实际执行时长。
-// policy 的 catch-all tier 乘数会被应用（sandbox 不参与 token-based 免费区间）。
-func CalcCredits(cfg BillingConfig, durationMs int64, policy creditpolicy.CreditDeductionPolicy) int64 {
+func CalcCredits(cfg BillingConfig, durationMs int64, policy creditpolicy.CreditDeductionPolicy) (int64, map[string]any) {
 	if durationMs < 0 {
 		durationMs = 0
 	}
 	durationS := float64(durationMs) / 1000.0
 	raw := float64(cfg.BaseFee) + durationS*cfg.RatePerSecond
 
-	// 传入极大值跳过 token/cost 阈值区间，取 catch-all tier 乘数
 	multiplier := policy.MultiplierFor(math.MaxInt64, math.MaxFloat64)
 	if multiplier == 0 {
-		return 0
+		return 0, nil
 	}
 
-	credits := int64(math.Ceil(raw * multiplier))
+	rawCredits := raw * multiplier
+	credits := int64(math.Ceil(rawCredits))
 	if credits < 1 {
 		credits = 1
 	}
-	return credits
+
+	meta := map[string]any{
+		"type":              "sandbox",
+		"duration_ms":       durationMs,
+		"base_fee":          cfg.BaseFee,
+		"rate_per_second":   cfg.RatePerSecond,
+		"policy_multiplier": multiplier,
+		"raw_credits":       rawCredits,
+		"credits":           credits,
+	}
+	return credits, meta
 }
 
-// CalcBaseOnlyCredits 计算失败调用的积分（仅 base_fee）。
-func CalcBaseOnlyCredits(cfg BillingConfig, policy creditpolicy.CreditDeductionPolicy) int64 {
+// CalcBaseOnlyCredits 计算失败调用的积分（仅 base_fee），并返回计算明细。
+func CalcBaseOnlyCredits(cfg BillingConfig, policy creditpolicy.CreditDeductionPolicy) (int64, map[string]any) {
 	multiplier := policy.MultiplierFor(math.MaxInt64, math.MaxFloat64)
 	if multiplier == 0 {
-		return 0
+		return 0, nil
 	}
-	credits := int64(math.Ceil(float64(cfg.BaseFee) * multiplier))
+	rawCredits := float64(cfg.BaseFee) * multiplier
+	credits := int64(math.Ceil(rawCredits))
 	if credits < 1 {
 		credits = 1
 	}
-	return credits
+
+	meta := map[string]any{
+		"type":              "sandbox",
+		"failed":            true,
+		"base_fee":          cfg.BaseFee,
+		"policy_multiplier": multiplier,
+		"raw_credits":       rawCredits,
+		"credits":           credits,
+	}
+	return credits, meta
 }
 
 // TxBeginner 抽象 pgxpool.Pool 的 Begin 方法，便于测试。
@@ -105,18 +124,19 @@ func (b *BillingExecutor) Execute(
 	}
 
 	var credits int64
+	var meta map[string]any
 	if result.Error != nil {
-		credits = CalcBaseOnlyCredits(b.cfg, policy)
+		credits, meta = CalcBaseOnlyCredits(b.cfg, policy)
 	} else {
 		durationMs := extractDurationMs(result.ResultJSON)
-		credits = CalcCredits(b.cfg, durationMs, policy)
+		credits, meta = CalcCredits(b.cfg, durationMs, policy)
 	}
 
 	if credits <= 0 {
 		return result
 	}
 
-	err := b.creditsRepo.DeductStandalone(ctx, b.pool, *execCtx.OrgID, credits, execCtx.RunID, "sandbox")
+	err := b.creditsRepo.DeductStandalone(ctx, b.pool, *execCtx.OrgID, credits, execCtx.RunID, "sandbox", meta)
 	if err != nil {
 		slog.WarnContext(ctx, "sandbox billing: deduct failed",
 			"org_id", execCtx.OrgID,

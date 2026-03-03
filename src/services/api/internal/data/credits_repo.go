@@ -26,6 +26,7 @@ type CreditTransaction struct {
 	ReferenceType *string
 	ReferenceID   *uuid.UUID
 	Note          *string
+	Metadata      []byte // JSONB, 积分计算明细
 	CreatedAt     time.Time
 }
 
@@ -181,7 +182,7 @@ func (r *CreditsRepository) ListTransactions(ctx context.Context, orgID uuid.UUI
 	}
 
 	rows, err := r.db.Query(ctx,
-		`SELECT id, org_id, amount, type, reference_type, reference_id, note, created_at
+		`SELECT id, org_id, amount, type, reference_type, reference_id, note, metadata, created_at
 		 FROM credit_transactions
 		 WHERE org_id = $1
 		 ORDER BY created_at DESC
@@ -196,7 +197,7 @@ func (r *CreditsRepository) ListTransactions(ctx context.Context, orgID uuid.UUI
 	txns := []CreditTransaction{}
 	for rows.Next() {
 		var t CreditTransaction
-		if err := rows.Scan(&t.ID, &t.OrgID, &t.Amount, &t.Type, &t.ReferenceType, &t.ReferenceID, &t.Note, &t.CreatedAt); err != nil {
+		if err := rows.Scan(&t.ID, &t.OrgID, &t.Amount, &t.Type, &t.ReferenceType, &t.ReferenceID, &t.Note, &t.Metadata, &t.CreatedAt); err != nil {
 			return nil, fmt.Errorf("credits.ListTransactions scan: %w", err)
 		}
 		txns = append(txns, t)
@@ -231,7 +232,7 @@ func (r *CreditsRepository) ListTransactionsWithDetails(
 	args = append(args, limit, offset)
 
 	query := fmt.Sprintf(`
-		SELECT ct.id, ct.org_id, ct.amount, ct.type, ct.reference_type, ct.reference_id, ct.note, ct.created_at,
+		SELECT ct.id, ct.org_id, ct.amount, ct.type, ct.reference_type, ct.reference_id, ct.note, ct.metadata, ct.created_at,
 		       t.title
 		FROM credit_transactions ct
 		LEFT JOIN runs r ON ct.reference_type = 'run' AND r.id = ct.reference_id
@@ -252,7 +253,7 @@ func (r *CreditsRepository) ListTransactionsWithDetails(
 	for rows.Next() {
 		var d CreditTransactionDetail
 		if err := rows.Scan(
-			&d.ID, &d.OrgID, &d.Amount, &d.Type, &d.ReferenceType, &d.ReferenceID, &d.Note, &d.CreatedAt,
+			&d.ID, &d.OrgID, &d.Amount, &d.Type, &d.ReferenceType, &d.ReferenceID, &d.Note, &d.Metadata, &d.CreatedAt,
 			&d.ThreadTitle,
 		); err != nil {
 			return nil, fmt.Errorf("credits.ListTransactionsWithDetails scan: %w", err)

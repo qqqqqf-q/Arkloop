@@ -1,6 +1,7 @@
 package http
 
 import (
+	"encoding/json"
 	nethttp "net/http"
 	"strconv"
 	"strings"
@@ -19,15 +20,16 @@ type creditBalanceResponse struct {
 }
 
 type creditTransactionResponse struct {
-	ID            string  `json:"id"`
-	OrgID         string  `json:"org_id"`
-	Amount        int64   `json:"amount"`
-	Type          string  `json:"type"`
-	ReferenceType *string `json:"reference_type,omitempty"`
-	ReferenceID   *string `json:"reference_id,omitempty"`
-	Note          *string `json:"note,omitempty"`
-	ThreadTitle   *string `json:"thread_title,omitempty"`
-	CreatedAt     string  `json:"created_at"`
+	ID            string           `json:"id"`
+	OrgID         string           `json:"org_id"`
+	Amount        int64            `json:"amount"`
+	Type          string           `json:"type"`
+	ReferenceType *string          `json:"reference_type,omitempty"`
+	ReferenceID   *string          `json:"reference_id,omitempty"`
+	Note          *string          `json:"note,omitempty"`
+	Metadata      *json.RawMessage `json:"metadata,omitempty"`
+	ThreadTitle   *string          `json:"thread_title,omitempty"`
+	CreatedAt     string           `json:"created_at"`
 }
 
 type meCreditsResponse struct {
@@ -301,6 +303,10 @@ func toCreditTransactionResponses(txns []data.CreditTransaction) []creditTransac
 			s := t.ReferenceID.String()
 			resp.ReferenceID = &s
 		}
+		if len(t.Metadata) > 0 {
+			raw := json.RawMessage(t.Metadata)
+			resp.Metadata = &raw
+		}
 		result = append(result, resp)
 	}
 	return result
@@ -324,6 +330,10 @@ func toCreditTransactionDetailResponses(txns []data.CreditTransactionDetail) []c
 		if t.ReferenceID != nil {
 			s := t.ReferenceID.String()
 			resp.ReferenceID = &s
+		}
+		if len(t.Metadata) > 0 {
+			raw := json.RawMessage(t.Metadata)
+			resp.Metadata = &raw
 		}
 		result = append(result, resp)
 	}
