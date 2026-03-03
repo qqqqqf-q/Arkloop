@@ -270,6 +270,23 @@ func RegisterTrackB(r *Registry) error {
 		},
 
 		{
+			Key:         "sandbox.credit_base_fee",
+			Type:        TypeInt,
+			Default:     "1",
+			Description: "每次 sandbox 调用的固定积分扣减，覆盖冷启动/调度开销",
+			Sensitive:   false,
+			Scope:       ScopePlatform,
+		},
+		{
+			Key:         "sandbox.credit_rate_per_second",
+			Type:        TypeNumber,
+			Default:     "0.5",
+			Description: "sandbox 每秒执行时长对应的积分费率",
+			Sensitive:   false,
+			Scope:       ScopePlatform,
+		},
+
+		{
 			Key:         "sandbox.idle_timeout_lite_s",
 			Type:        TypeInt,
 			Default:     "180",

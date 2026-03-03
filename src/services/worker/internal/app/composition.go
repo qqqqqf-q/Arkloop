@@ -8,6 +8,7 @@ import (
 	"time"
 
 	sharedconfig "arkloop/services/shared/config"
+	sharedent "arkloop/services/shared/entitlement"
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/mcp"
 	"arkloop/services/worker/internal/memory/openviking"
@@ -140,12 +141,20 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 	sandboxBaseURL, _ := configResolver.Resolve(ctx, "sandbox.base_url", sharedconfig.Scope{})
 	sandboxBaseURL = strings.TrimRight(strings.TrimSpace(sandboxBaseURL), "/")
 	if sandboxBaseURL != "" {
-		sandboxExecutor := sandboxtool.NewToolExecutor(sandboxBaseURL)
+		var sandboxExec tools.Executor = sandboxtool.NewToolExecutor(sandboxBaseURL)
+
+		// 当 DB 可用时，包装计费装饰器
+		if pool != nil {
+			billingCfg := resolveSandboxBillingConfig(ctx, configResolver)
+			entResolver := sharedent.NewResolver(pool, rdb)
+			sandboxExec = sandboxtool.NewBillingExecutor(sandboxExec, pool, entResolver, billingCfg)
+		}
+
 		for _, spec := range sandboxtool.AgentSpecs() {
 			if err := toolRegistry.Register(spec); err != nil {
 				return nil, err
 			}
-			executors[spec.Name] = sandboxExecutor
+			executors[spec.Name] = sandboxExec
 		}
 		allLlmSpecs = append(allLlmSpecs, sandboxtool.LlmSpecs()...)
 		slog.InfoContext(ctx, "sandbox: tools registered", "base_url", sandboxBaseURL)
@@ -220,4 +229,26 @@ func loadRoutingConfig(ctx context.Context, pool *pgxpool.Pool) (routing.Provide
 		}
 	}
 	return routing.LoadRoutingConfigFromEnv()
+}
+
+func resolveSandboxBillingConfig(ctx context.Context, resolver sharedconfig.Resolver) sandboxtool.BillingConfig {
+	cfg := sandboxtool.BillingConfig{BaseFee: 1, RatePerSecond: 0.5}
+	if resolver == nil {
+		return cfg
+	}
+	m, err := resolver.ResolvePrefix(ctx, "sandbox.credit_", sharedconfig.Scope{})
+	if err != nil {
+		return cfg
+	}
+	if raw := strings.TrimSpace(m["sandbox.credit_base_fee"]); raw != "" {
+		if v, err := strconv.ParseInt(raw, 10, 64); err == nil && v >= 0 {
+			cfg.BaseFee = v
+		}
+	}
+	if raw := strings.TrimSpace(m["sandbox.credit_rate_per_second"]); raw != "" {
+		if v, err := strconv.ParseFloat(raw, 64); err == nil && v >= 0 {
+			cfg.RatePerSecond = v
+		}
+	}
+	return cfg
 }

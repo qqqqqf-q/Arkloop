@@ -36,7 +36,10 @@
 | quota.runs_per_month | int | both | 999999 | false | 每月 run 数量配额 |
 | quota.tokens_per_month | int | both | 1000000 | false | 每月 token 配额 |
 | sandbox.agent_port | int | platform | 8080 | false | Sandbox Agent 监听端口 |
+| sandbox.base_url | string | platform |  | false | Sandbox Service 地址，Worker 通过此 URL 调用 Sandbox；为空则不注册 sandbox 工具 |
 | sandbox.boot_timeout_s | int | platform | 30 | false | VM/容器启动超时（秒） |
+| sandbox.credit_base_fee | int | platform | 1 | false | 每次 sandbox 调用的固定积分扣减，覆盖冷启动/调度开销 |
+| sandbox.credit_rate_per_second | number | platform | 0.5 | false | sandbox 每秒执行时长对应的积分费率 |
 | sandbox.docker_image | string | platform | arkloop/sandbox-agent:latest | false | Docker 后端使用的 sandbox-agent 镜像 |
 | sandbox.idle_timeout_lite_s | int | platform | 180 | false | Sandbox lite tier 空闲超时（秒） |
 | sandbox.idle_timeout_pro_s | int | platform | 300 | false | Sandbox pro tier 空闲超时（秒） |
