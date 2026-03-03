@@ -30,6 +30,7 @@ type Config struct {
 	MaxRefillConcurrency  int
 
 	Image          string // sandbox-agent 容器镜像
+	NetworkName    string // agent 容器加入的 Docker 网络
 	GuestAgentPort uint32
 	SocketBaseDir  string // 用于存放临时文件的目录
 	Logger         *logging.JSONLogger
@@ -281,20 +282,33 @@ func (p *Pool) createContainer(ctx context.Context, tier string) (*entry, error)
 			Memory:   res.MemoryMB * 1024 * 1024,
 			PidsLimit: ptrInt64(256),
 		},
-		PortBindings: nat.PortMap{
-			exposedPort: []nat.PortBinding{
-				{HostIP: "127.0.0.1", HostPort: "0"}, // 随机端口
-			},
-		},
-		NetworkMode: "bridge",
-		AutoRemove:  false,
+		NetworkMode:    "bridge",
+		AutoRemove:     false,
 		ReadonlyRootfs: false,
-		CapDrop:     []string{"ALL"},
-		CapAdd:      []string{"NET_RAW"}, // Python 某些网络操作需要
-		SecurityOpt: []string{"no-new-privileges"},
+		CapDrop:        []string{"ALL"},
+		CapAdd:         []string{"NET_RAW"},
+		SecurityOpt:    []string{"no-new-privileges"},
 	}
 
-	resp, err := p.cli.ContainerCreate(ctx, containerCfg, hostCfg, &network.NetworkingConfig{}, nil, "sandbox-"+id)
+	var netCfg *network.NetworkingConfig
+	useContainerIP := p.cfg.NetworkName != ""
+
+	if useContainerIP {
+		netCfg = &network.NetworkingConfig{
+			EndpointsConfig: map[string]*network.EndpointSettings{
+				p.cfg.NetworkName: {},
+			},
+		}
+	} else {
+		// 无指定网络时，使用端口映射（本地开发/Linux host 网络）
+		hostCfg.PortBindings = nat.PortMap{
+			exposedPort: []nat.PortBinding{
+				{HostIP: "127.0.0.1", HostPort: "0"},
+			},
+		}
+	}
+
+	resp, err := p.cli.ContainerCreate(ctx, containerCfg, hostCfg, netCfg, nil, "sandbox-"+id)
 	if err != nil {
 		cleanup()
 		return nil, fmt.Errorf("docker create: %w", err)
@@ -313,19 +327,29 @@ func (p *Pool) createContainer(ctx context.Context, tier string) (*entry, error)
 		return nil, fmt.Errorf("docker start: %w", err)
 	}
 
-	// 获取映射的宿主机端口
+	// 获取 agent 地址
 	inspect, err := p.cli.ContainerInspect(ctx, containerID)
 	if err != nil {
 		destroyContainer()
 		return nil, fmt.Errorf("docker inspect: %w", err)
 	}
 
-	bindings, ok := inspect.NetworkSettings.Ports[exposedPort]
-	if !ok || len(bindings) == 0 {
-		destroyContainer()
-		return nil, fmt.Errorf("no port binding for %s", exposedPort)
+	var agentAddr string
+	if useContainerIP {
+		epSettings, ok := inspect.NetworkSettings.Networks[p.cfg.NetworkName]
+		if !ok || epSettings.IPAddress == "" {
+			destroyContainer()
+			return nil, fmt.Errorf("container has no IP in network %s", p.cfg.NetworkName)
+		}
+		agentAddr = net.JoinHostPort(epSettings.IPAddress, agentPort)
+	} else {
+		bindings, ok := inspect.NetworkSettings.Ports[exposedPort]
+		if !ok || len(bindings) == 0 {
+			destroyContainer()
+			return nil, fmt.Errorf("no port binding for %s", exposedPort)
+		}
+		agentAddr = net.JoinHostPort(bindings[0].HostIP, bindings[0].HostPort)
 	}
-	hostAddr := net.JoinHostPort(bindings[0].HostIP, bindings[0].HostPort)
 
 	// 注册 containerID 映射
 	p.mu.Lock()
@@ -335,7 +359,7 @@ func (p *Pool) createContainer(ctx context.Context, tier string) (*entry, error)
 	s := &session.Session{
 		ID:        id,
 		Tier:      tier,
-		Dial:      session.NewTCPDialer(hostAddr),
+		Dial:      session.NewTCPDialer(agentAddr),
 		CreatedAt: time.Now(),
 		SocketDir: socketDir,
 	}

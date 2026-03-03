@@ -142,6 +142,7 @@ func buildDockerPool(cfg app.Config, logger *logging.JSONLogger) (session.VMPool
 		RefillIntervalSeconds: cfg.RefillIntervalSeconds,
 		MaxRefillConcurrency:  cfg.RefillConcurrency,
 		Image:                 cfg.DockerImage,
+		NetworkName:           cfg.DockerNetwork,
 		GuestAgentPort:        cfg.GuestAgentPort,
 		SocketBaseDir:         cfg.SocketBaseDir,
 		Logger:                logger,

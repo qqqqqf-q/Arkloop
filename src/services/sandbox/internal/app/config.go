@@ -17,8 +17,9 @@ import (
 
 // 部署级别的 ENV（文件路径、地址、凭证 -- 不进 registry，不能从 console 改）
 const (
-	sandboxAddrEnv     = "ARKLOOP_SANDBOX_ADDR"
-	firecrackerBinEnv  = "ARKLOOP_FIRECRACKER_BIN"
+	sandboxAddrEnv      = "ARKLOOP_SANDBOX_ADDR"
+	dockerNetworkEnv    = "ARKLOOP_SANDBOX_DOCKER_NETWORK"
+	firecrackerBinEnv   = "ARKLOOP_FIRECRACKER_BIN"
 	kernelImagePathEnv = "ARKLOOP_SANDBOX_KERNEL_IMAGE"
 	rootfsPathEnv      = "ARKLOOP_SANDBOX_ROOTFS"
 	socketBaseDirEnv   = "ARKLOOP_SANDBOX_SOCKET_DIR"
@@ -49,6 +50,7 @@ type Config struct {
 	S3SecretKey        string
 	TemplatesPath      string
 	DockerImage        string // Docker 后端使用的 sandbox-agent 镜像
+	DockerNetwork      string // agent 容器加入的 Docker 网络（compose 桥接网络）
 
 	// Warm pool: 各 tier 的预热 VM 数量
 	WarmLite  int
@@ -81,6 +83,7 @@ func DefaultConfig() Config {
 		MaxSessions:        50,
 		TemplatesPath:      "/opt/sandbox/templates.json",
 		DockerImage:        "arkloop/sandbox-agent:latest",
+		DockerNetwork:      "",
 
 		WarmLite:              3,
 		WarmPro:               2,
@@ -100,6 +103,9 @@ func LoadConfigFromEnv() (Config, error) {
 	// --- 部署级 ENV（不进 registry）---
 	if raw := strings.TrimSpace(os.Getenv(sandboxAddrEnv)); raw != "" {
 		cfg.Addr = raw
+	}
+	if raw := strings.TrimSpace(os.Getenv(dockerNetworkEnv)); raw != "" {
+		cfg.DockerNetwork = raw
 	}
 	if raw := strings.TrimSpace(os.Getenv(firecrackerBinEnv)); raw != "" {
 		cfg.FirecrackerBin = raw

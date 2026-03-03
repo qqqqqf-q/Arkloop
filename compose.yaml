@@ -283,18 +283,21 @@ services:
     restart: unless-stopped
     profiles:
       - docker-sandbox
-    network_mode: host
     environment:
-      ARKLOOP_DATABASE_URL: "postgresql://${ARKLOOP_POSTGRES_USER:-arkloop}:${ARKLOOP_POSTGRES_PASSWORD:?请在 .env 中设置 ARKLOOP_POSTGRES_PASSWORD}@127.0.0.1:${ARKLOOP_PGBOUNCER_PORT:-5433}/${ARKLOOP_POSTGRES_DB:-arkloop}"
-      ARKLOOP_SANDBOX_ADDR: "0.0.0.0:${ARKLOOP_SANDBOX_PORT:-8002}"
+      ARKLOOP_DATABASE_URL: "postgresql://${ARKLOOP_POSTGRES_USER:-arkloop}:${ARKLOOP_POSTGRES_PASSWORD:?请在 .env 中设置 ARKLOOP_POSTGRES_PASSWORD}@pgbouncer:5432/${ARKLOOP_POSTGRES_DB:-arkloop}"
+      ARKLOOP_SANDBOX_ADDR: "0.0.0.0:8002"
       ARKLOOP_SANDBOX_PROVIDER: "docker"
       ARKLOOP_SANDBOX_DOCKER_IMAGE: "${ARKLOOP_SANDBOX_DOCKER_IMAGE:-arkloop/sandbox-agent:latest}"
+      ARKLOOP_SANDBOX_DOCKER_NETWORK: "arkloop_default"
       ARKLOOP_SANDBOX_SOCKET_DIR: "/run/sandbox"
       ARKLOOP_SANDBOX_MAX_SESSIONS: "${ARKLOOP_SANDBOX_MAX_SESSIONS:-50}"
       ARKLOOP_SANDBOX_TEMPLATES_PATH: ""
-      ARKLOOP_S3_ENDPOINT: "${ARKLOOP_S3_ENDPOINT:-http://127.0.0.1:${ARKLOOP_S3_API_PORT:-9000}}"
+      ARKLOOP_S3_ENDPOINT: "${ARKLOOP_S3_ENDPOINT:-http://minio:9000}"
       ARKLOOP_S3_ACCESS_KEY: "${ARKLOOP_S3_ACCESS_KEY:-minioadmin}"
       ARKLOOP_S3_SECRET_KEY: "${ARKLOOP_S3_SECRET_KEY:-arkloop_minio}"
+      DOCKER_HOST: "unix:///var/run/docker.sock"
+    ports:
+      - "${ARKLOOP_SANDBOX_PORT:-8002}:8002"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - sandbox_sockets:/run/sandbox
@@ -302,7 +305,7 @@ services:
       pgbouncer:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:${ARKLOOP_SANDBOX_PORT:-8002}/healthz"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:8002/healthz"]
       interval: 10s
       timeout: 5s
       retries: 5
