@@ -139,6 +139,12 @@ func run() error {
 		handler = &loadAwareHandler{inner: handler, reg: reg}
 	}
 
+	var notifier *consumer.Notifier
+	if directPool != nil {
+		notifier = consumer.NewNotifier(directPool)
+		notifier.Start(runCtx)
+	}
+
 	loop, err := consumer.NewLoop(
 		queueClient,
 		handler,
@@ -151,6 +157,7 @@ func run() error {
 			QueueJobTypes:    cfg.QueueJobTypes,
 		},
 		logger,
+		notifier,
 	)
 	if err != nil {
 		return err

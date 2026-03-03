@@ -152,7 +152,7 @@ func TestRun_ShutdownDoesNotReturnContextCanceled(t *testing.T) {
 			LeaseSeconds:     30,
 			HeartbeatSeconds: 0,
 			QueueJobTypes:    []string{queue.RunExecuteJobType},
-		}, logger)
+		}, logger, nil)
 		if err != nil {
 			t.Fatalf("NewLoop failed: %v", err)
 		}
@@ -186,7 +186,7 @@ func TestRun_ShutdownDoesNotReturnContextCanceled(t *testing.T) {
 func newLoopForTest(t *testing.T, q *stubQueue, h *stubHandler, locker RunLocker, cfg Config) *Loop {
 	t.Helper()
 	logger := app.NewJSONLogger("worker_go_test", nil)
-	loop, err := NewLoop(q, h, locker, cfg, logger)
+	loop, err := NewLoop(q, h, locker, cfg, logger, nil)
 	if err != nil {
 		t.Fatalf("NewLoop failed: %v", err)
 	}

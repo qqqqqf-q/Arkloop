@@ -55,11 +55,11 @@ func TestLoopDedupesDuplicateRunJobsViaAdvisoryLock(t *testing.T) {
 	}
 	logger := app.NewJSONLogger("worker_go_test", nil)
 
-	loop1, err := NewLoop(fixture.queue, handler, fixture.locker, cfg, logger)
+	loop1, err := NewLoop(fixture.queue, handler, fixture.locker, cfg, logger, nil)
 	if err != nil {
 		t.Fatalf("NewLoop #1 failed: %v", err)
 	}
-	loop2, err := NewLoop(fixture.queue, handler, fixture.locker, cfg, logger)
+	loop2, err := NewLoop(fixture.queue, handler, fixture.locker, cfg, logger, nil)
 	if err != nil {
 		t.Fatalf("NewLoop #2 failed: %v", err)
 	}
@@ -146,7 +146,7 @@ func TestLoopNacksWhenHeartbeatFailsRepeatedly(t *testing.T) {
 	}
 	logger := app.NewJSONLogger("worker_go_test", nil)
 
-	loop, err := NewLoop(flakyQueue, handler, fixture.locker, cfg, logger)
+	loop, err := NewLoop(flakyQueue, handler, fixture.locker, cfg, logger, nil)
 	if err != nil {
 		t.Fatalf("NewLoop failed: %v", err)
 	}

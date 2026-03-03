@@ -97,6 +97,8 @@ func (q *PgQueue) EnqueueRun(
 		return uuid.Nil, err
 	}
 
+	_, _ = q.pool.Exec(ctx, `SELECT pg_notify('arkloop:jobs', '')`)
+
 	return jobID, nil
 }
 

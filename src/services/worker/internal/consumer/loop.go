@@ -18,11 +18,12 @@ type Handler interface {
 }
 
 type Loop struct {
-	queue   queue.JobQueue
-	handler Handler
-	locker  RunLocker
-	config  Config
-	logger  *app.JSONLogger
+	queue    queue.JobQueue
+	handler  Handler
+	locker   RunLocker
+	config   Config
+	logger   *app.JSONLogger
+	notifier *Notifier
 }
 
 func NewLoop(
@@ -31,6 +32,7 @@ func NewLoop(
 	locker RunLocker,
 	config Config,
 	logger *app.JSONLogger,
+	notifier *Notifier,
 ) (*Loop, error) {
 	if queueClient == nil {
 		return nil, fmt.Errorf("queue must not be nil")
@@ -46,11 +48,12 @@ func NewLoop(
 	}
 
 	return &Loop{
-		queue:   queueClient,
-		handler: handler,
-		locker:  locker,
-		config:  config,
-		logger:  logger,
+		queue:    queueClient,
+		handler:  handler,
+		locker:   locker,
+		config:   config,
+		logger:   logger,
+		notifier: notifier,
 	}, nil
 }
 
@@ -81,15 +84,12 @@ func (l *Loop) Run(ctx context.Context) error {
 					return
 				}
 
-				if processed || l.config.PollSeconds <= 0 {
+				if processed {
 					continue
 				}
-				wait := time.Duration(l.config.PollSeconds * float64(time.Second))
-				select {
-				case <-ctx.Done():
-					return
-				case <-time.After(wait):
-				}
+
+				// 空闲等待：优先 NOTIFY 唤醒，fallback 定时轮询
+				l.waitForWork(ctx)
 			}
 		}()
 	}
@@ -110,6 +110,29 @@ func (l *Loop) Run(ctx context.Context) error {
 		return nil
 	case err := <-errCh:
 		return err
+	}
+}
+
+func (l *Loop) waitForWork(ctx context.Context) {
+	if l.config.PollSeconds <= 0 {
+		return
+	}
+	fallback := time.NewTimer(time.Duration(l.config.PollSeconds * float64(time.Second)))
+	defer fallback.Stop()
+
+	if l.notifier != nil {
+		wake := l.notifier.Wake()
+		select {
+		case <-ctx.Done():
+		case <-wake:
+		case <-fallback.C:
+		}
+		return
+	}
+
+	select {
+	case <-ctx.Done():
+	case <-fallback.C:
 	}
 }
 

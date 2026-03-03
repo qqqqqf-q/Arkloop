@@ -41,7 +41,7 @@ type Config struct {
 func DefaultConfig() Config {
 	return Config{
 		Concurrency:                 4,
-		PollSeconds:                 0.25,
+		PollSeconds:                 5,
 		LeaseSeconds:                30,
 		HeartbeatSeconds:            10,
 		QueueJobTypes:               []string{queue.RunExecuteJobType, queue.WebhookDeliverJobType, queue.EmailSendJobType},

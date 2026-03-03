@@ -102,6 +102,10 @@ func (r *JobRepository) EnqueueRun(
 	if err != nil {
 		return uuid.Nil, err
 	}
+
+	// 通知 Worker 有新 job 入队
+	_, _ = r.db.Exec(ctx, `SELECT pg_notify('arkloop:jobs', '')`)
+
 	return jobID, nil
 }
 
@@ -156,5 +160,8 @@ func (r *JobRepository) EnqueueEmail(ctx context.Context, to, subject, html, tex
 	if err != nil {
 		return uuid.Nil, err
 	}
+
+	_, _ = r.db.Exec(ctx, `SELECT pg_notify('arkloop:jobs', '')`)
+
 	return jobID, nil
 }
