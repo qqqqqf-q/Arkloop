@@ -49,6 +49,7 @@ import {
   type CodeExecutionRef,
   type MessageThinkingRef,
   type MessageSearchStepRef,
+  migrateMessageMetadata,
 } from '../storage'
 
 function normalizeError(error: unknown): AppError {
@@ -995,6 +996,7 @@ export function ChatPage() {
       if (pendingIncognito && messages.length > 0) {
         const lastMessageId = messages[messages.length - 1].id
         const forked = await forkThread(accessToken, threadId, lastMessageId, true)
+        if (forked.id_mapping) migrateMessageMetadata(forked.id_mapping)
         onThreadCreated(forked)
         await createMessage(accessToken, forked.id, { content })
         const tierToPersonaId: Record<SelectedTier, string> = {
@@ -1108,6 +1110,7 @@ export function ChatPage() {
     setError(null)
     try {
       const forked = await forkThread(accessToken, threadId, messageId)
+      if (forked.id_mapping) migrateMessageMetadata(forked.id_mapping)
       onThreadCreated(forked)
       navigate(`/t/${forked.id}`)
     } catch (err) {

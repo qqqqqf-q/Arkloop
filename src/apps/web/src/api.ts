@@ -245,15 +245,19 @@ export async function deleteThread(accessToken: string, threadId: string): Promi
   })
 }
 
+export type ForkThreadResponse = ThreadResponse & {
+  id_mapping?: Array<{ old_id: string; new_id: string }>
+}
+
 export async function forkThread(
   accessToken: string,
   threadId: string,
   messageId: string,
   isPrivate?: boolean,
-): Promise<ThreadResponse> {
+): Promise<ForkThreadResponse> {
   const body: Record<string, unknown> = { message_id: messageId }
   if (isPrivate !== undefined) body.is_private = isPrivate
-  return await apiFetch<ThreadResponse>(`/v1/threads/${threadId}:fork`, {
+  return await apiFetch<ForkThreadResponse>(`/v1/threads/${threadId}:fork`, {
     method: 'POST',
     accessToken,
     body: JSON.stringify(body),

@@ -489,6 +489,16 @@ type forkThreadRequest struct {
 	IsPrivate *bool  `json:"is_private,omitempty"`
 }
 
+type forkThreadResponse struct {
+	threadResponse
+	IDMapping []idMappingPair `json:"id_mapping,omitempty"`
+}
+
+type idMappingPair struct {
+	OldID string `json:"old_id"`
+	NewID string `json:"new_id"`
+}
+
 func forkThread(
 	authService *auth.Service,
 	membershipRepo *data.OrgMembershipRepository,
@@ -578,7 +588,7 @@ func forkThread(
 			WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
 		}
-		if copied == 0 {
+		if len(copied) == 0 {
 			WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "no messages to copy", traceID, nil)
 			return
 		}
@@ -588,7 +598,14 @@ func forkThread(
 			return
 		}
 
-		writeJSON(w, traceID, nethttp.StatusCreated, toThreadResponse(forked))
+		mapping := make([]idMappingPair, len(copied))
+		for i, p := range copied {
+			mapping[i] = idMappingPair{OldID: p.OldID.String(), NewID: p.NewID.String()}
+		}
+		writeJSON(w, traceID, nethttp.StatusCreated, forkThreadResponse{
+			threadResponse: toThreadResponse(forked),
+			IDMapping:      mapping,
+		})
 	}
 }
 

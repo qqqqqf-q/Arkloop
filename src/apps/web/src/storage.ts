@@ -368,3 +368,20 @@ export function isSearchThreadId(threadId: string): boolean {
     return (JSON.parse(raw) as string[]).includes(threadId)
   } catch { return false }
 }
+
+// 将 fork 前旧消息 ID 对应的 localStorage 缓存迁移到新消息 ID
+export function migrateMessageMetadata(mapping: Array<{ old_id: string; new_id: string }>): void {
+  if (!canUseLocalStorage() || mapping.length === 0) return
+  for (const { old_id, new_id } of mapping) {
+    const sources = readMessageSources(old_id)
+    if (sources) writeMessageSources(new_id, sources)
+    const artifacts = readMessageArtifacts(old_id)
+    if (artifacts) writeMessageArtifacts(new_id, artifacts)
+    const codeExec = readMessageCodeExecutions(old_id)
+    if (codeExec) writeMessageCodeExecutions(new_id, codeExec)
+    const thinking = readMessageThinking(old_id)
+    if (thinking) writeMessageThinking(new_id, thinking)
+    const searchSteps = readMessageSearchSteps(old_id)
+    if (searchSteps) writeMessageSearchSteps(new_id, searchSteps)
+  }
+}

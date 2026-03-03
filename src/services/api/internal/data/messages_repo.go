@@ -311,39 +311,66 @@ func (r *MessageRepository) HideLastAssistantMessage(
 	return hiddenID, nil
 }
 
+// MessageIDPair 记录一条消息在 fork 复制中对应的旧/新 ID。
+type MessageIDPair struct {
+	OldID uuid.UUID
+	NewID uuid.UUID
+}
+
 // CopyUpTo 将 sourceThreadID 中截止到 upToMessageID（含）的所有可见消息复制到 targetThreadID。
-// 返回复制的行数。
+// 返回每条消息的 old→new ID 映射，调用方可据此迁移客户端侧缓存。
 func (r *MessageRepository) CopyUpTo(
 	ctx context.Context,
 	orgID uuid.UUID,
 	sourceThreadID uuid.UUID,
 	targetThreadID uuid.UUID,
 	upToMessageID uuid.UUID,
-) (int64, error) {
+) ([]MessageIDPair, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	if orgID == uuid.Nil || sourceThreadID == uuid.Nil || targetThreadID == uuid.Nil || upToMessageID == uuid.Nil {
-		return 0, fmt.Errorf("orgID, sourceThreadID, targetThreadID and upToMessageID must not be empty")
+		return nil, fmt.Errorf("orgID, sourceThreadID, targetThreadID and upToMessageID must not be empty")
 	}
 
-	tag, err := r.db.Exec(
+	rows, err := r.db.Query(
 		ctx,
-		`INSERT INTO messages (org_id, thread_id, created_by_user_id, role, content, content_json, metadata_json, created_at)
-		 SELECT $1, $3, created_by_user_id, role, content, content_json, metadata_json, created_at
-		 FROM messages
-		 WHERE org_id = $1
-		   AND thread_id = $2
-		   AND hidden = FALSE
-		   AND deleted_at IS NULL
-		   AND (created_at, id) <= (
-		     SELECT created_at, id FROM messages WHERE id = $4 AND org_id = $1
-		   )
-		 ORDER BY created_at ASC, id ASC`,
+		`WITH src AS (
+		   SELECT id AS old_id, gen_random_uuid() AS new_id,
+		          created_by_user_id, role, content, content_json, metadata_json, created_at
+		   FROM messages
+		   WHERE org_id = $1
+		     AND thread_id = $2
+		     AND hidden = FALSE
+		     AND deleted_at IS NULL
+		     AND (created_at, id) <= (
+		       SELECT created_at, id FROM messages WHERE id = $4 AND org_id = $1
+		     )
+		   ORDER BY created_at ASC, id ASC
+		 ),
+		 inserted AS (
+		   INSERT INTO messages (id, org_id, thread_id, created_by_user_id, role, content, content_json, metadata_json, created_at)
+		   SELECT new_id, $1, $3, created_by_user_id, role, content, content_json, metadata_json, created_at
+		   FROM src
+		 )
+		 SELECT old_id, new_id FROM src`,
 		orgID, sourceThreadID, targetThreadID, upToMessageID,
 	)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-	return tag.RowsAffected(), nil
+	defer rows.Close()
+
+	var pairs []MessageIDPair
+	for rows.Next() {
+		var p MessageIDPair
+		if err := rows.Scan(&p.OldID, &p.NewID); err != nil {
+			return nil, err
+		}
+		pairs = append(pairs, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return pairs, nil
 }
