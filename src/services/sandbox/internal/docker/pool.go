@@ -268,6 +268,11 @@ func (p *Pool) createContainer(ctx context.Context, tier string) (*entry, error)
 		ExposedPorts: nat.PortSet{
 			exposedPort: struct{}{},
 		},
+		Labels: map[string]string{
+			"com.docker.compose.project": "arkloop",
+			"com.docker.compose.service": "sandbox-agent",
+			"arkloop.tier":               tier,
+		},
 	}
 
 	hostCfg := &container.HostConfig{
