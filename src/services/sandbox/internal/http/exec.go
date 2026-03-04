@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -132,18 +133,29 @@ func collectArtifacts(ctx context.Context, sn *session.Session, sessionID string
 		return nil
 	}
 
+	orgID := sn.OrgID
 	refs := make([]ArtifactRef, 0, len(fetchResult.Artifacts))
 	for _, entry := range fetchResult.Artifacts {
+		// 过滤路径穿越：只保留基础文件名
+		safeName := filepath.Base(entry.Filename)
+		if safeName == "." || safeName == ".." || safeName == "" {
+			logger.Warn("artifact filename rejected", logging.LogFields{SessionID: &sessionID}, map[string]any{
+				"filename": entry.Filename,
+			})
+			continue
+		}
+
 		data, err := base64.StdEncoding.DecodeString(entry.Data)
 		if err != nil {
 			logger.Warn("decode artifact base64 failed", logging.LogFields{SessionID: &sessionID}, map[string]any{
-				"filename": entry.Filename,
+				"filename": safeName,
 				"error":    err.Error(),
 			})
 			continue
 		}
 
-		key := fmt.Sprintf("%s/%s", sessionID, entry.Filename)
+		// key 格式: {orgID}/{sessionID}/{filename}，供 API 侧做归属校验
+		key := fmt.Sprintf("%s/%s/%s", orgID, sessionID, safeName)
 		if err := store.PutWithContentType(ctx, key, data, entry.MimeType); err != nil {
 			logger.Warn("upload artifact failed", logging.LogFields{SessionID: &sessionID}, map[string]any{
 				"key":   key,
@@ -154,7 +166,7 @@ func collectArtifacts(ctx context.Context, sn *session.Session, sessionID string
 
 		refs = append(refs, ArtifactRef{
 			Key:      key,
-			Filename: entry.Filename,
+			Filename: safeName,
 			Size:     entry.Size,
 			MimeType: entry.MimeType,
 		})

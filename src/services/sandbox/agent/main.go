@@ -256,9 +256,19 @@ func fetchArtifacts() FetchArtifactsResult {
 		if entry.IsDir() {
 			continue
 		}
+		// 拒绝 symlink，防止通过符号链接读取宿主机文件
+		if entry.Type()&os.ModeSymlink != 0 {
+			continue
+		}
 		if len(artifacts) >= maxArtifactFiles {
 			truncated = true
 			break
+		}
+
+		// 只取基础文件名，过滤路径穿越
+		safeName := filepath.Base(entry.Name())
+		if safeName == "." || safeName == ".." || safeName == "" {
+			continue
 		}
 
 		info, err := entry.Info()
@@ -275,15 +285,24 @@ func fetchArtifacts() FetchArtifactsResult {
 			break
 		}
 
-		path := filepath.Join(artifactOutputDir, entry.Name())
-		data, err := readFileLimited(path, maxArtifactBytes)
+		fullPath := filepath.Join(artifactOutputDir, safeName)
+		// 校验解析后的路径仍在 output 目录内
+		resolved, err := filepath.EvalSymlinks(fullPath)
+		if err != nil {
+			continue
+		}
+		if !strings.HasPrefix(resolved, artifactOutputDir) {
+			continue
+		}
+
+		data, err := readFileLimited(resolved, maxArtifactBytes)
 		if err != nil {
 			continue
 		}
 
-		mimeType := detectMimeType(entry.Name())
+		mimeType := detectMimeType(safeName)
 		artifacts = append(artifacts, ArtifactEntry{
-			Filename: entry.Name(),
+			Filename: safeName,
 			Size:     int64(len(data)),
 			MimeType: mimeType,
 			Data:     base64.StdEncoding.EncodeToString(data),

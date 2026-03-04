@@ -542,7 +542,7 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 
 	mux.HandleFunc(
 		"/v1/artifacts/",
-		artifactsEntry(cfg.AuthService, cfg.ArtifactStore),
+		artifactsEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.ArtifactStore),
 	)
 
 	notFound := nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
