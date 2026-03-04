@@ -137,6 +137,9 @@ func createMCPConfig(
 	if !ok {
 		return
 	}
+	if !requirePerm(actor, auth.PermDataMCPConfigs, w, traceID) {
+		return
+	}
 
 	var req createMCPConfigRequest
 	if err := decodeJSON(r, &req); err != nil {
@@ -154,6 +157,12 @@ func createMCPConfig(
 	if !validMCPTransports[req.Transport] {
 		WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "transport must be stdio, http_sse, or streamable_http", traceID, nil)
 		return
+	}
+	// stdio transport 可执行任意命令，仅限 platform_admin
+	if req.Transport == "stdio" {
+		if !requirePerm(actor, auth.PermPlatformAdmin, w, traceID) {
+			return
+		}
 	}
 	if req.Transport == "stdio" && (req.Command == nil || strings.TrimSpace(*req.Command) == "") {
 		WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "command is required for stdio transport", traceID, nil)
@@ -200,7 +209,7 @@ func createMCPConfig(
 		argsJSON,
 		req.Cwd,
 		envJSON,
-		req.InheritParentEnv,
+		false, // 禁止继承 Worker 父进程环境变量
 		timeoutMs,
 	)
 	if err != nil {
@@ -296,6 +305,9 @@ func patchMCPConfig(
 
 	actor, ok := authenticateActor(w, r, traceID, authService, membershipRepo)
 	if !ok {
+		return
+	}
+	if !requirePerm(actor, auth.PermDataMCPConfigs, w, traceID) {
 		return
 	}
 
@@ -399,6 +411,9 @@ func deleteMCPConfig(
 
 	actor, ok := authenticateActor(w, r, traceID, authService, membershipRepo)
 	if !ok {
+		return
+	}
+	if !requirePerm(actor, auth.PermDataMCPConfigs, w, traceID) {
 		return
 	}
 

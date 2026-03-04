@@ -14,6 +14,7 @@ const (
 	PermDataRunsWrite          = "data.runs.write"
 	PermDataAPIKeysManage      = "data.api_keys.manage"
 	PermDataPersonasRead         = "data.personas.read"
+	PermDataPersonasManage       = "data.personas.manage"
 	PermDataLLMCreds           = "data.llm_credentials.manage"
 	PermDataMCPConfigs         = "data.mcp_configs.manage"
 	PermDataSecrets            = "data.secrets.manage"

@@ -193,14 +193,11 @@ func (c *StdioClient) ensureStarted(ctx context.Context) error {
 }
 
 func buildServerEnv(server ServerConfig) []string {
-	base := []string{}
-	if server.InheritParentEnv {
-		base = append(base, os.Environ()...)
-	}
+	env := make([]string, 0, len(server.Env))
 	for key, value := range server.Env {
-		base = append(base, fmt.Sprintf("%s=%s", key, value))
+		env = append(env, fmt.Sprintf("%s=%s", key, value))
 	}
-	return base
+	return env
 }
 
 func (c *StdioClient) readLoop(stdout io.Reader) {

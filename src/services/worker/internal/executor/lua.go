@@ -39,8 +39,27 @@ func (e *LuaExecutor) Execute(
 	emitter events.Emitter,
 	yield func(events.RunEvent) error,
 ) error {
-	L := lua.NewState()
+	L := lua.NewState(lua.Options{SkipOpenLibs: true})
 	defer L.Close()
+
+	// 仅加载安全标准库，禁止 os/io/debug/package/channel
+	for _, lib := range []struct {
+		name string
+		fn   lua.LGFunction
+	}{
+		{lua.BaseLibName, lua.OpenBase},
+		{lua.TabLibName, lua.OpenTable},
+		{lua.StringLibName, lua.OpenString},
+		{lua.MathLibName, lua.OpenMath},
+		{lua.CoroutineLibName, lua.OpenCoroutine},
+	} {
+		L.Push(L.NewFunction(lib.fn))
+		L.Push(lua.LString(lib.name))
+		L.Call(1, 0)
+	}
+	// base 库包含 dofile/loadfile，可从文件系统加载代码，必须移除
+	L.SetGlobal("dofile", lua.LNil)
+	L.SetGlobal("loadfile", lua.LNil)
 
 	rt := &luaRuntime{
 		ctx:     ctx,

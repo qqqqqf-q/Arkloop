@@ -1392,3 +1392,75 @@ end
 		t.Fatalf("expected 'nil_exec', got: %v", texts)
 	}
 }
+
+func TestLuaExecutor_Sandbox_OsBlocked(t *testing.T) {
+	evs := runLuaScript(t, `
+if os == nil then
+  context.set_output("os_blocked")
+else
+  context.set_output("os_available")
+end
+`, buildLuaRC(nil))
+
+	texts := deltaTexts(evs)
+	if len(texts) == 0 || texts[0] != "os_blocked" {
+		t.Fatalf("expected os to be blocked, got: %v", texts)
+	}
+}
+
+func TestLuaExecutor_Sandbox_IoBlocked(t *testing.T) {
+	evs := runLuaScript(t, `
+if io == nil then
+  context.set_output("io_blocked")
+else
+  context.set_output("io_available")
+end
+`, buildLuaRC(nil))
+
+	texts := deltaTexts(evs)
+	if len(texts) == 0 || texts[0] != "io_blocked" {
+		t.Fatalf("expected io to be blocked, got: %v", texts)
+	}
+}
+
+func TestLuaExecutor_Sandbox_DebugBlocked(t *testing.T) {
+	evs := runLuaScript(t, `
+if debug == nil then
+  context.set_output("debug_blocked")
+else
+  context.set_output("debug_available")
+end
+`, buildLuaRC(nil))
+
+	texts := deltaTexts(evs)
+	if len(texts) == 0 || texts[0] != "debug_blocked" {
+		t.Fatalf("expected debug to be blocked, got: %v", texts)
+	}
+}
+
+func TestLuaExecutor_Sandbox_DofileBlocked(t *testing.T) {
+	evs := runLuaScript(t, `
+if dofile == nil then
+  context.set_output("dofile_blocked")
+else
+  context.set_output("dofile_available")
+end
+`, buildLuaRC(nil))
+
+	texts := deltaTexts(evs)
+	if len(texts) == 0 || texts[0] != "dofile_blocked" {
+		t.Fatalf("expected dofile to be blocked, got: %v", texts)
+	}
+}
+
+func TestLuaExecutor_Sandbox_SafeLibsAvailable(t *testing.T) {
+	evs := runLuaScript(t, `
+local result = tostring(type(string.len)) .. "," .. tostring(type(math.abs)) .. "," .. tostring(type(table.insert))
+context.set_output(result)
+`, buildLuaRC(nil))
+
+	texts := deltaTexts(evs)
+	if len(texts) == 0 || texts[0] != "function,function,function" {
+		t.Fatalf("expected safe libs to be available, got: %v", texts)
+	}
+}

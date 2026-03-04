@@ -125,6 +125,9 @@ func createPersona(
 	if !ok {
 		return
 	}
+	if !requirePerm(actor, auth.PermDataPersonasManage, w, traceID) {
+		return
+	}
 
 	var req createPersonaRequest
 	if err := decodeJSON(r, &req); err != nil {
@@ -225,6 +228,9 @@ func patchPersona(
 
 	actor, ok := authenticateActor(w, r, traceID, authService, membershipRepo)
 	if !ok {
+		return
+	}
+	if !requirePerm(actor, auth.PermDataPersonasManage, w, traceID) {
 		return
 	}
 

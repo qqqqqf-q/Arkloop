@@ -13,7 +13,7 @@ var orgAdminPerms = []string{
 	PermDataThreadsRead, PermDataThreadsWrite,
 	PermDataRunsRead, PermDataRunsWrite,
 	PermDataAPIKeysManage,
-	PermDataPersonasRead,
+	PermDataPersonasRead, PermDataPersonasManage,
 	PermDataLLMCreds,
 	PermDataMCPConfigs,
 	PermDataSecrets,
