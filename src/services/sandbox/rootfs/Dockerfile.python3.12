@@ -21,6 +21,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     busybox \
     ca-certificates \
     curl \
+    fonts-noto-cjk \
     git \
     jq \
     sqlite3 \
@@ -35,6 +36,8 @@ RUN pip install --no-cache-dir \
     numpy \
     pandas \
     matplotlib \
+    plotly \
+    kaleido \
     scipy \
     sympy \
     pillow \
@@ -49,6 +52,7 @@ RUN pip install --no-cache-dir \
 
 COPY --from=agent /sandbox-agent /usr/local/bin/sandbox-agent
 COPY src/services/sandbox/rootfs/init /sbin/init
+COPY src/services/sandbox/rootfs/chart_prelude.py /usr/local/share/arkloop/chart_prelude.py
 RUN chmod +x /sbin/init /usr/local/bin/sandbox-agent
 
 RUN mkdir -p /tmp/output /run

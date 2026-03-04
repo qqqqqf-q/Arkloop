@@ -78,17 +78,27 @@ export function ArtifactImage({ artifact, accessToken }: Props) {
 
   return (
     <>
-      <img
-        src={blobUrl!}
-        alt={artifact.filename}
-        onClick={() => setExpanded(true)}
+      <div
         style={{
-          maxWidth: '100%',
-          borderRadius: '10px',
-          cursor: 'pointer',
-          transition: 'opacity 150ms',
+          display: 'inline-block',
+          border: '0.5px solid var(--c-border-subtle)',
+          borderRadius: '12px',
+          padding: '8px',
         }}
-      />
+      >
+        <img
+          src={blobUrl!}
+          alt={artifact.filename}
+          onClick={() => setExpanded(true)}
+          style={{
+            maxWidth: '100%',
+            display: 'block',
+            borderRadius: '6px',
+            cursor: 'pointer',
+            transition: 'opacity 150ms',
+          }}
+        />
+      </div>
       {expanded && (
         <div
           onClick={handleClose}

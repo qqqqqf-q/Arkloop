@@ -10,4 +10,4 @@ budgets:
 title_summarize:
   prompt: "Keep it under 10 Chinese characters. Capture the task goal."
   max_tokens: 20
-agent_config: openrouter-google/gemini-3-flash-preview
+agent_config: openrouter-oss-120b-groq

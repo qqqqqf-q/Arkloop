@@ -20,6 +20,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/mdlayher/vsock"
@@ -206,9 +207,20 @@ func executeJob(job ExecJob) ExecResult {
 }
 
 const python3Bin = "/usr/local/bin/python3"
+const chartPreludePath = "/usr/local/share/arkloop/chart_prelude.py"
+const chartPreludeStmt = "try:\n exec(open('" + chartPreludePath + "').read())\nexcept FileNotFoundError:\n pass\n"
+
+func needsChartPrelude(code string) bool {
+	lower := strings.ToLower(code)
+	return strings.Contains(lower, "plotly") || strings.Contains(lower, "matplotlib")
+}
 
 // buildPythonCmd 将代码写入临时文件后执行，避免 -c 参数引号转义问题。
 func buildPythonCmd(ctx context.Context, code string) *exec.Cmd {
+	if needsChartPrelude(code) {
+		code = chartPreludeStmt + code
+	}
+
 	f, err := os.CreateTemp("", "exec-*.py")
 	if err != nil {
 		// 降级为 -c 模式
