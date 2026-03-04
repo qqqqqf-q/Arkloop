@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ChevronRight, Loader2, Search } from 'lucide-react'
 import type { WebSource } from '../storage'
+import { CodeExecutionCard, type CodeExecution } from './ThinkingBlock'
 
 export type SearchStep = {
   id: string
@@ -15,6 +16,8 @@ type Props = {
   steps: SearchStep[]
   sources: WebSource[]
   isComplete: boolean
+  codeExecutions?: CodeExecution[]
+  onOpenCodeExecution?: (ce: CodeExecution) => void
 }
 
 function getDomain(url: string): string {
@@ -115,13 +118,15 @@ function SourceItem({ source }: { source: WebSource }) {
   )
 }
 
-export function SearchTimeline({ steps, sources, isComplete }: Props) {
+export function SearchTimeline({ steps, sources, isComplete, codeExecutions, onOpenCodeExecution }: Props) {
   const [collapsed, setCollapsed] = useState(() => isComplete)
 
   if (steps.length === 0) return null
 
   const headerLabel = isComplete
-    ? `Reviewed ${sources.length} sources`
+    ? sources.length > 0
+      ? `Reviewed ${sources.length} sources`
+      : steps.find((s) => s.kind === 'planning')?.label || 'Finished'
     : steps[steps.length - 1]?.label || 'Searching...'
 
   return (
@@ -276,6 +281,21 @@ export function SearchTimeline({ steps, sources, isComplete }: Props) {
                 )
               })}
               </AnimatePresence>
+
+              {codeExecutions && codeExecutions.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', paddingTop: '8px' }}>
+                  {codeExecutions.map((ce) => (
+                    <CodeExecutionCard
+                      key={ce.id}
+                      language={ce.language}
+                      code={ce.code}
+                      output={ce.output}
+                      exitCode={ce.exitCode}
+                      onOpen={onOpenCodeExecution ? () => onOpenCodeExecution(ce) : undefined}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
           </motion.div>
         )}

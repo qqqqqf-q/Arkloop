@@ -91,7 +91,7 @@ const SHOW_EXPLICIT_THINKING = false
 
 const DEFAULT_SEARCH_PLANNING_LABEL = 'Planning'
 const SEARCH_PLANNING_LABEL_MAX_LEN = 60
-const SEARCH_PLANNING_TOOL_NAME = 'search_planning_title'
+const SEARCH_PLANNING_TOOL_NAME = 'timeline_title'
 
 function compactSingleLine(raw: string | undefined, maxLen = SEARCH_PLANNING_LABEL_MAX_LEN): string {
   const withoutFiles = (raw ?? '').replace(/<file[\s\S]*?<\/file>/g, ' ')
@@ -604,7 +604,9 @@ export function ChatPage() {
           // ref 同步记录，不受 React 批处理影响
           currentRunCodeExecutionsRef.current = [...currentRunCodeExecutionsRef.current, entry]
           const activeSeg = activeSegmentIdRef.current
-          if (activeSeg) {
+          // 搜索段内的代码执行路由到 topLevel，由 SearchTimeline 统一渲染
+          const isSearchSeg = activeSeg && searchStepsRef.current.some((s) => s.id === activeSeg)
+          if (activeSeg && !isSearchSeg) {
             setSegments((prev) =>
               prev.map((s) =>
                 s.segmentId === activeSeg
@@ -645,7 +647,7 @@ export function ChatPage() {
             : query
               ? [query]
               : undefined
-          // 若缺少 planning 标题（后端没发 `search_planning_title`），则兜底插入一个占位
+          // 若缺少 planning 标题（后端没发 `timeline_title`），则兜底插入一个占位
           applySearchSteps((prev) => {
             const steps: SearchStep[] = []
             if (!prev.some((s) => s.kind === 'planning')) {
@@ -1205,14 +1207,15 @@ export function ChatPage() {
 
     messages.forEach((msg, idx) => {
       if (msg.role !== 'assistant') return
-      const sources = resolvedMessageSources.get(msg.id)
-      if (!sources || sources.length === 0) return
+      const sources = resolvedMessageSources.get(msg.id) ?? []
       const cachedSteps = messageSearchStepsMap.get(msg.id)
       if (cachedSteps && cachedSteps.length > 0) {
         timelineMap.set(msg.id, { steps: cachedSteps, sources })
         return
       }
 
+      // 无缓存步骤时：需有 sources 才有兜底意义
+      if (sources.length === 0) return
       // 仅 Search 模式线程用通用兜底，其他模式需有缓存步骤才渲染
       if (!isSearchThread) return
 
@@ -1341,11 +1344,13 @@ export function ChatPage() {
                         steps={timelineSteps}
                         sources={timelineSources}
                         isComplete
+                        codeExecutions={msg.role === 'assistant' ? messageCodeExecutionsMap.get(msg.id) : undefined}
+                        onOpenCodeExecution={openCodePanel}
                       />
                     </div>
                   )}
-                  {/* 已完成消息的代码执行卡片 */}
-                  {msg.role === 'assistant' && messageCodeExecutionsMap.has(msg.id) && (
+                  {/* 无 COP 时，代码执行卡片独立渲染 */}
+                  {msg.role === 'assistant' && messageCodeExecutionsMap.has(msg.id) && timelineSteps.length === 0 && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '8px' }}>
                       {messageCodeExecutionsMap.get(msg.id)!.map((ce) => (
                         <CodeExecutionCard key={ce.id} language={ce.language} code={ce.code} output={ce.output} exitCode={ce.exitCode} onOpen={() => openCodePanel(ce)} />
@@ -1409,6 +1414,8 @@ export function ChatPage() {
                   steps={searchSteps}
                   sources={currentRunSourcesRef.current}
                   isComplete={false}
+                  codeExecutions={topLevelCodeExecutions.length > 0 ? topLevelCodeExecutions : undefined}
+                  onOpenCodeExecution={openCodePanel}
                 />
               )}
 
@@ -1436,10 +1443,8 @@ export function ChatPage() {
                 />
               )}
 
-
-
-              {/* segment 外的顶层代码执行卡片（Ultra/Pro 模式） */}
-              {topLevelCodeExecutions.length > 0 && (
+              {/* 无 COP 时，顶层代码执行卡片独立渲染 */}
+              {topLevelCodeExecutions.length > 0 && !(isStreaming && searchSteps.length > 0) && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                   {topLevelCodeExecutions.map((ce) => (
                     <CodeExecutionCard key={ce.id} language={ce.language} code={ce.code} output={ce.output} exitCode={ce.exitCode} onOpen={() => openCodePanel(ce)} />
