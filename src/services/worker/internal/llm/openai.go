@@ -144,6 +144,17 @@ func (g *OpenAIGateway) chatCompletions(ctx context.Context, request Request, yi
 			payload[k] = v
 		}
 	}
+	// reasoning_mode 控制是否发送 reasoning_effort 参数
+	switch request.ReasoningMode {
+	case "enabled":
+		if _, ok := payload["reasoning_effort"]; !ok {
+			payload["reasoning_effort"] = "medium"
+		}
+	case "disabled":
+		delete(payload, "reasoning_effort")
+	default: // "auto", "none", ""
+		// AdvancedJSON 已注入时保留
+	}
 
 	baseURL := g.cfg.BaseURL
 	path := "/chat/completions"

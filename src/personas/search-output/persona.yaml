@@ -9,9 +9,9 @@ executor_config:
   script_file: agent.lua
 budgets:
   max_iterations: 2
-  max_output_tokens: 8192
-  temperature: 0.2
-agent_config: sub-haiku-4.5
+  max_output_tokens: 20480
+  temperature: 1.0
+agent_config: openrouter-google/gemini-3-flash-preview
 title_summarize:
   prompt: "Keep it under 5 Chinese characters. Extract the search intent."
   max_tokens: 10

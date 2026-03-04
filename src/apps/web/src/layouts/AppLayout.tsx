@@ -65,6 +65,11 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
     if (location.pathname !== '/') setIsSearchMode(false)
   }, [location.pathname])
 
+  // 路由切换时重置右侧面板状态，避免 sidebar 宽度残留
+  useEffect(() => {
+    setRightPanelOpen(false)
+  }, [location.pathname])
+
   // Mouse 5 / 浏览器返回键：退出搜索模式而非离开页面
   useEffect(() => {
     const onPopState = () => {

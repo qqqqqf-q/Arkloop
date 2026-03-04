@@ -35,6 +35,7 @@ const (
 	anthropicAdvancedKeyVersion      = "anthropic_version"
 	anthropicAdvancedKeyExtraHeaders = "extra_headers"
 	anthropicBetaHeader              = "anthropic-beta"
+	defaultAnthropicThinkingBudget   = 8192
 )
 
 type anthropicAdvancedJSONError struct {
@@ -142,6 +143,31 @@ func (g *AnthropicGateway) Stream(ctx context.Context, request Request, yield fu
 	for k, v := range advancedCfg.Payload {
 		if _, exists := payload[k]; !exists {
 			payload[k] = v
+		}
+	}
+	// reasoning_mode 控制是否发送 thinking 参数
+	switch request.ReasoningMode {
+	case "enabled":
+		if tObj, ok := payload["thinking"].(map[string]any); ok {
+			tObj["type"] = "enabled"
+			if _, has := tObj["budget_tokens"]; !has {
+				tObj["budget_tokens"] = defaultAnthropicThinkingBudget
+			}
+		} else {
+			payload["thinking"] = map[string]any{
+				"type":          "enabled",
+				"budget_tokens": defaultAnthropicThinkingBudget,
+			}
+		}
+		ensureAnthropicMaxTokensForThinking(payload)
+	case "disabled":
+		delete(payload, "thinking")
+	default: // "auto", "none", ""
+		if tObj, ok := payload["thinking"].(map[string]any); ok {
+			if _, has := tObj["budget_tokens"]; !has {
+				tObj["budget_tokens"] = defaultAnthropicThinkingBudget
+			}
+			ensureAnthropicMaxTokensForThinking(payload)
 		}
 	}
 	anthropicVersion := g.cfg.AnthropicVersion
@@ -541,6 +567,36 @@ func parseAnthropicMessage(body []byte) (content string, thinkingText string, to
 	content = textBuilder.String()
 	thinkingText = thinkingBuilder.String()
 	return
+}
+
+// ensureAnthropicMaxTokensForThinking 确保 max_tokens > budget_tokens，
+// 当 thinking 已注入但 max_tokens 不足时自动上调。
+func ensureAnthropicMaxTokensForThinking(payload map[string]any) {
+	tObj, ok := payload["thinking"].(map[string]any)
+	if !ok {
+		return
+	}
+	budget := anyToInt(tObj["budget_tokens"])
+	if budget <= 0 {
+		return
+	}
+	maxTokens := anyToInt(payload["max_tokens"])
+	if maxTokens <= budget {
+		payload["max_tokens"] = budget + maxTokens
+	}
+}
+
+func anyToInt(v any) int {
+	switch n := v.(type) {
+	case int:
+		return n
+	case float64:
+		return int(n)
+	case int64:
+		return int(n)
+	default:
+		return 0
+	}
 }
 
 func anthropicErrorMessageAndDetails(body []byte, status int) (string, map[string]any) {

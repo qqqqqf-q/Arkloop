@@ -10,6 +10,7 @@ executor_config:
 budgets:
   max_iterations: 99900
   max_output_tokens: 8192
+  temperature: 0.7
 title_summarize:
   prompt: "Keep it under 5 Chinese characters. Extract the search intent."
   max_tokens: 10

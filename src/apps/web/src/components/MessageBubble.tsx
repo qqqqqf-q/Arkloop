@@ -40,7 +40,6 @@ function extractFilesFromContent(content: string): { text: string; fileNames: st
 export function MessageBubble({ message, onRetry, onEdit, onFork, onShare, onReport, webSources, artifacts, accessToken, onShowSources }: Props) {
   const { t } = useLocale()
   const [copied, setCopied] = useState(false)
-  const [hovered, setHovered] = useState(false)
   const [editing, setEditing] = useState(false)
   const [editText, setEditText] = useState('')
   const [moreOpen, setMoreOpen] = useState(false)
@@ -70,7 +69,6 @@ export function MessageBubble({ message, onRetry, onEdit, onFork, onShare, onRep
     const { text } = extractFilesFromContent(message.content)
     setEditText(text)
     setEditing(true)
-    setHovered(false)
   }
 
   const handleEditCancel = () => {
@@ -203,19 +201,16 @@ export function MessageBubble({ message, onRetry, onEdit, onFork, onShare, onRep
 
     return (
       <div
+        className="group"
         style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'flex-start', gap: '8px' }}
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
       >
         {/* hover 时左侧操作按钮 */}
         <div
+          className="opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto transition-opacity duration-150"
           style={{
             display: 'flex',
             alignItems: 'center',
             gap: '2px',
-            opacity: hovered ? 1 : 0,
-            transition: 'opacity 150ms ease',
-            pointerEvents: hovered ? 'auto' : 'none',
             marginTop: '6px',
           }}
         >

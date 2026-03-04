@@ -528,8 +528,8 @@ export function ChatPage() {
         if (!segmentId) continue
         activeSegmentIdRef.current = segmentId
 
-        // 搜索模式：search_* kind 路由到 searchSteps
-        if (isSearchThread && kind.startsWith('search_')) {
+        // search_* kind 路由到 searchSteps（所有模式均支持）
+        if (kind.startsWith('search_')) {
           const searchKind = kind === 'search_planning' ? 'planning'
             : kind === 'search_queries' ? 'searching'
             : kind === 'search_reviewing' ? 'reviewing'
@@ -617,7 +617,7 @@ export function ChatPage() {
           }
         }
         // 搜索模式：模型输出的 planning 小标题
-        if (isSearchThread && toolName === SEARCH_PLANNING_TOOL_NAME) {
+        if (toolName === SEARCH_PLANNING_TOOL_NAME) {
           const args = obj.arguments as Record<string, unknown> | undefined
           const rawLabel = typeof args?.label === 'string' ? args.label : undefined
           const label = compactSingleLine(rawLabel) || DEFAULT_SEARCH_PLANNING_LABEL
@@ -632,8 +632,8 @@ export function ChatPage() {
           })
           continue
         }
-        // 搜索模式：web_search tool.call 驱动 SearchTimeline
-        if (isSearchThread && (toolName === 'web_search' || llmName === 'web_search')) {
+        // web_search tool.call 驱动 SearchTimeline（所有模式均支持）
+        if (toolName === 'web_search' || llmName === 'web_search') {
           const callId = typeof obj.tool_call_id === 'string' ? obj.tool_call_id : event.event_id
           const args = obj.arguments as Record<string, unknown> | undefined
           const query = typeof args?.query === 'string' ? args.query : undefined
@@ -680,9 +680,9 @@ export function ChatPage() {
               .filter((s) => !!s.url)
             currentRunSourcesRef.current = [...currentRunSourcesRef.current, ...newSources]
           }
-          // 搜索模式：标记 searching 步骤完成
-          if (isSearchThread) {
-            const callId = typeof obj.tool_call_id === 'string' ? obj.tool_call_id : undefined
+          // 标记 searching 步骤完成
+          const callId = typeof obj.tool_call_id === 'string' ? obj.tool_call_id : undefined
+          if (callId) {
             applySearchSteps((prev) =>
               prev.map((s) => s.id === callId ? { ...s, status: 'done' as const } : s),
             )
@@ -750,7 +750,7 @@ export function ChatPage() {
         setTopLevelCodeExecutions([])
         setSegments([])
         activeSegmentIdRef.current = null
-        const runSearchSteps = isSearchThread ? finalizeSearchSteps(searchStepsRef.current) : []
+        const runSearchSteps = finalizeSearchSteps(searchStepsRef.current)
         if (runSearchSteps.length > 0) applySearchSteps(() => runSearchSteps)
         setQueuedDraft(null)
         setAwaitingInput(false)
@@ -884,7 +884,7 @@ export function ChatPage() {
     setTopLevelCodeExecutions([])
     setSegments([])
     activeSegmentIdRef.current = null
-    const runSearchSteps = isSearchThread ? finalizeSearchSteps(searchStepsRef.current) : []
+    const runSearchSteps = finalizeSearchSteps(searchStepsRef.current)
     if (runSearchSteps.length > 0) applySearchSteps(() => runSearchSteps)
     setQueuedDraft(null)
     setAwaitingInput(false)
@@ -1202,7 +1202,6 @@ export function ChatPage() {
 
   const historicalTimelineMap = useMemo(() => {
     const timelineMap = new Map<string, { steps: MessageSearchStepRef[]; sources: WebSource[] }>()
-    if (!isSearchThread) return timelineMap
 
     messages.forEach((msg, idx) => {
       if (msg.role !== 'assistant') return
@@ -1213,6 +1212,9 @@ export function ChatPage() {
         timelineMap.set(msg.id, { steps: cachedSteps, sources })
         return
       }
+
+      // 仅 Search 模式线程用通用兜底，其他模式需有缓存步骤才渲染
+      if (!isSearchThread) return
 
       let userQuery: string | undefined
       for (let j = idx - 1; j >= 0; j--) {
@@ -1324,7 +1326,7 @@ export function ChatPage() {
               {messages.map((msg, idx) => {
                 const resolvedSources = msg.role === 'assistant' ? resolvedMessageSources.get(msg.id) : undefined
                 const canShowSources = !!(resolvedSources && resolvedSources.length > 0)
-                const timeline = msg.role === 'assistant' && isSearchThread
+                const timeline = msg.role === 'assistant'
                   ? historicalTimelineMap.get(msg.id)
                   : undefined
                 const timelineSteps = timeline?.steps ?? []
@@ -1401,8 +1403,8 @@ export function ChatPage() {
                 )
               })}
 
-              {/* 搜索模式：流式期间的 live 时间轴（在 assistantDraft 上方） */}
-              {isSearchThread && isStreaming && searchSteps.length > 0 && (
+              {/* 流式期间的 live 时间轴（在 assistantDraft 上方） */}
+              {isStreaming && searchSteps.length > 0 && (
                 <SearchTimeline
                   steps={searchSteps}
                   sources={currentRunSourcesRef.current}
