@@ -17,7 +17,7 @@ func AgentSpecs() []tools.AgentToolSpec {
 	return []tools.AgentToolSpec{
 		EchoAgentSpec,
 		NoopAgentSpec,
-		SearchPlanningTitleAgentSpec,
+		TimelineTitleAgentSpec,
 		websearch.AgentSpec,
 		websearch.AgentSpecTavily,
 		websearch.AgentSpecSearxng,
@@ -34,7 +34,7 @@ func LlmSpecs() []llm.ToolSpec {
 	return []llm.ToolSpec{
 		EchoLlmSpec,
 		NoopLlmSpec,
-		SearchPlanningTitleLlmSpec,
+		TimelineTitleLlmSpec,
 		websearch.LlmSpec,
 		webfetch.LlmSpec,
 		// spawn_agent 由 NewSpawnAgentMiddleware 按需动态注入，不在此处静态注册
@@ -48,7 +48,7 @@ func Executors(pool *pgxpool.Pool, rdb *redis.Client, resolver sharedconfig.Reso
 	return map[string]tools.Executor{
 		EchoAgentSpec.Name:               EchoExecutor{},
 		NoopAgentSpec.Name:               NoopExecutor{},
-		SearchPlanningTitleAgentSpec.Name: SearchPlanningTitleExecutor{},
+		TimelineTitleAgentSpec.Name: TimelineTitleExecutor{},
 		websearch.AgentSpec.Name:         websearch.NewToolExecutor(resolver),
 		websearch.AgentSpecTavily.Name:   websearch.NewTavilyExecutor(resolver),
 		websearch.AgentSpecSearxng.Name:  websearch.NewSearxngExecutor(resolver),

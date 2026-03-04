@@ -10,7 +10,7 @@ export type CodeExecution = {
   exitCode?: number
 }
 
-export function CodeExecutionCard({ language, code, output, exitCode, onOpen }: {
+export function CodeExecutionCard({ language, code, output, onOpen }: {
   language: 'python' | 'shell'
   code?: string
   output?: string
@@ -23,7 +23,7 @@ export function CodeExecutionCard({ language, code, output, exitCode, onOpen }: 
   return (
     <div
       style={{
-        borderRadius: '8px',
+        borderRadius: '7px',
         border: '0.5px solid var(--c-border-subtle)',
         background: 'var(--c-bg-page)',
         width: 'fit-content',
@@ -36,8 +36,8 @@ export function CodeExecutionCard({ language, code, output, exitCode, onOpen }: 
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: '10px',
-          padding: '8px 12px',
+          gap: '8px',
+          padding: '6px 10px',
           background: 'none',
           border: 'none',
           cursor: hasDetail && onOpen ? 'pointer' : 'default',
@@ -46,10 +46,9 @@ export function CodeExecutionCard({ language, code, output, exitCode, onOpen }: 
       >
         <div
           style={{
-            width: '34px',
-            height: '34px',
-            borderRadius: '7px',
-            background: 'var(--c-bg-plus)',
+            width: '28px',
+            height: '28px',
+            borderRadius: '6px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -57,15 +56,15 @@ export function CodeExecutionCard({ language, code, output, exitCode, onOpen }: 
           }}
         >
           {isPython
-            ? <Code2 size={17} color="var(--c-text-secondary)" strokeWidth={2} />
-            : <Terminal size={17} color="var(--c-text-secondary)" strokeWidth={2} />
+            ? <Code2 size={15} color="var(--c-text-secondary)" strokeWidth={2} />
+            : <Terminal size={15} color="var(--c-text-secondary)" strokeWidth={2} />
           }
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1px', textAlign: 'left' }}>
-          <span style={{ fontSize: '13px', fontWeight: 500, color: 'var(--c-text-secondary)', lineHeight: '16px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0px', textAlign: 'left' }}>
+          <span style={{ fontSize: '12px', fontWeight: 500, color: 'var(--c-text-secondary)', lineHeight: '15px' }}>
             {isPython ? 'Python' : 'Shell'}
           </span>
-          <span style={{ fontSize: '11px', color: 'var(--c-text-muted)', lineHeight: '14px' }}>
+          <span style={{ fontSize: '10px', color: 'var(--c-text-muted)', lineHeight: '13px' }}>
             Code
           </span>
         </div>

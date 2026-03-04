@@ -12,26 +12,26 @@ import (
 )
 
 const (
-	searchPlanningTitleErrorArgsInvalid = "tool.args_invalid"
-	searchPlanningTitleMaxRunes         = 60
+	timelineTitleErrorArgsInvalid = "tool.args_invalid"
+	timelineTitleMaxRunes         = 60
 )
 
-var SearchPlanningTitleAgentSpec = tools.AgentToolSpec{
-	Name:        "search_planning_title",
+var TimelineTitleAgentSpec = tools.AgentToolSpec{
+	Name:        "timeline_title",
 	Version:     "1",
-	Description: "set search timeline planning title (UI only)",
+	Description: "set timeline title (UI only)",
 	RiskLevel:   tools.RiskLevelLow,
 }
 
-var SearchPlanningTitleLlmSpec = llm.ToolSpec{
-	Name:        "search_planning_title",
-	Description: stringPtr("set search timeline planning title (UI only)"),
+var TimelineTitleLlmSpec = llm.ToolSpec{
+	Name:        "timeline_title",
+	Description: stringPtr("set timeline title (UI only)"),
 	JSONSchema: map[string]any{
 		"type": "object",
 		"properties": map[string]any{
 			"label": map[string]any{
 				"type":        "string",
-				"description": "a short single-line title for the search timeline planning step",
+				"description": "a short single-line title for the timeline step",
 			},
 		},
 		"required":             []string{"label"},
@@ -39,9 +39,9 @@ var SearchPlanningTitleLlmSpec = llm.ToolSpec{
 	},
 }
 
-type SearchPlanningTitleExecutor struct{}
+type TimelineTitleExecutor struct{}
 
-func (SearchPlanningTitleExecutor) Execute(
+func (TimelineTitleExecutor) Execute(
 	ctx context.Context,
 	toolName string,
 	args map[string]any,
@@ -62,7 +62,7 @@ func (SearchPlanningTitleExecutor) Execute(
 		sort.Strings(unknown)
 		return tools.ExecutionResult{
 			Error: &tools.ExecutionError{
-				ErrorClass: searchPlanningTitleErrorArgsInvalid,
+				ErrorClass: timelineTitleErrorArgsInvalid,
 				Message:    "tool args do not accept extra fields",
 				Details:    map[string]any{"unknown_fields": unknown},
 			},
@@ -76,7 +76,7 @@ func (SearchPlanningTitleExecutor) Execute(
 	if label == "" {
 		return tools.ExecutionResult{
 			Error: &tools.ExecutionError{
-				ErrorClass: searchPlanningTitleErrorArgsInvalid,
+				ErrorClass: timelineTitleErrorArgsInvalid,
 				Message:    "parameter label must be a non-empty string",
 				Details:    map[string]any{"field": "label"},
 			},
@@ -84,7 +84,7 @@ func (SearchPlanningTitleExecutor) Execute(
 		}
 	}
 
-	label = truncateRunes(label, searchPlanningTitleMaxRunes)
+	label = truncateRunes(label, timelineTitleMaxRunes)
 
 	return tools.ExecutionResult{
 		ResultJSON: map[string]any{"label": label},

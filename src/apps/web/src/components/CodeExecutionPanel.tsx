@@ -106,7 +106,7 @@ export function CodeExecutionPanel({ execution, onClose }: Props) {
         {execution.output && (
           <div style={{ padding: '0 20px 16px', marginTop: execution.code ? '4px' : '0' }}>
             <div style={{ fontSize: '11px', color: 'var(--c-text-muted)', marginBottom: '6px', fontWeight: 500 }}>
-              {failed ? 'stderr' : 'stdout'}
+              output
             </div>
             <pre
               style={{

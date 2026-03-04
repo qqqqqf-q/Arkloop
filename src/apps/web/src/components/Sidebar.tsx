@@ -172,10 +172,13 @@ export function Sidebar({
     <>
     <aside
       className={[
-        'flex h-full shrink-0 flex-col overflow-hidden bg-[var(--c-bg-sidebar)] transition-all duration-300',
+        'flex h-full shrink-0 flex-col overflow-hidden bg-[var(--c-bg-sidebar)]',
         collapsed ? 'w-0' : narrow ? 'w-[240px]' : 'w-[304px]',
       ].join(' ')}
-      style={collapsed ? undefined : { borderRight: '0.5px solid rgba(0,0,0,0.16)' }}
+      style={{
+        transition: 'width 280ms cubic-bezier(0.16,1,0.3,1)',
+        ...(collapsed ? {} : { borderRight: '0.5px solid rgba(0,0,0,0.16)' }),
+      }}
     >
       <div
         className={[

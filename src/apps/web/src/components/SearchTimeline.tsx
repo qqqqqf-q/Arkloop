@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, Fragment } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ChevronRight, Loader2, Search } from 'lucide-react'
 import type { WebSource } from '../storage'
@@ -205,14 +205,28 @@ export function SearchTimeline({ steps, sources, isComplete, codeExecutions, onO
                       : 'var(--c-text-muted)'
 
                 return (
-                  <motion.div
-                    key={step.id}
-                    initial={{ opacity: 0, x: -10 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 0.22, ease: 'easeOut' }}
-                    style={{ position: 'relative', paddingBottom: isLast ? 0 : '14px' }}
-                  >
+                  <Fragment key={step.id}>
+                    {step.kind === 'finished' && codeExecutions && codeExecutions.length > 0 && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', paddingBottom: '14px' }}>
+                        {codeExecutions.map((ce) => (
+                          <CodeExecutionCard
+                            key={ce.id}
+                            language={ce.language}
+                            code={ce.code}
+                            output={ce.output}
+                            exitCode={ce.exitCode}
+                            onOpen={onOpenCodeExecution ? () => onOpenCodeExecution(ce) : undefined}
+                          />
+                        ))}
+                      </div>
+                    )}
+                    <motion.div
+                      initial={{ opacity: 0, x: -10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.22, ease: 'easeOut' }}
+                      style={{ position: 'relative', paddingBottom: isLast ? 0 : '14px' }}
+                    >
                     {hasDot && (
                       <div
                         style={{
@@ -277,12 +291,14 @@ export function SearchTimeline({ steps, sources, isComplete, codeExecutions, onO
                         ))}
                       </div>
                     )}
-                  </motion.div>
+                    </motion.div>
+                  </Fragment>
                 )
               })}
               </AnimatePresence>
 
-              {codeExecutions && codeExecutions.length > 0 && (
+              {/* 有 finished 步骤时不在底部渲染，已在步骤循环内处理 */}
+              {codeExecutions && codeExecutions.length > 0 && !steps.some((s) => s.kind === 'finished') && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', paddingTop: '8px' }}>
                   {codeExecutions.map((ce) => (
                     <CodeExecutionCard
