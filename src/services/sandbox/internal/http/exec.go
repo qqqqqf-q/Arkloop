@@ -17,6 +17,7 @@ import (
 // ExecRequest 是 POST /v1/exec 的请求体。
 type ExecRequest struct {
 	SessionID string `json:"session_id"`
+	OrgID     string `json:"org_id"`
 	Tier      string `json:"tier"`       // "lite" | "pro" | "ultra"
 	Language  string `json:"language"`   // "python" | "shell"
 	Code      string `json:"code"`
@@ -77,8 +78,13 @@ func handleExec(mgr *session.Manager, artifactStore *objectstore.Store, logger *
 		}
 
 		sid := req.SessionID
-		sn, err := mgr.GetOrCreate(r.Context(), sid, req.Tier)
+		orgID := strings.TrimSpace(req.OrgID)
+		sn, err := mgr.GetOrCreate(r.Context(), sid, req.Tier, orgID)
 		if err != nil {
+			if strings.Contains(err.Error(), "org mismatch") {
+				writeError(w, http.StatusForbidden, "sandbox.org_mismatch", "session belongs to another org")
+				return
+			}
 			logger.Error("get/create session failed", logging.LogFields{SessionID: &sid}, map[string]any{"error": err.Error()})
 			writeError(w, http.StatusInternalServerError, "sandbox.session_error", err.Error())
 			return

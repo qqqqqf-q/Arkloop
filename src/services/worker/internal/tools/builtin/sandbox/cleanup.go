@@ -10,7 +10,7 @@ import (
 
 // CleanupSession 在 run 结束后调用，删除对应的 sandbox session。
 // 使用独立 context 避免阻塞主流程；失败仅 warn 不影响结果。
-func CleanupSession(baseURL, sessionID string) {
+func CleanupSession(baseURL, authToken, sessionID, orgID string) {
 	if baseURL == "" || sessionID == "" {
 		return
 	}
@@ -23,6 +23,12 @@ func CleanupSession(baseURL, sessionID string) {
 	if err != nil {
 		slog.Warn("sandbox cleanup: build request failed", "session_id", sessionID, "error", err)
 		return
+	}
+	if authToken != "" {
+		req.Header.Set("Authorization", "Bearer "+authToken)
+	}
+	if orgID != "" {
+		req.Header.Set("X-Org-ID", orgID)
 	}
 
 	client := &http.Client{Timeout: 5 * time.Second}

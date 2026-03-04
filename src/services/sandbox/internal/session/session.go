@@ -59,6 +59,7 @@ type Dialer func(ctx context.Context) (net.Conn, error)
 type Session struct {
 	ID        string
 	Tier      string
+	OrgID     string // 所属组织，用于跨租户隔离校验
 	CreatedAt time.Time
 	SocketDir string // 关联资源目录的实际路径（用于清理）
 

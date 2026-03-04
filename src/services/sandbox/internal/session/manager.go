@@ -64,7 +64,8 @@ type createResult struct {
 }
 
 // GetOrCreate 返回已有 Session；若不存在则从 VMPool 获取一个 VM 并绑定。
-func (m *Manager) GetOrCreate(ctx context.Context, sessionID, tier string) (*Session, error) {
+// orgID 非空时绑定到 session，已有 session 需匹配 orgID。
+func (m *Manager) GetOrCreate(ctx context.Context, sessionID, tier, orgID string) (*Session, error) {
 	if err := ValidTier(tier); err != nil {
 		return nil, err
 	}
@@ -72,6 +73,9 @@ func (m *Manager) GetOrCreate(ctx context.Context, sessionID, tier string) (*Ses
 	m.mu.Lock()
 	if s, ok := m.sessions[sessionID]; ok {
 		m.mu.Unlock()
+		if orgID != "" && s.OrgID != "" && s.OrgID != orgID {
+			return nil, fmt.Errorf("session %s: org mismatch", sessionID)
+		}
 		return s, nil
 	}
 
@@ -80,6 +84,9 @@ func (m *Manager) GetOrCreate(ctx context.Context, sessionID, tier string) (*Ses
 		result := <-ch.(chan *createResult)
 		if result.err != nil {
 			return nil, result.err
+		}
+		if orgID != "" && result.session.OrgID != "" && result.session.OrgID != orgID {
+			return nil, fmt.Errorf("session %s: org mismatch", sessionID)
 		}
 		return result.session, nil
 	}
@@ -94,7 +101,7 @@ func (m *Manager) GetOrCreate(ctx context.Context, sessionID, tier string) (*Ses
 	m.creating.Store(sessionID, done)
 	m.mu.Unlock()
 
-	s, err := m.acquireAndBind(ctx, sessionID, tier)
+	s, err := m.acquireAndBind(ctx, sessionID, tier, orgID)
 
 	m.mu.Lock()
 	m.pending--
@@ -108,13 +115,14 @@ func (m *Manager) GetOrCreate(ctx context.Context, sessionID, tier string) (*Ses
 	return s, err
 }
 
-func (m *Manager) acquireAndBind(ctx context.Context, sessionID, tier string) (*Session, error) {
+func (m *Manager) acquireAndBind(ctx context.Context, sessionID, tier, orgID string) (*Session, error) {
 	s, proc, err := m.cfg.Pool.Acquire(ctx, tier)
 	if err != nil {
 		return nil, err
 	}
 
 	s.ID = sessionID
+	s.OrgID = orgID
 	s.IdleTimeout = time.Duration(m.idleTimeoutFor(tier)) * time.Second
 	s.MaxLifetime = time.Duration(m.cfg.MaxLifetimeSeconds) * time.Second
 	s.StartTimers(m.onSessionExpired)
@@ -134,11 +142,16 @@ func (m *Manager) acquireAndBind(ctx context.Context, sessionID, tier string) (*
 }
 
 // Delete 停止并销毁指定 Session 的 microVM。
-func (m *Manager) Delete(_ context.Context, sessionID string) error {
+// orgID 非空时校验归属，不匹配则拒绝。
+func (m *Manager) Delete(_ context.Context, sessionID, orgID string) error {
 	m.mu.Lock()
 	s, ok := m.sessions[sessionID]
 	proc := m.procs[sessionID]
 	if ok {
+		if orgID != "" && s.OrgID != "" && s.OrgID != orgID {
+			m.mu.Unlock()
+			return fmt.Errorf("session %s: org mismatch", sessionID)
+		}
 		delete(m.sessions, sessionID)
 		delete(m.procs, sessionID)
 	}
@@ -163,7 +176,7 @@ func (m *Manager) CloseAll(ctx context.Context) {
 	m.mu.Unlock()
 
 	for _, id := range ids {
-		_ = m.Delete(ctx, id)
+		_ = m.Delete(ctx, id, "")
 	}
 }
 
@@ -206,7 +219,7 @@ func (m *Manager) DrainPool(ctx context.Context) {
 }
 
 func (m *Manager) onSessionExpired(sessionID string) {
-	if err := m.Delete(context.Background(), sessionID); err == nil {
+	if err := m.Delete(context.Background(), sessionID, ""); err == nil {
 		m.totalReclaimed.Add(1)
 	}
 }

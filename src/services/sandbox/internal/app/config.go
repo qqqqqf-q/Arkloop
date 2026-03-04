@@ -18,6 +18,7 @@ import (
 // 部署级别的 ENV（文件路径、地址、凭证 -- 不进 registry，不能从 console 改）
 const (
 	sandboxAddrEnv      = "ARKLOOP_SANDBOX_ADDR"
+	sandboxAuthTokenEnv = "ARKLOOP_SANDBOX_AUTH_TOKEN"
 	dockerNetworkEnv    = "ARKLOOP_SANDBOX_DOCKER_NETWORK"
 	firecrackerBinEnv   = "ARKLOOP_FIRECRACKER_BIN"
 	kernelImagePathEnv = "ARKLOOP_SANDBOX_KERNEL_IMAGE"
@@ -37,6 +38,7 @@ const (
 
 type Config struct {
 	Addr               string
+	AuthToken          string // 服务间认证 Bearer token，空则跳过校验（仅限开发环境）
 	Provider           string // "firecracker" | "docker"
 	FirecrackerBin     string
 	KernelImagePath    string
@@ -104,6 +106,7 @@ func LoadConfigFromEnv() (Config, error) {
 	if raw := strings.TrimSpace(os.Getenv(sandboxAddrEnv)); raw != "" {
 		cfg.Addr = raw
 	}
+	cfg.AuthToken = strings.TrimSpace(os.Getenv(sandboxAuthTokenEnv))
 	if raw := strings.TrimSpace(os.Getenv(dockerNetworkEnv)); raw != "" {
 		cfg.DockerNetwork = raw
 	}

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"arkloop/services/sandbox/internal/logging"
 	"arkloop/services/sandbox/internal/session"
@@ -11,13 +12,13 @@ import (
 )
 
 // NewHandler 注册所有路由并返回 HTTP handler。
-func NewHandler(mgr *session.Manager, artifactStore *objectstore.Store, logger *logging.JSONLogger) http.Handler {
+func NewHandler(mgr *session.Manager, artifactStore *objectstore.Store, logger *logging.JSONLogger, authToken string) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", healthz(mgr))
 	mux.HandleFunc("GET /v1/stats", stats(mgr))
 	mux.HandleFunc("POST /v1/exec", handleExec(mgr, artifactStore, logger))
 	mux.HandleFunc("DELETE /v1/sessions/", handleDeleteSession(mgr, logger))
-	return recoverMiddleware(mux, logger)
+	return recoverMiddleware(authMiddleware(mux, authToken, logger), logger)
 }
 
 func healthz(mgr *session.Manager) http.HandlerFunc {
@@ -88,6 +89,27 @@ func recoverMiddleware(next http.Handler, logger *logging.JSONLogger) http.Handl
 				writeError(w, http.StatusInternalServerError, "internal.panic", "internal server error")
 			}
 		}()
+		next.ServeHTTP(w, r)
+	})
+}
+
+// authMiddleware 对业务端点做 Bearer token 校验，healthz 免认证。
+func authMiddleware(next http.Handler, token string, logger *logging.JSONLogger) http.Handler {
+	enforced := token != ""
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/healthz" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if !enforced {
+			next.ServeHTTP(w, r)
+			return
+		}
+		provided := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		if provided != token {
+			writeError(w, http.StatusUnauthorized, "sandbox.unauthorized", "invalid or missing auth token")
+			return
+		}
 		next.ServeHTTP(w, r)
 	})
 }

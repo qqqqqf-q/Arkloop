@@ -26,6 +26,7 @@ const (
 
 type execRequest struct {
 	SessionID string `json:"session_id"`
+	OrgID     string `json:"org_id,omitempty"`
 	Tier      string `json:"tier"`
 	Language  string `json:"language"`
 	Code      string `json:"code"`
@@ -49,13 +50,15 @@ type artifactRef struct {
 }
 
 type ToolExecutor struct {
-	baseURL string
-	client  *http.Client
+	baseURL   string
+	authToken string
+	client    *http.Client
 }
 
-func NewToolExecutor(baseURL string) *ToolExecutor {
+func NewToolExecutor(baseURL, authToken string) *ToolExecutor {
 	return &ToolExecutor{
-		baseURL: baseURL,
+		baseURL:   baseURL,
+		authToken: authToken,
 		client: &http.Client{
 			Timeout: httpClientTimeout,
 		},
@@ -97,8 +100,14 @@ func (e *ToolExecutor) Execute(
 	tier := resolveTier(execCtx.Budget)
 	timeoutMs := resolveTimeoutMs(args)
 
+	var orgID string
+	if execCtx.OrgID != nil {
+		orgID = execCtx.OrgID.String()
+	}
+
 	reqBody := execRequest{
 		SessionID: sessionID,
+		OrgID:     orgID,
 		Tier:      tier,
 		Language:  language,
 		Code:      code,
@@ -116,6 +125,9 @@ func (e *ToolExecutor) Execute(
 		return errResult(errorSandboxError, fmt.Sprintf("build request failed: %s", err.Error()), started)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if e.authToken != "" {
+		req.Header.Set("Authorization", "Bearer "+e.authToken)
+	}
 
 	resp, err := e.client.Do(req)
 	if err != nil {

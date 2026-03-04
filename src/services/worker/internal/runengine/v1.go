@@ -231,7 +231,9 @@ func (e *EngineV1) Execute(ctx context.Context, pool *pgxpool.Pool, run data.Run
 
 	// run 结束后清理 sandbox session（不阻塞返回结果）
 	if sandboxURL := sandbox.BaseURLFromEnv(); sandboxURL != "" {
-		go sandbox.CleanupSession(sandboxURL, run.ID.String())
+		sandboxToken := sandbox.AuthTokenFromEnv()
+		orgID := run.OrgID.String()
+		go sandbox.CleanupSession(sandboxURL, sandboxToken, run.ID.String(), orgID)
 	}
 
 	return err

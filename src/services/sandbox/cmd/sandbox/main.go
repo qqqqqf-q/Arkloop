@@ -71,7 +71,11 @@ func run() error {
 		MaxLifetimeSeconds: cfg.MaxLifetimeSeconds,
 	})
 
-	handler := sandboxhttp.NewHandler(mgr, artifactStore, logger)
+	handler := sandboxhttp.NewHandler(mgr, artifactStore, logger, cfg.AuthToken)
+
+	if cfg.AuthToken == "" {
+		logger.Warn("ARKLOOP_SANDBOX_AUTH_TOKEN not set, auth disabled", logging.LogFields{}, nil)
+	}
 
 	application, err := app.NewApplication(cfg, logger, mgr)
 	if err != nil {

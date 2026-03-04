@@ -25,6 +25,11 @@ func TestCodeExecute_Success(t *testing.T) {
 			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
 		}
 
+		// 验证 auth header
+		if auth := r.Header.Get("Authorization"); auth != "Bearer test-token" {
+			t.Errorf("expected Authorization=Bearer test-token, got %s", auth)
+		}
+
 		var body execRequest
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Fatalf("decode body: %v", err)
@@ -53,7 +58,7 @@ func TestCodeExecute_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	exec := NewToolExecutor(server.URL)
+	exec := NewToolExecutor(server.URL, "test-token")
 	result := exec.Execute(
 		t.Context(),
 		"code_execute",
@@ -95,7 +100,7 @@ func TestShellExecute_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	exec := NewToolExecutor(server.URL)
+	exec := NewToolExecutor(server.URL, "")
 	result := exec.Execute(
 		t.Context(),
 		"shell_execute",
@@ -113,7 +118,7 @@ func TestShellExecute_Success(t *testing.T) {
 }
 
 func TestCodeExecute_MissingCode(t *testing.T) {
-	exec := NewToolExecutor("http://localhost:9999")
+	exec := NewToolExecutor("http://localhost:9999", "")
 	result := exec.Execute(
 		t.Context(),
 		"code_execute",
@@ -127,7 +132,7 @@ func TestCodeExecute_MissingCode(t *testing.T) {
 }
 
 func TestShellExecute_MissingCommand(t *testing.T) {
-	exec := NewToolExecutor("http://localhost:9999")
+	exec := NewToolExecutor("http://localhost:9999", "")
 	result := exec.Execute(
 		t.Context(),
 		"shell_execute",
@@ -141,7 +146,7 @@ func TestShellExecute_MissingCommand(t *testing.T) {
 }
 
 func TestNotConfigured(t *testing.T) {
-	exec := NewToolExecutor("")
+	exec := NewToolExecutor("", "")
 	result := exec.Execute(
 		t.Context(),
 		"code_execute",
@@ -155,7 +160,7 @@ func TestNotConfigured(t *testing.T) {
 }
 
 func TestUnknownTool(t *testing.T) {
-	exec := NewToolExecutor("http://localhost:9999")
+	exec := NewToolExecutor("http://localhost:9999", "")
 	result := exec.Execute(
 		t.Context(),
 		"sandbox_unknown",
@@ -179,7 +184,7 @@ func TestHTTPError_ServerError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	exec := NewToolExecutor(server.URL)
+	exec := NewToolExecutor(server.URL, "")
 	result := exec.Execute(
 		t.Context(),
 		"code_execute",
@@ -201,7 +206,7 @@ func TestHTTPError_ServiceUnavailable(t *testing.T) {
 	}))
 	defer server.Close()
 
-	exec := NewToolExecutor(server.URL)
+	exec := NewToolExecutor(server.URL, "")
 	result := exec.Execute(
 		t.Context(),
 		"code_execute",
@@ -225,7 +230,7 @@ func TestHTTPError_Timeout(t *testing.T) {
 	}))
 	defer server.Close()
 
-	exec := NewToolExecutor(server.URL)
+	exec := NewToolExecutor(server.URL, "")
 	result := exec.Execute(
 		t.Context(),
 		"code_execute",
@@ -250,7 +255,7 @@ func TestNonZeroExitCode_NotError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	exec := NewToolExecutor(server.URL)
+	exec := NewToolExecutor(server.URL, "")
 	result := exec.Execute(
 		t.Context(),
 		"code_execute",
@@ -285,7 +290,7 @@ func TestOutputTruncation(t *testing.T) {
 	}))
 	defer server.Close()
 
-	exec := NewToolExecutor(server.URL)
+	exec := NewToolExecutor(server.URL, "")
 	result := exec.Execute(
 		t.Context(),
 		"code_execute",
@@ -320,7 +325,7 @@ func TestTierFromBudget(t *testing.T) {
 	ctx := testContext()
 	ctx.Budget = map[string]any{"sandbox_tier": "pro"}
 
-	exec := NewToolExecutor(server.URL)
+	exec := NewToolExecutor(server.URL, "")
 	result := exec.Execute(
 		t.Context(),
 		"code_execute",
@@ -348,7 +353,7 @@ func TestTimeoutMs_Propagation(t *testing.T) {
 	}))
 	defer server.Close()
 
-	exec := NewToolExecutor(server.URL)
+	exec := NewToolExecutor(server.URL, "")
 	result := exec.Execute(
 		t.Context(),
 		"code_execute",
@@ -372,7 +377,7 @@ func TestClientTimeout(t *testing.T) {
 	}))
 	defer server.Close()
 
-	exec := NewToolExecutor(server.URL)
+	exec := NewToolExecutor(server.URL, "")
 	// 使用极短的 HTTP client timeout 触发超时
 	exec.client.Timeout = 100 * time.Millisecond
 
@@ -389,5 +394,51 @@ func TestClientTimeout(t *testing.T) {
 	// 客户端超时可能是 sandbox_timeout 或 sandbox_unavailable
 	if result.Error.ErrorClass != errorSandboxTimeout && result.Error.ErrorClass != errorSandboxUnavailable {
 		t.Fatalf("expected timeout or unavailable, got: %s", result.Error.ErrorClass)
+	}
+}
+
+func TestOrgID_Propagation(t *testing.T) {
+	var receivedOrgID string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body execRequest
+		json.NewDecoder(r.Body).Decode(&body)
+		receivedOrgID = body.OrgID
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(execResponse{ExitCode: 0})
+	}))
+	defer server.Close()
+
+	orgID := uuid.New()
+	ctx := tools.ExecutionContext{
+		RunID: uuid.New(),
+		OrgID: &orgID,
+	}
+
+	exec := NewToolExecutor(server.URL, "")
+	result := exec.Execute(t.Context(), "code_execute", map[string]any{"code": "x=1"}, ctx, "")
+
+	if result.Error != nil {
+		t.Fatalf("unexpected error: %+v", result.Error)
+	}
+	if receivedOrgID != orgID.String() {
+		t.Errorf("expected org_id=%s, got %s", orgID.String(), receivedOrgID)
+	}
+}
+
+func TestNoAuthHeader_WhenTokenEmpty(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if auth := r.Header.Get("Authorization"); auth != "" {
+			t.Errorf("expected no Authorization header, got %s", auth)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(execResponse{ExitCode: 0})
+	}))
+	defer server.Close()
+
+	exec := NewToolExecutor(server.URL, "")
+	result := exec.Execute(t.Context(), "code_execute", map[string]any{"code": "x=1"}, testContext(), "")
+
+	if result.Error != nil {
+		t.Fatalf("unexpected error: %+v", result.Error)
 	}
 }
