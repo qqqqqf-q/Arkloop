@@ -18,6 +18,8 @@ type Props = {
   isComplete: boolean
   codeExecutions?: CodeExecution[]
   onOpenCodeExecution?: (ce: CodeExecution) => void
+  headerOverride?: string
+  shimmer?: boolean
 }
 
 function getDomain(url: string): string {
@@ -51,16 +53,19 @@ function QueryPill({ text }: { text: string }) {
   return (
     <span
       style={{
-        display: 'inline-block',
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: '5px',
         padding: '2px 8px',
-        borderRadius: '4px',
-        background: 'var(--c-bg-sub)',
+        borderRadius: '8px',
+        background: 'var(--c-bg-menu)',
         border: '0.5px solid var(--c-border-subtle)',
         fontSize: '12px',
         color: 'var(--c-text-secondary)',
         lineHeight: '18px',
       }}
     >
+      <Search size={11} style={{ flexShrink: 0, color: 'var(--c-text-muted)' }} />
       {text}
     </span>
   )
@@ -118,16 +123,22 @@ function SourceItem({ source }: { source: WebSource }) {
   )
 }
 
-export function SearchTimeline({ steps, sources, isComplete, codeExecutions, onOpenCodeExecution }: Props) {
+export function SearchTimeline({ steps, sources, isComplete, codeExecutions, onOpenCodeExecution, headerOverride, shimmer }: Props) {
   const [collapsed, setCollapsed] = useState(() => isComplete)
 
   if (steps.length === 0) return null
 
-  const headerLabel = isComplete
+  const stepsExcludingFinished = steps.filter(s => s.kind !== 'finished').length
+
+  const autoLabel = isComplete
     ? sources.length > 0
       ? `Reviewed ${sources.length} sources`
-      : steps.find((s) => s.kind === 'planning')?.label || 'Finished'
+      : stepsExcludingFinished > 0
+        ? `${stepsExcludingFinished} steps completed`
+        : 'Completed'
     : steps[steps.length - 1]?.label || 'Searching...'
+
+  const headerLabel = headerOverride ?? autoLabel
 
   return (
     <motion.div
@@ -158,7 +169,9 @@ export function SearchTimeline({ steps, sources, isComplete, codeExecutions, onO
             className="animate-spin"
             style={{ flexShrink: 0, color: 'var(--c-text-secondary)' }}
           />
-        ) : (
+        ) : null}
+        <span className={shimmer ? 'thinking-shimmer' : undefined}>{headerLabel}</span>
+        {isComplete && (
           <motion.div
             animate={{ rotate: collapsed ? 0 : 90 }}
             transition={{ duration: 0.2, ease: 'easeOut' }}
@@ -167,7 +180,6 @@ export function SearchTimeline({ steps, sources, isComplete, codeExecutions, onO
             <ChevronRight size={13} />
           </motion.div>
         )}
-        <span>{headerLabel}</span>
       </button>
 
       <AnimatePresence initial={false}>
@@ -246,16 +258,13 @@ export function SearchTimeline({ steps, sources, isComplete, codeExecutions, onO
                     <div
                       style={{
                         fontSize: '13px',
-                        color: 'var(--c-text-primary)',
+                        color: 'var(--c-text-tertiary)',
                         lineHeight: '18px',
                         display: 'flex',
                         alignItems: 'center',
                         gap: '6px',
                       }}
                     >
-                      {step.kind === 'searching' && (
-                        <Search size={12} style={{ color: 'var(--c-text-muted)', flexShrink: 0 }} />
-                      )}
                       {step.status === 'active' && (
                         <Loader2
                           size={12}
@@ -263,7 +272,9 @@ export function SearchTimeline({ steps, sources, isComplete, codeExecutions, onO
                           style={{ color: 'var(--c-text-secondary)', flexShrink: 0 }}
                         />
                       )}
-                      <span>{step.label}</span>
+                      <span className={step.kind === 'reviewing' && step.status === 'active' ? 'thinking-shimmer-dim' : undefined}>
+                        {step.kind === 'reviewing' ? 'Reviewing sources' : step.label}
+                      </span>
                     </div>
 
                     {step.kind === 'searching' && step.queries && step.queries.length > 0 && (

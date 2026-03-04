@@ -445,6 +445,41 @@ button:not(:disabled) {
   animation: dropdown-slide-up 0.15s ease-out;
 }
 
+@keyframes thinking-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+.thinking-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--c-text-muted) 0%,
+    var(--c-text-secondary) 40%,
+    var(--c-text-primary) 50%,
+    var(--c-text-secondary) 60%,
+    var(--c-text-muted) 100%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: thinking-shimmer 3s ease-in-out infinite;
+}
+.thinking-shimmer-dim {
+  background: linear-gradient(
+    90deg,
+    var(--c-text-muted) 0%,
+    var(--c-text-tertiary) 40%,
+    var(--c-text-secondary) 50%,
+    var(--c-text-tertiary) 60%,
+    var(--c-text-muted) 100%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: thinking-shimmer 3s ease-in-out infinite;
+}
+
 @layer base {
   html, body, #root {
     height: 100%;

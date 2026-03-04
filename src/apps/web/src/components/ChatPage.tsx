@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo, type FormEvent } from 'react'
 import { useParams, useLocation, useOutletContext, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { Glasses, Paperclip, Share2, X, Zap } from 'lucide-react'
+import { Glasses, Loader2, Paperclip, Share2, X, Zap } from 'lucide-react'
 import { ChatInput, type Attachment, formatFileSize } from './ChatInput'
 import { MessageBubble, StreamingBubble } from './MessageBubble'
 import { ThinkingBlock, CodeExecutionCard, type CodeExecution } from './ThinkingBlock'
@@ -647,20 +647,15 @@ export function ChatPage() {
             : query
               ? [query]
               : undefined
-          // 若缺少 planning 标题（后端没发 `timeline_title`），则兜底插入一个占位
+          // 不插入兜底 planning，直接添加 searching 步骤
           applySearchSteps((prev) => {
-            const steps: SearchStep[] = []
-            if (!prev.some((s) => s.kind === 'planning')) {
-              steps.push({ id: 'planning', kind: 'planning', label: DEFAULT_SEARCH_PLANNING_LABEL, status: 'done' })
-            }
-            steps.push({
+            return [...prev, {
               id: callId,
-              kind: 'searching',
+              kind: 'searching' as const,
               label: 'Searching',
-              status: 'active',
+              status: 'active' as const,
               queries: displayQueries,
-            })
-            return [...prev, ...steps]
+            }]
           })
         }
         continue
@@ -1265,6 +1260,21 @@ export function ChatPage() {
     })
   }, [onRightPanelChange])
 
+  // COP step 计数：timeline 中所有非 finished 的点
+  const copStepCount = useMemo(() => {
+    const timelineSteps = searchSteps.filter(s => s.kind !== 'finished').length
+    const segmentSteps = searchSteps.length === 0
+      ? segments.filter(s => s.mode !== 'hidden').length
+      : 0
+    return timelineSteps + segmentSteps
+  }, [searchSteps, segments])
+
+  const copHeaderLabel = !assistantDraft
+    ? 'Thinking'
+    : copStepCount > 0
+      ? `${copStepCount} steps completed`
+      : 'Completed'
+
   return (
     <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-[var(--c-bg-page)]">
       {/* 顶部 header */}
@@ -1408,7 +1418,58 @@ export function ChatPage() {
                 )
               })}
 
-              {/* 流式期间的 live 时间轴（在 assistantDraft 上方） */}
+              {/* 流式 COP 状态指示：Thinking / XX steps completed */}
+              {isStreaming && searchSteps.length === 0 && (segments.length > 0 || !assistantDraft) && (
+                <motion.div
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.3, ease: 'easeOut' }}
+                  style={{ maxWidth: '663px' }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      padding: '6px 0',
+                      color: 'var(--c-text-secondary)',
+                      fontSize: '13px',
+                      fontWeight: 500,
+                    }}
+                  >
+                    {!assistantDraft && (
+                      <Loader2 size={13} className="animate-spin" style={{ flexShrink: 0, color: 'var(--c-text-secondary)' }} />
+                    )}
+                    {copHeaderLabel && (
+                      <span className={!assistantDraft ? 'thinking-shimmer' : undefined}>{copHeaderLabel}</span>
+                    )}
+                  </div>
+                  {!assistantDraft && segments.length > 0 && (
+                    <div style={{ paddingLeft: '24px', paddingTop: '2px' }}>
+                      {segments.filter(s => s.label && s.mode !== 'hidden').map(seg => (
+                        <div
+                          key={seg.segmentId}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            fontSize: '13px',
+                            color: 'var(--c-text-muted)',
+                            padding: '4px 0',
+                          }}
+                        >
+                          {seg.isStreaming && (
+                            <Loader2 size={12} className="animate-spin" style={{ flexShrink: 0, color: 'var(--c-text-muted)' }} />
+                          )}
+                          <span>{seg.label}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </motion.div>
+              )}
+
+              {/* 流式期间的 live 时间轴 */}
               {isStreaming && searchSteps.length > 0 && (
                 <SearchTimeline
                   steps={searchSteps}
@@ -1416,6 +1477,8 @@ export function ChatPage() {
                   isComplete={false}
                   codeExecutions={topLevelCodeExecutions.length > 0 ? topLevelCodeExecutions : undefined}
                   onOpenCodeExecution={openCodePanel}
+                  headerOverride={copHeaderLabel}
+                  shimmer={!assistantDraft}
                 />
               )}
 
