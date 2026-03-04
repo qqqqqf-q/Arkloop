@@ -5,18 +5,37 @@
 
 _ARKLOOP_BRAND = "Powered by Arkloop"
 
-# 深色 (#1E1D1C) 和浅色 (#F8F8F7) 背景均可读的中性灰
 _COLOR_TEXT = "#737373"
 _COLOR_GRID = "rgba(115,115,115,0.15)"
 _COLOR_AXIS = "rgba(115,115,115,0.25)"
-_COLOR_BRAND = "rgba(115,115,115,0.6)"
+_COLOR_BRAND = "rgba(115,115,115,0.5)"
 _COLORWAY = ["#4ECDC4", "#FF6B6B", "#45B7D1", "#96E6A1", "#DDA0DD", "#FFB347"]
 _FONT_FAMILY = "Noto Sans CJK SC, Inter, -apple-system, system-ui, sans-serif"
+_BRAND_FONT = "Inter, -apple-system, system-ui, sans-serif"
 
-# matplotlib 不支持 CSS rgba()，使用元组格式
 _MPL_COLOR_GRID = (0.45, 0.45, 0.45, 0.15)
 _MPL_COLOR_AXIS = (0.45, 0.45, 0.45, 0.25)
-_MPL_COLOR_BRAND = (0.45, 0.45, 0.45, 0.6)
+_MPL_COLOR_BRAND = (0.45, 0.45, 0.45, 0.5)
+
+
+def _add_plotly_brand(fig):
+    """向 Plotly figure 注入品牌水印（右下角）。"""
+    has_brand = any(
+        getattr(a, "text", None) == _ARKLOOP_BRAND
+        for a in (fig.layout.annotations or [])
+    )
+    if not has_brand:
+        fig.add_annotation(
+            text=_ARKLOOP_BRAND,
+            xref="paper",
+            yref="paper",
+            x=1.0,
+            y=-0.12,
+            showarrow=False,
+            font=dict(size=11, color=_COLOR_BRAND, family=_BRAND_FONT),
+            xanchor="right",
+            yanchor="top",
+        )
 
 
 def _setup_plotly():
@@ -26,9 +45,9 @@ def _setup_plotly():
     arkloop_layout = go.Layout(
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
-        font=dict(color=_COLOR_TEXT, family=_FONT_FAMILY),
+        font=dict(color=_COLOR_TEXT, size=14, family=_FONT_FAMILY),
         colorway=_COLORWAY,
-        title=dict(font=dict(color=_COLOR_TEXT, size=20)),
+        title=dict(font=dict(color=_COLOR_TEXT, size=22)),
         xaxis=dict(
             gridcolor=_COLOR_GRID,
             linecolor=_COLOR_AXIS,
@@ -44,33 +63,44 @@ def _setup_plotly():
             title_font=dict(color=_COLOR_TEXT),
         ),
         legend=dict(font=dict(color=_COLOR_TEXT)),
+        margin=dict(b=80),
     )
     pio.templates["arkloop"] = go.layout.Template(layout=arkloop_layout)
     pio.templates.default = "arkloop"
 
     _orig_write_image = go.Figure.write_image
+    _orig_write_html = go.Figure.write_html
+    _orig_to_html = go.Figure.to_html
 
     def _write_image_with_brand(self, *args, **kwargs):
-        has_brand = any(
-            getattr(a, "text", None) == _ARKLOOP_BRAND
-            for a in (self.layout.annotations or [])
-        )
-        if not has_brand:
-            self.add_annotation(
-                text=_ARKLOOP_BRAND,
-                xref="paper",
-                yref="paper",
-                x=0.98,
-                y=1.06,
-                showarrow=False,
-                font=dict(size=14, color=_COLOR_BRAND, family=_FONT_FAMILY),
-                xanchor="right",
-                yanchor="bottom",
-            )
-        kwargs.setdefault("scale", 2)
-        return _orig_write_image(self, *args, **kwargs)
+        _add_plotly_brand(self)
+        kwargs.setdefault("scale", 3)
+        kwargs.setdefault("width", 900)
+        kwargs.setdefault("height", 550)
+        try:
+            return _orig_write_image(self, *args, **kwargs)
+        except Exception:
+            # kaleido/Chrome 失败时降级为 HTML
+            import sys, os
+            path = args[0] if args else kwargs.get("file")
+            if path and isinstance(path, str):
+                html_path = os.path.splitext(path)[0] + ".html"
+                _orig_write_html(self, html_path)
+                print(f"[arkloop] write_image failed, saved as {html_path}", file=sys.stderr)
+                return
+            raise
+
+    def _write_html_with_brand(self, *args, **kwargs):
+        _add_plotly_brand(self)
+        return _orig_write_html(self, *args, **kwargs)
+
+    def _to_html_with_brand(self, *args, **kwargs):
+        _add_plotly_brand(self)
+        return _orig_to_html(self, *args, **kwargs)
 
     go.Figure.write_image = _write_image_with_brand
+    go.Figure.write_html = _write_html_with_brand
+    go.Figure.to_html = _to_html_with_brand
 
 
 def _setup_matplotlib():
@@ -85,15 +115,24 @@ def _setup_matplotlib():
             "axes.facecolor": "none",
             "text.color": _COLOR_TEXT,
             "axes.labelcolor": _COLOR_TEXT,
+            "axes.titlesize": 16,
+            "axes.labelsize": 13,
             "xtick.color": _COLOR_TEXT,
+            "xtick.labelsize": 12,
             "ytick.color": _COLOR_TEXT,
+            "ytick.labelsize": 12,
             "axes.edgecolor": _MPL_COLOR_AXIS,
+            "axes.spines.top": False,
+            "axes.spines.right": False,
             "grid.color": _MPL_COLOR_GRID,
             "grid.alpha": 0.5,
             "legend.facecolor": "none",
             "legend.edgecolor": "none",
             "legend.labelcolor": _COLOR_TEXT,
+            "legend.fontsize": 11,
             "figure.edgecolor": "none",
+            "figure.titlesize": 18,
+            "font.size": 13,
             "font.family": "sans-serif",
             "font.sans-serif": [
                 "Noto Sans CJK SC",
@@ -114,13 +153,14 @@ def _setup_matplotlib():
         if not getattr(self, "_arkloop_branded", False):
             self.text(
                 0.98,
-                0.98,
+                0.01,
                 _ARKLOOP_BRAND,
                 transform=self.transFigure,
-                fontsize=12,
+                fontsize=9,
                 color=_MPL_COLOR_BRAND,
                 ha="right",
-                va="top",
+                va="bottom",
+                fontstyle="italic",
             )
             self._arkloop_branded = True
         kwargs.setdefault("transparent", True)

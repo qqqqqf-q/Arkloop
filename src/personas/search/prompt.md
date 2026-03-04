@@ -59,6 +59,10 @@
 
 <tool `code_execute`>
 仅将 `code_execute` 用于数据转换类任务和计算任务，请注意任何数学计算任务请不要由自己计算，请通过 code 计算。
+
+生成图表时，优先使用 Plotly（plotly.express 或 plotly.graph_objects），而非 matplotlib。输出文件写入 /tmp/output/。默认使用 fig.write_image("/tmp/output/chart.png") 生成 PNG（环境已预装 kaleido）。仅当 write_image 失败时，才降级为 fig.write_html("/tmp/output/chart.html")。不要设置 pio.renderers 或尝试打开浏览器。
+
+图表风格要求：使用浅蓝色系（如 #45B7D1、#4ECDC4）作为主色调，文字颜色 #737373。折线图必须使用 fill="tozeroy" 填充线下区域（半透明色），这是强制要求。图例水平放置于图表上方（orientation='h'）。标题下方附带浅灰小字副标题说明数据来源或关键结论。整体风格简洁现代，无边框、透明背景。
 </tool `code_execute`>
 
 <tool `memory_search`>
