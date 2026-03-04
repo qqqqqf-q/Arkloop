@@ -8,9 +8,9 @@ import (
 
 // MemoryIdentity 标识一次 memory 操作的调用方身份，用于多租户隔离。
 type MemoryIdentity struct {
-	OrgID   uuid.UUID // -> OpenViking account_id
-	UserID  uuid.UUID // -> OpenViking user_id
-	AgentID string    // -> OpenViking agent_id（默认取 PersonaDefinition.ID，adapter 层 sanitize 到 [a-zA-Z0-9_-]）
+	OrgID   uuid.UUID
+	UserID  uuid.UUID
+	AgentID string // 默认取 PersonaDefinition.ID，字符集 [a-zA-Z0-9_-]
 }
 
 // MemoryScope 控制检索/写入的命名空间。
@@ -30,7 +30,7 @@ type MemoryHit struct {
 	IsLeaf      bool
 }
 
-// MemoryLayer 对应 OpenViking 的分层内容读取深度。
+// MemoryLayer 对应分层内容读取深度。
 type MemoryLayer string
 
 const (
@@ -46,13 +46,13 @@ type MemoryMessage struct {
 }
 
 // MemoryEntry 是一条主动写入的结构化记忆。
-// Write 通过 session/commit 路径写入，OpenViking 根据 identity headers 决定存储空间，
+// Write 通过 session/commit 路径写入，后端根据 identity headers 决定存储空间，
 // 因此不支持指定目标 URI。
 type MemoryEntry struct {
 	Content string // 记忆正文（纯文本）
 }
 
-// MemoryCategory 预定义的记忆分类，与 OpenViking 的 6 类记忆对齐。
+// MemoryCategory 预定义的记忆分类。
 type MemoryCategory string
 
 const (
@@ -64,14 +64,14 @@ const (
 	MemoryCategoryPattern    MemoryCategory = "patterns"    // 行为模式
 )
 
-// MemoryProvider 是 Worker 侧的 Memory 抽象，屏蔽底层实现（当前为 OpenViking）。
+// MemoryProvider 是 Worker 侧的 Memory 抽象。
 //
 // 三条主链路：
 //   - 记忆注入：Find + Content（run 之前，注入 system prompt）
 //   - 记忆提取：AppendSessionMessages + CommitSession（run 之后，异步归档）
 //   - 主动写入：Write + Delete（Agent tool call 直接操作记忆）
 //
-// OpenViking 不可用时实现应降级为"无记忆"，不影响 run 主流程。
+// 后端不可用时实现应降级为"无记忆"，不影响 run 主流程。
 type MemoryProvider interface {
 	// Find 语义检索，返回 L0 摘要 + URI；必要时再按 URI 拉 L1/L2。
 	Find(ctx context.Context, ident MemoryIdentity, scope MemoryScope, query string, limit int) ([]MemoryHit, error)
@@ -79,13 +79,13 @@ type MemoryProvider interface {
 	// Content 读取分层内容（L0/L1/L2）。
 	Content(ctx context.Context, ident MemoryIdentity, uri string, layer MemoryLayer) (string, error)
 
-	// AppendSessionMessages 向 OpenViking session 追加消息（sessionID = thread_id）。
+	// AppendSessionMessages 向 session 追加消息（sessionID = thread_id）。
 	AppendSessionMessages(ctx context.Context, ident MemoryIdentity, sessionID string, msgs []MemoryMessage) error
 
 	// CommitSession 触发会话归档与长期记忆提取。应在 goroutine 中异步调用，不阻塞 run 返回。
 	CommitSession(ctx context.Context, ident MemoryIdentity, sessionID string) error
 
-	// Write 主动写入一条结构化记忆，内容会被 OpenViking 建立向量索引，之后可通过 Find 检索。
+	// Write 主动写入一条结构化记忆，内容会被建立向量索引，之后可通过 Find 检索。
 	// URI 由调用方通过 BuildURI 构造，适配器负责将 entry 路由到正确的 scope。
 	Write(ctx context.Context, ident MemoryIdentity, scope MemoryScope, entry MemoryEntry) error
 

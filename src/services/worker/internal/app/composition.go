@@ -33,7 +33,7 @@ import (
 // directPool 不为 nil 时用于 LISTEN/NOTIFY 直连（绕过 PgBouncer）。
 // rdb 不为 nil 时在 run 终态时 DECR 并发计数器。
 // execRegistry 为 executor 注册表，不得为 nil。
-// jobQueue 可选；非 nil 时启用 SpawnChildRun（AS-3.5.2）。
+// jobQueue 可选；非 nil 时启用 SpawnChildRun。
 func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pgxpool.Pool, rdb *redis.Client, cfg Config, execRegistry pipeline.AgentExecutorBuilder, jobQueue queue.JobQueue) (*runengine.EngineV1, error) {
 	if ctx == nil {
 		ctx = context.Background()

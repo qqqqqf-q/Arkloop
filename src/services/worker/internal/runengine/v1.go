@@ -66,14 +66,14 @@ type EngineV1Deps struct {
 	ToolProviderCache     *toolprovider.Cache
 	ExecutorRegistry      pipeline.AgentExecutorBuilder // 必填，nil 时 NewEngineV1 返回错误
 
-	// JobQueue 可选；非 nil 时启用 SpawnChildRun（AS-3.5.2）
+	// JobQueue 可选；非 nil 时启用 SpawnChildRun
 	JobQueue queue.JobQueue
 
 	// LLM 请求重试配置
 	LlmRetryMaxAttempts int
 	LlmRetryBaseDelayMs int
 
-	// MemoryProvider 可选；nil 时跳过整个 MemoryMiddleware（AS-5.4）
+	// MemoryProvider 可选；nil 时跳过整个 MemoryMiddleware
 	MemoryProvider memory.MemoryProvider
 }
 

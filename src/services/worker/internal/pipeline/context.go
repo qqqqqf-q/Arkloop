@@ -45,10 +45,10 @@ type RunContext struct {
 	Router       *routing.ProviderRouter
 
 	// -- EngineV1.Execute 从 Run.CreatedByUserID 注入；nil 时 MemoryMiddleware 跳过写入 --
-	// agent_id 约定：默认取 PersonaDefinition.ID；OpenViking 要求字符集 [a-zA-Z0-9_-]，adapter 层 sanitize
+	// agent_id 约定：默认取 PersonaDefinition.ID，字符集 [a-zA-Z0-9_-]，adapter 层 sanitize
 	UserID *uuid.UUID
 
-	// -- AgentLoopHandler 写入：run 完成后的 assistant 最终拼接文本，供 MemoryMiddleware 写入 OpenViking --
+	// -- AgentLoopHandler 写入：run 完成后的 assistant 最终拼接文本，供 MemoryMiddleware 写入 --
 	FinalAssistantOutput string
 
 	// -- CancelGuardMiddleware 写入 --
@@ -116,14 +116,14 @@ type RunContext struct {
 	LlmRetryMaxAttempts int
 	LlmRetryBaseDelayMs int
 
-	// -- Human-in-the-loop 钩子（AS-3），均为 nil 时 Executor 不触发，零开销 --
+	// -- Human-in-the-loop 钩子，均为 nil 时 Executor 不触发 --
 	// WaitForInput 非 nil 时，Executor 在 CheckInAt 边界调用此函数阻塞等待用户输入。
 	// 返回 ("", false) 表示超时或不注入；返回 (text, true) 则将 text 作为 user message 注入。
 	WaitForInput func(ctx context.Context) (string, bool)
 	// CheckInAt 判断当前迭代 iter 是否为 check-in 边界，仅当 WaitForInput 非 nil 时有效。
 	CheckInAt func(iter int) bool
 
-	// -- AS-3.5.2 父子 Run 调度（由 EngineV1.Execute 注入，nil 时表示未启用）--
+	// -- 父子 Run 调度（由 EngineV1.Execute 注入，nil 时表示未启用）--
 	// SpawnChildRun 创建子 Run 并异步等待其完成，父 Run 挂起期间不持有 DB 连接。
 	// ctx 取消时立即返回 error，子 Run 继续执行直至超时。
 	SpawnChildRun func(ctx context.Context, personaID string, input string) (string, error)
