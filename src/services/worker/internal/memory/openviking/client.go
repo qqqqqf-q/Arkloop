@@ -286,7 +286,7 @@ func (c *client) AppendSessionMessages(ctx context.Context, ident memory.MemoryI
 			Content: msg.Content,
 		}
 		path := fmt.Sprintf("/api/v1/sessions/%s/messages", url.PathEscape(sessionID))
-		if err := c.doJSON(ctx, http.MethodPost, path, body, ident, nil); err != nil {
+		if err := c.doWriteJSON(ctx, http.MethodPost, path, body, ident, nil); err != nil {
 			return fmt.Errorf("append message index=%d role=%s: %w", i, msg.Role, err)
 		}
 	}
@@ -325,7 +325,7 @@ func (c *client) Write(ctx context.Context, ident memory.MemoryIdentity, scope m
 
 	// 1. 创建临时 session
 	var createResp apiResponse
-	if err := c.doJSON(ctx, http.MethodPost, "/api/v1/sessions", nil, writeIdent, &createResp); err != nil {
+	if err := c.doWriteJSON(ctx, http.MethodPost, "/api/v1/sessions", nil, writeIdent, &createResp); err != nil {
 		return fmt.Errorf("memory write create session: %w", err)
 	}
 	if createResp.Error != nil {
@@ -343,7 +343,7 @@ func (c *client) Write(ctx context.Context, ident memory.MemoryIdentity, scope m
 		{Role: "user", Content: entry.Content},
 		{Role: "assistant", Content: "Noted."},
 	} {
-		if err := c.doJSON(ctx, http.MethodPost, msgPath, msg, writeIdent, nil); err != nil {
+		if err := c.doWriteJSON(ctx, http.MethodPost, msgPath, msg, writeIdent, nil); err != nil {
 			slog.WarnContext(ctx, "memory write: message failed, session leaked",
 				"session_id", sid, "role", msg.Role, "err", err.Error())
 			return fmt.Errorf("memory write add message role=%s: %w", msg.Role, err)

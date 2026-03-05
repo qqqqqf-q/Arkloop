@@ -116,7 +116,7 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 		slog.InfoContext(ctx, "memory: openviking not configured, running without memory")
 	} else {
 		// MemoryProvider 可用时条件注册 memory tools
-		memExecutor := memorytool.NewToolExecutor(memoryProvider, pool)
+		memExecutor := memorytool.NewToolExecutor(memoryProvider)
 		for _, spec := range memorytool.AgentSpecs() {
 			if err := toolRegistry.Register(spec); err != nil {
 				return nil, err

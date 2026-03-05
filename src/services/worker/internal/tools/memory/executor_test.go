@@ -89,7 +89,7 @@ func TestMemoryExecutor_Search_Success(t *testing.T) {
 			{URI: "viking://user/memories/preferences/lang", Abstract: "user speaks English", Score: 0.9},
 		},
 	}
-	ex := NewToolExecutor(mp, nil)
+	ex := NewToolExecutor(mp)
 	result := ex.Execute(context.Background(), "memory_search", map[string]any{"query": "language"}, newUserExecCtx(), "")
 
 	if result.Error != nil {
@@ -112,7 +112,7 @@ func TestMemoryExecutor_Search_Success(t *testing.T) {
 }
 
 func TestMemoryExecutor_Search_EmptyQuery(t *testing.T) {
-	ex := NewToolExecutor(&mockProvider{}, nil)
+	ex := NewToolExecutor(&mockProvider{})
 	result := ex.Execute(context.Background(), "memory_search", map[string]any{"query": ""}, newUserExecCtx(), "")
 	if result.Error == nil || result.Error.ErrorClass != errorArgsInvalid {
 		t.Fatalf("expected args_invalid, got: %+v", result.Error)
@@ -121,7 +121,7 @@ func TestMemoryExecutor_Search_EmptyQuery(t *testing.T) {
 
 func TestMemoryExecutor_Search_ProviderError(t *testing.T) {
 	mp := &mockProvider{findErr: errors.New("connection refused")}
-	ex := NewToolExecutor(mp, nil)
+	ex := NewToolExecutor(mp)
 	result := ex.Execute(context.Background(), "memory_search", map[string]any{"query": "test"}, newUserExecCtx(), "")
 	if result.Error == nil || result.Error.ErrorClass != errorProviderFailure {
 		t.Fatalf("expected provider_error, got: %+v", result.Error)
@@ -130,7 +130,7 @@ func TestMemoryExecutor_Search_ProviderError(t *testing.T) {
 
 func TestMemoryExecutor_Search_LimitParsing(t *testing.T) {
 	mp := &mockProvider{}
-	ex := NewToolExecutor(mp, nil)
+	ex := NewToolExecutor(mp)
 
 	// float64（JSON number 反序列化后默认类型）
 	result := ex.Execute(context.Background(), "memory_search", map[string]any{"query": "q", "limit": float64(3)}, newUserExecCtx(), "")
@@ -155,7 +155,7 @@ func TestMemoryExecutor_Search_LimitParsing(t *testing.T) {
 
 func TestMemoryExecutor_Read_Success(t *testing.T) {
 	mp := &mockProvider{contentText: "user prefers Go"}
-	ex := NewToolExecutor(mp, nil)
+	ex := NewToolExecutor(mp)
 	result := ex.Execute(context.Background(), "memory_read", map[string]any{"uri": "viking://user/memories/preferences/lang"}, newUserExecCtx(), "")
 
 	if result.Error != nil {
@@ -167,7 +167,7 @@ func TestMemoryExecutor_Read_Success(t *testing.T) {
 }
 
 func TestMemoryExecutor_Read_MissingURI(t *testing.T) {
-	ex := NewToolExecutor(&mockProvider{}, nil)
+	ex := NewToolExecutor(&mockProvider{})
 	result := ex.Execute(context.Background(), "memory_read", map[string]any{}, newUserExecCtx(), "")
 	if result.Error == nil || result.Error.ErrorClass != errorArgsInvalid {
 		t.Fatalf("expected args_invalid, got: %+v", result.Error)
@@ -176,7 +176,7 @@ func TestMemoryExecutor_Read_MissingURI(t *testing.T) {
 
 func TestMemoryExecutor_Read_FullDepth(t *testing.T) {
 	mp := &mockProvider{contentText: "full content"}
-	ex := NewToolExecutor(mp, nil)
+	ex := NewToolExecutor(mp)
 
 	calledWithRead := false
 	origProvider := mp
@@ -200,7 +200,7 @@ func TestMemoryExecutor_Read_FullDepth(t *testing.T) {
 
 func TestMemoryExecutor_Write_Success(t *testing.T) {
 	mp := &mockProvider{}
-	ex := NewToolExecutor(mp, nil)
+	ex := NewToolExecutor(mp)
 	result := ex.Execute(context.Background(), "memory_write", map[string]any{
 		"category": "preferences",
 		"key":      "language",
@@ -219,7 +219,7 @@ func TestMemoryExecutor_Write_Success(t *testing.T) {
 }
 
 func TestMemoryExecutor_Write_MissingCategory(t *testing.T) {
-	ex := NewToolExecutor(&mockProvider{}, nil)
+	ex := NewToolExecutor(&mockProvider{})
 	result := ex.Execute(context.Background(), "memory_write", map[string]any{
 		"key": "lang", "content": "go",
 	}, newUserExecCtx(), "")
@@ -229,7 +229,7 @@ func TestMemoryExecutor_Write_MissingCategory(t *testing.T) {
 }
 
 func TestMemoryExecutor_Write_MissingKey(t *testing.T) {
-	ex := NewToolExecutor(&mockProvider{}, nil)
+	ex := NewToolExecutor(&mockProvider{})
 	result := ex.Execute(context.Background(), "memory_write", map[string]any{
 		"category": "preferences", "content": "go",
 	}, newUserExecCtx(), "")
@@ -240,7 +240,7 @@ func TestMemoryExecutor_Write_MissingKey(t *testing.T) {
 
 func TestMemoryExecutor_Write_AgentScope(t *testing.T) {
 	mp := &mockProvider{}
-	ex := NewToolExecutor(mp, nil)
+	ex := NewToolExecutor(mp)
 	result := ex.Execute(context.Background(), "memory_write", map[string]any{
 		"category": "patterns",
 		"key":      "retry",
@@ -264,7 +264,7 @@ func TestMemoryExecutor_Write_AgentScope(t *testing.T) {
 
 func TestMemoryExecutor_Forget_Success(t *testing.T) {
 	mp := &mockProvider{}
-	ex := NewToolExecutor(mp, nil)
+	ex := NewToolExecutor(mp)
 	targetURI := "viking://user/memories/preferences/lang"
 	result := ex.Execute(context.Background(), "memory_forget", map[string]any{"uri": targetURI}, newUserExecCtx(), "")
 
@@ -283,7 +283,7 @@ func TestMemoryExecutor_Forget_Success(t *testing.T) {
 }
 
 func TestMemoryExecutor_Forget_MissingURI(t *testing.T) {
-	ex := NewToolExecutor(&mockProvider{}, nil)
+	ex := NewToolExecutor(&mockProvider{})
 	result := ex.Execute(context.Background(), "memory_forget", map[string]any{}, newUserExecCtx(), "")
 	if result.Error == nil || result.Error.ErrorClass != errorArgsInvalid {
 		t.Fatalf("expected args_invalid, got: %+v", result.Error)
@@ -293,7 +293,7 @@ func TestMemoryExecutor_Forget_MissingURI(t *testing.T) {
 // --- identity missing ---
 
 func TestMemoryExecutor_NoUserID_IdentityMissing(t *testing.T) {
-	ex := NewToolExecutor(&mockProvider{}, nil)
+	ex := NewToolExecutor(&mockProvider{})
 	result := ex.Execute(context.Background(), "memory_search", map[string]any{"query": "test"}, newExecCtx(nil), "")
 	if result.Error == nil || result.Error.ErrorClass != errorIdentityMissing {
 		t.Fatalf("expected identity_missing, got: %+v", result.Error)
