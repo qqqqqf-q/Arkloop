@@ -11,6 +11,32 @@ import (
 	"testing"
 )
 
+func TestOpenAIToolMessage_IncludesErrorWhenResultAlsoPresent(t *testing.T) {
+	raw, err := json.Marshal(map[string]any{
+		"tool_call_id": "call_1",
+		"result": map[string]any{
+			"dedup":            "same_args_as_previous",
+			"ref_tool_call_id": "call_0",
+		},
+		"error": map[string]any{
+			"error_class": "tool.memory_provider_error",
+			"message":     "memory write failed",
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+
+	msg := toOpenAIToolMessage(string(raw))
+	if msg["tool_call_id"] != "call_1" {
+		t.Fatalf("unexpected tool_call_id: %v", msg["tool_call_id"])
+	}
+	content, _ := msg["content"].(string)
+	if !strings.Contains(content, "tool.memory_provider_error") {
+		t.Fatalf("expected error info in tool content, got %q", content)
+	}
+}
+
 func TestOpenAIGateway_Stream_ToolCalls(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/chat/completions" {
@@ -654,7 +680,7 @@ func TestOpenAIGateway_StreamChatCompletionsSSE_UsageOnlyChunkAfterFinishReason_
 	chunk1, _ := json.Marshal(map[string]any{
 		"choices": []any{
 			map[string]any{
-				"delta":         map[string]any{"role": "assistant", "content": ""},
+				"delta":         map[string]any{"role": "assistant", "content": "ok"},
 				"finish_reason": "stop",
 			},
 		},
@@ -695,6 +721,100 @@ func TestOpenAIGateway_StreamChatCompletionsSSE_UsageOnlyChunkAfterFinishReason_
 	}
 	if *last.Usage.InputTokens != 12 || *last.Usage.OutputTokens != 34 {
 		t.Fatalf("unexpected usage: %#v", last.Usage)
+	}
+}
+
+func TestOpenAIGateway_StreamChatCompletionsSSE_UsageOnlyWithoutContent_Fails(t *testing.T) {
+	chunk1, _ := json.Marshal(map[string]any{
+		"choices": []any{},
+		"usage": map[string]any{
+			"prompt_tokens":     12,
+			"completion_tokens": 34,
+		},
+	})
+
+	reader := strings.NewReader(
+		"data: " + string(chunk1) + "\n\n" +
+			"data: [DONE]\n\n",
+	)
+
+	gateway := &OpenAIGateway{cfg: OpenAIGatewayConfig{}}
+	var events []StreamEvent
+	err := gateway.streamChatCompletionsSSE(context.Background(), reader, "test", 200, func(ev StreamEvent) error {
+		events = append(events, ev)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("expected nil error from gateway, got: %v", err)
+	}
+	if len(events) == 0 {
+		t.Fatal("expected events, got none")
+	}
+
+	last, ok := events[len(events)-1].(StreamRunFailed)
+	if !ok {
+		t.Fatalf("expected StreamRunFailed as last event, got %T", events[len(events)-1])
+	}
+	if last.Error.ErrorClass != ErrorClassInternalError {
+		t.Fatalf("unexpected error_class: %#v", last.Error)
+	}
+	if last.Error.Message != "OpenAI stream completed without content" {
+		t.Fatalf("unexpected error message: %#v", last.Error)
+	}
+}
+
+func TestOpenAIGateway_Stream_ChatCompletions_SSE_InvalidJSONChunk_Fails(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/chat/completions" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {bad json}\n\n"))
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	t.Cleanup(server.Close)
+
+	gateway := NewOpenAIGateway(OpenAIGatewayConfig{
+		APIKey:          "test",
+		BaseURL:         server.URL,
+		APIMode:         "chat_completions",
+		EmitDebugEvents: false,
+	})
+
+	var events []StreamEvent
+	err := gateway.Stream(context.Background(), Request{
+		Model: "gpt-test",
+		Messages: []Message{
+			{Role: "user", Content: []TextPart{{Text: "hi"}}},
+		},
+	}, func(ev StreamEvent) error {
+		events = append(events, ev)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("stream failed: %v", err)
+	}
+	if len(events) == 0 {
+		t.Fatal("expected events, got none")
+	}
+
+	if _, ok := events[len(events)-1].(StreamRunFailed); !ok {
+		t.Fatalf("expected StreamRunFailed as last event, got %T", events[len(events)-1])
+	}
+	for _, item := range events {
+		if _, ok := item.(StreamRunCompleted); ok {
+			t.Fatalf("unexpected StreamRunCompleted event: %v", streamEventTypes(events))
+		}
+	}
+
+	last := events[len(events)-1].(StreamRunFailed)
+	if last.Error.ErrorClass != ErrorClassInternalError {
+		t.Fatalf("unexpected error_class: %#v", last.Error)
+	}
+	if last.Error.Message != "OpenAI stream chunk parse failed" {
+		t.Fatalf("unexpected error message: %#v", last.Error)
 	}
 }
 
@@ -795,6 +915,61 @@ func TestOpenAIGateway_Stream_Responses_SSE_ToolCalls(t *testing.T) {
 
 	if _, ok := events[len(events)-1].(StreamRunCompleted); !ok {
 		t.Fatalf("expected StreamRunCompleted as last event, got %T", events[len(events)-1])
+	}
+}
+
+func TestOpenAIGateway_Stream_Responses_SSE_InvalidJSONChunk_Fails(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/responses" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {bad json}\n\n"))
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	t.Cleanup(server.Close)
+
+	gateway := NewOpenAIGateway(OpenAIGatewayConfig{
+		APIKey:          "test",
+		BaseURL:         server.URL,
+		APIMode:         "responses",
+		EmitDebugEvents: false,
+	})
+
+	var events []StreamEvent
+	err := gateway.Stream(context.Background(), Request{
+		Model: "gpt-test",
+		Messages: []Message{
+			{Role: "user", Content: []TextPart{{Text: "hi"}}},
+		},
+	}, func(ev StreamEvent) error {
+		events = append(events, ev)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("stream failed: %v", err)
+	}
+	if len(events) == 0 {
+		t.Fatal("expected events, got none")
+	}
+
+	if _, ok := events[len(events)-1].(StreamRunFailed); !ok {
+		t.Fatalf("expected StreamRunFailed as last event, got %T", events[len(events)-1])
+	}
+	for _, item := range events {
+		if _, ok := item.(StreamRunCompleted); ok {
+			t.Fatalf("unexpected StreamRunCompleted event: %v", streamEventTypes(events))
+		}
+	}
+
+	last := events[len(events)-1].(StreamRunFailed)
+	if last.Error.ErrorClass != ErrorClassInternalError {
+		t.Fatalf("unexpected error_class: %#v", last.Error)
+	}
+	if last.Error.Message != "OpenAI responses stream chunk parse failed" {
+		t.Fatalf("unexpected error message: %#v", last.Error)
 	}
 }
 

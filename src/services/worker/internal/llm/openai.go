@@ -488,8 +488,8 @@ type openAIChatCompletionStreamChunk struct {
 		FinishReason *string `json:"finish_reason"`
 	} `json:"choices"`
 	Usage *struct {
-		PromptTokens     int `json:"prompt_tokens"`
-		CompletionTokens int `json:"completion_tokens"`
+		PromptTokens        int `json:"prompt_tokens"`
+		CompletionTokens    int `json:"completion_tokens"`
 		PromptTokensDetails *struct {
 			CachedTokens int `json:"cached_tokens"`
 		} `json:"prompt_tokens_details"`
@@ -603,6 +603,8 @@ func (g *OpenAIGateway) streamChatCompletionsSSE(
 	var streamedUsage *Usage
 	var inThink bool
 	emittedAnyOutput := false
+	emittedMainOutput := false
+	emittedToolCall := false
 	finishReasonSeen := false
 
 	err := forEachSSEData(ctx, body, func(data string) (retErr error) {
@@ -644,9 +646,26 @@ func (g *OpenAIGateway) streamChatCompletionsSSE(
 				return yield(openAIParseFailure(err, "OpenAI response parse failed", "OpenAI tool_call arguments parse failed"))
 			}
 			for _, call := range calls {
+				emittedToolCall = true
 				if err := yield(call); err != nil {
 					return err
 				}
+			}
+			if !emittedMainOutput && !emittedToolCall {
+				terminalEmitted = true
+				details := map[string]any{
+					"finish_reason_seen": finishReasonSeen,
+				}
+				if streamedUsage != nil {
+					details["usage"] = streamedUsage.ToJSON()
+				}
+				return yield(StreamRunFailed{
+					Error: GatewayError{
+						ErrorClass: ErrorClassInternalError,
+						Message:    "OpenAI stream completed without content",
+						Details:    details,
+					},
+				})
 			}
 			terminalEmitted = true
 			return yield(StreamRunCompleted{Usage: streamedUsage})
@@ -654,7 +673,18 @@ func (g *OpenAIGateway) streamChatCompletionsSSE(
 
 		var parsed openAIChatCompletionStreamChunk
 		if err := json.Unmarshal([]byte(data), &parsed); err != nil {
-			return nil
+			terminalEmitted = true
+			return yield(StreamRunFailed{
+				Error: GatewayError{
+					ErrorClass: ErrorClassInternalError,
+					Message:    "OpenAI stream chunk parse failed",
+					Details: map[string]any{
+						"reason":          err.Error(),
+						"chunk":           raw,
+						"chunk_truncated": rawTruncated,
+					},
+				},
+			})
 		}
 		// 不论 choices 是否为空，只要 chunk 携带了 usage 就捕获（取最后一次）
 		// OpenRouter 等代理会把 usage 附在最后一个有 choices 的 chunk 上
@@ -691,6 +721,7 @@ func (g *OpenAIGateway) streamChatCompletionsSSE(
 			}
 			if mainPart != "" {
 				emittedAnyOutput = true
+				emittedMainOutput = true
 				if err := yield(StreamMessageDelta{ContentDelta: mainPart, Role: role}); err != nil {
 					return err
 				}
@@ -710,6 +741,7 @@ func (g *OpenAIGateway) streamChatCompletionsSSE(
 						return yield(openAIParseFailure(err, "OpenAI response parse failed", "OpenAI tool_call arguments parse failed"))
 					}
 					for _, call := range calls {
+						emittedToolCall = true
 						if err := yield(call); err != nil {
 							return err
 						}
@@ -740,9 +772,26 @@ func (g *OpenAIGateway) streamChatCompletionsSSE(
 				})
 			}
 			for _, call := range calls {
+				emittedToolCall = true
 				if err := yield(call); err != nil {
 					return err
 				}
+			}
+			if !emittedMainOutput && !emittedToolCall {
+				terminalEmitted = true
+				details := map[string]any{
+					"finish_reason_seen": finishReasonSeen,
+				}
+				if streamedUsage != nil {
+					details["usage"] = streamedUsage.ToJSON()
+				}
+				return yield(StreamRunFailed{
+					Error: GatewayError{
+						ErrorClass: ErrorClassInternalError,
+						Message:    "OpenAI stream ended without content",
+						Details:    details,
+					},
+				})
 			}
 			terminalEmitted = true
 			return yield(StreamRunCompleted{Usage: streamedUsage})
@@ -772,13 +821,29 @@ func (g *OpenAIGateway) streamChatCompletionsSSE(
 		})
 	}
 	for _, call := range calls {
+		emittedToolCall = true
 		if err := yield(call); err != nil {
 			return err
 		}
 	}
-	if streamedUsage != nil || emittedAnyOutput || len(calls) > 0 || finishReasonSeen {
+	if emittedMainOutput || emittedToolCall {
 		terminalEmitted = true
 		return yield(StreamRunCompleted{Usage: streamedUsage})
+	}
+	if streamedUsage != nil || emittedAnyOutput || finishReasonSeen {
+		details := map[string]any{
+			"finish_reason_seen": finishReasonSeen,
+		}
+		if streamedUsage != nil {
+			details["usage"] = streamedUsage.ToJSON()
+		}
+		return yield(StreamRunFailed{
+			Error: GatewayError{
+				ErrorClass: ErrorClassInternalError,
+				Message:    "OpenAI stream completed without content",
+				Details:    details,
+			},
+		})
 	}
 	return yield(StreamRunFailed{Error: InternalStreamEndedError()})
 }
@@ -799,6 +864,9 @@ func (g *OpenAIGateway) streamResponsesSSE(
 				handlerFailed = true
 			}
 		}()
+		if terminalEmitted {
+			return nil
+		}
 		raw, rawTruncated := truncateUTF8(data, openAIMaxDebugChunkBytes)
 		var chunkJSON any
 		if strings.TrimSpace(data) != "" && data != "[DONE]" {
@@ -830,7 +898,18 @@ func (g *OpenAIGateway) streamResponsesSSE(
 
 		var parsed any
 		if err := json.Unmarshal([]byte(data), &parsed); err != nil {
-			return nil
+			terminalEmitted = true
+			return yield(StreamRunFailed{
+				Error: GatewayError{
+					ErrorClass: ErrorClassInternalError,
+					Message:    "OpenAI responses stream chunk parse failed",
+					Details: map[string]any{
+						"reason":          err.Error(),
+						"chunk":           raw,
+						"chunk_truncated": rawTruncated,
+					},
+				},
+			})
 		}
 		root, ok := parsed.(map[string]any)
 		if !ok {
@@ -1007,8 +1086,8 @@ type openAIChatCompletionResponse struct {
 		} `json:"message"`
 	} `json:"choices"`
 	Usage *struct {
-		PromptTokens     int `json:"prompt_tokens"`
-		CompletionTokens int `json:"completion_tokens"`
+		PromptTokens        int `json:"prompt_tokens"`
+		CompletionTokens    int `json:"completion_tokens"`
 		PromptTokensDetails *struct {
 			CachedTokens int `json:"cached_tokens"`
 		} `json:"prompt_tokens_details"`
@@ -1182,16 +1261,24 @@ func toOpenAIToolMessage(text string) map[string]any {
 }
 
 func toolOutputTextFromEnvelope(envelope map[string]any) string {
-	if result, ok := envelope["result"]; ok && result != nil {
-		encoded, err := stablejson.Encode(result)
+	result, hasResult := envelope["result"]
+	errObj, hasErr := envelope["error"]
+
+	// 同时存在 result + error 时，必须把 error 也传给 LLM，
+	// 否则会出现“工具实际失败，但模型误以为成功”的误导。
+	if hasErr && errObj != nil {
+		payload := map[string]any{"error": errObj}
+		if hasResult && result != nil {
+			payload["result"] = result
+		}
+		encoded, err := stablejson.Encode(payload)
 		if err == nil && encoded != "" {
 			return encoded
 		}
 	}
 
-	if errObj, ok := envelope["error"]; ok && errObj != nil {
-		payload := map[string]any{"error": errObj}
-		encoded, err := stablejson.Encode(payload)
+	if hasResult && result != nil {
+		encoded, err := stablejson.Encode(result)
 		if err == nil && encoded != "" {
 			return encoded
 		}
