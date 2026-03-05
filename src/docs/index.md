@@ -3,7 +3,7 @@ layout: home
 
 hero:
   name: Arkloop Docs
-  text: 内部工程文档
+  text: 工程文档
   tagline: 架构设计、API 参考、部署指南
   actions:
     - theme: brand

@@ -972,17 +972,17 @@ docs/investor-deep-research.zh-CN.md
 
 **目标**：补齐开源仓库的合规、治理、发布与安全基线，确保“外部用户第一次启动就能跑起来、遇到问题能定位、想贡献能落地”。
 
-### H1 -- 开源边界与仓库卫生
+### H1 -- 开源边界与仓库卫生 [DONE]
 
-- 明确开源范围：哪些目录/服务属于 OSS core，哪些属于商业交付/内部资料需要移出或替换为占位说明
-- 建立开源前清理清单：密钥/Token、内网域名、私有镜像、测试数据 dump、个人信息
-- 将仓库内“内部工程文档”标识改为对外语境（至少避免首页出现“内部”字样），并明确哪些文档属于实现细节、哪些是对外使用指南
+- [x] 明确开源范围：`docs/OPEN-SOURCE-BOUNDARY.md` 列出 OSS core / 配置模板 / 排除项三级分类
+- [x] 建立开源前清理清单：git 历史密钥扫描（通过）、`.dockerignore` 创建、个人路径清理
+- [x] 文档"内部"标识改为对外语境（`src/docs/index.md` hero text）、`.gitignore` 更新、删除不适合公开的文件
 
-### H2 -- 许可证与第三方依赖合规
+### H2 -- 许可证与第三方依赖合规 [DONE]
 
-- 选择并落地主许可证：根目录增加 `LICENSE`（必要时增加 `NOTICE`）
-- 建立第三方依赖许可证清单：Go modules + pnpm workspace 依赖 + Sandbox rootfs 预装依赖（Python/Node）
-- 明确商标/项目名使用规则（最小化即可：允许/禁止的使用场景），避免后续争议
+- [x] 选择并落地主许可证：根目录 `LICENSE`（Arkloop License = modified Apache 2.0 + 多租户限制 + 品牌保护）+ `NOTICE`
+- [x] 建立第三方依赖许可证清单：`docs/THIRD-PARTY-LICENSES.md`（Go 159 modules + npm 31 packages，全部为宽松许可证，无 copyleft 风险）
+- [ ] 明确商标/项目名使用规则（最小化即可：允许/禁止的使用场景），避免后续争议 -- 建议在 H3 的 CONTRIBUTING.md 中一并说明
 
 ### H3 -- 社区标准文件与贡献流程
 

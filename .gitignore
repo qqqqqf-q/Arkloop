@@ -20,6 +20,7 @@ arkilo-ui-example
 
 .claude
 CLAUDE.md
+review.md
 src/services/worker/worker
 src/services/worker/worker.exe
 language.md

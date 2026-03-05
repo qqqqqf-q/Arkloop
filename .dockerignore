@@ -1,0 +1,40 @@
+# Git
+.git
+.gitignore
+
+# Environment files (may contain real secrets)
+.env
+.env.*
+!.env.example
+!.env.test.example
+
+# IDE / Editor
+.idea
+.vscode
+.VSCodeCounter
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node
+node_modules
+pnpm-lock.yaml
+
+# Build artifacts
+*.exe
+*.test
+src/services/worker/worker
+src/docs/.vitepress/dist
+src/docs/.vitepress/cache
+
+# Temp / local-only
+temp
+.claude
+CLAUDE.md
+AGENTS.md
+
+# Config with real credentials
+config/openviking/ov.conf

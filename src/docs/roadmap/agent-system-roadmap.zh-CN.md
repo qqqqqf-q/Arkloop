@@ -601,7 +601,7 @@ AS-3.5.4（并行原语）
 
 **目标**：Agent 具备跨 thread / 跨 session 的长期记忆能力；接入 OpenViking（`volcengine/OpenViking`）作为第一个实现；通过 `MemoryProvider` 保持可替换（未来可接入其他 Memory 系统，不让 Worker 绑死在 OpenViking 上）。
 
-**关于 OpenViking（基于 `/Users/qqqqqf/Documents/OpenViking` 调研）**：
+**关于 OpenViking（基于 `volcengine/OpenViking` 源码调研）**：
 - 形态：Python 包 + FastAPI Server；支持 Embedded / HTTP / CLI。
 - 部署：官方镜像 `ghcr.io/volcengine/openviking:main`（默认启动 `openviking-server`，端口 `1933`）。
 - HTTP API（常用）：
