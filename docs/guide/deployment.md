@@ -69,11 +69,18 @@ docker compose ps
 
 ## 平台管理员初始化
 
-首次部署时，在 `.env` 中设置 bootstrap 管理员（API 启动时幂等执行，之后可移除此变量）：
+首次部署时，可以通过环境变量把指定用户提升为 `platform_admin`（一次性执行）。
+
+步骤：
+1. 先注册/登录一个账号
+2. 调用 `GET /v1/auth/me` 获取 `id`
+3. 在 `.env` 中设置：
 
 ```bash
-ARKLOOP_BOOTSTRAP_PLATFORM_ADMIN=admin
+ARKLOOP_BOOTSTRAP_PLATFORM_ADMIN=<user_id>
 ```
+
+然后重启 `api` 服务。
 
 ## Tool Providers（可选）
 
@@ -291,7 +298,7 @@ ARKLOOP_GATEWAY_UPSTREAM=http://host.docker.internal:8001 docker compose up -d g
 |------|--------|------|
 | `ARKLOOP_API_GO_ADDR` | `0.0.0.0:8001` | 监听地址（容器内） |
 | `ARKLOOP_API_PORT` | `8001` | 宿主机映射端口 |
-| `ARKLOOP_BOOTSTRAP_PLATFORM_ADMIN` | — | 首次部署管理员 login |
+| `ARKLOOP_BOOTSTRAP_PLATFORM_ADMIN` | — | 首次部署管理员 user_id（UUID） |
 
 ### Gateway
 

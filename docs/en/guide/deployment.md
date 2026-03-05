@@ -69,11 +69,18 @@ docker compose ps
 
 ## Platform Administrator Initialization
 
-On initial deployment, set the bootstrap platform administrator in `.env` (executed idempotently on API startup; this variable can be removed afterwards):
+On initial deployment, you can bootstrap a `platform_admin` user via an environment variable (one-time).
+
+Steps:
+1. Register / log in with an account
+2. Call `GET /v1/auth/me` to get the `id`
+3. Set in `.env`:
 
 ```bash
-ARKLOOP_BOOTSTRAP_PLATFORM_ADMIN=admin
+ARKLOOP_BOOTSTRAP_PLATFORM_ADMIN=<user_id>
 ```
+
+Then restart the `api` service.
 
 ## Tool Providers (Optional)
 
@@ -291,7 +298,7 @@ ARKLOOP_GATEWAY_UPSTREAM=http://host.docker.internal:8001 docker compose up -d g
 |------|--------|------|
 | `ARKLOOP_API_GO_ADDR` | `0.0.0.0:8001` | Listener address (inside container) |
 | `ARKLOOP_API_PORT` | `8001` | Host port mapping |
-| `ARKLOOP_BOOTSTRAP_PLATFORM_ADMIN` | — | Platform admin login for initial deployment |
+| `ARKLOOP_BOOTSTRAP_PLATFORM_ADMIN` | — | Platform admin user_id (UUID) for initial deployment |
 
 ### Gateway
 

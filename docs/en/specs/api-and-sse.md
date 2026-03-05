@@ -378,7 +378,7 @@ Request processing order:
 | `ARKLOOP_AUTH_JWT_SECRET` | JWT signing secret |
 | `ARKLOOP_ENCRYPTION_KEY` | AES-256-GCM key (64 hex) |
 | `ARKLOOP_S3_*` | MinIO/S3 object storage |
-| `ARKLOOP_BOOTSTRAP_PLATFORM_ADMIN` | Initial admin username |
+| `ARKLOOP_BOOTSTRAP_PLATFORM_ADMIN` | Initial admin user_id (UUID) |
 | `ARKLOOP_TRUST_INCOMING_TRACE_ID` | Trust upstream trace_id |
 | `ARKLOOP_TRUST_X_FORWARDED_FOR` | Trust X-Forwarded-For |
 | `ARKLOOP_MAX_CONCURRENT_RUNS_PER_ORG` | Max concurrent runs per organization (default 10) |

@@ -494,9 +494,22 @@ func (a *Application) Run(ctx context.Context) error {
 			auditWriter = audit.NewWriter(auditRepo, membershipRepo, a.logger)
 		}
 
-		if login := strings.TrimSpace(a.config.BootstrapPlatformAdmin); login != "" {
-			if err := bootstrapPlatformAdmin(ctx, credentialRepo, membershipRepo, login, a.logger); err != nil {
-				a.logger.Error("bootstrap platform admin failed", observability.LogFields{}, map[string]any{"login": login, "error": err.Error()})
+		if raw := strings.TrimSpace(a.config.BootstrapPlatformAdminUserID); raw != "" {
+			userID, err := uuid.Parse(raw)
+			if err != nil {
+				a.logger.Error(
+					"bootstrap platform admin invalid user_id",
+					observability.LogFields{},
+					map[string]any{"value": raw, "error": err.Error()},
+				)
+			} else {
+				if err := bootstrapPlatformAdminOnce(ctx, credentialRepo, membershipRepo, platformSettingsRepo, userID, a.logger); err != nil {
+					a.logger.Error(
+						"bootstrap platform admin failed",
+						observability.LogFields{},
+						map[string]any{"user_id": userID.String(), "error": err.Error()},
+					)
+				}
 			}
 		}
 	}
@@ -627,26 +640,65 @@ func (a *Application) Run(ctx context.Context) error {
 	return err
 }
 
-// bootstrapPlatformAdmin 将指定 login 的用户提升为 platform_admin。
-// 幂等：每次启动都会确认，若已是 platform_admin 则 SQL UPDATE 无实际变化。
-func bootstrapPlatformAdmin(
+type bootstrapCredentialRepo interface {
+	GetByUserID(ctx context.Context, userID uuid.UUID) (*data.UserCredential, error)
+}
+
+type bootstrapMembershipRepo interface {
+	SetRoleForUser(ctx context.Context, userID uuid.UUID, role string) error
+}
+
+type bootstrapSettingsRepo interface {
+	Get(ctx context.Context, key string) (*data.PlatformSetting, error)
+	Set(ctx context.Context, key, value string) (*data.PlatformSetting, error)
+}
+
+const bootstrapPlatformAdminSettingKey = "bootstrap.platform_admin.user_id"
+
+// bootstrapPlatformAdminOnce 将指定 user_id 的用户提升为 platform_admin，并写入一次性标记。
+// 标记存在且不匹配时直接报错，避免“换人再次 bootstrap”。
+func bootstrapPlatformAdminOnce(
 	ctx context.Context,
-	credRepo *data.UserCredentialRepository,
-	membershipRepo *data.OrgMembershipRepository,
-	login string,
+	credRepo bootstrapCredentialRepo,
+	membershipRepo bootstrapMembershipRepo,
+	settingsRepo bootstrapSettingsRepo,
+	userID uuid.UUID,
 	logger *observability.JSONLogger,
 ) error {
-	cred, err := credRepo.GetByLogin(ctx, login)
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	existing, err := settingsRepo.Get(ctx, bootstrapPlatformAdminSettingKey)
+	if err != nil {
+		return fmt.Errorf("get bootstrap marker: %w", err)
+	}
+	if existing != nil {
+		if strings.TrimSpace(existing.Value) == userID.String() {
+			return nil
+		}
+		return fmt.Errorf("bootstrap marker already set")
+	}
+
+	cred, err := credRepo.GetByUserID(ctx, userID)
 	if err != nil {
 		return fmt.Errorf("lookup credential: %w", err)
 	}
 	if cred == nil {
-		return fmt.Errorf("login %q not found", login)
+		return fmt.Errorf("user %s not found", userID.String())
 	}
-	if err := membershipRepo.SetRoleForUser(ctx, cred.UserID, "platform_admin"); err != nil {
+	if err := membershipRepo.SetRoleForUser(ctx, userID, auth.RolePlatformAdmin); err != nil {
 		return fmt.Errorf("set role: %w", err)
 	}
-	logger.Info("platform_admin promoted", observability.LogFields{}, map[string]any{"login": login})
+
+	if _, err := settingsRepo.Set(ctx, bootstrapPlatformAdminSettingKey, userID.String()); err != nil {
+		return fmt.Errorf("write bootstrap marker: %w", err)
+	}
+	logger.Info(
+		"platform_admin bootstrapped",
+		observability.LogFields{},
+		map[string]any{"user_id": userID.String(), "login": cred.Login},
+	)
 	return nil
 }
 

@@ -83,7 +83,7 @@ type Config struct {
 	S3Bucket    string
 	S3Region    string
 
-	BootstrapPlatformAdmin   string
+	BootstrapPlatformAdminUserID string
 	RunTimeoutMinutes        int
 	RunEventsRetentionMonths int
 	EmailFrom                string
@@ -194,7 +194,7 @@ func LoadConfigFromEnv() (Config, error) {
 	}
 
 	if raw, ok := lookupEnv(bootstrapPlatformAdminEnv); ok {
-		cfg.BootstrapPlatformAdmin = raw
+		cfg.BootstrapPlatformAdminUserID = strings.TrimSpace(raw)
 	}
 
 	if raw, ok := lookupEnv(runTimeoutMinutesEnv); ok {

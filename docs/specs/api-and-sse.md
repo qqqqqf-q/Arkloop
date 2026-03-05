@@ -378,7 +378,7 @@ HTTP Header 同时返回 `X-Trace-Id`。
 | `ARKLOOP_AUTH_JWT_SECRET` | JWT 签名密钥 |
 | `ARKLOOP_ENCRYPTION_KEY` | AES-256-GCM 密钥（64 hex） |
 | `ARKLOOP_S3_*` | MinIO/S3 对象存储 |
-| `ARKLOOP_BOOTSTRAP_PLATFORM_ADMIN` | 初始管理员用户名 |
+| `ARKLOOP_BOOTSTRAP_PLATFORM_ADMIN` | 初始管理员 user_id（UUID） |
 | `ARKLOOP_TRUST_INCOMING_TRACE_ID` | 信任上游 trace_id |
 | `ARKLOOP_TRUST_X_FORWARDED_FOR` | 信任 X-Forwarded-For |
 | `ARKLOOP_MAX_CONCURRENT_RUNS_PER_ORG` | 组织并发 run 上限（默认 10） |
