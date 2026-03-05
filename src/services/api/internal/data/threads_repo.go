@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -43,6 +44,15 @@ func NewThreadRepository(db Querier) (*ThreadRepository, error) {
 		return nil, errors.New("db must not be nil")
 	}
 	return &ThreadRepository{db: db}, nil
+}
+
+func escapeILikePattern(input string) string {
+	replacer := strings.NewReplacer(
+		"!", "!!",
+		"%", "!%",
+		"_", "!_",
+	)
+	return replacer.Replace(input)
 }
 
 func (r *ThreadRepository) Create(
@@ -214,14 +224,14 @@ func (r *ThreadRepository) UpdateTitle(ctx context.Context, threadID uuid.UUID, 
 // ThreadUpdateFields 描述 PATCH 操作中要更新的字段集合。
 // Set* 为 true 才写对应列，允许单独或同时更新。
 type ThreadUpdateFields struct {
-	SetTitle          bool
-	Title             *string
-	SetProjectID      bool
-	ProjectID         *uuid.UUID
-	SetAgentConfigID  bool
-	AgentConfigID     *uuid.UUID
-	SetTitleLocked    bool
-	TitleLocked       bool
+	SetTitle         bool
+	Title            *string
+	SetProjectID     bool
+	ProjectID        *uuid.UUID
+	SetAgentConfigID bool
+	AgentConfigID    *uuid.UUID
+	SetTitleLocked   bool
+	TitleLocked      bool
 }
 
 // UpdateFields 原子更新 thread 的一个或多个字段，单条 SQL 保证原子性。
@@ -309,7 +319,7 @@ func (r *ThreadRepository) SearchByQuery(
 		return nil, fmt.Errorf("query must not be empty")
 	}
 
-	like := "%" + query + "%"
+	like := "%" + escapeILikePattern(query) + "%"
 
 	rows, err := r.db.Query(
 		ctx,
@@ -333,8 +343,8 @@ func (r *ThreadRepository) SearchByQuery(
 		   AND t.deleted_at IS NULL
 		   AND t.is_private = false
 		   AND (
-		     t.title ILIKE $3
-		     OR m.content ILIKE $3
+		     t.title ILIKE $3 ESCAPE '!'
+		     OR m.content ILIKE $3 ESCAPE '!'
 		   )
 		 ORDER BY t.created_at DESC, t.id DESC
 		 LIMIT $4`,
