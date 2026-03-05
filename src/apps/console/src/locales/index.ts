@@ -50,6 +50,7 @@ export interface LocaleStrings {
     email: string
     titleSummarizer: string
     sandboxConfig: string
+    memoryConfig: string
     reports: string
   }
   // settings
@@ -926,6 +927,19 @@ export interface LocaleStrings {
       fieldRefillInterval: string
       fieldRefillConcurrency: string
       fieldMaxLifetime: string
+      save: string
+      toastSaved: string
+      toastLoadFailed: string
+      toastSaveFailed: string
+    }
+    memoryConfig: {
+      title: string
+      providerTag: string
+      sectionBilling: string
+      fieldBaseUrl: string
+      fieldApiKey: string
+      fieldCostPerCommit: string
+      fieldCostPerCommitHint: string
       save: string
       toastSaved: string
       toastLoadFailed: string

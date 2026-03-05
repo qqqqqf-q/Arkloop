@@ -32,6 +32,7 @@ import { EmailPage } from './pages/email/EmailPage'
 import { TitleSummarizerPage } from './pages/title-summarizer/TitleSummarizerPage'
 import { GatewayConfigPage } from './pages/gateway-config/GatewayConfigPage'
 import { SandboxConfigPage } from './pages/sandbox-config/SandboxConfigPage'
+import { MemoryConfigPage } from './pages/memory-config/MemoryConfigPage'
 import { AccessLogPage } from './pages/access-log/AccessLogPage'
 import { EntitlementsPage } from './pages/entitlements/EntitlementsPage'
 import {
@@ -119,6 +120,7 @@ function App() {
         <Route path="asr-credentials" element={<AsrCredentialsPage />} />
         <Route path="title-summarizer" element={<TitleSummarizerPage />} />
         <Route path="sandbox-config" element={<SandboxConfigPage />} />
+        <Route path="memory-config" element={<MemoryConfigPage />} />
         {/* Integration */}
         <Route path="api-keys" element={<APIKeysPage />} />
         <Route path="webhooks" element={<PlaceholderPage title="Webhooks" />} />

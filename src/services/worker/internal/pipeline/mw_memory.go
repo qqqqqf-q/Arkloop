@@ -3,6 +3,7 @@ package pipeline
 import (
 	"context"
 	"log/slog"
+	"strconv"
 	"strings"
 	"time"
 
@@ -10,6 +11,9 @@ import (
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/memory"
 
+	sharedconfig "arkloop/services/shared/config"
+
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -23,11 +27,13 @@ const (
 )
 
 var snapshotRepo = data.MemorySnapshotRepository{}
+var usageRepo = data.UsageRecordsRepository{}
 
 // NewMemoryMiddleware 在 run 前注入长期记忆到 SystemPrompt，run 后异步归档对话并快照到 PG。
 // provider 为 nil 时整个 middleware 为 no-op。
 // pool 为 nil 时跳过快照缓存，每次直接 Find。
-func NewMemoryMiddleware(provider memory.MemoryProvider, pool *pgxpool.Pool) RunMiddleware {
+// configResolver 为 nil 时跳过 memory usage 记录。
+func NewMemoryMiddleware(provider memory.MemoryProvider, pool *pgxpool.Pool, configResolver sharedconfig.Resolver) RunMiddleware {
 	return func(ctx context.Context, rc *RunContext, next RunHandler) error {
 		if provider == nil || rc.UserID == nil {
 			return next(ctx, rc)
@@ -61,7 +67,9 @@ func NewMemoryMiddleware(provider memory.MemoryProvider, pool *pgxpool.Pool) Run
 				{Role: "user", Content: userQuery},
 				{Role: "assistant", Content: assistantOutput},
 			}
-			go commitAndSnapshotAsync(ident, provider, pool, sessionID, msgs, userQuery)
+
+			costPerCommit := resolveCommitCost(ctx, configResolver)
+			go commitAndSnapshotAsync(ident, provider, pool, sessionID, msgs, userQuery, rc.Run.OrgID, rc.Run.ID, costPerCommit)
 		}
 
 		return nil
@@ -136,7 +144,8 @@ func renderMemoryBlock(ctx context.Context, provider memory.MemoryProvider, iden
 }
 
 // commitAndSnapshotAsync 先快照当前记忆到 PG（在 commit 阻塞 OV 之前），再归档对话。
-func commitAndSnapshotAsync(ident memory.MemoryIdentity, provider memory.MemoryProvider, pool *pgxpool.Pool, sessionID string, msgs []memory.MemoryMessage, lastQuery string) {
+// commit 成功且 costPerCommit > 0 时写入 memory usage record。
+func commitAndSnapshotAsync(ident memory.MemoryIdentity, provider memory.MemoryProvider, pool *pgxpool.Pool, sessionID string, msgs []memory.MemoryMessage, lastQuery string, orgID, runID uuid.UUID, costPerCommit float64) {
 	ctx, cancel := context.WithTimeout(context.Background(), memoryCommitTimeout)
 	defer cancel()
 
@@ -168,6 +177,18 @@ func commitAndSnapshotAsync(ident memory.MemoryIdentity, provider memory.MemoryP
 			"session_id", sessionID,
 			"err", err.Error(),
 		)
+		return
+	}
+
+	if costPerCommit > 0 && pool != nil {
+		uCtx, uCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer uCancel()
+		if err := usageRepo.InsertMemoryUsage(uCtx, pool, orgID, runID, costPerCommit); err != nil {
+			slog.Warn("memory: usage record insert failed",
+				"run_id", runID.String(),
+				"err", err.Error(),
+			)
+		}
 	}
 }
 
@@ -207,4 +228,20 @@ func lastUserMessageText(messages []llm.Message) string {
 		}
 	}
 	return ""
+}
+
+// resolveCommitCost 从配置中获取每次 commit 的费用（USD），解析失败或未配置时返回 0。
+func resolveCommitCost(ctx context.Context, resolver sharedconfig.Resolver) float64 {
+	if resolver == nil {
+		return 0
+	}
+	raw, err := resolver.Resolve(ctx, "openviking.cost_per_commit", sharedconfig.Scope{})
+	if err != nil || strings.TrimSpace(raw) == "" {
+		return 0
+	}
+	v, err := strconv.ParseFloat(strings.TrimSpace(raw), 64)
+	if err != nil || v <= 0 {
+		return 0
+	}
+	return v
 }

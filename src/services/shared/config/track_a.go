@@ -137,6 +137,14 @@ func RegisterTrackA(r *Registry) error {
 			Sensitive:   true,
 			Scope:       ScopePlatform,
 		},
+		{
+			Key:         "openviking.cost_per_commit",
+			Type:        TypeNumber,
+			Default:     "0",
+			Description: "OpenViking CommitSession Cost (USD)",
+			Sensitive:   false,
+			Scope:       ScopePlatform,
+		},
 
 		{
 			Key:         "turnstile.secret_key",
