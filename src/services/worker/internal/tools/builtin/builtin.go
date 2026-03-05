@@ -1,6 +1,7 @@
 package builtin
 
 import (
+	documentwrite "arkloop/services/worker/internal/tools/builtin/document_write"
 	spawnagent "arkloop/services/worker/internal/tools/builtin/spawn_agent"
 	summarizethread "arkloop/services/worker/internal/tools/builtin/summarize_thread"
 	webfetch "arkloop/services/worker/internal/tools/builtin/web_fetch"
@@ -27,6 +28,7 @@ func AgentSpecs() []tools.AgentToolSpec {
 		webfetch.AgentSpecBasic,
 		spawnagent.AgentSpec,
 		summarizethread.AgentSpec,
+		documentwrite.AgentSpec,
 	}
 }
 
@@ -39,6 +41,7 @@ func LlmSpecs() []llm.ToolSpec {
 		webfetch.LlmSpec,
 		// spawn_agent 由 NewSpawnAgentMiddleware 按需动态注入，不在此处静态注册
 		summarizethread.LlmSpec,
+		documentwrite.LlmSpec,
 	}
 }
 
@@ -48,7 +51,7 @@ func Executors(pool *pgxpool.Pool, rdb *redis.Client, resolver sharedconfig.Reso
 	return map[string]tools.Executor{
 		EchoAgentSpec.Name:               EchoExecutor{},
 		NoopAgentSpec.Name:               NoopExecutor{},
-		TimelineTitleAgentSpec.Name: TimelineTitleExecutor{},
+		TimelineTitleAgentSpec.Name:      TimelineTitleExecutor{},
 		websearch.AgentSpec.Name:         websearch.NewToolExecutor(resolver),
 		websearch.AgentSpecTavily.Name:   websearch.NewTavilyExecutor(resolver),
 		websearch.AgentSpecSearxng.Name:  websearch.NewSearxngExecutor(resolver),

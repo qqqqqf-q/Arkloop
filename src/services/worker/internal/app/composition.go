@@ -3,12 +3,14 @@ package app
 import (
 	"context"
 	"log/slog"
+	"os"
 	"strconv"
 	"strings"
 	"time"
 
 	sharedconfig "arkloop/services/shared/config"
 	sharedent "arkloop/services/shared/entitlement"
+	"arkloop/services/shared/objectstore"
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/mcp"
 	"arkloop/services/worker/internal/memory/openviking"
@@ -21,6 +23,7 @@ import (
 	"arkloop/services/worker/internal/tools"
 	"arkloop/services/worker/internal/tools/builtin"
 	browsertool "arkloop/services/worker/internal/tools/builtin/browser"
+	documentwritetool "arkloop/services/worker/internal/tools/builtin/document_write"
 	sandboxtool "arkloop/services/worker/internal/tools/builtin/sandbox"
 	memorytool "arkloop/services/worker/internal/tools/memory"
 
@@ -159,6 +162,20 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 		}
 		allLlmSpecs = append(allLlmSpecs, sandboxtool.LlmSpecs()...)
 		slog.InfoContext(ctx, "sandbox: tools registered", "base_url", sandboxBaseURL)
+	}
+
+	if s3Endpoint := strings.TrimSpace(os.Getenv("ARKLOOP_S3_ENDPOINT")); s3Endpoint != "" {
+		s3AccessKey := strings.TrimSpace(os.Getenv("ARKLOOP_S3_ACCESS_KEY"))
+		s3SecretKey := strings.TrimSpace(os.Getenv("ARKLOOP_S3_SECRET_KEY"))
+		s3Region := strings.TrimSpace(os.Getenv("ARKLOOP_S3_REGION"))
+		artifactStore, err := objectstore.New(ctx, s3Endpoint, s3AccessKey, s3SecretKey, objectstore.ArtifactBucket, s3Region)
+		if err != nil {
+			slog.WarnContext(ctx, "document_write: s3 init failed, skipping", "err", err.Error())
+		} else {
+			dwExecutor := documentwritetool.NewToolExecutor(artifactStore)
+			executors[documentwritetool.AgentSpec.Name] = dwExecutor
+			slog.InfoContext(ctx, "document_write: tool registered")
+		}
 	}
 
 	personasRoot, err := personas.BuiltinPersonasRoot()
