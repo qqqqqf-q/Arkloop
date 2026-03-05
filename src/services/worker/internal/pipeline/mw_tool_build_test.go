@@ -1,0 +1,214 @@
+package pipeline_test
+
+import (
+	"context"
+	"testing"
+
+	"arkloop/services/worker/internal/data"
+	"arkloop/services/worker/internal/events"
+	"arkloop/services/worker/internal/llm"
+	"arkloop/services/worker/internal/pipeline"
+	"arkloop/services/worker/internal/tools"
+	"arkloop/services/worker/internal/tools/builtin"
+
+	"github.com/google/uuid"
+)
+
+func TestToolBuildMiddleware_BuildsExecutorAndFiltersSpecs(t *testing.T) {
+	registry := tools.NewRegistry()
+	if err := registry.Register(builtin.EchoAgentSpec); err != nil {
+		t.Fatalf("register echo: %v", err)
+	}
+	if err := registry.Register(builtin.NoopAgentSpec); err != nil {
+		t.Fatalf("register noop: %v", err)
+	}
+
+	executors := map[string]tools.Executor{
+		"echo": builtin.EchoExecutor{},
+		"noop": builtin.NoopExecutor{},
+	}
+
+	rc := &pipeline.RunContext{
+		Run: data.Run{
+			ID: uuid.New(),
+		},
+		Emitter:                  events.NewEmitter("test"),
+		ToolRegistry:             registry,
+		ToolExecutors:            executors,
+		AllowlistSet:             map[string]struct{}{"echo": {}, "noop": {}},
+		ActiveToolProviderByGroup: nil,
+		ToolSpecs: []llm.ToolSpec{
+			builtin.EchoLlmSpec,
+			builtin.NoopLlmSpec,
+		},
+	}
+
+	mw := pipeline.NewToolBuildMiddleware()
+
+	var reached bool
+	h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(_ context.Context, rc *pipeline.RunContext) error {
+		reached = true
+		if rc.ToolExecutor == nil {
+			t.Fatal("ToolExecutor not set")
+		}
+		if len(rc.FinalSpecs) != 2 {
+			t.Fatalf("expected 2 final specs, got %d", len(rc.FinalSpecs))
+		}
+		return nil
+	})
+
+	if err := h(context.Background(), rc); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !reached {
+		t.Fatal("terminal handler not reached")
+	}
+}
+
+func TestToolBuildMiddleware_DropsUnboundExecutors(t *testing.T) {
+	registry := tools.NewRegistry()
+	if err := registry.Register(builtin.EchoAgentSpec); err != nil {
+		t.Fatalf("register echo: %v", err)
+	}
+	if err := registry.Register(builtin.NoopAgentSpec); err != nil {
+		t.Fatalf("register noop: %v", err)
+	}
+
+	executors := map[string]tools.Executor{
+		"echo": builtin.EchoExecutor{},
+		// noop not bound
+	}
+
+	rc := &pipeline.RunContext{
+		Run: data.Run{
+			ID: uuid.New(),
+		},
+		Emitter:                  events.NewEmitter("test"),
+		ToolRegistry:             registry,
+		ToolExecutors:            executors,
+		AllowlistSet:             map[string]struct{}{"echo": {}, "noop": {}},
+		ActiveToolProviderByGroup: nil,
+		ToolSpecs: []llm.ToolSpec{
+			builtin.EchoLlmSpec,
+			builtin.NoopLlmSpec,
+		},
+	}
+
+	mw := pipeline.NewToolBuildMiddleware()
+
+	var reached bool
+	h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(_ context.Context, rc *pipeline.RunContext) error {
+		reached = true
+		if rc.ToolExecutor == nil {
+			t.Fatal("ToolExecutor not set")
+		}
+		if len(rc.FinalSpecs) != 1 {
+			t.Fatalf("expected 1 final spec, got %d", len(rc.FinalSpecs))
+		}
+		if rc.FinalSpecs[0].Name != "echo" {
+			t.Fatalf("expected echo spec, got %s", rc.FinalSpecs[0].Name)
+		}
+		return nil
+	})
+
+	if err := h(context.Background(), rc); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !reached {
+		t.Fatal("terminal handler not reached")
+	}
+}
+
+func TestToolBuildMiddleware_EmptyAllowlist(t *testing.T) {
+	registry := tools.NewRegistry()
+	if err := registry.Register(builtin.EchoAgentSpec); err != nil {
+		t.Fatalf("register echo: %v", err)
+	}
+
+	executors := map[string]tools.Executor{
+		"echo": builtin.EchoExecutor{},
+	}
+
+	rc := &pipeline.RunContext{
+		Run: data.Run{
+			ID: uuid.New(),
+		},
+		Emitter:                  events.NewEmitter("test"),
+		ToolRegistry:             registry,
+		ToolExecutors:            executors,
+		AllowlistSet:             map[string]struct{}{}, // empty
+		ActiveToolProviderByGroup: nil,
+		ToolSpecs: []llm.ToolSpec{
+			builtin.EchoLlmSpec,
+		},
+	}
+
+	mw := pipeline.NewToolBuildMiddleware()
+
+	var reached bool
+	h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(_ context.Context, rc *pipeline.RunContext) error {
+		reached = true
+		if rc.ToolExecutor == nil {
+			t.Fatal("ToolExecutor not set")
+		}
+		if len(rc.FinalSpecs) != 0 {
+			t.Fatalf("expected 0 final specs, got %d", len(rc.FinalSpecs))
+		}
+		return nil
+	})
+
+	if err := h(context.Background(), rc); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !reached {
+		t.Fatal("terminal handler not reached")
+	}
+}
+
+func TestToolBuildMiddleware_ResolveProviderAllowlistError(t *testing.T) {
+	registry := tools.NewRegistry()
+	if err := registry.Register(tools.AgentToolSpec{
+		Name:        "web_search.tavily",
+		LlmName:     "web_search",
+		Version:     "1",
+		Description: "search",
+		RiskLevel:   tools.RiskLevelLow,
+	}); err != nil {
+		t.Fatalf("register tavily: %v", err)
+	}
+	if err := registry.Register(tools.AgentToolSpec{
+		Name:        "web_search.searxng",
+		LlmName:     "web_search",
+		Version:     "1",
+		Description: "search",
+		RiskLevel:   tools.RiskLevelLow,
+	}); err != nil {
+		t.Fatalf("register searxng: %v", err)
+	}
+
+	executors := map[string]tools.Executor{}
+
+	rc := &pipeline.RunContext{
+		Run: data.Run{
+			ID: uuid.New(),
+		},
+		Emitter:                  events.NewEmitter("test"),
+		ToolRegistry:             registry,
+		ToolExecutors:            executors,
+		AllowlistSet:             map[string]struct{}{"web_search.tavily": {}, "web_search.searxng": {}},
+		ActiveToolProviderByGroup: nil,
+		ToolSpecs:                []llm.ToolSpec{},
+	}
+
+	mw := pipeline.NewToolBuildMiddleware()
+
+	h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(_ context.Context, _ *pipeline.RunContext) error {
+		t.Fatal("should not reach terminal")
+		return nil
+	})
+
+	err := h(context.Background(), rc)
+	if err == nil {
+		t.Fatal("expected error from ambiguous providers")
+	}
+}
