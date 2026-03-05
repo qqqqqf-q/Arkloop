@@ -3,11 +3,11 @@
 本文是面向开源发布的统一路线图。整合现有三份 roadmap（development-roadmap、architecture-refactor-roadmap、agent-system-roadmap）中**尚未完成的工作**，并新增架构治理、代码共享、插件体系、基础设施建设四个维度。
 
 关联文档（历史参考）：
-- `src/docs/roadmap/development-roadmap.zh-CN.md` — 已归档，不再新增内容
-- `src/docs/roadmap/architecture-refactor-roadmap.zh-CN.md` — 已归档，不再新增内容
-- `src/docs/roadmap/agent-system-roadmap.zh-CN.md` — 已归档，不再新增内容
-- `src/docs/architecture/architecture-design-v2.zh-CN.md` — 目标架构参考
-- `src/docs/architecture/architecture-problems.zh-CN.md` — 架构审计报告
+- `docs/roadmap/development-roadmap.md` -- 已归档，不再新增内容
+- `docs/roadmap/architecture-refactor-roadmap.md` -- 已归档，不再新增内容
+- `docs/roadmap/agent-system-roadmap.md` -- 已归档，不再新增内容
+- `docs/architecture/architecture-design-v2.md` -- 目标架构参考
+- `docs/architecture/architecture-problems.md` -- 架构审计报告
 
 ---
 
@@ -55,7 +55,7 @@ threadMessageLimit(200)、maxInputContentBytes(32KB)、defaultAgentMaxIterations
 
 **P7 -- 开源合规与版权边界不明确**
 
-仓库缺少明确的开源许可证（LICENSE/NOTICE），也未建立第三方依赖许可证清单。当前目录结构同时包含商业/法律文档（`docs/`）和内部工程文档（`src/docs/`），开源边界不清晰，存在误公开或“开源后无法再撤回”的风险。
+仓库缺少明确的开源许可证（LICENSE/NOTICE），也未建立第三方依赖许可证清单。当前目录结构同时包含商业/法律文档（`docs/`）和内部工程文档（`docs/`），开源边界不清晰，存在误公开或“开源后无法再撤回”的风险。
 
 **P8 -- 仓库卫生与敏感信息泄露风险**
 
@@ -248,7 +248,7 @@ CREATE TABLE org_settings (
 
 ### B3 -- 限制文档自动生成
 
-从 Registry 自动导出 markdown 文档（所有注册 key、类型、默认值、scope、描述），放在 `src/docs/reference/configuration.zh-CN.md`。CI 中检查此文件与 Registry 代码是否同步。
+从 Registry 自动导出 markdown 文档（所有注册 key、类型、默认值、scope、描述），放在 `docs/reference/configuration.md`。CI 中检查此文件与 Registry 代码是否同步。
 
 ---
 
@@ -327,7 +327,7 @@ LocaleContext 说明：两端的 `LocaleContext.tsx` 代码逐字节相同（35 
 
 ### D3 -- pnpm workspace 建立
 
-当前状态：根目录不存在 `pnpm-workspace.yaml`（仅 `src/docs/pnpm-workspace.yaml` 存在，内容为 `ignoredBuiltDependencies`，非 workspace 配置）。Web 和 Console 各自持有独立的 `pnpm-lock.yaml`，是两个完全独立的项目。根目录 `package.json` 仅有 `"web": "link:src/apps/web"`。
+当前状态：根目录不存在 `pnpm-workspace.yaml`（仅 `docs/pnpm-workspace.yaml` 存在，内容为 `ignoredBuiltDependencies`，非 workspace 配置）。Web 和 Console 各自持有独立的 `pnpm-lock.yaml`，是两个完全独立的项目。根目录 `package.json` 仅有 `"web": "link:src/apps/web"`。
 
 迁移步骤：
 
@@ -940,7 +940,7 @@ node_modules
 *.test
 *.exe
 .VSCodeCounter
-docs/investor-deep-research.zh-CN.md
+docs/investor-deep-research.md
 ```
 
 防止 Docker build context 包含敏感文件（`.env`）、无关文件（`.git/`、`node_modules/`），同时缩小构建上下文体积。
@@ -976,7 +976,7 @@ docs/investor-deep-research.zh-CN.md
 
 - [x] 明确开源范围：`docs/OPEN-SOURCE-BOUNDARY.md` 列出 OSS core / 配置模板 / 排除项三级分类
 - [x] 建立开源前清理清单：git 历史密钥扫描（通过）、`.dockerignore` 创建、个人路径清理
-- [x] 文档"内部"标识改为对外语境（`src/docs/index.md` hero text）、`.gitignore` 更新、删除不适合公开的文件
+- [x] 文档"内部"标识改为对外语境（`docs/index.md` hero text）、`.gitignore` 更新、删除不适合公开的文件
 
 ### H2 -- 许可证与第三方依赖合规 [DONE]
 
@@ -1012,7 +1012,7 @@ docs/investor-deep-research.zh-CN.md
 
 实现方式（选一）：
 - 从 Go handler 代码生成 OpenAPI 3.0 spec（使用 swaggo/swag 或手工维护 YAML）
-- 将 spec 放在 `src/docs/api/openapi.yaml`，CI 中校验 spec 与代码的一致性
+- 将 spec 放在 `docs/api/openapi.yaml`，CI 中校验 spec 与代码的一致性
 - 基于 spec 生成静态 API 参考文档（Redoc / Scalar / Stoplight Elements）
 
 最小交付：覆盖 `/v1/auth/*`、`/v1/threads/*`、`/v1/runs/*`、`/v1/orgs/*`、`/v1/me` 五组核心端点。每个端点包含：路径、方法、请求体 schema、响应 schema、认证方式、错误码枚举。
@@ -1038,7 +1038,7 @@ docs/investor-deep-research.zh-CN.md
 
 处理方式：
 - 逐条标注当前状态（已解决 / 部分解决 / 仍存在），附对应的 migration 或 commit 引用
-- 或在文档顶部加上归档声明：说明撰写时间点、当前仓库已不再反映该文档描述的状态，引导读者查看 `architecture-design-v2.zh-CN.md`
+- 或在文档顶部加上归档声明：说明撰写时间点、当前仓库已不再反映该文档描述的状态，引导读者查看 `architecture-design-v2.md`
 
 ### H10 -- 错误码注册与文档
 
@@ -1046,7 +1046,7 @@ API 返回的错误码散落在各模块中，需要集中治理：
 
 - 在 `src/services/shared/apierr/` 中建立错误码常量注册（已有部分基础）
 - 每个错误码包含：code string、HTTP status、描述、触发场景
-- 从注册表自动导出错误码参考文档，放在 `src/docs/reference/error-codes.zh-CN.md`
+- 从注册表自动导出错误码参考文档，放在 `docs/reference/error-codes.md`
 - OpenAPI spec 中引用这些错误码（与 H7 协同）
 
 ### H11 -- API 版本策略声明

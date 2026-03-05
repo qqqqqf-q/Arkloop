@@ -201,7 +201,7 @@ data: {"seq":99,"type":"run.completed","data":{}}
 | `run.failed` | Run 失败 |
 | `run.cancelled` | Run 已取消 |
 
-详见 [API & SSE 规范](/specs/api-and-sse.zh-CN)。
+详见 [API & SSE 规范](/specs/api-and-sse)。
 
 ---
 

@@ -1,12 +1,11 @@
-# Arkloop（AgentLoop）— 开发与使用说明
+# Arkloop -- 开发与使用说明
 
-本目录（`src/docs`）用于存放工程文档与使用说明。
-商业/法律相关文档请放在仓库根目录的 `docs/`。
+本目录（`docs/`）用于存放工程文档与使用说明。
 
 文档按主题拆分在子目录中：
-- `src/docs/guide/`：上手指南、部署说明
-- `src/docs/specs/`：规范与契约（API/SSE、日志、数据等）
-- `src/docs/roadmap/`：路线图与阶段计划
+- `docs/guide/`：上手指南、部署说明
+- `docs/specs/`：规范与契约（API/SSE、日志、数据等）
+- `docs/roadmap/`：路线图与阶段计划
 
 ## 0. 本地启动（API）
 
@@ -25,7 +24,7 @@ Arkloop 的控制面 API 由 Go 实现，默认监听 `127.0.0.1:8001`：
 
 说明：
 - 连接串读取 `ARKLOOP_DATABASE_URL` / `DATABASE_URL`
-- migrations 由 goose 驱动（详见 src/services/api/README.zh-CN.md）
+- migrations 由 goose 驱动（详见 src/services/api/README.md）
 - Python API 与 `in_process` 执行模式已下线；不再支持 `ARKLOOP_RUN_EXECUTOR`
 
 ## 0.1 本地启动（PostgreSQL / docker compose）
@@ -192,7 +191,7 @@ Prompt 拼装与模型调用必须在服务端（或受控网关）完成。
 - `src/packages/ui/`：共享 UI 组件
 - `src/packages/shared/`：共享工具与跨端类型
 - `docs/`：商业/法律文档（EULA/NDA/DPA）
-- `src/docs/`：工程文档（本文）
+- `docs/`：工程文档（本文）
 
 ## 9. 路线图（工程计划）
 
@@ -200,7 +199,7 @@ Prompt 拼装与模型调用必须在服务端（或受控网关）完成。
 - 明确交付形态与数据边界
 - 定义后台域模型、审计要求、定价/倍率模型
 - 定义 OpenAI/Anthropic provider 管线接口
-- 日志与可观测性约定：`src/docs/specs/logging-and-observability.zh-CN.md`
+- 日志与可观测性约定：`docs/specs/logging-and-observability.md`
 
 ### Phase 1 — 最小可交付纵切（Vertical Slice）
 - 鉴权（tenant/user/role）
@@ -225,12 +224,12 @@ Prompt 拼装与模型调用必须在服务端（或受控网关）完成。
 
 ## 11. 进一步阅读（工程文档）
 
-- 本地启动：`src/docs/guide/index.md`
-- 部署指南：`src/docs/guide/deployment.md`
-- 后端 API 与 SSE：`src/docs/specs/api-and-sse.zh-CN.md`
-- Run 执行架构：`src/docs/specs/run-execution-architecture.zh-CN.md`
-- 日志与可观测性：`src/docs/specs/logging-and-observability.zh-CN.md`
-- 数据库架构与数据模型：`src/docs/specs/database-architecture.zh-CN.md`
-- 开源准备度路线图：`src/docs/roadmap/open-source-readiness-roadmap.zh-CN.md`
-- Agent System 路线图：`src/docs/roadmap/agent-system-roadmap.zh-CN.md`
-- 历史重构记录：`src/docs/roadmap/architecture-refactor-roadmap.zh-CN.md`
+- 本地启动：`docs/guide/index.md`
+- 部署指南：`docs/guide/deployment.md`
+- 后端 API 与 SSE：`docs/specs/api-and-sse.md`
+- Run 执行架构：`docs/specs/run-execution-architecture.md`
+- 日志与可观测性：`docs/specs/logging-and-observability.md`
+- 数据库架构与数据模型：`docs/specs/database-architecture.md`
+- 开源准备度路线图：`docs/roadmap/open-source-readiness-roadmap.md`
+- Agent System 路线图：`docs/roadmap/agent-system-roadmap.md`（已归档）
+- 历史重构记录：`docs/roadmap/architecture-refactor-roadmap.md`（已归档）

@@ -100,9 +100,8 @@ Worker 通过 Executor Registry 支持多种执行器：
 | `native_v1` | 标准 Agent（工具调用循环） |
 | `agent.simple` | 基础 prompt-only 执行 |
 | `task.classify_route` | 任务分类路由（判断 Pro/Ultra） |
-| `agent.custom` | 自定义配置 Agent |
-| `lua` | Lua 脚本 Agent（支持 `context.emit()` 自定义事件） |
-| `interactive` | Human-in-the-loop 模式 |
+| `agent.lua` | Lua 脚本 Agent（支持 `context.emit()` 自定义事件） |
+| `agent.interactive` | Human-in-the-loop 模式 |
 | `noop` | 空操作（测试用） |
 
 ## 6. Personas 体系

@@ -19,7 +19,7 @@ This document defines the open-source boundary of the Arkloop repository: what b
 | `src/apps/cli/` | CLI reference client |
 | `src/apps/shared/` | Shared frontend packages |
 | `src/personas/` | Persona templates |
-| `src/docs/` | Technical documentation (VitePress) |
+| `docs/` | Technical documentation (VitePress) |
 | `tests/` | Tests (including benchmarks) |
 | `config/sandbox/templates.json` | Sandbox template definitions |
 | `config/openviking/ov.conf.example` | OpenViking configuration template |
@@ -48,7 +48,7 @@ This document defines the open-source boundary of the Arkloop repository: what b
 | `review.md` | AI review spec (internal toolchain) | .gitignore |
 | `temp/` | Temporary files | .gitignore |
 | `.VSCodeCounter/` | Code stats cache | .gitignore |
-| `src/docs/.vitepress/dist/` | Build artifacts | .gitignore |
+| `docs/.vitepress/dist/` | Build artifacts | .gitignore |
 | `node_modules/` | Dependencies | .gitignore |
 
 ## Pre-Release Cleanup Checklist
