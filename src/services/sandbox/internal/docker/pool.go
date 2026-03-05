@@ -20,8 +20,11 @@ import (
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
+	"github.com/docker/docker/errdefs"
 	"github.com/docker/go-connections/nat"
 )
+
+const defaultAgentNetworkName = "arkloop_sandbox_agent"
 
 // Config 持有 DockerPool 运行所需的参数。
 type Config struct {
@@ -30,7 +33,7 @@ type Config struct {
 	MaxRefillConcurrency  int
 
 	Image          string // sandbox-agent 容器镜像
-	NetworkName    string // agent 容器加入的 Docker 网络
+	NetworkName    string // agent 容器加入的 Docker 网络；非空时通过容器 IP 连接
 	GuestAgentPort uint32
 	SocketBaseDir  string // 用于存放临时文件的目录
 	Logger         *logging.JSONLogger
@@ -73,6 +76,15 @@ func New(cfg Config) (*Pool, error) {
 		return nil, fmt.Errorf("docker daemon unreachable: %w", err)
 	}
 
+	if cfg.NetworkName == "" {
+		ensureCtx, ensureCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer ensureCancel()
+		if err := ensureNetworkExists(ensureCtx, cli, defaultAgentNetworkName); err != nil {
+			cli.Close()
+			return nil, err
+		}
+	}
+
 	ready := make(map[string]chan *entry)
 	for tier, size := range cfg.WarmSizes {
 		if size > 0 {
@@ -88,6 +100,28 @@ func New(cfg Config) (*Pool, error) {
 		stop:       make(chan struct{}),
 		containers: make(map[string]string),
 	}, nil
+}
+
+func ensureNetworkExists(ctx context.Context, cli *client.Client, name string) error {
+	_, err := cli.NetworkInspect(ctx, name, network.InspectOptions{})
+	if err == nil {
+		return nil
+	}
+	if !errdefs.IsNotFound(err) {
+		return fmt.Errorf("inspect docker network %s: %w", name, err)
+	}
+
+	_, err = cli.NetworkCreate(ctx, name, network.CreateOptions{
+		Driver:   "bridge",
+		Internal: true,
+		Labels: map[string]string{
+			"arkloop.role": "sandbox-agent-network",
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("create docker network %s: %w", name, err)
+	}
+	return nil
 }
 
 // Start 启动所有 tier 的后台 refiller goroutine。
@@ -244,25 +278,28 @@ func (p *Pool) fillTier(tier string, target int) {
 	}
 }
 
-// createContainer 创建并启动一个 sandbox 容器，返回就绪的 entry。
-func (p *Pool) createContainer(ctx context.Context, tier string) (*entry, error) {
-	id := generateID()
+type createPlan struct {
+	containerCfg      *container.Config
+	hostCfg           *container.HostConfig
+	exposedPort       nat.Port
+	agentPort         string
+	dialByContainerIP bool
+	attachNetworkName string
+}
 
-	socketDir := fmt.Sprintf("%s/%s", p.cfg.SocketBaseDir, id)
-	if err := os.MkdirAll(socketDir, 0o700); err != nil {
-		return nil, fmt.Errorf("create socket dir: %w", err)
-	}
-
-	cleanup := func() {
-		_ = os.RemoveAll(socketDir)
-	}
-
+func buildCreatePlan(cfg Config, tier string) createPlan {
 	res := resourcesFor(tier)
-	agentPort := strconv.FormatUint(uint64(p.cfg.GuestAgentPort), 10)
+	agentPort := strconv.FormatUint(uint64(cfg.GuestAgentPort), 10)
 	exposedPort := nat.Port(agentPort + "/tcp")
 
+	dialByContainerIP := cfg.NetworkName != ""
+	attachNetworkName := cfg.NetworkName
+	if attachNetworkName == "" {
+		attachNetworkName = defaultAgentNetworkName
+	}
+
 	containerCfg := &container.Config{
-		Image: p.cfg.Image,
+		Image: cfg.Image,
 		User:  "1000:1000",
 		Env: []string{
 			"SANDBOX_AGENT_LISTEN=tcp",
@@ -283,24 +320,14 @@ func (p *Pool) createContainer(ctx context.Context, tier string) (*entry, error)
 			Memory:    res.MemoryMB * 1024 * 1024,
 			PidsLimit: ptrInt64(256),
 		},
-		NetworkMode:    "bridge",
+		NetworkMode:    container.NetworkMode(attachNetworkName),
 		AutoRemove:     false,
 		ReadonlyRootfs: false,
 		CapDrop:        []string{"ALL"},
-		CapAdd:         []string{"NET_RAW"},
 		SecurityOpt:    []string{"no-new-privileges"},
 	}
 
-	var netCfg *network.NetworkingConfig
-	useContainerIP := p.cfg.NetworkName != ""
-
-	if useContainerIP {
-		netCfg = &network.NetworkingConfig{
-			EndpointsConfig: map[string]*network.EndpointSettings{
-				p.cfg.NetworkName: {},
-			},
-		}
-	} else {
+	if !dialByContainerIP {
 		// 无指定网络时，使用端口映射（本地开发/Linux host 网络）
 		hostCfg.PortBindings = nat.PortMap{
 			exposedPort: []nat.PortBinding{
@@ -309,7 +336,31 @@ func (p *Pool) createContainer(ctx context.Context, tier string) (*entry, error)
 		}
 	}
 
-	resp, err := p.cli.ContainerCreate(ctx, containerCfg, hostCfg, netCfg, nil, "sandbox-"+id)
+	return createPlan{
+		containerCfg:      containerCfg,
+		hostCfg:           hostCfg,
+		exposedPort:       exposedPort,
+		agentPort:         agentPort,
+		dialByContainerIP: dialByContainerIP,
+		attachNetworkName: attachNetworkName,
+	}
+}
+
+// createContainer 创建并启动一个 sandbox 容器，返回就绪的 entry。
+func (p *Pool) createContainer(ctx context.Context, tier string) (*entry, error) {
+	id := generateID()
+
+	socketDir := fmt.Sprintf("%s/%s", p.cfg.SocketBaseDir, id)
+	if err := os.MkdirAll(socketDir, 0o700); err != nil {
+		return nil, fmt.Errorf("create socket dir: %w", err)
+	}
+
+	cleanup := func() {
+		_ = os.RemoveAll(socketDir)
+	}
+
+	plan := buildCreatePlan(p.cfg, tier)
+	resp, err := p.cli.ContainerCreate(ctx, plan.containerCfg, plan.hostCfg, nil, nil, "sandbox-"+id)
 	if err != nil {
 		cleanup()
 		return nil, fmt.Errorf("docker create: %w", err)
@@ -336,18 +387,18 @@ func (p *Pool) createContainer(ctx context.Context, tier string) (*entry, error)
 	}
 
 	var agentAddr string
-	if useContainerIP {
-		epSettings, ok := inspect.NetworkSettings.Networks[p.cfg.NetworkName]
+	if plan.dialByContainerIP {
+		epSettings, ok := inspect.NetworkSettings.Networks[plan.attachNetworkName]
 		if !ok || epSettings.IPAddress == "" {
 			destroyContainer()
-			return nil, fmt.Errorf("container has no IP in network %s", p.cfg.NetworkName)
+			return nil, fmt.Errorf("container has no IP in network %s", plan.attachNetworkName)
 		}
-		agentAddr = net.JoinHostPort(epSettings.IPAddress, agentPort)
+		agentAddr = net.JoinHostPort(epSettings.IPAddress, plan.agentPort)
 	} else {
-		bindings, ok := inspect.NetworkSettings.Ports[exposedPort]
+		bindings, ok := inspect.NetworkSettings.Ports[plan.exposedPort]
 		if !ok || len(bindings) == 0 {
 			destroyContainer()
-			return nil, fmt.Errorf("no port binding for %s", exposedPort)
+			return nil, fmt.Errorf("no port binding for %s", plan.exposedPort)
 		}
 		agentAddr = net.JoinHostPort(bindings[0].HostIP, bindings[0].HostPort)
 	}
