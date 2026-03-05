@@ -263,6 +263,7 @@ func (p *Pool) createContainer(ctx context.Context, tier string) (*entry, error)
 
 	containerCfg := &container.Config{
 		Image: p.cfg.Image,
+		User:  "1000:1000",
 		Env: []string{
 			"SANDBOX_AGENT_LISTEN=tcp",
 		},
@@ -278,8 +279,8 @@ func (p *Pool) createContainer(ctx context.Context, tier string) (*entry, error)
 
 	hostCfg := &container.HostConfig{
 		Resources: container.Resources{
-			NanoCPUs: res.NanoCPUs,
-			Memory:   res.MemoryMB * 1024 * 1024,
+			NanoCPUs:  res.NanoCPUs,
+			Memory:    res.MemoryMB * 1024 * 1024,
 			PidsLimit: ptrInt64(256),
 		},
 		NetworkMode:    "bridge",

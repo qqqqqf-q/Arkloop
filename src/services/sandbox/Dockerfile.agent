@@ -28,9 +28,12 @@ RUN pip install --no-cache-dir \
     pyyaml toml jsonschema pydantic \
     tabulate rich
 
-RUN mkdir -p /tmp/output /usr/local/share/arkloop
+RUN groupadd -g 1000 sandbox && useradd -u 1000 -g 1000 -m sandbox
+RUN mkdir -p /tmp/output /usr/local/share/arkloop && \
+    chown 1000:1000 /tmp/output
 COPY --from=builder /sandbox-agent /usr/local/bin/sandbox-agent
 COPY src/services/sandbox/rootfs/chart_prelude.py /usr/local/share/arkloop/chart_prelude.py
 ENV SANDBOX_AGENT_LISTEN=tcp
 EXPOSE 8080
+USER 1000:1000
 ENTRYPOINT ["sandbox-agent"]
