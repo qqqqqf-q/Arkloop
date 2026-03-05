@@ -185,10 +185,12 @@ export function ArtifactImage({ artifact, accessToken }: Props) {
             src={blobUrl!}
             alt={artifact.filename}
             draggable={false}
+            onClick={closeLightbox}
             style={{
               maxWidth: '90vw',
               maxHeight: 'calc(90vh - 64px)',
               borderRadius: '8px',
+              cursor: 'pointer',
               transform: show ? 'scale(1)' : 'scale(0.94)',
               opacity: show ? 1 : 0,
               transition,

@@ -1026,7 +1026,7 @@ export function ChatPage() {
         onThreadCreated(forked)
         await createMessage(accessToken, forked.id, { content })
         const tierToPersonaId: Record<SelectedTier, string> = {
-          Auto: 'auto', Lite: 'lite', Pro: 'pro', Ultra: 'ultra', Search: 'search',
+          Normal: 'normal', Search: 'extended-search',
         }
         const run = await createRun(accessToken, forked.id, tierToPersonaId[tier])
         setDraft('')
@@ -1046,11 +1046,8 @@ export function ChatPage() {
       setAssistantDraft('')
 
       const tierToPersonaId: Record<SelectedTier, string> = {
-        Auto: 'auto',
-        Lite: 'lite',
-        Pro: 'pro',
-        Ultra: 'ultra',
-        Search: 'search',
+        Normal: 'normal',
+        Search: 'extended-search',
       }
       const run = await createRun(accessToken, threadId, tierToPersonaId[tier])
       setActiveRunId(run.run_id)

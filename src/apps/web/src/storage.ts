@@ -139,16 +139,19 @@ export function writeThemeToStorage(theme: Theme): void {
   }
 }
 
-export type SelectedTier = 'Auto' | 'Lite' | 'Pro' | 'Ultra' | 'Search'
+export type SelectedTier = 'Normal' | 'Search'
 
 export function readSelectedTierFromStorage(): SelectedTier {
-  if (!canUseLocalStorage()) return 'Lite'
+  if (!canUseLocalStorage()) return 'Normal'
   try {
     const raw = localStorage.getItem(SELECTED_TIER_KEY)
-    if (raw === 'Auto' || raw === 'Lite' || raw === 'Pro' || raw === 'Ultra' || raw === 'Search') return raw
-    return 'Lite'
+    if (raw === 'Normal' || raw === 'Search') return raw
+    // 兼容旧值迁移
+    if (raw === 'Ultra') return 'Normal'
+    if (raw === 'Extended Search') return 'Search'
+    return 'Normal'
   } catch {
-    return 'Lite'
+    return 'Normal'
   }
 }
 

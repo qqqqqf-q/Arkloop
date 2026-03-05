@@ -202,18 +202,21 @@ export function MessageBubble({ message, onRetry, onEdit, onFork, onShare, onRep
     return (
       <div
         className="group"
-        style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'flex-start', gap: '8px' }}
+        style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}
       >
-        {/* hover 时左侧操作按钮 */}
-        <div
-          className="opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto transition-opacity duration-150"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '2px',
-            marginTop: '6px',
-          }}
-        >
+        {/* hover 时左侧操作按钮，外层拉伸以支持 sticky */}
+        <div>
+          <div
+            className="opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto transition-opacity duration-150"
+            style={{
+              position: 'sticky',
+              top: '16px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '2px',
+              marginTop: '6px',
+            }}
+          >
           <button
             onClick={handleCopy}
             title="复制"
@@ -256,6 +259,7 @@ export function MessageBubble({ message, onRetry, onEdit, onFork, onShare, onRep
           >
             <Pencil size={16} />
           </button>
+          </div>
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px', maxWidth: '663px' }}>

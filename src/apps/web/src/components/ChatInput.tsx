@@ -120,7 +120,7 @@ export function ChatInput({
   const [menuOpen, setMenuOpen] = useState(false)
   const [tierMenuOpen, setTierMenuOpen] = useState(false)
   const [selectedTier, setSelectedTier] = useState<SelectedTier>(readSelectedTierFromStorage)
-  const [proHovered, setProHovered] = useState(false)
+  const [tierHovered, setTierHovered] = useState(false)
   const [focused, setFocused] = useState(false)
   const [isRecording, setIsRecording] = useState(false)
   const [isTranscribing, setIsTranscribing] = useState(false)
@@ -390,7 +390,7 @@ export function ChatInput({
   }
 
   const cycleTier = () => {
-    const order: SelectedTier[] = ['Auto', 'Lite', 'Pro', 'Ultra', 'Search']
+    const order: SelectedTier[] = ['Normal', 'Search']
     const next = order[(order.indexOf(selectedTier) + 1) % order.length]
     setSelectedTier(next)
     writeSelectedTierToStorage(next)
@@ -604,8 +604,8 @@ export function ChatInput({
             <button
               type="button"
               onClick={cycleTier}
-              onMouseEnter={() => setProHovered(true)}
-              onMouseLeave={() => setProHovered(false)}
+              onMouseEnter={() => setTierHovered(true)}
+              onMouseLeave={() => setTierHovered(false)}
               className="relative top-px flex h-8 items-center rounded-lg font-semibold"
               style={{
                 padding: '0 10px',
@@ -614,15 +614,15 @@ export function ChatInput({
                 whiteSpace: 'nowrap',
                 flexShrink: 0,
                 cursor: 'pointer',
-                width: selectedTier === 'Lite' ? '40px' : selectedTier === 'Pro' ? '44px' : selectedTier === 'Ultra' ? '58px' : selectedTier === 'Search' ? '68px' : '44px',
-                background: (selectedTier === 'Pro' || selectedTier === 'Ultra' || selectedTier === 'Search')
+                width: selectedTier === 'Search' ? '68px' : '68px',
+                background: selectedTier === 'Search'
                   ? 'var(--c-pro-bg)'
-                  : proHovered ? 'var(--c-bg-deep)' : 'transparent',
-                color: (selectedTier === 'Pro' || selectedTier === 'Ultra' || selectedTier === 'Search')
+                  : tierHovered ? 'var(--c-bg-deep)' : 'transparent',
+                color: selectedTier === 'Search'
                   ? '#4691F6'
                   : 'var(--c-text-secondary)',
-                opacity: (selectedTier === 'Pro' || selectedTier === 'Ultra' || selectedTier === 'Search')
-                  ? 1 : proHovered ? 1 : 0.7,
+                opacity: selectedTier === 'Search'
+                  ? 1 : tierHovered ? 1 : 0.7,
                 fontSize: '14px',
                 transition: 'width 0.22s ease, background-color 0.15s ease, color 0.2s ease, opacity 0.15s ease',
               }}
@@ -657,8 +657,8 @@ export function ChatInput({
                 }}
               >
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                  {(['Auto', 'Lite', 'Pro', 'Ultra', 'Search'] as const).map((tier) => {
-                    const isBlue = tier === 'Pro' || tier === 'Ultra' || tier === 'Search'
+                  {(['Normal', 'Search'] as const).map((tier) => {
+                    const isBlue = tier === 'Search'
                     const isSelected = selectedTier === tier
                     return (
                       <button
