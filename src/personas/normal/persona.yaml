@@ -1,7 +1,7 @@
-id: ultra
+id: normal
 version: "1"
-title: Ultra
-description: 高级模式，适合高复杂度任务、长文本生成和深度分析。
+title: Normal
+description: 通用对话模式，支持工具调用、多轮推理和深度分析。
 tool_allowlist: []
 budgets:
   max_iterations: 99999

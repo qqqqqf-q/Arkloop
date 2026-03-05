@@ -1,6 +1,6 @@
-id: search
+id: extended-search
 version: "1"
-title: Search
+title: Extended Search
 description: 联网搜索模式，自动检索网络信息并综合输出。
 tool_denylist:
   - spawn_agent

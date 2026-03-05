@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestLoadRegistryLoadsLitePersona(t *testing.T) {
+func TestLoadRegistryLoadsNormalPersona(t *testing.T) {
 	root, err := BuiltinPersonasRoot()
 	if err != nil {
 		t.Fatalf("BuiltinPersonasRoot failed: %v", err)
@@ -15,9 +15,9 @@ func TestLoadRegistryLoadsLitePersona(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadRegistry failed: %v", err)
 	}
-	def, ok := registry.Get("lite")
+	def, ok := registry.Get("normal")
 	if !ok {
-		t.Fatalf("expected lite persona loaded")
+		t.Fatalf("expected normal persona loaded")
 	}
 	if def.Version != "1" {
 		t.Fatalf("unexpected version: %s", def.Version)
@@ -41,17 +41,19 @@ func TestResolvePersonaVersionMismatch(t *testing.T) {
 
 // TestLoadPersonaDefaultExecutorType 验证无 executor_type 字段的 yaml 使用默认值，向后兼容。
 func TestLoadPersonaDefaultExecutorType(t *testing.T) {
-	root, err := BuiltinPersonasRoot()
-	if err != nil {
-		t.Fatalf("BuiltinPersonasRoot failed: %v", err)
-	}
-	registry, err := LoadRegistry(root)
+	dir := t.TempDir()
+	writePersonaFiles(t, dir, "test_default_exec",
+		"id: test_default_exec\nversion: \"1\"\ntitle: Test\n",
+		"# prompt",
+	)
+
+	registry, err := LoadRegistry(dir)
 	if err != nil {
 		t.Fatalf("LoadRegistry failed: %v", err)
 	}
-	def, ok := registry.Get("lite")
+	def, ok := registry.Get("test_default_exec")
 	if !ok {
-		t.Fatalf("expected lite persona loaded")
+		t.Fatalf("expected test_default_exec persona loaded")
 	}
 	if def.ExecutorType != "agent.simple" {
 		t.Fatalf("expected default executor_type 'agent.simple', got %q", def.ExecutorType)
@@ -238,9 +240,9 @@ func TestLoadPersonaWithoutPreferredCredential(t *testing.T) {
 func TestMergeRegistryKeepsBaseTitleSummarizerWhenOverrideMissing(t *testing.T) {
 	base := NewRegistry()
 	if err := base.Register(Definition{
-		ID:      "pro",
+		ID:      "normal",
 		Version: "1",
-		Title:   "Pro",
+		Title:   "Normal",
 		TitleSummarizer: &TitleSummarizerConfig{
 			Prompt:    "base prompt",
 			MaxTokens: 15,
@@ -251,15 +253,15 @@ func TestMergeRegistryKeepsBaseTitleSummarizerWhenOverrideMissing(t *testing.T) 
 
 	merged := MergeRegistry(base, []Definition{
 		{
-			ID:      "pro",
+			ID:      "normal",
 			Version: "1",
-			Title:   "Pro Override",
+			Title:   "Normal Override",
 		},
 	})
 
-	def, ok := merged.Get("pro")
+	def, ok := merged.Get("normal")
 	if !ok {
-		t.Fatal("expected merged registry has pro")
+		t.Fatal("expected merged registry has normal")
 	}
 	if def.TitleSummarizer == nil {
 		t.Fatal("expected title summarizer preserved from base")
@@ -267,7 +269,7 @@ func TestMergeRegistryKeepsBaseTitleSummarizerWhenOverrideMissing(t *testing.T) 
 	if def.TitleSummarizer.Prompt != "base prompt" {
 		t.Fatalf("unexpected prompt: %q", def.TitleSummarizer.Prompt)
 	}
-	if def.Title != "Pro Override" {
+	if def.Title != "Normal Override" {
 		t.Fatalf("expected override title, got %q", def.Title)
 	}
 }
