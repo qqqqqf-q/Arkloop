@@ -12,6 +12,7 @@
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Arkloop%20License-blue"></a>
   <a href="https://github.com/qqqqqf/Arkloop/graphs/commit-activity"><img alt="Commits" src="https://img.shields.io/github/commit-activity/m/qqqqqf/Arkloop?labelColor=%2332b583&color=%2312b76a"></a>
   <a href="https://github.com/qqqqqf/Arkloop/issues"><img alt="Issues" src="https://img.shields.io/github/issues-search?query=repo%3Aqqqqqf%2FArkloop%20is%3Aclosed&label=issues%20closed&labelColor=%237d89b0&color=%235d6b98"></a>
+  <a href="https://twitter.com/intent/follow?screen_name=qqqqqf_"><img alt="Follow on X" src="https://img.shields.io/twitter/follow/qqqqqf_?logo=X&color=%20%23f5f5f5"></a>
 </p>
 
 <p align="center">
@@ -19,7 +20,7 @@
   <a href="./docs/zh-CN/README.md"><img alt="简体中文" src="https://img.shields.io/badge/简体中文-d9d9d9"></a>
 </p>
 
-Arkloop is an open-source AI agent platform that fuses autonomous task execution, real-time intelligent search, and secure sandboxed workspace into a single product. It brings together the capabilities of Manus-style agents, Perplexity-grade search synthesis, and cloud-native infrastructure.
+Arkloop is an open-source AI agent platform that fuses autonomous task execution, real-time intelligent search, and secure sandboxed workspace into a single product. It integrates Memory for emotional support. It brings together the capabilities of Manus-style agents, Perplexity-grade search synthesis, and cloud-native infrastructure.
 
 ## Quick Start
 
@@ -69,28 +70,6 @@ Integrates with OpenAI, Anthropic, and any OpenAI-compatible provider. Smart ret
 Admin dashboard for user management, persona configuration, LLM credential management, usage analytics, audit logs, and feature flags.
 
 ## Architecture
-
-```
-                    +-------------------+
-                    |      Gateway      |  Rate limiting, risk scoring, IP filter
-                    +--------+----------+
-                             |
-                    +--------v----------+
-                    |       API         |  Auth, RBAC, resources, audit
-                    +--------+----------+
-                             |
-              +--------------+--------------+
-              |                             |
-    +---------v---------+         +---------v---------+
-    |      Worker       |         |     Console       |
-    | LLM orchestration |         |   Admin dashboard |
-    | Tool dispatch      |         +-------------------+
-    | Persona routing   |
-    +--+-----+-----+---+
-       |     |     |
-       v     v     v
-   Sandbox  Browser  Memory
-```
 
 | Service | Stack | Role |
 |---------|-------|------|

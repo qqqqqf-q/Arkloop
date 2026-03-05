@@ -1,73 +1,73 @@
 # Open Source Boundary
 
-本文档定义 Arkloop 仓库的开源边界：哪些属于 OSS core，哪些是配置模板，哪些不应出现在公开仓库中。
+This document defines the open-source boundary of the Arkloop repository: what belongs to the OSS core, what are configuration templates, and what must not appear in the public repository.
 
-## 目录分类
+## Directory Classification
 
-### OSS Core（全部公开）
+### OSS Core (fully public)
 
-| 路径 | 说明 |
-|------|------|
-| `src/services/api/` | API 服务 |
-| `src/services/gateway/` | Gateway 反向代理 |
-| `src/services/worker/` | Worker 执行引擎 |
-| `src/services/sandbox/` | Sandbox 沙箱服务 |
-| `src/services/browser/` | Browser 浏览器服务 |
-| `src/services/shared/` | Go 共享库 |
-| `src/apps/web/` | Web 前端（品牌保护见 LICENSE） |
-| `src/apps/console/` | Console 管理后台（品牌保护见 LICENSE） |
-| `src/apps/cli/` | CLI 参考客户端 |
-| `src/apps/shared/` | 前端共享包 |
-| `src/personas/` | Persona 模板 |
-| `src/docs/` | 技术文档（VitePress） |
-| `tests/` | 测试（含压力测试） |
-| `config/sandbox/templates.json` | Sandbox 模板定义 |
-| `config/openviking/ov.conf.example` | OpenViking 配置模板 |
-| `compose.yaml` | Docker Compose 编排 |
-| `compose.bench.yaml` | 压力测试编排 |
-| `.github/workflows/` | CI 流水线 |
-| `README.md` | 项目说明 |
-| `CONTRIBUTING.md` | 贡献指南 |
-| `CODE_OF_CONDUCT.md` | 行为准则 |
-| `SECURITY.md` | 安全披露政策 |
+| Path | Description |
+|------|-------------|
+| `src/services/api/` | API service |
+| `src/services/gateway/` | Gateway reverse proxy |
+| `src/services/worker/` | Worker execution engine |
+| `src/services/sandbox/` | Sandbox service |
+| `src/services/browser/` | Browser automation service |
+| `src/services/shared/` | Shared Go libraries |
+| `src/apps/web/` | Web frontend (brand protection per LICENSE) |
+| `src/apps/console/` | Console admin dashboard (brand protection per LICENSE) |
+| `src/apps/cli/` | CLI reference client |
+| `src/apps/shared/` | Shared frontend packages |
+| `src/personas/` | Persona templates |
+| `src/docs/` | Technical documentation (VitePress) |
+| `tests/` | Tests (including benchmarks) |
+| `config/sandbox/templates.json` | Sandbox template definitions |
+| `config/openviking/ov.conf.example` | OpenViking configuration template |
+| `compose.yaml` | Docker Compose orchestration |
+| `compose.bench.yaml` | Benchmark orchestration |
+| `.github/workflows/` | CI pipelines |
+| `README.md` | Project description |
+| `CONTRIBUTING.md` | Contribution guidelines |
+| `CODE_OF_CONDUCT.md` | Code of conduct |
+| `SECURITY.md` | Security disclosure policy |
 
-### 配置模板（公开，不含真实值）
+### Configuration Templates (public, no real values)
 
-| 路径 | 说明 |
-|------|------|
-| `.env.example` | 环境变量模板（所有值为占位符） |
-| `.env.test.example` | 测试环境变量模板 |
-| `config/openviking/ov.conf.example` | OpenViking 配置模板 |
+| Path | Description |
+|------|-------------|
+| `.env.example` | Environment variable template (all values are placeholders) |
+| `.env.test.example` | Test environment variable template |
+| `config/openviking/ov.conf.example` | OpenViking configuration template |
 
-### 排除项（通过 .gitignore 或开源前清理）
+### Excluded (via .gitignore or pre-release cleanup)
 
-| 路径 | 原因 | 处置 |
-|------|------|------|
-| `.env` / `.env.*`（非 example） | 真实密钥 | .gitignore |
-| `config/openviking/ov.conf` | 真实 API Key | .gitignore |
-| `.claude` / `CLAUDE.md` | AI IDE 私有配置 | .gitignore |
-| `review.md` | AI 审阅规范（内部工具链） | .gitignore |
-| `temp/` | 临时文件 | .gitignore |
-| `.VSCodeCounter/` | 代码统计缓存 | .gitignore |
-| `src/docs/.vitepress/dist/` | 构建产物 | .gitignore |
-| `node_modules/` | 依赖 | .gitignore |
+| Path | Reason | Action |
+|------|--------|--------|
+| `.env` / `.env.*` (non-example) | Real secrets | .gitignore |
+| `config/openviking/ov.conf` | Real API Key | .gitignore |
+| `.claude` / `CLAUDE.md` | AI IDE private config | .gitignore |
+| `review.md` | AI review spec (internal toolchain) | .gitignore |
+| `temp/` | Temporary files | .gitignore |
+| `.VSCodeCounter/` | Code stats cache | .gitignore |
+| `src/docs/.vitepress/dist/` | Build artifacts | .gitignore |
+| `node_modules/` | Dependencies | .gitignore |
 
-## 开源前清理检查项
+## Pre-Release Cleanup Checklist
 
-- [x] git 历史中无真实 API Key / Token / 密码泄露
-- [x] `.env` 文件均在 `.gitignore` 中
-- [x] `config/openviking/ov.conf`（含 root_api_key）在 `.gitignore` 中
-- [x] 无内网域名、私有镜像地址硬编码
-- [x] 无个人本地路径硬编码（已清理 `/Users/qqqqqf/` 引用）
-- [x] 文档 "内部" 标识已改为对外语境
-- [x] `.dockerignore` 已创建，防止构建时泄露 `.env` / `.git/`
-- [x] 商标使用规则（已在 CONTRIBUTING.md 中说明）
+- [x] No real API Key / Token / password leaks in git history
+- [x] All `.env` files are in `.gitignore`
+- [x] `config/openviking/ov.conf` (contains root_api_key) is in `.gitignore`
+- [x] No internal domain names or private registry URLs hardcoded
+- [x] No personal local paths hardcoded (cleaned `/Users/qqqqqf/` references)
+- [x] Documentation "internal" markers changed to public context
+- [x] `.dockerignore` created to prevent `.env` / `.git/` leaking into builds
+- [x] Trademark usage rules documented in CONTRIBUTING.md
 
-## 许可证边界
+## License Boundary
 
-主许可证为 Arkloop License（modified Apache 2.0），附加条款：
+Primary license is the Arkloop License (modified Apache 2.0), with additional terms:
 
-1. **多租户限制**：不得用源码运营多租户 SaaS（一个 Organization = 一个 tenant）
-2. **品牌保护**：不得移除 `src/apps/web/` 和 `src/apps/console/` 中的 LOGO 和版权信息
+1. **Multi-tenant restriction**: Source code may not be used to operate a multi-tenant SaaS (one Organization = one tenant)
+2. **Brand protection**: LOGO and copyright information in `src/apps/web/` and `src/apps/console/` must not be removed
 
-详见根目录 `LICENSE` 文件。
+See the root `LICENSE` file for full details.
