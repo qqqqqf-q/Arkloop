@@ -14,6 +14,11 @@
   <a href="https://github.com/qqqqqf/Arkloop/issues"><img alt="Issues" src="https://img.shields.io/github/issues-search?query=repo%3Aqqqqqf%2FArkloop%20is%3Aclosed&label=issues%20closed&labelColor=%237d89b0&color=%235d6b98"></a>
 </p>
 
+<p align="center">
+  <a href="./README.md"><img alt="English" src="https://img.shields.io/badge/English-blue"></a>
+  <a href="./docs/zh-CN/README.md"><img alt="简体中文" src="https://img.shields.io/badge/简体中文-d9d9d9"></a>
+</p>
+
 Arkloop is an open-source AI agent platform that fuses autonomous task execution, real-time intelligent search, and secure sandboxed workspace into a single product. It brings together the capabilities of Manus-style agents, Perplexity-grade search synthesis, and cloud-native infrastructure.
 
 ## Quick Start
