@@ -4,7 +4,7 @@ title: Ultra
 description: 高级模式，适合高复杂度任务、长文本生成和深度分析。
 tool_allowlist: []
 budgets:
-  max_iterations: 100
+  max_iterations: 99999
   max_output_tokens: 20480
   temperature: 1.0
 title_summarize:
