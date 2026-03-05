@@ -53,7 +53,7 @@ func (r *statusRecorder) Flush() {
 	}
 }
 
-func traceMiddleware(next http.Handler, logger *JSONLogger, geo geoip.Lookup, rdb *goredis.Client, redisTimeout time.Duration) http.Handler {
+func traceMiddleware(next http.Handler, logger *JSONLogger, geo geoip.Lookup, rdb *goredis.Client, redisTimeout time.Duration, jwtSecret []byte) http.Handler {
 	var logWriter *accesslog.Writer
 	if rdb != nil {
 		logWriter = accesslog.NewWriter(rdb)
@@ -96,7 +96,7 @@ func traceMiddleware(next http.Handler, logger *JSONLogger, geo geoip.Lookup, rd
 				identCtx, cancel = context.WithTimeout(identCtx, redisTimeout)
 			}
 		}
-		ident := identity.ExtractInfo(identCtx, auth, rdb)
+		ident := identity.ExtractInfo(identCtx, auth, rdb, jwtSecret)
 		cancel()
 
 		// 结构化日志

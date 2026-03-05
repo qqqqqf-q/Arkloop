@@ -9,8 +9,12 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/redis/go-redis/v9"
 )
+
+// jwtParser 复用 parser 实例，限定 HS256 算法防止 alg 切换攻击。
+var jwtParser = jwt.NewParser(jwt.WithValidMethods([]string{"HS256"}))
 
 const apiKeyCacheKeyPrefix = "arkloop:api_keys:"
 
@@ -19,10 +23,9 @@ type apiKeyCacheEntry struct {
 	Revoked bool   `json:"revoked"`
 }
 
-// ExtractOrgID 从 Authorization header 提取 org_id（不验证 JWT 签名）。
-// API Key (ak- 前缀) 通过 Redis 缓存查询；JWT 通过解码 payload。
-// 返回空字符串表示无法提取。
-func ExtractOrgID(ctx context.Context, authHeader string, rdb *redis.Client) string {
+// ExtractOrgID 从 Authorization header 提取 org_id。
+// jwtSecret 非空时验证 JWT 签名；为空时降级到无签名解码（兼容未配置场景）。
+func ExtractOrgID(ctx context.Context, authHeader string, rdb *redis.Client, jwtSecret []byte) string {
 	token, ok := strings.CutPrefix(authHeader, "Bearer ")
 	if !ok || token == "" {
 		return ""
@@ -32,6 +35,9 @@ func ExtractOrgID(ctx context.Context, authHeader string, rdb *redis.Client) str
 		return extractOrgIDFromAPIKey(ctx, token, rdb)
 	}
 
+	if len(jwtSecret) > 0 {
+		return extractOrgIDFromJWTVerified(token, jwtSecret)
+	}
 	return extractOrgIDFromJWTPayload(token)
 }
 
@@ -99,7 +105,8 @@ type Info struct {
 }
 
 // ExtractInfo 从 Authorization header 提取完整身份信息。
-func ExtractInfo(ctx context.Context, authHeader string, rdb *redis.Client) Info {
+// jwtSecret 非空时验证 JWT 签名；为空时降级到无签名解码。
+func ExtractInfo(ctx context.Context, authHeader string, rdb *redis.Client, jwtSecret []byte) Info {
 	token, ok := strings.CutPrefix(authHeader, "Bearer ")
 	if !ok || token == "" {
 		return Info{Type: IdentityAnonymous}
@@ -113,6 +120,9 @@ func ExtractInfo(ctx context.Context, authHeader string, rdb *redis.Client) Info
 		return Info{Type: IdentityAPIKey, OrgID: orgID}
 	}
 
+	if len(jwtSecret) > 0 {
+		return extractInfoFromJWTVerified(token, jwtSecret)
+	}
 	return extractInfoFromJWTPayload(token)
 }
 
@@ -139,5 +149,51 @@ func extractInfoFromJWTPayload(token string) Info {
 		Type:   IdentityJWT,
 		OrgID:  strings.TrimSpace(claims.Org),
 		UserID: strings.TrimSpace(claims.Sub),
+	}
+}
+
+func extractOrgIDFromJWTVerified(token string, secret []byte) string {
+	parsed, err := jwtParser.Parse(token, func(t *jwt.Token) (any, error) {
+		return secret, nil
+	})
+	if err != nil || !parsed.Valid {
+		return ""
+	}
+
+	claims, ok := parsed.Claims.(jwt.MapClaims)
+	if !ok {
+		return ""
+	}
+	orgRaw, exists := claims["org"]
+	if !exists {
+		return ""
+	}
+	orgStr, ok := orgRaw.(string)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(orgStr)
+}
+
+func extractInfoFromJWTVerified(token string, secret []byte) Info {
+	parsed, err := jwtParser.Parse(token, func(t *jwt.Token) (any, error) {
+		return secret, nil
+	})
+	if err != nil || !parsed.Valid {
+		return Info{Type: IdentityAnonymous}
+	}
+
+	claims, ok := parsed.Claims.(jwt.MapClaims)
+	if !ok {
+		return Info{Type: IdentityAnonymous}
+	}
+
+	orgRaw, _ := claims["org"].(string)
+	subRaw, _ := claims["sub"].(string)
+
+	return Info{
+		Type:   IdentityJWT,
+		OrgID:  strings.TrimSpace(orgRaw),
+		UserID: strings.TrimSpace(subRaw),
 	}
 }

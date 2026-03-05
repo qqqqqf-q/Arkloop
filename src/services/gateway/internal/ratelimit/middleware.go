@@ -77,7 +77,7 @@ func rateLimitKeyFromRequest(ctx context.Context, r *http.Request, parser *jwt.P
 
 	// API Key 路径：通过 identity 包查缓存
 	if ok && strings.HasPrefix(bearer, "ak-") {
-		if orgStr := identity.ExtractOrgID(ctx, auth, rdb); orgStr != "" {
+		if orgStr := identity.ExtractOrgID(ctx, auth, rdb, secret); orgStr != "" {
 			return rateLimitOrgKeyPrefix + orgStr
 		}
 		return rateLimitIPKeyPrefix + clientIP(r)

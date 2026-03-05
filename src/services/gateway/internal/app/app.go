@@ -193,7 +193,7 @@ func (a *Application) Run(ctx context.Context) error {
 			return fmt.Errorf("ratelimit: %w", err)
 		}
 		limiter = bucket
-		ipFilter = ipfilter.NewFilter(rdb, a.config.RedisTimeout)
+		ipFilter = ipfilter.NewFilter(rdb, a.config.RedisTimeout, []byte(a.config.JWTSecret))
 
 		effectiveRL := a.effectiveRateLimit()
 		a.logger.Info("ratelimit enabled", LogFields{}, map[string]any{
@@ -234,7 +234,7 @@ func (a *Application) Run(ctx context.Context) error {
 	}
 
 	// trace 在 clientip 内层，可以从 context 读到 IP
-	inner = traceMiddleware(inner, a.logger, geo, rdb, a.config.RedisTimeout)
+	inner = traceMiddleware(inner, a.logger, geo, rdb, a.config.RedisTimeout, []byte(a.config.JWTSecret))
 
 	// clientip 中间件：最外层（recover 之后），将真实 IP 写入 context
 	inner = clientip.Middleware(a.buildResolver(), inner)
@@ -306,7 +306,7 @@ func (a *Application) riskMiddleware(next http.Handler, geo geoip.Lookup, scorer
 				identCtx, cancel = context.WithTimeout(identCtx, a.config.RedisTimeout)
 			}
 		}
-		ident := identity.ExtractInfo(identCtx, auth, rdb)
+		ident := identity.ExtractInfo(identCtx, auth, rdb, []byte(a.config.JWTSecret))
 		cancel()
 		anonymous := ident.Type == identity.IdentityAnonymous
 

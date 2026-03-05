@@ -21,12 +21,13 @@ type rules struct {
 
 // Filter 从 Redis 缓存加载 org IP 规则并执行过滤检查，同时支持从 API Key 缓存提取 org_id。
 type Filter struct {
-	redis   *redis.Client
-	timeout time.Duration
+	redis     *redis.Client
+	timeout   time.Duration
+	jwtSecret []byte
 }
 
-func NewFilter(redisClient *redis.Client, timeout time.Duration) *Filter {
-	return &Filter{redis: redisClient, timeout: timeout}
+func NewFilter(redisClient *redis.Client, timeout time.Duration, jwtSecret []byte) *Filter {
+	return &Filter{redis: redisClient, timeout: timeout, jwtSecret: jwtSecret}
 }
 
 // Middleware 返回检查请求 IP 的 HTTP 中间件。
@@ -48,7 +49,7 @@ func (f *Filter) Middleware(next http.Handler) http.Handler {
 			}
 		}
 
-		orgID := extractOrgIDWithRedis(auth, f.redis, orgCtx)
+		orgID := extractOrgIDWithRedis(auth, f.redis, orgCtx, f.jwtSecret)
 		cancelOrg()
 		if orgID != "" {
 			// 优先从 context 取 clientip 中间件解析的真实 IP，降级到 RemoteAddr
