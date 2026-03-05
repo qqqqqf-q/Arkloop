@@ -32,6 +32,7 @@
 | llm.retry.base_delay_ms | int | platform | 1000 | false | LLM 重试基础延迟（毫秒） |
 | llm.retry.max_attempts | int | platform | 3 | false | LLM 重试最大次数 |
 | openviking.base_url | string | platform |  | false | OpenViking Base URL |
+| openviking.cost_per_commit | number | platform | 0 | false | OpenViking CommitSession Cost (USD) |
 | openviking.root_api_key | string | platform |  | true | OpenViking Root API Key |
 | quota.runs_per_month | int | both | 999999 | false | 每月 run 数量配额 |
 | quota.tokens_per_month | int | both | 1000000 | false | 每月 token 配额 |
