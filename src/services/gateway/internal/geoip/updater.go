@@ -129,7 +129,11 @@ func (u *Updater) download() error {
 
 	resp, err := http.Get(url)
 	if err != nil {
-		return fmt.Errorf("http get: %w", err)
+		msg := err.Error()
+		if u.licenseKey != "" {
+			msg = strings.ReplaceAll(msg, u.licenseKey, "[redacted]")
+		}
+		return fmt.Errorf("http get: %s", msg)
 	}
 	defer resp.Body.Close()
 

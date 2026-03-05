@@ -149,6 +149,7 @@ func (a *Application) Run(ctx context.Context) error {
 		updater := geoip.NewUpdater(a.config.GeoIPDBPath, a.config.GeoIPLicenseKey, &geoipLogAdapter{logger: a.logger})
 		if err := updater.Init(); err != nil {
 			a.logger.Error("geoip init failed", LogFields{}, map[string]any{"error": err.Error()})
+			return fmt.Errorf("geoip init: %w", err)
 		} else {
 			defer updater.Close()
 			geo = updater
@@ -159,6 +160,7 @@ func (a *Application) Run(ctx context.Context) error {
 		mm, err := geoip.NewMaxMind(a.config.GeoIPDBPath)
 		if err != nil {
 			a.logger.Error("geoip init failed", LogFields{}, map[string]any{"path": a.config.GeoIPDBPath, "error": err.Error()})
+			return fmt.Errorf("geoip init: %w", err)
 		} else {
 			defer mm.Close()
 			geo = mm
