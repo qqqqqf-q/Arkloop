@@ -1,7 +1,9 @@
 package webfetch
 
 import (
+	"context"
 	"fmt"
+	"net"
 	"net/netip"
 	"net/url"
 	"strings"
@@ -61,3 +63,39 @@ func tryParseIP(hostname string) netip.Addr {
 	return addr
 }
 
+// EnsureIPAllowed 校验解析后的 IP，防止 DNS rebinding 绕过字符串级 URL 检查。
+func EnsureIPAllowed(ip netip.Addr) error {
+	if ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
+		ip.IsMulticast() || ip.IsUnspecified() {
+		return UrlPolicyDeniedError{Reason: "private_ip_denied", Details: map[string]any{"ip": ip.String()}}
+	}
+	return nil
+}
+
+// SafeDialContext 在 DNS 解析后校验全部 IP，消除 TOCTOU 窗口。
+func SafeDialContext(dialer *net.Dialer) func(ctx context.Context, network, addr string) (net.Conn, error) {
+	return func(ctx context.Context, network, addr string) (net.Conn, error) {
+		host, port, err := net.SplitHostPort(addr)
+		if err != nil {
+			return nil, fmt.Errorf("failed to split host/port: %w", err)
+		}
+
+		ips, err := net.DefaultResolver.LookupNetIP(ctx, "ip", host)
+		if err != nil {
+			return nil, fmt.Errorf("dns resolve failed: %w", err)
+		}
+		if len(ips) == 0 {
+			return nil, fmt.Errorf("dns resolve returned no addresses for %s", host)
+		}
+
+		for _, ip := range ips {
+			if err := EnsureIPAllowed(ip.Unmap()); err != nil {
+				return nil, err
+			}
+		}
+
+		// 用已校验的 IP 直连，防止二次 DNS 解析
+		target := net.JoinHostPort(ips[0].Unmap().String(), port)
+		return dialer.DialContext(ctx, network, target)
+	}
+}

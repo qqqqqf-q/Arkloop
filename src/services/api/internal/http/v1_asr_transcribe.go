@@ -6,6 +6,7 @@ import (
 	"io"
 	"mime/multipart"
 	nethttp "net/http"
+	"time"
 
 	"arkloop/services/api/internal/auth"
 	"arkloop/services/api/internal/data"
@@ -14,6 +15,16 @@ import (
 
 const groqDefaultBaseURL = "https://api.groq.com/openai/v1"
 const openaiDefaultBaseURL = "https://api.openai.com/v1"
+
+const (
+	asrMaxUploadBytes   = 25 << 20 // 25 MiB
+	asrUpstreamTimeout  = 120 * time.Second
+	asrMaxResponseBytes = 2 << 20 // 2 MiB
+)
+
+var asrHTTPClient = &nethttp.Client{
+	Timeout: asrUpstreamTimeout,
+}
 
 func asrTranscribeEntry(
 	authService *auth.Service,
@@ -73,6 +84,8 @@ func asrTranscribeEntry(
 		}
 		defer file.Close()
 
+		limited := io.LimitReader(file, asrMaxUploadBytes+1)
+
 		var buf bytes.Buffer
 		mw := multipart.NewWriter(&buf)
 
@@ -81,8 +94,13 @@ func asrTranscribeEntry(
 			WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
 		}
-		if _, err := io.Copy(fw, file); err != nil {
+		n, err := io.Copy(fw, limited)
+		if err != nil {
 			WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			return
+		}
+		if n > asrMaxUploadBytes {
+			WriteError(w, nethttp.StatusRequestEntityTooLarge, "validation.error", "file too large", traceID, nil)
 			return
 		}
 		if err := mw.WriteField("model", cred.Model); err != nil {
@@ -111,14 +129,14 @@ func asrTranscribeEntry(
 		req.Header.Set("Content-Type", mw.FormDataContentType())
 		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", *apiKey))
 
-		resp, err := nethttp.DefaultClient.Do(req)
+		resp, err := asrHTTPClient.Do(req)
 		if err != nil {
 			WriteError(w, nethttp.StatusBadGateway, "asr.upstream_error", "upstream ASR request failed", traceID, nil)
 			return
 		}
 		defer resp.Body.Close()
 
-		body, err := io.ReadAll(resp.Body)
+		body, err := io.ReadAll(io.LimitReader(resp.Body, asrMaxResponseBytes))
 		if err != nil {
 			WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return

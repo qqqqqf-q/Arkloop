@@ -3,6 +3,7 @@ package webfetch
 import (
 	"context"
 	"io"
+	"net"
 	"net/http"
 	"regexp"
 	"strings"
@@ -16,9 +17,13 @@ type BasicProvider struct {
 }
 
 func NewBasicProvider() *BasicProvider {
+	dialer := &net.Dialer{Timeout: 10 * time.Second}
 	return &BasicProvider{
 		client: &http.Client{
 			Timeout: 20 * time.Second,
+			Transport: &http.Transport{
+				DialContext: SafeDialContext(dialer),
+			},
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
 				if len(via) >= 10 {
 					return http.ErrUseLastResponse

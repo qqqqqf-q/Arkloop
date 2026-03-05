@@ -763,6 +763,63 @@ func TestOpenAIGateway_StreamChatCompletionsSSE_UsageOnlyWithoutContent_Fails(t 
 	}
 }
 
+func TestOpenAIGateway_StreamChatCompletionsSSE_RefusalDelta_Completes(t *testing.T) {
+	chunk1, _ := json.Marshal(map[string]any{
+		"choices": []any{
+			map[string]any{
+				"delta": map[string]any{
+					"role":    "assistant",
+					"refusal": "no",
+				},
+			},
+		},
+	})
+	chunk2, _ := json.Marshal(map[string]any{
+		"choices": []any{
+			map[string]any{
+				"delta": map[string]any{
+					"refusal": "pe",
+				},
+			},
+		},
+	})
+
+	reader := strings.NewReader(
+		"data: " + string(chunk1) + "\n\n" +
+			"data: " + string(chunk2) + "\n\n" +
+			"data: [DONE]\n\n",
+	)
+
+	gateway := &OpenAIGateway{cfg: OpenAIGatewayConfig{}}
+	var events []StreamEvent
+	err := gateway.streamChatCompletionsSSE(context.Background(), reader, "test", 200, func(ev StreamEvent) error {
+		events = append(events, ev)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("expected nil error from gateway, got: %v", err)
+	}
+	if len(events) == 0 {
+		t.Fatal("expected events, got none")
+	}
+
+	deltas := []string{}
+	for _, item := range events {
+		delta, ok := item.(StreamMessageDelta)
+		if !ok {
+			continue
+		}
+		deltas = append(deltas, delta.ContentDelta)
+	}
+	if len(deltas) != 2 || deltas[0] != "no" || deltas[1] != "pe" {
+		t.Fatalf("unexpected deltas: %#v", deltas)
+	}
+
+	if _, ok := events[len(events)-1].(StreamRunCompleted); !ok {
+		t.Fatalf("expected StreamRunCompleted as last event, got %T", events[len(events)-1])
+	}
+}
+
 func TestOpenAIGateway_Stream_ChatCompletions_SSE_InvalidJSONChunk_Fails(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/chat/completions" {

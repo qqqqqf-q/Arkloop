@@ -482,6 +482,7 @@ type openAIChatCompletionStreamChunk struct {
 		Delta struct {
 			Content          *string                         `json:"content"`
 			ReasoningContent *string                         `json:"reasoning_content"`
+			Refusal          *string                         `json:"refusal"`
 			Role             *string                         `json:"role"`
 			ToolCalls        []openAIChatCompletionToolDelta `json:"tool_calls"`
 		} `json:"delta"`
@@ -606,6 +607,12 @@ func (g *OpenAIGateway) streamChatCompletionsSSE(
 	emittedMainOutput := false
 	emittedToolCall := false
 	finishReasonSeen := false
+	doneSeen := false
+	chunkCount := 0
+	choiceChunkCount := 0
+	lastFinishReason := ""
+	sawRoleDelta := false
+	contentFiltered := false
 
 	err := forEachSSEData(ctx, body, func(data string) (retErr error) {
 		defer func() {
@@ -615,6 +622,9 @@ func (g *OpenAIGateway) streamChatCompletionsSSE(
 		}()
 		if terminalEmitted {
 			return nil
+		}
+		if strings.TrimSpace(data) != "" && data != "[DONE]" {
+			chunkCount++
 		}
 		raw, rawTruncated := truncateUTF8(data, openAIMaxDebugChunkBytes)
 		var chunkJSON any
@@ -641,6 +651,7 @@ func (g *OpenAIGateway) streamChatCompletionsSSE(
 			if terminalEmitted {
 				return nil
 			}
+			doneSeen = true
 			calls, err := toolBuffer.Drain()
 			if err != nil {
 				return yield(openAIParseFailure(err, "OpenAI response parse failed", "OpenAI tool_call arguments parse failed"))
@@ -653,8 +664,21 @@ func (g *OpenAIGateway) streamChatCompletionsSSE(
 			}
 			if !emittedMainOutput && !emittedToolCall {
 				terminalEmitted = true
+				if contentFiltered {
+					return yield(StreamRunFailed{
+						Error: GatewayError{
+							ErrorClass: ErrorClassPolicyDenied,
+							Message:    "OpenAI content filtered",
+						},
+					})
+				}
 				details := map[string]any{
 					"finish_reason_seen": finishReasonSeen,
+					"done_seen":          doneSeen,
+					"chunk_count":        chunkCount,
+					"choice_chunk_count": choiceChunkCount,
+					"last_finish_reason": lastFinishReason,
+					"saw_role_delta":     sawRoleDelta,
 				}
 				if streamedUsage != nil {
 					details["usage"] = streamedUsage.ToJSON()
@@ -698,15 +722,24 @@ func (g *OpenAIGateway) streamChatCompletionsSSE(
 		if len(parsed.Choices) == 0 {
 			return nil
 		}
+		choiceChunkCount++
 		choice := parsed.Choices[0]
 		role := "assistant"
 		if choice.Delta.Role != nil && strings.TrimSpace(*choice.Delta.Role) != "" {
+			sawRoleDelta = true
 			role = strings.TrimSpace(*choice.Delta.Role)
 		}
 		if choice.Delta.ReasoningContent != nil && *choice.Delta.ReasoningContent != "" {
 			thinkingChannel := "thinking"
 			emittedAnyOutput = true
 			if err := yield(StreamMessageDelta{ContentDelta: *choice.Delta.ReasoningContent, Role: role, Channel: &thinkingChannel}); err != nil {
+				return err
+			}
+		}
+		if choice.Delta.Refusal != nil && *choice.Delta.Refusal != "" {
+			emittedAnyOutput = true
+			emittedMainOutput = true
+			if err := yield(StreamMessageDelta{ContentDelta: *choice.Delta.Refusal, Role: role}); err != nil {
 				return err
 			}
 		}
@@ -735,6 +768,10 @@ func (g *OpenAIGateway) streamChatCompletionsSSE(
 			reason := strings.TrimSpace(*choice.FinishReason)
 			if reason != "" {
 				finishReasonSeen = true
+				lastFinishReason = reason
+				if strings.EqualFold(reason, "content_filter") {
+					contentFiltered = true
+				}
 				if strings.EqualFold(reason, "tool_calls") {
 					calls, err := toolBuffer.Drain()
 					if err != nil {
@@ -779,8 +816,21 @@ func (g *OpenAIGateway) streamChatCompletionsSSE(
 			}
 			if !emittedMainOutput && !emittedToolCall {
 				terminalEmitted = true
+				if contentFiltered {
+					return yield(StreamRunFailed{
+						Error: GatewayError{
+							ErrorClass: ErrorClassPolicyDenied,
+							Message:    "OpenAI content filtered",
+						},
+					})
+				}
 				details := map[string]any{
 					"finish_reason_seen": finishReasonSeen,
+					"done_seen":          doneSeen,
+					"chunk_count":        chunkCount,
+					"choice_chunk_count": choiceChunkCount,
+					"last_finish_reason": lastFinishReason,
+					"saw_role_delta":     sawRoleDelta,
 				}
 				if streamedUsage != nil {
 					details["usage"] = streamedUsage.ToJSON()
@@ -831,8 +881,21 @@ func (g *OpenAIGateway) streamChatCompletionsSSE(
 		return yield(StreamRunCompleted{Usage: streamedUsage})
 	}
 	if streamedUsage != nil || emittedAnyOutput || finishReasonSeen {
+		if contentFiltered {
+			return yield(StreamRunFailed{
+				Error: GatewayError{
+					ErrorClass: ErrorClassPolicyDenied,
+					Message:    "OpenAI content filtered",
+				},
+			})
+		}
 		details := map[string]any{
 			"finish_reason_seen": finishReasonSeen,
+			"done_seen":          doneSeen,
+			"chunk_count":        chunkCount,
+			"choice_chunk_count": choiceChunkCount,
+			"last_finish_reason": lastFinishReason,
+			"saw_role_delta":     sawRoleDelta,
 		}
 		if streamedUsage != nil {
 			details["usage"] = streamedUsage.ToJSON()
