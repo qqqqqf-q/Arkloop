@@ -79,6 +79,18 @@ Worker 使用中间件链模式处理 run，顺序执行：
 | 12 | `mw_tool_build` | 构建 ToolSpecs 与工具分发器（按 allowlist 过滤） |
 | 13 | `handler_agent_loop` | 主 Agent Loop（LLM 调用 + 工具执行） |
 
+### 4.1 中间件测试覆盖
+
+核心中间件均有独立单元测试（`go test -race`）：
+
+- `mw_input_loader`：nil pool panic 检测、消息限额回退、链式执行验证
+- `mw_entitlement`：nil resolver 透传、credits 耗尽 panic 路径、releaseSlot 回调
+- `mw_persona_resolution`：系统提示词分层、参数钳制、工具 allowlist/denylist 交集
+- `mw_routing`：stub gateway、静态路由回退、provider kind 分发、API key 校验
+- `mw_memory`：nil provider/nil userID no-op、注入/提交/错误降级
+
+安全相关：`web_fetch/url_policy_test.go` 覆盖 SSRF 拦截全路径（scheme、hostname、localhost、私有 IP、IPv6）。
+
 ## 5. 执行器类型
 
 Worker 通过 Executor Registry 支持多种执行器：

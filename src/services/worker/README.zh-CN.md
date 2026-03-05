@@ -38,8 +38,20 @@
 
 ```bash
 cd src/services/worker
-go test ./...
+go test -race ./...
 ```
+
+### 核心路径测试覆盖
+
+| 模块 | 测试文件 | 覆盖范围 |
+|------|----------|----------|
+| SSRF 拦截 | `web_fetch/url_policy_test.go` | scheme/hostname/localhost/私有IP/IPv6 全路径 |
+| Pipeline 路由 | `pipeline/mw_routing_test.go` | stub gateway/静态路由回退/provider kind/gateway 构建/API key |
+| Pipeline 配额 | `pipeline/mw_entitlement_test.go` | nil 透传/credits 耗尽/releaseSlot 回调 |
+| Pipeline 输入加载 | `pipeline/mw_input_loader_test.go` | nil pool panic/消息限额/链式执行 |
+| Entitlement 解析 | `shared/entitlement/resolve_test.go` | 缓存类型/月份边界/扣费策略/非数值回退/nil receiver |
+| SSE 客户端 | `web/src/__tests__/sse.test.ts` | SSEApiError 构造/属性/类型守卫 |
+| 事件处理 | `web/src/__tests__/runEventProcessing.test.ts` | 计数溢出/segment 过滤/角色过滤/空内容/类型校验 |
 
 ## 多平台构建
 
