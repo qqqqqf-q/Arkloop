@@ -64,4 +64,28 @@ describe('MarkdownRenderer', () => {
     expect(mathDisabled).not.toContain('class="katex"')
     expect(rawLatex).not.toContain('class="katex"')
   })
+
+  it('应将 \\[...\\] 定界符转换为 $$ 并渲染为块级公式', () => {
+    const html = renderMarkdown('距离公式\n\\[d=\\sqrt{a^2+b^2}\\]')
+    expect(html).toContain('class="katex-display"')
+  })
+
+  it('应将 \\(...\\) 定界符转换为 $ 并渲染为行内公式', () => {
+    const html = renderMarkdown('行内 \\(a^2+b^2\\) 结束')
+    expect(html).toContain('class="katex"')
+  })
+
+  it('不应转换代码块内的 LaTeX 定界符', () => {
+    const fenced = renderMarkdown('```\n\\[a^2\\]\n```')
+    expect(fenced).not.toContain('class="katex"')
+
+    const inline = renderMarkdown('代码 `\\(x\\)` 保持原样')
+    expect(inline).not.toContain('class="katex"')
+    expect(inline).toContain('\\(x\\)')
+  })
+
+  it('disableMath 时不应转换 \\[...\\] 定界符', () => {
+    const html = renderMarkdown('\\[a^2\\]', { disableMath: true })
+    expect(html).not.toContain('class="katex"')
+  })
 })

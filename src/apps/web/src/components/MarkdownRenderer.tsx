@@ -22,6 +22,24 @@ type ArtifactsContextValue = {
 
 const ArtifactsContext = createContext<ArtifactsContextValue>({ artifacts: [], accessToken: '' })
 
+// \[...\] → $$...$$ , \(...\) → $...$
+// 跳过代码块和行内代码
+function normalizeLatexDelimiters(content: string): string {
+  const parts = content.split(/(```[\s\S]*?```)/g)
+
+  return parts.map((part, i) => {
+    if (i % 2 === 1) return part // fenced code block
+
+    const segments = part.split(/(`[^`]+`)/g)
+    return segments.map((seg, j) => {
+      if (j % 2 === 1) return seg // inline code
+      return seg
+        .replace(/\\\[([\s\S]*?)\\\]/g, (_, inner: string) => `\n$$\n${inner.trim()}\n$$\n`)
+        .replace(/\\\(([\s\S]*?)\\\)/g, (_, inner: string) => `$${inner}$`)
+    }).join('')
+  }).join('')
+}
+
 const ARTIFACT_PREFIX = 'artifact:'
 
 // react-markdown v10 的 defaultUrlTransform 会过滤非标准协议，需要放行 artifact:
@@ -470,6 +488,8 @@ export function MarkdownRenderer({ content, disableMath, webSources, artifacts, 
     accessToken: accessToken ?? '',
   }
 
+  const normalizedContent = disableMath ? content : normalizeLatexDelimiters(content)
+
   return (
     <ArtifactsContext.Provider value={artifactsValue}>
       <WebSourcesContext.Provider value={webSources ?? []}>
@@ -480,7 +500,7 @@ export function MarkdownRenderer({ content, disableMath, webSources, artifacts, 
             components={mdComponents}
             urlTransform={artifactUrlTransform}
           >
-            {content}
+            {normalizedContent}
           </ReactMarkdown>
         </div>
       </WebSourcesContext.Provider>
