@@ -26,6 +26,10 @@
 | `compose.yaml` | Docker Compose 编排 |
 | `compose.bench.yaml` | 压力测试编排 |
 | `.github/workflows/` | CI 流水线 |
+| `README.md` | 项目说明 |
+| `CONTRIBUTING.md` | 贡献指南 |
+| `CODE_OF_CONDUCT.md` | 行为准则 |
+| `SECURITY.md` | 安全披露政策 |
 
 ### 配置模板（公开，不含真实值）
 
@@ -57,7 +61,7 @@
 - [x] 无个人本地路径硬编码（已清理 `/Users/qqqqqf/` 引用）
 - [x] 文档 "内部" 标识已改为对外语境
 - [x] `.dockerignore` 已创建，防止构建时泄露 `.env` / `.git/`
-- [ ] 商标使用规则（待 CONTRIBUTING.md 中说明）
+- [x] 商标使用规则（已在 CONTRIBUTING.md 中说明）
 
 ## 许可证边界
 
