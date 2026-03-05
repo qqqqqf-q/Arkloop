@@ -35,8 +35,7 @@ This document defines the open-source boundary of the Arkloop repository: what b
 
 | Path | Description |
 |------|-------------|
-| `.env.example` | Environment variable template (all values are placeholders) |
-| `.env.test.example` | Test environment variable template |
+| `.env.example` | Environment variable template (all values are placeholders, includes test overrides) |
 | `config/openviking/ov.conf.example` | OpenViking configuration template |
 
 ### Excluded (via .gitignore or pre-release cleanup)

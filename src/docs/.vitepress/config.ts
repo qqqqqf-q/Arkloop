@@ -10,9 +10,7 @@ export default defineConfig({
     nav: [
       { text: '开发指南', link: '/guide/' },
       { text: 'API 参考', link: '/api/' },
-      { text: '架构', link: '/architecture/architecture-design-v2.zh-CN' },
       { text: '规范', link: '/specs/api-and-sse.zh-CN' },
-      { text: 'Roadmap', link: '/roadmap/open-source-readiness-roadmap.zh-CN' },
     ],
 
     sidebar: {
@@ -22,16 +20,7 @@ export default defineConfig({
           items: [
             { text: '本地启动', link: '/guide/' },
             { text: '部署', link: '/guide/deployment' },
-            { text: 'Personas & Tools', link: '/guide/personas-and-tools.zh-CN' },
-          ],
-        },
-      ],
-      '/architecture/': [
-        {
-          text: '架构',
-          items: [
-            { text: '架构设计 v2', link: '/architecture/architecture-design-v2.zh-CN' },
-            { text: '架构问题归档', link: '/architecture/architecture-problems.zh-CN' },
+            { text: 'Testing & Benchmarks', link: '/guide/testing' },
           ],
         },
       ],
@@ -106,7 +95,6 @@ export default defineConfig({
             { text: '数据库架构', link: '/specs/database-architecture.zh-CN' },
             { text: '日志与可观测性', link: '/specs/logging-and-observability.zh-CN' },
             { text: 'Run 执行架构', link: '/specs/run-execution-architecture.zh-CN' },
-            { text: '测试策略', link: '/specs/testing-and-pytest.zh-CN' },
           ],
         },
       ],
@@ -115,10 +103,6 @@ export default defineConfig({
           text: 'Roadmap',
           items: [
             { text: 'Open Source Readiness', link: '/roadmap/open-source-readiness-roadmap.zh-CN' },
-            { text: 'Agent System（归档）', link: '/roadmap/agent-system-roadmap.zh-CN' },
-            { text: '架构重构（归档）', link: '/roadmap/architecture-refactor-roadmap.zh-CN' },
-            { text: '开发路线（归档）', link: '/roadmap/development-roadmap.zh-CN' },
-            { text: 'CLI & ENV 配置（已过时）', link: '/roadmap/cli-and-env-profiles.zh-CN' },
           ],
         },
       ],

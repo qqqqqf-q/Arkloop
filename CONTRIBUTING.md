@@ -80,15 +80,57 @@ Open a discussion or issue describing the use case and proposed solution. We pre
 
 **Commits**
 
-Follow the format in [COMMIT.md](COMMIT.md):
+Format:
 
 ```
 <type>(<scope>): <subject>
+
+<body>
+
+<footer>
 ```
 
-- Types: `feat`, `fix`, `docs`, `refactor`, `test`, `build`, `ci`, `chore`
-- Use imperative mood, lowercase first letter, no trailing period
-- One logical change per commit
+- **Header** (required): `<type>(<scope>): <subject>`
+  - `type`: one of the types below
+  - `scope`: affected area (optional, e.g., `auth`, `parser`, `api`)
+  - `subject`: short description, imperative mood, lowercase, no trailing period
+  - Keep header under 50 characters
+
+| Type | Description |
+|------|-------------|
+| **feat** | New feature |
+| **fix** | Bug fix |
+| **docs** | Documentation only |
+| **style** | Formatting, no logic change |
+| **refactor** | Neither fix nor feature |
+| **perf** | Performance improvement |
+| **test** | Add or correct tests |
+| **build** | Build system or dependency changes |
+| **ci** | CI configuration changes |
+| **chore** | Other non-source changes |
+| **revert** | Revert a previous commit |
+
+Rules:
+
+- No emoji in commit messages
+- Atomic commits: one logical change per commit
+- Use the primary project language (or follow recent git history language)
+- No `Co-authored-by` or AI attribution trailers
+
+Examples:
+
+```
+feat(parser): add support for nested json objects
+```
+
+```
+fix(auth): correct token expiration logic
+
+The previous logic used milliseconds instead of seconds, causing
+tokens to expire prematurely in production environments.
+
+Close #123
+```
 
 **Go**
 

@@ -8,8 +8,7 @@ Thumbs.db
 .env
 .env.*
 !.env.example
-!.env.test.example
-!tools/cli/env/.env.api
+!src/apps/cli/env/.env.api*
 !src/apps/web/.env.api
 .VSCodeCounter
 
@@ -21,6 +20,7 @@ arkilo-ui-example
 .claude
 CLAUDE.md
 review.md
+mcp.config.json
 src/services/worker/worker
 src/services/worker/worker.exe
 language.md

@@ -70,7 +70,7 @@
 ### 包管理与项目标准
 
 * Node.js 项目优先使用 pnpm
-* 提交标题commit请查看commit.md的需求
+* 提交规范请查看 CONTRIBUTING.md 中的 Commits 段落
 * 保持此文件简洁，避免冗余
 * 在开始前，请检查项目中是否有Project.md,如果有,请查看
 ### 一般规范
@@ -114,7 +114,7 @@
 
 在提交commit时，请使用UTC+8时区
 
-在创建commit时请检查是否有commit.md文件,如果有,请查看
+在创建 commit 时请遵循 CONTRIBUTING.md 中的提交规范
 ### 不要在 commit message 中包含 'Co-authored-by' 或任何形式的 AI 署名。
 严格的UI/日志约束：
 不得将实现说明、持久化描述（例如“保存后生效”）或技术约束作为UI文本标签。
