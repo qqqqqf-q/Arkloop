@@ -19,6 +19,7 @@ import (
 type Service interface {
 	ExecCommand(ctx context.Context, req ExecCommandRequest) (*Response, error)
 	WriteStdin(ctx context.Context, req WriteStdinRequest) (*Response, error)
+	DebugSnapshot(ctx context.Context, sessionID, orgID string) (*DebugResponse, error)
 	Close(ctx context.Context, sessionID, orgID string) error
 }
 
@@ -147,6 +148,30 @@ func (m *Manager) WriteStdin(ctx context.Context, req WriteStdinRequest) (*Respo
 	resp := m.toResponse(req.SessionID, result)
 	m.attachArtifacts(ctx, req.SessionID, entry, result, resp)
 	return resp, nil
+}
+
+func (m *Manager) DebugSnapshot(ctx context.Context, sessionID, orgID string) (*DebugResponse, error) {
+	entry, err := m.getExistingEntry(sessionID, orgID)
+	if err != nil {
+		return nil, err
+	}
+
+	entry.mu.Lock()
+	defer entry.mu.Unlock()
+	if err := ensureOrg(entry.orgID, orgID); err != nil {
+		return nil, err
+	}
+
+	result, err := m.invokeDebugSnapshot(ctx, entry)
+	if err != nil {
+		if _, ok := err.(*transportError); ok {
+			m.dropEntry(sessionID, entry)
+			return nil, notFoundError()
+		}
+		return nil, err
+	}
+
+	return m.toDebugResponse(sessionID, result), nil
 }
 
 func (m *Manager) Close(ctx context.Context, sessionID, orgID string) error {
@@ -359,6 +384,48 @@ func (m *Manager) invokeWriteStdin(ctx context.Context, entry *managedSession, r
 	return m.invokeSession(ctx, entry, payload, 0, req.YieldTimeMs)
 }
 
+func (m *Manager) invokeDebugSnapshot(ctx context.Context, entry *managedSession) (*AgentDebugResponse, error) {
+	if entry.compute == nil {
+		return nil, notFoundError()
+	}
+	entry.compute.TouchActivity()
+	callTimeout := 10 * time.Second
+	ctx, cancel := context.WithTimeout(ctx, callTimeout)
+	defer cancel()
+
+	conn, err := entry.compute.Dial(ctx)
+	if err != nil {
+		return nil, &transportError{err: fmt.Errorf("connect to agent: %w", err)}
+	}
+	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(callTimeout))
+
+	req := AgentRequest{Action: "shell_debug_snapshot"}
+	if err := json.NewEncoder(conn).Encode(req); err != nil {
+		return nil, &transportError{err: fmt.Errorf("send debug request: %w", err)}
+	}
+	respBody, err := io.ReadAll(conn)
+	if err != nil {
+		return nil, &transportError{err: fmt.Errorf("read debug response: %w", err)}
+	}
+	var resp AgentResponse
+	if err := json.Unmarshal(respBody, &resp); err != nil {
+		return nil, &transportError{err: fmt.Errorf("decode debug response: %w", err)}
+	}
+	if resp.Error != "" {
+		switch resp.Code {
+		case CodeSessionNotFound:
+			return nil, notFoundError()
+		default:
+			return nil, errors.New(resp.Error)
+		}
+	}
+	if resp.Debug == nil {
+		return nil, &transportError{err: fmt.Errorf("debug response missing body")}
+	}
+	return resp.Debug, nil
+}
+
 func (m *Manager) invokeSession(ctx context.Context, entry *managedSession, payload AgentRequest, timeoutMs, yieldTimeMs int) (*AgentSessionResponse, error) {
 	if entry.compute == nil {
 		return nil, notFoundError()
@@ -483,6 +550,28 @@ func (m *Manager) toResponse(sessionID string, result *AgentSessionResponse) *Re
 		resp.Status = StatusRunning
 	}
 	if !result.Running && resp.Status == "" {
+		resp.Status = StatusIdle
+	}
+	return resp
+}
+
+func (m *Manager) toDebugResponse(sessionID string, result *AgentDebugResponse) *DebugResponse {
+	if result == nil {
+		return &DebugResponse{SessionID: sessionID}
+	}
+	resp := &DebugResponse{
+		SessionID:              sessionID,
+		Status:                 result.Status,
+		Cwd:                    result.Cwd,
+		Running:                result.Running,
+		TimedOut:               result.TimedOut,
+		ExitCode:               result.ExitCode,
+		PendingOutputBytes:     result.PendingOutputBytes,
+		PendingOutputTruncated: result.PendingOutputTruncated,
+		Transcript:             result.Transcript,
+		Tail:                   result.Tail,
+	}
+	if resp.Status == "" {
 		resp.Status = StatusIdle
 	}
 	return resp

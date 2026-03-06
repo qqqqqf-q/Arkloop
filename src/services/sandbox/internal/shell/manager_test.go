@@ -75,6 +75,52 @@ func TestManagerOrgMismatch(t *testing.T) {
 	}
 }
 
+func TestManagerDebugSnapshot_ProxyAgentResponse(t *testing.T) {
+	agent := &fakeAgent{actionHandler: func(req AgentRequest) AgentResponse {
+		switch req.Action {
+		case "shell_debug_snapshot":
+			code := 7
+			return AgentResponse{Action: req.Action, Debug: &AgentDebugResponse{
+				Status:                 StatusIdle,
+				Cwd:                    "/workspace/demo",
+				Running:                false,
+				TimedOut:               true,
+				ExitCode:               &code,
+				PendingOutputBytes:     12,
+				PendingOutputTruncated: true,
+				Transcript:             DebugTranscript{Text: "headtail", Truncated: true, OmittedBytes: 99},
+				Tail:                   "tail",
+			}}
+		default:
+			return idleShellResponse(req)
+		}
+	}}
+	pool := &fakePool{agent: agent}
+	mgr := session.NewManager(session.ManagerConfig{MaxSessions: 10, Pool: pool, MaxLifetimeSeconds: 3600})
+	shellMgr := NewManager(mgr, nil, nil, logging.NewJSONLogger("test", nil))
+
+	if _, err := shellMgr.ExecCommand(context.Background(), ExecCommandRequest{SessionID: "sess-1", Tier: "lite", OrgID: "org-a", Command: "pwd"}); err != nil {
+		t.Fatalf("exec_command failed: %v", err)
+	}
+
+	resp, err := shellMgr.DebugSnapshot(context.Background(), "sess-1", "org-a")
+	if err != nil {
+		t.Fatalf("debug snapshot failed: %v", err)
+	}
+	if resp.SessionID != "sess-1" {
+		t.Fatalf("unexpected session id: %#v", resp)
+	}
+	if resp.Cwd != "/workspace/demo" || !resp.TimedOut || resp.ExitCode == nil || *resp.ExitCode != 7 {
+		t.Fatalf("unexpected debug response: %#v", resp)
+	}
+	if !resp.PendingOutputTruncated || resp.PendingOutputBytes != 12 {
+		t.Fatalf("unexpected pending state: %#v", resp)
+	}
+	if !resp.Transcript.Truncated || resp.Transcript.OmittedBytes != 99 || resp.Tail != "tail" {
+		t.Fatalf("unexpected transcript response: %#v", resp)
+	}
+}
+
 func TestManagerClose_ReclaimsComputeSession(t *testing.T) {
 	agent := &fakeAgent{}
 	pool := &fakePool{agent: agent}
@@ -514,6 +560,9 @@ func (a *fakeAgent) handleAction(req AgentRequest) AgentResponse {
 	if custom != nil {
 		return custom(req)
 	}
+	if req.Action == "shell_debug_snapshot" {
+		return debugShellResponse(req)
+	}
 	return idleShellResponse(req)
 }
 
@@ -545,6 +594,17 @@ func completedShellAction(req AgentRequest) AgentResponse {
 
 func idleShellResponse(req AgentRequest) AgentResponse {
 	return AgentResponse{Action: req.Action, Session: &AgentSessionResponse{Status: StatusIdle, Cwd: requestCwd(req)}}
+}
+
+func debugShellResponse(req AgentRequest) AgentResponse {
+	return AgentResponse{Action: req.Action, Debug: &AgentDebugResponse{
+		Status:                 StatusIdle,
+		Cwd:                    requestCwd(req),
+		PendingOutputBytes:     0,
+		PendingOutputTruncated: false,
+		Transcript:             DebugTranscript{},
+		Tail:                   "",
+	}}
 }
 
 func requestCwd(req AgentRequest) string {

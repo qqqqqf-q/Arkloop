@@ -20,6 +20,7 @@ func NewHandler(mgr *session.Manager, shellSvc shell.Service, artifactStore *obj
 	mux.HandleFunc("POST /v1/exec", handleExec(mgr, artifactStore, logger))
 	mux.HandleFunc("POST /v1/exec_command", handleExecCommand(shellSvc, logger))
 	mux.HandleFunc("POST /v1/write_stdin", handleWriteStdin(shellSvc, logger))
+	mux.HandleFunc("GET /v1/sessions/", handleSessionTranscript(shellSvc))
 	mux.HandleFunc("DELETE /v1/sessions/", handleDeleteSession(mgr, shellSvc, logger))
 	return recoverMiddleware(authMiddleware(mux, authToken, logger), logger)
 }

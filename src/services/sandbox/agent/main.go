@@ -118,6 +118,7 @@ type AgentResponse struct {
 	Exec       *ExecResult                       `json:"exec,omitempty"`
 	Artifacts  *FetchArtifactsResult             `json:"artifacts,omitempty"`
 	Session    *shellapi.AgentSessionResponse    `json:"session,omitempty"`
+	Debug      *shellapi.AgentDebugResponse      `json:"debug,omitempty"`
 	Checkpoint *shellapi.AgentCheckpointResponse `json:"checkpoint,omitempty"`
 	Code       string                            `json:"code,omitempty"`
 	Error      string                            `json:"error,omitempty"`
@@ -223,6 +224,10 @@ func handleV2(conn net.Conn, req AgentRequest) {
 	case "write_stdin":
 		result, code, errMsg := shellController.WriteStdin(derefWriteStdin(req.WriteStdin))
 		writeJSON(conn, AgentResponse{Action: req.Action, Session: result, Code: code, Error: errMsg})
+
+	case "shell_debug_snapshot":
+		result, code, errMsg := shellController.DebugSnapshot()
+		writeJSON(conn, AgentResponse{Action: req.Action, Debug: result, Code: code, Error: errMsg})
 
 	case "shell_checkpoint_export":
 		result, code, errMsg := shellController.CheckpointExport()

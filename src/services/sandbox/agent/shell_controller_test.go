@@ -4,10 +4,12 @@ import (
 	"archive/tar"
 	"bytes"
 	"encoding/base64"
+	"fmt"
 	"io"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	shellapi "arkloop/services/sandbox/internal/shell"
 
@@ -129,6 +131,134 @@ func TestShellControllerWriteStdinInteractive(t *testing.T) {
 	}
 	if !strings.Contains(resp.Output, "arkloop") {
 		t.Fatalf("expected echoed output, got %q", resp.Output)
+	}
+}
+
+func TestShellControllerDebugSnapshotKeepsTranscriptAfterDrain(t *testing.T) {
+	workspace := t.TempDir()
+	bindShellDirs(t, workspace)
+	controller := NewShellController()
+	defer closeController(controller)
+
+	resp, code, msg := controller.ExecCommand(shellapi.AgentExecCommandRequest{
+		Command:     "printf 'first\n'; sleep 0.2; printf 'second\n'",
+		YieldTimeMs: 100,
+		TimeoutMs:   5000,
+	})
+	output := drainShellOutput(t, controller, resp, code, msg)
+	if !strings.Contains(output, "first") || !strings.Contains(output, "second") {
+		t.Fatalf("unexpected drained output: %q", output)
+	}
+
+	debug, code, msg := controller.DebugSnapshot()
+	if code != "" {
+		t.Fatalf("debug snapshot failed: %s %s", code, msg)
+	}
+	if debug.PendingOutputBytes != 0 {
+		t.Fatalf("expected no pending output, got %d", debug.PendingOutputBytes)
+	}
+	if debug.Transcript.Truncated {
+		t.Fatalf("unexpected transcript truncation: %#v", debug.Transcript)
+	}
+	if !strings.Contains(debug.Transcript.Text, "first") || !strings.Contains(debug.Transcript.Text, "second") {
+		t.Fatalf("unexpected transcript: %q", debug.Transcript.Text)
+	}
+	if !strings.Contains(debug.Tail, "second") {
+		t.Fatalf("unexpected tail: %q", debug.Tail)
+	}
+}
+
+func TestShellControllerDebugSnapshotDoesNotConsumePendingOutput(t *testing.T) {
+	workspace := t.TempDir()
+	bindShellDirs(t, workspace)
+	controller := NewShellController()
+	defer closeController(controller)
+
+	resp, code, msg := controller.ExecCommand(shellapi.AgentExecCommandRequest{
+		Command: fmt.Sprintf(
+			"python3 -c \"import sys,time; sys.stdout.write('A'*%d); sys.stdout.flush(); time.sleep(0.2); sys.stdout.write('B'*%d); sys.stdout.flush()\"",
+			shellapi.ReadChunkBytes+1024,
+			shellapi.ReadChunkBytes+1024,
+		),
+		YieldTimeMs: 1000,
+		TimeoutMs:   5000,
+	})
+	if code != "" {
+		t.Fatalf("exec_command failed: %s %s", code, msg)
+	}
+	if len(resp.Output) == 0 {
+		t.Fatal("expected initial output chunk")
+	}
+	time.Sleep(350 * time.Millisecond)
+
+	debug, code, msg := controller.DebugSnapshot()
+	if code != "" {
+		t.Fatalf("debug snapshot failed: %s %s", code, msg)
+	}
+	if debug.PendingOutputBytes == 0 {
+		t.Fatalf("expected pending output after first chunk, got %#v", debug)
+	}
+
+	poll, code, msg := controller.WriteStdin(shellapi.AgentWriteStdinRequest{YieldTimeMs: 100})
+	if code != "" {
+		t.Fatalf("poll failed: %s %s", code, msg)
+	}
+	if poll.Output == "" {
+		t.Fatalf("expected pending output to remain after debug snapshot, got %#v", poll)
+	}
+}
+
+func TestShellControllerDebugSnapshotShowsTranscriptTruncation(t *testing.T) {
+	workspace := t.TempDir()
+	bindShellDirs(t, workspace)
+	controller := NewShellController()
+	defer closeController(controller)
+
+	command := fmt.Sprintf(
+		"python3 -c \"import sys; sys.stdout.write('HEAD\\n' + 'x'*%d + '\\nTAIL')\"",
+		shellapi.RingBufferBytes+shellapi.TranscriptTailBytes,
+	)
+	resp, code, msg := controller.ExecCommand(shellapi.AgentExecCommandRequest{
+		Command:     command,
+		YieldTimeMs: 100,
+		TimeoutMs:   10000,
+	})
+	if code != "" {
+		t.Fatalf("exec_command failed: %s %s", code, msg)
+	}
+	if !resp.Running {
+		t.Fatalf("expected command to keep running, got %#v", resp)
+	}
+	time.Sleep(500 * time.Millisecond)
+
+	debug, code, msg := controller.DebugSnapshot()
+	if code != "" {
+		t.Fatalf("debug snapshot failed: %s %s", code, msg)
+	}
+	if !debug.PendingOutputTruncated {
+		t.Fatalf("expected pending truncation flag, got %#v", debug)
+	}
+	poll, code, msg := controller.WriteStdin(shellapi.AgentWriteStdinRequest{YieldTimeMs: 100})
+	if code != "" {
+		t.Fatalf("poll failed: %s %s", code, msg)
+	}
+	if !poll.Truncated {
+		t.Fatalf("expected poll truncation, got %#v", poll)
+	}
+	if !debug.Transcript.Truncated || debug.Transcript.OmittedBytes <= 0 {
+		t.Fatalf("expected transcript truncation, got %#v", debug.Transcript)
+	}
+	if !strings.HasPrefix(debug.Transcript.Text, "HEAD\n") {
+		t.Fatalf("unexpected transcript head: %q", debug.Transcript.Text[:minInt(len(debug.Transcript.Text), 16)])
+	}
+	if !strings.Contains(debug.Transcript.Text, "TAIL") {
+		t.Fatalf("expected transcript tail marker, got %q", debug.Transcript.Text)
+	}
+	if strings.Contains(debug.Tail, "HEAD\n") {
+		t.Fatalf("tail should not keep old head, got %q", debug.Tail)
+	}
+	if !strings.Contains(debug.Tail, "TAIL") {
+		t.Fatalf("expected tail marker in tail window, got %q", debug.Tail)
 	}
 }
 

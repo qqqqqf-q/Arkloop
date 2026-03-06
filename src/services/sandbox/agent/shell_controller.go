@@ -35,17 +35,19 @@ var shellHomeDir = defaultShellHome
 var shellTempDir = defaultShellTempDir
 
 type ShellController struct {
-	mu        sync.Mutex
-	cmd       *exec.Cmd
-	ptyFile   *os.File
-	output    *shellapi.RingBuffer
-	delivered uint64
-	status    string
-	cwd       string
-	current   *shellCommand
-	lastExit  *int
-	lastTO    bool
-	updateCh  chan struct{}
+	mu            sync.Mutex
+	cmd           *exec.Cmd
+	ptyFile       *os.File
+	pendingOutput *shellapi.RingBuffer
+	pendingCursor uint64
+	transcript    *shellapi.HeadTailBuffer
+	tail          *shellapi.RingBuffer
+	status        string
+	cwd           string
+	current       *shellCommand
+	lastExit      *int
+	lastTO        bool
+	updateCh      chan struct{}
 }
 
 type shellCommand struct {
@@ -60,12 +62,13 @@ type shellCommand struct {
 }
 
 func NewShellController() *ShellController {
-	return &ShellController{
-		output:   shellapi.NewRingBuffer(shellapi.RingBufferBytes),
+	controller := &ShellController{
 		status:   shellapi.StatusClosed,
 		cwd:      shellWorkspaceDir,
 		updateCh: make(chan struct{}),
 	}
+	controller.resetBuffersLocked()
+	return controller
 }
 
 func (c *ShellController) ExecCommand(req shellapi.AgentExecCommandRequest) (*shellapi.AgentSessionResponse, string, string) {
@@ -97,6 +100,23 @@ func (c *ShellController) WriteStdin(req shellapi.AgentWriteStdinRequest) (*shel
 	return c.waitForDelivery(req.YieldTimeMs)
 }
 
+func (c *ShellController) DebugSnapshot() (*shellapi.AgentDebugResponse, string, string) {
+	if err := c.ensureReadable(); err != nil {
+		code, msg := mapShellError(err)
+		return nil, code, msg
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.debugSnapshotLocked(), "", ""
+}
+
+func (c *ShellController) resetBuffersLocked() {
+	c.pendingOutput = shellapi.NewRingBuffer(shellapi.RingBufferBytes)
+	c.pendingCursor = 0
+	c.transcript = shellapi.NewHeadTailBuffer(shellapi.TranscriptHeadBytes, shellapi.TranscriptTailBytes)
+	c.tail = shellapi.NewRingBuffer(shellapi.TailBufferBytes)
+}
+
 func (c *ShellController) ensureStarted(req shellapi.AgentExecCommandRequest) error {
 	c.mu.Lock()
 	if c.status != shellapi.StatusClosed && c.cmd != nil && c.ptyFile != nil {
@@ -125,8 +145,7 @@ func (c *ShellController) ensureStarted(req shellapi.AgentExecCommandRequest) er
 	}
 	c.cmd = cmd
 	c.ptyFile = file
-	c.output = shellapi.NewRingBuffer(shellapi.RingBufferBytes)
-	c.delivered = 0
+	c.resetBuffersLocked()
 	c.status = shellapi.StatusIdle
 	c.cwd = shellWorkspaceDir
 	c.lastExit = nil
@@ -200,7 +219,7 @@ func (c *ShellController) startCommand(command, cwd string, timeoutMs int, suppr
 	if err != nil {
 		return 0, err
 	}
-	startCursor := c.output.EndCursor()
+	startCursor := c.pendingOutput.EndCursor()
 	c.status = shellapi.StatusRunning
 	c.lastExit = nil
 	c.lastTO = false
@@ -231,11 +250,11 @@ func (c *ShellController) startCommand(command, cwd string, timeoutMs int, suppr
 
 func (c *ShellController) waitForDelivery(yieldTimeMs int) (*shellapi.AgentSessionResponse, string, string) {
 	c.mu.Lock()
-	resp, nextCursor := c.snapshotLocked(c.delivered)
+	resp, nextCursor := c.snapshotLocked(c.pendingCursor)
 	ch := c.updateCh
 	shouldWait := resp.Running && resp.Output == ""
-	if !shouldWait && nextCursor > c.delivered {
-		c.delivered = nextCursor
+	if !shouldWait && nextCursor > c.pendingCursor {
+		c.pendingCursor = nextCursor
 	}
 	c.mu.Unlock()
 	if !shouldWait {
@@ -251,9 +270,9 @@ func (c *ShellController) waitWithCursor(yieldTimeMs int, initial <-chan struct{
 		remaining := time.Until(deadline)
 		if remaining <= 0 {
 			c.mu.Lock()
-			resp, nextCursor := c.snapshotLocked(c.delivered)
-			if nextCursor > c.delivered {
-				c.delivered = nextCursor
+			resp, nextCursor := c.snapshotLocked(c.pendingCursor)
+			if nextCursor > c.pendingCursor {
+				c.pendingCursor = nextCursor
 			}
 			c.mu.Unlock()
 			return resp, "", ""
@@ -261,10 +280,10 @@ func (c *ShellController) waitWithCursor(yieldTimeMs int, initial <-chan struct{
 		select {
 		case <-ch:
 			c.mu.Lock()
-			resp, nextCursor := c.snapshotLocked(c.delivered)
+			resp, nextCursor := c.snapshotLocked(c.pendingCursor)
 			if resp.Output != "" || !resp.Running || resp.Status == shellapi.StatusClosed {
-				if nextCursor > c.delivered {
-					c.delivered = nextCursor
+				if nextCursor > c.pendingCursor {
+					c.pendingCursor = nextCursor
 				}
 				c.mu.Unlock()
 				return resp, "", ""
@@ -273,9 +292,9 @@ func (c *ShellController) waitWithCursor(yieldTimeMs int, initial <-chan struct{
 			c.mu.Unlock()
 		case <-time.After(remaining):
 			c.mu.Lock()
-			resp, nextCursor := c.snapshotLocked(c.delivered)
-			if nextCursor > c.delivered {
-				c.delivered = nextCursor
+			resp, nextCursor := c.snapshotLocked(c.pendingCursor)
+			if nextCursor > c.pendingCursor {
+				c.pendingCursor = nextCursor
 			}
 			c.mu.Unlock()
 			return resp, "", ""
@@ -284,9 +303,9 @@ func (c *ShellController) waitWithCursor(yieldTimeMs int, initial <-chan struct{
 }
 
 func (c *ShellController) snapshotLocked(cursor uint64) (*shellapi.AgentSessionResponse, uint64) {
-	chunk, nextCursor, truncated, ok := c.output.ReadFrom(cursor, shellapi.ReadChunkBytes)
+	chunk, nextCursor, truncated, ok := c.pendingOutput.ReadFrom(cursor, shellapi.ReadChunkBytes)
 	if !ok {
-		nextCursor = c.output.EndCursor()
+		nextCursor = c.pendingOutput.EndCursor()
 	}
 	resp := &shellapi.AgentSessionResponse{
 		Status:    c.status,
@@ -301,6 +320,44 @@ func (c *ShellController) snapshotLocked(cursor uint64) (*shellapi.AgentSessionR
 		resp.Status = shellapi.StatusIdle
 	}
 	return resp, nextCursor
+}
+
+func (c *ShellController) debugSnapshotLocked() *shellapi.AgentDebugResponse {
+	pendingBytes, pendingTruncated := c.pendingStateLocked()
+	transcript := c.transcript.Snapshot()
+	resp := &shellapi.AgentDebugResponse{
+		Status:                 c.status,
+		Cwd:                    c.cwd,
+		Running:                c.status == shellapi.StatusRunning,
+		TimedOut:               c.lastTO,
+		ExitCode:               c.lastExit,
+		PendingOutputBytes:     pendingBytes,
+		PendingOutputTruncated: pendingTruncated,
+		Transcript: shellapi.DebugTranscript{
+			Text:         transcript.Text,
+			Truncated:    transcript.Truncated,
+			OmittedBytes: transcript.OmittedBytes,
+		},
+		Tail: string(c.tail.Bytes()),
+	}
+	if resp.Status == "" {
+		resp.Status = shellapi.StatusIdle
+	}
+	return resp
+}
+
+func (c *ShellController) pendingStateLocked() (int, bool) {
+	start := c.pendingOutput.StartCursor()
+	end := c.pendingOutput.EndCursor()
+	truncated := c.pendingCursor < start
+	cursor := c.pendingCursor
+	if cursor < start {
+		cursor = start
+	}
+	if cursor > end {
+		cursor = end
+	}
+	return int(end - cursor), truncated
 }
 
 func (c *ShellController) writeInput(input string) error {
@@ -379,7 +436,7 @@ func (c *ShellController) readLoop(file *os.File) {
 				c.current.raw += string(buf[:n])
 				c.processCurrentLocked()
 			} else {
-				c.output.Append(buf[:n])
+				c.appendVisibleOutputLocked(string(buf[:n]))
 			}
 			c.notifyLocked()
 			c.mu.Unlock()
@@ -393,7 +450,6 @@ func (c *ShellController) readLoop(file *os.File) {
 			c.current = nil
 			c.cmd = nil
 			c.ptyFile = nil
-			c.delivered = 0
 			c.notifyLocked()
 			c.mu.Unlock()
 			return
@@ -451,7 +507,7 @@ func (c *ShellController) processCurrentLocked() {
 		trailing := rest[lineEnd+1:]
 		c.current = nil
 		if trailing != "" {
-			c.output.Append([]byte(trailing))
+			c.appendVisibleOutputLocked(trailing)
 		}
 		return
 	}
@@ -484,7 +540,17 @@ func (c *ShellController) appendOutputLocked(data string, suppress bool) {
 	if suppress || data == "" {
 		return
 	}
-	c.output.Append([]byte(data))
+	c.appendVisibleOutputLocked(data)
+}
+
+func (c *ShellController) appendVisibleOutputLocked(data string) {
+	if data == "" {
+		return
+	}
+	payload := []byte(data)
+	c.pendingOutput.Append(payload)
+	c.transcript.Append(payload)
+	c.tail.Append(payload)
 }
 
 func (c *ShellController) closeLocked() {
@@ -501,7 +567,7 @@ func (c *ShellController) closeLocked() {
 	c.cmd = nil
 	c.ptyFile = nil
 	c.current = nil
-	c.delivered = 0
+	c.pendingCursor = 0
 	c.status = shellapi.StatusClosed
 	c.notifyLocked()
 }

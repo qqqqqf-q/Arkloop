@@ -46,6 +46,25 @@ type Response struct {
 	Artifacts []ArtifactRef `json:"artifacts,omitempty"`
 }
 
+type DebugTranscript struct {
+	Text         string `json:"text"`
+	Truncated    bool   `json:"truncated"`
+	OmittedBytes int64  `json:"omitted_bytes"`
+}
+
+type DebugResponse struct {
+	SessionID              string          `json:"session_id"`
+	Status                 string          `json:"status"`
+	Cwd                    string          `json:"cwd"`
+	Running                bool            `json:"running"`
+	TimedOut               bool            `json:"timed_out"`
+	ExitCode               *int            `json:"exit_code,omitempty"`
+	PendingOutputBytes     int             `json:"pending_output_bytes"`
+	PendingOutputTruncated bool            `json:"pending_output_truncated"`
+	Transcript             DebugTranscript `json:"transcript"`
+	Tail                   string          `json:"tail"`
+}
+
 type AgentRequest struct {
 	Action      string                   `json:"action"`
 	ExecCommand *AgentExecCommandRequest `json:"exec_command,omitempty"`
@@ -79,6 +98,7 @@ type AgentCheckpointResponse struct {
 type AgentResponse struct {
 	Action     string                   `json:"action"`
 	Session    *AgentSessionResponse    `json:"session,omitempty"`
+	Debug      *AgentDebugResponse      `json:"debug,omitempty"`
 	Checkpoint *AgentCheckpointResponse `json:"checkpoint,omitempty"`
 	Code       string                   `json:"code,omitempty"`
 	Error      string                   `json:"error,omitempty"`
@@ -92,6 +112,18 @@ type AgentSessionResponse struct {
 	Truncated bool   `json:"truncated"`
 	TimedOut  bool   `json:"timed_out"`
 	ExitCode  *int   `json:"exit_code,omitempty"`
+}
+
+type AgentDebugResponse struct {
+	Status                 string          `json:"status"`
+	Cwd                    string          `json:"cwd"`
+	Running                bool            `json:"running"`
+	TimedOut               bool            `json:"timed_out"`
+	ExitCode               *int            `json:"exit_code,omitempty"`
+	PendingOutputBytes     int             `json:"pending_output_bytes"`
+	PendingOutputTruncated bool            `json:"pending_output_truncated"`
+	Transcript             DebugTranscript `json:"transcript"`
+	Tail                   string          `json:"tail"`
 }
 
 func NormalizeYieldTimeMs(value int) int {
