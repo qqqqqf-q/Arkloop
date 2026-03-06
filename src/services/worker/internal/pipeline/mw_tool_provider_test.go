@@ -35,13 +35,6 @@ func TestToolProviderMiddlewareInjectsActiveProvider(t *testing.T) {
 	t.Setenv("ARKLOOP_ENCRYPTION_KEY", keyHex)
 
 	if _, err := pool.Exec(context.Background(), `
-		CREATE TABLE secrets (
-			id uuid PRIMARY KEY,
-			org_id uuid NULL,
-			scope text NOT NULL DEFAULT 'org',
-			encrypted_value text NOT NULL,
-			key_version int NOT NULL DEFAULT 1
-		);
 		CREATE TABLE tool_provider_configs (
 			id uuid PRIMARY KEY,
 			org_id uuid NULL,

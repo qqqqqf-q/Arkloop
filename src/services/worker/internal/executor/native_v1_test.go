@@ -62,9 +62,10 @@ func TestNativeRunEngineV1HandlerWritesEventsAndMessage(t *testing.T) {
 		{Seq: 1, Type: "run.started"},
 		{Seq: 2, Type: "worker.job.received"},
 		{Seq: 3, Type: "run.route.selected"},
-		{Seq: 4, Type: "message.delta"},
+		{Seq: 4, Type: "llm.request"},
 		{Seq: 5, Type: "message.delta"},
-		{Seq: 6, Type: "run.completed"},
+		{Seq: 6, Type: "message.delta"},
+		{Seq: 7, Type: "run.completed"},
 	}
 	if len(seqTypes) != len(expected) {
 		t.Fatalf("unexpected events count: %d", len(seqTypes))

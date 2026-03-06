@@ -44,7 +44,7 @@ func TestEngineV1InjectsPersonaSystemPromptAndBudgets(t *testing.T) {
 	threadID := uuid.New()
 	runID := uuid.New()
 
-	if err := seedRunStartedWithPersona(t, pool, orgID, threadID, runID, "lite@1"); err != nil {
+	if err := seedRunStartedWithPersona(t, pool, orgID, threadID, runID, "normal@1"); err != nil {
 		t.Fatalf("seed run failed: %v", err)
 	}
 
@@ -97,10 +97,10 @@ func TestEngineV1InjectsPersonaSystemPromptAndBudgets(t *testing.T) {
 		t.Fatalf("expected system prompt injected, got role=%s", gateway.request.Messages[0].Role)
 	}
 	if len(gateway.request.Messages[0].Content) == 0 || gateway.request.Messages[0].Content[0].Text == "" {
-		t.Fatalf("expected non-empty system prompt from lite persona")
+		t.Fatalf("expected non-empty system prompt from normal persona")
 	}
-	if gateway.request.MaxOutputTokens == nil || *gateway.request.MaxOutputTokens != 2048 {
-		t.Fatalf("expected max_output_tokens 2048, got %v", gateway.request.MaxOutputTokens)
+	if gateway.request.MaxOutputTokens == nil || *gateway.request.MaxOutputTokens != 20480 {
+		t.Fatalf("expected max_output_tokens 20480, got %v", gateway.request.MaxOutputTokens)
 	}
 }
 

@@ -158,11 +158,83 @@ func initRunsSchema(t *testing.T, dsn string) error {
 
 	statements := []string{
 		`CREATE SEQUENCE run_events_seq_global START 1`,
+		`CREATE TABLE platform_settings (
+			key        TEXT        PRIMARY KEY,
+			value      TEXT        NOT NULL,
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+		)`,
+		`CREATE TABLE org_settings (
+			org_id     UUID        NOT NULL,
+			key        TEXT        NOT NULL,
+			value      TEXT        NOT NULL,
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+			PRIMARY KEY (org_id, key)
+		)`,
+		`CREATE INDEX ix_org_settings_key ON org_settings (key)`,
+		`CREATE TABLE personas (
+			id                   UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+			org_id               UUID        NULL,
+			persona_key          TEXT        NOT NULL,
+			version              TEXT        NOT NULL,
+			display_name         TEXT        NOT NULL,
+			description          TEXT        NULL,
+			prompt_md            TEXT        NOT NULL,
+			tool_allowlist       TEXT[]      NOT NULL DEFAULT '{}',
+			tool_denylist        TEXT[]      NOT NULL DEFAULT '{}',
+			budgets_json         JSONB       NOT NULL DEFAULT '{}'::jsonb,
+			executor_type        TEXT        NOT NULL DEFAULT 'agent.simple',
+			executor_config_json JSONB       NOT NULL DEFAULT '{}'::jsonb,
+			preferred_credential TEXT        NULL,
+			agent_config_name    TEXT        NULL,
+			is_active            BOOLEAN     NOT NULL DEFAULT TRUE,
+			created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+			CONSTRAINT uq_personas_org_key_version UNIQUE NULLS NOT DISTINCT (org_id, persona_key, version)
+		)`,
+		`CREATE TABLE secrets (
+			id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+			org_id          UUID        NULL,
+			scope           TEXT        NOT NULL DEFAULT 'org',
+			encrypted_value TEXT        NOT NULL,
+			key_version     INT         NOT NULL DEFAULT 1,
+			created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+			updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+		)`,
+		`CREATE TABLE llm_credentials (
+			id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+			org_id          UUID        NOT NULL,
+			provider        TEXT        NOT NULL,
+			name            TEXT        NOT NULL,
+			secret_id       UUID        NULL,
+			base_url        TEXT        NULL,
+			openai_api_mode TEXT        NULL,
+			advanced_json   JSONB       NOT NULL DEFAULT '{}'::jsonb,
+			revoked_at      TIMESTAMPTZ NULL,
+			created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+			updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+		)`,
+		`CREATE TABLE llm_routes (
+			id                  UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+			org_id              UUID        NOT NULL,
+			credential_id       UUID        NOT NULL,
+			model               TEXT        NOT NULL,
+			priority            INT         NOT NULL DEFAULT 0,
+			is_default          BOOLEAN     NOT NULL DEFAULT false,
+			when_json           JSONB       NOT NULL DEFAULT '{}'::jsonb,
+			multiplier          DOUBLE PRECISION NOT NULL DEFAULT 1.0,
+			cost_per_1k_input      DOUBLE PRECISION NULL,
+			cost_per_1k_output     DOUBLE PRECISION NULL,
+			cost_per_1k_cache_write DOUBLE PRECISION NULL,
+			cost_per_1k_cache_read  DOUBLE PRECISION NULL,
+			created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+		)`,
 		`CREATE TABLE threads (
 			id         UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
 			org_id     UUID        NOT NULL,
+			agent_config_id UUID   NULL,
+			project_id UUID        NULL,
 			is_private BOOLEAN     NOT NULL DEFAULT FALSE,
 			expires_at TIMESTAMPTZ NULL,
+			deleted_at TIMESTAMPTZ NULL,
 			created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 		)`,
 		`CREATE TABLE runs (
@@ -210,7 +282,7 @@ func initRunsSchema(t *testing.T, dsn string) error {
 		`CREATE TABLE usage_records (
 			id                    UUID           PRIMARY KEY DEFAULT gen_random_uuid(),
 			org_id                UUID           NOT NULL,
-			run_id                UUID           NOT NULL UNIQUE,
+			run_id                UUID           NOT NULL,
 			model                 TEXT           NOT NULL DEFAULT '',
 			input_tokens          BIGINT         NOT NULL DEFAULT 0,
 			output_tokens         BIGINT         NOT NULL DEFAULT 0,
@@ -218,7 +290,9 @@ func initRunsSchema(t *testing.T, dsn string) error {
 			cache_read_tokens     BIGINT         NOT NULL DEFAULT 0,
 			cached_tokens         BIGINT         NOT NULL DEFAULT 0,
 			cost_usd              NUMERIC(18, 8) NOT NULL DEFAULT 0,
-			recorded_at           TIMESTAMPTZ    NOT NULL DEFAULT now()
+			usage_type            TEXT           NOT NULL DEFAULT 'llm',
+			recorded_at           TIMESTAMPTZ    NOT NULL DEFAULT now(),
+			CONSTRAINT uq_usage_records_run_id_usage_type UNIQUE (run_id, usage_type)
 		)`,
 		`CREATE INDEX idx_usage_records_org_recorded ON usage_records (org_id, recorded_at)`,
 		`CREATE TABLE credits (
