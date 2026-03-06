@@ -418,10 +418,10 @@ packages:
 
 实现方案：
 - **后端选择权**：Sandbox 后端由管理员通过 `ARKLOOP_SANDBOX_PROVIDER` 环境变量或 Console 平台设置显式配置，不根据运行环境自动推断。
-- **工具双名机制**（对齐 web_search/web_fetch）：
-  - LLM 暴露名保持不变：`code_execute`、`shell_execute`
-  - Provider 显示名用于后端/运维与灰度：`code_execute.firecracker`、`code_execute.docker`、`shell_execute.firecracker`、`shell_execute.docker`
-  - provider spec 的 `LlmName` 统一映射到 `code_execute` / `shell_execute`，同一 run 只允许启用一个 provider（避免 LlmName 冲突）
+- **工具暴露名**：
+  - LLM 暴露名使用 `python_execute`、`exec_command`、`write_stdin`
+  - Provider 显示名用于后端/运维与灰度：`python_execute.firecracker`、`python_execute.docker`、`exec_command.firecracker`、`exec_command.docker`
+  - `write_stdin` 复用 `exec_command` 对应 provider，同一 run 只允许启用一个 sandbox provider
 - **配置项（platform scope）**：
   - `sandbox.provider`：默认后端（`firecracker` / `docker`）
   - `sandbox.base_url`：Worker 调用 Sandbox 服务地址（ENV 仍可 override，用于开源开发者无 Console 场景）

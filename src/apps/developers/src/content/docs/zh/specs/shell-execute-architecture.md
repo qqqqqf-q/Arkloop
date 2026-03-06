@@ -1929,12 +1929,12 @@ P0 的目标不是继续给旧 action 接口打补丁，而是把底层执行模
 - 定义 `exec_command`
 - 定义 `write_stdin`
 - 固定 `chars=""` 为 poll 语义
-- 保留 `shell_execute` 兼容层，但不再把未来能力直接长在旧 action 模型上
+- 删除 `shell_execute` 与旧 action 模型，不保留兼容层
 
 完成标准：
 
 - shell 执行语义统一到 `exec_command + write_stdin`
-- 旧工具层仍可兼容
+- 对外只暴露 `exec_command + write_stdin`
 - 未来 P1 / P2 不必继续依赖现有 `open|exec|read|write|signal|close` 的扩展
 
 #### P0-2. 落地三层输出模型与 drain-on-poll

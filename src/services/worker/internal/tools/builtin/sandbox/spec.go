@@ -15,10 +15,17 @@ var (
 		RiskLevel:   tools.RiskLevelHigh,
 		SideEffects: true,
 	}
-	ShellExecuteSpec = tools.AgentToolSpec{
-		Name:        "shell_execute",
+	ExecCommandSpec = tools.AgentToolSpec{
+		Name:        "exec_command",
 		Version:     "1",
-		Description: "interact with a persistent shell session in isolated sandbox",
+		Description: "run a command in the default persistent shell session inside the isolated sandbox",
+		RiskLevel:   tools.RiskLevelHigh,
+		SideEffects: true,
+	}
+	WriteStdinSpec = tools.AgentToolSpec{
+		Name:        "write_stdin",
+		Version:     "1",
+		Description: "send stdin to, or poll output from, a running shell session inside the isolated sandbox",
 		RiskLevel:   tools.RiskLevelHigh,
 		SideEffects: true,
 	}
@@ -38,44 +45,25 @@ var PythonExecuteLlmSpec = llm.ToolSpec{
 	},
 }
 
-var ShellExecuteLlmSpec = llm.ToolSpec{
-	Name:        "shell_execute",
-	Description: stringPtr("use the default interactive shell session in the sandbox. The session is reused automatically inside the same run, so do not pass session_id. Use action=open to attach, action=exec to run a command, action=read to fetch more output from cursor, action=write to send stdin to the current foreground process, action=signal to interrupt long-running work, and action=close when the shell is no longer needed. For long-running commands, call exec first and then keep calling read with the returned cursor until running becomes false. Write files meant for the final answer to /tmp/output/ so they appear in artifacts."),
+var ExecCommandLlmSpec = llm.ToolSpec{
+	Name:        "exec_command",
+	Description: stringPtr("run a command in the default persistent shell session inside the isolated sandbox. The session is reused automatically inside the same run, so do not pass session_id. Use this tool to start shell work. For long-running commands, call exec_command first, then keep using write_stdin with the returned session_id. Write files meant for the final answer to /tmp/output/ so they appear in artifacts."),
 	JSONSchema: map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"action": map[string]any{
-				"type":        "string",
-				"enum":        []string{"open", "exec", "read", "write", "signal", "close"},
-				"description": "shell action to perform",
-			},
 			"command": map[string]any{
 				"type":        "string",
-				"description": "required when action=exec",
+				"description": "command to execute",
 			},
 			"cwd": map[string]any{
 				"type":        "string",
-				"description": "optional working directory for open or exec",
-			},
-			"cursor": map[string]any{
-				"type":        "integer",
-				"minimum":     0,
-				"description": "output cursor used by read",
-			},
-			"input": map[string]any{
-				"type":        "string",
-				"description": "stdin payload when action=write",
-			},
-			"signal": map[string]any{
-				"type":        "string",
-				"enum":        []string{"SIGINT", "SIGTERM", "SIGKILL"},
-				"description": "signal sent by action=signal; defaults to SIGINT",
+				"description": "optional working directory for the command",
 			},
 			"timeout_ms": map[string]any{
 				"type":        "integer",
 				"minimum":     1000,
 				"maximum":     300000,
-				"description": "command timeout for exec",
+				"description": "command timeout",
 			},
 			"yield_time_ms": map[string]any{
 				"type":        "integer",
@@ -84,17 +72,33 @@ var ShellExecuteLlmSpec = llm.ToolSpec{
 				"description": "time to wait for incremental output before returning",
 			},
 		},
-		"required": []string{"action"},
-		"allOf": []any{
-			map[string]any{
-				"if":   map[string]any{"properties": map[string]any{"action": map[string]any{"const": "exec"}}},
-				"then": map[string]any{"required": []string{"command"}},
+		"required":             []string{"command"},
+		"additionalProperties": false,
+	},
+}
+
+var WriteStdinLlmSpec = llm.ToolSpec{
+	Name:        "write_stdin",
+	Description: stringPtr("send stdin to, or poll output from, a running shell session. Pass the session_id returned by exec_command. Set chars to a non-empty string to write stdin. Set chars to an empty string, or omit it, to poll for new output without repeating already delivered output."),
+	JSONSchema: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"session_id": map[string]any{
+				"type":        "string",
+				"description": "session id returned by exec_command",
 			},
-			map[string]any{
-				"if":   map[string]any{"properties": map[string]any{"action": map[string]any{"const": "write"}}},
-				"then": map[string]any{"required": []string{"input"}},
+			"chars": map[string]any{
+				"type":        "string",
+				"description": "stdin payload; omit or set empty string to poll",
+			},
+			"yield_time_ms": map[string]any{
+				"type":        "integer",
+				"minimum":     1,
+				"maximum":     30000,
+				"description": "time to wait for new output before returning",
 			},
 		},
+		"required":             []string{"session_id"},
 		"additionalProperties": false,
 	},
 }
@@ -102,14 +106,16 @@ var ShellExecuteLlmSpec = llm.ToolSpec{
 func AgentSpecs() []tools.AgentToolSpec {
 	return []tools.AgentToolSpec{
 		PythonExecuteSpec,
-		ShellExecuteSpec,
+		ExecCommandSpec,
+		WriteStdinSpec,
 	}
 }
 
 func LlmSpecs() []llm.ToolSpec {
 	return []llm.ToolSpec{
 		PythonExecuteLlmSpec,
-		ShellExecuteLlmSpec,
+		ExecCommandLlmSpec,
+		WriteStdinLlmSpec,
 	}
 }
 

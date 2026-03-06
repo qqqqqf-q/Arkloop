@@ -5,25 +5,25 @@ const (
 	StatusRunning = "running"
 	StatusClosed  = "closed"
 
-	SignalINT  = "SIGINT"
-	SignalTERM = "SIGTERM"
-	SignalKILL = "SIGKILL"
-
 	defaultYieldTimeMs = 1000
 	maxYieldTimeMs     = 30000
 	maxTimeoutMs       = 300000
 )
 
-type Request struct {
+type ExecCommandRequest struct {
 	SessionID   string `json:"session_id"`
 	OrgID       string `json:"org_id,omitempty"`
 	Tier        string `json:"tier,omitempty"`
 	Cwd         string `json:"cwd,omitempty"`
-	Command     string `json:"command,omitempty"`
-	Input       string `json:"input,omitempty"`
-	Signal      string `json:"signal,omitempty"`
-	Cursor      uint64 `json:"cursor,omitempty"`
+	Command     string `json:"command"`
 	TimeoutMs   int    `json:"timeout_ms,omitempty"`
+	YieldTimeMs int    `json:"yield_time_ms,omitempty"`
+}
+
+type WriteStdinRequest struct {
+	SessionID   string `json:"session_id"`
+	OrgID       string `json:"org_id,omitempty"`
+	Chars       string `json:"chars,omitempty"`
 	YieldTimeMs int    `json:"yield_time_ms,omitempty"`
 }
 
@@ -39,7 +39,6 @@ type Response struct {
 	Status    string        `json:"status"`
 	Cwd       string        `json:"cwd"`
 	Output    string        `json:"output"`
-	Cursor    uint64        `json:"cursor"`
 	Running   bool          `json:"running"`
 	Truncated bool          `json:"truncated"`
 	TimedOut  bool          `json:"timed_out"`
@@ -48,20 +47,23 @@ type Response struct {
 }
 
 type AgentRequest struct {
-	Action     string                  `json:"action"`
-	Shell      *AgentShellRequest      `json:"shell,omitempty"`
-	Checkpoint *AgentCheckpointRequest `json:"checkpoint,omitempty"`
+	Action      string                   `json:"action"`
+	ExecCommand *AgentExecCommandRequest `json:"exec_command,omitempty"`
+	WriteStdin  *AgentWriteStdinRequest  `json:"write_stdin,omitempty"`
+	Checkpoint  *AgentCheckpointRequest  `json:"checkpoint,omitempty"`
 }
 
-type AgentShellRequest struct {
+type AgentExecCommandRequest struct {
 	Cwd         string            `json:"cwd,omitempty"`
-	Command     string            `json:"command,omitempty"`
-	Input       string            `json:"input,omitempty"`
-	Signal      string            `json:"signal,omitempty"`
-	Cursor      uint64            `json:"cursor,omitempty"`
+	Command     string            `json:"command"`
 	TimeoutMs   int               `json:"timeout_ms,omitempty"`
 	YieldTimeMs int               `json:"yield_time_ms,omitempty"`
 	Env         map[string]string `json:"env,omitempty"`
+}
+
+type AgentWriteStdinRequest struct {
+	Chars       string `json:"chars,omitempty"`
+	YieldTimeMs int    `json:"yield_time_ms,omitempty"`
 }
 
 type AgentCheckpointRequest struct {
@@ -76,17 +78,16 @@ type AgentCheckpointResponse struct {
 
 type AgentResponse struct {
 	Action     string                   `json:"action"`
-	Shell      *AgentShellResponse      `json:"shell,omitempty"`
+	Session    *AgentSessionResponse    `json:"session,omitempty"`
 	Checkpoint *AgentCheckpointResponse `json:"checkpoint,omitempty"`
 	Code       string                   `json:"code,omitempty"`
 	Error      string                   `json:"error,omitempty"`
 }
 
-type AgentShellResponse struct {
+type AgentSessionResponse struct {
 	Status    string `json:"status"`
 	Cwd       string `json:"cwd"`
 	Output    string `json:"output"`
-	Cursor    uint64 `json:"cursor"`
 	Running   bool   `json:"running"`
 	Truncated bool   `json:"truncated"`
 	TimedOut  bool   `json:"timed_out"`

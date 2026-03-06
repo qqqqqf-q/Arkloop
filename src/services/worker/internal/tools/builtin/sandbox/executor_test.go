@@ -83,11 +83,11 @@ func TestPythonExecute_Success(t *testing.T) {
 	}
 }
 
-func TestShellExecute_OpenUsesShellEndpoint(t *testing.T) {
+func TestExecCommand_UsesExecEndpoint(t *testing.T) {
 	runID := uuid.MustParse("22222222-2222-2222-2222-222222222222")
 	orgID := uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost || r.URL.Path != "/v1/shell/open" {
+		if r.Method != http.MethodPost || r.URL.Path != "/v1/exec_command" {
 			t.Fatalf("unexpected %s %s", r.Method, r.URL.Path)
 		}
 		if auth := r.Header.Get("Authorization"); auth != "Bearer shell-token" {
@@ -97,23 +97,25 @@ func TestShellExecute_OpenUsesShellEndpoint(t *testing.T) {
 			t.Fatalf("unexpected org header: %s", got)
 		}
 
-		var body shellRequest
+		var body execCommandRequest
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Fatalf("decode body: %v", err)
 		}
-		if body.SessionID != shellSessionID(runID.String()) {
+		if body.SessionID != defaultExecSessionID(runID.String()) {
 			t.Fatalf("unexpected session id: %s", body.SessionID)
 		}
 		if body.OrgID != orgID.String() {
 			t.Fatalf("unexpected org id: %s", body.OrgID)
 		}
+		if body.Command != "pwd" {
+			t.Fatalf("unexpected command: %s", body.Command)
+		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(shellResponse{
+		json.NewEncoder(w).Encode(execSessionResponse{
 			SessionID: body.SessionID,
 			Status:    "idle",
 			Cwd:       "/workspace",
-			Cursor:    3,
 		})
 	}))
 	defer server.Close()
@@ -121,8 +123,8 @@ func TestShellExecute_OpenUsesShellEndpoint(t *testing.T) {
 	exec := NewToolExecutor(server.URL, "shell-token")
 	result := exec.Execute(
 		t.Context(),
-		"shell_execute",
-		map[string]any{"action": "open"},
+		"exec_command",
+		map[string]any{"command": "pwd"},
 		testContextWithOrg(runID, orgID),
 		"",
 	)
@@ -136,22 +138,22 @@ func TestShellExecute_OpenUsesShellEndpoint(t *testing.T) {
 	if result.ResultJSON["cwd"] != "/workspace" {
 		t.Fatalf("unexpected cwd: %v", result.ResultJSON["cwd"])
 	}
-	if result.ResultJSON["cursor"] != uint64(3) {
-		t.Fatalf("unexpected cursor: %v", result.ResultJSON["cursor"])
+	if result.ResultJSON["session_id"] != defaultExecSessionID(runID.String()) {
+		t.Fatalf("unexpected session_id: %v", result.ResultJSON["session_id"])
 	}
 }
 
-func TestShellExecute_CommandFallbackToExec(t *testing.T) {
+func TestExecCommand_UsesDefaultSessionID(t *testing.T) {
 	runID := uuid.MustParse("33333333-3333-3333-3333-333333333333")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost || r.URL.Path != "/v1/shell/exec" {
+		if r.Method != http.MethodPost || r.URL.Path != "/v1/exec_command" {
 			t.Fatalf("unexpected %s %s", r.Method, r.URL.Path)
 		}
-		var body shellRequest
+		var body execCommandRequest
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Fatalf("decode body: %v", err)
 		}
-		if body.SessionID != shellSessionID(runID.String()) {
+		if body.SessionID != defaultExecSessionID(runID.String()) {
 			t.Fatalf("unexpected session id: %s", body.SessionID)
 		}
 		if body.Command != "ls -la" {
@@ -159,13 +161,13 @@ func TestShellExecute_CommandFallbackToExec(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(shellResponse{
-			Status:   "idle",
-			Cwd:      "/workspace",
-			Output:   "total 0\n",
-			Cursor:   8,
-			Running:  false,
-			TimedOut: false,
+		json.NewEncoder(w).Encode(execSessionResponse{
+			SessionID: body.SessionID,
+			Status:    "idle",
+			Cwd:       "/workspace",
+			Output:    "total 0\n",
+			Running:   false,
+			TimedOut:  false,
 		})
 	}))
 	defer server.Close()
@@ -173,7 +175,7 @@ func TestShellExecute_CommandFallbackToExec(t *testing.T) {
 	exec := NewToolExecutor(server.URL, "")
 	result := exec.Execute(
 		t.Context(),
-		"shell_execute",
+		"exec_command",
 		map[string]any{"command": "ls -la"},
 		testContextWithRun(runID),
 		"",
@@ -190,32 +192,32 @@ func TestShellExecute_CommandFallbackToExec(t *testing.T) {
 	}
 }
 
-func TestShellExecute_ReadUsesCursor(t *testing.T) {
+func TestWriteStdin_UsesPollEndpoint(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/shell/read" {
+		if r.URL.Path != "/v1/write_stdin" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
-		var body shellRequest
+		var body writeStdinRequest
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Fatalf("decode body: %v", err)
 		}
-		if body.Cursor != 42 {
-			t.Fatalf("unexpected cursor: %d", body.Cursor)
+		if body.SessionID != "sess-42" {
+			t.Fatalf("unexpected session_id: %s", body.SessionID)
 		}
 		if body.YieldTimeMs != 1500 {
 			t.Fatalf("unexpected yield_time_ms: %d", body.YieldTimeMs)
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(shellResponse{Status: "running", Cwd: "/workspace", Cursor: 64, Running: true})
+		json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "running", Cwd: "/workspace", Running: true})
 	}))
 	defer server.Close()
 
 	exec := NewToolExecutor(server.URL, "")
 	result := exec.Execute(
 		t.Context(),
-		"shell_execute",
-		map[string]any{"action": "read", "cursor": float64(42), "yield_time_ms": float64(1500)},
+		"write_stdin",
+		map[string]any{"session_id": "sess-42", "yield_time_ms": float64(1500)},
 		testContext(),
 		"",
 	)
@@ -228,83 +230,58 @@ func TestShellExecute_ReadUsesCursor(t *testing.T) {
 	}
 }
 
-func TestShellExecute_SignalDefaultsToSIGINT(t *testing.T) {
+func TestWriteStdin_UsesCharsPayload(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/shell/signal" {
+		if r.URL.Path != "/v1/write_stdin" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
-		var body shellRequest
+		var body writeStdinRequest
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Fatalf("decode body: %v", err)
 		}
-		if body.Signal != shellSignalINT {
-			t.Fatalf("unexpected signal: %s", body.Signal)
+		if body.Chars != "arkloop\n" {
+			t.Fatalf("unexpected chars: %q", body.Chars)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(shellResponse{Status: "idle", Cwd: "/workspace", Cursor: 9})
+		json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "idle", Cwd: "/workspace", Output: "arkloop\n"})
 	}))
 	defer server.Close()
 
 	exec := NewToolExecutor(server.URL, "")
-	result := exec.Execute(t.Context(), "shell_execute", map[string]any{"action": "signal"}, testContext(), "")
+	result := exec.Execute(t.Context(), "write_stdin", map[string]any{"session_id": "sess-1", "chars": "arkloop\n"}, testContext(), "")
 	if result.Error != nil {
 		t.Fatalf("unexpected error: %+v", result.Error)
 	}
 }
 
-func TestShellExecute_CloseUsesDelete(t *testing.T) {
-	runID := uuid.MustParse("44444444-4444-4444-4444-444444444444")
-	orgID := uuid.MustParse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodDelete {
-			t.Fatalf("unexpected method: %s", r.Method)
-		}
-		expectedPath := "/v1/shell/session/" + shellSessionID(runID.String())
-		if r.URL.Path != expectedPath {
-			t.Fatalf("unexpected path: %s", r.URL.Path)
-		}
-		if got := r.Header.Get("X-Org-ID"); got != orgID.String() {
-			t.Fatalf("unexpected org header: %s", got)
-		}
-		w.WriteHeader(http.StatusNoContent)
-	}))
-	defer server.Close()
-
-	exec := NewToolExecutor(server.URL, "")
-	result := exec.Execute(
-		t.Context(),
-		"shell_execute",
-		map[string]any{"action": "close"},
-		testContextWithOrg(runID, orgID),
-		"",
-	)
-
-	if result.Error != nil {
-		t.Fatalf("unexpected error: %+v", result.Error)
-	}
-	if result.ResultJSON["status"] != "closed" {
-		t.Fatalf("unexpected status: %v", result.ResultJSON["status"])
-	}
-}
-
-func TestShellExecute_SharedDefaultSessionAcrossCalls(t *testing.T) {
+func TestExecCommandAndWriteStdin_ShareDefaultSessionAcrossCalls(t *testing.T) {
 	runID := uuid.MustParse("55555555-5555-5555-5555-555555555555")
 	var got []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var body shellRequest
+		if r.URL.Path == "/v1/exec_command" {
+			var body execCommandRequest
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("decode body: %v", err)
+			}
+			got = append(got, body.SessionID)
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "running", Cwd: "/workspace", Running: true})
+			return
+		}
+		var body writeStdinRequest
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Fatalf("decode body: %v", err)
 		}
 		got = append(got, body.SessionID)
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(shellResponse{Status: "idle", Cwd: "/workspace", Cursor: 1})
+		json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "idle", Cwd: "/workspace"})
 	}))
 	defer server.Close()
 
 	exec := NewToolExecutor(server.URL, "")
 	ctx := testContextWithRun(runID)
-	first := exec.Execute(t.Context(), "shell_execute", map[string]any{"action": "open"}, ctx, "")
-	second := exec.Execute(t.Context(), "shell_execute", map[string]any{"action": "read", "cursor": float64(1)}, ctx, "")
+	first := exec.Execute(t.Context(), "exec_command", map[string]any{"command": "sleep 1"}, ctx, "")
+	second := exec.Execute(t.Context(), "write_stdin", map[string]any{"session_id": defaultExecSessionID(runID.String())}, ctx, "")
 
 	if first.Error != nil || second.Error != nil {
 		t.Fatalf("unexpected errors: first=%+v second=%+v", first.Error, second.Error)
@@ -313,7 +290,7 @@ func TestShellExecute_SharedDefaultSessionAcrossCalls(t *testing.T) {
 		t.Fatalf("expected 2 calls, got %d", len(got))
 	}
 	for _, sessionID := range got {
-		if sessionID != shellSessionID(runID.String()) {
+		if sessionID != defaultExecSessionID(runID.String()) {
 			t.Fatalf("unexpected session id: %s", sessionID)
 		}
 	}
@@ -333,11 +310,11 @@ func TestPythonExecute_MissingCode(t *testing.T) {
 	}
 }
 
-func TestShellExecute_MissingAction(t *testing.T) {
+func TestExecCommand_MissingCommand(t *testing.T) {
 	exec := NewToolExecutor("http://localhost:9999", "")
 	result := exec.Execute(
 		t.Context(),
-		"shell_execute",
+		"exec_command",
 		map[string]any{},
 		testContext(),
 		"",
@@ -347,12 +324,12 @@ func TestShellExecute_MissingAction(t *testing.T) {
 	}
 }
 
-func TestShellExecute_MissingInputForWrite(t *testing.T) {
+func TestWriteStdin_MissingSessionID(t *testing.T) {
 	exec := NewToolExecutor("http://localhost:9999", "")
 	result := exec.Execute(
 		t.Context(),
-		"shell_execute",
-		map[string]any{"action": "write"},
+		"write_stdin",
+		map[string]any{},
 		testContext(),
 		"",
 	)

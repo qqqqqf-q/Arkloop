@@ -17,11 +17,8 @@ import (
 )
 
 type Service interface {
-	Open(ctx context.Context, req Request) (*Response, error)
-	Exec(ctx context.Context, req Request) (*Response, error)
-	Read(ctx context.Context, req Request) (*Response, error)
-	Write(ctx context.Context, req Request) (*Response, error)
-	Signal(ctx context.Context, req Request) (*Response, error)
+	ExecCommand(ctx context.Context, req ExecCommandRequest) (*Response, error)
+	WriteStdin(ctx context.Context, req WriteStdinRequest) (*Response, error)
 	Close(ctx context.Context, sessionID, orgID string) error
 }
 
@@ -71,7 +68,7 @@ func NewManager(compute *session.Manager, artifactStore artifactStore, stateStor
 	return mgr
 }
 
-func (m *Manager) Open(ctx context.Context, req Request) (*Response, error) {
+func (m *Manager) ExecCommand(ctx context.Context, req ExecCommandRequest) (*Response, error) {
 	if err := ValidateTimeoutMs(req.TimeoutMs); err != nil {
 		return nil, err
 	}
@@ -83,91 +80,62 @@ func (m *Manager) Open(ctx context.Context, req Request) (*Response, error) {
 		return nil, err
 	}
 
-	if entry.compute != nil {
-		result, err := m.invoke(ctx, entry, "shell_open", req, nil)
-		if err == nil {
-			return m.toResponse(req.SessionID, entry, result), nil
+	shellEnv := map[string]string(nil)
+	prepared := req
+	createdCompute := false
+	if entry.compute == nil {
+		computeSession, err := m.compute.GetOrCreate(ctx, req.SessionID, req.Tier, req.OrgID)
+		if err != nil {
+			m.dropEntry(req.SessionID, entry)
+			if strings.Contains(err.Error(), "org mismatch") {
+				return nil, orgMismatchError()
+			}
+			return nil, fmt.Errorf("get shell compute session: %w", err)
 		}
-		if _, ok := err.(*transportError); !ok {
-			return nil, err
+		entry.compute = computeSession
+		entry.orgID = computeSession.OrgID
+		if entry.artifactSeen == nil {
+			entry.artifactSeen = make(map[string]artifactVersion)
 		}
-		entry.compute = nil
-		entry.commandSeq = 0
-		entry.uploadedSeq = 0
-		entry.artifactSeen = nil
-	}
-
-	computeSession, err := m.compute.GetOrCreate(ctx, req.SessionID, req.Tier, req.OrgID)
-	if err != nil {
-		m.dropEntry(req.SessionID, entry)
-		if strings.Contains(err.Error(), "org mismatch") {
-			return nil, orgMismatchError()
-		}
-		return nil, fmt.Errorf("get shell compute session: %w", err)
-	}
-
-	entry.compute = computeSession
-	entry.orgID = computeSession.OrgID
-	if entry.artifactSeen == nil {
-		entry.artifactSeen = make(map[string]artifactVersion)
-	}
-	openReq, envSnapshot := m.prepareOpenRequest(ctx, req, entry)
-
-	result, err := m.invoke(ctx, entry, "shell_open", openReq, envSnapshot)
-	if err != nil {
-		m.dropEntry(req.SessionID, entry)
-		_ = m.compute.DeleteSkipHook(ctx, req.SessionID, req.OrgID)
-		if _, ok := err.(*transportError); ok && !created {
-			return nil, notFoundError()
-		}
-		return nil, err
-	}
-	return m.toResponse(req.SessionID, entry, result), nil
-}
-
-func (m *Manager) Exec(ctx context.Context, req Request) (*Response, error) {
-	if err := ValidateTimeoutMs(req.TimeoutMs); err != nil {
-		return nil, err
-	}
-	entry, err := m.getExistingEntry(req.SessionID, req.OrgID)
-	if err != nil {
-		return nil, err
-	}
-
-	entry.mu.Lock()
-	defer entry.mu.Unlock()
-	if err := ensureOrg(entry.orgID, req.OrgID); err != nil {
-		return nil, err
+		prepared, shellEnv = m.prepareExecCommandRequest(ctx, req, entry)
+		createdCompute = true
 	}
 
 	entry.commandSeq++
-	result, err := m.invoke(ctx, entry, "shell_exec", req, nil)
+	result, err := m.invokeExecCommand(ctx, entry, prepared, shellEnv)
 	if err != nil {
-		if _, ok := err.(*transportError); ok {
-			m.dropEntry(req.SessionID, entry)
-			return nil, notFoundError()
-		}
 		entry.commandSeq--
+		if _, ok := err.(*transportError); ok {
+			m.dropEntry(req.SessionID, entry)
+			if createdCompute {
+				_ = m.compute.DeleteSkipHook(ctx, req.SessionID, req.OrgID)
+			}
+			if !created {
+				return nil, notFoundError()
+			}
+			return nil, notFoundError()
+		}
 		return nil, err
 	}
 
-	resp := m.toResponse(req.SessionID, entry, result)
+	resp := m.toResponse(req.SessionID, result)
 	m.attachArtifacts(ctx, req.SessionID, entry, result, resp)
 	return resp, nil
 }
 
-func (m *Manager) Read(ctx context.Context, req Request) (*Response, error) {
+func (m *Manager) WriteStdin(ctx context.Context, req WriteStdinRequest) (*Response, error) {
 	entry, err := m.getExistingEntry(req.SessionID, req.OrgID)
 	if err != nil {
 		return nil, err
 	}
+
 	entry.mu.Lock()
 	defer entry.mu.Unlock()
 	if err := ensureOrg(entry.orgID, req.OrgID); err != nil {
 		return nil, err
 	}
 
-	result, err := m.invoke(ctx, entry, "shell_read", req, nil)
+	result, err := m.invokeWriteStdin(ctx, entry, req)
 	if err != nil {
 		if _, ok := err.(*transportError); ok {
 			m.dropEntry(req.SessionID, entry)
@@ -176,57 +144,7 @@ func (m *Manager) Read(ctx context.Context, req Request) (*Response, error) {
 		return nil, err
 	}
 
-	resp := m.toResponse(req.SessionID, entry, result)
-	m.attachArtifacts(ctx, req.SessionID, entry, result, resp)
-	return resp, nil
-}
-
-func (m *Manager) Write(ctx context.Context, req Request) (*Response, error) {
-	entry, err := m.getExistingEntry(req.SessionID, req.OrgID)
-	if err != nil {
-		return nil, err
-	}
-	entry.mu.Lock()
-	defer entry.mu.Unlock()
-	if err := ensureOrg(entry.orgID, req.OrgID); err != nil {
-		return nil, err
-	}
-
-	result, err := m.invoke(ctx, entry, "shell_write", req, nil)
-	if err != nil {
-		if _, ok := err.(*transportError); ok {
-			m.dropEntry(req.SessionID, entry)
-			return nil, notFoundError()
-		}
-		return nil, err
-	}
-
-	resp := m.toResponse(req.SessionID, entry, result)
-	m.attachArtifacts(ctx, req.SessionID, entry, result, resp)
-	return resp, nil
-}
-
-func (m *Manager) Signal(ctx context.Context, req Request) (*Response, error) {
-	entry, err := m.getExistingEntry(req.SessionID, req.OrgID)
-	if err != nil {
-		return nil, err
-	}
-	entry.mu.Lock()
-	defer entry.mu.Unlock()
-	if err := ensureOrg(entry.orgID, req.OrgID); err != nil {
-		return nil, err
-	}
-
-	result, err := m.invoke(ctx, entry, "shell_signal", req, nil)
-	if err != nil {
-		if _, ok := err.(*transportError); ok {
-			m.dropEntry(req.SessionID, entry)
-			return nil, notFoundError()
-		}
-		return nil, err
-	}
-
-	resp := m.toResponse(req.SessionID, entry, result)
+	resp := m.toResponse(req.SessionID, result)
 	m.attachArtifacts(ctx, req.SessionID, entry, result, resp)
 	return resp, nil
 }
@@ -298,28 +216,28 @@ func (m *Manager) dropEntry(sessionID string, entry *managedSession) {
 	}
 }
 
-func (m *Manager) prepareOpenRequest(ctx context.Context, req Request, entry *managedSession) (Request, map[string]string) {
-	openReq := req
+func (m *Manager) prepareExecCommandRequest(ctx context.Context, req ExecCommandRequest, entry *managedSession) (ExecCommandRequest, map[string]string) {
+	prepared := req
 	if entry.compute == nil || m.stateStore == nil {
-		return openReq, nil
+		return prepared, nil
 	}
 	manifest, archive, err := loadLatestCheckpoint(ctx, m.stateStore, entry.orgID, req.SessionID)
 	if err != nil {
 		if objectstore.IsNotFound(err) {
-			return openReq, nil
+			return prepared, nil
 		}
 		m.logger.Warn("shell checkpoint load failed", logging.LogFields{SessionID: &req.SessionID}, map[string]any{"error": err.Error()})
-		return openReq, nil
+		return prepared, nil
 	}
 	if _, err := m.invokeCheckpoint(ctx, entry, "shell_restore_import", AgentCheckpointRequest{Archive: base64.StdEncoding.EncodeToString(archive)}); err != nil {
 		m.logger.Warn("shell checkpoint restore failed", logging.LogFields{SessionID: &req.SessionID}, map[string]any{"error": err.Error(), "revision": manifest.Revision})
-		return openReq, nil
+		return prepared, nil
 	}
 	entry.commandSeq = manifest.LastCommandSeq
 	entry.uploadedSeq = manifest.UploadedSeq
 	entry.artifactSeen = cloneArtifactSeen(manifest.ArtifactSeen)
-	openReq.Cwd = m.resolveOpenCwd(ctx, req.SessionID, entry.compute, req.Cwd, manifest.Cwd)
-	return openReq, manifest.EnvSnapshot
+	prepared.Cwd = m.resolveOpenCwd(ctx, req.SessionID, entry.compute, req.Cwd, manifest.Cwd)
+	return prepared, manifest.EnvSnapshot
 }
 
 func (m *Manager) checkpointLocked(ctx context.Context, sessionID string, entry *managedSession) error {
@@ -416,12 +334,37 @@ func shellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 }
 
-func (m *Manager) invoke(ctx context.Context, entry *managedSession, action string, req Request, shellEnv map[string]string) (*AgentShellResponse, error) {
+func (m *Manager) invokeExecCommand(ctx context.Context, entry *managedSession, req ExecCommandRequest, shellEnv map[string]string) (*AgentSessionResponse, error) {
+	payload := AgentRequest{
+		Action: "exec_command",
+		ExecCommand: &AgentExecCommandRequest{
+			Cwd:         req.Cwd,
+			Command:     req.Command,
+			TimeoutMs:   req.TimeoutMs,
+			YieldTimeMs: req.YieldTimeMs,
+			Env:         shellEnv,
+		},
+	}
+	return m.invokeSession(ctx, entry, payload, req.TimeoutMs, req.YieldTimeMs)
+}
+
+func (m *Manager) invokeWriteStdin(ctx context.Context, entry *managedSession, req WriteStdinRequest) (*AgentSessionResponse, error) {
+	payload := AgentRequest{
+		Action: "write_stdin",
+		WriteStdin: &AgentWriteStdinRequest{
+			Chars:       req.Chars,
+			YieldTimeMs: req.YieldTimeMs,
+		},
+	}
+	return m.invokeSession(ctx, entry, payload, 0, req.YieldTimeMs)
+}
+
+func (m *Manager) invokeSession(ctx context.Context, entry *managedSession, payload AgentRequest, timeoutMs, yieldTimeMs int) (*AgentSessionResponse, error) {
 	if entry.compute == nil {
 		return nil, notFoundError()
 	}
 	entry.compute.TouchActivity()
-	callTimeout := time.Duration(maxInt(req.TimeoutMs, req.YieldTimeMs, 5000)+5000) * time.Millisecond
+	callTimeout := time.Duration(maxInt(timeoutMs, yieldTimeMs, 5000)+5000) * time.Millisecond
 	ctx, cancel := context.WithTimeout(ctx, callTimeout)
 	defer cancel()
 
@@ -432,20 +375,7 @@ func (m *Manager) invoke(ctx context.Context, entry *managedSession, action stri
 	defer conn.Close()
 	_ = conn.SetDeadline(time.Now().Add(callTimeout))
 
-	env := AgentRequest{
-		Action: action,
-		Shell: &AgentShellRequest{
-			Cwd:         req.Cwd,
-			Command:     req.Command,
-			Input:       req.Input,
-			Signal:      req.Signal,
-			Cursor:      req.Cursor,
-			TimeoutMs:   req.TimeoutMs,
-			YieldTimeMs: req.YieldTimeMs,
-			Env:         shellEnv,
-		},
-	}
-	if err := json.NewEncoder(conn).Encode(env); err != nil {
+	if err := json.NewEncoder(conn).Encode(payload); err != nil {
 		return nil, &transportError{err: fmt.Errorf("send shell request: %w", err)}
 	}
 
@@ -464,20 +394,16 @@ func (m *Manager) invoke(ctx context.Context, entry *managedSession, action stri
 			return nil, busyError()
 		case CodeSessionNotFound:
 			return nil, notFoundError()
-		case CodeInvalidCursor:
-			return nil, invalidCursorError()
 		case CodeNotRunning:
 			return nil, notRunningError()
-		case CodeSignalFailed:
-			return nil, signalFailedError(resp.Error)
 		default:
 			return nil, errors.New(resp.Error)
 		}
 	}
-	if resp.Shell == nil {
+	if resp.Session == nil {
 		return nil, &transportError{err: fmt.Errorf("shell response missing body")}
 	}
-	return resp.Shell, nil
+	return resp.Session, nil
 }
 
 func (m *Manager) invokeCheckpoint(ctx context.Context, entry *managedSession, action string, checkpointReq AgentCheckpointRequest) (*AgentCheckpointResponse, error) {
@@ -524,7 +450,7 @@ func (m *Manager) invokeCheckpoint(ctx context.Context, entry *managedSession, a
 	return resp.Checkpoint, nil
 }
 
-func (m *Manager) attachArtifacts(ctx context.Context, sessionID string, entry *managedSession, result *AgentShellResponse, resp *Response) {
+func (m *Manager) attachArtifacts(ctx context.Context, sessionID string, entry *managedSession, result *AgentSessionResponse, resp *Response) {
 	if result == nil || result.Running || result.ExitCode == nil {
 		return
 	}
@@ -542,13 +468,12 @@ func (m *Manager) attachArtifacts(ctx context.Context, sessionID string, entry *
 	}
 }
 
-func (m *Manager) toResponse(sessionID string, entry *managedSession, result *AgentShellResponse) *Response {
+func (m *Manager) toResponse(sessionID string, result *AgentSessionResponse) *Response {
 	resp := &Response{
 		SessionID: sessionID,
 		Status:    result.Status,
 		Cwd:       result.Cwd,
 		Output:    result.Output,
-		Cursor:    result.Cursor,
 		Running:   result.Running,
 		Truncated: result.Truncated,
 		TimedOut:  result.TimedOut,

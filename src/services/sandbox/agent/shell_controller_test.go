@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	shellapi "arkloop/services/sandbox/internal/shell"
 
@@ -29,141 +28,118 @@ func bindShellDirs(t *testing.T, workspace string) {
 	})
 }
 
-func drainShellOutput(t *testing.T, controller *ShellController, resp *shellapi.AgentShellResponse, code, msg string) string {
+func closeController(controller *ShellController) {
+	controller.mu.Lock()
+	controller.closeLocked()
+	controller.mu.Unlock()
+}
+
+func drainShellOutput(t *testing.T, controller *ShellController, resp *shellapi.AgentSessionResponse, code, msg string) string {
 	t.Helper()
 	if code != "" {
 		t.Fatalf("shell action failed: %s %s", code, msg)
 	}
 	output := resp.Output
 	for resp.Running {
-		resp, code, msg = controller.Read(shellapi.AgentShellRequest{Cursor: resp.Cursor, YieldTimeMs: 200})
+		resp, code, msg = controller.WriteStdin(shellapi.AgentWriteStdinRequest{YieldTimeMs: 200})
 		if code != "" {
-			t.Fatalf("read failed: %s %s", code, msg)
+			t.Fatalf("write_stdin failed: %s %s", code, msg)
 		}
 		output += resp.Output
 	}
 	return output
 }
 
-func TestShellControllerOpenDefaultsToWorkspace(t *testing.T) {
+func TestShellControllerExecCommandPreservesCwd(t *testing.T) {
 	workspace := t.TempDir()
 	bindShellDirs(t, workspace)
 	controller := NewShellController()
-	resp, code, msg := controller.Open(shellapi.AgentShellRequest{})
-	if code != "" || msg != "" {
-		t.Fatalf("open failed: %s %s", code, msg)
-	}
-	if resp.Cwd != workspace {
-		t.Fatalf("expected cwd %s, got %s", workspace, resp.Cwd)
-	}
-	_, _, _ = controller.Close()
-}
+	defer closeController(controller)
 
-func TestShellControllerExecPreservesCwd(t *testing.T) {
-	workspace := t.TempDir()
-	bindShellDirs(t, workspace)
-	controller := NewShellController()
-	if _, code, msg := controller.Open(shellapi.AgentShellRequest{}); code != "" {
-		t.Fatalf("open failed: %s %s", code, msg)
-	}
-
-	resp, code, msg := controller.Exec(shellapi.AgentShellRequest{Command: "cd /tmp && pwd", YieldTimeMs: 1000, TimeoutMs: 5000})
+	resp, code, msg := controller.ExecCommand(shellapi.AgentExecCommandRequest{Command: "cd /tmp && pwd", YieldTimeMs: 1000, TimeoutMs: 5000})
 	if code != "" {
-		t.Fatalf("exec failed: %s %s", code, msg)
+		t.Fatalf("exec_command failed: %s %s", code, msg)
 	}
 	if resp.Cwd != "/tmp" {
 		t.Fatalf("expected cwd /tmp, got %s", resp.Cwd)
 	}
 
-	resp, code, msg = controller.Exec(shellapi.AgentShellRequest{Command: "pwd", YieldTimeMs: 1000, TimeoutMs: 5000})
+	resp, code, msg = controller.ExecCommand(shellapi.AgentExecCommandRequest{Command: "pwd", YieldTimeMs: 1000, TimeoutMs: 5000})
 	if code != "" {
-		t.Fatalf("exec failed: %s %s", code, msg)
+		t.Fatalf("exec_command failed: %s %s", code, msg)
 	}
 	if !strings.Contains(resp.Output, "/tmp") {
 		t.Fatalf("expected output to contain /tmp, got %q", resp.Output)
 	}
-	_, _, _ = controller.Close()
 }
 
-func TestShellControllerReadTruncatedWindow(t *testing.T) {
+func TestShellControllerWriteStdinPollDoesNotRepeatOutput(t *testing.T) {
 	workspace := t.TempDir()
 	bindShellDirs(t, workspace)
 	controller := NewShellController()
-	if _, code, msg := controller.Open(shellapi.AgentShellRequest{}); code != "" {
-		t.Fatalf("open failed: %s %s", code, msg)
+	defer closeController(controller)
+
+	resp, code, msg := controller.ExecCommand(shellapi.AgentExecCommandRequest{
+		Command:     "printf 'first\n'; sleep 0.3; printf 'second\n'",
+		YieldTimeMs: 100,
+		TimeoutMs:   5000,
+	})
+	if code != "" {
+		t.Fatalf("exec_command failed: %s %s", code, msg)
+	}
+	if !resp.Running {
+		t.Fatalf("expected command to still be running, got %#v", resp)
 	}
 
-	resp, code, msg := controller.Exec(shellapi.AgentShellRequest{Command: "python3 - <<'PY'\nprint('x'*2000000)\nPY", YieldTimeMs: 1000, TimeoutMs: 5000})
+	poll, code, msg := controller.WriteStdin(shellapi.AgentWriteStdinRequest{YieldTimeMs: 1000})
 	if code != "" {
-		t.Fatalf("exec failed: %s %s", code, msg)
+		t.Fatalf("poll failed: %s %s", code, msg)
 	}
-	for resp.Running {
-		resp, code, msg = controller.Read(shellapi.AgentShellRequest{Cursor: resp.Cursor, YieldTimeMs: 200})
-		if code != "" {
-			t.Fatalf("read failed: %s %s", code, msg)
-		}
+	combined := resp.Output + poll.Output
+	if !strings.Contains(combined, "first") || !strings.Contains(combined, "second") {
+		t.Fatalf("expected drained combined output, got %q", combined)
 	}
-	read, code, msg := controller.Read(shellapi.AgentShellRequest{Cursor: 0, YieldTimeMs: 10})
+
+	again, code, msg := controller.WriteStdin(shellapi.AgentWriteStdinRequest{YieldTimeMs: 50})
 	if code != "" {
-		t.Fatalf("read failed: %s %s", code, msg)
+		t.Fatalf("second poll failed: %s %s", code, msg)
 	}
-	if !read.Truncated {
-		t.Fatal("expected truncated read")
+	if again.Output != "" {
+		t.Fatalf("expected drained output, got %q", again.Output)
 	}
-	_, _, _ = controller.Close()
 }
 
-func TestShellControllerWriteAndSignal(t *testing.T) {
+func TestShellControllerWriteStdinInteractive(t *testing.T) {
 	workspace := t.TempDir()
 	bindShellDirs(t, workspace)
 	controller := NewShellController()
-	if _, code, msg := controller.Open(shellapi.AgentShellRequest{}); code != "" {
-		t.Fatalf("open failed: %s %s", code, msg)
-	}
+	defer closeController(controller)
 
-	resp, code, msg := controller.Exec(shellapi.AgentShellRequest{Command: "python3 -c \"name=input(); print(name)\"", YieldTimeMs: 200, TimeoutMs: 5000})
+	resp, code, msg := controller.ExecCommand(shellapi.AgentExecCommandRequest{Command: "python3 -c \"name=input(); print(name)\"", YieldTimeMs: 200, TimeoutMs: 5000})
 	if code != "" {
-		t.Fatalf("exec failed: %s %s", code, msg)
+		t.Fatalf("exec_command failed: %s %s", code, msg)
 	}
 	if !resp.Running {
 		t.Fatal("expected interactive command to keep running")
 	}
 
-	resp, code, msg = controller.Write(shellapi.AgentShellRequest{Input: "arkloop\n", YieldTimeMs: 1000})
+	resp, code, msg = controller.WriteStdin(shellapi.AgentWriteStdinRequest{Chars: "arkloop\n", YieldTimeMs: 1000})
 	if code != "" {
-		t.Fatalf("write failed: %s %s", code, msg)
+		t.Fatalf("write_stdin failed: %s %s", code, msg)
 	}
 	if !strings.Contains(resp.Output, "arkloop") {
 		t.Fatalf("expected echoed output, got %q", resp.Output)
 	}
-
-	resp, code, msg = controller.Exec(shellapi.AgentShellRequest{Command: "sleep 10", YieldTimeMs: 100, TimeoutMs: 5000})
-	if code != "" {
-		t.Fatalf("exec failed: %s %s", code, msg)
-	}
-	if !resp.Running {
-		t.Fatal("expected sleep to keep running")
-	}
-	time.Sleep(200 * time.Millisecond)
-	resp, code, msg = controller.Signal(shellapi.AgentShellRequest{Signal: shellapi.SignalINT, YieldTimeMs: 1000})
-	if code != "" {
-		t.Fatalf("signal failed: %s %s", code, msg)
-	}
-	if resp.Running {
-		t.Fatal("expected session to stop running after signal")
-	}
-	_, _, _ = controller.Close()
 }
 
 func TestShellControllerCheckpointRestorePreservesState(t *testing.T) {
 	workspace := t.TempDir()
 	bindShellDirs(t, workspace)
 	controller := NewShellController()
-	if _, code, msg := controller.Open(shellapi.AgentShellRequest{}); code != "" {
-		t.Fatalf("open failed: %s %s", code, msg)
-	}
+	defer closeController(controller)
+
 	command := "mkdir -p demo && cd demo && export FOO=bar && touch a.txt && pwd"
-	resp, code, msg := controller.Exec(shellapi.AgentShellRequest{Command: command, YieldTimeMs: 1000, TimeoutMs: 5000})
+	resp, code, msg := controller.ExecCommand(shellapi.AgentExecCommandRequest{Command: command, YieldTimeMs: 1000, TimeoutMs: 5000})
 	_ = drainShellOutput(t, controller, resp, code, msg)
 	checkpoint, code, msg := controller.CheckpointExport()
 	if code != "" || msg != "" {
@@ -172,45 +148,48 @@ func TestShellControllerCheckpointRestorePreservesState(t *testing.T) {
 	if checkpoint.Cwd != filepath.Join(workspace, "demo") {
 		t.Fatalf("unexpected checkpoint cwd: %s", checkpoint.Cwd)
 	}
-	if _, code, msg := controller.Close(); code != "" {
-		t.Fatalf("close failed: %s %s", code, msg)
-	}
 
 	restored := NewShellController()
+	defer closeController(restored)
 	if _, code, msg := restored.RestoreImport(shellapi.AgentCheckpointRequest{Archive: checkpoint.Archive}); code != "" || msg != "" {
 		t.Fatalf("restore import failed: %s %s", code, msg)
 	}
-	if _, code, msg := restored.Open(shellapi.AgentShellRequest{Cwd: checkpoint.Cwd, Env: checkpoint.Env}); code != "" {
-		t.Fatalf("restored open failed: %s %s", code, msg)
-	}
-	verify, code, msg := restored.Exec(shellapi.AgentShellRequest{Command: "printf '%s\n' \"$FOO\" && pwd && test -f a.txt && echo ok", YieldTimeMs: 1000, TimeoutMs: 5000})
+	verify, code, msg := restored.ExecCommand(shellapi.AgentExecCommandRequest{
+		Cwd:         checkpoint.Cwd,
+		Env:         checkpoint.Env,
+		Command:     "printf '%s\n' \"$FOO\" && pwd && test -f a.txt && echo ok",
+		YieldTimeMs: 1000,
+		TimeoutMs:   5000,
+	})
 	verifyOutput := drainShellOutput(t, restored, verify, code, msg)
 	if !strings.Contains(verifyOutput, "bar") || !strings.Contains(verifyOutput, filepath.Join(workspace, "demo")) || !strings.Contains(verifyOutput, "ok") {
 		t.Fatalf("unexpected restored output: %q", verifyOutput)
 	}
-	_, _, _ = restored.Close()
-	_ = resp
 }
 
-func TestShellControllerOpenWithEnvKeepsFixedHome(t *testing.T) {
+func TestShellControllerExecCommandWithEnvKeepsFixedHome(t *testing.T) {
 	workspace := t.TempDir()
 	bindShellDirs(t, workspace)
 	controller := NewShellController()
-	if _, code, msg := controller.Open(shellapi.AgentShellRequest{Env: map[string]string{"HOME": "/tmp/evil", "FOO": "bar"}}); code != "" {
-		t.Fatalf("open failed: %s %s", code, msg)
-	}
-	resp, code, msg := controller.Exec(shellapi.AgentShellRequest{Command: "printf '%s|%s' \"$HOME\" \"$FOO\"", YieldTimeMs: 1000, TimeoutMs: 5000})
+	defer closeController(controller)
+
+	resp, code, msg := controller.ExecCommand(shellapi.AgentExecCommandRequest{
+		Env:         map[string]string{"HOME": "/tmp/evil", "FOO": "bar"},
+		Command:     "printf '%s|%s' \"$HOME\" \"$FOO\"",
+		YieldTimeMs: 1000,
+		TimeoutMs:   5000,
+	})
 	output := drainShellOutput(t, controller, resp, code, msg)
 	if !strings.Contains(output, shellHomeDir+"|bar") {
 		t.Fatalf("unexpected env output: %q", output)
 	}
-	_, _, _ = controller.Close()
 }
 
 func TestShellControllerRestoreRejectsEscapingSymlink(t *testing.T) {
 	workspace := t.TempDir()
 	bindShellDirs(t, workspace)
 	controller := NewShellController()
+	defer closeController(controller)
 	archive := base64.StdEncoding.EncodeToString(mustCheckpointArchive(t, func(tw *tar.Writer) {
 		writeTarHeader(t, tw, &tar.Header{Name: "workspace/", Typeflag: tar.TypeDir, Mode: 0o755})
 		writeTarHeader(t, tw, &tar.Header{Name: "workspace/link", Typeflag: tar.TypeSymlink, Linkname: "/etc/passwd", Mode: 0o777})

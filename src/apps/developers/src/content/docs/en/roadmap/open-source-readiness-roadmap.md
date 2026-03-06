@@ -418,10 +418,10 @@ Status: Implemented. The Sandbox service, previously dependent on Firecracker (L
 
 Implementation:
 - **Backend Selection**: Sandbox backend configured explicitly by admins via `ARKLOOP_SANDBOX_PROVIDER` or Console platform settings; no automatic inference.
-- **Tool Dual-Name Mechanism** (aligning with web_search/web_fetch):
-  - LLM exposure names unchanged: `code_execute`, `shell_execute`
-  - Provider display names used for backend/ops and canary: `code_execute.firecracker`, `code_execute.docker`, `shell_execute.firecracker`, `shell_execute.docker`
-  - provider spec `LlmName` unified to `code_execute` / `shell_execute`, only one provider allowed per run.
+- **Tool Exposure Names**:
+  - LLM exposure names are `python_execute`, `exec_command`, and `write_stdin`
+  - Provider display names used for backend/ops and canary: `python_execute.firecracker`, `python_execute.docker`, `exec_command.firecracker`, `exec_command.docker`
+  - `write_stdin` reuses the same provider selected for `exec_command`, and only one sandbox provider is allowed per run.
 - **Configuration (platform scope)**:
   - `sandbox.provider`: Default backend (`firecracker` / `docker`)
   - `sandbox.base_url`: Worker calls Sandbox service address (ENV still overrides)

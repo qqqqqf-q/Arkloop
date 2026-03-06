@@ -35,16 +35,17 @@ var shellHomeDir = defaultShellHome
 var shellTempDir = defaultShellTempDir
 
 type ShellController struct {
-	mu       sync.Mutex
-	cmd      *exec.Cmd
-	ptyFile  *os.File
-	output   *shellapi.RingBuffer
-	status   string
-	cwd      string
-	current  *shellCommand
-	lastExit *int
-	lastTO   bool
-	updateCh chan struct{}
+	mu        sync.Mutex
+	cmd       *exec.Cmd
+	ptyFile   *os.File
+	output    *shellapi.RingBuffer
+	delivered uint64
+	status    string
+	cwd       string
+	current   *shellCommand
+	lastExit  *int
+	lastTO    bool
+	updateCh  chan struct{}
 }
 
 type shellCommand struct {
@@ -67,97 +68,36 @@ func NewShellController() *ShellController {
 	}
 }
 
-func (c *ShellController) Open(req shellapi.AgentShellRequest) (*shellapi.AgentShellResponse, string, string) {
-	if err := c.ensureStarted(req); err != nil {
-		return nil, shellapi.CodeSessionNotFound, err.Error()
-	}
-	if strings.TrimSpace(req.Cwd) != "" {
-		if err := c.ensureCwd(req.Cwd); err != nil {
-			if shellErr, ok := err.(*shellapi.Error); ok {
-				return nil, shellErr.Code, shellErr.Message
-			}
-			return nil, shellapi.CodeSessionNotFound, err.Error()
-		}
-	}
-
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return &shellapi.AgentShellResponse{
-		Status:  c.status,
-		Cwd:     c.cwd,
-		Cursor:  c.output.EndCursor(),
-		Running: c.status == shellapi.StatusRunning,
-	}, "", ""
-}
-
-func (c *ShellController) Exec(req shellapi.AgentShellRequest) (*shellapi.AgentShellResponse, string, string) {
+func (c *ShellController) ExecCommand(req shellapi.AgentExecCommandRequest) (*shellapi.AgentSessionResponse, string, string) {
 	command := strings.TrimSpace(req.Command)
 	if command == "" {
 		return nil, shellapi.CodeSessionNotFound, "command is required"
 	}
-	if err := c.ensureStarted(shellapi.AgentShellRequest{}); err != nil {
+	if err := c.ensureStarted(req); err != nil {
 		return nil, shellapi.CodeSessionNotFound, err.Error()
 	}
-	startCursor, err := c.startCommand(command, req.Cwd, shellapi.NormalizeTimeoutMs(req.TimeoutMs), false)
-	if err != nil {
+	if _, err := c.startCommand(command, req.Cwd, shellapi.NormalizeTimeoutMs(req.TimeoutMs), false); err != nil {
 		code, msg := mapShellError(err)
 		return nil, code, msg
 	}
-	return c.waitForCursor(startCursor, req.YieldTimeMs)
+	return c.waitForDelivery(req.YieldTimeMs)
 }
 
-func (c *ShellController) Read(req shellapi.AgentShellRequest) (*shellapi.AgentShellResponse, string, string) {
-	c.mu.Lock()
-	if c.status == shellapi.StatusClosed {
-		c.mu.Unlock()
-		return nil, shellapi.CodeSessionNotFound, "shell session not found"
-	}
-	_, _, _, ok := c.output.ReadFrom(req.Cursor, shellapi.ReadChunkBytes)
-	if !ok {
-		c.mu.Unlock()
-		return nil, shellapi.CodeInvalidCursor, "cursor is ahead of available output"
-	}
-	shouldWait := c.status == shellapi.StatusRunning && req.Cursor == c.output.EndCursor()
-	resp := c.snapshotLocked(req.Cursor)
-	ch := c.updateCh
-	c.mu.Unlock()
-	if !shouldWait || resp.Output != "" {
-		return resp, "", ""
-	}
-	return c.waitWithCursor(req.Cursor, req.YieldTimeMs, ch)
-}
-
-func (c *ShellController) Write(req shellapi.AgentShellRequest) (*shellapi.AgentShellResponse, string, string) {
-	startCursor, err := c.writeInput(req.Input)
-	if err != nil {
+func (c *ShellController) WriteStdin(req shellapi.AgentWriteStdinRequest) (*shellapi.AgentSessionResponse, string, string) {
+	if err := c.ensureReadable(); err != nil {
 		code, msg := mapShellError(err)
 		return nil, code, msg
 	}
-	return c.waitForCursor(startCursor, req.YieldTimeMs)
-}
-
-func (c *ShellController) Signal(req shellapi.AgentShellRequest) (*shellapi.AgentShellResponse, string, string) {
-	startCursor, err := c.signal(req.Signal)
-	if err != nil {
-		code, msg := mapShellError(err)
-		return nil, code, msg
+	if req.Chars != "" {
+		if err := c.writeInput(req.Chars); err != nil {
+			code, msg := mapShellError(err)
+			return nil, code, msg
+		}
 	}
-	return c.waitForCursor(startCursor, req.YieldTimeMs)
+	return c.waitForDelivery(req.YieldTimeMs)
 }
 
-func (c *ShellController) Close() (*shellapi.AgentShellResponse, string, string) {
-	c.mu.Lock()
-	if c.status == shellapi.StatusClosed {
-		c.mu.Unlock()
-		return nil, shellapi.CodeSessionNotFound, "shell session not found"
-	}
-	c.closeLocked()
-	resp := &shellapi.AgentShellResponse{Status: shellapi.StatusClosed, Cwd: c.cwd, Cursor: c.output.EndCursor()}
-	c.mu.Unlock()
-	return resp, "", ""
-}
-
-func (c *ShellController) ensureStarted(req shellapi.AgentShellRequest) error {
+func (c *ShellController) ensureStarted(req shellapi.AgentExecCommandRequest) error {
 	c.mu.Lock()
 	if c.status != shellapi.StatusClosed && c.cmd != nil && c.ptyFile != nil {
 		c.mu.Unlock()
@@ -186,6 +126,7 @@ func (c *ShellController) ensureStarted(req shellapi.AgentShellRequest) error {
 	c.cmd = cmd
 	c.ptyFile = file
 	c.output = shellapi.NewRingBuffer(shellapi.RingBufferBytes)
+	c.delivered = 0
 	c.status = shellapi.StatusIdle
 	c.cwd = shellWorkspaceDir
 	c.lastExit = nil
@@ -220,7 +161,7 @@ func (c *ShellController) ensureCwd(cwd string) error {
 	return err
 }
 
-func (c *ShellController) runControlCommand(command, cwd string, timeoutMs int) (*shellapi.AgentShellResponse, error) {
+func (c *ShellController) runControlCommand(command, cwd string, timeoutMs int) (*shellapi.AgentSessionResponse, error) {
 	startCursor, err := c.startCommand(command, cwd, timeoutMs, true)
 	if err != nil {
 		return nil, err
@@ -228,7 +169,7 @@ func (c *ShellController) runControlCommand(command, cwd string, timeoutMs int) 
 	deadline := time.Now().Add(time.Duration(timeoutMs) * time.Millisecond)
 	for {
 		c.mu.Lock()
-		resp := c.snapshotLocked(startCursor)
+		resp, _ := c.snapshotLocked(startCursor)
 		if !resp.Running {
 			c.mu.Unlock()
 			return resp, nil
@@ -288,34 +229,43 @@ func (c *ShellController) startCommand(command, cwd string, timeoutMs int, suppr
 	return startCursor, nil
 }
 
-func (c *ShellController) waitForCursor(cursor uint64, yieldTimeMs int) (*shellapi.AgentShellResponse, string, string) {
+func (c *ShellController) waitForDelivery(yieldTimeMs int) (*shellapi.AgentSessionResponse, string, string) {
 	c.mu.Lock()
-	resp := c.snapshotLocked(cursor)
+	resp, nextCursor := c.snapshotLocked(c.delivered)
 	ch := c.updateCh
 	shouldWait := resp.Running && resp.Output == ""
+	if !shouldWait && nextCursor > c.delivered {
+		c.delivered = nextCursor
+	}
 	c.mu.Unlock()
 	if !shouldWait {
 		return resp, "", ""
 	}
-	return c.waitWithCursor(cursor, yieldTimeMs, ch)
+	return c.waitWithCursor(yieldTimeMs, ch)
 }
 
-func (c *ShellController) waitWithCursor(cursor uint64, yieldTimeMs int, initial <-chan struct{}) (*shellapi.AgentShellResponse, string, string) {
+func (c *ShellController) waitWithCursor(yieldTimeMs int, initial <-chan struct{}) (*shellapi.AgentSessionResponse, string, string) {
 	deadline := time.Now().Add(time.Duration(shellapi.NormalizeYieldTimeMs(yieldTimeMs)) * time.Millisecond)
 	ch := initial
 	for {
 		remaining := time.Until(deadline)
 		if remaining <= 0 {
 			c.mu.Lock()
-			resp := c.snapshotLocked(cursor)
+			resp, nextCursor := c.snapshotLocked(c.delivered)
+			if nextCursor > c.delivered {
+				c.delivered = nextCursor
+			}
 			c.mu.Unlock()
 			return resp, "", ""
 		}
 		select {
 		case <-ch:
 			c.mu.Lock()
-			resp := c.snapshotLocked(cursor)
+			resp, nextCursor := c.snapshotLocked(c.delivered)
 			if resp.Output != "" || !resp.Running || resp.Status == shellapi.StatusClosed {
+				if nextCursor > c.delivered {
+					c.delivered = nextCursor
+				}
 				c.mu.Unlock()
 				return resp, "", ""
 			}
@@ -323,23 +273,25 @@ func (c *ShellController) waitWithCursor(cursor uint64, yieldTimeMs int, initial
 			c.mu.Unlock()
 		case <-time.After(remaining):
 			c.mu.Lock()
-			resp := c.snapshotLocked(cursor)
+			resp, nextCursor := c.snapshotLocked(c.delivered)
+			if nextCursor > c.delivered {
+				c.delivered = nextCursor
+			}
 			c.mu.Unlock()
 			return resp, "", ""
 		}
 	}
 }
 
-func (c *ShellController) snapshotLocked(cursor uint64) *shellapi.AgentShellResponse {
+func (c *ShellController) snapshotLocked(cursor uint64) (*shellapi.AgentSessionResponse, uint64) {
 	chunk, nextCursor, truncated, ok := c.output.ReadFrom(cursor, shellapi.ReadChunkBytes)
 	if !ok {
 		nextCursor = c.output.EndCursor()
 	}
-	resp := &shellapi.AgentShellResponse{
+	resp := &shellapi.AgentSessionResponse{
 		Status:    c.status,
 		Cwd:       c.cwd,
 		Output:    string(chunk),
-		Cursor:    nextCursor,
 		Running:   c.status == shellapi.StatusRunning,
 		Truncated: truncated,
 		TimedOut:  c.lastTO,
@@ -348,40 +300,31 @@ func (c *ShellController) snapshotLocked(cursor uint64) *shellapi.AgentShellResp
 	if resp.Status == "" {
 		resp.Status = shellapi.StatusIdle
 	}
-	return resp
+	return resp, nextCursor
 }
 
-func (c *ShellController) writeInput(input string) (uint64, error) {
+func (c *ShellController) writeInput(input string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.status == shellapi.StatusClosed || c.cmd == nil || c.ptyFile == nil {
-		return 0, newShellError(shellapi.CodeSessionNotFound, "shell session not found")
+		return newShellError(shellapi.CodeSessionNotFound, "shell session not found")
 	}
 	if c.status != shellapi.StatusRunning {
-		return 0, newShellError(shellapi.CodeNotRunning, "shell session is not running")
+		return newShellError(shellapi.CodeNotRunning, "shell session is not running")
 	}
-	startCursor := c.output.EndCursor()
 	if _, err := io.WriteString(c.ptyFile, input); err != nil {
-		return 0, err
+		return err
 	}
-	return startCursor, nil
+	return nil
 }
 
-func (c *ShellController) signal(name string) (uint64, error) {
+func (c *ShellController) ensureReadable() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.status == shellapi.StatusClosed || c.cmd == nil || c.ptyFile == nil {
-		return 0, newShellError(shellapi.CodeSessionNotFound, "shell session not found")
+		return newShellError(shellapi.CodeSessionNotFound, "shell session not found")
 	}
-	if c.status != shellapi.StatusRunning {
-		return 0, newShellError(shellapi.CodeNotRunning, "shell session is not running")
-	}
-	startCursor := c.output.EndCursor()
-	if err := c.signalForegroundLocked(resolveSignal(name)); err != nil {
-		c.closeLocked()
-		return 0, newShellError(shellapi.CodeSignalFailed, err.Error())
-	}
-	return startCursor, nil
+	return nil
 }
 
 func (c *ShellController) handleTimeout(token string) {
@@ -450,6 +393,7 @@ func (c *ShellController) readLoop(file *os.File) {
 			c.current = nil
 			c.cmd = nil
 			c.ptyFile = nil
+			c.delivered = 0
 			c.notifyLocked()
 			c.mu.Unlock()
 			return
@@ -557,6 +501,7 @@ func (c *ShellController) closeLocked() {
 	c.cmd = nil
 	c.ptyFile = nil
 	c.current = nil
+	c.delivered = 0
 	c.status = shellapi.StatusClosed
 	c.notifyLocked()
 }
@@ -601,17 +546,6 @@ func buildWrappedCommand(token, cwd, command string) string {
 
 func shellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
-}
-
-func resolveSignal(name string) unix.Signal {
-	switch strings.TrimSpace(name) {
-	case shellapi.SignalTERM:
-		return unix.SIGTERM
-	case shellapi.SignalKILL:
-		return unix.SIGKILL
-	default:
-		return unix.SIGINT
-	}
 }
 
 func newToken() (string, error) {

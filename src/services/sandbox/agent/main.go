@@ -105,10 +105,11 @@ type ExecResult struct {
 
 // AgentRequest 是 v2 协议的请求格式，通过 action 字段区分操作类型。
 type AgentRequest struct {
-	Action     string                           `json:"action"`
-	ExecJob    *ExecJob                         `json:"exec_job,omitempty"`
-	Shell      *shellapi.AgentShellRequest      `json:"shell,omitempty"`
-	Checkpoint *shellapi.AgentCheckpointRequest `json:"checkpoint,omitempty"`
+	Action      string                            `json:"action"`
+	ExecJob     *ExecJob                          `json:"exec_job,omitempty"`
+	ExecCommand *shellapi.AgentExecCommandRequest `json:"exec_command,omitempty"`
+	WriteStdin  *shellapi.AgentWriteStdinRequest  `json:"write_stdin,omitempty"`
+	Checkpoint  *shellapi.AgentCheckpointRequest  `json:"checkpoint,omitempty"`
 }
 
 // AgentResponse 是 v2 协议的统一响应。
@@ -116,7 +117,7 @@ type AgentResponse struct {
 	Action     string                            `json:"action"`
 	Exec       *ExecResult                       `json:"exec,omitempty"`
 	Artifacts  *FetchArtifactsResult             `json:"artifacts,omitempty"`
-	Shell      *shellapi.AgentShellResponse      `json:"shell,omitempty"`
+	Session    *shellapi.AgentSessionResponse    `json:"session,omitempty"`
 	Checkpoint *shellapi.AgentCheckpointResponse `json:"checkpoint,omitempty"`
 	Code       string                            `json:"code,omitempty"`
 	Error      string                            `json:"error,omitempty"`
@@ -215,29 +216,13 @@ func handleV2(conn net.Conn, req AgentRequest) {
 		result := fetchArtifacts()
 		writeJSON(conn, AgentResponse{Action: "fetch_artifacts", Artifacts: &result})
 
-	case "shell_open":
-		result, code, errMsg := shellController.Open(derefShell(req.Shell))
-		writeJSON(conn, AgentResponse{Action: req.Action, Shell: result, Code: code, Error: errMsg})
+	case "exec_command":
+		result, code, errMsg := shellController.ExecCommand(derefExecCommand(req.ExecCommand))
+		writeJSON(conn, AgentResponse{Action: req.Action, Session: result, Code: code, Error: errMsg})
 
-	case "shell_exec":
-		result, code, errMsg := shellController.Exec(derefShell(req.Shell))
-		writeJSON(conn, AgentResponse{Action: req.Action, Shell: result, Code: code, Error: errMsg})
-
-	case "shell_read":
-		result, code, errMsg := shellController.Read(derefShell(req.Shell))
-		writeJSON(conn, AgentResponse{Action: req.Action, Shell: result, Code: code, Error: errMsg})
-
-	case "shell_write":
-		result, code, errMsg := shellController.Write(derefShell(req.Shell))
-		writeJSON(conn, AgentResponse{Action: req.Action, Shell: result, Code: code, Error: errMsg})
-
-	case "shell_signal":
-		result, code, errMsg := shellController.Signal(derefShell(req.Shell))
-		writeJSON(conn, AgentResponse{Action: req.Action, Shell: result, Code: code, Error: errMsg})
-
-	case "shell_close":
-		result, code, errMsg := shellController.Close()
-		writeJSON(conn, AgentResponse{Action: req.Action, Shell: result, Code: code, Error: errMsg})
+	case "write_stdin":
+		result, code, errMsg := shellController.WriteStdin(derefWriteStdin(req.WriteStdin))
+		writeJSON(conn, AgentResponse{Action: req.Action, Session: result, Code: code, Error: errMsg})
 
 	case "shell_checkpoint_export":
 		result, code, errMsg := shellController.CheckpointExport()
@@ -252,9 +237,16 @@ func handleV2(conn net.Conn, req AgentRequest) {
 	}
 }
 
-func derefShell(req *shellapi.AgentShellRequest) shellapi.AgentShellRequest {
+func derefExecCommand(req *shellapi.AgentExecCommandRequest) shellapi.AgentExecCommandRequest {
 	if req == nil {
-		return shellapi.AgentShellRequest{}
+		return shellapi.AgentExecCommandRequest{}
+	}
+	return *req
+}
+
+func derefWriteStdin(req *shellapi.AgentWriteStdinRequest) shellapi.AgentWriteStdinRequest {
+	if req == nil {
+		return shellapi.AgentWriteStdinRequest{}
 	}
 	return *req
 }

@@ -596,7 +596,7 @@ export function ChatPage() {
         const obj = event.data as { tool_name?: unknown; llm_name?: unknown; tool_call_id?: unknown; arguments?: unknown }
         const toolName = typeof obj.tool_name === 'string' ? obj.tool_name : event.tool_name
         const llmName = typeof obj.llm_name === 'string' ? obj.llm_name : undefined
-        if (toolName === 'python_execute' || toolName === 'shell_execute') {
+        if (toolName === 'python_execute' || toolName === 'exec_command') {
           const callId = typeof obj.tool_call_id === 'string' ? obj.tool_call_id : event.event_id
           const language: CodeExecution['language'] = toolName === 'python_execute' ? 'python' : 'shell'
           const args = obj.arguments as Record<string, unknown> | undefined
@@ -689,7 +689,7 @@ export function ChatPage() {
           }
         }
         // 检测 sandbox 执行产物 + document_write 产物
-        if (obj.tool_name === 'python_execute' || obj.tool_name === 'shell_execute' || obj.tool_name === 'document_write') {
+        if (obj.tool_name === 'python_execute' || obj.tool_name === 'exec_command' || obj.tool_name === 'write_stdin' || obj.tool_name === 'document_write') {
           const result = obj.result as { artifacts?: unknown[]; stdout?: unknown; stderr?: unknown; exit_code?: unknown } | undefined
           if (Array.isArray(result?.artifacts)) {
             const newArtifacts: ArtifactRef[] = result.artifacts

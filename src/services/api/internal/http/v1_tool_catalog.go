@@ -40,7 +40,8 @@ var staticToolCatalog = toolCatalogResponse{
 			Group: "sandbox",
 			Tools: []toolCatalogItem{
 				{Name: "python_execute", Description: "Python code execution"},
-				{Name: "shell_execute", Description: "Shell command execution"},
+				{Name: "exec_command", Description: "Persistent shell command execution"},
+				{Name: "write_stdin", Description: "Shell stdin and poll"},
 			},
 		},
 	},

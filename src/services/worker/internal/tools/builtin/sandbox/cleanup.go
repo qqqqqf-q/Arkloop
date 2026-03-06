@@ -22,7 +22,7 @@ func CleanupSession(baseURL, authToken, sessionID, orgID string) {
 
 func cleanupSessionIDs(runSessionID string) []string {
 	ids := []string{runSessionID}
-	shellID := shellSessionID(runSessionID)
+	shellID := defaultExecSessionID(runSessionID)
 	if shellID != runSessionID {
 		ids = append(ids, shellID)
 	}
