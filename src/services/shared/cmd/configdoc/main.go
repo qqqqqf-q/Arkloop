@@ -41,8 +41,8 @@ func main() {
 func defaultOutPath() string {
 	_, file, _, ok := runtime.Caller(0)
 	if !ok {
-		return "src/docs/reference/configuration.zh-CN.md"
+		return "docs/reference/configuration.md"
 	}
 	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(file), "../../../../.."))
-	return filepath.Join(repoRoot, "src/docs/reference/configuration.zh-CN.md")
+	return filepath.Join(repoRoot, "docs", "reference", "configuration.md")
 }

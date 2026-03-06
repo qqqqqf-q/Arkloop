@@ -9,7 +9,7 @@ import (
 
 func TestConfigurationDocUpToDate(t *testing.T) {
 	repoRoot := repoRootFromThisFile(t)
-	docPath := filepath.Join(repoRoot, "src", "docs", "reference", "configuration.zh-CN.md")
+	docPath := filepath.Join(repoRoot, "docs", "reference", "configuration.md")
 	genPath := filepath.Join(repoRoot, "src", "services", "shared", "cmd", "configdoc", "main.go")
 
 	want := RenderConfigurationMarkdown(DefaultRegistry())
