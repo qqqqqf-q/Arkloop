@@ -1,15 +1,16 @@
 // Guest Agent — 编译后置于 microVM rootfs 内 /usr/local/bin/sandbox-agent
 //
 // 构建命令（在宿主机上交叉编译为静态二进制）：
-//   GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w" -o sandbox-agent ./agent
+//
+//	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w" -o sandbox-agent ./agent
 //
 // rootfs 启动时通过 init 系统（OpenRC/busybox init/systemd）自动运行本程序。
 // 也可配置为 kernel 的 init 进程：
-//   kernel_args: "... init=/usr/local/bin/sandbox-agent"
+//
+//	kernel_args: "... init=/usr/local/bin/sandbox-agent"
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -27,17 +28,69 @@ import (
 )
 
 const (
-	listenPort   = 8080
-	maxCodeBytes = 4 * 1024 * 1024 // 4 MB
+	listenPort     = 8080
+	maxCodeBytes   = 4 * 1024 * 1024 // 4 MB
+	maxStdoutBytes = 64 * 1024
+	maxStderrBytes = 64 * 1024
 
-	artifactOutputDir  = "/tmp/output"
-	maxArtifactFiles   = 5
-	maxArtifactBytes   = 5 * 1024 * 1024  // 单文件 5 MB
-	maxTotalArtifacts  = 10 * 1024 * 1024  // 总上限 10 MB
+	artifactOutputDir = "/tmp/output"
+	maxArtifactFiles  = 5
+	maxArtifactBytes  = 5 * 1024 * 1024  // 单文件 5 MB
+	maxTotalArtifacts = 10 * 1024 * 1024 // 总上限 10 MB
 )
 
+type limitedBuffer struct {
+	limit int
+	buf   []byte
+}
+
+func newLimitedBuffer(limit int) *limitedBuffer {
+	if limit < 0 {
+		limit = 0
+	}
+	return &limitedBuffer{
+		limit: limit,
+		buf:   make([]byte, 0, minInt(limit, 1024)),
+	}
+}
+
+func (b *limitedBuffer) Write(p []byte) (int, error) {
+	if b.limit <= 0 {
+		return len(p), nil
+	}
+	if len(b.buf) >= b.limit {
+		return len(p), nil
+	}
+	remaining := b.limit - len(b.buf)
+	if len(p) <= remaining {
+		b.buf = append(b.buf, p...)
+		return len(p), nil
+	}
+	b.buf = append(b.buf, p[:remaining]...)
+	return len(p), nil
+}
+
+func (b *limitedBuffer) WriteString(s string) (int, error) {
+	return b.Write([]byte(s))
+}
+
+func (b *limitedBuffer) Len() int {
+	return len(b.buf)
+}
+
+func (b *limitedBuffer) String() string {
+	return string(b.buf)
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 type ExecJob struct {
-	Language  string `json:"language"`   // "python" | "shell"
+	Language  string `json:"language"` // "python" | "shell"
 	Code      string `json:"code"`
 	TimeoutMs int    `json:"timeout_ms"`
 }
@@ -50,7 +103,7 @@ type ExecResult struct {
 
 // AgentRequest 是 v2 协议的请求格式，通过 action 字段区分操作类型。
 type AgentRequest struct {
-	Action  string   `json:"action"`            // "exec" | "fetch_artifacts"
+	Action  string   `json:"action"` // "exec" | "fetch_artifacts"
 	ExecJob *ExecJob `json:"exec_job,omitempty"`
 }
 
@@ -163,6 +216,10 @@ func ensureOutputDir() {
 }
 
 func executeJob(job ExecJob) ExecResult {
+	if len(job.Code) > maxCodeBytes {
+		return ExecResult{Stderr: "code too large", ExitCode: 1}
+	}
+
 	timeout := time.Duration(job.TimeoutMs) * time.Millisecond
 	if timeout <= 0 || timeout > 5*time.Minute {
 		timeout = 30 * time.Second
@@ -181,9 +238,10 @@ func executeJob(job ExecJob) ExecResult {
 		return ExecResult{Stderr: fmt.Sprintf("unsupported language: %q", job.Language), ExitCode: 1}
 	}
 
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	stdout := newLimitedBuffer(maxStdoutBytes)
+	stderr := newLimitedBuffer(maxStderrBytes)
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 
 	err := cmd.Run()
 
@@ -194,7 +252,7 @@ func executeJob(job ExecJob) ExecResult {
 		} else {
 			exitCode = 1
 			if stderr.Len() == 0 {
-				stderr.WriteString(err.Error())
+				_, _ = stderr.WriteString(err.Error())
 			}
 		}
 	}
