@@ -1217,3 +1217,126 @@ v1 可以先简化为：
 - 但不照搬它们的多 host、多模式复杂度
 
 这已经足够支撑一个企业级、可恢复、可治理的 `shell_execute`。
+
+## 17. 落地 Roadmap
+
+下面这份 roadmap 不是按“今天做什么、明天做什么”来排，而是按依赖关系来排。
+顺序不要打乱：Phase 2 依赖 Phase 1 的 live PTY API，Phase 3 依赖 Phase 2 的默认 session 语义，Phase 4 依赖 Phase 3 的 state metadata，Phase 5 负责把前面四步收口成完整架构。
+
+### Phase 1：Sandbox live PTY Shell API（已完成）
+
+这一阶段对应最近提交：`19ccde43 feat(sandbox): add live pty shell api`。
+
+- 已落地的核心内容：
+  - `src/services/sandbox/agent/shell_controller.go`：新增 PTY shell 控制器，支持 `open / exec / read / write / signal / close`
+  - `src/services/sandbox/internal/shell/manager.go`：新增 shell manager，负责 session 绑定、输出游标、artifact 收集、org 校验
+  - `src/services/sandbox/internal/http/shell.go`：新增 `/v1/shell/*` HTTP API
+  - `python_execute` 保持走原有 `/v1/exec`
+  - 已补齐 PTY 行为与 manager 生命周期测试
+- 这一阶段的交付边界：
+  - sandbox 侧已经具备 live shell 基础设施
+  - 但 Worker 和 LLM 还没有正式切到“会话型 shell 工具”语义
+  - checkpoint / restore、state bucket、完整治理也都还没落地
+- 完成标准：
+  - sandbox API 能独立跑通 `open -> exec -> read/write/signal -> close`
+  - `python_execute` 没有被拖进 PTY session 语义
+
+### Phase 2：Worker 接入新协议，把 `shell_execute` 变成真正可用的会话工具
+
+- 目标：
+  - 让 Agent 通过 `shell_execute` 直接使用当前 live PTY API
+  - 把 Shell 从“一次性命令”切成“默认单 session 的终端工具”
+- 要改哪里：
+  - `src/services/worker/internal/tools/builtin/sandbox/spec.go`
+  - `src/services/worker/internal/tools/builtin/sandbox/executor.go`
+  - `src/services/worker/internal/tools/builtin/sandbox/executor_test.go`
+  - 面向开发者的工具说明与示例
+- 怎么做：
+  1. 把 `shell_execute` 的 LLM schema 改成 action 模型，至少支持 `open | exec | read | write | signal | close`
+  2. Worker 内部固定默认 session key 为 `{run_id}/shell/default`，不要把 `session_id` 暴露给 LLM
+  3. `shell_execute` 的请求正式改走 `/v1/shell/open`、`/v1/shell/exec`、`/v1/shell/read`、`/v1/shell/write`、`/v1/shell/signal`、`DELETE /v1/shell/session/{id}`
+  4. 统一结果结构：`status`、`cwd`、`output`、`cursor`、`running`、`timed_out`、`truncated`、`exit_code`、`artifacts`
+  5. 补齐工具使用约束，让 Agent 明白：长任务先 `exec` 再 `read`，交互提示走 `write`，中断走 `signal`
+- 这一阶段不要做：
+  - 不引入多 session
+  - 不做 checkpoint / restore
+  - 不做厚重兼容层；如果必须平滑切换，最多只保留一层很薄的 `command -> action=exec` 过渡
+- 完成标准：
+  - 同一 run 内多次调用 `shell_execute` 时，`cd`、`export`、交互式前台进程都能保持上下文
+  - `python_execute` 继续保持一次性执行语义，不继承 shell 状态
+  - Worker 侧单元测试与至少一条端到端集成链路跑通
+
+### Phase 3：Checkpoint / Restore，把“会话”补成“可恢复会话”
+
+- 目标：
+  - compute session 因 idle timeout 或回收消失后，shell 工作状态仍能恢复
+- 要改哪里：
+  - `src/services/sandbox/internal/shell/`：新增 checkpoint / restore 组件
+  - `src/services/sandbox/internal/session/manager.go`：增加 shell 回收钩子，或提供等价的 pre-delete 机制
+  - 对象存储配置：增加 `sandbox-session-state` bucket，或至少增加严格隔离的 state 前缀
+- 怎么做：
+  1. 固定可持久化目录只包含 `/workspace`、`/home/arkloop`、`/tmp/arkloop`
+  2. 定义 manifest，记录 revision、cwd、环境快照、`last_command_seq`、artifact metadata、shell metadata version
+  3. 在 idle reclaim 和显式 `close` 前先做 checkpoint，再销毁 compute session
+  4. 新 compute session 执行 `open` 时，如果命中最近 revision，则先 restore，再启动默认 shell
+  5. restore 必须严格做白名单和路径安全校验，拒绝路径穿越、symlink/hardlink 逃逸、device/fifo/socket
+- 关键原则：
+  - 只恢复文件系统状态，不恢复进程树
+  - checkpoint 失败不能静默吞掉，必须有结构化日志和明确状态
+- 完成标准：
+  - `touch /workspace/a.txt`、`export FOO=bar`、`cd /workspace/demo` 后，即使 session 被回收，再次 `open` 也能恢复
+  - org mismatch、非法路径、损坏 manifest 都会被拒绝或安全降级
+
+### Phase 4：Artifacts 与 Session State 彻底拆开，并把上传变成可持续的增量语义
+
+- 目标：
+  - 把“用户可见产物”和“内部恢复状态”从对象存储、命名和生命周期上彻底拆开
+- 要改哪里：
+  - `src/services/sandbox/internal/shell/artifacts.go`
+  - shell metadata / manifest 结构
+  - 对象存储配置与清理策略
+- 怎么做：
+  1. `sandbox-artifacts` 继续承载 `/tmp/output`
+  2. `sandbox-session-state` 只承载 checkpoint
+  3. artifact key 固定为 `{org_id}/{run_id}/shell/default/{command_seq}/{filename}`
+  4. 把 `command_seq` 和已上传 artifact 版本信息写进 session metadata，避免 restore 后把旧产物重复上报
+  5. 明确 TTL：session state 走短生命周期，artifacts 按业务保留
+- 这一阶段解决的问题：
+  - 产物下载与 session 恢复解耦
+  - 权限边界清晰
+  - restore 后不会把历史 `/tmp/output` 当成新结果再次上报
+- 完成标准：
+  - 同一 shell session 连续执行多条命令时，artifacts 只追加新结果
+  - restore 后 `command_seq` 继续递增，历史结果保持不可变 key
+
+### Phase 5：治理、观测、回归和发布收口
+
+- 目标：
+  - 把前四阶段从“功能可用”收口到“可长期运行”
+- 要改哪里：
+  - sandbox / worker 日志与 metrics
+  - 配额配置
+  - 集成测试与回归测试
+  - 开发者文档、tool 使用示例、persona 指导
+- 怎么做：
+  1. 增加配额：session state 总大小、单 artifact 大小、artifact 数量、ring buffer、每 org 并发 shell session
+  2. 补齐结构化日志字段：`org_id`、`run_id`、`shell_session_id`、`action`、`status`、`duration_ms`、`exit_code`、`artifact_count`、`checkpoint_revision`、`restored`、`timed_out`、`buffer_truncated`
+  3. 补齐指标：shell open/reuse/restore、checkpoint 成功率、active shell sessions、idle reclaim、restore miss、artifact 上传字节数
+  4. 跑完整验证：单元测试、集成测试、回归测试，覆盖 Linux / macOS / Windows 开发路径
+  5. 更新开发者站文档和工具示例，让 Agent 清楚何时 `read`、何时 `write`、何时 `close`
+- 整体完成标准：
+  - `shell_execute` 已经是默认单 session 的 PTY 终端工具
+  - `python_execute` 与 shell 会话完全分流
+  - idle reclaim 后可以恢复工作区状态
+  - artifacts 与 session state 已按边界分桶或分前缀治理
+  - 配额、日志、指标、回归测试齐全，可以作为正式架构长期运行
+
+### 任务闭环定义
+
+到 Phase 5 结束，这个大任务才算完成。判断标准不是“API 已存在”，而是下面这条链路全部成立：
+
+1. Agent 通过 `shell_execute` 进入默认 shell
+2. 多次 `exec / read / write / signal` 共享同一终端上下文
+3. compute session 回收后可以 restore 工作区状态
+4. `/tmp/output` 产物稳定上传，且不会和 session state 混淆
+5. 系统具备 org 隔离、配额、日志、指标与回归保障

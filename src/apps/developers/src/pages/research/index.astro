@@ -3,29 +3,62 @@ import BaseLayout from '@/layouts/BaseLayout.astro';
 import { getResearchCollection } from '@/lib/content';
 
 const posts = await getResearchCollection();
+const allTags = [...new Set(posts.flatMap((p) => p.data.tags ?? []))];
 ---
 
 <BaseLayout title="Research" description="Arkloop runtime and system research." locale="zh" pathname="/research" hideLocaleSwitch={true}>
-  <section class="research-panel">
-    <p class="section-kicker">Research</p>
-    <h1 class="page-title">Arkloop Research</h1>
-    <p class="page-copy">聚焦 Arkloop 运行时、Agent Loop、线程模型和系统设计取舍。</p>
-  </section>
+  <div class="research-index">
+    <h1 class="research-index-title">最新文章</h1>
 
-  <section class="section-block research-list">
-    {posts.map((post) => (
-      <a class="research-card" href={`/research/${post.slug}`}>
-        <div class="research-card-head">
-          <div>
-            <p class="research-meta">{post.data.date.toISOString().slice(0, 10)}</p>
-            <h2>{post.data.title}</h2>
+    <nav class="research-filters" data-research-filters>
+      <button class="research-filter research-filter-active" data-filter="all">全部</button>
+      {allTags.map((tag) => (
+        <button class="research-filter" data-filter={tag}>{tag}</button>
+      ))}
+    </nav>
+
+    <div class="research-grid" data-research-grid>
+      {posts.map((post) => (
+        <a class="research-card-v2" href={`/research/${post.slug}`} data-tags={JSON.stringify(post.data.tags ?? [])}>
+          <div class="research-card-cover">
+            {post.data.cover
+              ? <img src={post.data.cover} alt={post.data.title} />
+              : <div class="research-card-placeholder"></div>
+            }
           </div>
-          <div class="research-tags">
-            {post.data.tags?.map((tag) => <span class="research-tag">{tag}</span>)}
-          </div>
-        </div>
-        <p>{post.data.description}</p>
-      </a>
-    ))}
-  </section>
+          <h2 class="research-card-title">{post.data.title}</h2>
+          <p class="research-card-meta">
+            {post.data.tags?.[0] && <span>{post.data.tags[0]}</span>}
+            <span>&middot;</span>
+            <span>{post.data.date.toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' })}</span>
+          </p>
+        </a>
+      ))}
+    </div>
+  </div>
+
+  <script>
+    const filters = document.querySelector('[data-research-filters]');
+    const grid = document.querySelector('[data-research-grid]');
+    if (filters && grid) {
+      filters.addEventListener('click', (e) => {
+        const btn = (e.target as HTMLElement).closest('[data-filter]') as HTMLElement;
+        if (!btn) return;
+        const filter = btn.dataset.filter;
+        filters.querySelectorAll('.research-filter').forEach((b) =>
+          b.classList.remove('research-filter-active')
+        );
+        btn.classList.add('research-filter-active');
+        grid.querySelectorAll('.research-card-v2').forEach((card) => {
+          const el = card as HTMLElement;
+          if (filter === 'all') {
+            el.style.display = '';
+          } else {
+            const tags: string[] = JSON.parse(el.dataset.tags || '[]');
+            el.style.display = tags.includes(filter!) ? '' : 'none';
+          }
+        });
+      });
+    }
+  </script>
 </BaseLayout>

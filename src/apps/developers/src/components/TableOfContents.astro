@@ -16,7 +16,6 @@ const visibleHeadings = headings.filter((heading) => heading.depth >= 2 && headi
 {visibleHeadings.length > 0 && (
   <aside class="toc-shell">
     <div class="toc-sticky">
-      <p class="toc-kicker">On this page</p>
       <nav class="toc-links">
         {visibleHeadings.map((heading) => (
           <a href={`#${heading.slug}`} class:list={['toc-link', heading.depth === 3 && 'toc-link-child']}>
@@ -27,3 +26,35 @@ const visibleHeadings = headings.filter((heading) => heading.depth >= 2 && headi
     </div>
   </aside>
 )}
+
+<script is:inline>
+  (() => {
+    const tocLinks = document.querySelectorAll('.toc-link');
+    if (!tocLinks.length) return;
+
+    const headings = [];
+    tocLinks.forEach((link) => {
+      const href = link.getAttribute('href');
+      if (href) {
+        const el = document.querySelector(href);
+        if (el) headings.push({ el, link });
+      }
+    });
+
+    if (!headings.length) return;
+
+    const update = () => {
+      let active = headings[0];
+      for (const h of headings) {
+        if (h.el.getBoundingClientRect().top <= 100) {
+          active = h;
+        }
+      }
+      tocLinks.forEach((l) => l.classList.remove('toc-link-active'));
+      if (active) active.link.classList.add('toc-link-active');
+    };
+
+    window.addEventListener('scroll', update, { passive: true });
+    update();
+  })();
+</script>

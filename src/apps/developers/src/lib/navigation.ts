@@ -1,5 +1,5 @@
 export type Locale = 'zh' | 'en';
-export type SectionId = 'docs' | 'api' | 'research' | 'resources';
+export type SectionId = 'docs' | 'api' | 'research';
 
 export interface SidebarItem {
   label: string;
@@ -202,7 +202,6 @@ export const navigation: Record<Locale, LocaleNavigation> = {
       { id: 'docs', label: 'Docs', href: '/docs', locale: 'zh', sidebar: zhDocsSidebar },
       { id: 'api', label: 'API', href: '/api', locale: 'zh', sidebar: zhApiSidebar },
       { id: 'research', label: 'Research', href: '/research', locale: 'zh' },
-      { id: 'resources', label: 'Resources', href: '/resources', locale: 'zh' },
     ],
     docsSidebar: zhDocsSidebar,
     apiSidebar: zhApiSidebar,
@@ -212,7 +211,6 @@ export const navigation: Record<Locale, LocaleNavigation> = {
       { id: 'docs', label: 'Docs', href: '/en/docs', locale: 'en', sidebar: enDocsSidebar },
       { id: 'api', label: 'API', href: '/en/api', locale: 'en', sidebar: enApiSidebar },
       { id: 'research', label: 'Research', href: '/research', locale: 'en' },
-      { id: 'resources', label: 'Resources', href: '/en/resources', locale: 'en' },
     ],
     docsSidebar: enDocsSidebar,
     apiSidebar: enApiSidebar,
@@ -242,7 +240,6 @@ export function getPrevNext(locale: Locale, section: 'docs' | 'api', currentPath
 
 export function getSectionFromPath(pathname: string): SectionId | null {
   if (pathname === '/research' || pathname.startsWith('/research/')) return 'research';
-  if (pathname === '/resources' || pathname.startsWith('/resources/') || pathname === '/en/resources' || pathname.startsWith('/en/resources/')) return 'resources';
   if (pathname === '/api' || pathname.startsWith('/api/') || pathname === '/en/api' || pathname.startsWith('/en/api/')) return 'api';
   if (pathname === '/docs' || pathname.startsWith('/docs/') || pathname === '/en/docs' || pathname.startsWith('/en/docs/')) return 'docs';
   return null;
@@ -251,10 +248,10 @@ export function getSectionFromPath(pathname: string): SectionId | null {
 export function getLocaleSwitchPath(pathname: string): string | null {
   if (pathname === '/') return '/en';
   if (pathname === '/en') return '/';
-  if (pathname.startsWith('/docs') || pathname.startsWith('/api') || pathname.startsWith('/resources')) {
+  if (pathname.startsWith('/docs') || pathname.startsWith('/api')) {
     return `/en${pathname}`;
   }
-  if (pathname.startsWith('/en/docs') || pathname.startsWith('/en/api') || pathname.startsWith('/en/resources')) {
+  if (pathname.startsWith('/en/docs') || pathname.startsWith('/en/api')) {
     return pathname.slice(3) || '/';
   }
   return null;
@@ -266,7 +263,6 @@ export function getHomeCards(locale: Locale) {
       { title: '工程文档', description: '架构设计、部署指南、配置注册表与演进路线图。', href: '/docs' },
       { title: 'API 参考', description: '认证、线程、运行、组织、计费与管理端点。', href: '/api' },
       { title: 'Research', description: 'Arkloop 运行时、Agent Loop 与系统设计研究。', href: '/research' },
-      { title: 'Resources', description: '仓库、贡献规范、安全政策与开发入口。', href: '/resources' },
     ];
   }
 
@@ -274,6 +270,5 @@ export function getHomeCards(locale: Locale) {
     { title: 'Documentation', description: 'Architecture, deployment, configuration registry, and roadmap.', href: '/en/docs' },
     { title: 'API Reference', description: 'Auth, threads, runs, orgs, billing, and admin endpoints.', href: '/en/api' },
     { title: 'Research', description: 'Runtime, Agent Loop, and system design papers from Arkloop.', href: '/research' },
-    { title: 'Resources', description: 'Repository, contribution guide, security policy, and entry points.', href: '/en/resources' },
   ];
 }

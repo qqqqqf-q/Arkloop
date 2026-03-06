@@ -85,8 +85,8 @@
       if (dialog.open) dialog.close();
     };
 
-    document.querySelectorAll('[data-search-open]').forEach((button) => {
-      button.addEventListener('click', open);
+    document.addEventListener('click', (event) => {
+      if (event.target.closest('[data-search-open]')) open();
     });
 
     document.querySelectorAll('[data-search-close]').forEach((button) => {

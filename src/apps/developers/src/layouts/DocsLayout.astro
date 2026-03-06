@@ -44,7 +44,6 @@ const {
 
 const sidebar = getSidebar(locale, section);
 const sidebarTitle = section === 'api' ? 'API Reference' : locale === 'en' ? 'Documentation' : '工程文档';
-const sectionEyebrow = section === 'api' ? 'API Platform' : locale === 'en' ? 'Documentation' : '工程文档';
 ---
 
 <BaseLayout
@@ -59,7 +58,6 @@ const sectionEyebrow = section === 'api' ? 'API Platform' : locale === 'en' ? 'D
 
     <article class="content-shell">
       <header class="content-header">
-        <p class="content-kicker">{sectionEyebrow}</p>
         {showSyntheticTitle && <h1>{title}</h1>}
         {description && <p class="content-description">{description}</p>}
       </header>
