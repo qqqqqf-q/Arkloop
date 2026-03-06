@@ -289,7 +289,7 @@ ARKLOOP_GATEWAY_UPSTREAM=http://host.docker.internal:8001 docker compose up -d g
 |------|--------|------|
 | `ARKLOOP_AUTH_JWT_SECRET` | — | 必填 |
 | `ARKLOOP_AUTH_ACCESS_TOKEN_TTL_SECONDS` | `900` | Access Token 有效期 |
-| `ARKLOOP_AUTH_REFRESH_TOKEN_TTL_SECONDS` | `7776000` | Refresh Token 有效期 |
+| `ARKLOOP_AUTH_REFRESH_TOKEN_TTL_SECONDS` | `2592000` | Refresh Token 有效期 |
 | `ARKLOOP_ENCRYPTION_KEY` | — | AES-256-GCM 密钥（必填） |
 
 ### API

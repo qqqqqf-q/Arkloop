@@ -34,7 +34,7 @@ func TestAuthRegisterLoginRefreshLogoutFlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new password hasher: %v", err)
 	}
-	tokenService, err := auth.NewJwtAccessTokenService("test-secret-should-be-long-enough-32chars", 3600, 7776000)
+	tokenService, err := auth.NewJwtAccessTokenService("test-secret-should-be-long-enough-32chars", 3600, 2592000)
 	if err != nil {
 		t.Fatalf("new token service: %v", err)
 	}
@@ -166,7 +166,7 @@ func TestAuthLogoutThenReLoginNewTokenStillValid(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new password hasher: %v", err)
 	}
-	tokenService, err := auth.NewJwtAccessTokenService("test-secret-should-be-long-enough-32chars", 3600, 7776000)
+	tokenService, err := auth.NewJwtAccessTokenService("test-secret-should-be-long-enough-32chars", 3600, 2592000)
 	if err != nil {
 		t.Fatalf("new token service: %v", err)
 	}

@@ -8,12 +8,12 @@ import (
 )
 
 const (
-	jwtSecretEnv              = "ARKLOOP_AUTH_JWT_SECRET"
-	accessTokenTTLEnv         = "ARKLOOP_AUTH_ACCESS_TOKEN_TTL_SECONDS"
-	refreshTokenTTLEnv        = "ARKLOOP_AUTH_REFRESH_TOKEN_TTL_SECONDS"
-	defaultAccessTokenTTL     = 900     // 15 分钟
-	defaultRefreshTokenTTL    = 7776000 // 90 天
-	minJWTSecretLengthBytes   = 32
+	jwtSecretEnv            = "ARKLOOP_AUTH_JWT_SECRET"
+	accessTokenTTLEnv       = "ARKLOOP_AUTH_ACCESS_TOKEN_TTL_SECONDS"
+	refreshTokenTTLEnv      = "ARKLOOP_AUTH_REFRESH_TOKEN_TTL_SECONDS"
+	defaultAccessTokenTTL   = 900     // 15 分钟
+	defaultRefreshTokenTTL  = 2592000 // 30 天
+	minJWTSecretLengthBytes = 32
 )
 
 type Config struct {
