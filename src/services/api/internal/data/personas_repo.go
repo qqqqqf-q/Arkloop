@@ -155,7 +155,7 @@ func (r *PersonasRepository) GetByID(ctx context.Context, orgID, id uuid.UUID) (
 		        prompt_md, tool_allowlist, budgets_json, is_active, created_at,
 		        preferred_credential, executor_type, executor_config_json
 		 FROM personas
-		 WHERE id = $1 AND org_id = $2`,
+		 WHERE id = $1 AND (org_id = $2 OR org_id IS NULL)`,
 		id, orgID,
 	).Scan(
 		&persona.ID, &persona.OrgID, &persona.PersonaKey, &persona.Version,
@@ -305,7 +305,7 @@ func (r *PersonasRepository) Patch(ctx context.Context, orgID, id uuid.UUID, pat
 		ctx,
 		fmt.Sprintf(`UPDATE personas
 		 SET %s
-		 WHERE id = $%d AND org_id = $%d
+		 WHERE id = $%d AND (org_id = $%d OR org_id IS NULL)
 		 RETURNING id, org_id, persona_key, version, display_name, description,
 		           prompt_md, tool_allowlist, budgets_json, is_active, created_at,
 		           preferred_credential, executor_type, executor_config_json`,
@@ -344,4 +344,19 @@ func scanPersonas(rows pgx.Rows) ([]Persona, error) {
 		personas = append(personas, s)
 	}
 	return personas, rows.Err()
+}
+
+func (r *PersonasRepository) Delete(ctx context.Context, orgID, id uuid.UUID) (bool, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	tag, err := r.db.Exec(
+		ctx,
+		`DELETE FROM personas WHERE id = $1 AND (org_id = $2 OR org_id IS NULL)`,
+		id, orgID,
+	)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() > 0, nil
 }

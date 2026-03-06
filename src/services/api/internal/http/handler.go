@@ -10,6 +10,7 @@ import (
 	"arkloop/services/api/internal/entitlement"
 	"arkloop/services/api/internal/featureflag"
 	"arkloop/services/api/internal/observability"
+	"arkloop/services/api/internal/personas"
 	sharedconfig "arkloop/services/shared/config"
 	"arkloop/services/shared/objectstore"
 
@@ -114,6 +115,8 @@ type HandlerConfig struct {
 	ConfigResolver    sharedconfig.Resolver
 	ConfigInvalidator sharedconfig.Invalidator
 	ConfigRegistry    *sharedconfig.Registry
+
+	RepoPersonas []personas.RepoPersona
 }
 
 func NewHandler(cfg HandlerConfig) nethttp.Handler {
@@ -339,6 +342,15 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 	mux.HandleFunc(
 		"/v1/agent-configs/",
 		agentConfigEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.AgentConfigsRepo, cfg.APIKeysRepo),
+	)
+
+	mux.HandleFunc(
+		"/v1/lite/agents",
+		liteAgentsEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.PersonasRepo, cfg.AgentConfigsRepo, cfg.Pool, cfg.RepoPersonas),
+	)
+	mux.HandleFunc(
+		"/v1/lite/agents/",
+		liteAgentEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.PersonasRepo, cfg.AgentConfigsRepo, cfg.Pool),
 	)
 
 	mux.HandleFunc(

@@ -98,6 +98,10 @@ type AgentConfigRepository struct {
 	db Querier
 }
 
+func (r *AgentConfigRepository) WithTx(tx pgx.Tx) *AgentConfigRepository {
+	return &AgentConfigRepository{db: tx}
+}
+
 func NewAgentConfigRepository(db Querier) (*AgentConfigRepository, error) {
 	if db == nil {
 		return nil, errors.New("db must not be nil")

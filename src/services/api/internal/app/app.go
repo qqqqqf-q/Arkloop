@@ -21,6 +21,7 @@ import (
 	"arkloop/services/api/internal/jobs"
 	"arkloop/services/api/internal/migrate"
 	"arkloop/services/api/internal/observability"
+	"arkloop/services/api/internal/personas"
 	sharedconfig "arkloop/services/shared/config"
 	"arkloop/services/shared/objectstore"
 	sharedredis "arkloop/services/shared/redis"
@@ -551,6 +552,9 @@ func (a *Application) Run(ctx context.Context) error {
 	}
 	defer func() { _ = listener.Close() }()
 
+	// 加载仓库 persona（src/personas/）
+	repoPersonas, _ := personas.LoadFromDir("src/personas")
+
 	server := &http.Server{
 		Handler: apihttp.NewHandler(apihttp.HandlerConfig{
 			Pool:                     pool,
@@ -622,6 +626,7 @@ func (a *Application) Run(ctx context.Context) error {
 				HeartbeatSeconds: a.config.SSE.HeartbeatSeconds,
 				BatchLimit:       a.config.SSE.BatchLimit,
 			},
+			RepoPersonas: repoPersonas,
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
