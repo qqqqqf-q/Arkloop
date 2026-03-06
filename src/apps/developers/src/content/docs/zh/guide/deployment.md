@@ -197,7 +197,9 @@ docker compose --profile docker-sandbox up -d sandbox-docker
 Linux 推荐使用 rootless Docker 的用户态 socket。
 macOS / Windows Docker Desktop 请改为各自用户目录下的 socket 路径，不再使用系统级 `/var/run/docker.sock`。
 
-`sandbox-docker` 自身运行在 Compose 网络中，派生出的 `sandbox-agent` 容器接入内部 `arkloop_sandbox_agent` 网络，不使用 host 网络。
+`sandbox-docker` 自身运行在 Compose 网络中，派生出的 `sandbox-agent` 容器接入专用 `arkloop_sandbox_agent_egress` 网络，不使用 host 网络。该网络默认允许外网访问，方便 `git clone`、`curl`、依赖下载等开发任务；如需关闭外网，可设置 `ARKLOOP_SANDBOX_DOCKER_ALLOW_EGRESS=false` 并重建网络。
+
+Docker backend 镜像内置常用开发命令，包括 `git`、`curl`、`wget`、`jq`、`grep`、`rg`、`find`、`tar`、`zip`、`unzip`、`sqlite3`、`ssh`、`make` 等，保证终端型任务和仓库分析任务可直接运行。
 
 ### 本地开发（直接运行）
 
@@ -221,6 +223,7 @@ ARKLOOP_SANDBOX_TEMPLATES_PATH="" \
 |---|---|---|---|
 | `sandbox.provider` | `ARKLOOP_SANDBOX_PROVIDER` | `firecracker` | 后端类型 |
 | `sandbox.docker_image` | `ARKLOOP_SANDBOX_DOCKER_IMAGE` | `arkloop/sandbox-agent:latest` | Docker agent 镜像 |
+| `sandbox.docker_allow_egress` | `ARKLOOP_SANDBOX_DOCKER_ALLOW_EGRESS` | `false` | Docker backend 是否允许派生容器访问外网 |
 | `sandbox.max_sessions` | `ARKLOOP_SANDBOX_MAX_SESSIONS` | `50` | 最大并发 session |
 | `sandbox.boot_timeout_s` | `ARKLOOP_SANDBOX_BOOT_TIMEOUT_S` | `30` | 启动超时（秒） |
 | `sandbox.warm_lite` | `ARKLOOP_SANDBOX_WARM_LITE` | `3` | lite 预热数 |

@@ -47,6 +47,7 @@ func TestBuildCreatePlan_DefaultNetwork(t *testing.T) {
 func TestBuildCreatePlan_CustomNetwork(t *testing.T) {
 	plan := buildCreatePlan(Config{
 		Image:          "arkloop/sandbox-agent:latest",
+		AllowEgress:    true,
 		NetworkName:    defaultAgentNetworkName,
 		GuestAgentPort: 8080,
 	}, "lite")
@@ -69,5 +70,23 @@ func TestBuildCreatePlan_CustomNetwork(t *testing.T) {
 	}
 	if len(plan.hostCfg.CapDrop) != 1 || plan.hostCfg.CapDrop[0] != "ALL" {
 		t.Fatalf("expected CapDrop=[ALL], got %v", plan.hostCfg.CapDrop)
+	}
+}
+
+func TestBuildCreatePlan_DefaultNetworkWithEgress(t *testing.T) {
+	plan := buildCreatePlan(Config{
+		Image:          "arkloop/sandbox-agent:latest",
+		AllowEgress:    true,
+		GuestAgentPort: 8080,
+	}, "lite")
+
+	if plan.attachNetworkName != defaultAgentNetworkName {
+		t.Fatalf("expected attachNetworkName=%q, got %q", defaultAgentNetworkName, plan.attachNetworkName)
+	}
+	if plan.hostCfg.NetworkMode != container.NetworkMode(defaultAgentNetworkName) {
+		t.Fatalf("expected network mode %q, got %q", defaultAgentNetworkName, plan.hostCfg.NetworkMode)
+	}
+	if len(plan.hostCfg.PortBindings) == 0 {
+		t.Fatalf("expected host port binding in default network mode")
 	}
 }

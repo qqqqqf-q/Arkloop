@@ -36,6 +36,37 @@ func TestLoadConfigFromEnvSessionStateTTLDaysRejectNegative(t *testing.T) {
 	}
 }
 
+func TestDefaultConfigDockerAllowEgress(t *testing.T) {
+	cfg := DefaultConfig()
+	if cfg.DockerAllowEgress {
+		t.Fatal("docker egress should default to disabled")
+	}
+}
+
+func TestLoadConfigFromEnvDockerAllowEgress(t *testing.T) {
+	t.Setenv("ARKLOOP_SANDBOX_DOCKER_ALLOW_EGRESS", "true")
+	t.Setenv("ARKLOOP_SANDBOX_ADDR", "127.0.0.1:8002")
+	unsetSandboxConfigRegistryEnv(t)
+
+	cfg, err := LoadConfigFromEnv()
+	if err != nil {
+		t.Fatalf("load config failed: %v", err)
+	}
+	if !cfg.DockerAllowEgress {
+		t.Fatal("expected docker egress to be enabled")
+	}
+}
+
+func TestLoadConfigFromEnvDockerAllowEgressRejectInvalid(t *testing.T) {
+	t.Setenv("ARKLOOP_SANDBOX_DOCKER_ALLOW_EGRESS", "maybe")
+	t.Setenv("ARKLOOP_SANDBOX_ADDR", "127.0.0.1:8002")
+	unsetSandboxConfigRegistryEnv(t)
+
+	if _, err := LoadConfigFromEnv(); err == nil {
+		t.Fatal("expected docker egress validation error")
+	}
+}
+
 func unsetSandboxConfigRegistryEnv(t *testing.T) {
 	t.Helper()
 	for _, key := range []string{"ARKLOOP_DATABASE_URL"} {

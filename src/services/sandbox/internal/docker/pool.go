@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -33,6 +34,7 @@ type Config struct {
 	MaxRefillConcurrency  int
 
 	Image          string // sandbox-agent 容器镜像
+	AllowEgress    bool   // 允许派生容器访问外网
 	NetworkName    string // agent 容器加入的 Docker 网络；非空时通过容器 IP 连接
 	GuestAgentPort uint32
 	SocketBaseDir  string // 用于存放临时文件的目录
@@ -76,13 +78,15 @@ func New(cfg Config) (*Pool, error) {
 		return nil, fmt.Errorf("docker daemon unreachable: %w", err)
 	}
 
-	if cfg.NetworkName == "" {
-		ensureCtx, ensureCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer ensureCancel()
-		if err := ensureNetworkExists(ensureCtx, cli, defaultAgentNetworkName); err != nil {
-			cli.Close()
-			return nil, err
-		}
+	networkName := strings.TrimSpace(cfg.NetworkName)
+	if networkName == "" {
+		networkName = defaultAgentNetworkName
+	}
+	ensureCtx, ensureCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer ensureCancel()
+	if err := ensureNetworkExists(ensureCtx, cli, networkName, !cfg.AllowEgress); err != nil {
+		cli.Close()
+		return nil, err
 	}
 
 	ready := make(map[string]chan *entry)
@@ -102,9 +106,12 @@ func New(cfg Config) (*Pool, error) {
 	}, nil
 }
 
-func ensureNetworkExists(ctx context.Context, cli *client.Client, name string) error {
-	_, err := cli.NetworkInspect(ctx, name, network.InspectOptions{})
+func ensureNetworkExists(ctx context.Context, cli *client.Client, name string, internal bool) error {
+	inspected, err := cli.NetworkInspect(ctx, name, network.InspectOptions{})
 	if err == nil {
+		if inspected.Internal != internal {
+			return fmt.Errorf("docker network %s internal=%t, expected internal=%t; recreate the network or change ARKLOOP_SANDBOX_DOCKER_ALLOW_EGRESS", name, inspected.Internal, internal)
+		}
 		return nil
 	}
 	if !errdefs.IsNotFound(err) {
@@ -113,7 +120,7 @@ func ensureNetworkExists(ctx context.Context, cli *client.Client, name string) e
 
 	_, err = cli.NetworkCreate(ctx, name, network.CreateOptions{
 		Driver:   "bridge",
-		Internal: true,
+		Internal: internal,
 		Labels: map[string]string{
 			"arkloop.role": "sandbox-agent-network",
 		},

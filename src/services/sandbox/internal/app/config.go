@@ -17,18 +17,19 @@ import (
 
 // 部署级别的 ENV（文件路径、地址、凭证 -- 不进 registry，不能从 console 改）
 const (
-	sandboxAddrEnv      = "ARKLOOP_SANDBOX_ADDR"
-	sandboxAuthTokenEnv = "ARKLOOP_SANDBOX_AUTH_TOKEN"
-	sessionStateTTLEnv  = "ARKLOOP_SANDBOX_SESSION_STATE_TTL_DAYS"
-	dockerNetworkEnv    = "ARKLOOP_SANDBOX_DOCKER_NETWORK"
-	firecrackerBinEnv   = "ARKLOOP_FIRECRACKER_BIN"
-	kernelImagePathEnv  = "ARKLOOP_SANDBOX_KERNEL_IMAGE"
-	rootfsPathEnv       = "ARKLOOP_SANDBOX_ROOTFS"
-	socketBaseDirEnv    = "ARKLOOP_SANDBOX_SOCKET_DIR"
-	templatesPathEnv    = "ARKLOOP_SANDBOX_TEMPLATES_PATH"
-	s3EndpointEnv       = "ARKLOOP_S3_ENDPOINT"
-	s3AccessKeyEnv      = "ARKLOOP_S3_ACCESS_KEY"
-	s3SecretKeyEnv      = "ARKLOOP_S3_SECRET_KEY"
+	sandboxAddrEnv       = "ARKLOOP_SANDBOX_ADDR"
+	sandboxAuthTokenEnv  = "ARKLOOP_SANDBOX_AUTH_TOKEN"
+	sessionStateTTLEnv   = "ARKLOOP_SANDBOX_SESSION_STATE_TTL_DAYS"
+	dockerAllowEgressEnv = "ARKLOOP_SANDBOX_DOCKER_ALLOW_EGRESS"
+	dockerNetworkEnv     = "ARKLOOP_SANDBOX_DOCKER_NETWORK"
+	firecrackerBinEnv    = "ARKLOOP_FIRECRACKER_BIN"
+	kernelImagePathEnv   = "ARKLOOP_SANDBOX_KERNEL_IMAGE"
+	rootfsPathEnv        = "ARKLOOP_SANDBOX_ROOTFS"
+	socketBaseDirEnv     = "ARKLOOP_SANDBOX_SOCKET_DIR"
+	templatesPathEnv     = "ARKLOOP_SANDBOX_TEMPLATES_PATH"
+	s3EndpointEnv        = "ARKLOOP_S3_ENDPOINT"
+	s3AccessKeyEnv       = "ARKLOOP_S3_ACCESS_KEY"
+	s3SecretKeyEnv       = "ARKLOOP_S3_SECRET_KEY"
 )
 
 // Provider 标识 sandbox 后端类型。
@@ -54,6 +55,7 @@ type Config struct {
 	SessionStateTTLDays int
 	TemplatesPath       string
 	DockerImage         string // Docker 后端使用的 sandbox-agent 镜像
+	DockerAllowEgress   bool
 	DockerNetwork       string // agent 容器加入的 Docker 网络（compose 桥接网络）
 
 	// Warm pool: 各 tier 的预热 VM 数量
@@ -88,6 +90,7 @@ func DefaultConfig() Config {
 		SessionStateTTLDays: 7,
 		TemplatesPath:       "/opt/sandbox/templates.json",
 		DockerImage:         "arkloop/sandbox-agent:latest",
+		DockerAllowEgress:   false,
 		DockerNetwork:       "",
 
 		WarmLite:              3,
@@ -116,6 +119,13 @@ func LoadConfigFromEnv() (Config, error) {
 			return cfg, fmt.Errorf("session_state_ttl_days must be zero or positive")
 		}
 		cfg.SessionStateTTLDays = value
+	}
+	if raw, ok := os.LookupEnv(dockerAllowEgressEnv); ok {
+		value, err := strconv.ParseBool(strings.TrimSpace(raw))
+		if err != nil {
+			return cfg, fmt.Errorf("docker_allow_egress must be true/false")
+		}
+		cfg.DockerAllowEgress = value
 	}
 	if raw := strings.TrimSpace(os.Getenv(dockerNetworkEnv)); raw != "" {
 		cfg.DockerNetwork = raw
@@ -197,12 +207,26 @@ func LoadConfigFromEnv() (Config, error) {
 		}
 		return v
 	}
+	resolveBool := func(key string) *bool {
+		raw := resolveStr(key)
+		if raw == "" {
+			return nil
+		}
+		v, err := strconv.ParseBool(raw)
+		if err != nil {
+			return nil
+		}
+		return &v
+	}
 
 	if v := resolveStr("sandbox.provider"); v != "" {
 		cfg.Provider = v
 	}
 	if v := resolveStr("sandbox.docker_image"); v != "" {
 		cfg.DockerImage = v
+	}
+	if v := resolveBool("sandbox.docker_allow_egress"); v != nil {
+		cfg.DockerAllowEgress = *v
 	}
 	if v := resolveInt("sandbox.max_sessions"); v > 0 {
 		cfg.MaxSessions = v

@@ -286,7 +286,7 @@ services:
   # --- Sandbox: Docker 模式 ---
   # 启用条件：ARKLOOP_SANDBOX_PROVIDER=docker
   # macOS/Windows/无 KVM 环境使用，通过用户态 Docker socket 创建 sandbox 容器
-  # 通过 internal 专用网络连接 sandbox-agent，避免接入默认网络
+  # 通过专用网络连接 sandbox-agent，默认允许外网访问以支持 git clone / curl 等开发任务
   sandbox-docker:
     build:
       context: .
@@ -299,7 +299,8 @@ services:
       ARKLOOP_SANDBOX_ADDR: "0.0.0.0:8002"
       ARKLOOP_SANDBOX_PROVIDER: "docker"
       ARKLOOP_SANDBOX_DOCKER_IMAGE: "${ARKLOOP_SANDBOX_DOCKER_IMAGE:-arkloop/sandbox-agent:latest}"
-      ARKLOOP_SANDBOX_DOCKER_NETWORK: "arkloop_sandbox_agent"
+      ARKLOOP_SANDBOX_DOCKER_ALLOW_EGRESS: "${ARKLOOP_SANDBOX_DOCKER_ALLOW_EGRESS:-true}"
+      ARKLOOP_SANDBOX_DOCKER_NETWORK: "arkloop_sandbox_agent_egress"
       ARKLOOP_SANDBOX_SOCKET_DIR: "/run/sandbox"
       ARKLOOP_SANDBOX_MAX_SESSIONS: "${ARKLOOP_SANDBOX_MAX_SESSIONS:-50}"
       ARKLOOP_SANDBOX_TEMPLATES_PATH: ""
@@ -309,7 +310,7 @@ services:
       DOCKER_HOST: "unix:///run/docker-host.sock"
     networks:
       - default
-      - sandbox_agent
+      - sandbox_agent_egress
     ports:
       - "${ARKLOOP_SANDBOX_PORT:-8002}:8002"
     volumes:
@@ -349,6 +350,5 @@ volumes:
   sandbox_sockets:
 
 networks:
-  sandbox_agent:
-    name: arkloop_sandbox_agent
-    internal: true
+  sandbox_agent_egress:
+    name: arkloop_sandbox_agent_egress
