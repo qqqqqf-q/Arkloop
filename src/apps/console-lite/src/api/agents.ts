@@ -91,6 +91,52 @@ export type UpdateAgentConfigRequest = {
   reasoning_mode?: string
 }
 
+// -- LITE Agent (unified view) --
+
+export type LiteAgent = {
+  id: string
+  persona_key: string
+  display_name: string
+  description?: string
+  prompt_md: string
+  model?: string
+  temperature?: number
+  max_output_tokens?: number
+  reasoning_mode: string
+  tool_policy: string
+  tool_allowlist: string[]
+  is_active: boolean
+  is_default: boolean
+  executor_type: string
+  budgets: Record<string, unknown>
+  source: 'db' | 'repo'
+  agent_config_id?: string
+  created_at: string
+}
+
+export type CreateLiteAgentRequest = {
+  name: string
+  prompt_md: string
+  model?: string
+  temperature?: number
+  max_output_tokens?: number
+  reasoning_mode?: string
+  tool_allowlist?: string[]
+  executor_type?: string
+}
+
+export type PatchLiteAgentRequest = {
+  name?: string
+  prompt_md?: string
+  model?: string
+  temperature?: number
+  max_output_tokens?: number
+  reasoning_mode?: string
+  tool_allowlist?: string[]
+  is_active?: boolean
+  is_default?: boolean
+}
+
 // -- LLM Credential (for Model dropdown) --
 
 export type LlmCredential = {
@@ -175,6 +221,45 @@ export async function deleteAgentConfig(
   accessToken: string,
 ): Promise<{ ok: boolean }> {
   return apiFetch<{ ok: boolean }>(`/v1/agent-configs/${id}`, {
+    method: 'DELETE',
+    accessToken,
+  })
+}
+
+// -- LITE Agents API (unified) --
+
+export async function listLiteAgents(accessToken: string): Promise<LiteAgent[]> {
+  return apiFetch<LiteAgent[]>('/v1/lite/agents', { accessToken })
+}
+
+export async function createLiteAgent(
+  req: CreateLiteAgentRequest,
+  accessToken: string,
+): Promise<LiteAgent> {
+  return apiFetch<LiteAgent>('/v1/lite/agents', {
+    method: 'POST',
+    body: JSON.stringify(req),
+    accessToken,
+  })
+}
+
+export async function patchLiteAgent(
+  id: string,
+  req: PatchLiteAgentRequest,
+  accessToken: string,
+): Promise<LiteAgent> {
+  return apiFetch<LiteAgent>(`/v1/lite/agents/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(req),
+    accessToken,
+  })
+}
+
+export async function deleteLiteAgent(
+  id: string,
+  accessToken: string,
+): Promise<{ ok: boolean }> {
+  return apiFetch<{ ok: boolean }>(`/v1/lite/agents/${id}`, {
     method: 'DELETE',
     accessToken,
   })

@@ -39,6 +39,7 @@ export const en: LocaleStrings = {
     noAgents: 'No agents yet',
     overview: 'Overview',
     persona: 'Persona',
+    builtIn: 'Built-in',
   },
   common: {
     save: 'Save',

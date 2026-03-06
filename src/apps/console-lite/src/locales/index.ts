@@ -42,6 +42,7 @@ export interface LocaleStrings {
     noAgents: string
     overview: string
     persona: string
+    builtIn: string
   }
   common: {
     save: string

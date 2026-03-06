@@ -39,6 +39,7 @@ export const zhCN: LocaleStrings = {
     noAgents: '暂无智能体',
     overview: '概览',
     persona: '人格',
+    builtIn: '内置',
   },
   common: {
     save: '保存',

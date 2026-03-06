@@ -10,27 +10,18 @@ import { useToast } from '../components/useToast'
 import { useLocale } from '../contexts/LocaleContext'
 import { isApiError } from '../api'
 import {
-  listPersonas,
-  createPersona,
-  patchPersona,
-  listAgentConfigs,
-  createAgentConfig,
-  updateAgentConfig,
-  deleteAgentConfig,
+  listLiteAgents,
+  createLiteAgent,
+  patchLiteAgent,
+  deleteLiteAgent,
   listLlmCredentials,
   listToolCatalog,
-  type Persona,
-  type AgentConfig,
+  type LiteAgent,
   type LlmCredential,
   type ToolCatalogGroup,
 } from '../api/agents'
 
 // -- types --
-
-type AgentView = {
-  persona: Persona | null
-  config: AgentConfig
-}
 
 type DetailTab = 'overview' | 'persona' | 'tools'
 
@@ -46,44 +37,19 @@ type DetailForm = {
   tools: string[]
 }
 
-function agentToForm(agent: AgentView): DetailForm {
+function agentToForm(agent: LiteAgent): DetailForm {
   return {
-    name: agent.persona?.display_name || agent.config.name,
-    model: agent.config.model || agent.persona?.preferred_credential || '',
-    isDefault: agent.config.is_default,
-    isActive: agent.persona?.is_active ?? true,
-    temperature: agent.config.temperature ?? 0.7,
-    maxOutputTokens: agent.config.max_output_tokens != null
-      ? String(agent.config.max_output_tokens) : '',
-    reasoningMode: agent.config.reasoning_mode ?? 'disabled',
-    systemPrompt: agent.persona?.prompt_md || agent.config.system_prompt_override || '',
-    tools: agent.persona?.tool_allowlist ?? agent.config.tool_allowlist ?? [],
+    name: agent.display_name,
+    model: agent.model || '',
+    isDefault: agent.is_default,
+    isActive: agent.is_active,
+    temperature: agent.temperature ?? 0.7,
+    maxOutputTokens: agent.max_output_tokens != null
+      ? String(agent.max_output_tokens) : '',
+    reasoningMode: agent.reasoning_mode ?? 'disabled',
+    systemPrompt: agent.prompt_md || '',
+    tools: agent.tool_allowlist ?? [],
   }
-}
-
-function slugify(name: string): string {
-  const s = name.toLowerCase().replace(/[^a-z0-9\u4e00-\u9fff]+/g, '-').replace(/^-|-$/g, '')
-  return s || 'agent'
-}
-
-function agentName(a: AgentView): string {
-  return a.persona?.display_name || a.config.name
-}
-
-// build persona.yaml-style JSON from current state
-function buildPersonaConfig(persona: Persona | null, form: DetailForm): string {
-  if (!persona) return '{}'
-  return JSON.stringify({
-    id: persona.persona_key,
-    version: persona.version,
-    title: form.name,
-    description: persona.description ?? '',
-    tool_allowlist: form.tools,
-    budgets: persona.budgets,
-    is_active: form.isActive,
-    executor_type: persona.executor_type,
-    agent_config: form.model,
-  }, null, 2)
 }
 
 // -- custom checkbox --
@@ -132,13 +98,13 @@ export function AgentsPage() {
   const ta = t.agents
 
   // data
-  const [agents, setAgents] = useState<AgentView[]>([])
+  const [agents, setAgents] = useState<LiteAgent[]>([])
   const [credentials, setCredentials] = useState<LlmCredential[]>([])
   const [catalogGroups, setCatalogGroups] = useState<ToolCatalogGroup[]>([])
   const [loading, setLoading] = useState(false)
 
   // detail view
-  const [selected, setSelected] = useState<AgentView | null>(null)
+  const [selected, setSelected] = useState<LiteAgent | null>(null)
   const [tab, setTab] = useState<DetailTab>('overview')
   const [form, setForm] = useState<DetailForm | null>(null)
   const [saving, setSaving] = useState(false)
@@ -155,26 +121,19 @@ export function AgentsPage() {
 
   // -- load --
 
-  const load = useCallback(async (): Promise<AgentView[]> => {
+  const load = useCallback(async (): Promise<LiteAgent[]> => {
     setLoading(true)
     try {
-      const [personas, configs, creds, catalogResp] = await Promise.all([
-        listPersonas(accessToken),
-        listAgentConfigs(accessToken),
+      const [liteAgents, creds, catalogResp] = await Promise.all([
+        listLiteAgents(accessToken),
         listLlmCredentials(accessToken),
         listToolCatalog(accessToken),
       ])
 
-      const personaMap = new Map(personas.map((p) => [p.id, p]))
-      const joined: AgentView[] = configs.map((cfg) => ({
-        persona: cfg.persona_id ? personaMap.get(cfg.persona_id) ?? null : null,
-        config: cfg,
-      }))
-
-      setAgents(joined)
+      setAgents(liteAgents)
       setCredentials(creds)
       setCatalogGroups(catalogResp.groups)
-      return joined
+      return liteAgents
     } catch (err) {
       addToast(isApiError(err) ? err.message : t.requestFailed, 'error')
       return []
@@ -187,7 +146,7 @@ export function AgentsPage() {
 
   // -- navigation --
 
-  const selectAgent = useCallback((agent: AgentView) => {
+  const selectAgent = useCallback((agent: LiteAgent) => {
     setSelected(agent)
     setForm(agentToForm(agent))
     setTab('overview')
@@ -211,33 +170,19 @@ export function AgentsPage() {
     try {
       const defaultTools = allCatalogToolNames
 
-      const persona = await createPersona({
-        persona_key: `${slugify(createName)}-${Date.now()}`,
-        version: '1.0',
-        display_name: createName.trim(),
-        prompt_md: createName.trim(),
-        preferred_credential: createModel.trim(),
-        executor_type: 'agent.simple',
-        tool_allowlist: defaultTools,
-      }, accessToken)
-
-      const config = await createAgentConfig({
-        scope: 'platform',
+      const agent = await createLiteAgent({
         name: createName.trim(),
+        prompt_md: createName.trim(),
         model: createModel.trim(),
-        persona_id: persona.id,
-        tool_policy: 'allowlist',
         tool_allowlist: defaultTools,
-        prompt_cache_control: 'none',
         reasoning_mode: 'disabled',
-        content_filter_level: '',
       }, accessToken)
 
       setCreateOpen(false)
       setCreateName('')
       setCreateModel('')
       void load()
-      selectAgent({ persona, config })
+      selectAgent(agent)
     } catch (err) {
       addToast(isApiError(err) ? err.message : t.requestFailed, 'error')
     } finally {
@@ -251,30 +196,20 @@ export function AgentsPage() {
     if (!selected || !form || !form.name.trim()) return
     setSaving(true)
     try {
-      await updateAgentConfig(selected.config.id, {
+      await patchLiteAgent(selected.id, {
         name: form.name.trim(),
+        prompt_md: form.systemPrompt.trim() || undefined,
         model: form.model.trim() || undefined,
-        is_default: form.isDefault,
         temperature: form.temperature,
         max_output_tokens: form.maxOutputTokens ? Number(form.maxOutputTokens) : undefined,
         reasoning_mode: form.reasoningMode,
-        tool_policy: form.tools.length > 0 ? 'allowlist' : 'none',
         tool_allowlist: form.tools,
-        system_prompt_override: form.systemPrompt.trim(),
+        is_active: form.isActive,
+        is_default: form.isDefault,
       }, accessToken)
 
-      if (selected.persona) {
-        await patchPersona(selected.persona.id, {
-          display_name: form.name.trim(),
-          prompt_md: form.systemPrompt.trim() || undefined,
-          tool_allowlist: form.tools,
-          is_active: form.isActive,
-          preferred_credential: form.model.trim() || undefined,
-        }, accessToken)
-      }
-
       const fresh = await load()
-      const updated = fresh.find((a) => a.config.id === selected.config.id)
+      const updated = fresh.find((a) => a.id === selected.id)
       if (updated) {
         setSelected(updated)
         setForm(agentToForm(updated))
@@ -292,10 +227,7 @@ export function AgentsPage() {
     if (!selected) return
     setDeleting(true)
     try {
-      await deleteAgentConfig(selected.config.id, accessToken)
-      if (selected.persona) {
-        await patchPersona(selected.persona.id, { is_active: false }, accessToken)
-      }
+      await deleteLiteAgent(selected.id, accessToken)
       setDeleteOpen(false)
       goBack()
       void load()
@@ -326,16 +258,14 @@ export function AgentsPage() {
   const sortedAgents = useMemo(
     () =>
       [...agents].sort((a, b) => {
-        if (a.config.is_default !== b.config.is_default) return a.config.is_default ? -1 : 1
-        return agentName(a).localeCompare(agentName(b))
+        if (a.is_default !== b.is_default) return a.is_default ? -1 : 1
+        if (a.source !== b.source) return a.source === 'repo' ? -1 : 1
+        return a.display_name.localeCompare(b.display_name)
       }),
     [agents],
   )
 
-  const personaConfigJson = useMemo(
-    () => (selected && form) ? buildPersonaConfig(selected.persona, form) : '',
-    [selected, form],
-  )
+  const isRepoAgent = selected?.source === 'repo'
 
   // ============================================================
   //  DETAIL VIEW
@@ -359,13 +289,18 @@ export function AgentsPage() {
               >
                 <ChevronLeft size={16} />
               </button>
-              <span>{agentName(selected)}</span>
-              {selected.config.is_default && (
+              <span>{selected.display_name}</span>
+              {selected.source === 'repo' && (
+                <span className="rounded bg-blue-500/10 px-1.5 py-0.5 text-[10px] font-medium text-blue-500">
+                  {ta.builtIn}
+                </span>
+              )}
+              {selected.is_default && (
                 <span className="rounded bg-[var(--c-bg-tag)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--c-text-muted)]">
                   {t.common.default}
                 </span>
               )}
-              {selected.persona?.is_active && (
+              {selected.is_active && (
                 <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-500">
                   {ta.active}
                 </span>
@@ -374,13 +309,15 @@ export function AgentsPage() {
           }
           actions={
             <div className="flex items-center gap-2">
-              <button
-                onClick={() => setDeleteOpen(true)}
-                className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs text-[var(--c-text-tertiary)] transition-colors hover:bg-[var(--c-bg-sub)] hover:text-red-500"
-              >
-                <Trash2 size={13} />
-                {t.common.delete}
-              </button>
+              {!isRepoAgent && (
+                <button
+                  onClick={() => setDeleteOpen(true)}
+                  className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs text-[var(--c-text-tertiary)] transition-colors hover:bg-[var(--c-bg-sub)] hover:text-red-500"
+                >
+                  <Trash2 size={13} />
+                  {t.common.delete}
+                </button>
+              )}
               <button
                 onClick={handleSave}
                 disabled={saving || !form.name.trim()}
@@ -447,13 +384,11 @@ export function AgentsPage() {
                       onChange={(v) => setForm((f) => f && { ...f, isDefault: v })}
                       label={ta.setDefault}
                     />
-                    {selected.persona && (
-                      <CheckboxField
-                        checked={form.isActive}
-                        onChange={(v) => setForm((f) => f && { ...f, isActive: v })}
-                        label={ta.active}
-                      />
-                    )}
+                    <CheckboxField
+                      checked={form.isActive}
+                      onChange={(v) => setForm((f) => f && { ...f, isActive: v })}
+                      label={ta.active}
+                    />
                   </div>
 
                   <FormField label={ta.temperature}>
@@ -504,15 +439,6 @@ export function AgentsPage() {
                       rows={10}
                       value={form.systemPrompt}
                       onChange={(e) => setForm((f) => f && { ...f, systemPrompt: e.target.value })}
-                    />
-                  </FormField>
-
-                  <FormField label="persona.yaml">
-                    <textarea
-                      className={`${MONO_CLS} min-h-[180px] resize-y`}
-                      rows={8}
-                      value={personaConfigJson}
-                      readOnly
                     />
                   </FormField>
                 </>
@@ -592,21 +518,26 @@ export function AgentsPage() {
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {sortedAgents.map((agent) => (
               <button
-                key={agent.config.id}
+                key={agent.id}
                 onClick={() => selectAgent(agent)}
                 className="flex flex-col gap-3 rounded-xl border border-[var(--c-border)] bg-[var(--c-bg-sub)] px-5 py-4 text-left transition-colors hover:border-[var(--c-border-focus)]"
               >
                 <div className="flex items-start justify-between gap-2">
                   <h3 className="text-sm font-medium text-[var(--c-text-primary)]">
-                    {agentName(agent)}
+                    {agent.display_name}
                   </h3>
                   <div className="flex shrink-0 items-center gap-1.5">
-                    {agent.config.is_default && (
+                    {agent.source === 'repo' && (
+                      <span className="rounded bg-blue-500/10 px-1.5 py-0.5 text-[10px] font-medium text-blue-500">
+                        {ta.builtIn}
+                      </span>
+                    )}
+                    {agent.is_default && (
                       <span className="rounded bg-[var(--c-bg-tag)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--c-text-muted)]">
                         {t.common.default}
                       </span>
                     )}
-                    {agent.persona?.is_active && (
+                    {agent.is_active && (
                       <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-500">
                         {ta.active}
                       </span>
@@ -614,7 +545,7 @@ export function AgentsPage() {
                   </div>
                 </div>
                 <div className="text-xs text-[var(--c-text-muted)]">
-                  {ta.model}: {agent.config.model || '-'}
+                  {ta.model}: {agent.model || '-'}
                 </div>
               </button>
             ))}
