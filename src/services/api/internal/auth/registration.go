@@ -319,7 +319,7 @@ func (s *RegistrationService) Register(
 	}
 
 	now := s.now()
-	token, err := s.tokenService.Issue(user.ID, org.ID, now)
+	token, err := s.tokenService.Issue(user.ID, org.ID, "owner", now)
 	if err != nil {
 		return RegisterResult{}, err
 	}

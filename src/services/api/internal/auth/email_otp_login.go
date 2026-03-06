@@ -178,11 +178,13 @@ func (s *EmailOTPLoginService) issueTokenPair(ctx context.Context, userID uuid.U
 	now := time.Now().UTC()
 
 	var orgID uuid.UUID
+	var orgRole string
 	if membership, err := s.membershipRepo.GetDefaultForUser(ctx, userID); err == nil && membership != nil {
 		orgID = membership.OrgID
+		orgRole = membership.Role
 	}
 
-	accessToken, err := s.tokenService.Issue(userID, orgID, now)
+	accessToken, err := s.tokenService.Issue(userID, orgID, orgRole, now)
 	if err != nil {
 		return IssuedTokenPair{}, err
 	}

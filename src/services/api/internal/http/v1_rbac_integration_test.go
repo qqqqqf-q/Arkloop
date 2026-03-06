@@ -67,7 +67,7 @@ func TestRBACPermissions(t *testing.T) {
 		t.Fatalf("invitations repo: %v", err)
 	}
 
-	authService, err := auth.NewService(userRepo, credRepo, membershipRepo, passwordHasher, tokenService, refreshTokenRepo)
+	authService, err := auth.NewService(userRepo, credRepo, membershipRepo, passwordHasher, tokenService, refreshTokenRepo, nil)
 	if err != nil {
 		t.Fatalf("auth service: %v", err)
 	}
@@ -135,6 +135,14 @@ func TestRBACPermissions(t *testing.T) {
 	); err != nil {
 		t.Fatalf("demote B: %v", err)
 	}
+
+	// 角色来源于 token claims，需要重新登录获取新 token
+	reLoginB := doJSON(handler, nethttp.MethodPost, "/v1/auth/login",
+		map[string]any{"login": "rbac_member", "password": "pwdpwdpwd"}, nil)
+	if reLoginB.Code != nethttp.StatusOK {
+		t.Fatalf("re-login B: %d %s", reLoginB.Code, reLoginB.Body.String())
+	}
+	tokenB = decodeJSONBody[loginResponse](t, reLoginB.Body.Bytes()).AccessToken
 
 	inviteBody := map[string]any{"email": "guest@example.com", "role": "member"}
 
@@ -228,6 +236,14 @@ func TestRBACPermissions(t *testing.T) {
 	); err != nil {
 		t.Fatalf("set legacy role: %v", err)
 	}
+	// 同样需要重新登录拿到 role=legacy_role 的 token
+	reLoginB2 := doJSON(handler, nethttp.MethodPost, "/v1/auth/login",
+		map[string]any{"login": "rbac_member", "password": "pwdpwdpwd"}, nil)
+	if reLoginB2.Code != nethttp.StatusOK {
+		t.Fatalf("re-login B (legacy): %d %s", reLoginB2.Code, reLoginB2.Body.String())
+	}
+	tokenB = decodeJSONBody[loginResponse](t, reLoginB2.Body.Bytes()).AccessToken
+
 	unknownRoleInvite := doJSON(handler, nethttp.MethodPost,
 		"/v1/orgs/"+orgBID+"/invitations",
 		inviteBody,

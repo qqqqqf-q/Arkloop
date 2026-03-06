@@ -68,7 +68,7 @@ func TestRunsCreateListGetCancelAndEnqueue(t *testing.T) {
 		t.Fatalf("new run repo: %v", err)
 	}
 
-	authService, err := auth.NewService(userRepo, credentialRepo, membershipRepo, passwordHasher, tokenService, refreshTokenRepo)
+	authService, err := auth.NewService(userRepo, credentialRepo, membershipRepo, passwordHasher, tokenService, refreshTokenRepo, nil)
 	if err != nil {
 		t.Fatalf("new auth service: %v", err)
 	}
@@ -607,7 +607,7 @@ func TestStreamRunEvents(t *testing.T) {
 		t.Fatalf("new run repo: %v", err)
 	}
 
-	authService, err := auth.NewService(userRepo, credentialRepo, membershipRepo, passwordHasher, tokenService, refreshTokenRepo)
+	authService, err := auth.NewService(userRepo, credentialRepo, membershipRepo, passwordHasher, tokenService, refreshTokenRepo, nil)
 	if err != nil {
 		t.Fatalf("new auth service: %v", err)
 	}
@@ -811,7 +811,7 @@ func TestListGlobalRuns(t *testing.T) {
 		t.Fatalf("new run repo: %v", err)
 	}
 
-	authService, err := auth.NewService(userRepo, credentialRepo, membershipRepo, passwordHasher, tokenService, refreshTokenRepo)
+	authService, err := auth.NewService(userRepo, credentialRepo, membershipRepo, passwordHasher, tokenService, refreshTokenRepo, nil)
 	if err != nil {
 		t.Fatalf("new auth service: %v", err)
 	}

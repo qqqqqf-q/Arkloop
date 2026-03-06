@@ -44,6 +44,7 @@ func (e TokenInvalidError) Error() string {
 type VerifiedAccessToken struct {
 	UserID   uuid.UUID
 	OrgID    uuid.UUID // uuid.Nil 表示旧 token 无 org claim
+	OrgRole  string    // 组织角色（如 owner/member/platform_admin）；旧 token 为空
 	IssuedAt time.Time
 }
 
@@ -77,7 +78,7 @@ func (s *JwtAccessTokenService) RefreshTokenTTLSeconds() int {
 	return s.refreshTokenTTLSeconds
 }
 
-func (s *JwtAccessTokenService) Issue(userID uuid.UUID, orgID uuid.UUID, now time.Time) (string, error) {
+func (s *JwtAccessTokenService) Issue(userID uuid.UUID, orgID uuid.UUID, orgRole string, now time.Time) (string, error) {
 	if userID == uuid.Nil {
 		return "", errors.New("user_id must not be nil")
 	}
@@ -95,6 +96,9 @@ func (s *JwtAccessTokenService) Issue(userID uuid.UUID, orgID uuid.UUID, now tim
 	}
 	if orgID != uuid.Nil {
 		claims["org"] = orgID.String()
+	}
+	if orgRole != "" {
+		claims["role"] = orgRole
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
@@ -168,9 +172,17 @@ func (s *JwtAccessTokenService) Verify(token string) (VerifiedAccessToken, error
 		}
 	}
 
+	orgRole := ""
+	if roleRaw, exists := claims["role"]; exists {
+		if roleStr, ok := roleRaw.(string); ok {
+			orgRole = roleStr
+		}
+	}
+
 	return VerifiedAccessToken{
 		UserID:   userID,
 		OrgID:    orgID,
+		OrgRole:  orgRole,
 		IssuedAt: issuedAt,
 	}, nil
 }

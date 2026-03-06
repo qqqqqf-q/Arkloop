@@ -69,7 +69,7 @@ func buildAPIKeyHandler(t *testing.T) (nethttp.Handler, *data.APIKeysRepository,
 		t.Fatalf("new api keys repo: %v", err)
 	}
 
-	authService, err := auth.NewService(userRepo, credRepo, membershipRepo, passwordHasher, tokenService, refreshTokenRepo)
+	authService, err := auth.NewService(userRepo, credRepo, membershipRepo, passwordHasher, tokenService, refreshTokenRepo, nil)
 	if err != nil {
 		t.Fatalf("new auth service: %v", err)
 	}
@@ -268,7 +268,7 @@ func TestAPIKeyAuditLog(t *testing.T) {
 		t.Fatalf("api keys repo: %v", err)
 	}
 
-	authService, err := auth.NewService(userRepo, credRepo, membershipRepo, passwordHasher, tokenService, refreshTokenRepo)
+	authService, err := auth.NewService(userRepo, credRepo, membershipRepo, passwordHasher, tokenService, refreshTokenRepo, nil)
 	if err != nil {
 		t.Fatalf("auth service: %v", err)
 	}

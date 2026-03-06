@@ -2,6 +2,7 @@ package http
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	nethttp "net/http"
@@ -37,33 +38,51 @@ func authenticateActor(
 	authService *auth.Service,
 	membershipRepo *data.OrgMembershipRepository,
 ) (*actor, bool) {
-	user, ok := authenticateUser(w, r, traceID, authService)
+	_ = membershipRepo
+
+	if authService == nil {
+		writeAuthNotConfigured(w, traceID)
+		return nil, false
+	}
+
+	token, ok := parseBearerToken(w, r, traceID)
 	if !ok {
 		return nil, false
 	}
 
-	if membershipRepo == nil {
-		WriteError(w, nethttp.StatusServiceUnavailable, "database.not_configured", "database not configured", traceID, nil)
-		return nil, false
-	}
-
-	membership, err := membershipRepo.GetDefaultForUser(r.Context(), user.ID)
+	verified, err := authService.VerifyAccessTokenForActor(r.Context(), token)
 	if err != nil {
+		var expired auth.TokenExpiredError
+		if errors.As(err, &expired) {
+			WriteError(w, nethttp.StatusUnauthorized, "auth.token_expired", expired.Error(), traceID, nil)
+			return nil, false
+		}
+		var invalid auth.TokenInvalidError
+		if errors.As(err, &invalid) {
+			WriteError(w, nethttp.StatusUnauthorized, "auth.invalid_token", invalid.Error(), traceID, nil)
+			return nil, false
+		}
+		var notFound auth.UserNotFoundError
+		if errors.As(err, &notFound) {
+			WriteError(w, nethttp.StatusUnauthorized, "auth.user_not_found", "user not found", traceID, nil)
+			return nil, false
+		}
 		WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return nil, false
 	}
-	if membership == nil {
+
+	if verified.OrgID == uuid.Nil || strings.TrimSpace(verified.OrgRole) == "" {
 		WriteError(w, nethttp.StatusForbidden, "auth.no_org_membership", "user has no org membership", traceID, nil)
 		return nil, false
 	}
 
 	// v1：权限通过 PermissionsForRole 静态映射，无额外 DB 查询。
-	// membership.RoleID 为后续自定义角色动态加载预留，届时改为查询 rbac_roles 表。
+	// verified.OrgRole 为后续自定义角色动态加载预留，届时改为查询 rbac_roles 表。
 	return &actor{
-		OrgID:       membership.OrgID,
-		UserID:      user.ID,
-		OrgRole:     membership.Role,
-		Permissions: auth.PermissionsForRole(membership.Role),
+		OrgID:       verified.OrgID,
+		UserID:      verified.UserID,
+		OrgRole:     verified.OrgRole,
+		Permissions: auth.PermissionsForRole(verified.OrgRole),
 	}, true
 }
 
@@ -92,7 +111,38 @@ func resolveActor(
 		return nil, false
 	}
 
-	return authenticateActor(w, r, traceID, authService, membershipRepo)
+	verified, err := authService.VerifyAccessTokenForActor(r.Context(), token)
+	if err != nil {
+		var expired auth.TokenExpiredError
+		if errors.As(err, &expired) {
+			WriteError(w, nethttp.StatusUnauthorized, "auth.token_expired", expired.Error(), traceID, nil)
+			return nil, false
+		}
+		var invalid auth.TokenInvalidError
+		if errors.As(err, &invalid) {
+			WriteError(w, nethttp.StatusUnauthorized, "auth.invalid_token", invalid.Error(), traceID, nil)
+			return nil, false
+		}
+		var notFound auth.UserNotFoundError
+		if errors.As(err, &notFound) {
+			WriteError(w, nethttp.StatusUnauthorized, "auth.user_not_found", "user not found", traceID, nil)
+			return nil, false
+		}
+		WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+		return nil, false
+	}
+
+	if verified.OrgID == uuid.Nil || strings.TrimSpace(verified.OrgRole) == "" {
+		WriteError(w, nethttp.StatusForbidden, "auth.no_org_membership", "user has no org membership", traceID, nil)
+		return nil, false
+	}
+
+	return &actor{
+		OrgID:       verified.OrgID,
+		UserID:      verified.UserID,
+		OrgRole:     verified.OrgRole,
+		Permissions: auth.PermissionsForRole(verified.OrgRole),
+	}, true
 }
 
 func resolveActorFromAPIKey(

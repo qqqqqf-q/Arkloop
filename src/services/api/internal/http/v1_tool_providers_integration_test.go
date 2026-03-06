@@ -93,7 +93,7 @@ func TestToolProvidersListActivateCredentialAndClear(t *testing.T) {
 		t.Fatalf("new token service: %v", err)
 	}
 
-	authService, err := auth.NewService(userRepo, credRepo, membershipRepo, passwordHasher, tokenService, refreshTokenRepo)
+	authService, err := auth.NewService(userRepo, credRepo, membershipRepo, passwordHasher, tokenService, refreshTokenRepo, nil)
 	if err != nil {
 		t.Fatalf("new auth service: %v", err)
 	}
@@ -110,7 +110,7 @@ func TestToolProvidersListActivateCredentialAndClear(t *testing.T) {
 		t.Fatalf("create membership: %v", err)
 	}
 
-	token, err := tokenService.Issue(user.ID, org.ID, time.Now().UTC())
+	token, err := tokenService.Issue(user.ID, org.ID, auth.RolePlatformAdmin, time.Now().UTC())
 	if err != nil {
 		t.Fatalf("issue token: %v", err)
 	}
@@ -264,7 +264,7 @@ func TestToolProvidersListActivateCredentialAndClear(t *testing.T) {
 	if _, err := membershipRepo.Create(ctx, org.ID, orgAdmin.ID, auth.RoleOrgAdmin); err != nil {
 		t.Fatalf("create org admin membership: %v", err)
 	}
-	orgToken, err := tokenService.Issue(orgAdmin.ID, org.ID, time.Now().UTC())
+	orgToken, err := tokenService.Issue(orgAdmin.ID, org.ID, auth.RoleOrgAdmin, time.Now().UTC())
 	if err != nil {
 		t.Fatalf("issue org token: %v", err)
 	}

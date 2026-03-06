@@ -54,7 +54,7 @@ func TestAdminUsersListSearchPatchAndForbidden(t *testing.T) {
 		t.Fatalf("new audit repo: %v", err)
 	}
 
-	authService, err := auth.NewService(userRepo, credentialRepo, membershipRepo, passwordHasher, tokenService, refreshTokenRepo)
+	authService, err := auth.NewService(userRepo, credentialRepo, membershipRepo, passwordHasher, tokenService, refreshTokenRepo, nil)
 	if err != nil {
 		t.Fatalf("new auth service: %v", err)
 	}
@@ -211,6 +211,12 @@ func TestAdminUsersListSearchPatchAndForbidden(t *testing.T) {
 		if updated.Status != "suspended" {
 			t.Fatalf("expected suspended, got %s", updated.Status)
 		}
+	})
+
+	// 测试: 封禁后旧 token 立即失效（强一致吊销）
+	t.Run("suspended user token revoked", func(t *testing.T) {
+		resp := doJSON(handler, nethttp.MethodGet, "/v1/me", nil, authHeader(alicePayload.AccessToken))
+		assertErrorEnvelope(t, resp, nethttp.StatusUnauthorized, "auth.invalid_token")
 	})
 
 	// 测试: 封禁后状态过滤可见

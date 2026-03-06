@@ -92,6 +92,33 @@ func (r *UserRepository) GetByID(ctx context.Context, userID uuid.UUID) (*User, 
 	return &user, nil
 }
 
+// GetTokensInvalidBefore 仅查询 tokens_invalid_before，用于鉴权热路径的吊销校验。
+// ok=false 表示用户不存在。
+func (r *UserRepository) GetTokensInvalidBefore(ctx context.Context, userID uuid.UUID) (val time.Time, ok bool, err error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if userID == uuid.Nil {
+		return time.Time{}, false, fmt.Errorf("user_id must not be nil")
+	}
+
+	err = r.db.QueryRow(
+		ctx,
+		`SELECT tokens_invalid_before
+		 FROM users
+		 WHERE id = $1
+		 LIMIT 1`,
+		userID,
+	).Scan(&val)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return time.Time{}, false, nil
+		}
+		return time.Time{}, false, err
+	}
+	return val, true, nil
+}
+
 // GetUsernames 批量获取用户 username，返回 map[user_id]username。
 func (r *UserRepository) GetUsernames(ctx context.Context, userIDs []uuid.UUID) (map[uuid.UUID]string, error) {
 	if len(userIDs) == 0 {

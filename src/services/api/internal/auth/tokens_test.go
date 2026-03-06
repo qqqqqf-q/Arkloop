@@ -47,7 +47,7 @@ func TestNewJwtAccessTokenService(t *testing.T) {
 
 func TestIssueRejectsNilUserID(t *testing.T) {
 	svc := mustTokenService(t)
-	_, err := svc.Issue(uuid.Nil, uuid.New(), time.Now())
+	_, err := svc.Issue(uuid.Nil, uuid.New(), "owner", time.Now())
 	if err == nil {
 		t.Fatalf("expected error for nil userID")
 	}
@@ -57,9 +57,10 @@ func TestIssueAndVerifyRoundTrip(t *testing.T) {
 	svc := mustTokenService(t)
 	userID := uuid.New()
 	orgID := uuid.New()
+	orgRole := "owner"
 	now := time.Now().UTC().Truncate(time.Second)
 
-	token, err := svc.Issue(userID, orgID, now)
+	token, err := svc.Issue(userID, orgID, orgRole, now)
 	if err != nil {
 		t.Fatalf("issue: %v", err)
 	}
@@ -77,6 +78,9 @@ func TestIssueAndVerifyRoundTrip(t *testing.T) {
 	if verified.OrgID != orgID {
 		t.Errorf("orgID: got %s, want %s", verified.OrgID, orgID)
 	}
+	if verified.OrgRole != orgRole {
+		t.Errorf("orgRole: got %q, want %q", verified.OrgRole, orgRole)
+	}
 	if verified.IssuedAt.Unix() != now.Unix() {
 		t.Errorf("issuedAt: got %v, want %v", verified.IssuedAt.Unix(), now.Unix())
 	}
@@ -87,7 +91,7 @@ func TestIssueWithoutOrgID(t *testing.T) {
 	userID := uuid.New()
 	now := time.Now().UTC()
 
-	token, err := svc.Issue(userID, uuid.Nil, now)
+	token, err := svc.Issue(userID, uuid.Nil, "", now)
 	if err != nil {
 		t.Fatalf("issue: %v", err)
 	}
@@ -99,6 +103,9 @@ func TestIssueWithoutOrgID(t *testing.T) {
 	if verified.OrgID != uuid.Nil {
 		t.Errorf("orgID should be Nil when not set, got %s", verified.OrgID)
 	}
+	if verified.OrgRole != "" {
+		t.Errorf("orgRole should be empty when not set, got %q", verified.OrgRole)
+	}
 	if verified.UserID != userID {
 		t.Errorf("userID: got %s, want %s", verified.UserID, userID)
 	}
@@ -106,7 +113,7 @@ func TestIssueWithoutOrgID(t *testing.T) {
 
 func TestIssueZeroNowDoesNotError(t *testing.T) {
 	svc := mustTokenService(t)
-	token, err := svc.Issue(uuid.New(), uuid.New(), time.Time{})
+	token, err := svc.Issue(uuid.New(), uuid.New(), "owner", time.Time{})
 	if err != nil {
 		t.Fatalf("issue with zero time: %v", err)
 	}
@@ -122,7 +129,7 @@ func TestVerifyExpiredToken(t *testing.T) {
 	}
 
 	past := time.Now().UTC().Add(-10 * time.Second)
-	token, err := svc.Issue(uuid.New(), uuid.New(), past)
+	token, err := svc.Issue(uuid.New(), uuid.New(), "owner", past)
 	if err != nil {
 		t.Fatalf("issue: %v", err)
 	}
@@ -166,7 +173,7 @@ func TestVerifyWrongSecret(t *testing.T) {
 	svc1, _ := NewJwtAccessTokenService("secret-1", 3600, 86400)
 	svc2, _ := NewJwtAccessTokenService("secret-2", 3600, 86400)
 
-	token, err := svc1.Issue(uuid.New(), uuid.New(), time.Now())
+	token, err := svc1.Issue(uuid.New(), uuid.New(), "owner", time.Now())
 	if err != nil {
 		t.Fatalf("issue: %v", err)
 	}

@@ -63,7 +63,7 @@ func TestRedemptionCodesIntegration(t *testing.T) {
 		t.Fatalf("new redemption repo: %v", err)
 	}
 
-	authService, err := auth.NewService(userRepo, credentialRepo, membershipRepo, passwordHasher, tokenService, refreshTokenRepo)
+	authService, err := auth.NewService(userRepo, credentialRepo, membershipRepo, passwordHasher, tokenService, refreshTokenRepo, nil)
 	if err != nil {
 		t.Fatalf("new auth service: %v", err)
 	}

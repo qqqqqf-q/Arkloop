@@ -5,12 +5,15 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
+	"strconv"
 	"time"
 
 	"arkloop/services/api/internal/data"
 	"arkloop/services/api/internal/featureflag"
 
 	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 )
 
 type InvalidCredentialsError struct{}
@@ -63,6 +66,7 @@ type Service struct {
 	tokenService     *JwtAccessTokenService
 	refreshTokenRepo *data.RefreshTokenRepository
 	flagService      *featureflag.Service
+	redisClient      *redis.Client
 }
 
 func NewService(
@@ -72,6 +76,7 @@ func NewService(
 	passwordHasher *BcryptPasswordHasher,
 	tokenService *JwtAccessTokenService,
 	refreshTokenRepo *data.RefreshTokenRepository,
+	redisClient *redis.Client,
 ) (*Service, error) {
 	if userRepo == nil {
 		return nil, errors.New("userRepo must not be nil")
@@ -98,6 +103,7 @@ func NewService(
 		passwordHasher:   passwordHasher,
 		tokenService:     tokenService,
 		refreshTokenRepo: refreshTokenRepo,
+		redisClient:      redisClient,
 	}, nil
 }
 
@@ -112,6 +118,11 @@ func (s *Service) RefreshTokenTTLSeconds() int {
 	}
 	return s.tokenService.RefreshTokenTTLSeconds()
 }
+
+const (
+	tokensInvalidBeforeRedisKeyPrefix = "arkloop:auth:tokens_invalid_before:"
+	tokensInvalidBeforeRedisTimeout   = 50 * time.Millisecond
+)
 
 func (s *Service) IssueAccessToken(ctx context.Context, login string, password string) (IssuedTokenPair, error) {
 	credential, err := s.credentialRepo.GetByLogin(ctx, login)
@@ -191,9 +202,9 @@ func (s *Service) ConsumeRefreshToken(ctx context.Context, plaintext string) (Is
 // issueTokenPair 为指定用户签发 Access Token + Refresh Token，并将 Refresh Token 持久化到 DB。
 func (s *Service) issueTokenPair(ctx context.Context, userID uuid.UUID) (IssuedTokenPair, error) {
 	now := time.Now().UTC()
-	orgID := s.resolveDefaultOrgID(ctx, userID)
+	orgID, orgRole := s.resolveDefaultOrg(ctx, userID)
 
-	accessToken, err := s.tokenService.Issue(userID, orgID, now)
+	accessToken, err := s.tokenService.Issue(userID, orgID, orgRole, now)
 	if err != nil {
 		return IssuedTokenPair{}, err
 	}
@@ -214,13 +225,13 @@ func (s *Service) issueTokenPair(ctx context.Context, userID uuid.UUID) (IssuedT
 	}, nil
 }
 
-// resolveDefaultOrgID 查用户的默认 org；失败时静默返回 uuid.Nil，不阻断认证流程。
-func (s *Service) resolveDefaultOrgID(ctx context.Context, userID uuid.UUID) uuid.UUID {
+// resolveDefaultOrg 查用户的默认 org；失败时静默返回 uuid.Nil，不阻断认证流程。
+func (s *Service) resolveDefaultOrg(ctx context.Context, userID uuid.UUID) (orgID uuid.UUID, orgRole string) {
 	membership, err := s.membershipRepo.GetDefaultForUser(ctx, userID)
 	if err != nil || membership == nil {
-		return uuid.Nil
+		return uuid.Nil, ""
 	}
-	return membership.OrgID
+	return membership.OrgID, membership.Role
 }
 
 func (s *Service) AuthenticateUser(ctx context.Context, token string) (*data.User, error) {
@@ -237,26 +248,146 @@ func (s *Service) AuthenticateUser(ctx context.Context, token string) (*data.Use
 		return nil, UserNotFoundError{UserID: verified.UserID}
 	}
 
-	if user.Status != "active" {
-		return nil, SuspendedUserError{UserID: user.ID, Status: user.Status}
-	}
+	// tokens_invalid_before 是硬吊销开关，优先于 status。
 	if verified.IssuedAt.Before(user.TokensInvalidBefore) {
 		return nil, TokenInvalidError{message: "token revoked"}
 	}
+	if user.Status != "active" {
+		return nil, SuspendedUserError{UserID: user.ID, Status: user.Status}
+	}
 	return user, nil
+}
+
+// VerifyAccessTokenForActor 仅用于 API 热路径的 Actor 解析：
+// - JWT 验签 + exp/typ/iat 校验
+// - tokens_invalid_before 吊销判断（Redis 优先，必要时回源 Postgres 并回填 Redis）
+// 不做 user.Status 校验；封禁/删除等写路径必须 bump tokens_invalid_before。
+func (s *Service) VerifyAccessTokenForActor(ctx context.Context, token string) (VerifiedAccessToken, error) {
+	if s == nil || s.tokenService == nil {
+		return VerifiedAccessToken{}, fmt.Errorf("tokenService not configured")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	verified, err := s.tokenService.Verify(token)
+	if err != nil {
+		return VerifiedAccessToken{}, err
+	}
+
+	tokensInvalidBefore, err := s.resolveTokensInvalidBefore(ctx, verified.UserID)
+	if err != nil {
+		return VerifiedAccessToken{}, err
+	}
+	if verified.IssuedAt.Before(tokensInvalidBefore) {
+		return VerifiedAccessToken{}, TokenInvalidError{message: "token revoked"}
+	}
+	return verified, nil
+}
+
+func tokensInvalidBeforeRedisKey(userID uuid.UUID) string {
+	return tokensInvalidBeforeRedisKeyPrefix + userID.String()
+}
+
+func (s *Service) refreshTokenTTL() time.Duration {
+	ttlSeconds := s.RefreshTokenTTLSeconds()
+	if ttlSeconds <= 0 {
+		return 0
+	}
+	return time.Duration(ttlSeconds) * time.Second
+}
+
+func (s *Service) resolveTokensInvalidBefore(ctx context.Context, userID uuid.UUID) (time.Time, error) {
+	if userID == uuid.Nil {
+		return time.Time{}, fmt.Errorf("user_id must not be nil")
+	}
+
+	// 1) Redis 命中
+	if s.redisClient != nil {
+		redisCtx, cancel := context.WithTimeout(ctx, tokensInvalidBeforeRedisTimeout)
+		raw, err := s.redisClient.Get(redisCtx, tokensInvalidBeforeRedisKey(userID)).Result()
+		cancel()
+
+		if err == nil {
+			micros, parseErr := strconv.ParseInt(raw, 10, 64)
+			if parseErr == nil {
+				return time.UnixMicro(micros).UTC(), nil
+			}
+		} else if !errors.Is(err, redis.Nil) {
+			// Redis 错误时 fail-open：回源 Postgres（由 DB 决定最终一致性）
+		}
+	}
+
+	// 2) 回源 Postgres
+	if s.userRepo == nil {
+		return time.Time{}, fmt.Errorf("userRepo not configured")
+	}
+	val, ok, err := s.userRepo.GetTokensInvalidBefore(ctx, userID)
+	if err != nil {
+		return time.Time{}, err
+	}
+	if !ok {
+		return time.Time{}, UserNotFoundError{UserID: userID}
+	}
+
+	// 3) 回填 Redis（best-effort）
+	if s.redisClient != nil {
+		ttl := s.refreshTokenTTL()
+		if ttl > 0 {
+			microAligned := val.UTC().Truncate(time.Microsecond)
+			payload := strconv.FormatInt(microAligned.UnixMicro(), 10)
+
+			redisCtx, cancel := context.WithTimeout(ctx, tokensInvalidBeforeRedisTimeout)
+			_ = s.redisClient.Set(redisCtx, tokensInvalidBeforeRedisKey(userID), payload, ttl).Err()
+			cancel()
+		}
+	}
+
+	return val.UTC(), nil
+}
+
+// BumpTokensInvalidBefore 强制吊销指定用户的所有 access token（以及未来 refresh 生成的 access token）。
+// DB 是唯一真相，Redis 仅作缓存，写 Redis 失败不会影响主流程。
+func (s *Service) BumpTokensInvalidBefore(ctx context.Context, userID uuid.UUID, now time.Time) error {
+	if s == nil || s.userRepo == nil {
+		return fmt.Errorf("userRepo not configured")
+	}
+	if userID == uuid.Nil {
+		return fmt.Errorf("user_id must not be nil")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	now = now.UTC().Truncate(time.Microsecond)
+
+	if err := s.userRepo.BumpTokensInvalidBefore(ctx, userID, now); err != nil {
+		return err
+	}
+
+	if s.redisClient != nil {
+		ttl := s.refreshTokenTTL()
+		if ttl > 0 {
+			payload := strconv.FormatInt(now.UnixMicro(), 10)
+			redisCtx, cancel := context.WithTimeout(ctx, tokensInvalidBeforeRedisTimeout)
+			_ = s.redisClient.Set(redisCtx, tokensInvalidBeforeRedisKey(userID), payload, ttl).Err()
+			cancel()
+		}
+	}
+
+	return nil
 }
 
 func (s *Service) Logout(ctx context.Context, userID uuid.UUID, now time.Time) error {
 	if userID == uuid.Nil {
 		return errors.New("user_id must not be nil")
 	}
-	if now.IsZero() {
-		now = time.Now().UTC()
-	}
 	if err := s.refreshTokenRepo.RevokeAllForUser(ctx, userID); err != nil {
 		return err
 	}
-	return s.userRepo.BumpTokensInvalidBefore(ctx, userID, now)
+	return s.BumpTokensInvalidBefore(ctx, userID, now)
 }
 
 func sha256RefreshToken(plaintext string) string {

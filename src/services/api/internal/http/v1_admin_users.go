@@ -39,14 +39,14 @@ type adminUserOrgResponse struct {
 
 func toAdminUserResponse(u data.User) adminUserResponse {
 	resp := adminUserResponse{
-		ID:          u.ID.String(),
-		Username:    u.Username,
-		Email:       u.Email,
-		Status:      u.Status,
-		AvatarURL:   u.AvatarURL,
-		Locale:      u.Locale,
-		Timezone:    u.Timezone,
-		CreatedAt:   u.CreatedAt.UTC().Format("2006-01-02T15:04:05.999999999Z"),
+		ID:        u.ID.String(),
+		Username:  u.Username,
+		Email:     u.Email,
+		Status:    u.Status,
+		AvatarURL: u.AvatarURL,
+		Locale:    u.Locale,
+		Timezone:  u.Timezone,
+		CreatedAt: u.CreatedAt.UTC().Format("2006-01-02T15:04:05.999999999Z"),
 	}
 	if u.EmailVerifiedAt != nil {
 		s := u.EmailVerifiedAt.UTC().Format("2006-01-02T15:04:05.999999999Z")
@@ -278,6 +278,12 @@ func deleteUser(
 			return
 		}
 
+		// 删除用户后立即吊销其所有 token，避免旧 token 继续访问。
+		if err := authService.BumpTokensInvalidBefore(r.Context(), userID, time.Now().UTC()); err != nil {
+			WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			return
+		}
+
 		if auditWriter != nil {
 			auditWriter.WriteUserStatusChanged(r.Context(), traceID, actor.UserID, userID, "active", "deleted")
 		}
@@ -363,6 +369,14 @@ func patchAdminUser(
 				auditWriter.WriteUserStatusChanged(r.Context(), traceID, actor.UserID, userID, oldStatus, newStatus)
 			}
 
+			// 封禁后立即吊销其所有 token，保证写后强一致。
+			if newStatus == "suspended" {
+				if err := authService.BumpTokensInvalidBefore(r.Context(), userID, time.Now().UTC()); err != nil {
+					WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+					return
+				}
+			}
+
 			// 封禁时停用该用户的所有邀请码
 			if newStatus == "suspended" && inviteCodesRepo != nil {
 				_ = inviteCodesRepo.DeactivateByUserID(r.Context(), userID)
@@ -395,10 +409,10 @@ func patchAdminUser(
 		}
 
 		params := data.UpdateProfileParams{
-			Username: username,
-			Locale:      existing.Locale,
-			Timezone:    existing.Timezone,
-			Email:       existing.Email,
+			Username:        username,
+			Locale:          existing.Locale,
+			Timezone:        existing.Timezone,
+			Email:           existing.Email,
 			EmailVerifiedAt: existing.EmailVerifiedAt,
 		}
 

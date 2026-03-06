@@ -452,7 +452,7 @@ func (a *Application) Run(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		authService, err = auth.NewService(userRepo, credentialRepo, membershipRepo, passwordHasher, tokenService, refreshTokenRepo)
+		authService, err = auth.NewService(userRepo, credentialRepo, membershipRepo, passwordHasher, tokenService, refreshTokenRepo, redisClient)
 		if err != nil {
 			return err
 		}
