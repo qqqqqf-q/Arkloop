@@ -1343,3 +1343,862 @@ v1 可以先简化为：
 3. compute session 回收后可以 restore 工作区状态
 4. `/tmp/output` 产物稳定上传，且不会和 session state 混淆
 5. 系统具备 org 隔离、配额、日志、指标与回归保障
+
+## 18. 追加说明：在当前架构基础上继续演进的最终方案
+
+本节是**追加说明**，不是对前文的覆盖性重写。
+
+原因很明确：
+
+- 前文 Phase 1 ~ Phase 5 描述的是当前 Arkloop `shell_execute` 已有实现与近期演进路径
+- 这些内容仍然是理解现有代码、理解兼容边界、理解当前 run 级 shell 语义的基础
+- 但如果 Arkloop 的最终目标不只是“同一 run 内复用 shell”，而是继续走向：
+  - skills market
+  - Git 仓库导入
+  - 文件夹上传
+  - 跨 run 持续工作
+  - 用户长期个人工作区
+  - 多 agent / sub-agent 协作执行
+  那么仅按前文 Phase 1 ~ Phase 5 直接外推，会继续留下更大的技术债
+
+因此，从本节开始，需要把目标重新提升为：
+
+**不是把 `shell_execute` 做成更强的一次性终端工具，而是把 Arkloop 做成一个以 workspace 为中心、以 unified exec 为执行内核、以 session/workspace registry 为真相源的长期执行系统。**
+
+这也是后续 P0 / P1 / P2 的真正定义基础。
+
+---
+
+## 19. 最终目标重新定义
+
+### 19.1 真正的一等公民不是 shell，而是 workspace
+
+从长期看，Arkloop 需要承载的不是“一个会话型 bash”，而是一个**长期工作环境**。
+
+这个工作环境至少要同时支持：
+
+- Agent 在同一环境里连续运行 shell / python / build / test / analysis
+- 仓库通过 `git clone` 进入工作区
+- 本地文件夹通过上传进入工作区
+- skills market 安装的 skill 进入工作区
+- 生成的中间文件、缓存、脚本、配置留在工作区
+- shell session 被回收后，工作区仍可继续使用
+- 不同 run 可继续复用同一个工作区
+
+因此：
+
+- shell session 不是最终持久对象
+- checkpoint 也不是最终持久对象
+- **workspace 才是最终持久对象**
+
+### 19.2 `shell_execute` 的未来定位
+
+未来的 `shell_execute` 不应继续被理解为：
+
+- “执行一条 shell 命令并返回结果”
+
+而应被理解为：
+
+- “在某个长期工作环境中，通过一个可复用执行会话执行动作”
+
+这意味着：
+
+- shell 是工作区的一个 attach 点
+- session 是工作区上的一个活动执行视角
+- artifacts 是工作区产物的一部分，但不等于工作区本体
+- checkpoint 只是工作区恢复机制的一环，不是唯一真相源
+
+### 19.3 最终目标一句话版本
+
+最终目标应定义为：
+
+**Arkloop Execute System = workspace-first 的长期执行系统；`shell_execute` 只是该系统对 LLM 暴露的一种交互式执行入口。**
+
+---
+
+## 20. 正式执行模型：采用 unified exec 内核
+
+### 20.1 推荐锁定的核心接口
+
+综合 Codex / OpenClaw / Gemini CLI 等设计经验，Arkloop 后续内部正式执行内核应采用：
+
+- `exec_command`
+- `write_stdin`
+
+其中：
+
+- `exec_command`
+  - 负责启动进程
+  - 负责初始等待
+  - 负责决定同步完成还是进入后台 session
+- `write_stdin`
+  - 负责后续 stdin 写入
+  - 当 `chars=""` 或省略时，固定语义为 poll / long-poll
+
+### 20.2 为什么不继续把未来能力堆在 `open|exec|read|write|signal|close`
+
+当前 Arkloop 的 `shell_execute` 已经使用 action 模型，这是 Phase 2 的正确过渡。
+
+但从长期看，如果还继续把后续能力直接堆到：
+
+- `open`
+- `exec`
+- `read`
+- `write`
+- `signal`
+- `close`
+
+会产生几个问题：
+
+1. 模型会继续把 shell 当作“手动轮询设备”
+2. `read` 与 `poll` 的消费语义不够稳定，未来容易和 transcript / UI / audit 混淆
+3. 工作区 attach / resume / fork / share_scope / lease 这些长期能力，不适合继续塞进已有 action 模型里硬扩展
+4. Worker、Sandbox、Guest Agent 都会继续堆 orchestrator 逻辑，边界越来越脏
+
+因此正确做法是：
+
+- 对模型生态短期保留 `shell_execute`，保证兼容
+- 但在 Worker ↔ Sandbox 的正式执行内核上，逐步收敛到 `exec_command + write_stdin`
+
+### 20.3 对外兼容策略
+
+短期对 LLM 仍可以暴露 `shell_execute`，但内部应通过薄适配层映射：
+
+- `shell_execute(action=exec)` -> `exec_command`
+- `shell_execute(action=write)` -> `write_stdin(chars=... )`
+- `shell_execute(action=read)` -> `write_stdin(chars="")`
+- `open / close / signal` 保留为兼容控制动作，但不再作为未来能力扩展的主要方向
+
+这能保证：
+
+- 当前功能不被推翻
+- 未来执行模型能自然演进
+- P1 / P2 不必继续建立在过时 action 语义上
+
+---
+
+## 21. 输出模型必须重构为三层
+
+### 21.1 三层输出模型
+
+正式执行内核必须固定保存三层输出：
+
+- `pending_output`
+  - 给工具调用消费的增量缓冲区
+- `head_tail_transcript`
+  - 给后续日志 / 调试 / UI / 审计查看的长期保留缓冲区
+- `tail`
+  - 给 running 状态快速摘要的最近窗口
+
+### 21.2 为什么必须三层并存
+
+只保留一种输出缓冲会产生严重问题：
+
+- 只保留全量 transcript
+  - poll 会不断重读旧输出
+- 只保留 pending
+  - 无法事后查历史与排查问题
+- 只保留 tail
+  - 大命令会丢失关键上下文
+
+因此必须明确下面的不变量：
+
+1. 新输出进入时，同时写入 `pending_output` 与 `head_tail_transcript`
+2. 每次 `write_stdin(...)` / poll 只 drain `pending_output`
+3. `head_tail_transcript` 永不因 poll 清空
+4. `tail` 永远只做最近窗口摘要，不参与消费语义
+
+### 21.3 明确拒绝的行为
+
+后续实现中必须明确拒绝：
+
+- 每次 poll 返回全量日志
+- 让模型自己 `sleep` 然后再发 `read`
+- 让模型自己判断“要不要重复读旧日志”
+- 把 transcript 与 pending 消费语义混在一起
+
+---
+
+## 22. 等待模型必须改成服务端 notify，而不是模型 busy-poll
+
+### 22.1 当前问题
+
+当前系统虽然已经有 `exec -> read -> read` 的会话能力，但模型仍然需要自己不断判断：
+
+- 是不是还在跑
+- 要不要继续 read
+- 当前这次 read 值不值得
+
+这会导致：
+
+- 主 loop 被 shell continuation 消耗
+- 短命令也可能白白多消耗 1~2 轮
+- 大量运行中任务表现为“模型自己 busy-poll”
+
+### 22.2 正确方向
+
+正式 unified exec 必须采用：
+
+- 输出事件到达 -> notify
+- 进程退出 -> notify
+- `collect_output_until_deadline(session, deadline)` 内部等待 notify 或 deadline
+- 允许极短 runtime 级兜底轮询，但只作为底层实现细节
+
+### 22.3 必须固定的规则
+
+- 不让模型自己 sleep 再 read
+- poll 返回“自上次消费以来的新输出”
+- 等待靠服务端 notify + deadline
+- 退出后要有 trailing-output grace，避免最后一批输出丢失
+- `yield_time_ms` 和 `timeout_ms` 必须服务端钳制
+
+---
+
+## 23. loop 预算模型必须分层，不能继续只靠 `max_iterations`
+
+### 23.1 当前问题
+
+目前 Arkloop 里：
+
+- 真正的 reasoning turn
+- shell `read`
+- tool follow-up
+- 一些短命令的补 read
+
+都共享同一个 `max_iterations` 预算。
+
+这会导致：
+
+- shell-heavy 任务很容易在完成业务前就被打断
+- “执行层 continuation”与“推理层 iteration”混为一谈
+- 平台上的默认值一旦偏小，就会大面积误杀真实工作流
+
+### 23.2 正确方向
+
+必须把预算拆开，至少拆成：
+
+- `reasoning_iterations`
+  - 真正的模型主循环预算
+- `tool_continuation_budget`
+  - shell / browser / 其他长任务 continuation 预算
+- `per_tool_soft_limits`
+  - 单命令最多 continuation 次数
+  - 单次 continuation 最长等待时间
+  - 单工具输出预算上限
+
+### 23.3 对 shell 的直接要求
+
+对 shell 而言，必须做到：
+
+- shell continuation 不与主 reasoning turn 完全同权
+- shell 的 `poll` / `write` / `signal` 不应轻易直接打穿 agent loop
+- 短命令应尽可能在首轮完成，少占 continuation 配额
+
+---
+
+## 24. 真正需要的稳定对象：`workspace_ref` 与 `session_ref`
+
+### 24.1 `session_ref`
+
+`shell_execute` 的未来引用不应是 live session id，而应是：
+
+- `session_ref`
+
+要求：
+
+- 对模型暴露稳定引用
+- 可映射到 live session
+- 可映射到 checkpoint revision
+- 支持 resume / restore / fork
+
+### 24.2 `workspace_ref`
+
+比 `session_ref` 更重要的是：
+
+- `workspace_ref`
+
+要求：
+
+- 对工作区暴露稳定引用
+- 不同 run 可继续复用同一个 workspace
+- 多个 session 可挂载到同一个 workspace
+- 技能安装、Git 导入、文件夹上传都归属 workspace
+
+### 24.3 为什么必须同时有两者
+
+只有 `session_ref` 没有 `workspace_ref`，会导致：
+
+- shell 成为被错误持久化的中心对象
+- 技能和仓库的长期归属无处安放
+- 跨 run 继续工作仍然只能靠 session 恢复硬撑
+
+只有 `workspace_ref` 没有 `session_ref`，又会导致：
+
+- 活动终端 attach / busy / signal / write 无法精确建模
+
+因此：
+
+- `workspace_ref` 管长期资产
+- `session_ref` 管活动执行视角
+
+---
+
+## 25. Session Registry / Workspace Registry 是必须的真相源
+
+### 25.1 不能继续靠运行态猜默认绑定
+
+未来要支持：
+
+- run 复用
+- thread 复用
+- workspace 复用
+- org 共享
+- sub-agent 协作
+
+就不能继续靠：
+
+- 当前 run 默认 shell
+- 当前 live session 是否还在
+- memory 里存一段文本提示
+
+来猜系统状态。
+
+真正的真相源必须是 registry。
+
+### 25.2 最小 registry 要记录的内容
+
+至少需要两类对象：
+
+#### shell / exec session registry
+
+- `session_ref`
+- `workspace_ref`
+- `org_id`
+- `project_id`
+- `thread_id`
+- `run_id`
+- `share_scope`
+- `state`
+- `live_session_id`
+- `latest_checkpoint_rev`
+- `default_binding_key`
+- `lease_owner`
+- `lease_expires_at`
+- `last_used_at`
+- `metadata_json`
+
+#### workspace registry
+
+- `workspace_ref`
+- `org_id`
+- `project_id`
+- `owner_user_id`
+- `share_scope`
+- `store_key`
+- `default_shell_session_ref`
+- `size_bytes`
+- `last_used_at`
+- `metadata_json`
+
+### 25.3 结论
+
+后续所有 attach / restore / fork / share / market / import 能力，都必须以 registry 为准。
+
+---
+
+## 26. `share_scope` 与 ACL 必须正式进入模型
+
+### 26.1 `share_scope` 不是展示字段
+
+未来至少要支持：
+
+- `run`
+- `thread`
+- `workspace`
+- `org`
+
+这不是仅用于返回给模型看的标记，而必须进入权限系统。
+
+### 26.2 attach/resume 的 ACL 校验
+
+当请求 attach 某个 `session_ref` 或 `workspace_ref` 时，至少校验：
+
+- `org_id` 是否一致
+- 若 `share_scope=run`，`run_id` 是否一致
+- 若 `share_scope=thread`，`thread_id` 是否一致
+- 若 `share_scope=workspace`，是否属于同一 workspace / project
+- 若 `share_scope=org`，调用方是否具备组织共享权限
+
+### 26.3 为什么这一步必须前置
+
+因为 skills、上传、git 导入、sub-agent 协作都会自然走到共享问题。
+如果不先把 `share_scope + ACL` 做进设计，后面一定返工。
+
+---
+
+## 27. lease 与并发控制不能再省略
+
+### 27.1 根问题
+
+PTY 本质上是共享交互资源，不是普通无状态工具。
+
+因此：
+
+- 两个 writer 同时往同一个 PTY 写入是错误的
+- 两个 agent 同时 attach 并写入同一个 session 也是错误的
+
+### 27.2 必须固定的 lease 规则
+
+- 同一时刻只允许一个 writer 持有 session lease
+- `exec / write / signal / close` 需要 writer lease
+- `read` 可以不拿 writer lease，但必须做 ACL 校验
+- busy 状态下的第二个 writer 默认返回 `shell.session_busy`
+- 并行工作应优先引导使用 `fork`
+
+### 27.3 为什么这一步不能后补
+
+如果不先做 lease，就会在 P2 里出现：
+
+- skills 执行与主 agent 冲突
+- sub-agent 互相污染输出
+- signal 打到错误的命令
+- session 虽然“被复用”，但行为完全错乱
+
+---
+
+## 28. skills / Git / 文件夹上传必须统一收敛到 workspace
+
+### 28.1 不能再把 skills 设计成 prompt 附件
+
+未来的 skill 应该是一个**可安装到 workspace 的包**，而不是只靠 prompt 注入的说明文本。
+
+推荐 skill layout：
+
+- `skill.yaml`
+- `SKILL.md`
+- `scripts/`
+- `assets/`
+- `templates/`
+- `requirements.txt`（可选）
+- `package.json`（可选）
+
+### 28.2 Git 入站与文件夹上传都要做，而且最终都落到同一个 workspace
+
+后续必须同时支持：
+
+- Git 入站
+  - `git clone`
+  - `git pull`
+- 文件夹入站
+  - `zip`
+  - `tar`
+  - `tar.gz`
+
+但这两类能力最终都不应该成为独立孤岛，而应统一进入：
+
+- `workspace_ref`
+- `workspace-store`
+- `workspace import pipeline`
+
+### 28.3 统一结论
+
+- skills market 安装 -> workspace
+- Git clone -> workspace
+- 文件夹上传 -> workspace
+- 生成代码 / 缓存 / 中间文件 -> workspace
+
+这四条必须统一建模，不能四套方案并存。
+
+---
+
+## 29. 存储层必须明确拆成三类，而不是继续混用
+
+### 29.1 `artifacts`
+
+职责：
+
+- 用户可见结果
+- `/tmp/output`
+- 下载 / 展示 / 分享
+
+### 29.2 `session-state`
+
+职责：
+
+- shell checkpoint
+- PTY 恢复所需元数据
+- 短 TTL
+
+### 29.3 `workspace-store`
+
+职责：
+
+- skills
+- clone 仓库
+- 上传目录
+- 用户长期资产
+- 工作区缓存与长期状态
+
+### 29.4 关键原则
+
+- `session-state` 过期不能删除 `workspace-store`
+- `workspace-store` 不应被 shell checkpoint 生命周期拖累
+- `artifacts` 不能继续与 `workspace-store` 或 `session-state` 混在同一语义层
+
+---
+
+## 30. Docker / Firecracker backend 必须能力对齐
+
+### 30.1 统一 guest baseline capability
+
+无论最终执行后端是：
+
+- Docker
+- Firecracker
+
+都必须至少保证同一套基础工具：
+
+- shell
+- python
+- git
+- curl
+- wget
+- jq
+- grep / rg / find / sed / awk
+- tar / zip / unzip / xz
+- sqlite3
+- ssh
+- make
+- file
+- patch / diff
+
+### 30.2 网络能力也必须配置化
+
+外网能力后续要统一抽象为策略，而不是某个 backend 临时特例。
+
+最小需要：
+
+- `sandbox.docker_allow_egress`
+- 后续可扩展同类策略到 Firecracker backend
+- 再向上叠加：
+  - 域名 allowlist
+  - 私网封锁
+  - DNS 审计
+  - credential 注入策略
+
+---
+
+## 31. 配置治理必须纳入正式范围，不再允许隐藏硬限制
+
+这次问题已经证明：
+
+- 如果关键限制只存在于系统默认值和底层 registry 中
+- 而 Console 不可见
+- 文档也没有把生效优先级讲清楚
+
+那么系统就会出现“实际限制存在、操作者却不知道”的高摩擦体验。
+
+后续必须明确：
+
+1. 关键平台限制全部注册并暴露
+2. Console 可配置 / 可查看 / 可回滚
+3. 可显示配置来源：
+   - `env`
+   - `platform_db`
+   - `org_db`
+   - `default`
+4. Persona / AgentConfig / Platform limit 的覆盖与钳制关系可解释
+
+---
+
+## 32. 新 Roadmap：P0 / P1 / P2
+
+前文 Phase 1 ~ Phase 5 继续保留，作为**当前已实现架构与近期落地历史**。
+
+但从本节开始，真正面向“最终 Execute System”的路线图，必须改为 P0 / P1 / P2。
+
+### 32.1 P0：执行内核重构与现有技术债止血
+
+P0 的目标不是继续给旧 action 接口打补丁，而是把底层执行模型改成能够承载 P1 / P2 的样子。
+
+#### P0-1. 统一执行内核为 `exec_command + write_stdin`
+
+要做：
+
+- 在 runtime 内实现 unified exec session manager
+- 定义 `exec_command`
+- 定义 `write_stdin`
+- 固定 `chars=""` 为 poll 语义
+- 保留 `shell_execute` 兼容层，但不再把未来能力直接长在旧 action 模型上
+
+完成标准：
+
+- shell 执行语义统一到 `exec_command + write_stdin`
+- 旧工具层仍可兼容
+- 未来 P1 / P2 不必继续依赖现有 `open|exec|read|write|signal|close` 的扩展
+
+#### P0-2. 落地三层输出模型与 drain-on-poll
+
+要做：
+
+- 实现 `pending_output`
+- 实现 `head_tail_transcript`
+- 实现 `tail`
+- poll 默认只 drain `pending_output`
+- transcript 与调试读取分离
+
+完成标准：
+
+- 连续两次 poll，第二次不重复第一次输出
+- transcript 可独立查看
+- shell 不再表现为“模型不断重读旧日志”
+
+#### P0-3. 修复当前 shell continuation 浪费
+
+要做：
+
+- default shell 不存在时，`exec` 自动 create-or-attach
+- 短命令在 `yield_time_ms` 内尽量等到结束，减少无意义补 read
+- continuation 等待改成服务端 notify + deadline
+- 增加 trailing-output grace
+
+完成标准：
+
+- 普通短命令大多数单轮完成
+- shell-heavy 任务的主 loop 消耗显著下降
+
+#### P0-4. loop 预算分层
+
+要做：
+
+- 将 `reasoning_iterations` 与 `tool_continuation_budget` 拆开
+- shell `poll` 不再和主推理 loop 完全同权
+- 增加 per-tool soft limits
+
+完成标准：
+
+- shell continuation 不再轻易打穿 agent loop
+- `agent.max_iterations_exceeded` 不再是 shell-heavy 任务的主要失败模式
+
+#### P0-5. 配置治理与 Console 可见性补齐
+
+要做：
+
+- 暴露关键平台限制
+- 暴露覆盖来源
+- 暴露 Persona / AgentConfig / Platform limit 的钳制关系
+
+完成标准：
+
+- 不再出现“系统里有上限，但操作者完全不知道”的情况
+
+#### P0-6. backend 能力对齐
+
+要做：
+
+- 固化 guest baseline capability
+- Docker / Firecracker 能力尽量一致
+- 网络策略配置化
+
+完成标准：
+
+- 两种 backend 在同一 prompt 下语义一致
+
+### 32.2 P1：workspace-first，建立长期工作环境模型
+
+P1 的目标是：把 Arkloop 从“run 级 shell”升级为“workspace 级长期工作环境”。
+
+#### P1-1. 引入 `workspace_ref`
+
+要做：
+
+- 定义稳定工作区引用
+- 工作区成为 clone / upload / skill install / codegen / cache 的统一落点
+
+完成标准：
+
+- 不同 run 可以继续同一个 workspace
+- shell session 只是 workspace 的 attach 点
+
+#### P1-2. 引入 `session_ref`
+
+要做：
+
+- 对模型暴露稳定 `session_ref`
+- 支持 `auto / new / resume / fork`
+- 不再对模型暴露 live session id
+
+完成标准：
+
+- attach / resume / fork 都基于稳定引用完成
+
+#### P1-3. 建 Session Registry / Workspace Registry
+
+要做：
+
+- 建最小 schema
+- 管理 default binding / latest checkpoint / live session / workspace 元数据
+
+完成标准：
+
+- attach / restore / fork / share 都有唯一真相源
+
+#### P1-4. 正式引入 `share_scope + ACL`
+
+要做：
+
+- `run / thread / workspace / org`
+- attach / resume / fork 都经过 ACL 校验
+
+完成标准：
+
+- 共享语义不再靠约定，而是进入正式权限模型
+
+#### P1-5. 引入 lease 与并发控制
+
+要做：
+
+- writer lease
+- busy / fork 语义
+- sub-agent 协作约束
+
+完成标准：
+
+- 多 agent 不会互相踩 PTY
+
+### 32.3 P2：skills / 导入 / 工作区生态正式落地
+
+P2 的目标是：把执行系统从“终端能力”升级为“可安装、可导入、可长期协作”的工作区生态。
+
+#### P2-1. skills market 采用工作区包模型
+
+要做：
+
+- 统一 skill layout
+- skill 安装到 workspace
+- 模型自己读 `SKILL.md`、自己执行脚本
+
+完成标准：
+
+- skills market 不再是 prompt 集合，而是 workspace package 生态
+
+#### P2-2. Git 入站
+
+要做：
+
+- `git clone`
+- `git pull`
+- 后续私仓凭证与网络策略
+
+完成标准：
+
+- 仓库作为工作区资产长期存在
+
+#### P2-3. 文件夹上传入站
+
+要做：
+
+- `zip / tar / tar.gz` 上传
+- 安全解压导入到 workspace
+
+完成标准：
+
+- 上传目录与 clone 仓库统一落到 workspace 语义层
+
+#### P2-4. 独立 `workspace-store`
+
+要做：
+
+- 建立长期存储层
+- 与 `artifacts` / `session-state` 完全拆开
+
+完成标准：
+
+- shell checkpoint 生命周期不会影响 workspace 资产
+
+#### P2-5. 工作区运维与调试能力
+
+要做：
+
+- session / workspace 列表
+- kill / remove / read_log
+- size / cleanup / metrics / audit
+
+完成标准：
+
+- 运维和调试不再依赖 run trace 猜系统行为
+
+---
+
+## 33. 旧 Phase 与新 P0 / P1 / P2 的关系
+
+为了避免理解冲突，这里明确说明：
+
+### 前文 Phase 1 ~ Phase 5 的定位
+
+前文 Phase 1 ~ Phase 5 继续成立，但它们的定位应调整为：
+
+- Phase 1 ~ Phase 4：构成当前 run 级 shell 的底层基线
+- Phase 5：当前基线上的治理、观测、回归收口
+
+它们解决的是：
+
+- 同一 run 的默认 shell
+- PTY 基础能力
+- checkpoint / restore
+- artifact / state 拆分
+- 基本治理收口
+
+### 新 P0 / P1 / P2 的定位
+
+新 P0 / P1 / P2 解决的是：
+
+- 如何避免沿当前 run 级设计继续外推形成更大技术债
+- 如何让 Execute System 真正承载 skills market / git / upload / workspace / sub-agent
+
+换句话说：
+
+- Phase 1 ~ 5 是**当前代码基线与历史依赖**
+- P0 / P1 / P2 是**从当前基线继续演进到最终系统的正式路线图**
+
+---
+
+## 34. 明确拒绝的方向
+
+为了避免后续继续滚技术债，下面这些方向应明确拒绝：
+
+1. 继续让模型自己 sleep 再 read
+2. 继续让 poll 返回全量日志
+3. 继续让 shell continuation 与主 reasoning turns 共用同一个硬上限
+4. 继续把 default shell 永久绑定在 `run_id` 语义上
+5. 把 skills market 做成 prompt 附件系统，而不是工作区包系统
+6. 把上传目录、clone 仓库、skills 安装各自做一套存储语义
+7. 继续把 shell session 误当成长期工作区的唯一持久对象
+8. 继续让 Docker / Firecracker backend 能力分叉
+9. 继续允许关键平台限制只存在于 registry / 默认值里，而不在 Console 可见
+
+---
+
+## 35. 最终结论（追加版）
+
+在保留前文 Phase 1 ~ Phase 5 的前提下，Arkloop 后续的真正方向必须明确为：
+
+1. **底层执行内核收敛到 unified exec：`exec_command + write_stdin`**
+2. **输出语义固定为 drain-on-poll，服务端 notify 驱动等待**
+3. **loop 预算拆层，shell continuation 不再无差别消耗主 iteration**
+4. **系统核心对象从 run 级 shell 升级为 workspace-first 模型**
+5. **引入 `workspace_ref`、`session_ref`、registry、ACL、lease 作为正式基础设施**
+6. **skills / Git / 文件夹上传 / 长期资产统一收敛到 workspace 语义层**
+7. **保留旧 shell_execute 作为兼容入口，但不再作为未来能力扩展的主内核**
+
+如果不这样做，后续即使继续“把 shell 做强”，也只会在：
+
+- skills market
+- 仓库导入
+- 上传目录
+- 多 agent 协作
+- 长期工作区
+
+这些场景里继续暴露更重的技术债。
+
+因此，从现在开始，Arkloop 应把 `shell_execute` 视为整个 Execute System 的一个切入口，而不是最终边界。
