@@ -65,7 +65,10 @@ func (a *Application) Run(ctx context.Context) error {
 
 	dsn := strings.TrimSpace(a.config.DatabaseDSN)
 	if dsn != "" {
-		createdPool, err := data.NewPool(ctx, dsn)
+		createdPool, err := data.NewPool(ctx, dsn, data.PoolLimits{
+			MaxConns: int32(a.config.DBPoolMaxConns),
+			MinConns: int32(a.config.DBPoolMinConns),
+		})
 		if err != nil {
 			return err
 		}
@@ -104,7 +107,8 @@ func (a *Application) Run(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("direct pool config: %w", err)
 		}
-		dpCfg.MaxConns = 10
+		dpCfg.MaxConns = int32(a.config.DBDirectPoolMaxConns)
+		dpCfg.MinConns = int32(a.config.DBDirectPoolMinConns)
 		dp, err := pgxpool.NewWithConfig(ctx, dpCfg)
 		if err != nil {
 			return fmt.Errorf("direct pool: %w", err)
@@ -114,6 +118,15 @@ func (a *Application) Run(ctx context.Context) error {
 	} else if pool != nil {
 		a.logger.Warn("ARKLOOP_DATABASE_DIRECT_URL not set: LISTEN/NOTIFY uses main pool, breaks with PgBouncer", observability.LogFields{}, nil)
 		directPool = pool
+	}
+
+	statsIntervalSeconds := a.config.DBPoolStatsIntervalSeconds
+	if statsIntervalSeconds > 0 && pool != nil {
+		interval := time.Duration(statsIntervalSeconds) * time.Second
+		startDBPoolStatsLogger(ctx, a.logger, pool, "db_primary", interval)
+		if directPool != nil && directPool != pool {
+			startDBPoolStatsLogger(ctx, a.logger, directPool, "db_direct", interval)
+		}
 	}
 
 	var redisClient *redis.Client
@@ -540,69 +553,71 @@ func (a *Application) Run(ctx context.Context) error {
 
 	server := &http.Server{
 		Handler: apihttp.NewHandler(apihttp.HandlerConfig{
-			Pool:                    pool,
-			DirectPool:              directPool,
-			Logger:                  a.logger,
-			TrustIncomingTraceID:    a.config.TrustIncomingTraceID,
-			TrustXForwardedFor:      a.config.TrustXForwardedFor,
-			SchemaRepository:        schemaRepo,
-			AuthService:             authService,
-			RegistrationService:     registrationService,
-			OrgService:              orgService,
-			OrgMembershipRepo:       membershipRepo,
-			ThreadRepo:              threadRepo,
-			ThreadStarRepo:          threadStarRepo,
-			ThreadShareRepo:         threadShareRepo,
-			ThreadReportRepo:        threadReportRepo,
-			MessageRepo:             messageRepo,
-			RunEventRepo:            runEventRepo,
-			AuditWriter:             auditWriter,
-			LlmCredentialsRepo:      llmCredRepo,
-			LlmRoutesRepo:           llmRoutesRepo,
-			SecretsRepo:             secretsRepo,
-			MCPConfigsRepo:          mcpConfigsRepo,
-			ToolProviderConfigsRepo: toolProviderConfigsRepo,
-			PersonasRepo:            personasRepo,
-			IPRulesRepo:             ipRulesRepo,
-			APIKeysRepo:             apiKeysRepo,
-			OrgInvitationsRepo:      orgInvitationsRepo,
-			TeamRepo:                teamRepo,
-			ProjectRepo:             projectRepo,
-			WebhookRepo:             webhookRepo,
-			PromptTemplatesRepo:     promptTemplatesRepo,
-			AgentConfigsRepo:        agentConfigsRepo,
-			PlansRepo:               plansRepo,
-			SubscriptionsRepo:       subscriptionsRepo,
-			EntitlementsRepo:        entitlementsRepo,
-			EntitlementService:      entitlementSvc,
-			UsageRepo:               usageRepo,
-			FeatureFlagsRepo:        featureFlagsRepo,
-			FeatureFlagService:      featureFlagSvc,
-			NotificationsRepo:       notificationsRepo,
-			AuditLogRepo:            auditRepo,
-			UsersRepo:               userRepo,
-			OrgRepo:                 orgRepo,
-			UserCredentialRepo:      credentialRepo,
-			InviteCodesRepo:         inviteCodesRepo,
-			ReferralsRepo:           referralsRepo,
-			CreditsRepo:             creditsRepo,
-			RedemptionCodesRepo:     redemptionCodesRepo,
-			PlatformSettingsRepo:    platformSettingsRepo,
-			RedisClient:             redisClient,
-			GatewayRedisClient:      gatewayRedisClient,
-			RunLimiter:              runLimiter,
-			AsrCredentialsRepo:      asrCredRepo,
-			EmailVerifyService:      emailVerifyService,
-			EmailOTPLoginService:    emailOTPLoginService,
-			JobRepo:                 jobRepo,
-			ArtifactStore:           artifactStore,
-			EmailFrom:               strings.TrimSpace(a.config.EmailFrom),
-			TurnstileEnvSecretKey:   a.config.TurnstileSecretKey,
-			TurnstileEnvSiteKey:     a.config.TurnstileSiteKey,
-			TurnstileEnvAllowedHost: a.config.TurnstileAllowedHost,
-			ConfigResolver:          configResolver,
-			ConfigInvalidator:       configResolver,
-			ConfigRegistry:          configRegistry,
+			Pool:                     pool,
+			DirectPool:               directPool,
+			DirectPoolAcquireTimeout: time.Duration(a.config.DirectPoolAcquireTimeoutMs) * time.Millisecond,
+			MaxInFlight:              a.config.MaxInFlight,
+			Logger:                   a.logger,
+			TrustIncomingTraceID:     a.config.TrustIncomingTraceID,
+			TrustXForwardedFor:       a.config.TrustXForwardedFor,
+			SchemaRepository:         schemaRepo,
+			AuthService:              authService,
+			RegistrationService:      registrationService,
+			OrgService:               orgService,
+			OrgMembershipRepo:        membershipRepo,
+			ThreadRepo:               threadRepo,
+			ThreadStarRepo:           threadStarRepo,
+			ThreadShareRepo:          threadShareRepo,
+			ThreadReportRepo:         threadReportRepo,
+			MessageRepo:              messageRepo,
+			RunEventRepo:             runEventRepo,
+			AuditWriter:              auditWriter,
+			LlmCredentialsRepo:       llmCredRepo,
+			LlmRoutesRepo:            llmRoutesRepo,
+			SecretsRepo:              secretsRepo,
+			MCPConfigsRepo:           mcpConfigsRepo,
+			ToolProviderConfigsRepo:  toolProviderConfigsRepo,
+			PersonasRepo:             personasRepo,
+			IPRulesRepo:              ipRulesRepo,
+			APIKeysRepo:              apiKeysRepo,
+			OrgInvitationsRepo:       orgInvitationsRepo,
+			TeamRepo:                 teamRepo,
+			ProjectRepo:              projectRepo,
+			WebhookRepo:              webhookRepo,
+			PromptTemplatesRepo:      promptTemplatesRepo,
+			AgentConfigsRepo:         agentConfigsRepo,
+			PlansRepo:                plansRepo,
+			SubscriptionsRepo:        subscriptionsRepo,
+			EntitlementsRepo:         entitlementsRepo,
+			EntitlementService:       entitlementSvc,
+			UsageRepo:                usageRepo,
+			FeatureFlagsRepo:         featureFlagsRepo,
+			FeatureFlagService:       featureFlagSvc,
+			NotificationsRepo:        notificationsRepo,
+			AuditLogRepo:             auditRepo,
+			UsersRepo:                userRepo,
+			OrgRepo:                  orgRepo,
+			UserCredentialRepo:       credentialRepo,
+			InviteCodesRepo:          inviteCodesRepo,
+			ReferralsRepo:            referralsRepo,
+			CreditsRepo:              creditsRepo,
+			RedemptionCodesRepo:      redemptionCodesRepo,
+			PlatformSettingsRepo:     platformSettingsRepo,
+			RedisClient:              redisClient,
+			GatewayRedisClient:       gatewayRedisClient,
+			RunLimiter:               runLimiter,
+			AsrCredentialsRepo:       asrCredRepo,
+			EmailVerifyService:       emailVerifyService,
+			EmailOTPLoginService:     emailOTPLoginService,
+			JobRepo:                  jobRepo,
+			ArtifactStore:            artifactStore,
+			EmailFrom:                strings.TrimSpace(a.config.EmailFrom),
+			TurnstileEnvSecretKey:    a.config.TurnstileSecretKey,
+			TurnstileEnvSiteKey:      a.config.TurnstileSiteKey,
+			TurnstileEnvAllowedHost:  a.config.TurnstileAllowedHost,
+			ConfigResolver:           configResolver,
+			ConfigInvalidator:        configResolver,
+			ConfigRegistry:           configRegistry,
 			SSEConfig: apihttp.SSEConfig{
 				HeartbeatSeconds: a.config.SSE.HeartbeatSeconds,
 				BatchLimit:       a.config.SSE.BatchLimit,
@@ -638,6 +653,92 @@ func (a *Application) Run(ctx context.Context) error {
 		return nil
 	}
 	return err
+}
+
+func startDBPoolStatsLogger(
+	ctx context.Context,
+	logger *observability.JSONLogger,
+	pool *pgxpool.Pool,
+	poolName string,
+	interval time.Duration,
+) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if logger == nil || pool == nil || strings.TrimSpace(poolName) == "" || interval <= 0 {
+		return
+	}
+
+	go func() {
+		prev := pool.Stat()
+		prevCount := prev.AcquireCount()
+		prevDuration := prev.AcquireDuration()
+		logDBPoolStats(logger, poolName, prev, 0, 0, 0)
+
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+			}
+
+			stat := pool.Stat()
+			count := stat.AcquireCount()
+			duration := stat.AcquireDuration()
+
+			deltaCount := count - prevCount
+			deltaDuration := duration - prevDuration
+			if deltaCount < 0 || deltaDuration < 0 {
+				deltaCount = 0
+				deltaDuration = 0
+			}
+
+			var avgMs float64
+			if deltaCount > 0 {
+				avgMs = durationMs(deltaDuration) / float64(deltaCount)
+			}
+
+			logDBPoolStats(logger, poolName, stat, deltaCount, durationMs(deltaDuration), avgMs)
+			prevCount = count
+			prevDuration = duration
+		}
+	}()
+}
+
+func logDBPoolStats(
+	logger *observability.JSONLogger,
+	poolName string,
+	stat *pgxpool.Stat,
+	deltaCount int64,
+	deltaDurationMs float64,
+	avgMs float64,
+) {
+	if logger == nil || stat == nil {
+		return
+	}
+
+	logger.Info("db_pool",
+		observability.LogFields{},
+		map[string]any{
+			"pool":                      poolName,
+			"max_conns":                 stat.MaxConns(),
+			"total_conns":               stat.TotalConns(),
+			"acquired_conns":            stat.AcquiredConns(),
+			"idle_conns":                stat.IdleConns(),
+			"acquire_count_total":       stat.AcquireCount(),
+			"acquire_duration_ms_total": durationMs(stat.AcquireDuration()),
+			"acquire_count_delta":       deltaCount,
+			"acquire_duration_ms_delta": deltaDurationMs,
+			"acquire_avg_ms_delta":      avgMs,
+		},
+	)
+}
+
+func durationMs(d time.Duration) float64 {
+	return float64(d.Nanoseconds()) / 1e6
 }
 
 type bootstrapCredentialRepo interface {

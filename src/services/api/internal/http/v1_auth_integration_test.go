@@ -23,7 +23,7 @@ func TestAuthRegisterLoginRefreshLogoutFlow(t *testing.T) {
 	db := setupTestDatabase(t, "api_go_auth")
 
 	ctx := context.Background()
-	pool, err := data.NewPool(ctx, db.DSN)
+	pool, err := data.NewPool(ctx, db.DSN, data.PoolLimits{MaxConns: 32, MinConns: 0})
 	if err != nil {
 		t.Fatalf("new pool: %v", err)
 	}
@@ -157,7 +157,7 @@ func TestAuthLogoutThenReLoginNewTokenStillValid(t *testing.T) {
 	db := setupTestDatabase(t, "api_go_auth_relogin")
 
 	ctx := context.Background()
-	pool, err := data.NewPool(ctx, db.DSN)
+	pool, err := data.NewPool(ctx, db.DSN, data.PoolLimits{MaxConns: 32, MinConns: 0})
 	if err != nil {
 		t.Fatalf("new pool: %v", err)
 	}

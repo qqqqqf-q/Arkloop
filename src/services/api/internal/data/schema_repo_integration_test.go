@@ -17,7 +17,7 @@ func TestSchemaRepositoryCurrentSchemaVersion(t *testing.T) {
 		t.Fatalf("migrate up: %v", err)
 	}
 
-	pool, err := NewPool(ctx, db.DSN)
+	pool, err := NewPool(ctx, db.DSN, PoolLimits{MaxConns: 32, MinConns: 0})
 	if err != nil {
 		t.Fatalf("new pool: %v", err)
 	}

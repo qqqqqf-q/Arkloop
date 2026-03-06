@@ -22,7 +22,7 @@ func TestRBACPermissions(t *testing.T) {
 	db := setupTestDatabase(t, "api_go_rbac")
 	ctx := context.Background()
 
-	pool, err := data.NewPool(ctx, db.DSN)
+	pool, err := data.NewPool(ctx, db.DSN, data.PoolLimits{MaxConns: 32, MinConns: 0})
 	if err != nil {
 		t.Fatalf("new pool: %v", err)
 	}

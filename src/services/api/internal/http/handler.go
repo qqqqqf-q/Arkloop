@@ -2,6 +2,7 @@ package http
 
 import (
 	nethttp "net/http"
+	"time"
 
 	"arkloop/services/api/internal/audit"
 	"arkloop/services/api/internal/auth"
@@ -30,12 +31,14 @@ func defaultSSEConfig() SSEConfig {
 }
 
 type HandlerConfig struct {
-	Pool                 *pgxpool.Pool
-	DirectPool           *pgxpool.Pool // LISTEN/NOTIFY 专用，不走 PgBouncer
-	Logger               *observability.JSONLogger
-	SchemaRepository     *data.SchemaRepository
-	TrustIncomingTraceID bool
-	TrustXForwardedFor   bool
+	Pool                     *pgxpool.Pool
+	DirectPool               *pgxpool.Pool // LISTEN/NOTIFY 专用，不走 PgBouncer
+	DirectPoolAcquireTimeout time.Duration
+	Logger                   *observability.JSONLogger
+	SchemaRepository         *data.SchemaRepository
+	TrustIncomingTraceID     bool
+	TrustXForwardedFor       bool
+	MaxInFlight              int
 
 	AuthService          *auth.Service
 	RegistrationService  *auth.RegistrationService
@@ -202,7 +205,7 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 	)
 	mux.HandleFunc(
 		"/v1/runs/",
-		runEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.RunEventRepo, cfg.AuditWriter, cfg.Pool, cfg.DirectPool, sseConfig, cfg.APIKeysRepo, resolver, cfg.RedisClient),
+		runEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.RunEventRepo, cfg.AuditWriter, cfg.Pool, cfg.DirectPool, cfg.DirectPoolAcquireTimeout, sseConfig, cfg.APIKeysRepo, resolver, cfg.RedisClient),
 	)
 
 	mux.HandleFunc(
@@ -560,6 +563,7 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 	})
 
 	handler := RecoverMiddleware(base, cfg.Logger)
+	handler = InFlightMiddleware(handler, cfg.MaxInFlight)
 	handler = TraceMiddleware(handler, cfg.Logger, cfg.TrustIncomingTraceID, cfg.TrustXForwardedFor)
 	return handler
 }

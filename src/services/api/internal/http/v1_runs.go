@@ -938,6 +938,7 @@ func streamRunEvents(
 	runRepo *data.RunEventRepository,
 	auditWriter *audit.Writer,
 	directPool *pgxpool.Pool,
+	directPoolAcquireTimeout time.Duration,
 	sseConfig SSEConfig,
 	apiKeysRepo *data.APIKeysRepository,
 	rdb *redis.Client,
@@ -1000,7 +1001,14 @@ func streamRunEvents(
 		// LISTEN for pg_notify from worker commits
 		var notifyCh <-chan struct{}
 		if follow && directPool != nil {
-			listenConn, err := directPool.Acquire(r.Context())
+			acquireCtx := r.Context()
+			var cancelAcquire context.CancelFunc
+			if directPoolAcquireTimeout > 0 {
+				acquireCtx, cancelAcquire = context.WithTimeout(acquireCtx, directPoolAcquireTimeout)
+				defer cancelAcquire()
+			}
+
+			listenConn, err := directPool.Acquire(acquireCtx)
 			if err == nil {
 				channel := fmt.Sprintf(`"run_events:%s"`, runID.String())
 				if _, err := listenConn.Exec(r.Context(), "LISTEN "+channel); err == nil {
@@ -1222,6 +1230,7 @@ func runEntry(
 	auditWriter *audit.Writer,
 	pool *pgxpool.Pool,
 	directPool *pgxpool.Pool,
+	directPoolAcquireTimeout time.Duration,
 	sseConfig SSEConfig,
 	apiKeysRepo *data.APIKeysRepository,
 	resolver sharedconfig.Resolver,
@@ -1230,7 +1239,7 @@ func runEntry(
 	get := getRun(authService, membershipRepo, runRepo, auditWriter, apiKeysRepo)
 	cancel := cancelRun(authService, membershipRepo, runRepo, auditWriter, pool, apiKeysRepo)
 	submitInput := submitRunInput(authService, membershipRepo, runRepo, auditWriter, pool, apiKeysRepo, resolver)
-	streamEvents := streamRunEvents(authService, membershipRepo, runRepo, auditWriter, directPool, sseConfig, apiKeysRepo, rdb)
+	streamEvents := streamRunEvents(authService, membershipRepo, runRepo, auditWriter, directPool, directPoolAcquireTimeout, sseConfig, apiKeysRepo, rdb)
 
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		traceID := observability.TraceIDFromContext(r.Context())

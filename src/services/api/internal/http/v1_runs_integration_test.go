@@ -22,7 +22,7 @@ func TestRunsCreateListGetCancelAndEnqueue(t *testing.T) {
 	db := setupTestDatabase(t, "api_go_runs")
 
 	ctx := context.Background()
-	pool, err := data.NewPool(ctx, db.DSN)
+	pool, err := data.NewPool(ctx, db.DSN, data.PoolLimits{MaxConns: 32, MinConns: 0})
 	if err != nil {
 		t.Fatalf("new pool: %v", err)
 	}
@@ -583,7 +583,7 @@ func TestStreamRunEvents(t *testing.T) {
 	db := setupTestDatabase(t, "api_go_sse")
 
 	ctx := context.Background()
-	pool, err := data.NewPool(ctx, db.DSN)
+	pool, err := data.NewPool(ctx, db.DSN, data.PoolLimits{MaxConns: 32, MinConns: 0})
 	if err != nil {
 		t.Fatalf("new pool: %v", err)
 	}
@@ -787,7 +787,7 @@ func TestListGlobalRuns(t *testing.T) {
 	db := setupTestDatabase(t, "api_go_global_runs")
 
 	ctx := context.Background()
-	pool, err := data.NewPool(ctx, db.DSN)
+	pool, err := data.NewPool(ctx, db.DSN, data.PoolLimits{MaxConns: 32, MinConns: 0})
 	if err != nil {
 		t.Fatalf("new pool: %v", err)
 	}

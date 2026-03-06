@@ -19,6 +19,22 @@ const (
 	trustXForwardedForEnv   = "ARKLOOP_TRUST_X_FORWARDED_FOR"
 	defaultAddr             = "127.0.0.1:8001"
 
+	apiDBPoolMaxConnsEnv             = "ARKLOOP_API_DB_POOL_MAX_CONNS"
+	apiDBPoolMinConnsEnv             = "ARKLOOP_API_DB_POOL_MIN_CONNS"
+	apiDBDirectPoolMaxConnsEnv       = "ARKLOOP_API_DB_DIRECT_POOL_MAX_CONNS"
+	apiDBDirectPoolMinConnsEnv       = "ARKLOOP_API_DB_DIRECT_POOL_MIN_CONNS"
+	apiDBPoolStatsIntervalSecondsEnv = "ARKLOOP_API_DB_POOL_STATS_INTERVAL_SECONDS"
+	apiDirectPoolAcquireTimeoutMsEnv = "ARKLOOP_API_DIRECT_POOL_ACQUIRE_TIMEOUT_MS"
+	apiMaxInFlightEnv                = "ARKLOOP_API_MAX_IN_FLIGHT"
+
+	defaultDBPoolMaxConns             = 32
+	defaultDBPoolMinConns             = 0
+	defaultDBDirectPoolMaxConns       = 10
+	defaultDBDirectPoolMinConns       = 0
+	defaultDBPoolStatsIntervalSeconds = 10
+	defaultDirectPoolAcquireTimeoutMs = 200
+	defaultMaxInFlight                = 256
+
 	redisURLEnv                    = "ARKLOOP_REDIS_URL"
 	gatewayRedisURLEnv             = "ARKLOOP_GATEWAY_REDIS_URL"
 	maxConcurrentRunsPerOrgEnv     = "ARKLOOP_MAX_CONCURRENT_RUNS_PER_ORG"
@@ -65,13 +81,20 @@ func defaultSSEConfig() SSEConfig {
 }
 
 type Config struct {
-	Addr                 string
-	DatabaseDSN          string
-	DirectDatabaseDSN    string // SSE LISTEN/NOTIFY 专用直连，不走 PgBouncer
-	TrustIncomingTraceID bool
-	TrustXForwardedFor   bool
-	Auth                 *auth.Config
-	SSE                  SSEConfig
+	Addr                       string
+	DatabaseDSN                string
+	DirectDatabaseDSN          string // SSE LISTEN/NOTIFY 专用直连，不走 PgBouncer
+	DBPoolMaxConns             int
+	DBPoolMinConns             int
+	DBDirectPoolMaxConns       int
+	DBDirectPoolMinConns       int
+	DBPoolStatsIntervalSeconds int
+	DirectPoolAcquireTimeoutMs int
+	MaxInFlight                int
+	TrustIncomingTraceID       bool
+	TrustXForwardedFor         bool
+	Auth                       *auth.Config
+	SSE                        SSEConfig
 
 	RedisURL                string
 	GatewayRedisURL         string
@@ -84,10 +107,10 @@ type Config struct {
 	S3Region    string
 
 	BootstrapPlatformAdminUserID string
-	RunTimeoutMinutes        int
-	RunEventsRetentionMonths int
-	EmailFrom                string
-	AppBaseURL               string
+	RunTimeoutMinutes            int
+	RunEventsRetentionMonths     int
+	EmailFrom                    string
+	AppBaseURL                   string
 
 	TurnstileSecretKey   string
 	TurnstileSiteKey     string
@@ -96,11 +119,18 @@ type Config struct {
 
 func DefaultConfig() Config {
 	return Config{
-		Addr:                     defaultAddr,
-		SSE:                      defaultSSEConfig(),
-		MaxConcurrentRunsPerOrg:  defaultMaxConcurrentRunsPerOrg,
-		RunTimeoutMinutes:        defaultRunTimeoutMinutes,
-		RunEventsRetentionMonths: defaultRunEventsRetentionMonths,
+		Addr:                       defaultAddr,
+		DBPoolMaxConns:             defaultDBPoolMaxConns,
+		DBPoolMinConns:             defaultDBPoolMinConns,
+		DBDirectPoolMaxConns:       defaultDBDirectPoolMaxConns,
+		DBDirectPoolMinConns:       defaultDBDirectPoolMinConns,
+		DBPoolStatsIntervalSeconds: defaultDBPoolStatsIntervalSeconds,
+		DirectPoolAcquireTimeoutMs: defaultDirectPoolAcquireTimeoutMs,
+		MaxInFlight:                defaultMaxInFlight,
+		SSE:                        defaultSSEConfig(),
+		MaxConcurrentRunsPerOrg:    defaultMaxConcurrentRunsPerOrg,
+		RunTimeoutMinutes:          defaultRunTimeoutMinutes,
+		RunEventsRetentionMonths:   defaultRunEventsRetentionMonths,
 	}
 }
 
@@ -141,6 +171,56 @@ func LoadConfigFromEnv() (Config, error) {
 
 	if raw, ok := lookupEnv(databaseDirectURLEnv); ok {
 		cfg.DirectDatabaseDSN = raw
+	}
+
+	if raw, ok := lookupEnv(apiDBPoolMaxConnsEnv); ok {
+		v, err := parsePositiveInt(raw)
+		if err != nil {
+			return Config{}, fmt.Errorf("%s: %w", apiDBPoolMaxConnsEnv, err)
+		}
+		cfg.DBPoolMaxConns = v
+	}
+	if raw, ok := lookupEnv(apiDBPoolMinConnsEnv); ok {
+		v, err := parseNonNegativeInt(raw)
+		if err != nil {
+			return Config{}, fmt.Errorf("%s: %w", apiDBPoolMinConnsEnv, err)
+		}
+		cfg.DBPoolMinConns = v
+	}
+	if raw, ok := lookupEnv(apiDBDirectPoolMaxConnsEnv); ok {
+		v, err := parsePositiveInt(raw)
+		if err != nil {
+			return Config{}, fmt.Errorf("%s: %w", apiDBDirectPoolMaxConnsEnv, err)
+		}
+		cfg.DBDirectPoolMaxConns = v
+	}
+	if raw, ok := lookupEnv(apiDBDirectPoolMinConnsEnv); ok {
+		v, err := parseNonNegativeInt(raw)
+		if err != nil {
+			return Config{}, fmt.Errorf("%s: %w", apiDBDirectPoolMinConnsEnv, err)
+		}
+		cfg.DBDirectPoolMinConns = v
+	}
+	if raw, ok := lookupEnv(apiDBPoolStatsIntervalSecondsEnv); ok {
+		v, err := parseNonNegativeInt(raw)
+		if err != nil {
+			return Config{}, fmt.Errorf("%s: %w", apiDBPoolStatsIntervalSecondsEnv, err)
+		}
+		cfg.DBPoolStatsIntervalSeconds = v
+	}
+	if raw, ok := lookupEnv(apiDirectPoolAcquireTimeoutMsEnv); ok {
+		v, err := parseNonNegativeInt(raw)
+		if err != nil {
+			return Config{}, fmt.Errorf("%s: %w", apiDirectPoolAcquireTimeoutMsEnv, err)
+		}
+		cfg.DirectPoolAcquireTimeoutMs = v
+	}
+	if raw, ok := lookupEnv(apiMaxInFlightEnv); ok {
+		v, err := parseNonNegativeInt(raw)
+		if err != nil {
+			return Config{}, fmt.Errorf("%s: %w", apiMaxInFlightEnv, err)
+		}
+		cfg.MaxInFlight = v
 	}
 
 	authConfig, err := auth.LoadConfigFromEnv(false)
@@ -246,6 +326,36 @@ func (c Config) Validate() error {
 		return fmt.Errorf("addr invalid: %w", err)
 	}
 
+	if c.DBPoolMaxConns <= 0 {
+		return fmt.Errorf("db pool max_conns must be greater than 0")
+	}
+	if c.DBPoolMinConns < 0 {
+		return fmt.Errorf("db pool min_conns must not be negative")
+	}
+	if c.DBPoolMinConns > c.DBPoolMaxConns {
+		return fmt.Errorf("db pool min_conns must not exceed max_conns")
+	}
+
+	if c.DBDirectPoolMaxConns <= 0 {
+		return fmt.Errorf("direct db pool max_conns must be greater than 0")
+	}
+	if c.DBDirectPoolMinConns < 0 {
+		return fmt.Errorf("direct db pool min_conns must not be negative")
+	}
+	if c.DBDirectPoolMinConns > c.DBDirectPoolMaxConns {
+		return fmt.Errorf("direct db pool min_conns must not exceed max_conns")
+	}
+
+	if c.DBPoolStatsIntervalSeconds < 0 {
+		return fmt.Errorf("db pool stats interval must not be negative")
+	}
+	if c.DirectPoolAcquireTimeoutMs < 0 {
+		return fmt.Errorf("direct pool acquire timeout must not be negative")
+	}
+	if c.MaxInFlight < 0 {
+		return fmt.Errorf("max in-flight must not be negative")
+	}
+
 	if c.Auth != nil {
 		if err := c.Auth.Validate(); err != nil {
 			return err
@@ -306,6 +416,17 @@ func parsePositiveInt(raw string) (int, error) {
 	}
 	if v <= 0 {
 		return 0, fmt.Errorf("must be a positive integer")
+	}
+	return v, nil
+}
+
+func parseNonNegativeInt(raw string) (int, error) {
+	v, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil {
+		return 0, fmt.Errorf("must be an integer")
+	}
+	if v < 0 {
+		return 0, fmt.Errorf("must be non-negative")
 	}
 	return v, nil
 }
