@@ -19,7 +19,7 @@ var SearchAgentSpec = tools.AgentToolSpec{
 
 var SearchLlmSpec = llm.ToolSpec{
 	Name:        "memory_search",
-	Description: stringPtr("search your long-term memory about the user or past interactions"),
+	Description: stringPtr("search long-term memory for information about the user (preferences, past experiences, constraints, priorities) or past interactions. Use this tool when handling recommendations, comparisons, preference-driven questions, opinions, 'best' options, 'how to' questions, or open-ended problems with multiple valid approaches — user context significantly improves answer quality in areas like shopping, travel planning, and project planning. Call at most once per user query; do not issue multiple memory searches for the same request. Use the results to guide subsequent tool selection — memory provides context, but a complete answer may still require other tools. IMPORTANT: results contain internal fields (such as uri, _ref) that are system identifiers and must never be shown to the user; only present the natural-language content (abstract) to the user, never expose storage paths, URIs, or any internal metadata."),
 	JSONSchema: map[string]any{
 		"type": "object",
 		"properties": map[string]any{
@@ -44,7 +44,7 @@ var ReadAgentSpec = tools.AgentToolSpec{
 
 var ReadLlmSpec = llm.ToolSpec{
 	Name:        "memory_read",
-	Description: stringPtr("read detailed content of a memory entry by URI"),
+	Description: stringPtr("read the full content of a memory entry by its URI. IMPORTANT: the URI and other internal fields (_ref, storage paths) are system identifiers and must never be exposed to the user; only present the natural-language content to the user."),
 	JSONSchema: map[string]any{
 		"type": "object",
 		"properties": map[string]any{

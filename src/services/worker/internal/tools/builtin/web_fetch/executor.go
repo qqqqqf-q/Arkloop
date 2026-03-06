@@ -61,7 +61,7 @@ var AgentSpecBasic = tools.AgentToolSpec{
 
 var LlmSpec = llm.ToolSpec{
 	Name:        "web_fetch",
-	Description: stringPtr("fetch web page content, return title/content (plain text)"),
+	Description: stringPtr("fetch a web page and return its title and body as plain text. Use this when search results are insufficient but a particular page looks likely to contain deeper information. Prefer official or authoritative pages. Can be called in batch when multiple pages are worth fetching, but avoid re-fetching the same URL."),
 	JSONSchema: map[string]any{
 		"type": "object",
 		"properties": map[string]any{

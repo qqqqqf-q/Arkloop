@@ -55,7 +55,7 @@ var AgentSpecTavily = tools.AgentToolSpec{
 
 var LlmSpec = llm.ToolSpec{
 	Name:        "web_search",
-	Description: stringPtr(fmt.Sprintf("search the internet and return title/link/summary. Always set max_results (default %d). Use queries for multi-search in one call.", defaultMaxResults)),
+	Description: stringPtr(fmt.Sprintf("search the internet and return title, link, and summary for each result. Use the queries array to run up to %d independent searches in a single call; fall back to the scalar query field only when you have a single question. Set max_results per query (default %d, max %d). When formulating queries: (1) decompose a complex question into independent keyword-based queries that together cover the full question with minimal overlap; (2) if a query is vague, rewrite it into a well-defined search by adding context from the conversation; (3) when the timing of an event is uncertain, use neutral phrasing such as 'latest news' or 'updates' instead of assuming a result already exists (good: 'Argentina Elections latest news'; bad: 'Argentina Elections results').", maxQueriesLimit, defaultMaxResults, maxResultsLimit)),
 	JSONSchema: map[string]any{
 		"type": "object",
 		"properties": map[string]any{
