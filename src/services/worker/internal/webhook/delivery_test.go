@@ -3,7 +3,9 @@ package webhook
 import (
 	"encoding/hex"
 	"net"
+	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 )
@@ -49,6 +51,41 @@ func TestIsPrivateIP(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestSanitizeWebhookResponseBody(t *testing.T) {
+	t.Run("escapes_html", func(t *testing.T) {
+		raw := []byte(`<script>alert("x")</script>`)
+		out := sanitizeWebhookResponseBody(raw)
+
+		if strings.Contains(out, "<") || strings.Contains(out, ">") {
+			t.Fatalf("expected html to be escaped, got: %q", out)
+		}
+		if !strings.Contains(out, "&lt;script&gt;") {
+			t.Fatalf("expected escaped script tag, got: %q", out)
+		}
+	})
+
+	t.Run("escapes_quotes_and_angle_brackets", func(t *testing.T) {
+		raw := []byte(`"'<>`)
+		out := sanitizeWebhookResponseBody(raw)
+
+		if strings.ContainsAny(out, `"'<>`) {
+			t.Fatalf("expected characters to be escaped, got: %q", out)
+		}
+	})
+
+	t.Run("normalizes_invalid_utf8", func(t *testing.T) {
+		raw := []byte{0xff, 0xfe, '<', 'a', '>'}
+		out := sanitizeWebhookResponseBody(raw)
+
+		if !utf8.ValidString(out) {
+			t.Fatalf("expected valid utf-8 output, got: %q", out)
+		}
+		if strings.Contains(out, "<") || strings.Contains(out, ">") {
+			t.Fatalf("expected html to be escaped, got: %q", out)
+		}
+	})
 }
 
 func TestComputeHMAC(t *testing.T) {

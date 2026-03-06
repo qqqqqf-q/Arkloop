@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"html"
 	"io"
 	"net"
 	"net/http"
@@ -96,11 +97,11 @@ func isPrivateIP(ip net.IP) bool {
 		"192.168.0.0/16",
 		"127.0.0.0/8",
 		"::1/128",
-		"169.254.0.0/16",  // link-local
-		"fe80::/10",       // IPv6 link-local
-		"fc00::/7",        // IPv6 unique local
-		"100.64.0.0/10",   // RFC 6598 carrier-grade NAT
-		"198.18.0.0/15",   // RFC 2544 benchmarking
+		"169.254.0.0/16", // link-local
+		"fe80::/10",      // IPv6 link-local
+		"fc00::/7",       // IPv6 unique local
+		"100.64.0.0/10",  // RFC 6598 carrier-grade NAT
+		"198.18.0.0/15",  // RFC 2544 benchmarking
 	}
 	for _, cidr := range privateRanges {
 		_, network, err := net.ParseCIDR(cidr)
@@ -176,7 +177,7 @@ func (h *DeliveryHandler) Handle(ctx context.Context, lease queue.JobLease) erro
 	if readErr != nil {
 		h.logger.Error("read webhook response body failed", fields, map[string]any{"error": readErr.Error()})
 	}
-	bodyStr := string(bodyBytes)
+	bodyStr := sanitizeWebhookResponseBody(bodyBytes)
 	statusCode := resp.StatusCode
 
 	if statusCode >= 200 && statusCode < 300 {
@@ -285,6 +286,14 @@ func parseDeliveryPayload(raw map[string]any) (deliveryPayload, error) {
 		EventType:  eventType,
 		Payload:    payload,
 	}, nil
+}
+
+func sanitizeWebhookResponseBody(body []byte) string {
+	if len(body) == 0 {
+		return ""
+	}
+	normalized := strings.ToValidUTF8(string(body), "�")
+	return html.EscapeString(normalized)
 }
 
 // computeHMAC 计算带时间戳的 HMAC-SHA256 签名，格式为 HMAC(secret, "timestamp.payload")。
