@@ -69,6 +69,10 @@ type optionalUUID struct {
 	Value   *uuid.UUID
 }
 
+func isTitleOnlyThreadUpdate(body updateThreadRequest) bool {
+	return body.Title.Present && !body.ProjectID.Present && !body.AgentConfigID.Present
+}
+
 func (u *optionalUUID) UnmarshalJSON(raw []byte) error {
 	u.Present = true
 	if string(raw) == "null" {
@@ -278,6 +282,29 @@ func patchThread(
 			return
 		}
 
+		params := data.ThreadUpdateFields{
+			SetTitle:         body.Title.Present,
+			Title:            body.Title.Value,
+			SetTitleLocked:   body.Title.Present,
+			TitleLocked:      body.Title.Present,
+			SetProjectID:     body.ProjectID.Present,
+			ProjectID:        body.ProjectID.Value,
+			SetAgentConfigID: body.AgentConfigID.Present,
+			AgentConfigID:    body.AgentConfigID.Value,
+		}
+
+		if isTitleOnlyThreadUpdate(body) {
+			updated, err := threadRepo.UpdateFieldsOwned(r.Context(), threadID, actor.OrgID, actor.UserID, params)
+			if err != nil {
+				WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+				return
+			}
+			if updated != nil {
+				writeJSON(w, traceID, nethttp.StatusOK, toThreadResponse(*updated))
+				return
+			}
+		}
+
 		thread, err := threadRepo.GetByID(r.Context(), threadID)
 		if err != nil {
 			WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
@@ -328,16 +355,7 @@ func patchThread(
 
 		// 原子更新：单条 SQL 同时写多个字段，避免局部写入
 		// 用户手动设置标题时同时锁定，防止 Worker 自动标题覆盖
-		updated, err := threadRepo.UpdateFields(r.Context(), threadID, data.ThreadUpdateFields{
-			SetTitle:         body.Title.Present,
-			Title:            body.Title.Value,
-			SetTitleLocked:   body.Title.Present,
-			TitleLocked:      body.Title.Present,
-			SetProjectID:     body.ProjectID.Present,
-			ProjectID:        body.ProjectID.Value,
-			SetAgentConfigID: body.AgentConfigID.Present,
-			AgentConfigID:    body.AgentConfigID.Value,
-		})
+		updated, err := threadRepo.UpdateFieldsOwned(r.Context(), threadID, actor.OrgID, actor.UserID, params)
 		if err != nil {
 			WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
@@ -374,6 +392,19 @@ func deleteThread(
 			return
 		}
 
+		deleted, err := threadRepo.DeleteOwnedReturning(r.Context(), threadID, actor.OrgID, actor.UserID)
+		if err != nil {
+			WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			return
+		}
+		if deleted != nil {
+			if auditWriter != nil {
+				auditWriter.WriteThreadDeleted(r.Context(), traceID, actor.OrgID, actor.UserID, deleted.ID)
+			}
+			w.WriteHeader(nethttp.StatusNoContent)
+			return
+		}
+
 		thread, err := threadRepo.GetByID(r.Context(), threadID)
 		if err != nil {
 			WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
@@ -388,18 +419,18 @@ func deleteThread(
 			return
 		}
 
-		deleted, err := threadRepo.Delete(r.Context(), threadID)
+		deleted, err = threadRepo.DeleteOwnedReturning(r.Context(), threadID, actor.OrgID, actor.UserID)
 		if err != nil {
 			WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
 		}
-		if !deleted {
+		if deleted == nil {
 			WriteError(w, nethttp.StatusNotFound, "threads.not_found", "thread not found", traceID, nil)
 			return
 		}
 
 		if auditWriter != nil {
-			auditWriter.WriteThreadDeleted(r.Context(), traceID, actor.OrgID, actor.UserID, threadID)
+			auditWriter.WriteThreadDeleted(r.Context(), traceID, actor.OrgID, actor.UserID, deleted.ID)
 		}
 
 		w.WriteHeader(nethttp.StatusNoContent)

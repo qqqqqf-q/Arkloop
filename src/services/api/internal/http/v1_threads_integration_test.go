@@ -13,6 +13,8 @@ import (
 	"arkloop/services/api/internal/auth"
 	"arkloop/services/api/internal/data"
 	"arkloop/services/api/internal/observability"
+
+	"github.com/google/uuid"
 )
 
 func TestThreadsCreateListGetPatchAndAudit(t *testing.T) {
@@ -154,6 +156,259 @@ func TestThreadsCreateListGetPatchAndAudit(t *testing.T) {
 	if deniedCount != 1 {
 		t.Fatalf("unexpected denied audit count: %d", deniedCount)
 	}
+}
+
+func TestThreadsPatchDeleteOwnershipFallbacks(t *testing.T) {
+	db := setupTestDatabase(t, "api_go_threads_patch_delete")
+
+	ctx := context.Background()
+	pool, err := data.NewPool(ctx, db.DSN, data.PoolLimits{MaxConns: 32, MinConns: 0})
+	if err != nil {
+		t.Fatalf("new pool: %v", err)
+	}
+	defer pool.Close()
+
+	logger := observability.NewJSONLogger("test", io.Discard)
+
+	passwordHasher, err := auth.NewBcryptPasswordHasher(0)
+	if err != nil {
+		t.Fatalf("new password hasher: %v", err)
+	}
+	tokenService, err := auth.NewJwtAccessTokenService("test-secret-should-be-long-enough-32chars", 3600, 2592000)
+	if err != nil {
+		t.Fatalf("new token service: %v", err)
+	}
+
+	userRepo, err := data.NewUserRepository(pool)
+	if err != nil {
+		t.Fatalf("new user repo: %v", err)
+	}
+	credentialRepo, err := data.NewUserCredentialRepository(pool)
+	if err != nil {
+		t.Fatalf("new credential repo: %v", err)
+	}
+	membershipRepo, err := data.NewOrgMembershipRepository(pool)
+	if err != nil {
+		t.Fatalf("new membership repo: %v", err)
+	}
+	refreshTokenRepo, err := data.NewRefreshTokenRepository(pool)
+	if err != nil {
+		t.Fatalf("new refresh token repo: %v", err)
+	}
+	auditRepo, err := data.NewAuditLogRepository(pool)
+	if err != nil {
+		t.Fatalf("new audit repo: %v", err)
+	}
+	threadRepo, err := data.NewThreadRepository(pool)
+	if err != nil {
+		t.Fatalf("new thread repo: %v", err)
+	}
+	jobRepo, err := data.NewJobRepository(pool)
+	if err != nil {
+		t.Fatalf("new job repo: %v", err)
+	}
+
+	authService, err := auth.NewService(userRepo, credentialRepo, membershipRepo, passwordHasher, tokenService, refreshTokenRepo, nil)
+	if err != nil {
+		t.Fatalf("new auth service: %v", err)
+	}
+	registrationService, err := auth.NewRegistrationService(pool, passwordHasher, tokenService, refreshTokenRepo, jobRepo)
+	if err != nil {
+		t.Fatalf("new registration service: %v", err)
+	}
+	auditWriter := audit.NewWriter(auditRepo, membershipRepo, logger)
+
+	handler := NewHandler(HandlerConfig{
+		Logger:              logger,
+		AuthService:         authService,
+		RegistrationService: registrationService,
+		OrgMembershipRepo:   membershipRepo,
+		ThreadRepo:          threadRepo,
+		AuditWriter:         auditWriter,
+	})
+
+	aliceRegister := doJSON(
+		handler,
+		nethttp.MethodPost,
+		"/v1/auth/register",
+		map[string]any{"login": "alice-fast", "password": "pwdpwdpwd", "email": "alice-fast@test.com"},
+		nil,
+	)
+	if aliceRegister.Code != nethttp.StatusCreated {
+		t.Fatalf("register alice: %d body=%s", aliceRegister.Code, aliceRegister.Body.String())
+	}
+	alice := decodeJSONBody[registerResponse](t, aliceRegister.Body.Bytes())
+	aliceHeaders := authHeader(alice.AccessToken)
+
+	bobRegister := doJSON(
+		handler,
+		nethttp.MethodPost,
+		"/v1/auth/register",
+		map[string]any{"login": "bob-fast", "password": "pwdpwdpwd", "email": "bob-fast@test.com"},
+		nil,
+	)
+	if bobRegister.Code != nethttp.StatusCreated {
+		t.Fatalf("register bob: %d body=%s", bobRegister.Code, bobRegister.Body.String())
+	}
+	bob := decodeJSONBody[registerResponse](t, bobRegister.Body.Bytes())
+	bobHeaders := authHeader(bob.AccessToken)
+
+	patchThreadResp := doJSON(handler, nethttp.MethodPost, "/v1/threads", map[string]any{"title": "patch-me"}, aliceHeaders)
+	if patchThreadResp.Code != nethttp.StatusCreated {
+		t.Fatalf("create patch thread: %d body=%s", patchThreadResp.Code, patchThreadResp.Body.String())
+	}
+	patchThread := decodeJSONBody[threadResponse](t, patchThreadResp.Body.Bytes())
+	aliceOrgID, err := uuid.Parse(patchThread.OrgID)
+	if err != nil {
+		t.Fatalf("parse org id: %v", err)
+	}
+
+	t.Run("owner patch title locks thread", func(t *testing.T) {
+		resp := doJSON(
+			handler,
+			nethttp.MethodPatch,
+			"/v1/threads/"+patchThread.ID,
+			map[string]any{"title": "patch-fast"},
+			aliceHeaders,
+		)
+		if resp.Code != nethttp.StatusOK {
+			t.Fatalf("patch thread: %d body=%s", resp.Code, resp.Body.String())
+		}
+		payload := decodeJSONBody[threadResponse](t, resp.Body.Bytes())
+		if payload.Title == nil || *payload.Title != "patch-fast" {
+			t.Fatalf("unexpected patch response: %#v", payload)
+		}
+		threadID, err := uuid.Parse(patchThread.ID)
+		if err != nil {
+			t.Fatalf("parse thread id: %v", err)
+		}
+		stored, err := threadRepo.GetByID(ctx, threadID)
+		if err != nil {
+			t.Fatalf("get thread after patch: %v", err)
+		}
+		if stored == nil || stored.Title == nil || *stored.Title != "patch-fast" || !stored.TitleLocked {
+			t.Fatalf("unexpected stored thread after patch: %#v", stored)
+		}
+	})
+
+	t.Run("non owner patch denied", func(t *testing.T) {
+		resp := doJSON(
+			handler,
+			nethttp.MethodPatch,
+			"/v1/threads/"+patchThread.ID,
+			map[string]any{"title": "bob-update"},
+			bobHeaders,
+		)
+		assertErrorEnvelope(t, resp, nethttp.StatusForbidden, "policy.denied")
+		count, err := countDeniedAudit(ctx, pool, "threads.update", "org_mismatch")
+		if err != nil {
+			t.Fatalf("count patch denied audit: %v", err)
+		}
+		if count != 1 {
+			t.Fatalf("unexpected patch denied audit count: %d", count)
+		}
+	})
+
+	t.Run("missing patch stays 404", func(t *testing.T) {
+		resp := doJSON(
+			handler,
+			nethttp.MethodPatch,
+			"/v1/threads/"+uuid.NewString(),
+			map[string]any{"title": "missing"},
+			aliceHeaders,
+		)
+		assertErrorEnvelope(t, resp, nethttp.StatusNotFound, "threads.not_found")
+	})
+
+	noOwnerTitle := "no-owner"
+	noOwnerPatchThread, err := threadRepo.Create(ctx, aliceOrgID, nil, &noOwnerTitle, false)
+	if err != nil {
+		t.Fatalf("create no-owner patch thread: %v", err)
+	}
+
+	t.Run("patch no owner keeps denied semantics", func(t *testing.T) {
+		resp := doJSON(
+			handler,
+			nethttp.MethodPatch,
+			"/v1/threads/"+noOwnerPatchThread.ID.String(),
+			map[string]any{"title": "still-denied"},
+			aliceHeaders,
+		)
+		assertErrorEnvelope(t, resp, nethttp.StatusForbidden, "policy.denied")
+		count, err := countDeniedAudit(ctx, pool, "threads.update", "no_owner")
+		if err != nil {
+			t.Fatalf("count patch no-owner denied audit: %v", err)
+		}
+		if count != 1 {
+			t.Fatalf("unexpected patch no-owner denied audit count: %d", count)
+		}
+	})
+
+	deleteThreadResp := doJSON(handler, nethttp.MethodPost, "/v1/threads", map[string]any{"title": "delete-me"}, aliceHeaders)
+	if deleteThreadResp.Code != nethttp.StatusCreated {
+		t.Fatalf("create delete thread: %d body=%s", deleteThreadResp.Code, deleteThreadResp.Body.String())
+	}
+	deleteThread := decodeJSONBody[threadResponse](t, deleteThreadResp.Body.Bytes())
+
+	t.Run("non owner delete denied", func(t *testing.T) {
+		resp := doJSON(handler, nethttp.MethodDelete, "/v1/threads/"+deleteThread.ID, nil, bobHeaders)
+		assertErrorEnvelope(t, resp, nethttp.StatusForbidden, "policy.denied")
+		count, err := countDeniedAudit(ctx, pool, "threads.delete", "org_mismatch")
+		if err != nil {
+			t.Fatalf("count delete denied audit: %v", err)
+		}
+		if count != 1 {
+			t.Fatalf("unexpected delete denied audit count: %d", count)
+		}
+	})
+
+	t.Run("owner delete writes audit", func(t *testing.T) {
+		resp := doJSON(handler, nethttp.MethodDelete, "/v1/threads/"+deleteThread.ID, nil, aliceHeaders)
+		if resp.Code != nethttp.StatusNoContent {
+			t.Fatalf("delete thread: %d body=%s", resp.Code, resp.Body.String())
+		}
+		threadID, err := uuid.Parse(deleteThread.ID)
+		if err != nil {
+			t.Fatalf("parse delete thread id: %v", err)
+		}
+		stored, err := threadRepo.GetByID(ctx, threadID)
+		if err != nil {
+			t.Fatalf("get deleted thread: %v", err)
+		}
+		if stored != nil {
+			t.Fatalf("expected deleted thread to be hidden, got %#v", stored)
+		}
+		count, err := countAuditResult(ctx, pool, "threads.delete", "deleted", deleteThread.ID)
+		if err != nil {
+			t.Fatalf("count delete success audit: %v", err)
+		}
+		if count != 1 {
+			t.Fatalf("unexpected delete success audit count: %d", count)
+		}
+	})
+
+	t.Run("missing delete stays 404", func(t *testing.T) {
+		resp := doJSON(handler, nethttp.MethodDelete, "/v1/threads/"+uuid.NewString(), nil, aliceHeaders)
+		assertErrorEnvelope(t, resp, nethttp.StatusNotFound, "threads.not_found")
+	})
+
+	noOwnerDeleteTitle := "no-owner-delete"
+	noOwnerDeleteThread, err := threadRepo.Create(ctx, aliceOrgID, nil, &noOwnerDeleteTitle, false)
+	if err != nil {
+		t.Fatalf("create no-owner delete thread: %v", err)
+	}
+
+	t.Run("delete no owner keeps denied semantics", func(t *testing.T) {
+		resp := doJSON(handler, nethttp.MethodDelete, "/v1/threads/"+noOwnerDeleteThread.ID.String(), nil, aliceHeaders)
+		assertErrorEnvelope(t, resp, nethttp.StatusForbidden, "policy.denied")
+		count, err := countDeniedAudit(ctx, pool, "threads.delete", "no_owner")
+		if err != nil {
+			t.Fatalf("count delete no-owner denied audit: %v", err)
+		}
+		if count != 1 {
+			t.Fatalf("unexpected delete no-owner denied audit count: %d", count)
+		}
+	})
 }
 
 func TestThreadListActiveRunID(t *testing.T) {
@@ -329,6 +584,26 @@ func countDeniedAudit(ctx context.Context, db data.Querier, action string, denyR
 		   AND metadata_json->>'deny_reason' = $2`,
 		action,
 		denyReason,
+	).Scan(&count)
+	return count, err
+}
+
+func countAuditResult(ctx context.Context, db data.Querier, action string, result string, targetID string) (int, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	var count int
+	err := db.QueryRow(
+		ctx,
+		`SELECT COUNT(*)
+		 FROM audit_logs
+		 WHERE action = $1
+		   AND metadata_json->>'result' = $2
+		   AND target_id = $3`,
+		action,
+		result,
+		targetID,
 	).Scan(&count)
 	return count, err
 }

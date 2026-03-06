@@ -275,6 +275,63 @@ func (r *ThreadRepository) UpdateFields(ctx context.Context, threadID uuid.UUID,
 	return &thread, nil
 }
 
+// UpdateFieldsOwned 原子更新 thread 的一个或多个字段，仅允许 owner 在同 org 内更新。
+// 返回 nil 表示 thread 不存在、已删除，或 owner/org 不匹配。
+func (r *ThreadRepository) UpdateFieldsOwned(
+	ctx context.Context,
+	threadID uuid.UUID,
+	orgID uuid.UUID,
+	ownerUserID uuid.UUID,
+	params ThreadUpdateFields,
+) (*Thread, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if threadID == uuid.Nil {
+		return nil, fmt.Errorf("thread_id must not be empty")
+	}
+	if orgID == uuid.Nil {
+		return nil, fmt.Errorf("org_id must not be empty")
+	}
+	if ownerUserID == uuid.Nil {
+		return nil, fmt.Errorf("owner_user_id must not be empty")
+	}
+	if !params.SetTitle && !params.SetProjectID && !params.SetAgentConfigID && !params.SetTitleLocked {
+		return nil, fmt.Errorf("no fields to update")
+	}
+
+	var thread Thread
+	err := r.db.QueryRow(
+		ctx,
+		`UPDATE threads
+		 SET title           = CASE WHEN $4 THEN $5 ELSE title END,
+		     project_id      = CASE WHEN $6 THEN $7 ELSE project_id END,
+		     agent_config_id = CASE WHEN $8 THEN $9 ELSE agent_config_id END,
+		     title_locked    = CASE WHEN $10 THEN $11 ELSE title_locked END
+		 WHERE id = $1
+		   AND org_id = $2
+		   AND created_by_user_id = $3
+		   AND deleted_at IS NULL
+		 RETURNING id, org_id, created_by_user_id, title, created_at, deleted_at, project_id, agent_config_id, is_private, expires_at, parent_thread_id, branched_from_message_id, title_locked`,
+		threadID,
+		orgID,
+		ownerUserID,
+		params.SetTitle, params.Title,
+		params.SetProjectID, params.ProjectID,
+		params.SetAgentConfigID, params.AgentConfigID,
+		params.SetTitleLocked, params.TitleLocked,
+	).Scan(&thread.ID, &thread.OrgID, &thread.CreatedByUserID, &thread.Title, &thread.CreatedAt,
+		&thread.DeletedAt, &thread.ProjectID, &thread.AgentConfigID, &thread.IsPrivate, &thread.ExpiresAt,
+		&thread.ParentThreadID, &thread.BranchedFromMessageID, &thread.TitleLocked)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &thread, nil
+}
+
 // Delete 软删除 thread，返回 false 表示 thread 不存在或已删除。
 func (r *ThreadRepository) Delete(ctx context.Context, threadID uuid.UUID) (bool, error) {
 	if ctx == nil {
@@ -293,6 +350,52 @@ func (r *ThreadRepository) Delete(ctx context.Context, threadID uuid.UUID) (bool
 		return false, err
 	}
 	return tag.RowsAffected() > 0, nil
+}
+
+// DeleteOwnedReturning 软删除 thread，仅允许 owner 在同 org 内删除。
+// 返回 nil 表示 thread 不存在、已删除，或 owner/org 不匹配。
+func (r *ThreadRepository) DeleteOwnedReturning(
+	ctx context.Context,
+	threadID uuid.UUID,
+	orgID uuid.UUID,
+	ownerUserID uuid.UUID,
+) (*Thread, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if threadID == uuid.Nil {
+		return nil, fmt.Errorf("thread_id must not be empty")
+	}
+	if orgID == uuid.Nil {
+		return nil, fmt.Errorf("org_id must not be empty")
+	}
+	if ownerUserID == uuid.Nil {
+		return nil, fmt.Errorf("owner_user_id must not be empty")
+	}
+
+	var thread Thread
+	err := r.db.QueryRow(
+		ctx,
+		`UPDATE threads
+		 SET deleted_at = now()
+		 WHERE id = $1
+		   AND org_id = $2
+		   AND created_by_user_id = $3
+		   AND deleted_at IS NULL
+		 RETURNING id, org_id, created_by_user_id, title, created_at, deleted_at, project_id, agent_config_id, is_private, expires_at, parent_thread_id, branched_from_message_id, title_locked`,
+		threadID,
+		orgID,
+		ownerUserID,
+	).Scan(&thread.ID, &thread.OrgID, &thread.CreatedByUserID, &thread.Title, &thread.CreatedAt,
+		&thread.DeletedAt, &thread.ProjectID, &thread.AgentConfigID, &thread.IsPrivate, &thread.ExpiresAt,
+		&thread.ParentThreadID, &thread.BranchedFromMessageID, &thread.TitleLocked)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &thread, nil
 }
 
 // SearchByQuery 在 thread title 和 message content 中全文检索，返回匹配的 thread 列表（去重）。
