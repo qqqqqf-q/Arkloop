@@ -13,7 +13,8 @@ export type Attachment = {
   encoding: 'text' | 'base64'
 }
 
-const DEFAULT_SELECTABLE_PERSONAS: SelectablePersona[] = [
+// API 不可用时的最终兜底，仅在请求明确失败后启用
+const FALLBACK_PERSONAS: SelectablePersona[] = [
   { persona_key: 'normal', selector_name: 'Normal', selector_order: 1 },
   { persona_key: 'extended-search', selector_name: 'Search', selector_order: 2 },
 ]
@@ -124,7 +125,7 @@ export function ChatInput({
 
   const [menuOpen, setMenuOpen] = useState(false)
   const [tierMenuOpen, setTierMenuOpen] = useState(false)
-  const [selectablePersonas, setSelectablePersonas] = useState<SelectablePersona[]>(DEFAULT_SELECTABLE_PERSONAS)
+  const [selectablePersonas, setSelectablePersonas] = useState<SelectablePersona[] | null>(null)
   const [selectedPersonaKey, setSelectedPersonaKey] = useState(readSelectedPersonaKeyFromStorage)
   const [tierHovered, setTierHovered] = useState(false)
   const [focused, setFocused] = useState(false)
@@ -139,7 +140,10 @@ export function ChatInput({
     let cancelled = false
     listSelectablePersonas(accessToken).then((personas) => {
       if (!cancelled && personas.length > 0) setSelectablePersonas(personas)
-    }).catch(() => {})
+    }).catch((err) => {
+      console.warn('[ChatInput] persona list fetch failed, using fallback:', err)
+      if (!cancelled) setSelectablePersonas(FALLBACK_PERSONAS)
+    })
     return () => { cancelled = true }
   }, [accessToken])
 
@@ -404,9 +408,11 @@ export function ChatInput({
     e.preventDefault()
   }
 
+  const resolvedPersonas = selectablePersonas ?? FALLBACK_PERSONAS
+
   const cyclePersona = () => {
-    const idx = selectablePersonas.findIndex(p => p.persona_key === selectedPersonaKey)
-    const next = selectablePersonas[(idx + 1) % selectablePersonas.length]
+    const idx = resolvedPersonas.findIndex(p => p.persona_key === selectedPersonaKey)
+    const next = resolvedPersonas[(idx + 1) % resolvedPersonas.length]
     if (!next) return
     setSelectedPersonaKey(next.persona_key)
     writeSelectedPersonaKeyToStorage(next.persona_key)
@@ -642,7 +648,7 @@ export function ChatInput({
                 transition: 'background-color 0.15s ease, color 0.2s ease, opacity 0.15s ease',
               }}
             >
-              {selectablePersonas.find(p => p.persona_key === selectedPersonaKey)?.selector_name ?? selectedPersonaKey}
+              {resolvedPersonas.find(p => p.persona_key === selectedPersonaKey)?.selector_name ?? selectedPersonaKey}
             </button>
 
             {/* chevron：始终可见，searchMode 下打开下拉可切换其他 tier */}
@@ -672,7 +678,7 @@ export function ChatInput({
                 }}
               >
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                  {selectablePersonas.map((persona) => {
+                  {resolvedPersonas.map((persona) => {
                     const isBlue = persona.persona_key === SEARCH_PERSONA_KEY
                     const isSelected = selectedPersonaKey === persona.persona_key
                     return (
