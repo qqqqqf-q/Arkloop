@@ -219,6 +219,7 @@ func initRunsSchema(t *testing.T, dsn string) error {
 			model               TEXT        NOT NULL,
 			priority            INT         NOT NULL DEFAULT 0,
 			is_default          BOOLEAN     NOT NULL DEFAULT false,
+			tags                TEXT[]      NOT NULL DEFAULT '{}',
 			when_json           JSONB       NOT NULL DEFAULT '{}'::jsonb,
 			multiplier          DOUBLE PRECISION NOT NULL DEFAULT 1.0,
 			cost_per_1k_input      DOUBLE PRECISION NULL,
@@ -227,6 +228,8 @@ func initRunsSchema(t *testing.T, dsn string) error {
 			cost_per_1k_cache_read  DOUBLE PRECISION NULL,
 			created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
 		)`,
+		`CREATE UNIQUE INDEX ux_llm_routes_credential_model_lower ON llm_routes (credential_id, lower(model))`,
+		`CREATE UNIQUE INDEX ux_llm_routes_credential_default ON llm_routes (credential_id) WHERE is_default = TRUE`,
 		`CREATE TABLE threads (
 			id         UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
 			org_id     UUID        NOT NULL,

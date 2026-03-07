@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // WithTx 返回一个使用给定事务的 LlmCredentialsRepository 副本。
@@ -282,4 +282,26 @@ func (r *LlmCredentialsRepository) Update(
 		_ = json.Unmarshal(advJSON, &c.AdvancedJSON)
 	}
 	return c, nil
+}
+
+// UpdateSecret 更新凭证关联的 secret_id 和 key_prefix。
+func (r *LlmCredentialsRepository) UpdateSecret(
+	ctx context.Context,
+	orgID uuid.UUID,
+	id uuid.UUID,
+	secretID *uuid.UUID,
+	keyPrefix *string,
+) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	_, err := r.db.Exec(
+		ctx,
+		`UPDATE llm_credentials
+		 SET secret_id = $3, key_prefix = $4, updated_at = NOW()
+		 WHERE id = $1 AND org_id = $2 AND revoked_at IS NULL`,
+		id, orgID, secretID, keyPrefix,
+	)
+	return err
 }

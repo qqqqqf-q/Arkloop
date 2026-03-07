@@ -293,3 +293,105 @@ func assertNoSettingRow(t *testing.T, db *sql.DB, ctx context.Context, query str
 		t.Fatalf("unexpected error for query %s: %v", query, err)
 	}
 }
+
+func TestLlmRoutesProviderModelsMigration(t *testing.T) {
+	db := testutil.SetupPostgresDatabase(t, "migrate_llm_provider_models")
+	ctx := context.Background()
+
+	sqlDB, err := openDB(db.DSN)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer sqlDB.Close()
+
+	provider, err := newProvider(sqlDB)
+	if err != nil {
+		t.Fatalf("new provider: %v", err)
+	}
+	if _, err := provider.UpTo(ctx, 88); err != nil {
+		t.Fatalf("up to 88: %v", err)
+	}
+
+	orgID := uuid.New()
+	credID := uuid.New()
+	keepDefaultID := uuid.New()
+	dupID := uuid.New()
+	otherDefaultID := uuid.New()
+	if _, err := sqlDB.ExecContext(ctx, `INSERT INTO orgs (id, slug, name) VALUES ($1, 'migrate-llm-provider-models', 'Migrate LLM Provider Models')`, orgID); err != nil {
+		t.Fatalf("insert org: %v", err)
+	}
+	if _, err := sqlDB.ExecContext(ctx, `
+		INSERT INTO llm_credentials (id, org_id, provider, name, advanced_json)
+		VALUES ($1, $2, 'openai', 'provider-a', '{}'::jsonb)
+	`, credID, orgID); err != nil {
+		t.Fatalf("insert credential: %v", err)
+	}
+	if _, err := sqlDB.ExecContext(ctx, `
+		INSERT INTO llm_routes (id, org_id, credential_id, model, priority, is_default, when_json, created_at)
+		VALUES
+			($1, $4, $5, 'gpt-4o', 5, TRUE, '{}'::jsonb, '2026-03-01T00:00:00Z'::timestamptz),
+			($2, $4, $5, 'GPT-4O', 1, FALSE, '{}'::jsonb, '2026-03-02T00:00:00Z'::timestamptz),
+			($3, $4, $5, 'claude-3-5-sonnet', 9, TRUE, '{}'::jsonb, '2026-03-03T00:00:00Z'::timestamptz)
+	`, keepDefaultID, dupID, otherDefaultID, orgID, credID); err != nil {
+		t.Fatalf("insert routes: %v", err)
+	}
+
+	result, err := provider.UpByOne(ctx)
+	if err != nil {
+		t.Fatalf("up by one: %v", err)
+	}
+	if result == nil || result.Source == nil || result.Source.Version != 89 {
+		t.Fatalf("expected migration 89, got %#v", result)
+	}
+
+	var exists bool
+	if err := sqlDB.QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM information_schema.columns
+			WHERE table_schema = 'public' AND table_name = 'llm_routes' AND column_name = 'tags'
+		)
+	`).Scan(&exists); err != nil {
+		t.Fatalf("check tags column: %v", err)
+	}
+	if !exists {
+		t.Fatal("expected llm_routes.tags column")
+	}
+
+	var remaining int
+	if err := sqlDB.QueryRowContext(ctx, `SELECT COUNT(*) FROM llm_routes WHERE credential_id = $1`, credID).Scan(&remaining); err != nil {
+		t.Fatalf("count routes: %v", err)
+	}
+	if remaining != 2 {
+		t.Fatalf("expected 2 routes after dedupe, got %d", remaining)
+	}
+
+	var keepDefault bool
+	if err := sqlDB.QueryRowContext(ctx, `SELECT is_default FROM llm_routes WHERE id = $1`, keepDefaultID).Scan(&keepDefault); err != nil {
+		t.Fatalf("select keep default: %v", err)
+	}
+	if keepDefault {
+		t.Fatal("expected lower-priority default to be cleared")
+	}
+
+	var otherDefault bool
+	if err := sqlDB.QueryRowContext(ctx, `SELECT is_default FROM llm_routes WHERE id = $1`, otherDefaultID).Scan(&otherDefault); err != nil {
+		t.Fatalf("select other default: %v", err)
+	}
+	if !otherDefault {
+		t.Fatal("expected highest-priority default to remain default")
+	}
+
+	if _, err := sqlDB.ExecContext(ctx, `
+		INSERT INTO llm_routes (org_id, credential_id, model, priority, is_default, tags, when_json)
+		VALUES ($1, $2, 'Gpt-4O', 0, FALSE, '{}'::text[], '{}'::jsonb)
+	`, orgID, credID); err == nil {
+		t.Fatal("expected unique constraint on credential/model")
+	}
+
+	if _, err := sqlDB.ExecContext(ctx, `
+		INSERT INTO llm_routes (org_id, credential_id, model, priority, is_default, tags, when_json)
+		VALUES ($1, $2, 'gpt-4.1', 0, TRUE, '{}'::text[], '{}'::jsonb)
+	`, orgID, credID); err == nil {
+		t.Fatal("expected unique constraint on credential default route")
+	}
+}

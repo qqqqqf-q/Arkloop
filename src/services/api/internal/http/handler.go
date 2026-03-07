@@ -1,6 +1,7 @@
 package http
 
 import (
+	"context"
 	nethttp "net/http"
 	"time"
 
@@ -98,7 +99,7 @@ type HandlerConfig struct {
 
 	JobRepo *data.JobRepository
 
-	ArtifactStore *objectstore.Store
+	ArtifactStore artifactStore
 
 	EmailFrom string
 
@@ -118,6 +119,11 @@ type HandlerConfig struct {
 	ConfigRegistry    *sharedconfig.Registry
 
 	RepoPersonas []personas.RepoPersona
+}
+
+type artifactStore interface {
+	Head(ctx context.Context, key string) (objectstore.ObjectInfo, error)
+	GetWithContentType(ctx context.Context, key string) ([]byte, string, error)
 }
 
 func NewHandler(cfg HandlerConfig) nethttp.Handler {
@@ -213,12 +219,12 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 	)
 
 	mux.HandleFunc(
-		"/v1/llm-credentials",
-		llmCredentialsEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.LlmCredentialsRepo, cfg.LlmRoutesRepo, cfg.SecretsRepo, cfg.Pool),
+		"/v1/llm-providers",
+		llmProvidersEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.LlmCredentialsRepo, cfg.LlmRoutesRepo, cfg.SecretsRepo, cfg.Pool),
 	)
 	mux.HandleFunc(
-		"/v1/llm-credentials/",
-		llmCredentialEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.LlmCredentialsRepo, cfg.LlmRoutesRepo, cfg.SecretsRepo, cfg.Pool),
+		"/v1/llm-providers/",
+		llmProviderEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.LlmCredentialsRepo, cfg.LlmRoutesRepo, cfg.SecretsRepo, cfg.Pool),
 	)
 
 	mux.HandleFunc(
@@ -570,7 +576,7 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 
 	mux.HandleFunc(
 		"/v1/artifacts/",
-		artifactsEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.ArtifactStore),
+		artifactsEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.APIKeysRepo, cfg.RunEventRepo, cfg.ThreadShareRepo, cfg.AuditWriter, cfg.ArtifactStore),
 	)
 
 	notFound := nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {

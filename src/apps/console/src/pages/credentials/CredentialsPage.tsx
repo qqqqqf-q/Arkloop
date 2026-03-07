@@ -15,7 +15,6 @@ import {
   listLlmCredentials,
   createLlmCredential,
   deleteLlmCredential,
-  duplicateLlmCredential,
   updateLlmCredential,
   updateLlmRoute,
   type LlmCredential,
@@ -116,7 +115,6 @@ export function CredentialsPage() {
   const [submitting, setSubmitting] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null)
   const [deleting, setDeleting] = useState(false)
-  const [duplicatingId, setDuplicatingId] = useState<string | null>(null)
 
   // 编辑 modal
   const [editCred, setEditCred] = useState<LlmCredential | null>(null)
@@ -135,12 +133,14 @@ export function CredentialsPage() {
     try {
       const data = await listLlmCredentials(accessToken)
       setCreds(data)
+      return data
     } catch {
       addToast(tc.toastLoadFailed, 'error')
+      return [] as LlmCredential[]
     } finally {
       setLoading(false)
     }
-  }, [accessToken, addToast])
+  }, [accessToken, addToast, tc.toastLoadFailed])
 
   useEffect(() => {
     void fetchCreds()
@@ -279,20 +279,9 @@ export function CredentialsPage() {
     } finally {
       setDeleting(false)
     }
-  }, [deleteTarget, accessToken, fetchCreds, addToast])
+  }, [deleteTarget, accessToken, fetchCreds, addToast, tc.toastDeleteFailed, tc.toastDeleted])
 
-  const handleDuplicate = useCallback(async (cred: LlmCredential) => {
-    setDuplicatingId(cred.id)
-    try {
-      await duplicateLlmCredential(cred.id, accessToken)
-      await fetchCreds()
-      addToast(tc.toastCopied, 'success')
-    } catch {
-      addToast(tc.toastCopyFailed, 'error')
-    } finally {
-      setDuplicatingId((current) => (current === cred.id ? null : current))
-    }
-  }, [accessToken, fetchCreds, addToast, tc])
+
 
   const handleOpenEdit = useCallback((cred: LlmCredential) => {
     setEditCred(cred)
@@ -351,26 +340,25 @@ export function CredentialsPage() {
           },
           accessToken,
         )
-        setEditRows((prev) =>
-          prev.map((r, i) =>
-            i === idx ? { ...routeToEditRow(updated), saving: false } : r,
-          ),
-        )
-        // 同步更新主列表
-        setCreds((prev) =>
-          prev.map((c) =>
-            c.id === editCred.id
-              ? { ...c, routes: c.routes.map((rt) => (rt.id === updated.id ? updated : rt)) }
-              : c,
-          ),
-        )
+        const nextCreds = await fetchCreds()
+        const nextCred = nextCreds.find((c) => c.id === editCred.id)
+        if (nextCred) {
+          setEditCred(nextCred)
+          setEditRows(nextCred.routes.map(routeToEditRow))
+        } else {
+          setEditRows((prev) =>
+            prev.map((r, i) =>
+              i === idx ? { ...routeToEditRow(updated), saving: false } : r,
+            ),
+          )
+        }
         addToast(tc.toastRouteUpdated, 'success')
       } catch {
         setEditRows((prev) => prev.map((r, i) => (i === idx ? { ...r, saving: false } : r)))
         addToast(tc.toastRouteUpdateFailed, 'error')
       }
     },
-    [editCred, editRows, accessToken, addToast, tc],
+    [editCred, editRows, accessToken, addToast, fetchCreds, tc],
   )
 
   const handleCopyModel = useCallback((idx: number) => {
@@ -479,17 +467,6 @@ export function CredentialsPage() {
       header: '',
       render: (row) => (
         <div className="flex items-center gap-1">
-          <button
-            onClick={(e) => {
-              e.stopPropagation()
-              void handleDuplicate(row)
-            }}
-            disabled={duplicatingId === row.id}
-            className="flex items-center justify-center rounded p-1 text-[var(--c-text-muted)] transition-colors hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-secondary)] disabled:cursor-not-allowed disabled:opacity-50"
-            title={tc.copyTitle}
-          >
-            <Copy size={14} />
-          </button>
           <button
             onClick={(e) => {
               e.stopPropagation()
