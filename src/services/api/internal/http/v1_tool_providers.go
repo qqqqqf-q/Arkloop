@@ -34,7 +34,6 @@ var toolProviderCatalog = []toolProviderDefinition{
 	{GroupName: "sandbox", ProviderName: "sandbox.docker", RequiresBaseURL: true},
 	{GroupName: "sandbox", ProviderName: "sandbox.firecracker", RequiresBaseURL: true},
 	{GroupName: "memory", ProviderName: "memory.openviking", RequiresBaseURL: true, RequiresAPIKey: true},
-	{GroupName: "memory", ProviderName: "memory.memos", RequiresBaseURL: true, RequiresAPIKey: true},
 }
 
 type toolProvidersResponse struct {
