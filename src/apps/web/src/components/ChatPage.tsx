@@ -1787,7 +1787,7 @@ export function ChatPage() {
         {/* 右侧面板 - width 过渡驱动整体布局动画 */}
         <div
           style={{
-            width: isPanelOpen ? '420px' : '0px',
+            width: isDocumentPanelOpen ? '540px' : (isSourcePanelOpen || isCodePanelOpen) ? '420px' : '0px',
             overflow: 'hidden',
             flexShrink: 0,
             transition: 'width 280ms cubic-bezier(0.16,1,0.3,1)',
@@ -1812,7 +1812,7 @@ export function ChatPage() {
             </div>
           )}
           {isDocumentPanelOpen && documentPanelDisplay && (
-            <div style={{ width: '420px', height: '100%' }}>
+            <div style={{ width: '540px', height: '100%' }}>
               <DocumentPanel
                 artifact={documentPanelDisplay}
                 accessToken={accessToken}

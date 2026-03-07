@@ -45,6 +45,7 @@ const zhDocsSidebar: SidebarGroup[] = [
       { label: 'Run 执行架构', href: '/docs/specs/run-execution-architecture' },
       { label: 'Console Lite Design Specification', href: '/docs/specs/console-lite' },
       { label: 'Shell Execute 设计方案', href: '/docs/specs/shell-execute-architecture' },
+      { label: 'Installer Bridge 设计方案', href: '/docs/specs/installer-bridge-architecture' },
     ],
   },
   {

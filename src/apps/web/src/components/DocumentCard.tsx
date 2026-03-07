@@ -17,21 +17,20 @@ export function DocumentCard({ artifact, onClick, active }: Props) {
         gap: '12px',
         padding: '10px 14px',
         borderRadius: '12px',
-        border: active
-          ? '0.5px solid var(--c-border-mid)'
-          : '0.5px solid var(--c-border-subtle)',
-        background: active ? 'var(--c-bg-deep)' : 'var(--c-bg-sub)',
+        border: '0.5px solid var(--c-border-subtle)',
+        background: 'var(--c-bg-sub)',
         cursor: 'pointer',
         fontFamily: 'inherit',
-        transition: 'background 150ms, border-color 150ms',
+        transition: 'background 150ms',
         maxWidth: '320px',
         textAlign: 'left',
+        boxShadow: active ? '0 0 0 1.5px var(--c-border-mid)' : 'none',
       }}
       onMouseEnter={(e) => {
-        if (!active) (e.currentTarget as HTMLButtonElement).style.background = 'var(--c-bg-deep)'
+        (e.currentTarget as HTMLButtonElement).style.background = 'var(--c-bg-deep)'
       }}
       onMouseLeave={(e) => {
-        if (!active) (e.currentTarget as HTMLButtonElement).style.background = 'var(--c-bg-sub)'
+        (e.currentTarget as HTMLButtonElement).style.background = 'var(--c-bg-sub)'
       }}
     >
       <div

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { X, FileText, Download } from 'lucide-react'
+import { X, FileText, Download, Eye, Code } from 'lucide-react'
 import type { ArtifactRef } from '../storage'
 import { MarkdownRenderer } from './MarkdownRenderer'
 
@@ -12,13 +12,7 @@ function isTextMime(mime: string): boolean {
   return mime.startsWith('text/')
 }
 
-function isMarkdownArtifact(artifact: ArtifactRef): boolean {
-  return (
-    artifact.mime_type === 'text/markdown' ||
-    artifact.filename.endsWith('.md') ||
-    artifact.filename.endsWith('.markdown')
-  )
-}
+type ViewMode = 'preview' | 'source'
 
 type Props = {
   artifact: ArtifactRef
@@ -35,6 +29,7 @@ type LoadState =
 export function DocumentPanel({ artifact, accessToken, onClose }: Props) {
   const [loadState, setLoadState] = useState<LoadState>({ status: 'loading' })
   const [downloading, setDownloading] = useState(false)
+  const [mode, setMode] = useState<ViewMode>('preview')
 
   useEffect(() => {
     setLoadState({ status: 'loading' })
@@ -78,7 +73,7 @@ export function DocumentPanel({ artifact, accessToken, onClose }: Props) {
   }, [artifact, accessToken, downloading])
 
   return (
-    <div style={{ width: '420px', display: 'flex', flexDirection: 'column', height: '100%' }}>
+    <div style={{ width: '540px', display: 'flex', flexDirection: 'column', height: '100%' }}>
       {/* header */}
       <div
         style={{
@@ -111,7 +106,78 @@ export function DocumentPanel({ artifact, accessToken, onClose }: Props) {
             </span>
           </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+          {/* 预览/源码切换：滑动 pill 动画 */}
+          {loadState.status === 'text' && (
+            <div
+              style={{
+                position: 'relative',
+                display: 'flex',
+                padding: '2px',
+                borderRadius: '8px',
+                background: 'var(--c-bg-deep)',
+              }}
+            >
+              {/* 滑动指示器 */}
+              <div
+                style={{
+                  position: 'absolute',
+                  top: '2px',
+                  left: '2px',
+                  width: '26px',
+                  height: '26px',
+                  borderRadius: '6px',
+                  background: 'var(--c-bg-page)',
+                  border: '0.5px solid var(--c-border-subtle)',
+                  transition: 'transform 180ms cubic-bezier(0.16,1,0.3,1)',
+                  transform: mode === 'preview' ? 'translateX(0)' : 'translateX(28px)',
+                  pointerEvents: 'none',
+                }}
+              />
+              <button
+                onClick={() => setMode('preview')}
+                title="预览"
+                style={{
+                  width: '26px',
+                  height: '26px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  borderRadius: '6px',
+                  border: 'none',
+                  background: 'transparent',
+                  color: mode === 'preview' ? 'var(--c-text-primary)' : 'var(--c-text-muted)',
+                  cursor: 'pointer',
+                  position: 'relative',
+                  zIndex: 1,
+                  transition: 'color 180ms',
+                }}
+              >
+                <Eye size={13} />
+              </button>
+              <button
+                onClick={() => setMode('source')}
+                title="源码"
+                style={{
+                  width: '26px',
+                  height: '26px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  borderRadius: '6px',
+                  border: 'none',
+                  background: 'transparent',
+                  color: mode === 'source' ? 'var(--c-text-primary)' : 'var(--c-text-muted)',
+                  cursor: 'pointer',
+                  position: 'relative',
+                  zIndex: 1,
+                  transition: 'color 180ms',
+                }}
+              >
+                <Code size={13} />
+              </button>
+            </div>
+          )}
           <button
             onClick={() => void handleDownload()}
             disabled={downloading}
@@ -183,17 +249,17 @@ export function DocumentPanel({ artifact, accessToken, onClose }: Props) {
           </div>
         )}
 
-        {loadState.status === 'text' && isMarkdownArtifact(artifact) && (
-          <div style={{ padding: '20px 24px' }}>
+        {loadState.status === 'text' && mode === 'preview' && (
+          <div style={{ padding: '20px 28px' }}>
             <MarkdownRenderer content={loadState.content} />
           </div>
         )}
 
-        {loadState.status === 'text' && !isMarkdownArtifact(artifact) && (
+        {loadState.status === 'text' && mode === 'source' && (
           <pre
             style={{
               margin: 0,
-              padding: '20px 24px',
+              padding: '20px 28px',
               fontSize: '13px',
               lineHeight: 1.65,
               whiteSpace: 'pre-wrap',
