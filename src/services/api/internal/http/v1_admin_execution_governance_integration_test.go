@@ -225,7 +225,7 @@ func TestAdminExecutionGovernanceShowsLayersAndEffectiveProfiles(t *testing.T) {
 		if reasoning.Layers.PlatformDB == nil || *reasoning.Layers.PlatformDB != "12" {
 			t.Fatalf("unexpected reasoning platform layer: %#v", reasoning.Layers.PlatformDB)
 		}
-		if reasoning.Layers.Default != "10" {
+		if reasoning.Layers.Default != "0" {
 			t.Fatalf("unexpected reasoning default: %q", reasoning.Layers.Default)
 		}
 

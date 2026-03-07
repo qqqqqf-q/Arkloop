@@ -71,7 +71,7 @@ func (l *Loop) Run(
 	emitter events.Emitter,
 	yield func(events.RunEvent) error,
 ) error {
-	if runCtx.ReasoningIterations <= 0 {
+	if runCtx.ReasoningIterations < 0 {
 		return yield(emitter.Emit("run.failed", reasoningIterationsExceededError(runCtx.ReasoningIterations).ToJSON(), nil, stringPtr(ErrorClassAgentReasoningIterationsExceeded)))
 	}
 
@@ -123,7 +123,7 @@ func (l *Loop) Run(
 		}
 
 		pureContinuationTurn := isPureContinuationTurn(turn.ToolCalls)
-		if !pureContinuationTurn && reasoningTurnsUsed >= runCtx.ReasoningIterations {
+		if hasReasoningIterationLimit(runCtx.ReasoningIterations) && !pureContinuationTurn && reasoningTurnsUsed >= runCtx.ReasoningIterations {
 			return yield(emitter.Emit("run.failed", reasoningIterationsExceededError(runCtx.ReasoningIterations).ToJSON(), nil, stringPtr(ErrorClassAgentReasoningIterationsExceeded)))
 		}
 
@@ -222,7 +222,7 @@ func (l *Loop) Run(
 		}
 
 		reasoningUsedThisTurn := !pureContinuationTurn || continuationRejected
-		if reasoningUsedThisTurn && pureContinuationTurn {
+		if reasoningUsedThisTurn && pureContinuationTurn && hasReasoningIterationLimit(runCtx.ReasoningIterations) {
 			if reasoningTurnsUsed >= runCtx.ReasoningIterations {
 				return yield(emitter.Emit("run.failed", reasoningIterationsExceededError(runCtx.ReasoningIterations).ToJSON(), nil, stringPtr(ErrorClassAgentReasoningIterationsExceeded)))
 			}
@@ -441,6 +441,10 @@ func isContinuationBudgetError(err *tools.ExecutionError) bool {
 		return false
 	}
 	return err.ErrorClass == ErrorClassToolContinuationBudgetExceeded || err.ErrorClass == ErrorClassToolContinuationLimitExceeded
+}
+
+func hasReasoningIterationLimit(limit int) bool {
+	return limit > 0
 }
 
 func reasoningIterationsExceededError(limit int) llm.GatewayError {

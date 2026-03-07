@@ -107,8 +107,8 @@ func RegisterTrackB(r *Registry) error {
 		{
 			Key:         "limit.agent_reasoning_iterations",
 			Type:        TypeInt,
-			Default:     "10",
-			Description: "Agent Loop 主推理回合上限",
+			Default:     "0",
+			Description: "Agent Loop 主推理回合上限，0 表示不限",
 			Sensitive:   false,
 			Scope:       ScopeBoth,
 		},

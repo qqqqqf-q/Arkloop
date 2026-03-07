@@ -22,7 +22,7 @@
 | gateway.trusted_cidrs | string | platform |  | false | Gateway 可信代理 CIDR 列表 |
 | invite.default_max_uses | int | both | 1 | false | 邀请码默认可用次数 |
 | invite.max_codes_per_user | int | both | 1 | false | 单用户可创建的邀请码数量上限 |
-| limit.agent_reasoning_iterations | int | both | 10 | false | Agent Loop 主推理回合上限 |
+| limit.agent_reasoning_iterations | int | both | 0 | false | Agent Loop 主推理回合上限，0 表示不限 |
 | limit.concurrent_runs | int | both | 10 | false | 并发 run 上限 |
 | limit.max_input_content_bytes | int | both | 32768 | false | Run input 提交内容最大字节数 |
 | limit.max_parallel_tasks | int | platform | 32 | false | Lua 并行任务/并行工具调用上限 |

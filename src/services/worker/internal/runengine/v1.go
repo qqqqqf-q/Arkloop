@@ -218,7 +218,7 @@ func (e *EngineV1) Execute(ctx context.Context, pool *pgxpool.Pool, run data.Run
 	registry := sharedconfig.DefaultRegistry()
 	orgScope := sharedconfig.Scope{OrgID: &run.OrgID}
 	rc.ThreadMessageHistoryLimit = resolvePositiveInt(ctx, e.configResolver, registry, "limit.thread_message_history", orgScope, 200)
-	rc.AgentReasoningIterationsLimit = resolvePositiveInt(ctx, e.configResolver, registry, "limit.agent_reasoning_iterations", orgScope, 10)
+	rc.AgentReasoningIterationsLimit = resolveNonNegativeInt(ctx, e.configResolver, registry, "limit.agent_reasoning_iterations", orgScope, 0)
 	rc.ToolContinuationBudgetLimit = resolvePositiveInt(ctx, e.configResolver, registry, "limit.tool_continuation_budget", orgScope, 32)
 	rc.MaxParallelTasks = resolvePositiveInt(ctx, e.configResolver, registry, "limit.max_parallel_tasks", sharedconfig.Scope{}, 32)
 	rc.CreditPerUSD = resolvePositiveInt(ctx, e.configResolver, registry, "credit.per_usd", sharedconfig.Scope{}, 1000)
@@ -262,6 +262,30 @@ func resolvePositiveInt(ctx context.Context, resolver sharedconfig.Resolver, reg
 	}
 	v, err := strconv.Atoi(strings.TrimSpace(raw))
 	if err != nil || v <= 0 {
+		return fallback
+	}
+	return v
+}
+
+func resolveNonNegativeInt(ctx context.Context, resolver sharedconfig.Resolver, registry *sharedconfig.Registry, key string, scope sharedconfig.Scope, lastResort int) int {
+	fallback := lastResort
+	if registry != nil {
+		if entry, ok := registry.Get(key); ok {
+			if v, err := strconv.Atoi(strings.TrimSpace(entry.Default)); err == nil && v >= 0 {
+				fallback = v
+			}
+		}
+	}
+
+	if resolver == nil {
+		return fallback
+	}
+	raw, err := resolver.Resolve(ctx, key, scope)
+	if err != nil {
+		return fallback
+	}
+	v, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || v < 0 {
 		return fallback
 	}
 	return v

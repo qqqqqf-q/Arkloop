@@ -468,6 +468,47 @@ func TestAgentLoopPureContinuationDoesNotConsumeReasoningBudget(t *testing.T) {
 	assertNoErrorClass(t, got, ErrorClassAgentReasoningIterationsExceeded)
 }
 
+func TestAgentLoopZeroReasoningIterationsMeansUnlimited(t *testing.T) {
+	registry := tools.NewRegistry()
+	if err := registry.Register(builtin.EchoAgentSpec); err != nil {
+		t.Fatalf("register echo failed: %v", err)
+	}
+
+	allowlist := tools.AllowlistFromNames([]string{"echo"})
+	policy := tools.NewPolicyEnforcer(registry, allowlist)
+	dispatcher := tools.NewDispatchingExecutor(registry, policy)
+	if err := dispatcher.Bind("echo", builtin.EchoExecutor{}); err != nil {
+		t.Fatalf("bind echo failed: %v", err)
+	}
+
+	loop := NewLoop(&scriptedTurnsGateway{turns: [][]llm.StreamEvent{
+		{llm.ToolCall{ToolCallID: "call_1", ToolName: "echo", ArgumentsJSON: map[string]any{"text": "one"}}, llm.StreamRunCompleted{}},
+		{llm.ToolCall{ToolCallID: "call_2", ToolName: "echo", ArgumentsJSON: map[string]any{"text": "two"}}, llm.StreamRunCompleted{}},
+		{llm.ToolCall{ToolCallID: "call_3", ToolName: "echo", ArgumentsJSON: map[string]any{"text": "three"}}, llm.StreamRunCompleted{}},
+		{llm.StreamMessageDelta{ContentDelta: "done", Role: "assistant"}, llm.StreamRunCompleted{}},
+	}}, dispatcher)
+	emitter := events.NewEmitter("trace")
+
+	var got []events.RunEvent
+	err := loop.Run(context.Background(), RunContext{
+		RunID:               uuid.New(),
+		TraceID:             "trace",
+		InputJSON:           map[string]any{},
+		ReasoningIterations: 0,
+		ToolExecutor:        dispatcher,
+		ToolTimeoutMs:       intPtr(1000),
+		CancelSignal:        func() bool { return false },
+	}, llm.Request{Model: "stub"}, emitter, func(ev events.RunEvent) error {
+		got = append(got, ev)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("loop.Run failed: %v", err)
+	}
+	assertHasEvent(t, got, "run.completed")
+	assertNoErrorClass(t, got, ErrorClassAgentReasoningIterationsExceeded)
+}
+
 func TestAgentLoopContinuationBudgetExceededReturnsToolResultError(t *testing.T) {
 	dispatcher := buildContinuationDispatcher(t, []bool{true})
 	loop := NewLoop(&scriptedTurnsGateway{turns: [][]llm.StreamEvent{

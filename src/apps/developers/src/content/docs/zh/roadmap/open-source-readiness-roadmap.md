@@ -228,7 +228,7 @@ CREATE TABLE org_settings (
 |-----|---------------|--------|-------|
 | `limit.thread_message_history` | mw_input_loader.go | 200 | org |
 | `limit.max_input_content_bytes` | v1_runs.go | 32768 | org |
-| `limit.agent_reasoning_iterations` | mw_persona_resolution.go | 10 | org |
+| `limit.agent_reasoning_iterations` | mw_persona_resolution.go | 0 | org |
 | `limit.tool_continuation_budget` | mw_persona_resolution.go | 32 | org |
 | `limit.max_parallel_tasks` | lua.go | 32 | platform |
 | `limit.concurrent_runs` | entitlement resolve.go | 10 | org |

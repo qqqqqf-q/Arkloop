@@ -7,7 +7,7 @@ import (
 )
 
 const (
-	defaultReasoningIterationsLimit = 10
+	defaultReasoningIterationsLimit = 0
 	defaultToolContinuationLimit    = 32
 )
 
@@ -37,10 +37,10 @@ type AgentConfigProfile struct {
 }
 
 type PersonaProfile struct {
-	PromptMD                 string
-	PreferredCredentialName  *string
-	ResolvedAgentConfigName  *string
-	Budgets                  RequestedBudgets
+	PromptMD                string
+	PreferredCredentialName *string
+	ResolvedAgentConfigName *string
+	Budgets                 RequestedBudgets
 }
 
 type EffectiveProfile struct {
@@ -59,7 +59,7 @@ type EffectiveProfile struct {
 }
 
 func NormalizePlatformLimits(limits PlatformLimits) PlatformLimits {
-	if limits.AgentReasoningIterations <= 0 {
+	if limits.AgentReasoningIterations < 0 {
 		limits.AgentReasoningIterations = defaultReasoningIterationsLimit
 	}
 	if limits.ToolContinuationBudget <= 0 {
@@ -109,8 +109,10 @@ func ResolveEffectiveProfile(
 		profile.SystemPrompt = agentConfigPromptPrefix
 	}
 
-	if value := persona.Budgets.ReasoningIterations; value != nil && *value > 0 && *value < normalized.AgentReasoningIterations {
-		profile.ReasoningIterations = *value
+	if value := persona.Budgets.ReasoningIterations; value != nil && *value > 0 {
+		if normalized.AgentReasoningIterations == 0 || *value < normalized.AgentReasoningIterations {
+			profile.ReasoningIterations = *value
+		}
 	}
 	if value := persona.Budgets.ToolContinuationBudget; value != nil && *value > 0 && *value < normalized.ToolContinuationBudget {
 		profile.ToolContinuationBudget = *value

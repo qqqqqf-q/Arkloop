@@ -53,11 +53,26 @@ func TestResolveEffectiveProfilePrefersPersonaNamedAgentConfig(t *testing.T) {
 	if profile.ResolvedAgentConfigName != "named-config" {
 		t.Fatalf("unexpected resolved agent config name: %q", profile.ResolvedAgentConfigName)
 	}
-	if profile.ReasoningIterations != 10 {
+	if profile.ReasoningIterations != 0 {
 		t.Fatalf("unexpected default reasoning limit: %d", profile.ReasoningIterations)
 	}
 	if profile.ToolContinuationBudget != 32 {
 		t.Fatalf("unexpected default continuation limit: %d", profile.ToolContinuationBudget)
+	}
+}
+
+func TestResolveEffectiveProfileAllowsFinitePersonaWhenPlatformReasoningUnlimited(t *testing.T) {
+	profile := ResolveEffectiveProfile(
+		PlatformLimits{AgentReasoningIterations: 0, ToolContinuationBudget: 32},
+		nil,
+		&PersonaProfile{
+			Budgets: RequestedBudgets{
+				ReasoningIterations: intPtr(6),
+			},
+		},
+	)
+	if profile.ReasoningIterations != 6 {
+		t.Fatalf("unexpected reasoning_iterations: %d", profile.ReasoningIterations)
 	}
 }
 

@@ -270,6 +270,18 @@ func TestPersonaResolutionReasoningIterationsClamping(t *testing.T) {
 			personaVal:    nil,
 			want:          10,
 		},
+		{
+			name:          "platform_unlimited_persona_sets_limit",
+			platformLimit: 0,
+			personaVal:    intPtr(5),
+			want:          5,
+		},
+		{
+			name:          "platform_unlimited_persona_nil_keeps_unlimited",
+			platformLimit: 0,
+			personaVal:    nil,
+			want:          0,
+		},
 	}
 
 	for _, tt := range tests {
