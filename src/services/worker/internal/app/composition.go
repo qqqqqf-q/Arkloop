@@ -121,12 +121,12 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 		BaseURL:    strings.TrimSpace(os.Getenv("ARKLOOP_OPENVIKING_BASE_URL")),
 		RootAPIKey: strings.TrimSpace(os.Getenv("ARKLOOP_OPENVIKING_ROOT_API_KEY")),
 	}
-	if ovCfg.BaseURL == "" {
+	if ovCfg.BaseURL == "" || ovCfg.RootAPIKey == "" {
 		if p := findActiveProvider(platformProviders, "memory"); p != nil {
-			if p.BaseURL != nil {
+			if ovCfg.BaseURL == "" && p.BaseURL != nil {
 				ovCfg.BaseURL = strings.TrimSpace(*p.BaseURL)
 			}
-			if p.APIKeyValue != nil {
+			if ovCfg.RootAPIKey == "" && p.APIKeyValue != nil {
 				ovCfg.RootAPIKey = strings.TrimSpace(*p.APIKeyValue)
 			}
 		}
