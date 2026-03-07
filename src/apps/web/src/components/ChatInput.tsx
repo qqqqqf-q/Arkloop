@@ -13,11 +13,6 @@ export type Attachment = {
   encoding: 'text' | 'base64'
 }
 
-// API 不可用时的最终兜底，仅在请求明确失败后启用
-const FALLBACK_PERSONAS: SelectablePersona[] = [
-  { persona_key: 'normal', selector_name: 'Normal', selector_order: 1 },
-  { persona_key: 'extended-search', selector_name: 'Search', selector_order: 2 },
-]
 
 type Props = {
   value: string
@@ -141,8 +136,7 @@ export function ChatInput({
     listSelectablePersonas(accessToken).then((personas) => {
       if (!cancelled && personas.length > 0) setSelectablePersonas(personas)
     }).catch((err) => {
-      console.warn('[ChatInput] persona list fetch failed, using fallback:', err)
-      if (!cancelled) setSelectablePersonas(FALLBACK_PERSONAS)
+      console.warn('[ChatInput] persona list fetch failed:', err)
     })
     return () => { cancelled = true }
   }, [accessToken])
@@ -408,11 +402,12 @@ export function ChatInput({
     e.preventDefault()
   }
 
-  const resolvedPersonas = selectablePersonas ?? FALLBACK_PERSONAS
+  const personasLoaded = selectablePersonas !== null && selectablePersonas.length > 0
 
   const cyclePersona = () => {
-    const idx = resolvedPersonas.findIndex(p => p.persona_key === selectedPersonaKey)
-    const next = resolvedPersonas[(idx + 1) % resolvedPersonas.length]
+    if (!selectablePersonas || selectablePersonas.length === 0) return
+    const idx = selectablePersonas.findIndex(p => p.persona_key === selectedPersonaKey)
+    const next = selectablePersonas[(idx + 1) % selectablePersonas.length]
     if (!next) return
     setSelectedPersonaKey(next.persona_key)
     writeSelectedPersonaKeyToStorage(next.persona_key)
@@ -648,10 +643,11 @@ export function ChatInput({
                 transition: 'background-color 0.15s ease, color 0.2s ease, opacity 0.15s ease',
               }}
             >
-              {resolvedPersonas.find(p => p.persona_key === selectedPersonaKey)?.selector_name ?? selectedPersonaKey}
+              {selectablePersonas?.find(p => p.persona_key === selectedPersonaKey)?.selector_name ?? selectedPersonaKey}
             </button>
 
-            {/* chevron：始终可见，searchMode 下打开下拉可切换其他 tier */}
+            {/* chevron: API 加载完成后显示 */}
+            {personasLoaded && (
             <button
               ref={chevronBtnRef}
               type="button"
@@ -660,8 +656,9 @@ export function ChatInput({
             >
               <ChevronDown size={16} />
             </button>
+            )}
 
-            {tierMenuOpen && (
+            {tierMenuOpen && personasLoaded && (
               <div
                 ref={tierMenuRef}
                 className={`absolute right-0 z-50 ${variant === 'welcome' ? 'dropdown-menu' : 'dropdown-menu-up'}`}
@@ -678,7 +675,7 @@ export function ChatInput({
                 }}
               >
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                  {resolvedPersonas.map((persona) => {
+                  {selectablePersonas!.map((persona) => {
                     const isBlue = persona.persona_key === SEARCH_PERSONA_KEY
                     const isSelected = selectedPersonaKey === persona.persona_key
                     return (
