@@ -41,6 +41,7 @@ import {
   clearAccessTokenFromStorage,
 } from './storage'
 import { setUnauthenticatedHandler, setAccessTokenHandler, refreshAccessToken } from './api'
+import { setClientApp } from '@arkloop/shared/api'
 
 function PlaceholderPage({ title }: { title: string }) {
   return (
@@ -60,6 +61,7 @@ function App() {
   useEffect(() => {
     const controller = new AbortController()
 
+    setClientApp('console')
     setUnauthenticatedHandler(() => {
       clearAccessTokenFromStorage()
       setAccessToken(null)

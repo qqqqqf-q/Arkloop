@@ -6,6 +6,7 @@ export {
   refreshAccessToken,
   setUnauthenticatedHandler,
   setAccessTokenHandler,
+  setClientApp,
   apiBaseUrl,
   buildUrl,
   readJsonSafely,

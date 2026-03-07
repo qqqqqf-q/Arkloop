@@ -14,12 +14,14 @@ import {
   clearAccessTokenFromStorage,
 } from './storage'
 import { setUnauthenticatedHandler, setAccessTokenHandler, refreshAccessToken } from './api'
+import { setClientApp } from '@arkloop/shared/api'
 
 function App() {
   const [accessToken, setAccessToken] = useState<string | null>(null)
   const [authChecked, setAuthChecked] = useState(false)
 
   useEffect(() => {
+    setClientApp('console-lite')
     setUnauthenticatedHandler(() => {
       clearAccessTokenFromStorage()
       setAccessToken(null)

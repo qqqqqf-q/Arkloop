@@ -359,6 +359,117 @@ func TestAuthLogoutThenReLoginNewTokenStillValid(t *testing.T) {
 	}
 }
 
+func TestAuthCookieIsolation(t *testing.T) {
+	db := setupTestDatabase(t, "api_go_auth_cookie_iso")
+
+	ctx := context.Background()
+	pool, err := data.NewPool(ctx, db.DSN, data.PoolLimits{MaxConns: 32, MinConns: 0})
+	if err != nil {
+		t.Fatalf("new pool: %v", err)
+	}
+	defer pool.Close()
+
+	logger := observability.NewJSONLogger("test", io.Discard)
+	passwordHasher, err := auth.NewBcryptPasswordHasher(0)
+	if err != nil {
+		t.Fatalf("new password hasher: %v", err)
+	}
+	tokenService, err := auth.NewJwtAccessTokenService("test-secret-should-be-long-enough-32chars", 3600, 2592000)
+	if err != nil {
+		t.Fatalf("new token service: %v", err)
+	}
+
+	userRepo, _ := data.NewUserRepository(pool)
+	credentialRepo, _ := data.NewUserCredentialRepository(pool)
+	membershipRepo, _ := data.NewOrgMembershipRepository(pool)
+	refreshTokenRepo, _ := data.NewRefreshTokenRepository(pool)
+	auditRepo, _ := data.NewAuditLogRepository(pool)
+	jobRepo, _ := data.NewJobRepository(pool)
+
+	authService, err := auth.NewService(userRepo, credentialRepo, membershipRepo, passwordHasher, tokenService, refreshTokenRepo, nil)
+	if err != nil {
+		t.Fatalf("new auth service: %v", err)
+	}
+	registrationService, err := auth.NewRegistrationService(pool, passwordHasher, tokenService, refreshTokenRepo, jobRepo)
+	if err != nil {
+		t.Fatalf("new registration service: %v", err)
+	}
+
+	auditWriter := audit.NewWriter(auditRepo, membershipRepo, logger)
+	handler := NewHandler(HandlerConfig{
+		Logger:              logger,
+		AuthService:         authService,
+		RegistrationService: registrationService,
+		AuditWriter:         auditWriter,
+		OrgMembershipRepo:   membershipRepo,
+	})
+
+	// register two users
+	doJSON(handler, nethttp.MethodPost, "/v1/auth/register",
+		map[string]any{"login": "alice", "password": "pwdpwdpwd", "email": "alice@test.com"}, nil)
+	doJSON(handler, nethttp.MethodPost, "/v1/auth/register",
+		map[string]any{"login": "bob", "password": "pwdpwdpwd", "email": "bob@test.com"}, nil)
+
+	// login alice on web app
+	webLoginResp := doJSON(handler, nethttp.MethodPost, "/v1/auth/login",
+		map[string]any{"login": "alice", "password": "pwdpwdpwd"},
+		map[string]string{clientAppHeader: "web"})
+	if webLoginResp.Code != nethttp.StatusOK {
+		t.Fatalf("web login alice: %d %s", webLoginResp.Code, webLoginResp.Body.String())
+	}
+
+	// verify both app-specific and shared cookies are set
+	webAppCookie := findRefreshCookie(t, webLoginResp, "arkloop_rt_web")
+	sharedCookie := findRefreshCookie(t, webLoginResp, refreshTokenCookieName)
+
+	// login bob on console app
+	consoleLoginResp := doJSON(handler, nethttp.MethodPost, "/v1/auth/login",
+		map[string]any{"login": "bob", "password": "pwdpwdpwd"},
+		map[string]string{clientAppHeader: "console"})
+	if consoleLoginResp.Code != nethttp.StatusOK {
+		t.Fatalf("console login bob: %d %s", consoleLoginResp.Code, consoleLoginResp.Body.String())
+	}
+	_ = findRefreshCookie(t, consoleLoginResp, "arkloop_rt_console")
+	_ = findRefreshCookie(t, consoleLoginResp, refreshTokenCookieName)
+
+	// refresh on web using alice's app-specific cookie -> still alice
+	webRefreshResp := doJSON(handler, nethttp.MethodPost, "/v1/auth/refresh", nil,
+		map[string]string{
+			clientAppHeader: "web",
+			"Cookie":        webAppCookie,
+		})
+	if webRefreshResp.Code != nethttp.StatusOK {
+		t.Fatalf("web refresh: %d %s", webRefreshResp.Code, webRefreshResp.Body.String())
+	}
+	webToken := decodeJSONBody[loginResponse](t, webRefreshResp.Body.Bytes())
+	meWeb := doJSON(handler, nethttp.MethodGet, "/v1/me", nil, authHeader(webToken.AccessToken))
+	if meWeb.Code != nethttp.StatusOK {
+		t.Fatalf("me web after refresh: %d %s", meWeb.Code, meWeb.Body.String())
+	}
+
+	// no X-Client-App -> legacy behavior, uses shared cookie
+	legacyRefreshResp := doJSON(handler, nethttp.MethodPost, "/v1/auth/refresh", nil,
+		map[string]string{"Cookie": sharedCookie})
+	if legacyRefreshResp.Code != nethttp.StatusOK {
+		t.Fatalf("legacy refresh: %d %s", legacyRefreshResp.Code, legacyRefreshResp.Body.String())
+	}
+	_ = findRefreshCookie(t, legacyRefreshResp, refreshTokenCookieName)
+
+	// console-lite fallback: no arkloop_rt_console_lite, should fallback to shared cookie
+	// (shared cookie was updated in the legacy refresh above)
+	newSharedCookie := findRefreshCookie(t, legacyRefreshResp, refreshTokenCookieName)
+	consoleLiteRefreshResp := doJSON(handler, nethttp.MethodPost, "/v1/auth/refresh", nil,
+		map[string]string{
+			clientAppHeader: "console-lite",
+			"Cookie":        newSharedCookie,
+		})
+	if consoleLiteRefreshResp.Code != nethttp.StatusOK {
+		t.Fatalf("console-lite fallback refresh: %d %s", consoleLiteRefreshResp.Code, consoleLiteRefreshResp.Body.String())
+	}
+	// should now have app-specific cookie for console-lite
+	_ = findRefreshCookie(t, consoleLiteRefreshResp, "arkloop_rt_console_lite")
+}
+
 func setupTestDatabase(t *testing.T, prefix string) *testutil.PostgresDatabase {
 	t.Helper()
 	db := testutil.SetupPostgresDatabase(t, prefix)
@@ -424,13 +535,17 @@ func authHeader(token string) map[string]string {
 
 func refreshTokenCookieHeader(t *testing.T, resp *httptest.ResponseRecorder) string {
 	t.Helper()
+	return findRefreshCookie(t, resp, refreshTokenCookieName)
+}
 
+func findRefreshCookie(t *testing.T, resp *httptest.ResponseRecorder, name string) string {
+	t.Helper()
 	for _, cookie := range resp.Result().Cookies() {
-		if cookie.Name == refreshTokenCookieName && strings.TrimSpace(cookie.Value) != "" {
+		if cookie.Name == name && strings.TrimSpace(cookie.Value) != "" {
 			return cookie.Name + "=" + cookie.Value
 		}
 	}
-	t.Fatalf("missing %s cookie", refreshTokenCookieName)
+	t.Fatalf("missing %s cookie", name)
 	return ""
 }
 

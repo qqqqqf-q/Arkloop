@@ -1,6 +1,7 @@
 package http
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/json"
 	"errors"
@@ -30,6 +31,23 @@ const (
 
 	refreshTokenCookieName = "arkloop_refresh_token"
 	refreshTokenCookiePath = "/v1/auth"
+
+	clientAppHeader = "X-Client-App"
+)
+
+var allowedClientApps = map[string]string{
+	"web":          "arkloop_rt_web",
+	"console":      "arkloop_rt_console",
+	"console-lite": "arkloop_rt_console_lite",
+}
+
+type tokenSource int
+
+const (
+	tokenSourceNone   tokenSource = iota
+	tokenSourceApp                // app-specific cookie
+	tokenSourceShared             // shared cookie
+	tokenSourceBody               // request body (legacy)
 )
 
 // verifyTurnstileToken performs Turnstile validation if a secret key is configured.
@@ -235,7 +253,7 @@ func login(authService *auth.Service, auditWriter *audit.Writer, resolver shared
 			auditWriter.WriteLoginSucceeded(r.Context(), traceID, issued.UserID, body.Login)
 		}
 
-		setRefreshTokenCookie(w, r, issued.RefreshToken, authService.RefreshTokenTTLSeconds())
+		setLoginCookies(w, r, resolveClientApp(r), issued.RefreshToken, authService.RefreshTokenTTLSeconds(), authService, issued.UserID)
 		writeJSON(w, traceID, nethttp.StatusOK, loginResponse{
 			AccessToken: issued.AccessToken,
 			TokenType:   "bearer",
@@ -260,21 +278,30 @@ func refreshToken(authService *auth.Service, auditWriter *audit.Writer) func(net
 			return
 		}
 
-		refreshToken, ok := readRefreshTokenFromRequest(r)
-		if !ok {
+		clientApp := resolveClientApp(r)
+		token, source := readRefreshTokenFromRequest(r, clientApp)
+		if source == tokenSourceNone {
 			WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "refresh_token is required", traceID, nil)
 			return
 		}
 
-		issued, err := authService.ConsumeRefreshToken(r.Context(), refreshToken)
+		issued, err := authService.ConsumeRefreshToken(r.Context(), token)
 		if err != nil {
+			clearSourceCookie := func() {
+				switch source {
+				case tokenSourceApp:
+					clearRefreshTokenCookie(w, r, appRefreshCookieName(clientApp))
+				case tokenSourceShared:
+					clearRefreshTokenCookie(w, r, refreshTokenCookieName)
+				}
+			}
 			switch err.(type) {
 			case auth.TokenInvalidError, auth.UserNotFoundError:
-				clearRefreshTokenCookie(w, r)
+				clearSourceCookie()
 				WriteError(w, nethttp.StatusUnauthorized, "auth.invalid_token", "token invalid or expired", traceID, nil)
 				return
 			case auth.SuspendedUserError:
-				clearRefreshTokenCookie(w, r)
+				clearSourceCookie()
 				WriteError(w, nethttp.StatusForbidden, "auth.user_suspended", "account suspended", traceID, nil)
 				return
 			default:
@@ -287,7 +314,19 @@ func refreshToken(authService *auth.Service, auditWriter *audit.Writer) func(net
 			auditWriter.WriteTokenRefreshed(r.Context(), traceID, issued.UserID)
 		}
 
-		setRefreshTokenCookie(w, r, issued.RefreshToken, authService.RefreshTokenTTLSeconds())
+		ttl := authService.RefreshTokenTTLSeconds()
+		appCookie := appRefreshCookieName(clientApp)
+		if appCookie != "" {
+			setRefreshTokenCookie(w, r, appCookie, issued.RefreshToken, ttl)
+			if source == tokenSourceShared {
+				// fallback: 从共享 cookie 继承 session，同时更新共享 cookie
+				if sharedToken, err := authService.IssueRefreshTokenOnly(r.Context(), issued.UserID); err == nil {
+					setRefreshTokenCookie(w, r, refreshTokenCookieName, sharedToken, ttl)
+				}
+			}
+		} else {
+			setRefreshTokenCookie(w, r, refreshTokenCookieName, issued.RefreshToken, ttl)
+		}
 		writeJSON(w, traceID, nethttp.StatusOK, loginResponse{
 			AccessToken: issued.AccessToken,
 			TokenType:   "bearer",
@@ -322,7 +361,7 @@ func logout(authService *auth.Service, auditWriter *audit.Writer) func(nethttp.R
 			auditWriter.WriteLogout(r.Context(), traceID, user.ID)
 		}
 
-		clearRefreshTokenCookie(w, r)
+		clearAuthCookies(w, r, resolveClientApp(r))
 		writeJSON(w, traceID, nethttp.StatusOK, logoutResponse{OK: true})
 	}
 }
@@ -350,6 +389,7 @@ func registrationMode(flagService *featureflag.Service) func(nethttp.ResponseWri
 
 func register(
 	registrationService *auth.RegistrationService,
+	authService *auth.Service,
 	flagService *featureflag.Service,
 	auditWriter *audit.Writer,
 	resolver sharedconfig.Resolver,
@@ -438,7 +478,7 @@ func register(
 		if created.Warning != "" {
 			resp.Warning = &created.Warning
 		}
-		setRefreshTokenCookie(w, r, created.RefreshToken, registrationService.RefreshTokenTTLSeconds())
+		setLoginCookies(w, r, resolveClientApp(r), created.RefreshToken, registrationService.RefreshTokenTTLSeconds(), authService, created.UserID)
 		writeJSON(w, traceID, nethttp.StatusCreated, resp)
 	}
 }
@@ -588,18 +628,18 @@ func isSecureCookieRequest(r *nethttp.Request) bool {
 	return strings.EqualFold(strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")), "https")
 }
 
-func setRefreshTokenCookie(w nethttp.ResponseWriter, r *nethttp.Request, token string, ttlSeconds int) {
+func setRefreshTokenCookie(w nethttp.ResponseWriter, r *nethttp.Request, cookieName string, token string, ttlSeconds int) {
 	if w == nil || r == nil {
 		return
 	}
 	token = strings.TrimSpace(token)
-	if token == "" || ttlSeconds <= 0 {
+	if token == "" || ttlSeconds <= 0 || cookieName == "" {
 		return
 	}
 
 	expiresAt := time.Now().UTC().Add(time.Duration(ttlSeconds) * time.Second)
 	nethttp.SetCookie(w, &nethttp.Cookie{
-		Name:     refreshTokenCookieName,
+		Name:     cookieName,
 		Value:    token,
 		Path:     refreshTokenCookiePath,
 		HttpOnly: true,
@@ -610,12 +650,12 @@ func setRefreshTokenCookie(w nethttp.ResponseWriter, r *nethttp.Request, token s
 	})
 }
 
-func clearRefreshTokenCookie(w nethttp.ResponseWriter, r *nethttp.Request) {
-	if w == nil || r == nil {
+func clearRefreshTokenCookie(w nethttp.ResponseWriter, r *nethttp.Request, cookieName string) {
+	if w == nil || r == nil || cookieName == "" {
 		return
 	}
 	nethttp.SetCookie(w, &nethttp.Cookie{
-		Name:     refreshTokenCookieName,
+		Name:     cookieName,
 		Value:    "",
 		Path:     refreshTokenCookiePath,
 		HttpOnly: true,
@@ -626,26 +666,80 @@ func clearRefreshTokenCookie(w nethttp.ResponseWriter, r *nethttp.Request) {
 	})
 }
 
-func readRefreshTokenFromRequest(r *nethttp.Request) (string, bool) {
+// resolveClientApp reads and validates the X-Client-App header.
+func resolveClientApp(r *nethttp.Request) string {
 	if r == nil {
-		return "", false
+		return ""
+	}
+	app := strings.TrimSpace(r.Header.Get(clientAppHeader))
+	if _, ok := allowedClientApps[app]; ok {
+		return app
+	}
+	return ""
+}
+
+// appRefreshCookieName returns the app-specific cookie name, or empty string.
+func appRefreshCookieName(clientApp string) string {
+	return allowedClientApps[clientApp]
+}
+
+func readRefreshTokenFromRequest(r *nethttp.Request, clientApp string) (string, tokenSource) {
+	if r == nil {
+		return "", tokenSourceNone
+	}
+
+	if appCookie := appRefreshCookieName(clientApp); appCookie != "" {
+		if cookie, err := r.Cookie(appCookie); err == nil {
+			if token := strings.TrimSpace(cookie.Value); token != "" {
+				return token, tokenSourceApp
+			}
+		}
 	}
 
 	if cookie, err := r.Cookie(refreshTokenCookieName); err == nil {
 		if token := strings.TrimSpace(cookie.Value); token != "" {
-			return token, true
+			return token, tokenSourceShared
 		}
 	}
 
-	// 兼容旧客户端：从请求体读取 refresh_token。
 	var body refreshTokenRequest
 	if err := decodeJSON(r, &body); err != nil {
-		return "", false
+		return "", tokenSourceNone
 	}
 	if token := strings.TrimSpace(body.RefreshToken); token != "" {
-		return token, true
+		return token, tokenSourceBody
 	}
-	return "", false
+	return "", tokenSourceNone
+}
+
+// setLoginCookies sets the app-specific cookie and issues a separate shared cookie token.
+// For legacy clients (no X-Client-App), only the shared cookie is set.
+func setLoginCookies(
+	w nethttp.ResponseWriter, r *nethttp.Request,
+	clientApp string,
+	mainToken string, ttlSeconds int,
+	issuer interface {
+		IssueRefreshTokenOnly(ctx context.Context, userID uuid.UUID) (string, error)
+	},
+	userID uuid.UUID,
+) {
+	appCookie := appRefreshCookieName(clientApp)
+	if appCookie != "" {
+		setRefreshTokenCookie(w, r, appCookie, mainToken, ttlSeconds)
+		if sharedToken, err := issuer.IssueRefreshTokenOnly(r.Context(), userID); err == nil {
+			setRefreshTokenCookie(w, r, refreshTokenCookieName, sharedToken, ttlSeconds)
+		}
+	} else {
+		setRefreshTokenCookie(w, r, refreshTokenCookieName, mainToken, ttlSeconds)
+	}
+}
+
+// clearAuthCookies clears the app-specific cookie (if applicable) and the shared cookie.
+func clearAuthCookies(w nethttp.ResponseWriter, r *nethttp.Request, clientApp string) {
+	if appCookie := appRefreshCookieName(clientApp); appCookie != "" {
+		clearRefreshTokenCookie(w, r, appCookie)
+	}
+	clearRefreshTokenCookie(w, r, refreshTokenCookieName)
 }
 
 func parseBearerToken(w nethttp.ResponseWriter, r *nethttp.Request, traceID string) (string, bool) {
@@ -830,7 +924,7 @@ func emailOTPSend(otpLoginService *auth.EmailOTPLoginService, resolver sharedcon
 	}
 }
 
-func emailOTPVerify(otpLoginService *auth.EmailOTPLoginService, auditWriter *audit.Writer) func(nethttp.ResponseWriter, *nethttp.Request) {
+func emailOTPVerify(otpLoginService *auth.EmailOTPLoginService, authService *auth.Service, auditWriter *audit.Writer) func(nethttp.ResponseWriter, *nethttp.Request) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		if r.Method != nethttp.MethodPost {
 			writeMethodNotAllowed(w, r)
@@ -875,7 +969,7 @@ func emailOTPVerify(otpLoginService *auth.EmailOTPLoginService, auditWriter *aud
 			auditWriter.WriteLoginSucceeded(r.Context(), traceID, issued.UserID, body.Email)
 		}
 
-		setRefreshTokenCookie(w, r, issued.RefreshToken, otpLoginService.RefreshTokenTTLSeconds())
+		setLoginCookies(w, r, resolveClientApp(r), issued.RefreshToken, otpLoginService.RefreshTokenTTLSeconds(), authService, issued.UserID)
 		writeJSON(w, traceID, nethttp.StatusOK, loginResponse{
 			AccessToken: issued.AccessToken,
 			TokenType:   "bearer",

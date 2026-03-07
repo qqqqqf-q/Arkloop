@@ -38,6 +38,7 @@ export function isApiError(error: unknown): error is ApiError {
 let refreshPromise: Promise<string> | null = null
 let unauthenticatedHandler: (() => void) | null = null
 let accessTokenHandler: ((token: string) => void) | null = null
+let clientApp: string | null = null
 
 export function setUnauthenticatedHandler(fn: () => void): void {
   unauthenticatedHandler = fn
@@ -45,6 +46,10 @@ export function setUnauthenticatedHandler(fn: () => void): void {
 
 export function setAccessTokenHandler(fn: (token: string) => void): void {
   accessTokenHandler = fn
+}
+
+export function setClientApp(app: string): void {
+  clientApp = app || null
 }
 
 export function apiBaseUrl(): string {
@@ -104,6 +109,10 @@ export async function apiFetch<T>(
 
   if (init?.accessToken) {
     headers.set('Authorization', `Bearer ${init.accessToken}`)
+  }
+
+  if (clientApp) {
+    headers.set('X-Client-App', clientApp)
   }
 
   const credentials = init?.credentials ?? 'include'

@@ -12,6 +12,7 @@ import {
   clearAccessTokenFromStorage,
 } from './storage'
 import { setUnauthenticatedHandler, setAccessTokenHandler, refreshAccessToken } from './api'
+import { setClientApp } from '@arkloop/shared/api'
 
 function App() {
   const [accessToken, setAccessToken] = useState<string | null>(null)
@@ -20,6 +21,7 @@ function App() {
   useEffect(() => {
     const controller = new AbortController()
 
+    setClientApp('web')
     setUnauthenticatedHandler(() => {
       clearAccessTokenFromStorage()
       clearActiveThreadIdInStorage()

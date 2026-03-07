@@ -197,6 +197,19 @@ func (s *Service) ConsumeRefreshToken(ctx context.Context, plaintext string) (Is
 	return s.issueTokenPair(ctx, userID)
 }
 
+// IssueRefreshTokenOnly 为指定用户签发独立的 Refresh Token（不含 Access Token），用于共享 cookie。
+func (s *Service) IssueRefreshTokenOnly(ctx context.Context, userID uuid.UUID) (string, error) {
+	now := time.Now().UTC()
+	plaintext, hash, expiresAt, err := s.tokenService.IssueRefreshToken(now)
+	if err != nil {
+		return "", err
+	}
+	if _, err = s.refreshTokenRepo.Create(ctx, userID, hash, expiresAt); err != nil {
+		return "", err
+	}
+	return plaintext, nil
+}
+
 // issueTokenPair 为指定用户签发 Access Token + Refresh Token，并将 Refresh Token 持久化到 DB。
 func (s *Service) issueTokenPair(ctx context.Context, userID uuid.UUID) (IssuedTokenPair, error) {
 	now := time.Now().UTC()
