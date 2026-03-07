@@ -257,7 +257,7 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 
 	mux.HandleFunc(
 		"/v1/personas",
-		personasEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.PersonasRepo),
+		personasEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.PersonasRepo, cfg.RepoPersonas),
 	)
 	mux.HandleFunc(
 		"/v1/personas/",

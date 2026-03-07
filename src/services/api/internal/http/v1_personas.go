@@ -10,12 +10,13 @@ import (
 	"arkloop/services/api/internal/auth"
 	"arkloop/services/api/internal/data"
 	"arkloop/services/api/internal/observability"
+	repopersonas "arkloop/services/api/internal/personas"
 
 	"github.com/google/uuid"
 )
 
 type createPersonaRequest struct {
-	PersonaKey            string          `json:"persona_key"`
+	PersonaKey          string          `json:"persona_key"`
 	Version             string          `json:"version"`
 	DisplayName         string          `json:"display_name"`
 	Description         *string         `json:"description"`
@@ -42,7 +43,7 @@ type patchPersonaRequest struct {
 type personaResponse struct {
 	ID                  string          `json:"id"`
 	OrgID               *string         `json:"org_id"`
-	PersonaKey            string          `json:"persona_key"`
+	PersonaKey          string          `json:"persona_key"`
 	Version             string          `json:"version"`
 	DisplayName         string          `json:"display_name"`
 	Description         *string         `json:"description,omitempty"`
@@ -54,12 +55,14 @@ type personaResponse struct {
 	PreferredCredential *string         `json:"preferred_credential,omitempty"`
 	ExecutorType        string          `json:"executor_type"`
 	ExecutorConfigJSON  json.RawMessage `json:"executor_config"`
+	Source              string          `json:"source"`
 }
 
 func personasEntry(
 	authService *auth.Service,
 	membershipRepo *data.OrgMembershipRepository,
 	personasRepo *data.PersonasRepository,
+	repoPersonas []repopersonas.RepoPersona,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		traceID := observability.TraceIDFromContext(r.Context())
@@ -67,7 +70,7 @@ func personasEntry(
 		case nethttp.MethodPost:
 			createPersona(w, r, traceID, authService, membershipRepo, personasRepo)
 		case nethttp.MethodGet:
-			listPersonas(w, r, traceID, authService, membershipRepo, personasRepo)
+			listPersonas(w, r, traceID, authService, membershipRepo, personasRepo, repoPersonas)
 		default:
 			writeMethodNotAllowed(w, r)
 		}
@@ -179,6 +182,7 @@ func listPersonas(
 	authService *auth.Service,
 	membershipRepo *data.OrgMembershipRepository,
 	personasRepo *data.PersonasRepository,
+	repoPersonas []repopersonas.RepoPersona,
 ) {
 	if authService == nil {
 		writeAuthNotConfigured(w, traceID)
@@ -194,15 +198,23 @@ func listPersonas(
 		return
 	}
 
-	personas, err := personasRepo.ListByOrg(r.Context(), actor.OrgID)
+	dbPersonas, err := personasRepo.ListByOrg(r.Context(), actor.OrgID)
 	if err != nil {
 		WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
 	}
 
-	resp := make([]personaResponse, 0, len(personas))
-	for _, s := range personas {
-		resp = append(resp, toPersonaResponse(s))
+	dbPersonaKeys := make(map[string]struct{}, len(dbPersonas))
+	resp := make([]personaResponse, 0, len(dbPersonas)+len(repoPersonas))
+	for _, persona := range dbPersonas {
+		dbPersonaKeys[persona.PersonaKey] = struct{}{}
+		resp = append(resp, toPersonaResponse(persona))
+	}
+	for _, persona := range repoPersonas {
+		if _, exists := dbPersonaKeys[persona.ID]; exists {
+			continue
+		}
+		resp = append(resp, toBuiltinPersonaResponse(persona))
 	}
 
 	writeJSON(w, traceID, nethttp.StatusOK, resp)
@@ -305,7 +317,7 @@ func toPersonaResponse(s data.Persona) personaResponse {
 	return personaResponse{
 		ID:                  s.ID.String(),
 		OrgID:               orgIDStr,
-		PersonaKey:            s.PersonaKey,
+		PersonaKey:          s.PersonaKey,
 		Version:             s.Version,
 		DisplayName:         s.DisplayName,
 		Description:         s.Description,
@@ -317,5 +329,54 @@ func toPersonaResponse(s data.Persona) personaResponse {
 		PreferredCredential: s.PreferredCredential,
 		ExecutorType:        executorType,
 		ExecutorConfigJSON:  executorConfig,
+		Source:              "custom",
+	}
+}
+
+func toBuiltinPersonaResponse(s repopersonas.RepoPersona) personaResponse {
+	allowlist := s.ToolAllowlist
+	if allowlist == nil {
+		allowlist = []string{}
+	}
+
+	budgets := json.RawMessage("{}")
+	if len(s.Budgets) > 0 {
+		if encoded, err := json.Marshal(s.Budgets); err == nil {
+			budgets = encoded
+		}
+	}
+
+	executorConfig := json.RawMessage("{}")
+	if len(s.ExecutorConfig) > 0 {
+		if encoded, err := json.Marshal(s.ExecutorConfig); err == nil {
+			executorConfig = encoded
+		}
+	}
+
+	executorType := strings.TrimSpace(s.ExecutorType)
+	if executorType == "" {
+		executorType = "agent.simple"
+	}
+
+	var description *string
+	if trimmed := strings.TrimSpace(s.Description); trimmed != "" {
+		description = &trimmed
+	}
+
+	return personaResponse{
+		ID:                 "builtin:" + s.ID + ":" + s.Version,
+		OrgID:              nil,
+		PersonaKey:         s.ID,
+		Version:            s.Version,
+		DisplayName:        s.Title,
+		Description:        description,
+		PromptMD:           s.PromptMD,
+		ToolAllowlist:      allowlist,
+		BudgetsJSON:        budgets,
+		IsActive:           true,
+		CreatedAt:          "",
+		ExecutorType:       executorType,
+		ExecutorConfigJSON: executorConfig,
+		Source:             "builtin",
 	}
 }

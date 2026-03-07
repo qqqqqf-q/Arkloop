@@ -383,8 +383,8 @@ func LoadFromDB(ctx context.Context, pool *pgxpool.Pool, orgID uuid.UUID) ([]Def
 		        executor_type, executor_config_json,
 		        preferred_credential, agent_config_name
 		 FROM personas
-		 WHERE (org_id = $1 OR org_id IS NULL) AND is_active = TRUE
-		 ORDER BY (org_id IS NULL) DESC, created_at ASC`,
+		 WHERE org_id = $1 AND is_active = TRUE
+		 ORDER BY created_at ASC`,
 		orgID,
 	)
 	if err != nil {
@@ -395,7 +395,7 @@ func LoadFromDB(ctx context.Context, pool *pgxpool.Pool, orgID uuid.UUID) ([]Def
 	var defs []Definition
 	for rows.Next() {
 		var (
-			personaKey            string
+			personaKey          string
 			version             string
 			displayName         string
 			description         *string

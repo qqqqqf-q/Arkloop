@@ -193,9 +193,6 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 	if err != nil {
 		return nil, err
 	}
-	if err := personas.SyncBuiltinPersonasToDB(ctx, pool, initialPersonaRegistry); err != nil {
-		return nil, err
-	}
 	watchedPersonas := personas.NewWatchedRegistry(personasRoot, initialPersonaRegistry)
 	watchedPersonas.Watch(ctx)
 

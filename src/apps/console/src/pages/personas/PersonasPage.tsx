@@ -312,15 +312,14 @@ export function PersonasPage() {
       key: 'created_at',
       header: tc.colCreatedAt,
       render: (row) => (
-        <span className="tabular-nums text-xs">{new Date(row.created_at).toLocaleString()}</span>
+        <span className="tabular-nums text-xs">{row.created_at ? new Date(row.created_at).toLocaleString() : '-'}</span>
       ),
     },
     {
       key: 'actions',
       header: '',
       render: (row) => {
-        // global personas (org_id is null) are read-only
-        const isGlobal = row.org_id === null
+        const isGlobal = row.source === 'builtin'
         return (
           <div className="flex items-center gap-1">
             {isGlobal && (

@@ -1,9 +1,15 @@
 package personas
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"arkloop/services/worker/internal/testutil"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func TestLoadRegistryLoadsNormalPersona(t *testing.T) {
@@ -271,5 +277,81 @@ func TestMergeRegistryKeepsBaseTitleSummarizerWhenOverrideMissing(t *testing.T) 
 	}
 	if def.Title != "Normal Override" {
 		t.Fatalf("expected override title, got %q", def.Title)
+	}
+}
+
+func TestLoadFromDBIgnoresGlobalPersonaRows(t *testing.T) {
+	db := testutil.SetupPostgresDatabase(t, "arkloop_personas_loader")
+	pool, err := pgxpool.New(context.Background(), db.DSN)
+	if err != nil {
+		t.Fatalf("pgxpool.New failed: %v", err)
+	}
+	t.Cleanup(pool.Close)
+
+	orgID := uuid.New()
+	insertWorkerPersonaRow(t, pool, &orgID, "custom-only", "Custom Only")
+	insertWorkerPersonaRow(t, pool, nil, "ghost", "Ghost")
+
+	defs, err := LoadFromDB(context.Background(), pool, orgID)
+	if err != nil {
+		t.Fatalf("LoadFromDB failed: %v", err)
+	}
+	if len(defs) != 1 {
+		t.Fatalf("expected 1 persona, got %d", len(defs))
+	}
+	if defs[0].ID != "custom-only" {
+		t.Fatalf("expected custom-only, got %q", defs[0].ID)
+	}
+}
+
+func TestMergeRegistryUsesOrgOverrideOnly(t *testing.T) {
+	db := testutil.SetupPostgresDatabase(t, "arkloop_personas_merge")
+	pool, err := pgxpool.New(context.Background(), db.DSN)
+	if err != nil {
+		t.Fatalf("pgxpool.New failed: %v", err)
+	}
+	t.Cleanup(pool.Close)
+
+	orgID := uuid.New()
+	insertWorkerPersonaRow(t, pool, &orgID, "normal", "Custom Normal")
+	insertWorkerPersonaRow(t, pool, nil, "normal", "Ghost Normal")
+
+	defs, err := LoadFromDB(context.Background(), pool, orgID)
+	if err != nil {
+		t.Fatalf("LoadFromDB failed: %v", err)
+	}
+	if len(defs) != 1 {
+		t.Fatalf("expected 1 override persona, got %d", len(defs))
+	}
+
+	base := NewRegistry()
+	if err := base.Register(Definition{ID: "normal", Version: "1", Title: "Builtin Normal"}); err != nil {
+		t.Fatalf("register base failed: %v", err)
+	}
+
+	merged := MergeRegistry(base, defs)
+	def, ok := merged.Get("normal")
+	if !ok {
+		t.Fatal("expected merged normal persona")
+	}
+	if def.Title != "Custom Normal" {
+		t.Fatalf("expected custom override title, got %q", def.Title)
+	}
+}
+
+func insertWorkerPersonaRow(t *testing.T, pool *pgxpool.Pool, orgID *uuid.UUID, personaKey string, displayName string) {
+	t.Helper()
+
+	_, err := pool.Exec(
+		context.Background(),
+		`INSERT INTO personas
+			(org_id, persona_key, version, display_name, prompt_md, tool_allowlist, tool_denylist, budgets_json, executor_type, executor_config_json)
+		 VALUES ($1, $2, '1', $3, 'prompt', '{}', '{}', '{}'::jsonb, 'agent.simple', '{}'::jsonb)`,
+		orgID,
+		personaKey,
+		displayName,
+	)
+	if err != nil {
+		t.Fatalf("insert persona row failed: %v", err)
 	}
 }

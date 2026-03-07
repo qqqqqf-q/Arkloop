@@ -3,6 +3,7 @@ import { apiFetch } from './client'
 export type Persona = {
   id: string
   org_id: string | null
+  source?: 'builtin' | 'custom'
   persona_key: string
   version: string
   display_name: string

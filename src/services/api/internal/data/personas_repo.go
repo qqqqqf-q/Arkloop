@@ -18,7 +18,7 @@ func (r *PersonasRepository) WithTx(tx pgx.Tx) *PersonasRepository {
 
 type PersonaConflictError struct {
 	PersonaKey string
-	Version  string
+	Version    string
 }
 
 func (e PersonaConflictError) Error() string {
@@ -28,7 +28,7 @@ func (e PersonaConflictError) Error() string {
 type Persona struct {
 	ID                  uuid.UUID
 	OrgID               *uuid.UUID
-	PersonaKey            string
+	PersonaKey          string
 	Version             string
 	DisplayName         string
 	Description         *string
@@ -155,7 +155,7 @@ func (r *PersonasRepository) GetByID(ctx context.Context, orgID, id uuid.UUID) (
 		        prompt_md, tool_allowlist, budgets_json, is_active, created_at,
 		        preferred_credential, executor_type, executor_config_json
 		 FROM personas
-		 WHERE id = $1 AND (org_id = $2 OR org_id IS NULL)`,
+		 WHERE id = $1 AND org_id = $2`,
 		id, orgID,
 	).Scan(
 		&persona.ID, &persona.OrgID, &persona.PersonaKey, &persona.Version,
@@ -172,7 +172,7 @@ func (r *PersonasRepository) GetByID(ctx context.Context, orgID, id uuid.UUID) (
 	return &persona, nil
 }
 
-// ListByOrg 返回该 org 的所有 persona（含 org_id IS NULL 的全局 persona）。
+// ListByOrg 返回该 org 的所有 persona。
 func (r *PersonasRepository) ListByOrg(ctx context.Context, orgID uuid.UUID) ([]Persona, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -184,7 +184,7 @@ func (r *PersonasRepository) ListByOrg(ctx context.Context, orgID uuid.UUID) ([]
 		        prompt_md, tool_allowlist, budgets_json, is_active, created_at,
 		        preferred_credential, executor_type, executor_config_json
 		 FROM personas
-		 WHERE org_id = $1 OR org_id IS NULL
+		 WHERE org_id = $1
 		 ORDER BY created_at ASC`,
 		orgID,
 	)
@@ -305,7 +305,7 @@ func (r *PersonasRepository) Patch(ctx context.Context, orgID, id uuid.UUID, pat
 		ctx,
 		fmt.Sprintf(`UPDATE personas
 		 SET %s
-		 WHERE id = $%d AND (org_id = $%d OR org_id IS NULL)
+		 WHERE id = $%d AND org_id = $%d
 		 RETURNING id, org_id, persona_key, version, display_name, description,
 		           prompt_md, tool_allowlist, budgets_json, is_active, created_at,
 		           preferred_credential, executor_type, executor_config_json`,
@@ -352,7 +352,7 @@ func (r *PersonasRepository) Delete(ctx context.Context, orgID, id uuid.UUID) (b
 	}
 	tag, err := r.db.Exec(
 		ctx,
-		`DELETE FROM personas WHERE id = $1 AND (org_id = $2 OR org_id IS NULL)`,
+		`DELETE FROM personas WHERE id = $1 AND org_id = $2`,
 		id, orgID,
 	)
 	if err != nil {
