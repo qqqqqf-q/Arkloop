@@ -350,7 +350,8 @@ export function SearchTimeline({ steps, sources, isComplete, codeExecutions, onO
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0px', paddingTop: steps.length > 0 ? '8px' : '0' }}>
                   {codeExecutions.map((ce, idx) => {
                     const isLast = idx === codeExecutions.length - 1
-                    const showTimeline = codeExecutions.length >= 2
+                    const showDot = codeExecutions.length > 0
+                    const showLine = codeExecutions.length >= 2
                     return (
                       <div
                         key={ce.id}
@@ -359,7 +360,7 @@ export function SearchTimeline({ steps, sources, isComplete, codeExecutions, onO
                           paddingBottom: isLast ? 0 : '8px',
                         }}
                       >
-                        {showTimeline && !isLast && (
+                        {showLine && !isLast && (
                           <div
                             style={{
                               position: 'absolute',
@@ -371,12 +372,13 @@ export function SearchTimeline({ steps, sources, isComplete, codeExecutions, onO
                             }}
                           />
                         )}
-                        {showTimeline && (
+                        {showDot && (
                           <div
                             style={{
                               position: 'absolute',
                               left: '-19px',
-                              top: '9px',
+                              top: '50%',
+                              transform: 'translateY(-50%)',
                               width: `${DOT_SIZE}px`,
                               height: `${DOT_SIZE}px`,
                               borderRadius: '50%',

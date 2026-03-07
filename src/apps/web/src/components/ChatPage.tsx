@@ -1510,7 +1510,8 @@ export function ChatPage() {
                     <div ref={copCodeExecScrollRef} style={{ paddingLeft: '24px', paddingTop: '6px', maxHeight: '60vh', overflowY: 'auto' }}>
                       {dedupedTopLevelCodeExecutions.map((ce, idx) => {
                         const isLast = idx === dedupedTopLevelCodeExecutions.length - 1
-                        const showTimeline = dedupedTopLevelCodeExecutions.length >= 2
+                        const showDot = dedupedTopLevelCodeExecutions.length > 0
+                        const showLine = dedupedTopLevelCodeExecutions.length >= 2
                         return (
                           <motion.div
                             key={ce.id}
@@ -1522,7 +1523,7 @@ export function ChatPage() {
                               paddingBottom: isLast ? 0 : '8px',
                             }}
                           >
-                            {showTimeline && !isLast && (
+                            {showLine && !isLast && (
                               <div
                                 style={{
                                   position: 'absolute',
@@ -1534,12 +1535,13 @@ export function ChatPage() {
                                 }}
                               />
                             )}
-                            {showTimeline && (
+                            {showDot && (
                               <div
                                 style={{
                                   position: 'absolute',
                                   left: '-19px',
-                                  top: '9px',
+                                  top: '50%',
+                                  transform: 'translateY(-50%)',
                                   width: '8px',
                                   height: '8px',
                                   borderRadius: '50%',
