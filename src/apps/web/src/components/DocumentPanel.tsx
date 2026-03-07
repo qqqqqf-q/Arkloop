@@ -37,7 +37,9 @@ export function DocumentPanel({ artifact, accessToken, onClose }: Props) {
     fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } })
       .then(async (res) => {
         if (!res.ok) throw new Error(`${res.status}`)
-        if (isTextMime(artifact.mime_type)) {
+        // 以服务器返回的 Content-Type 为准，artifact.mime_type 仅作兜底
+        const serverMime = res.headers.get('content-type') ?? artifact.mime_type ?? ''
+        if (isTextMime(serverMime)) {
           const text = await res.text()
           setLoadState({ status: 'text', content: text })
         } else {
