@@ -326,7 +326,7 @@ services:
     image: ghcr.io/volcengine/openviking:v0.1.18.dev0
     restart: unless-stopped
     environment:
-      WEB_CONCURRENCY: "${ARKLOOP_OPENVIKING_WORKERS:-4}"
+      WEB_CONCURRENCY: "${ARKLOOP_OPENVIKING_WORKERS:-1}"
     volumes:
       - ./config/openviking/ov.conf:/app/ov.conf:ro
       - openviking_data:/app/data
