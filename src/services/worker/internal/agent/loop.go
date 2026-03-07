@@ -10,6 +10,7 @@ import (
 
 	"arkloop/services/worker/internal/events"
 	"arkloop/services/worker/internal/llm"
+	"arkloop/services/worker/internal/memory"
 	"arkloop/services/worker/internal/stablejson"
 	"arkloop/services/worker/internal/tools"
 	"github.com/google/uuid"
@@ -38,6 +39,7 @@ type RunContext struct {
 	PerToolSoftLimits      tools.PerToolSoftLimits
 	ToolExecutor           *tools.DispatchingExecutor
 	ToolSpecs              []llm.ToolSpec
+	PendingMemoryWrites    *memory.PendingWriteBuffer
 	CancelSignal           func() bool
 
 	// LLM 调用重试配置，0 值表示不重试
@@ -324,16 +326,17 @@ func (l *Loop) executeToolCall(
 	emitter events.Emitter,
 ) tools.ExecutionResult {
 	execCtx := tools.ExecutionContext{
-		RunID:             runCtx.RunID,
-		TraceID:           runCtx.TraceID,
-		OrgID:             runCtx.OrgID,
-		ThreadID:          runCtx.ThreadID,
-		UserID:            runCtx.UserID,
-		AgentID:           runCtx.AgentID,
-		TimeoutMs:         runCtx.ToolTimeoutMs,
-		Budget:            copyMap(runCtx.ToolBudget),
-		PerToolSoftLimits: tools.CopyPerToolSoftLimits(runCtx.PerToolSoftLimits),
-		Emitter:           emitter,
+		RunID:               runCtx.RunID,
+		TraceID:             runCtx.TraceID,
+		OrgID:               runCtx.OrgID,
+		ThreadID:            runCtx.ThreadID,
+		UserID:              runCtx.UserID,
+		AgentID:             runCtx.AgentID,
+		TimeoutMs:           runCtx.ToolTimeoutMs,
+		Budget:              copyMap(runCtx.ToolBudget),
+		PerToolSoftLimits:   tools.CopyPerToolSoftLimits(runCtx.PerToolSoftLimits),
+		Emitter:             emitter,
+		PendingMemoryWrites: runCtx.PendingMemoryWrites,
 	}
 	return runCtx.ToolExecutor.Execute(ctx, call.ToolName, copyMap(call.ArgumentsJSON), execCtx, call.ToolCallID)
 }

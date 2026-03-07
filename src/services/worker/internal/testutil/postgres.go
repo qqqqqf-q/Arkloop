@@ -233,13 +233,14 @@ func initRunsSchema(t *testing.T, dsn string) error {
 		`CREATE UNIQUE INDEX ux_llm_routes_credential_model_lower ON llm_routes (credential_id, lower(model))`,
 		`CREATE UNIQUE INDEX ux_llm_routes_credential_default ON llm_routes (credential_id) WHERE is_default = TRUE`,
 		`CREATE TABLE threads (
-			id         UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-			org_id     UUID        NOT NULL,
-			project_id UUID        NULL,
-			is_private BOOLEAN     NOT NULL DEFAULT FALSE,
-			expires_at TIMESTAMPTZ NULL,
-			deleted_at TIMESTAMPTZ NULL,
-			created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+			id                 UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+			org_id             UUID        NOT NULL,
+			created_by_user_id UUID        NULL,
+			project_id         UUID        NULL,
+			is_private         BOOLEAN     NOT NULL DEFAULT FALSE,
+			expires_at         TIMESTAMPTZ NULL,
+			deleted_at         TIMESTAMPTZ NULL,
+			created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
 		)`,
 		`CREATE TABLE runs (
 			id                  UUID        PRIMARY KEY,
@@ -282,6 +283,15 @@ func initRunsSchema(t *testing.T, dsn string) error {
 			hidden             BOOLEAN     NOT NULL DEFAULT FALSE,
 			deleted_at         TIMESTAMPTZ NULL,
 			created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+		)`,
+		`CREATE TABLE user_memory_snapshots (
+			org_id       UUID        NOT NULL,
+			user_id      UUID        NOT NULL,
+			agent_id     TEXT        NOT NULL DEFAULT 'default',
+			memory_block TEXT        NOT NULL,
+			hits_json    JSONB       NULL,
+			updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+			PRIMARY KEY (org_id, user_id, agent_id)
 		)`,
 		`CREATE TABLE usage_records (
 			id                    UUID           PRIMARY KEY DEFAULT gen_random_uuid(),

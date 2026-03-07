@@ -97,6 +97,12 @@ var registry = []ToolMeta{
 		LLMDescription: "remove a specific memory entry",
 	},
 	{
+		Name:           "conversation_search",
+		Group:          GroupMemory,
+		Label:          "Conversation search",
+		LLMDescription: "search the current user's visible conversation history across all threads using keywords. Use this when you need to recall facts previously discussed but not stored in long-term memory. Returns recent matching messages with thread_id, role, content snippet, and created_at. This is keyword search over stored messages, not semantic search, and it does not spend model tokens.",
+	},
+	{
 		Name:           "browser_navigate",
 		Group:          GroupBrowser,
 		Label:          "Browser navigate",

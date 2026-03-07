@@ -114,6 +114,8 @@ type RunContext struct {
 
 	// -- MemoryProvider，由 EngineV1.Execute 注入；nil 时 Lua binding 返回空结果 --
 	MemoryProvider memory.MemoryProvider
+	// -- 当前 run 内显式 memory_write 的待刷写缓冲区 --
+	PendingMemoryWrites *memory.PendingWriteBuffer
 
 	// -- LLM 重试，由 EngineV1.Execute 注入 --
 	LlmRetryMaxAttempts int

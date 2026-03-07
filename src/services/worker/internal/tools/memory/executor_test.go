@@ -8,58 +8,74 @@ import (
 	"testing"
 
 	"arkloop/services/worker/internal/events"
-	"arkloop/services/worker/internal/memory"
+	workermemory "arkloop/services/worker/internal/memory"
 	"arkloop/services/worker/internal/tools"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // --- mock ---
 
 type mockProvider struct {
-	findHits    []memory.MemoryHit
+	findHits    []workermemory.MemoryHit
 	findErr     error
 	contentText string
 	contentErr  error
 	writeErr    error
 	deleteErr   error
 
-	findCalled    bool
-	contentCalled bool
-	writeCalled   bool
-	deleteCalled  bool
-	lastWriteEntry memory.MemoryEntry
+	findCalled     bool
+	contentCalled  bool
+	writeCalled    bool
+	deleteCalled   bool
+	lastWriteEntry workermemory.MemoryEntry
 	lastDeleteURI  string
 }
 
-func (m *mockProvider) Find(_ context.Context, _ memory.MemoryIdentity, _ memory.MemoryScope, _ string, _ int) ([]memory.MemoryHit, error) {
+func (m *mockProvider) Find(_ context.Context, _ workermemory.MemoryIdentity, _ workermemory.MemoryScope, _ string, _ int) ([]workermemory.MemoryHit, error) {
 	m.findCalled = true
 	return m.findHits, m.findErr
 }
 
-func (m *mockProvider) Content(_ context.Context, _ memory.MemoryIdentity, _ string, _ memory.MemoryLayer) (string, error) {
+func (m *mockProvider) Content(_ context.Context, _ workermemory.MemoryIdentity, _ string, _ workermemory.MemoryLayer) (string, error) {
 	m.contentCalled = true
 	return m.contentText, m.contentErr
 }
 
-func (m *mockProvider) AppendSessionMessages(_ context.Context, _ memory.MemoryIdentity, _ string, _ []memory.MemoryMessage) error {
+func (m *mockProvider) AppendSessionMessages(_ context.Context, _ workermemory.MemoryIdentity, _ string, _ []workermemory.MemoryMessage) error {
 	return nil
 }
 
-func (m *mockProvider) CommitSession(_ context.Context, _ memory.MemoryIdentity, _ string) error {
+func (m *mockProvider) CommitSession(_ context.Context, _ workermemory.MemoryIdentity, _ string) error {
 	return nil
 }
 
-func (m *mockProvider) Write(_ context.Context, _ memory.MemoryIdentity, _ memory.MemoryScope, entry memory.MemoryEntry) error {
+func (m *mockProvider) Write(_ context.Context, _ workermemory.MemoryIdentity, _ workermemory.MemoryScope, entry workermemory.MemoryEntry) error {
 	m.writeCalled = true
 	m.lastWriteEntry = entry
 	return m.writeErr
 }
 
-func (m *mockProvider) Delete(_ context.Context, _ memory.MemoryIdentity, uri string) error {
+func (m *mockProvider) Delete(_ context.Context, _ workermemory.MemoryIdentity, uri string) error {
 	m.deleteCalled = true
 	m.lastDeleteURI = uri
 	return m.deleteErr
+}
+
+type snapshotMock struct {
+	appendErr error
+	called    bool
+	lines     []string
+}
+
+func (s *snapshotMock) AppendMemoryLine(_ context.Context, _ *pgxpool.Pool, _ uuid.UUID, _ uuid.UUID, _ string, line string) error {
+	s.called = true
+	if s.appendErr != nil {
+		return s.appendErr
+	}
+	s.lines = append(s.lines, line)
+	return nil
 }
 
 // --- helpers ---
@@ -67,12 +83,13 @@ func (m *mockProvider) Delete(_ context.Context, _ memory.MemoryIdentity, uri st
 func newExecCtx(userID *uuid.UUID) tools.ExecutionContext {
 	orgID := uuid.New()
 	return tools.ExecutionContext{
-		RunID:   uuid.New(),
-		TraceID: "test-trace",
-		OrgID:   &orgID,
-		UserID:  userID,
-		AgentID: "test-agent",
-		Emitter: events.NewEmitter("test-trace"),
+		RunID:               uuid.New(),
+		TraceID:             "test-trace",
+		OrgID:               &orgID,
+		UserID:              userID,
+		AgentID:             "test-agent",
+		Emitter:             events.NewEmitter("test-trace"),
+		PendingMemoryWrites: workermemory.NewPendingWriteBuffer(),
 	}
 }
 
@@ -85,11 +102,11 @@ func newUserExecCtx() tools.ExecutionContext {
 
 func TestMemoryExecutor_Search_Success(t *testing.T) {
 	mp := &mockProvider{
-		findHits: []memory.MemoryHit{
+		findHits: []workermemory.MemoryHit{
 			{URI: "viking://user/memories/preferences/lang", Abstract: "user speaks English", Score: 0.9},
 		},
 	}
-	ex := NewToolExecutor(mp)
+	ex := NewToolExecutor(mp, nil, nil)
 	result := ex.Execute(context.Background(), "memory_search", map[string]any{"query": "language"}, newUserExecCtx(), "")
 
 	if result.Error != nil {
@@ -97,7 +114,6 @@ func TestMemoryExecutor_Search_Success(t *testing.T) {
 	}
 	hits, _ := result.ResultJSON["hits"].([]map[string]any)
 	if len(hits) == 0 {
-		// 兼容 []interface{} 类型
 		raw, _ := json.Marshal(result.ResultJSON["hits"])
 		var arr []map[string]any
 		_ = json.Unmarshal(raw, &arr)
@@ -112,7 +128,7 @@ func TestMemoryExecutor_Search_Success(t *testing.T) {
 }
 
 func TestMemoryExecutor_Search_EmptyQuery(t *testing.T) {
-	ex := NewToolExecutor(&mockProvider{})
+	ex := NewToolExecutor(&mockProvider{}, nil, nil)
 	result := ex.Execute(context.Background(), "memory_search", map[string]any{"query": ""}, newUserExecCtx(), "")
 	if result.Error == nil || result.Error.ErrorClass != errorArgsInvalid {
 		t.Fatalf("expected args_invalid, got: %+v", result.Error)
@@ -121,7 +137,7 @@ func TestMemoryExecutor_Search_EmptyQuery(t *testing.T) {
 
 func TestMemoryExecutor_Search_ProviderError(t *testing.T) {
 	mp := &mockProvider{findErr: errors.New("connection refused")}
-	ex := NewToolExecutor(mp)
+	ex := NewToolExecutor(mp, nil, nil)
 	result := ex.Execute(context.Background(), "memory_search", map[string]any{"query": "test"}, newUserExecCtx(), "")
 	if result.Error == nil || result.Error.ErrorClass != errorProviderFailure {
 		t.Fatalf("expected provider_error, got: %+v", result.Error)
@@ -130,21 +146,18 @@ func TestMemoryExecutor_Search_ProviderError(t *testing.T) {
 
 func TestMemoryExecutor_Search_LimitParsing(t *testing.T) {
 	mp := &mockProvider{}
-	ex := NewToolExecutor(mp)
+	ex := NewToolExecutor(mp, nil, nil)
 
-	// float64（JSON number 反序列化后默认类型）
 	result := ex.Execute(context.Background(), "memory_search", map[string]any{"query": "q", "limit": float64(3)}, newUserExecCtx(), "")
 	if result.Error != nil {
 		t.Fatalf("float64 limit failed: %v", result.Error.Message)
 	}
 
-	// int
 	result = ex.Execute(context.Background(), "memory_search", map[string]any{"query": "q", "limit": 5}, newUserExecCtx(), "")
 	if result.Error != nil {
 		t.Fatalf("int limit failed: %v", result.Error.Message)
 	}
 
-	// json.Number
 	result = ex.Execute(context.Background(), "memory_search", map[string]any{"query": "q", "limit": json.Number("7")}, newUserExecCtx(), "")
 	if result.Error != nil {
 		t.Fatalf("json.Number limit failed: %v", result.Error.Message)
@@ -155,7 +168,7 @@ func TestMemoryExecutor_Search_LimitParsing(t *testing.T) {
 
 func TestMemoryExecutor_Read_Success(t *testing.T) {
 	mp := &mockProvider{contentText: "user prefers Go"}
-	ex := NewToolExecutor(mp)
+	ex := NewToolExecutor(mp, nil, nil)
 	result := ex.Execute(context.Background(), "memory_read", map[string]any{"uri": "viking://user/memories/preferences/lang"}, newUserExecCtx(), "")
 
 	if result.Error != nil {
@@ -167,7 +180,7 @@ func TestMemoryExecutor_Read_Success(t *testing.T) {
 }
 
 func TestMemoryExecutor_Read_MissingURI(t *testing.T) {
-	ex := NewToolExecutor(&mockProvider{})
+	ex := NewToolExecutor(&mockProvider{}, nil, nil)
 	result := ex.Execute(context.Background(), "memory_read", map[string]any{}, newUserExecCtx(), "")
 	if result.Error == nil || result.Error.ErrorClass != errorArgsInvalid {
 		t.Fatalf("expected args_invalid, got: %+v", result.Error)
@@ -176,12 +189,7 @@ func TestMemoryExecutor_Read_MissingURI(t *testing.T) {
 
 func TestMemoryExecutor_Read_FullDepth(t *testing.T) {
 	mp := &mockProvider{contentText: "full content"}
-	ex := NewToolExecutor(mp)
-
-	calledWithRead := false
-	origProvider := mp
-	_ = origProvider
-
+	ex := NewToolExecutor(mp, nil, nil)
 	result := ex.Execute(context.Background(), "memory_read",
 		map[string]any{"uri": "viking://user/memories/profile/name", "depth": "full"},
 		newUserExecCtx(), "")
@@ -189,50 +197,77 @@ func TestMemoryExecutor_Read_FullDepth(t *testing.T) {
 	if result.Error != nil {
 		t.Fatalf("unexpected error: %v", result.Error.Message)
 	}
-	// 验证 content 被正确返回（MemoryLayerRead 路径）
 	if result.ResultJSON["content"] != "full content" {
 		t.Fatalf("unexpected content: %v", result.ResultJSON["content"])
 	}
-	_ = calledWithRead
 }
 
 // --- write ---
 
 func TestMemoryExecutor_Write_Success(t *testing.T) {
 	mp := &mockProvider{}
-	ex := NewToolExecutor(mp)
+	snapshots := &snapshotMock{}
+	execCtx := newUserExecCtx()
+	ex := NewToolExecutor(mp, &pgxpool.Pool{}, snapshots)
 	result := ex.Execute(context.Background(), "memory_write", map[string]any{
 		"category": "preferences",
 		"key":      "language",
 		"content":  "user prefers Go",
-	}, newUserExecCtx(), "")
+	}, execCtx, "")
 
 	if result.Error != nil {
 		t.Fatalf("unexpected error: %v", result.Error.Message)
 	}
-	if result.ResultJSON["status"] != "ok" {
+	if result.ResultJSON["status"] != "accepted" {
 		t.Fatalf("unexpected status: %v", result.ResultJSON["status"])
 	}
-	if !mp.writeCalled {
-		t.Fatal("expected Write to be called on provider")
+	if !snapshots.called {
+		t.Fatal("expected snapshot append to be called")
+	}
+	if mp.writeCalled {
+		t.Fatal("provider.Write should not be called synchronously")
+	}
+	if execCtx.PendingMemoryWrites.Len() != 1 {
+		t.Fatalf("expected 1 pending write, got %d", execCtx.PendingMemoryWrites.Len())
+	}
+}
+
+func TestMemoryExecutor_Write_SnapshotFailure(t *testing.T) {
+	mp := &mockProvider{}
+	snapshots := &snapshotMock{appendErr: errors.New("db down")}
+	execCtx := newUserExecCtx()
+	ex := NewToolExecutor(mp, &pgxpool.Pool{}, snapshots)
+	result := ex.Execute(context.Background(), "memory_write", map[string]any{
+		"category": "preferences",
+		"key":      "language",
+		"content":  "user prefers Go",
+	}, execCtx, "")
+
+	if result.Error == nil || result.Error.ErrorClass != errorSnapshotFailed {
+		t.Fatalf("expected snapshot_failed, got: %+v", result.Error)
+	}
+	if execCtx.PendingMemoryWrites.Len() != 0 {
+		t.Fatalf("expected no pending writes, got %d", execCtx.PendingMemoryWrites.Len())
 	}
 }
 
 func TestMemoryExecutor_Write_MissingCategory(t *testing.T) {
-	ex := NewToolExecutor(&mockProvider{})
+	execCtx := newUserExecCtx()
+	ex := NewToolExecutor(&mockProvider{}, &pgxpool.Pool{}, &snapshotMock{})
 	result := ex.Execute(context.Background(), "memory_write", map[string]any{
 		"key": "lang", "content": "go",
-	}, newUserExecCtx(), "")
+	}, execCtx, "")
 	if result.Error == nil || result.Error.ErrorClass != errorArgsInvalid {
 		t.Fatalf("expected args_invalid, got: %+v", result.Error)
 	}
 }
 
 func TestMemoryExecutor_Write_MissingKey(t *testing.T) {
-	ex := NewToolExecutor(&mockProvider{})
+	execCtx := newUserExecCtx()
+	ex := NewToolExecutor(&mockProvider{}, &pgxpool.Pool{}, &snapshotMock{})
 	result := ex.Execute(context.Background(), "memory_write", map[string]any{
 		"category": "preferences", "content": "go",
-	}, newUserExecCtx(), "")
+	}, execCtx, "")
 	if result.Error == nil || result.Error.ErrorClass != errorArgsInvalid {
 		t.Fatalf("expected args_invalid, got: %+v", result.Error)
 	}
@@ -240,23 +275,38 @@ func TestMemoryExecutor_Write_MissingKey(t *testing.T) {
 
 func TestMemoryExecutor_Write_AgentScope(t *testing.T) {
 	mp := &mockProvider{}
-	ex := NewToolExecutor(mp)
+	snapshots := &snapshotMock{}
+	execCtx := newUserExecCtx()
+	ex := NewToolExecutor(mp, &pgxpool.Pool{}, snapshots)
 	result := ex.Execute(context.Background(), "memory_write", map[string]any{
 		"category": "patterns",
 		"key":      "retry",
 		"content":  "retry on timeout",
 		"scope":    "agent",
-	}, newUserExecCtx(), "")
+	}, execCtx, "")
 
 	if result.Error != nil {
 		t.Fatalf("unexpected error: %v", result.Error.Message)
 	}
-	if result.ResultJSON["status"] != "ok" {
+	if result.ResultJSON["status"] != "accepted" {
 		t.Fatalf("unexpected status: %v", result.ResultJSON["status"])
 	}
-	// 验证 entry 内容以 [agent/ 开头，说明 scope 正确路由到 agent 命名空间
-	if !strings.HasPrefix(mp.lastWriteEntry.Content, "[agent/") {
-		t.Fatalf("expected agent scope content prefix, got: %q", mp.lastWriteEntry.Content)
+	if len(snapshots.lines) != 1 || !strings.HasPrefix(snapshots.lines[0], "[agent/") {
+		t.Fatalf("expected agent scope prefix, got: %v", snapshots.lines)
+	}
+}
+
+func TestMemoryExecutor_Write_MissingPendingBuffer(t *testing.T) {
+	execCtx := newUserExecCtx()
+	execCtx.PendingMemoryWrites = nil
+	ex := NewToolExecutor(&mockProvider{}, &pgxpool.Pool{}, &snapshotMock{})
+	result := ex.Execute(context.Background(), "memory_write", map[string]any{
+		"category": "preferences",
+		"key":      "language",
+		"content":  "user prefers Go",
+	}, execCtx, "")
+	if result.Error == nil || result.Error.ErrorClass != errorStateMissing {
+		t.Fatalf("expected state_missing, got: %+v", result.Error)
 	}
 }
 
@@ -264,7 +314,7 @@ func TestMemoryExecutor_Write_AgentScope(t *testing.T) {
 
 func TestMemoryExecutor_Forget_Success(t *testing.T) {
 	mp := &mockProvider{}
-	ex := NewToolExecutor(mp)
+	ex := NewToolExecutor(mp, nil, nil)
 	targetURI := "viking://user/memories/preferences/lang"
 	result := ex.Execute(context.Background(), "memory_forget", map[string]any{"uri": targetURI}, newUserExecCtx(), "")
 
@@ -283,7 +333,7 @@ func TestMemoryExecutor_Forget_Success(t *testing.T) {
 }
 
 func TestMemoryExecutor_Forget_MissingURI(t *testing.T) {
-	ex := NewToolExecutor(&mockProvider{})
+	ex := NewToolExecutor(&mockProvider{}, nil, nil)
 	result := ex.Execute(context.Background(), "memory_forget", map[string]any{}, newUserExecCtx(), "")
 	if result.Error == nil || result.Error.ErrorClass != errorArgsInvalid {
 		t.Fatalf("expected args_invalid, got: %+v", result.Error)
@@ -293,7 +343,7 @@ func TestMemoryExecutor_Forget_MissingURI(t *testing.T) {
 // --- identity missing ---
 
 func TestMemoryExecutor_NoUserID_IdentityMissing(t *testing.T) {
-	ex := NewToolExecutor(&mockProvider{})
+	ex := NewToolExecutor(&mockProvider{}, nil, nil)
 	result := ex.Execute(context.Background(), "memory_search", map[string]any{"query": "test"}, newExecCtx(nil), "")
 	if result.Error == nil || result.Error.ErrorClass != errorIdentityMissing {
 		t.Fatalf("expected identity_missing, got: %+v", result.Error)

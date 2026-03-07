@@ -3,8 +3,12 @@ package data
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -28,7 +32,7 @@ func (MemorySnapshotRepository) Get(ctx context.Context, pool *pgxpool.Pool, org
 		orgID, userID, agentID,
 	).Scan(&block)
 	if err != nil {
-		if err.Error() == "no rows in result set" {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return "", false, nil
 		}
 		return "", false, err
@@ -45,7 +49,7 @@ func (MemorySnapshotRepository) GetHits(ctx context.Context, pool *pgxpool.Pool,
 		orgID, userID, agentID,
 	).Scan(&raw)
 	if err != nil {
-		if err.Error() == "no rows in result set" {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, false, nil
 		}
 		return nil, false, err
@@ -83,4 +87,102 @@ func (MemorySnapshotRepository) UpsertWithHits(ctx context.Context, pool *pgxpoo
 		orgID, userID, agentID, memoryBlock, hitsJSON,
 	)
 	return err
+}
+
+// AppendMemoryLine 原子追加一条 memory 行，避免并发写互相覆盖。
+func (MemorySnapshotRepository) AppendMemoryLine(ctx context.Context, pool *pgxpool.Pool, orgID, userID uuid.UUID, agentID, line string) error {
+	if pool == nil {
+		return fmt.Errorf("snapshot pool must not be nil")
+	}
+	cleanedLine := strings.TrimSpace(line)
+	if cleanedLine == "" {
+		return fmt.Errorf("snapshot line must not be empty")
+	}
+
+	tx, err := pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
+	var block string
+	err = tx.QueryRow(ctx,
+		`SELECT memory_block FROM user_memory_snapshots
+		 WHERE org_id = $1 AND user_id = $2 AND agent_id = $3
+		 FOR UPDATE`,
+		orgID, userID, agentID,
+	).Scan(&block)
+	if err != nil {
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		tag, execErr := tx.Exec(ctx,
+			`INSERT INTO user_memory_snapshots (org_id, user_id, agent_id, memory_block, updated_at)
+			 VALUES ($1, $2, $3, $4, now())
+			 ON CONFLICT DO NOTHING`,
+			orgID, userID, agentID, newMemoryBlock(cleanedLine),
+		)
+		if execErr != nil {
+			return execErr
+		}
+		if tag.RowsAffected() == 0 {
+			err = tx.QueryRow(ctx,
+				`SELECT memory_block FROM user_memory_snapshots
+				 WHERE org_id = $1 AND user_id = $2 AND agent_id = $3
+				 FOR UPDATE`,
+				orgID, userID, agentID,
+			).Scan(&block)
+			if err != nil {
+				return err
+			}
+			updatedBlock := appendMemoryLineToBlock(block, cleanedLine)
+			if _, err := tx.Exec(ctx,
+				`UPDATE user_memory_snapshots
+				 SET memory_block = $4, updated_at = now()
+				 WHERE org_id = $1 AND user_id = $2 AND agent_id = $3`,
+				orgID, userID, agentID, updatedBlock,
+			); err != nil {
+				return err
+			}
+		}
+		return tx.Commit(ctx)
+	}
+
+	updatedBlock := appendMemoryLineToBlock(block, cleanedLine)
+	if _, err := tx.Exec(ctx,
+		`UPDATE user_memory_snapshots
+		 SET memory_block = $4, updated_at = now()
+		 WHERE org_id = $1 AND user_id = $2 AND agent_id = $3`,
+		orgID, userID, agentID, updatedBlock,
+	); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func newMemoryBlock(line string) string {
+	return "\n\n<memory>\n- " + strings.TrimSpace(line) + "\n</memory>"
+}
+
+func appendMemoryLineToBlock(block, line string) string {
+	cleanedLine := strings.TrimSpace(line)
+	cleanedBlock := strings.TrimSpace(block)
+	if cleanedLine == "" {
+		return block
+	}
+	if cleanedBlock == "" {
+		return newMemoryBlock(cleanedLine)
+	}
+	if strings.Contains(block, "</memory>") {
+		return strings.Replace(block, "</memory>", "- "+cleanedLine+"\n</memory>", 1)
+	}
+	if strings.Contains(block, "<memory>") {
+		if strings.HasSuffix(block, "\n") {
+			return block + "- " + cleanedLine + "\n</memory>"
+		}
+		return block + "\n- " + cleanedLine + "\n</memory>"
+	}
+	return newMemoryBlock(cleanedLine)
 }

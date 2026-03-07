@@ -211,6 +211,7 @@ func (e *EngineV1) Execute(ctx context.Context, pool *pgxpool.Pool, run data.Run
 		UserID:              run.CreatedByUserID,
 		ExecutorBuilder:     e.executorRegistry,
 		MemoryProvider:      e.memoryProvider,
+		PendingMemoryWrites: memory.NewPendingWriteBuffer(),
 		ToolBudget:          map[string]any{},
 		PerToolSoftLimits:   tools.DefaultPerToolSoftLimits(),
 		LlmRetryMaxAttempts: e.llmRetryMaxAttempts,

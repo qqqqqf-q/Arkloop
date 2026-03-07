@@ -428,15 +428,16 @@ func (rt *luaRuntime) toolsCall(L *lua.LState) int {
 	}
 
 	execCtx := tools.ExecutionContext{
-		RunID:     rt.rc.Run.ID,
-		TraceID:   rt.rc.TraceID,
-		OrgID:     &rt.rc.Run.OrgID,
-		ThreadID:  &rt.rc.Run.ThreadID,
-		UserID:    rt.rc.UserID,
-		AgentID:   agentIDFromPersona(rt.rc),
-		TimeoutMs: rt.rc.ToolTimeoutMs,
-		Budget:    rt.rc.ToolBudget,
-		Emitter:   rt.emitter,
+		RunID:               rt.rc.Run.ID,
+		TraceID:             rt.rc.TraceID,
+		OrgID:               &rt.rc.Run.OrgID,
+		ThreadID:            &rt.rc.Run.ThreadID,
+		UserID:              rt.rc.UserID,
+		AgentID:             agentIDFromPersona(rt.rc),
+		TimeoutMs:           rt.rc.ToolTimeoutMs,
+		Budget:              rt.rc.ToolBudget,
+		Emitter:             rt.emitter,
+		PendingMemoryWrites: rt.rc.PendingMemoryWrites,
 	}
 	result := rt.rc.ToolExecutor.Execute(rt.ctx, toolName, args, execCtx, "")
 
@@ -1170,6 +1171,7 @@ func (rt *luaRuntime) runAgentLoop(
 		ToolTimeoutMs:          rt.rc.ToolTimeoutMs,
 		ToolBudget:             rt.rc.ToolBudget,
 		PerToolSoftLimits:      rt.rc.PerToolSoftLimits,
+		PendingMemoryWrites:    rt.rc.PendingMemoryWrites,
 		LlmRetryMaxAttempts:    rt.rc.LlmRetryMaxAttempts,
 		LlmRetryBaseDelayMs:    rt.rc.LlmRetryBaseDelayMs,
 		CancelSignal: func() bool {
@@ -1322,15 +1324,16 @@ func (rt *luaRuntime) toolsCallParallel(L *lua.LState) int {
 		go func() {
 			defer wg.Done()
 			execCtx := tools.ExecutionContext{
-				RunID:     rt.rc.Run.ID,
-				TraceID:   rt.rc.TraceID,
-				OrgID:     &rt.rc.Run.OrgID,
-				ThreadID:  &rt.rc.Run.ThreadID,
-				UserID:    rt.rc.UserID,
-				AgentID:   agentIDFromPersona(rt.rc),
-				TimeoutMs: rt.rc.ToolTimeoutMs,
-				Budget:    rt.rc.ToolBudget,
-				Emitter:   rt.emitter,
+				RunID:               rt.rc.Run.ID,
+				TraceID:             rt.rc.TraceID,
+				OrgID:               &rt.rc.Run.OrgID,
+				ThreadID:            &rt.rc.Run.ThreadID,
+				UserID:              rt.rc.UserID,
+				AgentID:             agentIDFromPersona(rt.rc),
+				TimeoutMs:           rt.rc.ToolTimeoutMs,
+				Budget:              rt.rc.ToolBudget,
+				Emitter:             rt.emitter,
+				PendingMemoryWrites: rt.rc.PendingMemoryWrites,
 			}
 			result := rt.rc.ToolExecutor.Execute(rt.ctx, c.name, c.args, execCtx, "")
 

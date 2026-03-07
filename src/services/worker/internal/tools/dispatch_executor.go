@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"arkloop/services/worker/internal/events"
+	"arkloop/services/worker/internal/memory"
 	"github.com/google/uuid"
 )
 
@@ -16,16 +17,17 @@ const (
 )
 
 type ExecutionContext struct {
-	RunID             uuid.UUID
-	TraceID           string
-	OrgID             *uuid.UUID
-	ThreadID          *uuid.UUID
-	UserID            *uuid.UUID
-	AgentID           string
-	TimeoutMs         *int
-	Budget            map[string]any
-	PerToolSoftLimits PerToolSoftLimits
-	Emitter           events.Emitter
+	RunID               uuid.UUID
+	TraceID             string
+	OrgID               *uuid.UUID
+	ThreadID            *uuid.UUID
+	UserID              *uuid.UUID
+	AgentID             string
+	TimeoutMs           *int
+	Budget              map[string]any
+	PerToolSoftLimits   PerToolSoftLimits
+	Emitter             events.Emitter
+	PendingMemoryWrites *memory.PendingWriteBuffer
 }
 
 type ExecutionError struct {

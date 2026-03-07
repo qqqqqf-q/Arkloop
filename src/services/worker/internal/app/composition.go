@@ -26,6 +26,7 @@ import (
 	browsertool "arkloop/services/worker/internal/tools/builtin/browser"
 	documentwritetool "arkloop/services/worker/internal/tools/builtin/document_write"
 	sandboxtool "arkloop/services/worker/internal/tools/builtin/sandbox"
+	conversationtool "arkloop/services/worker/internal/tools/conversation"
 	memorytool "arkloop/services/worker/internal/tools/memory"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -137,7 +138,7 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 		slog.InfoContext(ctx, "memory: openviking not configured, running without memory")
 	} else {
 		// MemoryProvider 可用时条件注册 memory tools
-		memExecutor := memorytool.NewToolExecutor(memoryProvider)
+		memExecutor := memorytool.NewToolExecutor(memoryProvider, pool, data.MemorySnapshotRepository{})
 		for _, spec := range memorytool.AgentSpecs() {
 			if err := toolRegistry.Register(spec); err != nil {
 				return nil, err
@@ -145,6 +146,17 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 			executors[spec.Name] = memExecutor
 		}
 		allLlmSpecs = append(allLlmSpecs, memorytool.LlmSpecs()...)
+	}
+
+	if pool != nil {
+		convExecutor := conversationtool.NewToolExecutor(pool, data.MessagesRepository{})
+		for _, spec := range conversationtool.AgentSpecs() {
+			if err := toolRegistry.Register(spec); err != nil {
+				return nil, err
+			}
+			executors[spec.Name] = convExecutor
+		}
+		allLlmSpecs = append(allLlmSpecs, conversationtool.LlmSpecs()...)
 	}
 
 	if browserBaseURL := browsertool.BaseURLFromEnv(); browserBaseURL != "" {

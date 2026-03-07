@@ -7,28 +7,43 @@ import (
 	"strings"
 	"time"
 
+	datarepo "arkloop/services/worker/internal/data"
 	"arkloop/services/worker/internal/memory"
 	"arkloop/services/worker/internal/tools"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 const (
 	errorArgsInvalid     = "tool.args_invalid"
-	errorProviderFailure = "tool.memory_provider_error"
+	errorProviderFailure = "tool.memory_provider_failure"
 	errorIdentityMissing = "tool.memory_identity_missing"
+	errorStateMissing    = "tool.memory_state_missing"
+	errorSnapshotFailed  = "tool.memory_snapshot_failed"
 
 	defaultSearchLimit = 5
 )
 
-// ToolExecutor 实现 tools.Executor，将 memory_search/read/write/forget 分发到 MemoryProvider。
-type ToolExecutor struct {
-	provider memory.MemoryProvider
+type snapshotAppender interface {
+	AppendMemoryLine(ctx context.Context, pool *pgxpool.Pool, orgID, userID uuid.UUID, agentID, line string) error
 }
 
-func NewToolExecutor(provider memory.MemoryProvider) *ToolExecutor {
+// ToolExecutor 实现 tools.Executor，将 memory_search/read/write/forget 分发到 MemoryProvider。
+type ToolExecutor struct {
+	provider  memory.MemoryProvider
+	pool      *pgxpool.Pool
+	snapshots snapshotAppender
+}
+
+func NewToolExecutor(provider memory.MemoryProvider, pool *pgxpool.Pool, snapshots snapshotAppender) *ToolExecutor {
+	if snapshots == nil {
+		snapshots = datarepo.MemorySnapshotRepository{}
+	}
 	return &ToolExecutor{
-		provider: provider,
+		provider:  provider,
+		pool:      pool,
+		snapshots: snapshots,
 	}
 }
 
@@ -58,7 +73,7 @@ func (e *ToolExecutor) Execute(
 	case "memory_read":
 		return e.read(ctx, args, ident, started)
 	case "memory_write":
-		return e.write(ctx, args, ident, started)
+		return e.write(ctx, args, ident, execCtx, started)
 	case "memory_forget":
 		return e.forget(ctx, args, ident, started)
 	default:
@@ -122,7 +137,17 @@ func (e *ToolExecutor) read(ctx context.Context, args map[string]any, ident memo
 	}
 }
 
-func (e *ToolExecutor) write(ctx context.Context, args map[string]any, ident memory.MemoryIdentity, started time.Time) tools.ExecutionResult {
+func (e *ToolExecutor) write(ctx context.Context, args map[string]any, ident memory.MemoryIdentity, execCtx tools.ExecutionContext, started time.Time) tools.ExecutionResult {
+	if execCtx.PendingMemoryWrites == nil {
+		return stateError("pending memory buffer not available", started)
+	}
+	if e.pool == nil {
+		return stateError("snapshot pool not available", started)
+	}
+	if e.snapshots == nil {
+		return stateError("snapshot repository not available", started)
+	}
+
 	category, ok := args["category"].(string)
 	if !ok || strings.TrimSpace(category) == "" {
 		return argError("category must be a non-empty string", started)
@@ -137,17 +162,20 @@ func (e *ToolExecutor) write(ctx context.Context, args map[string]any, ident mem
 	}
 
 	scope := parseScope(args)
-
-	// scope 前缀让 OpenViking LLM 提取时能区分 user/agent 命名空间
-	writable := "[" + string(scope) + "/" + category + "/" + key + "] " + content
-
+	writable := buildWritableContent(scope, category, key, content)
 	entry := memory.MemoryEntry{Content: writable}
-	if err := e.provider.Write(ctx, ident, scope, entry); err != nil {
-		return providerError("write", err, started)
+	if err := e.snapshots.AppendMemoryLine(ctx, e.pool, ident.OrgID, ident.UserID, ident.AgentID, writable); err != nil {
+		return snapshotError(err, started)
 	}
 
+	execCtx.PendingMemoryWrites.Append(memory.PendingWrite{
+		Ident: ident,
+		Scope: scope,
+		Entry: entry,
+	})
+
 	return tools.ExecutionResult{
-		ResultJSON: map[string]any{"status": "ok"},
+		ResultJSON: map[string]any{"status": "accepted"},
 		DurationMs: durationMs(started),
 	}
 }
@@ -168,7 +196,9 @@ func (e *ToolExecutor) forget(ctx context.Context, args map[string]any, ident me
 	}
 }
 
-// --- helpers ---
+func buildWritableContent(scope memory.MemoryScope, category, key, content string) string {
+	return "[" + string(scope) + "/" + category + "/" + key + "] " + content
+}
 
 func buildIdentity(execCtx tools.ExecutionContext) (memory.MemoryIdentity, error) {
 	if execCtx.UserID == nil {
@@ -219,6 +249,26 @@ func argError(msg string, started time.Time) tools.ExecutionResult {
 		Error: &tools.ExecutionError{
 			ErrorClass: errorArgsInvalid,
 			Message:    msg,
+		},
+		DurationMs: durationMs(started),
+	}
+}
+
+func stateError(msg string, started time.Time) tools.ExecutionResult {
+	return tools.ExecutionResult{
+		Error: &tools.ExecutionError{
+			ErrorClass: errorStateMissing,
+			Message:    msg,
+		},
+		DurationMs: durationMs(started),
+	}
+}
+
+func snapshotError(err error, started time.Time) tools.ExecutionResult {
+	return tools.ExecutionResult{
+		Error: &tools.ExecutionError{
+			ErrorClass: errorSnapshotFailed,
+			Message:    "memory snapshot update failed: " + err.Error(),
 		},
 		DurationMs: durationMs(started),
 	}

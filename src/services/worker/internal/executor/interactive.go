@@ -108,6 +108,7 @@ func (e *InteractiveExecutor) Execute(
 		ToolTimeoutMs:          rc.ToolTimeoutMs,
 		ToolBudget:             rc.ToolBudget,
 		PerToolSoftLimits:      rc.PerToolSoftLimits,
+		PendingMemoryWrites:    rc.PendingMemoryWrites,
 		LlmRetryMaxAttempts:    rc.LlmRetryMaxAttempts,
 		LlmRetryBaseDelayMs:    rc.LlmRetryBaseDelayMs,
 		CancelSignal: func() bool {

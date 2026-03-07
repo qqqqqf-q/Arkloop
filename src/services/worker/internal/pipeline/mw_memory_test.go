@@ -24,19 +24,20 @@ type memMock struct {
 	findErr     error
 	contentText string
 	contentErr  error
-	appendErr   error
-	commitErr   error
+	writeErr    error
 
 	findCalled    bool
 	contentCalled bool
-	appendCalled  bool
-	commitCalled  bool
+	writeCalled   bool
+	writeCount    int
+	writeScopes   []memory.MemoryScope
+	writeEntries  []memory.MemoryEntry
 
-	appendDone chan struct{} // 关闭时通知 commit goroutine 已完成
+	writeDone chan struct{}
 }
 
 func newMemMock() *memMock {
-	return &memMock{appendDone: make(chan struct{})}
+	return &memMock{writeDone: make(chan struct{}, 8)}
 }
 
 func (m *memMock) Find(_ context.Context, _ memory.MemoryIdentity, _ memory.MemoryScope, _ string, _ int) ([]memory.MemoryHit, error) {
@@ -54,22 +55,22 @@ func (m *memMock) Content(_ context.Context, _ memory.MemoryIdentity, _ string, 
 }
 
 func (m *memMock) AppendSessionMessages(_ context.Context, _ memory.MemoryIdentity, _ string, _ []memory.MemoryMessage) error {
-	m.mu.Lock()
-	m.appendCalled = true
-	m.mu.Unlock()
-	return m.appendErr
+	return nil
 }
 
 func (m *memMock) CommitSession(_ context.Context, _ memory.MemoryIdentity, _ string) error {
-	m.mu.Lock()
-	m.commitCalled = true
-	m.mu.Unlock()
-	close(m.appendDone)
-	return m.commitErr
+	return nil
 }
 
-func (m *memMock) Write(_ context.Context, _ memory.MemoryIdentity, _ memory.MemoryScope, _ memory.MemoryEntry) error {
-	return nil
+func (m *memMock) Write(_ context.Context, _ memory.MemoryIdentity, scope memory.MemoryScope, entry memory.MemoryEntry) error {
+	m.mu.Lock()
+	m.writeCalled = true
+	m.writeCount++
+	m.writeScopes = append(m.writeScopes, scope)
+	m.writeEntries = append(m.writeEntries, entry)
+	m.mu.Unlock()
+	m.writeDone <- struct{}{}
+	return m.writeErr
 }
 
 func (m *memMock) Delete(_ context.Context, _ memory.MemoryIdentity, _ string) error {
@@ -86,11 +87,9 @@ func userIDPtr() *uuid.UUID {
 func buildMemRC(userID *uuid.UUID, userMsg string, assistantOutput string) *pipeline.RunContext {
 	var msgs []llm.Message
 	if userMsg != "" {
-		msgs = []llm.Message{
-			{Role: "user", Content: []llm.TextPart{{Text: userMsg}}},
-		}
+		msgs = []llm.Message{{Role: "user", Content: []llm.TextPart{{Text: userMsg}}}}
 	}
-	rc := &pipeline.RunContext{
+	return &pipeline.RunContext{
 		Run: data.Run{
 			ID:       uuid.New(),
 			OrgID:    uuid.New(),
@@ -99,8 +98,8 @@ func buildMemRC(userID *uuid.UUID, userMsg string, assistantOutput string) *pipe
 		UserID:               userID,
 		Messages:             msgs,
 		FinalAssistantOutput: assistantOutput,
+		PendingMemoryWrites:  memory.NewPendingWriteBuffer(),
 	}
-	return rc
 }
 
 // --- tests ---
@@ -109,13 +108,12 @@ func TestMemoryMiddleware_NilProvider_NoOp(t *testing.T) {
 	mw := pipeline.NewMemoryMiddleware(nil, nil, nil)
 
 	called := false
-	terminal := func(_ context.Context, rc *pipeline.RunContext) error {
+	h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(_ context.Context, _ *pipeline.RunContext) error {
 		called = true
 		return nil
-	}
+	})
 
 	rc := buildMemRC(userIDPtr(), "hello", "")
-	h := pipeline.Build([]pipeline.RunMiddleware{mw}, terminal)
 	if err := h(context.Background(), rc); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -131,6 +129,7 @@ func TestMemoryMiddleware_NilUserID_NoOp(t *testing.T) {
 	rc := buildMemRC(nil, "test query", "response")
 	h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(_ context.Context, _ *pipeline.RunContext) error { return nil })
 	if err := h(context.Background(), rc); err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 	if mp.findCalled {
 		t.Fatal("Find should not be called when UserID is nil")
@@ -139,9 +138,7 @@ func TestMemoryMiddleware_NilUserID_NoOp(t *testing.T) {
 
 func TestMemoryMiddleware_InjectsMemoryBlock(t *testing.T) {
 	mp := newMemMock()
-	mp.findHits = []memory.MemoryHit{
-		{URI: "viking://user/memories/prefs/lang", Abstract: "user prefers Go", Score: 0.7, IsLeaf: true},
-	}
+	mp.findHits = []memory.MemoryHit{{URI: "viking://user/memories/prefs/lang", Abstract: "user prefers Go", Score: 0.7, IsLeaf: true}}
 	mw := pipeline.NewMemoryMiddleware(mp, nil, nil)
 
 	rc := buildMemRC(userIDPtr(), "what language do you prefer?", "")
@@ -149,7 +146,6 @@ func TestMemoryMiddleware_InjectsMemoryBlock(t *testing.T) {
 	if err := h(context.Background(), rc); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-
 	if !strings.Contains(rc.SystemPrompt, "<memory>") {
 		t.Fatalf("expected <memory> block in SystemPrompt, got: %q", rc.SystemPrompt)
 	}
@@ -160,7 +156,6 @@ func TestMemoryMiddleware_InjectsMemoryBlock(t *testing.T) {
 
 func TestMemoryMiddleware_NoHits_NoInjection(t *testing.T) {
 	mp := newMemMock()
-	mp.findHits = []memory.MemoryHit{}
 	mw := pipeline.NewMemoryMiddleware(mp, nil, nil)
 
 	rc := buildMemRC(userIDPtr(), "hello", "")
@@ -193,69 +188,101 @@ func TestMemoryMiddleware_FindError_Continues(t *testing.T) {
 	}
 }
 
-func TestMemoryMiddleware_CommitCalledAfterRun(t *testing.T) {
+func TestMemoryMiddleware_FlushesPendingWritesAfterRun(t *testing.T) {
 	mp := newMemMock()
-	mp.findHits = []memory.MemoryHit{}
 	mw := pipeline.NewMemoryMiddleware(mp, nil, nil)
 
 	rc := buildMemRC(userIDPtr(), "user message", "assistant reply")
+	rc.PendingMemoryWrites.Append(memory.PendingWrite{
+		Ident: memory.MemoryIdentity{OrgID: rc.Run.OrgID, UserID: *rc.UserID, AgentID: "default"},
+		Scope: memory.MemoryScopeUser,
+		Entry: memory.MemoryEntry{Content: "[user/preferences/language] user prefers Go"},
+	})
+
 	h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(_ context.Context, _ *pipeline.RunContext) error { return nil })
 	if err := h(context.Background(), rc); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// goroutine 异步执行，等待完成信号
 	select {
-	case <-mp.appendDone:
+	case <-mp.writeDone:
 	case <-time.After(2 * time.Second):
-		t.Fatal("timeout waiting for CommitSession to be called")
+		t.Fatal("timeout waiting for deferred write")
 	}
 
 	mp.mu.Lock()
-	appendCalled := mp.appendCalled
-	commitCalled := mp.commitCalled
+	writeCalled := mp.writeCalled
+	writeCount := mp.writeCount
+	writeScope := mp.writeScopes[0]
+	writeEntry := mp.writeEntries[0]
 	mp.mu.Unlock()
 
-	if !appendCalled {
-		t.Fatal("expected AppendSessionMessages to be called")
+	if !writeCalled {
+		t.Fatal("expected provider.Write to be called")
 	}
-	if !commitCalled {
-		t.Fatal("expected CommitSession to be called")
+	if writeCount != 1 {
+		t.Fatalf("expected exactly 1 write, got %d", writeCount)
+	}
+	if writeScope != memory.MemoryScopeUser {
+		t.Fatalf("unexpected write scope: %s", writeScope)
+	}
+	if writeEntry.Content != "[user/preferences/language] user prefers Go" {
+		t.Fatalf("unexpected write entry: %q", writeEntry.Content)
 	}
 }
 
-func TestMemoryMiddleware_NoCommitWhenEmpty(t *testing.T) {
+func TestMemoryMiddleware_FlushesPendingWritesEvenWhenNextFails(t *testing.T) {
 	mp := newMemMock()
-	mp.findHits = []memory.MemoryHit{}
 	mw := pipeline.NewMemoryMiddleware(mp, nil, nil)
 
-	// userQuery 为空时不触发 commit
+	rc := buildMemRC(userIDPtr(), "user message", "assistant reply")
+	rc.PendingMemoryWrites.Append(memory.PendingWrite{
+		Ident: memory.MemoryIdentity{OrgID: rc.Run.OrgID, UserID: *rc.UserID, AgentID: "default"},
+		Scope: memory.MemoryScopeAgent,
+		Entry: memory.MemoryEntry{Content: "[agent/patterns/retry] retry on timeout"},
+	})
+
+	h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(_ context.Context, _ *pipeline.RunContext) error {
+		return context.Canceled
+	})
+	if err := h(context.Background(), rc); err == nil {
+		t.Fatal("expected error from next")
+	}
+
+	select {
+	case <-mp.writeDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for deferred write after failure")
+	}
+}
+
+func TestMemoryMiddleware_NoFlushWhenNoPendingWrites(t *testing.T) {
+	mp := newMemMock()
+	mw := pipeline.NewMemoryMiddleware(mp, nil, nil)
+
 	rc := buildMemRC(userIDPtr(), "", "assistant reply")
 	h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(_ context.Context, _ *pipeline.RunContext) error { return nil })
 	if err := h(context.Background(), rc); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// 短暂等待，确认 goroutine 没有被启动
 	time.Sleep(50 * time.Millisecond)
 	mp.mu.Lock()
-	appendCalled := mp.appendCalled
+	writeCalled := mp.writeCalled
 	mp.mu.Unlock()
-	if appendCalled {
-		t.Fatal("AppendSessionMessages should not be called when userQuery is empty")
+	if writeCalled {
+		t.Fatal("Write should not be called when there are no pending writes")
 	}
 }
 
 func TestMemoryMiddleware_HighScoreNonLeaf_FetchesL1(t *testing.T) {
 	mp := newMemMock()
-	mp.findHits = []memory.MemoryHit{
-		{
-			URI:      "viking://user/memories/prefs/lang",
-			Abstract: "user preferences",
-			Score:    0.90, // >= 0.85
-			IsLeaf:   false,
-		},
-	}
+	mp.findHits = []memory.MemoryHit{{
+		URI:      "viking://user/memories/prefs/lang",
+		Abstract: "user preferences",
+		Score:    0.90,
+		IsLeaf:   false,
+	}}
 	mp.contentText = "user prefers Go with modules"
 	mw := pipeline.NewMemoryMiddleware(mp, nil, nil)
 

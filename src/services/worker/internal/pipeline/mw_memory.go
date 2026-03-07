@@ -18,18 +18,18 @@ import (
 )
 
 const (
-	memoryFindLimit     = 5
-	memoryHighScoreL1   = 0.85 // 高分命中时额外拉 L1
-	memoryCommitTimeout = 120 * time.Second
-	memoryFindTimeout   = 5 * time.Second
-	// snapshotFindTimeout 用于 commit 后快照更新，允许稍长
+	memoryFindLimit    = 5
+	memoryHighScoreL1  = 0.85 // 高分命中时额外拉 L1
+	memoryFindTimeout  = 5 * time.Second
+	memoryFlushTimeout = 120 * time.Second
+	// snapshotFindTimeout 用于刷写后的最佳努力快照重建。
 	snapshotFindTimeout = 15 * time.Second
 )
 
 var snapshotRepo = data.MemorySnapshotRepository{}
 var usageRepo = data.UsageRecordsRepository{}
 
-// NewMemoryMiddleware 在 run 前注入长期记忆到 SystemPrompt，run 后异步归档对话并快照到 PG。
+// NewMemoryMiddleware 在 run 前注入长期记忆到 SystemPrompt，run 后异步刷写显式 memory_write。
 // provider 为 nil 时整个 middleware 为 no-op。
 // pool 为 nil 时跳过快照缓存，每次直接 Find。
 // configResolver 为 nil 时跳过 memory usage 记录。
@@ -51,29 +51,26 @@ func NewMemoryMiddleware(provider memory.MemoryProvider, pool *pgxpool.Pool, con
 		}
 
 		userQuery := lastUserMessageText(rc.Messages)
-
 		if userQuery != "" {
 			injectFromCacheOrFind(ctx, rc, provider, pool, ident, userQuery)
 		}
 
-		if err := next(ctx, rc); err != nil {
-			return err
-		}
-
-		assistantOutput := strings.TrimSpace(rc.FinalAssistantOutput)
-		if userQuery != "" && assistantOutput != "" {
-			sessionID := rc.Run.ThreadID.String()
-			msgs := []memory.MemoryMessage{
-				{Role: "user", Content: userQuery},
-				{Role: "assistant", Content: assistantOutput},
-			}
-
-			costPerCommit := resolveCommitCost(ctx, configResolver)
-			go commitAndSnapshotAsync(ident, provider, pool, sessionID, msgs, userQuery, rc.Run.OrgID, rc.Run.ID, costPerCommit)
-		}
-
-		return nil
+		err := next(ctx, rc)
+		flushPendingWritesAfterRun(provider, pool, configResolver, rc)
+		return err
 	}
+}
+
+func flushPendingWritesAfterRun(provider memory.MemoryProvider, pool *pgxpool.Pool, configResolver sharedconfig.Resolver, rc *RunContext) {
+	if rc.PendingMemoryWrites == nil {
+		return
+	}
+	pending := rc.PendingMemoryWrites.Drain()
+	if len(pending) == 0 {
+		return
+	}
+	costPerWrite := resolveCommitCost(context.Background(), configResolver)
+	go flushPendingWrites(pending, provider, pool, rc.Run.OrgID, rc.Run.ID, costPerWrite)
 }
 
 // injectFromCacheOrFind 优先从 PG 快照读取记忆，缓存缺失时降级到 OpenViking Find。
@@ -90,7 +87,7 @@ func injectFromCacheOrFind(ctx context.Context, rc *RunContext, provider memory.
 
 	findCtx, cancel := context.WithTimeout(ctx, memoryFindTimeout)
 	defer cancel()
-	block, hits := renderMemoryBlock(findCtx, provider, ident, query)
+	block, hits := renderMemoryBlock(findCtx, provider, ident, memory.MemoryScopeUser, query)
 	if block != "" {
 		rc.SystemPrompt += block
 		if pool != nil {
@@ -104,92 +101,155 @@ func injectFromCacheOrFind(ctx context.Context, rc *RunContext, provider memory.
 }
 
 // renderMemoryBlock 通过 OpenViking Find 构建 <memory> 块，返回空串表示无结果。
-// 同时返回 raw hits 供快照缓存使用。
-func renderMemoryBlock(ctx context.Context, provider memory.MemoryProvider, ident memory.MemoryIdentity, query string) (string, []memory.MemoryHit) {
-	hits, err := provider.Find(ctx, ident, memory.MemoryScopeUser, query, memoryFindLimit)
+func renderMemoryBlock(ctx context.Context, provider memory.MemoryProvider, ident memory.MemoryIdentity, scope memory.MemoryScope, query string) (string, []memory.MemoryHit) {
+	lines, hits, err := findMemoryLines(ctx, provider, ident, scope, query)
 	if err != nil {
-		slog.WarnContext(ctx, "memory: find failed", "err", err.Error())
+		slog.WarnContext(ctx, "memory: find failed", "scope", string(scope), "err", err.Error())
 		return "", nil
+	}
+	return buildMemoryBlock(lines), hits
+}
+
+func findMemoryLines(ctx context.Context, provider memory.MemoryProvider, ident memory.MemoryIdentity, scope memory.MemoryScope, query string) ([]string, []memory.MemoryHit, error) {
+	hits, err := provider.Find(ctx, ident, scope, query, memoryFindLimit)
+	if err != nil {
+		return nil, nil, err
 	}
 	if len(hits) == 0 {
-		return "", nil
+		return nil, nil, nil
 	}
 
-	var sb strings.Builder
-	sb.WriteString("\n\n<memory>\n")
+	lines := make([]string, 0, len(hits))
 	for _, hit := range hits {
 		if strings.TrimSpace(hit.Abstract) == "" {
 			continue
 		}
-		sb.WriteString("- ")
-		sb.WriteString(hit.Abstract)
 
+		line := strings.TrimSpace(hit.Abstract)
 		if hit.Score >= memoryHighScoreL1 && !hit.IsLeaf {
 			overview, ovErr := provider.Content(ctx, ident, hit.URI, memory.MemoryLayerOverview)
 			if ovErr == nil && strings.TrimSpace(overview) != "" {
-				sb.WriteString("\n  ")
 				firstLine := strings.SplitN(strings.TrimSpace(overview), "\n", 2)[0]
-				sb.WriteString(firstLine)
+				line += "\n  " + firstLine
 			}
 		}
+		lines = append(lines, line)
+	}
+	return lines, hits, nil
+}
+
+func buildMemoryBlock(lines []string) string {
+	if len(lines) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	sb.WriteString("\n\n<memory>\n")
+	for _, line := range lines {
+		cleaned := strings.TrimSpace(line)
+		if cleaned == "" {
+			continue
+		}
+		sb.WriteString("- ")
+		sb.WriteString(cleaned)
 		sb.WriteString("\n")
 	}
 	sb.WriteString("</memory>")
-
 	block := sb.String()
 	if strings.TrimSpace(block) == "<memory>\n</memory>" {
-		return "", nil
+		return ""
 	}
-	return block, hits
+	return block
 }
 
-// commitAndSnapshotAsync 先快照当前记忆到 PG（在 commit 阻塞 OV 之前），再归档对话。
-// commit 成功且 costPerCommit > 0 时写入 memory usage record。
-func commitAndSnapshotAsync(ident memory.MemoryIdentity, provider memory.MemoryProvider, pool *pgxpool.Pool, sessionID string, msgs []memory.MemoryMessage, lastQuery string, orgID, runID uuid.UUID, costPerCommit float64) {
-	ctx, cancel := context.WithTimeout(context.Background(), memoryCommitTimeout)
+func flushPendingWrites(pending []memory.PendingWrite, provider memory.MemoryProvider, pool *pgxpool.Pool, orgID, runID uuid.UUID, costPerWrite float64) {
+	ctx, cancel := context.WithTimeout(context.Background(), memoryFlushTimeout)
 	defer cancel()
 
-	// 先快照：commit 会阻塞 OpenViking 数分钟，必须在 commit 之前 Find
+	successfulQueries := map[memory.MemoryScope][]string{}
+	successCount := 0
+	for _, pendingWrite := range pending {
+		if err := provider.Write(ctx, pendingWrite.Ident, pendingWrite.Scope, pendingWrite.Entry); err != nil {
+			slog.Warn("memory: deferred write failed",
+				"org_id", pendingWrite.Ident.OrgID.String(),
+				"user_id", pendingWrite.Ident.UserID.String(),
+				"agent_id", pendingWrite.Ident.AgentID,
+				"scope", string(pendingWrite.Scope),
+				"err", err.Error(),
+			)
+			continue
+		}
+		successCount++
+		query := strings.TrimSpace(pendingWrite.Entry.Content)
+		if query != "" {
+			successfulQueries[pendingWrite.Scope] = append(successfulQueries[pendingWrite.Scope], query)
+		}
+	}
+	if successCount == 0 {
+		return
+	}
+
 	if pool != nil {
-		snapCtx, snapCancel := context.WithTimeout(ctx, snapshotFindTimeout)
-		block, hits := renderMemoryBlock(snapCtx, provider, ident, lastQuery)
-		snapCancel()
-		if block != "" {
+		ident := pending[0].Ident
+		if block, hits, ok := rebuildSnapshotBlock(ctx, provider, ident, successfulQueries); ok {
 			if err := snapshotRepo.UpsertWithHits(ctx, pool, ident.OrgID, ident.UserID, ident.AgentID, block, hitsToCache(hits)); err != nil {
-				slog.Warn("memory: snapshot upsert failed",
+				slog.Warn("memory: snapshot rebuild upsert failed",
 					"org_id", ident.OrgID.String(),
 					"user_id", ident.UserID.String(),
+					"agent_id", ident.AgentID,
 					"err", err.Error(),
 				)
 			}
 		}
 	}
 
-	if err := provider.AppendSessionMessages(ctx, ident, sessionID, msgs); err != nil {
-		slog.Warn("memory: append session messages failed",
-			"session_id", sessionID,
-			"err", err.Error(),
-		)
-		return
-	}
-	if err := provider.CommitSession(ctx, ident, sessionID); err != nil {
-		slog.Warn("memory: commit session failed",
-			"session_id", sessionID,
-			"err", err.Error(),
-		)
-		return
-	}
-
-	if costPerCommit > 0 && pool != nil {
+	if costPerWrite > 0 && pool != nil {
+		totalCost := costPerWrite * float64(successCount)
 		uCtx, uCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer uCancel()
-		if err := usageRepo.InsertMemoryUsage(uCtx, pool, orgID, runID, costPerCommit); err != nil {
+		if err := usageRepo.InsertMemoryUsage(uCtx, pool, orgID, runID, totalCost); err != nil {
 			slog.Warn("memory: usage record insert failed",
 				"run_id", runID.String(),
 				"err", err.Error(),
 			)
 		}
 	}
+}
+
+func rebuildSnapshotBlock(ctx context.Context, provider memory.MemoryProvider, ident memory.MemoryIdentity, successfulQueries map[memory.MemoryScope][]string) (string, []memory.MemoryHit, bool) {
+	if len(successfulQueries) == 0 {
+		return "", nil, false
+	}
+	allLines := make([]string, 0, memoryFindLimit*len(successfulQueries))
+	allHits := make([]memory.MemoryHit, 0, memoryFindLimit*len(successfulQueries))
+	for scope, queries := range successfulQueries {
+		query := strings.TrimSpace(strings.Join(queries, "\n"))
+		if query == "" {
+			return "", nil, false
+		}
+		snapCtx, cancel := context.WithTimeout(ctx, snapshotFindTimeout)
+		lines, hits, err := findMemoryLines(snapCtx, provider, ident, scope, query)
+		cancel()
+		if err != nil {
+			slog.Warn("memory: snapshot rebuild find failed",
+				"org_id", ident.OrgID.String(),
+				"user_id", ident.UserID.String(),
+				"agent_id", ident.AgentID,
+				"scope", string(scope),
+				"err", err.Error(),
+			)
+			return "", nil, false
+		}
+		if len(lines) == 0 {
+			return "", nil, false
+		}
+		allLines = append(allLines, lines...)
+		allHits = append(allHits, hits...)
+	}
+	block := buildMemoryBlock(allLines)
+	if block == "" {
+		return "", nil, false
+	}
+	return block, allHits, true
 }
 
 // hitsToCache 将 memory.MemoryHit 转换为 data.MemoryHitCache 用于 PG 存储。
@@ -239,9 +299,9 @@ func resolveCommitCost(ctx context.Context, resolver sharedconfig.Resolver) floa
 	if err != nil || strings.TrimSpace(raw) == "" {
 		return 0
 	}
-	v, err := strconv.ParseFloat(strings.TrimSpace(raw), 64)
-	if err != nil || v <= 0 {
+	value, parseErr := strconv.ParseFloat(strings.TrimSpace(raw), 64)
+	if parseErr != nil || value <= 0 {
 		return 0
 	}
-	return v
+	return value
 }
