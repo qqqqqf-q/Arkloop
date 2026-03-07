@@ -67,8 +67,13 @@ docker compose ps
 | 端点 | 说明 |
 |------|------|
 | `http://localhost:8000` | 对外入口（经过 Gateway 限流/鉴权） |
-| `http://localhost:8001` | API 直连（调试用） |
 | `http://localhost:9001` | MinIO Console |
+
+默认情况下，内部服务只在 Docker 网络内暴露。如果需要宿主机调试端口，请显式叠加开发覆盖文件：
+
+```bash
+docker compose -f compose.yaml -f compose.dev.yaml up -d
+```
 
 ## 平台管理员初始化
 
@@ -252,7 +257,7 @@ ARKLOOP_SANDBOX_TEMPLATES_PATH="" \
 
 ```bash
 # 只起基础设施
-docker compose up -d postgres redis minio pgbouncer
+docker compose -f compose.yaml -f compose.dev.yaml up -d postgres redis minio pgbouncer
 
 # 运行迁移
 cd src/services/api
@@ -265,7 +270,7 @@ ARKLOOP_LOAD_DOTENV=1 ARKLOOP_DOTENV_FILE=../../.env go run ./cmd/api
 此时如需使用 Gateway，覆盖 upstream 指向宿主机：
 
 ```bash
-ARKLOOP_GATEWAY_UPSTREAM=http://host.docker.internal:8001 docker compose up -d gateway
+ARKLOOP_GATEWAY_UPSTREAM=http://host.docker.internal:8001 docker compose -f compose.yaml -f compose.dev.yaml up -d gateway
 ```
 
 ## 完整环境变量参考
@@ -313,7 +318,7 @@ ARKLOOP_GATEWAY_UPSTREAM=http://host.docker.internal:8001 docker compose up -d g
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
 | `ARKLOOP_API_GO_ADDR` | `0.0.0.0:8001` | 监听地址（容器内） |
-| `ARKLOOP_API_PORT` | `8001` | 宿主机映射端口 |
+| `ARKLOOP_API_PORT` | `8001` | `compose.dev.yaml` 使用的宿主机映射端口 |
 | `ARKLOOP_BOOTSTRAP_PLATFORM_ADMIN` | — | 首次部署管理员 user_id（UUID） |
 
 ### Gateway
@@ -321,7 +326,7 @@ ARKLOOP_GATEWAY_UPSTREAM=http://host.docker.internal:8001 docker compose up -d g
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
 | `ARKLOOP_GATEWAY_UPSTREAM` | `http://api:8001` | 上游 API 地址 |
-| `ARKLOOP_GATEWAY_PORT` | `8000` | 宿主机映射端口 |
+| `ARKLOOP_GATEWAY_PORT` | `8000` | 默认对外入口 |
 | `ARKLOOP_GATEWAY_TRUST_INCOMING_TRACE_ID` | `0` | 是否信任上游传入的 `X-Trace-Id` |
 | `ARKLOOP_RATELIMIT_CAPACITY` | `60` | 限流桶容量 |
 | `ARKLOOP_RATELIMIT_RATE_PER_MINUTE` | `60` | 每分钟补充速率 |

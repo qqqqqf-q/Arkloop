@@ -44,6 +44,12 @@ docker compose up -d
 
 Once all services are healthy, access the web interface at `http://localhost:8000`.
 
+For host-level debugging ports such as PostgreSQL, API, Browser, Sandbox, or OpenViking, opt in explicitly:
+
+```bash
+docker compose -f compose.yaml -f compose.dev.yaml up -d
+```
+
 For detailed configuration, environment variables, and production deployment guides, refer to the [documentation](https://docs.arkloop.ai).
 
 ## Key Features

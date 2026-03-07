@@ -66,9 +66,14 @@ docker compose ps
 
 | Endpoint | Description |
 |------|------|
-| `http://localhost:8000` | Public Entry point (with Gateway Rate Limiting/Auth) |
-| `http://localhost:8001` | Direct API Access (for debugging) |
+| `http://localhost:8000` | Public entry point (with Gateway rate limiting/auth) |
 | `http://localhost:9001` | MinIO Console |
+
+Internal services stay on the Docker network by default. If you need host-level debugging ports, start with the development override file:
+
+```bash
+docker compose -f compose.yaml -f compose.dev.yaml up -d
+```
 
 ## Platform Administrator Initialization
 
@@ -249,7 +254,7 @@ During development, you typically run the API on the host machine (for debugging
 
 ```bash
 # Start infrastructure only
-docker compose up -d postgres redis minio pgbouncer
+docker compose -f compose.yaml -f compose.dev.yaml up -d postgres redis minio pgbouncer
 
 # Run migrations
 cd src/services/api
@@ -262,7 +267,7 @@ ARKLOOP_LOAD_DOTENV=1 ARKLOOP_DOTENV_FILE=../../.env go run ./cmd/api
 If you need to use the Gateway, point upstream to the host:
 
 ```bash
-ARKLOOP_GATEWAY_UPSTREAM=http://host.docker.internal:8001 docker compose up -d gateway
+ARKLOOP_GATEWAY_UPSTREAM=http://host.docker.internal:8001 docker compose -f compose.yaml -f compose.dev.yaml up -d gateway
 ```
 
 ## Full Environment Variable Reference
@@ -310,7 +315,7 @@ ARKLOOP_GATEWAY_UPSTREAM=http://host.docker.internal:8001 docker compose up -d g
 | Variable | Default | Description |
 |------|--------|------|
 | `ARKLOOP_API_GO_ADDR` | `0.0.0.0:8001` | Listener address (inside container) |
-| `ARKLOOP_API_PORT` | `8001` | Host port mapping |
+| `ARKLOOP_API_PORT` | `8001` | Host port mapping used by `compose.dev.yaml` |
 | `ARKLOOP_BOOTSTRAP_PLATFORM_ADMIN` | — | Platform admin user_id (UUID) for initial deployment |
 
 ### Gateway
@@ -318,7 +323,7 @@ ARKLOOP_GATEWAY_UPSTREAM=http://host.docker.internal:8001 docker compose up -d g
 | Variable | Default | Description |
 |------|--------|------|
 | `ARKLOOP_GATEWAY_UPSTREAM` | `http://api:8001` | Upstream API address |
-| `ARKLOOP_GATEWAY_PORT` | `8000` | Host port mapping |
+| `ARKLOOP_GATEWAY_PORT` | `8000` | Default public entry point |
 | `ARKLOOP_GATEWAY_TRUST_INCOMING_TRACE_ID` | `0` | Whether to trust upstream `X-Trace-Id` |
 | `ARKLOOP_RATELIMIT_CAPACITY` | `60` | Rate limit bucket capacity |
 | `ARKLOOP_RATELIMIT_RATE_PER_MINUTE` | `60` | Replenishment rate per minute |

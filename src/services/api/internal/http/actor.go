@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	nethttp "net/http"
 
@@ -21,6 +22,8 @@ type actor struct {
 	OrgRole     string
 	Permissions []string
 }
+
+const apiKeyLastUsedUpdateTimeout = 2 * time.Second
 
 func (a *actor) HasPermission(perm string) bool {
 	for _, p := range a.Permissions {
@@ -193,7 +196,10 @@ func resolveActorFromAPIKey(
 
 	// 异步更新 last_used_at，不阻塞请求
 	go func() {
-		_ = apiKeysRepo.UpdateLastUsed(context.Background(), keyID)
+		ctx, cancel := context.WithTimeout(context.Background(), apiKeyLastUsedUpdateTimeout)
+		defer cancel()
+
+		_ = apiKeysRepo.UpdateLastUsed(ctx, keyID)
 	}()
 
 	if auditWriter != nil {

@@ -10,8 +10,6 @@ services:
       POSTGRES_USER: ${ARKLOOP_POSTGRES_USER:-arkloop}
       POSTGRES_PASSWORD: ${ARKLOOP_POSTGRES_PASSWORD:?请在 .env 中设置 ARKLOOP_POSTGRES_PASSWORD}
       POSTGRES_DB: ${ARKLOOP_POSTGRES_DB:-arkloop}
-    ports:
-      - "${ARKLOOP_POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -27,8 +25,6 @@ services:
       redis-server
       --requirepass ${ARKLOOP_REDIS_PASSWORD:-arkloop_redis}
       --appendonly yes
-    ports:
-      - "${ARKLOOP_REDIS_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -103,8 +99,6 @@ services:
       ARKLOOP_API_MAX_IN_FLIGHT: "${ARKLOOP_API_MAX_IN_FLIGHT:-256}"
       ARKLOOP_API_DIRECT_POOL_ACQUIRE_TIMEOUT_MS: "${ARKLOOP_API_DIRECT_POOL_ACQUIRE_TIMEOUT_MS:-200}"
       ARKLOOP_API_GO_ADDR: "0.0.0.0:8001"
-    ports:
-      - "${ARKLOOP_API_PORT:-8001}:8001"
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -167,8 +161,6 @@ services:
       AUTH_TYPE: scram-sha-256
       ADMIN_USERS: "${ARKLOOP_POSTGRES_USER:-arkloop}"
       STATS_USERS: "${ARKLOOP_POSTGRES_USER:-arkloop}"
-    ports:
-      - "${ARKLOOP_PGBOUNCER_PORT:-5433}:5432"
     depends_on:
       postgres:
         condition: service_healthy
@@ -197,8 +189,6 @@ services:
       BROWSER_MINIO_BUCKET_SCREENSHOTS: "browser-screenshots"
       BROWSER_MINIO_PUBLIC_ENDPOINT: "${BROWSER_MINIO_PUBLIC_ENDPOINT:-http://localhost:9000}"
       BROWSER_BLOCKED_HOSTS: "postgres,redis,minio,openviking,api,worker,gateway,pgbouncer"
-    ports:
-      - "${ARKLOOP_BROWSER_PORT:-3100}:3000"
     depends_on:
       minio:
         condition: service_healthy
@@ -272,8 +262,6 @@ services:
       - /usr/bin/firecracker:/usr/bin/firecracker:ro
       - /opt/sandbox/vmlinux:/opt/sandbox/vmlinux:ro
       - /opt/sandbox/rootfs:/opt/sandbox/rootfs:ro
-    ports:
-      - "${ARKLOOP_SANDBOX_PORT:-8002}:8002"
     depends_on:
       pgbouncer:
         condition: service_healthy
@@ -311,8 +299,6 @@ services:
     networks:
       - default
       - sandbox_agent_egress
-    ports:
-      - "${ARKLOOP_SANDBOX_PORT:-8002}:8002"
     volumes:
       - ${ARKLOOP_SANDBOX_DOCKER_SOCKET_PATH:?请在 .env 中设置 ARKLOOP_SANDBOX_DOCKER_SOCKET_PATH}:/run/docker-host.sock
       - sandbox_sockets:/run/sandbox
@@ -330,8 +316,6 @@ services:
     restart: unless-stopped
     environment:
       WEB_CONCURRENCY: "${ARKLOOP_OPENVIKING_WORKERS:-4}"
-    ports:
-      - "${ARKLOOP_OPENVIKING_PORT:-1933}:1933"
     volumes:
       - ./config/openviking/ov.conf:/app/ov.conf:ro
       - openviking_data:/app/data

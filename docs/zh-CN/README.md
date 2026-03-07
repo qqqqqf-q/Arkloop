@@ -44,6 +44,12 @@ docker compose up -d
 
 所有服务就绪后，通过 `http://localhost:8000` 访问 Web 界面。
 
+如果需要宿主机调试端口，例如 PostgreSQL、API、Browser、Sandbox 或 OpenViking，请显式叠加开发覆盖文件：
+
+```bash
+docker compose -f compose.yaml -f compose.dev.yaml up -d
+```
+
 详细的配置、环境变量和生产部署指南请参考[文档](https://docs.arkloop.ai)。
 
 ## 核心功能

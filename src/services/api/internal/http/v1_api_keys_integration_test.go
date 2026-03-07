@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"testing"
+	"time"
 
 	nethttp "net/http"
 
@@ -207,6 +208,58 @@ func TestAPIKeyAuthenticatesRequests(t *testing.T) {
 	assertErrorEnvelope(t, invalidResp, nethttp.StatusUnauthorized, "auth.invalid_api_key")
 
 	// 吊销后访问被拒绝
+	revokeResp := doJSON(handler, nethttp.MethodDelete, "/v1/api-keys/"+created.ID, nil, authHeader(jwtToken))
+	if revokeResp.Code != nethttp.StatusNoContent {
+		t.Fatalf("revoke: %d %s", revokeResp.Code, revokeResp.Body.String())
+	}
+
+	afterRevokeResp := doJSON(handler, nethttp.MethodGet, "/v1/threads", nil, authHeader(created.Key))
+	assertErrorEnvelope(t, afterRevokeResp, nethttp.StatusUnauthorized, "auth.invalid_api_key")
+}
+
+func TestAPIKeyUpdatesLastUsedAtAsync(t *testing.T) {
+	handler, apiKeysRepo, jwtToken := buildAPIKeyHandler(t)
+
+	createResp := doJSON(handler, nethttp.MethodPost, "/v1/api-keys",
+		map[string]any{"name": "touch-key"},
+		authHeader(jwtToken),
+	)
+	if createResp.Code != nethttp.StatusCreated {
+		t.Fatalf("create api key: %d %s", createResp.Code, createResp.Body.String())
+	}
+
+	type createBody struct {
+		ID  string `json:"id"`
+		Key string `json:"key"`
+	}
+	created := decodeJSONBody[createBody](t, createResp.Body.Bytes())
+
+	threadsResp := doJSON(handler, nethttp.MethodGet, "/v1/threads", nil, authHeader(created.Key))
+	if threadsResp.Code != nethttp.StatusOK {
+		t.Fatalf("list threads with api key: %d %s", threadsResp.Code, threadsResp.Body.String())
+	}
+
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		apiKey, err := apiKeysRepo.GetByHash(context.Background(), data.HashAPIKey(created.Key))
+		if err != nil {
+			t.Fatalf("get api key: %v", err)
+		}
+		if apiKey == nil {
+			t.Fatal("expected api key to exist")
+		}
+		if apiKey.LastUsedAt != nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("expected last_used_at to be updated")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	invalidResp := doJSON(handler, nethttp.MethodGet, "/v1/threads", nil, authHeader("ak-deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"))
+	assertErrorEnvelope(t, invalidResp, nethttp.StatusUnauthorized, "auth.invalid_api_key")
+
 	revokeResp := doJSON(handler, nethttp.MethodDelete, "/v1/api-keys/"+created.ID, nil, authHeader(jwtToken))
 	if revokeResp.Code != nethttp.StatusNoContent {
 		t.Fatalf("revoke: %d %s", revokeResp.Code, revokeResp.Body.String())
