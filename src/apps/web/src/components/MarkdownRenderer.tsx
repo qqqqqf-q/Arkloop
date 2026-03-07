@@ -18,9 +18,14 @@ import { MindmapBlock } from './MindmapBlock'
 type ArtifactsContextValue = {
   artifacts: ArtifactRef[]
   accessToken: string
+  onOpenDocument?: (artifact: ArtifactRef) => void
 }
 
 const ArtifactsContext = createContext<ArtifactsContextValue>({ artifacts: [], accessToken: '' })
+
+function isDocumentArtifact(artifact: ArtifactRef): boolean {
+  return !artifact.mime_type.startsWith('image/') && artifact.mime_type !== 'text/html'
+}
 
 // \[...\] → $$...$$ , \(...\) → $...$
 // 跳过代码块和行内代码
@@ -65,7 +70,7 @@ function guessMimeType(key: string): string {
 
 // artifact: 协议感知的 img 渲染器
 function ArtifactAwareImg({ src, alt }: { src?: string; alt?: string }) {
-  const { artifacts, accessToken } = useContext(ArtifactsContext)
+  const { artifacts, accessToken, onOpenDocument } = useContext(ArtifactsContext)
 
   if (src?.startsWith(ARTIFACT_PREFIX)) {
     const key = src.slice(ARTIFACT_PREFIX.length)
@@ -87,6 +92,8 @@ function ArtifactAwareImg({ src, alt }: { src?: string; alt?: string }) {
     if (resolved.mime_type === 'text/html') {
       return <ArtifactHtmlPreview artifact={resolved} accessToken={accessToken} />
     }
+    // 文档类型：有面板回调时抑制内联渲染（顶部卡片是唯一入口）
+    if (onOpenDocument && isDocumentArtifact(resolved)) return null
     return <ArtifactDownload artifact={resolved} accessToken={accessToken} />
   }
 
@@ -95,7 +102,7 @@ function ArtifactAwareImg({ src, alt }: { src?: string; alt?: string }) {
 
 // artifact: 协议感知的 a 渲染器
 function ArtifactAwareLink({ href, children }: { href?: string; children?: ReactNode }) {
-  const { artifacts, accessToken } = useContext(ArtifactsContext)
+  const { artifacts, accessToken, onOpenDocument } = useContext(ArtifactsContext)
 
   if (href?.startsWith(ARTIFACT_PREFIX)) {
     const key = href.slice(ARTIFACT_PREFIX.length)
@@ -117,6 +124,8 @@ function ArtifactAwareLink({ href, children }: { href?: string; children?: React
     if (resolved.mime_type === 'text/html') {
       return <ArtifactHtmlPreview artifact={resolved} accessToken={accessToken} />
     }
+    // 文档类型：有面板回调时抑制内联渲染（顶部卡片是唯一入口）
+    if (onOpenDocument && isDocumentArtifact(resolved)) return null
     return <ArtifactDownload artifact={resolved} accessToken={accessToken} />
   }
 
@@ -468,9 +477,10 @@ type Props = {
   webSources?: WebSource[]
   artifacts?: ArtifactRef[]
   accessToken?: string
+  onOpenDocument?: (artifact: ArtifactRef) => void
 }
 
-export function MarkdownRenderer({ content, disableMath, webSources, artifacts, accessToken }: Props) {
+export function MarkdownRenderer({ content, disableMath, webSources, artifacts, accessToken, onOpenDocument }: Props) {
   const remarkPlugins = disableMath
     ? [remarkGfm]
     : [remarkGfm, remarkMath]
@@ -486,6 +496,7 @@ export function MarkdownRenderer({ content, disableMath, webSources, artifacts, 
   const artifactsValue: ArtifactsContextValue = {
     artifacts: artifacts ?? [],
     accessToken: accessToken ?? '',
+    onOpenDocument,
   }
 
   const normalizedContent = disableMath ? content : normalizeLatexDelimiters(content)

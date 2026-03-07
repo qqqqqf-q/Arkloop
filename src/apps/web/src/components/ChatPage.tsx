@@ -14,6 +14,7 @@ import { ReportModal } from './ReportModal'
 import { NotificationBell } from './NotificationBell'
 import { SourcesPanel } from './SourcesPanel'
 import { CodeExecutionPanel } from './CodeExecutionPanel'
+import { DocumentPanel } from './DocumentPanel'
 import { useSSE } from '../hooks/useSSE'
 import { SSEApiError } from '../sse'
 import {
@@ -221,6 +222,9 @@ export function ChatPage() {
   // 代码执行侧边面板
   const [codePanelExecution, setCodePanelExecution] = useState<CodeExecution | null>(null)
   const lastCodePanelRef = useRef<CodeExecution | null>(null)
+  // 文档预览侧边面板
+  const [documentPanelArtifact, setDocumentPanelArtifact] = useState<ArtifactRef | null>(null)
+  const lastDocumentPanelRef = useRef<ArtifactRef | null>(null)
   // 关闭动画期间保留上一次的数据
   const lastPanelSourcesRef = useRef<WebSource[] | undefined>(undefined)
   const lastPanelQueryRef = useRef<string | undefined>(undefined)
@@ -1258,12 +1262,15 @@ export function ChatPage() {
   if (sourcePanelSources) lastPanelSourcesRef.current = sourcePanelSources
   if (sourcePanelUserQuery !== undefined) lastPanelQueryRef.current = sourcePanelUserQuery
   if (codePanelExecution) lastCodePanelRef.current = codePanelExecution
+  if (documentPanelArtifact) lastDocumentPanelRef.current = documentPanelArtifact
   const panelDisplaySources = sourcePanelSources ?? lastPanelSourcesRef.current
   const panelDisplayQuery = sourcePanelUserQuery ?? lastPanelQueryRef.current
   const codePanelDisplay = codePanelExecution ?? lastCodePanelRef.current
+  const documentPanelDisplay = documentPanelArtifact ?? lastDocumentPanelRef.current
   const isSourcePanelOpen = !!(sourcePanelSources && sourcePanelSources.length > 0)
   const isCodePanelOpen = !!codePanelExecution
-  const isPanelOpen = isSourcePanelOpen || isCodePanelOpen
+  const isDocumentPanelOpen = !!documentPanelArtifact
+  const isPanelOpen = isSourcePanelOpen || isCodePanelOpen || isDocumentPanelOpen
 
   const openCodePanel = useCallback((ce: CodeExecution) => {
     setCodePanelExecution((prev) => {
@@ -1272,8 +1279,22 @@ export function ChatPage() {
         return null
       }
       setSourcePanelMessageId(null)
+      setDocumentPanelArtifact(null)
       onRightPanelChange?.(true)
       return ce
+    })
+  }, [onRightPanelChange])
+
+  const openDocumentPanel = useCallback((artifact: ArtifactRef) => {
+    setDocumentPanelArtifact((prev) => {
+      if (prev?.key === artifact.key) {
+        onRightPanelChange?.(false)
+        return null
+      }
+      setSourcePanelMessageId(null)
+      setCodePanelExecution(null)
+      onRightPanelChange?.(true)
+      return artifact
     })
   }, [onRightPanelChange])
 
@@ -1441,6 +1462,7 @@ export function ChatPage() {
                       msg.role === 'assistant' && canShowSources
                         ? () => {
                             setCodePanelExecution(null)
+                            setDocumentPanelArtifact(null)
                             setSourcePanelMessageId((prev) => {
                               const next = prev === msg.id ? null : msg.id
                               onRightPanelChange?.(next !== null)
@@ -1449,6 +1471,8 @@ export function ChatPage() {
                           }
                         : undefined
                     }
+                    onOpenDocument={msg.role === 'assistant' ? openDocumentPanel : undefined}
+                    activePanelArtifactKey={documentPanelArtifact?.key ?? null}
                   />
                   {/* 无痕分割线：固定在 fork 基点之后 */}
                   {locationState?.isIncognitoFork && locationState.forkBaseCount != null && idx === locationState.forkBaseCount - 1 && (
@@ -1767,7 +1791,7 @@ export function ChatPage() {
             overflow: 'hidden',
             flexShrink: 0,
             transition: 'width 280ms cubic-bezier(0.16,1,0.3,1)',
-            borderLeft: (panelDisplaySources || codePanelDisplay) ? '0.5px solid var(--c-border-subtle)' : 'none',
+            borderLeft: (panelDisplaySources || codePanelDisplay || documentPanelDisplay) ? '0.5px solid var(--c-border-subtle)' : 'none',
           }}
         >
           {isSourcePanelOpen && panelDisplaySources && panelDisplaySources.length > 0 && (
@@ -1784,6 +1808,15 @@ export function ChatPage() {
               <CodeExecutionPanel
                 execution={codePanelDisplay}
                 onClose={() => { setCodePanelExecution(null); onRightPanelChange?.(false) }}
+              />
+            </div>
+          )}
+          {isDocumentPanelOpen && documentPanelDisplay && (
+            <div style={{ width: '420px', height: '100%' }}>
+              <DocumentPanel
+                artifact={documentPanelDisplay}
+                accessToken={accessToken}
+                onClose={() => { setDocumentPanelArtifact(null); onRightPanelChange?.(false) }}
               />
             </div>
           )}

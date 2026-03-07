@@ -3,7 +3,12 @@ import { Copy, Check, RefreshCw, Share2, Split, Paperclip, Pencil, MoreHorizonta
 import type { MessageResponse } from '../api'
 import type { WebSource, ArtifactRef } from '../storage'
 import { MarkdownRenderer } from './MarkdownRenderer'
+import { DocumentCard } from './DocumentCard'
 import { useLocale } from '../contexts/LocaleContext'
+
+function isDocumentArtifact(artifact: ArtifactRef): boolean {
+  return !artifact.mime_type.startsWith('image/') && artifact.mime_type !== 'text/html'
+}
 
 type Props = {
   message: MessageResponse
@@ -17,6 +22,8 @@ type Props = {
   artifacts?: ArtifactRef[]
   accessToken?: string
   onShowSources?: () => void
+  onOpenDocument?: (artifact: ArtifactRef) => void
+  activePanelArtifactKey?: string | null
 }
 
 function getDomain(url: string): string {
@@ -38,7 +45,7 @@ function extractFilesFromContent(content: string): { text: string; fileNames: st
   return { text, fileNames }
 }
 
-export function MessageBubble({ message, onRetry, onEdit, onFork, onShare, onReport, shareState, webSources, artifacts, accessToken, onShowSources }: Props) {
+export function MessageBubble({ message, onRetry, onEdit, onFork, onShare, onReport, shareState, webSources, artifacts, accessToken, onShowSources, onOpenDocument, activePanelArtifactKey }: Props) {
   const { t } = useLocale()
   const [copied, setCopied] = useState(false)
   const [editing, setEditing] = useState(false)
@@ -314,7 +321,20 @@ export function MessageBubble({ message, onRetry, onEdit, onFork, onShare, onRep
   return (
     <div style={{ display: 'flex', flexDirection: 'column' }}>
       <div style={{ maxWidth: '663px' }}>
-        <MarkdownRenderer content={message.content} webSources={webSources} artifacts={artifacts} accessToken={accessToken} />
+        {/* 文档类 artifact 卡片：显示在消息最顶部 */}
+        {artifacts && artifacts.filter(isDocumentArtifact).length > 0 && onOpenDocument && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '14px' }}>
+            {artifacts.filter(isDocumentArtifact).map((artifact) => (
+              <DocumentCard
+                key={artifact.key}
+                artifact={artifact}
+                onClick={() => onOpenDocument(artifact)}
+                active={activePanelArtifactKey === artifact.key}
+              />
+            ))}
+          </div>
+        )}
+        <MarkdownRenderer content={message.content} webSources={webSources} artifacts={artifacts} accessToken={accessToken} onOpenDocument={onOpenDocument} />
         <div style={{ marginTop: '16px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
             <div style={{ position: 'relative' }}>
