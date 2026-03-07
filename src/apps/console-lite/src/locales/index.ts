@@ -139,6 +139,62 @@ export interface LocaleStrings {
     toastSaveFailed: string
     toastLoadFailed: string
   }
+  runs: {
+    title: string
+    refresh: string
+    colId: string
+    colAgent: string
+    colUser: string
+    colModel: string
+    colStatus: string
+    colTokens: string
+    colInputTokens: string
+    colOutputTokens: string
+    colCacheHit: string
+    colCredits: string
+    colActions: string
+    colTime: string
+    empty: string
+    prev: string
+    next: string
+    pageSummary: (start: number, end: number, total: number) => string
+    toastLoadFailed: string
+    toastDetailLoadFailed: string
+    detailTitle: string
+    sectionOverview: string
+    sectionConversation: string
+    labelRunId: string
+    labelAgent: string
+    labelModel: string
+    labelTokens: string
+    labelInputTokens: string
+    labelOutputTokens: string
+    labelCacheHit: string
+    labelCredits: string
+    labelCreated: string
+    labelCompleted: string
+    labelFailedAt: string
+    labelUser: string
+    labelThread: string
+    loading: string
+    noConversation: string
+    statusRunning: string
+    statusCompleted: string
+    statusFailed: string
+    statusCancelled: string
+    statusUnknown: string
+    unknownAgent: string
+    emptyValue: string
+    turn: string
+    system: string
+    toolsLabel: string
+    input: string
+    output: string
+    toolCall: string
+    toolResult: string
+    error: string
+    view: string
+  }
   common: {
     save: string
     cancel: string
@@ -149,7 +205,6 @@ export interface LocaleStrings {
     default: string
     signOut: string
   }
-  // auth
   loginMode: string
   enterYourPasswordTitle: string
   fieldIdentity: string
@@ -168,11 +223,9 @@ export interface LocaleStrings {
   otpVerifyBtn: string
   requestFailed: string
   loading: string
-  // access denied
   accessDenied: string
   noAdminAccess: string
   signOut: string
-  // settings modal
   account: string
   settings: string
   language: string
