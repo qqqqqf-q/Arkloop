@@ -16,15 +16,16 @@ const (
 )
 
 type ExecutionContext struct {
-	RunID     uuid.UUID
-	TraceID   string
-	OrgID     *uuid.UUID
-	ThreadID  *uuid.UUID
-	UserID    *uuid.UUID
-	AgentID   string
-	TimeoutMs *int
-	Budget    map[string]any
-	Emitter   events.Emitter
+	RunID             uuid.UUID
+	TraceID           string
+	OrgID             *uuid.UUID
+	ThreadID          *uuid.UUID
+	UserID            *uuid.UUID
+	AgentID           string
+	TimeoutMs         *int
+	Budget            map[string]any
+	PerToolSoftLimits PerToolSoftLimits
+	Emitter           events.Emitter
 }
 
 type ExecutionError struct {

@@ -17,6 +17,10 @@ func testContext() tools.ExecutionContext {
 	return tools.ExecutionContext{RunID: uuid.New()}
 }
 
+func testContextWithSoftLimits(limits tools.PerToolSoftLimits) tools.ExecutionContext {
+	return tools.ExecutionContext{RunID: uuid.New(), PerToolSoftLimits: limits}
+}
+
 func testContextWithRun(runID uuid.UUID) tools.ExecutionContext {
 	return tools.ExecutionContext{RunID: runID}
 }
@@ -560,6 +564,81 @@ func TestTimeoutMs_Propagation(t *testing.T) {
 	if receivedTimeout != 60000 {
 		t.Errorf("expected timeout_ms=60000, got %d", receivedTimeout)
 	}
+}
+
+func TestWriteStdin_ClampsYieldTimeMsBySoftLimit(t *testing.T) {
+	var receivedYield int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body writeStdinRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		receivedYield = body.YieldTimeMs
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "running", Running: true})
+	}))
+	defer server.Close()
+
+	limits := tools.DefaultPerToolSoftLimits()
+	writeLimit := limits["write_stdin"]
+	writeLimit.MaxYieldTimeMs = intPtr(2500)
+	limits["write_stdin"] = writeLimit
+
+	exec := NewToolExecutor(server.URL, "")
+	result := exec.Execute(
+		t.Context(),
+		"write_stdin",
+		map[string]any{"session_id": "sess-1", "yield_time_ms": float64(9000)},
+		testContextWithSoftLimits(limits),
+		"",
+	)
+	if result.Error != nil {
+		t.Fatalf("unexpected error: %+v", result.Error)
+	}
+	if receivedYield != 2500 {
+		t.Fatalf("expected clamped yield_time_ms=2500, got %d", receivedYield)
+	}
+}
+
+func TestExecCommand_TruncatesOutputBySoftLimit(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(execSessionResponse{
+			SessionID: "sess-1",
+			Status:    "idle",
+			Running:   false,
+			Output:    strings.Repeat("x", 200),
+		})
+	}))
+	defer server.Close()
+
+	limits := tools.DefaultPerToolSoftLimits()
+	execLimit := limits["exec_command"]
+	execLimit.MaxOutputBytes = intPtr(64)
+	limits["exec_command"] = execLimit
+
+	exec := NewToolExecutor(server.URL, "")
+	result := exec.Execute(
+		t.Context(),
+		"exec_command",
+		map[string]any{"command": "echo hi"},
+		testContextWithSoftLimits(limits),
+		"",
+	)
+	if result.Error != nil {
+		t.Fatalf("unexpected error: %+v", result.Error)
+	}
+	output, _ := result.ResultJSON["output"].(string)
+	if len(output) > 64 {
+		t.Fatalf("expected truncated output <= 64 bytes, got %d", len(output))
+	}
+	if result.ResultJSON["truncated"] != true {
+		t.Fatalf("expected truncated=true, got %v", result.ResultJSON["truncated"])
+	}
+}
+
+func intPtr(value int) *int {
+	return &value
 }
 
 func TestClientTimeout(t *testing.T) {

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -30,11 +31,11 @@ func TestAgentLoopRunsStubGateway(t *testing.T) {
 	err := loop.Run(
 		context.Background(),
 		RunContext{
-			RunID:         runID,
-			TraceID:       "trace",
-			InputJSON:     map[string]any{},
-			MaxIterations: 3,
-			CancelSignal:  func() bool { return false },
+			RunID:               runID,
+			TraceID:             "trace",
+			InputJSON:           map[string]any{},
+			ReasoningIterations: 3,
+			CancelSignal:        func() bool { return false },
 		},
 		llm.Request{Model: "stub"},
 		emitter,
@@ -87,14 +88,14 @@ func TestAgentLoopExecutesToolCalls(t *testing.T) {
 	err := loop.Run(
 		context.Background(),
 		RunContext{
-			RunID:         runID,
-			TraceID:       "trace",
-			InputJSON:     map[string]any{},
-			MaxIterations: 3,
-			ToolExecutor:  executor,
-			ToolTimeoutMs: intPtr(1000),
-			ToolBudget:    map[string]any{"foo": "bar"},
-			CancelSignal:  func() bool { return false },
+			RunID:               runID,
+			TraceID:             "trace",
+			InputJSON:           map[string]any{},
+			ReasoningIterations: 3,
+			ToolExecutor:        executor,
+			ToolTimeoutMs:       intPtr(1000),
+			ToolBudget:          map[string]any{"foo": "bar"},
+			CancelSignal:        func() bool { return false },
 		},
 		llm.Request{Model: "stub"},
 		emitter,
@@ -158,14 +159,14 @@ func TestAgentLoopExecutesMultipleToolCallsInParallel(t *testing.T) {
 	err := loop.Run(
 		context.Background(),
 		RunContext{
-			RunID:         runID,
-			TraceID:       "trace",
-			InputJSON:     map[string]any{},
-			MaxIterations: 3,
-			ToolExecutor:  dispatcher,
-			ToolTimeoutMs: intPtr(1000),
-			ToolBudget:    map[string]any{"foo": "bar"},
-			CancelSignal:  func() bool { return false },
+			RunID:               runID,
+			TraceID:             "trace",
+			InputJSON:           map[string]any{},
+			ReasoningIterations: 3,
+			ToolExecutor:        dispatcher,
+			ToolTimeoutMs:       intPtr(1000),
+			ToolBudget:          map[string]any{"foo": "bar"},
+			CancelSignal:        func() bool { return false },
 		},
 		llm.Request{Model: "stub"},
 		emitter,
@@ -212,12 +213,12 @@ func TestAgentLoopAggregatesUsageAcrossTurns(t *testing.T) {
 	err := loop.Run(
 		context.Background(),
 		RunContext{
-			RunID:         uuid.New(),
-			TraceID:       "trace",
-			InputJSON:     map[string]any{},
-			MaxIterations: 3,
-			ToolExecutor:  executor,
-			CancelSignal:  func() bool { return false },
+			RunID:               uuid.New(),
+			TraceID:             "trace",
+			InputJSON:           map[string]any{},
+			ReasoningIterations: 3,
+			ToolExecutor:        executor,
+			CancelSignal:        func() bool { return false },
 		},
 		llm.Request{Model: "stub"},
 		emitter,
@@ -276,13 +277,13 @@ func TestAgentLoopSearchToolTurnDoesNotInjectAssistantText(t *testing.T) {
 	err := loop.Run(
 		context.Background(),
 		RunContext{
-			RunID:         uuid.New(),
-			TraceID:       "trace",
-			AgentID:       "search",
-			InputJSON:     map[string]any{},
-			MaxIterations: 3,
-			ToolExecutor:  executor,
-			CancelSignal:  func() bool { return false },
+			RunID:               uuid.New(),
+			TraceID:             "trace",
+			AgentID:             "search",
+			InputJSON:           map[string]any{},
+			ReasoningIterations: 3,
+			ToolExecutor:        executor,
+			CancelSignal:        func() bool { return false },
 		},
 		llm.Request{Model: "stub"},
 		emitter,
@@ -335,12 +336,12 @@ func TestAgentLoopDedupToolResultMessageInjection(t *testing.T) {
 	err := loop.Run(
 		context.Background(),
 		RunContext{
-			RunID:         uuid.New(),
-			TraceID:       "trace",
-			InputJSON:     map[string]any{},
-			MaxIterations: 4,
-			ToolExecutor:  executor,
-			CancelSignal:  func() bool { return false },
+			RunID:               uuid.New(),
+			TraceID:             "trace",
+			InputJSON:           map[string]any{},
+			ReasoningIterations: 4,
+			ToolExecutor:        executor,
+			CancelSignal:        func() bool { return false },
 		},
 		llm.Request{Model: "stub"},
 		emitter,
@@ -398,12 +399,12 @@ func TestAgentLoopDoesNotDedupErrorToolResultMessageInjection(t *testing.T) {
 	err := loop.Run(
 		context.Background(),
 		RunContext{
-			RunID:         uuid.New(),
-			TraceID:       "trace",
-			InputJSON:     map[string]any{},
-			MaxIterations: 4,
-			ToolExecutor:  executor,
-			CancelSignal:  func() bool { return false },
+			RunID:               uuid.New(),
+			TraceID:             "trace",
+			InputJSON:           map[string]any{},
+			ReasoningIterations: 4,
+			ToolExecutor:        executor,
+			CancelSignal:        func() bool { return false },
 		},
 		llm.Request{Model: "stub"},
 		emitter,
@@ -435,6 +436,168 @@ func TestAgentLoopDoesNotDedupErrorToolResultMessageInjection(t *testing.T) {
 	if !strings.Contains(second, "tool.args_invalid") {
 		t.Fatalf("expected args_invalid error to be present, got %q", second)
 	}
+}
+
+func TestAgentLoopPureContinuationDoesNotConsumeReasoningBudget(t *testing.T) {
+	loop := NewLoop(&scriptedTurnsGateway{turns: [][]llm.StreamEvent{
+		{llm.ToolCall{ToolCallID: "call_1", ToolName: "exec_command", ArgumentsJSON: map[string]any{"command": "sleep 1"}}, llm.StreamRunCompleted{}},
+		{llm.ToolCall{ToolCallID: "call_2", ToolName: "write_stdin", ArgumentsJSON: map[string]any{"session_id": "sess-1"}}, llm.StreamRunCompleted{}},
+		{llm.ToolCall{ToolCallID: "call_3", ToolName: "write_stdin", ArgumentsJSON: map[string]any{"session_id": "sess-1"}}, llm.StreamRunCompleted{}},
+		{llm.StreamMessageDelta{ContentDelta: "done", Role: "assistant"}, llm.StreamRunCompleted{}},
+	}}, buildContinuationDispatcher(t, []bool{true, false}))
+	emitter := events.NewEmitter("trace")
+
+	var got []events.RunEvent
+	err := loop.Run(context.Background(), RunContext{
+		RunID:                  uuid.New(),
+		TraceID:                "trace",
+		InputJSON:              map[string]any{},
+		ReasoningIterations:    2,
+		ToolContinuationBudget: 2,
+		PerToolSoftLimits:      tools.DefaultPerToolSoftLimits(),
+		ToolExecutor:           buildContinuationDispatcher(t, []bool{true, false}),
+		CancelSignal:           func() bool { return false },
+	}, llm.Request{Model: "stub"}, emitter, func(ev events.RunEvent) error {
+		got = append(got, ev)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("loop.Run failed: %v", err)
+	}
+	assertHasEvent(t, got, "run.completed")
+	assertNoErrorClass(t, got, ErrorClassAgentReasoningIterationsExceeded)
+}
+
+func TestAgentLoopContinuationBudgetExceededReturnsToolResultError(t *testing.T) {
+	dispatcher := buildContinuationDispatcher(t, []bool{true})
+	loop := NewLoop(&scriptedTurnsGateway{turns: [][]llm.StreamEvent{
+		{llm.ToolCall{ToolCallID: "call_1", ToolName: "exec_command", ArgumentsJSON: map[string]any{"command": "sleep 1"}}, llm.StreamRunCompleted{}},
+		{llm.ToolCall{ToolCallID: "call_2", ToolName: "write_stdin", ArgumentsJSON: map[string]any{"session_id": "sess-1"}}, llm.StreamRunCompleted{}},
+		{llm.ToolCall{ToolCallID: "call_3", ToolName: "write_stdin", ArgumentsJSON: map[string]any{"session_id": "sess-1"}}, llm.StreamRunCompleted{}},
+		{llm.StreamMessageDelta{ContentDelta: "done", Role: "assistant"}, llm.StreamRunCompleted{}},
+	}}, dispatcher)
+	emitter := events.NewEmitter("trace")
+
+	var got []events.RunEvent
+	err := loop.Run(context.Background(), RunContext{
+		RunID:                  uuid.New(),
+		TraceID:                "trace",
+		InputJSON:              map[string]any{},
+		ReasoningIterations:    3,
+		ToolContinuationBudget: 1,
+		PerToolSoftLimits:      tools.DefaultPerToolSoftLimits(),
+		ToolExecutor:           dispatcher,
+		CancelSignal:           func() bool { return false },
+	}, llm.Request{Model: "stub"}, emitter, func(ev events.RunEvent) error {
+		got = append(got, ev)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("loop.Run failed: %v", err)
+	}
+	assertHasToolResultError(t, got, ErrorClassToolContinuationBudgetExceeded)
+	assertNoErrorClass(t, got, ErrorClassAgentReasoningIterationsExceeded)
+}
+
+func TestAgentLoopMixedTurnConsumesContinuationBudget(t *testing.T) {
+	dispatcher := buildContinuationDispatcher(t, []bool{true})
+	loop := NewLoop(&scriptedTurnsGateway{turns: [][]llm.StreamEvent{
+		{llm.ToolCall{ToolCallID: "call_1", ToolName: "exec_command", ArgumentsJSON: map[string]any{"command": "sleep 1"}}, llm.StreamRunCompleted{}},
+		{
+			llm.ToolCall{ToolCallID: "call_2", ToolName: "echo", ArgumentsJSON: map[string]any{"text": "hi"}},
+			llm.ToolCall{ToolCallID: "call_3", ToolName: "write_stdin", ArgumentsJSON: map[string]any{"session_id": "sess-1"}},
+			llm.StreamRunCompleted{},
+		},
+		{llm.ToolCall{ToolCallID: "call_4", ToolName: "write_stdin", ArgumentsJSON: map[string]any{"session_id": "sess-1"}}, llm.StreamRunCompleted{}},
+		{llm.StreamMessageDelta{ContentDelta: "done", Role: "assistant"}, llm.StreamRunCompleted{}},
+	}}, dispatcher)
+	emitter := events.NewEmitter("trace")
+
+	var got []events.RunEvent
+	err := loop.Run(context.Background(), RunContext{
+		RunID:                  uuid.New(),
+		TraceID:                "trace",
+		InputJSON:              map[string]any{},
+		ReasoningIterations:    4,
+		ToolContinuationBudget: 1,
+		PerToolSoftLimits:      tools.DefaultPerToolSoftLimits(),
+		ToolExecutor:           dispatcher,
+		CancelSignal:           func() bool { return false },
+	}, llm.Request{Model: "stub"}, emitter, func(ev events.RunEvent) error {
+		got = append(got, ev)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("loop.Run failed: %v", err)
+	}
+	assertHasToolResultError(t, got, ErrorClassToolContinuationBudgetExceeded)
+}
+
+func TestAgentLoopIterHookOnlyRunsOnReasoningTurns(t *testing.T) {
+	dispatcher := buildContinuationDispatcher(t, []bool{false})
+	loop := NewLoop(&scriptedTurnsGateway{turns: [][]llm.StreamEvent{
+		{llm.ToolCall{ToolCallID: "call_1", ToolName: "exec_command", ArgumentsJSON: map[string]any{"command": "sleep 1"}}, llm.StreamRunCompleted{}},
+		{llm.ToolCall{ToolCallID: "call_2", ToolName: "write_stdin", ArgumentsJSON: map[string]any{"session_id": "sess-1"}}, llm.StreamRunCompleted{}},
+		{llm.ToolCall{ToolCallID: "call_3", ToolName: "echo", ArgumentsJSON: map[string]any{"text": "hi"}}, llm.StreamRunCompleted{}},
+		{llm.StreamMessageDelta{ContentDelta: "done", Role: "assistant"}, llm.StreamRunCompleted{}},
+	}}, dispatcher)
+	emitter := events.NewEmitter("trace")
+
+	hooks := []int{}
+	err := loop.Run(context.Background(), RunContext{
+		RunID:                  uuid.New(),
+		TraceID:                "trace",
+		InputJSON:              map[string]any{},
+		ReasoningIterations:    3,
+		ToolContinuationBudget: 1,
+		PerToolSoftLimits:      tools.DefaultPerToolSoftLimits(),
+		ToolExecutor:           dispatcher,
+		CancelSignal:           func() bool { return false },
+		IterHook: func(_ context.Context, iter int) (string, bool, error) {
+			hooks = append(hooks, iter)
+			return "", false, nil
+		},
+	}, llm.Request{Model: "stub"}, emitter, func(ev events.RunEvent) error { return nil })
+	if err != nil {
+		t.Fatalf("loop.Run failed: %v", err)
+	}
+	if len(hooks) != 2 || hooks[0] != 1 || hooks[1] != 2 {
+		t.Fatalf("unexpected hook iterations: %v", hooks)
+	}
+}
+
+func TestAgentLoopContinuationLimitExceededReturnsToolResultError(t *testing.T) {
+	limits := tools.DefaultPerToolSoftLimits()
+	writeLimit := limits["write_stdin"]
+	writeLimit.MaxContinuations = intPtr(1)
+	limits["write_stdin"] = writeLimit
+	dispatcher := buildContinuationDispatcher(t, []bool{true})
+	loop := NewLoop(&scriptedTurnsGateway{turns: [][]llm.StreamEvent{
+		{llm.ToolCall{ToolCallID: "call_1", ToolName: "exec_command", ArgumentsJSON: map[string]any{"command": "sleep 1"}}, llm.StreamRunCompleted{}},
+		{llm.ToolCall{ToolCallID: "call_2", ToolName: "write_stdin", ArgumentsJSON: map[string]any{"session_id": "sess-1"}}, llm.StreamRunCompleted{}},
+		{llm.ToolCall{ToolCallID: "call_3", ToolName: "write_stdin", ArgumentsJSON: map[string]any{"session_id": "sess-1"}}, llm.StreamRunCompleted{}},
+		{llm.StreamMessageDelta{ContentDelta: "done", Role: "assistant"}, llm.StreamRunCompleted{}},
+	}}, dispatcher)
+	emitter := events.NewEmitter("trace")
+
+	var got []events.RunEvent
+	err := loop.Run(context.Background(), RunContext{
+		RunID:                  uuid.New(),
+		TraceID:                "trace",
+		InputJSON:              map[string]any{},
+		ReasoningIterations:    3,
+		ToolContinuationBudget: 3,
+		PerToolSoftLimits:      limits,
+		ToolExecutor:           dispatcher,
+		CancelSignal:           func() bool { return false },
+	}, llm.Request{Model: "stub"}, emitter, func(ev events.RunEvent) error {
+		got = append(got, ev)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("loop.Run failed: %v", err)
+	}
+	assertHasToolResultError(t, got, ErrorClassToolContinuationLimitExceeded)
 }
 
 type scriptedGateway struct {
@@ -662,4 +825,109 @@ func (g *dupToolCallCaptureGateway) Stream(ctx context.Context, request llm.Requ
 		return err
 	}
 	return yield(llm.StreamRunCompleted{})
+}
+
+type scriptedTurnsGateway struct {
+	turns [][]llm.StreamEvent
+	calls int
+}
+
+func (g *scriptedTurnsGateway) Stream(ctx context.Context, request llm.Request, yield func(llm.StreamEvent) error) error {
+	_ = ctx
+	_ = request
+	if g.calls >= len(g.turns) {
+		return fmt.Errorf("unexpected turn %d", g.calls)
+	}
+	turn := g.turns[g.calls]
+	g.calls++
+	for _, event := range turn {
+		if err := yield(event); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+type continuationExecutor struct {
+	writeRunning []bool
+	writeCalls   int32
+}
+
+func (e *continuationExecutor) Execute(
+	ctx context.Context,
+	toolName string,
+	args map[string]any,
+	execCtx tools.ExecutionContext,
+	toolCallID string,
+) tools.ExecutionResult {
+	_ = ctx
+	_ = execCtx
+	_ = toolCallID
+	switch toolName {
+	case "exec_command":
+		return tools.ExecutionResult{ResultJSON: map[string]any{"session_id": "sess-1", "running": true}}
+	case "write_stdin":
+		idx := int(atomic.AddInt32(&e.writeCalls, 1)) - 1
+		running := false
+		if idx >= 0 && idx < len(e.writeRunning) {
+			running = e.writeRunning[idx]
+		}
+		return tools.ExecutionResult{ResultJSON: map[string]any{"session_id": args["session_id"], "running": running}}
+	case "echo":
+		return tools.ExecutionResult{ResultJSON: map[string]any{"text": args["text"]}}
+	default:
+		return tools.ExecutionResult{Error: &tools.ExecutionError{ErrorClass: "tool.unknown", Message: toolName}}
+	}
+}
+
+func buildContinuationDispatcher(t *testing.T, writeRunning []bool) *tools.DispatchingExecutor {
+	t.Helper()
+	registry := tools.NewRegistry()
+	for _, spec := range []tools.AgentToolSpec{
+		{Name: "exec_command", Version: "1", Description: "exec", RiskLevel: tools.RiskLevelHigh, SideEffects: true},
+		{Name: "write_stdin", Version: "1", Description: "stdin", RiskLevel: tools.RiskLevelHigh, SideEffects: true},
+		builtin.EchoAgentSpec,
+	} {
+		if err := registry.Register(spec); err != nil {
+			t.Fatalf("register spec failed: %v", err)
+		}
+	}
+	allowlist := tools.AllowlistFromNames([]string{"exec_command", "write_stdin", "echo"})
+	dispatcher := tools.NewDispatchingExecutor(registry, tools.NewPolicyEnforcer(registry, allowlist))
+	executor := &continuationExecutor{writeRunning: append([]bool{}, writeRunning...)}
+	for _, name := range []string{"exec_command", "write_stdin", "echo"} {
+		if err := dispatcher.Bind(name, executor); err != nil {
+			t.Fatalf("bind %s failed: %v", name, err)
+		}
+	}
+	return dispatcher
+}
+
+func assertHasEvent(t *testing.T, eventsIn []events.RunEvent, eventType string) {
+	t.Helper()
+	for _, event := range eventsIn {
+		if event.Type == eventType {
+			return
+		}
+	}
+	t.Fatalf("expected event %s, got %#v", eventType, eventsIn)
+}
+
+func assertNoErrorClass(t *testing.T, eventsIn []events.RunEvent, errorClass string) {
+	t.Helper()
+	for _, event := range eventsIn {
+		if event.ErrorClass != nil && *event.ErrorClass == errorClass {
+			t.Fatalf("unexpected error class %s in event %#v", errorClass, event)
+		}
+	}
+}
+
+func assertHasToolResultError(t *testing.T, eventsIn []events.RunEvent, errorClass string) {
+	t.Helper()
+	for _, event := range eventsIn {
+		if event.Type == "tool.result" && event.ErrorClass != nil && *event.ErrorClass == errorClass {
+			return
+		}
+	}
+	t.Fatalf("expected tool.result error_class=%s, got %#v", errorClass, eventsIn)
 }

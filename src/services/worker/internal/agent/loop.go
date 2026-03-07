@@ -15,30 +15,36 @@ import (
 	"github.com/google/uuid"
 )
 
-const ErrorClassAgentMaxIterationsExceeded = "agent.max_iterations_exceeded"
+const (
+	ErrorClassAgentReasoningIterationsExceeded = "agent.reasoning_iterations_exceeded"
+	ErrorClassToolContinuationBudgetExceeded   = "tool.continuation_budget_exceeded"
+	ErrorClassToolContinuationLimitExceeded    = "tool.continuation_limit_exceeded"
+)
 
 type RunContext struct {
-	RunID           uuid.UUID
-	OrgID           *uuid.UUID
-	UserID          *uuid.UUID
-	AgentID         string
-	ThreadID        *uuid.UUID
-	TraceID         string
-	InputJSON       map[string]any
-	MaxIterations   int
-	SystemPrompt    string
-	MaxOutputTokens *int
-	ToolTimeoutMs   *int
-	ToolBudget      map[string]any
-	ToolExecutor    *tools.DispatchingExecutor
-	ToolSpecs       []llm.ToolSpec
-	CancelSignal    func() bool
+	RunID                  uuid.UUID
+	OrgID                  *uuid.UUID
+	UserID                 *uuid.UUID
+	AgentID                string
+	ThreadID               *uuid.UUID
+	TraceID                string
+	InputJSON              map[string]any
+	ReasoningIterations    int
+	ToolContinuationBudget int
+	SystemPrompt           string
+	MaxOutputTokens        *int
+	ToolTimeoutMs          *int
+	ToolBudget             map[string]any
+	PerToolSoftLimits      tools.PerToolSoftLimits
+	ToolExecutor           *tools.DispatchingExecutor
+	ToolSpecs              []llm.ToolSpec
+	CancelSignal           func() bool
 
 	// LLM 调用重试配置，0 值表示不重试
 	LlmRetryMaxAttempts int
 	LlmRetryBaseDelayMs int
 
-	// IterHook 在每轮迭代完成（pending 工具调用已处理，准备进入下一轮）时被调用。
+	// IterHook 在每个消耗 reasoning 预算的 turn 完成后被调用。
 	// 返回 (text, true, nil) 时，将 text 作为 user message 注入 messages；nil 时不触发。
 	IterHook func(ctx context.Context, iter int) (string, bool, error)
 
@@ -65,27 +71,26 @@ func (l *Loop) Run(
 	emitter events.Emitter,
 	yield func(events.RunEvent) error,
 ) error {
-	if runCtx.MaxIterations <= 0 {
-		errPayload := llm.GatewayError{
-			ErrorClass: ErrorClassAgentMaxIterationsExceeded,
-			Message:    "agent loop reached max iterations",
-			Details:    map[string]any{"max_iterations": runCtx.MaxIterations},
-		}
-		event := emitter.Emit("run.failed", errPayload.ToJSON(), nil, stringPtr(errPayload.ErrorClass))
-		return yield(event)
+	if runCtx.ReasoningIterations <= 0 {
+		return yield(emitter.Emit("run.failed", reasoningIterationsExceededError(runCtx.ReasoningIterations).ToJSON(), nil, stringPtr(ErrorClassAgentReasoningIterationsExceeded)))
 	}
 
 	messages := append([]llm.Message{}, request.Messages...)
 	webSourceCount := 0
 	seenToolResultKeys := map[string]toolResultDedupInfo{}
 	completionTotals := newCompletionTotals()
-	for iter := 1; iter <= runCtx.MaxIterations; iter++ {
+	reasoningTurnsUsed := 0
+	continuationState := continuationBudgetState{
+		Remaining:     maxInt(runCtx.ToolContinuationBudget, 0),
+		SessionCounts: map[string]int{},
+	}
+	for turnIndex := 1; ; turnIndex++ {
 		if cancelled(runCtx) {
 			return yield(emitter.Emit("run.cancelled", map[string]any{"reason": "cancel_signal"}, nil, nil))
 		}
 
 		if runCtx.PreIterHook != nil {
-			if err := runCtx.PreIterHook(ctx, iter); err != nil {
+			if err := runCtx.PreIterHook(ctx, turnIndex); err != nil {
 				return err
 			}
 		}
@@ -117,6 +122,11 @@ func (l *Loop) Run(
 			return yield(emitter.Emit("run.cancelled", map[string]any{"reason": "cancel_signal"}, nil, nil))
 		}
 
+		pureContinuationTurn := isPureContinuationTurn(turn.ToolCalls)
+		if !pureContinuationTurn && reasoningTurnsUsed >= runCtx.ReasoningIterations {
+			return yield(emitter.Emit("run.failed", reasoningIterationsExceededError(runCtx.ReasoningIterations).ToJSON(), nil, stringPtr(ErrorClassAgentReasoningIterationsExceeded)))
+		}
+
 		if turn.AssistantText != "" || len(turn.ToolCalls) > 0 {
 			assistantText := turn.AssistantText
 			if runCtx.AgentID == "search" && len(turn.ToolCalls) > 0 {
@@ -137,11 +147,15 @@ func (l *Loop) Run(
 		completionTotals.Add(turn.CompletedDataJSON)
 
 		if len(turn.ToolCalls) == 0 {
+			reasoningTurnsUsed++
 			return yield(emitter.Emit("run.completed", completionTotals.Apply(turn.CompletedDataJSON), nil, nil))
 		}
 
 		pending := pendingToolCalls(turn.ToolCalls, turn.ToolResults)
 		if len(pending) == 0 {
+			if !pureContinuationTurn {
+				reasoningTurnsUsed++
+			}
 			return yield(emitter.Emit("run.completed", completionTotals.Apply(turn.CompletedDataJSON), nil, nil))
 		}
 
@@ -152,10 +166,14 @@ func (l *Loop) Run(
 		if runCtx.ToolExecutor == nil {
 			return fmt.Errorf("tool executor not initialized")
 		}
-		executedCalls := l.executePendingToolCalls(ctx, runCtx, pending, emitter)
+		executedCalls := l.executePendingToolCalls(ctx, runCtx, pending, emitter, &continuationState)
+		continuationRejected := false
 		for _, executed := range executedCalls {
 			call := executed.Call
 			result := executed.Result
+			if isContinuationBudgetError(result.Error) {
+				continuationRejected = true
+			}
 			emittedToolCall := false
 			for _, ev := range result.Events {
 				if ev.Type == "tool.call" {
@@ -203,9 +221,19 @@ func (l *Loop) Run(
 			}
 		}
 
-		// 每轮迭代结束（工具调用已处理），给 InteractiveExecutor 注入用户消息的机会。
-		if runCtx.IterHook != nil {
-			injected, inject, hookErr := runCtx.IterHook(ctx, iter)
+		reasoningUsedThisTurn := !pureContinuationTurn || continuationRejected
+		if reasoningUsedThisTurn && pureContinuationTurn {
+			if reasoningTurnsUsed >= runCtx.ReasoningIterations {
+				return yield(emitter.Emit("run.failed", reasoningIterationsExceededError(runCtx.ReasoningIterations).ToJSON(), nil, stringPtr(ErrorClassAgentReasoningIterationsExceeded)))
+			}
+		}
+		if reasoningUsedThisTurn {
+			reasoningTurnsUsed++
+		}
+
+		// 每个 reasoning turn 完成后，给 InteractiveExecutor 注入用户消息的机会。
+		if reasoningUsedThisTurn && runCtx.IterHook != nil {
+			injected, inject, hookErr := runCtx.IterHook(ctx, reasoningTurnsUsed)
 			if hookErr != nil {
 				return hookErr
 			}
@@ -217,13 +245,6 @@ func (l *Loop) Run(
 			}
 		}
 	}
-
-	errPayload := llm.GatewayError{
-		ErrorClass: ErrorClassAgentMaxIterationsExceeded,
-		Message:    "agent loop reached max iterations",
-		Details:    map[string]any{"max_iterations": runCtx.MaxIterations},
-	}
-	return yield(emitter.Emit("run.failed", errPayload.ToJSON(), nil, stringPtr(errPayload.ErrorClass)))
 }
 
 type pendingToolExecution struct {
@@ -231,32 +252,37 @@ type pendingToolExecution struct {
 	Result tools.ExecutionResult
 }
 
+type continuationBudgetState struct {
+	Remaining     int
+	SessionCounts map[string]int
+}
+
 func (l *Loop) executePendingToolCalls(
 	ctx context.Context,
 	runCtx RunContext,
 	pending []llm.ToolCall,
 	emitter events.Emitter,
+	continuation *continuationBudgetState,
 ) []pendingToolExecution {
 	results := make([]pendingToolExecution, len(pending))
-	var wg sync.WaitGroup
-	wg.Add(len(pending))
+	regularIndexes := make([]int, 0, len(pending))
 	for idx := range pending {
+		if isContinuationToolName(pending[idx].ToolName) {
+			result := l.executeContinuationToolCall(ctx, runCtx, pending[idx], emitter, continuation)
+			results[idx] = pendingToolExecution{Call: pending[idx], Result: result}
+			continue
+		}
+		regularIndexes = append(regularIndexes, idx)
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(len(regularIndexes))
+	for _, idx := range regularIndexes {
 		idx := idx
 		call := pending[idx]
 		go func() {
 			defer wg.Done()
-			execCtx := tools.ExecutionContext{
-				RunID:     runCtx.RunID,
-				TraceID:   runCtx.TraceID,
-				OrgID:     runCtx.OrgID,
-				ThreadID:  runCtx.ThreadID,
-				UserID:    runCtx.UserID,
-				AgentID:   runCtx.AgentID,
-				TimeoutMs: runCtx.ToolTimeoutMs,
-				Budget:    copyMap(runCtx.ToolBudget),
-				Emitter:   emitter,
-			}
-			result := runCtx.ToolExecutor.Execute(ctx, call.ToolName, copyMap(call.ArgumentsJSON), execCtx, call.ToolCallID)
+			result := l.executeToolCall(ctx, runCtx, call, emitter)
 			results[idx] = pendingToolExecution{
 				Call:   call,
 				Result: result,
@@ -264,7 +290,172 @@ func (l *Loop) executePendingToolCalls(
 		}()
 	}
 	wg.Wait()
+	for _, idx := range regularIndexes {
+		updateContinuationTracking(continuation, results[idx].Call, results[idx].Result)
+	}
 	return results
+}
+
+func (l *Loop) executeToolCall(
+	ctx context.Context,
+	runCtx RunContext,
+	call llm.ToolCall,
+	emitter events.Emitter,
+) tools.ExecutionResult {
+	execCtx := tools.ExecutionContext{
+		RunID:             runCtx.RunID,
+		TraceID:           runCtx.TraceID,
+		OrgID:             runCtx.OrgID,
+		ThreadID:          runCtx.ThreadID,
+		UserID:            runCtx.UserID,
+		AgentID:           runCtx.AgentID,
+		TimeoutMs:         runCtx.ToolTimeoutMs,
+		Budget:            copyMap(runCtx.ToolBudget),
+		PerToolSoftLimits: tools.CopyPerToolSoftLimits(runCtx.PerToolSoftLimits),
+		Emitter:           emitter,
+	}
+	return runCtx.ToolExecutor.Execute(ctx, call.ToolName, copyMap(call.ArgumentsJSON), execCtx, call.ToolCallID)
+}
+
+func (l *Loop) executeContinuationToolCall(
+	ctx context.Context,
+	runCtx RunContext,
+	call llm.ToolCall,
+	emitter events.Emitter,
+	continuation *continuationBudgetState,
+) tools.ExecutionResult {
+	sessionID := readContinuationSessionID(call.ArgumentsJSON)
+	if continuation != nil && continuation.Remaining <= 0 {
+		result := continuationErrorResult(ErrorClassToolContinuationBudgetExceeded, "tool continuation budget exceeded", sessionID, continuation.Remaining)
+		updateContinuationTracking(continuation, call, result)
+		return result
+	}
+	limit := tools.ResolveToolSoftLimit(runCtx.PerToolSoftLimits, call.ToolName)
+	if continuation != nil && limit.MaxContinuations != nil && sessionID != "" {
+		if continuation.SessionCounts[sessionID] >= *limit.MaxContinuations {
+			result := continuationErrorResult(ErrorClassToolContinuationLimitExceeded, "tool continuation limit exceeded", sessionID, *limit.MaxContinuations)
+			updateContinuationTracking(continuation, call, result)
+			return result
+		}
+	}
+	if continuation != nil {
+		continuation.Remaining--
+	}
+	result := l.executeToolCall(ctx, runCtx, call, emitter)
+	updateContinuationTracking(continuation, call, result)
+	return result
+}
+
+func updateContinuationTracking(state *continuationBudgetState, call llm.ToolCall, result tools.ExecutionResult) {
+	if state == nil {
+		return
+	}
+	sessionID := trackedSessionID(call, result)
+	if sessionID == "" {
+		return
+	}
+	if result.Error != nil {
+		delete(state.SessionCounts, sessionID)
+		return
+	}
+	if !resultRunning(result) {
+		delete(state.SessionCounts, sessionID)
+		return
+	}
+	if call.ToolName == "exec_command" {
+		state.SessionCounts[sessionID] = 0
+		return
+	}
+	if call.ToolName == "write_stdin" {
+		state.SessionCounts[sessionID] = state.SessionCounts[sessionID] + 1
+	}
+}
+
+func trackedSessionID(call llm.ToolCall, result tools.ExecutionResult) string {
+	if call.ToolName == "write_stdin" {
+		return readContinuationSessionID(call.ArgumentsJSON)
+	}
+	if result.ResultJSON == nil {
+		return ""
+	}
+	sessionID, _ := result.ResultJSON["session_id"].(string)
+	return strings.TrimSpace(sessionID)
+}
+
+func readContinuationSessionID(args map[string]any) string {
+	if args == nil {
+		return ""
+	}
+	value, _ := args["session_id"].(string)
+	return strings.TrimSpace(value)
+}
+
+func resultRunning(result tools.ExecutionResult) bool {
+	if result.ResultJSON == nil {
+		return false
+	}
+	running, _ := result.ResultJSON["running"].(bool)
+	return running
+}
+
+func continuationErrorResult(errorClass string, message string, sessionID string, limit int) tools.ExecutionResult {
+	resultJSON := map[string]any{"running": false}
+	if sessionID != "" {
+		resultJSON["session_id"] = sessionID
+	}
+	details := map[string]any{}
+	if sessionID != "" {
+		details["session_id"] = sessionID
+	}
+	if limit > 0 {
+		details["limit"] = limit
+	}
+	return tools.ExecutionResult{
+		ResultJSON: resultJSON,
+		Error: &tools.ExecutionError{
+			ErrorClass: errorClass,
+			Message:    message,
+			Details:    details,
+		},
+	}
+}
+
+func isContinuationToolName(toolName string) bool {
+	return toolName == "write_stdin"
+}
+
+func isPureContinuationTurn(toolCalls []llm.ToolCall) bool {
+	if len(toolCalls) == 0 {
+		return false
+	}
+	for _, call := range toolCalls {
+		if !isContinuationToolName(call.ToolName) {
+			return false
+		}
+	}
+	return true
+}
+
+func isContinuationBudgetError(err *tools.ExecutionError) bool {
+	if err == nil {
+		return false
+	}
+	return err.ErrorClass == ErrorClassToolContinuationBudgetExceeded || err.ErrorClass == ErrorClassToolContinuationLimitExceeded
+}
+
+func reasoningIterationsExceededError(limit int) llm.GatewayError {
+	return llm.GatewayError{
+		ErrorClass: ErrorClassAgentReasoningIterationsExceeded,
+		Message:    "agent loop reached reasoning iteration limit",
+		Details:    map[string]any{"reasoning_iterations": limit},
+	}
+}
+
+func maxInt(left int, right int) int {
+	if left > right {
+		return left
+	}
+	return right
 }
 
 type turnResult struct {

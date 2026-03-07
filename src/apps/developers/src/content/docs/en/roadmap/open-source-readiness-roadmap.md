@@ -50,7 +50,7 @@ Web and Console now share basic building blocks via `@arkloop/shared` (e.g., `ap
 
 **P5 -- Opaque System Limits**
 
-Limits like `threadMessageLimit` (200), `maxInputContentBytes` (32KB), `defaultAgentMaxIterations` (10), `maxParallelTasks` (32), and `entitlement` defaults (999,999 runs) are hardcoded without centralized registration, documentation exposure, or Console adjustability. Users and developers only discover these limits upon hitting them.
+Limits like `threadMessageLimit` (200), `maxInputContentBytes` (32KB), `defaultReasoningIterations` (10), `maxParallelTasks` (32), and `entitlement` defaults (999,999 runs) are hardcoded without centralized registration, documentation exposure, or Console adjustability. Users and developers only discover these limits upon hitting them.
 
 **P6 -- Lack of Quality Assurance Infrastructure**
 
@@ -228,7 +228,8 @@ Extend the Track A Config Registry to include existing hardcoded limits:
 |-----|---------------|--------|-------|
 | `limit.thread_message_history` | mw_input_loader.go | 200 | org |
 | `limit.max_input_content_bytes` | v1_runs.go | 32768 | org |
-| `limit.agent_max_iterations` | mw_persona_resolution.go | 10 | org |
+| `limit.agent_reasoning_iterations` | mw_persona_resolution.go | 10 | org |
+| `limit.tool_continuation_budget` | mw_persona_resolution.go | 32 | org |
 | `limit.max_parallel_tasks` | lua.go | 32 | platform |
 | `limit.concurrent_runs` | entitlement resolve.go | 10 | org |
 | `limit.team_members` | entitlement resolve.go | 50 | org |

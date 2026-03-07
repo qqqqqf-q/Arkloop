@@ -12,6 +12,7 @@ import (
 	"arkloop/services/worker/internal/memory"
 	"arkloop/services/worker/internal/pipeline"
 	"arkloop/services/worker/internal/routing"
+	"arkloop/services/worker/internal/tools"
 	"github.com/google/uuid"
 )
 
@@ -353,9 +354,12 @@ func buildLuaRC(gateway llm.Gateway) *pipeline.RunContext {
 			OrgID:    uuid.New(),
 			ThreadID: uuid.New(),
 		},
-		TraceID:    "lua-test-trace",
-		InputJSON:  map[string]any{},
-		ToolBudget: map[string]any{},
+		TraceID:                "lua-test-trace",
+		InputJSON:              map[string]any{},
+		ReasoningIterations:    10,
+		ToolContinuationBudget: 32,
+		ToolBudget:             map[string]any{},
+		PerToolSoftLimits:      tools.DefaultPerToolSoftLimits(),
 	}
 	if gateway != nil {
 		rc.Gateway = gateway

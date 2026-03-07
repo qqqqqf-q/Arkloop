@@ -72,6 +72,7 @@ type RunContext struct {
 	TopP                    *float64
 	ToolTimeoutMs           *int
 	ToolBudget              map[string]any
+	PerToolSoftLimits       tools.PerToolSoftLimits
 	PreferredCredentialName string // Persona.PreferredCredential 解析结果，供 RoutingMiddleware 使用
 	ReasoningMode           string // "auto" | "enabled" | "disabled" | "none"
 
@@ -97,14 +98,16 @@ type RunContext struct {
 	FinalSpecs   []llm.ToolSpec
 
 	// -- EngineV1.Execute 注入：平台限制 --
-	ThreadMessageHistoryLimit int
-	AgentMaxIterationsLimit   int
-	MaxParallelTasks          int
-	CreditPerUSD              int
-	LlmMaxResponseBytes       int
+	ThreadMessageHistoryLimit     int
+	AgentReasoningIterationsLimit int
+	ToolContinuationBudgetLimit   int
+	MaxParallelTasks              int
+	CreditPerUSD                  int
+	LlmMaxResponseBytes           int
 
-	// -- 默认来自 AgentMaxIterationsLimit，PersonaResolution 可缩小 --
-	MaxIterations int
+	// -- 默认来自平台限制，PersonaResolution 可缩小 --
+	ReasoningIterations    int
+	ToolContinuationBudget int
 
 	// -- EngineV1.Execute 注入 --
 	ExecutorBuilder AgentExecutorBuilder

@@ -95,19 +95,21 @@ func (e *InteractiveExecutor) Execute(
 	var currentSegID string
 
 	runCtx := agent.RunContext{
-		RunID:               rc.Run.ID,
-		OrgID:               &rc.Run.OrgID,
-		UserID:              rc.UserID,
-		AgentID:             agentIDFromPersona(rc),
-		ThreadID:            &rc.Run.ThreadID,
-		TraceID:             rc.TraceID,
-		InputJSON:           rc.InputJSON,
-		MaxIterations:       rc.MaxIterations,
-		ToolExecutor:        rc.ToolExecutor,
-		ToolTimeoutMs:       rc.ToolTimeoutMs,
-		ToolBudget:          rc.ToolBudget,
-		LlmRetryMaxAttempts: rc.LlmRetryMaxAttempts,
-		LlmRetryBaseDelayMs: rc.LlmRetryBaseDelayMs,
+		RunID:                  rc.Run.ID,
+		OrgID:                  &rc.Run.OrgID,
+		UserID:                 rc.UserID,
+		AgentID:                agentIDFromPersona(rc),
+		ThreadID:               &rc.Run.ThreadID,
+		TraceID:                rc.TraceID,
+		InputJSON:              rc.InputJSON,
+		ReasoningIterations:    rc.ReasoningIterations,
+		ToolContinuationBudget: rc.ToolContinuationBudget,
+		ToolExecutor:           rc.ToolExecutor,
+		ToolTimeoutMs:          rc.ToolTimeoutMs,
+		ToolBudget:             rc.ToolBudget,
+		PerToolSoftLimits:      rc.PerToolSoftLimits,
+		LlmRetryMaxAttempts:    rc.LlmRetryMaxAttempts,
+		LlmRetryBaseDelayMs:    rc.LlmRetryBaseDelayMs,
 		CancelSignal: func() bool {
 			return ctx.Err() != nil
 		},
@@ -134,8 +136,8 @@ func (e *InteractiveExecutor) Execute(
 			}, nil, nil)
 			return yield(ev)
 		},
-		IterHook: func(hookCtx context.Context, iter int) (string, bool, error) {
-			if iter%e.checkInEvery != 0 {
+		IterHook: func(hookCtx context.Context, reasoningIter int) (string, bool, error) {
+			if reasoningIter%e.checkInEvery != 0 {
 				return "", false, nil
 			}
 			if rc.WaitForInput == nil {
@@ -143,7 +145,7 @@ func (e *InteractiveExecutor) Execute(
 			}
 
 			ev := emitter.Emit(pipeline.EventTypeInputRequested, map[string]any{
-				"iter": iter,
+				"iter": reasoningIter,
 			}, nil, nil)
 			if err := yield(ev); err != nil {
 				return "", false, err

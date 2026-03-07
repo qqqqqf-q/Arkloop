@@ -9,6 +9,7 @@ import (
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/pipeline"
 	"arkloop/services/worker/internal/routing"
+	"arkloop/services/worker/internal/tools"
 	"github.com/google/uuid"
 )
 
@@ -30,10 +31,12 @@ func buildMinimalRC(gateway llm.Gateway, systemPrompt string, agentConfig *pipel
 				Model: "stub",
 			},
 		},
-		MaxIterations: 5,
-		InputJSON:     map[string]any{},
-		ToolBudget:    map[string]any{},
-		FinalSpecs:    []llm.ToolSpec{},
+		ReasoningIterations:    5,
+		ToolContinuationBudget: 32,
+		InputJSON:              map[string]any{},
+		ToolBudget:             map[string]any{},
+		PerToolSoftLimits:      tools.DefaultPerToolSoftLimits(),
+		FinalSpecs:             []llm.ToolSpec{},
 	}
 }
 

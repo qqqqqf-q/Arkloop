@@ -1151,25 +1151,27 @@ func (rt *luaRuntime) runAgentLoop(
 		ReasoningMode:   rt.rc.ReasoningMode,
 	}
 
-	maxIter := rt.rc.MaxIterations
+	maxIter := rt.rc.ReasoningIterations
 	if maxIter <= 0 {
 		maxIter = 10
 	}
 
 	runCtx := agent.RunContext{
-		RunID:               rt.rc.Run.ID,
-		OrgID:               &rt.rc.Run.OrgID,
-		UserID:              rt.rc.UserID,
-		AgentID:             agentIDFromPersona(rt.rc),
-		ThreadID:            &rt.rc.Run.ThreadID,
-		TraceID:             rt.rc.TraceID,
-		InputJSON:           rt.rc.InputJSON,
-		MaxIterations:       maxIter,
-		ToolExecutor:        rt.rc.ToolExecutor,
-		ToolTimeoutMs:       rt.rc.ToolTimeoutMs,
-		ToolBudget:          rt.rc.ToolBudget,
-		LlmRetryMaxAttempts: rt.rc.LlmRetryMaxAttempts,
-		LlmRetryBaseDelayMs: rt.rc.LlmRetryBaseDelayMs,
+		RunID:                  rt.rc.Run.ID,
+		OrgID:                  &rt.rc.Run.OrgID,
+		UserID:                 rt.rc.UserID,
+		AgentID:                agentIDFromPersona(rt.rc),
+		ThreadID:               &rt.rc.Run.ThreadID,
+		TraceID:                rt.rc.TraceID,
+		InputJSON:              rt.rc.InputJSON,
+		ReasoningIterations:    maxIter,
+		ToolContinuationBudget: rt.rc.ToolContinuationBudget,
+		ToolExecutor:           rt.rc.ToolExecutor,
+		ToolTimeoutMs:          rt.rc.ToolTimeoutMs,
+		ToolBudget:             rt.rc.ToolBudget,
+		PerToolSoftLimits:      rt.rc.PerToolSoftLimits,
+		LlmRetryMaxAttempts:    rt.rc.LlmRetryMaxAttempts,
+		LlmRetryBaseDelayMs:    rt.rc.LlmRetryBaseDelayMs,
 		CancelSignal: func() bool {
 			return rt.ctx.Err() != nil
 		},

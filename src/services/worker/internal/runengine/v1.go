@@ -210,6 +210,7 @@ func (e *EngineV1) Execute(ctx context.Context, pool *pgxpool.Pool, run data.Run
 		ExecutorBuilder:     e.executorRegistry,
 		MemoryProvider:      e.memoryProvider,
 		ToolBudget:          map[string]any{},
+		PerToolSoftLimits:   tools.DefaultPerToolSoftLimits(),
 		LlmRetryMaxAttempts: e.llmRetryMaxAttempts,
 		LlmRetryBaseDelayMs: e.llmRetryBaseDelayMs,
 	}
@@ -217,11 +218,13 @@ func (e *EngineV1) Execute(ctx context.Context, pool *pgxpool.Pool, run data.Run
 	registry := sharedconfig.DefaultRegistry()
 	orgScope := sharedconfig.Scope{OrgID: &run.OrgID}
 	rc.ThreadMessageHistoryLimit = resolvePositiveInt(ctx, e.configResolver, registry, "limit.thread_message_history", orgScope, 200)
-	rc.AgentMaxIterationsLimit = resolvePositiveInt(ctx, e.configResolver, registry, "limit.agent_max_iterations", orgScope, 10)
+	rc.AgentReasoningIterationsLimit = resolvePositiveInt(ctx, e.configResolver, registry, "limit.agent_reasoning_iterations", orgScope, 10)
+	rc.ToolContinuationBudgetLimit = resolvePositiveInt(ctx, e.configResolver, registry, "limit.tool_continuation_budget", orgScope, 32)
 	rc.MaxParallelTasks = resolvePositiveInt(ctx, e.configResolver, registry, "limit.max_parallel_tasks", sharedconfig.Scope{}, 32)
 	rc.CreditPerUSD = resolvePositiveInt(ctx, e.configResolver, registry, "credit.per_usd", sharedconfig.Scope{}, 1000)
 	rc.LlmMaxResponseBytes = resolvePositiveInt(ctx, e.configResolver, registry, "llm.max_response_bytes", sharedconfig.Scope{}, 16384)
-	rc.MaxIterations = rc.AgentMaxIterationsLimit
+	rc.ReasoningIterations = rc.AgentReasoningIterationsLimit
+	rc.ToolContinuationBudget = rc.ToolContinuationBudgetLimit
 
 	if e.jobQueue != nil && e.broadcastRDB != nil {
 		rc.SpawnChildRun = newSpawnChildRunFunc(pool, e.broadcastRDB, e.jobQueue, run, traceID)

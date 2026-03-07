@@ -2,6 +2,7 @@ package pipeline_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"arkloop/services/worker/internal/data"
@@ -243,8 +244,8 @@ func TestPersonaResolutionSystemPromptLayering(t *testing.T) {
 	}
 }
 
-// TestPersonaResolutionMaxIterationsClamping 验证 MaxIterations 被 Persona 值钳制但不超过平台上限。
-func TestPersonaResolutionMaxIterationsClamping(t *testing.T) {
+// TestPersonaResolutionReasoningIterationsClamping 验证 ReasoningIterations 被 Persona 值钳制但不超过平台上限。
+func TestPersonaResolutionReasoningIterationsClamping(t *testing.T) {
 	tests := []struct {
 		name          string
 		platformLimit int
@@ -274,7 +275,7 @@ func TestPersonaResolutionMaxIterationsClamping(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			reg := buildPersonaRegistryWithBudgets(t, "p1", "test", personas.Budgets{
-				MaxIterations: tt.personaVal,
+				ReasoningIterations: tt.personaVal,
 			}, nil, nil)
 			mw := pipeline.NewPersonaResolutionMiddleware(
 				func() *personas.Registry { return reg },
@@ -282,22 +283,101 @@ func TestPersonaResolutionMaxIterationsClamping(t *testing.T) {
 			)
 
 			rc := &pipeline.RunContext{
-				InputJSON:               map[string]any{"persona_id": "p1"},
-				AgentMaxIterationsLimit: tt.platformLimit,
+				InputJSON:                     map[string]any{"persona_id": "p1"},
+				AgentReasoningIterationsLimit: tt.platformLimit,
 			}
 
 			var got int
 			h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(_ context.Context, rc *pipeline.RunContext) error {
-				got = rc.MaxIterations
+				got = rc.ReasoningIterations
 				return nil
 			})
 			if err := h(context.Background(), rc); err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
 			if got != tt.want {
-				t.Fatalf("MaxIterations = %d, want %d", got, tt.want)
+				t.Fatalf("ReasoningIterations = %d, want %d", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestPersonaResolutionToolContinuationBudgetClamping(t *testing.T) {
+	tests := []struct {
+		name          string
+		platformLimit int
+		personaVal    *int
+		want          int
+	}{
+		{name: "persona_below_limit", platformLimit: 32, personaVal: intPtr(8), want: 8},
+		{name: "persona_above_limit_clamped", platformLimit: 32, personaVal: intPtr(64), want: 32},
+		{name: "persona_nil_uses_limit", platformLimit: 32, personaVal: nil, want: 32},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reg := buildPersonaRegistryWithBudgets(t, "p1", "test", personas.Budgets{
+				ToolContinuationBudget: tt.personaVal,
+			}, nil, nil)
+			mw := pipeline.NewPersonaResolutionMiddleware(
+				func() *personas.Registry { return reg },
+				nil, data.RunsRepository{}, data.RunEventsRepository{}, nil,
+			)
+
+			rc := &pipeline.RunContext{
+				InputJSON:                   map[string]any{"persona_id": "p1"},
+				ToolContinuationBudgetLimit: tt.platformLimit,
+			}
+
+			var got int
+			h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(_ context.Context, rc *pipeline.RunContext) error {
+				got = rc.ToolContinuationBudget
+				return nil
+			})
+			if err := h(context.Background(), rc); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("ToolContinuationBudget = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestPersonaResolutionMergesPerToolSoftLimits(t *testing.T) {
+	reg := buildPersonaRegistryWithBudgets(t, "p1", "test", personas.Budgets{
+		PerToolSoftLimits: tools.PerToolSoftLimits{
+			"write_stdin": {
+				MaxContinuations: intPtr(9),
+				MaxYieldTimeMs:   intPtr(2500),
+			},
+		},
+	}, nil, nil)
+	mw := pipeline.NewPersonaResolutionMiddleware(
+		func() *personas.Registry { return reg },
+		nil, data.RunsRepository{}, data.RunEventsRepository{}, nil,
+	)
+
+	rc := &pipeline.RunContext{InputJSON: map[string]any{"persona_id": "p1"}}
+	h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(_ context.Context, rc *pipeline.RunContext) error {
+		execLimit := rc.PerToolSoftLimits["exec_command"]
+		if execLimit.MaxOutputBytes == nil || *execLimit.MaxOutputBytes != tools.DefaultExecCommandMaxOutputBytes {
+			return fmt.Errorf("unexpected exec_command max_output_bytes: %v", execLimit.MaxOutputBytes)
+		}
+		writeLimit := rc.PerToolSoftLimits["write_stdin"]
+		if writeLimit.MaxContinuations == nil || *writeLimit.MaxContinuations != 9 {
+			return fmt.Errorf("unexpected write_stdin max_continuations: %v", writeLimit.MaxContinuations)
+		}
+		if writeLimit.MaxYieldTimeMs == nil || *writeLimit.MaxYieldTimeMs != 2500 {
+			return fmt.Errorf("unexpected write_stdin max_yield_time_ms: %v", writeLimit.MaxYieldTimeMs)
+		}
+		if writeLimit.MaxOutputBytes == nil || *writeLimit.MaxOutputBytes != tools.DefaultWriteStdinMaxOutputBytes {
+			return fmt.Errorf("unexpected write_stdin max_output_bytes: %v", writeLimit.MaxOutputBytes)
+		}
+		return nil
+	})
+	if err := h(context.Background(), rc); err != nil {
+		t.Fatal(err)
 	}
 }
 

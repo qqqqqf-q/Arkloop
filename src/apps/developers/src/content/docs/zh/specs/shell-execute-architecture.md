@@ -1978,7 +1978,7 @@ P0 的目标不是继续给旧 action 接口打补丁，而是把底层执行模
 完成标准：
 
 - shell continuation 不再轻易打穿 agent loop
-- `agent.max_iterations_exceeded` 不再是 shell-heavy 任务的主要失败模式
+- `agent.reasoning_iterations_exceeded` 不再是 shell-heavy 任务的主要失败模式
 
 #### P0-5. 配置治理与 Console 可见性补齐
 

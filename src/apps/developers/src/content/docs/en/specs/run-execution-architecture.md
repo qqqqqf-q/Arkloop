@@ -124,7 +124,7 @@ Current built-in Personas:
 | `search` | `agent.simple` | Search optimized (includes `web_search` tool) |
 | `ultra` | `agent.simple` | Maximum reasoning depth |
 
-Persona configuration fields: `id`, `executor_type`, `executor_config`, `tool_allowlist`, `tool_denylist`, `budgets` (max_iterations, max_output_tokens, temperature, top_p).
+Persona configuration fields: `id`, `executor_type`, `executor_config`, `tool_allowlist`, `tool_denylist`, `budgets` (reasoning_iterations, tool_continuation_budget, max_output_tokens, temperature, top_p, per_tool_soft_limits).
 
 ## 7. Tool Execution
 

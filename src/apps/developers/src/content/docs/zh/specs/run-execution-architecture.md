@@ -124,7 +124,7 @@ Personas 从 `src/personas/` 目录和数据库加载，每个 Persona 包含：
 | `search` | `agent.simple` | 搜索优化（含 `web_search` 工具） |
 | `ultra` | `agent.simple` | 最大推理深度 |
 
-Persona 配置字段：`id`、`executor_type`、`executor_config`、`tool_allowlist`、`tool_denylist`、`budgets`（max_iterations、max_output_tokens、temperature、top_p）。
+Persona 配置字段：`id`、`executor_type`、`executor_config`、`tool_allowlist`、`tool_denylist`、`budgets`（reasoning_iterations、tool_continuation_budget、max_output_tokens、temperature、top_p、per_tool_soft_limits）。
 
 ## 7. 工具执行
 

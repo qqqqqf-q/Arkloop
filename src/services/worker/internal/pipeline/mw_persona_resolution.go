@@ -6,6 +6,7 @@ import (
 
 	"arkloop/services/worker/internal/data"
 	"arkloop/services/worker/internal/personas"
+	"arkloop/services/worker/internal/tools"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -57,14 +58,21 @@ func NewPersonaResolutionMiddleware(
 		}
 
 		rc.ToolBudget = map[string]any{}
+		rc.PerToolSoftLimits = tools.DefaultPerToolSoftLimits()
 		rc.PersonaDefinition = resolution.Definition
 
-		maxIterLimit := rc.AgentMaxIterationsLimit
-		if maxIterLimit <= 0 {
-			maxIterLimit = 10
+		reasoningLimit := rc.AgentReasoningIterationsLimit
+		if reasoningLimit <= 0 {
+			reasoningLimit = 10
 		}
-		rc.AgentMaxIterationsLimit = maxIterLimit
-		rc.MaxIterations = maxIterLimit
+		continuationLimit := rc.ToolContinuationBudgetLimit
+		if continuationLimit <= 0 {
+			continuationLimit = 32
+		}
+		rc.AgentReasoningIterationsLimit = reasoningLimit
+		rc.ToolContinuationBudgetLimit = continuationLimit
+		rc.ReasoningIterations = reasoningLimit
+		rc.ToolContinuationBudget = continuationLimit
 
 		// 若 persona 显式绑定了 AgentConfig，按名称覆盖继承链解析结果
 		if resolution.Definition != nil && resolution.Definition.AgentConfigName != nil && dbPool != nil {
@@ -135,9 +143,14 @@ func NewPersonaResolutionMiddleware(
 				rc.SystemPrompt = agentConfigPromptPrefix
 			}
 
-			if def.Budgets.MaxIterations != nil {
-				if v := *def.Budgets.MaxIterations; v > 0 && v < maxIterLimit {
-					rc.MaxIterations = v
+			if def.Budgets.ReasoningIterations != nil {
+				if v := *def.Budgets.ReasoningIterations; v > 0 && v < reasoningLimit {
+					rc.ReasoningIterations = v
+				}
+			}
+			if def.Budgets.ToolContinuationBudget != nil {
+				if v := *def.Budgets.ToolContinuationBudget; v > 0 && v < continuationLimit {
+					rc.ToolContinuationBudget = v
 				}
 			}
 
@@ -164,6 +177,7 @@ func NewPersonaResolutionMiddleware(
 			for key, value := range def.Budgets.ToolBudget {
 				rc.ToolBudget[key] = value
 			}
+			rc.PerToolSoftLimits = tools.MergePerToolSoftLimits(rc.PerToolSoftLimits, def.Budgets.PerToolSoftLimits)
 
 			// Persona 的 tool_allowlist 从 AgentConfig 已缩窄的池中取交集
 			if len(def.ToolAllowlist) > 0 {

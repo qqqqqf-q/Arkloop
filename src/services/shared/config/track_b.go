@@ -105,10 +105,18 @@ func RegisterTrackB(r *Registry) error {
 		},
 
 		{
-			Key:         "limit.agent_max_iterations",
+			Key:         "limit.agent_reasoning_iterations",
 			Type:        TypeInt,
 			Default:     "10",
-			Description: "Agent Loop 最大迭代次数上限",
+			Description: "Agent Loop 主推理回合上限",
+			Sensitive:   false,
+			Scope:       ScopeBoth,
+		},
+		{
+			Key:         "limit.tool_continuation_budget",
+			Type:        TypeInt,
+			Default:     "32",
+			Description: "长工具 continuation 总预算上限",
 			Sensitive:   false,
 			Scope:       ScopeBoth,
 		},

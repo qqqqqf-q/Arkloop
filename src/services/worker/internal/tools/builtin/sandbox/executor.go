@@ -211,7 +211,7 @@ func (e *ToolExecutor) executeExecCommand(
 		TimeoutMs:   reqArgs.TimeoutMs,
 		YieldTimeMs: reqArgs.YieldTimeMs,
 	}
-	return e.executeExecSessionRequest(ctx, e.baseURL+"/v1/exec_command", request, request.OrgID, started)
+	return e.executeExecSessionRequest(ctx, e.baseURL+"/v1/exec_command", "exec_command", request, request.OrgID, execCtx.PerToolSoftLimits, started)
 }
 
 func (e *ToolExecutor) executeWriteStdin(
@@ -229,16 +229,18 @@ func (e *ToolExecutor) executeWriteStdin(
 		SessionID:   reqArgs.SessionID,
 		OrgID:       resolveOrgID(execCtx),
 		Chars:       reqArgs.Chars,
-		YieldTimeMs: reqArgs.YieldTimeMs,
+		YieldTimeMs: clampYieldTimeMs(reqArgs.YieldTimeMs, tools.ResolveToolSoftLimit(execCtx.PerToolSoftLimits, "write_stdin")),
 	}
-	return e.executeExecSessionRequest(ctx, e.baseURL+"/v1/write_stdin", request, request.OrgID, started)
+	return e.executeExecSessionRequest(ctx, e.baseURL+"/v1/write_stdin", "write_stdin", request, request.OrgID, execCtx.PerToolSoftLimits, started)
 }
 
 func (e *ToolExecutor) executeExecSessionRequest(
 	ctx context.Context,
 	endpoint string,
+	toolName string,
 	request any,
 	orgID string,
+	softLimits tools.PerToolSoftLimits,
 	started time.Time,
 ) tools.ExecutionResult {
 	payload, err := json.Marshal(request)
@@ -264,15 +266,16 @@ func (e *ToolExecutor) executeExecSessionRequest(
 	if err := json.Unmarshal(body, &result); err != nil {
 		return errResult(errorSandboxError, "decode response failed", started)
 	}
+	output, outputTruncated := truncateOutputByLimit(result.Output, tools.ResolveToolSoftLimit(softLimits, toolName).MaxOutputBytes)
 
 	resultJSON := map[string]any{
 		"session_id":  result.SessionID,
 		"status":      result.Status,
 		"cwd":         result.Cwd,
-		"output":      result.Output,
+		"output":      output,
 		"running":     result.Running,
 		"timed_out":   result.TimedOut,
-		"truncated":   result.Truncated,
+		"truncated":   result.Truncated || outputTruncated,
 		"duration_ms": durationMs(started),
 	}
 	if result.ExitCode != nil {
@@ -282,6 +285,31 @@ func (e *ToolExecutor) executeExecSessionRequest(
 		resultJSON["artifacts"] = result.Artifacts
 	}
 	return tools.ExecutionResult{ResultJSON: resultJSON, DurationMs: durationMs(started)}
+}
+
+func clampYieldTimeMs(value int, limit tools.ToolSoftLimit) int {
+	if value <= 0 || limit.MaxYieldTimeMs == nil {
+		return value
+	}
+	if value > *limit.MaxYieldTimeMs {
+		return *limit.MaxYieldTimeMs
+	}
+	return value
+}
+
+func truncateOutputByLimit(value string, limit *int) (string, bool) {
+	if limit == nil || *limit <= 0 {
+		return value, false
+	}
+	if len(value) <= *limit {
+		return value, false
+	}
+	marker := fmt.Sprintf("\n...[truncated %d bytes]", len(value)-*limit)
+	allowed := *limit - len(marker)
+	if allowed < 0 {
+		allowed = 0
+	}
+	return value[:allowed] + marker, true
 }
 
 type requestError struct {

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"arkloop/services/api/internal/testutil"
+	"github.com/google/uuid"
 )
 
 func TestUpFromScratch(t *testing.T) {
@@ -207,5 +208,88 @@ func TestTablesExist(t *testing.T) {
 		if !exists {
 			t.Fatalf("table %s does not exist after migration", table)
 		}
+	}
+}
+
+func TestReasoningIterationsBudgetMigration(t *testing.T) {
+	db := testutil.SetupPostgresDatabase(t, "migrate_reasoning_budget")
+	ctx := context.Background()
+
+	sqlDB, err := openDB(db.DSN)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer sqlDB.Close()
+
+	provider, err := newProvider(sqlDB)
+	if err != nil {
+		t.Fatalf("new provider: %v", err)
+	}
+	if _, err := provider.UpTo(ctx, 85); err != nil {
+		t.Fatalf("up to 85: %v", err)
+	}
+
+	orgID := uuid.New()
+	if _, err := sqlDB.ExecContext(ctx, `INSERT INTO orgs (id, slug, name) VALUES ($1, 'migrate-budget-org', 'Migrate Budget Org')`, orgID); err != nil {
+		t.Fatalf("insert org: %v", err)
+	}
+	if _, err := sqlDB.ExecContext(ctx, `INSERT INTO platform_settings (key, value) VALUES ('limit.agent_max_iterations', '14')`); err != nil {
+		t.Fatalf("insert platform setting: %v", err)
+	}
+	if _, err := sqlDB.ExecContext(ctx, `INSERT INTO org_settings (org_id, key, value) VALUES ($1, 'limit.agent_max_iterations', '9')`, orgID); err != nil {
+		t.Fatalf("insert org setting: %v", err)
+	}
+	if _, err := sqlDB.ExecContext(ctx, `
+		INSERT INTO personas
+			(org_id, persona_key, version, display_name, prompt_md, tool_allowlist, tool_denylist, budgets_json, executor_type, executor_config_json)
+		VALUES ($1, 'legacy-budget', '1', 'Legacy Budget', 'prompt', '{}', '{}', '{"max_iterations":5,"max_output_tokens":1024}'::jsonb, 'agent.simple', '{}'::jsonb)
+	`, orgID); err != nil {
+		t.Fatalf("insert persona: %v", err)
+	}
+
+	result, err := provider.UpByOne(ctx)
+	if err != nil {
+		t.Fatalf("up by one: %v", err)
+	}
+	if result == nil || result.Source == nil || result.Source.Version != 86 {
+		t.Fatalf("expected migration 86, got %#v", result)
+	}
+
+	var platformValue string
+	if err := sqlDB.QueryRowContext(ctx, `SELECT value FROM platform_settings WHERE key = 'limit.agent_reasoning_iterations'`).Scan(&platformValue); err != nil {
+		t.Fatalf("select renamed platform setting: %v", err)
+	}
+	if platformValue != "14" {
+		t.Fatalf("unexpected platform value: %s", platformValue)
+	}
+	assertNoSettingRow(t, sqlDB, ctx, `SELECT 1 FROM platform_settings WHERE key = 'limit.agent_max_iterations'`)
+
+	var orgValue string
+	if err := sqlDB.QueryRowContext(ctx, `SELECT value FROM org_settings WHERE org_id = $1 AND key = 'limit.agent_reasoning_iterations'`, orgID).Scan(&orgValue); err != nil {
+		t.Fatalf("select renamed org setting: %v", err)
+	}
+	if orgValue != "9" {
+		t.Fatalf("unexpected org value: %s", orgValue)
+	}
+	assertNoSettingRow(t, sqlDB, ctx, `SELECT 1 FROM org_settings WHERE org_id = '`+orgID.String()+`' AND key = 'limit.agent_max_iterations'`)
+
+	var budgetsJSON string
+	if err := sqlDB.QueryRowContext(ctx, `SELECT budgets_json::text FROM personas WHERE persona_key = 'legacy-budget'`).Scan(&budgetsJSON); err != nil {
+		t.Fatalf("select persona budgets: %v", err)
+	}
+	if budgetsJSON != `{"max_output_tokens": 1024, "reasoning_iterations": 5}` && budgetsJSON != `{"reasoning_iterations": 5, "max_output_tokens": 1024}` {
+		t.Fatalf("unexpected budgets_json: %s", budgetsJSON)
+	}
+}
+
+func assertNoSettingRow(t *testing.T, db *sql.DB, ctx context.Context, query string) {
+	t.Helper()
+	var exists int
+	err := db.QueryRowContext(ctx, query).Scan(&exists)
+	if err == nil {
+		t.Fatalf("expected no row for query %s", query)
+	}
+	if err != sql.ErrNoRows {
+		t.Fatalf("unexpected error for query %s: %v", query, err)
 	}
 }
