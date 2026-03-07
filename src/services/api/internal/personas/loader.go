@@ -34,20 +34,21 @@ func BuiltinPersonasRoot() (string, error) {
 
 // RepoPersona 表示从 src/personas/ 目录加载的仓库 persona。
 type RepoPersona struct {
-	ID              string         `yaml:"id"`
-	Version         string         `yaml:"version"`
-	Title           string         `yaml:"title"`
-	Description     string         `yaml:"description"`
-	UserSelectable  bool           `yaml:"user_selectable"`
-	SelectorName    string         `yaml:"selector_name"`
-	SelectorOrder   *int           `yaml:"selector_order"`
-	ToolAllowlist   []string       `yaml:"tool_allowlist"`
-	ToolDenylist    []string       `yaml:"tool_denylist"`
-	Budgets         map[string]any `yaml:"budgets"`
-	AgentConfigName string         `yaml:"agent_config"`
-	ExecutorType    string         `yaml:"executor_type"`
-	ExecutorConfig  map[string]any `yaml:"executor_config"`
-	PromptMD        string         `yaml:"-"`
+	ID                  string         `yaml:"id"`
+	Version             string         `yaml:"version"`
+	Title               string         `yaml:"title"`
+	Description         string         `yaml:"description"`
+	UserSelectable      bool           `yaml:"user_selectable"`
+	SelectorName        string         `yaml:"selector_name"`
+	SelectorOrder       *int           `yaml:"selector_order"`
+	ToolAllowlist       []string       `yaml:"tool_allowlist"`
+	ToolDenylist        []string       `yaml:"tool_denylist"`
+	Budgets             map[string]any `yaml:"budgets"`
+	PreferredCredential string         `yaml:"preferred_credential"`
+	AgentConfigName     string         `yaml:"agent_config"`
+	ExecutorType        string         `yaml:"executor_type"`
+	ExecutorConfig      map[string]any `yaml:"executor_config"`
+	PromptMD            string         `yaml:"-"`
 }
 
 // LoadFromDir 扫描指定目录下的所有 persona 子目录，读取 persona.yaml 和 prompt.md。

@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 
+	sharedexec "arkloop/services/shared/executionconfig"
 	"arkloop/services/worker/internal/data"
 	"arkloop/services/worker/internal/personas"
 	"arkloop/services/worker/internal/tools"
@@ -23,7 +24,6 @@ func NewPersonaResolutionMiddleware(
 ) RunMiddleware {
 	return func(ctx context.Context, rc *RunContext, next RunHandler) error {
 		basePersonaRegistry := getBaseRegistry()
-		// per-run 动态加载 org persona
 		runPersonaRegistry := basePersonaRegistry
 		if dbPool != nil {
 			dbDefs, dbErr := personas.LoadFromDB(ctx, dbPool, rc.Run.OrgID)
@@ -61,20 +61,13 @@ func NewPersonaResolutionMiddleware(
 		rc.PerToolSoftLimits = tools.DefaultPerToolSoftLimits()
 		rc.PersonaDefinition = resolution.Definition
 
-		reasoningLimit := rc.AgentReasoningIterationsLimit
-		if reasoningLimit <= 0 {
-			reasoningLimit = 10
-		}
-		continuationLimit := rc.ToolContinuationBudgetLimit
-		if continuationLimit <= 0 {
-			continuationLimit = 32
-		}
-		rc.AgentReasoningIterationsLimit = reasoningLimit
-		rc.ToolContinuationBudgetLimit = continuationLimit
-		rc.ReasoningIterations = reasoningLimit
-		rc.ToolContinuationBudget = continuationLimit
+		normalizedLimits := sharedexec.NormalizePlatformLimits(sharedexec.PlatformLimits{
+			AgentReasoningIterations: rc.AgentReasoningIterationsLimit,
+			ToolContinuationBudget:   rc.ToolContinuationBudgetLimit,
+		})
+		rc.AgentReasoningIterationsLimit = normalizedLimits.AgentReasoningIterations
+		rc.ToolContinuationBudgetLimit = normalizedLimits.ToolContinuationBudget
 
-		// 若 persona 显式绑定了 AgentConfig，按名称覆盖继承链解析结果
 		if resolution.Definition != nil && resolution.Definition.AgentConfigName != nil && dbPool != nil {
 			ac, acName, err := loadAgentConfigByName(ctx, dbPool, *resolution.Definition.AgentConfigName, rc.Run.OrgID)
 			if err != nil {
@@ -90,28 +83,25 @@ func NewPersonaResolutionMiddleware(
 			}
 		}
 
-		// -- 分层遮罩逻辑 --
-		// 1. AgentConfig 提供基线配置（模型、凭证、安全约束、SystemPrompt 前缀）
-		// 2. Persona 在 AgentConfig 约束内设置执行参数（prompt 追加、预算、温度）
-		// 3. 工具策略：AgentConfig 定义可用池，Persona 从池中选取（交集）
-		// 4. MaxOutputTokens：AgentConfig 设上界，Persona 可以设更小值但不能超过
+		profile := sharedexec.ResolveEffectiveProfile(
+			normalizedLimits,
+			toExecutionAgentConfigProfile(rc.AgentConfig, rc.AgentConfigName),
+			toExecutionPersonaProfile(resolution.Definition),
+		)
 
-		var agentConfigPromptPrefix string
-		var agentConfigMaxOutputTokens *int
+		rc.SystemPrompt = profile.SystemPrompt
+		rc.ReasoningIterations = profile.ReasoningIterations
+		rc.ToolContinuationBudget = profile.ToolContinuationBudget
+		rc.MaxOutputTokens = profile.MaxOutputTokens
+		rc.Temperature = profile.Temperature
+		rc.TopP = profile.TopP
+		rc.ReasoningMode = profile.ReasoningMode
+		rc.ToolTimeoutMs = profile.ToolTimeoutMs
+		rc.ToolBudget = profile.ToolBudget
+		rc.PerToolSoftLimits = tools.CopyPerToolSoftLimits(profile.PerToolSoftLimits)
+		rc.PreferredCredentialName = profile.PreferredCredentialName
 
 		if rc.AgentConfig != nil {
-			// AgentConfig 的 SystemPrompt 作为前缀基础
-			if rc.AgentConfig.SystemPrompt != nil {
-				agentConfigPromptPrefix = *rc.AgentConfig.SystemPrompt
-			}
-			// AgentConfig 的 MaxOutputTokens 作为上界
-			agentConfigMaxOutputTokens = rc.AgentConfig.MaxOutputTokens
-			// AgentConfig 的 Temperature/TopP 作为 fallback
-			rc.Temperature = rc.AgentConfig.Temperature
-			rc.TopP = rc.AgentConfig.TopP
-			rc.ReasoningMode = rc.AgentConfig.ReasoningMode
-
-			// AgentConfig 的工具策略始终生效，定义可用工具池
 			switch rc.AgentConfig.ToolPolicy {
 			case "allowlist":
 				if len(rc.AgentConfig.ToolAllowlist) > 0 {
@@ -130,56 +120,8 @@ func NewPersonaResolutionMiddleware(
 			}
 		}
 
-		// Persona 在 AgentConfig 约束内设置执行参数
 		if resolution.Definition != nil {
 			def := resolution.Definition
-
-			// SystemPrompt：AgentConfig 前缀 + Persona prompt 追加
-			if agentConfigPromptPrefix != "" && def.PromptMD != "" {
-				rc.SystemPrompt = agentConfigPromptPrefix + "\n\n" + def.PromptMD
-			} else if def.PromptMD != "" {
-				rc.SystemPrompt = def.PromptMD
-			} else {
-				rc.SystemPrompt = agentConfigPromptPrefix
-			}
-
-			if def.Budgets.ReasoningIterations != nil {
-				if v := *def.Budgets.ReasoningIterations; v > 0 && v < reasoningLimit {
-					rc.ReasoningIterations = v
-				}
-			}
-			if def.Budgets.ToolContinuationBudget != nil {
-				if v := *def.Budgets.ToolContinuationBudget; v > 0 && v < continuationLimit {
-					rc.ToolContinuationBudget = v
-				}
-			}
-
-			// MaxOutputTokens：取 Persona 值，但不超过 AgentConfig 上界
-			if def.Budgets.MaxOutputTokens != nil {
-				if agentConfigMaxOutputTokens != nil && *def.Budgets.MaxOutputTokens > *agentConfigMaxOutputTokens {
-					rc.MaxOutputTokens = agentConfigMaxOutputTokens
-				} else {
-					rc.MaxOutputTokens = def.Budgets.MaxOutputTokens
-				}
-			} else {
-				rc.MaxOutputTokens = agentConfigMaxOutputTokens
-			}
-
-			// Temperature/TopP：Persona 设置优先（在合理范围内）
-			if def.Budgets.Temperature != nil {
-				rc.Temperature = def.Budgets.Temperature
-			}
-			if def.Budgets.TopP != nil {
-				rc.TopP = def.Budgets.TopP
-			}
-
-			rc.ToolTimeoutMs = def.Budgets.ToolTimeoutMs
-			for key, value := range def.Budgets.ToolBudget {
-				rc.ToolBudget[key] = value
-			}
-			rc.PerToolSoftLimits = tools.MergePerToolSoftLimits(rc.PerToolSoftLimits, def.Budgets.PerToolSoftLimits)
-
-			// Persona 的 tool_allowlist 从 AgentConfig 已缩窄的池中取交集
 			if len(def.ToolAllowlist) > 0 {
 				narrowed := make(map[string]struct{}, len(def.ToolAllowlist))
 				for _, name := range def.ToolAllowlist {
@@ -189,23 +131,47 @@ func NewPersonaResolutionMiddleware(
 				}
 				rc.AllowlistSet = narrowed
 			}
-
-			// Persona 的 tool_denylist 从当前池中排除
 			for _, name := range def.ToolDenylist {
 				RemoveToolOrGroup(rc.AllowlistSet, rc.ToolRegistry, name)
 			}
-
-			if def.PreferredCredential != nil {
-				rc.PreferredCredentialName = *def.PreferredCredential
-			}
-
 			rc.TitleSummarizer = def.TitleSummarizer
-		} else {
-			// 无 persona 定义时，使用 AgentConfig 的值
-			rc.SystemPrompt = agentConfigPromptPrefix
-			rc.MaxOutputTokens = agentConfigMaxOutputTokens
 		}
 
 		return next(ctx, rc)
+	}
+}
+
+func toExecutionAgentConfigProfile(ac *ResolvedAgentConfig, name string) *sharedexec.AgentConfigProfile {
+	if ac == nil {
+		return nil
+	}
+	return &sharedexec.AgentConfigProfile{
+		Name:            name,
+		SystemPrompt:    ac.SystemPrompt,
+		Temperature:     ac.Temperature,
+		MaxOutputTokens: ac.MaxOutputTokens,
+		TopP:            ac.TopP,
+		ReasoningMode:   ac.ReasoningMode,
+	}
+}
+
+func toExecutionPersonaProfile(def *personas.Definition) *sharedexec.PersonaProfile {
+	if def == nil {
+		return nil
+	}
+	return &sharedexec.PersonaProfile{
+		PromptMD:                def.PromptMD,
+		PreferredCredentialName: def.PreferredCredential,
+		ResolvedAgentConfigName: def.AgentConfigName,
+		Budgets: sharedexec.RequestedBudgets{
+			ReasoningIterations:    def.Budgets.ReasoningIterations,
+			ToolContinuationBudget: def.Budgets.ToolContinuationBudget,
+			MaxOutputTokens:        def.Budgets.MaxOutputTokens,
+			ToolTimeoutMs:          def.Budgets.ToolTimeoutMs,
+			ToolBudget:             def.Budgets.ToolBudget,
+			PerToolSoftLimits:      def.Budgets.PerToolSoftLimits,
+			Temperature:            def.Budgets.Temperature,
+			TopP:                   def.Budgets.TopP,
+		},
 	}
 }

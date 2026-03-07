@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -28,7 +29,7 @@ type AgentConfig struct {
 	ContentFilterLevel     string
 	SafetyRulesJSON        map[string]any
 	ProjectID              *uuid.UUID
-	PersonaID                *uuid.UUID
+	PersonaID              *uuid.UUID
 	IsDefault              bool
 	PromptCacheControl     string
 	ReasoningMode          string // "auto" | "enabled" | "disabled" | "none"
@@ -51,7 +52,7 @@ type CreateAgentConfigRequest struct {
 	ContentFilterLevel     string
 	SafetyRulesJSON        map[string]any
 	ProjectID              *uuid.UUID
-	PersonaID                *uuid.UUID
+	PersonaID              *uuid.UUID
 	IsDefault              bool
 	PromptCacheControl     string
 	ReasoningMode          string
@@ -261,6 +262,60 @@ func (r *AgentConfigRepository) GetDefaultForOrg(ctx context.Context, orgID uuid
 	}
 	if err != nil {
 		return nil, fmt.Errorf("agent_configs.GetDefaultForOrg: %w", err)
+	}
+	return &ac, nil
+}
+
+func (r *AgentConfigRepository) GetDefaultForPlatform(ctx context.Context) (*AgentConfig, error) {
+	ac, err := scanAgentConfig(r.db.QueryRow(
+		ctx,
+		`SELECT `+agentConfigColumns+`
+		 FROM agent_configs
+		 WHERE scope = 'platform' AND is_default = true
+		 LIMIT 1`,
+	))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("agent_configs.GetDefaultForPlatform: %w", err)
+	}
+	return &ac, nil
+}
+
+func (r *AgentConfigRepository) GetByNameForOrg(ctx context.Context, orgID uuid.UUID, name string) (*AgentConfig, error) {
+	if strings.TrimSpace(name) == "" {
+		return nil, nil
+	}
+
+	ac, err := scanAgentConfig(r.db.QueryRow(
+		ctx,
+		`SELECT `+agentConfigColumns+`
+		 FROM agent_configs
+		 WHERE org_id = $1 AND name = $2
+		 LIMIT 1`,
+		orgID, name,
+	))
+	if err == nil {
+		return &ac, nil
+	}
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return nil, fmt.Errorf("agent_configs.GetByNameForOrg: %w", err)
+	}
+
+	ac, err = scanAgentConfig(r.db.QueryRow(
+		ctx,
+		`SELECT `+agentConfigColumns+`
+		 FROM agent_configs
+		 WHERE scope = 'platform' AND name = $1
+		 LIMIT 1`,
+		name,
+	))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("agent_configs.GetByNameForOrg: %w", err)
 	}
 	return &ac, nil
 }

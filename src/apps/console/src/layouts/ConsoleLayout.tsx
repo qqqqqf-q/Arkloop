@@ -11,7 +11,7 @@ import {
   Flag, Ticket, Gift, Coins, Megaphone, Mic, Mail, AlignLeft,
   PanelLeftClose, PanelLeftOpen, ChevronDown,
   Settings, ScrollText,
-  Wrench, Container, BrainCircuit,
+  Wrench, Container, BrainCircuit, SlidersHorizontal,
 } from 'lucide-react'
 import { getMe, logout, isApiError, type MeResponse } from '../api'
 import { ConsoleSettingsModal } from '../components/SettingsModal'
@@ -75,6 +75,7 @@ function buildNavGroups(t: LocaleStrings): NavGroup[] {
         { label: t.nav.titleSummarizer,  path: '/title-summarizer', icon: <AlignLeft size={17} /> },
         { label: t.nav.sandboxConfig,    path: '/sandbox-config',  icon: <Container size={17} /> },
         { label: t.nav.memoryConfig,     path: '/memory-config',   icon: <BrainCircuit size={17} /> },
+        { label: t.nav.executionGovernance, path: '/execution-governance', icon: <SlidersHorizontal size={17} /> },
       ],
     },
     {

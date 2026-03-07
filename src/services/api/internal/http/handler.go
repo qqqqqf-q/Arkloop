@@ -540,6 +540,10 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 		"/v1/admin/platform-settings/",
 		platformSettingEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.PlatformSettingsRepo, cfg.APIKeysRepo, cfg.RedisClient, invalidator, registry),
 	)
+	mux.HandleFunc(
+		"/v1/admin/execution-governance",
+		adminExecutionGovernance(cfg.AuthService, cfg.OrgMembershipRepo, cfg.APIKeysRepo, cfg.AgentConfigsRepo, cfg.PersonasRepo, cfg.RepoPersonas, registry, cfg.Pool),
+	)
 
 	mux.HandleFunc(
 		"/v1/admin/email/status",

@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 
+	sharedexec "arkloop/services/shared/executionconfig"
 	"arkloop/services/worker/internal/tools"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -359,65 +360,19 @@ func asBudgets(value any) (Budgets, error) {
 	if !ok {
 		return Budgets{}, fmt.Errorf("budgets must be an object")
 	}
-
-	for key := range raw {
-		if _, allowed := budgetKeys[key]; allowed {
-			continue
-		}
-		return Budgets{}, fmt.Errorf("budgets contains unsupported field: %s", key)
-	}
-
-	reasoningIterations, err := asOptionalPositiveInt(raw["reasoning_iterations"], "budgets.reasoning_iterations")
+	parsed, err := sharedexec.ParseRequestedBudgetsMap(raw)
 	if err != nil {
 		return Budgets{}, err
 	}
-	toolContinuationBudget, err := asOptionalPositiveInt(raw["tool_continuation_budget"], "budgets.tool_continuation_budget")
-	if err != nil {
-		return Budgets{}, err
-	}
-	maxOutputTokens, err := asOptionalPositiveInt(raw["max_output_tokens"], "budgets.max_output_tokens")
-	if err != nil {
-		return Budgets{}, err
-	}
-	toolTimeoutMs, err := asOptionalPositiveInt(raw["tool_timeout_ms"], "budgets.tool_timeout_ms")
-	if err != nil {
-		return Budgets{}, err
-	}
-
-	toolBudget := map[string]any{}
-	if rawBudget, ok := raw["tool_budget"]; ok && rawBudget != nil {
-		mapped, ok := rawBudget.(map[string]any)
-		if !ok {
-			return Budgets{}, fmt.Errorf("budgets.tool_budget must be an object")
-		}
-		for key, value := range mapped {
-			toolBudget[key] = value
-		}
-	}
-
-	perToolSoftLimits, err := asPerToolSoftLimits(raw["per_tool_soft_limits"])
-	if err != nil {
-		return Budgets{}, err
-	}
-
-	temperature, err := asOptionalFloat64(raw["temperature"], "budgets.temperature")
-	if err != nil {
-		return Budgets{}, err
-	}
-	topP, err := asOptionalFloat64(raw["top_p"], "budgets.top_p")
-	if err != nil {
-		return Budgets{}, err
-	}
-
 	return Budgets{
-		ReasoningIterations:    reasoningIterations,
-		ToolContinuationBudget: toolContinuationBudget,
-		MaxOutputTokens:        maxOutputTokens,
-		ToolTimeoutMs:          toolTimeoutMs,
-		ToolBudget:             toolBudget,
-		PerToolSoftLimits:      perToolSoftLimits,
-		Temperature:            temperature,
-		TopP:                   topP,
+		ReasoningIterations:    parsed.ReasoningIterations,
+		ToolContinuationBudget: parsed.ToolContinuationBudget,
+		MaxOutputTokens:        parsed.MaxOutputTokens,
+		ToolTimeoutMs:          parsed.ToolTimeoutMs,
+		ToolBudget:             parsed.ToolBudget,
+		PerToolSoftLimits:      parsed.PerToolSoftLimits,
+		Temperature:            parsed.Temperature,
+		TopP:                   parsed.TopP,
 	}, nil
 }
 
@@ -528,14 +483,20 @@ func mergeDefinition(base Definition, override Definition) Definition {
 }
 
 func parseBudgetsJSON(raw []byte) (Budgets, error) {
-	if len(raw) == 0 {
-		return Budgets{ToolBudget: map[string]any{}, PerToolSoftLimits: tools.PerToolSoftLimits{}}, nil
+	parsed, err := sharedexec.ParseRequestedBudgetsJSON(raw)
+	if err != nil {
+		return Budgets{}, err
 	}
-	var obj map[string]any
-	if err := json.Unmarshal(raw, &obj); err != nil {
-		return Budgets{}, fmt.Errorf("invalid budgets_json: %w", err)
-	}
-	return asBudgets(obj)
+	return Budgets{
+		ReasoningIterations:    parsed.ReasoningIterations,
+		ToolContinuationBudget: parsed.ToolContinuationBudget,
+		MaxOutputTokens:        parsed.MaxOutputTokens,
+		ToolTimeoutMs:          parsed.ToolTimeoutMs,
+		ToolBudget:             parsed.ToolBudget,
+		PerToolSoftLimits:      parsed.PerToolSoftLimits,
+		Temperature:            parsed.Temperature,
+		TopP:                   parsed.TopP,
+	}, nil
 }
 
 func asPerToolSoftLimits(value any) (tools.PerToolSoftLimits, error) {

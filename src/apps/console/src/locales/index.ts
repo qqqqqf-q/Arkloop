@@ -51,6 +51,7 @@ export interface LocaleStrings {
     titleSummarizer: string
     sandboxConfig: string
     memoryConfig: string
+    executionGovernance: string
     reports: string
   }
   // settings
@@ -950,6 +951,55 @@ export interface LocaleStrings {
       toastSaved: string
       toastLoadFailed: string
       toastSaveFailed: string
+    }
+    executionGovernance: {
+      title: string
+      filterTitle: string
+      filterPlatformOnly: string
+      filterActive: (orgId: string) => string
+      fieldOrgId: string
+      fieldOrgIdPlaceholder: string
+      apply: string
+      reset: string
+      gotoEntitlements: string
+      gotoAgentConfigs: string
+      gotoPersonas: string
+      limitsTitle: string
+      colLimit: string
+      colEffective: string
+      colSource: string
+      colLayers: string
+      layerEnv: string
+      layerOrg: string
+      layerPlatform: string
+      layerDefault: string
+      agentConfigsTitle: string
+      agentConfigsHint: string
+      orgDefaultTitle: string
+      platformDefaultTitle: string
+      defaultEmpty: string
+      colAgentConfig: string
+      colModel: string
+      colScope: string
+      colProject: string
+      colReasoningMode: string
+      agentConfigEmpty: string
+      defaultBadge: string
+      personasTitle: string
+      personasHint: string
+      personasPlatformOnly: string
+      personaEmpty: string
+      colPersona: string
+      colRequested: string
+      colEffectiveBudget: string
+      colResolvedConfig: string
+      colSoftLimits: string
+      boundAgentConfig: string
+      labelReasoningMode: string
+      rulesTitle: string
+      ruleSources: string
+      ruleClamp: string
+      toastLoadFailed: string
     }
     captcha: {
       title: string

@@ -33,6 +33,7 @@ import { TitleSummarizerPage } from './pages/title-summarizer/TitleSummarizerPag
 import { GatewayConfigPage } from './pages/gateway-config/GatewayConfigPage'
 import { SandboxConfigPage } from './pages/sandbox-config/SandboxConfigPage'
 import { MemoryConfigPage } from './pages/memory-config/MemoryConfigPage'
+import { ExecutionGovernancePage } from './pages/execution-governance/ExecutionGovernancePage'
 import { AccessLogPage } from './pages/access-log/AccessLogPage'
 import { EntitlementsPage } from './pages/entitlements/EntitlementsPage'
 import {
@@ -123,6 +124,7 @@ function App() {
         <Route path="title-summarizer" element={<TitleSummarizerPage />} />
         <Route path="sandbox-config" element={<SandboxConfigPage />} />
         <Route path="memory-config" element={<MemoryConfigPage />} />
+        <Route path="execution-governance" element={<ExecutionGovernancePage />} />
         {/* Integration */}
         <Route path="api-keys" element={<APIKeysPage />} />
         <Route path="webhooks" element={<PlaceholderPage title="Webhooks" />} />
