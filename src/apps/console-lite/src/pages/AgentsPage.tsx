@@ -52,6 +52,45 @@ function agentToForm(agent: LiteAgent): DetailForm {
   }
 }
 
+function isHybridAgent(agent: Pick<LiteAgent, 'executor_type'>): boolean {
+  return agent.executor_type.trim() === 'agent.lua'
+}
+
+function resolveDefaultModelLabel(agent: LiteAgent, platformDefaultLabel: string): string {
+  if (agent.source === 'repo') {
+    return agent.agent_config_name?.trim() || platformDefaultLabel
+  }
+  return agent.model?.trim() || agent.agent_config_name?.trim() || platformDefaultLabel
+}
+
+function AgentModelLine({
+  agent,
+  label,
+  platformDefaultLabel,
+  hybridLabel,
+  textClassName = 'text-xs text-[var(--c-text-muted)]',
+}: {
+  agent: LiteAgent
+  label?: string
+  platformDefaultLabel: string
+  hybridLabel: string
+  textClassName?: string
+}) {
+  const modelLabel = resolveDefaultModelLabel(agent, platformDefaultLabel)
+
+  return (
+    <div className={`flex items-center gap-1.5 ${textClassName}`}>
+      {label ? <span className="shrink-0">{label}:</span> : null}
+      <span className="min-w-0 flex-1 truncate" title={modelLabel}>{modelLabel}</span>
+      {isHybridAgent(agent) && (
+        <span className="rounded bg-[var(--c-bg-tag)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--c-text-muted)]">
+          {hybridLabel}
+        </span>
+      )}
+    </div>
+  )
+}
+
 // -- custom checkbox --
 
 function CheckboxField({ checked, onChange, label }: {
@@ -365,18 +404,33 @@ export function AgentsPage() {
                     />
                   </FormField>
 
-                  <FormField label={ta.model}>
-                    <select
-                      className={SELECT_CLS}
-                      value={form.model}
-                      onChange={(e) => setForm((f) => f && { ...f, model: e.target.value })}
-                    >
-                      <option value="" />
-                      {credentials.map((c) => (
-                        <option key={c.id} value={c.name}>{c.name}</option>
-                      ))}
-                    </select>
-                  </FormField>
+                  {isRepoAgent && (
+                    <FormField label={ta.model}>
+                      <div className="rounded-lg border border-[var(--c-border)] bg-[var(--c-bg-input)] px-3 py-2">
+                        <AgentModelLine
+                          agent={selected}
+                          platformDefaultLabel={ta.platformDefault}
+                          hybridLabel={ta.hybrid}
+                          textClassName="text-sm text-[var(--c-text-secondary)]"
+                        />
+                      </div>
+                    </FormField>
+                  )}
+
+                  {!isRepoAgent && (
+                    <FormField label={ta.model}>
+                      <select
+                        className={SELECT_CLS}
+                        value={form.model}
+                        onChange={(e) => setForm((f) => f && { ...f, model: e.target.value })}
+                      >
+                        <option value="" />
+                        {credentials.map((c) => (
+                          <option key={c.id} value={c.name}>{c.name}</option>
+                        ))}
+                      </select>
+                    </FormField>
+                  )}
 
                   <div className="flex flex-col gap-3">
                     <CheckboxField
@@ -544,9 +598,12 @@ export function AgentsPage() {
                     )}
                   </div>
                 </div>
-                <div className="text-xs text-[var(--c-text-muted)]">
-                  {ta.model}: {agent.model || '-'}
-                </div>
+                <AgentModelLine
+                  agent={agent}
+                  label={ta.model}
+                  platformDefaultLabel={ta.platformDefault}
+                  hybridLabel={ta.hybrid}
+                />
               </button>
             ))}
           </div>

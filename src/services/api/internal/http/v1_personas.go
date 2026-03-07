@@ -56,6 +56,7 @@ type personaResponse struct {
 	IsActive            bool            `json:"is_active"`
 	CreatedAt           string          `json:"created_at"`
 	PreferredCredential *string         `json:"preferred_credential,omitempty"`
+	AgentConfigName     *string         `json:"agent_config_name,omitempty"`
 	ExecutorType        string          `json:"executor_type"`
 	ExecutorConfigJSON  json.RawMessage `json:"executor_config"`
 	Source              string          `json:"source"`
@@ -331,6 +332,7 @@ func toPersonaResponse(s data.Persona) personaResponse {
 		IsActive:            s.IsActive,
 		CreatedAt:           s.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
 		PreferredCredential: s.PreferredCredential,
+		AgentConfigName:     optionalTrimmedStringPtr(s.AgentConfigName),
 		ExecutorType:        executorType,
 		ExecutorConfigJSON:  executorConfig,
 		Source:              "custom",
@@ -382,10 +384,18 @@ func toBuiltinPersonaResponse(s repopersonas.RepoPersona) personaResponse {
 		BudgetsJSON:        budgets,
 		IsActive:           true,
 		CreatedAt:          "",
+		AgentConfigName:    optionalTrimmedString(s.AgentConfigName),
 		ExecutorType:       executorType,
 		ExecutorConfigJSON: executorConfig,
 		Source:             "builtin",
 	}
+}
+
+func optionalTrimmedStringPtr(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	return optionalTrimmedString(*value)
 }
 
 func optionalTrimmedString(value string) *string {

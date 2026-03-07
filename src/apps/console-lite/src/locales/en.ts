@@ -40,6 +40,8 @@ export const en: LocaleStrings = {
     overview: 'Overview',
     persona: 'Persona',
     builtIn: 'Built-in',
+    platformDefault: 'Platform Default',
+    hybrid: 'Hybrid',
   },
   common: {
     save: 'Save',

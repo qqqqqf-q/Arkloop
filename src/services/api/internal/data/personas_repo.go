@@ -38,6 +38,7 @@ type Persona struct {
 	IsActive            bool
 	CreatedAt           time.Time
 	PreferredCredential *string
+	AgentConfigName     *string
 	ExecutorType        string
 	ExecutorConfigJSON  json.RawMessage
 }
@@ -124,7 +125,7 @@ func (r *PersonasRepository) Create(
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		 RETURNING id, org_id, persona_key, version, display_name, description,
 		           prompt_md, tool_allowlist, budgets_json, is_active, created_at,
-		           preferred_credential, executor_type, executor_config_json`,
+		           preferred_credential, agent_config_name, executor_type, executor_config_json`,
 		orgID, personaKey, version, displayName, description, promptMD,
 		toolAllowlist, budgetsJSON, preferredCredential,
 		executorType, executorConfigJSON,
@@ -132,7 +133,7 @@ func (r *PersonasRepository) Create(
 		&persona.ID, &persona.OrgID, &persona.PersonaKey, &persona.Version,
 		&persona.DisplayName, &persona.Description, &persona.PromptMD,
 		&persona.ToolAllowlist, &persona.BudgetsJSON, &persona.IsActive, &persona.CreatedAt,
-		&persona.PreferredCredential, &persona.ExecutorType, &persona.ExecutorConfigJSON,
+		&persona.PreferredCredential, &persona.AgentConfigName, &persona.ExecutorType, &persona.ExecutorConfigJSON,
 	)
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -153,7 +154,7 @@ func (r *PersonasRepository) GetByID(ctx context.Context, orgID, id uuid.UUID) (
 		ctx,
 		`SELECT id, org_id, persona_key, version, display_name, description,
 		        prompt_md, tool_allowlist, budgets_json, is_active, created_at,
-		        preferred_credential, executor_type, executor_config_json
+		        preferred_credential, agent_config_name, executor_type, executor_config_json
 		 FROM personas
 		 WHERE id = $1 AND org_id = $2`,
 		id, orgID,
@@ -161,7 +162,7 @@ func (r *PersonasRepository) GetByID(ctx context.Context, orgID, id uuid.UUID) (
 		&persona.ID, &persona.OrgID, &persona.PersonaKey, &persona.Version,
 		&persona.DisplayName, &persona.Description, &persona.PromptMD,
 		&persona.ToolAllowlist, &persona.BudgetsJSON, &persona.IsActive, &persona.CreatedAt,
-		&persona.PreferredCredential, &persona.ExecutorType, &persona.ExecutorConfigJSON,
+		&persona.PreferredCredential, &persona.AgentConfigName, &persona.ExecutorType, &persona.ExecutorConfigJSON,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -182,7 +183,7 @@ func (r *PersonasRepository) ListByOrg(ctx context.Context, orgID uuid.UUID) ([]
 		ctx,
 		`SELECT id, org_id, persona_key, version, display_name, description,
 		        prompt_md, tool_allowlist, budgets_json, is_active, created_at,
-		        preferred_credential, executor_type, executor_config_json
+		        preferred_credential, agent_config_name, executor_type, executor_config_json
 		 FROM personas
 		 WHERE org_id = $1
 		 ORDER BY created_at ASC`,
@@ -207,7 +208,7 @@ func (r *PersonasRepository) ListActiveByOrg(ctx context.Context, orgID uuid.UUI
 		ctx,
 		`SELECT id, org_id, persona_key, version, display_name, description,
 		        prompt_md, tool_allowlist, budgets_json, is_active, created_at,
-		        preferred_credential, executor_type, executor_config_json
+		        preferred_credential, agent_config_name, executor_type, executor_config_json
 		 FROM personas
 		 WHERE org_id = $1 AND is_active = TRUE
 		 ORDER BY created_at ASC`,
@@ -308,14 +309,14 @@ func (r *PersonasRepository) Patch(ctx context.Context, orgID, id uuid.UUID, pat
 		 WHERE id = $%d AND org_id = $%d
 		 RETURNING id, org_id, persona_key, version, display_name, description,
 		           prompt_md, tool_allowlist, budgets_json, is_active, created_at,
-		           preferred_credential, executor_type, executor_config_json`,
+		           preferred_credential, agent_config_name, executor_type, executor_config_json`,
 			strings.Join(setClauses, ", "), idIdx, orgIdx),
 		args...,
 	).Scan(
 		&persona.ID, &persona.OrgID, &persona.PersonaKey, &persona.Version,
 		&persona.DisplayName, &persona.Description, &persona.PromptMD,
 		&persona.ToolAllowlist, &persona.BudgetsJSON, &persona.IsActive, &persona.CreatedAt,
-		&persona.PreferredCredential, &persona.ExecutorType, &persona.ExecutorConfigJSON,
+		&persona.PreferredCredential, &persona.AgentConfigName, &persona.ExecutorType, &persona.ExecutorConfigJSON,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -337,7 +338,7 @@ func scanPersonas(rows pgx.Rows) ([]Persona, error) {
 			&s.ID, &s.OrgID, &s.PersonaKey, &s.Version,
 			&s.DisplayName, &s.Description, &s.PromptMD,
 			&s.ToolAllowlist, &s.BudgetsJSON, &s.IsActive, &s.CreatedAt,
-			&s.PreferredCredential, &s.ExecutorType, &s.ExecutorConfigJSON,
+			&s.PreferredCredential, &s.AgentConfigName, &s.ExecutorType, &s.ExecutorConfigJSON,
 		); err != nil {
 			return nil, err
 		}

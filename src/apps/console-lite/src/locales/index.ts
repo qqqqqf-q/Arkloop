@@ -43,6 +43,8 @@ export interface LocaleStrings {
     overview: string
     persona: string
     builtIn: string
+    platformDefault: string
+    hybrid: string
   }
   common: {
     save: string

@@ -17,6 +17,7 @@ export type Persona = {
   is_active: boolean
   created_at: string
   preferred_credential?: string
+  agent_config_name?: string
   executor_type: string
   executor_config: Record<string, unknown>
 }

@@ -319,6 +319,7 @@ export interface LocaleStrings {
       colPersonaKey: string
       colDisplayName: string
       colVersion: string
+      colDefaultModel: string
       colActive: string
       colSelectable: string
       colCreatedAt: string
@@ -337,11 +338,14 @@ export interface LocaleStrings {
       fieldBudgetsJSON: string
       fieldIsActive: string
       fieldExecutorType: string
+      fieldDefaultModel: string
       fieldExecutorConfig: string
       fieldPreferredCredential: string
       selectorMeta: (name: string, order: number) => string
+      valuePlatformDefault: string
       // read-only label for global personas
       labelGlobal: string
+      labelHybrid: string
       // buttons
       cancel: string
       create: string

@@ -100,6 +100,7 @@ export type LiteAgent = {
   description?: string
   prompt_md: string
   model?: string
+  agent_config_name?: string
   temperature?: number
   max_output_tokens?: number
   reasoning_mode: string

@@ -24,6 +24,7 @@ type liteAgentResponse struct {
 	Description     *string         `json:"description,omitempty"`
 	PromptMD        string          `json:"prompt_md"`
 	Model           *string         `json:"model,omitempty"`
+	AgentConfigName *string         `json:"agent_config_name,omitempty"`
 	Temperature     *float64        `json:"temperature,omitempty"`
 	MaxOutputTokens *int            `json:"max_output_tokens,omitempty"`
 	ReasoningMode   string          `json:"reasoning_mode"`
@@ -50,15 +51,15 @@ type createLiteAgentRequest struct {
 }
 
 type patchLiteAgentRequest struct {
-	Name            *string  `json:"name"`
-	PromptMD        *string  `json:"prompt_md"`
-	Model           *string  `json:"model"`
-	Temperature     *float64 `json:"temperature"`
-	MaxOutputTokens *int     `json:"max_output_tokens"`
-	ReasoningMode   *string  `json:"reasoning_mode"`
+	Name            *string   `json:"name"`
+	PromptMD        *string   `json:"prompt_md"`
+	Model           *string   `json:"model"`
+	Temperature     *float64  `json:"temperature"`
+	MaxOutputTokens *int      `json:"max_output_tokens"`
+	ReasoningMode   *string   `json:"reasoning_mode"`
 	ToolAllowlist   *[]string `json:"tool_allowlist"`
-	IsActive        *bool    `json:"is_active"`
-	IsDefault       *bool    `json:"is_default"`
+	IsActive        *bool     `json:"is_active"`
+	IsDefault       *bool     `json:"is_default"`
 }
 
 func liteAgentsEntry(
@@ -554,6 +555,7 @@ func toLiteAgentFromDB(p data.Persona, ac data.AgentConfig) liteAgentResponse {
 		Description:     p.Description,
 		PromptMD:        p.PromptMD,
 		Model:           ac.Model,
+		AgentConfigName: optionalLiteTrimmedStringPtr(p.AgentConfigName),
 		Temperature:     ac.Temperature,
 		MaxOutputTokens: ac.MaxOutputTokens,
 		ReasoningMode:   reasoningMode,
@@ -622,6 +624,7 @@ func toLiteAgentFromRepo(rp personas.RepoPersona, ac *data.AgentConfig) liteAgen
 		DisplayName:     rp.Title,
 		Description:     descPtr,
 		PromptMD:        rp.PromptMD,
+		AgentConfigName: optionalLiteTrimmedString(rp.AgentConfigName),
 		Temperature:     temperature,
 		MaxOutputTokens: maxOutputTokens,
 		ReasoningMode:   "auto",
@@ -662,4 +665,19 @@ func slugify(s string) string {
 
 func ptrString(s string) *string {
 	return &s
+}
+
+func optionalLiteTrimmedStringPtr(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	return optionalLiteTrimmedString(*value)
+}
+
+func optionalLiteTrimmedString(value string) *string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return nil
+	}
+	return &trimmed
 }

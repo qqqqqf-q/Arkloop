@@ -40,6 +40,8 @@ export const zhCN: LocaleStrings = {
     overview: '概览',
     persona: '人格',
     builtIn: '内置',
+    platformDefault: '平台默认',
+    hybrid: 'Hybrid',
   },
   common: {
     save: '保存',

@@ -73,6 +73,35 @@ function personaToEditForm(persona: Persona): EditFormState {
   }
 }
 
+function isHybridPersona(executorType: string): boolean {
+  return executorType.trim() === 'agent.lua'
+}
+
+type DefaultModelValueProps = {
+  persona: Pick<Persona, 'agent_config_name' | 'executor_type'>
+  platformDefaultLabel: string
+  hybridLabel: string
+  textClassName?: string
+}
+
+function DefaultModelValue({
+  persona,
+  platformDefaultLabel,
+  hybridLabel,
+  textClassName = 'font-mono text-xs text-[var(--c-text-primary)]',
+}: DefaultModelValueProps) {
+  const agentConfigName = persona.agent_config_name?.trim()
+  const label = agentConfigName || platformDefaultLabel
+  const textTone = agentConfigName ? 'text-[var(--c-text-primary)]' : 'text-[var(--c-text-muted)]'
+
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <span className={`${textClassName} ${textTone}`}>{label}</span>
+      {isHybridPersona(persona.executor_type) && <Badge variant="warning">{hybridLabel}</Badge>}
+    </div>
+  )
+}
+
 function parseToolAllowlist(raw: string): string[] {
   return raw
     .split(',')
@@ -303,6 +332,17 @@ export function PersonasPage() {
       header: tc.colVersion,
       render: (row) => (
         <span className="tabular-nums text-xs text-[var(--c-text-secondary)]">{row.version}</span>
+      ),
+    },
+    {
+      key: 'agent_config_name',
+      header: tc.colDefaultModel,
+      render: (row) => (
+        <DefaultModelValue
+          persona={row}
+          platformDefaultLabel={tc.valuePlatformDefault}
+          hybridLabel={tc.labelHybrid}
+        />
       ),
     },
     {
@@ -611,6 +651,19 @@ export function PersonasPage() {
               placeholder="agent.simple"
               className={inputCls}
             />
+          </FormField>
+
+          <FormField label={tc.fieldDefaultModel}>
+            {editTarget ? (
+              <div className="flex min-h-9 items-center rounded-lg border border-[var(--c-border)] bg-[var(--c-bg-deep2)] px-3 py-1.5">
+                <DefaultModelValue
+                  persona={editTarget}
+                  platformDefaultLabel={tc.valuePlatformDefault}
+                  hybridLabel={tc.labelHybrid}
+                  textClassName="font-mono text-sm"
+                />
+              </div>
+            ) : null}
           </FormField>
 
           <FormField label={tc.fieldExecutorConfig}>
