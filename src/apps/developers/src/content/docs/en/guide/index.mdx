@@ -114,7 +114,7 @@ cd src/services/api && go test -tags integration ./...
 | `ARKLOOP_API_GO_ADDR` | API listen address | `127.0.0.1:8001` |
 | `ARKLOOP_LOAD_DOTENV` | Automatically load from a .env file | `0` |
 | `ARKLOOP_DOTENV_FILE` | Path to the .env file | `.env` |
-| `ARKLOOP_TOOL_ALLOWLIST` | Built-in tools allowed for LLM calls (comma-separated) | empty (all disabled) |
+| `ARKLOOP_TOOL_ALLOWLIST` | Deprecated compatibility flag; logged but does not gate runtime tools | — |
 | `ARKLOOP_JWT_SECRET` | JWT signing secret | — |
 
 See `.env.example` for the complete environment variable reference.

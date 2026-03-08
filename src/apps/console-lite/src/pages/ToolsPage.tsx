@@ -24,6 +24,7 @@ import {
   type ToolCatalogGroup,
   type ToolCatalogItem,
 } from '../api/tool-providers'
+import { notifyToolCatalogChanged } from '../lib/toolCatalogRefresh'
 
 const SANDBOX_DEFAULTS: Record<string, string> = {
   allow_egress: 'true',
@@ -163,6 +164,7 @@ export function ToolsPage() {
     try {
       await activateToolProvider(groupName, providerName, accessToken)
       addToast(tc.toastUpdated, 'success')
+      notifyToolCatalogChanged()
       await fetchAll()
     } catch {
       addToast(tc.toastUpdateFailed, 'error')
@@ -177,6 +179,7 @@ export function ToolsPage() {
     try {
       await deactivateToolProvider(groupName, providerName, accessToken)
       addToast(tc.toastUpdated, 'success')
+      notifyToolCatalogChanged()
       await fetchAll()
     } catch {
       addToast(tc.toastUpdateFailed, 'error')
@@ -220,6 +223,7 @@ export function ToolsPage() {
       await updateToolProviderCredential(editTarget.group, editTarget.provider.provider_name, payload, accessToken)
       addToast(tc.toastUpdated, 'success')
       setEditTarget(null)
+      notifyToolCatalogChanged()
       await fetchAll()
     } catch {
       addToast(tc.toastUpdateFailed, 'error')
@@ -235,6 +239,7 @@ export function ToolsPage() {
       await clearToolProviderCredential(clearTarget.group, clearTarget.provider.provider_name, accessToken)
       addToast(tc.toastUpdated, 'success')
       setClearTarget(null)
+      notifyToolCatalogChanged()
       await fetchAll()
     } catch {
       addToast(tc.toastUpdateFailed, 'error')
@@ -254,6 +259,7 @@ export function ToolsPage() {
       await updateToolProviderConfig(selectedGroup, activeProvider.provider_name, configJSON, accessToken)
       setConfigSaved({ ...configForm })
       addToast(tc.toastSaved, 'success')
+      notifyToolCatalogChanged()
     } catch {
       addToast(tc.toastSaveFailed, 'error')
     } finally {
@@ -268,6 +274,7 @@ export function ToolsPage() {
       await updateToolDescription(descEdit.toolName, descText, accessToken)
       addToast(tc.toastUpdated, 'success')
       setDescEdit(null)
+      notifyToolCatalogChanged()
       await fetchAll()
     } catch {
       addToast(tc.toastUpdateFailed, 'error')
@@ -280,6 +287,7 @@ export function ToolsPage() {
     try {
       await deleteToolDescription(toolName, accessToken)
       addToast(tc.toastUpdated, 'success')
+      notifyToolCatalogChanged()
       await fetchAll()
     } catch {
       addToast(tc.toastUpdateFailed, 'error')

@@ -2,8 +2,6 @@ package http
 
 import (
 	"context"
-	"os"
-	"strings"
 	"time"
 
 	"arkloop/services/api/internal/auth"
@@ -23,9 +21,9 @@ func toolCatalogEffectiveEntry(
 	authService *auth.Service,
 	membershipRepo *data.OrgMembershipRepository,
 	overridesRepo *data.ToolDescriptionOverridesRepository,
-	toolProvidersRepo *data.ToolProviderConfigsRepository,
 	pool *pgxpool.Pool,
 	mcpCache *effectiveToolCatalogCache,
+	artifactStoreAvailable bool,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		traceID := observability.TraceIDFromContext(r.Context())
@@ -42,7 +40,7 @@ func toolCatalogEffectiveEntry(
 			return
 		}
 
-		catalog, err := buildEffectiveToolCatalog(r.Context(), actor.OrgID, overridesRepo, toolProvidersRepo, pool, mcpCache)
+		catalog, err := buildEffectiveToolCatalog(r.Context(), actor.OrgID, overridesRepo, pool, mcpCache, artifactStoreAvailable)
 		if err != nil {
 			WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
@@ -55,11 +53,11 @@ func buildEffectiveToolCatalog(
 	ctx context.Context,
 	orgID uuid.UUID,
 	overridesRepo *data.ToolDescriptionOverridesRepository,
-	toolProvidersRepo *data.ToolProviderConfigsRepository,
 	pool *pgxpool.Pool,
 	mcpCache *effectiveToolCatalogCache,
+	artifactStoreAvailable bool,
 ) (toolCatalogResponse, error) {
-	available := buildEffectiveToolNameSet(ctx, toolProvidersRepo, pool)
+	available := buildEffectiveBuiltinToolNameSet(ctx, pool, artifactStoreAvailable)
 	platformByName, orgByName := loadEffectiveToolDescriptionOverrides(ctx, overridesRepo, orgID)
 	mcpTools := []toolCatalogItem{}
 	if mcpCache != nil {
@@ -110,73 +108,6 @@ func buildEffectiveToolCatalog(
 		groups = append(groups, toolCatalogGroup{Group: effectiveToolCatalogMCPGroup, Tools: mcpTools})
 	}
 	return toolCatalogResponse{Groups: groups}, nil
-}
-
-func buildEffectiveToolNameSet(
-	ctx context.Context,
-	toolProvidersRepo *data.ToolProviderConfigsRepository,
-	pool *pgxpool.Pool,
-) map[string]struct{} {
-	available := map[string]struct{}{
-		"web_search":       {},
-		"web_fetch":        {},
-		"timeline_title":   {},
-		"spawn_agent":      {},
-		"summarize_thread": {},
-		"echo":             {},
-		"noop":             {},
-	}
-	if pool != nil {
-		available["conversation_search"] = struct{}{}
-	}
-	if strings.TrimSpace(os.Getenv("ARKLOOP_BROWSER_BASE_URL")) != "" {
-		for _, name := range []string{"browser_navigate", "browser_interact", "browser_extract", "browser_screenshot", "browser_session_close"} {
-			available[name] = struct{}{}
-		}
-	}
-	platformProviders := map[string]data.ToolProviderConfig{}
-	if toolProvidersRepo != nil {
-		configs, err := toolProvidersRepo.ListByScope(ctx, uuid.Nil, "platform")
-		if err == nil {
-			for _, cfg := range configs {
-				if !cfg.IsActive {
-					continue
-				}
-				platformProviders[cfg.ProviderName] = cfg
-			}
-		}
-	}
-	sandboxBaseURL := strings.TrimSpace(os.Getenv("ARKLOOP_SANDBOX_BASE_URL"))
-	if sandboxBaseURL == "" {
-		if cfg, ok := platformProviders["sandbox.docker"]; ok && cfg.BaseURL != nil && strings.TrimSpace(*cfg.BaseURL) != "" {
-			sandboxBaseURL = strings.TrimSpace(*cfg.BaseURL)
-		}
-		if sandboxBaseURL == "" {
-			if cfg, ok := platformProviders["sandbox.firecracker"]; ok && cfg.BaseURL != nil && strings.TrimSpace(*cfg.BaseURL) != "" {
-				sandboxBaseURL = strings.TrimSpace(*cfg.BaseURL)
-			}
-		}
-	}
-	if sandboxBaseURL != "" {
-		for _, name := range []string{"python_execute", "exec_command", "write_stdin"} {
-			available[name] = struct{}{}
-		}
-	}
-	memoryBaseURL := strings.TrimSpace(os.Getenv("ARKLOOP_OPENVIKING_BASE_URL"))
-	if memoryBaseURL == "" {
-		if cfg, ok := platformProviders["memory.openviking"]; ok && cfg.BaseURL != nil && strings.TrimSpace(*cfg.BaseURL) != "" {
-			memoryBaseURL = strings.TrimSpace(*cfg.BaseURL)
-		}
-	}
-	if memoryBaseURL != "" {
-		for _, name := range []string{"memory_search", "memory_read", "memory_write", "memory_forget"} {
-			available[name] = struct{}{}
-		}
-	}
-	if strings.TrimSpace(os.Getenv("ARKLOOP_S3_ENDPOINT")) != "" {
-		available["document_write"] = struct{}{}
-	}
-	return available
 }
 
 func loadEffectiveToolDescriptionOverrides(

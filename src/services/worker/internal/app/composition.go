@@ -11,6 +11,7 @@ import (
 	sharedconfig "arkloop/services/shared/config"
 	sharedent "arkloop/services/shared/entitlement"
 	"arkloop/services/shared/objectstore"
+	sharedtoolruntime "arkloop/services/shared/toolruntime"
 	"arkloop/services/worker/internal/data"
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/mcp"
@@ -23,7 +24,6 @@ import (
 	"arkloop/services/worker/internal/toolprovider"
 	"arkloop/services/worker/internal/tools"
 	"arkloop/services/worker/internal/tools/builtin"
-	browsertool "arkloop/services/worker/internal/tools/builtin/browser"
 	documentwritetool "arkloop/services/worker/internal/tools/builtin/document_write"
 	sandboxtool "arkloop/services/worker/internal/tools/builtin/sandbox"
 	conversationtool "arkloop/services/worker/internal/tools/conversation"
@@ -116,20 +116,16 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 		slog.WarnContext(ctx, "tool_provider_configs: platform load failed", "err", err.Error())
 	}
 
+	artifactStore, err := buildDocumentArtifactStore(ctx)
+	if err != nil {
+		slog.WarnContext(ctx, "document_write: artifact store init failed, skipping", "err", err.Error())
+	}
+	builtinAvailability := resolveBuiltinAvailability(platformProviders, pool != nil, artifactStore != nil)
+
 	// -- Memory (OpenViking) --
 	ovCfg := openviking.Config{
-		BaseURL:    strings.TrimSpace(os.Getenv("ARKLOOP_OPENVIKING_BASE_URL")),
-		RootAPIKey: strings.TrimSpace(os.Getenv("ARKLOOP_OPENVIKING_ROOT_API_KEY")),
-	}
-	if ovCfg.BaseURL == "" || ovCfg.RootAPIKey == "" {
-		if p := findActiveProvider(platformProviders, "memory"); p != nil {
-			if ovCfg.BaseURL == "" && p.BaseURL != nil {
-				ovCfg.BaseURL = strings.TrimSpace(*p.BaseURL)
-			}
-			if ovCfg.RootAPIKey == "" && p.APIKeyValue != nil {
-				ovCfg.RootAPIKey = strings.TrimSpace(*p.APIKeyValue)
-			}
-		}
+		BaseURL:    builtinAvailability.MemoryBaseURL,
+		RootAPIKey: builtinAvailability.MemoryRootAPIKey,
 	}
 	memoryProvider := openviking.NewProvider(ovCfg)
 	if memoryProvider == nil {
@@ -157,25 +153,8 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 		allLlmSpecs = append(allLlmSpecs, conversationtool.LlmSpecs()...)
 	}
 
-	if browserBaseURL := browsertool.BaseURLFromEnv(); browserBaseURL != "" {
-		browserExecutor := browsertool.NewToolExecutor(browserBaseURL)
-		for _, spec := range browsertool.AgentSpecs() {
-			if err := toolRegistry.Register(spec); err != nil {
-				return nil, err
-			}
-			executors[spec.Name] = browserExecutor
-		}
-		allLlmSpecs = append(allLlmSpecs, browsertool.LlmSpecs()...)
-		slog.InfoContext(ctx, "browser: tools registered", "base_url", browserBaseURL)
-	}
-
 	// -- Sandbox --
-	sandboxBaseURL := sandboxtool.BaseURLFromEnv()
-	if sandboxBaseURL == "" {
-		if p := findActiveProvider(platformProviders, "sandbox"); p != nil && p.BaseURL != nil {
-			sandboxBaseURL = strings.TrimRight(strings.TrimSpace(*p.BaseURL), "/")
-		}
-	}
+	sandboxBaseURL := builtinAvailability.SandboxBaseURL
 	if sandboxBaseURL != "" {
 		sandboxAuthToken := sandboxtool.AuthTokenFromEnv()
 		var sandboxExec tools.Executor = sandboxtool.NewToolExecutor(sandboxBaseURL, sandboxAuthToken)
@@ -197,18 +176,14 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 		slog.InfoContext(ctx, "sandbox: tools registered", "base_url", sandboxBaseURL)
 	}
 
-	if s3Endpoint := strings.TrimSpace(os.Getenv("ARKLOOP_S3_ENDPOINT")); s3Endpoint != "" {
-		s3AccessKey := strings.TrimSpace(os.Getenv("ARKLOOP_S3_ACCESS_KEY"))
-		s3SecretKey := strings.TrimSpace(os.Getenv("ARKLOOP_S3_SECRET_KEY"))
-		s3Region := strings.TrimSpace(os.Getenv("ARKLOOP_S3_REGION"))
-		artifactStore, err := objectstore.New(ctx, s3Endpoint, s3AccessKey, s3SecretKey, objectstore.ArtifactBucket, s3Region)
-		if err != nil {
-			slog.WarnContext(ctx, "document_write: s3 init failed, skipping", "err", err.Error())
-		} else {
-			dwExecutor := documentwritetool.NewToolExecutor(artifactStore)
-			executors[documentwritetool.AgentSpec.Name] = dwExecutor
-			slog.InfoContext(ctx, "document_write: tool registered")
+	if artifactStore != nil {
+		if err := toolRegistry.Register(documentwritetool.AgentSpec); err != nil {
+			return nil, err
 		}
+		dwExecutor := documentwritetool.NewToolExecutor(artifactStore)
+		executors[documentwritetool.AgentSpec.Name] = dwExecutor
+		allLlmSpecs = append(allLlmSpecs, documentwritetool.LlmSpec)
+		slog.InfoContext(ctx, "document_write: tool registered")
 	}
 
 	personasRoot, err := personas.BuiltinPersonasRoot()
@@ -275,6 +250,43 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 		LlmRetryMaxAttempts:          llmRetryMaxAttempts,
 		LlmRetryBaseDelayMs:          llmRetryBaseDelayMs,
 		MemoryProvider:               memoryProvider,
+	})
+}
+
+func buildDocumentArtifactStore(ctx context.Context) (*objectstore.Store, error) {
+	s3Endpoint := strings.TrimSpace(os.Getenv("ARKLOOP_S3_ENDPOINT"))
+	if s3Endpoint == "" {
+		return nil, nil
+	}
+	s3AccessKey := strings.TrimSpace(os.Getenv("ARKLOOP_S3_ACCESS_KEY"))
+	s3SecretKey := strings.TrimSpace(os.Getenv("ARKLOOP_S3_SECRET_KEY"))
+	s3Region := strings.TrimSpace(os.Getenv("ARKLOOP_S3_REGION"))
+	return objectstore.New(ctx, s3Endpoint, s3AccessKey, s3SecretKey, objectstore.ArtifactBucket, s3Region)
+}
+
+func resolveBuiltinAvailability(
+	platformProviders []toolprovider.ActiveProviderConfig,
+	hasConversationSearch bool,
+	artifactStoreAvailable bool,
+) sharedtoolruntime.BuiltinAvailability {
+	providers := make([]sharedtoolruntime.ProviderConfig, 0, len(platformProviders))
+	for _, provider := range platformProviders {
+		providers = append(providers, sharedtoolruntime.ProviderConfig{
+			GroupName:    provider.GroupName,
+			ProviderName: provider.ProviderName,
+			BaseURL:      provider.BaseURL,
+			APIKeyValue:  provider.APIKeyValue,
+		})
+	}
+	return sharedtoolruntime.ResolveBuiltin(sharedtoolruntime.ResolveInput{
+		HasConversationSearch:  hasConversationSearch,
+		ArtifactStoreAvailable: artifactStoreAvailable,
+		Env: sharedtoolruntime.EnvConfig{
+			SandboxBaseURL:   sandboxtool.BaseURLFromEnv(),
+			MemoryBaseURL:    strings.TrimSpace(os.Getenv("ARKLOOP_OPENVIKING_BASE_URL")),
+			MemoryRootAPIKey: strings.TrimSpace(os.Getenv("ARKLOOP_OPENVIKING_ROOT_API_KEY")),
+		},
+		PlatformProviders: providers,
 	})
 }
 

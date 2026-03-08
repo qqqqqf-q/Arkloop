@@ -16,6 +16,8 @@ import (
 	"arkloop/services/api/internal/data"
 	"arkloop/services/api/internal/observability"
 	sharedtoolmeta "arkloop/services/shared/toolmeta"
+
+	"github.com/google/uuid"
 )
 
 func TestToolCatalogSupportsPlatformAndOrgOverrides(t *testing.T) {
@@ -331,9 +333,9 @@ func TestEffectiveToolCatalogIncludesConditionalAndMCPTools(t *testing.T) {
 	}))
 	defer mcpServer.Close()
 
-	t.Setenv("ARKLOOP_BROWSER_BASE_URL", "http://browser.internal")
 	t.Setenv("ARKLOOP_SANDBOX_BASE_URL", "http://sandbox.internal")
 	t.Setenv("ARKLOOP_OPENVIKING_BASE_URL", "http://memory.internal")
+	t.Setenv("ARKLOOP_OPENVIKING_ROOT_API_KEY", "memory-root-key")
 	t.Setenv("ARKLOOP_S3_ENDPOINT", "http://minio.internal")
 
 	envCfgDir := t.TempDir()
@@ -371,6 +373,7 @@ func TestEffectiveToolCatalogIncludesConditionalAndMCPTools(t *testing.T) {
 		AuthService:             authService,
 		OrgMembershipRepo:       membershipRepo,
 		ToolProviderConfigsRepo: toolProvidersRepo,
+		ArtifactStore:           newFakeHTTPArtifactStore(),
 	})
 
 	resp := doJSON(handler, nethttp.MethodGet, "/v1/tool-catalog/effective", nil, authHeader(token))
@@ -379,7 +382,6 @@ func TestEffectiveToolCatalogIncludesConditionalAndMCPTools(t *testing.T) {
 	}
 	catalog := decodeJSONBody[toolCatalogResponse](t, resp.Body.Bytes())
 	for _, toolName := range []struct{ group, name string }{
-		{group: "browser", name: "browser_navigate"},
 		{group: "sandbox", name: "exec_command"},
 		{group: "memory", name: "memory_search"},
 		{group: "document", name: "document_write"},
@@ -390,6 +392,9 @@ func TestEffectiveToolCatalogIncludesConditionalAndMCPTools(t *testing.T) {
 			t.Fatalf("missing effective tool %s/%s", toolName.group, toolName.name)
 		}
 	}
+	if _, ok := findCatalogGroup(catalog, "browser"); ok {
+		t.Fatal("browser group should be absent from effective catalog")
+	}
 
 	item, ok := findCatalogTool(catalog, "mcp", "mcp__env_demo__tools_list_tool")
 	if !ok {
@@ -397,6 +402,18 @@ func TestEffectiveToolCatalogIncludesConditionalAndMCPTools(t *testing.T) {
 	}
 	if item.Label != "Docs Lookup" {
 		t.Fatalf("unexpected mcp label: %s", item.Label)
+	}
+}
+
+func TestBuildEffectiveToolCatalogOmitsDocumentWriteWithoutArtifactStore(t *testing.T) {
+	t.Setenv("ARKLOOP_S3_ENDPOINT", "http://minio.internal")
+
+	catalog, err := buildEffectiveToolCatalog(context.Background(), uuid.Nil, nil, nil, nil, false)
+	if err != nil {
+		t.Fatalf("build effective tool catalog: %v", err)
+	}
+	if _, ok := findCatalogTool(catalog, "document", "document_write"); ok {
+		t.Fatal("document_write should be absent without artifact store")
 	}
 }
 

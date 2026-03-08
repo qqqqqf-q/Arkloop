@@ -143,7 +143,7 @@ Persona 配置字段：`id`、`executor_type`、`executor_config`、`tool_allowl
 
 ### 7.2 工具安全
 
-- **Allowlist**：`ARKLOOP_TOOL_ALLOWLIST`（逗号分隔，为空则禁用全部工具）
+- **Allowlist**：`ARKLOOP_TOOL_ALLOWLIST`（已弃用；仅为兼容保留日志，不再裁剪运行时工具）
 - **Denylist**：Persona 级 `tool_denylist`
 - LLM 只能看到白名单内的工具
 - 每个工具执行有超时控制（`tool_timeout_ms`）
@@ -237,7 +237,7 @@ Worker 启动时向 `worker_registrations` 表注册能力与版本。
 | `ARKLOOP_WORKER_QUEUE_JOB_TYPES` | 消费的任务类型 |
 | `ARKLOOP_WORKER_CAPABILITIES` | Worker 能力标签 |
 | `ARKLOOP_WORKER_VERSION` | Worker 版本 |
-| `ARKLOOP_TOOL_ALLOWLIST` | 内置工具白名单 |
+| `ARKLOOP_TOOL_ALLOWLIST` | 已弃用的兼容配置；不再裁剪运行时工具 |
 | `ARKLOOP_LLM_RETRY_MAX_ATTEMPTS` | LLM 重试次数（默认 3） |
 | `ARKLOOP_LLM_RETRY_BASE_DELAY_MS` | 重试基础延迟（默认 1000） |
 | `ARKLOOP_MCP_CACHE_TTL_SECONDS` | MCP 发现缓存 TTL（默认 60） |
@@ -254,5 +254,5 @@ Worker 启动时向 `worker_registrations` 表注册能力与版本。
 - **"run 一直 running"**：检查 `jobs` 是否被 Worker lease、`run_events` 是否有后续事件写入、Worker 心跳是否正常。
 - **"SSE 偶发卡住"**：检查代理是否缓冲（API 应设置 `Cache-Control: no-cache`、`X-Accel-Buffering: no`）以及心跳。
 - **"事件丢失/乱序"**：同一 run 内 `seq` 必须严格递增；回放只用 `after_seq` 续传。
-- **"工具无响应"**：检查 `ARKLOOP_TOOL_ALLOWLIST` 配置、辅助服务（Sandbox/Browser）是否可达。
+- **"工具无响应"**：检查辅助服务可达性与运行时注册结果；`ARKLOOP_TOOL_ALLOWLIST` 已不再控制工具开关。
 - **"MCP 工具超时"**：检查 `mcp_configs` 配置、MCP 服务器进程状态、缓存 TTL。

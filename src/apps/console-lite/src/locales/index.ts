@@ -49,6 +49,9 @@ export interface LocaleStrings {
     clearAllTools: string
     groupEnableAll: string
     groupClearAll: string
+    toolModeLabel: string
+    toolModeInherit: string
+    toolModeCustom: string
   }
   models: {
     title: string

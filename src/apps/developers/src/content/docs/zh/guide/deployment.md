@@ -347,4 +347,4 @@ ARKLOOP_GATEWAY_UPSTREAM=http://host.docker.internal:8001 docker compose -f comp
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
 | `ARKLOOP_LLM_DEBUG_EVENTS` | `0` | LLM 原始 chunk 写入 run_events |
-| `ARKLOOP_TOOL_ALLOWLIST` | 空 | 允许 LLM 调用的内置工具，空 = 禁用全部 |
+| `ARKLOOP_TOOL_ALLOWLIST` | 空 | 已弃用的兼容配置；仅记录日志，不再裁剪运行时工具 |

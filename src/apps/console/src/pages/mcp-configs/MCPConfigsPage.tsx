@@ -18,6 +18,7 @@ import {
   deleteMCPConfig,
   type MCPConfig,
 } from '../../api/mcp-configs'
+import { notifyToolCatalogChanged } from '../../lib/toolCatalogRefresh'
 
 type Transport = 'stdio' | 'http_sse' | 'streamable_http'
 
@@ -179,6 +180,7 @@ export function MCPConfigsPage() {
       await createMCPConfig(req, accessToken)
       addToast(tc.toastCreated, 'success')
       setCreateOpen(false)
+      notifyToolCatalogChanged()
       await fetchAll()
     } catch (err) {
       setCreateError(isApiError(err) ? err.message : tc.toastSaveFailed)
@@ -206,6 +208,7 @@ export function MCPConfigsPage() {
       await patchMCPConfig(editTarget.id, req, accessToken)
       addToast(tc.toastUpdated, 'success')
       setEditTarget(null)
+      notifyToolCatalogChanged()
       await fetchAll()
     } catch (err) {
       setEditError(isApiError(err) ? err.message : tc.toastSaveFailed)
@@ -220,6 +223,7 @@ export function MCPConfigsPage() {
     try {
       await deleteMCPConfig(deleteTarget.id, accessToken)
       setDeleteTarget(null)
+      notifyToolCatalogChanged()
       await fetchAll()
       addToast(tc.toastDeleted, 'success')
     } catch {

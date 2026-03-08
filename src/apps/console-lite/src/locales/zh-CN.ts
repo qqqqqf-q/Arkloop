@@ -46,6 +46,9 @@ export const zhCN: LocaleStrings = {
     clearAllTools: '全部清空',
     groupEnableAll: '启用本组',
     groupClearAll: '清空本组',
+    toolModeLabel: '工具范围',
+    toolModeInherit: '继承全部',
+    toolModeCustom: '自定义子集',
   },
   models: {
     title: '模型管理',

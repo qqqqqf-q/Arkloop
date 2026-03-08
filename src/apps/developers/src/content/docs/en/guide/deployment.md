@@ -345,4 +345,4 @@ ARKLOOP_GATEWAY_UPSTREAM=http://host.docker.internal:8001 docker compose -f comp
 | Variable | Default | Description |
 |------|--------|------|
 | `ARKLOOP_LLM_DEBUG_EVENTS` | `0` | Write raw LLM chunks to run_events |
-| `ARKLOOP_TOOL_ALLOWLIST` | Empty | Allowed built-in tools for LLM; empty = disable all |
+| `ARKLOOP_TOOL_ALLOWLIST` | Empty | Deprecated compatibility flag; logged but does not gate runtime tools |

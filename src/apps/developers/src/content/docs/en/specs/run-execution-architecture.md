@@ -143,7 +143,7 @@ Persona configuration fields: `id`, `executor_type`, `executor_config`, `tool_al
 
 ### 7.2 Tool Security
 
-- **Allowlist**: `ARKLOOP_TOOL_ALLOWLIST` (comma-separated, disabled if empty)
+- **Allowlist**: `ARKLOOP_TOOL_ALLOWLIST` (deprecated; logged for compatibility only and no longer gates runtime tools)
 - **Denylist**: Persona-level `tool_denylist`
 - LLM only sees tools within the allowlist
 - Each tool execution has a timeout control (`tool_timeout_ms`)
@@ -237,7 +237,7 @@ Workers register their capabilities and versions in the `worker_registrations` t
 | `ARKLOOP_WORKER_QUEUE_JOB_TYPES` | Task types to consume |
 | `ARKLOOP_WORKER_CAPABILITIES` | Worker capability tags |
 | `ARKLOOP_WORKER_VERSION` | Worker version |
-| `ARKLOOP_TOOL_ALLOWLIST` | Built-in tool allowlist |
+| `ARKLOOP_TOOL_ALLOWLIST` | Deprecated compatibility flag; no longer gates runtime tools |
 | `ARKLOOP_LLM_RETRY_MAX_ATTEMPTS` | LLM retry attempts (default 3) |
 | `ARKLOOP_LLM_RETRY_BASE_DELAY_MS` | Retry base delay (default 1000) |
 | `ARKLOOP_MCP_CACHE_TTL_SECONDS` | MCP discovery cache TTL (default 60) |
@@ -254,5 +254,5 @@ Workers register their capabilities and versions in the `worker_registrations` t
 - **"run stuck in running"**: Check if `jobs` are leased by a Worker, if `run_events` are being written, and if Worker heartbeats are normal.
 - **"SSE occasionally hangs"**: Check if proxies are buffering (API should set `Cache-Control: no-cache`, `X-Accel-Buffering: no`) and verify heartbeats.
 - **"Events missing/out of order"**: `seq` must strictly increase within the same run; playback must use `after_seq` for resumption.
-- **"Tools not responding"**: Check `ARKLOOP_TOOL_ALLOWLIST` configuration and accessibility of supporting services (Sandbox/Browser).
+- **"Tools not responding"**: Check supporting service availability and runtime registration state; `ARKLOOP_TOOL_ALLOWLIST` no longer gates tools.
 - **"MCP tool timeout"**: Check `mcp_configs` configuration, MCP server process status, and cache TTL.

@@ -314,6 +314,9 @@ export interface LocaleStrings {
       clearAllTools: string
       groupEnableAll: string
       groupClearAll: string
+      toolModeLabel: string
+      toolModeInherit: string
+      toolModeCustom: string
       fieldBudgetsJSON: string
       fieldIsActive: string
       fieldExecutorType: string

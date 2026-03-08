@@ -46,6 +46,9 @@ export const en: LocaleStrings = {
     clearAllTools: 'Clear all',
     groupEnableAll: 'Enable group',
     groupClearAll: 'Clear group',
+    toolModeLabel: 'Tool Scope',
+    toolModeInherit: 'Inherit All',
+    toolModeCustom: 'Custom Set',
   },
   models: {
     title: 'Models',

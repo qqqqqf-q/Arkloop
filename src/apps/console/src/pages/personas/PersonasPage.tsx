@@ -17,6 +17,9 @@ import {
   type Persona,
 } from '../../api/personas'
 import { listEffectiveToolCatalog, type ToolCatalogGroup, type ToolCatalogItem } from '../../api/tool-catalog'
+import { notifyToolCatalogChanged, subscribeToolCatalogRefresh } from '../../lib/toolCatalogRefresh'
+
+type ToolSelectionMode = 'inherit' | 'custom'
 
 type PersonaFormState = {
   personaKey: string
@@ -25,6 +28,7 @@ type PersonaFormState = {
   description: string
   prompt: string
   model: string
+  toolAllowlistMode: ToolSelectionMode
   toolAllowlist: string
   toolDenylist: string
   budgetsJSON: string
@@ -44,6 +48,7 @@ function emptyPersonaForm(): PersonaFormState {
     description: '',
     prompt: '',
     model: '',
+    toolAllowlistMode: 'inherit',
     toolAllowlist: '',
     toolDenylist: '',
     budgetsJSON: '{}',
@@ -57,6 +62,7 @@ function emptyPersonaForm(): PersonaFormState {
 }
 
 function personaToForm(persona: Persona): PersonaFormState {
+  const allowlist = persona.tool_allowlist ?? []
   return {
     personaKey: persona.persona_key,
     version: persona.version,
@@ -64,7 +70,8 @@ function personaToForm(persona: Persona): PersonaFormState {
     description: persona.description ?? '',
     prompt: persona.prompt_md,
     model: persona.model ?? '',
-    toolAllowlist: persona.tool_allowlist.join(', '),
+    toolAllowlistMode: allowlist.length === 0 ? 'inherit' : 'custom',
+    toolAllowlist: allowlist.join(', '),
     toolDenylist: persona.tool_denylist.join(', '),
     budgetsJSON: JSON.stringify(persona.budgets ?? {}, null, 2),
     isActive: persona.is_active,
@@ -206,6 +213,9 @@ export function PersonasPage() {
 
   useEffect(() => {
     void fetchAll()
+    return subscribeToolCatalogRefresh(() => {
+      void fetchAll()
+    })
   }, [fetchAll])
 
   const setCreateField = useCallback(
@@ -264,7 +274,7 @@ export function PersonasPage() {
         description: form.description.trim() || undefined,
         prompt_md: form.prompt.trim(),
         model: form.model.trim() || undefined,
-        tool_allowlist: parseToolList(form.toolAllowlist),
+        tool_allowlist: form.toolAllowlistMode === 'inherit' ? [] : parseToolList(form.toolAllowlist),
         tool_denylist: parseToolList(form.toolDenylist),
         budgets: budgetsParsed.value,
         is_active: form.isActive,
@@ -307,6 +317,7 @@ export function PersonasPage() {
       )
       addToast(tc.toastCreated, 'success')
       setCreateOpen(false)
+      notifyToolCatalogChanged()
       await fetchAll()
     } catch (err) {
       setCreateError(isApiError(err) ? err.message : tc.toastSaveFailed)
@@ -343,6 +354,7 @@ export function PersonasPage() {
       }
       addToast(tc.toastUpdated, 'success')
       setEditTarget(null)
+      notifyToolCatalogChanged()
       await fetchAll()
     } catch (err) {
       setEditError(isApiError(err) ? err.message : tc.toastSaveFailed)
@@ -455,9 +467,25 @@ export function PersonasPage() {
     readOnlyIdentity: boolean,
   ) => {
     const renderToolSelector = (fieldKey: 'toolAllowlist' | 'toolDenylist', label: string) => {
+      const allowInherit = fieldKey === 'toolAllowlist'
       const selectedNames = uniqToolNames(parseToolList(form[fieldKey]))
-      const totalToolCount = catalogGroups.reduce((sum, group) => sum + group.tools.length, 0)
-      const replaceTools = (next: string[]) => setField(fieldKey, formatToolList(next) as PersonaFormState[typeof fieldKey])
+      const totalToolNames = uniqToolNames(catalogGroups.flatMap((group) => group.tools.map((tool) => tool.name)))
+      const totalToolCount = totalToolNames.length
+      const isInherit = allowInherit && form.toolAllowlistMode === 'inherit'
+      const visibleSelectedCount = isInherit ? totalToolCount : selectedNames.length
+      const replaceTools = (next: string[]) => {
+        if (allowInherit) {
+          setField('toolAllowlistMode', 'custom')
+        }
+        setField(fieldKey, formatToolList(next) as PersonaFormState[typeof fieldKey])
+      }
+      const setAllowlistMode = (mode: ToolSelectionMode) => {
+        if (!allowInherit) return
+        setField('toolAllowlistMode', mode)
+        if (mode === 'custom' && selectedNames.length === 0) {
+          setField('toolAllowlist', formatToolList(totalToolNames))
+        }
+      }
       const toggleTool = (toolName: string) => {
         replaceTools(
           selectedNames.includes(toolName)
@@ -473,13 +501,45 @@ export function PersonasPage() {
       return (
         <FormField label={label}>
           <div className="flex flex-col gap-4">
-            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--c-border)] bg-[var(--c-bg-sub)] px-4 py-3">
-              <p className="text-sm text-[var(--c-text-secondary)]">{tc.toolsSelected(selectedNames.length, totalToolCount)}</p>
+            <div className="flex flex-col gap-3 rounded-xl border border-[var(--c-border)] bg-[var(--c-bg-sub)] px-4 py-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-sm text-[var(--c-text-secondary)]">{tc.toolsSelected(visibleSelectedCount, totalToolCount)}</p>
+                {allowInherit ? (
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setAllowlistMode('inherit')}
+                      className={[
+                        'rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors',
+                        form.toolAllowlistMode === 'inherit'
+                          ? 'border-[var(--c-accent)] bg-[var(--c-accent)]/10 text-[var(--c-text-primary)]'
+                          : 'border-[var(--c-border)] text-[var(--c-text-secondary)] hover:bg-[var(--c-bg-card)]',
+                      ].join(' ')}
+                    >
+                      {tc.toolModeInherit}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAllowlistMode('custom')}
+                      className={[
+                        'rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors',
+                        form.toolAllowlistMode === 'custom'
+                          ? 'border-[var(--c-accent)] bg-[var(--c-accent)]/10 text-[var(--c-text-primary)]'
+                          : 'border-[var(--c-border)] text-[var(--c-text-secondary)] hover:bg-[var(--c-bg-card)]',
+                      ].join(' ')}
+                    >
+                      {tc.toolModeCustom}
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+              {allowInherit ? <p className="text-sm text-[var(--c-text-secondary)]">{tc.toolModeLabel}</p> : null}
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
-                  onClick={() => replaceTools(catalogGroups.flatMap((group) => group.tools.map((tool) => tool.name)))}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--c-border)] px-3 py-1.5 text-xs font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-card)]"
+                  onClick={() => replaceTools(totalToolNames)}
+                  disabled={isInherit}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--c-border)] px-3 py-1.5 text-xs font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-card)] disabled:opacity-50"
                 >
                   <CheckCheck size={13} />
                   {tc.enableAllTools}
@@ -487,7 +547,8 @@ export function PersonasPage() {
                 <button
                   type="button"
                   onClick={() => replaceTools([])}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--c-border)] px-3 py-1.5 text-xs font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-card)]"
+                  disabled={isInherit}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--c-border)] px-3 py-1.5 text-xs font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-card)] disabled:opacity-50"
                 >
                   <Minus size={13} />
                   {tc.clearAllTools}
@@ -496,7 +557,9 @@ export function PersonasPage() {
             </div>
             {catalogGroups.map((group) => {
               const groupNames = group.tools.map((tool) => tool.name)
-              const groupSelectedCount = groupNames.filter((toolName) => selectedNames.includes(toolName)).length
+              const groupSelectedCount = isInherit
+                ? group.tools.length
+                : groupNames.filter((toolName) => selectedNames.includes(toolName)).length
               return (
                 <div key={`${fieldKey}-${group.group}`} className="flex flex-col gap-3 rounded-xl border border-[var(--c-border)] bg-[var(--c-bg-sub)] p-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
@@ -508,14 +571,16 @@ export function PersonasPage() {
                       <button
                         type="button"
                         onClick={() => toggleGroup(group, true)}
-                        className="rounded-lg border border-[var(--c-border)] px-3 py-1.5 text-xs font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-card)]"
+                        disabled={isInherit}
+                        className="rounded-lg border border-[var(--c-border)] px-3 py-1.5 text-xs font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-card)] disabled:opacity-50"
                       >
                         {tc.groupEnableAll}
                       </button>
                       <button
                         type="button"
                         onClick={() => toggleGroup(group, false)}
-                        className="rounded-lg border border-[var(--c-border)] px-3 py-1.5 text-xs font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-card)]"
+                        disabled={isInherit}
+                        className="rounded-lg border border-[var(--c-border)] px-3 py-1.5 text-xs font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-card)] disabled:opacity-50"
                       >
                         {tc.groupClearAll}
                       </button>
@@ -526,8 +591,8 @@ export function PersonasPage() {
                       <ToolOptionCard
                         key={`${fieldKey}-${tool.name}`}
                         tool={tool}
-                        checked={selectedNames.includes(tool.name)}
-                        onToggle={() => toggleTool(tool.name)}
+                        checked={isInherit || selectedNames.includes(tool.name)}
+                        onToggle={() => { if (!isInherit) toggleTool(tool.name) }}
                       />
                     ))}
                   </div>

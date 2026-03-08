@@ -20,8 +20,10 @@ import {
   type ToolCatalogItem,
 } from '../api/agents'
 import { listLlmProviders } from '../api/llm-providers'
+import { notifyToolCatalogChanged, subscribeToolCatalogRefresh } from '../lib/toolCatalogRefresh'
 
 type DetailTab = 'overview' | 'persona' | 'tools'
+type ToolSelectionMode = 'inherit' | 'custom'
 
 type DetailForm = {
   name: string
@@ -31,6 +33,7 @@ type DetailForm = {
   maxOutputTokens: string
   reasoningMode: string
   systemPrompt: string
+  toolSelectionMode: ToolSelectionMode
   tools: string[]
 }
 
@@ -40,6 +43,7 @@ type ModelSelectorOption = {
 }
 
 function agentToForm(agent: LiteAgent): DetailForm {
+  const allowlist = agent.tool_allowlist ?? []
   return {
     name: agent.display_name,
     model: agent.model || '',
@@ -48,7 +52,8 @@ function agentToForm(agent: LiteAgent): DetailForm {
     maxOutputTokens: agent.max_output_tokens != null ? String(agent.max_output_tokens) : '',
     reasoningMode: agent.reasoning_mode || 'auto',
     systemPrompt: agent.prompt_md || '',
-    tools: agent.tool_allowlist ?? [],
+    toolSelectionMode: allowlist.length === 0 ? 'inherit' : 'custom',
+    tools: allowlist,
   }
 }
 
@@ -231,6 +236,9 @@ export function AgentsPage() {
 
   useEffect(() => {
     void load()
+    return subscribeToolCatalogRefresh(() => {
+      void load()
+    })
   }, [load])
 
   const selectAgent = useCallback((agent: LiteAgent) => {
@@ -248,7 +256,7 @@ export function AgentsPage() {
     () => uniqToolNames(catalogGroups.flatMap((group) => group.tools.map((tool) => tool.name))),
     [catalogGroups],
   )
-  const selectedToolCount = form?.tools.length ?? 0
+  const selectedToolCount = form ? (form.toolSelectionMode === 'inherit' ? allCatalogToolNames.length : form.tools.length) : 0
 
   const handleCreate = useCallback(async () => {
     if (!createName.trim() || !createModel.trim()) return
@@ -258,13 +266,14 @@ export function AgentsPage() {
         name: createName.trim(),
         prompt_md: createName.trim(),
         model: createModel.trim(),
-        tool_allowlist: allCatalogToolNames,
+        tool_allowlist: [],
         reasoning_mode: 'auto',
       }, accessToken)
 
       setCreateOpen(false)
       setCreateName('')
       setCreateModel('')
+      notifyToolCatalogChanged()
       void load()
       selectAgent(agent)
     } catch (err) {
@@ -287,7 +296,7 @@ export function AgentsPage() {
           temperature: form.temperature,
           max_output_tokens: form.maxOutputTokens ? Number(form.maxOutputTokens) : undefined,
           reasoning_mode: form.reasoningMode,
-          tool_allowlist: form.tools,
+          tool_allowlist: form.toolSelectionMode === 'inherit' ? [] : form.tools,
           executor_type: selected.executor_type,
         }, accessToken)
         : await patchLiteAgent(selected.id, {
@@ -297,10 +306,11 @@ export function AgentsPage() {
           temperature: form.temperature,
           max_output_tokens: form.maxOutputTokens ? Number(form.maxOutputTokens) : undefined,
           reasoning_mode: form.reasoningMode,
-          tool_allowlist: form.tools,
+          tool_allowlist: form.toolSelectionMode === 'inherit' ? [] : form.tools,
           is_active: form.isActive,
         }, accessToken)
 
+      notifyToolCatalogChanged()
       const fresh = await load()
       const updated = fresh.find((item) => item.id === saved.id)
         ?? fresh.find((item) => item.persona_key === saved.persona_key && item.source === 'db')
@@ -331,7 +341,7 @@ export function AgentsPage() {
   }, [accessToken, addToast, goBack, load, selected, t.requestFailed])
 
   const replaceTools = useCallback((tools: string[]) => {
-    setForm((prev) => (prev ? { ...prev, tools: uniqToolNames(tools) } : prev))
+    setForm((prev) => (prev ? { ...prev, toolSelectionMode: 'custom', tools: uniqToolNames(tools) } : prev))
   }, [])
 
   const toggleTool = useCallback((key: string) => {
@@ -339,6 +349,7 @@ export function AgentsPage() {
       prev
         ? {
             ...prev,
+            toolSelectionMode: 'custom',
             tools: prev.tools.includes(key)
               ? prev.tools.filter((item) => item !== key)
               : uniqToolNames([...prev.tools, key]),
@@ -353,12 +364,24 @@ export function AgentsPage() {
       const groupNames = group.tools.map((tool) => tool.name)
       return {
         ...prev,
+        toolSelectionMode: 'custom',
         tools: enabled
           ? uniqToolNames([...prev.tools, ...groupNames])
           : prev.tools.filter((toolName) => !groupNames.includes(toolName)),
       }
     })
   }, [])
+
+  const setToolSelectionMode = useCallback((mode: ToolSelectionMode) => {
+    setForm((prev) => {
+      if (!prev || prev.toolSelectionMode === mode) return prev
+      if (mode === 'inherit') {
+        return { ...prev, toolSelectionMode: mode }
+      }
+      const nextTools = prev.tools.length > 0 ? prev.tools : allCatalogToolNames
+      return { ...prev, toolSelectionMode: mode, tools: uniqToolNames(nextTools) }
+    })
+  }, [allCatalogToolNames])
 
   const sortedAgents = useMemo(
     () => [...agents].sort((a, b) => {
@@ -536,35 +559,68 @@ export function AgentsPage() {
               {tab === 'tools' && (
                 catalogGroups.length > 0 ? (
                   <div className="flex flex-col gap-4">
-                    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--c-border)] bg-[var(--c-bg-sub)] px-4 py-3">
-                      <div>
-                        <p className="text-xs font-medium uppercase tracking-wide text-[var(--c-text-muted)]">{ta.tools}</p>
-                        <p className="mt-1 text-sm text-[var(--c-text-secondary)]">{ta.toolsSelected(selectedToolCount, allCatalogToolNames.length)}</p>
+                    <div className="flex flex-col gap-3 rounded-xl border border-[var(--c-border)] bg-[var(--c-bg-sub)] px-4 py-3">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <p className="text-xs font-medium uppercase tracking-wide text-[var(--c-text-muted)]">{ta.tools}</p>
+                          <p className="mt-1 text-sm text-[var(--c-text-secondary)]">{ta.toolsSelected(selectedToolCount, allCatalogToolNames.length)}</p>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setToolSelectionMode('inherit')}
+                            className={[
+                              'rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors',
+                              form.toolSelectionMode === 'inherit'
+                                ? 'border-[var(--c-accent)] bg-[var(--c-accent)]/10 text-[var(--c-text-primary)]'
+                                : 'border-[var(--c-border)] text-[var(--c-text-secondary)] hover:bg-[var(--c-bg-card)]',
+                            ].join(' ')}
+                          >
+                            {ta.toolModeInherit}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setToolSelectionMode('custom')}
+                            className={[
+                              'rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors',
+                              form.toolSelectionMode === 'custom'
+                                ? 'border-[var(--c-accent)] bg-[var(--c-accent)]/10 text-[var(--c-text-primary)]'
+                                : 'border-[var(--c-border)] text-[var(--c-text-secondary)] hover:bg-[var(--c-bg-card)]',
+                            ].join(' ')}
+                          >
+                            {ta.toolModeCustom}
+                          </button>
+                        </div>
                       </div>
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          onClick={() => replaceTools(allCatalogToolNames)}
-                          disabled={allCatalogToolNames.length === 0}
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--c-border)] px-3 py-1.5 text-xs font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-card)] disabled:opacity-50"
-                        >
-                          <CheckCheck size={13} />
-                          {ta.enableAllTools}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => replaceTools([])}
-                          disabled={selectedToolCount === 0}
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--c-border)] px-3 py-1.5 text-xs font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-card)] disabled:opacity-50"
-                        >
-                          <Minus size={13} />
-                          {ta.clearAllTools}
-                        </button>
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <p className="text-sm text-[var(--c-text-secondary)]">{ta.toolModeLabel}</p>
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() => replaceTools(allCatalogToolNames)}
+                            disabled={form.toolSelectionMode !== 'custom' || allCatalogToolNames.length === 0}
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--c-border)] px-3 py-1.5 text-xs font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-card)] disabled:opacity-50"
+                          >
+                            <CheckCheck size={13} />
+                            {ta.enableAllTools}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => replaceTools([])}
+                            disabled={form.toolSelectionMode !== 'custom' || form.tools.length === 0}
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--c-border)] px-3 py-1.5 text-xs font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-card)] disabled:opacity-50"
+                          >
+                            <Minus size={13} />
+                            {ta.clearAllTools}
+                          </button>
+                        </div>
                       </div>
                     </div>
                     {catalogGroups.map((group) => {
                       const groupNames = group.tools.map((tool) => tool.name)
-                      const groupSelectedCount = groupNames.filter((toolName) => form.tools.includes(toolName)).length
+                      const groupSelectedCount = form.toolSelectionMode === 'inherit'
+                        ? group.tools.length
+                        : groupNames.filter((toolName) => form.tools.includes(toolName)).length
                       return (
                         <div key={group.group} className="flex flex-col gap-3 rounded-xl border border-[var(--c-border)] bg-[var(--c-bg-sub)] p-4">
                           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -576,7 +632,7 @@ export function AgentsPage() {
                               <button
                                 type="button"
                                 onClick={() => toggleToolGroup(group, true)}
-                                disabled={group.tools.length === 0 || groupSelectedCount === group.tools.length}
+                                disabled={form.toolSelectionMode !== 'custom' || group.tools.length === 0 || groupSelectedCount === group.tools.length}
                                 className="rounded-lg border border-[var(--c-border)] px-3 py-1.5 text-xs font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-card)] disabled:opacity-50"
                               >
                                 {ta.groupEnableAll}
@@ -584,7 +640,7 @@ export function AgentsPage() {
                               <button
                                 type="button"
                                 onClick={() => toggleToolGroup(group, false)}
-                                disabled={groupSelectedCount === 0}
+                                disabled={form.toolSelectionMode !== 'custom' || groupSelectedCount === 0}
                                 className="rounded-lg border border-[var(--c-border)] px-3 py-1.5 text-xs font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-card)] disabled:opacity-50"
                               >
                                 {ta.groupClearAll}
@@ -596,8 +652,8 @@ export function AgentsPage() {
                               <ToolOptionCard
                                 key={tool.name}
                                 tool={tool}
-                                checked={form.tools.includes(tool.name)}
-                                disabled={false}
+                                checked={form.toolSelectionMode === 'inherit' || form.tools.includes(tool.name)}
+                                disabled={form.toolSelectionMode !== 'custom'}
                                 onToggle={() => toggleTool(tool.name)}
                               />
                             ))}

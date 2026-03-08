@@ -114,7 +114,7 @@ cd src/services/api && go test -tags integration ./...
 | `ARKLOOP_API_GO_ADDR` | API 监听地址 | `127.0.0.1:8001` |
 | `ARKLOOP_LOAD_DOTENV` | 自动从 .env 文件加载 | `0` |
 | `ARKLOOP_DOTENV_FILE` | .env 文件路径 | `.env` |
-| `ARKLOOP_TOOL_ALLOWLIST` | 允许 LLM 调用的内置工具（逗号分隔） | 空（禁用全部） |
+| `ARKLOOP_TOOL_ALLOWLIST` | 已弃用的兼容配置；仅记录日志，不再裁剪运行时工具 | — |
 | `ARKLOOP_JWT_SECRET` | JWT 签名密钥 | — |
 
 完整环境变量参考：`.env.example`。

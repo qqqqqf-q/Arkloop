@@ -251,7 +251,7 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 
 	mux.HandleFunc(
 		"/v1/tool-catalog/effective",
-		toolCatalogEffectiveEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.ToolDescriptionOverridesRepo, cfg.ToolProviderConfigsRepo, cfg.Pool, effectiveToolCatalogCache),
+		toolCatalogEffectiveEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.ToolDescriptionOverridesRepo, cfg.Pool, effectiveToolCatalogCache, cfg.ArtifactStore != nil),
 	)
 	mux.HandleFunc(
 		"/v1/tool-catalog",
