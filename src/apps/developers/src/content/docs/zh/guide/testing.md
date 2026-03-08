@@ -3,6 +3,29 @@
 
 # 测试与基准
 
+## 日常 CI 检查
+
+日常本地验证建议先使用仓库内的 CI 辅助脚本：
+
+```bash
+# 快速本地检查
+bin/ci-local quick
+
+# 启动临时 PostgreSQL 后跑 Go 集成测试
+bin/ci-local integration
+
+# 完整本地检查
+bin/ci-local full
+
+# 近似 GitHub Actions 的验证
+bin/ci-local act go-check
+bin/ci-local act typescript
+bin/ci-local act go-integration
+```
+
+推荐顺序：`bin/ci-local quick` -> `bin/ci-local integration` -> `bin/ci-local act <job>`。
+`quick` 适合日常提交前自检，`integration` 适合数据库、repo、worker pipeline、webhook、runengine 一类改动，`act` 用来做接近 GitHub Actions 的补充验证。
+
 ## 单元测试
 
 ```bash

@@ -3,6 +3,29 @@
 
 # Testing & Benchmarks
 
+## Daily CI Checks
+
+For daily local validation, use the repository CI helper first:
+
+```bash
+# Fast local checks
+bin/ci-local quick
+
+# Go integration checks with a temporary PostgreSQL container
+bin/ci-local integration
+
+# Full local pass
+bin/ci-local full
+
+# GitHub Actions style verification
+bin/ci-local act go-check
+bin/ci-local act typescript
+bin/ci-local act go-integration
+```
+
+Recommended order: `bin/ci-local quick` -> `bin/ci-local integration` -> `bin/ci-local act <job>`.
+Use `quick` for routine pre-commit checks, `integration` after database or pipeline changes, and `act` when you need behavior close to GitHub Actions.
+
 ## Unit Tests
 
 ```bash
