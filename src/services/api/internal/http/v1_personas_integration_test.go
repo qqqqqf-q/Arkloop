@@ -204,6 +204,21 @@ func TestPersonasListCreateAndPatchUsePersonaFields(t *testing.T) {
 		t.Fatalf("unexpected created tool_denylist: %#v", created.ToolDenylist)
 	}
 
+	copyResp := doJSON(handler, nethttp.MethodPost, "/v1/personas", map[string]any{
+		"copy_from_repo_persona_key": "builtin-only",
+		"persona_key":                "builtin-only",
+		"version":                    "1",
+		"display_name":               "Builtin Customized",
+		"prompt_md":                  "builtin customized prompt",
+		"tool_allowlist":             []string{"web_search"},
+		"tool_denylist":              []string{"exec_command"},
+		"model":                      "builtin-custom^gpt-5-mini",
+		"reasoning_mode":             "medium",
+	}, headers)
+	if copyResp.Code != nethttp.StatusCreated {
+		t.Fatalf("copy builtin persona: %d %s", copyResp.Code, copyResp.Body.String())
+	}
+
 	listResp := doJSON(handler, nethttp.MethodGet, "/v1/personas", nil, headers)
 	if listResp.Code != nethttp.StatusOK {
 		t.Fatalf("list personas: %d %s", listResp.Code, listResp.Body.String())
@@ -225,13 +240,16 @@ func TestPersonasListCreateAndPatchUsePersonaFields(t *testing.T) {
 	if !ok {
 		t.Fatal("expected builtin-only persona in list")
 	}
-	if builtinOnly.Source != "builtin" {
-		t.Fatalf("unexpected builtin source: %q", builtinOnly.Source)
+	if builtinOnly.Source != "custom" {
+		t.Fatalf("unexpected builtin-only source after copy: %q", builtinOnly.Source)
 	}
-	if builtinOnly.Model == nil || *builtinOnly.Model != "builtin-cred^gpt-builtin" {
+	if builtinOnly.DisplayName != "Builtin Customized" {
+		t.Fatalf("unexpected builtin-only display name: %q", builtinOnly.DisplayName)
+	}
+	if builtinOnly.Model == nil || *builtinOnly.Model != "builtin-custom^gpt-5-mini" {
 		t.Fatalf("unexpected builtin model: %#v", builtinOnly.Model)
 	}
-	if builtinOnly.ReasoningMode != "low" {
+	if builtinOnly.ReasoningMode != "medium" {
 		t.Fatalf("unexpected builtin reasoning_mode: %q", builtinOnly.ReasoningMode)
 	}
 	if builtinOnly.PromptCacheControl != "none" {

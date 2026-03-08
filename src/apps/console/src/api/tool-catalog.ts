@@ -15,6 +15,10 @@ export type ToolCatalogGroup = {
   tools: ToolCatalogItem[]
 }
 
+export async function listEffectiveToolCatalog(accessToken: string): Promise<{ groups: ToolCatalogGroup[] }> {
+  return apiFetch<{ groups: ToolCatalogGroup[] }>('/v1/tool-catalog/effective', { accessToken })
+}
+
 function withScope(path: string, scope?: string): string {
   const s = (scope ?? '').trim()
   if (!s) return path

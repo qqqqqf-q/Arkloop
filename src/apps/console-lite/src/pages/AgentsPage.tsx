@@ -278,19 +278,32 @@ export function AgentsPage() {
     if (!selected || !form || !form.name.trim()) return
     setSaving(true)
     try {
-      await patchLiteAgent(selected.id, {
-        name: form.name.trim(),
-        prompt_md: form.systemPrompt.trim() || undefined,
-        model: form.model.trim() || undefined,
-        temperature: form.temperature,
-        max_output_tokens: form.maxOutputTokens ? Number(form.maxOutputTokens) : undefined,
-        reasoning_mode: form.reasoningMode,
-        tool_allowlist: form.tools,
-        is_active: form.isActive,
-      }, accessToken)
+      const saved = selected.source === 'repo'
+        ? await createLiteAgent({
+          copy_from_repo_persona_key: selected.persona_key,
+          name: form.name.trim(),
+          prompt_md: form.systemPrompt.trim(),
+          model: form.model.trim() || undefined,
+          temperature: form.temperature,
+          max_output_tokens: form.maxOutputTokens ? Number(form.maxOutputTokens) : undefined,
+          reasoning_mode: form.reasoningMode,
+          tool_allowlist: form.tools,
+          executor_type: selected.executor_type,
+        }, accessToken)
+        : await patchLiteAgent(selected.id, {
+          name: form.name.trim(),
+          prompt_md: form.systemPrompt.trim() || undefined,
+          model: form.model.trim() || undefined,
+          temperature: form.temperature,
+          max_output_tokens: form.maxOutputTokens ? Number(form.maxOutputTokens) : undefined,
+          reasoning_mode: form.reasoningMode,
+          tool_allowlist: form.tools,
+          is_active: form.isActive,
+        }, accessToken)
 
       const fresh = await load()
-      const updated = fresh.find((item) => item.id === selected.id)
+      const updated = fresh.find((item) => item.id === saved.id)
+        ?? fresh.find((item) => item.persona_key === saved.persona_key && item.source === 'db')
       if (updated) {
         setSelected(updated)
         setForm(agentToForm(updated))
@@ -450,30 +463,18 @@ export function AgentsPage() {
                     />
                   </FormField>
 
-                  {isRepoAgent ? (
-                    <FormField label={ta.model}>
-                      <div className="rounded-lg border border-[var(--c-border)] bg-[var(--c-bg-input)] px-3 py-2">
-                        <AgentModelLine
-                          agent={selected}
-                          hybridLabel={ta.hybrid}
-                          textClassName="text-sm text-[var(--c-text-secondary)]"
-                        />
-                      </div>
-                    </FormField>
-                  ) : (
-                    <FormField label={ta.model}>
-                      <select
-                        className={SELECT_CLS}
-                        value={form.model}
-                        onChange={(e) => setForm((prev) => prev && { ...prev, model: e.target.value })}
-                      >
-                        <option value="" />
-                        {selectedModelOptions.map((option) => (
-                          <option key={option.value} value={option.value}>{option.label}</option>
-                        ))}
-                      </select>
-                    </FormField>
-                  )}
+                  <FormField label={ta.model}>
+                    <select
+                      className={SELECT_CLS}
+                      value={form.model}
+                      onChange={(e) => setForm((prev) => prev && { ...prev, model: e.target.value })}
+                    >
+                      <option value="" />
+                      {selectedModelOptions.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                  </FormField>
 
                   <CheckboxField
                     checked={form.isActive}
@@ -544,7 +545,7 @@ export function AgentsPage() {
                         <button
                           type="button"
                           onClick={() => replaceTools(allCatalogToolNames)}
-                          disabled={isRepoAgent || allCatalogToolNames.length === 0}
+                          disabled={allCatalogToolNames.length === 0}
                           className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--c-border)] px-3 py-1.5 text-xs font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-card)] disabled:opacity-50"
                         >
                           <CheckCheck size={13} />
@@ -553,7 +554,7 @@ export function AgentsPage() {
                         <button
                           type="button"
                           onClick={() => replaceTools([])}
-                          disabled={isRepoAgent || selectedToolCount === 0}
+                          disabled={selectedToolCount === 0}
                           className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--c-border)] px-3 py-1.5 text-xs font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-card)] disabled:opacity-50"
                         >
                           <Minus size={13} />
@@ -575,7 +576,7 @@ export function AgentsPage() {
                               <button
                                 type="button"
                                 onClick={() => toggleToolGroup(group, true)}
-                                disabled={isRepoAgent || group.tools.length === 0 || groupSelectedCount === group.tools.length}
+                                disabled={group.tools.length === 0 || groupSelectedCount === group.tools.length}
                                 className="rounded-lg border border-[var(--c-border)] px-3 py-1.5 text-xs font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-card)] disabled:opacity-50"
                               >
                                 {ta.groupEnableAll}
@@ -583,7 +584,7 @@ export function AgentsPage() {
                               <button
                                 type="button"
                                 onClick={() => toggleToolGroup(group, false)}
-                                disabled={isRepoAgent || groupSelectedCount === 0}
+                                disabled={groupSelectedCount === 0}
                                 className="rounded-lg border border-[var(--c-border)] px-3 py-1.5 text-xs font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-card)] disabled:opacity-50"
                               >
                                 {ta.groupClearAll}
@@ -596,7 +597,7 @@ export function AgentsPage() {
                                 key={tool.name}
                                 tool={tool}
                                 checked={form.tools.includes(tool.name)}
-                                disabled={isRepoAgent}
+                                disabled={false}
                                 onToggle={() => toggleTool(tool.name)}
                               />
                             ))}

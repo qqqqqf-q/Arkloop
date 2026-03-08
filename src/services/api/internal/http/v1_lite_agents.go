@@ -2,6 +2,7 @@ package http
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 
 	nethttp "net/http"
@@ -34,14 +35,15 @@ type liteAgentResponse struct {
 }
 
 type createLiteAgentRequest struct {
-	Name            string   `json:"name"`
-	PromptMD        string   `json:"prompt_md"`
-	Model           *string  `json:"model"`
-	Temperature     *float64 `json:"temperature"`
-	MaxOutputTokens *int     `json:"max_output_tokens"`
-	ReasoningMode   string   `json:"reasoning_mode"`
-	ToolAllowlist   []string `json:"tool_allowlist"`
-	ExecutorType    string   `json:"executor_type"`
+	CopyFromRepoPersonaKey string   `json:"copy_from_repo_persona_key"`
+	Name                   string   `json:"name"`
+	PromptMD               string   `json:"prompt_md"`
+	Model                  *string  `json:"model"`
+	Temperature            *float64 `json:"temperature"`
+	MaxOutputTokens        *int     `json:"max_output_tokens"`
+	ReasoningMode          string   `json:"reasoning_mode"`
+	ToolAllowlist          []string `json:"tool_allowlist"`
+	ExecutorType           string   `json:"executor_type"`
 }
 
 type patchLiteAgentRequest struct {
@@ -66,7 +68,7 @@ func liteAgentsEntry(
 		case nethttp.MethodGet:
 			listLiteAgents(w, r, authService, membershipRepo, personasRepo, repoPersonas)
 		case nethttp.MethodPost:
-			createLiteAgent(w, r, authService, membershipRepo, personasRepo)
+			createLiteAgent(w, r, authService, membershipRepo, personasRepo, repoPersonas)
 		default:
 			writeMethodNotAllowed(w, r)
 		}
@@ -148,6 +150,7 @@ func createLiteAgent(
 	authService *auth.Service,
 	membershipRepo *data.OrgMembershipRepository,
 	personasRepo *data.PersonasRepository,
+	repoPersonas []personas.RepoPersona,
 ) {
 	traceID := observability.TraceIDFromContext(r.Context())
 	if authService == nil {
@@ -169,6 +172,27 @@ func createLiteAgent(
 	}
 	req.Name = strings.TrimSpace(req.Name)
 	req.PromptMD = strings.TrimSpace(req.PromptMD)
+	req.CopyFromRepoPersonaKey = strings.TrimSpace(req.CopyFromRepoPersonaKey)
+	if req.CopyFromRepoPersonaKey != "" {
+		repoPersona, ok := findRepoPersonaByKey(repoPersonas, req.CopyFromRepoPersonaKey)
+		if !ok {
+			WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "copy_from_repo_persona_key is invalid", traceID, nil)
+			return
+		}
+
+		persona, err := materializeRepoPersonaForLiteAgent(r.Context(), personasRepo, actor.OrgID, *repoPersona, req)
+		if err != nil {
+			var conflict data.PersonaConflictError
+			if errors.As(err, &conflict) {
+				WriteError(w, nethttp.StatusConflict, "lite_agents.conflict", "agent with this key and version already exists", traceID, nil)
+				return
+			}
+			WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			return
+		}
+		writeJSON(w, traceID, nethttp.StatusCreated, toLiteAgentFromDB(persona))
+		return
+	}
 	if req.Name == "" || req.PromptMD == "" {
 		WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "name and prompt_md are required", traceID, nil)
 		return

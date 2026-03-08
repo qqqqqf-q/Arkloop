@@ -26,6 +26,7 @@ export type Persona = {
 }
 
 export type CreatePersonaRequest = {
+  copy_from_repo_persona_key?: string
   persona_key: string
   version: string
   display_name: string

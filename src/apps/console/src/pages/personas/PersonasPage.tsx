@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react'
 import { useOutletContext } from 'react-router-dom'
-import { Plus, Pencil, Zap } from 'lucide-react'
+import { Plus, Pencil, Zap, Check, CheckCheck, Minus } from 'lucide-react'
 import type { ConsoleOutletContext } from '../../layouts/ConsoleLayout'
 import { PageHeader } from '../../components/PageHeader'
 import { DataTable, type Column } from '../../components/DataTable'
@@ -16,6 +16,7 @@ import {
   patchPersona,
   type Persona,
 } from '../../api/personas'
+import { listEffectiveToolCatalog, type ToolCatalogGroup, type ToolCatalogItem } from '../../api/tool-catalog'
 
 type PersonaFormState = {
   personaKey: string
@@ -82,6 +83,53 @@ function parseToolList(raw: string): string[] {
     .filter(Boolean)
 }
 
+function uniqToolNames(names: string[]): string[] {
+  return Array.from(new Set(names.map((item) => item.trim()).filter(Boolean)))
+}
+
+function formatToolList(names: string[]): string {
+  return uniqToolNames(names).join(', ')
+}
+
+function ToolOptionCard({
+  tool,
+  checked,
+  onToggle,
+}: {
+  tool: ToolCatalogItem
+  checked: boolean
+  onToggle: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className={[
+        'flex w-full items-start gap-3 rounded-xl border px-4 py-3 text-left transition-colors',
+        checked
+          ? 'border-[var(--c-accent)] bg-[var(--c-accent)]/8'
+          : 'border-[var(--c-border)] bg-[var(--c-bg-sub)] hover:border-[var(--c-border-focus)]',
+      ].join(' ')}
+    >
+      <span
+        className={[
+          'mt-0.5 flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[5px] border transition-colors',
+          checked
+            ? 'border-[var(--c-accent)] bg-[var(--c-accent)] text-white'
+            : 'border-[var(--c-border)] bg-[var(--c-bg-input)] text-transparent',
+        ].join(' ')}
+      >
+        <Check size={12} strokeWidth={3} />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-medium text-[var(--c-text-primary)]">{tool.label}</span>
+        <span className="mt-0.5 block font-mono text-[10px] text-[var(--c-text-muted)]">{tool.name}</span>
+        <span className="mt-1 block line-clamp-2 text-xs text-[var(--c-text-muted)]">{tool.llm_description}</span>
+      </span>
+    </button>
+  )
+}
+
 function tryParseJSONObject(raw: string): { ok: true; value: Record<string, unknown> } | { ok: false } {
   try {
     const parsed = JSON.parse(raw.trim() || '{}')
@@ -127,6 +175,7 @@ export function PersonasPage() {
   const tc = t.pages.personas
 
   const [personas, setPersonas] = useState<Persona[]>([])
+  const [catalogGroups, setCatalogGroups] = useState<ToolCatalogGroup[]>([])
   const [loading, setLoading] = useState(false)
 
   const [createOpen, setCreateOpen] = useState(false)
@@ -142,8 +191,12 @@ export function PersonasPage() {
   const fetchAll = useCallback(async () => {
     setLoading(true)
     try {
-      const list = await listPersonas(accessToken)
+      const [list, catalog] = await Promise.all([
+        listPersonas(accessToken),
+        listEffectiveToolCatalog(accessToken),
+      ])
       setPersonas(list)
+      setCatalogGroups(catalog.groups)
     } catch {
       addToast(tc.toastLoadFailed, 'error')
     } finally {
@@ -278,7 +331,16 @@ export function PersonasPage() {
     setSaving(true)
     setEditError('')
     try {
-      await patchPersona(editTarget.id, payload.value, accessToken)
+      if (editTarget.source === 'builtin') {
+        await createPersona({
+          copy_from_repo_persona_key: editTarget.persona_key,
+          persona_key: editForm.personaKey.trim(),
+          version: editForm.version.trim(),
+          ...payload.value,
+        }, accessToken)
+      } else {
+        await patchPersona(editTarget.id, payload.value, accessToken)
+      }
       addToast(tc.toastUpdated, 'success')
       setEditTarget(null)
       await fetchAll()
@@ -358,10 +420,9 @@ export function PersonasPage() {
             <button
               onClick={(event) => {
                 event.stopPropagation()
-                if (!isBuiltin) openEdit(row)
+                openEdit(row)
               }}
-              disabled={isBuiltin}
-              className="flex items-center justify-center rounded p-1 text-[var(--c-text-muted)] transition-colors hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-secondary)] disabled:cursor-not-allowed disabled:opacity-30"
+              className="flex items-center justify-center rounded p-1 text-[var(--c-text-muted)] transition-colors hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-secondary)]"
               title={tc.modalTitleEdit}
             >
               <Pencil size={13} />
@@ -392,174 +453,244 @@ export function PersonasPage() {
     form: PersonaFormState,
     setField: <K extends keyof PersonaFormState>(key: K, value: PersonaFormState[K]) => void,
     readOnlyIdentity: boolean,
-  ) => (
-    <>
-      <div className="grid grid-cols-2 gap-3">
-        <FormField label={tc.fieldPersonaKey}>
-          {readOnlyIdentity ? (
-            <div className="flex items-center px-3 py-1.5 text-sm font-mono text-[var(--c-text-muted)]">{form.personaKey}</div>
-          ) : (
-            <input
-              type="text"
-              value={form.personaKey}
-              onChange={(e) => setField('personaKey', e.target.value)}
-              placeholder="my_persona"
-              className={inputCls}
-            />
-          )}
+  ) => {
+    const renderToolSelector = (fieldKey: 'toolAllowlist' | 'toolDenylist', label: string) => {
+      const selectedNames = uniqToolNames(parseToolList(form[fieldKey]))
+      const totalToolCount = catalogGroups.reduce((sum, group) => sum + group.tools.length, 0)
+      const replaceTools = (next: string[]) => setField(fieldKey, formatToolList(next) as PersonaFormState[typeof fieldKey])
+      const toggleTool = (toolName: string) => {
+        replaceTools(
+          selectedNames.includes(toolName)
+            ? selectedNames.filter((item) => item !== toolName)
+            : [...selectedNames, toolName],
+        )
+      }
+      const toggleGroup = (group: ToolCatalogGroup, enabled: boolean) => {
+        const groupNames = group.tools.map((tool) => tool.name)
+        replaceTools(enabled ? [...selectedNames, ...groupNames] : selectedNames.filter((name) => !groupNames.includes(name)))
+      }
+
+      return (
+        <FormField label={label}>
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--c-border)] bg-[var(--c-bg-sub)] px-4 py-3">
+              <p className="text-sm text-[var(--c-text-secondary)]">{tc.toolsSelected(selectedNames.length, totalToolCount)}</p>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => replaceTools(catalogGroups.flatMap((group) => group.tools.map((tool) => tool.name)))}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--c-border)] px-3 py-1.5 text-xs font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-card)]"
+                >
+                  <CheckCheck size={13} />
+                  {tc.enableAllTools}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => replaceTools([])}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--c-border)] px-3 py-1.5 text-xs font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-card)]"
+                >
+                  <Minus size={13} />
+                  {tc.clearAllTools}
+                </button>
+              </div>
+            </div>
+            {catalogGroups.map((group) => {
+              const groupNames = group.tools.map((tool) => tool.name)
+              const groupSelectedCount = groupNames.filter((toolName) => selectedNames.includes(toolName)).length
+              return (
+                <div key={`${fieldKey}-${group.group}`} className="flex flex-col gap-3 rounded-xl border border-[var(--c-border)] bg-[var(--c-bg-sub)] p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-medium uppercase tracking-wide text-[var(--c-text-muted)]">{group.group}</p>
+                      <p className="mt-1 text-sm text-[var(--c-text-secondary)]">{tc.toolsSelected(groupSelectedCount, group.tools.length)}</p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => toggleGroup(group, true)}
+                        className="rounded-lg border border-[var(--c-border)] px-3 py-1.5 text-xs font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-card)]"
+                      >
+                        {tc.groupEnableAll}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => toggleGroup(group, false)}
+                        className="rounded-lg border border-[var(--c-border)] px-3 py-1.5 text-xs font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-card)]"
+                      >
+                        {tc.groupClearAll}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    {group.tools.map((tool) => (
+                      <ToolOptionCard
+                        key={`${fieldKey}-${tool.name}`}
+                        tool={tool}
+                        checked={selectedNames.includes(tool.name)}
+                        onToggle={() => toggleTool(tool.name)}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
         </FormField>
-        <FormField label={tc.fieldVersion}>
-          {readOnlyIdentity ? (
-            <div className="flex items-center px-3 py-1.5 text-sm text-[var(--c-text-muted)]">{form.version}</div>
-          ) : (
-            <input
-              type="text"
-              value={form.version}
-              onChange={(e) => setField('version', e.target.value)}
-              placeholder="1.0.0"
-              className={inputCls}
-            />
-          )}
-        </FormField>
-      </div>
+      )
+    }
 
-      <FormField label={tc.fieldDisplayName}>
-        <input
-          type="text"
-          value={form.displayName}
-          onChange={(e) => setField('displayName', e.target.value)}
-          className={inputCls}
-        />
-      </FormField>
+    return (
+      <>
+        <div className="grid grid-cols-2 gap-3">
+          <FormField label={tc.fieldPersonaKey}>
+            {readOnlyIdentity ? (
+              <div className="flex items-center px-3 py-1.5 text-sm font-mono text-[var(--c-text-muted)]">{form.personaKey}</div>
+            ) : (
+              <input
+                type="text"
+                value={form.personaKey}
+                onChange={(e) => setField('personaKey', e.target.value)}
+                placeholder="my_persona"
+                className={inputCls}
+              />
+            )}
+          </FormField>
+          <FormField label={tc.fieldVersion}>
+            {readOnlyIdentity ? (
+              <div className="flex items-center px-3 py-1.5 text-sm text-[var(--c-text-muted)]">{form.version}</div>
+            ) : (
+              <input
+                type="text"
+                value={form.version}
+                onChange={(e) => setField('version', e.target.value)}
+                placeholder="1.0.0"
+                className={inputCls}
+              />
+            )}
+          </FormField>
+        </div>
 
-      <FormField label={tc.fieldDescription}>
-        <input
-          type="text"
-          value={form.description}
-          onChange={(e) => setField('description', e.target.value)}
-          className={inputCls}
-        />
-      </FormField>
-
-      <FormField label={tc.fieldPrompt}>
-        <textarea
-          value={form.prompt}
-          onChange={(e) => setField('prompt', e.target.value)}
-          rows={5}
-          className={textareaCls}
-        />
-      </FormField>
-
-      <div className="grid grid-cols-2 gap-3">
-        <FormField label={tc.fieldModel}>
+        <FormField label={tc.fieldDisplayName}>
           <input
             type="text"
-            value={form.model}
-            onChange={(e) => setField('model', e.target.value)}
-            placeholder="provider^model"
+            value={form.displayName}
+            onChange={(e) => setField('displayName', e.target.value)}
             className={inputCls}
           />
         </FormField>
-        <FormField label={tc.fieldPreferredCredential}>
+
+        <FormField label={tc.fieldDescription}>
           <input
             type="text"
-            value={form.preferredCredential}
-            onChange={(e) => setField('preferredCredential', e.target.value)}
+            value={form.description}
+            onChange={(e) => setField('description', e.target.value)}
             className={inputCls}
           />
         </FormField>
-      </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        <FormField label={tc.fieldReasoningMode}>
-          <select
-            value={form.reasoningMode}
-            onChange={(e) => setField('reasoningMode', e.target.value)}
-            className={selectCls}
-          >
-            <option value="auto">auto</option>
-            <option value="enabled">enabled</option>
-            <option value="disabled">disabled</option>
-            <option value="none">none</option>
-          </select>
+        <FormField label={tc.fieldPrompt}>
+          <textarea
+            value={form.prompt}
+            onChange={(e) => setField('prompt', e.target.value)}
+            rows={5}
+            className={textareaCls}
+          />
         </FormField>
-        <FormField label={tc.fieldPromptCacheControl}>
-          <select
-            value={form.promptCacheControl}
-            onChange={(e) => setField('promptCacheControl', e.target.value)}
-            className={selectCls}
-          >
-            <option value="none">none</option>
-            <option value="system_prompt">system_prompt</option>
-          </select>
+
+        <div className="grid grid-cols-2 gap-3">
+          <FormField label={tc.fieldModel}>
+            <input
+              type="text"
+              value={form.model}
+              onChange={(e) => setField('model', e.target.value)}
+              placeholder="provider^model"
+              className={inputCls}
+            />
+          </FormField>
+          <FormField label={tc.fieldPreferredCredential}>
+            <input
+              type="text"
+              value={form.preferredCredential}
+              onChange={(e) => setField('preferredCredential', e.target.value)}
+              className={inputCls}
+            />
+          </FormField>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <FormField label={tc.fieldReasoningMode}>
+            <select
+              value={form.reasoningMode}
+              onChange={(e) => setField('reasoningMode', e.target.value)}
+              className={selectCls}
+            >
+              <option value="auto">auto</option>
+              <option value="enabled">enabled</option>
+              <option value="disabled">disabled</option>
+              <option value="none">none</option>
+            </select>
+          </FormField>
+          <FormField label={tc.fieldPromptCacheControl}>
+            <select
+              value={form.promptCacheControl}
+              onChange={(e) => setField('promptCacheControl', e.target.value)}
+              className={selectCls}
+            >
+              <option value="none">none</option>
+              <option value="system_prompt">system_prompt</option>
+            </select>
+          </FormField>
+        </div>
+
+        {renderToolSelector('toolAllowlist', tc.fieldToolAllowlist)}
+        {renderToolSelector('toolDenylist', tc.fieldToolDenylist)}
+
+        <FormField label={tc.fieldBudgetsJSON}>
+          <textarea
+            value={form.budgetsJSON}
+            onChange={(e) => setField('budgetsJSON', e.target.value)}
+            rows={4}
+            className={textareaCls}
+          />
         </FormField>
-      </div>
 
-      <FormField label={tc.fieldToolAllowlist}>
-        <input
-          type="text"
-          value={form.toolAllowlist}
-          onChange={(e) => setField('toolAllowlist', e.target.value)}
-          placeholder={tc.fieldToolAllowlistPlaceholder}
-          className={inputCls}
-        />
-      </FormField>
+        <FormField label={tc.fieldExecutorType}>
+          <input
+            type="text"
+            value={form.executorType}
+            onChange={(e) => setField('executorType', e.target.value)}
+            placeholder="agent.simple"
+            className={inputCls}
+          />
+        </FormField>
 
-      <FormField label={tc.fieldToolDenylist}>
-        <input
-          type="text"
-          value={form.toolDenylist}
-          onChange={(e) => setField('toolDenylist', e.target.value)}
-          placeholder={tc.fieldToolAllowlistPlaceholder}
-          className={inputCls}
-        />
-      </FormField>
+        <FormField label={tc.fieldExecutorConfig}>
+          <textarea
+            value={form.executorConfigJSON}
+            onChange={(e) => setField('executorConfigJSON', e.target.value)}
+            rows={4}
+            className={textareaCls}
+          />
+        </FormField>
 
-      <FormField label={tc.fieldBudgetsJSON}>
-        <textarea
-          value={form.budgetsJSON}
-          onChange={(e) => setField('budgetsJSON', e.target.value)}
-          rows={4}
-          className={textareaCls}
-        />
-      </FormField>
-
-      <FormField label={tc.fieldExecutorType}>
-        <input
-          type="text"
-          value={form.executorType}
-          onChange={(e) => setField('executorType', e.target.value)}
-          placeholder="agent.simple"
-          className={inputCls}
-        />
-      </FormField>
-
-      <FormField label={tc.fieldExecutorConfig}>
-        <textarea
-          value={form.executorConfigJSON}
-          onChange={(e) => setField('executorConfigJSON', e.target.value)}
-          rows={4}
-          className={textareaCls}
-        />
-      </FormField>
-
-      <div className="flex items-center gap-2">
-        <input
-          id={readOnlyIdentity ? 'persona-edit-is-active' : 'persona-create-is-active'}
-          type="checkbox"
-          checked={form.isActive}
-          onChange={(e) => setField('isActive', e.target.checked)}
-          className="h-3.5 w-3.5 rounded"
-        />
-        <label
-          htmlFor={readOnlyIdentity ? 'persona-edit-is-active' : 'persona-create-is-active'}
-          className="text-sm text-[var(--c-text-secondary)]"
-        >
-          {tc.fieldIsActive}
-        </label>
-      </div>
-    </>
-  )
+        <div className="flex items-center gap-2">
+          <input
+            id={readOnlyIdentity ? 'persona-edit-is-active' : 'persona-create-is-active'}
+            type="checkbox"
+            checked={form.isActive}
+            onChange={(e) => setField('isActive', e.target.checked)}
+            className="h-3.5 w-3.5 rounded"
+          />
+          <label
+            htmlFor={readOnlyIdentity ? 'persona-edit-is-active' : 'persona-create-is-active'}
+            className="text-sm text-[var(--c-text-secondary)]"
+          >
+            {tc.fieldIsActive}
+          </label>
+        </div>
+      </>
+    )
+  }
 
   return (
     <div className="flex h-full flex-col overflow-hidden">

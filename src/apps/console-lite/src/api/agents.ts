@@ -23,6 +23,7 @@ export type LiteAgent = {
 }
 
 export type CreateLiteAgentRequest = {
+  copy_from_repo_persona_key?: string
   name: string
   prompt_md: string
   model?: string
@@ -84,5 +85,5 @@ export async function deleteLiteAgent(
 export async function listToolCatalog(
   accessToken: string,
 ): Promise<{ groups: ToolCatalogGroup[] }> {
-  return apiFetch<{ groups: ToolCatalogGroup[] }>('/v1/tool-catalog?scope=platform', { accessToken })
+  return apiFetch<{ groups: ToolCatalogGroup[] }>('/v1/tool-catalog/effective', { accessToken })
 }

@@ -16,20 +16,21 @@ import (
 )
 
 type createPersonaRequest struct {
-	PersonaKey          string          `json:"persona_key"`
-	Version             string          `json:"version"`
-	DisplayName         string          `json:"display_name"`
-	Description         *string         `json:"description"`
-	PromptMD            string          `json:"prompt_md"`
-	ToolAllowlist       []string        `json:"tool_allowlist"`
-	ToolDenylist        []string        `json:"tool_denylist"`
-	BudgetsJSON         json.RawMessage `json:"budgets"`
-	PreferredCredential *string         `json:"preferred_credential"`
-	Model               *string         `json:"model"`
-	ReasoningMode       string          `json:"reasoning_mode"`
-	PromptCacheControl  string          `json:"prompt_cache_control"`
-	ExecutorType        string          `json:"executor_type"`
-	ExecutorConfigJSON  json.RawMessage `json:"executor_config"`
+	CopyFromRepoPersonaKey string          `json:"copy_from_repo_persona_key"`
+	PersonaKey             string          `json:"persona_key"`
+	Version                string          `json:"version"`
+	DisplayName            string          `json:"display_name"`
+	Description            *string         `json:"description"`
+	PromptMD               string          `json:"prompt_md"`
+	ToolAllowlist          []string        `json:"tool_allowlist"`
+	ToolDenylist           []string        `json:"tool_denylist"`
+	BudgetsJSON            json.RawMessage `json:"budgets"`
+	PreferredCredential    *string         `json:"preferred_credential"`
+	Model                  *string         `json:"model"`
+	ReasoningMode          string          `json:"reasoning_mode"`
+	PromptCacheControl     string          `json:"prompt_cache_control"`
+	ExecutorType           string          `json:"executor_type"`
+	ExecutorConfigJSON     json.RawMessage `json:"executor_config"`
 }
 
 type patchPersonaRequest struct {
@@ -83,7 +84,7 @@ func personasEntry(
 		traceID := observability.TraceIDFromContext(r.Context())
 		switch r.Method {
 		case nethttp.MethodPost:
-			createPersona(w, r, traceID, authService, membershipRepo, personasRepo)
+			createPersona(w, r, traceID, authService, membershipRepo, personasRepo, repoPersonas)
 		case nethttp.MethodGet:
 			listPersonas(w, r, traceID, authService, membershipRepo, personasRepo, repoPersonas)
 		default:
@@ -129,6 +130,7 @@ func createPersona(
 	authService *auth.Service,
 	membershipRepo *data.OrgMembershipRepository,
 	personasRepo *data.PersonasRepository,
+	repoPersonas []repopersonas.RepoPersona,
 ) {
 	if authService == nil {
 		writeAuthNotConfigured(w, traceID)
@@ -157,6 +159,37 @@ func createPersona(
 	req.Version = strings.TrimSpace(req.Version)
 	req.DisplayName = strings.TrimSpace(req.DisplayName)
 	req.PromptMD = strings.TrimSpace(req.PromptMD)
+	req.CopyFromRepoPersonaKey = strings.TrimSpace(req.CopyFromRepoPersonaKey)
+
+	if req.CopyFromRepoPersonaKey != "" {
+		repoPersona, ok := findRepoPersonaByKey(repoPersonas, req.CopyFromRepoPersonaKey)
+		if !ok {
+			WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "copy_from_repo_persona_key is invalid", traceID, nil)
+			return
+		}
+		if req.PersonaKey != "" && req.PersonaKey != repoPersona.ID {
+			WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "persona_key must match repo persona key", traceID, nil)
+			return
+		}
+		if req.Version != "" && req.Version != repoPersona.Version {
+			WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "version must match repo persona version", traceID, nil)
+			return
+		}
+
+		persona, err := materializeRepoPersonaForCreate(r.Context(), personasRepo, actor.OrgID, *repoPersona, req)
+		if err != nil {
+			var conflict data.PersonaConflictError
+			if errors.As(err, &conflict) {
+				WriteError(w, nethttp.StatusConflict, "personas.conflict", "persona with this key and version already exists", traceID, nil)
+				return
+			}
+			WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			return
+		}
+
+		writeJSON(w, traceID, nethttp.StatusCreated, toPersonaResponse(persona))
+		return
+	}
 
 	if req.PersonaKey == "" || req.Version == "" || req.DisplayName == "" || req.PromptMD == "" {
 		WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "persona_key, version, display_name, and prompt_md are required", traceID, nil)

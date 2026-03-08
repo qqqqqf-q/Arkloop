@@ -151,6 +151,9 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 		gatewayRedis = cfg.RedisClient
 	}
 
+	effectiveToolCatalogCache := newEffectiveToolCatalogCache(effectiveToolCatalogTTL)
+	effectiveToolCatalogCache.StartInvalidationListener(context.Background(), cfg.DirectPool)
+
 	mux := nethttp.NewServeMux()
 	mux.HandleFunc("/healthz", healthz)
 	mux.HandleFunc("/readyz", readyz(cfg.SchemaRepository, cfg.Logger))
@@ -246,6 +249,10 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 		mcpConfigEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.MCPConfigsRepo, cfg.SecretsRepo, cfg.Pool),
 	)
 
+	mux.HandleFunc(
+		"/v1/tool-catalog/effective",
+		toolCatalogEffectiveEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.ToolDescriptionOverridesRepo, cfg.ToolProviderConfigsRepo, cfg.Pool, effectiveToolCatalogCache),
+	)
 	mux.HandleFunc(
 		"/v1/tool-catalog",
 		toolCatalogEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.ToolDescriptionOverridesRepo),

@@ -109,8 +109,6 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 	runControlHub := pipeline.NewRunControlHub()
 	runControlHub.Start(ctx, listenPool)
 
-	baseAllowlistNames := tools.ParseAllowlistNamesFromEnv()
-
 	// 加载 platform 级 tool_provider_configs，用于 sandbox/memory 配置
 	// 解析优先级: env (显式设置) -> tool_provider_configs DB
 	platformProviders, err := toolprovider.LoadActivePlatformProviders(ctx, pool)
@@ -252,6 +250,8 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 		}
 	}
 
+	baseAllowlistNames := resolveBaseToolAllowlistNames(ctx, toolRegistry)
+
 	return runengine.NewEngineV1(runengine.EngineV1Deps{
 		Router:                       router,
 		DBPool:                       pool,
@@ -276,6 +276,16 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 		LlmRetryBaseDelayMs:          llmRetryBaseDelayMs,
 		MemoryProvider:               memoryProvider,
 	})
+}
+
+func resolveBaseToolAllowlistNames(ctx context.Context, toolRegistry *tools.Registry) []string {
+	if deprecated := tools.ParseAllowlistNamesFromEnv(); len(deprecated) > 0 {
+		slog.WarnContext(ctx, "tool allowlist env is deprecated and no longer gates runtime tools", "env", "ARKLOOP_TOOL_ALLOWLIST", "tools", deprecated)
+	}
+	if toolRegistry == nil {
+		return nil
+	}
+	return toolRegistry.ListNames()
 }
 
 // loadRoutingConfig 优先从 DB 加载路由配置，无数据时回退到环境变量。

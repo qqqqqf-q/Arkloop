@@ -2,8 +2,12 @@ package http
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	nethttp "net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -288,6 +292,114 @@ func TestToolCatalogScopePermissions(t *testing.T) {
 	}
 }
 
+func TestEffectiveToolCatalogIncludesConditionalAndMCPTools(t *testing.T) {
+	db := setupTestDatabase(t, "api_go_tool_catalog_effective")
+	ctx := context.Background()
+	pool, err := data.NewPool(ctx, db.DSN, data.PoolLimits{MaxConns: 32, MinConns: 0})
+	if err != nil {
+		t.Fatalf("new pool: %v", err)
+	}
+	t.Cleanup(pool.Close)
+
+	logger := observability.NewJSONLogger("test", io.Discard)
+	userRepo, _ := data.NewUserRepository(pool)
+	credRepo, _ := data.NewUserCredentialRepository(pool)
+	membershipRepo, _ := data.NewOrgMembershipRepository(pool)
+	refreshTokenRepo, _ := data.NewRefreshTokenRepository(pool)
+	mcpRepo, _ := data.NewMCPConfigsRepository(pool)
+	toolProvidersRepo, _ := data.NewToolProviderConfigsRepository(pool)
+	orgRepo, _ := data.NewOrgRepository(pool)
+	passwordHasher, _ := auth.NewBcryptPasswordHasher(0)
+	tokenService, _ := auth.NewJwtAccessTokenService("test-secret-should-be-long-enough-32chars", 3600, 2592000)
+	authService, _ := auth.NewService(userRepo, credRepo, membershipRepo, passwordHasher, tokenService, refreshTokenRepo, nil)
+
+	mcpServer := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		method, _ := body["method"].(string)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"jsonrpc": "2.0",
+			"id":      body["id"],
+			"result": map[string]any{
+				"tools": []map[string]any{{
+					"name":        method + "_tool",
+					"title":       "Docs Lookup",
+					"description": "lookup docs",
+				}},
+			},
+		})
+	}))
+	defer mcpServer.Close()
+
+	t.Setenv("ARKLOOP_BROWSER_BASE_URL", "http://browser.internal")
+	t.Setenv("ARKLOOP_SANDBOX_BASE_URL", "http://sandbox.internal")
+	t.Setenv("ARKLOOP_OPENVIKING_BASE_URL", "http://memory.internal")
+	t.Setenv("ARKLOOP_S3_ENDPOINT", "http://minio.internal")
+
+	envCfgDir := t.TempDir()
+	envCfgPath := filepath.Join(envCfgDir, "mcp.config.json")
+	if err := os.WriteFile(envCfgPath, []byte(`{"mcpServers":{"env-demo":{"transport":"streamable_http","url":"`+mcpServer.URL+`"}}}`), 0o644); err != nil {
+		t.Fatalf("write env mcp config: %v", err)
+	}
+	t.Setenv("ARKLOOP_MCP_CONFIG_FILE", envCfgPath)
+
+	org, err := orgRepo.Create(ctx, "effective-tool-catalog-org", "Effective Tool Catalog Org", "personal")
+	if err != nil {
+		t.Fatalf("create org: %v", err)
+	}
+	orgID := org.ID
+	user, err := userRepo.Create(ctx, "effective-user", "effective@test.com", "en")
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	if _, err := membershipRepo.Create(ctx, orgID, user.ID, auth.RoleOrgAdmin); err != nil {
+		t.Fatalf("create membership: %v", err)
+	}
+	token, err := tokenService.Issue(user.ID, orgID, auth.RoleOrgAdmin, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("issue token: %v", err)
+	}
+
+	if _, err := mcpRepo.Create(ctx, orgID, "org-demo", "streamable_http", strPtrCatalogTest(mcpServer.URL), nil, nil, nil, nil, nil, false, 3000); err != nil {
+		t.Fatalf("create org mcp config: %v", err)
+	}
+
+	handler := NewHandler(HandlerConfig{
+		Pool:                    pool,
+		DirectPool:              pool,
+		Logger:                  logger,
+		AuthService:             authService,
+		OrgMembershipRepo:       membershipRepo,
+		ToolProviderConfigsRepo: toolProvidersRepo,
+	})
+
+	resp := doJSON(handler, nethttp.MethodGet, "/v1/tool-catalog/effective", nil, authHeader(token))
+	if resp.Code != nethttp.StatusOK {
+		t.Fatalf("effective catalog: %d %s", resp.Code, resp.Body.String())
+	}
+	catalog := decodeJSONBody[toolCatalogResponse](t, resp.Body.Bytes())
+	for _, toolName := range []struct{ group, name string }{
+		{group: "browser", name: "browser_navigate"},
+		{group: "sandbox", name: "exec_command"},
+		{group: "memory", name: "memory_search"},
+		{group: "document", name: "document_write"},
+		{group: "mcp", name: "mcp__env_demo__tools_list_tool"},
+		{group: "mcp", name: "mcp__org_demo__tools_list_tool"},
+	} {
+		if _, ok := findCatalogTool(catalog, toolName.group, toolName.name); !ok {
+			t.Fatalf("missing effective tool %s/%s", toolName.group, toolName.name)
+		}
+	}
+
+	item, ok := findCatalogTool(catalog, "mcp", "mcp__env_demo__tools_list_tool")
+	if !ok {
+		t.Fatal("expected env mcp tool")
+	}
+	if item.Label != "Docs Lookup" {
+		t.Fatalf("unexpected mcp label: %s", item.Label)
+	}
+}
+
 func findCatalogGroup(resp toolCatalogResponse, groupName string) (toolCatalogGroup, bool) {
 	for _, group := range resp.Groups {
 		if group.Group == groupName {
@@ -308,4 +420,8 @@ func findCatalogTool(resp toolCatalogResponse, groupName string, toolName string
 		}
 	}
 	return toolCatalogItem{}, false
+}
+
+func strPtrCatalogTest(value string) *string {
+	return &value
 }

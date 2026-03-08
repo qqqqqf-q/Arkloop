@@ -309,6 +309,11 @@ export interface LocaleStrings {
       fieldToolAllowlist: string
       fieldToolAllowlistPlaceholder: string
       fieldToolDenylist: string
+      toolsSelected: (selected: number, total: number) => string
+      enableAllTools: string
+      clearAllTools: string
+      groupEnableAll: string
+      groupClearAll: string
       fieldBudgetsJSON: string
       fieldIsActive: string
       fieldExecutorType: string
