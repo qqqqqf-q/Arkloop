@@ -78,38 +78,46 @@ func saveCheckpoint(ctx context.Context, store stateStore, manifest checkpointMa
 	return nil
 }
 
-func loadLatestCheckpoint(ctx context.Context, store stateStore, orgID, sessionID string) (*checkpointManifest, []byte, error) {
+func loadLatestCheckpointManifest(ctx context.Context, store stateStore, orgID, sessionID string) (*checkpointManifest, error) {
 	pointerBytes, err := store.Get(ctx, latestPointerKey(orgID, sessionID))
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	var pointer latestCheckpointPointer
 	if err := json.Unmarshal(pointerBytes, &pointer); err != nil {
-		return nil, nil, fmt.Errorf("decode checkpoint pointer: %w", err)
+		return nil, fmt.Errorf("decode checkpoint pointer: %w", err)
 	}
 	if strings.TrimSpace(pointer.Revision) == "" {
-		return nil, nil, fmt.Errorf("checkpoint pointer missing revision")
+		return nil, fmt.Errorf("checkpoint pointer missing revision")
 	}
 	manifestBytes, err := store.Get(ctx, checkpointManifestKey(orgID, sessionID, pointer.Revision))
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	var manifest checkpointManifest
 	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
-		return nil, nil, fmt.Errorf("decode checkpoint manifest: %w", err)
+		return nil, fmt.Errorf("decode checkpoint manifest: %w", err)
 	}
 	normalizeArtifactVersions(manifest.ArtifactSeen)
 	if manifest.Version != shellStateVersion {
-		return nil, nil, fmt.Errorf("unsupported checkpoint version: %d", manifest.Version)
+		return nil, fmt.Errorf("unsupported checkpoint version: %d", manifest.Version)
 	}
 	if manifest.OrgID != orgID || manifest.SessionID != sessionID {
-		return nil, nil, fmt.Errorf("checkpoint identity mismatch")
+		return nil, fmt.Errorf("checkpoint identity mismatch")
 	}
-	archive, err := store.Get(ctx, checkpointArchiveKey(orgID, sessionID, pointer.Revision))
+	return &manifest, nil
+}
+
+func loadLatestCheckpoint(ctx context.Context, store stateStore, orgID, sessionID string) (*checkpointManifest, []byte, error) {
+	manifest, err := loadLatestCheckpointManifest(ctx, store, orgID, sessionID)
 	if err != nil {
 		return nil, nil, err
 	}
-	return &manifest, archive, nil
+	archive, err := store.Get(ctx, checkpointArchiveKey(orgID, sessionID, manifest.Revision))
+	if err != nil {
+		return nil, nil, err
+	}
+	return manifest, archive, nil
 }
 
 func normalizeArtifactVersions(versions map[string]artifactVersion) {

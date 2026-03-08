@@ -150,6 +150,10 @@ type fakeCarrier struct {
 	mu               sync.Mutex
 	legacyExports    map[string][]byte
 	legacyImports    map[string][]byte
+	appliedManifest  map[string]Manifest
+	appliedFiles     map[string][]FilePayload
+	appliedCount     map[string]int
+	appliedReset     map[string]bool
 	manifests        map[string]Manifest
 	filePayloads     map[string]map[string][]byte
 	manifestRequests map[string][][]string
@@ -160,6 +164,10 @@ func newFakeCarrier() *fakeCarrier {
 	return &fakeCarrier{
 		legacyExports:    make(map[string][]byte),
 		legacyImports:    make(map[string][]byte),
+		appliedManifest:  make(map[string]Manifest),
+		appliedFiles:     make(map[string][]FilePayload),
+		appliedCount:     make(map[string]int),
+		appliedReset:     make(map[string]bool),
 		manifests:        make(map[string]Manifest),
 		filePayloads:     make(map[string]map[string][]byte),
 		manifestRequests: make(map[string][][]string),
@@ -199,7 +207,13 @@ func (c *fakeCarrier) CollectEnvironmentFiles(_ context.Context, scope string, p
 	return result, nil
 }
 
-func (c *fakeCarrier) ApplyEnvironment(_ context.Context, _ string, _ Manifest, _ []FilePayload, _ bool) error {
+func (c *fakeCarrier) ApplyEnvironment(_ context.Context, scope string, manifest Manifest, files []FilePayload, reset bool) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.appliedManifest[scope] = CloneManifest(manifest)
+	c.appliedFiles[scope] = append([]FilePayload(nil), files...)
+	c.appliedCount[scope]++
+	c.appliedReset[scope] = reset
 	return nil
 }
 
@@ -236,6 +250,166 @@ func TestManagerPrepareKeepsLegacyRestoreAndEnsuresRegistries(t *testing.T) {
 	}
 	if len(registry.ensured) != 2 {
 		t.Fatalf("expected registry ensure calls, got %v", registry.ensured)
+	}
+}
+
+func TestManagerPrepareRestoresFromManifestState(t *testing.T) {
+	store := newMemoryStore()
+	registry := newFakeRegistryWriter()
+	mgr := NewManager(store, registry, nil)
+	binding := Binding{OrgID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", ProfileRef: "pref_a", WorkspaceRef: "wsref_a"}
+	carrier := newFakeCarrier()
+
+	manifest := NormalizeManifest(Manifest{
+		Scope:    ScopeWorkspace,
+		Ref:      binding.WorkspaceRef,
+		Revision: "rev-1",
+		Entries:  []ManifestEntry{{Path: "chart.png", Type: EntryTypeFile, Mode: 0o644, Size: 8, SHA256: "sha-chart"}},
+	})
+	if err := saveManifest(context.Background(), store, manifest); err != nil {
+		t.Fatalf("save manifest: %v", err)
+	}
+	if err := saveLatestPointer(context.Background(), store, LatestPointer{Version: CurrentManifestVersion, Scope: ScopeWorkspace, Ref: binding.WorkspaceRef, Revision: manifest.Revision, UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano)}); err != nil {
+		t.Fatalf("save latest pointer: %v", err)
+	}
+	if err := putBlobIfMissing(context.Background(), store, blobKey(ScopeWorkspace, binding.WorkspaceRef, "sha-chart"), []byte("png-data")); err != nil {
+		t.Fatalf("put blob: %v", err)
+	}
+	registry.latest[ScopeWorkspace+":"+binding.WorkspaceRef] = manifest.Revision
+
+	if err := mgr.Prepare(context.Background(), "sess-1", carrier, binding); err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	if got := carrier.appliedManifest[ScopeWorkspace]; len(got.Entries) != 1 || got.Entries[0].Path != "chart.png" {
+		t.Fatalf("unexpected applied manifest: %#v", got)
+	}
+	if len(carrier.appliedFiles[ScopeWorkspace]) != 1 {
+		t.Fatalf("unexpected applied files: %#v", carrier.appliedFiles[ScopeWorkspace])
+	}
+	if !carrier.appliedReset[ScopeWorkspace] {
+		t.Fatal("expected reset apply for workspace hydrate")
+	}
+	if _, ok := carrier.legacyImports[ScopeWorkspace]; ok {
+		t.Fatalf("did not expect legacy import when manifest state exists: %#v", carrier.legacyImports)
+	}
+}
+
+func TestManagerPrepareFailsWhenRegistryManifestMissing(t *testing.T) {
+	store := newMemoryStore()
+	registry := newFakeRegistryWriter()
+	mgr := NewManager(store, registry, nil)
+	binding := Binding{OrgID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", ProfileRef: "pref_a", WorkspaceRef: "wsref_a"}
+	carrier := newFakeCarrier()
+	store.data[workspaceKey(binding.WorkspaceRef)] = []byte("workspace-legacy")
+	registry.latest[ScopeWorkspace+":"+binding.WorkspaceRef] = "rev-missing"
+
+	err := mgr.Prepare(context.Background(), "sess-1", carrier, binding)
+	if err == nil {
+		t.Fatal("expected prepare to fail when manifest is missing")
+	}
+	if _, ok := carrier.legacyImports[ScopeWorkspace]; ok {
+		t.Fatalf("did not expect legacy fallback: %#v", carrier.legacyImports)
+	}
+}
+
+func TestManagerPrepareFailsWhenRegistryBlobMissing(t *testing.T) {
+	store := newMemoryStore()
+	registry := newFakeRegistryWriter()
+	mgr := NewManager(store, registry, nil)
+	binding := Binding{OrgID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", ProfileRef: "pref_a", WorkspaceRef: "wsref_a"}
+	carrier := newFakeCarrier()
+	manifest := NormalizeManifest(Manifest{
+		Scope:    ScopeWorkspace,
+		Ref:      binding.WorkspaceRef,
+		Revision: "rev-1",
+		Entries:  []ManifestEntry{{Path: "chart.png", Type: EntryTypeFile, Mode: 0o644, Size: 8, SHA256: "sha-chart"}},
+	})
+	if err := saveManifest(context.Background(), store, manifest); err != nil {
+		t.Fatalf("save manifest: %v", err)
+	}
+	registry.latest[ScopeWorkspace+":"+binding.WorkspaceRef] = manifest.Revision
+
+	err := mgr.Prepare(context.Background(), "sess-1", carrier, binding)
+	if err == nil {
+		t.Fatal("expected prepare to fail when blob is missing")
+	}
+}
+
+func TestManagerPrepareSkipsRehydrateForSameRevision(t *testing.T) {
+	store := newMemoryStore()
+	registry := newFakeRegistryWriter()
+	mgr := NewManager(store, registry, nil)
+	binding := Binding{OrgID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", ProfileRef: "pref_a", WorkspaceRef: "wsref_a"}
+	carrier := newFakeCarrier()
+	manifest := NormalizeManifest(Manifest{
+		Scope:    ScopeWorkspace,
+		Ref:      binding.WorkspaceRef,
+		Revision: "rev-1",
+		Entries:  []ManifestEntry{{Path: "chart.png", Type: EntryTypeFile, Mode: 0o644, Size: 8, SHA256: "sha-chart"}},
+	})
+	if err := saveManifest(context.Background(), store, manifest); err != nil {
+		t.Fatalf("save manifest: %v", err)
+	}
+	if err := putBlobIfMissing(context.Background(), store, blobKey(ScopeWorkspace, binding.WorkspaceRef, "sha-chart"), []byte("png-data")); err != nil {
+		t.Fatalf("put blob: %v", err)
+	}
+	registry.latest[ScopeWorkspace+":"+binding.WorkspaceRef] = manifest.Revision
+
+	if err := mgr.Prepare(context.Background(), "sess-1", carrier, binding); err != nil {
+		t.Fatalf("first prepare: %v", err)
+	}
+	if err := mgr.Prepare(context.Background(), "sess-1", carrier, binding); err != nil {
+		t.Fatalf("second prepare: %v", err)
+	}
+	if carrier.appliedCount[ScopeWorkspace] != 1 {
+		t.Fatalf("expected one workspace hydrate, got %d", carrier.appliedCount[ScopeWorkspace])
+	}
+}
+
+func TestManagerPrepareRehydratesWhenRevisionChanges(t *testing.T) {
+	store := newMemoryStore()
+	registry := newFakeRegistryWriter()
+	mgr := NewManager(store, registry, nil)
+	binding := Binding{OrgID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", ProfileRef: "pref_a", WorkspaceRef: "wsref_a"}
+	carrier := newFakeCarrier()
+	manifest1 := NormalizeManifest(Manifest{
+		Scope:    ScopeWorkspace,
+		Ref:      binding.WorkspaceRef,
+		Revision: "rev-1",
+		Entries:  []ManifestEntry{{Path: "chart.png", Type: EntryTypeFile, Mode: 0o644, Size: 8, SHA256: "sha-chart"}},
+	})
+	manifest2 := NormalizeManifest(Manifest{
+		Scope:    ScopeWorkspace,
+		Ref:      binding.WorkspaceRef,
+		Revision: "rev-2",
+		Entries:  []ManifestEntry{{Path: "chart-v2.png", Type: EntryTypeFile, Mode: 0o644, Size: 10, SHA256: "sha-chart-v2"}},
+	})
+	if err := saveManifest(context.Background(), store, manifest1); err != nil {
+		t.Fatalf("save manifest1: %v", err)
+	}
+	if err := saveManifest(context.Background(), store, manifest2); err != nil {
+		t.Fatalf("save manifest2: %v", err)
+	}
+	if err := putBlobIfMissing(context.Background(), store, blobKey(ScopeWorkspace, binding.WorkspaceRef, "sha-chart"), []byte("png-data")); err != nil {
+		t.Fatalf("put blob1: %v", err)
+	}
+	if err := putBlobIfMissing(context.Background(), store, blobKey(ScopeWorkspace, binding.WorkspaceRef, "sha-chart-v2"), []byte("png-data-v2")); err != nil {
+		t.Fatalf("put blob2: %v", err)
+	}
+	registry.latest[ScopeWorkspace+":"+binding.WorkspaceRef] = manifest1.Revision
+
+	if err := mgr.Prepare(context.Background(), "sess-1", carrier, binding); err != nil {
+		t.Fatalf("first prepare: %v", err)
+	}
+	registry.latest[ScopeWorkspace+":"+binding.WorkspaceRef] = manifest2.Revision
+	if err := mgr.Prepare(context.Background(), "sess-1", carrier, binding); err != nil {
+		t.Fatalf("second prepare: %v", err)
+	}
+	if carrier.appliedCount[ScopeWorkspace] != 2 {
+		t.Fatalf("expected two workspace hydrates, got %d", carrier.appliedCount[ScopeWorkspace])
+	}
+	if got := carrier.appliedManifest[ScopeWorkspace]; len(got.Entries) != 1 || got.Entries[0].Path != "chart-v2.png" {
+		t.Fatalf("unexpected applied manifest after revision change: %#v", got)
 	}
 }
 

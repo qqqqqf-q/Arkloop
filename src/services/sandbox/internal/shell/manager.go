@@ -314,16 +314,12 @@ func (m *Manager) prepareExecCommandRequest(ctx context.Context, req ExecCommand
 	if entry.compute == nil || m.stateStore == nil {
 		return prepared, nil, false, ""
 	}
-	manifest, archive, err := loadLatestCheckpoint(ctx, m.stateStore, entry.orgID, req.SessionID)
+	manifest, err := loadLatestCheckpointManifest(ctx, m.stateStore, entry.orgID, req.SessionID)
 	if err != nil {
 		if objectstore.IsNotFound(err) {
 			return prepared, nil, false, ""
 		}
 		m.logger.Warn("shell checkpoint load failed", logging.LogFields{SessionID: &req.SessionID}, map[string]any{"error": err.Error()})
-		return prepared, nil, false, ""
-	}
-	if _, err := m.invokeCheckpoint(ctx, entry, "shell_restore_import", AgentCheckpointRequest{Archive: base64.StdEncoding.EncodeToString(archive)}); err != nil {
-		m.logger.Warn("shell checkpoint restore failed", logging.LogFields{SessionID: &req.SessionID}, map[string]any{"error": err.Error(), "revision": manifest.Revision})
 		return prepared, nil, false, ""
 	}
 	entry.commandSeq = manifest.LastCommandSeq

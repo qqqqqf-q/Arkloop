@@ -225,8 +225,8 @@ func TestManagerRestoreFromCheckpointOnReopen(t *testing.T) {
 	if _, err := shellMgr.ExecCommand(context.Background(), ExecCommandRequest{SessionID: "sess-1", Tier: "lite", OrgID: "org-a", Command: "echo again"}); err != nil {
 		t.Fatalf("reopen exec_command failed: %v", err)
 	}
-	if agent.restoreCalls != 1 {
-		t.Fatalf("expected one restore call, got %d", agent.restoreCalls)
+	if agent.restoreCalls != 0 {
+		t.Fatalf("expected no archive restore call, got %d", agent.restoreCalls)
 	}
 	if agent.lastExecCwd != "/workspace/demo" {
 		t.Fatalf("unexpected restored cwd: %s", agent.lastExecCwd)

@@ -138,6 +138,34 @@ func loadLegacyArchive(ctx context.Context, store objectstore.BlobStore, scope, 
 	return store.Get(ctx, legacyArchiveKey(scope, ref))
 }
 
+func hydrateScope(ctx context.Context, store objectstore.BlobStore, carrier Carrier, scope, ref, revision string) error {
+	manifest, files, err := loadHydratedScope(ctx, store, scope, ref, revision)
+	if err != nil {
+		return err
+	}
+	return carrier.ApplyEnvironment(ctx, scope, manifest, files, true)
+}
+
+func loadHydratedScope(ctx context.Context, store objectstore.BlobStore, scope, ref, revision string) (Manifest, []FilePayload, error) {
+	manifest, err := loadManifest(ctx, store, scope, ref, revision)
+	if err != nil {
+		return Manifest{}, nil, err
+	}
+	hydrated := BuildHydrateManifest(scope, *manifest, PrepareOptions{WorkspaceMode: WorkspaceHydrationFull})
+	files := make([]FilePayload, 0)
+	for _, entry := range hydrated.Entries {
+		if entry.Type != EntryTypeFile || strings.TrimSpace(entry.SHA256) == "" || entry.Deleted {
+			continue
+		}
+		data, err := loadBlob(ctx, store, blobKey(scope, ref, entry.SHA256))
+		if err != nil {
+			return Manifest{}, nil, err
+		}
+		files = append(files, EncodeFilePayload(entry.Path, data, entry))
+	}
+	return hydrated, files, nil
+}
+
 func legacyArchiveKey(scope, ref string) string {
 	switch strings.TrimSpace(scope) {
 	case ScopeProfile:

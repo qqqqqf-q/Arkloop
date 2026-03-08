@@ -62,6 +62,7 @@ type trackedScope struct {
 	pendingBytes       int64
 	firstDirtyAt       time.Time
 	lastDirtyAt        time.Time
+	hydratedRevision   string
 	version            uint64
 	running            bool
 	runDone            chan struct{}
@@ -93,6 +94,11 @@ func (m *Manager) Prepare(ctx context.Context, sessionID string, carrier Carrier
 	if binding.ProfileRef == "" || binding.WorkspaceRef == "" {
 		return nil
 	}
+	if verifier, ok := carrier.(interface{ EnsureEnvironmentProtocol(context.Context) error }); ok {
+		if err := verifier.EnsureEnvironmentProtocol(ctx); err != nil {
+			return err
+		}
+	}
 	if err := m.registry.EnsureProfileRegistry(ctx, binding.OrgID, binding.ProfileRef); err != nil {
 		return err
 	}
@@ -108,10 +114,10 @@ func (m *Manager) Prepare(ctx context.Context, sessionID string, carrier Carrier
 	if entry.hasDirtyLocked() {
 		return nil
 	}
-	if err := m.importScope(ctx, entry.carrier, ScopeProfile, profileKey(binding.ProfileRef)); err != nil {
+	if err := m.prepareScope(ctx, entry.carrier, entry.scopeLocked(ScopeProfile), ScopeProfile, binding.ProfileRef); err != nil {
 		return err
 	}
-	if err := m.importScope(ctx, entry.carrier, ScopeWorkspace, workspaceKey(binding.WorkspaceRef)); err != nil {
+	if err := m.prepareScope(ctx, entry.carrier, entry.scopeLocked(ScopeWorkspace), ScopeWorkspace, binding.WorkspaceRef); err != nil {
 		return err
 	}
 	return nil
@@ -251,7 +257,7 @@ func (m *Manager) flushScope(ctx context.Context, sessionID, scope string, versi
 		state.needsFullReconcile = false
 		entry.mu.Unlock()
 
-		err := m.runScopeFlush(ctx, carrier, binding, scope, dirtySubtrees, fullReconcile)
+		revision, err := m.runScopeFlush(ctx, carrier, binding, scope, dirtySubtrees, fullReconcile)
 
 		entry = m.lookupSession(sessionID)
 		if entry == nil {
@@ -266,6 +272,7 @@ func (m *Manager) flushScope(ctx context.Context, sessionID, scope string, versi
 			close(done)
 		}
 		if err == nil {
+			state.hydratedRevision = strings.TrimSpace(revision)
 			if state.version == startVersion {
 				state.resetDirty()
 				entry.mu.Unlock()
@@ -282,17 +289,17 @@ func (m *Manager) flushScope(ctx context.Context, sessionID, scope string, versi
 	}
 }
 
-func (m *Manager) runScopeFlush(ctx context.Context, carrier Carrier, binding Binding, scope string, dirtySubtrees []string, fullReconcile bool) (err error) {
+func (m *Manager) runScopeFlush(ctx context.Context, carrier Carrier, binding Binding, scope string, dirtySubtrees []string, fullReconcile bool) (_ string, err error) {
 	ref := binding.refForScope(scope)
 	if ref == "" {
-		return nil
+		return "", nil
 	}
 	if err = m.registry.MarkFlushPending(ctx, scope, ref); err != nil {
-		return err
+		return "", err
 	}
 	if err = m.registry.MarkFlushRunning(ctx, scope, ref); err != nil {
 		_ = m.registry.MarkFlushFailed(ctx, scope, ref, time.Now().UTC())
-		return err
+		return "", err
 	}
 	now := time.Now().UTC()
 	defer func() {
@@ -303,7 +310,7 @@ func (m *Manager) runScopeFlush(ctx context.Context, carrier Carrier, binding Bi
 
 	baseRevision, err := m.registry.GetLatestManifestRevision(ctx, scope, ref)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	var previous Manifest
@@ -312,7 +319,7 @@ func (m *Manager) runScopeFlush(ctx context.Context, carrier Carrier, binding Bi
 		loaded, loadErr := loadManifest(ctx, m.store, scope, ref, baseRevision)
 		if loadErr != nil {
 			if !objectstore.IsNotFound(loadErr) {
-				return loadErr
+				return "", loadErr
 			}
 			fullReconcile = true
 		} else {
@@ -328,7 +335,7 @@ func (m *Manager) runScopeFlush(ctx context.Context, carrier Carrier, binding Bi
 		scanned, err = carrier.BuildEnvironmentManifest(ctx, scope, dirtySubtrees)
 	}
 	if err != nil {
-		return err
+		return "", err
 	}
 	revision := nextManifestRevision(now)
 	nextManifest := mergeManifest(scope, ref, revision, baseRevision, previous, scanned, fullReconcile || !hasPrevious, dirtySubtrees)
@@ -337,7 +344,7 @@ func (m *Manager) runScopeFlush(ctx context.Context, carrier Carrier, binding Bi
 	if len(changedPaths) > 0 {
 		files, collectErr := carrier.CollectEnvironmentFiles(ctx, scope, changedPaths)
 		if collectErr != nil {
-			return collectErr
+			return "", collectErr
 		}
 		payloads := make(map[string]FilePayload, len(files))
 		for _, payload := range files {
@@ -350,20 +357,20 @@ func (m *Manager) runScopeFlush(ctx context.Context, carrier Carrier, binding Bi
 			}
 			payload, ok := payloads[path]
 			if !ok {
-				return fmt.Errorf("missing file payload: %s", path)
+				return "", fmt.Errorf("missing file payload: %s", path)
 			}
 			data, decodeErr := DecodeFilePayload(payload)
 			if decodeErr != nil {
-				return decodeErr
+				return "", decodeErr
 			}
 			if err := putBlobIfMissing(ctx, m.store, blobKey(scope, ref, entry.SHA256), data); err != nil {
-				return err
+				return "", err
 			}
 		}
 	}
 
 	if err := saveManifest(ctx, m.store, nextManifest); err != nil {
-		return err
+		return "", err
 	}
 	if err := saveLatestPointer(ctx, m.store, LatestPointer{
 		Version:   CurrentManifestVersion,
@@ -372,16 +379,56 @@ func (m *Manager) runScopeFlush(ctx context.Context, carrier Carrier, binding Bi
 		Revision:  revision,
 		UpdatedAt: now.Format(time.RFC3339Nano),
 	}); err != nil {
-		return err
+		return "", err
 	}
 	if err := m.registry.MarkFlushSucceeded(ctx, scope, ref, revision, now); err != nil {
+		return "", err
+	}
+	return revision, nil
+}
+
+func (m *Manager) prepareScope(ctx context.Context, carrier Carrier, state *trackedScope, scope string, ref string) error {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return nil
+	}
+	revision, err := m.registry.GetLatestManifestRevision(ctx, scope, ref)
+	if err != nil {
 		return err
+	}
+	revision = strings.TrimSpace(revision)
+	if revision == "" {
+		pointer, pointerErr := loadLatestPointer(ctx, m.store, scope, ref)
+		if pointerErr == nil {
+			revision = strings.TrimSpace(pointer.Revision)
+		} else if !objectstore.IsNotFound(pointerErr) {
+			return pointerErr
+		}
+	}
+	if revision == "" {
+		if err := m.importScope(ctx, carrier, scope, ref); err != nil {
+			return err
+		}
+		if state != nil {
+			state.hydratedRevision = ""
+		}
+		return nil
+	}
+	if state != nil && !state.hasDirty() && state.hydratedRevision == revision {
+		return nil
+	}
+	if err := hydrateScope(ctx, m.store, carrier, scope, ref, revision); err != nil {
+		return err
+	}
+	if state != nil {
+		state.hydratedRevision = revision
 	}
 	return nil
 }
 
-func (m *Manager) importScope(ctx context.Context, carrier Carrier, scope string, key string) error {
-	archive, err := m.store.Get(ctx, key)
+func (m *Manager) importScope(ctx context.Context, carrier Carrier, scope string, ref string) error {
+	ref = strings.TrimSpace(ref)
+	archive, err := m.store.Get(ctx, legacyArchiveKey(scope, ref))
 	if err != nil {
 		if objectstore.IsNotFound(err) {
 			return nil
