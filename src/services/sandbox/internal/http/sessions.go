@@ -1,6 +1,7 @@
 package http
 
 import (
+	"encoding/json"
 	"net/http"
 	"strings"
 
@@ -42,9 +43,38 @@ func handleSessionTranscript(shellSvc shell.Service) http.HandlerFunc {
 	}
 }
 
+func handleForkSession(shellSvc shell.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if shellSvc == nil {
+			writeError(w, http.StatusServiceUnavailable, shell.CodeSessionNotFound, "shell service not configured")
+			return
+		}
+		var req shell.ForkSessionRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, http.StatusBadRequest, "sandbox.invalid_request", "invalid JSON body")
+			return
+		}
+		req.OrgID = strings.TrimSpace(req.OrgID)
+		req.FromSessionID = strings.TrimSpace(req.FromSessionID)
+		req.ToSessionID = strings.TrimSpace(req.ToSessionID)
+		if req.OrgID == "" {
+			req.OrgID = strings.TrimSpace(r.Header.Get("X-Org-ID"))
+		}
+		if req.FromSessionID == "" || req.ToSessionID == "" {
+			writeError(w, http.StatusBadRequest, "sandbox.missing_session_id", "from_session_id and to_session_id are required")
+			return
+		}
+		resp, err := shellSvc.ForkSession(r.Context(), req)
+		if err != nil {
+			writeShellError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, resp)
+	}
+}
+
 func handleDeleteSession(mgr *session.Manager, shellSvc shell.Service, logger *logging.JSONLogger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// 路由: DELETE /v1/sessions/{id}
 		id := strings.TrimPrefix(r.URL.Path, "/v1/sessions/")
 		id = strings.TrimSpace(id)
 		if id == "" {

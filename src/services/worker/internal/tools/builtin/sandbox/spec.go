@@ -19,7 +19,7 @@ var (
 	ExecCommandSpec = tools.AgentToolSpec{
 		Name:        "exec_command",
 		Version:     "1",
-		Description: "run a command in the default persistent shell session inside the isolated sandbox",
+		Description: "run a command in a persistent shell session inside the isolated sandbox",
 		RiskLevel:   tools.RiskLevelHigh,
 		SideEffects: true,
 	}
@@ -34,7 +34,7 @@ var (
 
 var PythonExecuteLlmSpec = llm.ToolSpec{
 	Name:        "python_execute",
-	Description: stringPtr(sharedtoolmeta.Must("python_execute").LLMDescription),
+	Description: llmStringPtr(sharedtoolmeta.Must("python_execute").LLMDescription),
 	JSONSchema: map[string]any{
 		"type": "object",
 		"properties": map[string]any{
@@ -48,10 +48,23 @@ var PythonExecuteLlmSpec = llm.ToolSpec{
 
 var ExecCommandLlmSpec = llm.ToolSpec{
 	Name:        "exec_command",
-	Description: stringPtr(sharedtoolmeta.Must("exec_command").LLMDescription),
+	Description: llmStringPtr(sharedtoolmeta.Must("exec_command").LLMDescription),
 	JSONSchema: map[string]any{
 		"type": "object",
 		"properties": map[string]any{
+			"session_mode": map[string]any{
+				"type":        "string",
+				"enum":        []string{"auto", "new", "resume", "fork"},
+				"description": "how to resolve the target shell session",
+			},
+			"session_ref": map[string]any{
+				"type":        "string",
+				"description": "stable session reference used for resume or explicit attach",
+			},
+			"from_session_ref": map[string]any{
+				"type":        "string",
+				"description": "source session reference when session_mode is fork",
+			},
 			"command": map[string]any{
 				"type":        "string",
 				"description": "command to execute",
@@ -80,13 +93,13 @@ var ExecCommandLlmSpec = llm.ToolSpec{
 
 var WriteStdinLlmSpec = llm.ToolSpec{
 	Name:        "write_stdin",
-	Description: stringPtr(sharedtoolmeta.Must("write_stdin").LLMDescription),
+	Description: llmStringPtr(sharedtoolmeta.Must("write_stdin").LLMDescription),
 	JSONSchema: map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"session_id": map[string]any{
+			"session_ref": map[string]any{
 				"type":        "string",
-				"description": "session id returned by exec_command",
+				"description": "stable session reference returned by exec_command",
 			},
 			"chars": map[string]any{
 				"type":        "string",
@@ -99,28 +112,20 @@ var WriteStdinLlmSpec = llm.ToolSpec{
 				"description": "time to wait for new output before returning",
 			},
 		},
-		"required":             []string{"session_id"},
+		"required":             []string{"session_ref"},
 		"additionalProperties": false,
 	},
 }
 
 func AgentSpecs() []tools.AgentToolSpec {
-	return []tools.AgentToolSpec{
-		PythonExecuteSpec,
-		ExecCommandSpec,
-		WriteStdinSpec,
-	}
+	return []tools.AgentToolSpec{PythonExecuteSpec, ExecCommandSpec, WriteStdinSpec}
 }
 
 func LlmSpecs() []llm.ToolSpec {
-	return []llm.ToolSpec{
-		PythonExecuteLlmSpec,
-		ExecCommandLlmSpec,
-		WriteStdinLlmSpec,
-	}
+	return []llm.ToolSpec{PythonExecuteLlmSpec, ExecCommandLlmSpec, WriteStdinLlmSpec}
 }
 
-func stringPtr(value string) *string {
+func llmStringPtr(value string) *string {
 	cleaned := strings.TrimSpace(value)
 	if cleaned == "" {
 		return nil

@@ -125,3 +125,20 @@ func normalizeArtifactVersions(versions map[string]artifactVersion) {
 		versions[name] = version
 	}
 }
+
+func copyLatestCheckpoint(ctx context.Context, store stateStore, orgID, fromSessionID, toSessionID string) (string, error) {
+	manifest, archive, err := loadLatestCheckpoint(ctx, store, orgID, fromSessionID)
+	if err != nil {
+		return "", err
+	}
+	now := time.Now().UTC()
+	copied := *manifest
+	copied.SessionID = strings.TrimSpace(toSessionID)
+	copied.Revision = nextCheckpointRevision(now)
+	copied.CreatedAt = now.Format(time.RFC3339Nano)
+	copied.ArtifactSeen = cloneArtifactSeen(manifest.ArtifactSeen)
+	if err := saveCheckpoint(ctx, store, copied, archive); err != nil {
+		return "", err
+	}
+	return copied.Revision, nil
+}

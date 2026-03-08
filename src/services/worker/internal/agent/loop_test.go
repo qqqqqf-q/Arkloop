@@ -528,8 +528,8 @@ func TestAgentLoopDoesNotDedupErrorToolResultMessageInjection(t *testing.T) {
 func TestAgentLoopPureContinuationDoesNotConsumeReasoningBudget(t *testing.T) {
 	loop := NewLoop(&scriptedTurnsGateway{turns: [][]llm.StreamEvent{
 		{llm.ToolCall{ToolCallID: "call_1", ToolName: "exec_command", ArgumentsJSON: map[string]any{"command": "sleep 1"}}, llm.StreamRunCompleted{}},
-		{llm.ToolCall{ToolCallID: "call_2", ToolName: "write_stdin", ArgumentsJSON: map[string]any{"session_id": "sess-1"}}, llm.StreamRunCompleted{}},
-		{llm.ToolCall{ToolCallID: "call_3", ToolName: "write_stdin", ArgumentsJSON: map[string]any{"session_id": "sess-1"}}, llm.StreamRunCompleted{}},
+		{llm.ToolCall{ToolCallID: "call_2", ToolName: "write_stdin", ArgumentsJSON: map[string]any{"session_ref": "sess-1"}}, llm.StreamRunCompleted{}},
+		{llm.ToolCall{ToolCallID: "call_3", ToolName: "write_stdin", ArgumentsJSON: map[string]any{"session_ref": "sess-1"}}, llm.StreamRunCompleted{}},
 		{llm.StreamMessageDelta{ContentDelta: "done", Role: "assistant"}, llm.StreamRunCompleted{}},
 	}}, buildContinuationDispatcher(t, []bool{true, false}))
 	emitter := events.NewEmitter("trace")
@@ -600,8 +600,8 @@ func TestAgentLoopContinuationBudgetExceededReturnsToolResultError(t *testing.T)
 	dispatcher := buildContinuationDispatcher(t, []bool{true})
 	loop := NewLoop(&scriptedTurnsGateway{turns: [][]llm.StreamEvent{
 		{llm.ToolCall{ToolCallID: "call_1", ToolName: "exec_command", ArgumentsJSON: map[string]any{"command": "sleep 1"}}, llm.StreamRunCompleted{}},
-		{llm.ToolCall{ToolCallID: "call_2", ToolName: "write_stdin", ArgumentsJSON: map[string]any{"session_id": "sess-1"}}, llm.StreamRunCompleted{}},
-		{llm.ToolCall{ToolCallID: "call_3", ToolName: "write_stdin", ArgumentsJSON: map[string]any{"session_id": "sess-1"}}, llm.StreamRunCompleted{}},
+		{llm.ToolCall{ToolCallID: "call_2", ToolName: "write_stdin", ArgumentsJSON: map[string]any{"session_ref": "sess-1"}}, llm.StreamRunCompleted{}},
+		{llm.ToolCall{ToolCallID: "call_3", ToolName: "write_stdin", ArgumentsJSON: map[string]any{"session_ref": "sess-1"}}, llm.StreamRunCompleted{}},
 		{llm.StreamMessageDelta{ContentDelta: "done", Role: "assistant"}, llm.StreamRunCompleted{}},
 	}}, dispatcher)
 	emitter := events.NewEmitter("trace")
@@ -633,10 +633,10 @@ func TestAgentLoopMixedTurnConsumesContinuationBudget(t *testing.T) {
 		{llm.ToolCall{ToolCallID: "call_1", ToolName: "exec_command", ArgumentsJSON: map[string]any{"command": "sleep 1"}}, llm.StreamRunCompleted{}},
 		{
 			llm.ToolCall{ToolCallID: "call_2", ToolName: "echo", ArgumentsJSON: map[string]any{"text": "hi"}},
-			llm.ToolCall{ToolCallID: "call_3", ToolName: "write_stdin", ArgumentsJSON: map[string]any{"session_id": "sess-1"}},
+			llm.ToolCall{ToolCallID: "call_3", ToolName: "write_stdin", ArgumentsJSON: map[string]any{"session_ref": "sess-1"}},
 			llm.StreamRunCompleted{},
 		},
-		{llm.ToolCall{ToolCallID: "call_4", ToolName: "write_stdin", ArgumentsJSON: map[string]any{"session_id": "sess-1"}}, llm.StreamRunCompleted{}},
+		{llm.ToolCall{ToolCallID: "call_4", ToolName: "write_stdin", ArgumentsJSON: map[string]any{"session_ref": "sess-1"}}, llm.StreamRunCompleted{}},
 		{llm.StreamMessageDelta{ContentDelta: "done", Role: "assistant"}, llm.StreamRunCompleted{}},
 	}}, dispatcher)
 	emitter := events.NewEmitter("trace")
@@ -665,7 +665,7 @@ func TestAgentLoopIterHookOnlyRunsOnReasoningTurns(t *testing.T) {
 	dispatcher := buildContinuationDispatcher(t, []bool{false})
 	loop := NewLoop(&scriptedTurnsGateway{turns: [][]llm.StreamEvent{
 		{llm.ToolCall{ToolCallID: "call_1", ToolName: "exec_command", ArgumentsJSON: map[string]any{"command": "sleep 1"}}, llm.StreamRunCompleted{}},
-		{llm.ToolCall{ToolCallID: "call_2", ToolName: "write_stdin", ArgumentsJSON: map[string]any{"session_id": "sess-1"}}, llm.StreamRunCompleted{}},
+		{llm.ToolCall{ToolCallID: "call_2", ToolName: "write_stdin", ArgumentsJSON: map[string]any{"session_ref": "sess-1"}}, llm.StreamRunCompleted{}},
 		{llm.ToolCall{ToolCallID: "call_3", ToolName: "echo", ArgumentsJSON: map[string]any{"text": "hi"}}, llm.StreamRunCompleted{}},
 		{llm.StreamMessageDelta{ContentDelta: "done", Role: "assistant"}, llm.StreamRunCompleted{}},
 	}}, dispatcher)
@@ -702,8 +702,8 @@ func TestAgentLoopContinuationLimitExceededReturnsToolResultError(t *testing.T) 
 	dispatcher := buildContinuationDispatcher(t, []bool{true})
 	loop := NewLoop(&scriptedTurnsGateway{turns: [][]llm.StreamEvent{
 		{llm.ToolCall{ToolCallID: "call_1", ToolName: "exec_command", ArgumentsJSON: map[string]any{"command": "sleep 1"}}, llm.StreamRunCompleted{}},
-		{llm.ToolCall{ToolCallID: "call_2", ToolName: "write_stdin", ArgumentsJSON: map[string]any{"session_id": "sess-1"}}, llm.StreamRunCompleted{}},
-		{llm.ToolCall{ToolCallID: "call_3", ToolName: "write_stdin", ArgumentsJSON: map[string]any{"session_id": "sess-1"}}, llm.StreamRunCompleted{}},
+		{llm.ToolCall{ToolCallID: "call_2", ToolName: "write_stdin", ArgumentsJSON: map[string]any{"session_ref": "sess-1"}}, llm.StreamRunCompleted{}},
+		{llm.ToolCall{ToolCallID: "call_3", ToolName: "write_stdin", ArgumentsJSON: map[string]any{"session_ref": "sess-1"}}, llm.StreamRunCompleted{}},
 		{llm.StreamMessageDelta{ContentDelta: "done", Role: "assistant"}, llm.StreamRunCompleted{}},
 	}}, dispatcher)
 	emitter := events.NewEmitter("trace")
@@ -993,14 +993,14 @@ func (e *continuationExecutor) Execute(
 	_ = toolCallID
 	switch toolName {
 	case "exec_command":
-		return tools.ExecutionResult{ResultJSON: map[string]any{"session_id": "sess-1", "running": true}}
+		return tools.ExecutionResult{ResultJSON: map[string]any{"session_ref": "sess-1", "running": true}}
 	case "write_stdin":
 		idx := int(atomic.AddInt32(&e.writeCalls, 1)) - 1
 		running := false
 		if idx >= 0 && idx < len(e.writeRunning) {
 			running = e.writeRunning[idx]
 		}
-		return tools.ExecutionResult{ResultJSON: map[string]any{"session_id": args["session_id"], "running": running}}
+		return tools.ExecutionResult{ResultJSON: map[string]any{"session_ref": args["session_ref"], "running": running}}
 	case "echo":
 		return tools.ExecutionResult{ResultJSON: map[string]any{"text": args["text"]}}
 	default:

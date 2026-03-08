@@ -29,6 +29,12 @@ type WriteStdinRequest struct {
 	YieldTimeMs int    `json:"yield_time_ms,omitempty"`
 }
 
+type ForkSessionRequest struct {
+	OrgID         string `json:"org_id,omitempty"`
+	FromSessionID string `json:"from_session_id"`
+	ToSessionID   string `json:"to_session_id"`
+}
+
 type ArtifactRef struct {
 	Key      string `json:"key"`
 	Filename string `json:"filename"`
@@ -37,15 +43,21 @@ type ArtifactRef struct {
 }
 
 type Response struct {
-	SessionID string        `json:"session_id"`
-	Status    string        `json:"status"`
-	Cwd       string        `json:"cwd"`
-	Output    string        `json:"output"`
-	Running   bool          `json:"running"`
-	Truncated bool          `json:"truncated"`
-	TimedOut  bool          `json:"timed_out"`
-	ExitCode  *int          `json:"exit_code,omitempty"`
-	Artifacts []ArtifactRef `json:"artifacts,omitempty"`
+	SessionID          string        `json:"session_id"`
+	Status             string        `json:"status"`
+	Cwd                string        `json:"cwd"`
+	Output             string        `json:"output"`
+	Running            bool          `json:"running"`
+	Truncated          bool          `json:"truncated"`
+	TimedOut           bool          `json:"timed_out"`
+	ExitCode           *int          `json:"exit_code,omitempty"`
+	Artifacts          []ArtifactRef `json:"artifacts,omitempty"`
+	Restored           bool          `json:"restored,omitempty"`
+	CheckpointRevision string        `json:"checkpoint_revision,omitempty"`
+}
+
+type ForkSessionResponse struct {
+	CheckpointRevision string `json:"checkpoint_revision,omitempty"`
 }
 
 type DebugTranscript struct {

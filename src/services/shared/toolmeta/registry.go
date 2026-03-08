@@ -62,13 +62,13 @@ var registry = []ToolMeta{
 		Name:           "exec_command",
 		Group:          GroupSandbox,
 		Label:          "Command execution",
-		LLMDescription: "run a command in the default persistent shell session inside the isolated sandbox. The session is reused automatically inside the same run, so do not pass session_id. Short commands usually finish in this first response. Only switch to write_stdin when the result still shows running=true or when you need to send stdin. Write files meant for the final answer to /tmp/output/ so they appear in artifacts.",
+		LLMDescription: "run a command in a persistent shell session inside the isolated sandbox. Use session_mode=auto unless you need a fresh session, an explicit resume, or a fork. When the tool returns session_ref, keep using that stable reference in later calls instead of any transient sandbox identifier. Short commands usually finish in this first response. Only switch to write_stdin when the result still shows running=true or when you need to send stdin. Write files meant for the final answer to /tmp/output/ so they appear in artifacts.",
 	},
 	{
 		Name:           "write_stdin",
 		Group:          GroupSandbox,
 		Label:          "Shell stdin",
-		LLMDescription: "send stdin to, or poll output from, a running shell session. Pass the session_id returned by exec_command. Use this only when exec_command returned running=true or when the process is waiting for more stdin. Set chars to a non-empty string to write stdin. Set chars to an empty string, or omit it, to poll for new output without repeating already delivered output.",
+		LLMDescription: "send stdin to, or poll output from, a running shell session. Pass the session_ref returned by exec_command. Use this only when exec_command returned running=true or when the process is waiting for more stdin. Set chars to a non-empty string to write stdin. Set chars to an empty string, or omit it, to poll for new output without repeating already delivered output.",
 	},
 	{
 		Name:           "memory_search",

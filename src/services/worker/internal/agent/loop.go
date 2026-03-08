@@ -352,7 +352,7 @@ func (l *Loop) executeContinuationToolCall(
 	emitter events.Emitter,
 	continuation *continuationBudgetState,
 ) tools.ExecutionResult {
-	sessionID := readContinuationSessionID(call.ArgumentsJSON)
+	sessionID := readContinuationSessionRef(call.ArgumentsJSON)
 	if continuation != nil && continuation.Remaining <= 0 {
 		result := continuationErrorResult(ErrorClassToolContinuationBudgetExceeded, "tool continuation budget exceeded", sessionID, continuation.Remaining)
 		updateContinuationTracking(continuation, call, result)
@@ -401,21 +401,29 @@ func updateContinuationTracking(state *continuationBudgetState, call llm.ToolCal
 
 func trackedSessionID(call llm.ToolCall, result tools.ExecutionResult) string {
 	if call.ToolName == "write_stdin" {
-		return readContinuationSessionID(call.ArgumentsJSON)
+		return readContinuationSessionRef(call.ArgumentsJSON)
 	}
 	if result.ResultJSON == nil {
 		return ""
 	}
-	sessionID, _ := result.ResultJSON["session_id"].(string)
-	return strings.TrimSpace(sessionID)
+	sessionID, _ := result.ResultJSON["session_ref"].(string)
+	if strings.TrimSpace(sessionID) != "" {
+		return strings.TrimSpace(sessionID)
+	}
+	legacySessionID, _ := result.ResultJSON["session_id"].(string)
+	return strings.TrimSpace(legacySessionID)
 }
 
-func readContinuationSessionID(args map[string]any) string {
+func readContinuationSessionRef(args map[string]any) string {
 	if args == nil {
 		return ""
 	}
-	value, _ := args["session_id"].(string)
-	return strings.TrimSpace(value)
+	value, _ := args["session_ref"].(string)
+	if strings.TrimSpace(value) != "" {
+		return strings.TrimSpace(value)
+	}
+	legacyValue, _ := args["session_id"].(string)
+	return strings.TrimSpace(legacyValue)
 }
 
 func resultRunning(result tools.ExecutionResult) bool {
@@ -429,11 +437,11 @@ func resultRunning(result tools.ExecutionResult) bool {
 func continuationErrorResult(errorClass string, message string, sessionID string, limit int) tools.ExecutionResult {
 	resultJSON := map[string]any{"running": false}
 	if sessionID != "" {
-		resultJSON["session_id"] = sessionID
+		resultJSON["session_ref"] = sessionID
 	}
 	details := map[string]any{}
 	if sessionID != "" {
-		details["session_id"] = sessionID
+		details["session_ref"] = sessionID
 	}
 	if limit > 0 {
 		details["limit"] = limit

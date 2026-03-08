@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"arkloop/services/worker/internal/tools"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 const (
@@ -64,27 +65,42 @@ type writeStdinRequest struct {
 	YieldTimeMs int    `json:"yield_time_ms,omitempty"`
 }
 
+type forkSessionRequest struct {
+	OrgID         string `json:"org_id,omitempty"`
+	FromSessionID string `json:"from_session_id"`
+	ToSessionID   string `json:"to_session_id"`
+}
+
+type forkSessionResponse struct {
+	CheckpointRevision string `json:"checkpoint_revision,omitempty"`
+}
+
 type execSessionResponse struct {
-	SessionID string        `json:"session_id"`
-	Status    string        `json:"status"`
-	Cwd       string        `json:"cwd"`
-	Output    string        `json:"output"`
-	Running   bool          `json:"running"`
-	Truncated bool          `json:"truncated"`
-	TimedOut  bool          `json:"timed_out"`
-	ExitCode  *int          `json:"exit_code,omitempty"`
-	Artifacts []artifactRef `json:"artifacts,omitempty"`
+	SessionID          string        `json:"session_id"`
+	Status             string        `json:"status"`
+	Cwd                string        `json:"cwd"`
+	Output             string        `json:"output"`
+	Running            bool          `json:"running"`
+	Truncated          bool          `json:"truncated"`
+	TimedOut           bool          `json:"timed_out"`
+	ExitCode           *int          `json:"exit_code,omitempty"`
+	Artifacts          []artifactRef `json:"artifacts,omitempty"`
+	Restored           bool          `json:"restored,omitempty"`
+	CheckpointRevision string        `json:"checkpoint_revision,omitempty"`
 }
 
 type execCommandArgs struct {
-	Cwd         string
-	Command     string
-	TimeoutMs   int
-	YieldTimeMs int
+	SessionMode    string
+	SessionRef     string
+	FromSessionRef string
+	Cwd            string
+	Command        string
+	TimeoutMs      int
+	YieldTimeMs    int
 }
 
 type writeStdinArgs struct {
-	SessionID   string
+	SessionRef  string
 	Chars       string
 	YieldTimeMs int
 }
@@ -97,18 +113,22 @@ type artifactRef struct {
 }
 
 type ToolExecutor struct {
-	baseURL   string
-	authToken string
-	client    *http.Client
+	baseURL       string
+	authToken     string
+	client        *http.Client
+	orchestrator  *sessionOrchestrator
 }
 
 func NewToolExecutor(baseURL, authToken string) *ToolExecutor {
+	return NewToolExecutorWithPool(baseURL, authToken, nil)
+}
+
+func NewToolExecutorWithPool(baseURL, authToken string, pool *pgxpool.Pool) *ToolExecutor {
 	return &ToolExecutor{
-		baseURL:   baseURL,
-		authToken: authToken,
-		client: &http.Client{
-			Timeout: httpClientTimeout,
-		},
+		baseURL:      baseURL,
+		authToken:    authToken,
+		client:       &http.Client{Timeout: httpClientTimeout},
+		orchestrator: newSessionOrchestrator(pool),
 	}
 }
 
@@ -191,10 +211,7 @@ func (e *ToolExecutor) executePython(
 	if len(result.Artifacts) > 0 {
 		resultJSON["artifacts"] = result.Artifacts
 	}
-	return tools.ExecutionResult{
-		ResultJSON: resultJSON,
-		DurationMs: durationMs(started),
-	}
+	return tools.ExecutionResult{ResultJSON: resultJSON, DurationMs: durationMs(started)}
 }
 
 func (e *ToolExecutor) executeExecCommand(
@@ -207,9 +224,22 @@ func (e *ToolExecutor) executeExecCommand(
 	if argErr != nil {
 		return tools.ExecutionResult{Error: argErr, DurationMs: durationMs(started)}
 	}
+	resolution, resolveErr := e.orchestrator.resolveExecSession(ctx, reqArgs, execCtx)
+	if resolveErr != nil {
+		return tools.ExecutionResult{Error: resolveErr, DurationMs: durationMs(started)}
+	}
+	if strings.TrimSpace(resolution.FromSessionRef) != "" {
+		forked, forkErr := e.forkSessionCheckpoint(ctx, execCtx, resolution.FromSessionRef, resolution.SessionRef)
+		if forkErr != nil {
+			return tools.ExecutionResult{Error: forkErr, DurationMs: durationMs(started)}
+		}
+		if strings.TrimSpace(forked) != "" && resolution.Record != nil {
+			resolution.Record.LatestCheckpointRev = stringPtr(forked)
+		}
+	}
 
 	request := execCommandRequest{
-		SessionID:    defaultExecSessionID(execCtx.RunID.String()),
+		SessionID:    resolution.SessionRef,
 		OrgID:        resolveOrgID(execCtx),
 		ProfileRef:   resolveProfileRef(execCtx),
 		WorkspaceRef: resolveWorkspaceRef(execCtx),
@@ -219,7 +249,20 @@ func (e *ToolExecutor) executeExecCommand(
 		TimeoutMs:    reqArgs.TimeoutMs,
 		YieldTimeMs:  reqArgs.YieldTimeMs,
 	}
-	return e.executeExecSessionRequest(ctx, e.baseURL+"/v1/exec_command", "exec_command", request, request.OrgID, execCtx.PerToolSoftLimits, started)
+	result := e.executeExecSessionRequest(ctx, e.baseURL+"/v1/exec_command", "exec_command", request, request.OrgID, execCtx.PerToolSoftLimits, started)
+	if result.Error != nil {
+		return result
+	}
+	resp := decodeExecSessionResult(result.ResultJSON)
+	if resp != nil {
+		e.orchestrator.markResult(ctx, execCtx, resolution, *resp)
+		result.ResultJSON["session_ref"] = resolution.SessionRef
+		result.ResultJSON["resolved_via"] = resolution.ResolvedVia
+		result.ResultJSON["reused"] = resolution.Reused
+		result.ResultJSON["restored_from_checkpoint"] = resp.Restored || resolution.RestoredFromCheckpoint
+	}
+	delete(result.ResultJSON, "session_id")
+	return result
 }
 
 func (e *ToolExecutor) executeWriteStdin(
@@ -232,14 +275,67 @@ func (e *ToolExecutor) executeWriteStdin(
 	if argErr != nil {
 		return tools.ExecutionResult{Error: argErr, DurationMs: durationMs(started)}
 	}
+	resolution, resolveErr := e.orchestrator.resolveWriteSession(ctx, reqArgs, execCtx)
+	if resolveErr != nil {
+		return tools.ExecutionResult{Error: resolveErr, DurationMs: durationMs(started)}
+	}
 
 	request := writeStdinRequest{
-		SessionID:   reqArgs.SessionID,
+		SessionID:   resolution.SessionRef,
 		OrgID:       resolveOrgID(execCtx),
 		Chars:       reqArgs.Chars,
 		YieldTimeMs: clampYieldTimeMs(reqArgs.YieldTimeMs, tools.ResolveToolSoftLimit(execCtx.PerToolSoftLimits, "write_stdin")),
 	}
-	return e.executeExecSessionRequest(ctx, e.baseURL+"/v1/write_stdin", "write_stdin", request, request.OrgID, execCtx.PerToolSoftLimits, started)
+	result := e.executeExecSessionRequest(ctx, e.baseURL+"/v1/write_stdin", "write_stdin", request, request.OrgID, execCtx.PerToolSoftLimits, started)
+	if result.Error != nil {
+		return result
+	}
+	resp := decodeExecSessionResult(result.ResultJSON)
+	if resp != nil {
+		e.orchestrator.markResult(ctx, execCtx, resolution, *resp)
+		result.ResultJSON["session_ref"] = resolution.SessionRef
+		result.ResultJSON["resolved_via"] = resolution.ResolvedVia
+		result.ResultJSON["reused"] = true
+		result.ResultJSON["restored_from_checkpoint"] = false
+	}
+	delete(result.ResultJSON, "session_id")
+	return result
+}
+
+func (e *ToolExecutor) forkSessionCheckpoint(
+	ctx context.Context,
+	execCtx tools.ExecutionContext,
+	fromSessionRef string,
+	toSessionRef string,
+) (string, *tools.ExecutionError) {
+	payload, err := json.Marshal(forkSessionRequest{
+		OrgID:         resolveOrgID(execCtx),
+		FromSessionID: fromSessionRef,
+		ToSessionID:   toSessionRef,
+	})
+	if err != nil {
+		return "", &tools.ExecutionError{ErrorClass: errorSandboxError, Message: fmt.Sprintf("marshal fork request failed: %s", err.Error())}
+	}
+	resp, reqErr := e.doJSONRequest(ctx, http.MethodPost, e.baseURL+"/v1/sessions/fork", payload, resolveOrgID(execCtx))
+	if reqErr != nil {
+		return "", &tools.ExecutionError{ErrorClass: reqErr.errorClass, Message: reqErr.message}
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", &tools.ExecutionError{ErrorClass: errorSandboxError, Message: "read fork response body failed"}
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		mapped := mapHTTPError(resp.StatusCode, body, time.Now())
+		return "", mapped.Error
+	}
+	var result forkSessionResponse
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &result); err != nil {
+			return "", &tools.ExecutionError{ErrorClass: errorSandboxError, Message: "decode fork response failed"}
+		}
+	}
+	return strings.TrimSpace(result.CheckpointRevision), nil
 }
 
 func (e *ToolExecutor) executeExecSessionRequest(
@@ -255,7 +351,6 @@ func (e *ToolExecutor) executeExecSessionRequest(
 	if err != nil {
 		return errResult(errorSandboxError, fmt.Sprintf("marshal request failed: %s", err.Error()), started)
 	}
-
 	resp, reqErr := e.doJSONRequest(ctx, http.MethodPost, endpoint, payload, orgID)
 	if reqErr != nil {
 		return errResult(reqErr.errorClass, reqErr.message, started)
@@ -275,23 +370,26 @@ func (e *ToolExecutor) executeExecSessionRequest(
 		return errResult(errorSandboxError, "decode response failed", started)
 	}
 	output, outputTruncated := truncateOutputByLimit(result.Output, tools.ResolveToolSoftLimit(softLimits, toolName).MaxOutputBytes)
-
 	resultJSON := map[string]any{
-		"session_id":  result.SessionID,
-		"status":      result.Status,
-		"cwd":         result.Cwd,
-		"stdout":      output,
-		"output":      output,
-		"running":     result.Running,
-		"timed_out":   result.TimedOut,
-		"truncated":   result.Truncated || outputTruncated,
-		"duration_ms": durationMs(started),
+		"session_id":          result.SessionID,
+		"status":              result.Status,
+		"cwd":                 result.Cwd,
+		"stdout":              output,
+		"output":              output,
+		"running":             result.Running,
+		"timed_out":           result.TimedOut,
+		"truncated":           result.Truncated || outputTruncated,
+		"duration_ms":         durationMs(started),
+		"restored_from_checkpoint": result.Restored,
 	}
 	if result.ExitCode != nil {
 		resultJSON["exit_code"] = *result.ExitCode
 	}
 	if len(result.Artifacts) > 0 {
 		resultJSON["artifacts"] = result.Artifacts
+	}
+	if strings.TrimSpace(result.CheckpointRevision) != "" {
+		resultJSON["checkpoint_revision"] = strings.TrimSpace(result.CheckpointRevision)
 	}
 	return tools.ExecutionResult{ResultJSON: resultJSON, DurationMs: durationMs(started)}
 }
@@ -361,11 +459,17 @@ func (e *ToolExecutor) doJSONRequest(
 }
 
 func parseExecCommandArgs(args map[string]any) (execCommandArgs, *tools.ExecutionError) {
+	if _, ok := args["session_id"]; ok {
+		return execCommandArgs{}, sandboxArgsError("parameter session_id is not supported; use session_ref")
+	}
 	request := execCommandArgs{
-		Cwd:         readStringArg(args, "cwd"),
-		Command:     readStringArg(args, "command"),
-		TimeoutMs:   resolveTimeoutMs(args),
-		YieldTimeMs: readIntArg(args, "yield_time_ms"),
+		SessionMode:    readStringArg(args, "session_mode"),
+		SessionRef:     readStringArg(args, "session_ref"),
+		FromSessionRef: readStringArg(args, "from_session_ref"),
+		Cwd:            readStringArg(args, "cwd"),
+		Command:        readStringArg(args, "command"),
+		TimeoutMs:      resolveTimeoutMs(args),
+		YieldTimeMs:    readIntArg(args, "yield_time_ms"),
 	}
 	if strings.TrimSpace(request.Command) == "" {
 		return execCommandArgs{}, sandboxArgsError("parameter command is required")
@@ -374,13 +478,16 @@ func parseExecCommandArgs(args map[string]any) (execCommandArgs, *tools.Executio
 }
 
 func parseWriteStdinArgs(args map[string]any) (writeStdinArgs, *tools.ExecutionError) {
+	if _, ok := args["session_id"]; ok {
+		return writeStdinArgs{}, sandboxArgsError("parameter session_id is not supported; use session_ref")
+	}
 	request := writeStdinArgs{
-		SessionID:   readStringArg(args, "session_id"),
+		SessionRef:  readStringArg(args, "session_ref"),
 		Chars:       readStringArg(args, "chars"),
 		YieldTimeMs: readIntArg(args, "yield_time_ms"),
 	}
-	if strings.TrimSpace(request.SessionID) == "" {
-		return writeStdinArgs{}, sandboxArgsError("parameter session_id is required")
+	if strings.TrimSpace(request.SessionRef) == "" {
+		return writeStdinArgs{}, sandboxArgsError("parameter session_ref is required")
 	}
 	return request, nil
 }
@@ -503,10 +610,7 @@ func mapHTTPError(statusCode int, body []byte, started time.Time) tools.Executio
 
 func errResult(errorClass, message string, started time.Time) tools.ExecutionResult {
 	return tools.ExecutionResult{
-		Error: &tools.ExecutionError{
-			ErrorClass: errorClass,
-			Message:    message,
-		},
+		Error: &tools.ExecutionError{ErrorClass: errorClass, Message: message},
 		DurationMs: durationMs(started),
 	}
 }
@@ -528,4 +632,19 @@ func durationMs(started time.Time) int {
 		return 0
 	}
 	return millis
+}
+
+func decodeExecSessionResult(resultJSON map[string]any) *execSessionResponse {
+	if resultJSON == nil {
+		return nil
+	}
+	payload, err := json.Marshal(resultJSON)
+	if err != nil {
+		return nil
+	}
+	var result execSessionResponse
+	if err := json.Unmarshal(payload, &result); err != nil {
+		return nil
+	}
+	return &result
 }

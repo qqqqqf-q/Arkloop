@@ -27,6 +27,7 @@ type Carrier interface {
 type Store interface {
 	Put(ctx context.Context, key string, data []byte) error
 	Get(ctx context.Context, key string) ([]byte, error)
+	Head(ctx context.Context, key string) (objectstore.ObjectInfo, error)
 }
 
 type Binding struct {

@@ -13,12 +13,6 @@ import (
 	"github.com/klauspost/compress/zstd"
 )
 
-type Store interface {
-	Put(ctx context.Context, key string, data []byte) error
-	Get(ctx context.Context, key string) ([]byte, error)
-	Head(ctx context.Context, key string) (objectstore.ObjectInfo, error)
-}
-
 func manifestKey(scope, ref string) string {
 	prefix := scopePrefix(scope, ref)
 	if prefix == "" {

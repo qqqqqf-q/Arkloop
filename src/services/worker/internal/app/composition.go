@@ -161,7 +161,7 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 	sandboxBaseURL := builtinAvailability.SandboxBaseURL
 	if sandboxBaseURL != "" {
 		sandboxAuthToken := sandboxtool.AuthTokenFromEnv()
-		var sandboxExec tools.Executor = sandboxtool.NewToolExecutor(sandboxBaseURL, sandboxAuthToken)
+		var sandboxExec tools.Executor = sandboxtool.NewToolExecutorWithPool(sandboxBaseURL, sandboxAuthToken, pool)
 
 		// 当 DB 可用时，包装计费装饰器
 		if pool != nil {

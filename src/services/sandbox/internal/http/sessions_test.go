@@ -1,6 +1,7 @@
 package http
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	nethttp "net/http"
@@ -12,6 +13,7 @@ import (
 
 type stubShellService struct {
 	debugFn func(ctx context.Context, sessionID, orgID string) (*shell.DebugResponse, error)
+	forkFn  func(ctx context.Context, req shell.ForkSessionRequest) (*shell.ForkSessionResponse, error)
 	closeFn func(ctx context.Context, sessionID, orgID string) error
 }
 
@@ -28,6 +30,13 @@ func (s *stubShellService) DebugSnapshot(ctx context.Context, sessionID, orgID s
 		return s.debugFn(ctx, sessionID, orgID)
 	}
 	return &shell.DebugResponse{SessionID: sessionID, Status: shell.StatusIdle}, nil
+}
+
+func (s *stubShellService) ForkSession(ctx context.Context, req shell.ForkSessionRequest) (*shell.ForkSessionResponse, error) {
+	if s.forkFn != nil {
+		return s.forkFn(ctx, req)
+	}
+	return &shell.ForkSessionResponse{}, nil
 }
 
 func (s *stubShellService) Close(ctx context.Context, sessionID, orgID string) error {
@@ -73,6 +82,33 @@ func TestHandleSessionTranscript_OK(t *testing.T) {
 		t.Fatalf("decode response: %v", err)
 	}
 	if resp.SessionID != "sess-1" || resp.Transcript.Text != "hello" || resp.Tail != "llo" {
+		t.Fatalf("unexpected response: %#v", resp)
+	}
+}
+
+func TestHandleForkSession_OK(t *testing.T) {
+	handler := handleForkSession(&stubShellService{forkFn: func(_ context.Context, req shell.ForkSessionRequest) (*shell.ForkSessionResponse, error) {
+		if req.FromSessionID != "shref_a" || req.ToSessionID != "shref_b" {
+			t.Fatalf("unexpected fork request: %#v", req)
+		}
+		if req.OrgID != "org-a" {
+			t.Fatalf("unexpected org id: %s", req.OrgID)
+		}
+		return &shell.ForkSessionResponse{CheckpointRevision: "rev-1"}, nil
+	}})
+	body, _ := json.Marshal(map[string]any{"from_session_id": "shref_a", "to_session_id": "shref_b"})
+	req := httptest.NewRequest(nethttp.MethodPost, "/v1/sessions/fork", bytes.NewReader(body))
+	req.Header.Set("X-Org-ID", "org-a")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != nethttp.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	var resp shell.ForkSessionResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.CheckpointRevision != "rev-1" {
 		t.Fatalf("unexpected response: %#v", resp)
 	}
 }

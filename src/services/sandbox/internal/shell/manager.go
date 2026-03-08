@@ -21,6 +21,7 @@ type Service interface {
 	ExecCommand(ctx context.Context, req ExecCommandRequest) (*Response, error)
 	WriteStdin(ctx context.Context, req WriteStdinRequest) (*Response, error)
 	DebugSnapshot(ctx context.Context, sessionID, orgID string) (*DebugResponse, error)
+	ForkSession(ctx context.Context, req ForkSessionRequest) (*ForkSessionResponse, error)
 	Close(ctx context.Context, sessionID, orgID string) error
 }
 
@@ -87,6 +88,8 @@ func (m *Manager) ExecCommand(ctx context.Context, req ExecCommandRequest) (*Res
 	shellEnv := map[string]string(nil)
 	prepared := req
 	createdCompute := false
+	restored := false
+	checkpointRevision := ""
 	if entry.compute == nil {
 		computeSession, err := m.compute.GetOrCreate(ctx, req.SessionID, req.Tier, req.OrgID)
 		if err != nil {
@@ -104,7 +107,7 @@ func (m *Manager) ExecCommand(ctx context.Context, req ExecCommandRequest) (*Res
 		if err := m.prepareEnvironment(ctx, req, entry); err != nil {
 			return nil, err
 		}
-		prepared, shellEnv = m.prepareExecCommandRequest(ctx, req, entry)
+		prepared, shellEnv, restored, checkpointRevision = m.prepareExecCommandRequest(ctx, req, entry)
 		createdCompute = true
 	} else if err := m.prepareEnvironment(ctx, req, entry); err != nil {
 		return nil, err
@@ -131,6 +134,8 @@ func (m *Manager) ExecCommand(ctx context.Context, req ExecCommandRequest) (*Res
 	}
 
 	resp := m.toResponse(req.SessionID, result)
+	resp.Restored = restored
+	resp.CheckpointRevision = checkpointRevision
 	m.attachArtifacts(ctx, req.SessionID, entry, result, resp)
 	if result != nil && !result.Running && m.envManager != nil {
 		m.envManager.MarkDirty(req.SessionID)
@@ -192,6 +197,41 @@ func (m *Manager) DebugSnapshot(ctx context.Context, sessionID, orgID string) (*
 	}
 
 	return m.toDebugResponse(sessionID, result), nil
+}
+
+func (m *Manager) ForkSession(ctx context.Context, req ForkSessionRequest) (*ForkSessionResponse, error) {
+	req.FromSessionID = strings.TrimSpace(req.FromSessionID)
+	req.ToSessionID = strings.TrimSpace(req.ToSessionID)
+	req.OrgID = strings.TrimSpace(req.OrgID)
+	if req.FromSessionID == "" || req.ToSessionID == "" {
+		return nil, notFoundError()
+	}
+	if req.FromSessionID == req.ToSessionID {
+		return nil, fmt.Errorf("fork source and destination must differ")
+	}
+	if m.stateStore == nil {
+		return nil, notFoundError()
+	}
+	if entry, err := m.getExistingEntry(req.FromSessionID, req.OrgID); err == nil {
+		entry.mu.Lock()
+		if err := ensureOrg(entry.orgID, req.OrgID); err != nil {
+			entry.mu.Unlock()
+			return nil, err
+		}
+		if err := m.checkpointLocked(ctx, req.FromSessionID, entry); err != nil {
+			entry.mu.Unlock()
+			return nil, err
+		}
+		entry.mu.Unlock()
+	}
+	revision, err := copyLatestCheckpoint(ctx, m.stateStore, req.OrgID, req.FromSessionID, req.ToSessionID)
+	if err != nil {
+		if objectstore.IsNotFound(err) {
+			return nil, notFoundError()
+		}
+		return nil, err
+	}
+	return &ForkSessionResponse{CheckpointRevision: revision}, nil
 }
 
 func (m *Manager) Close(ctx context.Context, sessionID, orgID string) error {
@@ -269,28 +309,28 @@ func (m *Manager) dropEntry(sessionID string, entry *managedSession) {
 	}
 }
 
-func (m *Manager) prepareExecCommandRequest(ctx context.Context, req ExecCommandRequest, entry *managedSession) (ExecCommandRequest, map[string]string) {
+func (m *Manager) prepareExecCommandRequest(ctx context.Context, req ExecCommandRequest, entry *managedSession) (ExecCommandRequest, map[string]string, bool, string) {
 	prepared := req
 	if entry.compute == nil || m.stateStore == nil {
-		return prepared, nil
+		return prepared, nil, false, ""
 	}
 	manifest, archive, err := loadLatestCheckpoint(ctx, m.stateStore, entry.orgID, req.SessionID)
 	if err != nil {
 		if objectstore.IsNotFound(err) {
-			return prepared, nil
+			return prepared, nil, false, ""
 		}
 		m.logger.Warn("shell checkpoint load failed", logging.LogFields{SessionID: &req.SessionID}, map[string]any{"error": err.Error()})
-		return prepared, nil
+		return prepared, nil, false, ""
 	}
 	if _, err := m.invokeCheckpoint(ctx, entry, "shell_restore_import", AgentCheckpointRequest{Archive: base64.StdEncoding.EncodeToString(archive)}); err != nil {
 		m.logger.Warn("shell checkpoint restore failed", logging.LogFields{SessionID: &req.SessionID}, map[string]any{"error": err.Error(), "revision": manifest.Revision})
-		return prepared, nil
+		return prepared, nil, false, ""
 	}
 	entry.commandSeq = manifest.LastCommandSeq
 	entry.uploadedSeq = manifest.UploadedSeq
 	entry.artifactSeen = cloneArtifactSeen(manifest.ArtifactSeen)
 	prepared.Cwd = m.resolveOpenCwd(ctx, req.SessionID, entry.compute, req.Cwd, manifest.Cwd)
-	return prepared, manifest.EnvSnapshot
+	return prepared, manifest.EnvSnapshot, true, manifest.Revision
 }
 
 func (m *Manager) prepareEnvironment(ctx context.Context, req ExecCommandRequest, entry *managedSession) error {

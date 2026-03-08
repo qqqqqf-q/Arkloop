@@ -8,9 +8,11 @@ import (
 	"testing"
 	"time"
 
+	"arkloop/services/worker/internal/testutil"
 	"arkloop/services/worker/internal/tools"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func testContext() tools.ExecutionContext {
@@ -50,7 +52,7 @@ func TestPythonExecute_Success(t *testing.T) {
 			t.Errorf("unexpected code: %s", body.Code)
 		}
 		if body.SessionID != fixedRunID.String() {
-			t.Errorf("expected session_id=%s, got %s", fixedRunID.String(), body.SessionID)
+			t.Errorf("expected session_ref=%s, got %s", fixedRunID.String(), body.SessionID)
 		}
 		if body.Tier != "lite" {
 			t.Errorf("expected tier=lite, got %s", body.Tier)
@@ -90,6 +92,7 @@ func TestPythonExecute_Success(t *testing.T) {
 func TestExecCommand_UsesExecEndpoint(t *testing.T) {
 	runID := uuid.MustParse("22222222-2222-2222-2222-222222222222")
 	orgID := uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+	seenSessionRef := ""
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || r.URL.Path != "/v1/exec_command" {
 			t.Fatalf("unexpected %s %s", r.Method, r.URL.Path)
@@ -105,9 +108,10 @@ func TestExecCommand_UsesExecEndpoint(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Fatalf("decode body: %v", err)
 		}
-		if body.SessionID != defaultExecSessionID(runID.String()) {
+		if !strings.HasPrefix(body.SessionID, "shref_") {
 			t.Fatalf("unexpected session id: %s", body.SessionID)
 		}
+		seenSessionRef = body.SessionID
 		if body.OrgID != orgID.String() {
 			t.Fatalf("unexpected org id: %s", body.OrgID)
 		}
@@ -142,13 +146,14 @@ func TestExecCommand_UsesExecEndpoint(t *testing.T) {
 	if result.ResultJSON["cwd"] != "/workspace" {
 		t.Fatalf("unexpected cwd: %v", result.ResultJSON["cwd"])
 	}
-	if result.ResultJSON["session_id"] != defaultExecSessionID(runID.String()) {
-		t.Fatalf("unexpected session_id: %v", result.ResultJSON["session_id"])
+	if result.ResultJSON["session_ref"] != seenSessionRef {
+		t.Fatalf("unexpected session_ref: %v", result.ResultJSON["session_ref"])
 	}
 }
 
 func TestExecCommand_UsesDefaultSessionID(t *testing.T) {
 	runID := uuid.MustParse("33333333-3333-3333-3333-333333333333")
+	seenSessionRef := ""
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || r.URL.Path != "/v1/exec_command" {
 			t.Fatalf("unexpected %s %s", r.Method, r.URL.Path)
@@ -157,9 +162,10 @@ func TestExecCommand_UsesDefaultSessionID(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Fatalf("decode body: %v", err)
 		}
-		if body.SessionID != defaultExecSessionID(runID.String()) {
+		if !strings.HasPrefix(body.SessionID, "shref_") {
 			t.Fatalf("unexpected session id: %s", body.SessionID)
 		}
+		seenSessionRef = body.SessionID
 		if body.Command != "ls -la" {
 			t.Fatalf("unexpected command: %s", body.Command)
 		}
@@ -194,6 +200,9 @@ func TestExecCommand_UsesDefaultSessionID(t *testing.T) {
 	if result.ResultJSON["running"] != false {
 		t.Fatalf("unexpected running: %v", result.ResultJSON["running"])
 	}
+	if result.ResultJSON["session_ref"] != seenSessionRef {
+		t.Fatalf("unexpected session_ref: %v", result.ResultJSON["session_ref"])
+	}
 }
 
 func TestWriteStdin_UsesPollEndpoint(t *testing.T) {
@@ -206,7 +215,7 @@ func TestWriteStdin_UsesPollEndpoint(t *testing.T) {
 			t.Fatalf("decode body: %v", err)
 		}
 		if body.SessionID != "sess-42" {
-			t.Fatalf("unexpected session_id: %s", body.SessionID)
+			t.Fatalf("unexpected session_ref: %s", body.SessionID)
 		}
 		if body.YieldTimeMs != 1500 {
 			t.Fatalf("unexpected yield_time_ms: %d", body.YieldTimeMs)
@@ -221,7 +230,7 @@ func TestWriteStdin_UsesPollEndpoint(t *testing.T) {
 	result := exec.Execute(
 		t.Context(),
 		"write_stdin",
-		map[string]any{"session_id": "sess-42", "yield_time_ms": float64(1500)},
+		map[string]any{"session_ref": "sess-42", "yield_time_ms": float64(1500)},
 		testContext(),
 		"",
 	)
@@ -252,7 +261,7 @@ func TestWriteStdin_UsesCharsPayload(t *testing.T) {
 	defer server.Close()
 
 	exec := NewToolExecutor(server.URL, "")
-	result := exec.Execute(t.Context(), "write_stdin", map[string]any{"session_id": "sess-1", "chars": "arkloop\n"}, testContext(), "")
+	result := exec.Execute(t.Context(), "write_stdin", map[string]any{"session_ref": "sess-1", "chars": "arkloop\n"}, testContext(), "")
 	if result.Error != nil {
 		t.Fatalf("unexpected error: %+v", result.Error)
 	}
@@ -261,6 +270,7 @@ func TestWriteStdin_UsesCharsPayload(t *testing.T) {
 func TestExecCommandAndWriteStdin_ShareDefaultSessionAcrossCalls(t *testing.T) {
 	runID := uuid.MustParse("55555555-5555-5555-5555-555555555555")
 	var got []string
+	firstSessionRef := ""
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/v1/exec_command" {
 			var body execCommandRequest
@@ -285,7 +295,8 @@ func TestExecCommandAndWriteStdin_ShareDefaultSessionAcrossCalls(t *testing.T) {
 	exec := NewToolExecutor(server.URL, "")
 	ctx := testContextWithRun(runID)
 	first := exec.Execute(t.Context(), "exec_command", map[string]any{"command": "sleep 1"}, ctx, "")
-	second := exec.Execute(t.Context(), "write_stdin", map[string]any{"session_id": defaultExecSessionID(runID.String())}, ctx, "")
+	firstSessionRef, _ = first.ResultJSON["session_ref"].(string)
+	second := exec.Execute(t.Context(), "write_stdin", map[string]any{"session_ref": firstSessionRef}, ctx, "")
 
 	if first.Error != nil || second.Error != nil {
 		t.Fatalf("unexpected errors: first=%+v second=%+v", first.Error, second.Error)
@@ -294,7 +305,7 @@ func TestExecCommandAndWriteStdin_ShareDefaultSessionAcrossCalls(t *testing.T) {
 		t.Fatalf("expected 2 calls, got %d", len(got))
 	}
 	for _, sessionID := range got {
-		if sessionID != defaultExecSessionID(runID.String()) {
+		if sessionID != firstSessionRef {
 			t.Fatalf("unexpected session id: %s", sessionID)
 		}
 	}
@@ -588,7 +599,7 @@ func TestWriteStdin_ClampsYieldTimeMsBySoftLimit(t *testing.T) {
 	result := exec.Execute(
 		t.Context(),
 		"write_stdin",
-		map[string]any{"session_id": "sess-1", "yield_time_ms": float64(9000)},
+		map[string]any{"session_ref": "sess-1", "yield_time_ms": float64(9000)},
 		testContextWithSoftLimits(limits),
 		"",
 	)
@@ -709,5 +720,70 @@ func TestNoAuthHeader_WhenTokenEmpty(t *testing.T) {
 
 	if result.Error != nil {
 		t.Fatalf("unexpected error: %+v", result.Error)
+	}
+}
+
+func TestExecCommand_AutoReusesThreadDefaultAcrossRunsWithPool(t *testing.T) {
+	db := testutil.SetupPostgresDatabase(t, "worker_sandbox_exec_refs")
+	pool, err := pgxpool.New(t.Context(), db.DSN)
+	if err != nil {
+		t.Fatalf("pgxpool.New: %v", err)
+	}
+	defer pool.Close()
+
+	orgID := uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+	threadID := uuid.MustParse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
+	ctx1 := tools.ExecutionContext{
+		RunID:        uuid.MustParse("11111111-2222-3333-4444-555555555555"),
+		OrgID:        &orgID,
+		ThreadID:     &threadID,
+		ProfileRef:   "pref_test",
+		WorkspaceRef: "wsref_test",
+	}
+	ctx2 := tools.ExecutionContext{
+		RunID:        uuid.MustParse("66666666-7777-8888-9999-aaaaaaaaaaaa"),
+		OrgID:        &orgID,
+		ThreadID:     &threadID,
+		ProfileRef:   "pref_test",
+		WorkspaceRef: "wsref_test",
+	}
+
+	var sessionIDs []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/exec_command" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		var body execCommandRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		sessionIDs = append(sessionIDs, body.SessionID)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "idle", Cwd: "/workspace"})
+	}))
+	defer server.Close()
+
+	exec := NewToolExecutorWithPool(server.URL, "", pool)
+	first := exec.Execute(t.Context(), "exec_command", map[string]any{"command": "pwd"}, ctx1, "")
+	second := exec.Execute(t.Context(), "exec_command", map[string]any{"command": "pwd"}, ctx2, "")
+	if first.Error != nil || second.Error != nil {
+		t.Fatalf("unexpected errors: first=%+v second=%+v", first.Error, second.Error)
+	}
+	if len(sessionIDs) != 2 {
+		t.Fatalf("expected 2 requests, got %d", len(sessionIDs))
+	}
+	if sessionIDs[0] != sessionIDs[1] {
+		t.Fatalf("expected same session_ref across runs, got %q vs %q", sessionIDs[0], sessionIDs[1])
+	}
+	if second.ResultJSON["resolved_via"] != "thread_default" {
+		t.Fatalf("unexpected resolved_via: %v", second.ResultJSON["resolved_via"])
+	}
+}
+
+func TestExecCommand_ForkRequiresFromSessionRef(t *testing.T) {
+	exec := NewToolExecutor("http://localhost:9999", "")
+	result := exec.Execute(t.Context(), "exec_command", map[string]any{"command": "pwd", "session_mode": "fork"}, testContext(), "")
+	if result.Error == nil || result.Error.ErrorClass != errorArgsInvalid {
+		t.Fatalf("expected args_invalid, got %+v", result.Error)
 	}
 }
