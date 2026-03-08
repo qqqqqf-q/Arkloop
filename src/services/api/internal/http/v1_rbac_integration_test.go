@@ -94,7 +94,7 @@ func TestRBACPermissions(t *testing.T) {
 
 	// 注册 owner (A)
 	regA := doJSON(handler, nethttp.MethodPost, "/v1/auth/register",
-		map[string]any{"login": "rbac_owner", "password": "pwdpwdpwd", "email": "rbac_owner@test.com"},
+		map[string]any{"login": "rbac_owner", "password": "pwd12345", "email": "rbac_owner@test.com"},
 		nil,
 	)
 	if regA.Code != nethttp.StatusCreated {
@@ -106,7 +106,7 @@ func TestRBACPermissions(t *testing.T) {
 
 	// 注册用户 B，随后降为 member
 	regB := doJSON(handler, nethttp.MethodPost, "/v1/auth/register",
-		map[string]any{"login": "rbac_member", "password": "pwdpwdpwd", "email": "rbac_member@test.com"},
+		map[string]any{"login": "rbac_member", "password": "pwd12345", "email": "rbac_member@test.com"},
 		nil,
 	)
 	if regB.Code != nethttp.StatusCreated {
@@ -138,7 +138,7 @@ func TestRBACPermissions(t *testing.T) {
 
 	// 角色来源于 token claims，需要重新登录获取新 token
 	reLoginB := doJSON(handler, nethttp.MethodPost, "/v1/auth/login",
-		map[string]any{"login": "rbac_member", "password": "pwdpwdpwd"}, nil)
+		map[string]any{"login": "rbac_member", "password": "pwd12345"}, nil)
 	if reLoginB.Code != nethttp.StatusOK {
 		t.Fatalf("re-login B: %d %s", reLoginB.Code, reLoginB.Body.String())
 	}
@@ -238,7 +238,7 @@ func TestRBACPermissions(t *testing.T) {
 	}
 	// 同样需要重新登录拿到 role=legacy_role 的 token
 	reLoginB2 := doJSON(handler, nethttp.MethodPost, "/v1/auth/login",
-		map[string]any{"login": "rbac_member", "password": "pwdpwdpwd"}, nil)
+		map[string]any{"login": "rbac_member", "password": "pwd12345"}, nil)
 	if reLoginB2.Code != nethttp.StatusOK {
 		t.Fatalf("re-login B (legacy): %d %s", reLoginB2.Code, reLoginB2.Body.String())
 	}

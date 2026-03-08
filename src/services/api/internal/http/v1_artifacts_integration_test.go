@@ -202,7 +202,7 @@ func buildArtifactEnv(t *testing.T) artifactTestEnv {
 	})
 
 	regResp := doJSON(handler, nethttp.MethodPost, "/v1/auth/register",
-		map[string]any{"login": "alice-artifacts", "password": "pwdpwdpwd", "email": "alice-artifacts@test.com"},
+		map[string]any{"login": "alice-artifacts", "password": "pwd12345", "email": "alice-artifacts@test.com"},
 		nil,
 	)
 	if regResp.Code != nethttp.StatusCreated {
@@ -269,7 +269,7 @@ func TestArtifactsAuthorizationByRunOwnerAndShare(t *testing.T) {
 	}
 
 	registerOther := doJSON(env.handler, nethttp.MethodPost, "/v1/auth/register",
-		map[string]any{"login": "bob-artifacts", "password": "pwdpwdpwd", "email": "bob-artifacts@test.com"},
+		map[string]any{"login": "bob-artifacts", "password": "pwd12345", "email": "bob-artifacts@test.com"},
 		nil,
 	)
 	if registerOther.Code != nethttp.StatusCreated {
@@ -366,7 +366,7 @@ func TestThreadAttachmentsUploadAndRead(t *testing.T) {
 		env.handler,
 		nethttp.MethodPost,
 		"/v1/auth/register",
-		map[string]any{"login": "bob-attachments", "password": "pwdpwdpwd", "email": "bob-attachments@test.com"},
+		map[string]any{"login": "bob-attachments", "password": "pwd12345", "email": "bob-attachments@test.com"},
 		nil,
 	)
 	if bobRegister.Code != nethttp.StatusCreated {

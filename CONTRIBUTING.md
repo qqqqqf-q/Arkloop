@@ -162,7 +162,6 @@ bin/ci-local full
 # GitHub Actions style verification
 bin/ci-local act go-check
 bin/ci-local act typescript
-bin/ci-local act go-integration
 
 # Go unit tests
 cd src/services/api && go test ./...
@@ -179,6 +178,8 @@ cd tests/smoke && go test ./...
 
 Recommended order for daily work: `bin/ci-local quick` -> `bin/ci-local integration` -> `bin/ci-local act <job>`.
 Use `quick` before routine commits, `integration` after database or pipeline changes, and `act` when you want behavior close to GitHub Actions.
+`quick` installs frontend dependencies automatically, so the first run can take longer.
+`bin/ci-local act go-integration` is not recommended right now; use `bin/ci-local integration` for local integration checks.
 
 ## Trademark Usage
 

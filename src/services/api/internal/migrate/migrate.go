@@ -18,6 +18,7 @@ import (
 var embedFS embed.FS
 
 var ExpectedVersion int64 = expectedVersionFromEmbeddedMigrations()
+var EmbeddedMigrationCount int = embeddedMigrationCount()
 
 func migrationsFS() fs.FS {
 	sub, err := fs.Sub(embedFS, "migrations")
@@ -58,6 +59,27 @@ func expectedVersionFromEmbeddedMigrations() int64 {
 		panic("migrate: embedded migrations empty")
 	}
 	return max
+}
+
+func embeddedMigrationCount() int {
+	entries, err := fs.ReadDir(migrationsFS(), ".")
+	if err != nil {
+		panic(fmt.Sprintf("migrate: read embedded migrations: %v", err))
+	}
+
+	count := 0
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		if strings.HasSuffix(entry.Name(), ".sql") {
+			count++
+		}
+	}
+	if count == 0 {
+		panic("migrate: embedded migrations empty")
+	}
+	return count
 }
 
 func openDB(dsn string) (*sql.DB, error) {

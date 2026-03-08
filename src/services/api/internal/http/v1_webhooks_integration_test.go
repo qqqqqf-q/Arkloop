@@ -65,7 +65,7 @@ func TestWebhookCreateStoresSecretReference(t *testing.T) {
 	})
 
 	regResp := doJSON(handler, nethttp.MethodPost, "/v1/auth/register",
-		map[string]any{"login": "alice-webhook", "password": "pwdpwdpwd", "email": "alice-webhook@test.com"},
+		map[string]any{"login": "alice-webhook", "password": "pwd12345", "email": "alice-webhook@test.com"},
 		nil,
 	)
 	if regResp.Code != nethttp.StatusCreated {

@@ -84,7 +84,7 @@ func TestAuthRegisterLoginRefreshLogoutFlow(t *testing.T) {
 		OrgMembershipRepo:   membershipRepo,
 	})
 
-	registerBody := map[string]any{"login": "alice", "password": "pwdpwdpwd", "email": "alice@test.com"}
+	registerBody := map[string]any{"login": "alice", "password": "pwd12345", "email": "alice@test.com"}
 	registerResp := doJSON(handler, nethttp.MethodPost, "/v1/auth/register", registerBody, nil)
 	if registerResp.Code != nethttp.StatusCreated {
 		t.Fatalf("unexpected register status: %d body=%s", registerResp.Code, registerResp.Body.String())
@@ -105,7 +105,7 @@ func TestAuthRegisterLoginRefreshLogoutFlow(t *testing.T) {
 		t.Fatalf("unexpected me status: %d body=%s", meResp.Code, meResp.Body.String())
 	}
 
-	loginResp := doJSON(handler, nethttp.MethodPost, "/v1/auth/login", map[string]any{"login": "alice", "password": "pwdpwdpwd"}, nil)
+	loginResp := doJSON(handler, nethttp.MethodPost, "/v1/auth/login", map[string]any{"login": "alice", "password": "pwd12345"}, nil)
 	if loginResp.Code != nethttp.StatusOK {
 		t.Fatalf("unexpected login status: %d body=%s", loginResp.Code, loginResp.Body.String())
 	}
@@ -413,7 +413,7 @@ func TestAuthMeRequiresMembership(t *testing.T) {
 	})
 
 	registerResp := doJSON(handler, nethttp.MethodPost, "/v1/auth/register",
-		map[string]any{"login": "membershipless", "password": "pwdpwdpwd", "email": "membershipless@test.com"}, nil)
+		map[string]any{"login": "membershipless", "password": "pwd12345", "email": "membershipless@test.com"}, nil)
 	if registerResp.Code != nethttp.StatusCreated {
 		t.Fatalf("register: %d %s", registerResp.Code, registerResp.Body.String())
 	}
@@ -505,14 +505,14 @@ func TestAuthLogoutThenReLoginNewTokenStillValid(t *testing.T) {
 
 	// register
 	registerResp := doJSON(handler, nethttp.MethodPost, "/v1/auth/register",
-		map[string]any{"login": "carol", "password": "pwdpwdpwd", "email": "carol@test.com"}, nil)
+		map[string]any{"login": "carol", "password": "pwd12345", "email": "carol@test.com"}, nil)
 	if registerResp.Code != nethttp.StatusCreated {
 		t.Fatalf("register: %d %s", registerResp.Code, registerResp.Body.String())
 	}
 
 	// first login to get tokenA
 	loginResp := doJSON(handler, nethttp.MethodPost, "/v1/auth/login",
-		map[string]any{"login": "carol", "password": "pwdpwdpwd"}, nil)
+		map[string]any{"login": "carol", "password": "pwd12345"}, nil)
 	if loginResp.Code != nethttp.StatusOK {
 		t.Fatalf("login: %d %s", loginResp.Code, loginResp.Body.String())
 	}
@@ -530,7 +530,7 @@ func TestAuthLogoutThenReLoginNewTokenStillValid(t *testing.T) {
 
 	// immediately re-login to get tokenB (iat right after logout, precision boundary scenario)
 	reLoginResp := doJSON(handler, nethttp.MethodPost, "/v1/auth/login",
-		map[string]any{"login": "carol", "password": "pwdpwdpwd"}, nil)
+		map[string]any{"login": "carol", "password": "pwd12345"}, nil)
 	if reLoginResp.Code != nethttp.StatusOK {
 		t.Fatalf("re-login: %d %s", reLoginResp.Code, reLoginResp.Body.String())
 	}
@@ -605,13 +605,13 @@ func TestAuthCookieIsolation(t *testing.T) {
 
 	// register two users
 	doJSON(handler, nethttp.MethodPost, "/v1/auth/register",
-		map[string]any{"login": "alice", "password": "pwdpwdpwd", "email": "alice@test.com"}, nil)
+		map[string]any{"login": "alice", "password": "pwd12345", "email": "alice@test.com"}, nil)
 	doJSON(handler, nethttp.MethodPost, "/v1/auth/register",
-		map[string]any{"login": "bob", "password": "pwdpwdpwd", "email": "bob@test.com"}, nil)
+		map[string]any{"login": "bob", "password": "pwd12345", "email": "bob@test.com"}, nil)
 
 	// login alice on web app
 	webLoginResp := doJSON(handler, nethttp.MethodPost, "/v1/auth/login",
-		map[string]any{"login": "alice", "password": "pwdpwdpwd"},
+		map[string]any{"login": "alice", "password": "pwd12345"},
 		map[string]string{clientAppHeader: "web"})
 	if webLoginResp.Code != nethttp.StatusOK {
 		t.Fatalf("web login alice: %d %s", webLoginResp.Code, webLoginResp.Body.String())
@@ -623,7 +623,7 @@ func TestAuthCookieIsolation(t *testing.T) {
 
 	// login bob on console app
 	consoleLoginResp := doJSON(handler, nethttp.MethodPost, "/v1/auth/login",
-		map[string]any{"login": "bob", "password": "pwdpwdpwd"},
+		map[string]any{"login": "bob", "password": "pwd12345"},
 		map[string]string{clientAppHeader: "console"})
 	if consoleLoginResp.Code != nethttp.StatusOK {
 		t.Fatalf("console login bob: %d %s", consoleLoginResp.Code, consoleLoginResp.Body.String())

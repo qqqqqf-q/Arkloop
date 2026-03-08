@@ -94,7 +94,7 @@ func TestMessagesCreateListAndAudit(t *testing.T) {
 		handler,
 		nethttp.MethodPost,
 		"/v1/auth/register",
-		map[string]any{"login": "alice", "password": "pwdpwdpwd", "email": "alice@test.com"},
+		map[string]any{"login": "alice", "password": "pwd12345", "email": "alice@test.com"},
 		nil,
 	)
 	if aliceRegister.Code != nethttp.StatusCreated {
@@ -140,7 +140,7 @@ func TestMessagesCreateListAndAudit(t *testing.T) {
 		handler,
 		nethttp.MethodPost,
 		"/v1/auth/register",
-		map[string]any{"login": "bob", "password": "pwdpwdpwd", "email": "bob@test.com"},
+		map[string]any{"login": "bob", "password": "pwd12345", "email": "bob@test.com"},
 		nil,
 	)
 	if bobRegister.Code != nethttp.StatusCreated {
@@ -230,7 +230,7 @@ func TestMessagesListIncludesAssistantRunID(t *testing.T) {
 		handler,
 		nethttp.MethodPost,
 		"/v1/auth/register",
-		map[string]any{"login": "alice-run-id", "password": "pwdpwdpwd", "email": "alice-run-id@test.com"},
+		map[string]any{"login": "alice-run-id", "password": "pwd12345", "email": "alice-run-id@test.com"},
 		nil,
 	)
 	if aliceRegister.Code != nethttp.StatusCreated {

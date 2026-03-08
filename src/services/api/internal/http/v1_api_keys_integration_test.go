@@ -111,7 +111,7 @@ func buildAPIKeyEnv(t *testing.T) apiKeyTestEnv {
 
 	// 注册一个测试用户并获取 JWT token
 	regResp := doJSON(handler, nethttp.MethodPost, "/v1/auth/register",
-		map[string]any{"login": "alice", "password": "pwdpwdpwd", "email": "alice@test.com"},
+		map[string]any{"login": "alice", "password": "pwd12345", "email": "alice@test.com"},
 		nil,
 	)
 	if regResp.Code != nethttp.StatusCreated {
@@ -279,7 +279,7 @@ func TestAPIKeyOwnershipVisibility(t *testing.T) {
 
 	register := func(login string) uuid.UUID {
 		resp := doJSON(env.handler, nethttp.MethodPost, "/v1/auth/register",
-			map[string]any{"login": login, "password": "pwdpwdpwd", "email": login + "@test.com"},
+			map[string]any{"login": login, "password": "pwd12345", "email": login + "@test.com"},
 			nil,
 		)
 		if resp.Code != nethttp.StatusCreated {
@@ -472,7 +472,7 @@ func TestAPIKeyAuditLog(t *testing.T) {
 	})
 
 	regResp := doJSON(handler, nethttp.MethodPost, "/v1/auth/register",
-		map[string]any{"login": "bob", "password": "pwdpwdpwd", "email": "bob@test.com"},
+		map[string]any{"login": "bob", "password": "pwd12345", "email": "bob@test.com"},
 		nil,
 	)
 	if regResp.Code != nethttp.StatusCreated {

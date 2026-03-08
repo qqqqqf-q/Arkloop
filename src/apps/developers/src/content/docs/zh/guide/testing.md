@@ -20,11 +20,13 @@ bin/ci-local full
 # 近似 GitHub Actions 的验证
 bin/ci-local act go-check
 bin/ci-local act typescript
-bin/ci-local act go-integration
 ```
 
 推荐顺序：`bin/ci-local quick` -> `bin/ci-local integration` -> `bin/ci-local act <job>`。
 `quick` 适合日常提交前自检，`integration` 适合数据库、repo、worker pipeline、webhook、runengine 一类改动，`act` 用来做接近 GitHub Actions 的补充验证。
+`quick` 会自动安装前端依赖，因此首次运行会更慢。
+`bin/ci-local act ...` 首次执行会拉取体积较大的 runner 镜像。
+当前不建议使用 `bin/ci-local act go-integration`，本地集成检查优先使用 `bin/ci-local integration`。
 
 ## 单元测试
 
@@ -42,8 +44,10 @@ cd src/apps/console && pnpm test
 ## 集成测试
 
 ```bash
-cd src/services/api && go test -tags integration ./...
+bin/ci-local integration
 ```
+
+如果要单独深挖某个服务，可进入对应目录后执行 `go test -count=1 -race ./...`。
 
 ## 冒烟测试
 

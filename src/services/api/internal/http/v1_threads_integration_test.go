@@ -91,7 +91,7 @@ func TestThreadsCreateListGetPatchAndAudit(t *testing.T) {
 		handler,
 		nethttp.MethodPost,
 		"/v1/auth/register",
-		map[string]any{"login": "alice", "password": "pwdpwdpwd", "email": "alice@test.com"},
+		map[string]any{"login": "alice", "password": "pwd12345", "email": "alice@test.com"},
 		nil,
 	)
 	if registerResp.Code != nethttp.StatusCreated {
@@ -123,7 +123,7 @@ func TestThreadsCreateListGetPatchAndAudit(t *testing.T) {
 		handler,
 		nethttp.MethodPost,
 		"/v1/auth/register",
-		map[string]any{"login": "bob", "password": "pwdpwdpwd", "email": "bob@test.com"},
+		map[string]any{"login": "bob", "password": "pwd12345", "email": "bob@test.com"},
 		nil,
 	)
 	if otherRegister.Code != nethttp.StatusCreated {
@@ -231,7 +231,7 @@ func TestThreadsPatchDeleteOwnershipFallbacks(t *testing.T) {
 		handler,
 		nethttp.MethodPost,
 		"/v1/auth/register",
-		map[string]any{"login": "alice-fast", "password": "pwdpwdpwd", "email": "alice-fast@test.com"},
+		map[string]any{"login": "alice-fast", "password": "pwd12345", "email": "alice-fast@test.com"},
 		nil,
 	)
 	if aliceRegister.Code != nethttp.StatusCreated {
@@ -244,7 +244,7 @@ func TestThreadsPatchDeleteOwnershipFallbacks(t *testing.T) {
 		handler,
 		nethttp.MethodPost,
 		"/v1/auth/register",
-		map[string]any{"login": "bob-fast", "password": "pwdpwdpwd", "email": "bob-fast@test.com"},
+		map[string]any{"login": "bob-fast", "password": "pwd12345", "email": "bob-fast@test.com"},
 		nil,
 	)
 	if bobRegister.Code != nethttp.StatusCreated {
@@ -461,7 +461,7 @@ func TestThreadListActiveRunID(t *testing.T) {
 		handler,
 		nethttp.MethodPost,
 		"/v1/auth/register",
-		map[string]any{"login": "alice2", "password": "pwdpwdpwd", "email": "alice2@test.com"},
+		map[string]any{"login": "alice2", "password": "pwd12345", "email": "alice2@test.com"},
 		nil,
 	)
 	if aliceRegister.Code != nethttp.StatusCreated {

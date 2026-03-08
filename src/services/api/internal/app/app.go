@@ -574,6 +574,7 @@ func (a *Application) Run(ctx context.Context) error {
 		Handler: apihttp.NewHandler(apihttp.HandlerConfig{
 			Pool:                         pool,
 			DirectPool:                   directPool,
+			InvalidationListenerCtx:      ctx,
 			DirectPoolAcquireTimeout:     time.Duration(a.config.DirectPoolAcquireTimeoutMs) * time.Millisecond,
 			MaxInFlight:                  a.config.MaxInFlight,
 			Logger:                       a.logger,

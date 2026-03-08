@@ -35,6 +35,7 @@ func defaultSSEConfig() SSEConfig {
 type HandlerConfig struct {
 	Pool                     *pgxpool.Pool
 	DirectPool               *pgxpool.Pool // LISTEN/NOTIFY 专用，不走 PgBouncer
+	InvalidationListenerCtx  context.Context
 	DirectPoolAcquireTimeout time.Duration
 	Logger                   *observability.JSONLogger
 	SchemaRepository         *data.SchemaRepository
@@ -165,7 +166,11 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 	}
 
 	effectiveToolCatalogCache := newEffectiveToolCatalogCache(effectiveToolCatalogTTL)
-	effectiveToolCatalogCache.StartInvalidationListener(context.Background(), cfg.DirectPool)
+	listenerCtx := cfg.InvalidationListenerCtx
+	if listenerCtx == nil {
+		listenerCtx = context.Background()
+	}
+	effectiveToolCatalogCache.StartInvalidationListener(listenerCtx, cfg.DirectPool)
 
 	mux := nethttp.NewServeMux()
 	mux.HandleFunc("/healthz", healthz)

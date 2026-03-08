@@ -424,7 +424,7 @@ func normalizeOptionalPersonaString(value *string) *string {
 
 func normalizePersonaReasoningMode(value string) string {
 	switch strings.TrimSpace(value) {
-	case "enabled", "disabled", "none", "auto":
+	case "enabled", "disabled", "none", "auto", "low", "medium", "high":
 		return strings.TrimSpace(value)
 	default:
 		return "auto"

@@ -99,7 +99,7 @@ func TestRunsCreateListGetCancelAndEnqueue(t *testing.T) {
 		handler,
 		nethttp.MethodPost,
 		"/v1/auth/register",
-		map[string]any{"login": "alice", "password": "pwdpwdpwd", "email": "alice@test.com"},
+		map[string]any{"login": "alice", "password": "pwd12345", "email": "alice@test.com"},
 		nil,
 	)
 	if aliceRegister.Code != nethttp.StatusCreated {
@@ -562,7 +562,7 @@ func TestRunsCreateListGetCancelAndEnqueue(t *testing.T) {
 		handler,
 		nethttp.MethodPost,
 		"/v1/auth/register",
-		map[string]any{"login": "bob", "password": "pwdpwdpwd", "email": "bob@test.com"},
+		map[string]any{"login": "bob", "password": "pwd12345", "email": "bob@test.com"},
 		nil,
 	)
 	if bobRegister.Code != nethttp.StatusCreated {
@@ -666,7 +666,7 @@ func TestStreamRunEvents(t *testing.T) {
 		handler,
 		nethttp.MethodPost,
 		"/v1/auth/register",
-		map[string]any{"login": "alice_sse", "password": "pwdpwdpwd", "email": "alice_sse@test.com"},
+		map[string]any{"login": "alice_sse", "password": "pwd12345", "email": "alice_sse@test.com"},
 		nil,
 	)
 	if aliceRegister.Code != nethttp.StatusCreated {
@@ -748,7 +748,7 @@ func TestStreamRunEvents(t *testing.T) {
 			handler,
 			nethttp.MethodPost,
 			"/v1/auth/register",
-			map[string]any{"login": "bob_sse", "password": "pwdpwdpwd", "email": "bob_sse@test.com"},
+			map[string]any{"login": "bob_sse", "password": "pwd12345", "email": "bob_sse@test.com"},
 			nil,
 		)
 		if bobRegister.Code != nethttp.StatusCreated {
@@ -865,7 +865,7 @@ func TestListGlobalRuns(t *testing.T) {
 
 	// alice 注册并创建 thread + run
 	aliceReg := doJSON(handler, nethttp.MethodPost, "/v1/auth/register",
-		map[string]any{"login": "alice_gr", "password": "pwdpwdpwd", "email": "alice_gr@test.com"}, nil)
+		map[string]any{"login": "alice_gr", "password": "pwd12345", "email": "alice_gr@test.com"}, nil)
 	if aliceReg.Code != nethttp.StatusCreated {
 		t.Fatalf("register alice: %d body=%s", aliceReg.Code, aliceReg.Body.String())
 	}
@@ -894,7 +894,7 @@ func TestListGlobalRuns(t *testing.T) {
 
 	// bob 注册（不同 org）
 	bobReg := doJSON(handler, nethttp.MethodPost, "/v1/auth/register",
-		map[string]any{"login": "bob_gr", "password": "pwdpwdpwd", "email": "bob_gr@test.com"}, nil)
+		map[string]any{"login": "bob_gr", "password": "pwd12345", "email": "bob_gr@test.com"}, nil)
 	if bobReg.Code != nethttp.StatusCreated {
 		t.Fatalf("register bob: %d body=%s", bobReg.Code, bobReg.Body.String())
 	}

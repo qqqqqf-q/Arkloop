@@ -106,16 +106,18 @@ bin/ci-local quick
 # Go integration checks with a temporary PostgreSQL container
 bin/ci-local integration
 
-# Full local pass
+# Full local run
 bin/ci-local full
 
 # GitHub Actions style verification
 bin/ci-local act go-check
 bin/ci-local act typescript
-bin/ci-local act go-integration
 ```
 
 Recommended order: `bin/ci-local quick` -> `bin/ci-local integration` -> `bin/ci-local act <job>`.
+`quick` installs frontend dependencies automatically, so the first run can take longer.
+`bin/ci-local act ...` pulls a large runner image on first use.
+`bin/ci-local act go-integration` is currently not recommended; use `bin/ci-local integration` instead.
 
 ## Contributing
 

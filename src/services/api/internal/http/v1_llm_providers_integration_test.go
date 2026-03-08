@@ -116,16 +116,19 @@ func setupLlmProvidersTestEnv(t *testing.T) llmProvidersTestEnv {
 	if err != nil {
 		t.Fatalf("issue member token: %v", err)
 	}
+	listenerCtx, cancelListener := context.WithCancel(ctx)
+	t.Cleanup(cancelListener)
 
 	handler := NewHandler(HandlerConfig{
-		Pool:               pool,
-		DirectPool:         pool,
-		Logger:             logger,
-		AuthService:        authService,
-		OrgMembershipRepo:  membershipRepo,
-		LlmCredentialsRepo: llmCredentialsRepo,
-		LlmRoutesRepo:      llmRoutesRepo,
-		SecretsRepo:        secretsRepo,
+		Pool:                    pool,
+		DirectPool:              pool,
+		InvalidationListenerCtx: listenerCtx,
+		Logger:                  logger,
+		AuthService:             authService,
+		OrgMembershipRepo:       membershipRepo,
+		LlmCredentialsRepo:      llmCredentialsRepo,
+		LlmRoutesRepo:           llmRoutesRepo,
+		SecretsRepo:             secretsRepo,
 	})
 
 	return llmProvidersTestEnv{

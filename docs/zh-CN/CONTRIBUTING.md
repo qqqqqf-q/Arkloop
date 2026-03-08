@@ -120,7 +120,6 @@ bin/ci-local full
 # 模拟 GitHub Actions
 bin/ci-local act go-check
 bin/ci-local act typescript
-bin/ci-local act go-integration
 
 # Go 单元测试
 cd src/services/api && go test ./...
@@ -137,6 +136,8 @@ cd tests/smoke && go test ./...
 
 日常推荐顺序：`bin/ci-local quick` -> `bin/ci-local integration` -> `bin/ci-local act <job>`。
 `quick` 适合提交前自检，`integration` 适合数据库、repo、worker pipeline、webhook、runengine 一类改动，`act` 用来做接近 GitHub Actions 的补充验证。
+`quick` 会自动安装前端依赖，因此首次运行会更慢。
+当前不建议使用 `bin/ci-local act go-integration`，本地集成检查优先使用 `bin/ci-local integration`。
 
 ## 商标使用
 

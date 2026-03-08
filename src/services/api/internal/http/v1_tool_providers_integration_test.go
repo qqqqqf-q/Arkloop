@@ -114,10 +114,13 @@ func TestToolProvidersListActivateCredentialAndClear(t *testing.T) {
 	if err != nil {
 		t.Fatalf("issue token: %v", err)
 	}
+	listenerCtx, cancelListener := context.WithCancel(ctx)
+	t.Cleanup(cancelListener)
 
 	handler := NewHandler(HandlerConfig{
 		Pool:                    pool,
 		DirectPool:              pool,
+		InvalidationListenerCtx: listenerCtx,
 		Logger:                  logger,
 		AuthService:             authService,
 		OrgMembershipRepo:       membershipRepo,

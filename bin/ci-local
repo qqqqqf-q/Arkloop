@@ -12,7 +12,7 @@ POSTGRES_DB="arkloop"
 DATABASE_DSN="postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@127.0.0.1:${POSTGRES_PORT}/${POSTGRES_DB}"
 PROVIDER_ROUTING_JSON='{"default_route_id":"default","credentials":[{"id":"stub_default","scope":"platform","provider_kind":"stub"}],"routes":[{"id":"default","model":"stub","credential_id":"stub_default"}]}'
 GO_MODULES=(api gateway worker sandbox shared)
-ACT_JOBS=(typescript go-check go-integration)
+ACT_JOBS=(typescript go-check)
 ACT_RUNNER_IMAGE="${CI_LOCAL_ACT_RUNNER_IMAGE:-catthehacker/ubuntu:full-latest}"
 
 usage() {
@@ -21,7 +21,7 @@ usage() {
   bin/ci-local [quick]
   bin/ci-local integration
   bin/ci-local full
-  bin/ci-local act <typescript|go-check|go-integration>
+  bin/ci-local act <typescript|go-check>
 USAGE
 }
 
@@ -38,24 +38,41 @@ require_command() {
 
 ensure_staticcheck() {
   local gopath_bin
+  local staticcheck_bin
+  local version_output
   gopath_bin="$(go env GOPATH)/bin"
   export PATH="${gopath_bin}:$PATH"
-  if ! command -v staticcheck >/dev/null 2>&1; then
+  staticcheck_bin="${gopath_bin}/staticcheck"
+  version_output=""
+  if [[ -x "${staticcheck_bin}" ]]; then
+    version_output="$(${staticcheck_bin} -version 2>/dev/null || true)"
+  elif command -v staticcheck >/dev/null 2>&1; then
+    version_output="$(staticcheck -version 2>/dev/null || true)"
+  fi
+  if [[ "${version_output}" != *"${STATICCHECK_VERSION}"* ]]; then
     log_section "Install staticcheck ${STATICCHECK_VERSION}"
     go install "honnef.co/go/tools/cmd/staticcheck@${STATICCHECK_VERSION}"
   fi
 }
 
+ensure_pnpm_dependencies() {
+  require_command pnpm
+  log_section "TypeScript: install"
+  (cd "${ROOT_DIR}" && pnpm install --frozen-lockfile)
+}
+
 run_go_quick() {
   require_command go
   ensure_staticcheck
+  local staticcheck_bin
+  staticcheck_bin="$(go env GOPATH)/bin/staticcheck"
   local module
   for module in "${GO_MODULES[@]}"; do
     log_section "Go quick: ${module}"
     (
       cd "${ROOT_DIR}/src/services/${module}"
       go vet ./...
-      staticcheck ./...
+      "${staticcheck_bin}" ./...
       go build ./...
       go test -race ./...
     )
@@ -63,7 +80,7 @@ run_go_quick() {
 }
 
 run_typescript_quick() {
-  require_command pnpm
+  ensure_pnpm_dependencies
   log_section "TypeScript: web lint"
   (cd "${ROOT_DIR}" && pnpm --filter web lint)
   log_section "TypeScript: console lint"
@@ -145,6 +162,11 @@ run_act() {
   local job="${1:-}"
   if [[ -z "${job}" ]]; then
     usage
+    exit 1
+  fi
+
+  if [[ "${job}" == "go-integration" ]]; then
+    printf 'bin/ci-local act go-integration 当前不可靠，请改用 bin/ci-local integration\n' >&2
     exit 1
   fi
 

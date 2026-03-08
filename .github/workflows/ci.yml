@@ -90,6 +90,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.work
+          cache-dependency-path: src/services/${{ matrix.module }}/go.sum
 
       - name: Run integration tests
         run: go test -count=1 -race ./...

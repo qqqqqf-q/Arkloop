@@ -94,10 +94,13 @@ func TestToolCatalogSupportsPlatformAndOrgOverrides(t *testing.T) {
 	if err != nil {
 		t.Fatalf("issue admin token: %v", err)
 	}
+	listenerCtx, cancelListener := context.WithCancel(ctx)
+	t.Cleanup(cancelListener)
 
 	handler := NewHandler(HandlerConfig{
 		Pool:                         pool,
 		DirectPool:                   pool,
+		InvalidationListenerCtx:      listenerCtx,
 		Logger:                       logger,
 		AuthService:                  authService,
 		OrgMembershipRepo:            membershipRepo,
@@ -291,10 +294,13 @@ func TestToolCatalogScopePermissions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("issue member token: %v", err)
 	}
+	listenerCtx, cancelListener := context.WithCancel(ctx)
+	t.Cleanup(cancelListener)
 
 	handler := NewHandler(HandlerConfig{
 		Pool:                         pool,
 		DirectPool:                   pool,
+		InvalidationListenerCtx:      listenerCtx,
 		Logger:                       logger,
 		AuthService:                  authService,
 		OrgMembershipRepo:            membershipRepo,
@@ -384,10 +390,13 @@ func TestEffectiveToolCatalogIncludesConditionalAndMCPTools(t *testing.T) {
 	if _, err := mcpRepo.Create(ctx, orgID, "org-demo", "streamable_http", strPtrCatalogTest(mcpServer.URL), nil, nil, nil, nil, nil, false, 3000); err != nil {
 		t.Fatalf("create org mcp config: %v", err)
 	}
+	listenerCtx, cancelListener := context.WithCancel(ctx)
+	t.Cleanup(cancelListener)
 
 	handler := NewHandler(HandlerConfig{
 		Pool:                         pool,
 		DirectPool:                   pool,
+		InvalidationListenerCtx:      listenerCtx,
 		Logger:                       logger,
 		AuthService:                  authService,
 		OrgMembershipRepo:            membershipRepo,

@@ -17,8 +17,8 @@ func TestUpFromScratch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("up: %v", err)
 	}
-	if int64(len(results)) != ExpectedVersion {
-		t.Fatalf("expected %d migrations, got %d", ExpectedVersion, len(results))
+	if len(results) != EmbeddedMigrationCount {
+		t.Fatalf("expected %d applied migrations, got %d", EmbeddedMigrationCount, len(results))
 	}
 
 	version, err := CurrentVersion(ctx, db.DSN)

@@ -106,16 +106,18 @@ bin/ci-local quick
 # 启动临时 PostgreSQL 后跑 Go 集成测试
 bin/ci-local integration
 
-# 完整本地检查
+# 完整本地运行
 bin/ci-local full
 
 # 近似 GitHub Actions 的验证
 bin/ci-local act go-check
 bin/ci-local act typescript
-bin/ci-local act go-integration
 ```
 
 推荐顺序：`bin/ci-local quick` -> `bin/ci-local integration` -> `bin/ci-local act <job>`。
+`quick` 会自动安装前端依赖，因此首次运行会更慢。
+`bin/ci-local act ...` 首次执行会拉取体积较大的 runner 镜像。
+当前不建议使用 `bin/ci-local act go-integration`，优先使用 `bin/ci-local integration`。
 
 ## 贡献
 
