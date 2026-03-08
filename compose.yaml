@@ -274,6 +274,16 @@ services:
   # 启用条件：ARKLOOP_SANDBOX_PROVIDER=docker
   # macOS/Windows/无 KVM 环境使用，通过用户态 Docker socket 创建 sandbox 容器
   # 通过专用网络连接 sandbox-agent，默认允许外网访问以支持 git clone / curl 等开发任务
+  sandbox-agent-image:
+    build:
+      context: .
+      dockerfile: src/services/sandbox/Dockerfile.agent
+    image: ${ARKLOOP_SANDBOX_DOCKER_IMAGE:-arkloop/sandbox-agent:dev}
+    restart: "no"
+    profiles:
+      - docker-sandbox
+    entrypoint: ["/bin/sh", "-lc", "true"]
+
   sandbox-docker:
     build:
       context: .
@@ -286,7 +296,7 @@ services:
       ARKLOOP_SANDBOX_ADDR: "0.0.0.0:8002"
       ARKLOOP_SANDBOX_PROVIDER: "docker"
       ARKLOOP_SANDBOX_ALLOW_EGRESS: "${ARKLOOP_SANDBOX_ALLOW_EGRESS:-true}"
-      ARKLOOP_SANDBOX_DOCKER_IMAGE: "${ARKLOOP_SANDBOX_DOCKER_IMAGE:-arkloop/sandbox-agent:latest}"
+      ARKLOOP_SANDBOX_DOCKER_IMAGE: "${ARKLOOP_SANDBOX_DOCKER_IMAGE:-arkloop/sandbox-agent:dev}"
       ARKLOOP_SANDBOX_DOCKER_NETWORK: "arkloop_sandbox_agent_egress"
       ARKLOOP_SANDBOX_SOCKET_DIR: "/run/sandbox"
       ARKLOOP_SANDBOX_MAX_SESSIONS: "${ARKLOOP_SANDBOX_MAX_SESSIONS:-50}"
@@ -306,6 +316,8 @@ services:
       - sandbox_sockets:/run/sandbox
       - arkloop_storage:${ARKLOOP_STORAGE_ROOT:-/var/lib/arkloop/storage}
     depends_on:
+      sandbox-agent-image:
+        condition: service_completed_successfully
       pgbouncer:
         condition: service_healthy
     healthcheck:

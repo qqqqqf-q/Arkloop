@@ -3,6 +3,8 @@ package http
 import (
 	"archive/tar"
 	"bytes"
+	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -79,18 +81,7 @@ func workspaceFilesEntry(
 			return
 		}
 
-		archiveKey := workspaceArchiveKey(strings.TrimSpace(*run.WorkspaceRef))
-		archive, err := store.Get(r.Context(), archiveKey)
-		if err != nil {
-			if objectstore.IsNotFound(err) {
-				WriteError(w, nethttp.StatusNotFound, "workspace_files.not_found", "workspace file not found", traceID, nil)
-				return
-			}
-			WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
-			return
-		}
-
-		content, contentType, err := readWorkspaceFileFromArchive(archive, targetPath)
+		content, contentType, err := readWorkspaceFile(r.Context(), store, strings.TrimSpace(*run.WorkspaceRef), targetPath)
 		if err != nil {
 			if errors.Is(err, errWorkspaceFileNotFound) {
 				WriteError(w, nethttp.StatusNotFound, "workspace_files.not_found", "workspace file not found", traceID, nil)
@@ -134,6 +125,99 @@ func normalizeWorkspaceRelativePath(w nethttp.ResponseWriter, traceID string, ra
 
 func workspaceArchiveKey(workspaceRef string) string {
 	return "workspaces/" + workspaceRef + "/state.tar.zst"
+}
+
+func workspaceLatestKey(workspaceRef string) string {
+	return "workspaces/" + workspaceRef + "/latest.json"
+}
+
+func workspaceManifestKey(workspaceRef, revision string) string {
+	return "workspaces/" + workspaceRef + "/manifests/" + revision + ".json"
+}
+
+func workspaceBlobKey(workspaceRef, sha256 string) string {
+	return "workspaces/" + workspaceRef + "/blobs/" + sha256
+}
+
+type workspaceLatestPointer struct {
+	Revision string `json:"revision"`
+}
+
+type workspaceManifest struct {
+	Entries []workspaceManifestEntry `json:"entries,omitempty"`
+}
+
+type workspaceManifestEntry struct {
+	Path    string `json:"path"`
+	Type    string `json:"type"`
+	SHA256  string `json:"sha256,omitempty"`
+	Deleted bool   `json:"deleted,omitempty"`
+}
+
+const workspaceEntryTypeFile = "file"
+
+func readWorkspaceFile(ctx context.Context, store environmentStore, workspaceRef string, relativePath string) ([]byte, string, error) {
+	content, contentType, err := readWorkspaceFileFromManifest(ctx, store, workspaceRef, relativePath)
+	if err == nil {
+		return content, contentType, nil
+	}
+	if !errors.Is(err, errWorkspaceFileNotFound) {
+		return nil, "", err
+	}
+	archive, archiveErr := store.Get(ctx, workspaceArchiveKey(workspaceRef))
+	if archiveErr != nil {
+		if objectstore.IsNotFound(archiveErr) {
+			return nil, "", errWorkspaceFileNotFound
+		}
+		return nil, "", archiveErr
+	}
+	return readWorkspaceFileFromArchive(archive, relativePath)
+}
+
+func readWorkspaceFileFromManifest(ctx context.Context, store environmentStore, workspaceRef string, relativePath string) ([]byte, string, error) {
+	pointerBytes, err := store.Get(ctx, workspaceLatestKey(workspaceRef))
+	if err != nil {
+		if objectstore.IsNotFound(err) {
+			return nil, "", errWorkspaceFileNotFound
+		}
+		return nil, "", err
+	}
+	var pointer workspaceLatestPointer
+	if err := json.Unmarshal(pointerBytes, &pointer); err != nil {
+		return nil, "", err
+	}
+	revision := strings.TrimSpace(pointer.Revision)
+	if revision == "" {
+		return nil, "", errWorkspaceFileNotFound
+	}
+	manifestBytes, err := store.Get(ctx, workspaceManifestKey(workspaceRef, revision))
+	if err != nil {
+		if objectstore.IsNotFound(err) {
+			return nil, "", errWorkspaceFileNotFound
+		}
+		return nil, "", err
+	}
+	var manifest workspaceManifest
+	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
+		return nil, "", err
+	}
+	for _, entry := range manifest.Entries {
+		if strings.TrimSpace(entry.Path) != strings.TrimSpace(relativePath) {
+			continue
+		}
+		if entry.Type != workspaceEntryTypeFile || entry.Deleted || strings.TrimSpace(entry.SHA256) == "" {
+			return nil, "", errWorkspaceFileNotFound
+		}
+		content, err := store.Get(ctx, workspaceBlobKey(workspaceRef, entry.SHA256))
+		if err != nil {
+			if objectstore.IsNotFound(err) {
+				return nil, "", errWorkspaceFileNotFound
+			}
+			return nil, "", err
+		}
+		return content, detectWorkspaceContentType(relativePath, content), nil
+	}
+	return nil, "", errWorkspaceFileNotFound
 }
 
 func readWorkspaceFileFromArchive(archive []byte, relativePath string) ([]byte, string, error) {

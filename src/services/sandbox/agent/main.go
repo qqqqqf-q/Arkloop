@@ -121,15 +121,31 @@ type AgentRequest struct {
 
 // AgentResponse 是 v2 协议的统一响应。
 type AgentResponse struct {
-	Action      string                            `json:"action"`
-	Exec        *ExecResult                       `json:"exec,omitempty"`
-	Artifacts   *FetchArtifactsResult             `json:"artifacts,omitempty"`
-	Environment *EnvironmentResponse              `json:"environment,omitempty"`
-	Session     *shellapi.AgentSessionResponse    `json:"session,omitempty"`
-	Debug       *shellapi.AgentDebugResponse      `json:"debug,omitempty"`
-	Checkpoint  *shellapi.AgentCheckpointResponse `json:"checkpoint,omitempty"`
-	Code        string                            `json:"code,omitempty"`
-	Error       string                            `json:"error,omitempty"`
+	Action       string                            `json:"action"`
+	Exec         *ExecResult                       `json:"exec,omitempty"`
+	Artifacts    *FetchArtifactsResult             `json:"artifacts,omitempty"`
+	Capabilities *AgentCapabilities                `json:"capabilities,omitempty"`
+	Environment  *EnvironmentResponse              `json:"environment,omitempty"`
+	Session      *shellapi.AgentSessionResponse    `json:"session,omitempty"`
+	Debug        *shellapi.AgentDebugResponse      `json:"debug,omitempty"`
+	Checkpoint   *shellapi.AgentCheckpointResponse `json:"checkpoint,omitempty"`
+	Code         string                            `json:"code,omitempty"`
+	Error        string                            `json:"error,omitempty"`
+}
+
+type AgentCapabilities struct {
+	ProtocolVersion    int      `json:"protocol_version"`
+	EnvironmentActions []string `json:"environment_actions,omitempty"`
+}
+
+const agentProtocolVersion = 1
+
+var supportedEnvironmentActions = []string{
+	"environment_manifest_build",
+	"environment_files_collect",
+	"environment_apply",
+	"environment_export",
+	"environment_import",
 }
 
 type EnvironmentRequest struct {
@@ -260,6 +276,51 @@ func handleV2(conn net.Conn, req AgentRequest) {
 	case "shell_restore_import":
 		result, code, errMsg := shellController.RestoreImport(derefCheckpoint(req.Checkpoint))
 		writeJSON(conn, AgentResponse{Action: req.Action, Checkpoint: result, Code: code, Error: errMsg})
+
+	case "agent_capabilities":
+		writeJSON(conn, AgentResponse{Action: req.Action, Capabilities: &AgentCapabilities{
+			ProtocolVersion:    agentProtocolVersion,
+			EnvironmentActions: append([]string(nil), supportedEnvironmentActions...),
+		}})
+
+	case "environment_manifest_build":
+		if req.Environment == nil {
+			writeJSON(conn, AgentResponse{Action: req.Action, Error: "environment is required"})
+			return
+		}
+		manifest, err := buildEnvironmentManifest(strings.TrimSpace(req.Environment.Scope), req.Environment.Subtrees)
+		if err != nil {
+			writeJSON(conn, AgentResponse{Action: req.Action, Error: err.Error()})
+			return
+		}
+		writeJSON(conn, AgentResponse{Action: req.Action, Environment: &EnvironmentResponse{Manifest: manifest}})
+
+	case "environment_files_collect":
+		if req.Environment == nil {
+			writeJSON(conn, AgentResponse{Action: req.Action, Error: "environment is required"})
+			return
+		}
+		files, err := readEnvironmentPaths(strings.TrimSpace(req.Environment.Scope), req.Environment.Paths)
+		if err != nil {
+			writeJSON(conn, AgentResponse{Action: req.Action, Error: err.Error()})
+			return
+		}
+		writeJSON(conn, AgentResponse{Action: req.Action, Environment: &EnvironmentResponse{Files: files}})
+
+	case "environment_apply":
+		if req.Environment == nil {
+			writeJSON(conn, AgentResponse{Action: req.Action, Error: "environment is required"})
+			return
+		}
+		if req.Environment.Manifest == nil {
+			writeJSON(conn, AgentResponse{Action: req.Action, Error: "environment manifest is required"})
+			return
+		}
+		if err := applyEnvironment(strings.TrimSpace(req.Environment.Scope), *req.Environment.Manifest, req.Environment.Files, req.Environment.Reset); err != nil {
+			writeJSON(conn, AgentResponse{Action: req.Action, Error: err.Error()})
+			return
+		}
+		writeJSON(conn, AgentResponse{Action: req.Action, Environment: &EnvironmentResponse{}})
 
 	case "environment_export":
 		if req.Environment == nil {

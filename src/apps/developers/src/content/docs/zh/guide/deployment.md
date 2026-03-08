@@ -190,15 +190,14 @@ docker compose --profile firecracker up -d sandbox
 macOS / Windows (WSL2) / 无 KVM 环境，使用 Docker 容器隔离：
 
 ```bash
-# 构建 sandbox-agent 镜像
-docker build -f src/services/sandbox/Dockerfile.agent -t arkloop/sandbox-agent:latest .
-
 # 指定用户态 Docker socket
 export ARKLOOP_SANDBOX_DOCKER_SOCKET_PATH=/run/user/1000/docker.sock
 
 # 启动
 docker compose --profile docker-sandbox up -d sandbox-docker
 ```
+
+Compose 默认会使用 `src/services/sandbox/Dockerfile.agent` 构建本地 `sandbox-agent` 镜像，并打上 `arkloop/sandbox-agent:dev` 标签。
 
 Linux 推荐使用 rootless Docker 的用户态 socket。
 macOS / Windows Docker Desktop 请改为各自用户目录下的 socket 路径，不再使用系统级 `/var/run/docker.sock`。
@@ -229,7 +228,7 @@ ARKLOOP_SANDBOX_TEMPLATES_PATH="" \
 |---|---|---|---|
 | `sandbox.provider` | `ARKLOOP_SANDBOX_PROVIDER` | `firecracker` | 后端类型 |
 | `sandbox.allow_egress` | `ARKLOOP_SANDBOX_ALLOW_EGRESS` | `true` | Sandbox backend 是否允许访问外网 |
-| `sandbox.docker_image` | `ARKLOOP_SANDBOX_DOCKER_IMAGE` | `arkloop/sandbox-agent:latest` | Docker agent 镜像 |
+| `sandbox.docker_image` | `ARKLOOP_SANDBOX_DOCKER_IMAGE` | `arkloop/sandbox-agent:dev` | 本地 Docker backend 默认使用的 agent 镜像 |
 | `sandbox.max_sessions` | `ARKLOOP_SANDBOX_MAX_SESSIONS` | `50` | 最大并发 session |
 | `sandbox.boot_timeout_s` | `ARKLOOP_SANDBOX_BOOT_TIMEOUT_S` | `30` | 启动超时（秒） |
 | `sandbox.warm_lite` | `ARKLOOP_SANDBOX_WARM_LITE` | `3` | lite 预热数 |

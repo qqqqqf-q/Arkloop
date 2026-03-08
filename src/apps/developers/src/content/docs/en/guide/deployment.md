@@ -190,15 +190,14 @@ Run it with least privilege; `privileged` is no longer required.
 macOS / Windows (WSL2) / No KVM environment, using Docker container isolation:
 
 ```bash
-# Build sandbox-agent image
-docker build -f src/services/sandbox/Dockerfile.agent -t arkloop/sandbox-agent:latest .
-
 # Point to a user-scoped Docker socket
 export ARKLOOP_SANDBOX_DOCKER_SOCKET_PATH=/run/user/1000/docker.sock
 
 # Start
 docker compose --profile docker-sandbox up -d sandbox-docker
 ```
+
+Compose will build the local `sandbox-agent` image from `src/services/sandbox/Dockerfile.agent` and tag it as `arkloop/sandbox-agent:dev` by default.
 
 On Linux, prefer the rootless Docker user socket.
 On macOS / Windows Docker Desktop, use the socket under the user's home directory instead of the system-level `/var/run/docker.sock`.
@@ -227,7 +226,7 @@ Runtime parameters are configured via Console > Configuration > Sandbox page (wr
 |---|---|---|---|
 | `sandbox.provider` | `ARKLOOP_SANDBOX_PROVIDER` | `firecracker` | Backend type |
 | `sandbox.allow_egress` | `ARKLOOP_SANDBOX_ALLOW_EGRESS` | `true` | Whether Sandbox backends may access the public network |
-| `sandbox.docker_image` | `ARKLOOP_SANDBOX_DOCKER_IMAGE` | `arkloop/sandbox-agent:latest` | Docker agent image |
+| `sandbox.docker_image` | `ARKLOOP_SANDBOX_DOCKER_IMAGE` | `arkloop/sandbox-agent:dev` | Docker agent image used for local Docker backend runs |
 | `sandbox.max_sessions` | `ARKLOOP_SANDBOX_MAX_SESSIONS` | `50` | Max concurrent sessions |
 | `sandbox.boot_timeout_s` | `ARKLOOP_SANDBOX_BOOT_TIMEOUT_S` | `30` | Boot timeout (seconds) |
 | `sandbox.warm_lite` | `ARKLOOP_SANDBOX_WARM_LITE` | `3` | Pre-warmed lite instances |

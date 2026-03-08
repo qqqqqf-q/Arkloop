@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	nethttp "net/http"
 	"testing"
@@ -111,6 +112,44 @@ func TestWorkspaceFilesReadAndAuthorize(t *testing.T) {
 		resp := doArtifactRequest(t, env.handler, "/v1/workspace-files?run_id="+run.ID.String()+"&path=/report.html", authHeader(otherKey))
 		assertErrorEnvelope(t, resp, nethttp.StatusForbidden, "policy.denied")
 	})
+}
+
+func TestWorkspaceFilesReadFromManifestState(t *testing.T) {
+	env := buildArtifactEnv(t)
+
+	thread, err := env.threadRepo.Create(context.Background(), env.aliceOrgID, &env.aliceUserID, nil, false)
+	if err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+	run, _, err := env.runRepo.CreateRunWithStartedEvent(context.Background(), env.aliceOrgID, thread.ID, &env.aliceUserID, "run.started", nil)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+	workspaceRef := "wsref_test_workspace_manifest"
+	if _, err := env.pool.Exec(context.Background(), `UPDATE runs SET workspace_ref = $2 WHERE id = $1`, run.ID, workspaceRef); err != nil {
+		t.Fatalf("update run workspace_ref: %v", err)
+	}
+
+	env.store.put(workspaceLatestKey(workspaceRef), mustJSON(t, workspaceLatestPointer{Revision: "rev-1"}), "application/json", nil)
+	env.store.put(workspaceManifestKey(workspaceRef, "rev-1"), mustJSON(t, workspaceManifest{Entries: []workspaceManifestEntry{{Path: "chart.png", Type: workspaceEntryTypeFile, SHA256: "sha-chart"}}}), "application/json", nil)
+	env.store.put(workspaceBlobKey(workspaceRef, "sha-chart"), []byte("\x89PNG\r\n\x1a\nPNGDATA"), "application/octet-stream", nil)
+
+	resp := doArtifactRequest(t, env.handler, "/v1/workspace-files?run_id="+run.ID.String()+"&path=/chart.png", authHeader(env.aliceToken))
+	if resp.Code != nethttp.StatusOK {
+		t.Fatalf("workspace manifest read: %d %s", resp.Code, resp.Body.String())
+	}
+	if got := resp.Header().Get("Content-Type"); got != "image/png" {
+		t.Fatalf("unexpected content-type: %q", got)
+	}
+}
+
+func mustJSON(t *testing.T, value any) []byte {
+	t.Helper()
+	payload, err := json.Marshal(value)
+	if err != nil {
+		t.Fatalf("marshal json: %v", err)
+	}
+	return payload
 }
 
 func buildWorkspaceArchive(t *testing.T, files map[string][]byte) []byte {

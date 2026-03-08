@@ -464,11 +464,12 @@ func (p *Pool) createContainer(ctx context.Context, tier string) (*entry, error)
 	p.mu.Unlock()
 
 	s := &session.Session{
-		ID:        id,
-		Tier:      tier,
-		Dial:      session.NewTCPDialer(agentAddr),
-		CreatedAt: time.Now(),
-		SocketDir: socketDir,
+		ID:         id,
+		Tier:       tier,
+		AgentImage: p.cfg.Image,
+		Dial:       session.NewTCPDialer(agentAddr),
+		CreatedAt:  time.Now(),
+		SocketDir:  socketDir,
 	}
 
 	// 等待 agent 就绪
@@ -486,6 +487,7 @@ func (p *Pool) createContainer(ctx context.Context, tier string) (*entry, error)
 func (p *Pool) EnsureImage(ctx context.Context) error {
 	_, err := p.cli.ImageInspect(ctx, p.cfg.Image)
 	if err == nil {
+		p.cfg.Logger.Info("sandbox image ready", logging.LogFields{}, map[string]any{"image": p.cfg.Image})
 		return nil
 	}
 

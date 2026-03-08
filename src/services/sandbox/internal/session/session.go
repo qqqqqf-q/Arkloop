@@ -5,8 +5,10 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -52,10 +54,16 @@ type agentRequest struct {
 
 // agentResponse 是 v2 协议的响应格式。
 type agentResponse struct {
-	Action      string                `json:"action"`
-	Artifacts   *FetchArtifactsResult `json:"artifacts,omitempty"`
-	Environment *EnvironmentResponse  `json:"environment,omitempty"`
-	Error       string                `json:"error,omitempty"`
+	Action       string                `json:"action"`
+	Artifacts    *FetchArtifactsResult `json:"artifacts,omitempty"`
+	Capabilities *AgentCapabilities    `json:"capabilities,omitempty"`
+	Environment  *EnvironmentResponse  `json:"environment,omitempty"`
+	Error        string                `json:"error,omitempty"`
+}
+
+type AgentCapabilities struct {
+	ProtocolVersion    int      `json:"protocol_version"`
+	EnvironmentActions []string `json:"environment_actions,omitempty"`
 }
 
 type EnvironmentRequest struct {
@@ -87,11 +95,12 @@ type Dialer func(ctx context.Context) (net.Conn, error)
 
 // Session 对应一个隔离执行环境（Firecracker microVM 或 Docker 容器）的执行上下文。
 type Session struct {
-	ID        string
-	Tier      string
-	OrgID     string // 所属组织，用于跨租户隔离校验
-	CreatedAt time.Time
-	SocketDir string // 关联资源目录的实际路径（用于清理）
+	ID         string
+	Tier       string
+	OrgID      string // 所属组织，用于跨租户隔离校验
+	AgentImage string
+	CreatedAt  time.Time
+	SocketDir  string // 关联资源目录的实际路径（用于清理）
 
 	// 与 Guest Agent 建立连接的方式，由具体 Pool 实现注入
 	Dial Dialer
@@ -105,6 +114,24 @@ type Session struct {
 	idleTimer     *time.Timer
 	lifetimeTimer *time.Timer
 	onExpired     func(string, ExpiryReason) // callback: session ID -> 由 Manager 设置
+
+	envProtocolMu       sync.Mutex
+	envProtocolVerified bool
+	envProtocolErr      error
+}
+
+var requiredEnvironmentActions = []string{
+	"environment_manifest_build",
+	"environment_files_collect",
+	"environment_apply",
+}
+
+type agentProtocolError struct {
+	message string
+}
+
+func (e *agentProtocolError) Error() string {
+	return e.message
 }
 
 type ExpiryReason string
@@ -255,6 +282,9 @@ func (s *Session) ConfigureGuestNetwork(ctx context.Context, req GuestNetworkReq
 }
 
 func (s *Session) BuildEnvironmentManifest(ctx context.Context, scope string, subtrees []string) (environmentcontract.Manifest, error) {
+	if err := s.EnsureEnvironmentProtocol(ctx); err != nil {
+		return environmentcontract.Manifest{}, err
+	}
 	payload, err := s.callEnvironment(ctx, "environment_manifest_build", EnvironmentRequest{Scope: scope, Subtrees: append([]string(nil), subtrees...)})
 	if err != nil {
 		return environmentcontract.Manifest{}, err
@@ -266,6 +296,9 @@ func (s *Session) BuildEnvironmentManifest(ctx context.Context, scope string, su
 }
 
 func (s *Session) CollectEnvironmentFiles(ctx context.Context, scope string, paths []string) ([]environment.FilePayload, error) {
+	if err := s.EnsureEnvironmentProtocol(ctx); err != nil {
+		return nil, err
+	}
 	payload, err := s.callEnvironment(ctx, "environment_files_collect", EnvironmentRequest{Scope: scope, Paths: append([]string(nil), paths...)})
 	if err != nil {
 		return nil, err
@@ -274,6 +307,9 @@ func (s *Session) CollectEnvironmentFiles(ctx context.Context, scope string, pat
 }
 
 func (s *Session) ApplyEnvironment(ctx context.Context, scope string, manifest environmentcontract.Manifest, files []environment.FilePayload, reset bool) error {
+	if err := s.EnsureEnvironmentProtocol(ctx); err != nil {
+		return err
+	}
 	_, err := s.callEnvironment(ctx, "environment_apply", EnvironmentRequest{
 		Scope:    scope,
 		Manifest: &manifest,
@@ -335,6 +371,92 @@ func (s *Session) callEnvironment(ctx context.Context, action string, payload En
 		return nil, fmt.Errorf("environment response missing body")
 	}
 	return resp.Environment, nil
+}
+
+func (s *Session) EnsureEnvironmentProtocol(ctx context.Context) error {
+	s.envProtocolMu.Lock()
+	if s.envProtocolVerified {
+		err := s.envProtocolErr
+		s.envProtocolMu.Unlock()
+		return err
+	}
+	s.envProtocolMu.Unlock()
+
+	err := s.checkEnvironmentProtocol(ctx)
+	cacheable := err == nil
+	var protocolErr *agentProtocolError
+	if errors.As(err, &protocolErr) {
+		cacheable = true
+	}
+	if !cacheable {
+		return err
+	}
+
+	s.envProtocolMu.Lock()
+	defer s.envProtocolMu.Unlock()
+	if !s.envProtocolVerified {
+		s.envProtocolErr = err
+		s.envProtocolVerified = true
+	}
+	return s.envProtocolErr
+}
+
+func (s *Session) checkEnvironmentProtocol(ctx context.Context) error {
+	capabilities, err := s.fetchCapabilities(ctx)
+	if err != nil {
+		return err
+	}
+	missing := make([]string, 0, len(requiredEnvironmentActions))
+	for _, action := range requiredEnvironmentActions {
+		if !slices.Contains(capabilities.EnvironmentActions, action) {
+			missing = append(missing, action)
+		}
+	}
+	if len(missing) > 0 {
+		return &agentProtocolError{message: fmt.Sprintf("sandbox agent %s lacks required environment actions: %s", s.agentLabel(), strings.Join(missing, ", "))}
+	}
+	return nil
+}
+
+func (s *Session) fetchCapabilities(ctx context.Context) (*AgentCapabilities, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	s.TouchActivity()
+	callCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+
+	conn, err := s.Dial(callCtx)
+	if err != nil {
+		return nil, fmt.Errorf("connect to agent: %w", err)
+	}
+	defer conn.Close()
+
+	_ = conn.SetDeadline(time.Now().Add(15 * time.Second))
+	if err := json.NewEncoder(conn).Encode(agentRequest{Action: "agent_capabilities"}); err != nil {
+		return nil, fmt.Errorf("send agent_capabilities request: %w", err)
+	}
+	var resp agentResponse
+	if err := json.NewDecoder(conn).Decode(&resp); err != nil {
+		return nil, fmt.Errorf("read agent_capabilities response: %w", err)
+	}
+	if resp.Error != "" {
+		if strings.Contains(resp.Error, "unknown action") {
+			return nil, &agentProtocolError{message: fmt.Sprintf("sandbox agent %s is outdated: missing agent_capabilities and environment sync actions", s.agentLabel())}
+		}
+		return nil, fmt.Errorf("agent error: %s", resp.Error)
+	}
+	if resp.Capabilities == nil {
+		return nil, &agentProtocolError{message: fmt.Sprintf("sandbox agent %s returned no capabilities payload", s.agentLabel())}
+	}
+	return resp.Capabilities, nil
+}
+
+func (s *Session) agentLabel() string {
+	if strings.TrimSpace(s.AgentImage) != "" {
+		return fmt.Sprintf("image %s", strings.TrimSpace(s.AgentImage))
+	}
+	return "runtime"
 }
 
 // NewVsockDialer 创建 Firecracker vsock 连接的 Dialer。
