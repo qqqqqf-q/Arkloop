@@ -70,6 +70,16 @@ func TestWorkspaceFilesReadAndAuthorize(t *testing.T) {
 		}
 	})
 
+	t.Run("owner can read image when path includes workspace root prefix", func(t *testing.T) {
+		resp := doArtifactRequest(t, env.handler, "/v1/workspace-files?run_id="+run.ID.String()+"&path=/workspace/chart.png", authHeader(env.aliceToken))
+		if resp.Code != nethttp.StatusOK {
+			t.Fatalf("workspace image read with root prefix: %d %s", resp.Code, resp.Body.String())
+		}
+		if got := resp.Header().Get("Content-Type"); got != "image/png" {
+			t.Fatalf("unexpected content-type: %q", got)
+		}
+	})
+
 	t.Run("reject path traversal", func(t *testing.T) {
 		resp := doArtifactRequest(t, env.handler, "/v1/workspace-files?run_id="+run.ID.String()+"&path=../secret.txt", authHeader(env.aliceToken))
 		assertErrorEnvelope(t, resp, nethttp.StatusBadRequest, "workspace_files.invalid_path")

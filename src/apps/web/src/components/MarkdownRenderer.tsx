@@ -74,8 +74,19 @@ function guessMimeType(key: string): string {
   return EXT_MIME[ext] ?? 'application/octet-stream'
 }
 
+function normalizeWorkspaceLinkPath(path: string): string {
+  const trimmed = path.trim()
+  if (!trimmed) return '/'
+  let normalizedPath = trimmed.startsWith('/') ? trimmed : `/${trimmed}`
+  if (normalizedPath === '/workspace') return '/'
+  if (normalizedPath.startsWith('/workspace/')) {
+    normalizedPath = normalizedPath.slice('/workspace'.length)
+  }
+  return normalizedPath
+}
+
 function buildWorkspaceFileRef(path: string): WorkspaceFileRef {
-  const normalizedPath = path.startsWith('/') ? path : `/${path}`
+  const normalizedPath = normalizeWorkspaceLinkPath(path)
   return {
     path: normalizedPath,
     filename: normalizedPath.split('/').pop() ?? normalizedPath,

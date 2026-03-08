@@ -29,7 +29,12 @@ type LoadState =
 function normalizeWorkspacePath(path: string): string {
   const trimmed = path.trim()
   if (!trimmed) return '/'
-  return trimmed.startsWith('/') ? trimmed : `/${trimmed}`
+  let normalized = trimmed.startsWith('/') ? trimmed : `/${trimmed}`
+  if (normalized === '/workspace') return '/'
+  if (normalized.startsWith('/workspace/')) {
+    normalized = normalized.slice('/workspace'.length)
+  }
+  return normalized
 }
 
 function buildWorkspaceUrl(runId: string, path: string): string {

@@ -106,6 +106,15 @@ describe('MarkdownRenderer', () => {
     expect(html).toContain('study.png')
   })
 
+  it('应规范化带 /workspace 前缀的 workspace 图片引用', () => {
+    const html = renderMarkdown('![图表](workspace:/workspace/study.png)', { accessToken: 'token', runId: 'run-1' })
+
+    expect(html).toContain('data-workspace-kind="loading"')
+    expect(html).toContain('data-workspace-preview="image"')
+    expect(html).toContain('study.png')
+    expect(html).not.toContain('/workspace/study.png')
+  })
+
   it('应识别 workspace 文本引用并渲染按需预览占位', () => {
     const html = renderMarkdown('[代码](workspace:/notes/example.py)', { accessToken: 'token', runId: 'run-1' })
 

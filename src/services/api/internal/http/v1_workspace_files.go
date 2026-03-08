@@ -115,12 +115,22 @@ func normalizeWorkspaceRelativePath(w nethttp.ResponseWriter, traceID string, ra
 		WriteError(w, nethttp.StatusBadRequest, "workspace_files.invalid_path", "invalid workspace path", traceID, nil)
 		return "", false
 	}
-	cleaned := path.Clean(path.Join(workspaceRootPath, strings.TrimPrefix(trimmed, "/")))
-	if !strings.HasPrefix(cleaned, workspaceRootPath+"/") {
+	relative := strings.TrimPrefix(trimmed, "/")
+	relative = strings.TrimPrefix(relative, "workspace/")
+	if strings.EqualFold(relative, "workspace") {
+		relative = ""
+	}
+	cleaned := path.Clean(path.Join(workspaceRootPath, relative))
+	if cleaned != workspaceRootPath && !strings.HasPrefix(cleaned, workspaceRootPath+"/") {
 		WriteError(w, nethttp.StatusBadRequest, "workspace_files.invalid_path", "invalid workspace path", traceID, nil)
 		return "", false
 	}
-	return strings.TrimPrefix(strings.TrimPrefix(cleaned, workspaceRootPath), "/"), true
+	relative = strings.TrimPrefix(strings.TrimPrefix(cleaned, workspaceRootPath), "/")
+	if relative == "" {
+		WriteError(w, nethttp.StatusBadRequest, "workspace_files.invalid_path", "invalid workspace path", traceID, nil)
+		return "", false
+	}
+	return relative, true
 }
 
 func workspaceArchiveKey(workspaceRef string) string {
