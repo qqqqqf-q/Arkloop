@@ -16,16 +16,17 @@ function formatSize(bytes: number): string {
 type Props = {
   artifact: ArtifactRef
   accessToken: string
+  pathPrefix?: string
 }
 
-export function ArtifactDownload({ artifact, accessToken }: Props) {
+export function ArtifactDownload({ artifact, accessToken, pathPrefix = '/v1/artifacts' }: Props) {
   const [downloading, setDownloading] = useState(false)
 
   const handleDownload = useCallback(async () => {
     if (downloading) return
     setDownloading(true)
     try {
-      const url = `${apiBaseUrl()}/v1/artifacts/${artifact.key}`
+      const url = `${apiBaseUrl()}${pathPrefix}/${artifact.key}`
       const res = await fetch(url, {
         headers: { Authorization: `Bearer ${accessToken}` },
       })

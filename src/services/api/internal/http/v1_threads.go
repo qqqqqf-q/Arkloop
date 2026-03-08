@@ -657,6 +657,7 @@ func threadEntry(
 	runLimiter *data.RunLimiter,
 	entSvc *entitlement.Service,
 	rdb *redis.Client,
+	attachmentStore messageAttachmentStore,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	get := getThread(authService, membershipRepo, threadRepo, projectRepo, teamRepo, auditWriter, apiKeysRepo)
 	patch := patchThread(authService, membershipRepo, threadRepo, projectRepo, auditWriter, apiKeysRepo)
@@ -670,6 +671,7 @@ func threadEntry(
 	share := shareEntry(authService, membershipRepo, threadRepo, threadShareRepo, messageRepo, auditWriter, apiKeysRepo)
 	report := reportEntry(authService, membershipRepo, threadRepo, threadReportRepo, auditWriter, apiKeysRepo)
 	fork := forkThread(authService, membershipRepo, threadRepo, messageRepo, auditWriter, pool, apiKeysRepo)
+	uploadAttachment := uploadThreadAttachment(authService, membershipRepo, threadRepo, auditWriter, apiKeysRepo, attachmentStore)
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		if r.URL.Path == "/v1/threads/" {
 			threadsEntry(authService, membershipRepo, threadRepo, apiKeysRepo, auditWriter)(w, r)
@@ -762,6 +764,13 @@ func threadEntry(
 				createRun(w, r, threadID)
 			case nethttp.MethodGet:
 				listRuns(w, r, threadID)
+			default:
+				writeMethodNotAllowed(w, r)
+			}
+		case "attachments":
+			switch r.Method {
+			case nethttp.MethodPost:
+				uploadAttachment(w, r, threadID)
 			default:
 				writeMethodNotAllowed(w, r)
 			}

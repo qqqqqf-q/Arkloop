@@ -76,7 +76,8 @@ type EngineV1Deps struct {
 	LlmRetryBaseDelayMs int
 
 	// MemoryProvider 可选；nil 时跳过整个 MemoryMiddleware
-	MemoryProvider memory.MemoryProvider
+	MemoryProvider         memory.MemoryProvider
+	MessageAttachmentStore pipeline.MessageAttachmentStore
 }
 
 func NewEngineV1(deps EngineV1Deps) (*EngineV1, error) {
@@ -152,7 +153,7 @@ func NewEngineV1(deps EngineV1Deps) (*EngineV1, error) {
 
 	middlewares := []pipeline.RunMiddleware{
 		pipeline.NewCancelGuardMiddleware(runsRepo, eventsRepo, deps.RunControlHub),
-		pipeline.NewInputLoaderMiddleware(eventsRepo, messagesRepo),
+		pipeline.NewInputLoaderMiddleware(eventsRepo, messagesRepo, deps.MessageAttachmentStore),
 		pipeline.NewEntitlementMiddleware(resolver, runsRepo, eventsRepo, releaseSlot),
 		pipeline.NewMCPDiscoveryMiddleware(
 			deps.MCPDiscoveryCache,

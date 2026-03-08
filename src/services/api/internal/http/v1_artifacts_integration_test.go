@@ -1,11 +1,14 @@
 package http
 
 import (
+	"bytes"
 	"context"
 	"io"
+	"mime/multipart"
 	nethttp "net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 
 	"arkloop/services/api/internal/audit"
@@ -57,6 +60,14 @@ func (s *fakeHTTPArtifactStore) put(key string, data []byte, contentType string,
 	s.objects[key] = fakeArtifactObject{data: copied, contentType: contentType, metadata: metaCopy}
 }
 
+func (s *fakeHTTPArtifactStore) PutObject(_ context.Context, key string, data []byte, options objectstore.PutOptions) error {
+	contentType := options.ContentType
+	if strings.TrimSpace(contentType) == "" {
+		contentType = "application/octet-stream"
+	}
+	s.put(key, data, contentType, options.Metadata)
+	return nil
+}
 func (s *fakeHTTPArtifactStore) Head(_ context.Context, key string) (objectstore.ObjectInfo, error) {
 	obj, ok := s.objects[key]
 	if !ok {
@@ -152,17 +163,18 @@ func buildArtifactEnv(t *testing.T) artifactTestEnv {
 	store := newFakeHTTPArtifactStore()
 	auditWriter := audit.NewWriter(auditRepo, membershipRepo, logger)
 	handler := NewHandler(HandlerConfig{
-		Pool:                pool,
-		Logger:              logger,
-		AuthService:         authService,
-		RegistrationService: registrationService,
-		OrgMembershipRepo:   membershipRepo,
-		ThreadRepo:          threadRepo,
-		ThreadShareRepo:     threadShareRepo,
-		RunEventRepo:        runRepo,
-		AuditWriter:         auditWriter,
-		APIKeysRepo:         apiKeysRepo,
-		ArtifactStore:       store,
+		Pool:                   pool,
+		Logger:                 logger,
+		AuthService:            authService,
+		RegistrationService:    registrationService,
+		OrgMembershipRepo:      membershipRepo,
+		ThreadRepo:             threadRepo,
+		ThreadShareRepo:        threadShareRepo,
+		RunEventRepo:           runRepo,
+		AuditWriter:            auditWriter,
+		APIKeysRepo:            apiKeysRepo,
+		ArtifactStore:          store,
+		MessageAttachmentStore: store,
 	})
 
 	regResp := doJSON(handler, nethttp.MethodPost, "/v1/auth/register",
@@ -281,4 +293,61 @@ func TestArtifactsAuthorizationByRunOwnerAndShare(t *testing.T) {
 	if legacyResp.Code != nethttp.StatusOK || legacyResp.Body.String() != "legacy-visible" {
 		t.Fatalf("legacy read: %d %q", legacyResp.Code, legacyResp.Body.String())
 	}
+}
+
+func TestThreadAttachmentsUploadAndRead(t *testing.T) {
+	env := buildArtifactEnv(t)
+
+	thread, err := env.threadRepo.Create(context.Background(), env.aliceOrgID, &env.aliceUserID, nil, false)
+	if err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("file", "note.txt")
+	if err != nil {
+		t.Fatalf("create form file: %v", err)
+	}
+	if _, err := part.Write([]byte("hello attachment")); err != nil {
+		t.Fatalf("write form file: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close writer: %v", err)
+	}
+
+	req := httptest.NewRequest(nethttp.MethodPost, "/v1/threads/"+thread.ID.String()+"/attachments", &body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("Authorization", "Bearer "+env.aliceToken)
+	resp := httptest.NewRecorder()
+	env.handler.ServeHTTP(resp, req)
+	if resp.Code != nethttp.StatusCreated {
+		t.Fatalf("upload attachment: %d %s", resp.Code, resp.Body.String())
+	}
+	payload := decodeJSONBody[messageAttachmentUploadResponse](t, resp.Body.Bytes())
+	if payload.Key == "" || payload.Kind != "file" || payload.ExtractedText != "hello attachment" {
+		t.Fatalf("unexpected upload payload: %#v", payload)
+	}
+
+	ownerResp := doArtifactRequest(t, env.handler, "/v1/attachments/"+payload.Key, authHeader(env.aliceToken))
+	if ownerResp.Code != nethttp.StatusOK {
+		t.Fatalf("owner attachment read: %d %s", ownerResp.Code, ownerResp.Body.String())
+	}
+	if body := ownerResp.Body.String(); body != "hello attachment" {
+		t.Fatalf("unexpected owner attachment body: %q", body)
+	}
+
+	bobRegister := doJSON(
+		env.handler,
+		nethttp.MethodPost,
+		"/v1/auth/register",
+		map[string]any{"login": "bob-attachments", "password": "pwdpwdpwd", "email": "bob-attachments@test.com"},
+		nil,
+	)
+	if bobRegister.Code != nethttp.StatusCreated {
+		t.Fatalf("register bob: %d %s", bobRegister.Code, bobRegister.Body.String())
+	}
+	bob := decodeJSONBody[registerResponse](t, bobRegister.Body.Bytes())
+	forbidden := doArtifactRequest(t, env.handler, "/v1/attachments/"+payload.Key, authHeader(bob.AccessToken))
+	assertErrorEnvelope(t, forbidden, nethttp.StatusForbidden, "policy.denied")
 }

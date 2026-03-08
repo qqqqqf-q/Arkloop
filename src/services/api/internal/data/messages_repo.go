@@ -120,6 +120,81 @@ func (r *MessageRepository) Create(
 	return message, nil
 }
 
+func (r *MessageRepository) CreateStructured(
+	ctx context.Context,
+	orgID uuid.UUID,
+	threadID uuid.UUID,
+	role string,
+	content string,
+	contentJSON json.RawMessage,
+	createdByUserID *uuid.UUID,
+) (Message, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if orgID == uuid.Nil {
+		return Message{}, fmt.Errorf("org_id must not be empty")
+	}
+	if threadID == uuid.Nil {
+		return Message{}, fmt.Errorf("thread_id must not be empty")
+	}
+	if role == "" {
+		return Message{}, fmt.Errorf("role must not be empty")
+	}
+	if content == "" {
+		return Message{}, fmt.Errorf("content must not be empty")
+	}
+
+	var normalizedContentJSON json.RawMessage
+	if len(contentJSON) > 0 {
+		normalizedContentJSON = contentJSON
+	}
+
+	var message Message
+	err := r.db.QueryRow(
+		ctx,
+		`WITH thread AS (
+		   SELECT 1
+		   FROM threads
+		   WHERE id = $2
+		     AND org_id = $1
+		   LIMIT 1
+		 )
+		 INSERT INTO messages (org_id, thread_id, created_by_user_id, role, content, content_json)
+		 SELECT $1, $2, $3, $4, $5, $6
+		 FROM thread
+		 RETURNING id, org_id, thread_id, created_by_user_id, role, content,
+		           content_json, metadata_json, token_count, deleted_at, created_at, hidden`,
+		orgID,
+		threadID,
+		createdByUserID,
+		role,
+		content,
+		normalizedContentJSON,
+	).Scan(
+		&message.ID,
+		&message.OrgID,
+		&message.ThreadID,
+		&message.CreatedByUserID,
+		&message.Role,
+		&message.Content,
+		&message.ContentJSON,
+		&message.MetadataJSON,
+		&message.TokenCount,
+		&message.DeletedAt,
+		&message.CreatedAt,
+		&message.Hidden,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Message{}, ThreadNotFoundError{ThreadID: threadID}
+		}
+		return Message{}, err
+	}
+
+	return message, nil
+}
+
 func (r *MessageRepository) ListByThread(
 	ctx context.Context,
 	orgID uuid.UUID,
@@ -187,6 +262,55 @@ func (r *MessageRepository) ListByThread(
 	return messages, nil
 }
 
+func (r *MessageRepository) GetByID(
+	ctx context.Context,
+	orgID uuid.UUID,
+	threadID uuid.UUID,
+	messageID uuid.UUID,
+) (*Message, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if orgID == uuid.Nil || threadID == uuid.Nil || messageID == uuid.Nil {
+		return nil, fmt.Errorf("orgID, threadID and messageID must not be empty")
+	}
+
+	var message Message
+	err := r.db.QueryRow(
+		ctx,
+		`SELECT id, org_id, thread_id, created_by_user_id, role, content,
+		        content_json, metadata_json, token_count, deleted_at, created_at, hidden
+		 FROM messages
+		 WHERE org_id = $1
+		   AND thread_id = $2
+		   AND id = $3
+		   AND deleted_at IS NULL`,
+		orgID,
+		threadID,
+		messageID,
+	).Scan(
+		&message.ID,
+		&message.OrgID,
+		&message.ThreadID,
+		&message.CreatedByUserID,
+		&message.Role,
+		&message.Content,
+		&message.ContentJSON,
+		&message.MetadataJSON,
+		&message.TokenCount,
+		&message.DeletedAt,
+		&message.CreatedAt,
+		&message.Hidden,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &message, nil
+}
+
 // UpdateContent 更新指定用户消息的内容。仅允许更新 role=user 的可见消息。
 func (r *MessageRepository) UpdateContent(
 	ctx context.Context,
@@ -219,6 +343,58 @@ func (r *MessageRepository) UpdateContent(
 		 RETURNING id, org_id, thread_id, created_by_user_id, role, content,
 		           content_json, metadata_json, token_count, deleted_at, created_at, hidden`,
 		orgID, threadID, messageID, newContent,
+	).Scan(
+		&message.ID, &message.OrgID, &message.ThreadID, &message.CreatedByUserID,
+		&message.Role, &message.Content, &message.ContentJSON, &message.MetadataJSON,
+		&message.TokenCount, &message.DeletedAt, &message.CreatedAt, &message.Hidden,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Message{}, fmt.Errorf("message not found or not editable")
+		}
+		return Message{}, err
+	}
+	return message, nil
+}
+
+func (r *MessageRepository) UpdateStructuredContent(
+	ctx context.Context,
+	orgID uuid.UUID,
+	threadID uuid.UUID,
+	messageID uuid.UUID,
+	newContent string,
+	contentJSON json.RawMessage,
+) (Message, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if orgID == uuid.Nil || threadID == uuid.Nil || messageID == uuid.Nil {
+		return Message{}, fmt.Errorf("orgID, threadID and messageID must not be empty")
+	}
+	if newContent == "" {
+		return Message{}, fmt.Errorf("content must not be empty")
+	}
+
+	var normalizedContentJSON json.RawMessage
+	if len(contentJSON) > 0 {
+		normalizedContentJSON = contentJSON
+	}
+
+	var message Message
+	err := r.db.QueryRow(
+		ctx,
+		`UPDATE messages
+		 SET content = $4,
+		     content_json = $5
+		 WHERE id = $3
+		   AND thread_id = $2
+		   AND org_id = $1
+		   AND role = 'user'
+		   AND hidden = FALSE
+		   AND deleted_at IS NULL
+		 RETURNING id, org_id, thread_id, created_by_user_id, role, content,
+		           content_json, metadata_json, token_count, deleted_at, created_at, hidden`,
+		orgID, threadID, messageID, newContent, normalizedContentJSON,
 	).Scan(
 		&message.ID, &message.OrgID, &message.ThreadID, &message.CreatedByUserID,
 		&message.Role, &message.Content, &message.ContentJSON, &message.MetadataJSON,

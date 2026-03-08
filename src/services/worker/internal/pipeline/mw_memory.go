@@ -279,7 +279,7 @@ func lastUserMessageText(messages []llm.Message) string {
 		}
 		parts := make([]string, 0, len(msg.Content))
 		for _, part := range msg.Content {
-			if t := strings.TrimSpace(part.Text); t != "" {
+			if t := strings.TrimSpace(llm.PartPromptText(part)); t != "" {
 				parts = append(parts, t)
 			}
 		}

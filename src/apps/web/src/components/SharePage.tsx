@@ -215,6 +215,7 @@ export function SharePage() {
                 created_by_user_id: '',
                 role: msg.role,
                 content: msg.content,
+                content_json: msg.content_json,
                 created_at: msg.created_at,
               }}
             />

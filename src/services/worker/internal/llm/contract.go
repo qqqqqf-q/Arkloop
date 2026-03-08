@@ -1,5 +1,11 @@
 package llm
 
+import (
+	"strings"
+
+	"arkloop/services/shared/messagecontent"
+)
+
 const (
 	ErrorClassProviderRetryable    = "provider.retryable"
 	ErrorClassProviderNonRetryable = "provider.non_retryable"
@@ -73,13 +79,72 @@ func (e GatewayError) ToJSON() map[string]any {
 	return payload
 }
 
-type TextPart struct {
-	Text         string
-	CacheControl *string // "ephemeral"（Anthropic prompt caching）
+type ContentPart struct {
+	Type          string
+	Text          string
+	CacheControl  *string // "ephemeral"（Anthropic prompt caching）
+	Attachment    *messagecontent.AttachmentRef
+	ExtractedText string
+	Data          []byte
 }
 
-func (p TextPart) ToJSON() map[string]any {
-	return map[string]any{"type": "text", "text": p.Text}
+type TextPart = ContentPart
+
+type ImagePart = ContentPart
+
+type FilePart = ContentPart
+
+func (p ContentPart) Kind() string {
+	trimmed := strings.TrimSpace(p.Type)
+	if trimmed != "" {
+		return trimmed
+	}
+	if p.Attachment == nil {
+		return messagecontent.PartTypeText
+	}
+	if strings.TrimSpace(p.ExtractedText) != "" {
+		return messagecontent.PartTypeFile
+	}
+	return messagecontent.PartTypeImage
+}
+
+func (p ContentPart) ToJSON() map[string]any {
+	switch p.Kind() {
+	case messagecontent.PartTypeImage:
+		return map[string]any{
+			"type":       messagecontent.PartTypeImage,
+			"attachment": p.Attachment,
+		}
+	case messagecontent.PartTypeFile:
+		payload := map[string]any{
+			"type":           messagecontent.PartTypeFile,
+			"attachment":     p.Attachment,
+			"extracted_text": p.ExtractedText,
+		}
+		return payload
+	default:
+		payload := map[string]any{"type": messagecontent.PartTypeText, "text": p.Text}
+		if p.CacheControl != nil {
+			payload["cache_control"] = *p.CacheControl
+		}
+		return payload
+	}
+}
+
+func PartPromptText(part ContentPart) string {
+	switch part.Kind() {
+	case messagecontent.PartTypeText:
+		return part.Text
+	case messagecontent.PartTypeFile:
+		ref := messagecontent.Part{
+			Type:          messagecontent.PartTypeFile,
+			Attachment:    part.Attachment,
+			ExtractedText: part.ExtractedText,
+		}
+		return messagecontent.PromptText(ref)
+	default:
+		return ""
+	}
 }
 
 type ToolCall struct {
@@ -98,7 +163,7 @@ func (c ToolCall) ToDataJSON() map[string]any {
 
 type Message struct {
 	Role      string
-	Content   []TextPart
+	Content   []ContentPart
 	ToolCalls []ToolCall
 }
 
@@ -135,7 +200,7 @@ func (s ToolSpec) ToJSON() map[string]any {
 }
 
 type Request struct {
-	Model           string
+	Model            string
 	Messages         []Message
 	Temperature      *float64
 	MaxOutputTokens  *int
@@ -375,7 +440,7 @@ func mapOrEmpty(value map[string]any) map[string]any {
 	return value
 }
 
-func partsToJSON(parts []TextPart) []map[string]any {
+func partsToJSON(parts []ContentPart) []map[string]any {
 	if len(parts) == 0 {
 		return nil
 	}

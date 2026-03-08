@@ -346,7 +346,10 @@ func TestToOpenAIChatMessages_ToolEnvelope(t *testing.T) {
 		},
 	}
 
-	out := toOpenAIChatMessages(messages)
+	out, err := toOpenAIChatMessages(messages)
+	if err != nil {
+		t.Fatalf("toOpenAIChatMessages failed: %v", err)
+	}
 	if len(out) != 2 {
 		t.Fatalf("expected 2 messages, got %d", len(out))
 	}

@@ -97,7 +97,8 @@ type HandlerConfig struct {
 
 	JobRepo *data.JobRepository
 
-	ArtifactStore artifactStore
+	ArtifactStore          artifactStore
+	MessageAttachmentStore messageAttachmentStore
 
 	EmailFrom string
 
@@ -122,6 +123,12 @@ type HandlerConfig struct {
 type artifactStore interface {
 	Head(ctx context.Context, key string) (objectstore.ObjectInfo, error)
 	GetWithContentType(ctx context.Context, key string) ([]byte, string, error)
+}
+
+type messageAttachmentStore interface {
+	Head(ctx context.Context, key string) (objectstore.ObjectInfo, error)
+	GetWithContentType(ctx context.Context, key string) ([]byte, string, error)
+	PutObject(ctx context.Context, key string, data []byte, options objectstore.PutOptions) error
 }
 
 func NewHandler(cfg HandlerConfig) nethttp.Handler {
@@ -196,6 +203,7 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 			cfg.RunLimiter,
 			cfg.EntitlementService,
 			cfg.RedisClient,
+			cfg.MessageAttachmentStore,
 		),
 	)
 
@@ -563,6 +571,10 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 	mux.HandleFunc(
 		"/v1/artifacts/",
 		artifactsEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.APIKeysRepo, cfg.RunEventRepo, cfg.ThreadShareRepo, cfg.AuditWriter, cfg.ArtifactStore),
+	)
+	mux.HandleFunc(
+		"/v1/attachments/",
+		messageAttachmentsEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.ThreadRepo, cfg.ThreadShareRepo, cfg.ProjectRepo, cfg.TeamRepo, cfg.APIKeysRepo, cfg.AuditWriter, cfg.MessageAttachmentStore),
 	)
 
 	notFound := nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {

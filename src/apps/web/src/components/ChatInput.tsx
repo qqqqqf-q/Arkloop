@@ -12,10 +12,11 @@ import {
 
 export type Attachment = {
   id: string
+  file: File
   name: string
   size: number
-  content: string
-  encoding: 'text' | 'base64'
+  mime_type: string
+  preview_url?: string
 }
 
 type Props = {

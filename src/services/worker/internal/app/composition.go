@@ -120,6 +120,10 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 	if err != nil {
 		slog.WarnContext(ctx, "document_write: artifact store init failed, skipping", "err", err.Error())
 	}
+	messageAttachmentStore, err := buildMessageAttachmentStore(ctx)
+	if err != nil {
+		slog.WarnContext(ctx, "message attachments: store init failed", "err", err.Error())
+	}
 	builtinAvailability := resolveBuiltinAvailability(platformProviders, pool != nil, artifactStore != nil)
 
 	// -- Memory (OpenViking) --
@@ -250,6 +254,7 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 		LlmRetryMaxAttempts:          llmRetryMaxAttempts,
 		LlmRetryBaseDelayMs:          llmRetryBaseDelayMs,
 		MemoryProvider:               memoryProvider,
+		MessageAttachmentStore:       messageAttachmentStore,
 	})
 }
 
@@ -262,6 +267,21 @@ func buildDocumentArtifactStore(ctx context.Context) (*objectstore.Store, error)
 	s3SecretKey := strings.TrimSpace(os.Getenv("ARKLOOP_S3_SECRET_KEY"))
 	s3Region := strings.TrimSpace(os.Getenv("ARKLOOP_S3_REGION"))
 	return objectstore.New(ctx, s3Endpoint, s3AccessKey, s3SecretKey, objectstore.ArtifactBucket, s3Region)
+}
+
+func buildMessageAttachmentStore(ctx context.Context) (*objectstore.Store, error) {
+	s3Endpoint := strings.TrimSpace(os.Getenv("ARKLOOP_S3_ENDPOINT"))
+	if s3Endpoint == "" {
+		return nil, nil
+	}
+	s3AccessKey := strings.TrimSpace(os.Getenv("ARKLOOP_S3_ACCESS_KEY"))
+	s3SecretKey := strings.TrimSpace(os.Getenv("ARKLOOP_S3_SECRET_KEY"))
+	s3Region := strings.TrimSpace(os.Getenv("ARKLOOP_S3_REGION"))
+	s3Bucket := strings.TrimSpace(os.Getenv("ARKLOOP_S3_BUCKET"))
+	if s3Bucket == "" {
+		return nil, nil
+	}
+	return objectstore.New(ctx, s3Endpoint, s3AccessKey, s3SecretKey, s3Bucket, s3Region)
 }
 
 func resolveBuiltinAvailability(

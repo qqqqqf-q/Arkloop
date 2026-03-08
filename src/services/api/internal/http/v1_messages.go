@@ -16,20 +16,6 @@ import (
 	"github.com/google/uuid"
 )
 
-type createMessageRequest struct {
-	Content string `json:"content"`
-}
-
-type messageResponse struct {
-	ID              string  `json:"id"`
-	OrgID           string  `json:"org_id"`
-	ThreadID        string  `json:"thread_id"`
-	CreatedByUserID *string `json:"created_by_user_id"`
-	Role            string  `json:"role"`
-	Content         string  `json:"content"`
-	CreatedAt       string  `json:"created_at"`
-}
-
 func createThreadMessage(
 	authService *auth.Service,
 	membershipRepo *data.OrgMembershipRepository,
@@ -67,8 +53,9 @@ func createThreadMessage(
 			WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "request validation failed", traceID, nil)
 			return
 		}
-		if body.Content == "" || len(body.Content) > 20000 {
-			WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "request validation failed", traceID, nil)
+		_, projection, contentJSON, err := normalizeCreateMessagePayload(body)
+		if err != nil {
+			WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "request validation failed", traceID, map[string]any{"reason": err.Error()})
 			return
 		}
 
@@ -86,7 +73,7 @@ func createThreadMessage(
 			return
 		}
 
-		message, err := messageRepo.Create(r.Context(), actor.OrgID, threadID, "user", body.Content, &actor.UserID)
+		message, err := messageRepo.CreateStructured(r.Context(), actor.OrgID, threadID, "user", projection, contentJSON, &actor.UserID)
 		if err != nil {
 			var threadNotFound data.ThreadNotFoundError
 			if errors.As(err, &threadNotFound) {
@@ -193,6 +180,7 @@ func toMessageResponse(message data.Message) messageResponse {
 		CreatedByUserID: createdByUserID,
 		Role:            message.Role,
 		Content:         message.Content,
+		ContentJSON:     message.ContentJSON,
 		CreatedAt:       message.CreatedAt.UTC().Format(time.RFC3339Nano),
 	}
 }

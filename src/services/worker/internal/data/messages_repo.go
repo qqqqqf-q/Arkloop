@@ -2,6 +2,7 @@ package data
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -14,8 +15,9 @@ import (
 type MessagesRepository struct{}
 
 type ThreadMessage struct {
-	Role    string
-	Content string
+	Role        string
+	Content     string
+	ContentJSON json.RawMessage
 }
 
 type ConversationSearchHit struct {
@@ -62,7 +64,7 @@ func (MessagesRepository) ListByThread(
 	}
 	rows, err := tx.Query(
 		ctx,
-		`SELECT role, content
+		`SELECT role, content, content_json
 		 FROM messages
 		 WHERE org_id = $1
 		   AND thread_id = $2
@@ -82,7 +84,7 @@ func (MessagesRepository) ListByThread(
 	out := []ThreadMessage{}
 	for rows.Next() {
 		var item ThreadMessage
-		if err := rows.Scan(&item.Role, &item.Content); err != nil {
+		if err := rows.Scan(&item.Role, &item.Content, &item.ContentJSON); err != nil {
 			return nil, err
 		}
 		item.Role = strings.TrimSpace(item.Role)

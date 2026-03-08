@@ -12,9 +12,10 @@ function apiBaseUrl(): string {
 type Props = {
   artifact: ArtifactRef
   accessToken: string
+  pathPrefix?: string
 }
 
-export function ArtifactImage({ artifact, accessToken }: Props) {
+export function ArtifactImage({ artifact, accessToken, pathPrefix = '/v1/artifacts' }: Props) {
   const [blobUrl, setBlobUrl] = useState<string | null>(null)
   const [error, setError] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -24,7 +25,7 @@ export function ArtifactImage({ artifact, accessToken }: Props) {
 
   useEffect(() => {
     let cancelled = false
-    const url = `${apiBaseUrl()}/v1/artifacts/${artifact.key}`
+    const url = `${apiBaseUrl()}${pathPrefix}/${artifact.key}`
 
     fetch(url, {
       headers: { Authorization: `Bearer ${accessToken}` },

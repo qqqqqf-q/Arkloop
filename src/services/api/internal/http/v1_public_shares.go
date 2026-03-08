@@ -4,6 +4,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -32,10 +33,11 @@ type sharedThreadInfo struct {
 }
 
 type sharedMessageItem struct {
-	ID        string `json:"id"`
-	Role      string `json:"role"`
-	Content   string `json:"content"`
-	CreatedAt string `json:"created_at"`
+	ID          string          `json:"id"`
+	Role        string          `json:"role"`
+	Content     string          `json:"content"`
+	ContentJSON json.RawMessage `json:"content_json,omitempty"`
+	CreatedAt   string          `json:"created_at"`
 }
 
 type verifyShareRequest struct {
@@ -158,10 +160,11 @@ func handleShareGet(
 
 	for _, msg := range messages {
 		resp.Messages = append(resp.Messages, sharedMessageItem{
-			ID:        msg.ID.String(),
-			Role:      msg.Role,
-			Content:   msg.Content,
-			CreatedAt: msg.CreatedAt.UTC().Format(time.RFC3339Nano),
+			ID:          msg.ID.String(),
+			Role:        msg.Role,
+			Content:     msg.Content,
+			ContentJSON: msg.ContentJSON,
+			CreatedAt:   msg.CreatedAt.UTC().Format(time.RFC3339Nano),
 		})
 	}
 

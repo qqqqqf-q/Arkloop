@@ -315,8 +315,25 @@ export async function forkThread(
 
 // Messages API
 
+export type MessageAttachmentRef = {
+  key: string
+  filename: string
+  mime_type: string
+  size: number
+}
+
+export type MessageContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image'; attachment: MessageAttachmentRef }
+  | { type: 'file'; attachment: MessageAttachmentRef; extracted_text: string }
+
+export type MessageContent = {
+  parts: MessageContentPart[]
+}
+
 export type CreateMessageRequest = {
-  content: string
+  content?: string
+  content_json?: MessageContent
 }
 
 export type MessageResponse = {
@@ -326,7 +343,32 @@ export type MessageResponse = {
   created_by_user_id: string
   role: string
   content: string
+  content_json?: MessageContent
   created_at: string
+}
+
+export type UploadedThreadAttachment = {
+  key: string
+  filename: string
+  mime_type: string
+  size: number
+  kind: 'image' | 'file'
+  extracted_text?: string
+}
+
+export async function uploadThreadAttachment(
+  accessToken: string,
+  threadId: string,
+  file: File,
+): Promise<UploadedThreadAttachment> {
+  const body = new FormData()
+  body.append('file', file)
+  return await apiFetch<UploadedThreadAttachment>(`/v1/threads/${threadId}/attachments`, {
+    method: 'POST',
+    accessToken,
+    body,
+    headers: {},
+  })
 }
 
 export async function createMessage(
@@ -773,6 +815,7 @@ export type SharedThreadResponse = {
     id: string
     role: string
     content: string
+    content_json?: MessageContent
     created_at: string
   }>
 }

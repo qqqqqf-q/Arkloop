@@ -10,7 +10,7 @@ import (
 )
 
 func TestInputLoaderConstructorDoesNotPanic(t *testing.T) {
-	mw := pipeline.NewInputLoaderMiddleware(data.RunEventsRepository{}, data.MessagesRepository{})
+	mw := pipeline.NewInputLoaderMiddleware(data.RunEventsRepository{}, data.MessagesRepository{}, nil)
 	if mw == nil {
 		t.Fatal("expected non-nil middleware")
 	}
@@ -19,7 +19,7 @@ func TestInputLoaderConstructorDoesNotPanic(t *testing.T) {
 // nil pool 时 loadRunInputs 调用 pool.BeginTx 会 panic，
 // 证明中间件确实调用了 loadRunInputs 而非直接跳过。
 func TestInputLoaderMiddleware_NilPoolPanic(t *testing.T) {
-	mw := pipeline.NewInputLoaderMiddleware(data.RunEventsRepository{}, data.MessagesRepository{})
+	mw := pipeline.NewInputLoaderMiddleware(data.RunEventsRepository{}, data.MessagesRepository{}, nil)
 
 	rc := &pipeline.RunContext{
 		Emitter: events.NewEmitter("test"),
@@ -43,7 +43,7 @@ func TestInputLoaderMiddleware_NilPoolPanic(t *testing.T) {
 // 通过 panic 证明 loadRunInputs 被调用（messageLimit 参数已被设为 200）。
 // 这里无法直接观测 messageLimit 数值，但能确认 loadRunInputs 确实被执行。
 func TestInputLoaderMiddleware_DefaultMessageLimit(t *testing.T) {
-	mw := pipeline.NewInputLoaderMiddleware(data.RunEventsRepository{}, data.MessagesRepository{})
+	mw := pipeline.NewInputLoaderMiddleware(data.RunEventsRepository{}, data.MessagesRepository{}, nil)
 
 	rc := &pipeline.RunContext{
 		Emitter:                   events.NewEmitter("test"),
@@ -66,7 +66,7 @@ func TestInputLoaderMiddleware_DefaultMessageLimit(t *testing.T) {
 
 // 负值同样应回退到默认 200
 func TestInputLoaderMiddleware_NegativeMessageLimitFallback(t *testing.T) {
-	mw := pipeline.NewInputLoaderMiddleware(data.RunEventsRepository{}, data.MessagesRepository{})
+	mw := pipeline.NewInputLoaderMiddleware(data.RunEventsRepository{}, data.MessagesRepository{}, nil)
 
 	rc := &pipeline.RunContext{
 		Emitter:                   events.NewEmitter("test"),
@@ -96,7 +96,7 @@ func TestInputLoaderMiddleware_ChainPosition(t *testing.T) {
 		return next(context.Background(), rc)
 	}
 
-	inputLoader := pipeline.NewInputLoaderMiddleware(data.RunEventsRepository{}, data.MessagesRepository{})
+	inputLoader := pipeline.NewInputLoaderMiddleware(data.RunEventsRepository{}, data.MessagesRepository{}, nil)
 
 	rc := &pipeline.RunContext{
 		Emitter: events.NewEmitter("test"),

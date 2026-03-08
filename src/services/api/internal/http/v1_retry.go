@@ -53,10 +53,6 @@ func editThreadMessage(
 			WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "request validation failed", traceID, nil)
 			return
 		}
-		if body.Content == "" || len(body.Content) > 20000 {
-			WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "request validation failed", traceID, nil)
-			return
-		}
 
 		thread, err := threadRepo.GetByID(r.Context(), threadID)
 		if err != nil {
@@ -85,7 +81,23 @@ func editThreadMessage(
 			return
 		}
 
-		_, err = txMessageRepo.UpdateContent(r.Context(), thread.OrgID, threadID, messageID, body.Content)
+		existingMessage, err := txMessageRepo.GetByID(r.Context(), thread.OrgID, threadID, messageID)
+		if err != nil {
+			WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			return
+		}
+		if existingMessage == nil || existingMessage.Role != "user" {
+			WriteError(w, nethttp.StatusNotFound, "messages.not_found", "message not found or not editable", traceID, nil)
+			return
+		}
+
+		_, projection, contentJSON, err := normalizeEditedMessagePayload(existingMessage.ContentJSON, body)
+		if err != nil {
+			WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "request validation failed", traceID, map[string]any{"reason": err.Error()})
+			return
+		}
+
+		_, err = txMessageRepo.UpdateStructuredContent(r.Context(), thread.OrgID, threadID, messageID, projection, contentJSON)
 		if err != nil {
 			WriteError(w, nethttp.StatusNotFound, "messages.not_found", "message not found or not editable", traceID, nil)
 			return

@@ -3,8 +3,11 @@ import { Copy, Check, RefreshCw, Share2, Split, Paperclip, Pencil, MoreHorizonta
 import type { MessageResponse } from '../api'
 import type { WebSource, ArtifactRef } from '../storage'
 import { MarkdownRenderer } from './MarkdownRenderer'
+import { ArtifactImage } from './ArtifactImage'
+import { ArtifactDownload } from './ArtifactDownload'
 import { DocumentCard } from './DocumentCard'
 import { useLocale } from '../contexts/LocaleContext'
+import { extractLegacyFilesFromContent, isFilePart, isImagePart, messageAttachmentParts, messageTextContent } from '../messageContent'
 
 function isDocumentArtifact(artifact: ArtifactRef): boolean {
   return !artifact.mime_type.startsWith('image/') && artifact.mime_type !== 'text/html'
@@ -34,16 +37,6 @@ function getDomain(url: string): string {
   }
 }
 
-function extractFilesFromContent(content: string): { text: string; fileNames: string[] } {
-  const fileNames: string[] = []
-  const text = content
-    .replace(/<file name="([^"]+)" encoding="[^"]+">[\s\S]*?<\/file>/g, (_, name: string) => {
-      fileNames.push(name)
-      return ''
-    })
-    .trim()
-  return { text, fileNames }
-}
 
 export function MessageBubble({ message, onRetry, onEdit, onFork, onShare, onReport, shareState, webSources, artifacts, accessToken, onShowSources, onOpenDocument, activePanelArtifactKey }: Props) {
   const { t } = useLocale()
@@ -65,8 +58,7 @@ export function MessageBubble({ message, onRetry, onEdit, onFork, onShare, onRep
   }, [moreOpen])
 
   const handleCopy = () => {
-    const { text } = extractFilesFromContent(message.content)
-    const plainText = message.role === 'user' ? text : message.content
+    const plainText = message.role === 'user' ? messageTextContent(message) : message.content
     void navigator.clipboard.writeText(plainText).then(() => {
       setCopied(true)
       setTimeout(() => setCopied(false), 1500)
@@ -74,8 +66,7 @@ export function MessageBubble({ message, onRetry, onEdit, onFork, onShare, onRep
   }
 
   const handleEditStart = () => {
-    const { text } = extractFilesFromContent(message.content)
-    setEditText(text)
+    setEditText(messageTextContent(message))
     setEditing(true)
   }
 
@@ -112,7 +103,15 @@ export function MessageBubble({ message, onRetry, onEdit, onFork, onShare, onRep
   }
 
   if (message.role === 'user') {
-    const { text, fileNames } = extractFilesFromContent(message.content)
+    const legacy = extractLegacyFilesFromContent(message.content)
+    const attachmentParts = messageAttachmentParts(message)
+    const imageAttachments = attachmentParts.filter(isImagePart)
+    const fileAttachments = attachmentParts.filter(isFilePart)
+    const text = messageTextContent(message)
+    const displayText = !accessToken && attachmentParts.length > 0 ? message.content : text
+    const fileNames = attachmentParts.length > 0
+      ? [...imageAttachments, ...fileAttachments].map((part) => part.attachment.filename)
+      : legacy.fileNames
 
     if (editing) {
       return (
@@ -271,7 +270,31 @@ export function MessageBubble({ message, onRetry, onEdit, onFork, onShare, onRep
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px', maxWidth: '663px' }}>
-          {fileNames.length > 0 && (
+          {imageAttachments.length > 0 && accessToken && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'flex-end' }}>
+              {imageAttachments.map((part) => (
+                <ArtifactImage
+                  key={part.attachment.key}
+                  artifact={part.attachment as ArtifactRef}
+                  accessToken={accessToken}
+                  pathPrefix="/v1/attachments"
+                />
+              ))}
+            </div>
+          )}
+          {fileAttachments.length > 0 && accessToken && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', justifyContent: 'flex-end' }}>
+              {fileAttachments.map((part) => (
+                <ArtifactDownload
+                  key={part.attachment.key}
+                  artifact={part.attachment as ArtifactRef}
+                  accessToken={accessToken}
+                  pathPrefix="/v1/attachments"
+                />
+              ))}
+            </div>
+          )}
+          {((!accessToken && fileNames.length > 0) || (fileAttachments.length === 0 && imageAttachments.length === 0 && fileNames.length > 0)) && (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', justifyContent: 'flex-end' }}>
               {fileNames.map((name) => (
                 <div
@@ -296,7 +319,7 @@ export function MessageBubble({ message, onRetry, onEdit, onFork, onShare, onRep
               ))}
             </div>
           )}
-          {text && (
+          {displayText && (
             <div
               style={{
                 background: 'var(--c-bg-deep)',
@@ -310,7 +333,7 @@ export function MessageBubble({ message, onRetry, onEdit, onFork, onShare, onRep
                 wordBreak: 'break-word',
               }}
             >
-              {text}
+              {displayText}
             </div>
           )}
         </div>

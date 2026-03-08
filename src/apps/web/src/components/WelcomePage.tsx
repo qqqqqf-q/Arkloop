@@ -4,9 +4,10 @@ import { Glasses, Paperclip, X, Zap } from 'lucide-react'
 import { ChatInput, type Attachment, formatFileSize } from './ChatInput'
 import { ErrorCallout, type AppError } from './ErrorCallout'
 import { NotificationBell } from './NotificationBell'
-import { createThread, createMessage, createRun, isApiError, type ThreadResponse, type MeResponse } from '../api'
+import { createThread, createMessage, createRun, uploadThreadAttachment, isApiError, type ThreadResponse, type MeResponse } from '../api'
 import { writeActiveThreadIdToStorage, addSearchThreadId, SEARCH_PERSONA_KEY } from '../storage'
 import { useLocale } from '../contexts/LocaleContext'
+import { buildMessageRequest } from '../messageContent'
 
 function normalizeError(error: unknown, fallback: string): AppError {
   if (isApiError(error)) {
@@ -173,9 +174,10 @@ function FreePlanBadge() {
 }
 
 export function WelcomePage() {
-  const { accessToken, onLoggedOut, onThreadCreated, onOpenNotifications, notificationVersion, creditsBalance, me, isPrivateMode, onTogglePrivateMode, isSearchMode, onEnterSearchMode, onExitSearchMode } = useOutletContext<OutletContext>()
+  const { accessToken, onLoggedOut, onThreadCreated, refreshCredits, onOpenNotifications, notificationVersion, creditsBalance, me, isPrivateMode, onTogglePrivateMode, isSearchMode, onEnterSearchMode, onExitSearchMode } = useOutletContext<OutletContext>()
   const [draft, setDraft] = useState('')
   const [attachments, setAttachments] = useState<Attachment[]>([])
+  const attachmentsRef = useRef<Attachment[]>([])
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<AppError | null>(null)
   const navigate = useNavigate()
@@ -183,44 +185,44 @@ export function WelcomePage() {
 
   const greeting = useMemo(() => buildGreeting(me?.username ?? null, new Date()), [me?.username])
 
+  const revokeDraftAttachment = useCallback((attachment: Attachment) => {
+    if (attachment.preview_url) URL.revokeObjectURL(attachment.preview_url)
+  }, [])
+
+  useEffect(() => {
+    attachmentsRef.current = attachments
+  }, [attachments])
+
+  useEffect(() => {
+    return () => {
+      attachmentsRef.current.forEach((attachment) => revokeDraftAttachment(attachment))
+    }
+  }, [revokeDraftAttachment])
+
   const handleAttachFiles = useCallback((files: File[]) => {
-    const readers = files.map((file) => {
-      return new Promise<Attachment>((resolve, reject) => {
-        const isText = file.type.startsWith('text/') || file.type === ''
-        const reader = new FileReader()
-        reader.onload = () => {
-          resolve({
-            id: `${file.name}-${file.size}-${Date.now()}`,
-            name: file.name,
-            size: file.size,
-            content: reader.result as string,
-            encoding: isText ? 'text' : 'base64',
-          })
-        }
-        reader.onerror = () => reject(reader.error ?? new Error(`读取失败: ${file.name}`))
-        if (isText) {
-          reader.readAsText(file)
-        } else {
-          reader.readAsDataURL(file)
-        }
-      })
-    })
-    void Promise.allSettled(readers).then((results) => {
-      const newAttachments = results
-        .filter((r): r is PromiseFulfilledResult<Attachment> => r.status === 'fulfilled')
-        .map((r) => r.value)
-      if (newAttachments.length === 0) return
-      setAttachments((prev) => {
-        const existingNames = new Set(prev.map((a) => a.name))
-        const deduped = newAttachments.filter((a) => !existingNames.has(a.name))
-        return [...prev, ...deduped]
-      })
+    const newAttachments = files.map((file) => ({
+      id: `${file.name}-${file.size}-${file.lastModified}`,
+      file,
+      name: file.name,
+      size: file.size,
+      mime_type: file.type || 'application/octet-stream',
+      preview_url: file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined,
+    }))
+    if (newAttachments.length === 0) return
+    setAttachments((prev) => {
+      const existingIDs = new Set(prev.map((item) => item.id))
+      const deduped = newAttachments.filter((item) => !existingIDs.has(item.id))
+      return [...prev, ...deduped]
     })
   }, [])
 
   const handleRemoveAttachment = useCallback((id: string) => {
-    setAttachments((prev) => prev.filter((a) => a.id !== id))
-  }, [])
+    setAttachments((prev) => {
+      const target = prev.find((item) => item.id === id)
+      if (target) revokeDraftAttachment(target)
+      return prev.filter((item) => item.id !== id)
+    })
+  }, [revokeDraftAttachment])
 
   const handleAsrError = useCallback((err: unknown) => {
     if (isApiError(err) && err.status === 401) {
@@ -241,18 +243,17 @@ export function WelcomePage() {
     try {
       const title = deriveTitle(text, t.newChatTitle)
       const thread = await createThread(accessToken, { title, is_private: isPrivateMode })
-
-      const fileParts = attachments.map(
-        (a) => `<file name="${a.name}" encoding="${a.encoding}">\n${a.content}\n</file>`,
+      const uploaded = await Promise.all(
+        attachments.map(async (attachment) => await uploadThreadAttachment(accessToken, thread.id, attachment.file)),
       )
-      const content = fileParts.length > 0
-        ? `${fileParts.join('\n\n')}${text ? `\n\n${text}` : ''}`
-        : text
-
-      await createMessage(accessToken, thread.id, { content })
+      await createMessage(accessToken, thread.id, buildMessageRequest(text, uploaded))
       const run = await createRun(accessToken, thread.id, personaKey)
 
       if (personaKey === SEARCH_PERSONA_KEY) addSearchThreadId(thread.id)
+      attachments.forEach((attachment) => revokeDraftAttachment(attachment))
+      setDraft('')
+      setAttachments([])
+      refreshCredits()
       writeActiveThreadIdToStorage(thread.id)
       onThreadCreated(thread)
       navigate(`/t/${thread.id}`, { state: { initialRunId: run.run_id, isSearch: personaKey === SEARCH_PERSONA_KEY } })
@@ -262,6 +263,7 @@ export function WelcomePage() {
         return
       }
       setError(normalizeError(err, t.requestFailed))
+    } finally {
       setSending(false)
     }
   }
@@ -347,7 +349,15 @@ export function WelcomePage() {
                   className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5"
                   style={{ background: 'var(--c-bg-sub)', border: '0.5px solid var(--c-border-subtle)' }}
                 >
+                  {att.preview_url ? (
+                  <img
+                    src={att.preview_url}
+                    alt={att.name}
+                    style={{ width: '24px', height: '24px', objectFit: 'cover', borderRadius: '6px', flexShrink: 0 }}
+                  />
+                ) : (
                   <Paperclip size={12} style={{ color: 'var(--c-text-icon)', flexShrink: 0 }} />
+                )}
                   <span
                     className="text-xs"
                     style={{ color: 'var(--c-text-secondary)', maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
