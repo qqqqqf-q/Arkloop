@@ -89,6 +89,7 @@ type HandlerConfig struct {
 	RedemptionCodesRepo *data.RedemptionCodesRepository
 
 	PlatformSettingsRepo *data.PlatformSettingsRepository
+	EmailConfigsRepo     *data.EmailConfigsRepository
 
 	UsersRepo *data.UserRepository
 	OrgRepo   *data.OrgRepository
@@ -553,6 +554,18 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 	mux.HandleFunc(
 		"/v1/admin/email/test",
 		adminEmailTest(cfg.AuthService, cfg.OrgMembershipRepo, cfg.APIKeysRepo, cfg.JobRepo, cfg.PlatformSettingsRepo, resolver),
+	)
+	mux.HandleFunc(
+		"/v1/admin/email/configs/",
+		adminEmailConfigEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.APIKeysRepo, cfg.EmailConfigsRepo),
+	)
+	mux.HandleFunc(
+		"/v1/admin/email/configs",
+		adminEmailConfigsEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.APIKeysRepo, cfg.EmailConfigsRepo),
+	)
+	mux.HandleFunc(
+		"/v1/admin/credits/mode",
+		adminCreditsMode(cfg.AuthService, cfg.OrgMembershipRepo, cfg.APIKeysRepo, cfg.PlatformSettingsRepo),
 	)
 
 	mux.HandleFunc(

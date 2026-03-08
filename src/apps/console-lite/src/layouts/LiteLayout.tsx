@@ -28,11 +28,11 @@ type NavItem = {
 function buildNavItems(t: LocaleStrings): NavItem[] {
   return [
     { label: t.nav.dashboard, path: '/dashboard', icon: <LayoutDashboard size={17} /> },
-    { label: t.nav.agents,    path: '/agents',    icon: <Sparkles size={17} /> },
-    { label: t.nav.models,    path: '/models',    icon: <KeyRound size={17} /> },
-    { label: t.nav.tools,     path: '/tools',     icon: <Wrench size={17} /> },
-    { label: t.nav.runs,      path: '/runs',      icon: <Play size={17} /> },
-    { label: t.nav.settings,  path: '/settings',  icon: <Settings size={17} /> },
+    { label: t.nav.agents, path: '/agents', icon: <Sparkles size={17} /> },
+    { label: t.nav.models, path: '/models', icon: <KeyRound size={17} /> },
+    { label: t.nav.tools, path: '/tools', icon: <Wrench size={17} /> },
+    { label: t.nav.runs, path: '/runs', icon: <Play size={17} /> },
+    { label: t.nav.settings, path: '/settings', icon: <Settings size={17} /> },
   ]
 }
 

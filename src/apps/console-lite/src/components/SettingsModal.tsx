@@ -30,7 +30,7 @@ export function LiteSettingsModal({ me, onClose, onLogout }: Props) {
   const userInitial = me?.username?.charAt(0).toUpperCase() ?? '?'
 
   const NAV_ITEMS: { key: Tab; label: string; icon: LucideIcon }[] = [
-    { key: 'account',  label: t.account,  icon: User     },
+    { key: 'account', label: t.account, icon: User },
     { key: 'settings', label: t.settings, icon: Settings },
   ]
 
@@ -171,8 +171,8 @@ function SettingsTab() {
 
   const themeOptions: ThemeOption[] = [
     { value: 'system', label: t.themeSystem, icon: Monitor },
-    { value: 'light',  label: t.themeLight,  icon: Sun     },
-    { value: 'dark',   label: t.themeDark,   icon: Moon    },
+    { value: 'light', label: t.themeLight, icon: Sun },
+    { value: 'dark', label: t.themeDark, icon: Moon },
   ]
 
   const currentLocaleLabel = LOCALE_OPTIONS.find(o => o.value === locale)?.label ?? locale

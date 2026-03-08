@@ -208,6 +208,45 @@ export interface LocaleStrings {
     default: string
     signOut: string
   }
+  settingsPage: {
+    general: string
+    titleSummarizer: string
+    titleSummarizerNone: string
+    email: string
+    emailConfigs: string
+    newConfig: string
+    editConfig: string
+    configName: string
+    fromAddr: string
+    smtpHost: string
+    smtpPort: string
+    smtpUser: string
+    smtpPass: string
+    smtpPassPlaceholder: string
+    smtpTlsMode: string
+    setDefault: string
+    sendTest: string
+    testTo: string
+    noConfigs: string
+    deleteConfig: string
+    deleteConfigConfirm: (name: string) => string
+    system: string
+    installSandbox: string
+    installBrowser: string
+    copyCommand: string
+    useCredits: string
+    creditsHint: string
+    switchToFullConsole: string
+    toastSaved: string
+    toastSaveFailed: string
+    toastLoadFailed: string
+    toastCreated: string
+    toastUpdated: string
+    toastDeleted: string
+    toastTestSent: string
+    toastTestFailed: string
+    toastSetDefault: string
+  }
   loginMode: string
   enterYourPasswordTitle: string
   fieldIdentity: string

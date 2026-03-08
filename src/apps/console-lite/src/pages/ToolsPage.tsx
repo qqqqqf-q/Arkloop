@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react'
-import { useOutletContext } from 'react-router-dom'
+import { useOutletContext, useSearchParams } from 'react-router-dom'
 import {
   Loader2, Save, CheckCircle2, Ban, Pencil, Trash2, RotateCcw,
 } from 'lucide-react'
@@ -79,10 +79,11 @@ export function ToolsPage() {
   const { addToast } = useToast()
   const { t } = useLocale()
   const tc = t.tools
+  const [searchParams] = useSearchParams()
 
   const [providerGroups, setProviderGroups] = useState<ToolProviderGroup[]>([])
   const [catalogGroups, setCatalogGroups] = useState<ToolCatalogGroup[]>([])
-  const [selectedGroup, setSelectedGroup] = useState<string>('')
+  const [selectedGroup, setSelectedGroup] = useState<string>(() => searchParams.get('group') ?? '')
   const [loading, setLoading] = useState(true)
   const [mutating, setMutating] = useState(false)
 

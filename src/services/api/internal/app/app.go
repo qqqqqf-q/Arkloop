@@ -247,6 +247,7 @@ func (a *Application) Run(ctx context.Context) error {
 		redemptionCodesRepo *data.RedemptionCodesRepository
 
 		platformSettingsRepo *data.PlatformSettingsRepository
+		emailConfigsRepo     *data.EmailConfigsRepository
 
 		asrCredRepo *data.AsrCredentialsRepository
 
@@ -409,6 +410,10 @@ func (a *Application) Run(ctx context.Context) error {
 			return err
 		}
 		platformSettingsRepo, err = data.NewPlatformSettingsRepository(pool)
+		if err != nil {
+			return err
+		}
+		emailConfigsRepo, err = data.NewEmailConfigsRepository(pool)
 		if err != nil {
 			return err
 		}
@@ -610,6 +615,7 @@ func (a *Application) Run(ctx context.Context) error {
 			CreditsRepo:                  creditsRepo,
 			RedemptionCodesRepo:          redemptionCodesRepo,
 			PlatformSettingsRepo:         platformSettingsRepo,
+			EmailConfigsRepo:             emailConfigsRepo,
 			RedisClient:                  redisClient,
 			GatewayRedisClient:           gatewayRedisClient,
 			RunLimiter:                   runLimiter,
