@@ -208,6 +208,41 @@ export interface LocaleStrings {
     default: string
     signOut: string
   }
+  settingsPage: {
+    title: string
+    sectionGeneral: string
+    sectionEmail: string
+    sectionSandbox: string
+    sectionCredits: string
+    titleSummarizer: string
+    titleSummarizerHint: string
+    smtpProviders: string
+    addSmtp: string
+    smtpName: string
+    smtpFrom: string
+    smtpHost: string
+    smtpPort: string
+    smtpUser: string
+    smtpPass: string
+    smtpTls: string
+    smtpDefault: string
+    smtpSetDefault: string
+    smtpTest: string
+    smtpTestTo: string
+    smtpDeleteConfirm: string
+    smtpCannotDeleteDefault: string
+    smtpNoProviders: string
+    sandboxProvider: string
+    sandboxBaseUrl: string
+    sandboxDockerImage: string
+    creditsEnabled: string
+    creditsDisabledHint: string
+    toastSaved: string
+    toastFailed: string
+    toastTestSent: string
+    toastTestFailed: string
+    toastDeleted: string
+  }
   loginMode: string
   enterYourPasswordTitle: string
   fieldIdentity: string

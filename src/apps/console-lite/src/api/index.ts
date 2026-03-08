@@ -16,3 +16,17 @@ export type {
   LlmProviderModel,
   AvailableModel,
 } from './llm-providers'
+export {
+  listPlatformSettings,
+  updatePlatformSetting,
+  listSmtpProviders,
+  createSmtpProvider,
+  updateSmtpProvider,
+  deleteSmtpProvider,
+  setDefaultSmtpProvider,
+  testSmtpProvider,
+} from './settings'
+export type {
+  PlatformSetting,
+  SmtpProvider,
+} from './settings'

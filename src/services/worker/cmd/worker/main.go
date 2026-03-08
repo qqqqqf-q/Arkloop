@@ -262,6 +262,7 @@ func chooseHandler(ctx context.Context, logger *app.JSONLogger, pool *pgxpool.Po
 	if err != nil {
 		return nil, err
 	}
+	emailHandler.SetSmtpProvider(email.NewPGSmtpProvider(pool))
 	from, _ := configResolver.Resolve(context.Background(), "email.from", sharedconfig.Scope{})
 	if strings.TrimSpace(from) != "" {
 		logger.Info("email send handler enabled", app.LogFields{}, map[string]any{"job_type": queue.EmailSendJobType, "from": strings.TrimSpace(from)})

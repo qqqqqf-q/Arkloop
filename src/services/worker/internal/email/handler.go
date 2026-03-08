@@ -22,10 +22,16 @@ const (
 	settingTLSMode = "email.smtp_tls_mode"
 )
 
+// SmtpDefaultProvider 返回默认 SMTP 配置（从 smtp_providers 表）。
+type SmtpDefaultProvider interface {
+	DefaultSmtpConfig(ctx context.Context) (*Config, error)
+}
+
 // SendHandler 处理 email.send 类型的 job。
 type SendHandler struct {
-	resolver sharedconfig.Resolver
-	logger   *app.JSONLogger
+	resolver     sharedconfig.Resolver
+	smtpProvider SmtpDefaultProvider // 可选，nil 时仅使用 resolver
+	logger       *app.JSONLogger
 }
 
 func NewSendHandler(resolver sharedconfig.Resolver, logger *app.JSONLogger) (*SendHandler, error) {
@@ -33,6 +39,11 @@ func NewSendHandler(resolver sharedconfig.Resolver, logger *app.JSONLogger) (*Se
 		logger = app.NewJSONLogger("email", nil)
 	}
 	return &SendHandler{resolver: resolver, logger: logger}, nil
+}
+
+// SetSmtpProvider 注入 smtp_providers 表查询能力。
+func (h *SendHandler) SetSmtpProvider(p SmtpDefaultProvider) {
+	h.smtpProvider = p
 }
 
 func (h *SendHandler) Handle(ctx context.Context, lease queue.JobLease) error {
@@ -45,7 +56,7 @@ func (h *SendHandler) Handle(ctx context.Context, lease queue.JobLease) error {
 		return nil // 格式错误不重试
 	}
 
-	cfg, cfgErr := loadEmailConfig(ctx, h.resolver)
+	cfg, cfgErr := h.resolveConfig(ctx)
 	if cfgErr != nil {
 		h.logger.Error("email config load failed", fields, map[string]any{"error": cfgErr.Error(), "attempts": lease.Attempts})
 		if lease.Attempts+1 >= maxEmailAttempts {
@@ -77,6 +88,17 @@ func (h *SendHandler) Handle(ctx context.Context, lease queue.JobLease) error {
 
 	h.logger.Info("email sent", fields, map[string]any{"to": msg.To, "subject": msg.Subject})
 	return nil
+}
+
+// resolveConfig 优先从 smtp_providers 表获取默认 provider，fallback 到 platform_settings。
+func (h *SendHandler) resolveConfig(ctx context.Context) (Config, error) {
+	if h.smtpProvider != nil {
+		cfg, err := h.smtpProvider.DefaultSmtpConfig(ctx)
+		if err == nil && cfg != nil && cfg.Enabled() {
+			return *cfg, nil
+		}
+	}
+	return loadEmailConfig(ctx, h.resolver)
 }
 
 func parseEmailPayload(raw map[string]any) (Message, error) {
