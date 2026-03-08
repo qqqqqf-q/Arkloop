@@ -43,21 +43,21 @@ type ArtifactRef struct {
 }
 
 type Response struct {
-	SessionID          string        `json:"session_id"`
-	Status             string        `json:"status"`
-	Cwd                string        `json:"cwd"`
-	Output             string        `json:"output"`
-	Running            bool          `json:"running"`
-	Truncated          bool          `json:"truncated"`
-	TimedOut           bool          `json:"timed_out"`
-	ExitCode           *int          `json:"exit_code,omitempty"`
-	Artifacts          []ArtifactRef `json:"artifacts,omitempty"`
-	Restored           bool          `json:"restored,omitempty"`
-	CheckpointRevision string        `json:"checkpoint_revision,omitempty"`
+	SessionID       string        `json:"session_id"`
+	Status          string        `json:"status"`
+	Cwd             string        `json:"cwd"`
+	Output          string        `json:"output"`
+	Running         bool          `json:"running"`
+	Truncated       bool          `json:"truncated"`
+	TimedOut        bool          `json:"timed_out"`
+	ExitCode        *int          `json:"exit_code,omitempty"`
+	Artifacts       []ArtifactRef `json:"artifacts,omitempty"`
+	Restored        bool          `json:"restored,omitempty"`
+	RestoreRevision string        `json:"restore_revision,omitempty"`
 }
 
 type ForkSessionResponse struct {
-	CheckpointRevision string `json:"checkpoint_revision,omitempty"`
+	RestoreRevision string `json:"restore_revision,omitempty"`
 }
 
 type DebugTranscript struct {

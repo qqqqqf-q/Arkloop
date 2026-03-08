@@ -72,21 +72,21 @@ type forkSessionRequest struct {
 }
 
 type forkSessionResponse struct {
-	CheckpointRevision string `json:"checkpoint_revision,omitempty"`
+	RestoreRevision string `json:"restore_revision,omitempty"`
 }
 
 type execSessionResponse struct {
-	SessionID          string        `json:"session_id"`
-	Status             string        `json:"status"`
-	Cwd                string        `json:"cwd"`
-	Output             string        `json:"output"`
-	Running            bool          `json:"running"`
-	Truncated          bool          `json:"truncated"`
-	TimedOut           bool          `json:"timed_out"`
-	ExitCode           *int          `json:"exit_code,omitempty"`
-	Artifacts          []artifactRef `json:"artifacts,omitempty"`
-	Restored           bool          `json:"restored,omitempty"`
-	CheckpointRevision string        `json:"checkpoint_revision,omitempty"`
+	SessionID       string        `json:"session_id"`
+	Status          string        `json:"status"`
+	Cwd             string        `json:"cwd"`
+	Output          string        `json:"output"`
+	Running         bool          `json:"running"`
+	Truncated       bool          `json:"truncated"`
+	TimedOut        bool          `json:"timed_out"`
+	ExitCode        *int          `json:"exit_code,omitempty"`
+	Artifacts       []artifactRef `json:"artifacts,omitempty"`
+	Restored        bool          `json:"restored,omitempty"`
+	RestoreRevision string        `json:"restore_revision,omitempty"`
 }
 
 type execCommandArgs struct {
@@ -234,7 +234,7 @@ func (e *ToolExecutor) executeExecCommand(
 			return tools.ExecutionResult{Error: forkErr, DurationMs: durationMs(started)}
 		}
 		if strings.TrimSpace(forked) != "" && resolution.Record != nil {
-			resolution.Record.LatestCheckpointRev = stringPtr(forked)
+			resolution.Record.LatestRestoreRev = stringPtr(forked)
 		}
 	}
 
@@ -259,7 +259,7 @@ func (e *ToolExecutor) executeExecCommand(
 		result.ResultJSON["session_ref"] = resolution.SessionRef
 		result.ResultJSON["resolved_via"] = resolution.ResolvedVia
 		result.ResultJSON["reused"] = resolution.Reused
-		result.ResultJSON["restored_from_checkpoint"] = resp.Restored || resolution.RestoredFromCheckpoint
+		result.ResultJSON["restored_from_restore_state"] = resp.Restored || resolution.RestoredFromRestoreState
 	}
 	delete(result.ResultJSON, "session_id")
 	return result
@@ -296,7 +296,7 @@ func (e *ToolExecutor) executeWriteStdin(
 		result.ResultJSON["session_ref"] = resolution.SessionRef
 		result.ResultJSON["resolved_via"] = resolution.ResolvedVia
 		result.ResultJSON["reused"] = true
-		result.ResultJSON["restored_from_checkpoint"] = false
+		result.ResultJSON["restored_from_restore_state"] = false
 	}
 	delete(result.ResultJSON, "session_id")
 	return result
@@ -335,7 +335,7 @@ func (e *ToolExecutor) forkSessionCheckpoint(
 			return "", &tools.ExecutionError{ErrorClass: errorSandboxError, Message: "decode fork response failed"}
 		}
 	}
-	return strings.TrimSpace(result.CheckpointRevision), nil
+	return strings.TrimSpace(result.RestoreRevision), nil
 }
 
 func (e *ToolExecutor) executeExecSessionRequest(
@@ -371,16 +371,16 @@ func (e *ToolExecutor) executeExecSessionRequest(
 	}
 	output, outputTruncated := truncateOutputByLimit(result.Output, tools.ResolveToolSoftLimit(softLimits, toolName).MaxOutputBytes)
 	resultJSON := map[string]any{
-		"session_id":               result.SessionID,
-		"status":                   result.Status,
-		"cwd":                      result.Cwd,
-		"stdout":                   output,
-		"output":                   output,
-		"running":                  result.Running,
-		"timed_out":                result.TimedOut,
-		"truncated":                result.Truncated || outputTruncated,
-		"duration_ms":              durationMs(started),
-		"restored_from_checkpoint": result.Restored,
+		"session_id":                  result.SessionID,
+		"status":                      result.Status,
+		"cwd":                         result.Cwd,
+		"stdout":                      output,
+		"output":                      output,
+		"running":                     result.Running,
+		"timed_out":                   result.TimedOut,
+		"truncated":                   result.Truncated || outputTruncated,
+		"duration_ms":                 durationMs(started),
+		"restored_from_restore_state": result.Restored,
 	}
 	if result.ExitCode != nil {
 		resultJSON["exit_code"] = *result.ExitCode
@@ -388,8 +388,8 @@ func (e *ToolExecutor) executeExecSessionRequest(
 	if len(result.Artifacts) > 0 {
 		resultJSON["artifacts"] = result.Artifacts
 	}
-	if strings.TrimSpace(result.CheckpointRevision) != "" {
-		resultJSON["checkpoint_revision"] = strings.TrimSpace(result.CheckpointRevision)
+	if strings.TrimSpace(result.RestoreRevision) != "" {
+		resultJSON["restore_revision"] = strings.TrimSpace(result.RestoreRevision)
 	}
 	return tools.ExecutionResult{ResultJSON: resultJSON, DurationMs: durationMs(started)}
 }

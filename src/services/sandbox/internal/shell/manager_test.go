@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 
@@ -19,7 +20,7 @@ func TestManagerExecCommand_IdempotentReuse(t *testing.T) {
 	agent := &fakeAgent{}
 	pool := &fakePool{agent: agent}
 	mgr := session.NewManager(session.ManagerConfig{MaxSessions: 10, Pool: pool, MaxLifetimeSeconds: 3600})
-	shellMgr := NewManager(mgr, nil, nil, nil, logging.NewJSONLogger("test", nil))
+	shellMgr := NewManager(mgr, nil, nil, nil, nil, logging.NewJSONLogger("test", nil))
 
 	for range 2 {
 		resp, err := shellMgr.ExecCommand(context.Background(), ExecCommandRequest{SessionID: "sess-1", Tier: "lite", OrgID: "org-a", Command: "pwd"})
@@ -45,7 +46,7 @@ func TestManagerExecCommand_Busy(t *testing.T) {
 	}}
 	pool := &fakePool{agent: agent}
 	mgr := session.NewManager(session.ManagerConfig{MaxSessions: 10, Pool: pool, MaxLifetimeSeconds: 3600})
-	shellMgr := NewManager(mgr, nil, nil, nil, logging.NewJSONLogger("test", nil))
+	shellMgr := NewManager(mgr, nil, nil, nil, nil, logging.NewJSONLogger("test", nil))
 
 	_, err := shellMgr.ExecCommand(context.Background(), ExecCommandRequest{SessionID: "sess-1", Tier: "lite", OrgID: "org-a", Command: "sleep 1"})
 	if err == nil {
@@ -61,7 +62,7 @@ func TestManagerOrgMismatch(t *testing.T) {
 	agent := &fakeAgent{}
 	pool := &fakePool{agent: agent}
 	mgr := session.NewManager(session.ManagerConfig{MaxSessions: 10, Pool: pool, MaxLifetimeSeconds: 3600})
-	shellMgr := NewManager(mgr, nil, nil, nil, logging.NewJSONLogger("test", nil))
+	shellMgr := NewManager(mgr, nil, nil, nil, nil, logging.NewJSONLogger("test", nil))
 
 	if _, err := shellMgr.ExecCommand(context.Background(), ExecCommandRequest{SessionID: "sess-1", Tier: "lite", OrgID: "org-a", Command: "pwd"}); err != nil {
 		t.Fatalf("exec_command failed: %v", err)
@@ -98,7 +99,7 @@ func TestManagerDebugSnapshot_ProxyAgentResponse(t *testing.T) {
 	}}
 	pool := &fakePool{agent: agent}
 	mgr := session.NewManager(session.ManagerConfig{MaxSessions: 10, Pool: pool, MaxLifetimeSeconds: 3600})
-	shellMgr := NewManager(mgr, nil, nil, nil, logging.NewJSONLogger("test", nil))
+	shellMgr := NewManager(mgr, nil, nil, nil, nil, logging.NewJSONLogger("test", nil))
 
 	if _, err := shellMgr.ExecCommand(context.Background(), ExecCommandRequest{SessionID: "sess-1", Tier: "lite", OrgID: "org-a", Command: "pwd"}); err != nil {
 		t.Fatalf("exec_command failed: %v", err)
@@ -126,7 +127,7 @@ func TestManagerClose_ReclaimsComputeSession(t *testing.T) {
 	agent := &fakeAgent{}
 	pool := &fakePool{agent: agent}
 	mgr := session.NewManager(session.ManagerConfig{MaxSessions: 10, Pool: pool, MaxLifetimeSeconds: 3600})
-	shellMgr := NewManager(mgr, nil, nil, nil, logging.NewJSONLogger("test", nil))
+	shellMgr := NewManager(mgr, nil, nil, nil, nil, logging.NewJSONLogger("test", nil))
 
 	if _, err := shellMgr.ExecCommand(context.Background(), ExecCommandRequest{SessionID: "sess-1", Tier: "lite", OrgID: "org-a", Command: "pwd"}); err != nil {
 		t.Fatalf("exec_command failed: %v", err)
@@ -143,7 +144,7 @@ func TestManagerExecCommand_RecreatesSessionAfterClose(t *testing.T) {
 	agent := &fakeAgent{}
 	pool := &fakePool{agent: agent}
 	mgr := session.NewManager(session.ManagerConfig{MaxSessions: 10, Pool: pool, MaxLifetimeSeconds: 3600})
-	shellMgr := NewManager(mgr, nil, nil, nil, logging.NewJSONLogger("test", nil))
+	shellMgr := NewManager(mgr, nil, nil, nil, nil, logging.NewJSONLogger("test", nil))
 
 	for attempt := 0; attempt < 2; attempt++ {
 		resp, err := shellMgr.ExecCommand(context.Background(), ExecCommandRequest{SessionID: "sess-1", Tier: "lite", OrgID: "org-a", Command: "pwd"})
@@ -175,7 +176,7 @@ func TestManagerClose_CheckpointFailureKeepsComputeSession(t *testing.T) {
 	pool := &fakePool{agent: agent}
 	state := newMemoryStateStore()
 	mgr := session.NewManager(session.ManagerConfig{MaxSessions: 10, Pool: pool, MaxLifetimeSeconds: 3600})
-	shellMgr := NewManager(mgr, nil, state, nil, logging.NewJSONLogger("test", nil))
+	shellMgr := NewManager(mgr, nil, state, nil, nil, logging.NewJSONLogger("test", nil))
 
 	if _, err := shellMgr.ExecCommand(context.Background(), ExecCommandRequest{SessionID: "sess-1", Tier: "lite", OrgID: "org-a", Command: "pwd"}); err != nil {
 		t.Fatalf("exec_command failed: %v", err)
@@ -206,7 +207,7 @@ func TestManagerRestoreFromCheckpointOnReopen(t *testing.T) {
 	pool := &fakePool{agent: agent}
 	state := newMemoryStateStore()
 	mgr := session.NewManager(session.ManagerConfig{MaxSessions: 10, Pool: pool, MaxLifetimeSeconds: 3600})
-	shellMgr := NewManager(mgr, nil, state, nil, logging.NewJSONLogger("test", nil))
+	shellMgr := NewManager(mgr, nil, state, nil, nil, logging.NewJSONLogger("test", nil))
 
 	if _, err := shellMgr.ExecCommand(context.Background(), ExecCommandRequest{SessionID: "sess-1", Tier: "lite", OrgID: "org-a", Command: "echo ok"}); err != nil {
 		t.Fatalf("exec_command failed: %v", err)
@@ -261,7 +262,7 @@ func TestManagerArtifactsUseDefaultSessionKeyShape(t *testing.T) {
 	store := newFakeArtifactStore()
 	pool := &fakePool{agent: agent}
 	mgr := session.NewManager(session.ManagerConfig{MaxSessions: 10, Pool: pool, MaxLifetimeSeconds: 3600})
-	shellMgr := NewManager(mgr, store, nil, nil, logging.NewJSONLogger("test", nil))
+	shellMgr := NewManager(mgr, store, nil, nil, nil, logging.NewJSONLogger("test", nil))
 
 	resp, err := shellMgr.ExecCommand(context.Background(), ExecCommandRequest{SessionID: "run-1/shell/default", Tier: "lite", OrgID: "org-a", Command: "echo ok"})
 	if err != nil {
@@ -289,7 +290,7 @@ func TestManagerArtifactsSkipUnchangedContent(t *testing.T) {
 	store := newFakeArtifactStore()
 	pool := &fakePool{agent: agent}
 	mgr := session.NewManager(session.ManagerConfig{MaxSessions: 10, Pool: pool, MaxLifetimeSeconds: 3600})
-	shellMgr := NewManager(mgr, store, nil, nil, logging.NewJSONLogger("test", nil))
+	shellMgr := NewManager(mgr, store, nil, nil, nil, logging.NewJSONLogger("test", nil))
 
 	first, err := shellMgr.ExecCommand(context.Background(), ExecCommandRequest{SessionID: "run-2/shell/default", Tier: "lite", OrgID: "org-a", Command: "echo one"})
 	if err != nil {
@@ -326,7 +327,7 @@ func TestManagerArtifactsUploadChangedContentWithNewSequence(t *testing.T) {
 	store := newFakeArtifactStore()
 	pool := &fakePool{agent: agent}
 	mgr := session.NewManager(session.ManagerConfig{MaxSessions: 10, Pool: pool, MaxLifetimeSeconds: 3600})
-	shellMgr := NewManager(mgr, store, nil, nil, logging.NewJSONLogger("test", nil))
+	shellMgr := NewManager(mgr, store, nil, nil, nil, logging.NewJSONLogger("test", nil))
 
 	if _, err := shellMgr.ExecCommand(context.Background(), ExecCommandRequest{SessionID: "run-3/shell/default", Tier: "lite", OrgID: "org-a", Command: "echo one"}); err != nil {
 		t.Fatalf("first exec_command failed: %v", err)
@@ -359,7 +360,7 @@ func TestManagerArtifactsRetryFailedUploadsOnPoll(t *testing.T) {
 	store.failKeys["org-a/run-4/shell/default/1/b.txt"] = 1
 	pool := &fakePool{agent: agent}
 	mgr := session.NewManager(session.ManagerConfig{MaxSessions: 10, Pool: pool, MaxLifetimeSeconds: 3600})
-	shellMgr := NewManager(mgr, store, nil, nil, logging.NewJSONLogger("test", nil))
+	shellMgr := NewManager(mgr, store, nil, nil, nil, logging.NewJSONLogger("test", nil))
 
 	first, err := shellMgr.ExecCommand(context.Background(), ExecCommandRequest{SessionID: "run-4/shell/default", Tier: "lite", OrgID: "org-a", Command: "echo one"})
 	if err != nil {
@@ -429,7 +430,7 @@ func TestManagerCheckpointManifestSkipsRawArtifactDataAndRestoresSequence(t *tes
 	state := newMemoryStateStore()
 	pool := &fakePool{agent: agent}
 	mgr := session.NewManager(session.ManagerConfig{MaxSessions: 10, Pool: pool, MaxLifetimeSeconds: 3600})
-	shellMgr := NewManager(mgr, store, state, nil, logging.NewJSONLogger("test", nil))
+	shellMgr := NewManager(mgr, store, state, nil, nil, logging.NewJSONLogger("test", nil))
 
 	if _, err := shellMgr.ExecCommand(context.Background(), ExecCommandRequest{SessionID: "run-5/shell/default", Tier: "lite", OrgID: "org-a", Command: "echo one"}); err != nil {
 		t.Fatalf("first exec_command failed: %v", err)
@@ -438,23 +439,15 @@ func TestManagerCheckpointManifestSkipsRawArtifactDataAndRestoresSequence(t *tes
 		t.Fatalf("close failed: %v", err)
 	}
 
-	pointerBytes, err := state.Get(context.Background(), latestPointerKey("org-a", "run-5/shell/default"))
+	restoreStateBytes, err := state.findByPrefix("sessions/run-5/shell/default/restore/")
 	if err != nil {
-		t.Fatalf("load pointer failed: %v", err)
+		t.Fatalf("load restore state failed: %v", err)
 	}
-	var pointer latestCheckpointPointer
-	if err := json.Unmarshal(pointerBytes, &pointer); err != nil {
-		t.Fatalf("decode pointer failed: %v", err)
+	if jsonContains(restoreStateBytes, "data") {
+		t.Fatalf("restore state should not persist raw artifact data: %s", string(restoreStateBytes))
 	}
-	manifestBytes, err := state.Get(context.Background(), checkpointManifestKey("org-a", "run-5/shell/default", pointer.Revision))
-	if err != nil {
-		t.Fatalf("load manifest failed: %v", err)
-	}
-	if jsonContains(manifestBytes, "data") {
-		t.Fatalf("manifest should not persist raw artifact data: %s", string(manifestBytes))
-	}
-	if !jsonContains(manifestBytes, "sha256") {
-		t.Fatalf("manifest should persist artifact hash: %s", string(manifestBytes))
+	if !jsonContains(restoreStateBytes, "sha256") {
+		t.Fatalf("restore state should persist artifact hash: %s", string(restoreStateBytes))
 	}
 
 	if _, err := shellMgr.ExecCommand(context.Background(), ExecCommandRequest{SessionID: "run-5/shell/default", Tier: "lite", OrgID: "org-a", Command: "echo two"}); err != nil {
@@ -478,7 +471,7 @@ func TestManagerReclaimIgnoresCheckpointFailure(t *testing.T) {
 	pool := &fakePool{agent: agent}
 	state := newMemoryStateStore()
 	mgr := session.NewManager(session.ManagerConfig{MaxSessions: 10, Pool: pool, MaxLifetimeSeconds: 3600})
-	shellMgr := NewManager(mgr, nil, state, nil, logging.NewJSONLogger("test", nil))
+	shellMgr := NewManager(mgr, nil, state, nil, nil, logging.NewJSONLogger("test", nil))
 
 	if _, err := shellMgr.ExecCommand(context.Background(), ExecCommandRequest{SessionID: "sess-1", Tier: "lite", OrgID: "org-a", Command: "pwd"}); err != nil {
 		t.Fatalf("exec_command failed: %v", err)
@@ -753,4 +746,15 @@ func (s *memoryStateStore) Get(_ context.Context, key string) ([]byte, error) {
 		return nil, os.ErrNotExist
 	}
 	return append([]byte(nil), data...), nil
+}
+
+func (s *memoryStateStore) findByPrefix(prefix string) ([]byte, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for key, data := range s.data {
+		if strings.HasPrefix(key, prefix) {
+			return append([]byte(nil), data...), nil
+		}
+	}
+	return nil, os.ErrNotExist
 }

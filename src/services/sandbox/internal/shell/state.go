@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -22,6 +23,22 @@ type stateStore interface {
 }
 
 var _ stateStore = (*objectstore.S3Store)(nil)
+
+type SessionRestoreState struct {
+	Version        int                        `json:"version"`
+	Revision       string                     `json:"revision"`
+	OrgID          string                     `json:"org_id"`
+	SessionID      string                     `json:"session_ref"`
+	ProfileRef     string                     `json:"profile_ref,omitempty"`
+	WorkspaceRef   string                     `json:"workspace_ref,omitempty"`
+	Cwd            string                     `json:"cwd"`
+	EnvSnapshot    map[string]string          `json:"env_snapshot,omitempty"`
+	LastCommandSeq int64                      `json:"last_command_seq"`
+	UploadedSeq    int64                      `json:"uploaded_seq"`
+	ArtifactSeen   map[string]artifactVersion `json:"artifact_seen,omitempty"`
+	CreatedAt      string                     `json:"created_at"`
+	ExpiresAt      string                     `json:"expires_at,omitempty"`
+}
 
 type checkpointManifest struct {
 	Version        int                        `json:"version"`
@@ -41,8 +58,12 @@ type latestCheckpointPointer struct {
 	UpdatedAt string `json:"updated_at"`
 }
 
-func nextCheckpointRevision(now time.Time) string {
+func nextRestoreRevision(now time.Time) string {
 	return fmt.Sprintf("%d", now.UTC().UnixNano())
+}
+
+func sessionRestoreStateKey(sessionID, revision string) string {
+	return "sessions/" + strings.TrimSpace(sessionID) + "/restore/" + strings.TrimSpace(revision) + ".json"
 }
 
 func latestPointerKey(orgID, sessionID string) string {
@@ -57,25 +78,112 @@ func checkpointArchiveKey(orgID, sessionID, revision string) string {
 	return strings.TrimSpace(orgID) + "/" + strings.TrimSpace(sessionID) + "/checkpoints/" + strings.TrimSpace(revision) + "/state.tar.zst"
 }
 
-func saveCheckpoint(ctx context.Context, store stateStore, manifest checkpointManifest, archive []byte) error {
-	manifestBytes, err := json.Marshal(manifest)
+func saveRestoreState(ctx context.Context, store stateStore, registry SessionRestoreRegistry, state SessionRestoreState) error {
+	if store == nil {
+		return fmt.Errorf("restore state store is required")
+	}
+	state.Revision = strings.TrimSpace(state.Revision)
+	if state.Revision == "" {
+		return fmt.Errorf("restore revision must not be empty")
+	}
+	state.SessionID = strings.TrimSpace(state.SessionID)
+	if state.SessionID == "" {
+		return fmt.Errorf("session_ref must not be empty")
+	}
+	state.OrgID = strings.TrimSpace(state.OrgID)
+	if state.OrgID == "" {
+		return fmt.Errorf("org_id must not be empty")
+	}
+	state.Cwd = strings.TrimSpace(state.Cwd)
+	if state.Cwd == "" {
+		state.Cwd = defaultRestoreCwd
+	}
+	state.ProfileRef = strings.TrimSpace(state.ProfileRef)
+	state.WorkspaceRef = strings.TrimSpace(state.WorkspaceRef)
+	normalizeArtifactVersions(state.ArtifactSeen)
+
+	payload, err := json.Marshal(state)
 	if err != nil {
-		return fmt.Errorf("marshal checkpoint manifest: %w", err)
+		return fmt.Errorf("marshal restore state: %w", err)
 	}
-	if err := store.Put(ctx, checkpointArchiveKey(manifest.OrgID, manifest.SessionID, manifest.Revision), archive); err != nil {
-		return fmt.Errorf("put checkpoint archive: %w", err)
+	if err := store.Put(ctx, sessionRestoreStateKey(state.SessionID, state.Revision), payload); err != nil {
+		return fmt.Errorf("put restore state: %w", err)
 	}
-	if err := store.Put(ctx, checkpointManifestKey(manifest.OrgID, manifest.SessionID, manifest.Revision), manifestBytes); err != nil {
-		return fmt.Errorf("put checkpoint manifest: %w", err)
+	if registry == nil {
+		return nil
 	}
-	pointerBytes, err := json.Marshal(latestCheckpointPointer{Revision: manifest.Revision, UpdatedAt: manifest.CreatedAt})
-	if err != nil {
-		return fmt.Errorf("marshal checkpoint pointer: %w", err)
-	}
-	if err := store.Put(ctx, latestPointerKey(manifest.OrgID, manifest.SessionID), pointerBytes); err != nil {
-		return fmt.Errorf("put checkpoint pointer: %w", err)
+	if err := registry.BindLatestRestoreRevision(ctx, state.OrgID, state.SessionID, state.Revision); err != nil {
+		return fmt.Errorf("bind restore revision: %w", err)
 	}
 	return nil
+}
+
+func loadLatestRestoreState(ctx context.Context, store stateStore, registry SessionRestoreRegistry, orgID, sessionID string) (*SessionRestoreState, error) {
+	if store == nil || registry == nil {
+		return nil, os.ErrNotExist
+	}
+	revision, err := registry.GetLatestRestoreRevision(ctx, orgID, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	revision = strings.TrimSpace(revision)
+	if revision == "" {
+		return nil, os.ErrNotExist
+	}
+	payload, err := store.Get(ctx, sessionRestoreStateKey(sessionID, revision))
+	if err != nil {
+		return nil, err
+	}
+	var state SessionRestoreState
+	if err := json.Unmarshal(payload, &state); err != nil {
+		return nil, fmt.Errorf("decode restore state: %w", err)
+	}
+	if state.Version != shellStateVersion {
+		return nil, fmt.Errorf("unsupported restore state version: %d", state.Version)
+	}
+	if strings.TrimSpace(state.OrgID) != strings.TrimSpace(orgID) || strings.TrimSpace(state.SessionID) != strings.TrimSpace(sessionID) {
+		return nil, fmt.Errorf("restore state identity mismatch")
+	}
+	if strings.TrimSpace(state.Cwd) == "" {
+		state.Cwd = defaultRestoreCwd
+	}
+	normalizeArtifactVersions(state.ArtifactSeen)
+	return &state, nil
+}
+
+func loadLatestSessionState(ctx context.Context, store stateStore, registry SessionRestoreRegistry, orgID, sessionID string) (*SessionRestoreState, error) {
+	state, err := loadLatestRestoreState(ctx, store, registry, orgID, sessionID)
+	if err == nil {
+		return state, nil
+	}
+	if !objectstore.IsNotFound(err) {
+		return nil, err
+	}
+	manifest, legacyErr := loadLatestCheckpointManifest(ctx, store, orgID, sessionID)
+	if legacyErr != nil {
+		return nil, legacyErr
+	}
+	return checkpointManifestToRestoreState(*manifest), nil
+}
+
+func checkpointManifestToRestoreState(manifest checkpointManifest) *SessionRestoreState {
+	normalizeArtifactVersions(manifest.ArtifactSeen)
+	state := &SessionRestoreState{
+		Version:        shellStateVersion,
+		Revision:       strings.TrimSpace(manifest.Revision),
+		OrgID:          strings.TrimSpace(manifest.OrgID),
+		SessionID:      strings.TrimSpace(manifest.SessionID),
+		Cwd:            strings.TrimSpace(manifest.Cwd),
+		EnvSnapshot:    manifest.EnvSnapshot,
+		LastCommandSeq: manifest.LastCommandSeq,
+		UploadedSeq:    manifest.UploadedSeq,
+		ArtifactSeen:   cloneArtifactSeen(manifest.ArtifactSeen),
+		CreatedAt:      strings.TrimSpace(manifest.CreatedAt),
+	}
+	if state.Cwd == "" {
+		state.Cwd = defaultRestoreCwd
+	}
+	return state
 }
 
 func loadLatestCheckpointManifest(ctx context.Context, store stateStore, orgID, sessionID string) (*checkpointManifest, error) {
@@ -108,18 +216,6 @@ func loadLatestCheckpointManifest(ctx context.Context, store stateStore, orgID, 
 	return &manifest, nil
 }
 
-func loadLatestCheckpoint(ctx context.Context, store stateStore, orgID, sessionID string) (*checkpointManifest, []byte, error) {
-	manifest, err := loadLatestCheckpointManifest(ctx, store, orgID, sessionID)
-	if err != nil {
-		return nil, nil, err
-	}
-	archive, err := store.Get(ctx, checkpointArchiveKey(orgID, sessionID, manifest.Revision))
-	if err != nil {
-		return nil, nil, err
-	}
-	return manifest, archive, nil
-}
-
 func normalizeArtifactVersions(versions map[string]artifactVersion) {
 	for name, version := range versions {
 		if version.SHA256 == "" && strings.TrimSpace(version.Data) != "" {
@@ -134,18 +230,18 @@ func normalizeArtifactVersions(versions map[string]artifactVersion) {
 	}
 }
 
-func copyLatestCheckpoint(ctx context.Context, store stateStore, orgID, fromSessionID, toSessionID string) (string, error) {
-	manifest, archive, err := loadLatestCheckpoint(ctx, store, orgID, fromSessionID)
+func copyLatestRestoreState(ctx context.Context, store stateStore, registry SessionRestoreRegistry, orgID, fromSessionID, toSessionID string) (string, error) {
+	state, err := loadLatestSessionState(ctx, store, registry, orgID, fromSessionID)
 	if err != nil {
 		return "", err
 	}
 	now := time.Now().UTC()
-	copied := *manifest
+	copied := *state
 	copied.SessionID = strings.TrimSpace(toSessionID)
-	copied.Revision = nextCheckpointRevision(now)
+	copied.Revision = nextRestoreRevision(now)
 	copied.CreatedAt = now.Format(time.RFC3339Nano)
-	copied.ArtifactSeen = cloneArtifactSeen(manifest.ArtifactSeen)
-	if err := saveCheckpoint(ctx, store, copied, archive); err != nil {
+	copied.ArtifactSeen = cloneArtifactSeen(state.ArtifactSeen)
+	if err := saveRestoreState(ctx, store, registry, copied); err != nil {
 		return "", err
 	}
 	return copied.Revision, nil

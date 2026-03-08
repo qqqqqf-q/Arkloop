@@ -94,7 +94,7 @@ func TestHandleForkSession_OK(t *testing.T) {
 		if req.OrgID != "org-a" {
 			t.Fatalf("unexpected org id: %s", req.OrgID)
 		}
-		return &shell.ForkSessionResponse{CheckpointRevision: "rev-1"}, nil
+		return &shell.ForkSessionResponse{RestoreRevision: "rev-1"}, nil
 	}})
 	body, _ := json.Marshal(map[string]any{"from_session_id": "shref_a", "to_session_id": "shref_b"})
 	req := httptest.NewRequest(nethttp.MethodPost, "/v1/sessions/fork", bytes.NewReader(body))
@@ -108,7 +108,7 @@ func TestHandleForkSession_OK(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if resp.CheckpointRevision != "rev-1" {
+	if resp.RestoreRevision != "rev-1" {
 		t.Fatalf("unexpected response: %#v", resp)
 	}
 }

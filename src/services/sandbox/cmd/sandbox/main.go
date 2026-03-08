@@ -98,6 +98,7 @@ func run() error {
 		defer dbPool.Close()
 	}
 	registryWriter := environment.NewPGRegistryWriter(dbPool)
+	restoreRegistry := shell.NewPGSessionRestoreRegistry(dbPool)
 
 	mgr := session.NewManager(session.ManagerConfig{
 		MaxSessions:        cfg.MaxSessions,
@@ -107,7 +108,7 @@ func run() error {
 		MaxLifetimeSeconds: cfg.MaxLifetimeSeconds,
 	})
 	envMgr := environment.NewManager(envStore, registryWriter, logger)
-	shellMgr := shell.NewManager(mgr, artifactStore, stateStore, envMgr, logger)
+	shellMgr := shell.NewManager(mgr, artifactStore, stateStore, restoreRegistry, envMgr, logger)
 
 	handler := sandboxhttp.NewHandler(mgr, envMgr, shellMgr, artifactStore, logger, cfg.AuthToken)
 

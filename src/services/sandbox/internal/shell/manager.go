@@ -2,7 +2,6 @@ package shell
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -26,11 +25,12 @@ type Service interface {
 }
 
 type Manager struct {
-	compute       *session.Manager
-	artifactStore artifactStore
-	stateStore    stateStore
-	envManager    *environment.Manager
-	logger        *logging.JSONLogger
+	compute         *session.Manager
+	artifactStore   artifactStore
+	stateStore      stateStore
+	restoreRegistry SessionRestoreRegistry
+	envManager      *environment.Manager
+	logger          *logging.JSONLogger
 
 	mu       sync.Mutex
 	sessions map[string]*managedSession
@@ -41,6 +41,8 @@ type managedSession struct {
 
 	compute      *session.Session
 	orgID        string
+	profileRef   string
+	workspaceRef string
 	commandSeq   int64
 	uploadedSeq  int64
 	artifactSeen map[string]artifactVersion
@@ -58,14 +60,18 @@ func (e *transportError) Unwrap() error {
 	return e.err
 }
 
-func NewManager(compute *session.Manager, artifactStore artifactStore, stateStore stateStore, envManager *environment.Manager, logger *logging.JSONLogger) *Manager {
+func NewManager(compute *session.Manager, artifactStore artifactStore, stateStore stateStore, restoreRegistry SessionRestoreRegistry, envManager *environment.Manager, logger *logging.JSONLogger) *Manager {
+	if restoreRegistry == nil {
+		restoreRegistry = NewMemorySessionRestoreRegistry()
+	}
 	mgr := &Manager{
-		compute:       compute,
-		artifactStore: artifactStore,
-		stateStore:    stateStore,
-		envManager:    envManager,
-		logger:        logger,
-		sessions:      make(map[string]*managedSession),
+		compute:         compute,
+		artifactStore:   artifactStore,
+		stateStore:      stateStore,
+		restoreRegistry: restoreRegistry,
+		envManager:      envManager,
+		logger:          logger,
+		sessions:        make(map[string]*managedSession),
 	}
 	if compute != nil {
 		compute.SetBeforeDelete(mgr.beforeComputeDelete)
@@ -89,7 +95,7 @@ func (m *Manager) ExecCommand(ctx context.Context, req ExecCommandRequest) (*Res
 	prepared := req
 	createdCompute := false
 	restored := false
-	checkpointRevision := ""
+	restoreRevision := ""
 	if entry.compute == nil {
 		computeSession, err := m.compute.GetOrCreate(ctx, req.SessionID, req.Tier, req.OrgID)
 		if err != nil {
@@ -104,13 +110,22 @@ func (m *Manager) ExecCommand(ctx context.Context, req ExecCommandRequest) (*Res
 		if entry.artifactSeen == nil {
 			entry.artifactSeen = make(map[string]artifactVersion)
 		}
+		entry.profileRef = strings.TrimSpace(req.ProfileRef)
+		entry.workspaceRef = strings.TrimSpace(req.WorkspaceRef)
 		if err := m.prepareEnvironment(ctx, req, entry); err != nil {
 			return nil, err
 		}
-		prepared, shellEnv, restored, checkpointRevision = m.prepareExecCommandRequest(ctx, req, entry)
+		prepared, shellEnv, restored, restoreRevision = m.prepareExecCommandRequest(ctx, req, entry)
 		createdCompute = true
 	} else if err := m.prepareEnvironment(ctx, req, entry); err != nil {
 		return nil, err
+	} else {
+		if ref := strings.TrimSpace(req.ProfileRef); ref != "" {
+			entry.profileRef = ref
+		}
+		if ref := strings.TrimSpace(req.WorkspaceRef); ref != "" {
+			entry.workspaceRef = ref
+		}
 	}
 
 	entry.commandSeq++
@@ -135,7 +150,7 @@ func (m *Manager) ExecCommand(ctx context.Context, req ExecCommandRequest) (*Res
 
 	resp := m.toResponse(req.SessionID, result)
 	resp.Restored = restored
-	resp.CheckpointRevision = checkpointRevision
+	resp.RestoreRevision = restoreRevision
 	m.attachArtifacts(ctx, req.SessionID, entry, result, resp)
 	if result != nil && !result.Running && m.envManager != nil {
 		m.envManager.MarkDirty(req.SessionID, result.Cwd)
@@ -218,20 +233,26 @@ func (m *Manager) ForkSession(ctx context.Context, req ForkSessionRequest) (*For
 			entry.mu.Unlock()
 			return nil, err
 		}
-		if err := m.checkpointLocked(ctx, req.FromSessionID, entry); err != nil {
+		if m.envManager != nil {
+			if err := m.envManager.FlushNow(ctx, req.FromSessionID); err != nil {
+				entry.mu.Unlock()
+				return nil, err
+			}
+		}
+		if err := m.saveRestoreStateLocked(ctx, req.FromSessionID, entry); err != nil {
 			entry.mu.Unlock()
 			return nil, err
 		}
 		entry.mu.Unlock()
 	}
-	revision, err := copyLatestCheckpoint(ctx, m.stateStore, req.OrgID, req.FromSessionID, req.ToSessionID)
+	revision, err := copyLatestRestoreState(ctx, m.stateStore, m.restoreRegistry, req.OrgID, req.FromSessionID, req.ToSessionID)
 	if err != nil {
 		if objectstore.IsNotFound(err) {
 			return nil, notFoundError()
 		}
 		return nil, err
 	}
-	return &ForkSessionResponse{CheckpointRevision: revision}, nil
+	return &ForkSessionResponse{RestoreRevision: revision}, nil
 }
 
 func (m *Manager) Close(ctx context.Context, sessionID, orgID string) error {
@@ -248,13 +269,13 @@ func (m *Manager) Close(ctx context.Context, sessionID, orgID string) error {
 	if entry.compute == nil {
 		return notFoundError()
 	}
-	if err := m.checkpointLocked(ctx, sessionID, entry); err != nil {
-		return err
-	}
 	if m.envManager != nil {
 		if err := m.envManager.FlushNow(ctx, sessionID); err != nil {
 			return err
 		}
+	}
+	if err := m.saveRestoreStateLocked(ctx, sessionID, entry); err != nil {
+		return err
 	}
 	deleteErr := m.compute.DeleteSkipHook(ctx, sessionID, orgID)
 	if deleteErr != nil && strings.Contains(deleteErr.Error(), "org mismatch") {
@@ -314,19 +335,25 @@ func (m *Manager) prepareExecCommandRequest(ctx context.Context, req ExecCommand
 	if entry.compute == nil || m.stateStore == nil {
 		return prepared, nil, false, ""
 	}
-	manifest, err := loadLatestCheckpointManifest(ctx, m.stateStore, entry.orgID, req.SessionID)
+	state, err := loadLatestSessionState(ctx, m.stateStore, m.restoreRegistry, entry.orgID, req.SessionID)
 	if err != nil {
 		if objectstore.IsNotFound(err) {
 			return prepared, nil, false, ""
 		}
-		m.logger.Warn("shell checkpoint load failed", logging.LogFields{SessionID: &req.SessionID}, map[string]any{"error": err.Error()})
+		m.logger.Warn("shell restore state load failed", logging.LogFields{SessionID: &req.SessionID}, map[string]any{"error": err.Error()})
 		return prepared, nil, false, ""
 	}
-	entry.commandSeq = manifest.LastCommandSeq
-	entry.uploadedSeq = manifest.UploadedSeq
-	entry.artifactSeen = cloneArtifactSeen(manifest.ArtifactSeen)
-	prepared.Cwd = m.resolveOpenCwd(ctx, req.SessionID, entry.compute, req.Cwd, manifest.Cwd)
-	return prepared, manifest.EnvSnapshot, true, manifest.Revision
+	entry.commandSeq = state.LastCommandSeq
+	entry.uploadedSeq = state.UploadedSeq
+	entry.artifactSeen = cloneArtifactSeen(state.ArtifactSeen)
+	if entry.profileRef == "" {
+		entry.profileRef = strings.TrimSpace(state.ProfileRef)
+	}
+	if entry.workspaceRef == "" {
+		entry.workspaceRef = strings.TrimSpace(state.WorkspaceRef)
+	}
+	prepared.Cwd = m.resolveOpenCwd(ctx, req.SessionID, entry.compute, req.Cwd, state.Cwd)
+	return prepared, state.EnvSnapshot, true, state.Revision
 }
 
 func (m *Manager) prepareEnvironment(ctx context.Context, req ExecCommandRequest, entry *managedSession) error {
@@ -343,24 +370,22 @@ func (m *Manager) prepareEnvironment(ctx context.Context, req ExecCommandRequest
 	return nil
 }
 
-func (m *Manager) checkpointLocked(ctx context.Context, sessionID string, entry *managedSession) error {
+func (m *Manager) saveRestoreStateLocked(ctx context.Context, sessionID string, entry *managedSession) error {
 	if entry.compute == nil || m.stateStore == nil {
 		return nil
 	}
 	checkpoint, err := m.invokeCheckpoint(ctx, entry, "shell_checkpoint_export", AgentCheckpointRequest{})
 	if err != nil {
-		return fmt.Errorf("checkpoint export: %w", err)
-	}
-	archive, err := base64.StdEncoding.DecodeString(checkpoint.Archive)
-	if err != nil {
-		return fmt.Errorf("decode checkpoint archive: %w", err)
+		return fmt.Errorf("capture restore state: %w", err)
 	}
 	now := time.Now().UTC()
-	manifest := checkpointManifest{
+	restoreState := SessionRestoreState{
 		Version:        shellStateVersion,
-		Revision:       nextCheckpointRevision(now),
+		Revision:       nextRestoreRevision(now),
 		OrgID:          entry.orgID,
 		SessionID:      sessionID,
+		ProfileRef:     entry.profileRef,
+		WorkspaceRef:   entry.workspaceRef,
 		Cwd:            strings.TrimSpace(checkpoint.Cwd),
 		EnvSnapshot:    checkpoint.Env,
 		LastCommandSeq: entry.commandSeq,
@@ -368,13 +393,13 @@ func (m *Manager) checkpointLocked(ctx context.Context, sessionID string, entry 
 		ArtifactSeen:   cloneArtifactSeen(entry.artifactSeen),
 		CreatedAt:      now.Format(time.RFC3339Nano),
 	}
-	if manifest.Cwd == "" {
-		manifest.Cwd = defaultRestoreCwd
+	if restoreState.Cwd == "" {
+		restoreState.Cwd = defaultRestoreCwd
 	}
-	if err := saveCheckpoint(ctx, m.stateStore, manifest, archive); err != nil {
+	if err := saveRestoreState(ctx, m.stateStore, m.restoreRegistry, restoreState); err != nil {
 		return err
 	}
-	m.logger.Info("shell checkpoint stored", logging.LogFields{SessionID: &sessionID}, map[string]any{"revision": manifest.Revision})
+	m.logger.Info("shell restore state stored", logging.LogFields{SessionID: &sessionID}, map[string]any{"revision": restoreState.Revision})
 	return nil
 }
 
@@ -398,12 +423,12 @@ func (m *Manager) beforeComputeDelete(ctx context.Context, sn *session.Session, 
 	if entry.compute == nil {
 		return envErr
 	}
-	err := m.checkpointLocked(ctx, sn.ID, entry)
+	err := m.saveRestoreStateLocked(ctx, sn.ID, entry)
 	if err == nil {
 		entry.compute = nil
 		return envErr
 	}
-	m.logger.Warn("shell checkpoint before delete failed", logging.LogFields{SessionID: &sn.ID}, map[string]any{"error": err.Error(), "reason": string(reason)})
+	m.logger.Warn("shell restore state before delete failed", logging.LogFields{SessionID: &sn.ID}, map[string]any{"error": err.Error(), "reason": string(reason)})
 	return errors.Join(envErr, err)
 }
 

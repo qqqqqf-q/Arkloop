@@ -19,14 +19,14 @@ const (
 )
 
 type resolvedSession struct {
-	SessionRef             string
-	ResolvedVia            string
-	Reused                 bool
-	RestoredFromCheckpoint bool
-	FromSessionRef         string
-	PersistBinding         bool
-	ShareScope             string
-	Record                 *data.ShellSessionRecord
+	SessionRef               string
+	ResolvedVia              string
+	Reused                   bool
+	RestoredFromRestoreState bool
+	FromSessionRef           string
+	PersistBinding           bool
+	ShareScope               string
+	Record                   *data.ShellSessionRecord
 }
 
 type sessionOrchestrator struct {
@@ -82,7 +82,7 @@ func (o *sessionOrchestrator) resolveExecSession(
 		}
 		created.ResolvedVia = "fork_from_checkpoint"
 		created.FromSessionRef = base.SessionRef
-		created.RestoredFromCheckpoint = true
+		created.RestoredFromRestoreState = true
 		return created, nil
 	case sessionModeNew:
 		created, err := o.createSession(ctx, execCtx, data.ShellShareScopeRun, false)
@@ -149,12 +149,12 @@ func (o *sessionOrchestrator) lookupExplicit(
 		return nil, &tools.ExecutionError{ErrorClass: errorSandboxError, Message: "shell session not found", Details: map[string]any{"session_ref": sessionRef}}
 	}
 	return &resolvedSession{
-		SessionRef:             sessionRef,
-		ResolvedVia:            resolvedVia,
-		Reused:                 true,
-		ShareScope:             record.ShareScope,
-		Record:                 &record,
-		RestoredFromCheckpoint: record.LiveSessionID == nil && strings.TrimSpace(stringPtrValue(record.LatestCheckpointRev)) != "",
+		SessionRef:               sessionRef,
+		ResolvedVia:              resolvedVia,
+		Reused:                   true,
+		ShareScope:               record.ShareScope,
+		Record:                   &record,
+		RestoredFromRestoreState: record.LiveSessionID == nil && (strings.TrimSpace(stringPtrValue(record.LatestRestoreRev)) != "" || strings.TrimSpace(stringPtrValue(record.LatestCheckpointRev)) != ""),
 	}, nil
 }
 
@@ -311,24 +311,24 @@ func (o *sessionOrchestrator) markResult(
 		record.State = state
 		liveSessionID := resolution.SessionRef
 		record.LiveSessionID = &liveSessionID
-		if strings.TrimSpace(resp.CheckpointRevision) != "" {
-			record.LatestCheckpointRev = stringPtr(strings.TrimSpace(resp.CheckpointRevision))
+		if strings.TrimSpace(resp.RestoreRevision) != "" {
+			record.LatestRestoreRev = stringPtr(strings.TrimSpace(resp.RestoreRevision))
 		}
 		o.memorySessions[resolution.SessionRef] = record
 		return
 	}
 	record := data.ShellSessionRecord{
-		SessionRef:          resolution.SessionRef,
-		OrgID:               orgID,
-		ProfileRef:          strings.TrimSpace(execCtx.ProfileRef),
-		WorkspaceRef:        strings.TrimSpace(execCtx.WorkspaceRef),
-		ThreadID:            execCtx.ThreadID,
-		RunID:               uuidPtr(execCtx.RunID),
-		ShareScope:          normalizeRecordShareScope(resolution),
-		State:               state,
-		LiveSessionID:       stringPtr(resolution.SessionRef),
-		LatestCheckpointRev: stringPtr(strings.TrimSpace(resp.CheckpointRevision)),
-		MetadataJSON:        map[string]any{},
+		SessionRef:       resolution.SessionRef,
+		OrgID:            orgID,
+		ProfileRef:       strings.TrimSpace(execCtx.ProfileRef),
+		WorkspaceRef:     strings.TrimSpace(execCtx.WorkspaceRef),
+		ThreadID:         execCtx.ThreadID,
+		RunID:            uuidPtr(execCtx.RunID),
+		ShareScope:       normalizeRecordShareScope(resolution),
+		State:            state,
+		LiveSessionID:    stringPtr(resolution.SessionRef),
+		LatestRestoreRev: stringPtr(strings.TrimSpace(resp.RestoreRevision)),
+		MetadataJSON:     map[string]any{},
 	}
 	_ = o.sessionsRepo.Upsert(ctx, o.pool, record)
 }
