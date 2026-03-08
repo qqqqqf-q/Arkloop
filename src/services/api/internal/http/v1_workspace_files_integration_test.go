@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"arkloop/services/api/internal/auth"
+	"arkloop/services/shared/workspaceblob"
 	"github.com/google/uuid"
 	"github.com/klauspost/compress/zstd"
 )
@@ -64,16 +65,6 @@ func TestWorkspaceFilesReadAndAuthorize(t *testing.T) {
 		resp := doArtifactRequest(t, env.handler, "/v1/workspace-files?run_id="+run.ID.String()+"&path=/chart.png", authHeader(env.aliceToken))
 		if resp.Code != nethttp.StatusOK {
 			t.Fatalf("workspace image read: %d %s", resp.Code, resp.Body.String())
-		}
-		if got := resp.Header().Get("Content-Type"); got != "image/png" {
-			t.Fatalf("unexpected content-type: %q", got)
-		}
-	})
-
-	t.Run("owner can read image when path includes workspace root prefix", func(t *testing.T) {
-		resp := doArtifactRequest(t, env.handler, "/v1/workspace-files?run_id="+run.ID.String()+"&path=/workspace/chart.png", authHeader(env.aliceToken))
-		if resp.Code != nethttp.StatusOK {
-			t.Fatalf("workspace image read with root prefix: %d %s", resp.Code, resp.Body.String())
 		}
 		if got := resp.Header().Get("Content-Type"); got != "image/png" {
 			t.Fatalf("unexpected content-type: %q", got)
@@ -142,7 +133,7 @@ func TestWorkspaceFilesReadFromManifestState(t *testing.T) {
 
 	env.store.put(workspaceLatestKey(workspaceRef), mustJSON(t, workspaceLatestPointer{Revision: "rev-1"}), "application/json", nil)
 	env.store.put(workspaceManifestKey(workspaceRef, "rev-1"), mustJSON(t, workspaceManifest{Entries: []workspaceManifestEntry{{Path: "chart.png", Type: workspaceEntryTypeFile, SHA256: "sha-chart"}}}), "application/json", nil)
-	env.store.put(workspaceBlobKey(workspaceRef, "sha-chart"), []byte("\x89PNG\r\n\x1a\nPNGDATA"), "application/octet-stream", nil)
+	env.store.put(workspaceBlobKey(workspaceRef, "sha-chart"), mustWorkspaceBlob(t, []byte("\x89PNG\r\n\x1a\nPNGDATA")), "application/octet-stream", nil)
 
 	resp := doArtifactRequest(t, env.handler, "/v1/workspace-files?run_id="+run.ID.String()+"&path=/chart.png", authHeader(env.aliceToken))
 	if resp.Code != nethttp.StatusOK {
@@ -160,6 +151,15 @@ func mustJSON(t *testing.T, value any) []byte {
 		t.Fatalf("marshal json: %v", err)
 	}
 	return payload
+}
+
+func mustWorkspaceBlob(t *testing.T, data []byte) []byte {
+	t.Helper()
+	encoded, err := workspaceblob.Encode(data)
+	if err != nil {
+		t.Fatalf("encode workspace blob: %v", err)
+	}
+	return encoded
 }
 
 func buildWorkspaceArchive(t *testing.T, files map[string][]byte) []byte {

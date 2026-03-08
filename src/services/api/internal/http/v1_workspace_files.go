@@ -18,6 +18,7 @@ import (
 	"arkloop/services/api/internal/data"
 	"arkloop/services/api/internal/observability"
 	"arkloop/services/shared/objectstore"
+	"arkloop/services/shared/workspaceblob"
 	"github.com/google/uuid"
 	"github.com/klauspost/compress/zstd"
 )
@@ -115,22 +116,12 @@ func normalizeWorkspaceRelativePath(w nethttp.ResponseWriter, traceID string, ra
 		WriteError(w, nethttp.StatusBadRequest, "workspace_files.invalid_path", "invalid workspace path", traceID, nil)
 		return "", false
 	}
-	relative := strings.TrimPrefix(trimmed, "/")
-	relative = strings.TrimPrefix(relative, "workspace/")
-	if strings.EqualFold(relative, "workspace") {
-		relative = ""
-	}
-	cleaned := path.Clean(path.Join(workspaceRootPath, relative))
-	if cleaned != workspaceRootPath && !strings.HasPrefix(cleaned, workspaceRootPath+"/") {
+	cleaned := path.Clean(path.Join(workspaceRootPath, strings.TrimPrefix(trimmed, "/")))
+	if !strings.HasPrefix(cleaned, workspaceRootPath+"/") {
 		WriteError(w, nethttp.StatusBadRequest, "workspace_files.invalid_path", "invalid workspace path", traceID, nil)
 		return "", false
 	}
-	relative = strings.TrimPrefix(strings.TrimPrefix(cleaned, workspaceRootPath), "/")
-	if relative == "" {
-		WriteError(w, nethttp.StatusBadRequest, "workspace_files.invalid_path", "invalid workspace path", traceID, nil)
-		return "", false
-	}
-	return relative, true
+	return strings.TrimPrefix(strings.TrimPrefix(cleaned, workspaceRootPath), "/"), true
 }
 
 func workspaceArchiveKey(workspaceRef string) string {
@@ -218,11 +209,15 @@ func readWorkspaceFileFromManifest(ctx context.Context, store environmentStore, 
 		if entry.Type != workspaceEntryTypeFile || entry.Deleted || strings.TrimSpace(entry.SHA256) == "" {
 			return nil, "", errWorkspaceFileNotFound
 		}
-		content, err := store.Get(ctx, workspaceBlobKey(workspaceRef, entry.SHA256))
+		encoded, err := store.Get(ctx, workspaceBlobKey(workspaceRef, entry.SHA256))
 		if err != nil {
 			if objectstore.IsNotFound(err) {
 				return nil, "", errWorkspaceFileNotFound
 			}
+			return nil, "", err
+		}
+		content, err := workspaceblob.Decode(encoded)
+		if err != nil {
 			return nil, "", err
 		}
 		return content, detectWorkspaceContentType(relativePath, content), nil
@@ -250,7 +245,7 @@ func readWorkspaceFileFromArchive(archive []byte, relativePath string) ([]byte, 
 		if header == nil {
 			continue
 		}
-		if header.Typeflag != tar.TypeReg && header.Typeflag != tar.TypeRegA {
+		if header.Typeflag != tar.TypeReg {
 			continue
 		}
 		headerName := path.Clean(strings.TrimPrefix(header.Name, "/"))

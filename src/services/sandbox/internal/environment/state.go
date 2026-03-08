@@ -1,16 +1,14 @@
 package environment
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"strings"
 
 	"arkloop/services/sandbox/internal/environment/contract"
 	"arkloop/services/shared/objectstore"
-	"github.com/klauspost/compress/zstd"
+	"arkloop/services/shared/workspaceblob"
 )
 
 func latestPointerKey(scope, ref string) string {
@@ -117,14 +115,14 @@ func loadBlob(ctx context.Context, store objectstore.BlobStore, key string) ([]b
 	if err != nil {
 		return nil, err
 	}
-	return decompressBlob(encoded)
+	return workspaceblob.Decode(encoded)
 }
 
 func putBlobIfMissing(ctx context.Context, store objectstore.BlobStore, key string, data []byte) error {
 	if key == "" {
 		return fmt.Errorf("blob key must not be empty")
 	}
-	encoded, err := compressBlob(data)
+	encoded, err := workspaceblob.Encode(data)
 	if err != nil {
 		return err
 	}
@@ -132,10 +130,6 @@ func putBlobIfMissing(ctx context.Context, store objectstore.BlobStore, key stri
 		return err
 	}
 	return nil
-}
-
-func loadLegacyArchive(ctx context.Context, store objectstore.BlobStore, scope, ref string) ([]byte, error) {
-	return store.Get(ctx, legacyArchiveKey(scope, ref))
 }
 
 func hydrateScope(ctx context.Context, store objectstore.BlobStore, carrier Carrier, scope, ref, revision string) error {
@@ -175,33 +169,4 @@ func legacyArchiveKey(scope, ref string) string {
 	default:
 		return ""
 	}
-}
-
-func compressBlob(data []byte) ([]byte, error) {
-	var buffer bytes.Buffer
-	encoder, err := zstd.NewWriter(&buffer)
-	if err != nil {
-		return nil, fmt.Errorf("create zstd writer: %w", err)
-	}
-	if _, err := encoder.Write(data); err != nil {
-		encoder.Close()
-		return nil, fmt.Errorf("compress blob: %w", err)
-	}
-	if err := encoder.Close(); err != nil {
-		return nil, fmt.Errorf("close zstd writer: %w", err)
-	}
-	return buffer.Bytes(), nil
-}
-
-func decompressBlob(data []byte) ([]byte, error) {
-	decoder, err := zstd.NewReader(bytes.NewReader(data))
-	if err != nil {
-		return nil, fmt.Errorf("open zstd blob: %w", err)
-	}
-	defer decoder.Close()
-	decoded, err := io.ReadAll(decoder)
-	if err != nil {
-		return nil, fmt.Errorf("decompress blob: %w", err)
-	}
-	return decoded, nil
 }
