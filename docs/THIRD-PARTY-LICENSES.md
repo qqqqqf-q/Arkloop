@@ -106,9 +106,6 @@ No copyleft (GPL/AGPL/LGPL) dependencies are present.
 | github.com/mfridman/xflag v0.1.0 | MIT |
 | github.com/microsoft/go-mssqldb v1.9.2 | BSD-3-Clause |
 | github.com/Microsoft/go-winio v0.4.21 | MIT |
-| github.com/minio/crc64nvme v1.1.1 | Apache-2.0 |
-| github.com/minio/md5-simd v1.1.2 | Apache-2.0 |
-| github.com/minio/minio-go/v7 v7.0.98 | Apache-2.0 |
 | github.com/moby/docker-image-spec v1.3.1 | Apache-2.0 |
 | github.com/moby/sys/atomicwriter v0.1.0 | Apache-2.0 |
 | github.com/moby/sys/sequential v0.6.0 | Apache-2.0 |

@@ -118,14 +118,14 @@ installation.md + Agent
 | `postgres` | 主数据库 |
 | `pgbouncer` | 连接池 |
 | `redis` | 队列与缓存 |
-| `minio` | 对象存储 |
+| `seaweedfs` | S3 兼容对象存储 |
 | `migrate` | 数据迁移 |
 | `api` | 控制面 API |
 | `worker` | 执行面 |
 
 说明：
 
-- `minio` 视为平台基座，不再作为用户决策项
+- `seaweedfs` 视为平台基座，不再作为用户决策项
 - `redis` 视为平台基座，不再作为用户决策项
 
 ### 3.2 Standard 默认入口

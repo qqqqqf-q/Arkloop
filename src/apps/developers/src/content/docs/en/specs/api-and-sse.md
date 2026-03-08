@@ -376,7 +376,7 @@ Request processing order:
 | `ARKLOOP_REDIS_URL` | Redis (rate limiting, run concurrency control) |
 | `ARKLOOP_AUTH_JWT_SECRET` | JWT signing secret |
 | `ARKLOOP_ENCRYPTION_KEY` | AES-256-GCM key (64 hex) |
-| `ARKLOOP_S3_*` | MinIO/S3 object storage |
+| `ARKLOOP_S3_*` | S3-compatible object storage |
 | `ARKLOOP_BOOTSTRAP_PLATFORM_ADMIN` | Initial admin user_id (UUID) |
 | `ARKLOOP_TRUST_INCOMING_TRACE_ID` | Trust upstream trace_id |
 | `ARKLOOP_TRUST_X_FORWARDED_FOR` | Trust X-Forwarded-For |

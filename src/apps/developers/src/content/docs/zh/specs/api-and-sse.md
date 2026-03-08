@@ -376,7 +376,7 @@ HTTP Header 同时返回 `X-Trace-Id`。
 | `ARKLOOP_REDIS_URL` | Redis（速率限制、运行并发控制） |
 | `ARKLOOP_AUTH_JWT_SECRET` | JWT 签名密钥 |
 | `ARKLOOP_ENCRYPTION_KEY` | AES-256-GCM 密钥（64 hex） |
-| `ARKLOOP_S3_*` | MinIO/S3 对象存储 |
+| `ARKLOOP_S3_*` | S3 兼容对象存储 |
 | `ARKLOOP_BOOTSTRAP_PLATFORM_ADMIN` | 初始管理员 user_id（UUID） |
 | `ARKLOOP_TRUST_INCOMING_TRACE_ID` | 信任上游 trace_id |
 | `ARKLOOP_TRUST_X_FORWARDED_FOR` | 信任 X-Forwarded-For |

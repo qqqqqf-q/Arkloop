@@ -7,6 +7,9 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
 func s3EnvOrSkip(t *testing.T) (endpoint, accessKey, secretKey, bucket, region string) {
@@ -94,6 +97,9 @@ func TestStorePutObjectHeadAndContentType(t *testing.T) {
 	if head.ContentType != "text/plain" {
 		t.Fatalf("unexpected content type: %q", head.ContentType)
 	}
+	if head.Size != int64(len(payload)) {
+		t.Fatalf("unexpected size: got %d want %d", head.Size, len(payload))
+	}
 	if head.Metadata["owner"] != "arkloop" || head.Metadata["thread"] != "demo" {
 		t.Fatalf("unexpected metadata: %#v", head.Metadata)
 	}
@@ -107,6 +113,41 @@ func TestStorePutObjectHeadAndContentType(t *testing.T) {
 	}
 	if contentType != "text/plain" || !bytes.Equal(data, payload) {
 		t.Fatalf("unexpected object: contentType=%q data=%q", contentType, data)
+	}
+}
+
+func TestStoreLifecycleConfiguration(t *testing.T) {
+	endpoint, accessKey, secretKey, bucket, region := s3EnvOrSkip(t)
+
+	store, err := New(context.Background(), endpoint, accessKey, secretKey, bucket, region)
+	if err != nil {
+		t.Fatalf("new object store: %v", err)
+	}
+
+	configurer, ok := store.(LifecycleConfigurator)
+	if !ok {
+		t.Fatalf("store does not implement lifecycle configurator: %T", store)
+	}
+	if err := configurer.SetLifecycleExpirationDays(context.Background(), 3); err != nil {
+		t.Fatalf("set lifecycle expiration days: %v", err)
+	}
+
+	s3Store, ok := store.(*S3Store)
+	if !ok {
+		t.Fatalf("unexpected store type: %T", store)
+	}
+	out, err := s3Store.client.GetBucketLifecycleConfiguration(context.Background(), &s3.GetBucketLifecycleConfigurationInput{
+		Bucket: aws.String(bucket),
+	})
+	if err != nil {
+		t.Fatalf("get lifecycle configuration: %v", err)
+	}
+	if len(out.Rules) != 1 {
+		t.Fatalf("expected one lifecycle rule, got %d", len(out.Rules))
+	}
+	rule := out.Rules[0]
+	if rule.Expiration == nil || rule.Expiration.Days == nil || *rule.Expiration.Days != 3 {
+		t.Fatalf("unexpected lifecycle rule: %#v", rule)
 	}
 }
 

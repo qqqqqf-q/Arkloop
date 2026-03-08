@@ -50,20 +50,25 @@ services:
       timeout: 3s
       retries: 20
 
-  minio:
-    image: minio/minio:latest
+  seaweedfs:
+    image: chrislusf/seaweedfs:latest
     restart: unless-stopped
-    command: server /data --console-address ":9001"
+    entrypoint:
+      - /bin/sh
+      - -ec
     environment:
-      MINIO_ROOT_USER: ${ARKLOOP_S3_ACCESS_KEY:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${ARKLOOP_S3_SECRET_KEY:?请在 .env 中设置 ARKLOOP_S3_SECRET_KEY}
+      AWS_ACCESS_KEY_ID: ${ARKLOOP_S3_ACCESS_KEY:-arkloop}
+      AWS_SECRET_ACCESS_KEY: ${ARKLOOP_S3_SECRET_KEY:?请在 .env 中设置 ARKLOOP_S3_SECRET_KEY}
     ports:
-      - "9005:9000"
-      - "9006:9001"
+      - "9005:8333"
     volumes:
-      - minio_data:/data
+      - seaweedfs_data:/data
+    command:
+      - >-
+        printf '%s' '{"identities":[{"name":"arkloop","credentials":[{"accessKey":"'"$$AWS_ACCESS_KEY_ID"'","secretKey":"'"$$AWS_SECRET_ACCESS_KEY"'"}],"actions":["Admin","Read","List","Tagging","Write"]}]}' >/tmp/s3-config.json &&
+        exec weed server -dir=/data -s3 -ip.bind=0.0.0.0 -s3.port=8333 -s3.config=/tmp/s3-config.json
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:8333/healthz"]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -118,8 +123,8 @@ services:
       ARKLOOP_DATABASE_DIRECT_URL: "postgresql://${ARKLOOP_POSTGRES_USER:-arkloop}:${ARKLOOP_POSTGRES_PASSWORD:?请在 .env 中设置 ARKLOOP_POSTGRES_PASSWORD}@postgres:5432/${ARKLOOP_POSTGRES_DB:-arkloop}"
       ARKLOOP_REDIS_URL: "redis://:${ARKLOOP_REDIS_PASSWORD:-arkloop_redis}@redis:6379/0"
       ARKLOOP_GATEWAY_REDIS_URL: "redis://:${ARKLOOP_REDIS_PASSWORD:-arkloop_redis}@redis_gateway:6379/0"
-      ARKLOOP_S3_ENDPOINT: "http://minio:9000"
-      ARKLOOP_S3_ACCESS_KEY: "${ARKLOOP_S3_ACCESS_KEY:-minioadmin}"
+      ARKLOOP_S3_ENDPOINT: "http://seaweedfs:8333"
+      ARKLOOP_S3_ACCESS_KEY: "${ARKLOOP_S3_ACCESS_KEY:-arkloop}"
       ARKLOOP_S3_SECRET_KEY: "${ARKLOOP_S3_SECRET_KEY:?请在 .env 中设置 ARKLOOP_S3_SECRET_KEY}"
       ARKLOOP_S3_BUCKET: "${ARKLOOP_S3_BUCKET:-arkloop}"
       ARKLOOP_S3_REGION: "${ARKLOOP_S3_REGION:-us-east-1}"
@@ -142,6 +147,8 @@ services:
       redis:
         condition: service_healthy
       redis_gateway:
+        condition: service_healthy
+      seaweedfs:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8001/healthz"]
@@ -209,4 +216,4 @@ services:
 volumes:
   postgres_data:
   redis_data:
-  minio_data:
+  seaweedfs_data:

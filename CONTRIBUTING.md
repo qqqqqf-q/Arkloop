@@ -18,7 +18,7 @@ git clone https://github.com/qqqqqf/Arkloop.git
 cd Arkloop
 
 # Start infrastructure
-docker compose up -d postgres redis minio pgbouncer
+docker compose up -d postgres redis seaweedfs pgbouncer
 
 # Copy and configure environment
 cp .env.example .env

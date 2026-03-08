@@ -12,7 +12,7 @@ Arkloop orchestrates all services via `compose.yaml`, enabling a full deployment
 | `postgres` | PostgreSQL 16 | 5432 |
 | `pgbouncer` | Connection Pool | 5433 |
 | `redis` | Cache/Queue | 6379 |
-| `minio` | Object Storage | 9000 / 9001 |
+| `seaweedfs` | S3-compatible object storage | 9000 |
 | `migrate` | Database Migrations (One-time, exits after completion) | — |
 | `api` | Control Plane API (Go) | 8001 |
 | `gateway` | Reverse Proxy + Rate Limiting | 8000 |
@@ -20,7 +20,7 @@ Arkloop orchestrates all services via `compose.yaml`, enabling a full deployment
 | `sandbox` | Code Sandbox (Firecracker / Docker) | 8002 |
 | `openviking` | Vector Memory Service | 1933 |
 
-Startup order is guaranteed by `depends_on`: postgres → pgbouncer → migrate → api/worker → gateway, and redis → api/gateway/worker.
+Startup order is guaranteed by `depends_on`: postgres → pgbouncer → migrate → api/worker → gateway, redis → api/gateway/worker, and seaweedfs → api/worker/sandbox.
 
 ## Quick Start
 
@@ -35,7 +35,7 @@ Edit `.env` and set at least the following required fields:
 | Variable | Description |
 |------|------|
 | `ARKLOOP_POSTGRES_PASSWORD` | PostgreSQL Password |
-| `ARKLOOP_S3_SECRET_KEY` | MinIO/S3 Secret Key |
+| `ARKLOOP_S3_SECRET_KEY` | S3-compatible secret key |
 | `ARKLOOP_AUTH_JWT_SECRET` | JWT Signing Secret (at least 32 characters) |
 | `ARKLOOP_ENCRYPTION_KEY` | AES-256-GCM Key (32-byte hex) |
 
@@ -66,7 +66,6 @@ docker compose ps
 | Endpoint | Description |
 |------|------|
 | `http://localhost:8000` | Public entry point (with Gateway rate limiting/auth) |
-| `http://localhost:9001` | MinIO Console |
 
 Internal services stay on the Docker network by default. If you need host-level debugging ports, start with the development override file:
 
@@ -258,7 +257,7 @@ During development, you typically run the API on the host machine (for debugging
 
 ```bash
 # Start infrastructure only
-docker compose -f compose.yaml -f compose.dev.yaml up -d postgres redis minio pgbouncer
+docker compose -f compose.yaml -f compose.dev.yaml up -d postgres redis seaweedfs pgbouncer
 
 # Run migrations
 cd src/services/api
@@ -295,12 +294,12 @@ ARKLOOP_GATEWAY_UPSTREAM=http://host.docker.internal:8001 docker compose -f comp
 | `ARKLOOP_REDIS_URL` | — | Redis connection string |
 | `ARKLOOP_REDIS_PASSWORD` | `arkloop_redis` | |
 
-### Object Storage (MinIO/S3)
+### Object Storage (SeaweedFS / S3-Compatible)
 
 | Variable | Default | Description |
 |------|--------|------|
 | `ARKLOOP_S3_ENDPOINT` | — | S3 endpoint URL |
-| `ARKLOOP_S3_ACCESS_KEY` | `minioadmin` | |
+| `ARKLOOP_S3_ACCESS_KEY` | `arkloop` | |
 | `ARKLOOP_S3_SECRET_KEY` | — | Required |
 | `ARKLOOP_S3_BUCKET` | `arkloop` | |
 | `ARKLOOP_S3_REGION` | `us-east-1` | |
