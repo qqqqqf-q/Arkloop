@@ -10,6 +10,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"arkloop/services/sandbox/internal/environment"
+	environmentcontract "arkloop/services/sandbox/internal/environment/contract"
 )
 
 // ExecJob 是发送给 Guest Agent 的执行任务。
@@ -56,12 +59,19 @@ type agentResponse struct {
 }
 
 type EnvironmentRequest struct {
-	Scope   string `json:"scope"`
-	Archive string `json:"archive,omitempty"`
+	Scope    string                        `json:"scope"`
+	Archive  string                        `json:"archive,omitempty"`
+	Subtrees []string                      `json:"subtrees,omitempty"`
+	Paths    []string                      `json:"paths,omitempty"`
+	Manifest *environmentcontract.Manifest `json:"manifest,omitempty"`
+	Files    []environment.FilePayload     `json:"files,omitempty"`
+	Reset    bool                          `json:"reset,omitempty"`
 }
 
 type EnvironmentResponse struct {
-	Archive string `json:"archive,omitempty"`
+	Archive  string                        `json:"archive,omitempty"`
+	Manifest *environmentcontract.Manifest `json:"manifest,omitempty"`
+	Files    []environment.FilePayload     `json:"files,omitempty"`
 }
 
 type GuestNetworkRequest struct {
@@ -242,6 +252,35 @@ func (s *Session) ConfigureGuestNetwork(ctx context.Context, req GuestNetworkReq
 		return fmt.Errorf("agent error: %s", resp.Error)
 	}
 	return nil
+}
+
+func (s *Session) BuildEnvironmentManifest(ctx context.Context, scope string, subtrees []string) (environmentcontract.Manifest, error) {
+	payload, err := s.callEnvironment(ctx, "environment_manifest_build", EnvironmentRequest{Scope: scope, Subtrees: append([]string(nil), subtrees...)})
+	if err != nil {
+		return environmentcontract.Manifest{}, err
+	}
+	if payload.Manifest == nil {
+		return environmentcontract.Manifest{}, fmt.Errorf("environment manifest is missing")
+	}
+	return *payload.Manifest, nil
+}
+
+func (s *Session) CollectEnvironmentFiles(ctx context.Context, scope string, paths []string) ([]environment.FilePayload, error) {
+	payload, err := s.callEnvironment(ctx, "environment_files_collect", EnvironmentRequest{Scope: scope, Paths: append([]string(nil), paths...)})
+	if err != nil {
+		return nil, err
+	}
+	return append([]environment.FilePayload(nil), payload.Files...), nil
+}
+
+func (s *Session) ApplyEnvironment(ctx context.Context, scope string, manifest environmentcontract.Manifest, files []environment.FilePayload, reset bool) error {
+	_, err := s.callEnvironment(ctx, "environment_apply", EnvironmentRequest{
+		Scope:    scope,
+		Manifest: &manifest,
+		Files:    append([]environment.FilePayload(nil), files...),
+		Reset:    reset,
+	})
+	return err
 }
 
 func (s *Session) ExportEnvironment(ctx context.Context, scope string) ([]byte, error) {

@@ -27,7 +27,7 @@ func TestBuildEnvironmentManifestIncludesDirFileAndSymlink(t *testing.T) {
 		t.Fatalf("symlink link.go: %v", err)
 	}
 
-	manifest, err := buildEnvironmentManifest(environment.ScopeWorkspace)
+	manifest, err := buildEnvironmentManifest(environment.ScopeWorkspace, nil)
 	if err != nil {
 		t.Fatalf("build manifest: %v", err)
 	}

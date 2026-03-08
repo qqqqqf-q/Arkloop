@@ -49,11 +49,12 @@ var profilePrefixFiles = []string{
 
 func BuildHydrateManifest(scope string, source Manifest, options PrepareOptions) Manifest {
 	selected := Manifest{
-		Version:   source.Version,
-		Scope:     source.Scope,
-		Ref:       source.Ref,
-		Revision:  source.Revision,
-		UpdatedAt: source.UpdatedAt,
+		Version:      source.Version,
+		Scope:        source.Scope,
+		Ref:          source.Ref,
+		Revision:     source.Revision,
+		BaseRevision: source.BaseRevision,
+		CreatedAt:    source.CreatedAt,
 	}
 	for _, entry := range source.Entries {
 		switch entry.Type {

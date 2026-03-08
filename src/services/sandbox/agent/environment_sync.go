@@ -13,14 +13,15 @@ import (
 	"strings"
 
 	"arkloop/services/sandbox/internal/environment"
+	environmentcontract "arkloop/services/sandbox/internal/environment/contract"
 )
 
-func buildEnvironmentManifest(scope string) (*environment.Manifest, error) {
+func buildEnvironmentManifest(scope string, subtrees []string) (*environmentcontract.Manifest, error) {
 	roots, err := environmentRoots(scope)
 	if err != nil {
 		return nil, err
 	}
-	entries := make([]environment.ManifestEntry, 0)
+	entries := make([]environmentcontract.ManifestEntry, 0)
 	for _, root := range roots {
 		if err := os.MkdirAll(root.HostPath, 0o755); err != nil {
 			return nil, fmt.Errorf("ensure environment root %s: %w", root.HostPath, err)
@@ -47,13 +48,13 @@ func buildEnvironmentManifest(scope string) (*environment.Manifest, error) {
 			mode := info.Mode()
 			switch {
 			case mode.IsDir():
-				entries = append(entries, environment.ManifestEntry{Path: rel, Type: environment.EntryTypeDir, Mode: int64(info.Mode().Perm())})
+				entries = append(entries, environmentcontract.ManifestEntry{Path: rel, Type: environment.EntryTypeDir, Mode: int64(info.Mode().Perm())})
 			case mode.IsRegular():
 				digest, size, err := digestFile(current)
 				if err != nil {
 					return err
 				}
-				entries = append(entries, environment.ManifestEntry{Path: rel, Type: environment.EntryTypeFile, Mode: int64(info.Mode().Perm()), Size: size, SHA256: digest})
+				entries = append(entries, environmentcontract.ManifestEntry{Path: rel, Type: environment.EntryTypeFile, Mode: int64(info.Mode().Perm()), Size: size, SHA256: digest, MtimeUnixMs: info.ModTime().UTC().UnixMilli()})
 			case mode&os.ModeSymlink != 0:
 				linkTarget, err := os.Readlink(current)
 				if err != nil {
@@ -62,7 +63,7 @@ func buildEnvironmentManifest(scope string) (*environment.Manifest, error) {
 				if !linkTargetWithinRoot(root.HostPath, current, linkTarget) {
 					return nil
 				}
-				entries = append(entries, environment.ManifestEntry{Path: rel, Type: environment.EntryTypeSymlink, Mode: int64(info.Mode().Perm()), LinkTarget: linkTarget})
+				entries = append(entries, environmentcontract.ManifestEntry{Path: rel, Type: environment.EntryTypeSymlink, Mode: int64(info.Mode().Perm()), LinkTarget: linkTarget})
 			}
 			return nil
 		})
@@ -70,12 +71,26 @@ func buildEnvironmentManifest(scope string) (*environment.Manifest, error) {
 			return nil, fmt.Errorf("walk environment root %s: %w", root.HostPath, err)
 		}
 	}
-	manifest := environment.NormalizeManifest(environment.Manifest{
+	manifest := environment.NormalizeManifest(environmentcontract.Manifest{
 		Version: environment.CurrentManifestVersion,
 		Scope:   strings.TrimSpace(scope),
 		Entries: entries,
 	})
-	return &manifest, nil
+	if len(subtrees) == 0 {
+		return &manifest, nil
+	}
+	filtered := environmentcontract.Manifest{Scope: strings.TrimSpace(scope)}
+	for _, entry := range manifest.Entries {
+		for _, subtree := range subtrees {
+			normalized := environmentPath(subtree)
+			if normalized == "" || entry.Path == normalized || strings.HasPrefix(entry.Path, normalized+"/") {
+				filtered.Entries = append(filtered.Entries, entry)
+				break
+			}
+		}
+	}
+	filtered = environment.NormalizeManifest(filtered)
+	return &filtered, nil
 }
 
 func readEnvironmentPaths(scope string, paths []string) ([]environment.FilePayload, error) {
@@ -126,7 +141,7 @@ func readEnvironmentPaths(scope string, paths []string) ([]environment.FilePaylo
 	return result, nil
 }
 
-func applyEnvironment(scope string, manifest environment.Manifest, files []environment.FilePayload, reset bool) error {
+func applyEnvironment(scope string, manifest environmentcontract.Manifest, files []environment.FilePayload, reset bool) error {
 	root, err := singleEnvironmentRoot(scope)
 	if err != nil {
 		return err

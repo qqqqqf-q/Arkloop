@@ -127,7 +127,7 @@ func handleExec(mgr *session.Manager, envMgr *environment.Manager, artifactStore
 			return
 		}
 		if envMgr != nil {
-			envMgr.MarkDirty(sid)
+			envMgr.MarkDirty(sid, "")
 		}
 
 		// 执行后提取 artifact 文件

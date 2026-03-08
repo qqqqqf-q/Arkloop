@@ -27,6 +27,8 @@ import (
 	"strings"
 	"time"
 
+	"arkloop/services/sandbox/internal/environment"
+	environmentcontract "arkloop/services/sandbox/internal/environment/contract"
 	shellapi "arkloop/services/sandbox/internal/shell"
 
 	"github.com/mdlayher/vsock"
@@ -131,12 +133,19 @@ type AgentResponse struct {
 }
 
 type EnvironmentRequest struct {
-	Scope   string `json:"scope"`
-	Archive string `json:"archive,omitempty"`
+	Scope    string                        `json:"scope"`
+	Archive  string                        `json:"archive,omitempty"`
+	Subtrees []string                      `json:"subtrees,omitempty"`
+	Paths    []string                      `json:"paths,omitempty"`
+	Manifest *environmentcontract.Manifest `json:"manifest,omitempty"`
+	Files    []environment.FilePayload     `json:"files,omitempty"`
+	Reset    bool                          `json:"reset,omitempty"`
 }
 
 type EnvironmentResponse struct {
-	Archive string `json:"archive,omitempty"`
+	Archive  string                        `json:"archive,omitempty"`
+	Manifest *environmentcontract.Manifest `json:"manifest,omitempty"`
+	Files    []environment.FilePayload     `json:"files,omitempty"`
 }
 
 type ArtifactEntry struct {

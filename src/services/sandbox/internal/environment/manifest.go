@@ -6,9 +6,11 @@ import (
 	"path"
 	"sort"
 	"strings"
+
+	"arkloop/services/sandbox/internal/environment/contract"
 )
 
-const CurrentManifestVersion = 1
+const CurrentManifestVersion = contract.CurrentVersion
 
 const (
 	EntryTypeDir     = "dir"
@@ -16,23 +18,18 @@ const (
 	EntryTypeSymlink = "symlink"
 )
 
-type Manifest struct {
-	Version   int             `json:"version"`
-	Scope     string          `json:"scope"`
-	Ref       string          `json:"ref,omitempty"`
-	Revision  string          `json:"revision,omitempty"`
-	UpdatedAt string          `json:"updated_at,omitempty"`
-	Entries   []ManifestEntry `json:"entries,omitempty"`
-}
+type Manifest = contract.Manifest
 
-type ManifestEntry struct {
-	Path       string `json:"path"`
-	Type       string `json:"type"`
-	Mode       int64  `json:"mode,omitempty"`
-	Size       int64  `json:"size,omitempty"`
-	SHA256     string `json:"sha256,omitempty"`
-	BlobKey    string `json:"blob_key,omitempty"`
-	LinkTarget string `json:"link_target,omitempty"`
+type ManifestEntry = contract.ManifestEntry
+
+type ManifestStats = contract.ManifestStats
+
+type LatestPointer struct {
+	Version   int    `json:"version"`
+	Scope     string `json:"scope"`
+	Ref       string `json:"ref"`
+	Revision  string `json:"revision"`
+	UpdatedAt string `json:"updated_at"`
 }
 
 type FilePayload struct {
@@ -60,7 +57,8 @@ func NormalizeManifest(manifest Manifest) Manifest {
 	manifest.Scope = strings.TrimSpace(manifest.Scope)
 	manifest.Ref = strings.TrimSpace(manifest.Ref)
 	manifest.Revision = strings.TrimSpace(manifest.Revision)
-	manifest.UpdatedAt = strings.TrimSpace(manifest.UpdatedAt)
+	manifest.BaseRevision = strings.TrimSpace(manifest.BaseRevision)
+	manifest.CreatedAt = strings.TrimSpace(manifest.CreatedAt)
 
 	unique := make(map[string]ManifestEntry, len(manifest.Entries))
 	for _, entry := range manifest.Entries {
@@ -77,6 +75,7 @@ func NormalizeManifest(manifest Manifest) Manifest {
 	sort.Slice(manifest.Entries, func(i, j int) bool {
 		return manifest.Entries[i].Path < manifest.Entries[j].Path
 	})
+	manifest.Stats = ComputeManifestStats(manifest.Entries)
 	return manifest
 }
 
@@ -98,11 +97,27 @@ func EntryMap(entries []ManifestEntry) map[string]ManifestEntry {
 	return result
 }
 
+func ComputeManifestStats(entries []ManifestEntry) ManifestStats {
+	stats := ManifestStats{}
+	for _, entry := range entries {
+		if entry.Deleted {
+			continue
+		}
+		switch entry.Type {
+		case EntryTypeDir:
+			stats.DirCount++
+		case EntryTypeFile:
+			stats.FileCount++
+			stats.ByteCount += entry.Size
+		}
+	}
+	return stats
+}
+
 func normalizeEntry(entry ManifestEntry) (ManifestEntry, bool) {
 	entry.Path = normalizeRelativePath(entry.Path)
 	entry.Type = strings.TrimSpace(entry.Type)
 	entry.SHA256 = strings.TrimSpace(entry.SHA256)
-	entry.BlobKey = strings.TrimSpace(entry.BlobKey)
 	entry.LinkTarget = strings.TrimSpace(entry.LinkTarget)
 	if entry.Path == "" || entry.Type == "" {
 		return ManifestEntry{}, false
@@ -113,7 +128,7 @@ func normalizeEntry(entry ManifestEntry) (ManifestEntry, bool) {
 	if entry.Type != EntryTypeFile {
 		entry.Size = 0
 		entry.SHA256 = ""
-		entry.BlobKey = ""
+		entry.MtimeUnixMs = 0
 	}
 	if entry.Type != EntryTypeSymlink {
 		entry.LinkTarget = ""

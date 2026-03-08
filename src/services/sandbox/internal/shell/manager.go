@@ -138,7 +138,7 @@ func (m *Manager) ExecCommand(ctx context.Context, req ExecCommandRequest) (*Res
 	resp.CheckpointRevision = checkpointRevision
 	m.attachArtifacts(ctx, req.SessionID, entry, result, resp)
 	if result != nil && !result.Running && m.envManager != nil {
-		m.envManager.MarkDirty(req.SessionID)
+		m.envManager.MarkDirty(req.SessionID, result.Cwd)
 	}
 	return resp, nil
 }
@@ -170,7 +170,7 @@ func (m *Manager) WriteStdin(ctx context.Context, req WriteStdinRequest) (*Respo
 	resp := m.toResponse(req.SessionID, result)
 	m.attachArtifacts(ctx, req.SessionID, entry, result, resp)
 	if result != nil && !result.Running && m.envManager != nil {
-		m.envManager.MarkDirty(req.SessionID)
+		m.envManager.MarkDirty(req.SessionID, result.Cwd)
 	}
 	return resp, nil
 }
