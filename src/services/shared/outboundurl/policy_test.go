@@ -21,6 +21,7 @@ func TestNormalizeBaseURL(t *testing.T) {
 		{name: "query denied", raw: "https://example.com/v1?q=1", wantReason: "query_denied"},
 		{name: "fragment denied", raw: "https://example.com/v1#frag", wantReason: "fragment_denied"},
 		{name: "private ip denied", raw: "https://10.0.0.1/v1", wantReason: "private_ip_denied"},
+		{name: "fake ip denied by default", raw: "https://198.18.0.1/v1", wantReason: "private_ip_denied"},
 		{name: "localhost denied", raw: "https://localhost:8443/v1", wantReason: "localhost_denied"},
 	}
 
@@ -53,6 +54,17 @@ func TestNormalizeBaseURLAllowLoopbackHTTP(t *testing.T) {
 
 	_, err = policy.NormalizeBaseURL("http://example.com/v1")
 	assertDeniedReason(t, err, "insecure_scheme_denied")
+}
+
+func TestNormalizeBaseURLTrustFakeIP(t *testing.T) {
+	policy := Policy{TrustFakeIP: true}
+	got, err := policy.NormalizeBaseURL("https://198.18.0.1/v1/")
+	if err != nil {
+		t.Fatalf("NormalizeBaseURL() error = %v", err)
+	}
+	if got != "https://198.18.0.1/v1" {
+		t.Fatalf("NormalizeBaseURL() = %q", got)
+	}
 }
 
 func TestValidateRequestURL(t *testing.T) {
@@ -111,6 +123,22 @@ func TestEnsureIPAllowed(t *testing.T) {
 				t.Fatalf("EnsureIPAllowed() error = %v", err)
 			}
 		})
+	}
+}
+
+func TestEnsureIPAllowedTrustFakeIP(t *testing.T) {
+	policy := Policy{TrustFakeIP: true}
+	if err := policy.EnsureIPAllowed(netip.MustParseAddr("198.18.0.1")); err != nil {
+		t.Fatalf("EnsureIPAllowed() error = %v", err)
+	}
+	assertDeniedReason(t, policy.EnsureIPAllowed(netip.MustParseAddr("10.0.0.1")), "private_ip_denied")
+}
+
+func TestDefaultPolicyReadsTrustFakeIPEnv(t *testing.T) {
+	t.Setenv(TrustFakeIPEnv, "true")
+	policy := DefaultPolicy()
+	if !policy.TrustFakeIP {
+		t.Fatal("expected TrustFakeIP to be enabled from env")
 	}
 }
 

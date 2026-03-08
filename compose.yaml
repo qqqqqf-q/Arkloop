@@ -99,6 +99,7 @@ services:
       ARKLOOP_API_MAX_IN_FLIGHT: "${ARKLOOP_API_MAX_IN_FLIGHT:-256}"
       ARKLOOP_API_DIRECT_POOL_ACQUIRE_TIMEOUT_MS: "${ARKLOOP_API_DIRECT_POOL_ACQUIRE_TIMEOUT_MS:-200}"
       ARKLOOP_API_GO_ADDR: "0.0.0.0:8001"
+      ARKLOOP_OUTBOUND_TRUST_FAKE_IP: "${ARKLOOP_OUTBOUND_TRUST_FAKE_IP:-true}"
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -189,6 +190,7 @@ services:
       ARKLOOP_S3_ENDPOINT: "${ARKLOOP_S3_ENDPOINT_DOCKER:-http://minio:9000}"
       # Sandbox：容器内用服务名寻址（Firecracker 模式）；Docker 模式需在 .env 中覆盖为 host.docker.internal
       ARKLOOP_SANDBOX_BASE_URL: "${ARKLOOP_SANDBOX_BASE_URL:-}"
+      ARKLOOP_OUTBOUND_TRUST_FAKE_IP: "${ARKLOOP_OUTBOUND_TRUST_FAKE_IP:-true}"
     depends_on:
       migrate:
         condition: service_completed_successfully

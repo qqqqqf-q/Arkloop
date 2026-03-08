@@ -13,7 +13,10 @@ import (
 	"time"
 )
 
-const AllowLoopbackHTTPEnv = "ARKLOOP_OUTBOUND_ALLOW_LOOPBACK_HTTP"
+const (
+	AllowLoopbackHTTPEnv = "ARKLOOP_OUTBOUND_ALLOW_LOOPBACK_HTTP"
+	TrustFakeIPEnv       = "ARKLOOP_OUTBOUND_TRUST_FAKE_IP"
+)
 
 type DeniedError struct {
 	Reason  string
@@ -26,18 +29,29 @@ func (e DeniedError) Error() string {
 
 type Policy struct {
 	AllowLoopbackHTTP bool
+	TrustFakeIP       bool
 	Resolver          *net.Resolver
 }
 
 func DefaultPolicy() Policy {
 	return Policy{
 		AllowLoopbackHTTP: allowLoopbackHTTPFromEnv(),
+		TrustFakeIP:       trustFakeIPFromEnv(),
 		Resolver:          net.DefaultResolver,
 	}
 }
 
 func allowLoopbackHTTPFromEnv() bool {
 	raw := strings.TrimSpace(os.Getenv(AllowLoopbackHTTPEnv))
+	if raw == "" {
+		return false
+	}
+	ok, err := strconv.ParseBool(raw)
+	return err == nil && ok
+}
+
+func trustFakeIPFromEnv() bool {
+	raw := strings.TrimSpace(os.Getenv(TrustFakeIPEnv))
 	if raw == "" {
 		return false
 	}
@@ -243,6 +257,9 @@ func (p Policy) isDeniedIP(ip netip.Addr) bool {
 		ip.IsMulticast() || ip.IsUnspecified() {
 		return true
 	}
+	if p.TrustFakeIP && fakeIPPrefix.Contains(ip) {
+		return false
+	}
 	for _, prefix := range extraDeniedPrefixes {
 		if prefix.Contains(ip) {
 			return true
@@ -251,8 +268,10 @@ func (p Policy) isDeniedIP(ip netip.Addr) bool {
 	return false
 }
 
+var fakeIPPrefix = netip.MustParsePrefix("198.18.0.0/15")
+
 var extraDeniedPrefixes = []netip.Prefix{
 	netip.MustParsePrefix("100.64.0.0/10"),
-	netip.MustParsePrefix("198.18.0.0/15"),
+	fakeIPPrefix,
 	netip.MustParsePrefix("fc00::/7"),
 }
