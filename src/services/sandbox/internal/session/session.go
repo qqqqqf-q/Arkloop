@@ -3,6 +3,7 @@ package session
 import (
 	"bufio"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -41,15 +42,26 @@ type FetchArtifactsResult struct {
 
 // agentRequest 是 v2 协议的请求格式。
 type agentRequest struct {
-	Action  string               `json:"action"`
-	Network *GuestNetworkRequest `json:"network,omitempty"`
+	Action      string               `json:"action"`
+	Network     *GuestNetworkRequest `json:"network,omitempty"`
+	Environment *EnvironmentRequest  `json:"environment,omitempty"`
 }
 
 // agentResponse 是 v2 协议的响应格式。
 type agentResponse struct {
-	Action    string                `json:"action"`
-	Artifacts *FetchArtifactsResult `json:"artifacts,omitempty"`
-	Error     string                `json:"error,omitempty"`
+	Action      string                `json:"action"`
+	Artifacts   *FetchArtifactsResult `json:"artifacts,omitempty"`
+	Environment *EnvironmentResponse  `json:"environment,omitempty"`
+	Error       string                `json:"error,omitempty"`
+}
+
+type EnvironmentRequest struct {
+	Scope   string `json:"scope"`
+	Archive string `json:"archive,omitempty"`
+}
+
+type EnvironmentResponse struct {
+	Archive string `json:"archive,omitempty"`
 }
 
 type GuestNetworkRequest struct {
@@ -230,6 +242,60 @@ func (s *Session) ConfigureGuestNetwork(ctx context.Context, req GuestNetworkReq
 		return fmt.Errorf("agent error: %s", resp.Error)
 	}
 	return nil
+}
+
+func (s *Session) ExportEnvironment(ctx context.Context, scope string) ([]byte, error) {
+	payload, err := s.callEnvironment(ctx, "environment_export", EnvironmentRequest{Scope: scope})
+	if err != nil {
+		return nil, err
+	}
+	if payload.Archive == "" {
+		return nil, fmt.Errorf("environment archive is empty")
+	}
+	archive, err := base64.StdEncoding.DecodeString(payload.Archive)
+	if err != nil {
+		return nil, fmt.Errorf("decode environment archive: %w", err)
+	}
+	return archive, nil
+}
+
+func (s *Session) ImportEnvironment(ctx context.Context, scope string, archive []byte) error {
+	_, err := s.callEnvironment(ctx, "environment_import", EnvironmentRequest{
+		Scope:   scope,
+		Archive: base64.StdEncoding.EncodeToString(archive),
+	})
+	return err
+}
+
+func (s *Session) callEnvironment(ctx context.Context, action string, payload EnvironmentRequest) (*EnvironmentResponse, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	s.TouchActivity()
+	callCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+
+	conn, err := s.Dial(callCtx)
+	if err != nil {
+		return nil, fmt.Errorf("connect to agent: %w", err)
+	}
+	defer conn.Close()
+
+	_ = conn.SetDeadline(time.Now().Add(2 * time.Minute))
+	if err := json.NewEncoder(conn).Encode(agentRequest{Action: action, Environment: &payload}); err != nil {
+		return nil, fmt.Errorf("send %s request: %w", action, err)
+	}
+	var resp agentResponse
+	if err := json.NewDecoder(conn).Decode(&resp); err != nil {
+		return nil, fmt.Errorf("read %s response: %w", action, err)
+	}
+	if resp.Error != "" {
+		return nil, fmt.Errorf("agent error: %s", resp.Error)
+	}
+	if resp.Environment == nil {
+		return nil, fmt.Errorf("environment response missing body")
+	}
+	return resp.Environment, nil
 }
 
 // NewVsockDialer 创建 Firecracker vsock 连接的 Dialer。

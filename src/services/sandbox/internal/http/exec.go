@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"arkloop/services/sandbox/internal/environment"
 	"arkloop/services/sandbox/internal/logging"
 	"arkloop/services/sandbox/internal/session"
 	"arkloop/services/shared/objectstore"
@@ -18,12 +19,14 @@ import (
 
 // ExecRequest 是 POST /v1/exec 的请求体。
 type ExecRequest struct {
-	SessionID string `json:"session_id"`
-	OrgID     string `json:"org_id"`
-	Tier      string `json:"tier"`     // "lite" | "pro" | "ultra"
-	Language  string `json:"language"` // "python" | "shell"
-	Code      string `json:"code"`
-	TimeoutMs int    `json:"timeout_ms"` // 0 表示使用服务端默认值（30s）
+	SessionID    string `json:"session_id"`
+	OrgID        string `json:"org_id"`
+	ProfileRef   string `json:"profile_ref,omitempty"`
+	WorkspaceRef string `json:"workspace_ref,omitempty"`
+	Tier         string `json:"tier"`     // "lite" | "pro" | "ultra"
+	Language     string `json:"language"` // "python" | "shell"
+	Code         string `json:"code"`
+	TimeoutMs    int    `json:"timeout_ms"` // 0 表示使用服务端默认值（30s）
 }
 
 // ArtifactRef 描述一个已上传到对象存储的执行产物。
@@ -44,7 +47,7 @@ type ExecResponse struct {
 	Artifacts  []ArtifactRef `json:"artifacts,omitempty"`
 }
 
-func handleExec(mgr *session.Manager, artifactStore *objectstore.Store, logger *logging.JSONLogger) http.HandlerFunc {
+func handleExec(mgr *session.Manager, envMgr *environment.Manager, artifactStore *objectstore.Store, logger *logging.JSONLogger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req ExecRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -55,6 +58,8 @@ func handleExec(mgr *session.Manager, artifactStore *objectstore.Store, logger *
 		req.SessionID = strings.TrimSpace(req.SessionID)
 		req.Tier = strings.TrimSpace(req.Tier)
 		req.Language = strings.TrimSpace(req.Language)
+		req.ProfileRef = strings.TrimSpace(req.ProfileRef)
+		req.WorkspaceRef = strings.TrimSpace(req.WorkspaceRef)
 
 		if req.SessionID == "" {
 			writeError(w, http.StatusBadRequest, "sandbox.missing_session_id", "session_id is required")
@@ -92,6 +97,18 @@ func handleExec(mgr *session.Manager, artifactStore *objectstore.Store, logger *
 			return
 		}
 
+		if envMgr != nil {
+			if err := envMgr.Prepare(r.Context(), sid, sn, environment.Binding{
+				OrgID:        orgID,
+				ProfileRef:   req.ProfileRef,
+				WorkspaceRef: req.WorkspaceRef,
+			}); err != nil {
+				logger.Error("prepare environment failed", logging.LogFields{SessionID: &sid}, map[string]any{"error": err.Error()})
+				writeError(w, http.StatusInternalServerError, "sandbox.environment_error", err.Error())
+				return
+			}
+		}
+
 		start := time.Now()
 		result, err := sn.Exec(r.Context(), session.ExecJob{
 			Language:  req.Language,
@@ -104,6 +121,9 @@ func handleExec(mgr *session.Manager, artifactStore *objectstore.Store, logger *
 			logger.Error("exec failed", logging.LogFields{SessionID: &sid}, map[string]any{"error": err.Error()})
 			writeError(w, http.StatusInternalServerError, "sandbox.exec_error", err.Error())
 			return
+		}
+		if envMgr != nil {
+			envMgr.MarkDirty(sid)
 		}
 
 		// 执行后提取 artifact 文件

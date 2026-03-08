@@ -113,19 +113,30 @@ type AgentRequest struct {
 	ExecCommand *shellapi.AgentExecCommandRequest `json:"exec_command,omitempty"`
 	WriteStdin  *shellapi.AgentWriteStdinRequest  `json:"write_stdin,omitempty"`
 	Checkpoint  *shellapi.AgentCheckpointRequest  `json:"checkpoint,omitempty"`
+	Environment *EnvironmentRequest               `json:"environment,omitempty"`
 	Network     *GuestNetworkRequest              `json:"network,omitempty"`
 }
 
 // AgentResponse 是 v2 协议的统一响应。
 type AgentResponse struct {
-	Action     string                            `json:"action"`
-	Exec       *ExecResult                       `json:"exec,omitempty"`
-	Artifacts  *FetchArtifactsResult             `json:"artifacts,omitempty"`
-	Session    *shellapi.AgentSessionResponse    `json:"session,omitempty"`
-	Debug      *shellapi.AgentDebugResponse      `json:"debug,omitempty"`
-	Checkpoint *shellapi.AgentCheckpointResponse `json:"checkpoint,omitempty"`
-	Code       string                            `json:"code,omitempty"`
-	Error      string                            `json:"error,omitempty"`
+	Action      string                            `json:"action"`
+	Exec        *ExecResult                       `json:"exec,omitempty"`
+	Artifacts   *FetchArtifactsResult             `json:"artifacts,omitempty"`
+	Environment *EnvironmentResponse              `json:"environment,omitempty"`
+	Session     *shellapi.AgentSessionResponse    `json:"session,omitempty"`
+	Debug       *shellapi.AgentDebugResponse      `json:"debug,omitempty"`
+	Checkpoint  *shellapi.AgentCheckpointResponse `json:"checkpoint,omitempty"`
+	Code        string                            `json:"code,omitempty"`
+	Error       string                            `json:"error,omitempty"`
+}
+
+type EnvironmentRequest struct {
+	Scope   string `json:"scope"`
+	Archive string `json:"archive,omitempty"`
+}
+
+type EnvironmentResponse struct {
+	Archive string `json:"archive,omitempty"`
 }
 
 type ArtifactEntry struct {
@@ -240,6 +251,34 @@ func handleV2(conn net.Conn, req AgentRequest) {
 	case "shell_restore_import":
 		result, code, errMsg := shellController.RestoreImport(derefCheckpoint(req.Checkpoint))
 		writeJSON(conn, AgentResponse{Action: req.Action, Checkpoint: result, Code: code, Error: errMsg})
+
+	case "environment_export":
+		if req.Environment == nil {
+			writeJSON(conn, AgentResponse{Action: req.Action, Error: "environment is required"})
+			return
+		}
+		archive, err := exportEnvironmentArchive(strings.TrimSpace(req.Environment.Scope))
+		if err != nil {
+			writeJSON(conn, AgentResponse{Action: req.Action, Error: err.Error()})
+			return
+		}
+		writeJSON(conn, AgentResponse{Action: req.Action, Environment: &EnvironmentResponse{Archive: base64.StdEncoding.EncodeToString(archive)}})
+
+	case "environment_import":
+		if req.Environment == nil {
+			writeJSON(conn, AgentResponse{Action: req.Action, Error: "environment is required"})
+			return
+		}
+		archive, err := base64.StdEncoding.DecodeString(strings.TrimSpace(req.Environment.Archive))
+		if err != nil {
+			writeJSON(conn, AgentResponse{Action: req.Action, Error: fmt.Sprintf("decode environment archive: %v", err)})
+			return
+		}
+		if err := importEnvironmentArchive(strings.TrimSpace(req.Environment.Scope), archive); err != nil {
+			writeJSON(conn, AgentResponse{Action: req.Action, Error: err.Error()})
+			return
+		}
+		writeJSON(conn, AgentResponse{Action: req.Action, Environment: &EnvironmentResponse{}})
 
 	case "configure_guest_network":
 		if req.Network == nil {

@@ -246,6 +246,8 @@ func initRunsSchema(t *testing.T, dsn string) error {
 			id                  UUID        PRIMARY KEY,
 			org_id              UUID        NOT NULL,
 			thread_id           UUID        NOT NULL,
+			profile_ref         TEXT        NULL,
+			workspace_ref       TEXT        NULL,
 			parent_run_id       UUID        NULL,
 			created_by_user_id  UUID        NULL,
 			status              TEXT        NOT NULL DEFAULT 'running',
@@ -261,6 +263,19 @@ func initRunsSchema(t *testing.T, dsn string) error {
 			deleted_at          TIMESTAMPTZ NULL,
 			created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
 		)`,
+		`CREATE TABLE default_workspace_bindings (
+			profile_ref       TEXT        NOT NULL,
+			owner_user_id     UUID        NULL,
+			org_id            UUID        NOT NULL,
+			binding_scope     TEXT        NOT NULL,
+			binding_target_id UUID        NOT NULL,
+			workspace_ref     TEXT        NOT NULL,
+			created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+			updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+			PRIMARY KEY (org_id, profile_ref, binding_scope, binding_target_id)
+		)`,
+		`CREATE UNIQUE INDEX idx_default_workspace_bindings_workspace_ref
+		    ON default_workspace_bindings (workspace_ref)`,
 		`CREATE TABLE run_events (
 			event_id    UUID        NOT NULL DEFAULT gen_random_uuid(),
 			run_id      UUID        NOT NULL,

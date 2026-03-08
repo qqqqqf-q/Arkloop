@@ -194,6 +194,12 @@ func (e *EngineV1) Execute(ctx context.Context, pool *pgxpool.Pool, run data.Run
 		return fmt.Errorf("pool must not be nil")
 	}
 
+	resolvedRun, err := resolveAndPersistEnvironmentBindings(ctx, pool, run)
+	if err != nil {
+		return fmt.Errorf("resolve environment bindings: %w", err)
+	}
+	run = resolvedRun
+
 	traceID := strings.TrimSpace(input.TraceID)
 
 	directPool := e.directPool
@@ -209,6 +215,8 @@ func (e *EngineV1) Execute(ctx context.Context, pool *pgxpool.Pool, run data.Run
 		Emitter:             events.NewEmitter(traceID),
 		Router:              e.router,
 		UserID:              run.CreatedByUserID,
+		ProfileRef:          derefString(run.ProfileRef),
+		WorkspaceRef:        derefString(run.WorkspaceRef),
 		ExecutorBuilder:     e.executorRegistry,
 		MemoryProvider:      e.memoryProvider,
 		PendingMemoryWrites: memory.NewPendingWriteBuffer(),
@@ -234,7 +242,7 @@ func (e *EngineV1) Execute(ctx context.Context, pool *pgxpool.Pool, run data.Run
 	}
 
 	handler := pipeline.Build(e.middlewares, e.terminal)
-	err := handler(ctx, rc)
+	err = handler(ctx, rc)
 
 	// run 结束后清理 sandbox session（不阻塞返回结果）
 	if sandboxURL := sandbox.BaseURLFromEnv(); sandboxURL != "" {

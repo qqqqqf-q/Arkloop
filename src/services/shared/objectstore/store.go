@@ -19,6 +19,7 @@ import (
 
 const ArtifactBucket = "sandbox-artifacts"
 const SessionStateBucket = "sandbox-session-state"
+const EnvironmentStateBucket = "sandbox-environments"
 
 // Store 封装 S3 兼容存储客户端，绑定到单个 bucket。
 // 支持 MinIO、AWS S3、GCS（S3 兼容模式）等。

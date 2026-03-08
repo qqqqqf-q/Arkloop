@@ -26,12 +26,14 @@ const (
 )
 
 type execRequest struct {
-	SessionID string `json:"session_id"`
-	OrgID     string `json:"org_id,omitempty"`
-	Tier      string `json:"tier"`
-	Language  string `json:"language"`
-	Code      string `json:"code"`
-	TimeoutMs int    `json:"timeout_ms"`
+	SessionID    string `json:"session_id"`
+	OrgID        string `json:"org_id,omitempty"`
+	ProfileRef   string `json:"profile_ref,omitempty"`
+	WorkspaceRef string `json:"workspace_ref,omitempty"`
+	Tier         string `json:"tier"`
+	Language     string `json:"language"`
+	Code         string `json:"code"`
+	TimeoutMs    int    `json:"timeout_ms"`
 }
 
 type execResponse struct {
@@ -44,13 +46,15 @@ type execResponse struct {
 }
 
 type execCommandRequest struct {
-	SessionID   string `json:"session_id"`
-	OrgID       string `json:"org_id,omitempty"`
-	Tier        string `json:"tier,omitempty"`
-	Cwd         string `json:"cwd,omitempty"`
-	Command     string `json:"command"`
-	TimeoutMs   int    `json:"timeout_ms,omitempty"`
-	YieldTimeMs int    `json:"yield_time_ms,omitempty"`
+	SessionID    string `json:"session_id"`
+	OrgID        string `json:"org_id,omitempty"`
+	ProfileRef   string `json:"profile_ref,omitempty"`
+	WorkspaceRef string `json:"workspace_ref,omitempty"`
+	Tier         string `json:"tier,omitempty"`
+	Cwd          string `json:"cwd,omitempty"`
+	Command      string `json:"command"`
+	TimeoutMs    int    `json:"timeout_ms,omitempty"`
+	YieldTimeMs  int    `json:"yield_time_ms,omitempty"`
 }
 
 type writeStdinRequest struct {
@@ -146,12 +150,14 @@ func (e *ToolExecutor) executePython(
 	}
 
 	payload, err := json.Marshal(execRequest{
-		SessionID: execCtx.RunID.String(),
-		OrgID:     resolveOrgID(execCtx),
-		Tier:      resolveTier(execCtx.Budget),
-		Language:  "python",
-		Code:      code,
-		TimeoutMs: resolveTimeoutMs(args),
+		SessionID:    execCtx.RunID.String(),
+		OrgID:        resolveOrgID(execCtx),
+		ProfileRef:   resolveProfileRef(execCtx),
+		WorkspaceRef: resolveWorkspaceRef(execCtx),
+		Tier:         resolveTier(execCtx.Budget),
+		Language:     "python",
+		Code:         code,
+		TimeoutMs:    resolveTimeoutMs(args),
 	})
 	if err != nil {
 		return errResult(errorSandboxError, fmt.Sprintf("marshal request failed: %s", err.Error()), started)
@@ -203,13 +209,15 @@ func (e *ToolExecutor) executeExecCommand(
 	}
 
 	request := execCommandRequest{
-		SessionID:   defaultExecSessionID(execCtx.RunID.String()),
-		OrgID:       resolveOrgID(execCtx),
-		Tier:        resolveTier(execCtx.Budget),
-		Cwd:         reqArgs.Cwd,
-		Command:     reqArgs.Command,
-		TimeoutMs:   reqArgs.TimeoutMs,
-		YieldTimeMs: reqArgs.YieldTimeMs,
+		SessionID:    defaultExecSessionID(execCtx.RunID.String()),
+		OrgID:        resolveOrgID(execCtx),
+		ProfileRef:   resolveProfileRef(execCtx),
+		WorkspaceRef: resolveWorkspaceRef(execCtx),
+		Tier:         resolveTier(execCtx.Budget),
+		Cwd:          reqArgs.Cwd,
+		Command:      reqArgs.Command,
+		TimeoutMs:    reqArgs.TimeoutMs,
+		YieldTimeMs:  reqArgs.YieldTimeMs,
 	}
 	return e.executeExecSessionRequest(ctx, e.baseURL+"/v1/exec_command", "exec_command", request, request.OrgID, execCtx.PerToolSoftLimits, started)
 }
@@ -386,6 +394,14 @@ func resolveOrgID(execCtx tools.ExecutionContext) string {
 		return ""
 	}
 	return execCtx.OrgID.String()
+}
+
+func resolveProfileRef(execCtx tools.ExecutionContext) string {
+	return strings.TrimSpace(execCtx.ProfileRef)
+}
+
+func resolveWorkspaceRef(execCtx tools.ExecutionContext) string {
+	return strings.TrimSpace(execCtx.WorkspaceRef)
 }
 
 func defaultExecSessionID(runID string) string {

@@ -317,7 +317,7 @@ func TestShellControllerDebugSnapshotShowsTranscriptTruncation(t *testing.T) {
 		if code != "" {
 			t.Fatalf("debug snapshot failed: %s %s", code, msg)
 		}
-		if debug.PendingOutputTruncated || time.Now().After(deadline) {
+		if (debug.PendingOutputTruncated && strings.Contains(debug.Tail, "TAIL")) || time.Now().After(deadline) {
 			break
 		}
 		time.Sleep(100 * time.Millisecond)

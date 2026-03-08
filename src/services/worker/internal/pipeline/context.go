@@ -47,6 +47,9 @@ type RunContext struct {
 	// -- EngineV1.Execute 从 Run.CreatedByUserID 注入；nil 时 MemoryMiddleware 跳过写入 --
 	// agent_id 约定：默认取 PersonaDefinition.ID，字符集 [a-zA-Z0-9_-]，adapter 层 sanitize
 	UserID *uuid.UUID
+	// 长期环境绑定，由 EngineV1.Execute 在 run 启动时解析并注入。
+	ProfileRef   string
+	WorkspaceRef string
 
 	// -- AgentLoopHandler 写入：run 完成后的 assistant 最终拼接文本，供 MemoryMiddleware 写入 --
 	FinalAssistantOutput string

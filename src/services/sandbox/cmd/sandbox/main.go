@@ -8,6 +8,7 @@ import (
 
 	"arkloop/services/sandbox/internal/app"
 	dockerpool "arkloop/services/sandbox/internal/docker"
+	"arkloop/services/sandbox/internal/environment"
 	"arkloop/services/sandbox/internal/firecracker"
 	sandboxhttp "arkloop/services/sandbox/internal/http"
 	"arkloop/services/sandbox/internal/logging"
@@ -46,6 +47,7 @@ func run() error {
 	// 可选依赖：S3 artifact 存储
 	var artifactStore *objectstore.Store
 	var stateStore *objectstore.Store
+	var envStore *objectstore.Store
 	if cfg.S3Endpoint != "" {
 		aStore, err := objectstore.New(context.Background(), cfg.S3Endpoint, cfg.S3AccessKey, cfg.S3SecretKey, objectstore.ArtifactBucket, "")
 		if err != nil {
@@ -60,6 +62,11 @@ func run() error {
 			return err
 		}
 		stateStore = sStore
+		eStore, err := objectstore.New(context.Background(), cfg.S3Endpoint, cfg.S3AccessKey, cfg.S3SecretKey, objectstore.EnvironmentStateBucket, "")
+		if err != nil {
+			return err
+		}
+		envStore = eStore
 		logger.Info("artifact store initialized", logging.LogFields{}, nil)
 	}
 
@@ -85,9 +92,10 @@ func run() error {
 		IdleTimeoutUltra:   cfg.IdleTimeoutUltra,
 		MaxLifetimeSeconds: cfg.MaxLifetimeSeconds,
 	})
-	shellMgr := shell.NewManager(mgr, artifactStore, stateStore, logger)
+	envMgr := environment.NewManager(envStore, logger)
+	shellMgr := shell.NewManager(mgr, artifactStore, stateStore, envMgr, logger)
 
-	handler := sandboxhttp.NewHandler(mgr, shellMgr, artifactStore, logger, cfg.AuthToken)
+	handler := sandboxhttp.NewHandler(mgr, envMgr, shellMgr, artifactStore, logger, cfg.AuthToken)
 
 	if cfg.AuthToken == "" {
 		logger.Warn("ARKLOOP_SANDBOX_AUTH_TOKEN not set, auth disabled", logging.LogFields{}, nil)

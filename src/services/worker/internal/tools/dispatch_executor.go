@@ -22,6 +22,8 @@ type ExecutionContext struct {
 	OrgID               *uuid.UUID
 	ThreadID            *uuid.UUID
 	UserID              *uuid.UUID
+	ProfileRef          string
+	WorkspaceRef        string
 	AgentID             string
 	TimeoutMs           *int
 	Budget              map[string]any

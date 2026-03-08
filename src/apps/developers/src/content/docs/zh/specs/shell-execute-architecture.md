@@ -2129,6 +2129,14 @@ P1 的目标是：把 Arkloop 从“run 级 shell”升级为“以 `profile_ref
 - skills 的归属不再含糊：安装归 profile，启用归 workspace 元数据
 - shell session 只是长期环境的 attach 点
 
+当前这版 P1-1 落地补充：
+
+- `profile_ref = f(org_id, user_id | system)`，表示长期个人环境
+- `workspace_ref` 通过默认绑定解析；当 `project_id` 存在时优先按 `(profile_ref, project_id)` 解析，否则回落到 `(profile_ref, thread_id)`
+- 默认共享边界仍按 profile 隔离：同用户 + 同项目可复用默认 `workspace_ref`，不同用户 + 同项目默认仍是不同 `workspace_ref`
+- `python_execute` 保持一次性进程语义，但与 shell 共同挂到同一组 `profile_ref / workspace_ref`
+- 当前持久化语义是 `dirty + debounce flush + final flush` 的 best-effort 模型；能覆盖命令完成、显式关闭、超时回收与 run 结束清理，但**不承诺 crash-safe**
+
 #### P1-2. 引入 `session_ref`
 
 要做：

@@ -106,7 +106,7 @@ func TestExecHandler_OrgMismatch_Returns403(t *testing.T) {
 		t.Fatalf("create: %v", err)
 	}
 
-	handler := handleExec(mgr, nil, logging.NewJSONLogger("test", nil))
+	handler := handleExec(mgr, nil, nil, logging.NewJSONLogger("test", nil))
 
 	body, _ := json.Marshal(ExecRequest{
 		SessionID: "test-session",

@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"arkloop/services/sandbox/internal/environment"
 	"arkloop/services/sandbox/internal/logging"
 	"arkloop/services/sandbox/internal/session"
 	"arkloop/services/shared/objectstore"
@@ -27,6 +28,7 @@ type Manager struct {
 	compute       *session.Manager
 	artifactStore artifactStore
 	stateStore    stateStore
+	envManager    *environment.Manager
 	logger        *logging.JSONLogger
 
 	mu       sync.Mutex
@@ -55,11 +57,12 @@ func (e *transportError) Unwrap() error {
 	return e.err
 }
 
-func NewManager(compute *session.Manager, artifactStore artifactStore, stateStore stateStore, logger *logging.JSONLogger) *Manager {
+func NewManager(compute *session.Manager, artifactStore artifactStore, stateStore stateStore, envManager *environment.Manager, logger *logging.JSONLogger) *Manager {
 	mgr := &Manager{
 		compute:       compute,
 		artifactStore: artifactStore,
 		stateStore:    stateStore,
+		envManager:    envManager,
 		logger:        logger,
 		sessions:      make(map[string]*managedSession),
 	}
@@ -98,8 +101,13 @@ func (m *Manager) ExecCommand(ctx context.Context, req ExecCommandRequest) (*Res
 		if entry.artifactSeen == nil {
 			entry.artifactSeen = make(map[string]artifactVersion)
 		}
+		if err := m.prepareEnvironment(ctx, req, entry); err != nil {
+			return nil, err
+		}
 		prepared, shellEnv = m.prepareExecCommandRequest(ctx, req, entry)
 		createdCompute = true
+	} else if err := m.prepareEnvironment(ctx, req, entry); err != nil {
+		return nil, err
 	}
 
 	entry.commandSeq++
@@ -109,6 +117,9 @@ func (m *Manager) ExecCommand(ctx context.Context, req ExecCommandRequest) (*Res
 		if _, ok := err.(*transportError); ok {
 			m.dropEntry(req.SessionID, entry)
 			if createdCompute {
+				if m.envManager != nil {
+					m.envManager.Drop(req.SessionID)
+				}
 				_ = m.compute.DeleteSkipHook(ctx, req.SessionID, req.OrgID)
 			}
 			if !created {
@@ -121,6 +132,9 @@ func (m *Manager) ExecCommand(ctx context.Context, req ExecCommandRequest) (*Res
 
 	resp := m.toResponse(req.SessionID, result)
 	m.attachArtifacts(ctx, req.SessionID, entry, result, resp)
+	if result != nil && !result.Running && m.envManager != nil {
+		m.envManager.MarkDirty(req.SessionID)
+	}
 	return resp, nil
 }
 
@@ -140,6 +154,9 @@ func (m *Manager) WriteStdin(ctx context.Context, req WriteStdinRequest) (*Respo
 	if err != nil {
 		if _, ok := err.(*transportError); ok {
 			m.dropEntry(req.SessionID, entry)
+			if m.envManager != nil {
+				m.envManager.Drop(req.SessionID)
+			}
 			return nil, notFoundError()
 		}
 		return nil, err
@@ -147,6 +164,9 @@ func (m *Manager) WriteStdin(ctx context.Context, req WriteStdinRequest) (*Respo
 
 	resp := m.toResponse(req.SessionID, result)
 	m.attachArtifacts(ctx, req.SessionID, entry, result, resp)
+	if result != nil && !result.Running && m.envManager != nil {
+		m.envManager.MarkDirty(req.SessionID)
+	}
 	return resp, nil
 }
 
@@ -191,12 +211,20 @@ func (m *Manager) Close(ctx context.Context, sessionID, orgID string) error {
 	if err := m.checkpointLocked(ctx, sessionID, entry); err != nil {
 		return err
 	}
+	if m.envManager != nil {
+		if err := m.envManager.FlushNow(ctx, sessionID); err != nil {
+			return err
+		}
+	}
 	deleteErr := m.compute.DeleteSkipHook(ctx, sessionID, orgID)
 	if deleteErr != nil && strings.Contains(deleteErr.Error(), "org mismatch") {
 		return orgMismatchError()
 	}
 	if deleteErr != nil {
 		return notFoundError()
+	}
+	if m.envManager != nil {
+		m.envManager.Drop(sessionID)
 	}
 	m.dropEntry(sessionID, entry)
 	return nil
@@ -265,6 +293,20 @@ func (m *Manager) prepareExecCommandRequest(ctx context.Context, req ExecCommand
 	return prepared, manifest.EnvSnapshot
 }
 
+func (m *Manager) prepareEnvironment(ctx context.Context, req ExecCommandRequest, entry *managedSession) error {
+	if m.envManager == nil || entry.compute == nil {
+		return nil
+	}
+	if err := m.envManager.Prepare(ctx, req.SessionID, entry.compute, environment.Binding{
+		OrgID:        req.OrgID,
+		ProfileRef:   req.ProfileRef,
+		WorkspaceRef: req.WorkspaceRef,
+	}); err != nil {
+		return fmt.Errorf("prepare environment: %w", err)
+	}
+	return nil
+}
+
 func (m *Manager) checkpointLocked(ctx context.Context, sessionID string, entry *managedSession) error {
 	if entry.compute == nil || m.stateStore == nil {
 		return nil
@@ -304,24 +346,29 @@ func (m *Manager) beforeComputeDelete(ctx context.Context, sn *session.Session, 
 	if sn == nil {
 		return nil
 	}
+	var envErr error
+	if m.envManager != nil {
+		envErr = m.envManager.FlushNow(ctx, sn.ID)
+		m.envManager.Drop(sn.ID)
+	}
 	m.mu.Lock()
 	entry := m.sessions[sn.ID]
 	m.mu.Unlock()
 	if entry == nil {
-		return nil
+		return envErr
 	}
 	entry.mu.Lock()
 	defer entry.mu.Unlock()
 	if entry.compute == nil {
-		return nil
+		return envErr
 	}
 	err := m.checkpointLocked(ctx, sn.ID, entry)
 	if err == nil {
 		entry.compute = nil
-		return nil
+		return envErr
 	}
 	m.logger.Warn("shell checkpoint before delete failed", logging.LogFields{SessionID: &sn.ID}, map[string]any{"error": err.Error(), "reason": string(reason)})
-	return err
+	return errors.Join(envErr, err)
 }
 
 func (m *Manager) resolveOpenCwd(ctx context.Context, sessionID string, sn *session.Session, requested, restored string) string {

@@ -1,15 +1,14 @@
 package builtin
 
 import (
-	documentwrite "arkloop/services/worker/internal/tools/builtin/document_write"
+	sharedconfig "arkloop/services/shared/config"
+	"arkloop/services/worker/internal/llm"
+	"arkloop/services/worker/internal/tools"
 	spawnagent "arkloop/services/worker/internal/tools/builtin/spawn_agent"
 	summarizethread "arkloop/services/worker/internal/tools/builtin/summarize_thread"
 	webfetch "arkloop/services/worker/internal/tools/builtin/web_fetch"
 	websearch "arkloop/services/worker/internal/tools/builtin/web_search"
 
-	sharedconfig "arkloop/services/shared/config"
-	"arkloop/services/worker/internal/llm"
-	"arkloop/services/worker/internal/tools"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 )
@@ -28,7 +27,6 @@ func AgentSpecs() []tools.AgentToolSpec {
 		webfetch.AgentSpecBasic,
 		spawnagent.AgentSpec,
 		summarizethread.AgentSpec,
-		documentwrite.AgentSpec,
 	}
 }
 
@@ -41,7 +39,6 @@ func LlmSpecs() []llm.ToolSpec {
 		webfetch.LlmSpec,
 		// spawn_agent 由 NewSpawnAgentMiddleware 按需动态注入，不在此处静态注册
 		summarizethread.LlmSpec,
-		documentwrite.LlmSpec,
 	}
 }
 

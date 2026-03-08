@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -19,11 +20,14 @@ type TerminalStatusUpdate struct {
 }
 
 type Run struct {
-	ID                uuid.UUID
-	OrgID             uuid.UUID
-	ThreadID          uuid.UUID
-	ParentRunID       *uuid.UUID // nil 表示顶级 Run，非 nil 表示子 Run
-	CreatedByUserID   *uuid.UUID // nil 表示系统触发或用户已删除，Memory 层按此隔离
+	ID              uuid.UUID
+	OrgID           uuid.UUID
+	ThreadID        uuid.UUID
+	ProjectID       *uuid.UUID
+	ParentRunID     *uuid.UUID // nil 表示顶级 Run，非 nil 表示子 Run
+	CreatedByUserID *uuid.UUID // nil 表示系统触发或用户已删除，Memory 层按此隔离
+	ProfileRef      *string
+	WorkspaceRef    *string
 }
 
 type RunsRepository struct{}
@@ -61,12 +65,20 @@ func (RunsRepository) GetRun(ctx context.Context, tx pgx.Tx, runID uuid.UUID) (*
 	var run Run
 	err := tx.QueryRow(
 		ctx,
-		`SELECT id, org_id, thread_id, parent_run_id, created_by_user_id
-		 FROM runs
-		 WHERE id = $1
-		 LIMIT 1`,
+		`SELECT r.id,
+		        r.org_id,
+		        r.thread_id,
+		        t.project_id,
+		        r.parent_run_id,
+		        r.created_by_user_id,
+		        r.profile_ref,
+		        r.workspace_ref
+		   FROM runs r
+		   LEFT JOIN threads t ON t.id = r.thread_id
+		  WHERE r.id = $1
+		  LIMIT 1`,
 		runID,
-	).Scan(&run.ID, &run.OrgID, &run.ThreadID, &run.ParentRunID, &run.CreatedByUserID)
+	).Scan(&run.ID, &run.OrgID, &run.ThreadID, &run.ProjectID, &run.ParentRunID, &run.CreatedByUserID, &run.ProfileRef, &run.WorkspaceRef)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
@@ -74,6 +86,41 @@ func (RunsRepository) GetRun(ctx context.Context, tx pgx.Tx, runID uuid.UUID) (*
 		return nil, err
 	}
 	return &run, nil
+}
+
+func (RunsRepository) UpdateEnvironmentBindings(
+	ctx context.Context,
+	tx pgx.Tx,
+	runID uuid.UUID,
+	profileRef string,
+	workspaceRef string,
+) error {
+	if runID == uuid.Nil {
+		return fmt.Errorf("run_id must not be empty")
+	}
+	if strings.TrimSpace(profileRef) == "" {
+		return fmt.Errorf("profile_ref must not be empty")
+	}
+	if strings.TrimSpace(workspaceRef) == "" {
+		return fmt.Errorf("workspace_ref must not be empty")
+	}
+	tag, err := tx.Exec(
+		ctx,
+		`UPDATE runs
+		    SET profile_ref = $2,
+		        workspace_ref = $3
+		  WHERE id = $1`,
+		runID,
+		profileRef,
+		workspaceRef,
+	)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("run not found: %s", runID)
+	}
+	return nil
 }
 
 func (RunsRepository) LockRunRow(ctx context.Context, tx pgx.Tx, runID uuid.UUID) error {

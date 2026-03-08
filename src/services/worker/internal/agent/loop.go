@@ -28,6 +28,8 @@ type RunContext struct {
 	UserID                 *uuid.UUID
 	AgentID                string
 	ThreadID               *uuid.UUID
+	ProfileRef             string
+	WorkspaceRef           string
 	TraceID                string
 	InputJSON              map[string]any
 	ReasoningIterations    int
@@ -331,6 +333,8 @@ func (l *Loop) executeToolCall(
 		OrgID:               runCtx.OrgID,
 		ThreadID:            runCtx.ThreadID,
 		UserID:              runCtx.UserID,
+		ProfileRef:          runCtx.ProfileRef,
+		WorkspaceRef:        runCtx.WorkspaceRef,
 		AgentID:             runCtx.AgentID,
 		TimeoutMs:           runCtx.ToolTimeoutMs,
 		Budget:              copyMap(runCtx.ToolBudget),

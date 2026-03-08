@@ -55,6 +55,8 @@ func (e *SimpleExecutor) Execute(
 		UserID:                 rc.UserID,
 		AgentID:                agentIDFromPersona(rc),
 		ThreadID:               &rc.Run.ThreadID,
+		ProfileRef:             rc.ProfileRef,
+		WorkspaceRef:           rc.WorkspaceRef,
 		TraceID:                rc.TraceID,
 		InputJSON:              rc.InputJSON,
 		ReasoningIterations:    rc.ReasoningIterations,

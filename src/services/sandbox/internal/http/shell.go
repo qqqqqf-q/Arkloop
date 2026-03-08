@@ -40,6 +40,8 @@ func handleExecAction(svc shell.Service, fn execActionFunc) http.HandlerFunc {
 		}
 		req.SessionID = strings.TrimSpace(req.SessionID)
 		req.OrgID = strings.TrimSpace(req.OrgID)
+		req.ProfileRef = strings.TrimSpace(req.ProfileRef)
+		req.WorkspaceRef = strings.TrimSpace(req.WorkspaceRef)
 		req.Tier = strings.TrimSpace(req.Tier)
 		req.Cwd = strings.TrimSpace(req.Cwd)
 		req.Command = strings.TrimSpace(req.Command)
