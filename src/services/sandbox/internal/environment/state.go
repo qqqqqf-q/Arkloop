@@ -44,6 +44,17 @@ func blobKey(scope, ref, sha256 string) string {
 	}
 }
 
+func blobPrefix(scope, ref string) string {
+	switch strings.TrimSpace(scope) {
+	case ScopeProfile:
+		return "profiles/" + strings.TrimSpace(ref) + "/blobs/"
+	case ScopeWorkspace:
+		return "workspaces/" + strings.TrimSpace(ref) + "/blobs/"
+	default:
+		return ""
+	}
+}
+
 func loadLatestPointer(ctx context.Context, store objectstore.BlobStore, scope, ref string) (*LatestPointer, error) {
 	data, err := store.Get(ctx, latestPointerKey(scope, ref))
 	if err != nil {
@@ -118,18 +129,19 @@ func loadBlob(ctx context.Context, store objectstore.BlobStore, key string) ([]b
 	return workspaceblob.Decode(encoded)
 }
 
-func putBlobIfMissing(ctx context.Context, store objectstore.BlobStore, key string, data []byte) error {
+func putBlobIfMissing(ctx context.Context, store objectstore.BlobStore, key string, data []byte) (bool, error) {
 	if key == "" {
-		return fmt.Errorf("blob key must not be empty")
+		return false, fmt.Errorf("blob key must not be empty")
 	}
 	encoded, err := workspaceblob.Encode(data)
 	if err != nil {
-		return err
+		return false, err
 	}
-	if _, err := store.PutIfAbsent(ctx, key, encoded); err != nil {
-		return err
+	created, err := store.PutIfAbsent(ctx, key, encoded)
+	if err != nil {
+		return false, err
 	}
-	return nil
+	return created, nil
 }
 
 func hydrateScope(ctx context.Context, store objectstore.BlobStore, carrier Carrier, scope, ref, revision string) error {

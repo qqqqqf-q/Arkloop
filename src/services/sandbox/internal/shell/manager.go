@@ -31,6 +31,7 @@ type Manager struct {
 	restoreRegistry SessionRestoreRegistry
 	envManager      *environment.Manager
 	logger          *logging.JSONLogger
+	config          Config
 
 	mu       sync.Mutex
 	sessions map[string]*managedSession
@@ -60,7 +61,7 @@ func (e *transportError) Unwrap() error {
 	return e.err
 }
 
-func NewManager(compute *session.Manager, artifactStore artifactStore, stateStore stateStore, restoreRegistry SessionRestoreRegistry, envManager *environment.Manager, logger *logging.JSONLogger) *Manager {
+func NewManager(compute *session.Manager, artifactStore artifactStore, stateStore stateStore, restoreRegistry SessionRestoreRegistry, envManager *environment.Manager, logger *logging.JSONLogger, cfg Config) *Manager {
 	if restoreRegistry == nil {
 		restoreRegistry = NewMemorySessionRestoreRegistry()
 	}
@@ -71,6 +72,7 @@ func NewManager(compute *session.Manager, artifactStore artifactStore, stateStor
 		restoreRegistry: restoreRegistry,
 		envManager:      envManager,
 		logger:          logger,
+		config:          normalizeConfig(cfg),
 		sessions:        make(map[string]*managedSession),
 	}
 	if compute != nil {
@@ -83,6 +85,7 @@ func (m *Manager) ExecCommand(ctx context.Context, req ExecCommandRequest) (*Res
 	if err := ValidateTimeoutMs(req.TimeoutMs); err != nil {
 		return nil, err
 	}
+	req.OpenMode = NormalizeOpenMode(strings.TrimSpace(req.OpenMode))
 	entry, created := m.getOrCreateEntry(req.SessionID, req.OrgID)
 	entry.mu.Lock()
 	defer entry.mu.Unlock()
@@ -97,26 +100,21 @@ func (m *Manager) ExecCommand(ctx context.Context, req ExecCommandRequest) (*Res
 	restored := false
 	restoreRevision := ""
 	if entry.compute == nil {
-		computeSession, err := m.compute.GetOrCreate(ctx, req.SessionID, req.Tier, req.OrgID)
+		var err error
+		prepared, shellEnv, restored, restoreRevision, createdCompute, err = m.openExecCommandSession(ctx, req, entry)
 		if err != nil {
-			m.dropEntry(req.SessionID, entry)
-			if strings.Contains(err.Error(), "org mismatch") {
-				return nil, orgMismatchError()
+			if createdCompute {
+				if m.envManager != nil {
+					m.envManager.Drop(req.SessionID)
+				}
+				entry.compute = nil
+				_ = m.compute.DeleteSkipHook(ctx, req.SessionID, req.OrgID)
 			}
-			return nil, fmt.Errorf("get shell compute session: %w", err)
-		}
-		entry.compute = computeSession
-		entry.orgID = computeSession.OrgID
-		if entry.artifactSeen == nil {
-			entry.artifactSeen = make(map[string]artifactVersion)
-		}
-		entry.profileRef = strings.TrimSpace(req.ProfileRef)
-		entry.workspaceRef = strings.TrimSpace(req.WorkspaceRef)
-		if err := m.prepareEnvironment(ctx, req, entry); err != nil {
+			if created {
+				m.dropEntry(req.SessionID, entry)
+			}
 			return nil, err
 		}
-		prepared, shellEnv, restored, restoreRevision = m.prepareExecCommandRequest(ctx, req, entry)
-		createdCompute = true
 	} else if err := m.prepareEnvironment(ctx, req, entry); err != nil {
 		return nil, err
 	} else {
@@ -156,6 +154,36 @@ func (m *Manager) ExecCommand(ctx context.Context, req ExecCommandRequest) (*Res
 		m.envManager.MarkDirty(req.SessionID, result.Cwd)
 	}
 	return resp, nil
+}
+
+func (m *Manager) openExecCommandSession(ctx context.Context, req ExecCommandRequest, entry *managedSession) (ExecCommandRequest, map[string]string, bool, string, bool, error) {
+	computeSession, err := m.compute.GetOrCreate(ctx, req.SessionID, req.Tier, req.OrgID)
+	if err != nil {
+		if strings.Contains(err.Error(), "org mismatch") {
+			return ExecCommandRequest{}, nil, false, "", false, orgMismatchError()
+		}
+		return ExecCommandRequest{}, nil, false, "", false, fmt.Errorf("get shell compute session: %w", err)
+	}
+	entry.compute = computeSession
+	entry.orgID = computeSession.OrgID
+	if entry.artifactSeen == nil {
+		entry.artifactSeen = make(map[string]artifactVersion)
+	}
+	entry.profileRef = strings.TrimSpace(req.ProfileRef)
+	entry.workspaceRef = strings.TrimSpace(req.WorkspaceRef)
+	if err := m.prepareEnvironment(ctx, req, entry); err != nil {
+		return ExecCommandRequest{}, nil, false, "", true, err
+	}
+	prepared, shellEnv, restored, restoreRevision := m.prepareExecCommandRequest(ctx, req, entry)
+	if req.OpenMode == OpenModeAttachOrRestore && !restored {
+		if m.envManager != nil {
+			m.envManager.Drop(req.SessionID)
+		}
+		entry.compute = nil
+		_ = m.compute.DeleteSkipHook(ctx, req.SessionID, req.OrgID)
+		return ExecCommandRequest{}, nil, false, "", true, notFoundError()
+	}
+	return prepared, shellEnv, restored, restoreRevision, true, nil
 }
 
 func (m *Manager) WriteStdin(ctx context.Context, req WriteStdinRequest) (*Response, error) {
@@ -245,7 +273,7 @@ func (m *Manager) ForkSession(ctx context.Context, req ForkSessionRequest) (*For
 		}
 		entry.mu.Unlock()
 	}
-	revision, err := copyLatestRestoreState(ctx, m.stateStore, m.restoreRegistry, req.OrgID, req.FromSessionID, req.ToSessionID)
+	revision, err := copyLatestRestoreState(ctx, m.stateStore, m.restoreRegistry, req.OrgID, req.FromSessionID, req.ToSessionID, m.config.RestoreTTL)
 	if err != nil {
 		if objectstore.IsNotFound(err) {
 			return nil, notFoundError()
@@ -392,6 +420,7 @@ func (m *Manager) saveRestoreStateLocked(ctx context.Context, sessionID string, 
 		UploadedSeq:    entry.uploadedSeq,
 		ArtifactSeen:   cloneArtifactSeen(entry.artifactSeen),
 		CreatedAt:      now.Format(time.RFC3339Nano),
+		ExpiresAt:      restoreExpiryString(now, m.config.RestoreTTL),
 	}
 	if restoreState.Cwd == "" {
 		restoreState.Cwd = defaultRestoreCwd
@@ -399,7 +428,7 @@ func (m *Manager) saveRestoreStateLocked(ctx context.Context, sessionID string, 
 	if err := saveRestoreState(ctx, m.stateStore, m.restoreRegistry, restoreState); err != nil {
 		return err
 	}
-	m.logger.Info("shell restore state stored", logging.LogFields{SessionID: &sessionID}, map[string]any{"revision": restoreState.Revision})
+	m.logger.Info("session_restore_save", logging.LogFields{SessionID: &sessionID}, map[string]any{"flush_result": "succeeded", "revision": restoreState.Revision, "restore_state_duration_ms": time.Since(now).Milliseconds()})
 	return nil
 }
 
@@ -428,7 +457,7 @@ func (m *Manager) beforeComputeDelete(ctx context.Context, sn *session.Session, 
 		entry.compute = nil
 		return envErr
 	}
-	m.logger.Warn("shell restore state before delete failed", logging.LogFields{SessionID: &sn.ID}, map[string]any{"error": err.Error(), "reason": string(reason)})
+	m.logger.Warn("session_restore_save", logging.LogFields{SessionID: &sn.ID}, map[string]any{"flush_result": "failed", "error": err.Error(), "reason": string(reason)})
 	return errors.Join(envErr, err)
 }
 

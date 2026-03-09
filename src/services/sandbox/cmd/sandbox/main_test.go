@@ -24,7 +24,7 @@ func (s *fakeLifecycleStore) SetLifecycleExpirationDays(_ context.Context, days 
 func TestApplyStateStoreLifecycle(t *testing.T) {
 	store := &fakeLifecycleStore{}
 	cfg := app.DefaultConfig()
-	cfg.SessionStateTTLDays = 7
+	cfg.RestoreTTLDays = 7
 
 	if err := applyStateStoreLifecycle(context.Background(), cfg, store); err != nil {
 		t.Fatalf("apply lifecycle failed: %v", err)
@@ -37,7 +37,7 @@ func TestApplyStateStoreLifecycle(t *testing.T) {
 func TestApplyStateStoreLifecycleSkipWhenDisabled(t *testing.T) {
 	store := &fakeLifecycleStore{}
 	cfg := app.DefaultConfig()
-	cfg.SessionStateTTLDays = 0
+	cfg.RestoreTTLDays = 0
 
 	if err := applyStateStoreLifecycle(context.Background(), cfg, store); err != nil {
 		t.Fatalf("apply lifecycle failed: %v", err)
@@ -50,7 +50,7 @@ func TestApplyStateStoreLifecycleSkipWhenDisabled(t *testing.T) {
 func TestApplyStateStoreLifecycleReturnsError(t *testing.T) {
 	store := &fakeLifecycleStore{err: errors.New("boom")}
 	cfg := app.DefaultConfig()
-	cfg.SessionStateTTLDays = 3
+	cfg.RestoreTTLDays = 3
 
 	if err := applyStateStoreLifecycle(context.Background(), cfg, store); err == nil {
 		t.Fatal("expected lifecycle error")

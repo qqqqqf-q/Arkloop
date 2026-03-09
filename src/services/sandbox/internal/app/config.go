@@ -18,23 +18,28 @@ import (
 
 // 部署级别的 ENV（文件路径、地址、凭证 -- 不进 registry，不能从 console 改）
 const (
-	sandboxAddrEnv      = "ARKLOOP_SANDBOX_ADDR"
-	sandboxAuthTokenEnv = "ARKLOOP_SANDBOX_AUTH_TOKEN"
-	sessionStateTTLEnv  = "ARKLOOP_SANDBOX_SESSION_STATE_TTL_DAYS"
-	allowEgressEnv      = "ARKLOOP_SANDBOX_ALLOW_EGRESS"
-	dockerNetworkEnv    = "ARKLOOP_SANDBOX_DOCKER_NETWORK"
-	firecrackerBinEnv   = "ARKLOOP_FIRECRACKER_BIN"
-	kernelImagePathEnv  = "ARKLOOP_SANDBOX_KERNEL_IMAGE"
-	rootfsPathEnv       = "ARKLOOP_SANDBOX_ROOTFS"
-	socketBaseDirEnv    = "ARKLOOP_SANDBOX_SOCKET_DIR"
-	templatesPathEnv    = "ARKLOOP_SANDBOX_TEMPLATES_PATH"
-	firecrackerIfaceEnv = "ARKLOOP_SANDBOX_EGRESS_INTERFACE"
-	firecrackerTapEnv   = "ARKLOOP_SANDBOX_FIRECRACKER_TAP_PREFIX"
-	firecrackerCIDREnv  = "ARKLOOP_SANDBOX_FIRECRACKER_TAP_CIDR"
-	firecrackerDNSEnv   = "ARKLOOP_SANDBOX_FIRECRACKER_DNS"
-	s3EndpointEnv       = "ARKLOOP_S3_ENDPOINT"
-	s3AccessKeyEnv      = "ARKLOOP_S3_ACCESS_KEY"
-	s3SecretKeyEnv      = "ARKLOOP_S3_SECRET_KEY"
+	sandboxAddrEnv           = "ARKLOOP_SANDBOX_ADDR"
+	sandboxAuthTokenEnv      = "ARKLOOP_SANDBOX_AUTH_TOKEN"
+	restoreTTLEnv            = "ARKLOOP_SANDBOX_RESTORE_TTL_DAYS"
+	legacySessionStateTTLEnv = "ARKLOOP_SANDBOX_SESSION_STATE_TTL_DAYS"
+	flushDebounceMSEnv       = "ARKLOOP_SANDBOX_FLUSH_DEBOUNCE_MS"
+	flushMaxDirtyAgeMSEnv    = "ARKLOOP_SANDBOX_FLUSH_MAX_DIRTY_AGE_MS"
+	flushForceBytesEnv       = "ARKLOOP_SANDBOX_FLUSH_FORCE_BYTES_THRESHOLD"
+	flushForceCountEnv       = "ARKLOOP_SANDBOX_FLUSH_FORCE_COUNT_THRESHOLD"
+	allowEgressEnv           = "ARKLOOP_SANDBOX_ALLOW_EGRESS"
+	dockerNetworkEnv         = "ARKLOOP_SANDBOX_DOCKER_NETWORK"
+	firecrackerBinEnv        = "ARKLOOP_FIRECRACKER_BIN"
+	kernelImagePathEnv       = "ARKLOOP_SANDBOX_KERNEL_IMAGE"
+	rootfsPathEnv            = "ARKLOOP_SANDBOX_ROOTFS"
+	socketBaseDirEnv         = "ARKLOOP_SANDBOX_SOCKET_DIR"
+	templatesPathEnv         = "ARKLOOP_SANDBOX_TEMPLATES_PATH"
+	firecrackerIfaceEnv      = "ARKLOOP_SANDBOX_EGRESS_INTERFACE"
+	firecrackerTapEnv        = "ARKLOOP_SANDBOX_FIRECRACKER_TAP_PREFIX"
+	firecrackerCIDREnv       = "ARKLOOP_SANDBOX_FIRECRACKER_TAP_CIDR"
+	firecrackerDNSEnv        = "ARKLOOP_SANDBOX_FIRECRACKER_DNS"
+	s3EndpointEnv            = "ARKLOOP_S3_ENDPOINT"
+	s3AccessKeyEnv           = "ARKLOOP_S3_ACCESS_KEY"
+	s3SecretKeyEnv           = "ARKLOOP_S3_SECRET_KEY"
 )
 
 // Provider 标识 sandbox 后端类型。
@@ -59,7 +64,11 @@ type Config struct {
 	S3SecretKey                string
 	StorageBackend             string
 	StorageRoot                string
-	SessionStateTTLDays        int
+	RestoreTTLDays             int
+	FlushDebounceMS            int
+	FlushMaxDirtyAgeMS         int
+	FlushForceBytesThreshold   int
+	FlushForceCountThreshold   int
 	TemplatesPath              string
 	DockerImage                string // Docker 后端使用的 sandbox-agent 镜像
 	AllowEgress                bool
@@ -96,7 +105,11 @@ func DefaultConfig() Config {
 		BootTimeoutSeconds:         30,
 		GuestAgentPort:             8080,
 		MaxSessions:                50,
-		SessionStateTTLDays:        7,
+		RestoreTTLDays:             7,
+		FlushDebounceMS:            2000,
+		FlushMaxDirtyAgeMS:         15000,
+		FlushForceBytesThreshold:   16 << 20,
+		FlushForceCountThreshold:   512,
 		TemplatesPath:              "/opt/sandbox/templates.json",
 		DockerImage:                "arkloop/sandbox-agent:latest",
 		AllowEgress:                true,
@@ -124,12 +137,40 @@ func LoadConfigFromEnv() (Config, error) {
 		cfg.Addr = raw
 	}
 	cfg.AuthToken = strings.TrimSpace(os.Getenv(sandboxAuthTokenEnv))
-	if raw, ok := os.LookupEnv(sessionStateTTLEnv); ok {
+	if raw, ok := lookupEnvFirst(restoreTTLEnv, legacySessionStateTTLEnv); ok {
 		value, err := strconv.Atoi(strings.TrimSpace(raw))
 		if err != nil || value < 0 {
-			return cfg, fmt.Errorf("session_state_ttl_days must be zero or positive")
+			return cfg, fmt.Errorf("restore_ttl_days must be zero or positive")
 		}
-		cfg.SessionStateTTLDays = value
+		cfg.RestoreTTLDays = value
+	}
+	if raw, ok := os.LookupEnv(flushDebounceMSEnv); ok {
+		value, err := strconv.Atoi(strings.TrimSpace(raw))
+		if err != nil || value <= 0 {
+			return cfg, fmt.Errorf("flush_debounce_ms must be positive")
+		}
+		cfg.FlushDebounceMS = value
+	}
+	if raw, ok := os.LookupEnv(flushMaxDirtyAgeMSEnv); ok {
+		value, err := strconv.Atoi(strings.TrimSpace(raw))
+		if err != nil || value <= 0 {
+			return cfg, fmt.Errorf("flush_max_dirty_age_ms must be positive")
+		}
+		cfg.FlushMaxDirtyAgeMS = value
+	}
+	if raw, ok := os.LookupEnv(flushForceBytesEnv); ok {
+		value, err := strconv.Atoi(strings.TrimSpace(raw))
+		if err != nil || value <= 0 {
+			return cfg, fmt.Errorf("flush_force_bytes_threshold must be positive")
+		}
+		cfg.FlushForceBytesThreshold = value
+	}
+	if raw, ok := os.LookupEnv(flushForceCountEnv); ok {
+		value, err := strconv.Atoi(strings.TrimSpace(raw))
+		if err != nil || value <= 0 {
+			return cfg, fmt.Errorf("flush_force_count_threshold must be positive")
+		}
+		cfg.FlushForceCountThreshold = value
 	}
 	if raw, ok := os.LookupEnv(allowEgressEnv); ok {
 		value, err := strconv.ParseBool(strings.TrimSpace(raw))
@@ -247,6 +288,17 @@ func LoadConfigFromEnv() (Config, error) {
 		}
 		return &v
 	}
+	resolveNonNegativeInt := func(key string) (int, bool) {
+		raw := resolveStr(key)
+		if raw == "" {
+			return 0, false
+		}
+		v, err := strconv.Atoi(raw)
+		if err != nil || v < 0 {
+			return 0, false
+		}
+		return v, true
+	}
 
 	if v := resolveStr("sandbox.provider"); v != "" {
 		cfg.Provider = v
@@ -287,6 +339,21 @@ func LoadConfigFromEnv() (Config, error) {
 	if v := resolveInt("sandbox.max_lifetime_s"); v > 0 {
 		cfg.MaxLifetimeSeconds = v
 	}
+	if v, ok := resolveNonNegativeInt("sandbox.restore_ttl_days"); ok {
+		cfg.RestoreTTLDays = v
+	}
+	if v := resolveInt("sandbox.flush_debounce_ms"); v > 0 {
+		cfg.FlushDebounceMS = v
+	}
+	if v := resolveInt("sandbox.flush_max_dirty_age_ms"); v > 0 {
+		cfg.FlushMaxDirtyAgeMS = v
+	}
+	if v := resolveInt("sandbox.flush_force_bytes_threshold"); v > 0 {
+		cfg.FlushForceBytesThreshold = v
+	}
+	if v := resolveInt("sandbox.flush_force_count_threshold"); v > 0 {
+		cfg.FlushForceCountThreshold = v
+	}
 
 	return cfg, cfg.Validate()
 }
@@ -315,8 +382,20 @@ func (c Config) Validate() error {
 	if c.MaxLifetimeSeconds <= 0 {
 		return fmt.Errorf("max_lifetime must be positive")
 	}
-	if c.SessionStateTTLDays < 0 {
-		return fmt.Errorf("session_state_ttl_days must be zero or positive")
+	if c.RestoreTTLDays < 0 {
+		return fmt.Errorf("restore_ttl_days must be zero or positive")
+	}
+	if c.FlushDebounceMS <= 0 {
+		return fmt.Errorf("flush_debounce_ms must be positive")
+	}
+	if c.FlushMaxDirtyAgeMS <= 0 {
+		return fmt.Errorf("flush_max_dirty_age_ms must be positive")
+	}
+	if c.FlushForceBytesThreshold <= 0 {
+		return fmt.Errorf("flush_force_bytes_threshold must be positive")
+	}
+	if c.FlushForceCountThreshold <= 0 {
+		return fmt.Errorf("flush_force_count_threshold must be positive")
 	}
 	if strings.TrimSpace(c.DockerNetwork) == "" {
 		return fmt.Errorf("docker_network must not be empty")
@@ -382,4 +461,13 @@ func writeConfigWarn(event string, err error) {
 		"error": err.Error(),
 	})
 	_, _ = os.Stderr.Write(append(raw, '\n'))
+}
+
+func lookupEnvFirst(keys ...string) (string, bool) {
+	for _, key := range keys {
+		if raw, ok := os.LookupEnv(key); ok {
+			return raw, true
+		}
+	}
+	return "", false
 }

@@ -20,6 +20,7 @@ const (
 type stateStore interface {
 	Put(ctx context.Context, key string, data []byte) error
 	Get(ctx context.Context, key string) ([]byte, error)
+	Delete(ctx context.Context, key string) error
 }
 
 var _ stateStore = (*objectstore.S3Store)(nil)
@@ -48,6 +49,13 @@ func sessionRestoreStateKey(sessionID, revision string) string {
 	return "sessions/" + strings.TrimSpace(sessionID) + "/restore/" + strings.TrimSpace(revision) + ".json"
 }
 
+func restoreExpiryString(now time.Time, ttl time.Duration) string {
+	if ttl <= 0 {
+		return ""
+	}
+	return now.UTC().Add(ttl).Format(time.RFC3339Nano)
+}
+
 func saveRestoreState(ctx context.Context, store stateStore, registry SessionRestoreRegistry, state SessionRestoreState) error {
 	if store == nil {
 		return fmt.Errorf("restore state store is required")
@@ -70,6 +78,12 @@ func saveRestoreState(ctx context.Context, store stateStore, registry SessionRes
 	}
 	state.ProfileRef = strings.TrimSpace(state.ProfileRef)
 	state.WorkspaceRef = strings.TrimSpace(state.WorkspaceRef)
+	state.ExpiresAt = strings.TrimSpace(state.ExpiresAt)
+	if state.ExpiresAt != "" {
+		if _, err := time.Parse(time.RFC3339Nano, state.ExpiresAt); err != nil {
+			return fmt.Errorf("parse expires_at: %w", err)
+		}
+	}
 	normalizeArtifactVersions(state.ArtifactSeen)
 
 	payload, err := json.Marshal(state)
@@ -100,8 +114,19 @@ func loadLatestRestoreState(ctx context.Context, store stateStore, registry Sess
 	if revision == "" {
 		return nil, os.ErrNotExist
 	}
+	state, err := loadRestoreStateByRevision(ctx, store, registry, orgID, sessionID, revision)
+	if err != nil {
+		return nil, err
+	}
+	return state, nil
+}
+
+func loadRestoreStateByRevision(ctx context.Context, store stateStore, registry SessionRestoreRegistry, orgID, sessionID, revision string) (*SessionRestoreState, error) {
 	payload, err := store.Get(ctx, sessionRestoreStateKey(sessionID, revision))
 	if err != nil {
+		if objectstore.IsNotFound(err) && registry != nil {
+			_ = registry.ClearLatestRestoreRevision(ctx, orgID, sessionID, revision)
+		}
 		return nil, err
 	}
 	var state SessionRestoreState
@@ -114,11 +139,36 @@ func loadLatestRestoreState(ctx context.Context, store stateStore, registry Sess
 	if strings.TrimSpace(state.OrgID) != strings.TrimSpace(orgID) || strings.TrimSpace(state.SessionID) != strings.TrimSpace(sessionID) {
 		return nil, fmt.Errorf("restore state identity mismatch")
 	}
+	if expiredRestoreState(state, time.Now().UTC()) {
+		cleanupExpiredRestoreState(ctx, store, registry, orgID, sessionID, revision)
+		return nil, os.ErrNotExist
+	}
 	if strings.TrimSpace(state.Cwd) == "" {
 		state.Cwd = defaultRestoreCwd
 	}
 	normalizeArtifactVersions(state.ArtifactSeen)
 	return &state, nil
+}
+
+func expiredRestoreState(state SessionRestoreState, now time.Time) bool {
+	expiresAt := strings.TrimSpace(state.ExpiresAt)
+	if expiresAt == "" {
+		return false
+	}
+	parsed, err := time.Parse(time.RFC3339Nano, expiresAt)
+	if err != nil {
+		return true
+	}
+	return !parsed.After(now.UTC())
+}
+
+func cleanupExpiredRestoreState(ctx context.Context, store stateStore, registry SessionRestoreRegistry, orgID, sessionID, revision string) {
+	if registry != nil {
+		_ = registry.ClearLatestRestoreRevision(ctx, orgID, sessionID, revision)
+	}
+	if store != nil {
+		_ = store.Delete(ctx, sessionRestoreStateKey(sessionID, revision))
+	}
 }
 
 func normalizeArtifactVersions(versions map[string]artifactVersion) {
@@ -135,7 +185,7 @@ func normalizeArtifactVersions(versions map[string]artifactVersion) {
 	}
 }
 
-func copyLatestRestoreState(ctx context.Context, store stateStore, registry SessionRestoreRegistry, orgID, fromSessionID, toSessionID string) (string, error) {
+func copyLatestRestoreState(ctx context.Context, store stateStore, registry SessionRestoreRegistry, orgID, fromSessionID, toSessionID string, ttl time.Duration) (string, error) {
 	state, err := loadLatestRestoreState(ctx, store, registry, orgID, fromSessionID)
 	if err != nil {
 		return "", err
@@ -145,6 +195,7 @@ func copyLatestRestoreState(ctx context.Context, store stateStore, registry Sess
 	copied.SessionID = strings.TrimSpace(toSessionID)
 	copied.Revision = nextRestoreRevision(now)
 	copied.CreatedAt = now.Format(time.RFC3339Nano)
+	copied.ExpiresAt = restoreExpiryString(now, ttl)
 	copied.ArtifactSeen = cloneArtifactSeen(state.ArtifactSeen)
 	if err := saveRestoreState(ctx, store, registry, copied); err != nil {
 		return "", err

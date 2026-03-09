@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"arkloop/services/sandbox/internal/app"
@@ -107,8 +109,15 @@ func run() error {
 		IdleTimeoutPro:     cfg.IdleTimeoutPro,
 		MaxLifetimeSeconds: cfg.MaxLifetimeSeconds,
 	})
-	envMgr := environment.NewManager(envStore, registryWriter, logger)
-	shellMgr := shell.NewManager(mgr, artifactStore, stateStore, restoreRegistry, envMgr, logger)
+	envMgr := environment.NewManager(envStore, registryWriter, logger, environment.Config{
+		DebounceDelay:       time.Duration(cfg.FlushDebounceMS) * time.Millisecond,
+		MaxDirtyAge:         time.Duration(cfg.FlushMaxDirtyAgeMS) * time.Millisecond,
+		ForceBytesThreshold: int64(cfg.FlushForceBytesThreshold),
+		ForceCountThreshold: cfg.FlushForceCountThreshold,
+	})
+	shellMgr := shell.NewManager(mgr, artifactStore, stateStore, restoreRegistry, envMgr, logger, shell.Config{
+		RestoreTTL: time.Duration(cfg.RestoreTTLDays) * 24 * time.Hour,
+	})
 
 	handler := sandboxhttp.NewHandler(mgr, envMgr, shellMgr, artifactStore, logger, cfg.AuthToken)
 
@@ -120,18 +129,22 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	return application.Run(context.Background(), handler)
+	runCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	envMgr.StartGovernance(runCtx)
+	shellMgr.StartGovernance(runCtx)
+	return application.Run(runCtx, handler)
 }
 
 func applyStateStoreLifecycle(ctx context.Context, cfg app.Config, store any) error {
-	if store == nil || cfg.SessionStateTTLDays == 0 {
+	if store == nil || cfg.RestoreTTLDays == 0 {
 		return nil
 	}
 	configurer, ok := store.(objectstore.LifecycleConfigurator)
 	if !ok {
 		return nil
 	}
-	if err := configurer.SetLifecycleExpirationDays(ctx, cfg.SessionStateTTLDays); err != nil {
+	if err := configurer.SetLifecycleExpirationDays(ctx, cfg.RestoreTTLDays); err != nil {
 		return fmt.Errorf("configure session state lifecycle: %w", err)
 	}
 	return nil

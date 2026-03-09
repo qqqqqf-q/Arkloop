@@ -303,6 +303,7 @@ func initRunsSchema(t *testing.T, dsn string) error {
 			state                 TEXT        NOT NULL,
 			live_session_id       TEXT        NULL,
 			latest_restore_rev    TEXT        NULL,
+			default_binding_key   TEXT        NULL,
 			last_used_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
 			metadata_json         JSONB       NOT NULL DEFAULT '{}'::jsonb,
 			created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -311,44 +312,56 @@ func initRunsSchema(t *testing.T, dsn string) error {
 		`CREATE INDEX idx_shell_sessions_org_thread ON shell_sessions (org_id, thread_id)`,
 		`CREATE INDEX idx_shell_sessions_org_workspace ON shell_sessions (org_id, workspace_ref)`,
 		`CREATE INDEX idx_shell_sessions_org_run ON shell_sessions (org_id, run_id)`,
+		`CREATE INDEX idx_shell_sessions_org_profile_default_binding_updated
+		    ON shell_sessions (org_id, profile_ref, default_binding_key, updated_at DESC)
+		    WHERE default_binding_key IS NOT NULL`,
 		`CREATE TABLE profile_registries (
 			profile_ref             TEXT        PRIMARY KEY,
 			org_id                  UUID        NOT NULL,
+			owner_user_id           UUID        NULL,
 			latest_manifest_rev     TEXT        NULL,
+			lease_holder_id         TEXT        NULL,
+			lease_until             TIMESTAMPTZ NULL,
+			default_workspace_ref   TEXT        NULL,
+			store_key               TEXT        NULL,
 			flush_state             TEXT        NOT NULL DEFAULT 'idle',
 			flush_retry_count       INTEGER     NOT NULL DEFAULT 0,
+			last_used_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
 			last_flush_failed_at    TIMESTAMPTZ NULL,
 			last_flush_succeeded_at TIMESTAMPTZ NULL,
 			metadata_json           JSONB       NOT NULL DEFAULT '{}'::jsonb,
 			created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
-			updated_at              TIMESTAMPTZ NOT NULL DEFAULT now()
+			updated_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+			CONSTRAINT profile_registries_lease_consistency CHECK (
+				(lease_holder_id IS NULL AND lease_until IS NULL)
+				OR (lease_holder_id IS NOT NULL AND lease_until IS NOT NULL)
+			)
 		)`,
 		`CREATE INDEX idx_profile_registries_org_id ON profile_registries (org_id)`,
 		`CREATE TABLE workspace_registries (
-			workspace_ref           TEXT        PRIMARY KEY,
-			org_id                  UUID        NOT NULL,
-			latest_manifest_rev     TEXT        NULL,
-			flush_state             TEXT        NOT NULL DEFAULT 'idle',
-			flush_retry_count       INTEGER     NOT NULL DEFAULT 0,
-			last_flush_failed_at    TIMESTAMPTZ NULL,
-			last_flush_succeeded_at TIMESTAMPTZ NULL,
-			metadata_json           JSONB       NOT NULL DEFAULT '{}'::jsonb,
-			created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
-			updated_at              TIMESTAMPTZ NOT NULL DEFAULT now()
+			workspace_ref             TEXT        PRIMARY KEY,
+			org_id                    UUID        NOT NULL,
+			owner_user_id             UUID        NULL,
+			project_id                UUID        NULL,
+			latest_manifest_rev       TEXT        NULL,
+			lease_holder_id           TEXT        NULL,
+			lease_until               TIMESTAMPTZ NULL,
+			default_shell_session_ref TEXT        NULL,
+			store_key                 TEXT        NULL,
+			flush_state               TEXT        NOT NULL DEFAULT 'idle',
+			flush_retry_count         INTEGER     NOT NULL DEFAULT 0,
+			last_used_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+			last_flush_failed_at      TIMESTAMPTZ NULL,
+			last_flush_succeeded_at   TIMESTAMPTZ NULL,
+			metadata_json             JSONB       NOT NULL DEFAULT '{}'::jsonb,
+			created_at                TIMESTAMPTZ NOT NULL DEFAULT now(),
+			updated_at                TIMESTAMPTZ NOT NULL DEFAULT now(),
+			CONSTRAINT workspace_registries_lease_consistency CHECK (
+				(lease_holder_id IS NULL AND lease_until IS NULL)
+				OR (lease_holder_id IS NOT NULL AND lease_until IS NOT NULL)
+			)
 		)`,
 		`CREATE INDEX idx_workspace_registries_org_id ON workspace_registries (org_id)`,
-		`CREATE TABLE default_shell_session_bindings (
-			org_id         UUID        NOT NULL,
-			profile_ref    TEXT        NOT NULL,
-			binding_scope  TEXT        NOT NULL,
-			binding_target TEXT        NOT NULL,
-			session_ref    TEXT        NOT NULL,
-			created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
-			updated_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
-			PRIMARY KEY (org_id, profile_ref, binding_scope, binding_target)
-		)`,
-		`CREATE UNIQUE INDEX idx_default_shell_session_bindings_session_ref
-		    ON default_shell_session_bindings (session_ref)`,
 		`CREATE TABLE run_events (
 			event_id    UUID        NOT NULL DEFAULT gen_random_uuid(),
 			run_id      UUID        NOT NULL,

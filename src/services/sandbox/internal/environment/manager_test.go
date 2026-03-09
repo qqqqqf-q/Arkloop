@@ -1,14 +1,17 @@
 package environment
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"os"
 	"sort"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"arkloop/services/sandbox/internal/logging"
 	"arkloop/services/shared/objectstore"
 )
 
@@ -91,10 +94,11 @@ type fakeRegistryWriter struct {
 	latest      map[string]string
 	ensured     []string
 	transitions []string
+	bindings    map[string]string
 }
 
 func newFakeRegistryWriter() *fakeRegistryWriter {
-	return &fakeRegistryWriter{latest: make(map[string]string)}
+	return &fakeRegistryWriter{latest: make(map[string]string), bindings: make(map[string]string)}
 }
 
 func (r *fakeRegistryWriter) EnsureProfileRegistry(_ context.Context, _ string, profileRef string) error {
@@ -124,26 +128,54 @@ func (r *fakeRegistryWriter) MarkFlushPending(_ context.Context, scope, ref stri
 	return nil
 }
 
-func (r *fakeRegistryWriter) MarkFlushRunning(_ context.Context, scope, ref string) error {
+func (r *fakeRegistryWriter) AcquireFlushLease(_ context.Context, scope, ref, holderID, expectedBaseRevision string, _ time.Time) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if current := r.latest[scope+":"+ref]; current != strings.TrimSpace(expectedBaseRevision) {
+		return ErrFlushConflict
+	}
+	r.bindings[scope+":"+ref] = strings.TrimSpace(holderID)
 	r.transitions = append(r.transitions, scope+":"+ref+":running")
 	return nil
 }
 
-func (r *fakeRegistryWriter) MarkFlushFailed(_ context.Context, scope, ref string, _ time.Time) error {
+func (r *fakeRegistryWriter) ReleaseFlushFailure(_ context.Context, scope, ref, holderID string, _ time.Time) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.bindings[scope+":"+ref] == strings.TrimSpace(holderID) {
+		delete(r.bindings, scope+":"+ref)
+	}
 	r.transitions = append(r.transitions, scope+":"+ref+":failed")
 	return nil
 }
 
-func (r *fakeRegistryWriter) MarkFlushSucceeded(_ context.Context, scope, ref, revision string, _ time.Time) error {
+func (r *fakeRegistryWriter) CommitFlushSuccess(_ context.Context, scope, ref, holderID, expectedBaseRevision, revision string, _ time.Time) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.bindings[scope+":"+ref] != strings.TrimSpace(holderID) {
+		return ErrFlushConflict
+	}
+	if r.latest[scope+":"+ref] != strings.TrimSpace(expectedBaseRevision) {
+		return ErrFlushConflict
+	}
+	delete(r.bindings, scope+":"+ref)
 	r.latest[scope+":"+ref] = revision
 	r.transitions = append(r.transitions, scope+":"+ref+":idle")
 	return nil
+}
+
+func (r *fakeRegistryWriter) ListLatestManifestRevisions(_ context.Context, scope string) ([]RegistryManifestBinding, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	items := make([]RegistryManifestBinding, 0)
+	for key, revision := range r.latest {
+		prefix := strings.TrimSpace(scope) + ":"
+		if !strings.HasPrefix(key, prefix) || strings.TrimSpace(revision) == "" {
+			continue
+		}
+		items = append(items, RegistryManifestBinding{Ref: strings.TrimPrefix(key, prefix), Revision: revision})
+	}
+	return items, nil
 }
 
 type fakeCarrier struct {
@@ -216,7 +248,7 @@ func (c *fakeCarrier) ApplyEnvironment(_ context.Context, scope string, manifest
 func TestManagerPrepareWithoutManifestOnlyEnsuresRegistries(t *testing.T) {
 	store := newMemoryStore()
 	registry := newFakeRegistryWriter()
-	mgr := NewManager(store, registry, nil)
+	mgr := NewManager(store, registry, nil, Config{})
 	binding := Binding{OrgID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", ProfileRef: "pref_a", WorkspaceRef: "wsref_a"}
 	carrier := newFakeCarrier()
 
@@ -234,7 +266,7 @@ func TestManagerPrepareWithoutManifestOnlyEnsuresRegistries(t *testing.T) {
 func TestManagerPrepareRestoresFromManifestState(t *testing.T) {
 	store := newMemoryStore()
 	registry := newFakeRegistryWriter()
-	mgr := NewManager(store, registry, nil)
+	mgr := NewManager(store, registry, nil, Config{})
 	binding := Binding{OrgID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", ProfileRef: "pref_a", WorkspaceRef: "wsref_a"}
 	carrier := newFakeCarrier()
 
@@ -250,7 +282,7 @@ func TestManagerPrepareRestoresFromManifestState(t *testing.T) {
 	if err := saveLatestPointer(context.Background(), store, LatestPointer{Version: CurrentManifestVersion, Scope: ScopeWorkspace, Ref: binding.WorkspaceRef, Revision: manifest.Revision, UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano)}); err != nil {
 		t.Fatalf("save latest pointer: %v", err)
 	}
-	if err := putBlobIfMissing(context.Background(), store, blobKey(ScopeWorkspace, binding.WorkspaceRef, "sha-chart"), []byte("png-data")); err != nil {
+	if _, err := putBlobIfMissing(context.Background(), store, blobKey(ScopeWorkspace, binding.WorkspaceRef, "sha-chart"), []byte("png-data")); err != nil {
 		t.Fatalf("put blob: %v", err)
 	}
 	registry.latest[ScopeWorkspace+":"+binding.WorkspaceRef] = manifest.Revision
@@ -272,7 +304,7 @@ func TestManagerPrepareRestoresFromManifestState(t *testing.T) {
 func TestManagerPrepareFailsWhenRegistryManifestMissing(t *testing.T) {
 	store := newMemoryStore()
 	registry := newFakeRegistryWriter()
-	mgr := NewManager(store, registry, nil)
+	mgr := NewManager(store, registry, nil, Config{})
 	binding := Binding{OrgID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", ProfileRef: "pref_a", WorkspaceRef: "wsref_a"}
 	carrier := newFakeCarrier()
 	registry.latest[ScopeWorkspace+":"+binding.WorkspaceRef] = "rev-missing"
@@ -286,7 +318,7 @@ func TestManagerPrepareFailsWhenRegistryManifestMissing(t *testing.T) {
 func TestManagerPrepareFailsWhenRegistryBlobMissing(t *testing.T) {
 	store := newMemoryStore()
 	registry := newFakeRegistryWriter()
-	mgr := NewManager(store, registry, nil)
+	mgr := NewManager(store, registry, nil, Config{})
 	binding := Binding{OrgID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", ProfileRef: "pref_a", WorkspaceRef: "wsref_a"}
 	carrier := newFakeCarrier()
 	manifest := NormalizeManifest(Manifest{
@@ -309,7 +341,7 @@ func TestManagerPrepareFailsWhenRegistryBlobMissing(t *testing.T) {
 func TestManagerPrepareSkipsRehydrateForSameRevision(t *testing.T) {
 	store := newMemoryStore()
 	registry := newFakeRegistryWriter()
-	mgr := NewManager(store, registry, nil)
+	mgr := NewManager(store, registry, nil, Config{})
 	binding := Binding{OrgID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", ProfileRef: "pref_a", WorkspaceRef: "wsref_a"}
 	carrier := newFakeCarrier()
 	manifest := NormalizeManifest(Manifest{
@@ -321,7 +353,7 @@ func TestManagerPrepareSkipsRehydrateForSameRevision(t *testing.T) {
 	if err := saveManifest(context.Background(), store, manifest); err != nil {
 		t.Fatalf("save manifest: %v", err)
 	}
-	if err := putBlobIfMissing(context.Background(), store, blobKey(ScopeWorkspace, binding.WorkspaceRef, "sha-chart"), []byte("png-data")); err != nil {
+	if _, err := putBlobIfMissing(context.Background(), store, blobKey(ScopeWorkspace, binding.WorkspaceRef, "sha-chart"), []byte("png-data")); err != nil {
 		t.Fatalf("put blob: %v", err)
 	}
 	registry.latest[ScopeWorkspace+":"+binding.WorkspaceRef] = manifest.Revision
@@ -340,7 +372,7 @@ func TestManagerPrepareSkipsRehydrateForSameRevision(t *testing.T) {
 func TestManagerPrepareRehydratesWhenRevisionChanges(t *testing.T) {
 	store := newMemoryStore()
 	registry := newFakeRegistryWriter()
-	mgr := NewManager(store, registry, nil)
+	mgr := NewManager(store, registry, nil, Config{})
 	binding := Binding{OrgID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", ProfileRef: "pref_a", WorkspaceRef: "wsref_a"}
 	carrier := newFakeCarrier()
 	manifest1 := NormalizeManifest(Manifest{
@@ -361,10 +393,10 @@ func TestManagerPrepareRehydratesWhenRevisionChanges(t *testing.T) {
 	if err := saveManifest(context.Background(), store, manifest2); err != nil {
 		t.Fatalf("save manifest2: %v", err)
 	}
-	if err := putBlobIfMissing(context.Background(), store, blobKey(ScopeWorkspace, binding.WorkspaceRef, "sha-chart"), []byte("png-data")); err != nil {
+	if _, err := putBlobIfMissing(context.Background(), store, blobKey(ScopeWorkspace, binding.WorkspaceRef, "sha-chart"), []byte("png-data")); err != nil {
 		t.Fatalf("put blob1: %v", err)
 	}
-	if err := putBlobIfMissing(context.Background(), store, blobKey(ScopeWorkspace, binding.WorkspaceRef, "sha-chart-v2"), []byte("png-data-v2")); err != nil {
+	if _, err := putBlobIfMissing(context.Background(), store, blobKey(ScopeWorkspace, binding.WorkspaceRef, "sha-chart-v2"), []byte("png-data-v2")); err != nil {
 		t.Fatalf("put blob2: %v", err)
 	}
 	registry.latest[ScopeWorkspace+":"+binding.WorkspaceRef] = manifest1.Revision
@@ -387,7 +419,7 @@ func TestManagerPrepareRehydratesWhenRevisionChanges(t *testing.T) {
 func TestManagerFlushWritesManifestBlobAndLatestPointer(t *testing.T) {
 	store := newMemoryStore()
 	registry := newFakeRegistryWriter()
-	mgr := NewManager(store, registry, nil)
+	mgr := NewManager(store, registry, nil, Config{})
 	binding := Binding{OrgID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", ProfileRef: "pref_a", WorkspaceRef: "wsref_a"}
 	carrier := newFakeCarrier()
 	carrier.manifests[ScopeWorkspace] = NormalizeManifest(Manifest{
@@ -433,7 +465,7 @@ func TestManagerFlushWritesManifestBlobAndLatestPointer(t *testing.T) {
 func TestManagerFlushReusesExistingBlobAcrossRevisions(t *testing.T) {
 	store := newMemoryStore()
 	registry := newFakeRegistryWriter()
-	mgr := NewManager(store, registry, nil)
+	mgr := NewManager(store, registry, nil, Config{})
 	binding := Binding{OrgID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", ProfileRef: "pref_a", WorkspaceRef: "wsref_a"}
 	carrier := newFakeCarrier()
 	carrier.manifests[ScopeWorkspace] = NormalizeManifest(Manifest{
@@ -474,7 +506,7 @@ func TestManagerFlushReusesExistingBlobAcrossRevisions(t *testing.T) {
 func TestManagerFlushMergesDirtySubtreeWithoutRewritingWholeManifest(t *testing.T) {
 	store := newMemoryStore()
 	registry := newFakeRegistryWriter()
-	mgr := NewManager(store, registry, nil)
+	mgr := NewManager(store, registry, nil, Config{})
 	binding := Binding{OrgID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", ProfileRef: "pref_a", WorkspaceRef: "wsref_a"}
 	carrier := newFakeCarrier()
 	carrier.manifests[ScopeWorkspace] = NormalizeManifest(Manifest{
@@ -512,5 +544,72 @@ func TestManagerFlushMergesDirtySubtreeWithoutRewritingWholeManifest(t *testing.
 	}
 	if manifest.Entries[0].Path != "docs/readme.md" || manifest.Entries[1].Path != "src/main.go" {
 		t.Fatalf("unexpected merged manifest ordering: %#v", manifest.Entries)
+	}
+}
+
+func TestManagerSweepUnreferencedBlobsDeletesOrphans(t *testing.T) {
+	store := newMemoryStore()
+	registry := newFakeRegistryWriter()
+	mgr := NewManager(store, registry, nil, Config{})
+	binding := Binding{OrgID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", ProfileRef: "pref_a", WorkspaceRef: "wsref_a"}
+	manifest := NormalizeManifest(Manifest{
+		Scope:    ScopeWorkspace,
+		Ref:      binding.WorkspaceRef,
+		Revision: "rev-1",
+		Entries:  []ManifestEntry{{Path: "src/main.go", Type: EntryTypeFile, Mode: 0o644, Size: 5, SHA256: "sha-live"}},
+	})
+	if err := saveManifest(context.Background(), store, manifest); err != nil {
+		t.Fatalf("save manifest: %v", err)
+	}
+	registry.latest[ScopeWorkspace+":"+binding.WorkspaceRef] = manifest.Revision
+	if _, err := putBlobIfMissing(context.Background(), store, blobKey(ScopeWorkspace, binding.WorkspaceRef, "sha-live"), []byte("live")); err != nil {
+		t.Fatalf("put live blob: %v", err)
+	}
+	if _, err := putBlobIfMissing(context.Background(), store, blobKey(ScopeWorkspace, binding.WorkspaceRef, "sha-old"), []byte("old")); err != nil {
+		t.Fatalf("put old blob: %v", err)
+	}
+	if err := mgr.SweepUnreferencedBlobs(context.Background()); err != nil {
+		t.Fatalf("sweep blobs: %v", err)
+	}
+	if _, err := store.Get(context.Background(), blobKey(ScopeWorkspace, binding.WorkspaceRef, "sha-live")); err != nil {
+		t.Fatalf("expected live blob to remain: %v", err)
+	}
+	if _, err := store.Get(context.Background(), blobKey(ScopeWorkspace, binding.WorkspaceRef, "sha-old")); !objectstore.IsNotFound(err) {
+		t.Fatalf("expected orphan blob deleted, got %v", err)
+	}
+}
+
+func TestManagerFlushLogsStructuredFields(t *testing.T) {
+	store := newMemoryStore()
+	registry := newFakeRegistryWriter()
+	var output bytes.Buffer
+	logger := logging.NewJSONLogger("test", &output)
+	mgr := NewManager(store, registry, logger, Config{})
+	binding := Binding{OrgID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", ProfileRef: "pref_a", WorkspaceRef: "wsref_a"}
+	carrier := newFakeCarrier()
+	carrier.manifests[ScopeWorkspace] = NormalizeManifest(Manifest{
+		Scope:   ScopeWorkspace,
+		Entries: []ManifestEntry{{Path: "src/main.go", Type: EntryTypeFile, Mode: 0o644, Size: 5, SHA256: "sha-main"}},
+	})
+	carrier.filePayloads[ScopeWorkspace] = map[string][]byte{"src/main.go": []byte("hello")}
+	if err := mgr.Prepare(context.Background(), "sess-1", carrier, binding); err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	mgr.MarkDirty("sess-1", "/workspace/src")
+	if err := mgr.FlushNow(context.Background(), "sess-1"); err != nil {
+		t.Fatalf("flush now: %v", err)
+	}
+	var payload map[string]any
+	lines := bytes.Split(bytes.TrimSpace(output.Bytes()), []byte{'\n'})
+	if len(lines) == 0 {
+		t.Fatal("expected flush log line")
+	}
+	if err := json.Unmarshal(lines[len(lines)-1], &payload); err != nil {
+		t.Fatalf("decode log: %v", err)
+	}
+	for _, key := range []string{"flush_scope", "flush_ref", "flush_reason", "dirty_count", "pending_bytes", "blob_put_count", "blob_skip_count", "manifest_size", "flush_duration_ms", "flush_result"} {
+		if _, ok := payload[key]; !ok {
+			t.Fatalf("missing log field %s in %#v", key, payload)
+		}
 	}
 }

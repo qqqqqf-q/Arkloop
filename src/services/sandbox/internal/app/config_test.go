@@ -5,14 +5,14 @@ import (
 	"testing"
 )
 
-func TestDefaultConfigSessionStateTTLDays(t *testing.T) {
+func TestDefaultConfigRestoreTTLDays(t *testing.T) {
 	cfg := DefaultConfig()
-	if cfg.SessionStateTTLDays != 7 {
-		t.Fatalf("unexpected default ttl: %d", cfg.SessionStateTTLDays)
+	if cfg.RestoreTTLDays != 7 {
+		t.Fatalf("unexpected default ttl: %d", cfg.RestoreTTLDays)
 	}
 }
 
-func TestLoadConfigFromEnvSessionStateTTLDays(t *testing.T) {
+func TestLoadConfigFromEnvRestoreTTLDays(t *testing.T) {
 	t.Setenv("ARKLOOP_SANDBOX_SESSION_STATE_TTL_DAYS", "0")
 	t.Setenv("ARKLOOP_SANDBOX_ADDR", "127.0.0.1:8002")
 	unsetSandboxConfigRegistryEnv(t)
@@ -21,18 +21,50 @@ func TestLoadConfigFromEnvSessionStateTTLDays(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load config failed: %v", err)
 	}
-	if cfg.SessionStateTTLDays != 0 {
-		t.Fatalf("unexpected ttl: %d", cfg.SessionStateTTLDays)
+	if cfg.RestoreTTLDays != 0 {
+		t.Fatalf("unexpected ttl: %d", cfg.RestoreTTLDays)
 	}
 }
 
-func TestLoadConfigFromEnvSessionStateTTLDaysRejectNegative(t *testing.T) {
+func TestLoadConfigFromEnvRestoreTTLDaysRejectNegative(t *testing.T) {
 	t.Setenv("ARKLOOP_SANDBOX_SESSION_STATE_TTL_DAYS", "-1")
 	t.Setenv("ARKLOOP_SANDBOX_ADDR", "127.0.0.1:8002")
 	unsetSandboxConfigRegistryEnv(t)
 
 	if _, err := LoadConfigFromEnv(); err == nil {
 		t.Fatal("expected ttl validation error")
+	}
+}
+
+func TestLoadConfigFromEnvRestoreTTLDaysPrefersNewKey(t *testing.T) {
+	t.Setenv("ARKLOOP_SANDBOX_RESTORE_TTL_DAYS", "3")
+	t.Setenv("ARKLOOP_SANDBOX_SESSION_STATE_TTL_DAYS", "9")
+	t.Setenv("ARKLOOP_SANDBOX_ADDR", "127.0.0.1:8002")
+	unsetSandboxConfigRegistryEnv(t)
+
+	cfg, err := LoadConfigFromEnv()
+	if err != nil {
+		t.Fatalf("load config failed: %v", err)
+	}
+	if cfg.RestoreTTLDays != 3 {
+		t.Fatalf("unexpected ttl: %d", cfg.RestoreTTLDays)
+	}
+}
+
+func TestLoadConfigFromEnvFlushSettings(t *testing.T) {
+	t.Setenv("ARKLOOP_SANDBOX_ADDR", "127.0.0.1:8002")
+	t.Setenv("ARKLOOP_SANDBOX_FLUSH_DEBOUNCE_MS", "1500")
+	t.Setenv("ARKLOOP_SANDBOX_FLUSH_MAX_DIRTY_AGE_MS", "9000")
+	t.Setenv("ARKLOOP_SANDBOX_FLUSH_FORCE_BYTES_THRESHOLD", "1024")
+	t.Setenv("ARKLOOP_SANDBOX_FLUSH_FORCE_COUNT_THRESHOLD", "32")
+	unsetSandboxConfigRegistryEnv(t)
+
+	cfg, err := LoadConfigFromEnv()
+	if err != nil {
+		t.Fatalf("load config failed: %v", err)
+	}
+	if cfg.FlushDebounceMS != 1500 || cfg.FlushMaxDirtyAgeMS != 9000 || cfg.FlushForceBytesThreshold != 1024 || cfg.FlushForceCountThreshold != 32 {
+		t.Fatalf("unexpected flush config: %#v", cfg)
 	}
 }
 

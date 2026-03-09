@@ -2,6 +2,8 @@ package environment
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -16,13 +18,9 @@ const (
 	ScopeProfile   = "profile"
 	ScopeWorkspace = "workspace"
 
-	debounceDelay       = 2 * time.Second
-	flushTimeout        = 2 * time.Minute
-	maxDirtyAge         = 15 * time.Second
-	forceBytesThreshold = 16 << 20
-	forceCountThreshold = 512
-	profileRootPath     = "/home/arkloop"
-	workspaceRootPath   = "/workspace"
+	flushTimeout      = 2 * time.Minute
+	profileRootPath   = "/home/arkloop"
+	workspaceRootPath = "/workspace"
 )
 
 type Carrier interface {
@@ -41,6 +39,7 @@ type Manager struct {
 	store    objectstore.BlobStore
 	registry RegistryWriter
 	logger   *logging.JSONLogger
+	config   Config
 
 	mu       sync.Mutex
 	sessions map[string]*trackedSession
@@ -68,7 +67,7 @@ type trackedScope struct {
 	needsFullReconcile bool
 }
 
-func NewManager(store objectstore.BlobStore, registry RegistryWriter, logger *logging.JSONLogger) *Manager {
+func NewManager(store objectstore.BlobStore, registry RegistryWriter, logger *logging.JSONLogger, cfg Config) *Manager {
 	if registry == nil {
 		registry = NewNoopRegistryWriter()
 	}
@@ -76,6 +75,7 @@ func NewManager(store objectstore.BlobStore, registry RegistryWriter, logger *lo
 		store:    store,
 		registry: registry,
 		logger:   logger,
+		config:   normalizeConfig(cfg),
 		sessions: make(map[string]*trackedSession),
 	}
 }
@@ -201,7 +201,7 @@ func (m *Manager) flushScopeInBackground(sessionID, scope string, version uint64
 	defer cancel()
 	if err := m.flushScope(ctx, strings.TrimSpace(sessionID), strings.TrimSpace(scope), version, force); err != nil && m.logger != nil {
 		sid := strings.TrimSpace(sessionID)
-		m.logger.Warn("environment flush failed", logging.LogFields{SessionID: &sid}, map[string]any{"scope": scope, "error": err.Error()})
+		m.logger.Warn("environment_flush_background", logging.LogFields{SessionID: &sid}, map[string]any{"flush_scope": scope, "flush_result": "failed", "error": err.Error()})
 	}
 }
 
@@ -249,13 +249,14 @@ func (m *Manager) flushScope(ctx context.Context, sessionID, scope string, versi
 		binding := entry.binding
 		startVersion := state.version
 		dirtySubtrees := state.sortedDirtySubtrees()
-		fullReconcile := force || state.needsFullReconcile || state.pendingBytes >= forceBytesThreshold || state.dirtyCount >= forceCountThreshold || (!state.firstDirtyAt.IsZero() && time.Since(state.firstDirtyAt) >= maxDirtyAge) || len(dirtySubtrees) == 0
+		fullReconcile := force || state.needsFullReconcile || state.pendingBytes >= m.config.ForceBytesThreshold || state.dirtyCount >= m.config.ForceCountThreshold || (!state.firstDirtyAt.IsZero() && time.Since(state.firstDirtyAt) >= m.config.MaxDirtyAge) || len(dirtySubtrees) == 0
+		flushReason := m.flushReason(force, state)
 		state.running = true
 		state.runDone = make(chan struct{})
 		state.needsFullReconcile = false
 		entry.mu.Unlock()
 
-		revision, err := m.runScopeFlush(ctx, carrier, binding, scope, dirtySubtrees, fullReconcile)
+		revision, err := m.runScopeFlush(ctx, sessionID, carrier, binding, scope, dirtySubtrees, fullReconcile, flushReason, state.dirtyCount, state.pendingBytes)
 
 		entry = m.lookupSession(sessionID)
 		if entry == nil {
@@ -287,7 +288,7 @@ func (m *Manager) flushScope(ctx context.Context, sessionID, scope string, versi
 	}
 }
 
-func (m *Manager) runScopeFlush(ctx context.Context, carrier Carrier, binding Binding, scope string, dirtySubtrees []string, fullReconcile bool) (_ string, err error) {
+func (m *Manager) runScopeFlush(ctx context.Context, sessionID string, carrier Carrier, binding Binding, scope string, dirtySubtrees []string, fullReconcile bool, flushReason string, dirtyCount int, pendingBytes int64) (_ string, err error) {
 	ref := binding.refForScope(scope)
 	if ref == "" {
 		return "", nil
@@ -295,21 +296,23 @@ func (m *Manager) runScopeFlush(ctx context.Context, carrier Carrier, binding Bi
 	if err = m.registry.MarkFlushPending(ctx, scope, ref); err != nil {
 		return "", err
 	}
-	if err = m.registry.MarkFlushRunning(ctx, scope, ref); err != nil {
-		_ = m.registry.MarkFlushFailed(ctx, scope, ref, time.Now().UTC())
-		return "", err
-	}
 	now := time.Now().UTC()
-	defer func() {
-		if err != nil {
-			_ = m.registry.MarkFlushFailed(ctx, scope, ref, now)
-		}
-	}()
-
+	holderID := strings.TrimSpace(sessionID)
 	baseRevision, err := m.registry.GetLatestManifestRevision(ctx, scope, ref)
 	if err != nil {
 		return "", err
 	}
+	if err = m.registry.AcquireFlushLease(ctx, scope, ref, holderID, baseRevision, now.Add(m.config.LeaseTTL)); err != nil {
+		_ = m.registry.ReleaseFlushFailure(ctx, scope, ref, holderID, now)
+		m.logFlushResult(sessionID, scope, ref, flushReason, dirtyCount, pendingBytes, 0, 0, 0, time.Since(now), err)
+		return "", err
+	}
+	defer func() {
+		if err != nil {
+			_ = m.registry.ReleaseFlushFailure(ctx, scope, ref, holderID, now)
+			m.logFlushResult(sessionID, scope, ref, flushReason, dirtyCount, pendingBytes, 0, 0, 0, time.Since(now), err)
+		}
+	}()
 
 	var previous Manifest
 	var hasPrevious bool
@@ -337,8 +340,14 @@ func (m *Manager) runScopeFlush(ctx context.Context, carrier Carrier, binding Bi
 	}
 	revision := nextManifestRevision(now)
 	nextManifest := mergeManifest(scope, ref, revision, baseRevision, previous, scanned, fullReconcile || !hasPrevious, dirtySubtrees)
+	manifestSize, err := manifestPayloadSize(nextManifest)
+	if err != nil {
+		return "", err
+	}
 
 	changedPaths := changedRegularFilePaths(previous, nextManifest)
+	blobPutCount := 0
+	blobSkipCount := 0
 	if len(changedPaths) > 0 {
 		files, collectErr := carrier.CollectEnvironmentFiles(ctx, scope, changedPaths)
 		if collectErr != nil {
@@ -361,8 +370,14 @@ func (m *Manager) runScopeFlush(ctx context.Context, carrier Carrier, binding Bi
 			if decodeErr != nil {
 				return "", decodeErr
 			}
-			if err := putBlobIfMissing(ctx, m.store, blobKey(scope, ref, entry.SHA256), data); err != nil {
-				return "", err
+			created, putErr := putBlobIfMissing(ctx, m.store, blobKey(scope, ref, entry.SHA256), data)
+			if putErr != nil {
+				return "", putErr
+			}
+			if created {
+				blobPutCount++
+			} else {
+				blobSkipCount++
 			}
 		}
 	}
@@ -379,9 +394,10 @@ func (m *Manager) runScopeFlush(ctx context.Context, carrier Carrier, binding Bi
 	}); err != nil {
 		return "", err
 	}
-	if err := m.registry.MarkFlushSucceeded(ctx, scope, ref, revision, now); err != nil {
+	if err := m.registry.CommitFlushSuccess(ctx, scope, ref, holderID, baseRevision, revision, now); err != nil {
 		return "", err
 	}
+	m.logFlushResult(sessionID, scope, ref, flushReason, dirtyCount, pendingBytes, blobPutCount, blobSkipCount, manifestSize, time.Since(now), nil)
 	return revision, nil
 }
 
@@ -452,8 +468,8 @@ func (m *Manager) scheduleScopeLocked(sessionID, scope string, state *trackedSco
 		state.timer.Stop()
 	}
 	version := state.version
-	delay := debounceDelay
-	if state.pendingBytes >= forceBytesThreshold || state.dirtyCount >= forceCountThreshold || (!state.firstDirtyAt.IsZero() && time.Since(state.firstDirtyAt) >= maxDirtyAge) {
+	delay := m.config.DebounceDelay
+	if state.pendingBytes >= m.config.ForceBytesThreshold || state.dirtyCount >= m.config.ForceCountThreshold || (!state.firstDirtyAt.IsZero() && time.Since(state.firstDirtyAt) >= m.config.MaxDirtyAge) {
 		delay = 0
 	}
 	state.timer = time.AfterFunc(delay, func() {
@@ -594,6 +610,62 @@ func subtreeWithinRoot(cwd, root string) (string, bool) {
 
 func nextManifestRevision(now time.Time) string {
 	return fmt.Sprintf("%d", now.UTC().UnixNano())
+}
+
+func manifestPayloadSize(manifest Manifest) (int, error) {
+	payload, err := json.Marshal(NormalizeManifest(manifest))
+	if err != nil {
+		return 0, fmt.Errorf("marshal manifest: %w", err)
+	}
+	return len(payload), nil
+}
+
+func (m *Manager) flushReason(force bool, state *trackedScope) string {
+	if force {
+		return "forced"
+	}
+	if state == nil {
+		return "debounce"
+	}
+	if state.pendingBytes >= m.config.ForceBytesThreshold {
+		return "force_bytes_threshold"
+	}
+	if state.dirtyCount >= m.config.ForceCountThreshold {
+		return "force_count_threshold"
+	}
+	if !state.firstDirtyAt.IsZero() && time.Since(state.firstDirtyAt) >= m.config.MaxDirtyAge {
+		return "force_dirty_age"
+	}
+	return "debounce"
+}
+
+func (m *Manager) logFlushResult(sessionID, scope, ref, reason string, dirtyCount int, pendingBytes int64, blobPutCount int, blobSkipCount int, manifestSize int, duration time.Duration, flushErr error) {
+	if m == nil || m.logger == nil {
+		return
+	}
+	sid := strings.TrimSpace(sessionID)
+	extra := map[string]any{
+		"flush_scope":       strings.TrimSpace(scope),
+		"flush_ref":         strings.TrimSpace(ref),
+		"flush_reason":      strings.TrimSpace(reason),
+		"dirty_count":       dirtyCount,
+		"pending_bytes":     pendingBytes,
+		"blob_put_count":    blobPutCount,
+		"blob_skip_count":   blobSkipCount,
+		"manifest_size":     manifestSize,
+		"flush_duration_ms": duration.Milliseconds(),
+	}
+	if flushErr != nil {
+		extra["flush_result"] = "failed"
+		extra["error"] = flushErr.Error()
+		if errors.Is(flushErr, ErrFlushConflict) {
+			extra["flush_result"] = "conflict"
+		}
+		m.logger.Warn("environment_flush", logging.LogFields{SessionID: &sid}, extra)
+		return
+	}
+	extra["flush_result"] = "succeeded"
+	m.logger.Info("environment_flush", logging.LogFields{SessionID: &sid}, extra)
 }
 
 func mergeManifest(scope, ref, revision, baseRevision string, previous Manifest, scanned Manifest, full bool, dirtySubtrees []string) Manifest {
