@@ -773,7 +773,7 @@ export function ChatPage() {
         const runThinking = buildLiveThinkingSnapshot()
         sse.disconnect()
         setActiveRunId(null)
-        setAssistantDraft('')
+        // assistantDraft 延迟到 refreshMessages 完成后清除，避免"闪空"
         setThinkingDraft('')
         setTopLevelCodeExecutions([])
         setSegments([])
@@ -799,6 +799,9 @@ export function ChatPage() {
         const runCodeExecs = [...currentRunCodeExecutionsRef.current]
         currentRunCodeExecutionsRef.current = []
         void refreshMessages().then((items) => {
+          // setMessages 已在 refreshMessages 内完成，同一微任务中清除 draft
+          // React 18+ 自动批处理保证二者在同一帧渲染，无闪烁
+          setAssistantDraft('')
           const lastAssistant = [...items].reverse().find((m) => m.role === 'assistant')
           if (lastAssistant) {
             if (runSources.length > 0) {

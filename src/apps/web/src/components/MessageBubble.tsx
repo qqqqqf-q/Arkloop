@@ -3,6 +3,7 @@ import { Copy, Check, RefreshCw, Share2, Split, Paperclip, Pencil, MoreHorizonta
 import type { MessageResponse } from '../api'
 import type { WebSource, ArtifactRef } from '../storage'
 import { MarkdownRenderer } from './MarkdownRenderer'
+import { useTypewriter } from '../hooks/useTypewriter'
 import { ArtifactImage } from './ArtifactImage'
 import { ArtifactDownload } from './ArtifactDownload'
 import { DocumentCard } from './DocumentCard'
@@ -539,10 +540,12 @@ type StreamingBubbleProps = {
 }
 
 export function StreamingBubble({ content, webSources }: StreamingBubbleProps) {
+  const displayed = useTypewriter(content)
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column' }}>
       <div style={{ maxWidth: '663px' }}>
-        <MarkdownRenderer content={content} disableMath webSources={webSources} />
+        <MarkdownRenderer content={displayed} disableMath webSources={webSources} />
       </div>
     </div>
   )
