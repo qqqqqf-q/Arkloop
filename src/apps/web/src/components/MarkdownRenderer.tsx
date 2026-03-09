@@ -86,6 +86,7 @@ function buildWorkspaceFileRef(path: string): WorkspaceFileRef {
 // artifact: 协议感知的 img 渲染器
 function ArtifactAwareImg({ src, alt }: { src?: string; alt?: string }) {
   const { artifacts, accessToken, runId, onOpenDocument } = useContext(ArtifactsContext)
+  const [failed, setFailed] = useState(false)
 
   if (src?.startsWith(ARTIFACT_PREFIX)) {
     const key = src.slice(ARTIFACT_PREFIX.length)
@@ -109,7 +110,29 @@ function ArtifactAwareImg({ src, alt }: { src?: string; alt?: string }) {
     return <WorkspaceResource file={file} runId={runId} accessToken={accessToken} />
   }
 
-  return <img src={src} alt={alt ?? ''} style={{ maxWidth: '100%', borderRadius: '8px' }} />
+  if (failed || !src) {
+    return (
+      <span
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          maxWidth: '320px',
+          aspectRatio: '16 / 10',
+          borderRadius: '8px',
+          border: '0.5px solid var(--c-border-subtle)',
+          background: 'var(--c-bg-deep)',
+          color: 'var(--c-text-muted)',
+          fontSize: '13px',
+          margin: '0.5em 0',
+        }}
+      >
+        {alt || 'Image'}
+      </span>
+    )
+  }
+
+  return <img src={src} alt={alt ?? ''} style={{ maxWidth: '100%', borderRadius: '8px' }} onError={() => setFailed(true)} />
 }
 
 // artifact: 协议感知的 a 渲染器
@@ -145,7 +168,7 @@ function ArtifactAwareLink({ href, children }: { href?: string; children?: React
       href={href}
       target="_blank"
       rel="noopener noreferrer"
-      style={{ color: 'var(--c-text-secondary)', textDecoration: 'underline', textDecorationColor: 'var(--c-border-mid)' }}
+      style={{ color: 'var(--c-text-primary)', fontWeight: 400, fontSize: '0.92em', textDecoration: 'underline', textDecorationColor: 'var(--c-border-subtle)', textUnderlineOffset: '2px' }}
     >
       {children}
     </a>
@@ -220,23 +243,14 @@ function CodeBlockWrapper({ children, compact = false }: { children: React.React
       <span
         style={{
           position: 'absolute',
-          top: 0,
-          left: 0,
+          top: '8px',
+          left: '12px',
           zIndex: 1,
           display: 'inline-flex',
           alignItems: 'center',
-          height: '24px',
-          borderTopLeftRadius: `${frameRadius}px`,
-          borderTopRightRadius: '0',
-          borderBottomLeftRadius: '0',
-          borderBottomRightRadius: '8px',
-          borderRight: '0.5px solid var(--c-border-subtle)',
-          borderBottom: '0.5px solid var(--c-border-subtle)',
-          background: 'var(--c-md-code-label-bg, var(--c-bg-sub))',
-          color: 'var(--c-text-secondary)',
+          color: 'var(--c-text-tertiary)',
           fontSize: labelFontSize,
           letterSpacing: '0.18px',
-          padding: '0 10px',
           textTransform: 'lowercase',
           userSelect: 'none',
         }}
@@ -384,12 +398,14 @@ function WithCitations({ children, prefix }: { children: ReactNode; prefix: stri
 }
 
 function buildMarkdownComponents(compact: boolean): Components {
-  const paragraphFontSize = compact ? '14px' : '16px'
-  const heading1FontSize = compact ? '18px' : '22px'
+  const paragraphFontSize = compact ? '13.5px' : '15px'
+  const heading1FontSize = compact ? '20px' : '24px'
   const heading2FontSize = compact ? '17px' : '20px'
-  const heading3FontSize = compact ? '15.5px' : '18px'
-  const heading4FontSize = compact ? '14.5px' : '16px'
-  const listFontSize = compact ? '14px' : '16px'
+  const heading3FontSize = compact ? '15px' : '17px'
+  const heading4FontSize = compact ? '15px' : '17px'
+  const heading5FontSize = compact ? '13px' : '14px'
+  const heading6FontSize = compact ? '13px' : '14px'
+  const listFontSize = compact ? '13.5px' : '15px'
 
   return {
     pre: ({ children }) => {
@@ -400,49 +416,60 @@ function buildMarkdownComponents(compact: boolean): Components {
       return <CodeBlockWrapper compact={compact}>{children}</CodeBlockWrapper>
     },
 
-    // 内联/块级区分通过 CSS .md-content :not(pre) > code 处理
     code: ({ className, children }) => (
       <code className={className}>{children}</code>
     ),
 
     p: ({ children }) => (
-      <p style={{ color: 'var(--c-text-primary)', fontSize: paragraphFontSize, lineHeight: 1.6, letterSpacing: compact ? '0.1px' : '0.16px', margin: '0 0 0.5em' }}>
+      <p style={{ color: 'var(--c-text-primary)', fontSize: paragraphFontSize, lineHeight: 1.6, letterSpacing: '0.01px', margin: '0 0 0.5em' }}>
         <WithCitations prefix="p">{children}</WithCitations>
       </p>
     ),
 
     h1: ({ children }) => (
-      <h1 style={{ color: 'var(--c-text-heading)', fontSize: heading1FontSize, fontWeight: 450, lineHeight: 1.4, margin: '1.5em 0 0.5em', letterSpacing: compact ? '-0.2px' : '-0.3px' }}>
+      <h1 style={{ color: 'var(--c-text-heading)', fontSize: heading1FontSize, fontWeight: 400, lineHeight: 1.35, margin: '1.5em 0 0.5em', letterSpacing: '-0.3px' }}>
         {children}
       </h1>
     ),
 
     h2: ({ children }) => (
-      <h2 style={{ color: 'var(--c-text-heading)', fontSize: heading2FontSize, fontWeight: 450, lineHeight: 1.4, margin: '1.4em 0 0.5em', letterSpacing: '-0.2px' }}>
+      <h2 style={{ color: 'var(--c-text-heading)', fontSize: heading2FontSize, fontWeight: 400, lineHeight: 1.35, margin: '1.4em 0 0.5em', letterSpacing: '-0.2px' }}>
         {children}
       </h2>
     ),
 
     h3: ({ children }) => (
-      <h3 style={{ color: 'var(--c-text-heading)', fontSize: heading3FontSize, fontWeight: 450, lineHeight: 1.4, margin: '1.2em 0 0.4em' }}>
+      <h3 style={{ color: 'var(--c-text-heading)', fontSize: heading3FontSize, fontWeight: 400, lineHeight: 1.4, margin: '1.2em 0 0.4em' }}>
         {children}
       </h3>
     ),
 
     h4: ({ children }) => (
-      <h4 style={{ color: 'var(--c-text-heading)', fontSize: heading4FontSize, fontWeight: 450, lineHeight: 1.4, margin: '1em 0 0.4em' }}>
+      <h4 style={{ color: 'var(--c-text-heading)', fontSize: heading4FontSize, fontWeight: 400, lineHeight: 1.4, margin: '1em 0 0.4em' }}>
         {children}
       </h4>
     ),
 
+    h5: ({ children }) => (
+      <h5 style={{ color: 'var(--c-text-heading)', fontSize: heading5FontSize, fontWeight: 400, lineHeight: 1.4, margin: '0.8em 0 0.3em' }}>
+        {children}
+      </h5>
+    ),
+
+    h6: ({ children }) => (
+      <h6 style={{ color: 'var(--c-text-heading)', fontSize: heading6FontSize, fontWeight: 450, lineHeight: 1.4, margin: '0.8em 0 0.3em' }}>
+        {children}
+      </h6>
+    ),
+
     ul: ({ children }) => (
-      <ul style={{ color: 'var(--c-text-primary)', fontSize: listFontSize, lineHeight: 1.6, paddingLeft: '1.5em', margin: '0 0 1em', listStyleType: 'disc' }}>
+      <ul style={{ color: 'var(--c-text-primary)', fontSize: listFontSize, lineHeight: 1.6, paddingLeft: '2em', margin: '0 0 1em', listStyleType: 'disc' }}>
         {children}
       </ul>
     ),
 
     ol: ({ children }) => (
-      <ol style={{ color: 'var(--c-text-primary)', fontSize: listFontSize, lineHeight: 1.6, paddingLeft: '1.5em', margin: '0 0 1em', listStyleType: 'decimal' }}>
+      <ol style={{ color: 'var(--c-text-primary)', fontSize: listFontSize, lineHeight: 1.6, paddingLeft: '2em', margin: '0 0 1em', listStyleType: 'decimal' }}>
         {children}
       </ol>
     ),
@@ -450,7 +477,7 @@ function buildMarkdownComponents(compact: boolean): Components {
     li: ({ children }) => <li style={{ marginBottom: '0.3em' }}><WithCitations prefix="li">{children}</WithCitations></li>,
 
     blockquote: ({ children }) => (
-      <blockquote style={{ borderLeft: '3px solid var(--c-border-mid)', paddingLeft: '1em', margin: '1em 0', color: 'var(--c-text-secondary)', fontStyle: 'italic' }}>
+      <blockquote style={{ borderLeft: '3px solid #383835', paddingLeft: '1em', margin: '1em 0', color: 'var(--c-text-secondary)', fontStyle: 'italic' }}>
         <WithCitations prefix="bq">{children}</WithCitations>
       </blockquote>
     ),
@@ -482,7 +509,7 @@ function buildMarkdownComponents(compact: boolean): Components {
     hr: () => <hr style={{ border: 'none', borderTop: '0.5px solid var(--c-border-subtle)', margin: '1.5em 0' }} />,
 
     strong: ({ children }) => (
-      <strong style={{ color: 'var(--c-text-primary)', fontWeight: 450 }}>{children}</strong>
+      <strong style={{ color: 'var(--c-text-heading)', fontWeight: 450 }}>{children}</strong>
     ),
 
     em: ({ children }) => (
@@ -490,7 +517,7 @@ function buildMarkdownComponents(compact: boolean): Components {
     ),
 
     del: ({ children }) => (
-      <del style={{ color: 'var(--c-text-muted)', textDecoration: 'line-through' }}>{children}</del>
+      <del style={{ textDecoration: 'line-through' }}>{children}</del>
     ),
   }
 }

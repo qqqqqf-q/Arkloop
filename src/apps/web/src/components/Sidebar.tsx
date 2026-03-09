@@ -214,7 +214,7 @@ export function Sidebar({
         </div>
         <button
           onClick={onToggleCollapse}
-          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[var(--c-text-tertiary)] transition-colors hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-secondary)]"
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[var(--c-text-tertiary)] transition-[background-color,color] duration-[60ms] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]"
         >
           <PanelLeftClose size={16} />
         </button>
@@ -224,9 +224,9 @@ export function Sidebar({
       <nav className="flex flex-col gap-px px-2">
         <button
           onClick={onNewThread}
-          className="group flex h-9 items-center gap-2.5 rounded-lg px-2 text-[16px] text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]"
+          className="group flex h-9 items-center gap-2.5 rounded-lg px-2 text-[16px] text-[var(--c-text-secondary)] transition-[background-color,color] duration-[60ms] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]"
         >
-          <SquarePen size={16} className="shrink-0 transition-transform duration-200 group-hover:scale-[1.1]" />
+          <SquarePen size={16} className="shrink-0 transition-transform duration-100 group-hover:scale-[1.05]" />
           <span>{t.newChat}</span>
         </button>
 
@@ -236,25 +236,25 @@ export function Sidebar({
             const searchPath = basePath.endsWith('/') ? `${basePath}search` : `${basePath}/search`
             navigate(searchPath)
           }}
-          className="group flex h-9 items-center gap-2.5 rounded-lg px-2 text-[16px] text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]"
+          className="group flex h-9 items-center gap-2.5 rounded-lg px-2 text-[16px] text-[var(--c-text-secondary)] transition-[background-color,color] duration-[60ms] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]"
         >
-          <Search size={16} className="shrink-0 transition-transform duration-200 group-hover:scale-[1.1]" />
+          <Search size={16} className="shrink-0 transition-transform duration-100 group-hover:scale-[1.05]" />
           <span>{t.chats}</span>
         </button>
 
-        <button className="group flex h-9 items-center gap-2.5 rounded-lg px-2 text-[16px] text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]">
-          <FolderKanban size={16} className="shrink-0 transition-transform duration-200 group-hover:scale-[1.1]" />
+        <button className="group flex h-9 items-center gap-2.5 rounded-lg px-2 text-[16px] text-[var(--c-text-secondary)] transition-[background-color,color] duration-[60ms] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]">
+          <FolderKanban size={16} className="shrink-0 transition-transform duration-100 group-hover:scale-[1.05]" />
           <span>{t.projects}</span>
         </button>
 
         <button
           onClick={onOpenSearch}
           className={[
-            'group flex h-9 items-center gap-2.5 rounded-lg px-2 text-[16px] transition-colors hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]',
+            'group flex h-9 items-center gap-2.5 rounded-lg px-2 text-[16px] transition-[background-color,color] duration-[60ms] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]',
             isSearchMode ? 'bg-[var(--c-bg-deep)] text-[var(--c-text-primary)]' : 'text-[var(--c-text-secondary)]',
           ].join(' ')}
         >
-          <SearchCheck size={16} className="shrink-0 transition-transform duration-200 group-hover:scale-[1.1]" />
+          <SearchCheck size={16} className="shrink-0 transition-transform duration-100 group-hover:scale-[1.05]" />
           <span>{t.retrieve}</span>
         </button>
       </nav>
@@ -326,7 +326,6 @@ export function Sidebar({
                         ? 'bg-[var(--c-bg-deep)]'
                         : 'hover:bg-[var(--c-bg-deep)]',
                     ].join(' ')}
-                    style={{ transition: 'background-color 60ms ease' }}
                   >
                     {isEditing ? (
                       <input
@@ -350,7 +349,7 @@ export function Sidebar({
                       <button
                         onClick={() => navigate(`/t/${thread.id}`)}
                         className={[
-                          'flex min-w-0 flex-1 items-center gap-2 px-2 py-[7px] text-left text-[13px] font-[300]',
+                          'flex min-w-0 flex-1 items-center gap-2 px-2 py-[7px] text-left text-[13px] font-[300] group-hover:text-[var(--c-text-primary)]',
                           thread.id === threadId
                             ? 'text-[var(--c-text-primary)]'
                             : 'text-[var(--c-text-secondary)]',
@@ -386,10 +385,9 @@ export function Sidebar({
                             onClick={(e) => openMenu(e, thread.id)}
                             className={[
                               'flex h-6 w-6 shrink-0 items-center justify-center rounded-md',
-                              'transition-[opacity,background-color,color] duration-150',
                               isMenuOpen
-                                ? 'opacity-100 bg-[rgba(0,0,0,0.18)] text-[var(--c-text-secondary)]'
-                                : 'opacity-0 group-hover:opacity-100 text-[var(--c-text-muted)] hover:bg-[rgba(0,0,0,0.18)] hover:text-[var(--c-text-secondary)]',
+                                ? 'opacity-100 bg-[rgba(0,0,0,0.18)] text-[var(--c-text-primary)]'
+                                : 'opacity-0 group-hover:opacity-100 text-[var(--c-text-muted)] hover:bg-[rgba(0,0,0,0.18)] hover:text-[var(--c-text-primary)]',
                             ].join(' ')}
                           >
                             <MoreHorizontal size={14} />
@@ -426,7 +424,7 @@ export function Sidebar({
       <div className="mt-auto p-2" style={{ borderTop: '0.5px solid var(--c-border-subtle)' }}>
         <button
           onClick={() => onOpenSettings('account')}
-          className="flex w-full items-center gap-3 rounded-xl px-3 py-[10px] transition-colors hover:bg-[var(--c-bg-deep)]"
+          className="flex w-full items-center gap-3 rounded-xl px-3 py-[10px] transition-[background-color] duration-[60ms] hover:bg-[var(--c-bg-deep)]"
           style={{ border: '0.5px solid var(--c-border-subtle)' }}
         >
           <div
@@ -449,7 +447,7 @@ export function Sidebar({
         <div className="mt-1 flex items-center gap-[2px] px-1">
           <button
             onClick={() => onOpenSettings('settings')}
-            className="flex h-7 w-7 items-center justify-center rounded-md text-[var(--c-text-icon)] transition-colors hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-secondary)]"
+            className="flex h-7 w-7 items-center justify-center rounded-md text-[var(--c-text-icon)] transition-[background-color,color] duration-[60ms] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]"
           >
             <Bolt size={15} />
           </button>
@@ -483,20 +481,14 @@ export function Sidebar({
               const currentTitle = thread ? threadTitle(thread, t.untitled) : ''
               startRename(menuThreadId, currentTitle === t.untitled ? '' : currentTitle)
             }}
-            className="flex w-full items-center gap-2 px-3 py-1.5 text-[13px] transition-colors duration-100"
-            style={{ color: 'var(--c-text-secondary)', background: 'var(--c-bg-menu)', borderRadius: '8px' }}
-            onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = 'var(--c-bg-deep)' }}
-            onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = 'var(--c-bg-menu)' }}
+            className="flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-[13px] text-[var(--c-text-secondary)] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]"
           >
             <Pencil size={13} style={{ flexShrink: 0 }} />
             {t.renameThread}
           </button>
           <button
             onClick={() => toggleStar(menuThreadId)}
-            className="flex w-full items-center gap-2 px-3 py-1.5 text-[13px] transition-colors duration-100"
-            style={{ color: 'var(--c-text-secondary)', background: 'var(--c-bg-menu)', borderRadius: '8px' }}
-            onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = 'var(--c-bg-deep)' }}
-            onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = 'var(--c-bg-menu)' }}
+            className="flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-[13px] text-[var(--c-text-secondary)] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]"
           >
             <Star
               size={13}
@@ -514,10 +506,7 @@ export function Sidebar({
               setMenuThreadId(null)
               setShareModalThreadId(id)
             }}
-            className="flex w-full items-center gap-2 px-3 py-1.5 text-[13px] transition-colors duration-100"
-            style={{ color: 'var(--c-text-secondary)', background: 'var(--c-bg-menu)', borderRadius: '8px' }}
-            onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = 'var(--c-bg-deep)' }}
-            onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = 'var(--c-bg-menu)' }}
+            className="flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-[13px] text-[var(--c-text-secondary)] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]"
           >
             <Share2 size={13} style={{ flexShrink: 0 }} />
             {t.shareThread}
@@ -529,10 +518,7 @@ export function Sidebar({
               setMenuThreadId(null)
               setDeleteConfirmThreadId(id)
             }}
-            className="flex w-full items-center gap-2 px-3 py-1.5 text-[13px] transition-colors duration-100"
-            style={{ color: '#ef4444', background: 'var(--c-bg-menu)', borderRadius: '8px' }}
-            onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = 'rgba(239,68,68,0.08)' }}
-            onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = 'var(--c-bg-menu)' }}
+            className="flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-[13px] text-[#ef4444] hover:bg-[rgba(239,68,68,0.08)] hover:text-[#f87171]"
           >
             <Trash2 size={13} style={{ flexShrink: 0 }} />
             {t.deleteThread}
@@ -575,7 +561,7 @@ export function Sidebar({
             <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
               <button
                 onClick={() => setDeleteConfirmThreadId(null)}
-                className="transition-colors hover:bg-[var(--c-bg-deep)]"
+                className="hover:bg-[var(--c-bg-deep)]"
                 style={{
                   padding: '7px 16px',
                   borderRadius: '8px',
@@ -591,7 +577,7 @@ export function Sidebar({
               </button>
               <button
                 onClick={() => handleDelete(deleteConfirmThreadId)}
-                className="transition-opacity hover:opacity-85 active:opacity-70"
+                className="hover:opacity-85 active:opacity-70"
                 style={{
                   padding: '7px 16px',
                   borderRadius: '8px',

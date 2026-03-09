@@ -20,7 +20,7 @@ button:not(:disabled) {
   --c-border-mid: #5e5e5c;
   --c-border-auth: #5E5A5A;
   --c-text-primary: #faf9f5;
-  --c-text-heading: #e8e8e3;
+  --c-text-heading: #faf9f5;
   --c-text-secondary: #c2c0b6;
   --c-text-tertiary: #9c9a92;
   --c-text-muted: #6b6b68;
@@ -41,7 +41,7 @@ button:not(:disabled) {
   --c-modal-ring: rgba(255, 255, 255, 0.07);
   --c-bg-github-btn: #3d3d3b;
   --c-github-btn-border: rgba(255, 255, 255, 0.10);
-  --c-md-code-block-bg: #1E1D1C;
+  --c-md-code-block-bg: #2B2B29;
   --c-md-code-label-bg: #2B2A29;
   --c-md-table-bg: #1E1D1C;
   --c-md-table-head-bg: #242322;
@@ -299,23 +299,23 @@ button:not(:disabled) {
 
 .hljs { background: transparent; color: var(--c-text-primary); }
 .hljs-comment,
-.hljs-quote { color: #6e7a6e; font-style: italic; }
+.hljs-quote { color: #7c8a7c; font-style: italic; }
 .hljs-keyword,
 .hljs-selector-tag,
-.hljs-subst { color: #6eb4f7; font-weight: 500; }
+.hljs-subst { color: #c78dff; }
 .hljs-string,
 .hljs-attr,
-.hljs-addition { color: #98c47a; }
+.hljs-addition { color: #a5d6a7; }
 .hljs-number,
 .hljs-literal { color: #d19a66; }
 .hljs-title,
-.hljs-section { color: #e5c07b; font-weight: 500; }
+.hljs-section { color: #79b8ff; }
 .hljs-type,
-.hljs-class .hljs-title { color: #56b6c2; }
+.hljs-class .hljs-title { color: #79b8ff; }
 .hljs-built_in,
-.hljs-meta { color: #56b6c2; }
+.hljs-meta { color: #c78dff; }
 .hljs-variable,
-.hljs-template-variable { color: #c678dd; }
+.hljs-template-variable { color: #c78dff; }
 .hljs-tag .hljs-name,
 .hljs-selector-class,
 .hljs-selector-id,
@@ -323,9 +323,9 @@ button:not(:disabled) {
 .hljs-deletion { color: #e06c75; }
 .hljs-symbol,
 .hljs-bullet,
-.hljs-link { color: #61afef; }
+.hljs-link { color: #79b8ff; }
 .hljs-emphasis { font-style: italic; }
-.hljs-strong { font-weight: 600; }
+.hljs-strong { font-weight: 500; }
 
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]) .hljs { color: var(--c-text-primary); }
@@ -391,12 +391,25 @@ button:not(:disabled) {
 /* markdown 内联 code 样式 (非 pre 内的 code) */
 .md-content :not(pre) > code {
   background: var(--c-md-inline-code-bg, var(--c-bg-deep));
-  border-radius: 4px;
+  border-radius: 6px;
   padding: 1px 5px;
   font-size: 0.875em;
   font-family: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', monospace;
   color: #ED8784;
   border: 0.5px solid var(--c-border-subtle);
+}
+
+/* oldstyle numerals in markdown prose */
+.md-content p,
+.md-content li,
+.md-content td,
+.md-content h1,
+.md-content h2,
+.md-content h3,
+.md-content h4,
+.md-content h5,
+.md-content h6 {
+  font-feature-settings: 'onum' 1, 'pnum' 1, 'ss01' 1, 'cv01' 1;
 }
 
 .md-content--compact .md-table {
@@ -414,6 +427,21 @@ button:not(:disabled) {
 
 .md-content--compact :not(pre) > code {
   padding: 1px 4px;
+}
+
+/* footnote / superscript links: no blue */
+.md-content a[data-footnote-ref],
+.md-content .footnotes a,
+.md-content sup a {
+  color: var(--c-text-tertiary);
+  text-decoration: none;
+  font-weight: 400;
+}
+
+/* image placeholder when src fails */
+.md-content img {
+  max-width: 100%;
+  border-radius: 8px;
 }
 
 .katex-display {
@@ -521,7 +549,7 @@ button:not(:disabled) {
   }
 }
 .modal-enter {
-  animation: modal-enter 0.26s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: modal-enter 0.16s cubic-bezier(0.16, 1, 0.3, 1);
   will-change: transform, opacity;
 }
 @keyframes overlay-fade-in {
@@ -529,24 +557,24 @@ button:not(:disabled) {
   to   { opacity: 1; }
 }
 .overlay-fade-in {
-  animation: overlay-fade-in 0.18s ease-out;
+  animation: overlay-fade-in 0.12s ease-out;
 }
 @keyframes dropdown-slide-in {
-  from { opacity: 0; transform: translateY(-6px); }
+  from { opacity: 0; transform: translateY(-3px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 
 @keyframes dropdown-slide-up {
-  from { opacity: 0; transform: translateY(6px); }
+  from { opacity: 0; transform: translateY(3px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 
 .dropdown-menu {
-  animation: dropdown-slide-in 0.15s ease-out;
+  animation: dropdown-slide-in 0.08s ease-out;
 }
 
 .dropdown-menu-up {
-  animation: dropdown-slide-up 0.15s ease-out;
+  animation: dropdown-slide-up 0.08s ease-out;
 }
 
 @keyframes timeline-line-grow {
@@ -601,6 +629,7 @@ button:not(:disabled) {
 
   body {
     font-family: 'Inter', system-ui, sans-serif;
+    font-feature-settings: 'tnum' 1, 'ss01' 1, 'cv01' 1;
     background: var(--c-bg-page);
     color: var(--c-text-primary);
     overflow: hidden;

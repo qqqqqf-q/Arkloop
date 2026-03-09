@@ -742,7 +742,7 @@ export function ChatInput({
             type="button"
             onClick={cancelRecording}
             disabled={isTranscribing}
-            className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-[var(--c-bg-deep)] text-[var(--c-text-secondary)] transition-[opacity,background] duration-150 hover:bg-[var(--c-bg-deep)] hover:opacity-100 opacity-70 disabled:cursor-not-allowed disabled:opacity-40"
+            className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-[var(--c-bg-deep)] text-[var(--c-text-secondary)] transition-[opacity,background] duration-[60ms] hover:bg-[var(--c-bg-deep)] hover:opacity-100 opacity-70 disabled:cursor-not-allowed disabled:opacity-40"
           >
             <X size={14} />
           </button>
@@ -752,7 +752,7 @@ export function ChatInput({
             type="button"
             onClick={stopAndTranscribe}
             disabled={isTranscribing}
-            className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-[var(--c-accent-send)] text-[var(--c-accent-send-text)] transition-[background-color,opacity] duration-150 hover:bg-[var(--c-accent-send-hover)] active:opacity-[0.75] active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-60"
+            className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-[var(--c-accent-send)] text-[var(--c-accent-send-text)] transition-[background-color,opacity] duration-[60ms] hover:bg-[var(--c-accent-send-hover)] active:opacity-[0.75] active:scale-[0.93] disabled:cursor-not-allowed disabled:opacity-60"
           >
             {isTranscribing
               ? <Loader2 size={14} className="animate-spin" />
@@ -853,7 +853,7 @@ export function ChatInput({
               ref={plusBtnRef}
               type="button"
               onClick={() => setMenuOpen((v) => !v)}
-              className="relative top-px flex h-8 w-8 items-center justify-center rounded-lg text-[var(--c-text-secondary)] opacity-70 transition-[opacity,background] duration-150 hover:bg-[var(--c-bg-deep)] hover:opacity-100"
+              className="relative top-px flex h-8 w-8 items-center justify-center rounded-lg text-[var(--c-text-secondary)] opacity-70 transition-[opacity,background] duration-[60ms] hover:bg-[var(--c-bg-deep)] hover:opacity-100"
             >
               <Plus size={20} />
             </button>
@@ -878,20 +878,14 @@ export function ChatInput({
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
-                    className="flex w-full items-center gap-2 px-3 py-2 text-sm transition-colors duration-100"
-                    style={{ color: 'var(--c-text-secondary)', background: 'var(--c-bg-menu)', borderRadius: '8px' }}
-                    onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--c-bg-deep)')}
-                    onMouseLeave={(e) => (e.currentTarget.style.background = 'var(--c-bg-menu)')}
+                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-[var(--c-text-secondary)] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]"
                   >
                     <Paperclip size={14} style={{ color: 'var(--c-text-secondary)', flexShrink: 0 }} />
                     {t.addFromLocal}
                   </button>
                   <button
                     type="button"
-                    className="flex w-full items-center gap-2 px-3 py-2 text-sm transition-colors duration-100"
-                    style={{ color: 'var(--c-text-secondary)', background: 'var(--c-bg-menu)', borderRadius: '8px' }}
-                    onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--c-bg-deep)')}
-                    onMouseLeave={(e) => (e.currentTarget.style.background = 'var(--c-bg-menu)')}
+                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-[var(--c-text-secondary)] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]"
                   >
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style={{ color: 'var(--c-text-secondary)', flexShrink: 0 }}>
                       <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z" />
@@ -927,7 +921,7 @@ export function ChatInput({
                 opacity: selectedPersonaKey === SEARCH_PERSONA_KEY
                   ? 1 : tierHovered ? 1 : 0.7,
                 fontSize: '14px',
-                transition: 'background-color 0.15s ease, color 0.2s ease, opacity 0.15s ease',
+                transition: 'background-color 60ms ease, color 60ms ease, opacity 60ms ease',
               }}
             >
               {selectedPersona?.selector_name ?? selectedPersonaKey}
@@ -959,14 +953,11 @@ export function ChatInput({
                         key={persona.persona_key}
                         type="button"
                         onClick={() => handlePersonaSelect(persona.persona_key)}
-                        className="flex w-full items-center px-3 py-2 text-sm transition-colors duration-100"
+                        className="flex w-full items-center rounded-lg px-3 py-2 text-sm hover:bg-[var(--c-bg-deep)]"
                         style={{
-                          borderRadius: '8px',
-                          background: 'var(--c-bg-menu)',
                           color: isSelected && isBlue ? '#4691F6' : 'var(--c-text-secondary)',
                           fontWeight: isSelected ? 600 : 400,
                         }}
-                        onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--c-bg-deep)')}
                         onMouseLeave={(e) => (e.currentTarget.style.background = 'var(--c-bg-menu)')}
                       >
                         {persona.selector_name}
@@ -982,7 +973,7 @@ export function ChatInput({
               type="button"
               onClick={startRecording}
               disabled={isRecording || isTranscribing || !accessToken}
-              className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--c-text-secondary)] opacity-70 transition-[opacity,background] duration-150 hover:bg-[var(--c-bg-deep)] hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-30"
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--c-text-secondary)] opacity-70 transition-[opacity,background] duration-[60ms] hover:bg-[var(--c-bg-deep)] hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-30"
             >
               <Mic size={16} />
             </button>
@@ -991,7 +982,7 @@ export function ChatInput({
                 type="button"
                 onClick={onCancel}
                 disabled={cancelSubmitting}
-                className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--c-accent-send)] text-[var(--c-accent-send-text)] transition-[background-color,opacity] duration-150 hover:bg-[var(--c-accent-send-hover)] active:opacity-[0.75] disabled:cursor-not-allowed disabled:opacity-50"
+                className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--c-accent-send)] text-[var(--c-accent-send-text)] transition-[background-color,opacity] duration-[60ms] hover:bg-[var(--c-accent-send-hover)] active:opacity-[0.75] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Square size={14} fill="currentColor" />
               </button>
@@ -999,7 +990,7 @@ export function ChatInput({
               <button
                 type="submit"
                 disabled={disabled || isStreaming || (!value.trim() && attachments.length === 0)}
-                className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--c-accent-send)] text-[var(--c-accent-send-text)] transition-[background-color,opacity] duration-150 hover:bg-[var(--c-accent-send-hover)] active:opacity-[0.75] active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-50"
+                className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--c-accent-send)] text-[var(--c-accent-send-text)] transition-[background-color,opacity] duration-[60ms] hover:bg-[var(--c-accent-send-hover)] active:opacity-[0.75] active:scale-[0.93] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <ArrowUp size={16} />
               </button>

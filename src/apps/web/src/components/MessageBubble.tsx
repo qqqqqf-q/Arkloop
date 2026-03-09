@@ -300,7 +300,7 @@ export function MessageBubble({ message, onRetry, onEdit, onFork, onShare, onRep
       >
         {/* hover 时左侧操作按钮 + 日期 */}
         <div
-          className="opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto transition-opacity duration-150"
+          className="opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto transition-opacity duration-[60ms]"
           style={{
             display: 'flex',
             flexDirection: 'column',
@@ -324,7 +324,7 @@ export function MessageBubble({ message, onRetry, onEdit, onFork, onShare, onRep
               background: 'transparent',
               color: 'var(--c-text-secondary)',
               cursor: 'pointer',
-              transition: 'background 150ms',
+              transition: 'background 60ms',
             }}
             onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--c-bg-deep)' }}
             onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent' }}
@@ -345,7 +345,7 @@ export function MessageBubble({ message, onRetry, onEdit, onFork, onShare, onRep
               background: 'transparent',
               color: 'var(--c-text-secondary)',
               cursor: 'pointer',
-              transition: 'background 150ms',
+              transition: 'background 60ms',
             }}
             onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--c-bg-deep)' }}
             onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent' }}
@@ -462,7 +462,7 @@ export function MessageBubble({ message, onRetry, onEdit, onFork, onShare, onRep
             <div style={{ position: 'relative' }}>
               <button
                 onClick={handleCopy}
-                className="flex h-7 w-7 items-center justify-center rounded-lg text-[var(--c-text-secondary)] opacity-60 transition-[opacity,background] duration-150 hover:bg-[var(--c-bg-deep)] hover:opacity-100 cursor-pointer border-none bg-transparent"
+                className="flex h-7 w-7 items-center justify-center rounded-lg text-[var(--c-text-secondary)] opacity-60 transition-[opacity,background] duration-[60ms] hover:bg-[var(--c-bg-deep)] hover:opacity-100 cursor-pointer border-none bg-transparent"
               >
                 {copied ? <Check size={15} /> : <Copy size={15} />}
               </button>
@@ -495,7 +495,7 @@ export function MessageBubble({ message, onRetry, onEdit, onFork, onShare, onRep
             <button
               onClick={onRetry}
               disabled={!onRetry}
-              className={`flex h-7 w-7 items-center justify-center rounded-lg text-[var(--c-text-secondary)] transition-[opacity,background] duration-150 border-none bg-transparent ${onRetry ? 'opacity-60 hover:bg-[var(--c-bg-deep)] hover:opacity-100 cursor-pointer' : 'opacity-25 cursor-default'}`}
+              className={`flex h-7 w-7 items-center justify-center rounded-lg text-[var(--c-text-secondary)] transition-[opacity,background] duration-[60ms] border-none bg-transparent ${onRetry ? 'opacity-60 hover:bg-[var(--c-bg-deep)] hover:opacity-100 cursor-pointer' : 'opacity-25 cursor-default'}`}
             >
               <RefreshCw size={15} />
             </button>
@@ -503,7 +503,7 @@ export function MessageBubble({ message, onRetry, onEdit, onFork, onShare, onRep
               <button
                 onClick={onShare}
                 disabled={!onShare || shareState === 'sharing'}
-                className={`flex h-7 w-7 items-center justify-center rounded-lg text-[var(--c-text-secondary)] transition-[opacity,background] duration-150 border-none bg-transparent ${onShare && shareState !== 'sharing' ? 'opacity-60 hover:bg-[var(--c-bg-deep)] hover:opacity-100 cursor-pointer' : 'opacity-25 cursor-default'}`}
+                className={`flex h-7 w-7 items-center justify-center rounded-lg text-[var(--c-text-secondary)] transition-[opacity,background] duration-[60ms] border-none bg-transparent ${onShare && shareState !== 'sharing' ? 'opacity-60 hover:bg-[var(--c-bg-deep)] hover:opacity-100 cursor-pointer' : 'opacity-25 cursor-default'}`}
               >
                 {shareState === 'shared' ? <Check size={15} /> : <Share2 size={15} />}
               </button>
@@ -527,7 +527,7 @@ export function MessageBubble({ message, onRetry, onEdit, onFork, onShare, onRep
             <button
               onClick={onFork}
               disabled={!onFork}
-              className={`flex h-7 w-7 items-center justify-center rounded-lg text-[var(--c-text-secondary)] transition-[opacity,background] duration-150 border-none bg-transparent ${onFork ? 'opacity-60 hover:bg-[var(--c-bg-deep)] hover:opacity-100 cursor-pointer' : 'opacity-25 cursor-default'}`}
+              className={`flex h-7 w-7 items-center justify-center rounded-lg text-[var(--c-text-secondary)] transition-[opacity,background] duration-[60ms] border-none bg-transparent ${onFork ? 'opacity-60 hover:bg-[var(--c-bg-deep)] hover:opacity-100 cursor-pointer' : 'opacity-25 cursor-default'}`}
             >
               <Split size={15} />
             </button>
@@ -535,7 +535,7 @@ export function MessageBubble({ message, onRetry, onEdit, onFork, onShare, onRep
               <div ref={moreRef} style={{ position: 'relative' }}>
                 <button
                   onClick={() => setMoreOpen(v => !v)}
-                  className="flex h-7 w-7 items-center justify-center rounded-lg text-[var(--c-text-secondary)] opacity-60 transition-[opacity,background] duration-150 hover:bg-[var(--c-bg-deep)] hover:opacity-100 cursor-pointer border-none bg-transparent"
+                  className="flex h-7 w-7 items-center justify-center rounded-lg text-[var(--c-text-secondary)] opacity-60 transition-[opacity,background] duration-[60ms] hover:bg-[var(--c-bg-deep)] hover:opacity-100 cursor-pointer border-none bg-transparent"
                 >
                   <MoreHorizontal size={15} />
                 </button>
@@ -558,10 +558,8 @@ export function MessageBubble({ message, onRetry, onEdit, onFork, onShare, onRep
                   >
                     <button
                       onClick={() => { setMoreOpen(false); onReport() }}
-                      className="flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-[13px] transition-colors duration-100"
-                      style={{ color: 'var(--c-text-secondary)', background: 'var(--c-bg-menu)', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}
-                      onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = 'var(--c-bg-deep)' }}
-                      onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = 'var(--c-bg-menu)' }}
+                      className="flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-[13px] text-[var(--c-text-secondary)] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]"
+                      style={{ border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}
                     >
                       <Flag size={13} style={{ color: 'var(--c-text-muted)', flexShrink: 0 }} />
                       {t.reportButton}
@@ -583,7 +581,7 @@ export function MessageBubble({ message, onRetry, onEdit, onFork, onShare, onRep
                   background: 'var(--c-bg-deep)',
                   cursor: 'pointer',
                   marginLeft: '4px',
-                  transition: 'background 150ms',
+                  transition: 'background 60ms',
                   fontFamily: 'inherit',
                 }}
                 onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--c-bg-plus)' }}
