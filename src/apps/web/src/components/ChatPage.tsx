@@ -459,6 +459,8 @@ export function ChatPage() {
     setThinkingDraft('')
     setTopLevelCodeExecutions([])
     resetSearchSteps()
+    setLiveTimelineExiting(false)
+    clearTimeout(liveTimelineExitTimerRef.current)
     setCancelSubmitting(false)
     setAwaitingInput(false)
     setCheckInDraft('')
@@ -784,7 +786,10 @@ export function ChatPage() {
         if (searchStepsRef.current.length > 0) {
           setLiveTimelineExiting(true)
           clearTimeout(liveTimelineExitTimerRef.current)
-          liveTimelineExitTimerRef.current = setTimeout(() => setLiveTimelineExiting(false), 500)
+          liveTimelineExitTimerRef.current = setTimeout(() => {
+            setLiveTimelineExiting(false)
+            resetSearchSteps()
+          }, 500)
         }
         setQueuedDraft(null)
         setAwaitingInput(false)
@@ -1397,7 +1402,7 @@ export function ChatPage() {
             className="relative flex-1 min-h-0 overflow-y-auto bg-[var(--c-bg-page)]"
           >
         <div
-          style={{ maxWidth: 800, margin: '0 auto', padding: `50px ${isPanelOpen ? '32px' : '60px'} 200px` }}
+          style={{ maxWidth: 800, margin: '0 auto', padding: `50px ${isPanelOpen ? '32px' : '60px'} 200px`, transition: 'padding 280ms cubic-bezier(0.16,1,0.3,1)' }}
           className="flex w-full flex-col gap-6"
         >
           {messagesLoading ? (
@@ -1716,7 +1721,7 @@ export function ChatPage() {
 
       {/* 输入区域 */}
       <div
-        style={{ maxWidth: 1200, margin: '0 auto', padding: `12px ${isPanelOpen ? '32px' : '60px'} 16px`, position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 10, background: 'linear-gradient(to bottom, transparent 0%, var(--c-bg-page) 24px)' }}
+        style={{ maxWidth: 1200, margin: '0 auto', padding: `12px ${isPanelOpen ? '32px' : '60px'} 16px`, transition: 'padding 280ms cubic-bezier(0.16,1,0.3,1)', position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 10, background: 'linear-gradient(to bottom, transparent 0%, var(--c-bg-page) 24px)' }}
         className="flex w-full flex-col items-center gap-2"
       >
         {queuedDraft && (
@@ -1814,11 +1819,12 @@ export function ChatPage() {
             overflow: 'hidden',
             flexShrink: 0,
             transition: 'width 280ms cubic-bezier(0.16,1,0.3,1)',
+            willChange: 'width',
             borderLeft: (panelDisplaySources || codePanelDisplay || documentPanelDisplay) ? '0.5px solid var(--c-border-subtle)' : 'none',
           }}
         >
           {isSourcePanelOpen && panelDisplaySources && panelDisplaySources.length > 0 && (
-            <div style={{ width: `${sidePanelWidth}px`, height: '100%' }}>
+            <div style={{ width: `${sidePanelWidth}px`, height: '100%', contain: 'layout style' }}>
               <SourcesPanel
                 sources={panelDisplaySources}
                 userQuery={panelDisplayQuery}
@@ -1827,7 +1833,7 @@ export function ChatPage() {
             </div>
           )}
           {isCodePanelOpen && codePanelDisplay && (
-            <div style={{ width: `${sidePanelWidth}px`, height: '100%' }}>
+            <div style={{ width: `${sidePanelWidth}px`, height: '100%', contain: 'layout style' }}>
               <CodeExecutionPanel
                 execution={codePanelDisplay}
                 onClose={() => { setCodePanelExecution(null); onRightPanelChange?.(false) }}
@@ -1835,7 +1841,7 @@ export function ChatPage() {
             </div>
           )}
           {isDocumentPanelOpen && documentPanelDisplay && (
-            <div style={{ width: `${documentPanelWidth}px`, height: '100%' }}>
+            <div style={{ width: `${documentPanelWidth}px`, height: '100%', contain: 'layout style' }}>
               <DocumentPanel
                 artifact={documentPanelDisplay}
                 accessToken={accessToken}

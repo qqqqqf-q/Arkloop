@@ -305,7 +305,7 @@ export function SearchTimeline({ steps, sources, isComplete, codeExecutions, onO
                         gap: '6px',
                       }}
                     >
-                      {step.status === 'active' && (
+                      {step.status === 'active' && step.kind !== 'reviewing' && (
                         <Loader2
                           size={12}
                           className="animate-spin"
