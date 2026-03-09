@@ -12,13 +12,11 @@ import (
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/routing"
 	"arkloop/services/worker/internal/tools"
-
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func NewRoutingMiddleware(
 	staticRouter *routing.ProviderRouter,
-	dbPool *pgxpool.Pool,
+	configLoader *routing.ConfigLoader,
 	stubGateway llm.Gateway,
 	emitDebugEvents bool,
 	runsRepo data.RunsRepository,
@@ -32,10 +30,10 @@ func NewRoutingMiddleware(
 		if staticRouter != nil {
 			selectorConfig = staticRouter.Config()
 		}
-		if dbPool != nil {
-			loaded, dbErr := routing.LoadRoutingConfigFromDB(ctx, dbPool)
+		if configLoader != nil {
+			loaded, dbErr := configLoader.Load(ctx)
 			if dbErr != nil {
-				slog.WarnContext(ctx, "routing: per-run db load failed, using static", "err", dbErr.Error())
+				slog.WarnContext(ctx, "routing: per-run load failed, using static", "err", dbErr.Error())
 			} else if len(loaded.Routes) > 0 {
 				selectorConfig = loaded
 				activeRouter = routing.NewProviderRouter(loaded)

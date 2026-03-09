@@ -67,6 +67,7 @@ func (e *SimpleExecutor) Execute(
 		ToolBudget:             rc.ToolBudget,
 		PerToolSoftLimits:      rc.PerToolSoftLimits,
 		PendingMemoryWrites:    rc.PendingMemoryWrites,
+		Runtime:                rc.Runtime,
 		LlmRetryMaxAttempts:    rc.LlmRetryMaxAttempts,
 		LlmRetryBaseDelayMs:    rc.LlmRetryBaseDelayMs,
 		CancelSignal: func() bool {

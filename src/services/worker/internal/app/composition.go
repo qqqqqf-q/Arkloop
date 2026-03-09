@@ -15,12 +15,12 @@ import (
 	"arkloop/services/worker/internal/data"
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/mcp"
-	"arkloop/services/worker/internal/memory/openviking"
 	"arkloop/services/worker/internal/personas"
 	"arkloop/services/worker/internal/pipeline"
 	"arkloop/services/worker/internal/queue"
 	"arkloop/services/worker/internal/routing"
 	"arkloop/services/worker/internal/runengine"
+	workerruntime "arkloop/services/worker/internal/runtime"
 	"arkloop/services/worker/internal/toolprovider"
 	"arkloop/services/worker/internal/tools"
 	"arkloop/services/worker/internal/tools/builtin"
@@ -32,6 +32,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 )
+
+const runtimeSnapshotTTL = 5 * time.Second
 
 // ComposeNativeEngine 组装原生运行引擎。
 // pool 不为 nil 时优先从数据库加载路由配置，若数据库无配置则回退到环境变量。
@@ -57,6 +59,7 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 		return nil, err
 	}
 	router := routing.NewProviderRouter(routingCfg)
+	routingLoader := routing.NewConfigLoader(pool, routingCfg)
 
 	stubCfg, err := llm.StubGatewayConfigFromEnv()
 	if err != nil {
@@ -70,9 +73,25 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 			return nil, err
 		}
 	}
+	for _, spec := range sandboxtool.AgentSpecs() {
+		if err := toolRegistry.Register(spec); err != nil {
+			return nil, err
+		}
+	}
+	if err := toolRegistry.Register(sandboxtool.BrowserSpec); err != nil {
+		return nil, err
+	}
+	for _, spec := range memorytool.AgentSpecs() {
+		if err := toolRegistry.Register(spec); err != nil {
+			return nil, err
+		}
+	}
 
 	executors := builtin.Executors(pool, rdb, configResolver)
 	allLlmSpecs := builtin.LlmSpecs()
+	allLlmSpecs = append(allLlmSpecs, sandboxtool.LlmSpecs()...)
+	allLlmSpecs = append(allLlmSpecs, sandboxtool.BrowserLlmSpec)
+	allLlmSpecs = append(allLlmSpecs, memorytool.LlmSpecs()...)
 
 	// 全局 MCP pool，用于 env-loaded 工具及 per-run org 工具的连接复用
 	mcpPool := mcp.NewPool()
@@ -109,13 +128,6 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 	runControlHub := pipeline.NewRunControlHub()
 	runControlHub.Start(ctx, listenPool)
 
-	// 加载 platform 级 tool_provider_configs，用于 sandbox/memory 配置
-	// 解析优先级: env (显式设置) -> tool_provider_configs DB
-	platformProviders, err := toolprovider.LoadActivePlatformProviders(ctx, pool)
-	if err != nil {
-		slog.WarnContext(ctx, "tool_provider_configs: platform load failed", "err", err.Error())
-	}
-
 	artifactStore, err := buildDocumentArtifactStore(ctx)
 	if err != nil {
 		slog.WarnContext(ctx, "document_write: artifact store init failed, skipping", "err", err.Error())
@@ -124,27 +136,43 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 	if err != nil {
 		slog.WarnContext(ctx, "message attachments: store init failed", "err", err.Error())
 	}
-	browserEnabled := resolveBrowserToolEnabled(ctx, configResolver)
-	builtinAvailability := resolveBuiltinAvailability(platformProviders, pool != nil, artifactStore != nil, browserEnabled)
 
-	// -- Memory (OpenViking) --
-	ovCfg := openviking.Config{
-		BaseURL:    builtinAvailability.MemoryBaseURL,
-		RootAPIKey: builtinAvailability.MemoryRootAPIKey,
+	runtimeManager := workerruntime.NewManager(runtimeSnapshotTTL, func(loadCtx context.Context) (sharedtoolruntime.RuntimeSnapshot, error) {
+		return sharedtoolruntime.BuildRuntimeSnapshot(loadCtx, sharedtoolruntime.SnapshotInput{
+			ConfigResolver:         configResolver,
+			HasConversationSearch:  pool != nil,
+			ArtifactStoreAvailable: artifactStore != nil,
+			LoadPlatformProviders: func(innerCtx context.Context) ([]sharedtoolruntime.ProviderConfig, error) {
+				providers, err := toolProviderCache.GetPlatform(innerCtx, pool)
+				if err != nil {
+					return nil, err
+				}
+				return toRuntimeProviders(providers), nil
+			},
+		})
+	})
+	if directPool != nil {
+		runtimeManager.StartToolProviderInvalidationListener(ctx, directPool)
 	}
-	memoryProvider := openviking.NewProvider(ovCfg)
-	if memoryProvider == nil {
-		slog.InfoContext(ctx, "memory: openviking not configured, running without memory")
-	} else {
-		// MemoryProvider 可用时条件注册 memory tools
-		memExecutor := memorytool.NewToolExecutor(memoryProvider, pool, data.MemorySnapshotRepository{})
-		for _, spec := range memorytool.AgentSpecs() {
-			if err := toolRegistry.Register(spec); err != nil {
-				return nil, err
-			}
-			executors[spec.Name] = memExecutor
-		}
-		allLlmSpecs = append(allLlmSpecs, memorytool.LlmSpecs()...)
+
+	sandboxExecutorFactory := workerruntime.NewSandboxExecutorFactory(pool)
+	dynamicSandboxExec := workerruntime.NewDynamicSandboxExecutor(runtimeManager, sandboxExecutorFactory)
+	var sandboxExec tools.Executor = dynamicSandboxExec
+	if pool != nil {
+		billingCfg := resolveSandboxBillingConfig(ctx, configResolver)
+		entResolver := sharedent.NewResolver(pool, rdb)
+		sandboxExec = sandboxtool.NewBillingExecutor(dynamicSandboxExec, pool, entResolver, billingCfg)
+	}
+	for _, spec := range sandboxtool.AgentSpecs() {
+		executors[spec.Name] = sandboxExec
+	}
+	executors[sandboxtool.BrowserSpec.Name] = dynamicSandboxExec
+
+	memoryProviderFactory := workerruntime.NewMemoryProviderFactory()
+	memoryExecutorFactory := workerruntime.NewMemoryExecutorFactory(pool, data.MemorySnapshotRepository{})
+	dynamicMemoryExec := workerruntime.NewDynamicMemoryExecutor(runtimeManager, memoryProviderFactory, memoryExecutorFactory)
+	for _, spec := range memorytool.AgentSpecs() {
+		executors[spec.Name] = dynamicMemoryExec
 	}
 
 	if pool != nil {
@@ -156,37 +184,6 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 			executors[spec.Name] = convExecutor
 		}
 		allLlmSpecs = append(allLlmSpecs, conversationtool.LlmSpecs()...)
-	}
-
-	// -- Sandbox --
-	sandboxBaseURL := builtinAvailability.SandboxBaseURL
-	if sandboxBaseURL != "" {
-		sandboxAuthToken := sandboxtool.AuthTokenFromEnv()
-		rawSandboxExec := sandboxtool.NewToolExecutorWithPool(sandboxBaseURL, sandboxAuthToken, pool)
-		var sandboxExec tools.Executor = rawSandboxExec
-
-		// 当 DB 可用时，包装计费装饰器
-		if pool != nil {
-			billingCfg := resolveSandboxBillingConfig(ctx, configResolver)
-			entResolver := sharedent.NewResolver(pool, rdb)
-			sandboxExec = sandboxtool.NewBillingExecutor(sandboxExec, pool, entResolver, billingCfg)
-		}
-
-		for _, spec := range sandboxtool.AgentSpecs() {
-			if err := toolRegistry.Register(spec); err != nil {
-				return nil, err
-			}
-			executors[spec.Name] = sandboxExec
-		}
-		allLlmSpecs = append(allLlmSpecs, sandboxtool.LlmSpecs()...)
-		if browserEnabled {
-			if err := toolRegistry.Register(sandboxtool.BrowserSpec); err != nil {
-				return nil, err
-			}
-			executors[sandboxtool.BrowserSpec.Name] = rawSandboxExec
-			allLlmSpecs = append(allLlmSpecs, sandboxtool.BrowserLlmSpec)
-		}
-		slog.InfoContext(ctx, "sandbox: tools registered", "base_url", sandboxBaseURL)
 	}
 
 	if artifactStore != nil {
@@ -262,7 +259,9 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 		RunLimiterRDB:                rdb,
 		LlmRetryMaxAttempts:          llmRetryMaxAttempts,
 		LlmRetryBaseDelayMs:          llmRetryBaseDelayMs,
-		MemoryProvider:               memoryProvider,
+		RuntimeManager:               runtimeManager,
+		MemoryProviderFactory:        memoryProviderFactory,
+		RoutingConfigLoader:          routingLoader,
 		MessageAttachmentStore:       messageAttachmentStore,
 	})
 }
@@ -304,12 +303,7 @@ func buildStorageBucketOpenerFromEnv() (objectstore.BucketOpener, error) {
 	return runtimeConfig.BucketOpener()
 }
 
-func resolveBuiltinAvailability(
-	platformProviders []toolprovider.ActiveProviderConfig,
-	hasConversationSearch bool,
-	artifactStoreAvailable bool,
-	browserEnabled bool,
-) sharedtoolruntime.BuiltinAvailability {
+func toRuntimeProviders(platformProviders []toolprovider.ActiveProviderConfig) []sharedtoolruntime.ProviderConfig {
 	providers := make([]sharedtoolruntime.ProviderConfig, 0, len(platformProviders))
 	for _, provider := range platformProviders {
 		providers = append(providers, sharedtoolruntime.ProviderConfig{
@@ -319,33 +313,7 @@ func resolveBuiltinAvailability(
 			APIKeyValue:  provider.APIKeyValue,
 		})
 	}
-	return sharedtoolruntime.ResolveBuiltin(sharedtoolruntime.ResolveInput{
-		HasConversationSearch:  hasConversationSearch,
-		ArtifactStoreAvailable: artifactStoreAvailable,
-		BrowserEnabled:         browserEnabled,
-		Env: sharedtoolruntime.EnvConfig{
-			SandboxBaseURL:   sandboxtool.BaseURLFromEnv(),
-			MemoryBaseURL:    strings.TrimSpace(os.Getenv("ARKLOOP_OPENVIKING_BASE_URL")),
-			MemoryRootAPIKey: strings.TrimSpace(os.Getenv("ARKLOOP_OPENVIKING_ROOT_API_KEY")),
-		},
-		PlatformProviders: providers,
-	})
-}
-
-func resolveBrowserToolEnabled(ctx context.Context, resolver sharedconfig.Resolver) bool {
-	if resolver == nil {
-		return false
-	}
-	value, err := resolver.Resolve(ctx, "browser.enabled", sharedconfig.Scope{})
-	if err != nil {
-		return false
-	}
-	switch strings.TrimSpace(strings.ToLower(value)) {
-	case "1", "true", "yes", "on":
-		return true
-	default:
-		return false
-	}
+	return providers
 }
 
 func resolveBaseToolAllowlistNames(ctx context.Context, toolRegistry *tools.Registry) []string {

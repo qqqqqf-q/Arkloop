@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	sharedtoolruntime "arkloop/services/shared/toolruntime"
 	"arkloop/services/worker/internal/events"
 	"arkloop/services/worker/internal/memory"
 	"github.com/google/uuid"
@@ -31,6 +32,7 @@ type ExecutionContext struct {
 	PerToolSoftLimits   PerToolSoftLimits
 	Emitter             events.Emitter
 	PendingMemoryWrites *memory.PendingWriteBuffer
+	RuntimeSnapshot     *sharedtoolruntime.RuntimeSnapshot
 }
 
 type ExecutionError struct {

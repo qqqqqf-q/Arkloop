@@ -3,10 +3,9 @@ package http
 import (
 	"context"
 	"fmt"
-	"os"
-	"strings"
 
 	apicrypto "arkloop/services/api/internal/crypto"
+	sharedconfig "arkloop/services/shared/config"
 	sharedtoolruntime "arkloop/services/shared/toolruntime"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -18,113 +17,41 @@ func buildEffectiveBuiltinToolNameSet(
 	pool *pgxpool.Pool,
 	artifactStoreAvailable bool,
 ) map[string]struct{} {
-	providers, err := loadEffectivePlatformProviders(ctx, pool)
-	if err != nil {
-		slog.WarnContext(ctx, "effective tool catalog: platform provider load failed", "err", err.Error())
-	}
-	browserEnabled := resolveEffectiveBrowserEnabled(ctx, pool)
-	resolved := sharedtoolruntime.ResolveBuiltin(sharedtoolruntime.ResolveInput{
+	resolver, _ := sharedconfig.NewResolver(
+		sharedconfig.DefaultRegistry(),
+		sharedconfig.NewPGXStore(pool),
+		nil,
+		0,
+	)
+
+	snapshot, err := sharedtoolruntime.BuildRuntimeSnapshot(ctx, sharedtoolruntime.SnapshotInput{
+		ConfigResolver:         resolver,
 		HasConversationSearch:  pool != nil,
 		ArtifactStoreAvailable: artifactStoreAvailable,
-		BrowserEnabled:         browserEnabled,
-		Env: sharedtoolruntime.EnvConfig{
-			SandboxBaseURL:   strings.TrimSpace(os.Getenv("ARKLOOP_SANDBOX_BASE_URL")),
-			MemoryBaseURL:    strings.TrimSpace(os.Getenv("ARKLOOP_OPENVIKING_BASE_URL")),
-			MemoryRootAPIKey: strings.TrimSpace(os.Getenv("ARKLOOP_OPENVIKING_ROOT_API_KEY")),
+		LoadPlatformProviders: func(loadCtx context.Context) ([]sharedtoolruntime.ProviderConfig, error) {
+			return sharedtoolruntime.LoadPlatformProviders(loadCtx, pool, decryptPlatformProviderSecret)
 		},
-		PlatformProviders: providers,
 	})
-	return resolved.ToolNameSet()
+	if err != nil {
+		slog.WarnContext(ctx, "effective tool catalog: runtime snapshot build failed", "err", err.Error())
+		return map[string]struct{}{}
+	}
+	return snapshot.BuiltinToolNameSet()
 }
 
-func resolveEffectiveBrowserEnabled(ctx context.Context, pool *pgxpool.Pool) bool {
-	if raw, ok := os.LookupEnv("ARKLOOP_BROWSER_ENABLED"); ok {
-		switch strings.TrimSpace(strings.ToLower(raw)) {
-		case "1", "true", "yes", "on":
-			return true
-		default:
-			return false
-		}
+func decryptPlatformProviderSecret(ctx context.Context, encrypted string, keyVersion *int, providerName string) (*string, error) {
+	_ = ctx
+	if keyVersion == nil {
+		return nil, fmt.Errorf("tool_provider_configs decrypt: missing key version for %s", providerName)
 	}
-	if pool == nil {
-		return false
-	}
-	var value string
-	err := pool.QueryRow(ctx, `SELECT value FROM platform_settings WHERE key = $1`, "browser.enabled").Scan(&value)
+	keyRing, err := apicrypto.NewKeyRingFromEnv()
 	if err != nil {
-		return false
+		return nil, fmt.Errorf("tool_provider_configs decrypt: %w", err)
 	}
-	switch strings.TrimSpace(strings.ToLower(value)) {
-	case "1", "true", "yes", "on":
-		return true
-	default:
-		return false
-	}
-}
-
-func loadEffectivePlatformProviders(ctx context.Context, pool *pgxpool.Pool) ([]sharedtoolruntime.ProviderConfig, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if pool == nil {
-		return nil, nil
-	}
-
-	rows, err := pool.Query(ctx, `
-		SELECT c.group_name, c.provider_name, c.base_url,
-		       s.encrypted_value, s.key_version
-		FROM tool_provider_configs c
-		LEFT JOIN secrets s ON s.id = c.secret_id AND s.scope = 'platform'
-		WHERE c.scope = 'platform' AND c.is_active = TRUE
-		ORDER BY c.updated_at DESC
-	`)
+	plaintext, err := keyRing.Decrypt(encrypted, *keyVersion)
 	if err != nil {
-		return nil, fmt.Errorf("tool_provider_configs query: %w", err)
+		return nil, fmt.Errorf("tool_provider_configs decrypt: %w", err)
 	}
-	defer rows.Close()
-
-	var keyRing *apicrypto.KeyRing
-	providers := []sharedtoolruntime.ProviderConfig{}
-	for rows.Next() {
-		var (
-			groupName    string
-			providerName string
-			baseURL      *string
-			encrypted    *string
-			keyVersion   *int
-		)
-		if err := rows.Scan(&groupName, &providerName, &baseURL, &encrypted, &keyVersion); err != nil {
-			return nil, fmt.Errorf("tool_provider_configs scan: %w", err)
-		}
-
-		var apiKeyValue *string
-		if encrypted != nil && strings.TrimSpace(*encrypted) != "" {
-			if keyVersion == nil {
-				return nil, fmt.Errorf("tool_provider_configs decrypt: missing key version for %s", providerName)
-			}
-			if keyRing == nil {
-				keyRing, err = apicrypto.NewKeyRingFromEnv()
-				if err != nil {
-					return nil, fmt.Errorf("tool_provider_configs decrypt: %w", err)
-				}
-			}
-			plaintext, err := keyRing.Decrypt(*encrypted, *keyVersion)
-			if err != nil {
-				return nil, fmt.Errorf("tool_provider_configs decrypt: %w", err)
-			}
-			value := string(plaintext)
-			apiKeyValue = &value
-		}
-
-		providers = append(providers, sharedtoolruntime.ProviderConfig{
-			GroupName:    strings.TrimSpace(groupName),
-			ProviderName: strings.TrimSpace(providerName),
-			BaseURL:      baseURL,
-			APIKeyValue:  apiKeyValue,
-		})
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("tool_provider_configs rows: %w", err)
-	}
-	return providers, nil
+	value := string(plaintext)
+	return &value, nil
 }

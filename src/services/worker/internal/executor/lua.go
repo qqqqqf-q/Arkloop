@@ -1174,6 +1174,7 @@ func (rt *luaRuntime) runAgentLoop(
 		ToolBudget:             rt.rc.ToolBudget,
 		PerToolSoftLimits:      rt.rc.PerToolSoftLimits,
 		PendingMemoryWrites:    rt.rc.PendingMemoryWrites,
+		Runtime:                rt.rc.Runtime,
 		LlmRetryMaxAttempts:    rt.rc.LlmRetryMaxAttempts,
 		LlmRetryBaseDelayMs:    rt.rc.LlmRetryBaseDelayMs,
 		CancelSignal: func() bool {

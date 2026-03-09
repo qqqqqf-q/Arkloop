@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	sharedtoolruntime "arkloop/services/shared/toolruntime"
+
 	"arkloop/services/worker/internal/data"
 	"arkloop/services/worker/internal/events"
 	"arkloop/services/worker/internal/llm"
@@ -32,10 +34,10 @@ func TestToolBuildMiddleware_BuildsExecutorAndFiltersSpecs(t *testing.T) {
 		Run: data.Run{
 			ID: uuid.New(),
 		},
-		Emitter:                  events.NewEmitter("test"),
-		ToolRegistry:             registry,
-		ToolExecutors:            executors,
-		AllowlistSet:             map[string]struct{}{"echo": {}, "noop": {}},
+		Emitter:                   events.NewEmitter("test"),
+		ToolRegistry:              registry,
+		ToolExecutors:             executors,
+		AllowlistSet:              map[string]struct{}{"echo": {}, "noop": {}},
 		ActiveToolProviderByGroup: nil,
 		ToolSpecs: []llm.ToolSpec{
 			builtin.EchoLlmSpec,
@@ -83,10 +85,10 @@ func TestToolBuildMiddleware_DropsUnboundExecutors(t *testing.T) {
 		Run: data.Run{
 			ID: uuid.New(),
 		},
-		Emitter:                  events.NewEmitter("test"),
-		ToolRegistry:             registry,
-		ToolExecutors:            executors,
-		AllowlistSet:             map[string]struct{}{"echo": {}, "noop": {}},
+		Emitter:                   events.NewEmitter("test"),
+		ToolRegistry:              registry,
+		ToolExecutors:             executors,
+		AllowlistSet:              map[string]struct{}{"echo": {}, "noop": {}},
 		ActiveToolProviderByGroup: nil,
 		ToolSpecs: []llm.ToolSpec{
 			builtin.EchoLlmSpec,
@@ -133,10 +135,10 @@ func TestToolBuildMiddleware_EmptyAllowlist(t *testing.T) {
 		Run: data.Run{
 			ID: uuid.New(),
 		},
-		Emitter:                  events.NewEmitter("test"),
-		ToolRegistry:             registry,
-		ToolExecutors:            executors,
-		AllowlistSet:             map[string]struct{}{}, // empty
+		Emitter:                   events.NewEmitter("test"),
+		ToolRegistry:              registry,
+		ToolExecutors:             executors,
+		AllowlistSet:              map[string]struct{}{}, // empty
 		ActiveToolProviderByGroup: nil,
 		ToolSpecs: []llm.ToolSpec{
 			builtin.EchoLlmSpec,
@@ -192,12 +194,12 @@ func TestToolBuildMiddleware_ResolveProviderAllowlistError(t *testing.T) {
 		Run: data.Run{
 			ID: uuid.New(),
 		},
-		Emitter:                  events.NewEmitter("test"),
-		ToolRegistry:             registry,
-		ToolExecutors:            executors,
-		AllowlistSet:             map[string]struct{}{"web_search.tavily": {}, "web_search.searxng": {}},
+		Emitter:                   events.NewEmitter("test"),
+		ToolRegistry:              registry,
+		ToolExecutors:             executors,
+		AllowlistSet:              map[string]struct{}{"web_search.tavily": {}, "web_search.searxng": {}},
 		ActiveToolProviderByGroup: nil,
-		ToolSpecs:                []llm.ToolSpec{},
+		ToolSpecs:                 []llm.ToolSpec{},
 	}
 
 	mw := pipeline.NewToolBuildMiddleware()
@@ -210,5 +212,33 @@ func TestToolBuildMiddleware_ResolveProviderAllowlistError(t *testing.T) {
 	err := h(context.Background(), rc)
 	if err == nil {
 		t.Fatal("expected error from ambiguous providers")
+	}
+}
+
+func TestToolBuildMiddleware_FiltersUnavailableRuntimeManagedTools(t *testing.T) {
+	registry := tools.NewRegistry()
+	if err := registry.Register(tools.AgentToolSpec{Name: "browser", Version: "1", Description: "browser", RiskLevel: tools.RiskLevelHigh}); err != nil {
+		t.Fatalf("register browser: %v", err)
+	}
+	executors := map[string]tools.Executor{"browser": builtin.NoopExecutor{}}
+	runtimeSnapshot := sharedtoolruntime.RuntimeSnapshot{}
+	rc := &pipeline.RunContext{
+		Run:           data.Run{ID: uuid.New()},
+		Emitter:       events.NewEmitter("test"),
+		ToolRegistry:  registry,
+		ToolExecutors: executors,
+		AllowlistSet:  map[string]struct{}{"browser": {}},
+		ToolSpecs:     []llm.ToolSpec{{Name: "browser"}},
+		Runtime:       &runtimeSnapshot,
+	}
+	mw := pipeline.NewToolBuildMiddleware()
+	h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(_ context.Context, rc *pipeline.RunContext) error {
+		if len(rc.FinalSpecs) != 0 {
+			t.Fatalf("expected browser spec to be filtered, got %d", len(rc.FinalSpecs))
+		}
+		return nil
+	})
+	if err := h(context.Background(), rc); err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }

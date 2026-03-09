@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	sharedtoolruntime "arkloop/services/shared/toolruntime"
 	"arkloop/services/worker/internal/events"
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/memory"
@@ -43,6 +44,7 @@ type RunContext struct {
 	ToolExecutor           *tools.DispatchingExecutor
 	ToolSpecs              []llm.ToolSpec
 	PendingMemoryWrites    *memory.PendingWriteBuffer
+	Runtime                *sharedtoolruntime.RuntimeSnapshot
 	CancelSignal           func() bool
 
 	// LLM 调用重试配置，0 值表示不重试
@@ -343,6 +345,7 @@ func (l *Loop) executeToolCall(
 		PerToolSoftLimits:   tools.CopyPerToolSoftLimits(runCtx.PerToolSoftLimits),
 		Emitter:             emitter,
 		PendingMemoryWrites: runCtx.PendingMemoryWrites,
+		RuntimeSnapshot:     runCtx.Runtime,
 	}
 	return runCtx.ToolExecutor.Execute(ctx, call.ToolName, copyMap(call.ArgumentsJSON), execCtx, call.ToolCallID)
 }

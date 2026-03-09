@@ -10,6 +10,7 @@ import (
 	sharedconfig "arkloop/services/shared/config"
 	sharedent "arkloop/services/shared/entitlement"
 	"arkloop/services/shared/runlimit"
+	sharedtoolruntime "arkloop/services/shared/toolruntime"
 	"arkloop/services/worker/internal/data"
 	"arkloop/services/worker/internal/events"
 	"arkloop/services/worker/internal/llm"
@@ -19,6 +20,7 @@ import (
 	"arkloop/services/worker/internal/pipeline"
 	"arkloop/services/worker/internal/queue"
 	"arkloop/services/worker/internal/routing"
+	workerruntime "arkloop/services/worker/internal/runtime"
 	"arkloop/services/worker/internal/toolprovider"
 	"arkloop/services/worker/internal/tools"
 	"arkloop/services/worker/internal/tools/builtin/sandbox"
@@ -28,17 +30,19 @@ import (
 )
 
 type EngineV1 struct {
-	middlewares         []pipeline.RunMiddleware
-	terminal            pipeline.RunHandler
-	router              *routing.ProviderRouter
-	directPool          *pgxpool.Pool
-	broadcastRDB        *redis.Client
-	jobQueue            queue.JobQueue
-	executorRegistry    pipeline.AgentExecutorBuilder
-	memoryProvider      memory.MemoryProvider
-	llmRetryMaxAttempts int
-	llmRetryBaseDelayMs int
-	configResolver      sharedconfig.Resolver
+	middlewares           []pipeline.RunMiddleware
+	terminal              pipeline.RunHandler
+	router                *routing.ProviderRouter
+	directPool            *pgxpool.Pool
+	broadcastRDB          *redis.Client
+	jobQueue              queue.JobQueue
+	executorRegistry      pipeline.AgentExecutorBuilder
+	runtimeManager        *workerruntime.Manager
+	memoryProviderFactory *workerruntime.MemoryProviderFactory
+	routingConfigLoader   *routing.ConfigLoader
+	llmRetryMaxAttempts   int
+	llmRetryBaseDelayMs   int
+	configResolver        sharedconfig.Resolver
 }
 
 type ExecuteInput struct {
@@ -75,8 +79,9 @@ type EngineV1Deps struct {
 	LlmRetryMaxAttempts int
 	LlmRetryBaseDelayMs int
 
-	// MemoryProvider 可选；nil 时跳过整个 MemoryMiddleware
-	MemoryProvider         memory.MemoryProvider
+	RuntimeManager         *workerruntime.Manager
+	MemoryProviderFactory  *workerruntime.MemoryProviderFactory
+	RoutingConfigLoader    *routing.ConfigLoader
 	MessageAttachmentStore pipeline.MessageAttachmentStore
 }
 
@@ -166,9 +171,9 @@ func NewEngineV1(deps EngineV1Deps) (*EngineV1, error) {
 		pipeline.NewToolProviderMiddleware(deps.ToolProviderCache),
 		pipeline.NewAgentConfigMiddleware(deps.DBPool),
 		pipeline.NewPersonaResolutionMiddleware(deps.PersonaRegistryGetter, deps.DBPool, runsRepo, eventsRepo, releaseSlot),
-		pipeline.NewMemoryMiddleware(deps.MemoryProvider, deps.DBPool, deps.ConfigResolver),
-		pipeline.NewRoutingMiddleware(deps.Router, deps.DBPool, deps.StubGateway, deps.EmitDebugEvents, runsRepo, eventsRepo, releaseSlot, resolver),
-		pipeline.NewTitleSummarizerMiddleware(deps.DBPool, deps.RunLimiterRDB, deps.StubGateway, deps.EmitDebugEvents),
+		pipeline.NewMemoryMiddleware(nil, deps.DBPool, deps.ConfigResolver),
+		pipeline.NewRoutingMiddleware(deps.Router, deps.RoutingConfigLoader, deps.StubGateway, deps.EmitDebugEvents, runsRepo, eventsRepo, releaseSlot, resolver),
+		pipeline.NewTitleSummarizerMiddleware(deps.DBPool, deps.RunLimiterRDB, deps.StubGateway, deps.EmitDebugEvents, deps.RoutingConfigLoader),
 		pipeline.NewToolDescriptionOverrideMiddleware(deps.ToolDescriptionOverridesRepo),
 		pipeline.NewToolBuildMiddleware(),
 	}
@@ -176,17 +181,19 @@ func NewEngineV1(deps EngineV1Deps) (*EngineV1, error) {
 	terminal := pipeline.NewAgentLoopHandler(runsRepo, eventsRepo, messagesRepo, deps.RunLimiterRDB, usageRepo, creditsRepo, resolver)
 
 	return &EngineV1{
-		middlewares:         middlewares,
-		terminal:            terminal,
-		router:              deps.Router,
-		directPool:          deps.DirectDBPool,
-		broadcastRDB:        deps.RunLimiterRDB,
-		jobQueue:            deps.JobQueue,
-		executorRegistry:    deps.ExecutorRegistry,
-		memoryProvider:      deps.MemoryProvider,
-		llmRetryMaxAttempts: deps.LlmRetryMaxAttempts,
-		llmRetryBaseDelayMs: deps.LlmRetryBaseDelayMs,
-		configResolver:      cfgResolver,
+		middlewares:           middlewares,
+		terminal:              terminal,
+		router:                deps.Router,
+		directPool:            deps.DirectDBPool,
+		broadcastRDB:          deps.RunLimiterRDB,
+		jobQueue:              deps.JobQueue,
+		executorRegistry:      deps.ExecutorRegistry,
+		runtimeManager:        deps.RuntimeManager,
+		memoryProviderFactory: deps.MemoryProviderFactory,
+		routingConfigLoader:   deps.RoutingConfigLoader,
+		llmRetryMaxAttempts:   deps.LlmRetryMaxAttempts,
+		llmRetryBaseDelayMs:   deps.LlmRetryBaseDelayMs,
+		configResolver:        cfgResolver,
 	}, nil
 }
 
@@ -203,6 +210,16 @@ func (e *EngineV1) Execute(ctx context.Context, pool *pgxpool.Pool, run data.Run
 
 	traceID := strings.TrimSpace(input.TraceID)
 
+	runtimeSnapshot := sharedtoolruntime.RuntimeSnapshot{}
+	if e.runtimeManager != nil {
+		snapshot, snapshotErr := e.runtimeManager.Current(ctx)
+		if snapshotErr != nil {
+			slog.WarnContext(ctx, "runtime snapshot load failed, using empty snapshot", "err", snapshotErr.Error())
+		} else {
+			runtimeSnapshot = snapshot
+		}
+	}
+
 	directPool := e.directPool
 	if directPool == nil {
 		directPool = pool
@@ -215,11 +232,12 @@ func (e *EngineV1) Execute(ctx context.Context, pool *pgxpool.Pool, run data.Run
 		TraceID:             traceID,
 		Emitter:             events.NewEmitter(traceID),
 		Router:              e.router,
+		Runtime:             &runtimeSnapshot,
 		UserID:              run.CreatedByUserID,
 		ProfileRef:          derefString(run.ProfileRef),
 		WorkspaceRef:        derefString(run.WorkspaceRef),
 		ExecutorBuilder:     e.executorRegistry,
-		MemoryProvider:      e.memoryProvider,
+		MemoryProvider:      nil,
 		PendingMemoryWrites: memory.NewPendingWriteBuffer(),
 		ToolBudget:          map[string]any{},
 		PerToolSoftLimits:   tools.DefaultPerToolSoftLimits(),
@@ -237,6 +255,9 @@ func (e *EngineV1) Execute(ctx context.Context, pool *pgxpool.Pool, run data.Run
 	rc.LlmMaxResponseBytes = resolvePositiveInt(ctx, e.configResolver, registry, "llm.max_response_bytes", sharedconfig.Scope{}, 16384)
 	rc.ReasoningIterations = rc.AgentReasoningIterationsLimit
 	rc.ToolContinuationBudget = rc.ToolContinuationBudgetLimit
+	if e.memoryProviderFactory != nil {
+		rc.MemoryProvider = e.memoryProviderFactory.Resolve(runtimeSnapshot)
+	}
 
 	if e.jobQueue != nil && e.broadcastRDB != nil {
 		rc.SpawnChildRun = newSpawnChildRunFunc(pool, e.broadcastRDB, e.jobQueue, run, traceID)
@@ -246,10 +267,9 @@ func (e *EngineV1) Execute(ctx context.Context, pool *pgxpool.Pool, run data.Run
 	err = handler(ctx, rc)
 
 	// run 结束后清理 sandbox session（不阻塞返回结果）
-	if sandboxURL := sandbox.BaseURLFromEnv(); sandboxURL != "" {
-		sandboxToken := sandbox.AuthTokenFromEnv()
+	if runtimeSnapshot.SandboxBaseURL != "" {
 		orgID := run.OrgID.String()
-		go sandbox.CleanupSession(sandboxURL, sandboxToken, run.ID.String(), orgID)
+		go sandbox.CleanupSession(runtimeSnapshot.SandboxBaseURL, runtimeSnapshot.SandboxAuthToken, run.ID.String(), orgID)
 	}
 
 	return err

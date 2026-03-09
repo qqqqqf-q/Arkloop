@@ -35,7 +35,11 @@ var usageRepo = data.UsageRecordsRepository{}
 // configResolver 为 nil 时跳过 memory usage 记录。
 func NewMemoryMiddleware(provider memory.MemoryProvider, pool *pgxpool.Pool, configResolver sharedconfig.Resolver) RunMiddleware {
 	return func(ctx context.Context, rc *RunContext, next RunHandler) error {
-		if provider == nil || rc.UserID == nil {
+		activeProvider := provider
+		if activeProvider == nil {
+			activeProvider = rc.MemoryProvider
+		}
+		if activeProvider == nil || rc.UserID == nil {
 			return next(ctx, rc)
 		}
 
@@ -52,11 +56,11 @@ func NewMemoryMiddleware(provider memory.MemoryProvider, pool *pgxpool.Pool, con
 
 		userQuery := lastUserMessageText(rc.Messages)
 		if userQuery != "" {
-			injectFromCacheOrFind(ctx, rc, provider, pool, ident, userQuery)
+			injectFromCacheOrFind(ctx, rc, activeProvider, pool, ident, userQuery)
 		}
 
 		err := next(ctx, rc)
-		flushPendingWritesAfterRun(provider, pool, configResolver, rc)
+		flushPendingWritesAfterRun(activeProvider, pool, configResolver, rc)
 		return err
 	}
 }

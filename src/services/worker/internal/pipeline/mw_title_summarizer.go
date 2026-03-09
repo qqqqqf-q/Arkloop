@@ -17,7 +17,11 @@ import (
 
 const settingTitleSummarizerModel = "title_summarizer.model"
 
-func NewTitleSummarizerMiddleware(pool *pgxpool.Pool, rdb *redis.Client, stubGateway llm.Gateway, emitDebugEvents bool) RunMiddleware {
+func NewTitleSummarizerMiddleware(pool *pgxpool.Pool, rdb *redis.Client, stubGateway llm.Gateway, emitDebugEvents bool, loaders ...*routing.ConfigLoader) RunMiddleware {
+	var configLoader *routing.ConfigLoader
+	if len(loaders) > 0 {
+		configLoader = loaders[0]
+	}
 	return func(ctx context.Context, rc *RunContext, next RunHandler) error {
 		if rc.TitleSummarizer == nil || pool == nil {
 			return next(ctx, rc)
@@ -46,7 +50,7 @@ func NewTitleSummarizerMiddleware(pool *pgxpool.Pool, rdb *redis.Client, stubGat
 
 		go func() {
 			bgCtx := context.Background()
-			gateway, model := resolveTitleGateway(bgCtx, pool, fallbackGateway, fallbackModel, stubGateway, emitDebugEvents, llmMaxResponseBytes)
+			gateway, model := resolveTitleGateway(bgCtx, pool, fallbackGateway, fallbackModel, stubGateway, emitDebugEvents, llmMaxResponseBytes, configLoader)
 			if gateway == nil {
 				return
 			}
@@ -65,6 +69,7 @@ func resolveTitleGateway(
 	stubGateway llm.Gateway,
 	emitDebugEvents bool,
 	llmMaxResponseBytes int,
+	configLoader *routing.ConfigLoader,
 ) (llm.Gateway, string) {
 	var selector string
 	err := pool.QueryRow(ctx,
@@ -76,7 +81,10 @@ func resolveTitleGateway(
 		return fallbackGateway, fallbackModel
 	}
 
-	routingCfg, err := routing.LoadRoutingConfigFromDB(ctx, pool)
+	if configLoader == nil {
+		return fallbackGateway, fallbackModel
+	}
+	routingCfg, err := configLoader.Load(ctx)
 	if err != nil {
 		slog.Warn("title_summarizer: load routing config failed", "err", err.Error())
 		return fallbackGateway, fallbackModel

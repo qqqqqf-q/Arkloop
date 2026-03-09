@@ -299,3 +299,20 @@ func TestMemoryMiddleware_HighScoreNonLeaf_FetchesL1(t *testing.T) {
 		t.Fatalf("expected L1 content in SystemPrompt, got: %q", rc.SystemPrompt)
 	}
 }
+
+func TestMemoryMiddleware_UsesRunContextMemoryProviderWhenStaticProviderNil(t *testing.T) {
+	mp := newMemMock()
+	mp.findHits = []memory.MemoryHit{{URI: "u1", Abstract: "remembered"}}
+	mw := pipeline.NewMemoryMiddleware(nil, nil, nil)
+	rc := buildMemRC(userIDPtr(), "hello", "")
+	rc.MemoryProvider = mp
+	h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(_ context.Context, rc *pipeline.RunContext) error {
+		if !strings.Contains(rc.SystemPrompt, "remembered") {
+			t.Fatalf("expected injected memory block, got %q", rc.SystemPrompt)
+		}
+		return nil
+	})
+	if err := h(context.Background(), rc); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}

@@ -182,11 +182,12 @@ POST /v1/channels/feishu/{channel_id}/webhook
    b. Group: @-mention 或回复 Bot 消息时触发
 6. 触发时：
    a. 解析 channel_binding -> 确定 Persona
-   b. 解析 channel_user_link -> 确定 UserID（无绑定则 NULL）
-   c. DM: 查找或创建持久 Thread（per user + per persona + per channel）
-   d. Group: 创建新 Thread，将滑动窗口作为 context 注入
-   e. 创建 Message + Run
-   f. Enqueue job（payload 携带 channel_delivery_meta）
+   b. 解析发送者 platform_user_id -> 自动查/创建 channel_user_links 记录
+   c. 已绑定用户 -> 拿到 UserID；未绑定 -> UserID = NULL（Memory 只读不写）
+   d. DM: 查找或创建持久 Thread（per user + per persona + per channel）
+   e. Group: 创建新 Thread，将滑动窗口作为 context 注入
+   f. 创建 Message + Run（携带发送者的 UserID，即使是群聊）
+   g. Enqueue job（payload 携带 channel_delivery_meta）
 ```
 
 ### 5.3 ChannelIncomingMessage（统一内部表示）
@@ -342,7 +343,18 @@ type ChannelSender interface {
 3. 创建新 Thread，滑动窗口作为 system prompt 的 context section 注入
 4. 用户消息（@内容）作为该 Thread 的第一条 user message
 
-### 8.3 输出约束
+### 8.3 群聊 per-user Memory
+
+群聊中每个 @Bot 的人都有独立的 Memory 积累：
+
+1. Webhook 处理时，从消息中提取发送者 `platform_user_id`，自动查/创建 `channel_user_links` 记录
+2. 已绑定用户：Run 携带其 `UserID`，`MemoryMiddleware` 正常读写该用户的 Memory
+3. 未绑定用户：`UserID = NULL`，Memory 只在注入阶段跳过，Agent 仍正常响应
+4. 用户后续绑定后，Memory 开始积累，且与 Web 端、DM 共享同一份 Memory
+
+这意味着群聊 Run 的 `MemoryIdentity` 是 `{OrgID, @你的那个人的UserID, AgentID}`，而非群聊级的公共 Memory。群聊语境由滑动窗口提供，长期记忆按人隔离。
+
+### 8.4 输出约束
 
 群聊场景下 Agent 的输出特征应由 Persona 的 System Prompt 控制：
 - 简洁回复（不是长篇大论）
@@ -351,7 +363,7 @@ type ChannelSender interface {
 
 这不是 Connector 层强制的，而是 Persona 设计者通过 System Prompt 约束的。如果用户把 Normal Persona 接入群聊，输出会很长 -- 这是预期行为，不是 bug。
 
-### 8.4 事件过滤
+### 8.5 事件过滤
 
 群聊 run 的 `run_events` 仍然正常写入（审计需要）。但 ChannelSender 只关心 `FinalAssistantOutput`，不回推中间事件（thinking、tool_call 等）。Web Console 仍可回放完整事件流。
 
