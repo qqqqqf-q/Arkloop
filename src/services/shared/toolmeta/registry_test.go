@@ -23,6 +23,14 @@ func TestSandboxToolDescriptionsExplainWorkspaceAndArtifacts(t *testing.T) {
 		t.Fatalf("write_stdin description should mention session_ref and /workspace: %s", stdinDesc)
 	}
 
+	browserDesc := Must("browser").LLMDescription
+	if !strings.Contains(browserDesc, "running=true") || !strings.Contains(browserDesc, "yield_time_ms") {
+		t.Fatalf("browser description should explain running=true and yield_time_ms: %s", browserDesc)
+	}
+	if !strings.Contains(browserDesc, "not a mode flag") {
+		t.Fatalf("browser description should explain session_ref semantics: %s", browserDesc)
+	}
+
 	for _, desc := range []string{python, execDesc, stdinDesc} {
 		if !strings.Contains(desc, "workspace:/relative/path") {
 			t.Fatalf("sandbox tool description should mention workspace protocol: %s", desc)

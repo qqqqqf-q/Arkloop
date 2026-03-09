@@ -1952,16 +1952,27 @@ func TestBrowser_UsesBrowserTierAndAgentBrowserCommand(t *testing.T) {
 		ProfileRef:   "pref_test",
 		WorkspaceRef: "wsref_test",
 	}
-	var seen execCommandRequest
+	var calls []execCommandRequest
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/exec_command" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
-		if err := json.NewDecoder(r.Body).Decode(&seen); err != nil {
+		var body execCommandRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Fatalf("decode body: %v", err)
 		}
+		calls = append(calls, body)
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(execSessionResponse{SessionID: seen.SessionID, Status: "idle", Cwd: "/workspace", Output: "ok", ExitCode: intPtr(0)})
+		resp := execSessionResponse{SessionID: body.SessionID, Status: "idle", Cwd: "/workspace", Output: "ok", ExitCode: intPtr(0)}
+		if len(calls) == 2 {
+			resp.Artifacts = []artifactRef{{
+				Key:      "org/browser/2/browser-screenshot.png",
+				Filename: "browser-screenshot.png",
+				Size:     1024,
+				MimeType: "image/png",
+			}}
+		}
+		json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -1970,20 +1981,73 @@ func TestBrowser_UsesBrowserTierAndAgentBrowserCommand(t *testing.T) {
 	if result.Error != nil {
 		t.Fatalf("unexpected error: %+v", result.Error)
 	}
-	if seen.Tier != "browser" {
-		t.Fatalf("expected browser tier, got %q", seen.Tier)
+	if len(calls) < 1 {
+		t.Fatalf("expected at least 1 call, got %d", len(calls))
 	}
-	if !strings.HasPrefix(seen.SessionID, "brref_") {
-		t.Fatalf("expected browser session ref, got %q", seen.SessionID)
+	primary := calls[0]
+	if primary.Tier != "browser" {
+		t.Fatalf("expected browser tier, got %q", primary.Tier)
 	}
-	if !strings.HasPrefix(seen.Command, "agent-browser --session '") {
-		t.Fatalf("unexpected browser command: %q", seen.Command)
+	if !strings.HasPrefix(primary.SessionID, "brref_") {
+		t.Fatalf("expected browser session ref, got %q", primary.SessionID)
 	}
-	if !strings.Contains(seen.Command, "navigate https://example.com") {
-		t.Fatalf("missing browser subcommand: %q", seen.Command)
+	if !strings.HasPrefix(primary.Command, "agent-browser --session '") {
+		t.Fatalf("unexpected browser command: %q", primary.Command)
 	}
-	if result.ResultJSON["session_ref"] != seen.SessionID {
+	if !strings.Contains(primary.Command, "navigate https://example.com") {
+		t.Fatalf("missing browser subcommand: %q", primary.Command)
+	}
+	if result.ResultJSON["session_ref"] != primary.SessionID {
 		t.Fatalf("unexpected session_ref: %v", result.ResultJSON["session_ref"])
+	}
+	// navigate triggers auto-screenshot
+	if len(calls) != 2 {
+		t.Fatalf("expected 2 calls (navigate + screenshot), got %d", len(calls))
+	}
+	screenshot := calls[1]
+	if !strings.Contains(screenshot.Command, buildAutoScreenshotCommand()) {
+		t.Fatalf("expected screenshot command, got %q", screenshot.Command)
+	}
+	if screenshot.SessionID != primary.SessionID {
+		t.Fatalf("screenshot session mismatch: %q vs %q", screenshot.SessionID, primary.SessionID)
+	}
+	artifacts, ok := result.ResultJSON["artifacts"].([]artifactRef)
+	if !ok || len(artifacts) != 1 {
+		t.Fatalf("expected merged screenshot artifact, got %#v", result.ResultJSON["artifacts"])
+	}
+	if result.ResultJSON["has_screenshot"] != true {
+		t.Fatalf("expected has_screenshot=true, got %#v", result.ResultJSON["has_screenshot"])
+	}
+}
+
+func TestBrowser_ForwardsYieldTimeMs(t *testing.T) {
+	orgID := uuid.New()
+	ctx := tools.ExecutionContext{
+		RunID:        uuid.New(),
+		OrgID:        &orgID,
+		ProfileRef:   "pref_test",
+		WorkspaceRef: "wsref_test",
+	}
+	var seen execCommandRequest
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&seen); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(execSessionResponse{SessionID: seen.SessionID, Status: "idle", Cwd: "/workspace", ExitCode: intPtr(0)})
+	}))
+	defer server.Close()
+
+	exec := NewToolExecutor(server.URL, "")
+	result := exec.Execute(t.Context(), "browser", map[string]any{
+		"command":       "snapshot",
+		"yield_time_ms": float64(2500),
+	}, ctx, "")
+	if result.Error != nil {
+		t.Fatalf("unexpected error: %+v", result.Error)
+	}
+	if seen.YieldTimeMs != 2500 {
+		t.Fatalf("expected yield_time_ms=2500, got %d", seen.YieldTimeMs)
 	}
 }
 

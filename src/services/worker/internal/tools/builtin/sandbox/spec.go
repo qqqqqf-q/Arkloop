@@ -33,7 +33,7 @@ var (
 	BrowserSpec = tools.AgentToolSpec{
 		Name:        "browser",
 		Version:     "1",
-		Description: "execute browser automation commands in an isolated browser sandbox",
+		Description: "execute browser automation commands in an isolated browser sandbox with serialized session semantics",
 		RiskLevel:   tools.RiskLevelHigh,
 		SideEffects: true,
 	}
@@ -137,11 +137,17 @@ var BrowserLlmSpec = llm.ToolSpec{
 		"properties": map[string]any{
 			"command": map[string]any{
 				"type":        "string",
-				"description": "agent-browser CLI command to execute",
+				"description": "raw agent-browser CLI subcommand to execute; do not issue another command on the same session until the prior result no longer shows running=true",
 			},
 			"session_ref": map[string]any{
 				"type":        "string",
-				"description": "optional browser session reference; omit to reuse the default browser session",
+				"description": "stable browser session reference; omit to reuse the default browser session. This is not a mode flag, so do not pass placeholder values such as new, resume, or fork unless they are the literal session reference you intend to use",
+			},
+			"yield_time_ms": map[string]any{
+				"type":        "integer",
+				"minimum":     1,
+				"maximum":     30000,
+				"description": "time to wait for browser command output before returning; increase this for slow navigation to reduce premature running=true responses",
 			},
 		},
 		"required":             []string{"command"},

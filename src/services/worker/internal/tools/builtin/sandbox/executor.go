@@ -110,9 +110,10 @@ type writeStdinArgs struct {
 }
 
 type browserArgs struct {
-	SessionRef string
-	Command    string
-	TimeoutMs  int
+	SessionRef  string
+	Command     string
+	TimeoutMs   int
+	YieldTimeMs int
 }
 
 type artifactRef struct {
@@ -380,6 +381,7 @@ func (e *ToolExecutor) executeBrowser(
 		Tier:         "browser",
 		Command:      buildBrowserCommand(resolution.SessionRef, reqArgs.Command),
 		TimeoutMs:    reqArgs.TimeoutMs,
+		YieldTimeMs:  reqArgs.YieldTimeMs,
 	}
 	result := e.executeExecSessionRequest(ctx, e.baseURL+"/v1/exec_command", "exec_command", request, request.OrgID, execCtx.PerToolSoftLimits, started)
 	if result.Error != nil && isSessionUnavailable(result.Error) {
@@ -394,6 +396,7 @@ func (e *ToolExecutor) executeBrowser(
 			request.ProfileRef = resolution.ProfileRef(resolveProfileRef(execCtx))
 			request.WorkspaceRef = resolution.WorkspaceRef(resolveWorkspaceRef(execCtx))
 			request.Command = buildBrowserCommand(resolution.SessionRef, reqArgs.Command)
+			request.YieldTimeMs = reqArgs.YieldTimeMs
 			result = e.executeExecSessionRequest(ctx, e.baseURL+"/v1/exec_command", "exec_command", request, request.OrgID, execCtx.PerToolSoftLimits, started)
 		}
 	}
@@ -410,6 +413,21 @@ func (e *ToolExecutor) executeBrowser(
 		result.ResultJSON["restored_from_restore_state"] = resp.Restored || resolution.RestoredFromRestoreState
 	}
 	delete(result.ResultJSON, "session_id")
+
+	if shouldAutoScreenshot(reqArgs.Command) {
+		screenshotReq := execCommandRequest{
+			SessionID: resolution.SessionRef,
+			OrgID:     resolveOrgID(execCtx),
+			Tier:      "browser",
+			Command:   buildBrowserCommand(resolution.SessionRef, buildAutoScreenshotCommand()),
+			TimeoutMs: screenshotTimeoutMs,
+		}
+		screenshotResult := e.executeExecSessionRequest(ctx, e.baseURL+"/v1/exec_command", "exec_command", screenshotReq, screenshotReq.OrgID, execCtx.PerToolSoftLimits, started)
+		if screenshotResult.Error == nil {
+			mergeScreenshotArtifacts(&result.ResultJSON, screenshotResult.ResultJSON)
+		}
+	}
+
 	return result
 }
 
@@ -621,14 +639,15 @@ func parseWriteStdinArgs(args map[string]any) (writeStdinArgs, *tools.ExecutionE
 
 func parseBrowserArgs(args map[string]any) (browserArgs, *tools.ExecutionError) {
 	request := browserArgs{
-		SessionRef: readStringArg(args, "session_ref"),
-		Command:    readStringArg(args, "command"),
-		TimeoutMs:  resolveTimeoutMs(args),
+		SessionRef:  readStringArg(args, "session_ref"),
+		Command:     readStringArg(args, "command"),
+		TimeoutMs:   resolveTimeoutMs(args),
+		YieldTimeMs: readIntArg(args, "yield_time_ms"),
 	}
 	if strings.TrimSpace(request.Command) == "" {
 		return browserArgs{}, sandboxArgsError("parameter command is required")
 	}
-	for _, key := range []string{"session_mode", "share_scope", "from_session_ref", "yield_time_ms", "cwd", "session_id"} {
+	for _, key := range []string{"session_mode", "share_scope", "from_session_ref", "cwd", "session_id"} {
 		if _, ok := args[key]; ok {
 			return browserArgs{}, sandboxArgsError(fmt.Sprintf("parameter %s is not supported for browser", key))
 		}
