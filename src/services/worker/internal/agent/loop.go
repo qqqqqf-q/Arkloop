@@ -28,6 +28,7 @@ type RunContext struct {
 	UserID                 *uuid.UUID
 	AgentID                string
 	ThreadID               *uuid.UUID
+	ProjectID              *uuid.UUID
 	ProfileRef             string
 	WorkspaceRef           string
 	TraceID                string
@@ -332,6 +333,7 @@ func (l *Loop) executeToolCall(
 		TraceID:             runCtx.TraceID,
 		OrgID:               runCtx.OrgID,
 		ThreadID:            runCtx.ThreadID,
+		ProjectID:           runCtx.ProjectID,
 		UserID:              runCtx.UserID,
 		ProfileRef:          runCtx.ProfileRef,
 		WorkspaceRef:        runCtx.WorkspaceRef,

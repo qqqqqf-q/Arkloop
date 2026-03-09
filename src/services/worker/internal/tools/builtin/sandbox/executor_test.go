@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"arkloop/services/worker/internal/data"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -183,6 +184,7 @@ func TestExecCommand_UsesDefaultSessionID(t *testing.T) {
 	defer server.Close()
 
 	exec := NewToolExecutor(server.URL, "")
+	seedInMemorySession(exec.orchestrator, "sess-42")
 	result := exec.Execute(
 		t.Context(),
 		"exec_command",
@@ -227,6 +229,7 @@ func TestWriteStdin_UsesPollEndpoint(t *testing.T) {
 	defer server.Close()
 
 	exec := NewToolExecutor(server.URL, "")
+	seedInMemorySession(exec.orchestrator, "sess-42")
 	result := exec.Execute(
 		t.Context(),
 		"write_stdin",
@@ -261,6 +264,7 @@ func TestWriteStdin_UsesCharsPayload(t *testing.T) {
 	defer server.Close()
 
 	exec := NewToolExecutor(server.URL, "")
+	seedInMemorySession(exec.orchestrator, "sess-1")
 	result := exec.Execute(t.Context(), "write_stdin", map[string]any{"session_ref": "sess-1", "chars": "arkloop\n"}, testContext(), "")
 	if result.Error != nil {
 		t.Fatalf("unexpected error: %+v", result.Error)
@@ -714,6 +718,7 @@ func TestWriteStdin_ClampsYieldTimeMsBySoftLimit(t *testing.T) {
 	limits["write_stdin"] = writeLimit
 
 	exec := NewToolExecutor(server.URL, "")
+	seedInMemorySession(exec.orchestrator, "sess-1")
 	result := exec.Execute(
 		t.Context(),
 		"write_stdin",
@@ -903,5 +908,220 @@ func TestExecCommand_ForkRequiresFromSessionRef(t *testing.T) {
 	result := exec.Execute(t.Context(), "exec_command", map[string]any{"command": "pwd", "session_mode": "fork"}, testContext(), "")
 	if result.Error == nil || result.Error.ErrorClass != errorArgsInvalid {
 		t.Fatalf("expected args_invalid, got %+v", result.Error)
+	}
+}
+
+func TestExecCommand_UsesCreateOpenModeForNewSession(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body execCommandRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		if body.OpenMode != openModeCreate {
+			t.Fatalf("expected open_mode=%s, got %s", openModeCreate, body.OpenMode)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "idle", Cwd: "/workspace"})
+	}))
+	defer server.Close()
+
+	exec := NewToolExecutor(server.URL, "")
+	result := exec.Execute(t.Context(), "exec_command", map[string]any{"command": "pwd"}, testContext(), "")
+	if result.Error != nil {
+		t.Fatalf("unexpected error: %+v", result.Error)
+	}
+}
+
+func TestExecCommand_ResumeWithoutLiveOrRestoreFails(t *testing.T) {
+	db := testutil.SetupPostgresDatabase(t, "worker_sandbox_resume_strict")
+	pool, err := pgxpool.New(t.Context(), db.DSN)
+	if err != nil {
+		t.Fatalf("pgxpool.New: %v", err)
+	}
+	defer pool.Close()
+
+	orgID := uuid.New()
+	repo := data.ShellSessionsRepository{}
+	if err := repo.Upsert(t.Context(), pool, data.ShellSessionRecord{
+		SessionRef:   "shref_existing",
+		OrgID:        orgID,
+		ProfileRef:   "pref_test",
+		WorkspaceRef: "wsref_test",
+		ShareScope:   data.ShellShareScopeWorkspace,
+		State:        data.ShellSessionStateReady,
+		MetadataJSON: map[string]any{},
+	}); err != nil {
+		t.Fatalf("seed session: %v", err)
+	}
+
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		var body execCommandRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		if body.OpenMode != openModeAttachOrRestore {
+			t.Fatalf("expected attach_or_restore, got %s", body.OpenMode)
+		}
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]any{"code": "sandbox.session_not_found", "message": "session not found"})
+	}))
+	defer server.Close()
+
+	exec := NewToolExecutorWithPool(server.URL, "", pool)
+	ctx := tools.ExecutionContext{RunID: uuid.New(), OrgID: &orgID, ProfileRef: "pref_test", WorkspaceRef: "wsref_test"}
+	result := exec.Execute(t.Context(), "exec_command", map[string]any{
+		"command":      "pwd",
+		"session_mode": "resume",
+		"session_ref":  "shref_existing",
+	}, ctx, "")
+	if result.Error == nil {
+		t.Fatal("expected error")
+	}
+	if calls != 1 {
+		t.Fatalf("expected single request, got %d", calls)
+	}
+}
+
+func TestExecCommand_AutoFallsBackAfterStaleThreadDefault(t *testing.T) {
+	db := testutil.SetupPostgresDatabase(t, "worker_sandbox_auto_fallback")
+	pool, err := pgxpool.New(t.Context(), db.DSN)
+	if err != nil {
+		t.Fatalf("pgxpool.New: %v", err)
+	}
+	defer pool.Close()
+
+	orgID := uuid.New()
+	threadID := uuid.New()
+	bindingKey := "thread:" + threadID.String()
+	liveSessionID := "shref_old"
+	repo := data.ShellSessionsRepository{}
+	if err := repo.Upsert(t.Context(), pool, data.ShellSessionRecord{
+		SessionRef:        "shref_old",
+		OrgID:             orgID,
+		ProfileRef:        "pref_test",
+		WorkspaceRef:      "wsref_test",
+		ThreadID:          &threadID,
+		ShareScope:        data.ShellShareScopeThread,
+		State:             data.ShellSessionStateBusy,
+		LiveSessionID:     &liveSessionID,
+		DefaultBindingKey: &bindingKey,
+		MetadataJSON:      map[string]any{},
+	}); err != nil {
+		t.Fatalf("seed session: %v", err)
+	}
+
+	var modes []string
+	var sessionIDs []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body execCommandRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		modes = append(modes, body.OpenMode)
+		sessionIDs = append(sessionIDs, body.SessionID)
+		w.Header().Set("Content-Type", "application/json")
+		if body.SessionID == "shref_old" {
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(map[string]any{"code": "sandbox.session_not_found", "message": "session not found"})
+			return
+		}
+		json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "idle", Cwd: "/workspace"})
+	}))
+	defer server.Close()
+
+	exec := NewToolExecutorWithPool(server.URL, "", pool)
+	ctx := tools.ExecutionContext{
+		RunID:        uuid.New(),
+		OrgID:        &orgID,
+		ThreadID:     &threadID,
+		ProfileRef:   "pref_test",
+		WorkspaceRef: "wsref_test",
+	}
+	result := exec.Execute(t.Context(), "exec_command", map[string]any{"command": "pwd"}, ctx, "")
+	if result.Error != nil {
+		t.Fatalf("unexpected error: %+v", result.Error)
+	}
+	if len(sessionIDs) != 2 {
+		t.Fatalf("expected 2 requests, got %d", len(sessionIDs))
+	}
+	if sessionIDs[0] != "shref_old" {
+		t.Fatalf("expected first stale session, got %s", sessionIDs[0])
+	}
+	if modes[0] != openModeAttachOrRestore {
+		t.Fatalf("expected first open_mode attach_or_restore, got %s", modes[0])
+	}
+	if modes[1] != openModeCreate {
+		t.Fatalf("expected fallback open_mode create, got %s", modes[1])
+	}
+	stored, err := repo.GetBySessionRef(t.Context(), pool, orgID, "shref_old")
+	if err != nil {
+		t.Fatalf("reload stale session: %v", err)
+	}
+	if stored.LiveSessionID != nil {
+		t.Fatalf("expected stale live_session_id cleared, got %#v", stored.LiveSessionID)
+	}
+}
+
+func TestExecCommand_WorkspaceDefaultUpdatesWorkspaceRegistry(t *testing.T) {
+	db := testutil.SetupPostgresDatabase(t, "worker_sandbox_workspace_default_registry")
+	pool, err := pgxpool.New(t.Context(), db.DSN)
+	if err != nil {
+		t.Fatalf("pgxpool.New: %v", err)
+	}
+	defer pool.Close()
+
+	orgID := uuid.New()
+	userID := uuid.New()
+	projectID := uuid.New()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body execCommandRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "idle", Cwd: "/workspace"})
+	}))
+	defer server.Close()
+
+	exec := NewToolExecutorWithPool(server.URL, "", pool)
+	ctx := tools.ExecutionContext{
+		RunID:        uuid.New(),
+		OrgID:        &orgID,
+		ProjectID:    &projectID,
+		UserID:       &userID,
+		ProfileRef:   "pref_test",
+		WorkspaceRef: "wsref_test",
+	}
+	result := exec.Execute(t.Context(), "exec_command", map[string]any{"command": "pwd"}, ctx, "")
+	if result.Error != nil {
+		t.Fatalf("unexpected error: %+v", result.Error)
+	}
+	sessionRef, _ := result.ResultJSON["session_ref"].(string)
+	workspaceRepo := data.WorkspaceRegistriesRepository{}
+	stored, err := workspaceRepo.Get(t.Context(), pool, "wsref_test")
+	if err != nil {
+		t.Fatalf("get workspace registry: %v", err)
+	}
+	if stored.DefaultShellSessionRef == nil || *stored.DefaultShellSessionRef != sessionRef {
+		t.Fatalf("unexpected default_shell_session_ref: %#v", stored.DefaultShellSessionRef)
+	}
+	if stored.ProjectID == nil || *stored.ProjectID != projectID {
+		t.Fatalf("unexpected project_id: %#v", stored.ProjectID)
+	}
+	if stored.OwnerUserID == nil || *stored.OwnerUserID != userID {
+		t.Fatalf("unexpected owner_user_id: %#v", stored.OwnerUserID)
+	}
+}
+
+func seedInMemorySession(orchestrator *sessionOrchestrator, sessionRef string) {
+	orchestrator.mu.Lock()
+	defer orchestrator.mu.Unlock()
+	orchestrator.memorySessions[sessionRef] = data.ShellSessionRecord{
+		SessionRef:   sessionRef,
+		ShareScope:   data.ShellShareScopeRun,
+		State:        data.ShellSessionStateReady,
+		MetadataJSON: map[string]any{},
 	}
 }

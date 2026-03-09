@@ -21,6 +21,7 @@ type ExecutionContext struct {
 	TraceID             string
 	OrgID               *uuid.UUID
 	ThreadID            *uuid.UUID
+	ProjectID           *uuid.UUID
 	UserID              *uuid.UUID
 	ProfileRef          string
 	WorkspaceRef        string

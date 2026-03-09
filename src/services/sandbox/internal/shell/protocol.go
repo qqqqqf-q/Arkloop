@@ -12,6 +12,7 @@ const (
 
 type ExecCommandRequest struct {
 	SessionID    string `json:"session_id"`
+	OpenMode     string `json:"open_mode,omitempty"`
 	OrgID        string `json:"org_id,omitempty"`
 	ProfileRef   string `json:"profile_ref,omitempty"`
 	WorkspaceRef string `json:"workspace_ref,omitempty"`
@@ -152,6 +153,15 @@ func NormalizeTimeoutMs(value int) int {
 		return 30_000
 	}
 	return value
+}
+
+func NormalizeOpenMode(value string) string {
+	switch value {
+	case OpenModeAttachOrRestore:
+		return OpenModeAttachOrRestore
+	default:
+		return OpenModeCreate
+	}
 }
 
 func ValidateTimeoutMs(value int) *Error {

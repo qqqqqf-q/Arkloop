@@ -76,6 +76,30 @@ func TestResolveAndPersistEnvironmentBindings_ProjectScopedPerProfile(t *testing
 	if derefString(first.WorkspaceRef) == derefString(third.WorkspaceRef) {
 		t.Fatalf("expected different workspace_ref for different users in same project, got %q", derefString(first.WorkspaceRef))
 	}
+
+	profileRepo := data.ProfileRegistriesRepository{}
+	profileRecord, err := profileRepo.Get(context.Background(), pool, derefString(first.ProfileRef))
+	if err != nil {
+		t.Fatalf("get profile registry: %v", err)
+	}
+	if profileRecord.DefaultWorkspaceRef == nil || *profileRecord.DefaultWorkspaceRef != derefString(first.WorkspaceRef) {
+		t.Fatalf("unexpected default_workspace_ref: %#v", profileRecord.DefaultWorkspaceRef)
+	}
+	if profileRecord.OwnerUserID == nil || *profileRecord.OwnerUserID != userA {
+		t.Fatalf("unexpected profile owner_user_id: %#v", profileRecord.OwnerUserID)
+	}
+
+	workspaceRepo := data.WorkspaceRegistriesRepository{}
+	workspaceRecord, err := workspaceRepo.Get(context.Background(), pool, derefString(first.WorkspaceRef))
+	if err != nil {
+		t.Fatalf("get workspace registry: %v", err)
+	}
+	if workspaceRecord.ProjectID == nil || *workspaceRecord.ProjectID != projectID {
+		t.Fatalf("unexpected workspace project_id: %#v", workspaceRecord.ProjectID)
+	}
+	if workspaceRecord.OwnerUserID == nil || *workspaceRecord.OwnerUserID != userA {
+		t.Fatalf("unexpected workspace owner_user_id: %#v", workspaceRecord.OwnerUserID)
+	}
 }
 
 func TestResolveAndPersistEnvironmentBindings_ThreadFallback(t *testing.T) {

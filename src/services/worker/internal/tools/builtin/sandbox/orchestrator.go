@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"sync"
+	"time"
 
 	"arkloop/services/worker/internal/data"
 	"arkloop/services/worker/internal/tools"
@@ -24,30 +25,27 @@ type resolvedSession struct {
 	Reused                   bool
 	RestoredFromRestoreState bool
 	FromSessionRef           string
-	PersistBinding           bool
 	ShareScope               string
+	OpenMode                 string
+	AllowUnavailableFallback bool
+	DefaultBindingKey        *string
 	Record                   *data.ShellSessionRecord
 }
 
 type sessionOrchestrator struct {
 	pool            *pgxpool.Pool
 	sessionsRepo    data.ShellSessionsRepository
-	bindingsRepo    data.DefaultShellSessionBindingsRepository
 	registryService *registryService
 
 	mu             sync.Mutex
-	runDefaults    map[string]string
 	memorySessions map[string]data.ShellSessionRecord
-	memoryBindings map[string]string
 }
 
 func newSessionOrchestrator(pool *pgxpool.Pool) *sessionOrchestrator {
 	return &sessionOrchestrator{
 		pool:            pool,
 		registryService: newRegistryService(pool),
-		runDefaults:     map[string]string{},
 		memorySessions:  map[string]data.ShellSessionRecord{},
-		memoryBindings:  map[string]string{},
 	}
 }
 
@@ -76,7 +74,7 @@ func (o *sessionOrchestrator) resolveExecSession(
 		if err != nil {
 			return nil, err
 		}
-		created, createErr := o.createSession(ctx, execCtx, data.ShellShareScopeRun, false)
+		created, createErr := o.createSession(ctx, execCtx, data.ShellShareScopeRun, nil)
 		if createErr != nil {
 			return nil, createErr
 		}
@@ -85,43 +83,82 @@ func (o *sessionOrchestrator) resolveExecSession(
 		created.RestoredFromRestoreState = true
 		return created, nil
 	case sessionModeNew:
-		created, err := o.createSession(ctx, execCtx, data.ShellShareScopeRun, false)
+		created, err := o.createSession(ctx, execCtx, data.ShellShareScopeRun, nil)
 		if err != nil {
 			return nil, err
 		}
 		created.ResolvedVia = "new_session"
 		return created, nil
 	default:
-		if ref := o.getRunDefault(execCtx.RunID); ref != "" {
-			resolved, err := o.lookupExplicit(ctx, execCtx, ref, "run_default")
-			if err == nil {
-				resolved.Reused = true
-				return resolved, nil
-			}
+		if resolved := o.lookupRunDefault(ctx, execCtx, ""); resolved != nil {
+			resolved.Reused = true
+			resolved.ResolvedVia = "run_default"
+			resolved.AllowUnavailableFallback = true
+			return resolved, nil
 		}
-		if ref := o.lookupPersistentDefault(ctx, execCtx, data.ShellBindingScopeThread); ref != "" {
-			resolved, err := o.lookupExplicit(ctx, execCtx, ref, "thread_default")
-			if err == nil {
-				resolved.Reused = true
-				return resolved, nil
-			}
+		if resolved := o.lookupDefaultBinding(ctx, execCtx, data.ShellDefaultBindingKeyForThread(execCtx.ThreadID), "", "thread_default"); resolved != nil {
+			resolved.Reused = true
+			resolved.AllowUnavailableFallback = true
+			return resolved, nil
 		}
-		if ref := o.lookupPersistentDefault(ctx, execCtx, data.ShellBindingScopeWorkspace); ref != "" {
-			resolved, err := o.lookupExplicit(ctx, execCtx, ref, "workspace_default")
-			if err == nil {
-				resolved.Reused = true
-				return resolved, nil
-			}
+		if resolved := o.lookupDefaultBinding(ctx, execCtx, data.ShellDefaultBindingKeyForWorkspace(execCtx.WorkspaceRef), "", "workspace_default"); resolved != nil {
+			resolved.Reused = true
+			resolved.AllowUnavailableFallback = true
+			return resolved, nil
 		}
 
 		shareScope := defaultShareScope(execCtx)
-		created, err := o.createSession(ctx, execCtx, shareScope, true)
+		defaultBindingKey := defaultBindingKeyForShareScope(execCtx, shareScope)
+		created, err := o.createSession(ctx, execCtx, shareScope, defaultBindingKey)
 		if err != nil {
 			return nil, err
 		}
 		created.ResolvedVia = "new_session"
 		return created, nil
 	}
+}
+
+func (o *sessionOrchestrator) resolveFallbackSession(
+	ctx context.Context,
+	req execCommandArgs,
+	execCtx tools.ExecutionContext,
+	failed *resolvedSession,
+) (*resolvedSession, *tools.ExecutionError) {
+	if failed == nil || !failed.AllowUnavailableFallback {
+		return nil, nil
+	}
+	if err := o.clearLiveSession(ctx, execCtx, failed.SessionRef); err != nil && !data.IsShellSessionNotFound(err) {
+		return nil, sandboxArgsError(err.Error())
+	}
+	skip := failed.SessionRef
+	switch failed.ResolvedVia {
+	case "run_default":
+		if resolved := o.lookupDefaultBinding(ctx, execCtx, data.ShellDefaultBindingKeyForThread(execCtx.ThreadID), skip, "thread_default"); resolved != nil {
+			resolved.Reused = true
+			resolved.AllowUnavailableFallback = true
+			return resolved, nil
+		}
+		if resolved := o.lookupDefaultBinding(ctx, execCtx, data.ShellDefaultBindingKeyForWorkspace(execCtx.WorkspaceRef), skip, "workspace_default"); resolved != nil {
+			resolved.Reused = true
+			resolved.AllowUnavailableFallback = true
+			return resolved, nil
+		}
+	case "thread_default":
+		if resolved := o.lookupDefaultBinding(ctx, execCtx, data.ShellDefaultBindingKeyForWorkspace(execCtx.WorkspaceRef), skip, "workspace_default"); resolved != nil {
+			resolved.Reused = true
+			resolved.AllowUnavailableFallback = true
+			return resolved, nil
+		}
+	case "workspace_default":
+	}
+	shareScope := defaultShareScope(execCtx)
+	defaultBindingKey := defaultBindingKeyForShareScope(execCtx, shareScope)
+	created, err := o.createSession(ctx, execCtx, shareScope, defaultBindingKey)
+	if err != nil {
+		return nil, err
+	}
+	created.ResolvedVia = "new_session"
+	return created, nil
 }
 
 func (o *sessionOrchestrator) resolveWriteSession(
@@ -153,28 +190,76 @@ func (o *sessionOrchestrator) lookupExplicit(
 		ResolvedVia:              resolvedVia,
 		Reused:                   true,
 		ShareScope:               record.ShareScope,
+		OpenMode:                 openModeAttachOrRestore,
+		DefaultBindingKey:        record.DefaultBindingKey,
 		Record:                   &record,
 		RestoredFromRestoreState: record.LiveSessionID == nil && strings.TrimSpace(stringPtrValue(record.LatestRestoreRev)) != "",
 	}, nil
+}
+
+func (o *sessionOrchestrator) lookupRunDefault(ctx context.Context, execCtx tools.ExecutionContext, skipSessionRef string) *resolvedSession {
+	if execCtx.RunID == uuid.Nil {
+		return nil
+	}
+	record, found, err := o.lookupLatestByRun(ctx, derefUUID(execCtx.OrgID), execCtx.RunID)
+	if err != nil || !found || record.SessionRef == strings.TrimSpace(skipSessionRef) {
+		return nil
+	}
+	return &resolvedSession{
+		SessionRef:        record.SessionRef,
+		ShareScope:        record.ShareScope,
+		OpenMode:          openModeAttachOrRestore,
+		DefaultBindingKey: record.DefaultBindingKey,
+		Record:            &record,
+	}
+}
+
+func (o *sessionOrchestrator) lookupDefaultBinding(
+	ctx context.Context,
+	execCtx tools.ExecutionContext,
+	defaultBindingKey string,
+	skipSessionRef string,
+	resolvedVia string,
+) *resolvedSession {
+	orgID := derefUUID(execCtx.OrgID)
+	profileRef := strings.TrimSpace(execCtx.ProfileRef)
+	defaultBindingKey = strings.TrimSpace(defaultBindingKey)
+	if orgID == uuid.Nil || profileRef == "" || defaultBindingKey == "" {
+		return nil
+	}
+	record, found, err := o.lookupByDefaultBindingKey(ctx, orgID, profileRef, defaultBindingKey)
+	if err != nil || !found || record.SessionRef == strings.TrimSpace(skipSessionRef) {
+		return nil
+	}
+	return &resolvedSession{
+		SessionRef:        record.SessionRef,
+		ResolvedVia:       resolvedVia,
+		ShareScope:        record.ShareScope,
+		OpenMode:          openModeAttachOrRestore,
+		DefaultBindingKey: record.DefaultBindingKey,
+		Record:            &record,
+	}
 }
 
 func (o *sessionOrchestrator) createSession(
 	ctx context.Context,
 	execCtx tools.ExecutionContext,
 	shareScope string,
-	persistBinding bool,
+	defaultBindingKey *string,
 ) (*resolvedSession, *tools.ExecutionError) {
 	sessionRef := newSessionRef()
 	record := data.ShellSessionRecord{
-		SessionRef:   sessionRef,
-		OrgID:        derefUUID(execCtx.OrgID),
-		ProfileRef:   strings.TrimSpace(execCtx.ProfileRef),
-		WorkspaceRef: strings.TrimSpace(execCtx.WorkspaceRef),
-		ThreadID:     execCtx.ThreadID,
-		RunID:        uuidPtr(execCtx.RunID),
-		ShareScope:   shareScope,
-		State:        data.ShellSessionStateReady,
-		MetadataJSON: map[string]any{},
+		SessionRef:        sessionRef,
+		OrgID:             derefUUID(execCtx.OrgID),
+		ProfileRef:        strings.TrimSpace(execCtx.ProfileRef),
+		WorkspaceRef:      strings.TrimSpace(execCtx.WorkspaceRef),
+		ProjectID:         uuidPtr(execCtx.ProjectID),
+		ThreadID:          execCtx.ThreadID,
+		RunID:             uuidPtr(execCtx.RunID),
+		ShareScope:        shareScope,
+		State:             data.ShellSessionStateReady,
+		DefaultBindingKey: defaultBindingKey,
+		MetadataJSON:      map[string]any{},
 	}
 	if o.pool != nil {
 		if record.OrgID == uuid.Nil {
@@ -187,71 +272,81 @@ func (o *sessionOrchestrator) createSession(
 	if err := o.saveSession(ctx, execCtx, record); err != nil {
 		return nil, sandboxArgsError(err.Error())
 	}
-	if persistBinding {
-		o.persistDefaultBinding(ctx, execCtx, sessionRef)
-	}
-	o.setRunDefault(execCtx.RunID, sessionRef)
 	return &resolvedSession{
-		SessionRef:     sessionRef,
-		ResolvedVia:    "new_session",
-		Reused:         false,
-		ShareScope:     shareScope,
-		PersistBinding: persistBinding,
-		Record:         &record,
+		SessionRef:        sessionRef,
+		ResolvedVia:       "new_session",
+		Reused:            false,
+		ShareScope:        shareScope,
+		OpenMode:          openModeCreate,
+		DefaultBindingKey: defaultBindingKey,
+		Record:            &record,
 	}, nil
 }
 
-func (o *sessionOrchestrator) persistDefaultBinding(ctx context.Context, execCtx tools.ExecutionContext, sessionRef string) {
-	if strings.TrimSpace(execCtx.ProfileRef) == "" {
-		return
-	}
+func (o *sessionOrchestrator) lookupLatestByRun(
+	ctx context.Context,
+	orgID uuid.UUID,
+	runID uuid.UUID,
+) (data.ShellSessionRecord, bool, error) {
 	if o.pool == nil {
 		o.mu.Lock()
 		defer o.mu.Unlock()
-		if target := data.ShellBindingTargetForThread(execCtx.ThreadID); target != "" {
-			o.memoryBindings[bindingKey(derefUUID(execCtx.OrgID), execCtx.ProfileRef, data.ShellBindingScopeThread, target)] = sessionRef
-			return
+		var selected data.ShellSessionRecord
+		found := false
+		for _, record := range o.memorySessions {
+			if record.OrgID != orgID || record.RunID == nil || *record.RunID != runID || record.State == data.ShellSessionStateClosed {
+				continue
+			}
+			if !found || record.LastUsedAt.After(selected.LastUsedAt) || (record.LastUsedAt.Equal(selected.LastUsedAt) && record.UpdatedAt.After(selected.UpdatedAt)) {
+				selected = record
+				found = true
+			}
 		}
-		if target := data.ShellBindingTargetForWorkspace(execCtx.WorkspaceRef); target != "" {
-			o.memoryBindings[bindingKey(derefUUID(execCtx.OrgID), execCtx.ProfileRef, data.ShellBindingScopeWorkspace, target)] = sessionRef
+		return selected, found, nil
+	}
+	record, err := o.sessionsRepo.GetLatestByRun(ctx, o.pool, orgID, runID)
+	if err != nil {
+		if data.IsShellSessionNotFound(err) {
+			return data.ShellSessionRecord{}, false, nil
 		}
-		return
+		return data.ShellSessionRecord{}, false, err
 	}
-	if target := data.ShellBindingTargetForThread(execCtx.ThreadID); target != "" {
-		_ = o.bindingsRepo.Upsert(ctx, o.pool, derefUUID(execCtx.OrgID), execCtx.ProfileRef, data.ShellBindingScopeThread, target, sessionRef)
-		return
-	}
-	if target := data.ShellBindingTargetForWorkspace(execCtx.WorkspaceRef); target != "" {
-		_ = o.bindingsRepo.Upsert(ctx, o.pool, derefUUID(execCtx.OrgID), execCtx.ProfileRef, data.ShellBindingScopeWorkspace, target, sessionRef)
-	}
+	return record, true, nil
 }
 
-func (o *sessionOrchestrator) lookupPersistentDefault(ctx context.Context, execCtx tools.ExecutionContext, scope string) string {
-	orgID := derefUUID(execCtx.OrgID)
-	profileRef := strings.TrimSpace(execCtx.ProfileRef)
-	if orgID == uuid.Nil || profileRef == "" {
-		return ""
-	}
-	target := ""
-	switch scope {
-	case data.ShellBindingScopeThread:
-		target = data.ShellBindingTargetForThread(execCtx.ThreadID)
-	case data.ShellBindingScopeWorkspace:
-		target = data.ShellBindingTargetForWorkspace(execCtx.WorkspaceRef)
-	}
-	if target == "" {
-		return ""
-	}
+func (o *sessionOrchestrator) lookupByDefaultBindingKey(
+	ctx context.Context,
+	orgID uuid.UUID,
+	profileRef string,
+	defaultBindingKey string,
+) (data.ShellSessionRecord, bool, error) {
 	if o.pool == nil {
 		o.mu.Lock()
 		defer o.mu.Unlock()
-		return strings.TrimSpace(o.memoryBindings[bindingKey(orgID, profileRef, scope, target)])
+		var selected data.ShellSessionRecord
+		found := false
+		for _, record := range o.memorySessions {
+			if record.OrgID != orgID || strings.TrimSpace(record.ProfileRef) != strings.TrimSpace(profileRef) {
+				continue
+			}
+			if strings.TrimSpace(stringPtrValue(record.DefaultBindingKey)) != strings.TrimSpace(defaultBindingKey) || record.State == data.ShellSessionStateClosed {
+				continue
+			}
+			if !found || record.LastUsedAt.After(selected.LastUsedAt) || (record.LastUsedAt.Equal(selected.LastUsedAt) && record.UpdatedAt.After(selected.UpdatedAt)) {
+				selected = record
+				found = true
+			}
+		}
+		return selected, found, nil
 	}
-	ref, err := o.bindingsRepo.Get(ctx, o.pool, orgID, profileRef, scope, target)
+	record, err := o.sessionsRepo.GetByDefaultBindingKey(ctx, o.pool, orgID, profileRef, defaultBindingKey)
 	if err != nil {
-		return ""
+		if data.IsShellSessionNotFound(err) {
+			return data.ShellSessionRecord{}, false, nil
+		}
+		return data.ShellSessionRecord{}, false, err
 	}
-	return strings.TrimSpace(ref)
+	return record, true, nil
 }
 
 func (o *sessionOrchestrator) lookupSession(ctx context.Context, execCtx tools.ExecutionContext, sessionRef string) (data.ShellSessionRecord, bool, error) {
@@ -262,7 +357,7 @@ func (o *sessionOrchestrator) lookupSession(ctx context.Context, execCtx tools.E
 		if ok {
 			return record, true, nil
 		}
-		return data.ShellSessionRecord{SessionRef: sessionRef, ShareScope: data.ShellShareScopeRun, State: data.ShellSessionStateReady}, true, nil
+		return data.ShellSessionRecord{}, false, nil
 	}
 	record, err := o.sessionsRepo.GetBySessionRef(ctx, o.pool, derefUUID(execCtx.OrgID), sessionRef)
 	if err != nil {
@@ -275,19 +370,40 @@ func (o *sessionOrchestrator) lookupSession(ctx context.Context, execCtx tools.E
 }
 
 func (o *sessionOrchestrator) saveSession(ctx context.Context, execCtx tools.ExecutionContext, record data.ShellSessionRecord) error {
+	now := time.Now().UTC()
+	record.LastUsedAt = now
+	record.UpdatedAt = now
 	if o.pool == nil {
 		o.mu.Lock()
 		defer o.mu.Unlock()
 		o.memorySessions[record.SessionRef] = record
 		return nil
 	}
-	if err := o.registryService.EnsureProfileRegistry(ctx, record.OrgID, record.ProfileRef); err != nil {
+	if err := o.registryService.UpsertProfileRegistry(ctx, record.OrgID, execCtx.UserID, record.ProfileRef, stringPtr(record.WorkspaceRef)); err != nil {
 		return err
 	}
-	if err := o.registryService.EnsureWorkspaceRegistry(ctx, record.OrgID, record.WorkspaceRef); err != nil {
+	if err := o.registryService.UpsertWorkspaceRegistry(ctx, record.OrgID, execCtx.UserID, execCtx.ProjectID, record.WorkspaceRef, nil); err != nil {
 		return err
 	}
 	return o.sessionsRepo.Upsert(ctx, o.pool, record)
+}
+
+func (o *sessionOrchestrator) clearLiveSession(ctx context.Context, execCtx tools.ExecutionContext, sessionRef string) error {
+	if o.pool == nil {
+		o.mu.Lock()
+		defer o.mu.Unlock()
+		record, ok := o.memorySessions[sessionRef]
+		if !ok {
+			return nil
+		}
+		record.LiveSessionID = nil
+		record.State = data.ShellSessionStateReady
+		record.LastUsedAt = time.Now().UTC()
+		record.UpdatedAt = record.LastUsedAt
+		o.memorySessions[sessionRef] = record
+		return nil
+	}
+	return o.sessionsRepo.ClearLiveSession(ctx, o.pool, derefUUID(execCtx.OrgID), sessionRef)
 }
 
 func (o *sessionOrchestrator) markResult(
@@ -304,51 +420,58 @@ func (o *sessionOrchestrator) markResult(
 	if resp.Running {
 		state = data.ShellSessionStateBusy
 	}
+	record := data.ShellSessionRecord{
+		SessionRef:        resolution.SessionRef,
+		OrgID:             orgID,
+		ProfileRef:        strings.TrimSpace(execCtx.ProfileRef),
+		WorkspaceRef:      strings.TrimSpace(execCtx.WorkspaceRef),
+		ProjectID:         uuidPtr(execCtx.ProjectID),
+		ThreadID:          execCtx.ThreadID,
+		RunID:             uuidPtr(execCtx.RunID),
+		ShareScope:        resolution.ShareScope,
+		State:             state,
+		LiveSessionID:     stringPtr(resolution.SessionRef),
+		DefaultBindingKey: resolution.DefaultBindingKey,
+		MetadataJSON:      map[string]any{},
+	}
+	if resolution.Record != nil {
+		record = *resolution.Record
+		record.OrgID = orgID
+		record.ProfileRef = strings.TrimSpace(execCtx.ProfileRef)
+		record.WorkspaceRef = strings.TrimSpace(execCtx.WorkspaceRef)
+		record.ProjectID = uuidPtr(execCtx.ProjectID)
+		record.ThreadID = execCtx.ThreadID
+		record.RunID = uuidPtr(execCtx.RunID)
+		record.ShareScope = resolution.ShareScope
+		record.State = state
+		record.LiveSessionID = stringPtr(resolution.SessionRef)
+		record.DefaultBindingKey = resolution.DefaultBindingKey
+		if record.MetadataJSON == nil {
+			record.MetadataJSON = map[string]any{}
+		}
+	}
+	if strings.TrimSpace(resp.RestoreRevision) != "" {
+		record.LatestRestoreRev = stringPtr(strings.TrimSpace(resp.RestoreRevision))
+	}
+	record.LastUsedAt = time.Now().UTC()
+	record.UpdatedAt = record.LastUsedAt
 	if o.pool == nil {
 		o.mu.Lock()
 		defer o.mu.Unlock()
-		record := o.memorySessions[resolution.SessionRef]
-		record.State = state
-		liveSessionID := resolution.SessionRef
-		record.LiveSessionID = &liveSessionID
-		if strings.TrimSpace(resp.RestoreRevision) != "" {
-			record.LatestRestoreRev = stringPtr(strings.TrimSpace(resp.RestoreRevision))
-		}
 		o.memorySessions[resolution.SessionRef] = record
 		return
 	}
-	record := data.ShellSessionRecord{
-		SessionRef:       resolution.SessionRef,
-		OrgID:            orgID,
-		ProfileRef:       strings.TrimSpace(execCtx.ProfileRef),
-		WorkspaceRef:     strings.TrimSpace(execCtx.WorkspaceRef),
-		ThreadID:         execCtx.ThreadID,
-		RunID:            uuidPtr(execCtx.RunID),
-		ShareScope:       normalizeRecordShareScope(resolution),
-		State:            state,
-		LiveSessionID:    stringPtr(resolution.SessionRef),
-		LatestRestoreRev: stringPtr(strings.TrimSpace(resp.RestoreRevision)),
-		MetadataJSON:     map[string]any{},
-	}
-	_ = o.sessionsRepo.Upsert(ctx, o.pool, record)
-}
-
-func (o *sessionOrchestrator) setRunDefault(runID uuid.UUID, sessionRef string) {
-	if runID == uuid.Nil || strings.TrimSpace(sessionRef) == "" {
+	if err := o.sessionsRepo.Upsert(ctx, o.pool, record); err != nil {
 		return
 	}
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	o.runDefaults[runID.String()] = sessionRef
-}
-
-func (o *sessionOrchestrator) getRunDefault(runID uuid.UUID) string {
-	if runID == uuid.Nil {
-		return ""
+	if err := o.registryService.UpsertProfileRegistry(ctx, orgID, execCtx.UserID, record.ProfileRef, stringPtr(record.WorkspaceRef)); err != nil {
+		return
 	}
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	return strings.TrimSpace(o.runDefaults[runID.String()])
+	var defaultShellSessionRef *string
+	if strings.HasPrefix(stringPtrValue(record.DefaultBindingKey), "workspace:") {
+		defaultShellSessionRef = stringPtr(record.SessionRef)
+	}
+	_ = o.registryService.UpsertWorkspaceRegistry(ctx, orgID, execCtx.UserID, execCtx.ProjectID, record.WorkspaceRef, defaultShellSessionRef)
 }
 
 func normalizeSessionMode(value string) string {
@@ -360,19 +483,6 @@ func normalizeSessionMode(value string) string {
 	}
 }
 
-func normalizeRecordShareScope(resolution *resolvedSession) string {
-	if resolution == nil {
-		return data.ShellShareScopeThread
-	}
-	if strings.TrimSpace(resolution.ShareScope) != "" {
-		return strings.TrimSpace(resolution.ShareScope)
-	}
-	if resolution.PersistBinding {
-		return data.ShellShareScopeThread
-	}
-	return data.ShellShareScopeRun
-}
-
 func defaultShareScope(execCtx tools.ExecutionContext) string {
 	if execCtx.ThreadID != nil && *execCtx.ThreadID != uuid.Nil {
 		return data.ShellShareScopeThread
@@ -380,12 +490,19 @@ func defaultShareScope(execCtx tools.ExecutionContext) string {
 	return data.ShellShareScopeWorkspace
 }
 
-func newSessionRef() string {
-	return "shref_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+func defaultBindingKeyForShareScope(execCtx tools.ExecutionContext, shareScope string) *string {
+	var value string
+	switch shareScope {
+	case data.ShellShareScopeThread:
+		value = data.ShellDefaultBindingKeyForThread(execCtx.ThreadID)
+	case data.ShellShareScopeWorkspace:
+		value = data.ShellDefaultBindingKeyForWorkspace(execCtx.WorkspaceRef)
+	}
+	return stringPtr(value)
 }
 
-func bindingKey(orgID uuid.UUID, profileRef string, scope string, target string) string {
-	return orgID.String() + "|" + strings.TrimSpace(profileRef) + "|" + strings.TrimSpace(scope) + "|" + strings.TrimSpace(target)
+func newSessionRef() string {
+	return "shref_" + strings.ReplaceAll(uuid.NewString(), "-", "")
 }
 
 func derefUUID(value *uuid.UUID) uuid.UUID {
@@ -395,12 +512,23 @@ func derefUUID(value *uuid.UUID) uuid.UUID {
 	return *value
 }
 
-func uuidPtr(value uuid.UUID) *uuid.UUID {
-	if value == uuid.Nil {
+func uuidPtr(value any) *uuid.UUID {
+	switch typed := value.(type) {
+	case uuid.UUID:
+		if typed == uuid.Nil {
+			return nil
+		}
+		copied := typed
+		return &copied
+	case *uuid.UUID:
+		if typed == nil || *typed == uuid.Nil {
+			return nil
+		}
+		copied := *typed
+		return &copied
+	default:
 		return nil
 	}
-	copied := value
-	return &copied
 }
 
 func stringPtrValue(value *string) string {

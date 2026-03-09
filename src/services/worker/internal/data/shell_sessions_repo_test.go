@@ -23,18 +23,20 @@ func TestShellSessionsRepository_UpsertAndGet(t *testing.T) {
 	repo := ShellSessionsRepository{}
 	liveSessionID := "live-1"
 	restoreRev := "restore-1"
+	bindingKey := "thread:" + threadID.String()
 	record := ShellSessionRecord{
-		SessionRef:       "shref_test",
-		OrgID:            orgID,
-		ProfileRef:       "pref_test",
-		WorkspaceRef:     "wsref_test",
-		ThreadID:         &threadID,
-		RunID:            &runID,
-		ShareScope:       ShellShareScopeThread,
-		State:            ShellSessionStateBusy,
-		LiveSessionID:    &liveSessionID,
-		LatestRestoreRev: &restoreRev,
-		MetadataJSON:     map[string]any{"source": "test"},
+		SessionRef:        "shref_test",
+		OrgID:             orgID,
+		ProfileRef:        "pref_test",
+		WorkspaceRef:      "wsref_test",
+		ThreadID:          &threadID,
+		RunID:             &runID,
+		ShareScope:        ShellShareScopeThread,
+		State:             ShellSessionStateBusy,
+		LiveSessionID:     &liveSessionID,
+		LatestRestoreRev:  &restoreRev,
+		DefaultBindingKey: &bindingKey,
+		MetadataJSON:      map[string]any{"source": "test"},
 	}
 	if err := repo.Upsert(context.Background(), pool, record); err != nil {
 		t.Fatalf("upsert: %v", err)
@@ -55,6 +57,9 @@ func TestShellSessionsRepository_UpsertAndGet(t *testing.T) {
 	}
 	if stored.LatestRestoreRev == nil || *stored.LatestRestoreRev != restoreRev {
 		t.Fatalf("unexpected latest_restore_rev: %#v", stored.LatestRestoreRev)
+	}
+	if stored.DefaultBindingKey == nil || *stored.DefaultBindingKey != bindingKey {
+		t.Fatalf("unexpected default_binding_key: %#v", stored.DefaultBindingKey)
 	}
 }
 
@@ -92,24 +97,91 @@ func TestShellSessionsRepository_UpdateRestoreRevision(t *testing.T) {
 	}
 }
 
-func TestDefaultShellSessionBindingsRepository_UpsertAndGet(t *testing.T) {
-	db := testutil.SetupPostgresDatabase(t, "worker_shell_session_bindings")
+func TestShellSessionsRepository_GetLatestByRunAndDefaultBinding(t *testing.T) {
+	db := testutil.SetupPostgresDatabase(t, "worker_shell_sessions_lookup")
 	pool, err := pgxpool.New(context.Background(), db.DSN)
 	if err != nil {
 		t.Fatalf("pgxpool.New: %v", err)
 	}
 	defer pool.Close()
 
-	orgID := uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
-	repo := DefaultShellSessionBindingsRepository{}
-	if err := repo.Upsert(context.Background(), pool, orgID, "pref_test", ShellBindingScopeThread, "thread-1", "shref_a"); err != nil {
+	orgID := uuid.New()
+	runID := uuid.New()
+	threadID := uuid.New()
+	repo := ShellSessionsRepository{}
+	bindingKey := "thread:" + threadID.String()
+	older := ShellSessionRecord{
+		SessionRef:        "shref_old",
+		OrgID:             orgID,
+		ProfileRef:        "pref_test",
+		WorkspaceRef:      "wsref_test",
+		ThreadID:          &threadID,
+		RunID:             &runID,
+		ShareScope:        ShellShareScopeThread,
+		State:             ShellSessionStateReady,
+		DefaultBindingKey: &bindingKey,
+		MetadataJSON:      map[string]any{},
+	}
+	newer := older
+	newer.SessionRef = "shref_new"
+	if err := repo.Upsert(context.Background(), pool, older); err != nil {
+		t.Fatalf("upsert older: %v", err)
+	}
+	if err := repo.Upsert(context.Background(), pool, newer); err != nil {
+		t.Fatalf("upsert newer: %v", err)
+	}
+
+	latest, err := repo.GetLatestByRun(context.Background(), pool, orgID, runID)
+	if err != nil {
+		t.Fatalf("get latest by run: %v", err)
+	}
+	if latest.SessionRef != newer.SessionRef {
+		t.Fatalf("expected latest run session %q, got %q", newer.SessionRef, latest.SessionRef)
+	}
+
+	bound, err := repo.GetByDefaultBindingKey(context.Background(), pool, orgID, "pref_test", bindingKey)
+	if err != nil {
+		t.Fatalf("get by default binding key: %v", err)
+	}
+	if bound.SessionRef != newer.SessionRef {
+		t.Fatalf("expected latest bound session %q, got %q", newer.SessionRef, bound.SessionRef)
+	}
+}
+
+func TestShellSessionsRepository_ClearLiveSession(t *testing.T) {
+	db := testutil.SetupPostgresDatabase(t, "worker_shell_sessions_clear_live")
+	pool, err := pgxpool.New(context.Background(), db.DSN)
+	if err != nil {
+		t.Fatalf("pgxpool.New: %v", err)
+	}
+	defer pool.Close()
+
+	orgID := uuid.New()
+	liveSessionID := "live-1"
+	repo := ShellSessionsRepository{}
+	if err := repo.Upsert(context.Background(), pool, ShellSessionRecord{
+		SessionRef:    "shref_test",
+		OrgID:         orgID,
+		ProfileRef:    "pref_test",
+		WorkspaceRef:  "wsref_test",
+		ShareScope:    ShellShareScopeWorkspace,
+		State:         ShellSessionStateBusy,
+		LiveSessionID: &liveSessionID,
+		MetadataJSON:  map[string]any{},
+	}); err != nil {
 		t.Fatalf("upsert: %v", err)
 	}
-	ref, err := repo.Get(context.Background(), pool, orgID, "pref_test", ShellBindingScopeThread, "thread-1")
+	if err := repo.ClearLiveSession(context.Background(), pool, orgID, "shref_test"); err != nil {
+		t.Fatalf("clear live session: %v", err)
+	}
+	stored, err := repo.GetBySessionRef(context.Background(), pool, orgID, "shref_test")
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	if ref != "shref_a" {
-		t.Fatalf("unexpected session_ref: %s", ref)
+	if stored.LiveSessionID != nil {
+		t.Fatalf("expected live_session_id cleared, got %#v", stored.LiveSessionID)
+	}
+	if stored.State != ShellSessionStateReady {
+		t.Fatalf("expected state ready after clear, got %s", stored.State)
 	}
 }

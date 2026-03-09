@@ -48,6 +48,7 @@ type execResponse struct {
 
 type execCommandRequest struct {
 	SessionID    string `json:"session_id"`
+	OpenMode     string `json:"open_mode,omitempty"`
 	OrgID        string `json:"org_id,omitempty"`
 	ProfileRef   string `json:"profile_ref,omitempty"`
 	WorkspaceRef string `json:"workspace_ref,omitempty"`
@@ -240,6 +241,7 @@ func (e *ToolExecutor) executeExecCommand(
 
 	request := execCommandRequest{
 		SessionID:    resolution.SessionRef,
+		OpenMode:     resolution.OpenMode,
 		OrgID:        resolveOrgID(execCtx),
 		ProfileRef:   resolveProfileRef(execCtx),
 		WorkspaceRef: resolveWorkspaceRef(execCtx),
@@ -250,6 +252,18 @@ func (e *ToolExecutor) executeExecCommand(
 		YieldTimeMs:  reqArgs.YieldTimeMs,
 	}
 	result := e.executeExecSessionRequest(ctx, e.baseURL+"/v1/exec_command", "exec_command", request, request.OrgID, execCtx.PerToolSoftLimits, started)
+	if result.Error != nil && isSessionUnavailable(result.Error) {
+		fallback, fallbackErr := e.orchestrator.resolveFallbackSession(ctx, reqArgs, execCtx, resolution)
+		if fallbackErr != nil {
+			return tools.ExecutionResult{Error: fallbackErr, DurationMs: durationMs(started)}
+		}
+		if fallback != nil {
+			resolution = fallback
+			request.SessionID = resolution.SessionRef
+			request.OpenMode = resolution.OpenMode
+			result = e.executeExecSessionRequest(ctx, e.baseURL+"/v1/exec_command", "exec_command", request, request.OrgID, execCtx.PerToolSoftLimits, started)
+		}
+	}
 	if result.Error != nil {
 		return result
 	}
@@ -623,6 +637,18 @@ func truncateOutput(s string) string {
 		return s
 	}
 	return s[:maxOutputBytes] + fmt.Sprintf("\n... (truncated, total %d bytes)", len(s))
+}
+
+func isSessionUnavailable(err *tools.ExecutionError) bool {
+	if err == nil {
+		return false
+	}
+	code, _ := err.Details["code"].(string)
+	switch strings.TrimSpace(code) {
+	case "sandbox.session_not_found", "shell.session_not_found":
+		return true
+	}
+	return strings.Contains(strings.ToLower(strings.TrimSpace(err.Message)), "session not found")
 }
 
 func mapHTTPError(statusCode int, body []byte, started time.Time) tools.ExecutionResult {

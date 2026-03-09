@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"strings"
+	"time"
 
 	"arkloop/services/worker/internal/data"
 	"github.com/google/uuid"
@@ -22,6 +23,9 @@ func resolveAndPersistEnvironmentBindings(ctx context.Context, pool *pgxpool.Poo
 	if workspaceRef != "" {
 		run.ProfileRef = stringPtr(profileRef)
 		run.WorkspaceRef = stringPtr(workspaceRef)
+		if err := syncEnvironmentRegistries(ctx, pool, run.OrgID, run.CreatedByUserID, run.ProjectID, profileRef, workspaceRef); err != nil {
+			return run, err
+		}
 		return run, nil
 	}
 
@@ -60,10 +64,50 @@ func resolveAndPersistEnvironmentBindings(ctx context.Context, pool *pgxpool.Poo
 	if err := tx.Commit(ctx); err != nil {
 		return run, err
 	}
+	if err := syncEnvironmentRegistries(ctx, pool, run.OrgID, run.CreatedByUserID, run.ProjectID, profileRef, workspaceRef); err != nil {
+		return run, err
+	}
 
 	run.ProfileRef = stringPtr(profileRef)
 	run.WorkspaceRef = stringPtr(workspaceRef)
 	return run, nil
+}
+
+func syncEnvironmentRegistries(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	orgID uuid.UUID,
+	ownerUserID *uuid.UUID,
+	projectID *uuid.UUID,
+	profileRef string,
+	workspaceRef string,
+) error {
+	if pool == nil {
+		return nil
+	}
+	now := time.Now().UTC()
+	profileRepo := data.ProfileRegistriesRepository{}
+	if err := profileRepo.UpsertTouch(ctx, pool, data.RegistryRecord{
+		Ref:                 strings.TrimSpace(profileRef),
+		OrgID:               orgID,
+		OwnerUserID:         ownerUserID,
+		DefaultWorkspaceRef: stringPtr(workspaceRef),
+		FlushState:          data.FlushStateIdle,
+		LastUsedAt:          now,
+		MetadataJSON:        map[string]any{},
+	}); err != nil {
+		return err
+	}
+	workspaceRepo := data.WorkspaceRegistriesRepository{}
+	return workspaceRepo.UpsertTouch(ctx, pool, data.RegistryRecord{
+		Ref:          strings.TrimSpace(workspaceRef),
+		OrgID:        orgID,
+		OwnerUserID:  ownerUserID,
+		ProjectID:    projectID,
+		FlushState:   data.FlushStateIdle,
+		LastUsedAt:   now,
+		MetadataJSON: map[string]any{},
+	})
 }
 
 func buildProfileRef(orgID uuid.UUID, userID *uuid.UUID) string {

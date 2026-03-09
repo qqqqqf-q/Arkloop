@@ -3,6 +3,7 @@ package sandbox
 import (
 	"context"
 	"strings"
+	"time"
 
 	"arkloop/services/worker/internal/data"
 	"github.com/google/uuid"
@@ -20,7 +21,13 @@ func newRegistryService(pool *pgxpool.Pool) *registryService {
 	return &registryService{pool: pool}
 }
 
-func (s *registryService) EnsureProfileRegistry(ctx context.Context, orgID uuid.UUID, profileRef string) error {
+func (s *registryService) UpsertProfileRegistry(
+	ctx context.Context,
+	orgID uuid.UUID,
+	ownerUserID *uuid.UUID,
+	profileRef string,
+	defaultWorkspaceRef *string,
+) error {
 	if s == nil || s.pool == nil {
 		return nil
 	}
@@ -28,16 +35,25 @@ func (s *registryService) EnsureProfileRegistry(ctx context.Context, orgID uuid.
 	if orgID == uuid.Nil || profileRef == "" {
 		return nil
 	}
-	_, err := s.profileRepo.GetOrCreate(ctx, s.pool, data.RegistryRecord{
-		Ref:          profileRef,
-		OrgID:        orgID,
-		FlushState:   data.FlushStateIdle,
-		MetadataJSON: map[string]any{},
+	return s.profileRepo.UpsertTouch(ctx, s.pool, data.RegistryRecord{
+		Ref:                 profileRef,
+		OrgID:               orgID,
+		OwnerUserID:         ownerUserID,
+		DefaultWorkspaceRef: defaultWorkspaceRef,
+		FlushState:          data.FlushStateIdle,
+		LastUsedAt:          time.Now().UTC(),
+		MetadataJSON:        map[string]any{},
 	})
-	return err
 }
 
-func (s *registryService) EnsureWorkspaceRegistry(ctx context.Context, orgID uuid.UUID, workspaceRef string) error {
+func (s *registryService) UpsertWorkspaceRegistry(
+	ctx context.Context,
+	orgID uuid.UUID,
+	ownerUserID *uuid.UUID,
+	projectID *uuid.UUID,
+	workspaceRef string,
+	defaultShellSessionRef *string,
+) error {
 	if s == nil || s.pool == nil {
 		return nil
 	}
@@ -45,13 +61,16 @@ func (s *registryService) EnsureWorkspaceRegistry(ctx context.Context, orgID uui
 	if orgID == uuid.Nil || workspaceRef == "" {
 		return nil
 	}
-	_, err := s.workspaceRepo.GetOrCreate(ctx, s.pool, data.RegistryRecord{
-		Ref:          workspaceRef,
-		OrgID:        orgID,
-		FlushState:   data.FlushStateIdle,
-		MetadataJSON: map[string]any{},
+	return s.workspaceRepo.UpsertTouch(ctx, s.pool, data.RegistryRecord{
+		Ref:                    workspaceRef,
+		OrgID:                  orgID,
+		OwnerUserID:            ownerUserID,
+		ProjectID:              projectID,
+		DefaultShellSessionRef: defaultShellSessionRef,
+		FlushState:             data.FlushStateIdle,
+		LastUsedAt:             time.Now().UTC(),
+		MetadataJSON:           map[string]any{},
 	})
-	return err
 }
 
 func (s *registryService) BindSessionRestorePointer(ctx context.Context, orgID uuid.UUID, sessionRef string, revision string) error {
