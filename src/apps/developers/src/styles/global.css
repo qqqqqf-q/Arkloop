@@ -626,16 +626,16 @@
 
 .doc-content h1 {
   font-size: clamp(1.4rem, 3vw, 2rem);
-  margin: 0 0 14px;
+  margin: 0 0 20px;
 }
 
 .doc-content h2 {
-  margin: 28px 0 10px;
+  margin: 32px 0 16px;
   font-size: 1.1rem;
 }
 
 .doc-content h3 {
-  margin: 20px 0 8px;
+  margin: 24px 0 14px;
   font-size: 0.92rem;
 }
 

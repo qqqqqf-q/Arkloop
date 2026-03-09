@@ -47,6 +47,8 @@ const zhDocsSidebar: SidebarGroup[] = [
       { label: 'Shell Execute 设计方案', href: '/docs/specs/shell-execute-architecture' },
       { label: 'Installer Bridge 设计方案', href: '/docs/specs/installer-bridge-architecture' },
       { label: 'Browser Automation 设计方案', href: '/docs/specs/browser-automation-architecture' },
+      { label: 'Claw 设计方案', href: '/docs/specs/claw-architecture' },
+      { label: '社交平台 Channel 接入架构', href: '/docs/specs/channel-integration-architecture' },
     ],
   },
   {
