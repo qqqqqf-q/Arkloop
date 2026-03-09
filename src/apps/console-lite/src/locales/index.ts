@@ -131,6 +131,12 @@ export interface LocaleStrings {
     fieldRefillInterval: string
     fieldRefillConcurrency: string
     fieldMaxLifetime: string
+    sectionBrowser: string
+    fieldBrowserEnabled: string
+    fieldBrowserDockerImage: string
+    fieldWarmBrowser: string
+    fieldIdleBrowser: string
+    fieldMaxLifetimeBrowser: string
     fieldCostPerCommit: string
     fieldCostPerCommitHint: string
     editDescription: string

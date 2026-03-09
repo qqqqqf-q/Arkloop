@@ -25,6 +25,7 @@ import {
   type ToolCatalogGroup,
   type ToolCatalogItem,
 } from '../api/tool-providers'
+import { listPlatformSettings, updatePlatformSetting } from '../api/settings'
 import { notifyToolCatalogChanged } from '../lib/toolCatalogRefresh'
 
 const SANDBOX_DEFAULTS: Record<string, string> = {
@@ -44,12 +45,32 @@ const SANDBOX_DEFAULTS: Record<string, string> = {
   'timeout.max_lifetime_s': '1800',
 }
 
+const SANDBOX_BROWSER_SETTINGS: Record<string, string> = {
+  browser_enabled: 'browser.enabled',
+  browser_image: 'sandbox.browser_docker_image',
+  warm_browser: 'sandbox.warm_browser',
+  idle_browser: 'sandbox.idle_timeout_browser_s',
+  max_lifetime_browser: 'sandbox.max_lifetime_browser_s',
+}
+
+const SANDBOX_BROWSER_DEFAULTS: Record<string, string> = {
+  browser_enabled: 'false',
+  browser_image: 'arkloop/sandbox-browser:dev',
+  warm_browser: '1',
+  idle_browser: '120',
+  max_lifetime_browser: '600',
+}
+
 const MEMORY_DEFAULTS: Record<string, string> = {
   cost_per_commit: '0',
 }
 
 type EditTarget = { group: string; provider: ToolProviderItem }
 type DescEditTarget = { toolName: string; label: string; description: string }
+
+function displayGroupName(group: string): string {
+  return group === 'sandbox' ? 'sandbox/browser' : group
+}
 
 function flatGet(obj: Record<string, unknown>, dotPath: string): string {
   const parts = dotPath.split('.')
@@ -163,27 +184,57 @@ export function ToolsPage() {
   }, [catalogGroups, groupParam, selectedGroup, syncGroupParam])
 
   useEffect(() => {
-    const grp = providerGroups.find((g) => g.group_name === selectedGroup)
-    if (!grp) {
-      setConfigForm({})
-      setConfigSaved({})
-      return
+    let cancelled = false
+
+    const loadConfig = async () => {
+      const grp = providerGroups.find((g) => g.group_name === selectedGroup)
+      if (!grp) {
+        if (!cancelled) {
+          setConfigForm({})
+          setConfigSaved({})
+        }
+        return
+      }
+      const active = grp.providers.find((p) => p.is_active)
+      if (!active) {
+        if (!cancelled) {
+          setConfigForm({})
+          setConfigSaved({})
+        }
+        return
+      }
+      const cfg = active.config_json ?? {}
+      const defaults = selectedGroup === 'sandbox'
+        ? { ...SANDBOX_DEFAULTS, ...SANDBOX_BROWSER_DEFAULTS }
+        : selectedGroup === 'memory'
+          ? MEMORY_DEFAULTS
+          : {}
+      const form: Record<string, string> = {}
+      for (const [k, def] of Object.entries(defaults)) {
+        if (selectedGroup === 'sandbox' && k in SANDBOX_BROWSER_SETTINGS) {
+          form[k] = def
+          continue
+        }
+        form[k] = flatGet(cfg, k) || def
+      }
+      if (selectedGroup === 'sandbox') {
+        const settings = await listPlatformSettings(accessToken)
+        for (const [field, key] of Object.entries(SANDBOX_BROWSER_SETTINGS)) {
+          const matched = settings.find((item) => item.key === key)
+          if (matched && matched.value !== '') {
+            form[field] = matched.value
+          }
+        }
+      }
+      if (!cancelled) {
+        setConfigForm(form)
+        setConfigSaved({ ...form })
+      }
     }
-    const active = grp.providers.find((p) => p.is_active)
-    if (!active) {
-      setConfigForm({})
-      setConfigSaved({})
-      return
-    }
-    const cfg = active.config_json ?? {}
-    const defaults = selectedGroup === 'sandbox' ? SANDBOX_DEFAULTS : selectedGroup === 'memory' ? MEMORY_DEFAULTS : {}
-    const form: Record<string, string> = {}
-    for (const [k, def] of Object.entries(defaults)) {
-      form[k] = flatGet(cfg, k) || def
-    }
-    setConfigForm(form)
-    setConfigSaved({ ...form })
-  }, [selectedGroup, providerGroups])
+
+    void loadConfig()
+    return () => { cancelled = true }
+  }, [selectedGroup, providerGroups, accessToken])
 
   const activeGroup = providerGroups.find((g) => g.group_name === selectedGroup)
   const activeProvider = activeGroup?.providers.find((p) => p.is_active)
@@ -287,9 +338,17 @@ export function ToolsPage() {
     try {
       let configJSON: Record<string, unknown> = {}
       for (const [k, v] of Object.entries(configForm)) {
+        if (selectedGroup === 'sandbox' && k in SANDBOX_BROWSER_SETTINGS) continue
         configJSON = flatSet(configJSON, k, v)
       }
       await updateToolProviderConfig(selectedGroup, activeProvider.provider_name, configJSON, accessToken)
+      if (selectedGroup === 'sandbox') {
+        await Promise.all(
+          Object.entries(SANDBOX_BROWSER_SETTINGS)
+            .filter(([field]) => configForm[field] !== configSaved[field])
+            .map(([field, key]) => updatePlatformSetting(key, configForm[field].trim(), accessToken)),
+        )
+      }
       setConfigSaved({ ...configForm })
       addToast(tc.toastSaved, 'success')
       notifyToolCatalogChanged()
@@ -381,7 +440,7 @@ export function ToolsPage() {
                         : 'text-[var(--c-text-tertiary)] hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-secondary)]',
                     ].join(' ')}
                   >
-                    {g.group}
+                    {displayGroupName(g.group)}
                   </button>
                 )
               })}
@@ -654,7 +713,24 @@ function SandboxConfigSection({
   inputCls: string
   labelCls: string
   sectionCls: string
-  tc: { sectionConfig: string; sectionPool: string; sectionTimeout: string; fieldAllowEgress: string; fieldDockerImage: string; fieldMaxSessions: string; fieldBootTimeout: string; fieldRefillInterval: string; fieldRefillConcurrency: string; fieldMaxLifetime: string }
+  tc: {
+    sectionConfig: string
+    sectionPool: string
+    sectionTimeout: string
+    sectionBrowser: string
+    fieldAllowEgress: string
+    fieldDockerImage: string
+    fieldMaxSessions: string
+    fieldBootTimeout: string
+    fieldRefillInterval: string
+    fieldRefillConcurrency: string
+    fieldMaxLifetime: string
+    fieldBrowserEnabled: string
+    fieldBrowserDockerImage: string
+    fieldWarmBrowser: string
+    fieldIdleBrowser: string
+    fieldMaxLifetimeBrowser: string
+  }
   providerName: string
 }) {
   const isDocker = providerName.includes('docker')
@@ -740,6 +816,39 @@ function SandboxConfigSection({
           <div>
             <label className={labelCls}>{tc.fieldMaxLifetime}</label>
             <input type="number" min={1} className={inputCls} value={form['timeout.max_lifetime_s'] ?? ''} onChange={onChange('timeout.max_lifetime_s')} />
+          </div>
+        </div>
+      </div>
+
+      <div className={sectionCls}>
+        <h3 className="text-sm font-medium text-[var(--c-text-primary)]">{tc.sectionBrowser}</h3>
+        <div className="mt-4 space-y-4">
+          <div>
+            <label className={labelCls}>{tc.fieldBrowserEnabled}</label>
+            <select value={form.browser_enabled ?? 'false'} onChange={onChange('browser_enabled')} className={inputCls}>
+              <option value="true">true</option>
+              <option value="false">false</option>
+            </select>
+          </div>
+          {isDocker && (
+            <div>
+              <label className={labelCls}>{tc.fieldBrowserDockerImage}</label>
+              <input type="text" className={inputCls} value={form.browser_image ?? ''} onChange={onChange('browser_image')} />
+            </div>
+          )}
+          <div className="grid grid-cols-3 gap-4">
+            <div>
+              <label className={labelCls}>{tc.fieldWarmBrowser}</label>
+              <input type="number" min={0} className={inputCls} value={form.warm_browser ?? ''} onChange={onChange('warm_browser')} />
+            </div>
+            <div>
+              <label className={labelCls}>{tc.fieldIdleBrowser}</label>
+              <input type="number" min={1} className={inputCls} value={form.idle_browser ?? ''} onChange={onChange('idle_browser')} />
+            </div>
+            <div>
+              <label className={labelCls}>{tc.fieldMaxLifetimeBrowser}</label>
+              <input type="number" min={1} className={inputCls} value={form.max_lifetime_browser ?? ''} onChange={onChange('max_lifetime_browser')} />
+            </div>
           </div>
         </div>
       </div>

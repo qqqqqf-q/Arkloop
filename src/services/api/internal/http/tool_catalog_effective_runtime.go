@@ -22,9 +22,11 @@ func buildEffectiveBuiltinToolNameSet(
 	if err != nil {
 		slog.WarnContext(ctx, "effective tool catalog: platform provider load failed", "err", err.Error())
 	}
+	browserEnabled := resolveEffectiveBrowserEnabled(ctx, pool)
 	resolved := sharedtoolruntime.ResolveBuiltin(sharedtoolruntime.ResolveInput{
 		HasConversationSearch:  pool != nil,
 		ArtifactStoreAvailable: artifactStoreAvailable,
+		BrowserEnabled:         browserEnabled,
 		Env: sharedtoolruntime.EnvConfig{
 			SandboxBaseURL:   strings.TrimSpace(os.Getenv("ARKLOOP_SANDBOX_BASE_URL")),
 			MemoryBaseURL:    strings.TrimSpace(os.Getenv("ARKLOOP_OPENVIKING_BASE_URL")),
@@ -33,6 +35,31 @@ func buildEffectiveBuiltinToolNameSet(
 		PlatformProviders: providers,
 	})
 	return resolved.ToolNameSet()
+}
+
+func resolveEffectiveBrowserEnabled(ctx context.Context, pool *pgxpool.Pool) bool {
+	if raw, ok := os.LookupEnv("ARKLOOP_BROWSER_ENABLED"); ok {
+		switch strings.TrimSpace(strings.ToLower(raw)) {
+		case "1", "true", "yes", "on":
+			return true
+		default:
+			return false
+		}
+	}
+	if pool == nil {
+		return false
+	}
+	var value string
+	err := pool.QueryRow(ctx, `SELECT value FROM platform_settings WHERE key = $1`, "browser.enabled").Scan(&value)
+	if err != nil {
+		return false
+	}
+	switch strings.TrimSpace(strings.ToLower(value)) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
 }
 
 func loadEffectivePlatformProviders(ctx context.Context, pool *pgxpool.Pool) ([]sharedtoolruntime.ProviderConfig, error) {
