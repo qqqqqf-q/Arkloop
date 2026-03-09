@@ -39,7 +39,6 @@ type EngineV1 struct {
 	executorRegistry      pipeline.AgentExecutorBuilder
 	runtimeManager        *workerruntime.Manager
 	memoryProviderFactory *workerruntime.MemoryProviderFactory
-	routingConfigLoader   *routing.ConfigLoader
 	llmRetryMaxAttempts   int
 	llmRetryBaseDelayMs   int
 	configResolver        sharedconfig.Resolver
@@ -190,7 +189,6 @@ func NewEngineV1(deps EngineV1Deps) (*EngineV1, error) {
 		executorRegistry:      deps.ExecutorRegistry,
 		runtimeManager:        deps.RuntimeManager,
 		memoryProviderFactory: deps.MemoryProviderFactory,
-		routingConfigLoader:   deps.RoutingConfigLoader,
 		llmRetryMaxAttempts:   deps.LlmRetryMaxAttempts,
 		llmRetryBaseDelayMs:   deps.LlmRetryBaseDelayMs,
 		configResolver:        cfgResolver,
