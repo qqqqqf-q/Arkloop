@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useParams, useLocation, useOutletContext, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { Glasses, Loader2, Paperclip, Share2, X, Zap } from 'lucide-react'
+import { ArrowDown, Glasses, Loader2, Paperclip, Share2, X, Zap } from 'lucide-react'
 import { ChatInput, type Attachment, formatFileSize } from './ChatInput'
 import { MessageBubble, StreamingBubble } from './MessageBubble'
 import { ThinkingBlock, CodeExecutionCard, type CodeExecution } from './ThinkingBlock'
@@ -272,6 +272,7 @@ export function ChatPage() {
   const sseTerminalFallbackArmedRef = useRef(false)
   // 用户是否停留在底部区域（距底部 80px 以内视为"在底部"）
   const isAtBottomRef = useRef(true)
+  const [isAtBottom, setIsAtBottom] = useState(true)
 
   useEffect(() => {
     segmentsRef.current = segments
@@ -284,7 +285,9 @@ export function ChatPage() {
   const handleScrollContainerScroll = useCallback(() => {
     const el = scrollContainerRef.current
     if (!el) return
-    isAtBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight <= 80
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= 80
+    isAtBottomRef.current = atBottom
+    setIsAtBottom(atBottom)
   }, [])
 
   const buildLiveThinkingSnapshot = useCallback((): MessageThinkingRef | null => {
@@ -985,6 +988,7 @@ export function ChatPage() {
   // 发送新消息时强制滚动到底部（用户主动操作，应该跟上）
   const scrollToBottom = useCallback(() => {
     isAtBottomRef.current = true
+    setIsAtBottom(true)
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [])
 
@@ -1724,6 +1728,32 @@ export function ChatPage() {
         style={{ maxWidth: 1200, margin: '0 auto', padding: `12px ${isPanelOpen ? '32px' : '60px'} 16px`, transition: 'padding 280ms cubic-bezier(0.16,1,0.3,1)', position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 10, background: 'linear-gradient(to bottom, transparent 0%, var(--c-bg-page) 24px)' }}
         className="flex w-full flex-col items-center gap-2"
       >
+        {/* 滚动到底部按钮：始终锚定在输入框顶边正上方 */}
+        <button
+          onClick={scrollToBottom}
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: '50%',
+            transform: 'translate(-50%, calc(-100% - 8px))',
+            zIndex: 1,
+            opacity: isAtBottom ? 0 : 1,
+            pointerEvents: isAtBottom ? 'none' : 'auto',
+            transition: 'opacity 200ms ease',
+            width: 36,
+            height: 36,
+            borderRadius: '50%',
+            border: '0.5px solid var(--c-border)',
+            background: 'var(--c-bg-sidebar)',
+            color: 'var(--c-text-secondary)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'pointer',
+          }}
+        >
+          <ArrowDown size={16} />
+        </button>
         {queuedDraft && (
           <div
             className="flex w-full max-w-[756px] items-center gap-2 rounded-xl px-3 py-2"
