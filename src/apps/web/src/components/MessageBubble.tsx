@@ -2,11 +2,13 @@ import { useState, useRef, useEffect } from 'react'
 import { Copy, Check, RefreshCw, Share2, Split, Paperclip, Pencil, MoreHorizontal, Flag } from 'lucide-react'
 import type { MessageResponse } from '../api'
 import type { WebSource, ArtifactRef } from '../storage'
+import type { BrowserActionRef } from '../storage'
 import { MarkdownRenderer } from './MarkdownRenderer'
 import { useTypewriter } from '../hooks/useTypewriter'
 import { ArtifactImage } from './ArtifactImage'
 import { ArtifactDownload } from './ArtifactDownload'
 import { DocumentCard } from './DocumentCard'
+import { BrowserScreenshotCard } from './BrowserScreenshotCard'
 import { useLocale } from '../contexts/LocaleContext'
 import { extractLegacyFilesFromContent, isFilePart, isImagePart, messageAttachmentParts, messageTextContent } from '../messageContent'
 
@@ -28,6 +30,7 @@ type Props = {
   shareState?: 'idle' | 'sharing' | 'shared'
   webSources?: WebSource[]
   artifacts?: ArtifactRef[]
+  browserActions?: BrowserActionRef[]
   accessToken?: string
   onShowSources?: () => void
   onOpenDocument?: (artifact: ArtifactRef) => void
@@ -42,8 +45,28 @@ function getDomain(url: string): string {
   }
 }
 
+function renderBrowserScreenshots(browserActions?: BrowserActionRef[], accessToken?: string) {
+  if (!browserActions || browserActions.length === 0 || !accessToken) return null
+  const withScreenshot = browserActions.filter((action) => action.screenshotArtifact)
+  if (withScreenshot.length === 0) return null
 
-export function MessageBubble({ message, onRetry, onEdit, onFork, onShare, onReport, shareState, webSources, artifacts, accessToken, onShowSources, onOpenDocument, activePanelArtifactKey }: Props) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '14px' }}>
+      {withScreenshot.map((action) => (
+        <BrowserScreenshotCard
+          key={action.id}
+          artifact={action.screenshotArtifact!}
+          accessToken={accessToken}
+          command={action.command}
+          url={action.url}
+        />
+      ))}
+    </div>
+  )
+}
+
+
+export function MessageBubble({ message, onRetry, onEdit, onFork, onShare, onReport, shareState, webSources, artifacts, browserActions, accessToken, onShowSources, onOpenDocument, activePanelArtifactKey }: Props) {
   const { t } = useLocale()
   const [copied, setCopied] = useState(false)
   const [editing, setEditing] = useState(false)
@@ -366,6 +389,8 @@ export function MessageBubble({ message, onRetry, onEdit, onFork, onShare, onRep
             </div>
           )
         })()}
+        {/* Browser 截图卡片 */}
+        {renderBrowserScreenshots(browserActions, accessToken)}
         <MarkdownRenderer content={message.content} webSources={webSources} artifacts={artifacts} accessToken={accessToken} runId={message.run_id} onOpenDocument={onOpenDocument} />
         <div style={{ marginTop: '16px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
@@ -537,14 +562,17 @@ export function MessageBubble({ message, onRetry, onEdit, onFork, onShare, onRep
 type StreamingBubbleProps = {
   content: string
   webSources?: WebSource[]
+  browserActions?: BrowserActionRef[]
+  accessToken?: string
 }
 
-export function StreamingBubble({ content, webSources }: StreamingBubbleProps) {
+export function StreamingBubble({ content, webSources, browserActions, accessToken }: StreamingBubbleProps) {
   const displayed = useTypewriter(content)
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column' }}>
       <div style={{ maxWidth: '663px' }}>
+        {renderBrowserScreenshots(browserActions, accessToken)}
         <MarkdownRenderer content={displayed} disableMath webSources={webSources} />
       </div>
     </div>

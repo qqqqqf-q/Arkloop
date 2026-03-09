@@ -381,7 +381,7 @@ func (e *ToolExecutor) executeBrowser(
 		Tier:         "browser",
 		Command:      buildBrowserCommand(resolution.SessionRef, reqArgs.Command),
 		TimeoutMs:    reqArgs.TimeoutMs,
-		YieldTimeMs:  reqArgs.YieldTimeMs,
+		YieldTimeMs:  effectiveBrowserYieldTimeMs(reqArgs.Command, reqArgs.YieldTimeMs),
 	}
 	result := e.executeExecSessionRequest(ctx, e.baseURL+"/v1/exec_command", "exec_command", request, request.OrgID, execCtx.PerToolSoftLimits, started)
 	if result.Error != nil && isSessionUnavailable(result.Error) {
@@ -396,13 +396,36 @@ func (e *ToolExecutor) executeBrowser(
 			request.ProfileRef = resolution.ProfileRef(resolveProfileRef(execCtx))
 			request.WorkspaceRef = resolution.WorkspaceRef(resolveWorkspaceRef(execCtx))
 			request.Command = buildBrowserCommand(resolution.SessionRef, reqArgs.Command)
-			request.YieldTimeMs = reqArgs.YieldTimeMs
+			request.YieldTimeMs = effectiveBrowserYieldTimeMs(reqArgs.Command, reqArgs.YieldTimeMs)
 			result = e.executeExecSessionRequest(ctx, e.baseURL+"/v1/exec_command", "exec_command", request, request.OrgID, execCtx.PerToolSoftLimits, started)
+		}
+	}
+	if result.Error != nil && isSessionBusy(result.Error) {
+		busyRetried, retriedResult := e.retryBusyBrowserCommand(ctx, execCtx, resolution.SessionRef, request, reqArgs.YieldTimeMs, started)
+		if busyRetried {
+			result = retriedResult
+			if result.Error != nil && isSessionUnavailable(result.Error) {
+				fallback, fallbackErr := e.browserOrchestrator.resolveFallbackSession(ctx, execCommandArgs{}, execCtx, resolution)
+				if fallbackErr != nil {
+					return tools.ExecutionResult{Error: fallbackErr, DurationMs: durationMs(started)}
+				}
+				if fallback != nil {
+					resolution = fallback
+					request.SessionID = resolution.SessionRef
+					request.OpenMode = resolution.OpenMode
+					request.ProfileRef = resolution.ProfileRef(resolveProfileRef(execCtx))
+					request.WorkspaceRef = resolution.WorkspaceRef(resolveWorkspaceRef(execCtx))
+					request.Command = buildBrowserCommand(resolution.SessionRef, reqArgs.Command)
+					request.YieldTimeMs = effectiveBrowserYieldTimeMs(reqArgs.Command, reqArgs.YieldTimeMs)
+					result = e.executeExecSessionRequest(ctx, e.baseURL+"/v1/exec_command", "exec_command", request, request.OrgID, execCtx.PerToolSoftLimits, started)
+				}
+			}
 		}
 	}
 	if result.Error != nil {
 		return result
 	}
+	result = e.settleBrowserResult(ctx, result, execCtx, resolution.SessionRef, reqArgs.YieldTimeMs, started)
 	resp := decodeExecSessionResult(result.ResultJSON)
 	if resp != nil {
 		e.browserOrchestrator.markResult(ctx, execCtx, resolution, *resp)
@@ -414,7 +437,7 @@ func (e *ToolExecutor) executeBrowser(
 	}
 	delete(result.ResultJSON, "session_id")
 
-	if shouldAutoScreenshot(reqArgs.Command) {
+	if resp != nil && !resp.Running && shouldAutoScreenshot(reqArgs.Command) {
 		screenshotReq := execCommandRequest{
 			SessionID: resolution.SessionRef,
 			OrgID:     resolveOrgID(execCtx),
@@ -429,6 +452,67 @@ func (e *ToolExecutor) executeBrowser(
 	}
 
 	return result
+}
+
+func (e *ToolExecutor) settleBrowserResult(
+	ctx context.Context,
+	result tools.ExecutionResult,
+	execCtx tools.ExecutionContext,
+	sessionRef string,
+	requestedYieldTimeMs int,
+	started time.Time,
+) tools.ExecutionResult {
+	resp := decodeExecSessionResult(result.ResultJSON)
+	if resp == nil || !resp.Running {
+		return result
+	}
+
+	pollResult, ok := e.waitForBrowserSessionIdle(ctx, execCtx, sessionRef, requestedYieldTimeMs, started)
+	if !ok {
+		return result
+	}
+	return pollResult
+}
+
+func (e *ToolExecutor) retryBusyBrowserCommand(
+	ctx context.Context,
+	execCtx tools.ExecutionContext,
+	sessionRef string,
+	request execCommandRequest,
+	requestedYieldTimeMs int,
+	started time.Time,
+) (bool, tools.ExecutionResult) {
+	_, ok := e.waitForBrowserSessionIdle(ctx, execCtx, sessionRef, requestedYieldTimeMs, started)
+	if !ok {
+		return false, tools.ExecutionResult{}
+	}
+	result := e.executeExecSessionRequest(ctx, e.baseURL+"/v1/exec_command", "exec_command", request, request.OrgID, execCtx.PerToolSoftLimits, started)
+	return true, result
+}
+
+func (e *ToolExecutor) waitForBrowserSessionIdle(
+	ctx context.Context,
+	execCtx tools.ExecutionContext,
+	sessionRef string,
+	requestedYieldTimeMs int,
+	started time.Time,
+) (tools.ExecutionResult, bool) {
+	pollReq := writeStdinRequest{
+		SessionID:   sessionRef,
+		OrgID:       resolveOrgID(execCtx),
+		YieldTimeMs: browserContinuationYieldTimeMs(requestedYieldTimeMs),
+	}
+	for attempt := 0; attempt < browserAutoPollAttempts; attempt++ {
+		pollResult := e.executeExecSessionRequest(ctx, e.baseURL+"/v1/write_stdin", "write_stdin", pollReq, pollReq.OrgID, execCtx.PerToolSoftLimits, started)
+		if pollResult.Error != nil {
+			return tools.ExecutionResult{}, false
+		}
+		resp := decodeExecSessionResult(pollResult.ResultJSON)
+		if resp == nil || !resp.Running {
+			return pollResult, true
+		}
+	}
+	return tools.ExecutionResult{}, false
 }
 
 func buildBrowserCommand(sessionRef string, command string) string {
@@ -808,6 +892,11 @@ func isSessionUnavailable(err *tools.ExecutionError) bool {
 	switch strings.TrimSpace(code) {
 	case "sandbox.session_not_found", "shell.session_not_found":
 		return true
+	case "sandbox.shell_error":
+		message := strings.ToLower(strings.TrimSpace(err.Message))
+		if strings.Contains(message, "connect to agent") || strings.Contains(message, "no route to host") || strings.Contains(message, "connection refused") {
+			return true
+		}
 	}
 	return strings.Contains(strings.ToLower(strings.TrimSpace(err.Message)), "session not found")
 }

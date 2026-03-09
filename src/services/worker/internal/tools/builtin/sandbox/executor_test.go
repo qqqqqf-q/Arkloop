@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -2051,6 +2052,154 @@ func TestBrowser_ForwardsYieldTimeMs(t *testing.T) {
 	}
 }
 
+func TestBrowser_AutoScreenshotCommandRaisesTinyYieldTime(t *testing.T) {
+	orgID := uuid.New()
+	ctx := tools.ExecutionContext{
+		RunID:        uuid.New(),
+		OrgID:        &orgID,
+		ProfileRef:   "pref_test",
+		WorkspaceRef: "wsref_test",
+	}
+	var seen execCommandRequest
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&seen); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(execSessionResponse{SessionID: seen.SessionID, Status: "idle", Cwd: "/workspace", ExitCode: intPtr(0)})
+	}))
+	defer server.Close()
+
+	exec := NewToolExecutor(server.URL, "")
+	result := exec.Execute(t.Context(), "browser", map[string]any{
+		"command":       "navigate https://example.com",
+		"yield_time_ms": float64(50),
+	}, ctx, "")
+	if result.Error != nil {
+		t.Fatalf("unexpected error: %+v", result.Error)
+	}
+	if seen.YieldTimeMs != autoScreenshotMinYieldTimeMs {
+		t.Fatalf("expected yield_time_ms=%d, got %d", autoScreenshotMinYieldTimeMs, seen.YieldTimeMs)
+	}
+}
+
+func TestBrowser_AutoPollsRunningResultBeforeScreenshot(t *testing.T) {
+	orgID := uuid.New()
+	runID := uuid.New()
+	ctx := tools.ExecutionContext{
+		RunID:        runID,
+		OrgID:        &orgID,
+		ProfileRef:   "pref_test",
+		WorkspaceRef: "wsref_test",
+	}
+	var paths []string
+	var pollSeen writeStdinRequest
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/v1/exec_command":
+			var body execCommandRequest
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("decode exec body: %v", err)
+			}
+			if len(paths) == 1 {
+				json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "running", Cwd: "/workspace", Output: "loading", Running: true})
+				return
+			}
+			json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "idle", Cwd: "/workspace", Output: "ok", ExitCode: intPtr(0), Artifacts: []artifactRef{{
+				Key:      "org/browser/3/browser-screenshot.png",
+				Filename: "browser-screenshot.png",
+				Size:     1024,
+				MimeType: "image/png",
+			}}})
+		case "/v1/write_stdin":
+			if err := json.NewDecoder(r.Body).Decode(&pollSeen); err != nil {
+				t.Fatalf("decode poll body: %v", err)
+			}
+			json.NewEncoder(w).Encode(execSessionResponse{SessionID: pollSeen.SessionID, Status: "idle", Cwd: "/workspace", Output: "Example Domain", ExitCode: intPtr(0)})
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	exec := NewToolExecutor(server.URL, "")
+	result := exec.Execute(t.Context(), "browser", map[string]any{"command": "navigate https://example.com", "yield_time_ms": float64(50)}, ctx, "")
+	if result.Error != nil {
+		t.Fatalf("unexpected error: %+v", result.Error)
+	}
+	if !reflect.DeepEqual(paths, []string{"/v1/exec_command", "/v1/write_stdin", "/v1/exec_command"}) {
+		t.Fatalf("unexpected request paths: %#v", paths)
+	}
+	if pollSeen.YieldTimeMs != autoScreenshotMinYieldTimeMs {
+		t.Fatalf("expected poll yield_time_ms=%d, got %d", autoScreenshotMinYieldTimeMs, pollSeen.YieldTimeMs)
+	}
+	if result.ResultJSON["running"] != false {
+		t.Fatalf("expected settled browser result, got %#v", result.ResultJSON)
+	}
+	if result.ResultJSON["has_screenshot"] != true {
+		t.Fatalf("expected has_screenshot=true, got %#v", result.ResultJSON["has_screenshot"])
+	}
+	artifacts, ok := result.ResultJSON["artifacts"].([]artifactRef)
+	if !ok || len(artifacts) != 1 {
+		t.Fatalf("expected screenshot artifact after polling, got %#v", result.ResultJSON["artifacts"])
+	}
+	if got := result.ResultJSON["output"]; got != "Example Domain" {
+		t.Fatalf("expected settled output, got %#v", got)
+	}
+}
+
+func TestBrowser_DoesNotAutoScreenshotWhileRunning(t *testing.T) {
+	orgID := uuid.New()
+	runID := uuid.New()
+	ctx := tools.ExecutionContext{
+		RunID:        runID,
+		OrgID:        &orgID,
+		ProfileRef:   "pref_test",
+		WorkspaceRef: "wsref_test",
+	}
+	var execCalls int
+	var pollCalls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/v1/exec_command":
+			execCalls++
+			var body execCommandRequest
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("decode exec body: %v", err)
+			}
+			json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "running", Cwd: "/workspace", Output: "ok", Running: true})
+		case "/v1/write_stdin":
+			pollCalls++
+			var body writeStdinRequest
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("decode poll body: %v", err)
+			}
+			json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "running", Cwd: "/workspace", Output: "ok", Running: true})
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	exec := NewToolExecutor(server.URL, "")
+	result := exec.Execute(t.Context(), "browser", map[string]any{"command": "navigate https://example.com", "yield_time_ms": float64(50)}, ctx, "")
+	if result.Error != nil {
+		t.Fatalf("unexpected error: %+v", result.Error)
+	}
+	if execCalls != 1 {
+		t.Fatalf("expected exactly one primary exec command, got %d", execCalls)
+	}
+	if pollCalls != browserAutoPollAttempts {
+		t.Fatalf("expected %d browser polls, got %d", browserAutoPollAttempts, pollCalls)
+	}
+	if _, ok := result.ResultJSON["has_screenshot"]; ok {
+		t.Fatalf("did not expect screenshot marker on running result: %#v", result.ResultJSON)
+	}
+}
+
 func TestBrowser_AutoSessionDoesNotReuseShellSession(t *testing.T) {
 	db := testutil.SetupPostgresDatabase(t, "worker_browser_shell_type_isolation")
 	pool, err := pgxpool.New(t.Context(), db.DSN)
@@ -2149,5 +2298,137 @@ func TestBrowser_ExplicitSessionRefCreatesWhenMissing(t *testing.T) {
 	}
 	if result.ResultJSON["resolved_via"] != "explicit_new" {
 		t.Fatalf("unexpected resolved_via: %v", result.ResultJSON["resolved_via"])
+	}
+}
+
+func TestBrowser_AutoFallsBackAfterDisconnectedThreadDefault(t *testing.T) {
+	db := testutil.SetupPostgresDatabase(t, "worker_browser_disconnected_fallback")
+	pool, err := pgxpool.New(t.Context(), db.DSN)
+	if err != nil {
+		t.Fatalf("pgxpool.New: %v", err)
+	}
+	defer pool.Close()
+
+	orgID := uuid.New()
+	threadID := uuid.New()
+	bindingKey := "thread:" + threadID.String()
+	liveSessionID := "brref_live_old"
+	repo := data.ShellSessionsRepository{}
+	if err := repo.Upsert(t.Context(), pool, data.ShellSessionRecord{
+		SessionRef:        "brref_old",
+		SessionType:       data.ShellSessionTypeBrowser,
+		OrgID:             orgID,
+		ProfileRef:        "pref_test",
+		WorkspaceRef:      "wsref_test",
+		ThreadID:          &threadID,
+		ShareScope:        data.ShellShareScopeThread,
+		State:             data.ShellSessionStateBusy,
+		LiveSessionID:     &liveSessionID,
+		DefaultBindingKey: &bindingKey,
+		MetadataJSON:      map[string]any{},
+	}); err != nil {
+		t.Fatalf("seed browser session: %v", err)
+	}
+
+	var sessionIDs []string
+	var statuses []int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body execCommandRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		sessionIDs = append(sessionIDs, body.SessionID)
+		w.Header().Set("Content-Type", "application/json")
+		if body.SessionID == "brref_old" {
+			statuses = append(statuses, http.StatusInternalServerError)
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]any{"code": "sandbox.shell_error", "message": "prepare environment: connect to agent: dial tcp 172.24.0.4:8080: connect: no route to host"})
+			return
+		}
+		statuses = append(statuses, http.StatusOK)
+		json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "idle", Cwd: "/workspace", Output: "ok", ExitCode: intPtr(0)})
+	}))
+	defer server.Close()
+
+	exec := NewToolExecutorWithPool(server.URL, "", pool)
+	ctx := tools.ExecutionContext{
+		RunID:        uuid.New(),
+		OrgID:        &orgID,
+		ThreadID:     &threadID,
+		ProfileRef:   "pref_test",
+		WorkspaceRef: "wsref_test",
+	}
+	result := exec.Execute(t.Context(), "browser", map[string]any{"command": "snapshot", "yield_time_ms": float64(1500)}, ctx, "")
+	if result.Error != nil {
+		t.Fatalf("unexpected error: %+v", result.Error)
+	}
+	if len(sessionIDs) != 2 {
+		t.Fatalf("expected 2 browser requests, got %d", len(sessionIDs))
+	}
+	if sessionIDs[0] != "brref_old" {
+		t.Fatalf("expected first stale browser session, got %s", sessionIDs[0])
+	}
+	if sessionIDs[1] == "brref_old" {
+		t.Fatalf("expected fallback browser session, got %#v", sessionIDs)
+	}
+	stored, err := repo.GetBySessionRefAndType(t.Context(), pool, orgID, "brref_old", data.ShellSessionTypeBrowser)
+	if err != nil {
+		t.Fatalf("reload stale browser session: %v", err)
+	}
+	if stored.LiveSessionID != nil {
+		t.Fatalf("expected stale browser live_session_id cleared, got %#v", stored.LiveSessionID)
+	}
+}
+
+func TestBrowser_RetriesAfterSessionBusy(t *testing.T) {
+	orgID := uuid.New()
+	runID := uuid.New()
+	ctx := tools.ExecutionContext{
+		RunID:        runID,
+		OrgID:        &orgID,
+		ProfileRef:   "pref_test",
+		WorkspaceRef: "wsref_test",
+	}
+	var paths []string
+	var pollSeen writeStdinRequest
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/v1/exec_command":
+			var body execCommandRequest
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("decode exec body: %v", err)
+			}
+			if len(paths) == 1 {
+				w.WriteHeader(http.StatusConflict)
+				json.NewEncoder(w).Encode(map[string]any{"code": "shell.session_busy", "message": "shell session is busy"})
+				return
+			}
+			json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "idle", Cwd: "/workspace", Output: "- document", ExitCode: intPtr(0)})
+		case "/v1/write_stdin":
+			if err := json.NewDecoder(r.Body).Decode(&pollSeen); err != nil {
+				t.Fatalf("decode poll body: %v", err)
+			}
+			json.NewEncoder(w).Encode(execSessionResponse{SessionID: pollSeen.SessionID, Status: "idle", Cwd: "/workspace", Output: "previous command done", ExitCode: intPtr(0)})
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	exec := NewToolExecutor(server.URL, "")
+	result := exec.Execute(t.Context(), "browser", map[string]any{"command": "snapshot", "yield_time_ms": float64(5000)}, ctx, "")
+	if result.Error != nil {
+		t.Fatalf("unexpected error: %+v", result.Error)
+	}
+	if !reflect.DeepEqual(paths, []string{"/v1/exec_command", "/v1/write_stdin", "/v1/exec_command"}) {
+		t.Fatalf("unexpected request sequence: %#v", paths)
+	}
+	if pollSeen.YieldTimeMs != 5000 {
+		t.Fatalf("expected poll yield_time_ms=5000, got %d", pollSeen.YieldTimeMs)
+	}
+	if got := result.ResultJSON["output"]; got != "- document" {
+		t.Fatalf("expected retried snapshot output, got %#v", got)
 	}
 }

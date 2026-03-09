@@ -215,6 +215,7 @@ func (a *Application) Run(ctx context.Context) error {
 		threadReportRepo *data.ThreadReportRepository
 		messageRepo      *data.MessageRepository
 		runEventRepo     *data.RunEventRepository
+		shellSessionRepo *data.ShellSessionRepository
 		auditRepo        *data.AuditLogRepository
 
 		secretsRepo                  *data.SecretsRepository
@@ -305,6 +306,10 @@ func (a *Application) Run(ctx context.Context) error {
 			return err
 		}
 		runEventRepo, err = data.NewRunEventRepository(pool)
+		if err != nil {
+			return err
+		}
+		shellSessionRepo, err = data.NewShellSessionRepository(pool)
 		if err != nil {
 			return err
 		}
@@ -591,6 +596,7 @@ func (a *Application) Run(ctx context.Context) error {
 			ThreadReportRepo:             threadReportRepo,
 			MessageRepo:                  messageRepo,
 			RunEventRepo:                 runEventRepo,
+			ShellSessionRepo:             shellSessionRepo,
 			AuditWriter:                  auditWriter,
 			LlmCredentialsRepo:           llmCredRepo,
 			LlmRoutesRepo:                llmRoutesRepo,

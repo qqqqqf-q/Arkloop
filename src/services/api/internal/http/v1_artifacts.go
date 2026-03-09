@@ -19,6 +19,7 @@ func artifactsEntry(
 	membershipRepo *data.OrgMembershipRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	runRepo *data.RunEventRepository,
+	shellSessionRepo *data.ShellSessionRepository,
 	threadShareRepo *data.ThreadShareRepository,
 	auditWriter *audit.Writer,
 	store artifactStore,
@@ -55,7 +56,7 @@ func artifactsEntry(
 			return
 		}
 
-		run, ok := resolveArtifactRun(r.Context(), runRepo, key, info)
+		run, ok := resolveArtifactRun(r.Context(), runRepo, shellSessionRepo, key, info)
 		if !ok || run == nil {
 			WriteError(w, nethttp.StatusForbidden, "artifacts.forbidden", "access denied", traceID, nil)
 			return
@@ -103,10 +104,11 @@ func artifactsEntry(
 func resolveArtifactRun(
 	ctx context.Context,
 	runRepo *data.RunEventRepository,
+	shellSessionRepo *data.ShellSessionRepository,
 	key string,
 	info objectstore.ObjectInfo,
 ) (*data.Run, bool) {
-	runID, ok := resolveArtifactRunID(key, info.Metadata)
+	runID, ok := resolveArtifactRunID(ctx, shellSessionRepo, key, info.Metadata)
 	if !ok {
 		return nil, false
 	}
@@ -152,7 +154,12 @@ func authorizeArtifactShare(
 	return true
 }
 
-func resolveArtifactRunID(key string, metadata map[string]string) (uuid.UUID, bool) {
+func resolveArtifactRunID(
+	ctx context.Context,
+	shellSessionRepo *data.ShellSessionRepository,
+	key string,
+	metadata map[string]string,
+) (uuid.UUID, bool) {
 	if len(metadata) > 0 {
 		ownerKind := strings.TrimSpace(metadata[objectstore.ArtifactMetaOwnerKind])
 		ownerID := strings.TrimSpace(metadata[objectstore.ArtifactMetaOwnerID])
@@ -160,10 +167,19 @@ func resolveArtifactRunID(key string, metadata map[string]string) (uuid.UUID, bo
 			return uuid.Nil, false
 		}
 		parsed, err := uuid.Parse(ownerID)
-		if err != nil {
-			return uuid.Nil, false
+		if err == nil {
+			return parsed, true
 		}
-		return parsed, true
+		if shellSessionRepo != nil {
+			orgID, orgErr := uuid.Parse(strings.TrimSpace(metadata[objectstore.ArtifactMetaOrgID]))
+			if orgErr == nil {
+				runID, lookupErr := shellSessionRepo.GetRunIDBySessionRef(ctx, orgID, ownerID)
+				if lookupErr == nil && runID != nil && *runID != uuid.Nil {
+					return *runID, true
+				}
+			}
+		}
+		return uuid.Nil, false
 	}
 	return resolveLegacyArtifactRunID(key)
 }

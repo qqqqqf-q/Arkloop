@@ -37,7 +37,7 @@ export const zhCN: LocaleStrings = {
     deleteConfirm: '确定删除此智能体？',
     noAgents: '暂无智能体',
     overview: '概览',
-    persona: '人格',
+    persona: 'Prompt',
     builtIn: '内置',
     platformDefault: '平台默认',
     hybrid: 'Hybrid',

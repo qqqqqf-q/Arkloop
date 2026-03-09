@@ -306,21 +306,34 @@ export function TurnView({ turn, index }: TurnViewProps) {
       )}
 
       {/* Tool calls */}
-      {turn.toolCalls.map((tc, i) => (
+      {turn.toolCalls.map((tc, i) => {
+        const isBrowser = tc.toolName === 'browser'
+        const browserCommand = isBrowser && typeof tc.argsJSON?.command === 'string' ? tc.argsJSON.command : null
+        const hasScreenshot = isBrowser && tc.resultJSON?.has_screenshot === true
+        const artifactCount = isBrowser && Array.isArray(tc.resultJSON?.artifacts) ? (tc.resultJSON.artifacts as unknown[]).length : 0
+        return (
         <div key={tc.toolCallId || i} className="space-y-1">
           <CollapseBlock
-            label={`tool.call  ${tc.toolName}`}
-            preview={JSON.stringify(tc.argsJSON).slice(0, 60)}
+            label={isBrowser ? `browser  ${browserCommand ?? ''}` : `tool.call  ${tc.toolName}`}
+            preview={isBrowser ? undefined : JSON.stringify(tc.argsJSON).slice(0, 60)}
           >
             <JsonBlock value={tc.argsJSON} />
           </CollapseBlock>
           {(tc.resultJSON != null || tc.errorClass) && (
             <CollapseBlock
-              label={tc.errorClass ? `tool.result  error` : `tool.result`}
+              label={
+                tc.errorClass
+                  ? `tool.result  error`
+                  : hasScreenshot
+                    ? `tool.result  screenshot`
+                    : `tool.result`
+              }
               preview={
                 tc.errorClass
                   ? tc.errorClass
-                  : JSON.stringify(tc.resultJSON).slice(0, 60)
+                  : hasScreenshot
+                    ? `${artifactCount} artifact(s)`
+                    : JSON.stringify(tc.resultJSON).slice(0, 60)
               }
               dim={!!tc.errorClass}
             >
@@ -332,7 +345,8 @@ export function TurnView({ turn, index }: TurnViewProps) {
             </CollapseBlock>
           )}
         </div>
-      ))}
+        )
+      })}
 
       {/* Assistant 回复（折叠，预览截断 80 字） */}
       {turn.assistantText && (

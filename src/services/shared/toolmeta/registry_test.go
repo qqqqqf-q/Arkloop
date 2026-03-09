@@ -30,6 +30,15 @@ func TestSandboxToolDescriptionsExplainWorkspaceAndArtifacts(t *testing.T) {
 	if !strings.Contains(browserDesc, "not a mode flag") {
 		t.Fatalf("browser description should explain session_ref semantics: %s", browserDesc)
 	}
+	if !strings.Contains(browserDesc, "snapshot to inspect DOM/text") || !strings.Contains(browserDesc, "Use screenshot only when you need a visual image") {
+		t.Fatalf("browser description should distinguish snapshot and screenshot usage: %s", browserDesc)
+	}
+	if !strings.Contains(browserDesc, "avoid tiny values such as 50ms") || !strings.Contains(browserDesc, "1500-5000ms") {
+		t.Fatalf("browser description should guide practical yield_time_ms values: %s", browserDesc)
+	}
+	if !strings.Contains(browserDesc, "session_mode/share_scope") || !strings.Contains(browserDesc, "never invent artifact keys") {
+		t.Fatalf("browser description should forbid unsupported mode fields and invented artifacts: %s", browserDesc)
+	}
 
 	for _, desc := range []string{python, execDesc, stdinDesc} {
 		if !strings.Contains(desc, "workspace:/relative/path") {

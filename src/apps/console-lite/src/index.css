@@ -8,6 +8,7 @@
   --c-bg-sub: #1e1e1c;
   --c-bg-menu: #2a2a28;
   --c-bg-input: #262624;
+  --c-bg-card: #1e1e1c;
   --c-bg-tag: #2a2a28;
   --c-border: #40403d;
   --c-border-console: #2a2a28;
@@ -50,6 +51,7 @@
     --c-bg-sub: #EBEBEB;
     --c-bg-menu: #F0F0EE;
     --c-bg-input: #FFFFFF;
+    --c-bg-card: #FCFCFE;
     --c-bg-tag: #EBEBEB;
     --c-border: #B9B9B7;
     --c-border-console: #EBEBEB;
@@ -92,6 +94,7 @@
   --c-bg-sub: #EBEBEB;
   --c-bg-menu: #F0F0EE;
   --c-bg-input: #FFFFFF;
+  --c-bg-card: #FCFCFE;
   --c-bg-tag: #EBEBEB;
   --c-border: #B9B9B7;
   --c-border-console: #EBEBEB;

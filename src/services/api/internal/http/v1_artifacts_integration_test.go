@@ -166,6 +166,10 @@ func buildArtifactEnv(t *testing.T) artifactTestEnv {
 	if err != nil {
 		t.Fatalf("new run repo: %v", err)
 	}
+	shellSessionRepo, err := data.NewShellSessionRepository(pool)
+	if err != nil {
+		t.Fatalf("new shell session repo: %v", err)
+	}
 	apiKeysRepo, err := data.NewAPIKeysRepository(pool)
 	if err != nil {
 		t.Fatalf("new api keys repo: %v", err)
@@ -194,6 +198,7 @@ func buildArtifactEnv(t *testing.T) artifactTestEnv {
 		ThreadRepo:             threadRepo,
 		ThreadShareRepo:        threadShareRepo,
 		RunEventRepo:           runRepo,
+		ShellSessionRepo:       shellSessionRepo,
 		AuditWriter:            auditWriter,
 		APIKeysRepo:            apiKeysRepo,
 		ArtifactStore:          store,
@@ -375,4 +380,43 @@ func TestThreadAttachmentsUploadAndRead(t *testing.T) {
 	bob := decodeJSONBody[registerResponse](t, bobRegister.Body.Bytes())
 	forbidden := doArtifactRequest(t, env.handler, "/v1/attachments/"+payload.Key, authHeader(bob.AccessToken))
 	assertErrorEnvelope(t, forbidden, nethttp.StatusForbidden, "policy.denied")
+}
+
+func TestArtifactsAuthorizationByBrowserSessionOwnerFallback(t *testing.T) {
+	env := buildArtifactEnv(t)
+
+	thread, err := env.threadRepo.Create(context.Background(), env.aliceOrgID, &env.aliceUserID, nil, false)
+	if err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+	run, _, err := env.runRepo.CreateRunWithStartedEvent(context.Background(), env.aliceOrgID, thread.ID, &env.aliceUserID, "run.started", nil)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	sessionRef := "brref_browserartifact"
+	if _, err := env.pool.Exec(context.Background(), `
+		INSERT INTO shell_sessions (
+			session_ref, session_type, org_id, profile_ref, workspace_ref,
+			thread_id, run_id, share_scope, state, metadata_json
+		) VALUES ($1, 'browser', $2, $3, $4, $5, $6, $7, $8, '{}'::jsonb)
+	`, sessionRef, env.aliceOrgID, "pref_test", "wsref_test", thread.ID, run.ID, "thread", "idle"); err != nil {
+		t.Fatalf("insert shell session: %v", err)
+	}
+
+	artifactKey := env.aliceOrgID.String() + "/" + sessionRef + "/1/browser-screenshot.png"
+	env.store.put(
+		artifactKey,
+		[]byte("png-bytes"),
+		"image/png",
+		objectstore.ArtifactMetadata(objectstore.ArtifactOwnerKindRun, sessionRef, env.aliceOrgID.String(), nil),
+	)
+
+	resp := doArtifactRequest(t, env.handler, "/v1/artifacts/"+artifactKey, authHeader(env.aliceToken))
+	if resp.Code != nethttp.StatusOK {
+		t.Fatalf("browser artifact read: %d %s", resp.Code, resp.Body.String())
+	}
+	if got := resp.Body.String(); got != "png-bytes" {
+		t.Fatalf("unexpected browser artifact body: %q", got)
+	}
 }

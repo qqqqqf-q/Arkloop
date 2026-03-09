@@ -55,6 +55,7 @@ type HandlerConfig struct {
 	ThreadReportRepo     *data.ThreadReportRepository
 	MessageRepo          *data.MessageRepository
 	RunEventRepo         *data.RunEventRepository
+	ShellSessionRepo     *data.ShellSessionRepository
 	AuditWriter          *audit.Writer
 
 	LlmCredentialsRepo           *data.LlmCredentialsRepository
@@ -594,7 +595,7 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 
 	mux.HandleFunc(
 		"/v1/artifacts/",
-		artifactsEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.APIKeysRepo, cfg.RunEventRepo, cfg.ThreadShareRepo, cfg.AuditWriter, cfg.ArtifactStore),
+		artifactsEntry(cfg.AuthService, cfg.OrgMembershipRepo, cfg.APIKeysRepo, cfg.RunEventRepo, cfg.ShellSessionRepo, cfg.ThreadShareRepo, cfg.AuditWriter, cfg.ArtifactStore),
 	)
 	mux.HandleFunc(
 		"/v1/attachments/",

@@ -1,5 +1,5 @@
 import type { RunEvent } from './sse'
-import type { CodeExecutionRef, MessageThinkingRef } from './storage'
+import type { ArtifactRef, BrowserActionRef, CodeExecutionRef, MessageThinkingRef } from './storage'
 
 const CODE_EXECUTION_TOOL_NAMES = new Set(['python_execute', 'exec_command'])
 const CODE_EXECUTION_RESULT_TOOL_NAMES = new Set(['python_execute', 'exec_command', 'write_stdin'])
@@ -352,4 +352,126 @@ export function buildMessageThinkingFromRunEvents(events: RunEvent[]): MessageTh
     thinkingText: topLevelThinking,
     segments: compactSegments,
   }
+}
+
+// --- Browser action processing ---
+
+type BrowserActionToolCallPatch = {
+  nextActions: BrowserActionRef[]
+  appended?: BrowserActionRef
+}
+
+type BrowserActionToolResultPatch = {
+  nextActions: BrowserActionRef[]
+  updated?: BrowserActionRef
+}
+
+function extractBrowserCommand(args: unknown): string {
+  if (!args || typeof args !== 'object') return ''
+  const raw = (args as { command?: unknown }).command
+  return typeof raw === 'string' ? raw : ''
+}
+
+function extractBrowserScreenshotArtifact(result: unknown): ArtifactRef | undefined {
+  if (!result || typeof result !== 'object') return undefined
+  const artifacts = (result as { artifacts?: unknown[] }).artifacts
+  if (!Array.isArray(artifacts)) return undefined
+  const screenshot = artifacts.find((a): a is Record<string, unknown> =>
+    a != null &&
+    typeof a === 'object' &&
+    typeof (a as Record<string, unknown>).mime_type === 'string' &&
+    ((a as Record<string, unknown>).mime_type as string).startsWith('image/'),
+  )
+  if (!screenshot) return undefined
+  return {
+    key: screenshot.key as string,
+    filename: typeof screenshot.filename === 'string' ? screenshot.filename : 'screenshot.png',
+    size: typeof screenshot.size === 'number' ? screenshot.size : 0,
+    mime_type: screenshot.mime_type as string,
+  }
+}
+
+function extractBrowserOutput(result: unknown): { output?: string; exitCode?: number; url?: string; sessionRef?: string } {
+  if (!result || typeof result !== 'object') return {}
+  const typed = result as { output?: unknown; stdout?: unknown; exit_code?: unknown; session_ref?: unknown }
+  const output = typeof typed.output === 'string' ? typed.output
+    : typeof typed.stdout === 'string' ? typed.stdout
+    : undefined
+  const exitCode = typeof typed.exit_code === 'number' ? typed.exit_code : undefined
+  const sessionRef = typeof typed.session_ref === 'string' ? typed.session_ref : undefined
+  return { output, exitCode, sessionRef }
+}
+
+export function applyBrowserToolCall(
+  actions: BrowserActionRef[],
+  event: RunEvent,
+): BrowserActionToolCallPatch {
+  if (event.type !== 'tool.call') return { nextActions: actions }
+  const toolName = pickToolName(event.data)
+  if (toolName !== 'browser') return { nextActions: actions }
+
+  const args = event.data && typeof event.data === 'object'
+    ? (event.data as { arguments?: unknown }).arguments
+    : undefined
+  const command = extractBrowserCommand(args)
+  const appended: BrowserActionRef = {
+    id: pickToolCallId(event),
+    command,
+  }
+  return { appended, nextActions: [...actions, appended] }
+}
+
+export function applyBrowserToolResult(
+  actions: BrowserActionRef[],
+  event: RunEvent,
+): BrowserActionToolResultPatch {
+  if (event.type !== 'tool.result') return { nextActions: actions }
+  const toolName = pickToolName(event.data)
+  if (toolName !== 'browser') return { nextActions: actions }
+
+  const data = event.data && typeof event.data === 'object'
+    ? event.data as { result?: unknown; tool_call_id?: unknown }
+    : undefined
+  const result = data?.result
+  const toolCallId = pickToolCallId(event)
+  const { output, exitCode, sessionRef } = extractBrowserOutput(result)
+  const screenshotArtifact = extractBrowserScreenshotArtifact(result)
+
+  const targetIndex = actions.findIndex((a) => a.id === toolCallId)
+  if (targetIndex >= 0) {
+    const updated: BrowserActionRef = {
+      ...actions[targetIndex],
+      output,
+      exitCode,
+      sessionRef,
+      screenshotArtifact,
+    }
+    return {
+      updated,
+      nextActions: actions.map((a, i) => i === targetIndex ? updated : a),
+    }
+  }
+
+  // no matching call found — append as standalone result
+  const appended: BrowserActionRef = {
+    id: toolCallId,
+    command: '',
+    output,
+    exitCode,
+    sessionRef,
+    screenshotArtifact,
+  }
+  return { updated: appended, nextActions: [...actions, appended] }
+}
+
+export function buildMessageBrowserActionsFromRunEvents(events: RunEvent[]): BrowserActionRef[] {
+  let actions: BrowserActionRef[] = []
+  for (const event of events) {
+    if (event.type === 'tool.call') {
+      actions = applyBrowserToolCall(actions, event).nextActions
+    } else if (event.type === 'tool.result') {
+      actions = applyBrowserToolResult(actions, event).nextActions
+    }
+  }
+  return actions
 }

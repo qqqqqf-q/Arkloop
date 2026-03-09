@@ -25,6 +25,9 @@ import {
   buildMessageThinkingFromRunEvents,
   selectFreshRunEvents,
   shouldReplayMessageCodeExecutions,
+  applyBrowserToolCall,
+  applyBrowserToolResult,
+  buildMessageBrowserActionsFromRunEvents,
 } from '../runEventProcessing'
 import { useLocale } from '../contexts/LocaleContext'
 import {
@@ -60,9 +63,12 @@ import {
   writeMessageThinking,
   readMessageSearchSteps,
   writeMessageSearchSteps,
+  readMessageBrowserActions,
+  writeMessageBrowserActions,
   type WebSource,
   type ArtifactRef,
   type CodeExecutionRef,
+  type BrowserActionRef,
   type MessageThinkingRef,
   type MessageSearchStepRef,
   migrateMessageMetadata,
@@ -218,7 +224,10 @@ export function ChatPage() {
   // 代码执行记录：messageId -> CodeExecutionRef[]
   const [messageCodeExecutionsMap, setMessageCodeExecutionsMap] = useState<Map<string, CodeExecutionRef[]>>(new Map())
   const currentRunCodeExecutionsRef = useRef<CodeExecutionRef[]>([])
-  // 思考过程缓存：messageId -> thinking snapshot
+  // 浏览器操作记录：messageId -> BrowserActionRef[]
+  const [messageBrowserActionsMap, setMessageBrowserActionsMap] = useState<Map<string, BrowserActionRef[]>>(new Map())
+  const currentRunBrowserActionsRef = useRef<BrowserActionRef[]>([])
+  const [topLevelBrowserActions, setTopLevelBrowserActions] = useState<BrowserActionRef[]>([])
   const [, setMessageThinkingMap] = useState<Map<string, MessageThinkingRef>>(new Map())
   // Search 时间轴缓存：messageId -> steps
   const [messageSearchStepsMap, setMessageSearchStepsMap] = useState<Map<string, MessageSearchStepRef[]>>(new Map())
@@ -376,6 +385,7 @@ export function ChatPage() {
         const sourcesMap = new Map<string, WebSource[]>()
         const artifactsMap = new Map<string, ArtifactRef[]>()
         const codeExecMap = new Map<string, CodeExecutionRef[]>()
+        const browserActionsMap = new Map<string, BrowserActionRef[]>()
         const thinkingMap = new Map<string, MessageThinkingRef>()
         const searchStepsMap = new Map<string, MessageSearchStepRef[]>()
         for (const msg of items) {
@@ -387,6 +397,8 @@ export function ChatPage() {
           if (cachedArt) artifactsMap.set(msg.id, cachedArt)
           const cachedExec = readMessageCodeExecutions(msg.id)
           if (cachedExec) codeExecMap.set(msg.id, cachedExec)
+          const cachedBrowserActions = readMessageBrowserActions(msg.id)
+          if (cachedBrowserActions) browserActionsMap.set(msg.id, cachedBrowserActions)
           const cachedThinking = readMessageThinking(msg.id)
           if (cachedThinking) thinkingMap.set(msg.id, cachedThinking)
           const cachedSearchSteps = readMessageSearchSteps(msg.id)
@@ -402,7 +414,8 @@ export function ChatPage() {
         const lastAssistant = [...items].reverse().find((m) => m.role === 'assistant')
         const replayThinkingNeeded = !!(lastAssistant && !thinkingMap.has(lastAssistant.id))
         const replayCodeExecNeeded = !!(lastAssistant && shouldReplayMessageCodeExecutions(codeExecMap.get(lastAssistant.id)))
-        if (latest && latest.status !== 'running' && lastAssistant && (replayThinkingNeeded || replayCodeExecNeeded)) {
+        const replayBrowserActionsNeeded = !!(lastAssistant && !browserActionsMap.has(lastAssistant.id))
+        if (latest && latest.status !== 'running' && lastAssistant && (replayThinkingNeeded || replayCodeExecNeeded || replayBrowserActionsNeeded)) {
           try {
             const replayEvents = await listRunEvents(accessToken, latest.run_id, { follow: false })
             if (replayThinkingNeeded) {
@@ -417,6 +430,13 @@ export function ChatPage() {
               codeExecMap.set(lastAssistant.id, replayExecs)
               writeMessageCodeExecutions(lastAssistant.id, replayExecs)
             }
+            if (replayBrowserActionsNeeded) {
+              const replayActions = buildMessageBrowserActionsFromRunEvents(replayEvents)
+              if (replayActions.length > 0) {
+                browserActionsMap.set(lastAssistant.id, replayActions)
+                writeMessageBrowserActions(lastAssistant.id, replayActions)
+              }
+            }
           } catch {
             // 回放失败不影响主流程
           }
@@ -425,6 +445,7 @@ export function ChatPage() {
         setMessageSourcesMap(sourcesMap)
         setMessageArtifactsMap(artifactsMap)
         setMessageCodeExecutionsMap(codeExecMap)
+        setMessageBrowserActionsMap(browserActionsMap)
         setMessageThinkingMap(thinkingMap)
         setMessageSearchStepsMap(searchStepsMap)
 
@@ -461,6 +482,7 @@ export function ChatPage() {
     activeSegmentIdRef.current = null
     setThinkingDraft('')
     setTopLevelCodeExecutions([])
+    setTopLevelBrowserActions([])
     resetSearchSteps()
     setLiveTimelineExiting(false)
     clearTimeout(liveTimelineExitTimerRef.current)
@@ -472,9 +494,11 @@ export function ChatPage() {
     currentRunSourcesRef.current = []
     currentRunArtifactsRef.current = []
     currentRunCodeExecutionsRef.current = []
+    currentRunBrowserActionsRef.current = []
     setMessageSourcesMap(new Map())
     setMessageArtifactsMap(new Map())
     setMessageCodeExecutionsMap(new Map())
+    setMessageBrowserActionsMap(new Map())
     setMessageThinkingMap(new Map())
     setMessageSearchStepsMap(new Map())
     setSourcePanelMessageId(null)
@@ -505,11 +529,13 @@ export function ChatPage() {
     currentRunSourcesRef.current = []
     currentRunArtifactsRef.current = []
     currentRunCodeExecutionsRef.current = []
+    currentRunBrowserActionsRef.current = []
     setAssistantDraft('')
     setSegments([])
     activeSegmentIdRef.current = null
     setThinkingDraft('')
     setTopLevelCodeExecutions([])
+    setTopLevelBrowserActions([])
     resetSearchSteps()
     setCancelSubmitting(false)
     return () => { sse.disconnect() }
@@ -652,6 +678,12 @@ export function ChatPage() {
             setTopLevelCodeExecutions((prev) => [...prev, entry])
           }
         }
+        // browser tool.call
+        const browserCall = applyBrowserToolCall(currentRunBrowserActionsRef.current, event)
+        if (browserCall.appended) {
+          currentRunBrowserActionsRef.current = browserCall.nextActions
+          setTopLevelBrowserActions((prev) => [...prev, browserCall.appended!])
+        }
         // 搜索模式：模型输出的 planning 小标题
         if (toolName === SEARCH_PLANNING_TOOL_NAME) {
           const args = obj.arguments as Record<string, unknown> | undefined
@@ -724,8 +756,8 @@ export function ChatPage() {
             })
           }
         }
-        // 检测 sandbox 执行产物 + document_write 产物
-        if (obj.tool_name === 'python_execute' || obj.tool_name === 'exec_command' || obj.tool_name === 'write_stdin' || obj.tool_name === 'document_write') {
+        // 检测 sandbox 执行产物 + document_write 产物 + browser 产物
+        if (obj.tool_name === 'python_execute' || obj.tool_name === 'exec_command' || obj.tool_name === 'write_stdin' || obj.tool_name === 'document_write' || obj.tool_name === 'browser') {
           const result = obj.result as { artifacts?: unknown[]; stdout?: unknown; stderr?: unknown; exit_code?: unknown; output?: unknown } | undefined
           if (Array.isArray(result?.artifacts)) {
             const newArtifacts: ArtifactRef[] = result.artifacts
@@ -758,6 +790,18 @@ export function ChatPage() {
             }
           }
         }
+        // browser tool.result
+        if (obj.tool_name === 'browser') {
+          const browserResult = applyBrowserToolResult(currentRunBrowserActionsRef.current, event)
+          if (browserResult.updated) {
+            currentRunBrowserActionsRef.current = browserResult.nextActions
+            setTopLevelBrowserActions((prev) => {
+              const idx = prev.findIndex((a) => a.id === browserResult.updated!.id)
+              if (idx >= 0) return prev.map((a, i) => i === idx ? browserResult.updated! : a)
+              return [...prev, browserResult.updated!]
+            })
+          }
+        }
         continue
       }
 
@@ -781,6 +825,7 @@ export function ChatPage() {
         // assistantDraft 延迟到 refreshMessages 完成后清除，避免"闪空"
         setThinkingDraft('')
         setTopLevelCodeExecutions([])
+        setTopLevelBrowserActions([])
         setSegments([])
         activeSegmentIdRef.current = null
         const runSearchSteps = finalizeSearchSteps(searchStepsRef.current)
@@ -806,6 +851,8 @@ export function ChatPage() {
         currentRunArtifactsRef.current = []
         const runCodeExecs = [...currentRunCodeExecutionsRef.current]
         currentRunCodeExecutionsRef.current = []
+        const runBrowserActions = [...currentRunBrowserActionsRef.current]
+        currentRunBrowserActionsRef.current = []
         void refreshMessages().then((items) => {
           // setMessages 已在 refreshMessages 内完成，同一微任务中清除 draft
           // React 18+ 自动批处理保证二者在同一帧渲染，无闪烁
@@ -826,6 +873,10 @@ export function ChatPage() {
             }
             writeMessageCodeExecutions(lastAssistant.id, runCodeExecs)
             setMessageCodeExecutionsMap((prev) => new Map(prev).set(lastAssistant.id, runCodeExecs))
+            if (runBrowserActions.length > 0) {
+              writeMessageBrowserActions(lastAssistant.id, runBrowserActions)
+              setMessageBrowserActionsMap((prev) => new Map(prev).set(lastAssistant.id, runBrowserActions))
+            }
             if (runThinking) {
               writeMessageThinking(lastAssistant.id, runThinking)
               setMessageThinkingMap((prev) => new Map(prev).set(lastAssistant.id, runThinking))
@@ -859,10 +910,12 @@ export function ChatPage() {
         setActiveRunId(null)
         setThinkingDraft('')
         setTopLevelCodeExecutions([])
+        setTopLevelBrowserActions([])
         setSegments([])
         resetSearchSteps()
         activeSegmentIdRef.current = null
         currentRunCodeExecutionsRef.current = []
+        currentRunBrowserActionsRef.current = []
         setAwaitingInput(false)
         setCheckInDraft('')
         if (threadId) onRunEnded(threadId)
@@ -877,10 +930,12 @@ export function ChatPage() {
         setActiveRunId(null)
         setThinkingDraft('')
         setTopLevelCodeExecutions([])
+        setTopLevelBrowserActions([])
         setSegments([])
         resetSearchSteps()
         activeSegmentIdRef.current = null
         currentRunCodeExecutionsRef.current = []
+        currentRunBrowserActionsRef.current = []
         setAwaitingInput(false)
         setCheckInDraft('')
         if (threadId) onRunEnded(threadId)
@@ -918,13 +973,16 @@ export function ChatPage() {
     const runSources = [...currentRunSourcesRef.current]
     const runArtifacts = [...currentRunArtifactsRef.current]
     const runCodeExecs = [...currentRunCodeExecutionsRef.current]
+    const runBrowserActions = [...currentRunBrowserActionsRef.current]
     currentRunArtifactsRef.current = []
     currentRunCodeExecutionsRef.current = []
+    currentRunBrowserActionsRef.current = []
 
     setActiveRunId(null)
     setAssistantDraft('')
     setThinkingDraft('')
     setTopLevelCodeExecutions([])
+    setTopLevelBrowserActions([])
     setSegments([])
     activeSegmentIdRef.current = null
     const runSearchSteps = finalizeSearchSteps(searchStepsRef.current)
@@ -952,6 +1010,10 @@ export function ChatPage() {
         }
         writeMessageCodeExecutions(lastAssistant.id, runCodeExecs)
         setMessageCodeExecutionsMap((prev) => new Map(prev).set(lastAssistant.id, runCodeExecs))
+        if (runBrowserActions.length > 0) {
+          writeMessageBrowserActions(lastAssistant.id, runBrowserActions)
+          setMessageBrowserActionsMap((prev) => new Map(prev).set(lastAssistant.id, runBrowserActions))
+        }
         if (runThinking) {
           writeMessageThinking(lastAssistant.id, runThinking)
           setMessageThinkingMap((prev) => new Map(prev).set(lastAssistant.id, runThinking))
@@ -1485,6 +1547,7 @@ export function ChatPage() {
                     }
                     webSources={resolvedSources}
                     artifacts={msg.role === 'assistant' ? messageArtifactsMap.get(msg.id) : undefined}
+                    browserActions={msg.role === 'assistant' ? messageBrowserActionsMap.get(msg.id) : undefined}
                     accessToken={accessToken}
                     onShowSources={
                       msg.role === 'assistant' && canShowSources
@@ -1665,6 +1728,8 @@ export function ChatPage() {
                 <StreamingBubble
                   content={assistantDraft}
                   webSources={currentRunSourcesRef.current.length > 0 ? currentRunSourcesRef.current : undefined}
+                  browserActions={topLevelBrowserActions.length > 0 ? topLevelBrowserActions : undefined}
+                  accessToken={accessToken}
                 />
               )}
 

@@ -86,3 +86,13 @@ export async function patchPersona(
     accessToken,
   })
 }
+
+export async function deletePersona(
+  id: string,
+  accessToken: string,
+): Promise<{ ok: boolean }> {
+  return apiFetch<{ ok: boolean }>(`/v1/personas/${id}`, {
+    method: 'DELETE',
+    accessToken,
+  })
+}

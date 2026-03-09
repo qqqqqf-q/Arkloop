@@ -206,6 +206,38 @@ export function writeMessageArtifacts(messageId: string, artifacts: ArtifactRef[
   } catch { /* ignore */ }
 }
 
+export type BrowserActionRef = {
+  id: string
+  command: string
+  output?: string
+  screenshotArtifact?: ArtifactRef
+  url?: string
+  exitCode?: number
+  sessionRef?: string
+}
+
+function messageBrowserActionsKey(messageId: string): string {
+  return `arkloop:web:msg_browser_actions:${messageId}`
+}
+
+export function readMessageBrowserActions(messageId: string): BrowserActionRef[] | null {
+  if (!canUseLocalStorage() || !messageId) return null
+  try {
+    const raw = localStorage.getItem(messageBrowserActionsKey(messageId))
+    if (!raw) return null
+    return JSON.parse(raw) as BrowserActionRef[]
+  } catch {
+    return null
+  }
+}
+
+export function writeMessageBrowserActions(messageId: string, actions: BrowserActionRef[]): void {
+  if (!canUseLocalStorage() || !messageId || actions.length === 0) return
+  try {
+    localStorage.setItem(messageBrowserActionsKey(messageId), JSON.stringify(actions))
+  } catch { /* ignore */ }
+}
+
 export type CodeExecutionRef = {
   id: string
   language: 'python' | 'shell'
