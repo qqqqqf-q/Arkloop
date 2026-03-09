@@ -49,6 +49,7 @@ const zhDocsSidebar: SidebarGroup[] = [
       { label: 'Browser Automation 设计方案', href: '/docs/specs/browser-automation-architecture' },
       { label: 'Claw 设计方案', href: '/docs/specs/claw-architecture' },
       { label: '社交平台 Channel 接入架构', href: '/docs/specs/channel-integration-architecture' },
+      { label: 'Web App 移动端适配方案', href: '/docs/specs/mobile-adaptation' },
     ],
   },
   {
