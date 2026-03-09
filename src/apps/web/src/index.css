@@ -47,7 +47,11 @@ button:not(:disabled) {
   --c-md-table-head-bg: #242322;
   --c-md-inline-code-bg: #242322;
   --c-input-shadow: 0 2px 3px -1px rgba(0, 0, 0, 0.08);
-  --c-input-border: 1px solid rgba(255, 255, 255, 0.15);
+  --c-input-border: 0.5px solid rgba(255, 255, 255, 0.08);
+  --c-input-border-color: rgba(255, 255, 255, 0.06);
+  --c-input-border-color-hover: rgba(255, 255, 255, 0.25);
+  --c-input-border-gradient: linear-gradient(180deg, rgba(255,255,255,0.20), rgba(255,255,255,0.14));
+  --c-input-shadow-hover: 0 2px 3px -1px rgba(0, 0, 0, 0.08);
   --c-input-shadow-focus: 0 4px 10px -2px rgba(0, 0, 0, 0.10);
   --c-error-bg: rgba(69, 10, 10, 0.30);
   --c-error-border: rgba(127, 29, 29, 0.40);
@@ -103,6 +107,10 @@ button:not(:disabled) {
     --c-md-inline-code-bg: #F0EEEC;
     --c-input-shadow: 0 2px 3px -1px rgba(0, 0, 0, 0.10);
     --c-input-border: 0.5px solid rgba(0, 0, 0, 0.07);
+    --c-input-border-color: rgba(0, 0, 0, 0.07);
+    --c-input-border-color-hover: rgba(0, 0, 0, 0.13);
+    --c-input-border-gradient: linear-gradient(180deg, rgba(0,0,0,0.13), rgba(0,0,0,0.13));
+    --c-input-shadow-hover: 0 2px 6px -2px rgba(0, 0, 0, 0.06);
     --c-input-shadow-focus: 0 4px 10px -2px rgba(0, 0, 0, 0.09), 0 0 0 1px rgba(0, 0, 0, 0.05);
     --c-error-bg: #fef2f2;
     --c-error-border: #fecaca;
@@ -158,6 +166,10 @@ button:not(:disabled) {
   --c-md-inline-code-bg: #F0EEEC;
   --c-input-shadow: 0 2px 3px -1px rgba(0, 0, 0, 0.10);
   --c-input-border: 0.5px solid rgba(0, 0, 0, 0.07);
+  --c-input-border-color: rgba(0, 0, 0, 0.07);
+  --c-input-border-color-hover: rgba(0, 0, 0, 0.13);
+  --c-input-border-gradient: linear-gradient(180deg, rgba(0,0,0,0.13), rgba(0,0,0,0.13));
+  --c-input-shadow-hover: 0 2px 6px -2px rgba(0, 0, 0, 0.06);
   --c-input-shadow-focus: 0 4px 10px -2px rgba(0, 0, 0, 0.09), 0 0 0 1px rgba(0, 0, 0, 0.05);
   --c-error-bg: #fef2f2;
   --c-error-border: #fecaca;
@@ -167,6 +179,47 @@ button:not(:disabled) {
   --c-code-panel-bg: #F6F4F2;
   --c-code-panel-output-bg: rgba(0, 0, 0, 0.04);
   --c-artifact-card-bg: rgba(0, 0, 0, 0.02);
+}
+
+.chat-input-box {
+  position: relative;
+}
+.chat-input-box::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 18px;
+  padding: 0.5px;
+  background: var(--c-input-border-gradient);
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+.chat-input-box.is-hovered::before,
+.chat-input-box.is-focused::before {
+  opacity: 1;
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.attachment-shimmer {
+  background: linear-gradient(90deg, #3a3a37 25%, #454542 50%, #3a3a37 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+.attachment-close-btn svg {
+  color: rgba(255,255,255,0.4);
+  transition: color 0.15s ease;
+}
+.attachment-close-btn:hover svg {
+  color: #C2C087;
 }
 
 .md-table-wrap {

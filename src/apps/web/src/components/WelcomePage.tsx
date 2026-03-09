@@ -1,7 +1,7 @@
 import { useState, useCallback, useMemo, useRef, useEffect, type FormEvent } from 'react'
 import { useNavigate, useOutletContext } from 'react-router-dom'
-import { Glasses, Paperclip, X, Zap } from 'lucide-react'
-import { ChatInput, type Attachment, formatFileSize } from './ChatInput'
+import { Glasses, X, Zap } from 'lucide-react'
+import { ChatInput, type Attachment } from './ChatInput'
 import { ErrorCallout, type AppError } from './ErrorCallout'
 import { NotificationBell } from './NotificationBell'
 import { createThread, createMessage, createRun, uploadThreadAttachment, isApiError, type ThreadResponse, type MeResponse } from '../api'
@@ -293,7 +293,7 @@ export function WelcomePage() {
 
       {/* 居中内容 */}
       <div
-        className="flex flex-1 flex-col items-center justify-center px-5"
+        className="flex flex-1 flex-col items-center px-5 pt-[16vh]"
       >
         {/* FreePlanBadge: 无痕模式折叠收起，搜索模式仅淡出(保持高度避免输入框跳动) */}
         <div
@@ -340,45 +340,7 @@ export function WelcomePage() {
           </h2>
         </div>
 
-        <div className="w-full max-w-[750px]">
-          {attachments.length > 0 && (
-            <div className="mb-2 flex flex-wrap gap-2">
-              {attachments.map((att) => (
-                <div
-                  key={att.id}
-                  className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5"
-                  style={{ background: 'var(--c-bg-sub)', border: '0.5px solid var(--c-border-subtle)' }}
-                >
-                  {att.preview_url ? (
-                  <img
-                    src={att.preview_url}
-                    alt={att.name}
-                    style={{ width: '24px', height: '24px', objectFit: 'cover', borderRadius: '6px', flexShrink: 0 }}
-                  />
-                ) : (
-                  <Paperclip size={12} style={{ color: 'var(--c-text-icon)', flexShrink: 0 }} />
-                )}
-                  <span
-                    className="text-xs"
-                    style={{ color: 'var(--c-text-secondary)', maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                  >
-                    {att.name}
-                  </span>
-                  <span className="text-xs" style={{ color: 'var(--c-text-muted)', flexShrink: 0 }}>
-                    {formatFileSize(att.size)}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveAttachment(att.id)}
-                    className="flex items-center justify-center rounded transition-opacity duration-100 hover:opacity-100"
-                    style={{ color: 'var(--c-text-muted)', opacity: 0.7, marginLeft: '2px' }}
-                  >
-                    <X size={12} />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
+        <div className="w-full max-w-[675px]">
           <ChatInput
             value={draft}
             onChange={setDraft}
@@ -390,6 +352,7 @@ export function WelcomePage() {
             searchMode={isSearchMode}
             attachments={attachments}
             onAttachFiles={handleAttachFiles}
+            onRemoveAttachment={handleRemoveAttachment}
             accessToken={accessToken}
             onAsrError={handleAsrError}
             onPersonaChange={(personaKey) => {

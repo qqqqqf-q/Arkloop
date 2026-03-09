@@ -33,6 +33,7 @@ type Props = {
   searchMode?: boolean
   attachments?: Attachment[]
   onAttachFiles?: (files: File[]) => void
+  onRemoveAttachment?: (id: string) => void
   accessToken?: string
   onAsrError?: (error: unknown) => void
   onPersonaChange?: (personaKey: string) => void
@@ -100,6 +101,146 @@ export function formatFileSize(bytes: number): string {
 
 const BAR_COUNT = 52
 
+function AttachmentCard({ attachment, onRemove }: { attachment: Attachment; onRemove: () => void }) {
+  const [imageLoaded, setImageLoaded] = useState(false)
+  const [lineCount, setLineCount] = useState<number | null>(null)
+  const [cardHovered, setCardHovered] = useState(false)
+  const isImage = attachment.mime_type.startsWith('image/')
+
+  useEffect(() => {
+    if (isImage) return
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      const text = e.target?.result as string
+      setLineCount(text.split('\n').length)
+    }
+    reader.readAsText(attachment.file)
+  }, [attachment.file, isImage])
+
+  const ext = attachment.name.includes('.')
+    ? attachment.name.split('.').pop()!.toUpperCase()
+    : ''
+  const ready = isImage ? imageLoaded : lineCount !== null
+
+  return (
+    <div style={{ position: 'relative', flexShrink: 0 }}
+      onMouseEnter={() => setCardHovered(true)}
+      onMouseLeave={() => setCardHovered(false)}
+    >
+      <div
+        style={{
+          width: '120px',
+          height: '120px',
+          borderRadius: '10px',
+          background: '#30302E',
+          overflow: 'hidden',
+          borderWidth: '0.7px',
+          borderStyle: 'solid',
+          borderColor: cardHovered ? 'rgba(255,255,255,0.28)' : 'rgba(255,255,255,0.11)',
+          transition: 'border-color 0.2s ease',
+        }}
+      >
+        {!ready && (
+          <div style={{
+            position: 'absolute', inset: 0, padding: '10px',
+            display: 'flex', flexDirection: 'column', gap: '8px',
+          }}>
+            <div className="attachment-shimmer" style={{ width: '80%', height: '10px', borderRadius: '5px' }} />
+            <div className="attachment-shimmer" style={{ width: '55%', height: '10px', borderRadius: '5px' }} />
+            <div style={{ flex: 1 }} />
+            <div className="attachment-shimmer" style={{ width: '30%', height: '10px', borderRadius: '5px' }} />
+          </div>
+        )}
+
+        {isImage ? (
+          <img
+            src={attachment.preview_url}
+            alt={attachment.name}
+            onLoad={() => setImageLoaded(true)}
+            style={{
+              width: '100%',
+              height: '100%',
+              objectFit: 'cover',
+              opacity: imageLoaded ? 1 : 0,
+              transition: 'opacity 0.2s ease',
+              display: 'block',
+            }}
+          />
+        ) : (
+          <div style={{
+            padding: '10px',
+            display: 'flex', flexDirection: 'column',
+            height: '100%',
+            opacity: lineCount !== null ? 1 : 0,
+            transition: 'opacity 0.2s ease',
+          }}>
+            <span style={{
+              color: 'var(--c-text-heading)',
+              fontSize: '12px',
+              fontWeight: 300,
+              lineHeight: '1.35',
+              wordBreak: 'break-all',
+              display: '-webkit-box',
+              WebkitLineClamp: 3,
+              WebkitBoxOrient: 'vertical',
+              overflow: 'hidden',
+            }}>
+              {attachment.name}
+            </span>
+            {lineCount !== null && (
+              <span style={{ color: 'var(--c-text-muted)', fontSize: '11px', marginTop: '3px' }}>
+                {lineCount} lines
+              </span>
+            )}
+            <div style={{ flex: 1 }} />
+            {ext && (
+              <span style={{
+                alignSelf: 'flex-start',
+                padding: '2px 6px',
+                borderRadius: '5px',
+                background: '#30302E',
+                border: '0.5px solid rgba(255,255,255,0.14)',
+                color: 'var(--c-text-secondary)',
+                fontSize: '10px',
+                fontWeight: 500,
+              }}>
+                {ext}
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* 关闭按钮：浮动圆形，hover 显示 */}
+      <button
+        type="button"
+        className="attachment-close-btn"
+        onClick={(e) => { e.stopPropagation(); onRemove() }}
+        style={{
+          position: 'absolute',
+          top: '-5px',
+          left: '-5px',
+          width: '18px',
+          height: '18px',
+          borderRadius: '50%',
+          background: '#303030',
+          border: '0.5px solid rgba(255,255,255,0.14)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          cursor: 'pointer',
+          opacity: cardHovered ? 1 : 0,
+          transition: 'opacity 0.15s ease',
+          pointerEvents: cardHovered ? 'auto' : 'none',
+          zIndex: 1,
+        }}
+      >
+        <X size={9} />
+      </button>
+    </div>
+  )
+}
+
 export function ChatInput({
   value,
   onChange,
@@ -114,6 +255,7 @@ export function ChatInput({
   searchMode = false,
   attachments = [],
   onAttachFiles,
+  onRemoveAttachment,
   accessToken,
   onAsrError,
   onPersonaChange,
@@ -150,11 +292,14 @@ export function ChatInput({
   const [selectedPersonaKey, setSelectedPersonaKey] = useState(readSelectedPersonaKeyFromStorage)
   const [tierHovered, setTierHovered] = useState(false)
   const [focused, setFocused] = useState(false)
+  const [hovered, setHovered] = useState(false)
   const [isRecording, setIsRecording] = useState(false)
   const [isTranscribing, setIsTranscribing] = useState(false)
   const [recordingSeconds, setRecordingSeconds] = useState(0)
   const [waveformBars, setWaveformBars] = useState<number[]>(Array(BAR_COUNT).fill(0))
   const [isFileDragging, setIsFileDragging] = useState(false)
+  const [collapsingGrid, setCollapsingGrid] = useState(false)
+  const lastPasteRef = useRef(0)
 
   // cleanup on unmount
   useEffect(() => {
@@ -329,7 +474,7 @@ export function ChatInput({
     el.style.transition = 'none'
     el.style.overflow = 'hidden'
     el.style.height = 'auto'
-    const to = Math.min(el.scrollHeight, 200)
+    const to = Math.min(el.scrollHeight, 300)
     if (from === to) {
       el.style.overflow = 'auto'
       el.style.height = `${to}px`
@@ -450,6 +595,9 @@ export function ChatInput({
       if (e.target === textareaRef.current) return
       if (isEditableElement(e.target)) return
       if (!hasTransferFiles(e.clipboardData)) return
+      const now = Date.now()
+      if (now - lastPasteRef.current < 500) { e.preventDefault(); return }
+      lastPasteRef.current = now
       if (!handleAttachTransfer(e.clipboardData)) return
       e.preventDefault()
     }
@@ -474,9 +622,27 @@ export function ChatInput({
   }
 
   const handleTextareaPaste = (e: ReactClipboardEvent<HTMLTextAreaElement>) => {
-    if (!hasTransferFiles(e.clipboardData)) return
-    if (!handleAttachTransfer(e.clipboardData)) return
-    e.preventDefault()
+    if (hasTransferFiles(e.clipboardData)) {
+      const now = Date.now()
+      if (now - lastPasteRef.current < 500) { e.preventDefault(); return }
+      lastPasteRef.current = now
+      if (handleAttachTransfer(e.clipboardData)) { e.preventDefault(); return }
+    }
+    const text = e.clipboardData.getData('text/plain')
+    if (text && /\n{2,}/.test(text)) {
+      e.preventDefault()
+      const cleaned = text.replace(/\n{2,}/g, '\n')
+      const el = e.currentTarget
+      const start = el.selectionStart
+      const end = el.selectionEnd
+      const before = value.slice(0, start)
+      const after = value.slice(end)
+      onChange(before + cleaned + after)
+      requestAnimationFrame(() => {
+        const pos = start + cleaned.length
+        el.selectionStart = el.selectionEnd = pos
+      })
+    }
   }
 
   const cyclePersona = () => {
@@ -588,15 +754,26 @@ export function ChatInput({
 
       {/* 主输入框 */}
       <div
-        className="bg-[var(--c-bg-input)]"
+        className={[
+          'bg-[var(--c-bg-input)] chat-input-box',
+          hovered && 'is-hovered',
+          focused && 'is-focused',
+        ].filter(Boolean).join(' ')}
         style={{
-          border: 'var(--c-input-border)',
+          borderWidth: '0.5px',
+          borderStyle: 'solid',
+          borderColor: (hovered || focused) ? 'transparent' : 'var(--c-input-border-color)',
           borderRadius: '18px',
-          padding: '26px 24px 20px',
-          boxShadow: focused ? 'var(--c-input-shadow-focus)' : 'var(--c-input-shadow)',
-          transition: 'box-shadow 0.15s ease',
+          boxShadow: focused
+            ? 'var(--c-input-shadow-focus)'
+            : hovered
+              ? 'var(--c-input-shadow-hover)'
+              : 'var(--c-input-shadow)',
+          transition: 'border-color 0.2s ease, box-shadow 0.2s ease',
           cursor: 'default',
         }}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
         onClick={(e) => {
           const tag = (e.target as HTMLElement).tagName
           if (tag !== 'BUTTON' && tag !== 'TEXTAREA' && tag !== 'INPUT' && tag !== 'SVG' && tag !== 'PATH') {
@@ -604,11 +781,42 @@ export function ChatInput({
           }
         }}
       >
-      <form onSubmit={(e) => onSubmit(e, selectedPersonaKey)}>
+      {/* 附件卡片 */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateRows: (attachments.length > 0 && !collapsingGrid) ? '1fr' : '0fr',
+          transition: 'grid-template-rows 0.3s ease',
+          overflow: 'hidden',
+        }}
+      >
+        <div style={{ minHeight: 0, padding: '14px 16px 0' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', paddingBottom: '8px' }}>
+            {attachments.map((att) => (
+              <AttachmentCard
+                key={att.id}
+                attachment={att}
+                onRemove={() => {
+                  if (attachments.length === 1) {
+                    setCollapsingGrid(true)
+                    setTimeout(() => {
+                      onRemoveAttachment?.(att.id)
+                      setCollapsingGrid(false)
+                    }, 350)
+                  } else {
+                    onRemoveAttachment?.(att.id)
+                  }
+                }}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+      <form onSubmit={(e) => onSubmit(e, selectedPersonaKey)} style={{ padding: '8px 22px 22px' }}>
         <textarea
           ref={textareaRef}
           rows={1}
-          className="w-full resize-none bg-transparent outline-none placeholder:text-[var(--c-text-muted)] disabled:cursor-not-allowed"
+          className="w-full resize-none bg-transparent outline-none placeholder:text-[#9C9A93] disabled:cursor-not-allowed"
           value={value}
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={handleKeyDown}
@@ -620,8 +828,9 @@ export function ChatInput({
           style={{
             fontFamily: 'inherit',
             fontSize: '16px',
-            color: 'var(--c-text-tertiary)',
-            marginTop: '-4px',
+            fontWeight: 310,
+            color: 'var(--c-text-primary)',
+            marginTop: '0px',
             marginBottom: '16px',
             letterSpacing: '-0.16px',
             overflow: 'auto',
@@ -692,7 +901,7 @@ export function ChatInput({
               onClick={cyclePersona}
               onMouseEnter={() => setTierHovered(true)}
               onMouseLeave={() => setTierHovered(false)}
-              className="relative top-px flex h-8 items-center rounded-lg font-semibold"
+              className="relative top-px flex h-8 items-center rounded-lg"
               style={{
                 padding: '0 10px',
                 justifyContent: 'center',
@@ -701,6 +910,7 @@ export function ChatInput({
                 flexShrink: 0,
                 cursor: 'pointer',
                 minWidth: '68px',
+                fontWeight: 450,
                 background: selectedPersonaKey === SEARCH_PERSONA_KEY
                   ? 'var(--c-pro-bg)'
                   : tierHovered ? 'var(--c-bg-deep)' : 'transparent',
