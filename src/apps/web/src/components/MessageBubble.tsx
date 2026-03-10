@@ -416,7 +416,7 @@ export function MessageBubble({ message, onRetry, onEdit, onFork, onShare, onRep
                 padding: '10px 16px',
                 color: 'var(--c-text-primary)',
                 fontSize: '16px',
-                fontWeight: 250,
+                fontWeight: 300,
                 lineHeight: 1.6,
                 letterSpacing: '-0.64px',
                 wordBreak: 'break-word',

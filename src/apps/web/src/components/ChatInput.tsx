@@ -685,7 +685,7 @@ export function ChatInput({
         <div
           style={{
             border: 'var(--c-input-border)',
-            borderRadius: '18px',
+            borderRadius: '20px',
             padding: '10px 20px',
             background: 'var(--c-bg-input)',
             boxShadow: 'var(--c-input-shadow)',
@@ -771,8 +771,12 @@ export function ChatInput({
         style={{
           borderWidth: '0.5px',
           borderStyle: 'solid',
-          borderColor: (hovered || focused) ? 'transparent' : 'var(--c-input-border-color)',
-          borderRadius: '18px',
+          borderColor: focused
+            ? 'var(--c-input-border-color-focus)'
+            : hovered
+              ? 'var(--c-input-border-color-hover)'
+              : 'var(--c-input-border-color)',
+          borderRadius: '20px',
           boxShadow: focused
             ? 'var(--c-input-shadow-focus)'
             : hovered
@@ -821,11 +825,11 @@ export function ChatInput({
           </div>
         </div>
       </div>
-      <form onSubmit={(e) => onSubmit(e, selectedPersonaKey)} style={{ padding: '8px 22px 22px' }}>
+      <form onSubmit={(e) => onSubmit(e, selectedPersonaKey)} style={{ padding: '8px 22px 20px' }}>
         <textarea
           ref={textareaRef}
           rows={1}
-          className="w-full resize-none bg-transparent outline-none placeholder:text-[#9C9A93] disabled:cursor-not-allowed"
+          className="w-full resize-none bg-transparent outline-none placeholder:text-[var(--c-placeholder)] placeholder:font-[360] disabled:cursor-not-allowed"
           value={value}
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={handleKeyDown}
@@ -840,7 +844,7 @@ export function ChatInput({
             fontWeight: 310,
             color: 'var(--c-text-primary)',
             marginTop: '0px',
-            marginBottom: '16px',
+            marginBottom: '20px',
             letterSpacing: '-0.16px',
             overflow: 'auto',
           }}
@@ -853,9 +857,9 @@ export function ChatInput({
               ref={plusBtnRef}
               type="button"
               onClick={() => setMenuOpen((v) => !v)}
-              className="relative top-px flex h-8 w-8 items-center justify-center rounded-lg text-[var(--c-text-secondary)] opacity-70 transition-[opacity,background] duration-[60ms] hover:bg-[var(--c-bg-deep)] hover:opacity-100"
+              className="relative top-px flex h-8 w-8 items-center justify-center rounded-lg text-[var(--c-text-secondary)] transition-[background] duration-[60ms] hover:bg-[var(--c-bg-deep)]"
             >
-              <Plus size={20} />
+              <Plus size={20} strokeWidth={1.5} />
             </button>
 
             {menuOpen && (
@@ -919,7 +923,7 @@ export function ChatInput({
                   ? '#4691F6'
                   : 'var(--c-text-secondary)',
                 opacity: selectedPersonaKey === SEARCH_PERSONA_KEY
-                  ? 1 : tierHovered ? 1 : 0.7,
+                  ? 1 : tierHovered ? 1 : 0.85,
                 fontSize: '14px',
                 transition: 'background-color 60ms ease, color 60ms ease, opacity 60ms ease',
               }}
@@ -958,7 +962,6 @@ export function ChatInput({
                           color: isSelected && isBlue ? '#4691F6' : 'var(--c-text-secondary)',
                           fontWeight: isSelected ? 600 : 400,
                         }}
-                        onMouseLeave={(e) => (e.currentTarget.style.background = 'var(--c-bg-menu)')}
                       >
                         {persona.selector_name}
                       </button>

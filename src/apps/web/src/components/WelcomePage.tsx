@@ -108,70 +108,7 @@ function buildGreeting(name: string | null, now: Date): string {
   return pool[seed % pool.length]
 }
 
-function FreePlanBadge() {
-  const [expanded, setExpanded] = useState(false)
-  const { t } = useLocale()
-  const containerRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
-    if (!expanded) return
-    function handleClick(e: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setExpanded(false)
-      }
-    }
-    document.addEventListener('mousedown', handleClick)
-    return () => document.removeEventListener('mousedown', handleClick)
-  }, [expanded])
-
-  return (
-    <div className="relative" ref={containerRef}>
-      {/* pill - 自然宽度，不固定 */}
-      <div
-        className="flex items-center rounded-2xl"
-        style={{
-          background: 'var(--c-bg-deep)',
-          border: '0.5px solid var(--c-border-subtle)',
-          height: '38px',
-        }}
-      >
-        <span
-          className="px-4 text-sm"
-          style={{ color: 'var(--c-text-muted)', whiteSpace: 'nowrap' }}
-        >
-          {t.freePlan}
-        </span>
-        <div style={{ width: '0.5px', height: '16px', background: 'var(--c-border)', flexShrink: 0 }} />
-        <button
-          type="button"
-          onClick={() => setExpanded((v) => !v)}
-          className="flex-none pl-4 pr-3 text-sm font-medium transition-opacity duration-150 hover:opacity-80"
-          style={{ color: '#4691F6', whiteSpace: 'nowrap' }}
-        >
-          {t.freeTrial}
-        </button>
-      </div>
-
-      {/* 展开内容：absolute 向下弹出，不影响 pill 尺寸和布局 */}
-      <div
-        className="absolute left-0 top-full mt-2 rounded-2xl px-4 py-3 text-sm leading-relaxed"
-        style={{
-          background: 'var(--c-bg-deep)',
-          border: '0.5px solid var(--c-border-subtle)',
-          color: 'var(--c-text-secondary)',
-          width: '300px',
-          zIndex: 10,
-          opacity: expanded ? 1 : 0,
-          transform: expanded ? 'translateY(0)' : 'translateY(-6px)',
-          transition: 'opacity 0.2s ease, transform 0.2s ease',
-          pointerEvents: expanded ? 'auto' : 'none',
-        }}
-      >
-        {t.freeTrialDesc}
-      </div>
-    </div>
-  )
-}
 
 export function WelcomePage() {
   const { accessToken, onLoggedOut, onThreadCreated, refreshCredits, onOpenNotifications, notificationVersion, creditsBalance: _creditsBalance, me, isPrivateMode, onTogglePrivateMode, isSearchMode, onEnterSearchMode, onExitSearchMode } = useOutletContext<OutletContext>()
@@ -186,6 +123,18 @@ export function WelcomePage() {
   const draftThreadPromiseRef = useRef<Promise<ThreadResponse> | null>(null)
 
   const greeting = useMemo(() => buildGreeting(me?.username ?? null, new Date()), [me?.username])
+
+  const [typedGreeting, setTypedGreeting] = useState('')
+  useEffect(() => {
+    setTypedGreeting('')
+    let i = 0
+    const id = setInterval(() => {
+      i++
+      if (i > greeting.length) { clearInterval(id); return }
+      setTypedGreeting(greeting.slice(0, i))
+    }, 45)
+    return () => clearInterval(id)
+  }, [greeting])
 
   const revokeDraftAttachment = useCallback((attachment: Attachment) => {
     if (attachment.preview_url) URL.revokeObjectURL(attachment.preview_url)
@@ -320,26 +269,10 @@ export function WelcomePage() {
 
       {/* 居中内容 */}
       <div
-        className="flex flex-1 flex-col items-center px-5 pt-[20vh]"
+        className="flex flex-1 flex-col items-center px-5 pt-[27vh]"
       >
-        {/* FreePlanBadge: 无痕模式折叠收起，搜索模式仅淡出(保持高度避免输入框跳动) */}
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateRows: isPrivateMode ? '0fr' : '1fr',
-            opacity: (isPrivateMode || isSearchMode) ? 0 : 1,
-            overflow: (isPrivateMode || isSearchMode) ? 'hidden' : 'visible',
-            transition: 'grid-template-rows 0.22s ease, opacity 0.18s ease',
-            pointerEvents: isSearchMode ? 'none' : 'auto',
-          }}
-        >
-          <div style={{ minHeight: 0 }}>
-            <FreePlanBadge />
-          </div>
-        </div>
-
         {/* 标题：两层绝对定位交叉淡出，容器高度由下层撑开 */}
-        <div className="mt-[40px] mb-[40px]" style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div className="mb-[40px]" style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           {/* 常规问候 / 无痕文本 */}
           <h2
             className="text-[40px] font-normal tracking-[-0.5px] text-[var(--c-text-heading)]"
@@ -350,7 +283,7 @@ export function WelcomePage() {
               pointerEvents: isSearchMode ? 'none' : 'auto',
             }}
           >
-            {isPrivateMode ? t.youAreIncognito : greeting}
+            {isPrivateMode ? t.youAreIncognito : typedGreeting}
           </h2>
           {/* Search for everything — 绝对覆盖，不撑开高度 */}
           <h2

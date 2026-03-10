@@ -5,7 +5,6 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   SquarePen,
   Search,
-  FolderKanban,
   SearchCheck,
   PanelLeftClose,
   Bolt,
@@ -242,11 +241,6 @@ export function Sidebar({
           <span>{t.chats}</span>
         </button>
 
-        <button className="group flex h-9 items-center gap-2.5 rounded-lg px-2 text-[16px] text-[var(--c-text-secondary)] transition-[background-color,color] duration-[60ms] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]">
-          <FolderKanban size={16} className="shrink-0 transition-transform duration-100 group-hover:scale-[1.05]" />
-          <span>{t.projects}</span>
-        </button>
-
         <button
           onClick={onOpenSearch}
           className={[
@@ -349,7 +343,7 @@ export function Sidebar({
                       <button
                         onClick={() => navigate(`/t/${thread.id}`)}
                         className={[
-                          'flex min-w-0 flex-1 items-center gap-2 px-2 py-[7px] text-left text-[13px] font-[300] group-hover:text-[var(--c-text-primary)]',
+                          'flex min-w-0 flex-1 items-center gap-2 px-2 py-[7px] text-left text-[13px] font-[350] group-hover:text-[var(--c-text-primary)]',
                           thread.id === threadId
                             ? 'text-[var(--c-text-primary)]'
                             : 'text-[var(--c-text-secondary)]',
@@ -386,8 +380,8 @@ export function Sidebar({
                             className={[
                               'flex h-6 w-6 shrink-0 items-center justify-center rounded-md',
                               isMenuOpen
-                                ? 'opacity-100 bg-[rgba(0,0,0,0.18)] text-[var(--c-text-primary)]'
-                                : 'opacity-0 group-hover:opacity-100 text-[var(--c-text-muted)] hover:bg-[rgba(0,0,0,0.18)] hover:text-[var(--c-text-primary)]',
+                                ? 'opacity-100 bg-[var(--c-sidebar-btn-hover)] text-[var(--c-text-primary)]'
+                                : 'opacity-0 group-hover:opacity-100 text-[var(--c-text-muted)] hover:bg-[var(--c-sidebar-btn-hover)] hover:text-[var(--c-text-primary)]',
                             ].join(' ')}
                           >
                             <MoreHorizontal size={14} />

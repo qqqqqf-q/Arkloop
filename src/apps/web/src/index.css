@@ -51,6 +51,8 @@ button:not(:disabled) {
   --c-input-border-color: rgba(255, 255, 255, 0.06);
   --c-input-border-color-hover: rgba(255, 255, 255, 0.25);
   --c-input-border-gradient: linear-gradient(180deg, rgba(255,255,255,0.20), rgba(255,255,255,0.14));
+  --c-input-border-gradient-focus: linear-gradient(180deg, rgba(255,255,255,0.20), rgba(255,255,255,0.14));
+  --c-input-border-color-focus: transparent;
   --c-input-shadow-hover: 0 2px 3px -1px rgba(0, 0, 0, 0.08);
   --c-input-shadow-focus: 0 4px 10px -2px rgba(0, 0, 0, 0.10);
   --c-error-bg: rgba(69, 10, 10, 0.30);
@@ -73,12 +75,13 @@ button:not(:disabled) {
   --c-attachment-shimmer-mid: #454542;
   --title-btn-dim: rgba(255, 255, 255, 0.04);
   --title-btn-hover: rgba(255, 255, 255, 0.09);
+  --c-sidebar-btn-hover: rgba(255, 255, 255, 0.14);
 }
 
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]) {
     color-scheme: light;
-    --c-bg-page: #F8F8F7;
+    --c-bg-page: #F5F5F4;
     --c-bg-sidebar: #FAFAFA;
     --c-bg-deep: #EBEBEB;
     --c-bg-sub: #EBEBEB;
@@ -97,7 +100,7 @@ button:not(:disabled) {
     --c-text-muted: #8C8C8A;
     --c-text-icon: #7A7A78;
     --c-text-icon2: #6E6E6C;
-    --c-placeholder: rgba(0, 0, 0, 0.35);
+    --c-placeholder: rgba(0, 0, 0, 0.45);
     --c-scrollbar: #B9B9B7;
     --c-scrollbar-hover: #9A9A98;
     --c-avatar-bg: #3D3D3B;
@@ -117,13 +120,16 @@ button:not(:disabled) {
     --c-md-table-bg: #FEFDFD;
     --c-md-table-head-bg: #F8F7F6;
     --c-md-inline-code-bg: #F0EEEC;
-    --c-input-shadow: 0 2px 3px -1px rgba(0, 0, 0, 0.10);
-    --c-input-border: 0.5px solid rgba(0, 0, 0, 0.07);
-    --c-input-border-color: rgba(0, 0, 0, 0.07);
-    --c-input-border-color-hover: rgba(0, 0, 0, 0.13);
-    --c-input-border-gradient: linear-gradient(180deg, rgba(0,0,0,0.13), rgba(0,0,0,0.13));
-    --c-input-shadow-hover: 0 2px 6px -2px rgba(0, 0, 0, 0.06);
-    --c-input-shadow-focus: 0 4px 10px -2px rgba(0, 0, 0, 0.09), 0 0 0 1px rgba(0, 0, 0, 0.05);
+    --c-input-shadow: 0 2px 16px -4px rgba(0, 0, 0, 0.06);
+    --c-input-border: 0.5px solid rgba(0, 0, 0, 0.16);
+    --c-input-border-color: rgba(0, 0, 0, 0.16);
+    --c-input-border-color-hover: rgba(0, 0, 0, 0.20);
+    --c-input-border-color-focus: rgba(0, 0, 0, 0.28);
+    --c-input-border-gradient: linear-gradient(180deg, rgba(0,0,0,0.16), rgba(0,0,0,0.16));
+    --c-input-border-gradient-focus: linear-gradient(180deg, rgba(0,0,0,0.25), rgba(0,0,0,0.22));
+    --c-input-gradient-active: 0;
+    --c-input-shadow-hover: 0 2px 8px -2px rgba(0, 0, 0, 0.06);
+    --c-input-shadow-focus: 0 2px 6px -1px rgba(0, 0, 0, 0.04);
     --c-error-bg: #fef2f2;
     --c-error-border: #fecaca;
     --c-error-text: #b91c1c;
@@ -144,12 +150,13 @@ button:not(:disabled) {
     --c-attachment-shimmer-mid: #D8D8D6;
     --title-btn-dim: rgba(0, 0, 0, 0.06);
     --title-btn-hover: rgba(0, 0, 0, 0.10);
+    --c-sidebar-btn-hover: rgba(0, 0, 0, 0.12);
   }
 }
 
 :root[data-theme="light"] {
   color-scheme: light;
-  --c-bg-page: #F8F8F7;
+  --c-bg-page: #F5F5F4;
   --c-bg-sidebar: #FAFAFA;
   --c-bg-deep: #EBEBEB;
   --c-bg-sub: #EBEBEB;
@@ -168,7 +175,7 @@ button:not(:disabled) {
   --c-text-muted: #8C8C8A;
   --c-text-icon: #7A7A78;
   --c-text-icon2: #6E6E6C;
-  --c-placeholder: rgba(0, 0, 0, 0.35);
+  --c-placeholder: rgba(0, 0, 0, 0.45);
   --c-scrollbar: #B9B9B7;
   --c-scrollbar-hover: #9A9A98;
   --c-avatar-bg: #3D3D3B;
@@ -188,13 +195,16 @@ button:not(:disabled) {
   --c-md-table-bg: #FEFDFD;
   --c-md-table-head-bg: #F8F7F6;
   --c-md-inline-code-bg: #F0EEEC;
-  --c-input-shadow: 0 2px 3px -1px rgba(0, 0, 0, 0.10);
-  --c-input-border: 0.5px solid rgba(0, 0, 0, 0.07);
-  --c-input-border-color: rgba(0, 0, 0, 0.07);
-  --c-input-border-color-hover: rgba(0, 0, 0, 0.13);
-  --c-input-border-gradient: linear-gradient(180deg, rgba(0,0,0,0.13), rgba(0,0,0,0.13));
-  --c-input-shadow-hover: 0 2px 6px -2px rgba(0, 0, 0, 0.06);
-  --c-input-shadow-focus: 0 4px 10px -2px rgba(0, 0, 0, 0.09), 0 0 0 1px rgba(0, 0, 0, 0.05);
+  --c-input-shadow: 0 2px 16px -4px rgba(0, 0, 0, 0.06);
+  --c-input-border: 0.5px solid rgba(0, 0, 0, 0.16);
+  --c-input-border-color: rgba(0, 0, 0, 0.16);
+  --c-input-border-color-hover: rgba(0, 0, 0, 0.20);
+  --c-input-border-color-focus: rgba(0, 0, 0, 0.28);
+  --c-input-border-gradient: linear-gradient(180deg, rgba(0,0,0,0.16), rgba(0,0,0,0.16));
+  --c-input-border-gradient-focus: linear-gradient(180deg, rgba(0,0,0,0.25), rgba(0,0,0,0.22));
+  --c-input-gradient-active: 0;
+  --c-input-shadow-hover: 0 2px 8px -2px rgba(0, 0, 0, 0.06);
+  --c-input-shadow-focus: 0 2px 6px -1px rgba(0, 0, 0, 0.04);
   --c-error-bg: #fef2f2;
   --c-error-border: #fecaca;
   --c-error-text: #b91c1c;
@@ -215,6 +225,7 @@ button:not(:disabled) {
   --c-attachment-shimmer-mid: #D8D8D6;
   --title-btn-dim: rgba(0, 0, 0, 0.06);
   --title-btn-hover: rgba(0, 0, 0, 0.10);
+  --c-sidebar-btn-hover: rgba(0, 0, 0, 0.12);
 }
 
 .chat-input-box {
@@ -223,8 +234,8 @@ button:not(:disabled) {
 .chat-input-box::before {
   content: '';
   position: absolute;
-  inset: 0;
-  border-radius: 18px;
+  inset: -0.5px;
+  border-radius: 20px;
   padding: 0.5px;
   background: var(--c-input-border-gradient);
   -webkit-mask:
@@ -238,7 +249,10 @@ button:not(:disabled) {
 }
 .chat-input-box.is-hovered::before,
 .chat-input-box.is-focused::before {
-  opacity: 1;
+  opacity: var(--c-input-gradient-active, 1);
+}
+.chat-input-box.is-focused::before {
+  background: var(--c-input-border-gradient-focus);
 }
 
 @keyframes shimmer {
