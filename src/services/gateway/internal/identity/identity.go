@@ -3,7 +3,6 @@ package identity
 import (
 	"context"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -24,7 +23,7 @@ type apiKeyCacheEntry struct {
 }
 
 // ExtractOrgID 从 Authorization header 提取 org_id。
-// jwtSecret 非空时验证 JWT 签名；为空时降级到无签名解码（兼容未配置场景）。
+// JWT 仅在 jwtSecret 已配置时参与身份提取；未配置时返回空字符串。
 func ExtractOrgID(ctx context.Context, authHeader string, rdb *redis.Client, jwtSecret []byte) string {
 	token, ok := strings.CutPrefix(authHeader, "Bearer ")
 	if !ok || token == "" {
@@ -38,7 +37,7 @@ func ExtractOrgID(ctx context.Context, authHeader string, rdb *redis.Client, jwt
 	if len(jwtSecret) > 0 {
 		return extractOrgIDFromJWTVerified(token, jwtSecret)
 	}
-	return extractOrgIDFromJWTPayload(token)
+	return ""
 }
 
 func extractOrgIDFromAPIKey(ctx context.Context, rawKey string, rdb *redis.Client) string {
@@ -66,28 +65,6 @@ func extractOrgIDFromAPIKey(ctx context.Context, rawKey string, rdb *redis.Clien
 	return strings.TrimSpace(entry.OrgID)
 }
 
-// extractOrgIDFromJWTPayload 不验证签名，仅 base64 解码 JWT payload 取 org claim。
-func extractOrgIDFromJWTPayload(token string) string {
-	parts := strings.SplitN(token, ".", 3)
-	if len(parts) != 3 {
-		return ""
-	}
-
-	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
-	if err != nil {
-		return ""
-	}
-
-	var claims struct {
-		Org string `json:"org"`
-	}
-	if err := json.Unmarshal(payload, &claims); err != nil {
-		return ""
-	}
-
-	return strings.TrimSpace(claims.Org)
-}
-
 // IdentityType 标识身份来源。
 type IdentityType string
 
@@ -105,7 +82,7 @@ type Info struct {
 }
 
 // ExtractInfo 从 Authorization header 提取完整身份信息。
-// jwtSecret 非空时验证 JWT 签名；为空时降级到无签名解码。
+// JWT 仅在 jwtSecret 已配置时参与身份提取；未配置时视为匿名。
 func ExtractInfo(ctx context.Context, authHeader string, rdb *redis.Client, jwtSecret []byte) Info {
 	token, ok := strings.CutPrefix(authHeader, "Bearer ")
 	if !ok || token == "" {
@@ -123,33 +100,7 @@ func ExtractInfo(ctx context.Context, authHeader string, rdb *redis.Client, jwtS
 	if len(jwtSecret) > 0 {
 		return extractInfoFromJWTVerified(token, jwtSecret)
 	}
-	return extractInfoFromJWTPayload(token)
-}
-
-func extractInfoFromJWTPayload(token string) Info {
-	parts := strings.SplitN(token, ".", 3)
-	if len(parts) != 3 {
-		return Info{Type: IdentityAnonymous}
-	}
-
-	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
-	if err != nil {
-		return Info{Type: IdentityAnonymous}
-	}
-
-	var claims struct {
-		Sub string `json:"sub"`
-		Org string `json:"org"`
-	}
-	if err := json.Unmarshal(payload, &claims); err != nil {
-		return Info{Type: IdentityAnonymous}
-	}
-
-	return Info{
-		Type:   IdentityJWT,
-		OrgID:  strings.TrimSpace(claims.Org),
-		UserID: strings.TrimSpace(claims.Sub),
-	}
+	return Info{Type: IdentityAnonymous}
 }
 
 func extractOrgIDFromJWTVerified(token string, secret []byte) string {

@@ -66,8 +66,10 @@ func TraceMiddleware(next nethttp.Handler, logger *observability.JSONLogger, tru
 			}
 		}
 
+		metadata := resolveRequestMetadata(r, trustXFF)
 		ctx := observability.WithTraceID(r.Context(), traceID)
-		ctx = observability.WithClientIP(ctx, resolveClientIP(r, trustXFF))
+		ctx = observability.WithClientIP(ctx, metadata.clientIP)
+		ctx = observability.WithRequestHTTPS(ctx, metadata.https)
 		if ua := r.Header.Get("User-Agent"); ua != "" {
 			ctx = observability.WithUserAgent(ctx, ua)
 		}

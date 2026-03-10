@@ -1,11 +1,13 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/alicebob/miniredis/v2"
 	goredis "github.com/redis/go-redis/v9"
@@ -29,6 +31,23 @@ func TestNewApplicationInitializesEmptyDynamicConfig(t *testing.T) {
 	}
 }
 
+func TestNewApplicationLogsWhenJWTSecretMissing(t *testing.T) {
+	var buf bytes.Buffer
+	_, err := NewApplication(DefaultConfig(), NewJSONLogger("gateway", &buf))
+	if err != nil {
+		t.Fatalf("NewApplication: %v", err)
+	}
+
+	deadline := time.Now().Add(200 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if bytes.Contains(buf.Bytes(), []byte(`"msg":"jwt secret missing"`)) {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("missing jwt secret warning log: %s", buf.String())
+}
+
 func TestLoadDynamicConfigOverridesEffectiveValues(t *testing.T) {
 	mr := miniredis.RunT(t)
 	rdb := goredis.NewClient(&goredis.Options{Addr: mr.Addr()})
@@ -49,7 +68,7 @@ func TestLoadDynamicConfigOverridesEffectiveValues(t *testing.T) {
 	payload, err := json.Marshal(gatewayDynamicConfig{
 		IPMode:              string(IPModeTrustedProxy),
 		TrustedCIDRs:        []string{"192.168.0.0/16", "172.16.0.0/12"},
-		RiskRejectThreshold: 75,
+		RiskRejectThreshold: intPtr(75),
 		RateLimitCapacity:   50,
 		RateLimitPerMinute:  80,
 	})
@@ -81,6 +100,62 @@ func TestLoadDynamicConfigOverridesEffectiveValues(t *testing.T) {
 	}
 }
 
+func TestLoadDynamicConfigAllowsZeroRiskThreshold(t *testing.T) {
+	mr := miniredis.RunT(t)
+	rdb := goredis.NewClient(&goredis.Options{Addr: mr.Addr()})
+	defer rdb.Close()
+
+	cfg := DefaultConfig()
+	cfg.RiskRejectThreshold = 30
+
+	app, err := NewApplication(cfg, NewJSONLogger("gateway", io.Discard))
+	if err != nil {
+		t.Fatalf("NewApplication: %v", err)
+	}
+
+	payload, err := json.Marshal(gatewayDynamicConfig{RiskRejectThreshold: intPtr(0)})
+	if err != nil {
+		t.Fatalf("json.Marshal: %v", err)
+	}
+	if err := rdb.Set(context.Background(), gatewayConfigRedisKey, payload, 0).Err(); err != nil {
+		t.Fatalf("redis set: %v", err)
+	}
+
+	app.loadDynamicConfig(context.Background(), rdb)
+
+	if got := app.effectiveRiskThreshold(); got != 0 {
+		t.Fatalf("effectiveRiskThreshold = %d, want 0", got)
+	}
+}
+
+func TestLoadDynamicConfigWithoutRiskThresholdFallsBackToConfig(t *testing.T) {
+	mr := miniredis.RunT(t)
+	rdb := goredis.NewClient(&goredis.Options{Addr: mr.Addr()})
+	defer rdb.Close()
+
+	cfg := DefaultConfig()
+	cfg.RiskRejectThreshold = 30
+
+	app, err := NewApplication(cfg, NewJSONLogger("gateway", io.Discard))
+	if err != nil {
+		t.Fatalf("NewApplication: %v", err)
+	}
+
+	payload, err := json.Marshal(gatewayDynamicConfig{IPMode: string(IPModeTrustedProxy)})
+	if err != nil {
+		t.Fatalf("json.Marshal: %v", err)
+	}
+	if err := rdb.Set(context.Background(), gatewayConfigRedisKey, payload, 0).Err(); err != nil {
+		t.Fatalf("redis set: %v", err)
+	}
+
+	app.loadDynamicConfig(context.Background(), rdb)
+
+	if got := app.effectiveRiskThreshold(); got != 30 {
+		t.Fatalf("effectiveRiskThreshold = %d, want 30", got)
+	}
+}
+
 func TestDynamicConfigConcurrentAccess(t *testing.T) {
 	mr := miniredis.RunT(t)
 	rdb := goredis.NewClient(&goredis.Options{Addr: mr.Addr()})
@@ -93,9 +168,9 @@ func TestDynamicConfigConcurrentAccess(t *testing.T) {
 
 	ctx := context.Background()
 	values := []gatewayDynamicConfig{
-		{IPMode: string(IPModeDirect), TrustedCIDRs: []string{"10.0.0.0/8"}, RiskRejectThreshold: 10, RateLimitCapacity: 10, RateLimitPerMinute: 20},
-		{IPMode: string(IPModeTrustedProxy), TrustedCIDRs: []string{"192.168.0.0/16"}, RiskRejectThreshold: 20, RateLimitCapacity: 20, RateLimitPerMinute: 40},
-		{IPMode: string(IPModeCloudflare), TrustedCIDRs: []string{"173.245.48.0/20"}, RiskRejectThreshold: 30, RateLimitCapacity: 30, RateLimitPerMinute: 60},
+		{IPMode: string(IPModeDirect), TrustedCIDRs: []string{"10.0.0.0/8"}, RiskRejectThreshold: intPtr(10), RateLimitCapacity: 10, RateLimitPerMinute: 20},
+		{IPMode: string(IPModeTrustedProxy), TrustedCIDRs: []string{"192.168.0.0/16"}, RiskRejectThreshold: intPtr(20), RateLimitCapacity: 20, RateLimitPerMinute: 40},
+		{IPMode: string(IPModeCloudflare), TrustedCIDRs: []string{"173.245.48.0/20"}, RiskRejectThreshold: intPtr(30), RateLimitCapacity: 30, RateLimitPerMinute: 60},
 	}
 
 	var writers sync.WaitGroup
@@ -136,4 +211,8 @@ func TestDynamicConfigConcurrentAccess(t *testing.T) {
 
 	writers.Wait()
 	readers.Wait()
+}
+
+func intPtr(v int) *int {
+	return &v
 }

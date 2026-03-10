@@ -241,6 +241,27 @@ func TestMiddleware_InvalidJWT_FallsBackToIP(t *testing.T) {
 	}
 }
 
+func TestMiddleware_MissingJWTSecretFallsBackToIP(t *testing.T) {
+	ml := &mockLimiter{result: ConsumeResult{Allowed: true}}
+	orgID := uuid.New()
+	token := makeJWT(t, orgID)
+
+	h := NewRateLimitMiddleware(okHandler(), ml, "", 0)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/threads", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.RemoteAddr = "10.0.0.3:1234"
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if ml.lastKey != rateLimitIPKeyPrefix+"10.0.0.3" {
+		t.Fatalf("unexpected key: %s", ml.lastKey)
+	}
+}
+
 func TestMiddleware_LimiterError_AuthenticatedAPIKey_FailClosed(t *testing.T) {
 	ml := &mockLimiter{err: io.ErrUnexpectedEOF}
 

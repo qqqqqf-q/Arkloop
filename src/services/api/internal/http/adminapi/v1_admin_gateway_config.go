@@ -266,7 +266,7 @@ func parseTrustedCIDRs(raw string) []string {
 type gatewayRedisPayload struct {
 	IPMode              string   `json:"ip_mode,omitempty"`
 	TrustedCIDRs        []string `json:"trusted_cidrs,omitempty"`
-	RiskRejectThreshold int      `json:"risk_reject_threshold,omitempty"`
+	RiskRejectThreshold *int     `json:"risk_reject_threshold,omitempty"`
 	RateLimitCapacity   float64  `json:"rate_limit_capacity,omitempty"`
 	RateLimitPerMinute  float64  `json:"rate_limit_per_minute,omitempty"`
 }
@@ -277,7 +277,7 @@ func pushGatewayConfigToRedis(ctx context.Context, rdb *redis.Client, body updat
 		TrustedCIDRs: filterCIDRs(body.TrustedCIDRs),
 	}
 	if body.RiskRejectThreshold != nil {
-		payload.RiskRejectThreshold = *body.RiskRejectThreshold
+		payload.RiskRejectThreshold = body.RiskRejectThreshold
 	}
 	if body.RateLimitCapacity != nil {
 		payload.RateLimitCapacity = *body.RateLimitCapacity

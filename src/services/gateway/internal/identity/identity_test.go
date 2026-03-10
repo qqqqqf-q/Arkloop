@@ -64,16 +64,16 @@ func TestExtractOrgID(t *testing.T) {
 			want:       "",
 		},
 		{
-			name:       "valid jwt without secret falls back to unsafe decode",
+			name:       "valid jwt without secret stays anonymous",
 			authHeader: "Bearer " + validJWT,
 			secret:     nil,
-			want:       "org-123",
+			want:       "",
 		},
 		{
-			name:       "forged jwt without secret decodes payload (unsafe mode)",
+			name:       "forged jwt without secret stays anonymous",
 			authHeader: "Bearer " + forgedJWT,
 			secret:     nil,
-			want:       "forged-org",
+			want:       "",
 		},
 		{
 			name:       "empty auth header",
@@ -143,12 +143,12 @@ func TestExtractInfo(t *testing.T) {
 			wantUserID: "",
 		},
 		{
-			name:       "no secret falls back to unsafe decode",
+			name:       "no secret stays anonymous",
 			authHeader: "Bearer " + validJWT,
 			secret:     nil,
-			wantType:   IdentityJWT,
-			wantOrgID:  "org-abc",
-			wantUserID: "user-xyz",
+			wantType:   IdentityAnonymous,
+			wantOrgID:  "",
+			wantUserID: "",
 		},
 		{
 			name:       "empty header is anonymous",

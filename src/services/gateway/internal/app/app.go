@@ -37,7 +37,7 @@ const (
 type gatewayDynamicConfig struct {
 	IPMode              string   `json:"ip_mode,omitempty"`
 	TrustedCIDRs        []string `json:"trusted_cidrs,omitempty"`
-	RiskRejectThreshold int      `json:"risk_reject_threshold,omitempty"`
+	RiskRejectThreshold *int     `json:"risk_reject_threshold,omitempty"`
 	RateLimitCapacity   float64  `json:"rate_limit_capacity,omitempty"`
 	RateLimitPerMinute  float64  `json:"rate_limit_per_minute,omitempty"`
 }
@@ -57,6 +57,9 @@ func NewApplication(config Config, logger *JSONLogger) (*Application, error) {
 		return nil, fmt.Errorf("logger must not be nil")
 	}
 	app := &Application{config: config, logger: logger}
+	if strings.TrimSpace(config.JWTSecret) == "" {
+		logger.Info("jwt secret missing", LogFields{}, map[string]any{"jwt_secret_configured": false})
+	}
 	// 初始化为空配置（不覆盖 env 值）
 	empty := &gatewayDynamicConfig{}
 	app.dynamicCfg.Store(empty)
@@ -101,8 +104,8 @@ func (a *Application) effectiveTrustedCIDRs() []string {
 }
 
 func (a *Application) effectiveRiskThreshold() int {
-	if dyn := a.getDynamicConfig(); dyn.RiskRejectThreshold > 0 {
-		return dyn.RiskRejectThreshold
+	if dyn := a.getDynamicConfig(); dyn.RiskRejectThreshold != nil {
+		return *dyn.RiskRejectThreshold
 	}
 	return a.config.RiskRejectThreshold
 }

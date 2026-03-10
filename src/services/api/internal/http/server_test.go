@@ -141,6 +141,62 @@ func TestTraceMiddlewarePreservesHttpFlusher(t *testing.T) {
 	}
 }
 
+func TestTraceMiddlewareStoresTrustedRequestMetadata(t *testing.T) {
+	logger := observability.NewJSONLogger("test", io.Discard)
+
+	inner := nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		ip := observability.ClientIPFromContext(r.Context())
+		https, ok := observability.RequestHTTPSFromContext(r.Context())
+		if ip != "203.0.113.8" {
+			t.Fatalf("client ip = %q, want %q", ip, "203.0.113.8")
+		}
+		if !ok || !https {
+			t.Fatalf("https metadata = (%v, %v), want (true, true)", https, ok)
+		}
+		w.WriteHeader(nethttp.StatusOK)
+	})
+
+	handler := TraceMiddleware(inner, logger, false, true)
+	req := httptest.NewRequest(nethttp.MethodGet, "/healthz", nil)
+	req.RemoteAddr = "10.0.0.5:1234"
+	req.Header.Set("X-Forwarded-For", "203.0.113.8, 10.0.0.5")
+	req.Header.Set("X-Forwarded-Proto", "https")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != nethttp.StatusOK {
+		t.Fatalf("unexpected status: %d", recorder.Code)
+	}
+}
+
+func TestTraceMiddlewareIgnoresUntrustedForwardedMetadata(t *testing.T) {
+	logger := observability.NewJSONLogger("test", io.Discard)
+
+	inner := nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		ip := observability.ClientIPFromContext(r.Context())
+		https, ok := observability.RequestHTTPSFromContext(r.Context())
+		if ip != "10.0.0.5" {
+			t.Fatalf("client ip = %q, want %q", ip, "10.0.0.5")
+		}
+		if !ok || https {
+			t.Fatalf("https metadata = (%v, %v), want (false, true)", https, ok)
+		}
+		w.WriteHeader(nethttp.StatusOK)
+	})
+
+	handler := TraceMiddleware(inner, logger, false, false)
+	req := httptest.NewRequest(nethttp.MethodGet, "/healthz", nil)
+	req.RemoteAddr = "10.0.0.5:1234"
+	req.Header.Set("X-Forwarded-For", "203.0.113.8, 10.0.0.5")
+	req.Header.Set("X-Forwarded-Proto", "https")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != nethttp.StatusOK {
+		t.Fatalf("unexpected status: %d", recorder.Code)
+	}
+}
+
 // TestThreadSubResourceRouting verifies that /v1/threads/{uuid}/messages and similar
 // sub-resource paths don't return 422 due to uuid parse errors, proving the routing
 // split logic correctly identifies segments.

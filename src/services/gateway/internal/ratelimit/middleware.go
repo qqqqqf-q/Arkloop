@@ -2,8 +2,6 @@ package ratelimit
 
 import (
 	"context"
-	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -119,10 +117,8 @@ func extractOrgIDFromBearer(r *http.Request, parser *jwt.Parser, secret []byte) 
 	}
 	raw := strings.TrimPrefix(auth, "Bearer ")
 
-	// 仅解码 payload 以提取 org claim；签名验证由 API 负责。
-	// Gateway 这里验证签名是为了防止客户端伪造 org_id 逃脱限流。
 	if len(secret) == 0 {
-		return extractOrgClaimUnsafe(raw)
+		return uuid.Nil
 	}
 
 	token, err := parser.Parse(raw, func(t *jwt.Token) (any, error) {
@@ -138,36 +134,6 @@ func extractOrgIDFromBearer(r *http.Request, parser *jwt.Parser, secret []byte) 
 	}
 	orgRaw, exists := claims["org"]
 	if !exists {
-		return uuid.Nil
-	}
-	orgStr, ok := orgRaw.(string)
-	if !ok {
-		return uuid.Nil
-	}
-	parsed, err := uuid.Parse(orgStr)
-	if err != nil {
-		return uuid.Nil
-	}
-	return parsed
-}
-
-// extractOrgClaimUnsafe 不验证签名，仅 base64 解码 payload 取 org claim。
-// 仅在 jwtSecret 未配置时使用（降级模式）。
-func extractOrgClaimUnsafe(raw string) uuid.UUID {
-	parts := strings.Split(raw, ".")
-	if len(parts) != 3 {
-		return uuid.Nil
-	}
-	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
-	if err != nil {
-		return uuid.Nil
-	}
-	var claims map[string]any
-	if err := json.Unmarshal(payload, &claims); err != nil {
-		return uuid.Nil
-	}
-	orgRaw, ok := claims["org"]
-	if !ok {
 		return uuid.Nil
 	}
 	orgStr, ok := orgRaw.(string)

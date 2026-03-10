@@ -8,26 +8,31 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
+
+	"github.com/golang-jwt/jwt/v5"
 )
 
 func TestExtractOrgID(t *testing.T) {
 	orgID := "550e8400-e29b-41d4-a716-446655440000"
-	token := fakeToken(t, map[string]any{"sub": "user-id", "org": orgID, "exp": 9999999999})
+	token := signedToken(t, map[string]any{"sub": "user-id", "org": orgID, "exp": time.Now().Add(time.Hour).Unix()}, []byte("test-secret"))
 
 	cases := []struct {
 		name   string
+		secret []byte
 		header string
 		want   string
 	}{
-		{"valid bearer", "Bearer " + token, orgID},
-		{"missing bearer prefix", token, ""},
-		{"empty", "", ""},
-		{"no org claim", "Bearer " + fakeToken(t, map[string]any{"sub": "x"}), ""},
-		{"malformed parts", "Bearer not.valid", ""},
+		{"valid bearer with secret", []byte("test-secret"), "Bearer " + token, orgID},
+		{"valid bearer without secret", nil, "Bearer " + token, ""},
+		{"missing bearer prefix", nil, token, ""},
+		{"empty", nil, "", ""},
+		{"no org claim", []byte("test-secret"), "Bearer " + signedToken(t, map[string]any{"sub": "x", "exp": time.Now().Add(time.Hour).Unix()}, []byte("test-secret")), ""},
+		{"malformed parts", []byte("test-secret"), "Bearer not.valid", ""},
 	}
 
 	for _, tc := range cases {
-		got := extractOrgIDWithRedis(tc.header, nil, context.Background(), nil)
+		got := extractOrgIDWithRedis(tc.header, nil, context.Background(), tc.secret)
 		if got != tc.want {
 			t.Errorf("%s: got %q, want %q", tc.name, got, tc.want)
 		}
@@ -206,6 +211,16 @@ func fakeToken(t *testing.T, claims map[string]any) string {
 	header := encodeSegment(t, map[string]any{"alg": "HS256", "typ": "JWT"})
 	payload := encodeSegment(t, claims)
 	return header + "." + payload + ".fakesig"
+}
+
+func signedToken(t *testing.T, claims map[string]any, secret []byte) string {
+	t.Helper()
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims(claims))
+	signed, err := token.SignedString(secret)
+	if err != nil {
+		t.Fatalf("sign jwt: %v", err)
+	}
+	return signed
 }
 
 func encodeSegment(t *testing.T, v any) string {
