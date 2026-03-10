@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -83,9 +84,36 @@ func ensureEnvironmentRoot(rootPath string) error {
 	return nil
 }
 
+func makeEnvironmentTreeWritable(rootPath string) error {
+	return filepath.Walk(rootPath, func(current string, info fs.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			if os.IsNotExist(walkErr) {
+				return nil
+			}
+			return walkErr
+		}
+		if info == nil {
+			return nil
+		}
+		if info.IsDir() {
+			if err := os.Chmod(current, 0o755); err != nil && !os.IsNotExist(err) {
+				return err
+			}
+			return nil
+		}
+		if err := os.Chmod(current, 0o644); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		return nil
+	})
+}
+
 func pruneEnvironmentRootChildren(rootPath string) error {
 	if err := ensureEnvironmentRoot(rootPath); err != nil {
 		return err
+	}
+	if err := makeEnvironmentTreeWritable(rootPath); err != nil {
+		return fmt.Errorf("make environment root writable %s: %w", rootPath, err)
 	}
 	entries, err := os.ReadDir(rootPath)
 	if err != nil {
@@ -108,6 +136,9 @@ func pruneEnvironmentPaths(rootPath string, paths []string) error {
 		targetPath := filepath.Join(rootPath, filepath.FromSlash(relativePath))
 		if !pathWithinRoot(rootPath, targetPath) {
 			return fmt.Errorf("environment path escapes root: %s", relativePath)
+		}
+		if err := makeEnvironmentTreeWritable(targetPath); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("make environment path writable %s: %w", targetPath, err)
 		}
 		if err := os.RemoveAll(targetPath); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("prune environment path %s: %w", targetPath, err)

@@ -59,6 +59,41 @@ func TestApplySkillOverlayWritesIndexAndSkillFiles(t *testing.T) {
 	}
 }
 
+func TestApplySkillOverlayCanReapplyReadonlySkillBundle(t *testing.T) {
+	workspace := t.TempDir()
+	bindShellDirs(t, workspace)
+	t.Cleanup(func() {
+		_ = filepath.Walk(workspace, func(path string, info os.FileInfo, err error) error {
+			if err != nil || info == nil {
+				return nil
+			}
+			if info.IsDir() {
+				_ = os.Chmod(path, 0o755)
+				return nil
+			}
+			_ = os.Chmod(path, 0o644)
+			return nil
+		})
+	})
+	encodedBundle := buildTestSkillBundle(t, "deep-research", "1.0.0")
+	req := SkillOverlayRequest{
+		IndexJSON: `[{"skill_key":"deep-research","version":"1.0.0","mount_path":"/opt/arkloop/skills/deep-research@1.0.0","instruction_path":"SKILL.md"}]`,
+		Skills: []SkillOverlayItem{{
+			SkillKey:         "deep-research",
+			Version:          "1.0.0",
+			MountPath:        skillstore.MountPath("deep-research", "1.0.0"),
+			InstructionPath:  "SKILL.md",
+			BundleDataBase64: base64.StdEncoding.EncodeToString(encodedBundle),
+		}},
+	}
+	if err := applySkillOverlay(req); err != nil {
+		t.Fatalf("first apply skill overlay: %v", err)
+	}
+	if err := applySkillOverlay(req); err != nil {
+		t.Fatalf("second apply skill overlay: %v", err)
+	}
+}
+
 func buildTestSkillBundle(t *testing.T, skillKey, version string) []byte {
 	t.Helper()
 	var buffer bytes.Buffer
