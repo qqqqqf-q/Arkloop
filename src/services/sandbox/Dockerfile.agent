@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # sandbox-agent 容器镜像
 # 用于 Docker sandbox 后端，容器内运行 sandbox-agent 以 TCP 模式监听。
 #
@@ -9,10 +10,13 @@ WORKDIR /workspace
 COPY src/services/sandbox/go.mod src/services/sandbox/go.sum src/services/sandbox/
 COPY src/services/shared/go.mod src/services/shared/go.sum src/services/shared/
 RUN printf 'go 1.26.0\nuse (\n\t./src/services/sandbox\n\t./src/services/shared\n)\n' > go.work
-RUN go mod download
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
 COPY src/services/sandbox src/services/sandbox
 COPY src/services/shared src/services/shared
-RUN GOOS=linux CGO_ENABLED=0 \
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    GOOS=linux CGO_ENABLED=0 \
     go build -ldflags="-s -w" -o /sandbox-agent ./src/services/sandbox/agent
 
 FROM python:3.12-slim-bookworm

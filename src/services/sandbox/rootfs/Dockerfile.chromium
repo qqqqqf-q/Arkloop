@@ -1,10 +1,14 @@
+# syntax=docker/dockerfile:1
 FROM golang:1.26-alpine AS agent
 WORKDIR /build
 COPY src/services/sandbox/go.mod src/services/sandbox/go.sum src/services/sandbox/
 RUN printf 'go 1.26.0\nuse (\n\t./src/services/sandbox\n)\n' > go.work
-RUN cd src/services/sandbox && go mod download
+RUN --mount=type=cache,target=/go/pkg/mod \
+    cd src/services/sandbox && go mod download
 COPY src/services/sandbox src/services/sandbox
-RUN cd src/services/sandbox && \
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    cd src/services/sandbox && \
     GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
     go build -ldflags="-s -w" -o /sandbox-agent ./agent
 
