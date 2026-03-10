@@ -108,10 +108,10 @@ func (r *fakeRegistryWriter) EnsureProfileRegistry(_ context.Context, _ string, 
 	return nil
 }
 
-func (r *fakeRegistryWriter) EnsureBrowserStateRegistry(_ context.Context, _ string, profileRef string) error {
+func (r *fakeRegistryWriter) EnsureBrowserStateRegistry(_ context.Context, _ string, workspaceRef string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.ensured = append(r.ensured, ScopeBrowserState+":"+profileRef)
+	r.ensured = append(r.ensured, ScopeBrowserState+":"+workspaceRef)
 	return nil
 }
 
@@ -320,7 +320,7 @@ func TestManagerPrepareRestoresFromManifestState(t *testing.T) {
 	}
 }
 
-func TestManagerPrepareRestoresBrowserStateFromProfileRef(t *testing.T) {
+func TestManagerPrepareRestoresBrowserStateFromWorkspaceRef(t *testing.T) {
 	store := newMemoryStore()
 	registry := newFakeRegistryWriter()
 	mgr := NewManager(store, registry, nil, Config{})
@@ -329,17 +329,17 @@ func TestManagerPrepareRestoresBrowserStateFromProfileRef(t *testing.T) {
 
 	manifest := NormalizeManifest(Manifest{
 		Scope:    ScopeBrowserState,
-		Ref:      binding.ProfileRef,
+		Ref:      binding.WorkspaceRef,
 		Revision: "rev-browser-1",
 		Entries:  []ManifestEntry{{Path: "sessions/test/state.json", Type: EntryTypeFile, Mode: 0o644, Size: 2, SHA256: "sha-browser"}},
 	})
 	if err := saveManifest(context.Background(), store, manifest); err != nil {
 		t.Fatalf("save manifest: %v", err)
 	}
-	if _, err := putBlobIfMissing(context.Background(), store, blobKey(ScopeBrowserState, binding.ProfileRef, "sha-browser"), []byte("{}")); err != nil {
+	if _, err := putBlobIfMissing(context.Background(), store, blobKey(ScopeBrowserState, binding.WorkspaceRef, "sha-browser"), []byte("{}")); err != nil {
 		t.Fatalf("put blob: %v", err)
 	}
-	registry.latest[ScopeBrowserState+":"+binding.ProfileRef] = manifest.Revision
+	registry.latest[ScopeBrowserState+":"+binding.WorkspaceRef] = manifest.Revision
 
 	if err := mgr.Prepare(context.Background(), "sess-1", carrier, binding); err != nil {
 		t.Fatalf("prepare: %v", err)
@@ -349,6 +349,36 @@ func TestManagerPrepareRestoresBrowserStateFromProfileRef(t *testing.T) {
 	}
 	if !carrier.appliedPruneRoot[ScopeBrowserState] {
 		t.Fatal("expected browser_state hydrate to prune root children")
+	}
+}
+
+func TestManagerPrepareDoesNotRestoreBrowserStateAcrossWorkspaces(t *testing.T) {
+	store := newMemoryStore()
+	registry := newFakeRegistryWriter()
+	mgr := NewManager(store, registry, nil, Config{})
+	bindingA := Binding{OrgID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", ProfileRef: "pref_a", WorkspaceRef: "wsref_a"}
+	bindingB := Binding{OrgID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", ProfileRef: "pref_a", WorkspaceRef: "wsref_b"}
+	carrier := newFakeCarrier()
+
+	manifest := NormalizeManifest(Manifest{
+		Scope:    ScopeBrowserState,
+		Ref:      bindingA.WorkspaceRef,
+		Revision: "rev-browser-1",
+		Entries:  []ManifestEntry{{Path: "sessions/test/state.json", Type: EntryTypeFile, Mode: 0o644, Size: 2, SHA256: "sha-browser"}},
+	})
+	if err := saveManifest(context.Background(), store, manifest); err != nil {
+		t.Fatalf("save manifest: %v", err)
+	}
+	if _, err := putBlobIfMissing(context.Background(), store, blobKey(ScopeBrowserState, bindingA.WorkspaceRef, "sha-browser"), []byte("{}")); err != nil {
+		t.Fatalf("put blob: %v", err)
+	}
+	registry.latest[ScopeBrowserState+":"+bindingA.WorkspaceRef] = manifest.Revision
+
+	if err := mgr.Prepare(context.Background(), "sess-1", carrier, bindingB); err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	if carrier.appliedCount[ScopeBrowserState] != 0 {
+		t.Fatalf("expected no browser state hydrate across workspaces, got %#v", carrier.appliedManifest[ScopeBrowserState])
 	}
 }
 
@@ -369,6 +399,41 @@ func TestManagerMarkAllDirtyMarksAllBoundScopes(t *testing.T) {
 		if !state.hasRootDirty() {
 			t.Fatalf("expected %s to be root-dirty", scope)
 		}
+	}
+}
+
+func TestManagerFlushBrowserStateUsesWorkspaceRef(t *testing.T) {
+	store := newMemoryStore()
+	registry := newFakeRegistryWriter()
+	mgr := NewManager(store, registry, nil, Config{})
+	binding := Binding{OrgID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", ProfileRef: "pref_a", WorkspaceRef: "wsref_a"}
+	carrier := newFakeCarrier()
+	carrier.manifests[ScopeBrowserState] = NormalizeManifest(Manifest{
+		Scope:   ScopeBrowserState,
+		Entries: []ManifestEntry{{Path: "sessions/test/state.json", Type: EntryTypeFile, Mode: 0o644, Size: 2, SHA256: "sha-browser"}},
+	})
+	carrier.filePayloads[ScopeBrowserState] = map[string][]byte{"sessions/test/state.json": []byte("{}")}
+
+	if err := mgr.Prepare(context.Background(), "sess-1", carrier, binding); err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	markScopeDirty(mgr, "sess-1", ScopeBrowserState, "")
+	if err := mgr.FlushNow(context.Background(), "sess-1"); err != nil {
+		t.Fatalf("flush now: %v", err)
+	}
+	revision := registry.latest[ScopeBrowserState+":"+binding.WorkspaceRef]
+	if revision == "" {
+		t.Fatal("expected browser state revision bound to workspace")
+	}
+	if got := registry.latest[ScopeBrowserState+":"+binding.ProfileRef]; got != "" {
+		t.Fatalf("expected profile-scoped browser state revision to stay empty, got %q", got)
+	}
+	manifest, err := loadManifest(context.Background(), store, ScopeBrowserState, binding.WorkspaceRef, revision)
+	if err != nil {
+		t.Fatalf("load browser state manifest: %v", err)
+	}
+	if manifest.Ref != binding.WorkspaceRef {
+		t.Fatalf("expected workspace ref in browser state manifest, got %q", manifest.Ref)
 	}
 }
 

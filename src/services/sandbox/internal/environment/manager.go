@@ -102,7 +102,7 @@ func (m *Manager) Prepare(ctx context.Context, sessionID string, carrier Carrier
 	if err := m.registry.EnsureProfileRegistry(ctx, binding.OrgID, binding.ProfileRef); err != nil {
 		return err
 	}
-	if err := m.registry.EnsureBrowserStateRegistry(ctx, binding.OrgID, binding.ProfileRef); err != nil {
+	if err := m.registry.EnsureBrowserStateRegistry(ctx, binding.OrgID, binding.WorkspaceRef); err != nil {
 		return err
 	}
 	if err := m.registry.EnsureWorkspaceRegistry(ctx, binding.OrgID, binding.WorkspaceRef); err != nil {
@@ -120,7 +120,7 @@ func (m *Manager) Prepare(ctx context.Context, sessionID string, carrier Carrier
 	if err := m.prepareScope(ctx, entry.carrier, entry.scopeLocked(ScopeProfile), ScopeProfile, binding.ProfileRef); err != nil {
 		return err
 	}
-	if err := m.prepareScope(ctx, entry.carrier, entry.scopeLocked(ScopeBrowserState), ScopeBrowserState, binding.ProfileRef); err != nil {
+	if err := m.prepareScope(ctx, entry.carrier, entry.scopeLocked(ScopeBrowserState), ScopeBrowserState, binding.WorkspaceRef); err != nil {
 		return err
 	}
 	if err := m.prepareScope(ctx, entry.carrier, entry.scopeLocked(ScopeWorkspace), ScopeWorkspace, binding.WorkspaceRef); err != nil {
@@ -490,7 +490,7 @@ func (b Binding) refForScope(scope string) string {
 	case ScopeProfile:
 		return b.ProfileRef
 	case ScopeBrowserState:
-		return b.ProfileRef
+		return b.WorkspaceRef
 	case ScopeWorkspace:
 		return b.WorkspaceRef
 	default:

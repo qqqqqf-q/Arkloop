@@ -2291,6 +2291,192 @@ func TestBrowser_AutoSessionDoesNotReuseShellSession(t *testing.T) {
 	}
 }
 
+func TestBrowser_AutoReusesThreadDefaultAcrossRunsWithPool(t *testing.T) {
+	db := testutil.SetupPostgresDatabase(t, "worker_browser_thread_default")
+	pool, err := pgxpool.New(t.Context(), db.DSN)
+	if err != nil {
+		t.Fatalf("pgxpool.New: %v", err)
+	}
+	defer pool.Close()
+
+	orgID := uuid.New()
+	threadID := uuid.New()
+	ctx1 := tools.ExecutionContext{
+		RunID:        uuid.New(),
+		OrgID:        &orgID,
+		ThreadID:     &threadID,
+		ProfileRef:   "pref_test",
+		WorkspaceRef: "wsref_test",
+	}
+	ctx2 := tools.ExecutionContext{
+		RunID:        uuid.New(),
+		OrgID:        &orgID,
+		ThreadID:     &threadID,
+		ProfileRef:   "pref_test",
+		WorkspaceRef: "wsref_test",
+	}
+	var sessionIDs []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/exec_command" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		var body execCommandRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		sessionIDs = append(sessionIDs, body.SessionID)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "idle", Cwd: "/workspace", Output: browserSnapshotJSON(
+			"https://example.com",
+			"Example Domain",
+			"- heading \"Example Domain\" [ref=e1]",
+			map[string]any{"e1": map[string]any{"role": "heading", "text": "Example Domain"}},
+		), ExitCode: intPtr(0)})
+	}))
+	defer server.Close()
+
+	exec := NewToolExecutorWithPool(server.URL, "", pool)
+	first := exec.Execute(t.Context(), "browser", map[string]any{"command": "snapshot"}, ctx1, "")
+	second := exec.Execute(t.Context(), "browser", map[string]any{"command": "snapshot"}, ctx2, "")
+	if first.Error != nil || second.Error != nil {
+		t.Fatalf("unexpected errors: first=%+v second=%+v", first.Error, second.Error)
+	}
+	if len(sessionIDs) != 2 {
+		t.Fatalf("expected 2 browser requests, got %d", len(sessionIDs))
+	}
+	if sessionIDs[0] != sessionIDs[1] {
+		t.Fatalf("expected thread-default browser reuse, got %q vs %q", sessionIDs[0], sessionIDs[1])
+	}
+	repo := data.ShellSessionsRepository{}
+	stored, err := repo.GetBySessionRefAndType(t.Context(), pool, orgID, sessionIDs[0], data.ShellSessionTypeBrowser)
+	if err != nil {
+		t.Fatalf("load browser session: %v", err)
+	}
+	if stored.ShareScope != data.ShellShareScopeThread {
+		t.Fatalf("expected thread share scope, got %s", stored.ShareScope)
+	}
+}
+
+func TestBrowser_AutoReusesWorkspaceDefaultAcrossThreads(t *testing.T) {
+	db := testutil.SetupPostgresDatabase(t, "worker_browser_workspace_default")
+	pool, err := pgxpool.New(t.Context(), db.DSN)
+	if err != nil {
+		t.Fatalf("pgxpool.New: %v", err)
+	}
+	defer pool.Close()
+
+	orgID := uuid.New()
+	ctx1 := tools.ExecutionContext{
+		RunID:        uuid.New(),
+		OrgID:        &orgID,
+		ProfileRef:   "pref_test",
+		WorkspaceRef: "wsref_test",
+	}
+	threadID := uuid.New()
+	ctx2 := tools.ExecutionContext{
+		RunID:        uuid.New(),
+		OrgID:        &orgID,
+		ThreadID:     &threadID,
+		ProfileRef:   "pref_test",
+		WorkspaceRef: "wsref_test",
+	}
+	var sessionIDs []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/exec_command" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		var body execCommandRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		sessionIDs = append(sessionIDs, body.SessionID)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "idle", Cwd: "/workspace", Output: browserSnapshotJSON(
+			"https://example.com",
+			"Example Domain",
+			"- heading \"Example Domain\" [ref=e1]",
+			map[string]any{"e1": map[string]any{"role": "heading", "text": "Example Domain"}},
+		), ExitCode: intPtr(0)})
+	}))
+	defer server.Close()
+
+	exec := NewToolExecutorWithPool(server.URL, "", pool)
+	first := exec.Execute(t.Context(), "browser", map[string]any{"command": "snapshot"}, ctx1, "")
+	second := exec.Execute(t.Context(), "browser", map[string]any{"command": "snapshot"}, ctx2, "")
+	if first.Error != nil || second.Error != nil {
+		t.Fatalf("unexpected errors: first=%+v second=%+v", first.Error, second.Error)
+	}
+	if len(sessionIDs) != 2 {
+		t.Fatalf("expected 2 browser requests, got %d", len(sessionIDs))
+	}
+	if sessionIDs[0] != sessionIDs[1] {
+		t.Fatalf("expected workspace-default browser reuse, got %q vs %q", sessionIDs[0], sessionIDs[1])
+	}
+	repo := data.ShellSessionsRepository{}
+	stored, err := repo.GetBySessionRefAndType(t.Context(), pool, orgID, sessionIDs[0], data.ShellSessionTypeBrowser)
+	if err != nil {
+		t.Fatalf("load browser session: %v", err)
+	}
+	if stored.ShareScope != data.ShellShareScopeWorkspace {
+		t.Fatalf("expected workspace share scope, got %s", stored.ShareScope)
+	}
+}
+
+func TestBrowser_AutoDoesNotReuseAcrossWorkspaces(t *testing.T) {
+	db := testutil.SetupPostgresDatabase(t, "worker_browser_workspace_isolation")
+	pool, err := pgxpool.New(t.Context(), db.DSN)
+	if err != nil {
+		t.Fatalf("pgxpool.New: %v", err)
+	}
+	defer pool.Close()
+
+	orgID := uuid.New()
+	ctx1 := tools.ExecutionContext{
+		RunID:        uuid.New(),
+		OrgID:        &orgID,
+		ProfileRef:   "pref_test",
+		WorkspaceRef: "wsref_a",
+	}
+	ctx2 := tools.ExecutionContext{
+		RunID:        uuid.New(),
+		OrgID:        &orgID,
+		ProfileRef:   "pref_test",
+		WorkspaceRef: "wsref_b",
+	}
+	var sessionIDs []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/exec_command" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		var body execCommandRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		sessionIDs = append(sessionIDs, body.SessionID)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "idle", Cwd: "/workspace", Output: browserSnapshotJSON(
+			"https://example.com",
+			"Example Domain",
+			"- heading \"Example Domain\" [ref=e1]",
+			map[string]any{"e1": map[string]any{"role": "heading", "text": "Example Domain"}},
+		), ExitCode: intPtr(0)})
+	}))
+	defer server.Close()
+
+	exec := NewToolExecutorWithPool(server.URL, "", pool)
+	first := exec.Execute(t.Context(), "browser", map[string]any{"command": "snapshot"}, ctx1, "")
+	second := exec.Execute(t.Context(), "browser", map[string]any{"command": "snapshot"}, ctx2, "")
+	if first.Error != nil || second.Error != nil {
+		t.Fatalf("unexpected errors: first=%+v second=%+v", first.Error, second.Error)
+	}
+	if len(sessionIDs) != 2 {
+		t.Fatalf("expected 2 browser requests, got %d", len(sessionIDs))
+	}
+	if sessionIDs[0] == sessionIDs[1] {
+		t.Fatalf("expected workspace isolation, got reused session %q", sessionIDs[0])
+	}
+}
+
 func TestBrowser_RejectsSessionRefArgument(t *testing.T) {
 	exec := NewToolExecutor("http://localhost:9999", "")
 	result := exec.Execute(t.Context(), "browser", map[string]any{

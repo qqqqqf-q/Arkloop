@@ -149,7 +149,8 @@ agent-browser 的 CLI 语法本身就是为 LLM 设计的——`verb [args]` 的
 复用 Sandbox 的 default session 设计逻辑：
 
 - 不指定 session → 自动复用/创建 default browser（带登录态、cookies）
-- 显式指定新 session_ref → 创建干净浏览器（类似无痕模式）
+- 同一 workspace 下跨 thread 可以复用 workspace 级 browser state
+- 不同 workspace 默认隔离 cookies / storage / profile 数据
 
 #### 类比
 
@@ -162,14 +163,14 @@ agent-browser 的 CLI 语法本身就是为 LLM 设计的——`verb [args]` 的
 
 #### 实现
 
-在 worker 的 `resolveExecSession()` 链上，browser 工具走同样的优先级：
+在 worker 的 browser session 解析链上，browser 工具走同样的优先级：
 
-1. 显式 session_ref → 使用指定 session
-2. Run-local default → 复用同一 run 内的 browser session
-3. Thread-level binding → 复用 thread 绑定的 browser session
-4. 创建新 session → tier=browser
+1. Run-local default → 复用同一 run 内的 browser session
+2. Thread-level binding → 复用 thread 绑定的 browser session
+3. Workspace-level binding → 复用 workspace 绑定的 browser session
+4. 创建新 session → 有 thread 时绑定 thread，否则绑定 workspace
 
-`shell_sessions` 表新增 `session_type` 字段（`shell` / `browser`），不建新表。`default_shell_session_bindings` 同样通过 session_type 区分。
+`shell_sessions` 表通过 `session_type` 区分 shell 与 browser。browser tool 对外不暴露 `session_ref`，默认 session 的创建和恢复都由后端自动处理。
 
 ### 4.4 计费采用混合模式
 
@@ -309,9 +310,9 @@ Idle timeout 触发
         "type": "string",
         "description": "agent-browser CLI command to execute"
       },
-      "session_ref": {
-        "type": "string",
-        "description": "Optional. Browser session reference. Omit to use the default browser session."
+      "yield_time_ms": {
+        "type": "integer",
+        "description": "Optional. Time to wait for navigation or rendering to settle before returning."
       }
     },
     "required": ["command"]
@@ -365,7 +366,7 @@ Browser Commands:
 ### 6.5 Worker 侧实现
 
 ```go
-// internal/tools/builtin/browser/executor.go
+// internal/tools/builtin/sandbox/executor.go
 
 type BrowserExecutor struct {
     sandbox SandboxClient
@@ -373,8 +374,8 @@ type BrowserExecutor struct {
 }
 
 func (e *BrowserExecutor) Execute(ctx context.Context, params BrowserParams) (*Result, error) {
-    // 1. 解析 session
-    sessionRef, err := e.orch.resolveBrowserSession(ctx, params.SessionRef)
+    // 1. 自动解析 browser session
+    sessionRef, err := e.orch.resolveBrowserSession(ctx, params)
     if err != nil {
         return nil, err
     }
@@ -444,22 +445,31 @@ ALTER TABLE default_shell_session_bindings ADD COLUMN session_type TEXT NOT NULL
 
 ```text
 首次调用 browser 工具（未指定 session_ref）:
-  1. resolveExecSession(tier=browser, sessionType=browser)
+  1. resolveBrowserSession(sessionType=browser)
   2. 查 run-local default → 无
   3. 查 thread binding → 无
-  4. 创建新 browser session
-  5. setRunDefault(runID, sessionRef, sessionType=browser)
+  4. 查 workspace binding → 无
+  5. 有 thread 时创建 thread 级 browser session，否则创建 workspace 级 browser session
   6. 返回 sessionRef
 
 后续调用（同一 run，未指定 session_ref）:
-  1. resolveExecSession(tier=browser, sessionType=browser)
+  1. resolveBrowserSession(sessionType=browser)
   2. 查 run-local default → 命中
   3. 复用同一 session
 
-显式指定新 session_ref:
-  1. 创建独立 browser session（类似无痕窗口）
-  2. 不影响 default binding
+后续调用（跨 run，同一 thread）:
+  1. 查 run-local default → 无
+  2. 查 thread binding → 命中
+  3. 复用 thread 级 browser session
+
+后续调用（跨 thread，同一 workspace）:
+  1. 查 run-local default → 无
+  2. 查 thread binding → 无
+  3. 查 workspace binding → 命中
+  4. 复用 workspace 级 browser session
 ```
+
+`browser` 对外不暴露 `session_ref` 或 `share_scope` 参数。默认 session 的创建、复用、等待、恢复全部由后端处理。
 
 ### 7.4 Checkpoint 与 Restore
 
@@ -470,17 +480,17 @@ Sandbox 现有的 checkpoint 机制会：
 2. 记录 manifest（cwd, env vars, 元数据）
 3. 上传到 S3
 
-agent-browser 的 session 数据存储在 `~/.agent-browser/sessions/<session-id>/` 目录，包含：
+agent-browser 的 session 数据存储在 `~/.agent-browser/` 目录下，作为 `browser_state` scope 持久化，绑定到 `workspace_ref`，包含：
 - cookies
 - localStorage / sessionStorage
 - 浏览器 profile 数据
 
-这些数据在文件系统内，checkpoint 时自动包含，不需要额外的导出逻辑。
+这些数据在文件系统内，flush/checkpoint 时自动包含，不需要额外的导出逻辑。同一 workspace 会恢复同一份 browser state，不同 workspace 默认不共享登录态。
 
 #### Restore（新 session 创建时，如有 checkpoint）
 
 1. Sandbox 从 S3 下载 checkpoint 并解压到新容器
-2. 文件系统恢复，包含 `~/.agent-browser/sessions/` 目录
+2. 文件系统恢复，包含 `~/.agent-browser/` 目录
 3. agent-browser daemon 启动时自动读取已恢复的 session 数据
 4. 浏览器打开时已包含之前的 cookies 和 storage
 
@@ -635,7 +645,7 @@ VALUES (?, ?, 'browser_session', ?, '{"duration_s": 180, "credits": 7}');
 
 **范围**：Worker 能调用 browser 工具。
 
-- Worker 新增 `browser` tool executor（`internal/tools/builtin/browser/`）
+- Worker 新增 `browser` tool executor（`internal/tools/builtin/sandbox/`）
 - 复用 session orchestrator 添加 browser session 解析逻辑
 - `shell_sessions` 表 migration：新增 `session_type` 字段
 - `default_shell_session_bindings` migration：新增 `session_type` 字段
@@ -643,7 +653,7 @@ VALUES (?, ?, 'browser_session', ?, '{"duration_s": 180, "credits": 7}');
 - 验证：通过 API 创建 run，LLM 调用 browser 工具成功打开网页
 
 **涉及目录**：
-- `src/services/worker/internal/tools/builtin/browser/`
+- `src/services/worker/internal/tools/builtin/sandbox/`
 - `src/services/worker/internal/tools/`（executor 注册）
 - `src/services/api/internal/migrate/`（migration）
 
@@ -668,11 +678,13 @@ VALUES (?, ?, 'browser_session', ?, '{"duration_s": 180, "credits": 7}');
 - browser session 的 checkpoint 验证（确认 agent-browser session 数据被正确归档）
 - restore 后 cookies/storage 自动恢复验证
 - thread-level / workspace-level binding 支持 browser session
-- Default browser session 逻辑
+- Default browser session 逻辑（`run -> thread -> workspace -> create`）
+- browser_state 改为 workspace 级持久化，跨 workspace 默认隔离
 
 **涉及目录**：
 - `src/services/sandbox/internal/shell/`（checkpoint 兼容验证）
-- `src/services/worker/internal/tools/builtin/browser/`（session 绑定逻辑）
+- `src/services/sandbox/internal/environment/`（browser_state flush/hydrate）
+- `src/services/worker/internal/tools/builtin/sandbox/`（session 绑定逻辑）
 
 ### PR 5: 计费与 Entitlement
 

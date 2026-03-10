@@ -21,7 +21,7 @@ type RegistryManifestBinding struct {
 
 type RegistryWriter interface {
 	EnsureProfileRegistry(ctx context.Context, orgID, profileRef string) error
-	EnsureBrowserStateRegistry(ctx context.Context, orgID, profileRef string) error
+	EnsureBrowserStateRegistry(ctx context.Context, orgID, workspaceRef string) error
 	EnsureWorkspaceRegistry(ctx context.Context, orgID, workspaceRef string) error
 	GetLatestManifestRevision(ctx context.Context, scope, ref string) (string, error)
 	MarkFlushPending(ctx context.Context, scope, ref string) error
@@ -88,8 +88,8 @@ func (w *PGRegistryWriter) EnsureProfileRegistry(ctx context.Context, orgID, pro
 	return w.ensureRegistry(ctx, "profile_registries", "profile_ref", orgID, profileRef)
 }
 
-func (w *PGRegistryWriter) EnsureBrowserStateRegistry(ctx context.Context, orgID, profileRef string) error {
-	return w.ensureRegistry(ctx, "browser_state_registries", "profile_ref", orgID, profileRef)
+func (w *PGRegistryWriter) EnsureBrowserStateRegistry(ctx context.Context, orgID, workspaceRef string) error {
+	return w.ensureRegistry(ctx, "browser_state_registries", "workspace_ref", orgID, workspaceRef)
 }
 
 func (w *PGRegistryWriter) EnsureWorkspaceRegistry(ctx context.Context, orgID, workspaceRef string) error {
@@ -342,7 +342,7 @@ func registryTable(scope string) (string, string, error) {
 	case ScopeProfile:
 		return "profile_registries", "profile_ref", nil
 	case ScopeBrowserState:
-		return "browser_state_registries", "profile_ref", nil
+		return "browser_state_registries", "workspace_ref", nil
 	case ScopeWorkspace:
 		return "workspace_registries", "workspace_ref", nil
 	default:
