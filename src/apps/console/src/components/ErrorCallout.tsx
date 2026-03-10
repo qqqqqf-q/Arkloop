@@ -22,6 +22,8 @@ const FRIENDLY_ERROR_MESSAGES: Record<string, FriendlyText> = {
   'auth.user_suspended': { zh: '账号已停用', en: 'Account suspended.' },
   'auth.email_not_verified': { zh: '邮箱未验证', en: 'Email not verified.' },
   'auth.captcha_invalid': { zh: '人机验证失败', en: 'Captcha verification failed.' },
+  'auth.flow_token_invalid': { zh: '登录流程已失效，请重新开始', en: 'Sign-in flow expired. Please start again.' },
+  'auth.otp_unavailable': { zh: '当前账号无法使用邮箱验证码', en: 'Email code is unavailable for this account.' },
   'auth.otp_invalid': { zh: '验证码无效或已过期', en: 'Code invalid or expired.' },
   'auth.token_expired': { zh: '登录已过期，请重新登录', en: 'Session expired. Please log in again.' },
   'auth.invalid_token': { zh: '登录已过期，请重新登录', en: 'Session expired. Please log in again.' },

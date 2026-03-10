@@ -66,13 +66,15 @@ This document describes the resource model, endpoint design, error model, and SS
 - `POST /v1/auth/login` -- Login
 - `POST /v1/auth/refresh` -- Refresh token (via HttpOnly cookie)
 - `POST /v1/auth/logout` -- Logout
-- `POST /v1/auth/check` -- Check authentication status
+- `POST /v1/auth/resolve` -- Resolve authentication next step
 - `GET /v1/auth/registration-mode` -- Query registration mode
 - `GET /v1/auth/captcha-config` -- Captcha configuration (Cloudflare Turnstile)
 - `POST /v1/auth/email/verify/send` -- Send email verification
 - `POST /v1/auth/email/verify/confirm` -- Confirm email verification
 - `POST /v1/auth/email/otp/send` -- Send OTP
 - `POST /v1/auth/email/otp/verify` -- Verify OTP
+- `POST /v1/auth/resolve/otp/send` -- Send OTP for resolved identity
+- `POST /v1/auth/resolve/otp/verify` -- Verify OTP for resolved identity
 
 ### 3.3 User
 

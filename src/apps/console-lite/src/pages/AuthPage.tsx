@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useCallback, useRef, type FormEvent } from 'react'
-import { login, isApiError, getCaptchaConfig, checkUser, sendEmailOTP, verifyEmailOTP } from '../api'
+import { login, isApiError, getCaptchaConfig, sendEmailOTP, verifyEmailOTP } from '../api'
 import { ErrorCallout, type AppError } from '../components/ErrorCallout'
 import { Turnstile } from '../components/Turnstile'
 import { useLocale } from '../contexts/LocaleContext'
@@ -204,15 +204,8 @@ export function AuthPage({ onLoggedIn }: Props) {
       if (!id) return
       setChecking(true)
       try {
-        const res = await checkUser(id)
-        if (res.exists) {
-          setMaskedEmail(res.masked_email ?? '')
-          setPhase('password')
-        } else {
-          setError({ message: '', code: 'auth.invalid_credentials' })
-        }
-      } catch (err) {
-        setError(normalizeError(err, t.requestFailed))
+        setMaskedEmail('')
+        setPhase('password')
       } finally {
         setChecking(false)
       }

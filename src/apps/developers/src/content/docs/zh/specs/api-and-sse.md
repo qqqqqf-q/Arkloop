@@ -66,13 +66,15 @@
 - `POST /v1/auth/login` -- 登录
 - `POST /v1/auth/refresh` -- 刷新 token（基于 HttpOnly cookie）
 - `POST /v1/auth/logout` -- 登出
-- `POST /v1/auth/check` -- 检查认证状态
+- `POST /v1/auth/resolve` -- 解析认证下一步
 - `GET /v1/auth/registration-mode` -- 注册模式查询
 - `GET /v1/auth/captcha-config` -- Captcha 配置（Cloudflare Turnstile）
 - `POST /v1/auth/email/verify/send` -- 发送邮箱验证
 - `POST /v1/auth/email/verify/confirm` -- 确认邮箱验证
 - `POST /v1/auth/email/otp/send` -- 发送 OTP
 - `POST /v1/auth/email/otp/verify` -- 验证 OTP
+- `POST /v1/auth/resolve/otp/send` -- 为已解析身份发送 OTP
+- `POST /v1/auth/resolve/otp/verify` -- 为已解析身份验证 OTP
 
 ### 3.3 用户
 

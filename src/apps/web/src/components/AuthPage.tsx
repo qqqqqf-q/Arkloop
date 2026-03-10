@@ -1,5 +1,14 @@
 import { useState, useMemo, useEffect, useCallback, useRef, type FormEvent } from 'react'
-import { login, register, getRegistrationMode, isApiError, sendEmailOTP, verifyEmailOTP, checkUser, getCaptchaConfig } from '../api'
+import {
+  login,
+  register,
+  getRegistrationMode,
+  isApiError,
+  resolveIdentity,
+  sendResolvedEmailOTP,
+  verifyResolvedEmailOTP,
+  getCaptchaConfig,
+} from '../api'
 import type { RegistrationModeResponse } from '../api'
 import { ErrorCallout, type AppError } from './ErrorCallout'
 import { Turnstile } from './Turnstile'
@@ -53,11 +62,10 @@ function Reveal({ active, children }: { active: boolean; children: React.ReactNo
   )
 }
 
-type Phase = 'identity' | 'password' | 'otp-email' | 'otp-code' | 'register'
+type Phase = 'identity' | 'password' | 'otp-code' | 'register'
 
 type Props = { onLoggedIn: (accessToken: string) => void }
 
-const isEmailStr = (v: string) => v.includes('@')
 const TRANSITION = '0.42s cubic-bezier(0.4,0,0.2,1)'
 const passwordEncoder = new TextEncoder()
 
@@ -123,12 +131,13 @@ export function AuthPage({ onLoggedIn }: Props) {
   const [phase, setPhase] = useState<Phase>('identity')
   const [maskedEmail, setMaskedEmail] = useState('')
   const [checking, setChecking] = useState(false)
+  const [flowToken, setFlowToken] = useState('')
+  const [otpAvailable, setOtpAvailable] = useState(false)
 
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [submitting, setSubmitting] = useState(false)
 
-  const [otpEmail, setOtpEmail] = useState('')
   const [otpCode, setOtpCode] = useState('')
   const [otpCountdown, setOtpCountdown] = useState(0)
   const [otpSending, setOtpSending] = useState(false)
@@ -140,6 +149,7 @@ export function AuthPage({ onLoggedIn }: Props) {
   const [regPassword, setRegPassword] = useState('')
   const [regInviteCode, setRegInviteCode] = useState('')
   const [regSubmitting, setRegSubmitting] = useState(false)
+  const [registerEmailLocked, setRegisterEmailLocked] = useState(false)
 
   const [error, setError] = useState<AppError | null>(null)
   const [registrationMode, setRegistrationMode] = useState<RegistrationModeResponse['mode']>('invite_only')
@@ -147,7 +157,6 @@ export function AuthPage({ onLoggedIn }: Props) {
   const [turnstileToken, setTurnstileToken] = useState('')
 
   const passwordRef = useRef<HTMLInputElement>(null)
-  const otpEmailRef = useRef<HTMLInputElement>(null)
   const otpCodeRef = useRef<HTMLInputElement>(null)
   const regFirstRef = useRef<HTMLInputElement>(null)
 
@@ -174,7 +183,6 @@ export function AuthPage({ onLoggedIn }: Props) {
     const delay = 420
     const refs: Record<string, React.RefObject<HTMLInputElement | null>> = {
       password: passwordRef,
-      'otp-email': otpEmailRef,
       'otp-code': otpCodeRef,
       register: regFirstRef,
     }
@@ -190,13 +198,15 @@ export function AuthPage({ onLoggedIn }: Props) {
     setPhase('identity')
     setPassword('')
     setShowPassword(false)
-    setOtpEmail('')
     setOtpCode('')
     setOtpCountdown(0)
     if (countdownRef.current) clearInterval(countdownRef.current)
     setMaskedEmail('')
+    setFlowToken('')
+    setOtpAvailable(false)
     setError(null)
     setTurnstileToken('')
+    setRegisterEmailLocked(false)
   }
 
   const handleTurnstileSuccess = useCallback((token: string) => {
@@ -214,19 +224,21 @@ export function AuthPage({ onLoggedIn }: Props) {
     }, 1000)
   }
 
-  const switchToOtp = () => {
+  const switchToOtp = async () => {
     setError(null)
-    if (isEmailStr(identity.trim())) {
-      // identity 已是邮箱：直接发送 OTP，跳过邮箱输入阶段
-      const email = identity.trim()
-      setOtpEmail(email)
+    if (!flowToken || !otpAvailable) return
+    setOtpSending(true)
+    try {
+      await sendResolvedEmailOTP(flowToken, captchaSiteKey ? turnstileToken : undefined)
+      setOtpCode('')
       setPhase('otp-code')
       startCountdown()
-      sendEmailOTP(email).catch(() => {})
-    } else {
-      setOtpEmail('')
-      setOtpCode('')
-      setPhase('otp-email')
+      setTurnstileToken('')
+    } catch (err) {
+      setTurnstileToken('')
+      setError(normalizeError(err, t.requestFailed))
+    } finally {
+      setOtpSending(false)
     }
   }
 
@@ -239,17 +251,28 @@ export function AuthPage({ onLoggedIn }: Props) {
       if (!id) return
       setChecking(true)
       try {
-        const res = await checkUser(id)
-        if (res.exists) {
+        const res = await resolveIdentity({
+          identity: id,
+          cf_turnstile_token: captchaSiteKey ? turnstileToken : undefined,
+        })
+        setTurnstileToken('')
+        if (res.next_step === 'password') {
           setMaskedEmail(res.masked_email ?? '')
+          setFlowToken(res.flow_token)
+          setOtpAvailable(res.otp_available)
           setPhase('password')
         } else {
-          if (isEmailStr(id)) { setRegEmail(id); setRegLogin(id.split('@')[0]) }
-          else { setRegLogin(id); setRegEmail('') }
-          setRegPassword(''); setRegInviteCode('')
+          setRegLogin(res.prefill?.login ?? '')
+          setRegEmail(res.prefill?.email ?? '')
+          setRegPassword('')
+          setRegInviteCode('')
+          setRegisterEmailLocked(Boolean(res.prefill?.email))
+          setFlowToken('')
+          setOtpAvailable(false)
           setPhase('register')
         }
       } catch (err) {
+        setTurnstileToken('')
         setError(normalizeError(err, t.requestFailed))
       } finally {
         setChecking(false)
@@ -273,26 +296,12 @@ export function AuthPage({ onLoggedIn }: Props) {
       return
     }
 
-    if (phase === 'otp-email') {
-      const email = otpEmail.trim()
-      if (!email) return
-      setOtpSending(true)
-      try { await sendEmailOTP(email, captchaSiteKey ? turnstileToken : undefined) } catch { /* 静默 */ } finally {
-        setOtpSending(false)
-        setTurnstileToken('')
-        setPhase('otp-code')
-        startCountdown()
-      }
-      return
-    }
-
     if (phase === 'otp-code') {
-      const email = otpEmail.trim()
       const code = otpCode.trim()
-      if (!email || code.length !== 6) return
+      if (!flowToken || code.length !== 6) return
       setOtpSubmitting(true)
       try {
-        const resp = await verifyEmailOTP(email, code)
+        const resp = await verifyResolvedEmailOTP(flowToken, code)
         onLoggedIn(resp.access_token)
       } catch (err) {
         setError(normalizeError(err, t.requestFailed))
@@ -328,27 +337,24 @@ export function AuthPage({ onLoggedIn }: Props) {
   const canSubmit = useMemo(() => {
     if (isLoading) return false
     const captchaOk = !captchaSiteKey || !!turnstileToken
-    if (phase === 'identity') return identity.trim().length > 0
+    if (phase === 'identity') return identity.trim().length > 0 && captchaOk
     if (phase === 'password') return password.length > 0 && captchaOk
-    if (phase === 'otp-email') return otpEmail.trim().length > 0 && captchaOk
-    if (phase === 'otp-code') return otpEmail.trim().length > 0 && otpCode.length === 6
+    if (phase === 'otp-code') return otpCode.length === 6
     if (phase === 'register') {
       if (!regLogin.trim() || !regEmail.trim() || !registerPasswordMeetsPolicy(regPassword)) return false
       if (inviteRequired && !regInviteCode.trim()) return false
       return captchaOk
     }
     return false
-  }, [phase, identity, password, otpEmail, otpCode, regLogin, regEmail, regPassword, regInviteCode, inviteRequired, isLoading, captchaSiteKey, turnstileToken])
+  }, [phase, identity, password, otpCode, regLogin, regEmail, regPassword, regInviteCode, inviteRequired, isLoading, captchaSiteKey, turnstileToken])
 
   const btnLabel = useMemo(() => {
-    if (phase === 'otp-email') return t.otpSendBtn
     if (phase === 'otp-code') return t.otpVerifyBtn
     return t.continueBtn
   }, [phase, t])
 
   const phaseSubtitles: Partial<Record<Phase, string>> = {
     password: t.enterYourPasswordTitle,
-    'otp-email': t.otpLoginTab,
     'otp-code': t.otpLoginTab,
     register: t.registerMode,
   }
@@ -470,88 +476,69 @@ export function AuthPage({ onLoggedIn }: Props) {
               </div>
             </Reveal>
 
-            {/* ── OTP 邮箱组：identity 是邮箱时不展开（上方已显示） ── */}
-            <Reveal active={phase === 'otp-email' || (phase === 'otp-code' && !isEmailStr(identity.trim()))}>
-              <div style={{ paddingTop: '10px' }}>
-                <label style={labelStyle}>{t.otpEmailPlaceholder}</label>
-                <input
-                  ref={otpEmailRef}
-                  className={inputCls}
-                  style={inputStyle}
-                  type="email"
-                  placeholder={t.otpEmailPlaceholder}
-                  value={otpEmail}
-                  onChange={(e) => setOtpEmail(e.target.value)}
-                  disabled={phase === 'otp-code'}
-                  autoComplete="email"
-                  autoCapitalize="none"
-                  spellCheck={false}
-                />
-                {maskedEmail && phase === 'otp-email' && (
-                  <div style={{ fontSize: '11px', color: 'var(--c-placeholder)', marginTop: '4px', paddingLeft: '2px' }}>
-                    {maskedEmail}
-                  </div>
-                )}
-              </div>
-            </Reveal>
-
-            {/* ── OTP 验证码组 ── */}
-            <Reveal active={phase === 'otp-code'}>
-              <div style={{ paddingTop: '10px' }}>
-                <label style={labelStyle}>{t.otpCodePlaceholder}</label>
-                <input
+	            {/* ── OTP 验证码组 ── */}
+	            <Reveal active={phase === 'otp-code'}>
+	              <div style={{ paddingTop: '10px' }}>
+	                <label style={labelStyle}>{t.otpCodePlaceholder}</label>
+	                <input
                   ref={otpCodeRef}
                   className={inputCls}
                   style={inputStyle}
                   type="text"
                   inputMode="numeric"
                   placeholder={t.otpCodePlaceholder}
-                  value={otpCode}
-                  onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                  autoComplete="one-time-code"
-                />
-              </div>
-            </Reveal>
+	                  value={otpCode}
+	                  onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+	                  autoComplete="one-time-code"
+	                />
+	                {maskedEmail && (
+	                  <div style={{ fontSize: '11px', color: 'var(--c-placeholder)', marginTop: '6px', paddingLeft: '2px' }}>
+	                    {maskedEmail}
+	                  </div>
+	                )}
+	              </div>
+	            </Reveal>
 
-            {/* ── 注册组 ── */}
-            <Reveal active={phase === 'register'}>
-              <div style={{ paddingTop: '6px' }}>
-                <div style={{ fontSize: '12px', color: 'var(--c-placeholder)', marginBottom: '10px' }}>{t.creatingAccountHint}</div>
-                {isEmailStr(identity.trim()) ? (
-                  <div style={{ marginBottom: '10px' }}>
-                    <label style={labelStyle}>{t.enterUsername}</label>
-                    <input
-                      ref={regFirstRef}
-                      className={inputCls}
-                      style={inputStyle}
-                      type="text"
-                      placeholder={t.enterUsername}
-                      value={regLogin}
-                      onChange={(e) => setRegLogin(e.target.value)}
-                      autoComplete="username"
-                      autoCapitalize="none"
-                      spellCheck={false}
-                    />
-                  </div>
-                ) : (
-                  <div style={{ marginBottom: '10px' }}>
-                    <label style={labelStyle}>{t.enterEmail}</label>
-                    <input
-                      ref={regFirstRef}
-                      className={inputCls}
-                      style={inputStyle}
-                      type="email"
-                      placeholder={t.enterEmail}
-                      value={regEmail}
-                      onChange={(e) => setRegEmail(e.target.value)}
-                      autoComplete="email"
-                      autoCapitalize="none"
-                      spellCheck={false}
-                    />
-                  </div>
-                )}
-                <div style={{ marginBottom: '10px' }}>
-                  <label style={labelStyle}>{t.fieldPassword}</label>
+	            {/* ── 注册组 ── */}
+	            <Reveal active={phase === 'register'}>
+	              <div style={{ paddingTop: '6px' }}>
+	                <div style={{ fontSize: '12px', color: 'var(--c-placeholder)', marginBottom: '10px' }}>{t.creatingAccountHint}</div>
+	                <div style={{ marginBottom: '10px' }}>
+	                  <label style={labelStyle}>{t.enterUsername}</label>
+	                  <input
+	                    ref={registerEmailLocked ? regFirstRef : undefined}
+	                    className={inputCls}
+	                    style={inputStyle}
+	                    type="text"
+	                    placeholder={t.enterUsername}
+	                    value={regLogin}
+	                    onChange={(e) => setRegLogin(e.target.value)}
+	                    autoComplete="username"
+	                    autoCapitalize="none"
+	                    spellCheck={false}
+	                  />
+	                </div>
+	                <div style={{ marginBottom: '10px' }}>
+	                  <label style={labelStyle}>{t.enterEmail}</label>
+	                  <input
+	                    ref={registerEmailLocked ? undefined : regFirstRef}
+	                    className={inputCls}
+	                    style={{
+	                      ...inputStyle,
+	                      color: registerEmailLocked ? 'var(--c-text-secondary)' : 'var(--c-text-primary)',
+	                    }}
+	                    type="email"
+	                    placeholder={t.enterEmail}
+	                    value={regEmail}
+	                    onChange={(e) => setRegEmail(e.target.value)}
+	                    autoComplete="email"
+	                    autoCapitalize="none"
+	                    spellCheck={false}
+	                    readOnly={registerEmailLocked}
+	                  />
+	                </div>
+	                <div style={{ marginBottom: '10px' }}>
+	                  <label style={labelStyle}>{t.fieldPassword}</label>
                   <div style={{ position: 'relative' }}>
                     <input
                       className={inputCls}
@@ -589,10 +576,10 @@ export function AuthPage({ onLoggedIn }: Props) {
             </Reveal>
 
             {/* Continue 按钮 */}
-            {captchaSiteKey && (phase === 'password' || phase === 'otp-email' || phase === 'register') && (
-              <div style={{ marginTop: '12px' }}>
-                <Turnstile
-                  siteKey={captchaSiteKey}
+	            {captchaSiteKey && (phase === 'identity' || phase === 'password' || phase === 'register' || phase === 'otp-code') && (
+	              <div style={{ marginTop: '12px' }}>
+	                <Turnstile
+	                  siteKey={captchaSiteKey}
                   onSuccess={handleTurnstileSuccess}
                   onExpire={() => setTurnstileToken('')}
                 />
@@ -649,37 +636,43 @@ export function AuthPage({ onLoggedIn }: Props) {
 
           </form>
 
-          {/* 密码阶段：OTP 提示 */}
-          <Reveal active={phase === 'password'}>
-            <button
-              type="button"
-              onClick={switchToOtp}
-              style={{ marginTop: '6px', fontSize: '12px', color: 'var(--c-placeholder)', background: 'none', border: 'none', cursor: 'pointer', padding: '4px 0', display: 'block' }}
-            >
-              {t.useEmailOtpHint}
-            </button>
-          </Reveal>
+	          {/* 密码阶段：OTP 提示 */}
+	          <Reveal active={phase === 'password' && otpAvailable}>
+	            <button
+	              type="button"
+	              onClick={switchToOtp}
+	              disabled={otpSending || (!!captchaSiteKey && !turnstileToken)}
+	              style={{ marginTop: '6px', fontSize: '12px', color: 'var(--c-placeholder)', background: 'none', border: 'none', cursor: 'pointer', padding: '4px 0', display: 'block' }}
+	              className="disabled:opacity-40 disabled:cursor-not-allowed"
+	            >
+	              {t.useEmailOtpHint}
+	            </button>
+	          </Reveal>
 
-          {/* OTP code 阶段：重发（只此一处） */}
-          <Reveal active={phase === 'otp-code'}>
-            <button
-              type="button"
-              disabled={otpCountdown > 0 || otpSending}
-              onClick={async () => {
-                const email = otpEmail.trim()
-                if (!email) return
-                setOtpSending(true)
-                try { await sendEmailOTP(email) } catch { /* 静默 */ } finally {
-                  setOtpSending(false)
-                  startCountdown()
-                }
-              }}
-              style={{ marginTop: '6px', fontSize: '12px', color: 'var(--c-placeholder)', background: 'none', border: 'none', cursor: 'pointer', padding: '4px 0', display: 'block' }}
-              className="disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              {otpCountdown > 0 ? t.otpSendingCountdown(otpCountdown) : t.otpSendBtn}
-            </button>
-          </Reveal>
+	          {/* OTP code 阶段：重发（只此一处） */}
+	          <Reveal active={phase === 'otp-code'}>
+	            <button
+	              type="button"
+	              disabled={otpCountdown > 0 || otpSending || !flowToken || (!!captchaSiteKey && !turnstileToken)}
+	              onClick={async () => {
+	                setOtpSending(true)
+	                try {
+	                  await sendResolvedEmailOTP(flowToken, captchaSiteKey ? turnstileToken : undefined)
+	                  setTurnstileToken('')
+	                  startCountdown()
+	                } catch (err) {
+	                  setTurnstileToken('')
+	                  setError(normalizeError(err, t.requestFailed))
+	                } finally {
+	                  setOtpSending(false)
+	                }
+	              }}
+	              style={{ marginTop: '6px', fontSize: '12px', color: 'var(--c-placeholder)', background: 'none', border: 'none', cursor: 'pointer', padding: '4px 0', display: 'block' }}
+	              className="disabled:opacity-40 disabled:cursor-not-allowed"
+	            >
+	              {otpCountdown > 0 ? t.otpSendingCountdown(otpCountdown) : t.otpSendBtn}
+	            </button>
+	          </Reveal>
 
           {/* identity 阶段：GitHub 登录 */}
           <Reveal active={phase === 'identity'}>

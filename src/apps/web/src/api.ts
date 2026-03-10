@@ -42,6 +42,27 @@ export type RegistrationModeResponse = {
   mode: 'invite_only' | 'open'
 }
 
+export type ResolveIdentityRequest = {
+  identity: string
+  cf_turnstile_token?: string
+}
+
+export type ResolveIdentityResponse =
+  | {
+      next_step: 'password'
+      flow_token: string
+      masked_email?: string
+      otp_available: boolean
+    }
+  | {
+      next_step: 'register'
+      invite_required: boolean
+      prefill?: {
+        login?: string
+        email?: string
+      }
+    }
+
 export type MeResponse = {
   id: string
   login: string
@@ -158,6 +179,27 @@ export async function register(req: RegisterRequest): Promise<RegisterResponse> 
 export async function getRegistrationMode(): Promise<RegistrationModeResponse> {
   return await apiFetch<RegistrationModeResponse>('/v1/auth/registration-mode', {
     method: 'GET',
+  })
+}
+
+export async function resolveIdentity(req: ResolveIdentityRequest): Promise<ResolveIdentityResponse> {
+  return await apiFetch<ResolveIdentityResponse>('/v1/auth/resolve', {
+    method: 'POST',
+    body: JSON.stringify(req),
+  })
+}
+
+export async function sendResolvedEmailOTP(flowToken: string, cfTurnstileToken?: string): Promise<void> {
+  await apiFetch<void>('/v1/auth/resolve/otp/send', {
+    method: 'POST',
+    body: JSON.stringify({ flow_token: flowToken, cf_turnstile_token: cfTurnstileToken }),
+  })
+}
+
+export async function verifyResolvedEmailOTP(flowToken: string, code: string): Promise<LoginResponse> {
+  return await apiFetch<LoginResponse>('/v1/auth/resolve/otp/verify', {
+    method: 'POST',
+    body: JSON.stringify({ flow_token: flowToken, code }),
   })
 }
 
@@ -323,12 +365,6 @@ export async function verifyEmailOTP(email: string, code: string): Promise<Login
   })
 }
 
-export async function checkUser(login: string): Promise<{ exists: boolean; masked_email?: string }> {
-  return await apiFetch<{ exists: boolean; masked_email?: string }>('/v1/auth/check', {
-    method: 'POST',
-    body: JSON.stringify({ login }),
-  })
-}
 
 export type LogoutResponse = {
   ok: boolean

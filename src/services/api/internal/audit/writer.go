@@ -174,6 +174,68 @@ func (w *Writer) WriteUserRegistered(ctx context.Context, traceID string, userID
 	}
 }
 
+func (w *Writer) WriteAuthResolved(ctx context.Context, traceID string, identity string, nextStep string) {
+	if w == nil || w.auditRepo == nil {
+		return
+	}
+
+	ip, ua := requestMetaFromContext(ctx)
+	identityHash := sha256Hex(identity)
+	targetType := "user_login"
+	targetID := identityHash
+	if err := w.auditRepo.Create(ctx, data.AuditLogCreateParams{
+		Action:     "auth.resolve",
+		TargetType: &targetType,
+		TargetID:   &targetID,
+		TraceID:    traceID,
+		IPAddress:  ip,
+		UserAgent:  ua,
+		Metadata: map[string]any{
+			"identity_hash": identityHash,
+			"next_step":     strings.TrimSpace(nextStep),
+		},
+	}); err != nil {
+		w.logError(traceID, "failed to write auth-resolve audit log", err)
+	}
+}
+
+func (w *Writer) WriteLoginOTPSent(ctx context.Context, traceID string, userID uuid.UUID, email string) {
+	if w == nil || w.auditRepo == nil {
+		return
+	}
+
+	var orgID *uuid.UUID
+	if w.membershipRepo != nil {
+		membership, err := w.membershipRepo.GetDefaultForUser(ctx, userID)
+		if err != nil {
+			w.logError(traceID, "failed to read default org", err)
+		} else if membership != nil {
+			orgID = &membership.OrgID
+		}
+	}
+
+	ip, ua := requestMetaFromContext(ctx)
+	targetType := "user"
+	targetID := userID.String()
+	if err := w.auditRepo.Create(ctx, data.AuditLogCreateParams{
+		OrgID:       orgID,
+		ActorUserID: &userID,
+		Action:      "auth.login_otp_send",
+		TargetType:  &targetType,
+		TargetID:    &targetID,
+		TraceID:     traceID,
+		IPAddress:   ip,
+		UserAgent:   ua,
+		Metadata: map[string]any{
+			"result":     "sent",
+			"method":     "email_otp",
+			"login_hash": sha256Hex(email),
+		},
+	}); err != nil {
+		w.logError(traceID, "failed to write login-otp-send audit log", err)
+	}
+}
+
 func (w *Writer) WriteRunCancelRequested(
 	ctx context.Context,
 	traceID string,
