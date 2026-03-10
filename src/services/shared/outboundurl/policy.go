@@ -74,6 +74,21 @@ func (p Policy) NormalizeBaseURL(raw string) (string, error) {
 	return strings.TrimRight(parsed.String(), "/"), nil
 }
 
+func (p Policy) NormalizeInternalBaseURL(raw string) (string, error) {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return "", DeniedError{Reason: "invalid_url"}
+	}
+	if err := validateInternalParsedURL(parsed, true); err != nil {
+		return "", err
+	}
+	parsed.Path = strings.TrimRight(parsed.EscapedPath(), "/")
+	if parsed.Path == "." {
+		parsed.Path = ""
+	}
+	return strings.TrimRight(parsed.String(), "/"), nil
+}
+
 func (p Policy) ValidateRequestURL(raw string) error {
 	parsed, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil {
@@ -159,6 +174,15 @@ func (p Policy) NewHTTPClient(timeout time.Duration) *http.Client {
 	}
 }
 
+func (p Policy) NewInternalHTTPClient(timeout time.Duration) *http.Client {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	return &http.Client{
+		Timeout:       timeout,
+		Transport:     validatingInternalTransport{base: transport},
+		CheckRedirect: checkInternalRedirect,
+	}
+}
+
 type validatingTransport struct {
 	base   http.RoundTripper
 	policy Policy
@@ -169,6 +193,24 @@ func (t validatingTransport) RoundTrip(req *http.Request) (*http.Response, error
 		return nil, err
 	}
 	return t.base.RoundTrip(req)
+}
+
+type validatingInternalTransport struct {
+	base http.RoundTripper
+}
+
+func (t validatingInternalTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if err := validateInternalParsedURL(req.URL, false); err != nil {
+		return nil, err
+	}
+	return t.base.RoundTrip(req)
+}
+
+func checkInternalRedirect(req *http.Request, via []*http.Request) error {
+	if len(via) >= 10 {
+		return fmt.Errorf("outbound redirect limit exceeded")
+	}
+	return validateInternalParsedURL(req.URL, false)
 }
 
 func (p Policy) validateParsedURL(u *url.URL, baseURLMode bool) error {
@@ -217,6 +259,37 @@ func (p Policy) validateParsedURL(u *url.URL, baseURLMode bool) error {
 			return nil
 		}
 		return p.EnsureIPAllowed(ip)
+	}
+
+	return nil
+}
+
+func validateInternalParsedURL(u *url.URL, baseURLMode bool) error {
+	if u == nil {
+		return DeniedError{Reason: "invalid_url"}
+	}
+	if !u.IsAbs() {
+		return DeniedError{Reason: "invalid_url"}
+	}
+
+	scheme := strings.ToLower(strings.TrimSpace(u.Scheme))
+	if scheme != "http" && scheme != "https" {
+		return DeniedError{Reason: "unsupported_scheme", Details: map[string]any{"scheme": scheme}}
+	}
+	if strings.TrimSpace(u.Hostname()) == "" {
+		return DeniedError{Reason: "missing_hostname"}
+	}
+
+	if baseURLMode {
+		if u.User != nil {
+			return DeniedError{Reason: "userinfo_denied"}
+		}
+		if strings.TrimSpace(u.RawQuery) != "" {
+			return DeniedError{Reason: "query_denied"}
+		}
+		if strings.TrimSpace(u.Fragment) != "" {
+			return DeniedError{Reason: "fragment_denied"}
+		}
 	}
 
 	return nil

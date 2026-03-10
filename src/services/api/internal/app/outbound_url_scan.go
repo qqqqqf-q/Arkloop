@@ -57,13 +57,18 @@ func warnUnsafeOutboundBaseURLs(ctx context.Context, pool *pgxpool.Pool, logger 
 				logger.Warn("outbound_base_url_scan_failed", observability.LogFields{}, map[string]any{"table": check.table, "error": err.Error()})
 				continue
 			}
-			if _, err := policy.NormalizeBaseURL(baseURL); err != nil {
+			normalize := policy.NormalizeBaseURL
+			providerName := strings.TrimSpace(provider)
+			if check.table == "tool_provider_configs" && (providerName == "memory.openviking" || strings.HasPrefix(providerName, "sandbox.")) {
+				normalize = policy.NormalizeInternalBaseURL
+			}
+			if _, err := normalize(baseURL); err != nil {
 				logger.Warn("unsafe_outbound_base_url_configured", observability.LogFields{}, map[string]any{
 					"table":    check.table,
 					"id":       id,
 					"scope":    strings.TrimSpace(scope),
 					"org_id":   strings.TrimSpace(orgID),
-					"provider": strings.TrimSpace(provider),
+					"provider": providerName,
 					"reason":   err.Error(),
 				})
 			}

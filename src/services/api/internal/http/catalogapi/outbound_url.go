@@ -20,3 +20,18 @@ func normalizeOptionalBaseURL(raw *string) (*string, error) {
 	}
 	return &normalized, nil
 }
+
+func normalizeOptionalInternalBaseURL(raw *string) (*string, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	trimmed := strings.TrimSpace(*raw)
+	if trimmed == "" {
+		return nil, nil
+	}
+	normalized, err := sharedoutbound.DefaultPolicy().NormalizeInternalBaseURL(trimmed)
+	if err != nil {
+		return nil, err
+	}
+	return &normalized, nil
+}

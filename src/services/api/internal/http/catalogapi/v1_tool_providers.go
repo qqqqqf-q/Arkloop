@@ -20,10 +20,11 @@ import (
 )
 
 type toolProviderDefinition struct {
-	GroupName       string
-	ProviderName    string
-	RequiresAPIKey  bool
-	RequiresBaseURL bool
+	GroupName          string
+	ProviderName       string
+	RequiresAPIKey     bool
+	RequiresBaseURL    bool
+	AllowsInternalHTTP bool
 }
 
 var toolProviderCatalog = []toolProviderDefinition{
@@ -32,9 +33,9 @@ var toolProviderCatalog = []toolProviderDefinition{
 	{GroupName: "web_fetch", ProviderName: "web_fetch.jina", RequiresAPIKey: true},
 	{GroupName: "web_fetch", ProviderName: "web_fetch.firecrawl", RequiresAPIKey: true},
 	{GroupName: "web_fetch", ProviderName: "web_fetch.basic"},
-	{GroupName: "sandbox", ProviderName: "sandbox.docker", RequiresBaseURL: true},
-	{GroupName: "sandbox", ProviderName: "sandbox.firecracker", RequiresBaseURL: true},
-	{GroupName: "memory", ProviderName: "memory.openviking", RequiresBaseURL: true, RequiresAPIKey: true},
+	{GroupName: "sandbox", ProviderName: "sandbox.docker", RequiresBaseURL: true, AllowsInternalHTTP: true},
+	{GroupName: "sandbox", ProviderName: "sandbox.firecracker", RequiresBaseURL: true, AllowsInternalHTTP: true},
+	{GroupName: "memory", ProviderName: "memory.openviking", RequiresBaseURL: true, RequiresAPIKey: true, AllowsInternalHTTP: true},
 }
 
 type toolProvidersResponse struct {
@@ -449,7 +450,15 @@ func upsertToolProviderCredential(
 	baseURLRaw := ""
 	var baseURLPtr *string
 	if req.BaseURL != nil {
-		normalizedBaseURL, err := normalizeOptionalBaseURL(req.BaseURL)
+		var (
+			normalizedBaseURL *string
+			err               error
+		)
+		if def.AllowsInternalHTTP {
+			normalizedBaseURL, err = normalizeOptionalInternalBaseURL(req.BaseURL)
+		} else {
+			normalizedBaseURL, err = normalizeOptionalBaseURL(req.BaseURL)
+		}
 		if err != nil {
 			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "base_url is invalid", traceID, nil)
 			return

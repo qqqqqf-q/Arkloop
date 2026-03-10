@@ -88,15 +88,15 @@ type client struct {
 }
 
 func newClient(baseURL, rootAPIKey string) *client {
-	normalizedBaseURL, baseURLErr := sharedoutbound.DefaultPolicy().NormalizeBaseURL(strings.TrimSpace(baseURL))
+	normalizedBaseURL, baseURLErr := sharedoutbound.DefaultPolicy().NormalizeInternalBaseURL(strings.TrimSpace(baseURL))
 	if baseURLErr == nil {
 		baseURL = normalizedBaseURL
 	}
 	return &client{
 		baseURL:    baseURL,
 		rootAPIKey: rootAPIKey,
-		http:       sharedoutbound.DefaultPolicy().NewHTTPClient(defaultHTTPTimeout),
-		writeHTTP:  sharedoutbound.DefaultPolicy().NewHTTPClient(writeHTTPTimeout),
+		http:       sharedoutbound.DefaultPolicy().NewInternalHTTPClient(defaultHTTPTimeout),
+		writeHTTP:  sharedoutbound.DefaultPolicy().NewInternalHTTPClient(writeHTTPTimeout),
 		baseURLErr: baseURLErr,
 	}
 }

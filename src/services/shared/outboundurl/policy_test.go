@@ -175,3 +175,36 @@ func assertDeniedReason(t *testing.T, err error, want string) {
 		t.Fatalf("Reason = %q, want %q", denied.Reason, want)
 	}
 }
+
+func TestNormalizeInternalBaseURL(t *testing.T) {
+	policy := Policy{}
+
+	tests := []struct {
+		name       string
+		raw        string
+		want       string
+		wantReason string
+	}{
+		{name: "internal service http allowed", raw: "http://openviking:1933/api/", want: "http://openviking:1933/api"},
+		{name: "private ip http allowed", raw: "http://10.0.0.8:8002/v1", want: "http://10.0.0.8:8002/v1"},
+		{name: "userinfo denied", raw: "http://user:pass@openviking:1933/api", wantReason: "userinfo_denied"},
+		{name: "query denied", raw: "http://openviking:1933/api?q=1", wantReason: "query_denied"},
+		{name: "unsupported scheme denied", raw: "ftp://openviking:1933/api", wantReason: "unsupported_scheme"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := policy.NormalizeInternalBaseURL(tt.raw)
+			if tt.wantReason == "" {
+				if err != nil {
+					t.Fatalf("NormalizeInternalBaseURL() error = %v", err)
+				}
+				if got != tt.want {
+					t.Fatalf("NormalizeInternalBaseURL() = %q, want %q", got, tt.want)
+				}
+				return
+			}
+			assertDeniedReason(t, err, tt.wantReason)
+		})
+	}
+}

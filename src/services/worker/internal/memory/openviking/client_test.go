@@ -438,3 +438,13 @@ func TestClient_AgentScope_Write_NoUserHeader(t *testing.T) {
 		t.Errorf("msg X-OpenViking-User should be nil UUID for agent scope, got %q", msgHeaders.Get("X-OpenViking-User"))
 	}
 }
+
+func TestNewClient_AllowsInternalServiceHTTPBaseURL(t *testing.T) {
+	c := newClient("http://openviking:1933/api/", "root-key")
+	if c.baseURLErr != nil {
+		t.Fatalf("expected internal base URL to be accepted, got %v", c.baseURLErr)
+	}
+	if c.baseURL != "http://openviking:1933/api" {
+		t.Fatalf("unexpected normalized base URL: %q", c.baseURL)
+	}
+}
