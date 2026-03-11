@@ -14,6 +14,8 @@ import (
 	"arkloop/services/shared/runlimit"
 	"arkloop/services/worker/internal/data"
 	"arkloop/services/worker/internal/events"
+	"arkloop/services/worker/internal/queue"
+	"arkloop/services/worker/internal/subagentctl"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -45,6 +47,7 @@ func NewAgentLoopHandler(
 	eventsRepo data.RunEventsRepository,
 	messagesRepo data.MessagesRepository,
 	runLimiterRDB *redis.Client,
+	jobQueue queue.JobQueue,
 	usageRepo data.UsageRecordsRepository,
 	creditsRepo data.CreditsRepository,
 	resolver *sharedent.Resolver,
@@ -71,6 +74,7 @@ func NewAgentLoopHandler(
 
 		writer := newEventWriter(
 			rc.Pool, rc.Run, rc.TraceID, runLimiterRDB,
+			jobQueue,
 			selected.Route.Model, personaID, usageRepo, creditsRepo,
 			creditsPerUSD,
 			selected.Route.Multiplier, selected.Route.CostPer1kInput, selected.Route.CostPer1kOutput,
@@ -149,6 +153,8 @@ type eventWriter struct {
 	run           data.Run
 	traceID       string
 	runLimiterRDB *redis.Client // 双职责：并发槽释放（runlimit.Release）+ 跨实例 SSE 广播（Publish）
+	jobQueue      queue.JobQueue
+	projector     *subagentctl.SubAgentStateProjector
 	model         string
 	personaID     string
 	usageRepo     data.UsageRecordsRepository
@@ -177,8 +183,9 @@ type eventWriter struct {
 	totalCostUSD             float64
 
 	// 子 Run 完成通知：commit 时将终态状态发布到 run.child.{runID}.done
-	terminalRunStatus string
-	terminalMessage   string
+	terminalRunStatus    string
+	terminalMessage      string
+	pendingEnqueueRunIDs []uuid.UUID
 }
 
 func newEventWriter(
@@ -186,6 +193,7 @@ func newEventWriter(
 	run data.Run,
 	traceID string,
 	runLimiterRDB *redis.Client,
+	jobQueue queue.JobQueue,
 	model string,
 	personaID string,
 	usageRepo data.UsageRecordsRepository,
@@ -210,6 +218,8 @@ func newEventWriter(
 		traceID:             strings.TrimSpace(traceID),
 		lastCommitAt:        time.Now(),
 		runLimiterRDB:       runLimiterRDB,
+		jobQueue:            jobQueue,
+		projector:           subagentctl.NewSubAgentStateProjector(pool, runLimiterRDB, jobQueue),
 		model:               model,
 		personaID:           strings.TrimSpace(personaID),
 		usageRepo:           usageRepo,
@@ -268,20 +278,13 @@ func (w *eventWriter) Append(
 		if _, err := eventsRepo.AppendEvent(ctx, w.tx, runID, cancelled.Type, cancelled.DataJSON, cancelled.ToolName, cancelled.ErrorClass); err != nil {
 			return err
 		}
-		subAgentRepo := data.SubAgentRepository{}
-		subAgentEventAppender := data.SubAgentEventAppender{}
-		subAgent, err := subAgentRepo.GetByCurrentRunID(ctx, w.tx, runID)
-		if err != nil {
-			return err
-		}
-		if err := subAgentRepo.TransitionToTerminal(ctx, w.tx, runID, data.SubAgentStatusCancelled, nil); err != nil {
-			return err
-		}
-		if subAgent != nil {
-			if _, err := subAgentEventAppender.Append(ctx, w.tx, subAgent.ID, &runID, data.SubAgentEventTypeCancelled, map[string]any{
-				"run_id": runID.String(),
-			}, nil); err != nil {
+		if w.projector != nil {
+			nextRunID, err := w.projector.ProjectRunTerminal(ctx, w.tx, w.run, data.SubAgentStatusCancelled, map[string]any{"run_id": runID.String()}, nil)
+			if err != nil {
 				return err
+			}
+			if nextRunID != nil {
+				w.pendingEnqueueRunIDs = append(w.pendingEnqueueRunIDs, *nextRunID)
 			}
 		}
 		// 如果配置了平台成本费率，覆盖 LLM 返回的原始 cost
@@ -337,12 +340,6 @@ func (w *eventWriter) Append(
 	}
 
 	if status, ok := TerminalStatuses[ev.Type]; ok {
-		subAgentRepo := data.SubAgentRepository{}
-		subAgentEventAppender := data.SubAgentEventAppender{}
-		subAgent, err := subAgentRepo.GetByCurrentRunID(ctx, w.tx, runID)
-		if err != nil {
-			return err
-		}
 		if status == "completed" {
 			w.completed = true
 		}
@@ -358,25 +355,13 @@ func (w *eventWriter) Append(
 		}); err != nil {
 			return err
 		}
-		message := terminalStatusMessage(ev.DataJSON)
-		var lastError *string
-		if status != data.SubAgentStatusCompleted && message != "" {
-			lastError = &message
-		}
-		if err := subAgentRepo.TransitionToTerminal(ctx, w.tx, runID, status, lastError); err != nil {
-			return err
-		}
-		if subAgent != nil {
-			subAgentEventType, err := data.SubAgentTerminalEventType(status)
+		if w.projector != nil {
+			nextRunID, err := w.projector.ProjectRunTerminal(ctx, w.tx, w.run, status, ev.DataJSON, ev.ErrorClass)
 			if err != nil {
 				return err
 			}
-			eventData := map[string]any{"run_id": runID.String()}
-			if message != "" {
-				eventData["message"] = message
-			}
-			if _, err := subAgentEventAppender.Append(ctx, w.tx, subAgent.ID, &runID, subAgentEventType, eventData, ev.ErrorClass); err != nil {
-				return err
+			if nextRunID != nil {
+				w.pendingEnqueueRunIDs = append(w.pendingEnqueueRunIDs, *nextRunID)
 			}
 		}
 		if err := w.usageRepo.Insert(ctx, w.tx, w.run.OrgID, runID, w.model,
@@ -429,6 +414,15 @@ func (w *eventWriter) commit(ctx context.Context) error {
 	}
 
 	if w.hasTerminal {
+		for _, nextRunID := range w.pendingEnqueueRunIDs {
+			if w.projector == nil {
+				continue
+			}
+			if err := w.projector.EnqueueRun(ctx, w.run.OrgID, nextRunID, w.traceID); err != nil {
+				_ = w.projector.MarkRunFailed(context.WithoutCancel(ctx), nextRunID, "failed to enqueue child run job")
+			}
+		}
+		w.pendingEnqueueRunIDs = nil
 		if w.runLimiterRDB != nil && w.terminalRunStatus != "" {
 			// 通知可能正在等待的父 Run（无父 Run 时此 publish 为空操作）
 			output := ""

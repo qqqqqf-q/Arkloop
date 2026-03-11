@@ -21,6 +21,7 @@ import (
 	"arkloop/services/worker/internal/queue"
 	"arkloop/services/worker/internal/routing"
 	workerruntime "arkloop/services/worker/internal/runtime"
+	"arkloop/services/worker/internal/subagentctl"
 	"arkloop/services/worker/internal/toolprovider"
 	"arkloop/services/worker/internal/tools"
 	"arkloop/services/worker/internal/tools/builtin/sandbox"
@@ -178,7 +179,7 @@ func NewEngineV1(deps EngineV1Deps) (*EngineV1, error) {
 		pipeline.NewToolBuildMiddleware(),
 	}
 
-	terminal := pipeline.NewAgentLoopHandler(runsRepo, eventsRepo, messagesRepo, deps.RunLimiterRDB, usageRepo, creditsRepo, resolver)
+	terminal := pipeline.NewAgentLoopHandler(runsRepo, eventsRepo, messagesRepo, deps.RunLimiterRDB, deps.JobQueue, usageRepo, creditsRepo, resolver)
 
 	return &EngineV1{
 		middlewares:           middlewares,
@@ -206,7 +207,7 @@ func (e *EngineV1) Execute(ctx context.Context, pool *pgxpool.Pool, run data.Run
 		return fmt.Errorf("resolve environment bindings: %w", err)
 	}
 	run = resolvedRun
-	if err := markSubAgentRunning(ctx, pool, run.ID); err != nil {
+	if err := subagentctl.MarkRunning(ctx, pool, run.ID); err != nil {
 		return fmt.Errorf("mark sub_agent running: %w", err)
 	}
 
@@ -262,7 +263,7 @@ func (e *EngineV1) Execute(ctx context.Context, pool *pgxpool.Pool, run data.Run
 	}
 
 	if e.jobQueue != nil && e.broadcastRDB != nil {
-		rc.SubAgentControl = newSubAgentControl(pool, e.broadcastRDB, e.jobQueue, run, traceID)
+		rc.SubAgentControl = subagentctl.NewService(pool, e.broadcastRDB, e.jobQueue, run, traceID)
 	}
 
 	handler := pipeline.Build(e.middlewares, e.terminal)

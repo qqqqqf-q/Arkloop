@@ -208,7 +208,10 @@ func (repo SubAgentRepository) TransitionToQueued(ctx context.Context, tx pgx.Tx
 	_, err = tx.Exec(ctx,
 		`UPDATE sub_agents
 		 SET status = $2,
-		     current_run_id = $3
+		     current_run_id = $3,
+		     last_error = NULL,
+		     started_at = NULL,
+		     completed_at = NULL
 		 WHERE id = $1`,
 		id,
 		SubAgentStatusQueued,
@@ -493,16 +496,20 @@ func validateSubAgentStatusTransition(from string, to string) error {
 			SubAgentStatusCancelled: {},
 		},
 		SubAgentStatusCompleted: {
+			SubAgentStatusQueued:    {},
 			SubAgentStatusResumable: {},
 			SubAgentStatusClosed:    {},
 		},
 		SubAgentStatusFailed: {
+			SubAgentStatusQueued: {},
 			SubAgentStatusClosed: {},
 		},
 		SubAgentStatusCancelled: {
+			SubAgentStatusQueued: {},
 			SubAgentStatusClosed: {},
 		},
 		SubAgentStatusWaitingInput: {
+			SubAgentStatusQueued:    {},
 			SubAgentStatusResumable: {},
 			SubAgentStatusClosed:    {},
 		},

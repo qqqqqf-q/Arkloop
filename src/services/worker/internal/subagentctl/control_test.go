@@ -74,7 +74,7 @@ func TestServiceSpawnAndWaitCompleted(t *testing.T) {
 	}
 }
 
-func TestServiceSendInputAndResume(t *testing.T) {
+func TestServiceSendInputCreatesQueuedRunDirectly(t *testing.T) {
 	db := testutil.SetupPostgresDatabase(t, "arkloop_subagentctl_resume")
 	pool, err := pgxpool.New(context.Background(), db.DSN)
 	if err != nil {
@@ -103,9 +103,41 @@ func TestServiceSendInputAndResume(t *testing.T) {
 	if err != nil {
 		t.Fatalf("send_input: %v", err)
 	}
-	if inputSnapshot.Status != data.SubAgentStatusResumable {
+	if inputSnapshot.Status != data.SubAgentStatusQueued {
 		t.Fatalf("unexpected send_input status: %s", inputSnapshot.Status)
 	}
+	if inputSnapshot.CurrentRunID == nil {
+		t.Fatal("expected send_input current_run_id")
+	}
+	if len(jobQueue.enqueuedRunIDs) != 2 {
+		t.Fatalf("expected 2 enqueued runs, got %d", len(jobQueue.enqueuedRunIDs))
+	}
+}
+
+func TestServiceResumeRequeuesCompletedSubAgent(t *testing.T) {
+	db := testutil.SetupPostgresDatabase(t, "arkloop_subagentctl_resume_completed")
+	pool, err := pgxpool.New(context.Background(), db.DSN)
+	if err != nil {
+		t.Fatalf("pgxpool.New: %v", err)
+	}
+	t.Cleanup(pool.Close)
+
+	orgID := uuid.New()
+	projectID := uuid.New()
+	threadID := uuid.New()
+	runID := uuid.New()
+	userID := uuid.New()
+	seedThreadAndRun(t, pool, orgID, threadID, &projectID, &userID, runID)
+
+	parentRun := data.Run{ID: runID, OrgID: orgID, ThreadID: threadID, ProjectID: &projectID, CreatedByUserID: &userID}
+	jobQueue := &stubJobQueue{}
+	service := NewService(pool, nil, jobQueue, parentRun, "trace-2b")
+
+	snapshot, err := service.Spawn(context.Background(), SpawnRequest{PersonaID: "researcher@1", Input: "phase one"})
+	if err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+	completeSubAgentRun(t, pool, snapshot.SubAgentID, *snapshot.CurrentRunID, "phase one done")
 
 	resumed, err := service.Resume(context.Background(), ResumeRequest{SubAgentID: snapshot.SubAgentID})
 	if err != nil {
@@ -119,6 +151,109 @@ func TestServiceSendInputAndResume(t *testing.T) {
 	}
 	if len(jobQueue.enqueuedRunIDs) != 2 {
 		t.Fatalf("expected 2 enqueued runs, got %d", len(jobQueue.enqueuedRunIDs))
+	}
+}
+
+func TestServiceSendInputQueuesRunningSubAgentAndMergesPendingBatch(t *testing.T) {
+	db := testutil.SetupPostgresDatabase(t, "arkloop_subagentctl_pending_batch")
+	pool, err := pgxpool.New(context.Background(), db.DSN)
+	if err != nil {
+		t.Fatalf("pgxpool.New: %v", err)
+	}
+	t.Cleanup(pool.Close)
+
+	orgID := uuid.New()
+	projectID := uuid.New()
+	threadID := uuid.New()
+	runID := uuid.New()
+	userID := uuid.New()
+	seedThreadAndRun(t, pool, orgID, threadID, &projectID, &userID, runID)
+
+	parentRun := data.Run{ID: runID, OrgID: orgID, ThreadID: threadID, ProjectID: &projectID, CreatedByUserID: &userID}
+	jobQueue := &stubJobQueue{}
+	service := NewService(pool, nil, jobQueue, parentRun, "trace-3")
+
+	snapshot, err := service.Spawn(context.Background(), SpawnRequest{PersonaID: "researcher@1", Input: "phase one"})
+	if err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+	if err := MarkRunning(context.Background(), pool, *snapshot.CurrentRunID); err != nil {
+		t.Fatalf("mark running: %v", err)
+	}
+
+	queued, err := service.SendInput(context.Background(), SendInputRequest{SubAgentID: snapshot.SubAgentID, Input: "phase two"})
+	if err != nil {
+		t.Fatalf("send_input queued: %v", err)
+	}
+	if queued.Status != data.SubAgentStatusRunning {
+		t.Fatalf("unexpected queued status: %s", queued.Status)
+	}
+	queued, err = service.SendInput(context.Background(), SendInputRequest{SubAgentID: snapshot.SubAgentID, Input: "urgent", Interrupt: true})
+	if err != nil {
+		t.Fatalf("send_input interrupt: %v", err)
+	}
+	if queued.Status != data.SubAgentStatusRunning {
+		t.Fatalf("unexpected interrupt status: %s", queued.Status)
+	}
+	if len(jobQueue.enqueuedRunIDs) != 1 {
+		t.Fatalf("expected only initial enqueue, got %d", len(jobQueue.enqueuedRunIDs))
+	}
+
+	tx, err := pool.Begin(context.Background())
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	childRun, err := (data.RunsRepository{}).GetRun(context.Background(), tx, *snapshot.CurrentRunID)
+	if err != nil {
+		t.Fatalf("get child run: %v", err)
+	}
+	if childRun == nil {
+		t.Fatal("expected child run")
+	}
+	nextRunID, err := service.projector.ProjectRunTerminal(context.Background(), tx, *childRun, data.SubAgentStatusCancelled, map[string]any{"message": "cancelled"}, nil)
+	if err != nil {
+		t.Fatalf("project terminal: %v", err)
+	}
+	if nextRunID == nil {
+		t.Fatal("expected next run id")
+	}
+	if err := tx.Commit(context.Background()); err != nil {
+		t.Fatalf("commit tx: %v", err)
+	}
+
+	resolved, err := service.GetStatus(context.Background(), snapshot.SubAgentID)
+	if err != nil {
+		t.Fatalf("get status: %v", err)
+	}
+	if resolved.Status != data.SubAgentStatusQueued {
+		t.Fatalf("unexpected resolved status: %s", resolved.Status)
+	}
+	if resolved.CurrentRunID == nil || *resolved.CurrentRunID != *nextRunID {
+		t.Fatalf("unexpected current_run_id: %#v", resolved.CurrentRunID)
+	}
+
+	var merged string
+	if err := pool.QueryRow(context.Background(), `
+		SELECT content
+		  FROM messages
+		 WHERE thread_id = (
+		 	SELECT thread_id FROM runs WHERE id = $1
+		 )
+		   AND role = 'user'
+		 ORDER BY created_at DESC, id DESC
+		 LIMIT 1`, *nextRunID).Scan(&merged); err != nil {
+		t.Fatalf("load merged content: %v", err)
+	}
+	if merged != "urgent\n\nphase two" {
+		t.Fatalf("unexpected merged content: %q", merged)
+	}
+
+	var pendingCount int
+	if err := pool.QueryRow(context.Background(), `SELECT COUNT(*) FROM sub_agent_pending_inputs WHERE sub_agent_id = $1`, snapshot.SubAgentID).Scan(&pendingCount); err != nil {
+		t.Fatalf("count pending inputs: %v", err)
+	}
+	if pendingCount != 0 {
+		t.Fatalf("expected pending queue drained, got %d", pendingCount)
 	}
 }
 

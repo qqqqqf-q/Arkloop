@@ -454,9 +454,10 @@ Control Plane 需要完成以下步骤：
 ### 13.3 行为规则
 
 - `status == closed`：拒绝
-- `status == running && interrupt == false`：进入 pending input 队列
-- `status == running && interrupt == true`：发送中断，再创建新 run
-- `status == completed|failed|cancelled|resumable`：直接创建新 run
+- `status == queued|running && interrupt == false`：进入持久化 pending input 队列，不立即创建新 run
+- `status == queued|running && interrupt == true`：输入以高优先级插队、发送中断请求，当前 run 终态后自动续跑
+- `status == completed|failed|cancelled|resumable|waiting_input`：直接创建新 run
+- pending queue 按 `priority DESC, seq ASC` 消费，同一轮续跑会把当前批次输入用双换行合并成一条新的 user message
 
 ---
 
@@ -1147,20 +1148,26 @@ Track A + Track B + Track E -> Track F
 
 - spawn、send_input、resume 都通过同一条控制链创建 run
 
+**当前实现状态**
+
+- `ChildRunPlanner` / `SubAgentRunFactory` / `SubAgentStateProjector` 已落地到 `subagentctl`
+- `spawn`、`send_input`、`resume` 已统一走 Control Plane 建 run
+- `send_input` 已支持活跃态 pending queue、`interrupt=true` 插队、终态自动续跑
+- run 终态到 sub_agent 状态投影已从 Pipeline 手写逻辑下沉到 `SubAgentStateProjector`
+
 ### B3. 兼容现有同步调用风格
 
 **目标**
 
-- 保持现有 `spawn_agent -> output` 能工作
+- 本仓库不实施旧同步返回兼容层
 
 **产物**
 
-- `RunAndCollect` 兼容层
-- 旧工具返回值适配器
+- 无
 
 **验收**
 
-- 老 persona 不改脚本时仍可运行
+- 不新增旧 `spawn_agent -> output`、旧返回值适配器、旧 persona 专用兼容分支
 
 ---
 
@@ -1401,30 +1408,11 @@ Track A + Track B + Track E -> Track F
 
 ## 9. 向后兼容策略
 
-### 9.1 旧 `spawn_agent`
+当前仓库按单开发者场景推进，不保留旧 `spawn_agent -> output`、旧返回值适配器、旧 persona 兼容层。
 
-保留旧 schema：
-
-```json
-{ "persona_id": "...", "input": "..." }
-```
-
-内部改造为：
-
-- 新建 Sub-agent
-- 创建 run
-- 等待终态
-- 把结构化结果压回旧格式
-
-### 9.2 旧 `agent.run`
-
-- 维持调用签名不变
-- 内部转成 `spawn + wait + collect`
-
-### 9.3 渐进切换
-
-- 新 Persona 可优先使用新的控制原语
-- 老 Persona 不强制迁移
+- `spawn_agent` 保持结构化 handle 返回
+- `agent.run` / `agent.run_parallel` 仅作为当前 Control Plane 的薄语法糖存在
+- 需要同步调用时，直接在调用侧显式执行 `spawn + wait + collect`
 
 ---
 
@@ -1437,7 +1425,7 @@ Track A + Track B + Track E -> Track F
 3. 将 `spawnChildRun` 的关键生命周期事件接入 `sub_agent_events`
 4. 实现 `SubAgentControl.Spawn`
 5. 将现有 `spawnChildRun` 收编到 `SubAgentControl`
-6. 兼容旧 `spawn_agent` 工具
+6. 对齐 `spawn_agent` 结构化 handle
 7. 实现 `GetStatus` 与 `ListChildren`
 8. 实现 `SendInput`
 9. 实现 `Wait`
@@ -1517,4 +1505,3 @@ Track A + Track B + Track E -> Track F
 - 再继续下一个 Track
 
 不要跨 Track 大面积同时改动，否则协作状态机和兼容层很容易一起失控。
-
