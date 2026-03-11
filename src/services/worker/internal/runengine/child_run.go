@@ -85,6 +85,7 @@ func createAndEnqueueChildRun(
 
 	runsRepo := data.RunsRepository{}
 	subAgentsRepo := data.SubAgentRepository{}
+	subAgentEventAppender := data.SubAgentEventAppender{}
 	lineage, err := runsRepo.GetLineage(ctx, tx, parentRun.ID)
 	if err != nil {
 		return fmt.Errorf("load parent run lineage: %w", err)
@@ -102,6 +103,18 @@ func createAndEnqueueChildRun(
 	})
 	if err != nil {
 		return fmt.Errorf("create sub_agent: %w", err)
+	}
+	if _, err := subAgentEventAppender.Append(ctx, tx, createdSubAgent.ID, nil, data.SubAgentEventTypeSpawnRequested, map[string]any{
+		"parent_run_id":    parentRun.ID.String(),
+		"parent_thread_id": parentRun.ThreadID.String(),
+		"root_run_id":      lineage.RootRunID.String(),
+		"root_thread_id":   lineage.RootThreadID.String(),
+		"depth":            lineage.Depth + 1,
+		"persona_id":       personaID,
+		"context_mode":     data.SubAgentContextModeIsolated,
+		"source_type":      data.SubAgentSourceTypeThreadSpawn,
+	}, nil); err != nil {
+		return fmt.Errorf("append sub_agent.spawn_requested: %w", err)
 	}
 
 	// 创建独立临时线程，避免污染父 Run 的 thread 历史
@@ -162,6 +175,17 @@ func createAndEnqueueChildRun(
 	if err := subAgentsRepo.TransitionToQueued(ctx, tx, createdSubAgent.ID, childRunID); err != nil {
 		return fmt.Errorf("mark sub_agent queued: %w", err)
 	}
+	spawnEventData := map[string]any{
+		"run_id":     childRunID.String(),
+		"thread_id":  childThreadID.String(),
+		"persona_id": personaID,
+	}
+	if _, err := subAgentEventAppender.Append(ctx, tx, createdSubAgent.ID, &childRunID, data.SubAgentEventTypeSpawned, spawnEventData, nil); err != nil {
+		return fmt.Errorf("append sub_agent.spawned: %w", err)
+	}
+	if _, err := subAgentEventAppender.Append(ctx, tx, createdSubAgent.ID, &childRunID, data.SubAgentEventTypeRunQueued, spawnEventData, nil); err != nil {
+		return fmt.Errorf("append sub_agent.run_queued: %w", err)
+	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return err
@@ -186,6 +210,11 @@ func markChildRunFailed(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Clie
 		return
 	}
 	defer tx.Rollback(ctx)
+	subAgentEventAppender := data.SubAgentEventAppender{}
+	subAgent, err := (data.SubAgentRepository{}).GetByCurrentRunID(ctx, tx, childRunID)
+	if err != nil {
+		return
+	}
 
 	var seq int64
 	if err := tx.QueryRow(ctx, `SELECT nextval('run_events_seq_global')`).Scan(&seq); err != nil {
@@ -213,6 +242,15 @@ func markChildRunFailed(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Clie
 	message := "failed to enqueue child run job"
 	if err := subAgentsRepo.TransitionToTerminal(ctx, tx, childRunID, data.SubAgentStatusFailed, &message); err != nil {
 		return
+	}
+	if subAgent != nil {
+		if _, err := subAgentEventAppender.Append(ctx, tx, subAgent.ID, &childRunID, data.SubAgentEventTypeFailed, map[string]any{
+			"run_id":      childRunID.String(),
+			"message":     message,
+			"error_class": "worker.enqueue_failed",
+		}, stringPtr("worker.enqueue_failed")); err != nil {
+			return
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return
@@ -253,8 +291,14 @@ func markSubAgentRunning(ctx context.Context, pool *pgxpool.Pool, runID uuid.UUI
 		return err
 	}
 	defer tx.Rollback(ctx)
+	appender := data.SubAgentEventAppender{}
 
 	if err := (data.SubAgentRepository{}).TransitionToRunning(ctx, tx, runID); err != nil {
+		return err
+	}
+	if _, _, err := appender.AppendForCurrentRun(ctx, tx, runID, data.SubAgentEventTypeRunStarted, map[string]any{
+		"run_id": runID.String(),
+	}, nil); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

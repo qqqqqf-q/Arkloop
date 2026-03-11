@@ -268,6 +268,22 @@ func (w *eventWriter) Append(
 		if _, err := eventsRepo.AppendEvent(ctx, w.tx, runID, cancelled.Type, cancelled.DataJSON, cancelled.ToolName, cancelled.ErrorClass); err != nil {
 			return err
 		}
+		subAgentRepo := data.SubAgentRepository{}
+		subAgentEventAppender := data.SubAgentEventAppender{}
+		subAgent, err := subAgentRepo.GetByCurrentRunID(ctx, w.tx, runID)
+		if err != nil {
+			return err
+		}
+		if err := subAgentRepo.TransitionToTerminal(ctx, w.tx, runID, data.SubAgentStatusCancelled, nil); err != nil {
+			return err
+		}
+		if subAgent != nil {
+			if _, err := subAgentEventAppender.Append(ctx, w.tx, subAgent.ID, &runID, data.SubAgentEventTypeCancelled, map[string]any{
+				"run_id": runID.String(),
+			}, nil); err != nil {
+				return err
+			}
+		}
 		// 如果配置了平台成本费率，覆盖 LLM 返回的原始 cost
 		if platformCost := w.calcPlatformCost(); platformCost >= 0 {
 			w.totalCostUSD = platformCost
@@ -321,6 +337,12 @@ func (w *eventWriter) Append(
 	}
 
 	if status, ok := TerminalStatuses[ev.Type]; ok {
+		subAgentRepo := data.SubAgentRepository{}
+		subAgentEventAppender := data.SubAgentEventAppender{}
+		subAgent, err := subAgentRepo.GetByCurrentRunID(ctx, w.tx, runID)
+		if err != nil {
+			return err
+		}
 		if status == "completed" {
 			w.completed = true
 		}
@@ -336,15 +358,26 @@ func (w *eventWriter) Append(
 		}); err != nil {
 			return err
 		}
+		message := terminalStatusMessage(ev.DataJSON)
 		var lastError *string
-		if status != data.SubAgentStatusCompleted {
-			message := terminalStatusMessage(ev.DataJSON)
-			if message != "" {
-				lastError = &message
-			}
+		if status != data.SubAgentStatusCompleted && message != "" {
+			lastError = &message
 		}
-		if err := (data.SubAgentRepository{}).TransitionToTerminal(ctx, w.tx, runID, status, lastError); err != nil {
+		if err := subAgentRepo.TransitionToTerminal(ctx, w.tx, runID, status, lastError); err != nil {
 			return err
+		}
+		if subAgent != nil {
+			subAgentEventType, err := data.SubAgentTerminalEventType(status)
+			if err != nil {
+				return err
+			}
+			eventData := map[string]any{"run_id": runID.String()}
+			if message != "" {
+				eventData["message"] = message
+			}
+			if _, err := subAgentEventAppender.Append(ctx, w.tx, subAgent.ID, &runID, subAgentEventType, eventData, ev.ErrorClass); err != nil {
+				return err
+			}
 		}
 		if err := w.usageRepo.Insert(ctx, w.tx, w.run.OrgID, runID, w.model,
 			w.totalInputTokens, w.totalOutputTokens,

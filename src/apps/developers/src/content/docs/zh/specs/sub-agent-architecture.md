@@ -1099,6 +1099,12 @@ Track A + Track B + Track E -> Track F
 
 - 单个子 Agent 的完整生命周期可从 DB 事件恢复
 
+**当前实现状态**
+
+- 已落地事件：`sub_agent.spawn_requested`、`sub_agent.spawned`、`sub_agent.run_queued`、`sub_agent.run_started`、`sub_agent.completed`、`sub_agent.failed`、`sub_agent.cancelled`
+- 已新增 `sub_agent_events` 持久化模型与统一 append helper
+- `input_sent / wait_requested / wait_resolved / resumed / interrupted / closed` 依赖 Track B 控制原语落地后继续接入，不在 A2 内伪造事件
+
 ---
 
 ## 4. Track B -- Control Plane
@@ -1428,20 +1434,21 @@ Track A + Track B + Track E -> Track F
 
 1. 新建 `SubAgent` 模型与仓储
 2. 新建 `sub_agent_events` 与 append helper
-3. 实现 `SubAgentControl.Spawn`
-4. 将现有 `spawnChildRun` 收编到 `SubAgentControl`
-5. 兼容旧 `spawn_agent` 工具
-6. 实现 `GetStatus` 与 `ListChildren`
-7. 实现 `SendInput`
-8. 实现 `Wait`
-9. 实现 `Close`
-10. 实现 `Resume`
-11. 抽离 `ContextSnapshot`
-12. 实现 `context_mode`
-13. Lua 原语升级
-14. 预算与深度治理
-15. API 读模型
-16. Console 视图
+3. 将 `spawnChildRun` 的关键生命周期事件接入 `sub_agent_events`
+4. 实现 `SubAgentControl.Spawn`
+5. 将现有 `spawnChildRun` 收编到 `SubAgentControl`
+6. 兼容旧 `spawn_agent` 工具
+7. 实现 `GetStatus` 与 `ListChildren`
+8. 实现 `SendInput`
+9. 实现 `Wait`
+10. 实现 `Close`
+11. 实现 `Resume`
+12. 抽离 `ContextSnapshot`
+13. 实现 `context_mode`
+14. Lua 原语升级
+15. 预算与深度治理
+16. API 读模型
+17. Console 视图
 
 ---
 
@@ -1455,7 +1462,8 @@ Track A + Track B + Track E -> Track F
 ### 检查点 B
 
 - 子 Agent 终态与 run 终态一致
-- 子 Agent 事件流完整
+- A2 当前已覆盖 spawn / queue / run start / terminal 事件
+- 剩余交互事件依赖 Track B 控制原语接入
 
 ### 检查点 C
 
@@ -1509,5 +1517,4 @@ Track A + Track B + Track E -> Track F
 - 再继续下一个 Track
 
 不要跨 Track 大面积同时改动，否则协作状态机和兼容层很容易一起失控。
-
 

@@ -83,6 +83,22 @@ func TestCreateAndEnqueueChildRun_CreatesQueuedSubAgent(t *testing.T) {
 	if agent.PersonaID == nil || *agent.PersonaID != "researcher@1" {
 		t.Fatalf("unexpected persona_id: %#v", agent.PersonaID)
 	}
+	events, err := (data.SubAgentEventsRepository{}).ListBySubAgent(context.Background(), pool, agent.ID, 0, 10)
+	if err != nil {
+		t.Fatalf("list sub_agent_events: %v", err)
+	}
+	if len(events) != 3 {
+		t.Fatalf("expected 3 sub_agent_events, got %d", len(events))
+	}
+	if events[0].Type != data.SubAgentEventTypeSpawnRequested || events[1].Type != data.SubAgentEventTypeSpawned || events[2].Type != data.SubAgentEventTypeRunQueued {
+		t.Fatalf("unexpected event order: %#v", []string{events[0].Type, events[1].Type, events[2].Type})
+	}
+	if got := events[1].DataJSON["run_id"]; got != childRunID.String() {
+		t.Fatalf("unexpected spawned run_id: %#v", got)
+	}
+	if got := events[2].DataJSON["run_id"]; got != childRunID.String() {
+		t.Fatalf("unexpected run_queued run_id: %#v", got)
+	}
 }
 
 func TestMarkSubAgentRunning_TransitionsQueuedAgent(t *testing.T) {
@@ -127,6 +143,13 @@ func TestMarkSubAgentRunning_TransitionsQueuedAgent(t *testing.T) {
 	if agent.StartedAt == nil {
 		t.Fatal("expected started_at")
 	}
+	events, err := (data.SubAgentEventsRepository{}).ListBySubAgent(context.Background(), pool, agent.ID, 0, 10)
+	if err != nil {
+		t.Fatalf("list sub_agent_events: %v", err)
+	}
+	if len(events) == 0 || events[len(events)-1].Type != data.SubAgentEventTypeRunStarted {
+		t.Fatalf("expected final event run_started, got %#v", events)
+	}
 }
 
 func TestMarkChildRunFailed_TransitionsQueuedAgent(t *testing.T) {
@@ -165,5 +188,15 @@ func TestMarkChildRunFailed_TransitionsQueuedAgent(t *testing.T) {
 	}
 	if agents[0].LastError == nil || *agents[0].LastError != "failed to enqueue child run job" {
 		t.Fatalf("unexpected last_error: %#v", agents[0].LastError)
+	}
+	events, err := (data.SubAgentEventsRepository{}).ListBySubAgent(context.Background(), pool, agents[0].ID, 0, 10)
+	if err != nil {
+		t.Fatalf("list sub_agent_events: %v", err)
+	}
+	if len(events) == 0 || events[len(events)-1].Type != data.SubAgentEventTypeFailed {
+		t.Fatalf("expected final event failed, got %#v", events)
+	}
+	if got := events[len(events)-1].DataJSON["message"]; got != "failed to enqueue child run job" {
+		t.Fatalf("unexpected failure message: %#v", got)
 	}
 }
