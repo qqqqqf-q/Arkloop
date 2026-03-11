@@ -134,7 +134,7 @@ func NewAgentLoopHandler(
 		}
 
 		if writer.Completed() {
-			if err := writer.InsertAssistantMessage(ctx, messagesRepo, rc.Run.OrgID, rc.Run.ThreadID); err != nil {
+			if _, err := writer.InsertAssistantMessage(ctx, messagesRepo, rc.Run.OrgID, rc.Run.ThreadID); err != nil {
 				return err
 			}
 			rc.FinalAssistantOutput = writer.AssistantOutput()
@@ -466,12 +466,21 @@ func (w *eventWriter) InsertAssistantMessage(
 	repo data.MessagesRepository,
 	orgID uuid.UUID,
 	threadID uuid.UUID,
-) error {
+) (uuid.UUID, error) {
 	if err := w.ensureTx(ctx); err != nil {
-		return err
+		return uuid.Nil, err
 	}
 	content := strings.Join(w.assistantDeltas, "")
-	return repo.InsertAssistantMessage(ctx, w.tx, orgID, threadID, w.run.ID, content)
+	messageID, err := repo.InsertAssistantMessage(ctx, w.tx, orgID, threadID, w.run.ID, content)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	if messageID != uuid.Nil {
+		if err := (data.SubAgentRepository{}).SetLastOutputRefByLastCompletedRunID(ctx, w.tx, w.run.ID, "message:"+messageID.String()); err != nil {
+			return uuid.Nil, err
+		}
+	}
+	return messageID, nil
 }
 
 func (w *eventWriter) Flush(ctx context.Context) error {

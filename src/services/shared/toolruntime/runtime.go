@@ -104,11 +104,16 @@ func BuildRuntimeSnapshot(ctx context.Context, input SnapshotInput) (RuntimeSnap
 
 func ResolveBuiltin(input ResolveInput) BuiltinAvailability {
 	available := map[string]struct{}{
+		"close_agent":      {},
+		"interrupt_agent":  {},
+		"resume_agent":     {},
+		"send_input":       {},
 		"web_search":       {},
 		"web_fetch":        {},
 		"timeline_title":   {},
 		"spawn_agent":      {},
 		"summarize_thread": {},
+		"wait_agent":       {},
 	}
 	if input.HasConversationSearch {
 		available["conversation_search"] = struct{}{}

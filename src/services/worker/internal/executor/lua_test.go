@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 
 	"arkloop/services/worker/internal/data"
@@ -12,9 +13,106 @@ import (
 	"arkloop/services/worker/internal/memory"
 	"arkloop/services/worker/internal/pipeline"
 	"arkloop/services/worker/internal/routing"
+	"arkloop/services/worker/internal/subagentctl"
 	"arkloop/services/worker/internal/tools"
 	"github.com/google/uuid"
 )
+
+type stubSubAgentControl struct {
+	spawn     func(ctx context.Context, req subagentctl.SpawnRequest) (subagentctl.StatusSnapshot, error)
+	sendInput func(ctx context.Context, req subagentctl.SendInputRequest) (subagentctl.StatusSnapshot, error)
+	wait      func(ctx context.Context, req subagentctl.WaitRequest) (subagentctl.StatusSnapshot, error)
+	resume    func(ctx context.Context, req subagentctl.ResumeRequest) (subagentctl.StatusSnapshot, error)
+	close     func(ctx context.Context, req subagentctl.CloseRequest) (subagentctl.StatusSnapshot, error)
+	interrupt func(ctx context.Context, req subagentctl.InterruptRequest) (subagentctl.StatusSnapshot, error)
+	getStatus func(ctx context.Context, subAgentID uuid.UUID) (subagentctl.StatusSnapshot, error)
+	list      func(ctx context.Context) ([]subagentctl.StatusSnapshot, error)
+}
+
+func (s stubSubAgentControl) Spawn(ctx context.Context, req subagentctl.SpawnRequest) (subagentctl.StatusSnapshot, error) {
+	if s.spawn == nil {
+		return subagentctl.StatusSnapshot{}, errors.New("spawn not implemented")
+	}
+	return s.spawn(ctx, req)
+}
+
+func (s stubSubAgentControl) SendInput(ctx context.Context, req subagentctl.SendInputRequest) (subagentctl.StatusSnapshot, error) {
+	if s.sendInput == nil {
+		return subagentctl.StatusSnapshot{}, errors.New("send_input not implemented")
+	}
+	return s.sendInput(ctx, req)
+}
+
+func (s stubSubAgentControl) Wait(ctx context.Context, req subagentctl.WaitRequest) (subagentctl.StatusSnapshot, error) {
+	if s.wait == nil {
+		return subagentctl.StatusSnapshot{}, errors.New("wait not implemented")
+	}
+	return s.wait(ctx, req)
+}
+
+func (s stubSubAgentControl) Resume(ctx context.Context, req subagentctl.ResumeRequest) (subagentctl.StatusSnapshot, error) {
+	if s.resume == nil {
+		return subagentctl.StatusSnapshot{}, errors.New("resume not implemented")
+	}
+	return s.resume(ctx, req)
+}
+
+func (s stubSubAgentControl) Close(ctx context.Context, req subagentctl.CloseRequest) (subagentctl.StatusSnapshot, error) {
+	if s.close == nil {
+		return subagentctl.StatusSnapshot{}, errors.New("close not implemented")
+	}
+	return s.close(ctx, req)
+}
+
+func (s stubSubAgentControl) Interrupt(ctx context.Context, req subagentctl.InterruptRequest) (subagentctl.StatusSnapshot, error) {
+	if s.interrupt == nil {
+		return subagentctl.StatusSnapshot{}, errors.New("interrupt not implemented")
+	}
+	return s.interrupt(ctx, req)
+}
+
+func (s stubSubAgentControl) GetStatus(ctx context.Context, subAgentID uuid.UUID) (subagentctl.StatusSnapshot, error) {
+	if s.getStatus == nil {
+		return subagentctl.StatusSnapshot{}, errors.New("get_status not implemented")
+	}
+	return s.getStatus(ctx, subAgentID)
+}
+
+func (s stubSubAgentControl) ListChildren(ctx context.Context) ([]subagentctl.StatusSnapshot, error) {
+	if s.list == nil {
+		return nil, errors.New("list not implemented")
+	}
+	return s.list(ctx)
+}
+
+func newOutputControl(run func(personaID string, input string) (string, error)) stubSubAgentControl {
+	var (
+		mu      sync.Mutex
+		outputs = map[uuid.UUID]string{}
+		errs    = map[uuid.UUID]error{}
+	)
+	return stubSubAgentControl{
+		spawn: func(_ context.Context, req subagentctl.SpawnRequest) (subagentctl.StatusSnapshot, error) {
+			subAgentID := uuid.New()
+			output, err := run(req.PersonaID, req.Input)
+			mu.Lock()
+			outputs[subAgentID] = output
+			errs[subAgentID] = err
+			mu.Unlock()
+			return subagentctl.StatusSnapshot{SubAgentID: subAgentID}, nil
+		},
+		wait: func(_ context.Context, req subagentctl.WaitRequest) (subagentctl.StatusSnapshot, error) {
+			mu.Lock()
+			output := outputs[req.SubAgentID]
+			err := errs[req.SubAgentID]
+			mu.Unlock()
+			if err != nil {
+				return subagentctl.StatusSnapshot{}, err
+			}
+			return subagentctl.StatusSnapshot{SubAgentID: req.SubAgentID, Status: data.SubAgentStatusCompleted, LastOutput: &output}, nil
+		},
+	}
+}
 
 func TestNewLuaExecutor_MissingScript(t *testing.T) {
 	_, err := NewLuaExecutor(map[string]any{})
@@ -209,7 +307,7 @@ end
 `,
 	})
 	rc := buildLuaRC(nil)
-	rc.SpawnChildRun = nil // 未初始化
+	rc.SubAgentControl = nil // 未初始化
 
 	emitter := events.NewEmitter("trace")
 	var got []events.RunEvent
@@ -226,7 +324,7 @@ end
 			}
 		}
 	}
-	t.Fatal("expected error message when SpawnChildRun is nil")
+	t.Fatal("expected error message when SubAgentControl is nil")
 }
 
 func TestLuaExecutor_AgentRun_SpawnChildRunCalled(t *testing.T) {
@@ -239,10 +337,16 @@ context.set_output(out)
 `,
 	})
 	rc := buildLuaRC(nil)
-	rc.SpawnChildRun = func(_ context.Context, personaID string, input string) (string, error) {
-		capturedPersona = personaID
-		capturedInput = input
-		return "4", nil
+	rc.SubAgentControl = stubSubAgentControl{
+		spawn: func(_ context.Context, req subagentctl.SpawnRequest) (subagentctl.StatusSnapshot, error) {
+			capturedPersona = req.PersonaID
+			capturedInput = req.Input
+			return subagentctl.StatusSnapshot{SubAgentID: uuid.New()}, nil
+		},
+		wait: func(_ context.Context, _ subagentctl.WaitRequest) (subagentctl.StatusSnapshot, error) {
+			output := "4"
+			return subagentctl.StatusSnapshot{LastOutput: &output}, nil
+		},
 	}
 
 	emitter := events.NewEmitter("trace")
@@ -280,8 +384,10 @@ end
 `,
 	})
 	rc := buildLuaRC(nil)
-	rc.SpawnChildRun = func(_ context.Context, _ string, _ string) (string, error) {
-		return "", errors.New("some error")
+	rc.SubAgentControl = stubSubAgentControl{
+		spawn: func(_ context.Context, _ subagentctl.SpawnRequest) (subagentctl.StatusSnapshot, error) {
+			return subagentctl.StatusSnapshot{}, errors.New("some error")
+		},
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -398,7 +504,7 @@ end
 `,
 	})
 	rc := buildLuaRC(nil)
-	rc.SpawnChildRun = nil
+	rc.SubAgentControl = nil
 
 	emitter := events.NewEmitter("trace")
 	var got []events.RunEvent
@@ -414,7 +520,7 @@ end
 			}
 		}
 	}
-	t.Fatal("expected error output when SpawnChildRun is nil")
+	t.Fatal("expected error output when SubAgentControl is nil")
 }
 
 func TestLuaExecutor_AgentRunParallel_EmptyTasks(t *testing.T) {
@@ -425,9 +531,7 @@ context.set_output(tostring(#results) .. ":" .. tostring(#errs))
 `,
 	})
 	rc := buildLuaRC(nil)
-	rc.SpawnChildRun = func(_ context.Context, _ string, _ string) (string, error) {
-		return "x", nil
-	}
+	rc.SubAgentControl = newOutputControl(func(_ string, _ string) (string, error) { return "x", nil })
 
 	emitter := events.NewEmitter("trace")
 	var got []events.RunEvent
@@ -466,9 +570,7 @@ context.set_output(out)
 `,
 	})
 	rc := buildLuaRC(nil)
-	rc.SpawnChildRun = func(_ context.Context, _ string, input string) (string, error) {
-		return input + "_ok", nil
-	}
+	rc.SubAgentControl = newOutputControl(func(_ string, input string) (string, error) { return input + "_ok", nil })
 
 	emitter := events.NewEmitter("trace")
 	var got []events.RunEvent
@@ -504,12 +606,12 @@ context.set_output(out)
 `,
 	})
 	rc := buildLuaRC(nil)
-	rc.SpawnChildRun = func(_ context.Context, _ string, input string) (string, error) {
+	rc.SubAgentControl = newOutputControl(func(_ string, input string) (string, error) {
 		if input == "fail" {
 			return "", errors.New("task failed")
 		}
 		return input + "_done", nil
-	}
+	})
 
 	emitter := events.NewEmitter("trace")
 	var got []events.RunEvent
@@ -542,9 +644,7 @@ end
 `,
 	})
 	rc := buildLuaRC(nil)
-	rc.SpawnChildRun = func(_ context.Context, _ string, _ string) (string, error) {
-		return "", errors.New("irrelevant")
-	}
+	rc.SubAgentControl = newOutputControl(func(_ string, _ string) (string, error) { return "", errors.New("irrelevant") })
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // 立即取消
@@ -582,9 +682,7 @@ end
 `
 	ex, _ := NewLuaExecutor(map[string]any{"script": script})
 	rc := buildLuaRC(nil)
-	rc.SpawnChildRun = func(_ context.Context, _ string, _ string) (string, error) {
-		return "x", nil
-	}
+	rc.SubAgentControl = newOutputControl(func(_ string, _ string) (string, error) { return "x", nil })
 
 	emitter := events.NewEmitter("trace")
 	var got []events.RunEvent
@@ -621,9 +719,7 @@ end
 `})
 	rc := buildLuaRC(nil)
 	rc.MaxParallelTasks = 2
-	rc.SpawnChildRun = func(_ context.Context, _ string, _ string) (string, error) {
-		return "x", nil
-	}
+	rc.SubAgentControl = newOutputControl(func(_ string, _ string) (string, error) { return "x", nil })
 
 	emitter := events.NewEmitter("trace")
 	var got []events.RunEvent
@@ -657,9 +753,7 @@ context.set_output("ok")
 `,
 	})
 	rc := buildLuaRC(nil)
-	rc.SpawnChildRun = func(_ context.Context, _ string, input string) (string, error) {
-		return input + "_done", nil
-	}
+	rc.SubAgentControl = newOutputControl(func(_ string, input string) (string, error) { return input + "_done", nil })
 
 	emitter := events.NewEmitter("trace")
 	var got []events.RunEvent

@@ -71,7 +71,7 @@ type EngineV1Deps struct {
 	ToolDescriptionOverridesRepo pipeline.ToolDescriptionOverridesReader
 	ExecutorRegistry             pipeline.AgentExecutorBuilder // 必填，nil 时 NewEngineV1 返回错误
 
-	// JobQueue 可选；非 nil 时启用 SpawnChildRun
+	// JobQueue 可选；非 nil 时启用 SubAgentControl
 	JobQueue queue.JobQueue
 
 	// LLM 请求重试配置
@@ -262,7 +262,7 @@ func (e *EngineV1) Execute(ctx context.Context, pool *pgxpool.Pool, run data.Run
 	}
 
 	if e.jobQueue != nil && e.broadcastRDB != nil {
-		rc.SpawnChildRun = newSpawnChildRunFunc(pool, e.broadcastRDB, e.jobQueue, run, traceID)
+		rc.SubAgentControl = newSubAgentControl(pool, e.broadcastRDB, e.jobQueue, run, traceID)
 	}
 
 	handler := pipeline.Build(e.middlewares, e.terminal)

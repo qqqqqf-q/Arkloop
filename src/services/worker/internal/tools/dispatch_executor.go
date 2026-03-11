@@ -43,6 +43,13 @@ type ExecutionError struct {
 	Details    map[string]any
 }
 
+func (e *ExecutionError) Error() string {
+	if e == nil {
+		return ""
+	}
+	return e.Message
+}
+
 func (e ExecutionError) ToJSON() map[string]any {
 	payload := map[string]any{
 		"error_class": e.ErrorClass,

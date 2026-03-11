@@ -291,6 +291,88 @@ func (repo SubAgentRepository) TransitionToTerminal(ctx context.Context, tx pgx.
 	return err
 }
 
+func (repo SubAgentRepository) TransitionToResumable(ctx context.Context, tx pgx.Tx, id uuid.UUID) error {
+	if tx == nil {
+		return fmt.Errorf("tx must not be nil")
+	}
+	if id == uuid.Nil {
+		return fmt.Errorf("id must not be empty")
+	}
+	record, err := repo.getForUpdateByID(ctx, tx, id)
+	if err != nil {
+		return err
+	}
+	if record == nil {
+		return fmt.Errorf("sub_agent not found: %s", id)
+	}
+	if record.Status == SubAgentStatusResumable {
+		return nil
+	}
+	if err := validateSubAgentStatusTransition(record.Status, SubAgentStatusResumable); err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx,
+		`UPDATE sub_agents
+		 SET status = $2
+		 WHERE id = $1`,
+		id,
+		SubAgentStatusResumable,
+	)
+	return err
+}
+
+func (repo SubAgentRepository) TransitionToClosed(ctx context.Context, tx pgx.Tx, id uuid.UUID) error {
+	if tx == nil {
+		return fmt.Errorf("tx must not be nil")
+	}
+	if id == uuid.Nil {
+		return fmt.Errorf("id must not be empty")
+	}
+	record, err := repo.getForUpdateByID(ctx, tx, id)
+	if err != nil {
+		return err
+	}
+	if record == nil {
+		return fmt.Errorf("sub_agent not found: %s", id)
+	}
+	if record.Status == SubAgentStatusClosed {
+		return nil
+	}
+	if err := validateSubAgentStatusTransition(record.Status, SubAgentStatusClosed); err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx,
+		`UPDATE sub_agents
+		 SET status = $2,
+		     current_run_id = NULL,
+		     closed_at = COALESCE(closed_at, now())
+		 WHERE id = $1`,
+		id,
+		SubAgentStatusClosed,
+	)
+	return err
+}
+
+func (repo SubAgentRepository) SetLastOutputRefByLastCompletedRunID(ctx context.Context, tx pgx.Tx, runID uuid.UUID, outputRef string) error {
+	if tx == nil {
+		return fmt.Errorf("tx must not be nil")
+	}
+	if runID == uuid.Nil {
+		return fmt.Errorf("run_id must not be empty")
+	}
+	if strings.TrimSpace(outputRef) == "" {
+		return fmt.Errorf("output_ref must not be empty")
+	}
+	_, err := tx.Exec(ctx,
+		`UPDATE sub_agents
+		 SET last_output_ref = $2
+		 WHERE last_completed_run_id = $1`,
+		runID,
+		strings.TrimSpace(outputRef),
+	)
+	return err
+}
+
 func (repo SubAgentRepository) getForUpdateByID(ctx context.Context, tx pgx.Tx, id uuid.UUID) (*SubAgentRecord, error) {
 	return scanSubAgentNullable(tx.QueryRow(ctx, subAgentSelectBy+` WHERE id = $1 FOR UPDATE`, id))
 }
@@ -403,11 +485,30 @@ func validateSubAgentStatusTransition(from string, to string) error {
 		SubAgentStatusQueued: {
 			SubAgentStatusRunning: {},
 			SubAgentStatusFailed:  {},
+			SubAgentStatusClosed:  {},
 		},
 		SubAgentStatusRunning: {
 			SubAgentStatusCompleted: {},
 			SubAgentStatusFailed:    {},
 			SubAgentStatusCancelled: {},
+		},
+		SubAgentStatusCompleted: {
+			SubAgentStatusResumable: {},
+			SubAgentStatusClosed:    {},
+		},
+		SubAgentStatusFailed: {
+			SubAgentStatusClosed: {},
+		},
+		SubAgentStatusCancelled: {
+			SubAgentStatusClosed: {},
+		},
+		SubAgentStatusWaitingInput: {
+			SubAgentStatusResumable: {},
+			SubAgentStatusClosed:    {},
+		},
+		SubAgentStatusResumable: {
+			SubAgentStatusQueued: {},
+			SubAgentStatusClosed: {},
 		},
 	}
 	if _, ok := allowed[from][to]; !ok {

@@ -13,6 +13,7 @@ import (
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/memory"
 	"arkloop/services/worker/internal/pipeline"
+	"arkloop/services/worker/internal/subagentctl"
 	"arkloop/services/worker/internal/tools"
 
 	lua "github.com/yuin/gopher-lua"
@@ -175,7 +176,7 @@ func (rt *luaRuntime) register(L *lua.LState) {
 }
 
 // agent.run(persona_id, input) -> (output, err)
-// 内部调用 SpawnChildRun，父 Run 挂起等待子 Run 完成。
+// 内部调用 SubAgentControl 的 Spawn + Wait。
 func (rt *luaRuntime) agentRun(L *lua.LState) int {
 	if rt.ctx.Err() != nil {
 		L.Push(lua.LNil)
@@ -186,17 +187,24 @@ func (rt *luaRuntime) agentRun(L *lua.LState) int {
 	personaID := L.CheckString(1)
 	input := L.CheckString(2)
 
-	if rt.rc.SpawnChildRun == nil {
+	if rt.rc.SubAgentControl == nil {
 		L.Push(lua.LNil)
-		L.Push(lua.LString("agent.run not available: SpawnChildRun not initialized"))
+		L.Push(lua.LString("agent.run not available: SubAgentControl not initialized"))
 		return 2
 	}
 
-	output, err := rt.rc.SpawnChildRun(rt.ctx, personaID, input)
+	snapshot, err := rt.rc.SubAgentControl.Spawn(rt.ctx, subagentctl.SpawnRequest{PersonaID: personaID, Input: input})
+	if err == nil {
+		snapshot, err = rt.rc.SubAgentControl.Wait(rt.ctx, subagentctl.WaitRequest{SubAgentID: snapshot.SubAgentID})
+	}
 	if err != nil {
 		L.Push(lua.LNil)
 		L.Push(lua.LString(err.Error()))
 		return 2
+	}
+	output := ""
+	if snapshot.LastOutput != nil {
+		output = *snapshot.LastOutput
 	}
 
 	L.Push(lua.LString(output))
@@ -217,9 +225,9 @@ func (rt *luaRuntime) agentRunParallel(L *lua.LState) int {
 		return 2
 	}
 
-	if rt.rc.SpawnChildRun == nil {
+	if rt.rc.SubAgentControl == nil {
 		L.Push(lua.LNil)
-		L.Push(lua.LString("agent.run_parallel not available: SpawnChildRun not initialized"))
+		L.Push(lua.LString("agent.run_parallel not available: SubAgentControl not initialized"))
 		return 2
 	}
 
@@ -287,8 +295,13 @@ func (rt *luaRuntime) agentRunParallel(L *lua.LState) int {
 		i, t := i, t
 		go func() {
 			defer wg.Done()
-			out, err := rt.rc.SpawnChildRun(rt.ctx, t.personaID, t.input)
-			outputs[i] = out
+			snapshot, err := rt.rc.SubAgentControl.Spawn(rt.ctx, subagentctl.SpawnRequest{PersonaID: t.personaID, Input: t.input})
+			if err == nil {
+				snapshot, err = rt.rc.SubAgentControl.Wait(rt.ctx, subagentctl.WaitRequest{SubAgentID: snapshot.SubAgentID})
+			}
+			if err == nil && snapshot.LastOutput != nil {
+				outputs[i] = *snapshot.LastOutput
+			}
 			errs[i] = err
 		}()
 	}

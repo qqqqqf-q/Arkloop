@@ -3,6 +3,7 @@ package data
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -34,9 +35,9 @@ func (MessagesRepository) InsertAssistantMessage(
 	threadID uuid.UUID,
 	runID uuid.UUID,
 	content string,
-) error {
+) (uuid.UUID, error) {
 	if strings.TrimSpace(content) == "" {
-		return nil
+		return uuid.Nil, nil
 	}
 	metadataJSON := map[string]any{}
 	if runID != uuid.Nil {
@@ -44,22 +45,63 @@ func (MessagesRepository) InsertAssistantMessage(
 	}
 	metadataRaw, err := json.Marshal(metadataJSON)
 	if err != nil {
-		return fmt.Errorf("marshal metadata_json: %w", err)
+		return uuid.Nil, fmt.Errorf("marshal metadata_json: %w", err)
 	}
-	_, err = tx.Exec(
+	var messageID uuid.UUID
+	err = tx.QueryRow(
 		ctx,
 		`INSERT INTO messages (
 			org_id, thread_id, created_by_user_id, role, content, metadata_json
 		) VALUES (
 			$1, $2, NULL, $3, $4, $5::jsonb
-		)`,
+		)
+		 RETURNING id`,
 		orgID,
 		threadID,
 		"assistant",
 		content,
 		string(metadataRaw),
+	).Scan(&messageID)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	return messageID, nil
+}
+
+func (MessagesRepository) FindAssistantMessageByRunID(
+	ctx context.Context,
+	tx pgx.Tx,
+	runID uuid.UUID,
+) (*uuid.UUID, string, error) {
+	if tx == nil {
+		return nil, "", fmt.Errorf("tx must not be nil")
+	}
+	if runID == uuid.Nil {
+		return nil, "", fmt.Errorf("run_id must not be empty")
+	}
+
+	var (
+		messageID uuid.UUID
+		content   string
 	)
-	return err
+	err := tx.QueryRow(
+		ctx,
+		`SELECT id, content
+		   FROM messages
+		  WHERE role = 'assistant'
+		    AND metadata_json->>'run_id' = $1
+		    AND deleted_at IS NULL
+		  ORDER BY created_at DESC, id DESC
+		  LIMIT 1`,
+		runID.String(),
+	).Scan(&messageID, &content)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, "", nil
+		}
+		return nil, "", err
+	}
+	return &messageID, strings.TrimSpace(content), nil
 }
 
 func (MessagesRepository) ListByThread(
