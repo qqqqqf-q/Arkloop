@@ -419,7 +419,7 @@ func (w *eventWriter) commit(ctx context.Context) error {
 				continue
 			}
 			if err := w.projector.EnqueueRun(ctx, w.run.OrgID, nextRunID, w.traceID); err != nil {
-				_ = w.projector.MarkRunFailed(context.WithoutCancel(ctx), nextRunID, "failed to enqueue child run job")
+				_ = w.projector.MarkRunFailed(context.Background(), nextRunID, "failed to enqueue child run job")
 			}
 		}
 		w.pendingEnqueueRunIDs = nil

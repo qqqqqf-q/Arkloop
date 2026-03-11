@@ -144,11 +144,12 @@ func (f *SubAgentRunFactory) CreateRunFromPendingInputs(ctx context.Context, tx 
 	if err != nil {
 		return nil, fmt.Errorf("insert pending input message: %w", err)
 	}
-	childRunID, err := f.createQueuedRun(ctx, tx, *ownerRun, subAgent, threadID, nil, "", map[string]any{
+	childRunID, err := f.createQueuedRun(ctx, tx, *ownerRun, subAgent, threadID, nil, data.SubAgentEventTypeInputSent, map[string]any{
 		"thread_id":     threadID.String(),
 		"message_id":    messageID.String(),
 		"input_bytes":   len([]byte(combined)),
 		"pending_count": len(items),
+		"from_pending":  true,
 	}, nil)
 	if err != nil {
 		return nil, err
@@ -160,6 +161,9 @@ func (f *SubAgentRunFactory) CreateRunFromPendingInputs(ctx context.Context, tx 
 }
 
 func (f *SubAgentRunFactory) createChildThread(ctx context.Context, tx pgx.Tx, parentRun data.Run) (uuid.UUID, error) {
+	if parentRun.ProjectID == nil {
+		return uuid.Nil, fmt.Errorf("parent run project_id must not be nil")
+	}
 	var childThreadID uuid.UUID
 	if err := tx.QueryRow(ctx,
 		`INSERT INTO threads (org_id, project_id, is_private, expires_at)

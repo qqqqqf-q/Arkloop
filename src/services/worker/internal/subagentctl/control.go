@@ -157,7 +157,7 @@ func (s *Service) spawn(ctx context.Context, req SpawnRequest, forcedRunID *uuid
 		return StatusSnapshot{}, err
 	}
 	if err := s.projector.EnqueueRun(ctx, s.parentRun.OrgID, childRunID, s.traceID); err != nil {
-		_ = s.projector.MarkRunFailed(context.WithoutCancel(ctx), childRunID, "failed to enqueue child run job")
+		_ = s.projector.MarkRunFailed(context.Background(), childRunID, "failed to enqueue child run job")
 		return StatusSnapshot{}, fmt.Errorf("enqueue child run: %w", err)
 	}
 	return s.GetStatus(ctx, record.ID)
@@ -242,7 +242,7 @@ func (s *Service) SendInput(ctx context.Context, req SendInputRequest) (StatusSn
 	}
 	if childRunID != nil {
 		if err := s.projector.EnqueueRun(ctx, s.parentRun.OrgID, *childRunID, s.traceID); err != nil {
-			_ = s.projector.MarkRunFailed(context.WithoutCancel(ctx), *childRunID, "failed to enqueue child run job")
+			_ = s.projector.MarkRunFailed(context.Background(), *childRunID, "failed to enqueue child run job")
 			return StatusSnapshot{}, fmt.Errorf("enqueue child run: %w", err)
 		}
 	}
@@ -329,7 +329,7 @@ func (s *Service) Resume(ctx context.Context, req ResumeRequest) (StatusSnapshot
 		return StatusSnapshot{}, err
 	}
 	if err := s.projector.EnqueueRun(ctx, s.parentRun.OrgID, childRunID, s.traceID); err != nil {
-		_ = s.projector.MarkRunFailed(context.WithoutCancel(ctx), childRunID, "failed to enqueue child run job")
+		_ = s.projector.MarkRunFailed(context.Background(), childRunID, "failed to enqueue child run job")
 		return StatusSnapshot{}, fmt.Errorf("enqueue resumed child run: %w", err)
 	}
 	return s.GetStatus(ctx, record.ID)
