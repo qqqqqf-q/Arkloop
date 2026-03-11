@@ -237,6 +237,9 @@ export interface LocaleStrings {
   thisThreadIsIncognito: string
   toggleIncognito: string
   incognitoForkDivider: string
+  // mode switch
+  modeChat: string
+  modeClaw: string
   // thread context menu
   starThread: string
   unstarThread: string

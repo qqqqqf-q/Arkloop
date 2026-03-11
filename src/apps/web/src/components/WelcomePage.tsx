@@ -4,6 +4,7 @@ import { Glasses } from 'lucide-react'
 import { ChatInput, type Attachment } from './ChatInput'
 import { ErrorCallout, type AppError } from './ErrorCallout'
 import { NotificationBell } from './NotificationBell'
+import { ModeSwitch } from './ModeSwitch'
 import { createThread, createMessage, createRun, uploadThreadAttachment, isApiError, type ThreadResponse, type MeResponse } from '../api'
 import { writeActiveThreadIdToStorage, addSearchThreadId, SEARCH_PERSONA_KEY } from '../storage'
 import { useLocale } from '../contexts/LocaleContext'
@@ -40,6 +41,8 @@ type OutletContext = {
   isSearchMode: boolean
   onEnterSearchMode: () => void
   onExitSearchMode: () => void
+  appMode: import('../storage').AppMode
+  onSetAppMode: (mode: import('../storage').AppMode) => void
 }
 
 // 按时段、星期、节日生成问候语，全部基于浏览器本地时间。
@@ -111,7 +114,7 @@ function buildGreeting(name: string | null, now: Date): string {
 
 
 export function WelcomePage() {
-  const { accessToken, onLoggedOut, onThreadCreated, refreshCredits, onOpenNotifications, notificationVersion, creditsBalance: _creditsBalance, me, isPrivateMode, onTogglePrivateMode, isSearchMode, onEnterSearchMode, onExitSearchMode } = useOutletContext<OutletContext>()
+  const { accessToken, onLoggedOut, onThreadCreated, refreshCredits, onOpenNotifications, notificationVersion, creditsBalance: _creditsBalance, me, isPrivateMode, onTogglePrivateMode, isSearchMode, onEnterSearchMode, onExitSearchMode, appMode, onSetAppMode } = useOutletContext<OutletContext>()
   const [draft, setDraft] = useState('')
   const [attachments, setAttachments] = useState<Attachment[]>([])
   const attachmentsRef = useRef<Attachment[]>([])
@@ -282,6 +285,11 @@ export function WelcomePage() {
     <div className="flex h-full flex-col">
       {/* 顶部 header */}
       <div className="relative z-10 flex min-h-[51px] items-center justify-end gap-2 px-[15px] py-[15px]">
+        <ModeSwitch
+          mode={appMode}
+          onChange={onSetAppMode}
+          labels={{ chat: t.modeChat, claw: t.modeClaw }}
+        />
         <NotificationBell accessToken={accessToken} onClick={onOpenNotifications} refreshKey={notificationVersion} title={t.notificationsTitle} />
         <button
           onClick={onTogglePrivateMode}

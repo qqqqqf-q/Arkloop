@@ -12,11 +12,13 @@ const ACTIVE_THREAD_ID_KEY = 'arkloop:web:active_thread_id'
 const LOCALE_KEY = 'arkloop:web:locale'
 const THEME_KEY = 'arkloop:web:theme'
 const SELECTED_PERSONA_KEY = 'arkloop:web:selected_persona_key'
+const APP_MODE_KEY = 'arkloop:web:app_mode'
 
 export const DEFAULT_PERSONA_KEY = 'normal'
 export const SEARCH_PERSONA_KEY = 'extended-search'
 
 export type Theme = 'system' | 'light' | 'dark'
+export type AppMode = 'chat' | 'claw'
 
 function canUseLocalStorage(): boolean {
   return canUseStorage()
@@ -122,6 +124,26 @@ export function writeThemeToStorage(theme: Theme): void {
   if (!canUseLocalStorage()) return
   try {
     localStorage.setItem(THEME_KEY, theme)
+  } catch {
+    // 忽略存储失败
+  }
+}
+
+export function readAppModeFromStorage(): AppMode {
+  if (!canUseLocalStorage()) return 'chat'
+  try {
+    const raw = localStorage.getItem(APP_MODE_KEY)
+    if (raw === 'chat' || raw === 'claw') return raw
+    return 'chat'
+  } catch {
+    return 'chat'
+  }
+}
+
+export function writeAppModeToStorage(mode: AppMode): void {
+  if (!canUseLocalStorage()) return
+  try {
+    localStorage.setItem(APP_MODE_KEY, mode)
   } catch {
     // 忽略存储失败
   }

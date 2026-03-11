@@ -233,6 +233,8 @@ export const en: LocaleStrings = {
   thisThreadIsIncognito: 'This thread is incognito',
   toggleIncognito: 'Toggle incognito',
   incognitoForkDivider: 'From this point on, messages will not be saved and will be permanently deleted within 24 hours.',
+  modeChat: 'Chat',
+  modeClaw: 'Claw',
   starThread: 'Star',
   unstarThread: 'Unstar',
   shareThread: 'Share',

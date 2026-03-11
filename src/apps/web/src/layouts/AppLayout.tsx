@@ -16,7 +16,8 @@ import {
   type MeResponse,
   type ThreadResponse,
 } from '../api'
-import { clearActiveThreadIdInStorage, writeSelectedPersonaKeyToStorage, SEARCH_PERSONA_KEY } from '../storage'
+import { clearActiveThreadIdInStorage, writeSelectedPersonaKeyToStorage, SEARCH_PERSONA_KEY, readAppModeFromStorage, writeAppModeToStorage } from '../storage'
+import type { AppMode } from '../storage'
 
 type Props = {
   accessToken: string
@@ -53,6 +54,12 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
   )
   const [notificationVersion, setNotificationVersion] = useState(0)
   const [creditsBalance, setCreditsBalance] = useState(0)
+  const [appMode, setAppModeState] = useState<AppMode>(readAppModeFromStorage)
+
+  const handleSetAppMode = useCallback((mode: AppMode) => {
+    writeAppModeToStorage(mode)
+    setAppModeState(mode)
+  }, [])
 
   const handleNotificationMarkedRead = useCallback(() => {
     setNotificationVersion((v) => v + 1)
@@ -280,7 +287,7 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
       )}
 
       <main className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
-        <Outlet context={{ accessToken, onLoggedOut, me, creditsBalance, onThreadCreated: handleThreadCreated, onRunStarted: handleRunStarted, onRunEnded: handleRunEnded, onThreadTitleUpdated: handleThreadTitleUpdated, refreshCredits, onOpenNotifications: openNotifications, notificationVersion, isPrivateMode, onTogglePrivateMode: handleTogglePrivateMode, privateThreadIds, isSearchMode, onEnterSearchMode: () => { window.history.pushState({ searchMode: true }, '', '/'); setIsSearchMode(true) }, onExitSearchMode: () => setIsSearchMode(false), onSetPendingIncognito: handleSetPendingIncognito, onRightPanelChange: setRightPanelOpen, threads, onThreadDeleted: handleThreadDeleted }} />
+        <Outlet context={{ accessToken, onLoggedOut, me, creditsBalance, onThreadCreated: handleThreadCreated, onRunStarted: handleRunStarted, onRunEnded: handleRunEnded, onThreadTitleUpdated: handleThreadTitleUpdated, refreshCredits, onOpenNotifications: openNotifications, notificationVersion, isPrivateMode, onTogglePrivateMode: handleTogglePrivateMode, privateThreadIds, isSearchMode, onEnterSearchMode: () => { window.history.pushState({ searchMode: true }, '', '/'); setIsSearchMode(true) }, onExitSearchMode: () => setIsSearchMode(false), onSetPendingIncognito: handleSetPendingIncognito, onRightPanelChange: setRightPanelOpen, threads, onThreadDeleted: handleThreadDeleted, appMode, onSetAppMode: handleSetAppMode }} />
         {notificationsOpen && (
           <NotificationsPanel accessToken={accessToken} onClose={closeNotifications} onMarkedRead={handleNotificationMarkedRead} />
         )}

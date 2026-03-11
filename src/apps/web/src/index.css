@@ -77,6 +77,12 @@ button:not(:disabled) {
   --title-btn-dim: rgba(255, 255, 255, 0.04);
   --title-btn-hover: rgba(255, 255, 255, 0.09);
   --c-sidebar-btn-hover: rgba(255, 255, 255, 0.14);
+  --c-mode-switch-track: rgba(255, 255, 255, 0.06);
+  --c-mode-switch-border: rgba(255, 255, 255, 0.08);
+  --c-mode-switch-pill: rgba(255, 255, 255, 0.10);
+  --c-mode-switch-pill-shadow: 0 1px 3px rgba(0, 0, 0, 0.25), inset 0 0.5px 0 rgba(255, 255, 255, 0.06);
+  --c-mode-switch-active-text: #faf9f5;
+  --c-mode-switch-inactive-text: #6b6b68;
 }
 
 @media (prefers-color-scheme: light) {
@@ -153,6 +159,12 @@ button:not(:disabled) {
     --title-btn-dim: rgba(0, 0, 0, 0.06);
     --title-btn-hover: rgba(0, 0, 0, 0.10);
     --c-sidebar-btn-hover: rgba(0, 0, 0, 0.12);
+    --c-mode-switch-track: rgba(0, 0, 0, 0.05);
+    --c-mode-switch-border: rgba(0, 0, 0, 0.08);
+    --c-mode-switch-pill: #FFFFFF;
+    --c-mode-switch-pill-shadow: 0 1px 3px rgba(0, 0, 0, 0.10), 0 0.5px 1px rgba(0, 0, 0, 0.06);
+    --c-mode-switch-active-text: #141412;
+    --c-mode-switch-inactive-text: #8C8C8A;
   }
 }
 
@@ -229,6 +241,12 @@ button:not(:disabled) {
   --title-btn-dim: rgba(0, 0, 0, 0.06);
   --title-btn-hover: rgba(0, 0, 0, 0.10);
   --c-sidebar-btn-hover: rgba(0, 0, 0, 0.12);
+  --c-mode-switch-track: rgba(0, 0, 0, 0.05);
+  --c-mode-switch-border: rgba(0, 0, 0, 0.08);
+  --c-mode-switch-pill: #FFFFFF;
+  --c-mode-switch-pill-shadow: 0 1px 3px rgba(0, 0, 0, 0.10), 0 0.5px 1px rgba(0, 0, 0, 0.06);
+  --c-mode-switch-active-text: #141412;
+  --c-mode-switch-inactive-text: #8C8C8A;
 }
 
 .chat-input-box {

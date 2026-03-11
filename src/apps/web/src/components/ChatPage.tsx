@@ -13,6 +13,7 @@ import { ErrorCallout, type AppError } from './ErrorCallout'
 import { ShareModal } from './ShareModal'
 import { ReportModal } from './ReportModal'
 import { NotificationBell } from './NotificationBell'
+import { ModeSwitch } from './ModeSwitch'
 import { SourcesPanel } from './SourcesPanel'
 import { CodeExecutionPanel } from './CodeExecutionPanel'
 import { DocumentPanel } from './DocumentPanel'
@@ -116,6 +117,8 @@ type OutletContext = {
   onRightPanelChange?: (open: boolean) => void
   threads: ThreadResponse[]
   onThreadDeleted: (threadId: string) => void
+  appMode: import('../storage').AppMode
+  onSetAppMode: (mode: import('../storage').AppMode) => void
 }
 
 type LocationState = { initialRunId?: string; isSearch?: boolean; isIncognitoFork?: boolean; forkBaseCount?: number } | null
@@ -196,7 +199,7 @@ function finalizeSearchSteps(steps: SearchStep[]): MessageSearchStepRef[] {
 }
 
 export function ChatPage() {
-  const { accessToken, onLoggedOut, onRunStarted, onRunEnded, onThreadCreated, onThreadTitleUpdated, refreshCredits, onOpenNotifications, notificationVersion, creditsBalance: _creditsBalance, onTogglePrivateMode, privateThreadIds, onSetPendingIncognito, onRightPanelChange, threads, onThreadDeleted } = useOutletContext<OutletContext>()
+  const { accessToken, onLoggedOut, onRunStarted, onRunEnded, onThreadCreated, onThreadTitleUpdated, refreshCredits, onOpenNotifications, notificationVersion, creditsBalance: _creditsBalance, onTogglePrivateMode, privateThreadIds, onSetPendingIncognito, onRightPanelChange, threads, onThreadDeleted, appMode, onSetAppMode } = useOutletContext<OutletContext>()
   const { threadId } = useParams<{ threadId: string }>()
   const location = useLocation()
   const locationState = location.state as LocationState
@@ -1792,6 +1795,11 @@ export function ChatPage() {
 
         {/* 右侧：操作按钮 */}
         <div className="flex items-center gap-2">
+          <ModeSwitch
+            mode={appMode}
+            onChange={onSetAppMode}
+            labels={{ chat: t.modeChat, claw: t.modeClaw }}
+          />
           {threadId && privateThreadIds.has(threadId) && (
             <span className="text-xs font-medium text-[var(--c-text-muted)]">{t.incognitoLabel}</span>
           )}
