@@ -322,14 +322,6 @@ func RegisterTrackB(r *Registry) error {
 			EnvKeys:     []string{"ARKLOOP_SANDBOX_WARM_BROWSER"},
 		},
 		{
-			Key:         "sandbox.warm_ultra",
-			Type:        TypeInt,
-			Default:     "1",
-			Description: "ultra tier 预热实例数",
-			Sensitive:   false,
-			Scope:       ScopePlatform,
-		},
-		{
 			Key:         "sandbox.refill_interval_s",
 			Type:        TypeInt,
 			Default:     "5",
@@ -389,15 +381,6 @@ func RegisterTrackB(r *Registry) error {
 			Sensitive:   false,
 			Scope:       ScopePlatform,
 			EnvKeys:     []string{"ARKLOOP_SANDBOX_IDLE_TIMEOUT_BROWSER_S", "ARKLOOP_SANDBOX_IDLE_TIMEOUT_BROWSER"},
-		},
-		{
-			Key:         "sandbox.idle_timeout_ultra_s",
-			Type:        TypeInt,
-			Default:     "600",
-			Description: "Sandbox ultra tier 空闲超时（秒）",
-			Sensitive:   false,
-			Scope:       ScopePlatform,
-			EnvKeys:     []string{"ARKLOOP_SANDBOX_IDLE_TIMEOUT_ULTRA_S", "ARKLOOP_SANDBOX_IDLE_TIMEOUT_ULTRA"},
 		},
 		{
 			Key:         "sandbox.max_lifetime_s",

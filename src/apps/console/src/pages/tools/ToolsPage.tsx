@@ -37,12 +37,10 @@ const SANDBOX_DEFAULTS: Record<string, string> = {
   boot_timeout_s: '30',
   'pool.lite': '3',
   'pool.pro': '2',
-  'pool.ultra': '1',
   'refill.interval_s': '5',
   'refill.concurrency': '2',
   'timeout.idle_lite_s': '180',
   'timeout.idle_pro_s': '300',
-  'timeout.idle_ultra_s': '600',
   'timeout.max_lifetime_s': '1800',
 }
 
@@ -784,7 +782,7 @@ function SandboxConfigSection({
       <div className={sectionCls}>
         <h3 className="text-sm font-medium text-[var(--c-text-primary)]">{tc.sectionPool}</h3>
         <div className="mt-4 space-y-4">
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 gap-4">
             <div>
               <label className={labelCls}>Lite</label>
               <input type="number" min={0} className={inputCls} value={form['pool.lite'] ?? ''} onChange={onChange('pool.lite')} />
@@ -792,10 +790,6 @@ function SandboxConfigSection({
             <div>
               <label className={labelCls}>Pro</label>
               <input type="number" min={0} className={inputCls} value={form['pool.pro'] ?? ''} onChange={onChange('pool.pro')} />
-            </div>
-            <div>
-              <label className={labelCls}>Ultra</label>
-              <input type="number" min={0} className={inputCls} value={form['pool.ultra'] ?? ''} onChange={onChange('pool.ultra')} />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-4">
@@ -814,7 +808,7 @@ function SandboxConfigSection({
       <div className={sectionCls}>
         <h3 className="text-sm font-medium text-[var(--c-text-primary)]">{tc.sectionTimeout}</h3>
         <div className="mt-4 space-y-4">
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 gap-4">
             <div>
               <label className={labelCls}>Lite (s)</label>
               <input type="number" min={1} className={inputCls} value={form['timeout.idle_lite_s'] ?? ''} onChange={onChange('timeout.idle_lite_s')} />
@@ -822,10 +816,6 @@ function SandboxConfigSection({
             <div>
               <label className={labelCls}>Pro (s)</label>
               <input type="number" min={1} className={inputCls} value={form['timeout.idle_pro_s'] ?? ''} onChange={onChange('timeout.idle_pro_s')} />
-            </div>
-            <div>
-              <label className={labelCls}>Ultra (s)</label>
-              <input type="number" min={1} className={inputCls} value={form['timeout.idle_ultra_s'] ?? ''} onChange={onChange('timeout.idle_ultra_s')} />
             </div>
           </div>
           <div>

@@ -18,12 +18,10 @@ const KEYS = {
   bootTimeout:       'sandbox.boot_timeout_s',
   warmLite:          'sandbox.warm_lite',
   warmPro:           'sandbox.warm_pro',
-  warmUltra:         'sandbox.warm_ultra',
   refillInterval:    'sandbox.refill_interval_s',
   refillConcurrency: 'sandbox.refill_concurrency',
   idleLite:          'sandbox.idle_timeout_lite_s',
   idlePro:           'sandbox.idle_timeout_pro_s',
-  idleUltra:         'sandbox.idle_timeout_ultra_s',
   maxLifetime:       'sandbox.max_lifetime_s',
 } as const
 
@@ -39,12 +37,10 @@ const DEFAULTS: FormState = {
   bootTimeout: '30',
   warmLite: '3',
   warmPro: '2',
-  warmUltra: '1',
   refillInterval: '5',
   refillConcurrency: '2',
   idleLite: '180',
   idlePro: '300',
-  idleUltra: '600',
   maxLifetime: '1800',
 }
 
@@ -181,7 +177,7 @@ export function SandboxConfigPage() {
             <div className={sectionCls}>
               <h3 className="text-sm font-medium text-[var(--c-text-primary)]">{tc.sectionPool}</h3>
               <div className="mt-4 space-y-4">
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className={labelCls}>Lite</label>
                     <input type="number" min={0} className={inputCls} value={form.warmLite} onChange={set('warmLite')} />
@@ -189,10 +185,6 @@ export function SandboxConfigPage() {
                   <div>
                     <label className={labelCls}>Pro</label>
                     <input type="number" min={0} className={inputCls} value={form.warmPro} onChange={set('warmPro')} />
-                  </div>
-                  <div>
-                    <label className={labelCls}>Ultra</label>
-                    <input type="number" min={0} className={inputCls} value={form.warmUltra} onChange={set('warmUltra')} />
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
@@ -212,7 +204,7 @@ export function SandboxConfigPage() {
             <div className={sectionCls}>
               <h3 className="text-sm font-medium text-[var(--c-text-primary)]">{tc.sectionTimeout}</h3>
               <div className="mt-4 space-y-4">
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className={labelCls}>Lite (s)</label>
                     <input type="number" min={1} className={inputCls} value={form.idleLite} onChange={set('idleLite')} />
@@ -220,10 +212,6 @@ export function SandboxConfigPage() {
                   <div>
                     <label className={labelCls}>Pro (s)</label>
                     <input type="number" min={1} className={inputCls} value={form.idlePro} onChange={set('idlePro')} />
-                  </div>
-                  <div>
-                    <label className={labelCls}>Ultra (s)</label>
-                    <input type="number" min={1} className={inputCls} value={form.idleUltra} onChange={set('idleUltra')} />
                   </div>
                 </div>
                 <div>
