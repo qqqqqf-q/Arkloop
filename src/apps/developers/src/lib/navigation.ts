@@ -49,7 +49,11 @@ const zhDocsSidebar: SidebarGroup[] = [
       { label: 'Browser Automation 设计方案', href: '/docs/specs/browser-automation-architecture' },
       { label: 'Claw 设计方案', href: '/docs/specs/claw-architecture' },
       { label: '社交平台 Channel 接入架构', href: '/docs/specs/channel-integration-architecture' },
+      { label: 'OpenCode + ACP 接入架构', href: '/docs/specs/opencode-acp-architecture' },
       { label: 'Web App 移动端适配方案', href: '/docs/specs/mobile-adaptation' },
+      { label: 'Sub-agent 协作架构', href: '/docs/specs/sub-agent-architecture' },
+      { label: 'Platform Agent 架构', href: '/docs/specs/platform-agent-architecture' },
+      { label: 'Prompt Injection 防护', href: '/docs/specs/prompt-injection-protection' },
     ],
   },
   {
