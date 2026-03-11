@@ -31,7 +31,6 @@ func TestGetWebhookEndpointDecryptsSecretReference(t *testing.T) {
 			org_id UUID NOT NULL,
 			url TEXT NOT NULL,
 			secret_id UUID NULL,
-			signing_secret TEXT NULL,
 			events TEXT[] NOT NULL DEFAULT '{}',
 			enabled BOOLEAN NOT NULL DEFAULT true,
 			created_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -57,8 +56,8 @@ func TestGetWebhookEndpointDecryptsSecretReference(t *testing.T) {
 		t.Fatalf("insert secret: %v", err)
 	}
 	if _, err := pool.Exec(context.Background(),
-		`INSERT INTO webhook_endpoints (id, org_id, url, secret_id, signing_secret, events, enabled)
-		 VALUES ($1, $2, $3, $4, NULL, $5, TRUE)`,
+		`INSERT INTO webhook_endpoints (id, org_id, url, secret_id, events, enabled)
+		 VALUES ($1, $2, $3, $4, $5, TRUE)`,
 		endpointID, orgID, "https://example.com/hook", secretID, []string{"run.completed"},
 	); err != nil {
 		t.Fatalf("insert endpoint: %v", err)

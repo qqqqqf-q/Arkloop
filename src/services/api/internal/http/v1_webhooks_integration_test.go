@@ -83,17 +83,13 @@ func TestWebhookCreateStoresSecretReference(t *testing.T) {
 	created := decodeJSONBody[webhookEndpointResponse](t, createResp.Body.Bytes())
 
 	var secretID *string
-	var signingSecret *string
 	if err := pool.QueryRow(ctx,
-		"SELECT secret_id::text, signing_secret FROM webhook_endpoints WHERE id = $1",
+		"SELECT secret_id::text FROM webhook_endpoints WHERE id = $1",
 		created.ID,
-	).Scan(&secretID, &signingSecret); err != nil {
+	).Scan(&secretID); err != nil {
 		t.Fatalf("query webhook row: %v", err)
 	}
 	if secretID == nil || *secretID == "" {
 		t.Fatal("expected secret_id to be set")
-	}
-	if signingSecret != nil {
-		t.Fatalf("expected signing_secret to be null, got %q", *signingSecret)
 	}
 }

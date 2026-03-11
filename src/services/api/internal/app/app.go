@@ -571,9 +571,6 @@ func (a *Application) Run(ctx context.Context) error {
 				}
 			}
 		}
-		if err := backfillWebhookSecrets(ctx, pool, webhookRepo, secretsRepo, a.logger); err != nil {
-			return err
-		}
 	}
 
 	// 启动分区管理器（自动创建/清理 run_events 月分区）
