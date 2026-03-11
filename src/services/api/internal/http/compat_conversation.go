@@ -77,12 +77,23 @@ type threadResponse struct {
 	ID              string  `json:"id"`
 	OrgID           string  `json:"org_id"`
 	CreatedByUserID *string `json:"created_by_user_id"`
+	Mode            string  `json:"mode"`
 	Title           *string `json:"title"`
 	ProjectID       *string `json:"project_id,omitempty"`
 	CreatedAt       string  `json:"created_at"`
 	ActiveRunID     *string `json:"active_run_id"`
 	IsPrivate       bool    `json:"is_private"`
 	ParentThreadID  *string `json:"parent_thread_id,omitempty"`
+}
+
+type forkThreadResponse struct {
+	threadResponse
+	IDMapping []idMappingPair `json:"id_mapping,omitempty"`
+}
+
+type idMappingPair struct {
+	OldID string `json:"old_id"`
+	NewID string `json:"new_id"`
 }
 
 type messageResponse struct {

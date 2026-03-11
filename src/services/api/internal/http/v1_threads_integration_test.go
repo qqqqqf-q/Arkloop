@@ -114,8 +114,20 @@ func TestThreadsCreateListGetPatchAndAudit(t *testing.T) {
 	if threadPayload.ID == "" || threadPayload.CreatedAt == "" || threadPayload.OrgID == "" {
 		t.Fatalf("unexpected thread payload: %#v", threadPayload)
 	}
+	if threadPayload.Mode != string(data.ThreadModeChat) {
+		t.Fatalf("expected default thread mode %q, got %#v", data.ThreadModeChat, threadPayload)
+	}
 	if threadPayload.ProjectID == nil || *threadPayload.ProjectID == "" {
 		t.Fatalf("expected project_id in thread payload: %#v", threadPayload)
+	}
+
+	getResp := doJSON(handler, nethttp.MethodGet, "/v1/threads/"+threadPayload.ID, nil, headers)
+	if getResp.Code != nethttp.StatusOK {
+		t.Fatalf("unexpected get thread status: %d body=%s", getResp.Code, getResp.Body.String())
+	}
+	getPayload := decodeJSONBody[threadResponse](t, getResp.Body.Bytes())
+	if getPayload.Mode != string(data.ThreadModeChat) {
+		t.Fatalf("unexpected get payload: %#v", getPayload)
 	}
 
 	cursorIncomplete := doJSON(handler, nethttp.MethodGet, "/v1/threads?before_id="+threadPayload.ID, nil, headers)
@@ -156,6 +168,9 @@ func TestThreadsCreateListGetPatchAndAudit(t *testing.T) {
 	updatedPayload := decodeJSONBody[threadResponse](t, updated.Body.Bytes())
 	if updatedPayload.Title == nil || *updatedPayload.Title != "new" {
 		t.Fatalf("unexpected patch payload: %#v", updatedPayload)
+	}
+	if updatedPayload.Mode != string(data.ThreadModeChat) {
+		t.Fatalf("expected patched thread mode %q, got %#v", data.ThreadModeChat, updatedPayload)
 	}
 
 	deniedCount, err := countDeniedAudit(ctx, pool, "threads.get", "org_mismatch")
@@ -337,7 +352,7 @@ func TestThreadsPatchDeleteOwnershipFallbacks(t *testing.T) {
 
 	noOwnerTitle := "no-owner"
 	noOwnerPatchProject := mustCreateTestProject(t, ctx, pool, aliceOrgID, nil, "no-owner-patch")
-	noOwnerPatchThread, err := threadRepo.Create(ctx, aliceOrgID, nil, noOwnerPatchProject.ID, &noOwnerTitle, false)
+	noOwnerPatchThread, err := threadRepo.Create(ctx, aliceOrgID, nil, noOwnerPatchProject.ID, data.ThreadModeChat, &noOwnerTitle, false)
 	if err != nil {
 		t.Fatalf("create no-owner patch thread: %v", err)
 	}
@@ -410,7 +425,7 @@ func TestThreadsPatchDeleteOwnershipFallbacks(t *testing.T) {
 
 	noOwnerDeleteTitle := "no-owner-delete"
 	noOwnerDeleteProject := mustCreateTestProject(t, ctx, pool, aliceOrgID, nil, "no-owner-delete")
-	noOwnerDeleteThread, err := threadRepo.Create(ctx, aliceOrgID, nil, noOwnerDeleteProject.ID, &noOwnerDeleteTitle, false)
+	noOwnerDeleteThread, err := threadRepo.Create(ctx, aliceOrgID, nil, noOwnerDeleteProject.ID, data.ThreadModeChat, &noOwnerDeleteTitle, false)
 	if err != nil {
 		t.Fatalf("create no-owner delete thread: %v", err)
 	}
@@ -625,4 +640,192 @@ func countAuditResult(ctx context.Context, db data.Querier, action string, resul
 		targetID,
 	).Scan(&count)
 	return count, err
+}
+
+func TestThreadModeCreateListSearchAndFork(t *testing.T) {
+	db := setupTestDatabase(t, "api_go_threads_mode")
+
+	ctx := context.Background()
+	pool, err := data.NewPool(ctx, db.DSN, data.PoolLimits{MaxConns: 32, MinConns: 0})
+	if err != nil {
+		t.Fatalf("new pool: %v", err)
+	}
+	defer pool.Close()
+
+	logger := observability.NewJSONLogger("test", io.Discard)
+
+	passwordHasher, err := auth.NewBcryptPasswordHasher(0)
+	if err != nil {
+		t.Fatalf("new password hasher: %v", err)
+	}
+	tokenService, err := auth.NewJwtAccessTokenService("test-secret-should-be-long-enough-32chars", 3600, 2592000)
+	if err != nil {
+		t.Fatalf("new token service: %v", err)
+	}
+
+	userRepo, _ := data.NewUserRepository(pool)
+	credentialRepo, _ := data.NewUserCredentialRepository(pool)
+	membershipRepo, _ := data.NewOrgMembershipRepository(pool)
+	refreshTokenRepo, _ := data.NewRefreshTokenRepository(pool)
+	auditRepo, _ := data.NewAuditLogRepository(pool)
+	threadRepo, _ := data.NewThreadRepository(pool)
+	projectRepo, _ := data.NewProjectRepository(pool)
+	runRepo, _ := data.NewRunEventRepository(pool)
+
+	authService, _ := auth.NewService(userRepo, credentialRepo, membershipRepo, passwordHasher, tokenService, refreshTokenRepo, nil)
+	jobRepo, _ := data.NewJobRepository(pool)
+	registrationService, _ := auth.NewRegistrationService(pool, passwordHasher, tokenService, refreshTokenRepo, jobRepo)
+	auditWriter := audit.NewWriter(auditRepo, membershipRepo, logger)
+
+	handler := NewHandler(HandlerConfig{
+		Pool:                 pool,
+		Logger:               logger,
+		AuthService:          authService,
+		RegistrationService:  registrationService,
+		OrgMembershipRepo:    membershipRepo,
+		ThreadRepo:           threadRepo,
+		ProjectRepo:          projectRepo,
+		RunEventRepo:         runRepo,
+		AuditWriter:          auditWriter,
+		TrustIncomingTraceID: true,
+	})
+
+	registerResp := doJSON(
+		handler,
+		nethttp.MethodPost,
+		"/v1/auth/register",
+		map[string]any{"login": "mode-alice", "password": "pwd12345", "email": "mode-alice@test.com"},
+		nil,
+	)
+	if registerResp.Code != nethttp.StatusCreated {
+		t.Fatalf("unexpected register status: %d body=%s", registerResp.Code, registerResp.Body.String())
+	}
+	alice := decodeJSONBody[registerResponse](t, registerResp.Body.Bytes())
+	headers := authHeader(alice.AccessToken)
+
+	defaultThreadResp := doJSON(handler, nethttp.MethodPost, "/v1/threads", map[string]any{"title": "chat-default"}, headers)
+	if defaultThreadResp.Code != nethttp.StatusCreated {
+		t.Fatalf("unexpected default create status: %d body=%s", defaultThreadResp.Code, defaultThreadResp.Body.String())
+	}
+	defaultThread := decodeJSONBody[threadResponse](t, defaultThreadResp.Body.Bytes())
+	if defaultThread.Mode != string(data.ThreadModeChat) {
+		t.Fatalf("expected default mode %q, got %#v", data.ThreadModeChat, defaultThread)
+	}
+
+	clawThreadResp := doJSON(handler, nethttp.MethodPost, "/v1/threads", map[string]any{"title": "claw-thread", "mode": "claw"}, headers)
+	if clawThreadResp.Code != nethttp.StatusCreated {
+		t.Fatalf("unexpected claw create status: %d body=%s", clawThreadResp.Code, clawThreadResp.Body.String())
+	}
+	clawThread := decodeJSONBody[threadResponse](t, clawThreadResp.Body.Bytes())
+	if clawThread.Mode != string(data.ThreadModeClaw) {
+		t.Fatalf("expected claw mode %q, got %#v", data.ThreadModeClaw, clawThread)
+	}
+
+	invalidCreateResp := doJSON(handler, nethttp.MethodPost, "/v1/threads", map[string]any{"title": "bad", "mode": "weird"}, headers)
+	assertErrorEnvelope(t, invalidCreateResp, nethttp.StatusUnprocessableEntity, "validation.error")
+
+	for _, tc := range []struct {
+		threadID string
+		content  string
+	}{
+		{threadID: defaultThread.ID, content: "shared-mode-query"},
+		{threadID: clawThread.ID, content: "shared-mode-query"},
+	} {
+		resp := doJSON(
+			handler,
+			nethttp.MethodPost,
+			"/v1/threads/"+tc.threadID+"/messages",
+			map[string]any{"content": tc.content},
+			headers,
+		)
+		if resp.Code != nethttp.StatusCreated {
+			t.Fatalf("create message for %s: %d %s", tc.threadID, resp.Code, resp.Body.String())
+		}
+	}
+
+	getClawResp := doJSON(handler, nethttp.MethodGet, "/v1/threads/"+clawThread.ID, nil, headers)
+	if getClawResp.Code != nethttp.StatusOK {
+		t.Fatalf("unexpected claw get status: %d body=%s", getClawResp.Code, getClawResp.Body.String())
+	}
+	if payload := decodeJSONBody[threadResponse](t, getClawResp.Body.Bytes()); payload.Mode != string(data.ThreadModeClaw) {
+		t.Fatalf("unexpected claw get payload: %#v", payload)
+	}
+
+	listChatResp := doJSON(handler, nethttp.MethodGet, "/v1/threads?mode=chat", nil, headers)
+	if listChatResp.Code != nethttp.StatusOK {
+		t.Fatalf("list chat threads: %d %s", listChatResp.Code, listChatResp.Body.String())
+	}
+	chatThreads := decodeJSONBody[[]threadResponse](t, listChatResp.Body.Bytes())
+	if len(chatThreads) != 1 || chatThreads[0].ID != defaultThread.ID || chatThreads[0].Mode != string(data.ThreadModeChat) {
+		t.Fatalf("unexpected chat thread list: %#v", chatThreads)
+	}
+
+	listClawResp := doJSON(handler, nethttp.MethodGet, "/v1/threads?mode=claw", nil, headers)
+	if listClawResp.Code != nethttp.StatusOK {
+		t.Fatalf("list claw threads: %d %s", listClawResp.Code, listClawResp.Body.String())
+	}
+	clawThreads := decodeJSONBody[[]threadResponse](t, listClawResp.Body.Bytes())
+	if len(clawThreads) != 1 || clawThreads[0].ID != clawThread.ID || clawThreads[0].Mode != string(data.ThreadModeClaw) {
+		t.Fatalf("unexpected claw thread list: %#v", clawThreads)
+	}
+
+	listAllResp := doJSON(handler, nethttp.MethodGet, "/v1/threads", nil, headers)
+	if listAllResp.Code != nethttp.StatusOK {
+		t.Fatalf("list all threads: %d %s", listAllResp.Code, listAllResp.Body.String())
+	}
+	allThreads := decodeJSONBody[[]threadResponse](t, listAllResp.Body.Bytes())
+	if len(allThreads) != 2 {
+		t.Fatalf("expected 2 threads without mode filter, got %#v", allThreads)
+	}
+
+	invalidListResp := doJSON(handler, nethttp.MethodGet, "/v1/threads?mode=weird", nil, headers)
+	assertErrorEnvelope(t, invalidListResp, nethttp.StatusUnprocessableEntity, "validation.error")
+
+	searchChatResp := doJSON(handler, nethttp.MethodGet, "/v1/threads/search?q=shared-mode-query&mode=chat", nil, headers)
+	if searchChatResp.Code != nethttp.StatusOK {
+		t.Fatalf("search chat threads: %d %s", searchChatResp.Code, searchChatResp.Body.String())
+	}
+	searchChat := decodeJSONBody[[]threadResponse](t, searchChatResp.Body.Bytes())
+	if len(searchChat) != 1 || searchChat[0].ID != defaultThread.ID || searchChat[0].Mode != string(data.ThreadModeChat) {
+		t.Fatalf("unexpected chat search results: %#v", searchChat)
+	}
+
+	searchClawResp := doJSON(handler, nethttp.MethodGet, "/v1/threads/search?q=shared-mode-query&mode=claw", nil, headers)
+	if searchClawResp.Code != nethttp.StatusOK {
+		t.Fatalf("search claw threads: %d %s", searchClawResp.Code, searchClawResp.Body.String())
+	}
+	searchClaw := decodeJSONBody[[]threadResponse](t, searchClawResp.Body.Bytes())
+	if len(searchClaw) != 1 || searchClaw[0].ID != clawThread.ID || searchClaw[0].Mode != string(data.ThreadModeClaw) {
+		t.Fatalf("unexpected claw search results: %#v", searchClaw)
+	}
+
+	invalidSearchResp := doJSON(handler, nethttp.MethodGet, "/v1/threads/search?q=shared-mode-query&mode=weird", nil, headers)
+	assertErrorEnvelope(t, invalidSearchResp, nethttp.StatusUnprocessableEntity, "validation.error")
+
+	forkMessageResp := doJSON(
+		handler,
+		nethttp.MethodPost,
+		"/v1/threads/"+clawThread.ID+"/messages",
+		map[string]any{"content": "fork source"},
+		headers,
+	)
+	if forkMessageResp.Code != nethttp.StatusCreated {
+		t.Fatalf("create fork source message: %d %s", forkMessageResp.Code, forkMessageResp.Body.String())
+	}
+	forkSourceMessage := decodeJSONBody[messageResponse](t, forkMessageResp.Body.Bytes())
+
+	forkResp := doJSON(
+		handler,
+		nethttp.MethodPost,
+		"/v1/threads/"+clawThread.ID+":fork",
+		map[string]any{"message_id": forkSourceMessage.ID},
+		headers,
+	)
+	if forkResp.Code != nethttp.StatusCreated {
+		t.Fatalf("fork thread: %d %s", forkResp.Code, forkResp.Body.String())
+	}
+	forked := decodeJSONBody[forkThreadResponse](t, forkResp.Body.Bytes())
+	if forked.Mode != string(data.ThreadModeClaw) {
+		t.Fatalf("expected forked thread to inherit claw mode, got %#v", forked)
+	}
 }

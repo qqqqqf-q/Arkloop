@@ -114,7 +114,7 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
       try {
         const [meResp, threadItems, creditsResp] = await Promise.all([
           getMe(accessToken),
-          listThreads(accessToken, { limit: 200 }),
+          listThreads(accessToken, { limit: 200, mode: 'chat' }),
           getMyCredits(accessToken),
         ])
         if (!mountedRef.current) return

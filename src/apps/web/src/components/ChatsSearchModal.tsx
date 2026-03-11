@@ -86,7 +86,7 @@ export function ChatsSearchModal({ threads, accessToken, onClose }: Props) {
 
     setSearching(true)
     debounceRef.current = setTimeout(() => {
-      void searchThreads(accessToken, q).then((results) => {
+      void searchThreads(accessToken, q, 'chat').then((results) => {
         setSearchResults(results)
       }).catch(() => {
         setSearchResults([])

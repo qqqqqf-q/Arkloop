@@ -262,7 +262,7 @@ func TestArtifactsAuthorizationByRunOwnerAndShare(t *testing.T) {
 	env := buildArtifactEnv(t)
 	project := mustCreateTestProject(t, context.Background(), env.pool, env.aliceOrgID, &env.aliceUserID, "artifact-thread-read")
 
-	thread, err := env.threadRepo.Create(context.Background(), env.aliceOrgID, &env.aliceUserID, project.ID, nil, false)
+	thread, err := env.threadRepo.Create(context.Background(), env.aliceOrgID, &env.aliceUserID, project.ID, data.ThreadModeChat, nil, false)
 	if err != nil {
 		t.Fatalf("create thread: %v", err)
 	}
@@ -335,7 +335,7 @@ func TestThreadAttachmentsUploadAndRead(t *testing.T) {
 	env := buildArtifactEnv(t)
 	project := mustCreateTestProject(t, context.Background(), env.pool, env.aliceOrgID, &env.aliceUserID, "artifact-attachments")
 
-	thread, err := env.threadRepo.Create(context.Background(), env.aliceOrgID, &env.aliceUserID, project.ID, nil, false)
+	thread, err := env.threadRepo.Create(context.Background(), env.aliceOrgID, &env.aliceUserID, project.ID, data.ThreadModeChat, nil, false)
 	if err != nil {
 		t.Fatalf("create thread: %v", err)
 	}
@@ -393,7 +393,7 @@ func TestArtifactsAuthorizationByBrowserSessionOwnerFallback(t *testing.T) {
 	env := buildArtifactEnv(t)
 	project := mustCreateTestProject(t, context.Background(), env.pool, env.aliceOrgID, &env.aliceUserID, "artifact-browser-session")
 
-	thread, err := env.threadRepo.Create(context.Background(), env.aliceOrgID, &env.aliceUserID, project.ID, nil, false)
+	thread, err := env.threadRepo.Create(context.Background(), env.aliceOrgID, &env.aliceUserID, project.ID, data.ThreadModeChat, nil, false)
 	if err != nil {
 		t.Fatalf("create thread: %v", err)
 	}

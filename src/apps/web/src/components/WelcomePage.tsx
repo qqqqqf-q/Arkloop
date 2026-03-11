@@ -143,7 +143,7 @@ export function WelcomePage() {
   const ensureDraftThread = useCallback((): Promise<ThreadResponse> => {
     if (draftThreadRef.current) return Promise.resolve(draftThreadRef.current)
     if (draftThreadPromiseRef.current) return draftThreadPromiseRef.current
-    const promise = createThread(accessToken, { title: t.newChatTitle, is_private: isPrivateMode })
+    const promise = createThread(accessToken, { title: t.newChatTitle, is_private: isPrivateMode, mode: 'chat' })
       .then((thread) => { draftThreadRef.current = thread; return thread })
     draftThreadPromiseRef.current = promise
     return promise
@@ -249,7 +249,7 @@ export function WelcomePage() {
       const title = deriveTitle(text, t.newChatTitle)
       const thread = draftThreadRef.current
         ? draftThreadRef.current
-        : await createThread(accessToken, { title, is_private: isPrivateMode })
+        : await createThread(accessToken, { title, is_private: isPrivateMode, mode: 'chat' })
       const uploaded = await Promise.all(
         attachments.map(async (attachment) => {
           if (attachment.uploaded) return attachment.uploaded

@@ -25,6 +25,7 @@ import (
 type createThreadRequest struct {
 	Title     *string      `json:"title"`
 	IsPrivate bool         `json:"is_private"`
+	Mode      *string      `json:"mode"`
 	ProjectID optionalUUID `json:"project_id"`
 }
 
@@ -37,6 +38,7 @@ type threadResponse struct {
 	ID              string  `json:"id"`
 	OrgID           string  `json:"org_id"`
 	CreatedByUserID *string `json:"created_by_user_id"`
+	Mode            string  `json:"mode"`
 	Title           *string `json:"title"`
 	ProjectID       *string `json:"project_id,omitempty"`
 	CreatedAt       string  `json:"created_at"`
@@ -140,6 +142,10 @@ func createThread(
 			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "request validation failed", traceID, nil)
 			return
 		}
+		mode, ok := parseThreadMode(w, traceID, body.Mode)
+		if !ok {
+			return
+		}
 		if body.ProjectID.Present && body.ProjectID.Value == nil {
 			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "request validation failed", traceID, nil)
 			return
@@ -184,7 +190,7 @@ func createThread(
 			projectID = project.ID
 		}
 
-		thread, err := txThreadRepo.Create(r.Context(), actor.OrgID, &actor.UserID, projectID, body.Title, body.IsPrivate)
+		thread, err := txThreadRepo.Create(r.Context(), actor.OrgID, &actor.UserID, projectID, mode, body.Title, body.IsPrivate)
 		if err != nil {
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
@@ -239,10 +245,16 @@ func listThreads(
 			return
 		}
 
+		mode, ok := parseThreadModeQuery(w, traceID, r.URL.Query().Get("mode"))
+		if !ok {
+			return
+		}
+
 		threads, err := threadRepo.ListByOwner(
 			r.Context(),
 			actor.OrgID,
 			actor.UserID,
+			mode,
 			limit,
 			beforeCreatedAt,
 			beforeID,
@@ -559,7 +571,12 @@ func searchThreads(
 			return
 		}
 
-		threads, err := threadRepo.SearchByQuery(r.Context(), actor.OrgID, actor.UserID, q, limit)
+		mode, ok := parseThreadModeQuery(w, traceID, r.URL.Query().Get("mode"))
+		if !ok {
+			return
+		}
+
+		threads, err := threadRepo.SearchByQuery(r.Context(), actor.OrgID, actor.UserID, mode, q, limit)
 		if err != nil {
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
@@ -854,6 +871,31 @@ func parseLimit(w nethttp.ResponseWriter, traceID string, raw string) (int, bool
 	return parsed, true
 }
 
+func parseThreadMode(w nethttp.ResponseWriter, traceID string, raw *string) (data.ThreadMode, bool) {
+	if raw == nil {
+		return data.ThreadModeChat, true
+	}
+	parsed := data.ThreadMode(strings.TrimSpace(*raw))
+	if !parsed.IsValid() {
+		httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "request validation failed", traceID, nil)
+		return "", false
+	}
+	return parsed, true
+}
+
+func parseThreadModeQuery(w nethttp.ResponseWriter, traceID string, raw string) (*data.ThreadMode, bool) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return nil, true
+	}
+	parsed := data.ThreadMode(trimmed)
+	if !parsed.IsValid() {
+		httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "request validation failed", traceID, nil)
+		return nil, false
+	}
+	return &parsed, true
+}
+
 func parseThreadCursor(
 	w nethttp.ResponseWriter,
 	traceID string,
@@ -1038,6 +1080,7 @@ func toThreadResponse(thread data.Thread) threadResponse {
 		ID:              thread.ID.String(),
 		OrgID:           thread.OrgID.String(),
 		CreatedByUserID: createdByUserID,
+		Mode:            string(thread.Mode),
 		Title:           thread.Title,
 		ProjectID:       projectID,
 		CreatedAt:       thread.CreatedAt.UTC().Format(time.RFC3339Nano),

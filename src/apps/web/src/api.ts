@@ -391,13 +391,17 @@ export async function logout(accessToken: string): Promise<LogoutResponse> {
 export type CreateThreadRequest = {
   title?: string
   is_private?: boolean
+  mode?: ThreadMode
   project_id?: string
 }
+
+export type ThreadMode = 'chat' | 'claw'
 
 export type ThreadResponse = {
   id: string
   org_id: string
   created_by_user_id: string
+  mode: ThreadMode
   title: string | null
   project_id: string
   created_at: string
@@ -431,6 +435,7 @@ export type ListThreadsRequest = {
   limit?: number
   before_created_at?: string
   before_id?: string
+  mode?: ThreadMode
 }
 
 export async function listThreads(
@@ -441,6 +446,7 @@ export async function listThreads(
   if (req?.limit) sp.set('limit', String(req.limit))
   if (req?.before_created_at) sp.set('before_created_at', req.before_created_at)
   if (req?.before_id) sp.set('before_id', req.before_id)
+  if (req?.mode) sp.set('mode', req.mode)
   const suffix = sp.toString() ? `?${sp.toString()}` : ''
   return await apiFetch<ThreadResponse[]>(`/v1/threads${suffix}`, {
     method: 'GET',
@@ -451,9 +457,11 @@ export async function listThreads(
 export async function searchThreads(
   accessToken: string,
   q: string,
+  mode?: ThreadMode,
   limit = 50,
 ): Promise<ThreadResponse[]> {
   const sp = new URLSearchParams({ q, limit: String(limit) })
+  if (mode) sp.set('mode', mode)
   return await apiFetch<ThreadResponse[]>(`/v1/threads/search?${sp.toString()}`, {
     method: 'GET',
     accessToken,
