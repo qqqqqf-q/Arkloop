@@ -9,11 +9,13 @@ export default defineConfig(({ mode }) => {
     env.ARKLOOP_API_PROXY_TARGET ??
     process.env.ARKLOOP_API_PROXY_TARGET ??
     'http://127.0.0.1:8001'
+  const consolePort = Number(env.ARKLOOP_CONSOLE_PORT ?? process.env.ARKLOOP_CONSOLE_PORT ?? '5174')
 
   return {
     plugins: [tailwindcss(), react()],
     server: {
-      port: 5174,
+      port: consolePort,
+      strictPort: true,
       proxy: {
         '/v1': {
           target: apiProxyTarget,

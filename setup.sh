@@ -575,7 +575,7 @@ wait_for_services() {
 }
 
 apply_runtime_env() {
-  local gateway_port pg_user pg_db pg_pass redis_pass console_upstream
+  local gateway_port pg_user pg_db pg_pass pg_port pgbouncer_port redis_pass redis_port web_port console_port console_lite_port console_upstream
   gateway_port="$(python_env_get ARKLOOP_GATEWAY_PORT)"
   [ -n "$gateway_port" ] || gateway_port="8000"
   pg_user="$(python_env_get ARKLOOP_POSTGRES_USER)"
@@ -583,14 +583,26 @@ apply_runtime_env() {
   pg_db="$(python_env_get ARKLOOP_POSTGRES_DB)"
   [ -n "$pg_db" ] || pg_db="arkloop"
   pg_pass="$(python_env_get ARKLOOP_POSTGRES_PASSWORD)"
+  pg_port="$(python_env_get ARKLOOP_POSTGRES_PORT)"
+  [ -n "$pg_port" ] || pg_port="5432"
+  pgbouncer_port="$(python_env_get ARKLOOP_PGBOUNCER_PORT)"
+  [ -n "$pgbouncer_port" ] || pgbouncer_port="5433"
   redis_pass="$(python_env_get ARKLOOP_REDIS_PASSWORD)"
+  redis_port="$(python_env_get ARKLOOP_REDIS_PORT)"
+  [ -n "$redis_port" ] || redis_port="6379"
+  web_port="$(python_env_get ARKLOOP_WEB_PORT)"
+  [ -n "$web_port" ] || web_port="5173"
+  console_port="$(python_env_get ARKLOOP_CONSOLE_PORT)"
+  [ -n "$console_port" ] || console_port="5174"
+  console_lite_port="$(python_env_get ARKLOOP_CONSOLE_LITE_PORT)"
+  [ -n "$console_lite_port" ] || console_lite_port="5175"
 
-  set_value DATABASE_URL "postgresql://${pg_user}:${pg_pass}@127.0.0.1:5432/${pg_db}"
-  set_value ARKLOOP_DATABASE_URL "postgresql://${pg_user}:${pg_pass}@127.0.0.1:5432/${pg_db}"
-  set_value ARKLOOP_PGBOUNCER_URL "postgresql://${pg_user}:${pg_pass}@127.0.0.1:5433/${pg_db}"
-  set_value ARKLOOP_REDIS_URL "redis://:${redis_pass}@127.0.0.1:6379/0"
-  set_value ARKLOOP_GATEWAY_REDIS_URL "redis://:${redis_pass}@127.0.0.1:6379/1"
-  set_if_empty ARKLOOP_GATEWAY_CORS_ALLOWED_ORIGINS "http://localhost:5173,http://localhost:5174,http://localhost:5175"
+  set_value DATABASE_URL "postgresql://${pg_user}:${pg_pass}@127.0.0.1:${pg_port}/${pg_db}"
+  set_value ARKLOOP_DATABASE_URL "postgresql://${pg_user}:${pg_pass}@127.0.0.1:${pg_port}/${pg_db}"
+  set_value ARKLOOP_PGBOUNCER_URL "postgresql://${pg_user}:${pg_pass}@127.0.0.1:${pgbouncer_port}/${pg_db}"
+  set_value ARKLOOP_REDIS_URL "redis://:${redis_pass}@127.0.0.1:${redis_port}/0"
+  set_value ARKLOOP_GATEWAY_REDIS_URL "redis://:${redis_pass}@127.0.0.1:${redis_port}/1"
+  set_if_empty ARKLOOP_GATEWAY_CORS_ALLOWED_ORIGINS "http://localhost:${web_port},http://localhost:${console_port},http://localhost:${console_lite_port}"
 
   case "$RESOLVED_CONSOLE" in
     lite) console_upstream="http://console-lite:80" ;;
