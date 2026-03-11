@@ -824,7 +824,7 @@ export function PersonasPage() {
               className="w-[112px] rounded-lg border border-[var(--c-border)] bg-[var(--c-bg-input)] px-3 py-1 text-xs text-[var(--c-text-primary)] outline-none transition-colors focus:border-[var(--c-border-focus)]"
             >
               <option value="platform">{tc.scopePlatform}</option>
-              <option value="org">{tc.scopeOrg}</option>
+              <option value="project">{tc.scopeProject}</option>
             </select>
             <button
               onClick={() => {

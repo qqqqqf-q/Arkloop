@@ -57,7 +57,7 @@ func RegisterTrackB(r *Registry) error {
 			Key:         "feature.byok_enabled",
 			Type:        TypeBool,
 			Default:     "true",
-			Description: "是否允许使用 org 级凭证（BYOK）",
+			Description: "是否允许使用用户级凭证（BYOK）",
 			Sensitive:   false,
 			Scope:       ScopeBoth,
 		},

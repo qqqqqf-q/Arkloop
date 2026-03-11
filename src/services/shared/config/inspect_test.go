@@ -20,11 +20,11 @@ func TestInspectShowsAllLayersWithEnvWinning(t *testing.T) {
 		t.Fatalf("register: %v", err)
 	}
 
-	orgID := uuid.New()
+	projectID := uuid.New()
 	store := &stubStore{
 		platform: map[string]string{"x.k": "platform"},
-		org: map[uuid.UUID]map[string]string{
-			orgID: {"x.k": "org"},
+		project: map[uuid.UUID]map[string]string{
+			projectID: {"x.k": "project"},
 		},
 	}
 
@@ -33,7 +33,7 @@ func TestInspectShowsAllLayersWithEnvWinning(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Unsetenv("ARKLOOP_TEST_INSPECT_X_K") })
 
-	inspection, err := Inspect(context.Background(), reg, store, "x.k", Scope{OrgID: &orgID})
+	inspection, err := Inspect(context.Background(), reg, store, "x.k", Scope{ProjectID: &projectID})
 	if err != nil {
 		t.Fatalf("inspect: %v", err)
 	}
@@ -43,8 +43,8 @@ func TestInspectShowsAllLayersWithEnvWinning(t *testing.T) {
 	if inspection.Layers.Env == nil || *inspection.Layers.Env != "env" {
 		t.Fatalf("unexpected env layer: %#v", inspection.Layers.Env)
 	}
-	if inspection.Layers.OrgDB == nil || *inspection.Layers.OrgDB != "org" {
-		t.Fatalf("unexpected org layer: %#v", inspection.Layers.OrgDB)
+	if inspection.Layers.ProjectDB == nil || *inspection.Layers.ProjectDB != "project" {
+		t.Fatalf("unexpected project layer: %#v", inspection.Layers.ProjectDB)
 	}
 	if inspection.Layers.PlatformDB == nil || *inspection.Layers.PlatformDB != "platform" {
 		t.Fatalf("unexpected platform layer: %#v", inspection.Layers.PlatformDB)
@@ -57,7 +57,7 @@ func TestInspectShowsAllLayersWithEnvWinning(t *testing.T) {
 	}
 }
 
-func TestInspectWithoutOrgScopeFallsBackToPlatformThenDefault(t *testing.T) {
+func TestInspectWithoutProjectScopeFallsBackToPlatformThenDefault(t *testing.T) {
 	reg := NewRegistry()
 	if err := reg.Register(Entry{
 		Key:     "x.k",
@@ -76,8 +76,8 @@ func TestInspectWithoutOrgScopeFallsBackToPlatformThenDefault(t *testing.T) {
 	if inspection.Effective.Source != "platform_db" || inspection.Effective.Value != "platform" {
 		t.Fatalf("unexpected effective: %#v", inspection.Effective)
 	}
-	if inspection.Layers.OrgDB != nil {
-		t.Fatalf("unexpected org layer: %#v", inspection.Layers.OrgDB)
+	if inspection.Layers.ProjectDB != nil {
+		t.Fatalf("unexpected project layer: %#v", inspection.Layers.ProjectDB)
 	}
 	if inspection.Layers.PlatformDB == nil || *inspection.Layers.PlatformDB != "platform" {
 		t.Fatalf("unexpected platform layer: %#v", inspection.Layers.PlatformDB)
@@ -102,7 +102,7 @@ func TestInspectWithoutDBValuesReturnsDefault(t *testing.T) {
 	if inspection.Effective.Source != "default" || inspection.Effective.Value != "def" {
 		t.Fatalf("unexpected effective: %#v", inspection.Effective)
 	}
-	if inspection.Layers.Env != nil || inspection.Layers.OrgDB != nil || inspection.Layers.PlatformDB != nil {
+	if inspection.Layers.Env != nil || inspection.Layers.ProjectDB != nil || inspection.Layers.PlatformDB != nil {
 		t.Fatalf("unexpected layers: %#v", inspection.Layers)
 	}
 }

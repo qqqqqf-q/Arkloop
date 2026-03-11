@@ -90,8 +90,22 @@ export interface LocaleStrings {
   otpVerifyBtn: string
   // common
   loading: string
+  projectSwitcherLabel: string
+  projectSwitcherLoading: string
+  projectSwitcherEmpty: string
   // pages
   pages: {
+    projects: {
+      title: string
+      refresh: string
+      currentLabel: string
+      currentHint: string
+      activeBadge: string
+      defaultBadge: string
+      noDescription: string
+      empty: string
+      loading: string
+    }
     credentials: {
       title: string
       addCredential: string
@@ -109,7 +123,7 @@ export interface LocaleStrings {
       modalTitle: string
       fieldScope: string
       scopePlatform: string
-      scopeOrg: string
+      scopeProject: string
       fieldName: string
       fieldProvider: string
       fieldApiKey: string
@@ -349,7 +363,7 @@ export interface LocaleStrings {
       fieldLastSyncedAt: string
       fieldScope: string
       scopePlatform: string
-      scopeOrg: string
+      scopeProject: string
       selectorMeta: (name: string, order: number) => string
       valuePlatformDefault: string
       valueNotSet: string

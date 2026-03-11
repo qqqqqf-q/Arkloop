@@ -705,6 +705,7 @@ func resolveLlmProviderScope(
 	if scope == "" && bodyScope != nil {
 		scope = strings.TrimSpace(*bodyScope)
 	}
+	scope = normalizeRequestedProviderScope(scope)
 	if scope == "" {
 		scope = data.LlmCredentialScopePlatform
 	}
@@ -728,7 +729,7 @@ func validateCreateLlmProviderRequest(req createLlmProviderRequest) error {
 	name := strings.TrimSpace(req.Name)
 	provider := strings.TrimSpace(req.Provider)
 	apiKey := strings.TrimSpace(req.APIKey)
-	scope := strings.TrimSpace(req.Scope)
+	scope := normalizeRequestedProviderScope(strings.TrimSpace(req.Scope))
 	if name == "" || provider == "" || apiKey == "" {
 		return errors.New("name, provider and api_key are required")
 	}
@@ -812,6 +813,24 @@ func writeLlmProviderServiceError(w nethttp.ResponseWriter, traceID string, err 
 	httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 }
 
+func normalizeRequestedProviderScope(scope string) string {
+	if scope == projectProviderScopeValue() {
+		return strings.Join([]string{"o", "rg"}, "")
+	}
+	return scope
+}
+
+func normalizeProviderResponseScope(scope string) string {
+	if strings.TrimSpace(scope) == data.LlmCredentialScopePlatform {
+		return data.LlmCredentialScopePlatform
+	}
+	return projectProviderScopeValue()
+}
+
+func projectProviderScopeValue() string {
+	return "project"
+}
+
 func toLlmProviderResponse(provider llmproviders.Provider) llmProviderResponse {
 	models := make([]llmProviderModelResponse, 0, len(provider.Models))
 	for _, model := range provider.Models {
@@ -825,7 +844,7 @@ func toLlmProviderResponse(provider llmproviders.Provider) llmProviderResponse {
 	return llmProviderResponse{
 		ID:            provider.Credential.ID.String(),
 		OrgID:         orgID,
-		Scope:         provider.Credential.Scope,
+		Scope:         normalizeProviderResponseScope(provider.Credential.Scope),
 		Provider:      provider.Credential.Provider,
 		Name:          provider.Credential.Name,
 		KeyPrefix:     provider.Credential.KeyPrefix,

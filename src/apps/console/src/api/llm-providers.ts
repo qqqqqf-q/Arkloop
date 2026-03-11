@@ -1,6 +1,6 @@
 import { apiFetch } from './client'
 
-export type LlmProviderScope = 'org' | 'platform'
+export type LlmProviderScope = 'project' | 'platform'
 
 function withScope(path: string, scope: LlmProviderScope): string {
 	const sep = path.includes('?') ? '&' : '?'
@@ -25,7 +25,6 @@ export type LlmProviderModel = {
 
 export type LlmProvider = {
   id: string
-  org_id?: string | null
   scope: LlmProviderScope
   provider: string
   name: string
@@ -36,6 +35,8 @@ export type LlmProvider = {
   created_at: string
   models: LlmProviderModel[]
 }
+
+type RawLlmProvider = Omit<LlmProvider, 'scope'> & Record<string, unknown> & { scope: string }
 
 export type AvailableModel = {
   id: string
@@ -93,8 +94,16 @@ export type UpdateProviderModelRequest = {
   cost_per_1k_cache_read?: number
 }
 
+function normalizeProvider(provider: RawLlmProvider): LlmProvider {
+  return {
+    ...provider,
+    scope: provider.scope === 'platform' ? 'platform' : 'project',
+  }
+}
+
 export async function listLlmProviders(accessToken: string, scope: LlmProviderScope): Promise<LlmProvider[]> {
-  return apiFetch<LlmProvider[]>(withScope('/v1/llm-providers', scope), { accessToken })
+  const providers = await apiFetch<RawLlmProvider[]>(withScope('/v1/llm-providers', scope), { accessToken })
+  return providers.map(normalizeProvider)
 }
 
 export async function createLlmProvider(
@@ -102,11 +111,12 @@ export async function createLlmProvider(
   accessToken: string,
 ): Promise<LlmProvider> {
   const scope = req.scope ?? 'platform'
-  return apiFetch<LlmProvider>(withScope('/v1/llm-providers', scope), {
+  const provider = await apiFetch<RawLlmProvider>(withScope('/v1/llm-providers', scope), {
     method: 'POST',
     body: JSON.stringify({ ...req, scope }),
     accessToken,
   })
+  return normalizeProvider(provider)
 }
 
 export async function updateLlmProvider(
@@ -115,11 +125,12 @@ export async function updateLlmProvider(
   accessToken: string,
 ): Promise<LlmProvider> {
   const scope = req.scope ?? 'platform'
-  return apiFetch<LlmProvider>(withScope(`/v1/llm-providers/${id}`, scope), {
+  const provider = await apiFetch<RawLlmProvider>(withScope(`/v1/llm-providers/${id}`, scope), {
     method: 'PATCH',
     body: JSON.stringify({ ...req, scope }),
     accessToken,
   })
+  return normalizeProvider(provider)
 }
 
 export async function deleteLlmProvider(

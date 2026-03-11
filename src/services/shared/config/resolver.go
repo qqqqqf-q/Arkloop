@@ -12,7 +12,7 @@ import (
 )
 
 type Scope struct {
-	OrgID *uuid.UUID
+	ProjectID *uuid.UUID
 }
 
 type Resolver interface {
@@ -69,13 +69,13 @@ func (r *ResolverImpl) ResolveWithSource(ctx context.Context, key string, scope 
 		return value, "env", nil
 	}
 
-	if scope.OrgID != nil && (entry.Scope == ScopeOrg || entry.Scope == ScopeBoth) {
-		val, found, err := r.getOrgSetting(ctx, *scope.OrgID, entry.Key)
+	if scope.ProjectID != nil && (entry.Scope == ScopeProject || entry.Scope == ScopeBoth) {
+		val, found, err := r.getProjectSetting(ctx, *scope.ProjectID, entry.Key)
 		if err != nil {
 			return "", "", err
 		}
 		if found {
-			return val, "org_db", nil
+			return val, "project_db", nil
 		}
 	}
 
@@ -120,8 +120,8 @@ func (r *ResolverImpl) Invalidate(ctx context.Context, key string, scope Scope) 
 		return nil
 	}
 
-	if scope.OrgID != nil {
-		return r.cache.Del(ctx, orgCacheKey(*scope.OrgID, key))
+	if scope.ProjectID != nil {
+		return r.cache.Del(ctx, projectCacheKey(*scope.ProjectID, key))
 	}
 	return r.cache.Del(ctx, platformCacheKey(key))
 }
@@ -158,15 +158,15 @@ func (r *ResolverImpl) getPlatformSetting(ctx context.Context, key string) (stri
 	return val, found, nil
 }
 
-func (r *ResolverImpl) getOrgSetting(ctx context.Context, orgID uuid.UUID, key string) (string, bool, error) {
+func (r *ResolverImpl) getProjectSetting(ctx context.Context, projectID uuid.UUID, key string) (string, bool, error) {
 	if r == nil || r.store == nil || r.cache == nil || r.cacheTTL <= 0 {
 		if r == nil || r.store == nil {
 			return "", false, nil
 		}
-		return r.store.GetOrgSetting(ctx, orgID, key)
+		return r.store.GetProjectSetting(ctx, projectID, key)
 	}
 
-	cacheKey := orgCacheKey(orgID, key)
+	cacheKey := projectCacheKey(projectID, key)
 	raw, err := r.cache.Get(ctx, cacheKey)
 	if err == nil && len(raw) > 0 {
 		var item cachedSetting
@@ -175,7 +175,7 @@ func (r *ResolverImpl) getOrgSetting(ctx context.Context, orgID uuid.UUID, key s
 		}
 	}
 
-	val, found, dbErr := r.store.GetOrgSetting(ctx, orgID, key)
+	val, found, dbErr := r.store.GetProjectSetting(ctx, projectID, key)
 	if dbErr != nil {
 		return "", false, dbErr
 	}
@@ -214,6 +214,6 @@ func platformCacheKey(key string) string {
 	return "arkloop:config:v1:platform:" + key
 }
 
-func orgCacheKey(orgID uuid.UUID, key string) string {
-	return "arkloop:config:v1:org:" + orgID.String() + ":" + key
+func projectCacheKey(projectID uuid.UUID, key string) string {
+	return "arkloop:config:v1:project:" + projectID.String() + ":" + key
 }

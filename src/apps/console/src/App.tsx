@@ -14,10 +14,8 @@ import { ToolsPage } from './pages/tools/ToolsPage'
 import { APIKeysPage } from './pages/api-keys/APIKeysPage'
 import { IPRulesPage } from './pages/ip-rules/IPRulesPage'
 import { CaptchaPage } from './pages/captcha/CaptchaPage'
-import { TeamsPage } from './pages/teams/TeamsPage'
 import { UsagePage } from './pages/usage/UsagePage'
 import { MyUsagePage } from './pages/my-usage/MyUsagePage'
-import { OrgsPage } from './pages/OrgsPage'
 import { UsersPage } from './pages/users/UsersPage'
 import { InviteCodesPage } from './pages/invite-codes/InviteCodesPage'
 import { RedemptionCodesPage } from './pages/redemption-codes/RedemptionCodesPage'
@@ -34,6 +32,8 @@ import { GatewayConfigPage } from './pages/gateway-config/GatewayConfigPage'
 import { ExecutionGovernancePage } from './pages/execution-governance/ExecutionGovernancePage'
 import { AccessLogPage } from './pages/access-log/AccessLogPage'
 import { EntitlementsPage } from './pages/entitlements/EntitlementsPage'
+import { ProjectsPage } from './pages/projects/ProjectsPage'
+import { ProjectProvider } from './contexts/ProjectContext'
 import {
   writeAccessTokenToStorage,
   clearAccessTokenFromStorage,
@@ -105,7 +105,11 @@ function App() {
   return (
     <Routes>
       <Route
-        element={<ConsoleLayout accessToken={accessToken} onLoggedOut={handleLoggedOut} />}
+        element={(
+          <ProjectProvider accessToken={accessToken}>
+            <ConsoleLayout accessToken={accessToken} onLoggedOut={handleLoggedOut} />
+          </ProjectProvider>
+        )}
       >
         <Route index element={<Navigate to="/dashboard" replace />} />
         {/* Operations */}
@@ -131,10 +135,8 @@ function App() {
         <Route path="captcha" element={<CaptchaPage />} />
         <Route path="gateway-config" element={<GatewayConfigPage />} />
         <Route path="access-log" element={<AccessLogPage />} />
-        {/* Organization */}
-        <Route path="members" element={<OrgsPage />} />
-        <Route path="teams" element={<TeamsPage />} />
-        <Route path="projects" element={<PlaceholderPage title="Projects" />} />
+        {/* Workspace */}
+        <Route path="projects" element={<ProjectsPage />} />
         {/* Billing */}
         <Route path="plans" element={<PlaceholderPage title="Plans" />} />
         <Route path="subscriptions" element={<PlaceholderPage title="Subscriptions" />} />
@@ -155,7 +157,8 @@ function App() {
         <Route path="tool-providers" element={<Navigate to="/tools" replace />} />
         <Route path="sandbox-config" element={<Navigate to="/tools" replace />} />
         <Route path="memory-config" element={<Navigate to="/tools" replace />} />
-        <Route path="orgs" element={<Navigate to="/members" replace />} />
+        <Route path="members" element={<Navigate to="/projects" replace />} />
+        <Route path="teams" element={<Navigate to="/projects" replace />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Route>
     </Routes>

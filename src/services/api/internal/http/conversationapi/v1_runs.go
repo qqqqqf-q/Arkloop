@@ -755,8 +755,7 @@ func submitRunInput(
 
 		limitBytes := 32768
 		if resolver != nil {
-			orgID := actor.OrgID
-			raw, err := resolver.Resolve(r.Context(), "limit.max_input_content_bytes", sharedconfig.Scope{OrgID: &orgID})
+			raw, err := resolver.Resolve(r.Context(), "limit.max_input_content_bytes", sharedconfig.Scope{})
 			if err == nil {
 				if v, err := strconv.Atoi(strings.TrimSpace(raw)); err == nil && v > 0 {
 					limitBytes = v

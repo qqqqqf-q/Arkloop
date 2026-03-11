@@ -1,6 +1,9 @@
 {
 	"private": true,
 	"packageManager": "pnpm@10.29.3",
+	"scripts": {
+		"guard:no-org": "node bin/check-no-org.mjs"
+	},
 	"pnpm": {
 		"onlyBuiltDependencies": [
 			"esbuild"

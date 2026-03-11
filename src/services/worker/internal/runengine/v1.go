@@ -245,10 +245,10 @@ func (e *EngineV1) Execute(ctx context.Context, pool *pgxpool.Pool, run data.Run
 	}
 
 	registry := sharedconfig.DefaultRegistry()
-	orgScope := sharedconfig.Scope{OrgID: &run.OrgID}
-	rc.ThreadMessageHistoryLimit = resolvePositiveInt(ctx, e.configResolver, registry, "limit.thread_message_history", orgScope, 200)
-	rc.AgentReasoningIterationsLimit = resolveNonNegativeInt(ctx, e.configResolver, registry, "limit.agent_reasoning_iterations", orgScope, 0)
-	rc.ToolContinuationBudgetLimit = resolvePositiveInt(ctx, e.configResolver, registry, "limit.tool_continuation_budget", orgScope, 32)
+	projectScope := sharedconfig.Scope{ProjectID: run.ProjectID}
+	rc.ThreadMessageHistoryLimit = resolvePositiveInt(ctx, e.configResolver, registry, "limit.thread_message_history", projectScope, 200)
+	rc.AgentReasoningIterationsLimit = resolveNonNegativeInt(ctx, e.configResolver, registry, "limit.agent_reasoning_iterations", projectScope, 0)
+	rc.ToolContinuationBudgetLimit = resolvePositiveInt(ctx, e.configResolver, registry, "limit.tool_continuation_budget", projectScope, 32)
 	rc.MaxParallelTasks = resolvePositiveInt(ctx, e.configResolver, registry, "limit.max_parallel_tasks", sharedconfig.Scope{}, 32)
 	rc.CreditPerUSD = resolvePositiveInt(ctx, e.configResolver, registry, "credit.per_usd", sharedconfig.Scope{}, 1000)
 	rc.LlmMaxResponseBytes = resolvePositiveInt(ctx, e.configResolver, registry, "llm.max_response_bytes", sharedconfig.Scope{}, 16384)

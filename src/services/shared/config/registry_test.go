@@ -158,7 +158,7 @@ func TestRegistryGet(t *testing.T) {
 		Key:     "db.host",
 		Type:    TypeString,
 		Default: "localhost",
-		Scope:   ScopeOrg,
+		Scope:   ScopeProject,
 	}
 	if err := reg.Register(e); err != nil {
 		t.Fatalf("register: %v", err)
@@ -210,7 +210,7 @@ func TestRegistryListByPrefix(t *testing.T) {
 	entries := []Entry{
 		{Key: "app.name", Type: TypeString, Default: "", Scope: ScopePlatform},
 		{Key: "app.version", Type: TypeString, Default: "", Scope: ScopePlatform},
-		{Key: "db.host", Type: TypeString, Default: "", Scope: ScopeOrg},
+		{Key: "db.host", Type: TypeString, Default: "", Scope: ScopeProject},
 	}
 	for _, e := range entries {
 		if err := reg.Register(e); err != nil {

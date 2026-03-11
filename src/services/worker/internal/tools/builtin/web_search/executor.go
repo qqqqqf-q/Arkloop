@@ -177,7 +177,7 @@ func (e *ToolExecutor) loadProvider(ctx context.Context, execCtx tools.Execution
 	if e.resolver == nil {
 		return nil, nil
 	}
-	scope := sharedconfig.Scope{OrgID: execCtx.OrgID}
+	scope := sharedconfig.Scope{ProjectID: execCtx.ProjectID}
 	m, err := e.resolver.ResolvePrefix(ctx, "web_search.", scope)
 	if err != nil {
 		return nil, err

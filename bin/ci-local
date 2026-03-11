@@ -147,7 +147,14 @@ run_integration() {
   done
 }
 
+run_guardrails() {
+  require_command node
+  log_section "Guardrails"
+  (cd "${ROOT_DIR}" && node bin/check-no-org.mjs)
+}
+
 run_quick() {
+  run_guardrails
   run_go_quick
   run_typescript_quick
 }

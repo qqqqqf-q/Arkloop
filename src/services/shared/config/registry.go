@@ -18,7 +18,7 @@ const (
 
 const (
 	ScopePlatform = "platform"
-	ScopeOrg      = "org"
+	ScopeProject  = "project"
 	ScopeBoth     = "both"
 )
 
@@ -64,7 +64,7 @@ func (r *Registry) Register(e Entry) error {
 	}
 
 	switch e.Scope {
-	case ScopePlatform, ScopeOrg, ScopeBoth:
+	case ScopePlatform, ScopeProject, ScopeBoth:
 	default:
 		return fmt.Errorf("config entry %q: unsupported scope %q", e.Key, e.Scope)
 	}

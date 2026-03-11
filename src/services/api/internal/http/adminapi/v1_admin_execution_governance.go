@@ -93,7 +93,7 @@ func adminExecutionGovernance(
 		}
 
 		store := sharedconfig.NewPGXStore(pool)
-		scope := sharedconfig.Scope{OrgID: orgID}
+		scope := sharedconfig.Scope{ProjectID: orgID}
 		resp := executionGovernanceResponse{
 			Limits:   make([]sharedconfig.SettingInspection, 0, len(executionGovernanceKeys)),
 			Personas: []executionGovernancePersona{},
