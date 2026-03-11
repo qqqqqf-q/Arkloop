@@ -185,6 +185,33 @@ describe('UserInputCard', () => {
       expect(nextBtn).toBeTruthy()
       expect(nextBtn!.disabled).toBe(true)
     })
+
+    it('double-click on single question submits directly', () => {
+      const onSubmit = vi.fn()
+      renderCard(singleQuestion, onSubmit)
+
+      const optionB = findRole('Option B')!
+      act(() => {
+        optionB.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
+      })
+
+      expect(onSubmit).toHaveBeenCalledTimes(1)
+      const response = onSubmit.mock.calls[0][0] as UserInputResponse
+      expect(response.answers.q1).toEqual({ type: 'option', value: 'b' })
+    })
+
+    it('double-click on multi-question advances to next step', () => {
+      renderCard(multiQuestion)
+
+      const optionY = findRole('Y')!
+      act(() => {
+        optionY.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
+      })
+
+      // should now show q2
+      expect(container.textContent).toContain('Second?')
+      expect(container.textContent).not.toContain('First?')
+    })
   })
 
   describe('dismiss', () => {

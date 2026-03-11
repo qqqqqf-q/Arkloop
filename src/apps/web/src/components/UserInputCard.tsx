@@ -109,6 +109,27 @@ export default function UserInputCard({ request, onSubmit, onDismiss, disabled }
     })
   }, [allAnswered, onSubmit, request.request_id, answers])
 
+  const handleOptionConfirm = useCallback((questionId: string, value: string) => {
+    const updated: Record<string, UserInputAnswer> = {
+      ...answers,
+      [questionId]: { type: 'option', value },
+    }
+    setAnswers(updated)
+    if (isMulti && !isLastQuestion) {
+      setActiveIdx((i) => i + 1)
+      return
+    }
+    let ready = true
+    for (const q of request.questions) {
+      const a = updated[q.id]
+      if (!a || (a.type === 'other' && !a.value.trim())) { ready = false; break }
+    }
+    if (ready) {
+      setSubmitting(true)
+      onSubmit({ type: 'user_input_response', request_id: request.request_id, answers: updated })
+    }
+  }, [answers, isMulti, isLastQuestion, request, onSubmit])
+
   const handleDismiss = useCallback(() => {
     if (submitting || disabled) return
     onDismiss()
@@ -179,6 +200,7 @@ export default function UserInputCard({ request, onSubmit, onDismiss, disabled }
           answer={answers[q.id]}
           otherText={otherTexts[q.id] ?? ''}
           onSelectOption={(v) => selectOption(q.id, v)}
+          onConfirmOption={(v) => handleOptionConfirm(q.id, v)}
           onSelectOther={() => selectOther(q.id)}
           onUpdateOther={(text) => updateOtherText(q.id, text)}
           onMoveOption={(v, d) => moveOption(q.id, v, d)}
@@ -187,12 +209,12 @@ export default function UserInputCard({ request, onSubmit, onDismiss, disabled }
         />
       ))}
 
-      <div className="flex items-center justify-end gap-2 pt-1">
+      <div className="flex items-center justify-end gap-1.5 pt-1">
         <button
           type="button"
           onClick={handleDismiss}
           disabled={submitting || disabled}
-          className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs transition-all cursor-pointer border-none bg-transparent"
+          className="flex items-center gap-1 rounded-full px-2 py-1 text-[11px] transition-all cursor-pointer border-none bg-transparent"
           style={{
             color: 'var(--c-text-tertiary)',
             opacity: submitting || disabled ? 0.4 : 1,
@@ -202,11 +224,13 @@ export default function UserInputCard({ request, onSubmit, onDismiss, disabled }
         >
           {t.userInput.dismiss}
           <kbd
-            className="inline-flex items-center rounded px-1 py-0.5 text-[10px] font-mono"
+            className="inline-flex items-center justify-center rounded-full px-1 text-[10px] font-mono leading-[18px]"
             style={{
               background: 'var(--c-bg-deep)',
               color: 'var(--c-text-muted)',
               border: '0.5px solid var(--c-border-subtle)',
+              minWidth: '28px',
+              height: '18px',
             }}
           >
             ESC
@@ -218,7 +242,7 @@ export default function UserInputCard({ request, onSubmit, onDismiss, disabled }
             type="button"
             onClick={handleNext}
             disabled={!currentAnswered || submitting || disabled}
-            className="rounded-full px-4 py-1.5 text-xs font-medium transition-opacity disabled:opacity-40 cursor-pointer border-none"
+            className="rounded-full px-3 py-1 text-[11px] font-medium transition-opacity disabled:opacity-40 cursor-pointer border-none"
             style={{ background: 'var(--c-text-secondary)', color: 'var(--c-bg-page)' }}
           >
             {t.userInput.next}
@@ -228,7 +252,7 @@ export default function UserInputCard({ request, onSubmit, onDismiss, disabled }
             type="button"
             onClick={handleSubmit}
             disabled={!allAnswered || submitting}
-            className="rounded-full px-4 py-1.5 text-xs font-medium transition-opacity disabled:opacity-40 cursor-pointer border-none"
+            className="rounded-full px-3 py-1 text-[11px] font-medium transition-opacity disabled:opacity-40 cursor-pointer border-none"
             style={{ background: 'var(--c-brand, #3b82f6)', color: '#fff' }}
           >
             {submitting ? t.userInput.submitting : t.userInput.submit}
@@ -247,6 +271,7 @@ interface QuestionBlockProps {
   answer?: UserInputAnswer
   otherText: string
   onSelectOption: (value: string) => void
+  onConfirmOption: (value: string) => void
   onSelectOther: () => void
   onUpdateOther: (text: string) => void
   onMoveOption: (value: string, direction: -1 | 1) => void
@@ -260,6 +285,7 @@ function QuestionBlock({
   answer,
   otherText,
   onSelectOption,
+  onConfirmOption,
   onSelectOther,
   onUpdateOther,
   onMoveOption,
@@ -267,17 +293,17 @@ function QuestionBlock({
   t,
 }: QuestionBlockProps) {
   return (
-    <div className="flex flex-col gap-2 px-1">
+    <div className="flex flex-col gap-2">
       {question.header && (
         <div
-          className="text-sm font-semibold"
+          className="text-sm font-semibold px-1"
           style={{ color: 'var(--c-text-heading)' }}
         >
           {question.header}
         </div>
       )}
       <div
-        className="text-sm"
+        className="text-sm px-1"
         style={{ color: 'var(--c-text-primary)' }}
       >
         {question.question}
@@ -295,6 +321,7 @@ function QuestionBlock({
               isFirst={idx === 0}
               isLast={idx === orderedOptions.length - 1}
               onSelect={() => onSelectOption(opt.value)}
+              onConfirm={() => onConfirmOption(opt.value)}
               onMoveUp={() => onMoveOption(opt.value, -1)}
               onMoveDown={() => onMoveOption(opt.value, 1)}
               t={t}
@@ -326,6 +353,7 @@ interface OptionRowProps {
   isFirst: boolean
   isLast: boolean
   onSelect: () => void
+  onConfirm: () => void
   onMoveUp: () => void
   onMoveDown: () => void
   t: ReturnType<typeof useLocale>['t']
@@ -339,6 +367,7 @@ function OptionRow({
   isFirst,
   isLast,
   onSelect,
+  onConfirm,
   onMoveUp,
   onMoveDown,
   t,
@@ -351,6 +380,7 @@ function OptionRow({
       role="button"
       tabIndex={0}
       onClick={() => !disabled && onSelect()}
+      onDoubleClick={() => !disabled && onConfirm()}
       onKeyDown={(e) => {
         if (disabled) return
         if (e.key === 'Enter' || e.key === ' ') {
@@ -360,7 +390,7 @@ function OptionRow({
       }}
       onMouseEnter={() => setRowHovered(true)}
       onMouseLeave={() => setRowHovered(false)}
-      className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer"
+      className="flex items-center gap-2 pl-1 pr-2 py-2 text-sm cursor-pointer"
       style={{
         background: selected
           ? 'var(--c-bg-card-hover)'
@@ -488,7 +518,7 @@ function OtherRow({ selected, text, disabled, onSelect, onUpdateText, t }: Other
       }}
       onMouseEnter={() => setRowHovered(true)}
       onMouseLeave={() => setRowHovered(false)}
-      className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer"
+      className="flex items-center gap-2 pl-1 pr-2 py-2 text-sm cursor-pointer"
       style={{
         background: selected
           ? 'var(--c-bg-card-hover)'
