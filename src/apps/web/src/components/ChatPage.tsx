@@ -2279,6 +2279,7 @@ export function ChatPage() {
             className="w-full max-w-[840px] px-4"
           >
             <UserInputCard
+              key={pendingUserInput.request_id}
               request={pendingUserInput}
               onSubmit={handleUserInputSubmit}
               onDismiss={handleUserInputDismiss}

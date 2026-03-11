@@ -7,6 +7,24 @@ import type {
   UserInputResponse,
 } from '../userInputTypes'
 
+function buildInitialAnswers(questions: UserInputRequest['questions']): Record<string, UserInputAnswer> {
+  const initial: Record<string, UserInputAnswer> = {}
+  for (const question of questions) {
+    const recommended = question.options.find((option) => option.recommended)
+    if (recommended) {
+      initial[question.id] = { type: 'option', value: recommended.value }
+    }
+  }
+  return initial
+}
+
+function isAnswerComplete(answer?: UserInputAnswer): boolean {
+  if (!answer) {
+    return false
+  }
+  return answer.type === 'option' || !!answer.value.trim()
+}
+
 interface Props {
   request: UserInputRequest
   onSubmit: (response: UserInputResponse) => void
@@ -18,24 +36,17 @@ export default function UserInputCard({ request, onSubmit, onDismiss, disabled }
   const { t } = useLocale()
   const isMulti = request.questions.length > 1
   const [activeIdx, setActiveIdx] = useState(0)
-  const [answers, setAnswers] = useState<Record<string, UserInputAnswer>>({})
+  const [answers, setAnswers] = useState<Record<string, UserInputAnswer>>(() => buildInitialAnswers(request.questions))
   const [otherTexts, setOtherTexts] = useState<Record<string, string>>({})
   const [submitting, setSubmitting] = useState(false)
   const [cardHovered, setCardHovered] = useState(false)
   const [hoveredOptIdx, setHoveredOptIdx] = useState<number | null>(null)
 
-  useEffect(() => {
-    const initial: Record<string, UserInputAnswer> = {}
-    for (const q of request.questions) {
-      const rec = q.options.find((o) => o.recommended)
-      if (rec) initial[q.id] = { type: 'option', value: rec.value }
-    }
-    setAnswers(initial)
-    setActiveIdx(0)
-  }, [request.questions])
-
   const currentQ = request.questions[activeIdx]
   const isLastQuestion = activeIdx === request.questions.length - 1
+  const currentAnswer = answers[currentQ.id]
+  const currentAnswered = isAnswerComplete(currentAnswer)
+  const allAnswered = request.questions.every((question) => isAnswerComplete(answers[question.id]))
 
   const doSubmit = useCallback((latestAnswers: Record<string, UserInputAnswer>) => {
     setSubmitting(true)
@@ -64,12 +75,25 @@ export default function UserInputCard({ request, onSubmit, onDismiss, disabled }
     onDismiss()
   }, [submitting, disabled, onDismiss])
 
+  const primaryEnabled = !submitting && !disabled && (allAnswered || (isMulti && !isLastQuestion && currentAnswered))
+
+  const handlePrimaryAction = useCallback(() => {
+    if (!primaryEnabled) {
+      return
+    }
+    if (isMulti && !isLastQuestion) {
+      setActiveIdx((index) => index + 1)
+      return
+    }
+    doSubmit(answers)
+  }, [answers, doSubmit, isLastQuestion, isMulti, primaryEnabled])
+
   const handleSelectOther = useCallback(() => {
     setAnswers((prev) => ({
       ...prev,
       [currentQ.id]: { type: 'other', value: otherTexts[currentQ.id] ?? '' },
     }))
-  }, [currentQ?.id, otherTexts])
+  }, [currentQ.id, otherTexts])
 
   const handleUpdateOther = useCallback((text: string) => {
     setOtherTexts((prev) => ({ ...prev, [currentQ.id]: text }))
@@ -77,18 +101,7 @@ export default function UserInputCard({ request, onSubmit, onDismiss, disabled }
       ...prev,
       [currentQ.id]: { type: 'other', value: text },
     }))
-  }, [currentQ?.id])
-
-  const handleOtherSubmit = useCallback(() => {
-    if (isMulti && !isLastQuestion) {
-      setActiveIdx((i) => i + 1)
-      return
-    }
-    const a = answers[currentQ?.id]
-    if (a?.type === 'other' && a.value.trim()) {
-      doSubmit(answers)
-    }
-  }, [isMulti, isLastQuestion, answers, currentQ?.id, doSubmit])
+  }, [currentQ.id])
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -98,9 +111,8 @@ export default function UserInputCard({ request, onSubmit, onDismiss, disabled }
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [handleDismiss])
 
-  const otherSelected = answers[currentQ?.id]?.type === 'other'
-  const otherText = otherTexts[currentQ?.id] ?? ''
-  const otherFilled = otherSelected && !!otherText.trim()
+  const otherSelected = answers[currentQ.id]?.type === 'other'
+  const otherText = otherTexts[currentQ.id] ?? ''
 
   // 卡片水平 padding，用于选项容器负 margin 延伸到边缘
   const CARD_H_PAD = 22
@@ -185,7 +197,7 @@ export default function UserInputCard({ request, onSubmit, onDismiss, disabled }
       */}
       <div
         className="flex flex-col"
-        style={{ marginLeft: `-${CARD_H_PAD}px`, marginRight: `-${CARD_H_PAD}px` }}
+        style={{ marginLeft: 0, marginRight: 0 }}
       >
         {currentQ.options.map((opt, idx) => {
           const selected = answers[currentQ.id]?.type === 'option' && answers[currentQ.id]?.value === opt.value
@@ -200,7 +212,6 @@ export default function UserInputCard({ request, onSubmit, onDismiss, disabled }
                 selected={selected}
                 disabled={submitting || !!disabled}
                 isHovered={isHovered}
-                hPad={CARD_H_PAD}
                 onHover={() => setHoveredOptIdx(idx)}
                 onHoverEnd={() => setHoveredOptIdx(null)}
                 onClick={() => handleOptionClick(currentQ.id, opt.value)}
@@ -238,7 +249,7 @@ export default function UserInputCard({ request, onSubmit, onDismiss, disabled }
             disabled={submitting || !!disabled}
             onSelect={handleSelectOther}
             onUpdateText={handleUpdateOther}
-            onSubmit={handleOtherSubmit}
+            onSubmit={handlePrimaryAction}
             t={t}
           />
         ) : (
@@ -246,18 +257,20 @@ export default function UserInputCard({ request, onSubmit, onDismiss, disabled }
         )}
 
         <div className="flex items-center gap-1.5 flex-shrink-0">
-          {otherFilled && (
-            <button
-              type="button"
-              onClick={handleOtherSubmit}
-              aria-label={t.userInput.submit}
-              data-testid="user-input-submit"
-              className="flex h-7 w-7 items-center justify-center rounded-lg border-none cursor-pointer transition-[background-color,color] duration-[60ms]"
-              style={{ background: 'var(--c-text-primary)', color: 'var(--c-bg-page)' }}
-            >
-              <ArrowRight size={13} />
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={handlePrimaryAction}
+            aria-label={t.userInput.submit}
+            data-testid="user-input-submit"
+            disabled={!primaryEnabled}
+            className="flex h-7 w-7 items-center justify-center rounded-lg border-none cursor-pointer transition-[background-color,color] duration-[60ms] disabled:opacity-30"
+            style={{
+              background: primaryEnabled ? 'var(--c-text-primary)' : 'var(--c-bg-deep)',
+              color: primaryEnabled ? 'var(--c-bg-page)' : 'var(--c-text-muted)',
+            }}
+          >
+            <ArrowRight size={13} />
+          </button>
           <button
             type="button"
             onClick={handleDismiss}
@@ -281,14 +294,14 @@ interface OptionRowProps {
   selected: boolean
   disabled: boolean
   isHovered: boolean
-  hPad: number
+
   onHover: () => void
   onHoverEnd: () => void
   onClick: () => void
   t: ReturnType<typeof useLocale>['t']
 }
 
-function OptionRow({ index, option, selected, disabled, isHovered, hPad, onHover, onHoverEnd, onClick, t }: OptionRowProps) {
+function OptionRow({ index, option, selected, disabled, isHovered, onHover, onHoverEnd, onClick, t }: OptionRowProps) {
   const [showTooltip, setShowTooltip] = useState(false)
 
   // badge 颜色策略（深色/浅色模式通用）：
@@ -298,17 +311,17 @@ function OptionRow({ index, option, selected, disabled, isHovered, hPad, onHover
   const badgeBg = selected
     ? 'var(--c-text-primary)'
     : isHovered && !disabled
-    ? 'var(--c-border-subtle)'
-    : 'var(--c-bg-deep)'
+      ? 'var(--c-border-subtle)'
+      : 'var(--c-bg-deep)'
 
   const badgeColor = selected
     ? 'var(--c-bg-page)'
     : isHovered && !disabled
-    ? 'var(--c-text-secondary)'
-    : 'var(--c-text-muted)'
+      ? 'var(--c-text-secondary)'
+      : 'var(--c-text-muted)'
 
-  // 行的水平 padding = 卡片原始 padding（抵消容器负 margin） + 8px 内缩呼吸感
-  const rowPx = hPad + 8
+  // 行的水平 padding：不再抵消负 margin，直接使用 8px 呼吸感
+  const rowPx = 8;
 
   return (
     <div
@@ -349,16 +362,14 @@ function OptionRow({ index, option, selected, disabled, isHovered, hPad, onHover
 
       <span className="flex-1 text-[14.5px] font-light" style={{ color: 'var(--c-text-primary)' }}>
         {option.label}
+        {option.recommended && (
+          <span className="ml-1.5 opacity-60 text-[13px]">
+            {t.userInput.recommended}
+          </span>
+        )}
       </span>
 
-      {option.recommended && (
-        <span
-          className="flex-shrink-0 rounded-full px-2 py-0.5 text-[10px] font-normal"
-          style={{ background: 'var(--c-bg-deep)', color: 'var(--c-text-tertiary)' }}
-        >
-          {t.userInput.recommended}
-        </span>
-      )}
+
 
       {option.description && (
         <span
