@@ -51,7 +51,6 @@
 | sandbox.idle_timeout_browser_s | int | platform | 120 | false | Sandbox browser tier 空闲超时（秒） |
 | sandbox.idle_timeout_lite_s | int | platform | 180 | false | Sandbox lite tier 空闲超时（秒） |
 | sandbox.idle_timeout_pro_s | int | platform | 300 | false | Sandbox pro tier 空闲超时（秒） |
-| sandbox.idle_timeout_ultra_s | int | platform | 600 | false | Sandbox ultra tier 空闲超时（秒） |
 | sandbox.max_lifetime_browser_s | int | platform | 600 | false | Sandbox browser tier 最大存活时间（秒） |
 | sandbox.max_lifetime_s | int | platform | 1800 | false | Sandbox session 最大存活时间（秒） |
 | sandbox.max_sessions | int | platform | 50 | false | Sandbox 最大并发 session 数 |
@@ -62,7 +61,6 @@
 | sandbox.warm_browser | int | platform | 1 | false | browser tier 预热实例数 |
 | sandbox.warm_lite | int | platform | 3 | false | lite tier 预热实例数 |
 | sandbox.warm_pro | int | platform | 2 | false | pro tier 预热实例数 |
-| sandbox.warm_ultra | int | platform | 1 | false | ultra tier 预热实例数 |
 | skills.market.skillsmp_api_key | string | platform |  | true | SkillsMP 官方市场 API Key |
 | skills.market.skillsmp_base_url | string | platform | https://skillsmp.com | false | SkillsMP 官方市场基础地址 |
 | skills.registry.api_base_url | string | platform |  | false | 官方技能 Registry API 基础地址，留空则沿用 Base URL |
