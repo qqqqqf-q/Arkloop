@@ -37,6 +37,7 @@ var (
 )
 
 const (
+	clawDefaultPersonaID        = "claw"
 	searchOutputModelKeyGPT5    = "gpt5"
 	searchOutputModelKeyClaude4 = "claude4"
 	searchOutputModelKeyGemini3 = "gemini3"
@@ -205,6 +206,11 @@ func createThreadRun(
 
 		if !authorizeThreadOrAudit(w, r, traceID, actor, "runs.create", thread, auditWriter) {
 			return
+		}
+		if thread.Mode == data.ThreadModeClaw {
+			if _, exists := startedData["persona_id"]; !exists {
+				startedData["persona_id"] = clawDefaultPersonaID
+			}
 		}
 		if outputRouteID == "" && outputModelKey != "" {
 			resolvedOutputRouteID, err := resolveSearchOutputRouteID(r.Context(), pool, thread, outputModelKey)

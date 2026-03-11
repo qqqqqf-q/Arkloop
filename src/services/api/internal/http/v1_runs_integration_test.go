@@ -587,6 +587,166 @@ func TestRunsCreateListGetCancelAndEnqueue(t *testing.T) {
 	}
 }
 
+func TestRunsCreateDefaultsClawPersonaForClawThreads(t *testing.T) {
+	db := setupTestDatabase(t, "api_go_runs_claw_default")
+
+	ctx := context.Background()
+	pool, err := data.NewPool(ctx, db.DSN, data.PoolLimits{MaxConns: 32, MinConns: 0})
+	if err != nil {
+		t.Fatalf("new pool: %v", err)
+	}
+	defer pool.Close()
+
+	logger := observability.NewJSONLogger("test", io.Discard)
+
+	passwordHasher, err := auth.NewBcryptPasswordHasher(0)
+	if err != nil {
+		t.Fatalf("new password hasher: %v", err)
+	}
+	tokenService, err := auth.NewJwtAccessTokenService("test-secret-should-be-long-enough-32chars", 3600, 2592000)
+	if err != nil {
+		t.Fatalf("new token service: %v", err)
+	}
+
+	userRepo, err := data.NewUserRepository(pool)
+	if err != nil {
+		t.Fatalf("new user repo: %v", err)
+	}
+	credentialRepo, err := data.NewUserCredentialRepository(pool)
+	if err != nil {
+		t.Fatalf("new credential repo: %v", err)
+	}
+	membershipRepo, err := data.NewOrgMembershipRepository(pool)
+	if err != nil {
+		t.Fatalf("new membership repo: %v", err)
+	}
+	refreshTokenRepo, err := data.NewRefreshTokenRepository(pool)
+	if err != nil {
+		t.Fatalf("new refresh token repo: %v", err)
+	}
+	auditRepo, err := data.NewAuditLogRepository(pool)
+	if err != nil {
+		t.Fatalf("new audit repo: %v", err)
+	}
+	threadRepo, err := data.NewThreadRepository(pool)
+	if err != nil {
+		t.Fatalf("new thread repo: %v", err)
+	}
+	projectRepo, err := data.NewProjectRepository(pool)
+	if err != nil {
+		t.Fatalf("new project repo: %v", err)
+	}
+	runRepo, err := data.NewRunEventRepository(pool)
+	if err != nil {
+		t.Fatalf("new run repo: %v", err)
+	}
+
+	authService, err := auth.NewService(userRepo, credentialRepo, membershipRepo, passwordHasher, tokenService, refreshTokenRepo, nil)
+	if err != nil {
+		t.Fatalf("new auth service: %v", err)
+	}
+	jobRepo, err := data.NewJobRepository(pool)
+	if err != nil {
+		t.Fatalf("new job repo: %v", err)
+	}
+	registrationService, err := auth.NewRegistrationService(pool, passwordHasher, tokenService, refreshTokenRepo, jobRepo)
+	if err != nil {
+		t.Fatalf("new registration service: %v", err)
+	}
+
+	auditWriter := audit.NewWriter(auditRepo, membershipRepo, logger)
+
+	handler := NewHandler(HandlerConfig{
+		Pool:                 pool,
+		Logger:               logger,
+		AuthService:          authService,
+		RegistrationService:  registrationService,
+		OrgMembershipRepo:    membershipRepo,
+		ThreadRepo:           threadRepo,
+		ProjectRepo:          projectRepo,
+		RunEventRepo:         runRepo,
+		AuditWriter:          auditWriter,
+		TrustIncomingTraceID: true,
+	})
+
+	aliceRegister := doJSON(
+		handler,
+		nethttp.MethodPost,
+		"/v1/auth/register",
+		map[string]any{"login": "alice", "password": "pwd12345", "email": "alice@test.com"},
+		nil,
+	)
+	if aliceRegister.Code != nethttp.StatusCreated {
+		t.Fatalf("unexpected register status: %d body=%s", aliceRegister.Code, aliceRegister.Body.String())
+	}
+	alice := decodeJSONBody[registerResponse](t, aliceRegister.Body.Bytes())
+	aliceHeaders := authHeader(alice.AccessToken)
+
+	chatThreadResp := doJSON(handler, nethttp.MethodPost, "/v1/threads", map[string]any{"title": "chat-thread"}, aliceHeaders)
+	if chatThreadResp.Code != nethttp.StatusCreated {
+		t.Fatalf("unexpected chat thread create status: %d body=%s", chatThreadResp.Code, chatThreadResp.Body.String())
+	}
+	chatThread := decodeJSONBody[threadResponse](t, chatThreadResp.Body.Bytes())
+
+	clawThreadResp := doJSON(handler, nethttp.MethodPost, "/v1/threads", map[string]any{"title": "claw-thread", "mode": "claw"}, aliceHeaders)
+	if clawThreadResp.Code != nethttp.StatusCreated {
+		t.Fatalf("unexpected claw thread create status: %d body=%s", clawThreadResp.Code, clawThreadResp.Body.String())
+	}
+	clawThread := decodeJSONBody[threadResponse](t, clawThreadResp.Body.Bytes())
+
+	loadStarted := func(runID string) map[string]any {
+		t.Helper()
+		var startedJSON []byte
+		if err := pool.QueryRow(ctx,
+			`SELECT data_json FROM run_events WHERE run_id = $1 AND type = 'run.started' LIMIT 1`,
+			uuid.MustParse(runID),
+		).Scan(&startedJSON); err != nil {
+			t.Fatalf("load started event: %v", err)
+		}
+		var startedData map[string]any
+		if err := json.Unmarshal(startedJSON, &startedData); err != nil {
+			t.Fatalf("decode started json: %v raw=%s", err, string(startedJSON))
+		}
+		return startedData
+	}
+
+	defaultClawRunResp := doJSON(handler, nethttp.MethodPost, "/v1/threads/"+clawThread.ID+"/runs", nil, aliceHeaders)
+	if defaultClawRunResp.Code != nethttp.StatusCreated {
+		t.Fatalf("unexpected default claw run create status: %d body=%s", defaultClawRunResp.Code, defaultClawRunResp.Body.String())
+	}
+	defaultClawRun := decodeJSONBody[createRunResponse](t, defaultClawRunResp.Body.Bytes())
+	defaultClawStarted := loadStarted(defaultClawRun.RunID)
+	if defaultClawStarted["persona_id"] != "claw" {
+		t.Fatalf("expected default claw persona_id, got %#v", defaultClawStarted)
+	}
+
+	overriddenClawRunResp := doJSON(
+		handler,
+		nethttp.MethodPost,
+		"/v1/threads/"+clawThread.ID+"/runs",
+		map[string]any{"persona_id": "normal"},
+		aliceHeaders,
+	)
+	if overriddenClawRunResp.Code != nethttp.StatusCreated {
+		t.Fatalf("unexpected overridden claw run create status: %d body=%s", overriddenClawRunResp.Code, overriddenClawRunResp.Body.String())
+	}
+	overriddenClawRun := decodeJSONBody[createRunResponse](t, overriddenClawRunResp.Body.Bytes())
+	overriddenClawStarted := loadStarted(overriddenClawRun.RunID)
+	if overriddenClawStarted["persona_id"] != "normal" {
+		t.Fatalf("expected explicit persona override preserved, got %#v", overriddenClawStarted)
+	}
+
+	chatRunResp := doJSON(handler, nethttp.MethodPost, "/v1/threads/"+chatThread.ID+"/runs", nil, aliceHeaders)
+	if chatRunResp.Code != nethttp.StatusCreated {
+		t.Fatalf("unexpected chat run create status: %d body=%s", chatRunResp.Code, chatRunResp.Body.String())
+	}
+	chatRun := decodeJSONBody[createRunResponse](t, chatRunResp.Body.Bytes())
+	chatStarted := loadStarted(chatRun.RunID)
+	if _, exists := chatStarted["persona_id"]; exists {
+		t.Fatalf("expected chat thread to keep empty persona_id, got %#v", chatStarted)
+	}
+}
+
 func TestStreamRunEvents(t *testing.T) {
 	db := setupTestDatabase(t, "api_go_sse")
 

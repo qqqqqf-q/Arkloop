@@ -619,6 +619,9 @@ func TestSelectablePersonasEffectiveForMemberUser(t *testing.T) {
 	if _, exists := byKey["org-custom"]; exists {
 		t.Fatal("expected org custom excluded from selectable list")
 	}
+	if _, exists := byKey["claw"]; exists {
+		t.Fatal("expected claw builtin excluded from selectable list")
+	}
 
 	normal, ok := byKey["normal"]
 	if !ok {

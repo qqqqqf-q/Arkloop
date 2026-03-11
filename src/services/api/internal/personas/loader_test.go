@@ -3,6 +3,7 @@ package personas
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -28,6 +29,16 @@ func TestBuiltinPersonasRootLoadsRepoPersonas(t *testing.T) {
 	}
 	if _, ok := seen["extended-search"]; !ok {
 		t.Fatal("expected extended-search persona loaded")
+	}
+	if claw, ok := seen["claw"]; !ok {
+		t.Fatal("expected claw persona loaded")
+	} else {
+		if claw.UserSelectable {
+			t.Fatal("expected claw persona hidden from selectors")
+		}
+		if strings.TrimSpace(claw.PromptMD) == "" {
+			t.Fatal("expected claw prompt md")
+		}
 	}
 }
 

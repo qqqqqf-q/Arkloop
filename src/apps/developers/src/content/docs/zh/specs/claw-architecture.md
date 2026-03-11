@@ -416,11 +416,17 @@ func ResolveProvider() string {
 
 - 新增 persona 记录 `claw`，配置：
   - `executor_type`: `agent.simple`（复用现有简单 agent 循环）
-  - `system_prompt`: 任务执行导向（强调自主决策、分步执行、进度汇报）
-  - `tool_allowlist`: 比 normal 更开放，包含 shell_execute、file 操作、browser 等
-  - `temperature`: 待调优
+  - `system_prompt`: 任务执行导向（强调自主决策、分步执行、进度汇报），参考 Anthropic cowork prompt 的骨架，但重写为 Arkloop 语境；删除所有 MCP / Claude / 不存在工具的描述
+  - `tool_allowlist`: `web_search`、`web_fetch`、`exec_command`、`write_stdin`、`python_execute`、`browser`、`document_write`、`memory_search`、`memory_read`、`conversation_search`、`spawn_agent`、`summarize_thread`、`timeline_title`
+  - `tool_denylist`: 空；但 Phase 1 不开放 `memory_write` / `memory_forget`
+  - `temperature`: `0.4`
+  - `max_output_tokens`: `12288`
+  - `tool_continuation_budget`: `128`
+- repo 资产落在 `src/personas/claw/`，作为 builtin persona 随服务启动自动加载
+- `user_selectable: false`，因此不出现在普通 Chat 的 persona selector 中
 - persona 的 tool budget 和 soft limits 需要独立配置（Claw 任务通常更长）
-- system prompt 中要求 Agent 在执行多步任务时调用 todo/plan 工具汇报进度
+- system prompt 中要求 Agent 在执行多步任务时持续更新 `timeline_title`，并在必要时先给出简短执行计划
+- API 默认绑定规则：`mode=claw` 的 thread 在创建 run 时，如果请求未显式传 `persona_id`，后端自动注入 `persona_id=claw`；若显式传入其他 persona，则保留调用方值用于调试/覆写
 
 #### 1.3 前端模式切换
 

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"arkloop/services/api/internal/auth"
+	"arkloop/services/api/internal/data"
 	"arkloop/services/shared/workspaceblob"
 	"github.com/google/uuid"
 )
