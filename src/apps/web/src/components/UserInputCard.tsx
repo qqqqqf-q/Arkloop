@@ -303,7 +303,7 @@ function QuestionBlock({
         </div>
       )}
       <div
-        className="text-sm px-1"
+        className="text-xs px-1"
         style={{ color: 'var(--c-text-primary)' }}
       >
         {question.question}
@@ -390,7 +390,7 @@ function OptionRow({
       }}
       onMouseEnter={() => setRowHovered(true)}
       onMouseLeave={() => setRowHovered(false)}
-      className="flex items-center gap-2 pl-1 pr-2 py-2 text-sm cursor-pointer"
+      className="flex items-center gap-1.5 pl-1 pr-2 py-1 text-xs cursor-pointer"
       style={{
         background: selected
           ? 'var(--c-bg-card-hover)'
@@ -400,14 +400,14 @@ function OptionRow({
         border: selected
           ? '0.5px solid var(--c-border-mid)'
           : '0.5px solid transparent',
-        borderRadius: '12px',
+        borderRadius: '10px',
         color: 'var(--c-text-primary)',
         opacity: disabled ? 0.5 : 1,
         transition: 'background 0.15s ease, border-color 0.15s ease',
       }}
     >
       <span
-        className="flex-shrink-0 text-xs font-mono w-5 text-right"
+        className="flex-shrink-0 text-[11px] font-mono w-4 text-right"
         style={{ color: 'var(--c-text-muted)' }}
       >
         {index + 1}.
@@ -518,7 +518,7 @@ function OtherRow({ selected, text, disabled, onSelect, onUpdateText, t }: Other
       }}
       onMouseEnter={() => setRowHovered(true)}
       onMouseLeave={() => setRowHovered(false)}
-      className="flex items-center gap-2 pl-1 pr-2 py-2 text-sm cursor-pointer"
+      className="flex items-center gap-1.5 pl-1 pr-2 py-1 text-xs cursor-pointer"
       style={{
         background: selected
           ? 'var(--c-bg-card-hover)'
@@ -528,14 +528,14 @@ function OtherRow({ selected, text, disabled, onSelect, onUpdateText, t }: Other
         border: selected
           ? '0.5px solid var(--c-border-mid)'
           : '0.5px solid transparent',
-        borderRadius: '12px',
+        borderRadius: '10px',
         color: 'var(--c-text-primary)',
         opacity: disabled ? 0.5 : 1,
         transition: 'background 0.15s ease, border-color 0.15s ease',
       }}
     >
       <span
-        className="flex-shrink-0 text-xs font-mono w-5 text-right"
+        className="flex-shrink-0 text-[11px] font-mono w-4 text-right"
         style={{ color: 'var(--c-text-muted)' }}
       >
         *
@@ -547,7 +547,7 @@ function OtherRow({ selected, text, disabled, onSelect, onUpdateText, t }: Other
         onClick={(e) => { e.stopPropagation(); onSelect() }}
         disabled={disabled}
         placeholder={t.userInput.otherPlaceholder}
-        className="flex-1 bg-transparent border-none outline-none text-sm"
+        className="flex-1 bg-transparent border-none outline-none text-xs"
         style={{
           color: 'var(--c-text-primary)',
           caretColor: 'var(--c-text-primary)',
