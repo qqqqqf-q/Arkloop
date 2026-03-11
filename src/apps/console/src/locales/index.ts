@@ -477,8 +477,11 @@ export interface LocaleStrings {
       title: string
       sectionMarket: string
       hint: string
+      fieldProvider: string
       fieldApiKey: string
       fieldBaseUrl: string
+      fieldApiBaseUrl: string
+      fieldApiBaseUrlHint: string
       fieldBaseUrlHint: string
       save: string
       toastLoadFailed: string

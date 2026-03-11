@@ -77,6 +77,9 @@ curl -s https://raw.githubusercontent.com/qqqqqf-q/Arkloop/refs/heads/main/docs/
 管理仪表板，用于用户管理、Persona 配置、LLM 凭证管理、用量分析、审计日志和功能开关。  
 （歪，我不允许自建 SaaS 的）  
 
+**8. ClawHub Registry**  
+支持从 ClawHub 搜索与导入技能，兼容 OpenClaw 的 `SKILL.md` 目录布局。导入时会同步上游安全扫描状态，并在 Web 端展示风险提示。
+
 ## 架构
 
 | 服务 | 技术栈 | 职责 |

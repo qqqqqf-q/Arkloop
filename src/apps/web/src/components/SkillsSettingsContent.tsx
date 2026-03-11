@@ -22,7 +22,7 @@ import {
   type SkillPackageResponse,
   type SkillReference,
   deleteSkill,
-  importSkillsMPSkill,
+  importMarketSkill,
   importSkillFromGitHub,
   importSkillFromUpload,
   installSkill,
@@ -38,6 +38,8 @@ type Props = {
   accessToken: string
 }
 
+type BrowseMode = 'registry' | 'local'
+
 type ViewSkill = {
   id: string
   skill_key: string
@@ -46,10 +48,17 @@ type ViewSkill = {
   description?: string
   detail_url?: string
   repository_url?: string
+  registry_provider?: string
+  registry_slug?: string
+  owner_handle?: string
   source: 'official' | 'custom' | 'github'
   updated_at?: string
   installed: boolean
   enabled_by_default: boolean
+  scan_status?: SkillPackageResponse['scan_status']
+  scan_has_warnings?: boolean
+  scan_summary?: string
+  moderation_verdict?: string
 }
 
 type CandidateState = {
@@ -81,58 +90,84 @@ function asSkillRef(item: InstalledSkill | SkillPackageResponse): SkillReference
   return { skill_key: item.skill_key, version: item.version }
 }
 
-function mergeSkills(installed: InstalledSkill[], defaults: InstalledSkill[], market: MarketSkill[], query: string, officialOnly: boolean): ViewSkill[] {
-  const defaultKeys = new Set(defaults.map((item) => `${item.skill_key}@${item.version}`))
+function buildSkillKey(skillKey?: string, version?: string, registrySlug?: string): string[] {
+  const keys: string[] = []
+  if (skillKey && version) keys.push(`${skillKey}@${version}`)
+  if (registrySlug && version) keys.push(`${registrySlug}@${version}`)
+  return keys
+}
+
+function matchesSkillQuery(item: ViewSkill, normalized: string): boolean {
+  if (!normalized) return true
+  return `${item.display_name} ${item.description ?? ''} ${item.skill_key} ${item.owner_handle ?? ''}`.toLowerCase().includes(normalized)
+}
+
+function mergeSkills(installed: InstalledSkill[], defaults: InstalledSkill[], market: MarketSkill[], query: string, browseMode: BrowseMode): ViewSkill[] {
+  const defaultKeys = new Set(defaults.flatMap((item) => buildSkillKey(item.skill_key, item.version, item.registry_slug)))
   const installedByKey = new Map(installed.map((item) => [item.skill_key, item]))
+  const installedByRegistrySlug = new Map(
+    installed
+      .filter((item) => item.registry_slug)
+      .map((item) => [item.registry_slug as string, item]),
+  )
   const normalized = query.trim().toLowerCase()
 
-  const installedViews = installed
-    .map<ViewSkill>((item) => ({
-      id: `installed:${item.skill_key}@${item.version}`,
+  const installedViews = installed.map<ViewSkill>((item) => ({
+    id: `installed:${item.skill_key}@${item.version}`,
+    skill_key: item.skill_key,
+    version: item.version,
+    display_name: item.display_name,
+    description: item.description ?? undefined,
+    detail_url: item.registry_detail_url,
+    repository_url: item.registry_source_url,
+    registry_provider: item.registry_provider,
+    registry_slug: item.registry_slug,
+    owner_handle: item.registry_owner_handle,
+    source: item.source ?? 'custom',
+    updated_at: item.updated_at,
+    installed: true,
+    enabled_by_default: buildSkillKey(item.skill_key, item.version, item.registry_slug).some((key) => defaultKeys.has(key)),
+    scan_status: item.scan_status,
+    scan_has_warnings: item.scan_has_warnings,
+    scan_summary: item.scan_summary,
+    moderation_verdict: item.moderation_verdict,
+  }))
+
+  const marketViews = market.map<ViewSkill>((item) => {
+    const installedItem = (item.registry_slug ? installedByRegistrySlug.get(item.registry_slug) : null) ?? installedByKey.get(item.skill_key)
+    return {
+      id: `market:${item.registry_slug ?? item.skill_key}`,
       skill_key: item.skill_key,
-      version: item.version,
-      display_name: item.display_name,
-      description: item.description ?? undefined,
-      source: item.source ?? 'custom',
-      updated_at: item.updated_at,
-      installed: true,
-      enabled_by_default: defaultKeys.has(`${item.skill_key}@${item.version}`),
-    }))
-    .filter((item) => {
-      if (officialOnly) return false
-      if (!normalized) return true
-      return `${item.display_name} ${item.description ?? ''} ${item.skill_key}`.toLowerCase().includes(normalized)
-    })
+      version: installedItem?.version ?? item.version,
+      display_name: installedItem?.display_name ?? item.display_name,
+      description: installedItem?.description ?? item.description ?? undefined,
+      detail_url: installedItem?.registry_detail_url ?? item.detail_url ?? undefined,
+      repository_url: installedItem?.registry_source_url ?? item.repository_url ?? undefined,
+      registry_provider: installedItem?.registry_provider ?? item.registry_provider,
+      registry_slug: installedItem?.registry_slug ?? item.registry_slug,
+      owner_handle: installedItem?.registry_owner_handle ?? item.owner_handle,
+      source: installedItem?.source ?? 'official',
+      updated_at: installedItem?.updated_at ?? item.updated_at ?? undefined,
+      installed: installedItem != null || item.installed,
+      enabled_by_default: installedItem != null
+        ? buildSkillKey(installedItem.skill_key, installedItem.version, installedItem.registry_slug).some((key) => defaultKeys.has(key))
+        : item.enabled_by_default,
+      scan_status: installedItem?.scan_status ?? item.scan_status,
+      scan_has_warnings: installedItem?.scan_has_warnings ?? item.scan_has_warnings,
+      scan_summary: installedItem?.scan_summary ?? item.scan_summary,
+      moderation_verdict: installedItem?.moderation_verdict ?? item.moderation_verdict,
+    }
+  })
 
-  const marketViews = market
-    .map<ViewSkill>((item) => {
-      const installedItem = installedByKey.get(item.skill_key)
-      return {
-        id: `market:${item.skill_key}`,
-        skill_key: item.skill_key,
-        version: installedItem?.version ?? item.version,
-        display_name: installedItem?.display_name ?? item.display_name,
-        description: installedItem?.description ?? item.description ?? undefined,
-        detail_url: item.detail_url ?? undefined,
-        repository_url: item.repository_url ?? undefined,
-        source: 'official',
-        updated_at: item.updated_at ?? undefined,
-        installed: installedItem != null || item.installed,
-        enabled_by_default: installedItem != null
-          ? defaultKeys.has(`${installedItem.skill_key}@${installedItem.version}`)
-          : item.enabled_by_default,
-      }
-    })
-    .filter((item) => officialOnly || !installedByKey.has(item.skill_key) || normalized.length > 0)
-
-  return [...installedViews, ...marketViews]
+  const sourceItems = browseMode === 'local' ? installedViews : marketViews
+  return sourceItems.filter((item) => matchesSkillQuery(item, normalized))
 }
 
 export function SkillsSettingsContent({ accessToken }: Props) {
   const { t, locale } = useLocale()
   const skillText = t.skills
   const [query, setQuery] = useState('')
-  const [officialOnly, setOfficialOnly] = useState(false)
+  const [browseMode, setBrowseMode] = useState<BrowseMode>('local')
   const [showAddMenu, setShowAddMenu] = useState(false)
   const [menuSkillId, setMenuSkillId] = useState<string | null>(null)
   const [installedSkills, setInstalledSkills] = useState<InstalledSkill[]>([])
@@ -181,26 +216,40 @@ export function SkillsSettingsContent({ accessToken }: Props) {
   }, [refreshInstalled, skillText.loadFailed])
 
   useEffect(() => {
+    if (browseMode !== 'registry') {
+      setMarketLoading(false)
+      setOfficialDisabled(false)
+      return
+    }
     const timer = window.setTimeout(async () => {
       setMarketLoading(true)
       try {
-        const items = await searchMarketSkills(accessToken, query, officialOnly)
+        const items = await searchMarketSkills(accessToken, query, true)
         setMarketSkills(items)
         setOfficialDisabled(false)
+        if (query.trim()) {
+          setError('')
+        }
       } catch (err) {
         const apiErr = isApiError(err) ? err : null
         if (apiErr?.status === 503 || apiErr?.code === 'skills.market.not_configured') {
           setOfficialDisabled(true)
           setMarketSkills([])
+          setError(skillText.officialUnconfigured)
         } else {
           setMarketSkills([])
+          setError(apiErr?.message || skillText.officialSearchFailed)
         }
       } finally {
         setMarketLoading(false)
       }
-    }, query.trim() ? 240 : 0)
+    }, query.trim() ? 160 : 0)
     return () => window.clearTimeout(timer)
-  }, [accessToken, officialOnly, query])
+  }, [accessToken, browseMode, query, skillText.officialSearchFailed, skillText.officialUnconfigured])
+
+  useEffect(() => {
+    setError('')
+  }, [browseMode])
 
   useEffect(() => {
     const handler = (event: MouseEvent) => {
@@ -217,8 +266,8 @@ export function SkillsSettingsContent({ accessToken }: Props) {
   }, [])
 
   const items = useMemo(
-    () => mergeSkills(installedSkills, defaultSkills, marketSkills, query, officialOnly),
-    [defaultSkills, installedSkills, marketSkills, officialOnly, query],
+    () => mergeSkills(installedSkills, defaultSkills, marketSkills, query, browseMode),
+    [browseMode, defaultSkills, installedSkills, marketSkills, query],
   )
 
   const syncDefaultSkills = useCallback(async (updater: (current: SkillReference[]) => SkillReference[]) => {
@@ -228,6 +277,12 @@ export function SkillsSettingsContent({ accessToken }: Props) {
     setDefaultSkills(updated)
     return updated
   }, [accessToken, defaultSkills])
+
+  const shouldConfirmRisk = useCallback((skill: { display_name: string; scan_status?: SkillPackageResponse['scan_status']; scan_summary?: string; scan_has_warnings?: boolean }) => {
+    const status = skill.scan_status ?? (skill.scan_has_warnings ? 'suspicious' : 'unknown')
+    if (status !== 'suspicious' && status !== 'malicious') return true
+    return window.confirm(skillText.riskConfirm(skill.display_name, skillText.scanStatusLabel(status), skill.scan_summary))
+  }, [skillText])
 
   const ensureInstalledAndDefault = useCallback(async (skill: SkillPackageResponse) => {
     const exists = installedSkills.some((item) => item.skill_key === skill.skill_key && item.version === skill.version)
@@ -243,27 +298,32 @@ export function SkillsSettingsContent({ accessToken }: Props) {
     setError('')
     try {
       if (item.installed && item.version) {
-        await syncDefaultSkills((current) => [...current, { skill_key: item.skill_key, version: item.version! }])
+        const version = item.version
+        if (!shouldConfirmRisk(item)) return
+        await syncDefaultSkills((current) => [...current, { skill_key: item.skill_key, version }])
         await refreshInstalled()
         return
       }
-      const imported = await importSkillsMPSkill(accessToken, {
+      const imported = await importMarketSkill(accessToken, {
+        slug: item.registry_slug ?? item.skill_key,
+        version: item.version,
         skill_key: item.skill_key,
-        detail_url: item.detail_url ?? '',
+        detail_url: item.detail_url,
         repository_url: item.repository_url,
       })
+      if (!shouldConfirmRisk(imported)) return
       await ensureInstalledAndDefault(imported)
     } catch (err) {
       const apiErr = isApiError(err) ? err : null
       if (apiErr?.code === 'skills.market.repository_missing') {
         setError(skillText.repositoryMissing)
       } else {
-        setError(skillText.importFailed)
+        setError(apiErr?.message || skillText.importFailed)
       }
     } finally {
       setBusySkillId(null)
     }
-  }, [accessToken, ensureInstalledAndDefault, refreshInstalled, skillText.importFailed, skillText.repositoryMissing, syncDefaultSkills])
+  }, [accessToken, ensureInstalledAndDefault, refreshInstalled, shouldConfirmRisk, skillText.importFailed, skillText.repositoryMissing, syncDefaultSkills])
 
   const handleRemove = useCallback(async (item: ViewSkill) => {
     if (!item.version) return
@@ -318,7 +378,7 @@ export function SkillsSettingsContent({ accessToken }: Props) {
     } finally {
       setImporting(false)
     }
-  }, [accessToken, ensureInstalledAndDefault, githubRef, githubUrl, skillText.importFailed])
+  }, [accessToken, ensureInstalledAndDefault, githubRef, githubUrl, skillText.githubInvalidUrl, skillText.githubSkillNotFound, skillText.importFailed])
 
   const handleUploadImport = useCallback(async () => {
     if (!file) return
@@ -345,11 +405,77 @@ export function SkillsSettingsContent({ accessToken }: Props) {
 
   const active = (item: ViewSkill) => item.installed && item.enabled_by_default
 
+  const scanStatusBadge = useCallback((item: ViewSkill) => {
+    const status = item.scan_status ?? (item.scan_has_warnings ? 'suspicious' : 'unknown')
+    if (status === 'unknown' && !item.scan_summary && !item.scan_has_warnings) return null
+    if (status === 'clean') {
+      return {
+        label: skillText.scanStatusLabel(status),
+        style: { background: 'var(--c-status-ok-bg,#f0fdf4)', color: 'var(--c-status-ok-text,#15803d)' },
+      }
+    }
+    if (status === 'suspicious') {
+      return {
+        label: skillText.scanStatusLabel(status),
+        style: { background: 'rgba(245, 158, 11, 0.12)', color: '#b45309' },
+      }
+    }
+    if (status === 'malicious') {
+      return {
+        label: skillText.scanStatusLabel(status),
+        style: { background: 'rgba(239, 68, 68, 0.12)', color: '#b91c1c' },
+      }
+    }
+    return {
+      label: skillText.scanStatusLabel(status),
+      style: { background: 'var(--c-bg-deep)', color: 'var(--c-text-tertiary)' },
+    }
+  }, [skillText])
+
   return (
     <div className="flex flex-col gap-4">
-      {/* 搜索 + 筛选 + 添加 */}
-      <div className="flex items-center gap-2">
-        <div className="relative flex-1">
+      {/* 切换 + 搜索 + 添加 */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div
+          className="relative shrink-0"
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+            padding: '2px',
+            borderRadius: '10px',
+            background: 'var(--c-bg-deep)',
+            minWidth: '168px',
+          }}
+        >
+          <div
+            aria-hidden
+            className="pointer-events-none absolute left-[2px] top-[2px] h-8 rounded-lg"
+            style={{
+              width: 'calc((100% - 4px) / 2)',
+              background: 'var(--c-bg-page)',
+              border: '0.5px solid var(--c-border-subtle)',
+              transition: 'transform 180ms cubic-bezier(0.16, 1, 0.3, 1)',
+              transform: browseMode === 'registry' ? 'translateX(0)' : 'translateX(100%)',
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => setBrowseMode('registry')}
+            className="relative z-[1] flex h-8 items-center justify-center rounded-lg px-3 text-sm transition-colors"
+            style={{ color: browseMode === 'registry' ? 'var(--c-text-heading)' : 'var(--c-text-tertiary)' }}
+          >
+            {skillText.registryTab}
+          </button>
+          <button
+            type="button"
+            onClick={() => setBrowseMode('local')}
+            className="relative z-[1] flex h-8 items-center justify-center rounded-lg px-3 text-sm transition-colors"
+            style={{ color: browseMode === 'local' ? 'var(--c-text-heading)' : 'var(--c-text-tertiary)' }}
+          >
+            {skillText.localTab}
+          </button>
+        </div>
+        <div className="relative min-w-[220px] flex-1">
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--c-text-tertiary)]" />
           <input
             ref={searchInputRef}
@@ -359,24 +485,10 @@ export function SkillsSettingsContent({ accessToken }: Props) {
             className="h-9 w-full rounded-lg pl-9 pr-3 text-sm text-[var(--c-text-heading)] outline-none placeholder:text-[var(--c-text-tertiary)]"
             style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-page)' }}
           />
-          {marketLoading && (
+          {browseMode === 'registry' && marketLoading && (
             <Loader2 size={14} className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-[var(--c-text-tertiary)]" />
           )}
         </div>
-        <button
-          type="button"
-          onClick={() => setOfficialOnly((v) => !v)}
-          className="flex h-9 shrink-0 items-center gap-1.5 rounded-lg px-3 text-sm transition-colors"
-          style={{
-            border: '0.5px solid var(--c-border-subtle)',
-            background: officialOnly ? 'var(--c-btn-bg)' : 'var(--c-bg-page)',
-            color: officialOnly ? 'var(--c-btn-text)' : 'var(--c-text-secondary)',
-            fontWeight: officialOnly ? 500 : 400,
-          }}
-        >
-          <ShieldCheck size={14} />
-          {skillText.officialOnlyShort}
-        </button>
         <div className="relative" ref={addMenuRef}>
           <button
             type="button"
@@ -402,14 +514,14 @@ export function SkillsSettingsContent({ accessToken }: Props) {
             >
               <DropdownAction icon={<Sparkles size={14} />} label={skillText.createWithArkloop} disabled onClick={() => {}} />
               <DropdownAction icon={<Upload size={14} />} label={skillText.addFromUpload} onClick={() => { setShowAddMenu(false); setUploadOpen(true) }} />
-              <DropdownAction icon={<ShieldCheck size={14} />} label={skillText.addFromSkillsmp} onClick={() => { setShowAddMenu(false); setOfficialOnly(true); searchInputRef.current?.focus() }} />
+              <DropdownAction icon={<ShieldCheck size={14} />} label={skillText.addFromSkillsmp} onClick={() => { setShowAddMenu(false); setBrowseMode('registry'); searchInputRef.current?.focus() }} />
               <DropdownAction icon={<Github size={14} />} label={skillText.addFromGitHub} onClick={() => { setShowAddMenu(false); setGitHubOpen(true) }} />
             </div>
           )}
         </div>
       </div>
 
-      {officialDisabled && (
+      {browseMode === 'registry' && officialDisabled && (
         <p className="text-xs text-[var(--c-text-tertiary)]">{skillText.officialUnconfigured}</p>
       )}
       {error && (
@@ -432,21 +544,28 @@ export function SkillsSettingsContent({ accessToken }: Props) {
             style={{ border: '0.5px solid var(--c-border-subtle)' }}
           >
             <span className="text-sm font-medium text-[var(--c-text-heading)]">{skillText.emptyTitle}</span>
-            <span className="text-xs text-[var(--c-text-tertiary)]">{skillText.emptyDesc}</span>
+            <span className="text-xs text-[var(--c-text-tertiary)]">{browseMode === 'local' ? skillText.emptyBodyNoMarket : skillText.emptyDesc}</span>
           </div>
         ) : (
           <div className="flex flex-col gap-2">
             {items.map((item) => {
               const busy = busySkillId === item.id
               const enabled = active(item)
+              const scanBadge = scanStatusBadge(item)
+              const providerLabel = item.registry_provider?.trim().toLowerCase() === 'clawhub'
+                ? 'ClawHub'
+                : item.registry_provider?.trim() || (item.source === 'official' ? skillText.sourceOfficial : '')
+              const metaParts = [providerLabel, item.owner_handle ? `@${item.owner_handle}` : '', item.version ? `v${item.version}` : '']
+                .filter(Boolean)
+                .join(' · ')
               return (
                 <div
                   key={item.id}
                   className="flex items-start gap-3 rounded-xl p-3"
                   style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-menu)' }}
                 >
-                  <div className="flex min-w-0 flex-1 flex-col gap-1">
-                    <div className="flex items-center gap-2">
+                  <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+                    <div className="flex flex-wrap items-center gap-2">
                       <span className="truncate text-sm font-medium text-[var(--c-text-heading)]">
                         {item.display_name}
                       </span>
@@ -455,7 +574,7 @@ export function SkillsSettingsContent({ accessToken }: Props) {
                           className="shrink-0 rounded px-1.5 py-px text-[10px] font-medium leading-tight"
                           style={{ background: 'var(--c-pro-bg)', color: '#6ba3f6' }}
                         >
-                          {skillText.sourceOfficial}
+                          {providerLabel}
                         </span>
                       )}
                       {item.source === 'github' && (
@@ -467,6 +586,14 @@ export function SkillsSettingsContent({ accessToken }: Props) {
                           {skillText.sourceGitHub}
                         </span>
                       )}
+                      {scanBadge && (
+                        <span
+                          className="shrink-0 rounded px-1.5 py-px text-[10px] font-medium leading-tight"
+                          style={scanBadge.style}
+                        >
+                          {scanBadge.label}
+                        </span>
+                      )}
                       {enabled && (
                         <span
                           className="shrink-0 rounded px-1.5 py-px text-[10px] font-medium leading-tight"
@@ -476,13 +603,17 @@ export function SkillsSettingsContent({ accessToken }: Props) {
                         </span>
                       )}
                     </div>
-                    <span className="line-clamp-1 text-xs text-[var(--c-text-tertiary)]">
+                    <span className="line-clamp-2 text-xs text-[var(--c-text-tertiary)]">
                       {item.description ?? item.skill_key}
                     </span>
-                    {item.updated_at && (
-                      <span className="text-[10px] text-[var(--c-text-muted)]">
-                        {skillText.updatedAt(formatDate(item.updated_at, locale))}
-                      </span>
+                    {metaParts && (
+                      <span className="text-[10px] text-[var(--c-text-muted)]">{metaParts}</span>
+                    )}
+                    {(item.scan_summary || item.updated_at) && (
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-[var(--c-text-muted)]">
+                        {item.scan_summary && <span className="line-clamp-2">{item.scan_summary}</span>}
+                        {item.updated_at && <span>{skillText.updatedAt(formatDate(item.updated_at, locale))}</span>}
+                      </div>
                     )}
                   </div>
 

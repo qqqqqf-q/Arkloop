@@ -74,6 +74,9 @@ Integrates with OpenAI, Anthropic, and any OpenAI-compatible provider. Smart ret
 **7. Enterprise Console**
 Admin dashboard for user management, persona configuration, LLM credential management, usage analytics, audit logs, and feature flags.
 
+**8. ClawHub Registry**  
+Search and import skills from ClawHub, with compatibility for OpenClaw skill folders and `SKILL.md` layouts. Arkloop syncs upstream security scan status during import and surfaces risk warnings in the Web UI.
+
 ## Architecture
 
 | Service | Stack | Role |
