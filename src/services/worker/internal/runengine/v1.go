@@ -206,6 +206,9 @@ func (e *EngineV1) Execute(ctx context.Context, pool *pgxpool.Pool, run data.Run
 		return fmt.Errorf("resolve environment bindings: %w", err)
 	}
 	run = resolvedRun
+	if err := markSubAgentRunning(ctx, pool, run.ID); err != nil {
+		return fmt.Errorf("mark sub_agent running: %w", err)
+	}
 
 	traceID := strings.TrimSpace(input.TraceID)
 

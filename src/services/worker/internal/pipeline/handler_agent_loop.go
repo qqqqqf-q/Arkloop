@@ -336,6 +336,16 @@ func (w *eventWriter) Append(
 		}); err != nil {
 			return err
 		}
+		var lastError *string
+		if status != data.SubAgentStatusCompleted {
+			message := terminalStatusMessage(ev.DataJSON)
+			if message != "" {
+				lastError = &message
+			}
+		}
+		if err := (data.SubAgentRepository{}).TransitionToTerminal(ctx, w.tx, runID, status, lastError); err != nil {
+			return err
+		}
 		if err := w.usageRepo.Insert(ctx, w.tx, w.run.OrgID, runID, w.model,
 			w.totalInputTokens, w.totalOutputTokens,
 			w.totalCacheCreationTokens, w.totalCacheReadTokens, w.totalCachedTokens,

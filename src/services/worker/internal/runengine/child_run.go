@@ -83,6 +83,27 @@ func createAndEnqueueChildRun(
 		return fmt.Errorf("parent run project_id must not be empty")
 	}
 
+	runsRepo := data.RunsRepository{}
+	subAgentsRepo := data.SubAgentRepository{}
+	lineage, err := runsRepo.GetLineage(ctx, tx, parentRun.ID)
+	if err != nil {
+		return fmt.Errorf("load parent run lineage: %w", err)
+	}
+	createdSubAgent, err := subAgentsRepo.Create(ctx, tx, data.SubAgentCreateParams{
+		OrgID:          parentRun.OrgID,
+		ParentRunID:    parentRun.ID,
+		ParentThreadID: parentRun.ThreadID,
+		RootRunID:      lineage.RootRunID,
+		RootThreadID:   lineage.RootThreadID,
+		Depth:          lineage.Depth + 1,
+		PersonaID:      stringPtr(personaID),
+		SourceType:     data.SubAgentSourceTypeThreadSpawn,
+		ContextMode:    data.SubAgentContextModeIsolated,
+	})
+	if err != nil {
+		return fmt.Errorf("create sub_agent: %w", err)
+	}
+
 	// 创建独立临时线程，避免污染父 Run 的 thread 历史
 	var childThreadID uuid.UUID
 	if err := tx.QueryRow(ctx,
@@ -138,6 +159,9 @@ func createAndEnqueueChildRun(
 	); err != nil {
 		return fmt.Errorf("insert run.started: %w", err)
 	}
+	if err := subAgentsRepo.TransitionToQueued(ctx, tx, createdSubAgent.ID, childRunID); err != nil {
+		return fmt.Errorf("mark sub_agent queued: %w", err)
+	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return err
@@ -185,6 +209,11 @@ func markChildRunFailed(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Clie
 	); err != nil {
 		return
 	}
+	subAgentsRepo := data.SubAgentRepository{}
+	message := "failed to enqueue child run job"
+	if err := subAgentsRepo.TransitionToTerminal(ctx, tx, childRunID, data.SubAgentStatusFailed, &message); err != nil {
+		return
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return
 	}
@@ -210,4 +239,31 @@ func parseChildRunResult(payload string) (string, error) {
 		return "", fmt.Errorf("child run ended with status: %s", status)
 	}
 	return output, nil
+}
+
+func markSubAgentRunning(ctx context.Context, pool *pgxpool.Pool, runID uuid.UUID) error {
+	if pool == nil {
+		return fmt.Errorf("pool must not be nil")
+	}
+	if runID == uuid.Nil {
+		return fmt.Errorf("run_id must not be empty")
+	}
+	tx, err := pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	if err := (data.SubAgentRepository{}).TransitionToRunning(ctx, tx, runID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func stringPtr(value string) *string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return nil
+	}
+	return &trimmed
 }
