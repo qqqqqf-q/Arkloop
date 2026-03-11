@@ -65,7 +65,7 @@ func filterSchemaEntries(entries []sharedconfig.Entry, isPlatformAdmin bool) []s
 
 	out := make([]sharedconfig.Entry, 0, len(entries))
 	for _, e := range entries {
-		if e.Scope == sharedconfig.ScopeOrg || e.Scope == sharedconfig.ScopeBoth {
+		if e.Scope == sharedconfig.ScopeProject || e.Scope == sharedconfig.ScopeBoth {
 			out = append(out, e)
 		}
 	}

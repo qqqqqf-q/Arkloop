@@ -62,15 +62,15 @@ describe('ShellExecutionBlock', () => {
     await act(async () => {
       root.render(
         <LocaleProvider>
-          <ShellExecutionBlock code="python3 /tmp/script.py" isStreaming />
+          <ShellExecutionBlock code="python3 /tmp/script.py" status="running" />
         </LocaleProvider>,
       )
     })
 
-    expect(container.querySelectorAll('.animate-spin')).toHaveLength(1)
+    expect(container.querySelectorAll('.animate-spin')).toHaveLength(0)
     expect(container.textContent).not.toContain('无输出')
 
-    const button = container.querySelector('button')
+    const button = container.querySelector('[role="button"]')
     expect(button).not.toBeNull()
     if (!button) return
 
@@ -78,8 +78,68 @@ describe('ShellExecutionBlock', () => {
       button.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    expect(container.querySelectorAll('.animate-spin').length).toBeGreaterThanOrEqual(2)
+    expect(container.querySelectorAll('.animate-spin')).toHaveLength(2)
     expect(container.textContent).not.toContain('无输出')
+
+    act(() => {
+      root.unmount()
+    })
+    container.remove()
+  })
+
+  it('失败态应显示失败而不是成功', async () => {
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+
+    await act(async () => {
+      root.render(
+        <LocaleProvider>
+          <ShellExecutionBlock code="ls -la /workspace/" status="failed" errorMessage="profile_ref and workspace_ref are required" />
+        </LocaleProvider>,
+      )
+    })
+
+    const trigger = container.querySelector('[role="button"]')
+    expect(trigger).not.toBeNull()
+    if (!trigger) return
+
+    await act(async () => {
+      trigger.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(container.textContent).toContain('失败')
+    expect(container.textContent).not.toContain('成功')
+
+    act(() => {
+      root.unmount()
+    })
+    container.remove()
+  })
+
+  it('无明确成功失败证据时应显示完成', async () => {
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+
+    await act(async () => {
+      root.render(
+        <LocaleProvider>
+          <ShellExecutionBlock code="ls -la /workspace/" status="completed" />
+        </LocaleProvider>,
+      )
+    })
+
+    const trigger = container.querySelector('[role="button"]')
+    expect(trigger).not.toBeNull()
+    if (!trigger) return
+
+    await act(async () => {
+      trigger.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(container.textContent).toContain('完成')
+    expect(container.textContent).toContain('无输出')
 
     act(() => {
       root.unmount()

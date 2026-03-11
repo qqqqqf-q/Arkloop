@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, Fragment } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ChevronRight, Loader2, Search } from 'lucide-react'
 import type { WebSource } from '../storage'
+import { codeExecutionAccentColor } from '../codeExecutionStatus'
 import { CodeExecutionCard, type CodeExecution } from './ThinkingBlock'
 import { ShellExecutionBlock } from './ShellExecutionBlock'
 
@@ -248,12 +249,13 @@ export function SearchTimeline({ steps, sources, isComplete, codeExecutions, onO
                             transition={{ duration: 0.25, ease: 'easeOut' }}
                           >
                             {ce.language === 'shell'
-                              ? <ShellExecutionBlock code={ce.code} output={ce.output} exitCode={ce.exitCode} isStreaming={!isComplete} />
+                              ? <ShellExecutionBlock code={ce.code} output={ce.output} status={ce.status} errorMessage={ce.errorMessage} />
                               : <CodeExecutionCard
                                   language={ce.language}
                                   code={ce.code}
                                   output={ce.output}
-                                  exitCode={ce.exitCode}
+                                  errorMessage={ce.errorMessage}
+                                  status={ce.status}
                                   onOpen={onOpenCodeExecution ? () => onOpenCodeExecution(ce) : undefined}
                                   isActive={activeCodeExecutionId === ce.id}
                                 />
@@ -400,21 +402,20 @@ export function SearchTimeline({ steps, sources, isComplete, codeExecutions, onO
                               width: `${DOT_SIZE}px`,
                               height: `${DOT_SIZE}px`,
                               borderRadius: '50%',
-                              background: ce.exitCode != null
-                                ? ce.exitCode === 0 ? 'var(--c-border-subtle)' : '#ef4444'
-                                : 'var(--c-text-secondary)',
+                              background: codeExecutionAccentColor(ce.status),
                               border: '2px solid var(--c-bg-page)',
                               zIndex: 1,
                             }}
                           />
                         )}
                         {ce.language === 'shell'
-                          ? <ShellExecutionBlock code={ce.code} output={ce.output} exitCode={ce.exitCode} isStreaming={!isComplete} />
+                          ? <ShellExecutionBlock code={ce.code} output={ce.output} status={ce.status} errorMessage={ce.errorMessage} />
                           : <CodeExecutionCard
                               language={ce.language}
                               code={ce.code}
                               output={ce.output}
-                              exitCode={ce.exitCode}
+                              errorMessage={ce.errorMessage}
+                              status={ce.status}
                               onOpen={onOpenCodeExecution ? () => onOpenCodeExecution(ce) : undefined}
                               isActive={activeCodeExecutionId === ce.id}
                             />

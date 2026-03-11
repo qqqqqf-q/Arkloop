@@ -22,6 +22,11 @@ type CodeExecutionListPatch = {
   matched: boolean
 }
 
+type CodeExecutionErrorDetails = {
+  errorClass?: string
+  errorMessage?: string
+}
+
 function pickToolName(data: unknown): string {
   if (!data || typeof data !== 'object') return ''
   const raw = (data as { tool_name?: unknown }).tool_name
@@ -64,12 +69,57 @@ function extractCodeExecutionOutput(result: unknown): { output?: string; exitCod
   const fallbackOutput = typeof typed.output === 'string' ? sanitizeTerminalOutput(typed.output) : ''
   const rawOutput = exitCode != null && exitCode !== 0
     ? (stderr || stdout || fallbackOutput)
-    : (stdout || fallbackOutput)
+    : (stdout || stderr || fallbackOutput)
 
   return {
     output: rawOutput || undefined,
     exitCode,
   }
+}
+
+function extractCodeExecutionError(event: RunEvent): CodeExecutionErrorDetails {
+  if (!event.data || typeof event.data !== 'object') {
+    return {
+      errorClass: typeof event.error_class === 'string' ? event.error_class : undefined,
+    }
+  }
+  const rawError = (event.data as { error?: unknown }).error
+  if (!rawError || typeof rawError !== 'object') {
+    return {
+      errorClass: typeof event.error_class === 'string' ? event.error_class : undefined,
+    }
+  }
+  const typed = rawError as { error_class?: unknown; message?: unknown }
+  return {
+    errorClass: typeof typed.error_class === 'string'
+      ? typed.error_class
+      : typeof event.error_class === 'string' ? event.error_class : undefined,
+    errorMessage: typeof typed.message === 'string' ? typed.message : undefined,
+  }
+}
+
+function pickExecutionRunning(result: unknown): boolean {
+  if (!result || typeof result !== 'object') return false
+  return (result as { running?: unknown }).running === true
+}
+
+function resolveCodeExecutionStatus(params: {
+  event: RunEvent
+  result: unknown
+  exitCode?: number
+}): CodeExecutionRef['status'] {
+  const { event, result, exitCode } = params
+  const error = extractCodeExecutionError(event)
+  if (error.errorClass || error.errorMessage) {
+    return 'failed'
+  }
+  if (pickExecutionRunning(result)) {
+    return 'running'
+  }
+  if (exitCode != null) {
+    return exitCode === 0 ? 'success' : 'failed'
+  }
+  return 'completed'
 }
 
 function mergeExecutionOutput(previous: string | undefined, incoming: string | undefined): string | undefined {
@@ -104,7 +154,7 @@ function findExecutionIndex(
   // write_stdin fallback: match last shell entry still awaiting output
   if (preferSession) {
     for (let i = executions.length - 1; i >= 0; i--) {
-      if (executions[i].language === 'shell' && executions[i].exitCode == null) {
+      if (executions[i].language === 'shell' && executions[i].status === 'running') {
         return i
       }
     }
@@ -114,7 +164,14 @@ function findExecutionIndex(
 
 function patchExecution(
   execution: CodeExecutionRef,
-  params: { sessionId?: string; output?: string; exitCode?: number },
+  params: {
+    sessionId?: string
+    output?: string
+    exitCode?: number
+    status: CodeExecutionRef['status']
+    errorClass?: string
+    errorMessage?: string
+  },
 ): CodeExecutionRef {
   const next: CodeExecutionRef = { ...execution }
   if (params.sessionId) {
@@ -127,6 +184,9 @@ function patchExecution(
   if (params.exitCode != null) {
     next.exitCode = params.exitCode
   }
+  next.status = params.status
+  next.errorClass = params.errorClass
+  next.errorMessage = params.errorMessage
   return next
 }
 
@@ -158,6 +218,7 @@ export function applyCodeExecutionToolCall(
     id: pickToolCallId(event),
     language,
     code,
+    status: 'running',
   }
   return {
     appended,
@@ -185,6 +246,12 @@ export function applyCodeExecutionToolResult(
   const sessionId = pickSessionId(result)
   const toolCallId = pickToolCallId(event)
   const outputPatch = extractCodeExecutionOutput(result)
+  const error = extractCodeExecutionError(event)
+  const status = resolveCodeExecutionStatus({
+    event,
+    result,
+    exitCode: outputPatch.exitCode,
+  })
 
   const targetIndex = findExecutionIndex(executions, {
     toolCallId,
@@ -197,12 +264,18 @@ export function applyCodeExecutionToolResult(
       sessionId,
       output: outputPatch.output,
       exitCode: outputPatch.exitCode,
+      status,
+      errorClass: error.errorClass,
+      errorMessage: error.errorMessage,
     })
     const current = executions[targetIndex]
     if (
       current.output === updated.output &&
       current.exitCode === updated.exitCode &&
-      current.sessionId === updated.sessionId
+      current.sessionId === updated.sessionId &&
+      current.status === updated.status &&
+      current.errorClass === updated.errorClass &&
+      current.errorMessage === updated.errorMessage
     ) {
       return { nextExecutions: executions }
     }
@@ -228,6 +301,9 @@ export function applyCodeExecutionToolResult(
     sessionId,
     output: outputPatch.output,
     exitCode: outputPatch.exitCode,
+    status,
+    errorClass: error.errorClass,
+    errorMessage: error.errorMessage,
   }
   return {
     appended,

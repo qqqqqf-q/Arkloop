@@ -10,11 +10,16 @@ import { useLocale } from '../../contexts/LocaleContext'
 import { deletePlatformSetting, getPlatformSetting, setPlatformSetting } from '../../api/platform-settings'
 
 const SETTINGS = {
-  apiKey: 'skills.market.skillsmp_api_key',
-  baseURL: 'skills.market.skillsmp_base_url',
+  provider: 'skills.registry.provider',
+  apiKey: 'skills.registry.api_key',
+  baseURL: 'skills.registry.base_url',
+  apiBaseURL: 'skills.registry.api_base_url',
+  legacyApiKey: 'skills.market.skillsmp_api_key',
+  legacyBaseURL: 'skills.market.skillsmp_base_url',
 } as const
 
-const DEFAULT_BASE_URL = 'https://skillsmp.com'
+const DEFAULT_PROVIDER = 'clawhub'
+const DEFAULT_BASE_URL = 'https://clawhub.ai'
 
 export function SkillsPage() {
   const { accessToken } = useOutletContext<ConsoleOutletContext>()
@@ -24,24 +29,38 @@ export function SkillsPage() {
 
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [provider, setProvider] = useState(DEFAULT_PROVIDER)
   const [apiKey, setApiKey] = useState('')
   const [baseURL, setBaseURL] = useState(DEFAULT_BASE_URL)
+  const [apiBaseURL, setApiBaseURL] = useState('')
+  const [savedProvider, setSavedProvider] = useState(DEFAULT_PROVIDER)
   const [savedApiKey, setSavedApiKey] = useState('')
   const [savedBaseURL, setSavedBaseURL] = useState(DEFAULT_BASE_URL)
+  const [savedApiBaseURL, setSavedApiBaseURL] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const [apiKeySetting, baseURLSetting] = await Promise.all([
+      const [providerSetting, apiKeySetting, baseURLSetting, apiBaseURLSetting, legacyApiKeySetting, legacyBaseURLSetting] = await Promise.all([
+        getPlatformSetting(SETTINGS.provider, accessToken).catch(() => null),
         getPlatformSetting(SETTINGS.apiKey, accessToken).catch(() => null),
         getPlatformSetting(SETTINGS.baseURL, accessToken).catch(() => null),
+        getPlatformSetting(SETTINGS.apiBaseURL, accessToken).catch(() => null),
+        getPlatformSetting(SETTINGS.legacyApiKey, accessToken).catch(() => null),
+        getPlatformSetting(SETTINGS.legacyBaseURL, accessToken).catch(() => null),
       ])
-      const nextApiKey = apiKeySetting?.value?.trim() ?? ''
-      const nextBaseURL = baseURLSetting?.value?.trim() || DEFAULT_BASE_URL
+      const nextProvider = providerSetting?.value?.trim() || DEFAULT_PROVIDER
+      const nextApiKey = apiKeySetting?.value?.trim() || legacyApiKeySetting?.value?.trim() || ''
+      const nextBaseURL = baseURLSetting?.value?.trim() || legacyBaseURLSetting?.value?.trim() || DEFAULT_BASE_URL
+      const nextApiBaseURL = apiBaseURLSetting?.value?.trim() || ''
+      setProvider(nextProvider)
       setApiKey(nextApiKey)
       setBaseURL(nextBaseURL)
+      setApiBaseURL(nextApiBaseURL)
+      setSavedProvider(nextProvider)
       setSavedApiKey(nextApiKey)
       setSavedBaseURL(nextBaseURL)
+      setSavedApiBaseURL(nextApiBaseURL)
     } catch (err) {
       addToast(isApiError(err) ? err.message : tc.toastLoadFailed, 'error')
     } finally {
@@ -54,30 +73,38 @@ export function SkillsPage() {
   }, [load])
 
   const dirty = useMemo(() => {
-    return apiKey !== savedApiKey || baseURL !== savedBaseURL
-  }, [apiKey, baseURL, savedApiKey, savedBaseURL])
+    return provider !== savedProvider || apiKey !== savedApiKey || baseURL !== savedBaseURL || apiBaseURL !== savedApiBaseURL
+  }, [apiBaseURL, apiKey, baseURL, provider, savedApiBaseURL, savedApiKey, savedBaseURL, savedProvider])
 
   const handleSave = useCallback(async () => {
     setSaving(true)
     try {
       const ops: Promise<unknown>[] = [
+        setPlatformSetting(SETTINGS.provider, provider.trim() || DEFAULT_PROVIDER, accessToken),
         setPlatformSetting(SETTINGS.baseURL, baseURL.trim() || DEFAULT_BASE_URL, accessToken),
       ]
+      if (apiBaseURL.trim()) {
+        ops.push(setPlatformSetting(SETTINGS.apiBaseURL, apiBaseURL.trim(), accessToken))
+      } else if (savedApiBaseURL) {
+        ops.push(deletePlatformSetting(SETTINGS.apiBaseURL, accessToken))
+      }
       if (apiKey.trim()) {
         ops.push(setPlatformSetting(SETTINGS.apiKey, apiKey.trim(), accessToken))
       } else if (savedApiKey) {
         ops.push(deletePlatformSetting(SETTINGS.apiKey, accessToken))
       }
       await Promise.all(ops)
+      setSavedProvider(provider.trim() || DEFAULT_PROVIDER)
       setSavedApiKey(apiKey.trim())
       setSavedBaseURL(baseURL.trim() || DEFAULT_BASE_URL)
+      setSavedApiBaseURL(apiBaseURL.trim())
       addToast(tc.toastSaved, 'success')
     } catch (err) {
       addToast(isApiError(err) ? err.message : tc.toastSaveFailed, 'error')
     } finally {
       setSaving(false)
     }
-  }, [accessToken, addToast, apiKey, baseURL, savedApiKey, tc.toastSaved, tc.toastSaveFailed])
+  }, [accessToken, addToast, apiBaseURL, apiKey, baseURL, provider, savedApiBaseURL, savedApiKey, tc.toastSaveFailed, tc.toastSaved])
 
   const inputCls = 'w-full rounded-lg border border-[var(--c-border)] bg-[var(--c-bg-deep2)] px-3 py-1.5 text-sm text-[var(--c-text-primary)] focus:outline-none'
 
@@ -109,13 +136,13 @@ export function SkillsPage() {
               <p className="mt-1 text-xs text-[var(--c-text-muted)]">{tc.hint}</p>
             </div>
 
-            <FormField label={tc.fieldApiKey}>
+            <FormField label={tc.fieldProvider}>
               <input
-                type="password"
-                value={apiKey}
-                onChange={(event) => setApiKey(event.target.value)}
+                type="text"
+                value={provider}
+                onChange={(event) => setProvider(event.target.value)}
                 className={inputCls}
-                placeholder="sk_live_..."
+                placeholder={DEFAULT_PROVIDER}
               />
             </FormField>
 
@@ -126,6 +153,26 @@ export function SkillsPage() {
                 onChange={(event) => setBaseURL(event.target.value)}
                 className={inputCls}
                 placeholder={DEFAULT_BASE_URL}
+              />
+            </FormField>
+
+            <FormField label={tc.fieldApiBaseUrl}>
+              <input
+                type="text"
+                value={apiBaseURL}
+                onChange={(event) => setApiBaseURL(event.target.value)}
+                className={inputCls}
+                placeholder={tc.fieldApiBaseUrlHint}
+              />
+            </FormField>
+
+            <FormField label={tc.fieldApiKey}>
+              <input
+                type="password"
+                value={apiKey}
+                onChange={(event) => setApiKey(event.target.value)}
+                className={inputCls}
+                placeholder="sk_live_..."
               />
             </FormField>
 

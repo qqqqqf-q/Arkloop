@@ -12,7 +12,7 @@
 | email.smtp_port | int | platform | 587 | false | SMTP 端口 |
 | email.smtp_tls_mode | string | platform | starttls | false | SMTP TLS 模式：starttls/tls/none |
 | email.smtp_user | string | platform |  | false | SMTP 用户名 |
-| feature.byok_enabled | bool | both | true | false | 是否允许使用 org 级凭证（BYOK） |
+| feature.byok_enabled | bool | both | true | false | 是否允许使用用户级凭证（BYOK） |
 | feature.mcp_remote_enabled | bool | both | false | false | 是否允许远程 MCP |
 | gateway.ip_mode | string | platform | direct | false | Gateway IP 模式：direct/cloudflare/trusted_proxy |
 | gateway.ratelimit_capacity | number | platform | 600 | false | Gateway Rate Limit Capacity |
@@ -63,6 +63,12 @@
 | sandbox.warm_lite | int | platform | 3 | false | lite tier 预热实例数 |
 | sandbox.warm_pro | int | platform | 2 | false | pro tier 预热实例数 |
 | sandbox.warm_ultra | int | platform | 1 | false | ultra tier 预热实例数 |
+| skills.market.skillsmp_api_key | string | platform |  | true | SkillsMP 官方市场 API Key |
+| skills.market.skillsmp_base_url | string | platform | https://skillsmp.com | false | SkillsMP 官方市场基础地址 |
+| skills.registry.api_base_url | string | platform |  | false | 官方技能 Registry API 基础地址，留空则沿用 Base URL |
+| skills.registry.api_key | string | platform |  | true | 官方技能 Registry API Key |
+| skills.registry.base_url | string | platform | https://clawhub.ai | false | 官方技能 Registry 页面基础地址 |
+| skills.registry.provider | string | platform | clawhub | false | 官方技能 Registry Provider |
 | turnstile.allowed_host | string | platform |  | false | Turnstile Allowed Host |
 | turnstile.secret_key | string | platform |  | true | Turnstile Secret Key |
 | turnstile.site_key | string | platform |  | false | Turnstile Site Key |

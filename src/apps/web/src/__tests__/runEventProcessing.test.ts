@@ -16,6 +16,7 @@ function makeRunEvent(params: {
   seq: number
   type: string
   data?: unknown
+  errorClass?: string
 }): RunEvent {
   return {
     event_id: `evt_${params.seq}`,
@@ -24,6 +25,7 @@ function makeRunEvent(params: {
     ts: '2024-01-01T00:00:00.000Z',
     type: params.type,
     data: params.data ?? {},
+    error_class: params.errorClass,
   }
 }
 
@@ -206,6 +208,7 @@ describe('buildMessageCodeExecutionsFromRunEvents', () => {
       sessionId: 'sess_1',
       output: 'Linux 6.12.72',
       exitCode: 0,
+      status: 'success',
     })
   })
 
@@ -232,6 +235,7 @@ describe('buildMessageCodeExecutionsFromRunEvents', () => {
     const executions = buildMessageCodeExecutionsFromRunEvents(events)
     expect(executions).toHaveLength(1)
     expect(executions[0]?.output).toBe('Linux\n')
+    expect(executions[0]?.status).toBe('success')
   })
 
   it('累计输出与全量输出混用时应避免重复拼接', () => {
@@ -267,6 +271,7 @@ describe('buildMessageCodeExecutionsFromRunEvents', () => {
     const executions = buildMessageCodeExecutionsFromRunEvents(events)
     expect(executions).toHaveLength(1)
     expect(executions[0]?.output).toBe('hi there')
+    expect(executions[0]?.status).toBe('success')
   })
 
   it('缺少原始 exec_command 时，write_stdin 结果也不应丢失', () => {
@@ -291,7 +296,118 @@ describe('buildMessageCodeExecutionsFromRunEvents', () => {
       sessionId: 'sess_orphan',
       output: 'done',
       exitCode: 0,
+      status: 'success',
     })
+  })
+
+  it('tool.result 带 error 时应标记为 failed', () => {
+    const events = [
+      makeRunEvent({
+        runId: 'run_1',
+        seq: 1,
+        type: 'tool.call',
+        data: { tool_name: 'exec_command', tool_call_id: 'call_exec', arguments: { command: 'ls -la /workspace/' } },
+      }),
+      makeRunEvent({
+        runId: 'run_1',
+        seq: 2,
+        type: 'tool.result',
+        errorClass: 'tool.args_invalid',
+        data: {
+          tool_name: 'exec_command',
+          tool_call_id: 'call_exec',
+          error: {
+            error_class: 'tool.args_invalid',
+            message: 'profile_ref and workspace_ref are required for shell sessions',
+          },
+        },
+      }),
+    ]
+
+    const executions = buildMessageCodeExecutionsFromRunEvents(events)
+    expect(executions).toHaveLength(1)
+    expect(executions[0]).toMatchObject({
+      id: 'call_exec',
+      language: 'shell',
+      status: 'failed',
+      errorClass: 'tool.args_invalid',
+      errorMessage: 'profile_ref and workspace_ref are required for shell sessions',
+    })
+  })
+
+  it('无 error 且无 exit_code 的终态结果应标记为 completed', () => {
+    const events = [
+      makeRunEvent({
+        runId: 'run_1',
+        seq: 1,
+        type: 'tool.call',
+        data: { tool_name: 'exec_command', tool_call_id: 'call_exec', arguments: { command: 'ls -la /workspace/' } },
+      }),
+      makeRunEvent({
+        runId: 'run_1',
+        seq: 2,
+        type: 'tool.result',
+        data: {
+          tool_name: 'exec_command',
+          tool_call_id: 'call_exec',
+          result: { running: false },
+        },
+      }),
+    ]
+
+    const executions = buildMessageCodeExecutionsFromRunEvents(events)
+    expect(executions).toHaveLength(1)
+    expect(executions[0]).toMatchObject({
+      id: 'call_exec',
+      language: 'shell',
+      status: 'completed',
+    })
+  })
+
+  it('同一 run 中失败后重试成功时应保留两条状态独立的记录', () => {
+    const events = [
+      makeRunEvent({
+        runId: 'run_1',
+        seq: 1,
+        type: 'tool.call',
+        data: { tool_name: 'exec_command', tool_call_id: 'call_bad', arguments: { command: 'ls -la /workspace/', share_scope: 'run' } },
+      }),
+      makeRunEvent({
+        runId: 'run_1',
+        seq: 2,
+        type: 'tool.result',
+        errorClass: 'tool.args_invalid',
+        data: {
+          tool_name: 'exec_command',
+          tool_call_id: 'call_bad',
+          error: {
+            error_class: 'tool.args_invalid',
+            message: 'profile_ref and workspace_ref are required for shell sessions',
+          },
+        },
+      }),
+      makeRunEvent({
+        runId: 'run_1',
+        seq: 3,
+        type: 'tool.call',
+        data: { tool_name: 'python_execute', tool_call_id: 'call_good', arguments: { code: 'print(1)' } },
+      }),
+      makeRunEvent({
+        runId: 'run_1',
+        seq: 4,
+        type: 'tool.result',
+        data: {
+          tool_name: 'python_execute',
+          tool_call_id: 'call_good',
+          result: { stdout: '1\n', exit_code: 0 },
+        },
+      }),
+    ]
+
+    const executions = buildMessageCodeExecutionsFromRunEvents(events)
+    expect(executions).toHaveLength(2)
+    expect(executions[0]).toMatchObject({ id: 'call_bad', status: 'failed' })
+    expect(executions[1]).toMatchObject({ id: 'call_good', status: 'success' })
   })
 })
 
@@ -302,6 +418,7 @@ describe('shouldReplayMessageCodeExecutions', () => {
       language: 'shell',
       code: 'uname -a',
       output: 'Linux',
+      status: 'success',
     }])).toBe(true)
   })
 
@@ -316,6 +433,7 @@ describe('shouldReplayMessageCodeExecutions', () => {
       code: 'uname -a',
       output: 'Linux',
       sessionId: 'sess_1',
+      status: 'success',
     }])).toBe(false)
   })
 })
@@ -329,12 +447,14 @@ describe('patchCodeExecutionList', () => {
         code: 'pwd',
         output: '/tmp',
         sessionId: 'sess_1',
+        status: 'success' as const,
       },
       {
         id: 'call_exec_2',
         language: 'shell' as const,
         code: 'ls',
         sessionId: 'sess_1',
+        status: 'running' as const,
       },
     ]
 
@@ -345,6 +465,7 @@ describe('patchCodeExecutionList', () => {
       output: 'a.txt',
       exitCode: 0,
       sessionId: 'sess_1',
+      status: 'success',
     })
 
     expect(result.next).toEqual([
@@ -354,6 +475,7 @@ describe('patchCodeExecutionList', () => {
         code: 'pwd',
         output: '/tmp',
         sessionId: 'sess_1',
+        status: 'success',
       },
       {
         id: 'call_exec_2',
@@ -362,6 +484,7 @@ describe('patchCodeExecutionList', () => {
         output: 'a.txt',
         exitCode: 0,
         sessionId: 'sess_1',
+        status: 'success',
       },
     ])
   })

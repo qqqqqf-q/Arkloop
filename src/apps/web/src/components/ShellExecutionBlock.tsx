@@ -6,8 +6,8 @@ import { useLocale } from '../contexts/LocaleContext'
 type Props = {
   code?: string
   output?: string
-  exitCode?: number
-  isStreaming?: boolean
+  errorMessage?: string
+  status: 'running' | 'success' | 'failed' | 'completed'
 }
 
 const MONO = 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace'
@@ -18,13 +18,7 @@ function extractCommandPreview(code: string | undefined): string {
   return first.length > 72 ? first.slice(0, 72) + '...' : first
 }
 
-type Status = 'running' | 'success' | 'failed'
-
-function resolveStatus(exitCode: number | undefined, isStreaming: boolean): Status {
-  if (exitCode != null) return exitCode === 0 ? 'success' : 'failed'
-  if (isStreaming) return 'running'
-  return 'success'
-}
+type Status = Props['status']
 
 const expandTransition = { duration: 0.25, ease: [0.4, 0, 0.2, 1] as const }
 
@@ -37,7 +31,7 @@ function maskFor(edge: ScrollEdge): string | undefined {
   return undefined
 }
 
-export function ShellExecutionBlock({ code, output, exitCode, isStreaming = false }: Props) {
+export function ShellExecutionBlock({ code, output, errorMessage, status }: Props) {
   const [expanded, setExpanded] = useState(false)
   const [cmdHovered, setCmdHovered] = useState(false)
   const [outHovered, setOutHovered] = useState(false)
@@ -47,10 +41,14 @@ export function ShellExecutionBlock({ code, output, exitCode, isStreaming = fals
   const outputRef = useRef<HTMLDivElement>(null)
   const [scrollEdge, setScrollEdge] = useState<ScrollEdge>('none')
 
-  const status = resolveStatus(exitCode, isStreaming)
   const preview = extractCommandPreview(code)
-  const expandable = !!(code || output || status === 'running')
-  const hasOutput = !!(output && output.trim())
+  const displayOutput = output && output.trim()
+    ? output
+    : errorMessage && errorMessage.trim()
+      ? errorMessage
+      : undefined
+  const expandable = !!(code || displayOutput || status === 'running')
+  const hasOutput = !!displayOutput
 
   const copyText = useCallback((text: string, setter: (v: boolean) => void) => {
     void navigator.clipboard.writeText(text)
@@ -74,7 +72,7 @@ export function ShellExecutionBlock({ code, output, exitCode, isStreaming = fals
     update()
     el.addEventListener('scroll', update, { passive: true })
     return () => el.removeEventListener('scroll', update)
-  }, [expanded, output])
+  }, [expanded, displayOutput])
 
   const mask = maskFor(scrollEdge)
 
@@ -177,7 +175,7 @@ export function ShellExecutionBlock({ code, output, exitCode, isStreaming = fals
                         transition={{ duration: 0.15 }}
                         style={{ position: 'absolute', top: '4px', right: '6px', zIndex: 1 }}
                       >
-                        <CopyBtn copied={outCopied} onClick={() => copyText(output!, setOutCopied)} />
+                        <CopyBtn copied={outCopied} onClick={() => copyText(displayOutput!, setOutCopied)} />
                       </motion.div>
                     )}
                   </AnimatePresence>
@@ -193,8 +191,8 @@ export function ShellExecutionBlock({ code, output, exitCode, isStreaming = fals
                     }}
                   >
                     {hasOutput ? (
-                      <pre style={{ margin: 0, fontSize: '10.5px', lineHeight: '1.4', color: 'var(--c-text-secondary)', fontFamily: MONO, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                        {output!.trimEnd()}
+                      <pre style={{ margin: 0, fontSize: '10.5px', lineHeight: '1.4', color: status === 'failed' ? 'var(--c-status-error-text, #ef4444)' : 'var(--c-text-secondary)', fontFamily: MONO, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                        {displayOutput!.trimEnd()}
                       </pre>
                     ) : (
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '20px' }}>
@@ -255,6 +253,20 @@ function StatusBadge({ status }: { status: Status }) {
     return (
       <span style={{ display: 'inline-flex', alignItems: 'center', gap: '2px', fontSize: '10px', color: 'var(--c-text-muted)' }}>
         <Loader2 size={10} className="animate-spin" />
+      </span>
+    )
+  }
+  if (status === 'failed') {
+    return (
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '2px', fontSize: '10px', color: 'var(--c-status-error-text, #ef4444)' }}>
+        {t.shellFailed}
+      </span>
+    )
+  }
+  if (status === 'completed') {
+    return (
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '2px', fontSize: '10px', color: 'var(--c-text-muted)' }}>
+        {t.shellCompleted}
       </span>
     )
   }

@@ -11,14 +11,29 @@ import (
 )
 
 type ProfileSkillInstall struct {
-	ProfileRef  string
-	OrgID       uuid.UUID
-	OwnerUserID uuid.UUID
-	SkillKey    string
-	Version     string
-	DisplayName string
-	Description *string
-	CreatedAt   time.Time
+	ProfileRef          string
+	OrgID               uuid.UUID
+	OwnerUserID         uuid.UUID
+	SkillKey            string
+	Version             string
+	DisplayName         string
+	Description         *string
+	RegistryProvider    *string
+	RegistrySlug        *string
+	RegistryOwnerHandle *string
+	RegistryVersion     *string
+	RegistryDetailURL   *string
+	RegistryDownloadURL *string
+	RegistrySourceKind  *string
+	RegistrySourceURL   *string
+	ScanStatus          string
+	ScanHasWarnings     bool
+	ScanCheckedAt       *time.Time
+	ScanEngine          *string
+	ScanSummary         *string
+	ModerationVerdict   *string
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
 }
 
 type ProfileSkillInstallsRepository struct {
@@ -76,7 +91,10 @@ func (r *ProfileSkillInstallsRepository) ListByProfile(ctx context.Context, orgI
 	}
 	rows, err := r.db.Query(
 		ctx,
-		`SELECT psi.profile_ref, psi.org_id, psi.owner_user_id, psi.skill_key, psi.version, sp.display_name, sp.description, psi.created_at
+		`SELECT psi.profile_ref, psi.org_id, psi.owner_user_id, psi.skill_key, psi.version, sp.display_name, sp.description,
+		        sp.registry_provider, sp.registry_slug, sp.registry_owner_handle, sp.registry_version, sp.registry_detail_url,
+		        sp.registry_download_url, sp.registry_source_kind, sp.registry_source_url, sp.scan_status, sp.scan_has_warnings,
+		        sp.scan_checked_at, sp.scan_engine, sp.scan_summary, sp.moderation_verdict, psi.created_at, sp.updated_at
 		   FROM profile_skill_installs psi
 		   JOIN skill_packages sp ON sp.org_id = psi.org_id AND sp.skill_key = psi.skill_key AND sp.version = psi.version
 		  WHERE psi.org_id = $1 AND psi.profile_ref = $2
@@ -91,7 +109,7 @@ func (r *ProfileSkillInstallsRepository) ListByProfile(ctx context.Context, orgI
 	items := make([]ProfileSkillInstall, 0)
 	for rows.Next() {
 		var item ProfileSkillInstall
-		if err := rows.Scan(&item.ProfileRef, &item.OrgID, &item.OwnerUserID, &item.SkillKey, &item.Version, &item.DisplayName, &item.Description, &item.CreatedAt); err != nil {
+		if err := rows.Scan(&item.ProfileRef, &item.OrgID, &item.OwnerUserID, &item.SkillKey, &item.Version, &item.DisplayName, &item.Description, &item.RegistryProvider, &item.RegistrySlug, &item.RegistryOwnerHandle, &item.RegistryVersion, &item.RegistryDetailURL, &item.RegistryDownloadURL, &item.RegistrySourceKind, &item.RegistrySourceURL, &item.ScanStatus, &item.ScanHasWarnings, &item.ScanCheckedAt, &item.ScanEngine, &item.ScanSummary, &item.ModerationVerdict, &item.CreatedAt, &item.UpdatedAt); err != nil {
 			return nil, err
 		}
 		items = append(items, item)

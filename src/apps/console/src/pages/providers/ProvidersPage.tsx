@@ -470,7 +470,7 @@ export function ProvidersPage() {
               className={`${INPUT_CLS} w-[112px] py-1 text-xs`}
             >
               <option value="platform">{tc.scopePlatform}</option>
-              <option value="org">{tc.scopeOrg}</option>
+              <option value="project">{tc.scopeProject}</option>
             </select>
             <button
               onClick={() => {

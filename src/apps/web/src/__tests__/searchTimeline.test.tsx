@@ -54,10 +54,11 @@ describe('SearchTimeline', () => {
       isComplete: false,
       steps: [],
       sources: [],
-      codeExecutions: [{ id: 'ce-1', language: 'python', code: 'print(1)' }],
+      codeExecutions: [{ id: 'ce-1', language: 'python', code: 'print(1)', status: 'running' }],
     })
 
     expect(html).toContain('Python')
-    expect(html).toContain('left:-19px;top:50%;transform:translateY(-50%);width:8px;height:8px;border-radius:50%')
+    expect(html).toContain('left:-19px')
+    expect(html).toContain('width:8px;height:8px;border-radius:50%')
   })
 })

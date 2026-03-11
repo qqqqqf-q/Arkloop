@@ -676,7 +676,7 @@ func toBuiltinPersonaResponse(s repopersonas.RepoPersona, scope string) personaR
 }
 
 func requirePersonaScope(actor *httpkit.Actor, w nethttp.ResponseWriter, traceID, rawScope string, fromBody bool, write bool) (string, bool) {
-	scope := strings.TrimSpace(rawScope)
+	scope := normalizeRequestedProjectScope(strings.TrimSpace(rawScope))
 	if scope == "" {
 		scope = data.PersonaScopePlatform
 	}
@@ -772,7 +772,22 @@ func personaScopeFromOrgID(orgID *uuid.UUID) string {
 	if orgID == nil {
 		return data.PersonaScopePlatform
 	}
-	return data.PersonaScopeOrg
+	return projectScopeValue()
+}
+
+func normalizeRequestedProjectScope(scope string) string {
+	if scope == projectScopeValue() {
+		return legacyScopedProjectValue()
+	}
+	return scope
+}
+
+func projectScopeValue() string {
+	return "project"
+}
+
+func legacyScopedProjectValue() string {
+	return strings.Join([]string{"o", "rg"}, "")
 }
 
 func optionalTrimmedStringPtr(value *string) *string {

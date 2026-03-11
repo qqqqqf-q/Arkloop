@@ -41,6 +41,8 @@ export interface LocaleStrings {
     title: string
     subtitle: string
     searchPlaceholder: string
+    registryTab: string
+    localTab: string
     officialOnly: string
     officialOnlyShort: string
     officialUnconfigured: string
@@ -123,7 +125,21 @@ export interface LocaleStrings {
     officialDialogSubtitle: string
     officialDialogHintTitle: string
     officialDialogHintBody: string
+    scanStatusLabel: (status: string) => string
+    riskConfirm: (name: string, status: string, summary?: string) => string
     cancelAction: string
+    trySkill: string
+    download: string
+    replace: string
+    disable: string
+    disableFailed: string
+    detailTitle: string
+    trySkillPrompt: (skillKey: string) => string
+    detailVersion: string
+    detailSource: string
+    detailUpdatedAt: string
+    detailDescription: string
+    noDescription: string
   }
   // invite code
   inviteCode: string
@@ -297,6 +313,7 @@ export interface LocaleStrings {
   shellRanCommand: string
   shellSuccess: string
   shellFailed: string
+  shellCompleted: string
   shellNoOutput: string
   // pasted content
   pastedContent: string

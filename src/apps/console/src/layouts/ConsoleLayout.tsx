@@ -6,7 +6,7 @@ import {
   KeyRound, Bot, Plug, Sparkles,
   Key, Webhook,
   ShieldCheck,
-  Users, UsersRound, FolderOpen, UserPlus,
+  Users, FolderOpen, UserPlus,
   Package, Receipt, BadgeCheck, BarChart3,
   Flag, Ticket, Gift, Coins, Megaphone, Mic, Mail, AlignLeft,
   PanelLeftClose, PanelLeftOpen, ChevronDown,
@@ -16,6 +16,7 @@ import {
 import { getMe, logout, isApiError, type MeResponse } from '../api'
 import { ConsoleSettingsModal } from '../components/SettingsModal'
 import { useLocale } from '../contexts/LocaleContext'
+import { useProject } from '../contexts/ProjectContext'
 import type { LocaleStrings } from '../locales'
 
 type Props = {
@@ -108,8 +109,6 @@ function buildNavGroups(t: LocaleStrings): NavGroup[] {
       id: 'organization',
       label: t.groups.organization,
       items: [
-        { label: t.nav.members,  path: '/members',  icon: <Users size={17} /> },
-        { label: t.nav.teams,    path: '/teams',    icon: <UsersRound size={17} /> },
         { label: t.nav.projects, path: '/projects', icon: <FolderOpen size={17} /> },
       ],
     },
@@ -126,6 +125,7 @@ export function ConsoleLayout({ accessToken, onLoggedOut }: Props) {
   const navigate = useNavigate()
   const location = useLocation()
   const { t } = useLocale()
+  const { currentProject, currentProjectId, loading: projectsLoading, projects, selectProject } = useProject()
   const [me, setMe] = useState<MeResponse | null>(null)
   const [meLoaded, setMeLoaded] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
@@ -236,6 +236,43 @@ export function ConsoleLayout({ accessToken, onLoggedOut }: Props) {
           >
             <PanelLeftClose size={18} />
           </button>
+        </div>
+
+        <div className="px-4 pb-2">
+          <button
+            type="button"
+            onClick={() => navigate('/projects')}
+            className="mb-2 flex w-full items-center justify-between rounded-xl border border-[var(--c-border-console)] bg-[var(--c-bg-card)] px-3 py-2 text-left transition-colors hover:bg-[var(--c-bg-sub)]"
+          >
+            <div className="min-w-0">
+              <div className="text-[10px] uppercase tracking-[0.18em] text-[var(--c-text-muted)]">
+                {t.projectSwitcherLabel}
+              </div>
+              <div className="truncate pt-1 text-sm text-[var(--c-text-primary)]">
+                {currentProject?.name ?? t.projectSwitcherEmpty}
+              </div>
+            </div>
+            <FolderOpen size={15} className="shrink-0 text-[var(--c-text-tertiary)]" />
+          </button>
+
+          <select
+            value={currentProjectId ?? ''}
+            onChange={(event) => selectProject(event.target.value)}
+            disabled={projectsLoading || projects.length === 0}
+            className="w-full rounded-lg border border-[var(--c-border-console)] bg-[var(--c-bg-card)] px-3 py-2 text-sm text-[var(--c-text-secondary)] outline-none transition-colors focus:border-[var(--c-border-focus)] disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {projectsLoading && (
+              <option value="">{t.projectSwitcherLoading}</option>
+            )}
+            {!projectsLoading && projects.length === 0 && (
+              <option value="">{t.projectSwitcherEmpty}</option>
+            )}
+            {!projectsLoading && projects.map((project) => (
+              <option key={project.id} value={project.id}>
+                {project.name}
+              </option>
+            ))}
+          </select>
         </div>
 
         <nav className="flex-1 overflow-y-auto p-2">

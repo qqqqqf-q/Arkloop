@@ -12,10 +12,10 @@ import (
 
 type stubStore struct {
 	platform map[string]string
-	org      map[uuid.UUID]map[string]string
+	project  map[uuid.UUID]map[string]string
 
 	platformCalls int
-	orgCalls      int
+	projectCalls  int
 }
 
 func (s *stubStore) GetPlatformSetting(ctx context.Context, key string) (string, bool, error) {
@@ -25,10 +25,10 @@ func (s *stubStore) GetPlatformSetting(ctx context.Context, key string) (string,
 	return val, ok, nil
 }
 
-func (s *stubStore) GetOrgSetting(ctx context.Context, orgID uuid.UUID, key string) (string, bool, error) {
+func (s *stubStore) GetProjectSetting(ctx context.Context, projectID uuid.UUID, key string) (string, bool, error) {
 	_ = ctx
-	s.orgCalls++
-	m, ok := s.org[orgID]
+	s.projectCalls++
+	m, ok := s.project[projectID]
 	if !ok {
 		return "", false, nil
 	}
@@ -50,7 +50,7 @@ func TestResolvePriorityEnvOverridesAll(t *testing.T) {
 
 	store := &stubStore{
 		platform: map[string]string{"x.k": "p"},
-		org:      map[uuid.UUID]map[string]string{},
+		project:  map[uuid.UUID]map[string]string{},
 	}
 	cache := NewMemoryCache()
 	resolver, _ := NewResolver(reg, store, cache, 60*time.Second)
@@ -60,8 +60,8 @@ func TestResolvePriorityEnvOverridesAll(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Unsetenv("ARKLOOP_TEST_X_K") })
 
-	orgID := uuid.New()
-	val, src, err := resolver.ResolveWithSource(context.Background(), "x.k", Scope{OrgID: &orgID})
+	projectID := uuid.New()
+	val, src, err := resolver.ResolveWithSource(context.Background(), "x.k", Scope{ProjectID: &projectID})
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -82,11 +82,11 @@ func TestResolveEnvEmptyIsIgnoredFallsBackToDB(t *testing.T) {
 		t.Fatalf("register: %v", err)
 	}
 
-	orgID := uuid.New()
+	projectID := uuid.New()
 	store := &stubStore{
 		platform: map[string]string{"x.k": "p"},
-		org: map[uuid.UUID]map[string]string{
-			orgID: {"x.k": "o"},
+		project: map[uuid.UUID]map[string]string{
+			projectID: {"x.k": "o"},
 		},
 	}
 	resolver, _ := NewResolver(reg, store, nil, 0)
@@ -96,16 +96,16 @@ func TestResolveEnvEmptyIsIgnoredFallsBackToDB(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Unsetenv("ARKLOOP_TEST_X_K") })
 
-	val, src, err := resolver.ResolveWithSource(context.Background(), "x.k", Scope{OrgID: &orgID})
+	val, src, err := resolver.ResolveWithSource(context.Background(), "x.k", Scope{ProjectID: &projectID})
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
-	if val != "o" || src != "org_db" {
+	if val != "o" || src != "project_db" {
 		t.Fatalf("unexpected value/source: %q %q", val, src)
 	}
 }
 
-func TestResolvePriorityOrgThenPlatformThenDefault(t *testing.T) {
+func TestResolvePriorityProjectThenPlatformThenDefault(t *testing.T) {
 	reg := NewRegistry()
 	if err := reg.Register(Entry{
 		Key:     "x.k",
@@ -116,20 +116,20 @@ func TestResolvePriorityOrgThenPlatformThenDefault(t *testing.T) {
 		t.Fatalf("register: %v", err)
 	}
 
-	orgID := uuid.New()
+	projectID := uuid.New()
 	store := &stubStore{
 		platform: map[string]string{"x.k": "p"},
-		org: map[uuid.UUID]map[string]string{
-			orgID: {"x.k": "o"},
+		project: map[uuid.UUID]map[string]string{
+			projectID: {"x.k": "o"},
 		},
 	}
 	resolver, _ := NewResolver(reg, store, nil, 0)
 
-	val, src, err := resolver.ResolveWithSource(context.Background(), "x.k", Scope{OrgID: &orgID})
+	val, src, err := resolver.ResolveWithSource(context.Background(), "x.k", Scope{ProjectID: &projectID})
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
-	if val != "o" || src != "org_db" {
+	if val != "o" || src != "project_db" {
 		t.Fatalf("unexpected value/source: %q %q", val, src)
 	}
 
@@ -182,7 +182,7 @@ func TestResolvePrefixReturnsAllRegisteredKeys(t *testing.T) {
 	}
 }
 
-func TestScopePlatformIgnoresOrgOverrides(t *testing.T) {
+func TestScopePlatformIgnoresProjectOverrides(t *testing.T) {
 	reg := NewRegistry()
 	if err := reg.Register(Entry{
 		Key:     "k",
@@ -193,16 +193,16 @@ func TestScopePlatformIgnoresOrgOverrides(t *testing.T) {
 		t.Fatalf("register: %v", err)
 	}
 
-	orgID := uuid.New()
+	projectID := uuid.New()
 	store := &stubStore{
 		platform: map[string]string{"k": "p"},
-		org: map[uuid.UUID]map[string]string{
-			orgID: {"k": "o"},
+		project: map[uuid.UUID]map[string]string{
+			projectID: {"k": "o"},
 		},
 	}
 	resolver, _ := NewResolver(reg, store, nil, 0)
 
-	val, src, err := resolver.ResolveWithSource(context.Background(), "k", Scope{OrgID: &orgID})
+	val, src, err := resolver.ResolveWithSource(context.Background(), "k", Scope{ProjectID: &projectID})
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}

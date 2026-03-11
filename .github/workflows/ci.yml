@@ -24,6 +24,8 @@ jobs:
         working-directory: src/services/${{ matrix.module }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-go@v5
         with:
@@ -87,6 +89,8 @@ jobs:
       ARKLOOP_PROVIDER_ROUTING_JSON: '{"default_route_id":"default","credentials":[{"id":"stub_default","scope":"platform","provider_kind":"stub"}],"routes":[{"id":"default","model":"stub","credential_id":"stub_default"}]}'
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-go@v5
         with:
@@ -102,6 +106,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: pnpm/action-setup@v4
 
@@ -109,6 +115,9 @@ jobs:
         with:
           node-version: 20
           cache: pnpm
+
+      - name: Guardrails
+        run: node bin/check-no-org.mjs
 
       - name: Install workspace dependencies
         run: pnpm install --frozen-lockfile

@@ -9,7 +9,7 @@ import (
 func TestFilterSchemaEntriesNonPlatformAdminOnlySeesOrgAndBoth(t *testing.T) {
 	entries := []sharedconfig.Entry{
 		{Key: "a", Scope: sharedconfig.ScopePlatform},
-		{Key: "b", Scope: sharedconfig.ScopeOrg},
+		{Key: "b", Scope: sharedconfig.ScopeProject},
 		{Key: "c", Scope: sharedconfig.ScopeBoth},
 	}
 
@@ -25,7 +25,7 @@ func TestFilterSchemaEntriesNonPlatformAdminOnlySeesOrgAndBoth(t *testing.T) {
 func TestFilterSchemaEntriesPlatformAdminSeesAll(t *testing.T) {
 	entries := []sharedconfig.Entry{
 		{Key: "a", Scope: sharedconfig.ScopePlatform},
-		{Key: "b", Scope: sharedconfig.ScopeOrg},
+		{Key: "b", Scope: sharedconfig.ScopeProject},
 		{Key: "c", Scope: sharedconfig.ScopeBoth},
 	}
 

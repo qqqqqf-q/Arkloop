@@ -9,7 +9,7 @@ type SettingValue struct {
 
 type SettingLayers struct {
 	Env        *string `json:"env"`
-	OrgDB      *string `json:"org_db"`
+	ProjectDB  *string `json:"project_db"`
 	PlatformDB *string `json:"platform_db"`
 	Default    string  `json:"default"`
 }
@@ -57,15 +57,15 @@ func Inspect(ctx context.Context, registry *Registry, store Store, key string, s
 		inspection.Effective = SettingValue{Value: value, Source: "env"}
 	}
 
-	if scope.OrgID != nil && (entry.Scope == ScopeOrg || entry.Scope == ScopeBoth) && store != nil {
-		value, found, err := store.GetOrgSetting(ctx, *scope.OrgID, entry.Key)
+	if scope.ProjectID != nil && (entry.Scope == ScopeProject || entry.Scope == ScopeBoth) && store != nil {
+		value, found, err := store.GetProjectSetting(ctx, *scope.ProjectID, entry.Key)
 		if err != nil {
 			return SettingInspection{}, err
 		}
 		if found {
-			inspection.Layers.OrgDB = stringPtr(value)
+			inspection.Layers.ProjectDB = stringPtr(value)
 			if inspection.Effective.Source == "default" {
-				inspection.Effective = SettingValue{Value: value, Source: "org_db"}
+				inspection.Effective = SettingValue{Value: value, Source: "project_db"}
 			}
 		}
 	}
@@ -83,8 +83,8 @@ func Inspect(ctx context.Context, registry *Registry, store Store, key string, s
 		}
 	}
 
-	if inspection.Effective.Source == "default" && inspection.Layers.OrgDB != nil {
-		inspection.Effective = SettingValue{Value: *inspection.Layers.OrgDB, Source: "org_db"}
+	if inspection.Effective.Source == "default" && inspection.Layers.ProjectDB != nil {
+		inspection.Effective = SettingValue{Value: *inspection.Layers.ProjectDB, Source: "project_db"}
 	}
 	if inspection.Effective.Source == "default" && inspection.Layers.PlatformDB != nil {
 		inspection.Effective = SettingValue{Value: *inspection.Layers.PlatformDB, Source: "platform_db"}

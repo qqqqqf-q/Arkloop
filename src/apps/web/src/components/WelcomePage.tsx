@@ -40,6 +40,8 @@ type OutletContext = {
   isSearchMode: boolean
   onEnterSearchMode: () => void
   onExitSearchMode: () => void
+  pendingSkillPrompt?: string | null
+  onConsumeSkillPrompt?: () => void
 }
 
 // 按时段、星期、节日生成问候语，全部基于浏览器本地时间。
@@ -111,7 +113,7 @@ function buildGreeting(name: string | null, now: Date): string {
 
 
 export function WelcomePage() {
-  const { accessToken, onLoggedOut, onThreadCreated, refreshCredits, onOpenNotifications, notificationVersion, creditsBalance: _creditsBalance, me, isPrivateMode, onTogglePrivateMode, isSearchMode, onEnterSearchMode, onExitSearchMode } = useOutletContext<OutletContext>()
+  const { accessToken, onLoggedOut, onThreadCreated, refreshCredits, onOpenNotifications, notificationVersion, creditsBalance: _creditsBalance, me, isPrivateMode, onTogglePrivateMode, isSearchMode, onEnterSearchMode, onExitSearchMode, pendingSkillPrompt, onConsumeSkillPrompt } = useOutletContext<OutletContext>()
   const [draft, setDraft] = useState('')
   const [attachments, setAttachments] = useState<Attachment[]>([])
   const attachmentsRef = useRef<Attachment[]>([])
@@ -123,6 +125,13 @@ export function WelcomePage() {
   const draftThreadPromiseRef = useRef<Promise<ThreadResponse> | null>(null)
 
   const greeting = useMemo(() => buildGreeting(me?.username ?? null, new Date()), [me?.username])
+
+  useEffect(() => {
+    if (pendingSkillPrompt) {
+      setDraft(pendingSkillPrompt)
+      onConsumeSkillPrompt?.()
+    }
+  }, [pendingSkillPrompt, onConsumeSkillPrompt])
 
   const [typedGreeting, setTypedGreeting] = useState('')
   useEffect(() => {

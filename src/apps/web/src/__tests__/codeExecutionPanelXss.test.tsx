@@ -19,6 +19,7 @@ describe('CodeExecutionPanel', () => {
       id: '1',
       language: 'python',
       code: '<img src=x onerror=alert(1)>',
+      status: 'completed',
     }
 
     const html = renderToStaticMarkup(
@@ -29,4 +30,3 @@ describe('CodeExecutionPanel', () => {
     expect(html).toContain('&lt;img')
   })
 })
-

@@ -12,18 +12,32 @@ import (
 )
 
 type WorkspaceSkillEnablement struct {
-	WorkspaceRef    string
-	OrgID           uuid.UUID
-	EnabledByUserID uuid.UUID
-	SkillKey        string
-	Version         string
-	DisplayName     string
-	Description     *string
-	InstructionPath string
-	ManifestKey     string
-	BundleKey       string
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	WorkspaceRef        string
+	OrgID               uuid.UUID
+	EnabledByUserID     uuid.UUID
+	SkillKey            string
+	Version             string
+	DisplayName         string
+	Description         *string
+	InstructionPath     string
+	ManifestKey         string
+	BundleKey           string
+	RegistryProvider    *string
+	RegistrySlug        *string
+	RegistryOwnerHandle *string
+	RegistryVersion     *string
+	RegistryDetailURL   *string
+	RegistryDownloadURL *string
+	RegistrySourceKind  *string
+	RegistrySourceURL   *string
+	ScanStatus          string
+	ScanHasWarnings     bool
+	ScanCheckedAt       *time.Time
+	ScanEngine          *string
+	ScanSummary         *string
+	ModerationVerdict   *string
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
 }
 
 type WorkspaceSkillEnablementsRepository struct {
@@ -78,7 +92,12 @@ func (r *WorkspaceSkillEnablementsRepository) ListByWorkspace(ctx context.Contex
 	}
 	rows, err := r.db.Query(
 		ctx,
-		`SELECT wse.workspace_ref, wse.org_id, wse.enabled_by_user_id, wse.skill_key, wse.version, sp.display_name, sp.description, sp.instruction_path, sp.manifest_key, sp.bundle_key, wse.created_at, wse.updated_at
+		`SELECT wse.workspace_ref, wse.org_id, wse.enabled_by_user_id, wse.skill_key, wse.version, sp.display_name, sp.description,
+		        sp.instruction_path, sp.manifest_key, sp.bundle_key, sp.registry_provider, sp.registry_slug,
+		        sp.registry_owner_handle, sp.registry_version, sp.registry_detail_url, sp.registry_download_url,
+		        sp.registry_source_kind, sp.registry_source_url, sp.scan_status, sp.scan_has_warnings, sp.scan_checked_at,
+		        sp.scan_engine, sp.scan_summary, sp.moderation_verdict,
+		        wse.created_at, sp.updated_at
 		   FROM workspace_skill_enablements wse
 		   JOIN skill_packages sp ON sp.org_id = wse.org_id AND sp.skill_key = wse.skill_key AND sp.version = wse.version
 		  WHERE wse.org_id = $1 AND wse.workspace_ref = $2
@@ -93,7 +112,7 @@ func (r *WorkspaceSkillEnablementsRepository) ListByWorkspace(ctx context.Contex
 	items := make([]WorkspaceSkillEnablement, 0)
 	for rows.Next() {
 		var item WorkspaceSkillEnablement
-		if err := rows.Scan(&item.WorkspaceRef, &item.OrgID, &item.EnabledByUserID, &item.SkillKey, &item.Version, &item.DisplayName, &item.Description, &item.InstructionPath, &item.ManifestKey, &item.BundleKey, &item.CreatedAt, &item.UpdatedAt); err != nil {
+		if err := rows.Scan(&item.WorkspaceRef, &item.OrgID, &item.EnabledByUserID, &item.SkillKey, &item.Version, &item.DisplayName, &item.Description, &item.InstructionPath, &item.ManifestKey, &item.BundleKey, &item.RegistryProvider, &item.RegistrySlug, &item.RegistryOwnerHandle, &item.RegistryVersion, &item.RegistryDetailURL, &item.RegistryDownloadURL, &item.RegistrySourceKind, &item.RegistrySourceURL, &item.ScanStatus, &item.ScanHasWarnings, &item.ScanCheckedAt, &item.ScanEngine, &item.ScanSummary, &item.ModerationVerdict, &item.CreatedAt, &item.UpdatedAt); err != nil {
 			return nil, err
 		}
 		items = append(items, item)

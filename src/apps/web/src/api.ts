@@ -87,6 +87,20 @@ export type SkillPackageResponse = {
   bundle_key: string
   platforms?: string[]
   is_active: boolean
+  registry_provider?: string
+  registry_slug?: string
+  registry_owner_handle?: string
+  registry_version?: string
+  registry_detail_url?: string
+  registry_download_url?: string
+  registry_source_kind?: string
+  registry_source_url?: string
+  scan_status?: 'clean' | 'suspicious' | 'malicious' | 'pending' | 'error' | 'unknown'
+  scan_has_warnings?: boolean
+  scan_checked_at?: string
+  scan_engine?: string
+  scan_summary?: string
+  moderation_verdict?: string
 }
 
 export type InstalledSkill = SkillPackageResponse & {
@@ -110,6 +124,21 @@ export type MarketSkill = {
   updated_at?: string
   detail_url?: string
   repository_url?: string
+  registry_provider?: string
+  registry_slug?: string
+  owner_handle?: string
+  stats?: {
+    comments?: number
+    downloads?: number
+    installs_all_time?: number
+    installs_current?: number
+    stars?: number
+    versions?: number
+  }
+  scan_status?: 'clean' | 'suspicious' | 'malicious' | 'pending' | 'error' | 'unknown'
+  scan_has_warnings?: boolean
+  scan_summary?: string
+  moderation_verdict?: string
   installed: boolean
   enabled_by_default: boolean
 }
@@ -247,9 +276,20 @@ export async function searchMarketSkills(accessToken: string, query: string, off
   return response.items ?? []
 }
 
+export async function importRegistrySkill(
+  accessToken: string,
+  payload: { slug?: string; version?: string; skill_key?: string; detail_url?: string; repository_url?: string },
+): Promise<SkillPackageResponse> {
+  return await apiFetch<SkillPackageResponse>('/v1/skill-packages/import/registry', {
+    method: 'POST',
+    accessToken,
+    body: JSON.stringify(payload),
+  })
+}
+
 export async function importSkillsMPSkill(
   accessToken: string,
-  payload: { skill_key: string; detail_url: string; repository_url?: string },
+  payload: { slug?: string; version?: string; skill_key?: string; detail_url?: string; repository_url?: string },
 ): Promise<SkillPackageResponse> {
   return await apiFetch<SkillPackageResponse>('/v1/skill-packages/import/skillsmp', {
     method: 'POST',
@@ -260,9 +300,9 @@ export async function importSkillsMPSkill(
 
 export async function importMarketSkill(
   accessToken: string,
-  payload: { skill_key: string; detail_url: string; repository_url?: string },
+  payload: { slug?: string; version?: string; skill_key?: string; detail_url?: string; repository_url?: string },
 ): Promise<SkillPackageResponse> {
-  return await importSkillsMPSkill(accessToken, payload)
+  return await importRegistrySkill(accessToken, payload)
 }
 
 export async function installSkill(accessToken: string, skill: SkillReference): Promise<void> {

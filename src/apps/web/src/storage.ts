@@ -244,6 +244,28 @@ export type CodeExecutionRef = {
   output?: string
   exitCode?: number
   sessionId?: string
+  status: 'running' | 'success' | 'failed' | 'completed'
+  errorClass?: string
+  errorMessage?: string
+}
+
+function isCodeExecutionStatus(value: unknown): value is CodeExecutionRef['status'] {
+  return value === 'running' || value === 'success' || value === 'failed' || value === 'completed'
+}
+
+function isCodeExecutionRef(value: unknown): value is CodeExecutionRef {
+  if (!value || typeof value !== 'object') return false
+  const item = value as Record<string, unknown>
+  if (typeof item.id !== 'string' || item.id.trim() === '') return false
+  if (item.language !== 'python' && item.language !== 'shell') return false
+  if (!isCodeExecutionStatus(item.status)) return false
+  if (item.code != null && typeof item.code !== 'string') return false
+  if (item.output != null && typeof item.output !== 'string') return false
+  if (item.exitCode != null && typeof item.exitCode !== 'number') return false
+  if (item.sessionId != null && typeof item.sessionId !== 'string') return false
+  if (item.errorClass != null && typeof item.errorClass !== 'string') return false
+  if (item.errorMessage != null && typeof item.errorMessage !== 'string') return false
+  return true
 }
 
 function messageCodeExecutionsKey(messageId: string): string {
@@ -252,11 +274,26 @@ function messageCodeExecutionsKey(messageId: string): string {
 
 export function readMessageCodeExecutions(messageId: string): CodeExecutionRef[] | null {
   if (!canUseLocalStorage() || !messageId) return null
+  const cacheKey = messageCodeExecutionsKey(messageId)
   try {
-    const raw = localStorage.getItem(messageCodeExecutionsKey(messageId))
+    const raw = localStorage.getItem(cacheKey)
     if (!raw) return null
-    return JSON.parse(raw) as CodeExecutionRef[]
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) {
+      localStorage.removeItem(cacheKey)
+      return null
+    }
+    if (!parsed.every((item) => isCodeExecutionRef(item))) {
+      localStorage.removeItem(cacheKey)
+      return null
+    }
+    return parsed
   } catch {
+    try {
+      localStorage.removeItem(cacheKey)
+    } catch {
+      // 忽略清理失败
+    }
     return null
   }
 }

@@ -3,35 +3,33 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { ChevronRight, Loader2, Code2, Terminal } from 'lucide-react'
 import { MarkdownRenderer } from './MarkdownRenderer'
 import { ShellExecutionBlock } from './ShellExecutionBlock'
+import type { CodeExecutionRef } from '../storage'
+import { codeExecutionAccentColor } from '../codeExecutionStatus'
 
-export type CodeExecution = {
-  id: string
+export type CodeExecution = CodeExecutionRef
+
+export function CodeExecutionCard({ language, code, output, errorMessage, status, onOpen, isActive }: {
   language: 'python' | 'shell'
   code?: string
   output?: string
-  exitCode?: number
-  sessionId?: string
-}
-
-export function CodeExecutionCard({ language, code, output, onOpen, isActive }: {
-  language: 'python' | 'shell'
-  code?: string
-  output?: string
-  exitCode?: number
+  errorMessage?: string
+  status: CodeExecution['status']
   onOpen?: () => void
   isActive?: boolean
 }) {
   const isPython = language === 'python'
-  const hasDetail = !!(code || output)
+  const hasDetail = !!(code || output || errorMessage)
   const clickable = hasDetail && !!onOpen
+  const accentColor = codeExecutionAccentColor(status)
 
   return (
     <div
       className={clickable ? 'code-exec-card-clickable' : undefined}
       data-active={isActive || undefined}
+      data-status={status}
       style={{
         borderRadius: '7px',
-        border: '0.5px solid var(--c-border-subtle)',
+        border: `0.5px solid ${accentColor}`,
         background: 'var(--c-bg-page)',
         width: 'fit-content',
         maxWidth: '100%',
@@ -61,11 +59,12 @@ export function CodeExecutionCard({ language, code, output, onOpen, isActive }: 
             alignItems: 'center',
             justifyContent: 'center',
             flexShrink: 0,
+            color: accentColor,
           }}
         >
           {isPython
-            ? <Code2 size={15} color="var(--c-text-secondary)" strokeWidth={2} />
-            : <Terminal size={15} color="var(--c-text-secondary)" strokeWidth={2} />
+            ? <Code2 size={15} color={accentColor} strokeWidth={2} />
+            : <Terminal size={15} color={accentColor} strokeWidth={2} />
           }
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0px', textAlign: 'left' }}>
@@ -104,8 +103,8 @@ export function ThinkingBlock({ label, mode, content, isStreaming, codeExecution
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '10px' }}>
             {codeExecutions.map((ce) =>
               ce.language === 'shell'
-                ? <ShellExecutionBlock key={ce.id} code={ce.code} output={ce.output} exitCode={ce.exitCode} isStreaming={isStreaming} />
-                : <CodeExecutionCard key={ce.id} language={ce.language} code={ce.code} output={ce.output} exitCode={ce.exitCode} onOpen={() => onOpenCodeExecution?.(ce)} />
+                ? <ShellExecutionBlock key={ce.id} code={ce.code} output={ce.output} status={ce.status} errorMessage={ce.errorMessage} />
+                : <CodeExecutionCard key={ce.id} language={ce.language} code={ce.code} output={ce.output} errorMessage={ce.errorMessage} status={ce.status} onOpen={() => onOpenCodeExecution?.(ce)} />
             )}
           </div>
         )}
@@ -175,8 +174,8 @@ export function ThinkingBlock({ label, mode, content, isStreaming, codeExecution
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: content ? '10px' : '0' }}>
                   {codeExecutions.map((ce) =>
                     ce.language === 'shell'
-                      ? <ShellExecutionBlock key={ce.id} code={ce.code} output={ce.output} exitCode={ce.exitCode} isStreaming={isStreaming} />
-                      : <CodeExecutionCard key={ce.id} language={ce.language} code={ce.code} output={ce.output} exitCode={ce.exitCode} onOpen={() => onOpenCodeExecution?.(ce)} />
+                      ? <ShellExecutionBlock key={ce.id} code={ce.code} output={ce.output} status={ce.status} errorMessage={ce.errorMessage} />
+                      : <CodeExecutionCard key={ce.id} language={ce.language} code={ce.code} output={ce.output} errorMessage={ce.errorMessage} status={ce.status} onOpen={() => onOpenCodeExecution?.(ce)} />
                   )}
                 </div>
               )}

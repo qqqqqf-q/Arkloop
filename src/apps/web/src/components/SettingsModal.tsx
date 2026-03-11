@@ -61,9 +61,10 @@ type Props = {
   onLogout: () => void
   onCreditsChanged?: (balance: number) => void
   onMeUpdated?: (me: MeResponse) => void
+  onTrySkill?: (prompt: string) => void
 }
 
-export function SettingsModal({ me, accessToken, initialTab = 'account', onClose, onLogout, onCreditsChanged, onMeUpdated }: Props) {
+export function SettingsModal({ me, accessToken, initialTab = 'account', onClose, onLogout, onCreditsChanged, onMeUpdated, onTrySkill }: Props) {
   const { t, locale, setLocale } = useLocale()
   const { theme, setTheme } = useTheme()
   const [activeKey, setActiveKey] = useState<SettingsTab>(initialTab)
@@ -174,7 +175,7 @@ export function SettingsModal({ me, accessToken, initialTab = 'account', onClose
               </div>
             )}
             {activeKey === 'skills' && (
-              <SkillsSettingsContent accessToken={accessToken} />
+              <SkillsSettingsContent accessToken={accessToken} onTrySkill={(prompt) => { onClose(); onTrySkill?.(prompt) }} />
             )}
             {activeKey === 'credits' && (
               <CreditsContent accessToken={accessToken} onCreditsChanged={onCreditsChanged} />

@@ -3,6 +3,7 @@ import { useParams, useLocation, useOutletContext, useNavigate } from 'react-rou
 import { createPortal } from 'react-dom'
 import { motion } from 'framer-motion'
 import { ArrowDown, ChevronDown, Glasses, Loader2, Pencil, Share2, Star, Trash2, X } from 'lucide-react'
+import { codeExecutionAccentColor } from '../codeExecutionStatus'
 import { ChatInput, type Attachment } from './ChatInput'
 import { MessageBubble, StreamingBubble } from './MessageBubble'
 import { ThinkingBlock, CodeExecutionCard, type CodeExecution } from './ThinkingBlock'
@@ -2029,17 +2030,15 @@ export function ChatPage() {
                                   width: '8px',
                                   height: '8px',
                                   borderRadius: '50%',
-                                  background: ce.exitCode != null
-                                    ? 'var(--c-border-subtle)'
-                                    : 'var(--c-text-secondary)',
+                                  background: codeExecutionAccentColor(ce.status),
                                   border: '2px solid var(--c-bg-page)',
                                   zIndex: 1,
                                 }}
                               />
                             )}
                             {ce.language === 'shell'
-                              ? <ShellExecutionBlock code={ce.code} output={ce.output} exitCode={ce.exitCode} isStreaming={isStreaming} />
-                              : <CodeExecutionCard language={ce.language} code={ce.code} output={ce.output} exitCode={ce.exitCode} onOpen={() => openCodePanel(ce)} isActive={codePanelExecution?.id === ce.id} />
+                              ? <ShellExecutionBlock code={ce.code} output={ce.output} status={ce.status} errorMessage={ce.errorMessage} />
+                              : <CodeExecutionCard language={ce.language} code={ce.code} output={ce.output} errorMessage={ce.errorMessage} status={ce.status} onOpen={() => openCodePanel(ce)} isActive={codePanelExecution?.id === ce.id} />
                             }
                           </motion.div>
                         )
@@ -2092,8 +2091,8 @@ export function ChatPage() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                   {dedupedTopLevelCodeExecutions.map((ce) =>
                     ce.language === 'shell'
-                      ? <ShellExecutionBlock key={ce.id} code={ce.code} output={ce.output} exitCode={ce.exitCode} />
-                      : <CodeExecutionCard key={ce.id} language={ce.language} code={ce.code} output={ce.output} exitCode={ce.exitCode} onOpen={() => openCodePanel(ce)} isActive={codePanelExecution?.id === ce.id} />
+                      ? <ShellExecutionBlock key={ce.id} code={ce.code} output={ce.output} status={ce.status} errorMessage={ce.errorMessage} />
+                      : <CodeExecutionCard key={ce.id} language={ce.language} code={ce.code} output={ce.output} errorMessage={ce.errorMessage} status={ce.status} onOpen={() => openCodePanel(ce)} isActive={codePanelExecution?.id === ce.id} />
                   )}
                 </div>
               )}

@@ -253,8 +253,11 @@ export interface LocaleStrings {
     sandboxProvider: string
     sandboxBaseUrl: string
     sandboxDockerImage: string
+    skillsProvider: string
     skillsApiKey: string
     skillsBaseUrl: string
+    skillsApiBaseUrl: string
+    skillsApiBaseUrlHint: string
     skillsBaseUrlHint: string
     creditsEnabled: string
     creditsDisabledHint: string

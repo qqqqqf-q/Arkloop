@@ -126,9 +126,11 @@ export function SettingsPage() {
   // Credits
   const [creditsOn, setCreditsOn] = useState(true)
 
-  // Skills
+  // Registry
+  const [skillsRegistryProvider, setSkillsRegistryProvider] = useState('clawhub')
   const [skillsMarketApiKey, setSkillsMarketApiKey] = useState('')
-  const [skillsMarketBaseUrl, setSkillsMarketBaseUrl] = useState('https://skillsmp.com')
+  const [skillsMarketBaseUrl, setSkillsMarketBaseUrl] = useState('https://clawhub.ai')
+  const [skillsMarketApiBaseUrl, setSkillsMarketApiBaseUrl] = useState('')
 
   // SMTP
   const [selectedSmtpId, setSelectedSmtpId] = useState<string>('')
@@ -183,8 +185,10 @@ export function SettingsPage() {
       setSandboxProvider(sandboxProviderValue(activeSandbox))
       setSandboxBaseUrl(activeSandbox?.base_url ?? '')
       setSandboxDockerImage(map['sandbox.docker_image'] ?? '')
-      setSkillsMarketApiKey(map['skills.market.skillsmp_api_key'] ?? '')
-      setSkillsMarketBaseUrl(map['skills.market.skillsmp_base_url'] ?? 'https://skillsmp.com')
+      setSkillsRegistryProvider(map['skills.registry.provider'] ?? 'clawhub')
+      setSkillsMarketApiKey(map['skills.registry.api_key'] ?? map['skills.market.skillsmp_api_key'] ?? '')
+      setSkillsMarketBaseUrl(map['skills.registry.base_url'] ?? map['skills.market.skillsmp_base_url'] ?? 'https://clawhub.ai')
+      setSkillsMarketApiBaseUrl(map['skills.registry.api_base_url'] ?? '')
       setCreditsOn(isCreditsEnabled(map['credit.deduction_policy'] ?? ''))
 
       // 默认选中第一个 SMTP provider
@@ -265,8 +269,10 @@ export function SettingsPage() {
     setSavingSkills(true)
     try {
       await Promise.all([
-        updatePlatformSetting('skills.market.skillsmp_api_key', skillsMarketApiKey.trim(), accessToken),
-        updatePlatformSetting('skills.market.skillsmp_base_url', skillsMarketBaseUrl.trim() || 'https://skillsmp.com', accessToken),
+        updatePlatformSetting('skills.registry.provider', skillsRegistryProvider.trim() || 'clawhub', accessToken),
+        updatePlatformSetting('skills.registry.api_key', skillsMarketApiKey.trim(), accessToken),
+        updatePlatformSetting('skills.registry.base_url', skillsMarketBaseUrl.trim() || 'https://clawhub.ai', accessToken),
+        updatePlatformSetting('skills.registry.api_base_url', skillsMarketApiBaseUrl.trim(), accessToken),
       ])
       addToast(tc.toastSaved, 'success')
     } catch {
@@ -274,7 +280,7 @@ export function SettingsPage() {
     } finally {
       setSavingSkills(false)
     }
-  }, [skillsMarketApiKey, skillsMarketBaseUrl, accessToken, addToast, tc])
+  }, [skillsMarketApiBaseUrl, skillsMarketApiKey, skillsMarketBaseUrl, skillsRegistryProvider, accessToken, addToast, tc])
 
   const handleSaveCredits = useCallback(async () => {
     setSavingCredits(true)
@@ -507,10 +513,14 @@ export function SettingsPage() {
                 )}
                 {section === 'skills' && (
                   <SkillsSection
+                    provider={skillsRegistryProvider}
+                    setProvider={setSkillsRegistryProvider}
                     apiKey={skillsMarketApiKey}
                     setApiKey={setSkillsMarketApiKey}
                     baseUrl={skillsMarketBaseUrl}
                     setBaseUrl={setSkillsMarketBaseUrl}
+                    apiBaseUrl={skillsMarketApiBaseUrl}
+                    setApiBaseUrl={setSkillsMarketApiBaseUrl}
                     saving={savingSkills}
                     onSave={handleSaveSkills}
                     tc={tc}
@@ -891,19 +901,27 @@ function CreditsSection({
 }
 
 function SkillsSection({
+  provider,
+  setProvider,
   apiKey,
   setApiKey,
   baseUrl,
   setBaseUrl,
+  apiBaseUrl,
+  setApiBaseUrl,
   saving,
   onSave,
   tc,
   tCommon,
 }: {
+  provider: string
+  setProvider: (value: string) => void
   apiKey: string
   setApiKey: (value: string) => void
   baseUrl: string
   setBaseUrl: (value: string) => void
+  apiBaseUrl: string
+  setApiBaseUrl: (value: string) => void
   saving: boolean
   onSave: () => void
   tc: SettingsLocale
@@ -911,6 +929,14 @@ function SkillsSection({
 }) {
   return (
     <>
+      <FormField label={tc.skillsProvider}>
+        <input
+          value={provider}
+          onChange={(e) => setProvider(e.target.value)}
+          className={inputCls}
+          placeholder="clawhub"
+        />
+      </FormField>
       <FormField label={tc.skillsApiKey}>
         <input
           type="password"
@@ -925,9 +951,17 @@ function SkillsSection({
           value={baseUrl}
           onChange={(e) => setBaseUrl(e.target.value)}
           className={inputCls}
-          placeholder="https://skillsmp.com"
+          placeholder="https://clawhub.ai"
         />
         <p className="text-xs text-[var(--c-text-muted)]">{tc.skillsBaseUrlHint}</p>
+      </FormField>
+      <FormField label={tc.skillsApiBaseUrl}>
+        <input
+          value={apiBaseUrl}
+          onChange={(e) => setApiBaseUrl(e.target.value)}
+          className={inputCls}
+          placeholder={tc.skillsApiBaseUrlHint}
+        />
       </FormField>
       <div className="flex justify-end">
         <button onClick={onSave} disabled={saving} className={btnPrimaryCls}>

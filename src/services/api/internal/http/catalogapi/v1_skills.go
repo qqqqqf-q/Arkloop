@@ -21,15 +21,33 @@ import (
 )
 
 type skillPackageResponse struct {
-	SkillKey        string   `json:"skill_key"`
-	Version         string   `json:"version"`
-	DisplayName     string   `json:"display_name"`
-	Description     *string  `json:"description,omitempty"`
-	InstructionPath string   `json:"instruction_path"`
-	ManifestKey     string   `json:"manifest_key"`
-	BundleKey       string   `json:"bundle_key"`
-	Platforms       []string `json:"platforms,omitempty"`
-	IsActive        bool     `json:"is_active"`
+	SkillKey            string   `json:"skill_key"`
+	Version             string   `json:"version"`
+	DisplayName         string   `json:"display_name"`
+	Description         *string  `json:"description,omitempty"`
+	InstructionPath     string   `json:"instruction_path"`
+	ManifestKey         string   `json:"manifest_key"`
+	BundleKey           string   `json:"bundle_key"`
+	Platforms           []string `json:"platforms,omitempty"`
+	Source              string   `json:"source,omitempty"`
+	RegistryProvider    *string  `json:"registry_provider,omitempty"`
+	RegistrySlug        *string  `json:"registry_slug,omitempty"`
+	RegistryOwnerHandle *string  `json:"registry_owner_handle,omitempty"`
+	RegistryVersion     *string  `json:"registry_version,omitempty"`
+	RegistryDetailURL   *string  `json:"registry_detail_url,omitempty"`
+	RegistryDownloadURL *string  `json:"registry_download_url,omitempty"`
+	RegistrySourceKind  *string  `json:"registry_source_kind,omitempty"`
+	RegistrySourceURL   *string  `json:"registry_source_url,omitempty"`
+	OwnerHandle         *string  `json:"owner_handle,omitempty"`
+	DetailURL           *string  `json:"detail_url,omitempty"`
+	RepositoryURL       *string  `json:"repository_url,omitempty"`
+	ScanStatus          string   `json:"scan_status,omitempty"`
+	ScanHasWarnings     bool     `json:"scan_has_warnings,omitempty"`
+	ScanCheckedAt       *string  `json:"scan_checked_at,omitempty"`
+	ScanEngine          *string  `json:"scan_engine,omitempty"`
+	ScanSummary         *string  `json:"scan_summary,omitempty"`
+	ModerationVerdict   *string  `json:"moderation_verdict,omitempty"`
+	IsActive            bool     `json:"is_active"`
 }
 
 type skillPackageRegisterRequest struct {
@@ -47,11 +65,29 @@ type workspaceSkillsReplaceRequest struct {
 }
 
 type installedSkillResponse struct {
-	SkillKey    string  `json:"skill_key"`
-	Version     string  `json:"version"`
-	DisplayName string  `json:"display_name"`
-	Description *string `json:"description,omitempty"`
-	CreatedAt   string  `json:"created_at,omitempty"`
+	SkillKey            string  `json:"skill_key"`
+	Version             string  `json:"version"`
+	DisplayName         string  `json:"display_name"`
+	Description         *string `json:"description,omitempty"`
+	CreatedAt           string  `json:"created_at,omitempty"`
+	UpdatedAt           string  `json:"updated_at,omitempty"`
+	Source              string  `json:"source,omitempty"`
+	RegistryProvider    *string `json:"registry_provider,omitempty"`
+	RegistrySlug        *string `json:"registry_slug,omitempty"`
+	RegistryOwnerHandle *string `json:"registry_owner_handle,omitempty"`
+	RegistryVersion     *string `json:"registry_version,omitempty"`
+	RegistryDetailURL   *string `json:"registry_detail_url,omitempty"`
+	RegistryDownloadURL *string `json:"registry_download_url,omitempty"`
+	RegistrySourceKind  *string `json:"registry_source_kind,omitempty"`
+	RegistrySourceURL   *string `json:"registry_source_url,omitempty"`
+	OwnerHandle         *string `json:"owner_handle,omitempty"`
+	DetailURL           *string `json:"detail_url,omitempty"`
+	ScanStatus          string  `json:"scan_status,omitempty"`
+	ScanHasWarnings     bool    `json:"scan_has_warnings,omitempty"`
+	ScanCheckedAt       *string `json:"scan_checked_at,omitempty"`
+	ScanEngine          *string `json:"scan_engine,omitempty"`
+	ScanSummary         *string `json:"scan_summary,omitempty"`
+	ModerationVerdict   *string `json:"moderation_verdict,omitempty"`
 }
 
 func skillPackagesEntry(
@@ -444,11 +480,29 @@ func toInstalledSkillResponses(items []data.ProfileSkillInstall) []installedSkil
 	out := make([]installedSkillResponse, 0, len(items))
 	for _, item := range items {
 		out = append(out, installedSkillResponse{
-			SkillKey:    item.SkillKey,
-			Version:     item.Version,
-			DisplayName: item.DisplayName,
-			Description: item.Description,
-			CreatedAt:   item.CreatedAt.UTC().Format(time.RFC3339),
+			SkillKey:            item.SkillKey,
+			Version:             item.Version,
+			DisplayName:         item.DisplayName,
+			Description:         item.Description,
+			CreatedAt:           item.CreatedAt.UTC().Format(time.RFC3339),
+			UpdatedAt:           item.UpdatedAt.UTC().Format(time.RFC3339),
+			Source:              skillSource(item.RegistryProvider, item.RegistrySourceKind),
+			RegistryProvider:    copyOptionalString(item.RegistryProvider),
+			RegistrySlug:        copyOptionalString(item.RegistrySlug),
+			RegistryOwnerHandle: copyOptionalString(item.RegistryOwnerHandle),
+			RegistryVersion:     copyOptionalString(item.RegistryVersion),
+			RegistryDetailURL:   copyOptionalString(item.RegistryDetailURL),
+			RegistryDownloadURL: copyOptionalString(item.RegistryDownloadURL),
+			RegistrySourceKind:  copyOptionalString(item.RegistrySourceKind),
+			RegistrySourceURL:   copyOptionalString(item.RegistrySourceURL),
+			OwnerHandle:         copyOptionalString(item.RegistryOwnerHandle),
+			DetailURL:           copyOptionalString(item.RegistryDetailURL),
+			ScanStatus:          normalizedScanStatus(item.ScanStatus),
+			ScanHasWarnings:     item.ScanHasWarnings,
+			ScanCheckedAt:       copyOptionalTime(item.ScanCheckedAt),
+			ScanEngine:          copyOptionalString(item.ScanEngine),
+			ScanSummary:         copyOptionalString(item.ScanSummary),
+			ModerationVerdict:   copyOptionalString(item.ModerationVerdict),
 		})
 	}
 	return out
@@ -456,16 +510,60 @@ func toInstalledSkillResponses(items []data.ProfileSkillInstall) []installedSkil
 
 func toSkillPackageResponse(item data.SkillPackage) skillPackageResponse {
 	return skillPackageResponse{
-		SkillKey:        item.SkillKey,
-		Version:         item.Version,
-		DisplayName:     item.DisplayName,
-		Description:     item.Description,
-		InstructionPath: item.InstructionPath,
-		ManifestKey:     item.ManifestKey,
-		BundleKey:       item.BundleKey,
-		Platforms:       append([]string(nil), item.Platforms...),
-		IsActive:        item.IsActive,
+		SkillKey:            item.SkillKey,
+		Version:             item.Version,
+		DisplayName:         item.DisplayName,
+		Description:         item.Description,
+		InstructionPath:     item.InstructionPath,
+		ManifestKey:         item.ManifestKey,
+		BundleKey:           item.BundleKey,
+		Platforms:           append([]string(nil), item.Platforms...),
+		Source:              skillSource(item.RegistryProvider, item.RegistrySourceKind),
+		RegistryProvider:    copyOptionalString(item.RegistryProvider),
+		RegistrySlug:        copyOptionalString(item.RegistrySlug),
+		RegistryOwnerHandle: copyOptionalString(item.RegistryOwnerHandle),
+		RegistryVersion:     copyOptionalString(item.RegistryVersion),
+		RegistryDetailURL:   copyOptionalString(item.RegistryDetailURL),
+		RegistryDownloadURL: copyOptionalString(item.RegistryDownloadURL),
+		RegistrySourceKind:  copyOptionalString(item.RegistrySourceKind),
+		RegistrySourceURL:   copyOptionalString(item.RegistrySourceURL),
+		OwnerHandle:         copyOptionalString(item.RegistryOwnerHandle),
+		DetailURL:           copyOptionalString(item.RegistryDetailURL),
+		RepositoryURL:       copyOptionalString(item.RegistrySourceURL),
+		ScanStatus:          normalizedScanStatus(item.ScanStatus),
+		ScanHasWarnings:     item.ScanHasWarnings,
+		ScanCheckedAt:       copyOptionalTime(item.ScanCheckedAt),
+		ScanEngine:          copyOptionalString(item.ScanEngine),
+		ScanSummary:         copyOptionalString(item.ScanSummary),
+		ModerationVerdict:   copyOptionalString(item.ModerationVerdict),
+		IsActive:            item.IsActive,
 	}
+}
+
+func copyOptionalString(value *string) *string {
+	if value == nil || strings.TrimSpace(*value) == "" {
+		return nil
+	}
+	trimmed := strings.TrimSpace(*value)
+	return &trimmed
+}
+
+func copyOptionalTime(value *time.Time) *string {
+	if value == nil || value.IsZero() {
+		return nil
+	}
+	formatted := value.UTC().Format(time.RFC3339)
+	return &formatted
+}
+
+func skillSource(registryProvider *string, sourceKind *string) string {
+	if registryProvider != nil && strings.TrimSpace(*registryProvider) != "" {
+		return "official"
+	}
+	if sourceKind != nil && strings.EqualFold(strings.TrimSpace(*sourceKind), "github") {
+		return "github"
+	}
+	return "custom"
 }
 
 func loadSkillPackageManifest(ctx context.Context, store skillStore, skillKey, version string) (skillstore.PackageManifest, error) {
