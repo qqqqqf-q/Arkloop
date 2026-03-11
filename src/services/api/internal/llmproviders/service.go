@@ -398,15 +398,15 @@ func (s *Service) UpdateModel(ctx context.Context, orgID, providerID, modelID uu
 	}
 
 	model := current.Model
-	if input.ModelSet && input.Model != nil {
+	if input.ModelSet {
 		model = strings.TrimSpace(*input.Model)
 	}
 	priority := current.Priority
-	if input.PrioritySet && input.Priority != nil {
+	if input.PrioritySet {
 		priority = *input.Priority
 	}
 	isDefault := current.IsDefault
-	if input.IsDefaultSet && input.IsDefault != nil {
+	if input.IsDefaultSet {
 		isDefault = *input.IsDefault
 	}
 	tags := current.Tags
@@ -452,7 +452,7 @@ func (s *Service) UpdateModel(ctx context.Context, orgID, providerID, modelID uu
 	defer tx.Rollback(ctx)
 
 	txRoutes := s.routes.WithTx(tx)
-	if input.IsDefaultSet && input.IsDefault != nil && *input.IsDefault && !current.IsDefault {
+	if input.IsDefaultSet && *input.IsDefault && !current.IsDefault {
 		if _, err := txRoutes.SetDefaultByCredential(ctx, orgID, providerID, modelID, scope); err != nil {
 			return data.LlmRoute{}, err
 		}
@@ -475,7 +475,7 @@ func (s *Service) UpdateModel(ctx context.Context, orgID, providerID, modelID uu
 	}); err != nil {
 		return data.LlmRoute{}, err
 	}
-	if current.IsDefault && input.IsDefaultSet && input.IsDefault != nil && !*input.IsDefault {
+	if current.IsDefault && input.IsDefaultSet && !*input.IsDefault {
 		if _, err := txRoutes.PromoteHighestPriorityToDefault(ctx, orgID, providerID, scope); err != nil {
 			return data.LlmRoute{}, err
 		}
