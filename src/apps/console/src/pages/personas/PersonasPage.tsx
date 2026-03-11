@@ -38,14 +38,55 @@ type DetailForm = {
   executorType: string
   executorConfigJSON: string
   prompt: string
+  luaScript: string
   toolSelectionMode: ToolSelectionMode
   tools: string[]
   toolDenylist: string[]
 }
 
+function stripLuaScript(config: Record<string, unknown>): Record<string, unknown> {
+  const next = { ...config }
+  delete next.script
+  delete next.script_file
+  return next
+}
+
+function readLuaScript(config: Record<string, unknown>): string {
+  const raw = config.script
+  return typeof raw === 'string' ? raw : ''
+}
+
+function buildExecutorConfig(form: DetailForm, config: Record<string, unknown>): Record<string, unknown> {
+  if (!isHybridPersona(form.executorType)) {
+    return config
+  }
+  const next = stripLuaScript(config)
+  next.script = form.luaScript
+  return next
+}
+
+function formatSyncMode(persona: Persona, tc: ReturnType<typeof useLocale>['t']['pages']['agents']): string {
+  switch (persona.sync_mode) {
+    case 'platform_file_mirror':
+      return tc.syncModePlatformFileMirror
+    case 'none':
+      return tc.syncModeNone
+    default:
+      return tc.valueNotSet
+  }
+}
+
+function formatDateTime(value?: string): string {
+  if (!value) return '--'
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return '--'
+  return parsed.toLocaleString()
+}
+
 function personaToForm(persona: Persona): DetailForm {
   const allowlist = persona.tool_allowlist ?? []
   const denylist = persona.tool_denylist ?? []
+  const executorConfig = persona.executor_config ?? {}
   return {
     personaKey: persona.persona_key,
     version: persona.version,
@@ -58,8 +99,9 @@ function personaToForm(persona: Persona): DetailForm {
     preferredCredential: persona.preferred_credential ?? '',
     budgetsJSON: JSON.stringify(persona.budgets ?? {}, null, 2),
     executorType: persona.executor_type || 'agent.simple',
-    executorConfigJSON: JSON.stringify(persona.executor_config ?? {}, null, 2),
+    executorConfigJSON: JSON.stringify(stripLuaScript(executorConfig), null, 2),
     prompt: persona.prompt_md || '',
+    luaScript: readLuaScript(executorConfig),
     toolSelectionMode: allowlist.length === 0 ? 'inherit' : 'custom',
     tools: allowlist,
     toolDenylist: denylist,
@@ -236,6 +278,14 @@ export function PersonasPage() {
     if (!budgets.ok) { addToast(tc.errInvalidJSON, 'error'); return }
     const execConfig = tryParseJSONObject(form.executorConfigJSON)
     if (!execConfig.ok) { addToast(tc.errInvalidJSON, 'error'); return }
+    const executorConfig = buildExecutorConfig(form, execConfig.value)
+    const originalLuaScript = typeof selected.executor_config?.script === 'string' ? selected.executor_config.script : ''
+    const shouldSendExecutorConfig = !(
+      selected.source === 'builtin'
+      && isHybridPersona(form.executorType)
+      && !form.luaScript.trim()
+      && !originalLuaScript.trim()
+    )
 
     setSaving(true)
     try {
@@ -252,7 +302,7 @@ export function PersonasPage() {
         reasoning_mode: form.reasoningMode.trim() || undefined,
         prompt_cache_control: form.promptCacheControl.trim() || undefined,
         executor_type: form.executorType.trim() || undefined,
-        executor_config: execConfig.value,
+        executor_config: shouldSendExecutorConfig ? executorConfig : undefined,
       }
 
       const saved = selected.source === 'builtin'
@@ -534,6 +584,31 @@ export function PersonasPage() {
                     </FormField>
                   </div>
 
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <FormField label={tc.fieldSyncMode}>
+                      <input
+                        className={INPUT_CLS}
+                        value={formatSyncMode(selected, tc)}
+                        readOnly
+                      />
+                    </FormField>
+                    <FormField label={tc.fieldLastSyncedAt}>
+                      <input
+                        className={INPUT_CLS}
+                        value={formatDateTime(selected.last_synced_at)}
+                        readOnly
+                      />
+                    </FormField>
+                  </div>
+
+                  <FormField label={tc.fieldMirroredFilePath}>
+                    <input
+                      className={INPUT_CLS}
+                      value={selected.mirrored_file_path || tc.valueNotSet}
+                      readOnly
+                    />
+                  </FormField>
+
                   <label className="flex cursor-pointer select-none items-center gap-2.5 text-sm text-[var(--c-text-secondary)]">
                     <input
                       type="checkbox"
@@ -575,14 +650,26 @@ export function PersonasPage() {
               )}
 
               {tab === 'prompt' && (
-                <FormField label={tc.fieldPrompt}>
-                  <textarea
-                    className={`${MONO_CLS} min-h-[240px] resize-y`}
-                    rows={10}
-                    value={form.prompt}
-                    onChange={(e) => setForm((prev) => prev && { ...prev, prompt: e.target.value })}
-                  />
-                </FormField>
+                <div className="flex flex-col gap-5">
+                  <FormField label={tc.fieldPrompt}>
+                    <textarea
+                      className={`${MONO_CLS} min-h-[240px] resize-y`}
+                      rows={10}
+                      value={form.prompt}
+                      onChange={(e) => setForm((prev) => prev && { ...prev, prompt: e.target.value })}
+                    />
+                  </FormField>
+                  {isHybridPersona(form.executorType) && (
+                    <FormField label={tc.fieldLuaScript}>
+                      <textarea
+                        className={`${MONO_CLS} min-h-[240px] resize-y`}
+                        rows={10}
+                        value={form.luaScript}
+                        onChange={(e) => setForm((prev) => prev && { ...prev, luaScript: e.target.value })}
+                      />
+                    </FormField>
+                  )}
+                </div>
               )}
 
               {tab === 'tools' && (
@@ -795,6 +882,22 @@ export function PersonasPage() {
                   {isHybridPersona(persona.executor_type) && (
                     <Badge variant="warning">{tc.labelHybrid}</Badge>
                   )}
+                </div>
+                <div className="grid gap-1 text-[11px] text-[var(--c-text-muted)]">
+                  <div className="flex items-center justify-between gap-2">
+                    <span>{tc.fieldSyncMode}</span>
+                    <span className="truncate text-right">{formatSyncMode(persona, tc)}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span>{tc.fieldMirroredFilePath}</span>
+                    <span className="truncate text-right" title={persona.mirrored_file_path ?? tc.valueNotSet}>
+                      {persona.mirrored_file_path ?? tc.valueNotSet}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span>{tc.fieldLastSyncedAt}</span>
+                    <span className="truncate text-right">{formatDateTime(persona.last_synced_at)}</span>
+                  </div>
                 </div>
               </button>
             ))}

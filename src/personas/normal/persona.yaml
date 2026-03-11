@@ -6,11 +6,14 @@ soul_file: soul.md
 user_selectable: true
 selector_name: Normal
 selector_order: 1
-tool_allowlist: []
 budgets:
-  reasoning_iterations: 99999
-  max_output_tokens: 20480
-  temperature: 1.0
+    max_output_tokens: 20480
+    reasoning_iterations: 99999
+    temperature: 1
 title_summarize:
-  prompt: "Keep it under 10 Chinese characters. Capture the task goal."
-  max_tokens: 20
+    max_tokens: 20
+    prompt: Keep it under 10 Chinese characters. Capture the task goal.
+model: openrouter^qwen/qwen3.5-27b
+reasoning_mode: disabled
+prompt_cache_control: none
+executor_type: agent.simple

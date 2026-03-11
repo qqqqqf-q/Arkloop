@@ -2,7 +2,6 @@ package pipeline
 
 import (
 	"context"
-	"log/slog"
 
 	sharedexec "arkloop/services/shared/executionconfig"
 	"arkloop/services/worker/internal/data"
@@ -20,15 +19,28 @@ func NewPersonaResolutionMiddleware(
 	releaseSlot func(ctx context.Context, run data.Run),
 ) RunMiddleware {
 	return func(ctx context.Context, rc *RunContext, next RunHandler) error {
-		basePersonaRegistry := getBaseRegistry()
-		runPersonaRegistry := basePersonaRegistry
+		runPersonaRegistry := personas.NewRegistry()
 		if dbPool != nil {
 			dbDefs, dbErr := personas.LoadFromDB(ctx, dbPool, rc.Run.OrgID)
 			if dbErr != nil {
-				slog.WarnContext(ctx, "personas: db load failed, using static registry", "err", dbErr.Error())
-			} else if len(dbDefs) > 0 {
-				runPersonaRegistry = personas.MergeRegistry(basePersonaRegistry, dbDefs)
+				payload := map[string]any{
+					"error_class": "internal.error",
+					"message":     "persona registry load failed",
+					"details":     map[string]any{"reason": dbErr.Error()},
+				}
+				failed := rc.Emitter.Emit("run.failed", payload, nil, StringPtr("internal.error"))
+				var releaseFn func()
+				if releaseSlot != nil {
+					run := rc.Run
+					releaseFn = func() { releaseSlot(ctx, run) }
+				}
+				return appendAndCommitSingle(ctx, rc.Pool, rc.Run, runsRepo, eventsRepo, failed, releaseFn, rc.BroadcastRDB)
 			}
+			for _, def := range dbDefs {
+				runPersonaRegistry.Set(def)
+			}
+		} else if getBaseRegistry != nil {
+			runPersonaRegistry = getBaseRegistry()
 		}
 
 		resolution := personas.ResolvePersona(rc.InputJSON, runPersonaRegistry)

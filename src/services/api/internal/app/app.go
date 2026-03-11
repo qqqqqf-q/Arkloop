@@ -22,6 +22,7 @@ import (
 	"arkloop/services/api/internal/migrate"
 	"arkloop/services/api/internal/observability"
 	"arkloop/services/api/internal/personas"
+	"arkloop/services/api/internal/personasync"
 	sharedconfig "arkloop/services/shared/config"
 	"arkloop/services/shared/objectstore"
 	sharedredis "arkloop/services/shared/redis"
@@ -608,6 +609,23 @@ func (a *Application) Run(ctx context.Context) error {
 		return err
 	}
 
+	var personaSyncManager *personasync.Manager
+	if pool != nil && personasRepo != nil {
+		if deleted, err := personasRepo.DeleteInvalidLuaRuntimeRows(ctx); err != nil {
+			return err
+		} else if deleted > 0 {
+			a.logger.Warn("persona_runtime_rows_deleted", observability.LogFields{}, map[string]any{"rows": deleted})
+		}
+		personaSyncManager = personasync.NewManager(personasRoot, pool, personasRepo, a.logger)
+		if err := personaSyncManager.SyncNow(ctx); err != nil {
+			return err
+		}
+		if refreshed, refreshErr := personas.LoadFromDir(personasRoot); refreshErr == nil {
+			repoPersonas = refreshed
+		}
+		go personaSyncManager.Run(ctx)
+	}
+
 	server := &http.Server{
 		Handler: apihttp.NewHandler(apihttp.HandlerConfig{
 			Pool:                         pool,
@@ -689,7 +707,8 @@ func (a *Application) Run(ctx context.Context) error {
 				HeartbeatSeconds: a.config.SSE.HeartbeatSeconds,
 				BatchLimit:       a.config.SSE.BatchLimit,
 			},
-			RepoPersonas: repoPersonas,
+			RepoPersonas:       repoPersonas,
+			PersonaSyncTrigger: personaSyncManager,
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
 	}

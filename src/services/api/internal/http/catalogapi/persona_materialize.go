@@ -46,6 +46,17 @@ func repoPersonaExecutorConfigJSON(raw map[string]any) json.RawMessage {
 	return encoded
 }
 
+func repoPersonaTitleSummarizeJSON(raw map[string]any) json.RawMessage {
+	if len(raw) == 0 {
+		return nil
+	}
+	encoded, err := json.Marshal(raw)
+	if err != nil {
+		return nil
+	}
+	return encoded
+}
+
 func materializeRepoPersonaForCreate(
 	ctx context.Context,
 	personasRepo *data.PersonasRepository,
@@ -112,6 +123,36 @@ func materializeRepoPersonaForCreate(
 	executorConfigJSON := repoPersonaExecutorConfigJSON(repoPersona.ExecutorConfig)
 	if len(req.ExecutorConfigJSON) > 0 {
 		executorConfigJSON = req.ExecutorConfigJSON
+	}
+
+	if scope == data.PersonaScopePlatform {
+		persona, err := personasRepo.UpsertPlatformMirror(ctx, data.PlatformMirrorUpsertParams{
+			PersonaKey:          repoPersona.ID,
+			Version:             repoPersona.Version,
+			DisplayName:         displayName,
+			Description:         description,
+			SoulMD:              strings.TrimSpace(repoPersona.SoulMD),
+			UserSelectable:      repoPersona.UserSelectable,
+			SelectorName:        optionalTrimmedString(repoPersona.SelectorName),
+			SelectorOrder:       repoPersona.SelectorOrder,
+			PromptMD:            promptMD,
+			ToolAllowlist:       toolAllowlist,
+			ToolDenylist:        toolDenylist,
+			BudgetsJSON:         budgetsJSON,
+			TitleSummarizeJSON:  repoPersonaTitleSummarizeJSON(repoPersona.TitleSummarize),
+			PreferredCredential: preferredCredential,
+			Model:               model,
+			ReasoningMode:       reasoningMode,
+			PromptCacheControl:  promptCacheControl,
+			ExecutorType:        executorType,
+			ExecutorConfigJSON:  executorConfigJSON,
+			IsActive:            true,
+			MirroredFileDir:     repoPersona.ID,
+		})
+		if err != nil {
+			return data.Persona{}, err
+		}
+		return *persona, nil
 	}
 
 	return personasRepo.CreateInScope(

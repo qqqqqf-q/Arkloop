@@ -103,6 +103,7 @@ services:
       redis:
         condition: service_healthy
     volumes:
+      - ./src/personas:/usr/local/share/arkloop/personas
       - arkloop_storage:${ARKLOOP_STORAGE_ROOT:-/var/lib/arkloop/storage}
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8001/healthz"]

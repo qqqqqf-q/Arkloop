@@ -43,6 +43,7 @@ type RepoPersona struct {
 	ToolAllowlist       []string       `yaml:"tool_allowlist"`
 	ToolDenylist        []string       `yaml:"tool_denylist"`
 	Budgets             map[string]any `yaml:"budgets"`
+	TitleSummarize      map[string]any `yaml:"title_summarize"`
 	PreferredCredential string         `yaml:"preferred_credential"`
 	Model               string         `yaml:"model"`
 	ReasoningMode       string         `yaml:"reasoning_mode"`
@@ -50,6 +51,7 @@ type RepoPersona struct {
 	ExecutorType        string         `yaml:"executor_type"`
 	ExecutorConfig      map[string]any `yaml:"executor_config"`
 	SoulFile            string         `yaml:"soul_file"`
+	DirName             string         `yaml:"-"`
 	SoulMD              string         `yaml:"-"`
 	PromptMD            string         `yaml:"-"`
 }
@@ -89,11 +91,16 @@ func LoadFromDir(root string) ([]RepoPersona, error) {
 		if p.ID == "" {
 			continue
 		}
+		p.DirName = entry.Name()
 		if p.Version == "" {
 			p.Version = "1"
 		}
 		if promptData, err := os.ReadFile(promptPath); err == nil {
 			p.PromptMD = strings.TrimSpace(string(promptData))
+		}
+
+		if err := inlineLuaScriptConfig(&p, dir); err != nil {
+			return nil, fmt.Errorf("persona %s executor_config: %w", p.ID, err)
 		}
 
 		soulFile, soulExplicit, err := parseSoulFile(rawObj)
@@ -117,6 +124,38 @@ func LoadFromDir(root string) ([]RepoPersona, error) {
 		result = append(result, p)
 	}
 	return result, nil
+}
+
+func inlineLuaScriptConfig(persona *RepoPersona, personaDir string) error {
+	if persona == nil || strings.TrimSpace(persona.ExecutorType) != "agent.lua" {
+		return nil
+	}
+	if persona.ExecutorConfig == nil {
+		persona.ExecutorConfig = map[string]any{}
+	}
+	if script, ok := persona.ExecutorConfig["script"].(string); ok && strings.TrimSpace(script) != "" {
+		delete(persona.ExecutorConfig, "script_file")
+		return nil
+	}
+	rawScriptFile, ok := persona.ExecutorConfig["script_file"].(string)
+	if !ok || strings.TrimSpace(rawScriptFile) == "" {
+		return nil
+	}
+	scriptPath, err := resolvePersonaLocalPath(personaDir, rawScriptFile)
+	if err != nil {
+		return err
+	}
+	rawScript, err := os.ReadFile(scriptPath)
+	if err != nil {
+		return err
+	}
+	script := strings.TrimSpace(string(rawScript))
+	if script == "" {
+		return fmt.Errorf("script_file must not be empty")
+	}
+	persona.ExecutorConfig["script"] = script
+	delete(persona.ExecutorConfig, "script_file")
+	return nil
 }
 
 func parseSoulFile(obj map[string]any) (string, bool, error) {

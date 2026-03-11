@@ -13,4 +13,3 @@ local _, stream_err = agent.stream(system_prompt, messages, { max_tokens = 8192 
 if stream_err ~= nil then
   error(stream_err)
 end
-

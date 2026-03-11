@@ -12,6 +12,9 @@ export type Persona = {
   org_id: string | null
   scope: PersonaScope
   source?: 'builtin' | 'custom'
+  sync_mode?: 'none' | 'platform_file_mirror'
+  mirrored_file_path?: string
+  last_synced_at?: string
   persona_key: string
   version: string
   display_name: string
@@ -79,9 +82,10 @@ export async function createPersona(
   accessToken: string,
 ): Promise<Persona> {
   const scope = req.scope ?? 'platform'
+  const { is_active: _isActive, ...body } = req
   return apiFetch<Persona>(withScope('/v1/personas', scope), {
     method: 'POST',
-    body: JSON.stringify({ ...req, scope }),
+    body: JSON.stringify({ ...body, scope }),
     accessToken,
   })
 }
@@ -92,9 +96,10 @@ export async function patchPersona(
   accessToken: string,
 ): Promise<Persona> {
   const scope = req.scope ?? 'platform'
+  const { scope: _scope, ...body } = req
   return apiFetch<Persona>(withScope(`/v1/personas/${id}`, scope), {
     method: 'PATCH',
-    body: JSON.stringify(req),
+    body: JSON.stringify(body),
     accessToken,
   })
 }

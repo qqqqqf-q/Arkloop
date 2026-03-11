@@ -322,6 +322,7 @@ export interface LocaleStrings {
       fieldDisplayName: string
       fieldDescription: string
       fieldPrompt: string
+      fieldLuaScript: string
       fieldModel: string
       fieldToolAllowlist: string
       fieldToolAllowlistPlaceholder: string
@@ -343,13 +344,19 @@ export interface LocaleStrings {
       fieldPreferredCredential: string
       fieldReasoningMode: string
       fieldPromptCacheControl: string
+      fieldSyncMode: string
+      fieldMirroredFilePath: string
+      fieldLastSyncedAt: string
       fieldScope: string
       scopePlatform: string
       scopeOrg: string
       selectorMeta: (name: string, order: number) => string
       valuePlatformDefault: string
+      valueNotSet: string
       labelGlobal: string
       labelHybrid: string
+      syncModeNone: string
+      syncModePlatformFileMirror: string
       cancel: string
       create: string
       save: string

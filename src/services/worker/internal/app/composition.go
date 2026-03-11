@@ -15,7 +15,6 @@ import (
 	"arkloop/services/worker/internal/data"
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/mcp"
-	"arkloop/services/worker/internal/personas"
 	"arkloop/services/worker/internal/pipeline"
 	"arkloop/services/worker/internal/queue"
 	"arkloop/services/worker/internal/routing"
@@ -197,17 +196,6 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 		slog.InfoContext(ctx, "document_write: tool registered")
 	}
 
-	personasRoot, err := personas.BuiltinPersonasRoot()
-	if err != nil {
-		return nil, err
-	}
-	initialPersonaRegistry, err := personas.LoadRegistry(personasRoot)
-	if err != nil {
-		return nil, err
-	}
-	watchedPersonas := personas.NewWatchedRegistry(personasRoot, initialPersonaRegistry)
-	watchedPersonas.Watch(ctx)
-
 	var toolDescriptionOverridesRepo *data.ToolDescriptionOverridesRepository
 	if pool != nil {
 		toolDescriptionOverridesRepo, err = data.NewToolDescriptionOverridesRepository(pool)
@@ -250,7 +238,7 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 		ToolExecutors:                executors,
 		AllLlmToolSpecs:              allLlmSpecs,
 		BaseToolAllowlistNames:       baseAllowlistNames,
-		PersonaRegistryGetter:        watchedPersonas.Get,
+		PersonaRegistryGetter:        nil,
 		MCPPool:                      mcpPool,
 		MCPDiscoveryCache:            discoveryCache,
 		ToolProviderCache:            toolProviderCache,

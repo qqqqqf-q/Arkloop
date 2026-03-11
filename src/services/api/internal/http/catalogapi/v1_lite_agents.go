@@ -68,13 +68,14 @@ func liteAgentsEntry(
 	membershipRepo *data.OrgMembershipRepository,
 	personasRepo *data.PersonasRepository,
 	repoPersonas []personas.RepoPersona,
+	syncTrigger personaSyncTrigger,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		switch r.Method {
 		case nethttp.MethodGet:
 			listLiteAgents(w, r, authService, membershipRepo, personasRepo, repoPersonas)
 		case nethttp.MethodPost:
-			createLiteAgent(w, r, authService, membershipRepo, personasRepo, repoPersonas)
+			createLiteAgent(w, r, authService, membershipRepo, personasRepo, repoPersonas, syncTrigger)
 		default:
 			httpkit.WriteMethodNotAllowed(w, r)
 		}
@@ -85,6 +86,7 @@ func liteAgentEntry(
 	authService *auth.Service,
 	membershipRepo *data.OrgMembershipRepository,
 	personasRepo *data.PersonasRepository,
+	syncTrigger personaSyncTrigger,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		traceID := observability.TraceIDFromContext(r.Context())
@@ -101,9 +103,9 @@ func liteAgentEntry(
 		}
 		switch r.Method {
 		case nethttp.MethodPatch:
-			patchLiteAgent(w, r, traceID, personaID, authService, membershipRepo, personasRepo)
+			patchLiteAgent(w, r, traceID, personaID, authService, membershipRepo, personasRepo, syncTrigger)
 		case nethttp.MethodDelete:
-			deleteLiteAgent(w, r, traceID, personaID, authService, membershipRepo, personasRepo)
+			deleteLiteAgent(w, r, traceID, personaID, authService, membershipRepo, personasRepo, syncTrigger)
 		default:
 			httpkit.WriteMethodNotAllowed(w, r)
 		}
@@ -128,7 +130,7 @@ func listLiteAgents(
 		return
 	}
 
-	scope, ok := requirePersonaScope(actor, w, traceID, r.URL.Query().Get("scope"), false)
+	scope, ok := requirePersonaScope(actor, w, traceID, r.URL.Query().Get("scope"), false, false)
 	if !ok {
 		return
 	}
@@ -162,6 +164,7 @@ func createLiteAgent(
 	membershipRepo *data.OrgMembershipRepository,
 	personasRepo *data.PersonasRepository,
 	repoPersonas []personas.RepoPersona,
+	syncTrigger personaSyncTrigger,
 ) {
 	traceID := observability.TraceIDFromContext(r.Context())
 	if authService == nil {
@@ -179,7 +182,7 @@ func createLiteAgent(
 		return
 	}
 
-	scope, ok := requirePersonaScope(actor, w, traceID, req.Scope, true)
+	scope, ok := requirePersonaScope(actor, w, traceID, req.Scope, true, true)
 	if !ok {
 		return
 	}
@@ -205,6 +208,7 @@ func createLiteAgent(
 			return
 		}
 		httpkit.WriteJSON(w, traceID, nethttp.StatusCreated, toLiteAgentFromDB(persona))
+		notifyPersonaSync(syncTrigger)
 		return
 	}
 	if req.Name == "" || req.PromptMD == "" {
@@ -236,6 +240,7 @@ func createLiteAgent(
 		return
 	}
 	httpkit.WriteJSON(w, traceID, nethttp.StatusCreated, toLiteAgentFromDB(persona))
+	notifyPersonaSync(syncTrigger)
 }
 
 func patchLiteAgent(
@@ -246,6 +251,7 @@ func patchLiteAgent(
 	authService *auth.Service,
 	membershipRepo *data.OrgMembershipRepository,
 	personasRepo *data.PersonasRepository,
+	syncTrigger personaSyncTrigger,
 ) {
 	if authService == nil {
 		httpkit.WriteAuthNotConfigured(w, traceID)
@@ -256,7 +262,7 @@ func patchLiteAgent(
 		return
 	}
 
-	scope, ok := requirePersonaScope(actor, w, traceID, r.URL.Query().Get("scope"), false)
+	scope, ok := requirePersonaScope(actor, w, traceID, r.URL.Query().Get("scope"), false, true)
 	if !ok {
 		return
 	}
@@ -299,6 +305,7 @@ func patchLiteAgent(
 		return
 	}
 	httpkit.WriteJSON(w, traceID, nethttp.StatusOK, toLiteAgentFromDB(*updated))
+	notifyPersonaSync(syncTrigger)
 }
 
 func deleteLiteAgent(
@@ -309,6 +316,7 @@ func deleteLiteAgent(
 	authService *auth.Service,
 	membershipRepo *data.OrgMembershipRepository,
 	personasRepo *data.PersonasRepository,
+	syncTrigger personaSyncTrigger,
 ) {
 	if authService == nil {
 		httpkit.WriteAuthNotConfigured(w, traceID)
@@ -319,7 +327,7 @@ func deleteLiteAgent(
 		return
 	}
 
-	scope, ok := requirePersonaScope(actor, w, traceID, r.URL.Query().Get("scope"), false)
+	scope, ok := requirePersonaScope(actor, w, traceID, r.URL.Query().Get("scope"), false, true)
 	if !ok {
 		return
 	}
@@ -333,6 +341,7 @@ func deleteLiteAgent(
 		return
 	}
 	httpkit.WriteJSON(w, traceID, nethttp.StatusOK, map[string]bool{"ok": true})
+	notifyPersonaSync(syncTrigger)
 }
 
 func toLiteAgentFromDB(p data.Persona) liteAgentResponse {

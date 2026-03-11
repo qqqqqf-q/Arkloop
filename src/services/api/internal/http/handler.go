@@ -135,7 +135,8 @@ type HandlerConfig struct {
 	ConfigInvalidator sharedconfig.Invalidator
 	ConfigRegistry    *sharedconfig.Registry
 
-	RepoPersonas []personas.RepoPersona
+	RepoPersonas       []personas.RepoPersona
+	PersonaSyncTrigger interface{ Trigger() }
 }
 
 type artifactStore interface {
@@ -264,6 +265,7 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 		AuditWriter:                  cfg.AuditWriter,
 		SkillStore:                   cfg.SkillStore,
 		RepoPersonas:                 cfg.RepoPersonas,
+		PersonaSyncTrigger:           cfg.PersonaSyncTrigger,
 		EffectiveToolCatalogCache:    effectiveToolCatalogCache,
 		ArtifactStoreAvailable:       cfg.ArtifactStore != nil,
 	})

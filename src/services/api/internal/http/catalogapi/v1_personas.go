@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"arkloop/services/api/internal/auth"
 	"arkloop/services/api/internal/data"
@@ -76,6 +79,9 @@ type personaResponse struct {
 	PromptCacheControl  string          `json:"prompt_cache_control"`
 	ExecutorType        string          `json:"executor_type"`
 	ExecutorConfigJSON  json.RawMessage `json:"executor_config"`
+	SyncMode            string          `json:"sync_mode,omitempty"`
+	MirroredFilePath    *string         `json:"mirrored_file_path,omitempty"`
+	LastSyncedAt        *string         `json:"last_synced_at,omitempty"`
 	Source              string          `json:"source"`
 }
 
@@ -84,12 +90,13 @@ func personasEntry(
 	membershipRepo *data.OrgMembershipRepository,
 	personasRepo *data.PersonasRepository,
 	repoPersonas []repopersonas.RepoPersona,
+	syncTrigger personaSyncTrigger,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		traceID := observability.TraceIDFromContext(r.Context())
 		switch r.Method {
 		case nethttp.MethodPost:
-			createPersona(w, r, traceID, authService, membershipRepo, personasRepo, repoPersonas)
+			createPersona(w, r, traceID, authService, membershipRepo, personasRepo, repoPersonas, syncTrigger)
 		case nethttp.MethodGet:
 			listPersonas(w, r, traceID, authService, membershipRepo, personasRepo, repoPersonas)
 		default:
@@ -102,6 +109,7 @@ func personaEntry(
 	authService *auth.Service,
 	membershipRepo *data.OrgMembershipRepository,
 	personasRepo *data.PersonasRepository,
+	syncTrigger personaSyncTrigger,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		traceID := observability.TraceIDFromContext(r.Context())
@@ -121,9 +129,9 @@ func personaEntry(
 
 		switch r.Method {
 		case nethttp.MethodPatch:
-			patchPersona(w, r, traceID, personaID, authService, membershipRepo, personasRepo)
+			patchPersona(w, r, traceID, personaID, authService, membershipRepo, personasRepo, syncTrigger)
 		case nethttp.MethodDelete:
-			deletePersona(w, r, traceID, personaID, authService, membershipRepo, personasRepo)
+			deletePersona(w, r, traceID, personaID, authService, membershipRepo, personasRepo, syncTrigger)
 		default:
 			httpkit.WriteMethodNotAllowed(w, r)
 		}
@@ -138,6 +146,7 @@ func createPersona(
 	membershipRepo *data.OrgMembershipRepository,
 	personasRepo *data.PersonasRepository,
 	repoPersonas []repopersonas.RepoPersona,
+	syncTrigger personaSyncTrigger,
 ) {
 	if authService == nil {
 		httpkit.WriteAuthNotConfigured(w, traceID)
@@ -169,6 +178,10 @@ func createPersona(
 	req.DisplayName = strings.TrimSpace(req.DisplayName)
 	req.PromptMD = strings.TrimSpace(req.PromptMD)
 	req.CopyFromRepoPersonaKey = strings.TrimSpace(req.CopyFromRepoPersonaKey)
+	if err := validateRuntimeExecutorConfigRequest(req.ExecutorType, req.ExecutorConfigJSON); err != nil {
+		httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", err.Error(), traceID, nil)
+		return
+	}
 
 	if req.CopyFromRepoPersonaKey != "" {
 		repoPersona, exists := findRepoPersonaByKey(repoPersonas, req.CopyFromRepoPersonaKey)
@@ -192,11 +205,16 @@ func createPersona(
 				httpkit.WriteError(w, nethttp.StatusConflict, "personas.conflict", "persona with this key and version already exists", traceID, nil)
 				return
 			}
+			if isPersonaValidationError(err) {
+				httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", err.Error(), traceID, nil)
+				return
+			}
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
 		}
 
 		httpkit.WriteJSON(w, traceID, nethttp.StatusCreated, toPersonaResponse(persona))
+		notifyPersonaSync(syncTrigger)
 		return
 	}
 
@@ -230,11 +248,16 @@ func createPersona(
 			httpkit.WriteError(w, nethttp.StatusConflict, "personas.conflict", "persona with this key and version already exists", traceID, nil)
 			return
 		}
+		if isPersonaValidationError(err) {
+			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", err.Error(), traceID, nil)
+			return
+		}
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
 	}
 
 	httpkit.WriteJSON(w, traceID, nethttp.StatusCreated, toPersonaResponse(persona))
+	notifyPersonaSync(syncTrigger)
 }
 
 func listPersonas(
@@ -402,6 +425,7 @@ func patchPersona(
 	authService *auth.Service,
 	membershipRepo *data.OrgMembershipRepository,
 	personasRepo *data.PersonasRepository,
+	syncTrigger personaSyncTrigger,
 ) {
 	if authService == nil {
 		httpkit.WriteAuthNotConfigured(w, traceID)
@@ -453,9 +477,17 @@ func patchPersona(
 		ExecutorType:        req.ExecutorType,
 		ExecutorConfigJSON:  req.ExecutorConfigJSON,
 	}
+	if err := validateRuntimeExecutorConfigRequest(ptrStringValue(req.ExecutorType), req.ExecutorConfigJSON); err != nil {
+		httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", err.Error(), traceID, nil)
+		return
+	}
 
 	updated, err := personasRepo.PatchInScope(r.Context(), actor.OrgID, personaID, scope, patch)
 	if err != nil {
+		if isPersonaValidationError(err) {
+			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", err.Error(), traceID, nil)
+			return
+		}
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
 	}
@@ -465,6 +497,7 @@ func patchPersona(
 	}
 
 	httpkit.WriteJSON(w, traceID, nethttp.StatusOK, toPersonaResponse(*updated))
+	notifyPersonaSync(syncTrigger)
 }
 
 func deletePersona(
@@ -475,6 +508,7 @@ func deletePersona(
 	authService *auth.Service,
 	membershipRepo *data.OrgMembershipRepository,
 	personasRepo *data.PersonasRepository,
+	syncTrigger personaSyncTrigger,
 ) {
 	if authService == nil {
 		httpkit.WriteAuthNotConfigured(w, traceID)
@@ -506,6 +540,7 @@ func deletePersona(
 	}
 
 	httpkit.WriteJSON(w, traceID, nethttp.StatusOK, map[string]any{"ok": true})
+	notifyPersonaSync(syncTrigger)
 }
 
 func toPersonaResponse(s data.Persona) personaResponse {
@@ -552,7 +587,9 @@ func toPersonaResponse(s data.Persona) personaResponse {
 		Version:             s.Version,
 		DisplayName:         s.DisplayName,
 		Description:         s.Description,
-		UserSelectable:      false,
+		UserSelectable:      s.UserSelectable,
+		SelectorName:        optionalTrimmedStringPtr(s.SelectorName),
+		SelectorOrder:       s.SelectorOrder,
 		PromptMD:            s.PromptMD,
 		ToolAllowlist:       allowlist,
 		ToolDenylist:        denylist,
@@ -565,6 +602,9 @@ func toPersonaResponse(s data.Persona) personaResponse {
 		PromptCacheControl:  promptCacheControl,
 		ExecutorType:        executorType,
 		ExecutorConfigJSON:  executorConfig,
+		SyncMode:            strings.TrimSpace(s.SyncMode),
+		MirroredFilePath:    mirroredPersonaFilePath(s.SyncMode, s.MirroredFileDir),
+		LastSyncedAt:        optionalTimeString(s.LastSyncedAt),
 		Source:              "custom",
 	}
 }
@@ -664,6 +704,68 @@ func requirePersonaScope(actor *httpkit.Actor, w nethttp.ResponseWriter, traceID
 		return "", false
 	}
 	return normalized, true
+}
+
+func mirroredPersonaFilePath(syncMode string, mirroredFileDir *string) *string {
+	if strings.TrimSpace(syncMode) != data.PersonaSyncModePlatformFileMirror || mirroredFileDir == nil {
+		return nil
+	}
+	trimmed := strings.TrimSpace(*mirroredFileDir)
+	if trimmed == "" {
+		return nil
+	}
+	value := filepath.ToSlash(filepath.Join(trimmed, "persona.yaml"))
+	return &value
+}
+
+func optionalTimeString(value *time.Time) *string {
+	if value == nil || value.IsZero() {
+		return nil
+	}
+	formatted := value.UTC().Format("2006-01-02T15:04:05Z")
+	return &formatted
+}
+
+func notifyPersonaSync(syncTrigger personaSyncTrigger) {
+	if syncTrigger != nil {
+		syncTrigger.Trigger()
+	}
+}
+
+func validateRuntimeExecutorConfigRequest(executorType string, raw json.RawMessage) error {
+	if strings.TrimSpace(executorType) != "agent.lua" {
+		return nil
+	}
+	if len(raw) == 0 {
+		return fmt.Errorf("executor_config.script is required for agent.lua runtime")
+	}
+	var obj map[string]any
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return fmt.Errorf("executor_config must be valid json object")
+	}
+	if _, exists := obj["script_file"]; exists {
+		return fmt.Errorf("executor_config.script_file is not allowed for agent.lua runtime")
+	}
+	script, _ := obj["script"].(string)
+	if strings.TrimSpace(script) == "" {
+		return fmt.Errorf("executor_config.script is required for agent.lua runtime")
+	}
+	return nil
+}
+
+func ptrStringValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return strings.TrimSpace(*value)
+}
+
+func isPersonaValidationError(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := err.Error()
+	return strings.Contains(message, "executor_config.") || strings.Contains(message, "must not be empty") || strings.Contains(message, "is required") || strings.Contains(message, "valid json object")
 }
 
 func personaScopeFromOrgID(orgID *uuid.UUID) string {

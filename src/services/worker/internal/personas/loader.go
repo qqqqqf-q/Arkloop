@@ -469,7 +469,8 @@ func LoadFromDB(ctx context.Context, pool *pgxpool.Pool, orgID uuid.UUID) ([]Def
 	rows, err := pool.Query(
 		ctx,
 		`SELECT persona_key, version, display_name, description,
-		        prompt_md, tool_allowlist, COALESCE(tool_denylist, '{}'), budgets_json,
+		        soul_md, user_selectable, selector_name, selector_order,
+		        prompt_md, tool_allowlist, COALESCE(tool_denylist, '{}'), budgets_json, title_summarize_json,
 		        executor_type, executor_config_json,
 		        preferred_credential, model, reasoning_mode, prompt_cache_control
 		 FROM personas
@@ -489,10 +490,15 @@ func LoadFromDB(ctx context.Context, pool *pgxpool.Pool, orgID uuid.UUID) ([]Def
 			version             string
 			displayName         string
 			description         *string
+			soulMD              string
+			userSelectable      bool
+			selectorName        *string
+			selectorOrder       *int
 			promptMD            string
 			toolAllowlist       []string
 			toolDenylist        []string
 			budgetsRaw          []byte
+			titleSummarizeRaw   []byte
 			executorType        string
 			executorConfigRaw   []byte
 			preferredCredential *string
@@ -501,7 +507,8 @@ func LoadFromDB(ctx context.Context, pool *pgxpool.Pool, orgID uuid.UUID) ([]Def
 			promptCacheControl  string
 		)
 		if err := rows.Scan(&personaKey, &version, &displayName, &description,
-			&promptMD, &toolAllowlist, &toolDenylist, &budgetsRaw,
+			&soulMD, &userSelectable, &selectorName, &selectorOrder,
+			&promptMD, &toolAllowlist, &toolDenylist, &budgetsRaw, &titleSummarizeRaw,
 			&executorType, &executorConfigRaw, &preferredCredential, &model, &reasoningMode, &promptCacheControl); err != nil {
 			return nil, err
 		}
@@ -515,6 +522,13 @@ func LoadFromDB(ctx context.Context, pool *pgxpool.Pool, orgID uuid.UUID) ([]Def
 		if err != nil {
 			return nil, fmt.Errorf("persona %q executor_config_json: %w", personaKey, err)
 		}
+		if err := validateRuntimeExecutorConfig(executorType, executorConfig); err != nil {
+			return nil, fmt.Errorf("persona %q executor_config_json: %w", personaKey, err)
+		}
+		titleSummarizer, err := parseTitleSummarizeJSON(titleSummarizeRaw)
+		if err != nil {
+			return nil, fmt.Errorf("persona %q title_summarize_json: %w", personaKey, err)
+		}
 
 		if strings.TrimSpace(executorType) == "" {
 			executorType = defaultExecutorType
@@ -524,9 +538,13 @@ func LoadFromDB(ctx context.Context, pool *pgxpool.Pool, orgID uuid.UUID) ([]Def
 			ID:                  personaKey,
 			Version:             version,
 			Title:               displayName,
+			UserSelectable:      userSelectable,
+			SelectorName:        strPtrOrNilPtr(selectorName),
+			SelectorOrder:       selectorOrder,
 			ToolAllowlist:       toolAllowlist,
 			ToolDenylist:        toolDenylist,
 			Budgets:             budgets,
+			SoulMD:              strings.TrimSpace(soulMD),
 			PromptMD:            promptMD,
 			ExecutorType:        executorType,
 			ExecutorConfig:      executorConfig,
@@ -534,6 +552,7 @@ func LoadFromDB(ctx context.Context, pool *pgxpool.Pool, orgID uuid.UUID) ([]Def
 			Model:               model,
 			ReasoningMode:       normalizePersonaReasoningMode(strPtrOrNil(reasoningMode)),
 			PromptCacheControl:  normalizePersonaPromptCacheControl(strPtrOrNil(promptCacheControl)),
+			TitleSummarizer:     titleSummarizer,
 		}
 		if description != nil && strings.TrimSpace(*description) != "" {
 			s := strings.TrimSpace(*description)
@@ -599,6 +618,38 @@ func parseExecutorConfigJSON(raw []byte) (map[string]any, error) {
 		return nil, fmt.Errorf("invalid executor_config_json: %w", err)
 	}
 	return obj, nil
+}
+
+func validateRuntimeExecutorConfig(executorType string, config map[string]any) error {
+	if strings.TrimSpace(executorType) != "agent.lua" {
+		return nil
+	}
+	if _, exists := config["script_file"]; exists {
+		return fmt.Errorf("script_file is not allowed in runtime executor config")
+	}
+	script, _ := config["script"].(string)
+	if strings.TrimSpace(script) == "" {
+		return fmt.Errorf("script is required in runtime executor config")
+	}
+	return nil
+}
+
+func parseTitleSummarizeJSON(raw []byte) (*TitleSummarizerConfig, error) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil, nil
+	}
+	var obj map[string]any
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return nil, fmt.Errorf("invalid title_summarize_json: %w", err)
+	}
+	return asTitleSummarizer(obj)
+}
+
+func strPtrOrNilPtr(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	return strPtrOrNil(*value)
 }
 
 func asOptionalPositiveInt(value any, label string) (*int, error) {

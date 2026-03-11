@@ -71,6 +71,33 @@ func TestLoadFromDirKeepsSoulMDEmptyWhenDefaultMissing(t *testing.T) {
 	}
 }
 
+func TestLoadFromDirInlinesLuaScriptFile(t *testing.T) {
+	root := t.TempDir()
+	writeRepoPersonaFiles(t, root, "lua-persona",
+		"id: lua-persona\nversion: \"1\"\ntitle: Lua Persona\nexecutor_type: agent.lua\nexecutor_config:\n  script_file: agent.lua\n",
+		"",
+		"persona prompt",
+	)
+	if err := os.WriteFile(filepath.Join(root, "lua-persona", "agent.lua"), []byte("context.set_output('ok')\n"), 0644); err != nil {
+		t.Fatalf("WriteFile agent.lua failed: %v", err)
+	}
+
+	personas, err := LoadFromDir(root)
+	if err != nil {
+		t.Fatalf("LoadFromDir failed: %v", err)
+	}
+	if len(personas) != 1 {
+		t.Fatalf("expected 1 persona, got %d", len(personas))
+	}
+	script, ok := personas[0].ExecutorConfig["script"].(string)
+	if !ok || script == "" {
+		t.Fatalf("expected inlined script, got %#v", personas[0].ExecutorConfig)
+	}
+	if _, exists := personas[0].ExecutorConfig["script_file"]; exists {
+		t.Fatalf("expected script_file removed, got %#v", personas[0].ExecutorConfig)
+	}
+}
+
 func writeRepoPersonaFiles(t *testing.T, root, name, yamlContent, soulContent, promptContent string) {
 	t.Helper()
 	dir := filepath.Join(root, name)
