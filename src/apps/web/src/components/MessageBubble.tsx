@@ -111,6 +111,11 @@ function apiBaseUrl(): string {
 
 const LIGHTBOX_ANIM_MS = 120
 
+const USER_TEXT_LINE_HEIGHT = 25.6 // 16px * 1.6
+const USER_TEXT_MAX_LINES = 9
+const USER_TEXT_COLLAPSED_HEIGHT = USER_TEXT_LINE_HEIGHT * USER_TEXT_MAX_LINES
+const USER_TEXT_FADE_HEIGHT = USER_TEXT_LINE_HEIGHT * 2
+
 function ImageThumbnailCard({
   artifact,
   accessToken,
@@ -457,8 +462,11 @@ export function MessageBubble({ message, onRetry, onEdit, onFork, onShare, onRep
   const [editing, setEditing] = useState(false)
   const [editText, setEditText] = useState('')
   const [moreOpen, setMoreOpen] = useState(false)
+  const [userTextExpanded, setUserTextExpanded] = useState(false)
+  const [userTextOverflows, setUserTextOverflows] = useState(false)
   const moreRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const userTextRef = useRef<HTMLDivElement>(null)
 
   // close popover on outside click
   useEffect(() => {
@@ -514,6 +522,13 @@ export function MessageBubble({ message, onRetry, onEdit, onFork, onShare, onRep
       textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`
     }
   }
+
+  useEffect(() => {
+    if (message.role !== 'user' || !userTextRef.current) return
+    const overflows = userTextRef.current.scrollHeight > USER_TEXT_COLLAPSED_HEIGHT + 1
+    setUserTextOverflows(overflows)
+    if (!overflows) setUserTextExpanded(false)
+  }, [message.role, message.content])
 
   if (message.role === 'user') {
     const legacy = extractLegacyFilesFromContent(message.content)
@@ -748,27 +763,61 @@ export function MessageBubble({ message, onRetry, onEdit, onFork, onShare, onRep
               ))}
             </div>
           )}
-          {displayText && (
-            <div
-              style={{
-                background: 'var(--c-bg-deep)',
-                borderRadius: '11px',
-                padding: '10px 16px',
-                color: 'var(--c-text-primary)',
-                fontSize: '16px',
-                fontWeight: 300,
-                lineHeight: 1.6,
-                letterSpacing: '-0.64px',
-                wordBreak: 'break-word',
-              }}
-            >
-              {displayText.split(/(\n{2,})/).map((part, i) =>
-                /^\n{2,}$/.test(part)
-                  ? <div key={i} style={{ height: '0.3em' }} />
-                  : <span key={i} style={{ whiteSpace: 'pre-wrap' }}>{part}</span>
-              )}
-            </div>
-          )}
+          {displayText && (() => {
+            const isCollapsed = userTextOverflows && !userTextExpanded
+            const fadeMask = `linear-gradient(to bottom, black calc(100% - ${USER_TEXT_FADE_HEIGHT}px), transparent)`
+            return (
+              <div
+                style={{
+                  background: 'var(--c-bg-deep)',
+                  borderRadius: '11px',
+                  padding: '10px 16px',
+                  color: 'var(--c-text-primary)',
+                  fontSize: '16.5px',
+                  fontWeight: 350,
+                  lineHeight: 1.6,
+                  letterSpacing: '-0.64px',
+                  wordBreak: 'break-word',
+                }}
+              >
+                <div
+                  ref={userTextRef}
+                  style={{
+                    maxHeight: !userTextExpanded ? `${USER_TEXT_COLLAPSED_HEIGHT}px` : undefined,
+                    overflow: 'hidden',
+                    ...(isCollapsed ? {
+                      WebkitMaskImage: fadeMask,
+                      maskImage: fadeMask,
+                    } : {}),
+                  }}
+                >
+                  {displayText.split(/(\n{2,})/).map((part, i) =>
+                    /^\n{2,}$/.test(part)
+                      ? <div key={i} style={{ height: '0.3em' }} />
+                      : <span key={i} style={{ whiteSpace: 'pre-wrap' }}>{part}</span>
+                  )}
+                </div>
+                {userTextOverflows && (
+                  <div
+                    onClick={() => setUserTextExpanded(prev => !prev)}
+                    style={{
+                      marginTop: '6px',
+                      fontSize: '13px',
+                      fontWeight: 300,
+                      color: 'var(--c-text-muted)',
+                      cursor: 'pointer',
+                      userSelect: 'none',
+                      transition: 'color 150ms',
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--c-text-icon)' }}
+                    onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--c-text-muted)' }}
+                  >
+                    {userTextExpanded ? 'Show less' : 'Show more'}
+                  </div>
+                )}
+              </div>
+            )
+          })()}
         </div>
       </div>
     )

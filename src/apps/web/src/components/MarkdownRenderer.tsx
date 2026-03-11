@@ -414,14 +414,14 @@ function WithCitations({ children, prefix }: { children: ReactNode; prefix: stri
 }
 
 function buildMarkdownComponents(compact: boolean): Components {
-  const paragraphFontSize = compact ? '13.5px' : '15.5px'
+  const paragraphFontSize = compact ? '13.5px' : '16px'
   const heading1FontSize = compact ? '20px' : '24px'
   const heading2FontSize = compact ? '17px' : '20px'
   const heading3FontSize = compact ? '15px' : '17px'
   const heading4FontSize = compact ? '15px' : '17px'
   const heading5FontSize = compact ? '13px' : '14px'
   const heading6FontSize = compact ? '13px' : '14px'
-  const listFontSize = compact ? '13.5px' : '15.5px'
+  const listFontSize = compact ? '13.5px' : '16px'
 
   return {
     pre: ({ children }) => {
@@ -585,7 +585,7 @@ export function MarkdownRenderer({ content, disableMath, webSources, artifacts, 
   return (
     <ArtifactsContext.Provider value={artifactsValue}>
       <WebSourcesContext.Provider value={webSources ?? []}>
-        <div className={`md-content${compact ? ' md-content--compact' : ''}`} style={{ maxWidth: '100%', fontWeight: 300 }}>
+        <div className={`md-content${compact ? ' md-content--compact' : ''}`} style={{ maxWidth: '100%', fontWeight: 350 }}>
           <ReactMarkdown
             remarkPlugins={remarkPlugins}
             rehypePlugins={rehypePlugins}
