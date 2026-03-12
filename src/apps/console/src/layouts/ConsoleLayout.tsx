@@ -10,7 +10,7 @@ import {
   Package, Receipt, BadgeCheck, BarChart3,
   Flag, Ticket, Gift, Coins, Megaphone, Mic, Mail, AlignLeft,
   PanelLeftClose, PanelLeftOpen, ChevronDown,
-  Settings, ScrollText,
+  Settings, ScrollText, Blocks,
   Wrench, SlidersHorizontal, Puzzle,
 } from 'lucide-react'
 import { getMe, logout, isApiError, type MeResponse } from '../api'
@@ -102,6 +102,13 @@ function buildNavGroups(t: LocaleStrings): NavGroup[] {
       items: [
         { label: t.nav.apiKeys,   path: '/api-keys',  icon: <Key size={17} /> },
         { label: t.nav.webhooks,  path: '/webhooks',  icon: <Webhook size={17} /> },
+      ],
+    },
+    {
+      id: 'infrastructure',
+      label: t.groups.infrastructure,
+      items: [
+        { label: t.nav.modules, path: '/modules', icon: <Blocks size={17} /> },
       ],
     },
 

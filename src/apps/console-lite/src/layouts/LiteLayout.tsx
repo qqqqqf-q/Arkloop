@@ -6,6 +6,7 @@ import {
   KeyRound,
   Wrench,
   Play,
+  Blocks,
   Settings,
   ShieldCheck,
 } from 'lucide-react'
@@ -32,6 +33,7 @@ function buildNavItems(t: LocaleStrings): NavItem[] {
     { label: t.nav.models,    path: '/models',    icon: <KeyRound size={17} /> },
     { label: t.nav.tools,     path: '/tools',     icon: <Wrench size={17} /> },
     { label: t.nav.runs,      path: '/runs',      icon: <Play size={17} /> },
+    { label: t.nav.modules,   path: '/modules',   icon: <Blocks size={17} /> },
     { label: t.nav.settings,  path: '/settings',  icon: <Settings size={17} /> },
   ]
 }

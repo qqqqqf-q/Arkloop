@@ -7,6 +7,7 @@ import { AgentsPage } from './pages/AgentsPage'
 import { ModelsPage } from './pages/ModelsPage'
 import { ToolsPage } from './pages/ToolsPage'
 import { RunsPage } from './pages/RunsPage'
+import { ModulesPage } from './pages/ModulesPage'
 import { SettingsPage } from './pages/SettingsPage'
 import {
   writeAccessTokenToStorage,
@@ -69,6 +70,7 @@ function App() {
         <Route path="tools" element={<ToolsPage />} />
         <Route path="memory" element={<Navigate to="/tools" replace />} />
         <Route path="runs" element={<RunsPage />} />
+        <Route path="modules" element={<ModulesPage />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Route>

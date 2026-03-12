@@ -12,6 +12,7 @@ export interface LocaleStrings {
     security: string
     billing: string
     platform: string
+    infrastructure: string
   }
   // nav item labels
   nav: {
@@ -51,6 +52,7 @@ export interface LocaleStrings {
     memoryConfig: string
     executionGovernance: string
     reports: string
+    modules: string
   }
   // settings
   account: string
@@ -1190,6 +1192,37 @@ export interface LocaleStrings {
       prev: string
       next: string
       toastLoadFailed: string
+    }
+    modules: {
+      title: string
+      bridgeOnline: string
+      bridgeOffline: string
+      tabAll: string
+      tabMemory: string
+      tabSandbox: string
+      tabSearch: string
+      tabBrowser: string
+      tabConsole: string
+      statusUnknown: string
+      statusNotInstalled: string
+      statusDisconnected: string
+      statusPendingBootstrap: string
+      statusRunning: string
+      statusStopped: string
+      statusError: string
+      actionInstall: string
+      actionStart: string
+      actionStop: string
+      actionRestart: string
+      actionConfigure: string
+      actionBootstrap: string
+      copyCommand: string
+      copyAgentPrompt: string
+      copied: string
+      port: string
+      dependsOn: string
+      noModules: string
+      requires: (deps: string) => string
     }
   }
 }

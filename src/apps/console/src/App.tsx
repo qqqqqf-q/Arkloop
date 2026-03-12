@@ -32,6 +32,7 @@ import { GatewayConfigPage } from './pages/gateway-config/GatewayConfigPage'
 import { ExecutionGovernancePage } from './pages/execution-governance/ExecutionGovernancePage'
 import { AccessLogPage } from './pages/access-log/AccessLogPage'
 import { EntitlementsPage } from './pages/entitlements/EntitlementsPage'
+import { ModulesPage } from './pages/modules/ModulesPage'
 
 import {
   writeAccessTokenToStorage,
@@ -148,6 +149,8 @@ function App() {
         <Route path="credits-admin" element={<CreditsAdminPage />} />
         <Route path="broadcasts" element={<BroadcastsPage />} />
         <Route path="email" element={<EmailPage />} />
+        {/* Infrastructure */}
+        <Route path="modules" element={<ModulesPage />} />
         {/* Redirects */}
         
         <Route path="tool-providers" element={<Navigate to="/tools" replace />} />

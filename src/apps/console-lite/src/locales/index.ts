@@ -10,6 +10,7 @@ export interface LocaleStrings {
     models: string
     tools: string
     runs: string
+    modules: string
     settings: string
   }
   dashboard: {
@@ -224,6 +225,37 @@ export interface LocaleStrings {
     loading: string
     default: string
     signOut: string
+  }
+  modules: {
+    title: string
+    bridgeOnline: string
+    bridgeOffline: string
+    tabAll: string
+    tabMemory: string
+    tabSandbox: string
+    tabSearch: string
+    tabBrowser: string
+    tabConsole: string
+    statusUnknown: string
+    statusNotInstalled: string
+    statusDisconnected: string
+    statusPendingBootstrap: string
+    statusRunning: string
+    statusStopped: string
+    statusError: string
+    actionInstall: string
+    actionStart: string
+    actionStop: string
+    actionRestart: string
+    actionConfigure: string
+    actionBootstrap: string
+    copyCommand: string
+    copyAgentPrompt: string
+    copied: string
+    port: string
+    dependsOn: string
+    noModules: string
+    requires: (deps: string) => string
   }
   settingsPage: {
     title: string
