@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
-  Copy, Check, RefreshCw, Loader2,
+  Copy, Check, RefreshCw, Loader2, ExternalLink,
   CircleDot, CircleOff, CircleAlert, CirclePause, CirclePlay, CircleDashed,
 } from 'lucide-react'
 import { PageHeader } from '../components/PageHeader'
@@ -193,6 +193,17 @@ function ModuleRow({
             </button>
           ) : (
             <>
+              {mod.web_url && mod.status === 'running' && (
+                <a
+                  href={mod.web_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1 rounded-md bg-[var(--c-accent)] px-2.5 py-1 text-[11px] font-medium text-white transition-opacity hover:opacity-80"
+                >
+                  <ExternalLink size={11} />
+                  {t.actionOpen ?? 'Open'}
+                </a>
+              )}
               {actions.map((action) => (
                 <button
                   key={action}

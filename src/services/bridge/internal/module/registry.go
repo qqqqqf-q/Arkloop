@@ -7,6 +7,31 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// webURLSpec defines the env var and default port for modules with web UIs.
+type webURLSpec struct {
+	envVar     string
+	defaultVal string
+}
+
+var webURLMap = map[string]webURLSpec{
+	"console":      {envVar: "ARKLOOP_CONSOLE_PORT", defaultVal: "5174"},
+	"console-lite": {envVar: "ARKLOOP_CONSOLE_LITE_PORT", defaultVal: "5175"},
+	"searxng":      {envVar: "ARKLOOP_SEARXNG_PORT", defaultVal: "8888"},
+	"gateway":      {envVar: "ARKLOOP_GATEWAY_PORT", defaultVal: "8000"},
+}
+
+func resolveWebURL(id string) string {
+	spec, ok := webURLMap[id]
+	if !ok {
+		return ""
+	}
+	port := os.Getenv(spec.envVar)
+	if port == "" {
+		port = spec.defaultVal
+	}
+	return "http://localhost:" + port
+}
+
 // modulesFile is the top-level YAML structure of install/modules.yaml.
 type modulesFile struct {
 	Modules yaml.Node `yaml:"modules"`
@@ -40,6 +65,7 @@ type ModuleDefinition struct {
 	Capabilities        ModuleCapabilities
 	PlatformConstraints map[string]bool
 	Port                *int
+	WebURL              string
 }
 
 // ToModuleInfo converts a definition to the API response format with live status.
@@ -60,6 +86,7 @@ func (d *ModuleDefinition) ToModuleInfo(status ModuleStatus) ModuleInfo {
 		Category:          d.FrontendCategory,
 		Status:            status,
 		Port:              d.Port,
+		WebURL:            d.WebURL,
 		Capabilities:      d.Capabilities,
 		DependsOn:         dependsOn,
 		MutuallyExclusive: mutuallyExclusive,
@@ -116,6 +143,7 @@ func LoadRegistry(path string) (*Registry, error) {
 			Capabilities:        yDef.Capabilities,
 			PlatformConstraints: yDef.PlatformConstraints,
 			Port:                knownPort(id),
+			WebURL:              resolveWebURL(id),
 		}
 
 		r.modules[id] = def

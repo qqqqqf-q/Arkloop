@@ -152,6 +152,7 @@ modules:
     compose_profile: console-full
     depends_on: [api, gateway]
     mutually_exclusive: [console-lite]
+    web_port: "${ARKLOOP_CONSOLE_PORT:-5174}"
     capabilities:
       installable: true
       configurable: false

@@ -31,6 +31,7 @@ export type ModuleInfo = {
   status: ModuleStatus
   version?: string
   port?: number
+  web_url?: string
   capabilities: ModuleCapabilities
   depends_on: string[]
   mutually_exclusive: string[]

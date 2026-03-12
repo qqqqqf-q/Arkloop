@@ -158,6 +158,8 @@ services:
     restart: unless-stopped
     profiles:
       - console-full
+    ports:
+      - "${ARKLOOP_CONSOLE_PORT:-5174}:80"
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1/healthz"]
       interval: 15s

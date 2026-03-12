@@ -82,13 +82,26 @@ func LoadConfigFromEnv() (Config, error) {
 }
 
 // detectProjectDir attempts to find the Arkloop project root by looking for
-// compose.yaml, starting from the executable's directory and walking upward.
+// compose.yaml, starting from the current working directory, then from the
+// executable's directory, walking upward.
 func detectProjectDir() string {
-	exe, err := os.Executable()
-	if err != nil {
-		return ""
+	// Try from current working directory first.
+	if cwd, err := os.Getwd(); err == nil {
+		if dir := walkUpForCompose(cwd); dir != "" {
+			return dir
+		}
 	}
-	dir := filepath.Dir(exe)
+	// Fall back to executable's directory.
+	if exe, err := os.Executable(); err == nil {
+		if dir := walkUpForCompose(filepath.Dir(exe)); dir != "" {
+			return dir
+		}
+	}
+	return ""
+}
+
+func walkUpForCompose(start string) string {
+	dir := start
 	for {
 		if fileExists(filepath.Join(dir, "compose.yaml")) {
 			return dir

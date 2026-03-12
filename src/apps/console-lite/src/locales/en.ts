@@ -247,6 +247,7 @@ export const en: LocaleStrings = {
     actionRestart: 'Restart',
     actionConfigure: 'Configure',
     actionBootstrap: 'Initialize',
+    actionOpen: 'Open',
     copyCommand: 'Copy Command',
     copyAgentPrompt: 'Copy Agent Prompt',
     copied: 'Copied',

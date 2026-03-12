@@ -250,6 +250,7 @@ export interface LocaleStrings {
     actionRestart: string
     actionConfigure: string
     actionBootstrap: string
+    actionOpen: string
     copyCommand: string
     copyAgentPrompt: string
     copied: string

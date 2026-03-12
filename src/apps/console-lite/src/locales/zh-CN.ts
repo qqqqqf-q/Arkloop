@@ -247,6 +247,7 @@ export const zhCN: LocaleStrings = {
     actionRestart: '重启',
     actionConfigure: '配置',
     actionBootstrap: '初始化',
+    actionOpen: '打开',
     copyCommand: '复制命令',
     copyAgentPrompt: '复制 Agent Prompt',
     copied: '已复制',

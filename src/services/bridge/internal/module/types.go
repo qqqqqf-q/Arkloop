@@ -43,6 +43,7 @@ type ModuleInfo struct {
 	Status            ModuleStatus       `json:"status"`
 	Version           string             `json:"version,omitempty"`
 	Port              *int               `json:"port,omitempty"`
+	WebURL            string             `json:"web_url,omitempty"`
 	Capabilities      ModuleCapabilities `json:"capabilities"`
 	DependsOn         []string           `json:"depends_on"`
 	MutuallyExclusive []string           `json:"mutually_exclusive"`
