@@ -75,7 +75,7 @@ export async function listFlagAccountOverrides(
   flagKey: string,
   accessToken: string,
 ): Promise<AccountFeatureOverride[]> {
-  return apiFetch<AccountFeatureOverride[]>(`/v1/feature-flags/${flagKey}/org-overrides`, { accessToken })
+  return apiFetch<AccountFeatureOverride[]>(`/v1/feature-flags/${flagKey}/account-overrides`, { accessToken })
 }
 
 export async function setFlagAccountOverride(
@@ -83,7 +83,7 @@ export async function setFlagAccountOverride(
   body: SetAccountOverrideRequest,
   accessToken: string,
 ): Promise<AccountFeatureOverride> {
-  return apiFetch<AccountFeatureOverride>(`/v1/feature-flags/${flagKey}/org-overrides`, {
+  return apiFetch<AccountFeatureOverride>(`/v1/feature-flags/${flagKey}/account-overrides`, {
     method: 'POST',
     body: JSON.stringify(body),
     accessToken,
@@ -95,7 +95,7 @@ export async function deleteFlagAccountOverride(
   accountId: string,
   accessToken: string,
 ): Promise<{ ok: boolean }> {
-  return apiFetch<{ ok: boolean }>(`/v1/feature-flags/${flagKey}/org-overrides/${accountId}`, {
+  return apiFetch<{ ok: boolean }>(`/v1/feature-flags/${flagKey}/account-overrides/${accountId}`, {
     method: 'DELETE',
     accessToken,
   })

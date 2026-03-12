@@ -100,7 +100,7 @@ func featureFlagEntry(
 			return
 		}
 
-		if parts[1] != "org-overrides" {
+		if parts[1] != "account-overrides" {
 			httpkit.WriteNotFound(w, r)
 			return
 		}

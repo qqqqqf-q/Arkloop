@@ -156,7 +156,7 @@ func TestFeatureFlagsAuditIntegration(t *testing.T) {
 	})
 
 	t.Run("set account override writes audit", func(t *testing.T) {
-		resp := doJSON(handler, nethttp.MethodPost, "/v1/feature-flags/"+flagKey+"/org-overrides", map[string]any{
+		resp := doJSON(handler, nethttp.MethodPost, "/v1/feature-flags/"+flagKey+"/account-overrides", map[string]any{
 			"account_id":  accountID,
 			"enabled": false,
 		}, authHeader(adminToken))
@@ -180,7 +180,7 @@ func TestFeatureFlagsAuditIntegration(t *testing.T) {
 	})
 
 	t.Run("delete account override writes audit", func(t *testing.T) {
-		resp := doJSON(handler, nethttp.MethodDelete, "/v1/feature-flags/"+flagKey+"/org-overrides/"+accountID, nil, authHeader(adminToken))
+		resp := doJSON(handler, nethttp.MethodDelete, "/v1/feature-flags/"+flagKey+"/account-overrides/"+accountID, nil, authHeader(adminToken))
 		if resp.Code != nethttp.StatusOK {
 			t.Fatalf("delete account override: %d %s", resp.Code, resp.Body.String())
 		}
