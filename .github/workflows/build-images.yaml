@@ -1,0 +1,85 @@
+name: Build & Push Images
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g. v0.5.0)'
+        required: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: api
+            dockerfile: src/services/api/Dockerfile
+            context: .
+          - name: gateway
+            dockerfile: src/services/gateway/Dockerfile
+            context: .
+          - name: worker
+            dockerfile: src/services/worker/Dockerfile
+            context: .
+          - name: sandbox
+            dockerfile: src/services/sandbox/Dockerfile
+            context: .
+          - name: console
+            dockerfile: src/apps/console/Dockerfile
+            context: .
+          - name: console-lite
+            dockerfile: src/apps/console-lite/Dockerfile
+            context: .
+          - name: bridge
+            dockerfile: src/services/bridge/Dockerfile
+            context: .
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/qqqqqf-q/arkloop-${{ matrix.name }}
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix=sha-
+            type=raw,value=${{ inputs.version }},enable=${{ inputs.version != '' }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

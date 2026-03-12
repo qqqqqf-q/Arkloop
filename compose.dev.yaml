@@ -9,7 +9,7 @@ services:
 
   api:
     ports:
-      - "${ARKLOOP_API_PORT:-8001}:8001"
+      - "${ARKLOOP_API_PORT:-19001}:19001"
 
   pgbouncer:
     ports:
@@ -17,12 +17,12 @@ services:
 
   sandbox:
     ports:
-      - "${ARKLOOP_SANDBOX_PORT:-8002}:8002"
+      - "${ARKLOOP_SANDBOX_PORT:-19002}:19002"
 
   sandbox-docker:
     ports:
-      - "${ARKLOOP_SANDBOX_PORT:-8002}:8002"
+      - "${ARKLOOP_SANDBOX_PORT:-19002}:19002"
 
   openviking:
     ports:
-      - "${ARKLOOP_OPENVIKING_PORT:-1933}:1933"
+      - "${ARKLOOP_OPENVIKING_PORT:-19010}:19010"

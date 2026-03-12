@@ -27,6 +27,7 @@ import {
 } from '../api/tool-providers'
 import { listPlatformSettings, updatePlatformSetting } from '../api/settings'
 import { notifyToolCatalogChanged } from '../lib/toolCatalogRefresh'
+import { bridgeClient } from '../api/bridge'
 
 const SANDBOX_DEFAULTS: Record<string, string> = {
   allow_egress: 'true',
@@ -60,6 +61,15 @@ const SANDBOX_BROWSER_DEFAULTS: Record<string, string> = {
 }
 
 const MEMORY_DEFAULTS: Record<string, string> = {
+  'embedding.provider': 'openai',
+  'embedding.model': '',
+  'embedding.api_key': '',
+  'embedding.api_base': '',
+  'embedding.dimension': '1024',
+  'vlm.provider': 'litellm',
+  'vlm.model': '',
+  'vlm.api_key': '',
+  'vlm.api_base': '',
   cost_per_commit: '0',
 }
 
@@ -529,25 +539,21 @@ export function ToolsPage() {
 
               {/* Memory config */}
               {selectedGroup === 'memory' && activeProvider && (
-                <div className={sectionCls}>
-                  <h3 className="text-sm font-medium text-[var(--c-text-primary)]">{tc.sectionConfig}</h3>
-                  <div className="mt-4">
-                    <label className={labelCls}>{tc.fieldCostPerCommit}</label>
-                    <input
-                      type="number"
-                      min={0}
-                      step="0.001"
-                      className={inputCls}
-                      value={configForm.cost_per_commit ?? '0'}
-                      onChange={setConfig('cost_per_commit')}
-                    />
-                    <p className="mt-1 text-xs text-[var(--c-text-muted)]">{tc.fieldCostPerCommitHint}</p>
-                  </div>
-                </div>
+                <MemoryConfigSection
+                  form={configForm}
+                  onChange={setConfig}
+                  onSave={handleSaveConfig}
+                  configSaving={configSaving}
+                  configDirty={configDirty}
+                  inputCls={inputCls}
+                  labelCls={labelCls}
+                  sectionCls={sectionCls}
+                  tc={tc}
+                />
               )}
 
-              {/* Config save */}
-              {hasConfig && activeProvider && (
+              {/* Config save (non-memory groups only — memory has its own merged save+apply) */}
+              {hasConfig && activeProvider && selectedGroup !== 'memory' && (
                 <div className="border-t border-[var(--c-border-console)] pt-4">
                   <button
                     onClick={handleSaveConfig}
@@ -841,6 +847,162 @@ function SandboxConfigSection({
             </div>
           </div>
         </div>
+      </div>
+    </>
+  )
+}
+
+function MemoryConfigSection({
+  form, onChange, onSave, configSaving, configDirty, inputCls, labelCls, sectionCls, tc,
+}: {
+  form: Record<string, string>
+  onChange: (key: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => void
+  onSave: () => Promise<void>
+  configSaving: boolean
+  configDirty: boolean
+  inputCls: string
+  labelCls: string
+  sectionCls: string
+  tc: {
+    sectionEmbeddingConfig: string
+    fieldEmbeddingProvider: string
+    fieldEmbeddingModel: string
+    fieldEmbeddingApiKey: string
+    fieldEmbeddingApiBase: string
+    fieldEmbeddingDimension: string
+    sectionVLMConfig: string
+    fieldVLMProvider: string
+    fieldVLMModel: string
+    fieldVLMApiKey: string
+    fieldVLMApiBase: string
+    fieldVLMProviderHint: string
+    sectionConfig: string
+    fieldCostPerCommit: string
+    fieldCostPerCommitHint: string
+    ovRestartWarning: string
+    applyAndRestart: string
+    toastOVConfigApplied: string
+    toastOVConfigFailed: string
+  }
+}) {
+  const { addToast } = useToast()
+  const [applying, setApplying] = useState(false)
+
+  const handleApplyConfig = async () => {
+    setApplying(true)
+    try {
+      await onSave()
+      await bridgeClient.performAction('openviking', 'configure', {
+        embedding_provider: form['embedding.provider'] || 'openai',
+        embedding_model: form['embedding.model'] || '',
+        embedding_api_key: form['embedding.api_key'] || '',
+        embedding_api_base: form['embedding.api_base'] || '',
+        embedding_dimension: form['embedding.dimension'] || '1024',
+        vlm_provider: form['vlm.provider'] || 'litellm',
+        vlm_model: form['vlm.model'] || '',
+        vlm_api_key: form['vlm.api_key'] || '',
+        vlm_api_base: form['vlm.api_base'] || '',
+        root_api_key: '',
+      })
+      addToast(tc.toastOVConfigApplied, 'success')
+    } catch {
+      addToast(tc.toastOVConfigFailed, 'error')
+    } finally {
+      setApplying(false)
+    }
+  }
+
+  return (
+    <>
+      {/* Embedding Configuration */}
+      <div className={sectionCls}>
+        <h3 className="text-sm font-medium text-[var(--c-text-primary)]">
+          {tc.sectionEmbeddingConfig}
+        </h3>
+        <div className="mt-4 space-y-4">
+          <div>
+            <label className={labelCls}>{tc.fieldEmbeddingProvider}</label>
+            <select className={inputCls} value={form['embedding.provider'] ?? 'openai'} onChange={onChange('embedding.provider')}>
+              <option value="openai">OpenAI</option>
+              <option value="volcengine">Volcengine</option>
+              <option value="vikingdb">VikingDB</option>
+              <option value="jina">Jina</option>
+            </select>
+          </div>
+          <div>
+            <label className={labelCls}>{tc.fieldEmbeddingModel}</label>
+            <input type="text" className={inputCls} value={form['embedding.model'] ?? ''} onChange={onChange('embedding.model')} placeholder="e.g. text-embedding-3-small" />
+          </div>
+          <div>
+            <label className={labelCls}>{tc.fieldEmbeddingApiKey}</label>
+            <input type="password" className={inputCls} value={form['embedding.api_key'] ?? ''} onChange={onChange('embedding.api_key')} placeholder="sk-..." />
+          </div>
+          <div>
+            <label className={labelCls}>{tc.fieldEmbeddingApiBase}</label>
+            <input type="text" className={inputCls} value={form['embedding.api_base'] ?? ''} onChange={onChange('embedding.api_base')} placeholder="https://api.openai.com/v1" />
+          </div>
+          <div>
+            <label className={labelCls}>{tc.fieldEmbeddingDimension}</label>
+            <input type="number" className={inputCls} min={1} value={form['embedding.dimension'] ?? '1024'} onChange={onChange('embedding.dimension')} />
+          </div>
+        </div>
+      </div>
+
+      {/* VLM Configuration */}
+      <div className={sectionCls}>
+        <h3 className="text-sm font-medium text-[var(--c-text-primary)]">
+          {tc.sectionVLMConfig}
+        </h3>
+        <div className="mt-4 space-y-4">
+          <div>
+            <label className={labelCls}>{tc.fieldVLMProvider}</label>
+            <select className={inputCls} value={form['vlm.provider'] ?? 'litellm'} onChange={onChange('vlm.provider')}>
+              <option value="litellm">LiteLLM (Universal)</option>
+              <option value="openai">OpenAI</option>
+              <option value="volcengine">Volcengine</option>
+            </select>
+            <p className="mt-1 text-xs text-[var(--c-text-muted)]">
+              {tc.fieldVLMProviderHint}
+            </p>
+          </div>
+          <div>
+            <label className={labelCls}>{tc.fieldVLMModel}</label>
+            <input type="text" className={inputCls} value={form['vlm.model'] ?? ''} onChange={onChange('vlm.model')} placeholder="e.g. gpt-4o" />
+          </div>
+          <div>
+            <label className={labelCls}>{tc.fieldVLMApiKey}</label>
+            <input type="password" className={inputCls} value={form['vlm.api_key'] ?? ''} onChange={onChange('vlm.api_key')} placeholder="sk-..." />
+          </div>
+          <div>
+            <label className={labelCls}>{tc.fieldVLMApiBase}</label>
+            <input type="text" className={inputCls} value={form['vlm.api_base'] ?? ''} onChange={onChange('vlm.api_base')} placeholder="https://api.openai.com/v1" />
+          </div>
+        </div>
+      </div>
+
+      {/* Billing */}
+      <div className={sectionCls}>
+        <h3 className="text-sm font-medium text-[var(--c-text-primary)]">{tc.sectionConfig}</h3>
+        <div className="mt-4">
+          <label className={labelCls}>{tc.fieldCostPerCommit}</label>
+          <input type="number" min={0} step="0.001" className={inputCls} value={form.cost_per_commit ?? '0'} onChange={onChange('cost_per_commit')} />
+          <p className="mt-1 text-xs text-[var(--c-text-muted)]">{tc.fieldCostPerCommitHint}</p>
+        </div>
+      </div>
+
+      {/* Save & Apply */}
+      <div className="border-t border-[var(--c-border-console)] pt-4">
+        <p className="mb-3 text-xs text-[var(--c-status-warning-text)]">
+          {tc.ovRestartWarning}
+        </p>
+        <button
+          onClick={handleApplyConfig}
+          disabled={applying || configSaving}
+          className="inline-flex items-center gap-1.5 rounded-md border border-[var(--c-border-console)] px-3 py-1.5 text-xs font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-sub)] disabled:opacity-50"
+        >
+          {(applying || configSaving) ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
+          {tc.applyAndRestart}
+        </button>
       </div>
     </>
   )

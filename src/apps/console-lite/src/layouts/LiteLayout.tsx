@@ -9,10 +9,13 @@ import {
   Blocks,
   Settings,
   ShieldCheck,
+  Loader2,
 } from 'lucide-react'
 import { getMe, logout, isApiError, type MeResponse } from '../api'
 import { LiteSettingsModal } from '../components/SettingsModal'
+import { OperationHistoryModal } from '../components/OperationHistoryModal'
 import { useLocale } from '../contexts/LocaleContext'
+import { useOperations } from '../contexts/OperationContext'
 import type { LocaleStrings } from '../locales'
 
 type Props = {
@@ -31,10 +34,10 @@ function buildNavItems(t: LocaleStrings): NavItem[] {
     { label: t.nav.dashboard, path: '/dashboard', icon: <LayoutDashboard size={17} /> },
     { label: t.nav.agents,    path: '/agents',    icon: <Sparkles size={17} /> },
     { label: t.nav.models,    path: '/models',    icon: <KeyRound size={17} /> },
-    { label: t.nav.tools,     path: '/tools',     icon: <Wrench size={17} /> },
-    { label: t.nav.runs,      path: '/runs',      icon: <Play size={17} /> },
-    { label: t.nav.modules,   path: '/modules',   icon: <Blocks size={17} /> },
-    { label: t.nav.settings,  path: '/settings',  icon: <Settings size={17} /> },
+    { label: t.nav.tools,     path: '/tools?group=',          icon: <Wrench size={17} /> },
+    { label: t.nav.runs,      path: '/runs',                  icon: <Play size={17} /> },
+    { label: t.nav.modules,   path: '/modules?cat=memory',    icon: <Blocks size={17} /> },
+    { label: t.nav.settings,  path: '/settings?section=general', icon: <Settings size={17} /> },
   ]
 }
 
@@ -51,6 +54,7 @@ export function LiteLayout({ accessToken, onLoggedOut }: Props) {
   const [me, setMe] = useState<MeResponse | null>(null)
   const [meLoaded, setMeLoaded] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const { operations, activeCount, historyOpen, setHistoryOpen } = useOperations()
   const mountedRef = useRef(true)
 
   const navItems = useMemo(() => buildNavItems(t), [t])
@@ -128,7 +132,8 @@ export function LiteLayout({ accessToken, onLoggedOut }: Props) {
         <nav className="flex-1 overflow-y-auto p-2">
           <div className="flex flex-col gap-[3px]">
             {navItems.map((item) => {
-              const active = location.pathname.startsWith(item.path)
+              const basePath = item.path.split('?')[0]
+              const active = location.pathname === basePath || location.pathname.startsWith(basePath + '/')
               return (
                 <button
                   key={item.path}
@@ -149,6 +154,34 @@ export function LiteLayout({ accessToken, onLoggedOut }: Props) {
             })}
           </div>
         </nav>
+
+        {operations.length > 0 && (
+          <div className="border-t border-[var(--c-border-console)] px-2 py-2">
+            <button
+              onClick={() => setHistoryOpen(true)}
+              className="flex w-full items-center gap-3 rounded-xl px-3 py-[10px] transition-colors hover:bg-[var(--c-bg-sub)]"
+              style={{ border: '0.5px solid var(--c-border-console)' }}
+            >
+              <div className="flex h-[32px] w-[32px] shrink-0 items-center justify-center rounded-full bg-[var(--c-bg-tag)]">
+                {activeCount > 0
+                  ? <Loader2 size={15} className="animate-spin text-amber-500" />
+                  : <Blocks size={15} className="text-[var(--c-text-muted)]" />
+                }
+              </div>
+              <div className="flex min-w-0 flex-1 flex-col gap-[2px] text-left">
+                <div className="truncate text-xs font-medium text-[var(--c-text-secondary)]">
+                  {t.nav.installTasks}
+                </div>
+                <div className="text-[10px] font-normal text-[var(--c-text-tertiary)]">
+                  {activeCount > 0
+                    ? `${activeCount} running · ${operations.length} total`
+                    : `${operations.length} completed`
+                  }
+                </div>
+              </div>
+            </button>
+          </div>
+        )}
 
         <div className="mt-auto border-t border-[var(--c-border-console)] px-3 py-3">
           <div className="flex items-center gap-2">
@@ -182,6 +215,10 @@ export function LiteLayout({ accessToken, onLoggedOut }: Props) {
           onClose={() => setSettingsOpen(false)}
           onLogout={handleLogout}
         />
+      )}
+
+      {historyOpen && (
+        <OperationHistoryModal onClose={() => setHistoryOpen(false)} />
       )}
     </div>
   )

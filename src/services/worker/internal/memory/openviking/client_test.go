@@ -440,11 +440,11 @@ func TestClient_AgentScope_Write_NoUserHeader(t *testing.T) {
 }
 
 func TestNewClient_AllowsInternalServiceHTTPBaseURL(t *testing.T) {
-	c := newClient("http://openviking:1933/api/", "root-key")
+	c := newClient("http://openviking:19010/api/", "root-key")
 	if c.baseURLErr != nil {
 		t.Fatalf("expected internal base URL to be accepted, got %v", c.baseURLErr)
 	}
-	if c.baseURL != "http://openviking:1933/api" {
+	if c.baseURL != "http://openviking:19010/api" {
 		t.Fatalf("unexpected normalized base URL: %q", c.baseURL)
 	}
 }

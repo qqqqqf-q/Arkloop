@@ -139,7 +139,7 @@ export function SandboxConfigPage() {
                     className={inputCls}
                     value={form.baseUrl}
                     onChange={set('baseUrl')}
-                    placeholder="http://sandbox:8002"
+                    placeholder="http://sandbox:19002"
                   />
                 </div>
                 <div>

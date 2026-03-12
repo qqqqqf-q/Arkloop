@@ -375,7 +375,7 @@ HTTP Header 同时返回 `X-Trace-Id`。
 
 | 变量 | 说明 |
 |------|------|
-| `ARKLOOP_API_GO_ADDR` | 监听地址（默认 `127.0.0.1:8001`） |
+| `ARKLOOP_API_GO_ADDR` | 监听地址（默认 `127.0.0.1:19001`） |
 | `ARKLOOP_DATABASE_URL` | PostgreSQL 连接 |
 | `ARKLOOP_DATABASE_DIRECT_URL` | 直连（SSE LISTEN/NOTIFY，绕过 PgBouncer） |
 | `ARKLOOP_REDIS_URL` | Redis（速率限制、运行并发控制） |

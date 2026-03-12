@@ -9,6 +9,8 @@ import { ToolsPage } from './pages/ToolsPage'
 import { RunsPage } from './pages/RunsPage'
 import { ModulesPage } from './pages/ModulesPage'
 import { SettingsPage } from './pages/SettingsPage'
+import { BootstrapPage } from './pages/BootstrapPage'
+import { OperationProvider } from './contexts/OperationContext'
 import {
   writeAccessTokenToStorage,
   clearAccessTokenFromStorage,
@@ -54,26 +56,32 @@ function App() {
 
   if (!authChecked) return null
 
-  if (!accessToken) {
-    return <AuthPage onLoggedIn={handleLoggedIn} />
-  }
-
   return (
     <Routes>
-      <Route
-        element={<LiteLayout accessToken={accessToken} onLoggedOut={handleLoggedOut} />}
-      >
-        <Route index element={<Navigate to="/dashboard" replace />} />
-        <Route path="dashboard" element={<DashboardPage />} />
-        <Route path="agents" element={<AgentsPage />} />
-        <Route path="models" element={<ModelsPage />} />
-        <Route path="tools" element={<ToolsPage />} />
-        <Route path="memory" element={<Navigate to="/tools" replace />} />
-        <Route path="runs" element={<RunsPage />} />
-        <Route path="modules" element={<ModulesPage />} />
-        <Route path="settings" element={<SettingsPage />} />
-        <Route path="*" element={<Navigate to="/dashboard" replace />} />
-      </Route>
+      <Route path="/bootstrap/:token" element={<BootstrapPage onLoggedIn={handleLoggedIn} />} />
+
+      {!accessToken ? (
+        <Route path="*" element={<AuthPage onLoggedIn={handleLoggedIn} />} />
+      ) : (
+        <Route
+          element={
+            <OperationProvider>
+              <LiteLayout accessToken={accessToken} onLoggedOut={handleLoggedOut} />
+            </OperationProvider>
+          }
+        >
+          <Route index element={<Navigate to="/dashboard" replace />} />
+          <Route path="dashboard" element={<DashboardPage />} />
+          <Route path="agents" element={<AgentsPage />} />
+          <Route path="models" element={<ModelsPage />} />
+          <Route path="tools" element={<ToolsPage />} />
+          <Route path="memory" element={<Navigate to="/tools" replace />} />
+          <Route path="runs" element={<RunsPage />} />
+          <Route path="modules" element={<ModulesPage />} />
+          <Route path="settings" element={<SettingsPage />} />
+          <Route path="*" element={<Navigate to="/dashboard" replace />} />
+        </Route>
+      )}
     </Routes>
   )
 }

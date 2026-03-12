@@ -10,7 +10,7 @@ func TestDefaultConfigIncludesLocalCORSOrigins(t *testing.T) {
 	if len(cfg.CORSAllowedOrigins) != 3 {
 		t.Fatalf("unexpected default origins: %#v", cfg.CORSAllowedOrigins)
 	}
-	if cfg.CORSAllowedOrigins[0] != "http://localhost:5173" || cfg.CORSAllowedOrigins[1] != "http://localhost:5174" || cfg.CORSAllowedOrigins[2] != "http://localhost:5175" {
+	if cfg.CORSAllowedOrigins[0] != "http://localhost:19080" || cfg.CORSAllowedOrigins[1] != "http://localhost:19081" || cfg.CORSAllowedOrigins[2] != "http://localhost:19082" {
 		t.Fatalf("unexpected default origins: %#v", cfg.CORSAllowedOrigins)
 	}
 }

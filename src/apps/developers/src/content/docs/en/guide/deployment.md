@@ -15,11 +15,11 @@ Arkloop orchestrates all services via `compose.yaml`, enabling a full deployment
 | `redis_gateway` | Optional Gateway hot-path Redis | — |
 | `seaweedfs` | Optional S3-compatible object storage | 9000 |
 | `migrate` | Database Migrations (One-time, exits after completion) | — |
-| `api` | Control Plane API (Go) | 8001 |
-| `gateway` | Reverse Proxy + Rate Limiting | 8000 |
+| `api` | Control Plane API (Go) | 19001 |
+| `gateway` | Reverse Proxy + Rate Limiting | 19000 |
 | `worker` | Job Worker (Agent Execution Plane) | — |
-| `sandbox` | Code Sandbox (Firecracker / Docker) | 8002 |
-| `openviking` | Vector Memory Service | 1933 |
+| `sandbox` | Code Sandbox (Firecracker / Docker) | 19002 |
+| `openviking` | Vector Memory Service | 19010 |
 
 The default startup order is kept by `depends_on`: postgres → migrate → api/worker, redis → api/gateway/worker. Optional profiles add `pgbouncer`, `redis_gateway`, and `seaweedfs` only when you ask for them.
 
@@ -69,7 +69,7 @@ docker compose ps
 
 | Endpoint | Description |
 |------|------|
-| `http://localhost:8000` | Public entry point (with Gateway rate limiting/auth) |
+| `http://localhost:19000` | Public entry point (with Gateway rate limiting/auth) |
 
 Internal services stay on the Docker network by default. If you need host-level debugging ports, start with the development override file:
 
@@ -242,7 +242,7 @@ Deployment-level parameters (ENV only, not in Console):
 
 | Variable | Default | Description |
 |------|--------|------|
-| `ARKLOOP_SANDBOX_ADDR` | `0.0.0.0:8002` | Service listener address |
+| `ARKLOOP_SANDBOX_ADDR` | `0.0.0.0:19002` | Service listener address |
 | `ARKLOOP_FIRECRACKER_BIN` | `/usr/bin/firecracker` | Firecracker binary path |
 | `ARKLOOP_SANDBOX_KERNEL_IMAGE` | `/opt/sandbox/vmlinux` | Kernel image path |
 | `ARKLOOP_SANDBOX_ROOTFS` | `/opt/sandbox/rootfs.ext4` | rootfs path |
@@ -279,7 +279,7 @@ ARKLOOP_LOAD_DOTENV=1 ARKLOOP_DOTENV_FILE=../../.env go run ./cmd/api
 If you need to use the Gateway, point upstream to the host:
 
 ```bash
-ARKLOOP_GATEWAY_UPSTREAM=http://host.docker.internal:8001 docker compose -f compose.yaml -f compose.dev.yaml up -d gateway
+ARKLOOP_GATEWAY_UPSTREAM=http://host.docker.internal:19001 docker compose -f compose.yaml -f compose.dev.yaml up -d gateway
 ```
 
 ## Full Environment Variable Reference
@@ -333,16 +333,16 @@ ARKLOOP_GATEWAY_UPSTREAM=http://host.docker.internal:8001 docker compose -f comp
 
 | Variable | Default | Description |
 |------|--------|------|
-| `ARKLOOP_API_GO_ADDR` | `0.0.0.0:8001` | Listener address (inside container) |
-| `ARKLOOP_API_PORT` | `8001` | Host port mapping used by `compose.dev.yaml` |
+| `ARKLOOP_API_GO_ADDR` | `0.0.0.0:19001` | Listener address (inside container) |
+| `ARKLOOP_API_PORT` | `19001` | Host port mapping used by `compose.dev.yaml` |
 | `ARKLOOP_BOOTSTRAP_PLATFORM_ADMIN` | — | Platform admin user_id (UUID) for initial deployment |
 
 ### Gateway
 
 | Variable | Default | Description |
 |------|--------|------|
-| `ARKLOOP_GATEWAY_UPSTREAM` | `http://api:8001` | Upstream API address |
-| `ARKLOOP_GATEWAY_PORT` | `8000` | Default public entry point |
+| `ARKLOOP_GATEWAY_UPSTREAM` | `http://api:19001` | Upstream API address |
+| `ARKLOOP_GATEWAY_PORT` | `19000` | Default public entry point |
 | `ARKLOOP_GATEWAY_TRUST_INCOMING_TRACE_ID` | `0` | Whether to trust upstream `X-Trace-Id` |
 | `ARKLOOP_RATELIMIT_CAPACITY` | `60` | Rate limit bucket capacity |
 | `ARKLOOP_RATELIMIT_RATE_PER_MINUTE` | `60` | Replenishment rate per minute |

@@ -14,7 +14,7 @@ func TestDefaultConfigRestoreTTLDays(t *testing.T) {
 
 func TestLoadConfigFromEnvRestoreTTLDays(t *testing.T) {
 	t.Setenv("ARKLOOP_SANDBOX_RESTORE_TTL_DAYS", "0")
-	t.Setenv("ARKLOOP_SANDBOX_ADDR", "127.0.0.1:8002")
+	t.Setenv("ARKLOOP_SANDBOX_ADDR", "127.0.0.1:19002")
 	unsetSandboxConfigRegistryEnv(t)
 
 	cfg, err := LoadConfigFromEnv()
@@ -28,7 +28,7 @@ func TestLoadConfigFromEnvRestoreTTLDays(t *testing.T) {
 
 func TestLoadConfigFromEnvRestoreTTLDaysRejectNegative(t *testing.T) {
 	t.Setenv("ARKLOOP_SANDBOX_RESTORE_TTL_DAYS", "-1")
-	t.Setenv("ARKLOOP_SANDBOX_ADDR", "127.0.0.1:8002")
+	t.Setenv("ARKLOOP_SANDBOX_ADDR", "127.0.0.1:19002")
 	unsetSandboxConfigRegistryEnv(t)
 
 	if _, err := LoadConfigFromEnv(); err == nil {
@@ -36,7 +36,7 @@ func TestLoadConfigFromEnvRestoreTTLDaysRejectNegative(t *testing.T) {
 	}
 }
 func TestLoadConfigFromEnvFlushSettings(t *testing.T) {
-	t.Setenv("ARKLOOP_SANDBOX_ADDR", "127.0.0.1:8002")
+	t.Setenv("ARKLOOP_SANDBOX_ADDR", "127.0.0.1:19002")
 	t.Setenv("ARKLOOP_SANDBOX_FLUSH_DEBOUNCE_MS", "1500")
 	t.Setenv("ARKLOOP_SANDBOX_FLUSH_MAX_DIRTY_AGE_MS", "9000")
 	t.Setenv("ARKLOOP_SANDBOX_FLUSH_FORCE_BYTES_THRESHOLD", "1024")
@@ -78,7 +78,7 @@ func TestDefaultConfigBrowserSettings(t *testing.T) {
 func TestLoadConfigFromEnvAllowEgress(t *testing.T) {
 	t.Setenv("ARKLOOP_SANDBOX_ALLOW_EGRESS", "false")
 	t.Setenv("ARKLOOP_SANDBOX_WARM_BROWSER", "0")
-	t.Setenv("ARKLOOP_SANDBOX_ADDR", "127.0.0.1:8002")
+	t.Setenv("ARKLOOP_SANDBOX_ADDR", "127.0.0.1:19002")
 	unsetSandboxConfigRegistryEnv(t)
 
 	cfg, err := LoadConfigFromEnv()
@@ -92,7 +92,7 @@ func TestLoadConfigFromEnvAllowEgress(t *testing.T) {
 
 func TestLoadConfigFromEnvAllowEgressRejectInvalid(t *testing.T) {
 	t.Setenv("ARKLOOP_SANDBOX_ALLOW_EGRESS", "maybe")
-	t.Setenv("ARKLOOP_SANDBOX_ADDR", "127.0.0.1:8002")
+	t.Setenv("ARKLOOP_SANDBOX_ADDR", "127.0.0.1:19002")
 	unsetSandboxConfigRegistryEnv(t)
 
 	if _, err := LoadConfigFromEnv(); err == nil {
@@ -101,7 +101,7 @@ func TestLoadConfigFromEnvAllowEgressRejectInvalid(t *testing.T) {
 }
 
 func TestLoadConfigFromEnvFirecrackerDNS(t *testing.T) {
-	t.Setenv("ARKLOOP_SANDBOX_ADDR", "127.0.0.1:8002")
+	t.Setenv("ARKLOOP_SANDBOX_ADDR", "127.0.0.1:19002")
 	t.Setenv("ARKLOOP_SANDBOX_FIRECRACKER_DNS", "1.1.1.1, 8.8.8.8")
 	unsetSandboxConfigRegistryEnv(t)
 
@@ -115,7 +115,7 @@ func TestLoadConfigFromEnvFirecrackerDNS(t *testing.T) {
 }
 
 func TestLoadConfigFromEnvBrowserSettings(t *testing.T) {
-	t.Setenv("ARKLOOP_SANDBOX_ADDR", "127.0.0.1:8002")
+	t.Setenv("ARKLOOP_SANDBOX_ADDR", "127.0.0.1:19002")
 	t.Setenv("ARKLOOP_SANDBOX_BROWSER_DOCKER_IMAGE", "arkloop/sandbox-browser:test")
 	t.Setenv("ARKLOOP_SANDBOX_WARM_BROWSER", "2")
 	t.Setenv("ARKLOOP_SANDBOX_IDLE_TIMEOUT_BROWSER", "90")
@@ -135,7 +135,7 @@ func TestLoadConfigFromEnvBrowserSettings(t *testing.T) {
 }
 
 func TestLoadConfigFromEnvBrowserWarmZeroAllowedWhenNoEgress(t *testing.T) {
-	t.Setenv("ARKLOOP_SANDBOX_ADDR", "127.0.0.1:8002")
+	t.Setenv("ARKLOOP_SANDBOX_ADDR", "127.0.0.1:19002")
 	t.Setenv("ARKLOOP_SANDBOX_ALLOW_EGRESS", "false")
 	t.Setenv("ARKLOOP_SANDBOX_WARM_BROWSER", "0")
 	unsetSandboxConfigRegistryEnv(t)
@@ -150,7 +150,7 @@ func TestLoadConfigFromEnvBrowserWarmZeroAllowedWhenNoEgress(t *testing.T) {
 }
 
 func TestLoadConfigFromEnvBrowserWarmRequiresEgress(t *testing.T) {
-	t.Setenv("ARKLOOP_SANDBOX_ADDR", "127.0.0.1:8002")
+	t.Setenv("ARKLOOP_SANDBOX_ADDR", "127.0.0.1:19002")
 	t.Setenv("ARKLOOP_SANDBOX_ALLOW_EGRESS", "false")
 	t.Setenv("ARKLOOP_SANDBOX_WARM_BROWSER", "1")
 	unsetSandboxConfigRegistryEnv(t)

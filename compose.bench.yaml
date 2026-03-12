@@ -113,7 +113,7 @@ services:
       ARKLOOP_S3_SECRET_KEY: "${ARKLOOP_S3_SECRET_KEY:?请在 .env 中设置 ARKLOOP_S3_SECRET_KEY}"
       ARKLOOP_S3_BUCKET: "${ARKLOOP_S3_BUCKET:-arkloop}"
       ARKLOOP_S3_REGION: "${ARKLOOP_S3_REGION:-us-east-1}"
-      ARKLOOP_API_GO_ADDR: "0.0.0.0:8001"
+      ARKLOOP_API_GO_ADDR: "0.0.0.0:19001"
       ARKLOOP_AUTH_JWT_SECRET: "${ARKLOOP_AUTH_JWT_SECRET:?请在 .env 中设置 ARKLOOP_AUTH_JWT_SECRET}"
       ARKLOOP_API_DB_POOL_MAX_CONNS: "64"
       ARKLOOP_API_DB_POOL_MIN_CONNS: "16"
@@ -123,7 +123,7 @@ services:
       # 支撑 worker_runs=50 的并发上限（对应 config key: limit.concurrent_runs）
       ARKLOOP_LIMIT_CONCURRENT_RUNS: "60"
     ports:
-      - "8006:8001"
+      - "8006:19001"
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -134,7 +134,7 @@ services:
       seaweedfs:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8001/healthz"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:19001/healthz"]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -145,8 +145,8 @@ services:
       dockerfile: src/services/gateway/Dockerfile
     restart: unless-stopped
     environment:
-      ARKLOOP_GATEWAY_ADDR: "0.0.0.0:8000"
-      ARKLOOP_GATEWAY_UPSTREAM: "http://api:8001"
+      ARKLOOP_GATEWAY_ADDR: "0.0.0.0:19000"
+      ARKLOOP_GATEWAY_UPSTREAM: "http://api:19001"
       ARKLOOP_REDIS_URL: "redis://:${ARKLOOP_REDIS_PASSWORD:-arkloop_redis}@redis:6379/0"
       ARKLOOP_GATEWAY_REDIS_URL: "redis://:${ARKLOOP_REDIS_PASSWORD:-arkloop_redis}@redis:6379/1"
       ARKLOOP_AUTH_JWT_SECRET: "${ARKLOOP_AUTH_JWT_SECRET:?请在 .env 中设置 ARKLOOP_AUTH_JWT_SECRET}"
@@ -155,7 +155,7 @@ services:
       ARKLOOP_RATELIMIT_CAPACITY: "120000"
       ARKLOOP_RATELIMIT_RATE_PER_MINUTE: "120000"
     ports:
-      - "8005:8000"
+      - "8005:19000"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
@@ -164,7 +164,7 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8000/healthz"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:19000/healthz"]
       interval: 5s
       timeout: 3s
       retries: 20

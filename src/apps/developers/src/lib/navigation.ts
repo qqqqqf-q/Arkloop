@@ -33,6 +33,7 @@ const zhDocsSidebar: SidebarGroup[] = [
       { label: '本地启动', href: '/docs/guide' },
       { label: '部署指南', href: '/docs/guide/deployment' },
       { label: '测试与基准', href: '/docs/guide/testing' },
+      { label: 'SaaS 部署指南', href: '/docs/guide/saas-deployment' },
       { label: 'Markdown 渲染测试', href: '/docs/guide/markdown-test' },
     ],
   },

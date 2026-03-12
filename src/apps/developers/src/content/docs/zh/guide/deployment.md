@@ -17,13 +17,13 @@ Arkloop 提供两种自部署入口：
 | `redis` | 缓存/队列 | 6379 |
 | `seaweedfs` | 可选 S3 兼容对象存储 | 9000 |
 | `migrate` | 数据库迁移（一次性，完成后退出） | — |
-| `api` | 控制面 API（Go） | 8001 |
-| `gateway` | 反向代理 + 前端入口 | 8000 |
-| `console-lite` | 默认自部署控制台 | 8000（经 Gateway） |
-| `console` | 完整控制台（可选） | 8000（经 Gateway） |
+| `api` | 控制面 API（Go） | 19001 |
+| `gateway` | 反向代理 + 前端入口 | 19000 |
+| `console-lite` | 默认自部署控制台 | 19000（经 Gateway） |
+| `console` | 完整控制台（可选） | 19000（经 Gateway） |
 | `worker` | Job Worker（Agent 执行面） | — |
-| `sandbox` | 代码沙箱（Firecracker / Docker） | 8002 |
-| `openviking` | 向量记忆服务 | 1933 |
+| `sandbox` | 代码沙箱（Firecracker / Docker） | 19002 |
+| `openviking` | 向量记忆服务 | 19010 |
 
 默认启动顺序由 `depends_on` 保证：postgres → migrate → api/worker，redis → api/gateway/worker。启用可选 profile 时，`pgbouncer`、`seaweedfs`、`openviking`、`docker-sandbox`、`firecracker`、`console-full` 等模块会按需加入。
 
@@ -81,7 +81,7 @@ docker compose ps
 
 | 端点 | 说明 |
 |------|------|
-| `http://localhost:8000` | 当前启用的 Console 入口（由 Gateway 统一对外） |
+| `http://localhost:19000` | 当前启用的 Console 入口（由 Gateway 统一对外） |
 
 默认情况下，内部服务只在 Docker 网络内暴露。如果需要宿主机调试端口，请显式叠加开发覆盖文件：
 
@@ -256,7 +256,7 @@ ARKLOOP_SANDBOX_TEMPLATES_PATH="" \
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `ARKLOOP_SANDBOX_ADDR` | `0.0.0.0:8002` | 服务监听地址 |
+| `ARKLOOP_SANDBOX_ADDR` | `0.0.0.0:19002` | 服务监听地址 |
 | `ARKLOOP_FIRECRACKER_BIN` | `/usr/bin/firecracker` | Firecracker 二进制路径 |
 | `ARKLOOP_SANDBOX_KERNEL_IMAGE` | `/opt/sandbox/vmlinux` | 内核镜像路径 |
 | `ARKLOOP_SANDBOX_ROOTFS` | `/opt/sandbox/rootfs.ext4` | rootfs 路径 |
@@ -293,7 +293,7 @@ ARKLOOP_LOAD_DOTENV=1 ARKLOOP_DOTENV_FILE=../../.env go run ./cmd/api
 此时如需使用 Gateway，覆盖 upstream 指向宿主机：
 
 ```bash
-ARKLOOP_GATEWAY_UPSTREAM=http://host.docker.internal:8001 docker compose -f compose.yaml -f compose.dev.yaml up -d gateway
+ARKLOOP_GATEWAY_UPSTREAM=http://host.docker.internal:19001 docker compose -f compose.yaml -f compose.dev.yaml up -d gateway
 ```
 
 ## 完整环境变量参考
@@ -347,16 +347,16 @@ ARKLOOP_GATEWAY_UPSTREAM=http://host.docker.internal:8001 docker compose -f comp
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `ARKLOOP_API_GO_ADDR` | `0.0.0.0:8001` | 监听地址（容器内） |
-| `ARKLOOP_API_PORT` | `8001` | `compose.dev.yaml` 使用的宿主机映射端口 |
+| `ARKLOOP_API_GO_ADDR` | `0.0.0.0:19001` | 监听地址（容器内） |
+| `ARKLOOP_API_PORT` | `19001` | `compose.dev.yaml` 使用的宿主机映射端口 |
 | `ARKLOOP_BOOTSTRAP_PLATFORM_ADMIN` | — | 首次部署管理员 user_id（UUID） |
 
 ### Gateway
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `ARKLOOP_GATEWAY_UPSTREAM` | `http://api:8001` | 上游 API 地址 |
-| `ARKLOOP_GATEWAY_PORT` | `8000` | 默认对外入口 |
+| `ARKLOOP_GATEWAY_UPSTREAM` | `http://api:19001` | 上游 API 地址 |
+| `ARKLOOP_GATEWAY_PORT` | `19000` | 默认对外入口 |
 | `ARKLOOP_GATEWAY_TRUST_INCOMING_TRACE_ID` | `0` | 是否信任上游传入的 `X-Trace-Id` |
 | `ARKLOOP_RATELIMIT_CAPACITY` | `60` | 限流桶容量 |
 | `ARKLOOP_RATELIMIT_RATE_PER_MINUTE` | `60` | 每分钟补充速率 |

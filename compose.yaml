@@ -93,7 +93,7 @@ services:
       ARKLOOP_API_DB_POOL_STATS_INTERVAL_SECONDS: "${ARKLOOP_API_DB_POOL_STATS_INTERVAL_SECONDS:-10}"
       ARKLOOP_API_MAX_IN_FLIGHT: "${ARKLOOP_API_MAX_IN_FLIGHT:-256}"
       ARKLOOP_API_DIRECT_POOL_ACQUIRE_TIMEOUT_MS: "${ARKLOOP_API_DIRECT_POOL_ACQUIRE_TIMEOUT_MS:-200}"
-      ARKLOOP_API_GO_ADDR: "0.0.0.0:8001"
+      ARKLOOP_API_GO_ADDR: "0.0.0.0:19001"
       ARKLOOP_OUTBOUND_TRUST_FAKE_IP: "${ARKLOOP_OUTBOUND_TRUST_FAKE_IP:-true}"
     depends_on:
       migrate:
@@ -106,7 +106,7 @@ services:
       - ./src/personas:/usr/local/share/arkloop/personas
       - arkloop_storage:${ARKLOOP_STORAGE_ROOT:-/var/lib/arkloop/storage}
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8001/healthz"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:19001/healthz"]
       interval: 15s
       timeout: 3s
       retries: 20
@@ -117,8 +117,8 @@ services:
       dockerfile: src/services/gateway/Dockerfile
     restart: unless-stopped
     environment:
-      ARKLOOP_GATEWAY_ADDR: "0.0.0.0:8000"
-      ARKLOOP_GATEWAY_UPSTREAM: "${ARKLOOP_GATEWAY_UPSTREAM:-http://api:8001}"
+      ARKLOOP_GATEWAY_ADDR: "0.0.0.0:19000"
+      ARKLOOP_GATEWAY_UPSTREAM: "${ARKLOOP_GATEWAY_UPSTREAM:-http://api:19001}"
       ARKLOOP_GATEWAY_FRONTEND_UPSTREAM: "${ARKLOOP_GATEWAY_FRONTEND_UPSTREAM:-http://console-lite:80}"
       ARKLOOP_REDIS_URL: "redis://:${ARKLOOP_REDIS_PASSWORD:-arkloop_redis}@redis:6379/0"
       ARKLOOP_GATEWAY_REDIS_URL: "redis://:${ARKLOOP_REDIS_PASSWORD:-arkloop_redis}@redis:6379/1"
@@ -126,7 +126,7 @@ services:
       ARKLOOP_RATELIMIT_CAPACITY: "${ARKLOOP_RATELIMIT_CAPACITY:-600}"
       ARKLOOP_RATELIMIT_RATE_PER_MINUTE: "${ARKLOOP_RATELIMIT_RATE_PER_MINUTE:-300}"
     ports:
-      - "${ARKLOOP_GATEWAY_PORT:-8000}:8000"
+      - "${ARKLOOP_GATEWAY_PORT:-19000}:19000"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
@@ -135,7 +135,7 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8000/healthz"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:19000/healthz"]
       interval: 15s
       timeout: 3s
       retries: 20
@@ -146,7 +146,7 @@ services:
       dockerfile: src/apps/console-lite/Dockerfile
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost/healthz"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/healthz"]
       interval: 15s
       timeout: 3s
       retries: 10
@@ -158,8 +158,10 @@ services:
     restart: unless-stopped
     profiles:
       - console-full
+    ports:
+      - "${ARKLOOP_CONSOLE_PORT:-19081}:80"
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost/healthz"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/healthz"]
       interval: 15s
       timeout: 3s
       retries: 10
@@ -243,7 +245,7 @@ services:
       - firecracker
     environment:
       ARKLOOP_DATABASE_URL: "postgresql://${ARKLOOP_POSTGRES_USER:-arkloop}:${ARKLOOP_POSTGRES_PASSWORD:?请在 .env 中设置 ARKLOOP_POSTGRES_PASSWORD}@postgres:5432/${ARKLOOP_POSTGRES_DB:-arkloop}"
-      ARKLOOP_SANDBOX_ADDR: "0.0.0.0:8002"
+      ARKLOOP_SANDBOX_ADDR: "0.0.0.0:19002"
       ARKLOOP_SANDBOX_PROVIDER: "firecracker"
       ARKLOOP_SANDBOX_ALLOW_EGRESS: "${ARKLOOP_SANDBOX_ALLOW_EGRESS:-true}"
       ARKLOOP_FIRECRACKER_BIN: "${ARKLOOP_FIRECRACKER_BIN:-/usr/bin/firecracker}"
@@ -271,7 +273,7 @@ services:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8002/healthz"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:19002/healthz"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -309,7 +311,7 @@ services:
       - docker-sandbox
     environment:
       ARKLOOP_DATABASE_URL: "postgresql://${ARKLOOP_POSTGRES_USER:-arkloop}:${ARKLOOP_POSTGRES_PASSWORD:?请在 .env 中设置 ARKLOOP_POSTGRES_PASSWORD}@postgres:5432/${ARKLOOP_POSTGRES_DB:-arkloop}"
-      ARKLOOP_SANDBOX_ADDR: "0.0.0.0:8002"
+      ARKLOOP_SANDBOX_ADDR: "0.0.0.0:19002"
       ARKLOOP_SANDBOX_PROVIDER: "docker"
       ARKLOOP_SANDBOX_ALLOW_EGRESS: "${ARKLOOP_SANDBOX_ALLOW_EGRESS:-true}"
       ARKLOOP_SANDBOX_DOCKER_IMAGE: "${ARKLOOP_SANDBOX_DOCKER_IMAGE:-arkloop/sandbox-agent:dev}"
@@ -345,7 +347,7 @@ services:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8002/healthz"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:19002/healthz"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -362,7 +364,7 @@ services:
       - ./config/openviking/ov.conf:/app/ov.conf:ro
       - openviking_data:/app/data
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:1933/health || exit 1"]
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:19010/health || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -388,7 +390,7 @@ services:
   # web_fetch provider, replaces Jina/Basic fetch
   firecrawl:
     # upstream 不提供版本标签 (https://github.com/firecrawl/firecrawl/issues/1750)
-    image: mendableai/firecrawl:latest
+    image: ghcr.io/firecrawl/firecrawl:latest
     restart: unless-stopped
     profiles:
       - firecrawl
@@ -396,7 +398,7 @@ services:
       REDIS_URL: "redis://firecrawl-redis:6379"
       REDIS_RATE_LIMIT_URL: "redis://firecrawl-redis:6379"
       USE_DB_AUTHENTICATION: "false"
-      PORT: "3002"
+      PORT: "19012"
       HOST: "0.0.0.0"
       NUM_WORKERS_PER_QUEUE: "${ARKLOOP_FIRECRAWL_WORKERS:-4}"
       PLAYWRIGHT_MICROSERVICE_URL: "http://firecrawl-playwright:3000/chromium"
@@ -406,7 +408,7 @@ services:
       firecrawl-playwright:
         condition: service_started
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:3002/"]
+      test: ["CMD", "curl", "-fsS", "http://localhost:19012/"]
       interval: 30s
       timeout: 5s
       retries: 10
@@ -435,6 +437,24 @@ services:
       interval: 30s
       timeout: 3s
       retries: 20
+
+  bridge:
+    build:
+      context: .
+      dockerfile: src/services/bridge/Dockerfile
+    restart: unless-stopped
+    profiles:
+      - bridge
+    environment:
+      ARKLOOP_BRIDGE_ADDR: "127.0.0.1:19003"
+      ARKLOOP_BRIDGE_PROJECT_DIR: /project
+      ARKLOOP_BRIDGE_MODULES_FILE: /etc/arkloop/modules.yaml
+      ARKLOOP_LOAD_DOTENV: "false"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - .:/project:ro
+    network_mode: host
+    ports: []
 
 volumes:
   postgres_data:

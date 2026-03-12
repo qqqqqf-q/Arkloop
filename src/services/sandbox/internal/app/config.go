@@ -100,7 +100,7 @@ type Config struct {
 
 func DefaultConfig() Config {
 	return Config{
-		Addr:                       "0.0.0.0:8002",
+		Addr:                       "0.0.0.0:19002",
 		Provider:                   ProviderFirecracker,
 		FirecrackerBin:             "/usr/bin/firecracker",
 		KernelImagePath:            "/opt/sandbox/vmlinux",

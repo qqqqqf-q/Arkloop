@@ -27,7 +27,7 @@ docker compose exec -T postgres psql -U arkloop -d arkloop -c "select 1;"
 
 ## 2. 启动 API 服务
 
-默认监听 `127.0.0.1:8001`。
+默认监听 `127.0.0.1:19001`。
 
 <CodeGroup
   items={[
@@ -51,7 +51,7 @@ cd src/services/api; go run ./cmd/api`,
 覆盖监听地址：
 
 ```bash
-ARKLOOP_API_GO_ADDR=127.0.0.1:8001
+ARKLOOP_API_GO_ADDR=127.0.0.1:19001
 ```
 
 ## 3. 启动 Worker 服务
@@ -62,20 +62,20 @@ cd src/services/worker && go run ./cmd/worker
 
 ## 4. 启动前端（Web）
 
-`docker compose up -d` 已包含 Gateway（默认监听 8000），前端代理应指向 Gateway：
+`docker compose up -d` 已包含 Gateway（默认监听 19000），前端代理应指向 Gateway：
 
 <CodeGroup
   items={[
     {
       label: 'Linux/macOS',
       lang: 'bash',
-      code: `export ARKLOOP_API_PROXY_TARGET=http://127.0.0.1:8000
+      code: `export ARKLOOP_API_PROXY_TARGET=http://127.0.0.1:19000
 cd src/apps/web && pnpm install && pnpm dev`,
     },
     {
       label: 'Windows',
       lang: 'powershell',
-      code: `$env:ARKLOOP_API_PROXY_TARGET="http://127.0.0.1:8000"
+      code: `$env:ARKLOOP_API_PROXY_TARGET="http://127.0.0.1:19000"
 cd src/apps/web; pnpm install; pnpm dev`,
     },
   ]}
@@ -88,13 +88,13 @@ cd src/apps/web; pnpm install; pnpm dev`,
     {
       label: 'Linux/macOS',
       lang: 'bash',
-      code: `export ARKLOOP_API_PROXY_TARGET=http://127.0.0.1:8000
+      code: `export ARKLOOP_API_PROXY_TARGET=http://127.0.0.1:19000
 cd src/apps/console && pnpm install && pnpm dev`,
     },
     {
       label: 'Windows',
       lang: 'powershell',
-      code: `$env:ARKLOOP_API_PROXY_TARGET="http://127.0.0.1:8000"
+      code: `$env:ARKLOOP_API_PROXY_TARGET="http://127.0.0.1:19000"
 cd src/apps/console; pnpm install; pnpm dev`,
     },
   ]}
@@ -111,7 +111,7 @@ cd src/services/api && go test -tags integration ./...
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
 | `ARKLOOP_DATABASE_URL` | PostgreSQL 连接串 | — |
-| `ARKLOOP_API_GO_ADDR` | API 监听地址 | `127.0.0.1:8001` |
+| `ARKLOOP_API_GO_ADDR` | API 监听地址 | `127.0.0.1:19001` |
 | `ARKLOOP_LOAD_DOTENV` | 自动从 .env 文件加载 | `0` |
 | `ARKLOOP_DOTENV_FILE` | .env 文件路径 | `.env` |
 | `ARKLOOP_TOOL_ALLOWLIST` | 已弃用的兼容配置；仅记录日志，不再裁剪运行时工具 | — |

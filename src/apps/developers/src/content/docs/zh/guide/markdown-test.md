@@ -59,7 +59,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 
 func main() {
     http.HandleFunc("/", handler)
-    http.ListenAndServe(":8001", nil)
+    http.ListenAndServe(":19001", nil)
 }
 ```
 
@@ -102,7 +102,7 @@ services:
   api:
     image: arkloop/api:latest
     ports:
-      - "8001:8001"
+      - "19001:19001"
     environment:
       ARKLOOP_DATABASE_URL: postgres://arkloop:secret@postgres/arkloop
 ```
@@ -152,7 +152,7 @@ LIMIT 20;
 
 | 变量 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `ARKLOOP_API_GO_ADDR` | string | `127.0.0.1:8001` | API 监听地址 |
+| `ARKLOOP_API_GO_ADDR` | string | `127.0.0.1:19001` | API 监听地址 |
 | `ARKLOOP_LOAD_DOTENV` | bool | `0` | 是否从 .env 加载 |
 | `ARKLOOP_JWT_SECRET` | string | — | JWT 签名密钥 |
 | `ARKLOOP_DATABASE_URL` | string | — | PostgreSQL 连接串 |
@@ -220,7 +220,7 @@ LIMIT 20;
 pnpm install && pnpm dev
 ```
 
-然后访问 `http://localhost:5173`。
+然后访问 `http://localhost:19080`。
 
 代码块内有特殊字符：
 

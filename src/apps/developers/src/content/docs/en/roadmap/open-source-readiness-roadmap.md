@@ -899,7 +899,7 @@ Gateway currently lacks CORS handling. Separation of frontend and backend (almos
 
 Implementation:
 - Add CORS handler in Gateway middleware chain, after `traceMiddleware` and before proxy.
-- Allowed Origins via ENV (`ARKLOOP_GATEWAY_CORS_ALLOWED_ORIGINS`), defaulting to `http://localhost:5173,http://localhost:5174` for local Web/Console with credentialed requests.
+- Allowed Origins via ENV (`ARKLOOP_GATEWAY_CORS_ALLOWED_ORIGINS`), defaulting to `http://localhost:19080,http://localhost:19081` for local Web/Console with credentialed requests.
 - Handle preflight (OPTIONS) requests, correctly returning `Access-Control-Allow-Methods`, `Access-Control-Allow-Headers`, and `Access-Control-Allow-Credentials`.
 - SSE endpoints (`/v1/runs/*/events`) must allow `text/event-stream` Accept header.
 

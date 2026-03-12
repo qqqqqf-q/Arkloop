@@ -666,7 +666,7 @@ func ResolveProvider() string {
 - 单二进制，内嵌 API + Worker + Sandbox adapter
 - 使用 desktop build tag 编译（SQLite + channel queue + local event bus）
 - 启动流程：初始化 SQLite -> 执行 migration -> 启动 HTTP server -> 启动 worker
-- 监听 localhost 端口（如 127.0.0.1:8001），不暴露到网络
+- 监听 localhost 端口（如 127.0.0.1:19001），不暴露到网络
 - 内嵌默认 persona 配置（不依赖数据库 seed）
 - auth 简化：Desktop 单用户模式，跳过 JWT 验证（或使用固定 token）
 

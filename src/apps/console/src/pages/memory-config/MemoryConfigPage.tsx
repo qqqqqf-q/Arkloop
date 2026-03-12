@@ -115,7 +115,7 @@ export function MemoryConfigPage() {
                     className={inputCls}
                     value={form.baseUrl}
                     onChange={set('baseUrl')}
-                    placeholder="http://openviking:8000"
+                    placeholder="http://openviking:19000"
                   />
                 </div>
                 <div>

@@ -152,3 +152,20 @@ func (r *OrgMembershipRepository) ExistsForOrgAndUser(ctx context.Context, orgID
 	}
 	return exists, nil
 }
+
+func (r *OrgMembershipRepository) HasPlatformAdmin(ctx context.Context) (bool, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	var exists bool
+	err := r.db.QueryRow(
+		ctx,
+		`SELECT EXISTS(SELECT 1 FROM org_memberships WHERE role = $1)`,
+		"platform_admin",
+	).Scan(&exists)
+	if err != nil {
+		return false, err
+	}
+	return exists, nil
+}

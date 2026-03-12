@@ -36,6 +36,8 @@ const FRIENDLY_ERROR_MESSAGES: Record<string, FriendlyText> = {
   'runs.not_found': { zh: '任务不存在', en: 'Run not found.' },
   'runs.limit_exceeded': { zh: '当前有任务在运行，请稍后再试', en: 'Too many concurrent runs.' },
   'credits.insufficient': { zh: '积分不足', en: 'Insufficient credits.' },
+  'bootstrap.invalid_token': { zh: '初始化链接已失效', en: 'Bootstrap link expired.' },
+  'bootstrap.already_initialized': { zh: '平台管理员已初始化', en: 'Platform admin already initialized.' },
 }
 
 function hasCjk(text: string): boolean {

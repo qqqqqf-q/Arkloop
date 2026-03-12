@@ -56,7 +56,7 @@ Smoke tests verify a running Compose stack end-to-end (health check, register, l
 ```bash
 docker compose up -d
 
-ARKLOOP_SMOKE_API_URL=http://127.0.0.1:8000 \
+ARKLOOP_SMOKE_API_URL=http://127.0.0.1:19000 \
   go test -tags smoke ./tests/smoke/...
 ```
 

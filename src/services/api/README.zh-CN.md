@@ -39,9 +39,9 @@ cd src/services/api
 go run ./cmd/api
 ```
 
-默认监听 `127.0.0.1:8001`，可通过以下方式覆盖：
-- `ARKLOOP_API_GO_ADDR=127.0.0.1:8001`
-- 或 `PORT=8001`（部署环境常用）
+默认监听 `127.0.0.1:19001`，可通过以下方式覆盖：
+- `ARKLOOP_API_GO_ADDR=127.0.0.1:19001`
+- 或 `PORT=19001`（部署环境常用）
 
 ## 常用环境变量
 
@@ -52,5 +52,5 @@ go run ./cmd/api
 
 ## 前端与 CLI
 
-- Web：Vite dev proxy 默认走 `http://127.0.0.1:8001`；如需覆盖可设置 `ARKLOOP_API_PROXY_TARGET`
+- Web：Vite dev proxy 默认走 `http://127.0.0.1:19001`；如需覆盖可设置 `ARKLOOP_API_PROXY_TARGET`
 - CLI：`PYTHONPATH=. python -m tools.cli.cli chat --profile api --message "hello"`（参考客户端，位于 `tools/cli/`）

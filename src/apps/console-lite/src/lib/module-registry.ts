@@ -37,20 +37,20 @@ const mod = (
 
 export const STATIC_MODULES: ModuleInfo[] = [
   mod('openviking', 'OpenViking', 'Embedding + vector store memory system', 'memory', {
-    port: 1933,
+    port: 19010,
     capabilities: { installable: true, configurable: true, healthcheck: true, bootstrap_supported: true, external_admin_supported: true, privileged_required: false },
   }),
   mod('sandbox-docker', 'Sandbox (Docker)', 'Docker-based code execution sandbox', 'sandbox', {
-    port: 8002,
+    port: 19002,
     mutually_exclusive: ['sandbox-firecracker'],
     capabilities: { installable: true, configurable: true, healthcheck: true, bootstrap_supported: true, external_admin_supported: false, privileged_required: false },
   }),
   mod('searxng', 'SearXNG', 'Self-hosted metasearch engine', 'search', {
-    port: 8888,
+    port: 19011,
     capabilities: { installable: true, configurable: true, healthcheck: true, bootstrap_supported: true, external_admin_supported: false, privileged_required: false },
   }),
   mod('firecrawl', 'Firecrawl', 'Self-hosted web scraper and crawler', 'search', {
-    port: 3002,
+    port: 19012,
     capabilities: { installable: true, configurable: true, healthcheck: true, bootstrap_supported: true, external_admin_supported: false, privileged_required: false },
   }),
   mod('browser', 'Browser', 'Browser automation for web interaction', 'browser', {
@@ -58,7 +58,7 @@ export const STATIC_MODULES: ModuleInfo[] = [
     capabilities: { installable: true, configurable: true, healthcheck: true, bootstrap_supported: false, external_admin_supported: false, privileged_required: false },
   }),
   mod('console', 'Full Console', 'Full management console with ~35 pages', 'console', {
-    port: 5174,
+    port: 19081,
     mutually_exclusive: ['console-lite'],
     capabilities: { installable: true, configurable: false, healthcheck: true, bootstrap_supported: false, external_admin_supported: false, privileged_required: false },
   }),

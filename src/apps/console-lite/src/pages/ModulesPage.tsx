@@ -1,12 +1,15 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
-  Copy, Check, RefreshCw, Loader2,
+  Copy, Check, RefreshCw, Loader2, ExternalLink,
   CircleDot, CircleOff, CircleAlert, CirclePause, CirclePlay, CircleDashed,
 } from 'lucide-react'
 import { PageHeader } from '../components/PageHeader'
 import { Badge, type BadgeVariant } from '../components/Badge'
 import { useToast } from '@arkloop/shared'
 import { useLocale } from '../contexts/LocaleContext'
+import { useOperations } from '../contexts/OperationContext'
+import type { OperationRecord } from '../contexts/OperationContext'
 import type { LocaleStrings } from '../locales'
 import {
   checkBridgeAvailable,
@@ -101,9 +104,18 @@ function actionLabel(action: ModuleAction, t: ModulesLocale): string {
   return map[action]
 }
 
+const ACTION_LABELS_PROGRESS: Record<ModuleAction, string> = {
+  install: 'Installing…',
+  start: 'Starting…',
+  stop: 'Stopping…',
+  restart: 'Restarting…',
+  configure_connection: 'Configuring…',
+  bootstrap_defaults: 'Bootstrapping…',
+}
+
 function CopyButton({ text, label }: { text: string; label: string }) {
   const [copied, setCopied] = useState(false)
-  const timerRef = useRef<ReturnType<typeof setTimeout>>()
+  const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
   const handleCopy = useCallback(() => {
     void navigator.clipboard.writeText(text)
@@ -130,19 +142,30 @@ function ModuleRow({
   bridgeOnline,
   t,
   onAction,
+  busy,
+  busyOperation,
+  onSpinnerClick,
 }: {
   mod: ModuleInfo
   bridgeOnline: boolean
   t: ModulesLocale
   onAction: (moduleId: string, action: ModuleAction) => void
+  busy: boolean
+  busyOperation: OperationRecord | undefined
+  onSpinnerClick: () => void
 }) {
   const actions = availableActions(mod, bridgeOnline)
   const command = INSTALL_COMMANDS[mod.id]
   const agentPrompt = AGENT_PROMPTS[mod.id]
 
-  const displayStatus = bridgeOnline ? mod.status : null
-  const badgeLabel = displayStatus ? statusLabel(displayStatus, t) : t.statusUnknown
-  const badgeVariant = displayStatus ? statusBadgeVariant(displayStatus) : 'neutral' as BadgeVariant
+  const isActioning = !!busyOperation
+  const displayStatus = bridgeOnline ? (isActioning ? null : mod.status) : null
+  const badgeLabel = isActioning
+    ? ACTION_LABELS_PROGRESS[busyOperation!.action]
+    : (displayStatus ? statusLabel(displayStatus, t) : t.statusUnknown)
+  const badgeVariant: BadgeVariant = isActioning
+    ? 'warning'
+    : (displayStatus ? statusBadgeVariant(displayStatus) : 'neutral' as BadgeVariant)
 
   return (
     <div className="rounded-md border border-[var(--c-border-console)] px-3 py-2.5">
@@ -151,26 +174,52 @@ function ModuleRow({
           <span className="font-mono text-xs text-[var(--c-text-primary)]">{mod.name}</span>
           <Badge variant={badgeVariant}>
             <span className="flex items-center gap-1">
-              {displayStatus ? statusIcon(displayStatus) : <CircleDashed size={13} />}
+              {isActioning
+                ? <Loader2 size={13} className="animate-spin" />
+                : (displayStatus ? statusIcon(displayStatus) : <CircleDashed size={13} />)
+              }
               {badgeLabel}
             </span>
           </Badge>
         </div>
         <div className="flex items-center gap-1.5">
-          {actions.map((action) => (
+          {busy ? (
             <button
-              key={action}
-              onClick={() => onAction(mod.id, action)}
-              className="rounded-md bg-[var(--c-bg-tag)] px-2 py-1 text-[11px] font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-border)]"
+              onClick={onSpinnerClick}
+              className="flex items-center gap-1.5 rounded-md bg-[var(--c-status-warning-bg)] px-2 py-1 text-[11px] font-medium text-[var(--c-status-warning-text)] transition-colors hover:opacity-80"
             >
-              {actionLabel(action, t)}
+              <Loader2 size={12} className="animate-spin" />
+              {ACTION_LABELS_PROGRESS[busyOperation!.action]}
             </button>
-          ))}
-          {!bridgeOnline && command && (
-            <CopyButton text={command} label={t.copyCommand} />
-          )}
-          {!bridgeOnline && agentPrompt && (
-            <CopyButton text={agentPrompt} label={t.copyAgentPrompt} />
+          ) : (
+            <>
+              {mod.web_url && mod.status === 'running' && (
+                <a
+                  href={mod.web_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1 rounded-md bg-[var(--c-accent)] px-2.5 py-1 text-[11px] font-medium text-white transition-opacity hover:opacity-80"
+                >
+                  <ExternalLink size={11} />
+                  {t.actionOpen ?? 'Open'}
+                </a>
+              )}
+              {actions.map((action) => (
+                <button
+                  key={action}
+                  onClick={() => onAction(mod.id, action)}
+                  className="rounded-md bg-[var(--c-bg-tag)] px-2 py-1 text-[11px] font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-border)]"
+                >
+                  {actionLabel(action, t)}
+                </button>
+              ))}
+              {!bridgeOnline && command && (
+                <CopyButton text={command} label={t.copyCommand} />
+              )}
+              {!bridgeOnline && agentPrompt && (
+                <CopyButton text={agentPrompt} label={t.copyAgentPrompt} />
+              )}
+            </>
           )}
         </div>
       </div>
@@ -192,13 +241,17 @@ function ModuleRow({
 export function ModulesPage() {
   const { addToast } = useToast()
   const { t } = useLocale()
+  const { operations, startOperation, isModuleBusy, getModuleOperation, setHistoryOpen } = useOperations()
   const tm = t.modules
+
+  const [searchParams, setSearchParams] = useSearchParams()
+  const catParam = searchParams.get('cat') ?? ''
 
   const [bridgeOnline, setBridgeOnline] = useState(false)
   const [modules, setModules] = useState<ModuleInfo[]>(STATIC_MODULES)
-  const [selectedCategory, setSelectedCategory] = useState<ModuleCategory>('memory')
   const [loading, setLoading] = useState(false)
   const mountedRef = useRef(true)
+  const prevOpsRef = useRef(operations)
 
   useEffect(() => {
     mountedRef.current = true
@@ -242,15 +295,33 @@ export function ModulesPage() {
 
   useEffect(() => { void loadModules() }, [loadModules])
 
+  // Refresh modules when any operation completes
+  useEffect(() => {
+    const prev = prevOpsRef.current
+    prevOpsRef.current = operations
+    for (const op of operations) {
+      const prevOp = prev.find((p) => p.id === op.id)
+      if (prevOp?.status === 'running' && op.status !== 'running') {
+        void loadModules()
+        break
+      }
+    }
+  }, [operations, loadModules])
+
   const handleAction = useCallback(async (moduleId: string, action: ModuleAction) => {
     try {
-      await bridgeClient.performAction(moduleId, action)
-      addToast(`${action} -> ${moduleId}`, 'success')
-      void loadModules()
+      const { operation_id } = await bridgeClient.performAction(moduleId, action)
+      const mod = modules.find((m) => m.id === moduleId)
+      startOperation(moduleId, mod?.name ?? moduleId, action, operation_id)
+      setHistoryOpen(true)
     } catch (err) {
       addToast(err instanceof Error ? err.message : t.requestFailed, 'error')
     }
-  }, [addToast, loadModules, t.requestFailed])
+  }, [addToast, modules, t.requestFailed, startOperation, setHistoryOpen])
+
+  const selectedCategory: ModuleCategory = (categoryList.includes(catParam as ModuleCategory)
+    ? catParam as ModuleCategory
+    : categoryList[0]) ?? 'memory'
 
   const filteredModules = modules.filter((m) => m.category === selectedCategory)
 
@@ -294,7 +365,11 @@ export function ModulesPage() {
                 return (
                   <button
                     key={cat}
-                    onClick={() => setSelectedCategory(cat)}
+                    onClick={() => {
+                      const next = new URLSearchParams(searchParams)
+                      next.set('cat', cat)
+                      setSearchParams(next, { replace: true })
+                    }}
                     className={[
                       'flex h-[30px] items-center rounded-[5px] px-3 text-sm font-medium transition-colors',
                       active
@@ -321,6 +396,9 @@ export function ModulesPage() {
                       bridgeOnline={bridgeOnline}
                       t={tm}
                       onAction={handleAction}
+                      busy={isModuleBusy(mod.id)}
+                      busyOperation={getModuleOperation(mod.id)}
+                      onSpinnerClick={() => setHistoryOpen(true)}
                     />
                   ))}
                   {filteredModules.length === 0 && (

@@ -143,10 +143,10 @@ def normalize_choice(value: str, field: str) -> str:
     return normalized
 
 
-def default_selections(profile: str, host_os: str, has_kvm: bool) -> dict:
+def default_selections(profile: str, mode: str, host_os: str, has_kvm: bool) -> dict:
     if profile == "full":
         sandbox = "firecracker" if host_os == "linux" and has_kvm else "docker"
-        return {
+        defaults = {
             "memory": "openviking",
             "sandbox": sandbox,
             "console": "full",
@@ -154,14 +154,18 @@ def default_selections(profile: str, host_os: str, has_kvm: bool) -> dict:
             "web_tools": "self-hosted",
             "gateway": "on",
         }
-    return {
-        "memory": "none",
-        "sandbox": "none",
-        "console": "lite",
-        "browser": "off",
-        "web_tools": "builtin",
-        "gateway": "on",
-    }
+    else:
+        defaults = {
+            "memory": "none",
+            "sandbox": "none",
+            "console": "lite",
+            "browser": "off",
+            "web_tools": "builtin",
+            "gateway": "on",
+        }
+    if mode == "saas":
+        defaults["console"] = "full"
+    return defaults
 
 
 def ordered_unique(items: List[str]) -> List[str]:
@@ -177,10 +181,7 @@ def ordered_unique(items: List[str]) -> List[str]:
 def resolve_plan(modules: Dict[str, dict], args) -> dict:
     profile = normalize_choice(args.profile or "standard", "profile")
     mode = normalize_choice(args.mode or "self-hosted", "mode")
-    if mode == "saas":
-        raise ValueError("mode=saas 在 PR2 未实现，请等待 PR8")
-
-    defaults = default_selections(profile, args.host_os, args.has_kvm)
+    defaults = default_selections(profile, mode, args.host_os, args.has_kvm)
 
     memory = normalize_choice(args.memory or defaults["memory"], "memory")
     sandbox = normalize_choice(args.sandbox or defaults["sandbox"], "sandbox")
@@ -218,6 +219,14 @@ def resolve_plan(modules: Dict[str, dict], args) -> dict:
         selected.append("browser")
     if web_tools == "self-hosted":
         selected.extend(["searxng", "firecrawl"])
+
+    # Auto-select modules with default=true for current mode, unless already covered
+    for module_id, module in modules.items():
+        profile_meta = module.get("profiles", {}).get(mode, {})
+        if profile_meta.get("default") is True and module_id not in selected:
+            excl = module.get("mutually_exclusive", []) or []
+            if not any(e in selected for e in excl):
+                selected.append(module_id)
 
     resolved_modules: List[str] = []
     visiting = set()

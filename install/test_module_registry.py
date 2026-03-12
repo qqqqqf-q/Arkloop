@@ -54,6 +54,61 @@ class ModuleRegistryTest(unittest.TestCase):
         self.assertIn("sandbox-firecracker", plan["selected_modules"])
         self.assertEqual(plan["console"], "full")
 
+    def test_resolve_saas_standard_defaults(self):
+        """SaaS mode standard profile should auto-select pgbouncer, seaweedfs, and full console."""
+        modules = module_registry.parse_modules(MODULES)
+        parser = module_registry.build_parser()
+        args = parser.parse_args([
+            "resolve",
+            "--modules", MODULES,
+            "--mode", "saas",
+            "--profile", "standard",
+            "--host-os", "linux",
+        ])
+        plan = module_registry.resolve_plan(modules, args)
+        selected = plan["selected_modules"]
+        self.assertIn("pgbouncer", selected)
+        self.assertIn("seaweedfs", selected)
+        self.assertIn("console", selected)
+        self.assertNotIn("console-lite", selected)
+        profiles = plan["compose_profiles"]
+        self.assertIn("pgbouncer", profiles)
+        self.assertIn("s3", profiles)
+        self.assertIn("console-full", profiles)
+
+    def test_resolve_saas_full_defaults(self):
+        """SaaS mode full profile should include pgbouncer, seaweedfs, and extra full-profile modules."""
+        modules = module_registry.parse_modules(MODULES)
+        parser = module_registry.build_parser()
+        args = parser.parse_args([
+            "resolve",
+            "--modules", MODULES,
+            "--mode", "saas",
+            "--profile", "full",
+            "--host-os", "linux",
+            "--has-kvm",
+        ])
+        plan = module_registry.resolve_plan(modules, args)
+        selected = plan["selected_modules"]
+        self.assertIn("pgbouncer", selected)
+        self.assertIn("seaweedfs", selected)
+        self.assertIn("console", selected)
+        self.assertIn("sandbox-firecracker", selected)
+
+    def test_saas_does_not_raise(self):
+        """SaaS mode should no longer raise ValueError (PR8 unblocked it)."""
+        modules = module_registry.parse_modules(MODULES)
+        parser = module_registry.build_parser()
+        args = parser.parse_args([
+            "resolve",
+            "--modules", MODULES,
+            "--mode", "saas",
+            "--profile", "standard",
+            "--host-os", "macos",
+        ])
+        plan = module_registry.resolve_plan(modules, args)
+        self.assertIn("selected_modules", plan)
+
     def test_browser_requires_docker(self):
         cmd = [
             "python3",

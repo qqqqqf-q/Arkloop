@@ -12,6 +12,7 @@ export interface LocaleStrings {
     runs: string
     modules: string
     settings: string
+    installTasks: string
   }
   dashboard: {
     title: string
@@ -146,6 +147,22 @@ export interface LocaleStrings {
     fieldMaxLifetimeBrowser: string
     fieldCostPerCommit: string
     fieldCostPerCommitHint: string
+    sectionEmbeddingConfig: string
+    fieldEmbeddingProvider: string
+    fieldEmbeddingModel: string
+    fieldEmbeddingApiKey: string
+    fieldEmbeddingApiBase: string
+    fieldEmbeddingDimension: string
+    sectionVLMConfig: string
+    fieldVLMProvider: string
+    fieldVLMModel: string
+    fieldVLMApiKey: string
+    fieldVLMApiBase: string
+    fieldVLMProviderHint: string
+    ovRestartWarning: string
+    applyAndRestart: string
+    toastOVConfigApplied: string
+    toastOVConfigFailed: string
     editDescription: string
     resetDescription: string
     disableTool: string
@@ -249,6 +266,7 @@ export interface LocaleStrings {
     actionRestart: string
     actionConfigure: string
     actionBootstrap: string
+    actionOpen: string
     copyCommand: string
     copyAgentPrompt: string
     copied: string
@@ -256,6 +274,23 @@ export interface LocaleStrings {
     dependsOn: string
     noModules: string
     requires: (deps: string) => string
+  }
+  systemSection: {
+    title: string
+    version: string
+    bridgeStatus: string
+    bridgeOnline: string
+    bridgeOffline: string
+    upgradeMode: string
+    modeDev: string
+    modeProd: string
+    targetVersion: string
+    targetVersionPlaceholder: string
+    upgradeBtn: string
+    upgrading: string
+    upgradeComplete: string
+    upgradeFailed: string
+    logs: string
   }
   settingsPage: {
     title: string
@@ -298,6 +333,21 @@ export interface LocaleStrings {
     toastTestSent: string
     toastTestFailed: string
     toastDeleted: string
+  }
+  bootstrap: {
+    title: string
+    subtitle: string
+    username: string
+    usernamePlaceholder: string
+    password: string
+    passwordPlaceholder: string
+    submit: string
+    verifying: string
+    successTitle: string
+    successBody: string
+    invalidTitle: string
+    invalidBody: string
+    expiresAt: (value: string) => string
   }
   loginMode: string
   enterYourPasswordTitle: string

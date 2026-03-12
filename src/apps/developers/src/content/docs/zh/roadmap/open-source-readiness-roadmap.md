@@ -914,7 +914,7 @@ Gateway 当前缺少 CORS 处理。前端与后端分离部署（几乎所有开
 
 实现要点：
 - 在 Gateway 的中间件链中增加 CORS handler，位于 traceMiddleware 之后、proxy 之前
-- Allowed Origins 走 ENV 配置（`ARKLOOP_GATEWAY_CORS_ALLOWED_ORIGINS`），默认 `http://localhost:5173,http://localhost:5174`，兼容本地 Web/Console 的凭证请求
+- Allowed Origins 走 ENV 配置（`ARKLOOP_GATEWAY_CORS_ALLOWED_ORIGINS`），默认 `http://localhost:19080,http://localhost:19081`，兼容本地 Web/Console 的凭证请求
 - 处理 preflight（OPTIONS）请求，正确返回 `Access-Control-Allow-Methods`、`Access-Control-Allow-Headers`、`Access-Control-Allow-Credentials`
 - SSE 端点（`/v1/runs/*/events`）需要允许 `text/event-stream` 的 Accept header
 

@@ -375,7 +375,7 @@ Request processing order:
 
 | Variable | Description |
 |------|------|
-| `ARKLOOP_API_GO_ADDR` | Listening address (default `127.0.0.1:8001`) |
+| `ARKLOOP_API_GO_ADDR` | Listening address (default `127.0.0.1:19001`) |
 | `ARKLOOP_DATABASE_URL` | PostgreSQL connection |
 | `ARKLOOP_DATABASE_DIRECT_URL` | Direct connection (SSE LISTEN/NOTIFY, bypassing PgBouncer) |
 | `ARKLOOP_REDIS_URL` | Redis (rate limiting, run concurrency control) |

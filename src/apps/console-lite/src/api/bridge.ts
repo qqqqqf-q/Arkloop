@@ -2,7 +2,7 @@
 // PR5: Bridge not yet available, all calls degrade gracefully.
 // PR6: Bridge goes live, zero frontend changes needed.
 
-const BRIDGE_BASE_URL = import.meta.env.VITE_BRIDGE_URL ?? 'http://localhost:8003'
+const BRIDGE_BASE_URL = import.meta.env.VITE_BRIDGE_URL ?? 'http://localhost:19003'
 
 export type ModuleStatus =
   | 'not_installed'
@@ -31,12 +31,13 @@ export type ModuleInfo = {
   status: ModuleStatus
   version?: string
   port?: number
+  web_url?: string
   capabilities: ModuleCapabilities
   depends_on: string[]
   mutually_exclusive: string[]
 }
 
-export type ModuleAction = 'install' | 'start' | 'stop' | 'restart' | 'configure_connection' | 'bootstrap_defaults'
+export type ModuleAction = 'install' | 'start' | 'stop' | 'restart' | 'configure' | 'configure_connection' | 'bootstrap_defaults'
 
 export type PlatformInfo = {
   os: string
@@ -47,6 +48,16 @@ export type PlatformInfo = {
 export type BridgeHealth = {
   status: 'ok' | 'error'
   version?: string
+}
+
+export type SystemVersionInfo = {
+  version: string
+  compose_dir: string
+}
+
+export type UpgradeRequest = {
+  mode: 'prod' | 'dev'
+  target_version?: string
 }
 
 class BridgeClient {
@@ -97,6 +108,54 @@ class BridgeClient {
     })
     if (!resp.ok) throw new Error(`Module action failed: ${resp.status}`)
     return resp.json()
+  }
+
+  async cancelOperation(operationId: string): Promise<void> {
+    const resp = await fetch(`${this.baseUrl}/v1/operations/${encodeURIComponent(operationId)}/cancel`, {
+      method: 'POST',
+      signal: AbortSignal.timeout(5000),
+    })
+    if (!resp.ok) throw new Error(`Cancel operation failed: ${resp.status}`)
+  }
+
+  async systemVersion(): Promise<SystemVersionInfo> {
+    const resp = await fetch(`${this.baseUrl}/v1/system/version`, {
+      signal: AbortSignal.timeout(5000),
+    })
+    if (!resp.ok) throw new Error(`System version failed: ${resp.status}`)
+    return resp.json()
+  }
+
+  async systemUpgrade(req: UpgradeRequest): Promise<{ operation_id: string }> {
+    const resp = await fetch(`${this.baseUrl}/v1/system/upgrade`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req),
+      signal: AbortSignal.timeout(10000),
+    })
+    if (!resp.ok) throw new Error(`System upgrade failed: ${resp.status}`)
+    return resp.json()
+  }
+
+  streamOperation(
+    operationId: string,
+    onLog: (line: string) => void,
+    onDone: (result: { status: string; error?: string }) => void,
+  ): () => void {
+    const es = new EventSource(
+      `${this.baseUrl}/v1/operations/${encodeURIComponent(operationId)}/stream`,
+    )
+    es.addEventListener('log', (e: MessageEvent) => onLog(e.data as string))
+    es.addEventListener('status', (e: MessageEvent) => {
+      const result = JSON.parse(e.data as string) as { status: string; error?: string }
+      onDone(result)
+      es.close()
+    })
+    es.onerror = () => {
+      onDone({ status: 'failed', error: 'Connection lost' })
+      es.close()
+    }
+    return () => es.close()
   }
 }
 

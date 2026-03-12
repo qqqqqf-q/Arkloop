@@ -41,12 +41,35 @@ cd Arkloop
 ```
 
 For a non-interactive install, pass explicit parser flags to `./setup.sh install --non-interactive ...`.
-Once the install is healthy, access the Console entry at `http://localhost:8000`.
+If port `19000` is already in use, set another gateway port, for example `./setup.sh install --gateway-port 8100`.
+If you want English prompts and logs, pass `--lang en`.
+Once the install is healthy, access the Console entry at `http://localhost:19000` or your custom gateway port.
 
 For host-level debugging ports such as PostgreSQL, API, Sandbox, or OpenViking, opt in explicitly:
 
 ```bash
 docker compose -f compose.yaml -f compose.dev.yaml up -d
+```
+
+### Production Deployment
+
+For production, use pre-built multi-arch images (amd64 + arm64) from `ghcr.io/qqqqqf-q/arkloop-*` instead of building locally:
+
+```bash
+# Pull pre-built images and start
+docker compose -f compose.yaml -f compose.prod.yaml up -d
+
+# Pin a specific version
+ARKLOOP_VERSION=v0.5.0 docker compose -f compose.yaml -f compose.prod.yaml up -d
+
+# Pull images first (useful for zero-downtime upgrades)
+docker compose -f compose.yaml -f compose.prod.yaml pull
+```
+
+The `--prod` flag in `setup.sh` enables this automatically:
+
+```bash
+./setup.sh install --prod --non-interactive ...
 ```
 
 For detailed configuration, environment variables, and production deployment guides, refer to the [documentation](https://docs.arkloop.ai).

@@ -12,14 +12,16 @@ The codebase is a monorepo split into:
 ## Architecture
 
 ```
-Client -> Gateway (8000) -> API (8001) -> Worker
-                                           |-> LLM (multi-model routing)
-                                           |-> Sandbox (8002, code execution)
-                                           |-> Browser (3100, web automation)
-                                           |-> OpenViking (1933, memory)
+Client -> Gateway (19000) -> API (19001) -> Worker
+                                            |-> LLM (multi-model routing)
+                                            |-> Sandbox (19002, code execution)
+                                            |-> Browser (19013, web automation)
+                                            |-> OpenViking (19010, memory)
 ```
 
 Infrastructure: PostgreSQL 16 (via PgBouncer) / Redis 7 / MinIO (S3)
+
+`compose.prod.yaml` overrides service images to use pre-built multi-arch images from `ghcr.io/qqqqqf-q/arkloop-{service}:latest` instead of building locally. Use `-f compose.yaml -f compose.prod.yaml` for production deployments.
 
 ## Backend Services
 
@@ -27,10 +29,10 @@ All Go services live under `src/services/` and share a `go.work` workspace (Go 1
 
 | Service | Port | Purpose |
 |---------|------|---------|
-| `api` | 8001 | Core REST API: auth, RBAC, billing, migrations, job scheduling |
-| `gateway` | 8000 | Reverse proxy: rate limiting, geo-IP filtering, risk scoring |
+| `api` | 19001 | Core REST API: auth, RBAC, billing, migrations, job scheduling |
+| `gateway` | 19000 | Reverse proxy: rate limiting, geo-IP filtering, risk scoring |
 | `worker` | - | Job execution: LLM routing, tool dispatch, agent loop, persona management |
-| `sandbox` | 8002 | Code execution: Firecracker VMs (Linux) or Docker containers (macOS/Windows) |
+| `sandbox` | 19002 | Code execution: Firecracker VMs (Linux) or Docker containers (macOS/Windows) |
 | `shared` | - | Shared libraries: config, S3 abstraction, Redis utils, credit policies |
 
 Each service follows a consistent layout:
@@ -75,8 +77,8 @@ All frontend apps live under `src/apps/` as a pnpm monorepo.
 
 | App | Port | Purpose |
 |-----|------|---------|
-| `web` | 5173 | User-facing chat interface |
-| `console` | 5174 | Admin dashboard (~35 management pages) |
+| `web` | 19080 | User-facing chat interface |
+| `console` | 19081 | Admin dashboard (~35 management pages) |
 | `shared` | - | Shared package: API client, token storage, theme/locale contexts |
 
 Tech stack: React 19 / TypeScript 5.9 / Vite 7 / Tailwind CSS 4 / React Router 7

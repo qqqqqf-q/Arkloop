@@ -30,17 +30,17 @@ const (
 	geoIPLicenseKeyEnv        = "ARKLOOP_GEOIP_LICENSE_KEY"
 	riskRejectThresholdEnv    = "ARKLOOP_GATEWAY_RISK_REJECT_THRESHOLD"
 
-	defaultAddr       = "0.0.0.0:8000"
-	defaultUpstream   = "http://127.0.0.1:8001"
+	defaultAddr       = "0.0.0.0:19000"
+	defaultUpstream   = "http://127.0.0.1:19001"
 	defaultGeoIPDBDir = "/data/geoip"
 
 	defaultRedisTimeoutMs = 150
 )
 
 var defaultCORSAllowedOrigins = []string{
-	"http://localhost:5173",
-	"http://localhost:5174",
-	"http://localhost:5175",
+	"http://localhost:19080",
+	"http://localhost:19081",
+	"http://localhost:19082",
 }
 
 type IPMode string

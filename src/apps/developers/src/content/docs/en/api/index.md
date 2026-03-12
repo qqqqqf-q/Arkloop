@@ -9,8 +9,8 @@ The Arkloop API is a RESTful HTTP API with a base path of `/v1`.
 
 | Environment | URL |
 |------|------|
-| Local Development (Direct) | `http://127.0.0.1:8001` |
-| Local Development (via Gateway) | `http://127.0.0.1:8000` |
+| Local Development (Direct) | `http://127.0.0.1:19001` |
+| Local Development (via Gateway) | `http://127.0.0.1:19000` |
 
 ## Authentication
 

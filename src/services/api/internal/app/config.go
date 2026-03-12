@@ -18,7 +18,7 @@ const (
 	databaseDirectURLEnv    = "ARKLOOP_DATABASE_DIRECT_URL"
 	trustIncomingTraceIDEnv = "ARKLOOP_TRUST_INCOMING_TRACE_ID"
 	trustXForwardedForEnv   = "ARKLOOP_TRUST_X_FORWARDED_FOR"
-	defaultAddr             = "127.0.0.1:8001"
+	defaultAddr             = "127.0.0.1:19001"
 
 	apiDBPoolMaxConnsEnv             = "ARKLOOP_API_DB_POOL_MAX_CONNS"
 	apiDBPoolMinConnsEnv             = "ARKLOOP_API_DB_POOL_MIN_CONNS"
