@@ -51,6 +51,27 @@ For host-level debugging ports such as PostgreSQL, API, Sandbox, or OpenViking, 
 docker compose -f compose.yaml -f compose.dev.yaml up -d
 ```
 
+### Production Deployment
+
+For production, use pre-built multi-arch images (amd64 + arm64) from `ghcr.io/qqqqqf-q/arkloop-*` instead of building locally:
+
+```bash
+# Pull pre-built images and start
+docker compose -f compose.yaml -f compose.prod.yaml up -d
+
+# Pin a specific version
+ARKLOOP_VERSION=v0.5.0 docker compose -f compose.yaml -f compose.prod.yaml up -d
+
+# Pull images first (useful for zero-downtime upgrades)
+docker compose -f compose.yaml -f compose.prod.yaml pull
+```
+
+The `--prod` flag in `setup.sh` enables this automatically:
+
+```bash
+./setup.sh install --prod --non-interactive ...
+```
+
 For detailed configuration, environment variables, and production deployment guides, refer to the [documentation](https://docs.arkloop.ai).
 
 ## Key Features

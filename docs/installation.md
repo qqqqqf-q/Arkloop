@@ -234,6 +234,24 @@ The installer will:
 4. Wait for health checks to pass
 5. Print the admin initialization URL
 
+#### Production Mode (Pre-built Images)
+
+To use pre-built images from GHCR instead of building locally, add `--prod`:
+
+```bash
+./setup.sh install --prod \
+  --profile standard \
+  --mode self-hosted \
+  ...
+  --non-interactive
+```
+
+This appends `-f compose.prod.yaml` to all Compose commands, pulling multi-arch images (amd64 + arm64) from `ghcr.io/qqqqqf-q/arkloop-{service}:latest`. You can also pin a version:
+
+```bash
+ARKLOOP_VERSION=v0.5.0 ./setup.sh install --prod --non-interactive ...
+```
+
 ### Step 3: Verify Installation
 
 After the installer completes, verify the stack is running:
@@ -277,6 +295,7 @@ If the URL was not printed (gateway was off, or bootstrap already completed), sk
 | `--web-tools` | `builtin`, `self-hosted` | `builtin` | `self-hosted` installs SearXNG + Firecrawl |
 | `--gateway` | `on`, `off` | `on` | Entry point proxy; disable only for development |
 | `--non-interactive` | flag | — | Must be set when called by an agent |
+| `--prod` | flag | — | Use pre-built GHCR images via `compose.prod.yaml` |
 
 ---
 

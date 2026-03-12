@@ -21,6 +21,8 @@ Client -> Gateway (19000) -> API (19001) -> Worker
 
 Infrastructure: PostgreSQL 16 (via PgBouncer) / Redis 7 / MinIO (S3)
 
+`compose.prod.yaml` overrides service images to use pre-built multi-arch images from `ghcr.io/qqqqqf-q/arkloop-{service}:latest` instead of building locally. Use `-f compose.yaml -f compose.prod.yaml` for production deployments.
+
 ## Backend Services
 
 All Go services live under `src/services/` and share a `go.work` workspace (Go 1.26).

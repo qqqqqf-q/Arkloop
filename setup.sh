@@ -8,8 +8,10 @@ INSTALL_STATE_FILE="${ROOT_DIR}/install/.state.env"
 MODULE_HELPER="${ROOT_DIR}/install/module_registry.py"
 MODULES_FILE="${ROOT_DIR}/install/modules.yaml"
 COMPOSE_FILE="${ROOT_DIR}/compose.yaml"
+COMPOSE_PROD_FILE="${ROOT_DIR}/compose.prod.yaml"
 SETUP_SKIP_COMPOSE="${ARKLOOP_SETUP_SKIP_COMPOSE:-0}"
 SETUP_LANG="${ARKLOOP_SETUP_LANG:-}"
+USE_PROD_IMAGES="${ARKLOOP_PROD:-0}"
 
 HOST_OS=""
 HAS_KVM="0"
@@ -68,6 +70,7 @@ install flags:
   --gateway-port <port>
   --lang zh-CN|en
   --non-interactive
+  --prod                    使用预构建镜像（compose.prod.yaml）
 
 说明：
   - PR2 暂不支持 --mode saas
@@ -95,6 +98,7 @@ install flags:
   --gateway-port <port>
   --lang zh-CN|en
   --non-interactive
+  --prod                    Use pre-built images (compose.prod.yaml)
 
 Notes:
   - PR2 does not support --mode saas yet
@@ -510,6 +514,9 @@ detect_docker_socket() {
 compose_base_cmd() {
   local profiles_text="$1"
   COMPOSE_BASE_CMD=(docker compose -f "$COMPOSE_FILE")
+  if [ "$USE_PROD_IMAGES" = "1" ]; then
+    COMPOSE_BASE_CMD+=(-f "$COMPOSE_PROD_FILE")
+  fi
   local line
   while IFS= read -r line; do
     [ -n "$line" ] || continue
@@ -932,6 +939,7 @@ run_install() {
       --gateway-port) gateway_port="$2"; shift 2 ;;
       --lang) SETUP_LANG="$(normalize_setup_lang "$2")"; shift 2 ;;
       --non-interactive) NON_INTERACTIVE="1"; shift ;;
+      --prod) USE_PROD_IMAGES="1"; shift ;;
       -h|--help) print_usage; exit 0 ;;
       *) fail "$(t unknown_arg "$1")" ;;
     esac

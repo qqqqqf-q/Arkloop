@@ -1,0 +1,36 @@
+# Production override — use pre-built images instead of local builds.
+# Usage: docker compose -f compose.yaml -f compose.prod.yaml up -d
+#
+# Pull images first:
+#   docker compose -f compose.yaml -f compose.prod.yaml pull
+#
+# Pin a specific version:
+#   ARKLOOP_VERSION=v0.5.0 docker compose -f compose.yaml -f compose.prod.yaml up -d
+
+services:
+  migrate:
+    image: ghcr.io/qqqqqf-q/arkloop-api:${ARKLOOP_VERSION:-latest}
+
+  api:
+    image: ghcr.io/qqqqqf-q/arkloop-api:${ARKLOOP_VERSION:-latest}
+
+  gateway:
+    image: ghcr.io/qqqqqf-q/arkloop-gateway:${ARKLOOP_VERSION:-latest}
+
+  worker:
+    image: ghcr.io/qqqqqf-q/arkloop-worker:${ARKLOOP_VERSION:-latest}
+
+  sandbox:
+    image: ghcr.io/qqqqqf-q/arkloop-sandbox:${ARKLOOP_VERSION:-latest}
+
+  sandbox-docker:
+    image: ghcr.io/qqqqqf-q/arkloop-sandbox:${ARKLOOP_VERSION:-latest}
+
+  console:
+    image: ghcr.io/qqqqqf-q/arkloop-console:${ARKLOOP_VERSION:-latest}
+
+  console-lite:
+    image: ghcr.io/qqqqqf-q/arkloop-console-lite:${ARKLOOP_VERSION:-latest}
+
+  bridge:
+    image: ghcr.io/qqqqqf-q/arkloop-bridge:${ARKLOOP_VERSION:-latest}
