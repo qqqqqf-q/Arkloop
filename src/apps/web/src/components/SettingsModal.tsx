@@ -20,6 +20,8 @@ import {
   Pencil,
   Flag,
   Puzzle,
+  Cpu,
+  Bot,
 } from 'lucide-react'
 import {
   type MeResponse,
@@ -40,9 +42,11 @@ import { useTheme } from '../contexts/ThemeContext'
 import type { Locale } from '../locales'
 import type { Theme } from '../storage'
 import { SkillsSettingsContent } from './SkillsSettingsContent'
+import { ModelConfigContent } from './ModelConfigContent'
+import { AgentSettingsContent } from './AgentSettingsContent'
 
 
-export type SettingsTab = 'account' | 'settings' | 'skills' | 'credits'
+export type SettingsTab = 'account' | 'settings' | 'skills' | 'credits' | 'models' | 'agents'
 
 type NavItem = { key: SettingsTab; icon: LucideIcon }
 
@@ -50,6 +54,8 @@ const NAV_ITEMS: NavItem[] = [
   { key: 'account',  icon: User     },
   { key: 'settings', icon: Settings },
   { key: 'skills',   icon: Puzzle   },
+  { key: 'models',   icon: Cpu      },
+  { key: 'agents',   icon: Bot      },
   { key: 'credits',  icon: Coins    },
 ]
 
@@ -179,6 +185,12 @@ export function SettingsModal({ me, accessToken, initialTab = 'account', onClose
             )}
             {activeKey === 'credits' && (
               <CreditsContent accessToken={accessToken} onCreditsChanged={onCreditsChanged} />
+            )}
+            {activeKey === 'models' && (
+              <ModelConfigContent accessToken={accessToken} />
+            )}
+            {activeKey === 'agents' && (
+              <AgentSettingsContent accessToken={accessToken} />
             )}
           </div>
         </div>

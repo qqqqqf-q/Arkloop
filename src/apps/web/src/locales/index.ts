@@ -21,6 +21,8 @@ export interface LocaleStrings {
     settings: string
     skills: string
     credits: string
+    models: string
+    agents: string
   }
   // settings
   getHelp: string
@@ -338,6 +340,60 @@ export interface LocaleStrings {
   // message actions
   copyAction: string
   editAction: string
+  // model config
+  models: {
+    addProvider: string
+    editProvider: string
+    deleteProvider: string
+    deleteProviderConfirm: string
+    providerName: string
+    providerVendor: string
+    apiKey: string
+    apiKeyPlaceholder: string
+    baseUrl: string
+    baseUrlPlaceholder: string
+    save: string
+    saving: string
+    cancel: string
+    noProviders: string
+    noProvidersDesc: string
+    modelsSection: string
+    importAll: string
+    importing: string
+    noModels: string
+    deleteModel: string
+    addModel: string
+    modelName: string
+    modelNamePlaceholder: string
+    loadFailed: string
+    saveFailed: string
+    deleteFailed: string
+    vendorOpenai: string
+    vendorAnthropic: string
+    vendorGoogle: string
+    vendorCustom: string
+  }
+  // agent settings
+  agentSettings: {
+    title: string
+    subtitle: string
+    model: string
+    reasoningMode: string
+    credential: string
+    credentialDefault: string
+    temperature: string
+    maxOutputTokens: string
+    noPersonas: string
+    saveFailed: string
+    applyAll: string
+    applyingAll: string
+    applyAllDone: string
+    reasoningModes: {
+      default: string
+      enabled: string
+      disabled: string
+    }
+  }
   // chat page
   checkInPlaceholder: string
   replyPlaceholder: string

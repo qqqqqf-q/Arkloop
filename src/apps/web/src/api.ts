@@ -346,11 +346,15 @@ export async function importSkillFromUpload(
   })
 }
 
-export async function listSelectablePersonas(accessToken: string): Promise<SelectablePersona[]> {
-  const personas = await apiFetch<Persona[]>('/v1/me/selectable-personas', {
+export async function listPersonas(accessToken: string): Promise<Persona[]> {
+  return await apiFetch<Persona[]>('/v1/me/selectable-personas', {
     method: 'GET',
     accessToken,
   })
+}
+
+export async function listSelectablePersonas(accessToken: string): Promise<SelectablePersona[]> {
+  const personas = await listPersonas(accessToken)
 
   return personas
     .filter((persona) => persona.user_selectable)
@@ -1088,5 +1092,177 @@ export async function verifySharePassword(
   return await apiFetch<VerifyShareResponse>(`/v1/s/${token}/verify`, {
     method: 'POST',
     body: JSON.stringify({ password }),
+  })
+}
+
+// LLM Providers API (BYOK)
+
+export type LlmProviderModel = {
+  id: string
+  provider_id: string
+  model: string
+  priority: number
+  is_default: boolean
+  tags: string[]
+  when: Record<string, unknown>
+  advanced_json?: Record<string, unknown> | null
+  multiplier: number
+  cost_per_1k_input?: number | null
+  cost_per_1k_output?: number | null
+  cost_per_1k_cache_write?: number | null
+  cost_per_1k_cache_read?: number | null
+}
+
+export type LlmProvider = {
+  id: string
+  account_id?: string | null
+  scope: string
+  provider: string
+  name: string
+  key_prefix: string | null
+  base_url: string | null
+  openai_api_mode: string | null
+  advanced_json?: Record<string, unknown> | null
+  created_at: string
+  models: LlmProviderModel[]
+}
+
+export type CreateLlmProviderRequest = {
+  scope?: string
+  name: string
+  provider: string
+  api_key: string
+  base_url?: string
+  openai_api_mode?: string
+}
+
+export type UpdateLlmProviderRequest = {
+  scope?: string
+  name?: string
+  provider?: string
+  api_key?: string
+  base_url?: string | null
+  openai_api_mode?: string | null
+}
+
+export type CreateModelRequest = {
+  scope?: string
+  model: string
+  priority?: number
+  is_default?: boolean
+  tags?: string[]
+}
+
+export type AvailableModel = {
+  id: string
+  name: string
+  configured: boolean
+}
+
+const BYOK_SCOPE = 'project'
+
+function withScope(path: string, scope: string): string {
+  const sep = path.includes('?') ? '&' : '?'
+  return `${path}${sep}scope=${scope}`
+}
+
+export async function listLlmProviders(accessToken: string): Promise<LlmProvider[]> {
+  return await apiFetch<LlmProvider[]>(withScope('/v1/llm-providers', BYOK_SCOPE), {
+    method: 'GET',
+    accessToken,
+  })
+}
+
+export async function createLlmProvider(
+  accessToken: string,
+  req: CreateLlmProviderRequest,
+): Promise<LlmProvider> {
+  return await apiFetch<LlmProvider>(withScope('/v1/llm-providers', BYOK_SCOPE), {
+    method: 'POST',
+    accessToken,
+    body: JSON.stringify({ ...req, scope: BYOK_SCOPE }),
+  })
+}
+
+export async function updateLlmProvider(
+  accessToken: string,
+  id: string,
+  req: UpdateLlmProviderRequest,
+): Promise<LlmProvider> {
+  return await apiFetch<LlmProvider>(withScope(`/v1/llm-providers/${id}`, BYOK_SCOPE), {
+    method: 'PATCH',
+    accessToken,
+    body: JSON.stringify({ ...req, scope: BYOK_SCOPE }),
+  })
+}
+
+export async function deleteLlmProvider(
+  accessToken: string,
+  id: string,
+): Promise<{ ok: boolean }> {
+  return await apiFetch<{ ok: boolean }>(withScope(`/v1/llm-providers/${id}`, BYOK_SCOPE), {
+    method: 'DELETE',
+    accessToken,
+  })
+}
+
+export async function createProviderModel(
+  accessToken: string,
+  providerId: string,
+  req: CreateModelRequest,
+): Promise<LlmProviderModel> {
+  return await apiFetch<LlmProviderModel>(
+    withScope(`/v1/llm-providers/${providerId}/models`, BYOK_SCOPE),
+    {
+      method: 'POST',
+      accessToken,
+      body: JSON.stringify({ ...req, scope: BYOK_SCOPE }),
+    },
+  )
+}
+
+export async function deleteProviderModel(
+  accessToken: string,
+  providerId: string,
+  modelId: string,
+): Promise<{ ok: boolean }> {
+  return await apiFetch<{ ok: boolean }>(
+    withScope(`/v1/llm-providers/${providerId}/models/${modelId}`, BYOK_SCOPE),
+    {
+      method: 'DELETE',
+      accessToken,
+    },
+  )
+}
+
+export async function listAvailableModels(
+  accessToken: string,
+  providerId: string,
+): Promise<{ models: AvailableModel[] }> {
+  return await apiFetch<{ models: AvailableModel[] }>(
+    withScope(`/v1/llm-providers/${providerId}/available-models`, BYOK_SCOPE),
+    {
+      method: 'GET',
+      accessToken,
+    },
+  )
+}
+
+export type PatchPersonaRequest = {
+  model?: string
+  reasoning_mode?: string
+  preferred_credential?: string
+  budgets?: Record<string, unknown>
+}
+
+export async function patchPersona(
+  accessToken: string,
+  personaId: string,
+  req: PatchPersonaRequest,
+): Promise<Persona> {
+  return await apiFetch<Persona>(`/v1/personas/${personaId}`, {
+    method: 'PATCH',
+    accessToken,
+    body: JSON.stringify(req),
   })
 }
