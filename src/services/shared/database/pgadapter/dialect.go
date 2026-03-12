@@ -1,3 +1,5 @@
+//go:build !desktop
+
 package pgadapter
 
 import "arkloop/services/shared/database"

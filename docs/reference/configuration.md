@@ -63,6 +63,8 @@
 | sandbox.warm_lite | int | platform | 3 | false | lite tier 预热实例数 |
 | sandbox.warm_pro | int | platform | 2 | false | pro tier 预热实例数 |
 | sandbox.warm_ultra | int | platform | 1 | false | ultra tier 预热实例数 |
+| skills.market.skillsmp_api_key | string | platform |  | true | SkillsMP 官方市场 API Key |
+| skills.market.skillsmp_base_url | string | platform | https://skillsmp.com | false | SkillsMP 官方市场基础地址 |
 | turnstile.allowed_host | string | platform |  | false | Turnstile Allowed Host |
 | turnstile.secret_key | string | platform |  | true | Turnstile Secret Key |
 | turnstile.site_key | string | platform |  | false | Turnstile Site Key |

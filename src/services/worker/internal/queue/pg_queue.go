@@ -1,10 +1,11 @@
+//go:build !desktop
+
 package queue
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"regexp"
 	"strings"
 	"time"
 
@@ -12,10 +13,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
-
-const leaseAttemptsReapLimit = 10
-
-var traceIDRegex = regexp.MustCompile(`^[0-9a-fA-F]{32}$`)
 
 type PgQueue struct {
 	pool         *pgxpool.Pool
@@ -388,32 +385,4 @@ func (q *PgQueue) deadLetter(ctx context.Context, lease JobLease) error {
 		return &LeaseLostError{JobID: lease.JobID}
 	}
 	return nil
-}
-
-func normalizeTraceID(value string) string {
-	cleaned := strings.TrimSpace(value)
-	if cleaned == "" {
-		return ""
-	}
-	if !traceIDRegex.MatchString(cleaned) {
-		return ""
-	}
-	return strings.ToLower(cleaned)
-}
-
-func normalizeJobTypes(values []string) []string {
-	seen := make(map[string]struct{}, len(values))
-	deduped := make([]string, 0, len(values))
-	for _, item := range values {
-		cleaned := strings.TrimSpace(item)
-		if cleaned == "" {
-			continue
-		}
-		if _, ok := seen[cleaned]; ok {
-			continue
-		}
-		seen[cleaned] = struct{}{}
-		deduped = append(deduped, cleaned)
-	}
-	return deduped
 }

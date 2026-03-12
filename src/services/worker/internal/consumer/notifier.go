@@ -1,3 +1,5 @@
+//go:build !desktop
+
 package consumer
 
 import (
@@ -8,11 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// WorkNotifier signals idle consumer goroutines when new work might be available.
-type WorkNotifier interface {
-	Wake() <-chan struct{}
-}
-
+// Notifier 通过 PostgreSQL LISTEN/NOTIFY 接收新 job 信号。
 const (
 	notifyChannel  = "arkloop:jobs"
 	reconnectDelay = 2 * time.Second
