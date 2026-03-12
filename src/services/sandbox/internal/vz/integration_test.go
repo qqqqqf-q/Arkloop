@@ -15,7 +15,7 @@ import (
 const (
 	testKernelPath = "/tmp/vz-test/vmlinux"
 	testInitrdPath = "/tmp/vz-test/initramfs-custom.gz"
-	testRootfsPath = "/tmp/vz-test/rootfs.ext4"
+	testRootfsPath = "/tmp/vz-test/rootfs-full/python3.12.ext4"
 )
 
 func skipIfNoAssets(t *testing.T) {
@@ -150,4 +150,60 @@ func TestIntegration_MultipleExec(t *testing.T) {
 		}
 		t.Logf("command %d: %q -> %q (exit %d)", i, cmd.code, result.Stdout, result.ExitCode)
 	}
+}
+
+func TestIntegration_Python(t *testing.T) {
+	skipIfNoAssets(t)
+	if os.Getenv("VZ_INTEGRATION") == "" {
+		t.Skip("set VZ_INTEGRATION=1 to run Vz integration tests")
+	}
+
+	pool := newTestPool(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	sess, err := pool.Acquire(ctx, "test-python", session.TierLite)
+	if err != nil {
+		t.Fatalf("Acquire failed: %v", err)
+	}
+	defer pool.Destroy(sess.ID)
+
+	// Python version check (first Python exec may be slow due to cold start)
+	result, err := sess.Exec(ctx, session.ExecJob{
+		Language:  "python",
+		Code:      "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')",
+		TimeoutMs: 30000,
+	})
+	if err != nil {
+		t.Fatalf("python version check failed: %v", err)
+	}
+	t.Logf("Python version: %s", result.Stdout)
+	if result.ExitCode != 0 {
+		t.Errorf("python exit code %d, stderr: %s", result.ExitCode, result.Stderr)
+	}
+
+	// Python computation
+	result2, err := sess.Exec(ctx, session.ExecJob{
+		Language:  "python",
+		Code:      "print(sum(range(1, 101)))",
+		TimeoutMs: 5000,
+	})
+	if err != nil {
+		t.Fatalf("python sum failed: %v", err)
+	}
+	if result2.Stdout != "5050\n" {
+		t.Errorf("expected 5050, got %q", result2.Stdout)
+	}
+	t.Logf("Python sum(1..100) = %s", result2.Stdout)
+
+	// Node.js check
+	result3, err := sess.Exec(ctx, session.ExecJob{
+		Language:  "shell",
+		Code:      "node --version",
+		TimeoutMs: 5000,
+	})
+	if err != nil {
+		t.Fatalf("node version check failed: %v", err)
+	}
+	t.Logf("Node.js version: %s", result3.Stdout)
 }
