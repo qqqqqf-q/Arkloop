@@ -43,14 +43,14 @@ function identityLabel(entry: AccessLogEntry, anonLabel: string) {
   if (entry.identity_type === 'jwt') {
     const label = entry.username || entry.user_id?.slice(0, 8) || '--'
     return (
-      <span className="font-mono text-xs" title={`user: ${entry.user_id}\nproject: ${entry.account_id}`}>
+      <span className="font-mono text-xs" title={`user: ${entry.user_id}\naccount: ${entry.account_id}`}>
         {label}
       </span>
     )
   }
   if (entry.identity_type === 'api_key') {
     return (
-      <span className="text-xs" title={`project: ${entry.account_id}`}>
+      <span className="text-xs" title={`account: ${entry.account_id}`}>
         API Key / {entry.account_id?.slice(0, 8) || '--'}
       </span>
     )

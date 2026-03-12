@@ -130,7 +130,7 @@ export function ExecutionGovernancePage() {
                 <div className="flex w-full flex-col gap-3 sm:flex-row lg:w-auto">
                   <input
                     className={inputCls}
-                    placeholder={tc.fieldProjectIdPlaceholder}
+                    placeholder={tc.fieldAccountIdPlaceholder}
                     value={draftProjectId}
                     onChange={(e) => setDraftProjectId(e.target.value)}
                   />
@@ -183,7 +183,7 @@ export function ExecutionGovernancePage() {
                         <td className="py-3 pr-4 text-xs text-[var(--c-text-secondary)]">{item.effective.source || emptyValue}</td>
                         <td className="py-3 text-xs text-[var(--c-text-secondary)]">
                           <div>{tc.layerEnv}: {item.layers.env ?? emptyValue}</div>
-                          <div>{tc.layerProject}: {item.layers.project_db ?? emptyValue}</div>
+                          <div>{tc.layerAccount}: {item.layers.project_db ?? emptyValue}</div>
                           <div>{tc.layerPlatform}: {item.layers.platform_db ?? emptyValue}</div>
                           <div>{tc.layerDefault}: {item.layers.default || emptyValue}</div>
                         </td>

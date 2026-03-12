@@ -754,17 +754,17 @@ function UserRow({
 
                   <div>
                     <span className="text-[10px] font-medium uppercase tracking-wider text-[var(--c-text-muted)]">
-                      {tc.detailProjects}
+                      {tc.detailAccounts}
                     </span>
                     {(renderDetail.accounts?.length ?? 0) > 0 ? (
                       <table className="mt-2 w-full text-xs">
                         <thead>
                           <tr className="border-b border-[var(--c-border)]">
                             <th className="py-1.5 text-left font-medium text-[var(--c-text-muted)]">
-                              {tc.detailProjectId}
+                              {tc.detailAccountId}
                             </th>
                             <th className="py-1.5 text-left font-medium text-[var(--c-text-muted)]">
-                              {tc.detailProjectRole}
+                              {tc.detailAccountRole}
                             </th>
                           </tr>
                         </thead>
@@ -784,7 +784,7 @@ function UserRow({
                       </table>
                     ) : (
                       <p className="py-2 text-xs text-[var(--c-text-muted)]">
-                        {tc.detailNoProjects}
+                        {tc.detailNoAccounts}
                       </p>
                     )}
                   </div>

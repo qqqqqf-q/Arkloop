@@ -16,11 +16,11 @@ import {
   createFeatureFlag,
   updateFeatureFlagDefault,
   deleteFeatureFlag,
-  listFlagProjectOverrides,
-  setFlagProjectOverride,
-  deleteFlagProjectOverride,
+  listFlagAccountOverrides,
+  setFlagAccountOverride,
+  deleteFlagAccountOverride,
   type FeatureFlag,
-  type ProjectFeatureOverride,
+  type AccountFeatureOverride,
 } from '../../api/feature-flags'
 
 export function FeatureFlagsPage() {
@@ -44,20 +44,20 @@ export function FeatureFlagsPage() {
   const [deleteTarget, setDeleteTarget] = useState<FeatureFlag | null>(null)
   const [deleting, setDeleting] = useState(false)
 
-  // expanded row for project overrides
+  // expanded row for account overrides
   const [expandedKey, setExpandedKey] = useState<string | null>(null)
-  const [overrides, setOverrides] = useState<ProjectFeatureOverride[]>([])
+  const [overrides, setOverrides] = useState<AccountFeatureOverride[]>([])
   const [overridesLoading, setOverridesLoading] = useState(false)
 
   // add override
   const [addOverrideOpen, setAddOverrideOpen] = useState(false)
-  const [overrideProjectId, setOverrideProjectId] = useState('')
+  const [overrideAccountId, setOverrideAccountId] = useState('')
   const [overrideEnabled, setOverrideEnabled] = useState(true)
   const [addingOverride, setAddingOverride] = useState(false)
   const [overrideError, setOverrideError] = useState('')
 
   // delete override
-  const [deleteOverrideTarget, setDeleteOverrideTarget] = useState<ProjectFeatureOverride | null>(null)
+  const [deleteOverrideTarget, setDeleteOverrideTarget] = useState<AccountFeatureOverride | null>(null)
   const [deletingOverride, setDeletingOverride] = useState(false)
 
   const fetchAll = useCallback(async () => {
@@ -79,7 +79,7 @@ export function FeatureFlagsPage() {
   const fetchOverrides = useCallback(async (flagKey: string) => {
     setOverridesLoading(true)
     try {
-      const list = await listFlagProjectOverrides(flagKey, accessToken)
+      const list = await listFlagAccountOverrides(flagKey, accessToken)
       setOverrides(list)
     } catch {
       setOverrides([])
@@ -168,7 +168,7 @@ export function FeatureFlagsPage() {
 
   // override handlers
   const handleOpenAddOverride = useCallback(() => {
-    setOverrideProjectId('')
+    setOverrideAccountId('')
     setOverrideEnabled(true)
     setOverrideError('')
     setAddOverrideOpen(true)
@@ -176,15 +176,15 @@ export function FeatureFlagsPage() {
 
   const handleAddOverride = useCallback(async () => {
     if (!expandedKey) return
-    const projectId = overrideProjectId.trim()
-    if (!projectId) {
-      setOverrideError(tc.errProjectIdRequired)
+    const accountId = overrideAccountId.trim()
+    if (!accountId) {
+      setOverrideError(tc.errAccountIdRequired)
       return
     }
     setAddingOverride(true)
     setOverrideError('')
     try {
-      await setFlagProjectOverride(expandedKey, { account_id: projectId, enabled: overrideEnabled }, accessToken)
+      await setFlagAccountOverride(expandedKey, { account_id: accountId, enabled: overrideEnabled }, accessToken)
       addToast(tc.toastOverrideSet, 'success')
       setAddOverrideOpen(false)
       void fetchOverrides(expandedKey)
@@ -193,13 +193,13 @@ export function FeatureFlagsPage() {
     } finally {
       setAddingOverride(false)
     }
-  }, [expandedKey, overrideProjectId, overrideEnabled, accessToken, fetchOverrides, addToast, tc])
+  }, [expandedKey, overrideAccountId, overrideEnabled, accessToken, fetchOverrides, addToast, tc])
 
   const handleDeleteOverride = useCallback(async () => {
     if (!deleteOverrideTarget || !expandedKey) return
     setDeletingOverride(true)
     try {
-      await deleteFlagProjectOverride(expandedKey, deleteOverrideTarget.account_id, accessToken)
+      await deleteFlagAccountOverride(expandedKey, deleteOverrideTarget.account_id, accessToken)
       addToast(tc.toastOverrideDeleted, 'success')
       setDeleteOverrideTarget(null)
       void fetchOverrides(expandedKey)
@@ -299,12 +299,12 @@ export function FeatureFlagsPage() {
           emptyIcon={<Flag size={28} />}
         />
 
-        {/* expanded project overrides section */}
+        {/* expanded account overrides section */}
         {expandedKey && (
           <div className="border-t border-[var(--c-border)] px-6 py-4">
             <div className="flex items-center justify-between">
               <h3 className="text-xs font-medium text-[var(--c-text-secondary)]">
-                {tc.projectOverrides} ({expandedKey})
+                {tc.accountOverrides} ({expandedKey})
               </h3>
               <button
                 onClick={handleOpenAddOverride}
@@ -323,7 +323,7 @@ export function FeatureFlagsPage() {
               <table className="mt-3 w-full text-xs">
                 <thead>
                   <tr className="text-left text-[var(--c-text-muted)]">
-                    <th className="pb-2 font-medium">{tc.overrideProjectId}</th>
+                    <th className="pb-2 font-medium">{tc.overrideAccountId}</th>
                     <th className="pb-2 font-medium">{tc.overrideEnabled}</th>
                     <th className="pb-2 font-medium">{tc.colCreatedAt}</th>
                     <th className="pb-2" />
@@ -420,12 +420,12 @@ export function FeatureFlagsPage() {
         width="400px"
       >
         <div className="flex flex-col gap-4">
-          <FormField label={tc.overrideProjectId}>
+          <FormField label={tc.overrideAccountId}>
             <input
               type="text"
-              value={overrideProjectId}
-              onChange={(e) => { setOverrideProjectId(e.target.value); setOverrideError('') }}
-              placeholder="project uuid"
+              value={overrideAccountId}
+              onChange={(e) => { setOverrideAccountId(e.target.value); setOverrideError('') }}
+              placeholder="account uuid"
               className={inputCls}
               autoFocus
             />

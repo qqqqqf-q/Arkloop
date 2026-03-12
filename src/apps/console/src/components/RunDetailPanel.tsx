@@ -293,7 +293,7 @@ export function RunDetailPanel({ run, accessToken, onClose }: Props) {
                     : (d?.created_by_user_id ?? r.created_by_user_id)
                 } />
                 <MetaRow label={rt.labelThread} value={r.thread_id} mono />
-                <MetaRow label={rt.labelProject} value={r.account_id} mono />
+                <MetaRow label={rt.labelAccount} value={r.account_id} mono />
                 <MetaRow label={rt.labelPersona} value={d?.persona_id ?? r.persona_id} />
               </div>
               <div className="pt-2">

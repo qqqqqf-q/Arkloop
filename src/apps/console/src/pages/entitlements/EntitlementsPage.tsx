@@ -430,7 +430,7 @@ export function EntitlementsPage() {
               type="text"
               value={projectId}
               onChange={(e) => setProjectId(e.target.value)}
-              placeholder="project_id"
+              placeholder="account_id"
               className={inputClass}
             />
             <button

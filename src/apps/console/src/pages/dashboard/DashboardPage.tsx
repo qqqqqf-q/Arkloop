@@ -74,7 +74,7 @@ export function DashboardPage() {
             <StatCard label={tc.cardInputTokens} value={formatNumber(data.total_input_tokens)} />
             <StatCard label={tc.cardOutputTokens} value={formatNumber(data.total_output_tokens)} />
             <StatCard label={tc.cardCostUSD} value={formatCost(data.total_cost_usd)} />
-            <StatCard label={tc.cardActiveProjects} value={formatNumber(data.active_orgs)} />
+            <StatCard label={tc.cardActiveUsers} value={formatNumber(data.active_orgs)} />
           </div>
         ) : loading ? (
           <div className="flex flex-1 items-center justify-center">

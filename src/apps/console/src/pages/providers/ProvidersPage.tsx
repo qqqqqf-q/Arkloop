@@ -474,13 +474,13 @@ export function ProvidersPage() {
               className={`${INPUT_CLS} w-[112px] py-1 text-xs`}
             >
               <option value="platform">{tc.scopePlatform}</option>
-              <option value="project">{tc.scopeProject}</option>
+              <option value="project">{tc.scopeAccount}</option>
             </select>
             {scope === 'project' && (
               <input
                 value={projectId}
                 onChange={(e) => setProjectId(e.target.value)}
-                placeholder="Project ID"
+                placeholder="Account ID"
                 className={`${INPUT_CLS} w-[160px] py-1 text-xs`}
               />
             )}

@@ -827,13 +827,13 @@ export function PersonasPage() {
               className="w-[112px] rounded-lg border border-[var(--c-border)] bg-[var(--c-bg-input)] px-3 py-1 text-xs text-[var(--c-text-primary)] outline-none transition-colors focus:border-[var(--c-border-focus)]"
             >
               <option value="platform">{tc.scopePlatform}</option>
-              <option value="project">{tc.scopeProject}</option>
+              <option value="project">{tc.scopeAccount}</option>
             </select>
             {scope === 'project' && (
               <input
                 value={projectId}
                 onChange={(e) => setProjectId(e.target.value)}
-                placeholder="Project ID"
+                placeholder="Account ID"
                 className="w-[160px] rounded-lg border border-[var(--c-border)] bg-[var(--c-bg-input)] px-3 py-1 text-xs text-[var(--c-text-primary)] outline-none transition-colors focus:border-[var(--c-border-focus)]"
               />
             )}

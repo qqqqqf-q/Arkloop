@@ -294,7 +294,7 @@ export function AsrCredentialsPage() {
                 onChange={(e) => handleFormField('scope', e.target.value)}
                 className="rounded-lg border border-[var(--c-border)] bg-[var(--c-bg-deep2)] px-3 py-1.5 text-sm text-[var(--c-text-secondary)] focus:outline-none"
               >
-                <option value="project">project</option>
+                <option value="project">account</option>
                 <option value="platform">platform</option>
               </select>
             </FormField>

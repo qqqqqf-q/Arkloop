@@ -156,8 +156,8 @@ function App() {
         <Route path="tool-providers" element={<Navigate to="/tools" replace />} />
         <Route path="sandbox-config" element={<Navigate to="/tools" replace />} />
         <Route path="memory-config" element={<Navigate to="/tools" replace />} />
-        <Route path="members" element={<Navigate to="/projects" replace />} />
-        <Route path="teams" element={<Navigate to="/projects" replace />} />
+        <Route path="members" element={<Navigate to="/users" replace />} />
+        <Route path="teams" element={<Navigate to="/users" replace />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Route>
     </Routes>
