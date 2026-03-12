@@ -25,6 +25,11 @@
 | limit.concurrent_runs | int | both | 10 | false | 并发 run 上限 |
 | limit.max_input_content_bytes | int | both | 32768 | false | Run input 提交内容最大字节数 |
 | limit.max_parallel_tasks | int | platform | 32 | false | Lua 并行任务/并行工具调用上限 |
+| limit.subagent_max_active_per_root_run | int | both | 20 | false | 单 root run 下最大活跃 sub-agent 数量 |
+| limit.subagent_max_depth | int | both | 5 | false | Sub-Agent 最大嵌套深度 |
+| limit.subagent_max_descendants_per_root_run | int | both | 50 | false | 单 root run 下 sub-agent 总数上限 |
+| limit.subagent_max_parallel_children | int | both | 5 | false | 单 run 下最大并行子 agent 数量 |
+| limit.subagent_max_pending_per_root_run | int | both | 20 | false | 单 root run 下待处理输入队列上限 |
 | limit.team_members | int | both | 50 | false | Team 成员数量上限 |
 | limit.thread_message_history | int | both | 200 | false | 线程历史消息加载上限（条） |
 | limit.tool_continuation_budget | int | both | 32 | false | 长工具 continuation 总预算上限 |
@@ -63,6 +68,8 @@
 | sandbox.warm_lite | int | platform | 3 | false | lite tier 预热实例数 |
 | sandbox.warm_pro | int | platform | 2 | false | pro tier 预热实例数 |
 | sandbox.warm_ultra | int | platform | 1 | false | ultra tier 预热实例数 |
+| skills.market.skillsmp_api_key | string | platform |  | true | SkillsMP 官方市场 API Key |
+| skills.market.skillsmp_base_url | string | platform | https://skillsmp.com | false | SkillsMP 官方市场基础地址 |
 | turnstile.allowed_host | string | platform |  | false | Turnstile Allowed Host |
 | turnstile.secret_key | string | platform |  | true | Turnstile Secret Key |
 | turnstile.site_key | string | platform |  | false | Turnstile Site Key |

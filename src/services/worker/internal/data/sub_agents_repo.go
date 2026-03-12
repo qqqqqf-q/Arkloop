@@ -376,6 +376,62 @@ func (repo SubAgentRepository) SetLastOutputRefByLastCompletedRunID(ctx context.
 	return err
 }
 
+func (SubAgentRepository) CountActiveByRootRun(ctx context.Context, tx pgx.Tx, rootRunID uuid.UUID) (int, error) {
+	if tx == nil {
+		return 0, fmt.Errorf("tx must not be nil")
+	}
+	if rootRunID == uuid.Nil {
+		return 0, fmt.Errorf("root_run_id must not be empty")
+	}
+	var count int
+	err := tx.QueryRow(ctx,
+		`SELECT COUNT(*) FROM sub_agents
+		 WHERE root_run_id = $1
+		   AND status IN ($2, $3, $4)`,
+		rootRunID,
+		SubAgentStatusCreated,
+		SubAgentStatusQueued,
+		SubAgentStatusRunning,
+	).Scan(&count)
+	return count, err
+}
+
+func (SubAgentRepository) CountActiveByParentRun(ctx context.Context, tx pgx.Tx, parentRunID uuid.UUID) (int, error) {
+	if tx == nil {
+		return 0, fmt.Errorf("tx must not be nil")
+	}
+	if parentRunID == uuid.Nil {
+		return 0, fmt.Errorf("parent_run_id must not be empty")
+	}
+	var count int
+	err := tx.QueryRow(ctx,
+		`SELECT COUNT(*) FROM sub_agents
+		 WHERE parent_run_id = $1
+		   AND status IN ($2, $3, $4)`,
+		parentRunID,
+		SubAgentStatusCreated,
+		SubAgentStatusQueued,
+		SubAgentStatusRunning,
+	).Scan(&count)
+	return count, err
+}
+
+func (SubAgentRepository) CountByRootRun(ctx context.Context, tx pgx.Tx, rootRunID uuid.UUID) (int, error) {
+	if tx == nil {
+		return 0, fmt.Errorf("tx must not be nil")
+	}
+	if rootRunID == uuid.Nil {
+		return 0, fmt.Errorf("root_run_id must not be empty")
+	}
+	var count int
+	err := tx.QueryRow(ctx,
+		`SELECT COUNT(*) FROM sub_agents
+		 WHERE root_run_id = $1`,
+		rootRunID,
+	).Scan(&count)
+	return count, err
+}
+
 func (repo SubAgentRepository) getForUpdateByID(ctx context.Context, tx pgx.Tx, id uuid.UUID) (*SubAgentRecord, error) {
 	return scanSubAgentNullable(tx.QueryRow(ctx, subAgentSelectBy+` WHERE id = $1 FOR UPDATE`, id))
 }

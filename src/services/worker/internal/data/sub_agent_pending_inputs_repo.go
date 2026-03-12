@@ -91,3 +91,21 @@ func (SubAgentPendingInputsRepository) DeleteBatch(ctx context.Context, tx pgx.T
 	)
 	return err
 }
+
+func (SubAgentPendingInputsRepository) CountByRootRun(ctx context.Context, tx pgx.Tx, rootRunID uuid.UUID) (int, error) {
+	if tx == nil {
+		return 0, fmt.Errorf("tx must not be nil")
+	}
+	if rootRunID == uuid.Nil {
+		return 0, fmt.Errorf("root_run_id must not be empty")
+	}
+	var count int
+	err := tx.QueryRow(ctx,
+		`SELECT COUNT(*)
+		   FROM sub_agent_pending_inputs p
+		   JOIN sub_agents s ON s.id = p.sub_agent_id
+		  WHERE s.root_run_id = $1`,
+		rootRunID,
+	).Scan(&count)
+	return count, err
+}

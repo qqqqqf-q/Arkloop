@@ -264,7 +264,14 @@ func (e *EngineV1) Execute(ctx context.Context, pool *pgxpool.Pool, run data.Run
 	}
 
 	if e.jobQueue != nil && e.broadcastRDB != nil {
-		rc.SubAgentControl = subagentctl.NewService(pool, e.broadcastRDB, e.jobQueue, run, traceID)
+		subAgentLimits := subagentctl.SubAgentLimits{
+			MaxDepth:                 resolveNonNegativeInt(ctx, e.configResolver, registry, "limit.subagent_max_depth", orgScope, 5),
+			MaxActivePerRootRun:      resolveNonNegativeInt(ctx, e.configResolver, registry, "limit.subagent_max_active_per_root_run", orgScope, 20),
+			MaxParallelChildren:      resolveNonNegativeInt(ctx, e.configResolver, registry, "limit.subagent_max_parallel_children", orgScope, 5),
+			MaxDescendantsPerRootRun: resolveNonNegativeInt(ctx, e.configResolver, registry, "limit.subagent_max_descendants_per_root_run", orgScope, 50),
+			MaxPendingPerRootRun:     resolveNonNegativeInt(ctx, e.configResolver, registry, "limit.subagent_max_pending_per_root_run", orgScope, 20),
+		}
+		rc.SubAgentControl = subagentctl.NewService(pool, e.broadcastRDB, e.jobQueue, run, traceID, subAgentLimits)
 	}
 
 	handler := pipeline.Build(e.middlewares, e.terminal)

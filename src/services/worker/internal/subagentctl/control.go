@@ -40,6 +40,7 @@ type Service struct {
 	projector        *SubAgentStateProjector
 	snapshotBuilder  *SnapshotBuilder
 	snapshotStorage  *SnapshotStorage
+	governor         *SpawnGovernor
 }
 
 func CreateInitialRun(
@@ -53,12 +54,12 @@ func CreateInitialRun(
 	personaID string,
 	input string,
 ) error {
-	service := NewService(pool, rdb, jobQueue, parentRun, traceID)
+	service := NewService(pool, rdb, jobQueue, parentRun, traceID, SubAgentLimits{})
 	_, err := service.spawn(ctx, SpawnRequest{PersonaID: personaID, ContextMode: data.SubAgentContextModeIsolated, Input: input}, &forcedRunID)
 	return err
 }
 
-func NewService(pool *pgxpool.Pool, rdb *redis.Client, jobQueue queue.JobQueue, parentRun data.Run, traceID string) *Service {
+func NewService(pool *pgxpool.Pool, rdb *redis.Client, jobQueue queue.JobQueue, parentRun data.Run, traceID string, limits SubAgentLimits) *Service {
 	snapshotStorage := NewSnapshotStorage()
 	factory := NewSubAgentRunFactory(pool, snapshotStorage)
 	projector := NewSubAgentStateProjector(pool, rdb, jobQueue)
@@ -75,6 +76,7 @@ func NewService(pool *pgxpool.Pool, rdb *redis.Client, jobQueue queue.JobQueue, 
 		projector:        projector,
 		snapshotBuilder:  NewSnapshotBuilder(),
 		snapshotStorage:  snapshotStorage,
+		governor:         NewSpawnGovernor(limits),
 	}
 }
 
@@ -107,6 +109,14 @@ func (s *Service) spawn(ctx context.Context, req SpawnRequest, forcedRunID *uuid
 		return StatusSnapshot{}, err
 	}
 	defer tx.Rollback(ctx)
+
+	lineage, err := (data.RunsRepository{}).GetLineage(ctx, tx, s.parentRun.ID)
+	if err != nil {
+		return StatusSnapshot{}, fmt.Errorf("get lineage for governance: %w", err)
+	}
+	if err := s.governor.ValidateSpawn(ctx, tx, s.parentRun, lineage.RootRunID, lineage.Depth+1); err != nil {
+		return StatusSnapshot{}, err
+	}
 
 	snapshot, err := s.snapshotBuilder.Build(ctx, tx, s.parentRun, *plan.Spawn)
 	if err != nil {
@@ -152,6 +162,9 @@ func (s *Service) SendInput(ctx context.Context, req SendInputRequest) (StatusSn
 	var childRunID *uuid.UUID
 	switch plan.Mode {
 	case childRunPlanModeQueue:
+		if err := s.governor.ValidatePendingInput(ctx, tx, record.RootRunID); err != nil {
+			return StatusSnapshot{}, err
+		}
 		queuedInput, err := (data.SubAgentPendingInputsRepository{}).Enqueue(ctx, tx, record.ID, plan.Input, plan.Priority)
 		if err != nil {
 			return StatusSnapshot{}, err
