@@ -240,6 +240,7 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 		SSEConfig:                conversationapi.SSEConfig(sseConfig),
 		MessageAttachmentStore:   cfg.MessageAttachmentStore,
 		ArtifactStore:            cfg.ArtifactStore,
+		FeatureFlagService:       cfg.FeatureFlagService,
 	})
 
 	catalogapi.RegisterRoutes(mux, catalogapi.Deps{
@@ -304,6 +305,8 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 		EnvironmentStore:   cfg.EnvironmentStore,
 		RunEventRepo:       cfg.RunEventRepo,
 		GatewayRedisClient: gatewayRedis,
+		ThreadRepo:         cfg.ThreadRepo,
+		FeatureFlagService: cfg.FeatureFlagService,
 	})
 
 	platformapi.RegisterRoutes(mux, platformapi.Deps{

@@ -8,6 +8,7 @@ import (
 
 	"arkloop/services/api/internal/auth"
 	"arkloop/services/api/internal/data"
+	"arkloop/services/api/internal/featureflag"
 	sharedenvironmentref "arkloop/services/shared/environmentref"
 
 	"github.com/google/uuid"
@@ -263,6 +264,18 @@ func TestProjectWorkspaceStatusAndFilesFlow(t *testing.T) {
 
 	invalidResp := doArtifactRequest(t, env.handler, "/v1/projects/"+project.ID.String()+"/workspace/file?path=../secret.txt", authHeader(env.aliceToken))
 	assertErrorEnvelope(t, invalidResp, 400, "workspace_files.invalid_path")
+}
+
+func TestProjectWorkspaceRequiresClawFlag(t *testing.T) {
+	env := buildArtifactEnv(t)
+	project := mustCreateTestProject(t, context.Background(), env.pool, env.aliceOrgID, &env.aliceUserID, "project-workspace-flag")
+
+	if _, err := env.featureFlagsRepo.UpdateFlagDefaultValue(context.Background(), featureflag.ClawEnabledKey, false); err != nil {
+		t.Fatalf("disable claw flag: %v", err)
+	}
+
+	resp := doArtifactRequest(t, env.handler, "/v1/projects/"+project.ID.String()+"/workspace", authHeader(env.aliceToken))
+	assertErrorEnvelope(t, resp, 403, "feature_flags.claw_disabled")
 }
 
 func TestProjectWorkspaceMissingDefaultSessionStaysIdleAndReadsFiles(t *testing.T) {

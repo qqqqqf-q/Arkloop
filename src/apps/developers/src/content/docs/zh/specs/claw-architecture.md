@@ -544,7 +544,9 @@ func ResolveProvider() string {
 - 新增 feature flag `claw_enabled`
 - 前端根据 feature flag 决定是否显示 Claw Tab
 - API 层面：mode=claw 的请求在 flag 关闭时返回 403
-- admin console 可以按用户/组织开启此 flag
+- `claw_enabled` 为平台级默认值开关，默认关闭
+- admin console 继续通过现有 Feature Flags 页面管理此 flag
+- `claw_enabled` 不支持 org override
 
 ---
 

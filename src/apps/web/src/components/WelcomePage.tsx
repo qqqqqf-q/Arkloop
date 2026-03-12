@@ -42,6 +42,7 @@ type OutletContext = {
   onEnterSearchMode: () => void
   onExitSearchMode: () => void
   appMode: import('../storage').AppMode
+  availableAppModes: import('../storage').AppMode[]
   onSetAppMode: (mode: import('../storage').AppMode) => void
 }
 
@@ -114,7 +115,7 @@ function buildGreeting(name: string | null, now: Date): string {
 
 
 export function WelcomePage() {
-  const { accessToken, onLoggedOut, onThreadCreated, refreshCredits, onOpenNotifications, notificationVersion, creditsBalance: _creditsBalance, me, isPrivateMode, onTogglePrivateMode, isSearchMode, onEnterSearchMode, onExitSearchMode, appMode, onSetAppMode } = useOutletContext<OutletContext>()
+  const { accessToken, onLoggedOut, onThreadCreated, refreshCredits, onOpenNotifications, notificationVersion, creditsBalance: _creditsBalance, me, isPrivateMode, onTogglePrivateMode, isSearchMode, onEnterSearchMode, onExitSearchMode, appMode, availableAppModes, onSetAppMode } = useOutletContext<OutletContext>()
   const [draft, setDraft] = useState('')
   const [attachments, setAttachments] = useState<Attachment[]>([])
   const attachmentsRef = useRef<Attachment[]>([])
@@ -289,6 +290,7 @@ export function WelcomePage() {
           mode={appMode}
           onChange={onSetAppMode}
           labels={{ chat: t.modeChat, claw: t.modeClaw }}
+          availableModes={availableAppModes}
         />
         <NotificationBell accessToken={accessToken} onClick={onOpenNotifications} refreshKey={notificationVersion} title={t.notificationsTitle} />
         <button

@@ -2,6 +2,7 @@ package orgapi
 
 import (
 	"arkloop/services/api/internal/audit"
+	"arkloop/services/api/internal/featureflag"
 	httpkit "arkloop/services/api/internal/http/httpkit"
 	"strings"
 	"time"
@@ -62,6 +63,7 @@ func projectEntry(
 	auditWriter *audit.Writer,
 	pool *pgxpool.Pool,
 	store environmentStore,
+	flagService *featureflag.Service,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		traceID := observability.TraceIDFromContext(r.Context())
@@ -84,7 +86,7 @@ func projectEntry(
 		}
 
 		if subpath != "" {
-			handleProjectWorkspaceRoute(w, r, traceID, subpath, projectID, authService, membershipRepo, projectRepo, apiKeysRepo, auditWriter, pool, store)
+			handleProjectWorkspaceRoute(w, r, traceID, subpath, projectID, authService, membershipRepo, projectRepo, apiKeysRepo, auditWriter, pool, store, flagService)
 			return
 		}
 

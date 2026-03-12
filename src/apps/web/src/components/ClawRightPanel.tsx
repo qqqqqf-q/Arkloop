@@ -11,6 +11,7 @@ import {
 
 import {
   getProjectWorkspace,
+  isApiError,
   listProjectWorkspaceFiles,
   type ProjectWorkspace,
   type ProjectWorkspaceFileEntry,
@@ -36,6 +37,7 @@ export type ClawRightPanelProps = {
   projectId?: string
   steps?: ProgressStep[]
   connectors?: Connector[]
+  onForbidden?: () => void
 }
 
 function AnimatedHeight({
@@ -407,7 +409,7 @@ function FileTree({
   return <div>{renderLevel(rootPath, 0)}</div>
 }
 
-function WorkingFolderPanel({ accessToken, projectId }: { accessToken?: string; projectId?: string }) {
+function WorkingFolderPanel({ accessToken, projectId, onForbidden }: { accessToken?: string; projectId?: string; onForbidden?: () => void }) {
   const { t } = useLocale()
   const [workspace, setWorkspace] = useState<ProjectWorkspace | null>(null)
   const [workspaceLoading, setWorkspaceLoading] = useState(false)
@@ -449,8 +451,12 @@ function WorkingFolderPanel({ accessToken, projectId }: { accessToken?: string; 
         setWorkspace(workspaceResp)
         setItemsByPath({ [normalizePath(filesResp.path)]: filesResp.items })
       })
-      .catch(() => {
+      .catch((err) => {
         if (cancelled) return
+        if (isApiError(err) && err.status === 403) {
+          onForbidden?.()
+          return
+        }
         setWorkspace(null)
         setWorkspaceError(true)
       })
@@ -474,7 +480,11 @@ function WorkingFolderPanel({ accessToken, projectId }: { accessToken?: string; 
       const response = await listProjectWorkspaceFiles(accessToken, projectId, normalizedPath)
       setItemsByPath((current) => ({ ...current, [normalizePath(response.path)]: response.items }))
       setFilesError(false)
-    } catch {
+    } catch (err) {
+      if (isApiError(err) && err.status === 403) {
+        onForbidden?.()
+        return
+      }
       setFilesError(true)
     } finally {
       setLoadingPaths((current) => {
@@ -619,6 +629,7 @@ export function ClawRightPanel({
   projectId,
   steps = [],
   connectors = [],
+  onForbidden,
 }: ClawRightPanelProps) {
   const { t } = useLocale()
   const doneCount = steps.filter((step) => step.status === 'done').length
@@ -650,7 +661,7 @@ export function ClawRightPanel({
         </Card>
 
         <Card title={t.claw.workingFolder} defaultOpen>
-          <WorkingFolderPanel accessToken={accessToken} projectId={projectId} />
+          <WorkingFolderPanel accessToken={accessToken} projectId={projectId} onForbidden={onForbidden} />
         </Card>
 
         <Card title={t.claw.context} defaultOpen>

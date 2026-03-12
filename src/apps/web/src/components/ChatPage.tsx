@@ -119,6 +119,7 @@ type OutletContext = {
   threads: ThreadResponse[]
   onThreadDeleted: (threadId: string) => void
   appMode: import('../storage').AppMode
+  availableAppModes: import('../storage').AppMode[]
   onSetAppMode: (mode: import('../storage').AppMode) => void
 }
 
@@ -200,7 +201,7 @@ function finalizeSearchSteps(steps: SearchStep[]): MessageSearchStepRef[] {
 }
 
 export function ChatPage() {
-  const { accessToken, onLoggedOut, onRunStarted, onRunEnded, onThreadCreated, onThreadTitleUpdated, refreshCredits, onOpenNotifications, notificationVersion, creditsBalance: _creditsBalance, onTogglePrivateMode, privateThreadIds, onSetPendingIncognito, onRightPanelChange, threads, onThreadDeleted, appMode, onSetAppMode } = useOutletContext<OutletContext>()
+  const { accessToken, onLoggedOut, onRunStarted, onRunEnded, onThreadCreated, onThreadTitleUpdated, refreshCredits, onOpenNotifications, notificationVersion, creditsBalance: _creditsBalance, onTogglePrivateMode, privateThreadIds, onSetPendingIncognito, onRightPanelChange, threads, onThreadDeleted, appMode, availableAppModes, onSetAppMode } = useOutletContext<OutletContext>()
   const { threadId } = useParams<{ threadId: string }>()
   const location = useLocation()
   const locationState = location.state as LocationState
@@ -1800,6 +1801,7 @@ export function ChatPage() {
             mode={appMode}
             onChange={onSetAppMode}
             labels={{ chat: t.modeChat, claw: t.modeClaw }}
+            availableModes={availableAppModes}
           />
           {threadId && privateThreadIds.has(threadId) && (
             <span className="text-xs font-medium text-[var(--c-text-muted)]">{t.incognitoLabel}</span>
@@ -2256,7 +2258,7 @@ export function ChatPage() {
         </div>
         {/* 右侧面板 - width 过渡驱动整体布局动画 */}
         {appMode === 'claw' ? (
-          <ClawRightPanel accessToken={accessToken} projectId={currentThread?.project_id || undefined} />
+          <ClawRightPanel accessToken={accessToken} projectId={currentThread?.project_id || undefined} onForbidden={() => onSetAppMode('chat')} />
         ) : (
         <div
           style={{

@@ -70,6 +70,7 @@ export type MeResponse = {
   email?: string
   email_verified: boolean
   email_verification_required: boolean
+  claw_enabled: boolean
 }
 
 export type SkillReference = {

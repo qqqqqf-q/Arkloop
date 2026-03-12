@@ -12,6 +12,8 @@ import (
 	"arkloop/services/api/internal/audit"
 	"arkloop/services/api/internal/auth"
 	"arkloop/services/api/internal/data"
+	"arkloop/services/api/internal/featureflag"
+	"arkloop/services/api/internal/http/featuregate"
 	"arkloop/services/api/internal/observability"
 	"arkloop/services/shared/messagecontent"
 	"arkloop/services/shared/objectstore"
@@ -29,6 +31,7 @@ func uploadThreadAttachment(
 	auditWriter *audit.Writer,
 	apiKeysRepo *data.APIKeysRepository,
 	store messageAttachmentStore,
+	flagService *featureflag.Service,
 ) func(nethttp.ResponseWriter, *nethttp.Request, uuid.UUID) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request, threadID uuid.UUID) {
 		traceID := observability.TraceIDFromContext(r.Context())
@@ -62,7 +65,7 @@ func uploadThreadAttachment(
 			httpkit.WriteError(w, nethttp.StatusNotFound, "threads.not_found", "thread not found", traceID, nil)
 			return
 		}
-		if !authorizeThreadOrAudit(w, r, traceID, actor, "attachments.create", thread, auditWriter) {
+		if !authorizeThreadOrAudit(w, r, traceID, actor, "attachments.create", thread, auditWriter, flagService) {
 			return
 		}
 
@@ -125,6 +128,7 @@ func messageAttachmentsEntry(
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,
 	store messageAttachmentStore,
+	flagService *featureflag.Service,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		traceID := observability.TraceIDFromContext(r.Context())
@@ -158,6 +162,9 @@ func messageAttachmentsEntry(
 			httpkit.WriteError(w, nethttp.StatusForbidden, "attachments.forbidden", "access denied", traceID, nil)
 			return
 		}
+		if !featuregate.EnsureClawEnabledForThread(w, traceID, r.Context(), thread, flagService) {
+			return
+		}
 
 		shareToken := strings.TrimSpace(r.URL.Query().Get("share_token"))
 		hasAuthorization := strings.TrimSpace(r.Header.Get("Authorization")) != ""
@@ -177,7 +184,7 @@ func messageAttachmentsEntry(
 			if !httpkit.RequirePerm(actor, auth.PermDataThreadsRead, w, traceID) {
 				return
 			}
-			if !authorizeThreadReadOrAudit(w, r, traceID, actor, "attachments.get", thread, projectRepo, teamRepo, auditWriter) {
+			if !authorizeThreadReadOrAudit(w, r, traceID, actor, "attachments.get", thread, projectRepo, teamRepo, auditWriter, flagService) {
 				return
 			}
 		}

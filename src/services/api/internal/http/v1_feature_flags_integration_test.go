@@ -223,4 +223,27 @@ func TestFeatureFlagsAuditIntegration(t *testing.T) {
 			t.Fatalf("delete audit count changed: before=%d after=%d", before, after)
 		}
 	})
+
+	t.Run("claw flag disables org overrides", func(t *testing.T) {
+		resp := doJSON(handler, nethttp.MethodGet, "/v1/feature-flags/claw_enabled", nil, authHeader(adminToken))
+		if resp.Code != nethttp.StatusOK {
+			t.Fatalf("get claw flag: %d %s", resp.Code, resp.Body.String())
+		}
+		payload := decodeJSONBody[map[string]any](t, resp.Body.Bytes())
+		if payload["supports_org_overrides"] != false {
+			t.Fatalf("unexpected claw flag payload: %#v", payload)
+		}
+
+		setResp := doJSON(handler, nethttp.MethodPost, "/v1/feature-flags/claw_enabled/org-overrides", map[string]any{
+			"org_id":  orgID,
+			"enabled": true,
+		}, authHeader(adminToken))
+		assertErrorEnvelope(t, setResp, nethttp.StatusUnprocessableEntity, "validation.error")
+
+		listResp := doJSON(handler, nethttp.MethodGet, "/v1/feature-flags/claw_enabled/org-overrides", nil, authHeader(adminToken))
+		assertErrorEnvelope(t, listResp, nethttp.StatusUnprocessableEntity, "validation.error")
+
+		deleteResp := doJSON(handler, nethttp.MethodDelete, "/v1/feature-flags/claw_enabled/org-overrides/"+orgID, nil, authHeader(adminToken))
+		assertErrorEnvelope(t, deleteResp, nethttp.StatusUnprocessableEntity, "validation.error")
+	})
 }

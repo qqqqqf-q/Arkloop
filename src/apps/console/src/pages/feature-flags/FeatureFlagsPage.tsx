@@ -76,6 +76,14 @@ export function FeatureFlagsPage() {
     void fetchAll()
   }, [fetchAll])
 
+  const expandedFlag = flags.find((flag) => flag.key === expandedKey) ?? null
+
+  useEffect(() => {
+    if (expandedFlag === null || expandedFlag.supports_org_overrides) return
+    setExpandedKey(null)
+    setOverrides([])
+  }, [expandedFlag])
+
   const fetchOverrides = useCallback(async (flagKey: string) => {
     setOverridesLoading(true)
     try {
@@ -88,13 +96,14 @@ export function FeatureFlagsPage() {
     }
   }, [accessToken])
 
-  const handleToggleExpand = useCallback((flagKey: string) => {
-    if (expandedKey === flagKey) {
+  const handleToggleExpand = useCallback((flag: FeatureFlag) => {
+    if (!flag.supports_org_overrides) return
+    if (expandedKey === flag.key) {
       setExpandedKey(null)
       setOverrides([])
     } else {
-      setExpandedKey(flagKey)
-      void fetchOverrides(flagKey)
+      setExpandedKey(flag.key)
+      void fetchOverrides(flag.key)
     }
   }, [expandedKey, fetchOverrides])
 
@@ -168,11 +177,12 @@ export function FeatureFlagsPage() {
 
   // override handlers
   const handleOpenAddOverride = useCallback(() => {
+    if (expandedFlag == null || !expandedFlag.supports_org_overrides) return
     setOverrideOrgId('')
     setOverrideEnabled(true)
     setOverrideError('')
     setAddOverrideOpen(true)
-  }, [])
+  }, [expandedFlag])
 
   const handleAddOverride = useCallback(async () => {
     if (!expandedKey) return
@@ -214,13 +224,15 @@ export function FeatureFlagsPage() {
     {
       key: 'expand',
       header: '',
-      render: (row) => (
+      render: (row) => row.supports_org_overrides ? (
         <button
-          onClick={(e) => { e.stopPropagation(); handleToggleExpand(row.key) }}
+          onClick={(e) => { e.stopPropagation(); handleToggleExpand(row) }}
           className="flex items-center justify-center rounded p-1 text-[var(--c-text-muted)] transition-colors hover:bg-[var(--c-bg-sub)]"
         >
           {expandedKey === row.key ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
         </button>
+      ) : (
+        <span className="block h-[22px] w-[22px]" />
       ),
     },
     {
@@ -300,7 +312,7 @@ export function FeatureFlagsPage() {
         />
 
         {/* expanded org overrides section */}
-        {expandedKey && (
+        {expandedKey && expandedFlag?.supports_org_overrides && (
           <div className="border-t border-[var(--c-border)] px-6 py-4">
             <div className="flex items-center justify-between">
               <h3 className="text-xs font-medium text-[var(--c-text-secondary)]">

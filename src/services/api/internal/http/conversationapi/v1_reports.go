@@ -9,6 +9,7 @@ import (
 	"arkloop/services/api/internal/audit"
 	"arkloop/services/api/internal/auth"
 	"arkloop/services/api/internal/data"
+	"arkloop/services/api/internal/featureflag"
 	"arkloop/services/api/internal/observability"
 
 	"github.com/google/uuid"
@@ -40,6 +41,7 @@ func reportEntry(
 	threadReportRepo *data.ThreadReportRepository,
 	auditWriter *audit.Writer,
 	apiKeysRepo *data.APIKeysRepository,
+	flagService *featureflag.Service,
 ) func(nethttp.ResponseWriter, *nethttp.Request, uuid.UUID) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request, threadID uuid.UUID) {
 		traceID := observability.TraceIDFromContext(r.Context())
@@ -75,7 +77,7 @@ func reportEntry(
 			return
 		}
 
-		if !authorizeThreadOrAudit(w, r, traceID, actor, "threads.report", thread, auditWriter) {
+		if !authorizeThreadOrAudit(w, r, traceID, actor, "threads.report", thread, auditWriter, flagService) {
 			return
 		}
 

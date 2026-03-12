@@ -9,6 +9,7 @@ import (
 	"arkloop/services/api/internal/auth"
 	"arkloop/services/api/internal/data"
 	"arkloop/services/api/internal/entitlement"
+	"arkloop/services/api/internal/featureflag"
 	sharedconfig "arkloop/services/shared/config"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -39,12 +40,13 @@ type Deps struct {
 	SSEConfig                SSEConfig
 	MessageAttachmentStore   messageAttachmentStore
 	ArtifactStore            artifactStore
+	FeatureFlagService       *featureflag.Service
 }
 
 func RegisterRoutes(mux *nethttp.ServeMux, deps Deps) {
 	mux.HandleFunc("/v1/me/feedback", meFeedback(deps.AuthService, deps.OrgMembershipRepo, deps.ThreadReportRepo, deps.APIKeysRepo))
-	mux.HandleFunc("/v1/threads", threadsEntry(deps.AuthService, deps.OrgMembershipRepo, deps.ThreadRepo, deps.ProjectRepo, deps.Pool, deps.APIKeysRepo, deps.AuditWriter))
-	mux.HandleFunc("/v1/threads/search", searchThreads(deps.AuthService, deps.OrgMembershipRepo, deps.ThreadRepo, deps.APIKeysRepo, deps.AuditWriter))
+	mux.HandleFunc("/v1/threads", threadsEntry(deps.AuthService, deps.OrgMembershipRepo, deps.ThreadRepo, deps.ProjectRepo, deps.Pool, deps.APIKeysRepo, deps.AuditWriter, deps.FeatureFlagService))
+	mux.HandleFunc("/v1/threads/search", searchThreads(deps.AuthService, deps.OrgMembershipRepo, deps.ThreadRepo, deps.APIKeysRepo, deps.AuditWriter, deps.FeatureFlagService))
 	mux.HandleFunc("/v1/threads/starred", listStarredThreads(deps.AuthService, deps.OrgMembershipRepo, deps.ThreadStarRepo, deps.APIKeysRepo, deps.AuditWriter))
 	mux.HandleFunc(
 		"/v1/threads/",
@@ -66,16 +68,18 @@ func RegisterRoutes(mux *nethttp.ServeMux, deps Deps) {
 			deps.EntitlementService,
 			deps.RedisClient,
 			deps.MessageAttachmentStore,
+			deps.FeatureFlagService,
 		),
 	)
-	mux.HandleFunc("/v1/s/", publicShareEntry(deps.ThreadShareRepo, deps.ThreadRepo, deps.MessageRepo))
-	mux.HandleFunc("/v1/runs", listGlobalRuns(deps.AuthService, deps.OrgMembershipRepo, deps.RunEventRepo, deps.APIKeysRepo))
+	mux.HandleFunc("/v1/s/", publicShareEntry(deps.ThreadShareRepo, deps.ThreadRepo, deps.MessageRepo, deps.FeatureFlagService))
+	mux.HandleFunc("/v1/runs", listGlobalRuns(deps.AuthService, deps.OrgMembershipRepo, deps.RunEventRepo, deps.ThreadRepo, deps.APIKeysRepo, deps.FeatureFlagService))
 	mux.HandleFunc(
 		"/v1/runs/",
 		runEntry(
 			deps.AuthService,
 			deps.OrgMembershipRepo,
 			deps.RunEventRepo,
+			deps.ThreadRepo,
 			deps.AuditWriter,
 			deps.Pool,
 			deps.DirectPool,
@@ -84,14 +88,15 @@ func RegisterRoutes(mux *nethttp.ServeMux, deps Deps) {
 			deps.APIKeysRepo,
 			deps.ConfigResolver,
 			deps.RedisClient,
+			deps.FeatureFlagService,
 		),
 	)
 	mux.HandleFunc(
 		"/v1/artifacts/",
-		artifactsEntry(deps.AuthService, deps.OrgMembershipRepo, deps.APIKeysRepo, deps.RunEventRepo, deps.ShellSessionRepo, deps.ThreadShareRepo, deps.AuditWriter, deps.ArtifactStore),
+		artifactsEntry(deps.AuthService, deps.OrgMembershipRepo, deps.APIKeysRepo, deps.RunEventRepo, deps.ThreadRepo, deps.ShellSessionRepo, deps.ThreadShareRepo, deps.AuditWriter, deps.ArtifactStore, deps.FeatureFlagService),
 	)
 	mux.HandleFunc(
 		"/v1/attachments/",
-		messageAttachmentsEntry(deps.AuthService, deps.OrgMembershipRepo, deps.ThreadRepo, deps.ThreadShareRepo, deps.ProjectRepo, deps.TeamRepo, deps.APIKeysRepo, deps.AuditWriter, deps.MessageAttachmentStore),
+		messageAttachmentsEntry(deps.AuthService, deps.OrgMembershipRepo, deps.ThreadRepo, deps.ThreadShareRepo, deps.ProjectRepo, deps.TeamRepo, deps.APIKeysRepo, deps.AuditWriter, deps.MessageAttachmentStore, deps.FeatureFlagService),
 	)
 }

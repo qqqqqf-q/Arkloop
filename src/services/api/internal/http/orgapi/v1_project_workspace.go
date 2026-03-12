@@ -12,6 +12,8 @@ import (
 	"arkloop/services/api/internal/audit"
 	"arkloop/services/api/internal/auth"
 	"arkloop/services/api/internal/data"
+	"arkloop/services/api/internal/featureflag"
+	"arkloop/services/api/internal/http/featuregate"
 	"arkloop/services/shared/environmentref"
 
 	"github.com/google/uuid"
@@ -83,6 +85,7 @@ func handleProjectWorkspaceRoute(
 	auditWriter *audit.Writer,
 	pool *pgxpool.Pool,
 	store environmentStore,
+	flagService *featureflag.Service,
 ) {
 	parts := strings.Split(strings.Trim(subpath, "/"), "/")
 	if len(parts) == 0 || strings.TrimSpace(parts[0]) == "" {
@@ -96,11 +99,11 @@ func handleProjectWorkspaceRoute(
 
 	switch {
 	case len(parts) == 1 && r.Method == nethttp.MethodGet:
-		getProjectWorkspace(w, r, traceID, projectID, authService, membershipRepo, projectRepo, apiKeysRepo, auditWriter, pool)
+		getProjectWorkspace(w, r, traceID, projectID, authService, membershipRepo, projectRepo, apiKeysRepo, auditWriter, pool, flagService)
 	case len(parts) == 2 && parts[1] == "files" && r.Method == nethttp.MethodGet:
-		listProjectWorkspaceFiles(w, r, traceID, projectID, authService, membershipRepo, projectRepo, apiKeysRepo, auditWriter, pool, store)
+		listProjectWorkspaceFiles(w, r, traceID, projectID, authService, membershipRepo, projectRepo, apiKeysRepo, auditWriter, pool, store, flagService)
 	case len(parts) == 2 && parts[1] == "file" && r.Method == nethttp.MethodGet:
-		getProjectWorkspaceFile(w, r, traceID, projectID, authService, membershipRepo, projectRepo, apiKeysRepo, auditWriter, pool, store)
+		getProjectWorkspaceFile(w, r, traceID, projectID, authService, membershipRepo, projectRepo, apiKeysRepo, auditWriter, pool, store, flagService)
 	default:
 		httpkit.WriteMethodNotAllowed(w, r)
 	}
@@ -117,7 +120,11 @@ func getProjectWorkspace(
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,
 	pool *pgxpool.Pool,
+	flagService *featureflag.Service,
 ) {
+	if !featuregate.EnsureClawEnabled(w, traceID, r.Context(), flagService) {
+		return
+	}
 	actor, ok := resolveProjectWorkspaceActor(w, r, traceID, authService, membershipRepo, apiKeysRepo, auditWriter, true)
 	if !ok {
 		return
@@ -161,9 +168,13 @@ func listProjectWorkspaceFiles(
 	auditWriter *audit.Writer,
 	pool *pgxpool.Pool,
 	store environmentStore,
+	flagService *featureflag.Service,
 ) {
 	if store == nil {
 		httpkit.WriteError(w, nethttp.StatusServiceUnavailable, "workspace_files.not_configured", "workspace file storage not configured", traceID, nil)
+		return
+	}
+	if !featuregate.EnsureClawEnabled(w, traceID, r.Context(), flagService) {
 		return
 	}
 	actor, ok := resolveProjectWorkspaceActor(w, r, traceID, authService, membershipRepo, apiKeysRepo, auditWriter, false)
@@ -212,9 +223,13 @@ func getProjectWorkspaceFile(
 	auditWriter *audit.Writer,
 	pool *pgxpool.Pool,
 	store environmentStore,
+	flagService *featureflag.Service,
 ) {
 	if store == nil {
 		httpkit.WriteError(w, nethttp.StatusServiceUnavailable, "workspace_files.not_configured", "workspace file storage not configured", traceID, nil)
+		return
+	}
+	if !featuregate.EnsureClawEnabled(w, traceID, r.Context(), flagService) {
 		return
 	}
 	actor, ok := resolveProjectWorkspaceActor(w, r, traceID, authService, membershipRepo, apiKeysRepo, auditWriter, false)

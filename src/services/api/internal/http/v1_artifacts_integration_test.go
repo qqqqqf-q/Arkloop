@@ -14,6 +14,7 @@ import (
 	"arkloop/services/api/internal/audit"
 	"arkloop/services/api/internal/auth"
 	"arkloop/services/api/internal/data"
+	"arkloop/services/api/internal/featureflag"
 	"arkloop/services/api/internal/migrate"
 	"arkloop/services/api/internal/observability"
 	"arkloop/services/api/internal/testutil"
@@ -24,18 +25,20 @@ import (
 )
 
 type artifactTestEnv struct {
-	handler         nethttp.Handler
-	pool            *pgxpool.Pool
-	apiKeysRepo     *data.APIKeysRepository
-	membershipRepo  *data.OrgMembershipRepository
-	threadRepo      *data.ThreadRepository
-	threadShareRepo *data.ThreadShareRepository
-	runRepo         *data.RunEventRepository
-	tokenService    *auth.JwtAccessTokenService
-	aliceToken      string
-	aliceUserID     uuid.UUID
-	aliceOrgID      uuid.UUID
-	store           *fakeHTTPArtifactStore
+	handler          nethttp.Handler
+	pool             *pgxpool.Pool
+	apiKeysRepo      *data.APIKeysRepository
+	membershipRepo   *data.OrgMembershipRepository
+	threadRepo       *data.ThreadRepository
+	threadShareRepo  *data.ThreadShareRepository
+	runRepo          *data.RunEventRepository
+	featureFlagsRepo *data.FeatureFlagRepository
+	featureFlagSvc   *featureflag.Service
+	tokenService     *auth.JwtAccessTokenService
+	aliceToken       string
+	aliceUserID      uuid.UUID
+	aliceOrgID       uuid.UUID
+	store            *fakeHTTPArtifactStore
 }
 
 type fakeArtifactObject struct {
@@ -170,6 +173,17 @@ func buildArtifactEnv(t *testing.T) artifactTestEnv {
 	if err != nil {
 		t.Fatalf("new run repo: %v", err)
 	}
+	featureFlagsRepo, err := data.NewFeatureFlagRepository(pool)
+	if err != nil {
+		t.Fatalf("new feature flags repo: %v", err)
+	}
+	featureFlagSvc, err := featureflag.NewService(featureFlagsRepo, nil)
+	if err != nil {
+		t.Fatalf("new feature flag service: %v", err)
+	}
+	if _, err := featureFlagsRepo.UpdateFlagDefaultValue(ctx, featureflag.ClawEnabledKey, true); err != nil {
+		t.Fatalf("enable claw flag: %v", err)
+	}
 	shellSessionRepo, err := data.NewShellSessionRepository(pool)
 	if err != nil {
 		t.Fatalf("new shell session repo: %v", err)
@@ -203,6 +217,8 @@ func buildArtifactEnv(t *testing.T) artifactTestEnv {
 		ProjectRepo:            projectRepo,
 		ThreadShareRepo:        threadShareRepo,
 		RunEventRepo:           runRepo,
+		FeatureFlagsRepo:       featureFlagsRepo,
+		FeatureFlagService:     featureFlagSvc,
 		ShellSessionRepo:       shellSessionRepo,
 		AuditWriter:            auditWriter,
 		APIKeysRepo:            apiKeysRepo,
@@ -232,18 +248,20 @@ func buildArtifactEnv(t *testing.T) artifactTestEnv {
 	}
 
 	return artifactTestEnv{
-		handler:         handler,
-		pool:            pool,
-		apiKeysRepo:     apiKeysRepo,
-		membershipRepo:  membershipRepo,
-		threadRepo:      threadRepo,
-		threadShareRepo: threadShareRepo,
-		runRepo:         runRepo,
-		tokenService:    tokenService,
-		aliceToken:      regPayload.AccessToken,
-		aliceUserID:     aliceUserID,
-		aliceOrgID:      membership.OrgID,
-		store:           store,
+		handler:          handler,
+		pool:             pool,
+		apiKeysRepo:      apiKeysRepo,
+		membershipRepo:   membershipRepo,
+		threadRepo:       threadRepo,
+		threadShareRepo:  threadShareRepo,
+		runRepo:          runRepo,
+		featureFlagsRepo: featureFlagsRepo,
+		featureFlagSvc:   featureFlagSvc,
+		tokenService:     tokenService,
+		aliceToken:       regPayload.AccessToken,
+		aliceUserID:      aliceUserID,
+		aliceOrgID:       membership.OrgID,
+		store:            store,
 	}
 }
 

@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ClawRightPanel } from '../components/ClawRightPanel'
 import { LocaleProvider } from '../contexts/LocaleContext'
-import { getProjectWorkspace, listProjectWorkspaceFiles } from '../api'
+import { ApiError, getProjectWorkspace, listProjectWorkspaceFiles } from '../api'
 
 vi.mock('../api', async () => {
   const actual = await vi.importActual<typeof import('../api')>('../api')
@@ -152,6 +152,33 @@ describe('ClawRightPanel', () => {
     })
 
     expect(container.textContent).toContain('暂时无法读取工作目录。')
+    await act(async () => {
+      root.unmount()
+    })
+    container.remove()
+  })
+
+  it('遇到 403 时回退到 chat', async () => {
+    mockedGetProjectWorkspace.mockRejectedValue(new ApiError({ status: 403, message: 'forbidden' }))
+
+    const onForbidden = vi.fn()
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+
+    await act(async () => {
+      root.render(
+        <LocaleProvider>
+          <ClawRightPanel accessToken="token" projectId="project-1" onForbidden={onForbidden} />
+        </LocaleProvider>,
+      )
+    })
+    await act(async () => {
+      await flushMicrotasks()
+    })
+
+    expect(onForbidden).toHaveBeenCalledTimes(1)
+
     await act(async () => {
       root.unmount()
     })

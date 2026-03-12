@@ -6,12 +6,14 @@ type Props = {
   mode: AppMode
   onChange: (mode: AppMode) => void
   labels: { chat: string; claw: string }
+  availableModes?: AppMode[]
 }
 
 const OPTIONS: AppMode[] = ['chat', 'claw']
 
-export function ModeSwitch({ mode, onChange, labels }: Props) {
+export function ModeSwitch({ mode, onChange, labels, availableModes = OPTIONS }: Props) {
   const labelMap: Record<AppMode, string> = { chat: labels.chat, claw: labels.claw }
+  const options = OPTIONS.filter((opt) => availableModes.includes(opt))
 
   return (
     <div
@@ -21,7 +23,7 @@ export function ModeSwitch({ mode, onChange, labels }: Props) {
         border: '0.5px solid var(--c-mode-switch-border)',
       }}
     >
-      {OPTIONS.map((opt) => {
+      {options.map((opt) => {
         const active = mode === opt
         return (
           <button

@@ -9,6 +9,8 @@ import (
 	"arkloop/services/api/internal/audit"
 	"arkloop/services/api/internal/auth"
 	"arkloop/services/api/internal/data"
+	"arkloop/services/api/internal/featureflag"
+	"arkloop/services/api/internal/http/featuregate"
 	"arkloop/services/api/internal/observability"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -19,9 +21,11 @@ func workspaceFilesEntry(
 	membershipRepo *data.OrgMembershipRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	runRepo *data.RunEventRepository,
+	threadRepo *data.ThreadRepository,
 	auditWriter *audit.Writer,
 	pool *pgxpool.Pool,
 	store environmentStore,
+	flagService *featureflag.Service,
 ) nethttp.HandlerFunc {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		traceID := observability.TraceIDFromContext(r.Context())
@@ -69,6 +73,9 @@ func workspaceFilesEntry(
 			return
 		}
 		if !authorizeRunOrAudit(w, r, traceID, actor, "workspace_files.get", run, auditWriter) {
+			return
+		}
+		if !featuregate.EnsureClawEnabledForRun(w, traceID, r.Context(), run, threadRepo, flagService) {
 			return
 		}
 		if run.WorkspaceRef == nil || strings.TrimSpace(*run.WorkspaceRef) == "" {

@@ -14,6 +14,8 @@ import (
 	"arkloop/services/api/internal/auth"
 	"arkloop/services/api/internal/data"
 	"arkloop/services/api/internal/entitlement"
+	"arkloop/services/api/internal/featureflag"
+	"arkloop/services/api/internal/http/featuregate"
 	"arkloop/services/api/internal/observability"
 
 	"github.com/google/uuid"
@@ -103,6 +105,7 @@ func createThread(
 	pool *pgxpool.Pool,
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,
+	flagService *featureflag.Service,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		if r.Method != nethttp.MethodPost {
@@ -144,6 +147,9 @@ func createThread(
 		}
 		mode, ok := parseThreadMode(w, traceID, body.Mode)
 		if !ok {
+			return
+		}
+		if !featuregate.EnsureClawEnabledForMode(w, traceID, r.Context(), mode, flagService) {
 			return
 		}
 		if body.ProjectID.Present && body.ProjectID.Value == nil {
@@ -210,6 +216,7 @@ func listThreads(
 	threadRepo *data.ThreadRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,
+	flagService *featureflag.Service,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		if r.Method != nethttp.MethodGet {
@@ -249,6 +256,9 @@ func listThreads(
 		if !ok {
 			return
 		}
+		if mode != nil && !featuregate.EnsureClawEnabledForMode(w, traceID, r.Context(), *mode, flagService) {
+			return
+		}
 
 		threads, err := threadRepo.ListByOwner(
 			r.Context(),
@@ -280,6 +290,7 @@ func getThread(
 	teamRepo *data.TeamRepository,
 	auditWriter *audit.Writer,
 	apiKeysRepo *data.APIKeysRepository,
+	flagService *featureflag.Service,
 ) func(nethttp.ResponseWriter, *nethttp.Request, uuid.UUID) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request, threadID uuid.UUID) {
 		traceID := observability.TraceIDFromContext(r.Context())
@@ -310,7 +321,7 @@ func getThread(
 			return
 		}
 
-		if !authorizeThreadReadOrAudit(w, r, traceID, actor, "threads.get", thread, projectRepo, teamRepo, auditWriter) {
+		if !authorizeThreadReadOrAudit(w, r, traceID, actor, "threads.get", thread, projectRepo, teamRepo, auditWriter, flagService) {
 			return
 		}
 
@@ -325,6 +336,7 @@ func patchThread(
 	projectRepo *data.ProjectRepository,
 	auditWriter *audit.Writer,
 	apiKeysRepo *data.APIKeysRepository,
+	flagService *featureflag.Service,
 ) func(nethttp.ResponseWriter, *nethttp.Request, uuid.UUID) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request, threadID uuid.UUID) {
 		traceID := observability.TraceIDFromContext(r.Context())
@@ -394,7 +406,7 @@ func patchThread(
 			return
 		}
 
-		if !authorizeThreadOrAudit(w, r, traceID, actor, "threads.update", thread, auditWriter) {
+		if !authorizeThreadOrAudit(w, r, traceID, actor, "threads.update", thread, auditWriter, flagService) {
 			return
 		}
 
@@ -437,6 +449,7 @@ func deleteThread(
 	threadRepo *data.ThreadRepository,
 	auditWriter *audit.Writer,
 	apiKeysRepo *data.APIKeysRepository,
+	flagService *featureflag.Service,
 ) func(nethttp.ResponseWriter, *nethttp.Request, uuid.UUID) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request, threadID uuid.UUID) {
 		traceID := observability.TraceIDFromContext(r.Context())
@@ -480,7 +493,7 @@ func deleteThread(
 			return
 		}
 
-		if !authorizeThreadOrAudit(w, r, traceID, actor, "threads.delete", thread, auditWriter) {
+		if !authorizeThreadOrAudit(w, r, traceID, actor, "threads.delete", thread, auditWriter, flagService) {
 			return
 		}
 
@@ -510,9 +523,10 @@ func threadsEntry(
 	pool *pgxpool.Pool,
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,
+	flagService *featureflag.Service,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
-	create := createThread(authService, membershipRepo, threadRepo, projectRepo, pool, apiKeysRepo, auditWriter)
-	list := listThreads(authService, membershipRepo, threadRepo, apiKeysRepo, auditWriter)
+	create := createThread(authService, membershipRepo, threadRepo, projectRepo, pool, apiKeysRepo, auditWriter, flagService)
+	list := listThreads(authService, membershipRepo, threadRepo, apiKeysRepo, auditWriter, flagService)
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		switch r.Method {
 		case nethttp.MethodPost:
@@ -531,6 +545,7 @@ func searchThreads(
 	threadRepo *data.ThreadRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,
+	flagService *featureflag.Service,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		if r.Method != nethttp.MethodGet {
@@ -575,6 +590,9 @@ func searchThreads(
 		if !ok {
 			return
 		}
+		if mode != nil && !featuregate.EnsureClawEnabledForMode(w, traceID, r.Context(), *mode, flagService) {
+			return
+		}
 
 		threads, err := threadRepo.SearchByQuery(r.Context(), actor.OrgID, actor.UserID, mode, q, limit)
 		if err != nil {
@@ -613,6 +631,7 @@ func forkThread(
 	auditWriter *audit.Writer,
 	pool *pgxpool.Pool,
 	apiKeysRepo *data.APIKeysRepository,
+	flagService *featureflag.Service,
 ) func(nethttp.ResponseWriter, *nethttp.Request, uuid.UUID) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request, threadID uuid.UUID) {
 		if r.Method != nethttp.MethodPost {
@@ -659,7 +678,7 @@ func forkThread(
 			return
 		}
 
-		if !authorizeThreadOrAudit(w, r, traceID, actor, "threads.fork", thread, auditWriter) {
+		if !authorizeThreadOrAudit(w, r, traceID, actor, "threads.fork", thread, auditWriter, flagService) {
 			return
 		}
 
@@ -736,23 +755,24 @@ func threadEntry(
 	entSvc *entitlement.Service,
 	rdb *redis.Client,
 	attachmentStore messageAttachmentStore,
+	flagService *featureflag.Service,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
-	get := getThread(authService, membershipRepo, threadRepo, projectRepo, teamRepo, auditWriter, apiKeysRepo)
-	patch := patchThread(authService, membershipRepo, threadRepo, projectRepo, auditWriter, apiKeysRepo)
-	del := deleteThread(authService, membershipRepo, threadRepo, auditWriter, apiKeysRepo)
-	createMessage := createThreadMessage(authService, membershipRepo, threadRepo, messageRepo, auditWriter, apiKeysRepo)
-	listMessages := listThreadMessages(authService, membershipRepo, threadRepo, messageRepo, auditWriter, apiKeysRepo)
-	createRun := createThreadRun(authService, membershipRepo, threadRepo, auditWriter, pool, apiKeysRepo, runLimiter, entSvc, rdb)
-	listRuns := listThreadRuns(authService, membershipRepo, threadRepo, runRepo, auditWriter, apiKeysRepo)
-	retry := retryThread(authService, membershipRepo, threadRepo, messageRepo, auditWriter, pool, apiKeysRepo)
-	editMessage := editThreadMessage(authService, membershipRepo, threadRepo, messageRepo, auditWriter, pool, apiKeysRepo)
-	share := shareEntry(authService, membershipRepo, threadRepo, threadShareRepo, messageRepo, auditWriter, apiKeysRepo)
-	report := reportEntry(authService, membershipRepo, threadRepo, threadReportRepo, auditWriter, apiKeysRepo)
-	fork := forkThread(authService, membershipRepo, threadRepo, messageRepo, auditWriter, pool, apiKeysRepo)
-	uploadAttachment := uploadThreadAttachment(authService, membershipRepo, threadRepo, auditWriter, apiKeysRepo, attachmentStore)
+	get := getThread(authService, membershipRepo, threadRepo, projectRepo, teamRepo, auditWriter, apiKeysRepo, flagService)
+	patch := patchThread(authService, membershipRepo, threadRepo, projectRepo, auditWriter, apiKeysRepo, flagService)
+	del := deleteThread(authService, membershipRepo, threadRepo, auditWriter, apiKeysRepo, flagService)
+	createMessage := createThreadMessage(authService, membershipRepo, threadRepo, messageRepo, auditWriter, apiKeysRepo, flagService)
+	listMessages := listThreadMessages(authService, membershipRepo, threadRepo, messageRepo, auditWriter, apiKeysRepo, flagService)
+	createRun := createThreadRun(authService, membershipRepo, threadRepo, auditWriter, pool, apiKeysRepo, runLimiter, entSvc, rdb, flagService)
+	listRuns := listThreadRuns(authService, membershipRepo, threadRepo, runRepo, auditWriter, apiKeysRepo, flagService)
+	retry := retryThread(authService, membershipRepo, threadRepo, messageRepo, auditWriter, pool, apiKeysRepo, flagService)
+	editMessage := editThreadMessage(authService, membershipRepo, threadRepo, messageRepo, auditWriter, pool, apiKeysRepo, flagService)
+	share := shareEntry(authService, membershipRepo, threadRepo, threadShareRepo, messageRepo, auditWriter, apiKeysRepo, flagService)
+	report := reportEntry(authService, membershipRepo, threadRepo, threadReportRepo, auditWriter, apiKeysRepo, flagService)
+	fork := forkThread(authService, membershipRepo, threadRepo, messageRepo, auditWriter, pool, apiKeysRepo, flagService)
+	uploadAttachment := uploadThreadAttachment(authService, membershipRepo, threadRepo, auditWriter, apiKeysRepo, attachmentStore, flagService)
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		if r.URL.Path == "/v1/threads/" {
-			threadsEntry(authService, membershipRepo, threadRepo, projectRepo, pool, apiKeysRepo, auditWriter)(w, r)
+			threadsEntry(authService, membershipRepo, threadRepo, projectRepo, pool, apiKeysRepo, auditWriter, flagService)(w, r)
 			return
 		}
 
@@ -784,7 +804,7 @@ func threadEntry(
 				}
 				retry(w, r, threadID)
 			case "star":
-				handleThreadStar(w, r, traceID, authService, membershipRepo, threadRepo, threadStarRepo, apiKeysRepo, auditWriter, threadID)
+				handleThreadStar(w, r, traceID, authService, membershipRepo, threadRepo, threadStarRepo, apiKeysRepo, auditWriter, threadID, flagService)
 			case "share":
 				share(w, r, threadID)
 			case "report":
@@ -949,9 +969,13 @@ func authorizeThreadOrAudit(
 	action string,
 	thread *data.Thread,
 	auditWriter *audit.Writer,
+	flagService *featureflag.Service,
 ) bool {
 	if actor == nil || thread == nil {
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+		return false
+	}
+	if !featuregate.EnsureClawEnabledForThread(w, traceID, r.Context(), thread, flagService) {
 		return false
 	}
 
@@ -1002,9 +1026,13 @@ func authorizeThreadReadOrAudit(
 	projectRepo *data.ProjectRepository,
 	teamRepo *data.TeamRepository,
 	auditWriter *audit.Writer,
+	flagService *featureflag.Service,
 ) bool {
 	if actor == nil || thread == nil {
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+		return false
+	}
+	if !featuregate.EnsureClawEnabledForThread(w, traceID, r.Context(), thread, flagService) {
 		return false
 	}
 
@@ -1111,6 +1139,7 @@ func handleThreadStar(
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,
 	threadID uuid.UUID,
+	flagService *featureflag.Service,
 ) {
 	if r.Method != nethttp.MethodPost && r.Method != nethttp.MethodDelete {
 		httpkit.WriteMethodNotAllowed(w, r)
@@ -1140,6 +1169,9 @@ func handleThreadStar(
 	}
 	if thread.OrgID != actor.OrgID {
 		httpkit.WriteError(w, nethttp.StatusForbidden, "policy.denied", "access denied", traceID, nil)
+		return
+	}
+	if !featuregate.EnsureClawEnabledForThread(w, traceID, r.Context(), thread, flagService) {
 		return
 	}
 

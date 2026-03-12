@@ -55,11 +55,21 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
   const [notificationVersion, setNotificationVersion] = useState(0)
   const [creditsBalance, setCreditsBalance] = useState(0)
   const [appMode, setAppModeState] = useState<AppMode>(readAppModeFromStorage)
+  const clawEnabled = me?.claw_enabled === true
+  const effectiveAppMode: AppMode = clawEnabled ? appMode : 'chat'
+  const availableAppModes: AppMode[] = clawEnabled ? ['chat', 'claw'] : ['chat']
 
   const handleSetAppMode = useCallback((mode: AppMode) => {
-    writeAppModeToStorage(mode)
-    setAppModeState(mode)
-  }, [])
+    const nextMode: AppMode = mode === 'claw' && !clawEnabled ? 'chat' : mode
+    writeAppModeToStorage(nextMode)
+    setAppModeState(nextMode)
+  }, [clawEnabled])
+
+  useEffect(() => {
+    if (!meLoaded || clawEnabled || appMode === 'chat') return
+    writeAppModeToStorage('chat')
+    setAppModeState('chat')
+  }, [appMode, clawEnabled, meLoaded])
 
   const handleNotificationMarkedRead = useCallback(() => {
     setNotificationVersion((v) => v + 1)
@@ -287,7 +297,7 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
       )}
 
       <main className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
-        <Outlet context={{ accessToken, onLoggedOut, me, creditsBalance, onThreadCreated: handleThreadCreated, onRunStarted: handleRunStarted, onRunEnded: handleRunEnded, onThreadTitleUpdated: handleThreadTitleUpdated, refreshCredits, onOpenNotifications: openNotifications, notificationVersion, isPrivateMode, onTogglePrivateMode: handleTogglePrivateMode, privateThreadIds, isSearchMode, onEnterSearchMode: () => { window.history.pushState({ searchMode: true }, '', '/'); setIsSearchMode(true) }, onExitSearchMode: () => setIsSearchMode(false), onSetPendingIncognito: handleSetPendingIncognito, onRightPanelChange: setRightPanelOpen, threads, onThreadDeleted: handleThreadDeleted, appMode, onSetAppMode: handleSetAppMode }} />
+        <Outlet context={{ accessToken, onLoggedOut, me, creditsBalance, onThreadCreated: handleThreadCreated, onRunStarted: handleRunStarted, onRunEnded: handleRunEnded, onThreadTitleUpdated: handleThreadTitleUpdated, refreshCredits, onOpenNotifications: openNotifications, notificationVersion, isPrivateMode, onTogglePrivateMode: handleTogglePrivateMode, privateThreadIds, isSearchMode, onEnterSearchMode: () => { window.history.pushState({ searchMode: true }, '', '/'); setIsSearchMode(true) }, onExitSearchMode: () => setIsSearchMode(false), onSetPendingIncognito: handleSetPendingIncognito, onRightPanelChange: setRightPanelOpen, threads, onThreadDeleted: handleThreadDeleted, appMode: effectiveAppMode, availableAppModes, onSetAppMode: handleSetAppMode }} />
         {notificationsOpen && (
           <NotificationsPanel accessToken={accessToken} onClose={closeNotifications} onMarkedRead={handleNotificationMarkedRead} />
         )}

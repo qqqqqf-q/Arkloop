@@ -17,11 +17,12 @@ import (
 )
 
 type featureFlagResponse struct {
-	ID           string  `json:"id"`
-	Key          string  `json:"key"`
-	Description  *string `json:"description,omitempty"`
-	DefaultValue bool    `json:"default_value"`
-	CreatedAt    string  `json:"created_at"`
+	ID                   string  `json:"id"`
+	Key                  string  `json:"key"`
+	Description          *string `json:"description,omitempty"`
+	DefaultValue         bool    `json:"default_value"`
+	SupportsOrgOverrides bool    `json:"supports_org_overrides"`
+	CreatedAt            string  `json:"created_at"`
 }
 
 type orgFeatureOverrideResponse struct {
@@ -399,6 +400,10 @@ func setFlagOrgOverride(
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,
 ) {
+	if !featureflag.SupportsOrgOverrides(flagKey) {
+		httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "org overrides are not supported for this flag", traceID, nil)
+		return
+	}
 	if authService == nil {
 		httpkit.WriteAuthNotConfigured(w, traceID)
 		return
@@ -478,6 +483,10 @@ func listFlagOrgOverrides(
 	flagRepo *data.FeatureFlagRepository,
 	apiKeysRepo *data.APIKeysRepository,
 ) {
+	if !featureflag.SupportsOrgOverrides(flagKey) {
+		httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "org overrides are not supported for this flag", traceID, nil)
+		return
+	}
 	if authService == nil {
 		httpkit.WriteAuthNotConfigured(w, traceID)
 		return
@@ -521,6 +530,10 @@ func deleteFlagOrgOverride(
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,
 ) {
+	if !featureflag.SupportsOrgOverrides(flagKey) {
+		httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "org overrides are not supported for this flag", traceID, nil)
+		return
+	}
 	if authService == nil {
 		httpkit.WriteAuthNotConfigured(w, traceID)
 		return
@@ -568,11 +581,12 @@ func deleteFlagOrgOverride(
 
 func toFeatureFlagResponse(f data.FeatureFlag) featureFlagResponse {
 	return featureFlagResponse{
-		ID:           f.ID.String(),
-		Key:          f.Key,
-		Description:  f.Description,
-		DefaultValue: f.DefaultValue,
-		CreatedAt:    f.CreatedAt.UTC().Format(time.RFC3339Nano),
+		ID:                   f.ID.String(),
+		Key:                  f.Key,
+		Description:          f.Description,
+		DefaultValue:         f.DefaultValue,
+		SupportsOrgOverrides: featureflag.SupportsOrgOverrides(f.Key),
+		CreatedAt:            f.CreatedAt.UTC().Format(time.RFC3339Nano),
 	}
 }
 

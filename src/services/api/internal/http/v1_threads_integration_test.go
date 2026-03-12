@@ -12,6 +12,7 @@ import (
 	"arkloop/services/api/internal/audit"
 	"arkloop/services/api/internal/auth"
 	"arkloop/services/api/internal/data"
+	"arkloop/services/api/internal/featureflag"
 	"arkloop/services/api/internal/observability"
 
 	"github.com/google/uuid"
@@ -472,11 +473,16 @@ func TestThreadListActiveRunID(t *testing.T) {
 	threadRepo, _ := data.NewThreadRepository(pool)
 	projectRepo, _ := data.NewProjectRepository(pool)
 	runRepo, _ := data.NewRunEventRepository(pool)
+	featureFlagsRepo, _ := data.NewFeatureFlagRepository(pool)
 
 	authService, _ := auth.NewService(userRepo, credentialRepo, membershipRepo, passwordHasher, tokenService, refreshTokenRepo, nil)
+	featureFlagSvc, _ := featureflag.NewService(featureFlagsRepo, nil)
 	jobRepo, _ := data.NewJobRepository(pool)
 	registrationService, _ := auth.NewRegistrationService(pool, passwordHasher, tokenService, refreshTokenRepo, jobRepo)
 	auditWriter := audit.NewWriter(auditRepo, membershipRepo, logger)
+	if _, err := featureFlagsRepo.UpdateFlagDefaultValue(ctx, featureflag.ClawEnabledKey, true); err != nil {
+		t.Fatalf("enable claw flag: %v", err)
+	}
 
 	handler := NewHandler(HandlerConfig{
 		Pool:                 pool,
@@ -487,6 +493,8 @@ func TestThreadListActiveRunID(t *testing.T) {
 		ThreadRepo:           threadRepo,
 		ProjectRepo:          projectRepo,
 		RunEventRepo:         runRepo,
+		FeatureFlagsRepo:     featureFlagsRepo,
+		FeatureFlagService:   featureFlagSvc,
 		AuditWriter:          auditWriter,
 		TrustIncomingTraceID: true,
 	})
@@ -828,4 +836,115 @@ func TestThreadModeCreateListSearchAndFork(t *testing.T) {
 	if forked.Mode != string(data.ThreadModeClaw) {
 		t.Fatalf("expected forked thread to inherit claw mode, got %#v", forked)
 	}
+}
+
+func TestThreadClawFeatureFlagBlocksEndpoints(t *testing.T) {
+	db := setupTestDatabase(t, "api_go_threads_claw_flag")
+
+	ctx := context.Background()
+	pool, err := data.NewPool(ctx, db.DSN, data.PoolLimits{MaxConns: 32, MinConns: 0})
+	if err != nil {
+		t.Fatalf("new pool: %v", err)
+	}
+	defer pool.Close()
+
+	logger := observability.NewJSONLogger("test", io.Discard)
+	passwordHasher, err := auth.NewBcryptPasswordHasher(0)
+	if err != nil {
+		t.Fatalf("new password hasher: %v", err)
+	}
+	tokenService, err := auth.NewJwtAccessTokenService("test-secret-should-be-long-enough-32chars", 3600, 2592000)
+	if err != nil {
+		t.Fatalf("new token service: %v", err)
+	}
+
+	userRepo, _ := data.NewUserRepository(pool)
+	credentialRepo, _ := data.NewUserCredentialRepository(pool)
+	membershipRepo, _ := data.NewOrgMembershipRepository(pool)
+	refreshTokenRepo, _ := data.NewRefreshTokenRepository(pool)
+	auditRepo, _ := data.NewAuditLogRepository(pool)
+	threadRepo, _ := data.NewThreadRepository(pool)
+	projectRepo, _ := data.NewProjectRepository(pool)
+	runRepo, _ := data.NewRunEventRepository(pool)
+	featureFlagsRepo, _ := data.NewFeatureFlagRepository(pool)
+
+	authService, _ := auth.NewService(userRepo, credentialRepo, membershipRepo, passwordHasher, tokenService, refreshTokenRepo, nil)
+	featureFlagSvc, _ := featureflag.NewService(featureFlagsRepo, nil)
+	jobRepo, _ := data.NewJobRepository(pool)
+	registrationService, _ := auth.NewRegistrationService(pool, passwordHasher, tokenService, refreshTokenRepo, jobRepo)
+	auditWriter := audit.NewWriter(auditRepo, membershipRepo, logger)
+
+	handler := NewHandler(HandlerConfig{
+		Pool:                 pool,
+		Logger:               logger,
+		AuthService:          authService,
+		RegistrationService:  registrationService,
+		OrgMembershipRepo:    membershipRepo,
+		ThreadRepo:           threadRepo,
+		ProjectRepo:          projectRepo,
+		RunEventRepo:         runRepo,
+		FeatureFlagsRepo:     featureFlagsRepo,
+		FeatureFlagService:   featureFlagSvc,
+		AuditWriter:          auditWriter,
+		TrustIncomingTraceID: true,
+	})
+
+	registerResp := doJSON(
+		handler,
+		nethttp.MethodPost,
+		"/v1/auth/register",
+		map[string]any{"login": "claw-flag-alice", "password": "pwd12345", "email": "claw-flag-alice@test.com"},
+		nil,
+	)
+	if registerResp.Code != nethttp.StatusCreated {
+		t.Fatalf("unexpected register status: %d body=%s", registerResp.Code, registerResp.Body.String())
+	}
+	alice := decodeJSONBody[registerResponse](t, registerResp.Body.Bytes())
+	headers := authHeader(alice.AccessToken)
+
+	chatResp := doJSON(handler, nethttp.MethodPost, "/v1/threads", map[string]any{"title": "chat-ok"}, headers)
+	if chatResp.Code != nethttp.StatusCreated {
+		t.Fatalf("create chat thread: %d %s", chatResp.Code, chatResp.Body.String())
+	}
+
+	createClawDenied := doJSON(handler, nethttp.MethodPost, "/v1/threads", map[string]any{"title": "claw-no", "mode": "claw"}, headers)
+	assertErrorEnvelope(t, createClawDenied, nethttp.StatusForbidden, "feature_flags.claw_disabled")
+
+	listClawDenied := doJSON(handler, nethttp.MethodGet, "/v1/threads?mode=claw", nil, headers)
+	assertErrorEnvelope(t, listClawDenied, nethttp.StatusForbidden, "feature_flags.claw_disabled")
+
+	searchClawDenied := doJSON(handler, nethttp.MethodGet, "/v1/threads/search?q=test&mode=claw", nil, headers)
+	assertErrorEnvelope(t, searchClawDenied, nethttp.StatusForbidden, "feature_flags.claw_disabled")
+
+	if _, err := featureFlagsRepo.UpdateFlagDefaultValue(ctx, featureflag.ClawEnabledKey, true); err != nil {
+		t.Fatalf("enable claw flag: %v", err)
+	}
+
+	clawThreadResp := doJSON(handler, nethttp.MethodPost, "/v1/threads", map[string]any{"title": "claw-yes", "mode": "claw"}, headers)
+	if clawThreadResp.Code != nethttp.StatusCreated {
+		t.Fatalf("create claw thread: %d %s", clawThreadResp.Code, clawThreadResp.Body.String())
+	}
+	clawThread := decodeJSONBody[threadResponse](t, clawThreadResp.Body.Bytes())
+
+	clawMessageResp := doJSON(handler, nethttp.MethodPost, "/v1/threads/"+clawThread.ID+"/messages", map[string]any{"content": "hello claw"}, headers)
+	if clawMessageResp.Code != nethttp.StatusCreated {
+		t.Fatalf("create claw message: %d %s", clawMessageResp.Code, clawMessageResp.Body.String())
+	}
+	clawMessage := decodeJSONBody[messageResponse](t, clawMessageResp.Body.Bytes())
+
+	if _, err := featureFlagsRepo.UpdateFlagDefaultValue(ctx, featureflag.ClawEnabledKey, false); err != nil {
+		t.Fatalf("disable claw flag: %v", err)
+	}
+
+	getClawDenied := doJSON(handler, nethttp.MethodGet, "/v1/threads/"+clawThread.ID, nil, headers)
+	assertErrorEnvelope(t, getClawDenied, nethttp.StatusForbidden, "feature_flags.claw_disabled")
+
+	messageDenied := doJSON(handler, nethttp.MethodPost, "/v1/threads/"+clawThread.ID+"/messages", map[string]any{"content": "blocked"}, headers)
+	assertErrorEnvelope(t, messageDenied, nethttp.StatusForbidden, "feature_flags.claw_disabled")
+
+	forkDenied := doJSON(handler, nethttp.MethodPost, "/v1/threads/"+clawThread.ID+":fork", map[string]any{"message_id": clawMessage.ID}, headers)
+	assertErrorEnvelope(t, forkDenied, nethttp.StatusForbidden, "feature_flags.claw_disabled")
+
+	starDenied := doJSON(handler, nethttp.MethodPost, "/v1/threads/"+clawThread.ID+":star", nil, headers)
+	assertErrorEnvelope(t, starDenied, nethttp.StatusForbidden, "feature_flags.claw_disabled")
 }

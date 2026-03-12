@@ -179,6 +179,7 @@ type meResponse struct {
 	Email                     *string  `json:"email,omitempty"`
 	EmailVerified             bool     `json:"email_verified"`
 	EmailVerificationRequired bool     `json:"email_verification_required"`
+	ClawEnabled               bool     `json:"claw_enabled"`
 	CreatedAt                 string   `json:"created_at"`
 	OrgID                     string   `json:"org_id,omitempty"`
 	OrgName                   string   `json:"org_name,omitempty"`
@@ -577,14 +578,17 @@ func me(authService *auth.Service, membershipRepo *data.OrgMembershipRepository,
 			}
 
 			emailVerifyRequired := false
+			clawEnabled := false
 			if flagService != nil {
 				emailVerifyRequired, _ = flagService.IsGloballyEnabled(r.Context(), "auth.require_email_verification")
+				clawEnabled = featureflag.IsClawEnabled(r.Context(), flagService)
 			}
 			resp := meResponse{
 				ID:                        user.ID.String(),
 				Email:                     user.Email,
 				EmailVerified:             user.EmailVerifiedAt != nil,
 				EmailVerificationRequired: emailVerifyRequired,
+				ClawEnabled:               clawEnabled,
 				CreatedAt:                 user.CreatedAt.UTC().Format(time.RFC3339Nano),
 				OrgID:                     membership.OrgID.String(),
 				Role:                      membership.Role,
