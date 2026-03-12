@@ -34,25 +34,35 @@ type WorkspaceRegistry struct {
 }
 
 type ProfileRegistriesRepository struct {
-	db Querier
+	db      Querier
+	dialect database.DialectHelper
 }
 
 type WorkspaceRegistriesRepository struct {
-	db Querier
+	db      Querier
+	dialect database.DialectHelper
 }
 
-func NewProfileRegistriesRepository(db Querier) (*ProfileRegistriesRepository, error) {
+func NewProfileRegistriesRepository(db Querier, dialect ...database.DialectHelper) (*ProfileRegistriesRepository, error) {
 	if db == nil {
 		return nil, errors.New("db must not be nil")
 	}
-	return &ProfileRegistriesRepository{db: db}, nil
+	d := database.DialectHelper(database.PostgresDialect{})
+	if len(dialect) > 0 && dialect[0] != nil {
+		d = dialect[0]
+	}
+	return &ProfileRegistriesRepository{db: db, dialect: d}, nil
 }
 
-func NewWorkspaceRegistriesRepository(db Querier) (*WorkspaceRegistriesRepository, error) {
+func NewWorkspaceRegistriesRepository(db Querier, dialect ...database.DialectHelper) (*WorkspaceRegistriesRepository, error) {
 	if db == nil {
 		return nil, errors.New("db must not be nil")
 	}
-	return &WorkspaceRegistriesRepository{db: db}, nil
+	d := database.DialectHelper(database.PostgresDialect{})
+	if len(dialect) > 0 && dialect[0] != nil {
+		d = dialect[0]
+	}
+	return &WorkspaceRegistriesRepository{db: db, dialect: d}, nil
 }
 
 func (r *ProfileRegistriesRepository) Get(ctx context.Context, profileRef string) (*ProfileRegistry, error) {
@@ -102,7 +112,7 @@ func (r *WorkspaceRegistriesRepository) Get(ctx context.Context, workspaceRef st
 }
 
 func (r *ProfileRegistriesRepository) UpdateInstalledSkillRefs(ctx context.Context, profileRef string, refs []string) error {
-	return updateRegistrySkillRefs(ctx, r.db, "profile_registries", "profile_ref", strings.TrimSpace(profileRef), "installed_skill_refs", refs)
+	return updateRegistrySkillRefs(ctx, r.db, r.dialect, "profile_registries", "profile_ref", strings.TrimSpace(profileRef), "installed_skill_refs", refs)
 }
 
 func (r *ProfileRegistriesRepository) Ensure(ctx context.Context, profileRef string, orgID uuid.UUID, ownerUserID uuid.UUID) error {
@@ -119,7 +129,7 @@ func (r *ProfileRegistriesRepository) Ensure(ctx context.Context, profileRef str
 	_, err := r.db.Exec(
 		ctx,
 		`INSERT INTO profile_registries (profile_ref, org_id, owner_user_id, last_used_at, metadata_json)
-		 VALUES ($1, $2, $3, now(), '{}'::jsonb)
+		 VALUES ($1, $2, $3, now(), `+r.dialect.JSONCast("'{}'")+`)
 		 ON CONFLICT (profile_ref)
 		 DO UPDATE SET owner_user_id = COALESCE(profile_registries.owner_user_id, EXCLUDED.owner_user_id),
 		               last_used_at = now(),
@@ -157,7 +167,7 @@ func (r *ProfileRegistriesRepository) SetDefaultWorkspaceRef(ctx context.Context
 }
 
 func (r *WorkspaceRegistriesRepository) UpdateEnabledSkillRefs(ctx context.Context, workspaceRef string, refs []string) error {
-	return updateRegistrySkillRefs(ctx, r.db, "workspace_registries", "workspace_ref", strings.TrimSpace(workspaceRef), "enabled_skill_refs", refs)
+	return updateRegistrySkillRefs(ctx, r.db, r.dialect, "workspace_registries", "workspace_ref", strings.TrimSpace(workspaceRef), "enabled_skill_refs", refs)
 }
 
 func (r *WorkspaceRegistriesRepository) Ensure(ctx context.Context, workspaceRef string, orgID uuid.UUID, ownerUserID uuid.UUID, projectID *uuid.UUID) error {
@@ -174,7 +184,7 @@ func (r *WorkspaceRegistriesRepository) Ensure(ctx context.Context, workspaceRef
 	_, err := r.db.Exec(
 		ctx,
 		`INSERT INTO workspace_registries (workspace_ref, org_id, owner_user_id, project_id, last_used_at, metadata_json)
-		 VALUES ($1, $2, $3, $4, now(), '{}'::jsonb)
+		 VALUES ($1, $2, $3, $4, now(), `+r.dialect.JSONCast("'{}'")+`)
 		 ON CONFLICT (workspace_ref)
 		 DO UPDATE SET owner_user_id = COALESCE(workspace_registries.owner_user_id, EXCLUDED.owner_user_id),
 		               project_id = COALESCE(workspace_registries.project_id, EXCLUDED.project_id),
@@ -188,7 +198,7 @@ func (r *WorkspaceRegistriesRepository) Ensure(ctx context.Context, workspaceRef
 	return err
 }
 
-func updateRegistrySkillRefs(ctx context.Context, db Querier, table string, idColumn string, idValue string, field string, refs []string) error {
+func updateRegistrySkillRefs(ctx context.Context, db Querier, dialect database.DialectHelper, table string, idColumn string, idValue string, field string, refs []string) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -202,12 +212,20 @@ func updateRegistrySkillRefs(ctx context.Context, db Querier, table string, idCo
 	if err != nil {
 		return err
 	}
+	// jsonb_set is PG-specific; SQLite uses json_set with slightly different syntax.
+	// Both receive the same arguments here so we use jsonb_set for PG and json_set for SQLite.
+	jsonSetFn := "jsonb_set"
+	if dialect.Name() == database.DialectSQLite {
+		jsonSetFn = "json_set"
+	}
+	emptyObj := dialect.JSONCast("'{}'")
+	valCast := dialect.JSONCast("$2")
 	_, err = db.Exec(
 		ctx,
 		fmt.Sprintf(`UPDATE %s
-		    SET metadata_json = jsonb_set(COALESCE(metadata_json, '{}'::jsonb), '{%s}', $2::jsonb, true),
+		    SET metadata_json = %s(COALESCE(metadata_json, %s), '{%s}', %s, true),
 		        updated_at = now()
-		  WHERE %s = $1`, table, field, idColumn),
+		  WHERE %s = $1`, table, jsonSetFn, emptyObj, field, valCast, idColumn),
 		idValue,
 		payload,
 	)

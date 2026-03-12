@@ -47,14 +47,19 @@ type ThreadWithActiveRun struct {
 }
 
 type ThreadRepository struct {
-	db Querier
+	db      Querier
+	dialect database.DialectHelper
 }
 
-func NewThreadRepository(db Querier) (*ThreadRepository, error) {
+func NewThreadRepository(db Querier, dialect ...database.DialectHelper) (*ThreadRepository, error) {
 	if db == nil {
 		return nil, errors.New("db must not be nil")
 	}
-	return &ThreadRepository{db: db}, nil
+	d := database.DialectHelper(database.PostgresDialect{})
+	if len(dialect) > 0 && dialect[0] != nil {
+		d = dialect[0]
+	}
+	return &ThreadRepository{db: db, dialect: d}, nil
 }
 
 func escapeILikePattern(input string) string {
@@ -89,10 +94,11 @@ func (r *ThreadRepository) Create(
 	}
 
 	var thread Thread
+	expiresExpr := "CASE WHEN $6 THEN " + r.dialect.IntervalAdd(r.dialect.Now(), "24 hours", "+24 hours") + " ELSE NULL END"
 	err := r.db.QueryRow(
 		ctx,
 		`INSERT INTO threads (org_id, created_by_user_id, project_id, mode, title, is_private, expires_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, CASE WHEN $6 THEN now() + INTERVAL '24 hours' ELSE NULL END)
+		 VALUES ($1, $2, $3, $4, $5, $6, `+expiresExpr+`)
 		 RETURNING id, org_id, created_by_user_id, mode, title, created_at, deleted_at, project_id, is_private, expires_at, parent_thread_id, branched_from_message_id, title_locked`,
 		orgID,
 		createdByUserID,
@@ -167,12 +173,12 @@ func (r *ThreadRepository) ListByOwner(
 		       t.deleted_at, t.project_id, t.is_private, t.expires_at,
 		       t.parent_thread_id, t.branched_from_message_id, t.title_locked, r.id AS active_run_id
 		FROM threads t
-		LEFT JOIN LATERAL (
-			SELECT id FROM runs
-			WHERE thread_id = t.id AND status = 'running'
-			ORDER BY created_at DESC
-			LIMIT 1
-		) r ON true
+		LEFT JOIN (
+			SELECT id, thread_id FROM (
+				SELECT id, thread_id, ROW_NUMBER() OVER (PARTITION BY thread_id ORDER BY created_at DESC) AS rn
+				FROM runs WHERE status = 'running'
+			) sub WHERE rn = 1
+		) r ON r.thread_id = t.id
 		WHERE t.org_id = $1
 		  AND t.created_by_user_id = $2
 		  AND t.deleted_at IS NULL
@@ -453,6 +459,7 @@ func (r *ThreadRepository) SearchByQuery(
 	}
 
 	like := "%" + escapeILikePattern(query) + "%"
+	ilike := r.dialect.ILike()
 	modeSQL := ""
 	args := []any{orgID, ownerUserID, like, limit}
 	if mode != nil {
@@ -462,8 +469,7 @@ func (r *ThreadRepository) SearchByQuery(
 
 	rows, err := r.db.Query(
 		ctx,
-		`SELECT DISTINCT ON (t.created_at, t.id)
-		        t.id, t.org_id, t.created_by_user_id, t.mode, t.title, t.created_at,
+		`SELECT t.id, t.org_id, t.created_by_user_id, t.mode, t.title, t.created_at,
 		        t.deleted_at, t.project_id, t.is_private, t.expires_at,
 		        t.parent_thread_id, t.branched_from_message_id, t.title_locked, r.id AS active_run_id
 		 FROM threads t
@@ -471,21 +477,24 @@ func (r *ThreadRepository) SearchByQuery(
 		   ON m.thread_id = t.id
 		  AND m.deleted_at IS NULL
 		  AND m.hidden = FALSE
-		 LEFT JOIN LATERAL (
-		   SELECT id FROM runs
-		   WHERE thread_id = t.id AND status = 'running'
-		   ORDER BY created_at DESC
-		   LIMIT 1
-		 ) r ON true
+		 LEFT JOIN (
+		   SELECT id, thread_id FROM (
+		     SELECT id, thread_id, ROW_NUMBER() OVER (PARTITION BY thread_id ORDER BY created_at DESC) AS rn
+		     FROM runs WHERE status = 'running'
+		   ) sub WHERE rn = 1
+		 ) r ON r.thread_id = t.id
 		 WHERE t.org_id = $1
 		   AND t.created_by_user_id = $2
 		   AND t.deleted_at IS NULL
 		   AND t.is_private = false
 		`+modeSQL+`
 		   AND (
-		       t.title ILIKE $3 ESCAPE '!'
-		    OR m.content ILIKE $3 ESCAPE '!'
+		       t.title `+ilike+` $3 ESCAPE '!'
+		    OR m.content `+ilike+` $3 ESCAPE '!'
 		   )
+		 GROUP BY t.id, t.org_id, t.created_by_user_id, t.mode, t.title, t.created_at,
+		          t.deleted_at, t.project_id, t.is_private, t.expires_at,
+		          t.parent_thread_id, t.branched_from_message_id, t.title_locked, r.id
 		 ORDER BY t.created_at DESC, t.id DESC
 		 LIMIT $4`,
 		args...,
@@ -553,10 +562,11 @@ func (r *ThreadRepository) Fork(
 	}
 
 	var thread Thread
+	forkExpiresExpr := "CASE WHEN $3 THEN " + r.dialect.IntervalAdd(r.dialect.Now(), "24 hours", "+24 hours") + " ELSE NULL END"
 	err := r.db.QueryRow(
 		ctx,
 		`INSERT INTO threads (org_id, created_by_user_id, project_id, mode, title, is_private, expires_at, parent_thread_id, branched_from_message_id)
-		 SELECT $1, $2, project_id, mode, title, $3, CASE WHEN $3 THEN now() + INTERVAL '24 hours' ELSE NULL END, $4, $5
+		 SELECT $1, $2, project_id, mode, title, $3, `+forkExpiresExpr+`, $4, $5
 		 FROM threads WHERE id = $4 AND deleted_at IS NULL
 		 RETURNING id, org_id, created_by_user_id, mode, title, created_at, deleted_at, project_id, is_private, expires_at, parent_thread_id, branched_from_message_id, title_locked`,
 		orgID,

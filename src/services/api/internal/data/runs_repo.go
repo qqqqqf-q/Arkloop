@@ -56,14 +56,19 @@ func (e RunNotFoundError) Error() string {
 }
 
 type RunEventRepository struct {
-	db Querier
+	db      Querier
+	dialect database.DialectHelper
 }
 
-func NewRunEventRepository(db Querier) (*RunEventRepository, error) {
+func NewRunEventRepository(db Querier, dialect ...database.DialectHelper) (*RunEventRepository, error) {
 	if db == nil {
 		return nil, errors.New("db must not be nil")
 	}
-	return &RunEventRepository{db: db}, nil
+	d := database.DialectHelper(database.PostgresDialect{})
+	if len(dialect) > 0 && dialect[0] != nil {
+		d = dialect[0]
+	}
+	return &RunEventRepository{db: db, dialect: d}, nil
 }
 
 func (r *RunEventRepository) CreateRunWithStartedEvent(
@@ -364,14 +369,12 @@ func (r *RunEventRepository) ListEvents(
 
 func (r *RunEventRepository) lockRunRow(ctx context.Context, runID uuid.UUID) error {
 	var lockedID uuid.UUID
-	err := r.db.QueryRow(
-		ctx,
-		`SELECT id
-		 FROM runs
-		 WHERE id = $1
-		 FOR UPDATE`,
-		runID,
-	).Scan(&lockedID)
+	forUpdate := r.dialect.ForUpdate()
+	q := `SELECT id FROM runs WHERE id = $1`
+	if forUpdate != "" {
+		q += " " + forUpdate
+	}
+	err := r.db.QueryRow(ctx, q, runID).Scan(&lockedID)
 	if err != nil {
 		if errors.Is(err, database.ErrNoRows) {
 			return RunNotFoundError{RunID: runID}
@@ -407,7 +410,7 @@ func (r *RunEventRepository) insertEvent(
 	err = r.db.QueryRow(
 		ctx,
 		`INSERT INTO run_events (run_id, seq, type, data_json, tool_name, error_class)
-		 VALUES ($1, $2, $3, $4::jsonb, $5, $6)
+		 VALUES ($1, $2, $3, `+r.dialect.JSONCast("$4")+`, $5, $6)
 		 RETURNING event_id, run_id, seq, ts, type, tool_name, error_class`,
 		runID,
 		seq,
@@ -433,7 +436,7 @@ func (r *RunEventRepository) insertEvent(
 
 func (r *RunEventRepository) allocateSeq(ctx context.Context) (int64, error) {
 	var seq int64
-	err := r.db.QueryRow(ctx, `SELECT nextval('run_events_seq_global')`).Scan(&seq)
+	err := r.db.QueryRow(ctx, `SELECT `+r.dialect.Sequence("run_events_seq_global")).Scan(&seq)
 	if err != nil {
 		return 0, err
 	}
@@ -557,12 +560,12 @@ func (r *RunEventRepository) ListRuns(ctx context.Context, params ListRunsParams
 	if params.RunID != nil {
 		conds = append(conds, "r.id = "+addArg(*params.RunID))
 	} else if params.RunIDPrefix != nil {
-		conds = append(conds, "r.id::text ILIKE "+addArg(*params.RunIDPrefix)+" || '%'")
+		conds = append(conds, "CAST(r.id AS TEXT) "+r.dialect.ILike()+" "+addArg(*params.RunIDPrefix)+" || '%'")
 	}
 	if params.ThreadID != nil {
 		conds = append(conds, "r.thread_id = "+addArg(*params.ThreadID))
 	} else if params.ThreadIDPrefix != nil {
-		conds = append(conds, "r.thread_id::text ILIKE "+addArg(*params.ThreadIDPrefix)+" || '%'")
+		conds = append(conds, "CAST(r.thread_id AS TEXT) "+r.dialect.ILike()+" "+addArg(*params.ThreadIDPrefix)+" || '%'")
 	}
 	if params.UserID != nil {
 		conds = append(conds, "r.created_by_user_id = "+addArg(*params.UserID))
@@ -574,10 +577,10 @@ func (r *RunEventRepository) ListRuns(ctx context.Context, params ListRunsParams
 		conds = append(conds, "r.status = "+addArg(*params.Status))
 	}
 	if params.Model != nil {
-		conds = append(conds, "COALESCE(r.model, '') ILIKE '%' || "+addArg(*params.Model)+" || '%'")
+		conds = append(conds, "COALESCE(r.model, '') "+r.dialect.ILike()+" '%' || "+addArg(*params.Model)+" || '%'")
 	}
 	if params.PersonaID != nil {
-		conds = append(conds, "COALESCE(r.persona_id, '') ILIKE '%' || "+addArg(*params.PersonaID)+" || '%'")
+		conds = append(conds, "COALESCE(r.persona_id, '') "+r.dialect.ILike()+" '%' || "+addArg(*params.PersonaID)+" || '%'")
 	}
 	if params.Since != nil {
 		conds = append(conds, "r.created_at >= "+addArg(*params.Since))
@@ -605,19 +608,21 @@ func (r *RunEventRepository) ListRuns(ctx context.Context, params ListRunsParams
 		        ct.credits_used
 		 FROM runs r
 		 LEFT JOIN users u ON u.id = r.created_by_user_id
-		 LEFT JOIN LATERAL (
+		 LEFT JOIN (
 		 	SELECT
+		 		ur.run_id,
 		 		SUM(ur.cache_read_tokens) AS cache_read_tokens,
 		 		SUM(ur.cache_creation_tokens) AS cache_creation_tokens,
 		 		SUM(ur.cached_tokens) AS cached_tokens
 		 	FROM usage_records ur
-		 	WHERE ur.run_id = r.id
-		 ) ur ON true
-		 LEFT JOIN LATERAL (
-		 	SELECT ABS(SUM(ct.amount)) AS credits_used
+		 	GROUP BY ur.run_id
+		 ) ur ON ur.run_id = r.id
+		 LEFT JOIN (
+		 	SELECT ct.reference_id, ABS(SUM(ct.amount)) AS credits_used
 		 	FROM credit_transactions ct
-		 	WHERE ct.reference_id = r.id AND ct.type = 'consumption'
-		 ) ct ON true%s
+		 	WHERE ct.type = 'consumption'
+		 	GROUP BY ct.reference_id
+		 ) ct ON ct.reference_id = r.id%s
 		 ORDER BY r.created_at DESC, r.id DESC
 		 LIMIT %s OFFSET %s`,
 		where, addArg(limit), addArg(offset),
@@ -753,7 +758,7 @@ func (r *RunEventRepository) ForceFailRun(ctx context.Context, runID uuid.UUID) 
 		 INSERT INTO run_events (run_id, type, data_json, error_class)
 		 SELECT updated.id,
 		        'run.failed',
-		        '{"reason":"stale run reaped by system"}'::jsonb,
+		        `+r.dialect.JSONCast(`'{"reason":"stale run reaped by system"}'`)+`,
 		        'worker.timeout'
 		 FROM updated`,
 		runID,

@@ -29,7 +29,7 @@ const personaSelectColumns = `id, org_id, persona_key, version, display_name, de
 	    sync_mode, mirrored_file_dir, last_synced_at`
 
 func (r *PersonasRepository) WithTx(tx database.Tx) *PersonasRepository {
-	return &PersonasRepository{db: tx}
+	return &PersonasRepository{db: tx, dialect: r.dialect}
 }
 
 type PersonaConflictError struct {
@@ -113,14 +113,19 @@ type PlatformMirrorUpsertParams struct {
 }
 
 type PersonasRepository struct {
-	db Querier
+	db      Querier
+	dialect database.DialectHelper
 }
 
-func NewPersonasRepository(db Querier) (*PersonasRepository, error) {
+func NewPersonasRepository(db Querier, dialect ...database.DialectHelper) (*PersonasRepository, error) {
 	if db == nil {
 		return nil, errors.New("db must not be nil")
 	}
-	return &PersonasRepository{db: db}, nil
+	d := database.DialectHelper(database.PostgresDialect{})
+	if len(dialect) > 0 && dialect[0] != nil {
+		d = dialect[0]
+	}
+	return &PersonasRepository{db: db, dialect: d}, nil
 }
 
 type personaScanner interface {
@@ -614,10 +619,16 @@ func (r *PersonasRepository) ListLatestPlatformMirrors(ctx context.Context) ([]P
 	}
 	rows, err := r.db.Query(
 		ctx,
-		`SELECT DISTINCT ON (persona_key) `+personaSelectColumns+`
-		 FROM personas
-		 WHERE org_id IS NULL AND sync_mode = $1 AND is_active = TRUE
-		 ORDER BY persona_key ASC, is_active DESC, updated_at DESC, created_at DESC`,
+		`WITH ranked AS (
+		   SELECT `+personaSelectColumns+`,
+		          ROW_NUMBER() OVER (PARTITION BY persona_key ORDER BY updated_at DESC, created_at DESC) AS rn
+		   FROM personas
+		   WHERE org_id IS NULL AND sync_mode = $1 AND is_active = TRUE
+		 )
+		 SELECT `+personaSelectColumns+`
+		 FROM ranked
+		 WHERE rn = 1
+		 ORDER BY persona_key ASC`,
 		PersonaSyncModePlatformFileMirror,
 	)
 	if err != nil {

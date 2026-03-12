@@ -15,7 +15,7 @@ import (
 
 // WithTx 返回一个使用给定事务的 LlmRoutesRepository 副本。
 func (r *LlmRoutesRepository) WithTx(tx database.Tx) *LlmRoutesRepository {
-	return &LlmRoutesRepository{db: tx}
+	return &LlmRoutesRepository{db: tx, dialect: r.dialect}
 }
 
 type LlmRoute struct {
@@ -80,14 +80,19 @@ type UpdateLlmRouteParams struct {
 }
 
 type LlmRoutesRepository struct {
-	db Querier
+	db      Querier
+	dialect database.DialectHelper
 }
 
-func NewLlmRoutesRepository(db Querier) (*LlmRoutesRepository, error) {
+func NewLlmRoutesRepository(db Querier, dialect ...database.DialectHelper) (*LlmRoutesRepository, error) {
 	if db == nil {
 		return nil, errors.New("db must not be nil")
 	}
-	return &LlmRoutesRepository{db: db}, nil
+	d := database.DialectHelper(database.PostgresDialect{})
+	if len(dialect) > 0 && dialect[0] != nil {
+		d = dialect[0]
+	}
+	return &LlmRoutesRepository{db: db, dialect: d}, nil
 }
 
 func (r *LlmRoutesRepository) Create(ctx context.Context, params CreateLlmRouteParams) (LlmRoute, error) {
@@ -129,7 +134,7 @@ func (r *LlmRoutesRepository) Create(ctx context.Context, params CreateLlmRouteP
 	err = r.db.QueryRow(
 		ctx,
 		`INSERT INTO llm_routes (org_id, credential_id, model, priority, is_default, tags, when_json, advanced_json, multiplier, cost_per_1k_input, cost_per_1k_output, cost_per_1k_cache_write, cost_per_1k_cache_read)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9, $10, $11, $12, $13)
+		 VALUES ($1, $2, $3, $4, $5, $6, `+r.dialect.JSONCast("$7")+`, `+r.dialect.JSONCast("$8")+`, $9, $10, $11, $12, $13)
 		 RETURNING id, org_id, credential_id, model, priority, is_default, tags, when_json, advanced_json, multiplier, cost_per_1k_input, cost_per_1k_output, cost_per_1k_cache_write, cost_per_1k_cache_read, created_at`,
 		orgIDParam, params.CredentialID, params.Model, params.Priority, params.IsDefault, params.Tags, string(params.WhenJSON),
 		string(advancedJSONBytes), params.Multiplier, params.CostPer1kInput, params.CostPer1kOutput, params.CostPer1kCacheWrite, params.CostPer1kCacheRead,
@@ -244,8 +249,8 @@ func (r *LlmRoutesRepository) Update(ctx context.Context, params UpdateLlmRouteP
 	}
 
 	query := `UPDATE llm_routes
-		 SET model = $2, priority = $3, is_default = $4, tags = $5, when_json = $6::jsonb,
-		     advanced_json = $7::jsonb, multiplier = $8, cost_per_1k_input = $9, cost_per_1k_output = $10,
+		 SET model = $2, priority = $3, is_default = $4, tags = $5, when_json = ` + r.dialect.JSONCast("$6") + `,
+		     advanced_json = ` + r.dialect.JSONCast("$7") + `, multiplier = $8, cost_per_1k_input = $9, cost_per_1k_output = $10,
 		     cost_per_1k_cache_write = $11, cost_per_1k_cache_read = $12
 		 WHERE id = $1`
 	args := []any{params.RouteID, params.Model, params.Priority, params.IsDefault, params.Tags, string(params.WhenJSON), string(advancedJSONBytes), params.Multiplier,

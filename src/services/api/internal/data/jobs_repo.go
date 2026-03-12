@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"arkloop/services/api/internal/observability"
+	"arkloop/services/shared/database"
 
 	"github.com/google/uuid"
 )
@@ -23,14 +24,19 @@ const (
 )
 
 type JobRepository struct {
-	db Querier
+	db      Querier
+	dialect database.DialectHelper
 }
 
-func NewJobRepository(db Querier) (*JobRepository, error) {
+func NewJobRepository(db Querier, dialect ...database.DialectHelper) (*JobRepository, error) {
 	if db == nil {
 		return nil, errors.New("db must not be nil")
 	}
-	return &JobRepository{db: db}, nil
+	d := database.DialectHelper(database.PostgresDialect{})
+	if len(dialect) > 0 && dialect[0] != nil {
+		d = dialect[0]
+	}
+	return &JobRepository{db: db, dialect: d}, nil
 }
 
 func (r *JobRepository) EnqueueRun(
@@ -90,7 +96,7 @@ func (r *JobRepository) EnqueueRun(
 		   id, job_type, payload_json, status, available_at,
 		   leased_until, lease_token, attempts, created_at, updated_at
 		 ) VALUES (
-		   $1, $2, $3::jsonb, $4, COALESCE($5, now()),
+		   $1, $2, `+r.dialect.JSONCast("$3")+`, $4, COALESCE($5, now()),
 		   NULL, NULL, 0, now(), now()
 		 )`,
 		jobID,
@@ -149,7 +155,7 @@ func (r *JobRepository) EnqueueEmail(ctx context.Context, to, subject, html, tex
 		   id, job_type, payload_json, status, available_at,
 		   leased_until, lease_token, attempts, created_at, updated_at
 		 ) VALUES (
-		   $1, $2, $3::jsonb, $4, now(),
+		   $1, $2, `+r.dialect.JSONCast("$3")+`, $4, now(),
 		   NULL, NULL, 0, now(), now()
 		 )`,
 		jobID,

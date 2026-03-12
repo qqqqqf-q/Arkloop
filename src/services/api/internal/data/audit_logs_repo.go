@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"arkloop/services/shared/database"
+
 	"github.com/google/uuid"
 )
 
@@ -59,14 +61,19 @@ type AuditLogListParams struct {
 }
 
 type AuditLogRepository struct {
-	db Querier
+	db      Querier
+	dialect database.DialectHelper
 }
 
-func NewAuditLogRepository(db Querier) (*AuditLogRepository, error) {
+func NewAuditLogRepository(db Querier, dialect ...database.DialectHelper) (*AuditLogRepository, error) {
 	if db == nil {
 		return nil, errors.New("db must not be nil")
 	}
-	return &AuditLogRepository{db: db}, nil
+	d := database.DialectHelper(database.PostgresDialect{})
+	if len(dialect) > 0 && dialect[0] != nil {
+		d = dialect[0]
+	}
+	return &AuditLogRepository{db: db, dialect: d}, nil
 }
 
 func (r *AuditLogRepository) Create(ctx context.Context, params AuditLogCreateParams) error {
@@ -125,7 +132,7 @@ func (r *AuditLogRepository) Create(ctx context.Context, params AuditLogCreatePa
 		   api_key_id,
 		   before_state_json,
 		   after_state_json
-		 ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::inet, $9, $10, $11::jsonb, $12::jsonb)`,
+		 ) VALUES ($1, $2, $3, $4, $5, $6, `+r.dialect.JSONCast("$7")+`, $8, $9, $10, `+r.dialect.JSONCast("$11")+`, `+r.dialect.JSONCast("$12")+`)`,
 		params.OrgID,
 		params.ActorUserID,
 		action,

@@ -19,7 +19,7 @@ const (
 
 // WithTx 返回一个使用给定事务的 LlmCredentialsRepository 副本。
 func (r *LlmCredentialsRepository) WithTx(tx database.Tx) *LlmCredentialsRepository {
-	return &LlmCredentialsRepository{db: tx}
+	return &LlmCredentialsRepository{db: tx, dialect: r.dialect}
 }
 
 type LlmCredentialNameConflictError struct {
@@ -48,14 +48,19 @@ type LlmCredential struct {
 }
 
 type LlmCredentialsRepository struct {
-	db Querier
+	db      Querier
+	dialect database.DialectHelper
 }
 
-func NewLlmCredentialsRepository(db Querier) (*LlmCredentialsRepository, error) {
+func NewLlmCredentialsRepository(db Querier, dialect ...database.DialectHelper) (*LlmCredentialsRepository, error) {
 	if db == nil {
 		return nil, errors.New("db must not be nil")
 	}
-	return &LlmCredentialsRepository{db: db}, nil
+	d := database.DialectHelper(database.PostgresDialect{})
+	if len(dialect) > 0 && dialect[0] != nil {
+		d = dialect[0]
+	}
+	return &LlmCredentialsRepository{db: db, dialect: d}, nil
 }
 
 func (r *LlmCredentialsRepository) Create(
@@ -108,7 +113,7 @@ func (r *LlmCredentialsRepository) Create(
 		ctx,
 		`INSERT INTO llm_credentials
 		    (id, org_id, scope, provider, name, secret_id, key_prefix, base_url, openai_api_mode, advanced_json)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, `+r.dialect.JSONCast("$10")+`)
 		 RETURNING id, org_id, scope, provider, name, secret_id, key_prefix,
 		           base_url, openai_api_mode, advanced_json, revoked_at, last_used_at, created_at, updated_at`,
 		id, orgIDParam, scope, provider, name, secretID, keyPrefix, baseURL, openaiAPIMode, string(advJSONBytes),
@@ -274,7 +279,7 @@ func (r *LlmCredentialsRepository) Update(
 	}
 	query := `UPDATE llm_credentials
 		 SET provider = $2, name = $3, base_url = $4, openai_api_mode = $5,
-		     advanced_json = $6::jsonb, updated_at = now()
+		     advanced_json = ` + r.dialect.JSONCast("$6") + `, updated_at = now()
 		 WHERE id = $1`
 	args := []any{id, provider, name, baseURL, openAIAPIMode, string(advJSONBytes)}
 	if scope == LlmCredentialScopePlatform {

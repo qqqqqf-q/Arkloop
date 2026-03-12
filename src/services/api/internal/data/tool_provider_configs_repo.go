@@ -14,7 +14,7 @@ import (
 
 // WithTx 返回一个使用给定事务的 ToolProviderConfigsRepository 副本。
 func (r *ToolProviderConfigsRepository) WithTx(tx database.Tx) *ToolProviderConfigsRepository {
-	return &ToolProviderConfigsRepository{db: tx}
+	return &ToolProviderConfigsRepository{db: tx, dialect: r.dialect}
 }
 
 type ToolProviderConfig struct {
@@ -33,14 +33,19 @@ type ToolProviderConfig struct {
 }
 
 type ToolProviderConfigsRepository struct {
-	db Querier
+	db      Querier
+	dialect database.DialectHelper
 }
 
-func NewToolProviderConfigsRepository(db Querier) (*ToolProviderConfigsRepository, error) {
+func NewToolProviderConfigsRepository(db Querier, dialect ...database.DialectHelper) (*ToolProviderConfigsRepository, error) {
 	if db == nil {
 		return nil, errors.New("db must not be nil")
 	}
-	return &ToolProviderConfigsRepository{db: db}, nil
+	d := database.DialectHelper(database.PostgresDialect{})
+	if len(dialect) > 0 && dialect[0] != nil {
+		d = dialect[0]
+	}
+	return &ToolProviderConfigsRepository{db: db, dialect: d}, nil
 }
 
 func (r *ToolProviderConfigsRepository) ListByScope(ctx context.Context, orgID uuid.UUID, scope string) ([]ToolProviderConfig, error) {
@@ -141,12 +146,13 @@ func (r *ToolProviderConfigsRepository) UpsertConfig(
 		orgIDParam = orgID
 	}
 
+	jsonCastEmpty := r.dialect.JSONCast("'{}'")
 	var cfg ToolProviderConfig
 	var row database.Row
 	if scope == "platform" {
 		row = r.db.QueryRow(ctx, `
 			INSERT INTO tool_provider_configs (org_id, scope, group_name, provider_name, secret_id, key_prefix, base_url, config_json)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE($8, '{}'::jsonb))
+			VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE($8, `+jsonCastEmpty+`))
 			ON CONFLICT (provider_name) WHERE scope = 'platform'
 			DO UPDATE SET
 				group_name  = EXCLUDED.group_name,
@@ -160,7 +166,7 @@ func (r *ToolProviderConfigsRepository) UpsertConfig(
 	} else {
 		row = r.db.QueryRow(ctx, `
 			INSERT INTO tool_provider_configs (org_id, scope, group_name, provider_name, secret_id, key_prefix, base_url, config_json)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE($8, '{}'::jsonb))
+			VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE($8, `+jsonCastEmpty+`))
 			ON CONFLICT (org_id, provider_name) WHERE scope = 'org'
 			DO UPDATE SET
 				group_name  = EXCLUDED.group_name,
@@ -306,7 +312,7 @@ func (r *ToolProviderConfigsRepository) ClearCredential(ctx context.Context, org
 			    secret_id = NULL,
 			    key_prefix = NULL,
 			    base_url = NULL,
-			    config_json = '{}'::jsonb,
+			    config_json = `+r.dialect.JSONCast("'{}'")+`,
 			    updated_at = now()
 			WHERE scope = 'platform' AND provider_name = $1
 		`, provider)
@@ -319,7 +325,7 @@ func (r *ToolProviderConfigsRepository) ClearCredential(ctx context.Context, org
 		    secret_id = NULL,
 		    key_prefix = NULL,
 		    base_url = NULL,
-		    config_json = '{}'::jsonb,
+		    config_json = `+r.dialect.JSONCast("'{}'")+`,
 		    updated_at = now()
 		WHERE org_id = $1 AND scope = 'org' AND provider_name = $2
 	`, orgID, provider)

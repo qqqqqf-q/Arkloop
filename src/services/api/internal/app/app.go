@@ -1,3 +1,5 @@
+//go:build !desktop
+
 package app
 
 import (
@@ -169,6 +171,8 @@ func (a *Application) Run(ctx context.Context) error {
 	var concurrencyLimiter runlimit.ConcurrencyLimiter
 	if redisClient != nil {
 		concurrencyLimiter = runlimit.NewRedisConcurrencyLimiter(redisClient)
+	} else {
+		concurrencyLimiter = runlimit.NewLocalConcurrencyLimiter()
 	}
 
 	var runLimiter *data.RunLimiter
@@ -298,6 +302,7 @@ func (a *Application) Run(ctx context.Context) error {
 	)
 
 	if db != nil {
+		dialect := database.PostgresDialect{}
 		var err error
 		userRepo, err = data.NewUserRepository(db)
 		if err != nil {
@@ -315,7 +320,7 @@ func (a *Application) Run(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		threadRepo, err = data.NewThreadRepository(db)
+		threadRepo, err = data.NewThreadRepository(db, dialect)
 		if err != nil {
 			return err
 		}
@@ -335,7 +340,7 @@ func (a *Application) Run(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		runEventRepo, err = data.NewRunEventRepository(db)
+		runEventRepo, err = data.NewRunEventRepository(db, dialect)
 		if err != nil {
 			return err
 		}
@@ -343,16 +348,16 @@ func (a *Application) Run(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		auditRepo, err = data.NewAuditLogRepository(db)
+		auditRepo, err = data.NewAuditLogRepository(db, dialect)
 		if err != nil {
 			return err
 		}
 
-		llmCredRepo, err = data.NewLlmCredentialsRepository(db)
+		llmCredRepo, err = data.NewLlmCredentialsRepository(db, dialect)
 		if err != nil {
 			return err
 		}
-		llmRoutesRepo, err = data.NewLlmRoutesRepository(db)
+		llmRoutesRepo, err = data.NewLlmRoutesRepository(db, dialect)
 		if err != nil {
 			return err
 		}
@@ -360,7 +365,7 @@ func (a *Application) Run(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		toolProviderConfigsRepo, err = data.NewToolProviderConfigsRepository(db)
+		toolProviderConfigsRepo, err = data.NewToolProviderConfigsRepository(db, dialect)
 		if err != nil {
 			return err
 		}
@@ -368,7 +373,7 @@ func (a *Application) Run(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		personasRepo, err = data.NewPersonasRepository(db)
+		personasRepo, err = data.NewPersonasRepository(db, dialect)
 		if err != nil {
 			return err
 		}
@@ -384,11 +389,11 @@ func (a *Application) Run(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		profileRegistriesRepo, err = data.NewProfileRegistriesRepository(db)
+		profileRegistriesRepo, err = data.NewProfileRegistriesRepository(db, dialect)
 		if err != nil {
 			return err
 		}
-		workspaceRegistriesRepo, err = data.NewWorkspaceRegistriesRepository(db)
+		workspaceRegistriesRepo, err = data.NewWorkspaceRegistriesRepository(db, dialect)
 		if err != nil {
 			return err
 		}
@@ -483,7 +488,7 @@ func (a *Application) Run(ctx context.Context) error {
 			return err
 		}
 
-		jobRepo, err = data.NewJobRepository(db)
+		jobRepo, err = data.NewJobRepository(db, dialect)
 		if err != nil {
 			return err
 		}
