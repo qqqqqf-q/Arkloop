@@ -94,6 +94,8 @@ func run() error {
 		provider, err = buildFirecrackerPool(cfg, logger)
 	case app.ProviderDocker:
 		provider, err = buildDockerPool(cfg, logger)
+	case app.ProviderVz:
+		provider, err = buildVzPool(cfg, logger)
 	default:
 		err = fmt.Errorf("unknown provider: %s", cfg.Provider)
 	}

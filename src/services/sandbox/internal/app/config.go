@@ -49,6 +49,7 @@ const (
 const (
 	ProviderFirecracker = "firecracker"
 	ProviderDocker      = "docker"
+	ProviderVz          = "vz"
 )
 
 type Config struct {
@@ -386,9 +387,9 @@ func (c Config) Validate() error {
 		return fmt.Errorf("addr invalid: %w", err)
 	}
 	switch c.Provider {
-	case ProviderFirecracker, ProviderDocker:
+	case ProviderFirecracker, ProviderDocker, ProviderVz:
 	default:
-		return fmt.Errorf("provider must be %q or %q", ProviderFirecracker, ProviderDocker)
+		return fmt.Errorf("provider must be %q, %q or %q", ProviderFirecracker, ProviderDocker, ProviderVz)
 	}
 	if c.BootTimeoutSeconds <= 0 {
 		return fmt.Errorf("boot_timeout_seconds must be positive")
@@ -423,33 +424,45 @@ func (c Config) Validate() error {
 	if c.FlushForceCountThreshold <= 0 {
 		return fmt.Errorf("flush_force_count_threshold must be positive")
 	}
-	if strings.TrimSpace(c.DockerNetwork) == "" {
-		return fmt.Errorf("docker_network must not be empty")
+	if c.Provider == ProviderDocker {
+		if strings.TrimSpace(c.DockerNetwork) == "" {
+			return fmt.Errorf("docker_network must not be empty")
+		}
+		if strings.TrimSpace(c.DockerImage) == "" {
+			return fmt.Errorf("docker_image must not be empty")
+		}
+		if strings.TrimSpace(c.BrowserDockerImage) == "" {
+			return fmt.Errorf("browser_docker_image must not be empty")
+		}
+		if c.WarmBrowser > 0 && !c.AllowEgress {
+			return fmt.Errorf("browser warm pool requires allow_egress=true")
+		}
 	}
-	if strings.TrimSpace(c.DockerImage) == "" {
-		return fmt.Errorf("docker_image must not be empty")
+	if c.Provider == ProviderFirecracker {
+		if strings.TrimSpace(c.FirecrackerEgressInterface) == "" {
+			return fmt.Errorf("firecracker_egress_interface must not be empty")
+		}
+		if strings.TrimSpace(c.FirecrackerTapPrefix) == "" {
+			return fmt.Errorf("firecracker_tap_prefix must not be empty")
+		}
+		if len(c.FirecrackerTapPrefix) > 10 {
+			return fmt.Errorf("firecracker_tap_prefix must be 10 chars or shorter")
+		}
+		if _, _, err := net.ParseCIDR(c.FirecrackerTapCIDR); err != nil {
+			return fmt.Errorf("firecracker_tap_cidr invalid: %w", err)
+		}
+		for _, ns := range c.FirecrackerDNS {
+			if net.ParseIP(strings.TrimSpace(ns)) == nil {
+				return fmt.Errorf("firecracker_dns contains invalid ip %q", ns)
+			}
+		}
 	}
-	if strings.TrimSpace(c.BrowserDockerImage) == "" {
-		return fmt.Errorf("browser_docker_image must not be empty")
-	}
-	if c.WarmBrowser > 0 && !c.AllowEgress {
-		return fmt.Errorf("browser warm pool requires allow_egress=true")
-	}
-	if strings.TrimSpace(c.FirecrackerEgressInterface) == "" {
-		return fmt.Errorf("firecracker_egress_interface must not be empty")
-	}
-	if strings.TrimSpace(c.FirecrackerTapPrefix) == "" {
-		return fmt.Errorf("firecracker_tap_prefix must not be empty")
-	}
-	if len(c.FirecrackerTapPrefix) > 10 {
-		return fmt.Errorf("firecracker_tap_prefix must be 10 chars or shorter")
-	}
-	if _, _, err := net.ParseCIDR(c.FirecrackerTapCIDR); err != nil {
-		return fmt.Errorf("firecracker_tap_cidr invalid: %w", err)
-	}
-	for _, ns := range c.FirecrackerDNS {
-		if net.ParseIP(strings.TrimSpace(ns)) == nil {
-			return fmt.Errorf("firecracker_dns contains invalid ip %q", ns)
+	if c.Provider == ProviderVz {
+		if strings.TrimSpace(c.KernelImagePath) == "" {
+			return fmt.Errorf("kernel_image_path must not be empty for vz provider")
+		}
+		if strings.TrimSpace(c.RootfsPath) == "" {
+			return fmt.Errorf("rootfs_path must not be empty for vz provider")
 		}
 	}
 	return nil

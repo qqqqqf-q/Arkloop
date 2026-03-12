@@ -138,6 +138,7 @@ func TestLoadConfigFromEnvBrowserSettings(t *testing.T) {
 
 func TestLoadConfigFromEnvBrowserWarmZeroAllowedWhenNoEgress(t *testing.T) {
 	t.Setenv("ARKLOOP_SANDBOX_ADDR", "127.0.0.1:8002")
+	t.Setenv("ARKLOOP_SANDBOX_PROVIDER", "docker")
 	t.Setenv("ARKLOOP_SANDBOX_ALLOW_EGRESS", "false")
 	t.Setenv("ARKLOOP_SANDBOX_WARM_BROWSER", "0")
 	unsetSandboxConfigRegistryEnv(t)
@@ -153,6 +154,7 @@ func TestLoadConfigFromEnvBrowserWarmZeroAllowedWhenNoEgress(t *testing.T) {
 
 func TestLoadConfigFromEnvBrowserWarmRequiresEgress(t *testing.T) {
 	t.Setenv("ARKLOOP_SANDBOX_ADDR", "127.0.0.1:8002")
+	t.Setenv("ARKLOOP_SANDBOX_PROVIDER", "docker")
 	t.Setenv("ARKLOOP_SANDBOX_ALLOW_EGRESS", "false")
 	t.Setenv("ARKLOOP_SANDBOX_WARM_BROWSER", "1")
 	unsetSandboxConfigRegistryEnv(t)
