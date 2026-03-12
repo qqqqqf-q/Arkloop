@@ -1,4 +1,5 @@
 -- Core identity tables: orgs, users, org_memberships
+-- Also creates _sequences helper table used by SQLiteDialect.Sequence().
 --
 -- SQLite UUID default (reused across all migrations):
 --   (lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' ||
@@ -8,6 +9,16 @@
 
 -- +goose Up
 
+-- _sequences: emulates PostgreSQL sequences for SQLite.
+-- SQLiteDialect.Sequence() generates UPDATE ... RETURNING val against this table.
+CREATE TABLE IF NOT EXISTS _sequences (
+    name TEXT PRIMARY KEY,
+    val  INTEGER NOT NULL DEFAULT 0
+);
+
+INSERT INTO _sequences (name, val) VALUES ('run_events_seq_global', 0);
+
+-- orgs: kept in desktop mode as workspace container; many tables reference org_id via FK.
 CREATE TABLE orgs (
     id         TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))),2) || '-' || substr('89ab',abs(random()) % 4 + 1, 1) || substr(lower(hex(randomblob(2))),2) || '-' || lower(hex(randomblob(6)))),
     slug       TEXT NOT NULL UNIQUE,
@@ -54,3 +65,4 @@ DROP TABLE IF EXISTS org_memberships;
 DROP INDEX IF EXISTS uq_users_email;
 DROP TABLE IF EXISTS users;
 DROP TABLE IF EXISTS orgs;
+DROP TABLE IF EXISTS _sequences;

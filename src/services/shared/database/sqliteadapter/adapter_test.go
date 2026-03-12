@@ -88,6 +88,7 @@ func TestAutoMigrate(t *testing.T) {
 	ctx := context.Background()
 
 	// Verify that at least one application table exists (orgs from migration 1).
+	// orgs is kept in desktop mode as a workspace container; many tables have org_id FKs.
 	var count int
 	err := pool.QueryRow(ctx,
 		`SELECT count(*) FROM sqlite_master WHERE type='table' AND name='orgs'`).Scan(&count)
@@ -96,6 +97,16 @@ func TestAutoMigrate(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("orgs table not found after auto-migrate")
+	}
+
+	// Verify _sequences table exists (needed by SQLiteDialect.Sequence()).
+	err = pool.QueryRow(ctx,
+		`SELECT count(*) FROM _sequences WHERE name = 'run_events_seq_global'`).Scan(&count)
+	if err != nil {
+		t.Fatalf("query _sequences: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("run_events_seq_global row not found in _sequences after auto-migrate")
 	}
 }
 
