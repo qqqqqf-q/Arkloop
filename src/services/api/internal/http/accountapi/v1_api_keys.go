@@ -1,4 +1,4 @@
-package orgapi
+package accountapi
 
 import (
 	httpkit "arkloop/services/api/internal/http/httpkit"
@@ -331,7 +331,7 @@ func isAccountAPIKeyAdmin(actor *httpkit.Actor) bool {
 	if actor.HasPermission(auth.PermPlatformAdmin) {
 		return true
 	}
-	return actor.AccountRole == auth.RoleOrgAdmin || actor.AccountRole == "owner"
+	return actor.AccountRole == auth.RoleAccountAdmin || actor.AccountRole == "owner"
 }
 
 func normalizeAPIKeyScopes(scopes []string) []string {

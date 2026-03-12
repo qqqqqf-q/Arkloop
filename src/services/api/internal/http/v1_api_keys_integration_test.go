@@ -26,7 +26,7 @@ type apiKeyTestEnv struct {
 	tokenService   *auth.JwtAccessTokenService
 	aliceToken     string
 	aliceUserID    uuid.UUID
-	aliceOrgID     uuid.UUID
+	aliceAccountID     uuid.UUID
 }
 
 func buildAPIKeyEnv(t *testing.T) apiKeyTestEnv {
@@ -137,7 +137,7 @@ func buildAPIKeyEnv(t *testing.T) apiKeyTestEnv {
 		tokenService:   tokenService,
 		aliceToken:     regPayload.AccessToken,
 		aliceUserID:    aliceUserID,
-		aliceOrgID:     aliceMembership.AccountID,
+		aliceAccountID:     aliceMembership.AccountID,
 	}
 }
 
@@ -296,21 +296,21 @@ func TestAPIKeyOwnershipVisibility(t *testing.T) {
 	memberAID := register("member-a")
 	memberBID := register("member-b")
 	for _, userID := range []uuid.UUID{memberAID, memberBID} {
-		if _, err := env.membershipRepo.Create(context.Background(), env.aliceOrgID, userID, auth.RoleOrgMember); err != nil {
+		if _, err := env.membershipRepo.Create(context.Background(), env.aliceAccountID, userID, auth.RoleAccountMember); err != nil {
 			t.Fatalf("add membership: %v", err)
 		}
 	}
 
-	memberAToken, err := env.tokenService.Issue(memberAID, env.aliceOrgID, auth.RoleOrgMember, time.Now().UTC())
+	memberAToken, err := env.tokenService.Issue(memberAID, env.aliceAccountID, auth.RoleAccountMember, time.Now().UTC())
 	if err != nil {
 		t.Fatalf("issue member token: %v", err)
 	}
 
-	memberAKey, _, err := env.apiKeysRepo.Create(context.Background(), env.aliceOrgID, memberAID, "member-a-key", []string{auth.PermDataThreadsRead})
+	memberAKey, _, err := env.apiKeysRepo.Create(context.Background(), env.aliceAccountID, memberAID, "member-a-key", []string{auth.PermDataThreadsRead})
 	if err != nil {
 		t.Fatalf("create member A key: %v", err)
 	}
-	memberBKey, _, err := env.apiKeysRepo.Create(context.Background(), env.aliceOrgID, memberBID, "member-b-key", []string{auth.PermDataThreadsRead})
+	memberBKey, _, err := env.apiKeysRepo.Create(context.Background(), env.aliceAccountID, memberBID, "member-b-key", []string{auth.PermDataThreadsRead})
 	if err != nil {
 		t.Fatalf("create member B key: %v", err)
 	}

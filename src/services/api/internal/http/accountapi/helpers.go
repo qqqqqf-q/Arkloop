@@ -1,4 +1,4 @@
-package orgapi
+package accountapi
 
 import (
 	"context"

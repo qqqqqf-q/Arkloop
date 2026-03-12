@@ -33,7 +33,7 @@ export async function getProjectUsage(
   accessToken: string,
 ): Promise<UsageSummary> {
   return apiFetch<UsageSummary>(
-    `/v1/orgs/${encodeURIComponent(projectId)}/usage?year=${year}&month=${month}`,
+    `/v1/accounts/${encodeURIComponent(projectId)}/usage?year=${year}&month=${month}`,
     { accessToken },
   )
 }
@@ -45,7 +45,7 @@ export async function getProjectDailyUsage(
   accessToken: string,
 ): Promise<DailyUsage[]> {
   return apiFetch<DailyUsage[]>(
-    `/v1/orgs/${encodeURIComponent(projectId)}/usage/daily?start=${start}&end=${end}`,
+    `/v1/accounts/${encodeURIComponent(projectId)}/usage/daily?start=${start}&end=${end}`,
     { accessToken },
   )
 }
@@ -57,7 +57,7 @@ export async function getProjectUsageByModel(
   accessToken: string,
 ): Promise<ModelUsage[]> {
   return apiFetch<ModelUsage[]>(
-    `/v1/orgs/${encodeURIComponent(projectId)}/usage/by-model?year=${year}&month=${month}`,
+    `/v1/accounts/${encodeURIComponent(projectId)}/usage/by-model?year=${year}&month=${month}`,
     { accessToken },
   )
 }

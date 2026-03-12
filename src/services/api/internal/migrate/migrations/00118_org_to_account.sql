@@ -260,7 +260,21 @@ ALTER TABLE mcp_configs RENAME CONSTRAINT uq_mcp_configs_org_name TO uq_mcp_conf
 ALTER TABLE mcp_configs RENAME CONSTRAINT mcp_configs_org_id_fkey TO mcp_configs_account_id_fkey;
 ALTER TABLE skill_packages RENAME CONSTRAINT uq_skill_packages_org_key_version TO uq_skill_packages_account_key_version;
 
+-- ============================================================
+-- Phase 11: Rename role values in account_memberships
+-- ============================================================
+
+UPDATE account_memberships SET role = 'account_admin' WHERE role = 'org_admin';
+UPDATE account_memberships SET role = 'account_member' WHERE role = 'org_member';
+
 -- +goose Down
+
+-- ============================================================
+-- Reverse Phase 11: Restore role values in org_memberships
+-- ============================================================
+
+UPDATE org_memberships SET role = 'org_admin' WHERE role = 'account_admin';
+UPDATE org_memberships SET role = 'org_member' WHERE role = 'account_member';
 
 -- ============================================================
 -- Reverse Phase 10: Rename constraints back

@@ -3,8 +3,8 @@ package auth
 // 系统内置角色名。
 const (
 	RolePlatformAdmin = "platform_admin"
-	RoleOrgAdmin      = "org_admin"
-	RoleOrgMember     = "org_member"
+	RoleAccountAdmin  = "account_admin"
+	RoleAccountMember = "account_member"
 )
 
 var orgAdminPerms = []string{
@@ -55,9 +55,9 @@ func PermissionsForRole(role string) []string {
 	switch role {
 	case RolePlatformAdmin:
 		src = platformAdminPerms
-	case RoleOrgAdmin, "owner":
+	case RoleAccountAdmin, "owner":
 		src = orgAdminPerms
-	case RoleOrgMember, "member":
+	case RoleAccountMember, "member":
 		src = orgMemberPerms
 	default:
 		return nil

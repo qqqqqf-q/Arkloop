@@ -110,22 +110,22 @@ func TestRBACPermissions(t *testing.T) {
 	var tokenB string
 	userBID := payloadB.UserID
 
-	// 查询两人各自的 org_id
+	// 查询两人各自的 account_id
 	var orgAID, orgBID string
 	if err := pool.QueryRow(ctx,
-		"SELECT org_id FROM org_memberships WHERE user_id = $1", userAID,
+		"SELECT account_id FROM account_memberships WHERE user_id = $1", userAID,
 	).Scan(&orgAID); err != nil {
 		t.Fatalf("get orgA id: %v", err)
 	}
 	if err := pool.QueryRow(ctx,
-		"SELECT org_id FROM org_memberships WHERE user_id = $1", userBID,
+		"SELECT account_id FROM account_memberships WHERE user_id = $1", userBID,
 	).Scan(&orgBID); err != nil {
 		t.Fatalf("get orgB id: %v", err)
 	}
 
 	// 将 B 在 orgB 的角色降为 "member"，模拟受邀普通成员
 	if _, err := pool.Exec(ctx,
-		"UPDATE org_memberships SET role = 'member' WHERE user_id = $1", userBID,
+		"UPDATE account_memberships SET role = 'member' WHERE user_id = $1", userBID,
 	); err != nil {
 		t.Fatalf("demote B: %v", err)
 	}
@@ -142,7 +142,7 @@ func TestRBACPermissions(t *testing.T) {
 
 	// 场景 1：member (B) 尝试在自己的 org 创建邀请 → 403（无 invite 权限）
 	memberInvite := doJSON(handler, nethttp.MethodPost,
-		"/v1/orgs/"+orgBID+"/invitations",
+		"/v1/accounts/"+orgBID+"/invitations",
 		inviteBody,
 		authHeader(tokenB),
 	)
@@ -150,7 +150,7 @@ func TestRBACPermissions(t *testing.T) {
 
 	// 场景 2：owner (A) 在自己的 org 创建邀请 → 201
 	ownerInvite := doJSON(handler, nethttp.MethodPost,
-		"/v1/orgs/"+orgAID+"/invitations",
+		"/v1/accounts/"+orgAID+"/invitations",
 		inviteBody,
 		authHeader(tokenA),
 	)
@@ -160,7 +160,7 @@ func TestRBACPermissions(t *testing.T) {
 
 	// 场景 3：member (B) 尝试列出自己 org 的邀请 → 403
 	memberList := doJSON(handler, nethttp.MethodGet,
-		"/v1/orgs/"+orgBID+"/invitations",
+		"/v1/accounts/"+orgBID+"/invitations",
 		nil,
 		authHeader(tokenB),
 	)
@@ -168,7 +168,7 @@ func TestRBACPermissions(t *testing.T) {
 
 	// 场景 4：owner (A) 可以列出邀请 → 200
 	ownerList := doJSON(handler, nethttp.MethodGet,
-		"/v1/orgs/"+orgAID+"/invitations",
+		"/v1/accounts/"+orgAID+"/invitations",
 		nil,
 		authHeader(tokenA),
 	)
@@ -178,14 +178,14 @@ func TestRBACPermissions(t *testing.T) {
 
 	// 场景 5：跨 org 隔离 —— owner (A) 尝试操作 B 的 org → 403 access denied（org 不匹配）
 	crossOrgInvite := doJSON(handler, nethttp.MethodPost,
-		"/v1/orgs/"+orgBID+"/invitations",
+		"/v1/accounts/"+orgBID+"/invitations",
 		inviteBody,
 		authHeader(tokenA),
 	)
 	assertErrorEnvelope(t, crossOrgInvite, nethttp.StatusForbidden, "auth.forbidden")
 
 	crossOrgList := doJSON(handler, nethttp.MethodGet,
-		"/v1/orgs/"+orgBID+"/invitations",
+		"/v1/accounts/"+orgBID+"/invitations",
 		nil,
 		authHeader(tokenA),
 	)
@@ -197,7 +197,7 @@ func TestRBACPermissions(t *testing.T) {
 	}
 	created := decodeJSONBody[inviteResp](t, ownerInvite.Body.Bytes())
 	revokeResp := doJSON(handler, nethttp.MethodDelete,
-		"/v1/org-invitations/"+created.ID,
+		"/v1/account-invitations/"+created.ID,
 		nil,
 		authHeader(tokenA),
 	)
@@ -208,7 +208,7 @@ func TestRBACPermissions(t *testing.T) {
 	// 场景 7：member (B) 无法撤销邀请 → 403
 	// 先让 owner 再建一条邀请
 	ownerInvite2 := doJSON(handler, nethttp.MethodPost,
-		"/v1/orgs/"+orgAID+"/invitations",
+		"/v1/accounts/"+orgAID+"/invitations",
 		map[string]any{"email": "guest2@example.com", "role": "member"},
 		authHeader(tokenA),
 	)
@@ -218,7 +218,7 @@ func TestRBACPermissions(t *testing.T) {
 	// B 无法撤销 A org 内的邀请（org 不匹配先触发）
 	created2 := decodeJSONBody[inviteResp](t, ownerInvite2.Body.Bytes())
 	memberRevoke := doJSON(handler, nethttp.MethodDelete,
-		"/v1/org-invitations/"+created2.ID,
+		"/v1/account-invitations/"+created2.ID,
 		nil,
 		authHeader(tokenB),
 	)
@@ -226,7 +226,7 @@ func TestRBACPermissions(t *testing.T) {
 
 	// 场景 8：未知角色（无任何权限）无法执行任何邀请操作
 	if _, err := pool.Exec(ctx,
-		"UPDATE org_memberships SET role = 'legacy_role' WHERE user_id = $1", userBID,
+		"UPDATE account_memberships SET role = 'legacy_role' WHERE user_id = $1", userBID,
 	); err != nil {
 		t.Fatalf("set legacy role: %v", err)
 	}
@@ -239,7 +239,7 @@ func TestRBACPermissions(t *testing.T) {
 	tokenB = decodeJSONBody[loginResponse](t, reLoginB2.Body.Bytes()).AccessToken
 
 	unknownRoleInvite := doJSON(handler, nethttp.MethodPost,
-		"/v1/orgs/"+orgBID+"/invitations",
+		"/v1/accounts/"+orgBID+"/invitations",
 		inviteBody,
 		authHeader(tokenB),
 	)

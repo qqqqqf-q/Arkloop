@@ -34,7 +34,7 @@ type artifactTestEnv struct {
 	tokenService    *auth.JwtAccessTokenService
 	aliceToken      string
 	aliceUserID     uuid.UUID
-	aliceOrgID      uuid.UUID
+	aliceAccountID      uuid.UUID
 	store           *fakeHTTPArtifactStore
 }
 
@@ -242,7 +242,7 @@ func buildArtifactEnv(t *testing.T) artifactTestEnv {
 		tokenService:    tokenService,
 		aliceToken:      regPayload.AccessToken,
 		aliceUserID:     aliceUserID,
-		aliceOrgID:      membership.AccountID,
+		aliceAccountID:      membership.AccountID,
 		store:           store,
 	}
 }
@@ -260,19 +260,19 @@ func doArtifactRequest(t *testing.T, handler nethttp.Handler, path string, heade
 
 func TestArtifactsAuthorizationByRunOwnerAndShare(t *testing.T) {
 	env := buildArtifactEnv(t)
-	project := mustCreateTestProject(t, context.Background(), env.pool, env.aliceOrgID, &env.aliceUserID, "artifact-thread-read")
+	project := mustCreateTestProject(t, context.Background(), env.pool, env.aliceAccountID, &env.aliceUserID, "artifact-thread-read")
 
-	thread, err := env.threadRepo.Create(context.Background(), env.aliceOrgID, &env.aliceUserID, project.ID, nil, false)
+	thread, err := env.threadRepo.Create(context.Background(), env.aliceAccountID, &env.aliceUserID, project.ID, nil, false)
 	if err != nil {
 		t.Fatalf("create thread: %v", err)
 	}
-	run, _, err := env.runRepo.CreateRunWithStartedEvent(context.Background(), env.aliceOrgID, thread.ID, &env.aliceUserID, "run.started", nil)
+	run, _, err := env.runRepo.CreateRunWithStartedEvent(context.Background(), env.aliceAccountID, thread.ID, &env.aliceUserID, "run.started", nil)
 	if err != nil {
 		t.Fatalf("create run: %v", err)
 	}
 
-	artifactKey := env.aliceOrgID.String() + "/" + run.ID.String() + "/report.txt"
-	env.store.put(artifactKey, []byte("owner-visible"), "text/plain", objectstore.ArtifactMetadata(objectstore.ArtifactOwnerKindRun, run.ID.String(), env.aliceOrgID.String(), nil))
+	artifactKey := env.aliceAccountID.String() + "/" + run.ID.String() + "/report.txt"
+	env.store.put(artifactKey, []byte("owner-visible"), "text/plain", objectstore.ArtifactMetadata(objectstore.ArtifactOwnerKindRun, run.ID.String(), env.aliceAccountID.String(), nil))
 
 	ownerResp := doArtifactRequest(t, env.handler, "/v1/artifacts/"+artifactKey, authHeader(env.aliceToken))
 	if ownerResp.Code != nethttp.StatusOK || ownerResp.Body.String() != "owner-visible" {
@@ -291,10 +291,10 @@ func TestArtifactsAuthorizationByRunOwnerAndShare(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse other user id: %v", err)
 	}
-	if _, err := env.membershipRepo.Create(context.Background(), env.aliceOrgID, otherUserID, auth.RoleOrgMember); err != nil {
+	if _, err := env.membershipRepo.Create(context.Background(), env.aliceAccountID, otherUserID, auth.RoleAccountMember); err != nil {
 		t.Fatalf("add org membership: %v", err)
 	}
-	_, otherKey, err := env.apiKeysRepo.Create(context.Background(), env.aliceOrgID, otherUserID, "other-reader", []string{auth.PermDataRunsRead})
+	_, otherKey, err := env.apiKeysRepo.Create(context.Background(), env.aliceAccountID, otherUserID, "other-reader", []string{auth.PermDataRunsRead})
 	if err != nil {
 		t.Fatalf("create other key: %v", err)
 	}
@@ -323,7 +323,7 @@ func TestArtifactsAuthorizationByRunOwnerAndShare(t *testing.T) {
 	wrongShare := doArtifactRequest(t, env.handler, "/v1/artifacts/"+artifactKey+"?share_token=wrong-token", nil)
 	assertErrorEnvelope(t, wrongShare, nethttp.StatusForbidden, "artifacts.forbidden")
 
-	legacyKey := env.aliceOrgID.String() + "/" + run.ID.String() + "/legacy.txt"
+	legacyKey := env.aliceAccountID.String() + "/" + run.ID.String() + "/legacy.txt"
 	env.store.put(legacyKey, []byte("legacy-visible"), "text/plain", nil)
 	legacyResp := doArtifactRequest(t, env.handler, "/v1/artifacts/"+legacyKey, authHeader(env.aliceToken))
 	if legacyResp.Code != nethttp.StatusOK || legacyResp.Body.String() != "legacy-visible" {
@@ -333,9 +333,9 @@ func TestArtifactsAuthorizationByRunOwnerAndShare(t *testing.T) {
 
 func TestThreadAttachmentsUploadAndRead(t *testing.T) {
 	env := buildArtifactEnv(t)
-	project := mustCreateTestProject(t, context.Background(), env.pool, env.aliceOrgID, &env.aliceUserID, "artifact-attachments")
+	project := mustCreateTestProject(t, context.Background(), env.pool, env.aliceAccountID, &env.aliceUserID, "artifact-attachments")
 
-	thread, err := env.threadRepo.Create(context.Background(), env.aliceOrgID, &env.aliceUserID, project.ID, nil, false)
+	thread, err := env.threadRepo.Create(context.Background(), env.aliceAccountID, &env.aliceUserID, project.ID, nil, false)
 	if err != nil {
 		t.Fatalf("create thread: %v", err)
 	}
@@ -391,13 +391,13 @@ func TestThreadAttachmentsUploadAndRead(t *testing.T) {
 
 func TestArtifactsAuthorizationByBrowserSessionOwnerFallback(t *testing.T) {
 	env := buildArtifactEnv(t)
-	project := mustCreateTestProject(t, context.Background(), env.pool, env.aliceOrgID, &env.aliceUserID, "artifact-browser-session")
+	project := mustCreateTestProject(t, context.Background(), env.pool, env.aliceAccountID, &env.aliceUserID, "artifact-browser-session")
 
-	thread, err := env.threadRepo.Create(context.Background(), env.aliceOrgID, &env.aliceUserID, project.ID, nil, false)
+	thread, err := env.threadRepo.Create(context.Background(), env.aliceAccountID, &env.aliceUserID, project.ID, nil, false)
 	if err != nil {
 		t.Fatalf("create thread: %v", err)
 	}
-	run, _, err := env.runRepo.CreateRunWithStartedEvent(context.Background(), env.aliceOrgID, thread.ID, &env.aliceUserID, "run.started", nil)
+	run, _, err := env.runRepo.CreateRunWithStartedEvent(context.Background(), env.aliceAccountID, thread.ID, &env.aliceUserID, "run.started", nil)
 	if err != nil {
 		t.Fatalf("create run: %v", err)
 	}
@@ -405,19 +405,19 @@ func TestArtifactsAuthorizationByBrowserSessionOwnerFallback(t *testing.T) {
 	sessionRef := "brref_browserartifact"
 	if _, err := env.pool.Exec(context.Background(), `
 		INSERT INTO shell_sessions (
-			session_ref, session_type, org_id, profile_ref, workspace_ref,
+			session_ref, session_type, account_id, profile_ref, workspace_ref,
 			thread_id, run_id, share_scope, state, metadata_json
 		) VALUES ($1, 'browser', $2, $3, $4, $5, $6, $7, $8, '{}'::jsonb)
-	`, sessionRef, env.aliceOrgID, "pref_test", "wsref_test", thread.ID, run.ID, "thread", "idle"); err != nil {
+	`, sessionRef, env.aliceAccountID, "pref_test", "wsref_test", thread.ID, run.ID, "thread", "idle"); err != nil {
 		t.Fatalf("insert shell session: %v", err)
 	}
 
-	artifactKey := env.aliceOrgID.String() + "/" + sessionRef + "/1/browser-screenshot.png"
+	artifactKey := env.aliceAccountID.String() + "/" + sessionRef + "/1/browser-screenshot.png"
 	env.store.put(
 		artifactKey,
 		[]byte("png-bytes"),
 		"image/png",
-		objectstore.ArtifactMetadata(objectstore.ArtifactOwnerKindRun, sessionRef, env.aliceOrgID.String(), nil),
+		objectstore.ArtifactMetadata(objectstore.ArtifactOwnerKindRun, sessionRef, env.aliceAccountID.String(), nil),
 	)
 
 	resp := doArtifactRequest(t, env.handler, "/v1/artifacts/"+artifactKey, authHeader(env.aliceToken))

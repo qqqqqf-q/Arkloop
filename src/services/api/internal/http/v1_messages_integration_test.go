@@ -257,7 +257,7 @@ func TestMessagesListIncludesAssistantRunID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse thread id: %v", err)
 	}
-	orgID, err := uuid.Parse(threadPayload.AccountID)
+	accountID, err := uuid.Parse(threadPayload.AccountID)
 	if err != nil {
 		t.Fatalf("parse org id: %v", err)
 	}
@@ -268,9 +268,9 @@ func TestMessagesListIncludesAssistantRunID(t *testing.T) {
 	}
 	_, err = pool.Exec(
 		ctx,
-		`INSERT INTO messages (org_id, thread_id, created_by_user_id, role, content, metadata_json)
+		`INSERT INTO messages (account_id, thread_id, created_by_user_id, role, content, metadata_json)
 		 VALUES ($1, $2, NULL, 'assistant', $3, $4::jsonb)`,
-		orgID,
+		accountID,
 		threadID,
 		"hello from assistant",
 		string(metadataRaw),

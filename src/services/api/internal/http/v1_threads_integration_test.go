@@ -273,7 +273,7 @@ func TestThreadsPatchDeleteOwnershipFallbacks(t *testing.T) {
 		t.Fatalf("create patch thread: %d body=%s", patchThreadResp.Code, patchThreadResp.Body.String())
 	}
 	patchThread := decodeJSONBody[threadResponse](t, patchThreadResp.Body.Bytes())
-	aliceOrgID, err := uuid.Parse(patchThread.AccountID)
+	aliceAccountID, err := uuid.Parse(patchThread.AccountID)
 	if err != nil {
 		t.Fatalf("parse org id: %v", err)
 	}
@@ -336,8 +336,8 @@ func TestThreadsPatchDeleteOwnershipFallbacks(t *testing.T) {
 	})
 
 	noOwnerTitle := "no-owner"
-	noOwnerPatchProject := mustCreateTestProject(t, ctx, pool, aliceOrgID, nil, "no-owner-patch")
-	noOwnerPatchThread, err := threadRepo.Create(ctx, aliceOrgID, nil, noOwnerPatchProject.ID, &noOwnerTitle, false)
+	noOwnerPatchProject := mustCreateTestProject(t, ctx, pool, aliceAccountID, nil, "no-owner-patch")
+	noOwnerPatchThread, err := threadRepo.Create(ctx, aliceAccountID, nil, noOwnerPatchProject.ID, &noOwnerTitle, false)
 	if err != nil {
 		t.Fatalf("create no-owner patch thread: %v", err)
 	}
@@ -409,8 +409,8 @@ func TestThreadsPatchDeleteOwnershipFallbacks(t *testing.T) {
 	})
 
 	noOwnerDeleteTitle := "no-owner-delete"
-	noOwnerDeleteProject := mustCreateTestProject(t, ctx, pool, aliceOrgID, nil, "no-owner-delete")
-	noOwnerDeleteThread, err := threadRepo.Create(ctx, aliceOrgID, nil, noOwnerDeleteProject.ID, &noOwnerDeleteTitle, false)
+	noOwnerDeleteProject := mustCreateTestProject(t, ctx, pool, aliceAccountID, nil, "no-owner-delete")
+	noOwnerDeleteThread, err := threadRepo.Create(ctx, aliceAccountID, nil, noOwnerDeleteProject.ID, &noOwnerDeleteTitle, false)
 	if err != nil {
 		t.Fatalf("create no-owner delete thread: %v", err)
 	}

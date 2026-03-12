@@ -107,7 +107,7 @@ func TestRedemptionCodesIntegration(t *testing.T) {
 	}
 	adminPayload := decodeJSONBody[registerResponse](t, adminResp.Body.Bytes())
 
-	_, err = pool.Exec(ctx, "UPDATE org_memberships SET role = $1 WHERE user_id = $2", auth.RolePlatformAdmin, adminPayload.UserID)
+	_, err = pool.Exec(ctx, "UPDATE account_memberships SET role = $1 WHERE user_id = $2", auth.RolePlatformAdmin, adminPayload.UserID)
 	if err != nil {
 		t.Fatalf("promote admin: %v", err)
 	}

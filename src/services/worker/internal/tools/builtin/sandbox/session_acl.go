@@ -11,9 +11,9 @@ import (
 )
 
 const (
-	orgRoleOwner         = "owner"
-	orgRoleOrgAdmin      = "org_admin"
-	orgRolePlatformAdmin = "platform_admin"
+	accountRoleOwner         = "owner"
+	accountRoleAdmin         = "account_admin"
+	accountRolePlatformAdmin = "platform_admin"
 )
 
 type sessionACLEvaluator struct {
@@ -137,7 +137,7 @@ func (e *sessionACLEvaluator) authorizeAccountShare(
 
 func canUseOrgSharedSession(role string) bool {
 	switch strings.TrimSpace(role) {
-	case orgRoleOwner, orgRoleOrgAdmin, orgRolePlatformAdmin:
+	case accountRoleOwner, accountRoleAdmin, accountRolePlatformAdmin:
 		return true
 	default:
 		return false

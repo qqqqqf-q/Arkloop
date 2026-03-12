@@ -10,7 +10,7 @@ import (
 	"arkloop/services/api/internal/http/billingapi"
 	"arkloop/services/api/internal/http/catalogapi"
 	"arkloop/services/api/internal/http/conversationapi"
-	"arkloop/services/api/internal/http/orgapi"
+	"arkloop/services/api/internal/http/accountapi"
 	"arkloop/services/api/internal/http/platformapi"
 
 	"arkloop/services/api/internal/audit"
@@ -287,7 +287,7 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 		Pool:                cfg.Pool,
 	})
 
-	orgapi.RegisterRoutes(mux, orgapi.Deps{
+	accountapi.RegisterRoutes(mux, accountapi.Deps{
 		AuthService:           cfg.AuthService,
 		AccountMembershipRepo: cfg.AccountMembershipRepo,
 		TeamRepo:              cfg.TeamRepo,

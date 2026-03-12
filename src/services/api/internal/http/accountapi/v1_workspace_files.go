@@ -1,4 +1,4 @@
-package orgapi
+package accountapi
 
 import (
 	httpkit "arkloop/services/api/internal/http/httpkit"

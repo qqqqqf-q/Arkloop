@@ -93,7 +93,7 @@ func TestAdminBroadcastsCreateListAndForbidden(t *testing.T) {
 	adminPayload := decodeJSONBody[registerResponse](t, adminReg.Body.Bytes())
 
 	// 提升为 platform_admin
-	_, err = pool.Exec(ctx, "UPDATE org_memberships SET role = $1 WHERE user_id = $2", auth.RolePlatformAdmin, adminPayload.UserID)
+	_, err = pool.Exec(ctx, "UPDATE account_memberships SET role = $1 WHERE user_id = $2", auth.RolePlatformAdmin, adminPayload.UserID)
 	if err != nil {
 		t.Fatalf("promote admin: %v", err)
 	}
@@ -198,15 +198,15 @@ func TestAdminBroadcastsCreateListAndForbidden(t *testing.T) {
 
 	// 广播到指定 org
 	t.Run("broadcast to org", func(t *testing.T) {
-		// 获取 alice 的 org_id
-		var aliceOrgID string
-		err := pool.QueryRow(ctx, "SELECT org_id FROM org_memberships WHERE user_id = $1 LIMIT 1", alicePayload.UserID).Scan(&aliceOrgID)
+		// 获取 alice 的 account_id
+		var aliceAccountID string
+		err := pool.QueryRow(ctx, "SELECT account_id FROM account_memberships WHERE user_id = $1 LIMIT 1", alicePayload.UserID).Scan(&aliceAccountID)
 		if err != nil {
 			t.Fatalf("get alice org: %v", err)
 		}
 
 		resp := doJSON(handler, nethttp.MethodPost, "/v1/admin/notifications/broadcasts",
-			map[string]any{"type": "maintenance", "title": "Org Maintenance", "body": "scheduled downtime", "target": aliceOrgID},
+			map[string]any{"type": "maintenance", "title": "Org Maintenance", "body": "scheduled downtime", "target": aliceAccountID},
 			authHeader(adminToken))
 		if resp.Code != nethttp.StatusAccepted {
 			t.Fatalf("create org broadcast: %d %s", resp.Code, resp.Body.String())

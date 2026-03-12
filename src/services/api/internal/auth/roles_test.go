@@ -17,7 +17,7 @@ func TestPermissionsForRole(t *testing.T) {
 			mustHave: []string{PermPlatformAdmin, PermOrgMembersInvite, PermDataThreadsRead},
 		},
 		{
-			role: RoleOrgAdmin,
+			role: RoleAccountAdmin,
 			mustHave: []string{
 				PermOrgMembersInvite, PermOrgMembersList, PermOrgMembersRevoke,
 				PermOrgTeamsRead, PermOrgTeamsManage,
@@ -36,7 +36,7 @@ func TestPermissionsForRole(t *testing.T) {
 			mustNot: []string{PermPlatformAdmin},
 		},
 		{
-			role: RoleOrgMember,
+			role: RoleAccountMember,
 			mustHave: []string{
 				PermDataThreadsRead, PermDataRunsRead, PermDataAPIKeysManage,
 				PermOrgTeamsRead, PermDataProjectsRead,
@@ -88,11 +88,11 @@ func TestPermissionsForRole(t *testing.T) {
 	}
 }
 
-func TestPermissionsForRoleOrgAdminEqualsOwner(t *testing.T) {
-	a := PermissionsForRole(RoleOrgAdmin)
+func TestPermissionsForRoleAccountAdminEqualsOwner(t *testing.T) {
+	a := PermissionsForRole(RoleAccountAdmin)
 	b := PermissionsForRole("owner")
 	if len(a) != len(b) {
-		t.Fatalf("org_admin(%d) and owner(%d) perm counts differ", len(a), len(b))
+		t.Fatalf("account_admin(%d) and owner(%d) perm counts differ", len(a), len(b))
 	}
 	for _, p := range a {
 		if !slices.Contains(b, p) {
@@ -101,11 +101,11 @@ func TestPermissionsForRoleOrgAdminEqualsOwner(t *testing.T) {
 	}
 }
 
-func TestPermissionsForRoleOrgMemberEqualsMember(t *testing.T) {
-	a := PermissionsForRole(RoleOrgMember)
+func TestPermissionsForRoleAccountMemberEqualsMember(t *testing.T) {
+	a := PermissionsForRole(RoleAccountMember)
 	b := PermissionsForRole("member")
 	if len(a) != len(b) {
-		t.Fatalf("org_member(%d) and member(%d) perm counts differ", len(a), len(b))
+		t.Fatalf("account_member(%d) and member(%d) perm counts differ", len(a), len(b))
 	}
 	for _, p := range a {
 		if !slices.Contains(b, p) {

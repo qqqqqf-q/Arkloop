@@ -567,9 +567,9 @@ func TestAuthMeRequiresMembership(t *testing.T) {
 	}
 	registerPayload := decodeJSONBody[registerResponse](t, registerResp.Body.Bytes())
 
-	_, err = pool.Exec(ctx, `DELETE FROM org_memberships m
-		USING orgs o
-		WHERE m.org_id = o.id
+	_, err = pool.Exec(ctx, `DELETE FROM account_memberships m
+		USING accounts o
+		WHERE m.account_id = o.id
 		  AND m.user_id = $1::uuid
 		  AND o.type = 'personal'`, registerPayload.UserID)
 	if err != nil {

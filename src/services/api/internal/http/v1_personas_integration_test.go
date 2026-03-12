@@ -126,13 +126,13 @@ func TestPersonasListCreateAndPatchUsePersonaFields(t *testing.T) {
 		t.Fatalf("me: %d %s", meResp.Code, meResp.Body.String())
 	}
 	me := decodeJSONBody[meResponse](t, meResp.Body.Bytes())
-	orgID := uuid.MustParse(me.AccountID)
+	accountID := uuid.MustParse(me.AccountID)
 
 	ghostID := insertGlobalPersonaHTTP(t, ctx, pool, "ghost", "Ghost Persona")
 
 	_, err = personasRepo.Create(
 		ctx,
-		orgID,
+		accountID,
 		"shadowed",
 		"1",
 		"Custom Shadowed",
@@ -153,7 +153,7 @@ func TestPersonasListCreateAndPatchUsePersonaFields(t *testing.T) {
 	}
 	_, err = personasRepo.Create(
 		ctx,
-		orgID,
+		accountID,
 		"custom-only",
 		"1",
 		"Custom Only",
@@ -423,7 +423,7 @@ func TestPersonasListOrgScopeAllowsMemberReadForBuiltinSelector(t *testing.T) {
 		t.Fatalf("register: %d %s", reg.Code, reg.Body.String())
 	}
 	regBody := decodeJSONBody[registerResponse](t, reg.Body.Bytes())
-	if err := membershipRepo.SetRoleForUser(ctx, uuid.MustParse(regBody.UserID), auth.RoleOrgMember); err != nil {
+	if err := membershipRepo.SetRoleForUser(ctx, uuid.MustParse(regBody.UserID), auth.RoleAccountMember); err != nil {
 		t.Fatalf("set member role: %v", err)
 	}
 
@@ -557,7 +557,7 @@ func TestSelectablePersonasEffectiveForMemberUser(t *testing.T) {
 		t.Fatalf("register: %d %s", reg.Code, reg.Body.String())
 	}
 	regBody := decodeJSONBody[registerResponse](t, reg.Body.Bytes())
-	if err := membershipRepo.SetRoleForUser(ctx, uuid.MustParse(regBody.UserID), auth.RoleOrgMember); err != nil {
+	if err := membershipRepo.SetRoleForUser(ctx, uuid.MustParse(regBody.UserID), auth.RoleAccountMember); err != nil {
 		t.Fatalf("set member role: %v", err)
 	}
 
@@ -566,7 +566,7 @@ func TestSelectablePersonasEffectiveForMemberUser(t *testing.T) {
 		t.Fatalf("me: %d %s", meResp.Code, meResp.Body.String())
 	}
 	me := decodeJSONBody[meResponse](t, meResp.Body.Bytes())
-	orgID := uuid.MustParse(me.AccountID)
+	accountID := uuid.MustParse(me.AccountID)
 
 	if _, err := personasRepo.CreateInScope(ctx, uuid.Nil, data.PersonaScopePlatform, "extended-search", "1", "Platform Search", nil, "platform search prompt", nil, nil, json.RawMessage(`{"temperature":0.4}`), nil, strPtrPersonaLocal("platform^search"), "auto", "none", "agent.simple", nil); err != nil {
 		t.Fatalf("create platform search: %v", err)
@@ -577,17 +577,17 @@ func TestSelectablePersonasEffectiveForMemberUser(t *testing.T) {
 	if _, err := personasRepo.CreateInScope(ctx, uuid.Nil, data.PersonaScopePlatform, "platform-custom", "1", "Platform Custom", nil, "platform custom prompt", nil, nil, json.RawMessage(`{"temperature":0.4}`), nil, strPtrPersonaLocal("platform^custom"), "auto", "none", "agent.simple", nil); err != nil {
 		t.Fatalf("create platform custom: %v", err)
 	}
-	if _, err := personasRepo.CreateInScope(ctx, orgID, data.PersonaScopeProject, "normal", "1", "Org Normal", nil, "org normal prompt", nil, nil, json.RawMessage(`{"temperature":0.2}`), nil, strPtrPersonaLocal("org^normal"), "high", "system_prompt", "agent.simple", nil); err != nil {
+	if _, err := personasRepo.CreateInScope(ctx, accountID, data.PersonaScopeProject, "normal", "1", "Account Normal", nil, "account normal prompt", nil, nil, json.RawMessage(`{"temperature":0.2}`), nil, strPtrPersonaLocal("org^normal"), "high", "system_prompt", "agent.simple", nil); err != nil {
 		t.Fatalf("create org normal: %v", err)
 	}
-	if _, err := personasRepo.CreateInScope(ctx, orgID, data.PersonaScopeProject, "org-custom", "1", "Org Custom", nil, "org custom prompt", nil, nil, json.RawMessage(`{"temperature":0.2}`), nil, strPtrPersonaLocal("org^custom"), "high", "system_prompt", "agent.simple", nil); err != nil {
+	if _, err := personasRepo.CreateInScope(ctx, accountID, data.PersonaScopeProject, "org-custom", "1", "Account Custom", nil, "account custom prompt", nil, nil, json.RawMessage(`{"temperature":0.2}`), nil, strPtrPersonaLocal("org^custom"), "high", "system_prompt", "agent.simple", nil); err != nil {
 		t.Fatalf("create org custom: %v", err)
 	}
-	inactive, err := personasRepo.CreateInScope(ctx, orgID, data.PersonaScopeProject, "extended-search", "1", "Org Search Inactive", nil, "org inactive search prompt", nil, nil, json.RawMessage(`{"temperature":0.2}`), nil, strPtrPersonaLocal("org^search"), "high", "system_prompt", "agent.simple", nil)
+	inactive, err := personasRepo.CreateInScope(ctx, accountID, data.PersonaScopeProject, "extended-search", "1", "Account Search Inactive", nil, "account inactive search prompt", nil, nil, json.RawMessage(`{"temperature":0.2}`), nil, strPtrPersonaLocal("org^search"), "high", "system_prompt", "agent.simple", nil)
 	if err != nil {
 		t.Fatalf("create org search inactive: %v", err)
 	}
-	if _, err := personasRepo.PatchInScope(ctx, orgID, inactive.ID, data.PersonaScopeProject, data.PersonaPatch{IsActive: boolPtrPersonaLocal(false)}); err != nil {
+	if _, err := personasRepo.PatchInScope(ctx, accountID, inactive.ID, data.PersonaScopeProject, data.PersonaPatch{IsActive: boolPtrPersonaLocal(false)}); err != nil {
 		t.Fatalf("deactivate org search: %v", err)
 	}
 
@@ -624,7 +624,7 @@ func TestSelectablePersonasEffectiveForMemberUser(t *testing.T) {
 	if !ok {
 		t.Fatal("expected normal persona in selectable list")
 	}
-	if normal.DisplayName != "Org Normal" {
+	if normal.DisplayName != "Account Normal" {
 		t.Fatalf("unexpected normal display name: %q", normal.DisplayName)
 	}
 	if normal.Scope != data.PersonaScopeProject {
@@ -680,7 +680,7 @@ func insertGlobalPersonaHTTP(t *testing.T, ctx context.Context, pool data.Querie
 	err := pool.QueryRow(
 		ctx,
 		`INSERT INTO personas
-			(org_id, persona_key, version, display_name, prompt_md, tool_allowlist, budgets_json, executor_type, executor_config_json)
+			(account_id, persona_key, version, display_name, prompt_md, tool_allowlist, budgets_json, executor_type, executor_config_json)
 		 VALUES (NULL, $1, '1', $2, 'ghost prompt', '{}', '{}'::jsonb, 'agent.simple', '{}'::jsonb)
 		 RETURNING id`,
 		personaKey,

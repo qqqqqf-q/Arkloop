@@ -27,7 +27,7 @@ type skillsTestEnv struct {
 	pool        *pgxpool.Pool
 	aliceToken  string
 	aliceUserID uuid.UUID
-	aliceOrgID  uuid.UUID
+	aliceAccountID  uuid.UUID
 	skillStore  *fakeHTTPArtifactStore
 }
 
@@ -54,9 +54,9 @@ func TestSkillPackageLifecycle(t *testing.T) {
 
 	workspaceRef := "wsref_skills_test"
 	if _, err := env.pool.Exec(context.Background(), `
-		INSERT INTO workspace_registries (workspace_ref, org_id, owner_user_id, metadata_json)
+		INSERT INTO workspace_registries (workspace_ref, account_id, owner_user_id, metadata_json)
 		VALUES ($1, $2, $3, '{}'::jsonb)
-	`, workspaceRef, env.aliceOrgID, env.aliceUserID); err != nil {
+	`, workspaceRef, env.aliceAccountID, env.aliceUserID); err != nil {
 		t.Fatalf("insert workspace registry: %v", err)
 	}
 
@@ -77,7 +77,7 @@ func TestSkillPackageLifecycle(t *testing.T) {
 		t.Fatalf("unexpected workspace skills payload: %#v", body)
 	}
 
-	profileRef := sharedenvironmentref.BuildProfileRef(env.aliceOrgID, &env.aliceUserID)
+	profileRef := sharedenvironmentref.BuildProfileRef(env.aliceAccountID, &env.aliceUserID)
 	var profileMetadata []byte
 	if err := env.pool.QueryRow(context.Background(), `SELECT metadata_json FROM profile_registries WHERE profile_ref = $1`, profileRef).Scan(&profileMetadata); err != nil {
 		t.Fatalf("load profile metadata: %v", err)
@@ -168,13 +168,13 @@ func buildSkillsEnv(t *testing.T) skillsTestEnv {
 		t.Fatalf("me: %d %s", meResp.Code, meResp.Body.String())
 	}
 	mePayload := decodeJSONBody[meResponse](t, meResp.Body.Bytes())
-	aliceOrgID := uuid.MustParse(mePayload.AccountID)
+	aliceAccountID := uuid.MustParse(mePayload.AccountID)
 	loginResp := doJSON(handler, nethttp.MethodPost, "/v1/auth/login", map[string]any{"login": "alice-skills", "password": "pwd12345"}, nil)
 	if loginResp.Code != nethttp.StatusOK {
 		t.Fatalf("login: %d %s", loginResp.Code, loginResp.Body.String())
 	}
 	loginPayload := decodeJSONBody[loginResponse](t, loginResp.Body.Bytes())
-	return skillsTestEnv{handler: handler, pool: pool, aliceToken: loginPayload.AccessToken, aliceUserID: aliceUserID, aliceOrgID: aliceOrgID, skillStore: store}
+	return skillsTestEnv{handler: handler, pool: pool, aliceToken: loginPayload.AccessToken, aliceUserID: aliceUserID, aliceAccountID: aliceAccountID, skillStore: store}
 }
 
 func seedSkillPackageObjects(t *testing.T, store *fakeHTTPArtifactStore, skillKey, version string) {
@@ -219,7 +219,7 @@ func writeTarFile(t *testing.T, writer *tar.Writer, name string, data []byte, mo
 
 func promoteToPlatformAdmin(t *testing.T, pool *pgxpool.Pool, userID uuid.UUID) {
 	t.Helper()
-	if _, err := pool.Exec(context.Background(), `UPDATE org_memberships SET role = 'platform_admin' WHERE user_id = $1`, userID); err != nil {
+	if _, err := pool.Exec(context.Background(), `UPDATE account_memberships SET role = 'platform_admin' WHERE user_id = $1`, userID); err != nil {
 		t.Fatalf("promote platform admin: %v", err)
 	}
 }

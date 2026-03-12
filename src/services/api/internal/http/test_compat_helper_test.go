@@ -59,8 +59,8 @@ type meResponse struct {
 	EmailVerified             bool     `json:"email_verified"`
 	EmailVerificationRequired bool     `json:"email_verification_required"`
 	CreatedAt                 string   `json:"created_at"`
-	AccountID                 string   `json:"org_id,omitempty"`
-	AccountName               string   `json:"org_name,omitempty"`
+	AccountID                 string   `json:"account_id,omitempty"`
+	AccountName               string   `json:"account_name,omitempty"`
 	Role                      string   `json:"role,omitempty"`
 	Permissions               []string `json:"permissions"`
 }
@@ -233,7 +233,7 @@ type toolDescriptionSource string
 const (
 	toolDescriptionSourceDefault  toolDescriptionSource = "default"
 	toolDescriptionSourcePlatform toolDescriptionSource = "platform"
-	toolDescriptionSourceOrg      toolDescriptionSource = "org"
+	toolDescriptionSourceProject toolDescriptionSource = "project"
 )
 
 type toolCatalogItem struct {
@@ -256,7 +256,7 @@ type toolCatalogResponse struct {
 
 type llmProviderResponse struct {
 	ID            string                     `json:"id"`
-	AccountID     string                     `json:"org_id"`
+	AccountID     string                     `json:"account_id"`
 	Provider      string                     `json:"provider"`
 	Name          string                     `json:"name"`
 	KeyPrefix     *string                    `json:"key_prefix"`
@@ -295,7 +295,7 @@ type llmProviderAvailableModel struct {
 
 type personaResponse struct {
 	ID                  string          `json:"id"`
-	AccountID           *string         `json:"org_id"`
+	AccountID           *string         `json:"account_id"`
 	PersonaKey          string          `json:"persona_key"`
 	Version             string          `json:"version"`
 	DisplayName         string          `json:"display_name"`

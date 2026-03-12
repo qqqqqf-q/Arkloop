@@ -118,7 +118,7 @@ func TestCreditsIntegration(t *testing.T) {
 	}
 	adminPayload := decodeJSONBody[registerResponse](t, adminResp.Body.Bytes())
 
-	if _, err = pool.Exec(ctx, "UPDATE org_memberships SET role = $1 WHERE user_id = $2", auth.RolePlatformAdmin, adminPayload.UserID); err != nil {
+	if _, err = pool.Exec(ctx, "UPDATE account_memberships SET role = $1 WHERE user_id = $2", auth.RolePlatformAdmin, adminPayload.UserID); err != nil {
 		t.Fatalf("promote admin: %v", err)
 	}
 	loginResp := doJSON(handler, nethttp.MethodPost, "/v1/auth/login",
@@ -133,14 +133,14 @@ func TestCreditsIntegration(t *testing.T) {
 		t.Fatalf("get me: %d %s", meResp.Code, meResp.Body.String())
 	}
 	type meMinimalResponse struct {
-		AccountID string `json:"org_id"`
+		AccountID string `json:"account_id"`
 	}
 	meData := decodeJSONBody[meMinimalResponse](t, meResp.Body.Bytes())
-	orgID := meData.AccountID
+	accountID := meData.AccountID
 
 	t.Run("admin adjust positive writes audit", func(t *testing.T) {
 		resp := doJSON(handler, nethttp.MethodPost, "/v1/admin/credits/adjust",
-			map[string]any{"org_id": orgID, "amount": 500, "note": "test top-up"},
+			map[string]any{"account_id": accountID, "amount": 500, "note": "test top-up"},
 			authHeader(adminToken))
 		if resp.Code != nethttp.StatusOK {
 			t.Fatalf("adjust: %d %s", resp.Code, resp.Body.String())
@@ -155,7 +155,7 @@ func TestCreditsIntegration(t *testing.T) {
 		if log.TargetType == nil || *log.TargetType != "org" {
 			t.Fatalf("unexpected target_type: %#v", log.TargetType)
 		}
-		if log.TargetID == nil || *log.TargetID != orgID {
+		if log.TargetID == nil || *log.TargetID != accountID {
 			t.Fatalf("unexpected target_id: %#v", log.TargetID)
 		}
 		if log.Metadata["amount"] != float64(500) || log.Metadata["note"] != "test top-up" {
@@ -168,7 +168,7 @@ func TestCreditsIntegration(t *testing.T) {
 
 	t.Run("admin adjust negative writes audit", func(t *testing.T) {
 		resp := doJSON(handler, nethttp.MethodPost, "/v1/admin/credits/adjust",
-			map[string]any{"org_id": orgID, "amount": -200, "note": "test deduction"},
+			map[string]any{"account_id": accountID, "amount": -200, "note": "test deduction"},
 			authHeader(adminToken))
 		if resp.Code != nethttp.StatusOK {
 			t.Fatalf("adjust: %d %s", resp.Code, resp.Body.String())
@@ -193,20 +193,20 @@ func TestCreditsIntegration(t *testing.T) {
 
 	t.Run("admin adjust requires note", func(t *testing.T) {
 		resp := doJSON(handler, nethttp.MethodPost, "/v1/admin/credits/adjust",
-			map[string]any{"org_id": orgID, "amount": 100, "note": ""},
+			map[string]any{"account_id": accountID, "amount": 100, "note": ""},
 			authHeader(adminToken))
 		assertErrorEnvelope(t, resp, nethttp.StatusUnprocessableEntity, "validation.error")
 	})
 
 	t.Run("admin view org credits", func(t *testing.T) {
-		resp := doJSON(handler, nethttp.MethodGet, "/v1/admin/credits?org_id="+orgID, nil,
+		resp := doJSON(handler, nethttp.MethodGet, "/v1/admin/credits?account_id="+accountID, nil,
 			authHeader(adminToken))
 		if resp.Code != nethttp.StatusOK {
 			t.Fatalf("admin credits: %d %s", resp.Code, resp.Body.String())
 		}
 
 		type adminResp struct {
-			OrgID        string                      `json:"org_id"`
+			AccountID        string                      `json:"account_id"`
 			Balance      int64                       `json:"balance"`
 			Transactions []creditTransactionResponse `json:"transactions"`
 		}
@@ -220,7 +220,7 @@ func TestCreditsIntegration(t *testing.T) {
 	})
 
 	t.Run("non-admin forbidden", func(t *testing.T) {
-		resp := doJSON(handler, nethttp.MethodGet, "/v1/admin/credits?org_id="+orgID, nil,
+		resp := doJSON(handler, nethttp.MethodGet, "/v1/admin/credits?account_id="+accountID, nil,
 			authHeader(token))
 		if resp.Code != nethttp.StatusForbidden {
 			t.Fatalf("expected 403, got %d", resp.Code)
@@ -276,7 +276,7 @@ func TestCreditsIntegration(t *testing.T) {
 			t.Fatalf("unexpected metadata: %#v", log.Metadata)
 		}
 
-		checkResp := doJSON(handler, nethttp.MethodGet, "/v1/admin/credits?org_id="+orgID, nil, authHeader(adminToken))
+		checkResp := doJSON(handler, nethttp.MethodGet, "/v1/admin/credits?account_id="+accountID, nil, authHeader(adminToken))
 		if checkResp.Code != nethttp.StatusOK {
 			t.Fatalf("view after reset: %d %s", checkResp.Code, checkResp.Body.String())
 		}
@@ -291,7 +291,7 @@ func TestCreditsIntegration(t *testing.T) {
 
 	t.Run("insufficient credits", func(t *testing.T) {
 		resp := doJSON(handler, nethttp.MethodPost, "/v1/admin/credits/adjust",
-			map[string]any{"org_id": orgID, "amount": -99999, "note": "drain test"},
+			map[string]any{"account_id": accountID, "amount": -99999, "note": "drain test"},
 			authHeader(adminToken))
 		if resp.Code != nethttp.StatusConflict {
 			t.Fatalf("expected 409, got %d %s", resp.Code, resp.Body.String())

@@ -8,14 +8,14 @@ import (
 	"github.com/google/uuid"
 )
 
-func mustCreateTestProject(t *testing.T, ctx context.Context, db data.Querier, orgID uuid.UUID, ownerUserID *uuid.UUID, name string) data.Project {
+func mustCreateTestProject(t *testing.T, ctx context.Context, db data.Querier, accountID uuid.UUID, ownerUserID *uuid.UUID, name string) data.Project {
 	t.Helper()
 
 	repo, err := data.NewProjectRepository(db)
 	if err != nil {
 		t.Fatalf("new project repo: %v", err)
 	}
-	project, err := repo.Create(ctx, orgID, nil, name, nil, "private")
+	project, err := repo.Create(ctx, accountID, nil, name, nil, "private")
 	if err != nil {
 		t.Fatalf("create project: %v", err)
 	}

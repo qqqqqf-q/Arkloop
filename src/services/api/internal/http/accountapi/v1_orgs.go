@@ -1,4 +1,4 @@
-package orgapi
+package accountapi
 
 import (
 	httpkit "arkloop/services/api/internal/http/httpkit"
@@ -25,7 +25,7 @@ type createWorkspaceRequest struct {
 	Name string `json:"name"`
 }
 
-func orgsEntry(
+func accountsEntry(
 	authService *auth.Service,
 	membershipRepo *data.AccountMembershipRepository,
 	accountRepo *data.AccountRepository,
@@ -33,14 +33,14 @@ func orgsEntry(
 	apiKeysRepo *data.APIKeysRepository,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
-		// GET /v1/orgs/me
+		// GET /v1/accounts/me
 		if r.Method == nethttp.MethodGet && strings.HasSuffix(strings.TrimRight(r.URL.Path, "/"), "/me") {
 			listMyAccounts(w, r, authService, membershipRepo, accountRepo, apiKeysRepo)
 			return
 		}
 
-		// POST /v1/orgs
-		if r.Method == nethttp.MethodPost && (r.URL.Path == "/v1/orgs" || r.URL.Path == "/v1/orgs/") {
+		// POST /v1/accounts
+		if r.Method == nethttp.MethodPost && (r.URL.Path == "/v1/accounts" || r.URL.Path == "/v1/accounts/") {
 			createWorkspace(w, r, authService, membershipRepo, accountService, apiKeysRepo)
 			return
 		}

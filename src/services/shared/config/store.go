@@ -12,7 +12,7 @@ import (
 
 type Store interface {
 	GetPlatformSetting(ctx context.Context, key string) (string, bool, error)
-	GetProjectSetting(ctx context.Context, orgID uuid.UUID, key string) (string, bool, error)
+	GetProjectSetting(ctx context.Context, projectID uuid.UUID, key string) (string, bool, error)
 }
 
 type PGXStore struct {

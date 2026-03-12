@@ -259,38 +259,38 @@ func TestToolProvidersListActivateCredentialAndClear(t *testing.T) {
 		t.Fatalf("expected key_prefix cleared, got %v", *tavily.KeyPrefix)
 	}
 
-	// org scope：org_admin 可配置自身 org，且不会影响 platform scope
+	// project scope: account_admin 可配置自身 project，且不会影响 platform scope
 	orgAdmin, err := userRepo.Create(ctx, "org-admin", "org-admin@test.com", "en")
 	if err != nil {
 		t.Fatalf("create org admin user: %v", err)
 	}
-	if _, err := membershipRepo.Create(ctx, org.ID, orgAdmin.ID, auth.RoleOrgAdmin); err != nil {
+	if _, err := membershipRepo.Create(ctx, org.ID, orgAdmin.ID, auth.RoleAccountAdmin); err != nil {
 		t.Fatalf("create org admin membership: %v", err)
 	}
-	orgToken, err := tokenService.Issue(orgAdmin.ID, org.ID, auth.RoleOrgAdmin, time.Now().UTC())
+	orgToken, err := tokenService.Issue(orgAdmin.ID, org.ID, auth.RoleAccountAdmin, time.Now().UTC())
 	if err != nil {
 		t.Fatalf("issue org token: %v", err)
 	}
 
-	// org_admin 默认（platform）应 403
+	// account_admin 默认（platform）应 403
 	orgListPlatform := doJSON(handler, nethttp.MethodGet, "/v1/tool-providers", nil, authHeader(orgToken))
 	if orgListPlatform.Code != nethttp.StatusForbidden {
 		t.Fatalf("org list platform: %d %s", orgListPlatform.Code, orgListPlatform.Body.String())
 	}
 
-	// org_admin + scope=org 可访问
-	orgListResp := doJSON(handler, nethttp.MethodGet, "/v1/tool-providers?scope=org", nil, authHeader(orgToken))
+	// account_admin + scope=project 可访问
+	orgListResp := doJSON(handler, nethttp.MethodGet, "/v1/tool-providers?scope=project", nil, authHeader(orgToken))
 	if orgListResp.Code != nethttp.StatusOK {
 		t.Fatalf("org list: %d %s", orgListResp.Code, orgListResp.Body.String())
 	}
 
 	// 激活 + 配置 key
-	orgAct := doJSON(handler, nethttp.MethodPut, "/v1/tool-providers/web_search/web_search.tavily/activate?scope=org", nil, authHeader(orgToken))
+	orgAct := doJSON(handler, nethttp.MethodPut, "/v1/tool-providers/web_search/web_search.tavily/activate?scope=project", nil, authHeader(orgToken))
 	if orgAct.Code != nethttp.StatusNoContent {
 		t.Fatalf("org activate tavily: %d %s", orgAct.Code, orgAct.Body.String())
 	}
 	orgKeyPayload := map[string]any{"api_key": "tvly-org-abcdef123456"}
-	orgUpsert := doJSON(handler, nethttp.MethodPut, "/v1/tool-providers/web_search/web_search.tavily/credential?scope=org", orgKeyPayload, authHeader(orgToken))
+	orgUpsert := doJSON(handler, nethttp.MethodPut, "/v1/tool-providers/web_search/web_search.tavily/credential?scope=project", orgKeyPayload, authHeader(orgToken))
 	if orgUpsert.Code != nethttp.StatusNoContent {
 		t.Fatalf("org upsert credential: %d %s", orgUpsert.Code, orgUpsert.Body.String())
 	}
@@ -299,7 +299,7 @@ func TestToolProvidersListActivateCredentialAndClear(t *testing.T) {
 	if err := pool.QueryRow(ctx, `
 		SELECT COUNT(*)
 		FROM tool_provider_configs
-		WHERE scope = 'org' AND org_id = $1 AND provider_name = 'web_search.tavily'
+		WHERE owner_kind = 'user' AND account_id = $1 AND provider_name = 'web_search.tavily'
 	`, org.ID).Scan(&orgCfgCount); err != nil {
 		t.Fatalf("org cfg count: %v", err)
 	}
@@ -308,7 +308,7 @@ func TestToolProvidersListActivateCredentialAndClear(t *testing.T) {
 	}
 
 	// org scope list 应有前缀
-	orgListAfterKey := doJSON(handler, nethttp.MethodGet, "/v1/tool-providers?scope=org", nil, authHeader(orgToken))
+	orgListAfterKey := doJSON(handler, nethttp.MethodGet, "/v1/tool-providers?scope=project", nil, authHeader(orgToken))
 	if orgListAfterKey.Code != nethttp.StatusOK {
 		t.Fatalf("org list after key: %d %s", orgListAfterKey.Code, orgListAfterKey.Body.String())
 	}
@@ -344,7 +344,7 @@ func TestToolProvidersListActivateCredentialAndClear(t *testing.T) {
 	}
 
 	// org scope clear 会删除 org secret + 停用
-	orgClear := doJSON(handler, nethttp.MethodDelete, "/v1/tool-providers/web_search/web_search.tavily/credential?scope=org", nil, authHeader(orgToken))
+	orgClear := doJSON(handler, nethttp.MethodDelete, "/v1/tool-providers/web_search/web_search.tavily/credential?scope=project", nil, authHeader(orgToken))
 	if orgClear.Code != nethttp.StatusNoContent {
 		t.Fatalf("org clear credential: %d %s", orgClear.Code, orgClear.Body.String())
 	}
@@ -353,7 +353,7 @@ func TestToolProvidersListActivateCredentialAndClear(t *testing.T) {
 	if err := pool.QueryRow(ctx, `
 		SELECT COUNT(*)
 		FROM secrets
-		WHERE scope = 'org' AND org_id = $1 AND name = 'tool_provider:web_search.tavily'
+		WHERE owner_kind = 'user' AND account_id = $1 AND name = 'tool_provider:web_search.tavily'
 	`, org.ID).Scan(&orgSecretCount); err != nil {
 		t.Fatalf("org secret count: %v", err)
 	}

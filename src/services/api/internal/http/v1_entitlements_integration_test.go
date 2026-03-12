@@ -90,7 +90,7 @@ func TestEntitlementOverridesAuditIntegration(t *testing.T) {
 	}
 	adminPayload := decodeJSONBody[registerResponse](t, registerResp.Body.Bytes())
 
-	if _, err := pool.Exec(ctx, "UPDATE org_memberships SET role = $1 WHERE user_id = $2", auth.RolePlatformAdmin, adminPayload.UserID); err != nil {
+	if _, err := pool.Exec(ctx, "UPDATE account_memberships SET role = $1 WHERE user_id = $2", auth.RolePlatformAdmin, adminPayload.UserID); err != nil {
 		t.Fatalf("promote admin: %v", err)
 	}
 	loginResp := doJSON(handler, nethttp.MethodPost, "/v1/auth/login",
@@ -100,14 +100,14 @@ func TestEntitlementOverridesAuditIntegration(t *testing.T) {
 	}
 	adminToken := decodeJSONBody[loginResponse](t, loginResp.Body.Bytes()).AccessToken
 
-	var orgID string
-	if err := pool.QueryRow(ctx, "SELECT org_id::text FROM org_memberships WHERE user_id = $1 LIMIT 1", adminPayload.UserID).Scan(&orgID); err != nil {
+	var accountID string
+	if err := pool.QueryRow(ctx, "SELECT account_id::text FROM account_memberships WHERE user_id = $1 LIMIT 1", adminPayload.UserID).Scan(&accountID); err != nil {
 		t.Fatalf("query org id: %v", err)
 	}
 
 	type overrideResp struct {
 		ID        string  `json:"id"`
-		OrgID     string  `json:"org_id"`
+		AccountID     string  `json:"account_id"`
 		Key       string  `json:"key"`
 		Value     string  `json:"value"`
 		Reason    *string `json:"reason,omitempty"`
@@ -117,7 +117,7 @@ func TestEntitlementOverridesAuditIntegration(t *testing.T) {
 	var overrideID string
 	t.Run("create override writes audit", func(t *testing.T) {
 		resp := doJSON(handler, nethttp.MethodPost, "/v1/entitlement-overrides", map[string]any{
-			"org_id":     orgID,
+			"account_id":     accountID,
 			"key":        "credits.monthly_limit",
 			"value":      "1500",
 			"value_type": "int",
@@ -149,7 +149,7 @@ func TestEntitlementOverridesAuditIntegration(t *testing.T) {
 
 	t.Run("update override writes before and after", func(t *testing.T) {
 		resp := doJSON(handler, nethttp.MethodPost, "/v1/entitlement-overrides", map[string]any{
-			"org_id":     orgID,
+			"account_id":     accountID,
 			"key":        "credits.monthly_limit",
 			"value":      "2400",
 			"value_type": "int",
@@ -176,7 +176,7 @@ func TestEntitlementOverridesAuditIntegration(t *testing.T) {
 	})
 
 	t.Run("delete override writes delete audit", func(t *testing.T) {
-		resp := doJSON(handler, nethttp.MethodDelete, "/v1/entitlement-overrides/"+overrideID+"?org_id="+orgID, nil, authHeader(adminToken))
+		resp := doJSON(handler, nethttp.MethodDelete, "/v1/entitlement-overrides/"+overrideID+"?account_id="+accountID, nil, authHeader(adminToken))
 		if resp.Code != nethttp.StatusOK {
 			t.Fatalf("delete override: %d %s", resp.Code, resp.Body.String())
 		}
