@@ -134,7 +134,7 @@ group, provider, secretID, keyPrefix, baseURL, configJSON)
 row = r.db.QueryRow(ctx, `
 INSERT INTO tool_provider_configs (owner_kind, owner_user_id, group_name, provider_name, secret_id, key_prefix, base_url, config_json)
 VALUES ('user', $1, $2, $3, $4, $5, $6, COALESCE($7, '{}'::jsonb))
-ON CONFLICT (owner_user_id, provider_name) WHERE owner_user_id IS NOT NULL
+ON CONFLICT (owner_user_id, provider_name) WHERE owner_kind = 'user' AND owner_user_id IS NOT NULL
 DO UPDATE SET
 group_name  = EXCLUDED.group_name,
 secret_id   = COALESCE(EXCLUDED.secret_id, tool_provider_configs.secret_id),
@@ -201,7 +201,7 @@ return err
 _, err := r.db.Exec(ctx, `
 INSERT INTO tool_provider_configs (owner_kind, owner_user_id, group_name, provider_name, is_active)
 VALUES ('user', $1, $2, $3, TRUE)
-ON CONFLICT (owner_user_id, provider_name) WHERE owner_user_id IS NOT NULL
+ON CONFLICT (owner_user_id, provider_name) WHERE owner_kind = 'user' AND owner_user_id IS NOT NULL
 DO UPDATE SET
 group_name = EXCLUDED.group_name,
 is_active  = TRUE,

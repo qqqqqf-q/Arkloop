@@ -3,8 +3,10 @@ package catalogapi
 import (
 	httpkit "arkloop/services/api/internal/http/httpkit"
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"strings"
 
 	nethttp "net/http"
@@ -204,7 +206,7 @@ func listLlmProviders(
 	}
 	providers, err := service.ListProviders(r.Context(), actor.AccountID, scope, &actor.UserID)
 	if err != nil {
-		writeLlmProviderServiceError(w, traceID, err)
+		writeLlmProviderServiceError(r.Context(), w, traceID, err)
 		return
 	}
 	resp := make([]llmProviderResponse, 0, len(providers))
@@ -253,7 +255,7 @@ func createLlmProvider(
 		AdvancedJSON:  req.AdvancedJSON,
 	})
 	if err != nil {
-		writeLlmProviderServiceError(w, traceID, err)
+		writeLlmProviderServiceError(r.Context(), w, traceID, err)
 		return
 	}
 	httpkit.WriteJSON(w, traceID, nethttp.StatusCreated, toLlmProviderResponse(provider))
@@ -279,7 +281,7 @@ func patchLlmProvider(
 		current, err = service.GetProvider(r.Context(), actor.AccountID, providerID, currentScope, &actor.UserID)
 	}
 	if err != nil {
-		writeLlmProviderServiceError(w, traceID, err)
+		writeLlmProviderServiceError(r.Context(), w, traceID, err)
 		return
 	}
 	body, err := decodeRawJSONMap(r)
@@ -398,7 +400,7 @@ func patchLlmProvider(
 		APIKey:           normalizeOptionalString(apiKeyText),
 	})
 	if err != nil {
-		writeLlmProviderServiceError(w, traceID, err)
+		writeLlmProviderServiceError(r.Context(), w, traceID, err)
 		return
 	}
 	httpkit.WriteJSON(w, traceID, nethttp.StatusOK, toLlmProviderResponse(provider))
@@ -422,7 +424,7 @@ func deleteLlmProvider(
 		return
 	}
 	if err := service.DeleteProvider(r.Context(), actor.AccountID, providerID, scope, &actor.UserID); err != nil {
-		writeLlmProviderServiceError(w, traceID, err)
+		writeLlmProviderServiceError(r.Context(), w, traceID, err)
 		return
 	}
 	httpkit.WriteJSON(w, traceID, nethttp.StatusOK, map[string]bool{"ok": true})
@@ -452,7 +454,7 @@ func createLlmProviderModel(
 	}
 	provider, err := service.GetProvider(r.Context(), actor.AccountID, providerID, scope, &actor.UserID)
 	if err != nil {
-		writeLlmProviderServiceError(w, traceID, err)
+		writeLlmProviderServiceError(r.Context(), w, traceID, err)
 		return
 	}
 	req.Model = strings.TrimSpace(req.Model)
@@ -483,7 +485,7 @@ func createLlmProviderModel(
 		CostPer1kCacheRead:  req.CostPer1kCacheRead,
 	})
 	if err != nil {
-		writeLlmProviderServiceError(w, traceID, err)
+		writeLlmProviderServiceError(r.Context(), w, traceID, err)
 		return
 	}
 	httpkit.WriteJSON(w, traceID, nethttp.StatusCreated, toLlmProviderModelResponse(model))
@@ -562,7 +564,7 @@ func patchLlmProviderModel(
 		provider, err = service.GetProvider(r.Context(), actor.AccountID, providerID, currentScope, &actor.UserID)
 	}
 	if err != nil {
-		writeLlmProviderServiceError(w, traceID, err)
+		writeLlmProviderServiceError(r.Context(), w, traceID, err)
 		return
 	}
 	if scopeText == nil {
@@ -636,7 +638,7 @@ func patchLlmProviderModel(
 		CostPer1kCacheRead:     costPer1kCacheRead,
 	})
 	if err != nil {
-		writeLlmProviderServiceError(w, traceID, err)
+		writeLlmProviderServiceError(r.Context(), w, traceID, err)
 		return
 	}
 	httpkit.WriteJSON(w, traceID, nethttp.StatusOK, toLlmProviderModelResponse(model))
@@ -661,7 +663,7 @@ func deleteLlmProviderModel(
 		return
 	}
 	if err := service.DeleteModel(r.Context(), actor.AccountID, providerID, modelID, scope, &actor.UserID); err != nil {
-		writeLlmProviderServiceError(w, traceID, err)
+		writeLlmProviderServiceError(r.Context(), w, traceID, err)
 		return
 	}
 	httpkit.WriteJSON(w, traceID, nethttp.StatusOK, map[string]bool{"ok": true})
@@ -686,7 +688,7 @@ func listLlmProviderAvailableModels(
 	}
 	models, err := service.ListAvailableModels(r.Context(), actor.AccountID, providerID, scope, &actor.UserID)
 	if err != nil {
-		writeLlmProviderServiceError(w, traceID, err)
+		writeLlmProviderServiceError(r.Context(), w, traceID, err)
 		return
 	}
 	resp := llmProviderAvailableModelsResponse{Models: make([]llmProviderAvailableModel, 0, len(models))}
@@ -787,7 +789,7 @@ func validateProviderFields(provider string, openAIAPIMode *string, advancedJSON
 	return validateAdvancedJSONForProvider(provider, advancedJSON)
 }
 
-func writeLlmProviderServiceError(w nethttp.ResponseWriter, traceID string, err error) {
+func writeLlmProviderServiceError(ctx context.Context, w nethttp.ResponseWriter, traceID string, err error) {
 	if err == nil {
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
@@ -833,6 +835,7 @@ func writeLlmProviderServiceError(w nethttp.ResponseWriter, traceID string, err 
 		}
 		return
 	}
+	slog.ErrorContext(ctx, "unhandled llm provider error", "err", err, "trace_id", traceID)
 	httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 }
 

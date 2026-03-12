@@ -137,7 +137,7 @@ err = r.db.QueryRow(
 ctx,
 `INSERT INTO secrets (owner_kind, owner_user_id, name, encrypted_value, key_version)
  VALUES ('user', $1, $2, $3, $4)
- ON CONFLICT (owner_user_id, name) WHERE owner_kind = 'user'
+ ON CONFLICT (owner_user_id, name) WHERE owner_kind = 'user' AND owner_user_id IS NOT NULL
  DO UPDATE SET
      encrypted_value = EXCLUDED.encrypted_value,
      key_version     = EXCLUDED.key_version,
