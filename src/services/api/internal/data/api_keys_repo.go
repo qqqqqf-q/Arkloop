@@ -15,7 +15,7 @@ import (
 
 type APIKey struct {
 	ID         uuid.UUID
-	OrgID      uuid.UUID
+	AccountID      uuid.UUID
 	UserID     uuid.UUID
 	Name       string
 	KeyPrefix  string
@@ -39,7 +39,7 @@ func NewAPIKeysRepository(db Querier) (*APIKeysRepository, error) {
 // Create 生成随机 API Key，返回明文（仅此一次）和入库的 APIKey 记录。
 func (r *APIKeysRepository) Create(
 	ctx context.Context,
-	orgID uuid.UUID,
+	accountID uuid.UUID,
 	userID uuid.UUID,
 	name string,
 	scopes []string,
@@ -47,8 +47,8 @@ func (r *APIKeysRepository) Create(
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if orgID == uuid.Nil {
-		return APIKey{}, "", fmt.Errorf("org_id must not be nil")
+	if accountID == uuid.Nil {
+		return APIKey{}, "", fmt.Errorf("account_id must not be nil")
 	}
 	if userID == uuid.Nil {
 		return APIKey{}, "", fmt.Errorf("user_id must not be nil")
@@ -73,12 +73,12 @@ func (r *APIKeysRepository) Create(
 	var key APIKey
 	err := r.db.QueryRow(
 		ctx,
-		`INSERT INTO api_keys (org_id, user_id, name, key_prefix, key_hash, scopes)
+		`INSERT INTO api_keys (account_id, user_id, name, key_prefix, key_hash, scopes)
 		 VALUES ($1, $2, $3, $4, $5, $6)
-		 RETURNING id, org_id, user_id, name, key_prefix, scopes, revoked_at, last_used_at, created_at`,
-		orgID, userID, name, keyPrefix, keyHash, scopes,
+		 RETURNING id, account_id, user_id, name, key_prefix, scopes, revoked_at, last_used_at, created_at`,
+		accountID, userID, name, keyPrefix, keyHash, scopes,
 	).Scan(
-		&key.ID, &key.OrgID, &key.UserID, &key.Name, &key.KeyPrefix,
+		&key.ID, &key.AccountID, &key.UserID, &key.Name, &key.KeyPrefix,
 		&key.Scopes, &key.RevokedAt, &key.LastUsedAt, &key.CreatedAt,
 	)
 	if err != nil {
@@ -87,18 +87,18 @@ func (r *APIKeysRepository) Create(
 	return key, fullKey, nil
 }
 
-func (r *APIKeysRepository) ListByOrg(ctx context.Context, orgID uuid.UUID) ([]APIKey, error) {
+func (r *APIKeysRepository) ListByOrg(ctx context.Context, accountID uuid.UUID) ([]APIKey, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 
 	rows, err := r.db.Query(
 		ctx,
-		`SELECT id, org_id, user_id, name, key_prefix, scopes, revoked_at, last_used_at, created_at
+		`SELECT id, account_id, user_id, name, key_prefix, scopes, revoked_at, last_used_at, created_at
 		 FROM api_keys
-		 WHERE org_id = $1
+		 WHERE account_id = $1
 		 ORDER BY created_at DESC`,
-		orgID,
+		accountID,
 	)
 	if err != nil {
 		return nil, err
@@ -109,7 +109,7 @@ func (r *APIKeysRepository) ListByOrg(ctx context.Context, orgID uuid.UUID) ([]A
 	for rows.Next() {
 		var k APIKey
 		if err := rows.Scan(
-			&k.ID, &k.OrgID, &k.UserID, &k.Name, &k.KeyPrefix,
+			&k.ID, &k.AccountID, &k.UserID, &k.Name, &k.KeyPrefix,
 			&k.Scopes, &k.RevokedAt, &k.LastUsedAt, &k.CreatedAt,
 		); err != nil {
 			return nil, err
@@ -119,18 +119,18 @@ func (r *APIKeysRepository) ListByOrg(ctx context.Context, orgID uuid.UUID) ([]A
 	return keys, rows.Err()
 }
 
-func (r *APIKeysRepository) ListByOrgAndUser(ctx context.Context, orgID, userID uuid.UUID) ([]APIKey, error) {
+func (r *APIKeysRepository) ListByOrgAndUser(ctx context.Context, accountID, userID uuid.UUID) ([]APIKey, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 
 	rows, err := r.db.Query(
 		ctx,
-		`SELECT id, org_id, user_id, name, key_prefix, scopes, revoked_at, last_used_at, created_at
+		`SELECT id, account_id, user_id, name, key_prefix, scopes, revoked_at, last_used_at, created_at
 		 FROM api_keys
-		 WHERE org_id = $1 AND user_id = $2
+		 WHERE account_id = $1 AND user_id = $2
 		 ORDER BY created_at DESC`,
-		orgID,
+		accountID,
 		userID,
 	)
 	if err != nil {
@@ -142,7 +142,7 @@ func (r *APIKeysRepository) ListByOrgAndUser(ctx context.Context, orgID, userID 
 	for rows.Next() {
 		var k APIKey
 		if err := rows.Scan(
-			&k.ID, &k.OrgID, &k.UserID, &k.Name, &k.KeyPrefix,
+			&k.ID, &k.AccountID, &k.UserID, &k.Name, &k.KeyPrefix,
 			&k.Scopes, &k.RevokedAt, &k.LastUsedAt, &k.CreatedAt,
 		); err != nil {
 			return nil, err
@@ -161,12 +161,12 @@ func (r *APIKeysRepository) GetByHash(ctx context.Context, keyHash string) (*API
 	var k APIKey
 	err := r.db.QueryRow(
 		ctx,
-		`SELECT id, org_id, user_id, name, key_prefix, scopes, revoked_at, last_used_at, created_at
+		`SELECT id, account_id, user_id, name, key_prefix, scopes, revoked_at, last_used_at, created_at
 		 FROM api_keys
 		 WHERE key_hash = $1`,
 		keyHash,
 	).Scan(
-		&k.ID, &k.OrgID, &k.UserID, &k.Name, &k.KeyPrefix,
+		&k.ID, &k.AccountID, &k.UserID, &k.Name, &k.KeyPrefix,
 		&k.Scopes, &k.RevokedAt, &k.LastUsedAt, &k.CreatedAt,
 	)
 	if err != nil {
@@ -180,7 +180,7 @@ func (r *APIKeysRepository) GetByHash(ctx context.Context, keyHash string) (*API
 
 // Revoke 软删除（设置 revoked_at），返回 key_hash 用于清理缓存。
 // key_hash 为空字符串表示未命中。
-func (r *APIKeysRepository) Revoke(ctx context.Context, orgID, keyID uuid.UUID) (string, error) {
+func (r *APIKeysRepository) Revoke(ctx context.Context, accountID, keyID uuid.UUID) (string, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -189,9 +189,9 @@ func (r *APIKeysRepository) Revoke(ctx context.Context, orgID, keyID uuid.UUID) 
 	err := r.db.QueryRow(
 		ctx,
 		`UPDATE api_keys SET revoked_at = now()
-		 WHERE id = $1 AND org_id = $2 AND revoked_at IS NULL
+		 WHERE id = $1 AND account_id = $2 AND revoked_at IS NULL
 		 RETURNING key_hash`,
-		keyID, orgID,
+		keyID, accountID,
 	).Scan(&keyHash)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -202,7 +202,7 @@ func (r *APIKeysRepository) Revoke(ctx context.Context, orgID, keyID uuid.UUID) 
 	return keyHash, nil
 }
 
-func (r *APIKeysRepository) RevokeOwned(ctx context.Context, orgID, userID, keyID uuid.UUID) (string, error) {
+func (r *APIKeysRepository) RevokeOwned(ctx context.Context, accountID, userID, keyID uuid.UUID) (string, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -211,10 +211,10 @@ func (r *APIKeysRepository) RevokeOwned(ctx context.Context, orgID, userID, keyI
 	err := r.db.QueryRow(
 		ctx,
 		`UPDATE api_keys SET revoked_at = now()
-		 WHERE id = $1 AND org_id = $2 AND user_id = $3 AND revoked_at IS NULL
+		 WHERE id = $1 AND account_id = $2 AND user_id = $3 AND revoked_at IS NULL
 		 RETURNING key_hash`,
 		keyID,
-		orgID,
+		accountID,
 		userID,
 	).Scan(&keyHash)
 	if err != nil {

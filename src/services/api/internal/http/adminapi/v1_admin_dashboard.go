@@ -19,16 +19,16 @@ type dashboardResponse struct {
 	TotalInputTokens  int64   `json:"total_input_tokens"`
 	TotalOutputTokens int64   `json:"total_output_tokens"`
 	TotalCostUSD      float64 `json:"total_cost_usd"`
-	ActiveOrgs        int64   `json:"active_orgs"`
+	ActiveAccounts        int64   `json:"active_accounts"`
 }
 
 func adminDashboard(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	usersRepo *data.UserRepository,
 	runEventRepo *data.RunEventRepository,
 	usageRepo *data.UsageRepository,
-	orgRepo *data.OrgRepository,
+	accountRepo *data.AccountRepository,
 	apiKeysRepo *data.APIKeysRepository,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
@@ -52,7 +52,7 @@ func adminDashboard(
 			return
 		}
 
-		if usersRepo == nil || runEventRepo == nil || usageRepo == nil || orgRepo == nil {
+		if usersRepo == nil || runEventRepo == nil || usageRepo == nil || accountRepo == nil {
 			httpkit.WriteError(w, nethttp.StatusServiceUnavailable, "database.not_configured", "database not configured", traceID, nil)
 			return
 		}
@@ -92,7 +92,7 @@ func adminDashboard(
 			return
 		}
 
-		activeOrgs, err := orgRepo.CountActive(ctx)
+		activeAccounts, err := accountRepo.CountActive(ctx)
 		if err != nil {
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
@@ -106,7 +106,7 @@ func adminDashboard(
 			TotalInputTokens:  usageSummary.TotalInputTokens,
 			TotalOutputTokens: usageSummary.TotalOutputTokens,
 			TotalCostUSD:      usageSummary.TotalCostUSD,
-			ActiveOrgs:        activeOrgs,
+			ActiveAccounts:        activeAccounts,
 		})
 	}
 }

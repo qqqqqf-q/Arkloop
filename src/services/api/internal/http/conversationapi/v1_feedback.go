@@ -17,7 +17,7 @@ type createFeedbackRequest struct {
 
 func meFeedback(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	reportRepo *data.ThreadReportRepository,
 	apiKeysRepo *data.APIKeysRepository,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {

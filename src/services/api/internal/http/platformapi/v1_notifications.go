@@ -18,7 +18,7 @@ import (
 type notificationResponse struct {
 	ID          string         `json:"id"`
 	UserID      string         `json:"user_id"`
-	OrgID       string         `json:"org_id"`
+	AccountID       string         `json:"account_id"`
 	Type        string         `json:"type"`
 	Title       string         `json:"title"`
 	Body        string         `json:"body"`
@@ -29,7 +29,7 @@ type notificationResponse struct {
 
 func notificationsEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	notifRepo *data.NotificationsRepository,
 	apiKeysRepo *data.APIKeysRepository,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
@@ -47,7 +47,7 @@ func notificationsEntry(
 
 func notificationEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	notifRepo *data.NotificationsRepository,
 	apiKeysRepo *data.APIKeysRepository,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
@@ -64,7 +64,7 @@ func listNotifications(
 	w nethttp.ResponseWriter,
 	r *nethttp.Request,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	notifRepo *data.NotificationsRepository,
 	apiKeysRepo *data.APIKeysRepository,
 ) {
@@ -115,7 +115,7 @@ func markNotificationRead(
 	w nethttp.ResponseWriter,
 	r *nethttp.Request,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	notifRepo *data.NotificationsRepository,
 	apiKeysRepo *data.APIKeysRepository,
 ) {
@@ -164,7 +164,7 @@ func markAllNotificationsRead(
 	w nethttp.ResponseWriter,
 	r *nethttp.Request,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	notifRepo *data.NotificationsRepository,
 	apiKeysRepo *data.APIKeysRepository,
 ) {
@@ -197,7 +197,7 @@ func toNotificationResponse(n data.Notification) notificationResponse {
 	resp := notificationResponse{
 		ID:          n.ID.String(),
 		UserID:      n.UserID.String(),
-		OrgID:       n.OrgID.String(),
+		AccountID:       n.AccountID.String(),
 		Type:        n.Type,
 		Title:       n.Title,
 		Body:        n.Body,

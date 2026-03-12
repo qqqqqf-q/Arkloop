@@ -69,7 +69,7 @@ func toInviteCodeResponse(ic data.InviteCode) inviteCodeResponse {
 
 func meInviteCode(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	inviteCodesRepo *data.InviteCodeRepository,
 	entitlementSvc *entitlement.Service,
 	apiKeysRepo *data.APIKeysRepository,
@@ -107,7 +107,7 @@ func meInviteCode(
 		if len(codes) == 0 {
 			maxUses := 1
 			if entitlementSvc != nil {
-				val, resolveErr := entitlementSvc.Resolve(r.Context(), actor.OrgID, "invite.default_max_uses")
+				val, resolveErr := entitlementSvc.Resolve(r.Context(), actor.AccountID, "invite.default_max_uses")
 				if resolveErr == nil {
 					if v := val.Int(); v > 0 {
 						maxUses = int(v)
@@ -145,7 +145,7 @@ const inviteCodeResetCooldown = 24 * time.Hour
 
 func meInviteCodeReset(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	inviteCodesRepo *data.InviteCodeRepository,
 	entitlementSvc *entitlement.Service,
 	apiKeysRepo *data.APIKeysRepository,
@@ -200,7 +200,7 @@ func meInviteCodeReset(
 
 		maxUses := 1
 		if entitlementSvc != nil {
-			val, resolveErr := entitlementSvc.Resolve(r.Context(), actor.OrgID, "invite.default_max_uses")
+			val, resolveErr := entitlementSvc.Resolve(r.Context(), actor.AccountID, "invite.default_max_uses")
 			if resolveErr == nil {
 				if v := val.Int(); v > 0 {
 					maxUses = int(v)
@@ -232,7 +232,7 @@ func meInviteCodeReset(
 
 func adminInviteCodesEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	inviteCodesRepo *data.InviteCodeRepository,
 	apiKeysRepo *data.APIKeysRepository,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
@@ -249,7 +249,7 @@ func adminInviteCodesEntry(
 
 func listAdminInviteCodes(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	inviteCodesRepo *data.InviteCodeRepository,
 	apiKeysRepo *data.APIKeysRepository,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
@@ -302,7 +302,7 @@ func listAdminInviteCodes(
 
 func adminInviteCodeEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	inviteCodesRepo *data.InviteCodeRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,
@@ -333,7 +333,7 @@ func adminInviteCodeEntry(
 
 func getAdminInviteCode(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	inviteCodesRepo *data.InviteCodeRepository,
 	apiKeysRepo *data.APIKeysRepository,
 ) func(nethttp.ResponseWriter, *nethttp.Request, uuid.UUID) {
@@ -369,7 +369,7 @@ func getAdminInviteCode(
 
 func patchAdminInviteCode(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	inviteCodesRepo *data.InviteCodeRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,
@@ -457,7 +457,7 @@ func patchAdminInviteCode(
 
 func adminReferralsEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	referralsRepo *data.ReferralRepository,
 	apiKeysRepo *data.APIKeysRepository,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
@@ -529,7 +529,7 @@ func adminReferralsEntry(
 
 func adminReferralTree(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	referralsRepo *data.ReferralRepository,
 	apiKeysRepo *data.APIKeysRepository,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {

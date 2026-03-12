@@ -35,7 +35,7 @@ func NewJobRepository(db Querier) (*JobRepository, error) {
 
 func (r *JobRepository) EnqueueRun(
 	ctx context.Context,
-	orgID uuid.UUID,
+	accountID uuid.UUID,
 	runID uuid.UUID,
 	traceID string,
 	queueJobType string,
@@ -45,8 +45,8 @@ func (r *JobRepository) EnqueueRun(
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if orgID == uuid.Nil {
-		return uuid.Nil, fmt.Errorf("org_id must not be empty")
+	if accountID == uuid.Nil {
+		return uuid.Nil, fmt.Errorf("account_id must not be empty")
 	}
 	if runID == uuid.Nil {
 		return uuid.Nil, fmt.Errorf("run_id must not be empty")
@@ -69,7 +69,7 @@ func (r *JobRepository) EnqueueRun(
 		"job_id":   jobID.String(),
 		"type":     RunExecuteJobType,
 		"trace_id": chosenTraceID,
-		"org_id":   orgID.String(),
+		"account_id":   accountID.String(),
 		"run_id":   runID.String(),
 		"payload":  payloadCopy,
 	}

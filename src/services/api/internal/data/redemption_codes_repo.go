@@ -35,7 +35,7 @@ type RedemptionRecord struct {
 	ID         uuid.UUID
 	CodeID     uuid.UUID
 	UserID     uuid.UUID
-	OrgID      uuid.UUID
+	AccountID      uuid.UUID
 	RedeemedAt time.Time
 }
 
@@ -221,14 +221,14 @@ func (r *RedemptionCodesRepository) IncrementUseCount(ctx context.Context, id uu
 }
 
 // RecordRedemption 记录兑换行为。
-func (r *RedemptionCodesRepository) RecordRedemption(ctx context.Context, codeID, userID, orgID uuid.UUID) (*RedemptionRecord, error) {
+func (r *RedemptionCodesRepository) RecordRedemption(ctx context.Context, codeID, userID, accountID uuid.UUID) (*RedemptionRecord, error) {
 	var rr RedemptionRecord
 	err := r.db.QueryRow(ctx,
-		`INSERT INTO redemption_records (code_id, user_id, org_id)
+		`INSERT INTO redemption_records (code_id, user_id, account_id)
 		 VALUES ($1, $2, $3)
-		 RETURNING id, code_id, user_id, org_id, redeemed_at`,
-		codeID, userID, orgID,
-	).Scan(&rr.ID, &rr.CodeID, &rr.UserID, &rr.OrgID, &rr.RedeemedAt)
+		 RETURNING id, code_id, user_id, account_id, redeemed_at`,
+		codeID, userID, accountID,
+	).Scan(&rr.ID, &rr.CodeID, &rr.UserID, &rr.AccountID, &rr.RedeemedAt)
 	if err != nil {
 		return nil, fmt.Errorf("redemption_codes.RecordRedemption: %w", err)
 	}

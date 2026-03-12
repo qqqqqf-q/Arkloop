@@ -16,11 +16,11 @@ import (
 
 type Deps struct {
 	AuthService          *auth.Service
-	OrgMembershipRepo    *data.OrgMembershipRepository
+	AccountMembershipRepo    *data.AccountMembershipRepository
 	UsersRepo            *data.UserRepository
 	RunEventRepo         *data.RunEventRepository
 	UsageRepo            *data.UsageRepository
-	OrgRepo              *data.OrgRepository
+	AccountRepo              *data.AccountRepository
 	APIKeysRepo          *data.APIKeysRepository
 	MessageRepo          *data.MessageRepository
 	LlmCredentialsRepo   *data.LlmCredentialsRepository
@@ -47,19 +47,19 @@ type Deps struct {
 }
 
 func RegisterRoutes(mux *nethttp.ServeMux, deps Deps) {
-	mux.HandleFunc("/v1/admin/dashboard", adminDashboard(deps.AuthService, deps.OrgMembershipRepo, deps.UsersRepo, deps.RunEventRepo, deps.UsageRepo, deps.OrgRepo, deps.APIKeysRepo))
-	mux.HandleFunc("/v1/admin/runs/", adminRunsEntry(deps.AuthService, deps.OrgMembershipRepo, deps.RunEventRepo, deps.UsersRepo, deps.APIKeysRepo, deps.MessageRepo, deps.LlmCredentialsRepo, deps.ThreadRepo))
-	mux.HandleFunc("/v1/admin/reports", adminReportsEntry(deps.AuthService, deps.OrgMembershipRepo, deps.ThreadReportRepo, deps.APIKeysRepo))
-	mux.HandleFunc("/v1/admin/users", adminUsersEntry(deps.AuthService, deps.OrgMembershipRepo, deps.UsersRepo, deps.APIKeysRepo, deps.UserCredentialRepo))
-	mux.HandleFunc("/v1/admin/users/", adminUserEntry(deps.AuthService, deps.OrgMembershipRepo, deps.UsersRepo, deps.APIKeysRepo, deps.AuditWriter, deps.InviteCodesRepo, deps.UserCredentialRepo))
-	mux.HandleFunc("/v1/admin/notifications/broadcasts/", adminBroadcastEntry(deps.AuthService, deps.OrgMembershipRepo, deps.NotificationsRepo, deps.APIKeysRepo))
-	mux.HandleFunc("/v1/admin/notifications/broadcasts", adminBroadcastsEntry(deps.AuthService, deps.OrgMembershipRepo, deps.NotificationsRepo, deps.APIKeysRepo, deps.AuditWriter, deps.Pool, deps.Logger))
-	mux.HandleFunc("/v1/admin/gateway-config", adminGatewayConfigEntry(deps.AuthService, deps.OrgMembershipRepo, deps.PlatformSettingsRepo, deps.APIKeysRepo, deps.GatewayRedisClient, deps.ConfigResolver, deps.ConfigInvalidator))
-	mux.HandleFunc("/v1/admin/access-log", adminAccessLogEntry(deps.AuthService, deps.OrgMembershipRepo, deps.APIKeysRepo, deps.UsersRepo, deps.GatewayRedisClient))
-	mux.HandleFunc("/v1/admin/execution-governance", adminExecutionGovernance(deps.AuthService, deps.OrgMembershipRepo, deps.APIKeysRepo, deps.PersonasRepo, deps.RepoPersonas, deps.ConfigRegistry, deps.Pool))
-	mux.HandleFunc("/v1/admin/email/status", adminEmailStatus(deps.AuthService, deps.OrgMembershipRepo, deps.APIKeysRepo, deps.ConfigResolver))
-	mux.HandleFunc("/v1/admin/email/config", adminEmailConfig(deps.AuthService, deps.OrgMembershipRepo, deps.APIKeysRepo, deps.PlatformSettingsRepo, deps.ConfigResolver, deps.ConfigInvalidator))
-	mux.HandleFunc("/v1/admin/email/test", adminEmailTest(deps.AuthService, deps.OrgMembershipRepo, deps.APIKeysRepo, deps.JobRepo, deps.PlatformSettingsRepo, deps.ConfigResolver))
-	mux.HandleFunc("/v1/admin/smtp-providers", adminSmtpProviders(deps.AuthService, deps.OrgMembershipRepo, deps.APIKeysRepo, deps.SmtpProviderRepo))
-	mux.HandleFunc("/v1/admin/smtp-providers/", adminSmtpProviderEntry(deps.AuthService, deps.OrgMembershipRepo, deps.APIKeysRepo, deps.SmtpProviderRepo, deps.JobRepo))
+	mux.HandleFunc("/v1/admin/dashboard", adminDashboard(deps.AuthService, deps.AccountMembershipRepo, deps.UsersRepo, deps.RunEventRepo, deps.UsageRepo, deps.AccountRepo, deps.APIKeysRepo))
+	mux.HandleFunc("/v1/admin/runs/", adminRunsEntry(deps.AuthService, deps.AccountMembershipRepo, deps.RunEventRepo, deps.UsersRepo, deps.APIKeysRepo, deps.MessageRepo, deps.LlmCredentialsRepo, deps.ThreadRepo))
+	mux.HandleFunc("/v1/admin/reports", adminReportsEntry(deps.AuthService, deps.AccountMembershipRepo, deps.ThreadReportRepo, deps.APIKeysRepo))
+	mux.HandleFunc("/v1/admin/users", adminUsersEntry(deps.AuthService, deps.AccountMembershipRepo, deps.UsersRepo, deps.APIKeysRepo, deps.UserCredentialRepo))
+	mux.HandleFunc("/v1/admin/users/", adminUserEntry(deps.AuthService, deps.AccountMembershipRepo, deps.UsersRepo, deps.APIKeysRepo, deps.AuditWriter, deps.InviteCodesRepo, deps.UserCredentialRepo))
+	mux.HandleFunc("/v1/admin/notifications/broadcasts/", adminBroadcastEntry(deps.AuthService, deps.AccountMembershipRepo, deps.NotificationsRepo, deps.APIKeysRepo))
+	mux.HandleFunc("/v1/admin/notifications/broadcasts", adminBroadcastsEntry(deps.AuthService, deps.AccountMembershipRepo, deps.NotificationsRepo, deps.APIKeysRepo, deps.AuditWriter, deps.Pool, deps.Logger))
+	mux.HandleFunc("/v1/admin/gateway-config", adminGatewayConfigEntry(deps.AuthService, deps.AccountMembershipRepo, deps.PlatformSettingsRepo, deps.APIKeysRepo, deps.GatewayRedisClient, deps.ConfigResolver, deps.ConfigInvalidator))
+	mux.HandleFunc("/v1/admin/access-log", adminAccessLogEntry(deps.AuthService, deps.AccountMembershipRepo, deps.APIKeysRepo, deps.UsersRepo, deps.GatewayRedisClient))
+	mux.HandleFunc("/v1/admin/execution-governance", adminExecutionGovernance(deps.AuthService, deps.AccountMembershipRepo, deps.APIKeysRepo, deps.PersonasRepo, deps.RepoPersonas, deps.ConfigRegistry, deps.Pool))
+	mux.HandleFunc("/v1/admin/email/status", adminEmailStatus(deps.AuthService, deps.AccountMembershipRepo, deps.APIKeysRepo, deps.ConfigResolver))
+	mux.HandleFunc("/v1/admin/email/config", adminEmailConfig(deps.AuthService, deps.AccountMembershipRepo, deps.APIKeysRepo, deps.PlatformSettingsRepo, deps.ConfigResolver, deps.ConfigInvalidator))
+	mux.HandleFunc("/v1/admin/email/test", adminEmailTest(deps.AuthService, deps.AccountMembershipRepo, deps.APIKeysRepo, deps.JobRepo, deps.PlatformSettingsRepo, deps.ConfigResolver))
+	mux.HandleFunc("/v1/admin/smtp-providers", adminSmtpProviders(deps.AuthService, deps.AccountMembershipRepo, deps.APIKeysRepo, deps.SmtpProviderRepo))
+	mux.HandleFunc("/v1/admin/smtp-providers/", adminSmtpProviderEntry(deps.AuthService, deps.AccountMembershipRepo, deps.APIKeysRepo, deps.SmtpProviderRepo, deps.JobRepo))
 }

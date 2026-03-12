@@ -583,18 +583,18 @@ func (s *Service) requireWriteReady() error {
 	return nil
 }
 
-func upsertProviderSecret(ctx context.Context, tx pgx.Tx, repo *data.SecretsRepository, orgID uuid.UUID, scope string, name string, plaintext string) (data.Secret, error) {
+func upsertProviderSecret(ctx context.Context, tx pgx.Tx, repo *data.SecretsRepository, accountID uuid.UUID, scope string, name string, plaintext string) (data.Secret, error) {
 	if scope == data.LlmCredentialScopePlatform {
 		return repo.WithTx(tx).UpsertPlatform(ctx, name, plaintext)
 	}
-	return repo.WithTx(tx).Upsert(ctx, orgID, name, plaintext)
+	return repo.WithTx(tx).Upsert(ctx, accountID, name, plaintext)
 }
 
-func deleteProviderSecret(ctx context.Context, tx pgx.Tx, repo *data.SecretsRepository, orgID uuid.UUID, scope string, name string) error {
+func deleteProviderSecret(ctx context.Context, tx pgx.Tx, repo *data.SecretsRepository, accountID uuid.UUID, scope string, name string) error {
 	if scope == data.LlmCredentialScopePlatform {
 		return repo.WithTx(tx).DeletePlatform(ctx, name)
 	}
-	return repo.WithTx(tx).Delete(ctx, orgID, name)
+	return repo.WithTx(tx).Delete(ctx, accountID, name)
 }
 
 func providerSecretName(providerID uuid.UUID) string {

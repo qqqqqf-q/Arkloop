@@ -61,7 +61,7 @@ type IssuedTokenPair struct {
 type Service struct {
 	userRepo         *data.UserRepository
 	credentialRepo   *data.UserCredentialRepository
-	membershipRepo   *data.OrgMembershipRepository
+	membershipRepo   *data.AccountMembershipRepository
 	passwordHasher   *BcryptPasswordHasher
 	tokenService     *JwtAccessTokenService
 	refreshTokenRepo *data.RefreshTokenRepository
@@ -72,7 +72,7 @@ type Service struct {
 func NewService(
 	userRepo *data.UserRepository,
 	credentialRepo *data.UserCredentialRepository,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	passwordHasher *BcryptPasswordHasher,
 	tokenService *JwtAccessTokenService,
 	refreshTokenRepo *data.RefreshTokenRepository,
@@ -213,9 +213,9 @@ func (s *Service) IssueRefreshTokenOnly(ctx context.Context, userID uuid.UUID) (
 // issueTokenPair 为指定用户签发 Access Token + Refresh Token，并将 Refresh Token 持久化到 DB。
 func (s *Service) issueTokenPair(ctx context.Context, userID uuid.UUID) (IssuedTokenPair, error) {
 	now := time.Now().UTC()
-	orgID, orgRole := s.resolveDefaultOrg(ctx, userID)
+	accountID, accountRole := s.resolveDefaultAccount(ctx, userID)
 
-	accessToken, err := s.tokenService.Issue(userID, orgID, orgRole, now)
+	accessToken, err := s.tokenService.Issue(userID, accountID, accountRole, now)
 	if err != nil {
 		return IssuedTokenPair{}, err
 	}
@@ -236,13 +236,13 @@ func (s *Service) issueTokenPair(ctx context.Context, userID uuid.UUID) (IssuedT
 	}, nil
 }
 
-// resolveDefaultOrg 查用户的默认 org；失败时静默返回 uuid.Nil，不阻断认证流程。
-func (s *Service) resolveDefaultOrg(ctx context.Context, userID uuid.UUID) (orgID uuid.UUID, orgRole string) {
+// resolveDefaultAccount 查用户的默认 account；失败时静默返回 uuid.Nil，不阻断认证流程。
+func (s *Service) resolveDefaultAccount(ctx context.Context, userID uuid.UUID) (accountID uuid.UUID, accountRole string) {
 	membership, err := s.membershipRepo.GetDefaultForUser(ctx, userID)
 	if err != nil || membership == nil {
 		return uuid.Nil, ""
 	}
-	return membership.OrgID, membership.Role
+	return membership.AccountID, membership.Role
 }
 
 func (s *Service) AuthenticateUser(ctx context.Context, token string) (*data.User, error) {

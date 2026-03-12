@@ -25,7 +25,7 @@ type adminRunEventsStats struct {
 
 type adminRunUsageItem struct {
 	RunID               string   `json:"run_id"`
-	OrgID               string   `json:"org_id"`
+	AccountID               string   `json:"account_id"`
 	ThreadID            string   `json:"thread_id"`
 	ParentRunID         *string  `json:"parent_run_id,omitempty"`
 	Status              string   `json:"status"`
@@ -57,7 +57,7 @@ type adminRunUsageAggregate struct {
 
 type adminRunDetailResponse struct {
 	RunID             string                  `json:"run_id"`
-	OrgID             string                  `json:"org_id"`
+	AccountID             string                  `json:"account_id"`
 	ThreadID          string                  `json:"thread_id"`
 	Status            string                  `json:"status"`
 	Model             *string                 `json:"model,omitempty"`
@@ -83,7 +83,7 @@ type adminRunDetailResponse struct {
 
 func adminRunsEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	runRepo *data.RunEventRepository,
 	usersRepo *data.UserRepository,
 	apiKeysRepo *data.APIKeysRepository,
@@ -152,9 +152,9 @@ func adminRunsEntry(
 		// 如果事件中没有 credential_name（旧 run），尝试从 DB 查询补全
 		if credentialName == nil && credentialID != nil && credentialsRepo != nil {
 			if credUUID, err := uuid.Parse(*credentialID); err == nil {
-				cred, err := credentialsRepo.GetByID(r.Context(), run.OrgID, credUUID, data.LlmCredentialScopePlatform)
+				cred, err := credentialsRepo.GetByID(r.Context(), run.AccountID, credUUID, data.LlmCredentialScopePlatform)
 				if err == nil && cred == nil {
-					cred, err = credentialsRepo.GetByID(r.Context(), run.OrgID, credUUID, data.LlmCredentialScopeProject)
+					cred, err = credentialsRepo.GetByID(r.Context(), run.AccountID, credUUID, data.LlmCredentialScopeProject)
 				}
 				if err == nil && cred != nil {
 					credentialName = &cred.Name
@@ -170,7 +170,7 @@ func adminRunsEntry(
 
 		resp := adminRunDetailResponse{
 			RunID:             run.ID.String(),
-			OrgID:             run.OrgID.String(),
+			AccountID:             run.AccountID.String(),
 			ThreadID:          run.ThreadID.String(),
 			Status:            run.Status,
 			Model:             model,
@@ -207,7 +207,7 @@ func adminRunsEntry(
 
 		// 从 messages 表找触发该 run 的最后一条用户消息
 		if messagesRepo != nil {
-			msgs, mErr := messagesRepo.ListByThread(r.Context(), run.OrgID, run.ThreadID, 200)
+			msgs, mErr := messagesRepo.ListByThread(r.Context(), run.AccountID, run.ThreadID, 200)
 			if mErr == nil {
 				for i := len(msgs) - 1; i >= 0; i-- {
 					m := msgs[i]
@@ -332,7 +332,7 @@ func loadChildRunUsageRows(ctx context.Context, repo *data.RunEventRepository, p
 func toAdminRunUsageItem(rw data.RunWithUser, parentRunID *string) *adminRunUsageItem {
 	item := &adminRunUsageItem{
 		RunID:               rw.ID.String(),
-		OrgID:               rw.OrgID.String(),
+		AccountID:               rw.AccountID.String(),
 		ThreadID:            rw.ThreadID.String(),
 		ParentRunID:         parentRunID,
 		Status:              rw.Status,

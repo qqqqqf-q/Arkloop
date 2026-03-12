@@ -70,7 +70,7 @@ func requireEntitlementInt(
 	w nethttp.ResponseWriter,
 	traceID string,
 	entSvc *entitlement.Service,
-	orgID uuid.UUID,
+	accountID uuid.UUID,
 	key string,
 	actual int64,
 	errCode string,
@@ -80,7 +80,7 @@ func requireEntitlementInt(
 		return true
 	}
 
-	val, err := entSvc.Resolve(ctx, orgID, key)
+	val, err := entSvc.Resolve(ctx, accountID, key)
 	if err != nil {
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return false
@@ -115,7 +115,7 @@ func authorizeRunOrAudit(
 	}
 
 	denyReason := "owner_mismatch"
-	if actor.OrgID != run.OrgID {
+	if actor.AccountID != run.AccountID {
 		denyReason = "org_mismatch"
 	} else if run.CreatedByUserID == nil {
 		denyReason = "no_owner"
@@ -127,12 +127,12 @@ func authorizeRunOrAudit(
 		auditWriter.WriteAccessDenied(
 			r.Context(),
 			traceID,
-			actor.OrgID,
+			actor.AccountID,
 			actor.UserID,
 			action,
 			"run",
 			run.ID.String(),
-			run.OrgID,
+			run.AccountID,
 			run.CreatedByUserID,
 			denyReason,
 		)

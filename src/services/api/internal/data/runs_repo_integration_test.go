@@ -10,7 +10,7 @@ import (
 	"github.com/google/uuid"
 )
 
-func setupRunsTestRepo(t *testing.T) (*RunEventRepository, *OrgRepository, context.Context) {
+func setupRunsTestRepo(t *testing.T) (*RunEventRepository, *AccountRepository, context.Context) {
 	t.Helper()
 
 	db := testutil.SetupPostgresDatabase(t, "api_go_runs")
@@ -31,7 +31,7 @@ func setupRunsTestRepo(t *testing.T) (*RunEventRepository, *OrgRepository, conte
 		t.Fatalf("new run repo: %v", err)
 	}
 
-	orgRepo, err := NewOrgRepository(pool)
+	orgRepo, err := NewAccountRepository(pool)
 	if err != nil {
 		t.Fatalf("new org repo: %v", err)
 	}
@@ -49,7 +49,7 @@ func TestListRunsAggregatesJoinedUsageAndCredits(t *testing.T) {
 
 	threadID := uuid.New()
 	_, err = repo.db.Exec(ctx,
-		`INSERT INTO threads (id, org_id, title)
+		`INSERT INTO threads (id, account_id, title)
 		 VALUES ($1, $2, $3)`,
 		threadID, org.ID, "runs-join-test",
 	)
@@ -59,7 +59,7 @@ func TestListRunsAggregatesJoinedUsageAndCredits(t *testing.T) {
 
 	runID := uuid.New()
 	_, err = repo.db.Exec(ctx,
-		`INSERT INTO runs (id, org_id, thread_id, total_input_tokens, total_output_tokens, total_cost_usd)
+		`INSERT INTO runs (id, account_id, thread_id, total_input_tokens, total_output_tokens, total_cost_usd)
 		 VALUES ($1, $2, $3, $4, $5, $6)`,
 		runID, org.ID, threadID, 120, 60, 0.12,
 	)
@@ -68,7 +68,7 @@ func TestListRunsAggregatesJoinedUsageAndCredits(t *testing.T) {
 	}
 
 	_, err = repo.db.Exec(ctx,
-		`INSERT INTO usage_records (org_id, run_id, usage_type, cache_read_tokens, cache_creation_tokens, cached_tokens)
+		`INSERT INTO usage_records (account_id, run_id, usage_type, cache_read_tokens, cache_creation_tokens, cached_tokens)
 		 VALUES ($1, $2, 'llm', $3, $4, $5),
 		        ($1, $2, 'embedding', $6, $7, $8)`,
 		org.ID, runID, 10, 20, 30, 1, 2, 3,
@@ -78,7 +78,7 @@ func TestListRunsAggregatesJoinedUsageAndCredits(t *testing.T) {
 	}
 
 	_, err = repo.db.Exec(ctx,
-		`INSERT INTO credit_transactions (org_id, amount, type, reference_type, reference_id)
+		`INSERT INTO credit_transactions (account_id, amount, type, reference_type, reference_id)
 		 VALUES ($1, $2, 'consumption', 'run', $3),
 		        ($1, $4, 'consumption', 'run', $3)`,
 		org.ID, -5, runID, -7,

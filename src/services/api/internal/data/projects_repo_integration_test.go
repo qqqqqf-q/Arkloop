@@ -23,7 +23,7 @@ func TestProjectRepositoryGetOrCreateDefaultByOwner(t *testing.T) {
 	}
 	defer pool.Close()
 
-	orgRepo, err := NewOrgRepository(pool)
+	orgRepo, err := NewAccountRepository(pool)
 	if err != nil {
 		t.Fatalf("new org repo: %v", err)
 	}

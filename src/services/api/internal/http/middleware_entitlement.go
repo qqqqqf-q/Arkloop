@@ -18,7 +18,7 @@ func requireEntitlementInt(
 	w nethttp.ResponseWriter,
 	traceID string,
 	entSvc *entitlement.Service,
-	orgID uuid.UUID,
+	accountID uuid.UUID,
 	key string,
 	actual int64,
 	errCode string,
@@ -28,7 +28,7 @@ func requireEntitlementInt(
 		return true
 	}
 
-	val, err := entSvc.Resolve(ctx, orgID, key)
+	val, err := entSvc.Resolve(ctx, accountID, key)
 	if err != nil {
 		WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return false

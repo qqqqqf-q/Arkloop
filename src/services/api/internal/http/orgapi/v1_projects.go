@@ -16,7 +16,7 @@ import (
 
 type projectResponse struct {
 	ID          string  `json:"id"`
-	OrgID       string  `json:"org_id"`
+	AccountID       string  `json:"account_id"`
 	TeamID      *string `json:"team_id,omitempty"`
 	OwnerUserID *string `json:"owner_user_id,omitempty"`
 	Name        string  `json:"name"`
@@ -35,7 +35,7 @@ type createProjectRequest struct {
 
 func projectsEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	projectRepo *data.ProjectRepository,
 	teamRepo *data.TeamRepository,
 	apiKeysRepo *data.APIKeysRepository,
@@ -54,7 +54,7 @@ func projectsEntry(
 
 func projectEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	projectRepo *data.ProjectRepository,
 	apiKeysRepo *data.APIKeysRepository,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
@@ -87,7 +87,7 @@ func createProject(
 	w nethttp.ResponseWriter,
 	r *nethttp.Request,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	projectRepo *data.ProjectRepository,
 	teamRepo *data.TeamRepository,
 	apiKeysRepo *data.APIKeysRepository,
@@ -145,7 +145,7 @@ func createProject(
 				httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 				return
 			}
-			if team == nil || team.OrgID != actor.OrgID {
+			if team == nil || team.AccountID != actor.AccountID {
 				httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "team not found in org", traceID, nil)
 				return
 			}
@@ -153,7 +153,7 @@ func createProject(
 		teamID = &tid
 	}
 
-	project, err := projectRepo.Create(r.Context(), actor.OrgID, teamID, req.Name, req.Description, visibility)
+	project, err := projectRepo.Create(r.Context(), actor.AccountID, teamID, req.Name, req.Description, visibility)
 	if err != nil {
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
@@ -166,7 +166,7 @@ func listProjects(
 	w nethttp.ResponseWriter,
 	r *nethttp.Request,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	projectRepo *data.ProjectRepository,
 	apiKeysRepo *data.APIKeysRepository,
 ) {
@@ -188,7 +188,7 @@ func listProjects(
 		return
 	}
 
-	projects, err := projectRepo.ListByOrg(r.Context(), actor.OrgID)
+	projects, err := projectRepo.ListByOrg(r.Context(), actor.AccountID)
 	if err != nil {
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
@@ -207,7 +207,7 @@ func getProject(
 	traceID string,
 	projectID uuid.UUID,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	projectRepo *data.ProjectRepository,
 	apiKeysRepo *data.APIKeysRepository,
 ) {
@@ -233,7 +233,7 @@ func getProject(
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
 	}
-	if project == nil || project.OrgID != actor.OrgID {
+	if project == nil || project.AccountID != actor.AccountID {
 		httpkit.WriteError(w, nethttp.StatusNotFound, "projects.not_found", "project not found", traceID, nil)
 		return
 	}
@@ -244,7 +244,7 @@ func getProject(
 func toProjectResponse(p data.Project) projectResponse {
 	resp := projectResponse{
 		ID:          p.ID.String(),
-		OrgID:       p.OrgID.String(),
+		AccountID:       p.AccountID.String(),
 		Name:        p.Name,
 		Description: p.Description,
 		Visibility:  p.Visibility,

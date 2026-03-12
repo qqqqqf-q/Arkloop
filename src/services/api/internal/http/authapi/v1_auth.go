@@ -180,8 +180,8 @@ type meResponse struct {
 	EmailVerified             bool     `json:"email_verified"`
 	EmailVerificationRequired bool     `json:"email_verification_required"`
 	CreatedAt                 string   `json:"created_at"`
-	OrgID                     string   `json:"org_id,omitempty"`
-	OrgName                   string   `json:"org_name,omitempty"`
+	AccountID                     string   `json:"account_id,omitempty"`
+	AccountName                   string   `json:"account_name,omitempty"`
 	Role                      string   `json:"role,omitempty"`
 	Permissions               []string `json:"permissions"`
 }
@@ -546,7 +546,7 @@ func register(
 	}
 }
 
-func me(authService *auth.Service, membershipRepo *data.OrgMembershipRepository, orgRepo *data.OrgRepository, credentialRepo *data.UserCredentialRepository, usersRepo *data.UserRepository, flagService *featureflag.Service) func(nethttp.ResponseWriter, *nethttp.Request) {
+func me(authService *auth.Service, membershipRepo *data.AccountMembershipRepository, accountRepo *data.AccountRepository, credentialRepo *data.UserCredentialRepository, usersRepo *data.UserRepository, flagService *featureflag.Service) func(nethttp.ResponseWriter, *nethttp.Request) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		traceID := observability.TraceIDFromContext(r.Context())
 		if authService == nil {
@@ -572,7 +572,7 @@ func me(authService *auth.Service, membershipRepo *data.OrgMembershipRepository,
 				return
 			}
 			if membership == nil {
-				httpkit.WriteError(w, nethttp.StatusForbidden, "auth.no_org_membership", "user has no org membership", traceID, nil)
+				httpkit.WriteError(w, nethttp.StatusForbidden, "auth.no_account_membership", "user has no account membership", traceID, nil)
 				return
 			}
 
@@ -586,7 +586,7 @@ func me(authService *auth.Service, membershipRepo *data.OrgMembershipRepository,
 				EmailVerified:             user.EmailVerifiedAt != nil,
 				EmailVerificationRequired: emailVerifyRequired,
 				CreatedAt:                 user.CreatedAt.UTC().Format(time.RFC3339Nano),
-				OrgID:                     membership.OrgID.String(),
+				AccountID:                     membership.AccountID.String(),
 				Role:                      membership.Role,
 				Permissions:               auth.PermissionsForRole(membership.Role),
 			}
@@ -597,9 +597,9 @@ func me(authService *auth.Service, membershipRepo *data.OrgMembershipRepository,
 				}
 			}
 
-			if orgRepo != nil {
-				if org, err := orgRepo.GetByID(r.Context(), membership.OrgID); err == nil && org != nil {
-					resp.OrgName = org.Name
+			if accountRepo != nil {
+				if account, err := accountRepo.GetByID(r.Context(), membership.AccountID); err == nil && account != nil {
+					resp.AccountName = account.Name
 				}
 			}
 

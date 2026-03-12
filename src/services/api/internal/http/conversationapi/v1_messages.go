@@ -20,7 +20,7 @@ import (
 
 func createThreadMessage(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	threadRepo *data.ThreadRepository,
 	messageRepo *data.MessageRepository,
 	auditWriter *audit.Writer,
@@ -75,7 +75,7 @@ func createThreadMessage(
 			return
 		}
 
-		message, err := messageRepo.CreateStructured(r.Context(), actor.OrgID, threadID, "user", projection, contentJSON, &actor.UserID)
+		message, err := messageRepo.CreateStructured(r.Context(), actor.AccountID, threadID, "user", projection, contentJSON, &actor.UserID)
 		if err != nil {
 			var threadNotFound data.ThreadNotFoundError
 			if errors.As(err, &threadNotFound) {
@@ -92,7 +92,7 @@ func createThreadMessage(
 
 func listThreadMessages(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	threadRepo *data.ThreadRepository,
 	messageRepo *data.MessageRepository,
 	auditWriter *audit.Writer,
@@ -141,7 +141,7 @@ func listThreadMessages(
 			return
 		}
 
-		messages, err := messageRepo.ListByThread(r.Context(), actor.OrgID, threadID, limit)
+		messages, err := messageRepo.ListByThread(r.Context(), actor.AccountID, threadID, limit)
 		if err != nil {
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
@@ -189,7 +189,7 @@ func toMessageResponse(message data.Message) messageResponse {
 
 	return messageResponse{
 		ID:              message.ID.String(),
-		OrgID:           message.OrgID.String(),
+		AccountID:           message.AccountID.String(),
 		ThreadID:        message.ThreadID.String(),
 		CreatedByUserID: createdByUserID,
 		RunID:           runID,

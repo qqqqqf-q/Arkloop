@@ -26,7 +26,7 @@ var validWebhookEvents = map[string]struct{}{
 
 type webhookEndpointResponse struct {
 	ID        string   `json:"id"`
-	OrgID     string   `json:"org_id"`
+	AccountID     string   `json:"account_id"`
 	URL       string   `json:"url"`
 	Events    []string `json:"events"`
 	Enabled   bool     `json:"enabled"`
@@ -44,7 +44,7 @@ type updateWebhookRequest struct {
 
 func webhookEndpointsEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	webhookRepo *data.WebhookEndpointRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	secretsRepo *data.SecretsRepository,
@@ -64,7 +64,7 @@ func webhookEndpointsEntry(
 
 func webhookEndpointEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	webhookRepo *data.WebhookEndpointRepository,
 	apiKeysRepo *data.APIKeysRepository,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
@@ -101,7 +101,7 @@ func createWebhookEndpoint(
 	w nethttp.ResponseWriter,
 	r *nethttp.Request,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	webhookRepo *data.WebhookEndpointRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	secretsRepo *data.SecretsRepository,
@@ -170,13 +170,13 @@ func createWebhookEndpoint(
 	}
 	defer tx.Rollback(r.Context()) //nolint:errcheck
 
-	secret, err := secretsRepo.WithTx(tx).Create(r.Context(), actor.OrgID, data.WebhookSecretName(endpointID), signingSecret)
+	secret, err := secretsRepo.WithTx(tx).Create(r.Context(), actor.AccountID, data.WebhookSecretName(endpointID), signingSecret)
 	if err != nil {
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
 	}
 
-	ep, err := webhookRepo.WithTx(tx).Create(r.Context(), endpointID, actor.OrgID, req.URL, secret.ID, req.Events)
+	ep, err := webhookRepo.WithTx(tx).Create(r.Context(), endpointID, actor.AccountID, req.URL, secret.ID, req.Events)
 	if err != nil {
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
@@ -193,7 +193,7 @@ func listWebhookEndpoints(
 	w nethttp.ResponseWriter,
 	r *nethttp.Request,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	webhookRepo *data.WebhookEndpointRepository,
 	apiKeysRepo *data.APIKeysRepository,
 ) {
@@ -215,7 +215,7 @@ func listWebhookEndpoints(
 		return
 	}
 
-	endpoints, err := webhookRepo.ListByOrg(r.Context(), actor.OrgID)
+	endpoints, err := webhookRepo.ListByOrg(r.Context(), actor.AccountID)
 	if err != nil {
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
@@ -234,7 +234,7 @@ func getWebhookEndpoint(
 	traceID string,
 	endpointID uuid.UUID,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	webhookRepo *data.WebhookEndpointRepository,
 	apiKeysRepo *data.APIKeysRepository,
 ) {
@@ -260,7 +260,7 @@ func getWebhookEndpoint(
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
 	}
-	if ep == nil || ep.OrgID != actor.OrgID {
+	if ep == nil || ep.AccountID != actor.AccountID {
 		httpkit.WriteError(w, nethttp.StatusNotFound, "webhooks.not_found", "webhook endpoint not found", traceID, nil)
 		return
 	}
@@ -274,7 +274,7 @@ func updateWebhookEndpoint(
 	traceID string,
 	endpointID uuid.UUID,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	webhookRepo *data.WebhookEndpointRepository,
 	apiKeysRepo *data.APIKeysRepository,
 ) {
@@ -301,7 +301,7 @@ func updateWebhookEndpoint(
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
 	}
-	if ep == nil || ep.OrgID != actor.OrgID {
+	if ep == nil || ep.AccountID != actor.AccountID {
 		httpkit.WriteError(w, nethttp.StatusNotFound, "webhooks.not_found", "webhook endpoint not found", traceID, nil)
 		return
 	}
@@ -336,7 +336,7 @@ func deleteWebhookEndpoint(
 	traceID string,
 	endpointID uuid.UUID,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	webhookRepo *data.WebhookEndpointRepository,
 	apiKeysRepo *data.APIKeysRepository,
 ) {
@@ -362,12 +362,12 @@ func deleteWebhookEndpoint(
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
 	}
-	if ep == nil || ep.OrgID != actor.OrgID {
+	if ep == nil || ep.AccountID != actor.AccountID {
 		httpkit.WriteError(w, nethttp.StatusNotFound, "webhooks.not_found", "webhook endpoint not found", traceID, nil)
 		return
 	}
 
-	if err := webhookRepo.Delete(r.Context(), endpointID, actor.OrgID); err != nil {
+	if err := webhookRepo.Delete(r.Context(), endpointID, actor.AccountID); err != nil {
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
 	}
@@ -382,7 +382,7 @@ func toWebhookEndpointResponse(ep data.WebhookEndpoint) webhookEndpointResponse 
 	}
 	return webhookEndpointResponse{
 		ID:        ep.ID.String(),
-		OrgID:     ep.OrgID.String(),
+		AccountID:     ep.AccountID.String(),
 		URL:       ep.URL,
 		Events:    events,
 		Enabled:   ep.Enabled,

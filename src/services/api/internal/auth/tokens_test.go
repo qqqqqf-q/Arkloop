@@ -56,11 +56,11 @@ func TestIssueRejectsNilUserID(t *testing.T) {
 func TestIssueAndVerifyRoundTrip(t *testing.T) {
 	svc := mustTokenService(t)
 	userID := uuid.New()
-	orgID := uuid.New()
-	orgRole := "owner"
+	accountID := uuid.New()
+	accountRole := "owner"
 	now := time.Now().UTC().Truncate(time.Second)
 
-	token, err := svc.Issue(userID, orgID, orgRole, now)
+	token, err := svc.Issue(userID, accountID, accountRole, now)
 	if err != nil {
 		t.Fatalf("issue: %v", err)
 	}
@@ -75,18 +75,18 @@ func TestIssueAndVerifyRoundTrip(t *testing.T) {
 	if verified.UserID != userID {
 		t.Errorf("userID: got %s, want %s", verified.UserID, userID)
 	}
-	if verified.OrgID != orgID {
-		t.Errorf("orgID: got %s, want %s", verified.OrgID, orgID)
+	if verified.AccountID != accountID {
+		t.Errorf("accountID: got %s, want %s", verified.AccountID, accountID)
 	}
-	if verified.OrgRole != orgRole {
-		t.Errorf("orgRole: got %q, want %q", verified.OrgRole, orgRole)
+	if verified.AccountRole != accountRole {
+		t.Errorf("accountRole: got %q, want %q", verified.AccountRole, accountRole)
 	}
 	if verified.IssuedAt.Unix() != now.Unix() {
 		t.Errorf("issuedAt: got %v, want %v", verified.IssuedAt.Unix(), now.Unix())
 	}
 }
 
-func TestIssueWithoutOrgID(t *testing.T) {
+func TestIssueWithoutAccountID(t *testing.T) {
 	svc := mustTokenService(t)
 	userID := uuid.New()
 	now := time.Now().UTC()
@@ -100,11 +100,11 @@ func TestIssueWithoutOrgID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("verify: %v", err)
 	}
-	if verified.OrgID != uuid.Nil {
-		t.Errorf("orgID should be Nil when not set, got %s", verified.OrgID)
+	if verified.AccountID != uuid.Nil {
+		t.Errorf("accountID should be Nil when not set, got %s", verified.AccountID)
 	}
-	if verified.OrgRole != "" {
-		t.Errorf("orgRole should be empty when not set, got %q", verified.OrgRole)
+	if verified.AccountRole != "" {
+		t.Errorf("accountRole should be empty when not set, got %q", verified.AccountRole)
 	}
 	if verified.UserID != userID {
 		t.Errorf("userID: got %s, want %s", verified.UserID, userID)

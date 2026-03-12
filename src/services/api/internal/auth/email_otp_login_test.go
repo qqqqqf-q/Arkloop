@@ -72,7 +72,7 @@ func newOTPTestEnv(t *testing.T) *otpTestEnv {
 	otpRepo, _ := data.NewEmailOTPTokenRepository(otpQ)
 	jobRepo, _ := data.NewJobRepository(jobQ)
 	refreshRepo, _ := data.NewRefreshTokenRepository(refreshQ)
-	membershipRepo, _ := data.NewOrgMembershipRepository(membershipQ)
+	membershipRepo, _ := data.NewAccountMembershipRepository(membershipQ)
 	tokenSvc, _ := NewJwtAccessTokenService("test-secret-32-bytes-long-enough!", 3600, 86400)
 
 	svc, err := NewEmailOTPLoginService(userRepo, otpRepo, jobRepo, tokenSvc, refreshRepo, membershipRepo, noopRiskControl{})
@@ -113,7 +113,7 @@ func TestNewEmailOTPLoginServiceNilDeps(t *testing.T) {
 	otpRepo, _ := data.NewEmailOTPTokenRepository(q)
 	jobRepo, _ := data.NewJobRepository(q)
 	refreshRepo, _ := data.NewRefreshTokenRepository(q)
-	membershipRepo, _ := data.NewOrgMembershipRepository(q)
+	membershipRepo, _ := data.NewAccountMembershipRepository(q)
 
 	cases := []struct {
 		name string

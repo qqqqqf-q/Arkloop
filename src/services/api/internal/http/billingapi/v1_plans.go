@@ -43,7 +43,7 @@ type createPlanEntitlementItem struct {
 
 func plansEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	planRepo *data.PlanRepository,
 	entitlementsRepo *data.EntitlementsRepository,
 	apiKeysRepo *data.APIKeysRepository,
@@ -62,7 +62,7 @@ func plansEntry(
 
 func planEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	planRepo *data.PlanRepository,
 	entitlementsRepo *data.EntitlementsRepository,
 	apiKeysRepo *data.APIKeysRepository,
@@ -96,7 +96,7 @@ func createPlan(
 	w nethttp.ResponseWriter,
 	r *nethttp.Request,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	planRepo *data.PlanRepository,
 	entitlementsRepo *data.EntitlementsRepository,
 	apiKeysRepo *data.APIKeysRepository,
@@ -162,7 +162,7 @@ func listPlans(
 	w nethttp.ResponseWriter,
 	r *nethttp.Request,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	planRepo *data.PlanRepository,
 	entitlementsRepo *data.EntitlementsRepository,
 	apiKeysRepo *data.APIKeysRepository,
@@ -211,7 +211,7 @@ func getPlan(
 	traceID string,
 	planID uuid.UUID,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	planRepo *data.PlanRepository,
 	entitlementsRepo *data.EntitlementsRepository,
 	apiKeysRepo *data.APIKeysRepository,

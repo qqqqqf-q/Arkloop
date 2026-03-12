@@ -10,7 +10,7 @@ import (
 
 type LogFields struct {
 	TraceID *string
-	OrgID   *string
+	AccountID   *string
 	RunID   *string
 }
 
@@ -54,7 +54,7 @@ func (l *JSONLogger) log(level string, msg string, fields LogFields, extra map[s
 		"msg":       msg,
 		"component": l.component,
 		"trace_id":  pointerString(fields.TraceID),
-		"org_id":    pointerString(fields.OrgID),
+		"account_id":    pointerString(fields.AccountID),
 		"run_id":    pointerString(fields.RunID),
 	}
 

@@ -14,13 +14,13 @@ import (
 
 type Writer struct {
 	auditRepo      *data.AuditLogRepository
-	membershipRepo *data.OrgMembershipRepository
+	membershipRepo *data.AccountMembershipRepository
 	logger         *observability.JSONLogger
 }
 
 func NewWriter(
 	auditRepo *data.AuditLogRepository,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	logger *observability.JSONLogger,
 ) *Writer {
 	return &Writer{
@@ -61,13 +61,13 @@ func (w *Writer) WriteLoginSucceeded(ctx context.Context, traceID string, userID
 		return
 	}
 
-	var orgID *uuid.UUID
+	var accountID *uuid.UUID
 	if w.membershipRepo != nil {
 		membership, err := w.membershipRepo.GetDefaultForUser(ctx, userID)
 		if err != nil {
-			w.logError(traceID, "failed to read default org", err)
+			w.logError(traceID, "failed to read default account", err)
 		} else if membership != nil {
-			orgID = &membership.OrgID
+			accountID = &membership.AccountID
 		}
 	}
 
@@ -76,7 +76,7 @@ func (w *Writer) WriteLoginSucceeded(ctx context.Context, traceID string, userID
 	targetType := "user"
 	targetID := userID.String()
 	if err := w.auditRepo.Create(ctx, data.AuditLogCreateParams{
-		OrgID:       orgID,
+		AccountID:       accountID,
 		ActorUserID: &userID,
 		Action:      "auth.login",
 		TargetType:  &targetType,
@@ -121,13 +121,13 @@ func (w *Writer) WriteLogout(ctx context.Context, traceID string, userID uuid.UU
 		return
 	}
 
-	var orgID *uuid.UUID
+	var accountID *uuid.UUID
 	if w.membershipRepo != nil {
 		membership, err := w.membershipRepo.GetDefaultForUser(ctx, userID)
 		if err != nil {
-			w.logError(traceID, "failed to read default org", err)
+			w.logError(traceID, "failed to read default account", err)
 		} else if membership != nil {
-			orgID = &membership.OrgID
+			accountID = &membership.AccountID
 		}
 	}
 
@@ -135,7 +135,7 @@ func (w *Writer) WriteLogout(ctx context.Context, traceID string, userID uuid.UU
 	targetType := "user"
 	targetID := userID.String()
 	if err := w.auditRepo.Create(ctx, data.AuditLogCreateParams{
-		OrgID:       orgID,
+		AccountID:       accountID,
 		ActorUserID: &userID,
 		Action:      "auth.logout",
 		TargetType:  &targetType,
@@ -204,13 +204,13 @@ func (w *Writer) WriteLoginOTPSent(ctx context.Context, traceID string, userID u
 		return
 	}
 
-	var orgID *uuid.UUID
+	var accountID *uuid.UUID
 	if w.membershipRepo != nil {
 		membership, err := w.membershipRepo.GetDefaultForUser(ctx, userID)
 		if err != nil {
-			w.logError(traceID, "failed to read default org", err)
+			w.logError(traceID, "failed to read default account", err)
 		} else if membership != nil {
-			orgID = &membership.OrgID
+			accountID = &membership.AccountID
 		}
 	}
 
@@ -218,7 +218,7 @@ func (w *Writer) WriteLoginOTPSent(ctx context.Context, traceID string, userID u
 	targetType := "user"
 	targetID := userID.String()
 	if err := w.auditRepo.Create(ctx, data.AuditLogCreateParams{
-		OrgID:       orgID,
+		AccountID:       accountID,
 		ActorUserID: &userID,
 		Action:      "auth.login_otp_send",
 		TargetType:  &targetType,
@@ -239,7 +239,7 @@ func (w *Writer) WriteLoginOTPSent(ctx context.Context, traceID string, userID u
 func (w *Writer) WriteRunCancelRequested(
 	ctx context.Context,
 	traceID string,
-	actorOrgID uuid.UUID,
+	actorAccountID uuid.UUID,
 	actorUserID uuid.UUID,
 	runID uuid.UUID,
 ) {
@@ -251,7 +251,7 @@ func (w *Writer) WriteRunCancelRequested(
 	targetType := "run"
 	targetID := runID.String()
 	if err := w.auditRepo.Create(ctx, data.AuditLogCreateParams{
-		OrgID:       &actorOrgID,
+		AccountID:       &actorAccountID,
 		ActorUserID: &actorUserID,
 		Action:      "runs.cancel",
 		TargetType:  &targetType,
@@ -270,7 +270,7 @@ func (w *Writer) WriteRunCancelRequested(
 func (w *Writer) WriteThreadDeleted(
 	ctx context.Context,
 	traceID string,
-	actorOrgID uuid.UUID,
+	actorAccountID uuid.UUID,
 	actorUserID uuid.UUID,
 	threadID uuid.UUID,
 ) {
@@ -282,7 +282,7 @@ func (w *Writer) WriteThreadDeleted(
 	targetType := "thread"
 	targetID := threadID.String()
 	if err := w.auditRepo.Create(ctx, data.AuditLogCreateParams{
-		OrgID:       &actorOrgID,
+		AccountID:       &actorAccountID,
 		ActorUserID: &actorUserID,
 		Action:      "threads.delete",
 		TargetType:  &targetType,
@@ -299,12 +299,12 @@ func (w *Writer) WriteThreadDeleted(
 func (w *Writer) WriteAccessDenied(
 	ctx context.Context,
 	traceID string,
-	actorOrgID uuid.UUID,
+	actorAccountID uuid.UUID,
 	actorUserID uuid.UUID,
 	action string,
 	targetType string,
 	targetID string,
-	resourceOrgID uuid.UUID,
+	resourceAccountID uuid.UUID,
 	resourceOwnerUserID *uuid.UUID,
 	denyReason string,
 ) {
@@ -319,19 +319,19 @@ func (w *Writer) WriteAccessDenied(
 		owner = resourceOwnerUserID.String()
 	}
 
-	orgID := actorOrgID.String()
+	accountID := actorAccountID.String()
 	if w.logger != nil {
 		w.logger.Info(
 			"access denied",
-			observability.LogFields{TraceID: &traceID, OrgID: &orgID},
+			observability.LogFields{TraceID: &traceID, AccountID: &accountID},
 			map[string]any{
 				"action":                 action,
 				"target_type":            targetType,
 				"target_id":              targetID,
 				"deny_reason":            denyReason,
-				"actor_org_id":           actorOrgID.String(),
+				"actor_account_id":           actorAccountID.String(),
 				"actor_user_id":          actorUserID.String(),
-				"resource_org_id":        resourceOrgID.String(),
+				"resource_account_id":        resourceAccountID.String(),
 				"resource_owner_user_id": owner,
 			},
 		)
@@ -356,15 +356,15 @@ func (w *Writer) WriteAccessDenied(
 	meta := map[string]any{
 		"result":                 "denied",
 		"deny_reason":            denyReason,
-		"actor_org_id":           actorOrgID.String(),
+		"actor_account_id":           actorAccountID.String(),
 		"actor_user_id":          actorUserID.String(),
-		"resource_org_id":        resourceOrgID.String(),
+		"resource_account_id":        resourceAccountID.String(),
 		"resource_owner_user_id": owner,
 	}
 
 	ip, ua := requestMetaFromContext(ctx)
 	if err := w.auditRepo.Create(ctx, data.AuditLogCreateParams{
-		OrgID:       &actorOrgID,
+		AccountID:       &actorAccountID,
 		ActorUserID: &actorUserID,
 		Action:      cleanedAction,
 		TargetType:  targetTypePtr,
@@ -381,7 +381,7 @@ func (w *Writer) WriteAccessDenied(
 func (w *Writer) WriteAPIKeyCreated(
 	ctx context.Context,
 	traceID string,
-	orgID uuid.UUID,
+	accountID uuid.UUID,
 	userID uuid.UUID,
 	keyID uuid.UUID,
 	name string,
@@ -394,7 +394,7 @@ func (w *Writer) WriteAPIKeyCreated(
 	targetType := "api_key"
 	targetID := keyID.String()
 	if err := w.auditRepo.Create(ctx, data.AuditLogCreateParams{
-		OrgID:       &orgID,
+		AccountID:       &accountID,
 		ActorUserID: &userID,
 		Action:      "api_keys.create",
 		TargetType:  &targetType,
@@ -411,7 +411,7 @@ func (w *Writer) WriteAPIKeyCreated(
 func (w *Writer) WriteAPIKeyRevoked(
 	ctx context.Context,
 	traceID string,
-	orgID uuid.UUID,
+	accountID uuid.UUID,
 	userID uuid.UUID,
 	keyID uuid.UUID,
 ) {
@@ -423,7 +423,7 @@ func (w *Writer) WriteAPIKeyRevoked(
 	targetType := "api_key"
 	targetID := keyID.String()
 	if err := w.auditRepo.Create(ctx, data.AuditLogCreateParams{
-		OrgID:       &orgID,
+		AccountID:       &accountID,
 		ActorUserID: &userID,
 		Action:      "api_keys.revoke",
 		TargetType:  &targetType,
@@ -440,7 +440,7 @@ func (w *Writer) WriteAPIKeyRevoked(
 func (w *Writer) WriteAPIKeyUsed(
 	ctx context.Context,
 	traceID string,
-	orgID uuid.UUID,
+	accountID uuid.UUID,
 	userID uuid.UUID,
 	keyID uuid.UUID,
 	action string,
@@ -454,7 +454,7 @@ func (w *Writer) WriteAPIKeyUsed(
 	targetType := "api_key"
 	targetID := keyID.String()
 	if err := w.auditRepo.Create(ctx, data.AuditLogCreateParams{
-		OrgID:       &orgID,
+		AccountID:       &accountID,
 		ActorUserID: &userID,
 		Action:      action,
 		TargetType:  &targetType,
@@ -469,10 +469,10 @@ func (w *Writer) WriteAPIKeyUsed(
 	}
 }
 
-func (w *Writer) WriteOrgInvitationCreated(
+func (w *Writer) WriteAccountInvitationCreated(
 	ctx context.Context,
 	traceID string,
-	orgID uuid.UUID,
+	accountID uuid.UUID,
 	actorUserID uuid.UUID,
 	invitationID uuid.UUID,
 	email string,
@@ -483,12 +483,12 @@ func (w *Writer) WriteOrgInvitationCreated(
 	}
 
 	ip, ua := requestMetaFromContext(ctx)
-	targetType := "org_invitation"
+	targetType := "account_invitation"
 	targetID := invitationID.String()
 	if err := w.auditRepo.Create(ctx, data.AuditLogCreateParams{
-		OrgID:       &orgID,
+		AccountID:       &accountID,
 		ActorUserID: &actorUserID,
-		Action:      "org_invitations.create",
+		Action:      "account_invitations.create",
 		TargetType:  &targetType,
 		TargetID:    &targetID,
 		TraceID:     traceID,
@@ -496,14 +496,14 @@ func (w *Writer) WriteOrgInvitationCreated(
 		UserAgent:   ua,
 		Metadata:    map[string]any{"email": email, "role": role},
 	}); err != nil {
-		w.logError(traceID, "failed to write org_invitation-created audit log", err)
+		w.logError(traceID, "failed to write account_invitation-created audit log", err)
 	}
 }
 
-func (w *Writer) WriteOrgInvitationAccepted(
+func (w *Writer) WriteAccountInvitationAccepted(
 	ctx context.Context,
 	traceID string,
-	orgID uuid.UUID,
+	accountID uuid.UUID,
 	actorUserID uuid.UUID,
 	invitationID uuid.UUID,
 	email string,
@@ -513,12 +513,12 @@ func (w *Writer) WriteOrgInvitationAccepted(
 	}
 
 	ip, ua := requestMetaFromContext(ctx)
-	targetType := "org_invitation"
+	targetType := "account_invitation"
 	targetID := invitationID.String()
 	if err := w.auditRepo.Create(ctx, data.AuditLogCreateParams{
-		OrgID:       &orgID,
+		AccountID:       &accountID,
 		ActorUserID: &actorUserID,
-		Action:      "org_invitations.accept",
+		Action:      "account_invitations.accept",
 		TargetType:  &targetType,
 		TargetID:    &targetID,
 		TraceID:     traceID,
@@ -526,14 +526,14 @@ func (w *Writer) WriteOrgInvitationAccepted(
 		UserAgent:   ua,
 		Metadata:    map[string]any{"email": email},
 	}); err != nil {
-		w.logError(traceID, "failed to write org_invitation-accepted audit log", err)
+		w.logError(traceID, "failed to write account_invitation-accepted audit log", err)
 	}
 }
 
-func (w *Writer) WriteOrgInvitationRevoked(
+func (w *Writer) WriteAccountInvitationRevoked(
 	ctx context.Context,
 	traceID string,
-	orgID uuid.UUID,
+	accountID uuid.UUID,
 	actorUserID uuid.UUID,
 	invitationID uuid.UUID,
 ) {
@@ -542,12 +542,12 @@ func (w *Writer) WriteOrgInvitationRevoked(
 	}
 
 	ip, ua := requestMetaFromContext(ctx)
-	targetType := "org_invitation"
+	targetType := "account_invitation"
 	targetID := invitationID.String()
 	if err := w.auditRepo.Create(ctx, data.AuditLogCreateParams{
-		OrgID:       &orgID,
+		AccountID:       &accountID,
 		ActorUserID: &actorUserID,
-		Action:      "org_invitations.revoke",
+		Action:      "account_invitations.revoke",
 		TargetType:  &targetType,
 		TargetID:    &targetID,
 		TraceID:     traceID,
@@ -555,7 +555,7 @@ func (w *Writer) WriteOrgInvitationRevoked(
 		UserAgent:   ua,
 		Metadata:    map[string]any{},
 	}); err != nil {
-		w.logError(traceID, "failed to write org_invitation-revoked audit log", err)
+		w.logError(traceID, "failed to write account_invitation-revoked audit log", err)
 	}
 }
 
@@ -741,7 +741,7 @@ func (w *Writer) WriteRedemptionCodeBatchCreated(
 func (w *Writer) WriteRedemptionCodeRedeemed(
 	ctx context.Context,
 	traceID string,
-	orgID uuid.UUID,
+	accountID uuid.UUID,
 	userID uuid.UUID,
 	codeID uuid.UUID,
 	codeType string,
@@ -755,7 +755,7 @@ func (w *Writer) WriteRedemptionCodeRedeemed(
 	targetType := "redemption_code"
 	targetID := codeID.String()
 	if err := w.auditRepo.Create(ctx, data.AuditLogCreateParams{
-		OrgID:       &orgID,
+		AccountID:       &accountID,
 		ActorUserID: &userID,
 		Action:      "redemption_codes.redeem",
 		TargetType:  &targetType,
@@ -794,17 +794,17 @@ func (w *Writer) WriteBroadcastCreated(
 		meta["target_id"] = targetID.String()
 	}
 
-	var orgID *uuid.UUID
+	var accountID *uuid.UUID
 	if w.membershipRepo != nil {
 		membership, err := w.membershipRepo.GetDefaultForUser(ctx, userID)
 		if err != nil {
-			w.logError(traceID, "failed to read default org for broadcast audit", err)
+			w.logError(traceID, "failed to read default account for broadcast audit", err)
 		} else if membership != nil {
-			orgID = &membership.OrgID
+			accountID = &membership.AccountID
 		}
 	}
 	if err := w.auditRepo.Create(ctx, data.AuditLogCreateParams{
-		OrgID:       orgID,
+		AccountID:       accountID,
 		ActorUserID: &userID,
 		Action:      "notifications.broadcast_created",
 		TargetType:  &tType,
@@ -822,15 +822,15 @@ func (w *Writer) WriteCreditsAdjusted(
 	ctx context.Context,
 	traceID string,
 	actorUserID uuid.UUID,
-	targetOrgID uuid.UUID,
+	targetAccountID uuid.UUID,
 	amount int64,
 	note string,
 	beforeState any,
 	afterState any,
 ) {
-	targetType := "org"
-	targetID := targetOrgID.String()
-	w.writeStateChange(ctx, traceID, &targetOrgID, &actorUserID, "credits.adjust", &targetType, &targetID, map[string]any{
+	targetType := "account"
+	targetID := targetAccountID.String()
+	w.writeStateChange(ctx, traceID, &targetAccountID, &actorUserID, "credits.adjust", &targetType, &targetID, map[string]any{
 		"amount":           amount,
 		"note":             note,
 		"transaction_type": "admin_adjustment",
@@ -872,7 +872,7 @@ func (w *Writer) WriteEntitlementOverrideSet(
 	ctx context.Context,
 	traceID string,
 	actorUserID uuid.UUID,
-	targetOrgID uuid.UUID,
+	targetAccountID uuid.UUID,
 	overrideID uuid.UUID,
 	key string,
 	beforeState any,
@@ -880,7 +880,7 @@ func (w *Writer) WriteEntitlementOverrideSet(
 ) {
 	targetType := "entitlement_override"
 	targetID := overrideID.String()
-	w.writeStateChange(ctx, traceID, &targetOrgID, &actorUserID, "entitlements.override_set", &targetType, &targetID, map[string]any{
+	w.writeStateChange(ctx, traceID, &targetAccountID, &actorUserID, "entitlements.override_set", &targetType, &targetID, map[string]any{
 		"key": key,
 	}, beforeState, afterState, "failed to write entitlement-override-set audit log")
 }
@@ -889,14 +889,14 @@ func (w *Writer) WriteEntitlementOverrideDeleted(
 	ctx context.Context,
 	traceID string,
 	actorUserID uuid.UUID,
-	targetOrgID uuid.UUID,
+	targetAccountID uuid.UUID,
 	overrideID uuid.UUID,
 	key string,
 	beforeState any,
 ) {
 	targetType := "entitlement_override"
 	targetID := overrideID.String()
-	w.writeStateChange(ctx, traceID, &targetOrgID, &actorUserID, "entitlements.override_delete", &targetType, &targetID, map[string]any{
+	w.writeStateChange(ctx, traceID, &targetAccountID, &actorUserID, "entitlements.override_delete", &targetType, &targetID, map[string]any{
 		"key": key,
 	}, beforeState, nil, "failed to write entitlement-override-delete audit log")
 }
@@ -947,41 +947,41 @@ func (w *Writer) WriteFeatureFlagDeleted(
 	}, beforeState, nil, "failed to write feature-flag-deleted audit log")
 }
 
-func (w *Writer) WriteFeatureFlagOrgOverrideSet(
+func (w *Writer) WriteFeatureFlagAccountOverrideSet(
 	ctx context.Context,
 	traceID string,
 	actorUserID uuid.UUID,
-	targetOrgID uuid.UUID,
+	targetAccountID uuid.UUID,
 	flagKey string,
 	beforeState any,
 	afterState any,
 ) {
-	targetType := "feature_flag_org_override"
-	targetID := targetOrgID.String() + ":" + flagKey
-	w.writeStateChange(ctx, traceID, &targetOrgID, &actorUserID, "feature_flags.org_override_set", &targetType, &targetID, map[string]any{
+	targetType := "feature_flag_account_override"
+	targetID := targetAccountID.String() + ":" + flagKey
+	w.writeStateChange(ctx, traceID, &targetAccountID, &actorUserID, "feature_flags.account_override_set", &targetType, &targetID, map[string]any{
 		"key": flagKey,
-	}, beforeState, afterState, "failed to write feature-flag-org-override-set audit log")
+	}, beforeState, afterState, "failed to write feature-flag-account-override-set audit log")
 }
 
-func (w *Writer) WriteFeatureFlagOrgOverrideDeleted(
+func (w *Writer) WriteFeatureFlagAccountOverrideDeleted(
 	ctx context.Context,
 	traceID string,
 	actorUserID uuid.UUID,
-	targetOrgID uuid.UUID,
+	targetAccountID uuid.UUID,
 	flagKey string,
 	beforeState any,
 ) {
-	targetType := "feature_flag_org_override"
-	targetID := targetOrgID.String() + ":" + flagKey
-	w.writeStateChange(ctx, traceID, &targetOrgID, &actorUserID, "feature_flags.org_override_delete", &targetType, &targetID, map[string]any{
+	targetType := "feature_flag_account_override"
+	targetID := targetAccountID.String() + ":" + flagKey
+	w.writeStateChange(ctx, traceID, &targetAccountID, &actorUserID, "feature_flags.account_override_delete", &targetType, &targetID, map[string]any{
 		"key": flagKey,
-	}, beforeState, nil, "failed to write feature-flag-org-override-delete audit log")
+	}, beforeState, nil, "failed to write feature-flag-account-override-delete audit log")
 }
 
 func (w *Writer) writeStateChange(
 	ctx context.Context,
 	traceID string,
-	orgID *uuid.UUID,
+	accountID *uuid.UUID,
 	actorUserID *uuid.UUID,
 	action string,
 	targetType *string,
@@ -1000,7 +1000,7 @@ func (w *Writer) writeStateChange(
 
 	ip, ua := requestMetaFromContext(ctx)
 	if err := w.auditRepo.Create(ctx, data.AuditLogCreateParams{
-		OrgID:           orgID,
+		AccountID:           accountID,
 		ActorUserID:     actorUserID,
 		Action:          action,
 		TargetType:      targetType,

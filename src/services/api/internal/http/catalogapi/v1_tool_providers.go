@@ -66,7 +66,7 @@ type upsertToolProviderCredentialRequest struct {
 
 func toolProvidersEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	toolProvidersRepo *data.ToolProviderConfigsRepository,
 	secretsRepo *data.SecretsRepository,
 	pool *pgxpool.Pool,
@@ -86,7 +86,7 @@ func toolProvidersEntry(
 
 func toolProviderEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	toolProvidersRepo *data.ToolProviderConfigsRepository,
 	secretsRepo *data.SecretsRepository,
 	pool *pgxpool.Pool,
@@ -181,7 +181,7 @@ func resolveToolProviderScope(
 		httpkit.WriteError(w, nethttp.StatusServiceUnavailable, "database.not_configured", "database not configured", traceID, nil)
 		return "", uuid.Nil, false
 	}
-	project, err := projectRepo.GetOrCreateDefaultByOwner(ctx, actor.OrgID, actor.UserID)
+	project, err := projectRepo.GetOrCreateDefaultByOwner(ctx, actor.AccountID, actor.UserID)
 	if err != nil {
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return "", uuid.Nil, false
@@ -194,7 +194,7 @@ func listToolProviders(
 	r *nethttp.Request,
 	traceID string,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	toolProvidersRepo *data.ToolProviderConfigsRepository,
 	projectRepo *data.ProjectRepository,
 ) {
@@ -283,7 +283,7 @@ func activateToolProvider(
 	groupName string,
 	providerName string,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	toolProvidersRepo *data.ToolProviderConfigsRepository,
 	pool *pgxpool.Pool,
 	directPool *pgxpool.Pool,
@@ -346,7 +346,7 @@ func deactivateToolProvider(
 	groupName string,
 	providerName string,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	toolProvidersRepo *data.ToolProviderConfigsRepository,
 	pool *pgxpool.Pool,
 	directPool *pgxpool.Pool,
@@ -391,7 +391,7 @@ func upsertToolProviderCredential(
 	groupName string,
 	providerName string,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	toolProvidersRepo *data.ToolProviderConfigsRepository,
 	secretsRepo *data.SecretsRepository,
 	pool *pgxpool.Pool,
@@ -529,7 +529,7 @@ func clearToolProviderCredential(
 	groupName string,
 	providerName string,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	toolProvidersRepo *data.ToolProviderConfigsRepository,
 	secretsRepo *data.SecretsRepository,
 	pool *pgxpool.Pool,
@@ -607,7 +607,7 @@ func updateToolProviderConfig(
 	groupName string,
 	providerName string,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	toolProvidersRepo *data.ToolProviderConfigsRepository,
 	pool *pgxpool.Pool,
 	directPool *pgxpool.Pool,

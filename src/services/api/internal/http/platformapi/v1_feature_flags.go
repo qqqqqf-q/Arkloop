@@ -24,8 +24,8 @@ type featureFlagResponse struct {
 	CreatedAt    string  `json:"created_at"`
 }
 
-type orgFeatureOverrideResponse struct {
-	OrgID     string `json:"org_id"`
+type accountFeatureOverrideResponse struct {
+	AccountID     string `json:"account_id"`
 	FlagKey   string `json:"flag_key"`
 	Enabled   bool   `json:"enabled"`
 	CreatedAt string `json:"created_at"`
@@ -37,8 +37,8 @@ type createFeatureFlagRequest struct {
 	DefaultValue bool    `json:"default_value"`
 }
 
-type setOrgOverrideRequest struct {
-	OrgID   string `json:"org_id"`
+type setAccountOverrideRequest struct {
+	AccountID   string `json:"account_id"`
 	Enabled bool   `json:"enabled"`
 }
 
@@ -48,7 +48,7 @@ type updateFeatureFlagRequest struct {
 
 func featureFlagsEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	flagRepo *data.FeatureFlagRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,
@@ -67,7 +67,7 @@ func featureFlagsEntry(
 
 func featureFlagEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	flagRepo *data.FeatureFlagRepository,
 	flagService *featureflag.Service,
 	apiKeysRepo *data.APIKeysRepository,
@@ -108,24 +108,24 @@ func featureFlagEntry(
 		if len(parts) == 2 {
 			switch r.Method {
 			case nethttp.MethodPost:
-				setFlagOrgOverride(w, r, traceID, flagKey, authService, membershipRepo, flagRepo, flagService, apiKeysRepo, auditWriter)
+				setFlagAccountOverride(w, r, traceID, flagKey, authService, membershipRepo, flagRepo, flagService, apiKeysRepo, auditWriter)
 			case nethttp.MethodGet:
-				listFlagOrgOverrides(w, r, traceID, flagKey, authService, membershipRepo, flagRepo, apiKeysRepo)
+				listFlagAccountOverrides(w, r, traceID, flagKey, authService, membershipRepo, flagRepo, apiKeysRepo)
 			default:
 				httpkit.WriteMethodNotAllowed(w, r)
 			}
 			return
 		}
 
-		orgID, err := uuid.Parse(parts[2])
+		accountID, err := uuid.Parse(parts[2])
 		if err != nil {
-			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "invalid org_id", traceID, nil)
+			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "invalid account_id", traceID, nil)
 			return
 		}
 
 		switch r.Method {
 		case nethttp.MethodDelete:
-			deleteFlagOrgOverride(w, r, traceID, flagKey, orgID, authService, membershipRepo, flagRepo, flagService, apiKeysRepo, auditWriter)
+			deleteFlagAccountOverride(w, r, traceID, flagKey, accountID, authService, membershipRepo, flagRepo, flagService, apiKeysRepo, auditWriter)
 		default:
 			httpkit.WriteMethodNotAllowed(w, r)
 		}
@@ -136,7 +136,7 @@ func createFeatureFlag(
 	w nethttp.ResponseWriter,
 	r *nethttp.Request,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	flagRepo *data.FeatureFlagRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,
@@ -188,7 +188,7 @@ func listFeatureFlags(
 	w nethttp.ResponseWriter,
 	r *nethttp.Request,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	flagRepo *data.FeatureFlagRepository,
 	apiKeysRepo *data.APIKeysRepository,
 ) {
@@ -229,7 +229,7 @@ func getFeatureFlag(
 	traceID string,
 	flagKey string,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	flagRepo *data.FeatureFlagRepository,
 	apiKeysRepo *data.APIKeysRepository,
 ) {
@@ -269,7 +269,7 @@ func updateFeatureFlag(
 	traceID string,
 	flagKey string,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	flagRepo *data.FeatureFlagRepository,
 	flagService *featureflag.Service,
 	apiKeysRepo *data.APIKeysRepository,
@@ -346,7 +346,7 @@ func deleteFeatureFlag(
 	traceID string,
 	flagKey string,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	flagRepo *data.FeatureFlagRepository,
 	flagService *featureflag.Service,
 	apiKeysRepo *data.APIKeysRepository,
@@ -387,13 +387,13 @@ func deleteFeatureFlag(
 	httpkit.WriteJSON(w, traceID, nethttp.StatusOK, map[string]bool{"ok": true})
 }
 
-func setFlagOrgOverride(
+func setFlagAccountOverride(
 	w nethttp.ResponseWriter,
 	r *nethttp.Request,
 	traceID string,
 	flagKey string,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	flagRepo *data.FeatureFlagRepository,
 	flagService *featureflag.Service,
 	apiKeysRepo *data.APIKeysRepository,
@@ -416,15 +416,15 @@ func setFlagOrgOverride(
 		return
 	}
 
-	var req setOrgOverrideRequest
+	var req setAccountOverrideRequest
 	if err := httpkit.DecodeJSON(r, &req); err != nil {
 		httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "request validation failed", traceID, nil)
 		return
 	}
 
-	orgID, err := uuid.Parse(strings.TrimSpace(req.OrgID))
-	if err != nil || orgID == uuid.Nil {
-		httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "invalid org_id", traceID, nil)
+	accountID, err := uuid.Parse(strings.TrimSpace(req.AccountID))
+	if err != nil || accountID == uuid.Nil {
+		httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "invalid account_id", traceID, nil)
 		return
 	}
 
@@ -438,43 +438,43 @@ func setFlagOrgOverride(
 		return
 	}
 
-	previous, err := flagRepo.GetOrgOverride(r.Context(), orgID, flagKey)
+	previous, err := flagRepo.GetOrgOverride(r.Context(), accountID, flagKey)
 	if err != nil {
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
 	}
 
-	override, err := flagRepo.SetOrgOverride(r.Context(), orgID, flagKey, req.Enabled)
+	override, err := flagRepo.SetOrgOverride(r.Context(), accountID, flagKey, req.Enabled)
 	if err != nil {
 		httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", err.Error(), traceID, nil)
 		return
 	}
 
 	if flagService != nil {
-		flagService.InvalidateCache(r.Context(), orgID, flagKey)
+		flagService.InvalidateCache(r.Context(), accountID, flagKey)
 	}
 	if auditWriter != nil {
-		auditWriter.WriteFeatureFlagOrgOverrideSet(
+		auditWriter.WriteFeatureFlagAccountOverrideSet(
 			r.Context(),
 			traceID,
 			actor.UserID,
-			orgID,
+			accountID,
 			flagKey,
-			orgFeatureOverrideAuditState(previous),
-			toOrgOverrideResponse(override),
+			accountFeatureOverrideAuditState(previous),
+			toAccountOverrideResponse(override),
 		)
 	}
 
-	httpkit.WriteJSON(w, traceID, nethttp.StatusOK, toOrgOverrideResponse(override))
+	httpkit.WriteJSON(w, traceID, nethttp.StatusOK, toAccountOverrideResponse(override))
 }
 
-func listFlagOrgOverrides(
+func listFlagAccountOverrides(
 	w nethttp.ResponseWriter,
 	r *nethttp.Request,
 	traceID string,
 	flagKey string,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	flagRepo *data.FeatureFlagRepository,
 	apiKeysRepo *data.APIKeysRepository,
 ) {
@@ -501,21 +501,21 @@ func listFlagOrgOverrides(
 		return
 	}
 
-	resp := make([]orgFeatureOverrideResponse, 0, len(overrides))
+	resp := make([]accountFeatureOverrideResponse, 0, len(overrides))
 	for _, o := range overrides {
-		resp = append(resp, toOrgOverrideResponse(o))
+		resp = append(resp, toAccountOverrideResponse(o))
 	}
 	httpkit.WriteJSON(w, traceID, nethttp.StatusOK, resp)
 }
 
-func deleteFlagOrgOverride(
+func deleteFlagAccountOverride(
 	w nethttp.ResponseWriter,
 	r *nethttp.Request,
 	traceID string,
 	flagKey string,
-	orgID uuid.UUID,
+	accountID uuid.UUID,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	flagRepo *data.FeatureFlagRepository,
 	flagService *featureflag.Service,
 	apiKeysRepo *data.APIKeysRepository,
@@ -538,28 +538,28 @@ func deleteFlagOrgOverride(
 		return
 	}
 
-	previous, err := flagRepo.GetOrgOverride(r.Context(), orgID, flagKey)
+	previous, err := flagRepo.GetOrgOverride(r.Context(), accountID, flagKey)
 	if err != nil {
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
 	}
 
-	if err := flagRepo.DeleteOrgOverride(r.Context(), orgID, flagKey); err != nil {
+	if err := flagRepo.DeleteOrgOverride(r.Context(), accountID, flagKey); err != nil {
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
 	}
 
 	if flagService != nil && previous != nil {
-		flagService.InvalidateCache(r.Context(), orgID, flagKey)
+		flagService.InvalidateCache(r.Context(), accountID, flagKey)
 	}
 	if auditWriter != nil && previous != nil {
-		auditWriter.WriteFeatureFlagOrgOverrideDeleted(
+		auditWriter.WriteFeatureFlagAccountOverrideDeleted(
 			r.Context(),
 			traceID,
 			actor.UserID,
-			orgID,
+			accountID,
 			flagKey,
-			orgFeatureOverrideAuditState(previous),
+			accountFeatureOverrideAuditState(previous),
 		)
 	}
 
@@ -576,18 +576,18 @@ func toFeatureFlagResponse(f data.FeatureFlag) featureFlagResponse {
 	}
 }
 
-func toOrgOverrideResponse(o data.OrgFeatureOverride) orgFeatureOverrideResponse {
-	return orgFeatureOverrideResponse{
-		OrgID:     o.OrgID.String(),
+func toAccountOverrideResponse(o data.AccountFeatureOverride) accountFeatureOverrideResponse {
+	return accountFeatureOverrideResponse{
+		AccountID:     o.AccountID.String(),
 		FlagKey:   o.FlagKey,
 		Enabled:   o.Enabled,
 		CreatedAt: o.CreatedAt.UTC().Format(time.RFC3339Nano),
 	}
 }
 
-func orgFeatureOverrideAuditState(o *data.OrgFeatureOverride) any {
+func accountFeatureOverrideAuditState(o *data.AccountFeatureOverride) any {
 	if o == nil {
 		return nil
 	}
-	return toOrgOverrideResponse(*o)
+	return toAccountOverrideResponse(*o)
 }

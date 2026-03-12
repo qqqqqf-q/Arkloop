@@ -28,7 +28,7 @@ type skillImportCandidate struct {
 
 func githubSkillImportEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,
 	packagesRepo *data.SkillPackagesRepository,
@@ -56,7 +56,7 @@ func githubSkillImportEntry(
 			httpkit.WriteError(w, nethttp.StatusBadRequest, "skills.invalid_request", "invalid JSON body", traceID, nil)
 			return
 		}
-		item, candidates, err := importSkillFromGitHub(r.Context(), store, packagesRepo, actor.OrgID, req.RepositoryURL, req.Ref, req.CandidatePath, "")
+		item, candidates, err := importSkillFromGitHub(r.Context(), store, packagesRepo, actor.AccountID, req.RepositoryURL, req.Ref, req.CandidatePath, "")
 		if err != nil {
 			writeSkillImportErrorWithCandidates(w, traceID, err, candidates)
 			return
@@ -67,7 +67,7 @@ func githubSkillImportEntry(
 
 func uploadSkillImportEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,
 	packagesRepo *data.SkillPackagesRepository,
@@ -109,7 +109,7 @@ func uploadSkillImportEntry(
 				httpkit.WriteError(w, nethttp.StatusBadRequest, "skills.invalid_request", "read file failed", traceID, nil)
 				return
 			}
-			item, candidates, importErr := importSkillFromUploadData(r.Context(), store, packagesRepo, actor.OrgID, header.Filename, payload)
+			item, candidates, importErr := importSkillFromUploadData(r.Context(), store, packagesRepo, actor.AccountID, header.Filename, payload)
 			if importErr != nil {
 				writeSkillImportErrorWithCandidates(w, traceID, importErr, candidates)
 				return
@@ -136,7 +136,7 @@ func uploadSkillImportEntry(
 			}
 			entries[relativePath] = payload
 		}
-		item, candidates, err := importSkillFromUploadEntries(r.Context(), store, packagesRepo, actor.OrgID, entries)
+		item, candidates, err := importSkillFromUploadEntries(r.Context(), store, packagesRepo, actor.AccountID, entries)
 		if err != nil {
 			writeSkillImportErrorWithCandidates(w, traceID, err, candidates)
 			return

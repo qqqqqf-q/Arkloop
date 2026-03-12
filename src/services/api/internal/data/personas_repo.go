@@ -20,7 +20,7 @@ const (
 	PersonaSyncModePlatformFileMirror = "platform_file_mirror"
 )
 
-const personaSelectColumns = `id, org_id, project_id, persona_key, version, display_name, description,
+const personaSelectColumns = `id, account_id, project_id, persona_key, version, display_name, description,
 	    soul_md, user_selectable, selector_name, selector_order,
 	    prompt_md, tool_allowlist, tool_denylist, budgets_json, title_summarize_json,
 	    is_active, created_at, updated_at,
@@ -43,7 +43,7 @@ func (e PersonaConflictError) Error() string {
 
 type Persona struct {
 	ID                  uuid.UUID
-	OrgID               *uuid.UUID
+	AccountID               *uuid.UUID
 	ProjectID           *uuid.UUID
 	PersonaKey          string
 	Version             string
@@ -130,7 +130,7 @@ type personaScanner interface {
 
 func scanPersona(scanner personaScanner, persona *Persona) error {
 	return scanner.Scan(
-		&persona.ID, &persona.OrgID, &persona.ProjectID, &persona.PersonaKey, &persona.Version,
+		&persona.ID, &persona.AccountID, &persona.ProjectID, &persona.PersonaKey, &persona.Version,
 		&persona.DisplayName, &persona.Description,
 		&persona.SoulMD, &persona.UserSelectable, &persona.SelectorName, &persona.SelectorOrder,
 		&persona.PromptMD, &persona.ToolAllowlist, &persona.ToolDenylist, &persona.BudgetsJSON, &persona.TitleSummarizeJSON,
@@ -680,7 +680,7 @@ func (r *PersonasRepository) UpsertPlatformMirror(ctx context.Context, params Pl
 	err = scanPersona(tx.QueryRow(
 		ctx,
 		`INSERT INTO personas (
-			org_id, persona_key, version, display_name, description, soul_md,
+			account_id, persona_key, version, display_name, description, soul_md,
 			user_selectable, selector_name, selector_order,
 			prompt_md, tool_allowlist, tool_denylist, budgets_json, title_summarize_json,
 			preferred_credential, model, reasoning_mode, prompt_cache_control,
@@ -735,7 +735,7 @@ func (r *PersonasRepository) UpsertPlatformMirror(ctx context.Context, params Pl
 		`UPDATE personas
 		 SET is_active = FALSE,
 		     updated_at = now()
-		 WHERE org_id IS NULL
+		 WHERE account_id IS NULL
 		   AND project_id IS NULL
 		   AND sync_mode = $1
 		   AND persona_key = $2
@@ -763,7 +763,7 @@ func (r *PersonasRepository) DeactivatePlatformMirrorsByKey(ctx context.Context,
 		`UPDATE personas
 		 SET is_active = FALSE,
 		     updated_at = now()
-		 WHERE org_id IS NULL
+		 WHERE account_id IS NULL
 		   AND project_id IS NULL
 		   AND sync_mode = $1
 		   AND persona_key = $2

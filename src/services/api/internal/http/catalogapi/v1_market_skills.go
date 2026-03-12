@@ -75,7 +75,7 @@ func (s skillStateKeys) Has(item registrySkillSearchItem) bool {
 
 func marketSkillsEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,
 	settingsRepo *data.PlatformSettingsRepository,
@@ -120,7 +120,7 @@ func marketSkillsEntry(
 			writeSkillsMarketError(w, traceID, err)
 			return
 		}
-		installed, defaults, err := loadSkillState(r.Context(), actor.OrgID, actor.UserID, installsRepo, profileRepo, enableRepo)
+		installed, defaults, err := loadSkillState(r.Context(), actor.AccountID, actor.UserID, installsRepo, profileRepo, enableRepo)
 		if err != nil {
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
@@ -154,7 +154,7 @@ func marketSkillsEntry(
 
 func marketSkillsImportEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,
 	settingsRepo *data.PlatformSettingsRepository,
@@ -196,7 +196,7 @@ func marketSkillsImportEntry(
 			}
 			provider, err := newRegistryProvider(cfg)
 			if err == nil {
-				item, candidates, importErr := importSkillFromRegistry(r.Context(), provider, store, packagesRepo, actor.OrgID, slug, strings.TrimSpace(req.Version))
+				item, candidates, importErr := importSkillFromRegistry(r.Context(), provider, store, packagesRepo, actor.AccountID, slug, strings.TrimSpace(req.Version))
 				if importErr == nil {
 					httpkit.WriteJSON(w, traceID, nethttp.StatusCreated, toSkillPackageResponse(item))
 					return
@@ -215,16 +215,16 @@ func marketSkillsImportEntry(
 				return
 			}
 		}
-		item, candidates, err := importSkillFromGitHub(r.Context(), store, packagesRepo, actor.OrgID, repositoryURL, "", "", strings.TrimSpace(req.SkillKey))
+		item, candidates, err := importSkillFromGitHub(r.Context(), store, packagesRepo, actor.AccountID, repositoryURL, "", "", strings.TrimSpace(req.SkillKey))
 		if err != nil {
 			writeSkillImportErrorWithCandidates(w, traceID, err, candidates)
 			return
 		}
-		_ = packagesRepo.UpdateRegistryMetadata(r.Context(), actor.OrgID, item.SkillKey, item.Version, data.SkillPackageRegistryMetadata{
+		_ = packagesRepo.UpdateRegistryMetadata(r.Context(), actor.AccountID, item.SkillKey, item.Version, data.SkillPackageRegistryMetadata{
 			RegistrySourceKind: "github",
 			RegistrySourceURL:  repositoryURL,
 		})
-		fresh, getErr := packagesRepo.Get(r.Context(), actor.OrgID, item.SkillKey, item.Version)
+		fresh, getErr := packagesRepo.Get(r.Context(), actor.AccountID, item.SkillKey, item.Version)
 		if getErr == nil && fresh != nil {
 			item = *fresh
 		}
@@ -232,7 +232,7 @@ func marketSkillsImportEntry(
 	}
 }
 
-func importSkillFromRegistry(ctx context.Context, provider registryProvider, store skillStore, packagesRepo *data.SkillPackagesRepository, orgID uuid.UUID, slug, version string) (data.SkillPackage, []skillImportCandidate, error) {
+func importSkillFromRegistry(ctx context.Context, provider registryProvider, store skillStore, packagesRepo *data.SkillPackagesRepository, accountID uuid.UUID, slug, version string) (data.SkillPackage, []skillImportCandidate, error) {
 	slug = strings.TrimSpace(slug)
 	if slug == "" {
 		return data.SkillPackage{}, nil, skillImportError{status: nethttp.StatusBadRequest, code: "skills.invalid_request", msg: "slug is required"}
@@ -261,30 +261,30 @@ func importSkillFromRegistry(ctx context.Context, provider registryProvider, sto
 	payload, downloadURL, err := provider.DownloadBundle(ctx, slug, targetVersion)
 	if err != nil {
 		if strings.EqualFold(strings.TrimSpace(versionInfo.SourceKind), "github") && strings.TrimSpace(versionInfo.SourceURL) != "" {
-			item, candidates, importErr := importSkillFromGitHub(ctx, store, packagesRepo, orgID, strings.TrimSpace(versionInfo.SourceURL), "", "", "")
+			item, candidates, importErr := importSkillFromGitHub(ctx, store, packagesRepo, accountID, strings.TrimSpace(versionInfo.SourceURL), "", "", "")
 			if importErr != nil {
 				return data.SkillPackage{}, candidates, importErr
 			}
 			metadata := registryMetadataFromRegistry(skillInfo, versionInfo, downloadURL)
-			if updateErr := packagesRepo.UpdateRegistryMetadata(ctx, orgID, item.SkillKey, item.Version, metadata); updateErr != nil {
+			if updateErr := packagesRepo.UpdateRegistryMetadata(ctx, accountID, item.SkillKey, item.Version, metadata); updateErr != nil {
 				return data.SkillPackage{}, nil, updateErr
 			}
-			if fresh, getErr := packagesRepo.Get(ctx, orgID, item.SkillKey, item.Version); getErr == nil && fresh != nil {
+			if fresh, getErr := packagesRepo.Get(ctx, accountID, item.SkillKey, item.Version); getErr == nil && fresh != nil {
 				item = *fresh
 			}
 			return item, nil, nil
 		}
 		return data.SkillPackage{}, nil, skillImportError{status: nethttp.StatusBadGateway, code: "skills.market_download_failed", msg: "skill bundle download failed"}
 	}
-	item, candidates, err := importSkillFromUploadData(ctx, store, packagesRepo, orgID, slug+"-"+targetVersion+".zip", payload)
+	item, candidates, err := importSkillFromUploadData(ctx, store, packagesRepo, accountID, slug+"-"+targetVersion+".zip", payload)
 	if err != nil {
 		return data.SkillPackage{}, candidates, err
 	}
 	metadata := registryMetadataFromRegistry(skillInfo, versionInfo, downloadURL)
-	if updateErr := packagesRepo.UpdateRegistryMetadata(ctx, orgID, item.SkillKey, item.Version, metadata); updateErr != nil {
+	if updateErr := packagesRepo.UpdateRegistryMetadata(ctx, accountID, item.SkillKey, item.Version, metadata); updateErr != nil {
 		return data.SkillPackage{}, nil, updateErr
 	}
-	fresh, getErr := packagesRepo.Get(ctx, orgID, item.SkillKey, item.Version)
+	fresh, getErr := packagesRepo.Get(ctx, accountID, item.SkillKey, item.Version)
 	if getErr == nil && fresh != nil {
 		item = *fresh
 	}
@@ -322,9 +322,9 @@ func registryMetadataFromRegistry(skillInfo registrySkillInfo, versionInfo regis
 	}
 }
 
-func loadSkillState(ctx context.Context, orgID, userID uuid.UUID, installsRepo *data.ProfileSkillInstallsRepository, profileRepo *data.ProfileRegistriesRepository, enableRepo *data.WorkspaceSkillEnablementsRepository) (skillStateKeys, skillStateKeys, error) {
-	profileRef := sharedenvironmentref.BuildProfileRef(orgID, &userID)
-	installedItems, err := installsRepo.ListByProfile(ctx, orgID, profileRef)
+func loadSkillState(ctx context.Context, accountID, userID uuid.UUID, installsRepo *data.ProfileSkillInstallsRepository, profileRepo *data.ProfileRegistriesRepository, enableRepo *data.WorkspaceSkillEnablementsRepository) (skillStateKeys, skillStateKeys, error) {
+	profileRef := sharedenvironmentref.BuildProfileRef(accountID, &userID)
+	installedItems, err := installsRepo.ListByProfile(ctx, accountID, profileRef)
 	if err != nil {
 		return skillStateKeys{}, skillStateKeys{}, err
 	}
@@ -341,7 +341,7 @@ func loadSkillState(ctx context.Context, orgID, userID uuid.UUID, installsRepo *
 		return skillStateKeys{}, skillStateKeys{}, err
 	}
 	if profile != nil && profile.DefaultWorkspaceRef != nil && strings.TrimSpace(*profile.DefaultWorkspaceRef) != "" {
-		defaultItems, err := enableRepo.ListByWorkspace(ctx, orgID, strings.TrimSpace(*profile.DefaultWorkspaceRef))
+		defaultItems, err := enableRepo.ListByWorkspace(ctx, accountID, strings.TrimSpace(*profile.DefaultWorkspaceRef))
 		if err != nil {
 			return skillStateKeys{}, skillStateKeys{}, err
 		}

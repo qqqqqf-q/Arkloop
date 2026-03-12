@@ -216,8 +216,8 @@ func (a *Application) Run(ctx context.Context) error {
 	var (
 		userRepo         *data.UserRepository
 		credentialRepo   *data.UserCredentialRepository
-		membershipRepo   *data.OrgMembershipRepository
-		orgRepo          *data.OrgRepository
+		membershipRepo   *data.AccountMembershipRepository
+		accountRepo      *data.AccountRepository
 		threadRepo       *data.ThreadRepository
 		threadStarRepo   *data.ThreadStarRepository
 		threadShareRepo  *data.ThreadShareRepository
@@ -241,7 +241,6 @@ func (a *Application) Run(ctx context.Context) error {
 		workspaceRegistriesRepo      *data.WorkspaceRegistriesRepository
 		ipRulesRepo                  *data.IPRulesRepository
 		apiKeysRepo                  *data.APIKeysRepository
-		orgInvitationsRepo           *data.OrgInvitationsRepository
 		teamRepo                     *data.TeamRepository
 		projectRepo                  *data.ProjectRepository
 		webhookRepo                  *data.WebhookEndpointRepository
@@ -275,7 +274,7 @@ func (a *Application) Run(ctx context.Context) error {
 		registrationService  *auth.RegistrationService
 		emailVerifyService   *auth.EmailVerifyService
 		emailOTPLoginService *auth.EmailOTPLoginService
-		orgService           *auth.OrgService
+		accountService       *auth.AccountService
 		auditWriter          *audit.Writer
 
 		emailOTPTokenRepo *data.EmailOTPTokenRepository
@@ -291,11 +290,11 @@ func (a *Application) Run(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		membershipRepo, err = data.NewOrgMembershipRepository(pool)
+		membershipRepo, err = data.NewAccountMembershipRepository(pool)
 		if err != nil {
 			return err
 		}
-		orgRepo, err = data.NewOrgRepository(pool)
+		accountRepo, err = data.NewAccountRepository(pool)
 		if err != nil {
 			return err
 		}
@@ -381,10 +380,6 @@ func (a *Application) Run(ctx context.Context) error {
 			return err
 		}
 		apiKeysRepo, err = data.NewAPIKeysRepository(pool)
-		if err != nil {
-			return err
-		}
-		orgInvitationsRepo, err = data.NewOrgInvitationsRepository(pool)
 		if err != nil {
 			return err
 		}
@@ -515,7 +510,7 @@ func (a *Application) Run(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		orgService, err = auth.NewOrgService(pool, orgRepo, membershipRepo)
+		accountService, err = auth.NewAccountService(pool, accountRepo, membershipRepo)
 		if err != nil {
 			return err
 		}
@@ -636,8 +631,8 @@ func (a *Application) Run(ctx context.Context) error {
 			SchemaRepository:             schemaRepo,
 			AuthService:                  authService,
 			RegistrationService:          registrationService,
-			OrgService:                   orgService,
-			OrgMembershipRepo:            membershipRepo,
+			AccountService:               accountService,
+			AccountMembershipRepo:        membershipRepo,
 			ThreadRepo:                   threadRepo,
 			ThreadStarRepo:               threadStarRepo,
 			ThreadShareRepo:              threadShareRepo,
@@ -660,7 +655,6 @@ func (a *Application) Run(ctx context.Context) error {
 			WorkspaceRegistriesRepo:      workspaceRegistriesRepo,
 			IPRulesRepo:                  ipRulesRepo,
 			APIKeysRepo:                  apiKeysRepo,
-			OrgInvitationsRepo:           orgInvitationsRepo,
 			TeamRepo:                     teamRepo,
 			ProjectRepo:                  projectRepo,
 			WebhookRepo:                  webhookRepo,
@@ -674,7 +668,7 @@ func (a *Application) Run(ctx context.Context) error {
 			NotificationsRepo:            notificationsRepo,
 			AuditLogRepo:                 auditRepo,
 			UsersRepo:                    userRepo,
-			OrgRepo:                      orgRepo,
+			AccountRepo:                  accountRepo,
 			UserCredentialRepo:           credentialRepo,
 			InviteCodesRepo:              inviteCodesRepo,
 			ReferralsRepo:                referralsRepo,
@@ -912,8 +906,8 @@ type entitlementAdapter struct {
 	svc *entitlement.Service
 }
 
-func (a *entitlementAdapter) Resolve(ctx context.Context, orgID uuid.UUID, key string) (auth.EntitlementValue, error) {
-	val, err := a.svc.Resolve(ctx, orgID, key)
+func (a *entitlementAdapter) Resolve(ctx context.Context, accountID uuid.UUID, key string) (auth.EntitlementValue, error) {
+	val, err := a.svc.Resolve(ctx, accountID, key)
 	if err != nil {
 		return auth.EntitlementValue{}, err
 	}

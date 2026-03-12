@@ -55,8 +55,8 @@ type HandlerConfig struct {
 	RegistrationService  *auth.RegistrationService
 	EmailVerifyService   *auth.EmailVerifyService
 	EmailOTPLoginService *auth.EmailOTPLoginService
-	OrgService           *auth.OrgService
-	OrgMembershipRepo    *data.OrgMembershipRepository
+	AccountService       *auth.AccountService
+	AccountMembershipRepo *data.AccountMembershipRepository
 	ThreadRepo           *data.ThreadRepository
 	ThreadStarRepo       *data.ThreadStarRepository
 	ThreadShareRepo      *data.ThreadShareRepository
@@ -81,7 +81,6 @@ type HandlerConfig struct {
 	WorkspaceRegistriesRepo      *data.WorkspaceRegistriesRepository
 	IPRulesRepo                  *data.IPRulesRepository
 	APIKeysRepo                  *data.APIKeysRepository
-	OrgInvitationsRepo           *data.OrgInvitationsRepository
 	TeamRepo                     *data.TeamRepository
 	ProjectRepo                  *data.ProjectRepository
 	WebhookRepo                  *data.WebhookEndpointRepository
@@ -107,7 +106,7 @@ type HandlerConfig struct {
 	SmtpProviderRepo     *data.SmtpProviderRepository
 
 	UsersRepo *data.UserRepository
-	OrgRepo   *data.OrgRepository
+	AccountRepo *data.AccountRepository
 
 	UserCredentialRepo *data.UserCredentialRepository
 
@@ -209,8 +208,8 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 		EmailOTPLoginService: cfg.EmailOTPLoginService,
 		FeatureFlagService:   cfg.FeatureFlagService,
 		AuditWriter:          cfg.AuditWriter,
-		OrgMembershipRepo:    cfg.OrgMembershipRepo,
-		OrgRepo:              cfg.OrgRepo,
+		OrgMembershipRepo:    cfg.AccountMembershipRepo,
+		OrgRepo:              cfg.AccountRepo,
 		UserCredentialRepo:   cfg.UserCredentialRepo,
 		UsersRepo:            cfg.UsersRepo,
 		ConfigResolver:       resolver,
@@ -218,7 +217,7 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 
 	conversationapi.RegisterRoutes(mux, conversationapi.Deps{
 		AuthService:              cfg.AuthService,
-		OrgMembershipRepo:        cfg.OrgMembershipRepo,
+		OrgMembershipRepo:        cfg.AccountMembershipRepo,
 		ThreadRepo:               cfg.ThreadRepo,
 		ThreadStarRepo:           cfg.ThreadStarRepo,
 		ThreadShareRepo:          cfg.ThreadShareRepo,
@@ -244,7 +243,7 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 
 	catalogapi.RegisterRoutes(mux, catalogapi.Deps{
 		AuthService:                  cfg.AuthService,
-		OrgMembershipRepo:            cfg.OrgMembershipRepo,
+		OrgMembershipRepo:            cfg.AccountMembershipRepo,
 		LlmCredentialsRepo:           cfg.LlmCredentialsRepo,
 		LlmRoutesRepo:                cfg.LlmRoutesRepo,
 		SecretsRepo:                  cfg.SecretsRepo,
@@ -273,7 +272,7 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 
 	billingapi.RegisterRoutes(mux, billingapi.Deps{
 		AuthService:         cfg.AuthService,
-		OrgMembershipRepo:   cfg.OrgMembershipRepo,
+		OrgMembershipRepo:   cfg.AccountMembershipRepo,
 		PlansRepo:           cfg.PlansRepo,
 		EntitlementsRepo:    cfg.EntitlementsRepo,
 		APIKeysRepo:         cfg.APIKeysRepo,
@@ -289,18 +288,17 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 	})
 
 	orgapi.RegisterRoutes(mux, orgapi.Deps{
-		AuthService:        cfg.AuthService,
-		OrgMembershipRepo:  cfg.OrgMembershipRepo,
-		TeamRepo:           cfg.TeamRepo,
-		ProjectRepo:        cfg.ProjectRepo,
-		APIKeysRepo:        cfg.APIKeysRepo,
-		AuditWriter:        cfg.AuditWriter,
-		EntitlementService: cfg.EntitlementService,
-		Pool:               cfg.Pool,
-		OrgRepo:            cfg.OrgRepo,
-		OrgService:         cfg.OrgService,
-		OrgInvitationsRepo: cfg.OrgInvitationsRepo,
-		WebhookRepo:        cfg.WebhookRepo,
+		AuthService:           cfg.AuthService,
+		AccountMembershipRepo: cfg.AccountMembershipRepo,
+		TeamRepo:              cfg.TeamRepo,
+		ProjectRepo:           cfg.ProjectRepo,
+		APIKeysRepo:           cfg.APIKeysRepo,
+		AuditWriter:           cfg.AuditWriter,
+		EntitlementService:    cfg.EntitlementService,
+		Pool:                  cfg.Pool,
+		AccountRepo:           cfg.AccountRepo,
+		AccountService:        cfg.AccountService,
+		WebhookRepo:           cfg.WebhookRepo,
 		SecretsRepo:        cfg.SecretsRepo,
 		EnvironmentStore:   cfg.EnvironmentStore,
 		RunEventRepo:       cfg.RunEventRepo,
@@ -309,7 +307,7 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 
 	platformapi.RegisterRoutes(mux, platformapi.Deps{
 		AuthService:          cfg.AuthService,
-		OrgMembershipRepo:    cfg.OrgMembershipRepo,
+		OrgMembershipRepo:    cfg.AccountMembershipRepo,
 		FeatureFlagsRepo:     cfg.FeatureFlagsRepo,
 		FeatureFlagService:   cfg.FeatureFlagService,
 		APIKeysRepo:          cfg.APIKeysRepo,
@@ -326,11 +324,11 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 
 	adminapi.RegisterRoutes(mux, adminapi.Deps{
 		AuthService:          cfg.AuthService,
-		OrgMembershipRepo:    cfg.OrgMembershipRepo,
+		OrgMembershipRepo:    cfg.AccountMembershipRepo,
 		UsersRepo:            cfg.UsersRepo,
 		RunEventRepo:         cfg.RunEventRepo,
 		UsageRepo:            cfg.UsageRepo,
-		OrgRepo:              cfg.OrgRepo,
+		OrgRepo:              cfg.AccountRepo,
 		APIKeysRepo:          cfg.APIKeysRepo,
 		MessageRepo:          cfg.MessageRepo,
 		LlmCredentialsRepo:   cfg.LlmCredentialsRepo,

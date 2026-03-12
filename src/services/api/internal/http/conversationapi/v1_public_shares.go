@@ -144,7 +144,7 @@ func handleShareGet(
 			limit = 1
 		}
 	}
-	messages, err := messageRepo.ListByThread(r.Context(), thread.OrgID, thread.ID, limit)
+	messages, err := messageRepo.ListByThread(r.Context(), thread.AccountID, thread.ID, limit)
 	if err != nil {
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return

@@ -19,7 +19,7 @@ import (
 
 type teamResponse struct {
 	ID           string `json:"id"`
-	OrgID        string `json:"org_id"`
+	AccountID        string `json:"account_id"`
 	Name         string `json:"name"`
 	MembersCount int64  `json:"members_count"`
 	CreatedAt    string `json:"created_at"`
@@ -43,7 +43,7 @@ type teamMemberResponse struct {
 
 func teamsEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	teamRepo *data.TeamRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	entSvc *entitlement.Service,
@@ -63,7 +63,7 @@ func teamsEntry(
 
 func teamEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	teamRepo *data.TeamRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	entSvc *entitlement.Service,
@@ -134,7 +134,7 @@ func createTeam(
 	w nethttp.ResponseWriter,
 	r *nethttp.Request,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	teamRepo *data.TeamRepository,
 	apiKeysRepo *data.APIKeysRepository,
 ) {
@@ -168,7 +168,7 @@ func createTeam(
 		return
 	}
 
-	team, err := teamRepo.Create(r.Context(), actor.OrgID, req.Name)
+	team, err := teamRepo.Create(r.Context(), actor.AccountID, req.Name)
 	if err != nil {
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
@@ -181,7 +181,7 @@ func listTeams(
 	w nethttp.ResponseWriter,
 	r *nethttp.Request,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	teamRepo *data.TeamRepository,
 	apiKeysRepo *data.APIKeysRepository,
 ) {
@@ -203,7 +203,7 @@ func listTeams(
 		return
 	}
 
-	teams, err := teamRepo.ListByOrgWithCounts(r.Context(), actor.OrgID)
+	teams, err := teamRepo.ListByOrgWithCounts(r.Context(), actor.AccountID)
 	if err != nil {
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
@@ -222,7 +222,7 @@ func addTeamMember(
 	traceID string,
 	teamID uuid.UUID,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	teamRepo *data.TeamRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	entSvc *entitlement.Service,
@@ -250,7 +250,7 @@ func addTeamMember(
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
 	}
-	if team == nil || team.OrgID != actor.OrgID {
+	if team == nil || team.AccountID != actor.AccountID {
 		httpkit.WriteError(w, nethttp.StatusNotFound, "teams.not_found", "team not found", traceID, nil)
 		return
 	}
@@ -269,7 +269,7 @@ func addTeamMember(
 
 	// 确保被添加的用户确实是同一 org 的成员，防止跨 org 数据注入
 	if membershipRepo != nil {
-		exists, err := membershipRepo.ExistsForOrgAndUser(r.Context(), actor.OrgID, userID)
+		exists, err := membershipRepo.ExistsForOrgAndUser(r.Context(), actor.AccountID, userID)
 		if err != nil {
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
@@ -309,7 +309,7 @@ func addTeamMember(
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
 	}
-	if !requireEntitlementInt(r.Context(), w, traceID, entSvc, actor.OrgID, "limit.team_members", currentCount, "quota.team_members_exceeded", "team member limit reached") {
+	if !requireEntitlementInt(r.Context(), w, traceID, entSvc, actor.AccountID, "limit.team_members", currentCount, "quota.team_members_exceeded", "team member limit reached") {
 		return
 	}
 
@@ -330,7 +330,7 @@ func addTeamMember(
 func toTeamResponse(t data.Team) teamResponse {
 	return teamResponse{
 		ID:        t.ID.String(),
-		OrgID:     t.OrgID.String(),
+		AccountID:     t.AccountID.String(),
 		Name:      t.Name,
 		CreatedAt: t.CreatedAt.UTC().Format(time.RFC3339Nano),
 	}
@@ -339,7 +339,7 @@ func toTeamResponse(t data.Team) teamResponse {
 func toTeamWithCountResponse(t data.TeamWithCount) teamResponse {
 	return teamResponse{
 		ID:           t.ID.String(),
-		OrgID:        t.OrgID.String(),
+		AccountID:        t.AccountID.String(),
 		Name:         t.Name,
 		MembersCount: t.MembersCount,
 		CreatedAt:    t.CreatedAt.UTC().Format(time.RFC3339Nano),
@@ -361,7 +361,7 @@ func listTeamMembers(
 	traceID string,
 	teamID uuid.UUID,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	teamRepo *data.TeamRepository,
 	apiKeysRepo *data.APIKeysRepository,
 ) {
@@ -387,7 +387,7 @@ func listTeamMembers(
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
 	}
-	if team == nil || team.OrgID != actor.OrgID {
+	if team == nil || team.AccountID != actor.AccountID {
 		httpkit.WriteError(w, nethttp.StatusNotFound, "teams.not_found", "team not found", traceID, nil)
 		return
 	}
@@ -411,7 +411,7 @@ func removeTeamMember(
 	traceID string,
 	teamID, userID uuid.UUID,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	teamRepo *data.TeamRepository,
 	apiKeysRepo *data.APIKeysRepository,
 ) {
@@ -437,7 +437,7 @@ func removeTeamMember(
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
 	}
-	if team == nil || team.OrgID != actor.OrgID {
+	if team == nil || team.AccountID != actor.AccountID {
 		httpkit.WriteError(w, nethttp.StatusNotFound, "teams.not_found", "team not found", traceID, nil)
 		return
 	}
@@ -456,7 +456,7 @@ func deleteTeam(
 	traceID string,
 	teamID uuid.UUID,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	teamRepo *data.TeamRepository,
 	apiKeysRepo *data.APIKeysRepository,
 ) {
@@ -477,7 +477,7 @@ func deleteTeam(
 		return
 	}
 
-	if err := teamRepo.Delete(r.Context(), actor.OrgID, teamID); err != nil {
+	if err := teamRepo.Delete(r.Context(), actor.AccountID, teamID); err != nil {
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
 	}

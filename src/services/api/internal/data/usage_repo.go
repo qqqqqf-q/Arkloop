@@ -12,7 +12,7 @@ import (
 
 type UsageRecord struct {
 	ID           uuid.UUID
-	OrgID        uuid.UUID
+	AccountID        uuid.UUID
 	RunID        uuid.UUID
 	Model        string
 	InputTokens  int64
@@ -22,7 +22,7 @@ type UsageRecord struct {
 }
 
 type UsageSummary struct {
-	OrgID             uuid.UUID
+	AccountID             uuid.UUID
 	Year              int
 	Month             int
 	TotalInputTokens  int64
@@ -44,13 +44,13 @@ func NewUsageRepository(db Querier) (*UsageRepository, error) {
 
 func (r *UsageRepository) Insert(
 	ctx context.Context,
-	orgID, runID uuid.UUID,
+	accountID, runID uuid.UUID,
 	model string,
 	inputTokens, outputTokens int64,
 	costUSD float64,
 ) (UsageRecord, error) {
-	if orgID == uuid.Nil {
-		return UsageRecord{}, fmt.Errorf("usage_records: org_id must not be empty")
+	if accountID == uuid.Nil {
+		return UsageRecord{}, fmt.Errorf("usage_records: account_id must not be empty")
 	}
 	if runID == uuid.Nil {
 		return UsageRecord{}, fmt.Errorf("usage_records: run_id must not be empty")
@@ -59,12 +59,12 @@ func (r *UsageRepository) Insert(
 	var rec UsageRecord
 	err := r.db.QueryRow(
 		ctx,
-		`INSERT INTO usage_records (org_id, run_id, model, input_tokens, output_tokens, cost_usd)
+		`INSERT INTO usage_records (account_id, run_id, model, input_tokens, output_tokens, cost_usd)
 		 VALUES ($1, $2, $3, $4, $5, $6)
-		 RETURNING id, org_id, run_id, model, input_tokens, output_tokens, cost_usd, recorded_at`,
-		orgID, runID, model, inputTokens, outputTokens, costUSD,
+		 RETURNING id, account_id, run_id, model, input_tokens, output_tokens, cost_usd, recorded_at`,
+		accountID, runID, model, inputTokens, outputTokens, costUSD,
 	).Scan(
-		&rec.ID, &rec.OrgID, &rec.RunID, &rec.Model,
+		&rec.ID, &rec.AccountID, &rec.RunID, &rec.Model,
 		&rec.InputTokens, &rec.OutputTokens, &rec.CostUSD, &rec.RecordedAt,
 	)
 	if err != nil {
@@ -77,17 +77,17 @@ func (r *UsageRepository) Insert(
 // 使用时间范围查询，确保索引 idx_usage_records_org_recorded 可被命中。
 func (r *UsageRepository) GetMonthlyUsage(
 	ctx context.Context,
-	orgID uuid.UUID,
+	accountID uuid.UUID,
 	year, month int,
 ) (*UsageSummary, error) {
-	if orgID == uuid.Nil {
-		return nil, fmt.Errorf("usage_records: org_id must not be empty")
+	if accountID == uuid.Nil {
+		return nil, fmt.Errorf("usage_records: account_id must not be empty")
 	}
 
 	start := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
 	end := start.AddDate(0, 1, 0)
 
-	summary := &UsageSummary{OrgID: orgID, Year: year, Month: month}
+	summary := &UsageSummary{AccountID: accountID, Year: year, Month: month}
 	err := r.db.QueryRow(
 		ctx,
 		`SELECT
@@ -96,8 +96,8 @@ func (r *UsageRepository) GetMonthlyUsage(
 		     COALESCE(SUM(cost_usd),      0),
 		     COUNT(*)
 		 FROM usage_records
-		 WHERE org_id = $1 AND recorded_at >= $2 AND recorded_at < $3`,
-		orgID, start, end,
+		 WHERE account_id = $1 AND recorded_at >= $2 AND recorded_at < $3`,
+		accountID, start, end,
 	).Scan(
 		&summary.TotalInputTokens,
 		&summary.TotalOutputTokens,
@@ -132,11 +132,11 @@ type ModelUsage struct {
 // GetDailyUsage 按日聚合指定 org 在 [startDate, endDate) 内的用量。
 func (r *UsageRepository) GetDailyUsage(
 	ctx context.Context,
-	orgID uuid.UUID,
+	accountID uuid.UUID,
 	startDate, endDate time.Time,
 ) ([]DailyUsage, error) {
-	if orgID == uuid.Nil {
-		return nil, fmt.Errorf("usage_records: org_id must not be empty")
+	if accountID == uuid.Nil {
+		return nil, fmt.Errorf("usage_records: account_id must not be empty")
 	}
 
 	rows, err := r.db.Query(
@@ -148,10 +148,10 @@ func (r *UsageRepository) GetDailyUsage(
 		     COALESCE(SUM(cost_usd),      0),
 		     COUNT(*)
 		 FROM usage_records
-		 WHERE org_id = $1 AND recorded_at >= $2 AND recorded_at < $3
+		 WHERE account_id = $1 AND recorded_at >= $2 AND recorded_at < $3
 		 GROUP BY day
 		 ORDER BY day`,
-		orgID, startDate, endDate,
+		accountID, startDate, endDate,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("usage_records.GetDailyUsage: %w", err)
@@ -172,11 +172,11 @@ func (r *UsageRepository) GetDailyUsage(
 // GetUsageByModel 按模型分组聚合指定 org 在某月的用量。
 func (r *UsageRepository) GetUsageByModel(
 	ctx context.Context,
-	orgID uuid.UUID,
+	accountID uuid.UUID,
 	year, month int,
 ) ([]ModelUsage, error) {
-	if orgID == uuid.Nil {
-		return nil, fmt.Errorf("usage_records: org_id must not be empty")
+	if accountID == uuid.Nil {
+		return nil, fmt.Errorf("usage_records: account_id must not be empty")
 	}
 
 	start := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
@@ -191,10 +191,10 @@ func (r *UsageRepository) GetUsageByModel(
 		     COALESCE(SUM(cost_usd),      0),
 		     COUNT(*)
 		 FROM usage_records
-		 WHERE org_id = $1 AND recorded_at >= $2 AND recorded_at < $3
+		 WHERE account_id = $1 AND recorded_at >= $2 AND recorded_at < $3
 		 GROUP BY model
 		 ORDER BY SUM(input_tokens) + SUM(output_tokens) DESC`,
-		orgID, start, end,
+		accountID, start, end,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("usage_records.GetUsageByModel: %w", err)

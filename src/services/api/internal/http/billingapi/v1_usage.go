@@ -31,7 +31,7 @@ type modelUsageItem struct {
 }
 
 type usageSummaryResponse struct {
-	OrgID             string  `json:"org_id"`
+	AccountID             string  `json:"account_id"`
 	Year              int     `json:"year"`
 	Month             int     `json:"month"`
 	TotalInputTokens  int64   `json:"total_input_tokens"`
@@ -40,9 +40,9 @@ type usageSummaryResponse struct {
 	RecordCount       int64   `json:"record_count"`
 }
 
-func orgUsageEntry(
+func accountUsageEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	usageRepo *data.UsageRepository,
 	apiKeysRepo *data.APIKeysRepository,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
@@ -64,9 +64,9 @@ func orgUsageEntry(
 		}
 
 		rawID := r.PathValue("id")
-		orgID, err := uuid.Parse(rawID)
+		accountID, err := uuid.Parse(rawID)
 		if err != nil {
-			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "invalid org id", traceID, nil)
+			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "invalid account id", traceID, nil)
 			return
 		}
 
@@ -75,12 +75,12 @@ func orgUsageEntry(
 			return
 		}
 
-		// 非平台管理员只能查自己 org 的用量。
+		// 非平台管理员只能查自己 account 的用量。
 		if !actor.HasPermission(auth.PermPlatformAdmin) {
 			if !httpkit.RequirePerm(actor, auth.PermDataUsageRead, w, traceID) {
 				return
 			}
-			if actor.OrgID != orgID {
+			if actor.AccountID != accountID {
 				httpkit.WriteError(w, nethttp.StatusForbidden, "forbidden", "forbidden", traceID, nil)
 				return
 			}
@@ -107,14 +107,14 @@ func orgUsageEntry(
 			month = parsed
 		}
 
-		summary, err := usageRepo.GetMonthlyUsage(r.Context(), orgID, year, month)
+		summary, err := usageRepo.GetMonthlyUsage(r.Context(), accountID, year, month)
 		if err != nil {
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
 		}
 
 		httpkit.WriteJSON(w, traceID, nethttp.StatusOK, usageSummaryResponse{
-			OrgID:             summary.OrgID.String(),
+			AccountID:             summary.AccountID.String(),
 			Year:              summary.Year,
 			Month:             summary.Month,
 			TotalInputTokens:  summary.TotalInputTokens,
@@ -125,11 +125,11 @@ func orgUsageEntry(
 	}
 }
 
-// resolveOrgUsageActor 提取 org ID 并校验用量读取权限。
-func resolveOrgUsageActor(
+// resolveAccountUsageActor 提取 account ID 并校验用量读取权限。
+func resolveAccountUsageActor(
 	w nethttp.ResponseWriter, r *nethttp.Request, traceID string,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	usageRepo *data.UsageRepository,
 	apiKeysRepo *data.APIKeysRepository,
 ) (uuid.UUID, bool) {
@@ -143,9 +143,9 @@ func resolveOrgUsageActor(
 	}
 
 	rawID := r.PathValue("id")
-	orgID, err := uuid.Parse(rawID)
+	accountID, err := uuid.Parse(rawID)
 	if err != nil {
-		httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "invalid org id", traceID, nil)
+		httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "invalid account id", traceID, nil)
 		return uuid.Nil, false
 	}
 
@@ -158,17 +158,17 @@ func resolveOrgUsageActor(
 		if !httpkit.RequirePerm(actor, auth.PermDataUsageRead, w, traceID) {
 			return uuid.Nil, false
 		}
-		if actor.OrgID != orgID {
+		if actor.AccountID != accountID {
 			httpkit.WriteError(w, nethttp.StatusForbidden, "forbidden", "forbidden", traceID, nil)
 			return uuid.Nil, false
 		}
 	}
-	return orgID, true
+	return accountID, true
 }
 
-func orgDailyUsage(
+func accountDailyUsage(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	usageRepo *data.UsageRepository,
 	apiKeysRepo *data.APIKeysRepository,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
@@ -179,7 +179,7 @@ func orgDailyUsage(
 		}
 		traceID := observability.TraceIDFromContext(r.Context())
 
-		orgID, ok := resolveOrgUsageActor(w, r, traceID, authService, membershipRepo, usageRepo, apiKeysRepo)
+		accountID, ok := resolveAccountUsageActor(w, r, traceID, authService, membershipRepo, usageRepo, apiKeysRepo)
 		if !ok {
 			return
 		}
@@ -189,7 +189,7 @@ func orgDailyUsage(
 			return
 		}
 
-		rows, err := usageRepo.GetDailyUsage(r.Context(), orgID, startDate, endDate)
+		rows, err := usageRepo.GetDailyUsage(r.Context(), accountID, startDate, endDate)
 		if err != nil {
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
@@ -209,9 +209,9 @@ func orgDailyUsage(
 	}
 }
 
-func orgUsageByModel(
+func accountUsageByModel(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	usageRepo *data.UsageRepository,
 	apiKeysRepo *data.APIKeysRepository,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
@@ -222,7 +222,7 @@ func orgUsageByModel(
 		}
 		traceID := observability.TraceIDFromContext(r.Context())
 
-		orgID, ok := resolveOrgUsageActor(w, r, traceID, authService, membershipRepo, usageRepo, apiKeysRepo)
+		accountID, ok := resolveAccountUsageActor(w, r, traceID, authService, membershipRepo, usageRepo, apiKeysRepo)
 		if !ok {
 			return
 		}
@@ -248,7 +248,7 @@ func orgUsageByModel(
 			month = parsed
 		}
 
-		rows, err := usageRepo.GetUsageByModel(r.Context(), orgID, year, month)
+		rows, err := usageRepo.GetUsageByModel(r.Context(), accountID, year, month)
 		if err != nil {
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
@@ -270,7 +270,7 @@ func orgUsageByModel(
 
 func adminGlobalDailyUsage(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	usageRepo *data.UsageRepository,
 	apiKeysRepo *data.APIKeysRepository,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
@@ -327,7 +327,7 @@ func adminGlobalDailyUsage(
 func resolveAdminUsageActor(
 	w nethttp.ResponseWriter, r *nethttp.Request, traceID string,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	usageRepo *data.UsageRepository,
 	apiKeysRepo *data.APIKeysRepository,
 ) bool {
@@ -348,7 +348,7 @@ func resolveAdminUsageActor(
 
 func adminGlobalUsageSummary(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	usageRepo *data.UsageRepository,
 	apiKeysRepo *data.APIKeysRepository,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
@@ -403,7 +403,7 @@ func adminGlobalUsageSummary(
 
 func adminGlobalUsageByModel(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	usageRepo *data.UsageRepository,
 	apiKeysRepo *data.APIKeysRepository,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {

@@ -18,7 +18,7 @@ import (
 
 func editThreadMessage(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	threadRepo *data.ThreadRepository,
 	messageRepo *data.MessageRepository,
 	auditWriter *audit.Writer,
@@ -82,7 +82,7 @@ func editThreadMessage(
 			return
 		}
 
-		existingMessage, err := txMessageRepo.GetByID(r.Context(), thread.OrgID, threadID, messageID)
+		existingMessage, err := txMessageRepo.GetByID(r.Context(), thread.AccountID, threadID, messageID)
 		if err != nil {
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
@@ -98,13 +98,13 @@ func editThreadMessage(
 			return
 		}
 
-		_, err = txMessageRepo.UpdateStructuredContent(r.Context(), thread.OrgID, threadID, messageID, projection, contentJSON)
+		_, err = txMessageRepo.UpdateStructuredContent(r.Context(), thread.AccountID, threadID, messageID, projection, contentJSON)
 		if err != nil {
 			httpkit.WriteError(w, nethttp.StatusNotFound, "messages.not_found", "message not found or not editable", traceID, nil)
 			return
 		}
 
-		if err := txMessageRepo.HideMessagesAfter(r.Context(), thread.OrgID, threadID, messageID); err != nil {
+		if err := txMessageRepo.HideMessagesAfter(r.Context(), thread.AccountID, threadID, messageID); err != nil {
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
 		}
@@ -122,7 +122,7 @@ func editThreadMessage(
 
 		run, _, err := runRepo.CreateRunWithStartedEvent(
 			r.Context(),
-			thread.OrgID,
+			thread.AccountID,
 			thread.ID,
 			&actor.UserID,
 			"run.started",
@@ -135,7 +135,7 @@ func editThreadMessage(
 
 		_, err = jobRepo.EnqueueRun(
 			r.Context(),
-			thread.OrgID,
+			thread.AccountID,
 			run.ID,
 			traceID,
 			data.RunExecuteJobType,
@@ -161,7 +161,7 @@ func editThreadMessage(
 
 func retryThread(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	threadRepo *data.ThreadRepository,
 	messageRepo *data.MessageRepository,
 	auditWriter *audit.Writer,
@@ -219,7 +219,7 @@ func retryThread(
 			return
 		}
 
-		_, err = txMessageRepo.HideLastAssistantMessage(r.Context(), thread.OrgID, thread.ID)
+		_, err = txMessageRepo.HideLastAssistantMessage(r.Context(), thread.AccountID, thread.ID)
 		if err != nil {
 			var noMsg data.NoAssistantMessageError
 			if errors.As(err, &noMsg) {
@@ -243,7 +243,7 @@ func retryThread(
 
 		run, _, err := runRepo.CreateRunWithStartedEvent(
 			r.Context(),
-			thread.OrgID,
+			thread.AccountID,
 			thread.ID,
 			&actor.UserID,
 			"run.started",
@@ -256,7 +256,7 @@ func retryThread(
 
 		_, err = jobRepo.EnqueueRun(
 			r.Context(),
-			thread.OrgID,
+			thread.AccountID,
 			run.ID,
 			traceID,
 			data.RunExecuteJobType,

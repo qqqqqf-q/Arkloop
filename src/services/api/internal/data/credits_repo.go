@@ -13,14 +13,14 @@ import (
 
 type Credit struct {
 	ID        uuid.UUID
-	OrgID     uuid.UUID
+	AccountID     uuid.UUID
 	Balance   int64
 	UpdatedAt time.Time
 }
 
 type CreditTransaction struct {
 	ID            uuid.UUID
-	OrgID         uuid.UUID
+	AccountID         uuid.UUID
 	Amount        int64
 	Type          string
 	ReferenceType *string
@@ -59,13 +59,13 @@ func (r *CreditsRepository) WithTx(tx pgx.Tx) *CreditsRepository {
 	return &CreditsRepository{db: tx}
 }
 
-// GetBalance 查询 org 的积分余额，不存在返回 nil。
-func (r *CreditsRepository) GetBalance(ctx context.Context, orgID uuid.UUID) (*Credit, error) {
+// GetBalance 查询 account 的积分余额，不存在返回 nil。
+func (r *CreditsRepository) GetBalance(ctx context.Context, accountID uuid.UUID) (*Credit, error) {
 	var c Credit
 	err := r.db.QueryRow(ctx,
-		`SELECT id, org_id, balance, updated_at FROM credits WHERE org_id = $1`,
-		orgID,
-	).Scan(&c.ID, &c.OrgID, &c.Balance, &c.UpdatedAt)
+		`SELECT id, account_id, balance, updated_at FROM credits WHERE account_id = $1`,
+		accountID,
+	).Scan(&c.ID, &c.AccountID, &c.Balance, &c.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
@@ -75,21 +75,21 @@ func (r *CreditsRepository) GetBalance(ctx context.Context, orgID uuid.UUID) (*C
 	return &c, nil
 }
 
-// InitBalance 为新 org 初始化积分余额并写入 initial_grant 交易。
-func (r *CreditsRepository) InitBalance(ctx context.Context, orgID uuid.UUID, amount int64) (Credit, error) {
+// InitBalance 为新 account 初始化积分余额并写入 initial_grant 交易。
+func (r *CreditsRepository) InitBalance(ctx context.Context, accountID uuid.UUID, amount int64) (Credit, error) {
 	var c Credit
 	err := r.db.QueryRow(ctx,
-		`INSERT INTO credits (org_id, balance) VALUES ($1, $2)
-		 RETURNING id, org_id, balance, updated_at`,
-		orgID, amount,
-	).Scan(&c.ID, &c.OrgID, &c.Balance, &c.UpdatedAt)
+		`INSERT INTO credits (account_id, balance) VALUES ($1, $2)
+		 RETURNING id, account_id, balance, updated_at`,
+		accountID, amount,
+	).Scan(&c.ID, &c.AccountID, &c.Balance, &c.UpdatedAt)
 	if err != nil {
 		return Credit{}, fmt.Errorf("credits.InitBalance: %w", err)
 	}
 
 	_, err = r.db.Exec(ctx,
-		`INSERT INTO credit_transactions (org_id, amount, type) VALUES ($1, $2, 'initial_grant')`,
-		orgID, amount,
+		`INSERT INTO credit_transactions (account_id, amount, type) VALUES ($1, $2, 'initial_grant')`,
+		accountID, amount,
 	)
 	if err != nil {
 		return Credit{}, fmt.Errorf("credits.InitBalance tx: %w", err)
@@ -100,7 +100,7 @@ func (r *CreditsRepository) InitBalance(ctx context.Context, orgID uuid.UUID, am
 // Deduct 原子扣减积分，余额不足时返回 InsufficientCreditsError。
 func (r *CreditsRepository) Deduct(
 	ctx context.Context,
-	orgID uuid.UUID,
+	accountID uuid.UUID,
 	amount int64,
 	txType string,
 	referenceType *string,
@@ -109,8 +109,8 @@ func (r *CreditsRepository) Deduct(
 ) error {
 	tag, err := r.db.Exec(ctx,
 		`UPDATE credits SET balance = balance - $1, updated_at = now()
-		 WHERE org_id = $2 AND balance >= $1`,
-		amount, orgID,
+		 WHERE account_id = $2 AND balance >= $1`,
+		amount, accountID,
 	)
 	if err != nil {
 		return fmt.Errorf("credits.Deduct: %w", err)
@@ -118,14 +118,14 @@ func (r *CreditsRepository) Deduct(
 	if tag.RowsAffected() == 0 {
 		// 查询实际余额用于错误信息
 		var balance int64
-		_ = r.db.QueryRow(ctx, `SELECT COALESCE(balance, 0) FROM credits WHERE org_id = $1`, orgID).Scan(&balance)
+		_ = r.db.QueryRow(ctx, `SELECT COALESCE(balance, 0) FROM credits WHERE account_id = $1`, accountID).Scan(&balance)
 		return InsufficientCreditsError{Required: amount, Available: balance}
 	}
 
 	_, err = r.db.Exec(ctx,
-		`INSERT INTO credit_transactions (org_id, amount, type, reference_type, reference_id, note)
+		`INSERT INTO credit_transactions (account_id, amount, type, reference_type, reference_id, note)
 		 VALUES ($1, $2, $3, $4, $5, $6)`,
-		orgID, -amount, txType, referenceType, referenceID, note,
+		accountID, -amount, txType, referenceType, referenceID, note,
 	)
 	if err != nil {
 		return fmt.Errorf("credits.Deduct tx: %w", err)
@@ -136,7 +136,7 @@ func (r *CreditsRepository) Deduct(
 // Add 原子增加积分余额。
 func (r *CreditsRepository) Add(
 	ctx context.Context,
-	orgID uuid.UUID,
+	accountID uuid.UUID,
 	amount int64,
 	txType string,
 	referenceType *string,
@@ -144,17 +144,17 @@ func (r *CreditsRepository) Add(
 	note *string,
 ) error {
 	tag, err := r.db.Exec(ctx,
-		`UPDATE credits SET balance = balance + $1, updated_at = now() WHERE org_id = $2`,
-		amount, orgID,
+		`UPDATE credits SET balance = balance + $1, updated_at = now() WHERE account_id = $2`,
+		amount, accountID,
 	)
 	if err != nil {
 		return fmt.Errorf("credits.Add: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
-		// org 尚无积分记录，创建
+		// account 尚无积分记录，创建
 		_, err = r.db.Exec(ctx,
-			`INSERT INTO credits (org_id, balance) VALUES ($1, $2)`,
-			orgID, amount,
+			`INSERT INTO credits (account_id, balance) VALUES ($1, $2)`,
+			accountID, amount,
 		)
 		if err != nil {
 			return fmt.Errorf("credits.Add init: %w", err)
@@ -162,9 +162,9 @@ func (r *CreditsRepository) Add(
 	}
 
 	_, err = r.db.Exec(ctx,
-		`INSERT INTO credit_transactions (org_id, amount, type, reference_type, reference_id, note)
+		`INSERT INTO credit_transactions (account_id, amount, type, reference_type, reference_id, note)
 		 VALUES ($1, $2, $3, $4, $5, $6)`,
-		orgID, amount, txType, referenceType, referenceID, note,
+		accountID, amount, txType, referenceType, referenceID, note,
 	)
 	if err != nil {
 		return fmt.Errorf("credits.Add tx: %w", err)
@@ -172,8 +172,8 @@ func (r *CreditsRepository) Add(
 	return nil
 }
 
-// ListTransactions 查询 org 的积分交易流水。
-func (r *CreditsRepository) ListTransactions(ctx context.Context, orgID uuid.UUID, limit, offset int) ([]CreditTransaction, error) {
+// ListTransactions 查询 account 的积分交易流水。
+func (r *CreditsRepository) ListTransactions(ctx context.Context, accountID uuid.UUID, limit, offset int) ([]CreditTransaction, error) {
 	if limit <= 0 {
 		limit = 50
 	}
@@ -182,12 +182,12 @@ func (r *CreditsRepository) ListTransactions(ctx context.Context, orgID uuid.UUI
 	}
 
 	rows, err := r.db.Query(ctx,
-		`SELECT id, org_id, amount, type, reference_type, reference_id, note, metadata, created_at
+		`SELECT id, account_id, amount, type, reference_type, reference_id, note, metadata, created_at
 		 FROM credit_transactions
-		 WHERE org_id = $1
+		 WHERE account_id = $1
 		 ORDER BY created_at DESC
 		 LIMIT $2 OFFSET $3`,
-		orgID, limit, offset,
+		accountID, limit, offset,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("credits.ListTransactions: %w", err)
@@ -197,7 +197,7 @@ func (r *CreditsRepository) ListTransactions(ctx context.Context, orgID uuid.UUI
 	txns := []CreditTransaction{}
 	for rows.Next() {
 		var t CreditTransaction
-		if err := rows.Scan(&t.ID, &t.OrgID, &t.Amount, &t.Type, &t.ReferenceType, &t.ReferenceID, &t.Note, &t.Metadata, &t.CreatedAt); err != nil {
+		if err := rows.Scan(&t.ID, &t.AccountID, &t.Amount, &t.Type, &t.ReferenceType, &t.ReferenceID, &t.Note, &t.Metadata, &t.CreatedAt); err != nil {
 			return nil, fmt.Errorf("credits.ListTransactions scan: %w", err)
 		}
 		txns = append(txns, t)
@@ -208,7 +208,7 @@ func (r *CreditsRepository) ListTransactions(ctx context.Context, orgID uuid.UUI
 // ListTransactionsWithDetails 查询积分流水，LEFT JOIN runs+threads 获取对话标题，支持可选日期过滤。
 func (r *CreditsRepository) ListTransactionsWithDetails(
 	ctx context.Context,
-	orgID uuid.UUID,
+	accountID uuid.UUID,
 	limit, offset int,
 	fromDate, toDate *time.Time,
 ) ([]CreditTransactionDetail, error) {
@@ -219,8 +219,8 @@ func (r *CreditsRepository) ListTransactionsWithDetails(
 		limit = 100
 	}
 
-	args := []any{orgID}
-	where := "ct.org_id = $1"
+	args := []any{accountID}
+	where := "ct.account_id = $1"
 	if fromDate != nil {
 		args = append(args, *fromDate)
 		where += fmt.Sprintf(" AND ct.created_at >= $%d", len(args))
@@ -232,7 +232,7 @@ func (r *CreditsRepository) ListTransactionsWithDetails(
 	args = append(args, limit, offset)
 
 	query := fmt.Sprintf(`
-		SELECT ct.id, ct.org_id, ct.amount, ct.type, ct.reference_type, ct.reference_id, ct.note, ct.metadata, ct.created_at,
+		SELECT ct.id, ct.account_id, ct.amount, ct.type, ct.reference_type, ct.reference_id, ct.note, ct.metadata, ct.created_at,
 		       t.title
 		FROM credit_transactions ct
 		LEFT JOIN runs r ON ct.reference_type = 'run' AND r.id = ct.reference_id
@@ -253,7 +253,7 @@ func (r *CreditsRepository) ListTransactionsWithDetails(
 	for rows.Next() {
 		var d CreditTransactionDetail
 		if err := rows.Scan(
-			&d.ID, &d.OrgID, &d.Amount, &d.Type, &d.ReferenceType, &d.ReferenceID, &d.Note, &d.Metadata, &d.CreatedAt,
+			&d.ID, &d.AccountID, &d.Amount, &d.Type, &d.ReferenceType, &d.ReferenceID, &d.Note, &d.Metadata, &d.CreatedAt,
 			&d.ThreadTitle,
 		); err != nil {
 			return nil, fmt.Errorf("credits.ListTransactionsWithDetails scan: %w", err)
@@ -263,7 +263,7 @@ func (r *CreditsRepository) ListTransactionsWithDetails(
 	return txns, rows.Err()
 }
 
-// BulkAdjust 对所有 org 统一调整积分，正数为增加，负数为扣减（余额不低于 0）。
+// BulkAdjust 对所有 account 统一调整积分，正数为增加，负数为扣减（余额不低于 0）。
 // 返回实际影响的行数。
 func (r *CreditsRepository) BulkAdjust(ctx context.Context, amount int64, note string) (int64, error) {
 if amount == 0 {
@@ -290,8 +290,8 @@ if affected == 0 {
 return 0, nil
 }
 _, err = r.db.Exec(ctx,
-`INSERT INTO credit_transactions (org_id, amount, type, note)
- SELECT org_id, $1, 'admin_bulk_adjustment', $2 FROM credits`,
+`INSERT INTO credit_transactions (account_id, amount, type, note)
+ SELECT account_id, $1, 'admin_bulk_adjustment', $2 FROM credits`,
 amount, note,
 )
 if err != nil {
@@ -300,11 +300,11 @@ return affected, fmt.Errorf("credits.BulkAdjust tx: %w", err)
 return affected, nil
 }
 
-// ResetAll 将所有 org 的积分余额归零，并记录交易流水。
+// ResetAll 将所有 account 的积分余额归零，并记录交易流水。
 func (r *CreditsRepository) ResetAll(ctx context.Context, note string) (int64, error) {
 _, err := r.db.Exec(ctx,
-`INSERT INTO credit_transactions (org_id, amount, type, note)
- SELECT org_id, -balance, 'admin_reset', $1 FROM credits WHERE balance != 0`,
+`INSERT INTO credit_transactions (account_id, amount, type, note)
+ SELECT account_id, -balance, 'admin_reset', $1 FROM credits WHERE balance != 0`,
 note,
 )
 if err != nil {

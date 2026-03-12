@@ -27,7 +27,7 @@ func (e MCPConfigNameConflictError) Error() string {
 
 type MCPConfig struct {
 	ID               uuid.UUID
-	OrgID            uuid.UUID
+	AccountID            uuid.UUID
 	Name             string
 	Transport        string
 	URL              *string
@@ -63,7 +63,7 @@ func NewMCPConfigsRepository(db Querier) (*MCPConfigsRepository, error) {
 
 func (r *MCPConfigsRepository) Create(
 	ctx context.Context,
-	orgID uuid.UUID,
+	accountID uuid.UUID,
 	name string,
 	transport string,
 	url *string,
@@ -78,8 +78,8 @@ func (r *MCPConfigsRepository) Create(
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if orgID == uuid.Nil {
-		return MCPConfig{}, fmt.Errorf("org_id must not be nil")
+	if accountID == uuid.Nil {
+		return MCPConfig{}, fmt.Errorf("account_id must not be nil")
 	}
 	if strings.TrimSpace(name) == "" {
 		return MCPConfig{}, fmt.Errorf("name must not be empty")
@@ -96,16 +96,16 @@ func (r *MCPConfigsRepository) Create(
 	err := r.db.QueryRow(
 		ctx,
 		`INSERT INTO mcp_configs
-		    (org_id, name, transport, url, auth_secret_id, command, args_json, cwd,
+		    (account_id, name, transport, url, auth_secret_id, command, args_json, cwd,
 		     env_json, inherit_parent_env, call_timeout_ms)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-		 RETURNING id, org_id, name, transport, url, auth_secret_id, command,
+		 RETURNING id, account_id, name, transport, url, auth_secret_id, command,
 		           args_json, cwd, env_json, inherit_parent_env,
 		           call_timeout_ms, is_active, created_at, updated_at`,
-		orgID, name, transport, url, authSecretID, command, argsJSON, cwdPath,
+		accountID, name, transport, url, authSecretID, command, argsJSON, cwdPath,
 		envJSON, inheritParentEnv, callTimeoutMs,
 	).Scan(
-		&cfg.ID, &cfg.OrgID, &cfg.Name, &cfg.Transport, &cfg.URL,
+		&cfg.ID, &cfg.AccountID, &cfg.Name, &cfg.Transport, &cfg.URL,
 		&cfg.AuthSecretID, &cfg.Command, &cfg.ArgsJSON, &cfg.CwdPath,
 		&cfg.EnvJSON, &cfg.InheritParentEnv, &cfg.CallTimeoutMs,
 		&cfg.IsActive, &cfg.CreatedAt, &cfg.UpdatedAt,
@@ -119,7 +119,7 @@ func (r *MCPConfigsRepository) Create(
 	return cfg, nil
 }
 
-func (r *MCPConfigsRepository) GetByID(ctx context.Context, orgID, id uuid.UUID) (*MCPConfig, error) {
+func (r *MCPConfigsRepository) GetByID(ctx context.Context, accountID, id uuid.UUID) (*MCPConfig, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -127,14 +127,14 @@ func (r *MCPConfigsRepository) GetByID(ctx context.Context, orgID, id uuid.UUID)
 	var cfg MCPConfig
 	err := r.db.QueryRow(
 		ctx,
-		`SELECT id, org_id, name, transport, url, auth_secret_id, command,
+		`SELECT id, account_id, name, transport, url, auth_secret_id, command,
 		        args_json, cwd, env_json, inherit_parent_env,
 		        call_timeout_ms, is_active, created_at, updated_at
 		 FROM mcp_configs
-		 WHERE id = $1 AND org_id = $2`,
-		id, orgID,
+		 WHERE id = $1 AND account_id = $2`,
+		id, accountID,
 	).Scan(
-		&cfg.ID, &cfg.OrgID, &cfg.Name, &cfg.Transport, &cfg.URL,
+		&cfg.ID, &cfg.AccountID, &cfg.Name, &cfg.Transport, &cfg.URL,
 		&cfg.AuthSecretID, &cfg.Command, &cfg.ArgsJSON, &cfg.CwdPath,
 		&cfg.EnvJSON, &cfg.InheritParentEnv, &cfg.CallTimeoutMs,
 		&cfg.IsActive, &cfg.CreatedAt, &cfg.UpdatedAt,
@@ -148,20 +148,20 @@ func (r *MCPConfigsRepository) GetByID(ctx context.Context, orgID, id uuid.UUID)
 	return &cfg, nil
 }
 
-func (r *MCPConfigsRepository) ListByOrg(ctx context.Context, orgID uuid.UUID) ([]MCPConfig, error) {
+func (r *MCPConfigsRepository) ListByOrg(ctx context.Context, accountID uuid.UUID) ([]MCPConfig, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 
 	rows, err := r.db.Query(
 		ctx,
-		`SELECT id, org_id, name, transport, url, auth_secret_id, command,
+		`SELECT id, account_id, name, transport, url, auth_secret_id, command,
 		        args_json, cwd, env_json, inherit_parent_env,
 		        call_timeout_ms, is_active, created_at, updated_at
 		 FROM mcp_configs
-		 WHERE org_id = $1
+		 WHERE account_id = $1
 		 ORDER BY created_at DESC`,
-		orgID,
+		accountID,
 	)
 	if err != nil {
 		return nil, err
@@ -172,7 +172,7 @@ func (r *MCPConfigsRepository) ListByOrg(ctx context.Context, orgID uuid.UUID) (
 	for rows.Next() {
 		var cfg MCPConfig
 		if err := rows.Scan(
-			&cfg.ID, &cfg.OrgID, &cfg.Name, &cfg.Transport, &cfg.URL,
+			&cfg.ID, &cfg.AccountID, &cfg.Name, &cfg.Transport, &cfg.URL,
 			&cfg.AuthSecretID, &cfg.Command, &cfg.ArgsJSON, &cfg.CwdPath,
 			&cfg.EnvJSON, &cfg.InheritParentEnv, &cfg.CallTimeoutMs,
 			&cfg.IsActive, &cfg.CreatedAt, &cfg.UpdatedAt,
@@ -185,20 +185,20 @@ func (r *MCPConfigsRepository) ListByOrg(ctx context.Context, orgID uuid.UUID) (
 }
 
 // ListActiveByOrg 仅返回 is_active=true 的配置，供 Worker 执行时使用。
-func (r *MCPConfigsRepository) ListActiveByOrg(ctx context.Context, orgID uuid.UUID) ([]MCPConfig, error) {
+func (r *MCPConfigsRepository) ListActiveByOrg(ctx context.Context, accountID uuid.UUID) ([]MCPConfig, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 
 	rows, err := r.db.Query(
 		ctx,
-		`SELECT id, org_id, name, transport, url, auth_secret_id, command,
+		`SELECT id, account_id, name, transport, url, auth_secret_id, command,
 		        args_json, cwd, env_json, inherit_parent_env,
 		        call_timeout_ms, is_active, created_at, updated_at
 		 FROM mcp_configs
-		 WHERE org_id = $1 AND is_active = TRUE
+		 WHERE account_id = $1 AND is_active = TRUE
 		 ORDER BY created_at ASC`,
-		orgID,
+		accountID,
 	)
 	if err != nil {
 		return nil, err
@@ -209,7 +209,7 @@ func (r *MCPConfigsRepository) ListActiveByOrg(ctx context.Context, orgID uuid.U
 	for rows.Next() {
 		var cfg MCPConfig
 		if err := rows.Scan(
-			&cfg.ID, &cfg.OrgID, &cfg.Name, &cfg.Transport, &cfg.URL,
+			&cfg.ID, &cfg.AccountID, &cfg.Name, &cfg.Transport, &cfg.URL,
 			&cfg.AuthSecretID, &cfg.Command, &cfg.ArgsJSON, &cfg.CwdPath,
 			&cfg.EnvJSON, &cfg.InheritParentEnv, &cfg.CallTimeoutMs,
 			&cfg.IsActive, &cfg.CreatedAt, &cfg.UpdatedAt,
@@ -221,7 +221,7 @@ func (r *MCPConfigsRepository) ListActiveByOrg(ctx context.Context, orgID uuid.U
 	return configs, rows.Err()
 }
 
-func (r *MCPConfigsRepository) Patch(ctx context.Context, orgID, id uuid.UUID, patch MCPConfigPatch) (*MCPConfig, error) {
+func (r *MCPConfigsRepository) Patch(ctx context.Context, accountID, id uuid.UUID, patch MCPConfigPatch) (*MCPConfig, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -258,7 +258,7 @@ func (r *MCPConfigsRepository) Patch(ctx context.Context, orgID, id uuid.UUID, p
 		argIdx++
 	}
 
-	args = append(args, id, orgID)
+	args = append(args, id, accountID)
 	idIdx := argIdx
 	orgIdx := argIdx + 1
 
@@ -267,14 +267,14 @@ func (r *MCPConfigsRepository) Patch(ctx context.Context, orgID, id uuid.UUID, p
 		ctx,
 		fmt.Sprintf(`UPDATE mcp_configs
 		 SET %s
-		 WHERE id = $%d AND org_id = $%d
-		 RETURNING id, org_id, name, transport, url, auth_secret_id, command,
+		 WHERE id = $%d AND account_id = $%d
+		 RETURNING id, account_id, name, transport, url, auth_secret_id, command,
 		           args_json, cwd, env_json, inherit_parent_env,
 		           call_timeout_ms, is_active, created_at, updated_at`,
 			strings.Join(setClauses, ", "), idIdx, orgIdx),
 		args...,
 	).Scan(
-		&cfg.ID, &cfg.OrgID, &cfg.Name, &cfg.Transport, &cfg.URL,
+		&cfg.ID, &cfg.AccountID, &cfg.Name, &cfg.Transport, &cfg.URL,
 		&cfg.AuthSecretID, &cfg.Command, &cfg.ArgsJSON, &cfg.CwdPath,
 		&cfg.EnvJSON, &cfg.InheritParentEnv, &cfg.CallTimeoutMs,
 		&cfg.IsActive, &cfg.CreatedAt, &cfg.UpdatedAt,
@@ -291,21 +291,21 @@ func (r *MCPConfigsRepository) Patch(ctx context.Context, orgID, id uuid.UUID, p
 	return &cfg, nil
 }
 
-func (r *MCPConfigsRepository) Delete(ctx context.Context, orgID, id uuid.UUID) error {
+func (r *MCPConfigsRepository) Delete(ctx context.Context, accountID, id uuid.UUID) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 
 	_, err := r.db.Exec(
 		ctx,
-		`DELETE FROM mcp_configs WHERE id = $1 AND org_id = $2`,
-		id, orgID,
+		`DELETE FROM mcp_configs WHERE id = $1 AND account_id = $2`,
+		id, accountID,
 	)
 	return err
 }
 
 // UpdateAuthSecret 更新 auth_secret_id 字段（PATCH bearer_token 时使用）。
-func (r *MCPConfigsRepository) UpdateAuthSecret(ctx context.Context, orgID, id, secretID uuid.UUID) error {
+func (r *MCPConfigsRepository) UpdateAuthSecret(ctx context.Context, accountID, id, secretID uuid.UUID) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -313,8 +313,8 @@ func (r *MCPConfigsRepository) UpdateAuthSecret(ctx context.Context, orgID, id, 
 	tag, err := r.db.Exec(
 		ctx,
 		`UPDATE mcp_configs SET auth_secret_id = $1, updated_at = now()
-		 WHERE id = $2 AND org_id = $3`,
-		secretID, id, orgID,
+		 WHERE id = $2 AND account_id = $3`,
+		secretID, id, accountID,
 	)
 	if err != nil {
 		return err

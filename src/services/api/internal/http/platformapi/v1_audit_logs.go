@@ -17,7 +17,7 @@ import (
 
 type auditLogResponse struct {
 	ID          string         `json:"id"`
-	OrgID       *string        `json:"org_id,omitempty"`
+	AccountID       *string        `json:"account_id,omitempty"`
 	ActorUserID *string        `json:"actor_user_id,omitempty"`
 	Action      string         `json:"action"`
 	TargetType  *string        `json:"target_type,omitempty"`
@@ -34,7 +34,7 @@ type auditLogResponse struct {
 
 func auditLogsEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	auditLogRepo *data.AuditLogRepository,
 	apiKeysRepo *data.APIKeysRepository,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
@@ -51,7 +51,7 @@ func listAuditLogs(
 	w nethttp.ResponseWriter,
 	r *nethttp.Request,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	auditLogRepo *data.AuditLogRepository,
 	apiKeysRepo *data.APIKeysRepository,
 ) {
@@ -81,20 +81,20 @@ func listAuditLogs(
 	q := r.URL.Query()
 	params := data.AuditLogListParams{}
 
-	// org_id: 非平台管理员必须提供且只能查自己 org
-	if rawOrg := q.Get("org_id"); rawOrg != "" {
-		parsed, err := uuid.Parse(rawOrg)
+	// account_id: 非平台管理员必须提供且只能查自己 account
+	if rawAccount := q.Get("account_id"); rawAccount != "" {
+		parsed, err := uuid.Parse(rawAccount)
 		if err != nil {
-			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "invalid org_id", traceID, nil)
+			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "invalid account_id", traceID, nil)
 			return
 		}
-		if !isPlatformAdmin && parsed != actor.OrgID {
+		if !isPlatformAdmin && parsed != actor.AccountID {
 			httpkit.WriteError(w, nethttp.StatusForbidden, "auth.forbidden", "access denied", traceID, nil)
 			return
 		}
-		params.OrgID = &parsed
+		params.AccountID = &parsed
 	} else if !isPlatformAdmin {
-		params.OrgID = &actor.OrgID
+		params.AccountID = &actor.AccountID
 	}
 
 	if v := q.Get("action"); v != "" {
@@ -181,9 +181,9 @@ func toAuditLogResponse(l data.AuditLog) auditLogResponse {
 	if l.MetadataJSON == nil {
 		r.Metadata = map[string]any{}
 	}
-	if l.OrgID != nil {
-		s := l.OrgID.String()
-		r.OrgID = &s
+	if l.AccountID != nil {
+		s := l.AccountID.String()
+		r.AccountID = &s
 	}
 	if l.ActorUserID != nil {
 		s := l.ActorUserID.String()

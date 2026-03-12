@@ -13,7 +13,7 @@ import (
 
 type Message struct {
 	ID              uuid.UUID
-	OrgID           uuid.UUID
+	AccountID           uuid.UUID
 	ThreadID        uuid.UUID
 	CreatedByUserID *uuid.UUID
 	Role            string
@@ -54,7 +54,7 @@ func NewMessageRepository(db Querier) (*MessageRepository, error) {
 
 func (r *MessageRepository) Create(
 	ctx context.Context,
-	orgID uuid.UUID,
+	accountID uuid.UUID,
 	threadID uuid.UUID,
 	role string,
 	content string,
@@ -63,8 +63,8 @@ func (r *MessageRepository) Create(
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if orgID == uuid.Nil {
-		return Message{}, fmt.Errorf("org_id must not be empty")
+	if accountID == uuid.Nil {
+		return Message{}, fmt.Errorf("account_id must not be empty")
 	}
 	if threadID == uuid.Nil {
 		return Message{}, fmt.Errorf("thread_id must not be empty")
@@ -83,22 +83,22 @@ func (r *MessageRepository) Create(
 		   SELECT 1
 		   FROM threads
 		   WHERE id = $2
-		     AND org_id = $1
+		     AND account_id = $1
 		   LIMIT 1
 		 )
-		 INSERT INTO messages (org_id, thread_id, created_by_user_id, role, content)
+		 INSERT INTO messages (account_id, thread_id, created_by_user_id, role, content)
 		 SELECT $1, $2, $3, $4, $5
 		 FROM thread
-		 RETURNING id, org_id, thread_id, created_by_user_id, role, content,
+		 RETURNING id, account_id, thread_id, created_by_user_id, role, content,
 		           content_json, metadata_json, token_count, deleted_at, created_at, hidden`,
-		orgID,
+		accountID,
 		threadID,
 		createdByUserID,
 		role,
 		content,
 	).Scan(
 		&message.ID,
-		&message.OrgID,
+		&message.AccountID,
 		&message.ThreadID,
 		&message.CreatedByUserID,
 		&message.Role,
@@ -122,7 +122,7 @@ func (r *MessageRepository) Create(
 
 func (r *MessageRepository) CreateStructured(
 	ctx context.Context,
-	orgID uuid.UUID,
+	accountID uuid.UUID,
 	threadID uuid.UUID,
 	role string,
 	content string,
@@ -132,8 +132,8 @@ func (r *MessageRepository) CreateStructured(
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if orgID == uuid.Nil {
-		return Message{}, fmt.Errorf("org_id must not be empty")
+	if accountID == uuid.Nil {
+		return Message{}, fmt.Errorf("account_id must not be empty")
 	}
 	if threadID == uuid.Nil {
 		return Message{}, fmt.Errorf("thread_id must not be empty")
@@ -157,15 +157,15 @@ func (r *MessageRepository) CreateStructured(
 		   SELECT 1
 		   FROM threads
 		   WHERE id = $2
-		     AND org_id = $1
+		     AND account_id = $1
 		   LIMIT 1
 		 )
-		 INSERT INTO messages (org_id, thread_id, created_by_user_id, role, content, content_json)
+		 INSERT INTO messages (account_id, thread_id, created_by_user_id, role, content, content_json)
 		 SELECT $1, $2, $3, $4, $5, $6
 		 FROM thread
-		 RETURNING id, org_id, thread_id, created_by_user_id, role, content,
+		 RETURNING id, account_id, thread_id, created_by_user_id, role, content,
 		           content_json, metadata_json, token_count, deleted_at, created_at, hidden`,
-		orgID,
+		accountID,
 		threadID,
 		createdByUserID,
 		role,
@@ -173,7 +173,7 @@ func (r *MessageRepository) CreateStructured(
 		normalizedContentJSON,
 	).Scan(
 		&message.ID,
-		&message.OrgID,
+		&message.AccountID,
 		&message.ThreadID,
 		&message.CreatedByUserID,
 		&message.Role,
@@ -197,15 +197,15 @@ func (r *MessageRepository) CreateStructured(
 
 func (r *MessageRepository) ListByThread(
 	ctx context.Context,
-	orgID uuid.UUID,
+	accountID uuid.UUID,
 	threadID uuid.UUID,
 	limit int,
 ) ([]Message, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if orgID == uuid.Nil {
-		return nil, fmt.Errorf("org_id must not be empty")
+	if accountID == uuid.Nil {
+		return nil, fmt.Errorf("account_id must not be empty")
 	}
 	if threadID == uuid.Nil {
 		return nil, fmt.Errorf("thread_id must not be empty")
@@ -216,16 +216,16 @@ func (r *MessageRepository) ListByThread(
 
 	rows, err := r.db.Query(
 		ctx,
-		`SELECT id, org_id, thread_id, created_by_user_id, role, content,
+		`SELECT id, account_id, thread_id, created_by_user_id, role, content,
 		        content_json, metadata_json, token_count, deleted_at, created_at, hidden
 		 FROM messages
-		 WHERE org_id = $1
+		 WHERE account_id = $1
 		   AND thread_id = $2
 		   AND hidden = FALSE
 		   AND deleted_at IS NULL
 		 ORDER BY created_at ASC, id ASC
 		 LIMIT $3`,
-		orgID,
+		accountID,
 		threadID,
 		limit,
 	)
@@ -239,7 +239,7 @@ func (r *MessageRepository) ListByThread(
 		var message Message
 		if err := rows.Scan(
 			&message.ID,
-			&message.OrgID,
+			&message.AccountID,
 			&message.ThreadID,
 			&message.CreatedByUserID,
 			&message.Role,
@@ -264,33 +264,33 @@ func (r *MessageRepository) ListByThread(
 
 func (r *MessageRepository) GetByID(
 	ctx context.Context,
-	orgID uuid.UUID,
+	accountID uuid.UUID,
 	threadID uuid.UUID,
 	messageID uuid.UUID,
 ) (*Message, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if orgID == uuid.Nil || threadID == uuid.Nil || messageID == uuid.Nil {
-		return nil, fmt.Errorf("orgID, threadID and messageID must not be empty")
+	if accountID == uuid.Nil || threadID == uuid.Nil || messageID == uuid.Nil {
+		return nil, fmt.Errorf("accountID, threadID and messageID must not be empty")
 	}
 
 	var message Message
 	err := r.db.QueryRow(
 		ctx,
-		`SELECT id, org_id, thread_id, created_by_user_id, role, content,
+		`SELECT id, account_id, thread_id, created_by_user_id, role, content,
 		        content_json, metadata_json, token_count, deleted_at, created_at, hidden
 		 FROM messages
-		 WHERE org_id = $1
+		 WHERE account_id = $1
 		   AND thread_id = $2
 		   AND id = $3
 		   AND deleted_at IS NULL`,
-		orgID,
+		accountID,
 		threadID,
 		messageID,
 	).Scan(
 		&message.ID,
-		&message.OrgID,
+		&message.AccountID,
 		&message.ThreadID,
 		&message.CreatedByUserID,
 		&message.Role,
@@ -314,7 +314,7 @@ func (r *MessageRepository) GetByID(
 // UpdateContent 更新指定用户消息的内容。仅允许更新 role=user 的可见消息。
 func (r *MessageRepository) UpdateContent(
 	ctx context.Context,
-	orgID uuid.UUID,
+	accountID uuid.UUID,
 	threadID uuid.UUID,
 	messageID uuid.UUID,
 	newContent string,
@@ -322,8 +322,8 @@ func (r *MessageRepository) UpdateContent(
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if orgID == uuid.Nil || threadID == uuid.Nil || messageID == uuid.Nil {
-		return Message{}, fmt.Errorf("orgID, threadID and messageID must not be empty")
+	if accountID == uuid.Nil || threadID == uuid.Nil || messageID == uuid.Nil {
+		return Message{}, fmt.Errorf("accountID, threadID and messageID must not be empty")
 	}
 	if newContent == "" {
 		return Message{}, fmt.Errorf("content must not be empty")
@@ -336,15 +336,15 @@ func (r *MessageRepository) UpdateContent(
 		 SET content = $4
 		 WHERE id = $3
 		   AND thread_id = $2
-		   AND org_id = $1
+		   AND account_id = $1
 		   AND role = 'user'
 		   AND hidden = FALSE
 		   AND deleted_at IS NULL
-		 RETURNING id, org_id, thread_id, created_by_user_id, role, content,
+		 RETURNING id, account_id, thread_id, created_by_user_id, role, content,
 		           content_json, metadata_json, token_count, deleted_at, created_at, hidden`,
-		orgID, threadID, messageID, newContent,
+		accountID, threadID, messageID, newContent,
 	).Scan(
-		&message.ID, &message.OrgID, &message.ThreadID, &message.CreatedByUserID,
+		&message.ID, &message.AccountID, &message.ThreadID, &message.CreatedByUserID,
 		&message.Role, &message.Content, &message.ContentJSON, &message.MetadataJSON,
 		&message.TokenCount, &message.DeletedAt, &message.CreatedAt, &message.Hidden,
 	)
@@ -359,7 +359,7 @@ func (r *MessageRepository) UpdateContent(
 
 func (r *MessageRepository) UpdateStructuredContent(
 	ctx context.Context,
-	orgID uuid.UUID,
+	accountID uuid.UUID,
 	threadID uuid.UUID,
 	messageID uuid.UUID,
 	newContent string,
@@ -368,8 +368,8 @@ func (r *MessageRepository) UpdateStructuredContent(
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if orgID == uuid.Nil || threadID == uuid.Nil || messageID == uuid.Nil {
-		return Message{}, fmt.Errorf("orgID, threadID and messageID must not be empty")
+	if accountID == uuid.Nil || threadID == uuid.Nil || messageID == uuid.Nil {
+		return Message{}, fmt.Errorf("accountID, threadID and messageID must not be empty")
 	}
 	if newContent == "" {
 		return Message{}, fmt.Errorf("content must not be empty")
@@ -388,15 +388,15 @@ func (r *MessageRepository) UpdateStructuredContent(
 		     content_json = $5
 		 WHERE id = $3
 		   AND thread_id = $2
-		   AND org_id = $1
+		   AND account_id = $1
 		   AND role = 'user'
 		   AND hidden = FALSE
 		   AND deleted_at IS NULL
-		 RETURNING id, org_id, thread_id, created_by_user_id, role, content,
+		 RETURNING id, account_id, thread_id, created_by_user_id, role, content,
 		           content_json, metadata_json, token_count, deleted_at, created_at, hidden`,
-		orgID, threadID, messageID, newContent, normalizedContentJSON,
+		accountID, threadID, messageID, newContent, normalizedContentJSON,
 	).Scan(
-		&message.ID, &message.OrgID, &message.ThreadID, &message.CreatedByUserID,
+		&message.ID, &message.AccountID, &message.ThreadID, &message.CreatedByUserID,
 		&message.Role, &message.Content, &message.ContentJSON, &message.MetadataJSON,
 		&message.TokenCount, &message.DeletedAt, &message.CreatedAt, &message.Hidden,
 	)
@@ -413,29 +413,29 @@ func (r *MessageRepository) UpdateStructuredContent(
 // "之后"按 (created_at, id) 排序判断，确保与 ListByThread 顺序一致。
 func (r *MessageRepository) HideMessagesAfter(
 	ctx context.Context,
-	orgID uuid.UUID,
+	accountID uuid.UUID,
 	threadID uuid.UUID,
 	afterMessageID uuid.UUID,
 ) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if orgID == uuid.Nil || threadID == uuid.Nil || afterMessageID == uuid.Nil {
-		return fmt.Errorf("orgID, threadID and afterMessageID must not be empty")
+	if accountID == uuid.Nil || threadID == uuid.Nil || afterMessageID == uuid.Nil {
+		return fmt.Errorf("accountID, threadID and afterMessageID must not be empty")
 	}
 
 	_, err := r.db.Exec(
 		ctx,
 		`UPDATE messages
 		 SET hidden = TRUE
-		 WHERE org_id = $1
+		 WHERE account_id = $1
 		   AND thread_id = $2
 		   AND hidden = FALSE
 		   AND deleted_at IS NULL
 		   AND (created_at, id) > (
-		     SELECT created_at, id FROM messages WHERE id = $3 AND org_id = $1
+		     SELECT created_at, id FROM messages WHERE id = $3 AND account_id = $1
 		   )`,
-		orgID, threadID, afterMessageID,
+		accountID, threadID, afterMessageID,
 	)
 	return err
 }
@@ -444,14 +444,14 @@ func (r *MessageRepository) HideMessagesAfter(
 // 若不存在这样的消息，返回 NoAssistantMessageError。
 func (r *MessageRepository) HideLastAssistantMessage(
 	ctx context.Context,
-	orgID uuid.UUID,
+	accountID uuid.UUID,
 	threadID uuid.UUID,
 ) (uuid.UUID, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if orgID == uuid.Nil {
-		return uuid.Nil, fmt.Errorf("org_id must not be empty")
+	if accountID == uuid.Nil {
+		return uuid.Nil, fmt.Errorf("account_id must not be empty")
 	}
 	if threadID == uuid.Nil {
 		return uuid.Nil, fmt.Errorf("thread_id must not be empty")
@@ -464,7 +464,7 @@ func (r *MessageRepository) HideLastAssistantMessage(
 		 SET hidden = TRUE
 		 WHERE id = (
 		   SELECT id FROM messages
-		   WHERE org_id = $1
+		   WHERE account_id = $1
 		     AND thread_id = $2
 		     AND role = 'assistant'
 		     AND hidden = FALSE
@@ -472,9 +472,9 @@ func (r *MessageRepository) HideLastAssistantMessage(
 		   ORDER BY created_at DESC, id DESC
 		   LIMIT 1
 		 )
-		 AND org_id = $1
+		 AND account_id = $1
 		 RETURNING id`,
-		orgID,
+		accountID,
 		threadID,
 	).Scan(&hiddenID)
 	if err != nil {
@@ -497,7 +497,7 @@ type MessageIDPair struct {
 // 返回每条消息的 old→new ID 映射，调用方可据此迁移客户端侧缓存。
 func (r *MessageRepository) CopyUpTo(
 	ctx context.Context,
-	orgID uuid.UUID,
+	accountID uuid.UUID,
 	sourceThreadID uuid.UUID,
 	targetThreadID uuid.UUID,
 	upToMessageID uuid.UUID,
@@ -505,8 +505,8 @@ func (r *MessageRepository) CopyUpTo(
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if orgID == uuid.Nil || sourceThreadID == uuid.Nil || targetThreadID == uuid.Nil || upToMessageID == uuid.Nil {
-		return nil, fmt.Errorf("orgID, sourceThreadID, targetThreadID and upToMessageID must not be empty")
+	if accountID == uuid.Nil || sourceThreadID == uuid.Nil || targetThreadID == uuid.Nil || upToMessageID == uuid.Nil {
+		return nil, fmt.Errorf("accountID, sourceThreadID, targetThreadID and upToMessageID must not be empty")
 	}
 
 	rows, err := r.db.Query(
@@ -515,22 +515,22 @@ func (r *MessageRepository) CopyUpTo(
 		   SELECT id AS old_id, gen_random_uuid() AS new_id,
 		          created_by_user_id, role, content, content_json, metadata_json, created_at
 		   FROM messages
-		   WHERE org_id = $1
+		   WHERE account_id = $1
 		     AND thread_id = $2
 		     AND hidden = FALSE
 		     AND deleted_at IS NULL
 		     AND (created_at, id) <= (
-		       SELECT created_at, id FROM messages WHERE id = $4 AND org_id = $1
+		       SELECT created_at, id FROM messages WHERE id = $4 AND account_id = $1
 		     )
 		   ORDER BY created_at ASC, id ASC
 		 ),
 		 inserted AS (
-		   INSERT INTO messages (id, org_id, thread_id, created_by_user_id, role, content, content_json, metadata_json, created_at)
+		   INSERT INTO messages (id, account_id, thread_id, created_by_user_id, role, content, content_json, metadata_json, created_at)
 		   SELECT new_id, $1, $3, created_by_user_id, role, content, content_json, metadata_json, created_at
 		   FROM src
 		 )
 		 SELECT old_id, new_id FROM src`,
-		orgID, sourceThreadID, targetThreadID, upToMessageID,
+		accountID, sourceThreadID, targetThreadID, upToMessageID,
 	)
 	if err != nil {
 		return nil, err

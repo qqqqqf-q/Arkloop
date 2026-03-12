@@ -21,19 +21,19 @@ func warnUnsafeOutboundBaseURLs(ctx context.Context, pool *pgxpool.Pool, logger 
 	}{
 		{
 			table: "asr_credentials",
-			query: `SELECT id::text, scope, COALESCE(org_id::text, ''), provider, base_url
+			query: `SELECT id::text, owner_kind, COALESCE(account_id::text, ''), provider, base_url
 				FROM asr_credentials
 				WHERE base_url IS NOT NULL AND BTRIM(base_url) <> ''`,
 		},
 		{
 			table: "llm_credentials",
-			query: `SELECT id::text, 'org', org_id::text, provider, base_url
+			query: `SELECT id::text, 'user', account_id::text, provider, base_url
 				FROM llm_credentials
 				WHERE base_url IS NOT NULL AND BTRIM(base_url) <> ''`,
 		},
 		{
 			table: "tool_provider_configs",
-			query: `SELECT id::text, scope, COALESCE(org_id::text, ''), provider_name, base_url
+			query: `SELECT id::text, owner_kind, COALESCE(account_id::text, ''), provider_name, base_url
 				FROM tool_provider_configs
 				WHERE base_url IS NOT NULL AND BTRIM(base_url) <> ''`,
 		},
@@ -49,11 +49,11 @@ func warnUnsafeOutboundBaseURLs(ctx context.Context, pool *pgxpool.Pool, logger 
 			var (
 				id       string
 				scope    string
-				orgID    string
+				accountID string
 				provider string
 				baseURL  string
 			)
-			if err := rows.Scan(&id, &scope, &orgID, &provider, &baseURL); err != nil {
+			if err := rows.Scan(&id, &scope, &accountID, &provider, &baseURL); err != nil {
 				logger.Warn("outbound_base_url_scan_failed", observability.LogFields{}, map[string]any{"table": check.table, "error": err.Error()})
 				continue
 			}
@@ -67,7 +67,7 @@ func warnUnsafeOutboundBaseURLs(ctx context.Context, pool *pgxpool.Pool, logger 
 					"table":    check.table,
 					"id":       id,
 					"scope":    strings.TrimSpace(scope),
-					"org_id":   strings.TrimSpace(orgID),
+					"account_id": strings.TrimSpace(accountID),
 					"provider": providerName,
 					"reason":   err.Error(),
 				})

@@ -35,7 +35,7 @@ var validReportCategories = map[string]bool{
 
 func reportEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	threadRepo *data.ThreadRepository,
 	threadReportRepo *data.ThreadReportRepository,
 	auditWriter *audit.Writer,

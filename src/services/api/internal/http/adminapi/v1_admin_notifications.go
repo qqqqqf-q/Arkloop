@@ -56,7 +56,7 @@ func toBroadcastResponse(b data.NotificationBroadcast) broadcastResponse {
 
 func adminBroadcastsEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	notifRepo *data.NotificationsRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,
@@ -77,7 +77,7 @@ func adminBroadcastsEntry(
 
 func adminBroadcastEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	notifRepo *data.NotificationsRepository,
 	apiKeysRepo *data.APIKeysRepository,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
@@ -118,7 +118,7 @@ type createBroadcastRequest struct {
 
 func createBroadcast(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	notifRepo *data.NotificationsRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,
@@ -156,16 +156,16 @@ func createBroadcast(
 			return
 		}
 
-		// target 格式: "all" 或 org UUID
+		// target 格式: "all" 或 account UUID
 		targetType := "all"
 		var targetID *uuid.UUID
 		if req.Target != "" && req.Target != "all" {
 			parsed, err := uuid.Parse(req.Target)
 			if err != nil {
-				httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "target must be 'all' or a valid org_id", traceID, nil)
+				httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "target must be 'all' or a valid account_id", traceID, nil)
 				return
 			}
-			targetType = "org"
+			targetType = "account"
 			targetID = &parsed
 		}
 
@@ -233,7 +233,7 @@ func createBroadcast(
 
 func listBroadcasts(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	notifRepo *data.NotificationsRepository,
 	apiKeysRepo *data.APIKeysRepository,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
@@ -278,7 +278,7 @@ func listBroadcasts(
 
 func getBroadcast(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	notifRepo *data.NotificationsRepository,
 	apiKeysRepo *data.APIKeysRepository,
 ) func(nethttp.ResponseWriter, *nethttp.Request, uuid.UUID) {
@@ -314,7 +314,7 @@ func getBroadcast(
 
 func deleteBroadcast(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	notifRepo *data.NotificationsRepository,
 	apiKeysRepo *data.APIKeysRepository,
 ) func(nethttp.ResponseWriter, *nethttp.Request, uuid.UUID) {

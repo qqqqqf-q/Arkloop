@@ -21,7 +21,7 @@ type configSchemaItem struct {
 
 func configSchemaEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	registry *sharedconfig.Registry,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {

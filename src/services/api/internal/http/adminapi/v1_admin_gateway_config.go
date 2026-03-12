@@ -58,7 +58,7 @@ type updateGatewayConfigRequest struct {
 
 func adminGatewayConfigEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	settingsRepo *data.PlatformSettingsRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	rdb *redis.Client,

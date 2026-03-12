@@ -17,13 +17,13 @@ import (
 )
 
 type creditBalanceResponse struct {
-	OrgID   string `json:"org_id"`
+	AccountID   string `json:"account_id"`
 	Balance int64  `json:"balance"`
 }
 
 type creditTransactionResponse struct {
 	ID            string           `json:"id"`
-	OrgID         string           `json:"org_id"`
+	AccountID         string           `json:"account_id"`
 	Amount        int64            `json:"amount"`
 	Type          string           `json:"type"`
 	ReferenceType *string          `json:"reference_type,omitempty"`
@@ -40,14 +40,14 @@ type meCreditsResponse struct {
 }
 
 type adminAdjustRequest struct {
-	OrgID  string `json:"org_id"`
+	AccountID  string `json:"account_id"`
 	Amount int64  `json:"amount"`
 	Note   string `json:"note"`
 }
 
 func meCredits(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	creditsRepo *data.CreditsRepository,
 	apiKeysRepo *data.APIKeysRepository,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
@@ -73,7 +73,7 @@ func meCredits(
 		}
 
 		ctx := r.Context()
-		credit, err := creditsRepo.GetBalance(ctx, actor.OrgID)
+		credit, err := creditsRepo.GetBalance(ctx, actor.AccountID)
 		if err != nil {
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
@@ -92,7 +92,7 @@ func meCredits(
 			}
 		}
 
-		txns, err := creditsRepo.ListTransactionsWithDetails(ctx, actor.OrgID, 50, 0, fromDate, toDate)
+		txns, err := creditsRepo.ListTransactionsWithDetails(ctx, actor.AccountID, 50, 0, fromDate, toDate)
 		if err != nil {
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
@@ -107,7 +107,7 @@ func meCredits(
 
 func adminCreditsEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	creditsRepo *data.CreditsRepository,
 	apiKeysRepo *data.APIKeysRepository,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
@@ -135,19 +135,19 @@ func adminCreditsEntry(
 			return
 		}
 
-		orgIDStr := strings.TrimSpace(r.URL.Query().Get("org_id"))
-		if orgIDStr == "" {
-			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "org_id is required", traceID, nil)
+		accountIDStr := strings.TrimSpace(r.URL.Query().Get("account_id"))
+		if accountIDStr == "" {
+			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "account_id is required", traceID, nil)
 			return
 		}
-		orgID, err := uuid.Parse(orgIDStr)
+		accountID, err := uuid.Parse(accountIDStr)
 		if err != nil {
-			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "invalid org_id", traceID, nil)
+			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "invalid account_id", traceID, nil)
 			return
 		}
 
 		ctx := r.Context()
-		credit, err := creditsRepo.GetBalance(ctx, orgID)
+		credit, err := creditsRepo.GetBalance(ctx, accountID)
 		if err != nil {
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
@@ -166,19 +166,19 @@ func adminCreditsEntry(
 			}
 		}
 
-		txns, err := creditsRepo.ListTransactions(ctx, orgID, limit, offset)
+		txns, err := creditsRepo.ListTransactions(ctx, accountID, limit, offset)
 		if err != nil {
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
 		}
 
 		type adminCreditsResponse struct {
-			OrgID        string                      `json:"org_id"`
+			AccountID        string                      `json:"account_id"`
 			Balance      int64                       `json:"balance"`
 			Transactions []creditTransactionResponse `json:"transactions"`
 		}
 		httpkit.WriteJSON(w, traceID, nethttp.StatusOK, adminCreditsResponse{
-			OrgID:        orgID.String(),
+			AccountID:        accountID.String(),
 			Balance:      creditBalanceValue(credit),
 			Transactions: toCreditTransactionResponses(txns),
 		})
@@ -187,7 +187,7 @@ func adminCreditsEntry(
 
 func adminCreditsAdjust(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	creditsRepo *data.CreditsRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,
@@ -232,14 +232,14 @@ func adminCreditsAdjust(
 			return
 		}
 
-		orgID, err := uuid.Parse(req.OrgID)
+		accountID, err := uuid.Parse(req.AccountID)
 		if err != nil {
-			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "invalid org_id", traceID, nil)
+			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "invalid account_id", traceID, nil)
 			return
 		}
 
 		ctx := r.Context()
-		beforeCredit, err := creditsRepo.GetBalance(ctx, orgID)
+		beforeCredit, err := creditsRepo.GetBalance(ctx, accountID)
 		if err != nil {
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
@@ -247,9 +247,9 @@ func adminCreditsAdjust(
 		note := req.Note
 
 		if req.Amount > 0 {
-			err = creditsRepo.Add(ctx, orgID, req.Amount, "admin_adjustment", nil, nil, &note)
+			err = creditsRepo.Add(ctx, accountID, req.Amount, "admin_adjustment", nil, nil, &note)
 		} else {
-			err = creditsRepo.Deduct(ctx, orgID, -req.Amount, "admin_adjustment", nil, nil, &note)
+			err = creditsRepo.Deduct(ctx, accountID, -req.Amount, "admin_adjustment", nil, nil, &note)
 		}
 		if err != nil {
 			if _, ok := err.(data.InsufficientCreditsError); ok {
@@ -260,16 +260,16 @@ func adminCreditsAdjust(
 			return
 		}
 
-		afterCredit, err := creditsRepo.GetBalance(ctx, orgID)
+		afterCredit, err := creditsRepo.GetBalance(ctx, accountID)
 		if err != nil {
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
 		}
 
-		beforeState := creditBalanceResponse{OrgID: orgID.String(), Balance: creditBalanceValue(beforeCredit)}
-		afterState := creditBalanceResponse{OrgID: orgID.String(), Balance: creditBalanceValue(afterCredit)}
+		beforeState := creditBalanceResponse{AccountID: accountID.String(), Balance: creditBalanceValue(beforeCredit)}
+		afterState := creditBalanceResponse{AccountID: accountID.String(), Balance: creditBalanceValue(afterCredit)}
 		if auditWriter != nil {
-			auditWriter.WriteCreditsAdjusted(ctx, traceID, actor.UserID, orgID, req.Amount, note, beforeState, afterState)
+			auditWriter.WriteCreditsAdjusted(ctx, traceID, actor.UserID, accountID, req.Amount, note, beforeState, afterState)
 		}
 
 		httpkit.WriteJSON(w, traceID, nethttp.StatusOK, afterState)
@@ -281,7 +281,7 @@ func toCreditTransactionResponses(txns []data.CreditTransaction) []creditTransac
 	for _, t := range txns {
 		resp := creditTransactionResponse{
 			ID:        t.ID.String(),
-			OrgID:     t.OrgID.String(),
+			AccountID:     t.AccountID.String(),
 			Amount:    t.Amount,
 			Type:      t.Type,
 			Note:      t.Note,
@@ -308,7 +308,7 @@ func toCreditTransactionDetailResponses(txns []data.CreditTransactionDetail) []c
 	for _, t := range txns {
 		resp := creditTransactionResponse{
 			ID:          t.ID.String(),
-			OrgID:       t.OrgID.String(),
+			AccountID:       t.AccountID.String(),
 			Amount:      t.Amount,
 			Type:        t.Type,
 			Note:        t.Note,
@@ -333,7 +333,7 @@ func toCreditTransactionDetailResponses(txns []data.CreditTransactionDetail) []c
 
 func adminCreditsBulkAdjust(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	creditsRepo *data.CreditsRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,
@@ -399,7 +399,7 @@ func adminCreditsBulkAdjust(
 
 func adminCreditsResetAll(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	creditsRepo *data.CreditsRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,

@@ -87,7 +87,7 @@ type personaResponse struct {
 
 func personasEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	personasRepo *data.PersonasRepository,
 	repoPersonas []repopersonas.RepoPersona,
 	syncTrigger personaSyncTrigger,
@@ -108,7 +108,7 @@ func personasEntry(
 
 func personaEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	personasRepo *data.PersonasRepository,
 	syncTrigger personaSyncTrigger,
 	projectRepo *data.ProjectRepository,
@@ -145,7 +145,7 @@ func createPersona(
 	r *nethttp.Request,
 	traceID string,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	personasRepo *data.PersonasRepository,
 	repoPersonas []repopersonas.RepoPersona,
 	syncTrigger personaSyncTrigger,
@@ -277,7 +277,7 @@ func listPersonas(
 	r *nethttp.Request,
 	traceID string,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	personasRepo *data.PersonasRepository,
 	repoPersonas []repopersonas.RepoPersona,
 	projectRepo *data.ProjectRepository,
@@ -334,7 +334,7 @@ func listPersonas(
 
 func selectablePersonasEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	personasRepo *data.PersonasRepository,
 	repoPersonas []repopersonas.RepoPersona,
 	projectRepo *data.ProjectRepository,
@@ -451,7 +451,7 @@ func patchPersona(
 	traceID string,
 	personaID uuid.UUID,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	personasRepo *data.PersonasRepository,
 	syncTrigger personaSyncTrigger,
 	projectRepo *data.ProjectRepository,
@@ -544,7 +544,7 @@ func deletePersona(
 	traceID string,
 	personaID uuid.UUID,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	personasRepo *data.PersonasRepository,
 	syncTrigger personaSyncTrigger,
 	projectRepo *data.ProjectRepository,
@@ -826,7 +826,7 @@ func resolvePersonaProjectID(
 		httpkit.WriteError(w, nethttp.StatusServiceUnavailable, "database.not_configured", "database not configured", traceID, nil)
 		return uuid.Nil, false
 	}
-	project, err := projectRepo.GetOrCreateDefaultByOwner(ctx, actor.OrgID, actor.UserID)
+	project, err := projectRepo.GetOrCreateDefaultByOwner(ctx, actor.AccountID, actor.UserID)
 	if err != nil {
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return uuid.Nil, false

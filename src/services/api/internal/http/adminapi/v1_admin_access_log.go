@@ -34,7 +34,7 @@ type accessLogEntry struct {
 	UAType       string `json:"ua_type"`
 	RiskScore    int    `json:"risk_score"`
 	IdentityType string `json:"identity_type"`
-	OrgID        string `json:"org_id"`
+	AccountID        string `json:"account_id"`
 	UserID       string `json:"user_id"`
 	Username     string `json:"username"`
 }
@@ -50,7 +50,7 @@ type accessLogFilters struct {
 
 func adminAccessLogEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	usersRepo *data.UserRepository,
 	rdb *redis.Client,
@@ -68,7 +68,7 @@ func listAccessLog(
 	w nethttp.ResponseWriter,
 	r *nethttp.Request,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	usersRepo *data.UserRepository,
 	rdb *redis.Client,
@@ -286,8 +286,8 @@ func parseAccessLogMessage(id string, values map[string]any) accessLogEntry {
 	if v, ok := values["identity_type"].(string); ok {
 		e.IdentityType = v
 	}
-	if v, ok := values["org_id"].(string); ok {
-		e.OrgID = v
+	if v, ok := values["account_id"].(string); ok {
+		e.AccountID = v
 	}
 	if v, ok := values["user_id"].(string); ok {
 		e.UserID = v

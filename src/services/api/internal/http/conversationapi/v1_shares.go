@@ -91,7 +91,7 @@ func createShare(
 		}
 	}
 
-	messages, err := messageRepo.ListByThread(r.Context(), thread.OrgID, thread.ID, 10000)
+	messages, err := messageRepo.ListByThread(r.Context(), thread.AccountID, thread.ID, 10000)
 	if err != nil {
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
@@ -219,7 +219,7 @@ func deleteShare(
 // shareEntry 作为认证端点的入口，在 threadEntry 的 :share action 中调用。
 func shareEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	threadRepo *data.ThreadRepository,
 	threadShareRepo *data.ThreadShareRepository,
 	messageRepo *data.MessageRepository,

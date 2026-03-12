@@ -42,7 +42,7 @@ type createMessageRequest struct {
 
 type messageResponse struct {
 	ID              string          `json:"id"`
-	OrgID           string          `json:"org_id"`
+	AccountID           string          `json:"account_id"`
 	ThreadID        string          `json:"thread_id"`
 	CreatedByUserID *string         `json:"created_by_user_id"`
 	RunID           *string         `json:"run_id,omitempty"`

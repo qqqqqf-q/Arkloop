@@ -18,6 +18,11 @@ func (r *LlmRoutesRepository) WithTx(tx pgx.Tx) *LlmRoutesRepository {
 	return &LlmRoutesRepository{db: tx}
 }
 
+const (
+	LlmRouteScopeProject  = "project"
+	LlmRouteScopePlatform = "platform"
+)
+
 type LlmRoute struct {
 	ID                  uuid.UUID
 	ProjectID               *uuid.UUID
@@ -97,10 +102,10 @@ func (r *LlmRoutesRepository) Create(ctx context.Context, params CreateLlmRouteP
 	if params.CredentialID == uuid.Nil {
 		return LlmRoute{}, fmt.Errorf("credential_id must not be nil")
 	}
-	if params.Scope != LlmCredentialScopeProject && params.Scope != LlmCredentialScopePlatform {
+	if params.Scope != LlmRouteScopeProject && params.Scope != LlmRouteScopePlatform {
 		return LlmRoute{}, fmt.Errorf("scope must be project or platform")
 	}
-	if params.Scope == LlmCredentialScopeProject && params.ProjectID == uuid.Nil {
+	if params.Scope == LlmRouteScopeProject && params.ProjectID == uuid.Nil {
 		return LlmRoute{}, fmt.Errorf("project_id must not be nil for project scope")
 	}
 	params.Model = strings.TrimSpace(params.Model)
@@ -120,7 +125,7 @@ func (r *LlmRoutesRepository) Create(ctx context.Context, params CreateLlmRouteP
 	}
 
 	projectIDParam := any(params.ProjectID)
-	if params.Scope == LlmCredentialScopePlatform {
+	if params.Scope == LlmRouteScopePlatform {
 		projectIDParam = nil
 	}
 
@@ -405,10 +410,10 @@ func (r *LlmRoutesRepository) list(ctx context.Context, query string, args ...an
 }
 
 func appendLlmRouteScopeWhere(base string, args []any, projectID uuid.UUID, scope string) (string, []any, error) {
-	if scope == LlmCredentialScopePlatform {
+	if scope == LlmRouteScopePlatform {
 		return base + ` WHERE project_id IS NULL`, args, nil
 	}
-	if scope != LlmCredentialScopeProject {
+	if scope != LlmRouteScopeProject {
 		return "", nil, fmt.Errorf("scope must be project or platform")
 	}
 	if projectID == uuid.Nil {
@@ -427,10 +432,10 @@ func appendLlmRouteScopeFilter(base string, args []any, projectID uuid.UUID, sco
 }
 
 func llmRouteScopeClause(projectID uuid.UUID, scope string, index int) (string, []any, error) {
-	if scope == LlmCredentialScopePlatform {
+	if scope == LlmRouteScopePlatform {
 		return `project_id IS NULL`, nil, nil
 	}
-	if scope != LlmCredentialScopeProject {
+	if scope != LlmRouteScopeProject {
 		return "", nil, fmt.Errorf("scope must be project or platform")
 	}
 	if projectID == uuid.Nil {

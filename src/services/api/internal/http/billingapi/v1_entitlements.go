@@ -18,7 +18,7 @@ import (
 
 type entitlementOverrideResponse struct {
 	ID              string  `json:"id"`
-	OrgID           string  `json:"org_id"`
+	AccountID           string  `json:"account_id"`
 	Key             string  `json:"key"`
 	Value           string  `json:"value"`
 	ValueType       string  `json:"value_type"`
@@ -29,7 +29,7 @@ type entitlementOverrideResponse struct {
 }
 
 type createOverrideRequest struct {
-	OrgID     string  `json:"org_id"`
+	AccountID     string  `json:"account_id"`
 	Key       string  `json:"key"`
 	Value     string  `json:"value"`
 	ValueType string  `json:"value_type"`
@@ -39,7 +39,7 @@ type createOverrideRequest struct {
 
 func entitlementOverridesEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	entitlementsRepo *data.EntitlementsRepository,
 	entitlementService *entitlement.Service,
 	apiKeysRepo *data.APIKeysRepository,
@@ -59,7 +59,7 @@ func entitlementOverridesEntry(
 
 func entitlementOverrideEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	entitlementsRepo *data.EntitlementsRepository,
 	entitlementService *entitlement.Service,
 	apiKeysRepo *data.APIKeysRepository,
@@ -94,7 +94,7 @@ func createEntitlementOverride(
 	w nethttp.ResponseWriter,
 	r *nethttp.Request,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	entitlementsRepo *data.EntitlementsRepository,
 	entitlementService *entitlement.Service,
 	apiKeysRepo *data.APIKeysRepository,
@@ -124,9 +124,9 @@ func createEntitlementOverride(
 		return
 	}
 
-	orgID, err := uuid.Parse(strings.TrimSpace(req.OrgID))
-	if err != nil || orgID == uuid.Nil {
-		httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "invalid org_id", traceID, nil)
+	accountID, err := uuid.Parse(strings.TrimSpace(req.AccountID))
+	if err != nil || accountID == uuid.Nil {
+		httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "invalid account_id", traceID, nil)
 		return
 	}
 
@@ -152,14 +152,14 @@ func createEntitlementOverride(
 		expiresAt = &t
 	}
 
-	previous, err := entitlementsRepo.GetOverrideByOrgAndKey(r.Context(), orgID, req.Key)
+	previous, err := entitlementsRepo.GetOverrideByOrgAndKey(r.Context(), accountID, req.Key)
 	if err != nil {
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
 	}
 
 	override, err := entitlementsRepo.CreateOverride(
-		r.Context(), orgID, req.Key, req.Value, req.ValueType,
+		r.Context(), accountID, req.Key, req.Value, req.ValueType,
 		req.Reason, expiresAt, actor.UserID,
 	)
 	if err != nil {
@@ -168,14 +168,14 @@ func createEntitlementOverride(
 	}
 
 	if entitlementService != nil {
-		entitlementService.InvalidateCache(r.Context(), orgID, req.Key)
+		entitlementService.InvalidateCache(r.Context(), accountID, req.Key)
 	}
 	if auditWriter != nil {
 		auditWriter.WriteEntitlementOverrideSet(
 			r.Context(),
 			traceID,
 			actor.UserID,
-			orgID,
+			accountID,
 			override.ID,
 			override.Key,
 			entitlementOverrideAuditState(previous),
@@ -190,7 +190,7 @@ func listEntitlementOverrides(
 	w nethttp.ResponseWriter,
 	r *nethttp.Request,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	entitlementsRepo *data.EntitlementsRepository,
 	apiKeysRepo *data.APIKeysRepository,
 ) {
@@ -212,18 +212,18 @@ func listEntitlementOverrides(
 		return
 	}
 
-	orgIDStr := strings.TrimSpace(r.URL.Query().Get("org_id"))
-	if orgIDStr == "" {
-		httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "org_id query parameter required", traceID, nil)
+	accountIDStr := strings.TrimSpace(r.URL.Query().Get("account_id"))
+	if accountIDStr == "" {
+		httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "account_id query parameter required", traceID, nil)
 		return
 	}
-	orgID, err := uuid.Parse(orgIDStr)
+	accountID, err := uuid.Parse(accountIDStr)
 	if err != nil {
-		httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "invalid org_id", traceID, nil)
+		httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "invalid account_id", traceID, nil)
 		return
 	}
 
-	overrides, err := entitlementsRepo.ListOverridesByOrg(r.Context(), orgID)
+	overrides, err := entitlementsRepo.ListOverridesByOrg(r.Context(), accountID)
 	if err != nil {
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
@@ -242,7 +242,7 @@ func deleteEntitlementOverride(
 	traceID string,
 	overrideID uuid.UUID,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	entitlementsRepo *data.EntitlementsRepository,
 	entitlementService *entitlement.Service,
 	apiKeysRepo *data.APIKeysRepository,
@@ -265,37 +265,37 @@ func deleteEntitlementOverride(
 		return
 	}
 
-	orgIDStr := strings.TrimSpace(r.URL.Query().Get("org_id"))
-	if orgIDStr == "" {
-		httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "org_id query parameter required", traceID, nil)
+	accountIDStr := strings.TrimSpace(r.URL.Query().Get("account_id"))
+	if accountIDStr == "" {
+		httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "account_id query parameter required", traceID, nil)
 		return
 	}
-	orgID, err := uuid.Parse(orgIDStr)
+	accountID, err := uuid.Parse(accountIDStr)
 	if err != nil {
-		httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "invalid org_id", traceID, nil)
+		httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "invalid account_id", traceID, nil)
 		return
 	}
 
-	previous, err := entitlementsRepo.GetOverrideByID(r.Context(), overrideID, orgID)
+	previous, err := entitlementsRepo.GetOverrideByID(r.Context(), overrideID, accountID)
 	if err != nil {
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
 	}
 
-	if err := entitlementsRepo.DeleteOverride(r.Context(), overrideID, orgID); err != nil {
+	if err := entitlementsRepo.DeleteOverride(r.Context(), overrideID, accountID); err != nil {
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
 	}
 
 	if entitlementService != nil && previous != nil {
-		entitlementService.InvalidateCache(r.Context(), orgID, previous.Key)
+		entitlementService.InvalidateCache(r.Context(), accountID, previous.Key)
 	}
 	if auditWriter != nil && previous != nil {
 		auditWriter.WriteEntitlementOverrideDeleted(
 			r.Context(),
 			traceID,
 			actor.UserID,
-			orgID,
+			accountID,
 			previous.ID,
 			previous.Key,
 			entitlementOverrideAuditState(previous),
@@ -305,10 +305,10 @@ func deleteEntitlementOverride(
 	httpkit.WriteJSON(w, traceID, nethttp.StatusOK, map[string]bool{"ok": true})
 }
 
-func toOverrideResponse(o data.OrgEntitlementOverride) entitlementOverrideResponse {
+func toOverrideResponse(o data.AccountEntitlementOverride) entitlementOverrideResponse {
 	resp := entitlementOverrideResponse{
 		ID:        o.ID.String(),
-		OrgID:     o.OrgID.String(),
+		AccountID:     o.AccountID.String(),
 		Key:       o.Key,
 		Value:     o.Value,
 		ValueType: o.ValueType,
@@ -326,7 +326,7 @@ func toOverrideResponse(o data.OrgEntitlementOverride) entitlementOverrideRespon
 	return resp
 }
 
-func entitlementOverrideAuditState(o *data.OrgEntitlementOverride) any {
+func entitlementOverrideAuditState(o *data.AccountEntitlementOverride) any {
 	if o == nil {
 		return nil
 	}

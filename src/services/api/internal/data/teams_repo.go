@@ -12,7 +12,7 @@ import (
 
 type Team struct {
 	ID        uuid.UUID
-	OrgID     uuid.UUID
+	AccountID     uuid.UUID
 	Name      string
 	CreatedAt time.Time
 }
@@ -35,12 +35,12 @@ func NewTeamRepository(db Querier) (*TeamRepository, error) {
 	return &TeamRepository{db: db}, nil
 }
 
-func (r *TeamRepository) Create(ctx context.Context, orgID uuid.UUID, name string) (Team, error) {
+func (r *TeamRepository) Create(ctx context.Context, accountID uuid.UUID, name string) (Team, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if orgID == uuid.Nil {
-		return Team{}, fmt.Errorf("org_id must not be empty")
+	if accountID == uuid.Nil {
+		return Team{}, fmt.Errorf("account_id must not be empty")
 	}
 	if name == "" {
 		return Team{}, fmt.Errorf("name must not be empty")
@@ -49,11 +49,11 @@ func (r *TeamRepository) Create(ctx context.Context, orgID uuid.UUID, name strin
 	var t Team
 	err := r.db.QueryRow(
 		ctx,
-		`INSERT INTO teams (org_id, name)
+		`INSERT INTO teams (account_id, name)
 		 VALUES ($1, $2)
-		 RETURNING id, org_id, name, created_at`,
-		orgID, name,
-	).Scan(&t.ID, &t.OrgID, &t.Name, &t.CreatedAt)
+		 RETURNING id, account_id, name, created_at`,
+		accountID, name,
+	).Scan(&t.ID, &t.AccountID, &t.Name, &t.CreatedAt)
 	if err != nil {
 		return Team{}, err
 	}
@@ -68,9 +68,9 @@ func (r *TeamRepository) GetByID(ctx context.Context, teamID uuid.UUID) (*Team, 
 	var t Team
 	err := r.db.QueryRow(
 		ctx,
-		`SELECT id, org_id, name, created_at FROM teams WHERE id = $1`,
+		`SELECT id, account_id, name, created_at FROM teams WHERE id = $1`,
 		teamID,
-	).Scan(&t.ID, &t.OrgID, &t.Name, &t.CreatedAt)
+	).Scan(&t.ID, &t.AccountID, &t.Name, &t.CreatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
@@ -80,18 +80,18 @@ func (r *TeamRepository) GetByID(ctx context.Context, teamID uuid.UUID) (*Team, 
 	return &t, nil
 }
 
-func (r *TeamRepository) ListByOrg(ctx context.Context, orgID uuid.UUID) ([]Team, error) {
+func (r *TeamRepository) ListByOrg(ctx context.Context, accountID uuid.UUID) ([]Team, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if orgID == uuid.Nil {
-		return nil, fmt.Errorf("org_id must not be empty")
+	if accountID == uuid.Nil {
+		return nil, fmt.Errorf("account_id must not be empty")
 	}
 
 	rows, err := r.db.Query(
 		ctx,
-		`SELECT id, org_id, name, created_at FROM teams WHERE org_id = $1 ORDER BY created_at ASC`,
-		orgID,
+		`SELECT id, account_id, name, created_at FROM teams WHERE account_id = $1 ORDER BY created_at ASC`,
+		accountID,
 	)
 	if err != nil {
 		return nil, err
@@ -101,7 +101,7 @@ func (r *TeamRepository) ListByOrg(ctx context.Context, orgID uuid.UUID) ([]Team
 	teams := []Team{}
 	for rows.Next() {
 		var t Team
-		if err := rows.Scan(&t.ID, &t.OrgID, &t.Name, &t.CreatedAt); err != nil {
+		if err := rows.Scan(&t.ID, &t.AccountID, &t.Name, &t.CreatedAt); err != nil {
 			return nil, err
 		}
 		teams = append(teams, t)
@@ -176,24 +176,24 @@ type TeamWithCount struct {
 	MembersCount int64
 }
 
-// ListByOrgWithCounts 返回 org 下所有 team，每行含当前成员数。
-func (r *TeamRepository) ListByOrgWithCounts(ctx context.Context, orgID uuid.UUID) ([]TeamWithCount, error) {
+// ListByOrgWithCounts 返回 account 下所有 team，每行含当前成员数。
+func (r *TeamRepository) ListByOrgWithCounts(ctx context.Context, accountID uuid.UUID) ([]TeamWithCount, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if orgID == uuid.Nil {
-		return nil, fmt.Errorf("org_id must not be empty")
+	if accountID == uuid.Nil {
+		return nil, fmt.Errorf("account_id must not be empty")
 	}
 
 	rows, err := r.db.Query(
 		ctx,
-		`SELECT t.id, t.org_id, t.name, t.created_at, COUNT(m.user_id)
+		`SELECT t.id, t.account_id, t.name, t.created_at, COUNT(m.user_id)
 		 FROM teams t
 		 LEFT JOIN team_memberships m ON m.team_id = t.id
-		 WHERE t.org_id = $1
+		 WHERE t.account_id = $1
 		 GROUP BY t.id
 		 ORDER BY t.created_at ASC`,
-		orgID,
+		accountID,
 	)
 	if err != nil {
 		return nil, err
@@ -203,7 +203,7 @@ func (r *TeamRepository) ListByOrgWithCounts(ctx context.Context, orgID uuid.UUI
 	result := []TeamWithCount{}
 	for rows.Next() {
 		var twc TeamWithCount
-		if err := rows.Scan(&twc.ID, &twc.OrgID, &twc.Name, &twc.CreatedAt, &twc.MembersCount); err != nil {
+		if err := rows.Scan(&twc.ID, &twc.AccountID, &twc.Name, &twc.CreatedAt, &twc.MembersCount); err != nil {
 			return nil, err
 		}
 		result = append(result, twc)
@@ -252,16 +252,16 @@ func (r *TeamRepository) RemoveMember(ctx context.Context, teamID, userID uuid.U
 	return err
 }
 
-// Delete 删除团队，org_id 用于防止跨 org 误删。
-func (r *TeamRepository) Delete(ctx context.Context, orgID, teamID uuid.UUID) error {
+// Delete 删除团队，account_id 用于防止跨 account 误删。
+func (r *TeamRepository) Delete(ctx context.Context, accountID, teamID uuid.UUID) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 
 	_, err := r.db.Exec(
 		ctx,
-		`DELETE FROM teams WHERE id = $1 AND org_id = $2`,
-		teamID, orgID,
+		`DELETE FROM teams WHERE id = $1 AND account_id = $2`,
+		teamID, accountID,
 	)
 	return err
 }

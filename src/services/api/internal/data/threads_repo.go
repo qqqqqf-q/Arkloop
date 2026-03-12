@@ -13,7 +13,7 @@ import (
 
 type Thread struct {
 	ID              uuid.UUID
-	OrgID           uuid.UUID
+	AccountID           uuid.UUID
 	CreatedByUserID *uuid.UUID
 	Title           *string
 	CreatedAt       time.Time
@@ -56,7 +56,7 @@ func escapeILikePattern(input string) string {
 
 func (r *ThreadRepository) Create(
 	ctx context.Context,
-	orgID uuid.UUID,
+	accountID uuid.UUID,
 	createdByUserID *uuid.UUID,
 	projectID uuid.UUID,
 	title *string,
@@ -65,8 +65,8 @@ func (r *ThreadRepository) Create(
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if orgID == uuid.Nil {
-		return Thread{}, fmt.Errorf("org_id must not be empty")
+	if accountID == uuid.Nil {
+		return Thread{}, fmt.Errorf("account_id must not be empty")
 	}
 	if projectID == uuid.Nil {
 		return Thread{}, fmt.Errorf("project_id must not be empty")
@@ -75,15 +75,15 @@ func (r *ThreadRepository) Create(
 	var thread Thread
 	err := r.db.QueryRow(
 		ctx,
-		`INSERT INTO threads (org_id, created_by_user_id, project_id, title, is_private, expires_at)
+		`INSERT INTO threads (account_id, created_by_user_id, project_id, title, is_private, expires_at)
 		 VALUES ($1, $2, $3, $4, $5, CASE WHEN $5 THEN now() + INTERVAL '24 hours' ELSE NULL END)
-		 RETURNING id, org_id, created_by_user_id, title, created_at, deleted_at, project_id, is_private, expires_at, parent_thread_id, branched_from_message_id, title_locked`,
-		orgID,
+		 RETURNING id, account_id, created_by_user_id, title, created_at, deleted_at, project_id, is_private, expires_at, parent_thread_id, branched_from_message_id, title_locked`,
+		accountID,
 		createdByUserID,
 		projectID,
 		title,
 		isPrivate,
-	).Scan(&thread.ID, &thread.OrgID, &thread.CreatedByUserID, &thread.Title, &thread.CreatedAt,
+	).Scan(&thread.ID, &thread.AccountID, &thread.CreatedByUserID, &thread.Title, &thread.CreatedAt,
 		&thread.DeletedAt, &thread.ProjectID, &thread.IsPrivate, &thread.ExpiresAt,
 		&thread.ParentThreadID, &thread.BranchedFromMessageID, &thread.TitleLocked)
 	if err != nil {
@@ -100,13 +100,13 @@ func (r *ThreadRepository) GetByID(ctx context.Context, threadID uuid.UUID) (*Th
 	var thread Thread
 	err := r.db.QueryRow(
 		ctx,
-		`SELECT id, org_id, created_by_user_id, title, created_at, deleted_at, project_id, is_private, expires_at, parent_thread_id, branched_from_message_id, title_locked
+		`SELECT id, account_id, created_by_user_id, title, created_at, deleted_at, project_id, is_private, expires_at, parent_thread_id, branched_from_message_id, title_locked
 		 FROM threads
 		 WHERE id = $1
 		   AND deleted_at IS NULL
 		 LIMIT 1`,
 		threadID,
-	).Scan(&thread.ID, &thread.OrgID, &thread.CreatedByUserID, &thread.Title, &thread.CreatedAt,
+	).Scan(&thread.ID, &thread.AccountID, &thread.CreatedByUserID, &thread.Title, &thread.CreatedAt,
 		&thread.DeletedAt, &thread.ProjectID, &thread.IsPrivate, &thread.ExpiresAt,
 		&thread.ParentThreadID, &thread.BranchedFromMessageID, &thread.TitleLocked)
 	if err != nil {
@@ -120,7 +120,7 @@ func (r *ThreadRepository) GetByID(ctx context.Context, threadID uuid.UUID) (*Th
 
 func (r *ThreadRepository) ListByOwner(
 	ctx context.Context,
-	orgID uuid.UUID,
+	accountID uuid.UUID,
 	ownerUserID uuid.UUID,
 	limit int,
 	beforeCreatedAt *time.Time,
@@ -129,8 +129,8 @@ func (r *ThreadRepository) ListByOwner(
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if orgID == uuid.Nil {
-		return nil, fmt.Errorf("org_id must not be empty")
+	if accountID == uuid.Nil {
+		return nil, fmt.Errorf("account_id must not be empty")
 	}
 	if ownerUserID == uuid.Nil {
 		return nil, fmt.Errorf("owner_user_id must not be empty")
@@ -142,7 +142,7 @@ func (r *ThreadRepository) ListByOwner(
 		return nil, fmt.Errorf("before_created_at and before_id must be provided together")
 	}
 
-	sql := `SELECT t.id, t.org_id, t.created_by_user_id, t.title, t.created_at,
+	sql := `SELECT t.id, t.account_id, t.created_by_user_id, t.title, t.created_at,
 		       t.deleted_at, t.project_id, t.is_private, t.expires_at,
 		       t.parent_thread_id, t.branched_from_message_id, t.title_locked, r.id AS active_run_id
 		FROM threads t
@@ -152,11 +152,11 @@ func (r *ThreadRepository) ListByOwner(
 			ORDER BY created_at DESC
 			LIMIT 1
 		) r ON true
-		WHERE t.org_id = $1
+		WHERE t.account_id = $1
 		  AND t.created_by_user_id = $2
 		  AND t.deleted_at IS NULL
 		  AND t.is_private = false`
-	args := []any{orgID, ownerUserID}
+	args := []any{accountID, ownerUserID}
 
 	if beforeCreatedAt != nil && beforeID != nil {
 		sql += `
@@ -181,7 +181,7 @@ func (r *ThreadRepository) ListByOwner(
 	for rows.Next() {
 		var item ThreadWithActiveRun
 		if err := rows.Scan(
-			&item.ID, &item.OrgID, &item.CreatedByUserID, &item.Title, &item.CreatedAt,
+			&item.ID, &item.AccountID, &item.CreatedByUserID, &item.Title, &item.CreatedAt,
 			&item.DeletedAt, &item.ProjectID, &item.IsPrivate, &item.ExpiresAt,
 			&item.ParentThreadID, &item.BranchedFromMessageID, &item.TitleLocked, &item.ActiveRunID,
 		); err != nil {
@@ -210,10 +210,10 @@ func (r *ThreadRepository) UpdateTitle(ctx context.Context, threadID uuid.UUID, 
 		 SET title = $1
 		 WHERE id = $2
 		   AND deleted_at IS NULL
-		 RETURNING id, org_id, created_by_user_id, title, created_at, deleted_at, project_id, is_private, expires_at, parent_thread_id, branched_from_message_id, title_locked`,
+		 RETURNING id, account_id, created_by_user_id, title, created_at, deleted_at, project_id, is_private, expires_at, parent_thread_id, branched_from_message_id, title_locked`,
 		title,
 		threadID,
-	).Scan(&thread.ID, &thread.OrgID, &thread.CreatedByUserID, &thread.Title, &thread.CreatedAt,
+	).Scan(&thread.ID, &thread.AccountID, &thread.CreatedByUserID, &thread.Title, &thread.CreatedAt,
 		&thread.DeletedAt, &thread.ProjectID, &thread.IsPrivate, &thread.ExpiresAt,
 		&thread.ParentThreadID, &thread.BranchedFromMessageID, &thread.TitleLocked)
 	if err != nil {
@@ -258,12 +258,12 @@ func (r *ThreadRepository) UpdateFields(ctx context.Context, threadID uuid.UUID,
 		     title_locked    = CASE WHEN $6 THEN $7 ELSE title_locked END
 		 WHERE id = $1
 		   AND deleted_at IS NULL
-		 RETURNING id, org_id, created_by_user_id, title, created_at, deleted_at, project_id, is_private, expires_at, parent_thread_id, branched_from_message_id, title_locked`,
+		 RETURNING id, account_id, created_by_user_id, title, created_at, deleted_at, project_id, is_private, expires_at, parent_thread_id, branched_from_message_id, title_locked`,
 		threadID,
 		params.SetTitle, params.Title,
 		params.SetProjectID, params.ProjectID,
 		params.SetTitleLocked, params.TitleLocked,
-	).Scan(&thread.ID, &thread.OrgID, &thread.CreatedByUserID, &thread.Title, &thread.CreatedAt,
+	).Scan(&thread.ID, &thread.AccountID, &thread.CreatedByUserID, &thread.Title, &thread.CreatedAt,
 		&thread.DeletedAt, &thread.ProjectID, &thread.IsPrivate, &thread.ExpiresAt,
 		&thread.ParentThreadID, &thread.BranchedFromMessageID, &thread.TitleLocked)
 	if err != nil {
@@ -275,12 +275,12 @@ func (r *ThreadRepository) UpdateFields(ctx context.Context, threadID uuid.UUID,
 	return &thread, nil
 }
 
-// UpdateFieldsOwned 原子更新 thread 的一个或多个字段，仅允许 owner 在同 org 内更新。
-// 返回 nil 表示 thread 不存在、已删除，或 owner/org 不匹配。
+// UpdateFieldsOwned 原子更新 thread 的一个或多个字段，仅允许 owner 在同 account 内更新。
+// 返回 nil 表示 thread 不存在、已删除，或 owner/account 不匹配。
 func (r *ThreadRepository) UpdateFieldsOwned(
 	ctx context.Context,
 	threadID uuid.UUID,
-	orgID uuid.UUID,
+	accountID uuid.UUID,
 	ownerUserID uuid.UUID,
 	params ThreadUpdateFields,
 ) (*Thread, error) {
@@ -290,8 +290,8 @@ func (r *ThreadRepository) UpdateFieldsOwned(
 	if threadID == uuid.Nil {
 		return nil, fmt.Errorf("thread_id must not be empty")
 	}
-	if orgID == uuid.Nil {
-		return nil, fmt.Errorf("org_id must not be empty")
+	if accountID == uuid.Nil {
+		return nil, fmt.Errorf("account_id must not be empty")
 	}
 	if ownerUserID == uuid.Nil {
 		return nil, fmt.Errorf("owner_user_id must not be empty")
@@ -308,17 +308,17 @@ func (r *ThreadRepository) UpdateFieldsOwned(
 		     project_id      = CASE WHEN $6 THEN $7 ELSE project_id END,
 		     title_locked    = CASE WHEN $8 THEN $9 ELSE title_locked END
 		 WHERE id = $1
-		   AND org_id = $2
+		   AND account_id = $2
 		   AND created_by_user_id = $3
 		   AND deleted_at IS NULL
-		 RETURNING id, org_id, created_by_user_id, title, created_at, deleted_at, project_id, is_private, expires_at, parent_thread_id, branched_from_message_id, title_locked`,
+		 RETURNING id, account_id, created_by_user_id, title, created_at, deleted_at, project_id, is_private, expires_at, parent_thread_id, branched_from_message_id, title_locked`,
 		threadID,
-		orgID,
+		accountID,
 		ownerUserID,
 		params.SetTitle, params.Title,
 		params.SetProjectID, params.ProjectID,
 		params.SetTitleLocked, params.TitleLocked,
-	).Scan(&thread.ID, &thread.OrgID, &thread.CreatedByUserID, &thread.Title, &thread.CreatedAt,
+	).Scan(&thread.ID, &thread.AccountID, &thread.CreatedByUserID, &thread.Title, &thread.CreatedAt,
 		&thread.DeletedAt, &thread.ProjectID, &thread.IsPrivate, &thread.ExpiresAt,
 		&thread.ParentThreadID, &thread.BranchedFromMessageID, &thread.TitleLocked)
 	if err != nil {
@@ -350,12 +350,12 @@ func (r *ThreadRepository) Delete(ctx context.Context, threadID uuid.UUID) (bool
 	return tag.RowsAffected() > 0, nil
 }
 
-// DeleteOwnedReturning 软删除 thread，仅允许 owner 在同 org 内删除。
-// 返回 nil 表示 thread 不存在、已删除，或 owner/org 不匹配。
+// DeleteOwnedReturning 软删除 thread，仅允许 owner 在同 account 内删除。
+// 返回 nil 表示 thread 不存在、已删除，或 owner/account 不匹配。
 func (r *ThreadRepository) DeleteOwnedReturning(
 	ctx context.Context,
 	threadID uuid.UUID,
-	orgID uuid.UUID,
+	accountID uuid.UUID,
 	ownerUserID uuid.UUID,
 ) (*Thread, error) {
 	if ctx == nil {
@@ -364,8 +364,8 @@ func (r *ThreadRepository) DeleteOwnedReturning(
 	if threadID == uuid.Nil {
 		return nil, fmt.Errorf("thread_id must not be empty")
 	}
-	if orgID == uuid.Nil {
-		return nil, fmt.Errorf("org_id must not be empty")
+	if accountID == uuid.Nil {
+		return nil, fmt.Errorf("account_id must not be empty")
 	}
 	if ownerUserID == uuid.Nil {
 		return nil, fmt.Errorf("owner_user_id must not be empty")
@@ -377,14 +377,14 @@ func (r *ThreadRepository) DeleteOwnedReturning(
 		`UPDATE threads
 		 SET deleted_at = now()
 		 WHERE id = $1
-		   AND org_id = $2
+		   AND account_id = $2
 		   AND created_by_user_id = $3
 		   AND deleted_at IS NULL
-		 RETURNING id, org_id, created_by_user_id, title, created_at, deleted_at, project_id, is_private, expires_at, parent_thread_id, branched_from_message_id, title_locked`,
+		 RETURNING id, account_id, created_by_user_id, title, created_at, deleted_at, project_id, is_private, expires_at, parent_thread_id, branched_from_message_id, title_locked`,
 		threadID,
-		orgID,
+		accountID,
 		ownerUserID,
-	).Scan(&thread.ID, &thread.OrgID, &thread.CreatedByUserID, &thread.Title, &thread.CreatedAt,
+	).Scan(&thread.ID, &thread.AccountID, &thread.CreatedByUserID, &thread.Title, &thread.CreatedAt,
 		&thread.DeletedAt, &thread.ProjectID, &thread.IsPrivate, &thread.ExpiresAt,
 		&thread.ParentThreadID, &thread.BranchedFromMessageID, &thread.TitleLocked)
 	if err != nil {
@@ -399,7 +399,7 @@ func (r *ThreadRepository) DeleteOwnedReturning(
 // SearchByQuery 在 thread title 和 message content 中全文检索，返回匹配的 thread 列表（去重）。
 func (r *ThreadRepository) SearchByQuery(
 	ctx context.Context,
-	orgID uuid.UUID,
+	accountID uuid.UUID,
 	ownerUserID uuid.UUID,
 	query string,
 	limit int,
@@ -407,8 +407,8 @@ func (r *ThreadRepository) SearchByQuery(
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if orgID == uuid.Nil {
-		return nil, fmt.Errorf("org_id must not be empty")
+	if accountID == uuid.Nil {
+		return nil, fmt.Errorf("account_id must not be empty")
 	}
 	if ownerUserID == uuid.Nil {
 		return nil, fmt.Errorf("owner_user_id must not be empty")
@@ -425,7 +425,7 @@ func (r *ThreadRepository) SearchByQuery(
 	rows, err := r.db.Query(
 		ctx,
 		`SELECT DISTINCT ON (t.created_at, t.id)
-		        t.id, t.org_id, t.created_by_user_id, t.title, t.created_at,
+		        t.id, t.account_id, t.created_by_user_id, t.title, t.created_at,
 		        t.deleted_at, t.project_id, t.is_private, t.expires_at,
 		        t.parent_thread_id, t.branched_from_message_id, t.title_locked, r.id AS active_run_id
 		 FROM threads t
@@ -439,7 +439,7 @@ func (r *ThreadRepository) SearchByQuery(
 		   ORDER BY created_at DESC
 		   LIMIT 1
 		 ) r ON true
-		 WHERE t.org_id = $1
+		 WHERE t.account_id = $1
 		   AND t.created_by_user_id = $2
 		   AND t.deleted_at IS NULL
 		   AND t.is_private = false
@@ -449,7 +449,7 @@ func (r *ThreadRepository) SearchByQuery(
 		   )
 		 ORDER BY t.created_at DESC, t.id DESC
 		 LIMIT $4`,
-		orgID, ownerUserID, like, limit,
+		accountID, ownerUserID, like, limit,
 	)
 	if err != nil {
 		return nil, err
@@ -460,7 +460,7 @@ func (r *ThreadRepository) SearchByQuery(
 	for rows.Next() {
 		var item ThreadWithActiveRun
 		if err := rows.Scan(
-			&item.ID, &item.OrgID, &item.CreatedByUserID, &item.Title, &item.CreatedAt,
+			&item.ID, &item.AccountID, &item.CreatedByUserID, &item.Title, &item.CreatedAt,
 			&item.DeletedAt, &item.ProjectID, &item.IsPrivate, &item.ExpiresAt,
 			&item.ParentThreadID, &item.BranchedFromMessageID, &item.TitleLocked, &item.ActiveRunID,
 		); err != nil {
@@ -494,7 +494,7 @@ func (r *ThreadRepository) DeleteExpiredPrivate(ctx context.Context) (int64, err
 // Fork 创建一个新 thread，记录其来自 parentThreadID 的 branchFromMessageID 处的分叉。
 func (r *ThreadRepository) Fork(
 	ctx context.Context,
-	orgID uuid.UUID,
+	accountID uuid.UUID,
 	createdByUserID *uuid.UUID,
 	parentThreadID uuid.UUID,
 	branchFromMessageID uuid.UUID,
@@ -503,8 +503,8 @@ func (r *ThreadRepository) Fork(
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if orgID == uuid.Nil {
-		return Thread{}, fmt.Errorf("org_id must not be empty")
+	if accountID == uuid.Nil {
+		return Thread{}, fmt.Errorf("account_id must not be empty")
 	}
 	if parentThreadID == uuid.Nil {
 		return Thread{}, fmt.Errorf("parent_thread_id must not be empty")
@@ -516,16 +516,16 @@ func (r *ThreadRepository) Fork(
 	var thread Thread
 	err := r.db.QueryRow(
 		ctx,
-		`INSERT INTO threads (org_id, created_by_user_id, project_id, title, is_private, expires_at, parent_thread_id, branched_from_message_id)
+		`INSERT INTO threads (account_id, created_by_user_id, project_id, title, is_private, expires_at, parent_thread_id, branched_from_message_id)
 		 SELECT $1, $2, project_id, title, $3, CASE WHEN $3 THEN now() + INTERVAL '24 hours' ELSE NULL END, $4, $5
 		 FROM threads WHERE id = $4 AND deleted_at IS NULL
-		 RETURNING id, org_id, created_by_user_id, title, created_at, deleted_at, project_id, is_private, expires_at, parent_thread_id, branched_from_message_id, title_locked`,
-		orgID,
+		 RETURNING id, account_id, created_by_user_id, title, created_at, deleted_at, project_id, is_private, expires_at, parent_thread_id, branched_from_message_id, title_locked`,
+		accountID,
 		createdByUserID,
 		isPrivate,
 		parentThreadID,
 		branchFromMessageID,
-	).Scan(&thread.ID, &thread.OrgID, &thread.CreatedByUserID, &thread.Title, &thread.CreatedAt,
+	).Scan(&thread.ID, &thread.AccountID, &thread.CreatedByUserID, &thread.Title, &thread.CreatedAt,
 		&thread.DeletedAt, &thread.ProjectID, &thread.IsPrivate, &thread.ExpiresAt,
 		&thread.ParentThreadID, &thread.BranchedFromMessageID, &thread.TitleLocked)
 	if err != nil {

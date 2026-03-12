@@ -36,7 +36,7 @@ func importSkillFromGitHub(
 	ctx context.Context,
 	store skillStore,
 	packagesRepo *data.SkillPackagesRepository,
-	orgID uuid.UUID,
+	accountID uuid.UUID,
 	repositoryURL string,
 	ref string,
 	candidatePath string,
@@ -54,15 +54,15 @@ func importSkillFromGitHub(
 	if err != nil {
 		return data.SkillPackage{}, nil, err
 	}
-	item, candidates, err := importSkillFromEntries(ctx, store, packagesRepo, orgID, entries, target.CandidatePath, expectedSkillKey, deriveImportVersion(resolvedRef, "1"))
+	item, candidates, err := importSkillFromEntries(ctx, store, packagesRepo, accountID, entries, target.CandidatePath, expectedSkillKey, deriveImportVersion(resolvedRef, "1"))
 	if err != nil {
 		return data.SkillPackage{}, candidates, err
 	}
-	_ = packagesRepo.UpdateRegistryMetadata(ctx, orgID, item.SkillKey, item.Version, data.SkillPackageRegistryMetadata{
+	_ = packagesRepo.UpdateRegistryMetadata(ctx, accountID, item.SkillKey, item.Version, data.SkillPackageRegistryMetadata{
 		RegistrySourceKind: "github",
 		RegistrySourceURL:  target.RepositoryURL,
 	})
-	if fresh, getErr := packagesRepo.Get(ctx, orgID, item.SkillKey, item.Version); getErr == nil && fresh != nil {
+	if fresh, getErr := packagesRepo.Get(ctx, accountID, item.SkillKey, item.Version); getErr == nil && fresh != nil {
 		item = *fresh
 	}
 	return item, nil, nil
@@ -72,7 +72,7 @@ func importSkillFromUploadData(
 	ctx context.Context,
 	store skillStore,
 	packagesRepo *data.SkillPackagesRepository,
-	orgID uuid.UUID,
+	accountID uuid.UUID,
 	_ string,
 	payload []byte,
 ) (data.SkillPackage, []skillImportCandidate, error) {
@@ -97,11 +97,11 @@ func importSkillFromUploadData(
 		if err := store.PutObject(ctx, manifest.BundleKey, payload, objectstore.PutOptions{ContentType: "application/zstd"}); err != nil {
 			return data.SkillPackage{}, nil, err
 		}
-		item, err := packagesRepo.Create(ctx, orgID, manifest)
+		item, err := packagesRepo.Create(ctx, accountID, manifest)
 		if err != nil {
 			var conflict data.SkillPackageConflictError
 			if ok := errorAs(err, &conflict); ok {
-				existing, getErr := packagesRepo.Get(ctx, orgID, manifest.SkillKey, manifest.Version)
+				existing, getErr := packagesRepo.Get(ctx, accountID, manifest.SkillKey, manifest.Version)
 				if getErr != nil {
 					return data.SkillPackage{}, nil, getErr
 				}
@@ -118,24 +118,24 @@ func importSkillFromUploadData(
 	if err != nil {
 		return data.SkillPackage{}, nil, skillImportError{status: nethttp.StatusBadRequest, code: "skills.invalid_manifest", msg: err.Error()}
 	}
-	return importSkillFromEntries(ctx, store, packagesRepo, orgID, entries, "", "", "1")
+	return importSkillFromEntries(ctx, store, packagesRepo, accountID, entries, "", "", "1")
 }
 
 func importSkillFromUploadEntries(
 	ctx context.Context,
 	store skillStore,
 	packagesRepo *data.SkillPackagesRepository,
-	orgID uuid.UUID,
+	accountID uuid.UUID,
 	entries map[string][]byte,
 ) (data.SkillPackage, []skillImportCandidate, error) {
-	return importSkillFromEntries(ctx, store, packagesRepo, orgID, entries, "", "", "1")
+	return importSkillFromEntries(ctx, store, packagesRepo, accountID, entries, "", "", "1")
 }
 
 func importSkillFromEntries(
 	ctx context.Context,
 	store skillStore,
 	packagesRepo *data.SkillPackagesRepository,
-	orgID uuid.UUID,
+	accountID uuid.UUID,
 	entries map[string][]byte,
 	candidatePath string,
 	expectedSkillKey string,
@@ -169,11 +169,11 @@ func importSkillFromEntries(
 	if err := store.PutObject(ctx, manifest.BundleKey, bundleData, objectstore.PutOptions{ContentType: "application/zstd"}); err != nil {
 		return data.SkillPackage{}, nil, err
 	}
-	item, err := packagesRepo.Create(ctx, orgID, manifest)
+	item, err := packagesRepo.Create(ctx, accountID, manifest)
 	if err != nil {
 		var conflict data.SkillPackageConflictError
 		if ok := errorAs(err, &conflict); ok {
-			existing, getErr := packagesRepo.Get(ctx, orgID, manifest.SkillKey, manifest.Version)
+			existing, getErr := packagesRepo.Get(ctx, accountID, manifest.SkillKey, manifest.Version)
 			if getErr != nil {
 				return data.SkillPackage{}, nil, getErr
 			}

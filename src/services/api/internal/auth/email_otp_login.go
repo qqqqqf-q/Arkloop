@@ -30,7 +30,7 @@ type EmailOTPLoginService struct {
 	jobRepo          *data.JobRepository
 	tokenService     *JwtAccessTokenService
 	refreshTokenRepo *data.RefreshTokenRepository
-	membershipRepo   *data.OrgMembershipRepository
+	membershipRepo   *data.AccountMembershipRepository
 	riskControl      EmailOTPRiskControl
 	settingsRepo     *data.PlatformSettingsRepository
 	envBaseURL       string
@@ -42,7 +42,7 @@ func NewEmailOTPLoginService(
 	jobRepo *data.JobRepository,
 	tokenService *JwtAccessTokenService,
 	refreshTokenRepo *data.RefreshTokenRepository,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	riskControl EmailOTPRiskControl,
 ) (*EmailOTPLoginService, error) {
 	if userRepo == nil {
@@ -219,14 +219,14 @@ func generateEmailOTPToken() (plaintext, hash string, err error) {
 func (s *EmailOTPLoginService) issueTokenPair(ctx context.Context, userID uuid.UUID) (IssuedTokenPair, error) {
 	now := time.Now().UTC()
 
-	var orgID uuid.UUID
-	var orgRole string
+	var accountID uuid.UUID
+	var accountRole string
 	if membership, err := s.membershipRepo.GetDefaultForUser(ctx, userID); err == nil && membership != nil {
-		orgID = membership.OrgID
-		orgRole = membership.Role
+		accountID = membership.AccountID
+		accountRole = membership.Role
 	}
 
-	accessToken, err := s.tokenService.Issue(userID, orgID, orgRole, now)
+	accessToken, err := s.tokenService.Issue(userID, accountID, accountRole, now)
 	if err != nil {
 		return IssuedTokenPair{}, err
 	}

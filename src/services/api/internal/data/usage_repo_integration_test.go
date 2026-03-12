@@ -11,7 +11,7 @@ import (
 	"github.com/google/uuid"
 )
 
-func setupUsageTestRepo(t *testing.T) (*UsageRepository, *OrgRepository, context.Context) {
+func setupUsageTestRepo(t *testing.T) (*UsageRepository, *AccountRepository, context.Context) {
 	t.Helper()
 
 	db := testutil.SetupPostgresDatabase(t, "api_go_usage")
@@ -32,7 +32,7 @@ func setupUsageTestRepo(t *testing.T) (*UsageRepository, *OrgRepository, context
 		t.Fatalf("new usage repo: %v", err)
 	}
 
-	orgRepo, err := NewOrgRepository(pool)
+	orgRepo, err := NewAccountRepository(pool)
 	if err != nil {
 		t.Fatalf("new org repo: %v", err)
 	}
@@ -40,14 +40,14 @@ func setupUsageTestRepo(t *testing.T) (*UsageRepository, *OrgRepository, context
 	return usageRepo, orgRepo, ctx
 }
 
-func insertUsageAt(t *testing.T, repo *UsageRepository, ctx context.Context, orgID uuid.UUID, model string, input, output int64, costUSD float64, at time.Time) {
+func insertUsageAt(t *testing.T, repo *UsageRepository, ctx context.Context, accountID uuid.UUID, model string, input, output int64, costUSD float64, at time.Time) {
 	t.Helper()
 
 	threadID := uuid.New()
 	_, err := repo.db.Exec(ctx,
-		`INSERT INTO threads (id, org_id, title)
+		`INSERT INTO threads (id, account_id, title)
 		 VALUES ($1, $2, $3)`,
-		threadID, orgID, "usage-test",
+		threadID, accountID, "usage-test",
 	)
 	if err != nil {
 		t.Fatalf("insert thread: %v", err)
@@ -55,18 +55,18 @@ func insertUsageAt(t *testing.T, repo *UsageRepository, ctx context.Context, org
 
 	runID := uuid.New()
 	_, err = repo.db.Exec(ctx,
-		`INSERT INTO runs (id, org_id, thread_id)
+		`INSERT INTO runs (id, account_id, thread_id)
 		 VALUES ($1, $2, $3)`,
-		runID, orgID, threadID,
+		runID, accountID, threadID,
 	)
 	if err != nil {
 		t.Fatalf("insert run: %v", err)
 	}
 
 	_, err = repo.db.Exec(ctx,
-		`INSERT INTO usage_records (org_id, run_id, model, input_tokens, output_tokens, cost_usd, recorded_at)
+		`INSERT INTO usage_records (account_id, run_id, model, input_tokens, output_tokens, cost_usd, recorded_at)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-		orgID, runID, model, input, output, costUSD, at,
+		accountID, runID, model, input, output, costUSD, at,
 	)
 	if err != nil {
 		t.Fatalf("insert usage: %v", err)

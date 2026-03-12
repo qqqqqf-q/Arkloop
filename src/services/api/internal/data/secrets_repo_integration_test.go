@@ -10,7 +10,7 @@ import (
 	"arkloop/services/api/internal/testutil"
 )
 
-func setupSecretsTestRepo(t *testing.T) (*SecretsRepository, *OrgRepository, context.Context) {
+func setupSecretsTestRepo(t *testing.T) (*SecretsRepository, *AccountRepository, context.Context) {
 	t.Helper()
 
 	db := testutil.SetupPostgresDatabase(t, "api_go_secrets")
@@ -40,7 +40,7 @@ func setupSecretsTestRepo(t *testing.T) (*SecretsRepository, *OrgRepository, con
 		t.Fatalf("new secrets repo: %v", err)
 	}
 
-	orgRepo, err := NewOrgRepository(pool)
+	orgRepo, err := NewAccountRepository(pool)
 	if err != nil {
 		t.Fatalf("new org repo: %v", err)
 	}

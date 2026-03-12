@@ -68,7 +68,7 @@ func toSmtpProviderResponse(s *data.SmtpProvider) smtpProviderResponse {
 
 func adminSmtpProviders(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	smtpRepo *data.SmtpProviderRepository,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
@@ -87,7 +87,7 @@ func adminSmtpProviders(
 // adminSmtpProviderEntry 处理 /v1/admin/smtp-providers/{id}[/suffix] 路由。
 func adminSmtpProviderEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	smtpRepo *data.SmtpProviderRepository,
 	jobRepo *data.JobRepository,
@@ -142,7 +142,7 @@ func adminSmtpProviderEntry(
 
 func adminSmtpList(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	smtpRepo *data.SmtpProviderRepository,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
@@ -172,7 +172,7 @@ func adminSmtpList(
 
 func adminSmtpCreate(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	smtpRepo *data.SmtpProviderRepository,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
@@ -220,7 +220,7 @@ func adminSmtpCreate(
 
 func adminSmtpUpdateByID(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	smtpRepo *data.SmtpProviderRepository,
 	id uuid.UUID,
@@ -269,7 +269,7 @@ func adminSmtpUpdateByID(
 
 func adminSmtpDeleteByID(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	smtpRepo *data.SmtpProviderRepository,
 	id uuid.UUID,
@@ -305,7 +305,7 @@ func adminSmtpDeleteByID(
 
 func adminSmtpSetDefaultByID(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	smtpRepo *data.SmtpProviderRepository,
 	id uuid.UUID,
@@ -335,7 +335,7 @@ func adminSmtpSetDefaultByID(
 
 func adminSmtpTestByID(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	smtpRepo *data.SmtpProviderRepository,
 	jobRepo *data.JobRepository,

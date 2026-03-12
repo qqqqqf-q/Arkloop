@@ -86,9 +86,9 @@ type RegistrationService struct {
 	now              func() time.Time
 }
 
-// EntitlementResolver 注册时读取 entitlement 默认值。
+	// EntitlementResolver 注册时读取 entitlement 默认值。
 type EntitlementResolver interface {
-	Resolve(ctx context.Context, orgID uuid.UUID, key string) (EntitlementValue, error)
+	Resolve(ctx context.Context, accountID uuid.UUID, key string) (EntitlementValue, error)
 }
 
 // EntitlementValue 对 entitlement.EntitlementValue 的镜像，避免循环依赖。
@@ -178,11 +178,11 @@ func (s *RegistrationService) Register(
 	if err != nil {
 		return RegisterResult{}, err
 	}
-	orgRepo, err := data.NewOrgRepository(tx)
+	orgRepo, err := data.NewAccountRepository(tx)
 	if err != nil {
 		return RegisterResult{}, err
 	}
-	membershipRepo, err := data.NewOrgMembershipRepository(tx)
+	membershipRepo, err := data.NewAccountMembershipRepository(tx)
 	if err != nil {
 		return RegisterResult{}, err
 	}
@@ -231,7 +231,6 @@ func (s *RegistrationService) Register(
 		return RegisterResult{}, err
 	}
 
-	// 初始化积分余额
 	creditsRepo, err := data.NewCreditsRepository(tx)
 	if err != nil {
 		return RegisterResult{}, err
@@ -249,7 +248,6 @@ func (s *RegistrationService) Register(
 		return RegisterResult{}, err
 	}
 
-	// 自动为新用户生成邀请码
 	inviteCodeRepo, err := data.NewInviteCodeRepository(tx)
 	if err != nil {
 		return RegisterResult{}, err
@@ -273,7 +271,6 @@ func (s *RegistrationService) Register(
 		return RegisterResult{}, err
 	}
 
-	// 处理邀请码推荐关系
 	var result RegisterResult
 	inviteCode = strings.TrimSpace(inviteCode)
 	if inviteCode != "" {
@@ -289,24 +286,20 @@ func (s *RegistrationService) Register(
 				return RegisterResult{}, err
 			}
 
-			// 增加使用次数
 			if _, err := inviteCodeRepo.IncrementUseCount(ctx, existingCode.ID); err != nil {
 				return RegisterResult{}, err
 			}
 
-			// 创建推荐关系
 			referral, err := referralRepo.Create(ctx, existingCode.UserID, user.ID, existingCode.ID)
 			if err != nil {
 				return RegisterResult{}, err
 			}
 
-			// 查找邀请人的默认 org
 			inviterMembership, err := membershipRepo.GetDefaultForUser(ctx, existingCode.UserID)
 			if err == nil && inviterMembership != nil {
-				// 推荐奖励积分
 				referralReward := int64(100)
 				if s.entitlementSvc != nil {
-					val, resolveErr := s.entitlementSvc.Resolve(ctx, inviterMembership.OrgID, "credit.invite_reward")
+					val, resolveErr := s.entitlementSvc.Resolve(ctx, inviterMembership.AccountID, "credit.invite_reward")
 					if resolveErr == nil {
 						if v := val.Int(); v > 0 {
 							referralReward = v
@@ -315,7 +308,7 @@ func (s *RegistrationService) Register(
 				}
 
 				refType := "referral"
-				if err := creditsRepo.Add(ctx, inviterMembership.OrgID, referralReward, "referral_reward", &refType, &referral.ID, nil); err != nil {
+				if err := creditsRepo.Add(ctx, inviterMembership.AccountID, referralReward, "referral_reward", &refType, &referral.ID, nil); err != nil {
 					return RegisterResult{}, err
 				}
 

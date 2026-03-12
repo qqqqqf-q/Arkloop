@@ -80,31 +80,31 @@ func NewService(
 }
 
 // Resolve 按优先级返回权益值：org override (未过期) > plan entitlement > 平台默认值。
-func (s *Service) Resolve(ctx context.Context, orgID uuid.UUID, key string) (EntitlementValue, error) {
+func (s *Service) Resolve(ctx context.Context, accountID uuid.UUID, key string) (EntitlementValue, error) {
 	// 尝试从缓存读取
 	if s.rdb != nil {
-		cached, err := s.getFromCache(ctx, orgID, key)
+		cached, err := s.getFromCache(ctx, accountID, key)
 		if err == nil && cached != nil {
 			return *cached, nil
 		}
 	}
 
-	resolved, err := s.resolveFromDB(ctx, orgID, key)
+	resolved, err := s.resolveFromDB(ctx, accountID, key)
 	if err != nil {
 		return EntitlementValue{}, err
 	}
 
 	// 写入缓存
 	if s.rdb != nil {
-		s.setCache(ctx, orgID, key, resolved)
+		s.setCache(ctx, accountID, key, resolved)
 	}
 
 	return resolved, nil
 }
 
-func (s *Service) resolveFromDB(ctx context.Context, orgID uuid.UUID, key string) (EntitlementValue, error) {
+func (s *Service) resolveFromDB(ctx context.Context, accountID uuid.UUID, key string) (EntitlementValue, error) {
 	// 1. org override (未过期)
-	override, err := s.entitlementsRepo.GetOverride(ctx, orgID, key)
+	override, err := s.entitlementsRepo.GetOverride(ctx, accountID, key)
 	if err != nil {
 		return EntitlementValue{}, fmt.Errorf("entitlement.Resolve override: %w", err)
 	}
@@ -113,7 +113,7 @@ func (s *Service) resolveFromDB(ctx context.Context, orgID uuid.UUID, key string
 	}
 
 	// 2. plan entitlement (通过 subscription 关联)
-	sub, err := s.subscriptionRepo.GetActiveByOrgID(ctx, orgID)
+	sub, err := s.subscriptionRepo.GetActiveByAccountID(ctx, accountID)
 	if err != nil {
 		return EntitlementValue{}, fmt.Errorf("entitlement.Resolve subscription: %w", err)
 	}
@@ -138,12 +138,12 @@ func (s *Service) resolveFromDB(ctx context.Context, orgID uuid.UUID, key string
 	return EntitlementValue{Raw: raw, Type: entitlementTypeForKey(key, s.registry)}, nil
 }
 
-func (s *Service) getFromCache(ctx context.Context, orgID uuid.UUID, key string) (*EntitlementValue, error) {
+func (s *Service) getFromCache(ctx context.Context, accountID uuid.UUID, key string) (*EntitlementValue, error) {
 	if !sharedent.EntitlementCacheSigningEnabled() {
 		return nil, redis.Nil
 	}
 
-	cacheKey := cachePrefix + orgID.String() + ":" + key
+	cacheKey := cachePrefix + accountID.String() + ":" + key
 	sigKey := cacheKey + sharedent.EntitlementCacheSignatureSuffix
 	items, err := s.rdb.MGet(ctx, cacheKey, sigKey).Result()
 	if err != nil {
@@ -180,8 +180,8 @@ func (s *Service) getFromCache(ctx context.Context, orgID uuid.UUID, key string)
 	return nil, fmt.Errorf("invalid cache format")
 }
 
-func (s *Service) setCache(ctx context.Context, orgID uuid.UUID, key string, val EntitlementValue) {
-	cacheKey := cachePrefix + orgID.String() + ":" + key
+func (s *Service) setCache(ctx context.Context, accountID uuid.UUID, key string, val EntitlementValue) {
+	cacheKey := cachePrefix + accountID.String() + ":" + key
 	encoded := val.Type + ":" + val.Raw
 	if !sharedent.EntitlementCacheSigningEnabled() {
 		return
@@ -198,14 +198,14 @@ func (s *Service) setCache(ctx context.Context, orgID uuid.UUID, key string, val
 }
 
 // InvalidateCache 删除指定 org + key 的缓存，用于 override 变更后立即生效。
-func (s *Service) InvalidateCache(ctx context.Context, orgID uuid.UUID, key string) {
+func (s *Service) InvalidateCache(ctx context.Context, accountID uuid.UUID, key string) {
 	if s.rdb == nil {
 		return
 	}
 	if !sharedent.EntitlementCacheSigningEnabled() {
 		return
 	}
-	cacheKey := cachePrefix + orgID.String() + ":" + key
+	cacheKey := cachePrefix + accountID.String() + ":" + key
 	_ = s.rdb.Del(ctx, cacheKey, cacheKey+sharedent.EntitlementCacheSignatureSuffix).Err()
 }
 

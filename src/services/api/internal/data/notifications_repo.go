@@ -13,7 +13,7 @@ import (
 type Notification struct {
 	ID          uuid.UUID
 	UserID      uuid.UUID
-	OrgID       uuid.UUID
+	AccountID       uuid.UUID
 	Type        string
 	Title       string
 	Body        string
@@ -50,7 +50,7 @@ func NewNotificationsRepository(db Querier) (*NotificationsRepository, error) {
 func (r *NotificationsRepository) Create(
 	ctx context.Context,
 	userID uuid.UUID,
-	orgID uuid.UUID,
+	accountID uuid.UUID,
 	notifType string,
 	title string,
 	body string,
@@ -59,8 +59,8 @@ func (r *NotificationsRepository) Create(
 	if userID == uuid.Nil {
 		return Notification{}, fmt.Errorf("notifications: user_id must not be empty")
 	}
-	if orgID == uuid.Nil {
-		return Notification{}, fmt.Errorf("notifications: org_id must not be empty")
+	if accountID == uuid.Nil {
+		return Notification{}, fmt.Errorf("notifications: account_id must not be empty")
 	}
 	if notifType == "" {
 		return Notification{}, fmt.Errorf("notifications: type must not be empty")
@@ -75,12 +75,12 @@ func (r *NotificationsRepository) Create(
 	var n Notification
 	err := r.db.QueryRow(
 		ctx,
-		`INSERT INTO notifications (user_id, org_id, type, title, body, payload_json)
+		`INSERT INTO notifications (user_id, account_id, type, title, body, payload_json)
 		 VALUES ($1, $2, $3, $4, $5, $6)
-		 RETURNING id, user_id, org_id, type, title, body, payload_json, read_at, created_at`,
-		userID, orgID, notifType, title, body, payloadJSON,
+		 RETURNING id, user_id, account_id, type, title, body, payload_json, read_at, created_at`,
+		userID, accountID, notifType, title, body, payloadJSON,
 	).Scan(
-		&n.ID, &n.UserID, &n.OrgID, &n.Type, &n.Title,
+		&n.ID, &n.UserID, &n.AccountID, &n.Type, &n.Title,
 		&n.Body, &n.PayloadJSON, &n.ReadAt, &n.CreatedAt,
 	)
 	if err != nil {
@@ -96,7 +96,7 @@ func (r *NotificationsRepository) ListUnread(ctx context.Context, userID uuid.UU
 
 	rows, err := r.db.Query(
 		ctx,
-		`SELECT n.id, n.user_id, n.org_id, n.type, n.title, n.body, n.payload_json, n.read_at, n.created_at
+		`SELECT n.id, n.user_id, n.account_id, n.type, n.title, n.body, n.payload_json, n.read_at, n.created_at
 		 FROM notifications n
 		 LEFT JOIN notification_broadcasts nb ON nb.id = n.broadcast_id
 		 WHERE n.user_id = $1 AND n.read_at IS NULL
@@ -113,7 +113,7 @@ func (r *NotificationsRepository) ListUnread(ctx context.Context, userID uuid.UU
 	for rows.Next() {
 		var n Notification
 		if err := rows.Scan(
-			&n.ID, &n.UserID, &n.OrgID, &n.Type, &n.Title,
+			&n.ID, &n.UserID, &n.AccountID, &n.Type, &n.Title,
 			&n.Body, &n.PayloadJSON, &n.ReadAt, &n.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("notifications.ListUnread scan: %w", err)
@@ -136,7 +136,7 @@ func (r *NotificationsRepository) List(ctx context.Context, userID uuid.UUID, li
 
 	rows, err := r.db.Query(
 		ctx,
-		`SELECT n.id, n.user_id, n.org_id, n.type, n.title, n.body, n.payload_json, n.read_at, n.created_at
+		`SELECT n.id, n.user_id, n.account_id, n.type, n.title, n.body, n.payload_json, n.read_at, n.created_at
 		 FROM notifications n
 		 LEFT JOIN notification_broadcasts nb ON nb.id = n.broadcast_id
 		 WHERE n.user_id = $1
@@ -154,7 +154,7 @@ func (r *NotificationsRepository) List(ctx context.Context, userID uuid.UUID, li
 	for rows.Next() {
 		var n Notification
 		if err := rows.Scan(
-			&n.ID, &n.UserID, &n.OrgID, &n.Type, &n.Title,
+			&n.ID, &n.UserID, &n.AccountID, &n.Type, &n.Title,
 			&n.Body, &n.PayloadJSON, &n.ReadAt, &n.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("notifications.List scan: %w", err)
@@ -253,13 +253,13 @@ func (r *NotificationsRepository) CreateBroadcast(
 	return b, nil
 }
 
-// BroadcastToAll 将广播展开到所有用户，按 org 分批插入通知。
+// BroadcastToAll 将广播展开到所有用户，按 account 分批插入通知。
 func (r *NotificationsRepository) BroadcastToAll(ctx context.Context, broadcast NotificationBroadcast) (int, error) {
 	tag, err := r.db.Exec(
 		ctx,
-		`INSERT INTO notifications (user_id, org_id, type, title, body, payload_json, broadcast_id)
-		 SELECT m.user_id, m.org_id, $2, $3, $4, $5, $1
-		 FROM org_memberships m
+		`INSERT INTO notifications (user_id, account_id, type, title, body, payload_json, broadcast_id)
+		 SELECT m.user_id, m.account_id, $2, $3, $4, $5, $1
+		 FROM account_memberships m
 		 ON CONFLICT DO NOTHING`,
 		broadcast.ID, broadcast.Type, broadcast.Title, broadcast.Body, broadcast.PayloadJSON,
 	)
@@ -269,19 +269,19 @@ func (r *NotificationsRepository) BroadcastToAll(ctx context.Context, broadcast 
 	return int(tag.RowsAffected()), nil
 }
 
-// BroadcastToOrg 将广播展开到指定 org 的所有成员。
-func (r *NotificationsRepository) BroadcastToOrg(ctx context.Context, broadcast NotificationBroadcast, orgID uuid.UUID) (int, error) {
-	if orgID == uuid.Nil {
-		return 0, fmt.Errorf("broadcasts: org_id must not be empty")
+// BroadcastToOrg 将广播展开到指定 account 的所有成员。
+func (r *NotificationsRepository) BroadcastToOrg(ctx context.Context, broadcast NotificationBroadcast, accountID uuid.UUID) (int, error) {
+	if accountID == uuid.Nil {
+		return 0, fmt.Errorf("broadcasts: account_id must not be empty")
 	}
 	tag, err := r.db.Exec(
 		ctx,
-		`INSERT INTO notifications (user_id, org_id, type, title, body, payload_json, broadcast_id)
-		 SELECT m.user_id, m.org_id, $2, $3, $4, $5, $1
-		 FROM org_memberships m
-		 WHERE m.org_id = $6
+		`INSERT INTO notifications (user_id, account_id, type, title, body, payload_json, broadcast_id)
+		 SELECT m.user_id, m.account_id, $2, $3, $4, $5, $1
+		 FROM account_memberships m
+		 WHERE m.account_id = $6
 		 ON CONFLICT DO NOTHING`,
-		broadcast.ID, broadcast.Type, broadcast.Title, broadcast.Body, broadcast.PayloadJSON, orgID,
+		broadcast.ID, broadcast.Type, broadcast.Title, broadcast.Body, broadcast.PayloadJSON, accountID,
 	)
 	if err != nil {
 		return 0, fmt.Errorf("broadcasts.BroadcastToOrg: %w", err)
@@ -347,22 +347,22 @@ func (r *NotificationsRepository) DeleteBroadcast(ctx context.Context, id uuid.U
 }
 
 // BackfillBroadcastsForMembership 为新成员补发加入前已存在的历史广播通知。
-func (r *NotificationsRepository) BackfillBroadcastsForMembership(ctx context.Context, userID, orgID uuid.UUID) (int, error) {
+func (r *NotificationsRepository) BackfillBroadcastsForMembership(ctx context.Context, userID, accountID uuid.UUID) (int, error) {
 	if userID == uuid.Nil {
 		return 0, fmt.Errorf("notifications: user_id must not be empty")
 	}
-	if orgID == uuid.Nil {
-		return 0, fmt.Errorf("notifications: org_id must not be empty")
+	if accountID == uuid.Nil {
+		return 0, fmt.Errorf("notifications: account_id must not be empty")
 	}
 	tag, err := r.db.Exec(
 		ctx,
-		`INSERT INTO notifications (user_id, org_id, type, title, body, payload_json, broadcast_id)
+		`INSERT INTO notifications (user_id, account_id, type, title, body, payload_json, broadcast_id)
 		 SELECT $1, $2, nb.type, nb.title, nb.body, nb.payload_json, nb.id
 		 FROM notification_broadcasts nb
 		 WHERE nb.deleted_at IS NULL
 		   AND (nb.target_type = 'all' OR (nb.target_type = 'org' AND nb.target_id = $2))
 		 ON CONFLICT DO NOTHING`,
-		userID, orgID,
+		userID, accountID,
 	)
 	if err != nil {
 		return 0, fmt.Errorf("notifications.BackfillBroadcasts: %w", err)

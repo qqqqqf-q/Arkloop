@@ -75,11 +75,11 @@ func (r *StaleRunReaper) reap(ctx context.Context) {
 	}
 
 	// 收集需要同步计数器的 org
-	affectedOrgs := map[uuid.UUID]struct{}{}
+	affectedAccounts := map[uuid.UUID]struct{}{}
 
 	for _, run := range staleRuns {
 		// 无论 ForceFailRun 结果如何都纳入 sync，SyncFromDB 能修正任意状态下的计数器
-		affectedOrgs[run.OrgID] = struct{}{}
+		affectedAccounts[run.AccountID] = struct{}{}
 
 		if reaped, err := r.runEventRepo.ForceFailRun(ctx, run.ID); err != nil {
 			runID := run.ID.String()
@@ -91,15 +91,15 @@ func (r *StaleRunReaper) reap(ctx context.Context) {
 			r.writeAudit(ctx, run)
 
 			runID := run.ID.String()
-			orgID := run.OrgID.String()
-			r.logger.Info("stale run reaped", observability.LogFields{RunID: &runID, OrgID: &orgID}, nil)
+			accountID := run.AccountID.String()
+			r.logger.Info("stale run reaped", observability.LogFields{RunID: &runID, AccountID: &accountID}, nil)
 		}
 	}
 
-	for orgID := range affectedOrgs {
-		if err := r.runLimiter.SyncFromDB(ctx, r.pool, orgID); err != nil {
-			oid := orgID.String()
-			r.logger.Error("sync run counter failed", observability.LogFields{OrgID: &oid}, map[string]any{
+	for accountID := range affectedAccounts {
+		if err := r.runLimiter.SyncFromDB(ctx, r.pool, accountID); err != nil {
+			aid := accountID.String()
+			r.logger.Error("sync run counter failed", observability.LogFields{AccountID: &aid}, map[string]any{
 				"error": err.Error(),
 			})
 		}
@@ -114,10 +114,10 @@ func (r *StaleRunReaper) writeAudit(ctx context.Context, run data.Run) {
 	traceID := fmt.Sprintf("reaper-%s", run.ID.String())
 	targetType := "run"
 	targetID := run.ID.String()
-	orgID := run.OrgID
+	accountID := run.AccountID
 
 	if err := r.auditRepo.Create(ctx, data.AuditLogCreateParams{
-		OrgID:      &orgID,
+		AccountID:      &accountID,
 		Action:     "runs.force_expired",
 		TargetType: &targetType,
 		TargetID:   &targetID,

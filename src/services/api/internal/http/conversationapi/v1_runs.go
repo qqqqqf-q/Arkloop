@@ -71,7 +71,7 @@ type threadRunResponse struct {
 
 type runResponse struct {
 	RunID           string   `json:"run_id"`
-	OrgID           string   `json:"org_id"`
+	AccountID           string   `json:"account_id"`
 	ThreadID        string   `json:"thread_id"`
 	CreatedByUserID *string  `json:"created_by_user_id"`
 	ParentRunID     *string  `json:"parent_run_id,omitempty"`
@@ -91,7 +91,7 @@ type submitInputResponse struct {
 
 type globalRunResponse struct {
 	RunID             string   `json:"run_id"`
-	OrgID             string   `json:"org_id"`
+	AccountID             string   `json:"account_id"`
 	ThreadID          string   `json:"thread_id"`
 	Status            string   `json:"status"`
 	Model             *string  `json:"model,omitempty"`
@@ -114,7 +114,7 @@ type globalRunResponse struct {
 
 func createThreadRun(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	threadRepo *data.ThreadRepository,
 	auditWriter *audit.Writer,
 	pool *pgxpool.Pool,
@@ -219,13 +219,13 @@ func createThreadRun(
 
 		var acquired bool
 		if entSvc != nil && rdb != nil {
-			// 从权益系统获取该 org 的并发上限，动态解析覆盖全局配置。
-			limitVal, err := entSvc.Resolve(r.Context(), thread.OrgID, "limit.concurrent_runs")
+			// 从权益系统获取该 account 的并发上限，动态解析覆盖全局配置。
+			limitVal, err := entSvc.Resolve(r.Context(), thread.AccountID, "limit.concurrent_runs")
 			if err != nil {
 				httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 				return
 			}
-			key := runlimit.Key(thread.OrgID.String())
+			key := runlimit.Key(thread.AccountID.String())
 			if !runlimit.TryAcquire(r.Context(), rdb, key, limitVal.Int()) {
 				httpkit.WriteError(w, nethttp.StatusTooManyRequests, "runs.limit_exceeded", "concurrent run limit exceeded", traceID, nil)
 				return
@@ -237,14 +237,14 @@ func createThreadRun(
 				}
 			}()
 		} else if limiter != nil {
-			if !limiter.TryAcquire(r.Context(), thread.OrgID) {
+			if !limiter.TryAcquire(r.Context(), thread.AccountID) {
 				httpkit.WriteError(w, nethttp.StatusTooManyRequests, "runs.limit_exceeded", "concurrent run limit exceeded", traceID, nil)
 				return
 			}
 			acquired = true
 			defer func() {
 				if acquired {
-					limiter.Release(r.Context(), thread.OrgID)
+					limiter.Release(r.Context(), thread.AccountID)
 				}
 			}()
 		}
@@ -269,7 +269,7 @@ func createThreadRun(
 
 		run, _, err := runRepo.CreateRunWithStartedEvent(
 			r.Context(),
-			thread.OrgID,
+			thread.AccountID,
 			thread.ID,
 			&actor.UserID,
 			"run.started",
@@ -282,7 +282,7 @@ func createThreadRun(
 
 		_, err = jobRepo.EnqueueRun(
 			r.Context(),
-			thread.OrgID,
+			thread.AccountID,
 			run.ID,
 			traceID,
 			data.RunExecuteJobType,
@@ -329,7 +329,7 @@ func resolveSearchOutputRouteID(
 	outputModelKey string,
 ) (string, error) {
 	if pool != nil && thread != nil {
-		routeID, err := resolveSearchOutputRouteIDFromPlatformSetting(ctx, pool, thread.OrgID, outputModelKey)
+		routeID, err := resolveSearchOutputRouteIDFromPlatformSetting(ctx, pool, thread.AccountID, outputModelKey)
 		if err != nil {
 			return "", err
 		}
@@ -343,7 +343,7 @@ func resolveSearchOutputRouteID(
 func resolveSearchOutputRouteIDFromPlatformSetting(
 	ctx context.Context,
 	pool *pgxpool.Pool,
-	orgID uuid.UUID,
+	accountID uuid.UUID,
 	outputModelKey string,
 ) (string, error) {
 	var raw string
@@ -365,7 +365,7 @@ func resolveSearchOutputRouteIDFromPlatformSetting(
 	if selector == "" {
 		return "", nil
 	}
-	return resolveSearchOutputRouteIDByModelSelector(ctx, pool, orgID, selector)
+	return resolveSearchOutputRouteIDByModelSelector(ctx, pool, accountID, selector)
 }
 
 func pickSearchOutputModelSelector(models map[string]any, outputModelKey string) string {
@@ -386,7 +386,7 @@ func pickSearchOutputModelSelector(models map[string]any, outputModelKey string)
 func resolveSearchOutputRouteIDByModelSelector(
 	ctx context.Context,
 	pool *pgxpool.Pool,
-	orgID uuid.UUID,
+	accountID uuid.UUID,
 	selector string,
 ) (string, error) {
 	cleanedSelector := strings.TrimSpace(selector)
@@ -402,13 +402,13 @@ func resolveSearchOutputRouteIDByModelSelector(
 			`SELECT r.id
 			 FROM llm_routes r
 			 JOIN llm_credentials c ON c.id = r.credential_id
-			 WHERE r.org_id = $1
+			 WHERE r.account_id = $1
 			   AND c.revoked_at IS NULL
 			   AND lower(c.name) = lower($2)
 			   AND lower(r.model) = lower($3)
 			 ORDER BY r.priority DESC, r.is_default DESC
 			 LIMIT 1`,
-			orgID,
+			accountID,
 			strings.TrimSpace(parts[0]),
 			strings.TrimSpace(parts[1]),
 		).Scan(&routeID)
@@ -424,12 +424,12 @@ func resolveSearchOutputRouteIDByModelSelector(
 			`SELECT r.id
 			 FROM llm_routes r
 			 JOIN llm_credentials c ON c.id = r.credential_id
-			 WHERE r.org_id = $1
+			 WHERE r.account_id = $1
 			   AND c.revoked_at IS NULL
 			   AND lower(r.model) = lower($2)
 			 ORDER BY r.priority DESC, r.is_default DESC
 			 LIMIT 1`,
-			orgID,
+			accountID,
 			cleanedSelector,
 		).Scan(&routeID)
 		if err != nil {
@@ -469,7 +469,7 @@ func resolveSearchOutputRouteIDFromEnv(outputModelKey string) string {
 
 func listThreadRuns(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	threadRepo *data.ThreadRepository,
 	runRepo *data.RunEventRepository,
 	auditWriter *audit.Writer,
@@ -518,7 +518,7 @@ func listThreadRuns(
 			return
 		}
 
-		runs, err := runRepo.ListRunsByThread(r.Context(), actor.OrgID, threadID, limit)
+		runs, err := runRepo.ListRunsByThread(r.Context(), actor.AccountID, threadID, limit)
 		if err != nil {
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
@@ -548,7 +548,7 @@ func listThreadRuns(
 
 func getRun(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	runRepo *data.RunEventRepository,
 	auditWriter *audit.Writer,
 	apiKeysRepo *data.APIKeysRepository,
@@ -620,7 +620,7 @@ func getRun(
 
 		httpkit.WriteJSON(w, traceID, nethttp.StatusOK, runResponse{
 			RunID:           run.ID.String(),
-			OrgID:           run.OrgID.String(),
+			AccountID:           run.AccountID.String(),
 			ThreadID:        run.ThreadID.String(),
 			CreatedByUserID: createdByUserID,
 			ParentRunID:     parentRunID,
@@ -634,7 +634,7 @@ func getRun(
 
 func cancelRun(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	runRepo *data.RunEventRepository,
 	auditWriter *audit.Writer,
 	pool *pgxpool.Pool,
@@ -706,7 +706,7 @@ func cancelRun(
 		_, _ = pool.Exec(r.Context(), "SELECT pg_notify($1, $2)", pgnotify.ChannelRunCancel, run.ID.String())
 
 		if auditWriter != nil {
-			auditWriter.WriteRunCancelRequested(r.Context(), traceID, actor.OrgID, actor.UserID, run.ID)
+			auditWriter.WriteRunCancelRequested(r.Context(), traceID, actor.AccountID, actor.UserID, run.ID)
 		}
 
 		httpkit.WriteJSON(w, traceID, nethttp.StatusOK, cancelRunResponse{OK: true})
@@ -715,7 +715,7 @@ func cancelRun(
 
 func submitRunInput(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	runRepo *data.RunEventRepository,
 	auditWriter *audit.Writer,
 	pool *pgxpool.Pool,
@@ -819,7 +819,7 @@ func submitRunInput(
 
 func streamRunEvents(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	runRepo *data.RunEventRepository,
 	auditWriter *audit.Writer,
 	directPool *pgxpool.Pool,
@@ -1113,7 +1113,7 @@ func parseInt64(raw string) (int64, error) {
 
 func runEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	runRepo *data.RunEventRepository,
 	auditWriter *audit.Writer,
 	pool *pgxpool.Pool,
@@ -1225,8 +1225,8 @@ func authorizeRunOrAudit(
 	}
 
 	denyReason := "owner_mismatch"
-	if actor.OrgID != run.OrgID {
-		denyReason = "org_mismatch"
+	if actor.AccountID != run.AccountID {
+		denyReason = "account_mismatch"
 	} else if run.CreatedByUserID == nil {
 		denyReason = "no_owner"
 	} else if *run.CreatedByUserID == actor.UserID {
@@ -1237,12 +1237,12 @@ func authorizeRunOrAudit(
 		auditWriter.WriteAccessDenied(
 			r.Context(),
 			traceID,
-			actor.OrgID,
+			actor.AccountID,
 			actor.UserID,
 			action,
 			"run",
 			run.ID.String(),
-			run.OrgID,
+			run.AccountID,
 			run.CreatedByUserID,
 			denyReason,
 		)
@@ -1261,7 +1261,7 @@ func authorizeRunOrAudit(
 
 func listGlobalRuns(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	runRepo *data.RunEventRepository,
 	apiKeysRepo *data.APIKeysRepository,
 ) nethttp.HandlerFunc {
@@ -1309,19 +1309,19 @@ func listGlobalRuns(
 			}
 		}
 
-		if rawOrg := q.Get("org_id"); rawOrg != "" {
-			parsed, err := uuid.Parse(rawOrg)
+		if rawAccount := q.Get("account_id"); rawAccount != "" {
+			parsed, err := uuid.Parse(rawAccount)
 			if err != nil {
-				httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "invalid org_id", traceID, nil)
+				httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "invalid account_id", traceID, nil)
 				return
 			}
-			if !isPlatformAdmin && parsed != actor.OrgID {
+			if !isPlatformAdmin && parsed != actor.AccountID {
 				httpkit.WriteError(w, nethttp.StatusForbidden, "auth.forbidden", "access denied", traceID, nil)
 				return
 			}
-			params.OrgID = &parsed
+			params.AccountID = &parsed
 		} else if !isPlatformAdmin {
-			params.OrgID = &actor.OrgID
+			params.AccountID = &actor.AccountID
 		}
 
 		if rawThreadID := strings.TrimSpace(q.Get("thread_id")); rawThreadID != "" {
@@ -1417,7 +1417,7 @@ func listGlobalRuns(
 		for _, rw := range runs {
 			item := globalRunResponse{
 				RunID:             rw.ID.String(),
-				OrgID:             rw.OrgID.String(),
+				AccountID:             rw.AccountID.String(),
 				ThreadID:          rw.ThreadID.String(),
 				Status:            rw.Status,
 				Model:             rw.Model,

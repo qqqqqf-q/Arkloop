@@ -28,7 +28,7 @@ type createIPRuleRequest struct {
 
 type ipRuleResponse struct {
 	ID        string  `json:"id"`
-	OrgID     string  `json:"org_id"`
+	AccountID     string  `json:"account_id"`
 	Type      string  `json:"type"`
 	CIDR      string  `json:"cidr"`
 	Note      *string `json:"note,omitempty"`
@@ -42,7 +42,7 @@ type ipRulesCachePayload struct {
 
 func ipRulesEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	ipRulesRepo *data.IPRulesRepository,
 	redisClient *redis.Client,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
@@ -61,7 +61,7 @@ func ipRulesEntry(
 
 func ipRuleEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	ipRulesRepo *data.IPRulesRepository,
 	redisClient *redis.Client,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
@@ -95,7 +95,7 @@ func createIPRule(
 	r *nethttp.Request,
 	traceID string,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	ipRulesRepo *data.IPRulesRepository,
 	redisClient *redis.Client,
 ) {
@@ -131,13 +131,13 @@ func createIPRule(
 		return
 	}
 
-	rule, err := ipRulesRepo.Create(r.Context(), actor.OrgID, data.IPRuleType(req.Type), req.CIDR, req.Note)
+	rule, err := ipRulesRepo.Create(r.Context(), actor.AccountID, data.IPRuleType(req.Type), req.CIDR, req.Note)
 	if err != nil {
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
 	}
 
-	syncIPRulesCache(r.Context(), ipRulesRepo, redisClient, actor.OrgID)
+	syncIPRulesCache(r.Context(), ipRulesRepo, redisClient, actor.AccountID)
 	httpkit.WriteJSON(w, traceID, nethttp.StatusCreated, toIPRuleResponse(rule))
 }
 
@@ -146,7 +146,7 @@ func listIPRules(
 	r *nethttp.Request,
 	traceID string,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	ipRulesRepo *data.IPRulesRepository,
 ) {
 	if authService == nil {
@@ -163,7 +163,7 @@ func listIPRules(
 		return
 	}
 
-	rules, err := ipRulesRepo.ListByOrg(r.Context(), actor.OrgID)
+	rules, err := ipRulesRepo.ListByOrg(r.Context(), actor.AccountID)
 	if err != nil {
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
@@ -183,7 +183,7 @@ func deleteIPRule(
 	traceID string,
 	ruleID uuid.UUID,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	ipRulesRepo *data.IPRulesRepository,
 	redisClient *redis.Client,
 ) {
@@ -201,7 +201,7 @@ func deleteIPRule(
 		return
 	}
 
-	deleted, err := ipRulesRepo.Delete(r.Context(), actor.OrgID, ruleID)
+	deleted, err := ipRulesRepo.Delete(r.Context(), actor.AccountID, ruleID)
 	if err != nil {
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
@@ -211,17 +211,17 @@ func deleteIPRule(
 		return
 	}
 
-	syncIPRulesCache(r.Context(), ipRulesRepo, redisClient, actor.OrgID)
+	syncIPRulesCache(r.Context(), ipRulesRepo, redisClient, actor.AccountID)
 	w.WriteHeader(nethttp.StatusNoContent)
 }
 
-// syncIPRulesCache 将 org 的规则集写入 Redis，失败时只记录日志（不阻断请求）。
-func syncIPRulesCache(ctx context.Context, repo *data.IPRulesRepository, client *redis.Client, orgID uuid.UUID) {
+// syncIPRulesCache 将 account 的规则集写入 Redis，失败时只记录日志（不阻断请求）。
+func syncIPRulesCache(ctx context.Context, repo *data.IPRulesRepository, client *redis.Client, accountID uuid.UUID) {
 	if client == nil {
 		return
 	}
 
-	rules, err := repo.ListByOrg(ctx, orgID)
+	rules, err := repo.ListByOrg(ctx, accountID)
 	if err != nil {
 		return
 	}
@@ -244,14 +244,14 @@ func syncIPRulesCache(ctx context.Context, repo *data.IPRulesRepository, client 
 		return
 	}
 
-	key := fmt.Sprintf("arkloop:ip_rules:%s", orgID.String())
+	key := fmt.Sprintf("arkloop:ip_rules:%s", accountID.String())
 	_ = client.Set(ctx, key, raw, ipRulesCacheTTL).Err()
 }
 
 func toIPRuleResponse(rule data.IPRule) ipRuleResponse {
 	return ipRuleResponse{
 		ID:        rule.ID.String(),
-		OrgID:     rule.OrgID.String(),
+		AccountID:     rule.AccountID.String(),
 		Type:      string(rule.Type),
 		CIDR:      rule.CIDR,
 		Note:      rule.Note,

@@ -65,7 +65,7 @@ type patchLiteAgentRequest struct {
 
 func liteAgentsEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	personasRepo *data.PersonasRepository,
 	repoPersonas []personas.RepoPersona,
 	syncTrigger personaSyncTrigger,
@@ -84,7 +84,7 @@ func liteAgentsEntry(
 
 func liteAgentEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	personasRepo *data.PersonasRepository,
 	syncTrigger personaSyncTrigger,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
@@ -116,7 +116,7 @@ func listLiteAgents(
 	w nethttp.ResponseWriter,
 	r *nethttp.Request,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	personasRepo *data.PersonasRepository,
 	repoPersonas []personas.RepoPersona,
 ) {
@@ -135,7 +135,7 @@ func listLiteAgents(
 		return
 	}
 
-	dbPersonas, err := personasRepo.ListByScope(r.Context(), actor.OrgID, scope)
+	dbPersonas, err := personasRepo.ListByScope(r.Context(), actor.AccountID, scope)
 	if err != nil {
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
@@ -161,7 +161,7 @@ func createLiteAgent(
 	w nethttp.ResponseWriter,
 	r *nethttp.Request,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	personasRepo *data.PersonasRepository,
 	repoPersonas []personas.RepoPersona,
 	syncTrigger personaSyncTrigger,
@@ -197,7 +197,7 @@ func createLiteAgent(
 			return
 		}
 
-		persona, err := materializeRepoPersonaForLiteAgent(r.Context(), personasRepo, actor.OrgID, scope, *repoPersona, req)
+		persona, err := materializeRepoPersonaForLiteAgent(r.Context(), personasRepo, actor.AccountID, scope, *repoPersona, req)
 		if err != nil {
 			var conflict data.PersonaConflictError
 			if errors.As(err, &conflict) {
@@ -218,7 +218,7 @@ func createLiteAgent(
 
 	persona, err := personasRepo.CreateInScope(
 		r.Context(),
-		actor.OrgID,
+		actor.AccountID,
 		scope,
 		slugify(req.Name),
 		"1.0",
@@ -249,7 +249,7 @@ func patchLiteAgent(
 	traceID string,
 	personaID uuid.UUID,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	personasRepo *data.PersonasRepository,
 	syncTrigger personaSyncTrigger,
 ) {
@@ -267,7 +267,7 @@ func patchLiteAgent(
 		return
 	}
 
-	existing, err := personasRepo.GetByIDInScope(r.Context(), actor.OrgID, personaID, scope)
+	existing, err := personasRepo.GetByIDInScope(r.Context(), actor.AccountID, personaID, scope)
 	if err != nil || existing == nil {
 		httpkit.WriteError(w, nethttp.StatusNotFound, "lite_agents.not_found", "agent not found", traceID, nil)
 		return
@@ -295,7 +295,7 @@ func patchLiteAgent(
 		patch.ToolDenylist = *req.ToolDenylist
 	}
 
-	updated, err := personasRepo.PatchInScope(r.Context(), actor.OrgID, personaID, scope, patch)
+	updated, err := personasRepo.PatchInScope(r.Context(), actor.AccountID, personaID, scope, patch)
 	if err != nil {
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
@@ -314,7 +314,7 @@ func deleteLiteAgent(
 	traceID string,
 	personaID uuid.UUID,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	personasRepo *data.PersonasRepository,
 	syncTrigger personaSyncTrigger,
 ) {
@@ -331,7 +331,7 @@ func deleteLiteAgent(
 	if !ok {
 		return
 	}
-	deleted, err := personasRepo.DeleteInScope(r.Context(), actor.OrgID, personaID, scope)
+	deleted, err := personasRepo.DeleteInScope(r.Context(), actor.AccountID, personaID, scope)
 	if err != nil {
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
@@ -374,7 +374,7 @@ func toLiteAgentFromDB(p data.Persona) liteAgentResponse {
 	}
 	return liteAgentResponse{
 		ID:              p.ID.String(),
-		Scope:           personaScopeFromProjectID(p.OrgID),
+		Scope:           personaScopeFromProjectID(p.AccountID),
 		PersonaKey:      p.PersonaKey,
 		DisplayName:     p.DisplayName,
 		Description:     p.Description,

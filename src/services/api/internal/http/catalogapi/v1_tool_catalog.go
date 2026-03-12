@@ -90,7 +90,7 @@ func buildToolCatalog(
 
 func toolCatalogEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	overridesRepo *data.ToolDescriptionOverridesRepository,
 	projectRepo *data.ProjectRepository,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
@@ -144,7 +144,7 @@ type updateToolDisabledRequest struct {
 
 func toolCatalogItemEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	overridesRepo *data.ToolDescriptionOverridesRepository,
 	projectRepo *data.ProjectRepository,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
@@ -269,7 +269,7 @@ func resolveToolCatalogScope(
 		httpkit.WriteError(w, nethttp.StatusServiceUnavailable, "database.not_configured", "database not configured", traceID, nil)
 		return "", uuid.Nil, false
 	}
-	project, err := projectRepo.GetOrCreateDefaultByOwner(ctx, actor.OrgID, actor.UserID)
+	project, err := projectRepo.GetOrCreateDefaultByOwner(ctx, actor.AccountID, actor.UserID)
 	if err != nil {
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return "", uuid.Nil, false

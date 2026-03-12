@@ -24,7 +24,7 @@ const workspaceRootPath = "/workspace"
 
 func workspaceFilesEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	runRepo *data.RunEventRepository,
 	auditWriter *audit.Writer,

@@ -60,12 +60,12 @@ func (c *effectiveToolCatalogCache) GetEnv(ctx context.Context) ([]toolCatalogIt
 	})
 }
 
-func (c *effectiveToolCatalogCache) GetOrg(ctx context.Context, pool *pgxpool.Pool, orgID uuid.UUID) ([]toolCatalogItem, error) {
-	if orgID == uuid.Nil {
+func (c *effectiveToolCatalogCache) GetAccount(ctx context.Context, pool *pgxpool.Pool, accountID uuid.UUID) ([]toolCatalogItem, error) {
+	if accountID == uuid.Nil {
 		return nil, nil
 	}
-	return c.get(ctx, orgID.String(), func(context.Context) ([]toolCatalogItem, error) {
-		servers, err := loadEffectiveMCPConfigFromDB(ctx, pool, orgID)
+	return c.get(ctx, accountID.String(), func(context.Context) ([]toolCatalogItem, error) {
+		servers, err := loadEffectiveMCPConfigFromDB(ctx, pool, accountID)
 		if err != nil {
 			return nil, err
 		}
@@ -158,7 +158,7 @@ func (c *effectiveToolCatalogCache) listenOnce(ctx context.Context, directPool *
 
 type effectiveMCPServerConfig struct {
 	ServerID      string
-	OrgID         string
+	AccountID         string
 	Transport     string
 	URL           string
 	BearerToken   *string
@@ -226,8 +226,8 @@ func loadEffectiveMCPConfigFromEnv() ([]effectiveMCPServerConfig, error) {
 	return servers, nil
 }
 
-func loadEffectiveMCPConfigFromDB(ctx context.Context, pool *pgxpool.Pool, orgID uuid.UUID) ([]effectiveMCPServerConfig, error) {
-	if pool == nil || orgID == uuid.Nil {
+func loadEffectiveMCPConfigFromDB(ctx context.Context, pool *pgxpool.Pool, accountID uuid.UUID) ([]effectiveMCPServerConfig, error) {
+	if pool == nil || accountID == uuid.Nil {
 		return nil, nil
 	}
 	if ctx == nil {
@@ -239,9 +239,9 @@ func loadEffectiveMCPConfigFromDB(ctx context.Context, pool *pgxpool.Pool, orgID
 		       s.encrypted_value, s.key_version
 		FROM mcp_configs m
 		LEFT JOIN secrets s ON s.id = m.auth_secret_id
-		WHERE m.org_id = $1 AND m.is_active = TRUE
+		WHERE m.account_id = $1 AND m.is_active = TRUE
 		ORDER BY m.created_at ASC
-	`, orgID)
+	`, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("mcp effective catalog: query db: %w", err)
 	}
@@ -267,7 +267,7 @@ func loadEffectiveMCPConfigFromDB(ctx context.Context, pool *pgxpool.Pool, orgID
 		}
 		server := effectiveMCPServerConfig{
 			ServerID:      strings.TrimSpace(name),
-			OrgID:         orgID.String(),
+			AccountID:         accountID.String(),
 			Transport:     strings.TrimSpace(transport),
 			CallTimeoutMs: callTimeoutMs,
 			Env:           map[string]string{},

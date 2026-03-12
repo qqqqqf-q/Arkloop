@@ -27,7 +27,7 @@ const (
 
 func asrTranscribeEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	asrCredRepo *data.AsrCredentialsRepository,
 	secretsRepo *data.SecretsRepository,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
@@ -52,7 +52,7 @@ func asrTranscribeEntry(
 			return
 		}
 
-		cred, err := asrCredRepo.GetDefault(r.Context(), actor.OrgID)
+		cred, err := asrCredRepo.GetDefault(r.Context(), actor.AccountID)
 		if err != nil {
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return

@@ -12,7 +12,7 @@ import (
 )
 
 type AuditLogCreateParams struct {
-	OrgID       *uuid.UUID
+	AccountID       *uuid.UUID
 	ActorUserID *uuid.UUID
 	Action      string
 	TargetType  *string
@@ -30,7 +30,7 @@ type AuditLogCreateParams struct {
 
 type AuditLog struct {
 	ID            uuid.UUID
-	OrgID         *uuid.UUID
+	AccountID         *uuid.UUID
 	ActorUserID   *uuid.UUID
 	Action        string
 	TargetType    *string
@@ -47,7 +47,7 @@ type AuditLog struct {
 }
 
 type AuditLogListParams struct {
-	OrgID       *uuid.UUID
+	AccountID       *uuid.UUID
 	Action      *string
 	ActorUserID *uuid.UUID
 	TargetType  *string
@@ -113,7 +113,7 @@ func (r *AuditLogRepository) Create(ctx context.Context, params AuditLogCreatePa
 	_, err = r.db.Exec(
 		ctx,
 		`INSERT INTO audit_logs (
-		   org_id,
+		   account_id,
 		   actor_user_id,
 		   action,
 		   target_type,
@@ -126,7 +126,7 @@ func (r *AuditLogRepository) Create(ctx context.Context, params AuditLogCreatePa
 		   before_state_json,
 		   after_state_json
 		 ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::inet, $9, $10, $11::jsonb, $12::jsonb)`,
-		params.OrgID,
+		params.AccountID,
 		params.ActorUserID,
 		action,
 		params.TargetType,
@@ -165,8 +165,8 @@ func (r *AuditLogRepository) List(ctx context.Context, params AuditLogListParams
 		return fmt.Sprintf("$%d", len(args))
 	}
 
-	if params.OrgID != nil {
-		conds = append(conds, "org_id = "+addArg(*params.OrgID))
+	if params.AccountID != nil {
+		conds = append(conds, "account_id = "+addArg(*params.AccountID))
 	}
 	if params.Action != nil {
 		conds = append(conds, "action = "+addArg(*params.Action))
@@ -201,7 +201,7 @@ func (r *AuditLogRepository) List(ctx context.Context, params AuditLogListParams
 	}
 
 	query := fmt.Sprintf(
-		`SELECT id, org_id, actor_user_id, action, target_type, target_id,
+		`SELECT id, account_id, actor_user_id, action, target_type, target_id,
 		        trace_id, metadata_json::text, ip_address::text, user_agent, ts,
 		        %s
 		 FROM audit_logs%s
@@ -228,7 +228,7 @@ func (r *AuditLogRepository) List(ctx context.Context, params AuditLogListParams
 			afterRaw     *string
 		)
 		if err := rows.Scan(
-			&l.ID, &l.OrgID, &l.ActorUserID, &l.Action,
+			&l.ID, &l.AccountID, &l.ActorUserID, &l.Action,
 			&l.TargetType, &l.TargetID, &l.TraceID,
 			&metaRaw, &l.IPAddress, &l.UserAgent, &l.CreatedAt,
 			&beforeRaw, &afterRaw,

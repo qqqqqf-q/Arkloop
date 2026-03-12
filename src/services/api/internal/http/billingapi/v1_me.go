@@ -14,7 +14,7 @@ import (
 
 func meUsage(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	usageRepo *data.UsageRepository,
 	apiKeysRepo *data.APIKeysRepository,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
@@ -61,14 +61,14 @@ func meUsage(
 			month = parsed
 		}
 
-		summary, err := usageRepo.GetMonthlyUsage(r.Context(), actor.OrgID, year, month)
+		summary, err := usageRepo.GetMonthlyUsage(r.Context(), actor.AccountID, year, month)
 		if err != nil {
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
 		}
 
 		httpkit.WriteJSON(w, traceID, nethttp.StatusOK, usageSummaryResponse{
-			OrgID:             summary.OrgID.String(),
+			AccountID:             summary.AccountID.String(),
 			Year:              summary.Year,
 			Month:             summary.Month,
 			TotalInputTokens:  summary.TotalInputTokens,
@@ -81,7 +81,7 @@ func meUsage(
 
 func meDailyUsage(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	usageRepo *data.UsageRepository,
 	apiKeysRepo *data.APIKeysRepository,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
@@ -111,7 +111,7 @@ func meDailyUsage(
 			return
 		}
 
-		rows, err := usageRepo.GetDailyUsage(r.Context(), actor.OrgID, startDate, endDate)
+		rows, err := usageRepo.GetDailyUsage(r.Context(), actor.AccountID, startDate, endDate)
 		if err != nil {
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
@@ -133,7 +133,7 @@ func meDailyUsage(
 
 func meUsageByModel(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	usageRepo *data.UsageRepository,
 	apiKeysRepo *data.APIKeysRepository,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
@@ -179,7 +179,7 @@ func meUsageByModel(
 			month = parsed
 		}
 
-		rows, err := usageRepo.GetUsageByModel(r.Context(), actor.OrgID, year, month)
+		rows, err := usageRepo.GetUsageByModel(r.Context(), actor.AccountID, year, month)
 		if err != nil {
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return

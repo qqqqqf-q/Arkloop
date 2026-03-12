@@ -14,7 +14,7 @@ import (
 
 type Run struct {
 	ID              uuid.UUID
-	OrgID           uuid.UUID
+	AccountID           uuid.UUID
 	ThreadID        uuid.UUID
 	CreatedByUserID *uuid.UUID
 	Status          string
@@ -68,7 +68,7 @@ func NewRunEventRepository(db Querier) (*RunEventRepository, error) {
 
 func (r *RunEventRepository) CreateRunWithStartedEvent(
 	ctx context.Context,
-	orgID uuid.UUID,
+	accountID uuid.UUID,
 	threadID uuid.UUID,
 	createdByUserID *uuid.UUID,
 	startedType string,
@@ -77,8 +77,8 @@ func (r *RunEventRepository) CreateRunWithStartedEvent(
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if orgID == uuid.Nil {
-		return Run{}, RunEvent{}, fmt.Errorf("org_id must not be empty")
+	if accountID == uuid.Nil {
+		return Run{}, RunEvent{}, fmt.Errorf("account_id must not be empty")
 	}
 	if threadID == uuid.Nil {
 		return Run{}, RunEvent{}, fmt.Errorf("thread_id must not be empty")
@@ -92,17 +92,17 @@ func (r *RunEventRepository) CreateRunWithStartedEvent(
 	var run Run
 	err := r.db.QueryRow(
 		ctx,
-		`INSERT INTO runs (org_id, thread_id, created_by_user_id, status)
+		`INSERT INTO runs (account_id, thread_id, created_by_user_id, status)
 		 VALUES ($1, $2, $3, 'running')
-		 RETURNING id, org_id, thread_id, created_by_user_id, status, created_at,
+		 RETURNING id, account_id, thread_id, created_by_user_id, status, created_at,
 		           parent_run_id, status_updated_at, completed_at, failed_at,
 		           duration_ms, total_input_tokens, total_output_tokens, total_cost_usd,
 		           model, persona_id, deleted_at`,
-		orgID,
+		accountID,
 		threadID,
 		createdByUserID,
 	).Scan(
-		&run.ID, &run.OrgID, &run.ThreadID, &run.CreatedByUserID, &run.Status, &run.CreatedAt,
+		&run.ID, &run.AccountID, &run.ThreadID, &run.CreatedByUserID, &run.Status, &run.CreatedAt,
 		&run.ParentRunID, &run.StatusUpdatedAt, &run.CompletedAt, &run.FailedAt,
 		&run.DurationMs, &run.TotalInputTokens, &run.TotalOutputTokens, &run.TotalCostUSD,
 		&run.Model, &run.PersonaID, &run.DeletedAt,
@@ -130,7 +130,7 @@ func (r *RunEventRepository) GetRun(ctx context.Context, runID uuid.UUID) (*Run,
 	var run Run
 	err := r.db.QueryRow(
 		ctx,
-		`SELECT id, org_id, thread_id, created_by_user_id, status, created_at,
+		`SELECT id, account_id, thread_id, created_by_user_id, status, created_at,
 		        parent_run_id, status_updated_at, completed_at, failed_at,
 		        duration_ms, total_input_tokens, total_output_tokens, total_cost_usd,
 		        model, persona_id, profile_ref, workspace_ref, deleted_at
@@ -139,7 +139,7 @@ func (r *RunEventRepository) GetRun(ctx context.Context, runID uuid.UUID) (*Run,
 		 LIMIT 1`,
 		runID,
 	).Scan(
-		&run.ID, &run.OrgID, &run.ThreadID, &run.CreatedByUserID, &run.Status, &run.CreatedAt,
+		&run.ID, &run.AccountID, &run.ThreadID, &run.CreatedByUserID, &run.Status, &run.CreatedAt,
 		&run.ParentRunID, &run.StatusUpdatedAt, &run.CompletedAt, &run.FailedAt,
 		&run.DurationMs, &run.TotalInputTokens, &run.TotalOutputTokens, &run.TotalCostUSD,
 		&run.Model, &run.PersonaID, &run.ProfileRef, &run.WorkspaceRef, &run.DeletedAt,
@@ -155,15 +155,15 @@ func (r *RunEventRepository) GetRun(ctx context.Context, runID uuid.UUID) (*Run,
 
 func (r *RunEventRepository) ListRunsByThread(
 	ctx context.Context,
-	orgID uuid.UUID,
+	accountID uuid.UUID,
 	threadID uuid.UUID,
 	limit int,
 ) ([]Run, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if orgID == uuid.Nil {
-		return nil, fmt.Errorf("org_id must not be empty")
+	if accountID == uuid.Nil {
+		return nil, fmt.Errorf("account_id must not be empty")
 	}
 	if threadID == uuid.Nil {
 		return nil, fmt.Errorf("thread_id must not be empty")
@@ -174,16 +174,16 @@ func (r *RunEventRepository) ListRunsByThread(
 
 	rows, err := r.db.Query(
 		ctx,
-		`SELECT id, org_id, thread_id, created_by_user_id, status, created_at,
+		`SELECT id, account_id, thread_id, created_by_user_id, status, created_at,
 		        parent_run_id, status_updated_at, completed_at, failed_at,
 		        duration_ms, total_input_tokens, total_output_tokens, total_cost_usd,
 		        model, persona_id, profile_ref, workspace_ref, deleted_at
 		 FROM runs
-		 WHERE org_id = $1
+		 WHERE account_id = $1
 		   AND thread_id = $2
 		 ORDER BY created_at DESC, id DESC
 		 LIMIT $3`,
-		orgID,
+		accountID,
 		threadID,
 		limit,
 	)
@@ -196,7 +196,7 @@ func (r *RunEventRepository) ListRunsByThread(
 	for rows.Next() {
 		var run Run
 		if err := rows.Scan(
-			&run.ID, &run.OrgID, &run.ThreadID, &run.CreatedByUserID, &run.Status, &run.CreatedAt,
+			&run.ID, &run.AccountID, &run.ThreadID, &run.CreatedByUserID, &run.Status, &run.CreatedAt,
 			&run.ParentRunID, &run.StatusUpdatedAt, &run.CompletedAt, &run.FailedAt,
 			&run.DurationMs, &run.TotalInputTokens, &run.TotalOutputTokens, &run.TotalCostUSD,
 			&run.Model, &run.PersonaID, &run.ProfileRef, &run.WorkspaceRef, &run.DeletedAt,
@@ -510,11 +510,11 @@ type RunWithUser struct {
 }
 
 // ListRunsParams 控制 ListRuns 的过滤和分页行为。
-// OrgID 为 nil 时不按 org 过滤（平台管理员全局查询专用）。
+// AccountID 为 nil 时不按 account 过滤（平台管理员全局查询专用）。
 type ListRunsParams struct {
 	RunID          *uuid.UUID
 	RunIDPrefix    *string
-	OrgID          *uuid.UUID
+	AccountID          *uuid.UUID
 	ThreadID       *uuid.UUID
 	ThreadIDPrefix *string
 	UserID         *uuid.UUID
@@ -551,8 +551,8 @@ func (r *RunEventRepository) ListRuns(ctx context.Context, params ListRunsParams
 		return fmt.Sprintf("$%d", len(args))
 	}
 
-	if params.OrgID != nil {
-		conds = append(conds, "r.org_id = "+addArg(*params.OrgID))
+	if params.AccountID != nil {
+		conds = append(conds, "r.account_id = "+addArg(*params.AccountID))
 	}
 	if params.RunID != nil {
 		conds = append(conds, "r.id = "+addArg(*params.RunID))
@@ -596,7 +596,7 @@ func (r *RunEventRepository) ListRuns(ctx context.Context, params ListRunsParams
 		return nil, 0, fmt.Errorf("count runs: %w", err)
 	}
 
-	query := fmt.Sprintf(`SELECT r.id, r.org_id, r.thread_id, r.created_by_user_id, r.status, r.created_at,
+	query := fmt.Sprintf(`SELECT r.id, r.account_id, r.thread_id, r.created_by_user_id, r.status, r.created_at,
 		        r.parent_run_id, r.status_updated_at, r.completed_at, r.failed_at,
 		        r.duration_ms, r.total_input_tokens, r.total_output_tokens, r.total_cost_usd,
 		        r.model, r.persona_id, r.deleted_at,
@@ -633,7 +633,7 @@ func (r *RunEventRepository) ListRuns(ctx context.Context, params ListRunsParams
 	for rows.Next() {
 		var rw RunWithUser
 		if err := rows.Scan(
-			&rw.ID, &rw.OrgID, &rw.ThreadID, &rw.CreatedByUserID, &rw.Status, &rw.CreatedAt,
+			&rw.ID, &rw.AccountID, &rw.ThreadID, &rw.CreatedByUserID, &rw.Status, &rw.CreatedAt,
 			&rw.ParentRunID, &rw.StatusUpdatedAt, &rw.CompletedAt, &rw.FailedAt,
 			&rw.DurationMs, &rw.TotalInputTokens, &rw.TotalOutputTokens, &rw.TotalCostUSD,
 			&rw.Model, &rw.PersonaID, &rw.DeletedAt,
@@ -672,7 +672,7 @@ func (r *RunEventRepository) ListStaleRunning(ctx context.Context, staleBefore t
 
 	rows, err := r.db.Query(
 		ctx,
-		`SELECT id, org_id, thread_id, created_by_user_id, status, created_at,
+		`SELECT id, account_id, thread_id, created_by_user_id, status, created_at,
 		        parent_run_id, status_updated_at, completed_at, failed_at,
 		        duration_ms, total_input_tokens, total_output_tokens, total_cost_usd,
 		        model, persona_id, deleted_at
@@ -690,7 +690,7 @@ func (r *RunEventRepository) ListStaleRunning(ctx context.Context, staleBefore t
 	for rows.Next() {
 		var run Run
 		if err := rows.Scan(
-			&run.ID, &run.OrgID, &run.ThreadID, &run.CreatedByUserID, &run.Status, &run.CreatedAt,
+			&run.ID, &run.AccountID, &run.ThreadID, &run.CreatedByUserID, &run.Status, &run.CreatedAt,
 			&run.ParentRunID, &run.StatusUpdatedAt, &run.CompletedAt, &run.FailedAt,
 			&run.DurationMs, &run.TotalInputTokens, &run.TotalOutputTokens, &run.TotalCostUSD,
 			&run.Model, &run.PersonaID, &run.DeletedAt,

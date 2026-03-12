@@ -28,7 +28,7 @@ func TestPersonasRepositoryScopesRowsToProject(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new repo: %v", err)
 	}
-	orgRepo, err := NewOrgRepository(pool)
+	orgRepo, err := NewAccountRepository(pool)
 	if err != nil {
 		t.Fatalf("new org repo: %v", err)
 	}
@@ -113,7 +113,7 @@ func insertGlobalPersonaRow(t *testing.T, ctx context.Context, pool Querier, per
 	err := pool.QueryRow(
 		ctx,
 		`INSERT INTO personas
-			(org_id, persona_key, version, display_name, prompt_md, tool_allowlist, budgets_json, executor_type, executor_config_json)
+			(account_id, persona_key, version, display_name, prompt_md, tool_allowlist, budgets_json, executor_type, executor_config_json)
 		 VALUES (NULL, $1, '1', $2, 'prompt', '{}', '{}'::jsonb, 'agent.simple', '{}'::jsonb)
 		 RETURNING id`,
 		personaKey,

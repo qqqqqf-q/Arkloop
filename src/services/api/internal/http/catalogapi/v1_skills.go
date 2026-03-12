@@ -92,7 +92,7 @@ type installedSkillResponse struct {
 
 func skillPackagesEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,
 	repo *data.SkillPackagesRepository,
@@ -115,7 +115,7 @@ func skillPackagesEntry(
 		if !httpkit.RequirePerm(actor, auth.PermDataPersonasRead, w, traceID) {
 			return
 		}
-		items, err := repo.ListActive(r.Context(), actor.OrgID)
+		items, err := repo.ListActive(r.Context(), actor.AccountID)
 		if err != nil {
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
@@ -126,7 +126,7 @@ func skillPackagesEntry(
 
 func adminSkillPackagesEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,
 	repo *data.SkillPackagesRepository,
@@ -159,7 +159,7 @@ func adminSkillPackagesEntry(
 			writeSkillStoreError(w, traceID, err)
 			return
 		}
-		item, err := repo.Create(r.Context(), actor.OrgID, manifest)
+		item, err := repo.Create(r.Context(), actor.AccountID, manifest)
 		if err != nil {
 			var conflict data.SkillPackageConflictError
 			if errors.As(err, &conflict) {
@@ -175,7 +175,7 @@ func adminSkillPackagesEntry(
 
 func skillPackageEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,
 	repo *data.SkillPackagesRepository,
@@ -201,7 +201,7 @@ func skillPackageEntry(
 		if !ok {
 			return
 		}
-		item, err := repo.Get(r.Context(), actor.OrgID, skillKey, version)
+		item, err := repo.Get(r.Context(), actor.AccountID, skillKey, version)
 		if err != nil {
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
@@ -216,7 +216,7 @@ func skillPackageEntry(
 
 func profileSkillsEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,
 	_ *data.SkillPackagesRepository,
@@ -240,8 +240,8 @@ func profileSkillsEntry(
 		if !httpkit.RequirePerm(actor, auth.PermDataPersonasRead, w, traceID) {
 			return
 		}
-		profileRef := sharedenvironmentref.BuildProfileRef(actor.OrgID, &actor.UserID)
-		items, err := installsRepo.ListByProfile(r.Context(), actor.OrgID, profileRef)
+		profileRef := sharedenvironmentref.BuildProfileRef(actor.AccountID, &actor.UserID)
+		items, err := installsRepo.ListByProfile(r.Context(), actor.AccountID, profileRef)
 		if err != nil {
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
@@ -252,7 +252,7 @@ func profileSkillsEntry(
 
 func profileSkillsInstallEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,
 	packagesRepo *data.SkillPackagesRepository,
@@ -281,7 +281,7 @@ func profileSkillsInstallEntry(
 			httpkit.WriteError(w, nethttp.StatusBadRequest, "skills.invalid_request", "invalid JSON body", traceID, nil)
 			return
 		}
-		pkg, err := packagesRepo.Get(r.Context(), actor.OrgID, req.SkillKey, req.Version)
+		pkg, err := packagesRepo.Get(r.Context(), actor.AccountID, req.SkillKey, req.Version)
 		if err != nil {
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
@@ -290,12 +290,12 @@ func profileSkillsInstallEntry(
 			httpkit.WriteError(w, nethttp.StatusNotFound, "skills.not_found", "skill package not found", traceID, nil)
 			return
 		}
-		profileRef := sharedenvironmentref.BuildProfileRef(actor.OrgID, &actor.UserID)
-		if err := installsRepo.Install(r.Context(), profileRef, actor.OrgID, actor.UserID, req.SkillKey, req.Version); err != nil {
+		profileRef := sharedenvironmentref.BuildProfileRef(actor.AccountID, &actor.UserID)
+		if err := installsRepo.Install(r.Context(), profileRef, actor.AccountID, actor.UserID, req.SkillKey, req.Version); err != nil {
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
 		}
-		if err := syncProfileSkillRefs(r.Context(), installsRepo, profileRepo, actor.OrgID, profileRef); err != nil {
+		if err := syncProfileSkillRefs(r.Context(), installsRepo, profileRepo, actor.AccountID, profileRef); err != nil {
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
 		}
@@ -305,7 +305,7 @@ func profileSkillsInstallEntry(
 
 func profileSkillEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,
 	installsRepo *data.ProfileSkillInstallsRepository,
@@ -332,8 +332,8 @@ func profileSkillEntry(
 		if !ok {
 			return
 		}
-		profileRef := sharedenvironmentref.BuildProfileRef(actor.OrgID, &actor.UserID)
-		used, err := installsRepo.IsInstalledInAnyWorkspaceForOwner(r.Context(), actor.OrgID, actor.UserID, skillKey, version)
+		profileRef := sharedenvironmentref.BuildProfileRef(actor.AccountID, &actor.UserID)
+		used, err := installsRepo.IsInstalledInAnyWorkspaceForOwner(r.Context(), actor.AccountID, actor.UserID, skillKey, version)
 		if err != nil {
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
@@ -346,7 +346,7 @@ func profileSkillEntry(
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
 		}
-		if err := syncProfileSkillRefs(r.Context(), installsRepo, profileRepo, actor.OrgID, profileRef); err != nil {
+		if err := syncProfileSkillRefs(r.Context(), installsRepo, profileRepo, actor.AccountID, profileRef); err != nil {
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
 		}
@@ -356,7 +356,7 @@ func profileSkillEntry(
 
 func workspaceSkillsEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,
 	packagesRepo *data.SkillPackagesRepository,
@@ -388,17 +388,17 @@ func workspaceSkillsEntry(
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
 		}
-		if registry == nil || registry.OrgID != actor.OrgID || registry.OwnerUserID == nil || *registry.OwnerUserID != actor.UserID {
+		if registry == nil || registry.AccountID != actor.AccountID || registry.OwnerUserID == nil || *registry.OwnerUserID != actor.UserID {
 			httpkit.WriteError(w, nethttp.StatusNotFound, "workspaces.not_found", "workspace not found", traceID, nil)
 			return
 		}
-		profileRef := sharedenvironmentref.BuildProfileRef(actor.OrgID, &actor.UserID)
+		profileRef := sharedenvironmentref.BuildProfileRef(actor.AccountID, &actor.UserID)
 		switch r.Method {
 		case nethttp.MethodGet:
 			if !httpkit.RequirePerm(actor, auth.PermDataPersonasRead, w, traceID) {
 				return
 			}
-			items, err := enableRepo.ListByWorkspace(r.Context(), actor.OrgID, workspaceRef)
+			items, err := enableRepo.ListByWorkspace(r.Context(), actor.AccountID, workspaceRef)
 			if err != nil {
 				httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 				return
@@ -415,7 +415,7 @@ func workspaceSkillsEntry(
 			}
 			items := make([]data.WorkspaceSkillEnablement, 0, len(req.Skills))
 			for _, item := range req.Skills {
-				pkg, err := packagesRepo.Get(r.Context(), actor.OrgID, item.SkillKey, item.Version)
+				pkg, err := packagesRepo.Get(r.Context(), actor.AccountID, item.SkillKey, item.Version)
 				if err != nil {
 					httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 					return
@@ -424,7 +424,7 @@ func workspaceSkillsEntry(
 					httpkit.WriteError(w, nethttp.StatusNotFound, "skills.not_found", "skill package not found", traceID, nil)
 					return
 				}
-				installed, err := installsRepo.IsInstalled(r.Context(), actor.OrgID, profileRef, item.SkillKey, item.Version)
+				installed, err := installsRepo.IsInstalled(r.Context(), actor.AccountID, profileRef, item.SkillKey, item.Version)
 				if err != nil {
 					httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 					return
@@ -441,7 +441,7 @@ func workspaceSkillsEntry(
 				return
 			}
 			defer tx.Rollback(r.Context())
-			if err := enableRepo.Replace(r.Context(), tx, actor.OrgID, workspaceRef, actor.UserID, items); err != nil {
+			if err := enableRepo.Replace(r.Context(), tx, actor.AccountID, workspaceRef, actor.UserID, items); err != nil {
 				httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 				return
 			}
@@ -449,7 +449,7 @@ func workspaceSkillsEntry(
 				httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 				return
 			}
-			if err := syncWorkspaceSkillRefs(r.Context(), enableRepo, workspaceRepo, actor.OrgID, workspaceRef); err != nil {
+			if err := syncWorkspaceSkillRefs(r.Context(), enableRepo, workspaceRepo, actor.AccountID, workspaceRef); err != nil {
 				httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 				return
 			}
@@ -607,8 +607,8 @@ func parseSkillPackagePath(w nethttp.ResponseWriter, traceID string, raw string,
 	return strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1]), true
 }
 
-func syncProfileSkillRefs(ctx context.Context, installsRepo *data.ProfileSkillInstallsRepository, profileRepo *data.ProfileRegistriesRepository, orgID uuid.UUID, profileRef string) error {
-	items, err := installsRepo.ListByProfile(ctx, orgID, profileRef)
+func syncProfileSkillRefs(ctx context.Context, installsRepo *data.ProfileSkillInstallsRepository, profileRepo *data.ProfileRegistriesRepository, accountID uuid.UUID, profileRef string) error {
+	items, err := installsRepo.ListByProfile(ctx, accountID, profileRef)
 	if err != nil {
 		return err
 	}
@@ -619,8 +619,8 @@ func syncProfileSkillRefs(ctx context.Context, installsRepo *data.ProfileSkillIn
 	return profileRepo.UpdateInstalledSkillRefs(ctx, profileRef, refs)
 }
 
-func syncWorkspaceSkillRefs(ctx context.Context, repo *data.WorkspaceSkillEnablementsRepository, workspaceRepo *data.WorkspaceRegistriesRepository, orgID uuid.UUID, workspaceRef string) error {
-	items, err := repo.ListByWorkspace(ctx, orgID, workspaceRef)
+func syncWorkspaceSkillRefs(ctx context.Context, repo *data.WorkspaceSkillEnablementsRepository, workspaceRepo *data.WorkspaceRegistriesRepository, accountID uuid.UUID, workspaceRef string) error {
+	items, err := repo.ListByWorkspace(ctx, accountID, workspaceRef)
 	if err != nil {
 		return err
 	}

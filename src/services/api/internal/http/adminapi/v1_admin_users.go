@@ -30,11 +30,11 @@ type adminUserResponse struct {
 
 type adminUserDetailResponse struct {
 	adminUserResponse
-	Orgs []adminUserOrgResponse `json:"orgs"`
+	Accounts []adminUserAccountResponse `json:"accounts"`
 }
 
-type adminUserOrgResponse struct {
-	OrgID string `json:"org_id"`
+type adminUserAccountResponse struct {
+	AccountID string `json:"account_id"`
 	Role  string `json:"role"`
 }
 
@@ -62,7 +62,7 @@ func toAdminUserResponse(u data.User) adminUserResponse {
 
 func adminUsersEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	usersRepo *data.UserRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	credentialRepo *data.UserCredentialRepository,
@@ -80,7 +80,7 @@ func adminUsersEntry(
 
 func adminUserEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	usersRepo *data.UserRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,
@@ -119,7 +119,7 @@ func adminUserEntry(
 
 func listAdminUsers(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	usersRepo *data.UserRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	credentialRepo *data.UserCredentialRepository,
@@ -191,7 +191,7 @@ func listAdminUsers(
 
 func getAdminUser(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	usersRepo *data.UserRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	credentialRepo *data.UserCredentialRepository,
@@ -224,7 +224,7 @@ func getAdminUser(
 
 		detail := adminUserDetailResponse{
 			adminUserResponse: toAdminUserResponse(*user),
-			Orgs:              []adminUserOrgResponse{},
+			Accounts:              []adminUserAccountResponse{},
 		}
 
 		if credentialRepo != nil {
@@ -236,8 +236,8 @@ func getAdminUser(
 		if membershipRepo != nil {
 			membership, err := membershipRepo.GetDefaultForUser(r.Context(), userID)
 			if err == nil && membership != nil {
-				detail.Orgs = append(detail.Orgs, adminUserOrgResponse{
-					OrgID: membership.OrgID.String(),
+				detail.Accounts = append(detail.Accounts, adminUserAccountResponse{
+					AccountID: membership.AccountID.String(),
 					Role:  membership.Role,
 				})
 			}
@@ -249,7 +249,7 @@ func getAdminUser(
 
 func deleteUser(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	usersRepo *data.UserRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,
@@ -295,7 +295,7 @@ func deleteUser(
 
 func patchAdminUser(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	usersRepo *data.UserRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,

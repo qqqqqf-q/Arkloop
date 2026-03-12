@@ -32,7 +32,7 @@ type adminReportsResponse struct {
 
 func adminReportsEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	reportRepo *data.ThreadReportRepository,
 	apiKeysRepo *data.APIKeysRepository,
 ) nethttp.HandlerFunc {

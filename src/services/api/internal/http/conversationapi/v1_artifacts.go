@@ -17,7 +17,7 @@ import (
 
 func artifactsEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	runRepo *data.RunEventRepository,
 	shellSessionRepo *data.ShellSessionRepository,
@@ -117,7 +117,7 @@ func resolveArtifactRun(
 	if err != nil || run == nil {
 		return nil, false
 	}
-	if metadataOrgID := strings.TrimSpace(info.Metadata[objectstore.ArtifactMetaOrgID]); metadataOrgID != "" && metadataOrgID != run.OrgID.String() {
+	if metadataAccountID := strings.TrimSpace(info.Metadata[objectstore.ArtifactMetaAccountID]); metadataAccountID != "" && metadataAccountID != run.AccountID.String() {
 		return nil, false
 	}
 	return run, true
@@ -172,9 +172,9 @@ func resolveArtifactRunID(
 			return parsed, true
 		}
 		if shellSessionRepo != nil {
-			orgID, orgErr := uuid.Parse(strings.TrimSpace(metadata[objectstore.ArtifactMetaOrgID]))
-			if orgErr == nil {
-				runID, lookupErr := shellSessionRepo.GetRunIDBySessionRef(ctx, orgID, ownerID)
+			accountID, accountErr := uuid.Parse(strings.TrimSpace(metadata[objectstore.ArtifactMetaAccountID]))
+			if accountErr == nil {
+				runID, lookupErr := shellSessionRepo.GetRunIDBySessionRef(ctx, accountID, ownerID)
 				if lookupErr == nil && runID != nil && *runID != uuid.Nil {
 					return *runID, true
 				}

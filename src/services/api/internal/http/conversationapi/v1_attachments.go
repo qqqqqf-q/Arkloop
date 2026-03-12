@@ -24,7 +24,7 @@ const uploadMultipartBodyLimit = (20 << 20) + (1 << 20)
 
 func uploadThreadAttachment(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	threadRepo *data.ThreadRepository,
 	auditWriter *audit.Writer,
 	apiKeysRepo *data.APIKeysRepository,
@@ -98,7 +98,7 @@ func uploadThreadAttachment(
 
 		threadIDText := thread.ID.String()
 		key := fmt.Sprintf("threads/%s/attachments/%s/%s", thread.ID.String(), uuid.NewString(), sanitizeAttachmentKeyName(filename))
-		metadata := objectstore.ArtifactMetadata(messageAttachmentOwnerKind, actor.UserID.String(), actor.OrgID.String(), &threadIDText)
+		metadata := objectstore.ArtifactMetadata(messageAttachmentOwnerKind, actor.UserID.String(), actor.AccountID.String(), &threadIDText)
 		if err := store.PutObject(r.Context(), key, payload.bytes, objectstore.PutOptions{ContentType: payload.mimeType, Metadata: metadata}); err != nil {
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
@@ -117,7 +117,7 @@ func uploadThreadAttachment(
 
 func messageAttachmentsEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	threadRepo *data.ThreadRepository,
 	threadShareRepo *data.ThreadShareRepository,
 	projectRepo *data.ProjectRepository,
@@ -307,7 +307,7 @@ func resolveAttachmentThread(ctx context.Context, threadRepo *data.ThreadReposit
 	if err != nil || thread == nil {
 		return nil, false
 	}
-	if orgID := strings.TrimSpace(metadata[objectstore.ArtifactMetaOrgID]); orgID != "" && orgID != thread.OrgID.String() {
+	if accountID := strings.TrimSpace(metadata[objectstore.ArtifactMetaAccountID]); accountID != "" && accountID != thread.AccountID.String() {
 		return nil, false
 	}
 	return thread, true

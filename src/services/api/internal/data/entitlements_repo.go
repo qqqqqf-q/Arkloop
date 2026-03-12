@@ -20,10 +20,10 @@ type PlanEntitlement struct {
 	ValueType string
 }
 
-// OrgEntitlementOverride 表示对单个 org 的权益覆盖。
-type OrgEntitlementOverride struct {
+// AccountEntitlementOverride 表示对单个 account 的权益覆盖。
+type AccountEntitlementOverride struct {
 	ID              uuid.UUID
-	OrgID           uuid.UUID
+	AccountID           uuid.UUID
 	Key             string
 	Value           string
 	ValueType       string
@@ -131,68 +131,68 @@ func (r *EntitlementsRepository) GetPlanEntitlement(ctx context.Context, planID 
 
 func (r *EntitlementsRepository) CreateOverride(
 	ctx context.Context,
-	orgID uuid.UUID,
+	accountID uuid.UUID,
 	key, value, valueType string,
 	reason *string,
 	expiresAt *time.Time,
 	createdByUserID uuid.UUID,
-) (OrgEntitlementOverride, error) {
+) (AccountEntitlementOverride, error) {
 	key = strings.TrimSpace(key)
 	if key == "" {
-		return OrgEntitlementOverride{}, fmt.Errorf("entitlements: key must not be empty")
+		return AccountEntitlementOverride{}, fmt.Errorf("entitlements: key must not be empty")
 	}
 	value = strings.TrimSpace(value)
 	if value == "" {
-		return OrgEntitlementOverride{}, fmt.Errorf("entitlements: value must not be empty")
+		return AccountEntitlementOverride{}, fmt.Errorf("entitlements: value must not be empty")
 	}
 	valueType = strings.TrimSpace(valueType)
 	if _, ok := validValueTypes[valueType]; !ok {
-		return OrgEntitlementOverride{}, fmt.Errorf("entitlements: value_type must be one of int, bool, string")
+		return AccountEntitlementOverride{}, fmt.Errorf("entitlements: value_type must be one of int, bool, string")
 	}
-	if orgID == uuid.Nil {
-		return OrgEntitlementOverride{}, fmt.Errorf("entitlements: org_id must not be empty")
+	if accountID == uuid.Nil {
+		return AccountEntitlementOverride{}, fmt.Errorf("entitlements: account_id must not be empty")
 	}
 
-	var o OrgEntitlementOverride
+	var o AccountEntitlementOverride
 	err := r.db.QueryRow(
 		ctx,
-		`INSERT INTO org_entitlement_overrides (org_id, key, value, value_type, reason, expires_at, created_by_user_id)
+		`INSERT INTO account_entitlement_overrides (account_id, key, value, value_type, reason, expires_at, created_by_user_id)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7)
-		 ON CONFLICT (org_id, key)
+		 ON CONFLICT (account_id, key)
 		 DO UPDATE SET value = EXCLUDED.value, value_type = EXCLUDED.value_type,
 		              reason = EXCLUDED.reason, expires_at = EXCLUDED.expires_at,
 		              created_by_user_id = EXCLUDED.created_by_user_id
-		 RETURNING id, org_id, key, value, value_type, reason, expires_at, created_by_user_id, created_at`,
-		orgID, key, value, valueType, reason, expiresAt, createdByUserID,
+		 RETURNING id, account_id, key, value, value_type, reason, expires_at, created_by_user_id, created_at`,
+		accountID, key, value, valueType, reason, expiresAt, createdByUserID,
 	).Scan(
-		&o.ID, &o.OrgID, &o.Key, &o.Value, &o.ValueType,
+		&o.ID, &o.AccountID, &o.Key, &o.Value, &o.ValueType,
 		&o.Reason, &o.ExpiresAt, &o.CreatedByUserID, &o.CreatedAt,
 	)
 	if err != nil {
-		return OrgEntitlementOverride{}, fmt.Errorf("entitlements.CreateOverride: %w", err)
+		return AccountEntitlementOverride{}, fmt.Errorf("entitlements.CreateOverride: %w", err)
 	}
 	return o, nil
 }
 
-func (r *EntitlementsRepository) ListOverridesByOrg(ctx context.Context, orgID uuid.UUID) ([]OrgEntitlementOverride, error) {
+func (r *EntitlementsRepository) ListOverridesByOrg(ctx context.Context, accountID uuid.UUID) ([]AccountEntitlementOverride, error) {
 	rows, err := r.db.Query(
 		ctx,
-		`SELECT id, org_id, key, value, value_type, reason, expires_at, created_by_user_id, created_at
-		 FROM org_entitlement_overrides
-		 WHERE org_id = $1
+		`SELECT id, account_id, key, value, value_type, reason, expires_at, created_by_user_id, created_at
+		 FROM account_entitlement_overrides
+		 WHERE account_id = $1
 		 ORDER BY key ASC`,
-		orgID,
+		accountID,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("entitlements.ListOverridesByOrg: %w", err)
 	}
 	defer rows.Close()
 
-	var items []OrgEntitlementOverride
+	var items []AccountEntitlementOverride
 	for rows.Next() {
-		var o OrgEntitlementOverride
+		var o AccountEntitlementOverride
 		if err := rows.Scan(
-			&o.ID, &o.OrgID, &o.Key, &o.Value, &o.ValueType,
+			&o.ID, &o.AccountID, &o.Key, &o.Value, &o.ValueType,
 			&o.Reason, &o.ExpiresAt, &o.CreatedByUserID, &o.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("entitlements.ListOverridesByOrg scan: %w", err)
@@ -204,18 +204,18 @@ func (r *EntitlementsRepository) ListOverridesByOrg(ctx context.Context, orgID u
 
 func (r *EntitlementsRepository) GetOverrideByOrgAndKey(
 	ctx context.Context,
-	orgID uuid.UUID,
+	accountID uuid.UUID,
 	key string,
-) (*OrgEntitlementOverride, error) {
-	var o OrgEntitlementOverride
+) (*AccountEntitlementOverride, error) {
+	var o AccountEntitlementOverride
 	err := r.db.QueryRow(
 		ctx,
-		`SELECT id, org_id, key, value, value_type, reason, expires_at, created_by_user_id, created_at
-		 FROM org_entitlement_overrides
-		 WHERE org_id = $1 AND key = $2`,
-		orgID, key,
+		`SELECT id, account_id, key, value, value_type, reason, expires_at, created_by_user_id, created_at
+		 FROM account_entitlement_overrides
+		 WHERE account_id = $1 AND key = $2`,
+		accountID, key,
 	).Scan(
-		&o.ID, &o.OrgID, &o.Key, &o.Value, &o.ValueType,
+		&o.ID, &o.AccountID, &o.Key, &o.Value, &o.ValueType,
 		&o.Reason, &o.ExpiresAt, &o.CreatedByUserID, &o.CreatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -230,17 +230,17 @@ func (r *EntitlementsRepository) GetOverrideByOrgAndKey(
 func (r *EntitlementsRepository) GetOverrideByID(
 	ctx context.Context,
 	id uuid.UUID,
-	orgID uuid.UUID,
-) (*OrgEntitlementOverride, error) {
-	var o OrgEntitlementOverride
+	accountID uuid.UUID,
+) (*AccountEntitlementOverride, error) {
+	var o AccountEntitlementOverride
 	err := r.db.QueryRow(
 		ctx,
-		`SELECT id, org_id, key, value, value_type, reason, expires_at, created_by_user_id, created_at
-		 FROM org_entitlement_overrides
-		 WHERE id = $1 AND org_id = $2`,
-		id, orgID,
+		`SELECT id, account_id, key, value, value_type, reason, expires_at, created_by_user_id, created_at
+		 FROM account_entitlement_overrides
+		 WHERE id = $1 AND account_id = $2`,
+		id, accountID,
 	).Scan(
-		&o.ID, &o.OrgID, &o.Key, &o.Value, &o.ValueType,
+		&o.ID, &o.AccountID, &o.Key, &o.Value, &o.ValueType,
 		&o.Reason, &o.ExpiresAt, &o.CreatedByUserID, &o.CreatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -252,18 +252,18 @@ func (r *EntitlementsRepository) GetOverrideByID(
 	return &o, nil
 }
 
-// GetOverride 查询 org 下指定 key 的未过期 override。
-func (r *EntitlementsRepository) GetOverride(ctx context.Context, orgID uuid.UUID, key string) (*OrgEntitlementOverride, error) {
-	var o OrgEntitlementOverride
+// GetOverride 查询 account 下指定 key 的未过期 override。
+func (r *EntitlementsRepository) GetOverride(ctx context.Context, accountID uuid.UUID, key string) (*AccountEntitlementOverride, error) {
+	var o AccountEntitlementOverride
 	err := r.db.QueryRow(
 		ctx,
-		`SELECT id, org_id, key, value, value_type, reason, expires_at, created_by_user_id, created_at
-		 FROM org_entitlement_overrides
-		 WHERE org_id = $1 AND key = $2
+		`SELECT id, account_id, key, value, value_type, reason, expires_at, created_by_user_id, created_at
+		 FROM account_entitlement_overrides
+		 WHERE account_id = $1 AND key = $2
 		   AND (expires_at IS NULL OR expires_at > now())`,
-		orgID, key,
+		accountID, key,
 	).Scan(
-		&o.ID, &o.OrgID, &o.Key, &o.Value, &o.ValueType,
+		&o.ID, &o.AccountID, &o.Key, &o.Value, &o.ValueType,
 		&o.Reason, &o.ExpiresAt, &o.CreatedByUserID, &o.CreatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -275,11 +275,11 @@ func (r *EntitlementsRepository) GetOverride(ctx context.Context, orgID uuid.UUI
 	return &o, nil
 }
 
-func (r *EntitlementsRepository) DeleteOverride(ctx context.Context, id, orgID uuid.UUID) error {
+func (r *EntitlementsRepository) DeleteOverride(ctx context.Context, id, accountID uuid.UUID) error {
 	tag, err := r.db.Exec(
 		ctx,
-		`DELETE FROM org_entitlement_overrides WHERE id = $1 AND org_id = $2`,
-		id, orgID,
+		`DELETE FROM account_entitlement_overrides WHERE id = $1 AND account_id = $2`,
+		id, accountID,
 	)
 	if err != nil {
 		return fmt.Errorf("entitlements.DeleteOverride: %w", err)

@@ -49,9 +49,9 @@ func WriteError(w nethttp.ResponseWriter, statusCode int, code string, message s
 }
 
 type Actor struct {
-	OrgID       uuid.UUID
+	AccountID   uuid.UUID
 	UserID      uuid.UUID
-	OrgRole     string
+	AccountRole string
 	Permissions []string
 }
 
@@ -82,7 +82,7 @@ func AuthenticateActor(
 	r *nethttp.Request,
 	traceID string,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 ) (*Actor, bool) {
 	_ = membershipRepo
 
@@ -117,16 +117,16 @@ func AuthenticateActor(
 		return nil, false
 	}
 
-	if verified.OrgID == uuid.Nil || strings.TrimSpace(verified.OrgRole) == "" {
-		WriteError(w, nethttp.StatusForbidden, "auth.no_org_membership", "user has no org membership", traceID, nil)
+	if verified.AccountID == uuid.Nil || strings.TrimSpace(verified.AccountRole) == "" {
+		WriteError(w, nethttp.StatusForbidden, "auth.no_account_membership", "user has no account membership", traceID, nil)
 		return nil, false
 	}
 
 	return &Actor{
-		OrgID:       verified.OrgID,
+		AccountID:   verified.AccountID,
 		UserID:      verified.UserID,
-		OrgRole:     verified.OrgRole,
-		Permissions: auth.PermissionsForRole(verified.OrgRole),
+		AccountRole: verified.AccountRole,
+		Permissions: auth.PermissionsForRole(verified.AccountRole),
 	}, true
 }
 
@@ -135,7 +135,7 @@ func ResolveActor(
 	r *nethttp.Request,
 	traceID string,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,
 ) (*Actor, bool) {
@@ -174,16 +174,16 @@ func ResolveActor(
 		return nil, false
 	}
 
-	if verified.OrgID == uuid.Nil || strings.TrimSpace(verified.OrgRole) == "" {
-		WriteError(w, nethttp.StatusForbidden, "auth.no_org_membership", "user has no org membership", traceID, nil)
+	if verified.AccountID == uuid.Nil || strings.TrimSpace(verified.AccountRole) == "" {
+		WriteError(w, nethttp.StatusForbidden, "auth.no_account_membership", "user has no account membership", traceID, nil)
 		return nil, false
 	}
 
 	return &Actor{
-		OrgID:       verified.OrgID,
+		AccountID:   verified.AccountID,
 		UserID:      verified.UserID,
-		OrgRole:     verified.OrgRole,
-		Permissions: auth.PermissionsForRole(verified.OrgRole),
+		AccountRole: verified.AccountRole,
+		Permissions: auth.PermissionsForRole(verified.AccountRole),
 	}, true
 }
 
@@ -192,7 +192,7 @@ func ResolveActorFromAPIKey(
 	r *nethttp.Request,
 	traceID string,
 	rawKey string,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,
 ) (*Actor, bool) {
@@ -213,18 +213,18 @@ func ResolveActorFromAPIKey(
 		return nil, false
 	}
 
-	membership, err := membershipRepo.GetByOrgAndUser(r.Context(), apiKey.OrgID, apiKey.UserID)
+	membership, err := membershipRepo.GetByOrgAndUser(r.Context(), apiKey.AccountID, apiKey.UserID)
 	if err != nil {
 		WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return nil, false
 	}
 	if membership == nil {
-		WriteError(w, nethttp.StatusForbidden, "auth.no_org_membership", "user has no org membership", traceID, nil)
+		WriteError(w, nethttp.StatusForbidden, "auth.no_account_membership", "user has no account membership", traceID, nil)
 		return nil, false
 	}
 
 	keyID := apiKey.ID
-	orgID := apiKey.OrgID
+	accountID := apiKey.AccountID
 	userID := apiKey.UserID
 
 	go func() {
@@ -235,16 +235,16 @@ func ResolveActorFromAPIKey(
 	}()
 
 	if auditWriter != nil {
-		auditWriter.WriteAPIKeyUsed(r.Context(), traceID, orgID, userID, keyID, "api_key.used")
+		auditWriter.WriteAPIKeyUsed(r.Context(), traceID, accountID, userID, keyID, "api_key.used")
 	}
 
 	normalizedScopes, _ := auth.NormalizePermissions(apiKey.Scopes)
 	effectivePermissions := auth.IntersectPermissions(auth.PermissionsForRole(membership.Role), normalizedScopes)
 
 	return &Actor{
-		OrgID:       membership.OrgID,
+		AccountID:   membership.AccountID,
 		UserID:      apiKey.UserID,
-		OrgRole:     membership.Role,
+		AccountRole: membership.Role,
 		Permissions: effectivePermissions,
 	}, true
 }

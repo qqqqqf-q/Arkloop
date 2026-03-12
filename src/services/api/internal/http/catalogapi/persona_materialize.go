@@ -60,7 +60,7 @@ func repoPersonaTitleSummarizeJSON(raw map[string]any) json.RawMessage {
 func materializeRepoPersonaForCreate(
 	ctx context.Context,
 	personasRepo *data.PersonasRepository,
-	orgID uuid.UUID,
+	accountID uuid.UUID,
 	scope string,
 	repoPersona repopersonas.RepoPersona,
 	req createPersonaRequest,
@@ -157,7 +157,7 @@ func materializeRepoPersonaForCreate(
 
 	return personasRepo.CreateInScope(
 		ctx,
-		orgID,
+		accountID,
 		scope,
 		repoPersona.ID,
 		repoPersona.Version,
@@ -179,7 +179,7 @@ func materializeRepoPersonaForCreate(
 func materializeRepoPersonaForLiteAgent(
 	ctx context.Context,
 	personasRepo *data.PersonasRepository,
-	orgID uuid.UUID,
+	accountID uuid.UUID,
 	scope string,
 	repoPersona repopersonas.RepoPersona,
 	req createLiteAgentRequest,
@@ -218,7 +218,7 @@ func materializeRepoPersonaForLiteAgent(
 
 	return personasRepo.CreateInScope(
 		ctx,
-		orgID,
+		accountID,
 		scope,
 		repoPersona.ID,
 		repoPersona.Version,

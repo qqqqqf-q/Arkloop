@@ -16,7 +16,7 @@ import (
 
 type subscriptionResponse struct {
 	ID                 string  `json:"id"`
-	OrgID              string  `json:"org_id"`
+	AccountID              string  `json:"account_id"`
 	PlanID             string  `json:"plan_id"`
 	Status             string  `json:"status"`
 	CurrentPeriodStart string  `json:"current_period_start"`
@@ -26,7 +26,7 @@ type subscriptionResponse struct {
 }
 
 type createSubscriptionRequest struct {
-	OrgID              string `json:"org_id"`
+	AccountID              string `json:"account_id"`
 	PlanID             string `json:"plan_id"`
 	CurrentPeriodStart string `json:"current_period_start"`
 	CurrentPeriodEnd   string `json:"current_period_end"`
@@ -34,7 +34,7 @@ type createSubscriptionRequest struct {
 
 func subscriptionsEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	subscriptionRepo *data.SubscriptionRepository,
 	apiKeysRepo *data.APIKeysRepository,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
@@ -52,7 +52,7 @@ func subscriptionsEntry(
 
 func subscriptionEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	subscriptionRepo *data.SubscriptionRepository,
 	apiKeysRepo *data.APIKeysRepository,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
@@ -87,7 +87,7 @@ func createSubscription(
 	w nethttp.ResponseWriter,
 	r *nethttp.Request,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	subscriptionRepo *data.SubscriptionRepository,
 	apiKeysRepo *data.APIKeysRepository,
 ) {
@@ -115,9 +115,9 @@ func createSubscription(
 		return
 	}
 
-	orgID, err := uuid.Parse(strings.TrimSpace(req.OrgID))
+	accountID, err := uuid.Parse(strings.TrimSpace(req.AccountID))
 	if err != nil {
-		httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "invalid org_id", traceID, nil)
+		httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "invalid account_id", traceID, nil)
 		return
 	}
 	planID, err := uuid.Parse(strings.TrimSpace(req.PlanID))
@@ -137,7 +137,7 @@ func createSubscription(
 		return
 	}
 
-	sub, err := subscriptionRepo.Create(r.Context(), orgID, planID, periodStart, periodEnd)
+	sub, err := subscriptionRepo.Create(r.Context(), accountID, planID, periodStart, periodEnd)
 	if err != nil {
 		httpkit.WriteError(w, nethttp.StatusConflict, "subscriptions.conflict", err.Error(), traceID, nil)
 		return
@@ -146,12 +146,12 @@ func createSubscription(
 	httpkit.WriteJSON(w, traceID, nethttp.StatusCreated, toSubscriptionResponse(sub))
 }
 
-// listOrGetSubscription: platform_admin 无 query 时返回全部; 普通成员返回自身 org 的订阅。
+// listOrGetSubscription: platform_admin 无 query 时返回全部; 普通成员返回自身 account 的订阅。
 func listOrGetSubscription(
 	w nethttp.ResponseWriter,
 	r *nethttp.Request,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	subscriptionRepo *data.SubscriptionRepository,
 	apiKeysRepo *data.APIKeysRepository,
 ) {
@@ -185,11 +185,11 @@ func listOrGetSubscription(
 		return
 	}
 
-	// 普通成员: 返回自己 org 的 active subscription
+	// 普通成员: 返回自己 account 的 active subscription
 	if !httpkit.RequirePerm(actor, auth.PermDataSubscriptionsRead, w, traceID) {
 		return
 	}
-	sub, err := subscriptionRepo.GetActiveByOrgID(r.Context(), actor.OrgID)
+	sub, err := subscriptionRepo.GetActiveByAccountID(r.Context(), actor.AccountID)
 	if err != nil {
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
@@ -207,7 +207,7 @@ func getSubscription(
 	traceID string,
 	subID uuid.UUID,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	subscriptionRepo *data.SubscriptionRepository,
 	apiKeysRepo *data.APIKeysRepository,
 ) {
@@ -235,8 +235,8 @@ func getSubscription(
 		return
 	}
 
-	// 非 platform_admin 只能查看自己 org 的订阅
-	if !actor.HasPermission(auth.PermPlatformSubscriptionsManage) && sub.OrgID != actor.OrgID {
+	// 非 platform_admin 只能查看自己 account 的订阅
+	if !actor.HasPermission(auth.PermPlatformSubscriptionsManage) && sub.AccountID != actor.AccountID {
 		httpkit.WriteError(w, nethttp.StatusNotFound, "subscriptions.not_found", "subscription not found", traceID, nil)
 		return
 	}
@@ -250,7 +250,7 @@ func cancelSubscription(
 	traceID string,
 	subID uuid.UUID,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	subscriptionRepo *data.SubscriptionRepository,
 	apiKeysRepo *data.APIKeysRepository,
 ) {
@@ -287,7 +287,7 @@ func cancelSubscription(
 func toSubscriptionResponse(s data.Subscription) subscriptionResponse {
 	resp := subscriptionResponse{
 		ID:                 s.ID.String(),
-		OrgID:              s.OrgID.String(),
+		AccountID:              s.AccountID.String(),
 		PlanID:             s.PlanID.String(),
 		Status:             s.Status,
 		CurrentPeriodStart: s.CurrentPeriodStart.UTC().Format(time.RFC3339Nano),

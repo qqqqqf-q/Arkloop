@@ -11,7 +11,7 @@ import (
 
 type RBACRole struct {
 	ID          uuid.UUID
-	OrgID       *uuid.UUID
+	AccountID       *uuid.UUID
 	Name        string
 	Permissions []string
 	IsSystem    bool
@@ -29,7 +29,7 @@ func NewRBACRolesRepository(db Querier) (*RBACRolesRepository, error) {
 	return &RBACRolesRepository{db: db}, nil
 }
 
-// GetSystemRole 按名称查询系统角色（org_id IS NULL）。
+// GetSystemRole 按名称查询系统角色（account_id IS NULL）。
 func (r *RBACRolesRepository) GetSystemRole(ctx context.Context, name string) (*RBACRole, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -38,11 +38,11 @@ func (r *RBACRolesRepository) GetSystemRole(ctx context.Context, name string) (*
 	var role RBACRole
 	err := r.db.QueryRow(
 		ctx,
-		`SELECT id, org_id, name, permissions, is_system, created_at
+		`SELECT id, account_id, name, permissions, is_system, created_at
 		 FROM rbac_roles
-		 WHERE name = $1 AND org_id IS NULL`,
+		 WHERE name = $1 AND account_id IS NULL`,
 		name,
-	).Scan(&role.ID, &role.OrgID, &role.Name, &role.Permissions, &role.IsSystem, &role.CreatedAt)
+	).Scan(&role.ID, &role.AccountID, &role.Name, &role.Permissions, &role.IsSystem, &role.CreatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
@@ -60,9 +60,9 @@ func (r *RBACRolesRepository) ListSystemRoles(ctx context.Context) ([]RBACRole, 
 
 	rows, err := r.db.Query(
 		ctx,
-		`SELECT id, org_id, name, permissions, is_system, created_at
+		`SELECT id, account_id, name, permissions, is_system, created_at
 		 FROM rbac_roles
-		 WHERE org_id IS NULL AND is_system = TRUE
+		 WHERE account_id IS NULL AND is_system = TRUE
 		 ORDER BY created_at ASC`,
 	)
 	if err != nil {
@@ -73,7 +73,7 @@ func (r *RBACRolesRepository) ListSystemRoles(ctx context.Context) ([]RBACRole, 
 	var roles []RBACRole
 	for rows.Next() {
 		var role RBACRole
-		if err := rows.Scan(&role.ID, &role.OrgID, &role.Name, &role.Permissions, &role.IsSystem, &role.CreatedAt); err != nil {
+		if err := rows.Scan(&role.ID, &role.AccountID, &role.Name, &role.Permissions, &role.IsSystem, &role.CreatedAt); err != nil {
 			return nil, err
 		}
 		roles = append(roles, role)

@@ -35,7 +35,7 @@ type updateThreadRequest struct {
 
 type threadResponse struct {
 	ID              string  `json:"id"`
-	OrgID           string  `json:"org_id"`
+	AccountID           string  `json:"account_id"`
 	CreatedByUserID *string `json:"created_by_user_id"`
 	Title           *string `json:"title"`
 	ProjectID       *string `json:"project_id,omitempty"`
@@ -95,7 +95,7 @@ func (u *optionalUUID) UnmarshalJSON(raw []byte) error {
 
 func createThread(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	threadRepo *data.ThreadRepository,
 	projectRepo *data.ProjectRepository,
 	pool *pgxpool.Pool,
@@ -170,13 +170,13 @@ func createThread(
 				httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 				return
 			}
-			if project == nil || project.OrgID != actor.OrgID {
-				httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "project not found in org", traceID, nil)
+			if project == nil || project.AccountID != actor.AccountID {
+				httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "project not found in account", traceID, nil)
 				return
 			}
 			projectID = project.ID
 		} else {
-			project, err := txProjectRepo.GetOrCreateDefaultByOwner(r.Context(), actor.OrgID, actor.UserID)
+			project, err := txProjectRepo.GetOrCreateDefaultByOwner(r.Context(), actor.AccountID, actor.UserID)
 			if err != nil {
 				httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 				return
@@ -184,7 +184,7 @@ func createThread(
 			projectID = project.ID
 		}
 
-		thread, err := txThreadRepo.Create(r.Context(), actor.OrgID, &actor.UserID, projectID, body.Title, body.IsPrivate)
+		thread, err := txThreadRepo.Create(r.Context(), actor.AccountID, &actor.UserID, projectID, body.Title, body.IsPrivate)
 		if err != nil {
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
@@ -200,7 +200,7 @@ func createThread(
 
 func listThreads(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	threadRepo *data.ThreadRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,
@@ -241,7 +241,7 @@ func listThreads(
 
 		threads, err := threadRepo.ListByOwner(
 			r.Context(),
-			actor.OrgID,
+			actor.AccountID,
 			actor.UserID,
 			limit,
 			beforeCreatedAt,
@@ -262,7 +262,7 @@ func listThreads(
 
 func getThread(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	threadRepo *data.ThreadRepository,
 	projectRepo *data.ProjectRepository,
 	teamRepo *data.TeamRepository,
@@ -308,7 +308,7 @@ func getThread(
 
 func patchThread(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	threadRepo *data.ThreadRepository,
 	projectRepo *data.ProjectRepository,
 	auditWriter *audit.Writer,
@@ -361,7 +361,7 @@ func patchThread(
 		}
 
 		if isTitleOnlyThreadUpdate(body) {
-			updated, err := threadRepo.UpdateFieldsOwned(r.Context(), threadID, actor.OrgID, actor.UserID, params)
+			updated, err := threadRepo.UpdateFieldsOwned(r.Context(), threadID, actor.AccountID, actor.UserID, params)
 			if err != nil {
 				httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 				return
@@ -386,7 +386,7 @@ func patchThread(
 			return
 		}
 
-		// 验证新的 project_id 归属于同一 org；projectRepo 必须可用才能做 org 隔离校验
+		// 验证新的 project_id 归属于同一 account；projectRepo 必须可用才能做 account 隔离校验
 		if body.ProjectID.Present && body.ProjectID.Value != nil {
 			if projectRepo == nil {
 				httpkit.WriteError(w, nethttp.StatusServiceUnavailable, "database.not_configured", "database not configured", traceID, nil)
@@ -397,15 +397,15 @@ func patchThread(
 				httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 				return
 			}
-			if project == nil || project.OrgID != actor.OrgID {
-				httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "project not found in org", traceID, nil)
+			if project == nil || project.AccountID != actor.AccountID {
+				httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "project not found in account", traceID, nil)
 				return
 			}
 		}
 
 		// 原子更新：单条 SQL 同时写多个字段，避免局部写入
 		// 用户手动设置标题时同时锁定，防止 Worker 自动标题覆盖
-		updated, err := threadRepo.UpdateFieldsOwned(r.Context(), threadID, actor.OrgID, actor.UserID, params)
+		updated, err := threadRepo.UpdateFieldsOwned(r.Context(), threadID, actor.AccountID, actor.UserID, params)
 		if err != nil {
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
@@ -421,7 +421,7 @@ func patchThread(
 
 func deleteThread(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	threadRepo *data.ThreadRepository,
 	auditWriter *audit.Writer,
 	apiKeysRepo *data.APIKeysRepository,
@@ -445,14 +445,14 @@ func deleteThread(
 			return
 		}
 
-		deleted, err := threadRepo.DeleteOwnedReturning(r.Context(), threadID, actor.OrgID, actor.UserID)
+		deleted, err := threadRepo.DeleteOwnedReturning(r.Context(), threadID, actor.AccountID, actor.UserID)
 		if err != nil {
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
 		}
 		if deleted != nil {
 			if auditWriter != nil {
-				auditWriter.WriteThreadDeleted(r.Context(), traceID, actor.OrgID, actor.UserID, deleted.ID)
+				auditWriter.WriteThreadDeleted(r.Context(), traceID, actor.AccountID, actor.UserID, deleted.ID)
 			}
 			w.WriteHeader(nethttp.StatusNoContent)
 			return
@@ -472,7 +472,7 @@ func deleteThread(
 			return
 		}
 
-		deleted, err = threadRepo.DeleteOwnedReturning(r.Context(), threadID, actor.OrgID, actor.UserID)
+		deleted, err = threadRepo.DeleteOwnedReturning(r.Context(), threadID, actor.AccountID, actor.UserID)
 		if err != nil {
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
@@ -483,7 +483,7 @@ func deleteThread(
 		}
 
 		if auditWriter != nil {
-			auditWriter.WriteThreadDeleted(r.Context(), traceID, actor.OrgID, actor.UserID, deleted.ID)
+			auditWriter.WriteThreadDeleted(r.Context(), traceID, actor.AccountID, actor.UserID, deleted.ID)
 		}
 
 		w.WriteHeader(nethttp.StatusNoContent)
@@ -492,7 +492,7 @@ func deleteThread(
 
 func threadsEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	threadRepo *data.ThreadRepository,
 	projectRepo *data.ProjectRepository,
 	pool *pgxpool.Pool,
@@ -515,7 +515,7 @@ func threadsEntry(
 
 func searchThreads(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	threadRepo *data.ThreadRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,
@@ -559,7 +559,7 @@ func searchThreads(
 			return
 		}
 
-		threads, err := threadRepo.SearchByQuery(r.Context(), actor.OrgID, actor.UserID, q, limit)
+		threads, err := threadRepo.SearchByQuery(r.Context(), actor.AccountID, actor.UserID, q, limit)
 		if err != nil {
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
@@ -590,7 +590,7 @@ type idMappingPair struct {
 
 func forkThread(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	threadRepo *data.ThreadRepository,
 	messageRepo *data.MessageRepository,
 	auditWriter *audit.Writer,
@@ -669,13 +669,13 @@ func forkThread(
 			isPrivate = *body.IsPrivate
 		}
 
-		forked, err := txThreadRepo.Fork(r.Context(), actor.OrgID, &actor.UserID, threadID, messageID, isPrivate)
+		forked, err := txThreadRepo.Fork(r.Context(), actor.AccountID, &actor.UserID, threadID, messageID, isPrivate)
 		if err != nil {
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
 		}
 
-		copied, err := txMessageRepo.CopyUpTo(r.Context(), actor.OrgID, threadID, forked.ID, messageID)
+		copied, err := txMessageRepo.CopyUpTo(r.Context(), actor.AccountID, threadID, forked.ID, messageID)
 		if err != nil {
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
@@ -703,7 +703,7 @@ func forkThread(
 
 func threadEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	threadRepo *data.ThreadRepository,
 	threadStarRepo *data.ThreadStarRepository,
 	threadShareRepo *data.ThreadShareRepository,
@@ -914,8 +914,8 @@ func authorizeThreadOrAudit(
 	}
 
 	denyReason := "owner_mismatch"
-	if actor.OrgID != thread.OrgID {
-		denyReason = "org_mismatch"
+	if actor.AccountID != thread.AccountID {
+		denyReason = "account_mismatch"
 	} else if thread.CreatedByUserID == nil {
 		denyReason = "no_owner"
 	} else if *thread.CreatedByUserID == actor.UserID {
@@ -926,12 +926,12 @@ func authorizeThreadOrAudit(
 		auditWriter.WriteAccessDenied(
 			r.Context(),
 			traceID,
-			actor.OrgID,
+			actor.AccountID,
 			actor.UserID,
 			action,
 			"thread",
 			thread.ID.String(),
-			thread.OrgID,
+			thread.AccountID,
 			thread.CreatedByUserID,
 			denyReason,
 		)
@@ -966,10 +966,10 @@ func authorizeThreadReadOrAudit(
 		return false
 	}
 
-	if actor.OrgID != thread.OrgID {
+	if actor.AccountID != thread.AccountID {
 		if auditWriter != nil {
-			auditWriter.WriteAccessDenied(r.Context(), traceID, actor.OrgID, actor.UserID,
-				action, "thread", thread.ID.String(), thread.OrgID, thread.CreatedByUserID, "org_mismatch")
+			auditWriter.WriteAccessDenied(r.Context(), traceID, actor.AccountID, actor.UserID,
+				action, "thread", thread.ID.String(), thread.AccountID, thread.CreatedByUserID, "account_mismatch")
 		}
 		httpkit.WriteError(w, nethttp.StatusForbidden, "policy.denied", "access denied", traceID, map[string]any{"action": action})
 		return false
@@ -1011,8 +1011,8 @@ func authorizeThreadReadOrAudit(
 		denyReason = "no_owner"
 	}
 	if auditWriter != nil {
-		auditWriter.WriteAccessDenied(r.Context(), traceID, actor.OrgID, actor.UserID,
-			action, "thread", thread.ID.String(), thread.OrgID, thread.CreatedByUserID, denyReason)
+		auditWriter.WriteAccessDenied(r.Context(), traceID, actor.AccountID, actor.UserID,
+			action, "thread", thread.ID.String(), thread.AccountID, thread.CreatedByUserID, denyReason)
 	}
 	httpkit.WriteError(w, nethttp.StatusForbidden, "policy.denied", "access denied", traceID, map[string]any{"action": action})
 	return false
@@ -1036,7 +1036,7 @@ func toThreadResponse(thread data.Thread) threadResponse {
 	}
 	return threadResponse{
 		ID:              thread.ID.String(),
-		OrgID:           thread.OrgID.String(),
+		AccountID:           thread.AccountID.String(),
 		CreatedByUserID: createdByUserID,
 		Title:           thread.Title,
 		ProjectID:       projectID,
@@ -1062,7 +1062,7 @@ func handleThreadStar(
 	r *nethttp.Request,
 	traceID string,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	threadRepo *data.ThreadRepository,
 	threadStarRepo *data.ThreadStarRepository,
 	apiKeysRepo *data.APIKeysRepository,
@@ -1095,7 +1095,7 @@ func handleThreadStar(
 		httpkit.WriteError(w, nethttp.StatusNotFound, "threads.not_found", "thread not found", traceID, nil)
 		return
 	}
-	if thread.OrgID != actor.OrgID {
+	if thread.AccountID != actor.AccountID {
 		httpkit.WriteError(w, nethttp.StatusForbidden, "policy.denied", "access denied", traceID, nil)
 		return
 	}
@@ -1118,7 +1118,7 @@ func handleThreadStar(
 // listStarredThreads 处理 GET /v1/threads/starred，返回当前用户收藏的 thread ID 列表。
 func listStarredThreads(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	threadStarRepo *data.ThreadStarRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,

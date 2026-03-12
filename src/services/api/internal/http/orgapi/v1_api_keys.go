@@ -28,7 +28,7 @@ type createAPIKeyRequest struct {
 
 type apiKeyResponse struct {
 	ID         string   `json:"id"`
-	OrgID      string   `json:"org_id"`
+	AccountID      string   `json:"account_id"`
 	UserID     string   `json:"user_id"`
 	Name       string   `json:"name"`
 	KeyPrefix  string   `json:"key_prefix"`
@@ -44,14 +44,14 @@ type createAPIKeyResponse struct {
 }
 
 type apiKeyCacheEntry struct {
-	OrgID   string `json:"org_id"`
+	AccountID   string `json:"account_id"`
 	UserID  string `json:"user_id"`
 	Revoked bool   `json:"revoked"`
 }
 
 func apiKeysEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,
 	redisClient *redis.Client,
@@ -71,7 +71,7 @@ func apiKeysEntry(
 
 func apiKeyEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,
 	redisClient *redis.Client,
@@ -106,7 +106,7 @@ func createAPIKey(
 	r *nethttp.Request,
 	traceID string,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,
 	redisClient *redis.Client,
@@ -151,13 +151,13 @@ func createAPIKey(
 		httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "invalid scopes", traceID, map[string]any{"scopes": invalidScopes})
 		return
 	}
-	rolePermissions := auth.PermissionsForRole(actor.OrgRole)
+	rolePermissions := auth.PermissionsForRole(actor.AccountRole)
 	if !auth.IsPermissionSubset(normalizedScopes, rolePermissions) {
 		httpkit.WriteError(w, nethttp.StatusForbidden, "api_keys.scope_forbidden", "access denied", traceID, nil)
 		return
 	}
 
-	apiKey, rawKey, err := apiKeysRepo.Create(r.Context(), actor.OrgID, actor.UserID, req.Name, normalizedScopes)
+	apiKey, rawKey, err := apiKeysRepo.Create(r.Context(), actor.AccountID, actor.UserID, req.Name, normalizedScopes)
 	if err != nil {
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
@@ -166,7 +166,7 @@ func createAPIKey(
 	syncAPIKeyCache(r.Context(), redisClient, apiKey, data.HashAPIKey(rawKey))
 
 	if auditWriter != nil {
-		auditWriter.WriteAPIKeyCreated(r.Context(), traceID, actor.OrgID, actor.UserID, apiKey.ID, apiKey.Name)
+		auditWriter.WriteAPIKeyCreated(r.Context(), traceID, actor.AccountID, actor.UserID, apiKey.ID, apiKey.Name)
 	}
 
 	resp := createAPIKeyResponse{
@@ -181,7 +181,7 @@ func listAPIKeys(
 	r *nethttp.Request,
 	traceID string,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	apiKeysRepo *data.APIKeysRepository,
 ) {
 	if authService == nil {
@@ -220,7 +220,7 @@ func revokeAPIKey(
 	traceID string,
 	keyID uuid.UUID,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,
 	redisClient *redis.Client,
@@ -255,20 +255,20 @@ func revokeAPIKey(
 	invalidateAPIKeyCache(r.Context(), redisClient, keyHash)
 
 	if auditWriter != nil {
-		auditWriter.WriteAPIKeyRevoked(r.Context(), traceID, actor.OrgID, actor.UserID, keyID)
+		auditWriter.WriteAPIKeyRevoked(r.Context(), traceID, actor.AccountID, actor.UserID, keyID)
 	}
 
 	w.WriteHeader(nethttp.StatusNoContent)
 }
 
-// syncAPIKeyCache 将 API Key 元数据写入 Redis，供 Gateway 限流和 IP 过滤提取 org_id。
+// syncAPIKeyCache 将 API Key 元数据写入 Redis，供 Gateway 限流和 IP 过滤提取 account_id。
 func syncAPIKeyCache(ctx context.Context, client *redis.Client, apiKey data.APIKey, keyHash string) {
 	if client == nil {
 		return
 	}
 
 	entry := apiKeyCacheEntry{
-		OrgID:   apiKey.OrgID.String(),
+		AccountID:   apiKey.AccountID.String(),
 		UserID:  apiKey.UserID.String(),
 		Revoked: false,
 	}
@@ -292,7 +292,7 @@ func invalidateAPIKeyCache(ctx context.Context, client *redis.Client, keyHash st
 func toAPIKeyResponse(k data.APIKey) apiKeyResponse {
 	resp := apiKeyResponse{
 		ID:        k.ID.String(),
-		OrgID:     k.OrgID.String(),
+		AccountID:     k.AccountID.String(),
 		UserID:    k.UserID.String(),
 		Name:      k.Name,
 		KeyPrefix: k.KeyPrefix,
@@ -311,27 +311,27 @@ func toAPIKeyResponse(k data.APIKey) apiKeyResponse {
 }
 
 func listVisibleAPIKeys(ctx context.Context, actor *httpkit.Actor, repo *data.APIKeysRepository) ([]data.APIKey, error) {
-	if isOrgAPIKeyAdmin(actor) {
-		return repo.ListByOrg(ctx, actor.OrgID)
+	if isAccountAPIKeyAdmin(actor) {
+		return repo.ListByOrg(ctx, actor.AccountID)
 	}
-	return repo.ListByOrgAndUser(ctx, actor.OrgID, actor.UserID)
+	return repo.ListByOrgAndUser(ctx, actor.AccountID, actor.UserID)
 }
 
 func revokeVisibleAPIKey(ctx context.Context, actor *httpkit.Actor, repo *data.APIKeysRepository, keyID uuid.UUID) (string, error) {
-	if isOrgAPIKeyAdmin(actor) {
-		return repo.Revoke(ctx, actor.OrgID, keyID)
+	if isAccountAPIKeyAdmin(actor) {
+		return repo.Revoke(ctx, actor.AccountID, keyID)
 	}
-	return repo.RevokeOwned(ctx, actor.OrgID, actor.UserID, keyID)
+	return repo.RevokeOwned(ctx, actor.AccountID, actor.UserID, keyID)
 }
 
-func isOrgAPIKeyAdmin(actor *httpkit.Actor) bool {
+func isAccountAPIKeyAdmin(actor *httpkit.Actor) bool {
 	if actor == nil {
 		return false
 	}
 	if actor.HasPermission(auth.PermPlatformAdmin) {
 		return true
 	}
-	return actor.OrgRole == auth.RoleOrgAdmin || actor.OrgRole == "owner"
+	return actor.AccountRole == auth.RoleOrgAdmin || actor.AccountRole == "owner"
 }
 
 func normalizeAPIKeyScopes(scopes []string) []string {

@@ -28,7 +28,7 @@ type createAsrCredentialRequest struct {
 
 type asrCredentialResponse struct {
 	ID        string  `json:"id"`
-	OrgID     *string `json:"org_id"` // null for platform scope
+	AccountID     *string `json:"account_id"` // null for platform scope
 	Scope     string  `json:"scope"`
 	Provider  string  `json:"provider"`
 	Name      string  `json:"name"`
@@ -46,7 +46,7 @@ var validAsrProviders = map[string]bool{
 
 func asrCredentialsEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	credRepo *data.AsrCredentialsRepository,
 	secretsRepo *data.SecretsRepository,
 	pool *pgxpool.Pool,
@@ -66,7 +66,7 @@ func asrCredentialsEntry(
 
 func asrCredentialEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	credRepo *data.AsrCredentialsRepository,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
@@ -113,7 +113,7 @@ func createAsrCredential(
 	r *nethttp.Request,
 	traceID string,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	credRepo *data.AsrCredentialsRepository,
 	secretsRepo *data.SecretsRepository,
 	pool *pgxpool.Pool,
@@ -179,8 +179,8 @@ func createAsrCredential(
 	txCreds := credRepo.WithTx(tx)
 
 	credID := uuid.New()
-	// 密钥始终存在 actor.OrgID 下；platform scope 凭证通过 secret_id 解密，不依赖 org
-	secret, err := txSecrets.Create(r.Context(), actor.OrgID, "asr_cred:"+credID.String(), req.APIKey)
+	// 密钥始终存在 actor.AccountID 下；platform scope 凭证通过 secret_id 解密，不依赖 account
+	secret, err := txSecrets.Create(r.Context(), actor.AccountID, "asr_cred:"+credID.String(), req.APIKey)
 	if err != nil {
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
@@ -188,15 +188,15 @@ func createAsrCredential(
 
 	keyPrefix := computeKeyPrefix(req.APIKey)
 
-	orgIDForCred := actor.OrgID
+	accountIDForCred := actor.AccountID
 	if req.Scope == "platform" {
-		orgIDForCred = uuid.Nil
+		accountIDForCred = uuid.Nil
 	}
 
 	cred, err := txCreds.Create(
 		r.Context(),
 		credID,
-		orgIDForCred,
+		accountIDForCred,
 		req.Scope,
 		req.Provider,
 		req.Name,
@@ -229,7 +229,7 @@ func listAsrCredentials(
 	r *nethttp.Request,
 	traceID string,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	credRepo *data.AsrCredentialsRepository,
 ) {
 	if authService == nil {
@@ -246,7 +246,7 @@ func listAsrCredentials(
 		return
 	}
 
-	creds, err := credRepo.ListByOrg(r.Context(), actor.OrgID)
+	creds, err := credRepo.ListByOrg(r.Context(), actor.AccountID)
 	if err != nil {
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
@@ -265,7 +265,7 @@ func deleteAsrCredential(
 	traceID string,
 	credID uuid.UUID,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	credRepo *data.AsrCredentialsRepository,
 ) {
 	if authService == nil {
@@ -284,7 +284,7 @@ func deleteAsrCredential(
 
 	isPlatformAdmin := actor.HasPermission(auth.PermPlatformAdmin)
 
-	existing, err := credRepo.GetByID(r.Context(), actor.OrgID, credID)
+	existing, err := credRepo.GetByID(r.Context(), actor.AccountID, credID)
 	if err != nil {
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
@@ -294,7 +294,7 @@ func deleteAsrCredential(
 		return
 	}
 
-	if err := credRepo.Delete(r.Context(), actor.OrgID, credID, isPlatformAdmin); err != nil {
+	if err := credRepo.Delete(r.Context(), actor.AccountID, credID, isPlatformAdmin); err != nil {
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
 	}
@@ -307,7 +307,7 @@ func setDefaultAsrCredential(
 	traceID string,
 	credID uuid.UUID,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	credRepo *data.AsrCredentialsRepository,
 ) {
 	if authService == nil {
@@ -326,7 +326,7 @@ func setDefaultAsrCredential(
 
 	isPlatformAdmin := actor.HasPermission(auth.PermPlatformAdmin)
 
-	existing, err := credRepo.GetByID(r.Context(), actor.OrgID, credID)
+	existing, err := credRepo.GetByID(r.Context(), actor.AccountID, credID)
 	if err != nil {
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
@@ -342,7 +342,7 @@ func setDefaultAsrCredential(
 			return
 		}
 	} else {
-		if err := credRepo.SetDefault(r.Context(), actor.OrgID, credID); err != nil {
+		if err := credRepo.SetDefault(r.Context(), actor.AccountID, credID); err != nil {
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
 		}
@@ -351,14 +351,14 @@ func setDefaultAsrCredential(
 }
 
 func toAsrCredentialResponse(c data.AsrCredential) asrCredentialResponse {
-	var orgID *string
-	if c.OrgID != nil {
-		s := c.OrgID.String()
-		orgID = &s
+	var accountID *string
+	if c.AccountID != nil {
+		s := c.AccountID.String()
+		accountID = &s
 	}
 	return asrCredentialResponse{
 		ID:        c.ID.String(),
-		OrgID:     orgID,
+		AccountID:     accountID,
 		Scope:     c.Scope,
 		Provider:  c.Provider,
 		Name:      c.Name,

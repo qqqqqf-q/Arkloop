@@ -62,7 +62,7 @@ type executionGovernancePersonaEffective struct {
 
 func adminExecutionGovernance(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	personasRepo *data.PersonasRepository,
 	repoPersonas []repopersonas.RepoPersona,

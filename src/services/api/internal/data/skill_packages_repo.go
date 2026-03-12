@@ -14,7 +14,7 @@ import (
 )
 
 type SkillPackage struct {
-	OrgID               uuid.UUID
+	AccountID               uuid.UUID
 	SkillKey            string
 	Version             string
 	DisplayName         string
@@ -82,12 +82,12 @@ func NewSkillPackagesRepository(db Querier) (*SkillPackagesRepository, error) {
 	return &SkillPackagesRepository{db: db}, nil
 }
 
-func (r *SkillPackagesRepository) Create(ctx context.Context, orgID uuid.UUID, manifest skillstore.PackageManifest) (SkillPackage, error) {
+func (r *SkillPackagesRepository) Create(ctx context.Context, accountID uuid.UUID, manifest skillstore.PackageManifest) (SkillPackage, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if orgID == uuid.Nil {
-		return SkillPackage{}, fmt.Errorf("org_id must not be nil")
+	if accountID == uuid.Nil {
+		return SkillPackage{}, fmt.Errorf("account_id must not be nil")
 	}
 	normalized, err := skillstore.ValidateManifest(manifest)
 	if err != nil {
@@ -98,13 +98,13 @@ func (r *SkillPackagesRepository) Create(ctx context.Context, orgID uuid.UUID, m
 	err = r.db.QueryRow(
 		ctx,
 		`INSERT INTO skill_packages
-		    (org_id, skill_key, version, display_name, description, instruction_path, manifest_key, bundle_key, files_prefix, platforms)
+		    (account_id, skill_key, version, display_name, description, instruction_path, manifest_key, bundle_key, files_prefix, platforms)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-		 RETURNING org_id, skill_key, version, display_name, description, instruction_path, manifest_key, bundle_key, files_prefix, platforms,
+		 RETURNING account_id, skill_key, version, display_name, description, instruction_path, manifest_key, bundle_key, files_prefix, platforms,
 		           registry_provider, registry_slug, registry_owner_handle, registry_version, registry_detail_url, registry_download_url,
 		           registry_source_kind, registry_source_url, scan_status, scan_has_warnings, scan_checked_at, scan_engine,
 		           scan_summary, moderation_verdict, scan_snapshot_json, is_active, created_at, updated_at`,
-		orgID,
+		accountID,
 		normalized.SkillKey,
 		normalized.Version,
 		normalized.DisplayName,
@@ -115,7 +115,7 @@ func (r *SkillPackagesRepository) Create(ctx context.Context, orgID uuid.UUID, m
 		normalized.FilesPrefix,
 		normalized.Platforms,
 	).Scan(
-		&item.OrgID,
+		&item.AccountID,
 		&item.SkillKey,
 		&item.Version,
 		&item.DisplayName,
@@ -156,12 +156,12 @@ func (r *SkillPackagesRepository) Create(ctx context.Context, orgID uuid.UUID, m
 	return item, nil
 }
 
-func (r *SkillPackagesRepository) UpdateRegistryMetadata(ctx context.Context, orgID uuid.UUID, skillKey, version string, metadata SkillPackageRegistryMetadata) error {
+func (r *SkillPackagesRepository) UpdateRegistryMetadata(ctx context.Context, accountID uuid.UUID, skillKey, version string, metadata SkillPackageRegistryMetadata) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if orgID == uuid.Nil {
-		return fmt.Errorf("org_id must not be nil")
+	if accountID == uuid.Nil {
+		return fmt.Errorf("account_id must not be nil")
 	}
 	skillKey = strings.TrimSpace(skillKey)
 	version = strings.TrimSpace(version)
@@ -199,8 +199,8 @@ func (r *SkillPackagesRepository) UpdateRegistryMetadata(ctx context.Context, or
 		        moderation_verdict = NULLIF($17, ''),
 		        scan_snapshot_json = $18::jsonb,
 		        updated_at = now()
-		  WHERE org_id = $1 AND skill_key = $2 AND version = $3`,
-		orgID,
+		  WHERE account_id = $1 AND skill_key = $2 AND version = $3`,
+		accountID,
 		skillKey,
 		version,
 		strings.TrimSpace(metadata.RegistryProvider),
@@ -222,21 +222,21 @@ func (r *SkillPackagesRepository) UpdateRegistryMetadata(ctx context.Context, or
 	return err
 }
 
-func (r *SkillPackagesRepository) ListActive(ctx context.Context, orgID uuid.UUID) ([]SkillPackage, error) {
+func (r *SkillPackagesRepository) ListActive(ctx context.Context, accountID uuid.UUID) ([]SkillPackage, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	rows, err := r.db.Query(
 		ctx,
-		`SELECT org_id, skill_key, version, display_name, description, instruction_path, manifest_key, bundle_key, files_prefix, platforms,
+		`SELECT account_id, skill_key, version, display_name, description, instruction_path, manifest_key, bundle_key, files_prefix, platforms,
 		        registry_provider, registry_slug, registry_owner_handle, registry_version, registry_detail_url, registry_download_url,
 		        registry_source_kind, registry_source_url, scan_status, scan_has_warnings, scan_checked_at, scan_engine,
 		        scan_summary, moderation_verdict, scan_snapshot_json, is_active, created_at, updated_at
 		   FROM skill_packages
-		  WHERE org_id = $1
+		  WHERE account_id = $1
 		    AND is_active = TRUE
 		  ORDER BY skill_key, version`,
-		orgID,
+		accountID,
 	)
 	if err != nil {
 		return nil, err
@@ -246,7 +246,7 @@ func (r *SkillPackagesRepository) ListActive(ctx context.Context, orgID uuid.UUI
 	for rows.Next() {
 		var item SkillPackage
 		var scanSnapshotRaw []byte
-		if err := rows.Scan(&item.OrgID, &item.SkillKey, &item.Version, &item.DisplayName, &item.Description, &item.InstructionPath, &item.ManifestKey, &item.BundleKey, &item.FilesPrefix, &item.Platforms, &item.RegistryProvider, &item.RegistrySlug, &item.RegistryOwnerHandle, &item.RegistryVersion, &item.RegistryDetailURL, &item.RegistryDownloadURL, &item.RegistrySourceKind, &item.RegistrySourceURL, &item.ScanStatus, &item.ScanHasWarnings, &item.ScanCheckedAt, &item.ScanEngine, &item.ScanSummary, &item.ModerationVerdict, &scanSnapshotRaw, &item.IsActive, &item.CreatedAt, &item.UpdatedAt); err != nil {
+		if err := rows.Scan(&item.AccountID, &item.SkillKey, &item.Version, &item.DisplayName, &item.Description, &item.InstructionPath, &item.ManifestKey, &item.BundleKey, &item.FilesPrefix, &item.Platforms, &item.RegistryProvider, &item.RegistrySlug, &item.RegistryOwnerHandle, &item.RegistryVersion, &item.RegistryDetailURL, &item.RegistryDownloadURL, &item.RegistrySourceKind, &item.RegistrySourceURL, &item.ScanStatus, &item.ScanHasWarnings, &item.ScanCheckedAt, &item.ScanEngine, &item.ScanSummary, &item.ModerationVerdict, &scanSnapshotRaw, &item.IsActive, &item.CreatedAt, &item.UpdatedAt); err != nil {
 			return nil, err
 		}
 		if len(scanSnapshotRaw) > 0 {
@@ -260,29 +260,29 @@ func (r *SkillPackagesRepository) ListActive(ctx context.Context, orgID uuid.UUI
 	return items, nil
 }
 
-func (r *SkillPackagesRepository) Get(ctx context.Context, orgID uuid.UUID, skillKey, version string) (*SkillPackage, error) {
+func (r *SkillPackagesRepository) Get(ctx context.Context, accountID uuid.UUID, skillKey, version string) (*SkillPackage, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	skillKey = strings.TrimSpace(skillKey)
 	version = strings.TrimSpace(version)
-	if orgID == uuid.Nil || skillKey == "" || version == "" {
-		return nil, fmt.Errorf("org_id, skill_key and version must not be empty")
+	if accountID == uuid.Nil || skillKey == "" || version == "" {
+		return nil, fmt.Errorf("account_id, skill_key and version must not be empty")
 	}
 	var item SkillPackage
 	var scanSnapshotRaw []byte
 	err := r.db.QueryRow(
 		ctx,
-		`SELECT org_id, skill_key, version, display_name, description, instruction_path, manifest_key, bundle_key, files_prefix, platforms,
+		`SELECT account_id, skill_key, version, display_name, description, instruction_path, manifest_key, bundle_key, files_prefix, platforms,
 		        registry_provider, registry_slug, registry_owner_handle, registry_version, registry_detail_url, registry_download_url,
 		        registry_source_kind, registry_source_url, scan_status, scan_has_warnings, scan_checked_at, scan_engine,
 		        scan_summary, moderation_verdict, scan_snapshot_json, is_active, created_at, updated_at
 		   FROM skill_packages
-		  WHERE org_id = $1 AND skill_key = $2 AND version = $3`,
-		orgID,
+		  WHERE account_id = $1 AND skill_key = $2 AND version = $3`,
+		accountID,
 		skillKey,
 		version,
-	).Scan(&item.OrgID, &item.SkillKey, &item.Version, &item.DisplayName, &item.Description, &item.InstructionPath, &item.ManifestKey, &item.BundleKey, &item.FilesPrefix, &item.Platforms, &item.RegistryProvider, &item.RegistrySlug, &item.RegistryOwnerHandle, &item.RegistryVersion, &item.RegistryDetailURL, &item.RegistryDownloadURL, &item.RegistrySourceKind, &item.RegistrySourceURL, &item.ScanStatus, &item.ScanHasWarnings, &item.ScanCheckedAt, &item.ScanEngine, &item.ScanSummary, &item.ModerationVerdict, &scanSnapshotRaw, &item.IsActive, &item.CreatedAt, &item.UpdatedAt)
+	).Scan(&item.AccountID, &item.SkillKey, &item.Version, &item.DisplayName, &item.Description, &item.InstructionPath, &item.ManifestKey, &item.BundleKey, &item.FilesPrefix, &item.Platforms, &item.RegistryProvider, &item.RegistrySlug, &item.RegistryOwnerHandle, &item.RegistryVersion, &item.RegistryDetailURL, &item.RegistryDownloadURL, &item.RegistrySourceKind, &item.RegistrySourceURL, &item.ScanStatus, &item.ScanHasWarnings, &item.ScanCheckedAt, &item.ScanEngine, &item.ScanSummary, &item.ModerationVerdict, &scanSnapshotRaw, &item.IsActive, &item.CreatedAt, &item.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil

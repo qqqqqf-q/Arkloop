@@ -60,7 +60,7 @@ func loadEmailSettings(ctx context.Context, resolver sharedconfig.Resolver) (map
 
 func adminEmailStatus(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	resolver sharedconfig.Resolver,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
@@ -116,7 +116,7 @@ func adminEmailStatus(
 
 func adminEmailConfig(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	settingsRepo *data.PlatformSettingsRepository,
 	resolver sharedconfig.Resolver,
@@ -138,7 +138,7 @@ func adminEmailConfig(
 
 func adminEmailGetConfig(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	resolver sharedconfig.Resolver,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
@@ -185,7 +185,7 @@ func adminEmailGetConfig(
 
 func adminEmailPutConfig(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	settingsRepo *data.PlatformSettingsRepository,
 	invalidator sharedconfig.Invalidator,
@@ -268,7 +268,7 @@ func adminEmailPutConfig(
 
 func adminEmailTest(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	jobRepo *data.JobRepository,
 	settingsRepo *data.PlatformSettingsRepository,

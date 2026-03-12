@@ -44,7 +44,7 @@ func maskIfSensitive(key, value string, registry *sharedconfig.Registry) string 
 
 func platformSettingsEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	settingsRepo *data.PlatformSettingsRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	registry *sharedconfig.Registry,
@@ -84,7 +84,7 @@ func platformSettingsEntry(
 
 func platformSettingEntry(
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	settingsRepo *data.PlatformSettingsRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	rdb *redis.Client,

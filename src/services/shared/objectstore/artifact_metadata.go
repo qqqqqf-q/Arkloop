@@ -7,15 +7,15 @@ const (
 
 	ArtifactMetaOwnerKind = "owner_kind"
 	ArtifactMetaOwnerID   = "owner_id"
-	ArtifactMetaOrgID     = "org_id"
+	ArtifactMetaAccountID = "org_id"
 	ArtifactMetaThreadID  = "thread_id"
 )
 
-func ArtifactMetadata(ownerKind, ownerID, orgID string, threadID *string) map[string]string {
+func ArtifactMetadata(ownerKind, ownerID, accountID string, threadID *string) map[string]string {
 	metadata := map[string]string{}
 	putArtifactMetadata(metadata, ArtifactMetaOwnerKind, ownerKind)
 	putArtifactMetadata(metadata, ArtifactMetaOwnerID, ownerID)
-	putArtifactMetadata(metadata, ArtifactMetaOrgID, orgID)
+	putArtifactMetadata(metadata, ArtifactMetaAccountID, accountID)
 	if threadID != nil {
 		putArtifactMetadata(metadata, ArtifactMetaThreadID, *threadID)
 	}

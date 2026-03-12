@@ -21,12 +21,12 @@ func NewShellSessionRepository(db Querier) (*ShellSessionRepository, error) {
 	return &ShellSessionRepository{db: db}, nil
 }
 
-func (r *ShellSessionRepository) GetRunIDBySessionRef(ctx context.Context, orgID uuid.UUID, sessionRef string) (*uuid.UUID, error) {
+func (r *ShellSessionRepository) GetRunIDBySessionRef(ctx context.Context, accountID uuid.UUID, sessionRef string) (*uuid.UUID, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if orgID == uuid.Nil {
-		return nil, fmt.Errorf("org_id must not be empty")
+	if accountID == uuid.Nil {
+		return nil, fmt.Errorf("account_id must not be empty")
 	}
 	sessionRef = strings.TrimSpace(sessionRef)
 	if sessionRef == "" {
@@ -38,9 +38,9 @@ func (r *ShellSessionRepository) GetRunIDBySessionRef(ctx context.Context, orgID
 		ctx,
 		`SELECT run_id
 		   FROM shell_sessions
-		  WHERE org_id = $1
+		  WHERE account_id = $1
 		    AND session_ref = $2`,
-		orgID,
+		accountID,
 		sessionRef,
 	).Scan(&runID)
 	if errors.Is(err, pgx.ErrNoRows) {
