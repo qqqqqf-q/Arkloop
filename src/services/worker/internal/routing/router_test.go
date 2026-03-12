@@ -27,13 +27,13 @@ func TestProviderRouterDecide_RequestedRoute(t *testing.T) {
 		Credentials: []ProviderCredential{
 			{
 				ID:           "stub_default",
-				Scope:        CredentialScopePlatform,
+				OwnerKind:        CredentialScopePlatform,
 				ProviderKind: ProviderKindStub,
 				AdvancedJSON: map[string]any{},
 			},
 			{
 				ID:           "stub_alt",
-				Scope:        CredentialScopePlatform,
+				OwnerKind:        CredentialScopePlatform,
 				ProviderKind: ProviderKindStub,
 				AdvancedJSON: map[string]any{},
 			},
@@ -79,7 +79,7 @@ func TestProviderRouterDecide_ByokDisabled(t *testing.T) {
 		Credentials: []ProviderCredential{
 			{
 				ID:           "org_cred",
-				Scope:        CredentialScopeUser,
+				OwnerKind:        CredentialScopeUser,
 				ProviderKind: ProviderKindOpenAI,
 				APIKeyEnv:    stringPtr("ARKLOOP_OPENAI_API_KEY"),
 				OpenAIMode:   stringPtr("chat_completions"),
@@ -138,8 +138,8 @@ func stringPtr(value string) *string {
 func TestProviderRouterDecide_FirstRouteFallbackWithoutDefaultRouteID(t *testing.T) {
 	cfg := ProviderRoutingConfig{
 		Credentials: []ProviderCredential{
-			{ID: "c1", Name: "openrouter", Scope: CredentialScopePlatform, ProviderKind: ProviderKindOpenAI, AdvancedJSON: map[string]any{}},
-			{ID: "c2", Name: "backup", Scope: CredentialScopePlatform, ProviderKind: ProviderKindOpenAI, AdvancedJSON: map[string]any{}},
+			{ID: "c1", Name: "openrouter", OwnerKind: CredentialScopePlatform, ProviderKind: ProviderKindOpenAI, AdvancedJSON: map[string]any{}},
+			{ID: "c2", Name: "backup", OwnerKind: CredentialScopePlatform, ProviderKind: ProviderKindOpenAI, AdvancedJSON: map[string]any{}},
 		},
 		Routes: []ProviderRouteRule{
 			{ID: "r-high", Model: "openai/gpt-oss-120b", CredentialID: "c1", When: map[string]any{}},

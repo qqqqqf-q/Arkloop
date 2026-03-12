@@ -6,8 +6,8 @@ func TestGetHighestPriorityRouteByCredentialName_Found(t *testing.T) {
 	cfg := ProviderRoutingConfig{
 		DefaultRouteID: "default",
 		Credentials: []ProviderCredential{
-			{ID: "cred-a", Name: "my-anthropic", Scope: CredentialScopePlatform, ProviderKind: ProviderKindStub, AdvancedJSON: map[string]any{}},
-			{ID: "cred-b", Name: "my-openai", Scope: CredentialScopePlatform, ProviderKind: ProviderKindStub, AdvancedJSON: map[string]any{}},
+			{ID: "cred-a", Name: "my-anthropic", OwnerKind: CredentialScopePlatform, ProviderKind: ProviderKindStub, AdvancedJSON: map[string]any{}},
+			{ID: "cred-b", Name: "my-openai", OwnerKind: CredentialScopePlatform, ProviderKind: ProviderKindStub, AdvancedJSON: map[string]any{}},
 		},
 		Routes: []ProviderRouteRule{
 			{ID: "route-b", Model: "gpt-4o", CredentialID: "cred-b", When: map[string]any{}},
@@ -30,7 +30,7 @@ func TestGetHighestPriorityRouteByCredentialName_Found(t *testing.T) {
 func TestGetHighestPriorityRouteByCredentialName_CaseInsensitive(t *testing.T) {
 	cfg := ProviderRoutingConfig{
 		Credentials: []ProviderCredential{
-			{ID: "cred-a", Name: "My-Anthropic", Scope: CredentialScopePlatform, ProviderKind: ProviderKindStub, AdvancedJSON: map[string]any{}},
+			{ID: "cred-a", Name: "My-Anthropic", OwnerKind: CredentialScopePlatform, ProviderKind: ProviderKindStub, AdvancedJSON: map[string]any{}},
 		},
 		Routes: []ProviderRouteRule{
 			{ID: "route-a", Model: "claude-3", CredentialID: "cred-a", When: map[string]any{}},
@@ -46,7 +46,7 @@ func TestGetHighestPriorityRouteByCredentialName_CaseInsensitive(t *testing.T) {
 func TestGetHighestPriorityRouteByCredentialName_NotFound(t *testing.T) {
 	cfg := ProviderRoutingConfig{
 		Credentials: []ProviderCredential{
-			{ID: "cred-a", Name: "my-anthropic", Scope: CredentialScopePlatform, ProviderKind: ProviderKindStub, AdvancedJSON: map[string]any{}},
+			{ID: "cred-a", Name: "my-anthropic", OwnerKind: CredentialScopePlatform, ProviderKind: ProviderKindStub, AdvancedJSON: map[string]any{}},
 		},
 		Routes: []ProviderRouteRule{
 			{ID: "route-a", Model: "claude-3", CredentialID: "cred-a", When: map[string]any{}},
@@ -70,7 +70,7 @@ func TestGetHighestPriorityRouteByCredentialName_EmptyName(t *testing.T) {
 func TestGetHighestPriorityRouteByCredentialName_CredentialWithNoRoute(t *testing.T) {
 	cfg := ProviderRoutingConfig{
 		Credentials: []ProviderCredential{
-			{ID: "cred-a", Name: "orphan-cred", Scope: CredentialScopePlatform, ProviderKind: ProviderKindStub, AdvancedJSON: map[string]any{}},
+			{ID: "cred-a", Name: "orphan-cred", OwnerKind: CredentialScopePlatform, ProviderKind: ProviderKindStub, AdvancedJSON: map[string]any{}},
 		},
 		Routes: []ProviderRouteRule{},
 	}
@@ -85,7 +85,7 @@ func TestGetHighestPriorityRouteByCredentialName_CredentialWithNoRoute(t *testin
 func TestGetHighestPriorityRouteByCredentialName_PrefersWhenMatch(t *testing.T) {
 	cfg := ProviderRoutingConfig{
 		Credentials: []ProviderCredential{
-			{ID: "cred-a", Name: "my-anthropic", Scope: CredentialScopePlatform, ProviderKind: ProviderKindStub, AdvancedJSON: map[string]any{}},
+			{ID: "cred-a", Name: "my-anthropic", OwnerKind: CredentialScopePlatform, ProviderKind: ProviderKindStub, AdvancedJSON: map[string]any{}},
 		},
 		Routes: []ProviderRouteRule{
 			// 第一条：有 When 条件，匹配特定 persona
@@ -110,7 +110,7 @@ func TestGetHighestPriorityRouteByCredentialName_PrefersWhenMatch(t *testing.T) 
 func TestGetHighestPriorityRouteByCredentialName_FallbackWhenNoMatch(t *testing.T) {
 	cfg := ProviderRoutingConfig{
 		Credentials: []ProviderCredential{
-			{ID: "cred-a", Name: "my-anthropic", Scope: CredentialScopePlatform, ProviderKind: ProviderKindStub, AdvancedJSON: map[string]any{}},
+			{ID: "cred-a", Name: "my-anthropic", OwnerKind: CredentialScopePlatform, ProviderKind: ProviderKindStub, AdvancedJSON: map[string]any{}},
 		},
 		Routes: []ProviderRouteRule{
 			{ID: "route-specific", Model: "claude-3-opus", CredentialID: "cred-a", When: map[string]any{"persona_id": "code-review"}},
