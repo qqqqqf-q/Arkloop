@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
   Copy, Check, RefreshCw, Loader2,
   CircleDot, CircleOff, CircleAlert, CirclePause, CirclePlay, CircleDashed,
@@ -7,6 +8,7 @@ import { PageHeader } from '../components/PageHeader'
 import { Badge, type BadgeVariant } from '../components/Badge'
 import { useToast } from '../components/useToast'
 import { useLocale } from '../contexts/LocaleContext'
+import { useOperations } from '../contexts/OperationContext'
 import type { LocaleStrings } from '../locales'
 import {
   checkBridgeAvailable,
@@ -192,13 +194,17 @@ function ModuleRow({
 export function ModulesPage() {
   const { addToast } = useToast()
   const { t } = useLocale()
+  const { operations, startOperation } = useOperations()
   const tm = t.modules
+
+  const [searchParams, setSearchParams] = useSearchParams()
+  const catParam = searchParams.get('cat') ?? ''
 
   const [bridgeOnline, setBridgeOnline] = useState(false)
   const [modules, setModules] = useState<ModuleInfo[]>(STATIC_MODULES)
-  const [selectedCategory, setSelectedCategory] = useState<ModuleCategory>('memory')
   const [loading, setLoading] = useState(false)
   const mountedRef = useRef(true)
+  const prevOpsRef = useRef(operations)
 
   useEffect(() => {
     mountedRef.current = true
@@ -242,15 +248,32 @@ export function ModulesPage() {
 
   useEffect(() => { void loadModules() }, [loadModules])
 
+  // Refresh modules when any operation completes
+  useEffect(() => {
+    const prev = prevOpsRef.current
+    prevOpsRef.current = operations
+    for (const op of operations) {
+      const prevOp = prev.find((p) => p.id === op.id)
+      if (prevOp?.status === 'running' && op.status !== 'running') {
+        void loadModules()
+        break
+      }
+    }
+  }, [operations, loadModules])
+
   const handleAction = useCallback(async (moduleId: string, action: ModuleAction) => {
     try {
-      await bridgeClient.performAction(moduleId, action)
-      addToast(`${action} -> ${moduleId}`, 'success')
-      void loadModules()
+      const { operation_id } = await bridgeClient.performAction(moduleId, action)
+      const mod = modules.find((m) => m.id === moduleId)
+      startOperation(moduleId, mod?.name ?? moduleId, action, operation_id)
     } catch (err) {
       addToast(err instanceof Error ? err.message : t.requestFailed, 'error')
     }
-  }, [addToast, loadModules, t.requestFailed])
+  }, [addToast, modules, t.requestFailed, startOperation])
+
+  const selectedCategory: ModuleCategory = (categoryList.includes(catParam as ModuleCategory)
+    ? catParam as ModuleCategory
+    : categoryList[0]) ?? 'memory'
 
   const filteredModules = modules.filter((m) => m.category === selectedCategory)
 
@@ -294,7 +317,11 @@ export function ModulesPage() {
                 return (
                   <button
                     key={cat}
-                    onClick={() => setSelectedCategory(cat)}
+                    onClick={() => {
+                      const next = new URLSearchParams(searchParams)
+                      next.set('cat', cat)
+                      setSearchParams(next, { replace: true })
+                    }}
                     className={[
                       'flex h-[30px] items-center rounded-[5px] px-3 text-sm font-medium transition-colors',
                       active

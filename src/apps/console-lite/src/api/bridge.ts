@@ -98,6 +98,27 @@ class BridgeClient {
     if (!resp.ok) throw new Error(`Module action failed: ${resp.status}`)
     return resp.json()
   }
+
+  streamOperation(
+    operationId: string,
+    onLog: (line: string) => void,
+    onDone: (result: { status: string; error?: string }) => void,
+  ): () => void {
+    const es = new EventSource(
+      `${this.baseUrl}/v1/operations/${encodeURIComponent(operationId)}/stream`,
+    )
+    es.addEventListener('log', (e: MessageEvent) => onLog(e.data as string))
+    es.addEventListener('status', (e: MessageEvent) => {
+      const result = JSON.parse(e.data as string) as { status: string; error?: string }
+      onDone(result)
+      es.close()
+    })
+    es.onerror = () => {
+      onDone({ status: 'failed', error: 'Connection lost' })
+      es.close()
+    }
+    return () => es.close()
+  }
 }
 
 export const bridgeClient = new BridgeClient(BRIDGE_BASE_URL)

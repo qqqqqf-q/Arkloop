@@ -10,6 +10,7 @@ import { RunsPage } from './pages/RunsPage'
 import { ModulesPage } from './pages/ModulesPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { BootstrapPage } from './pages/BootstrapPage'
+import { OperationProvider } from './contexts/OperationContext'
 import {
   writeAccessTokenToStorage,
   clearAccessTokenFromStorage,
@@ -63,7 +64,11 @@ function App() {
         <Route path="*" element={<AuthPage onLoggedIn={handleLoggedIn} />} />
       ) : (
         <Route
-          element={<LiteLayout accessToken={accessToken} onLoggedOut={handleLoggedOut} />}
+          element={
+            <OperationProvider>
+              <LiteLayout accessToken={accessToken} onLoggedOut={handleLoggedOut} />
+            </OperationProvider>
+          }
         >
           <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="dashboard" element={<DashboardPage />} />

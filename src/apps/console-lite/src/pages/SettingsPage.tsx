@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useMemo } from 'react'
-import { useOutletContext } from 'react-router-dom'
+import { useOutletContext, useSearchParams } from 'react-router-dom'
 import { Loader2, Plus, Trash2, Star, Send, ChevronDown } from 'lucide-react'
 import type { LiteOutletContext } from '../layouts/LiteLayout'
 import { PageHeader } from '../components/PageHeader'
@@ -108,8 +108,11 @@ export function SettingsPage() {
   const { t } = useLocale()
   const tc = t.settingsPage
 
+  const [searchParams, setSearchParams] = useSearchParams()
+  const sectionParam = searchParams.get('section') ?? ''
+  const section: Section = SECTIONS.includes(sectionParam as Section) ? sectionParam as Section : 'general'
+
   const [loading, setLoading] = useState(true)
-  const [section, setSection] = useState<Section>('general')
 
   const [llmProviders, setLlmProviders] = useState<LlmProvider[]>([])
   const [smtpList, setSmtpList] = useState<SmtpProvider[]>([])
@@ -400,7 +403,11 @@ export function SettingsPage() {
               {SECTIONS.map((s) => (
                 <button
                   key={s}
-                  onClick={() => setSection(s)}
+                  onClick={() => {
+                    const next = new URLSearchParams(searchParams)
+                    next.set('section', s)
+                    setSearchParams(next, { replace: true })
+                  }}
                   className={[
                     'flex h-[30px] items-center rounded-[5px] px-3 text-sm font-medium transition-colors',
                     s === section
