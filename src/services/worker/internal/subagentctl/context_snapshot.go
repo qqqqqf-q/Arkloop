@@ -165,7 +165,7 @@ func (b *SnapshotBuilder) loadMessages(ctx context.Context, tx pgx.Tx, parentRun
 			CreatedAt:       item.CreatedAt,
 		})
 	}
-	return result, nil
+	return repairSpawnClosures(result), nil
 }
 
 func cloneResolvedSkills(items []skillstore.ResolvedSkill) []skillstore.ResolvedSkill {
@@ -217,4 +217,105 @@ func cloneRawJSON(raw []byte) json.RawMessage {
 	cloned := make([]byte, len(raw))
 	copy(cloned, raw)
 	return json.RawMessage(cloned)
+}
+
+// repairSpawnClosures 确保 fork 出的消息历史中不存在未闭合的 spawn 工具调用。
+// 扫描 content_json 中的 tool_use/tool_result 块，对缺少 tool_result 的
+// spawn 系列 tool_use 补充合成的闭包消息。
+func repairSpawnClosures(messages []ContextSnapshotMessage) []ContextSnapshotMessage {
+	if len(messages) == 0 {
+		return messages
+	}
+
+	type toolUseEntry struct {
+		id       string
+		name     string
+		afterIdx int
+	}
+
+	var openCalls []toolUseEntry
+	closedIDs := map[string]struct{}{}
+
+	for i, msg := range messages {
+		if len(msg.ContentJSON) == 0 {
+			continue
+		}
+
+		if msg.Role == "tool" {
+			var toolMsg map[string]any
+			if json.Unmarshal(msg.ContentJSON, &toolMsg) == nil {
+				if toolUseID, _ := toolMsg["tool_use_id"].(string); toolUseID != "" {
+					closedIDs[toolUseID] = struct{}{}
+				}
+			}
+		}
+
+		var blocks []json.RawMessage
+		if json.Unmarshal(msg.ContentJSON, &blocks) != nil {
+			continue
+		}
+		for _, raw := range blocks {
+			var block map[string]any
+			if json.Unmarshal(raw, &block) != nil {
+				continue
+			}
+			blockType, _ := block["type"].(string)
+			switch blockType {
+			case "tool_use":
+				toolName, _ := block["name"].(string)
+				toolID, _ := block["id"].(string)
+				if isSpawnToolName(toolName) && toolID != "" {
+					openCalls = append(openCalls, toolUseEntry{id: toolID, name: toolName, afterIdx: i})
+				}
+			case "tool_result":
+				if toolUseID, _ := block["tool_use_id"].(string); toolUseID != "" {
+					closedIDs[toolUseID] = struct{}{}
+				}
+			}
+		}
+	}
+
+	unclosed := make([]toolUseEntry, 0, len(openCalls))
+	for _, entry := range openCalls {
+		if _, ok := closedIDs[entry.id]; !ok {
+			unclosed = append(unclosed, entry)
+		}
+	}
+	if len(unclosed) == 0 {
+		return messages
+	}
+
+	closuresByIdx := map[int][]ContextSnapshotMessage{}
+	for _, entry := range unclosed {
+		closureContent := fmt.Sprintf("[%s: context forked before completion]", entry.name)
+		closureBlock, _ := json.Marshal([]map[string]any{{
+			"type":        "tool_result",
+			"tool_use_id": entry.id,
+			"content":     closureContent,
+			"is_error":    false,
+		}})
+		closuresByIdx[entry.afterIdx] = append(closuresByIdx[entry.afterIdx], ContextSnapshotMessage{
+			Role:        "tool",
+			Content:     closureContent,
+			ContentJSON: closureBlock,
+			CreatedAt:   messages[entry.afterIdx].CreatedAt,
+		})
+	}
+
+	result := make([]ContextSnapshotMessage, 0, len(messages)+len(unclosed))
+	for i, msg := range messages {
+		result = append(result, msg)
+		if closures, ok := closuresByIdx[i]; ok {
+			result = append(result, closures...)
+		}
+	}
+	return result
+}
+
+func isSpawnToolName(name string) bool {
+	switch name {
+	case "spawn_agent", "send_input", "wait_agent", "resume_agent", "close_agent", "interrupt_agent":
+		return true
+	}
+	return false
 }
