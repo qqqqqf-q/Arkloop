@@ -23,6 +23,12 @@ const (
 	JobPayloadVersionV1 = 1
 
 	leaseAttemptsReapLimit = 10
+
+	// defaultPruneThreshold is the number of total jobs above which
+	// terminal (done/dead) jobs are pruned from the in-memory queue
+	// during EnqueueRun. Keeps memory bounded for long-running Desktop
+	// processes.
+	defaultPruneThreshold = 1000
 )
 
 var traceIDRegex = regexp.MustCompile(`^[0-9a-fA-F]{32}$`)

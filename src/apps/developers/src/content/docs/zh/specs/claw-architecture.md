@@ -581,7 +581,8 @@ func ResolveProvider() string {
 
 - 实现 `JobQueue` interface（现有 Redis 实现提取接口）
 - 新增 `ChannelJobQueue`：基于 Go channel 的进程内实现
-- 支持：Enqueue、Dequeue（blocking）、Ack、Retry
+- 支持：Enqueue、Lease（非阻塞轮询 + 通知回调）、Ack、Nack/Retry
+- 当队列总数超过阈值（默认 1000）时自动清理已完成/死信 job
 - Desktop 场景下 concurrency=1 足够（单用户）
 - 通过 build tag 或配置选择实现
 
@@ -590,7 +591,7 @@ func ResolveProvider() string {
 **需求**：替代 Redis Pub/Sub 的 SSE 事件推送功能。
 
 - 实现 `EventBus` interface（现有 Redis Pub/Sub 提取接口）
-- 新增 `LocalEventBus`：基于 Go channel + sync.Map 的进程内实现
+- 新增 `LocalEventBus`：基于 Go channel + sync.RWMutex + map 的进程内实现
 - 支持：Publish、Subscribe、Unsubscribe
 - topic 粒度与现有 Redis channel 一致（per-run）
 - SSE handler 订阅方式不变，仅底层切换
@@ -600,7 +601,7 @@ func ResolveProvider() string {
 **需求**：替代 Redis SETNX 的并发限制功能。
 
 - 实现 `ConcurrencyLimiter` interface
-- 新增 `LocalConcurrencyLimiter`：基于 sync.Mutex + atomic counter
+- 新增 `LocalConcurrencyLimiter`：基于 sync.Mutex + map 的进程内计数器
 - Desktop 场景下 slot 数固定（如 2），不需要分布式协调
 - 与现有 `runlimit` 包对齐接口
 

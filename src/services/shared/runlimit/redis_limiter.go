@@ -4,8 +4,6 @@ package runlimit
 
 import (
 	"context"
-	"sync"
-	"time"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -42,33 +40,17 @@ end
 return redis.call("DECR", key)
 `)
 
-type localCounter struct {
-	count     int64
-	expiresAt time.Time
-}
-
-type localCounterStore struct {
-	mu         sync.Mutex
-	entries    map[string]localCounter
-	now        func() time.Time
-	defaultTTL time.Duration
-}
-
 // RedisConcurrencyLimiter 分布式并发限制器，Redis 不可用时回退到进程内计数。
 type RedisConcurrencyLimiter struct {
 	rdb      *redis.Client
-	fallback *localCounterStore
+	fallback *LocalConcurrencyLimiter
 }
 
 // NewRedisConcurrencyLimiter 创建 Redis 并发限制器。rdb 可以为 nil（fail-open 模式）。
 func NewRedisConcurrencyLimiter(rdb *redis.Client) *RedisConcurrencyLimiter {
 	return &RedisConcurrencyLimiter{
-		rdb: rdb,
-		fallback: &localCounterStore{
-			entries:    make(map[string]localCounter),
-			now:        time.Now,
-			defaultTTL: defaultTTL,
-		},
+		rdb:      rdb,
+		fallback: NewLocalConcurrencyLimiter(),
 	}
 }
 
@@ -81,13 +63,13 @@ func (r *RedisConcurrencyLimiter) TryAcquire(ctx context.Context, key string, ma
 	ttlSecs := int64(defaultTTL.Seconds())
 	result, err := tryAcquireScript.Run(ctx, r.rdb, []string{key}, maxRuns, ttlSecs).Slice()
 	if err != nil {
-		return r.fallback.tryAcquire(key, maxRuns)
+		return r.fallback.TryAcquire(ctx, key, maxRuns)
 	}
 	allowed, count, ok := parseTryAcquireResult(result)
 	if !ok {
-		return r.fallback.tryAcquire(key, maxRuns)
+		return r.fallback.TryAcquire(ctx, key, maxRuns)
 	}
-	r.fallback.set(key, count, defaultTTL)
+	_ = r.fallback.Set(ctx, key, count)
 	return allowed
 }
 
@@ -98,75 +80,19 @@ func (r *RedisConcurrencyLimiter) Release(ctx context.Context, key string) {
 	}
 	result, err := releaseScript.Run(ctx, r.rdb, []string{key}).Int64()
 	if err != nil {
-		r.fallback.release(key)
+		r.fallback.Release(ctx, key)
 		return
 	}
-	r.fallback.set(key, result, defaultTTL)
+	_ = r.fallback.Set(ctx, key, result)
 }
 
 // Set 直接设置 org 的活跃 run 计数（用于 SyncFromDB 修正漂移）。
 func (r *RedisConcurrencyLimiter) Set(ctx context.Context, key string, count int64) error {
-	r.fallback.set(key, count, defaultTTL)
+	_ = r.fallback.Set(ctx, key, count)
 	if r.rdb == nil {
 		return nil
 	}
 	return r.rdb.Set(ctx, key, count, defaultTTL).Err()
-}
-
-func (s *localCounterStore) tryAcquire(key string, maxRuns int64) bool {
-	if maxRuns <= 0 {
-		return false
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	entry := s.current(key)
-	if entry.count >= maxRuns {
-		return false
-	}
-	entry.count++
-	entry.expiresAt = s.now().Add(s.defaultTTL)
-	s.entries[key] = entry
-	return true
-}
-
-func (s *localCounterStore) release(key string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	entry := s.current(key)
-	if entry.count <= 1 {
-		delete(s.entries, key)
-		return
-	}
-	entry.count--
-	entry.expiresAt = s.now().Add(s.defaultTTL)
-	s.entries[key] = entry
-}
-
-func (s *localCounterStore) set(key string, count int64, ttl time.Duration) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if count <= 0 {
-		delete(s.entries, key)
-		return
-	}
-	entry := localCounter{count: count, expiresAt: s.now().Add(ttl)}
-	s.entries[key] = entry
-}
-
-func (s *localCounterStore) current(key string) localCounter {
-	entry, ok := s.entries[key]
-	if !ok {
-		return localCounter{}
-	}
-	if !entry.expiresAt.IsZero() && !entry.expiresAt.After(s.now()) {
-		delete(s.entries, key)
-		return localCounter{}
-	}
-	return entry
 }
 
 func parseTryAcquireResult(result []any) (bool, int64, bool) {

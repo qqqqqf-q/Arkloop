@@ -5,6 +5,7 @@ package eventbus
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -39,19 +40,24 @@ func (b *RedisEventBus) Close() error {
 }
 
 type redisSubscription struct {
-	sub *redis.PubSub
+	sub    *redis.PubSub
+	once   sync.Once
+	cached <-chan Message
 }
 
 func (s *redisSubscription) Channel() <-chan Message {
-	ch := make(chan Message, 1)
-	go func() {
-		defer close(ch)
-		msgCh := s.sub.Channel()
-		for msg := range msgCh {
-			ch <- Message{Topic: msg.Channel, Payload: msg.Payload}
-		}
-	}()
-	return ch
+	s.once.Do(func() {
+		ch := make(chan Message, 1)
+		go func() {
+			defer close(ch)
+			msgCh := s.sub.Channel()
+			for msg := range msgCh {
+				ch <- Message{Topic: msg.Channel, Payload: msg.Payload}
+			}
+		}()
+		s.cached = ch
+	})
+	return s.cached
 }
 
 func (s *redisSubscription) Close() error {

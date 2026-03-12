@@ -111,6 +111,9 @@ func (q *ChannelJobQueue) EnqueueRun(
 	q.mu.Lock()
 	q.jobs[jobID] = job
 	q.order = append(q.order, jobID)
+	if len(q.jobs) > defaultPruneThreshold {
+		q.pruneTerminalJobsLocked()
+	}
 	q.mu.Unlock()
 
 	if q.onEnqueue != nil {
@@ -306,6 +309,21 @@ func (q *ChannelJobQueue) tryMarkDeadOne(jobTypes []string) bool {
 	}
 
 	return false
+}
+
+// pruneTerminalJobsLocked removes all done/dead jobs from the order slice and
+// jobs map. Must be called while q.mu is held.
+func (q *ChannelJobQueue) pruneTerminalJobsLocked() {
+	alive := make([]uuid.UUID, 0, len(q.order))
+	for _, id := range q.order {
+		job := q.jobs[id]
+		if job.status == JobStatusDone || job.status == JobStatusDead {
+			delete(q.jobs, id)
+			continue
+		}
+		alive = append(alive, id)
+	}
+	q.order = alive
 }
 
 // jobBefore returns true when a should be leased before b (available_at ASC,

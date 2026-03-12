@@ -164,11 +164,7 @@ func newTestRedisLimiter(t *testing.T, rdb *redis.Client, ttl time.Duration) *Re
 func newTestRedisLimiterWithClock(t *testing.T, rdb *redis.Client, ttl time.Duration, clock func() time.Time) *RedisConcurrencyLimiter {
 	t.Helper()
 	return &RedisConcurrencyLimiter{
-		rdb: rdb,
-		fallback: &localCounterStore{
-			entries:    make(map[string]localCounter),
-			now:        clock,
-			defaultTTL: ttl,
-		},
+		rdb:      rdb,
+		fallback: NewLocalConcurrencyLimiterWithTTL(ttl, clock),
 	}
 }

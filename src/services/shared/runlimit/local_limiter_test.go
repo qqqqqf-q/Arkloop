@@ -143,6 +143,30 @@ func TestLocalConcurrentAccess(t *testing.T) {
 	}
 }
 
+func TestLocalDoubleReleaseNeverNegative(t *testing.T) {
+	lim := NewLocalConcurrencyLimiter()
+	ctx := context.Background()
+	key := "test:double-release"
+
+	if !lim.TryAcquire(ctx, key, 2) {
+		t.Fatal("first acquire should succeed")
+	}
+
+	// Release once (legitimate), then release again (extra).
+	lim.Release(ctx, key)
+	lim.Release(ctx, key)
+
+	// After double-release the count must not be negative.
+	// Acquiring with maxRuns=1 must succeed (count is 0, not -1).
+	if !lim.TryAcquire(ctx, key, 1) {
+		t.Fatal("acquire after double-release should succeed (count should be 0, not negative)")
+	}
+	// Exactly at limit now.
+	if lim.TryAcquire(ctx, key, 1) {
+		t.Fatal("should reject when at limit")
+	}
+}
+
 func TestLocalMaxRunsZeroOrNegative(t *testing.T) {
 	lim := NewLocalConcurrencyLimiter()
 	ctx := context.Background()

@@ -87,6 +87,9 @@ func (b *LocalEventBus) removeSub(sub *localSubscription) {
 			break
 		}
 	}
+	if len(b.subs[sub.topic]) == 0 {
+		delete(b.subs, sub.topic)
+	}
 }
 
 type localSubscription struct {
