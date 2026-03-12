@@ -384,23 +384,14 @@ func resolveProjectWorkspace(
 		Registry:     registry,
 		Status:       projectWorkspaceStatusIdle,
 	}
-	if registry.DefaultShellSessionRef == nil || strings.TrimSpace(*registry.DefaultShellSessionRef) == "" {
-		return resolved, nil
-	}
-	resolvedSession, err := sessionRepo.GetBySessionRef(ctx, actor.OrgID, strings.TrimSpace(*registry.DefaultShellSessionRef))
+	resolvedSession, err := sessionRepo.GetLatestLiveByWorkspaceRef(ctx, actor.OrgID, workspaceRef)
 	if err != nil {
 		return nil, err
 	}
-	if resolvedSession == nil || strings.TrimSpace(resolvedSession.WorkspaceRef) != workspaceRef {
-		resolved.Status = projectWorkspaceStatusUnavailable
-		return resolved, nil
-	}
-	if strings.TrimSpace(resolvedSession.State) == "closed" {
+	if resolvedSession == nil {
 		return resolved, nil
 	}
 	resolved.Session = resolvedSession
-	if resolvedSession.LiveSessionID != nil && strings.TrimSpace(*resolvedSession.LiveSessionID) != "" {
-		resolved.Status = projectWorkspaceStatusActive
-	}
+	resolved.Status = projectWorkspaceStatusActive
 	return resolved, nil
 }

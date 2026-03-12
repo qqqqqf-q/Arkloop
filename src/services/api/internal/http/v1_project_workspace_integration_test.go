@@ -265,6 +265,163 @@ func TestProjectWorkspaceStatusAndFilesFlow(t *testing.T) {
 	assertErrorEnvelope(t, invalidResp, 400, "workspace_files.invalid_path")
 }
 
+func TestProjectWorkspaceMissingDefaultSessionStaysIdleAndReadsFiles(t *testing.T) {
+	env := buildArtifactEnv(t)
+	project := mustCreateTestProject(t, context.Background(), env.pool, env.aliceOrgID, &env.aliceUserID, "project-workspace-missing-default-session")
+
+	workspaceResp := doArtifactRequest(t, env.handler, "/v1/projects/"+project.ID.String()+"/workspace", authHeader(env.aliceToken))
+	if workspaceResp.Code != 200 {
+		t.Fatalf("get workspace: %d %s", workspaceResp.Code, workspaceResp.Body.String())
+	}
+	workspacePayload := decodeJSONBody[projectWorkspaceResponsePayload](t, workspaceResp.Body.Bytes())
+
+	setWorkspaceLatestManifest(t, env, workspacePayload.WorkspaceRef, "rev-project-idle-1")
+	if _, err := env.pool.Exec(context.Background(), `
+		UPDATE workspace_registries
+		   SET default_shell_session_ref = $2, last_used_at = now()
+		 WHERE workspace_ref = $1`, workspacePayload.WorkspaceRef, "shref_missing_default"); err != nil {
+		t.Fatalf("update workspace registry: %v", err)
+	}
+
+	env.store.put("workspaces/"+workspacePayload.WorkspaceRef+"/manifests/rev-project-idle-1.json", mustJSON(t, map[string]any{
+		"entries": []map[string]any{{"path": "notes/todo.md", "type": "file", "size": 7, "mtime_unix_ms": 1710000003000, "sha256": "sha-todo"}},
+	}), "application/json", nil)
+	env.store.put("workspaces/"+workspacePayload.WorkspaceRef+"/blobs/sha-todo", mustWorkspaceBlob(t, []byte("todo\n1\n")), "application/octet-stream", nil)
+
+	idleWorkspaceResp := doArtifactRequest(t, env.handler, "/v1/projects/"+project.ID.String()+"/workspace", authHeader(env.aliceToken))
+	if idleWorkspaceResp.Code != 200 {
+		t.Fatalf("get idle workspace: %d %s", idleWorkspaceResp.Code, idleWorkspaceResp.Body.String())
+	}
+	idleWorkspace := decodeJSONBody[projectWorkspaceResponsePayload](t, idleWorkspaceResp.Body.Bytes())
+	if idleWorkspace.Status != "idle" {
+		t.Fatalf("expected idle status, got %#v", idleWorkspace)
+	}
+	if idleWorkspace.ActiveSession != nil {
+		t.Fatalf("expected no active session, got %#v", idleWorkspace.ActiveSession)
+	}
+
+	filesResp := doArtifactRequest(t, env.handler, "/v1/projects/"+project.ID.String()+"/workspace/files?path=/notes", authHeader(env.aliceToken))
+	if filesResp.Code != 200 {
+		t.Fatalf("list idle files: %d %s", filesResp.Code, filesResp.Body.String())
+	}
+	filesPayload := decodeJSONBody[projectWorkspaceFilesPayload](t, filesResp.Body.Bytes())
+	if len(filesPayload.Items) != 1 || filesPayload.Items[0].Name != "todo.md" {
+		t.Fatalf("unexpected files payload: %#v", filesPayload)
+	}
+
+	fileResp := doArtifactRequest(t, env.handler, "/v1/projects/"+project.ID.String()+"/workspace/file?path=/notes/todo.md", authHeader(env.aliceToken))
+	if fileResp.Code != 200 || fileResp.Body.String() != "todo\n1\n" {
+		t.Fatalf("read idle file: %d %q", fileResp.Code, fileResp.Body.String())
+	}
+}
+
+func TestProjectWorkspaceClosedDefaultSessionStaysIdle(t *testing.T) {
+	env := buildArtifactEnv(t)
+	project := mustCreateTestProject(t, context.Background(), env.pool, env.aliceOrgID, &env.aliceUserID, "project-workspace-closed-default-session")
+
+	workspaceResp := doArtifactRequest(t, env.handler, "/v1/projects/"+project.ID.String()+"/workspace", authHeader(env.aliceToken))
+	if workspaceResp.Code != 200 {
+		t.Fatalf("get workspace: %d %s", workspaceResp.Code, workspaceResp.Body.String())
+	}
+	workspacePayload := decodeJSONBody[projectWorkspaceResponsePayload](t, workspaceResp.Body.Bytes())
+	profileRef := sharedenvironmentref.BuildProfileRef(env.aliceOrgID, &env.aliceUserID)
+
+	if _, err := env.pool.Exec(context.Background(), `
+		UPDATE workspace_registries
+		   SET default_shell_session_ref = $2, last_used_at = now()
+		 WHERE workspace_ref = $1`, workspacePayload.WorkspaceRef, "shref_closed_default"); err != nil {
+		t.Fatalf("update workspace registry: %v", err)
+	}
+	if _, err := env.pool.Exec(context.Background(), `
+		INSERT INTO shell_sessions (
+			session_ref, session_type, org_id, profile_ref, workspace_ref,
+			share_scope, state, live_session_id, last_used_at, metadata_json
+		) VALUES ($1, 'shell', $2, $3, $4, 'workspace', 'closed', NULL, now(), '{}'::jsonb)
+		ON CONFLICT (session_ref) DO UPDATE SET
+			state = EXCLUDED.state,
+			live_session_id = EXCLUDED.live_session_id,
+			last_used_at = now()`,
+		"shref_closed_default",
+		env.aliceOrgID,
+		profileRef,
+		workspacePayload.WorkspaceRef,
+	); err != nil {
+		t.Fatalf("insert closed session: %v", err)
+	}
+
+	idleWorkspaceResp := doArtifactRequest(t, env.handler, "/v1/projects/"+project.ID.String()+"/workspace", authHeader(env.aliceToken))
+	if idleWorkspaceResp.Code != 200 {
+		t.Fatalf("get idle workspace: %d %s", idleWorkspaceResp.Code, idleWorkspaceResp.Body.String())
+	}
+	idleWorkspace := decodeJSONBody[projectWorkspaceResponsePayload](t, idleWorkspaceResp.Body.Bytes())
+	if idleWorkspace.Status != "idle" {
+		t.Fatalf("expected idle status, got %#v", idleWorkspace)
+	}
+	if idleWorkspace.ActiveSession != nil {
+		t.Fatalf("expected no active session, got %#v", idleWorkspace.ActiveSession)
+	}
+}
+
+func TestProjectWorkspaceUsesLatestLiveSessionAcrossWorkspace(t *testing.T) {
+	env := buildArtifactEnv(t)
+	project := mustCreateTestProject(t, context.Background(), env.pool, env.aliceOrgID, &env.aliceUserID, "project-workspace-latest-live-session")
+
+	workspaceResp := doArtifactRequest(t, env.handler, "/v1/projects/"+project.ID.String()+"/workspace", authHeader(env.aliceToken))
+	if workspaceResp.Code != 200 {
+		t.Fatalf("get workspace: %d %s", workspaceResp.Code, workspaceResp.Body.String())
+	}
+	workspacePayload := decodeJSONBody[projectWorkspaceResponsePayload](t, workspaceResp.Body.Bytes())
+	profileRef := sharedenvironmentref.BuildProfileRef(env.aliceOrgID, &env.aliceUserID)
+	olderUsedAt := time.Now().UTC().Add(-time.Hour)
+	newerUsedAt := time.Now().UTC()
+
+	if _, err := env.pool.Exec(context.Background(), `
+		UPDATE workspace_registries
+		   SET default_shell_session_ref = $2, last_used_at = now()
+		 WHERE workspace_ref = $1`, workspacePayload.WorkspaceRef, "shref_stale_default"); err != nil {
+		t.Fatalf("update workspace registry: %v", err)
+	}
+	if _, err := env.pool.Exec(context.Background(), `
+		INSERT INTO shell_sessions (
+			session_ref, session_type, org_id, profile_ref, workspace_ref,
+			share_scope, state, live_session_id, last_used_at, metadata_json
+		) VALUES
+			($1, 'shell', $2, $3, $4, 'workspace', 'ready', $5, $6, '{}'::jsonb),
+			($7, 'browser', $2, $3, $4, 'workspace', 'busy', $8, $9, '{}'::jsonb)
+		ON CONFLICT (session_ref) DO UPDATE SET
+			state = EXCLUDED.state,
+			live_session_id = EXCLUDED.live_session_id,
+			last_used_at = EXCLUDED.last_used_at,
+			updated_at = now()`,
+		"shref_workspace_old_live",
+		env.aliceOrgID,
+		profileRef,
+		workspacePayload.WorkspaceRef,
+		"live-shell-old",
+		olderUsedAt,
+		"brref_workspace_new_live",
+		"live-browser-new",
+		newerUsedAt,
+	); err != nil {
+		t.Fatalf("insert live sessions: %v", err)
+	}
+
+	activeWorkspaceResp := doArtifactRequest(t, env.handler, "/v1/projects/"+project.ID.String()+"/workspace", authHeader(env.aliceToken))
+	if activeWorkspaceResp.Code != 200 {
+		t.Fatalf("get active workspace: %d %s", activeWorkspaceResp.Code, activeWorkspaceResp.Body.String())
+	}
+	activeWorkspace := decodeJSONBody[projectWorkspaceResponsePayload](t, activeWorkspaceResp.Body.Bytes())
+	if activeWorkspace.Status != "active" || activeWorkspace.ActiveSession == nil {
+		t.Fatalf("unexpected active workspace payload: %#v", activeWorkspace)
+	}
+	if activeWorkspace.ActiveSession.SessionRef != "brref_workspace_new_live" {
+		t.Fatalf("expected latest live session, got %#v", activeWorkspace.ActiveSession)
+	}
+	if activeWorkspace.ActiveSession.SessionType != "browser" {
+		t.Fatalf("expected browser session type, got %#v", activeWorkspace.ActiveSession)
+	}
+}
+
 func TestProjectWorkspacePermissionsAndOrgIsolation(t *testing.T) {
 	env := buildArtifactEnv(t)
 	project := mustCreateTestProject(t, context.Background(), env.pool, env.aliceOrgID, &env.aliceUserID, "project-workspace-policy")

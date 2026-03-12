@@ -113,3 +113,58 @@ func (r *ShellSessionRepository) GetBySessionRef(ctx context.Context, orgID uuid
 	}
 	return &session, nil
 }
+
+func (r *ShellSessionRepository) GetLatestLiveByWorkspaceRef(ctx context.Context, orgID uuid.UUID, workspaceRef string) (*ShellSession, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if r == nil || r.db == nil {
+		return nil, fmt.Errorf("db must not be nil")
+	}
+	if orgID == uuid.Nil {
+		return nil, fmt.Errorf("org_id must not be empty")
+	}
+	workspaceRef = strings.TrimSpace(workspaceRef)
+	if workspaceRef == "" {
+		return nil, fmt.Errorf("workspace_ref must not be empty")
+	}
+
+	var session ShellSession
+	err := r.db.QueryRow(
+		ctx,
+		`SELECT session_ref,
+		        session_type,
+		        org_id,
+		        profile_ref,
+		        workspace_ref,
+		        state,
+		        live_session_id,
+		        last_used_at
+		   FROM shell_sessions
+		  WHERE org_id = $1
+		    AND workspace_ref = $2
+		    AND state <> 'closed'
+		    AND live_session_id IS NOT NULL
+		    AND TRIM(live_session_id) <> ''
+		  ORDER BY last_used_at DESC, updated_at DESC
+		  LIMIT 1`,
+		orgID,
+		workspaceRef,
+	).Scan(
+		&session.SessionRef,
+		&session.SessionType,
+		&session.OrgID,
+		&session.ProfileRef,
+		&session.WorkspaceRef,
+		&session.State,
+		&session.LiveSessionID,
+		&session.LastUsedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &session, nil
+}
