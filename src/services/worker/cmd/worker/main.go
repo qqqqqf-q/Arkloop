@@ -109,10 +109,32 @@ func run() error {
 		logger.Info("ARKLOOP_REDIS_URL not set, worker registration disabled", app.LogFields{}, nil)
 	}
 
-	queueClient, err := queue.NewPgQueue(pool, 25, cfg.Capabilities)
-	if err != nil {
-		return err
+	var queueClient queue.JobQueue
+	var notifier consumer.WorkNotifier
+
+	if cfg.QueueDriver == "channel" {
+		localNotifier := consumer.NewLocalNotifier()
+		cq, err := queue.NewChannelJobQueue(25, localNotifier.Notify)
+		if err != nil {
+			return err
+		}
+		queueClient = cq
+		notifier = localNotifier
+		logger.Info("using channel job queue (in-process)", app.LogFields{}, nil)
+	} else {
+		pq, err := queue.NewPgQueue(pool, 25, cfg.Capabilities)
+		if err != nil {
+			return err
+		}
+		queueClient = pq
+
+		if directPool != nil {
+			pgNotifier := consumer.NewNotifier(directPool)
+			pgNotifier.Start(runCtx)
+			notifier = pgNotifier
+		}
 	}
+
 	locker, err := consumer.NewPgAdvisoryLocker(pool)
 	if err != nil {
 		return err
@@ -138,12 +160,6 @@ func run() error {
 		}
 		reg.StartHeartbeat(runCtx)
 		handler = &loadAwareHandler{inner: handler, reg: reg}
-	}
-
-	var notifier *consumer.Notifier
-	if directPool != nil {
-		notifier = consumer.NewNotifier(directPool)
-		notifier.Start(runCtx)
 	}
 
 	loop, err := consumer.NewLoop(

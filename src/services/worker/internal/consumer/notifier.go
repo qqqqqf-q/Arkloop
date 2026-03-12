@@ -8,6 +8,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// WorkNotifier signals idle consumer goroutines when new work might be available.
+type WorkNotifier interface {
+	Wake() <-chan struct{}
+}
+
 const (
 	notifyChannel  = "arkloop:jobs"
 	reconnectDelay = 2 * time.Second

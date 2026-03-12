@@ -19,6 +19,7 @@ const (
 	workerVersionEnv               = "ARKLOOP_WORKER_VERSION"
 	mcpCacheTTLSecondsEnv          = "ARKLOOP_MCP_CACHE_TTL_SECONDS"
 	toolProviderCacheTTLSecondsEnv = "ARKLOOP_TOOL_PROVIDER_CACHE_TTL_SECONDS"
+	queueDriverEnv                 = "ARKLOOP_QUEUE_DRIVER"
 )
 
 // Config aligns with worker loop behavior.
@@ -36,6 +37,9 @@ type Config struct {
 
 	// Tool Provider 配置缓存 TTL（秒），0 表示不缓存
 	ToolProviderCacheTTLSeconds int
+
+	// QueueDriver selects the job-queue implementation: "pg" (default) or "channel".
+	QueueDriver string
 }
 
 func DefaultConfig() Config {
@@ -49,6 +53,7 @@ func DefaultConfig() Config {
 		Version:                     "unknown",
 		MCPCacheTTLSeconds:          60,
 		ToolProviderCacheTTLSeconds: 60,
+		QueueDriver:                 "pg",
 	}
 }
 
@@ -112,6 +117,10 @@ func LoadConfigFromEnv() (Config, error) {
 			return Config{}, fmt.Errorf("%s: must be >= 0", mcpCacheTTLSecondsEnv)
 		}
 		cfg.MCPCacheTTLSeconds = value
+	}
+
+	if raw, ok := lookupEnv(queueDriverEnv); ok {
+		cfg.QueueDriver = raw
 	}
 
 	if raw, ok := lookupEnv(toolProviderCacheTTLSecondsEnv); ok {
