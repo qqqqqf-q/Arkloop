@@ -23,8 +23,6 @@ type stateStore interface {
 	Delete(ctx context.Context, key string) error
 }
 
-var _ stateStore = (*objectstore.S3Store)(nil)
-
 type SessionRestoreState struct {
 	Version        int                        `json:"version"`
 	Revision       string                     `json:"revision"`

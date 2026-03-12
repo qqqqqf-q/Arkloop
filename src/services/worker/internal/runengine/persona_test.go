@@ -1,3 +1,5 @@
+//go:build !desktop
+
 package runengine_test
 
 import (

@@ -1,3 +1,5 @@
+//go:build !desktop
+
 package runengine
 
 import (
@@ -45,7 +47,7 @@ func TestResolveAndPersistEnvironmentBindings_ProjectScopedPerProfile(t *testing
 		ThreadID:        threadA1,
 		ProjectID:       &projectID,
 		CreatedByUserID: &userA,
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("resolve first run failed: %v", err)
 	}
@@ -55,7 +57,7 @@ func TestResolveAndPersistEnvironmentBindings_ProjectScopedPerProfile(t *testing
 		ThreadID:        threadA2,
 		ProjectID:       &projectID,
 		CreatedByUserID: &userA,
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("resolve second run failed: %v", err)
 	}
@@ -65,7 +67,7 @@ func TestResolveAndPersistEnvironmentBindings_ProjectScopedPerProfile(t *testing
 		ThreadID:        threadB,
 		ProjectID:       &projectID,
 		CreatedByUserID: &userB,
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("resolve third run failed: %v", err)
 	}
@@ -136,7 +138,7 @@ func TestResolveAndPersistEnvironmentBindings_ThreadFallback(t *testing.T) {
 		OrgID:           orgID,
 		ThreadID:        threadID,
 		CreatedByUserID: &userID,
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("resolve first run failed: %v", err)
 	}
@@ -145,7 +147,7 @@ func TestResolveAndPersistEnvironmentBindings_ThreadFallback(t *testing.T) {
 		OrgID:           orgID,
 		ThreadID:        threadID,
 		CreatedByUserID: &userID,
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("resolve second run failed: %v", err)
 	}
@@ -185,7 +187,7 @@ func TestResolveAndPersistEnvironmentBindings_NewThreadInheritsWorkspaceSkills(t
 		OrgID:           orgID,
 		ThreadID:        threadID1,
 		CreatedByUserID: &userID,
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("resolve first run failed: %v", err)
 	}
@@ -205,7 +207,7 @@ func TestResolveAndPersistEnvironmentBindings_NewThreadInheritsWorkspaceSkills(t
 		OrgID:           orgID,
 		ThreadID:        threadID2,
 		CreatedByUserID: &userID,
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("resolve second run failed: %v", err)
 	}

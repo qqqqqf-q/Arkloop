@@ -1,3 +1,5 @@
+//go:build !desktop
+
 package runengine
 
 import (
@@ -46,6 +48,7 @@ type EngineV1 struct {
 	llmRetryMaxAttempts   int
 	llmRetryBaseDelayMs   int
 	configResolver        sharedconfig.Resolver
+	dialect               database.DialectHelper
 }
 
 type ExecuteInput struct {
@@ -83,6 +86,8 @@ type EngineV1Deps struct {
 	// LLM 请求重试配置
 	LlmRetryMaxAttempts int
 	LlmRetryBaseDelayMs int
+
+	Dialect database.DialectHelper
 
 	RuntimeManager         *workerruntime.Manager
 	MemoryProviderFactory  *workerruntime.MemoryProviderFactory
@@ -132,11 +137,11 @@ func NewEngineV1(deps EngineV1Deps) (*EngineV1, error) {
 		return nil, err
 	}
 
-	runsRepo := data.RunsRepository{}
-	eventsRepo := data.RunEventsRepository{}
-	messagesRepo := data.MessagesRepository{}
-	usageRepo := data.UsageRecordsRepository{}
-	creditsRepo := data.CreditsRepository{}
+	runsRepo := data.RunsRepository{Dialect: deps.Dialect}
+	eventsRepo := data.RunEventsRepository{Dialect: deps.Dialect}
+	messagesRepo := data.MessagesRepository{Dialect: deps.Dialect}
+	usageRepo := data.UsageRecordsRepository{Dialect: deps.Dialect}
+	creditsRepo := data.CreditsRepository{Dialect: deps.Dialect}
 
 	concurrencyLimiter := deps.ConcurrencyLimiter
 	releaseSlot := func(ctx context.Context, run data.Run) {
@@ -186,7 +191,7 @@ func NewEngineV1(deps EngineV1Deps) (*EngineV1, error) {
 		pipeline.NewSkillContextMiddleware(db, nil),
 		pipeline.NewMemoryMiddleware(nil, db, deps.ConfigResolver),
 		pipeline.NewRoutingMiddleware(deps.Router, deps.RoutingConfigLoader, deps.StubGateway, deps.EmitDebugEvents, runsRepo, eventsRepo, releaseSlot, resolver),
-		pipeline.NewTitleSummarizerMiddleware(deps.DBPool, deps.EventBus, deps.StubGateway, deps.EmitDebugEvents, deps.RoutingConfigLoader),
+		pipeline.NewTitleSummarizerMiddleware(deps.DBPool, deps.EventBus, deps.StubGateway, deps.EmitDebugEvents, deps.Dialect, deps.RoutingConfigLoader),
 		pipeline.NewToolDescriptionOverrideMiddleware(deps.ToolDescriptionOverridesRepo),
 		pipeline.NewToolBuildMiddleware(),
 	}
@@ -207,6 +212,7 @@ func NewEngineV1(deps EngineV1Deps) (*EngineV1, error) {
 		llmRetryMaxAttempts:   deps.LlmRetryMaxAttempts,
 		llmRetryBaseDelayMs:   deps.LlmRetryBaseDelayMs,
 		configResolver:        cfgResolver,
+		dialect:               deps.Dialect,
 	}, nil
 }
 
@@ -216,7 +222,7 @@ func (e *EngineV1) Execute(ctx context.Context, pool *pgxpool.Pool, run data.Run
 	}
 
 	db := pgadapter.New(pool)
-	resolvedRun, err := resolveAndPersistEnvironmentBindings(ctx, db, run)
+	resolvedRun, err := resolveAndPersistEnvironmentBindings(ctx, db, run, e.dialect)
 	if err != nil {
 		return fmt.Errorf("resolve environment bindings: %w", err)
 	}
@@ -276,7 +282,7 @@ func (e *EngineV1) Execute(ctx context.Context, pool *pgxpool.Pool, run data.Run
 	}
 
 	if e.jobQueue != nil && e.eventBus != nil {
-		rc.SpawnChildRun = newSpawnChildRunFunc(pool, e.eventBus, e.jobQueue, run, traceID)
+		rc.SpawnChildRun = newSpawnChildRunFunc(pool, e.eventBus, e.jobQueue, run, traceID, e.dialect)
 	}
 
 	handler := pipeline.Build(e.middlewares, e.terminal)
