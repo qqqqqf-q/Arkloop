@@ -73,6 +73,8 @@ func (e *SimpleExecutor) Execute(
 		ToolTimeoutMs:          rc.ToolTimeoutMs,
 		ToolBudget:             rc.ToolBudget,
 		PerToolSoftLimits:      rc.PerToolSoftLimits,
+		MaxCostMicros:          rc.MaxCostMicros,
+		MaxTotalOutputTokens:   rc.MaxTotalOutputTokens,
 		PendingMemoryWrites:    rc.PendingMemoryWrites,
 		Runtime:                rc.Runtime,
 		LlmRetryMaxAttempts:    rc.LlmRetryMaxAttempts,

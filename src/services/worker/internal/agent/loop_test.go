@@ -1059,3 +1059,172 @@ func assertHasToolResultError(t *testing.T, eventsIn []events.RunEvent, errorCla
 	}
 	t.Fatalf("expected tool.result error_class=%s, got %#v", errorClass, eventsIn)
 }
+
+func int64Ptr(v int64) *int64 { return &v }
+
+func TestAgentLoopCostBudgetExceeded(t *testing.T) {
+	registry := tools.NewRegistry()
+	if err := registry.Register(builtin.EchoAgentSpec); err != nil {
+		t.Fatalf("register echo failed: %v", err)
+	}
+	allowlist := tools.AllowlistFromNames([]string{"echo"})
+	policy := tools.NewPolicyEnforcer(registry, allowlist)
+	executor := tools.NewDispatchingExecutor(registry, policy)
+	if err := executor.Bind("echo", builtin.EchoExecutor{}); err != nil {
+		t.Fatalf("bind echo failed: %v", err)
+	}
+
+	gateway := &scriptedTurnsGateway{turns: [][]llm.StreamEvent{
+		{
+			llm.ToolCall{ToolCallID: "call_1", ToolName: "echo", ArgumentsJSON: map[string]any{"text": "hi"}},
+			llm.StreamRunCompleted{
+				Cost:  &llm.Cost{Currency: "USD", AmountMicros: 6000},
+				Usage: &llm.Usage{OutputTokens: intPtr(100)},
+			},
+		},
+		{
+			llm.StreamMessageDelta{ContentDelta: "done", Role: "assistant"},
+			llm.StreamRunCompleted{},
+		},
+	}}
+
+	loop := NewLoop(gateway, executor)
+	emitter := events.NewEmitter("trace")
+
+	var got []events.RunEvent
+	err := loop.Run(context.Background(), RunContext{
+		RunID:               uuid.New(),
+		TraceID:             "trace",
+		InputJSON:           map[string]any{},
+		ReasoningIterations: 3,
+		ToolExecutor:        executor,
+		MaxCostMicros:       int64Ptr(5000),
+		CancelSignal:        func() bool { return false },
+	}, llm.Request{Model: "stub"}, emitter, func(ev events.RunEvent) error {
+		got = append(got, ev)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("loop.Run failed: %v", err)
+	}
+
+	found := false
+	for _, ev := range got {
+		if ev.Type == "run.failed" && ev.ErrorClass != nil && *ev.ErrorClass == llm.ErrorClassBudgetExceeded {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected run.failed with error_class=%s", llm.ErrorClassBudgetExceeded)
+	}
+}
+
+func TestAgentLoopOutputTokenBudgetExceeded(t *testing.T) {
+	registry := tools.NewRegistry()
+	if err := registry.Register(builtin.EchoAgentSpec); err != nil {
+		t.Fatalf("register echo failed: %v", err)
+	}
+	allowlist := tools.AllowlistFromNames([]string{"echo"})
+	policy := tools.NewPolicyEnforcer(registry, allowlist)
+	executor := tools.NewDispatchingExecutor(registry, policy)
+	if err := executor.Bind("echo", builtin.EchoExecutor{}); err != nil {
+		t.Fatalf("bind echo failed: %v", err)
+	}
+
+	gateway := &scriptedTurnsGateway{turns: [][]llm.StreamEvent{
+		{
+			llm.ToolCall{ToolCallID: "call_1", ToolName: "echo", ArgumentsJSON: map[string]any{"text": "hi"}},
+			llm.StreamRunCompleted{
+				Usage: &llm.Usage{OutputTokens: intPtr(60)},
+			},
+		},
+		{
+			llm.StreamMessageDelta{ContentDelta: "done", Role: "assistant"},
+			llm.StreamRunCompleted{},
+		},
+	}}
+
+	loop := NewLoop(gateway, executor)
+	emitter := events.NewEmitter("trace")
+
+	var got []events.RunEvent
+	err := loop.Run(context.Background(), RunContext{
+		RunID:                uuid.New(),
+		TraceID:              "trace",
+		InputJSON:            map[string]any{},
+		ReasoningIterations:  3,
+		ToolExecutor:         executor,
+		MaxTotalOutputTokens: int64Ptr(50),
+		CancelSignal:         func() bool { return false },
+	}, llm.Request{Model: "stub"}, emitter, func(ev events.RunEvent) error {
+		got = append(got, ev)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("loop.Run failed: %v", err)
+	}
+
+	found := false
+	for _, ev := range got {
+		if ev.Type == "run.failed" && ev.ErrorClass != nil && *ev.ErrorClass == llm.ErrorClassBudgetExceeded {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected run.failed with error_class=%s", llm.ErrorClassBudgetExceeded)
+	}
+}
+
+func TestAgentLoopCostBudgetNotExceeded(t *testing.T) {
+	registry := tools.NewRegistry()
+	if err := registry.Register(builtin.EchoAgentSpec); err != nil {
+		t.Fatalf("register echo failed: %v", err)
+	}
+	allowlist := tools.AllowlistFromNames([]string{"echo"})
+	policy := tools.NewPolicyEnforcer(registry, allowlist)
+	executor := tools.NewDispatchingExecutor(registry, policy)
+	if err := executor.Bind("echo", builtin.EchoExecutor{}); err != nil {
+		t.Fatalf("bind echo failed: %v", err)
+	}
+
+	gateway := &scriptedTurnsGateway{turns: [][]llm.StreamEvent{
+		{
+			llm.ToolCall{ToolCallID: "call_1", ToolName: "echo", ArgumentsJSON: map[string]any{"text": "hi"}},
+			llm.StreamRunCompleted{
+				Cost:  &llm.Cost{Currency: "USD", AmountMicros: 500},
+				Usage: &llm.Usage{OutputTokens: intPtr(10)},
+			},
+		},
+		{
+			llm.StreamMessageDelta{ContentDelta: "done", Role: "assistant"},
+			llm.StreamRunCompleted{},
+		},
+	}}
+
+	loop := NewLoop(gateway, executor)
+	emitter := events.NewEmitter("trace")
+
+	var got []events.RunEvent
+	err := loop.Run(context.Background(), RunContext{
+		RunID:               uuid.New(),
+		TraceID:             "trace",
+		InputJSON:           map[string]any{},
+		ReasoningIterations: 3,
+		ToolExecutor:        executor,
+		MaxCostMicros:       int64Ptr(100000),
+		CancelSignal:        func() bool { return false },
+	}, llm.Request{Model: "stub"}, emitter, func(ev events.RunEvent) error {
+		got = append(got, ev)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("loop.Run failed: %v", err)
+	}
+
+	assertHasEvent(t, got, "run.completed")
+	for _, ev := range got {
+		if ev.Type == "run.failed" {
+			t.Fatalf("unexpected run.failed event")
+		}
+	}
+}

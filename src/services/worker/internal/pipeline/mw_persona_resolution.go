@@ -107,6 +107,8 @@ func NewPersonaResolutionMiddleware(
 		rc.ToolTimeoutMs = profile.ToolTimeoutMs
 		rc.ToolBudget = profile.ToolBudget
 		rc.PerToolSoftLimits = tools.CopyPerToolSoftLimits(profile.PerToolSoftLimits)
+		rc.MaxCostMicros = profile.MaxCostMicros
+		rc.MaxTotalOutputTokens = profile.MaxTotalOutputTokens
 		rc.PreferredCredentialName = profile.PreferredCredentialName
 
 		if resolution.Definition != nil {

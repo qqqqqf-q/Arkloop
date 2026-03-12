@@ -20,6 +20,8 @@ type RequestedBudgets struct {
 	PerToolSoftLimits      PerToolSoftLimits `json:"per_tool_soft_limits,omitempty"`
 	Temperature            *float64          `json:"temperature,omitempty"`
 	TopP                   *float64          `json:"top_p,omitempty"`
+	MaxCostMicros          *int64            `json:"max_cost_micros,omitempty"`
+	MaxTotalOutputTokens   *int64            `json:"max_total_output_tokens,omitempty"`
 }
 
 type PlatformLimits struct {
@@ -56,6 +58,8 @@ type EffectiveProfile struct {
 	ToolTimeoutMs           *int              `json:"tool_timeout_ms,omitempty"`
 	ToolBudget              map[string]any    `json:"tool_budget,omitempty"`
 	PerToolSoftLimits       PerToolSoftLimits `json:"per_tool_soft_limits,omitempty"`
+	MaxCostMicros           *int64            `json:"max_cost_micros,omitempty"`
+	MaxTotalOutputTokens    *int64            `json:"max_total_output_tokens,omitempty"`
 	PreferredCredentialName string            `json:"preferred_credential_name,omitempty"`
 }
 
@@ -127,6 +131,12 @@ func ResolveEffectiveProfile(
 		profile.TopP = copyOptionalFloat64(persona.Budgets.TopP)
 	}
 
+	if persona.Budgets.MaxCostMicros != nil && *persona.Budgets.MaxCostMicros > 0 {
+		profile.MaxCostMicros = copyOptionalInt64(persona.Budgets.MaxCostMicros)
+	}
+	if persona.Budgets.MaxTotalOutputTokens != nil && *persona.Budgets.MaxTotalOutputTokens > 0 {
+		profile.MaxTotalOutputTokens = copyOptionalInt64(persona.Budgets.MaxTotalOutputTokens)
+	}
 	profile.ToolTimeoutMs = copyOptionalInt(persona.Budgets.ToolTimeoutMs)
 	for key, value := range persona.Budgets.ToolBudget {
 		profile.ToolBudget[key] = value
@@ -171,7 +181,7 @@ func ParseRequestedBudgetsMap(raw map[string]any) (RequestedBudgets, error) {
 	}
 	for key := range raw {
 		switch key {
-		case "reasoning_iterations", "tool_continuation_budget", "max_output_tokens", "tool_timeout_ms", "tool_budget", "per_tool_soft_limits", "temperature", "top_p":
+		case "reasoning_iterations", "tool_continuation_budget", "max_output_tokens", "tool_timeout_ms", "tool_budget", "per_tool_soft_limits", "temperature", "top_p", "max_cost_micros", "max_total_output_tokens":
 		default:
 			return RequestedBudgets{}, fmt.Errorf("budgets contains unsupported field: %s", key)
 		}
@@ -190,6 +200,14 @@ func ParseRequestedBudgetsMap(raw map[string]any) (RequestedBudgets, error) {
 		return RequestedBudgets{}, err
 	}
 	toolTimeoutMs, err := asOptionalPositiveInt(raw["tool_timeout_ms"], "budgets.tool_timeout_ms")
+	if err != nil {
+		return RequestedBudgets{}, err
+	}
+	maxCostMicros, err := asOptionalPositiveInt64(raw["max_cost_micros"], "budgets.max_cost_micros")
+	if err != nil {
+		return RequestedBudgets{}, err
+	}
+	maxTotalOutputTokens, err := asOptionalPositiveInt64(raw["max_total_output_tokens"], "budgets.max_total_output_tokens")
 	if err != nil {
 		return RequestedBudgets{}, err
 	}
@@ -225,6 +243,8 @@ func ParseRequestedBudgetsMap(raw map[string]any) (RequestedBudgets, error) {
 		PerToolSoftLimits:      perToolSoftLimits,
 		Temperature:            temperature,
 		TopP:                   topP,
+		MaxCostMicros:          maxCostMicros,
+		MaxTotalOutputTokens:   maxTotalOutputTokens,
 	}, nil
 }
 
@@ -378,4 +398,34 @@ func copyOptionalFloat64(value *float64) *float64 {
 	}
 	copy := *value
 	return &copy
+}
+
+func copyOptionalInt64(v *int64) *int64 {
+	if v == nil {
+		return nil
+	}
+	cp := *v
+	return &cp
+}
+
+func asOptionalPositiveInt64(value any, field string) (*int64, error) {
+	if value == nil {
+		return nil, nil
+	}
+	switch v := value.(type) {
+	case float64:
+		i := int64(v)
+		if float64(i) != v || i <= 0 {
+			return nil, fmt.Errorf("%s must be a positive integer", field)
+		}
+		return &i, nil
+	case json.Number:
+		i, err := v.Int64()
+		if err != nil || i <= 0 {
+			return nil, fmt.Errorf("%s must be a positive integer", field)
+		}
+		return &i, nil
+	default:
+		return nil, fmt.Errorf("%s must be a positive integer", field)
+	}
 }

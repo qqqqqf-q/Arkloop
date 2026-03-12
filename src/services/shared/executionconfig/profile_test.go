@@ -164,6 +164,61 @@ func TestParseRequestedBudgetsRejectsInvalidSoftLimit(t *testing.T) {
 	}
 }
 
+func TestParseRequestedBudgetsMap_CostBudgetFields(t *testing.T) {
+	raw := map[string]any{
+		"max_cost_micros":         float64(5000000),
+		"max_total_output_tokens": float64(100000),
+	}
+	b, err := ParseRequestedBudgetsMap(raw)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if b.MaxCostMicros == nil || *b.MaxCostMicros != 5000000 {
+		t.Fatalf("expected MaxCostMicros=5000000, got %v", b.MaxCostMicros)
+	}
+	if b.MaxTotalOutputTokens == nil || *b.MaxTotalOutputTokens != 100000 {
+		t.Fatalf("expected MaxTotalOutputTokens=100000, got %v", b.MaxTotalOutputTokens)
+	}
+}
+
+func TestParseRequestedBudgetsMap_CostBudgetRejectsNonPositive(t *testing.T) {
+	cases := []struct {
+		name string
+		raw  map[string]any
+	}{
+		{"zero_cost", map[string]any{"max_cost_micros": float64(0)}},
+		{"negative_cost", map[string]any{"max_cost_micros": float64(-1)}},
+		{"zero_tokens", map[string]any{"max_total_output_tokens": float64(0)}},
+		{"string_cost", map[string]any{"max_cost_micros": "abc"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := ParseRequestedBudgetsMap(tc.raw)
+			if err == nil {
+				t.Fatalf("expected error for %v", tc.raw)
+			}
+		})
+	}
+}
+
+func TestResolveEffectiveProfile_CostBudgetPropagation(t *testing.T) {
+	costMicros := int64(10000000)
+	outputTokens := int64(200000)
+	persona := &PersonaProfile{
+		Budgets: RequestedBudgets{
+			MaxCostMicros:        &costMicros,
+			MaxTotalOutputTokens: &outputTokens,
+		},
+	}
+	profile := ResolveEffectiveProfile(PlatformLimits{ToolContinuationBudget: 32}, nil, persona)
+	if profile.MaxCostMicros == nil || *profile.MaxCostMicros != 10000000 {
+		t.Fatalf("expected MaxCostMicros=10000000, got %v", profile.MaxCostMicros)
+	}
+	if profile.MaxTotalOutputTokens == nil || *profile.MaxTotalOutputTokens != 200000 {
+		t.Fatalf("expected MaxTotalOutputTokens=200000, got %v", profile.MaxTotalOutputTokens)
+	}
+}
+
 func floatPtr(value float64) *float64 {
 	return &value
 }

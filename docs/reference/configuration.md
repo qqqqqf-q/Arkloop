@@ -1,6 +1,11 @@
 | key | type | scope | default | sensitive | description |
 | --- | --- | --- | --- | --- | --- |
+| backpressure.enabled | bool | both | true | false | 启用 sub-agent 背压治理 |
+| backpressure.queue_threshold | int | both | 15 | false | 单 root run 下触发背压的活跃 sub-agent 数量阈值 |
+| backpressure.strategy | string | both | serial | false | 背压降级策略: serial/reject/pause |
 | browser.enabled | bool | platform | false | false | 是否在 Worker 中注册 browser 自动化工具 |
+| budget.max_cost_micros | int | both | 0 | false | 单次 run 最大累计费用 (微美元), 0 表示不限 |
+| budget.max_total_output_tokens | int | both | 0 | false | 单次 run 最大累计输出 token 数, 0 表示不限 |
 | credit.deduction_policy | string | platform | {"tiers":[{"up_to_tokens":2000,"multiplier":0},{"multiplier":1}]} | false | 积分扣减策略（JSON） |
 | credit.initial_grant | int | platform | 1000 | false | 新组织初始积分发放数量 |
 | credit.invite_reward | int | platform | 500 | false | 邀请者奖励积分数量 |

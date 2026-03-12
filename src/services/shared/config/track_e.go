@@ -96,6 +96,22 @@ func RegisterTrackE(r *Registry) error {
 			Sensitive:   false,
 			Scope:       ScopeBoth,
 		},
+		{
+			Key:         "budget.max_cost_micros",
+			Type:        TypeInt,
+			Default:     "0",
+			Description: "单次 run 最大累计费用 (微美元), 0 表示不限",
+			Sensitive:   false,
+			Scope:       ScopeBoth,
+		},
+		{
+			Key:         "budget.max_total_output_tokens",
+			Type:        TypeInt,
+			Default:     "0",
+			Description: "单次 run 最大累计输出 token 数, 0 表示不限",
+			Sensitive:   false,
+			Scope:       ScopeBoth,
+		},
 	}
 
 	for _, e := range entries {

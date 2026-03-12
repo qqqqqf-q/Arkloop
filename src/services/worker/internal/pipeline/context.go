@@ -85,6 +85,8 @@ type RunContext struct {
 	ToolTimeoutMs           *int
 	ToolBudget              map[string]any
 	PerToolSoftLimits       tools.PerToolSoftLimits
+	MaxCostMicros           *int64
+	MaxTotalOutputTokens    *int64
 	PreferredCredentialName string // Persona.PreferredCredential 解析结果，供 RoutingMiddleware 使用
 	ReasoningMode           string // "auto" | "enabled" | "disabled" | "none"
 
