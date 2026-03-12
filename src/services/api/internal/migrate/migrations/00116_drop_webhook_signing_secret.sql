@@ -5,6 +5,7 @@
 -- 此 migration 作为最终兜底，确保列可以安全删除。
 
 -- 为尚未迁移的行创建 secret 记录并回填 secret_id
+-- +goose StatementBegin
 DO $$
 DECLARE
     rec RECORD;
@@ -21,6 +22,7 @@ BEGIN
         UPDATE webhook_endpoints SET secret_id = new_secret_id WHERE id = rec.id;
     END LOOP;
 END $$;
+-- +goose StatementEnd
 
 ALTER TABLE webhook_endpoints DROP COLUMN signing_secret;
 

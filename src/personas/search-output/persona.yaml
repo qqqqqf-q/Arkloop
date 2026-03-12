@@ -10,7 +10,6 @@ budgets:
 title_summarize:
     max_tokens: 10
     prompt: Keep it under 5 Chinese characters. Extract the search intent.
-model: openrouter^qwen/qwen3.5-27b
 reasoning_mode: disabled
 prompt_cache_control: none
 executor_type: agent.lua

@@ -54,7 +54,6 @@ export function ArtifactDownload({ artifact, accessToken, pathPrefix = '/v1/arti
         padding: '6px 10px',
         borderRadius: '9px',
         border: '0.5px solid var(--c-border-subtle)',
-        background: 'var(--c-bg-sub)',
         cursor: downloading ? 'default' : 'pointer',
         fontFamily: 'inherit',
         transition: 'background 150ms',
@@ -63,8 +62,7 @@ export function ArtifactDownload({ artifact, accessToken, pathPrefix = '/v1/arti
         margin: '2px 4px',
         lineHeight: 1,
       }}
-      onMouseEnter={(e) => { if (!downloading) (e.currentTarget as HTMLButtonElement).style.background = 'var(--c-bg-deep)' }}
-      onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--c-bg-sub)' }}
+      className="bg-[var(--c-bg-sub)] [&:not(:disabled)]:hover:bg-[var(--c-bg-deep)]"
     >
       <FileDown size={14} style={{ color: 'var(--c-text-icon)', flexShrink: 0 }} />
       <span

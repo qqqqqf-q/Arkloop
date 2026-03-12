@@ -34,7 +34,7 @@ services:
       retries: 20
 
   seaweedfs:
-    image: chrislusf/seaweedfs:latest
+    image: chrislusf/seaweedfs:4.17
     restart: unless-stopped
     profiles:
       - s3
@@ -165,7 +165,7 @@ services:
       retries: 10
 
   pgbouncer:
-    image: edoburu/pgbouncer:latest
+    image: edoburu/pgbouncer:v1.25.1-p0
     restart: unless-stopped
     profiles:
       - pgbouncer
@@ -351,6 +351,7 @@ services:
       retries: 5
 
   openviking:
+    # pre-release: upstream 暂无稳定版，跟踪 https://github.com/volcengine/openviking/releases
     image: ghcr.io/volcengine/openviking:v0.1.18.dev0
     restart: unless-stopped
     profiles:
@@ -370,7 +371,7 @@ services:
   # --- SearXNG: Self-hosted metasearch engine ---
   # web_search provider, replaces Tavily API
   searxng:
-    image: searxng/searxng:latest
+    image: searxng/searxng:2025.9.29-77fd3ee53
     restart: unless-stopped
     profiles:
       - searxng
@@ -386,6 +387,7 @@ services:
   # --- Firecrawl: Self-hosted web scraper ---
   # web_fetch provider, replaces Jina/Basic fetch
   firecrawl:
+    # upstream 不提供版本标签 (https://github.com/firecrawl/firecrawl/issues/1750)
     image: mendableai/firecrawl:latest
     restart: unless-stopped
     profiles:
@@ -411,7 +413,7 @@ services:
       start_period: 30s
 
   firecrawl-playwright:
-    image: ghcr.io/browserless/chromium:latest
+    image: ghcr.io/browserless/chromium:v2.42.0
     restart: unless-stopped
     profiles:
       - firecrawl

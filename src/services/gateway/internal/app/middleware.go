@@ -18,6 +18,7 @@ import (
 	"arkloop/services/gateway/internal/geoip"
 	"arkloop/services/gateway/internal/identity"
 	"arkloop/services/gateway/internal/ua"
+	"arkloop/services/shared/httputil"
 
 	goredis "github.com/redis/go-redis/v9"
 )
@@ -29,34 +30,6 @@ const (
 	corsAllowHeadersValue  = "Authorization,Content-Type,Accept,X-Client-App,X-Trace-Id"
 	corsExposeHeadersValue = traceIDHeader
 )
-
-type statusRecorder struct {
-	http.ResponseWriter
-	statusCode  int
-	wroteHeader bool
-}
-
-func (r *statusRecorder) WriteHeader(statusCode int) {
-	if r.wroteHeader {
-		return
-	}
-	r.wroteHeader = true
-	r.statusCode = statusCode
-	r.ResponseWriter.WriteHeader(statusCode)
-}
-
-func (r *statusRecorder) Write(payload []byte) (int, error) {
-	if !r.wroteHeader {
-		r.WriteHeader(http.StatusOK)
-	}
-	return r.ResponseWriter.Write(payload)
-}
-
-func (r *statusRecorder) Flush() {
-	if f, ok := r.ResponseWriter.(http.Flusher); ok {
-		f.Flush()
-	}
-}
 
 func traceMiddleware(next http.Handler, logger *JSONLogger, geo geoip.Lookup, rdb *goredis.Client, redisTimeout time.Duration, jwtSecret []byte, trustIncomingTraceID bool) http.Handler {
 	var logWriter *accesslog.Writer
@@ -75,7 +48,7 @@ func traceMiddleware(next http.Handler, logger *JSONLogger, geo geoip.Lookup, rd
 		}
 		r.Header.Set(traceIDHeader, traceID)
 
-		recorder := &statusRecorder{ResponseWriter: w, statusCode: http.StatusOK}
+		recorder := &httputil.StatusRecorder{ResponseWriter: w, StatusCode: http.StatusOK}
 		recorder.Header().Set(traceIDHeader, traceID)
 
 		next.ServeHTTP(recorder, r)
@@ -109,7 +82,7 @@ func traceMiddleware(next http.Handler, logger *JSONLogger, geo geoip.Lookup, rd
 			extra := map[string]any{
 				"method":      r.Method,
 				"path":        r.URL.Path,
-				"status_code": recorder.statusCode,
+				"status_code": recorder.StatusCode,
 				"duration_ms": durationMs,
 				"client_ip":   ip,
 				"user_agent":  uaInfo.Raw,
@@ -131,7 +104,7 @@ func traceMiddleware(next http.Handler, logger *JSONLogger, geo geoip.Lookup, rd
 				TraceID:      traceID,
 				Method:       r.Method,
 				Path:         r.URL.Path,
-				StatusCode:   recorder.statusCode,
+				StatusCode:   recorder.StatusCode,
 				DurationMs:   durationMs,
 				ClientIP:     ip,
 				Country:      geoResult.Country,

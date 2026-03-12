@@ -120,11 +120,9 @@ export function MindmapBlock({ content }: Props) {
             background: 'transparent',
             color: 'var(--c-text-icon)',
             cursor: 'pointer',
-            opacity: 0.6,
             transition: 'opacity 0.15s',
           }}
-          onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.opacity = '1' }}
-          onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.opacity = '0.6' }}
+          className="opacity-60 hover:opacity-100"
         >
           {expanded ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
         </button>

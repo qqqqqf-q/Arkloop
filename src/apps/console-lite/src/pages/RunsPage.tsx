@@ -10,7 +10,7 @@ import { Badge, type BadgeVariant } from '../components/Badge'
 import { DataTable, type Column } from '../components/DataTable'
 import { PageHeader } from '../components/PageHeader'
 import { RunDetailPanel } from '../components/RunDetailPanel'
-import { useToast } from '../components/useToast'
+import { useToast } from '@arkloop/shared'
 import { useLocale } from '../contexts/LocaleContext'
 
 const PAGE_SIZE = 50

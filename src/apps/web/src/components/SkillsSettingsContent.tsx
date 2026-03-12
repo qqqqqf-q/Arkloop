@@ -579,11 +579,9 @@ export function SkillsSettingsContent({ accessToken, onTrySkill }: Props) {
               return (
                 <div
                   key={item.id}
-                  className="flex items-start gap-3 rounded-xl p-3 cursor-pointer transition-colors duration-100"
-                  style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-menu)' }}
+                  className="flex items-start gap-3 rounded-xl p-3 cursor-pointer transition-colors duration-100 bg-[var(--c-bg-menu)] hover:bg-[var(--c-bg-deep)]"
+                  style={{ border: '0.5px solid var(--c-border-subtle)' }}
                   onClick={() => setDetailSkill(item)}
-                  onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--c-bg-deep)' }}
-                  onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--c-bg-menu)' }}
                 >
                   <div className="flex min-w-0 flex-1 flex-col gap-1.5">
                     <div className="flex flex-wrap items-center gap-2">
@@ -890,10 +888,8 @@ export function SkillsSettingsContent({ accessToken, onTrySkill }: Props) {
                   key={candidate.path}
                   type="button"
                   onClick={() => void handleGitHubImport(candidate.path)}
-                  className="flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left transition-colors duration-100"
-                  style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-page)' }}
-                  onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--c-bg-deep)' }}
-                  onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--c-bg-page)' }}
+                  className="flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left transition-colors duration-100 bg-[var(--c-bg-page)] hover:bg-[var(--c-bg-deep)]"
+                  style={{ border: '0.5px solid var(--c-border-subtle)' }}
                 >
                   <div>
                     <span className="block text-sm font-medium text-[var(--c-text-heading)]">
@@ -1068,14 +1064,11 @@ function DropdownAction({ icon, label, onClick, disabled, destructive }: { icon:
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="flex w-full items-center gap-2 px-3 py-2 text-sm transition-colors duration-100 disabled:cursor-not-allowed disabled:opacity-40"
+      className={`flex w-full items-center gap-2 px-3 py-2 text-sm transition-colors duration-100 disabled:cursor-not-allowed disabled:opacity-40 bg-[var(--c-bg-menu)] ${destructive ? '[&:not(:disabled)]:hover:bg-[var(--c-error-bg)]' : '[&:not(:disabled)]:hover:bg-[var(--c-bg-deep)]'}`}
       style={{
         borderRadius: '8px',
         color: destructive ? 'var(--c-status-error-text, #ef4444)' : 'var(--c-text-secondary)',
-        background: 'var(--c-bg-menu)',
       }}
-      onMouseEnter={(e) => { if (!e.currentTarget.disabled) e.currentTarget.style.background = destructive ? 'var(--c-error-bg)' : 'var(--c-bg-deep)' }}
-      onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--c-bg-menu)' }}
     >
       {icon}
       {label}

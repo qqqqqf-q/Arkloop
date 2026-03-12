@@ -4,7 +4,7 @@ import { RefreshCw, ClipboardList, ChevronDown, ChevronRight } from 'lucide-reac
 import type { ConsoleOutletContext } from '../layouts/ConsoleLayout'
 import { PageHeader } from '../components/PageHeader'
 import { EmptyState } from '../components/EmptyState'
-import { useToast } from '../components/useToast'
+import { useToast } from '@arkloop/shared'
 import { listAuditLogs, type AuditLog } from '../api/audit'
 
 const PAGE_SIZE = 50

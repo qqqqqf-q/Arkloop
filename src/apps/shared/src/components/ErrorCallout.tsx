@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { ChevronDown, ChevronRight } from 'lucide-react'
-import { useLocale } from '../contexts/LocaleContext'
+import type { Locale } from '../contexts/LocaleContext'
 
 export type AppError = {
   message: string
@@ -22,6 +22,9 @@ const FRIENDLY_ERROR_MESSAGES: Record<string, FriendlyText> = {
   'auth.user_suspended': { zh: '账号已停用', en: 'Account suspended.' },
   'auth.email_not_verified': { zh: '邮箱未验证', en: 'Email not verified.' },
   'auth.captcha_invalid': { zh: '人机验证失败', en: 'Captcha verification failed.' },
+  'auth.invite_code_required': { zh: '需要邀请码', en: 'Invite code required.' },
+  'auth.invite_code_invalid': { zh: '邀请码无效', en: 'Invalid invite code.' },
+  'auth.login_exists': { zh: '用户名已被占用', en: 'Login already taken.' },
   'auth.flow_token_invalid': { zh: '登录流程已失效，请重新开始', en: 'Sign-in flow expired. Please start again.' },
   'auth.otp_unavailable': { zh: '当前账号无法使用邮箱验证码', en: 'Email code is unavailable for this account.' },
   'auth.otp_invalid': { zh: '验证码无效或已过期', en: 'Code invalid or expired.' },
@@ -29,6 +32,10 @@ const FRIENDLY_ERROR_MESSAGES: Record<string, FriendlyText> = {
   'auth.invalid_token': { zh: '登录已过期，请重新登录', en: 'Session expired. Please log in again.' },
   'auth.missing_token': { zh: '未登录', en: 'Not authenticated.' },
   'auth.invalid_authorization': { zh: '未登录', en: 'Not authenticated.' },
+  'threads.not_found': { zh: '会话不存在', en: 'Thread not found.' },
+  'runs.not_found': { zh: '任务不存在', en: 'Run not found.' },
+  'runs.limit_exceeded': { zh: '当前有任务在运行，请稍后再试', en: 'Too many concurrent runs.' },
+  'credits.insufficient': { zh: '积分不足', en: 'Insufficient credits.' },
 }
 
 function hasCjk(text: string): boolean {
@@ -41,8 +48,13 @@ function isNetworkErrorMessage(text: string): boolean {
   return m.includes('failed to fetch') || m.includes('networkerror') || m.includes('network error') || m.includes('load failed')
 }
 
-export function ErrorCallout({ error }: { error: AppError }) {
-  const { locale, t } = useLocale()
+type ErrorCalloutProps = {
+  error: AppError
+  locale: Locale
+  requestFailedText: string
+}
+
+export function ErrorCallout({ error, locale, requestFailedText }: ErrorCalloutProps) {
   const [detailsOpen, setDetailsOpen] = useState(false)
 
   const rawMessage = useMemo(() => (error.message ?? '').trim(), [error.message])
@@ -57,8 +69,8 @@ export function ErrorCallout({ error }: { error: AppError }) {
     if (rawMessage && isNetworkErrorMessage(rawMessage)) {
       return locale === 'zh' ? '网络异常，请重试' : 'Network error. Please try again.'
     }
-    return t.requestFailed
-  }, [code, locale, rawMessage, t.requestFailed])
+    return requestFailedText
+  }, [code, locale, rawMessage, requestFailedText])
 
   const showDetails = useMemo(() => {
     if (code || traceId) return true

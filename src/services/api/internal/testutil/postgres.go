@@ -4,17 +4,15 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"fmt"
 	"net/url"
 	"os"
-	"regexp"
 	"strings"
 	"testing"
 
+	sharedtestutil "arkloop/services/shared/testutil"
+
 	"github.com/jackc/pgx/v5"
 )
-
-var safeIdentifierRegex = regexp.MustCompile(`^[A-Za-z0-9_]+$`)
 
 type PostgresDatabase struct {
 	DSN      string
@@ -24,7 +22,7 @@ type PostgresDatabase struct {
 func SetupPostgresDatabase(t *testing.T, prefix string) *PostgresDatabase {
 	t.Helper()
 
-	requireIntegrationTests(t)
+	sharedtestutil.RequireIntegrationTests(t)
 	baseDSN := lookupDatabaseDSN(t)
 	parsed, err := url.Parse(baseDSN)
 	if err != nil {
@@ -44,12 +42,12 @@ func SetupPostgresDatabase(t *testing.T, prefix string) *PostgresDatabase {
 	}
 	defer adminConn.Close(context.Background())
 
-	if _, err := adminConn.Exec(context.Background(), "CREATE DATABASE "+quoteIdentifier(databaseName)); err != nil {
+	if _, err := adminConn.Exec(context.Background(), "CREATE DATABASE "+sharedtestutil.QuoteIdentifier(databaseName)); err != nil {
 		t.Fatalf("create database failed: %v", err)
 	}
 
 	t.Cleanup(func() {
-		dropTemporaryDatabase(t, adminURL.String(), databaseName)
+		sharedtestutil.DropTemporaryDatabase(t, adminURL.String(), databaseName)
 	})
 
 	dbURL := *parsed
@@ -73,20 +71,6 @@ func lookupDatabaseDSN(t *testing.T) string {
 
 	t.Skip("ARKLOOP_DATABASE_URL (or compatible DATABASE_URL) not set")
 	return ""
-}
-
-func requireIntegrationTests(t *testing.T) {
-	t.Helper()
-
-	raw := strings.TrimSpace(os.Getenv("ARKLOOP_RUN_INTEGRATION_TESTS"))
-	if raw == "" {
-		t.Skip("integration tests disabled")
-	}
-	lower := strings.ToLower(raw)
-	if lower == "1" || lower == "true" || lower == "yes" || lower == "on" {
-		return
-	}
-	t.Skip("integration tests disabled")
 }
 
 func buildDatabaseName(prefix string) string {
@@ -128,34 +112,4 @@ func randomHex(nBytes int) string {
 		return "deadbeef"
 	}
 	return hex.EncodeToString(buf)
-}
-
-func quoteIdentifier(name string) string {
-	if !safeIdentifierRegex.MatchString(name) {
-		panic("illegal identifier")
-	}
-	return `"` + name + `"`
-}
-
-func dropTemporaryDatabase(t *testing.T, adminDSN string, databaseName string) {
-	t.Helper()
-
-	adminConn, err := pgx.Connect(context.Background(), adminDSN)
-	if err != nil {
-		t.Fatalf("connect admin database failed: %v", err)
-	}
-	defer adminConn.Close(context.Background())
-
-	_, _ = adminConn.Exec(
-		context.Background(),
-		`SELECT pg_terminate_backend(pid)
-		 FROM pg_stat_activity
-		 WHERE datname = $1
-		   AND pid <> pg_backend_pid()`,
-		databaseName,
-	)
-
-	if _, err := adminConn.Exec(context.Background(), "DROP DATABASE IF EXISTS "+quoteIdentifier(databaseName)); err != nil {
-		_, _ = os.Stderr.WriteString(fmt.Sprintf("drop database %s failed: %v\n", databaseName, err))
-	}
 }

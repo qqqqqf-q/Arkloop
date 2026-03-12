@@ -420,7 +420,6 @@ export function ChatInput({
   const [selectedPersonaKey, setSelectedPersonaKey] = useState(readSelectedPersonaKeyFromStorage)
   const [tierHovered, setTierHovered] = useState(false)
   const [focused, setFocused] = useState(false)
-  const [hovered, setHovered] = useState(false)
   const [isRecording, setIsRecording] = useState(false)
   const [isTranscribing, setIsTranscribing] = useState(false)
   const [recordingSeconds, setRecordingSeconds] = useState(0)
@@ -897,7 +896,6 @@ export function ChatInput({
       <div
         className={[
           'bg-[var(--c-bg-input)] chat-input-box',
-          hovered && 'is-hovered',
           focused && 'is-focused',
         ].filter(Boolean).join(' ')}
         style={{
@@ -905,20 +903,14 @@ export function ChatInput({
           borderStyle: 'solid',
           borderColor: focused
             ? 'var(--c-input-border-color-focus)'
-            : hovered
-              ? 'var(--c-input-border-color-hover)'
-              : 'var(--c-input-border-color)',
+            : 'var(--c-input-border-color)',
           borderRadius: '20px',
           boxShadow: focused
             ? 'var(--c-input-shadow-focus)'
-            : hovered
-              ? 'var(--c-input-shadow-hover)'
-              : 'var(--c-input-shadow)',
+            : 'var(--c-input-shadow)',
           transition: 'border-color 0.2s ease, box-shadow 0.2s ease',
           cursor: 'default',
         }}
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
         onClick={(e) => {
           const tag = (e.target as HTMLElement).tagName
           if (tag !== 'BUTTON' && tag !== 'TEXTAREA' && tag !== 'INPUT' && tag !== 'SVG' && tag !== 'PATH') {

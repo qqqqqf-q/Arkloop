@@ -85,7 +85,7 @@ src/
 
 **提交信息**
 
-遵循 [COMMIT.md](../../COMMIT.md) 中的格式：
+格式：
 
 ```
 <type>(<scope>): <subject>

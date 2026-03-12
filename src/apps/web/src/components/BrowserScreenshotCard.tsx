@@ -249,15 +249,13 @@ export function BrowserScreenshotCard({ artifact, accessToken, command, url }: P
                 padding: '8px 14px',
                 borderRadius: 10,
                 border: '0.5px solid var(--c-border-subtle)',
-                background: 'var(--c-bg-sub)',
                 color: 'var(--c-text-primary)',
                 fontSize: 14,
                 textDecoration: 'none',
                 fontFamily: 'inherit',
                 transition: 'background 150ms',
               }}
-              onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'var(--c-bg-deep)' }}
-              onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'var(--c-bg-sub)' }}
+              className="bg-[var(--c-bg-sub)] hover:bg-[var(--c-bg-deep)]"
             >
               <span style={{ maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {artifact.filename}
@@ -274,14 +272,12 @@ export function BrowserScreenshotCard({ artifact, accessToken, command, url }: P
                 height: 36,
                 borderRadius: 10,
                 border: '0.5px solid var(--c-border-subtle)',
-                background: 'var(--c-bg-sub)',
                 color: 'var(--c-text-icon)',
                 cursor: 'pointer',
                 fontFamily: 'inherit',
                 transition: 'background 150ms',
               }}
-              onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--c-bg-deep)' }}
-              onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--c-bg-sub)' }}
+              className="bg-[var(--c-bg-sub)] hover:bg-[var(--c-bg-deep)]"
             >
               <Download size={16} />
             </button>

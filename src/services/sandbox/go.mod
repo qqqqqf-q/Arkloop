@@ -8,7 +8,6 @@ require (
 	github.com/docker/go-connections v0.6.0
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.8.0
-	github.com/klauspost/compress v1.18.2
 	github.com/mdlayher/vsock v1.2.1
 	golang.org/x/sync v0.19.0
 	golang.org/x/sys v0.41.0

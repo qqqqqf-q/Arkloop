@@ -250,7 +250,6 @@ button:not(:disabled) {
   opacity: 0;
   transition: opacity 0.2s ease;
 }
-.chat-input-box.is-hovered::before,
 .chat-input-box.is-focused::before {
   opacity: var(--c-input-gradient-active, 1);
 }

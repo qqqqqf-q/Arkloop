@@ -13,7 +13,6 @@ budgets:
 title_summarize:
     max_tokens: 20
     prompt: Keep it under 10 Chinese characters. Capture the task goal.
-model: openrouter^qwen/qwen3.5-27b
 reasoning_mode: disabled
 prompt_cache_control: none
 executor_type: agent.simple

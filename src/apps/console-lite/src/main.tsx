@@ -1,7 +1,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
-import { ToastProvider } from './components/Toast'
+import { ToastProvider } from '@arkloop/shared'
 import { ThemeProvider } from './contexts/ThemeContext'
 import { LocaleProvider } from './contexts/LocaleContext'
 import './index.css'

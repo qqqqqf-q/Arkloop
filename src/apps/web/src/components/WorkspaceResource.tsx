@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Download, ExternalLink, FileCode2, X } from 'lucide-react'
 import { apiBaseUrl } from '@arkloop/shared/api'
+import { useLocale } from '../contexts/LocaleContext'
 
 const ANIM_MS = 120
 
@@ -70,6 +71,7 @@ function fileExtension(filename: string): string {
 }
 
 export function WorkspaceResource({ file, runId, accessToken }: Props) {
+  const { t } = useLocale()
   const [loadState, setLoadState] = useState<LoadState>({ status: 'loading' })
   const [visible, setVisible] = useState(false)
   const [show, setShow] = useState(false)
@@ -382,7 +384,7 @@ export function WorkspaceResource({ file, runId, accessToken }: Props) {
                 }}
               >
                 <Download size={14} />
-                <span style={{ fontSize: 13 }}>下载</span>
+                <span style={{ fontSize: 13 }}>{t.documentPanel.download}</span>
               </button>
             </div>
           </div>

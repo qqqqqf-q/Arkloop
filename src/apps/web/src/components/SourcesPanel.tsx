@@ -48,13 +48,11 @@ export function SourcesPanel({ sources, userQuery, onClose }: Props) {
             height: '28px',
             borderRadius: '8px',
             border: 'none',
-            background: 'transparent',
             color: 'var(--c-text-secondary)',
             cursor: 'pointer',
             transition: 'background 150ms',
           }}
-          onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--c-bg-deep)' }}
-          onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent' }}
+          className="hover:bg-[var(--c-bg-deep)]"
         >
           <X size={18} />
         </button>
@@ -91,8 +89,7 @@ export function SourcesPanel({ sources, userQuery, onClose }: Props) {
                   borderRadius: '10px',
                   transition: 'background 150ms',
                 }}
-                onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'var(--c-bg-deep)' }}
-                onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'transparent' }}
+                className="hover:bg-[var(--c-bg-deep)]"
               >
                 <div
                   style={{

@@ -555,15 +555,12 @@ function LanguageContent({
                 key={value}
                 type="button"
                 onClick={() => { setLocale(value); setOpen(false) }}
-                className="flex w-full items-center px-3 py-2 text-sm transition-colors duration-100"
+                className="flex w-full items-center px-3 py-2 text-sm transition-colors duration-100 bg-[var(--c-bg-menu)] hover:bg-[var(--c-bg-deep)]"
                 style={{
                   borderRadius: '8px',
                   fontWeight: locale === value ? 600 : 400,
                   color: locale === value ? 'var(--c-text-heading)' : 'var(--c-text-secondary)',
-                  background: 'var(--c-bg-menu)',
                 }}
-                onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--c-bg-deep)')}
-                onMouseLeave={(e) => (e.currentTarget.style.background = 'var(--c-bg-menu)')}
               >
                 {optLabel}
               </button>

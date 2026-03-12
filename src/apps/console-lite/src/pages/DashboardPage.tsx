@@ -12,7 +12,7 @@ import {
 } from 'recharts'
 import type { LiteOutletContext } from '../layouts/LiteLayout'
 import { PageHeader } from '../components/PageHeader'
-import { useToast } from '../components/useToast'
+import { useToast } from '@arkloop/shared'
 import { useLocale } from '../contexts/LocaleContext'
 import { isApiError } from '../api'
 import { getDashboard, getDailyUsage, type DashboardData, type DailyUsage } from '../api/dashboard'

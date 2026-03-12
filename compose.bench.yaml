@@ -37,7 +37,7 @@ services:
       retries: 20
 
   seaweedfs:
-    image: chrislusf/seaweedfs:latest
+    image: chrislusf/seaweedfs:4.17
     restart: unless-stopped
     entrypoint:
       - /bin/sh
@@ -73,7 +73,7 @@ services:
     restart: "no"
 
   pgbouncer:
-    image: edoburu/pgbouncer:latest
+    image: edoburu/pgbouncer:v1.25.1-p0
     restart: unless-stopped
     environment:
       DB_USER: ${ARKLOOP_POSTGRES_USER:-arkloop}

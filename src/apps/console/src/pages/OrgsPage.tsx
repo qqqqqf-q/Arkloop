@@ -4,7 +4,7 @@ import { RefreshCw, Building2 } from 'lucide-react'
 import type { ConsoleOutletContext } from '../layouts/ConsoleLayout'
 import { PageHeader } from '../components/PageHeader'
 import { EmptyState } from '../components/EmptyState'
-import { useToast } from '../components/useToast'
+import { useToast } from '@arkloop/shared'
 import { listMyOrgs, type Org } from '../api/orgs'
 
 type TypeFilter = 'all' | 'personal' | 'workspace'

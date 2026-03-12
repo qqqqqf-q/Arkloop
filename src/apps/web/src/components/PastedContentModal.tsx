@@ -69,13 +69,11 @@ export function PastedContentModal({ text, size, lineCount, onClose }: Props) {
               justifyContent: 'center',
               borderRadius: '8px',
               border: 'none',
-              background: 'transparent',
               color: 'var(--c-text-secondary)',
               cursor: 'pointer',
               flexShrink: 0,
             }}
-            onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--c-bg-deep)' }}
-            onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent' }}
+            className="hover:bg-[var(--c-bg-deep)]"
           >
             <X size={18} />
           </button>

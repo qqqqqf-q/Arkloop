@@ -97,13 +97,11 @@ export function CodeExecutionPanel({ execution, onClose }: Props) {
             height: '28px',
             borderRadius: '8px',
             border: 'none',
-            background: 'transparent',
             color: 'var(--c-text-secondary)',
             cursor: 'pointer',
             transition: 'background 150ms',
           }}
-          onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--c-bg-deep)' }}
-          onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent' }}
+          className="hover:bg-[var(--c-bg-deep)]"
         >
           <X size={18} />
         </button>

@@ -8,7 +8,7 @@ import { PageHeader } from '../components/PageHeader'
 import { Modal } from '../components/Modal'
 import { FormField } from '../components/FormField'
 import { ConfirmDialog } from '../components/ConfirmDialog'
-import { useToast } from '../components/useToast'
+import { useToast } from '@arkloop/shared'
 import { useLocale } from '../contexts/LocaleContext'
 import {
   listLlmProviders,

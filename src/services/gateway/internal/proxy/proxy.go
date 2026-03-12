@@ -3,7 +3,7 @@ package proxy
 import (
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -45,7 +45,7 @@ func New(cfg Config) (*Proxy, error) {
 			_, _ = w.Write([]byte(`{"code":"http.request_too_large","message":"request body too large"}`))
 			return
 		}
-		log.Printf("http: proxy error: %v", err)
+		slog.Error("proxy error", "error", err)
 		w.WriteHeader(http.StatusBadGateway)
 	}
 	rp.Rewrite = func(req *httputil.ProxyRequest) {

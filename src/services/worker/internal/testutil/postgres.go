@@ -10,11 +10,12 @@ import (
 	"strings"
 	"testing"
 
+	sharedtestutil "arkloop/services/shared/testutil"
+
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
 
-var safeIdentifierRegex = regexp.MustCompile(`^[A-Za-z0-9_]+$`)
 var dotenvKeyRegex = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 type PostgresDatabase struct {
@@ -25,7 +26,7 @@ type PostgresDatabase struct {
 func SetupPostgresDatabase(t *testing.T, prefix string) *PostgresDatabase {
 	t.Helper()
 
-	requireIntegrationTests(t)
+	sharedtestutil.RequireIntegrationTests(t)
 	loadDotenvIfEnabled(t)
 	baseDSN := lookupDatabaseDSN(t)
 	parsed, err := url.Parse(baseDSN)
@@ -46,12 +47,12 @@ func SetupPostgresDatabase(t *testing.T, prefix string) *PostgresDatabase {
 	}
 	defer adminConn.Close(context.Background())
 
-	if _, err := adminConn.Exec(context.Background(), "CREATE DATABASE "+quoteIdentifier(databaseName)); err != nil {
+	if _, err := adminConn.Exec(context.Background(), "CREATE DATABASE "+sharedtestutil.QuoteIdentifier(databaseName)); err != nil {
 		t.Fatalf("create database failed: %v", err)
 	}
 
 	t.Cleanup(func() {
-		dropTemporaryDatabase(t, adminURL.String(), databaseName)
+		sharedtestutil.DropTemporaryDatabase(t, adminURL.String(), databaseName)
 	})
 
 	dbURL := *parsed
@@ -94,20 +95,6 @@ func lookupEnv(key string) (string, bool) {
 	return cleaned, true
 }
 
-func requireIntegrationTests(t *testing.T) {
-	t.Helper()
-
-	raw := strings.TrimSpace(os.Getenv("ARKLOOP_RUN_INTEGRATION_TESTS"))
-	if raw == "" {
-		t.Skip("integration tests disabled")
-	}
-	lower := strings.ToLower(raw)
-	if lower == "1" || lower == "true" || lower == "yes" || lower == "on" {
-		return
-	}
-	t.Skip("integration tests disabled")
-}
-
 func buildDatabaseName(prefix string) string {
 	cleanedPrefix := strings.TrimSpace(prefix)
 	if cleanedPrefix == "" {
@@ -116,13 +103,6 @@ func buildDatabaseName(prefix string) string {
 	cleanedPrefix = strings.ReplaceAll(cleanedPrefix, "-", "_")
 	cleanedPrefix = strings.ReplaceAll(cleanedPrefix, ".", "_")
 	return fmt.Sprintf("%s_%s", cleanedPrefix, strings.ReplaceAll(uuid.NewString(), "-", ""))
-}
-
-func quoteIdentifier(name string) string {
-	if !safeIdentifierRegex.MatchString(name) {
-		panic("illegal identifier")
-	}
-	return `"` + name + `"`
 }
 
 func initJobsSchema(t *testing.T, dsn string) error {
@@ -533,31 +513,6 @@ func initRunsSchema(t *testing.T, dsn string) error {
 		}
 	}
 	return nil
-}
-
-func dropTemporaryDatabase(t *testing.T, adminDSN string, databaseName string) {
-	t.Helper()
-
-	conn, err := pgx.Connect(context.Background(), adminDSN)
-	if err != nil {
-		t.Fatalf("connect admin database for cleanup failed: %v", err)
-	}
-	defer conn.Close(context.Background())
-
-	if _, err := conn.Exec(
-		context.Background(),
-		`SELECT pg_terminate_backend(pid)
-		 FROM pg_stat_activity
-		 WHERE datname = $1
-		   AND pid <> pg_backend_pid()`,
-		databaseName,
-	); err != nil {
-		t.Fatalf("terminate backend failed: %v", err)
-	}
-
-	if _, err := conn.Exec(context.Background(), "DROP DATABASE "+quoteIdentifier(databaseName)); err != nil {
-		t.Fatalf("drop database failed: %v", err)
-	}
 }
 
 func loadDotenvIfEnabled(t *testing.T) {

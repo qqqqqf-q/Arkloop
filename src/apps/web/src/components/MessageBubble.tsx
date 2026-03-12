@@ -304,15 +304,13 @@ function ImageThumbnailCard({
                 padding: '8px 14px',
                 borderRadius: 10,
                 border: '0.5px solid var(--c-border-subtle)',
-                background: 'var(--c-bg-sub)',
                 color: 'var(--c-text-primary)',
                 fontSize: 14,
                 textDecoration: 'none',
                 fontFamily: 'inherit',
                 transition: 'background 150ms',
               }}
-              onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'var(--c-bg-deep)' }}
-              onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'var(--c-bg-sub)' }}
+              className="bg-[var(--c-bg-sub)] hover:bg-[var(--c-bg-deep)]"
             >
               <span style={{ maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {artifact.filename}
@@ -329,14 +327,12 @@ function ImageThumbnailCard({
                 height: 36,
                 borderRadius: 10,
                 border: '0.5px solid var(--c-border-subtle)',
-                background: 'var(--c-bg-sub)',
                 color: 'var(--c-text-icon)',
                 cursor: 'pointer',
                 fontFamily: 'inherit',
                 transition: 'background 150ms',
               }}
-              onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--c-bg-deep)' }}
-              onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--c-bg-sub)' }}
+              className="bg-[var(--c-bg-sub)] hover:bg-[var(--c-bg-deep)]"
             >
               <Download size={16} />
             </button>
@@ -651,7 +647,7 @@ export function MessageBubble({ message, onRetry, onEdit, onFork, onShare, onRep
           <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
           <button
             onClick={handleCopy}
-            title="复制"
+            title={t.copyAction}
             style={{
               width: '32px',
               height: '32px',
@@ -660,19 +656,17 @@ export function MessageBubble({ message, onRetry, onEdit, onFork, onShare, onRep
               justifyContent: 'center',
               borderRadius: '8px',
               border: 'none',
-              background: 'transparent',
               color: 'var(--c-text-secondary)',
               cursor: 'pointer',
               transition: 'background 60ms',
             }}
-            onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--c-bg-deep)' }}
-            onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent' }}
+            className="hover:bg-[var(--c-bg-deep)]"
           >
             {copied ? <Check size={16} /> : <Copy size={16} />}
           </button>
           <button
             onClick={handleEditStart}
-            title="编辑"
+            title={t.editAction}
             style={{
               width: '32px',
               height: '32px',
@@ -681,13 +675,11 @@ export function MessageBubble({ message, onRetry, onEdit, onFork, onShare, onRep
               justifyContent: 'center',
               borderRadius: '8px',
               border: 'none',
-              background: 'transparent',
               color: 'var(--c-text-secondary)',
               cursor: 'pointer',
               transition: 'background 60ms',
             }}
-            onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--c-bg-deep)' }}
-            onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent' }}
+            className="hover:bg-[var(--c-bg-deep)]"
           >
             <Pencil size={16} />
           </button>
@@ -796,17 +788,15 @@ export function MessageBubble({ message, onRetry, onEdit, onFork, onShare, onRep
                 {userTextOverflows && (
                   <div
                     onClick={() => setUserTextExpanded(prev => !prev)}
+                    className="text-[var(--c-text-muted)] hover:text-[var(--c-text-icon)]"
                     style={{
                       marginTop: '6px',
                       fontSize: '13px',
                       fontWeight: 300,
-                      color: 'var(--c-text-muted)',
                       cursor: 'pointer',
                       userSelect: 'none',
                       transition: 'color 150ms',
                     }}
-                    onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--c-text-icon)' }}
-                    onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--c-text-muted)' }}
                   >
                     {userTextExpanded ? 'Show less' : 'Show more'}
                   </div>
@@ -963,14 +953,12 @@ export function MessageBubble({ message, onRetry, onEdit, onFork, onShare, onRep
                   padding: '4px 12px 4px 6px',
                   borderRadius: '999px',
                   border: 'none',
-                  background: 'var(--c-bg-deep)',
                   cursor: 'pointer',
                   marginLeft: '4px',
                   transition: 'background 60ms',
                   fontFamily: 'inherit',
                 }}
-                onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--c-bg-plus)' }}
-                onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--c-bg-deep)' }}
+                className="bg-[var(--c-bg-deep)] hover:bg-[var(--c-bg-plus)]"
               >
                 <div style={{ display: 'flex', alignItems: 'center' }}>
                   {webSources.slice(0, 3).map((s, i) => {

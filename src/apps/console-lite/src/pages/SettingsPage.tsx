@@ -6,7 +6,7 @@ import { PageHeader } from '../components/PageHeader'
 import { FormField } from '../components/FormField'
 import { Modal } from '../components/Modal'
 import { ConfirmDialog } from '../components/ConfirmDialog'
-import { useToast } from '../components/useToast'
+import { useToast } from '@arkloop/shared'
 import { useLocale } from '../contexts/LocaleContext'
 import type { LocaleStrings } from '../locales'
 import {

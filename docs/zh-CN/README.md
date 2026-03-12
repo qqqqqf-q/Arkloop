@@ -3,8 +3,8 @@
 </p>
 
 <p align="center">
-  <a href="https://arkloop.cn">Arkloop Cloud</a> &middot;
-  <a href="https://developers.arkloop.cn">Developers Document</a>
+  <a href="https://arkloop.ai">Arkloop Cloud</a> &middot;
+  <a href="https://docs.arkloop.ai">Documentation</a>
 </p>
 
 <p align="center">
@@ -31,18 +31,18 @@
 
 最快的上手方式 -- 零配置，全托管。
 
-[立即体验 Arkloop Cloud](https://arkloop.cn)
+[立即体验 Arkloop Cloud](https://arkloop.ai)
 
 ### 自托管部署
 
-> 系统要求：已安装 Docker、Docker Compose 和 Python 3，2+ CPU 核心，2+ GiB 内存。
+> 系统要求：已安装 Docker、Docker Compose 和 Python 3，2+ CPU 核心，4+ GiB 内存。
 ### 给人类看的
 
 复制并粘贴以下提示词到你的 LLM Agent (Claude Code, Openclaw等):
 
 ```
 Install and configure Arkloop by following the instructions here:
-https://raw.githubusercontent.com/qqqqqf-q/Arkloop/refs/heads/main/docs/guide/installation.md
+https://raw.githubusercontent.com/qqqqqf/Arkloop/refs/heads/main/docs/guide/installation.md
 ```
 
 ### 给 LLM Agent 看的
@@ -50,7 +50,7 @@ https://raw.githubusercontent.com/qqqqqf-q/Arkloop/refs/heads/main/docs/guide/in
 获取安装指南并照做：
 
 ```bash
-curl -s https://raw.githubusercontent.com/qqqqqf-q/Arkloop/refs/heads/main/docs/guide/installation.md
+curl -s https://raw.githubusercontent.com/qqqqqf/Arkloop/refs/heads/main/docs/guide/installation.md
 ```
 ## 核心功能
 
@@ -102,7 +102,7 @@ curl -s https://raw.githubusercontent.com/qqqqqf-q/Arkloop/refs/heads/main/docs/
 ## 贡献
 
 欢迎贡献。查看 [CONTRIBUTING.md](./CONTRIBUTING.md) 了解参与方式。
-并前往[Arkloop Developer 文档站](https://developers.arkloop.cn)来查看文档
+并前往[Arkloop Developer 文档站](https://docs.arkloop.ai)来查看文档
 ## 贡献者
 
 <a href="https://github.com/qqqqqf/Arkloop/graphs/contributors">
@@ -111,7 +111,7 @@ curl -s https://raw.githubusercontent.com/qqqqqf-q/Arkloop/refs/heads/main/docs/
 
 ## 安全
 
-报告安全漏洞请发送邮件至 qingf622@outlook.com，而非公开 Issue。详情见 [SECURITY.md](../../SECURITY.md)。
+报告安全漏洞请发送邮件至 security@arkloop.ai，而非公开 Issue。详情见 [SECURITY.md](../../SECURITY.md)。
 
 ## 许可证
 

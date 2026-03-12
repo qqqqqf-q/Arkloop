@@ -1895,14 +1895,14 @@ export function ChatPage() {
           <div
             ref={scrollContainerRef}
             onScroll={handleScrollContainerScroll}
-            className="relative flex-1 min-h-0 overflow-y-auto bg-[var(--c-bg-page)]"
+            className="relative flex-1 min-h-0 overflow-y-auto bg-[var(--c-bg-page)] [scrollbar-gutter:stable]"
           >
         <div
           style={{ maxWidth: 800, margin: '0 auto', padding: `50px ${isPanelOpen ? '32px' : '60px'} 200px`, transition: 'padding 280ms cubic-bezier(0.16,1,0.3,1)' }}
           className="flex w-full flex-col gap-6"
         >
           {messagesLoading ? (
-            <div className="py-20 text-center text-sm text-[var(--c-text-muted)]">加载中...</div>
+            <div className="py-20 text-center text-sm text-[var(--c-text-muted)]">{t.loading}</div>
           ) : (
             <>
               {messages.map((msg, idx) => {
@@ -2183,7 +2183,7 @@ export function ChatPage() {
                     disabled={checkInSubmitting}
                     className="w-full resize-none rounded-lg bg-transparent px-1 py-0.5 text-sm outline-none"
                     style={{ color: 'var(--c-text-primary)', caretColor: 'var(--c-text-primary)' }}
-                    placeholder="Type your response..."
+                    placeholder={t.checkInPlaceholder}
                   />
                   <div className="flex justify-end">
                     <button
@@ -2294,7 +2294,7 @@ export function ChatPage() {
             onChange={setDraft}
             onSubmit={handleSend}
             onCancel={handleCancel}
-            placeholder="Reply..."
+            placeholder={t.replyPlaceholder}
             disabled={sending}
             isStreaming={isStreaming}
             canCancel={canCancel}

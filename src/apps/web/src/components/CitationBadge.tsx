@@ -197,18 +197,14 @@ export function CitationBadge({ indices }: Props) {
                     justifyContent: 'center',
                     width: '24px',
                     height: '24px',
-                    background: 'none',
                     border: 'none',
                     borderRadius: '6px',
-                    cursor: page === 0 ? 'default' : 'pointer',
                     color: 'var(--c-text-muted)',
-                    opacity: page === 0 ? 0.3 : 0.8,
                     fontSize: '16px',
                     lineHeight: 1,
                     transition: 'background 120ms, opacity 120ms',
                   }}
-                  onMouseEnter={(e) => { if (page > 0) { e.currentTarget.style.background = 'var(--c-bg-deep)'; e.currentTarget.style.opacity = '1' } }}
-                  onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; if (page > 0) e.currentTarget.style.opacity = '0.8' }}
+                  className="bg-none opacity-80 cursor-pointer disabled:opacity-30 disabled:cursor-default disabled:pointer-events-none hover:bg-[var(--c-bg-deep)] hover:opacity-100"
                 >
                   &#8249;
                 </button>
@@ -224,18 +220,14 @@ export function CitationBadge({ indices }: Props) {
                     justifyContent: 'center',
                     width: '24px',
                     height: '24px',
-                    background: 'none',
                     border: 'none',
                     borderRadius: '6px',
-                    cursor: page === validSources.length - 1 ? 'default' : 'pointer',
                     color: 'var(--c-text-muted)',
-                    opacity: page === validSources.length - 1 ? 0.3 : 0.8,
                     fontSize: '16px',
                     lineHeight: 1,
                     transition: 'background 120ms, opacity 120ms',
                   }}
-                  onMouseEnter={(e) => { if (page < validSources.length - 1) { e.currentTarget.style.background = 'var(--c-bg-deep)'; e.currentTarget.style.opacity = '1' } }}
-                  onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; if (page < validSources.length - 1) e.currentTarget.style.opacity = '0.8' }}
+                  className="bg-none opacity-80 cursor-pointer disabled:opacity-30 disabled:cursor-default disabled:pointer-events-none hover:bg-[var(--c-bg-deep)] hover:opacity-100"
                 >
                   &#8250;
                 </button>

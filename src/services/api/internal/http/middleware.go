@@ -8,6 +8,7 @@ import (
 	nethttp "net/http"
 
 	"arkloop/services/api/internal/observability"
+	"arkloop/services/shared/httputil"
 )
 
 // requirePerm 校验 actor 是否拥有指定权限点。
@@ -18,35 +19,6 @@ func requirePerm(a *actor, perm string, w nethttp.ResponseWriter, traceID string
 	}
 	WriteError(w, nethttp.StatusForbidden, "auth.forbidden", "access denied", traceID, nil)
 	return false
-}
-
-type statusRecorder struct {
-	nethttp.ResponseWriter
-	statusCode  int
-	wroteHeader bool
-}
-
-func (r *statusRecorder) WriteHeader(statusCode int) {
-	if r.wroteHeader {
-		return
-	}
-	r.wroteHeader = true
-	r.statusCode = statusCode
-	r.ResponseWriter.WriteHeader(statusCode)
-}
-
-func (r *statusRecorder) Write(payload []byte) (int, error) {
-	if !r.wroteHeader {
-		r.WriteHeader(nethttp.StatusOK)
-	}
-	return r.ResponseWriter.Write(payload)
-}
-
-// Flush forwards to the underlying ResponseWriter; required for SSE/streaming.
-func (r *statusRecorder) Flush() {
-	if f, ok := r.ResponseWriter.(nethttp.Flusher); ok {
-		f.Flush()
-	}
 }
 
 func TraceMiddleware(next nethttp.Handler, logger *observability.JSONLogger, trustIncomingTraceID bool, trustXFF bool) nethttp.Handler {
@@ -75,7 +47,7 @@ func TraceMiddleware(next nethttp.Handler, logger *observability.JSONLogger, tru
 		}
 		r = r.WithContext(ctx)
 
-		recorder := &statusRecorder{ResponseWriter: w, statusCode: nethttp.StatusOK}
+		recorder := &httputil.StatusRecorder{ResponseWriter: w, StatusCode: nethttp.StatusOK}
 		recorder.Header().Set(observability.TraceIDHeader, traceID)
 
 		next.ServeHTTP(recorder, r)
@@ -91,7 +63,7 @@ func TraceMiddleware(next nethttp.Handler, logger *observability.JSONLogger, tru
 			map[string]any{
 				"method":      r.Method,
 				"path":        r.URL.Path,
-				"status_code": recorder.statusCode,
+				"status_code": recorder.StatusCode,
 				"duration_ms": durationMs,
 			},
 		)
