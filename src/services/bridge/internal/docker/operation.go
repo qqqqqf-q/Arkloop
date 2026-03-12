@@ -1,6 +1,7 @@
 package docker
 
 import (
+	"context"
 	"sync"
 	"time"
 
@@ -23,10 +24,11 @@ type Operation struct {
 	Status    OperationStatus `json:"status"`
 	CreatedAt time.Time       `json:"created_at"`
 
-	mu    sync.Mutex
-	lines []string
-	done  chan struct{}
-	err   error
+	mu         sync.Mutex
+	lines      []string
+	done       chan struct{}
+	err        error
+	cancelFunc context.CancelFunc
 }
 
 func NewOperation(moduleID, action string) *Operation {
@@ -37,6 +39,13 @@ func NewOperation(moduleID, action string) *Operation {
 		Status:    OperationPending,
 		CreatedAt: time.Now(),
 		done:      make(chan struct{}),
+	}
+}
+
+// Cancel requests cancellation of the operation's context.
+func (o *Operation) Cancel() {
+	if o.cancelFunc != nil {
+		o.cancelFunc()
 	}
 }
 

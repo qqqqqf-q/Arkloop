@@ -9,6 +9,7 @@ import { Badge, type BadgeVariant } from '../components/Badge'
 import { useToast } from '../components/useToast'
 import { useLocale } from '../contexts/LocaleContext'
 import { useOperations } from '../contexts/OperationContext'
+import type { OperationRecord } from '../contexts/OperationContext'
 import type { LocaleStrings } from '../locales'
 import {
   checkBridgeAvailable,
@@ -132,11 +133,15 @@ function ModuleRow({
   bridgeOnline,
   t,
   onAction,
+  busy,
+  busyOperation,
 }: {
   mod: ModuleInfo
   bridgeOnline: boolean
   t: ModulesLocale
   onAction: (moduleId: string, action: ModuleAction) => void
+  busy: boolean
+  busyOperation: OperationRecord | undefined
 }) {
   const actions = availableActions(mod, bridgeOnline)
   const command = INSTALL_COMMANDS[mod.id]
@@ -145,6 +150,8 @@ function ModuleRow({
   const displayStatus = bridgeOnline ? mod.status : null
   const badgeLabel = displayStatus ? statusLabel(displayStatus, t) : t.statusUnknown
   const badgeVariant = displayStatus ? statusBadgeVariant(displayStatus) : 'neutral' as BadgeVariant
+
+  const busyLabel = busyOperation ? actionLabel(busyOperation.action, t) : ''
 
   return (
     <div className="rounded-md border border-[var(--c-border-console)] px-3 py-2.5">
@@ -159,20 +166,29 @@ function ModuleRow({
           </Badge>
         </div>
         <div className="flex items-center gap-1.5">
-          {actions.map((action) => (
-            <button
-              key={action}
-              onClick={() => onAction(mod.id, action)}
-              className="rounded-md bg-[var(--c-bg-tag)] px-2 py-1 text-[11px] font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-border)]"
-            >
-              {actionLabel(action, t)}
-            </button>
-          ))}
-          {!bridgeOnline && command && (
-            <CopyButton text={command} label={t.copyCommand} />
-          )}
-          {!bridgeOnline && agentPrompt && (
-            <CopyButton text={agentPrompt} label={t.copyAgentPrompt} />
+          {busy ? (
+            <span className="flex items-center gap-1.5 rounded-md bg-[var(--c-bg-tag)] px-2 py-1 text-[11px] font-medium text-[var(--c-text-muted)]">
+              <Loader2 size={12} className="animate-spin" />
+              {busyLabel}…
+            </span>
+          ) : (
+            <>
+              {actions.map((action) => (
+                <button
+                  key={action}
+                  onClick={() => onAction(mod.id, action)}
+                  className="rounded-md bg-[var(--c-bg-tag)] px-2 py-1 text-[11px] font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-border)]"
+                >
+                  {actionLabel(action, t)}
+                </button>
+              ))}
+              {!bridgeOnline && command && (
+                <CopyButton text={command} label={t.copyCommand} />
+              )}
+              {!bridgeOnline && agentPrompt && (
+                <CopyButton text={agentPrompt} label={t.copyAgentPrompt} />
+              )}
+            </>
           )}
         </div>
       </div>
@@ -194,7 +210,7 @@ function ModuleRow({
 export function ModulesPage() {
   const { addToast } = useToast()
   const { t } = useLocale()
-  const { operations, startOperation } = useOperations()
+  const { operations, startOperation, isModuleBusy, getModuleOperation, setHistoryOpen } = useOperations()
   const tm = t.modules
 
   const [searchParams, setSearchParams] = useSearchParams()
@@ -266,10 +282,11 @@ export function ModulesPage() {
       const { operation_id } = await bridgeClient.performAction(moduleId, action)
       const mod = modules.find((m) => m.id === moduleId)
       startOperation(moduleId, mod?.name ?? moduleId, action, operation_id)
+      setHistoryOpen(true)
     } catch (err) {
       addToast(err instanceof Error ? err.message : t.requestFailed, 'error')
     }
-  }, [addToast, modules, t.requestFailed, startOperation])
+  }, [addToast, modules, t.requestFailed, startOperation, setHistoryOpen])
 
   const selectedCategory: ModuleCategory = (categoryList.includes(catParam as ModuleCategory)
     ? catParam as ModuleCategory
@@ -348,6 +365,8 @@ export function ModulesPage() {
                       bridgeOnline={bridgeOnline}
                       t={tm}
                       onAction={handleAction}
+                      busy={isModuleBusy(mod.id)}
+                      busyOperation={getModuleOperation(mod.id)}
                     />
                   ))}
                   {filteredModules.length === 0 && (

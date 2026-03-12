@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"arkloop/services/bridge/internal/audit"
@@ -55,6 +56,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/modules/{id}", h.getModule)
 	mux.HandleFunc("POST /v1/modules/{id}/actions", h.moduleAction)
 	mux.HandleFunc("GET /v1/operations/{id}/stream", h.streamOperation)
+	mux.HandleFunc("POST /v1/operations/{id}/cancel", h.cancelOperation)
 }
 
 // --- Platform ----------------------------------------------------------
@@ -195,6 +197,10 @@ func (h *Handler) moduleAction(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err != nil {
+		if strings.Contains(err.Error(), "already has an active operation") {
+			writeError(w, http.StatusConflict, "module.busy", err.Error())
+			return
+		}
 		h.appLogger.Error("action failed", map[string]any{
 			"module": id,
 			"action": req.Action,
@@ -206,6 +212,19 @@ func (h *Handler) moduleAction(w http.ResponseWriter, r *http.Request) {
 
 	h.operations.Add(op)
 	writeJSON(w, http.StatusAccepted, actionResponse{OperationID: op.ID})
+}
+
+// --- Cancel ------------------------------------------------------------
+
+func (h *Handler) cancelOperation(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	op, ok := h.operations.Get(id)
+	if !ok {
+		writeError(w, http.StatusNotFound, "operation.not_found", "operation not found")
+		return
+	}
+	op.Cancel()
+	writeJSON(w, http.StatusOK, map[string]string{"status": "cancelling"})
 }
 
 // --- SSE streaming -----------------------------------------------------

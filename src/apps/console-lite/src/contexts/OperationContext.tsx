@@ -30,12 +30,18 @@ type OperationContextValue = {
     operationId: string,
   ) => void
   clearCompleted: () => void
+  cancelOperation: (operationId: string) => Promise<void>
+  isModuleBusy: (moduleId: string) => boolean
+  getModuleOperation: (moduleId: string) => OperationRecord | undefined
+  historyOpen: boolean
+  setHistoryOpen: (open: boolean) => void
 }
 
 const OperationContext = createContext<OperationContextValue | null>(null)
 
 export function OperationProvider({ children }: { children: ReactNode }) {
   const [operations, setOperations] = useState<OperationRecord[]>([])
+  const [historyOpen, setHistoryOpen] = useState(false)
   const cleanupRefs = useRef<Map<string, () => void>>(new Map())
 
   const startOperation = useCallback(
@@ -95,11 +101,27 @@ export function OperationProvider({ children }: { children: ReactNode }) {
     setOperations((prev) => prev.filter((op) => op.status === 'running'))
   }, [])
 
+  const cancelOperation = useCallback(async (operationId: string) => {
+    try {
+      await bridgeClient.cancelOperation(operationId)
+    } catch {
+      // ignore — the SSE stream will eventually report the failure
+    }
+  }, [])
+
+  const isModuleBusy = useCallback((moduleId: string) => {
+    return operations.some(op => op.moduleId === moduleId && op.status === 'running')
+  }, [operations])
+
+  const getModuleOperation = useCallback((moduleId: string) => {
+    return operations.find(op => op.moduleId === moduleId && op.status === 'running')
+  }, [operations])
+
   const activeCount = operations.filter((op) => op.status === 'running').length
 
   return (
     <OperationContext.Provider
-      value={{ operations, activeCount, startOperation, clearCompleted }}
+      value={{ operations, activeCount, startOperation, clearCompleted, cancelOperation, isModuleBusy, getModuleOperation, historyOpen, setHistoryOpen }}
     >
       {children}
     </OperationContext.Provider>

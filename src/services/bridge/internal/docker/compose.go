@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
 // Logger is the interface used by Compose for structured logging.
@@ -23,6 +24,7 @@ type Compose struct {
 	projectDir  string
 	composeFile string
 	logger      Logger
+	moduleLocks sync.Map // map[serviceName]bool — true means busy
 }
 
 // NewCompose creates a Compose wrapper for the given project directory.
@@ -163,15 +165,26 @@ func (c *Compose) validateProjectDir() error {
 // runAsync starts a docker compose command in the background, streaming its
 // combined output into an Operation.
 func (c *Compose) runAsync(ctx context.Context, serviceName, action string, args []string) (*Operation, error) {
+	// Check if module already has an active operation
+	if _, loaded := c.moduleLocks.LoadOrStore(serviceName, true); loaded {
+		return nil, fmt.Errorf("module %q already has an active operation", serviceName)
+	}
+
 	op := NewOperation(serviceName, action)
 	op.Status = OperationRunning
 
-	cmd := exec.CommandContext(ctx, "docker", args...)
+	// Create a cancellable context for this operation
+	cancelCtx, cancel := context.WithCancel(ctx)
+	op.cancelFunc = cancel
+
+	cmd := exec.CommandContext(cancelCtx, "docker", args...)
 	cmd.Dir = c.projectDir
 
 	// Merge stdout and stderr so we capture all output.
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
+		cancel()
+		c.moduleLocks.Delete(serviceName)
 		return nil, fmt.Errorf("stdout pipe: %w", err)
 	}
 	cmd.Stderr = cmd.Stdout // redirect stderr into the same pipe
@@ -184,10 +197,15 @@ func (c *Compose) runAsync(ctx context.Context, serviceName, action string, args
 	})
 
 	if err := cmd.Start(); err != nil {
+		cancel()
+		c.moduleLocks.Delete(serviceName)
 		return nil, fmt.Errorf("start command: %w", err)
 	}
 
-	go c.streamOutput(op, cmd, stdoutPipe)
+	go func() {
+		c.streamOutput(op, cmd, stdoutPipe)
+		c.moduleLocks.Delete(serviceName)
+	}()
 
 	return op, nil
 }

@@ -47,7 +47,7 @@ function StatusIcon({ status }: { status: OperationRecord['status'] }) {
 }
 
 export function OperationHistoryModal({ onClose }: Props) {
-  const { operations, activeCount, clearCompleted } = useOperations()
+  const { operations, activeCount, clearCompleted, cancelOperation } = useOperations()
   const [selectedId, setSelectedId] = useState<string | null>(
     () => operations[0]?.id ?? null,
   )
@@ -190,12 +190,22 @@ export function OperationHistoryModal({ onClose }: Props) {
                 </h2>
               )}
             </div>
-            <button
+            <div className="flex items-center gap-2">
+              {selected?.status === 'running' && (
+                <button
+                  onClick={() => void cancelOperation(selected.id)}
+                  className="rounded-md bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-500 transition-colors hover:bg-red-500/20"
+                >
+                  Force Stop
+                </button>
+              )}
+              <button
               onClick={onClose}
               className="flex h-7 w-7 items-center justify-center rounded-md text-[var(--c-text-tertiary)] transition-colors hover:bg-[var(--c-bg-sub)]"
             >
               <X size={15} />
-            </button>
+              </button>
+            </div>
           </div>
 
           <div className="flex-1 overflow-hidden p-4">

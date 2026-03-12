@@ -54,8 +54,7 @@ export function LiteLayout({ accessToken, onLoggedOut }: Props) {
   const [me, setMe] = useState<MeResponse | null>(null)
   const [meLoaded, setMeLoaded] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [historyOpen, setHistoryOpen] = useState(false)
-  const { operations, activeCount } = useOperations()
+  const { operations, activeCount, historyOpen, setHistoryOpen } = useOperations()
   const mountedRef = useRef(true)
 
   const navItems = useMemo(() => buildNavItems(t), [t])

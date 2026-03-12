@@ -99,6 +99,14 @@ class BridgeClient {
     return resp.json()
   }
 
+  async cancelOperation(operationId: string): Promise<void> {
+    const resp = await fetch(`${this.baseUrl}/v1/operations/${encodeURIComponent(operationId)}/cancel`, {
+      method: 'POST',
+      signal: AbortSignal.timeout(5000),
+    })
+    if (!resp.ok) throw new Error(`Cancel operation failed: ${resp.status}`)
+  }
+
   streamOperation(
     operationId: string,
     onLog: (line: string) => void,
