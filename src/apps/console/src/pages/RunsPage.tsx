@@ -64,7 +64,8 @@ function formatCost(usd?: number): string {
   return `$${usd.toFixed(decimals)}`
 }
 
-function truncateId(id: string): string {
+function truncateId(id?: string): string {
+  if (!id) return '--'
   return id.length > 8 ? id.slice(0, 8) : id
 }
 

@@ -231,7 +231,7 @@ export function UsersPage() {
   }, [])
 
   const handleOpenCredit = useCallback((d: AdminUserDetail) => {
-    const projectID = d.accounts[0]?.account_id
+    const projectID = d.accounts?.[0]?.account_id
     if (!projectID) return
     setCreditTarget({ projectID, username: d.username })
     setCreditForm({ amount: '', note: '' })
@@ -734,7 +734,7 @@ function UserRow({
                       <DetailField label={tc.detailTimezone} value={renderDetail.timezone ?? '--'} />
                     </div>
                     <div className="ml-4 flex shrink-0 gap-2">
-                      {renderDetail.accounts.length > 0 && (
+                      {(renderDetail.accounts?.length ?? 0) > 0 && (
                         <button
                           onClick={() => onCredit(renderDetail)}
                           className="flex items-center gap-1.5 rounded-lg bg-[var(--c-bg-tag)] px-2.5 py-1 text-xs font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep2)]"
@@ -756,7 +756,7 @@ function UserRow({
                     <span className="text-[10px] font-medium uppercase tracking-wider text-[var(--c-text-muted)]">
                       {tc.detailProjects}
                     </span>
-                    {renderDetail.accounts.length > 0 ? (
+                    {(renderDetail.accounts?.length ?? 0) > 0 ? (
                       <table className="mt-2 w-full text-xs">
                         <thead>
                           <tr className="border-b border-[var(--c-border)]">
@@ -769,7 +769,7 @@ function UserRow({
                           </tr>
                         </thead>
                         <tbody>
-                          {renderDetail.accounts.map((o) => (
+                          {(renderDetail.accounts ?? []).map((o) => (
                             <tr
                               key={o.account_id}
                               className="border-b border-[var(--c-border)] last:border-0"
