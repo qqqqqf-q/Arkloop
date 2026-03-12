@@ -17,13 +17,13 @@ func EnqueueDeliveries(
 	ctx context.Context,
 	pool *pgxpool.Pool,
 	q queue.JobQueue,
-	orgID uuid.UUID,
+	accountID uuid.UUID,
 	runID uuid.UUID,
 	traceID string,
 	eventType string,
 	runPayload map[string]any,
 ) error {
-	endpoints, err := listEndpointsForEvent(ctx, pool, orgID, eventType)
+	endpoints, err := listEndpointsForEvent(ctx, pool, accountID, eventType)
 	if err != nil {
 		return fmt.Errorf("list webhook endpoints: %w", err)
 	}
@@ -37,11 +37,11 @@ func EnqueueDeliveries(
 	}
 
 	for _, ep := range endpoints {
-		deliveryID, err := insertDelivery(ctx, pool, ep.ID, orgID, eventType, payloadBytes)
+		deliveryID, err := insertDelivery(ctx, pool, ep.ID, accountID, eventType, payloadBytes)
 		if err != nil {
 			slog.ErrorContext(ctx, "webhook: insert delivery record failed",
 				"endpoint_id", ep.ID.String(),
-				"org_id", orgID.String(),
+				"account_id", accountID.String(),
 				"error", err.Error(),
 			)
 			continue
@@ -53,7 +53,7 @@ func EnqueueDeliveries(
 			"event_type":  eventType,
 			"payload":     runPayload,
 		}
-		if _, err := q.EnqueueRun(ctx, orgID, runID, traceID, DeliverJobType, jobPayload, nil); err != nil {
+		if _, err := q.EnqueueRun(ctx, accountID, runID, traceID, DeliverJobType, jobPayload, nil); err != nil {
 			slog.ErrorContext(ctx, "webhook: enqueue delivery job failed",
 				"delivery_id", deliveryID.String(),
 				"endpoint_id", ep.ID.String(),

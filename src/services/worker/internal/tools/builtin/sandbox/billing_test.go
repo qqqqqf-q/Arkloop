@@ -140,13 +140,13 @@ func (m *mockExecutor) Execute(_ context.Context, _ string, _ map[string]any, _ 
 	return m.result
 }
 
-func TestBillingExecutor_NoOrgID(t *testing.T) {
+func TestBillingExecutor_NoAccountID(t *testing.T) {
 	inner := &mockExecutor{result: tools.ExecutionResult{
 		ResultJSON: map[string]any{"duration_ms": int64(5000)},
 	}}
 	billing := NewBillingExecutor(inner, nil, nil, BillingConfig{BaseFee: 1, RatePerSecond: 0.5})
 
-	// OrgID 为 nil 时不扣费，直接返回原始结果
+	// AccountID 为 nil 时不扣费，直接返回原始结果
 	result := billing.Execute(context.Background(), "python_execute", nil, tools.ExecutionContext{
 		RunID: uuid.New(),
 	}, "")
@@ -171,10 +171,10 @@ func TestBillingExecutor_PassesThroughResult(t *testing.T) {
 	// 这里主要验证结果透传
 	billing := NewBillingExecutor(inner, nil, nil, BillingConfig{BaseFee: 1, RatePerSecond: 0.5})
 
-	orgID := uuid.New()
+	accountID := uuid.New()
 	result := billing.Execute(context.Background(), "python_execute", nil, tools.ExecutionContext{
 		RunID: uuid.New(),
-		OrgID: &orgID,
+		AccountID: &accountID,
 	}, "")
 
 	if result.ResultJSON["stdout"] != "hello\n" {

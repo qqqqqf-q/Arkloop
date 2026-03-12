@@ -69,7 +69,7 @@ func (f *MemoryProviderFactory) Resolve(snapshot sharedtoolruntime.RuntimeSnapsh
 }
 
 type MemorySnapshotAppender interface {
-	AppendMemoryLine(ctx context.Context, pool *pgxpool.Pool, orgID, userID uuid.UUID, agentID, line string) error
+	AppendMemoryLine(ctx context.Context, pool *pgxpool.Pool, accountID, userID uuid.UUID, agentID, line string) error
 }
 
 type MemoryExecutorFactory struct {

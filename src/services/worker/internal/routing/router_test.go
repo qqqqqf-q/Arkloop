@@ -79,7 +79,7 @@ func TestProviderRouterDecide_ByokDisabled(t *testing.T) {
 		Credentials: []ProviderCredential{
 			{
 				ID:           "org_cred",
-				Scope:        CredentialScopeProject,
+				Scope:        CredentialScopeUser,
 				ProviderKind: ProviderKindOpenAI,
 				APIKeyEnv:    stringPtr("ARKLOOP_OPENAI_API_KEY"),
 				OpenAIMode:   stringPtr("chat_completions"),

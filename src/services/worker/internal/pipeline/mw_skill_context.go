@@ -12,7 +12,7 @@ import (
 )
 
 type SkillResolver interface {
-	ResolveEnabledSkills(ctx context.Context, pool *pgxpool.Pool, orgID uuid.UUID, profileRef, workspaceRef string) ([]skillstore.ResolvedSkill, error)
+	ResolveEnabledSkills(ctx context.Context, pool *pgxpool.Pool, accountID uuid.UUID, profileRef, workspaceRef string) ([]skillstore.ResolvedSkill, error)
 }
 
 func NewSkillContextMiddleware(pool *pgxpool.Pool, resolver SkillResolver) RunMiddleware {
@@ -20,10 +20,10 @@ func NewSkillContextMiddleware(pool *pgxpool.Pool, resolver SkillResolver) RunMi
 		if resolver == nil {
 			resolver = data.SkillsRepository{}
 		}
-		if pool == nil || rc.Run.OrgID == uuid.Nil || strings.TrimSpace(rc.ProfileRef) == "" || strings.TrimSpace(rc.WorkspaceRef) == "" {
+		if pool == nil || rc.Run.AccountID == uuid.Nil || strings.TrimSpace(rc.ProfileRef) == "" || strings.TrimSpace(rc.WorkspaceRef) == "" {
 			return next(ctx, rc)
 		}
-		skills, err := resolver.ResolveEnabledSkills(ctx, pool, rc.Run.OrgID, rc.ProfileRef, rc.WorkspaceRef)
+		skills, err := resolver.ResolveEnabledSkills(ctx, pool, rc.Run.AccountID, rc.ProfileRef, rc.WorkspaceRef)
 		if err != nil {
 			return fmt.Errorf("resolve enabled skills: %w", err)
 		}

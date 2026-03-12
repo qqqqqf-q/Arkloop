@@ -10,13 +10,13 @@ import (
 
 // CleanupSession 在 run 结束后调用，删除对应的 sandbox session。
 // 使用独立 context 避免阻塞主流程；失败仅 warn 不影响结果。
-func CleanupSession(baseURL, authToken, sessionID, orgID string) {
+func CleanupSession(baseURL, authToken, sessionID, accountID string) {
 	if baseURL == "" || sessionID == "" {
 		return
 	}
 
 	for _, id := range cleanupSessionIDs(sessionID) {
-		deleteSession(baseURL, authToken, id, orgID)
+		deleteSession(baseURL, authToken, id, accountID)
 	}
 }
 
@@ -29,7 +29,7 @@ func cleanupSessionIDs(runSessionID string) []string {
 	return ids
 }
 
-func deleteSession(baseURL, authToken, sessionID, orgID string) {
+func deleteSession(baseURL, authToken, sessionID, accountID string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -42,8 +42,8 @@ func deleteSession(baseURL, authToken, sessionID, orgID string) {
 	if authToken != "" {
 		req.Header.Set("Authorization", "Bearer "+authToken)
 	}
-	if orgID != "" {
-		req.Header.Set("X-Org-ID", orgID)
+	if accountID != "" {
+		req.Header.Set("X-Account-ID", accountID)
 	}
 
 	client := &http.Client{Timeout: 5 * time.Second}

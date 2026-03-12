@@ -20,8 +20,8 @@ func TestExecOrgBinding_FirstRequest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if s1.OrgID != "org-a" {
-		t.Errorf("expected OrgID=org-a, got %s", s1.OrgID)
+	if s1.AccountID != "org-a" {
+		t.Errorf("expected AccountID=org-a, got %s", s1.AccountID)
 	}
 }
 
@@ -37,8 +37,8 @@ func TestExecOrgBinding_SameOrg(t *testing.T) {
 	if err != nil {
 		t.Fatalf("same org: %v", err)
 	}
-	if s2.OrgID != "org-a" {
-		t.Errorf("expected OrgID=org-a, got %s", s2.OrgID)
+	if s2.AccountID != "org-a" {
+		t.Errorf("expected AccountID=org-a, got %s", s2.AccountID)
 	}
 }
 
@@ -52,7 +52,7 @@ func TestExecOrgBinding_DifferentOrg(t *testing.T) {
 
 	_, err = mgr.GetOrCreate(t.Context(), "sess-1", "lite", "org-b")
 	if err == nil {
-		t.Fatal("expected org mismatch error")
+		t.Fatal("expected account mismatch error")
 	}
 }
 
@@ -80,7 +80,7 @@ func TestDeleteOrgBinding_Mismatch(t *testing.T) {
 
 	err = mgr.Delete(t.Context(), "sess-1", "org-b")
 	if err == nil {
-		t.Fatal("expected org mismatch error on delete")
+		t.Fatal("expected account mismatch error on delete")
 	}
 }
 
@@ -98,7 +98,7 @@ func TestDeleteOrgBinding_Match(t *testing.T) {
 	}
 }
 
-func TestExecHandler_OrgMismatch_Returns403(t *testing.T) {
+func TestExecHandler_AccountMismatch_Returns403(t *testing.T) {
 	mgr := newTestManager()
 
 	_, err := mgr.GetOrCreate(t.Context(), "test-session", "lite", "org-a")
@@ -110,7 +110,7 @@ func TestExecHandler_OrgMismatch_Returns403(t *testing.T) {
 
 	body, _ := json.Marshal(ExecRequest{
 		SessionID: "test-session",
-		OrgID:     "org-b",
+		AccountID:     "org-b",
 		Tier:      "lite",
 		Language:  "python",
 		Code:      "print(1)",

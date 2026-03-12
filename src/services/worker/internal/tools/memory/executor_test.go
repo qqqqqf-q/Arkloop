@@ -81,11 +81,11 @@ func (s *snapshotMock) AppendMemoryLine(_ context.Context, _ *pgxpool.Pool, _ uu
 // --- helpers ---
 
 func newExecCtx(userID *uuid.UUID) tools.ExecutionContext {
-	orgID := uuid.New()
+	accountID := uuid.New()
 	return tools.ExecutionContext{
 		RunID:               uuid.New(),
 		TraceID:             "test-trace",
-		OrgID:               &orgID,
+		AccountID:               &accountID,
 		UserID:              userID,
 		AgentID:             "test-agent",
 		Emitter:             events.NewEmitter("test-trace"),

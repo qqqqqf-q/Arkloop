@@ -54,7 +54,7 @@ func setIdentityHeaders(req *http.Request, rootAPIKey string, ident memory.Memor
 	if rootAPIKey != "" {
 		req.Header.Set("X-API-Key", rootAPIKey)
 	}
-	req.Header.Set("X-OpenViking-Account", ident.OrgID.String())
+	req.Header.Set("X-OpenViking-Account", ident.AccountID.String())
 	req.Header.Set("X-OpenViking-User", ident.UserID.String())
 	req.Header.Set("X-OpenViking-Agent", sanitizeAgentID(ident.AgentID))
 }

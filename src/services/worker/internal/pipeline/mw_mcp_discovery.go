@@ -24,9 +24,9 @@ func NewMCPDiscoveryMiddleware(
 		runRegistry := baseRegistry
 
 		if discoveryCache != nil {
-			orgReg, orgErr := discoveryCache.Get(ctx, rc.Pool, rc.Run.OrgID)
+			orgReg, orgErr := discoveryCache.Get(ctx, rc.Pool, rc.Run.AccountID)
 			if orgErr != nil {
-				slog.WarnContext(ctx, "mcp discovery failed, falling back to base tools", "org_id", rc.Run.OrgID, "err", orgErr)
+				slog.WarnContext(ctx, "mcp discovery failed, falling back to base tools", "account_id", rc.Run.AccountID, "err", orgErr)
 			}
 			if orgErr == nil && len(orgReg.Executors) > 0 {
 				runRegistry = ForkRegistry(baseRegistry, orgReg.AgentSpecs)

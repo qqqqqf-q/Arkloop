@@ -13,14 +13,14 @@ import (
 )
 
 type SessionRestoreRegistry interface {
-	GetLatestRestoreRevision(ctx context.Context, orgID, sessionID string) (string, error)
-	BindLatestRestoreRevision(ctx context.Context, orgID, sessionID, revision string) error
-	ClearLatestRestoreRevision(ctx context.Context, orgID, sessionID, revision string) error
+	GetLatestRestoreRevision(ctx context.Context, accountID, sessionID string) (string, error)
+	BindLatestRestoreRevision(ctx context.Context, accountID, sessionID, revision string) error
+	ClearLatestRestoreRevision(ctx context.Context, accountID, sessionID, revision string) error
 	ListLatestRestoreBindings(ctx context.Context) ([]RestoreBinding, error)
 }
 
 type RestoreBinding struct {
-	OrgID     string
+	AccountID     string
 	SessionID string
 	Revision  string
 }
@@ -45,20 +45,20 @@ func NewPGSessionRestoreRegistry(pool *pgxpool.Pool) SessionRestoreRegistry {
 	return &PGSessionRestoreRegistry{pool: pool}
 }
 
-func (r *memorySessionRestoreRegistry) GetLatestRestoreRevision(_ context.Context, orgID, sessionID string) (string, error) {
+func (r *memorySessionRestoreRegistry) GetLatestRestoreRevision(_ context.Context, accountID, sessionID string) (string, error) {
 	if r == nil {
 		return "", os.ErrNotExist
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	revision := strings.TrimSpace(r.revisions[restoreRegistryKey(orgID, sessionID)])
+	revision := strings.TrimSpace(r.revisions[restoreRegistryKey(accountID, sessionID)])
 	if revision == "" {
 		return "", os.ErrNotExist
 	}
 	return revision, nil
 }
 
-func (r *memorySessionRestoreRegistry) BindLatestRestoreRevision(_ context.Context, orgID, sessionID, revision string) error {
+func (r *memorySessionRestoreRegistry) BindLatestRestoreRevision(_ context.Context, accountID, sessionID, revision string) error {
 	if r == nil {
 		return nil
 	}
@@ -69,17 +69,17 @@ func (r *memorySessionRestoreRegistry) BindLatestRestoreRevision(_ context.Conte
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.revisions[restoreRegistryKey(orgID, sessionID)] = revision
+	r.revisions[restoreRegistryKey(accountID, sessionID)] = revision
 	return nil
 }
 
-func (r *memorySessionRestoreRegistry) ClearLatestRestoreRevision(_ context.Context, orgID, sessionID, revision string) error {
+func (r *memorySessionRestoreRegistry) ClearLatestRestoreRevision(_ context.Context, accountID, sessionID, revision string) error {
 	if r == nil {
 		return nil
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	key := restoreRegistryKey(orgID, sessionID)
+	key := restoreRegistryKey(accountID, sessionID)
 	current := strings.TrimSpace(r.revisions[key])
 	if current == "" || current != strings.TrimSpace(revision) {
 		return nil
@@ -96,20 +96,20 @@ func (r *memorySessionRestoreRegistry) ListLatestRestoreBindings(_ context.Conte
 	defer r.mu.Unlock()
 	items := make([]RestoreBinding, 0, len(r.revisions))
 	for key, revision := range r.revisions {
-		orgID, sessionID, _ := strings.Cut(key, "|")
-		items = append(items, RestoreBinding{OrgID: orgID, SessionID: sessionID, Revision: strings.TrimSpace(revision)})
+		accountID, sessionID, _ := strings.Cut(key, "|")
+		items = append(items, RestoreBinding{AccountID: accountID, SessionID: sessionID, Revision: strings.TrimSpace(revision)})
 	}
 	return items, nil
 }
 
-func (r *PGSessionRestoreRegistry) GetLatestRestoreRevision(ctx context.Context, orgID, sessionID string) (string, error) {
+func (r *PGSessionRestoreRegistry) GetLatestRestoreRevision(ctx context.Context, accountID, sessionID string) (string, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	if r == nil || r.pool == nil {
 		return "", os.ErrNotExist
 	}
-	parsedOrgID, err := parseRestoreOrgID(orgID)
+	parsedAccountID, err := parseRestoreAccountID(accountID)
 	if err != nil {
 		return "", err
 	}
@@ -118,7 +118,7 @@ func (r *PGSessionRestoreRegistry) GetLatestRestoreRevision(ctx context.Context,
 		return "", os.ErrNotExist
 	}
 	var revision *string
-	if err := r.pool.QueryRow(ctx, `SELECT latest_restore_rev FROM shell_sessions WHERE org_id = $1 AND session_ref = $2`, parsedOrgID, sessionID).Scan(&revision); err != nil {
+	if err := r.pool.QueryRow(ctx, `SELECT latest_restore_rev FROM shell_sessions WHERE account_id = $1 AND session_ref = $2`, parsedAccountID, sessionID).Scan(&revision); err != nil {
 		if err == pgx.ErrNoRows {
 			return "", os.ErrNotExist
 		}
@@ -130,14 +130,14 @@ func (r *PGSessionRestoreRegistry) GetLatestRestoreRevision(ctx context.Context,
 	return strings.TrimSpace(*revision), nil
 }
 
-func (r *PGSessionRestoreRegistry) BindLatestRestoreRevision(ctx context.Context, orgID, sessionID, revision string) error {
+func (r *PGSessionRestoreRegistry) BindLatestRestoreRevision(ctx context.Context, accountID, sessionID, revision string) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	if r == nil || r.pool == nil {
 		return nil
 	}
-	parsedOrgID, err := parseRestoreOrgID(orgID)
+	parsedAccountID, err := parseRestoreAccountID(accountID)
 	if err != nil {
 		return err
 	}
@@ -150,8 +150,8 @@ func (r *PGSessionRestoreRegistry) BindLatestRestoreRevision(ctx context.Context
 		SET latest_restore_rev = $3,
 		    updated_at = now(),
 		    last_used_at = now()
-		WHERE org_id = $1
-		  AND session_ref = $2`, parsedOrgID, sessionID, revision)
+		WHERE account_id = $1
+		  AND session_ref = $2`, parsedAccountID, sessionID, revision)
 	if err != nil {
 		return err
 	}
@@ -161,14 +161,14 @@ func (r *PGSessionRestoreRegistry) BindLatestRestoreRevision(ctx context.Context
 	return nil
 }
 
-func (r *PGSessionRestoreRegistry) ClearLatestRestoreRevision(ctx context.Context, orgID, sessionID, revision string) error {
+func (r *PGSessionRestoreRegistry) ClearLatestRestoreRevision(ctx context.Context, accountID, sessionID, revision string) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	if r == nil || r.pool == nil {
 		return nil
 	}
-	parsedOrgID, err := parseRestoreOrgID(orgID)
+	parsedAccountID, err := parseRestoreAccountID(accountID)
 	if err != nil {
 		return err
 	}
@@ -181,9 +181,9 @@ func (r *PGSessionRestoreRegistry) ClearLatestRestoreRevision(ctx context.Contex
 		SET latest_restore_rev = NULL,
 		    updated_at = now(),
 		    last_used_at = now()
-		WHERE org_id = $1
+		WHERE account_id = $1
 		  AND session_ref = $2
-		  AND latest_restore_rev = $3`, parsedOrgID, sessionID, revision)
+		  AND latest_restore_rev = $3`, parsedAccountID, sessionID, revision)
 	return err
 }
 
@@ -194,7 +194,7 @@ func (r *PGSessionRestoreRegistry) ListLatestRestoreBindings(ctx context.Context
 	if r == nil || r.pool == nil {
 		return nil, nil
 	}
-	rows, err := r.pool.Query(ctx, `SELECT org_id::text, session_ref, latest_restore_rev
+	rows, err := r.pool.Query(ctx, `SELECT account_id::text, session_ref, latest_restore_rev
 		FROM shell_sessions
 		WHERE latest_restore_rev IS NOT NULL
 		  AND TRIM(latest_restore_rev) <> ''`)
@@ -205,13 +205,13 @@ func (r *PGSessionRestoreRegistry) ListLatestRestoreBindings(ctx context.Context
 	items := make([]RestoreBinding, 0)
 	for rows.Next() {
 		var item RestoreBinding
-		if err := rows.Scan(&item.OrgID, &item.SessionID, &item.Revision); err != nil {
+		if err := rows.Scan(&item.AccountID, &item.SessionID, &item.Revision); err != nil {
 			return nil, err
 		}
-		item.OrgID = strings.TrimSpace(item.OrgID)
+		item.AccountID = strings.TrimSpace(item.AccountID)
 		item.SessionID = strings.TrimSpace(item.SessionID)
 		item.Revision = strings.TrimSpace(item.Revision)
-		if item.OrgID == "" || item.SessionID == "" || item.Revision == "" {
+		if item.AccountID == "" || item.SessionID == "" || item.Revision == "" {
 			continue
 		}
 		items = append(items, item)
@@ -222,14 +222,14 @@ func (r *PGSessionRestoreRegistry) ListLatestRestoreBindings(ctx context.Context
 	return items, nil
 }
 
-func restoreRegistryKey(orgID, sessionID string) string {
-	return strings.TrimSpace(orgID) + "|" + strings.TrimSpace(sessionID)
+func restoreRegistryKey(accountID, sessionID string) string {
+	return strings.TrimSpace(accountID) + "|" + strings.TrimSpace(sessionID)
 }
 
-func parseRestoreOrgID(value string) (uuid.UUID, error) {
+func parseRestoreAccountID(value string) (uuid.UUID, error) {
 	parsed, err := uuid.Parse(strings.TrimSpace(value))
 	if err != nil {
-		return uuid.Nil, fmt.Errorf("parse org_id: %w", err)
+		return uuid.Nil, fmt.Errorf("parse account_id: %w", err)
 	}
 	return parsed, nil
 }

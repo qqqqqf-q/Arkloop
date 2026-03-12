@@ -88,7 +88,7 @@ func (r *ProviderRouter) Decide(inputJSON map[string]any, byokEnabled bool) Prov
 				}
 			}
 			credential, _ := r.config.GetCredential(route.CredentialID)
-			if credential.Scope == CredentialScopeProject && !byokEnabled {
+			if credential.OwnerKind == CredentialScopeUser && !byokEnabled {
 				return ProviderRouteDecision{
 					Denied: &ProviderRouteDenied{
 						ErrorClass: tools.PolicyDeniedCode,
@@ -113,7 +113,7 @@ func (r *ProviderRouter) Decide(inputJSON map[string]any, byokEnabled bool) Prov
 		return ProviderRouteDecision{Selected: nil}
 	}
 	credential, _ := r.config.GetCredential(selectedRoute.CredentialID)
-	if credential.Scope == CredentialScopeProject && !byokEnabled {
+	if credential.OwnerKind == CredentialScopeUser && !byokEnabled {
 		return ProviderRouteDecision{
 			Denied: &ProviderRouteDenied{
 				ErrorClass: tools.PolicyDeniedCode,

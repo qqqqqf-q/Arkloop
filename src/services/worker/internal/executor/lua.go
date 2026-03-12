@@ -431,7 +431,7 @@ func (rt *luaRuntime) toolsCall(L *lua.LState) int {
 	execCtx := tools.ExecutionContext{
 		RunID:               rt.rc.Run.ID,
 		TraceID:             rt.rc.TraceID,
-		OrgID:               &rt.rc.Run.OrgID,
+		AccountID:               &rt.rc.Run.AccountID,
 		ThreadID:            &rt.rc.Run.ThreadID,
 		ProjectID:           rt.rc.Run.ProjectID,
 		UserID:              rt.rc.UserID,
@@ -1164,7 +1164,7 @@ func (rt *luaRuntime) runAgentLoop(
 
 	runCtx := agent.RunContext{
 		RunID:                  rt.rc.Run.ID,
-		OrgID:                  &rt.rc.Run.OrgID,
+		AccountID:                  &rt.rc.Run.AccountID,
 		UserID:                 rt.rc.UserID,
 		AgentID:                agentIDFromPersona(rt.rc),
 		ThreadID:               &rt.rc.Run.ThreadID,
@@ -1333,7 +1333,7 @@ func (rt *luaRuntime) toolsCallParallel(L *lua.LState) int {
 			execCtx := tools.ExecutionContext{
 				RunID:               rt.rc.Run.ID,
 				TraceID:             rt.rc.TraceID,
-				OrgID:               &rt.rc.Run.OrgID,
+				AccountID:               &rt.rc.Run.AccountID,
 				ThreadID:            &rt.rc.Run.ThreadID,
 				ProjectID:           rt.rc.Run.ProjectID,
 				UserID:              rt.rc.UserID,
@@ -1540,7 +1540,7 @@ func (rt *luaRuntime) memoryForget(L *lua.LState) int {
 // memoryIdentity 从 RunContext 构造 MemoryIdentity。
 func (rt *luaRuntime) memoryIdentity() memory.MemoryIdentity {
 	ident := memory.MemoryIdentity{
-		OrgID:   rt.rc.Run.OrgID,
+		AccountID:   rt.rc.Run.AccountID,
 		AgentID: agentIDFromPersona(rt.rc),
 	}
 	if rt.rc.UserID != nil {

@@ -33,7 +33,7 @@ const (
 
 type execRequest struct {
 	SessionID     string                     `json:"session_id"`
-	OrgID         string                     `json:"org_id,omitempty"`
+	AccountID         string                     `json:"account_id,omitempty"`
 	ProfileRef    string                     `json:"profile_ref,omitempty"`
 	WorkspaceRef  string                     `json:"workspace_ref,omitempty"`
 	EnabledSkills []skillstore.ResolvedSkill `json:"enabled_skills,omitempty"`
@@ -55,7 +55,7 @@ type execResponse struct {
 type execCommandRequest struct {
 	SessionID     string                     `json:"session_id"`
 	OpenMode      string                     `json:"open_mode,omitempty"`
-	OrgID         string                     `json:"org_id,omitempty"`
+	AccountID         string                     `json:"account_id,omitempty"`
 	ProfileRef    string                     `json:"profile_ref,omitempty"`
 	WorkspaceRef  string                     `json:"workspace_ref,omitempty"`
 	EnabledSkills []skillstore.ResolvedSkill `json:"enabled_skills,omitempty"`
@@ -68,13 +68,13 @@ type execCommandRequest struct {
 
 type writeStdinRequest struct {
 	SessionID   string `json:"session_id"`
-	OrgID       string `json:"org_id,omitempty"`
+	AccountID       string `json:"account_id,omitempty"`
 	Chars       string `json:"chars,omitempty"`
 	YieldTimeMs int    `json:"yield_time_ms,omitempty"`
 }
 
 type forkSessionRequest struct {
-	OrgID         string `json:"org_id,omitempty"`
+	AccountID         string `json:"account_id,omitempty"`
 	FromSessionID string `json:"from_session_id"`
 	ToSessionID   string `json:"to_session_id"`
 }
@@ -194,7 +194,7 @@ func (e *ToolExecutor) executePython(
 
 	payload, err := json.Marshal(execRequest{
 		SessionID:     execCtx.RunID.String(),
-		OrgID:         resolveOrgID(execCtx),
+		AccountID:         resolveAccountID(execCtx),
 		ProfileRef:    resolveProfileRef(execCtx),
 		WorkspaceRef:  resolveWorkspaceRef(execCtx),
 		EnabledSkills: append([]skillstore.ResolvedSkill(nil), execCtx.EnabledSkills...),
@@ -207,7 +207,7 @@ func (e *ToolExecutor) executePython(
 		return errResult(errorSandboxError, fmt.Sprintf("marshal request failed: %s", err.Error()), started)
 	}
 
-	resp, reqErr := e.doJSONRequest(ctx, http.MethodPost, e.baseURL+"/v1/exec", payload, resolveOrgID(execCtx))
+	resp, reqErr := e.doJSONRequest(ctx, http.MethodPost, e.baseURL+"/v1/exec", payload, resolveAccountID(execCtx))
 	if reqErr != nil {
 		return errResult(reqErr.errorClass, reqErr.message, started)
 	}
@@ -276,7 +276,7 @@ func (e *ToolExecutor) executeExecCommand(
 	request := execCommandRequest{
 		SessionID:     resolution.SessionRef,
 		OpenMode:      resolution.OpenMode,
-		OrgID:         resolveOrgID(execCtx),
+		AccountID:         resolveAccountID(execCtx),
 		ProfileRef:    resolution.ProfileRef(resolveProfileRef(execCtx)),
 		WorkspaceRef:  resolution.WorkspaceRef(resolveWorkspaceRef(execCtx)),
 		EnabledSkills: append([]skillstore.ResolvedSkill(nil), execCtx.EnabledSkills...),
@@ -286,7 +286,7 @@ func (e *ToolExecutor) executeExecCommand(
 		TimeoutMs:     reqArgs.TimeoutMs,
 		YieldTimeMs:   reqArgs.YieldTimeMs,
 	}
-	result := e.executeExecSessionRequest(ctx, e.baseURL+"/v1/exec_command", "exec_command", request, request.OrgID, execCtx.PerToolSoftLimits, started)
+	result := e.executeExecSessionRequest(ctx, e.baseURL+"/v1/exec_command", "exec_command", request, request.AccountID, execCtx.PerToolSoftLimits, started)
 	if result.Error != nil && isSessionUnavailable(result.Error) {
 		fallback, fallbackErr := e.orchestrator.resolveFallbackSession(ctx, reqArgs, execCtx, resolution)
 		if fallbackErr != nil {
@@ -301,7 +301,7 @@ func (e *ToolExecutor) executeExecCommand(
 			request.OpenMode = resolution.OpenMode
 			request.ProfileRef = resolution.ProfileRef(resolveProfileRef(execCtx))
 			request.WorkspaceRef = resolution.WorkspaceRef(resolveWorkspaceRef(execCtx))
-			result = e.executeExecSessionRequest(ctx, e.baseURL+"/v1/exec_command", "exec_command", request, request.OrgID, execCtx.PerToolSoftLimits, started)
+			result = e.executeExecSessionRequest(ctx, e.baseURL+"/v1/exec_command", "exec_command", request, request.AccountID, execCtx.PerToolSoftLimits, started)
 		}
 	}
 	if result.Error != nil {
@@ -354,11 +354,11 @@ func (e *ToolExecutor) executeWriteStdin(
 
 	request := writeStdinRequest{
 		SessionID:   resolution.SessionRef,
-		OrgID:       resolveOrgID(execCtx),
+		AccountID:       resolveAccountID(execCtx),
 		Chars:       reqArgs.Chars,
 		YieldTimeMs: clampYieldTimeMs(reqArgs.YieldTimeMs, tools.ResolveToolSoftLimit(execCtx.PerToolSoftLimits, "write_stdin")),
 	}
-	result := e.executeExecSessionRequest(ctx, e.baseURL+"/v1/write_stdin", "write_stdin", request, request.OrgID, execCtx.PerToolSoftLimits, started)
+	result := e.executeExecSessionRequest(ctx, e.baseURL+"/v1/write_stdin", "write_stdin", request, request.AccountID, execCtx.PerToolSoftLimits, started)
 	if result.Error != nil {
 		if reqArgs.Chars != "" && isSessionNotRunning(result.Error) {
 			_ = e.orchestrator.clearFinishedWriterLease(ctx, execCtx, resolution)
@@ -405,7 +405,7 @@ func (e *ToolExecutor) executeBrowser(
 	request := execCommandRequest{
 		SessionID:     resolution.SessionRef,
 		OpenMode:      resolution.OpenMode,
-		OrgID:         resolveOrgID(execCtx),
+		AccountID:         resolveAccountID(execCtx),
 		ProfileRef:    resolution.ProfileRef(resolveProfileRef(execCtx)),
 		WorkspaceRef:  resolution.WorkspaceRef(resolveWorkspaceRef(execCtx)),
 		EnabledSkills: append([]skillstore.ResolvedSkill(nil), execCtx.EnabledSkills...),
@@ -414,7 +414,7 @@ func (e *ToolExecutor) executeBrowser(
 		TimeoutMs:     defaultTimeoutMs,
 		YieldTimeMs:   effectiveBrowserYieldTimeMs(reqArgs.Command, reqArgs.YieldTimeMs),
 	}
-	result := e.executeExecSessionRequest(ctx, e.baseURL+"/v1/exec_command", "exec_command", request, request.OrgID, execCtx.PerToolSoftLimits, started)
+	result := e.executeExecSessionRequest(ctx, e.baseURL+"/v1/exec_command", "exec_command", request, request.AccountID, execCtx.PerToolSoftLimits, started)
 	if result.Error != nil {
 		switch {
 		case isSessionBusy(result.Error):
@@ -445,13 +445,13 @@ func (e *ToolExecutor) executeBrowser(
 	if shouldAutoScreenshot(reqArgs.Command) {
 		screenshotReq := execCommandRequest{
 			SessionID:     resolution.SessionRef,
-			OrgID:         resolveOrgID(execCtx),
+			AccountID:         resolveAccountID(execCtx),
 			EnabledSkills: append([]skillstore.ResolvedSkill(nil), execCtx.EnabledSkills...),
 			Tier:          "browser",
 			Command:       buildBrowserCommand(resolution.SessionRef, buildAutoScreenshotCommand()),
 			TimeoutMs:     screenshotTimeoutMs,
 		}
-		screenshotResult := e.executeExecSessionRequest(ctx, e.baseURL+"/v1/exec_command", "exec_command", screenshotReq, screenshotReq.OrgID, execCtx.PerToolSoftLimits, started)
+		screenshotResult := e.executeExecSessionRequest(ctx, e.baseURL+"/v1/exec_command", "exec_command", screenshotReq, screenshotReq.AccountID, execCtx.PerToolSoftLimits, started)
 		if screenshotResult.Error == nil {
 			mergeScreenshotArtifacts(&result.ResultJSON, screenshotResult.ResultJSON)
 		}
@@ -490,7 +490,7 @@ func (e *ToolExecutor) retryBusyBrowserCommand(
 	if waitErr != nil {
 		return normalizeBrowserExecutionFailure(waitErr, started)
 	}
-	result := e.executeExecSessionRequest(ctx, e.baseURL+"/v1/exec_command", "exec_command", request, request.OrgID, execCtx.PerToolSoftLimits, started)
+	result := e.executeExecSessionRequest(ctx, e.baseURL+"/v1/exec_command", "exec_command", request, request.AccountID, execCtx.PerToolSoftLimits, started)
 	if result.Error != nil {
 		return normalizeBrowserExecutionFailure(result.Error, started)
 	}
@@ -506,11 +506,11 @@ func (e *ToolExecutor) waitForBrowserSessionIdle(
 ) (tools.ExecutionResult, *tools.ExecutionError) {
 	pollReq := writeStdinRequest{
 		SessionID:   sessionRef,
-		OrgID:       resolveOrgID(execCtx),
+		AccountID:       resolveAccountID(execCtx),
 		YieldTimeMs: browserContinuationYieldTimeMs(requestedYieldTimeMs),
 	}
 	for attempt := 0; attempt < browserAutoPollAttempts; attempt++ {
-		pollResult := e.executeExecSessionRequest(ctx, e.baseURL+"/v1/write_stdin", "write_stdin", pollReq, pollReq.OrgID, execCtx.PerToolSoftLimits, started)
+		pollResult := e.executeExecSessionRequest(ctx, e.baseURL+"/v1/write_stdin", "write_stdin", pollReq, pollReq.AccountID, execCtx.PerToolSoftLimits, started)
 		if pollResult.Error != nil {
 			return tools.ExecutionResult{}, pollResult.Error
 		}
@@ -543,7 +543,7 @@ func (e *ToolExecutor) retryUnavailableBrowserCommand(
 	request.ProfileRef = resolution.ProfileRef(resolveProfileRef(execCtx))
 	request.WorkspaceRef = resolution.WorkspaceRef(resolveWorkspaceRef(execCtx))
 	request.Command = buildBrowserCommand(resolution.SessionRef, preparedCommand)
-	result := e.executeExecSessionRequest(ctx, e.baseURL+"/v1/exec_command", "exec_command", request, request.OrgID, execCtx.PerToolSoftLimits, started)
+	result := e.executeExecSessionRequest(ctx, e.baseURL+"/v1/exec_command", "exec_command", request, request.AccountID, execCtx.PerToolSoftLimits, started)
 	if result.Error != nil {
 		return resolution, normalizeBrowserExecutionFailure(result.Error, started)
 	}
@@ -569,14 +569,14 @@ func (e *ToolExecutor) forkSessionCheckpoint(
 	toSessionRef string,
 ) (string, *tools.ExecutionError) {
 	payload, err := json.Marshal(forkSessionRequest{
-		OrgID:         resolveOrgID(execCtx),
+		AccountID:         resolveAccountID(execCtx),
 		FromSessionID: fromSessionRef,
 		ToSessionID:   toSessionRef,
 	})
 	if err != nil {
 		return "", &tools.ExecutionError{ErrorClass: errorSandboxError, Message: fmt.Sprintf("marshal fork request failed: %s", err.Error())}
 	}
-	resp, reqErr := e.doJSONRequest(ctx, http.MethodPost, e.baseURL+"/v1/sessions/fork", payload, resolveOrgID(execCtx))
+	resp, reqErr := e.doJSONRequest(ctx, http.MethodPost, e.baseURL+"/v1/sessions/fork", payload, resolveAccountID(execCtx))
 	if reqErr != nil {
 		return "", &tools.ExecutionError{ErrorClass: reqErr.errorClass, Message: reqErr.message}
 	}
@@ -603,7 +603,7 @@ func (e *ToolExecutor) executeExecSessionRequest(
 	endpoint string,
 	toolName string,
 	request any,
-	orgID string,
+	accountID string,
 	softLimits tools.PerToolSoftLimits,
 	started time.Time,
 ) tools.ExecutionResult {
@@ -611,7 +611,7 @@ func (e *ToolExecutor) executeExecSessionRequest(
 	if err != nil {
 		return errResult(errorSandboxError, fmt.Sprintf("marshal request failed: %s", err.Error()), started)
 	}
-	resp, reqErr := e.doJSONRequest(ctx, http.MethodPost, endpoint, payload, orgID)
+	resp, reqErr := e.doJSONRequest(ctx, http.MethodPost, endpoint, payload, accountID)
 	if reqErr != nil {
 		return errResult(reqErr.errorClass, reqErr.message, started)
 	}
@@ -688,7 +688,7 @@ func (e *ToolExecutor) doJSONRequest(
 	ctx context.Context,
 	method, endpoint string,
 	payload []byte,
-	orgID string,
+	accountID string,
 ) (*http.Response, *requestError) {
 	var body io.Reader
 	if len(payload) > 0 {
@@ -704,8 +704,8 @@ func (e *ToolExecutor) doJSONRequest(
 	if e.authToken != "" {
 		req.Header.Set("Authorization", "Bearer "+e.authToken)
 	}
-	if orgID != "" {
-		req.Header.Set("X-Org-ID", orgID)
+	if accountID != "" {
+		req.Header.Set("X-Account-ID", accountID)
 	}
 
 	resp, err := e.client.Do(req)
@@ -792,13 +792,13 @@ func (e *ToolExecutor) ensureEnvironmentBindings(
 	if strings.TrimSpace(execCtx.ProfileRef) != "" && strings.TrimSpace(execCtx.WorkspaceRef) != "" {
 		return execCtx, nil
 	}
-	if execCtx.OrgID == nil || *execCtx.OrgID == uuid.Nil {
+	if execCtx.AccountID == nil || *execCtx.AccountID == uuid.Nil {
 		return execCtx, nil
 	}
 
 	run := data.Run{
 		ID:              execCtx.RunID,
-		OrgID:           *execCtx.OrgID,
+		AccountID:           *execCtx.AccountID,
 		ProjectID:       execCtx.ProjectID,
 		CreatedByUserID: execCtx.UserID,
 		ProfileRef:      stringPtr(execCtx.ProfileRef),
@@ -821,11 +821,11 @@ func (e *ToolExecutor) ensureEnvironmentBindings(
 	return execCtx, nil
 }
 
-func resolveOrgID(execCtx tools.ExecutionContext) string {
-	if execCtx.OrgID == nil {
+func resolveAccountID(execCtx tools.ExecutionContext) string {
+	if execCtx.AccountID == nil {
 		return ""
 	}
-	return execCtx.OrgID.String()
+	return execCtx.AccountID.String()
 }
 
 func resolveProfileRef(execCtx tools.ExecutionContext) string {
@@ -1144,12 +1144,12 @@ func isSessionNotRunning(err *tools.ExecutionError) bool {
 }
 
 func (e *ToolExecutor) resolveEnabledSkills(ctx context.Context, execCtx tools.ExecutionContext) ([]skillstore.ResolvedSkill, error) {
-	if e == nil || e.orchestrator == nil || e.orchestrator.pool == nil || execCtx.OrgID == nil {
+	if e == nil || e.orchestrator == nil || e.orchestrator.pool == nil || execCtx.AccountID == nil {
 		return nil, nil
 	}
 	if strings.TrimSpace(execCtx.ProfileRef) == "" || strings.TrimSpace(execCtx.WorkspaceRef) == "" {
 		return nil, nil
 	}
 	repo := data.SkillsRepository{}
-	return repo.ResolveEnabledSkills(ctx, e.orchestrator.pool, *execCtx.OrgID, execCtx.ProfileRef, execCtx.WorkspaceRef)
+	return repo.ResolveEnabledSkills(ctx, e.orchestrator.pool, *execCtx.AccountID, execCtx.ProfileRef, execCtx.WorkspaceRef)
 }

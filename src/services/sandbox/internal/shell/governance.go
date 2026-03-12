@@ -46,17 +46,17 @@ func (m *Manager) SweepExpiredRestoreStates(ctx context.Context) error {
 	}
 	deleted := 0
 	for _, binding := range bindings {
-		state, loadErr := loadRestoreStateByRevision(ctx, m.stateStore, m.restoreRegistry, binding.OrgID, binding.SessionID, binding.Revision)
+		state, loadErr := loadRestoreStateByRevision(ctx, m.stateStore, m.restoreRegistry, binding.AccountID, binding.SessionID, binding.Revision)
 		if loadErr == nil {
 			if !expiredRestoreState(*state, time.Now().UTC()) {
 				continue
 			}
-			cleanupExpiredRestoreState(ctx, m.stateStore, m.restoreRegistry, binding.OrgID, binding.SessionID, binding.Revision)
+			cleanupExpiredRestoreState(ctx, m.stateStore, m.restoreRegistry, binding.AccountID, binding.SessionID, binding.Revision)
 			deleted++
 			continue
 		}
 		if objectstore.IsNotFound(loadErr) {
-			_ = m.restoreRegistry.ClearLatestRestoreRevision(ctx, binding.OrgID, binding.SessionID, binding.Revision)
+			_ = m.restoreRegistry.ClearLatestRestoreRevision(ctx, binding.AccountID, binding.SessionID, binding.Revision)
 			deleted++
 			continue
 		}

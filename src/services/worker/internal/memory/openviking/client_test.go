@@ -17,14 +17,14 @@ import (
 // --- test helpers ---
 
 var (
-	fixedOrgID   = uuid.MustParse("aaaaaaaa-0000-0000-0000-000000000001")
+	fixedAccountID   = uuid.MustParse("aaaaaaaa-0000-0000-0000-000000000001")
 	fixedUserID  = uuid.MustParse("bbbbbbbb-0000-0000-0000-000000000002")
 	fixedAgentID = "test-agent"
 )
 
 func newIdent() memory.MemoryIdentity {
 	return memory.MemoryIdentity{
-		OrgID:   fixedOrgID,
+		AccountID:   fixedAccountID,
 		UserID:  fixedUserID,
 		AgentID: fixedAgentID,
 	}
@@ -374,7 +374,7 @@ func TestClient_IdentityHeaders(t *testing.T) {
 	defer srv.Close()
 
 	ident := memory.MemoryIdentity{
-		OrgID:   uuid.MustParse("aaaaaaaa-0000-0000-0000-000000000001"),
+		AccountID:   uuid.MustParse("aaaaaaaa-0000-0000-0000-000000000001"),
 		UserID:  uuid.MustParse("bbbbbbbb-0000-0000-0000-000000000002"),
 		AgentID: "my-agent",
 	}
@@ -387,7 +387,7 @@ func TestClient_IdentityHeaders(t *testing.T) {
 	if gotHeaders.Get("X-API-Key") != "root-key-123" {
 		t.Errorf("X-API-Key: got %q", gotHeaders.Get("X-API-Key"))
 	}
-	if gotHeaders.Get("X-OpenViking-Account") != ident.OrgID.String() {
+	if gotHeaders.Get("X-OpenViking-Account") != ident.AccountID.String() {
 		t.Errorf("X-OpenViking-Account: got %q", gotHeaders.Get("X-OpenViking-Account"))
 	}
 	if gotHeaders.Get("X-OpenViking-User") != ident.UserID.String() {
@@ -419,7 +419,7 @@ func TestClient_AgentScope_Write_NoUserHeader(t *testing.T) {
 	defer srv.Close()
 
 	ident := memory.MemoryIdentity{
-		OrgID:   uuid.New(),
+		AccountID:   uuid.New(),
 		UserID:  uuid.New(),
 		AgentID: "agent-001",
 	}

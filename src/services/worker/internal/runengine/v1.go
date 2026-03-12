@@ -138,7 +138,7 @@ func NewEngineV1(deps EngineV1Deps) (*EngineV1, error) {
 		if run.ParentRunID != nil {
 			return
 		}
-		key := runlimit.Key(run.OrgID.String())
+		key := runlimit.Key(run.AccountID.String())
 		runlimit.Release(ctx, rdb, key)
 	}
 
@@ -267,8 +267,8 @@ func (e *EngineV1) Execute(ctx context.Context, pool *pgxpool.Pool, run data.Run
 
 	// run 结束后清理 sandbox session（不阻塞返回结果）
 	if runtimeSnapshot.SandboxBaseURL != "" {
-		orgID := run.OrgID.String()
-		go sandbox.CleanupSession(runtimeSnapshot.SandboxBaseURL, runtimeSnapshot.SandboxAuthToken, run.ID.String(), orgID)
+		accountID := run.AccountID.String()
+		go sandbox.CleanupSession(runtimeSnapshot.SandboxBaseURL, runtimeSnapshot.SandboxAuthToken, run.ID.String(), accountID)
 	}
 
 	return err

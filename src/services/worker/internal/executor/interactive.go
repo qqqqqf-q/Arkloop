@@ -97,7 +97,7 @@ func (e *InteractiveExecutor) Execute(
 
 	runCtx := agent.RunContext{
 		RunID:                  rc.Run.ID,
-		OrgID:                  &rc.Run.OrgID,
+		AccountID:                  &rc.Run.AccountID,
 		UserID:                 rc.UserID,
 		AgentID:                agentIDFromPersona(rc),
 		ThreadID:               &rc.Run.ThreadID,

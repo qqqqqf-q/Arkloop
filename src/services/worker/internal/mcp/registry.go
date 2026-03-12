@@ -25,10 +25,10 @@ type Registration struct {
 	Executors  map[string]tools.Executor
 }
 
-// DiscoverFromDB 按 org_id 从数据库加载 MCP 配置并发现工具。
+// DiscoverFromDB 按 account_id 从数据库加载 MCP 配置并发现工具。
 // 若该 org 无活跃配置，返回空 Registration（不报错）。
-func DiscoverFromDB(ctx context.Context, dbPool *pgxpool.Pool, orgID uuid.UUID, mcpPool *Pool) (Registration, error) {
-	cfg, err := LoadConfigFromDB(ctx, dbPool, orgID)
+func DiscoverFromDB(ctx context.Context, dbPool *pgxpool.Pool, accountID uuid.UUID, mcpPool *Pool) (Registration, error) {
+	cfg, err := LoadConfigFromDB(ctx, dbPool, accountID)
 	if err != nil {
 		return Registration{}, err
 	}

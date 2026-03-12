@@ -54,7 +54,7 @@ func NewAgentLoopHandler(
 
 		policy := creditpolicy.DefaultPolicy
 		if resolver != nil {
-			if p, err := resolver.ResolveDeductionPolicy(ctx, rc.Run.OrgID); err == nil {
+			if p, err := resolver.ResolveDeductionPolicy(ctx, rc.Run.AccountID); err == nil {
 				policy = p
 			}
 		}
@@ -134,7 +134,7 @@ func NewAgentLoopHandler(
 		}
 
 		if writer.Completed() {
-			if err := writer.InsertAssistantMessage(ctx, messagesRepo, rc.Run.OrgID, rc.Run.ThreadID); err != nil {
+			if err := writer.InsertAssistantMessage(ctx, messagesRepo, rc.Run.AccountID, rc.Run.ThreadID); err != nil {
 				return err
 			}
 			rc.FinalAssistantOutput = writer.AssistantOutput()
@@ -280,14 +280,14 @@ func (w *eventWriter) Append(
 		}); err != nil {
 			return err
 		}
-		if err := w.usageRepo.Insert(ctx, w.tx, w.run.OrgID, runID, w.model,
+		if err := w.usageRepo.Insert(ctx, w.tx, w.run.AccountID, runID, w.model,
 			w.totalInputTokens, w.totalOutputTokens,
 			w.totalCacheCreationTokens, w.totalCacheReadTokens, w.totalCachedTokens,
 			w.totalCostUSD); err != nil {
 			return err
 		}
 		if r := w.calcCreditDeduction(); r.Credits > 0 {
-			if err := w.creditsRepo.Deduct(ctx, w.tx, w.run.OrgID, r.Credits, runID, r.Metadata); err != nil {
+			if err := w.creditsRepo.Deduct(ctx, w.tx, w.run.AccountID, r.Credits, runID, r.Metadata); err != nil {
 				return err
 			}
 		}
@@ -336,14 +336,14 @@ func (w *eventWriter) Append(
 		}); err != nil {
 			return err
 		}
-		if err := w.usageRepo.Insert(ctx, w.tx, w.run.OrgID, runID, w.model,
+		if err := w.usageRepo.Insert(ctx, w.tx, w.run.AccountID, runID, w.model,
 			w.totalInputTokens, w.totalOutputTokens,
 			w.totalCacheCreationTokens, w.totalCacheReadTokens, w.totalCachedTokens,
 			w.totalCostUSD); err != nil {
 			return err
 		}
 		if r := w.calcCreditDeduction(); r.Credits > 0 {
-			if err := w.creditsRepo.Deduct(ctx, w.tx, w.run.OrgID, r.Credits, runID, r.Metadata); err != nil {
+			if err := w.creditsRepo.Deduct(ctx, w.tx, w.run.AccountID, r.Credits, runID, r.Metadata); err != nil {
 				return err
 			}
 		}
@@ -401,7 +401,7 @@ func (w *eventWriter) commit(ctx context.Context) error {
 		w.terminalMessage = ""
 		// 子 Run 没有通过 API 层 TryAcquire，不释放并发槽
 		if w.run.ParentRunID == nil {
-			key := runlimit.Key(w.run.OrgID.String())
+			key := runlimit.Key(w.run.AccountID.String())
 			runlimit.Release(ctx, w.runLimiterRDB, key)
 		}
 	}
@@ -421,14 +421,14 @@ func (w *eventWriter) AssistantOutput() string {
 func (w *eventWriter) InsertAssistantMessage(
 	ctx context.Context,
 	repo data.MessagesRepository,
-	orgID uuid.UUID,
+	accountID uuid.UUID,
 	threadID uuid.UUID,
 ) error {
 	if err := w.ensureTx(ctx); err != nil {
 		return err
 	}
 	content := strings.Join(w.assistantDeltas, "")
-	return repo.InsertAssistantMessage(ctx, w.tx, orgID, threadID, w.run.ID, content)
+	return repo.InsertAssistantMessage(ctx, w.tx, accountID, threadID, w.run.ID, content)
 }
 
 func (w *eventWriter) Flush(ctx context.Context) error {

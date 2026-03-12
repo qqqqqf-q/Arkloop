@@ -14,8 +14,8 @@ type Client interface {
 	Close() error
 }
 
-// Pool 持有按 (orgID, serverID) 键控的 MCP Client，用于跨 run 的连接复用。
-// 全局（env 加载）的工具使用空 orgID（key 形如 ":serverID"）。
+// Pool 持有按 (accountID, serverID) 键控的 MCP Client，用于跨 run 的连接复用。
+// 全局（env 加载）的工具使用空 accountID（key 形如 ":serverID"）。
 type Pool struct {
 	mu      sync.Mutex
 	clients map[string]Client
@@ -28,7 +28,7 @@ func NewPool() *Pool {
 // Borrow 返回现有 client 或根据 transport 类型新建一个。
 // 若现有 client 不健康（子进程已退出、被显式关闭等），关闭并重建。
 func (p *Pool) Borrow(ctx context.Context, server ServerConfig) (Client, error) {
-	key := poolKey(server.OrgID, server.ServerID)
+	key := poolKey(server.AccountID, server.ServerID)
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -70,6 +70,6 @@ func (p *Pool) CloseAll() {
 	}
 }
 
-func poolKey(orgID, serverID string) string {
-	return orgID + ":" + serverID
+func poolKey(accountID, serverID string) string {
+	return accountID + ":" + serverID
 }

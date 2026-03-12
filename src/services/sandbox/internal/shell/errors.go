@@ -9,7 +9,7 @@ const (
 	CodeNotRunning      = "shell.not_running"
 	CodeSignalFailed    = "shell.signal_failed"
 	CodeTimeoutTooLarge = "shell.timeout_too_large"
-	CodeOrgMismatch     = "sandbox.org_mismatch"
+	CodeAccountMismatch     = "sandbox.account_mismatch"
 )
 
 type Error struct {
@@ -42,6 +42,6 @@ func timeoutTooLargeError() *Error {
 	return newError(CodeTimeoutTooLarge, "timeout_ms must not exceed 300000", http.StatusBadRequest)
 }
 
-func orgMismatchError() *Error {
-	return newError(CodeOrgMismatch, "session belongs to another org", http.StatusForbidden)
+func accountMismatchError() *Error {
+	return newError(CodeAccountMismatch, "session belongs to another account", http.StatusForbidden)
 }

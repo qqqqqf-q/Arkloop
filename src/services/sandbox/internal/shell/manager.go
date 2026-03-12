@@ -21,9 +21,9 @@ import (
 type Service interface {
 	ExecCommand(ctx context.Context, req ExecCommandRequest) (*Response, error)
 	WriteStdin(ctx context.Context, req WriteStdinRequest) (*Response, error)
-	DebugSnapshot(ctx context.Context, sessionID, orgID string) (*DebugResponse, error)
+	DebugSnapshot(ctx context.Context, sessionID, accountID string) (*DebugResponse, error)
 	ForkSession(ctx context.Context, req ForkSessionRequest) (*ForkSessionResponse, error)
-	Close(ctx context.Context, sessionID, orgID string) error
+	Close(ctx context.Context, sessionID, accountID string) error
 }
 
 type Manager struct {
@@ -44,7 +44,7 @@ type managedSession struct {
 	mu sync.Mutex
 
 	compute      *session.Session
-	orgID        string
+	accountID        string
 	profileRef   string
 	workspaceRef string
 	commandSeq   int64
@@ -91,11 +91,11 @@ func (m *Manager) ExecCommand(ctx context.Context, req ExecCommandRequest) (*Res
 		return nil, err
 	}
 	req.OpenMode = NormalizeOpenMode(strings.TrimSpace(req.OpenMode))
-	entry, created := m.getOrCreateEntry(req.SessionID, req.OrgID)
+	entry, created := m.getOrCreateEntry(req.SessionID, req.AccountID)
 	entry.mu.Lock()
 	defer entry.mu.Unlock()
 
-	if err := ensureOrg(entry.orgID, req.OrgID); err != nil {
+	if err := ensureAccount(entry.accountID, req.AccountID); err != nil {
 		return nil, err
 	}
 
@@ -113,7 +113,7 @@ func (m *Manager) ExecCommand(ctx context.Context, req ExecCommandRequest) (*Res
 					m.envManager.Drop(req.SessionID)
 				}
 				entry.compute = nil
-				_ = m.compute.DeleteSkipHook(ctx, req.SessionID, req.OrgID)
+				_ = m.compute.DeleteSkipHook(ctx, req.SessionID, req.AccountID)
 			}
 			if created {
 				m.dropEntry(req.SessionID, entry)
@@ -144,7 +144,7 @@ func (m *Manager) ExecCommand(ctx context.Context, req ExecCommandRequest) (*Res
 				if m.envManager != nil {
 					m.envManager.Drop(req.SessionID)
 				}
-				_ = m.compute.DeleteSkipHook(ctx, req.SessionID, req.OrgID)
+				_ = m.compute.DeleteSkipHook(ctx, req.SessionID, req.AccountID)
 			}
 			if !created {
 				return nil, notFoundError()
@@ -165,15 +165,15 @@ func (m *Manager) ExecCommand(ctx context.Context, req ExecCommandRequest) (*Res
 }
 
 func (m *Manager) openExecCommandSession(ctx context.Context, req ExecCommandRequest, entry *managedSession) (ExecCommandRequest, map[string]string, bool, string, bool, error) {
-	computeSession, err := m.compute.GetOrCreate(ctx, req.SessionID, req.Tier, req.OrgID)
+	computeSession, err := m.compute.GetOrCreate(ctx, req.SessionID, req.Tier, req.AccountID)
 	if err != nil {
-		if strings.Contains(err.Error(), "org mismatch") {
-			return ExecCommandRequest{}, nil, false, "", false, orgMismatchError()
+		if strings.Contains(err.Error(), "account mismatch") {
+			return ExecCommandRequest{}, nil, false, "", false, accountMismatchError()
 		}
 		return ExecCommandRequest{}, nil, false, "", false, fmt.Errorf("get shell compute session: %w", err)
 	}
 	entry.compute = computeSession
-	entry.orgID = computeSession.OrgID
+	entry.accountID = computeSession.AccountID
 	if entry.artifactSeen == nil {
 		entry.artifactSeen = make(map[string]artifactVersion)
 	}
@@ -184,7 +184,7 @@ func (m *Manager) openExecCommandSession(ctx context.Context, req ExecCommandReq
 			m.envManager.Drop(req.SessionID)
 		}
 		entry.compute = nil
-		_ = m.compute.DeleteSkipHook(ctx, req.SessionID, req.OrgID)
+		_ = m.compute.DeleteSkipHook(ctx, req.SessionID, req.AccountID)
 		return ExecCommandRequest{}, nil, false, "", true, notFoundError()
 	}
 	if err := m.prepareEnvironment(ctx, prepared, entry); err != nil {
@@ -214,14 +214,14 @@ func (m *Manager) boundIdentityRequest(req ExecCommandRequest, entry *managedSes
 }
 
 func (m *Manager) WriteStdin(ctx context.Context, req WriteStdinRequest) (*Response, error) {
-	entry, err := m.getExistingEntry(req.SessionID, req.OrgID)
+	entry, err := m.getExistingEntry(req.SessionID, req.AccountID)
 	if err != nil {
 		return nil, err
 	}
 
 	entry.mu.Lock()
 	defer entry.mu.Unlock()
-	if err := ensureOrg(entry.orgID, req.OrgID); err != nil {
+	if err := ensureAccount(entry.accountID, req.AccountID); err != nil {
 		return nil, err
 	}
 
@@ -245,15 +245,15 @@ func (m *Manager) WriteStdin(ctx context.Context, req WriteStdinRequest) (*Respo
 	return resp, nil
 }
 
-func (m *Manager) DebugSnapshot(ctx context.Context, sessionID, orgID string) (*DebugResponse, error) {
-	entry, err := m.getExistingEntry(sessionID, orgID)
+func (m *Manager) DebugSnapshot(ctx context.Context, sessionID, accountID string) (*DebugResponse, error) {
+	entry, err := m.getExistingEntry(sessionID, accountID)
 	if err != nil {
 		return nil, err
 	}
 
 	entry.mu.Lock()
 	defer entry.mu.Unlock()
-	if err := ensureOrg(entry.orgID, orgID); err != nil {
+	if err := ensureAccount(entry.accountID, accountID); err != nil {
 		return nil, err
 	}
 
@@ -272,7 +272,7 @@ func (m *Manager) DebugSnapshot(ctx context.Context, sessionID, orgID string) (*
 func (m *Manager) ForkSession(ctx context.Context, req ForkSessionRequest) (*ForkSessionResponse, error) {
 	req.FromSessionID = strings.TrimSpace(req.FromSessionID)
 	req.ToSessionID = strings.TrimSpace(req.ToSessionID)
-	req.OrgID = strings.TrimSpace(req.OrgID)
+	req.AccountID = strings.TrimSpace(req.AccountID)
 	if req.FromSessionID == "" || req.ToSessionID == "" {
 		return nil, notFoundError()
 	}
@@ -282,9 +282,9 @@ func (m *Manager) ForkSession(ctx context.Context, req ForkSessionRequest) (*For
 	if m.stateStore == nil {
 		return nil, notFoundError()
 	}
-	if entry, err := m.getExistingEntry(req.FromSessionID, req.OrgID); err == nil {
+	if entry, err := m.getExistingEntry(req.FromSessionID, req.AccountID); err == nil {
 		entry.mu.Lock()
-		if err := ensureOrg(entry.orgID, req.OrgID); err != nil {
+		if err := ensureAccount(entry.accountID, req.AccountID); err != nil {
 			entry.mu.Unlock()
 			return nil, err
 		}
@@ -298,7 +298,7 @@ func (m *Manager) ForkSession(ctx context.Context, req ForkSessionRequest) (*For
 			var shellErr *Error
 			if errors.As(err, &shellErr) && shellErr.Code == CodeSessionBusy {
 				entry.mu.Unlock()
-				if _, loadErr := loadLatestRestoreState(ctx, m.stateStore, m.restoreRegistry, req.OrgID, req.FromSessionID); loadErr == nil {
+				if _, loadErr := loadLatestRestoreState(ctx, m.stateStore, m.restoreRegistry, req.AccountID, req.FromSessionID); loadErr == nil {
 					goto copyRestoreState
 				} else if objectstore.IsNotFound(loadErr) || errors.Is(loadErr, os.ErrNotExist) {
 					return nil, busyError()
@@ -313,7 +313,7 @@ func (m *Manager) ForkSession(ctx context.Context, req ForkSessionRequest) (*For
 	}
 
 copyRestoreState:
-	revision, err := copyLatestRestoreState(ctx, m.stateStore, m.restoreRegistry, req.OrgID, req.FromSessionID, req.ToSessionID, m.config.RestoreTTL)
+	revision, err := copyLatestRestoreState(ctx, m.stateStore, m.restoreRegistry, req.AccountID, req.FromSessionID, req.ToSessionID, m.config.RestoreTTL)
 	if err != nil {
 		if objectstore.IsNotFound(err) {
 			return nil, notFoundError()
@@ -323,15 +323,15 @@ copyRestoreState:
 	return &ForkSessionResponse{RestoreRevision: revision}, nil
 }
 
-func (m *Manager) Close(ctx context.Context, sessionID, orgID string) error {
-	entry, err := m.getExistingEntry(sessionID, orgID)
+func (m *Manager) Close(ctx context.Context, sessionID, accountID string) error {
+	entry, err := m.getExistingEntry(sessionID, accountID)
 	if err != nil {
 		return err
 	}
 
 	entry.mu.Lock()
 	defer entry.mu.Unlock()
-	if err := ensureOrg(entry.orgID, orgID); err != nil {
+	if err := ensureAccount(entry.accountID, accountID); err != nil {
 		return err
 	}
 	if entry.compute == nil {
@@ -345,9 +345,9 @@ func (m *Manager) Close(ctx context.Context, sessionID, orgID string) error {
 	if err := m.saveRestoreStateLocked(ctx, sessionID, entry); err != nil {
 		return err
 	}
-	deleteErr := m.compute.DeleteSkipHook(ctx, sessionID, orgID)
-	if deleteErr != nil && strings.Contains(deleteErr.Error(), "org mismatch") {
-		return orgMismatchError()
+	deleteErr := m.compute.DeleteSkipHook(ctx, sessionID, accountID)
+	if deleteErr != nil && strings.Contains(deleteErr.Error(), "account mismatch") {
+		return accountMismatchError()
 	}
 	if deleteErr != nil {
 		return notFoundError()
@@ -359,32 +359,32 @@ func (m *Manager) Close(ctx context.Context, sessionID, orgID string) error {
 	return nil
 }
 
-func ensureOrg(boundOrgID, orgID string) error {
-	if orgID != "" && boundOrgID != "" && orgID != boundOrgID {
-		return orgMismatchError()
+func ensureAccount(boundAccountID, accountID string) error {
+	if accountID != "" && boundAccountID != "" && accountID != boundAccountID {
+		return accountMismatchError()
 	}
 	return nil
 }
 
-func (m *Manager) getOrCreateEntry(sessionID, orgID string) (*managedSession, bool) {
+func (m *Manager) getOrCreateEntry(sessionID, accountID string) (*managedSession, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if entry, ok := m.sessions[sessionID]; ok {
 		return entry, false
 	}
-	entry := &managedSession{orgID: orgID, artifactSeen: make(map[string]artifactVersion)}
+	entry := &managedSession{accountID: accountID, artifactSeen: make(map[string]artifactVersion)}
 	m.sessions[sessionID] = entry
 	return entry, true
 }
 
-func (m *Manager) getExistingEntry(sessionID, orgID string) (*managedSession, error) {
+func (m *Manager) getExistingEntry(sessionID, accountID string) (*managedSession, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	entry, ok := m.sessions[sessionID]
 	if !ok {
 		return nil, notFoundError()
 	}
-	if err := ensureOrg(entry.orgID, orgID); err != nil {
+	if err := ensureAccount(entry.accountID, accountID); err != nil {
 		return nil, err
 	}
 	return entry, nil
@@ -403,7 +403,7 @@ func (m *Manager) prepareExecCommandRequest(ctx context.Context, req ExecCommand
 	if entry.compute == nil || m.stateStore == nil {
 		return prepared, nil, false, ""
 	}
-	state, err := loadLatestRestoreState(ctx, m.stateStore, m.restoreRegistry, entry.orgID, req.SessionID)
+	state, err := loadLatestRestoreState(ctx, m.stateStore, m.restoreRegistry, entry.accountID, req.SessionID)
 	if err != nil {
 		if objectstore.IsNotFound(err) {
 			return prepared, nil, false, ""
@@ -430,7 +430,7 @@ func (m *Manager) prepareEnvironment(ctx context.Context, req ExecCommandRequest
 	}
 	if m.envManager != nil {
 		if err := m.envManager.Prepare(ctx, req.SessionID, entry.compute, environment.Binding{
-			OrgID:        req.OrgID,
+			AccountID:        req.AccountID,
 			ProfileRef:   req.ProfileRef,
 			WorkspaceRef: req.WorkspaceRef,
 		}); err != nil {
@@ -457,7 +457,7 @@ func (m *Manager) saveRestoreStateLocked(ctx context.Context, sessionID string, 
 	restoreState := SessionRestoreState{
 		Version:        shellStateVersion,
 		Revision:       nextRestoreRevision(now),
-		OrgID:          entry.orgID,
+		AccountID:          entry.accountID,
 		SessionID:      sessionID,
 		ProfileRef:     entry.profileRef,
 		WorkspaceRef:   entry.workspaceRef,

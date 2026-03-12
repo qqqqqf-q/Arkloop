@@ -47,15 +47,15 @@ func getWebhookEndpoint(ctx context.Context, pool *pgxpool.Pool, id uuid.UUID) (
 }
 
 // listEndpointsForEvent 返回指定 org 中订阅了给定事件类型的所有启用端点。
-func listEndpointsForEvent(ctx context.Context, pool *pgxpool.Pool, orgID uuid.UUID, eventType string) ([]endpointRow, error) {
+func listEndpointsForEvent(ctx context.Context, pool *pgxpool.Pool, accountID uuid.UUID, eventType string) ([]endpointRow, error) {
 	rows, err := pool.Query(ctx,
 		`SELECT e.id, e.url, s.encrypted_value, e.events, e.enabled
 		 FROM webhook_endpoints e
 		 LEFT JOIN secrets s ON s.id = e.secret_id
-		 WHERE e.org_id = $1
+		 WHERE e.account_id = $1
 		   AND enabled = true
 		   AND $2 = ANY(events)`,
-		orgID, eventType,
+		accountID, eventType,
 	)
 	if err != nil {
 		return nil, err
@@ -97,16 +97,16 @@ func insertDelivery(
 	ctx context.Context,
 	pool *pgxpool.Pool,
 	endpointID uuid.UUID,
-	orgID uuid.UUID,
+	accountID uuid.UUID,
 	eventType string,
 	payloadJSON []byte,
 ) (uuid.UUID, error) {
 	var id uuid.UUID
 	err := pool.QueryRow(ctx,
-		`INSERT INTO webhook_deliveries (endpoint_id, org_id, event_type, payload_json)
+		`INSERT INTO webhook_deliveries (endpoint_id, account_id, event_type, payload_json)
 		 VALUES ($1, $2, $3, $4::jsonb)
 		 RETURNING id`,
-		endpointID, orgID, eventType, string(payloadJSON),
+		endpointID, accountID, eventType, string(payloadJSON),
 	).Scan(&id)
 	return id, err
 }

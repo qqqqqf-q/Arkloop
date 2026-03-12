@@ -50,8 +50,8 @@ func (e *ToolExecutor) Execute(
 	}
 
 	var orgPrefix string
-	if execCtx.OrgID != nil {
-		orgPrefix = execCtx.OrgID.String()
+	if execCtx.AccountID != nil {
+		orgPrefix = execCtx.AccountID.String()
 	} else {
 		orgPrefix = "_anonymous"
 	}

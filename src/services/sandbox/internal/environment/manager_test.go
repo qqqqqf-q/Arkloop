@@ -271,7 +271,7 @@ func TestManagerPrepareWithoutManifestOnlyEnsuresRegistries(t *testing.T) {
 	store := newMemoryStore()
 	registry := newFakeRegistryWriter()
 	mgr := NewManager(store, registry, nil, Config{})
-	binding := Binding{OrgID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", ProfileRef: "pref_a", WorkspaceRef: "wsref_a"}
+	binding := Binding{AccountID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", ProfileRef: "pref_a", WorkspaceRef: "wsref_a"}
 	carrier := newFakeCarrier()
 
 	if err := mgr.Prepare(context.Background(), "sess-1", carrier, binding); err != nil {
@@ -289,7 +289,7 @@ func TestManagerPrepareRestoresFromManifestState(t *testing.T) {
 	store := newMemoryStore()
 	registry := newFakeRegistryWriter()
 	mgr := NewManager(store, registry, nil, Config{})
-	binding := Binding{OrgID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", ProfileRef: "pref_a", WorkspaceRef: "wsref_a"}
+	binding := Binding{AccountID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", ProfileRef: "pref_a", WorkspaceRef: "wsref_a"}
 	carrier := newFakeCarrier()
 
 	manifest := NormalizeManifest(Manifest{
@@ -324,7 +324,7 @@ func TestManagerPrepareRestoresBrowserStateFromWorkspaceRef(t *testing.T) {
 	store := newMemoryStore()
 	registry := newFakeRegistryWriter()
 	mgr := NewManager(store, registry, nil, Config{})
-	binding := Binding{OrgID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", ProfileRef: "pref_a", WorkspaceRef: "wsref_a"}
+	binding := Binding{AccountID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", ProfileRef: "pref_a", WorkspaceRef: "wsref_a"}
 	carrier := newFakeCarrier()
 
 	manifest := NormalizeManifest(Manifest{
@@ -356,8 +356,8 @@ func TestManagerPrepareDoesNotRestoreBrowserStateAcrossWorkspaces(t *testing.T) 
 	store := newMemoryStore()
 	registry := newFakeRegistryWriter()
 	mgr := NewManager(store, registry, nil, Config{})
-	bindingA := Binding{OrgID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", ProfileRef: "pref_a", WorkspaceRef: "wsref_a"}
-	bindingB := Binding{OrgID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", ProfileRef: "pref_a", WorkspaceRef: "wsref_b"}
+	bindingA := Binding{AccountID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", ProfileRef: "pref_a", WorkspaceRef: "wsref_a"}
+	bindingB := Binding{AccountID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", ProfileRef: "pref_a", WorkspaceRef: "wsref_b"}
 	carrier := newFakeCarrier()
 
 	manifest := NormalizeManifest(Manifest{
@@ -386,7 +386,7 @@ func TestManagerMarkAllDirtyMarksAllBoundScopes(t *testing.T) {
 	store := newMemoryStore()
 	registry := newFakeRegistryWriter()
 	mgr := NewManager(store, registry, nil, Config{})
-	binding := Binding{OrgID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", ProfileRef: "pref_a", WorkspaceRef: "wsref_a"}
+	binding := Binding{AccountID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", ProfileRef: "pref_a", WorkspaceRef: "wsref_a"}
 	carrier := newFakeCarrier()
 	entry := mgr.ensureSession("sess-1", carrier, binding)
 
@@ -406,7 +406,7 @@ func TestManagerFlushBrowserStateUsesWorkspaceRef(t *testing.T) {
 	store := newMemoryStore()
 	registry := newFakeRegistryWriter()
 	mgr := NewManager(store, registry, nil, Config{})
-	binding := Binding{OrgID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", ProfileRef: "pref_a", WorkspaceRef: "wsref_a"}
+	binding := Binding{AccountID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", ProfileRef: "pref_a", WorkspaceRef: "wsref_a"}
 	carrier := newFakeCarrier()
 	carrier.manifests[ScopeBrowserState] = NormalizeManifest(Manifest{
 		Scope:   ScopeBrowserState,
@@ -441,7 +441,7 @@ func TestManagerPrepareFailsWhenRegistryManifestMissing(t *testing.T) {
 	store := newMemoryStore()
 	registry := newFakeRegistryWriter()
 	mgr := NewManager(store, registry, nil, Config{})
-	binding := Binding{OrgID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", ProfileRef: "pref_a", WorkspaceRef: "wsref_a"}
+	binding := Binding{AccountID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", ProfileRef: "pref_a", WorkspaceRef: "wsref_a"}
 	carrier := newFakeCarrier()
 	registry.latest[ScopeWorkspace+":"+binding.WorkspaceRef] = "rev-missing"
 
@@ -455,7 +455,7 @@ func TestManagerPrepareFailsWhenRegistryBlobMissing(t *testing.T) {
 	store := newMemoryStore()
 	registry := newFakeRegistryWriter()
 	mgr := NewManager(store, registry, nil, Config{})
-	binding := Binding{OrgID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", ProfileRef: "pref_a", WorkspaceRef: "wsref_a"}
+	binding := Binding{AccountID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", ProfileRef: "pref_a", WorkspaceRef: "wsref_a"}
 	carrier := newFakeCarrier()
 	manifest := NormalizeManifest(Manifest{
 		Scope:    ScopeWorkspace,
@@ -478,7 +478,7 @@ func TestManagerPrepareSkipsRehydrateForSameRevision(t *testing.T) {
 	store := newMemoryStore()
 	registry := newFakeRegistryWriter()
 	mgr := NewManager(store, registry, nil, Config{})
-	binding := Binding{OrgID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", ProfileRef: "pref_a", WorkspaceRef: "wsref_a"}
+	binding := Binding{AccountID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", ProfileRef: "pref_a", WorkspaceRef: "wsref_a"}
 	carrier := newFakeCarrier()
 	manifest := NormalizeManifest(Manifest{
 		Scope:    ScopeWorkspace,
@@ -509,7 +509,7 @@ func TestManagerPrepareRehydratesWhenRevisionChanges(t *testing.T) {
 	store := newMemoryStore()
 	registry := newFakeRegistryWriter()
 	mgr := NewManager(store, registry, nil, Config{})
-	binding := Binding{OrgID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", ProfileRef: "pref_a", WorkspaceRef: "wsref_a"}
+	binding := Binding{AccountID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", ProfileRef: "pref_a", WorkspaceRef: "wsref_a"}
 	carrier := newFakeCarrier()
 	manifest1 := NormalizeManifest(Manifest{
 		Scope:    ScopeWorkspace,
@@ -556,7 +556,7 @@ func TestManagerFlushWritesManifestAndBlob(t *testing.T) {
 	store := newMemoryStore()
 	registry := newFakeRegistryWriter()
 	mgr := NewManager(store, registry, nil, Config{})
-	binding := Binding{OrgID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", ProfileRef: "pref_a", WorkspaceRef: "wsref_a"}
+	binding := Binding{AccountID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", ProfileRef: "pref_a", WorkspaceRef: "wsref_a"}
 	carrier := newFakeCarrier()
 	carrier.manifests[ScopeWorkspace] = NormalizeManifest(Manifest{
 		Scope:   ScopeWorkspace,
@@ -595,7 +595,7 @@ func TestManagerFlushReusesExistingBlobAcrossRevisions(t *testing.T) {
 	store := newMemoryStore()
 	registry := newFakeRegistryWriter()
 	mgr := NewManager(store, registry, nil, Config{})
-	binding := Binding{OrgID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", ProfileRef: "pref_a", WorkspaceRef: "wsref_a"}
+	binding := Binding{AccountID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", ProfileRef: "pref_a", WorkspaceRef: "wsref_a"}
 	carrier := newFakeCarrier()
 	carrier.manifests[ScopeWorkspace] = NormalizeManifest(Manifest{
 		Scope:   ScopeWorkspace,
@@ -636,7 +636,7 @@ func TestManagerFlushMergesDirtySubtreeWithoutRewritingWholeManifest(t *testing.
 	store := newMemoryStore()
 	registry := newFakeRegistryWriter()
 	mgr := NewManager(store, registry, nil, Config{})
-	binding := Binding{OrgID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", ProfileRef: "pref_a", WorkspaceRef: "wsref_a"}
+	binding := Binding{AccountID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", ProfileRef: "pref_a", WorkspaceRef: "wsref_a"}
 	carrier := newFakeCarrier()
 	carrier.manifests[ScopeWorkspace] = NormalizeManifest(Manifest{
 		Scope:   ScopeWorkspace,
@@ -680,7 +680,7 @@ func TestManagerSweepUnreferencedBlobsDeletesOrphans(t *testing.T) {
 	store := newMemoryStore()
 	registry := newFakeRegistryWriter()
 	mgr := NewManager(store, registry, nil, Config{})
-	binding := Binding{OrgID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", ProfileRef: "pref_a", WorkspaceRef: "wsref_a"}
+	binding := Binding{AccountID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", ProfileRef: "pref_a", WorkspaceRef: "wsref_a"}
 	manifest := NormalizeManifest(Manifest{
 		Scope:    ScopeWorkspace,
 		Ref:      binding.WorkspaceRef,
@@ -714,7 +714,7 @@ func TestManagerFlushLogsStructuredFields(t *testing.T) {
 	var output bytes.Buffer
 	logger := logging.NewJSONLogger("test", &output)
 	mgr := NewManager(store, registry, logger, Config{})
-	binding := Binding{OrgID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", ProfileRef: "pref_a", WorkspaceRef: "wsref_a"}
+	binding := Binding{AccountID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", ProfileRef: "pref_a", WorkspaceRef: "wsref_a"}
 	carrier := newFakeCarrier()
 	carrier.manifests[ScopeWorkspace] = NormalizeManifest(Manifest{
 		Scope:   ScopeWorkspace,

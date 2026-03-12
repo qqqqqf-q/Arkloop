@@ -46,7 +46,7 @@ func TestToolDescriptionOverrideMiddlewareAppliesPlatformAndOrg(t *testing.T) {
 	}
 
 	rc := &pipeline.RunContext{
-		Run: data.Run{ID: uuid.New(), OrgID: uuid.New(), ProjectID: &projectID},
+		Run: data.Run{ID: uuid.New(), AccountID: uuid.New(), ProjectID: &projectID},
 		ToolSpecs: []llm.ToolSpec{
 			websearch.LlmSpec,
 			spawnagent.LlmSpec,
@@ -81,7 +81,7 @@ func TestToolDescriptionOverrideMiddlewareFailsOpenOnRepoError(t *testing.T) {
 	}
 
 	rc := &pipeline.RunContext{
-		Run: data.Run{ID: uuid.New(), OrgID: uuid.New(), ProjectID: &projectID},
+		Run: data.Run{ID: uuid.New(), AccountID: uuid.New(), ProjectID: &projectID},
 		ToolSpecs: []llm.ToolSpec{
 			websearch.LlmSpec,
 		},
@@ -112,7 +112,7 @@ func TestToolDescriptionOverrideMiddlewareRemovesDisabledTools(t *testing.T) {
 	}
 
 	rc := &pipeline.RunContext{
-		Run:          data.Run{ID: uuid.New(), OrgID: uuid.New()},
+		Run:          data.Run{ID: uuid.New(), AccountID: uuid.New()},
 		ToolRegistry: registry,
 		AllowlistSet: map[string]struct{}{"document_write": {}},
 		ToolSpecs:    []llm.ToolSpec{{Name: "document_write", Description: stringPtr("doc")}},

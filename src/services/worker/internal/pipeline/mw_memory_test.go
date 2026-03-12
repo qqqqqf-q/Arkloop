@@ -92,7 +92,7 @@ func buildMemRC(userID *uuid.UUID, userMsg string, assistantOutput string) *pipe
 	return &pipeline.RunContext{
 		Run: data.Run{
 			ID:       uuid.New(),
-			OrgID:    uuid.New(),
+			AccountID:    uuid.New(),
 			ThreadID: uuid.New(),
 		},
 		UserID:               userID,
@@ -194,7 +194,7 @@ func TestMemoryMiddleware_FlushesPendingWritesAfterRun(t *testing.T) {
 
 	rc := buildMemRC(userIDPtr(), "user message", "assistant reply")
 	rc.PendingMemoryWrites.Append(memory.PendingWrite{
-		Ident: memory.MemoryIdentity{OrgID: rc.Run.OrgID, UserID: *rc.UserID, AgentID: "default"},
+		Ident: memory.MemoryIdentity{AccountID: rc.Run.AccountID, UserID: *rc.UserID, AgentID: "default"},
 		Scope: memory.MemoryScopeUser,
 		Entry: memory.MemoryEntry{Content: "[user/preferences/language] user prefers Go"},
 	})
@@ -237,7 +237,7 @@ func TestMemoryMiddleware_FlushesPendingWritesEvenWhenNextFails(t *testing.T) {
 
 	rc := buildMemRC(userIDPtr(), "user message", "assistant reply")
 	rc.PendingMemoryWrites.Append(memory.PendingWrite{
-		Ident: memory.MemoryIdentity{OrgID: rc.Run.OrgID, UserID: *rc.UserID, AgentID: "default"},
+		Ident: memory.MemoryIdentity{AccountID: rc.Run.AccountID, UserID: *rc.UserID, AgentID: "default"},
 		Scope: memory.MemoryScopeAgent,
 		Entry: memory.MemoryEntry{Content: "[agent/patterns/retry] retry on timeout"},
 	})

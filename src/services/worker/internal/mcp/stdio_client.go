@@ -298,9 +298,9 @@ func readLimitedLine(reader *bufio.Reader, limit int) (string, error) {
 }
 
 func writeMcpStderrLog(server ServerConfig, line string) {
-	orgID := any(nil)
-	if strings.TrimSpace(server.OrgID) != "" {
-		orgID = server.OrgID
+	accountID := any(nil)
+	if strings.TrimSpace(server.AccountID) != "" {
+		accountID = server.AccountID
 	}
 
 	record := map[string]any{
@@ -309,7 +309,7 @@ func writeMcpStderrLog(server ServerConfig, line string) {
 		"msg":       "mcp.stderr",
 		"component": "mcp_stderr",
 		"server_id": server.ServerID,
-		"org_id":    orgID,
+		"account_id":    accountID,
 		"line":      strings.ToValidUTF8(line, "�"),
 	}
 

@@ -30,7 +30,7 @@ type ConversationSearchHit struct {
 func (MessagesRepository) InsertAssistantMessage(
 	ctx context.Context,
 	tx pgx.Tx,
-	orgID uuid.UUID,
+	accountID uuid.UUID,
 	threadID uuid.UUID,
 	runID uuid.UUID,
 	content string,
@@ -49,11 +49,11 @@ func (MessagesRepository) InsertAssistantMessage(
 	_, err = tx.Exec(
 		ctx,
 		`INSERT INTO messages (
-			org_id, thread_id, created_by_user_id, role, content, metadata_json
+			account_id, thread_id, created_by_user_id, role, content, metadata_json
 		) VALUES (
 			$1, $2, NULL, $3, $4, $5::jsonb
 		)`,
-		orgID,
+		accountID,
 		threadID,
 		"assistant",
 		content,
@@ -65,7 +65,7 @@ func (MessagesRepository) InsertAssistantMessage(
 func (MessagesRepository) ListByThread(
 	ctx context.Context,
 	tx pgx.Tx,
-	orgID uuid.UUID,
+	accountID uuid.UUID,
 	threadID uuid.UUID,
 	limit int,
 ) ([]ThreadMessage, error) {
@@ -76,13 +76,13 @@ func (MessagesRepository) ListByThread(
 		ctx,
 		`SELECT role, content, content_json
 		 FROM messages
-		 WHERE org_id = $1
+		 WHERE account_id = $1
 		   AND thread_id = $2
 		   AND hidden = FALSE
 		   AND deleted_at IS NULL
 		 ORDER BY created_at ASC
 		 LIMIT $3`,
-		orgID,
+		accountID,
 		threadID,
 		limit,
 	)
@@ -113,7 +113,7 @@ func (MessagesRepository) ListByThread(
 func (MessagesRepository) SearchVisibleByOwner(
 	ctx context.Context,
 	pool *pgxpool.Pool,
-	orgID uuid.UUID,
+	accountID uuid.UUID,
 	ownerUserID uuid.UUID,
 	query string,
 	limit int,
@@ -138,8 +138,8 @@ func (MessagesRepository) SearchVisibleByOwner(
 		`SELECT m.thread_id, m.role, m.content, m.created_at
 		 FROM messages m
 		 JOIN threads t ON t.id = m.thread_id
-		 WHERE m.org_id = $1
-		   AND t.org_id = $1
+		 WHERE m.account_id = $1
+		   AND t.account_id = $1
 		   AND t.created_by_user_id = $2
 		   AND t.deleted_at IS NULL
 		   AND t.is_private = FALSE
@@ -148,7 +148,7 @@ func (MessagesRepository) SearchVisibleByOwner(
 		   AND m.content ILIKE $3 ESCAPE '!'
 		 ORDER BY m.created_at DESC, m.id DESC
 		 LIMIT $4`,
-		orgID, ownerUserID, like, limit,
+		accountID, ownerUserID, like, limit,
 	)
 	if err != nil {
 		return nil, err

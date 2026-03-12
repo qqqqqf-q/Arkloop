@@ -26,7 +26,7 @@ var ErrFlushConflict = registryerr.ErrFlushConflict
 
 type RegistryRecord struct {
 	Ref                    string
-	OrgID                  uuid.UUID
+	AccountID                  uuid.UUID
 	OwnerUserID            *uuid.UUID
 	ProjectID              *uuid.UUID
 	LatestManifestRev      *string
@@ -165,7 +165,7 @@ func getProfileRegistry(ctx context.Context, pool *pgxpool.Pool, profileRef stri
 	err := pool.QueryRow(
 		ctx,
 		`SELECT profile_ref,
-		        org_id,
+		        account_id,
 		        owner_user_id,
 		        latest_manifest_rev,
 		        lease_holder_id,
@@ -185,7 +185,7 @@ func getProfileRegistry(ctx context.Context, pool *pgxpool.Pool, profileRef stri
 		profileRef,
 	).Scan(
 		&record.Ref,
-		&record.OrgID,
+		&record.AccountID,
 		&record.OwnerUserID,
 		&record.LatestManifestRev,
 		&record.LeaseHolderID,
@@ -224,7 +224,7 @@ func getWorkspaceRegistry(ctx context.Context, pool *pgxpool.Pool, workspaceRef 
 	err := pool.QueryRow(
 		ctx,
 		`SELECT workspace_ref,
-		        org_id,
+		        account_id,
 		        owner_user_id,
 		        project_id,
 		        latest_manifest_rev,
@@ -245,7 +245,7 @@ func getWorkspaceRegistry(ctx context.Context, pool *pgxpool.Pool, workspaceRef 
 		workspaceRef,
 	).Scan(
 		&record.Ref,
-		&record.OrgID,
+		&record.AccountID,
 		&record.OwnerUserID,
 		&record.ProjectID,
 		&record.LatestManifestRev,
@@ -283,7 +283,7 @@ func upsertProfileRegistry(ctx context.Context, pool *pgxpool.Pool, record Regis
 		ctx,
 		`INSERT INTO profile_registries (
 			profile_ref,
-			org_id,
+			account_id,
 			owner_user_id,
 			latest_manifest_rev,
 			default_workspace_ref,
@@ -304,7 +304,7 @@ func upsertProfileRegistry(ctx context.Context, pool *pgxpool.Pool, record Regis
 			END,
 			updated_at = now()`,
 		normalized.Ref,
-		normalized.OrgID,
+		normalized.AccountID,
 		normalized.OwnerUserID,
 		normalized.LatestManifestRev,
 		normalized.DefaultWorkspaceRef,
@@ -331,7 +331,7 @@ func upsertWorkspaceRegistry(ctx context.Context, pool *pgxpool.Pool, record Reg
 		ctx,
 		`INSERT INTO workspace_registries (
 			workspace_ref,
-			org_id,
+			account_id,
 			owner_user_id,
 			project_id,
 			latest_manifest_rev,
@@ -354,7 +354,7 @@ func upsertWorkspaceRegistry(ctx context.Context, pool *pgxpool.Pool, record Reg
 			END,
 			updated_at = now()`,
 		normalized.Ref,
-		normalized.OrgID,
+		normalized.AccountID,
 		normalized.OwnerUserID,
 		normalized.ProjectID,
 		normalized.LatestManifestRev,
@@ -368,8 +368,8 @@ func upsertWorkspaceRegistry(ctx context.Context, pool *pgxpool.Pool, record Reg
 }
 
 func normalizeRegistryRecord(record RegistryRecord) (RegistryRecord, []byte, error) {
-	if record.OrgID == uuid.Nil {
-		return RegistryRecord{}, nil, fmt.Errorf("org_id must not be empty")
+	if record.AccountID == uuid.Nil {
+		return RegistryRecord{}, nil, fmt.Errorf("account_id must not be empty")
 	}
 	record.Ref = strings.TrimSpace(record.Ref)
 	if record.Ref == "" {

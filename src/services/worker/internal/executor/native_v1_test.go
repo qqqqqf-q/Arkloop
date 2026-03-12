@@ -29,13 +29,13 @@ func TestNativeRunEngineV1HandlerWritesEventsAndMessage(t *testing.T) {
 	t.Cleanup(pool.Close)
 	t.Cleanup(cancel)
 
-	orgID := uuid.New()
+	accountID := uuid.New()
 	threadID := uuid.New()
 	runID := uuid.New()
 	jobID := uuid.New()
 	traceID := "0123456789abcdef0123456789abcdef"
 
-	if err := seedRunStarted(t, pool, orgID, threadID, runID, map[string]any{"route_id": "default"}); err != nil {
+	if err := seedRunStarted(t, pool, accountID, threadID, runID, map[string]any{"route_id": "default"}); err != nil {
 		t.Fatalf("seed run failed: %v", err)
 	}
 
@@ -47,7 +47,7 @@ func TestNativeRunEngineV1HandlerWritesEventsAndMessage(t *testing.T) {
 	lease := queue.JobLease{
 		JobID:       jobID,
 		JobType:     queue.RunExecuteJobType,
-		PayloadJSON: workerPayloadJSON(jobID, orgID, runID, traceID),
+		PayloadJSON: workerPayloadJSON(jobID, accountID, runID, traceID),
 		Attempts:    1,
 		LeasedUntil: time.Now().Add(time.Minute),
 		LeaseToken:  uuid.New(),
@@ -109,13 +109,13 @@ func TestNativeRunEngineV1HandlerCancelsWhenRequested(t *testing.T) {
 	t.Cleanup(pool.Close)
 	t.Cleanup(cancel)
 
-	orgID := uuid.New()
+	accountID := uuid.New()
 	threadID := uuid.New()
 	runID := uuid.New()
 	jobID := uuid.New()
 	traceID := "0123456789abcdef0123456789abcdef"
 
-	if err := seedRunStarted(t, pool, orgID, threadID, runID, map[string]any{}); err != nil {
+	if err := seedRunStarted(t, pool, accountID, threadID, runID, map[string]any{}); err != nil {
 		t.Fatalf("seed run failed: %v", err)
 	}
 	if err := seedRunCancelRequested(t, pool, runID); err != nil {
@@ -130,7 +130,7 @@ func TestNativeRunEngineV1HandlerCancelsWhenRequested(t *testing.T) {
 	lease := queue.JobLease{
 		JobID:       jobID,
 		JobType:     queue.RunExecuteJobType,
-		PayloadJSON: workerPayloadJSON(jobID, orgID, runID, traceID),
+		PayloadJSON: workerPayloadJSON(jobID, accountID, runID, traceID),
 		Attempts:    1,
 		LeasedUntil: time.Now().Add(time.Minute),
 		LeaseToken:  uuid.New(),
@@ -190,13 +190,13 @@ func TestNativeRunEngineV1HandlerCompletesWithTinyDirectPool(t *testing.T) {
 	t.Cleanup(directPool.Close)
 	t.Cleanup(cancel)
 
-	orgID := uuid.New()
+	accountID := uuid.New()
 	threadID := uuid.New()
 	runID := uuid.New()
 	jobID := uuid.New()
 	traceID := "0123456789abcdef0123456789abcdef"
 
-	if err := seedRunStarted(t, pool, orgID, threadID, runID, map[string]any{"route_id": "default"}); err != nil {
+	if err := seedRunStarted(t, pool, accountID, threadID, runID, map[string]any{"route_id": "default"}); err != nil {
 		t.Fatalf("seed run failed: %v", err)
 	}
 
@@ -212,7 +212,7 @@ func TestNativeRunEngineV1HandlerCompletesWithTinyDirectPool(t *testing.T) {
 	lease := queue.JobLease{
 		JobID:       jobID,
 		JobType:     queue.RunExecuteJobType,
-		PayloadJSON: workerPayloadJSON(jobID, orgID, runID, traceID),
+		PayloadJSON: workerPayloadJSON(jobID, accountID, runID, traceID),
 		Attempts:    1,
 		LeasedUntil: time.Now().Add(time.Minute),
 		LeaseToken:  uuid.New(),
@@ -239,7 +239,7 @@ type seqType struct {
 func seedRunStarted(
 	t *testing.T,
 	pool *pgxpool.Pool,
-	orgID uuid.UUID,
+	accountID uuid.UUID,
 	threadID uuid.UUID,
 	runID uuid.UUID,
 	startedData map[string]any,
@@ -253,10 +253,10 @@ func seedRunStarted(
 
 	_, err = pool.Exec(
 		context.Background(),
-		`INSERT INTO runs (id, org_id, thread_id, created_by_user_id, status)
+		`INSERT INTO runs (id, account_id, thread_id, created_by_user_id, status)
 		 VALUES ($1, $2, $3, NULL, 'running')`,
 		runID,
-		orgID,
+		accountID,
 		threadID,
 	)
 	if err != nil {
@@ -276,8 +276,8 @@ func seedRunStarted(
 
 	_, err = pool.Exec(
 		context.Background(),
-		`INSERT INTO credits (org_id, balance) VALUES ($1, 10000)`,
-		orgID,
+		`INSERT INTO credits (account_id, balance) VALUES ($1, 10000)`,
+		accountID,
 	)
 	return err
 }
@@ -293,13 +293,13 @@ func seedRunCancelRequested(t *testing.T, pool *pgxpool.Pool, runID uuid.UUID) e
 	return err
 }
 
-func workerPayloadJSON(jobID uuid.UUID, orgID uuid.UUID, runID uuid.UUID, traceID string) map[string]any {
+func workerPayloadJSON(jobID uuid.UUID, accountID uuid.UUID, runID uuid.UUID, traceID string) map[string]any {
 	return map[string]any{
 		"v":        float64(queue.JobPayloadVersionV1),
 		"job_id":   jobID.String(),
 		"type":     queue.RunExecuteJobType,
 		"trace_id": traceID,
-		"org_id":   orgID.String(),
+		"account_id":   accountID.String(),
 		"run_id":   runID.String(),
 		"payload":  map[string]any{"source": "test"},
 	}

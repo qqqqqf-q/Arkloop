@@ -86,10 +86,10 @@ func createAndEnqueueChildRun(
 	// 创建独立临时线程，避免污染父 Run 的 thread 历史
 	var childThreadID uuid.UUID
 	if err := tx.QueryRow(ctx,
-		`INSERT INTO threads (org_id, project_id, is_private, expires_at)
+		`INSERT INTO threads (account_id, project_id, is_private, expires_at)
 		 VALUES ($1, $2, TRUE, now() + make_interval(secs => $3))
 		 RETURNING id`,
-		parentRun.OrgID,
+		parentRun.AccountID,
 		*parentRun.ProjectID,
 		int64(childThreadTTL.Seconds()),
 	).Scan(&childThreadID); err != nil {
@@ -98,9 +98,9 @@ func createAndEnqueueChildRun(
 
 	// 插入子 Run 的用户输入消息
 	if _, err := tx.Exec(ctx,
-		`INSERT INTO messages (org_id, thread_id, role, content)
+		`INSERT INTO messages (account_id, thread_id, role, content)
 		 VALUES ($1, $2, 'user', $3)`,
-		parentRun.OrgID,
+		parentRun.AccountID,
 		childThreadID,
 		input,
 	); err != nil {
@@ -109,10 +109,10 @@ func createAndEnqueueChildRun(
 
 	// 创建子 Run（继承父 Run 的 org/user，指向独立临时线程）
 	if _, err := tx.Exec(ctx,
-		`INSERT INTO runs (id, org_id, thread_id, parent_run_id, created_by_user_id, profile_ref, workspace_ref, status)
+		`INSERT INTO runs (id, account_id, thread_id, parent_run_id, created_by_user_id, profile_ref, workspace_ref, status)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, 'running')`,
 		childRunID,
-		parentRun.OrgID,
+		parentRun.AccountID,
 		childThreadID,
 		parentRun.ID,
 		parentRun.CreatedByUserID,
@@ -144,7 +144,7 @@ func createAndEnqueueChildRun(
 	}
 
 	// 事务提交后投递 job（job queue 使用独立连接池，不需要在同一事务中）
-	_, enqueueErr := jobQueue.EnqueueRun(ctx, parentRun.OrgID, childRunID, traceID, queue.RunExecuteJobType, map[string]any{}, nil)
+	_, enqueueErr := jobQueue.EnqueueRun(ctx, parentRun.AccountID, childRunID, traceID, queue.RunExecuteJobType, map[string]any{}, nil)
 	if enqueueErr != nil {
 		// 入队失败：子 Run 已持久化但无 worker 处理。
 		// best-effort 标记为 failed 并通知父 Run，避免父 Run 永久等待 ctx 超时。

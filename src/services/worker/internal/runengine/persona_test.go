@@ -40,11 +40,11 @@ func TestEngineV1InjectsPersonaSystemPromptAndBudgets(t *testing.T) {
 	}
 	t.Cleanup(pool.Close)
 
-	orgID := uuid.New()
+	accountID := uuid.New()
 	threadID := uuid.New()
 	runID := uuid.New()
 
-	if err := seedRunStartedWithPersona(t, pool, orgID, threadID, runID, "normal@1"); err != nil {
+	if err := seedRunStartedWithPersona(t, pool, accountID, threadID, runID, "normal@1"); err != nil {
 		t.Fatalf("seed run failed: %v", err)
 	}
 
@@ -82,7 +82,7 @@ func TestEngineV1InjectsPersonaSystemPromptAndBudgets(t *testing.T) {
 		t.Fatalf("NewEngineV1 failed: %v", err)
 	}
 
-	run := data.Run{ID: runID, OrgID: orgID, ThreadID: threadID}
+	run := data.Run{ID: runID, AccountID: accountID, ThreadID: threadID}
 	if err := engine.Execute(context.Background(), pool, run, runengine.ExecuteInput{TraceID: "trace"}); err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
@@ -107,7 +107,7 @@ func TestEngineV1InjectsPersonaSystemPromptAndBudgets(t *testing.T) {
 func seedRunStartedWithPersona(
 	t *testing.T,
 	pool *pgxpool.Pool,
-	orgID uuid.UUID,
+	accountID uuid.UUID,
 	threadID uuid.UUID,
 	runID uuid.UUID,
 	personaRef string,
@@ -125,10 +125,10 @@ func seedRunStartedWithPersona(
 
 	_, err = pool.Exec(
 		context.Background(),
-		`INSERT INTO runs (id, org_id, thread_id, created_by_user_id, status)
+		`INSERT INTO runs (id, account_id, thread_id, created_by_user_id, status)
 		 VALUES ($1, $2, $3, NULL, 'running')`,
 		runID,
-		orgID,
+		accountID,
 		threadID,
 	)
 	if err != nil {

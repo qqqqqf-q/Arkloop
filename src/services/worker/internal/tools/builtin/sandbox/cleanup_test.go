@@ -10,7 +10,7 @@ import (
 func TestCleanupSession_DeletesRunAndShellSessions(t *testing.T) {
 	var requests []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requests = append(requests, r.Method+" "+r.URL.Path+" "+r.Header.Get("X-Org-ID"))
+		requests = append(requests, r.Method+" "+r.URL.Path+" "+r.Header.Get("X-Account-ID"))
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	defer server.Close()

@@ -24,7 +24,7 @@ func TestManagerExecCommand_IdempotentReuse(t *testing.T) {
 	shellMgr := NewManager(mgr, nil, nil, nil, nil, nil, logging.NewJSONLogger("test", nil), Config{})
 
 	for range 2 {
-		resp, err := shellMgr.ExecCommand(context.Background(), ExecCommandRequest{SessionID: "sess-1", Tier: "lite", OrgID: "org-a", Command: "pwd"})
+		resp, err := shellMgr.ExecCommand(context.Background(), ExecCommandRequest{SessionID: "sess-1", Tier: "lite", AccountID: "org-a", Command: "pwd"})
 		if err != nil {
 			t.Fatalf("exec_command failed: %v", err)
 		}
@@ -49,7 +49,7 @@ func TestManagerExecCommand_Busy(t *testing.T) {
 	mgr := session.NewManager(testManagerConfig(pool))
 	shellMgr := NewManager(mgr, nil, nil, nil, nil, nil, logging.NewJSONLogger("test", nil), Config{})
 
-	_, err := shellMgr.ExecCommand(context.Background(), ExecCommandRequest{SessionID: "sess-1", Tier: "lite", OrgID: "org-a", Command: "sleep 1"})
+	_, err := shellMgr.ExecCommand(context.Background(), ExecCommandRequest{SessionID: "sess-1", Tier: "lite", AccountID: "org-a", Command: "sleep 1"})
 	if err == nil {
 		t.Fatal("expected busy error")
 	}
@@ -59,22 +59,22 @@ func TestManagerExecCommand_Busy(t *testing.T) {
 	}
 }
 
-func TestManagerOrgMismatch(t *testing.T) {
+func TestManagerAccountMismatch(t *testing.T) {
 	agent := &fakeAgent{}
 	pool := &fakePool{agent: agent}
 	mgr := session.NewManager(testManagerConfig(pool))
 	shellMgr := NewManager(mgr, nil, nil, nil, nil, nil, logging.NewJSONLogger("test", nil), Config{})
 
-	if _, err := shellMgr.ExecCommand(context.Background(), ExecCommandRequest{SessionID: "sess-1", Tier: "lite", OrgID: "org-a", Command: "pwd"}); err != nil {
+	if _, err := shellMgr.ExecCommand(context.Background(), ExecCommandRequest{SessionID: "sess-1", Tier: "lite", AccountID: "org-a", Command: "pwd"}); err != nil {
 		t.Fatalf("exec_command failed: %v", err)
 	}
-	_, err := shellMgr.WriteStdin(context.Background(), WriteStdinRequest{SessionID: "sess-1", OrgID: "org-b"})
+	_, err := shellMgr.WriteStdin(context.Background(), WriteStdinRequest{SessionID: "sess-1", AccountID: "org-b"})
 	if err == nil {
-		t.Fatal("expected org mismatch")
+		t.Fatal("expected account mismatch")
 	}
 	shellErr, ok := err.(*Error)
-	if !ok || shellErr.Code != CodeOrgMismatch {
-		t.Fatalf("expected org mismatch shell error, got %#v", err)
+	if !ok || shellErr.Code != CodeAccountMismatch {
+		t.Fatalf("expected account mismatch shell error, got %#v", err)
 	}
 }
 
@@ -102,7 +102,7 @@ func TestManagerDebugSnapshot_ProxyAgentResponse(t *testing.T) {
 	mgr := session.NewManager(testManagerConfig(pool))
 	shellMgr := NewManager(mgr, nil, nil, nil, nil, nil, logging.NewJSONLogger("test", nil), Config{})
 
-	if _, err := shellMgr.ExecCommand(context.Background(), ExecCommandRequest{SessionID: "sess-1", Tier: "lite", OrgID: "org-a", Command: "pwd"}); err != nil {
+	if _, err := shellMgr.ExecCommand(context.Background(), ExecCommandRequest{SessionID: "sess-1", Tier: "lite", AccountID: "org-a", Command: "pwd"}); err != nil {
 		t.Fatalf("exec_command failed: %v", err)
 	}
 
@@ -130,7 +130,7 @@ func TestManagerClose_ReclaimsComputeSession(t *testing.T) {
 	mgr := session.NewManager(testManagerConfig(pool))
 	shellMgr := NewManager(mgr, nil, nil, nil, nil, nil, logging.NewJSONLogger("test", nil), Config{})
 
-	if _, err := shellMgr.ExecCommand(context.Background(), ExecCommandRequest{SessionID: "sess-1", Tier: "lite", OrgID: "org-a", Command: "pwd"}); err != nil {
+	if _, err := shellMgr.ExecCommand(context.Background(), ExecCommandRequest{SessionID: "sess-1", Tier: "lite", AccountID: "org-a", Command: "pwd"}); err != nil {
 		t.Fatalf("exec_command failed: %v", err)
 	}
 	if err := shellMgr.Close(context.Background(), "sess-1", "org-a"); err != nil {
@@ -148,7 +148,7 @@ func TestManagerExecCommand_RecreatesSessionAfterClose(t *testing.T) {
 	shellMgr := NewManager(mgr, nil, nil, nil, nil, nil, logging.NewJSONLogger("test", nil), Config{})
 
 	for attempt := 0; attempt < 2; attempt++ {
-		resp, err := shellMgr.ExecCommand(context.Background(), ExecCommandRequest{SessionID: "sess-1", Tier: "lite", OrgID: "org-a", Command: "pwd"})
+		resp, err := shellMgr.ExecCommand(context.Background(), ExecCommandRequest{SessionID: "sess-1", Tier: "lite", AccountID: "org-a", Command: "pwd"})
 		if err != nil {
 			t.Fatalf("exec_command attempt %d failed: %v", attempt+1, err)
 		}
@@ -179,7 +179,7 @@ func TestManagerClose_CaptureStateFailureKeepsComputeSession(t *testing.T) {
 	mgr := session.NewManager(testManagerConfig(pool))
 	shellMgr := NewManager(mgr, nil, state, nil, nil, nil, logging.NewJSONLogger("test", nil), Config{})
 
-	if _, err := shellMgr.ExecCommand(context.Background(), ExecCommandRequest{SessionID: "sess-1", Tier: "lite", OrgID: "org-a", Command: "pwd"}); err != nil {
+	if _, err := shellMgr.ExecCommand(context.Background(), ExecCommandRequest{SessionID: "sess-1", Tier: "lite", AccountID: "org-a", Command: "pwd"}); err != nil {
 		t.Fatalf("exec_command failed: %v", err)
 	}
 	if err := shellMgr.Close(context.Background(), "sess-1", "org-a"); err == nil {
@@ -207,7 +207,7 @@ func TestManagerRestoreFromStateOnReopen(t *testing.T) {
 	mgr := session.NewManager(testManagerConfig(pool))
 	shellMgr := NewManager(mgr, nil, state, nil, nil, nil, logging.NewJSONLogger("test", nil), Config{})
 
-	if _, err := shellMgr.ExecCommand(context.Background(), ExecCommandRequest{SessionID: "sess-1", Tier: "lite", OrgID: "org-a", Command: "echo ok"}); err != nil {
+	if _, err := shellMgr.ExecCommand(context.Background(), ExecCommandRequest{SessionID: "sess-1", Tier: "lite", AccountID: "org-a", Command: "echo ok"}); err != nil {
 		t.Fatalf("exec_command failed: %v", err)
 	}
 	entry, err := shellMgr.getExistingEntry("sess-1", "org-a")
@@ -221,7 +221,7 @@ func TestManagerRestoreFromStateOnReopen(t *testing.T) {
 		t.Fatalf("close failed: %v", err)
 	}
 
-	if _, err := shellMgr.ExecCommand(context.Background(), ExecCommandRequest{SessionID: "sess-1", Tier: "lite", OrgID: "org-a", Command: "echo again"}); err != nil {
+	if _, err := shellMgr.ExecCommand(context.Background(), ExecCommandRequest{SessionID: "sess-1", Tier: "lite", AccountID: "org-a", Command: "echo again"}); err != nil {
 		t.Fatalf("reopen exec_command failed: %v", err)
 	}
 	if agent.lastExecCwd != "/workspace/demo" {
@@ -259,7 +259,7 @@ func TestManagerArtifactsUseDefaultSessionKeyShape(t *testing.T) {
 	mgr := session.NewManager(testManagerConfig(pool))
 	shellMgr := NewManager(mgr, store, nil, nil, nil, nil, logging.NewJSONLogger("test", nil), Config{})
 
-	resp, err := shellMgr.ExecCommand(context.Background(), ExecCommandRequest{SessionID: "run-1/shell/default", Tier: "lite", OrgID: "org-a", Command: "echo ok"})
+	resp, err := shellMgr.ExecCommand(context.Background(), ExecCommandRequest{SessionID: "run-1/shell/default", Tier: "lite", AccountID: "org-a", Command: "echo ok"})
 	if err != nil {
 		t.Fatalf("exec_command failed: %v", err)
 	}
@@ -287,11 +287,11 @@ func TestManagerArtifactsSkipUnchangedContent(t *testing.T) {
 	mgr := session.NewManager(testManagerConfig(pool))
 	shellMgr := NewManager(mgr, store, nil, nil, nil, nil, logging.NewJSONLogger("test", nil), Config{})
 
-	first, err := shellMgr.ExecCommand(context.Background(), ExecCommandRequest{SessionID: "run-2/shell/default", Tier: "lite", OrgID: "org-a", Command: "echo one"})
+	first, err := shellMgr.ExecCommand(context.Background(), ExecCommandRequest{SessionID: "run-2/shell/default", Tier: "lite", AccountID: "org-a", Command: "echo one"})
 	if err != nil {
 		t.Fatalf("first exec_command failed: %v", err)
 	}
-	second, err := shellMgr.ExecCommand(context.Background(), ExecCommandRequest{SessionID: "run-2/shell/default", OrgID: "org-a", Command: "echo two"})
+	second, err := shellMgr.ExecCommand(context.Background(), ExecCommandRequest{SessionID: "run-2/shell/default", AccountID: "org-a", Command: "echo two"})
 	if err != nil {
 		t.Fatalf("second exec_command failed: %v", err)
 	}
@@ -324,10 +324,10 @@ func TestManagerArtifactsUploadChangedContentWithNewSequence(t *testing.T) {
 	mgr := session.NewManager(testManagerConfig(pool))
 	shellMgr := NewManager(mgr, store, nil, nil, nil, nil, logging.NewJSONLogger("test", nil), Config{})
 
-	if _, err := shellMgr.ExecCommand(context.Background(), ExecCommandRequest{SessionID: "run-3/shell/default", Tier: "lite", OrgID: "org-a", Command: "echo one"}); err != nil {
+	if _, err := shellMgr.ExecCommand(context.Background(), ExecCommandRequest{SessionID: "run-3/shell/default", Tier: "lite", AccountID: "org-a", Command: "echo one"}); err != nil {
 		t.Fatalf("first exec_command failed: %v", err)
 	}
-	if _, err := shellMgr.ExecCommand(context.Background(), ExecCommandRequest{SessionID: "run-3/shell/default", OrgID: "org-a", Command: "echo two"}); err != nil {
+	if _, err := shellMgr.ExecCommand(context.Background(), ExecCommandRequest{SessionID: "run-3/shell/default", AccountID: "org-a", Command: "echo two"}); err != nil {
 		t.Fatalf("second exec_command failed: %v", err)
 	}
 	if len(store.puts) != 2 {
@@ -357,7 +357,7 @@ func TestManagerArtifactsRetryFailedUploadsOnPoll(t *testing.T) {
 	mgr := session.NewManager(testManagerConfig(pool))
 	shellMgr := NewManager(mgr, store, nil, nil, nil, nil, logging.NewJSONLogger("test", nil), Config{})
 
-	first, err := shellMgr.ExecCommand(context.Background(), ExecCommandRequest{SessionID: "run-4/shell/default", Tier: "lite", OrgID: "org-a", Command: "echo one"})
+	first, err := shellMgr.ExecCommand(context.Background(), ExecCommandRequest{SessionID: "run-4/shell/default", Tier: "lite", AccountID: "org-a", Command: "echo one"})
 	if err != nil {
 		t.Fatalf("exec_command failed: %v", err)
 	}
@@ -375,7 +375,7 @@ func TestManagerArtifactsRetryFailedUploadsOnPoll(t *testing.T) {
 	}
 	entry.mu.Unlock()
 
-	second, err := shellMgr.WriteStdin(context.Background(), WriteStdinRequest{SessionID: "run-4/shell/default", OrgID: "org-a"})
+	second, err := shellMgr.WriteStdin(context.Background(), WriteStdinRequest{SessionID: "run-4/shell/default", AccountID: "org-a"})
 	if err != nil {
 		t.Fatalf("write_stdin failed: %v", err)
 	}
@@ -424,7 +424,7 @@ func TestManagerRestoreStateSkipsRawArtifactDataAndRestoresSequence(t *testing.T
 	mgr := session.NewManager(testManagerConfig(pool))
 	shellMgr := NewManager(mgr, store, state, nil, nil, nil, logging.NewJSONLogger("test", nil), Config{})
 
-	if _, err := shellMgr.ExecCommand(context.Background(), ExecCommandRequest{SessionID: "run-5/shell/default", Tier: "lite", OrgID: "org-a", Command: "echo one"}); err != nil {
+	if _, err := shellMgr.ExecCommand(context.Background(), ExecCommandRequest{SessionID: "run-5/shell/default", Tier: "lite", AccountID: "org-a", Command: "echo one"}); err != nil {
 		t.Fatalf("first exec_command failed: %v", err)
 	}
 	if err := shellMgr.Close(context.Background(), "run-5/shell/default", "org-a"); err != nil {
@@ -442,7 +442,7 @@ func TestManagerRestoreStateSkipsRawArtifactDataAndRestoresSequence(t *testing.T
 		t.Fatalf("restore state should persist artifact hash: %s", string(restoreStateBytes))
 	}
 
-	if _, err := shellMgr.ExecCommand(context.Background(), ExecCommandRequest{SessionID: "run-5/shell/default", Tier: "lite", OrgID: "org-a", Command: "echo two"}); err != nil {
+	if _, err := shellMgr.ExecCommand(context.Background(), ExecCommandRequest{SessionID: "run-5/shell/default", Tier: "lite", AccountID: "org-a", Command: "echo two"}); err != nil {
 		t.Fatalf("second exec_command failed: %v", err)
 	}
 	if len(store.puts) != 2 {
@@ -465,7 +465,7 @@ func TestManagerReclaimIgnoresCaptureStateFailure(t *testing.T) {
 	mgr := session.NewManager(testManagerConfig(pool))
 	shellMgr := NewManager(mgr, nil, state, nil, nil, nil, logging.NewJSONLogger("test", nil), Config{})
 
-	if _, err := shellMgr.ExecCommand(context.Background(), ExecCommandRequest{SessionID: "sess-1", Tier: "lite", OrgID: "org-a", Command: "pwd"}); err != nil {
+	if _, err := shellMgr.ExecCommand(context.Background(), ExecCommandRequest{SessionID: "sess-1", Tier: "lite", AccountID: "org-a", Command: "pwd"}); err != nil {
 		t.Fatalf("exec_command failed: %v", err)
 	}
 	if err := mgr.DeleteWithOptions(context.Background(), "sess-1", "org-a", session.DeleteOptions{Reason: session.DeleteReasonIdleTimeout, IgnoreHookError: true}); err != nil {
@@ -781,7 +781,7 @@ func TestManagerExecCommand_AttachOrRestoreRequiresLiveOrRestoreState(t *testing
 		SessionID: "sess-strict",
 		OpenMode:  OpenModeAttachOrRestore,
 		Tier:      "lite",
-		OrgID:     "org-a",
+		AccountID:     "org-a",
 		Command:   "pwd",
 	})
 	if err == nil {
@@ -807,7 +807,7 @@ func TestManagerExecCommand_AttachOrRestoreRestoresState(t *testing.T) {
 	mgr := session.NewManager(testManagerConfig(pool))
 	shellMgr := NewManager(mgr, nil, state, nil, nil, nil, logging.NewJSONLogger("test", nil), Config{})
 
-	if _, err := shellMgr.ExecCommand(context.Background(), ExecCommandRequest{SessionID: "sess-restore", Tier: "lite", OrgID: "org-a", Command: "echo one"}); err != nil {
+	if _, err := shellMgr.ExecCommand(context.Background(), ExecCommandRequest{SessionID: "sess-restore", Tier: "lite", AccountID: "org-a", Command: "echo one"}); err != nil {
 		t.Fatalf("seed exec_command failed: %v", err)
 	}
 	if err := shellMgr.Close(context.Background(), "sess-restore", "org-a"); err != nil {
@@ -818,7 +818,7 @@ func TestManagerExecCommand_AttachOrRestoreRestoresState(t *testing.T) {
 		SessionID: "sess-restore",
 		OpenMode:  OpenModeAttachOrRestore,
 		Tier:      "lite",
-		OrgID:     "org-a",
+		AccountID:     "org-a",
 		Command:   "echo two",
 	})
 	if err != nil {
@@ -850,14 +850,14 @@ func TestManagerForkSession_UsesLatestCheckpointWhenSourceBusy(t *testing.T) {
 	mgr := session.NewManager(testManagerConfig(pool))
 	shellMgr := NewManager(mgr, nil, state, registry, nil, nil, logging.NewJSONLogger("test", nil), Config{})
 
-	if _, err := shellMgr.ExecCommand(context.Background(), ExecCommandRequest{SessionID: "sess-source", Tier: "lite", OrgID: "org-a", Command: "pwd"}); err != nil {
+	if _, err := shellMgr.ExecCommand(context.Background(), ExecCommandRequest{SessionID: "sess-source", Tier: "lite", AccountID: "org-a", Command: "pwd"}); err != nil {
 		t.Fatalf("seed exec_command failed: %v", err)
 	}
 	now := time.Now().UTC()
 	if err := saveRestoreState(context.Background(), state, registry, SessionRestoreState{
 		Version:      shellStateVersion,
 		Revision:     "rev-1",
-		OrgID:        "org-a",
+		AccountID:        "org-a",
 		SessionID:    "sess-source",
 		Cwd:          "/workspace/demo",
 		CreatedAt:    now.Format(time.RFC3339Nano),
@@ -867,7 +867,7 @@ func TestManagerForkSession_UsesLatestCheckpointWhenSourceBusy(t *testing.T) {
 		t.Fatalf("save restore state: %v", err)
 	}
 
-	resp, err := shellMgr.ForkSession(context.Background(), ForkSessionRequest{OrgID: "org-a", FromSessionID: "sess-source", ToSessionID: "sess-copy"})
+	resp, err := shellMgr.ForkSession(context.Background(), ForkSessionRequest{AccountID: "org-a", FromSessionID: "sess-source", ToSessionID: "sess-copy"})
 	if err != nil {
 		t.Fatalf("fork session failed: %v", err)
 	}
@@ -898,11 +898,11 @@ func TestManagerForkSession_BusyWithoutCheckpointReturnsBusy(t *testing.T) {
 	mgr := session.NewManager(testManagerConfig(pool))
 	shellMgr := NewManager(mgr, nil, state, registry, nil, nil, logging.NewJSONLogger("test", nil), Config{})
 
-	if _, err := shellMgr.ExecCommand(context.Background(), ExecCommandRequest{SessionID: "sess-source", Tier: "lite", OrgID: "org-a", Command: "pwd"}); err != nil {
+	if _, err := shellMgr.ExecCommand(context.Background(), ExecCommandRequest{SessionID: "sess-source", Tier: "lite", AccountID: "org-a", Command: "pwd"}); err != nil {
 		t.Fatalf("seed exec_command failed: %v", err)
 	}
 
-	_, err := shellMgr.ForkSession(context.Background(), ForkSessionRequest{OrgID: "org-a", FromSessionID: "sess-source", ToSessionID: "sess-copy"})
+	_, err := shellMgr.ForkSession(context.Background(), ForkSessionRequest{AccountID: "org-a", FromSessionID: "sess-source", ToSessionID: "sess-copy"})
 	if err == nil {
 		t.Fatal("expected busy error")
 	}

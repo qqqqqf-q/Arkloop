@@ -140,14 +140,14 @@ func TestComputeHMAC(t *testing.T) {
 }
 
 func TestParseDeliveryPayload(t *testing.T) {
-	orgID := uuid.New()
+	accountID := uuid.New()
 	runID := uuid.New()
 	endpointID := uuid.New()
 	deliveryID := uuid.New()
 
 	validRaw := func() map[string]any {
 		return map[string]any{
-			"org_id":   orgID.String(),
+			"account_id":   accountID.String(),
 			"run_id":   runID.String(),
 			"trace_id": "trace-123",
 			"payload": map[string]any{
@@ -164,8 +164,8 @@ func TestParseDeliveryPayload(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if p.OrgID != orgID {
-			t.Errorf("OrgID: got %s, want %s", p.OrgID, orgID)
+		if p.AccountID != accountID {
+			t.Errorf("AccountID: got %s, want %s", p.AccountID, accountID)
 		}
 		if p.RunID != runID {
 			t.Errorf("RunID: got %s, want %s", p.RunID, runID)
@@ -187,11 +187,11 @@ func TestParseDeliveryPayload(t *testing.T) {
 		}
 	})
 
-	t.Run("missing_org_id", func(t *testing.T) {
+	t.Run("missing_account_id", func(t *testing.T) {
 		raw := validRaw()
-		delete(raw, "org_id")
+		delete(raw, "account_id")
 		if _, err := parseDeliveryPayload(raw); err == nil {
-			t.Fatalf("expected error for missing org_id")
+			t.Fatalf("expected error for missing account_id")
 		}
 	})
 
@@ -249,7 +249,7 @@ func TestParseDeliveryPayload(t *testing.T) {
 
 	t.Run("invalid_uuid_format", func(t *testing.T) {
 		raw := validRaw()
-		raw["org_id"] = "not-a-uuid"
+		raw["account_id"] = "not-a-uuid"
 		if _, err := parseDeliveryPayload(raw); err == nil {
 			t.Fatalf("expected error for invalid UUID")
 		}

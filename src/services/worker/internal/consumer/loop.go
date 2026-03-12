@@ -341,8 +341,8 @@ func fieldsFromLease(lease queue.JobLease) app.LogFields {
 	if value := stringValue(lease.PayloadJSON, "trace_id"); value != "" {
 		fields.TraceID = stringPtr(value)
 	}
-	if value := stringValue(lease.PayloadJSON, "org_id"); value != "" {
-		fields.OrgID = stringPtr(value)
+	if value := stringValue(lease.PayloadJSON, "account_id"); value != "" {
+		fields.AccountID = stringPtr(value)
 	}
 	if value := stringValue(lease.PayloadJSON, "run_id"); value != "" {
 		fields.RunID = stringPtr(value)

@@ -15,7 +15,7 @@ const (
 type ExecCommandRequest struct {
 	SessionID     string                     `json:"session_id"`
 	OpenMode      string                     `json:"open_mode,omitempty"`
-	OrgID         string                     `json:"org_id,omitempty"`
+	AccountID         string                     `json:"account_id,omitempty"`
 	ProfileRef    string                     `json:"profile_ref,omitempty"`
 	WorkspaceRef  string                     `json:"workspace_ref,omitempty"`
 	EnabledSkills []skillstore.ResolvedSkill `json:"enabled_skills,omitempty"`
@@ -28,13 +28,13 @@ type ExecCommandRequest struct {
 
 type WriteStdinRequest struct {
 	SessionID   string `json:"session_id"`
-	OrgID       string `json:"org_id,omitempty"`
+	AccountID       string `json:"account_id,omitempty"`
 	Chars       string `json:"chars,omitempty"`
 	YieldTimeMs int    `json:"yield_time_ms,omitempty"`
 }
 
 type ForkSessionRequest struct {
-	OrgID         string `json:"org_id,omitempty"`
+	AccountID         string `json:"account_id,omitempty"`
 	FromSessionID string `json:"from_session_id"`
 	ToSessionID   string `json:"to_session_id"`
 }

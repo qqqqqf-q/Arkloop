@@ -15,14 +15,14 @@ func TestPgQueueLeaseIsMutuallyExclusive(t *testing.T) {
 	fixture := newQueueFixture(t, 25)
 	queue := fixture.queue
 
-	orgID := uuid.New()
+	accountID := uuid.New()
 	runID := uuid.New()
 	traceID := uuid.NewString()
 	traceID = traceID[:8] + traceID[9:13] + traceID[14:18] + traceID[19:23] + traceID[24:]
 
 	jobID, err := queue.EnqueueRun(
 		context.Background(),
-		orgID,
+		accountID,
 		runID,
 		traceID,
 		RunExecuteJobType,
@@ -82,13 +82,13 @@ func TestPgQueuePayloadIsCompatible(t *testing.T) {
 	fixture := newQueueFixture(t, 25)
 	queue := fixture.queue
 
-	orgID := uuid.New()
+	accountID := uuid.New()
 	runID := uuid.New()
 	traceID := "0123456789abcdef0123456789abcdef"
 
 	jobID, err := queue.EnqueueRun(
 		context.Background(),
-		orgID,
+		accountID,
 		runID,
 		traceID,
 		RunExecuteJobType,
@@ -119,8 +119,8 @@ func TestPgQueuePayloadIsCompatible(t *testing.T) {
 	if lease.PayloadJSON["run_id"] != runID.String() {
 		t.Fatalf("unexpected run id in payload: %v", lease.PayloadJSON["run_id"])
 	}
-	if lease.PayloadJSON["org_id"] != orgID.String() {
-		t.Fatalf("unexpected org id in payload: %v", lease.PayloadJSON["org_id"])
+	if lease.PayloadJSON["account_id"] != accountID.String() {
+		t.Fatalf("unexpected org id in payload: %v", lease.PayloadJSON["account_id"])
 	}
 	if lease.PayloadJSON["trace_id"] != traceID {
 		t.Fatalf("unexpected trace_id in payload: %v", lease.PayloadJSON["trace_id"])
@@ -131,12 +131,12 @@ func TestPgQueueDeadLettersAfterMaxAttempts(t *testing.T) {
 	fixture := newQueueFixture(t, 2)
 	queue := fixture.queue
 
-	orgID := uuid.New()
+	accountID := uuid.New()
 	runID := uuid.New()
 
 	jobID, err := queue.EnqueueRun(
 		context.Background(),
-		orgID,
+		accountID,
 		runID,
 		"0123456789abcdef0123456789abcdef",
 		RunExecuteJobType,
@@ -191,13 +191,13 @@ func TestPgQueueLeaseCanFilterByJobType(t *testing.T) {
 	fixture := newQueueFixture(t, 25)
 	queue := fixture.queue
 
-	orgID := uuid.New()
+	accountID := uuid.New()
 	runID := uuid.New()
 	otherJobType := "run.execute.test_other"
 
 	pythonJobID, err := queue.EnqueueRun(
 		context.Background(),
-		orgID,
+		accountID,
 		runID,
 		"0123456789abcdef0123456789abcdef",
 		RunExecuteJobType,
@@ -210,7 +210,7 @@ func TestPgQueueLeaseCanFilterByJobType(t *testing.T) {
 
 	goJobID, err := queue.EnqueueRun(
 		context.Background(),
-		orgID,
+		accountID,
 		runID,
 		"0123456789abcdef0123456789abcdef",
 		otherJobType,
@@ -254,12 +254,12 @@ func TestPgQueueRejectsLeaseTokenMismatch(t *testing.T) {
 	fixture := newQueueFixture(t, 25)
 	queue := fixture.queue
 
-	orgID := uuid.New()
+	accountID := uuid.New()
 	runID := uuid.New()
 
 	_, err := queue.EnqueueRun(
 		context.Background(),
-		orgID,
+		accountID,
 		runID,
 		"0123456789abcdef0123456789abcdef",
 		RunExecuteJobType,

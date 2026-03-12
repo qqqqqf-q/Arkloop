@@ -40,7 +40,7 @@ func handleExecAction(svc shell.Service, fn execActionFunc) http.HandlerFunc {
 		}
 		req.SessionID = strings.TrimSpace(req.SessionID)
 		req.OpenMode = shell.NormalizeOpenMode(strings.TrimSpace(req.OpenMode))
-		req.OrgID = strings.TrimSpace(req.OrgID)
+		req.AccountID = strings.TrimSpace(req.AccountID)
 		req.ProfileRef = strings.TrimSpace(req.ProfileRef)
 		req.WorkspaceRef = strings.TrimSpace(req.WorkspaceRef)
 		req.Tier = strings.TrimSpace(req.Tier)
@@ -84,7 +84,7 @@ func handleWriteAction(svc shell.Service, fn writeActionFunc) http.HandlerFunc {
 			return
 		}
 		req.SessionID = strings.TrimSpace(req.SessionID)
-		req.OrgID = strings.TrimSpace(req.OrgID)
+		req.AccountID = strings.TrimSpace(req.AccountID)
 		if req.SessionID == "" {
 			writeError(w, http.StatusBadRequest, "sandbox.missing_session_id", "session_id is required")
 			return

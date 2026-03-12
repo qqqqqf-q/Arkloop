@@ -86,7 +86,7 @@ func (h *DeliveryHandler) Handle(ctx context.Context, lease queue.JobLease) erro
 
 	fields := app.LogFields{
 		JobID: strPtr(lease.JobID.String()),
-		OrgID: strPtr(p.OrgID.String()),
+		AccountID: strPtr(p.AccountID.String()),
 	}
 
 	// 查询端点配置
@@ -188,7 +188,7 @@ func (h *DeliveryHandler) handleFailure(
 		"event_type":  p.EventType,
 		"payload":     p.Payload,
 	}
-	if _, err := h.queue.EnqueueRun(ctx, p.OrgID, p.RunID, p.TraceID, DeliverJobType, newPayload, &availableAt); err != nil {
+	if _, err := h.queue.EnqueueRun(ctx, p.AccountID, p.RunID, p.TraceID, DeliverJobType, newPayload, &availableAt); err != nil {
 		h.logger.Error("re-enqueue webhook deliver failed, marking delivery as failed", fields, map[string]any{"error": err.Error()})
 		if markErr := markDeliveryFailed(ctx, h.pool, p.DeliveryID, attempts, statusCode, &responseBody); markErr != nil {
 			h.logger.Error("mark delivery failed error", fields, map[string]any{"error": markErr.Error()})
@@ -199,7 +199,7 @@ func (h *DeliveryHandler) handleFailure(
 
 // deliveryPayload 是 webhook.deliver job 的载荷结构。
 type deliveryPayload struct {
-	OrgID      uuid.UUID
+	AccountID      uuid.UUID
 	RunID      uuid.UUID
 	TraceID    string
 	EndpointID uuid.UUID
@@ -209,7 +209,7 @@ type deliveryPayload struct {
 }
 
 func parseDeliveryPayload(raw map[string]any) (deliveryPayload, error) {
-	orgID, err := requiredUUID(raw, "org_id")
+	accountID, err := requiredUUID(raw, "account_id")
 	if err != nil {
 		return deliveryPayload{}, err
 	}
@@ -239,7 +239,7 @@ func parseDeliveryPayload(raw map[string]any) (deliveryPayload, error) {
 	payload, _ := inner["payload"].(map[string]any)
 
 	return deliveryPayload{
-		OrgID:      orgID,
+		AccountID:      accountID,
 		RunID:      runID,
 		TraceID:    traceID,
 		EndpointID: endpointID,

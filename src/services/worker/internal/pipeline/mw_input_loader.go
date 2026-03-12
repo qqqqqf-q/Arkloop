@@ -77,7 +77,7 @@ func loadRunInputs(
 	}
 
 	inputJSON := map[string]any{
-		"org_id":    run.OrgID.String(),
+		"account_id":    run.AccountID.String(),
 		"thread_id": run.ThreadID.String(),
 	}
 	if dataJSON != nil {
@@ -92,7 +92,7 @@ func loadRunInputs(
 		}
 	}
 
-	messages, err := messagesRepo.ListByThread(ctx, tx, run.OrgID, run.ThreadID, messageLimit)
+	messages, err := messagesRepo.ListByThread(ctx, tx, run.AccountID, run.ThreadID, messageLimit)
 	if err != nil {
 		return nil, nil, err
 	}

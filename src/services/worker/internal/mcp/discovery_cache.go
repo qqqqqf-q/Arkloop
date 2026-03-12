@@ -15,7 +15,7 @@ type cacheEntry struct {
 	cachedAt     time.Time
 }
 
-// DiscoveryCache 按 orgID 缓存 DiscoverFromDB 的结果。
+// DiscoveryCache 按 accountID 缓存 DiscoverFromDB 的结果。
 // 缓存在 Worker 进程内全局有效，TTL 到期后下次访问触发回源。
 type DiscoveryCache struct {
 	entries sync.Map
@@ -31,11 +31,11 @@ func NewDiscoveryCache(ttl time.Duration, mcpPool *Pool) *DiscoveryCache {
 	}
 }
 
-// Get 返回 orgID 对应的 MCP Registration。
+// Get 返回 accountID 对应的 MCP Registration。
 // 缓存命中且未过期时直接返回，否则调 DiscoverFromDB 并回填缓存。
-func (c *DiscoveryCache) Get(ctx context.Context, pool *pgxpool.Pool, orgID uuid.UUID) (Registration, error) {
+func (c *DiscoveryCache) Get(ctx context.Context, pool *pgxpool.Pool, accountID uuid.UUID) (Registration, error) {
 	if c.ttl > 0 {
-		if raw, ok := c.entries.Load(orgID.String()); ok {
+		if raw, ok := c.entries.Load(accountID.String()); ok {
 			entry := raw.(cacheEntry)
 			if time.Since(entry.cachedAt) < c.ttl {
 				return entry.registration, nil
@@ -43,13 +43,13 @@ func (c *DiscoveryCache) Get(ctx context.Context, pool *pgxpool.Pool, orgID uuid
 		}
 	}
 
-	reg, err := DiscoverFromDB(ctx, pool, orgID, c.mcpPool)
+	reg, err := DiscoverFromDB(ctx, pool, accountID, c.mcpPool)
 	if err != nil {
 		return Registration{}, err
 	}
 
 	if c.ttl > 0 {
-		c.entries.Store(orgID.String(), cacheEntry{
+		c.entries.Store(accountID.String(), cacheEntry{
 			registration: reg,
 			cachedAt:     time.Now(),
 		})
@@ -59,12 +59,12 @@ func (c *DiscoveryCache) Get(ctx context.Context, pool *pgxpool.Pool, orgID uuid
 }
 
 // Invalidate 删除指定 org 的缓存条目。
-func (c *DiscoveryCache) Invalidate(orgID uuid.UUID) {
-	c.entries.Delete(orgID.String())
+func (c *DiscoveryCache) Invalidate(accountID uuid.UUID) {
+	c.entries.Delete(accountID.String())
 }
 
 // StartInvalidationListener 启动后台 goroutine，LISTEN mcp_config_changed，
-// 收到通知后按 payload（orgID 字符串）主动失效对应缓存条目。
+// 收到通知后按 payload（accountID 字符串）主动失效对应缓存条目。
 // directPool 必须是直连（不经 PgBouncer），否则 LISTEN 将失效。
 // 连接断开时自动重试，ctx 取消时退出。
 func (c *DiscoveryCache) StartInvalidationListener(ctx context.Context, directPool *pgxpool.Pool) {
@@ -125,17 +125,17 @@ func (c *DiscoveryCache) listenOnce(ctx context.Context, directPool *pgxpool.Poo
 		if err != nil {
 			return err
 		}
-		orgID, err := uuid.Parse(n.Payload)
+		accountID, err := uuid.Parse(n.Payload)
 		if err != nil {
 			continue
 		}
-		c.Invalidate(orgID)
+		c.Invalidate(accountID)
 	}
 }
 
 // store 预填缓存条目，仅供测试使用。
-func (c *DiscoveryCache) store(orgID uuid.UUID, reg Registration) {
-	c.entries.Store(orgID.String(), cacheEntry{
+func (c *DiscoveryCache) store(accountID uuid.UUID, reg Registration) {
+	c.entries.Store(accountID.String(), cacheEntry{
 		registration: reg,
 		cachedAt:     time.Now(),
 	})

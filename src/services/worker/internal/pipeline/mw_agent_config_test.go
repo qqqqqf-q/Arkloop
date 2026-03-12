@@ -18,7 +18,7 @@ func TestAgentConfigMiddleware_NilPoolPassThrough(t *testing.T) {
 		Run: data.Run{
 			ID:       uuid.New(),
 			ThreadID: uuid.New(),
-			OrgID:    uuid.New(),
+			AccountID:    uuid.New(),
 		},
 		Emitter: events.NewEmitter("test"),
 	}

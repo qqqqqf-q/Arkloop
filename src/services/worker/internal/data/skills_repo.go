@@ -12,15 +12,15 @@ import (
 
 type SkillsRepository struct{}
 
-func (SkillsRepository) ResolveEnabledSkills(ctx context.Context, pool *pgxpool.Pool, orgID uuid.UUID, profileRef, workspaceRef string) ([]skillstore.ResolvedSkill, error) {
+func (SkillsRepository) ResolveEnabledSkills(ctx context.Context, pool *pgxpool.Pool, accountID uuid.UUID, profileRef, workspaceRef string) ([]skillstore.ResolvedSkill, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	if pool == nil {
 		return nil, fmt.Errorf("pool must not be nil")
 	}
-	if orgID == uuid.Nil {
-		return nil, fmt.Errorf("org_id must not be empty")
+	if accountID == uuid.Nil {
+		return nil, fmt.Errorf("account_id must not be empty")
 	}
 	profileRef = strings.TrimSpace(profileRef)
 	workspaceRef = strings.TrimSpace(workspaceRef)
@@ -36,19 +36,19 @@ func (SkillsRepository) ResolveEnabledSkills(ctx context.Context, pool *pgxpool.
 		        sp.instruction_path
 		   FROM workspace_skill_enablements wse
 		   JOIN profile_skill_installs psi
-		     ON psi.org_id = wse.org_id
+		     ON psi.account_id = wse.account_id
 		    AND psi.profile_ref = $2
 		    AND psi.skill_key = wse.skill_key
 		    AND psi.version = wse.version
 		   JOIN skill_packages sp
-		     ON sp.org_id = wse.org_id
+		     ON sp.account_id = wse.account_id
 		    AND sp.skill_key = wse.skill_key
 		    AND sp.version = wse.version
-		  WHERE wse.org_id = $1
+		  WHERE wse.account_id = $1
 		    AND wse.workspace_ref = $3
 		    AND sp.is_active = TRUE
 		  ORDER BY sp.skill_key, sp.version`,
-		orgID,
+		accountID,
 		profileRef,
 		workspaceRef,
 	)

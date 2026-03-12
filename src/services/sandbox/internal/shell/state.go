@@ -28,7 +28,7 @@ var _ stateStore = (*objectstore.S3Store)(nil)
 type SessionRestoreState struct {
 	Version        int                        `json:"version"`
 	Revision       string                     `json:"revision"`
-	OrgID          string                     `json:"org_id"`
+	AccountID          string                     `json:"account_id"`
 	SessionID      string                     `json:"session_ref"`
 	ProfileRef     string                     `json:"profile_ref,omitempty"`
 	WorkspaceRef   string                     `json:"workspace_ref,omitempty"`
@@ -68,9 +68,9 @@ func saveRestoreState(ctx context.Context, store stateStore, registry SessionRes
 	if state.SessionID == "" {
 		return fmt.Errorf("session_ref must not be empty")
 	}
-	state.OrgID = strings.TrimSpace(state.OrgID)
-	if state.OrgID == "" {
-		return fmt.Errorf("org_id must not be empty")
+	state.AccountID = strings.TrimSpace(state.AccountID)
+	if state.AccountID == "" {
+		return fmt.Errorf("account_id must not be empty")
 	}
 	state.Cwd = strings.TrimSpace(state.Cwd)
 	if state.Cwd == "" {
@@ -96,17 +96,17 @@ func saveRestoreState(ctx context.Context, store stateStore, registry SessionRes
 	if registry == nil {
 		return nil
 	}
-	if err := registry.BindLatestRestoreRevision(ctx, state.OrgID, state.SessionID, state.Revision); err != nil {
+	if err := registry.BindLatestRestoreRevision(ctx, state.AccountID, state.SessionID, state.Revision); err != nil {
 		return fmt.Errorf("bind restore revision: %w", err)
 	}
 	return nil
 }
 
-func loadLatestRestoreState(ctx context.Context, store stateStore, registry SessionRestoreRegistry, orgID, sessionID string) (*SessionRestoreState, error) {
+func loadLatestRestoreState(ctx context.Context, store stateStore, registry SessionRestoreRegistry, accountID, sessionID string) (*SessionRestoreState, error) {
 	if store == nil || registry == nil {
 		return nil, os.ErrNotExist
 	}
-	revision, err := registry.GetLatestRestoreRevision(ctx, orgID, sessionID)
+	revision, err := registry.GetLatestRestoreRevision(ctx, accountID, sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -114,18 +114,18 @@ func loadLatestRestoreState(ctx context.Context, store stateStore, registry Sess
 	if revision == "" {
 		return nil, os.ErrNotExist
 	}
-	state, err := loadRestoreStateByRevision(ctx, store, registry, orgID, sessionID, revision)
+	state, err := loadRestoreStateByRevision(ctx, store, registry, accountID, sessionID, revision)
 	if err != nil {
 		return nil, err
 	}
 	return state, nil
 }
 
-func loadRestoreStateByRevision(ctx context.Context, store stateStore, registry SessionRestoreRegistry, orgID, sessionID, revision string) (*SessionRestoreState, error) {
+func loadRestoreStateByRevision(ctx context.Context, store stateStore, registry SessionRestoreRegistry, accountID, sessionID, revision string) (*SessionRestoreState, error) {
 	payload, err := store.Get(ctx, sessionRestoreStateKey(sessionID, revision))
 	if err != nil {
 		if objectstore.IsNotFound(err) && registry != nil {
-			_ = registry.ClearLatestRestoreRevision(ctx, orgID, sessionID, revision)
+			_ = registry.ClearLatestRestoreRevision(ctx, accountID, sessionID, revision)
 		}
 		return nil, err
 	}
@@ -136,11 +136,11 @@ func loadRestoreStateByRevision(ctx context.Context, store stateStore, registry 
 	if state.Version != shellStateVersion {
 		return nil, fmt.Errorf("unsupported restore state version: %d", state.Version)
 	}
-	if strings.TrimSpace(state.OrgID) != strings.TrimSpace(orgID) || strings.TrimSpace(state.SessionID) != strings.TrimSpace(sessionID) {
+	if strings.TrimSpace(state.AccountID) != strings.TrimSpace(accountID) || strings.TrimSpace(state.SessionID) != strings.TrimSpace(sessionID) {
 		return nil, fmt.Errorf("restore state identity mismatch")
 	}
 	if expiredRestoreState(state, time.Now().UTC()) {
-		cleanupExpiredRestoreState(ctx, store, registry, orgID, sessionID, revision)
+		cleanupExpiredRestoreState(ctx, store, registry, accountID, sessionID, revision)
 		return nil, os.ErrNotExist
 	}
 	if strings.TrimSpace(state.Cwd) == "" {
@@ -162,9 +162,9 @@ func expiredRestoreState(state SessionRestoreState, now time.Time) bool {
 	return !parsed.After(now.UTC())
 }
 
-func cleanupExpiredRestoreState(ctx context.Context, store stateStore, registry SessionRestoreRegistry, orgID, sessionID, revision string) {
+func cleanupExpiredRestoreState(ctx context.Context, store stateStore, registry SessionRestoreRegistry, accountID, sessionID, revision string) {
 	if registry != nil {
-		_ = registry.ClearLatestRestoreRevision(ctx, orgID, sessionID, revision)
+		_ = registry.ClearLatestRestoreRevision(ctx, accountID, sessionID, revision)
 	}
 	if store != nil {
 		_ = store.Delete(ctx, sessionRestoreStateKey(sessionID, revision))
@@ -185,8 +185,8 @@ func normalizeArtifactVersions(versions map[string]artifactVersion) {
 	}
 }
 
-func copyLatestRestoreState(ctx context.Context, store stateStore, registry SessionRestoreRegistry, orgID, fromSessionID, toSessionID string, ttl time.Duration) (string, error) {
-	state, err := loadLatestRestoreState(ctx, store, registry, orgID, fromSessionID)
+func copyLatestRestoreState(ctx context.Context, store stateStore, registry SessionRestoreRegistry, accountID, fromSessionID, toSessionID string, ttl time.Duration) (string, error) {
+	state, err := loadLatestRestoreState(ctx, store, registry, accountID, fromSessionID)
 	if err != nil {
 		return "", err
 	}

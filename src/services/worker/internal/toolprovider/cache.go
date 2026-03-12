@@ -28,15 +28,15 @@ func NewCache(ttl time.Duration) *Cache {
 }
 
 func (c *Cache) Get(ctx context.Context, pool *pgxpool.Pool, projectID uuid.UUID) ([]ActiveProviderConfig, error) {
-	return c.GetProject(ctx, pool, projectID)
+	return c.GetUser(ctx, pool, projectID)
 }
 
-func (c *Cache) GetProject(ctx context.Context, pool *pgxpool.Pool, projectID uuid.UUID) ([]ActiveProviderConfig, error) {
+func (c *Cache) GetUser(ctx context.Context, pool *pgxpool.Pool, projectID uuid.UUID) ([]ActiveProviderConfig, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	if c == nil {
-		return LoadActiveProjectProviders(ctx, pool, projectID)
+		return LoadActiveUserProviders(ctx, pool, projectID)
 	}
 
 	if c.ttl > 0 {
@@ -48,7 +48,7 @@ func (c *Cache) GetProject(ctx context.Context, pool *pgxpool.Pool, projectID uu
 		}
 	}
 
-	providers, err := LoadActiveProjectProviders(ctx, pool, projectID)
+	providers, err := LoadActiveUserProviders(ctx, pool, projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -96,10 +96,10 @@ func (c *Cache) GetPlatform(ctx context.Context, pool *pgxpool.Pool) ([]ActivePr
 }
 
 func (c *Cache) Invalidate(projectID uuid.UUID) {
-	c.InvalidateProject(projectID)
+	c.InvalidateUser(projectID)
 }
 
-func (c *Cache) InvalidateProject(projectID uuid.UUID) {
+func (c *Cache) InvalidateUser(projectID uuid.UUID) {
 	if c == nil {
 		return
 	}
@@ -182,6 +182,6 @@ func (c *Cache) listenOnce(ctx context.Context, directPool *pgxpool.Pool) error 
 		if err != nil {
 			continue
 		}
-		c.InvalidateProject(projectID)
+		c.InvalidateUser(projectID)
 	}
 }

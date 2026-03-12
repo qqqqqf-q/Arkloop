@@ -39,7 +39,7 @@ func NewPgQueue(pool *pgxpool.Pool, maxAttempts int, capabilities []string) (*Pg
 
 func (q *PgQueue) EnqueueRun(
 	ctx context.Context,
-	orgID uuid.UUID,
+	accountID uuid.UUID,
 	runID uuid.UUID,
 	traceID string,
 	queueJobType string,
@@ -63,7 +63,7 @@ func (q *PgQueue) EnqueueRun(
 		"job_id":   jobID.String(),
 		"type":     RunExecuteJobType,
 		"trace_id": chosenTraceID,
-		"org_id":   orgID.String(),
+		"account_id":   accountID.String(),
 		"run_id":   runID.String(),
 		"payload":  payloadCopy,
 	}

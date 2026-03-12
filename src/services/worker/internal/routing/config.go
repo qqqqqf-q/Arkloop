@@ -37,13 +37,13 @@ type CredentialScope string
 
 const (
 	CredentialScopePlatform CredentialScope = "platform"
-	CredentialScopeProject  CredentialScope = "project"
+	CredentialScopeUser  CredentialScope = "user"
 )
 
 type ProviderCredential struct {
 	ID           string
 	Name         string // llm_credentials.name，用于 AgentConfig.Model 匹配
-	Scope        CredentialScope
+	OwnerKind    CredentialScope
 	ProviderKind ProviderKind
 	APIKeyEnv    *string // 环境变量名（env var 加载路径使用）
 	APIKeyValue  *string // 明文 API Key（DB 加载路径使用，优先于 APIKeyEnv）
@@ -56,7 +56,7 @@ func (c ProviderCredential) ToPublicJSON() map[string]any {
 	payload := map[string]any{
 		"credential_id":   c.ID,
 		"credential_name": c.Name,
-		"scope":           string(c.Scope),
+		"owner_kind":       string(c.OwnerKind),
 		"provider_kind":   string(c.ProviderKind),
 	}
 	if c.BaseURL != nil {
@@ -105,7 +105,7 @@ type ProviderRoutingConfig struct {
 func DefaultRoutingConfig() ProviderRoutingConfig {
 	credential := ProviderCredential{
 		ID:           "stub_default",
-		Scope:        CredentialScopePlatform,
+		OwnerKind:    CredentialScopePlatform,
 		ProviderKind: ProviderKindStub,
 		AdvancedJSON: map[string]any{},
 	}
@@ -165,9 +165,9 @@ func LoadRoutingConfigFromEnv() (ProviderRoutingConfig, error) {
 		}
 		seenCredIDs[credID] = struct{}{}
 
-		scope, err := parseScope(requiredString(obj, "scope"))
+		ownerKind, err := parseOwnerKind(requiredString(obj, "owner_kind"))
 		if err != nil {
-			return ProviderRoutingConfig{}, fmt.Errorf("credential.scope: %w", err)
+			return ProviderRoutingConfig{}, fmt.Errorf("credential.owner_kind: %w", err)
 		}
 		kind, err := parseProviderKind(requiredString(obj, "provider_kind"))
 		if err != nil {
@@ -245,7 +245,7 @@ func LoadRoutingConfigFromEnv() (ProviderRoutingConfig, error) {
 
 		credentials = append(credentials, ProviderCredential{
 			ID:           credID,
-			Scope:        scope,
+			OwnerKind:    ownerKind,
 			ProviderKind: kind,
 			APIKeyEnv:    apiKeyEnv,
 			BaseURL:      baseURL,
@@ -454,15 +454,15 @@ func parseProviderKind(value string) (ProviderKind, error) {
 	}
 }
 
-func parseScope(value string) (CredentialScope, error) {
+func parseOwnerKind(value string) (CredentialScope, error) {
 	cleaned := strings.ToLower(strings.TrimSpace(value))
 	switch cleaned {
 	case "platform":
 		return CredentialScopePlatform, nil
-	case "project":
-		return CredentialScopeProject, nil
+	case "user":
+		return CredentialScopeUser, nil
 	default:
-		return "", fmt.Errorf("must be platform/project")
+		return "", fmt.Errorf("must be platform/user")
 	}
 }
 
@@ -487,7 +487,7 @@ func LoadRoutingConfigFromDB(ctx context.Context, pool *pgxpool.Pool, projectID 
 		SELECT r.id, r.credential_id, r.model, r.when_json, r.is_default,
 		       r.advanced_json, r.multiplier, r.cost_per_1k_input, r.cost_per_1k_output,
 		       r.cost_per_1k_cache_write, r.cost_per_1k_cache_read,
-		       c.id, c.scope, c.name, c.provider, c.base_url, c.openai_api_mode, c.advanced_json,
+		       c.id, c.owner_kind, c.name, c.provider, c.base_url, c.openai_api_mode, c.advanced_json,
 		       s.encrypted_value, s.key_version
 		FROM llm_routes r
 		JOIN llm_credentials c ON c.id = r.credential_id
@@ -504,7 +504,7 @@ func LoadRoutingConfigFromDB(ctx context.Context, pool *pgxpool.Pool, projectID 
 		SELECT r.id, r.credential_id, r.model, r.when_json, r.is_default,
 		       r.advanced_json, r.multiplier, r.cost_per_1k_input, r.cost_per_1k_output,
 		       r.cost_per_1k_cache_write, r.cost_per_1k_cache_read,
-		       c.id, c.scope, c.name, c.provider, c.base_url, c.openai_api_mode, c.advanced_json,
+		       c.id, c.owner_kind, c.name, c.provider, c.base_url, c.openai_api_mode, c.advanced_json,
 		       s.encrypted_value, s.key_version
 		FROM llm_routes r
 		JOIN llm_credentials c ON c.id = r.credential_id
@@ -539,7 +539,7 @@ func LoadRoutingConfigFromDB(ctx context.Context, pool *pgxpool.Pool, projectID 
 			costPer1kCacheWrite *float64
 			costPer1kCacheRead  *float64
 			credID              uuid.UUID
-			scope               string
+			ownerKind           string
 			credName            string
 		provider            string
 		baseURL             *string
@@ -556,7 +556,7 @@ func LoadRoutingConfigFromDB(ctx context.Context, pool *pgxpool.Pool, projectID 
 			&rd.routeID, &rd.credentialID, &rd.model, &rd.whenJSON, &rd.isDefault,
 			&rd.routeAdvancedJSON, &rd.multiplier, &rd.costPer1kInput, &rd.costPer1kOutput,
 			&rd.costPer1kCacheWrite, &rd.costPer1kCacheRead,
-			&rd.credID, &rd.scope, &rd.credName, &rd.provider, &rd.baseURL, &rd.openaiAPIMode, &rd.advancedJSON,
+			&rd.credID, &rd.ownerKind, &rd.credName, &rd.provider, &rd.baseURL, &rd.openaiAPIMode, &rd.advancedJSON,
 			&rd.encryptedValue, &rd.keyVersion,
 		); err != nil {
 			return ProviderRoutingConfig{}, fmt.Errorf("routing: scan: %w", err)
@@ -592,11 +592,11 @@ func LoadRoutingConfigFromDB(ctx context.Context, pool *pgxpool.Pool, projectID 
 			continue
 		}
 
-		scope, err := parseScope(rd.scope)
+		ownerKind, err := parseOwnerKind(rd.ownerKind)
 		if err != nil {
-			slog.WarnContext(ctx, "routing: skipping credential with unsupported scope",
+			slog.WarnContext(ctx, "routing: skipping credential with unsupported owner_kind",
 				"credential_id", credIDStr,
-				"scope", rd.scope,
+				"owner_kind", rd.ownerKind,
 			)
 			continue
 		}
@@ -619,7 +619,7 @@ func LoadRoutingConfigFromDB(ctx context.Context, pool *pgxpool.Pool, projectID 
 		cred := ProviderCredential{
 			ID:           credIDStr,
 			Name:         rd.credName,
-			Scope:        scope,
+			OwnerKind:    ownerKind,
 			ProviderKind: kind,
 			APIKeyValue:  apiKeyValue,
 			BaseURL:      rd.baseURL,

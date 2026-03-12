@@ -28,7 +28,7 @@ func TestGetWebhookEndpointDecryptsSecretReference(t *testing.T) {
 	if _, err := pool.Exec(context.Background(), `
 		CREATE TABLE webhook_endpoints (
 			id UUID PRIMARY KEY,
-			org_id UUID NOT NULL,
+			account_id UUID NOT NULL,
 			url TEXT NOT NULL,
 			secret_id UUID NULL,
 			events TEXT[] NOT NULL DEFAULT '{}',
@@ -45,20 +45,20 @@ func TestGetWebhookEndpointDecryptsSecretReference(t *testing.T) {
 		t.Fatalf("encrypt secret: %v", err)
 	}
 
-	orgID := uuid.New()
+	accountID := uuid.New()
 	secretID := uuid.New()
 	endpointID := uuid.New()
 	if _, err := pool.Exec(context.Background(),
-		`INSERT INTO secrets (id, org_id, scope, encrypted_value, key_version)
+		`INSERT INTO secrets (id, account_id, scope, encrypted_value, key_version)
 		 VALUES ($1, $2, 'org', $3, 1)`,
-		secretID, orgID, encrypted,
+		secretID, accountID, encrypted,
 	); err != nil {
 		t.Fatalf("insert secret: %v", err)
 	}
 	if _, err := pool.Exec(context.Background(),
-		`INSERT INTO webhook_endpoints (id, org_id, url, secret_id, events, enabled)
+		`INSERT INTO webhook_endpoints (id, account_id, url, secret_id, events, enabled)
 		 VALUES ($1, $2, $3, $4, $5, TRUE)`,
-		endpointID, orgID, "https://example.com/hook", secretID, []string{"run.completed"},
+		endpointID, accountID, "https://example.com/hook", secretID, []string{"run.completed"},
 	); err != nil {
 		t.Fatalf("insert endpoint: %v", err)
 	}

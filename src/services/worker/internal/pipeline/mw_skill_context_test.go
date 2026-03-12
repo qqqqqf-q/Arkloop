@@ -26,7 +26,7 @@ func TestSkillContextMiddlewareInjectsPromptAndContext(t *testing.T) {
 		MountPath:       skillstore.MountPath("grep-helper", "1"),
 		InstructionPath: skillstore.InstructionPathDefault,
 	}}})
-	rc := &RunContext{Run: data.Run{OrgID: uuid.New()}, ProfileRef: "pref_test", WorkspaceRef: "wsref_test", SystemPrompt: "base"}
+	rc := &RunContext{Run: data.Run{AccountID: uuid.New()}, ProfileRef: "pref_test", WorkspaceRef: "wsref_test", SystemPrompt: "base"}
 	called := false
 	err := mw(context.Background(), rc, func(ctx context.Context, rc *RunContext) error {
 		called = true

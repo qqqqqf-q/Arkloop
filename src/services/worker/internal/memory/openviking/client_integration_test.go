@@ -28,9 +28,9 @@ func newIntegrationProvider(t *testing.T) memory.MemoryProvider {
 }
 
 // newTestIdent 返回一对可预测的测试身份，每个测试用独立 userID 确保数据不干扰。
-func newTestIdent(orgID, userID uuid.UUID) memory.MemoryIdentity {
+func newTestIdent(accountID, userID uuid.UUID) memory.MemoryIdentity {
 	return memory.MemoryIdentity{
-		OrgID:   orgID,
+		AccountID:   accountID,
 		UserID:  userID,
 		AgentID: "integration-test-agent",
 	}
@@ -64,9 +64,9 @@ func TestIntegration_Write_Find_Content_Delete(t *testing.T) {
 	p := newIntegrationProvider(t)
 	ctx := context.Background()
 
-	orgID := uuid.MustParse("aaaaaaaa-0000-0000-0000-000000000001")
+	accountID := uuid.MustParse("aaaaaaaa-0000-0000-0000-000000000001")
 	userID := uuid.New() // 每次测试独立 user，避免跨测试污染
-	ident := newTestIdent(orgID, userID)
+	ident := newTestIdent(accountID, userID)
 
 	// 写入一条记忆
 	entry := memory.MemoryEntry{
@@ -168,9 +168,9 @@ func TestIntegration_SessionArchive_Find(t *testing.T) {
 	p := newIntegrationProvider(t)
 	ctx := context.Background()
 
-	orgID := uuid.MustParse("aaaaaaaa-0000-0000-0000-000000000001")
+	accountID := uuid.MustParse("aaaaaaaa-0000-0000-0000-000000000001")
 	userID := uuid.New()
-	ident := newTestIdent(orgID, userID)
+	ident := newTestIdent(accountID, userID)
 
 	// sessionID 对应 thread_id，传任意 UUID，OpenViking 会自动创建
 	sessionID := uuid.New().String()
@@ -209,9 +209,9 @@ func TestIntegration_Concurrent_Find_NoPanic(t *testing.T) {
 	p := newIntegrationProvider(t)
 	ctx := context.Background()
 
-	orgID := uuid.MustParse("aaaaaaaa-0000-0000-0000-000000000001")
+	accountID := uuid.MustParse("aaaaaaaa-0000-0000-0000-000000000001")
 	userID := uuid.New()
-	ident := newTestIdent(orgID, userID)
+	ident := newTestIdent(accountID, userID)
 
 	const goroutines = 10
 	errs := make([]error, goroutines)

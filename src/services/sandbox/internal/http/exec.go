@@ -22,7 +22,7 @@ import (
 // ExecRequest 是 POST /v1/exec 的请求体。
 type ExecRequest struct {
 	SessionID     string                     `json:"session_id"`
-	OrgID         string                     `json:"org_id"`
+	AccountID         string                     `json:"account_id"`
 	ProfileRef    string                     `json:"profile_ref,omitempty"`
 	WorkspaceRef  string                     `json:"workspace_ref,omitempty"`
 	EnabledSkills []skillstore.ResolvedSkill `json:"enabled_skills,omitempty"`
@@ -92,11 +92,11 @@ func handleExec(mgr *session.Manager, envMgr *environment.Manager, skillMgr *san
 		}
 
 		sid := req.SessionID
-		orgID := strings.TrimSpace(req.OrgID)
-		sn, err := mgr.GetOrCreate(r.Context(), sid, req.Tier, orgID)
+		accountID := strings.TrimSpace(req.AccountID)
+		sn, err := mgr.GetOrCreate(r.Context(), sid, req.Tier, accountID)
 		if err != nil {
-			if strings.Contains(err.Error(), "org mismatch") {
-				writeError(w, http.StatusForbidden, "sandbox.org_mismatch", "session belongs to another org")
+			if strings.Contains(err.Error(), "account mismatch") {
+				writeError(w, http.StatusForbidden, "sandbox.account_mismatch", "session belongs to another account")
 				return
 			}
 			logger.Error("get/create session failed", logging.LogFields{SessionID: &sid}, map[string]any{"error": err.Error()})
@@ -106,7 +106,7 @@ func handleExec(mgr *session.Manager, envMgr *environment.Manager, skillMgr *san
 
 		if envMgr != nil {
 			if err := envMgr.Prepare(r.Context(), sid, sn, environment.Binding{
-				OrgID:        orgID,
+				AccountID:        accountID,
 				ProfileRef:   req.ProfileRef,
 				WorkspaceRef: req.WorkspaceRef,
 			}); err != nil {
@@ -168,7 +168,7 @@ func collectArtifacts(ctx context.Context, sn *session.Session, sessionID string
 		return nil
 	}
 
-	orgID := sn.OrgID
+	accountID := sn.AccountID
 	refs := make([]ArtifactRef, 0, len(fetchResult.Artifacts))
 	for _, entry := range fetchResult.Artifacts {
 		// 过滤路径穿越：只保留基础文件名
@@ -190,10 +190,10 @@ func collectArtifacts(ctx context.Context, sn *session.Session, sessionID string
 		}
 
 		ownerID := resolveArtifactOwnerRunID(sessionID)
-		metadata := objectstore.ArtifactMetadata(objectstore.ArtifactOwnerKindRun, ownerID, orgID, nil)
+		metadata := objectstore.ArtifactMetadata(objectstore.ArtifactOwnerKindRun, ownerID, accountID, nil)
 
-		// key 格式: {orgID}/{sessionID}/{filename}
-		key := fmt.Sprintf("%s/%s/%s", orgID, sessionID, safeName)
+		// key 格式: {accountID}/{sessionID}/{filename}
+		key := fmt.Sprintf("%s/%s/%s", accountID, sessionID, safeName)
 		if err := store.PutObject(ctx, key, data, objectstore.PutOptions{ContentType: entry.MimeType, Metadata: metadata}); err != nil {
 			logger.Warn("upload artifact failed", logging.LogFields{SessionID: &sessionID}, map[string]any{
 				"key":   key,

@@ -16,7 +16,7 @@ func TestLoadLatestRestoreStateExpiredClearsBinding(t *testing.T) {
 	state := SessionRestoreState{
 		Version:   shellStateVersion,
 		Revision:  nextRestoreRevision(now),
-		OrgID:     "org-a",
+		AccountID:     "org-a",
 		SessionID: "sess-expired",
 		Cwd:       "/workspace/demo",
 		CreatedAt: now.Format(time.RFC3339Nano),

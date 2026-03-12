@@ -227,7 +227,7 @@ func splitModelSelector(selector string) (string, string, bool) {
 }
 
 func denyByokIfNeeded(cred routing.ProviderCredential, byokEnabled bool) *routing.ProviderRouteDenied {
-	if cred.Scope == routing.CredentialScopeProject && !byokEnabled {
+	if cred.OwnerKind == routing.CredentialScopeUser && !byokEnabled {
 		return &routing.ProviderRouteDenied{
 			ErrorClass: tools.PolicyDeniedCode,
 			Code:       "policy.byok_disabled",

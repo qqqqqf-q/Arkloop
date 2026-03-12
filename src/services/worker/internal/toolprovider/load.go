@@ -14,7 +14,7 @@ import (
 )
 
 type ActiveProviderConfig struct {
-	Scope        string
+	OwnerKind    string
 	GroupName    string
 	ProviderName string
 	APIKeyValue  *string
@@ -23,7 +23,7 @@ type ActiveProviderConfig struct {
 	ConfigJSON   map[string]any
 }
 
-func LoadActiveProjectProviders(ctx context.Context, pool *pgxpool.Pool, projectID uuid.UUID) ([]ActiveProviderConfig, error) {
+func LoadActiveUserProviders(ctx context.Context, pool *pgxpool.Pool, projectID uuid.UUID) ([]ActiveProviderConfig, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -35,11 +35,11 @@ func LoadActiveProjectProviders(ctx context.Context, pool *pgxpool.Pool, project
 	}
 
 	rows, err := pool.Query(ctx, `
-		SELECT c.scope, c.group_name, c.provider_name, c.key_prefix, c.base_url, c.config_json,
+		SELECT c.owner_kind, c.group_name, c.provider_name, c.key_prefix, c.base_url, c.config_json,
 		       s.encrypted_value, s.key_version
 		FROM tool_provider_configs c
 		LEFT JOIN secrets s ON s.id = c.secret_id
-		WHERE c.scope = 'project' AND c.project_id = $1 AND c.is_active = TRUE
+		WHERE c.owner_kind = 'user' AND c.project_id = $1 AND c.is_active = TRUE
 		ORDER BY c.updated_at DESC
 	`, projectID)
 	if err != nil {
@@ -50,7 +50,7 @@ func LoadActiveProjectProviders(ctx context.Context, pool *pgxpool.Pool, project
 	out := []ActiveProviderConfig{}
 	for rows.Next() {
 		var (
-			scope        string
+			ownerKind    string
 			groupName    string
 			providerName string
 			keyPrefix    *string
@@ -59,13 +59,13 @@ func LoadActiveProjectProviders(ctx context.Context, pool *pgxpool.Pool, project
 			encrypted    *string
 			keyVersion   *int
 		)
-		if err := rows.Scan(&scope, &groupName, &providerName, &keyPrefix, &baseURL, &configJSON, &encrypted, &keyVersion); err != nil {
+		if err := rows.Scan(&ownerKind, &groupName, &providerName, &keyPrefix, &baseURL, &configJSON, &encrypted, &keyVersion); err != nil {
 			return nil, fmt.Errorf("tool_provider_configs scan: %w", err)
 		}
 		_ = keyVersion
 
 		cfg := ActiveProviderConfig{
-			Scope:        strings.TrimSpace(scope),
+			OwnerKind:    strings.TrimSpace(ownerKind),
 			GroupName:    strings.TrimSpace(groupName),
 			ProviderName: strings.TrimSpace(providerName),
 			KeyPrefix:    keyPrefix,
@@ -104,7 +104,7 @@ func LoadActivePlatformProviders(ctx context.Context, pool *pgxpool.Pool) ([]Act
 	out := make([]ActiveProviderConfig, 0, len(providers))
 	for _, provider := range providers {
 		out = append(out, ActiveProviderConfig{
-			Scope:        "platform",
+			OwnerKind:    "platform",
 			GroupName:    provider.GroupName,
 			ProviderName: provider.ProviderName,
 			APIKeyValue:  provider.APIKeyValue,

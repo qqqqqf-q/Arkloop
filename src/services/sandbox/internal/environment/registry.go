@@ -21,9 +21,9 @@ type RegistryManifestBinding struct {
 }
 
 type RegistryWriter interface {
-	EnsureProfileRegistry(ctx context.Context, orgID, profileRef string) error
-	EnsureBrowserStateRegistry(ctx context.Context, orgID, workspaceRef string) error
-	EnsureWorkspaceRegistry(ctx context.Context, orgID, workspaceRef string) error
+	EnsureProfileRegistry(ctx context.Context, accountID, profileRef string) error
+	EnsureBrowserStateRegistry(ctx context.Context, accountID, workspaceRef string) error
+	EnsureWorkspaceRegistry(ctx context.Context, accountID, workspaceRef string) error
 	GetLatestManifestRevision(ctx context.Context, scope, ref string) (string, error)
 	MarkFlushPending(ctx context.Context, scope, ref string) error
 	AcquireFlushLease(ctx context.Context, scope, ref, holderID, expectedBaseRevision string, leaseUntil time.Time) error
@@ -85,16 +85,16 @@ func (noopRegistryWriter) ListLatestManifestRevisions(context.Context, string) (
 	return nil, nil
 }
 
-func (w *PGRegistryWriter) EnsureProfileRegistry(ctx context.Context, orgID, profileRef string) error {
-	return w.ensureRegistry(ctx, "profile_registries", "profile_ref", orgID, profileRef)
+func (w *PGRegistryWriter) EnsureProfileRegistry(ctx context.Context, accountID, profileRef string) error {
+	return w.ensureRegistry(ctx, "profile_registries", "profile_ref", accountID, profileRef)
 }
 
-func (w *PGRegistryWriter) EnsureBrowserStateRegistry(ctx context.Context, orgID, workspaceRef string) error {
-	return w.ensureRegistry(ctx, "browser_state_registries", "workspace_ref", orgID, workspaceRef)
+func (w *PGRegistryWriter) EnsureBrowserStateRegistry(ctx context.Context, accountID, workspaceRef string) error {
+	return w.ensureRegistry(ctx, "browser_state_registries", "workspace_ref", accountID, workspaceRef)
 }
 
-func (w *PGRegistryWriter) EnsureWorkspaceRegistry(ctx context.Context, orgID, workspaceRef string) error {
-	return w.ensureRegistry(ctx, "workspace_registries", "workspace_ref", orgID, workspaceRef)
+func (w *PGRegistryWriter) EnsureWorkspaceRegistry(ctx context.Context, accountID, workspaceRef string) error {
+	return w.ensureRegistry(ctx, "workspace_registries", "workspace_ref", accountID, workspaceRef)
 }
 
 func (w *PGRegistryWriter) GetLatestManifestRevision(ctx context.Context, scope, ref string) (string, error) {
@@ -265,7 +265,7 @@ func (w *PGRegistryWriter) ListLatestManifestRevisions(ctx context.Context, scop
 	return items, nil
 }
 
-func (w *PGRegistryWriter) ensureRegistry(ctx context.Context, table, keyColumn, orgID, ref string) error {
+func (w *PGRegistryWriter) ensureRegistry(ctx context.Context, table, keyColumn, accountID, ref string) error {
 	if w == nil || w.pool == nil {
 		return nil
 	}
@@ -273,11 +273,11 @@ func (w *PGRegistryWriter) ensureRegistry(ctx context.Context, table, keyColumn,
 	if ref == "" {
 		return nil
 	}
-	parsedOrgID, err := uuid.Parse(strings.TrimSpace(orgID))
+	parsedAccountID, err := uuid.Parse(strings.TrimSpace(accountID))
 	if err != nil {
 		return nil
 	}
-	_, err = w.pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s (%s, org_id, flush_state, flush_retry_count, metadata_json) VALUES ($1, $2, 'idle', 0, '{}'::jsonb) ON CONFLICT (%s) DO NOTHING`, table, keyColumn, keyColumn), ref, parsedOrgID)
+	_, err = w.pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s (%s, account_id, flush_state, flush_retry_count, metadata_json) VALUES ($1, $2, 'idle', 0, '{}'::jsonb) ON CONFLICT (%s) DO NOTHING`, table, keyColumn, keyColumn), ref, parsedAccountID)
 	return err
 }
 

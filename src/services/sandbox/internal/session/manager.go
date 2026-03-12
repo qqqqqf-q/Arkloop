@@ -86,8 +86,8 @@ type createResult struct {
 }
 
 // GetOrCreate 返回已有 Session；若不存在则从 VMPool 获取一个 VM 并绑定。
-// orgID 非空时绑定到 session，已有 session 需匹配 orgID。
-func (m *Manager) GetOrCreate(ctx context.Context, sessionID, tier, orgID string) (*Session, error) {
+// accountID 非空时绑定到 session，已有 session 需匹配 accountID。
+func (m *Manager) GetOrCreate(ctx context.Context, sessionID, tier, accountID string) (*Session, error) {
 	if err := ValidTier(tier); err != nil {
 		return nil, err
 	}
@@ -95,8 +95,8 @@ func (m *Manager) GetOrCreate(ctx context.Context, sessionID, tier, orgID string
 	m.mu.Lock()
 	if s, ok := m.sessions[sessionID]; ok {
 		m.mu.Unlock()
-		if orgID != "" && s.OrgID != "" && s.OrgID != orgID {
-			return nil, fmt.Errorf("session %s: org mismatch", sessionID)
+		if accountID != "" && s.AccountID != "" && s.AccountID != accountID {
+			return nil, fmt.Errorf("session %s: account mismatch", sessionID)
 		}
 		return s, nil
 	}
@@ -107,8 +107,8 @@ func (m *Manager) GetOrCreate(ctx context.Context, sessionID, tier, orgID string
 		if result.err != nil {
 			return nil, result.err
 		}
-		if orgID != "" && result.session.OrgID != "" && result.session.OrgID != orgID {
-			return nil, fmt.Errorf("session %s: org mismatch", sessionID)
+		if accountID != "" && result.session.AccountID != "" && result.session.AccountID != accountID {
+			return nil, fmt.Errorf("session %s: account mismatch", sessionID)
 		}
 		return result.session, nil
 	}
@@ -123,7 +123,7 @@ func (m *Manager) GetOrCreate(ctx context.Context, sessionID, tier, orgID string
 	m.creating.Store(sessionID, done)
 	m.mu.Unlock()
 
-	s, err := m.acquireAndBind(ctx, sessionID, tier, orgID)
+	s, err := m.acquireAndBind(ctx, sessionID, tier, accountID)
 
 	m.mu.Lock()
 	m.pending--
@@ -137,14 +137,14 @@ func (m *Manager) GetOrCreate(ctx context.Context, sessionID, tier, orgID string
 	return s, err
 }
 
-func (m *Manager) acquireAndBind(ctx context.Context, sessionID, tier, orgID string) (*Session, error) {
+func (m *Manager) acquireAndBind(ctx context.Context, sessionID, tier, accountID string) (*Session, error) {
 	s, proc, err := m.cfg.Pool.Acquire(ctx, tier)
 	if err != nil {
 		return nil, err
 	}
 
 	s.ID = sessionID
-	s.OrgID = orgID
+	s.AccountID = accountID
 	s.IdleTimeout = time.Duration(m.idleTimeoutFor(tier)) * time.Second
 	s.MaxLifetime = time.Duration(m.maxLifetimeFor(tier)) * time.Second
 	s.StartTimers(m.onSessionExpired)
@@ -164,12 +164,12 @@ func (m *Manager) acquireAndBind(ctx context.Context, sessionID, tier, orgID str
 }
 
 // Delete 停止并销毁指定 Session 的 microVM。
-// orgID 非空时校验归属，不匹配则拒绝。
-func (m *Manager) Delete(ctx context.Context, sessionID, orgID string) error {
-	return m.DeleteWithOptions(ctx, sessionID, orgID, DeleteOptions{Reason: DeleteReasonExplicit})
+// accountID 非空时校验归属，不匹配则拒绝。
+func (m *Manager) Delete(ctx context.Context, sessionID, accountID string) error {
+	return m.DeleteWithOptions(ctx, sessionID, accountID, DeleteOptions{Reason: DeleteReasonExplicit})
 }
 
-func (m *Manager) DeleteWithOptions(ctx context.Context, sessionID, orgID string, opts DeleteOptions) error {
+func (m *Manager) DeleteWithOptions(ctx context.Context, sessionID, accountID string, opts DeleteOptions) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -181,9 +181,9 @@ func (m *Manager) DeleteWithOptions(ctx context.Context, sessionID, orgID string
 	s, ok := m.sessions[sessionID]
 	proc := m.procs[sessionID]
 	if ok {
-		if orgID != "" && s.OrgID != "" && s.OrgID != orgID {
+		if accountID != "" && s.AccountID != "" && s.AccountID != accountID {
 			m.mu.Unlock()
-			return fmt.Errorf("session %s: org mismatch", sessionID)
+			return fmt.Errorf("session %s: account mismatch", sessionID)
 		}
 		delete(m.sessions, sessionID)
 		delete(m.procs, sessionID)
@@ -208,8 +208,8 @@ func (m *Manager) DeleteWithOptions(ctx context.Context, sessionID, orgID string
 	return nil
 }
 
-func (m *Manager) DeleteSkipHook(ctx context.Context, sessionID, orgID string) error {
-	return m.DeleteWithOptions(ctx, sessionID, orgID, DeleteOptions{Reason: DeleteReasonExplicit, SkipBeforeDelete: true})
+func (m *Manager) DeleteSkipHook(ctx context.Context, sessionID, accountID string) error {
+	return m.DeleteWithOptions(ctx, sessionID, accountID, DeleteOptions{Reason: DeleteReasonExplicit, SkipBeforeDelete: true})
 }
 
 // CloseAll 终止所有活跃 Session。服务关闭时调用。

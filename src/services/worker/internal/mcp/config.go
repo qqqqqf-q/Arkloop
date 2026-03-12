@@ -21,7 +21,7 @@ const defaultCallTimeoutMs = 10000
 
 type ServerConfig struct {
 	ServerID  string
-	OrgID     string // 用于 pool 隔离；全局（env 加载）工具为空字符串
+	AccountID     string // 用于 pool 隔离；全局（env 加载）工具为空字符串
 	Transport string // stdio / http_sse / streamable_http
 	// HTTP 传输字段
 	URL         string
@@ -221,9 +221,9 @@ func parseServerConfig(serverID string, payload map[string]any) (ServerConfig, e
 	}, nil
 }
 
-// LoadConfigFromDB 按 org_id 从数据库加载 MCP 配置，JOIN secrets 解密 bearer token。
+// LoadConfigFromDB 按 account_id 从数据库加载 MCP 配置，JOIN secrets 解密 bearer token。
 // 返回 nil 表示该 org 没有活跃配置。
-func LoadConfigFromDB(ctx context.Context, pool *pgxpool.Pool, orgID uuid.UUID) (*Config, error) {
+func LoadConfigFromDB(ctx context.Context, pool *pgxpool.Pool, accountID uuid.UUID) (*Config, error) {
 	if pool == nil {
 		return nil, fmt.Errorf("mcp: pool must not be nil")
 	}
@@ -237,9 +237,9 @@ func LoadConfigFromDB(ctx context.Context, pool *pgxpool.Pool, orgID uuid.UUID) 
 		       s.encrypted_value, s.key_version
 		FROM mcp_configs m
 		LEFT JOIN secrets s ON s.id = m.auth_secret_id
-		WHERE m.org_id = $1 AND m.is_active = TRUE
+		WHERE m.account_id = $1 AND m.is_active = TRUE
 		ORDER BY m.created_at ASC
-	`, orgID)
+	`, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("mcp: query db: %w", err)
 	}
@@ -283,7 +283,7 @@ func LoadConfigFromDB(ctx context.Context, pool *pgxpool.Pool, orgID uuid.UUID) 
 	for _, rd := range allRows {
 		server := ServerConfig{
 			ServerID:      rd.name, // 用 name 保证工具名可读，和 env 文件行为一致
-			OrgID:         orgID.String(),
+			AccountID:         accountID.String(),
 			Transport:     rd.transport,
 			CallTimeoutMs: rd.callTimeoutMs,
 		}

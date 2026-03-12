@@ -29,7 +29,7 @@ const (
 
 type RunContext struct {
 	RunID                  uuid.UUID
-	OrgID                  *uuid.UUID
+	AccountID                  *uuid.UUID
 	UserID                 *uuid.UUID
 	AgentID                string
 	ThreadID               *uuid.UUID
@@ -436,7 +436,7 @@ func (l *Loop) executeToolCall(
 	execCtx := tools.ExecutionContext{
 		RunID:               runCtx.RunID,
 		TraceID:             runCtx.TraceID,
-		OrgID:               runCtx.OrgID,
+		AccountID:               runCtx.AccountID,
 		ThreadID:            runCtx.ThreadID,
 		ProjectID:           runCtx.ProjectID,
 		UserID:              runCtx.UserID,

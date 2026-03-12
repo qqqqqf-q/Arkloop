@@ -18,7 +18,7 @@ const (
 
 type sessionACLEvaluator struct {
 	pool            *pgxpool.Pool
-	membershipsRepo data.OrgMembershipsRepository
+	membershipsRepo data.AccountMembershipsRepository
 }
 
 func newSessionACLEvaluator(pool *pgxpool.Pool) *sessionACLEvaluator {
@@ -30,8 +30,8 @@ func (e *sessionACLEvaluator) AuthorizeSession(
 	execCtx tools.ExecutionContext,
 	record data.ShellSessionRecord,
 ) *tools.ExecutionError {
-	requestedOrgID := derefUUID(execCtx.OrgID)
-	if record.OrgID != uuid.Nil && requestedOrgID != uuid.Nil && record.OrgID != requestedOrgID {
+	requestedAccountID := derefUUID(execCtx.AccountID)
+	if record.AccountID != uuid.Nil && requestedAccountID != uuid.Nil && record.AccountID != requestedAccountID {
 		return sandboxPermissionDenied("shell session access denied", map[string]any{
 			"reason":      "org_mismatch",
 			"session_ref": record.SessionRef,
@@ -72,8 +72,8 @@ func (e *sessionACLEvaluator) AuthorizeSession(
 				"share_scope": record.ShareScope,
 			})
 		}
-	case data.ShellShareScopeOrg:
-		if err := e.authorizeOrgShare(ctx, execCtx, record.SessionRef, record.ShareScope); err != nil {
+	case data.ShellShareScopeAccount:
+		if err := e.authorizeAccountShare(ctx, execCtx, record.SessionRef, record.ShareScope); err != nil {
 			return err
 		}
 	default:
@@ -91,43 +91,43 @@ func (e *sessionACLEvaluator) AuthorizeShareScopeCreation(
 	execCtx tools.ExecutionContext,
 	shareScope string,
 ) *tools.ExecutionError {
-	if strings.TrimSpace(shareScope) != data.ShellShareScopeOrg {
+	if strings.TrimSpace(shareScope) != data.ShellShareScopeAccount {
 		return nil
 	}
-	return e.authorizeOrgShare(ctx, execCtx, "", shareScope)
+	return e.authorizeAccountShare(ctx, execCtx, "", shareScope)
 }
 
-func (e *sessionACLEvaluator) authorizeOrgShare(
+func (e *sessionACLEvaluator) authorizeAccountShare(
 	ctx context.Context,
 	execCtx tools.ExecutionContext,
 	sessionRef string,
 	shareScope string,
 ) *tools.ExecutionError {
-	if execCtx.OrgID == nil || *execCtx.OrgID == uuid.Nil || execCtx.UserID == nil || *execCtx.UserID == uuid.Nil {
+	if execCtx.AccountID == nil || *execCtx.AccountID == uuid.Nil || execCtx.UserID == nil || *execCtx.UserID == uuid.Nil {
 		return sandboxPermissionDenied("shell session access denied", map[string]any{
-			"reason":      "org_scope_actor_missing",
+			"reason":      "account_scope_actor_missing",
 			"session_ref": strings.TrimSpace(sessionRef),
 			"share_scope": shareScope,
 		})
 	}
 	if e.pool == nil {
 		return sandboxPermissionDenied("shell session access denied", map[string]any{
-			"reason":      "org_scope_acl_unavailable",
+			"reason":      "account_scope_acl_unavailable",
 			"session_ref": strings.TrimSpace(sessionRef),
 			"share_scope": shareScope,
 		})
 	}
-	membership, err := e.membershipsRepo.GetByOrgAndUser(ctx, e.pool, *execCtx.OrgID, *execCtx.UserID)
+	membership, err := e.membershipsRepo.GetByAccountAndUser(ctx, e.pool, *execCtx.AccountID, *execCtx.UserID)
 	if err != nil {
 		return sandboxPermissionDenied("shell session access denied", map[string]any{
-			"reason":      "org_scope_acl_error",
+			"reason":      "account_scope_acl_error",
 			"session_ref": strings.TrimSpace(sessionRef),
 			"share_scope": shareScope,
 		})
 	}
 	if membership == nil || !canUseOrgSharedSession(membership.Role) {
 		return sandboxPermissionDenied("shell session access denied", map[string]any{
-			"reason":      "org_scope_forbidden",
+			"reason":      "account_scope_forbidden",
 			"session_ref": strings.TrimSpace(sessionRef),
 			"share_scope": shareScope,
 		})

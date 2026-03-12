@@ -26,7 +26,7 @@ const (
 )
 
 type snapshotAppender interface {
-	AppendMemoryLine(ctx context.Context, pool *pgxpool.Pool, orgID, userID uuid.UUID, agentID, line string) error
+	AppendMemoryLine(ctx context.Context, pool *pgxpool.Pool, accountID, userID uuid.UUID, agentID, line string) error
 }
 
 // ToolExecutor 实现 tools.Executor，将 memory_search/read/write/forget 分发到 MemoryProvider。
@@ -164,7 +164,7 @@ func (e *ToolExecutor) write(ctx context.Context, args map[string]any, ident mem
 	scope := parseScope(args)
 	writable := buildWritableContent(scope, category, key, content)
 	entry := memory.MemoryEntry{Content: writable}
-	if err := e.snapshots.AppendMemoryLine(ctx, e.pool, ident.OrgID, ident.UserID, ident.AgentID, writable); err != nil {
+	if err := e.snapshots.AppendMemoryLine(ctx, e.pool, ident.AccountID, ident.UserID, ident.AgentID, writable); err != nil {
 		return snapshotError(err, started)
 	}
 
@@ -204,12 +204,12 @@ func buildIdentity(execCtx tools.ExecutionContext) (memory.MemoryIdentity, error
 	if execCtx.UserID == nil {
 		return memory.MemoryIdentity{}, fmt.Errorf("user_id not available, memory operations require authenticated user")
 	}
-	orgID := uuid.Nil
-	if execCtx.OrgID != nil {
-		orgID = *execCtx.OrgID
+	accountID := uuid.Nil
+	if execCtx.AccountID != nil {
+		accountID = *execCtx.AccountID
 	}
 	return memory.MemoryIdentity{
-		OrgID:   orgID,
+		AccountID:   accountID,
 		UserID:  *execCtx.UserID,
 		AgentID: execCtx.AgentID,
 	}, nil

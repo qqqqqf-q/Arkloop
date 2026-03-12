@@ -24,12 +24,12 @@ type MemoryHitCache struct {
 type MemorySnapshotRepository struct{}
 
 // Get 读取用户记忆快照。未找到时返回 ("", false, nil)。
-func (MemorySnapshotRepository) Get(ctx context.Context, pool *pgxpool.Pool, orgID, userID uuid.UUID, agentID string) (string, bool, error) {
+func (MemorySnapshotRepository) Get(ctx context.Context, pool *pgxpool.Pool, accountID, userID uuid.UUID, agentID string) (string, bool, error) {
 	var block string
 	err := pool.QueryRow(ctx,
 		`SELECT memory_block FROM user_memory_snapshots
-		 WHERE org_id = $1 AND user_id = $2 AND agent_id = $3`,
-		orgID, userID, agentID,
+		 WHERE account_id = $1 AND user_id = $2 AND agent_id = $3`,
+		accountID, userID, agentID,
 	).Scan(&block)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -41,12 +41,12 @@ func (MemorySnapshotRepository) Get(ctx context.Context, pool *pgxpool.Pool, org
 }
 
 // GetHits 读取缓存的 raw hits JSON。未找到或列为空时返回 (nil, false, nil)。
-func (MemorySnapshotRepository) GetHits(ctx context.Context, pool *pgxpool.Pool, orgID, userID uuid.UUID, agentID string) ([]MemoryHitCache, bool, error) {
+func (MemorySnapshotRepository) GetHits(ctx context.Context, pool *pgxpool.Pool, accountID, userID uuid.UUID, agentID string) ([]MemoryHitCache, bool, error) {
 	var raw []byte
 	err := pool.QueryRow(ctx,
 		`SELECT hits_json FROM user_memory_snapshots
-		 WHERE org_id = $1 AND user_id = $2 AND agent_id = $3 AND hits_json IS NOT NULL`,
-		orgID, userID, agentID,
+		 WHERE account_id = $1 AND user_id = $2 AND agent_id = $3 AND hits_json IS NOT NULL`,
+		accountID, userID, agentID,
 	).Scan(&raw)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -62,35 +62,35 @@ func (MemorySnapshotRepository) GetHits(ctx context.Context, pool *pgxpool.Pool,
 }
 
 // Upsert 写入或覆盖用户记忆快照。
-func (MemorySnapshotRepository) Upsert(ctx context.Context, pool *pgxpool.Pool, orgID, userID uuid.UUID, agentID, memoryBlock string) error {
+func (MemorySnapshotRepository) Upsert(ctx context.Context, pool *pgxpool.Pool, accountID, userID uuid.UUID, agentID, memoryBlock string) error {
 	_, err := pool.Exec(ctx,
-		`INSERT INTO user_memory_snapshots (org_id, user_id, agent_id, memory_block, updated_at)
+		`INSERT INTO user_memory_snapshots (account_id, user_id, agent_id, memory_block, updated_at)
 		 VALUES ($1, $2, $3, $4, now())
-		 ON CONFLICT (org_id, user_id, agent_id)
+		 ON CONFLICT (account_id, user_id, agent_id)
 		 DO UPDATE SET memory_block = EXCLUDED.memory_block, updated_at = now()`,
-		orgID, userID, agentID, memoryBlock,
+		accountID, userID, agentID, memoryBlock,
 	)
 	return err
 }
 
 // UpsertWithHits 同时写入渲染后的 memory_block 和原始 hits JSON。
-func (MemorySnapshotRepository) UpsertWithHits(ctx context.Context, pool *pgxpool.Pool, orgID, userID uuid.UUID, agentID, memoryBlock string, hits []MemoryHitCache) error {
+func (MemorySnapshotRepository) UpsertWithHits(ctx context.Context, pool *pgxpool.Pool, accountID, userID uuid.UUID, agentID, memoryBlock string, hits []MemoryHitCache) error {
 	hitsJSON, err := json.Marshal(hits)
 	if err != nil {
 		return err
 	}
 	_, err = pool.Exec(ctx,
-		`INSERT INTO user_memory_snapshots (org_id, user_id, agent_id, memory_block, hits_json, updated_at)
+		`INSERT INTO user_memory_snapshots (account_id, user_id, agent_id, memory_block, hits_json, updated_at)
 		 VALUES ($1, $2, $3, $4, $5, now())
-		 ON CONFLICT (org_id, user_id, agent_id)
+		 ON CONFLICT (account_id, user_id, agent_id)
 		 DO UPDATE SET memory_block = EXCLUDED.memory_block, hits_json = EXCLUDED.hits_json, updated_at = now()`,
-		orgID, userID, agentID, memoryBlock, hitsJSON,
+		accountID, userID, agentID, memoryBlock, hitsJSON,
 	)
 	return err
 }
 
 // AppendMemoryLine 原子追加一条 memory 行，避免并发写互相覆盖。
-func (MemorySnapshotRepository) AppendMemoryLine(ctx context.Context, pool *pgxpool.Pool, orgID, userID uuid.UUID, agentID, line string) error {
+func (MemorySnapshotRepository) AppendMemoryLine(ctx context.Context, pool *pgxpool.Pool, accountID, userID uuid.UUID, agentID, line string) error {
 	if pool == nil {
 		return fmt.Errorf("snapshot pool must not be nil")
 	}
@@ -110,19 +110,19 @@ func (MemorySnapshotRepository) AppendMemoryLine(ctx context.Context, pool *pgxp
 	var block string
 	err = tx.QueryRow(ctx,
 		`SELECT memory_block FROM user_memory_snapshots
-		 WHERE org_id = $1 AND user_id = $2 AND agent_id = $3
+		 WHERE account_id = $1 AND user_id = $2 AND agent_id = $3
 		 FOR UPDATE`,
-		orgID, userID, agentID,
+		accountID, userID, agentID,
 	).Scan(&block)
 	if err != nil {
 		if !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
 		tag, execErr := tx.Exec(ctx,
-			`INSERT INTO user_memory_snapshots (org_id, user_id, agent_id, memory_block, updated_at)
+			`INSERT INTO user_memory_snapshots (account_id, user_id, agent_id, memory_block, updated_at)
 			 VALUES ($1, $2, $3, $4, now())
 			 ON CONFLICT DO NOTHING`,
-			orgID, userID, agentID, newMemoryBlock(cleanedLine),
+			accountID, userID, agentID, newMemoryBlock(cleanedLine),
 		)
 		if execErr != nil {
 			return execErr
@@ -130,9 +130,9 @@ func (MemorySnapshotRepository) AppendMemoryLine(ctx context.Context, pool *pgxp
 		if tag.RowsAffected() == 0 {
 			err = tx.QueryRow(ctx,
 				`SELECT memory_block FROM user_memory_snapshots
-				 WHERE org_id = $1 AND user_id = $2 AND agent_id = $3
+				 WHERE account_id = $1 AND user_id = $2 AND agent_id = $3
 				 FOR UPDATE`,
-				orgID, userID, agentID,
+				accountID, userID, agentID,
 			).Scan(&block)
 			if err != nil {
 				return err
@@ -141,8 +141,8 @@ func (MemorySnapshotRepository) AppendMemoryLine(ctx context.Context, pool *pgxp
 			if _, err := tx.Exec(ctx,
 				`UPDATE user_memory_snapshots
 				 SET memory_block = $4, updated_at = now()
-				 WHERE org_id = $1 AND user_id = $2 AND agent_id = $3`,
-				orgID, userID, agentID, updatedBlock,
+				 WHERE account_id = $1 AND user_id = $2 AND agent_id = $3`,
+				accountID, userID, agentID, updatedBlock,
 			); err != nil {
 				return err
 			}
@@ -154,8 +154,8 @@ func (MemorySnapshotRepository) AppendMemoryLine(ctx context.Context, pool *pgxp
 	if _, err := tx.Exec(ctx,
 		`UPDATE user_memory_snapshots
 		 SET memory_block = $4, updated_at = now()
-		 WHERE org_id = $1 AND user_id = $2 AND agent_id = $3`,
-		orgID, userID, agentID, updatedBlock,
+		 WHERE account_id = $1 AND user_id = $2 AND agent_id = $3`,
+		accountID, userID, agentID, updatedBlock,
 	); err != nil {
 		return err
 	}

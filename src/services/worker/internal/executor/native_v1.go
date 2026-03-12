@@ -72,11 +72,11 @@ func (h *NativeRunEngineV1Handler) Handle(ctx context.Context, lease queue.JobLe
 		h.logger.Info("run not found, skipped", payload.LogFields(lease), nil)
 		return nil
 	}
-	if run.OrgID != payload.OrgID {
+	if run.AccountID != payload.AccountID {
 		h.logger.Info(
-			"job.org_id does not match run.org_id, skipped",
+			"job.account_id does not match run.account_id, skipped",
 			payload.LogFields(lease),
-			map[string]any{"run_org_id": run.OrgID.String()},
+			map[string]any{"run_account_id": run.AccountID.String()},
 		)
 		return nil
 	}
@@ -103,7 +103,7 @@ func (h *NativeRunEngineV1Handler) Handle(ctx context.Context, lease queue.JobLe
 			"trace_id": payload.TraceID,
 			"job_id":   payload.JobID.String(),
 			"job_type": payload.JobType,
-			"org_id":   payload.OrgID.String(),
+			"account_id":   payload.AccountID.String(),
 		},
 		nil,
 		nil,
@@ -146,13 +146,13 @@ func (h *NativeRunEngineV1Handler) dispatchWebhooks(ctx context.Context, payload
 	runPayload := map[string]any{
 		"event":      eventType,
 		"run_id":     run.ID.String(),
-		"org_id":     run.OrgID.String(),
+		"account_id":     run.AccountID.String(),
 		"thread_id":  run.ThreadID.String(),
 		"status":     status,
 		"created_at": createdAt.UTC().Format(time.RFC3339Nano),
 	}
 
-	if err := webhook.EnqueueDeliveries(ctx, h.pool, h.queue, run.OrgID, run.ID, payload.TraceID, eventType, runPayload); err != nil {
+	if err := webhook.EnqueueDeliveries(ctx, h.pool, h.queue, run.AccountID, run.ID, payload.TraceID, eventType, runPayload); err != nil {
 		h.logger.Error("enqueue webhook deliveries failed", payload.LogFields(queue.JobLease{}), map[string]any{"error": err.Error()})
 	}
 }
@@ -175,7 +175,7 @@ type workerPayload struct {
 	JobID   uuid.UUID
 	JobType string
 	TraceID string
-	OrgID   uuid.UUID
+	AccountID   uuid.UUID
 	RunID   uuid.UUID
 }
 
@@ -192,7 +192,7 @@ func parseWorkerPayload(payload map[string]any) (workerPayload, error) {
 	if err != nil {
 		return workerPayload{}, err
 	}
-	orgID, err := requiredUUID(payload, "org_id")
+	accountID, err := requiredUUID(payload, "account_id")
 	if err != nil {
 		return workerPayload{}, err
 	}
@@ -204,7 +204,7 @@ func parseWorkerPayload(payload map[string]any) (workerPayload, error) {
 		JobID:   jobID,
 		JobType: jobType,
 		TraceID: traceID,
-		OrgID:   orgID,
+		AccountID:   accountID,
 		RunID:   runID,
 	}, nil
 }
@@ -214,7 +214,7 @@ func (p workerPayload) LogFields(lease queue.JobLease) app.LogFields {
 		JobID: stringPtr(lease.JobID.String()),
 	}
 	fields.TraceID = stringPtr(p.TraceID)
-	fields.OrgID = stringPtr(p.OrgID.String())
+	fields.AccountID = stringPtr(p.AccountID.String())
 	fields.RunID = stringPtr(p.RunID.String())
 	return fields
 }

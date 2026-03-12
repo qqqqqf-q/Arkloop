@@ -57,16 +57,16 @@ func NewToolProviderMiddleware(cache *toolprovider.Cache) RunMiddleware {
 			platformProviders = nil
 		}
 
-		var projectProviders []toolprovider.ActiveProviderConfig
+		var userProviders []toolprovider.ActiveProviderConfig
 		if rc.Run.ProjectID != nil {
-			projectProviders, err = cache.GetProject(ctx, rc.Pool, *rc.Run.ProjectID)
+			userProviders, err = cache.GetUser(ctx, rc.Pool, *rc.Run.ProjectID)
 			if err != nil {
 				slog.WarnContext(ctx, "tool provider: load project failed, skipping", "project_id", *rc.Run.ProjectID, "err", err.Error())
-				projectProviders = nil
+				userProviders = nil
 			}
 		}
 
-		if len(platformProviders) == 0 && len(projectProviders) == 0 {
+		if len(platformProviders) == 0 && len(userProviders) == 0 {
 			return next(ctx, rc)
 		}
 
@@ -98,7 +98,7 @@ func NewToolProviderMiddleware(cache *toolprovider.Cache) RunMiddleware {
 		for _, cfg := range platformProviders {
 			apply(cfg, false)
 		}
-		for _, cfg := range projectProviders {
+		for _, cfg := range userProviders {
 			apply(cfg, true)
 		}
 

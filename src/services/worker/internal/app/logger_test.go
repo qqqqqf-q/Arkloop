@@ -27,8 +27,8 @@ func TestJSONLoggerWritesNullForMissingContextFields(t *testing.T) {
 	if payload["trace_id"] != nil {
 		t.Fatalf("trace_id should be null, got %v", payload["trace_id"])
 	}
-	if payload["org_id"] != nil {
-		t.Fatalf("org_id should be null, got %v", payload["org_id"])
+	if payload["account_id"] != nil {
+		t.Fatalf("account_id should be null, got %v", payload["account_id"])
 	}
 	if payload["run_id"] != nil {
 		t.Fatalf("run_id should be null, got %v", payload["run_id"])
@@ -43,13 +43,13 @@ func TestJSONLoggerWritesContextFields(t *testing.T) {
 	logger := NewJSONLogger("worker_go", &buffer)
 
 	traceID := "trace"
-	orgID := "org"
+	accountID := "org"
 	runID := "run"
 	jobID := "job"
 
 	logger.Info("with context", LogFields{
 		TraceID: &traceID,
-		OrgID:   &orgID,
+		AccountID:   &accountID,
 		RunID:   &runID,
 		JobID:   &jobID,
 	}, nil)
@@ -62,8 +62,8 @@ func TestJSONLoggerWritesContextFields(t *testing.T) {
 	if payload["trace_id"] != traceID {
 		t.Fatalf("unexpected trace_id: %v", payload["trace_id"])
 	}
-	if payload["org_id"] != orgID {
-		t.Fatalf("unexpected org_id: %v", payload["org_id"])
+	if payload["account_id"] != accountID {
+		t.Fatalf("unexpected account_id: %v", payload["account_id"])
 	}
 	if payload["run_id"] != runID {
 		t.Fatalf("unexpected run_id: %v", payload["run_id"])

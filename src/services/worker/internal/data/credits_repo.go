@@ -17,7 +17,7 @@ type CreditsRepository struct{}
 func (CreditsRepository) DeductStandalone(
 	ctx context.Context,
 	pool interface{ Begin(context.Context) (pgx.Tx, error) },
-	orgID uuid.UUID,
+	accountID uuid.UUID,
 	amount int64,
 	runID uuid.UUID,
 	refType string,
@@ -35,11 +35,11 @@ func (CreditsRepository) DeductStandalone(
 	}
 	defer tx.Rollback(ctx)
 
-	if err := deductBalance(ctx, tx, orgID, amount); err != nil {
+	if err := deductBalance(ctx, tx, accountID, amount); err != nil {
 		return fmt.Errorf("credits.DeductStandalone: %w", err)
 	}
 
-	if err := insertTransaction(ctx, tx, orgID, -amount, refType, runID, metadata); err != nil {
+	if err := insertTransaction(ctx, tx, accountID, -amount, refType, runID, metadata); err != nil {
 		return fmt.Errorf("credits.DeductStandalone: %w", err)
 	}
 	return tx.Commit(ctx)
@@ -50,7 +50,7 @@ func (CreditsRepository) DeductStandalone(
 func (CreditsRepository) Deduct(
 	ctx context.Context,
 	tx pgx.Tx,
-	orgID uuid.UUID,
+	accountID uuid.UUID,
 	amount int64,
 	runID uuid.UUID,
 	metadata map[string]any,
@@ -59,29 +59,29 @@ func (CreditsRepository) Deduct(
 		return nil
 	}
 
-	if err := deductBalance(ctx, tx, orgID, amount); err != nil {
+	if err := deductBalance(ctx, tx, accountID, amount); err != nil {
 		return fmt.Errorf("credits.Deduct: %w", err)
 	}
 
-	if err := insertTransaction(ctx, tx, orgID, -amount, "run", runID, metadata); err != nil {
+	if err := insertTransaction(ctx, tx, accountID, -amount, "run", runID, metadata); err != nil {
 		return fmt.Errorf("credits.Deduct: %w", err)
 	}
 	return nil
 }
 
-func deductBalance(ctx context.Context, tx pgx.Tx, orgID uuid.UUID, amount int64) error {
+func deductBalance(ctx context.Context, tx pgx.Tx, accountID uuid.UUID, amount int64) error {
 	tag, err := tx.Exec(ctx,
 		`UPDATE credits SET balance = balance - $1, updated_at = now()
-		 WHERE org_id = $2 AND balance >= $1`,
-		amount, orgID,
+		 WHERE account_id = $2 AND balance >= $1`,
+		amount, accountID,
 	)
 	if err != nil {
 		return err
 	}
 	if tag.RowsAffected() == 0 {
 		_, err = tx.Exec(ctx,
-			`UPDATE credits SET balance = 0, updated_at = now() WHERE org_id = $1 AND balance > 0`,
-			orgID,
+			`UPDATE credits SET balance = 0, updated_at = now() WHERE account_id = $1 AND balance > 0`,
+			accountID,
 		)
 		if err != nil {
 			return fmt.Errorf("fallback: %w", err)
@@ -90,7 +90,7 @@ func deductBalance(ctx context.Context, tx pgx.Tx, orgID uuid.UUID, amount int64
 	return nil
 }
 
-func insertTransaction(ctx context.Context, tx pgx.Tx, orgID uuid.UUID, amount int64, refType string, refID uuid.UUID, metadata map[string]any) error {
+func insertTransaction(ctx context.Context, tx pgx.Tx, accountID uuid.UUID, amount int64, refType string, refID uuid.UUID, metadata map[string]any) error {
 	var metaJSON []byte
 	if metadata != nil {
 		var err error
@@ -101,9 +101,9 @@ func insertTransaction(ctx context.Context, tx pgx.Tx, orgID uuid.UUID, amount i
 	}
 
 	_, err := tx.Exec(ctx,
-		`INSERT INTO credit_transactions (org_id, amount, type, reference_type, reference_id, metadata)
+		`INSERT INTO credit_transactions (account_id, amount, type, reference_type, reference_id, metadata)
 		 VALUES ($1, $2, 'consumption', $3, $4, $5)`,
-		orgID, amount, refType, refID, metaJSON,
+		accountID, amount, refType, refID, metaJSON,
 	)
 	return err
 }

@@ -21,7 +21,7 @@ type TerminalStatusUpdate struct {
 
 type Run struct {
 	ID              uuid.UUID
-	OrgID           uuid.UUID
+	AccountID           uuid.UUID
 	ThreadID        uuid.UUID
 	ProjectID       *uuid.UUID
 	ParentRunID     *uuid.UUID // nil 表示顶级 Run，非 nil 表示子 Run
@@ -66,7 +66,7 @@ func (RunsRepository) GetRun(ctx context.Context, tx pgx.Tx, runID uuid.UUID) (*
 	err := tx.QueryRow(
 		ctx,
 		`SELECT r.id,
-		        r.org_id,
+		        r.account_id,
 		        r.thread_id,
 		        t.project_id,
 		        r.parent_run_id,
@@ -78,7 +78,7 @@ func (RunsRepository) GetRun(ctx context.Context, tx pgx.Tx, runID uuid.UUID) (*
 		  WHERE r.id = $1
 		  LIMIT 1`,
 		runID,
-	).Scan(&run.ID, &run.OrgID, &run.ThreadID, &run.ProjectID, &run.ParentRunID, &run.CreatedByUserID, &run.ProfileRef, &run.WorkspaceRef)
+	).Scan(&run.ID, &run.AccountID, &run.ThreadID, &run.ProjectID, &run.ParentRunID, &run.CreatedByUserID, &run.ProfileRef, &run.WorkspaceRef)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil

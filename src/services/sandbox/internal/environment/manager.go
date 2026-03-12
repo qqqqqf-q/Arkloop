@@ -32,7 +32,7 @@ type Carrier interface {
 }
 
 type Binding struct {
-	OrgID        string
+	AccountID        string
 	ProfileRef   string
 	WorkspaceRef string
 }
@@ -99,13 +99,13 @@ func (m *Manager) Prepare(ctx context.Context, sessionID string, carrier Carrier
 			return err
 		}
 	}
-	if err := m.registry.EnsureProfileRegistry(ctx, binding.OrgID, binding.ProfileRef); err != nil {
+	if err := m.registry.EnsureProfileRegistry(ctx, binding.AccountID, binding.ProfileRef); err != nil {
 		return err
 	}
-	if err := m.registry.EnsureBrowserStateRegistry(ctx, binding.OrgID, binding.WorkspaceRef); err != nil {
+	if err := m.registry.EnsureBrowserStateRegistry(ctx, binding.AccountID, binding.WorkspaceRef); err != nil {
 		return err
 	}
-	if err := m.registry.EnsureWorkspaceRegistry(ctx, binding.OrgID, binding.WorkspaceRef); err != nil {
+	if err := m.registry.EnsureWorkspaceRegistry(ctx, binding.AccountID, binding.WorkspaceRef); err != nil {
 		return err
 	}
 
@@ -479,7 +479,7 @@ func (m *Manager) scheduleScopeLocked(sessionID, scope string, state *trackedSco
 }
 
 func normalizeBinding(binding Binding) Binding {
-	binding.OrgID = strings.TrimSpace(binding.OrgID)
+	binding.AccountID = strings.TrimSpace(binding.AccountID)
 	binding.ProfileRef = strings.TrimSpace(binding.ProfileRef)
 	binding.WorkspaceRef = strings.TrimSpace(binding.WorkspaceRef)
 	return binding

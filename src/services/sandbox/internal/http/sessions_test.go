@@ -12,9 +12,9 @@ import (
 )
 
 type stubShellService struct {
-	debugFn func(ctx context.Context, sessionID, orgID string) (*shell.DebugResponse, error)
+	debugFn func(ctx context.Context, sessionID, accountID string) (*shell.DebugResponse, error)
 	forkFn  func(ctx context.Context, req shell.ForkSessionRequest) (*shell.ForkSessionResponse, error)
-	closeFn func(ctx context.Context, sessionID, orgID string) error
+	closeFn func(ctx context.Context, sessionID, accountID string) error
 }
 
 func (s *stubShellService) ExecCommand(context.Context, shell.ExecCommandRequest) (*shell.Response, error) {
@@ -25,9 +25,9 @@ func (s *stubShellService) WriteStdin(context.Context, shell.WriteStdinRequest) 
 	return nil, nil
 }
 
-func (s *stubShellService) DebugSnapshot(ctx context.Context, sessionID, orgID string) (*shell.DebugResponse, error) {
+func (s *stubShellService) DebugSnapshot(ctx context.Context, sessionID, accountID string) (*shell.DebugResponse, error) {
 	if s.debugFn != nil {
-		return s.debugFn(ctx, sessionID, orgID)
+		return s.debugFn(ctx, sessionID, accountID)
 	}
 	return &shell.DebugResponse{SessionID: sessionID, Status: shell.StatusIdle}, nil
 }
@@ -39,20 +39,20 @@ func (s *stubShellService) ForkSession(ctx context.Context, req shell.ForkSessio
 	return &shell.ForkSessionResponse{}, nil
 }
 
-func (s *stubShellService) Close(ctx context.Context, sessionID, orgID string) error {
+func (s *stubShellService) Close(ctx context.Context, sessionID, accountID string) error {
 	if s.closeFn != nil {
-		return s.closeFn(ctx, sessionID, orgID)
+		return s.closeFn(ctx, sessionID, accountID)
 	}
 	return nil
 }
 
 func TestHandleSessionTranscript_OK(t *testing.T) {
-	handler := handleSessionTranscript(&stubShellService{debugFn: func(_ context.Context, sessionID, orgID string) (*shell.DebugResponse, error) {
+	handler := handleSessionTranscript(&stubShellService{debugFn: func(_ context.Context, sessionID, accountID string) (*shell.DebugResponse, error) {
 		if sessionID != "sess-1" {
 			t.Fatalf("unexpected session id: %s", sessionID)
 		}
-		if orgID != "org-a" {
-			t.Fatalf("unexpected org id: %s", orgID)
+		if accountID != "org-a" {
+			t.Fatalf("unexpected account id: %s", accountID)
 		}
 		code := 0
 		return &shell.DebugResponse{
@@ -70,7 +70,7 @@ func TestHandleSessionTranscript_OK(t *testing.T) {
 	}})
 
 	req := httptest.NewRequest(nethttp.MethodGet, "/v1/sessions/sess-1/transcript", nil)
-	req.Header.Set("X-Org-ID", "org-a")
+	req.Header.Set("X-Account-ID", "org-a")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -91,14 +91,14 @@ func TestHandleForkSession_OK(t *testing.T) {
 		if req.FromSessionID != "shref_a" || req.ToSessionID != "shref_b" {
 			t.Fatalf("unexpected fork request: %#v", req)
 		}
-		if req.OrgID != "org-a" {
-			t.Fatalf("unexpected org id: %s", req.OrgID)
+		if req.AccountID != "org-a" {
+			t.Fatalf("unexpected account id: %s", req.AccountID)
 		}
 		return &shell.ForkSessionResponse{RestoreRevision: "rev-1"}, nil
 	}})
 	body, _ := json.Marshal(map[string]any{"from_session_id": "shref_a", "to_session_id": "shref_b"})
 	req := httptest.NewRequest(nethttp.MethodPost, "/v1/sessions/fork", bytes.NewReader(body))
-	req.Header.Set("X-Org-ID", "org-a")
+	req.Header.Set("X-Account-ID", "org-a")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 	if rec.Code != nethttp.StatusOK {
@@ -127,9 +127,9 @@ func TestHandleSessionTranscript_NotFound(t *testing.T) {
 	}
 }
 
-func TestHandleSessionTranscript_OrgMismatch(t *testing.T) {
+func TestHandleSessionTranscript_AccountMismatch(t *testing.T) {
 	handler := handleSessionTranscript(&stubShellService{debugFn: func(_ context.Context, _, _ string) (*shell.DebugResponse, error) {
-		return nil, &shell.Error{Code: shell.CodeOrgMismatch, Message: "session belongs to another org", HTTPStatus: nethttp.StatusForbidden}
+		return nil, &shell.Error{Code: shell.CodeAccountMismatch, Message: "session belongs to another account", HTTPStatus: nethttp.StatusForbidden}
 	}})
 
 	req := httptest.NewRequest(nethttp.MethodGet, "/v1/sessions/sess-1/transcript", nil)

@@ -21,7 +21,7 @@ const (
 type ExecutionContext struct {
 	RunID               uuid.UUID
 	TraceID             string
-	OrgID               *uuid.UUID
+	AccountID               *uuid.UUID
 	ThreadID            *uuid.UUID
 	ProjectID           *uuid.UUID
 	UserID              *uuid.UUID

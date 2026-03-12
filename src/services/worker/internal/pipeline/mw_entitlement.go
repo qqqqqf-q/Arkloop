@@ -27,7 +27,7 @@ func NewEntitlementMiddleware(
 
 		now := time.Now().UTC()
 		year, month := now.Year(), int(now.Month())
-		orgID := rc.Run.OrgID
+		accountID := rc.Run.AccountID
 
 		var releaseFn func()
 		if releaseSlot != nil {
@@ -36,12 +36,12 @@ func NewEntitlementMiddleware(
 		}
 
 		// 检查 quota.runs_per_month
-		runsLimit, err := resolver.ResolveInt(ctx, orgID, "quota.runs_per_month")
+		runsLimit, err := resolver.ResolveInt(ctx, accountID, "quota.runs_per_month")
 		if err != nil {
 			return fmt.Errorf("entitlement middleware: resolve runs_per_month: %w", err)
 		}
 		if runsLimit > 0 {
-			monthlyRuns, err := resolver.CountMonthlyRuns(ctx, orgID, year, month)
+			monthlyRuns, err := resolver.CountMonthlyRuns(ctx, accountID, year, month)
 			if err != nil {
 				return fmt.Errorf("entitlement middleware: count monthly runs: %w", err)
 			}
@@ -61,12 +61,12 @@ func NewEntitlementMiddleware(
 		}
 
 		// 检查 quota.tokens_per_month
-		tokensLimit, err := resolver.ResolveInt(ctx, orgID, "quota.tokens_per_month")
+		tokensLimit, err := resolver.ResolveInt(ctx, accountID, "quota.tokens_per_month")
 		if err != nil {
 			return fmt.Errorf("entitlement middleware: resolve tokens_per_month: %w", err)
 		}
 		if tokensLimit > 0 {
-			monthlyTokens, err := resolver.SumMonthlyTokens(ctx, orgID, year, month)
+			monthlyTokens, err := resolver.SumMonthlyTokens(ctx, accountID, year, month)
 			if err != nil {
 				return fmt.Errorf("entitlement middleware: sum monthly tokens: %w", err)
 			}
@@ -86,7 +86,7 @@ func NewEntitlementMiddleware(
 		}
 
 		// 检查积分余额
-		creditBalance, err := resolver.GetCreditBalance(ctx, orgID)
+		creditBalance, err := resolver.GetCreditBalance(ctx, accountID)
 		if err != nil {
 			return fmt.Errorf("entitlement middleware: get credit balance: %w", err)
 		}

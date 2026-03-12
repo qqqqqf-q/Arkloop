@@ -41,7 +41,7 @@ func (e *LeaseLostError) Error() string {
 type JobQueue interface {
 	EnqueueRun(
 		ctx context.Context,
-		orgID uuid.UUID,
+		accountID uuid.UUID,
 		runID uuid.UUID,
 		traceID string,
 		queueJobType string,

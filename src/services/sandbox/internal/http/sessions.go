@@ -29,8 +29,11 @@ func handleSessionTranscript(shellSvc shell.Service) http.HandlerFunc {
 			return
 		}
 
-		orgID := strings.TrimSpace(r.Header.Get("X-Org-ID"))
-		resp, err := shellSvc.DebugSnapshot(r.Context(), id, orgID)
+		accountID := strings.TrimSpace(r.Header.Get("X-Account-ID"))
+		if accountID == "" {
+			accountID = strings.TrimSpace(r.Header.Get("X-Org-ID")) // backward compat
+		}
+		resp, err := shellSvc.DebugSnapshot(r.Context(), id, accountID)
 		if err != nil {
 			if shellErr, ok := err.(*shell.Error); ok {
 				writeError(w, shellErr.HTTPStatus, shellErr.Code, shellErr.Message)
@@ -54,11 +57,14 @@ func handleForkSession(shellSvc shell.Service) http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "sandbox.invalid_request", "invalid JSON body")
 			return
 		}
-		req.OrgID = strings.TrimSpace(req.OrgID)
+		req.AccountID = strings.TrimSpace(req.AccountID)
 		req.FromSessionID = strings.TrimSpace(req.FromSessionID)
 		req.ToSessionID = strings.TrimSpace(req.ToSessionID)
-		if req.OrgID == "" {
-			req.OrgID = strings.TrimSpace(r.Header.Get("X-Org-ID"))
+		if req.AccountID == "" {
+			req.AccountID = strings.TrimSpace(r.Header.Get("X-Account-ID"))
+			if req.AccountID == "" {
+				req.AccountID = strings.TrimSpace(r.Header.Get("X-Org-ID")) // backward compat
+			}
 		}
 		if req.FromSessionID == "" || req.ToSessionID == "" {
 			writeError(w, http.StatusBadRequest, "sandbox.missing_session_id", "from_session_id and to_session_id are required")
@@ -82,12 +88,15 @@ func handleDeleteSession(mgr *session.Manager, shellSvc shell.Service, logger *l
 			return
 		}
 
-		orgID := strings.TrimSpace(r.Header.Get("X-Org-ID"))
+		accountID := strings.TrimSpace(r.Header.Get("X-Account-ID"))
+		if accountID == "" {
+			accountID = strings.TrimSpace(r.Header.Get("X-Org-ID")) // backward compat
+		}
 		if shellSvc != nil {
-			if err := shellSvc.Close(r.Context(), id, orgID); err == nil {
+			if err := shellSvc.Close(r.Context(), id, accountID); err == nil {
 				w.WriteHeader(http.StatusNoContent)
 				return
-			} else if shellErr, ok := err.(*shell.Error); ok && shellErr.Code == shell.CodeOrgMismatch {
+			} else if shellErr, ok := err.(*shell.Error); ok && shellErr.Code == shell.CodeAccountMismatch {
 				writeError(w, http.StatusForbidden, shellErr.Code, shellErr.Message)
 				return
 			} else if shellErr, ok := err.(*shell.Error); ok && shellErr.Code != shell.CodeSessionNotFound {
@@ -96,9 +105,9 @@ func handleDeleteSession(mgr *session.Manager, shellSvc shell.Service, logger *l
 			}
 		}
 
-		if err := mgr.Delete(r.Context(), id, orgID); err != nil {
-			if strings.Contains(err.Error(), "org mismatch") {
-				writeError(w, http.StatusForbidden, "sandbox.org_mismatch", "session belongs to another org")
+		if err := mgr.Delete(r.Context(), id, accountID); err != nil {
+			if strings.Contains(err.Error(), "account mismatch") {
+				writeError(w, http.StatusForbidden, "sandbox.account_mismatch", "session belongs to another account")
 				return
 			}
 			logger.Warn("delete session not found", logging.LogFields{SessionID: &id}, nil)

@@ -9,44 +9,44 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type OrgMembershipRecord struct {
-	OrgID  uuid.UUID
+type AccountMembershipRecord struct {
+	AccountID  uuid.UUID
 	UserID uuid.UUID
 	Role   string
 }
 
-type OrgMembershipsRepository struct{}
+type AccountMembershipsRepository struct{}
 
-func (OrgMembershipsRepository) GetByOrgAndUser(
+func (AccountMembershipsRepository) GetByAccountAndUser(
 	ctx context.Context,
 	pool *pgxpool.Pool,
-	orgID uuid.UUID,
+	accountID uuid.UUID,
 	userID uuid.UUID,
-) (*OrgMembershipRecord, error) {
+) (*AccountMembershipRecord, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	if pool == nil {
 		return nil, errors.New("pool must not be nil")
 	}
-	if orgID == uuid.Nil {
-		return nil, errors.New("org_id must not be empty")
+	if accountID == uuid.Nil {
+		return nil, errors.New("account_id must not be empty")
 	}
 	if userID == uuid.Nil {
 		return nil, errors.New("user_id must not be empty")
 	}
 
-	var record OrgMembershipRecord
+	var record AccountMembershipRecord
 	err := pool.QueryRow(
 		ctx,
-		`SELECT org_id, user_id, role
-		   FROM org_memberships
-		  WHERE org_id = $1
+		`SELECT account_id, user_id, role
+		   FROM account_memberships
+		  WHERE account_id = $1
 		    AND user_id = $2
 		  LIMIT 1`,
-		orgID,
+		accountID,
 		userID,
-	).Scan(&record.OrgID, &record.UserID, &record.Role)
+	).Scan(&record.AccountID, &record.UserID, &record.Role)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil

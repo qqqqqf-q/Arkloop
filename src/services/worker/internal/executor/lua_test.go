@@ -351,7 +351,7 @@ func buildLuaRC(gateway llm.Gateway) *pipeline.RunContext {
 	rc := &pipeline.RunContext{
 		Run: data.Run{
 			ID:       uuid.New(),
-			OrgID:    uuid.New(),
+			AccountID:    uuid.New(),
 			ThreadID: uuid.New(),
 		},
 		TraceID:                "lua-test-trace",

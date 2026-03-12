@@ -32,7 +32,7 @@ func TestMemorySnapshotRepository_AppendMemoryLine_Concurrent(t *testing.T) {
 	defer pool.Close()
 
 	repo := MemorySnapshotRepository{}
-	orgID := uuid.New()
+	accountID := uuid.New()
 	userID := uuid.New()
 	agentID := "test-agent"
 	lines := []string{"alpha", "beta", "gamma", "delta"}
@@ -43,14 +43,14 @@ func TestMemorySnapshotRepository_AppendMemoryLine_Concurrent(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if err := repo.AppendMemoryLine(ctx, pool, orgID, userID, agentID, line); err != nil {
+			if err := repo.AppendMemoryLine(ctx, pool, accountID, userID, agentID, line); err != nil {
 				t.Errorf("append %q failed: %v", line, err)
 			}
 		}()
 	}
 	wg.Wait()
 
-	block, found, err := repo.Get(ctx, pool, orgID, userID, agentID)
+	block, found, err := repo.Get(ctx, pool, accountID, userID, agentID)
 	if err != nil {
 		t.Fatalf("get snapshot failed: %v", err)
 	}

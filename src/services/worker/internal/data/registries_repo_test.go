@@ -19,12 +19,12 @@ func TestProfileRegistriesRepository_GetOrCreateAndTransitions(t *testing.T) {
 	}
 	defer pool.Close()
 
-	orgID := uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+	accountID := uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
 	ownerUserID := uuid.MustParse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
 	repo := ProfileRegistriesRepository{}
 	record, err := repo.GetOrCreate(context.Background(), pool, RegistryRecord{
 		Ref:                 "pref_test",
-		OrgID:               orgID,
+		AccountID:               accountID,
 		OwnerUserID:         &ownerUserID,
 		DefaultWorkspaceRef: stringPtr("wsref_test"),
 		MetadataJSON:        map[string]any{"source": "test"},
@@ -42,7 +42,7 @@ func TestProfileRegistriesRepository_GetOrCreateAndTransitions(t *testing.T) {
 		t.Fatalf("unexpected default_workspace_ref: %#v", record.DefaultWorkspaceRef)
 	}
 
-	record2, err := repo.GetOrCreate(context.Background(), pool, RegistryRecord{Ref: "pref_test", OrgID: orgID})
+	record2, err := repo.GetOrCreate(context.Background(), pool, RegistryRecord{Ref: "pref_test", AccountID: accountID})
 	if err != nil {
 		t.Fatalf("get or create twice: %v", err)
 	}
@@ -95,9 +95,9 @@ func TestWorkspaceRegistriesRepository_FlushLeaseCAS(t *testing.T) {
 	}
 	defer pool.Close()
 
-	orgID := uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+	accountID := uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
 	repo := WorkspaceRegistriesRepository{}
-	if _, err := repo.GetOrCreate(context.Background(), pool, RegistryRecord{Ref: "wsref_test", OrgID: orgID}); err != nil {
+	if _, err := repo.GetOrCreate(context.Background(), pool, RegistryRecord{Ref: "wsref_test", AccountID: accountID}); err != nil {
 		t.Fatalf("get or create: %v", err)
 	}
 	if err := repo.MarkFlushPending(context.Background(), pool, "wsref_test"); err != nil {
@@ -149,13 +149,13 @@ func TestWorkspaceRegistriesRepository_UpsertTouch(t *testing.T) {
 	}
 	defer pool.Close()
 
-	orgID := uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+	accountID := uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
 	ownerUserID := uuid.MustParse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
 	projectID := uuid.MustParse("cccccccc-cccc-cccc-cccc-cccccccccccc")
 	repo := WorkspaceRegistriesRepository{}
 	if err := repo.UpsertTouch(context.Background(), pool, RegistryRecord{
 		Ref:                    "wsref_test",
-		OrgID:                  orgID,
+		AccountID:                  accountID,
 		OwnerUserID:            &ownerUserID,
 		ProjectID:              &projectID,
 		DefaultShellSessionRef: stringPtr("shref_test"),
@@ -167,7 +167,7 @@ func TestWorkspaceRegistriesRepository_UpsertTouch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	if record.Ref != "wsref_test" || record.OrgID != orgID {
+	if record.Ref != "wsref_test" || record.AccountID != accountID {
 		t.Fatalf("unexpected record: %#v", record)
 	}
 	if record.OwnerUserID == nil || *record.OwnerUserID != ownerUserID {

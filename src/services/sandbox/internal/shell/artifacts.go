@@ -76,8 +76,8 @@ func collectArtifacts(
 			continue
 		}
 
-		key := artifactObjectKey(sn.OrgID, sessionID, commandSeq, safeName)
-		metadata := objectstore.ArtifactMetadata(objectstore.ArtifactOwnerKindRun, resolveArtifactOwnerRunID(sessionID), sn.OrgID, nil)
+		key := artifactObjectKey(sn.AccountID, sessionID, commandSeq, safeName)
+		metadata := objectstore.ArtifactMetadata(objectstore.ArtifactOwnerKindRun, resolveArtifactOwnerRunID(sessionID), sn.AccountID, nil)
 		if err := store.PutObject(ctx, key, data, objectstore.PutOptions{ContentType: entry.MimeType, Metadata: metadata}); err != nil {
 			logger.Warn("upload shell artifact failed", logging.LogFields{SessionID: &sessionID}, map[string]any{"key": key, "error": err.Error()})
 			retryableFailure = true
@@ -104,8 +104,8 @@ func collectArtifacts(
 	}
 }
 
-func artifactObjectKey(orgID, sessionID string, commandSeq int64, filename string) string {
-	return fmt.Sprintf("%s/%s/%d/%s", orgID, sessionID, commandSeq, filename)
+func artifactObjectKey(accountID, sessionID string, commandSeq int64, filename string) string {
+	return fmt.Sprintf("%s/%s/%d/%s", accountID, sessionID, commandSeq, filename)
 }
 
 func newArtifactVersion(data []byte, mimeType string) artifactVersion {

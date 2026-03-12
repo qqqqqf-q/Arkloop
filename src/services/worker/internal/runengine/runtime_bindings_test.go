@@ -19,7 +19,7 @@ func TestResolveAndPersistEnvironmentBindings_ProjectScopedPerProfile(t *testing
 	}
 	t.Cleanup(pool.Close)
 
-	orgID := uuid.New()
+	accountID := uuid.New()
 	projectID := uuid.New()
 	userA := uuid.New()
 	userB := uuid.New()
@@ -30,13 +30,13 @@ func TestResolveAndPersistEnvironmentBindings_ProjectScopedPerProfile(t *testing
 	runA2 := uuid.New()
 	runB := uuid.New()
 
-	seedThreadAndRun(t, pool, orgID, threadA1, &projectID, &userA, runA1)
-	seedThreadAndRun(t, pool, orgID, threadA2, &projectID, &userA, runA2)
-	seedThreadAndRun(t, pool, orgID, threadB, &projectID, &userB, runB)
+	seedThreadAndRun(t, pool, accountID, threadA1, &projectID, &userA, runA1)
+	seedThreadAndRun(t, pool, accountID, threadA2, &projectID, &userA, runA2)
+	seedThreadAndRun(t, pool, accountID, threadB, &projectID, &userB, runB)
 
 	first, err := resolveAndPersistEnvironmentBindings(context.Background(), pool, data.Run{
 		ID:              runA1,
-		OrgID:           orgID,
+		AccountID:           accountID,
 		ThreadID:        threadA1,
 		ProjectID:       &projectID,
 		CreatedByUserID: &userA,
@@ -46,7 +46,7 @@ func TestResolveAndPersistEnvironmentBindings_ProjectScopedPerProfile(t *testing
 	}
 	second, err := resolveAndPersistEnvironmentBindings(context.Background(), pool, data.Run{
 		ID:              runA2,
-		OrgID:           orgID,
+		AccountID:           accountID,
 		ThreadID:        threadA2,
 		ProjectID:       &projectID,
 		CreatedByUserID: &userA,
@@ -56,7 +56,7 @@ func TestResolveAndPersistEnvironmentBindings_ProjectScopedPerProfile(t *testing
 	}
 	third, err := resolveAndPersistEnvironmentBindings(context.Background(), pool, data.Run{
 		ID:              runB,
-		OrgID:           orgID,
+		AccountID:           accountID,
 		ThreadID:        threadB,
 		ProjectID:       &projectID,
 		CreatedByUserID: &userB,
@@ -111,18 +111,18 @@ func TestResolveAndPersistEnvironmentBindings_ThreadFallback(t *testing.T) {
 	}
 	t.Cleanup(pool.Close)
 
-	orgID := uuid.New()
+	accountID := uuid.New()
 	userID := uuid.New()
 	threadID := uuid.New()
 	runID1 := uuid.New()
 	runID2 := uuid.New()
 
-	seedThreadAndRun(t, pool, orgID, threadID, nil, &userID, runID1)
-	seedRunOnly(t, pool, orgID, threadID, &userID, runID2)
+	seedThreadAndRun(t, pool, accountID, threadID, nil, &userID, runID1)
+	seedRunOnly(t, pool, accountID, threadID, &userID, runID2)
 
 	first, err := resolveAndPersistEnvironmentBindings(context.Background(), pool, data.Run{
 		ID:              runID1,
-		OrgID:           orgID,
+		AccountID:           accountID,
 		ThreadID:        threadID,
 		CreatedByUserID: &userID,
 	})
@@ -131,7 +131,7 @@ func TestResolveAndPersistEnvironmentBindings_ThreadFallback(t *testing.T) {
 	}
 	second, err := resolveAndPersistEnvironmentBindings(context.Background(), pool, data.Run{
 		ID:              runID2,
-		OrgID:           orgID,
+		AccountID:           accountID,
 		ThreadID:        threadID,
 		CreatedByUserID: &userID,
 	})
@@ -152,19 +152,19 @@ func TestResolveAndPersistEnvironmentBindings_NewThreadInheritsWorkspaceSkills(t
 	}
 	t.Cleanup(pool.Close)
 
-	orgID := uuid.New()
+	accountID := uuid.New()
 	userID := uuid.New()
 	threadID1 := uuid.New()
 	threadID2 := uuid.New()
 	runID1 := uuid.New()
 	runID2 := uuid.New()
 
-	seedThreadAndRun(t, pool, orgID, threadID1, nil, &userID, runID1)
-	seedThreadAndRun(t, pool, orgID, threadID2, nil, &userID, runID2)
+	seedThreadAndRun(t, pool, accountID, threadID1, nil, &userID, runID1)
+	seedThreadAndRun(t, pool, accountID, threadID2, nil, &userID, runID2)
 
 	first, err := resolveAndPersistEnvironmentBindings(context.Background(), pool, data.Run{
 		ID:              runID1,
-		OrgID:           orgID,
+		AccountID:           accountID,
 		ThreadID:        threadID1,
 		CreatedByUserID: &userID,
 	})
@@ -173,10 +173,10 @@ func TestResolveAndPersistEnvironmentBindings_NewThreadInheritsWorkspaceSkills(t
 	}
 	if _, err := pool.Exec(
 		context.Background(),
-		`INSERT INTO workspace_skill_enablements (workspace_ref, org_id, enabled_by_user_id, skill_key, version)
+		`INSERT INTO workspace_skill_enablements (workspace_ref, account_id, enabled_by_user_id, skill_key, version)
 		 VALUES ($1, $2, $3, 'deep-research', '1.0.0')`,
 		derefString(first.WorkspaceRef),
-		orgID,
+		accountID,
 		userID,
 	); err != nil {
 		t.Fatalf("seed workspace skill enablement: %v", err)
@@ -184,7 +184,7 @@ func TestResolveAndPersistEnvironmentBindings_NewThreadInheritsWorkspaceSkills(t
 
 	second, err := resolveAndPersistEnvironmentBindings(context.Background(), pool, data.Run{
 		ID:              runID2,
-		OrgID:           orgID,
+		AccountID:           accountID,
 		ThreadID:        threadID2,
 		CreatedByUserID: &userID,
 	})
@@ -221,31 +221,31 @@ func TestResolveAndPersistEnvironmentBindings_NewThreadInheritsWorkspaceSkills(t
 	}
 }
 
-func seedThreadAndRun(t *testing.T, pool *pgxpool.Pool, orgID, threadID uuid.UUID, projectID, userID *uuid.UUID, runID uuid.UUID) {
+func seedThreadAndRun(t *testing.T, pool *pgxpool.Pool, accountID, threadID uuid.UUID, projectID, userID *uuid.UUID, runID uuid.UUID) {
 	t.Helper()
 	_, err := pool.Exec(
 		context.Background(),
-		`INSERT INTO threads (id, org_id, created_by_user_id, project_id)
+		`INSERT INTO threads (id, account_id, created_by_user_id, project_id)
 		 VALUES ($1, $2, $3, $4)`,
 		threadID,
-		orgID,
+		accountID,
 		userID,
 		projectID,
 	)
 	if err != nil {
 		t.Fatalf("insert thread failed: %v", err)
 	}
-	seedRunOnly(t, pool, orgID, threadID, userID, runID)
+	seedRunOnly(t, pool, accountID, threadID, userID, runID)
 }
 
-func seedRunOnly(t *testing.T, pool *pgxpool.Pool, orgID, threadID uuid.UUID, userID *uuid.UUID, runID uuid.UUID) {
+func seedRunOnly(t *testing.T, pool *pgxpool.Pool, accountID, threadID uuid.UUID, userID *uuid.UUID, runID uuid.UUID) {
 	t.Helper()
 	_, err := pool.Exec(
 		context.Background(),
-		`INSERT INTO runs (id, org_id, thread_id, created_by_user_id, status)
+		`INSERT INTO runs (id, account_id, thread_id, created_by_user_id, status)
 		 VALUES ($1, $2, $3, $4, 'running')`,
 		runID,
-		orgID,
+		accountID,
 		threadID,
 		userID,
 	)

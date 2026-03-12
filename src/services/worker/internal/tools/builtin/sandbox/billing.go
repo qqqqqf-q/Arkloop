@@ -112,13 +112,13 @@ func (b *BillingExecutor) Execute(
 ) tools.ExecutionResult {
 	result := b.inner.Execute(ctx, toolName, args, execCtx, toolCallID)
 
-	if execCtx.OrgID == nil {
+	if execCtx.AccountID == nil {
 		return result
 	}
 
 	policy := creditpolicy.DefaultPolicy
 	if b.resolver != nil {
-		if p, err := b.resolver.ResolveDeductionPolicy(ctx, *execCtx.OrgID); err == nil {
+		if p, err := b.resolver.ResolveDeductionPolicy(ctx, *execCtx.AccountID); err == nil {
 			policy = p
 		}
 	}
@@ -136,10 +136,10 @@ func (b *BillingExecutor) Execute(
 		return result
 	}
 
-	err := b.creditsRepo.DeductStandalone(ctx, b.pool, *execCtx.OrgID, credits, execCtx.RunID, "sandbox", meta)
+	err := b.creditsRepo.DeductStandalone(ctx, b.pool, *execCtx.AccountID, credits, execCtx.RunID, "sandbox", meta)
 	if err != nil {
 		slog.WarnContext(ctx, "sandbox billing: deduct failed",
-			"org_id", execCtx.OrgID,
+			"account_id", execCtx.AccountID,
 			"run_id", execCtx.RunID,
 			"credits", credits,
 			"error", err,

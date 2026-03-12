@@ -17,7 +17,7 @@ func buildMinimalRC(gateway llm.Gateway, systemPrompt string, agentConfig *pipel
 	return &pipeline.RunContext{
 		Run: data.Run{
 			ID:       uuid.New(),
-			OrgID:    uuid.New(),
+			AccountID:    uuid.New(),
 			ThreadID: uuid.New(),
 		},
 		TraceID:      "test-trace",

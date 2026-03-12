@@ -58,7 +58,7 @@ func TestToolProviderMiddlewareInjectsActiveProvider(t *testing.T) {
 	encrypted := encryptGCM(t, keyBytes, apiKey)
 
 	if _, err := pool.Exec(context.Background(), `
-		INSERT INTO secrets (id, org_id, scope, encrypted_value, key_version)
+		INSERT INTO secrets (id, account_id, scope, encrypted_value, key_version)
 		VALUES ($1, $2, 'org', $3, 1)
 	`, secretID, projectID, encrypted); err != nil {
 		t.Fatalf("insert secret: %v", err)
@@ -77,7 +77,7 @@ func TestToolProviderMiddlewareInjectsActiveProvider(t *testing.T) {
 	rc := &pipeline.RunContext{
 		Run: data.Run{
 			ID:        uuid.New(),
-			OrgID:     uuid.New(),
+			AccountID:     uuid.New(),
 			ProjectID: &projectID,
 			ThreadID:  uuid.New(),
 		},

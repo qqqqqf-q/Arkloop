@@ -8,7 +8,7 @@ import (
 
 // MemoryIdentity 标识一次 memory 操作的调用方身份，用于多租户隔离。
 type MemoryIdentity struct {
-	OrgID   uuid.UUID
+	AccountID   uuid.UUID
 	UserID  uuid.UUID
 	AgentID string // 默认取 PersonaDefinition.ID，字符集 [a-zA-Z0-9_-]
 }

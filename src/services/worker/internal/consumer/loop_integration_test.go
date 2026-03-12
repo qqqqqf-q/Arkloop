@@ -18,13 +18,13 @@ import (
 func TestLoopDedupesDuplicateRunJobsViaAdvisoryLock(t *testing.T) {
 	fixture := newIntegrationFixture(t)
 
-	orgID := uuid.New()
+	accountID := uuid.New()
 	runID := uuid.New()
 	traceID := "0123456789abcdef0123456789abcdef"
 
 	if _, err := fixture.queue.EnqueueRun(
 		context.Background(),
-		orgID,
+		accountID,
 		runID,
 		traceID,
 		queue.RunExecuteJobType,
@@ -35,7 +35,7 @@ func TestLoopDedupesDuplicateRunJobsViaAdvisoryLock(t *testing.T) {
 	}
 	if _, err := fixture.queue.EnqueueRun(
 		context.Background(),
-		orgID,
+		accountID,
 		runID,
 		traceID,
 		queue.RunExecuteJobType,
@@ -118,13 +118,13 @@ func TestLoopDedupesDuplicateRunJobsViaAdvisoryLock(t *testing.T) {
 func TestLoopNacksWhenHeartbeatFailsRepeatedly(t *testing.T) {
 	fixture := newIntegrationFixture(t)
 
-	orgID := uuid.New()
+	accountID := uuid.New()
 	runID := uuid.New()
 	traceID := "0123456789abcdef0123456789abcdef"
 
 	jobID, err := fixture.queue.EnqueueRun(
 		context.Background(),
-		orgID,
+		accountID,
 		runID,
 		traceID,
 		queue.RunExecuteJobType,
@@ -238,14 +238,14 @@ type flakyHeartbeatQueue struct {
 
 func (q *flakyHeartbeatQueue) EnqueueRun(
 	ctx context.Context,
-	orgID uuid.UUID,
+	accountID uuid.UUID,
 	runID uuid.UUID,
 	traceID string,
 	queueJobType string,
 	payload map[string]any,
 	availableAt *time.Time,
 ) (uuid.UUID, error) {
-	return q.base.EnqueueRun(ctx, orgID, runID, traceID, queueJobType, payload, availableAt)
+	return q.base.EnqueueRun(ctx, accountID, runID, traceID, queueJobType, payload, availableAt)
 }
 
 func (q *flakyHeartbeatQueue) Lease(ctx context.Context, leaseSeconds int, jobTypes []string) (*queue.JobLease, error) {

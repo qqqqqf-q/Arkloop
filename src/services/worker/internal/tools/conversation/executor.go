@@ -26,7 +26,7 @@ const (
 )
 
 type searchRepository interface {
-	SearchVisibleByOwner(ctx context.Context, pool *pgxpool.Pool, orgID uuid.UUID, ownerUserID uuid.UUID, query string, limit int) ([]data.ConversationSearchHit, error)
+	SearchVisibleByOwner(ctx context.Context, pool *pgxpool.Pool, accountID uuid.UUID, ownerUserID uuid.UUID, query string, limit int) ([]data.ConversationSearchHit, error)
 }
 
 type ToolExecutor struct {
@@ -43,8 +43,8 @@ func NewToolExecutor(pool *pgxpool.Pool, repo searchRepository) *ToolExecutor {
 
 func (e *ToolExecutor) Execute(ctx context.Context, _ string, args map[string]any, execCtx tools.ExecutionContext, _ string) tools.ExecutionResult {
 	started := time.Now()
-	if execCtx.OrgID == nil || execCtx.UserID == nil {
-		return executionError(errorIdentityMissing, "org_id and user_id are required", started)
+	if execCtx.AccountID == nil || execCtx.UserID == nil {
+		return executionError(errorIdentityMissing, "account_id and user_id are required", started)
 	}
 	query, ok := args["query"].(string)
 	if !ok || strings.TrimSpace(query) == "" {
@@ -58,7 +58,7 @@ func (e *ToolExecutor) Execute(ctx context.Context, _ string, args map[string]an
 	}
 
 	limit := parseLimit(args, defaultLimit)
-	hits, err := e.repo.SearchVisibleByOwner(ctx, e.pool, *execCtx.OrgID, *execCtx.UserID, query, limit)
+	hits, err := e.repo.SearchVisibleByOwner(ctx, e.pool, *execCtx.AccountID, *execCtx.UserID, query, limit)
 	if err != nil {
 		return executionError(errorSearchFailed, fmt.Sprintf("conversation search failed: %s", err.Error()), started)
 	}

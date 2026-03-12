@@ -49,7 +49,7 @@ func NewMemoryMiddleware(provider memory.MemoryProvider, pool *pgxpool.Pool, con
 		}
 
 		ident := memory.MemoryIdentity{
-			OrgID:   rc.Run.OrgID,
+			AccountID:   rc.Run.AccountID,
 			UserID:  *rc.UserID,
 			AgentID: agentID,
 		}
@@ -74,13 +74,13 @@ func flushPendingWritesAfterRun(ctx context.Context, provider memory.MemoryProvi
 		return
 	}
 	costPerWrite := resolveCommitCost(ctx, configResolver)
-	go flushPendingWrites(pending, provider, pool, rc.Run.OrgID, rc.Run.ID, costPerWrite)
+	go flushPendingWrites(pending, provider, pool, rc.Run.AccountID, rc.Run.ID, costPerWrite)
 }
 
 // injectFromCacheOrFind 优先从 PG 快照读取记忆，缓存缺失时降级到 OpenViking Find。
 func injectFromCacheOrFind(ctx context.Context, rc *RunContext, provider memory.MemoryProvider, pool *pgxpool.Pool, ident memory.MemoryIdentity, query string) {
 	if pool != nil {
-		block, found, err := snapshotRepo.Get(ctx, pool, ident.OrgID, ident.UserID, ident.AgentID)
+		block, found, err := snapshotRepo.Get(ctx, pool, ident.AccountID, ident.UserID, ident.AgentID)
 		if err != nil {
 			slog.WarnContext(ctx, "memory: snapshot read failed, falling back to find", "err", err.Error())
 		} else if found && strings.TrimSpace(block) != "" {
@@ -99,7 +99,7 @@ func injectFromCacheOrFind(ctx context.Context, rc *RunContext, provider memory.
 				// goroutine 超出请求生命周期，需要独立 context
 				uCtx, uCancel := context.WithTimeout(context.Background(), 5*time.Second)
 				defer uCancel()
-				_ = snapshotRepo.UpsertWithHits(uCtx, pool, ident.OrgID, ident.UserID, ident.AgentID, block, hitsToCache(hits))
+				_ = snapshotRepo.UpsertWithHits(uCtx, pool, ident.AccountID, ident.UserID, ident.AgentID, block, hitsToCache(hits))
 			}()
 		}
 	}
@@ -166,7 +166,7 @@ func buildMemoryBlock(lines []string) string {
 	return block
 }
 
-func flushPendingWrites(pending []memory.PendingWrite, provider memory.MemoryProvider, pool *pgxpool.Pool, orgID, runID uuid.UUID, costPerWrite float64) {
+func flushPendingWrites(pending []memory.PendingWrite, provider memory.MemoryProvider, pool *pgxpool.Pool, accountID, runID uuid.UUID, costPerWrite float64) {
 	// 由 goroutine 调用，超出请求生命周期，需要独立 context
 	ctx, cancel := context.WithTimeout(context.Background(), memoryFlushTimeout)
 	defer cancel()
@@ -176,7 +176,7 @@ func flushPendingWrites(pending []memory.PendingWrite, provider memory.MemoryPro
 	for _, pendingWrite := range pending {
 		if err := provider.Write(ctx, pendingWrite.Ident, pendingWrite.Scope, pendingWrite.Entry); err != nil {
 			slog.Warn("memory: deferred write failed",
-				"org_id", pendingWrite.Ident.OrgID.String(),
+				"account_id", pendingWrite.Ident.AccountID.String(),
 				"user_id", pendingWrite.Ident.UserID.String(),
 				"agent_id", pendingWrite.Ident.AgentID,
 				"scope", string(pendingWrite.Scope),
@@ -197,9 +197,9 @@ func flushPendingWrites(pending []memory.PendingWrite, provider memory.MemoryPro
 	if pool != nil {
 		ident := pending[0].Ident
 		if block, hits, ok := rebuildSnapshotBlock(ctx, provider, ident, successfulQueries); ok {
-			if err := snapshotRepo.UpsertWithHits(ctx, pool, ident.OrgID, ident.UserID, ident.AgentID, block, hitsToCache(hits)); err != nil {
+			if err := snapshotRepo.UpsertWithHits(ctx, pool, ident.AccountID, ident.UserID, ident.AgentID, block, hitsToCache(hits)); err != nil {
 				slog.Warn("memory: snapshot rebuild upsert failed",
-					"org_id", ident.OrgID.String(),
+					"account_id", ident.AccountID.String(),
 					"user_id", ident.UserID.String(),
 					"agent_id", ident.AgentID,
 					"err", err.Error(),
@@ -212,7 +212,7 @@ func flushPendingWrites(pending []memory.PendingWrite, provider memory.MemoryPro
 		totalCost := costPerWrite * float64(successCount)
 		uCtx, uCancel := context.WithTimeout(ctx, 5*time.Second)
 		defer uCancel()
-		if err := usageRepo.InsertMemoryUsage(uCtx, pool, orgID, runID, totalCost); err != nil {
+		if err := usageRepo.InsertMemoryUsage(uCtx, pool, accountID, runID, totalCost); err != nil {
 			slog.Warn("memory: usage record insert failed",
 				"run_id", runID.String(),
 				"err", err.Error(),
@@ -237,7 +237,7 @@ func rebuildSnapshotBlock(ctx context.Context, provider memory.MemoryProvider, i
 		cancel()
 		if err != nil {
 			slog.Warn("memory: snapshot rebuild find failed",
-				"org_id", ident.OrgID.String(),
+				"account_id", ident.AccountID.String(),
 				"user_id", ident.UserID.String(),
 				"agent_id", ident.AgentID,
 				"scope", string(scope),
