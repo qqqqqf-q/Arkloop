@@ -11,6 +11,7 @@ import (
 	"arkloop/services/shared/database"
 	"arkloop/services/shared/database/pgadapter"
 	sharedent "arkloop/services/shared/entitlement"
+	"arkloop/services/shared/eventbus"
 	"arkloop/services/shared/runlimit"
 	sharedtoolruntime "arkloop/services/shared/toolruntime"
 	"arkloop/services/worker/internal/data"
@@ -37,6 +38,7 @@ type EngineV1 struct {
 	router                *routing.ProviderRouter
 	directPool            *pgxpool.Pool
 	broadcastRDB          *redis.Client
+	eventBus              eventbus.EventBus
 	jobQueue              queue.JobQueue
 	executorRegistry      pipeline.AgentExecutorBuilder
 	runtimeManager        *workerruntime.Manager
@@ -58,6 +60,7 @@ type EngineV1Deps struct {
 	StubGateway     llm.Gateway
 	EmitDebugEvents bool
 	RunLimiterRDB   *redis.Client
+	EventBus        eventbus.EventBus
 
 	ConfigResolver sharedconfig.Resolver
 
@@ -162,7 +165,7 @@ func NewEngineV1(deps EngineV1Deps) (*EngineV1, error) {
 	}
 
 	middlewares := []pipeline.RunMiddleware{
-		pipeline.NewCancelGuardMiddleware(runsRepo, eventsRepo, deps.RunControlHub),
+		pipeline.NewCancelGuardMiddleware(runsRepo, eventsRepo, deps.RunControlHub, deps.EventBus),
 		pipeline.NewInputLoaderMiddleware(eventsRepo, messagesRepo, deps.MessageAttachmentStore),
 		pipeline.NewEntitlementMiddleware(resolver, runsRepo, eventsRepo, releaseSlot),
 		pipeline.NewMCPDiscoveryMiddleware(
@@ -179,12 +182,12 @@ func NewEngineV1(deps EngineV1Deps) (*EngineV1, error) {
 		pipeline.NewSkillContextMiddleware(db, nil),
 		pipeline.NewMemoryMiddleware(nil, db, deps.ConfigResolver),
 		pipeline.NewRoutingMiddleware(deps.Router, deps.RoutingConfigLoader, deps.StubGateway, deps.EmitDebugEvents, runsRepo, eventsRepo, releaseSlot, resolver),
-		pipeline.NewTitleSummarizerMiddleware(deps.DBPool, deps.RunLimiterRDB, deps.StubGateway, deps.EmitDebugEvents, deps.RoutingConfigLoader),
+		pipeline.NewTitleSummarizerMiddleware(deps.DBPool, deps.EventBus, deps.StubGateway, deps.EmitDebugEvents, deps.RoutingConfigLoader),
 		pipeline.NewToolDescriptionOverrideMiddleware(deps.ToolDescriptionOverridesRepo),
 		pipeline.NewToolBuildMiddleware(),
 	}
 
-	terminal := pipeline.NewAgentLoopHandler(runsRepo, eventsRepo, messagesRepo, deps.RunLimiterRDB, usageRepo, creditsRepo, resolver)
+	terminal := pipeline.NewAgentLoopHandler(runsRepo, eventsRepo, messagesRepo, deps.RunLimiterRDB, deps.EventBus, usageRepo, creditsRepo, resolver)
 
 	return &EngineV1{
 		middlewares:           middlewares,
@@ -192,6 +195,7 @@ func NewEngineV1(deps EngineV1Deps) (*EngineV1, error) {
 		router:                deps.Router,
 		directPool:            deps.DirectDBPool,
 		broadcastRDB:          deps.RunLimiterRDB,
+		eventBus:              deps.EventBus,
 		jobQueue:              deps.JobQueue,
 		executorRegistry:      deps.ExecutorRegistry,
 		runtimeManager:        deps.RuntimeManager,
@@ -236,6 +240,7 @@ func (e *EngineV1) Execute(ctx context.Context, pool *pgxpool.Pool, run data.Run
 		Pool:                pool,
 		DirectPool:          directPool,
 		BroadcastRDB:        e.broadcastRDB,
+		EventBus:            e.eventBus,
 		TraceID:             traceID,
 		Emitter:             events.NewEmitter(traceID),
 		Router:              e.router,
@@ -266,8 +271,8 @@ func (e *EngineV1) Execute(ctx context.Context, pool *pgxpool.Pool, run data.Run
 		rc.MemoryProvider = e.memoryProviderFactory.Resolve(runtimeSnapshot)
 	}
 
-	if e.jobQueue != nil && e.broadcastRDB != nil {
-		rc.SpawnChildRun = newSpawnChildRunFunc(pool, e.broadcastRDB, e.jobQueue, run, traceID)
+	if e.jobQueue != nil && e.eventBus != nil {
+		rc.SpawnChildRun = newSpawnChildRunFunc(pool, e.eventBus, e.jobQueue, run, traceID)
 	}
 
 	handler := pipeline.Build(e.middlewares, e.terminal)

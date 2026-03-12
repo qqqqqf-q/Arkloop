@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"arkloop/services/shared/database"
+	"arkloop/services/shared/eventbus"
 	"arkloop/services/shared/skillstore"
 	sharedtoolruntime "arkloop/services/shared/toolruntime"
 	"arkloop/services/worker/internal/data"
@@ -44,6 +45,7 @@ type RunContext struct {
 	Pool         *pgxpool.Pool
 	DirectPool   *pgxpool.Pool // LISTEN/NOTIFY 专用直连，不走 PgBouncer；由 Execute 保证非 nil
 	BroadcastRDB *redis.Client // 跨实例 SSE 广播，nil 时仅走 pg_notify
+	EventBus     eventbus.EventBus // EventBus 抽象，替代直接 Redis Pub/Sub
 	TraceID      string
 	Emitter      events.Emitter
 	Router       *routing.ProviderRouter

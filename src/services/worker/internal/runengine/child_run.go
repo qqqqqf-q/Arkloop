@@ -7,28 +7,28 @@ import (
 	"strings"
 	"time"
 
+	"arkloop/services/shared/eventbus"
 	"arkloop/services/worker/internal/data"
 	"arkloop/services/worker/internal/queue"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/redis/go-redis/v9"
 )
 
 // childThreadTTL 是子 Run 独立临时线程的自动过期时长。
 const childThreadTTL = 7 * 24 * time.Hour
 
-func newSpawnChildRunFunc(pool *pgxpool.Pool, rdb *redis.Client, jobQueue queue.JobQueue, parentRun data.Run, traceID string) func(ctx context.Context, personaID string, input string) (string, error) {
+func newSpawnChildRunFunc(pool *pgxpool.Pool, bus eventbus.EventBus, jobQueue queue.JobQueue, parentRun data.Run, traceID string) func(ctx context.Context, personaID string, input string) (string, error) {
 	return func(ctx context.Context, personaID string, input string) (string, error) {
-		return spawnChildRun(ctx, pool, rdb, jobQueue, parentRun, traceID, personaID, input)
+		return spawnChildRun(ctx, pool, bus, jobQueue, parentRun, traceID, personaID, input)
 	}
 }
 
 func spawnChildRun(
 	ctx context.Context,
 	pool *pgxpool.Pool,
-	rdb *redis.Client,
+	bus eventbus.EventBus,
 	jobQueue queue.JobQueue,
 	parentRun data.Run,
 	traceID string,
@@ -39,19 +39,17 @@ func spawnChildRun(
 	childChannel := fmt.Sprintf("run.child.%s.done", childRunID.String())
 
 	// 先订阅再创建子 Run，确保不会错过完成信号
-	pubsub := rdb.Subscribe(ctx, childChannel)
-	defer pubsub.Close()
-
-	// 等待 Redis 确认订阅建立后再继续，避免竞态
-	if _, err := pubsub.Receive(ctx); err != nil {
+	sub, err := bus.Subscribe(ctx, childChannel)
+	if err != nil {
 		return "", fmt.Errorf("subscribe child run channel: %w", err)
 	}
+	defer sub.Close()
 
-	if err := createAndEnqueueChildRun(ctx, pool, rdb, jobQueue, childRunID, parentRun, traceID, personaID, input); err != nil {
+	if err := createAndEnqueueChildRun(ctx, pool, bus, jobQueue, childRunID, parentRun, traceID, personaID, input); err != nil {
 		return "", fmt.Errorf("create child run: %w", err)
 	}
 
-	msgCh := pubsub.Channel()
+	msgCh := sub.Channel()
 	select {
 	case <-ctx.Done():
 		return "", ctx.Err()
@@ -65,7 +63,7 @@ func spawnChildRun(
 func createAndEnqueueChildRun(
 	ctx context.Context,
 	pool *pgxpool.Pool,
-	rdb *redis.Client,
+	bus eventbus.EventBus,
 	jobQueue queue.JobQueue,
 	childRunID uuid.UUID,
 	parentRun data.Run,
@@ -148,7 +146,7 @@ func createAndEnqueueChildRun(
 	if enqueueErr != nil {
 		// 入队失败：子 Run 已持久化但无 worker 处理。
 		// best-effort 标记为 failed 并通知父 Run，避免父 Run 永久等待 ctx 超时。
-		markChildRunFailed(context.WithoutCancel(ctx), pool, rdb, childRunID)
+		markChildRunFailed(context.WithoutCancel(ctx), pool, bus, childRunID)
 		return fmt.Errorf("enqueue child run: %w", enqueueErr)
 	}
 	return nil
@@ -156,7 +154,7 @@ func createAndEnqueueChildRun(
 
 // markChildRunFailed 在入队失败后 best-effort 将子 Run 标记为 failed 并广播通知。
 // 使用独立 context 避免调用方 ctx 已取消时操作失败。
-func markChildRunFailed(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, childRunID uuid.UUID) {
+func markChildRunFailed(ctx context.Context, pool *pgxpool.Pool, bus eventbus.EventBus, childRunID uuid.UUID) {
 	tx, err := pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return
@@ -189,9 +187,9 @@ func markChildRunFailed(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Clie
 		return
 	}
 
-	if rdb != nil {
+	if bus != nil {
 		ch := fmt.Sprintf("run.child.%s.done", childRunID.String())
-		_, _ = rdb.Publish(ctx, ch, "failed\n").Result()
+		_ = bus.Publish(ctx, ch, "failed\n")
 	}
 }
 

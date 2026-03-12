@@ -7,13 +7,13 @@ import (
 	"strings"
 	"time"
 
+	"arkloop/services/shared/eventbus"
 	sharedtoolmeta "arkloop/services/shared/toolmeta"
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/tools"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/redis/go-redis/v9"
 )
 
 const (
@@ -46,8 +46,8 @@ var LlmSpec = llm.ToolSpec{
 }
 
 type ToolExecutor struct {
-	Pool *pgxpool.Pool
-	RDB  *redis.Client
+	Pool     *pgxpool.Pool
+	EventBus eventbus.EventBus
 }
 
 func (e *ToolExecutor) Execute(
@@ -103,7 +103,7 @@ func (e *ToolExecutor) Execute(
 	}
 
 	// 通过 run_events 表推送 SSE 通知
-	emitTitleEvent(ctx, e.Pool, e.RDB, execCtx.RunID, *threadID, title)
+	emitTitleEvent(ctx, e.Pool, e.EventBus, execCtx.RunID, *threadID, title)
 
 	return tools.ExecutionResult{
 		ResultJSON: map[string]any{
@@ -116,7 +116,7 @@ func (e *ToolExecutor) Execute(
 func emitTitleEvent(
 	ctx context.Context,
 	pool *pgxpool.Pool,
-	rdb *redis.Client,
+	bus eventbus.EventBus,
 	runID uuid.UUID,
 	threadID uuid.UUID,
 	title string,
@@ -155,9 +155,9 @@ func emitTitleEvent(
 
 	pgChannel := fmt.Sprintf(`"run_events:%s"`, runID.String())
 	_, _ = pool.Exec(ctx, "SELECT pg_notify($1, $2)", pgChannel, "ping")
-	if rdb != nil {
+	if bus != nil {
 		rdbChannel := fmt.Sprintf("arkloop:sse:run_events:%s", runID.String())
-		_, _ = rdb.Publish(ctx, rdbChannel, "ping").Result()
+		_ = bus.Publish(ctx, rdbChannel, "ping")
 	}
 }
 

@@ -34,7 +34,7 @@ func NewPersonaResolutionMiddleware(
 					run := rc.Run
 					releaseFn = func() { releaseSlot(ctx, run) }
 				}
-				return appendAndCommitSingle(ctx, rc.DB, rc.Run, runsRepo, eventsRepo, failed, releaseFn, rc.BroadcastRDB)
+				return appendAndCommitSingle(ctx, rc.DB, rc.Run, runsRepo, eventsRepo, failed, releaseFn, rc.EventBus)
 			}
 			for _, def := range dbDefs {
 				runPersonaRegistry.Set(def)
@@ -63,7 +63,7 @@ func NewPersonaResolutionMiddleware(
 				run := rc.Run
 				releaseFn = func() { releaseSlot(ctx, run) }
 			}
-			return appendAndCommitSingle(ctx, rc.DB, rc.Run, runsRepo, eventsRepo, failed, releaseFn, rc.BroadcastRDB)
+			return appendAndCommitSingle(ctx, rc.DB, rc.Run, runsRepo, eventsRepo, failed, releaseFn, rc.EventBus)
 		}
 
 		rc.ToolBudget = map[string]any{}

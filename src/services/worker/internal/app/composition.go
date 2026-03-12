@@ -12,6 +12,7 @@ import (
 	"arkloop/services/shared/database"
 	"arkloop/services/shared/database/pgadapter"
 	sharedent "arkloop/services/shared/entitlement"
+	"arkloop/services/shared/eventbus"
 	"arkloop/services/shared/objectstore"
 	sharedtoolruntime "arkloop/services/shared/toolruntime"
 	"arkloop/services/worker/internal/data"
@@ -43,7 +44,7 @@ const runtimeSnapshotTTL = 5 * time.Second
 // rdb 不为 nil 时在 run 终态时 DECR 并发计数器。
 // execRegistry 为 executor 注册表，不得为 nil。
 // jobQueue 可选；非 nil 时启用 SpawnChildRun。
-func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pgxpool.Pool, rdb *redis.Client, cfg Config, execRegistry pipeline.AgentExecutorBuilder, jobQueue queue.JobQueue) (*runengine.EngineV1, error) {
+func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pgxpool.Pool, rdb *redis.Client, bus eventbus.EventBus, cfg Config, execRegistry pipeline.AgentExecutorBuilder, jobQueue queue.JobQueue) (*runengine.EngineV1, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -94,7 +95,7 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 		}
 	}
 
-	executors := builtin.Executors(pool, rdb, configResolver)
+	executors := builtin.Executors(pool, bus, configResolver)
 	allLlmSpecs := builtin.LlmSpecs()
 	allLlmSpecs = append(allLlmSpecs, sandboxtool.LlmSpecs()...)
 	allLlmSpecs = append(allLlmSpecs, sandboxtool.BrowserLlmSpec)
@@ -253,6 +254,7 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 		ExecutorRegistry:             execRegistry,
 		JobQueue:                     jobQueue,
 		RunLimiterRDB:                rdb,
+		EventBus:                     bus,
 		LlmRetryMaxAttempts:          llmRetryMaxAttempts,
 		LlmRetryBaseDelayMs:          llmRetryBaseDelayMs,
 		RuntimeManager:               runtimeManager,

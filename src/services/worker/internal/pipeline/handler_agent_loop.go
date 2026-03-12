@@ -12,6 +12,7 @@ import (
 	"arkloop/services/shared/creditpolicy"
 	"arkloop/services/shared/database"
 	sharedent "arkloop/services/shared/entitlement"
+	"arkloop/services/shared/eventbus"
 	"arkloop/services/shared/runlimit"
 	"arkloop/services/worker/internal/data"
 	"arkloop/services/worker/internal/events"
@@ -44,6 +45,7 @@ func NewAgentLoopHandler(
 	eventsRepo data.RunEventsRepository,
 	messagesRepo data.MessagesRepository,
 	runLimiterRDB *redis.Client,
+	eventBus eventbus.EventBus,
 	usageRepo data.UsageRecordsRepository,
 	creditsRepo data.CreditsRepository,
 	resolver *sharedent.Resolver,
@@ -69,7 +71,7 @@ func NewAgentLoopHandler(
 		}
 
 		writer := newEventWriter(
-			rc.DB, rc.Run, rc.TraceID, runLimiterRDB,
+			rc.DB, rc.Run, rc.TraceID, runLimiterRDB, eventBus,
 			selected.Route.Model, personaID, usageRepo, creditsRepo,
 			creditsPerUSD,
 			selected.Route.Multiplier, selected.Route.CostPer1kInput, selected.Route.CostPer1kOutput,
@@ -147,7 +149,8 @@ type eventWriter struct {
 	db            database.DB
 	run           data.Run
 	traceID       string
-	runLimiterRDB *redis.Client // 双职责：并发槽释放（runlimit.Release）+ 跨实例 SSE 广播（Publish）
+	runLimiterRDB *redis.Client // 并发槽释放（runlimit.Release）
+	eventBus      eventbus.EventBus // 跨实例 SSE 广播（Publish）
 	model         string
 	personaID     string
 	usageRepo     data.UsageRecordsRepository
@@ -185,6 +188,7 @@ func newEventWriter(
 	run data.Run,
 	traceID string,
 	runLimiterRDB *redis.Client,
+	eventBus eventbus.EventBus,
 	model string,
 	personaID string,
 	usageRepo data.UsageRecordsRepository,
@@ -209,6 +213,7 @@ func newEventWriter(
 		traceID:             strings.TrimSpace(traceID),
 		lastCommitAt:        time.Now(),
 		runLimiterRDB:       runLimiterRDB,
+		eventBus:            eventBus,
 		model:               model,
 		personaID:           strings.TrimSpace(personaID),
 		usageRepo:           usageRepo,
@@ -379,13 +384,13 @@ func (w *eventWriter) commit(ctx context.Context) error {
 	channel := fmt.Sprintf("run_events:%s", w.run.ID.String())
 	_, _ = w.db.Exec(ctx, "SELECT pg_notify($1, '')", channel)
 
-	if w.runLimiterRDB != nil {
+	if w.eventBus != nil {
 		redisChannel := fmt.Sprintf("arkloop:sse:run_events:%s", w.run.ID.String())
-		_, _ = w.runLimiterRDB.Publish(ctx, redisChannel, "").Result()
+		_ = w.eventBus.Publish(ctx, redisChannel, "")
 	}
 
 	if w.hasTerminal {
-		if w.runLimiterRDB != nil && w.terminalRunStatus != "" {
+		if w.eventBus != nil && w.terminalRunStatus != "" {
 			// 通知可能正在等待的父 Run（无父 Run 时此 publish 为空操作）
 			output := ""
 			if w.terminalRunStatus == "completed" {
@@ -394,7 +399,7 @@ func (w *eventWriter) commit(ctx context.Context) error {
 				output = truncateChildRunPayload(w.terminalMessage)
 			}
 			ch := fmt.Sprintf("run.child.%s.done", w.run.ID.String())
-			_, _ = w.runLimiterRDB.Publish(ctx, ch, w.terminalRunStatus+"\n"+output).Result()
+			_ = w.eventBus.Publish(ctx, ch, w.terminalRunStatus+"\n"+output)
 		}
 		w.hasTerminal = false
 		w.terminalMessage = ""

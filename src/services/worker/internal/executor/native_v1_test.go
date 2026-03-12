@@ -39,7 +39,7 @@ func TestNativeRunEngineV1HandlerWritesEventsAndMessage(t *testing.T) {
 		t.Fatalf("seed run failed: %v", err)
 	}
 
-	handler, err := NewNativeRunEngineV1Handler(ctx, pool, nil, nil, nil, nil, app.DefaultConfig())
+	handler, err := NewNativeRunEngineV1Handler(ctx, pool, nil, nil, nil, nil, nil, app.DefaultConfig())
 	if err != nil {
 		t.Fatalf("NewNativeRunEngineV1Handler failed: %v", err)
 	}
@@ -122,7 +122,7 @@ func TestNativeRunEngineV1HandlerCancelsWhenRequested(t *testing.T) {
 		t.Fatalf("seed cancel_requested failed: %v", err)
 	}
 
-	handler, err := NewNativeRunEngineV1Handler(ctx, pool, nil, nil, nil, nil, app.DefaultConfig())
+	handler, err := NewNativeRunEngineV1Handler(ctx, pool, nil, nil, nil, nil, nil, app.DefaultConfig())
 	if err != nil {
 		t.Fatalf("NewNativeRunEngineV1Handler failed: %v", err)
 	}
@@ -204,7 +204,7 @@ func TestNativeRunEngineV1HandlerCompletesWithTinyDirectPool(t *testing.T) {
 	cfg.MCPCacheTTLSeconds = 0
 	cfg.ToolProviderCacheTTLSeconds = 0
 
-	handler, err := NewNativeRunEngineV1Handler(ctx, pool, directPool, nil, nil, nil, cfg)
+	handler, err := NewNativeRunEngineV1Handler(ctx, pool, directPool, nil, nil, nil, nil, cfg)
 	if err != nil {
 		t.Fatalf("NewNativeRunEngineV1Handler failed: %v", err)
 	}

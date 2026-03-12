@@ -25,6 +25,7 @@ import (
 	"arkloop/services/api/internal/personasync"
 	sharedconfig "arkloop/services/shared/config"
 	"arkloop/services/shared/database"
+	"arkloop/services/shared/eventbus"
 	"arkloop/services/shared/objectstore"
 	sharedredis "arkloop/services/shared/redis"
 
@@ -142,6 +143,13 @@ func (a *Application) Run(ctx context.Context) error {
 		defer rc.Close()
 		redisClient = rc
 		a.logger.Info("redis connected", observability.LogFields{}, nil)
+	}
+
+	var eb eventbus.EventBus
+	if redisClient != nil {
+		eb = eventbus.NewRedisEventBus(redisClient)
+	} else {
+		eb = eventbus.NewLocalEventBus()
 	}
 
 	gatewayRedisClient := redisClient
@@ -688,6 +696,7 @@ func (a *Application) Run(ctx context.Context) error {
 			PlatformSettingsRepo:         platformSettingsRepo,
 			SmtpProviderRepo:             smtpProviderRepo,
 			RedisClient:                  redisClient,
+			EventBus:                     eb,
 			GatewayRedisClient:           gatewayRedisClient,
 			RunLimiter:                   runLimiter,
 			AsrCredentialsRepo:           asrCredRepo,

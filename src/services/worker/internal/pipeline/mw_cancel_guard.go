@@ -9,11 +9,11 @@ import (
 	"time"
 
 	"arkloop/services/shared/database"
+	"arkloop/services/shared/eventbus"
 	"arkloop/services/worker/internal/data"
 	"arkloop/services/worker/internal/events"
 
 	"github.com/google/uuid"
-	"github.com/redis/go-redis/v9"
 )
 
 var (
@@ -27,6 +27,7 @@ func NewCancelGuardMiddleware(
 	runsRepo data.RunsRepository,
 	eventsRepo data.RunEventsRepository,
 	hub *RunControlHub,
+	bus eventbus.EventBus,
 ) RunMiddleware {
 	return func(ctx context.Context, rc *RunContext, next RunHandler) error {
 		db := rc.DB
@@ -41,7 +42,7 @@ func NewCancelGuardMiddleware(
 		}
 		if cancelType == "run.cancel_requested" {
 			return appendAndCommitSingle(ctx, db, run, runsRepo, eventsRepo,
-				rc.Emitter.Emit("run.cancelled", map[string]any{}, nil, nil), nil, rc.BroadcastRDB)
+				rc.Emitter.Emit("run.cancelled", map[string]any{}, nil, nil), nil, bus)
 		}
 
 		terminalType, err := readLatestEventType(ctx, db, eventsRepo, run.ID, terminalEventTypes)
@@ -132,7 +133,7 @@ func appendAndCommitSingle(
 	eventsRepo data.RunEventsRepository,
 	ev events.RunEvent,
 	releaseSlot func(),
-	rdb *redis.Client,
+	bus eventbus.EventBus,
 ) error {
 	tx, err := db.Begin(ctx)
 	if err != nil {
@@ -159,20 +160,20 @@ func appendAndCommitSingle(
 	channel := fmt.Sprintf("run_events:%s", run.ID.String())
 	_, _ = db.Exec(ctx, "SELECT pg_notify($1, '')", channel)
 
-	if rdb != nil {
+	if bus != nil {
 		redisChannel := fmt.Sprintf("arkloop:sse:run_events:%s", run.ID.String())
-		_, _ = rdb.Publish(ctx, redisChannel, "").Result()
+		_ = bus.Publish(ctx, redisChannel, "")
 	}
 
 	if _, ok := TerminalStatuses[ev.Type]; ok && releaseSlot != nil {
 		releaseSlot()
 	}
 
-	if rdb != nil {
+	if bus != nil {
 		if termStatus, ok := TerminalStatuses[ev.Type]; ok {
 			payload := truncateChildRunPayload(terminalStatusMessage(ev.DataJSON))
 			ch := fmt.Sprintf("run.child.%s.done", run.ID.String())
-			_, _ = rdb.Publish(ctx, ch, termStatus+"\n"+payload).Result()
+			_ = bus.Publish(ctx, ch, termStatus+"\n"+payload)
 		}
 	}
 

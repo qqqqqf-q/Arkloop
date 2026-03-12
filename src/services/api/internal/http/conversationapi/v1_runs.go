@@ -31,6 +31,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
+
+	"arkloop/services/shared/eventbus"
 )
 
 var (
@@ -854,7 +856,7 @@ func streamRunEvents(
 	directPoolAcquireTimeout time.Duration,
 	sseConfig SSEConfig,
 	apiKeysRepo *data.APIKeysRepository,
-	rdb *redis.Client,
+	bus eventbus.EventBus,
 	flagService *featureflag.Service,
 ) func(nethttp.ResponseWriter, *nethttp.Request, uuid.UUID) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request, runID uuid.UUID) {
@@ -952,36 +954,38 @@ func streamRunEvents(
 			}
 		}
 
-		// Redis Pub/Sub 跨实例广播
-		var redisCh <-chan struct{}
-		if follow && rdb != nil {
+		// EventBus 跨实例广播（Redis 模式）或进程内广播（Local 模式）
+		var busCh <-chan struct{}
+		if follow && bus != nil {
 			redisChannel := fmt.Sprintf("arkloop:sse:run_events:%s", runID.String())
-			sub := rdb.Subscribe(r.Context(), redisChannel)
-			msgCh := sub.Channel()
-			ch := make(chan struct{}, 1)
-			redisCh = ch
-			go func() {
-				defer sub.Close()
-				for {
-					select {
-					case <-r.Context().Done():
-						return
-					case _, ok := <-msgCh:
-						if !ok {
-							return
-						}
+			sub, subErr := bus.Subscribe(r.Context(), redisChannel)
+			if subErr == nil {
+				msgCh := sub.Channel()
+				ch := make(chan struct{}, 1)
+				busCh = ch
+				go func() {
+					defer sub.Close()
+					for {
 						select {
-						case ch <- struct{}{}:
-						default:
+						case <-r.Context().Done():
+							return
+						case _, ok := <-msgCh:
+							if !ok {
+								return
+							}
+							select {
+							case ch <- struct{}{}:
+							default:
+							}
 						}
 					}
-				}
-			}()
+				}()
+			}
 		}
 
-		// 合并 pg_notify + Redis Pub/Sub 为单一持久信号 channel，避免循环内重复创建 goroutine。
+		// 合并 pg_notify + EventBus 为单一持久信号 channel，避免循环内重复创建 goroutine。
 		var sigCh <-chan struct{}
-		if notifyCh != nil && redisCh != nil {
+		if notifyCh != nil && busCh != nil {
 			merged := make(chan struct{}, 1)
 			sigCh = merged
 			go func() {
@@ -990,7 +994,7 @@ func streamRunEvents(
 					case <-r.Context().Done():
 						return
 					case <-notifyCh:
-					case <-redisCh:
+					case <-busCh:
 					}
 					select {
 					case merged <- struct{}{}:
@@ -1000,8 +1004,8 @@ func streamRunEvents(
 			}()
 		} else if notifyCh != nil {
 			sigCh = notifyCh
-		} else if redisCh != nil {
-			sigCh = redisCh
+		} else if busCh != nil {
+			sigCh = busCh
 		}
 
 		cursor := afterSeq
@@ -1155,13 +1159,13 @@ func runEntry(
 	sseConfig SSEConfig,
 	apiKeysRepo *data.APIKeysRepository,
 	resolver sharedconfig.Resolver,
-	rdb *redis.Client,
+	bus eventbus.EventBus,
 	flagService *featureflag.Service,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	get := getRun(authService, membershipRepo, runRepo, threadRepo, auditWriter, apiKeysRepo, flagService)
 	cancel := cancelRun(authService, membershipRepo, runRepo, threadRepo, auditWriter, db, apiKeysRepo, flagService)
 	submitInput := submitRunInput(authService, membershipRepo, runRepo, threadRepo, auditWriter, db, apiKeysRepo, resolver, flagService)
-	streamEvents := streamRunEvents(authService, membershipRepo, runRepo, threadRepo, auditWriter, directPool, directPoolAcquireTimeout, sseConfig, apiKeysRepo, rdb, flagService)
+	streamEvents := streamRunEvents(authService, membershipRepo, runRepo, threadRepo, auditWriter, directPool, directPoolAcquireTimeout, sseConfig, apiKeysRepo, bus, flagService)
 
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		traceID := observability.TraceIDFromContext(r.Context())

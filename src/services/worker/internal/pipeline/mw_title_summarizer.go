@@ -7,17 +7,17 @@ import (
 	"log/slog"
 	"strings"
 
+	"arkloop/services/shared/eventbus"
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/routing"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/redis/go-redis/v9"
 )
 
 const settingTitleSummarizerModel = "title_summarizer.model"
 
-func NewTitleSummarizerMiddleware(pool *pgxpool.Pool, rdb *redis.Client, stubGateway llm.Gateway, emitDebugEvents bool, loaders ...*routing.ConfigLoader) RunMiddleware {
+func NewTitleSummarizerMiddleware(pool *pgxpool.Pool, bus eventbus.EventBus, stubGateway llm.Gateway, emitDebugEvents bool, loaders ...*routing.ConfigLoader) RunMiddleware {
 	var configLoader *routing.ConfigLoader
 	if len(loaders) > 0 {
 		configLoader = loaders[0]
@@ -55,7 +55,7 @@ func NewTitleSummarizerMiddleware(pool *pgxpool.Pool, rdb *redis.Client, stubGat
 			if gateway == nil {
 				return
 			}
-			generateTitle(pool, rdb, gateway, runID, threadID, model, messages, prompt, maxTokens)
+			generateTitle(pool, bus, gateway, runID, threadID, model, messages, prompt, maxTokens)
 		}()
 
 		return next(ctx, rc)
@@ -122,7 +122,7 @@ func isFirstRunOfThread(ctx context.Context, pool *pgxpool.Pool, threadID uuid.U
 
 func generateTitle(
 	pool *pgxpool.Pool,
-	rdb *redis.Client,
+	bus eventbus.EventBus,
 	gateway llm.Gateway,
 	runID uuid.UUID,
 	threadID uuid.UUID,
@@ -186,13 +186,13 @@ func generateTitle(
 		return
 	}
 
-	emitTitleEvent(ctx, pool, rdb, runID, threadID, title)
+	emitTitleEvent(ctx, pool, bus, runID, threadID, title)
 }
 
 func emitTitleEvent(
 	ctx context.Context,
 	pool *pgxpool.Pool,
-	rdb *redis.Client,
+	bus eventbus.EventBus,
 	runID uuid.UUID,
 	threadID uuid.UUID,
 	title string,
@@ -231,9 +231,9 @@ func emitTitleEvent(
 
 	pgChannel := fmt.Sprintf(`"run_events:%s"`, runID.String())
 	_, _ = pool.Exec(ctx, "SELECT pg_notify($1, $2)", pgChannel, "ping")
-	if rdb != nil {
+	if bus != nil {
 		rdbChannel := fmt.Sprintf("arkloop:sse:run_events:%s", runID.String())
-		_, _ = rdb.Publish(ctx, rdbChannel, "ping").Result()
+		_ = bus.Publish(ctx, rdbChannel, "ping")
 	}
 }
 

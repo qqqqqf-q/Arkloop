@@ -11,6 +11,7 @@ import (
 	"time"
 
 	sharedconfig "arkloop/services/shared/config"
+	"arkloop/services/shared/eventbus"
 	"arkloop/services/worker/internal/app"
 	"arkloop/services/worker/internal/consumer"
 	"arkloop/services/worker/internal/email"
@@ -109,6 +110,13 @@ func run() error {
 		logger.Info("ARKLOOP_REDIS_URL not set, worker registration disabled", app.LogFields{}, nil)
 	}
 
+	var bus eventbus.EventBus
+	if rdb != nil {
+		bus = eventbus.NewRedisEventBus(rdb)
+	} else {
+		bus = eventbus.NewLocalEventBus()
+	}
+
 	var queueClient queue.JobQueue
 	var notifier consumer.WorkNotifier
 
@@ -140,7 +148,7 @@ func run() error {
 		return err
 	}
 
-	handler, err := chooseHandler(runCtx, logger, pool, directPool, rdb, queueClient, cfg)
+	handler, err := chooseHandler(runCtx, logger, pool, directPool, rdb, bus, queueClient, cfg)
 	if err != nil {
 		return err
 	}
@@ -244,7 +252,7 @@ func normalizePostgresDSN(raw string) string {
 	return raw
 }
 
-func chooseHandler(ctx context.Context, logger *app.JSONLogger, pool *pgxpool.Pool, directPool *pgxpool.Pool, rdb *redis.Client, q queue.JobQueue, cfg app.Config) (consumer.Handler, error) {
+func chooseHandler(ctx context.Context, logger *app.JSONLogger, pool *pgxpool.Pool, directPool *pgxpool.Pool, rdb *redis.Client, bus eventbus.EventBus, q queue.JobQueue, cfg app.Config) (consumer.Handler, error) {
 	if logger == nil {
 		logger = app.NewJSONLogger("worker_go", nil)
 	}
@@ -263,7 +271,7 @@ func chooseHandler(ctx context.Context, logger *app.JSONLogger, pool *pgxpool.Po
 	}
 	configResolver, _ := sharedconfig.NewResolver(configRegistry, sharedconfig.NewPGXStore(pgadapter.New(pool)), configCache, cacheTTL)
 
-	native, err := executor.NewNativeRunEngineV1Handler(ctx, pool, directPool, logger, rdb, q, cfg)
+	native, err := executor.NewNativeRunEngineV1Handler(ctx, pool, directPool, logger, rdb, bus, q, cfg)
 	if err != nil {
 		return nil, err
 	}

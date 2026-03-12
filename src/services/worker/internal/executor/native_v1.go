@@ -7,6 +7,7 @@ import (
 
 	"arkloop/services/shared/database"
 	"arkloop/services/shared/database/pgadapter"
+	"arkloop/services/shared/eventbus"
 	"arkloop/services/worker/internal/app"
 	"arkloop/services/worker/internal/data"
 	"arkloop/services/worker/internal/queue"
@@ -26,7 +27,7 @@ type NativeRunEngineV1Handler struct {
 	queue  queue.JobQueue
 }
 
-func NewNativeRunEngineV1Handler(ctx context.Context, pool *pgxpool.Pool, directPool *pgxpool.Pool, logger *app.JSONLogger, rdb *redis.Client, q queue.JobQueue, cfg app.Config) (*NativeRunEngineV1Handler, error) {
+func NewNativeRunEngineV1Handler(ctx context.Context, pool *pgxpool.Pool, directPool *pgxpool.Pool, logger *app.JSONLogger, rdb *redis.Client, bus eventbus.EventBus, q queue.JobQueue, cfg app.Config) (*NativeRunEngineV1Handler, error) {
 	if pool == nil {
 		return nil, fmt.Errorf("pool must not be nil")
 	}
@@ -36,7 +37,7 @@ func NewNativeRunEngineV1Handler(ctx context.Context, pool *pgxpool.Pool, direct
 	if logger == nil {
 		logger = app.NewJSONLogger("worker_go", nil)
 	}
-	engine, err := app.ComposeNativeEngine(ctx, pool, directPool, rdb, cfg, DefaultExecutorRegistry(), q)
+	engine, err := app.ComposeNativeEngine(ctx, pool, directPool, rdb, bus, cfg, DefaultExecutorRegistry(), q)
 	if err != nil {
 		return nil, err
 	}

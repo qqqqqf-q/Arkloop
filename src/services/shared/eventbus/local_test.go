@@ -1,0 +1,200 @@
+package eventbus
+
+import (
+	"context"
+	"sync"
+	"testing"
+	"time"
+)
+
+func TestLocalEventBus_PublishSubscribe(t *testing.T) {
+	bus := NewLocalEventBus()
+	defer bus.Close()
+
+	sub, err := bus.Subscribe(context.Background(), "topic1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sub.Close()
+
+	if err := bus.Publish(context.Background(), "topic1", "hello"); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case msg := <-sub.Channel():
+		if msg.Topic != "topic1" {
+			t.Errorf("got topic %q, want %q", msg.Topic, "topic1")
+		}
+		if msg.Payload != "hello" {
+			t.Errorf("got payload %q, want %q", msg.Payload, "hello")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for message")
+	}
+}
+
+func TestLocalEventBus_MultipleSubscribers(t *testing.T) {
+	bus := NewLocalEventBus()
+	defer bus.Close()
+
+	sub1, _ := bus.Subscribe(context.Background(), "topic1")
+	defer sub1.Close()
+	sub2, _ := bus.Subscribe(context.Background(), "topic1")
+	defer sub2.Close()
+
+	bus.Publish(context.Background(), "topic1", "broadcast")
+
+	for _, sub := range []Subscription{sub1, sub2} {
+		select {
+		case msg := <-sub.Channel():
+			if msg.Payload != "broadcast" {
+				t.Errorf("got %q, want %q", msg.Payload, "broadcast")
+			}
+		case <-time.After(time.Second):
+			t.Fatal("timeout")
+		}
+	}
+}
+
+func TestLocalEventBus_TopicIsolation(t *testing.T) {
+	bus := NewLocalEventBus()
+	defer bus.Close()
+
+	sub1, _ := bus.Subscribe(context.Background(), "topicA")
+	defer sub1.Close()
+	sub2, _ := bus.Subscribe(context.Background(), "topicB")
+	defer sub2.Close()
+
+	bus.Publish(context.Background(), "topicA", "only-A")
+
+	select {
+	case msg := <-sub1.Channel():
+		if msg.Payload != "only-A" {
+			t.Errorf("got %q, want %q", msg.Payload, "only-A")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timeout")
+	}
+
+	select {
+	case <-sub2.Channel():
+		t.Fatal("topicB subscriber should not receive topicA message")
+	case <-time.After(50 * time.Millisecond):
+		// expected
+	}
+}
+
+func TestLocalEventBus_Unsubscribe(t *testing.T) {
+	bus := NewLocalEventBus()
+	defer bus.Close()
+
+	sub, _ := bus.Subscribe(context.Background(), "topic1")
+	sub.Close()
+
+	// Channel should be closed after unsubscribe
+	_, ok := <-sub.Channel()
+	if ok {
+		t.Fatal("channel should be closed after Close()")
+	}
+
+	// Publishing after unsubscribe should not panic
+	if err := bus.Publish(context.Background(), "topic1", "after-unsub"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestLocalEventBus_CloseAll(t *testing.T) {
+	bus := NewLocalEventBus()
+
+	sub1, _ := bus.Subscribe(context.Background(), "topic1")
+	sub2, _ := bus.Subscribe(context.Background(), "topic2")
+
+	bus.Close()
+
+	// All subscription channels should be closed
+	if _, ok := <-sub1.Channel(); ok {
+		t.Fatal("sub1 channel should be closed")
+	}
+	if _, ok := <-sub2.Channel(); ok {
+		t.Fatal("sub2 channel should be closed")
+	}
+
+	// Publish after close should not panic or error
+	if err := bus.Publish(context.Background(), "topic1", "after-close"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestLocalEventBus_ConcurrentAccess(t *testing.T) {
+	bus := NewLocalEventBus()
+	defer bus.Close()
+
+	var wg sync.WaitGroup
+	const goroutines = 50
+
+	// Concurrent subscribe
+	subs := make([]Subscription, goroutines)
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			s, err := bus.Subscribe(context.Background(), "concurrent")
+			if err != nil {
+				t.Errorf("subscribe error: %v", err)
+				return
+			}
+			subs[idx] = s
+		}(i)
+	}
+	wg.Wait()
+
+	// Concurrent publish
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			bus.Publish(context.Background(), "concurrent", "msg")
+		}()
+	}
+	wg.Wait()
+
+	// Concurrent unsubscribe
+	for i := 0; i < goroutines; i++ {
+		if subs[i] != nil {
+			wg.Add(1)
+			go func(s Subscription) {
+				defer wg.Done()
+				s.Close()
+			}(subs[i])
+		}
+	}
+	wg.Wait()
+}
+
+func TestLocalEventBus_DoubleClose(t *testing.T) {
+	bus := NewLocalEventBus()
+	defer bus.Close()
+
+	sub, _ := bus.Subscribe(context.Background(), "topic1")
+
+	// Double close should not panic
+	sub.Close()
+	sub.Close()
+}
+
+func TestLocalEventBus_SubscribeAfterClose(t *testing.T) {
+	bus := NewLocalEventBus()
+	bus.Close()
+
+	sub, err := bus.Subscribe(context.Background(), "topic1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Channel should be immediately closed
+	_, ok := <-sub.Channel()
+	if ok {
+		t.Fatal("channel should be closed for subscription on closed bus")
+	}
+}
