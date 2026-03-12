@@ -7,7 +7,7 @@ export const en: LocaleStrings = {
     models: 'Models',
     tools: 'Tools',
     runs: 'Runs',
-    modules: 'Modules',
+    modules: 'Modules (Install/Manage)',
     settings: 'Settings',
     installTasks: 'Install Tasks',
   },

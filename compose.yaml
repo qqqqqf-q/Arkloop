@@ -386,7 +386,7 @@ services:
   # --- Firecrawl: Self-hosted web scraper ---
   # web_fetch provider, replaces Jina/Basic fetch
   firecrawl:
-    image: mendableai/firecrawl:latest
+    image: ghcr.io/firecrawl/firecrawl:latest
     restart: unless-stopped
     profiles:
       - firecrawl

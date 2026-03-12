@@ -105,7 +105,7 @@ function actionLabel(action: ModuleAction, t: ModulesLocale): string {
 
 function CopyButton({ text, label }: { text: string; label: string }) {
   const [copied, setCopied] = useState(false)
-  const timerRef = useRef<ReturnType<typeof setTimeout>>()
+  const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
   const handleCopy = useCallback(() => {
     void navigator.clipboard.writeText(text)

@@ -7,7 +7,7 @@ export const zhCN: LocaleStrings = {
     models: '模型管理',
     tools: '工具',
     runs: '运行记录',
-    modules: '模块',
+    modules: '模块(安装/管理)',
     settings: '设置',
     installTasks: '安装任务',
   },
