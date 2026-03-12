@@ -164,9 +164,6 @@ func resolveToolProviderScope(
 	if scope == "" {
 		scope = "platform"
 	}
-	if scope == "org" {
-		scope = "project"
-	}
 	if scope != "project" && scope != "platform" {
 		httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "scope must be project or platform", traceID, nil)
 		return "", uuid.Nil, false

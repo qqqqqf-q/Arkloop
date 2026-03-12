@@ -14,6 +14,7 @@ import (
 	"arkloop/services/worker/internal/stablejson"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -466,9 +467,9 @@ func parseScope(value string) (CredentialScope, error) {
 }
 
 // LoadRoutingConfigFromDB 从数据库加载路由配置。
-// 查询所有未吊销凭证的路由，解密 API Key 后构建 ProviderRoutingConfig。
+// projectID 为 nil 时只加载 platform 路由；非 nil 时加载 platform + 该 project 的路由（project 优先）。
 // 若数据库中无路由配置（len(Routes)==0），调用方应回退到环境变量。
-func LoadRoutingConfigFromDB(ctx context.Context, pool *pgxpool.Pool, orgID uuid.UUID) (ProviderRoutingConfig, error) {
+func LoadRoutingConfigFromDB(ctx context.Context, pool *pgxpool.Pool, projectID *uuid.UUID) (ProviderRoutingConfig, error) {
 	if pool == nil {
 		return ProviderRoutingConfig{}, fmt.Errorf("pool must not be nil")
 	}
@@ -477,7 +478,29 @@ func LoadRoutingConfigFromDB(ctx context.Context, pool *pgxpool.Pool, orgID uuid
 	}
 
 	// 一次 JOIN 拿到所有需要的字段，包含 secrets 的加密值
-	rows, err := pool.Query(ctx, `
+	var (
+		rows pgx.Rows
+		err  error
+	)
+	if projectID == nil {
+		rows, err = pool.Query(ctx, `
+		SELECT r.id, r.credential_id, r.model, r.when_json, r.is_default,
+		       r.advanced_json, r.multiplier, r.cost_per_1k_input, r.cost_per_1k_output,
+		       r.cost_per_1k_cache_write, r.cost_per_1k_cache_read,
+		       c.id, c.scope, c.name, c.provider, c.base_url, c.openai_api_mode, c.advanced_json,
+		       s.encrypted_value, s.key_version
+		FROM llm_routes r
+		JOIN llm_credentials c ON c.id = r.credential_id
+		LEFT JOIN secrets s ON s.id = c.secret_id
+		WHERE c.revoked_at IS NULL
+		  AND r.project_id IS NULL
+		ORDER BY r.is_default DESC,
+		         r.priority DESC,
+		         r.created_at ASC,
+		         r.id ASC
+	`)
+	} else {
+		rows, err = pool.Query(ctx, `
 		SELECT r.id, r.credential_id, r.model, r.when_json, r.is_default,
 		       r.advanced_json, r.multiplier, r.cost_per_1k_input, r.cost_per_1k_output,
 		       r.cost_per_1k_cache_write, r.cost_per_1k_cache_read,
@@ -488,15 +511,16 @@ func LoadRoutingConfigFromDB(ctx context.Context, pool *pgxpool.Pool, orgID uuid
 		LEFT JOIN secrets s ON s.id = c.secret_id
 		WHERE c.revoked_at IS NULL
 		  AND (
-			(c.scope = 'platform' AND c.org_id IS NULL AND r.org_id IS NULL)
-			OR (c.scope = 'project' AND c.org_id = $1 AND r.org_id = $1)
+			r.project_id IS NULL
+			OR r.project_id = $1
 		  )
-		ORDER BY CASE WHEN c.scope = 'project' THEN 0 ELSE 1 END ASC,
+		ORDER BY CASE WHEN r.project_id IS NOT NULL THEN 0 ELSE 1 END ASC,
 		         r.is_default DESC,
 		         r.priority DESC,
 		         r.created_at ASC,
 		         r.id ASC
-	`, orgID)
+	`, *projectID)
+	}
 	if err != nil {
 		return ProviderRoutingConfig{}, fmt.Errorf("routing: db query: %w", err)
 	}

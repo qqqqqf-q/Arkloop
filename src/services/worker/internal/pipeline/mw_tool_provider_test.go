@@ -37,8 +37,8 @@ func TestToolProviderMiddlewareInjectsActiveProvider(t *testing.T) {
 	if _, err := pool.Exec(context.Background(), `
 		CREATE TABLE tool_provider_configs (
 			id uuid PRIMARY KEY,
-			org_id uuid NULL,
-			scope text NOT NULL DEFAULT 'org',
+			project_id uuid NULL,
+			scope text NOT NULL DEFAULT 'project',
 			group_name text NOT NULL,
 			provider_name text NOT NULL,
 			is_active boolean NOT NULL DEFAULT false,
@@ -52,7 +52,7 @@ func TestToolProviderMiddlewareInjectsActiveProvider(t *testing.T) {
 		t.Fatalf("create tables: %v", err)
 	}
 
-	orgID := uuid.New()
+	projectID := uuid.New()
 	secretID := uuid.New()
 	apiKey := "tvly-test-key-123456"
 	encrypted := encryptGCM(t, keyBytes, apiKey)
@@ -60,14 +60,14 @@ func TestToolProviderMiddlewareInjectsActiveProvider(t *testing.T) {
 	if _, err := pool.Exec(context.Background(), `
 		INSERT INTO secrets (id, org_id, scope, encrypted_value, key_version)
 		VALUES ($1, $2, 'org', $3, 1)
-	`, secretID, orgID, encrypted); err != nil {
+	`, secretID, projectID, encrypted); err != nil {
 		t.Fatalf("insert secret: %v", err)
 	}
 
 	if _, err := pool.Exec(context.Background(), `
-		INSERT INTO tool_provider_configs (id, org_id, scope, group_name, provider_name, is_active, secret_id, key_prefix, config_json)
-		VALUES ($1, $2, 'org', $3, $4, TRUE, $5, $6, '{}'::jsonb)
-	`, uuid.New(), orgID, "web_search", "web_search.tavily", secretID, "tvly-test"); err != nil {
+		INSERT INTO tool_provider_configs (id, project_id, scope, group_name, provider_name, is_active, secret_id, key_prefix, config_json)
+		VALUES ($1, $2, 'project', $3, $4, TRUE, $5, $6, '{}'::jsonb)
+	`, uuid.New(), projectID, "web_search", "web_search.tavily", secretID, "tvly-test"); err != nil {
 		t.Fatalf("insert config: %v", err)
 	}
 
@@ -76,9 +76,10 @@ func TestToolProviderMiddlewareInjectsActiveProvider(t *testing.T) {
 
 	rc := &pipeline.RunContext{
 		Run: data.Run{
-			ID:       uuid.New(),
-			OrgID:    orgID,
-			ThreadID: uuid.New(),
+			ID:        uuid.New(),
+			OrgID:     uuid.New(),
+			ProjectID: &projectID,
+			ThreadID:  uuid.New(),
 		},
 		Pool:          pool,
 		ToolExecutors: map[string]tools.Executor{},

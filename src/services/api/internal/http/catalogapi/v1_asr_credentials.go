@@ -23,7 +23,7 @@ type createAsrCredentialRequest struct {
 	BaseURL   *string `json:"base_url"`
 	Model     string  `json:"model"`
 	IsDefault bool    `json:"is_default"`
-	Scope     string  `json:"scope"` // "org" | "platform"; platform requires platform_admin
+	Scope     string  `json:"scope"` // "project" | "platform"; platform requires platform_admin
 }
 
 type asrCredentialResponse struct {
@@ -148,7 +148,7 @@ func createAsrCredential(
 		return
 	}
 	if req.Scope == "" {
-		req.Scope = "org"
+		req.Scope = "project"
 	}
 
 	if req.Name == "" || req.Provider == "" || req.APIKey == "" || req.Model == "" {
@@ -159,8 +159,8 @@ func createAsrCredential(
 		httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "invalid provider", traceID, nil)
 		return
 	}
-	if req.Scope != "org" && req.Scope != "platform" {
-		httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "scope must be org or platform", traceID, nil)
+	if req.Scope != "project" && req.Scope != "platform" {
+		httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "scope must be project or platform", traceID, nil)
 		return
 	}
 	if req.Scope == "platform" && !actor.HasPermission(auth.PermPlatformAdmin) {

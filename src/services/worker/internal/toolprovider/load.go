@@ -23,30 +23,25 @@ type ActiveProviderConfig struct {
 	ConfigJSON   map[string]any
 }
 
-func LoadActiveOrgProviders(ctx context.Context, pool *pgxpool.Pool, orgID uuid.UUID) ([]ActiveProviderConfig, error) {
+func LoadActiveProjectProviders(ctx context.Context, pool *pgxpool.Pool, projectID uuid.UUID) ([]ActiveProviderConfig, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	if pool == nil {
 		return nil, nil
 	}
-	if orgID == uuid.Nil {
-		return nil, fmt.Errorf("org_id must not be empty")
+	if projectID == uuid.Nil {
+		return nil, fmt.Errorf("project_id must not be empty")
 	}
 
 	rows, err := pool.Query(ctx, `
 		SELECT c.scope, c.group_name, c.provider_name, c.key_prefix, c.base_url, c.config_json,
 		       s.encrypted_value, s.key_version
 		FROM tool_provider_configs c
-		LEFT JOIN secrets s
-		       ON s.id = c.secret_id
-		      AND (
-		           (s.scope = 'org' AND s.org_id = c.org_id)
-		        OR s.scope = 'platform'
-		      )
-		WHERE c.scope = 'org' AND c.org_id = $1 AND c.is_active = TRUE
+		LEFT JOIN secrets s ON s.id = c.secret_id
+		WHERE c.scope = 'project' AND c.project_id = $1 AND c.is_active = TRUE
 		ORDER BY c.updated_at DESC
-	`, orgID)
+	`, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("tool_provider_configs query: %w", err)
 	}

@@ -21,7 +21,7 @@ func NewPersonaResolutionMiddleware(
 	return func(ctx context.Context, rc *RunContext, next RunHandler) error {
 		runPersonaRegistry := personas.NewRegistry()
 		if dbPool != nil {
-			dbDefs, dbErr := personas.LoadFromDB(ctx, dbPool, rc.Run.OrgID)
+			dbDefs, dbErr := personas.LoadFromDB(ctx, dbPool, rc.Run.ProjectID)
 			if dbErr != nil {
 				payload := map[string]any{
 					"error_class": "internal.error",

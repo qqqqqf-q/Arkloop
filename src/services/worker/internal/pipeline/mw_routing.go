@@ -31,7 +31,7 @@ func NewRoutingMiddleware(
 			selectorConfig = staticRouter.Config()
 		}
 		if configLoader != nil {
-			loaded, dbErr := configLoader.Load(ctx, rc.Run.OrgID)
+			loaded, dbErr := configLoader.Load(ctx, rc.Run.ProjectID)
 			if dbErr != nil {
 				slog.WarnContext(ctx, "routing: per-run load failed, using static", "err", dbErr.Error())
 			} else if len(loaded.Routes) > 0 {
@@ -41,8 +41,8 @@ func NewRoutingMiddleware(
 		}
 
 		byokEnabled := false
-		if resolver != nil {
-			raw, err := resolver.Resolve(ctx, rc.Run.OrgID, "feature.byok_enabled")
+		if resolver != nil && rc.Run.ProjectID != nil {
+			raw, err := resolver.Resolve(ctx, *rc.Run.ProjectID, "feature.byok_enabled")
 			if err == nil {
 				byokEnabled = raw == "true"
 			}
@@ -231,7 +231,7 @@ func denyByokIfNeeded(cred routing.ProviderCredential, byokEnabled bool) *routin
 		return &routing.ProviderRouteDenied{
 			ErrorClass: tools.PolicyDeniedCode,
 			Code:       "policy.byok_disabled",
-			Message:    "BYOK not enabled for this organization",
+			Message:    "BYOK not enabled for this project",
 		}
 	}
 	return nil

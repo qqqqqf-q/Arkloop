@@ -27,20 +27,20 @@ func NewCache(ttl time.Duration) *Cache {
 	return &Cache{ttl: ttl}
 }
 
-func (c *Cache) Get(ctx context.Context, pool *pgxpool.Pool, orgID uuid.UUID) ([]ActiveProviderConfig, error) {
-	return c.GetOrg(ctx, pool, orgID)
+func (c *Cache) Get(ctx context.Context, pool *pgxpool.Pool, projectID uuid.UUID) ([]ActiveProviderConfig, error) {
+	return c.GetProject(ctx, pool, projectID)
 }
 
-func (c *Cache) GetOrg(ctx context.Context, pool *pgxpool.Pool, orgID uuid.UUID) ([]ActiveProviderConfig, error) {
+func (c *Cache) GetProject(ctx context.Context, pool *pgxpool.Pool, projectID uuid.UUID) ([]ActiveProviderConfig, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	if c == nil {
-		return LoadActiveOrgProviders(ctx, pool, orgID)
+		return LoadActiveProjectProviders(ctx, pool, projectID)
 	}
 
 	if c.ttl > 0 {
-		if raw, ok := c.entries.Load(orgID.String()); ok {
+		if raw, ok := c.entries.Load(projectID.String()); ok {
 			entry := raw.(cacheEntry)
 			if time.Since(entry.cachedAt) < c.ttl {
 				return entry.providers, nil
@@ -48,13 +48,13 @@ func (c *Cache) GetOrg(ctx context.Context, pool *pgxpool.Pool, orgID uuid.UUID)
 		}
 	}
 
-	providers, err := LoadActiveOrgProviders(ctx, pool, orgID)
+	providers, err := LoadActiveProjectProviders(ctx, pool, projectID)
 	if err != nil {
 		return nil, err
 	}
 
 	if c.ttl > 0 {
-		c.entries.Store(orgID.String(), cacheEntry{
+		c.entries.Store(projectID.String(), cacheEntry{
 			providers: providers,
 			cachedAt:  time.Now(),
 		})
@@ -95,15 +95,15 @@ func (c *Cache) GetPlatform(ctx context.Context, pool *pgxpool.Pool) ([]ActivePr
 	return providers, nil
 }
 
-func (c *Cache) Invalidate(orgID uuid.UUID) {
-	c.InvalidateOrg(orgID)
+func (c *Cache) Invalidate(projectID uuid.UUID) {
+	c.InvalidateProject(projectID)
 }
 
-func (c *Cache) InvalidateOrg(orgID uuid.UUID) {
+func (c *Cache) InvalidateProject(projectID uuid.UUID) {
 	if c == nil {
 		return
 	}
-	c.entries.Delete(orgID.String())
+	c.entries.Delete(projectID.String())
 }
 
 func (c *Cache) InvalidatePlatform() {
@@ -178,10 +178,10 @@ func (c *Cache) listenOnce(ctx context.Context, directPool *pgxpool.Pool) error 
 			continue
 		}
 
-		orgID, err := uuid.Parse(payload)
+		projectID, err := uuid.Parse(payload)
 		if err != nil {
 			continue
 		}
-		c.InvalidateOrg(orgID)
+		c.InvalidateProject(projectID)
 	}
 }

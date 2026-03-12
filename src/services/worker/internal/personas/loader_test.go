@@ -458,11 +458,11 @@ func TestLoadFromDBIgnoresGlobalPersonaRows(t *testing.T) {
 	}
 	t.Cleanup(pool.Close)
 
-	orgID := uuid.New()
-	insertWorkerPersonaRow(t, pool, &orgID, "custom-only", "Custom Only")
+	projectID := uuid.New()
+	insertWorkerPersonaRow(t, pool, &projectID, "custom-only", "Custom Only")
 	insertWorkerPersonaRow(t, pool, nil, "ghost", "Ghost")
 
-	defs, err := LoadFromDB(context.Background(), pool, orgID)
+	defs, err := LoadFromDB(context.Background(), pool, &projectID)
 	if err != nil {
 		t.Fatalf("LoadFromDB failed: %v", err)
 	}
@@ -482,11 +482,11 @@ func TestMergeRegistryUsesOrgOverrideOnly(t *testing.T) {
 	}
 	t.Cleanup(pool.Close)
 
-	orgID := uuid.New()
-	insertWorkerPersonaRow(t, pool, &orgID, "normal", "Custom Normal")
+	projectID := uuid.New()
+	insertWorkerPersonaRow(t, pool, &projectID, "normal", "Custom Normal")
 	insertWorkerPersonaRow(t, pool, nil, "normal", "Ghost Normal")
 
-	defs, err := LoadFromDB(context.Background(), pool, orgID)
+	defs, err := LoadFromDB(context.Background(), pool, &projectID)
 	if err != nil {
 		t.Fatalf("LoadFromDB failed: %v", err)
 	}
@@ -584,20 +584,20 @@ func TestLoadFromDBParsesLayeredBudgets(t *testing.T) {
 	}
 	t.Cleanup(pool.Close)
 
-	orgID := uuid.New()
+	projectID := uuid.New()
 	_, err = pool.Exec(
 		context.Background(),
 		`INSERT INTO personas
-			(org_id, persona_key, version, display_name, prompt_md, tool_allowlist, tool_denylist, budgets_json, executor_type, executor_config_json)
+			(project_id, persona_key, version, display_name, prompt_md, tool_allowlist, tool_denylist, budgets_json, executor_type, executor_config_json)
 		 VALUES ($1, 'db-budget', '1', 'DB Budget', 'prompt', '{}', '{}', $2::jsonb, 'agent.simple', '{}'::jsonb)`,
-		orgID,
+		projectID,
 		`{"reasoning_iterations":4,"tool_continuation_budget":12,"per_tool_soft_limits":{"write_stdin":{"max_continuations":7,"max_output_bytes":12345}}}`,
 	)
 	if err != nil {
 		t.Fatalf("insert persona row failed: %v", err)
 	}
 
-	defs, err := LoadFromDB(context.Background(), pool, orgID)
+	defs, err := LoadFromDB(context.Background(), pool, &projectID)
 	if err != nil {
 		t.Fatalf("LoadFromDB failed: %v", err)
 	}
@@ -622,15 +622,15 @@ func TestLoadFromDBParsesLayeredBudgets(t *testing.T) {
 	}
 }
 
-func insertWorkerPersonaRow(t *testing.T, pool *pgxpool.Pool, orgID *uuid.UUID, personaKey string, displayName string) {
+func insertWorkerPersonaRow(t *testing.T, pool *pgxpool.Pool, projectID *uuid.UUID, personaKey string, displayName string) {
 	t.Helper()
 
 	_, err := pool.Exec(
 		context.Background(),
 		`INSERT INTO personas
-			(org_id, persona_key, version, display_name, prompt_md, tool_allowlist, tool_denylist, budgets_json, executor_type, executor_config_json)
+			(project_id, persona_key, version, display_name, prompt_md, tool_allowlist, tool_denylist, budgets_json, executor_type, executor_config_json)
 		 VALUES ($1, $2, '1', $3, 'prompt', '{}', '{}', '{}'::jsonb, 'agent.simple', '{}'::jsonb)`,
-		orgID,
+		projectID,
 		personaKey,
 		displayName,
 	)

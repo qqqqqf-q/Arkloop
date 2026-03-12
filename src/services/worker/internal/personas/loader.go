@@ -460,24 +460,36 @@ func asBudgets(value any) (Budgets, error) {
 	}, nil
 }
 
-// LoadFromDB 从数据库加载运行期有效 persona：platform 为基础层，org 为覆盖层。
-func LoadFromDB(ctx context.Context, pool *pgxpool.Pool, orgID uuid.UUID) ([]Definition, error) {
+// LoadFromDB 从数据库加载运行期有效 persona：platform 为基础层，project 为覆盖层。
+func LoadFromDB(ctx context.Context, pool *pgxpool.Pool, projectID *uuid.UUID) ([]Definition, error) {
 	if pool == nil {
 		return nil, fmt.Errorf("pool must not be nil")
 	}
 
-	rows, err := pool.Query(
-		ctx,
-		`SELECT persona_key, version, display_name, description,
+	var query string
+	var args []any
+	if projectID != nil {
+		query = `SELECT persona_key, version, display_name, description,
 		        soul_md, user_selectable, selector_name, selector_order,
 		        prompt_md, tool_allowlist, COALESCE(tool_denylist, '{}'), budgets_json, title_summarize_json,
 		        executor_type, executor_config_json,
 		        preferred_credential, model, reasoning_mode, prompt_cache_control
 		 FROM personas
-		 WHERE is_active = TRUE AND (org_id IS NULL OR org_id = $1)
-		 ORDER BY CASE WHEN org_id IS NULL THEN 0 ELSE 1 END ASC, created_at ASC`,
-		orgID,
-	)
+		 WHERE is_active = TRUE AND (project_id IS NULL OR project_id = $1)
+		 ORDER BY CASE WHEN project_id IS NULL THEN 0 ELSE 1 END ASC, created_at ASC`
+		args = []any{*projectID}
+	} else {
+		query = `SELECT persona_key, version, display_name, description,
+		        soul_md, user_selectable, selector_name, selector_order,
+		        prompt_md, tool_allowlist, COALESCE(tool_denylist, '{}'), budgets_json, title_summarize_json,
+		        executor_type, executor_config_json,
+		        preferred_credential, model, reasoning_mode, prompt_cache_control
+		 FROM personas
+		 WHERE is_active = TRUE AND project_id IS NULL
+		 ORDER BY created_at ASC`
+	}
+
+	rows, err := pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}

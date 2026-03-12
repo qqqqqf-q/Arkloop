@@ -61,7 +61,7 @@ func TestLlmRoutesCreateStoresTags(t *testing.T) {
 	orgID, credentialID := createLlmRouteTestCredential(t, ctx, orgRepo, credentialsRepo, "tags")
 
 	route, err := routesRepo.Create(ctx, CreateLlmRouteParams{
-		OrgID:        orgID,
+		ProjectID:        orgID,
 		Scope:        LlmCredentialScopeProject,
 		CredentialID: credentialID,
 		Model:        "gpt-4o",
@@ -92,7 +92,7 @@ func TestLlmRoutesCreateAndUpdateStoresAdvancedJSON(t *testing.T) {
 	orgID, credentialID := createLlmRouteTestCredential(t, ctx, orgRepo, credentialsRepo, "advanced-json")
 
 	route, err := routesRepo.Create(ctx, CreateLlmRouteParams{
-		OrgID:        orgID,
+		ProjectID:        orgID,
 		Scope:        LlmCredentialScopeProject,
 		CredentialID: credentialID,
 		Model:        "gpt-4o",
@@ -107,7 +107,7 @@ func TestLlmRoutesCreateAndUpdateStoresAdvancedJSON(t *testing.T) {
 	}
 
 	updated, err := routesRepo.Update(ctx, UpdateLlmRouteParams{
-		OrgID:        orgID,
+		ProjectID:        orgID,
 		Scope:        LlmCredentialScopeProject,
 		RouteID:      route.ID,
 		Model:        route.Model,
@@ -141,11 +141,11 @@ func TestLlmRoutesSetDefaultByCredential(t *testing.T) {
 	routesRepo, credentialsRepo, orgRepo, ctx := setupLlmRoutesTestRepos(t)
 	orgID, credentialID := createLlmRouteTestCredential(t, ctx, orgRepo, credentialsRepo, "set-default")
 
-	first, err := routesRepo.Create(ctx, CreateLlmRouteParams{OrgID: orgID, Scope: LlmCredentialScopeProject, CredentialID: credentialID, Model: "gpt-4o", Priority: 1, IsDefault: true})
+	first, err := routesRepo.Create(ctx, CreateLlmRouteParams{ProjectID: orgID, Scope: LlmCredentialScopeProject, CredentialID: credentialID, Model: "gpt-4o", Priority: 1, IsDefault: true})
 	if err != nil {
 		t.Fatalf("create first route: %v", err)
 	}
-	second, err := routesRepo.Create(ctx, CreateLlmRouteParams{OrgID: orgID, Scope: LlmCredentialScopeProject, CredentialID: credentialID, Model: "gpt-4.1", Priority: 2})
+	second, err := routesRepo.Create(ctx, CreateLlmRouteParams{ProjectID: orgID, Scope: LlmCredentialScopeProject, CredentialID: credentialID, Model: "gpt-4.1", Priority: 2})
 	if err != nil {
 		t.Fatalf("create second route: %v", err)
 	}
@@ -181,11 +181,11 @@ func TestLlmRoutesPromoteHighestPriorityToDefault(t *testing.T) {
 	routesRepo, credentialsRepo, orgRepo, ctx := setupLlmRoutesTestRepos(t)
 	orgID, credentialID := createLlmRouteTestCredential(t, ctx, orgRepo, credentialsRepo, "promote-default")
 
-	first, err := routesRepo.Create(ctx, CreateLlmRouteParams{OrgID: orgID, Scope: LlmCredentialScopeProject, CredentialID: credentialID, Model: "gpt-4o", Priority: 1, IsDefault: true})
+	first, err := routesRepo.Create(ctx, CreateLlmRouteParams{ProjectID: orgID, Scope: LlmCredentialScopeProject, CredentialID: credentialID, Model: "gpt-4o", Priority: 1, IsDefault: true})
 	if err != nil {
 		t.Fatalf("create first route: %v", err)
 	}
-	second, err := routesRepo.Create(ctx, CreateLlmRouteParams{OrgID: orgID, Scope: LlmCredentialScopeProject, CredentialID: credentialID, Model: "gpt-4.1", Priority: 9})
+	second, err := routesRepo.Create(ctx, CreateLlmRouteParams{ProjectID: orgID, Scope: LlmCredentialScopeProject, CredentialID: credentialID, Model: "gpt-4.1", Priority: 9})
 	if err != nil {
 		t.Fatalf("create second route: %v", err)
 	}
@@ -206,10 +206,10 @@ func TestLlmRoutesCreateDuplicateModelConflict(t *testing.T) {
 	routesRepo, credentialsRepo, orgRepo, ctx := setupLlmRoutesTestRepos(t)
 	orgID, credentialID := createLlmRouteTestCredential(t, ctx, orgRepo, credentialsRepo, "duplicate-model")
 
-	if _, err := routesRepo.Create(ctx, CreateLlmRouteParams{OrgID: orgID, Scope: LlmCredentialScopeProject, CredentialID: credentialID, Model: "gpt-4o", IsDefault: true}); err != nil {
+	if _, err := routesRepo.Create(ctx, CreateLlmRouteParams{ProjectID: orgID, Scope: LlmCredentialScopeProject, CredentialID: credentialID, Model: "gpt-4o", IsDefault: true}); err != nil {
 		t.Fatalf("create first route: %v", err)
 	}
-	_, err := routesRepo.Create(ctx, CreateLlmRouteParams{OrgID: orgID, Scope: LlmCredentialScopeProject, CredentialID: credentialID, Model: "GPT-4O"})
+	_, err := routesRepo.Create(ctx, CreateLlmRouteParams{ProjectID: orgID, Scope: LlmCredentialScopeProject, CredentialID: credentialID, Model: "GPT-4O"})
 	if err == nil {
 		t.Fatal("expected conflict error")
 	}

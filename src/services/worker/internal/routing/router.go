@@ -93,7 +93,7 @@ func (r *ProviderRouter) Decide(inputJSON map[string]any, byokEnabled bool) Prov
 					Denied: &ProviderRouteDenied{
 						ErrorClass: tools.PolicyDeniedCode,
 						Code:       "policy.byok_disabled",
-						Message:    "BYOK not enabled for this organization",
+						Message:    "BYOK not enabled for this project",
 						Details: map[string]any{
 							"route_id":      route.ID,
 							"credential_id": credential.ID,
@@ -118,7 +118,7 @@ func (r *ProviderRouter) Decide(inputJSON map[string]any, byokEnabled bool) Prov
 			Denied: &ProviderRouteDenied{
 				ErrorClass: tools.PolicyDeniedCode,
 				Code:       "policy.byok_disabled",
-				Message:    "BYOK not enabled for this organization",
+				Message:    "BYOK not enabled for this project",
 				Details: map[string]any{
 					"route_id":      selectedRoute.ID,
 					"credential_id": credential.ID,

@@ -13,7 +13,7 @@ import (
 )
 
 type ToolDescriptionOverridesReader interface {
-	ListByScope(ctx context.Context, orgID uuid.UUID, scope string) ([]data.ToolDescriptionOverride, error)
+	ListByScope(ctx context.Context, projectID *uuid.UUID, scope string) ([]data.ToolDescriptionOverride, error)
 }
 
 func NewToolDescriptionOverrideMiddleware(repo ToolDescriptionOverridesReader) RunMiddleware {
@@ -22,23 +22,23 @@ func NewToolDescriptionOverrideMiddleware(repo ToolDescriptionOverridesReader) R
 			return next(ctx, rc)
 		}
 
-		platformOverrides, err := repo.ListByScope(ctx, uuid.Nil, "platform")
+		platformOverrides, err := repo.ListByScope(ctx, nil, "platform")
 		if err != nil {
 			slog.WarnContext(ctx, "tool description override load failed", "run_id", rc.Run.ID, "scope", "platform", "err", err.Error())
 			return next(ctx, rc)
 		}
 
-		orgOverrides := []data.ToolDescriptionOverride{}
-		if rc.Run.OrgID != uuid.Nil {
-			orgOverrides, err = repo.ListByScope(ctx, rc.Run.OrgID, "org")
+		var projectOverrides []data.ToolDescriptionOverride
+		if rc.Run.ProjectID != nil {
+			projectOverrides, err = repo.ListByScope(ctx, rc.Run.ProjectID, "project")
 			if err != nil {
-				slog.WarnContext(ctx, "tool description override load failed", "run_id", rc.Run.ID, "scope", "org", "org_id", rc.Run.OrgID, "err", err.Error())
+				slog.WarnContext(ctx, "tool description override load failed", "run_id", rc.Run.ID, "scope", "project", "project_id", *rc.Run.ProjectID, "err", err.Error())
 				return next(ctx, rc)
 			}
 		}
 
-		descriptionByTool := make(map[string]string, len(platformOverrides)+len(orgOverrides))
-		disabledByTool := make(map[string]struct{}, len(platformOverrides)+len(orgOverrides))
+		descriptionByTool := make(map[string]string, len(platformOverrides)+len(projectOverrides))
+		disabledByTool := make(map[string]struct{}, len(platformOverrides)+len(projectOverrides))
 		for _, override := range platformOverrides {
 			if override.IsDisabled {
 				disabledByTool[override.ToolName] = struct{}{}
@@ -48,7 +48,7 @@ func NewToolDescriptionOverrideMiddleware(repo ToolDescriptionOverridesReader) R
 			}
 			descriptionByTool[override.ToolName] = override.Description
 		}
-		for _, override := range orgOverrides {
+		for _, override := range projectOverrides {
 			if override.IsDisabled {
 				disabledByTool[override.ToolName] = struct{}{}
 			}
