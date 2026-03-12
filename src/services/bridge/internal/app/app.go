@@ -86,7 +86,7 @@ func (a *Application) Run(ctx context.Context) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", healthz)
 
-	apiHandler := bridgehttp.NewHandler(registry, compose, operations, auditLog, adapter)
+	apiHandler := bridgehttp.NewHandler(registry, compose, operations, auditLog, adapter, bridgeVersion)
 	apiHandler.RegisterRoutes(mux)
 
 	handler := corsMiddleware(a.config.CORSAllowedOrigins, mux)

@@ -7,7 +7,9 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"arkloop/services/bridge/internal/audit"
@@ -33,6 +35,9 @@ type Handler struct {
 	operations *docker.OperationStore
 	auditLog   *audit.Logger
 	appLogger  AppLogger
+	version    string
+	upgradeMu  sync.Mutex
+	upgrading  bool
 }
 
 // NewHandler creates a Handler with all required dependencies.
@@ -42,6 +47,7 @@ func NewHandler(
 	operations *docker.OperationStore,
 	auditLog *audit.Logger,
 	logger AppLogger,
+	version string,
 ) *Handler {
 	return &Handler{
 		registry:   registry,
@@ -49,6 +55,7 @@ func NewHandler(
 		operations: operations,
 		auditLog:   auditLog,
 		appLogger:  logger,
+		version:    version,
 	}
 }
 
@@ -60,6 +67,8 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/modules/{id}/actions", h.moduleAction)
 	mux.HandleFunc("GET /v1/operations/{id}/stream", h.streamOperation)
 	mux.HandleFunc("POST /v1/operations/{id}/cancel", h.cancelOperation)
+	mux.HandleFunc("GET /v1/system/version", h.systemVersion)
+	mux.HandleFunc("POST /v1/system/upgrade", h.systemUpgrade)
 }
 
 // --- Platform ----------------------------------------------------------
@@ -401,6 +410,253 @@ func statusJSON(op *docker.Operation) string {
 		"status": string(docker.OperationCompleted),
 	})
 	return string(data)
+}
+
+// --- System ------------------------------------------------------------
+
+func (h *Handler) systemVersion(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{
+		"version":     h.version,
+		"compose_dir": h.compose.ProjectDir(),
+	})
+}
+
+type upgradeRequest struct {
+	Mode          string `json:"mode"`           // "prod" or "dev", default "dev"
+	TargetVersion string `json:"target_version"` // optional, for prod mode
+}
+
+// versionPattern validates target_version to prevent .env injection.
+var versionPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$`)
+
+func (h *Handler) systemUpgrade(w http.ResponseWriter, r *http.Request) {
+	var req upgradeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "request.invalid", "invalid JSON body")
+		return
+	}
+	if req.Mode == "" {
+		req.Mode = "dev"
+	}
+	if req.Mode != "prod" && req.Mode != "dev" {
+		writeError(w, http.StatusBadRequest, "request.invalid", "mode must be 'prod' or 'dev'")
+		return
+	}
+	if req.TargetVersion != "" && !versionPattern.MatchString(req.TargetVersion) {
+		writeError(w, http.StatusBadRequest, "request.invalid", "target_version contains invalid characters")
+		return
+	}
+
+	// Prevent concurrent upgrades.
+	h.upgradeMu.Lock()
+	if h.upgrading {
+		h.upgradeMu.Unlock()
+		writeError(w, http.StatusConflict, "upgrade.in_progress", "a system upgrade is already in progress")
+		return
+	}
+	h.upgrading = true
+	h.upgradeMu.Unlock()
+
+	h.auditLog.LogAction("system_upgrade", "system", map[string]string{
+		"mode":           req.Mode,
+		"target_version": req.TargetVersion,
+	})
+
+	opCtx := context.WithoutCancel(r.Context())
+
+	profiles := readProfilesFromState(h.compose.ProjectDir())
+
+	op := docker.NewOperation("system", "upgrade")
+	op.Status = docker.OperationRunning
+	h.operations.Add(op)
+
+	go func() {
+		defer func() {
+			h.upgradeMu.Lock()
+			h.upgrading = false
+			h.upgradeMu.Unlock()
+		}()
+		h.runUpgrade(opCtx, op, req, profiles)
+	}()
+
+	writeJSON(w, http.StatusAccepted, actionResponse{OperationID: op.ID})
+}
+
+func (h *Handler) runUpgrade(ctx context.Context, op *docker.Operation, req upgradeRequest, profiles []string) {
+	var opErr error
+	defer func() { op.Complete(opErr) }()
+
+	projectDir := h.compose.ProjectDir()
+
+	// Determine extra compose files for prod mode.
+	var extraFiles []string
+	if req.Mode == "prod" {
+		prodFile := filepath.Join(projectDir, "compose.prod.yaml")
+		if _, err := os.Stat(prodFile); err == nil {
+			extraFiles = append(extraFiles, prodFile)
+		}
+	}
+
+	// 1. Set target version if prod mode.
+	if req.Mode == "prod" && req.TargetVersion != "" {
+		op.AppendLog(fmt.Sprintf("Setting target version: %s", req.TargetVersion))
+		if err := setEnvValue(filepath.Join(projectDir, ".env"), "ARKLOOP_VERSION", req.TargetVersion); err != nil {
+			op.AppendLog("ERROR: " + err.Error())
+			opErr = err
+			return
+		}
+	}
+
+	// 2. Pull images (prod) or skip (dev builds at up).
+	if req.Mode == "prod" {
+		op.AppendLog("Pulling latest images...")
+		pullOp, err := h.compose.Pull(ctx, nil, profiles, extraFiles...)
+		if err != nil {
+			op.AppendLog("ERROR pulling images: " + err.Error())
+			opErr = err
+			return
+		}
+		if waitErr := pullOp.Wait(); waitErr != nil {
+			relayLogs(op, pullOp)
+			op.AppendLog("ERROR: image pull failed: " + waitErr.Error())
+			opErr = waitErr
+			return
+		}
+		relayLogs(op, pullOp)
+		op.AppendLog("Images pulled successfully")
+	}
+
+	// 3. Run migrations.
+	op.AppendLog("Running database migrations...")
+	migrateOp, err := h.compose.RunMigrate(ctx, profiles, extraFiles...)
+	if err != nil {
+		op.AppendLog("ERROR running migrations: " + err.Error())
+		opErr = err
+		return
+	}
+	if waitErr := migrateOp.Wait(); waitErr != nil {
+		relayLogs(op, migrateOp)
+		op.AppendLog("ERROR: migration failed: " + waitErr.Error())
+		opErr = waitErr
+		return
+	}
+	relayLogs(op, migrateOp)
+	op.AppendLog("Migrations completed")
+
+	// 4. Recreate services (exclude bridge to avoid self-termination).
+	if req.Mode == "prod" {
+		op.AppendLog("Recreating services with new images...")
+	} else {
+		op.AppendLog("Rebuilding and recreating services...")
+	}
+	// Filter out "bridge" profile to prevent the bridge from killing itself
+	// during the upgrade. The bridge can be restarted separately afterwards.
+	nonBridgeProfiles := make([]string, 0, len(profiles))
+	for _, p := range profiles {
+		if p != "bridge" {
+			nonBridgeProfiles = append(nonBridgeProfiles, p)
+		}
+	}
+	upOp, err := h.compose.UpAll(ctx, nil, nonBridgeProfiles, req.Mode == "dev", extraFiles...)
+	if err != nil {
+		op.AppendLog("ERROR recreating services: " + err.Error())
+		opErr = err
+		return
+	}
+	if waitErr := upOp.Wait(); waitErr != nil {
+		relayLogs(op, upOp)
+		op.AppendLog("ERROR: service recreation failed: " + waitErr.Error())
+		opErr = waitErr
+		return
+	}
+	relayLogs(op, upOp)
+	op.AppendLog("Services recreated")
+
+	// 5. Health check.
+	op.AppendLog("Waiting for system health check...")
+	apiURL := fmt.Sprintf("http://localhost:%s/healthz", envOrDefault("ARKLOOP_API_PORT", "19001"))
+	if err := waitForHTTP(ctx, apiURL, 120*time.Second); err != nil {
+		op.AppendLog("WARNING: health check did not pass: " + err.Error())
+	} else {
+		op.AppendLog("System health check passed")
+	}
+
+	op.AppendLog("System upgrade completed successfully")
+}
+
+// readProfilesFromState reads COMPOSE_PROFILES from the install state file.
+func readProfilesFromState(projectDir string) []string {
+	stateFile := filepath.Join(projectDir, "install", ".state.env")
+	data, err := os.ReadFile(stateFile)
+	if err != nil {
+		return nil
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "COMPOSE_PROFILES=") {
+			val := strings.TrimPrefix(line, "COMPOSE_PROFILES=")
+			val = strings.Trim(val, "\"'")
+			if val == "" {
+				return nil
+			}
+			return strings.Split(val, ",")
+		}
+	}
+	return nil
+}
+
+// setEnvValue updates or adds a key=value pair in a .env file.
+func setEnvValue(envFile, key, value string) error {
+	data, err := os.ReadFile(envFile)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	lines := strings.Split(string(data), "\n")
+	found := false
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, key+"=") {
+			lines[i] = key + "=" + value
+			found = true
+			break
+		}
+	}
+	if !found {
+		lines = append(lines, key+"="+value)
+	}
+	return os.WriteFile(envFile, []byte(strings.Join(lines, "\n")), 0644)
+}
+
+// waitForHTTP polls a URL until it responds with 200 OK or the timeout expires.
+func waitForHTTP(ctx context.Context, url string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	client := &http.Client{Timeout: 5 * time.Second}
+	for time.Now().Before(deadline) {
+		req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+		if err != nil {
+			return err
+		}
+		resp, err := client.Do(req)
+		if err == nil {
+			resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				return nil
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(2 * time.Second):
+		}
+	}
+	return fmt.Errorf("health check timed out after %v", timeout)
+}
+
+// relayLogs copies all log lines from a sub-operation to the parent operation.
+func relayLogs(parent, child *docker.Operation) {
+	for _, line := range child.Lines(0) {
+		parent.AppendLog(line)
+	}
 }
 
 // --- Helpers -----------------------------------------------------------

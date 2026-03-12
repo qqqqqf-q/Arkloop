@@ -50,6 +50,16 @@ export type BridgeHealth = {
   version?: string
 }
 
+export type SystemVersionInfo = {
+  version: string
+  compose_dir: string
+}
+
+export type UpgradeRequest = {
+  mode: 'prod' | 'dev'
+  target_version?: string
+}
+
 class BridgeClient {
   private baseUrl: string
 
@@ -106,6 +116,25 @@ class BridgeClient {
       signal: AbortSignal.timeout(5000),
     })
     if (!resp.ok) throw new Error(`Cancel operation failed: ${resp.status}`)
+  }
+
+  async systemVersion(): Promise<SystemVersionInfo> {
+    const resp = await fetch(`${this.baseUrl}/v1/system/version`, {
+      signal: AbortSignal.timeout(5000),
+    })
+    if (!resp.ok) throw new Error(`System version failed: ${resp.status}`)
+    return resp.json()
+  }
+
+  async systemUpgrade(req: UpgradeRequest): Promise<{ operation_id: string }> {
+    const resp = await fetch(`${this.baseUrl}/v1/system/upgrade`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req),
+      signal: AbortSignal.timeout(10000),
+    })
+    if (!resp.ok) throw new Error(`System upgrade failed: ${resp.status}`)
+    return resp.json()
   }
 
   streamOperation(

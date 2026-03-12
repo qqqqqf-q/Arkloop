@@ -52,7 +52,7 @@ func newTestHandler(t *testing.T) (*Handler, *http.ServeMux) {
 	operations := docker.NewOperationStore()
 	auditLog := audit.NewLogger(io.Discard)
 
-	handler := NewHandler(reg, compose, operations, auditLog, &noopLogger{})
+	handler := NewHandler(reg, compose, operations, auditLog, &noopLogger{}, "0.0.0-test")
 	mux := http.NewServeMux()
 	handler.RegisterRoutes(mux)
 

@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo } from 'react'
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { useOutletContext, useSearchParams } from 'react-router-dom'
 import { Loader2, Plus, Trash2, Star, Send, ChevronDown } from 'lucide-react'
 import type { LiteOutletContext } from '../layouts/LiteLayout'
@@ -29,10 +29,11 @@ import {
   clearToolProviderCredential,
   type ToolProviderItem,
 } from '../api/tool-providers'
+import { bridgeClient, checkBridgeAvailable } from '../api/bridge'
 
-type Section = 'general' | 'email' | 'sandbox' | 'skills' | 'credits'
+type Section = 'general' | 'email' | 'sandbox' | 'skills' | 'credits' | 'system'
 
-const SECTIONS: Section[] = ['general', 'email', 'sandbox', 'skills', 'credits']
+const SECTIONS: Section[] = ['general', 'email', 'sandbox', 'skills', 'credits', 'system']
 
 const TLS_MODES = ['starttls', 'tls', 'none'] as const
 const SANDBOX_PROVIDERS = ['firecracker', 'docker'] as const
@@ -385,6 +386,7 @@ export function SettingsPage() {
     sandbox: tc.sectionSandbox,
     skills: tc.sectionSkills,
     credits: tc.sectionCredits,
+    system: t.systemSection.title,
   }
 
   return (
@@ -543,6 +545,9 @@ export function SettingsPage() {
                     tc={tc}
                     tCommon={t.common}
                   />
+                )}
+                {section === 'system' && (
+                  <SystemSection ts={t.systemSection} />
                 )}
               </div>
             </div>
@@ -975,6 +980,152 @@ function SkillsSection({
           {saving ? '...' : tCommon.save}
         </button>
       </div>
+    </>
+  )
+}
+
+// --- System section ---
+
+type SystemLocale = LocaleStrings['systemSection']
+
+function SystemSection({ ts }: { ts: SystemLocale }) {
+  const [bridgeOnline, setBridgeOnline] = useState<boolean | null>(null)
+  const [version, setVersion] = useState('')
+  const [mode, setMode] = useState<'prod' | 'dev'>('prod')
+  const [targetVersion, setTargetVersion] = useState('')
+  const [upgrading, setUpgrading] = useState(false)
+  const [logs, setLogs] = useState<string[]>([])
+  const [result, setResult] = useState<{ status: string; error?: string } | null>(null)
+  const logsEndRef = useRef<HTMLDivElement>(null)
+  const cleanupRef = useRef<(() => void) | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      const online = await checkBridgeAvailable()
+      if (cancelled) return
+      setBridgeOnline(online)
+      if (online) {
+        try {
+          const info = await bridgeClient.systemVersion()
+          if (!cancelled) setVersion(info.version)
+        } catch {
+          /* version unavailable */
+        }
+      }
+    })()
+    return () => { cancelled = true }
+  }, [])
+
+  useEffect(() => {
+    logsEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [logs])
+
+  useEffect(() => {
+    return () => { cleanupRef.current?.() }
+  }, [])
+
+  const handleUpgrade = useCallback(async () => {
+    setUpgrading(true)
+    setLogs([])
+    setResult(null)
+    try {
+      const req = mode === 'prod' && targetVersion.trim()
+        ? { mode, target_version: targetVersion.trim() } as const
+        : { mode } as const
+      const { operation_id } = await bridgeClient.systemUpgrade(req)
+      cleanupRef.current = bridgeClient.streamOperation(
+        operation_id,
+        (line) => setLogs((prev) => [...prev, line]),
+        (res) => {
+          setResult(res)
+          setUpgrading(false)
+          cleanupRef.current = null
+        },
+      )
+    } catch {
+      setResult({ status: 'failed', error: 'Request failed' })
+      setUpgrading(false)
+    }
+  }, [mode, targetVersion])
+
+  return (
+    <>
+      <FormField label={ts.version}>
+        <p className="text-sm text-[var(--c-text-primary)]">{version || '--'}</p>
+      </FormField>
+
+      <FormField label={ts.bridgeStatus}>
+        {bridgeOnline === null ? (
+          <Loader2 size={16} className="animate-spin text-[var(--c-text-muted)]" />
+        ) : bridgeOnline ? (
+          <span className="inline-flex items-center gap-1.5 text-sm text-[var(--c-status-success-text)]">
+            <span className="h-2 w-2 rounded-full bg-[var(--c-status-success-text)]" />
+            {ts.bridgeOnline}
+          </span>
+        ) : (
+          <span className="inline-flex items-center gap-1.5 text-sm text-[var(--c-status-error-text)]">
+            <span className="h-2 w-2 rounded-full bg-[var(--c-status-error-text)]" />
+            {ts.bridgeOffline}
+          </span>
+        )}
+      </FormField>
+
+      <FormField label={ts.upgradeMode}>
+        <div className="relative">
+          <select value={mode} onChange={(e) => setMode(e.target.value as 'prod' | 'dev')} className={selectCls}>
+            <option value="prod">{ts.modeProd}</option>
+            <option value="dev">{ts.modeDev}</option>
+          </select>
+          <ChevronDown size={14} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--c-text-muted)]" />
+        </div>
+      </FormField>
+
+      {mode === 'prod' && (
+        <FormField label={ts.targetVersion}>
+          <input
+            value={targetVersion}
+            onChange={(e) => setTargetVersion(e.target.value)}
+            className={inputCls}
+            placeholder={ts.targetVersionPlaceholder}
+          />
+        </FormField>
+      )}
+
+      <div className="flex justify-end">
+        <button
+          onClick={handleUpgrade}
+          disabled={upgrading || !bridgeOnline}
+          className={btnPrimaryCls}
+        >
+          {upgrading ? ts.upgrading : ts.upgradeBtn}
+        </button>
+      </div>
+
+      {logs.length > 0 && (
+        <div>
+          <p className="mb-2 text-xs font-medium text-[var(--c-text-secondary)]">{ts.logs}</p>
+          <div className="max-h-64 overflow-y-auto rounded-md border border-[var(--c-border-console)] bg-[var(--c-bg-input)] p-3 font-mono text-xs leading-5 text-[var(--c-text-primary)]">
+            {logs.map((line, i) => (
+              <div key={i}>{line}</div>
+            ))}
+            <div ref={logsEndRef} />
+          </div>
+        </div>
+      )}
+
+      {result && (
+        <div
+          className={[
+            'rounded-md border px-4 py-3 text-sm',
+            result.status === 'completed'
+              ? 'border-[var(--c-status-success-text)] bg-[var(--c-status-success-bg)] text-[var(--c-status-success-text)]'
+              : 'border-[var(--c-status-error-text)] bg-[var(--c-status-error-bg)] text-[var(--c-status-error-text)]',
+          ].join(' ')}
+        >
+          {result.status === 'completed' ? ts.upgradeComplete : `${ts.upgradeFailed}${result.error ? `: ${result.error}` : ''}`}
+        </div>
+      )}
     </>
   )
 }

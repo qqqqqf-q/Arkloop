@@ -275,6 +275,23 @@ export interface LocaleStrings {
     noModules: string
     requires: (deps: string) => string
   }
+  systemSection: {
+    title: string
+    version: string
+    bridgeStatus: string
+    bridgeOnline: string
+    bridgeOffline: string
+    upgradeMode: string
+    modeDev: string
+    modeProd: string
+    targetVersion: string
+    targetVersionPlaceholder: string
+    upgradeBtn: string
+    upgrading: string
+    upgradeComplete: string
+    upgradeFailed: string
+    logs: string
+  }
   settingsPage: {
     title: string
     sectionGeneral: string

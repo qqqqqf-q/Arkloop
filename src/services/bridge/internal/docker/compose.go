@@ -251,6 +251,122 @@ func (c *Compose) streamOutput(op *Operation, cmd *exec.Cmd, r io.Reader) {
 	op.Complete(err)
 }
 
+// baseArgsWithFiles returns shared docker compose CLI arguments with additional
+// compose files layered via -f flags.
+func (c *Compose) baseArgsWithFiles(extraFiles ...string) []string {
+	args := []string{"compose", "-f", c.composeFile}
+	for _, f := range extraFiles {
+		args = append(args, "-f", f)
+	}
+	return args
+}
+
+// runSystemAsync starts a docker compose command in the background using the
+// "__system__" lock key. This prevents concurrent system-wide operations
+// (pull, upgrade, migrate) without blocking per-service operations.
+func (c *Compose) runSystemAsync(ctx context.Context, action string, args []string) (*Operation, error) {
+	const systemLockKey = "__system__"
+	if _, loaded := c.moduleLocks.LoadOrStore(systemLockKey, true); loaded {
+		return nil, fmt.Errorf("a system operation is already in progress")
+	}
+
+	op := NewOperation("system", action)
+	op.Status = OperationRunning
+
+	cancelCtx, cancel := context.WithCancel(ctx)
+	op.cancelFunc = cancel
+
+	cmd := exec.CommandContext(cancelCtx, "docker", args...)
+	cmd.Dir = c.projectDir
+
+	stdoutPipe, err := cmd.StdoutPipe()
+	if err != nil {
+		cancel()
+		c.moduleLocks.Delete(systemLockKey)
+		return nil, fmt.Errorf("stdout pipe: %w", err)
+	}
+	cmd.Stderr = cmd.Stdout
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+
+	c.logger.Info("running docker compose (system)", map[string]any{
+		"operation_id": op.ID,
+		"action":       action,
+		"args":         args,
+	})
+
+	if err := cmd.Start(); err != nil {
+		cancel()
+		c.moduleLocks.Delete(systemLockKey)
+		return nil, fmt.Errorf("start command: %w", err)
+	}
+
+	if cmd.Process != nil {
+		op.SetPID(cmd.Process.Pid)
+	}
+
+	go func() {
+		c.streamOutput(op, cmd, stdoutPipe)
+		c.moduleLocks.Delete(systemLockKey)
+	}()
+
+	return op, nil
+}
+
+// Pull pulls the latest images for the given services.
+// If services is empty, pulls all services in the compose file.
+// extraFiles are additional compose files layered via -f flags.
+func (c *Compose) Pull(ctx context.Context, services []string, profiles []string, extraFiles ...string) (*Operation, error) {
+	if err := c.validateProjectDir(); err != nil {
+		return nil, err
+	}
+
+	args := c.baseArgsWithFiles(extraFiles...)
+	for _, p := range profiles {
+		args = append(args, "--profile", p)
+	}
+	args = append(args, "pull")
+	args = append(args, services...)
+
+	return c.runSystemAsync(ctx, "pull", args)
+}
+
+// UpAll recreates all specified services. If services is empty, recreates all.
+// When build is true, the --build flag is added to rebuild images from source.
+// extraFiles are additional compose files layered via -f flags.
+func (c *Compose) UpAll(ctx context.Context, services []string, profiles []string, build bool, extraFiles ...string) (*Operation, error) {
+	if err := c.validateProjectDir(); err != nil {
+		return nil, err
+	}
+
+	args := c.baseArgsWithFiles(extraFiles...)
+	for _, p := range profiles {
+		args = append(args, "--profile", p)
+	}
+	args = append(args, "up", "-d")
+	if build {
+		args = append(args, "--build")
+	}
+	args = append(args, services...)
+
+	return c.runSystemAsync(ctx, "up", args)
+}
+
+// RunMigrate runs the migrate service (one-shot) and returns an operation tracking it.
+// extraFiles are additional compose files layered via -f flags.
+func (c *Compose) RunMigrate(ctx context.Context, profiles []string, extraFiles ...string) (*Operation, error) {
+	if err := c.validateProjectDir(); err != nil {
+		return nil, err
+	}
+
+	args := c.baseArgsWithFiles(extraFiles...)
+	for _, p := range profiles {
+		args = append(args, "--profile", p)
+	}
+	args = append(args, "run", "--rm", "migrate")
+
+	return c.runSystemAsync(ctx, "migrate", args)
+}
+
 // mapStatus converts Docker container state/health into a module status string.
 func mapStatus(e psEntry) string {
 	switch strings.ToLower(e.State) {
