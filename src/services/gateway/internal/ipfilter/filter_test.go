@@ -13,9 +13,10 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-func TestExtractOrgID(t *testing.T) {
-	orgID := "550e8400-e29b-41d4-a716-446655440000"
-	token := signedToken(t, map[string]any{"sub": "user-id", "org": orgID, "exp": time.Now().Add(time.Hour).Unix()}, []byte("test-secret"))
+func TestExtractAccountID(t *testing.T) {
+	accountID := "550e8400-e29b-41d4-a716-446655440000"
+	token := signedToken(t, map[string]any{"sub": "user-id", "org": accountID, "exp": time.Now().Add(time.Hour).Unix()}, []byte("test-secret"))
+	accountToken := signedToken(t, map[string]any{"sub": "user-id", "account": accountID, "exp": time.Now().Add(time.Hour).Unix()}, []byte("test-secret"))
 
 	cases := []struct {
 		name   string
@@ -23,7 +24,8 @@ func TestExtractOrgID(t *testing.T) {
 		header string
 		want   string
 	}{
-		{"valid bearer with secret", []byte("test-secret"), "Bearer " + token, orgID},
+		{"valid bearer with org claim (fallback)", []byte("test-secret"), "Bearer " + token, accountID},
+		{"valid bearer with account claim", []byte("test-secret"), "Bearer " + accountToken, accountID},
 		{"valid bearer without secret", nil, "Bearer " + token, ""},
 		{"missing bearer prefix", nil, token, ""},
 		{"empty", nil, "", ""},
@@ -32,7 +34,7 @@ func TestExtractOrgID(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		got := extractOrgIDWithRedis(tc.header, nil, context.Background(), tc.secret)
+		got := extractAccountIDWithRedis(tc.header, nil, context.Background(), tc.secret)
 		if got != tc.want {
 			t.Errorf("%s: got %q, want %q", tc.name, got, tc.want)
 		}
@@ -126,7 +128,7 @@ func TestFilterCheckRulesSemantics(t *testing.T) {
 	_ = f // suppress unused warning
 }
 
-func TestFilterMiddlewarePassesWithoutOrgID(t *testing.T) {
+func TestFilterMiddlewarePassesWithoutAccountID(t *testing.T) {
 	called := false
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		called = true
@@ -150,8 +152,8 @@ func TestFilterMiddlewareFailOpenOnNilRedis(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	orgID := "550e8400-e29b-41d4-a716-446655440000"
-	token := fakeToken(t, map[string]any{"sub": "u", "org": orgID})
+	accountID := "550e8400-e29b-41d4-a716-446655440000"
+	token := fakeToken(t, map[string]any{"sub": "u", "org": accountID})
 
 	handler := NewFilter(nil, 0, nil).Middleware(next)
 	req := httptest.NewRequest(http.MethodGet, "/", nil)

@@ -153,7 +153,7 @@ export function RunsPage() {
             run_id: filters.runId || undefined,
             thread_id: filters.threadId || undefined,
             user_id: filters.userId || undefined,
-            org_id: filters.projectId || undefined,
+            account_id: filters.projectId || undefined,
             parent_run_id: filters.parentRunId || undefined,
             status: filters.status || undefined,
             model: filters.model || undefined,
@@ -245,8 +245,8 @@ export function RunsPage() {
       key: 'project_id',
       header: rt.colProject,
       render: (row) => (
-        <span className="font-mono text-xs" title={row.org_id}>
-          {truncateId(row.org_id)}
+        <span className="font-mono text-xs" title={row.account_id}>
+          {truncateId(row.account_id)}
         </span>
       ),
     },

@@ -8,7 +8,7 @@ function message(id: string, role: string, content: string): MessageResponse {
     id,
     role,
     content,
-    org_id: 'org_1',
+    account_id: 'org_1',
     thread_id: 'thread_1',
     created_by_user_id: 'user_1',
     created_at: '2026-01-01T00:00:00Z',

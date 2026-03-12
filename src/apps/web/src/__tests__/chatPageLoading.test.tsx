@@ -155,7 +155,7 @@ describe('ChatPage loading state', () => {
         id: 'msg-1',
         role: 'user',
         content: 'hello',
-        org_id: 'org-1',
+        account_id: 'org-1',
         thread_id: 'thread-1',
         created_by_user_id: 'user-1',
         created_at: '2026-03-10T00:00:00Z',

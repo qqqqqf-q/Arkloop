@@ -25,7 +25,7 @@ export type LlmProviderModel = {
 
 export type LlmProvider = {
   id: string
-  org_id?: string | null
+  account_id?: string | null
   scope: LlmProviderScope
   provider: string
   name: string

@@ -32,7 +32,7 @@ type Entry struct {
 	UAType       string
 	RiskScore    int
 	IdentityType string // jwt / api_key / anonymous
-	OrgID        string
+	AccountID    string
 	UserID       string
 }
 
@@ -104,7 +104,7 @@ func (w *Writer) loop() {
 						"ua_type", entry.UAType,
 						"risk_score", strconv.Itoa(entry.RiskScore),
 						"identity_type", entry.IdentityType,
-						"org_id", entry.OrgID,
+						"account_id", entry.AccountID,
 						"user_id", entry.UserID,
 					},
 				})

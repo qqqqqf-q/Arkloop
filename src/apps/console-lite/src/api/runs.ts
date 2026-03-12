@@ -2,7 +2,7 @@ import { apiFetch } from './client'
 
 export type GlobalRun = {
   run_id: string
-  org_id: string
+  account_id: string
   thread_id: string
   status: string
   model?: string
@@ -31,7 +31,7 @@ export type AdminRunEventsStats = {
 
 export type AdminRunDetail = {
   run_id: string
-  org_id: string
+  account_id: string
   thread_id: string
   status: string
   model?: string

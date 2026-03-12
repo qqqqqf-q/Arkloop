@@ -20,7 +20,7 @@ func signJWT(t *testing.T, claims jwt.MapClaims, secret []byte) string {
 	return signed
 }
 
-func TestExtractOrgID(t *testing.T) {
+func TestExtractAccountID(t *testing.T) {
 	validJWT := signJWT(t, jwt.MapClaims{
 		"org": "org-123",
 		"sub": "user-456",
@@ -39,6 +39,12 @@ func TestExtractOrgID(t *testing.T) {
 		"exp": time.Now().Add(-time.Hour).Unix(),
 	}, testSecret)
 
+	accountJWT := signJWT(t, jwt.MapClaims{
+		"account": "account-789",
+		"sub":     "user-456",
+		"exp":     time.Now().Add(time.Hour).Unix(),
+	}, testSecret)
+
 	tests := []struct {
 		name       string
 		authHeader string
@@ -46,10 +52,16 @@ func TestExtractOrgID(t *testing.T) {
 		want       string
 	}{
 		{
-			name:       "valid jwt with secret",
+			name:       "valid jwt with org claim (fallback)",
 			authHeader: "Bearer " + validJWT,
 			secret:     testSecret,
 			want:       "org-123",
+		},
+		{
+			name:       "valid jwt with account claim",
+			authHeader: "Bearer " + accountJWT,
+			secret:     testSecret,
+			want:       "account-789",
 		},
 		{
 			name:       "forged jwt rejected",
@@ -97,9 +109,9 @@ func TestExtractOrgID(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := ExtractOrgID(context.Background(), tt.authHeader, nil, tt.secret)
+			got := ExtractAccountID(context.Background(), tt.authHeader, nil, tt.secret)
 			if got != tt.want {
-				t.Errorf("ExtractOrgID() = %q, want %q", got, tt.want)
+				t.Errorf("ExtractAccountID() = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -118,53 +130,67 @@ func TestExtractInfo(t *testing.T) {
 		"exp": time.Now().Add(time.Hour).Unix(),
 	}, []byte("wrong-secret"))
 
+	accountJWT := signJWT(t, jwt.MapClaims{
+		"account": "acct-abc",
+		"sub":     "user-xyz",
+		"exp":     time.Now().Add(time.Hour).Unix(),
+	}, testSecret)
+
 	tests := []struct {
-		name       string
-		authHeader string
-		secret     []byte
-		wantType   IdentityType
-		wantOrgID  string
-		wantUserID string
+		name          string
+		authHeader    string
+		secret        []byte
+		wantType      IdentityType
+		wantAccountID string
+		wantUserID    string
 	}{
 		{
-			name:       "valid jwt with secret",
-			authHeader: "Bearer " + validJWT,
-			secret:     testSecret,
-			wantType:   IdentityJWT,
-			wantOrgID:  "org-abc",
-			wantUserID: "user-xyz",
+			name:          "valid jwt with org claim (fallback)",
+			authHeader:    "Bearer " + validJWT,
+			secret:        testSecret,
+			wantType:      IdentityJWT,
+			wantAccountID: "org-abc",
+			wantUserID:    "user-xyz",
 		},
 		{
-			name:       "forged jwt rejected to anonymous",
-			authHeader: "Bearer " + forgedJWT,
-			secret:     testSecret,
-			wantType:   IdentityAnonymous,
-			wantOrgID:  "",
-			wantUserID: "",
+			name:          "valid jwt with account claim",
+			authHeader:    "Bearer " + accountJWT,
+			secret:        testSecret,
+			wantType:      IdentityJWT,
+			wantAccountID: "acct-abc",
+			wantUserID:    "user-xyz",
 		},
 		{
-			name:       "no secret stays anonymous",
-			authHeader: "Bearer " + validJWT,
-			secret:     nil,
-			wantType:   IdentityAnonymous,
-			wantOrgID:  "",
-			wantUserID: "",
+			name:          "forged jwt rejected to anonymous",
+			authHeader:    "Bearer " + forgedJWT,
+			secret:        testSecret,
+			wantType:      IdentityAnonymous,
+			wantAccountID: "",
+			wantUserID:    "",
 		},
 		{
-			name:       "empty header is anonymous",
-			authHeader: "",
-			secret:     testSecret,
-			wantType:   IdentityAnonymous,
-			wantOrgID:  "",
-			wantUserID: "",
+			name:          "no secret stays anonymous",
+			authHeader:    "Bearer " + validJWT,
+			secret:        nil,
+			wantType:      IdentityAnonymous,
+			wantAccountID: "",
+			wantUserID:    "",
 		},
 		{
-			name:       "malformed token is anonymous",
-			authHeader: "Bearer garbage",
-			secret:     testSecret,
-			wantType:   IdentityAnonymous,
-			wantOrgID:  "",
-			wantUserID: "",
+			name:          "empty header is anonymous",
+			authHeader:    "",
+			secret:        testSecret,
+			wantType:      IdentityAnonymous,
+			wantAccountID: "",
+			wantUserID:    "",
+		},
+		{
+			name:          "malformed token is anonymous",
+			authHeader:    "Bearer garbage",
+			secret:        testSecret,
+			wantType:      IdentityAnonymous,
+			wantAccountID: "",
+			wantUserID:    "",
 		},
 	}
 
@@ -174,8 +200,8 @@ func TestExtractInfo(t *testing.T) {
 			if info.Type != tt.wantType {
 				t.Errorf("Type = %q, want %q", info.Type, tt.wantType)
 			}
-			if info.OrgID != tt.wantOrgID {
-				t.Errorf("OrgID = %q, want %q", info.OrgID, tt.wantOrgID)
+			if info.AccountID != tt.wantAccountID {
+				t.Errorf("AccountID = %q, want %q", info.AccountID, tt.wantAccountID)
 			}
 			if info.UserID != tt.wantUserID {
 				t.Errorf("UserID = %q, want %q", info.UserID, tt.wantUserID)

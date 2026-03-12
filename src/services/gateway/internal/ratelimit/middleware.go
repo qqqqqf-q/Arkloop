@@ -18,13 +18,13 @@ import (
 )
 
 const (
-	rateLimitOrgKeyPrefix = "arkloop:ratelimit:org:"
-	rateLimitIPKeyPrefix  = "arkloop:ratelimit:ip:"
+	rateLimitAccountKeyPrefix = "arkloop:ratelimit:account:"
+	rateLimitIPKeyPrefix      = "arkloop:ratelimit:ip:"
 )
 
 // NewRateLimitMiddleware 返回限流中间件。
 // SSE 请求（Accept: text/event-stream 且路径匹配已知 SSE 端点）跳过限流。
-// 有效 JWT 或 API Key 按 org_id 限流；否则按客户端 IP 限流。
+// 有效 JWT 或 API Key 按 account_id 限流；否则按客户端 IP 限流。
 // Redis 不可用时 fail-open：放行请求，不阻断流量。
 func NewRateLimitMiddleware(next http.Handler, limiter Limiter, jwtSecret string, redisTimeout time.Duration, rdb ...*redis.Client) http.Handler {
 	parser := jwt.NewParser(jwt.WithValidMethods([]string{"HS256"}))
@@ -81,36 +81,36 @@ type rateLimitResult struct {
 }
 
 // rateLimitKeyFromRequest 提取限流 key。
-// 优先从 JWT 或 API Key（Redis 缓存）取 org_id；匿名请求按客户端 IP 限流。
-// 已认证但 org 提取失败时，仍标记为 authenticated 以便中间件 fail-close。
+// 优先从 JWT 或 API Key（Redis 缓存）取 account_id；匿名请求按客户端 IP 限流。
+// 已认证但 account 提取失败时，仍标记为 authenticated 以便中间件 fail-close。
 func rateLimitKeyFromRequest(ctx context.Context, r *http.Request, parser *jwt.Parser, secret []byte, rdb *redis.Client) rateLimitResult {
 	auth := strings.TrimSpace(r.Header.Get("Authorization"))
 	bearer, ok := strings.CutPrefix(auth, "Bearer ")
 
 	// API Key 路径：通过 identity 包查缓存
 	if ok && strings.HasPrefix(bearer, "ak-") {
-		if orgStr := identity.ExtractOrgID(ctx, auth, rdb, secret); orgStr != "" {
-			return rateLimitResult{key: rateLimitOrgKeyPrefix + orgStr, authenticated: true}
+		if accountStr := identity.ExtractAccountID(ctx, auth, rdb, secret); accountStr != "" {
+			return rateLimitResult{key: rateLimitAccountKeyPrefix + accountStr, authenticated: true}
 		}
-		// 有 API Key 但无法解析 org（Redis 故障等），标记为已认证
+		// 有 API Key 但无法解析 account（Redis 故障等），标记为已认证
 		return rateLimitResult{key: rateLimitIPKeyPrefix + clientIP(r), authenticated: true}
 	}
 
 	// JWT 路径：带签名验证
 	if ok && bearer != "" {
-		if orgID := extractOrgIDFromBearer(r, parser, secret); orgID != uuid.Nil {
-			return rateLimitResult{key: rateLimitOrgKeyPrefix + orgID.String(), authenticated: true}
+		if accountID := extractAccountIDFromBearer(r, parser, secret); accountID != uuid.Nil {
+			return rateLimitResult{key: rateLimitAccountKeyPrefix + accountID.String(), authenticated: true}
 		}
-		// 有 Bearer token 但签名无效或 org 缺失，视为匿名
+		// 有 Bearer token 但签名无效或 account 缺失，视为匿名
 		return rateLimitResult{key: rateLimitIPKeyPrefix + clientIP(r), authenticated: false}
 	}
 
 	return rateLimitResult{key: rateLimitIPKeyPrefix + clientIP(r), authenticated: false}
 }
 
-// extractOrgIDFromBearer 验证 Bearer JWT 并提取 org claim。
+// extractAccountIDFromBearer 验证 Bearer JWT 并提取 account claim（兼容 org）。
 // 验证失败（无 token、签名错误、已过期）均返回 uuid.Nil。
-func extractOrgIDFromBearer(r *http.Request, parser *jwt.Parser, secret []byte) uuid.UUID {
+func extractAccountIDFromBearer(r *http.Request, parser *jwt.Parser, secret []byte) uuid.UUID {
 	auth := strings.TrimSpace(r.Header.Get("Authorization"))
 	if !strings.HasPrefix(auth, "Bearer ") {
 		return uuid.Nil
@@ -132,15 +132,21 @@ func extractOrgIDFromBearer(r *http.Request, parser *jwt.Parser, secret []byte) 
 	if !ok {
 		return uuid.Nil
 	}
-	orgRaw, exists := claims["org"]
-	if !exists {
+
+	var accountStr string
+	if accountRaw, exists := claims["account"]; exists {
+		if s, ok := accountRaw.(string); ok {
+			accountStr = s
+		}
+	} else if orgRaw, exists := claims["org"]; exists {
+		if s, ok := orgRaw.(string); ok {
+			accountStr = s
+		}
+	}
+	if accountStr == "" {
 		return uuid.Nil
 	}
-	orgStr, ok := orgRaw.(string)
-	if !ok {
-		return uuid.Nil
-	}
-	parsed, err := uuid.Parse(orgStr)
+	parsed, err := uuid.Parse(accountStr)
 	if err != nil {
 		return uuid.Nil
 	}

@@ -9,7 +9,7 @@ export type FeatureFlag = {
 }
 
 export type ProjectFeatureOverride = {
-  org_id: string
+  account_id: string
   flag_key: string
   enabled: boolean
   created_at: string
@@ -26,7 +26,7 @@ export type UpdateFeatureFlagRequest = {
 }
 
 export type SetProjectOverrideRequest = {
-  org_id: string
+  account_id: string
   enabled: boolean
 }
 

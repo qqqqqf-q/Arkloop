@@ -161,7 +161,7 @@ export type GitHubImportResponse = {
 
 export type Persona = {
   id: string
-  org_id: string | null
+  project_id: string | null
   scope: 'org' | 'platform'
   source?: 'builtin' | 'custom'
   persona_key: string
@@ -436,7 +436,7 @@ export type CreateThreadRequest = {
 
 export type ThreadResponse = {
   id: string
-  org_id: string
+  account_id: string
   created_by_user_id: string
   title: string | null
   project_id: string
@@ -584,7 +584,7 @@ export type CreateMessageRequest = {
 
 export type MessageResponse = {
   id: string
-  org_id: string
+  account_id: string
   thread_id: string
   created_by_user_id: string
   role: string
@@ -804,7 +804,7 @@ export async function retryThread(
 
 export type CreditTransaction = {
   id: string
-  org_id: string
+  account_id: string
   amount: number
   type: string
   reference_type?: string
@@ -835,7 +835,7 @@ export async function getMyCredits(
 }
 
 export type MeUsageSummary = {
-  org_id: string
+  account_id: string
   year: number
   month: number
   total_input_tokens: number
@@ -907,7 +907,7 @@ export async function resetMyInviteCode(
 export type NotificationItem = {
   id: string
   user_id: string
-  org_id: string
+  account_id: string
   type: string
   title: string
   body: string

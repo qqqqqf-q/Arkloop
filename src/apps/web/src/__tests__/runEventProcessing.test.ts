@@ -37,7 +37,7 @@ function makeMessage(params: {
 }): MessageResponse {
   return {
     id: params.id,
-    org_id: 'org_1',
+    account_id: 'org_1',
     thread_id: 'thread_1',
     created_by_user_id: 'user_1',
     role: params.role,

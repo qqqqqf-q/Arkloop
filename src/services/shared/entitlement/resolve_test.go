@@ -24,10 +24,10 @@ func TestResolverNilPoolFallbackToDefault(t *testing.T) {
 
 func TestResolverNilPoolCountsReturnZero(t *testing.T) {
 	r := NewResolver(nil, nil)
-	orgID := uuid.New()
+	accountID := uuid.New()
 	now := time.Now().UTC()
 
-	runs, err := r.CountMonthlyRuns(context.Background(), orgID, now.Year(), int(now.Month()))
+	runs, err := r.CountMonthlyRuns(context.Background(), accountID, now.Year(), int(now.Month()))
 	if err != nil {
 		t.Fatalf("CountMonthlyRuns error: %v", err)
 	}
@@ -35,7 +35,7 @@ func TestResolverNilPoolCountsReturnZero(t *testing.T) {
 		t.Fatalf("CountMonthlyRuns = %d, want 0", runs)
 	}
 
-	tokens, err := r.SumMonthlyTokens(context.Background(), orgID, now.Year(), int(now.Month()))
+	tokens, err := r.SumMonthlyTokens(context.Background(), accountID, now.Year(), int(now.Month()))
 	if err != nil {
 		t.Fatalf("SumMonthlyTokens error: %v", err)
 	}
@@ -43,7 +43,7 @@ func TestResolverNilPoolCountsReturnZero(t *testing.T) {
 		t.Fatalf("SumMonthlyTokens = %d, want 0", tokens)
 	}
 
-	balance, err := r.GetCreditBalance(context.Background(), orgID)
+	balance, err := r.GetCreditBalance(context.Background(), accountID)
 	if err != nil {
 		t.Fatalf("GetCreditBalance error: %v", err)
 	}
@@ -54,9 +54,9 @@ func TestResolverNilPoolCountsReturnZero(t *testing.T) {
 
 func TestResolverResolveIntParsesDefault(t *testing.T) {
 	r := NewResolver(nil, nil)
-	orgID := uuid.New()
+	accountID := uuid.New()
 
-	runs, err := r.ResolveInt(context.Background(), orgID, "quota.runs_per_month")
+	runs, err := r.ResolveInt(context.Background(), accountID, "quota.runs_per_month")
 	if err != nil {
 		t.Fatalf("ResolveInt runs: %v", err)
 	}
@@ -64,7 +64,7 @@ func TestResolverResolveIntParsesDefault(t *testing.T) {
 		t.Fatalf("ResolveInt runs = %d, want 999999", runs)
 	}
 
-	tokens, err := r.ResolveInt(context.Background(), orgID, "quota.tokens_per_month")
+	tokens, err := r.ResolveInt(context.Background(), accountID, "quota.tokens_per_month")
 	if err != nil {
 		t.Fatalf("ResolveInt tokens: %v", err)
 	}
@@ -208,9 +208,9 @@ func TestResolveDeductionPolicy_NilPool(t *testing.T) {
 
 func TestResolveInt_NonNumericReturnsZero(t *testing.T) {
 	r := NewResolver(nil, nil)
-	orgID := uuid.New()
+	accountID := uuid.New()
 
-	val, err := r.ResolveInt(context.Background(), orgID, "credit.deduction_policy")
+	val, err := r.ResolveInt(context.Background(), accountID, "credit.deduction_policy")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

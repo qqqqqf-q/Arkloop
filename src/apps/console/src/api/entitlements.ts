@@ -2,7 +2,7 @@ import { apiFetch } from './client'
 
 export type EntitlementOverride = {
   id: string
-  org_id: string
+  account_id: string
   key: string
   value: string
   value_type: 'int' | 'bool' | 'string'
@@ -13,7 +13,7 @@ export type EntitlementOverride = {
 }
 
 export type CreateEntitlementOverrideRequest = {
-  org_id: string
+  account_id: string
   key: string
   value: string
   value_type: 'int' | 'bool' | 'string'
@@ -25,7 +25,7 @@ export async function listEntitlementOverrides(
   projectId: string,
   accessToken: string,
 ): Promise<EntitlementOverride[]> {
-  const qs = new URLSearchParams({ org_id: projectId })
+  const qs = new URLSearchParams({ account_id: projectId })
   return apiFetch<EntitlementOverride[]>(`/v1/entitlement-overrides?${qs.toString()}`, { accessToken })
 }
 
@@ -45,7 +45,7 @@ export async function deleteEntitlementOverride(
   projectId: string,
   accessToken: string,
 ): Promise<void> {
-  const qs = new URLSearchParams({ org_id: projectId })
+  const qs = new URLSearchParams({ account_id: projectId })
   await apiFetch<void>(`/v1/entitlement-overrides/${id}?${qs.toString()}`, {
     method: 'DELETE',
     accessToken,

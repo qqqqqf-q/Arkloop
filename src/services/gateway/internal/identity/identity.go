@@ -18,29 +18,29 @@ var jwtParser = jwt.NewParser(jwt.WithValidMethods([]string{"HS256"}))
 const apiKeyCacheKeyPrefix = "arkloop:api_keys:"
 
 type apiKeyCacheEntry struct {
-	OrgID   string `json:"org_id"`
-	Revoked bool   `json:"revoked"`
+	AccountID string `json:"account_id"`
+	Revoked   bool   `json:"revoked"`
 }
 
-// ExtractOrgID 从 Authorization header 提取 org_id。
+// ExtractAccountID 从 Authorization header 提取 account_id。
 // JWT 仅在 jwtSecret 已配置时参与身份提取；未配置时返回空字符串。
-func ExtractOrgID(ctx context.Context, authHeader string, rdb *redis.Client, jwtSecret []byte) string {
+func ExtractAccountID(ctx context.Context, authHeader string, rdb *redis.Client, jwtSecret []byte) string {
 	token, ok := strings.CutPrefix(authHeader, "Bearer ")
 	if !ok || token == "" {
 		return ""
 	}
 
 	if strings.HasPrefix(token, "ak-") {
-		return extractOrgIDFromAPIKey(ctx, token, rdb)
+		return extractAccountIDFromAPIKey(ctx, token, rdb)
 	}
 
 	if len(jwtSecret) > 0 {
-		return extractOrgIDFromJWTVerified(token, jwtSecret)
+		return extractAccountIDFromJWT(token, jwtSecret)
 	}
 	return ""
 }
 
-func extractOrgIDFromAPIKey(ctx context.Context, rawKey string, rdb *redis.Client) string {
+func extractAccountIDFromAPIKey(ctx context.Context, rawKey string, rdb *redis.Client) string {
 	if rdb == nil {
 		return ""
 	}
@@ -62,7 +62,7 @@ func extractOrgIDFromAPIKey(ctx context.Context, rawKey string, rdb *redis.Clien
 		return ""
 	}
 
-	return strings.TrimSpace(entry.OrgID)
+	return strings.TrimSpace(entry.AccountID)
 }
 
 // IdentityType 标识身份来源。
@@ -76,9 +76,9 @@ const (
 
 // Info 包含从请求中提取的身份信息。
 type Info struct {
-	Type   IdentityType
-	OrgID  string
-	UserID string
+	Type      IdentityType
+	AccountID string
+	UserID    string
 }
 
 // ExtractInfo 从 Authorization header 提取完整身份信息。
@@ -90,11 +90,11 @@ func ExtractInfo(ctx context.Context, authHeader string, rdb *redis.Client, jwtS
 	}
 
 	if strings.HasPrefix(token, "ak-") {
-		orgID := extractOrgIDFromAPIKey(ctx, token, rdb)
-		if orgID == "" {
+		accountID := extractAccountIDFromAPIKey(ctx, token, rdb)
+		if accountID == "" {
 			return Info{Type: IdentityAnonymous}
 		}
-		return Info{Type: IdentityAPIKey, OrgID: orgID}
+		return Info{Type: IdentityAPIKey, AccountID: accountID}
 	}
 
 	if len(jwtSecret) > 0 {
@@ -103,7 +103,7 @@ func ExtractInfo(ctx context.Context, authHeader string, rdb *redis.Client, jwtS
 	return Info{Type: IdentityAnonymous}
 }
 
-func extractOrgIDFromJWTVerified(token string, secret []byte) string {
+func extractAccountIDFromJWT(token string, secret []byte) string {
 	parsed, err := jwtParser.Parse(token, func(t *jwt.Token) (any, error) {
 		return secret, nil
 	})
@@ -115,15 +115,17 @@ func extractOrgIDFromJWTVerified(token string, secret []byte) string {
 	if !ok {
 		return ""
 	}
-	orgRaw, exists := claims["org"]
-	if !exists {
-		return ""
+	if accountRaw, exists := claims["account"]; exists {
+		if accountStr, ok := accountRaw.(string); ok {
+			return strings.TrimSpace(accountStr)
+		}
 	}
-	orgStr, ok := orgRaw.(string)
-	if !ok {
-		return ""
+	if orgRaw, exists := claims["org"]; exists {
+		if orgStr, ok := orgRaw.(string); ok {
+			return strings.TrimSpace(orgStr)
+		}
 	}
-	return strings.TrimSpace(orgStr)
+	return ""
 }
 
 func extractInfoFromJWTVerified(token string, secret []byte) Info {
@@ -139,12 +141,17 @@ func extractInfoFromJWTVerified(token string, secret []byte) Info {
 		return Info{Type: IdentityAnonymous}
 	}
 
-	orgRaw, _ := claims["org"].(string)
+	var accountID string
+	if accountRaw, _ := claims["account"].(string); accountRaw != "" {
+		accountID = accountRaw
+	} else if orgRaw, _ := claims["org"].(string); orgRaw != "" {
+		accountID = orgRaw
+	}
 	subRaw, _ := claims["sub"].(string)
 
 	return Info{
-		Type:   IdentityJWT,
-		OrgID:  strings.TrimSpace(orgRaw),
-		UserID: strings.TrimSpace(subRaw),
+		Type:      IdentityJWT,
+		AccountID: strings.TrimSpace(accountID),
+		UserID:    strings.TrimSpace(subRaw),
 	}
 }

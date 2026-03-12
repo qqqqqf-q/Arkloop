@@ -2,7 +2,7 @@ import { apiFetch } from './client'
 
 export type AuditLog = {
   id: string
-  project_id?: string // TODO(migrate): backend still sends org_id
+  account_id?: string
   actor_user_id?: string
   action: string
   target_type?: string

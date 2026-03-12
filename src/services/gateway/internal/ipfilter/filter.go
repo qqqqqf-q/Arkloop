@@ -19,7 +19,7 @@ type rules struct {
 	Blocklist []string `json:"blocklist"`
 }
 
-// Filter 从 Redis 缓存加载 org IP 规则并执行过滤检查，同时支持从 API Key 缓存提取 org_id。
+// Filter 从 Redis 缓存加载 account IP 规则并执行过滤检查，同时支持从 API Key 缓存提取 account_id。
 type Filter struct {
 	redis     *redis.Client
 	timeout   time.Duration
@@ -31,7 +31,7 @@ func NewFilter(redisClient *redis.Client, timeout time.Duration, jwtSecret []byt
 }
 
 // Middleware 返回检查请求 IP 的 HTTP 中间件。
-// 无 org_id 或 Redis 不可用时 fail-open，让下游 API 处理认证。
+// 无 account_id 或 Redis 不可用时 fail-open，让下游 API 处理认证。
 func (f *Filter) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		auth := strings.TrimSpace(r.Header.Get("Authorization"))
@@ -49,9 +49,9 @@ func (f *Filter) Middleware(next http.Handler) http.Handler {
 			}
 		}
 
-		orgID := extractOrgIDWithRedis(auth, f.redis, orgCtx, f.jwtSecret)
+		accountID := extractAccountIDWithRedis(auth, f.redis, orgCtx, f.jwtSecret)
 		cancelOrg()
-		if orgID != "" {
+		if accountID != "" {
 			// 优先从 context 取 clientip 中间件解析的真实 IP，降级到 RemoteAddr
 			clientIPStr := clientip.FromContext(r.Context())
 			if clientIPStr == "" {
@@ -63,7 +63,7 @@ func (f *Filter) Middleware(next http.Handler) http.Handler {
 				if f.redis != nil && f.timeout > 0 {
 					checkCtx, cancelCheck = context.WithTimeout(ctx, f.timeout)
 				}
-				blocked := f.check(checkCtx, orgID, clientIPStr)
+				blocked := f.check(checkCtx, accountID, clientIPStr)
 				cancelCheck()
 				if blocked {
 					w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -78,8 +78,8 @@ func (f *Filter) Middleware(next http.Handler) http.Handler {
 }
 
 // check 返回 true 表示请求应被拒绝。
-func (f *Filter) check(ctx context.Context, orgID, clientIP string) bool {
-	r, err := f.loadRules(ctx, orgID)
+func (f *Filter) check(ctx context.Context, accountID, clientIP string) bool {
+	r, err := f.loadRules(ctx, accountID)
 	if err != nil || (len(r.Allowlist) == 0 && len(r.Blocklist) == 0) {
 		return false
 	}
@@ -109,12 +109,12 @@ func (f *Filter) check(ctx context.Context, orgID, clientIP string) bool {
 	return false
 }
 
-func (f *Filter) loadRules(ctx context.Context, orgID string) (rules, error) {
+func (f *Filter) loadRules(ctx context.Context, accountID string) (rules, error) {
 	if f.redis == nil {
 		return rules{}, fmt.Errorf("redis not configured")
 	}
 
-	key := fmt.Sprintf("arkloop:ip_rules:%s", orgID)
+	key := fmt.Sprintf("arkloop:ip_rules:%s", accountID)
 	raw, err := f.redis.Get(ctx, key).Bytes()
 	if err != nil {
 		// cache miss or Redis error → fail-open

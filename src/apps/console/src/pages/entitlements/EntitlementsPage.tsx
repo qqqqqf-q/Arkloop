@@ -275,7 +275,7 @@ export function EntitlementsPage() {
     try {
       const saved = await upsertEntitlementOverride(
         {
-          org_id: id,
+          account_id: id,
           key,
           value: checked.value,
           value_type: 'int',

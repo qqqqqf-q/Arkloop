@@ -47,28 +47,28 @@ func NewResolver(pool *pgxpool.Pool, rdb *redis.Client) *Resolver {
 	}
 }
 
-// Resolve 返回权益原始字符串值，优先级：org override > plan entitlement > 平台默认值。
-func (r *Resolver) Resolve(ctx context.Context, orgID uuid.UUID, key string) (string, error) {
+// Resolve 返回权益原始字符串值，优先级：account override > plan entitlement > 平台默认值。
+func (r *Resolver) Resolve(ctx context.Context, accountID uuid.UUID, key string) (string, error) {
 	if r.rdb != nil {
-		if val, ok := fromCache(ctx, r.rdb, orgID, key); ok {
+		if val, ok := fromCache(ctx, r.rdb, accountID, key); ok {
 			return val, nil
 		}
 	}
 
-	val, err := r.resolveFromDB(ctx, orgID, key)
+	val, err := r.resolveFromDB(ctx, accountID, key)
 	if err != nil {
 		return "", err
 	}
 
 	if r.rdb != nil {
-		writeCache(ctx, r.rdb, r.registry, orgID, key, val)
+		writeCache(ctx, r.rdb, r.registry, accountID, key, val)
 	}
 	return val, nil
 }
 
 // ResolveInt 解析整型权益值。
-func (r *Resolver) ResolveInt(ctx context.Context, orgID uuid.UUID, key string) (int64, error) {
-	raw, err := r.Resolve(ctx, orgID, key)
+func (r *Resolver) ResolveInt(ctx context.Context, accountID uuid.UUID, key string) (int64, error) {
+	raw, err := r.Resolve(ctx, accountID, key)
 	if err != nil {
 		return 0, err
 	}
@@ -79,9 +79,9 @@ func (r *Resolver) ResolveInt(ctx context.Context, orgID uuid.UUID, key string) 
 	return n, nil
 }
 
-// CountMonthlyRuns 统计指定 org 在给定年月已执行的 run 数量（从 usage_records）。
-// 使用时间范围查询，确保索引 idx_usage_records_org_recorded 可被命中。
-func (r *Resolver) CountMonthlyRuns(ctx context.Context, orgID uuid.UUID, year, month int) (int64, error) {
+// CountMonthlyRuns 统计指定 account 在给定年月已执行的 run 数量（从 usage_records）。
+// 使用时间范围查询，确保索引 idx_usage_records_account_recorded 可被命中。
+func (r *Resolver) CountMonthlyRuns(ctx context.Context, accountID uuid.UUID, year, month int) (int64, error) {
 	if r.pool == nil {
 		return 0, nil
 	}
@@ -90,8 +90,8 @@ func (r *Resolver) CountMonthlyRuns(ctx context.Context, orgID uuid.UUID, year, 
 	err := r.pool.QueryRow(ctx,
 		`SELECT COUNT(*)
 		 FROM usage_records
-		 WHERE org_id = $1 AND recorded_at >= $2 AND recorded_at < $3`,
-		orgID, start, end,
+		 WHERE account_id = $1 AND recorded_at >= $2 AND recorded_at < $3`,
+		accountID, start, end,
 	).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("entitlement: count monthly runs: %w", err)
@@ -99,9 +99,9 @@ func (r *Resolver) CountMonthlyRuns(ctx context.Context, orgID uuid.UUID, year, 
 	return count, nil
 }
 
-// SumMonthlyTokens 汇总指定 org 在给定年月的 token 消耗总量（从 usage_records）。
-// 使用时间范围查询，确保索引 idx_usage_records_org_recorded 可被命中。
-func (r *Resolver) SumMonthlyTokens(ctx context.Context, orgID uuid.UUID, year, month int) (int64, error) {
+// SumMonthlyTokens 汇总指定 account 在给定年月的 token 消耗总量（从 usage_records）。
+// 使用时间范围查询，确保索引 idx_usage_records_account_recorded 可被命中。
+func (r *Resolver) SumMonthlyTokens(ctx context.Context, accountID uuid.UUID, year, month int) (int64, error) {
 	if r.pool == nil {
 		return 0, nil
 	}
@@ -110,8 +110,8 @@ func (r *Resolver) SumMonthlyTokens(ctx context.Context, orgID uuid.UUID, year, 
 	err := r.pool.QueryRow(ctx,
 		`SELECT COALESCE(SUM(input_tokens + output_tokens), 0)
 		 FROM usage_records
-		 WHERE org_id = $1 AND recorded_at >= $2 AND recorded_at < $3`,
-		orgID, start, end,
+		 WHERE account_id = $1 AND recorded_at >= $2 AND recorded_at < $3`,
+		accountID, start, end,
 	).Scan(&total)
 	if err != nil {
 		return 0, fmt.Errorf("entitlement: sum monthly tokens: %w", err)
@@ -119,15 +119,15 @@ func (r *Resolver) SumMonthlyTokens(ctx context.Context, orgID uuid.UUID, year, 
 	return total, nil
 }
 
-// GetCreditBalance 查询 org 的积分余额。无记录时返回 0（不报错，允许 org 尚未初始化积分）。
-func (r *Resolver) GetCreditBalance(ctx context.Context, orgID uuid.UUID) (int64, error) {
+// GetCreditBalance 查询 account 的积分余额。无记录时返回 0（不报错，允许 account 尚未初始化积分）。
+func (r *Resolver) GetCreditBalance(ctx context.Context, accountID uuid.UUID) (int64, error) {
 	if r.pool == nil {
 		return 0, nil
 	}
 	var balance int64
 	err := r.pool.QueryRow(ctx,
-		`SELECT COALESCE(balance, 0) FROM credits WHERE org_id = $1`,
-		orgID,
+		`SELECT COALESCE(balance, 0) FROM credits WHERE account_id = $1`,
+		accountID,
 	).Scan(&balance)
 	if err != nil {
 		// 无记录视为余额 0
@@ -143,7 +143,7 @@ func monthRange(year, month int) (start, end time.Time) {
 	return
 }
 
-func (r *Resolver) resolveFromDB(ctx context.Context, orgID uuid.UUID, key string) (string, error) {
+func (r *Resolver) resolveFromDB(ctx context.Context, accountID uuid.UUID, key string) (string, error) {
 	if r == nil {
 		return "", fmt.Errorf("entitlement resolver not initialized")
 	}
@@ -154,15 +154,15 @@ func (r *Resolver) resolveFromDB(ctx context.Context, orgID uuid.UUID, key strin
 		r.registry = registry
 	}
 
-	// 1. org override（未过期）
+	// 1. account override（未过期）
 	if r.pool != nil {
 		var overrideVal string
 		err := r.pool.QueryRow(ctx,
-			`SELECT value FROM org_entitlement_overrides
-			 WHERE org_id = $1 AND key = $2
+			`SELECT value FROM account_entitlement_overrides
+			 WHERE account_id = $1 AND key = $2
 			   AND (expires_at IS NULL OR expires_at > now())
 			 LIMIT 1`,
-			orgID, key,
+			accountID, key,
 		).Scan(&overrideVal)
 		if err == nil {
 			return overrideVal, nil
@@ -174,9 +174,9 @@ func (r *Resolver) resolveFromDB(ctx context.Context, orgID uuid.UUID, key strin
 			`SELECT pe.value
 			 FROM plan_entitlements pe
 			 JOIN subscriptions s ON s.plan_id = pe.plan_id
-			 WHERE s.org_id = $1 AND s.status = 'active' AND pe.key = $2
+			 WHERE s.account_id = $1 AND s.status = 'active' AND pe.key = $2
 			 LIMIT 1`,
-			orgID, key,
+			accountID, key,
 		).Scan(&planVal)
 		if err == nil {
 			return planVal, nil
@@ -192,7 +192,7 @@ func (r *Resolver) resolveFromDB(ctx context.Context, orgID uuid.UUID, key strin
 }
 
 // fromCache 从 Redis 读取缓存值。缓存格式与 API entitlement.Service 一致："type:value"。
-func fromCache(ctx context.Context, rdb *redis.Client, orgID uuid.UUID, key string) (string, bool) {
+func fromCache(ctx context.Context, rdb *redis.Client, accountID uuid.UUID, key string) (string, bool) {
 	if rdb == nil {
 		return "", false
 	}
@@ -200,7 +200,7 @@ func fromCache(ctx context.Context, rdb *redis.Client, orgID uuid.UUID, key stri
 		return "", false
 	}
 
-	cacheKey := cachePrefix + orgID.String() + ":" + key
+	cacheKey := cachePrefix + accountID.String() + ":" + key
 	sigKey := cacheKey + EntitlementCacheSignatureSuffix
 	items, err := rdb.MGet(ctx, cacheKey, sigKey).Result()
 	if err != nil {
@@ -233,7 +233,7 @@ func fromCache(ctx context.Context, rdb *redis.Client, orgID uuid.UUID, key stri
 	return "", false
 }
 
-func writeCache(ctx context.Context, rdb *redis.Client, registry *sharedconfig.Registry, orgID uuid.UUID, key, val string) {
+func writeCache(ctx context.Context, rdb *redis.Client, registry *sharedconfig.Registry, accountID uuid.UUID, key, val string) {
 	if rdb == nil {
 		return
 	}
@@ -241,7 +241,7 @@ func writeCache(ctx context.Context, rdb *redis.Client, registry *sharedconfig.R
 		return
 	}
 
-	cacheKey := cachePrefix + orgID.String() + ":" + key
+	cacheKey := cachePrefix + accountID.String() + ":" + key
 	typ := cacheTypeForKey(key, registry)
 	raw := typ + ":" + val
 	sig, ok := ComputeEntitlementCacheSignature(cacheKey, raw)
@@ -257,8 +257,8 @@ func writeCache(ctx context.Context, rdb *redis.Client, registry *sharedconfig.R
 
 // ResolveDeductionPolicy 解析 credit.deduction_policy 权益，fail-open：
 // 解析失败或 key 不存在时返回 creditpolicy.DefaultPolicy。
-func (r *Resolver) ResolveDeductionPolicy(ctx context.Context, orgID uuid.UUID) (creditpolicy.CreditDeductionPolicy, error) {
-	raw, err := r.Resolve(ctx, orgID, "credit.deduction_policy")
+func (r *Resolver) ResolveDeductionPolicy(ctx context.Context, accountID uuid.UUID) (creditpolicy.CreditDeductionPolicy, error) {
+	raw, err := r.Resolve(ctx, accountID, "credit.deduction_policy")
 	if err != nil {
 		return creditpolicy.DefaultPolicy, nil
 	}

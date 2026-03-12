@@ -1,7 +1,7 @@
 import { apiFetch } from './client'
 
 export type UsageSummary = {
-  project_id: string // TODO(migrate): backend still sends org_id
+  account_id: string
   year: number
   month: number
   total_input_tokens: number

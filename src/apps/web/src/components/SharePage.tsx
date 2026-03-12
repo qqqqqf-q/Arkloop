@@ -210,7 +210,7 @@ export function SharePage() {
               key={msg.id}
               message={{
                 id: msg.id,
-                org_id: '',
+                account_id: '',
                 thread_id: '',
                 created_by_user_id: '',
                 role: msg.role,

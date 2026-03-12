@@ -33,7 +33,7 @@ func (b *blockingLimiter) Consume(ctx context.Context, _ string) (ConsumeResult,
 	return ConsumeResult{}, ctx.Err()
 }
 
-func makeJWT(t *testing.T, orgID uuid.UUID) string {
+func makeJWT(t *testing.T, accountID uuid.UUID) string {
 	t.Helper()
 	claims := jwt.MapClaims{
 		"sub": uuid.New().String(),
@@ -41,8 +41,8 @@ func makeJWT(t *testing.T, orgID uuid.UUID) string {
 		"iat": float64(time.Now().Unix()),
 		"exp": float64(time.Now().Add(time.Hour).Unix()),
 	}
-	if orgID != uuid.Nil {
-		claims["org"] = orgID.String()
+	if accountID != uuid.Nil {
+		claims["account"] = accountID.String()
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	signed, err := token.SignedString([]byte(testJWTSecret))
@@ -60,8 +60,8 @@ func okHandler() http.Handler {
 
 func TestMiddleware_AllowedRequest(t *testing.T) {
 	ml := &mockLimiter{result: ConsumeResult{Allowed: true, Remaining: 59}}
-	orgID := uuid.New()
-	token := makeJWT(t, orgID)
+	accountID := uuid.New()
+	token := makeJWT(t, accountID)
 
 	h := NewRateLimitMiddleware(okHandler(), ml, testJWTSecret, 0)
 
@@ -74,15 +74,15 @@ func TestMiddleware_AllowedRequest(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec.Code)
 	}
-	if ml.lastKey != rateLimitOrgKeyPrefix+orgID.String() {
+	if ml.lastKey != rateLimitAccountKeyPrefix+accountID.String() {
 		t.Fatalf("unexpected rate limit key: %s", ml.lastKey)
 	}
 }
 
 func TestMiddleware_BlockedRequest(t *testing.T) {
 	ml := &mockLimiter{result: ConsumeResult{Allowed: false, RetryAfterSecs: 5}}
-	orgID := uuid.New()
-	token := makeJWT(t, orgID)
+	accountID := uuid.New()
+	token := makeJWT(t, accountID)
 
 	h := NewRateLimitMiddleware(okHandler(), ml, testJWTSecret, 0)
 
@@ -243,8 +243,8 @@ func TestMiddleware_InvalidJWT_FallsBackToIP(t *testing.T) {
 
 func TestMiddleware_MissingJWTSecretFallsBackToIP(t *testing.T) {
 	ml := &mockLimiter{result: ConsumeResult{Allowed: true}}
-	orgID := uuid.New()
-	token := makeJWT(t, orgID)
+	accountID := uuid.New()
+	token := makeJWT(t, accountID)
 
 	h := NewRateLimitMiddleware(okHandler(), ml, "", 0)
 
@@ -280,8 +280,8 @@ func TestMiddleware_LimiterError_AuthenticatedAPIKey_FailClosed(t *testing.T) {
 
 func TestMiddleware_LimiterError_AuthenticatedJWT_FailClosed(t *testing.T) {
 	ml := &mockLimiter{err: io.ErrUnexpectedEOF}
-	orgID := uuid.New()
-	token := makeJWT(t, orgID)
+	accountID := uuid.New()
+	token := makeJWT(t, accountID)
 
 	h := NewRateLimitMiddleware(okHandler(), ml, testJWTSecret, 0)
 

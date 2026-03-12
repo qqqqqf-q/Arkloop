@@ -8,7 +8,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-const KeyPrefix = "arkloop:org:active_runs:"
+const KeyPrefix = "arkloop:account:active_runs:"
 
 const defaultTTL = 24 * time.Hour
 
@@ -64,7 +64,7 @@ end
 return redis.call("DECR", key)
 `)
 
-// TryAcquire 为 org 原子地获取一个并发 run 槽。
+// TryAcquire 为 account 原子地获取一个并发 run 槽。
 // Redis 运行时不可用时回退到进程内计数器。
 func TryAcquire(ctx context.Context, rdb *redis.Client, key string, maxRuns int64) bool {
 	if rdb == nil {
@@ -83,7 +83,7 @@ func TryAcquire(ctx context.Context, rdb *redis.Client, key string, maxRuns int6
 	return allowed
 }
 
-// Release 为 org 原子地释放一个并发 run 槽，计数不低于 0。
+// Release 为 account 原子地释放一个并发 run 槽，计数不低于 0。
 func Release(ctx context.Context, rdb *redis.Client, key string) {
 	if rdb == nil {
 		return
@@ -96,12 +96,12 @@ func Release(ctx context.Context, rdb *redis.Client, key string) {
 	fallbackCounters.set(key, result, defaultTTL)
 }
 
-// Key 根据 orgID 字符串构建 Redis key。
-func Key(orgID string) string {
-	return KeyPrefix + orgID
+// Key 根据 accountID 字符串构建 Redis key。
+func Key(accountID string) string {
+	return KeyPrefix + accountID
 }
 
-// Set 直接设置 org 的活跃 run 计数（用于 SyncFromDB 修正漂移）。
+// Set 直接设置 account 的活跃 run 计数（用于 SyncFromDB 修正漂移）。
 func Set(ctx context.Context, rdb *redis.Client, key string, count int64) error {
 	fallbackCounters.set(key, count, defaultTTL)
 	if rdb == nil {

@@ -15,7 +15,7 @@ export type AccessLogEntry = {
   ua_type: string
   risk_score: number
   identity_type: string
-  org_id: string
+  account_id: string
   user_id: string
   username: string
 }

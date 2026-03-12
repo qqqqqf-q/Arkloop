@@ -113,7 +113,7 @@ func traceMiddleware(next http.Handler, logger *JSONLogger, geo geoip.Lookup, rd
 				UAType:       string(uaInfo.Type),
 				RiskScore:    riskScore,
 				IdentityType: string(ident.Type),
-				OrgID:        ident.OrgID,
+				AccountID:    ident.AccountID,
 				UserID:       ident.UserID,
 			})
 		}

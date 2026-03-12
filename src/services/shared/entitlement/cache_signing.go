@@ -21,7 +21,7 @@ func EntitlementCacheSigningEnabled() bool {
 }
 
 // ComputeEntitlementCacheSignature 计算权益缓存的签名。
-// 签名绑定 cacheKey，避免跨 org/key 的复制重放。
+// 签名绑定 cacheKey，避免跨 account/key 的复制重放。
 func ComputeEntitlementCacheSignature(cacheKey, rawValue string) (sig string, ok bool) {
 	secret := strings.TrimSpace(os.Getenv(entitlementCacheSigningSecretEnv))
 	if len(secret) < minEntitlementCacheSigningSecretLengthBytes {

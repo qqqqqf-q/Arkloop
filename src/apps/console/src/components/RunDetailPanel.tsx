@@ -214,7 +214,7 @@ export function RunDetailPanel({ run, accessToken, onClose }: Props) {
 
   const selfUsageItem: AdminRunUsageItem = {
     run_id: r.run_id,
-    org_id: r.org_id,
+    account_id: r.account_id,
     thread_id: r.thread_id,
     parent_run_id: r.parent_run_id,
     status: r.status,
@@ -293,7 +293,7 @@ export function RunDetailPanel({ run, accessToken, onClose }: Props) {
                     : (d?.created_by_user_id ?? r.created_by_user_id)
                 } />
                 <MetaRow label={rt.labelThread} value={r.thread_id} mono />
-                <MetaRow label={rt.labelProject} value={r.org_id} mono />
+                <MetaRow label={rt.labelProject} value={r.account_id} mono />
                 <MetaRow label={rt.labelPersona} value={d?.persona_id ?? r.persona_id} />
               </div>
               <div className="pt-2">
@@ -427,7 +427,7 @@ export function RunDetailPanel({ run, accessToken, onClose }: Props) {
 function toGlobalRun(item: AdminRunUsageItem): GlobalRun {
   return {
     run_id: item.run_id,
-    org_id: item.org_id,
+    account_id: item.account_id,
     thread_id: item.thread_id,
     status: item.status,
     model: item.model,

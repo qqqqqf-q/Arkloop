@@ -2,7 +2,7 @@ import { apiFetch } from './client'
 
 export type Team = {
   id: string
-  project_id: string // TODO(migrate): backend still sends org_id
+  account_id: string
   name: string
   members_count: number
   created_at: string

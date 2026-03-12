@@ -184,7 +184,7 @@ export function FeatureFlagsPage() {
     setAddingOverride(true)
     setOverrideError('')
     try {
-      await setFlagProjectOverride(expandedKey, { org_id: projectId, enabled: overrideEnabled }, accessToken)
+      await setFlagProjectOverride(expandedKey, { account_id: projectId, enabled: overrideEnabled }, accessToken)
       addToast(tc.toastOverrideSet, 'success')
       setAddOverrideOpen(false)
       void fetchOverrides(expandedKey)
@@ -199,7 +199,7 @@ export function FeatureFlagsPage() {
     if (!deleteOverrideTarget || !expandedKey) return
     setDeletingOverride(true)
     try {
-      await deleteFlagProjectOverride(expandedKey, deleteOverrideTarget.org_id, accessToken)
+      await deleteFlagProjectOverride(expandedKey, deleteOverrideTarget.account_id, accessToken)
       addToast(tc.toastOverrideDeleted, 'success')
       setDeleteOverrideTarget(null)
       void fetchOverrides(expandedKey)
@@ -331,8 +331,8 @@ export function FeatureFlagsPage() {
                 </thead>
                 <tbody>
                   {overrides.map((o) => (
-                    <tr key={o.org_id} className="border-t border-[var(--c-border)]">
-                      <td className="py-2 font-mono text-[var(--c-text-primary)]">{o.org_id}</td>
+                    <tr key={o.account_id} className="border-t border-[var(--c-border)]">
+                      <td className="py-2 font-mono text-[var(--c-text-primary)]">{o.account_id}</td>
                       <td className="py-2">
                         <Badge variant={o.enabled ? 'success' : 'neutral'}>
                           {o.enabled ? tc.enabled : tc.disabled}
@@ -481,7 +481,7 @@ export function FeatureFlagsPage() {
         onClose={() => { if (!deletingOverride) setDeleteOverrideTarget(null) }}
         onConfirm={handleDeleteOverride}
         title={tc.deleteOverrideTitle}
-        message={tc.deleteOverrideMessage(deleteOverrideTarget?.org_id ?? '')}
+        message={tc.deleteOverrideMessage(deleteOverrideTarget?.account_id ?? '')}
         confirmLabel={tc.deleteOverrideConfirm}
         loading={deletingOverride}
       />

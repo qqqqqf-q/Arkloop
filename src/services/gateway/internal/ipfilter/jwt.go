@@ -8,6 +8,6 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-func extractOrgIDWithRedis(authHeader string, rdb *redis.Client, ctx context.Context, jwtSecret []byte) string {
-	return identity.ExtractOrgID(ctx, authHeader, rdb, jwtSecret)
+func extractAccountIDWithRedis(authHeader string, rdb *redis.Client, ctx context.Context, jwtSecret []byte) string {
+	return identity.ExtractAccountID(ctx, authHeader, rdb, jwtSecret)
 }

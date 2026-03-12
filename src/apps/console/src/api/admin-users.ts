@@ -15,12 +15,12 @@ export type AdminUser = {
 }
 
 export type AdminUserOrg = {
-  org_id: string
+  account_id: string
   role: string
 }
 
 export type AdminUserDetail = AdminUser & {
-  orgs: AdminUserOrg[]
+  accounts: AdminUserOrg[]
 }
 
 export type ListAdminUsersParams = {
@@ -85,13 +85,13 @@ export async function updateAdminUser(
 }
 
 export type AdminCreditsAdjustRequest = {
-  org_id: string
+  account_id: string
   amount: number
   note: string
 }
 
 export type AdminCreditsResponse = {
-  org_id: string
+  account_id: string
   balance: number
 }
 

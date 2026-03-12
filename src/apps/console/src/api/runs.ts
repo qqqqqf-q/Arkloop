@@ -2,7 +2,7 @@ import { apiFetch } from './client'
 
 export type GlobalRun = {
   run_id: string
-  org_id: string
+  account_id: string
   thread_id: string
   status: string
   model?: string
@@ -31,7 +31,7 @@ export type AdminRunEventsStats = {
 
 export type AdminRunUsageItem = {
   run_id: string
-  org_id: string
+  account_id: string
   thread_id: string
   parent_run_id?: string
   status: string
@@ -63,7 +63,7 @@ export type AdminRunUsageAggregate = {
 
 export type AdminRunDetail = {
   run_id: string
-  org_id: string
+  account_id: string
   thread_id: string
   status: string
   model?: string
@@ -106,7 +106,7 @@ export type ListRunsResponse = {
 export type ListRunsParams = {
   run_id?: string
   status?: string
-  org_id?: string
+  account_id?: string
   thread_id?: string
   user_id?: string
   parent_run_id?: string
@@ -125,7 +125,7 @@ export async function listRuns(
   const qs = new URLSearchParams()
   if (params.run_id) qs.set('run_id', params.run_id)
   if (params.status) qs.set('status', params.status)
-  if (params.org_id) qs.set('org_id', params.org_id)
+  if (params.account_id) qs.set('account_id', params.account_id)
   if (params.thread_id) qs.set('thread_id', params.thread_id)
   if (params.user_id) qs.set('user_id', params.user_id)
   if (params.parent_run_id) qs.set('parent_run_id', params.parent_run_id)
