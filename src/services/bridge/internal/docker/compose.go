@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 )
 
 // Logger is the interface used by Compose for structured logging.
@@ -188,6 +189,7 @@ func (c *Compose) runAsync(ctx context.Context, serviceName, action string, args
 		return nil, fmt.Errorf("stdout pipe: %w", err)
 	}
 	cmd.Stderr = cmd.Stdout // redirect stderr into the same pipe
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	c.logger.Info("running docker compose", map[string]any{
 		"operation_id": op.ID,
@@ -200,6 +202,10 @@ func (c *Compose) runAsync(ctx context.Context, serviceName, action string, args
 		cancel()
 		c.moduleLocks.Delete(serviceName)
 		return nil, fmt.Errorf("start command: %w", err)
+	}
+
+	if cmd.Process != nil {
+		op.SetPID(cmd.Process.Pid)
 	}
 
 	go func() {
@@ -220,6 +226,9 @@ func (c *Compose) streamOutput(op *Operation, cmd *exec.Cmd, r io.Reader) {
 
 	err := cmd.Wait()
 	if err != nil {
+		if op.IsCancelled() {
+			op.AppendLog("--- Operation cancelled by user ---")
+		}
 		c.logger.Error("docker compose failed", map[string]any{
 			"operation_id": op.ID,
 			"action":       op.Action,

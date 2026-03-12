@@ -3,6 +3,7 @@ import {
   useContext,
   useState,
   useCallback,
+  useEffect,
   useRef,
   type ReactNode,
 } from 'react'
@@ -37,10 +38,38 @@ type OperationContextValue = {
   setHistoryOpen: (open: boolean) => void
 }
 
+const STORAGE_KEY = 'arkloop_operations'
+
+type StoredOperation = Omit<OperationRecord, 'logs'> & { logs: string[] }
+
+function loadStoredOperations(): OperationRecord[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    if (!raw) return []
+    const stored = JSON.parse(raw) as StoredOperation[]
+    return stored.map(op =>
+      op.status === 'running'
+        ? { ...op, status: 'failed' as const, error: 'Lost connection (page refreshed)', finishedAt: Date.now() }
+        : op,
+    )
+  } catch {
+    return []
+  }
+}
+
+function saveOperations(ops: OperationRecord[]) {
+  try {
+    const toStore = ops.slice(0, 50)
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(toStore))
+  } catch {
+    // ignore quota errors
+  }
+}
+
 const OperationContext = createContext<OperationContextValue | null>(null)
 
 export function OperationProvider({ children }: { children: ReactNode }) {
-  const [operations, setOperations] = useState<OperationRecord[]>([])
+  const [operations, setOperations] = useState<OperationRecord[]>(() => loadStoredOperations())
   const [historyOpen, setHistoryOpen] = useState(false)
   const cleanupRefs = useRef<Map<string, () => void>>(new Map())
 
@@ -96,6 +125,10 @@ export function OperationProvider({ children }: { children: ReactNode }) {
     },
     [],
   )
+
+  useEffect(() => {
+    saveOperations(operations)
+  }, [operations])
 
   const clearCompleted = useCallback(() => {
     setOperations((prev) => prev.filter((op) => op.status === 'running'))

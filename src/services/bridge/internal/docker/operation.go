@@ -3,6 +3,7 @@ package docker
 import (
 	"context"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/google/uuid"
@@ -29,6 +30,8 @@ type Operation struct {
 	done       chan struct{}
 	err        error
 	cancelFunc context.CancelFunc
+	cancelled  bool
+	pid        int
 }
 
 func NewOperation(moduleID, action string) *Operation {
@@ -42,11 +45,34 @@ func NewOperation(moduleID, action string) *Operation {
 	}
 }
 
-// Cancel requests cancellation of the operation's context.
+// Cancel requests cancellation of the operation's context and kills the
+// process group so that child processes spawned by docker compose are
+// also terminated.
 func (o *Operation) Cancel() {
+	o.mu.Lock()
+	o.cancelled = true
+	pid := o.pid
+	o.mu.Unlock()
 	if o.cancelFunc != nil {
 		o.cancelFunc()
 	}
+	if pid > 0 {
+		_ = syscall.Kill(-pid, syscall.SIGKILL)
+	}
+}
+
+// IsCancelled reports whether Cancel has been called.
+func (o *Operation) IsCancelled() bool {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.cancelled
+}
+
+// SetPID records the process ID so Cancel can kill the process group.
+func (o *Operation) SetPID(pid int) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.pid = pid
 }
 
 // AppendLog adds a log line to the operation.

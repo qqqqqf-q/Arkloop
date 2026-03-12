@@ -104,6 +104,15 @@ function actionLabel(action: ModuleAction, t: ModulesLocale): string {
   return map[action]
 }
 
+const ACTION_LABELS_PROGRESS: Record<ModuleAction, string> = {
+  install: 'Installing…',
+  start: 'Starting…',
+  stop: 'Stopping…',
+  restart: 'Restarting…',
+  configure_connection: 'Configuring…',
+  bootstrap_defaults: 'Bootstrapping…',
+}
+
 function CopyButton({ text, label }: { text: string; label: string }) {
   const [copied, setCopied] = useState(false)
   const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
@@ -135,6 +144,7 @@ function ModuleRow({
   onAction,
   busy,
   busyOperation,
+  onSpinnerClick,
 }: {
   mod: ModuleInfo
   bridgeOnline: boolean
@@ -142,16 +152,20 @@ function ModuleRow({
   onAction: (moduleId: string, action: ModuleAction) => void
   busy: boolean
   busyOperation: OperationRecord | undefined
+  onSpinnerClick: () => void
 }) {
   const actions = availableActions(mod, bridgeOnline)
   const command = INSTALL_COMMANDS[mod.id]
   const agentPrompt = AGENT_PROMPTS[mod.id]
 
-  const displayStatus = bridgeOnline ? mod.status : null
-  const badgeLabel = displayStatus ? statusLabel(displayStatus, t) : t.statusUnknown
-  const badgeVariant = displayStatus ? statusBadgeVariant(displayStatus) : 'neutral' as BadgeVariant
-
-  const busyLabel = busyOperation ? actionLabel(busyOperation.action, t) : ''
+  const isActioning = !!busyOperation
+  const displayStatus = bridgeOnline ? (isActioning ? null : mod.status) : null
+  const badgeLabel = isActioning
+    ? ACTION_LABELS_PROGRESS[busyOperation!.action]
+    : (displayStatus ? statusLabel(displayStatus, t) : t.statusUnknown)
+  const badgeVariant: BadgeVariant = isActioning
+    ? 'warning'
+    : (displayStatus ? statusBadgeVariant(displayStatus) : 'neutral' as BadgeVariant)
 
   return (
     <div className="rounded-md border border-[var(--c-border-console)] px-3 py-2.5">
@@ -160,17 +174,23 @@ function ModuleRow({
           <span className="font-mono text-xs text-[var(--c-text-primary)]">{mod.name}</span>
           <Badge variant={badgeVariant}>
             <span className="flex items-center gap-1">
-              {displayStatus ? statusIcon(displayStatus) : <CircleDashed size={13} />}
+              {isActioning
+                ? <Loader2 size={13} className="animate-spin" />
+                : (displayStatus ? statusIcon(displayStatus) : <CircleDashed size={13} />)
+              }
               {badgeLabel}
             </span>
           </Badge>
         </div>
         <div className="flex items-center gap-1.5">
           {busy ? (
-            <span className="flex items-center gap-1.5 rounded-md bg-[var(--c-bg-tag)] px-2 py-1 text-[11px] font-medium text-[var(--c-text-muted)]">
+            <button
+              onClick={onSpinnerClick}
+              className="flex items-center gap-1.5 rounded-md bg-[var(--c-status-warning-bg)] px-2 py-1 text-[11px] font-medium text-[var(--c-status-warning-text)] transition-colors hover:opacity-80"
+            >
               <Loader2 size={12} className="animate-spin" />
-              {busyLabel}…
-            </span>
+              {ACTION_LABELS_PROGRESS[busyOperation!.action]}
+            </button>
           ) : (
             <>
               {actions.map((action) => (
@@ -367,6 +387,7 @@ export function ModulesPage() {
                       onAction={handleAction}
                       busy={isModuleBusy(mod.id)}
                       busyOperation={getModuleOperation(mod.id)}
+                      onSpinnerClick={() => setHistoryOpen(true)}
                     />
                   ))}
                   {filteredModules.length === 0 && (
