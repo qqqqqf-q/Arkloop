@@ -7,7 +7,7 @@ const (
 
 	ArtifactMetaOwnerKind = "owner_kind"
 	ArtifactMetaOwnerID   = "owner_id"
-	ArtifactMetaAccountID = "org_id"
+	ArtifactMetaAccountID = "account_id"
 	ArtifactMetaThreadID  = "thread_id"
 )
 

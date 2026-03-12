@@ -142,9 +142,8 @@ SET owner_kind = 'user',
 FROM projects p
 WHERE tpc.scope = 'project' AND tpc.project_id = p.id;
 
--- catch any remaining project-scoped rows without a matched project
-UPDATE tool_provider_configs
-SET owner_kind = 'user'
+-- remove orphaned project-scoped rows without a matched project
+DELETE FROM tool_provider_configs
 WHERE scope = 'project' AND owner_kind != 'user';
 
 DROP INDEX IF EXISTS ix_tool_provider_configs_platform_group_active;
@@ -167,6 +166,14 @@ CREATE UNIQUE INDEX tool_provider_configs_platform_provider_idx
 CREATE UNIQUE INDEX ix_tool_provider_configs_platform_group_active
     ON tool_provider_configs (group_name)
     WHERE owner_kind = 'platform' AND is_active = true;
+
+CREATE UNIQUE INDEX tool_provider_configs_user_provider_idx
+    ON tool_provider_configs (owner_user_id, provider_name)
+    WHERE owner_kind = 'user' AND owner_user_id IS NOT NULL;
+
+CREATE UNIQUE INDEX ix_tool_provider_configs_user_group_active
+    ON tool_provider_configs (owner_user_id, group_name)
+    WHERE owner_kind = 'user' AND owner_user_id IS NOT NULL AND is_active = TRUE;
 
 -- ============================================================
 -- Phase 8: Scope cleanup - tool_description_overrides
@@ -252,3 +259,290 @@ ALTER TABLE messages RENAME CONSTRAINT fk_messages_thread_org TO fk_messages_thr
 ALTER TABLE mcp_configs RENAME CONSTRAINT uq_mcp_configs_org_name TO uq_mcp_configs_account_name;
 ALTER TABLE mcp_configs RENAME CONSTRAINT mcp_configs_org_id_fkey TO mcp_configs_account_id_fkey;
 ALTER TABLE skill_packages RENAME CONSTRAINT uq_skill_packages_org_key_version TO uq_skill_packages_account_key_version;
+
+-- +goose Down
+
+-- ============================================================
+-- Reverse Phase 10: Rename constraints back
+-- ============================================================
+
+ALTER TABLE skill_packages RENAME CONSTRAINT uq_skill_packages_account_key_version TO uq_skill_packages_org_key_version;
+ALTER TABLE mcp_configs RENAME CONSTRAINT mcp_configs_account_id_fkey TO mcp_configs_org_id_fkey;
+ALTER TABLE mcp_configs RENAME CONSTRAINT uq_mcp_configs_account_name TO uq_mcp_configs_org_name;
+ALTER TABLE messages RENAME CONSTRAINT fk_messages_thread_account TO fk_messages_thread_org;
+ALTER TABLE messages RENAME CONSTRAINT fk_messages_account_id_accounts TO fk_messages_org_id_orgs;
+ALTER TABLE threads RENAME CONSTRAINT uq_threads_id_account_id TO uq_threads_id_org_id;
+ALTER TABLE account_memberships RENAME CONSTRAINT uq_account_memberships_account_id_user_id TO uq_org_memberships_org_id_user_id;
+ALTER TABLE accounts RENAME CONSTRAINT uq_accounts_slug TO uq_orgs_slug;
+
+-- ============================================================
+-- Reverse Phase 9: Rename indexes back
+-- ============================================================
+
+-- shell_sessions
+ALTER INDEX idx_shell_sessions_account_profile_binding_type_unique RENAME TO idx_shell_sessions_org_profile_binding_type_unique;
+ALTER INDEX idx_shell_sessions_account_profile_default_binding_updated RENAME TO idx_shell_sessions_org_profile_default_binding_updated;
+ALTER INDEX idx_shell_sessions_account_lease_until RENAME TO idx_shell_sessions_org_lease_until;
+ALTER INDEX idx_shell_sessions_account_run_type RENAME TO idx_shell_sessions_org_run_type;
+ALTER INDEX idx_shell_sessions_account_run RENAME TO idx_shell_sessions_org_run;
+ALTER INDEX idx_shell_sessions_account_workspace RENAME TO idx_shell_sessions_org_workspace;
+ALTER INDEX idx_shell_sessions_account_thread RENAME TO idx_shell_sessions_org_thread;
+
+-- registries
+ALTER INDEX idx_browser_state_registries_account_id RENAME TO idx_browser_state_registries_org_id;
+ALTER INDEX idx_workspace_registries_account_id RENAME TO idx_workspace_registries_org_id;
+ALTER INDEX idx_profile_registries_account_id RENAME TO idx_profile_registries_org_id;
+
+-- agent_configs / prompt_templates
+ALTER INDEX idx_prompt_templates_account_id RENAME TO idx_prompt_templates_org_id;
+ALTER INDEX idx_agent_configs_account_id RENAME TO idx_agent_configs_org_id;
+
+-- teams / webhooks / audit / ip_rules
+ALTER INDEX idx_ip_rules_account_id RENAME TO idx_ip_rules_org_id;
+ALTER INDEX ix_audit_logs_account_id_ts RENAME TO ix_audit_logs_org_id_ts;
+ALTER INDEX idx_webhook_deliveries_account_id RENAME TO idx_webhook_deliveries_org_id;
+ALTER INDEX idx_webhook_endpoints_account_id RENAME TO idx_webhook_endpoints_org_id;
+ALTER INDEX idx_teams_account_id RENAME TO idx_teams_org_id;
+
+-- billing
+ALTER INDEX idx_usage_records_account_recorded RENAME TO idx_usage_records_org_recorded;
+ALTER INDEX uq_subscriptions_account_active RENAME TO uq_subscriptions_org_active;
+ALTER INDEX idx_credit_transactions_account_created RENAME TO idx_credit_transactions_org_created;
+
+-- api_keys / credentials / secrets
+ALTER INDEX ix_secrets_account_id RENAME TO ix_secrets_org_id;
+ALTER INDEX ix_llm_routes_account_id RENAME TO ix_llm_routes_org_id;
+ALTER INDEX ix_llm_credentials_account_id RENAME TO ix_llm_credentials_org_id;
+ALTER INDEX idx_api_keys_account_id RENAME TO idx_api_keys_org_id;
+
+-- projects / threads / runs / messages
+ALTER INDEX ix_messages_account_id_thread_id_created_at RENAME TO ix_messages_org_id_thread_id_created_at;
+ALTER INDEX ix_runs_account_id_created_at_id RENAME TO ix_runs_org_id_created_at_id;
+ALTER INDEX ix_runs_account_id RENAME TO ix_runs_org_id;
+ALTER INDEX ix_threads_account_id RENAME TO ix_threads_org_id;
+ALTER INDEX idx_projects_account_id RENAME TO idx_projects_org_id;
+
+-- account_settings / account_feature_overrides
+ALTER INDEX idx_account_feature_overrides_account_id RENAME TO idx_org_feature_overrides_org_id;
+ALTER INDEX ix_account_settings_key RENAME TO ix_org_settings_key;
+
+-- account_entitlement_overrides
+ALTER INDEX idx_account_entitlement_overrides_account_id RENAME TO idx_org_entitlement_overrides_org_id;
+
+-- account_memberships
+ALTER INDEX ix_account_memberships_user_id RENAME TO ix_org_memberships_user_id;
+ALTER INDEX ix_account_memberships_account_id RENAME TO ix_org_memberships_org_id;
+
+-- ============================================================
+-- Reverse Phase 8: Restore tool_description_overrides
+-- ============================================================
+
+DROP INDEX IF EXISTS uq_tool_description_overrides_tool;
+
+ALTER TABLE tool_description_overrides
+    ADD COLUMN account_id UUID,
+    ADD COLUMN project_id UUID,
+    ADD COLUMN scope TEXT NOT NULL DEFAULT 'platform';
+
+CREATE UNIQUE INDEX uq_tool_description_overrides_platform_tool
+    ON tool_description_overrides (tool_name)
+    WHERE scope = 'platform';
+
+CREATE UNIQUE INDEX uq_tool_description_overrides_project_tool
+    ON tool_description_overrides (project_id, tool_name)
+    WHERE scope = 'project';
+
+-- ============================================================
+-- Reverse Phase 7: Restore tool_provider_configs
+-- ============================================================
+
+DROP INDEX IF EXISTS tool_provider_configs_platform_provider_idx;
+DROP INDEX IF EXISTS ix_tool_provider_configs_platform_group_active;
+DROP INDEX IF EXISTS tool_provider_configs_user_provider_idx;
+DROP INDEX IF EXISTS ix_tool_provider_configs_user_group_active;
+
+ALTER TABLE tool_provider_configs DROP CONSTRAINT IF EXISTS chk_tool_provider_configs_owner_kind;
+
+ALTER TABLE tool_provider_configs
+    ADD COLUMN scope TEXT NOT NULL DEFAULT 'project',
+    ADD COLUMN project_id UUID;
+
+UPDATE tool_provider_configs SET scope = 'platform' WHERE owner_kind = 'platform';
+
+ALTER TABLE tool_provider_configs
+    DROP COLUMN IF EXISTS owner_kind,
+    DROP COLUMN IF EXISTS owner_user_id;
+
+CREATE UNIQUE INDEX tool_provider_configs_project_provider_idx
+    ON tool_provider_configs (project_id, provider_name)
+    WHERE scope = 'project';
+
+CREATE UNIQUE INDEX tool_provider_configs_platform_provider_idx
+    ON tool_provider_configs (provider_name)
+    WHERE scope = 'platform';
+
+CREATE UNIQUE INDEX ix_tool_provider_configs_project_group_active
+    ON tool_provider_configs (project_id, group_name)
+    WHERE scope = 'project' AND is_active = true;
+
+CREATE UNIQUE INDEX ix_tool_provider_configs_platform_group_active
+    ON tool_provider_configs (group_name)
+    WHERE scope = 'platform' AND is_active = true;
+
+-- ============================================================
+-- Reverse Phase 6: Restore asr_credentials scope
+-- ============================================================
+
+DROP INDEX IF EXISTS asr_credentials_platform_name_idx;
+DROP INDEX IF EXISTS asr_credentials_platform_default_idx;
+
+ALTER TABLE asr_credentials ADD COLUMN scope TEXT NOT NULL DEFAULT 'org';
+
+UPDATE asr_credentials SET scope = 'platform' WHERE owner_kind = 'platform';
+
+CREATE UNIQUE INDEX asr_credentials_org_name_idx
+    ON asr_credentials (account_id, name)
+    WHERE scope = 'org';
+
+CREATE UNIQUE INDEX asr_credentials_org_default_idx
+    ON asr_credentials (account_id)
+    WHERE scope = 'org' AND is_default = true AND revoked_at IS NULL;
+
+CREATE UNIQUE INDEX asr_credentials_platform_name_idx
+    ON asr_credentials (name)
+    WHERE scope = 'platform';
+
+CREATE UNIQUE INDEX asr_credentials_platform_default_idx
+    ON asr_credentials (is_default)
+    WHERE scope = 'platform' AND is_default = true AND revoked_at IS NULL;
+
+-- ============================================================
+-- Reverse Phase 5: Restore secrets scope
+-- ============================================================
+
+DROP INDEX IF EXISTS secrets_platform_name_idx;
+
+ALTER TABLE secrets ADD COLUMN scope TEXT NOT NULL DEFAULT 'org';
+
+UPDATE secrets SET scope = 'platform' WHERE owner_kind = 'platform';
+
+CREATE UNIQUE INDEX secrets_org_name_idx
+    ON secrets (account_id, name)
+    WHERE scope = 'org';
+
+CREATE UNIQUE INDEX secrets_platform_name_idx
+    ON secrets (name)
+    WHERE scope = 'platform';
+
+-- ============================================================
+-- Reverse Phase 4: Restore llm_credentials scope
+-- ============================================================
+
+DROP INDEX IF EXISTS llm_credentials_platform_name_idx;
+
+ALTER TABLE llm_credentials ADD COLUMN scope TEXT NOT NULL DEFAULT 'project';
+
+UPDATE llm_credentials SET scope = 'platform' WHERE owner_kind = 'platform';
+
+CREATE UNIQUE INDEX llm_credentials_project_name_idx
+    ON llm_credentials (account_id, name)
+    WHERE scope = 'project';
+
+CREATE UNIQUE INDEX llm_credentials_platform_name_idx
+    ON llm_credentials (name)
+    WHERE scope = 'platform';
+
+-- ============================================================
+-- Reverse Phase 3: Rename columns account_id -> org_id
+-- ============================================================
+
+-- webhooks / audit / notifications
+ALTER TABLE user_memory_snapshots RENAME COLUMN account_id TO org_id;
+ALTER TABLE notifications RENAME COLUMN account_id TO org_id;
+ALTER TABLE audit_logs RENAME COLUMN account_id TO org_id;
+ALTER TABLE webhook_deliveries RENAME COLUMN account_id TO org_id;
+ALTER TABLE webhook_endpoints RENAME COLUMN account_id TO org_id;
+
+-- org-scoped configs
+ALTER TABLE teams RENAME COLUMN account_id TO org_id;
+ALTER TABLE prompt_templates RENAME COLUMN account_id TO org_id;
+ALTER TABLE agent_configs RENAME COLUMN account_id TO org_id;
+
+-- infra / runtime
+ALTER TABLE browser_state_registries RENAME COLUMN account_id TO org_id;
+ALTER TABLE workspace_registries RENAME COLUMN account_id TO org_id;
+ALTER TABLE profile_registries RENAME COLUMN account_id TO org_id;
+ALTER TABLE default_workspace_bindings RENAME COLUMN account_id TO org_id;
+ALTER TABLE default_shell_session_bindings RENAME COLUMN account_id TO org_id;
+ALTER TABLE shell_sessions RENAME COLUMN account_id TO org_id;
+
+-- billing
+ALTER TABLE redemption_records RENAME COLUMN account_id TO org_id;
+ALTER TABLE usage_records RENAME COLUMN account_id TO org_id;
+ALTER TABLE subscriptions RENAME COLUMN account_id TO org_id;
+ALTER TABLE credit_transactions RENAME COLUMN account_id TO org_id;
+ALTER TABLE credits RENAME COLUMN account_id TO org_id;
+
+-- personas / skills
+ALTER TABLE workspace_skill_enablements RENAME COLUMN account_id TO org_id;
+ALTER TABLE profile_skill_installs RENAME COLUMN account_id TO org_id;
+ALTER TABLE skill_packages RENAME COLUMN account_id TO org_id;
+ALTER TABLE personas RENAME COLUMN account_id TO org_id;
+
+-- tools
+ALTER TABLE mcp_configs RENAME COLUMN account_id TO org_id;
+ALTER TABLE tool_description_overrides RENAME COLUMN account_id TO org_id;
+ALTER TABLE tool_provider_configs RENAME COLUMN account_id TO org_id;
+
+-- credentials
+ALTER TABLE secrets RENAME COLUMN account_id TO org_id;
+ALTER TABLE asr_credentials RENAME COLUMN account_id TO org_id;
+ALTER TABLE llm_routes RENAME COLUMN account_id TO org_id;
+ALTER TABLE llm_credentials RENAME COLUMN account_id TO org_id;
+
+-- auth / keys
+ALTER TABLE ip_rules RENAME COLUMN account_id TO org_id;
+ALTER TABLE rbac_roles RENAME COLUMN account_id TO org_id;
+ALTER TABLE api_keys RENAME COLUMN account_id TO org_id;
+
+-- core domain
+ALTER TABLE messages RENAME COLUMN account_id TO org_id;
+ALTER TABLE runs RENAME COLUMN account_id TO org_id;
+ALTER TABLE threads RENAME COLUMN account_id TO org_id;
+ALTER TABLE projects RENAME COLUMN account_id TO org_id;
+
+-- renamed tables
+ALTER TABLE account_feature_overrides RENAME COLUMN account_id TO org_id;
+ALTER TABLE account_settings RENAME COLUMN account_id TO org_id;
+ALTER TABLE account_entitlement_overrides RENAME COLUMN account_id TO org_id;
+ALTER TABLE account_memberships RENAME COLUMN account_id TO org_id;
+
+-- ============================================================
+-- Reverse Phase 2: Rename tables account -> org
+-- ============================================================
+
+ALTER TABLE account_feature_overrides RENAME TO org_feature_overrides;
+ALTER TABLE account_settings RENAME TO org_settings;
+ALTER TABLE account_entitlement_overrides RENAME TO org_entitlement_overrides;
+ALTER TABLE account_memberships RENAME TO org_memberships;
+ALTER TABLE accounts RENAME TO orgs;
+
+-- ============================================================
+-- Reverse Phase 1: Recreate org_invitations
+-- ============================================================
+
+CREATE TABLE org_invitations (
+    id                  UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id              UUID        NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
+    invited_by_user_id  UUID        NOT NULL REFERENCES users(id),
+    email               TEXT        NOT NULL,
+    role                TEXT        NOT NULL DEFAULT 'member',
+    token               TEXT        NOT NULL UNIQUE,
+    expires_at          TIMESTAMPTZ NOT NULL,
+    accepted_at         TIMESTAMPTZ,
+    accepted_by_user_id UUID        REFERENCES users(id),
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_org_invitations_org_id ON org_invitations(org_id) WHERE accepted_at IS NULL;
+CREATE INDEX idx_org_invitations_token ON org_invitations(token);
