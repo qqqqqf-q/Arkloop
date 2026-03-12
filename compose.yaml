@@ -434,6 +434,24 @@ services:
       timeout: 3s
       retries: 20
 
+  bridge:
+    build:
+      context: .
+      dockerfile: src/services/bridge/Dockerfile
+    restart: unless-stopped
+    profiles:
+      - bridge
+    environment:
+      ARKLOOP_BRIDGE_ADDR: "127.0.0.1:8003"
+      ARKLOOP_BRIDGE_PROJECT_DIR: /project
+      ARKLOOP_BRIDGE_MODULES_FILE: /etc/arkloop/modules.yaml
+      ARKLOOP_LOAD_DOTENV: "false"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - .:/project:ro
+    network_mode: host
+    ports: []
+
 volumes:
   postgres_data:
   redis_data:

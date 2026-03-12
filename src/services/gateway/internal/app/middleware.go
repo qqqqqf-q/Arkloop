@@ -25,7 +25,7 @@ import (
 const (
 	traceIDHeader          = "X-Trace-Id"
 	cspHeaderValue         = "default-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'; object-src 'none'"
-	frontendCSPHeaderValue = "default-src 'self'; base-uri 'self'; frame-ancestors 'self'; form-action 'self'; object-src 'none'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com"
+	frontendCSPHeaderValue = "default-src 'self'; base-uri 'self'; frame-ancestors 'self'; form-action 'self'; object-src 'none'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://challenges.cloudflare.com http://localhost:8003 http://127.0.0.1:8003 http://[::1]:8003; frame-src https://challenges.cloudflare.com"
 	corsAllowMethodsValue  = "GET,POST,PUT,PATCH,DELETE,OPTIONS"
 	corsAllowHeadersValue  = "Authorization,Content-Type,Accept,X-Client-App,X-Trace-Id"
 	corsExposeHeadersValue = traceIDHeader
