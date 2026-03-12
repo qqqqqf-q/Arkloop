@@ -34,12 +34,21 @@ import { AccessLogPage } from './pages/access-log/AccessLogPage'
 import { EntitlementsPage } from './pages/entitlements/EntitlementsPage'
 import { ModulesPage } from './pages/modules/ModulesPage'
 
+import { OperationProvider, useOperations } from './contexts/OperationContext'
+import { OperationHistoryModal } from './components/OperationHistoryModal'
+
 import {
   writeAccessTokenToStorage,
   clearAccessTokenFromStorage,
 } from './storage'
 import { setUnauthenticatedHandler, setAccessTokenHandler, refreshAccessToken } from './api'
 import { setClientApp } from '@arkloop/shared/api'
+
+function OperationHistoryModalWrapper() {
+  const { historyOpen, setHistoryOpen } = useOperations()
+  if (!historyOpen) return null
+  return <OperationHistoryModal onClose={() => setHistoryOpen(false)} />
+}
 
 function PlaceholderPage({ title }: { title: string }) {
   return (
@@ -103,6 +112,8 @@ function App() {
   }
 
   return (
+    <OperationProvider>
+    <OperationHistoryModalWrapper />
     <Routes>
       <Route
         element={(
@@ -161,6 +172,7 @@ function App() {
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Route>
     </Routes>
+    </OperationProvider>
   )
 }
 

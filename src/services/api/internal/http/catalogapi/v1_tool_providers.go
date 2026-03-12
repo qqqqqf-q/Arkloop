@@ -25,6 +25,18 @@ type toolProviderDefinition struct {
 	RequiresAPIKey     bool
 	RequiresBaseURL    bool
 	AllowsInternalHTTP bool
+	ConfigFields       []ConfigFieldDef `json:"config_fields,omitempty"`
+}
+
+type ConfigFieldDef struct {
+	Key         string   `json:"key"`
+	Label       string   `json:"label"`
+	Type        string   `json:"type"`
+	Required    bool     `json:"required"`
+	Default     string   `json:"default,omitempty"`
+	Options     []string `json:"options,omitempty"`
+	Group       string   `json:"group,omitempty"`
+	Placeholder string   `json:"placeholder,omitempty"`
 }
 
 var toolProviderCatalog = []toolProviderDefinition{
@@ -35,7 +47,22 @@ var toolProviderCatalog = []toolProviderDefinition{
 	{GroupName: "web_fetch", ProviderName: "web_fetch.basic"},
 	{GroupName: "sandbox", ProviderName: "sandbox.docker", RequiresBaseURL: true, AllowsInternalHTTP: true},
 	{GroupName: "sandbox", ProviderName: "sandbox.firecracker", RequiresBaseURL: true, AllowsInternalHTTP: true},
-	{GroupName: "memory", ProviderName: "memory.openviking", RequiresBaseURL: true, RequiresAPIKey: true, AllowsInternalHTTP: true},
+	{
+		GroupName: "memory", ProviderName: "memory.openviking",
+		RequiresBaseURL: true, RequiresAPIKey: true, AllowsInternalHTTP: true,
+		ConfigFields: []ConfigFieldDef{
+			{Key: "embedding.provider", Label: "Embedding Provider", Type: "select", Required: true, Default: "volcengine", Options: []string{"openai", "volcengine", "vikingdb", "jina"}, Group: "embedding"},
+			{Key: "embedding.model", Label: "Embedding Model", Type: "string", Required: true, Default: "doubao-embedding-vision-250615", Group: "embedding", Placeholder: "e.g. text-embedding-3-small"},
+			{Key: "embedding.api_key", Label: "Embedding API Key", Type: "password", Required: true, Group: "embedding"},
+			{Key: "embedding.api_base", Label: "Embedding API Base", Type: "string", Required: true, Default: "https://ark.cn-beijing.volces.com/api/v3", Group: "embedding", Placeholder: "https://api.openai.com/v1"},
+			{Key: "embedding.dimension", Label: "Embedding Dimension", Type: "number", Required: true, Default: "1024", Group: "embedding"},
+			{Key: "vlm.provider", Label: "VLM Provider", Type: "select", Required: true, Default: "litellm", Options: []string{"volcengine", "openai", "litellm"}, Group: "vlm"},
+			{Key: "vlm.model", Label: "VLM Model", Type: "string", Required: true, Default: "doubao-seed-1-8-251228", Group: "vlm", Placeholder: "e.g. gpt-4o"},
+			{Key: "vlm.api_key", Label: "VLM API Key", Type: "password", Required: true, Group: "vlm"},
+			{Key: "vlm.api_base", Label: "VLM API Base", Type: "string", Required: true, Default: "https://ark.cn-beijing.volces.com/api/v3", Group: "vlm", Placeholder: "https://api.openai.com/v1"},
+			{Key: "cost_per_commit", Label: "Cost per Commit", Type: "number", Required: false, Default: "0", Group: "billing"},
+		},
+	},
 }
 
 type toolProvidersResponse struct {
@@ -48,15 +75,16 @@ type toolProviderGroupResponse struct {
 }
 
 type toolProviderItemResponse struct {
-	GroupName       string          `json:"group_name"`
-	ProviderName    string          `json:"provider_name"`
-	IsActive        bool            `json:"is_active"`
-	KeyPrefix       *string         `json:"key_prefix,omitempty"`
-	BaseURL         *string         `json:"base_url,omitempty"`
-	RequiresAPIKey  bool            `json:"requires_api_key"`
-	RequiresBaseURL bool            `json:"requires_base_url"`
-	Configured      bool            `json:"configured"`
-	ConfigJSON      json.RawMessage `json:"config_json,omitempty"`
+	GroupName       string           `json:"group_name"`
+	ProviderName    string           `json:"provider_name"`
+	IsActive        bool             `json:"is_active"`
+	KeyPrefix       *string          `json:"key_prefix,omitempty"`
+	BaseURL         *string          `json:"base_url,omitempty"`
+	RequiresAPIKey  bool             `json:"requires_api_key"`
+	RequiresBaseURL bool             `json:"requires_base_url"`
+	Configured      bool             `json:"configured"`
+	ConfigJSON      json.RawMessage  `json:"config_json,omitempty"`
+	ConfigFields    []ConfigFieldDef `json:"config_fields,omitempty"`
 }
 
 type upsertToolProviderCredentialRequest struct {
@@ -247,6 +275,7 @@ func listToolProviders(
 				RequiresAPIKey:  def.RequiresAPIKey,
 				RequiresBaseURL: def.RequiresBaseURL,
 				Configured:      false,
+				ConfigFields:    def.ConfigFields,
 			}
 
 			var secretConfigured bool

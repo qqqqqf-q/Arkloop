@@ -10,12 +10,13 @@ import {
   Package, Receipt, BadgeCheck, BarChart3,
   Flag, Ticket, Gift, Coins, Megaphone, Mic, Mail, AlignLeft,
   PanelLeftClose, PanelLeftOpen, ChevronDown,
-  Settings, ScrollText, Blocks,
+  Settings, ScrollText, Blocks, Loader2,
   Wrench, SlidersHorizontal, Puzzle,
 } from 'lucide-react'
 import { getMe, logout, isApiError, type MeResponse } from '../api'
 import { ConsoleSettingsModal } from '../components/SettingsModal'
 import { useLocale } from '../contexts/LocaleContext'
+import { useOperations } from '../contexts/OperationContext'
 import type { LocaleStrings } from '../locales'
 
 type Props = {
@@ -132,6 +133,7 @@ export function ConsoleLayout({ accessToken, onLoggedOut }: Props) {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const mountedRef = useRef(true)
 
+  const { operations, activeCount, setHistoryOpen } = useOperations()
   const navGroups = useMemo(() => buildNavGroups(t), [t])
 
   useEffect(() => {
@@ -288,6 +290,34 @@ export function ConsoleLayout({ accessToken, onLoggedOut }: Props) {
             )
           })}
         </nav>
+
+        {operations.length > 0 && (
+          <div className="border-t border-[var(--c-border-console)] px-2 py-2">
+            <button
+              onClick={() => setHistoryOpen(true)}
+              className="flex w-full items-center gap-3 rounded-xl px-3 py-[10px] transition-colors hover:bg-[var(--c-bg-sub)]"
+              style={{ border: '0.5px solid var(--c-border-console)' }}
+            >
+              <div className="flex h-[32px] w-[32px] shrink-0 items-center justify-center rounded-full bg-[var(--c-bg-tag)]">
+                {activeCount > 0
+                  ? <Loader2 size={15} className="animate-spin text-amber-500" />
+                  : <Blocks size={15} className="text-[var(--c-text-muted)]" />
+                }
+              </div>
+              <div className="flex min-w-0 flex-1 flex-col gap-[2px] text-left">
+                <div className="truncate text-xs font-medium text-[var(--c-text-secondary)]">
+                  Install Tasks
+                </div>
+                <div className="text-[10px] font-normal text-[var(--c-text-tertiary)]">
+                  {activeCount > 0
+                    ? `${activeCount} running · ${operations.length} total`
+                    : `${operations.length} completed`
+                  }
+                </div>
+              </div>
+            </button>
+          </div>
+        )}
 
         {/* 用户信息 */}
         <div className="mt-auto border-t border-[var(--c-border-console)] px-3 py-3">

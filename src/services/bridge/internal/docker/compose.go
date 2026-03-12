@@ -146,6 +146,11 @@ func (c *Compose) Restart(ctx context.Context, serviceName string) (*Operation, 
 	return c.runAsync(ctx, serviceName, "restart", args)
 }
 
+// ProjectDir returns the compose project root directory.
+func (c *Compose) ProjectDir() string {
+	return c.projectDir
+}
+
 // baseArgs returns the shared docker compose CLI arguments.
 func (c *Compose) baseArgs() []string {
 	return []string{"compose", "-f", c.composeFile}

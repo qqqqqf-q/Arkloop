@@ -57,6 +57,7 @@ const (
 	ActionStart               ModuleAction = "start"
 	ActionStop                ModuleAction = "stop"
 	ActionRestart             ModuleAction = "restart"
+	ActionConfigure           ModuleAction = "configure"
 	ActionConfigureConnection ModuleAction = "configure_connection"
 	ActionBootstrapDefaults   ModuleAction = "bootstrap_defaults"
 )

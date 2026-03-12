@@ -57,20 +57,17 @@ export function OperationHistoryModal({ onClose }: Props) {
 
   const selected = operations.find((op) => op.id === selectedId) ?? null
 
-  // Auto-scroll logs for running operations
   useEffect(() => {
     if (selected?.status === 'running') {
       logEndRef.current?.scrollIntoView({ behavior: 'smooth' })
     }
   }, [selected?.logs.length, selected?.status])
 
-  // Refresh relative times every 10s
   useEffect(() => {
     const id = setInterval(() => setTick((n) => n + 1), 10_000)
     return () => clearInterval(id)
   }, [])
 
-  // Close on Escape
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()

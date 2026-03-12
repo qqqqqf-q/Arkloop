@@ -37,7 +37,7 @@ export type ModuleInfo = {
   mutually_exclusive: string[]
 }
 
-export type ModuleAction = 'install' | 'start' | 'stop' | 'restart' | 'configure_connection' | 'bootstrap_defaults'
+export type ModuleAction = 'install' | 'start' | 'stop' | 'restart' | 'configure' | 'configure_connection' | 'bootstrap_defaults'
 
 export type PlatformInfo = {
   os: string

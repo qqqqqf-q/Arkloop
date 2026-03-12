@@ -5,12 +5,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"arkloop/services/bridge/internal/audit"
 	"arkloop/services/bridge/internal/docker"
 	"arkloop/services/bridge/internal/module"
+	"arkloop/services/bridge/internal/openviking"
 	"arkloop/services/bridge/internal/platform"
 
 	"github.com/google/uuid"
@@ -145,6 +148,7 @@ var validActions = map[module.ModuleAction]struct{}{
 	module.ActionStart:               {},
 	module.ActionStop:                {},
 	module.ActionRestart:             {},
+	module.ActionConfigure:           {},
 	module.ActionConfigureConnection: {},
 	module.ActionBootstrapDefaults:   {},
 }
@@ -189,6 +193,8 @@ func (h *Handler) moduleAction(w http.ResponseWriter, r *http.Request) {
 		op, err = h.compose.Stop(opCtx, def.ComposeService)
 	case module.ActionRestart:
 		op, err = h.compose.Restart(opCtx, def.ComposeService)
+	case module.ActionConfigure:
+		op, err = h.handleConfigure(opCtx, id, def.ComposeService, req.Params)
 	case module.ActionConfigureConnection, module.ActionBootstrapDefaults:
 		// Placeholder: return a synthetic operation ID for future implementation.
 		placeholderID := uuid.New().String()
@@ -212,6 +218,96 @@ func (h *Handler) moduleAction(w http.ResponseWriter, r *http.Request) {
 
 	h.operations.Add(op)
 	writeJSON(w, http.StatusAccepted, actionResponse{OperationID: op.ID})
+}
+
+// --- Configure ---------------------------------------------------------
+
+const healthCheckTimeout = 30 * time.Second
+
+func (h *Handler) handleConfigure(ctx context.Context, moduleID, composeService string, params map[string]any) (*docker.Operation, error) {
+	if moduleID != "openviking" {
+		return nil, fmt.Errorf("configure action only supported for openviking module")
+	}
+
+	// Parse params into ConfigureParams.
+	raw, err := json.Marshal(params)
+	if err != nil {
+		return nil, fmt.Errorf("marshal params: %w", err)
+	}
+	var cp openviking.ConfigureParams
+	if err := json.Unmarshal(raw, &cp); err != nil {
+		return nil, fmt.Errorf("invalid configure params: %w", err)
+	}
+
+	configPath := filepath.Join(h.compose.ProjectDir(), "config", "openviking", "ov.conf")
+	healthURL := fmt.Sprintf("http://localhost:%s", envOrDefault("ARKLOOP_OPENVIKING_PORT", "19010"))
+
+	op := docker.NewOperation(moduleID, "configure")
+	op.Status = docker.OperationRunning
+
+	go func() {
+		var opErr error
+		defer func() { op.Complete(opErr) }()
+
+		// 1. Render config.
+		op.AppendLog("Rendering OpenViking configuration...")
+		data, err := openviking.RenderConfig(configPath, cp)
+		if err != nil {
+			op.AppendLog("ERROR: " + err.Error())
+			opErr = err
+			return
+		}
+
+		// 2. Write config.
+		if err := openviking.WriteConfig(configPath, data); err != nil {
+			op.AppendLog("ERROR: " + err.Error())
+			opErr = err
+			return
+		}
+		op.AppendLog("Configuration written to " + configPath)
+
+		// 3. Restart container.
+		op.AppendLog("Restarting OpenViking container...")
+		restartOp, err := h.compose.Restart(ctx, composeService)
+		if err != nil {
+			op.AppendLog("ERROR restarting: " + err.Error())
+			opErr = err
+			return
+		}
+		// Wait for the restart operation to finish and relay its logs.
+		if waitErr := restartOp.Wait(); waitErr != nil {
+			for _, line := range restartOp.Lines(0) {
+				op.AppendLog(line)
+			}
+			op.AppendLog("ERROR: restart failed: " + waitErr.Error())
+			opErr = waitErr
+			return
+		}
+		for _, line := range restartOp.Lines(0) {
+			op.AppendLog(line)
+		}
+		op.AppendLog("Container restarted")
+
+		// 4. Health check.
+		op.AppendLog("Waiting for OpenViking health check...")
+		if err := openviking.WaitHealthy(ctx, healthURL, healthCheckTimeout); err != nil {
+			op.AppendLog("WARNING: health check did not pass: " + err.Error())
+			// Don't fail the operation — the service may still be starting.
+		} else {
+			op.AppendLog("OpenViking health check passed")
+		}
+
+		op.AppendLog("OpenViking configured successfully")
+	}()
+
+	return op, nil
+}
+
+func envOrDefault(key, fallback string) string {
+	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+		return v
+	}
+	return fallback
 }
 
 // --- Cancel ------------------------------------------------------------

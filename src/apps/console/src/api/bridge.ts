@@ -33,9 +33,21 @@ export type ModuleInfo = {
   capabilities: ModuleCapabilities
   depends_on: string[]
   mutually_exclusive: string[]
+  web_url?: string
 }
 
-export type ModuleAction = 'install' | 'start' | 'stop' | 'restart' | 'configure_connection' | 'bootstrap_defaults'
+export type ModuleAction = 'install' | 'start' | 'stop' | 'restart' | 'configure' | 'configure_connection' | 'bootstrap_defaults'
+
+export type PlatformInfo = {
+  os: string
+  docker_available: boolean
+  kvm_available: boolean
+}
+
+export type BridgeHealth = {
+  status: 'ok' | 'error'
+  version?: string
+}
 
 class BridgeClient {
   private baseUrl: string
@@ -44,7 +56,7 @@ class BridgeClient {
     this.baseUrl = baseUrl
   }
 
-  async healthz(): Promise<{ status: string }> {
+  async healthz(): Promise<BridgeHealth> {
     const resp = await fetch(`${this.baseUrl}/healthz`, {
       signal: AbortSignal.timeout(3000),
     })
@@ -69,6 +81,51 @@ class BridgeClient {
     })
     if (!resp.ok) throw new Error(`Module action failed: ${resp.status}`)
     return resp.json()
+  }
+
+  async detectPlatform(): Promise<PlatformInfo> {
+    const resp = await fetch(`${this.baseUrl}/v1/platform/detect`, {
+      signal: AbortSignal.timeout(5000),
+    })
+    if (!resp.ok) throw new Error(`Platform detect failed: ${resp.status}`)
+    return resp.json()
+  }
+
+  async getModule(id: string): Promise<ModuleInfo> {
+    const resp = await fetch(`${this.baseUrl}/v1/modules/${encodeURIComponent(id)}`, {
+      signal: AbortSignal.timeout(5000),
+    })
+    if (!resp.ok) throw new Error(`Get module failed: ${resp.status}`)
+    return resp.json()
+  }
+
+  async cancelOperation(operationId: string): Promise<void> {
+    const resp = await fetch(`${this.baseUrl}/v1/operations/${encodeURIComponent(operationId)}/cancel`, {
+      method: 'POST',
+      signal: AbortSignal.timeout(5000),
+    })
+    if (!resp.ok) throw new Error(`Cancel operation failed: ${resp.status}`)
+  }
+
+  streamOperation(
+    operationId: string,
+    onLog: (line: string) => void,
+    onDone: (result: { status: string; error?: string }) => void,
+  ): () => void {
+    const es = new EventSource(
+      `${this.baseUrl}/v1/operations/${encodeURIComponent(operationId)}/stream`,
+    )
+    es.addEventListener('log', (e: MessageEvent) => onLog(e.data as string))
+    es.addEventListener('status', (e: MessageEvent) => {
+      const result = JSON.parse(e.data as string) as { status: string; error?: string }
+      onDone(result)
+      es.close()
+    })
+    es.onerror = () => {
+      onDone({ status: 'failed', error: 'Connection lost' })
+      es.close()
+    }
+    return () => es.close()
   }
 }
 

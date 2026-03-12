@@ -254,6 +254,22 @@ export interface LocaleStrings {
       sectionTimeout: string
       fieldCostPerCommit: string
       fieldCostPerCommitHint: string
+      sectionEmbeddingConfig: string
+      fieldEmbeddingProvider: string
+      fieldEmbeddingModel: string
+      fieldEmbeddingApiKey: string
+      fieldEmbeddingApiBase: string
+      fieldEmbeddingDimension: string
+      sectionVLMConfig: string
+      fieldVLMProvider: string
+      fieldVLMModel: string
+      fieldVLMApiKey: string
+      fieldVLMApiBase: string
+      fieldVLMProviderHint: string
+      ovRestartWarning: string
+      applyAndRestart: string
+      toastOVConfigApplied: string
+      toastOVConfigFailed: string
       fieldSkillsMpApiKey: string
       fieldSkillsMpBaseUrl: string
       fieldSkillsMpBaseUrlHint: string

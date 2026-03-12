@@ -61,7 +61,6 @@ export function OperationModal({ moduleName, action, operationId, onClose }: Pro
   return (
     <Modal open onClose={handleClose} title={title} width="600px">
       <div className="flex flex-col gap-3">
-        {/* Log area */}
         <div
           className="overflow-y-auto rounded-md border border-[var(--c-border-console)] bg-[var(--c-bg-page)] p-3"
           style={{ maxHeight: '400px', minHeight: '200px' }}
@@ -77,7 +76,6 @@ export function OperationModal({ moduleName, action, operationId, onClose }: Pro
           <div ref={logEndRef} />
         </div>
 
-        {/* Status bar */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             {state === 'running' && (

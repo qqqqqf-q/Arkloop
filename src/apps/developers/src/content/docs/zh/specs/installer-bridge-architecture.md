@@ -1028,14 +1028,111 @@ Bridge 上线后，再支持：
 
 ### PR7: OpenViking Provider 集成调研与实施
 
-范围：
+#### 调研结论
 
-- 调研 OpenViking API 的运行时配置变更能力
-- 如果可行：实现 Bridge 的 `configure` 动作，同步 Arkloop Provider 配置到 OpenViking
-- 如果不可行：记录结论，保持 `bootstrap_defaults` 方案
-- Console Lite Models 页面增加 OpenViking embedding model 的配置入口（如果可行）
+**运行时配置变更：不支持。** OpenViking 的配置（`ov.conf`）在启动时由 `OpenVikingConfigSingleton`（带 `threading.Lock`）一次性加载为线程安全的单例，之后不可变更。具体证据：
 
-前置依赖：PR6 + 调研结论
+- ❌ 无配置修改 API 端点 — 96 个端点（13 个 Router）中，Admin 类端点仅覆盖账户/用户/角色/API Key 的 CRUD，不涉及任何配置变更
+- ❌ 无热加载机制 — 无 file watcher、无 SIGHUP 处理、无 reload 端点
+- ❌ 无运行时环境变量覆盖 — Embedding/VLM 配置仅在初始化时读取
+- 配置解析链：`--config` 路径 → `OPENVIKING_CONFIG_FILE` 环境变量 → `~/.openviking/ov.conf` → `/etc/openviking/ov.conf`
+
+**结论：必须采用「配置文件生成 + 容器重启」方案。**
+
+#### OpenViking 配置架构
+
+OpenViking 的配置系统为启动时单次加载模式：
+
+1. **配置加载**：进程启动时按优先级链解析 `ov.conf`，构建 `OpenVikingConfigSingleton`
+2. **服务初始化**：`OpenVikingService.__init__()` 阶段根据配置创建 Embedding 和 VLM 实例并缓存
+3. **运行时锁定**：配置单例持有 `threading.Lock`，仅用于线程安全读取，不支持写入
+4. **无插件架构**：`ParserRegistry.register_custom()` 支持解析器运行时扩展，但 Embedding/VLM Provider 不可插拔，变更需修改代码并重启
+
+#### Embedding 模型能力
+
+支持 4 个 Provider、8 种组合：
+
+| Provider | 向量类型 | 说明 |
+|---|---|---|
+| OpenAI | Dense | 标准 OpenAI embedding API |
+| Volcengine | Dense / Sparse / Hybrid | 火山引擎向量服务 |
+| VikingDB | Dense / Sparse / Hybrid | 字节 VikingDB 原生向量 |
+| Jina | Dense | Jina AI embedding |
+
+约束：
+
+- Embedder 在 `OpenVikingService.__init__()` 阶段创建，缓存于 `_embedder` 字段
+- 初始化后不可通过 API 变更，仅能通过修改 `ov.conf` 并重启生效
+- Hybrid 模式同时生成 Dense + Sparse 向量，适合混合检索场景
+
+#### VLM 能力
+
+支持 3 个 Provider：
+
+| Provider | 说明 |
+|---|---|
+| volcengine | 火山引擎视觉语言模型 |
+| openai | OpenAI GPT-4V 等 |
+| **litellm** | **通用代理层**，支持 15+ 后端（Claude、Gemini、Ollama、Azure、Bedrock 等） |
+
+约束：
+
+- VLM 为惰性单例，首次使用时创建并缓存于 `_vlm_instance`
+- 不可通过 API 变更，需重启生效
+- **litellm Provider 是关键优势**：作为 catch-all 代理层，可路由到绝大多数 LLM 后端，建议作为默认推荐选项
+
+#### Arkloop 现有集成现状
+
+- Arkloop Worker 使用 6 个 OV 端点：Find、Content、Sessions CRUD、Commit、FS Delete
+- 认证方式：单一 root API Key（`X-API-Key` header）
+- 多租户隔离：通过请求头传递（`X-OpenViking-Account`、`X-OpenViking-User`、`X-OpenViking-Agent`）
+- 配置双通道：环境变量（`ARKLOOP_OPENVIKING_BASE_URL` / `ROOT_API_KEY`）+ 数据库（`tool_provider_configs` 表）
+- Provider 目录已注册 `memory.openviking`（声明 `RequiresBaseURL` + `RequiresAPIKey`）
+- Console 已有 `MemoryConfigPage.tsx` 管理 OV 连接设置
+
+#### 推荐实施方案
+
+由于运行时配置变更不可行，采用 **「Bridge 生成配置 + 容器重启」** 方案：
+
+1. **Bridge `configure` 动作**：接收 Arkloop Provider 配置参数，渲染 `ov.conf` 模板并写入 OpenViking 容器的配置挂载卷
+2. **容器重启触发**：Bridge 通过 Docker API 执行 OpenViking 容器 restart，使新配置生效
+3. **Console Lite UI**：在 Models 页面暴露 Embedding 模型选择（Provider + 模型名）和 VLM 选择（推荐 litellm）
+4. **litellm 优先策略**：VLM 配置默认推荐 litellm Provider，用户只需填写目标后端的 API Key 和模型名即可接入多种 LLM
+
+配置变更流程：
+
+```
+Console Lite UI → Arkloop API (保存 provider config)
+               → Bridge /v1/modules/openviking/actions { action: "configure" }
+               → Bridge 渲染 ov.conf 模板 → 写入挂载卷
+               → Bridge 调用 Docker API restart openviking 容器
+               → Bridge 轮询 /health 确认 OV 恢复就绪
+               → 返回操作结果
+```
+
+#### 具体实施范围
+
+**Bridge 侧：**
+
+- 实现 `openviking` 模块的 `configure` 动作处理器
+- 实现 `ov.conf` 模板渲染逻辑（支持 Embedding Provider 选择、VLM Provider 选择、API Key 注入）
+- 实现配置写入 → 容器重启 → 健康检查轮询的完整流程
+- 配置变更审计日志记录
+
+**Console Lite 侧：**
+
+- Models 页面增加 Embedding 模型配置区域（Provider 下拉 + 模型名输入 + API Key）
+- Models 页面增加 VLM 配置区域（Provider 下拉，litellm 为默认推荐 + 后端模型名 + API Key）
+- 配置提交后调用 Bridge `configure` 动作，展示操作进度和结果
+- 配置变更时提示用户「将触发 OpenViking 重启，期间记忆服务短暂不可用」
+
+**配置模板：**
+
+- 维护 `ov.conf` 的 Go template，覆盖 Embedding 和 VLM 配置段
+- 保留用户自定义配置段不被覆盖（merge 策略）
+- 配置校验：写入前验证必填字段和 Provider 合法性
+
+前置依赖：PR6 + 本调研结论
 
 ### PR8: SaaS 部署模式
 

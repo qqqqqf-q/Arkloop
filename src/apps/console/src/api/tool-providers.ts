@@ -3,6 +3,17 @@ import type { ToolCatalogGroup } from './tool-catalog'
 
 export type ToolProviderScope = 'org' | 'platform'
 
+export type ConfigFieldDef = {
+  key: string
+  label: string
+  type: 'string' | 'number' | 'select' | 'password'
+  required: boolean
+  default?: string
+  options?: string[]
+  group?: string
+  placeholder?: string
+}
+
 export type ToolProviderItem = {
   group_name: string
   provider_name: string
@@ -13,6 +24,7 @@ export type ToolProviderItem = {
   requires_base_url: boolean
   configured: boolean
   config_json?: Record<string, unknown>
+  config_fields?: ConfigFieldDef[]
 }
 
 export type ToolProviderGroup = {
