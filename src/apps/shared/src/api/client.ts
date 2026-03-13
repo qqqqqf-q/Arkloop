@@ -129,8 +129,11 @@ export async function apiFetch<T>(
     try {
       const newToken = await silentRefresh()
       return await apiFetch<T>(path, { ...init, accessToken: newToken, _isRetry: true })
-    } catch {
-      unauthenticatedHandler?.()
+    } catch (err) {
+      // 仅在认证失败时登出，网络错误不触发
+      if (!(err instanceof TypeError)) {
+        unauthenticatedHandler?.()
+      }
     }
   }
 

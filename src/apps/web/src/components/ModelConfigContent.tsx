@@ -35,6 +35,12 @@ function presetLabel(key: string, m: { vendorOpenaiResponses: string; vendorOpen
   return map[key] ?? key
 }
 
+function toPresetKey(provider: string, mode: string | null): ProviderPresetKey {
+  if (provider === 'anthropic') return 'anthropic_message'
+  if (mode === 'chat_completions') return 'openai_chat_completions'
+  return 'openai_responses'
+}
+
 type Props = {
   accessToken: string
 }
@@ -251,6 +257,7 @@ function ProviderDetail({
   const [formName, setFormName] = useState(provider.name)
   const [formApiKey, setFormApiKey] = useState('')
   const [formBaseUrl, setFormBaseUrl] = useState(provider.base_url ?? '')
+  const [formPreset, setFormPreset] = useState<ProviderPresetKey>(toPresetKey(provider.provider, provider.openai_api_mode))
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
   const [deleting, setDeleting] = useState(false)
@@ -260,10 +267,13 @@ function ProviderDetail({
     setSaving(true)
     setErr('')
     try {
+      const selected = PROVIDER_PRESETS.find((p) => p.key === formPreset)
       await updateLlmProvider(accessToken, provider.id, {
         name: formName.trim() || undefined,
         api_key: formApiKey.trim() || undefined,
         base_url: formBaseUrl.trim() || null,
+        provider: selected?.provider,
+        openai_api_mode: selected?.openai_api_mode ?? null,
       })
       setFormApiKey('')
       onUpdated()
@@ -293,6 +303,14 @@ function ProviderDetail({
 
       {/* provider form (always visible, like console-lite) */}
       <div className="space-y-4">
+        <FormField label={m.providerVendor}>
+          <select value={formPreset} onChange={(e) => setFormPreset(e.target.value as ProviderPresetKey)} className={inputCls}>
+            {PROVIDER_PRESETS.map((p) => (
+              <option key={p.key} value={p.key}>{presetLabel(p.key, m)}</option>
+            ))}
+          </select>
+        </FormField>
+
         <FormField label={m.providerName}>
           <input value={formName} onChange={(e) => setFormName(e.target.value)} className={inputCls} />
         </FormField>

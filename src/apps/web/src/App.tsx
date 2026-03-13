@@ -32,17 +32,25 @@ function App() {
       setAccessToken(token)
     })
 
-    refreshAccessToken(controller.signal)
-      .then((resp) => {
-        if (controller.signal.aborted) return
-        writeAccessTokenToStorage(resp.access_token)
-        setAccessToken(resp.access_token)
-      })
-      .catch(() => {})
-      .finally(() => {
-        if (controller.signal.aborted) return
-        setAuthChecked(true)
-      })
+    const tryRefresh = (retries: number) => {
+      refreshAccessToken(controller.signal)
+        .then((resp) => {
+          if (controller.signal.aborted) return
+          writeAccessTokenToStorage(resp.access_token)
+          setAccessToken(resp.access_token)
+          setAuthChecked(true)
+        })
+        .catch((err) => {
+          if (controller.signal.aborted) return
+          const isNetwork = err instanceof TypeError || (err && typeof err === 'object' && 'code' in err)
+          if (isNetwork && retries > 0) {
+            setTimeout(() => tryRefresh(retries - 1), 2000)
+            return
+          }
+          setAuthChecked(true)
+        })
+    }
+    tryRefresh(3)
 
     return () => {
       controller.abort()
