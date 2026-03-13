@@ -574,11 +574,18 @@ func LoadRoutingConfigFromDB(ctx context.Context, pool *pgxpool.Pool, projectID 
 	credentialsByID := map[string]ProviderCredential{}
 	credentialOrder := make([]string, 0, len(allRows))
 	defaultRouteID := ""
+	platformDefaultRouteID := ""
 	for _, rd := range allRows {
 		credIDStr := rd.credID.String()
 		if _, exists := credentialsByID[credIDStr]; exists {
-			if rd.isDefault && defaultRouteID == "" {
-				defaultRouteID = rd.routeID.String()
+			if rd.isDefault {
+				ownerKind, _ := parseOwnerKind(rd.ownerKind)
+				if ownerKind == CredentialScopePlatform && platformDefaultRouteID == "" {
+					platformDefaultRouteID = rd.routeID.String()
+				}
+				if defaultRouteID == "" {
+					defaultRouteID = rd.routeID.String()
+				}
 			}
 			continue
 		}
@@ -628,8 +635,13 @@ func LoadRoutingConfigFromDB(ctx context.Context, pool *pgxpool.Pool, projectID 
 		}
 		credentialsByID[credIDStr] = cred
 		credentialOrder = append(credentialOrder, credIDStr)
-		if rd.isDefault && defaultRouteID == "" {
-			defaultRouteID = rd.routeID.String()
+		if rd.isDefault {
+			if ownerKind == CredentialScopePlatform && platformDefaultRouteID == "" {
+				platformDefaultRouteID = rd.routeID.String()
+			}
+			if defaultRouteID == "" {
+				defaultRouteID = rd.routeID.String()
+			}
 		}
 	}
 
@@ -680,6 +692,11 @@ func LoadRoutingConfigFromDB(ctx context.Context, pool *pgxpool.Pool, projectID 
 
 	if len(routes) == 0 {
 		return ProviderRoutingConfig{}, nil
+	}
+
+	// platform 默认路由优先于 project-scoped BYOK 路由
+	if platformDefaultRouteID != "" {
+		defaultRouteID = platformDefaultRouteID
 	}
 
 	if defaultRouteID == "" && len(routes) > 0 {
