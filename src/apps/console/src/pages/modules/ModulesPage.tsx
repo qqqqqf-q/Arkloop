@@ -9,6 +9,7 @@ import { PageHeader } from '../../components/PageHeader'
 import { Badge, type BadgeVariant } from '../../components/Badge'
 import { useToast } from '@arkloop/shared'
 import { useLocale } from '../../contexts/LocaleContext'
+import { useOperations } from '../../contexts/OperationContext'
 import type { LocaleStrings } from '../../locales'
 import {
   checkBridgeAvailable,
@@ -131,11 +132,13 @@ function CopyButton({ text, label }: { text: string; label: string }) {
 function ModuleRow({
   mod,
   bridgeOnline,
+  busy,
   t,
   onAction,
 }: {
   mod: ModuleInfo
   bridgeOnline: boolean
+  busy: boolean
   t: ModulesLocale
   onAction: (moduleId: string, action: ModuleAction) => void
 }) {
@@ -145,7 +148,7 @@ function ModuleRow({
 
   const displayStatus = bridgeOnline ? mod.status : null
   const badgeLabel = displayStatus ? statusLabel(displayStatus, t) : t.statusUnknown
-  const badgeVariant = displayStatus ? statusBadgeVariant(displayStatus) : 'neutral' as BadgeVariant
+  const badgeVariant = busy ? 'warning' as BadgeVariant : (displayStatus ? statusBadgeVariant(displayStatus) : 'neutral' as BadgeVariant)
 
   return (
     <div className="rounded-md border border-[var(--c-border-console)] px-3 py-2.5">
@@ -154,13 +157,15 @@ function ModuleRow({
           <span className="font-mono text-xs text-[var(--c-text-primary)]">{mod.name}</span>
           <Badge variant={badgeVariant}>
             <span className="flex items-center gap-1">
-              {displayStatus ? statusIcon(displayStatus) : <CircleDashed size={13} />}
-              {badgeLabel}
+              {busy
+                ? <Loader2 size={13} className="animate-spin" />
+                : (displayStatus ? statusIcon(displayStatus) : <CircleDashed size={13} />)}
+              {busy ? '...' : badgeLabel}
             </span>
           </Badge>
         </div>
         <div className="flex items-center gap-1.5">
-          {actions.map((action) => (
+          {!busy && actions.map((action) => (
             <button
               key={action}
               onClick={() => onAction(mod.id, action)}
@@ -197,12 +202,14 @@ export function ModulesPage() {
   const { addToast } = useToast()
   const { t } = useLocale()
   const tm = t.pages.modules
+  const { startOperation, isModuleBusy, operations } = useOperations()
 
   const [bridgeOnline, setBridgeOnline] = useState(false)
   const [modules, setModules] = useState<ModuleInfo[]>(STATIC_MODULES)
   const [selectedCategory, setSelectedCategory] = useState<ModuleCategory>('memory')
   const [loading, setLoading] = useState(false)
   const mountedRef = useRef(true)
+  const prevActiveRef = useRef(0)
 
   useEffect(() => {
     mountedRef.current = true
@@ -246,15 +253,24 @@ export function ModulesPage() {
 
   useEffect(() => { void loadModules() }, [loadModules])
 
+  // reload modules when an operation finishes
+  const activeCount = operations.filter((op) => op.status === 'running').length
+  useEffect(() => {
+    if (prevActiveRef.current > 0 && activeCount < prevActiveRef.current) {
+      void loadModules()
+    }
+    prevActiveRef.current = activeCount
+  }, [activeCount, loadModules])
+
   const handleAction = useCallback(async (moduleId: string, action: ModuleAction) => {
     try {
-      await bridgeClient.performAction(moduleId, action)
-      addToast(`${action} -> ${moduleId}`, 'success')
-      void loadModules()
+      const { operation_id } = await bridgeClient.performAction(moduleId, action)
+      const mod = modules.find((m) => m.id === moduleId)
+      startOperation(moduleId, mod?.name ?? moduleId, action, operation_id)
     } catch (err) {
       addToast(err instanceof Error ? err.message : t.requestFailed, 'error')
     }
-  }, [addToast, loadModules, t.requestFailed])
+  }, [addToast, modules, startOperation, t.requestFailed])
 
   const filteredModules = modules.filter((m) => m.category === selectedCategory)
 
@@ -323,6 +339,7 @@ export function ModulesPage() {
                       key={mod.id}
                       mod={mod}
                       bridgeOnline={bridgeOnline}
+                      busy={isModuleBusy(mod.id)}
                       t={tm}
                       onAction={handleAction}
                     />
