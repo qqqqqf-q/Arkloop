@@ -25,6 +25,7 @@ export type ToolProviderItem = {
   configured: boolean
   config_json?: Record<string, unknown>
   config_fields?: ConfigFieldDef[]
+  default_base_url?: string
 }
 
 export type ToolProviderGroup = {

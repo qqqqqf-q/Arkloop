@@ -26,6 +26,8 @@ type toolProviderDefinition struct {
 	RequiresBaseURL    bool
 	AllowsInternalHTTP bool
 	ConfigFields       []ConfigFieldDef `json:"config_fields,omitempty"`
+	DefaultBaseURL     string
+	DefaultAPIKey      string
 }
 
 type ConfigFieldDef struct {
@@ -41,9 +43,9 @@ type ConfigFieldDef struct {
 
 var toolProviderCatalog = []toolProviderDefinition{
 	{GroupName: "web_search", ProviderName: "web_search.tavily", RequiresAPIKey: true},
-	{GroupName: "web_search", ProviderName: "web_search.searxng", RequiresBaseURL: true},
+	{GroupName: "web_search", ProviderName: "web_search.searxng", RequiresBaseURL: true, AllowsInternalHTTP: true, DefaultBaseURL: "http://searxng:8080"},
 	{GroupName: "web_fetch", ProviderName: "web_fetch.jina", RequiresAPIKey: true},
-	{GroupName: "web_fetch", ProviderName: "web_fetch.firecrawl", RequiresAPIKey: true},
+	{GroupName: "web_fetch", ProviderName: "web_fetch.firecrawl", RequiresAPIKey: true, AllowsInternalHTTP: true, DefaultBaseURL: "http://firecrawl:19012"},
 	{GroupName: "web_fetch", ProviderName: "web_fetch.basic"},
 	{GroupName: "sandbox", ProviderName: "sandbox.docker", RequiresBaseURL: true, AllowsInternalHTTP: true},
 	{GroupName: "sandbox", ProviderName: "sandbox.firecracker", RequiresBaseURL: true, AllowsInternalHTTP: true},
@@ -85,6 +87,7 @@ type toolProviderItemResponse struct {
 	Configured      bool             `json:"configured"`
 	ConfigJSON      json.RawMessage  `json:"config_json,omitempty"`
 	ConfigFields    []ConfigFieldDef `json:"config_fields,omitempty"`
+	DefaultBaseURL  string           `json:"default_base_url,omitempty"`
 }
 
 type upsertToolProviderCredentialRequest struct {
@@ -267,6 +270,7 @@ func listToolProviders(
 				RequiresBaseURL: def.RequiresBaseURL,
 				Configured:      false,
 				ConfigFields:    def.ConfigFields,
+				DefaultBaseURL:  def.DefaultBaseURL,
 			}
 
 			var secretConfigured bool
@@ -349,6 +353,8 @@ func activateToolProvider(
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
 	}
+
+	applyProviderDefaults(r.Context(), toolProvidersRepo.WithTx(tx), ownerKind, ownerUserID, groupName, providerName)
 
 	if err := tx.Commit(r.Context()); err != nil {
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
@@ -694,4 +700,28 @@ func notifyToolProviderChanged(ctx context.Context, directPool *pgxpool.Pool, po
 		return
 	}
 	_, _ = db.Exec(ctx, "SELECT pg_notify('tool_provider_config_changed', $1)", payload)
+}
+
+// applyProviderDefaults fills in default base_url for providers that have known internal defaults
+// but no existing configuration. Does not overwrite user-configured values.
+func applyProviderDefaults(
+	ctx context.Context,
+	repo *data.ToolProviderConfigsRepository,
+	ownerKind string,
+	ownerUserID *uuid.UUID,
+	groupName string,
+	providerName string,
+) {
+	def, ok := findProviderDef(groupName, providerName)
+	if !ok || def.DefaultBaseURL == "" {
+		return
+	}
+	baseURL := def.DefaultBaseURL
+	var apiKey *string
+	if def.DefaultAPIKey != "" {
+		apiKey = &def.DefaultAPIKey
+	}
+	// UpsertConfig uses COALESCE — existing values are preserved
+	_, _ = repo.UpsertConfig(ctx, ownerKind, ownerUserID, groupName, providerName, nil, nil, &baseURL, nil)
+	_ = apiKey // api_key requires secrets flow; base_url alone is the critical default
 }
