@@ -7,6 +7,7 @@ import {
 import type { ConsoleOutletContext } from '../../layouts/ConsoleLayout'
 import { PageHeader } from '../../components/PageHeader'
 import { Badge, type BadgeVariant } from '../../components/Badge'
+import { OperationModal } from '../../components/OperationModal'
 import { useToast } from '@arkloop/shared'
 import { useLocale } from '../../contexts/LocaleContext'
 import { useOperations } from '../../contexts/OperationContext'
@@ -210,6 +211,9 @@ export function ModulesPage() {
   const [loading, setLoading] = useState(false)
   const mountedRef = useRef(true)
   const prevActiveRef = useRef(0)
+  const [activeOp, setActiveOp] = useState<{
+    moduleId: string; moduleName: string; action: ModuleAction; operationId: string
+  } | null>(null)
 
   useEffect(() => {
     mountedRef.current = true
@@ -266,7 +270,9 @@ export function ModulesPage() {
     try {
       const { operation_id } = await bridgeClient.performAction(moduleId, action)
       const mod = modules.find((m) => m.id === moduleId)
-      startOperation(moduleId, mod?.name ?? moduleId, action, operation_id)
+      const moduleName = mod?.name ?? moduleId
+      startOperation(moduleId, moduleName, action, operation_id)
+      setActiveOp({ moduleId, moduleName, action, operationId: operation_id })
     } catch (err) {
       addToast(err instanceof Error ? err.message : t.requestFailed, 'error')
     }
@@ -352,6 +358,16 @@ export function ModulesPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {activeOp && (
+        <OperationModal
+          moduleId={activeOp.moduleId}
+          moduleName={activeOp.moduleName}
+          action={activeOp.action}
+          operationId={activeOp.operationId}
+          onClose={() => { setActiveOp(null); void loadModules() }}
+        />
       )}
     </div>
   )
