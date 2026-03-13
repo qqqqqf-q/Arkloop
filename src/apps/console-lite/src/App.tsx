@@ -9,6 +9,7 @@ import { ToolsPage } from './pages/ToolsPage'
 import { RunsPage } from './pages/RunsPage'
 import { ModulesPage } from './pages/ModulesPage'
 import { SettingsPage } from './pages/SettingsPage'
+import { SecurityPage } from './pages/SecurityPage'
 import { BootstrapPage } from './pages/BootstrapPage'
 import { OperationProvider } from './contexts/OperationContext'
 import {
@@ -91,6 +92,7 @@ function App() {
           <Route path="memory" element={<Navigate to="/tools" replace />} />
           <Route path="runs" element={<RunsPage />} />
           <Route path="modules" element={<ModulesPage />} />
+          <Route path="security" element={<SecurityPage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Route>

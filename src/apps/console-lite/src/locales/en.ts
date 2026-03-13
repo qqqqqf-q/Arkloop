@@ -10,6 +10,7 @@ export const en: LocaleStrings = {
     modules: 'Modules (Install/Manage)',
     settings: 'Settings',
     installTasks: 'Install Tasks',
+    security: 'Security',
   },
   dashboard: {
     title: 'Dashboard',
@@ -288,6 +289,20 @@ export const en: LocaleStrings = {
     upgradeComplete: 'Upgrade complete',
     upgradeFailed: 'Upgrade failed',
     logs: 'Logs',
+  },
+  security: {
+    title: 'Prompt Injection Protection',
+    description: 'Manage input scanning layers to detect and block injection attacks.',
+    layerRegex: 'Regex Scanner',
+    layerRegexDesc: 'Pattern-based detection for known injection signatures. Microsecond latency.',
+    layerSemantic: 'Semantic Scanner',
+    layerSemanticDesc: 'ML-based detection using Prompt Guard model. Catches variant and implicit injections.',
+    statusEnabled: 'Enabled',
+    statusDisabled: 'Disabled',
+    statusComingSoon: 'Coming Soon',
+    toastUpdated: 'Updated',
+    toastFailed: 'Update failed',
+    toastLoadFailed: 'Failed to load',
   },
   settingsPage: {
     title: 'Settings',

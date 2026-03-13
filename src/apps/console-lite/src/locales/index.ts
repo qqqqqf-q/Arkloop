@@ -13,6 +13,7 @@ export interface LocaleStrings {
     modules: string
     settings: string
     installTasks: string
+    security: string
   }
   dashboard: {
     title: string
@@ -291,6 +292,20 @@ export interface LocaleStrings {
     upgradeComplete: string
     upgradeFailed: string
     logs: string
+  }
+  security: {
+    title: string
+    description: string
+    layerRegex: string
+    layerRegexDesc: string
+    layerSemantic: string
+    layerSemanticDesc: string
+    statusEnabled: string
+    statusDisabled: string
+    statusComingSoon: string
+    toastUpdated: string
+    toastFailed: string
+    toastLoadFailed: string
   }
   settingsPage: {
     title: string

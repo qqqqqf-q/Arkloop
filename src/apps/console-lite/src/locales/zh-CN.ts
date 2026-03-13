@@ -10,6 +10,7 @@ export const zhCN: LocaleStrings = {
     modules: '模块(安装/管理)',
     settings: '设置',
     installTasks: '安装任务',
+    security: '安全',
   },
   dashboard: {
     title: '仪表盘',
@@ -288,6 +289,20 @@ export const zhCN: LocaleStrings = {
     upgradeComplete: '升级完成',
     upgradeFailed: '升级失败',
     logs: '日志',
+  },
+  security: {
+    title: '提示词注入防护',
+    description: '管理输入扫描层，检测和拦截注入攻击。',
+    layerRegex: '正则扫描',
+    layerRegexDesc: '基于模式匹配检测已知注入特征，微秒级延迟。',
+    layerSemantic: '语义扫描',
+    layerSemanticDesc: '基于 Prompt Guard 模型的 ML 检测，捕获变体和隐式注入。',
+    statusEnabled: '已启用',
+    statusDisabled: '已禁用',
+    statusComingSoon: '即将推出',
+    toastUpdated: '已更新',
+    toastFailed: '更新失败',
+    toastLoadFailed: '加载失败',
   },
   settingsPage: {
     title: '设置',

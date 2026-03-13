@@ -9,6 +9,7 @@ import {
   Blocks,
   Settings,
   ShieldCheck,
+  ShieldAlert,
   Loader2,
 } from 'lucide-react'
 import { getMe, logout, isApiError, type MeResponse } from '../api'
@@ -37,6 +38,7 @@ function buildNavItems(t: LocaleStrings): NavItem[] {
     { label: t.nav.tools,     path: '/tools?group=',          icon: <Wrench size={17} /> },
     { label: t.nav.runs,      path: '/runs',                  icon: <Play size={17} /> },
     { label: t.nav.modules,   path: '/modules?cat=memory',    icon: <Blocks size={17} /> },
+    { label: t.nav.security,  path: '/security',              icon: <ShieldAlert size={17} /> },
     { label: t.nav.settings,  path: '/settings?section=general', icon: <Settings size={17} /> },
   ]
 }

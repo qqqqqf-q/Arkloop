@@ -34,6 +34,7 @@ import { AccessLogPage } from './pages/access-log/AccessLogPage'
 import { EntitlementsPage } from './pages/entitlements/EntitlementsPage'
 import { ModulesPage } from './pages/modules/ModulesPage'
 
+import { PromptInjectionPage } from './pages/prompt-injection/PromptInjectionPage'
 import { BootstrapPage } from './pages/BootstrapPage'
 
 import { OperationProvider, useOperations } from './contexts/OperationContext'
@@ -156,6 +157,7 @@ function App() {
           <Route path="api-keys" element={<APIKeysPage />} />
           <Route path="webhooks" element={<PlaceholderPage title="Webhooks" />} />
           {/* Security */}
+          <Route path="prompt-injection" element={<PromptInjectionPage />} />
           <Route path="ip-rules" element={<IPRulesPage />} />
           <Route path="captcha" element={<CaptchaPage />} />
           <Route path="gateway-config" element={<GatewayConfigPage />} />

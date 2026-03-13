@@ -11,7 +11,7 @@ import {
   Flag, Ticket, Gift, Coins, Megaphone, Mic, Mail, AlignLeft,
   PanelLeftClose, PanelLeftOpen, ChevronDown,
   Settings, ScrollText, Blocks, Loader2,
-  Wrench, SlidersHorizontal, Puzzle,
+  Wrench, SlidersHorizontal, Puzzle, ShieldAlert,
 } from 'lucide-react'
 import { getMe, logout, isApiError, type MeResponse } from '../api'
 import { ConsoleSettingsModal } from '../components/SettingsModal'
@@ -91,6 +91,7 @@ function buildNavGroups(t: LocaleStrings): NavGroup[] {
       id: 'security',
       label: t.groups.security,
       items: [
+        { label: t.nav.promptInjection, path: '/prompt-injection', icon: <ShieldAlert size={17} /> },
         { label: t.nav.ipRules,       path: '/ip-rules',       icon: <ShieldCheck size={17} /> },
         { label: t.nav.captcha,       path: '/captcha',        icon: <Bot size={17} /> },
         { label: t.nav.gatewayConfig, path: '/gateway-config', icon: <Settings size={17} /> },

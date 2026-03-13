@@ -53,6 +53,7 @@ export interface LocaleStrings {
     executionGovernance: string
     reports: string
     modules: string
+    promptInjection: string
   }
   // settings
   account: string
@@ -1080,6 +1081,20 @@ export interface LocaleStrings {
       toastLoadFailed: string
       toastSaved: string
       toastSaveFailed: string
+    }
+    promptInjection: {
+      title: string
+      description: string
+      layerRegex: string
+      layerRegexDesc: string
+      layerSemantic: string
+      layerSemanticDesc: string
+      statusEnabled: string
+      statusDisabled: string
+      statusComingSoon: string
+      toastUpdated: string
+      toastFailed: string
+      toastLoadFailed: string
     }
     email: {
       title: string
