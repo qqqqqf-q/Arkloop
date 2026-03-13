@@ -660,6 +660,59 @@ Arkloop 接入 OpenCode 的第一阶段，最简单且最稳的方案是：
 - 本地 sandbox 可启动 OpenCode
 - Worker 无需区分本地 / 云端两套 ACP 通道实现
 
+### PR-7.5：LLM Proxy + Profile 映射
+
+目标：让 sandbox 内的 ACP agent 能安全地调用 LLM，不暴露真实 API key。
+
+**背景**：ACP agent（如 OpenCode）自带 LLM 调用能力，需要 API key 和 model 配置。在 SaaS 环境下，直接把 API key 注入 sandbox 环境变量有泄露风险。解决方案是让 ACP agent 通过 Arkloop 的 LLM 代理端点调用模型。
+
+范围：
+
+**LLM Proxy（API service）**：
+
+- 在 API service (19001) 新增 `/v1/llm-proxy/chat/completions` 端点
+- OpenAI-compatible API 格式，支持 SSE streaming
+- Session token 验证：只接受 Arkloop 签发的临时 token
+- 额度限制：单次 acp_agent 调用的 token 预算
+- 模型白名单：只允许 profile 指定的模型，防止 sandbox 内切换
+- 复用 Worker 已有的 LLM routing 和 key pool
+
+**Profile 映射**：
+
+- 与 spawn_agent 的 profile 机制统一
+- Config key 格式：`spawn.profile.{name}` -> `provider^model`
+- 三级优先级：org override > plan entitlement > platform default
+- `acp_agent` 工具新增 `profile` 参数（可选）
+
+**Session Token 生命周期**：
+
+- acp_agent tool executor 在启动 Bridge 前签发临时 token
+- Token 绑定到 run_id，随 run 结束自动失效
+- Token 携带模型白名单和 token 预算
+
+**调用链**：
+
+```
+LLM -> acp_agent(task="...", profile="strong")
+  -> Executor 解析 profile: "strong" -> "anthropic^claude-sonnet-4-5"
+  -> 签发临时 token (绑定 run_id, model, budget)
+  -> Bridge 启动 OpenCode:
+     - OPENCODE_API_BASE=http://api:19001/v1/llm-proxy
+     - OPENCODE_API_KEY=<临时 token>
+     - OPENCODE_MODEL=claude-sonnet-4-5
+  -> OpenCode 通过 proxy 调 LLM
+  -> API proxy 验证 token + 转发到实际 provider
+```
+
+**本地模式降级**：本地 sandbox / cowork 场景下，如果用户本机已有 OpenCode 配置（~/.config/opencode/opencode.json），可以跳过 proxy 直接使用用户自己的 API key。proxy 主要服务于 SaaS 和缺少本地配置的场景。
+
+验收标准：
+
+- sandbox 内 ACP agent 能通过 proxy 完成 LLM 调用
+- sandbox 内无真实 API key
+- profile 映射正确解析
+- 临时 token 随 run 结束失效
+
 ### PR-8：最小 MCP 注入（移除）
 
 第一阶段不需要向 OpenCode 注入 MCP。OpenCode 在 sandbox 内拥有自己的工具链（文件读写、命令执行、git 操作等），可以直接操作 workspace。MCP 注入作为后续增强项，在确认有明确收益时再推进。
@@ -722,7 +775,11 @@ Arkloop 接入 OpenCode 的第一阶段，最简单且最稳的方案是：
 5. PR-5 `acp_agent` builtin tool（已完成）
 6. PR-6 前端展示（延后，复用 subagent UI）
 7. PR-7 本地 sandbox / cowork 复用
-8. ~~PR-8 MCP 最小注入~~（移除，第一阶段不需要）
+8. 真实测试：验证完整链路（LLM -> acp_agent -> OpenCode -> 完成编码任务）
+9. PR-7.5 LLM Proxy + Profile 映射
+10. PR-10 恢复与复用
+11. PR-9 权限与治理增强
+12. ~~PR-8 MCP 最小注入~~（移除，第一阶段不需要）
 9. PR-9 权限与治理增强
 10. PR-10 恢复与复用
 
@@ -734,6 +791,7 @@ Arkloop 接入 OpenCode 的第一阶段，最简单且最稳的方案是：
 - LLM 能通过 `acp_agent` 工具自主决定何时委托任务给代码 agent
 - Worker 能通过 ACP Bridge 发 prompt 并收回 update
 - OpenCode 能直接读写 workspace、直接运行测试命令
+- ACP agent 通过 LLM Proxy 安全调用模型，sandbox 内无真实 API key
 - UI 能通过现有事件流看到执行过程与终态结果
 - 本地 sandbox 与云端 sandbox 共用同一条 ACP 启动链路
 
