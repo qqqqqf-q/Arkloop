@@ -3,6 +3,7 @@ package executor
 import (
 	"fmt"
 
+	"arkloop/services/worker/internal/acp"
 	"arkloop/services/worker/internal/pipeline"
 )
 
@@ -50,6 +51,7 @@ func DefaultExecutorRegistry() *Registry {
 	_ = reg.Register("agent.interactive", NewInteractiveExecutor)
 	_ = reg.Register("agent.lua", NewLuaExecutor)
 	_ = reg.Register("task.classify_route", NewClassifyRouteExecutor)
+	_ = reg.Register("agent.acp", acp.NewACPExecutor)
 	return reg
 }
 
