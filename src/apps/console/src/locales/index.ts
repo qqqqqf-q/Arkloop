@@ -123,7 +123,6 @@ export interface LocaleStrings {
       colProvider: string
       colKeyPrefix: string
       colBaseUrl: string
-      colApiMode: string
       colRoutes: string
       colCreatedAt: string
       // empty state
@@ -137,7 +136,6 @@ export interface LocaleStrings {
       fieldProvider: string
       fieldApiKey: string
       fieldBaseUrl: string
-      fieldApiMode: string
       fieldAdvancedJson: string
       fieldRoutes: string
       // route row
