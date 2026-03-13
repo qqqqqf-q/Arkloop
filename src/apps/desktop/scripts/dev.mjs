@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const root = resolve(__dirname, '..')
+const webRoot = resolve(root, '..', 'web')
 
 async function waitForVite(url, timeoutMs = 30000) {
   const deadline = Date.now() + timeoutMs
@@ -20,6 +21,22 @@ async function waitForVite(url, timeoutMs = 30000) {
 
 async function main() {
   const viteUrl = 'http://localhost:5173'
+
+  // Start Vite directly with sidecar proxy target, overriding .env.local
+  console.log('[dev] starting vite dev server...')
+  const vite = spawn('npx', ['vite'], {
+    cwd: webRoot,
+    stdio: 'inherit',
+    env: {
+      ...process.env,
+      ARKLOOP_API_PROXY_TARGET: 'http://127.0.0.1:19001',
+    },
+  })
+
+  vite.on('error', (err) => {
+    console.error('[dev] vite failed to start:', err)
+    process.exit(1)
+  })
 
   console.log('[dev] waiting for vite dev server...')
   await waitForVite(viteUrl)
@@ -52,8 +69,17 @@ async function main() {
   })
 
   electron.on('exit', (code) => {
+    vite.kill()
     process.exit(code ?? 0)
   })
+
+  for (const signal of ['SIGINT', 'SIGTERM']) {
+    process.on(signal, () => {
+      electron.kill()
+      vite.kill()
+      process.exit(0)
+    })
+  }
 }
 
 main().catch((err) => {

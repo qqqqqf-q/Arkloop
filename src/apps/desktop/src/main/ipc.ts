@@ -4,6 +4,11 @@ import { getSidecarStatus, startSidecar, stopSidecar } from './sidecar'
 import type { AppConfig } from './types'
 
 export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void {
+  // preload 同步获取配置, 确保 __ARKLOOP_DESKTOP__ 在页面脚本之前注入
+  ipcMain.on('arkloop:config:get-sync', (event) => {
+    event.returnValue = loadConfig()
+  })
+
   ipcMain.handle('arkloop:config:get', () => {
     return loadConfig()
   })

@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from 'electron'
+import { app, BrowserWindow, session } from 'electron'
 import * as path from 'path'
 import { loadConfig, saveConfig } from './config'
 import { startSidecar, stopSidecar, setStatusListener } from './sidecar'
@@ -56,8 +56,6 @@ function createWindow(): BrowserWindow {
 }
 
 function loadContent(win: BrowserWindow): void {
-  const config = loadConfig()
-
   if (process.env.ELECTRON_DEV === 'true') {
     // 开发模式: 加载 Vite dev server
     const devUrl = process.env.VITE_DEV_URL || 'http://localhost:5173'
@@ -72,22 +70,6 @@ function loadContent(win: BrowserWindow): void {
     const webDist = path.resolve(__dirname, '..', '..', '..', 'web', 'dist', 'index.html')
     win.loadFile(webDist)
   }
-
-  // 注入连接配置
-  win.webContents.on('did-finish-load', () => {
-    const apiBaseUrl = config.mode === 'local'
-      ? `http://127.0.0.1:${config.local.port}`
-      : config.mode === 'saas'
-        ? config.saas.baseUrl
-        : config.selfHosted.baseUrl
-
-    win.webContents.executeJavaScript(
-      `window.__ARKLOOP_DESKTOP__ = ${JSON.stringify({
-        apiBaseUrl,
-        mode: config.mode,
-      })};`
-    )
-  })
 }
 
 let isQuitting = false
@@ -100,6 +82,28 @@ app.whenReady().then(async () => {
   const config = loadConfig()
 
   registerIpcHandlers(getWindow)
+
+  // 为 sidecar 请求注入 CORS 头，生产模式下 file:// -> http://localhost 需要
+  if (config.mode === 'local') {
+    const sidecarOrigin = `http://127.0.0.1:${config.local.port}`
+    session.defaultSession.webRequest.onBeforeSendHeaders(
+      { urls: [`${sidecarOrigin}/*`] },
+      (details, callback) => {
+        delete details.requestHeaders['Origin']
+        callback({ requestHeaders: details.requestHeaders })
+      },
+    )
+    session.defaultSession.webRequest.onHeadersReceived(
+      { urls: [`${sidecarOrigin}/*`] },
+      (details, callback) => {
+        const headers = details.responseHeaders ?? {}
+        headers['Access-Control-Allow-Origin'] = ['*']
+        headers['Access-Control-Allow-Methods'] = ['GET, POST, PUT, PATCH, DELETE, OPTIONS']
+        headers['Access-Control-Allow-Headers'] = ['Content-Type, Authorization, X-Trace-Id']
+        callback({ responseHeaders: headers })
+      },
+    )
+  }
 
   // Local 模式下启动 sidecar
   if (config.mode === 'local') {

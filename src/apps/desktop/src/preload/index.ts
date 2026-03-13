@@ -31,6 +31,30 @@ export type ArkloopDesktopApi = {
   }
 }
 
+// 同步注入 __ARKLOOP_DESKTOP__, 必须在页面脚本执行前完成
+const config = ipcRenderer.sendSync('arkloop:config:get-sync') as {
+  mode: string
+  saas: { baseUrl: string }
+  selfHosted: { baseUrl: string }
+  local: { port: number }
+}
+
+const isDevMode = process.env.ELECTRON_DEV === 'true'
+
+let apiBaseUrl = ''
+if (config.mode === 'local') {
+  apiBaseUrl = isDevMode ? '' : `http://127.0.0.1:${config.local.port}`
+} else if (config.mode === 'saas') {
+  apiBaseUrl = config.saas.baseUrl
+} else if (config.mode === 'self-hosted') {
+  apiBaseUrl = config.selfHosted.baseUrl
+}
+
+contextBridge.exposeInMainWorld('__ARKLOOP_DESKTOP__', {
+  apiBaseUrl,
+  mode: config.mode,
+})
+
 const api: ArkloopDesktopApi = {
   isDesktop: true,
 
