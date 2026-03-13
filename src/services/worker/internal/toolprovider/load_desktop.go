@@ -27,3 +27,7 @@ func LoadActiveOrgProviders(_ context.Context, _ *pgxpool.Pool, _ uuid.UUID) ([]
 func LoadActivePlatformProviders(_ context.Context, _ *pgxpool.Pool) ([]ActiveProviderConfig, error) {
 	return nil, nil
 }
+
+func LoadActiveUserProviders(_ context.Context, _ *pgxpool.Pool, _ uuid.UUID) ([]ActiveProviderConfig, error) {
+	return nil, nil
+}
