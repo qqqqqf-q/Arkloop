@@ -7,6 +7,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"reflect"
+	"time"
 
 	"arkloop/services/shared/database"
 
@@ -128,7 +130,8 @@ type row struct {
 }
 
 func (r *row) Scan(dest ...any) error {
-	return translateError(r.row.Scan(dest...))
+	wrapped := wrapTimeTargets(dest)
+	return translateError(r.row.Scan(wrapped...))
 }
 
 // rows wraps *sql.Rows to implement database.Rows.
@@ -137,9 +140,91 @@ type rows struct {
 }
 
 func (r *rows) Next() bool            { return r.rows.Next() }
-func (r *rows) Scan(dest ...any) error { return translateError(r.rows.Scan(dest...)) }
+func (r *rows) Scan(dest ...any) error { return translateError(r.rows.Scan(wrapTimeTargets(dest)...)) }
 func (r *rows) Close()                { r.rows.Close() }
 func (r *rows) Err() error            { return translateError(r.rows.Err()) }
+
+// sqlite 常见时间格式
+var timeFormats = []string{
+	time.RFC3339Nano,
+	time.RFC3339,
+	"2006-01-02T15:04:05",
+	"2006-01-02 15:04:05",
+	"2006-01-02",
+}
+
+func parseTime(s string) (time.Time, error) {
+	for _, f := range timeFormats {
+		if t, err := time.Parse(f, s); err == nil {
+			return t, nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("sqliteadapter: cannot parse %q as time", s)
+}
+
+// timeScanner 实现 sql.Scanner，将 TEXT/string 自动转换为 time.Time。
+type timeScanner struct {
+	dest reflect.Value // 指向 *time.Time 或 *(*time.Time) 的 reflect.Value
+	ptr  bool          // true = 目标是 **time.Time（即字段类型 *time.Time）
+}
+
+func (ts *timeScanner) Scan(src any) error {
+	if src == nil {
+		if ts.ptr {
+			ts.dest.Set(reflect.Zero(ts.dest.Type()))
+		} else {
+			ts.dest.Set(reflect.ValueOf(time.Time{}))
+		}
+		return nil
+	}
+	switch v := src.(type) {
+	case time.Time:
+		if ts.ptr {
+			ts.dest.Set(reflect.ValueOf(&v))
+		} else {
+			ts.dest.Set(reflect.ValueOf(v))
+		}
+	case string:
+		t, err := parseTime(v)
+		if err != nil {
+			return err
+		}
+		if ts.ptr {
+			ts.dest.Set(reflect.ValueOf(&t))
+		} else {
+			ts.dest.Set(reflect.ValueOf(t))
+		}
+	default:
+		return fmt.Errorf("sqliteadapter: cannot scan %T into time.Time", src)
+	}
+	return nil
+}
+
+var (
+	timeType    = reflect.TypeOf(time.Time{})
+	timePtrType = reflect.TypeOf((*time.Time)(nil))
+)
+
+// wrapTimeTargets 遍历 Scan 目标参数，将 *time.Time 和 **time.Time 替换为 timeScanner。
+func wrapTimeTargets(dest []any) []any {
+	out := make([]any, len(dest))
+	for i, d := range dest {
+		v := reflect.ValueOf(d)
+		if v.Kind() == reflect.Ptr && !v.IsNil() {
+			elem := v.Elem()
+			switch elem.Type() {
+			case timeType:
+				out[i] = &timeScanner{dest: elem, ptr: false}
+				continue
+			case timePtrType:
+				out[i] = &timeScanner{dest: elem, ptr: true}
+				continue
+			}
+		}
+		out[i] = d
+	}
+	return out
+}
 
 // result wraps sql.Result to implement database.Result.
 type result struct {

@@ -4,16 +4,18 @@ package auth
 
 import (
 	"context"
+	"time"
 
 	"arkloop/services/api/internal/data"
 )
 
-func interceptDesktopUser(ctx context.Context, userRepo *data.UserRepository) (*data.User, bool) {
-	user, err := userRepo.GetByID(ctx, DesktopUserID)
-	if err != nil || user == nil {
-		return nil, false
-	}
-	return user, true
+func interceptDesktopUser(_ context.Context, _ *data.UserRepository) (*data.User, bool) {
+	return &data.User{
+		ID:        DesktopUserID,
+		Username:  "desktop",
+		Status:    "active",
+		CreatedAt: time.Now(),
+	}, true
 }
 
 func interceptDesktopActor() (VerifiedAccessToken, bool) {

@@ -49,5 +49,15 @@ func SeedDesktopUser(ctx context.Context, q data.Querier) error {
 		return fmt.Errorf("seed desktop membership: %w", err)
 	}
 
+	_, err = q.Exec(ctx, `
+		INSERT INTO credits (account_id, balance)
+		VALUES ($1, 999999999)
+		ON CONFLICT (account_id) DO NOTHING`,
+		DesktopAccountID,
+	)
+	if err != nil {
+		return fmt.Errorf("seed desktop credits: %w", err)
+	}
+
 	return nil
 }
