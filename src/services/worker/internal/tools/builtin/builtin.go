@@ -4,6 +4,7 @@ import (
 	sharedconfig "arkloop/services/shared/config"
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/tools"
+	"arkloop/services/worker/internal/tools/builtin/acptool"
 	"arkloop/services/worker/internal/tools/builtin/askuser"
 	spawnagent "arkloop/services/worker/internal/tools/builtin/spawn_agent"
 	summarizethread "arkloop/services/worker/internal/tools/builtin/summarize_thread"
@@ -32,6 +33,7 @@ func AgentSpecs() []tools.AgentToolSpec {
 		spawnagent.InterruptAgentSpec,
 		summarizethread.AgentSpec,
 		askuser.AgentSpec,
+		acptool.AgentSpec,
 	}
 }
 
@@ -43,6 +45,7 @@ func LlmSpecs() []llm.ToolSpec {
 		// spawn_agent 由 NewSpawnAgentMiddleware 按需动态注入，不在此处静态注册
 		summarizethread.LlmSpec,
 		askuser.LlmSpec,
+		acptool.LlmSpec,
 	}
 }
 
@@ -60,5 +63,6 @@ func Executors(pool *pgxpool.Pool, rdb *redis.Client, resolver sharedconfig.Reso
 		webfetch.AgentSpecBasic.Name:     webfetch.NewBasicExecutor(resolver),
 		summarizethread.AgentSpec.Name:   &summarizethread.ToolExecutor{Pool: pool, RDB: rdb},
 		askuser.AgentSpec.Name:           askuser.ToolExecutor{},
+		acptool.AgentSpec.Name:           acptool.ToolExecutor{},
 	}
 }
