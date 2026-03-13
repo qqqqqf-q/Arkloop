@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -21,11 +22,14 @@ type ProfileRegistry struct {
 }
 
 type WorkspaceRegistry struct {
-	WorkspaceRef string
-	AccountID        uuid.UUID
-	OwnerUserID  *uuid.UUID
-	ProjectID    *uuid.UUID
-	MetadataJSON map[string]any
+	WorkspaceRef           string
+	AccountID              uuid.UUID
+	OwnerUserID            *uuid.UUID
+	ProjectID              *uuid.UUID
+	LatestManifestRev      *string
+	DefaultShellSessionRef *string
+	LastUsedAt             time.Time
+	MetadataJSON           map[string]any
 }
 
 type ProfileRegistriesRepository struct {
@@ -81,11 +85,13 @@ func (r *WorkspaceRegistriesRepository) Get(ctx context.Context, workspaceRef st
 	var metadataRaw []byte
 	err := r.db.QueryRow(
 		ctx,
-		`SELECT workspace_ref, account_id, owner_user_id, project_id, metadata_json
+		`SELECT workspace_ref, account_id, owner_user_id, project_id,
+		        latest_manifest_rev, default_shell_session_ref, last_used_at, metadata_json
 		   FROM workspace_registries
 		  WHERE workspace_ref = $1`,
 		strings.TrimSpace(workspaceRef),
-	).Scan(&record.WorkspaceRef, &record.AccountID, &record.OwnerUserID, &record.ProjectID, &metadataRaw)
+	).Scan(&record.WorkspaceRef, &record.AccountID, &record.OwnerUserID, &record.ProjectID,
+		&record.LatestManifestRev, &record.DefaultShellSessionRef, &record.LastUsedAt, &metadataRaw)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
@@ -153,7 +159,7 @@ func (r *WorkspaceRegistriesRepository) UpdateEnabledSkillRefs(ctx context.Conte
 	return updateRegistrySkillRefs(ctx, r.db, "workspace_registries", "workspace_ref", strings.TrimSpace(workspaceRef), "enabled_skill_refs", refs)
 }
 
-func (r *WorkspaceRegistriesRepository) Ensure(ctx context.Context, workspaceRef string, accountID uuid.UUID, ownerUserID uuid.UUID) error {
+func (r *WorkspaceRegistriesRepository) Ensure(ctx context.Context, workspaceRef string, accountID uuid.UUID, ownerUserID uuid.UUID, projectID *uuid.UUID) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -166,14 +172,17 @@ func (r *WorkspaceRegistriesRepository) Ensure(ctx context.Context, workspaceRef
 	}
 	_, err := r.db.Exec(
 		ctx,
-		`INSERT INTO workspace_registries (workspace_ref, account_id, owner_user_id, metadata_json)
-		 VALUES ($1, $2, $3, '{}'::jsonb)
+		`INSERT INTO workspace_registries (workspace_ref, account_id, owner_user_id, project_id, last_used_at, metadata_json)
+		 VALUES ($1, $2, $3, $4, now(), '{}'::jsonb)
 		 ON CONFLICT (workspace_ref)
 		 DO UPDATE SET owner_user_id = COALESCE(workspace_registries.owner_user_id, EXCLUDED.owner_user_id),
+		               project_id = COALESCE(workspace_registries.project_id, EXCLUDED.project_id),
+		               last_used_at = now(),
 		               updated_at = now()`,
 		workspaceRef,
 		accountID,
 		ownerUserID,
+		projectID,
 	)
 	return err
 }

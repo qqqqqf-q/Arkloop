@@ -139,10 +139,12 @@ type workspaceManifest struct {
 }
 
 type workspaceManifestEntry struct {
-	Path    string `json:"path"`
-	Type    string `json:"type"`
-	SHA256  string `json:"sha256,omitempty"`
-	Deleted bool   `json:"deleted,omitempty"`
+	Path        string `json:"path"`
+	Type        string `json:"type"`
+	Size        int64  `json:"size,omitempty"`
+	MtimeUnixMs int64  `json:"mtime_unix_ms,omitempty"`
+	SHA256      string `json:"sha256,omitempty"`
+	Deleted     bool   `json:"deleted,omitempty"`
 }
 
 const workspaceEntryTypeFile = "file"

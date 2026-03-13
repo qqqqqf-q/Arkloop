@@ -77,7 +77,7 @@ func reportEntry(
 			return
 		}
 
-		if !authorizeThreadOrAudit(w, r, traceID, actor, "threads.report", thread, auditWriter, flagService) {
+		if !authorizeThreadOrAudit(w, r, traceID, actor, "threads.report", thread, auditWriter) {
 			return
 		}
 

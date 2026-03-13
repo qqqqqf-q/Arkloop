@@ -12,26 +12,16 @@ import (
 
 	httpkit "arkloop/services/api/internal/http/httpkit"
 	"arkloop/services/shared/objectstore"
-	"arkloop/services/shared/workspaceblob"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-const workspaceRootPath = "/workspace"
+var errWorkspacePathInvalid = errors.New("invalid workspace path")
 
-var (
-	errWorkspaceFileNotFound = errors.New("workspace file not found")
-	errWorkspacePathInvalid  = errors.New("invalid workspace path")
+const (
+	workspaceEntryTypeDir     = "dir"
+	workspaceEntryTypeSymlink = "symlink"
 )
-
-func normalizeWorkspaceRelativePath(w nethttp.ResponseWriter, traceID string, raw string) (string, bool) {
-	relativePath, err := normalizeWorkspacePath(raw, false)
-	if err != nil {
-		writeInvalidWorkspacePath(w, traceID)
-		return "", false
-	}
-	return relativePath, true
-}
 
 func normalizeWorkspaceDirectoryPath(w nethttp.ResponseWriter, traceID string, raw string) (string, bool) {
 	relativePath, err := normalizeWorkspacePath(raw, true)
@@ -74,79 +64,6 @@ func displayWorkspacePath(relativePath string) string {
 		return "/"
 	}
 	return "/" + relativePath
-}
-
-func workspaceManifestKey(workspaceRef, revision string) string {
-	return "workspaces/" + workspaceRef + "/manifests/" + revision + ".json"
-}
-
-func workspaceBlobKey(workspaceRef, sha256 string) string {
-	return "workspaces/" + workspaceRef + "/blobs/" + sha256
-}
-
-type workspaceManifest struct {
-	Entries []workspaceManifestEntry `json:"entries,omitempty"`
-}
-
-type workspaceManifestEntry struct {
-	Path        string `json:"path"`
-	Type        string `json:"type"`
-	Size        int64  `json:"size,omitempty"`
-	MtimeUnixMs int64  `json:"mtime_unix_ms,omitempty"`
-	SHA256      string `json:"sha256,omitempty"`
-	Deleted     bool   `json:"deleted,omitempty"`
-}
-
-const (
-	workspaceEntryTypeDir     = "dir"
-	workspaceEntryTypeFile    = "file"
-	workspaceEntryTypeSymlink = "symlink"
-)
-
-func readWorkspaceFile(ctx context.Context, db *pgxpool.Pool, store environmentStore, workspaceRef string, relativePath string) ([]byte, string, error) {
-	manifest, err := loadWorkspaceManifest(ctx, db, store, workspaceRef)
-	if err != nil {
-		return nil, "", err
-	}
-	for _, entry := range manifest.Entries {
-		if strings.TrimSpace(entry.Path) != strings.TrimSpace(relativePath) {
-			continue
-		}
-		if entry.Type != workspaceEntryTypeFile || entry.Deleted || strings.TrimSpace(entry.SHA256) == "" {
-			return nil, "", errWorkspaceFileNotFound
-		}
-		encoded, err := store.Get(ctx, workspaceBlobKey(workspaceRef, entry.SHA256))
-		if err != nil {
-			if objectstore.IsNotFound(err) {
-				return nil, "", errWorkspaceFileNotFound
-			}
-			return nil, "", err
-		}
-		content, err := workspaceblob.Decode(encoded)
-		if err != nil {
-			return nil, "", err
-		}
-		return content, detectWorkspaceContentType(relativePath, content), nil
-	}
-	return nil, "", errWorkspaceFileNotFound
-}
-
-func loadWorkspaceManifestRevision(ctx context.Context, db *pgxpool.Pool, workspaceRef string) (string, error) {
-	if db == nil {
-		return "", errWorkspaceFileNotFound
-	}
-	workspaceRef = strings.TrimSpace(workspaceRef)
-	if workspaceRef == "" {
-		return "", errWorkspaceFileNotFound
-	}
-	var revision *string
-	if err := db.QueryRow(ctx, `SELECT latest_manifest_rev FROM workspace_registries WHERE workspace_ref = $1`, workspaceRef).Scan(&revision); err != nil {
-		return "", errWorkspaceFileNotFound
-	}
-	if revision == nil {
-		return "", nil
-	}
-	return strings.TrimSpace(*revision), nil
 }
 
 func loadWorkspaceManifest(ctx context.Context, db *pgxpool.Pool, store environmentStore, workspaceRef string) (workspaceManifest, error) {
@@ -276,15 +193,6 @@ func guessWorkspaceListMimeType(name string) string {
 		}
 	}
 	return "application/octet-stream"
-}
-
-func detectWorkspaceContentType(relativePath string, content []byte) string {
-	if ext := strings.ToLower(path.Ext(relativePath)); ext != "" {
-		if guessed := mime.TypeByExtension(ext); strings.TrimSpace(guessed) != "" {
-			return guessed
-		}
-	}
-	return nethttp.DetectContentType(content)
 }
 
 func int64Ptr(value int64) *int64 {

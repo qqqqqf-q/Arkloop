@@ -35,19 +35,6 @@ func EnsureClawEnabled(
 	return false
 }
 
-func EnsureClawEnabledForMode(
-	w nethttp.ResponseWriter,
-	traceID string,
-	ctx context.Context,
-	mode data.ThreadMode,
-	flagService *featureflag.Service,
-) bool {
-	if mode != data.ThreadModeClaw {
-		return true
-	}
-	return EnsureClawEnabled(w, traceID, ctx, flagService)
-}
-
 func EnsureClawEnabledForThread(
 	w nethttp.ResponseWriter,
 	traceID string,
@@ -55,9 +42,6 @@ func EnsureClawEnabledForThread(
 	thread *data.Thread,
 	flagService *featureflag.Service,
 ) bool {
-	if thread == nil || thread.Mode != data.ThreadModeClaw {
-		return true
-	}
 	return EnsureClawEnabled(w, traceID, ctx, flagService)
 }
 

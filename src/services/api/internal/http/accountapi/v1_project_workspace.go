@@ -78,7 +78,7 @@ func handleProjectWorkspaceRoute(
 	subpath string,
 	projectID uuid.UUID,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	projectRepo *data.ProjectRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,
@@ -114,7 +114,7 @@ func getProjectWorkspace(
 	traceID string,
 	projectID uuid.UUID,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	projectRepo *data.ProjectRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,
@@ -161,7 +161,7 @@ func listProjectWorkspaceFiles(
 	traceID string,
 	projectID uuid.UUID,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	projectRepo *data.ProjectRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,
@@ -216,7 +216,7 @@ func getProjectWorkspaceFile(
 	traceID string,
 	projectID uuid.UUID,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	projectRepo *data.ProjectRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,
@@ -264,7 +264,7 @@ func resolveProjectWorkspaceActor(
 	r *nethttp.Request,
 	traceID string,
 	authService *auth.Service,
-	membershipRepo *data.OrgMembershipRepository,
+	membershipRepo *data.AccountMembershipRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,
 	workspaceOnly bool,
@@ -328,11 +328,11 @@ func resolveProjectWorkspace(
 	if err != nil {
 		return nil, err
 	}
-	if project == nil || project.OrgID != actor.OrgID {
+	if project == nil || project.AccountID != actor.AccountID {
 		return nil, errProjectWorkspaceNotFound
 	}
 
-	profileRef := environmentref.BuildProfileRef(actor.OrgID, &actor.UserID)
+	profileRef := environmentref.BuildProfileRef(actor.AccountID, &actor.UserID)
 	tx, err := db.Begin(ctx)
 	if err != nil {
 		return nil, err
@@ -352,15 +352,15 @@ func resolveProjectWorkspace(
 		return nil, err
 	}
 
-	candidate := environmentref.BuildWorkspaceRef(actor.OrgID, profileRef, data.DefaultWorkspaceBindingScopeProject, projectID)
-	workspaceRef, _, err := bindingsRepo.GetOrCreate(ctx, tx, actor.OrgID, &actor.UserID, profileRef, data.DefaultWorkspaceBindingScopeProject, projectID, candidate)
+	candidate := environmentref.BuildWorkspaceRef(actor.AccountID, profileRef, data.DefaultWorkspaceBindingScopeProject, projectID)
+	workspaceRef, _, err := bindingsRepo.GetOrCreate(ctx, tx, actor.AccountID, &actor.UserID, profileRef, data.DefaultWorkspaceBindingScopeProject, projectID, candidate)
 	if err != nil {
 		return nil, err
 	}
-	if err := profileRepo.Ensure(ctx, profileRef, actor.OrgID, actor.UserID); err != nil {
+	if err := profileRepo.Ensure(ctx, profileRef, actor.AccountID, actor.UserID); err != nil {
 		return nil, err
 	}
-	if err := workspaceRepo.Ensure(ctx, workspaceRef, actor.OrgID, actor.UserID, &projectID); err != nil {
+	if err := workspaceRepo.Ensure(ctx, workspaceRef, actor.AccountID, actor.UserID, &projectID); err != nil {
 		return nil, err
 	}
 	if err := profileRepo.SetDefaultWorkspaceRef(ctx, profileRef, workspaceRef); err != nil {
@@ -398,7 +398,7 @@ func resolveProjectWorkspace(
 		Registry:     registry,
 		Status:       projectWorkspaceStatusIdle,
 	}
-	resolvedSession, err := sessionRepo.GetLatestLiveByWorkspaceRef(ctx, actor.OrgID, workspaceRef)
+	resolvedSession, err := sessionRepo.GetLatestLiveByWorkspaceRef(ctx, actor.AccountID, workspaceRef)
 	if err != nil {
 		return nil, err
 	}

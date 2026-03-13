@@ -65,7 +65,7 @@ func uploadThreadAttachment(
 			httpkit.WriteError(w, nethttp.StatusNotFound, "threads.not_found", "thread not found", traceID, nil)
 			return
 		}
-		if !authorizeThreadOrAudit(w, r, traceID, actor, "attachments.create", thread, auditWriter, flagService) {
+		if !authorizeThreadOrAudit(w, r, traceID, actor, "attachments.create", thread, auditWriter) {
 			return
 		}
 
@@ -184,7 +184,7 @@ func messageAttachmentsEntry(
 			if !httpkit.RequirePerm(actor, auth.PermDataThreadsRead, w, traceID) {
 				return
 			}
-			if !authorizeThreadReadOrAudit(w, r, traceID, actor, "attachments.get", thread, projectRepo, teamRepo, auditWriter, flagService) {
+			if !authorizeThreadReadOrAudit(w, r, traceID, actor, "attachments.get", thread, projectRepo, teamRepo, auditWriter) {
 				return
 			}
 		}

@@ -73,7 +73,7 @@ func createThreadMessage(
 			return
 		}
 
-		if !authorizeThreadOrAudit(w, r, traceID, actor, "messages.create", thread, auditWriter, flagService) {
+		if !authorizeThreadOrAudit(w, r, traceID, actor, "messages.create", thread, auditWriter) {
 			return
 		}
 
@@ -140,7 +140,7 @@ func listThreadMessages(
 			return
 		}
 
-		if !authorizeThreadOrAudit(w, r, traceID, actor, "messages.list", thread, auditWriter, flagService) {
+		if !authorizeThreadOrAudit(w, r, traceID, actor, "messages.list", thread, auditWriter) {
 			return
 		}
 

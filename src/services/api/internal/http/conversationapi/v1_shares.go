@@ -254,7 +254,7 @@ func shareEntry(
 			return
 		}
 
-		if !authorizeThreadOrAudit(w, r, traceID, actor, "threads.share", thread, auditWriter, flagService) {
+		if !authorizeThreadOrAudit(w, r, traceID, actor, "threads.share", thread, auditWriter) {
 			return
 		}
 

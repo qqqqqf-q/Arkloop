@@ -190,13 +190,13 @@ func ensureDefaultWorkspaceForProfile(ctx context.Context, profileRepo *data.Pro
 	}
 	if profile != nil && profile.DefaultWorkspaceRef != nil && strings.TrimSpace(*profile.DefaultWorkspaceRef) != "" {
 		workspaceRef := strings.TrimSpace(*profile.DefaultWorkspaceRef)
-		if err := workspaceRepo.Ensure(ctx, workspaceRef, accountID, userID); err != nil {
+		if err := workspaceRepo.Ensure(ctx, workspaceRef, accountID, userID, nil); err != nil {
 			return "", err
 		}
 		return workspaceRef, nil
 	}
 	workspaceRef := newDefaultWorkspaceRef()
-	if err := workspaceRepo.Ensure(ctx, workspaceRef, accountID, userID); err != nil {
+	if err := workspaceRepo.Ensure(ctx, workspaceRef, accountID, userID, nil); err != nil {
 		return "", err
 	}
 	if err := profileRepo.SetDefaultWorkspaceRef(ctx, profileRef, workspaceRef); err != nil {
