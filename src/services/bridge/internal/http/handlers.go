@@ -194,6 +194,15 @@ func (h *Handler) moduleAction(w http.ResponseWriter, r *http.Request) {
 	opCtx := context.WithoutCancel(r.Context())
 
 	switch action {
+	case module.ActionInstall, module.ActionStart, module.ActionStop, module.ActionRestart:
+		if def.ComposeService == "" {
+			writeError(w, http.StatusBadRequest, "module.virtual",
+				fmt.Sprintf("module %q is virtual and has no compose service", id))
+			return
+		}
+	}
+
+	switch action {
 	case module.ActionInstall:
 		op, err = h.compose.Install(opCtx, def.ComposeService, def.ComposeProfile)
 	case module.ActionStart:
