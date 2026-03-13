@@ -31,10 +31,12 @@ var (
 	jobEnqueuer JobEnqueuer
 	eventBus    any
 	ready       chan struct{}
+	apiReady    chan struct{}
 )
 
 func init() {
 	ready = make(chan struct{})
+	apiReady = make(chan struct{})
 }
 
 func SetJobEnqueuer(q JobEnqueuer) { mu.Lock(); jobEnqueuer = q; mu.Unlock() }
@@ -56,6 +58,25 @@ func MarkReady() {
 func WaitReady(ctx context.Context) error {
 	select {
 	case <-ready:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// MarkAPIReady 由 API 在 migration + seed + HTTP listener 就绪后调用。
+func MarkAPIReady() {
+	select {
+	case <-apiReady:
+	default:
+		close(apiReady)
+	}
+}
+
+// WaitAPIReady 阻塞直到 MarkAPIReady 被调用或 ctx 超时。
+func WaitAPIReady(ctx context.Context) error {
+	select {
+	case <-apiReady:
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()

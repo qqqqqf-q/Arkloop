@@ -1,3 +1,5 @@
+//go:build !desktop
+
 package memory
 
 import (
@@ -7,24 +9,17 @@ import (
 	"strings"
 	"testing"
 
-	"arkloop/services/shared/database"
 	"arkloop/services/worker/internal/events"
 	workermemory "arkloop/services/worker/internal/memory"
 	"arkloop/services/worker/internal/tools"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // --- mock ---
 
-type nopDB struct{}
-
-func (nopDB) Exec(context.Context, string, ...any) (database.Result, error) { return nil, nil }
-func (nopDB) Query(context.Context, string, ...any) (database.Rows, error) { return nil, nil }
-func (nopDB) QueryRow(context.Context, string, ...any) database.Row        { return nil }
-func (nopDB) Begin(context.Context) (database.Tx, error)                   { return nil, nil }
-func (nopDB) Close() error                                                 { return nil }
-func (nopDB) Ping(context.Context) error                                   { return nil }
+var testPool = new(pgxpool.Pool)
 
 type mockProvider struct {
 	findHits    []workermemory.MemoryHit
@@ -78,7 +73,7 @@ type snapshotMock struct {
 	lines     []string
 }
 
-func (s *snapshotMock) AppendMemoryLine(_ context.Context, _ database.DB, _ uuid.UUID, _ uuid.UUID, _ string, line string) error {
+func (s *snapshotMock) AppendMemoryLine(_ context.Context, _ *pgxpool.Pool, _ uuid.UUID, _ uuid.UUID, _ string, line string) error {
 	s.called = true
 	if s.appendErr != nil {
 		return s.appendErr
@@ -217,7 +212,7 @@ func TestMemoryExecutor_Write_Success(t *testing.T) {
 	mp := &mockProvider{}
 	snapshots := &snapshotMock{}
 	execCtx := newUserExecCtx()
-	ex := NewToolExecutor(mp, nopDB{}, snapshots)
+	ex := NewToolExecutor(mp, testPool, snapshots)
 	result := ex.Execute(context.Background(), "memory_write", map[string]any{
 		"category": "preferences",
 		"key":      "language",
@@ -245,7 +240,7 @@ func TestMemoryExecutor_Write_SnapshotFailure(t *testing.T) {
 	mp := &mockProvider{}
 	snapshots := &snapshotMock{appendErr: errors.New("db down")}
 	execCtx := newUserExecCtx()
-	ex := NewToolExecutor(mp, nopDB{}, snapshots)
+	ex := NewToolExecutor(mp, testPool, snapshots)
 	result := ex.Execute(context.Background(), "memory_write", map[string]any{
 		"category": "preferences",
 		"key":      "language",
@@ -262,7 +257,7 @@ func TestMemoryExecutor_Write_SnapshotFailure(t *testing.T) {
 
 func TestMemoryExecutor_Write_MissingCategory(t *testing.T) {
 	execCtx := newUserExecCtx()
-	ex := NewToolExecutor(&mockProvider{}, nopDB{}, &snapshotMock{})
+	ex := NewToolExecutor(&mockProvider{}, testPool, &snapshotMock{})
 	result := ex.Execute(context.Background(), "memory_write", map[string]any{
 		"key": "lang", "content": "go",
 	}, execCtx, "")
@@ -273,7 +268,7 @@ func TestMemoryExecutor_Write_MissingCategory(t *testing.T) {
 
 func TestMemoryExecutor_Write_MissingKey(t *testing.T) {
 	execCtx := newUserExecCtx()
-	ex := NewToolExecutor(&mockProvider{}, nopDB{}, &snapshotMock{})
+	ex := NewToolExecutor(&mockProvider{}, testPool, &snapshotMock{})
 	result := ex.Execute(context.Background(), "memory_write", map[string]any{
 		"category": "preferences", "content": "go",
 	}, execCtx, "")
@@ -286,7 +281,7 @@ func TestMemoryExecutor_Write_AgentScope(t *testing.T) {
 	mp := &mockProvider{}
 	snapshots := &snapshotMock{}
 	execCtx := newUserExecCtx()
-	ex := NewToolExecutor(mp, nopDB{}, snapshots)
+	ex := NewToolExecutor(mp, testPool, snapshots)
 	result := ex.Execute(context.Background(), "memory_write", map[string]any{
 		"category": "patterns",
 		"key":      "retry",
@@ -308,7 +303,7 @@ func TestMemoryExecutor_Write_AgentScope(t *testing.T) {
 func TestMemoryExecutor_Write_MissingPendingBuffer(t *testing.T) {
 	execCtx := newUserExecCtx()
 	execCtx.PendingMemoryWrites = nil
-	ex := NewToolExecutor(&mockProvider{}, nopDB{}, &snapshotMock{})
+	ex := NewToolExecutor(&mockProvider{}, testPool, &snapshotMock{})
 	result := ex.Execute(context.Background(), "memory_write", map[string]any{
 		"category": "preferences",
 		"key":      "language",

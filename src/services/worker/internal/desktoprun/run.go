@@ -30,6 +30,7 @@ import (
 var _ pipeline.AgentExecutorBuilder = (*executor.Registry)(nil)
 
 // RunDesktop 启动桌面模式 Worker 消费循环。阻塞直到 ctx 取消或出错。
+// 前置条件：worker.InitDesktopInfra() 和 API migration 已完成。
 func RunDesktop(ctx context.Context) error {
 	if _, err := app.LoadDotenvIfEnabled(false); err != nil {
 		return err
@@ -42,17 +43,17 @@ func RunDesktop(ctx context.Context) error {
 
 	logger := app.NewJSONLogger("worker_go", os.Stdout)
 
-	bus := eventbus.NewLocalEventBus()
-	defer bus.Close()
-	desktop.SetEventBus(bus)
+	bus, ok := desktop.GetEventBus().(eventbus.EventBus)
+	if !ok || bus == nil {
+		return fmt.Errorf("event bus not initialized, call InitDesktopInfra first")
+	}
+
+	cq, ok := desktop.GetJobEnqueuer().(*queue.ChannelJobQueue)
+	if !ok || cq == nil {
+		return fmt.Errorf("job queue not initialized, call InitDesktopInfra first")
+	}
 
 	localNotifier := consumer.NewLocalNotifier()
-	cq, err := queue.NewChannelJobQueue(25, localNotifier.Notify)
-	if err != nil {
-		return err
-	}
-	desktop.SetJobEnqueuer(cq)
-	desktop.MarkReady()
 
 	dataDir := os.Getenv("ARKLOOP_DATA_DIR")
 	if dataDir == "" {

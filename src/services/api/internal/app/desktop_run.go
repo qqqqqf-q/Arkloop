@@ -27,6 +27,7 @@ import (
 	sharedconfig "arkloop/services/shared/config"
 	"arkloop/services/shared/database/sqliteadapter"
 	"arkloop/services/shared/database/sqlitepgx"
+	"arkloop/services/shared/desktop"
 	"arkloop/services/shared/objectstore"
 )
 
@@ -442,6 +443,7 @@ func RunDesktop(ctx context.Context) error {
 			"sqlite":  sqlitePath,
 			"storage": storageRoot,
 		})
+		desktop.MarkAPIReady()
 		errCh <- srv.Serve(ln)
 	}()
 

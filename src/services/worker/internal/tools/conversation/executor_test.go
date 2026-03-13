@@ -1,3 +1,5 @@
+//go:build !desktop
+
 package conversation
 
 import (
@@ -7,22 +9,15 @@ import (
 	"testing"
 	"time"
 
-	"arkloop/services/shared/database"
 	"arkloop/services/worker/internal/data"
 	"arkloop/services/worker/internal/events"
 	"arkloop/services/worker/internal/tools"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type nopDB struct{}
-
-func (nopDB) Exec(context.Context, string, ...any) (database.Result, error) { return nil, nil }
-func (nopDB) Query(context.Context, string, ...any) (database.Rows, error) { return nil, nil }
-func (nopDB) QueryRow(context.Context, string, ...any) database.Row        { return nil }
-func (nopDB) Begin(context.Context) (database.Tx, error)                   { return nil, nil }
-func (nopDB) Close() error                                                 { return nil }
-func (nopDB) Ping(context.Context) error                                   { return nil }
+var testPool = new(pgxpool.Pool)
 
 type repoMock struct {
 	hits      []data.ConversationSearchHit
@@ -31,7 +26,7 @@ type repoMock struct {
 	lastLimit int
 }
 
-func (m *repoMock) SearchVisibleByOwner(_ context.Context, _ database.DB, _ uuid.UUID, _ uuid.UUID, query string, limit int) ([]data.ConversationSearchHit, error) {
+func (m *repoMock) SearchVisibleByOwner(_ context.Context, _ *pgxpool.Pool, _ uuid.UUID, _ uuid.UUID, query string, limit int) ([]data.ConversationSearchHit, error) {
 	m.lastQuery = query
 	m.lastLimit = limit
 	return m.hits, m.err
@@ -56,7 +51,7 @@ func TestConversationExecutor_SearchSuccess(t *testing.T) {
 		Content:   "  this is a very useful memory  ",
 		CreatedAt: time.Date(2026, 3, 8, 1, 2, 3, 0, time.UTC),
 	}}}
-	ex := NewToolExecutor(nopDB{}, repo)
+	ex := NewToolExecutor(testPool, repo)
 	result := ex.Execute(context.Background(), "conversation_search", map[string]any{"query": "memory"}, newExecCtx(), "")
 	if result.Error != nil {
 		t.Fatalf("unexpected error: %v", result.Error.Message)
@@ -86,7 +81,7 @@ func TestConversationExecutor_TruncatesContent(t *testing.T) {
 		Content:   strings.Repeat("你", contentMaxRunes+5),
 		CreatedAt: time.Now(),
 	}}}
-	ex := NewToolExecutor(nopDB{}, repo)
+	ex := NewToolExecutor(testPool, repo)
 	result := ex.Execute(context.Background(), "conversation_search", map[string]any{"query": "你好"}, newExecCtx(), "")
 	if result.Error != nil {
 		t.Fatalf("unexpected error: %v", result.Error.Message)
@@ -100,7 +95,7 @@ func TestConversationExecutor_TruncatesContent(t *testing.T) {
 
 func TestConversationExecutor_ClampsLimit(t *testing.T) {
 	repo := &repoMock{}
-	ex := NewToolExecutor(nopDB{}, repo)
+	ex := NewToolExecutor(testPool, repo)
 	result := ex.Execute(context.Background(), "conversation_search", map[string]any{"query": "memory", "limit": 99}, newExecCtx(), "")
 	if result.Error != nil {
 		t.Fatalf("unexpected error: %v", result.Error.Message)
@@ -111,7 +106,7 @@ func TestConversationExecutor_ClampsLimit(t *testing.T) {
 }
 
 func TestConversationExecutor_EmptyQuery(t *testing.T) {
-	ex := NewToolExecutor(nopDB{}, &repoMock{})
+	ex := NewToolExecutor(testPool, &repoMock{})
 	result := ex.Execute(context.Background(), "conversation_search", map[string]any{"query": ""}, newExecCtx(), "")
 	if result.Error == nil || result.Error.ErrorClass != errorArgsInvalid {
 		t.Fatalf("expected args_invalid, got: %+v", result.Error)
@@ -121,7 +116,7 @@ func TestConversationExecutor_EmptyQuery(t *testing.T) {
 func TestConversationExecutor_IdentityMissing(t *testing.T) {
 	execCtx := newExecCtx()
 	execCtx.UserID = nil
-	ex := NewToolExecutor(nopDB{}, &repoMock{})
+	ex := NewToolExecutor(testPool, &repoMock{})
 	result := ex.Execute(context.Background(), "conversation_search", map[string]any{"query": "memory"}, execCtx, "")
 	if result.Error == nil || result.Error.ErrorClass != errorIdentityMissing {
 		t.Fatalf("expected identity_missing, got: %+v", result.Error)
@@ -130,7 +125,7 @@ func TestConversationExecutor_IdentityMissing(t *testing.T) {
 
 func TestConversationExecutor_SearchFailure(t *testing.T) {
 	repo := &repoMock{err: errors.New("db down")}
-	ex := NewToolExecutor(nopDB{}, repo)
+	ex := NewToolExecutor(testPool, repo)
 	result := ex.Execute(context.Background(), "conversation_search", map[string]any{"query": "memory", "limit": 3}, newExecCtx(), "")
 	if result.Error == nil || result.Error.ErrorClass != errorSearchFailed {
 		t.Fatalf("expected search_failed, got: %+v", result.Error)

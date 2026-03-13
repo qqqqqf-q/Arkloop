@@ -26,23 +26,43 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	// Worker 先启动：创建 ChannelJobQueue 并注册到 shared/desktop，
-	// API 通过 jobEnqueueNotify 钩子将新作业转发到该队列。
-	workerErr := make(chan error, 1)
-	go func() {
-		workerErr <- worker.StartDesktop(ctx)
-	}()
-
-	// 等待 Worker 完成共享资源初始化
-	waitCtx, waitCancel := context.WithTimeout(ctx, 10*time.Second)
-	defer waitCancel()
-	if err := desktop.WaitReady(waitCtx); err != nil {
-		return fmt.Errorf("worker init: %w", err)
+	// 1. 提前初始化共享 queue 和 event bus，注入到 desktop 全局状态。
+	//    Worker.InitDesktopInfra 创建 ChannelJobQueue + LocalEventBus
+	//    并通过 desktop.Set* 注册，不打开 SQLite。
+	if err := worker.InitDesktopInfra(); err != nil {
+		return fmt.Errorf("init infra: %w", err)
 	}
 
+	// 2. API 先启动：打开 SQLite → 执行 migration → seed → HTTP server。
+	//    这样 migration 在 Worker 使用 db 之前完成，不会冲突。
 	apiErr := make(chan error, 1)
 	go func() {
 		apiErr <- api.StartDesktop(ctx)
+	}()
+
+	// 3. 等待 API 完成初始化（migration + HTTP server 启动）
+	waitCtx, waitCancel := context.WithTimeout(ctx, 30*time.Second)
+	defer waitCancel()
+
+	// 同时监听 apiErr，避免 API 初始化失败时永远等待
+	apiReadyCh := make(chan error, 1)
+	go func() {
+		apiReadyCh <- desktop.WaitAPIReady(waitCtx)
+	}()
+
+	select {
+	case err := <-apiReadyCh:
+		if err != nil {
+			return fmt.Errorf("api init: %w", err)
+		}
+	case err := <-apiErr:
+		return fmt.Errorf("api failed during init: %w", err)
+	}
+
+	// 4. Worker 启动：打开同一个 SQLite（migration 已完成），开始消费。
+	workerErr := make(chan error, 1)
+	go func() {
+		workerErr <- worker.StartDesktop(ctx)
 	}()
 
 	select {
@@ -57,10 +77,8 @@ func run() error {
 	case <-ctx.Done():
 	}
 
-	// 触发两侧关闭
 	stop()
 
-	// 短暂等待另一侧退出
 	graceful := time.After(5 * time.Second)
 	for i := 0; i < 2; i++ {
 		select {
