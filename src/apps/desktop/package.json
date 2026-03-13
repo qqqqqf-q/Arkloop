@@ -4,10 +4,10 @@
   "private": true,
   "main": "dist/main/index.js",
   "scripts": {
-    "dev": "concurrently -n web,electron -c blue,green \"pnpm --filter @arkloop/web dev\" \"pnpm dev:electron\"",
+    "dev": "concurrently -n web,electron -c blue,green \"pnpm --filter web dev\" \"pnpm dev:electron\"",
     "dev:electron": "node scripts/dev.mjs",
     "build": "pnpm build:web && pnpm build:electron",
-    "build:web": "pnpm --filter @arkloop/web build",
+    "build:web": "pnpm --filter web build",
     "build:electron": "tsc -p tsconfig.main.json && tsc -p tsconfig.preload.json",
     "pack": "pnpm build && electron-builder --dir",
     "dist": "pnpm build && electron-builder",
