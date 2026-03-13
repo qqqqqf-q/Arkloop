@@ -38,7 +38,7 @@ func (f *SubAgentRunFactory) CreateSpawnRun(
 		return data.SubAgentRecord{}, uuid.Nil, err
 	}
 	createdSubAgent, err := (data.SubAgentRepository{}).Create(ctx, tx, data.SubAgentCreateParams{
-		OrgID:          parentRun.OrgID,
+		OrgID:          parentRun.AccountID,
 		ParentRunID:    parentRun.ID,
 		ParentThreadID: parentRun.ThreadID,
 		RootRunID:      lineage.RootRunID,
@@ -69,10 +69,10 @@ func (f *SubAgentRunFactory) CreateSpawnRun(
 	if err != nil {
 		return data.SubAgentRecord{}, uuid.Nil, err
 	}
-	if err := f.copySnapshotMessages(ctx, tx, parentRun.OrgID, childThreadID, snapshot.Messages); err != nil {
+	if err := f.copySnapshotMessages(ctx, tx, parentRun.AccountID, childThreadID, snapshot.Messages); err != nil {
 		return data.SubAgentRecord{}, uuid.Nil, err
 	}
-	if _, err := insertUserMessage(ctx, tx, parentRun.OrgID, childThreadID, spawnReq.Input); err != nil {
+	if _, err := insertUserMessage(ctx, tx, parentRun.AccountID, childThreadID, spawnReq.Input); err != nil {
 		return data.SubAgentRecord{}, uuid.Nil, fmt.Errorf("insert child message: %w", err)
 	}
 	childRunID, err := f.createQueuedRun(ctx, tx, parentRun, createdSubAgent, childThreadID, &snapshot, forcedRunID, data.SubAgentEventTypeSpawned, map[string]any{
@@ -192,7 +192,7 @@ func (f *SubAgentRunFactory) createChildThread(ctx context.Context, tx pgx.Tx, p
 		`INSERT INTO threads (org_id, project_id, is_private, expires_at)
 		 VALUES ($1, $2, TRUE, now() + make_interval(secs => $3))
 		 RETURNING id`,
-		parentRun.OrgID,
+		parentRun.AccountID,
 		parentRun.ProjectID,
 		int64(childThreadTTL.Seconds()),
 	).Scan(&childThreadID); err != nil {
@@ -222,7 +222,7 @@ func (f *SubAgentRunFactory) createQueuedRun(
 		`INSERT INTO runs (id, org_id, thread_id, parent_run_id, created_by_user_id, profile_ref, workspace_ref, status)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, 'running')`,
 		childRunID,
-		parentRun.OrgID,
+		parentRun.AccountID,
 		threadID,
 		parentRun.ID,
 		parentRun.CreatedByUserID,

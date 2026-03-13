@@ -144,7 +144,7 @@ func (s *Service) spawn(ctx context.Context, req SpawnRequest, forcedRunID *uuid
 		}
 	}
 
-	if err := s.projector.EnqueueRun(ctx, s.parentRun.OrgID, childRunID, s.traceID, availableAt); err != nil {
+	if err := s.projector.EnqueueRun(ctx, s.parentRun.AccountID, childRunID, s.traceID, availableAt); err != nil {
 		_ = s.projector.MarkRunFailed(context.Background(), childRunID, "failed to enqueue child run job")
 		return StatusSnapshot{}, fmt.Errorf("enqueue child run: %w", err)
 	}
@@ -235,7 +235,7 @@ func (s *Service) SendInput(ctx context.Context, req SendInputRequest) (StatusSn
 		return StatusSnapshot{}, err
 	}
 	if childRunID != nil {
-		if err := s.projector.EnqueueRun(ctx, s.parentRun.OrgID, *childRunID, s.traceID, nil); err != nil {
+		if err := s.projector.EnqueueRun(ctx, s.parentRun.AccountID, *childRunID, s.traceID, nil); err != nil {
 			_ = s.projector.MarkRunFailed(context.Background(), *childRunID, "failed to enqueue child run job")
 			return StatusSnapshot{}, fmt.Errorf("enqueue child run: %w", err)
 		}
@@ -332,7 +332,7 @@ func (s *Service) Resume(ctx context.Context, req ResumeRequest) (StatusSnapshot
 	if err := tx.Commit(ctx); err != nil {
 		return StatusSnapshot{}, err
 	}
-	if err := s.projector.EnqueueRun(ctx, s.parentRun.OrgID, childRunID, s.traceID, nil); err != nil {
+	if err := s.projector.EnqueueRun(ctx, s.parentRun.AccountID, childRunID, s.traceID, nil); err != nil {
 		_ = s.projector.MarkRunFailed(context.Background(), childRunID, "failed to enqueue child run job")
 		return StatusSnapshot{}, fmt.Errorf("enqueue resumed child run: %w", err)
 	}
@@ -476,7 +476,7 @@ func (s *Service) mustLoadOwnedSubAgent(ctx context.Context, tx pgx.Tx, subAgent
 	if record == nil {
 		return nil, fmt.Errorf("sub_agent not found: %s", subAgentID)
 	}
-	if record.OrgID != s.parentRun.OrgID || record.ParentRunID != s.parentRun.ID {
+	if record.OrgID != s.parentRun.AccountID || record.ParentRunID != s.parentRun.ID {
 		return nil, fmt.Errorf("sub_agent not owned by current run: %s", subAgentID)
 	}
 	return record, nil

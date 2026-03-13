@@ -140,12 +140,12 @@ func (b *SnapshotBuilder) loadMessages(ctx context.Context, tx pgx.Tx, parentRun
 	)
 	switch req.ContextMode {
 	case data.SubAgentContextModeForkRecent:
-		items, err = b.messages.ListRecentByThread(ctx, tx, parentRun.OrgID, parentRun.ThreadID, forkRecentMessageLimit)
+		items, err = b.messages.ListRecentByThread(ctx, tx, parentRun.AccountID, parentRun.ThreadID, forkRecentMessageLimit)
 	case data.SubAgentContextModeForkThread:
-		items, err = b.messages.ListByThread(ctx, tx, parentRun.OrgID, parentRun.ThreadID, 1000000)
+		items, err = b.messages.ListByThread(ctx, tx, parentRun.AccountID, parentRun.ThreadID, 1000000)
 	case data.SubAgentContextModeForkSelected:
 		ids := parseUUIDStrings(req.Inherit.MessageIDs)
-		items, err = b.messages.ListByIDs(ctx, tx, parentRun.OrgID, parentRun.ThreadID, ids)
+		items, err = b.messages.ListByIDs(ctx, tx, parentRun.AccountID, parentRun.ThreadID, ids)
 		if err == nil && len(items) != len(ids) {
 			return nil, fmt.Errorf("fork_selected messages must all belong to parent thread")
 		}

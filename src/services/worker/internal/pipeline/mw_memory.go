@@ -320,7 +320,7 @@ func distillAfterRun(provider memory.MemoryProvider, pool *pgxpool.Pool, configR
 
 	sessionID := rc.Run.ThreadID.String()
 	costPerCommit := resolveCommitCost(context.Background(), configResolver)
-	orgID := rc.Run.OrgID
+	orgID := rc.Run.AccountID
 	runID := rc.Run.ID
 
 	go func() {

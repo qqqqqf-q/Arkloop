@@ -265,16 +265,16 @@ func (e *EngineV1) Execute(ctx context.Context, pool *pgxpool.Pool, run data.Run
 
 	if e.jobQueue != nil && e.broadcastRDB != nil {
 		subAgentLimits := subagentctl.SubAgentLimits{
-			MaxDepth:                 resolveNonNegativeInt(ctx, e.configResolver, registry, "limit.subagent_max_depth", orgScope, 5),
-			MaxActivePerRootRun:      resolveNonNegativeInt(ctx, e.configResolver, registry, "limit.subagent_max_active_per_root_run", orgScope, 20),
-			MaxParallelChildren:      resolveNonNegativeInt(ctx, e.configResolver, registry, "limit.subagent_max_parallel_children", orgScope, 5),
-			MaxDescendantsPerRootRun: resolveNonNegativeInt(ctx, e.configResolver, registry, "limit.subagent_max_descendants_per_root_run", orgScope, 50),
-			MaxPendingPerRootRun:     resolveNonNegativeInt(ctx, e.configResolver, registry, "limit.subagent_max_pending_per_root_run", orgScope, 20),
+			MaxDepth:                 resolveNonNegativeInt(ctx, e.configResolver, registry, "limit.subagent_max_depth", projectScope, 5),
+			MaxActivePerRootRun:      resolveNonNegativeInt(ctx, e.configResolver, registry, "limit.subagent_max_active_per_root_run", projectScope, 20),
+			MaxParallelChildren:      resolveNonNegativeInt(ctx, e.configResolver, registry, "limit.subagent_max_parallel_children", projectScope, 5),
+			MaxDescendantsPerRootRun: resolveNonNegativeInt(ctx, e.configResolver, registry, "limit.subagent_max_descendants_per_root_run", projectScope, 50),
+			MaxPendingPerRootRun:     resolveNonNegativeInt(ctx, e.configResolver, registry, "limit.subagent_max_pending_per_root_run", projectScope, 20),
 		}
 		bpConfig := subagentctl.BackpressureConfig{
-			Enabled:        resolveBool(ctx, e.configResolver, registry, "backpressure.enabled", orgScope, true),
-			QueueThreshold: resolveNonNegativeInt(ctx, e.configResolver, registry, "backpressure.queue_threshold", orgScope, 15),
-			Strategy:       resolveString(ctx, e.configResolver, registry, "backpressure.strategy", orgScope, "serial"),
+			Enabled:        resolveBool(ctx, e.configResolver, registry, "backpressure.enabled", projectScope, true),
+			QueueThreshold: resolveNonNegativeInt(ctx, e.configResolver, registry, "backpressure.queue_threshold", projectScope, 15),
+			Strategy:       resolveString(ctx, e.configResolver, registry, "backpressure.strategy", projectScope, "serial"),
 		}
 		rc.SubAgentControl = subagentctl.NewService(pool, e.broadcastRDB, e.jobQueue, run, traceID, subAgentLimits, bpConfig)
 	}

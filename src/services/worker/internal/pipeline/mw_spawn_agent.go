@@ -53,7 +53,7 @@ func loadPersonaKeys(ctx context.Context, rc *RunContext) []string {
 	if rc.Pool == nil {
 		return nil
 	}
-	defs, err := personas.LoadFromDB(ctx, rc.Pool, rc.Run.OrgID)
+	defs, err := personas.LoadFromDB(ctx, rc.Pool, rc.Run.ProjectID)
 	if err != nil {
 		slog.WarnContext(ctx, "spawn_agent: failed to load persona keys", "error", err)
 		return nil

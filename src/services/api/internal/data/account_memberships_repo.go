@@ -135,6 +135,22 @@ func (r *AccountMembershipRepository) SetRoleForUser(ctx context.Context, userID
 	return err
 }
 
+func (r *AccountMembershipRepository) HasPlatformAdmin(ctx context.Context) (bool, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	var exists bool
+	err := r.db.QueryRow(
+		ctx,
+		`SELECT EXISTS(SELECT 1 FROM account_memberships WHERE role = $1)`,
+		"platform_admin",
+	).Scan(&exists)
+	if err != nil {
+		return false, err
+	}
+	return exists, nil
+}
+
 // ExistsForOrgAndUser 检查用户是否已是 account 成员，用于邀请接受前去重。
 func (r *AccountMembershipRepository) ExistsForOrgAndUser(ctx context.Context, accountID, userID uuid.UUID) (bool, error) {
 	if ctx == nil {
