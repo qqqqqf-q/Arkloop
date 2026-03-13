@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@source "../../shared/src";
 
 :root {
   --c-bg-page: #141413;

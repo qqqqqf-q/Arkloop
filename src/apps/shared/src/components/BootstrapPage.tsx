@@ -16,6 +16,9 @@ export type BootstrapTranslations = {
     usernamePlaceholder: string
     password: string
     passwordPlaceholder: string
+    confirmPassword: string
+    confirmPasswordPlaceholder: string
+    passwordMismatch: string
     submit: string
     verifying: string
     successTitle: string
@@ -44,13 +47,16 @@ export function BootstrapPage({ onLoggedIn, t, locale }: Props) {
   const [expiresAt, setExpiresAt] = useState('')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [pendingAccessToken, setPendingAccessToken] = useState<string | null>(null)
   const [error, setError] = useState<ReturnType<typeof normalizeError> | null>(null)
 
   const usernameRef = useRef<HTMLInputElement>(null)
   const passwordRef = useRef<HTMLInputElement>(null)
+  const confirmPasswordRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -105,12 +111,14 @@ export function BootstrapPage({ onLoggedIn, t, locale }: Props) {
 
   const canSubmit = useMemo(() => {
     if (submitting) return false
-    return username.trim().length > 0 && password.length > 0
-  }, [submitting, username, password])
+    return username.trim().length > 0 && password.length > 0 && confirmPassword.length > 0
+  }, [submitting, username, password, confirmPassword])
+
+  const passwordMismatch = password.length > 0 && confirmPassword.length > 0 && password !== confirmPassword
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!canSubmit || !token) return
+    if (!canSubmit || !token || passwordMismatch) return
     setSubmitting(true)
     setError(null)
     try {
@@ -247,6 +255,24 @@ export function BootstrapPage({ onLoggedIn, t, locale }: Props) {
                   onToggleShow={() => setShowPassword((v) => !v)}
                   autoComplete="new-password"
                 />
+              </div>
+
+              <div style={{ paddingTop: '10px' }}>
+                <label style={labelStyle}>{t.bootstrap.confirmPassword}</label>
+                <PasswordEye
+                  inputRef={confirmPasswordRef}
+                  placeholder={t.bootstrap.confirmPasswordPlaceholder}
+                  value={confirmPassword}
+                  onChange={setConfirmPassword}
+                  showPassword={showConfirmPassword}
+                  onToggleShow={() => setShowConfirmPassword((v) => !v)}
+                  autoComplete="new-password"
+                />
+                {passwordMismatch && (
+                  <div style={{ marginTop: '4px', fontSize: '11px', color: 'var(--c-error, #ef4444)', paddingLeft: '2px' }}>
+                    {t.bootstrap.passwordMismatch}
+                  </div>
+                )}
               </div>
 
               {expiresLabel && (

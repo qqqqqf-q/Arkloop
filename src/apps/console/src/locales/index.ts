@@ -97,6 +97,9 @@ export interface LocaleStrings {
     usernamePlaceholder: string
     password: string
     passwordPlaceholder: string
+    confirmPassword: string
+    confirmPasswordPlaceholder: string
+    passwordMismatch: string
     submit: string
     verifying: string
     successTitle: string
