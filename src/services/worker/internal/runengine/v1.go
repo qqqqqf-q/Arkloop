@@ -210,7 +210,7 @@ func NewEngineV1(deps EngineV1Deps) (*EngineV1, error) {
 		pipeline.NewSkillContextMiddleware(deps.DBPool, nil),
 		pipeline.NewMemoryMiddleware(nil, deps.DBPool, deps.ConfigResolver),
 		pipeline.NewTrustSourceMiddleware(cfgResolver),
-		pipeline.NewInjectionScanMiddleware(compositeScanner, injectionAuditor, cfgResolver),
+		pipeline.NewInjectionScanMiddleware(compositeScanner, injectionAuditor, cfgResolver, eventsRepo),
 		pipeline.NewRoutingMiddleware(deps.Router, deps.RoutingConfigLoader, deps.StubGateway, deps.EmitDebugEvents, runsRepo, eventsRepo, releaseSlot, resolver),
 		pipeline.NewTitleSummarizerMiddleware(deps.DBPool, deps.RunLimiterRDB, deps.StubGateway, deps.EmitDebugEvents, deps.RoutingConfigLoader),
 		pipeline.NewToolDescriptionOverrideMiddleware(deps.ToolDescriptionOverridesRepo),
