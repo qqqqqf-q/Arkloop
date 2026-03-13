@@ -77,7 +77,7 @@ type RegisterResult struct {
 
 type createdLocalAccount struct {
 	User data.User
-	Org  data.Org
+	Account  data.Account
 }
 
 type BootstrapAlreadyInitializedError struct{}
@@ -218,7 +218,7 @@ func (s *RegistrationService) Register(
 	if err != nil {
 		return RegisterResult{}, err
 	}
-	orgRepo, err := data.NewAccountRepository(tx)
+	accountRepo, err := data.NewAccountRepository(tx)
 	if err != nil {
 		return RegisterResult{}, err
 	}
@@ -254,12 +254,12 @@ func (s *RegistrationService) Register(
 	}
 
 	slugSuffix := uuidHexPrefix(user.ID, 8)
-	org, err := orgRepo.Create(ctx, fmt.Sprintf("personal-%s", slugSuffix), fmt.Sprintf("%s's workspace", login), "personal")
+	account, err := accountRepo.Create(ctx, fmt.Sprintf("personal-%s", slugSuffix), fmt.Sprintf("%s's workspace", login), "personal")
 	if err != nil {
 		return RegisterResult{}, err
 	}
 
-	if _, err := membershipRepo.Create(ctx, org.ID, user.ID, "owner"); err != nil {
+	if _, err := membershipRepo.Create(ctx, account.ID, user.ID, "owner"); err != nil {
 		return RegisterResult{}, err
 	}
 
@@ -267,7 +267,7 @@ func (s *RegistrationService) Register(
 	if err != nil {
 		return RegisterResult{}, err
 	}
-	if _, err := notifRepo.BackfillBroadcastsForMembership(ctx, user.ID, org.ID); err != nil {
+	if _, err := notifRepo.BackfillBroadcastsForMembership(ctx, user.ID, account.ID); err != nil {
 		return RegisterResult{}, err
 	}
 
@@ -277,14 +277,14 @@ func (s *RegistrationService) Register(
 	}
 	initialGrant := int64(1000)
 	if s.entitlementSvc != nil {
-		val, resolveErr := s.entitlementSvc.Resolve(ctx, org.ID, "credit.initial_grant")
+		val, resolveErr := s.entitlementSvc.Resolve(ctx, account.ID, "credit.initial_grant")
 		if resolveErr == nil {
 			if v := val.Int(); v > 0 {
 				initialGrant = v
 			}
 		}
 	}
-	if _, err := creditsRepo.InitBalance(ctx, org.ID, initialGrant); err != nil {
+	if _, err := creditsRepo.InitBalance(ctx, account.ID, initialGrant); err != nil {
 		return RegisterResult{}, err
 	}
 
@@ -295,7 +295,7 @@ func (s *RegistrationService) Register(
 
 	maxUses := 1
 	if s.entitlementSvc != nil {
-		val, resolveErr := s.entitlementSvc.Resolve(ctx, org.ID, "invite.default_max_uses")
+		val, resolveErr := s.entitlementSvc.Resolve(ctx, account.ID, "invite.default_max_uses")
 		if resolveErr == nil {
 			if v := val.Int(); v > 0 {
 				maxUses = int(v)
@@ -364,7 +364,7 @@ func (s *RegistrationService) Register(
 			// 被邀请人奖励
 			inviteeReward := int64(0)
 			if s.entitlementSvc != nil {
-				val, resolveErr := s.entitlementSvc.Resolve(ctx, org.ID, "credit.invitee_reward")
+				val, resolveErr := s.entitlementSvc.Resolve(ctx, account.ID, "credit.invitee_reward")
 				if resolveErr == nil {
 					if v := val.Int(); v > 0 {
 						inviteeReward = v
@@ -373,7 +373,7 @@ func (s *RegistrationService) Register(
 			}
 			if inviteeReward > 0 {
 				refType := "referral"
-				if err := creditsRepo.Add(ctx, org.ID, inviteeReward, "invitee_reward", &refType, &referral.ID, nil); err != nil {
+				if err := creditsRepo.Add(ctx, account.ID, inviteeReward, "invitee_reward", &refType, &referral.ID, nil); err != nil {
 					return RegisterResult{}, err
 				}
 			}
@@ -390,7 +390,7 @@ func (s *RegistrationService) Register(
 	}
 
 	now := s.now()
-	token, err := s.tokenService.Issue(user.ID, org.ID, "owner", now)
+	token, err := s.tokenService.Issue(user.ID, account.ID, "owner", now)
 	if err != nil {
 		return RegisterResult{}, err
 	}
@@ -433,11 +433,11 @@ func (s *RegistrationService) createLocalAccountTx(
 	if err != nil {
 		return createdLocalAccount{}, err
 	}
-	orgRepo, err := data.NewOrgRepository(tx)
+	accountRepo, err := data.NewAccountRepository(tx)
 	if err != nil {
 		return createdLocalAccount{}, err
 	}
-	membershipRepo, err := data.NewOrgMembershipRepository(tx)
+	membershipRepo, err := data.NewAccountMembershipRepository(tx)
 	if err != nil {
 		return createdLocalAccount{}, err
 	}
@@ -469,12 +469,12 @@ func (s *RegistrationService) createLocalAccountTx(
 	}
 
 	slugSuffix := uuidHexPrefix(user.ID, 8)
-	org, err := orgRepo.Create(ctx, fmt.Sprintf("personal-%s", slugSuffix), fmt.Sprintf("%s's workspace", login), "personal")
+	account, err := accountRepo.Create(ctx, fmt.Sprintf("personal-%s", slugSuffix), fmt.Sprintf("%s's workspace", login), "personal")
 	if err != nil {
 		return createdLocalAccount{}, err
 	}
 
-	if _, err := membershipRepo.Create(ctx, org.ID, user.ID, "owner"); err != nil {
+	if _, err := membershipRepo.Create(ctx, account.ID, user.ID, "owner"); err != nil {
 		return createdLocalAccount{}, err
 	}
 
@@ -482,7 +482,7 @@ func (s *RegistrationService) createLocalAccountTx(
 	if err != nil {
 		return createdLocalAccount{}, err
 	}
-	if _, err := notifRepo.BackfillBroadcastsForMembership(ctx, user.ID, org.ID); err != nil {
+	if _, err := notifRepo.BackfillBroadcastsForMembership(ctx, user.ID, account.ID); err != nil {
 		return createdLocalAccount{}, err
 	}
 
@@ -492,14 +492,14 @@ func (s *RegistrationService) createLocalAccountTx(
 	}
 	initialGrant := int64(1000)
 	if s.entitlementSvc != nil {
-		val, resolveErr := s.entitlementSvc.Resolve(ctx, org.ID, "credit.initial_grant")
+		val, resolveErr := s.entitlementSvc.Resolve(ctx, account.ID, "credit.initial_grant")
 		if resolveErr == nil {
 			if v := val.Int(); v > 0 {
 				initialGrant = v
 			}
 		}
 	}
-	if _, err := creditsRepo.InitBalance(ctx, org.ID, initialGrant); err != nil {
+	if _, err := creditsRepo.InitBalance(ctx, account.ID, initialGrant); err != nil {
 		return createdLocalAccount{}, err
 	}
 
@@ -509,7 +509,7 @@ func (s *RegistrationService) createLocalAccountTx(
 	}
 	maxUses := 1
 	if s.entitlementSvc != nil {
-		val, resolveErr := s.entitlementSvc.Resolve(ctx, org.ID, "invite.default_max_uses")
+		val, resolveErr := s.entitlementSvc.Resolve(ctx, account.ID, "invite.default_max_uses")
 		if resolveErr == nil {
 			if v := val.Int(); v > 0 {
 				maxUses = int(v)
@@ -524,7 +524,7 @@ func (s *RegistrationService) createLocalAccountTx(
 		return createdLocalAccount{}, err
 	}
 
-	return createdLocalAccount{User: user, Org: org}, nil
+	return createdLocalAccount{User: user, Account: account}, nil
 }
 
 
@@ -536,7 +536,7 @@ func (s *RegistrationService) InitBootstrapToken(ctx context.Context) (Bootstrap
 		return BootstrapInitResult{}, fmt.Errorf("registration service not configured")
 	}
 
-	membershipRepo, err := data.NewOrgMembershipRepository(s.pool)
+	membershipRepo, err := data.NewAccountMembershipRepository(s.pool)
 	if err != nil {
 		return BootstrapInitResult{}, err
 	}
@@ -577,7 +577,7 @@ func (s *RegistrationService) VerifyBootstrapToken(ctx context.Context, token st
 		return BootstrapVerifyResult{Valid: false}, nil
 	}
 
-	membershipRepo, err := data.NewOrgMembershipRepository(s.pool)
+	membershipRepo, err := data.NewAccountMembershipRepository(s.pool)
 	if err != nil {
 		return BootstrapVerifyResult{}, err
 	}
@@ -642,7 +642,7 @@ func (s *RegistrationService) SetupBootstrapAdmin(ctx context.Context, token str
 	if err != nil {
 		return BootstrapSetupResult{}, err
 	}
-	membershipRepo, err := data.NewOrgMembershipRepository(tx)
+	membershipRepo, err := data.NewAccountMembershipRepository(tx)
 	if err != nil {
 		return BootstrapSetupResult{}, err
 	}
@@ -675,7 +675,7 @@ func (s *RegistrationService) SetupBootstrapAdmin(ctx context.Context, token str
 	}
 
 	now := s.now()
-	accessToken, err := s.tokenService.Issue(created.User.ID, created.Org.ID, RolePlatformAdmin, now)
+	accessToken, err := s.tokenService.Issue(created.User.ID, created.Account.ID, RolePlatformAdmin, now)
 	if err != nil {
 		return BootstrapSetupResult{}, err
 	}
