@@ -13,11 +13,12 @@ import (
 
 func toolProvidersEntry(
 	_ *auth.Service,
-	_ *data.OrgMembershipRepository,
+	_ *data.AccountMembershipRepository,
 	_ *data.ToolProviderConfigsRepository,
 	_ *data.SecretsRepository,
 	_ *pgxpool.Pool,
 	_ *pgxpool.Pool,
+	_ *data.ProjectRepository,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	return func(w nethttp.ResponseWriter, _ *nethttp.Request) {
 		w.WriteHeader(nethttp.StatusNotImplemented)
@@ -26,11 +27,12 @@ func toolProvidersEntry(
 
 func toolProviderEntry(
 	_ *auth.Service,
-	_ *data.OrgMembershipRepository,
+	_ *data.AccountMembershipRepository,
 	_ *data.ToolProviderConfigsRepository,
 	_ *data.SecretsRepository,
 	_ *pgxpool.Pool,
 	_ *pgxpool.Pool,
+	_ *data.ProjectRepository,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	return func(w nethttp.ResponseWriter, _ *nethttp.Request) {
 		w.WriteHeader(nethttp.StatusNotImplemented)
