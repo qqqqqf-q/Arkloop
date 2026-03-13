@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"arkloop/services/sandbox/internal/acp"
 	"arkloop/services/sandbox/internal/environment"
 	"arkloop/services/sandbox/internal/logging"
 	"arkloop/services/sandbox/internal/session"
@@ -14,7 +15,7 @@ import (
 )
 
 // NewHandler 注册所有路由并返回 HTTP handler。
-func NewHandler(mgr *session.Manager, envMgr *environment.Manager, skillMgr *sandboxskills.OverlayManager, shellSvc shell.Service, artifactStore artifactStore, logger *logging.JSONLogger, authToken string) http.Handler {
+func NewHandler(mgr *session.Manager, envMgr *environment.Manager, skillMgr *sandboxskills.OverlayManager, shellSvc shell.Service, acpSvc acp.Service, artifactStore artifactStore, logger *logging.JSONLogger, authToken string) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", healthz(mgr))
 	mux.HandleFunc("GET /v1/stats", stats(mgr))
@@ -24,6 +25,11 @@ func NewHandler(mgr *session.Manager, envMgr *environment.Manager, skillMgr *san
 	mux.HandleFunc("POST /v1/sessions/fork", handleForkSession(shellSvc))
 	mux.HandleFunc("GET /v1/sessions/", handleSessionTranscript(shellSvc))
 	mux.HandleFunc("DELETE /v1/sessions/", handleDeleteSession(mgr, shellSvc, logger))
+	mux.HandleFunc("POST /v1/acp/start", handleACPStart(acpSvc, logger))
+	mux.HandleFunc("POST /v1/acp/write", handleACPWrite(acpSvc, logger))
+	mux.HandleFunc("POST /v1/acp/read", handleACPRead(acpSvc, logger))
+	mux.HandleFunc("POST /v1/acp/stop", handleACPStop(acpSvc, logger))
+	mux.HandleFunc("POST /v1/acp/wait", handleACPWait(acpSvc, logger))
 	return recoverMiddleware(authMiddleware(mux, authToken, logger), logger)
 }
 
