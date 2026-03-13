@@ -1,10 +1,12 @@
+# syntax=docker/dockerfile:1
 FROM node:22-alpine AS builder
 WORKDIR /workspace
 RUN corepack enable
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY src/apps/shared/package.json src/apps/shared/package.json
 COPY src/apps/console-lite/package.json src/apps/console-lite/package.json
-RUN pnpm install --frozen-lockfile
+RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
+    pnpm install --frozen-lockfile
 COPY src/apps/shared src/apps/shared
 COPY src/apps/console-lite src/apps/console-lite
 RUN pnpm --filter console-lite build

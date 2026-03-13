@@ -47,7 +47,7 @@ var toolProviderCatalog = []toolProviderDefinition{
 	{GroupName: "web_fetch", ProviderName: "web_fetch.jina", RequiresAPIKey: true},
 	{GroupName: "web_fetch", ProviderName: "web_fetch.firecrawl", RequiresAPIKey: true, AllowsInternalHTTP: true, DefaultBaseURL: "http://firecrawl:19012"},
 	{GroupName: "web_fetch", ProviderName: "web_fetch.basic"},
-	{GroupName: "sandbox", ProviderName: "sandbox.docker", RequiresBaseURL: true, AllowsInternalHTTP: true, DefaultBaseURL: "http://sandbox:19002"},
+	{GroupName: "sandbox", ProviderName: "sandbox.docker", RequiresBaseURL: true, AllowsInternalHTTP: true, DefaultBaseURL: "http://sandbox-docker:19002"},
 	{GroupName: "sandbox", ProviderName: "sandbox.firecracker", RequiresBaseURL: true, AllowsInternalHTTP: true, DefaultBaseURL: "http://sandbox:19002"},
 	{
 		GroupName: "memory", ProviderName: "memory.openviking",

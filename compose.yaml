@@ -417,7 +417,7 @@ services:
       USE_DB_AUTHENTICATION: "false"
       PORT: "19012"
       HOST: "0.0.0.0"
-      NUM_WORKERS_PER_QUEUE: "${ARKLOOP_FIRECRAWL_WORKERS:-4}"
+      NUM_WORKERS_PER_QUEUE: "${ARKLOOP_FIRECRAWL_WORKERS:-2}"
       PLAYWRIGHT_MICROSERVICE_URL: "http://firecrawl-playwright:3000/chromium"
       NUQ_DATABASE_URL: "postgres://firecrawl:firecrawl@firecrawl-postgres:5432/firecrawl"
       NUQ_RABBITMQ_URL: "amqp://guest:guest@firecrawl-rabbitmq:5672"
