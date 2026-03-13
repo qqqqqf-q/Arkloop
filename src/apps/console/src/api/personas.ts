@@ -97,7 +97,7 @@ export async function createPersona(
   accessToken: string,
 ): Promise<Persona> {
   const scope = req.scope ?? 'platform'
-  const { is_active: _isActive, ...body } = req
+  const { is_active: _isActive, project_id: _pid, ...body } = req
   const persona = await apiFetch<RawPersona>(withScope('/v1/personas', scope, req.project_id), {
     method: 'POST',
     body: JSON.stringify({ ...body, scope }),
@@ -112,10 +112,10 @@ export async function patchPersona(
   accessToken: string,
 ): Promise<Persona> {
   const scope = req.scope ?? 'platform'
-  const { scope: _scope, ...body } = req
+  const { scope: _scope, project_id: _pid, ...body } = req
   const persona = await apiFetch<RawPersona>(withScope(`/v1/personas/${id}`, scope, req.project_id), {
     method: 'PATCH',
-    body: JSON.stringify({ ...body, scope }),
+    body: JSON.stringify(body),
     accessToken,
   })
   return normalizePersona(persona)
