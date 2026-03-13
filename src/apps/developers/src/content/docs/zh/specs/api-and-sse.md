@@ -147,6 +147,8 @@ SSE 约定：
 
 说明：对外命名已从 `skills` 迁移为 `personas`（`/v1/skills` -> `/v1/personas`，`skill_key/skill_id` -> `persona_key/persona_id`）。执行配置直接收敛到 Persona，因此不再存在独立的 Agent Config / Prompt Template 层。
 
+补充：Persona 管理接口支持可选 `roles` 对象。`roles.<role>` 可覆盖协作角色的 prompt 追加段、工具策略、budgets、`model`、`preferred_credential`、`reasoning_mode`、`prompt_cache_control`，但不允许覆盖执行器类型与执行器配置。
+
 - `GET /v1/me/selectable-personas` -- 当前用户可选的人格有效结果，按 `org > platform > builtin` 解析
 - `GET /v1/personas`
 - `POST /v1/personas`

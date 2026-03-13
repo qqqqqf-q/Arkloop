@@ -18,6 +18,54 @@ type Budgets struct {
 	TopP                   *float64
 }
 
+type StringOverride struct {
+	Set   bool
+	Value string
+}
+
+type OptionalStringOverride struct {
+	Set   bool
+	Value *string
+}
+
+type EnumStringOverride struct {
+	Set   bool
+	Value string
+}
+
+type BudgetsOverride struct {
+	HasReasoningIterations    bool
+	ReasoningIterations       *int
+	HasToolContinuationBudget bool
+	ToolContinuationBudget    *int
+	HasMaxOutputTokens        bool
+	MaxOutputTokens           *int
+	HasToolTimeoutMs          bool
+	ToolTimeoutMs             *int
+	HasToolBudget             bool
+	ToolBudget                map[string]any
+	HasPerToolSoftLimits      bool
+	PerToolSoftLimits         tools.PerToolSoftLimits
+	HasTemperature            bool
+	Temperature               *float64
+	HasTopP                   bool
+	TopP                      *float64
+}
+
+type RoleOverride struct {
+	SoulMD              StringOverride
+	PromptMD            StringOverride
+	HasToolAllowlist    bool
+	ToolAllowlist       []string
+	HasToolDenylist     bool
+	ToolDenylist        []string
+	Budgets             BudgetsOverride
+	PreferredCredential OptionalStringOverride
+	Model               OptionalStringOverride
+	ReasoningMode       EnumStringOverride
+	PromptCacheControl  EnumStringOverride
+}
+
 // TitleSummarizerConfig 控制 goroutine 模式下的标题自动生成。
 type TitleSummarizerConfig struct {
 	Prompt    string
@@ -37,12 +85,15 @@ type Definition struct {
 	Budgets             Budgets
 	SoulMD              string
 	PromptMD            string
+	RoleSoulMD          string
+	RolePromptMD        string
 	ExecutorType        string         // 执行策略类型，默认 "agent.simple"
 	ExecutorConfig      map[string]any // Executor 配置，默认 {}
 	PreferredCredential *string        // 偏好凭证名称，nil 表示不绑定
 	Model               *string        // model selector，优先 provider^model，其次兼容裸 model
 	ReasoningMode       string
 	PromptCacheControl  string
+	Roles               map[string]RoleOverride
 	TitleSummarizer     *TitleSummarizerConfig // nil 表示此 persona 不自动生成标题
 }
 

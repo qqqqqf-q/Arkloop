@@ -22,7 +22,7 @@ const (
 
 const personaSelectColumns = `id, account_id, project_id, persona_key, version, display_name, description,
 	    soul_md, user_selectable, selector_name, selector_order,
-	    prompt_md, tool_allowlist, tool_denylist, budgets_json, title_summarize_json,
+	    prompt_md, tool_allowlist, tool_denylist, budgets_json, roles_json, title_summarize_json,
 	    is_active, created_at, updated_at,
 	    preferred_credential, model, reasoning_mode, prompt_cache_control,
 	    executor_type, executor_config_json,
@@ -57,6 +57,7 @@ type Persona struct {
 	ToolAllowlist       []string
 	ToolDenylist        []string
 	BudgetsJSON         json.RawMessage
+	RolesJSON           json.RawMessage
 	TitleSummarizeJSON  json.RawMessage
 	IsActive            bool
 	CreatedAt           time.Time
@@ -79,6 +80,7 @@ type PersonaPatch struct {
 	ToolAllowlist       []string
 	ToolDenylist        []string
 	BudgetsJSON         json.RawMessage
+	RolesJSON           json.RawMessage
 	IsActive            *bool
 	PreferredCredential *string
 	Model               *string
@@ -101,6 +103,7 @@ type PlatformMirrorUpsertParams struct {
 	ToolAllowlist       []string
 	ToolDenylist        []string
 	BudgetsJSON         json.RawMessage
+	RolesJSON           json.RawMessage
 	TitleSummarizeJSON  json.RawMessage
 	PreferredCredential *string
 	Model               *string
@@ -133,7 +136,7 @@ func scanPersona(scanner personaScanner, persona *Persona) error {
 		&persona.ID, &persona.AccountID, &persona.ProjectID, &persona.PersonaKey, &persona.Version,
 		&persona.DisplayName, &persona.Description,
 		&persona.SoulMD, &persona.UserSelectable, &persona.SelectorName, &persona.SelectorOrder,
-		&persona.PromptMD, &persona.ToolAllowlist, &persona.ToolDenylist, &persona.BudgetsJSON, &persona.TitleSummarizeJSON,
+		&persona.PromptMD, &persona.ToolAllowlist, &persona.ToolDenylist, &persona.BudgetsJSON, &persona.RolesJSON, &persona.TitleSummarizeJSON,
 		&persona.IsActive, &persona.CreatedAt, &persona.UpdatedAt,
 		&persona.PreferredCredential, &persona.Model, &persona.ReasoningMode, &persona.PromptCacheControl,
 		&persona.ExecutorType, &persona.ExecutorConfigJSON,
@@ -163,6 +166,7 @@ func (r *PersonasRepository) Create(
 	toolAllowlist []string,
 	toolDenylist []string,
 	budgetsJSON json.RawMessage,
+	rolesJSON json.RawMessage,
 	preferredCredential *string,
 	model *string,
 	reasoningMode string,
@@ -185,6 +189,7 @@ func (r *PersonasRepository) Create(
 		toolAllowlist,
 		toolDenylist,
 		budgetsJSON,
+		rolesJSON,
 		preferredCredential,
 		model,
 		reasoningMode,
@@ -206,6 +211,7 @@ func (r *PersonasRepository) CreateInScope(
 	toolAllowlist []string,
 	toolDenylist []string,
 	budgetsJSON json.RawMessage,
+	rolesJSON json.RawMessage,
 	preferredCredential *string,
 	model *string,
 	reasoningMode string,
@@ -236,6 +242,7 @@ func (r *PersonasRepository) CreateInScope(
 		toolAllowlist,
 		toolDenylist,
 		budgetsJSON,
+		rolesJSON,
 		preferredCredential,
 		model,
 		reasoningMode,
@@ -256,6 +263,7 @@ func (r *PersonasRepository) createWithProjectID(
 	toolAllowlist []string,
 	toolDenylist []string,
 	budgetsJSON json.RawMessage,
+	rolesJSON json.RawMessage,
 	preferredCredential *string,
 	model *string,
 	reasoningMode string,
@@ -282,6 +290,9 @@ func (r *PersonasRepository) createWithProjectID(
 	if len(budgetsJSON) == 0 {
 		budgetsJSON = json.RawMessage("{}")
 	}
+	if len(rolesJSON) == 0 {
+		rolesJSON = json.RawMessage("{}")
+	}
 	if toolAllowlist == nil {
 		toolAllowlist = []string{}
 	}
@@ -295,6 +306,11 @@ func (r *PersonasRepository) createWithProjectID(
 	if strings.TrimSpace(executorType) == "" {
 		executorType = "agent.simple"
 	}
+	validatedRolesJSON, err := NormalizePersonaRolesJSON(rolesJSON)
+	if err != nil {
+		return Persona{}, err
+	}
+	rolesJSON = validatedRolesJSON
 	validatedExecutorConfigJSON, err := validateRuntimeExecutorConfigJSON(executorType, executorConfigJSON)
 	if err != nil {
 		return Persona{}, err
@@ -315,14 +331,14 @@ func (r *PersonasRepository) createWithProjectID(
 		`INSERT INTO personas
 		    (project_id, persona_key, version, display_name, description, soul_md,
 		     user_selectable, selector_name, selector_order,
-		     prompt_md, tool_allowlist, tool_denylist, budgets_json, title_summarize_json,
+		     prompt_md, tool_allowlist, tool_denylist, budgets_json, roles_json, title_summarize_json,
 		     preferred_credential, model, reasoning_mode, prompt_cache_control,
 		     executor_type, executor_config_json,
 		     sync_mode, mirrored_file_dir, updated_at)
-		 VALUES ($1, $2, $3, $4, $5, '', FALSE, NULL, NULL, $6, $7, $8, $9, NULL, $10, $11, $12, $13, $14, $15, $16, $17, now())
+		 VALUES ($1, $2, $3, $4, $5, '', FALSE, NULL, NULL, $6, $7, $8, $9, $10, NULL, $11, $12, $13, $14, $15, $16, $17, $18, now())
 		 RETURNING `+personaSelectColumns,
 		projectID, personaKey, version, displayName, description, promptMD,
-		toolAllowlist, toolDenylist, budgetsJSON, preferredCredential,
+		toolAllowlist, toolDenylist, budgetsJSON, rolesJSON, preferredCredential,
 		model, reasoningMode, promptCacheControl,
 		executorType, executorConfigJSON, syncMode, mirroredFileDir,
 	)
@@ -484,6 +500,15 @@ func (r *PersonasRepository) PatchInScope(ctx context.Context, projectID, id uui
 	if len(patch.BudgetsJSON) > 0 {
 		setClauses = append(setClauses, fmt.Sprintf("budgets_json = $%d", argIdx))
 		args = append(args, patch.BudgetsJSON)
+		argIdx++
+	}
+	if len(patch.RolesJSON) > 0 {
+		validatedRolesJSON, err := NormalizePersonaRolesJSON(patch.RolesJSON)
+		if err != nil {
+			return nil, err
+		}
+		setClauses = append(setClauses, fmt.Sprintf("roles_json = $%d", argIdx))
+		args = append(args, validatedRolesJSON)
 		argIdx++
 	}
 	if patch.IsActive != nil {
@@ -653,6 +678,9 @@ func (r *PersonasRepository) UpsertPlatformMirror(ctx context.Context, params Pl
 	if len(params.BudgetsJSON) == 0 {
 		params.BudgetsJSON = json.RawMessage("{}")
 	}
+	if len(params.RolesJSON) == 0 {
+		params.RolesJSON = json.RawMessage("{}")
+	}
 	params.PreferredCredential = normalizeOptionalPersonaString(params.PreferredCredential)
 	params.Model = normalizeOptionalPersonaString(params.Model)
 	params.ReasoningMode = normalizePersonaReasoningMode(params.ReasoningMode)
@@ -660,6 +688,11 @@ func (r *PersonasRepository) UpsertPlatformMirror(ctx context.Context, params Pl
 	if strings.TrimSpace(params.ExecutorType) == "" {
 		params.ExecutorType = "agent.simple"
 	}
+	validatedRolesJSON, err := NormalizePersonaRolesJSON(params.RolesJSON)
+	if err != nil {
+		return nil, err
+	}
+	params.RolesJSON = validatedRolesJSON
 	validatedExecutorConfigJSON, err := validateRuntimeExecutorConfigJSON(params.ExecutorType, params.ExecutorConfigJSON)
 	if err != nil {
 		return nil, err
@@ -682,17 +715,17 @@ func (r *PersonasRepository) UpsertPlatformMirror(ctx context.Context, params Pl
 		`INSERT INTO personas (
 			account_id, persona_key, version, display_name, description, soul_md,
 			user_selectable, selector_name, selector_order,
-			prompt_md, tool_allowlist, tool_denylist, budgets_json, title_summarize_json,
+			prompt_md, tool_allowlist, tool_denylist, budgets_json, roles_json, title_summarize_json,
 			preferred_credential, model, reasoning_mode, prompt_cache_control,
 			executor_type, executor_config_json,
 			is_active, sync_mode, mirrored_file_dir, last_synced_at, updated_at
 		) VALUES (
 			NULL, $1, $2, $3, $4, $5,
 			$6, $7, $8,
-			$9, $10, $11, $12, $13,
-			$14, $15, $16, $17,
-			$18, $19,
-			$20, $21, $22, $23, now()
+			$9, $10, $11, $12, $13, $14,
+			$15, $16, $17, $18,
+			$19, $20,
+			$21, $22, $23, $24, now()
 		)
 		ON CONFLICT (persona_key, version) WHERE project_id IS NULL
 		DO UPDATE SET
@@ -706,6 +739,7 @@ func (r *PersonasRepository) UpsertPlatformMirror(ctx context.Context, params Pl
 			tool_allowlist = EXCLUDED.tool_allowlist,
 			tool_denylist = EXCLUDED.tool_denylist,
 			budgets_json = EXCLUDED.budgets_json,
+			roles_json = EXCLUDED.roles_json,
 			title_summarize_json = EXCLUDED.title_summarize_json,
 			reasoning_mode = EXCLUDED.reasoning_mode,
 			prompt_cache_control = EXCLUDED.prompt_cache_control,
@@ -719,7 +753,7 @@ func (r *PersonasRepository) UpsertPlatformMirror(ctx context.Context, params Pl
 		RETURNING `+personaSelectColumns,
 		params.PersonaKey, params.Version, params.DisplayName, params.Description, strings.TrimSpace(params.SoulMD),
 		params.UserSelectable, params.SelectorName, params.SelectorOrder,
-		strings.TrimSpace(params.PromptMD), params.ToolAllowlist, params.ToolDenylist, params.BudgetsJSON, params.TitleSummarizeJSON,
+		strings.TrimSpace(params.PromptMD), params.ToolAllowlist, params.ToolDenylist, params.BudgetsJSON, params.RolesJSON, params.TitleSummarizeJSON,
 		params.PreferredCredential, params.Model, params.ReasoningMode, params.PromptCacheControl,
 		params.ExecutorType, params.ExecutorConfigJSON,
 		params.IsActive, PersonaSyncModePlatformFileMirror, params.MirroredFileDir, params.LastSyncedAt,

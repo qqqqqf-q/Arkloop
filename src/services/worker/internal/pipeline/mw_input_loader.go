@@ -87,6 +87,9 @@ func loadRunInputs(
 		if rawPersonaID, ok := dataJSON["persona_id"].(string); ok && strings.TrimSpace(rawPersonaID) != "" {
 			inputJSON["persona_id"] = strings.TrimSpace(rawPersonaID)
 		}
+		if rawRole, ok := dataJSON["role"].(string); ok && strings.TrimSpace(rawRole) != "" {
+			inputJSON["role"] = strings.TrimSpace(rawRole)
+		}
 		if rawOutputRouteID, ok := dataJSON["output_route_id"].(string); ok && strings.TrimSpace(rawOutputRouteID) != "" {
 			inputJSON["output_route_id"] = strings.TrimSpace(rawOutputRouteID)
 		}

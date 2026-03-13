@@ -2,6 +2,7 @@ package pipeline_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"arkloop/services/worker/internal/data"
@@ -274,6 +275,125 @@ func TestPersonaResolutionToolAllowlistAndDenylist(t *testing.T) {
 	}
 	if _, ok := gotAllowlist["tool_c"]; ok {
 		t.Fatalf("tool_c should be removed by denylist, got %v", gotAllowlist)
+	}
+}
+
+func TestPersonaResolutionAppliesRoleOverlay(t *testing.T) {
+	model := "worker-cred^gpt-5-mini"
+	credential := "worker-cred"
+	reg := buildPersonaRegistry(t, personas.Definition{
+		ID:             "p1",
+		Version:        "1",
+		Title:          "Test",
+		SoulMD:         "base soul",
+		PromptMD:       "base prompt",
+		ExecutorType:   "agent.simple",
+		ExecutorConfig: map[string]any{},
+		Roles: map[string]personas.RoleOverride{
+			"worker": {
+				SoulMD:              personas.StringOverride{Set: true, Value: "worker soul"},
+				PromptMD:            personas.StringOverride{Set: true, Value: "worker prompt"},
+				HasToolAllowlist:    true,
+				ToolAllowlist:       []string{"tool_b"},
+				HasToolDenylist:     true,
+				ToolDenylist:        []string{"tool_c"},
+				Model:               personas.OptionalStringOverride{Set: true, Value: &model},
+				PreferredCredential: personas.OptionalStringOverride{Set: true, Value: &credential},
+				ReasoningMode:       personas.EnumStringOverride{Set: true, Value: "high"},
+				PromptCacheControl:  personas.EnumStringOverride{Set: true, Value: "system_prompt"},
+				Budgets: personas.BudgetsOverride{
+					HasMaxOutputTokens: true,
+					MaxOutputTokens:    intPtr(256),
+				},
+			},
+		},
+	})
+	mw := pipeline.NewPersonaResolutionMiddleware(
+		func() *personas.Registry { return reg },
+		nil, data.RunsRepository{}, data.RunEventsRepository{}, nil,
+	)
+
+	rc := &pipeline.RunContext{
+		InputJSON: map[string]any{"persona_id": "p1", "role": "worker"},
+		AllowlistSet: map[string]struct{}{
+			"tool_a": {},
+			"tool_b": {},
+			"tool_c": {},
+		},
+		ToolRegistry: tools.NewRegistry(),
+	}
+	for _, spec := range []tools.AgentToolSpec{
+		{Name: "tool_a", Version: "1", Description: "a", RiskLevel: tools.RiskLevelLow},
+		{Name: "tool_b", Version: "1", Description: "b", RiskLevel: tools.RiskLevelLow},
+		{Name: "tool_c", Version: "1", Description: "c", RiskLevel: tools.RiskLevelLow},
+	} {
+		if err := rc.ToolRegistry.Register(spec); err != nil {
+			t.Fatalf("register tool: %v", err)
+		}
+	}
+
+	h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(_ context.Context, rc *pipeline.RunContext) error {
+		if rc.SystemPrompt != "base soul\n\nbase prompt\n\nworker soul\n\nworker prompt" {
+			return fmt.Errorf("unexpected system prompt: %q", rc.SystemPrompt)
+		}
+		if rc.AgentConfig == nil || rc.AgentConfig.Model == nil || *rc.AgentConfig.Model != model {
+			return fmt.Errorf("unexpected model: %#v", rc.AgentConfig)
+		}
+		if rc.PreferredCredentialName != credential {
+			return fmt.Errorf("unexpected credential: %q", rc.PreferredCredentialName)
+		}
+		if rc.AgentConfig.PromptCacheControl != "system_prompt" {
+			return fmt.Errorf("unexpected prompt cache control: %q", rc.AgentConfig.PromptCacheControl)
+		}
+		if rc.AgentConfig.ReasoningMode != "high" {
+			return fmt.Errorf("unexpected reasoning mode: %q", rc.AgentConfig.ReasoningMode)
+		}
+		if rc.MaxOutputTokens == nil || *rc.MaxOutputTokens != 256 {
+			return fmt.Errorf("unexpected max output tokens: %#v", rc.MaxOutputTokens)
+		}
+		if _, ok := rc.AllowlistSet["tool_b"]; !ok {
+			return fmt.Errorf("tool_b missing from allowlist: %#v", rc.AllowlistSet)
+		}
+		if _, ok := rc.AllowlistSet["tool_a"]; ok {
+			return fmt.Errorf("tool_a should be removed: %#v", rc.AllowlistSet)
+		}
+		if _, ok := rc.AllowlistSet["tool_c"]; ok {
+			return fmt.Errorf("tool_c should be denied: %#v", rc.AllowlistSet)
+		}
+		return nil
+	})
+	if err := h(context.Background(), rc); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestPersonaResolutionUnknownRoleUsesBasePersona(t *testing.T) {
+	reg := buildPersonaRegistry(t, personas.Definition{
+		ID:             "p1",
+		Version:        "1",
+		Title:          "Test",
+		SoulMD:         "base soul",
+		PromptMD:       "base prompt",
+		ExecutorType:   "agent.simple",
+		ExecutorConfig: map[string]any{},
+		Roles: map[string]personas.RoleOverride{
+			"worker": {PromptMD: personas.StringOverride{Set: true, Value: "worker prompt"}},
+		},
+	})
+	mw := pipeline.NewPersonaResolutionMiddleware(
+		func() *personas.Registry { return reg },
+		nil, data.RunsRepository{}, data.RunEventsRepository{}, nil,
+	)
+
+	rc := &pipeline.RunContext{InputJSON: map[string]any{"persona_id": "p1", "role": "reviewer"}}
+	h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(_ context.Context, rc *pipeline.RunContext) error {
+		if rc.SystemPrompt != "base soul\n\nbase prompt" {
+			return fmt.Errorf("unexpected system prompt: %q", rc.SystemPrompt)
+		}
+		return nil
+	})
+	if err := h(context.Background(), rc); err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

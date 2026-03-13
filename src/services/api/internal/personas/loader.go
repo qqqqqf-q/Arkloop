@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"strings"
 
+	"arkloop/services/api/internal/data"
 	"gopkg.in/yaml.v3"
 )
 
@@ -50,6 +51,7 @@ type RepoPersona struct {
 	PromptCacheControl  string         `yaml:"prompt_cache_control"`
 	ExecutorType        string         `yaml:"executor_type"`
 	ExecutorConfig      map[string]any `yaml:"executor_config"`
+	Roles               map[string]any `yaml:"roles"`
 	SoulFile            string         `yaml:"soul_file"`
 	DirName             string         `yaml:"-"`
 	SoulMD              string         `yaml:"-"`
@@ -94,6 +96,13 @@ func LoadFromDir(root string) ([]RepoPersona, error) {
 		p.DirName = entry.Name()
 		if p.Version == "" {
 			p.Version = "1"
+		}
+		roles, err := data.NormalizePersonaRolesValue(rawObj["roles"])
+		if err != nil {
+			return nil, fmt.Errorf("persona %s roles: %w", p.ID, err)
+		}
+		if len(roles) > 0 {
+			p.Roles = roles
 		}
 		if promptData, err := os.ReadFile(promptPath); err == nil {
 			p.PromptMD = strings.TrimSpace(string(promptData))

@@ -35,6 +35,17 @@ func repoPersonaBudgetsJSON(raw map[string]any) json.RawMessage {
 	return encoded
 }
 
+func repoPersonaRolesJSON(raw map[string]any) json.RawMessage {
+	if len(raw) == 0 {
+		return json.RawMessage("{}")
+	}
+	encoded, err := json.Marshal(raw)
+	if err != nil {
+		return json.RawMessage("{}")
+	}
+	return encoded
+}
+
 func repoPersonaExecutorConfigJSON(raw map[string]any) json.RawMessage {
 	if len(raw) == 0 {
 		return nil
@@ -94,6 +105,10 @@ func materializeRepoPersonaForCreate(
 	if len(req.BudgetsJSON) > 0 {
 		budgetsJSON = req.BudgetsJSON
 	}
+	rolesJSON := repoPersonaRolesJSON(repoPersona.Roles)
+	if len(req.RolesJSON) > 0 {
+		rolesJSON = req.RolesJSON
+	}
 
 	preferredCredential := optionalTrimmedString(repoPersona.PreferredCredential)
 	if req.PreferredCredential != nil {
@@ -139,6 +154,7 @@ func materializeRepoPersonaForCreate(
 			ToolAllowlist:       toolAllowlist,
 			ToolDenylist:        toolDenylist,
 			BudgetsJSON:         budgetsJSON,
+			RolesJSON:           rolesJSON,
 			TitleSummarizeJSON:  repoPersonaTitleSummarizeJSON(repoPersona.TitleSummarize),
 			PreferredCredential: preferredCredential,
 			Model:               model,
@@ -167,6 +183,7 @@ func materializeRepoPersonaForCreate(
 		toolAllowlist,
 		toolDenylist,
 		budgetsJSON,
+		rolesJSON,
 		preferredCredential,
 		model,
 		reasoningMode,
@@ -215,6 +232,7 @@ func materializeRepoPersonaForLiteAgent(
 	}
 
 	budgetsJSON := mergeLiteAgentBudgets(repoPersonaBudgetsJSON(repoPersona.Budgets), req.Temperature, req.MaxOutputTokens)
+	rolesJSON := repoPersonaRolesJSON(repoPersona.Roles)
 
 	return personasRepo.CreateInScope(
 		ctx,
@@ -228,6 +246,7 @@ func materializeRepoPersonaForLiteAgent(
 		toolAllowlist,
 		repoPersona.ToolDenylist,
 		budgetsJSON,
+		rolesJSON,
 		optionalTrimmedString(repoPersona.PreferredCredential),
 		model,
 		reasoningMode,

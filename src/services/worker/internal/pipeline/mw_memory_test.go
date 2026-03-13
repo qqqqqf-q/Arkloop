@@ -2,11 +2,13 @@ package pipeline_test
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	sharedconfig "arkloop/services/shared/config"
 	"arkloop/services/worker/internal/data"
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/memory"
@@ -33,11 +35,21 @@ type memMock struct {
 	writeScopes   []memory.MemoryScope
 	writeEntries  []memory.MemoryEntry
 
-	writeDone chan struct{}
+	appendCalled    bool
+	appendMsgs      []memory.MemoryMessage
+	appendSessionID string
+	commitCalled    bool
+	commitSessionID string
+
+	writeDone   chan struct{}
+	distillDone chan struct{}
 }
 
 func newMemMock() *memMock {
-	return &memMock{writeDone: make(chan struct{}, 8)}
+	return &memMock{
+		writeDone:   make(chan struct{}, 8),
+		distillDone: make(chan struct{}, 8),
+	}
 }
 
 func (m *memMock) Find(_ context.Context, _ memory.MemoryIdentity, _ memory.MemoryScope, _ string, _ int) ([]memory.MemoryHit, error) {
@@ -54,11 +66,21 @@ func (m *memMock) Content(_ context.Context, _ memory.MemoryIdentity, _ string, 
 	return m.contentText, m.contentErr
 }
 
-func (m *memMock) AppendSessionMessages(_ context.Context, _ memory.MemoryIdentity, _ string, _ []memory.MemoryMessage) error {
+func (m *memMock) AppendSessionMessages(_ context.Context, _ memory.MemoryIdentity, sessionID string, msgs []memory.MemoryMessage) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.appendCalled = true
+	m.appendSessionID = sessionID
+	m.appendMsgs = msgs
 	return nil
 }
 
-func (m *memMock) CommitSession(_ context.Context, _ memory.MemoryIdentity, _ string) error {
+func (m *memMock) CommitSession(_ context.Context, _ memory.MemoryIdentity, sessionID string) error {
+	m.mu.Lock()
+	m.commitCalled = true
+	m.commitSessionID = sessionID
+	m.mu.Unlock()
+	m.distillDone <- struct{}{}
 	return nil
 }
 
@@ -314,5 +336,167 @@ func TestMemoryMiddleware_UsesRunContextMemoryProviderWhenStaticProviderNil(t *t
 	})
 	if err := h(context.Background(), rc); err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+// --- configResolverStub ---
+
+type configResolverStub struct {
+	values map[string]string
+}
+
+func (s *configResolverStub) Resolve(_ context.Context, key string, _ sharedconfig.Scope) (string, error) {
+	if s == nil || s.values == nil {
+		return "", fmt.Errorf("not found")
+	}
+	v, ok := s.values[key]
+	if !ok {
+		return "", fmt.Errorf("not found")
+	}
+	return v, nil
+}
+
+func (s *configResolverStub) ResolvePrefix(_ context.Context, _ string, _ sharedconfig.Scope) (map[string]string, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+// --- distill tests ---
+
+func TestMemoryMiddleware_DistillTriggeredByToolCalls(t *testing.T) {
+	mp := newMemMock()
+	mw := pipeline.NewMemoryMiddleware(mp, nil, nil)
+
+	rc := buildMemRC(userIDPtr(), "help me search", "found 3 results")
+	rc.RunToolCallCount = 3
+	rc.RunIterationCount = 1
+
+	h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(_ context.Context, _ *pipeline.RunContext) error { return nil })
+	if err := h(context.Background(), rc); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	select {
+	case <-mp.distillDone:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timeout waiting for distill commit")
+	}
+
+	mp.mu.Lock()
+	defer mp.mu.Unlock()
+	if !mp.appendCalled {
+		t.Fatal("expected AppendSessionMessages to be called")
+	}
+	if !mp.commitCalled {
+		t.Fatal("expected CommitSession to be called")
+	}
+	if mp.commitSessionID != rc.Run.ThreadID.String() {
+		t.Fatalf("expected session ID %s, got %s", rc.Run.ThreadID.String(), mp.commitSessionID)
+	}
+	hasUser := false
+	hasAssistant := false
+	for _, msg := range mp.appendMsgs {
+		if msg.Role == "user" {
+			hasUser = true
+		}
+		if msg.Role == "assistant" && strings.Contains(msg.Content, "found 3 results") {
+			hasAssistant = true
+		}
+	}
+	if !hasUser || !hasAssistant {
+		t.Fatalf("expected both user and assistant messages, got %+v", mp.appendMsgs)
+	}
+}
+
+func TestMemoryMiddleware_DistillTriggeredByIterations(t *testing.T) {
+	mp := newMemMock()
+	mw := pipeline.NewMemoryMiddleware(mp, nil, nil)
+
+	rc := buildMemRC(userIDPtr(), "complex question", "detailed answer")
+	rc.RunToolCallCount = 0
+	rc.RunIterationCount = 4
+
+	h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(_ context.Context, _ *pipeline.RunContext) error { return nil })
+	if err := h(context.Background(), rc); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	select {
+	case <-mp.distillDone:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timeout waiting for distill commit")
+	}
+
+	mp.mu.Lock()
+	defer mp.mu.Unlock()
+	if !mp.commitCalled {
+		t.Fatal("expected CommitSession to be called")
+	}
+}
+
+func TestMemoryMiddleware_DistillSkippedBelowThreshold(t *testing.T) {
+	mp := newMemMock()
+	mw := pipeline.NewMemoryMiddleware(mp, nil, nil)
+
+	rc := buildMemRC(userIDPtr(), "simple question", "simple answer")
+	rc.RunToolCallCount = 1
+	rc.RunIterationCount = 1
+
+	h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(_ context.Context, _ *pipeline.RunContext) error { return nil })
+	if err := h(context.Background(), rc); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	mp.mu.Lock()
+	defer mp.mu.Unlock()
+	if mp.appendCalled {
+		t.Fatal("AppendSessionMessages should not be called below threshold")
+	}
+	if mp.commitCalled {
+		t.Fatal("CommitSession should not be called below threshold")
+	}
+}
+
+func TestMemoryMiddleware_DistillSkippedWhenDisabled(t *testing.T) {
+	mp := newMemMock()
+	resolver := &configResolverStub{values: map[string]string{
+		"memory.distill_enabled": "false",
+	}}
+	mw := pipeline.NewMemoryMiddleware(mp, nil, resolver)
+
+	rc := buildMemRC(userIDPtr(), "query", "response")
+	rc.RunToolCallCount = 5
+	rc.RunIterationCount = 5
+
+	h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(_ context.Context, _ *pipeline.RunContext) error { return nil })
+	if err := h(context.Background(), rc); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	mp.mu.Lock()
+	defer mp.mu.Unlock()
+	if mp.commitCalled {
+		t.Fatal("CommitSession should not be called when distill is disabled")
+	}
+}
+
+func TestMemoryMiddleware_DistillSkippedWhenNoAssistantOutput(t *testing.T) {
+	mp := newMemMock()
+	mw := pipeline.NewMemoryMiddleware(mp, nil, nil)
+
+	rc := buildMemRC(userIDPtr(), "query", "")
+	rc.RunToolCallCount = 5
+
+	h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(_ context.Context, _ *pipeline.RunContext) error { return nil })
+	if err := h(context.Background(), rc); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	mp.mu.Lock()
+	defer mp.mu.Unlock()
+	if mp.commitCalled {
+		t.Fatal("CommitSession should not be called when FinalAssistantOutput is empty")
 	}
 }

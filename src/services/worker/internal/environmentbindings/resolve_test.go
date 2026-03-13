@@ -1,4 +1,4 @@
-package runengine
+package environmentbindings
 
 import (
 	"bytes"
@@ -11,7 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-func TestResolveAndPersistEnvironmentBindings_ProjectScopedPerProfile(t *testing.T) {
+func TestResolveAndPersistRun_ProjectScopedPerProfile(t *testing.T) {
 	db := testutil.SetupPostgresDatabase(t, "arkloop_wg09_runtime_bindings_project")
 	pool, err := pgxpool.New(context.Background(), db.DSN)
 	if err != nil {
@@ -34,7 +34,7 @@ func TestResolveAndPersistEnvironmentBindings_ProjectScopedPerProfile(t *testing
 	seedThreadAndRun(t, pool, accountID, threadA2, &projectID, &userA, runA2)
 	seedThreadAndRun(t, pool, accountID, threadB, &projectID, &userB, runB)
 
-	first, err := resolveAndPersistEnvironmentBindings(context.Background(), pool, data.Run{
+	first, err := ResolveAndPersistRun(context.Background(), pool, data.Run{
 		ID:              runA1,
 		AccountID:           accountID,
 		ThreadID:        threadA1,
@@ -44,7 +44,7 @@ func TestResolveAndPersistEnvironmentBindings_ProjectScopedPerProfile(t *testing
 	if err != nil {
 		t.Fatalf("resolve first run failed: %v", err)
 	}
-	second, err := resolveAndPersistEnvironmentBindings(context.Background(), pool, data.Run{
+	second, err := ResolveAndPersistRun(context.Background(), pool, data.Run{
 		ID:              runA2,
 		AccountID:           accountID,
 		ThreadID:        threadA2,
@@ -54,7 +54,7 @@ func TestResolveAndPersistEnvironmentBindings_ProjectScopedPerProfile(t *testing
 	if err != nil {
 		t.Fatalf("resolve second run failed: %v", err)
 	}
-	third, err := resolveAndPersistEnvironmentBindings(context.Background(), pool, data.Run{
+	third, err := ResolveAndPersistRun(context.Background(), pool, data.Run{
 		ID:              runB,
 		AccountID:           accountID,
 		ThreadID:        threadB,
@@ -103,7 +103,7 @@ func TestResolveAndPersistEnvironmentBindings_ProjectScopedPerProfile(t *testing
 	}
 }
 
-func TestResolveAndPersistEnvironmentBindings_ThreadFallback(t *testing.T) {
+func TestResolveAndPersistRun_ThreadFallback(t *testing.T) {
 	db := testutil.SetupPostgresDatabase(t, "arkloop_wg09_runtime_bindings_thread")
 	pool, err := pgxpool.New(context.Background(), db.DSN)
 	if err != nil {
@@ -120,7 +120,7 @@ func TestResolveAndPersistEnvironmentBindings_ThreadFallback(t *testing.T) {
 	seedThreadAndRun(t, pool, accountID, threadID, nil, &userID, runID1)
 	seedRunOnly(t, pool, accountID, threadID, &userID, runID2)
 
-	first, err := resolveAndPersistEnvironmentBindings(context.Background(), pool, data.Run{
+	first, err := ResolveAndPersistRun(context.Background(), pool, data.Run{
 		ID:              runID1,
 		AccountID:           accountID,
 		ThreadID:        threadID,
@@ -129,7 +129,7 @@ func TestResolveAndPersistEnvironmentBindings_ThreadFallback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve first run failed: %v", err)
 	}
-	second, err := resolveAndPersistEnvironmentBindings(context.Background(), pool, data.Run{
+	second, err := ResolveAndPersistRun(context.Background(), pool, data.Run{
 		ID:              runID2,
 		AccountID:           accountID,
 		ThreadID:        threadID,
@@ -144,7 +144,7 @@ func TestResolveAndPersistEnvironmentBindings_ThreadFallback(t *testing.T) {
 	}
 }
 
-func TestResolveAndPersistEnvironmentBindings_NewThreadInheritsWorkspaceSkills(t *testing.T) {
+func TestResolveAndPersistRun_NewThreadInheritsWorkspaceSkills(t *testing.T) {
 	db := testutil.SetupPostgresDatabase(t, "arkloop_wg09_runtime_bindings_inherit_skills")
 	pool, err := pgxpool.New(context.Background(), db.DSN)
 	if err != nil {
@@ -162,7 +162,7 @@ func TestResolveAndPersistEnvironmentBindings_NewThreadInheritsWorkspaceSkills(t
 	seedThreadAndRun(t, pool, accountID, threadID1, nil, &userID, runID1)
 	seedThreadAndRun(t, pool, accountID, threadID2, nil, &userID, runID2)
 
-	first, err := resolveAndPersistEnvironmentBindings(context.Background(), pool, data.Run{
+	first, err := ResolveAndPersistRun(context.Background(), pool, data.Run{
 		ID:              runID1,
 		AccountID:           accountID,
 		ThreadID:        threadID1,
@@ -182,7 +182,7 @@ func TestResolveAndPersistEnvironmentBindings_NewThreadInheritsWorkspaceSkills(t
 		t.Fatalf("seed workspace skill enablement: %v", err)
 	}
 
-	second, err := resolveAndPersistEnvironmentBindings(context.Background(), pool, data.Run{
+	second, err := ResolveAndPersistRun(context.Background(), pool, data.Run{
 		ID:              runID2,
 		AccountID:           accountID,
 		ThreadID:        threadID2,

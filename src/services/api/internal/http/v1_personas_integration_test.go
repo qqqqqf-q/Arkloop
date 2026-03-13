@@ -97,7 +97,10 @@ func TestPersonasListCreateAndPatchUsePersonaFields(t *testing.T) {
 				ToolAllowlist:      []string{"web.search"},
 				ToolDenylist:       []string{"exec_command"},
 				Budgets:            map[string]any{"max_output_tokens": 2048},
-				PromptMD:           "builtin prompt",
+				Roles: map[string]any{
+					"worker": map[string]any{"prompt_md": "builtin worker prompt"},
+				},
+				PromptMD: "builtin prompt",
 			},
 			{
 				ID:                 "shadowed",
@@ -142,6 +145,7 @@ func TestPersonasListCreateAndPatchUsePersonaFields(t *testing.T) {
 		nil,
 		json.RawMessage(`{"max_output_tokens":512}`),
 		nil,
+		nil,
 		strPtrPersonaLocal("custom-shadow^model"),
 		"high",
 		"system_prompt",
@@ -162,6 +166,7 @@ func TestPersonasListCreateAndPatchUsePersonaFields(t *testing.T) {
 		[]string{"web.search"},
 		[]string{"exec_command"},
 		json.RawMessage(`{"temperature":0.3}`),
+		nil,
 		strPtrPersonaLocal("cred-custom"),
 		strPtrPersonaLocal("custom-only^gpt-4.1-mini"),
 		"high",
@@ -181,6 +186,7 @@ func TestPersonasListCreateAndPatchUsePersonaFields(t *testing.T) {
 		"tool_allowlist":       []string{"web.search"},
 		"tool_denylist":        []string{"exec_command"},
 		"budgets":              map[string]any{"max_output_tokens": 1024, "top_p": 0.9},
+		"roles":                map[string]any{"worker": map[string]any{"prompt_md": "worker prompt"}},
 		"preferred_credential": "cred-api",
 		"model":                "api-cred^gpt-5-mini",
 		"reasoning_mode":       "medium",
@@ -203,6 +209,7 @@ func TestPersonasListCreateAndPatchUsePersonaFields(t *testing.T) {
 	if len(created.ToolDenylist) != 1 || created.ToolDenylist[0] != "exec_command" {
 		t.Fatalf("unexpected created tool_denylist: %#v", created.ToolDenylist)
 	}
+	assertJSONContainsRolePrompt(t, created.RolesJSON, "worker", "worker prompt")
 
 	copyResp := doJSON(handler, nethttp.MethodPost, "/v1/personas", map[string]any{
 		"copy_from_repo_persona_key": "builtin-only",
@@ -258,6 +265,7 @@ func TestPersonasListCreateAndPatchUsePersonaFields(t *testing.T) {
 	if len(builtinOnly.ToolDenylist) != 1 || builtinOnly.ToolDenylist[0] != "exec_command" {
 		t.Fatalf("unexpected builtin tool_denylist: %#v", builtinOnly.ToolDenylist)
 	}
+	assertJSONContainsRolePrompt(t, builtinOnly.RolesJSON, "worker", "builtin worker prompt")
 
 	shadowed, ok := byKey["shadowed"]
 	if !ok {
@@ -301,6 +309,7 @@ func TestPersonasListCreateAndPatchUsePersonaFields(t *testing.T) {
 		"tool_denylist":        []string{"write_stdin"},
 		"reasoning_mode":       "high",
 		"prompt_cache_control": "none",
+		"roles":                map[string]any{},
 	}, headers)
 	if patchResp.Code != nethttp.StatusOK {
 		t.Fatalf("patch persona: %d %s", patchResp.Code, patchResp.Body.String())
@@ -318,6 +327,7 @@ func TestPersonasListCreateAndPatchUsePersonaFields(t *testing.T) {
 	if len(patched.ToolDenylist) != 1 || patched.ToolDenylist[0] != "write_stdin" {
 		t.Fatalf("unexpected patched tool_denylist: %#v", patched.ToolDenylist)
 	}
+	assertJSONContainsEmptyObject(t, patched.RolesJSON)
 
 	ghostPatchResp := doJSON(handler, nethttp.MethodPatch, "/v1/personas/"+ghostID.String(), map[string]any{
 		"display_name": "Ghost Renamed",
@@ -568,22 +578,22 @@ func TestSelectablePersonasEffectiveForMemberUser(t *testing.T) {
 	me := decodeJSONBody[meResponse](t, meResp.Body.Bytes())
 	accountID := uuid.MustParse(me.AccountID)
 
-	if _, err := personasRepo.CreateInScope(ctx, uuid.Nil, data.PersonaScopePlatform, "extended-search", "1", "Platform Search", nil, "platform search prompt", nil, nil, json.RawMessage(`{"temperature":0.4}`), nil, strPtrPersonaLocal("platform^search"), "auto", "none", "agent.simple", nil); err != nil {
+	if _, err := personasRepo.CreateInScope(ctx, uuid.Nil, data.PersonaScopePlatform, "extended-search", "1", "Platform Search", nil, "platform search prompt", nil, nil, json.RawMessage(`{"temperature":0.4}`), nil, nil, strPtrPersonaLocal("platform^search"), "auto", "none", "agent.simple", nil); err != nil {
 		t.Fatalf("create platform search: %v", err)
 	}
-	if _, err := personasRepo.CreateInScope(ctx, uuid.Nil, data.PersonaScopePlatform, "hidden-builtin", "1", "Platform Hidden", nil, "platform hidden prompt", nil, nil, json.RawMessage(`{"temperature":0.4}`), nil, strPtrPersonaLocal("platform^hidden"), "auto", "none", "agent.simple", nil); err != nil {
+	if _, err := personasRepo.CreateInScope(ctx, uuid.Nil, data.PersonaScopePlatform, "hidden-builtin", "1", "Platform Hidden", nil, "platform hidden prompt", nil, nil, json.RawMessage(`{"temperature":0.4}`), nil, nil, strPtrPersonaLocal("platform^hidden"), "auto", "none", "agent.simple", nil); err != nil {
 		t.Fatalf("create platform hidden: %v", err)
 	}
-	if _, err := personasRepo.CreateInScope(ctx, uuid.Nil, data.PersonaScopePlatform, "platform-custom", "1", "Platform Custom", nil, "platform custom prompt", nil, nil, json.RawMessage(`{"temperature":0.4}`), nil, strPtrPersonaLocal("platform^custom"), "auto", "none", "agent.simple", nil); err != nil {
+	if _, err := personasRepo.CreateInScope(ctx, uuid.Nil, data.PersonaScopePlatform, "platform-custom", "1", "Platform Custom", nil, "platform custom prompt", nil, nil, json.RawMessage(`{"temperature":0.4}`), nil, nil, strPtrPersonaLocal("platform^custom"), "auto", "none", "agent.simple", nil); err != nil {
 		t.Fatalf("create platform custom: %v", err)
 	}
-	if _, err := personasRepo.CreateInScope(ctx, accountID, data.PersonaScopeProject, "normal", "1", "Account Normal", nil, "account normal prompt", nil, nil, json.RawMessage(`{"temperature":0.2}`), nil, strPtrPersonaLocal("org^normal"), "high", "system_prompt", "agent.simple", nil); err != nil {
+	if _, err := personasRepo.CreateInScope(ctx, accountID, data.PersonaScopeProject, "normal", "1", "Account Normal", nil, "account normal prompt", nil, nil, json.RawMessage(`{"temperature":0.2}`), nil, nil, strPtrPersonaLocal("org^normal"), "high", "system_prompt", "agent.simple", nil); err != nil {
 		t.Fatalf("create org normal: %v", err)
 	}
-	if _, err := personasRepo.CreateInScope(ctx, accountID, data.PersonaScopeProject, "org-custom", "1", "Account Custom", nil, "account custom prompt", nil, nil, json.RawMessage(`{"temperature":0.2}`), nil, strPtrPersonaLocal("org^custom"), "high", "system_prompt", "agent.simple", nil); err != nil {
+	if _, err := personasRepo.CreateInScope(ctx, accountID, data.PersonaScopeProject, "org-custom", "1", "Account Custom", nil, "account custom prompt", nil, nil, json.RawMessage(`{"temperature":0.2}`), nil, nil, strPtrPersonaLocal("org^custom"), "high", "system_prompt", "agent.simple", nil); err != nil {
 		t.Fatalf("create org custom: %v", err)
 	}
-	inactive, err := personasRepo.CreateInScope(ctx, accountID, data.PersonaScopeProject, "extended-search", "1", "Account Search Inactive", nil, "account inactive search prompt", nil, nil, json.RawMessage(`{"temperature":0.2}`), nil, strPtrPersonaLocal("org^search"), "high", "system_prompt", "agent.simple", nil)
+	inactive, err := personasRepo.CreateInScope(ctx, accountID, data.PersonaScopeProject, "extended-search", "1", "Account Search Inactive", nil, "account inactive search prompt", nil, nil, json.RawMessage(`{"temperature":0.2}`), nil, nil, strPtrPersonaLocal("org^search"), "high", "system_prompt", "agent.simple", nil)
 	if err != nil {
 		t.Fatalf("create org search inactive: %v", err)
 	}
@@ -658,6 +668,32 @@ func TestSelectablePersonasEffectiveForMemberUser(t *testing.T) {
 	}
 	if search.SelectorName == nil || *search.SelectorName != "Search" {
 		t.Fatalf("unexpected search selector: %#v", search.SelectorName)
+	}
+}
+
+func assertJSONContainsRolePrompt(t *testing.T, raw json.RawMessage, role string, prompt string) {
+	t.Helper()
+	var parsed map[string]map[string]any
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		t.Fatalf("unmarshal roles json failed: %v", err)
+	}
+	roleObj, ok := parsed[role]
+	if !ok {
+		t.Fatalf("expected role %q in %#v", role, parsed)
+	}
+	if roleObj["prompt_md"] != prompt {
+		t.Fatalf("unexpected prompt for role %q: %#v", role, roleObj)
+	}
+}
+
+func assertJSONContainsEmptyObject(t *testing.T, raw json.RawMessage) {
+	t.Helper()
+	var parsed map[string]any
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		t.Fatalf("unmarshal empty roles json failed: %v", err)
+	}
+	if len(parsed) != 0 {
+		t.Fatalf("expected empty object, got %#v", parsed)
 	}
 }
 

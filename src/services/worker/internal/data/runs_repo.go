@@ -30,6 +30,12 @@ type Run struct {
 	WorkspaceRef    *string
 }
 
+type RunLineage struct {
+	RootRunID    uuid.UUID
+	RootThreadID uuid.UUID
+	Depth        int
+}
+
 type RunsRepository struct{}
 
 // UpdateRunMetadata 写入 runs.model / runs.persona_id，用于列表展示与筛选。
@@ -86,6 +92,41 @@ func (RunsRepository) GetRun(ctx context.Context, tx pgx.Tx, runID uuid.UUID) (*
 		return nil, err
 	}
 	return &run, nil
+}
+
+func (RunsRepository) GetLineage(ctx context.Context, tx pgx.Tx, runID uuid.UUID) (RunLineage, error) {
+	if tx == nil {
+		return RunLineage{}, fmt.Errorf("tx must not be nil")
+	}
+	if runID == uuid.Nil {
+		return RunLineage{}, fmt.Errorf("run_id must not be empty")
+	}
+
+	var lineage RunLineage
+	err := tx.QueryRow(ctx,
+		`WITH RECURSIVE lineage AS (
+			SELECT id, parent_run_id, thread_id, 0 AS depth
+			  FROM runs
+			 WHERE id = $1
+			UNION ALL
+			SELECT parent.id, parent.parent_run_id, parent.thread_id, lineage.depth + 1
+			  FROM runs parent
+			  JOIN lineage ON lineage.parent_run_id = parent.id
+		)
+		SELECT id, thread_id, depth
+		  FROM lineage
+		 WHERE parent_run_id IS NULL
+		 ORDER BY depth DESC
+		 LIMIT 1`,
+		runID,
+	).Scan(&lineage.RootRunID, &lineage.RootThreadID, &lineage.Depth)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return RunLineage{}, fmt.Errorf("run not found: %s", runID)
+		}
+		return RunLineage{}, err
+	}
+	return lineage, nil
 }
 
 func (RunsRepository) UpdateEnvironmentBindings(

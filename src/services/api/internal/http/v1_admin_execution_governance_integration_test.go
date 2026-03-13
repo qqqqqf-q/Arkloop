@@ -160,6 +160,7 @@ func TestAdminExecutionGovernanceReturnsPersonaCentricView(t *testing.T) {
 		nil,
 		nil,
 		customBudgets,
+		nil,
 		strPtrLocal("cred-custom"),
 		strPtrLocal("custom-cred^claude-3-7-sonnet"),
 		"high",

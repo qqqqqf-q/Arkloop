@@ -21,6 +21,7 @@ import (
 	"arkloop/services/worker/internal/queue"
 	"arkloop/services/worker/internal/routing"
 	workerruntime "arkloop/services/worker/internal/runtime"
+	"arkloop/services/worker/internal/subagentctl"
 	"arkloop/services/worker/internal/toolprovider"
 	"arkloop/services/worker/internal/tools"
 	"arkloop/services/worker/internal/tools/builtin/sandbox"
@@ -71,7 +72,7 @@ type EngineV1Deps struct {
 	ToolDescriptionOverridesRepo pipeline.ToolDescriptionOverridesReader
 	ExecutorRegistry             pipeline.AgentExecutorBuilder // 必填，nil 时 NewEngineV1 返回错误
 
-	// JobQueue 可选；非 nil 时启用 SpawnChildRun
+	// JobQueue 可选；非 nil 时启用 SubAgentControl
 	JobQueue queue.JobQueue
 
 	// LLM 请求重试配置
@@ -170,6 +171,7 @@ func NewEngineV1(deps EngineV1Deps) (*EngineV1, error) {
 		pipeline.NewToolProviderMiddleware(deps.ToolProviderCache),
 		pipeline.NewAgentConfigMiddleware(deps.DBPool),
 		pipeline.NewPersonaResolutionMiddleware(deps.PersonaRegistryGetter, deps.DBPool, runsRepo, eventsRepo, releaseSlot),
+		pipeline.NewSubAgentContextMiddleware(subagentctl.NewSnapshotStorage()),
 		pipeline.NewSkillContextMiddleware(deps.DBPool, nil),
 		pipeline.NewMemoryMiddleware(nil, deps.DBPool, deps.ConfigResolver),
 		pipeline.NewRoutingMiddleware(deps.Router, deps.RoutingConfigLoader, deps.StubGateway, deps.EmitDebugEvents, runsRepo, eventsRepo, releaseSlot, resolver),
@@ -178,7 +180,7 @@ func NewEngineV1(deps EngineV1Deps) (*EngineV1, error) {
 		pipeline.NewToolBuildMiddleware(),
 	}
 
-	terminal := pipeline.NewAgentLoopHandler(runsRepo, eventsRepo, messagesRepo, deps.RunLimiterRDB, usageRepo, creditsRepo, resolver)
+	terminal := pipeline.NewAgentLoopHandler(runsRepo, eventsRepo, messagesRepo, deps.RunLimiterRDB, deps.JobQueue, usageRepo, creditsRepo, resolver)
 
 	return &EngineV1{
 		middlewares:           middlewares,
@@ -206,6 +208,9 @@ func (e *EngineV1) Execute(ctx context.Context, pool *pgxpool.Pool, run data.Run
 		return fmt.Errorf("resolve environment bindings: %w", err)
 	}
 	run = resolvedRun
+	if err := subagentctl.MarkRunning(ctx, pool, run.ID); err != nil {
+		return fmt.Errorf("mark sub_agent running: %w", err)
+	}
 
 	traceID := strings.TrimSpace(input.TraceID)
 
@@ -259,7 +264,19 @@ func (e *EngineV1) Execute(ctx context.Context, pool *pgxpool.Pool, run data.Run
 	}
 
 	if e.jobQueue != nil && e.broadcastRDB != nil {
-		rc.SpawnChildRun = newSpawnChildRunFunc(pool, e.broadcastRDB, e.jobQueue, run, traceID)
+		subAgentLimits := subagentctl.SubAgentLimits{
+			MaxDepth:                 resolveNonNegativeInt(ctx, e.configResolver, registry, "limit.subagent_max_depth", orgScope, 5),
+			MaxActivePerRootRun:      resolveNonNegativeInt(ctx, e.configResolver, registry, "limit.subagent_max_active_per_root_run", orgScope, 20),
+			MaxParallelChildren:      resolveNonNegativeInt(ctx, e.configResolver, registry, "limit.subagent_max_parallel_children", orgScope, 5),
+			MaxDescendantsPerRootRun: resolveNonNegativeInt(ctx, e.configResolver, registry, "limit.subagent_max_descendants_per_root_run", orgScope, 50),
+			MaxPendingPerRootRun:     resolveNonNegativeInt(ctx, e.configResolver, registry, "limit.subagent_max_pending_per_root_run", orgScope, 20),
+		}
+		bpConfig := subagentctl.BackpressureConfig{
+			Enabled:        resolveBool(ctx, e.configResolver, registry, "backpressure.enabled", orgScope, true),
+			QueueThreshold: resolveNonNegativeInt(ctx, e.configResolver, registry, "backpressure.queue_threshold", orgScope, 15),
+			Strategy:       resolveString(ctx, e.configResolver, registry, "backpressure.strategy", orgScope, "serial"),
+		}
+		rc.SubAgentControl = subagentctl.NewService(pool, e.broadcastRDB, e.jobQueue, run, traceID, subAgentLimits, bpConfig)
 	}
 
 	handler := pipeline.Build(e.middlewares, e.terminal)
@@ -296,6 +313,46 @@ func resolvePositiveInt(ctx context.Context, resolver sharedconfig.Resolver, reg
 		return fallback
 	}
 	return v
+}
+
+func resolveBool(ctx context.Context, resolver sharedconfig.Resolver, registry *sharedconfig.Registry, key string, scope sharedconfig.Scope, lastResort bool) bool {
+	fallback := lastResort
+	if registry != nil {
+		if entry, ok := registry.Get(key); ok {
+			if v, err := strconv.ParseBool(strings.TrimSpace(entry.Default)); err == nil {
+				fallback = v
+			}
+		}
+	}
+	if resolver == nil {
+		return fallback
+	}
+	raw, err := resolver.Resolve(ctx, key, scope)
+	if err != nil {
+		return fallback
+	}
+	v, err := strconv.ParseBool(strings.TrimSpace(raw))
+	if err != nil {
+		return fallback
+	}
+	return v
+}
+
+func resolveString(ctx context.Context, resolver sharedconfig.Resolver, registry *sharedconfig.Registry, key string, scope sharedconfig.Scope, lastResort string) string {
+	fallback := lastResort
+	if registry != nil {
+		if entry, ok := registry.Get(key); ok && entry.Default != "" {
+			fallback = entry.Default
+		}
+	}
+	if resolver == nil {
+		return fallback
+	}
+	raw, err := resolver.Resolve(ctx, key, scope)
+	if err != nil || strings.TrimSpace(raw) == "" {
+		return fallback
+	}
+	return raw
 }
 
 func resolveNonNegativeInt(ctx context.Context, resolver sharedconfig.Resolver, registry *sharedconfig.Registry, key string, scope sharedconfig.Scope, lastResort int) int {

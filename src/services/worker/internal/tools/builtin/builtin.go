@@ -25,6 +25,11 @@ func AgentSpecs() []tools.AgentToolSpec {
 		webfetch.AgentSpecFirecrawl,
 		webfetch.AgentSpecBasic,
 		spawnagent.AgentSpec,
+		spawnagent.SendInputSpec,
+		spawnagent.WaitAgentSpec,
+		spawnagent.ResumeAgentSpec,
+		spawnagent.CloseAgentSpec,
+		spawnagent.InterruptAgentSpec,
 		summarizethread.AgentSpec,
 		askuser.AgentSpec,
 	}

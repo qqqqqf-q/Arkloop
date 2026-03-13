@@ -6,14 +6,18 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"arkloop/services/shared/skillstore"
 	"arkloop/services/worker/internal/agent"
+	"arkloop/services/worker/internal/data"
 	"arkloop/services/worker/internal/events"
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/memory"
 	"arkloop/services/worker/internal/pipeline"
+	"arkloop/services/worker/internal/subagentctl"
 	"arkloop/services/worker/internal/tools"
+	"github.com/google/uuid"
 
 	lua "github.com/yuin/gopher-lua"
 )
@@ -138,8 +142,11 @@ func (rt *luaRuntime) mergeUsage(u *llm.Usage) {
 
 func (rt *luaRuntime) register(L *lua.LState) {
 	agentTable := L.NewTable()
-	L.SetField(agentTable, "run", L.NewFunction(rt.agentRun))
-	L.SetField(agentTable, "run_parallel", L.NewFunction(rt.agentRunParallel))
+	L.SetField(agentTable, "spawn", L.NewFunction(rt.agentSpawn))
+	L.SetField(agentTable, "send", L.NewFunction(rt.agentSend))
+	L.SetField(agentTable, "wait", L.NewFunction(rt.agentWait))
+	L.SetField(agentTable, "resume", L.NewFunction(rt.agentResume))
+	L.SetField(agentTable, "close", L.NewFunction(rt.agentClose))
 	L.SetField(agentTable, "classify", L.NewFunction(rt.agentClassify))
 	L.SetField(agentTable, "generate", L.NewFunction(rt.agentGenerate))
 	L.SetField(agentTable, "stream", L.NewFunction(rt.agentStream))
@@ -174,156 +181,171 @@ func (rt *luaRuntime) register(L *lua.LState) {
 	L.SetGlobal("memory", memoryTable)
 }
 
-// agent.run(persona_id, input) -> (output, err)
-// 内部调用 SpawnChildRun，父 Run 挂起等待子 Run 完成。
-func (rt *luaRuntime) agentRun(L *lua.LState) int {
+func (rt *luaRuntime) agentSpawn(L *lua.LState) int {
 	if rt.ctx.Err() != nil {
 		L.Push(lua.LNil)
 		L.Push(lua.LString(rt.ctx.Err().Error()))
 		return 2
 	}
-
-	personaID := L.CheckString(1)
-	input := L.CheckString(2)
-
-	if rt.rc.SpawnChildRun == nil {
+	if rt.rc.SubAgentControl == nil {
 		L.Push(lua.LNil)
-		L.Push(lua.LString("agent.run not available: SpawnChildRun not initialized"))
+		L.Push(lua.LString("agent.spawn not available: SubAgentControl not initialized"))
 		return 2
 	}
-
-	output, err := rt.rc.SpawnChildRun(rt.ctx, personaID, input)
+	tbl, ok := L.Get(1).(*lua.LTable)
+	if !ok {
+		L.Push(lua.LNil)
+		L.Push(lua.LString("agent.spawn: args must be a table"))
+		return 2
+	}
+	req, err := rt.parseSpawnRequest(tbl)
 	if err != nil {
 		L.Push(lua.LNil)
 		L.Push(lua.LString(err.Error()))
 		return 2
 	}
-
-	L.Push(lua.LString(output))
+	snapshot, err := rt.rc.SubAgentControl.Spawn(rt.ctx, req)
+	if err != nil {
+		L.Push(lua.LNil)
+		L.Push(lua.LString(err.Error()))
+		return 2
+	}
+	L.Push(statusSnapshotToLuaTable(L, snapshot))
 	L.Push(lua.LNil)
 	return 2
 }
 
-// agent.run_parallel(tasks) -> (results, errors)
-// tasks 是 Lua table，每项为 {persona="...", input="..."}，索引从 1 开始。
-// 所有子任务并行执行，全部完成后返回两个等长 table：
-//
-//	results[i] = 输出文本（失败时为 nil）
-//	errors[i]  = 错误信息（成功时为 nil）
-func (rt *luaRuntime) agentRunParallel(L *lua.LState) int {
+func (rt *luaRuntime) agentSend(L *lua.LState) int {
 	if rt.ctx.Err() != nil {
 		L.Push(lua.LNil)
 		L.Push(lua.LString(rt.ctx.Err().Error()))
 		return 2
 	}
-
-	if rt.rc.SpawnChildRun == nil {
+	if rt.rc.SubAgentControl == nil {
 		L.Push(lua.LNil)
-		L.Push(lua.LString("agent.run_parallel not available: SpawnChildRun not initialized"))
+		L.Push(lua.LString("agent.send not available: SubAgentControl not initialized"))
 		return 2
 	}
-
-	tasksTable := L.CheckTable(1)
-	n := tasksTable.Len()
-
-	limit := rt.rc.MaxParallelTasks
-	if limit <= 0 {
-		limit = 32
-	}
-	if n > limit {
-		L.Push(lua.LNil)
-		L.Push(lua.LString(fmt.Sprintf("agent.run_parallel: task count %d exceeds limit %d", n, limit)))
-		return 2
-	}
-
-	type taskEntry struct {
-		personaID string
-		input     string
-	}
-
-	tasks := make([]taskEntry, n)
-	for i := 0; i < n; i++ {
-		v := tasksTable.RawGetInt(i + 1)
-		tbl, ok := v.(*lua.LTable)
-		if !ok {
-			L.Push(lua.LNil)
-			L.Push(lua.LString(fmt.Sprintf("tasks[%d] must be a table with persona and input fields", i+1)))
-			return 2
-		}
-		personaLV, ok := tbl.RawGetString("persona").(lua.LString)
-		if !ok || string(personaLV) == "" {
-			L.Push(lua.LNil)
-			L.Push(lua.LString(fmt.Sprintf("tasks[%d].persona must be a non-empty string", i+1)))
-			return 2
-		}
-		inputLV, ok := tbl.RawGetString("input").(lua.LString)
-		if !ok {
-			L.Push(lua.LNil)
-			L.Push(lua.LString(fmt.Sprintf("tasks[%d].input must be a string", i+1)))
-			return 2
-		}
-		tasks[i] = taskEntry{personaID: string(personaLV), input: string(inputLV)}
-	}
-
-	personaIDs := make([]string, n)
-	for i, t := range tasks {
-		personaIDs[i] = t.personaID
-	}
-	if err := rt.yield(rt.emitter.Emit("agent.parallel_dispatch", map[string]any{
-		"task_count":  n,
-		"persona_ids": personaIDs,
-	}, nil, nil)); err != nil {
+	subAgentID, err := parseLuaSubAgentID(L.Get(1), "agent.send: id")
+	if err != nil {
 		L.Push(lua.LNil)
 		L.Push(lua.LString(err.Error()))
 		return 2
 	}
-
-	outputs := make([]string, n)
-	errs := make([]error, n)
-
-	var wg sync.WaitGroup
-	wg.Add(n)
-	for i, t := range tasks {
-		i, t := i, t
-		go func() {
-			defer wg.Done()
-			out, err := rt.rc.SpawnChildRun(rt.ctx, t.personaID, t.input)
-			outputs[i] = out
-			errs[i] = err
-		}()
-	}
-	wg.Wait()
-
-	successCount := 0
-	for _, e := range errs {
-		if e == nil {
-			successCount++
-		}
-	}
-	if err := rt.yield(rt.emitter.Emit("agent.parallel_complete", map[string]any{
-		"task_count":    n,
-		"success_count": successCount,
-		"error_count":   n - successCount,
-	}, nil, nil)); err != nil {
+	input, err := luaRequiredString(L.Get(2), "agent.send: input")
+	if err != nil {
 		L.Push(lua.LNil)
 		L.Push(lua.LString(err.Error()))
 		return 2
 	}
-
-	resultsTable := L.NewTable()
-	errorsTable := L.NewTable()
-	for i := 0; i < n; i++ {
-		if errs[i] != nil {
-			resultsTable.RawSetInt(i+1, lua.LNil)
-			errorsTable.RawSetInt(i+1, lua.LString(errs[i].Error()))
-		} else {
-			resultsTable.RawSetInt(i+1, lua.LString(outputs[i]))
-			errorsTable.RawSetInt(i+1, lua.LNil)
-		}
+	interrupt, err := parseLuaSendOptions(L.Get(3))
+	if err != nil {
+		L.Push(lua.LNil)
+		L.Push(lua.LString(err.Error()))
+		return 2
 	}
+	snapshot, err := rt.rc.SubAgentControl.SendInput(rt.ctx, subagentctl.SendInputRequest{
+		SubAgentID: subAgentID,
+		Input:      input,
+		Interrupt:  interrupt,
+	})
+	if err != nil {
+		L.Push(lua.LNil)
+		L.Push(lua.LString(err.Error()))
+		return 2
+	}
+	L.Push(statusSnapshotToLuaTable(L, snapshot))
+	L.Push(lua.LNil)
+	return 2
+}
 
-	L.Push(resultsTable)
-	L.Push(errorsTable)
+func (rt *luaRuntime) agentWait(L *lua.LState) int {
+	if rt.ctx.Err() != nil {
+		L.Push(lua.LNil)
+		L.Push(lua.LString(rt.ctx.Err().Error()))
+		return 2
+	}
+	if rt.rc.SubAgentControl == nil {
+		L.Push(lua.LNil)
+		L.Push(lua.LString("agent.wait not available: SubAgentControl not initialized"))
+		return 2
+	}
+	subAgentID, err := parseLuaSubAgentID(L.Get(1), "agent.wait: id")
+	if err != nil {
+		L.Push(lua.LNil)
+		L.Push(lua.LString(err.Error()))
+		return 2
+	}
+	timeout, err := parseLuaTimeout(L.Get(2), "agent.wait: timeout_ms")
+	if err != nil {
+		L.Push(lua.LNil)
+		L.Push(lua.LString(err.Error()))
+		return 2
+	}
+	snapshot, err := rt.rc.SubAgentControl.Wait(rt.ctx, subagentctl.WaitRequest{SubAgentID: subAgentID, Timeout: timeout})
+	if err != nil {
+		L.Push(lua.LNil)
+		L.Push(lua.LString(err.Error()))
+		return 2
+	}
+	L.Push(statusSnapshotToLuaTable(L, snapshot))
+	L.Push(lua.LNil)
+	return 2
+}
+
+func (rt *luaRuntime) agentResume(L *lua.LState) int {
+	if rt.ctx.Err() != nil {
+		L.Push(lua.LNil)
+		L.Push(lua.LString(rt.ctx.Err().Error()))
+		return 2
+	}
+	if rt.rc.SubAgentControl == nil {
+		L.Push(lua.LNil)
+		L.Push(lua.LString("agent.resume not available: SubAgentControl not initialized"))
+		return 2
+	}
+	subAgentID, err := parseLuaSubAgentID(L.Get(1), "agent.resume: id")
+	if err != nil {
+		L.Push(lua.LNil)
+		L.Push(lua.LString(err.Error()))
+		return 2
+	}
+	snapshot, err := rt.rc.SubAgentControl.Resume(rt.ctx, subagentctl.ResumeRequest{SubAgentID: subAgentID})
+	if err != nil {
+		L.Push(lua.LNil)
+		L.Push(lua.LString(err.Error()))
+		return 2
+	}
+	L.Push(statusSnapshotToLuaTable(L, snapshot))
+	L.Push(lua.LNil)
+	return 2
+}
+
+func (rt *luaRuntime) agentClose(L *lua.LState) int {
+	if rt.ctx.Err() != nil {
+		L.Push(lua.LNil)
+		L.Push(lua.LString(rt.ctx.Err().Error()))
+		return 2
+	}
+	if rt.rc.SubAgentControl == nil {
+		L.Push(lua.LNil)
+		L.Push(lua.LString("agent.close not available: SubAgentControl not initialized"))
+		return 2
+	}
+	subAgentID, err := parseLuaSubAgentID(L.Get(1), "agent.close: id")
+	if err != nil {
+		L.Push(lua.LNil)
+		L.Push(lua.LString(err.Error()))
+		return 2
+	}
+	snapshot, err := rt.rc.SubAgentControl.Close(rt.ctx, subagentctl.CloseRequest{SubAgentID: subAgentID})
+	if err != nil {
+		L.Push(lua.LNil)
+		L.Push(lua.LString(err.Error()))
+		return 2
+	}
+	L.Push(statusSnapshotToLuaTable(L, snapshot))
+	L.Push(lua.LNil)
 	return 2
 }
 
@@ -438,6 +460,11 @@ func (rt *luaRuntime) toolsCall(L *lua.LState) int {
 		ProfileRef:          rt.rc.ProfileRef,
 		WorkspaceRef:        rt.rc.WorkspaceRef,
 		EnabledSkills:       append([]skillstore.ResolvedSkill(nil), rt.rc.EnabledSkills...),
+		ToolAllowlist:       sortedToolNames(rt.rc.AllowlistSet),
+		ToolDenylist:        append([]string(nil), rt.rc.ToolDenylist...),
+		RouteID:             routeIDFromRunContext(rt.rc),
+		Model:               modelFromRunContext(rt.rc),
+		MemoryScope:         "same_user",
 		AgentID:             agentIDFromPersona(rt.rc),
 		TimeoutMs:           rt.rc.ToolTimeoutMs,
 		Budget:              rt.rc.ToolBudget,
@@ -569,6 +596,287 @@ func (rt *luaRuntime) contextEmit(L *lua.LState) int {
 	L.Push(lua.LTrue)
 	L.Push(lua.LNil)
 	return 2
+}
+
+func (rt *luaRuntime) parseSpawnRequest(tbl *lua.LTable) (subagentctl.SpawnRequest, error) {
+	if err := ensureLuaTableKeys(tbl, "agent.spawn", map[string]struct{}{
+		"persona_id":   {},
+		"input":        {},
+		"context_mode": {},
+		"role":         {},
+		"nickname":     {},
+		"inherit":      {},
+	}); err != nil {
+		return subagentctl.SpawnRequest{}, err
+	}
+	personaID, err := luaRequiredString(tbl.RawGetString("persona_id"), "agent.spawn: persona_id")
+	if err != nil {
+		return subagentctl.SpawnRequest{}, err
+	}
+	input, err := luaRequiredString(tbl.RawGetString("input"), "agent.spawn: input")
+	if err != nil {
+		return subagentctl.SpawnRequest{}, err
+	}
+	contextMode := data.SubAgentContextModeIsolated
+	if raw := tbl.RawGetString("context_mode"); raw != lua.LNil {
+		contextMode, err = luaRequiredString(raw, "agent.spawn: context_mode")
+		if err != nil {
+			return subagentctl.SpawnRequest{}, err
+		}
+	}
+	role, err := luaOptionalStringPtr(tbl.RawGetString("role"), "agent.spawn: role")
+	if err != nil {
+		return subagentctl.SpawnRequest{}, err
+	}
+	nickname, err := luaOptionalStringPtr(tbl.RawGetString("nickname"), "agent.spawn: nickname")
+	if err != nil {
+		return subagentctl.SpawnRequest{}, err
+	}
+	inherit, err := parseLuaSpawnInherit(tbl.RawGetString("inherit"))
+	if err != nil {
+		return subagentctl.SpawnRequest{}, err
+	}
+	return subagentctl.SpawnRequest{
+		PersonaID:   personaID,
+		Role:        role,
+		Nickname:    nickname,
+		ContextMode: contextMode,
+		Inherit:     inherit,
+		Input:       input,
+		ParentContext: subagentctl.SpawnParentContext{
+			ToolAllowlist: append([]string(nil), sortedToolNames(rt.rc.AllowlistSet)...),
+			ToolDenylist:  append([]string(nil), rt.rc.ToolDenylist...),
+			RouteID:       routeIDFromRunContext(rt.rc),
+			Model:         modelFromRunContext(rt.rc),
+			ProfileRef:    strings.TrimSpace(rt.rc.ProfileRef),
+			WorkspaceRef:  strings.TrimSpace(rt.rc.WorkspaceRef),
+			EnabledSkills: append([]skillstore.ResolvedSkill(nil), rt.rc.EnabledSkills...),
+			MemoryScope:   subagentctl.MemoryScopeSameUser,
+		},
+	}, nil
+}
+
+func parseLuaSpawnInherit(value lua.LValue) (subagentctl.SpawnInheritRequest, error) {
+	if value == lua.LNil {
+		return subagentctl.SpawnInheritRequest{}, nil
+	}
+	tbl, ok := value.(*lua.LTable)
+	if !ok {
+		return subagentctl.SpawnInheritRequest{}, fmt.Errorf("agent.spawn: inherit must be a table")
+	}
+	if err := ensureLuaTableKeys(tbl, "agent.spawn: inherit", map[string]struct{}{
+		"messages":     {},
+		"attachments":  {},
+		"workspace":    {},
+		"skills":       {},
+		"runtime":      {},
+		"memory_scope": {},
+		"message_ids":  {},
+	}); err != nil {
+		return subagentctl.SpawnInheritRequest{}, err
+	}
+	inherit := subagentctl.SpawnInheritRequest{}
+	var err error
+	if inherit.Messages, err = luaOptionalBoolPtr(tbl.RawGetString("messages"), "agent.spawn: inherit.messages"); err != nil {
+		return subagentctl.SpawnInheritRequest{}, err
+	}
+	if inherit.Attachments, err = luaOptionalBoolPtr(tbl.RawGetString("attachments"), "agent.spawn: inherit.attachments"); err != nil {
+		return subagentctl.SpawnInheritRequest{}, err
+	}
+	if inherit.Workspace, err = luaOptionalBoolPtr(tbl.RawGetString("workspace"), "agent.spawn: inherit.workspace"); err != nil {
+		return subagentctl.SpawnInheritRequest{}, err
+	}
+	if inherit.Skills, err = luaOptionalBoolPtr(tbl.RawGetString("skills"), "agent.spawn: inherit.skills"); err != nil {
+		return subagentctl.SpawnInheritRequest{}, err
+	}
+	if inherit.Runtime, err = luaOptionalBoolPtr(tbl.RawGetString("runtime"), "agent.spawn: inherit.runtime"); err != nil {
+		return subagentctl.SpawnInheritRequest{}, err
+	}
+	if raw := tbl.RawGetString("memory_scope"); raw != lua.LNil {
+		inherit.MemoryScope, err = luaRequiredString(raw, "agent.spawn: inherit.memory_scope")
+		if err != nil {
+			return subagentctl.SpawnInheritRequest{}, err
+		}
+	}
+	if raw := tbl.RawGetString("message_ids"); raw != lua.LNil {
+		messageIDsTable, ok := raw.(*lua.LTable)
+		if !ok {
+			return subagentctl.SpawnInheritRequest{}, fmt.Errorf("agent.spawn: inherit.message_ids must be a non-empty array")
+		}
+		if messageIDsTable.Len() == 0 {
+			return subagentctl.SpawnInheritRequest{}, fmt.Errorf("agent.spawn: inherit.message_ids must be a non-empty array")
+		}
+		seen := map[uuid.UUID]struct{}{}
+		for i := 1; i <= messageIDsTable.Len(); i++ {
+			messageID, err := parseLuaSubAgentID(messageIDsTable.RawGetInt(i), "agent.spawn: inherit.message_ids")
+			if err != nil {
+				return subagentctl.SpawnInheritRequest{}, err
+			}
+			if _, ok := seen[messageID]; ok {
+				continue
+			}
+			seen[messageID] = struct{}{}
+			inherit.MessageIDs = append(inherit.MessageIDs, messageID)
+		}
+	}
+	return inherit, nil
+}
+
+func parseLuaSendOptions(value lua.LValue) (bool, error) {
+	if value == lua.LNil {
+		return false, nil
+	}
+	tbl, ok := value.(*lua.LTable)
+	if !ok {
+		return false, fmt.Errorf("agent.send: opts must be a table")
+	}
+	if err := ensureLuaTableKeys(tbl, "agent.send", map[string]struct{}{"interrupt": {}}); err != nil {
+		return false, err
+	}
+	raw := tbl.RawGetString("interrupt")
+	if raw == lua.LNil {
+		return false, nil
+	}
+	interrupt, ok := raw.(lua.LBool)
+	if !ok {
+		return false, fmt.Errorf("agent.send: opts.interrupt must be a boolean")
+	}
+	return bool(interrupt), nil
+}
+
+func parseLuaTimeout(value lua.LValue, field string) (time.Duration, error) {
+	if value == lua.LNil {
+		return 0, nil
+	}
+	number, ok := value.(lua.LNumber)
+	if !ok {
+		return 0, fmt.Errorf("%s must be a positive integer", field)
+	}
+	ms := float64(number)
+	if ms <= 0 || ms != float64(int(ms)) {
+		return 0, fmt.Errorf("%s must be a positive integer", field)
+	}
+	return time.Duration(int(ms)) * time.Millisecond, nil
+}
+
+func parseLuaSubAgentID(value lua.LValue, field string) (uuid.UUID, error) {
+	text, err := luaRequiredString(value, field)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	id, err := uuid.Parse(text)
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("%s must be a valid UUID", field)
+	}
+	return id, nil
+}
+
+func luaRequiredString(value lua.LValue, field string) (string, error) {
+	text, ok := value.(lua.LString)
+	if !ok || strings.TrimSpace(string(text)) == "" {
+		return "", fmt.Errorf("%s must be a non-empty string", field)
+	}
+	return strings.TrimSpace(string(text)), nil
+}
+
+func luaOptionalStringPtr(value lua.LValue, field string) (*string, error) {
+	if value == lua.LNil {
+		return nil, nil
+	}
+	text, ok := value.(lua.LString)
+	if !ok {
+		return nil, fmt.Errorf("%s must be a string", field)
+	}
+	trimmed := strings.TrimSpace(string(text))
+	if trimmed == "" {
+		return nil, nil
+	}
+	return &trimmed, nil
+}
+
+func luaOptionalBoolPtr(value lua.LValue, field string) (*bool, error) {
+	if value == lua.LNil {
+		return nil, nil
+	}
+	boolean, ok := value.(lua.LBool)
+	if !ok {
+		return nil, fmt.Errorf("%s must be a boolean", field)
+	}
+	parsed := bool(boolean)
+	return &parsed, nil
+}
+
+func ensureLuaTableKeys(tbl *lua.LTable, field string, allowed map[string]struct{}) error {
+	var err error
+	tbl.ForEach(func(key lua.LValue, _ lua.LValue) {
+		if err != nil {
+			return
+		}
+		name, ok := key.(lua.LString)
+		if !ok {
+			err = fmt.Errorf("%s keys must be strings", field)
+			return
+		}
+		if _, ok := allowed[string(name)]; !ok {
+			err = fmt.Errorf("%s has unknown field %q", field, string(name))
+		}
+	})
+	return err
+}
+
+func statusSnapshotToLuaTable(L *lua.LState, snapshot subagentctl.StatusSnapshot) *lua.LTable {
+	tbl := L.NewTable()
+	tbl.RawSetString("id", lua.LString(snapshot.SubAgentID.String()))
+	tbl.RawSetString("parent_run_id", lua.LString(snapshot.ParentRunID.String()))
+	tbl.RawSetString("root_run_id", lua.LString(snapshot.RootRunID.String()))
+	tbl.RawSetString("depth", lua.LNumber(snapshot.Depth))
+	setLuaStringField(tbl, "status", snapshot.Status)
+	setLuaOptionalStringField(tbl, "role", snapshot.Role)
+	setLuaOptionalStringField(tbl, "persona_id", snapshot.PersonaID)
+	setLuaOptionalStringField(tbl, "nickname", snapshot.Nickname)
+	setLuaStringField(tbl, "context_mode", snapshot.ContextMode)
+	setLuaOptionalUUIDField(tbl, "current_run_id", snapshot.CurrentRunID)
+	setLuaOptionalUUIDField(tbl, "last_completed_run_id", snapshot.LastCompletedRunID)
+	setLuaOptionalStringField(tbl, "last_output_ref", snapshot.LastOutputRef)
+	setLuaOptionalStringField(tbl, "output", snapshot.LastOutput)
+	setLuaOptionalStringField(tbl, "last_error", snapshot.LastError)
+	if snapshot.LastEventSeq != nil {
+		tbl.RawSetString("last_event_seq", lua.LNumber(*snapshot.LastEventSeq))
+	}
+	setLuaOptionalStringField(tbl, "last_event_type", snapshot.LastEventType)
+	setLuaOptionalTimeField(tbl, "started_at", snapshot.StartedAt)
+	setLuaOptionalTimeField(tbl, "completed_at", snapshot.CompletedAt)
+	setLuaOptionalTimeField(tbl, "closed_at", snapshot.ClosedAt)
+	return tbl
+}
+
+func setLuaStringField(tbl *lua.LTable, key string, value string) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return
+	}
+	tbl.RawSetString(key, lua.LString(trimmed))
+}
+
+func setLuaOptionalStringField(tbl *lua.LTable, key string, value *string) {
+	if value == nil {
+		return
+	}
+	setLuaStringField(tbl, key, *value)
+}
+
+func setLuaOptionalUUIDField(tbl *lua.LTable, key string, value *uuid.UUID) {
+	if value == nil {
+		return
+	}
+	tbl.RawSetString(key, lua.LString(value.String()))
+}
+
+func setLuaOptionalTimeField(tbl *lua.LTable, key string, value *time.Time) {
+	if value == nil {
+		return
+	}
+	tbl.RawSetString(key, lua.LString(value.UTC().Format(time.RFC3339Nano)))
 }
 
 func parseMaxTokensOption(opts *lua.LTable) *int {
@@ -1169,6 +1477,14 @@ func (rt *luaRuntime) runAgentLoop(
 		AgentID:                agentIDFromPersona(rt.rc),
 		ThreadID:               &rt.rc.Run.ThreadID,
 		ProjectID:              rt.rc.Run.ProjectID,
+		ProfileRef:             rt.rc.ProfileRef,
+		WorkspaceRef:           rt.rc.WorkspaceRef,
+		EnabledSkills:          append([]skillstore.ResolvedSkill(nil), rt.rc.EnabledSkills...),
+		ToolAllowlist:          sortedToolNames(rt.rc.AllowlistSet),
+		ToolDenylist:           append([]string(nil), rt.rc.ToolDenylist...),
+		RouteID:                routeIDFromRunContext(rt.rc),
+		Model:                  modelFromRunContext(rt.rc),
+		MemoryScope:            "same_user",
 		TraceID:                rt.rc.TraceID,
 		InputJSON:              rt.rc.InputJSON,
 		ReasoningIterations:    maxIter,
@@ -1177,6 +1493,8 @@ func (rt *luaRuntime) runAgentLoop(
 		ToolTimeoutMs:          rt.rc.ToolTimeoutMs,
 		ToolBudget:             rt.rc.ToolBudget,
 		PerToolSoftLimits:      rt.rc.PerToolSoftLimits,
+		MaxCostMicros:          rt.rc.MaxCostMicros,
+		MaxTotalOutputTokens:   rt.rc.MaxTotalOutputTokens,
 		PendingMemoryWrites:    rt.rc.PendingMemoryWrites,
 		Runtime:                rt.rc.Runtime,
 		LlmRetryMaxAttempts:    rt.rc.LlmRetryMaxAttempts,
@@ -1340,6 +1658,11 @@ func (rt *luaRuntime) toolsCallParallel(L *lua.LState) int {
 				ProfileRef:          rt.rc.ProfileRef,
 				WorkspaceRef:        rt.rc.WorkspaceRef,
 				EnabledSkills:       append([]skillstore.ResolvedSkill(nil), rt.rc.EnabledSkills...),
+				ToolAllowlist:       sortedToolNames(rt.rc.AllowlistSet),
+				ToolDenylist:        append([]string(nil), rt.rc.ToolDenylist...),
+				RouteID:             routeIDFromRunContext(rt.rc),
+				Model:               modelFromRunContext(rt.rc),
+				MemoryScope:         "same_user",
 				AgentID:             agentIDFromPersona(rt.rc),
 				TimeoutMs:           rt.rc.ToolTimeoutMs,
 				Budget:              rt.rc.ToolBudget,

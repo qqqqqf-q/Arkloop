@@ -31,6 +31,7 @@ type createPersonaRequest struct {
 	ToolAllowlist          []string        `json:"tool_allowlist"`
 	ToolDenylist           []string        `json:"tool_denylist"`
 	BudgetsJSON            json.RawMessage `json:"budgets"`
+	RolesJSON              json.RawMessage `json:"roles"`
 	PreferredCredential    *string         `json:"preferred_credential"`
 	Model                  *string         `json:"model"`
 	ReasoningMode          string          `json:"reasoning_mode"`
@@ -47,6 +48,7 @@ type patchPersonaRequest struct {
 	ToolAllowlist       []string        `json:"tool_allowlist"`
 	ToolDenylist        []string        `json:"tool_denylist"`
 	BudgetsJSON         json.RawMessage `json:"budgets"`
+	RolesJSON           json.RawMessage `json:"roles"`
 	IsActive            *bool           `json:"is_active"`
 	PreferredCredential *string         `json:"preferred_credential"`
 	Model               *string         `json:"model"`
@@ -71,6 +73,7 @@ type personaResponse struct {
 	ToolAllowlist       []string        `json:"tool_allowlist"`
 	ToolDenylist        []string        `json:"tool_denylist"`
 	BudgetsJSON         json.RawMessage `json:"budgets"`
+	RolesJSON           json.RawMessage `json:"roles"`
 	IsActive            bool            `json:"is_active"`
 	CreatedAt           string          `json:"created_at"`
 	PreferredCredential *string         `json:"preferred_credential,omitempty"`
@@ -247,6 +250,7 @@ func createPersona(
 		req.ToolAllowlist,
 		req.ToolDenylist,
 		req.BudgetsJSON,
+		req.RolesJSON,
 		req.PreferredCredential,
 		req.Model,
 		req.ReasoningMode,
@@ -507,6 +511,7 @@ func patchPersona(
 		ToolAllowlist:       req.ToolAllowlist,
 		ToolDenylist:        req.ToolDenylist,
 		BudgetsJSON:         req.BudgetsJSON,
+		RolesJSON:           req.RolesJSON,
 		IsActive:            req.IsActive,
 		PreferredCredential: req.PreferredCredential,
 		Model:               req.Model,
@@ -604,6 +609,10 @@ func toPersonaResponse(s data.Persona) personaResponse {
 	if len(budgets) == 0 {
 		budgets = json.RawMessage("{}")
 	}
+	roles := s.RolesJSON
+	if len(roles) == 0 {
+		roles = json.RawMessage("{}")
+	}
 	executorConfig := s.ExecutorConfigJSON
 	if len(executorConfig) == 0 {
 		executorConfig = json.RawMessage("{}")
@@ -642,6 +651,7 @@ func toPersonaResponse(s data.Persona) personaResponse {
 		ToolAllowlist:       allowlist,
 		ToolDenylist:        denylist,
 		BudgetsJSON:         budgets,
+		RolesJSON:           roles,
 		IsActive:            s.IsActive,
 		CreatedAt:           s.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
 		PreferredCredential: optionalTrimmedStringPtr(s.PreferredCredential),
@@ -670,6 +680,12 @@ func toBuiltinPersonaResponse(s repopersonas.RepoPersona, scope string) personaR
 	if len(s.Budgets) > 0 {
 		if encoded, err := json.Marshal(s.Budgets); err == nil {
 			budgets = encoded
+		}
+	}
+	roles := json.RawMessage("{}")
+	if len(s.Roles) > 0 {
+		if encoded, err := json.Marshal(s.Roles); err == nil {
+			roles = encoded
 		}
 	}
 	executorConfig := json.RawMessage("{}")
@@ -710,6 +726,7 @@ func toBuiltinPersonaResponse(s repopersonas.RepoPersona, scope string) personaR
 		ToolAllowlist:       allowlist,
 		ToolDenylist:        denylist,
 		BudgetsJSON:         budgets,
+		RolesJSON:           roles,
 		IsActive:            true,
 		CreatedAt:           "",
 		PreferredCredential: optionalTrimmedString(s.PreferredCredential),

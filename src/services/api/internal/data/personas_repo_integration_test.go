@@ -2,6 +2,7 @@ package data
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"arkloop/services/api/internal/migrate"
@@ -47,7 +48,7 @@ func TestPersonasRepositoryScopesRowsToProject(t *testing.T) {
 	}
 	projectID := project.ID
 
-	custom, err := repo.Create(ctx, projectID, "custom-only", "1", "Custom Only", nil, "prompt", nil, nil, nil, nil, nil, "auto", "none", "agent.simple", nil)
+	custom, err := repo.Create(ctx, projectID, "custom-only", "1", "Custom Only", nil, "prompt", nil, nil, nil, nil, nil, nil, "auto", "none", "agent.simple", nil)
 	if err != nil {
 		t.Fatalf("create custom persona: %v", err)
 	}
@@ -103,6 +104,112 @@ func TestPersonasRepositoryScopesRowsToProject(t *testing.T) {
 	}
 	if !deletedCustom {
 		t.Fatal("expected custom delete to succeed")
+	}
+}
+
+func TestPersonasRepositoryRolesJSONRoundTrip(t *testing.T) {
+	db := testutil.SetupPostgresDatabase(t, "api_go_personas_repo_roles")
+	ctx := context.Background()
+
+	if _, err := migrate.Up(ctx, db.DSN); err != nil {
+		t.Fatalf("migrate up: %v", err)
+	}
+
+	pool, err := NewPool(ctx, db.DSN, PoolLimits{MaxConns: 32, MinConns: 0})
+	if err != nil {
+		t.Fatalf("new pool: %v", err)
+	}
+	defer pool.Close()
+
+	repo, err := NewPersonasRepository(pool)
+	if err != nil {
+		t.Fatalf("new repo: %v", err)
+	}
+	orgRepo, err := NewOrgRepository(pool)
+	if err != nil {
+		t.Fatalf("new org repo: %v", err)
+	}
+
+	org, err := orgRepo.Create(ctx, "persona-role-org", "Persona Role Org", "personal")
+	if err != nil {
+		t.Fatalf("create org: %v", err)
+	}
+	rolesJSON := json.RawMessage(`{"worker":{"prompt_md":"worker prompt","model":"worker^gpt-5-mini"}}`)
+	created, err := repo.Create(ctx, org.ID, "roleful", "1", "Roleful", nil, "prompt", nil, nil, nil, rolesJSON, nil, nil, "auto", "none", "agent.simple", nil)
+	if err != nil {
+		t.Fatalf("create persona: %v", err)
+	}
+	assertJSONEqual(t, created.RolesJSON, rolesJSON)
+
+	patched, err := repo.Patch(ctx, org.ID, created.ID, PersonaPatch{RolesJSON: json.RawMessage(`{}`)})
+	if err != nil {
+		t.Fatalf("patch persona: %v", err)
+	}
+	assertJSONEqual(t, patched.RolesJSON, json.RawMessage(`{}`))
+	got, err := repo.GetByID(ctx, org.ID, created.ID)
+	if err != nil {
+		t.Fatalf("get persona: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected persona after patch")
+	}
+	assertJSONEqual(t, got.RolesJSON, json.RawMessage(`{}`))
+}
+
+func TestPersonasRepositoryUpsertPlatformMirrorStoresRolesJSON(t *testing.T) {
+	db := testutil.SetupPostgresDatabase(t, "api_go_personas_repo_roles_mirror")
+	ctx := context.Background()
+
+	if _, err := migrate.Up(ctx, db.DSN); err != nil {
+		t.Fatalf("migrate up: %v", err)
+	}
+
+	pool, err := NewPool(ctx, db.DSN, PoolLimits{MaxConns: 32, MinConns: 0})
+	if err != nil {
+		t.Fatalf("new pool: %v", err)
+	}
+	defer pool.Close()
+
+	repo, err := NewPersonasRepository(pool)
+	if err != nil {
+		t.Fatalf("new repo: %v", err)
+	}
+
+	rolesJSON := json.RawMessage(`{"worker":{"prompt_md":"worker prompt"}}`)
+	persona, err := repo.UpsertPlatformMirror(ctx, PlatformMirrorUpsertParams{
+		PersonaKey:         "builtin-roleful",
+		Version:            "1",
+		DisplayName:        "Builtin Roleful",
+		PromptMD:           "prompt",
+		ToolAllowlist:      []string{},
+		ToolDenylist:       []string{},
+		BudgetsJSON:        json.RawMessage(`{}`),
+		RolesJSON:          rolesJSON,
+		ExecutorType:       "agent.simple",
+		ExecutorConfigJSON: json.RawMessage(`{}`),
+		IsActive:           true,
+		MirroredFileDir:    "builtin-roleful",
+	})
+	if err != nil {
+		t.Fatalf("upsert mirror: %v", err)
+	}
+	assertJSONEqual(t, persona.RolesJSON, rolesJSON)
+}
+
+func assertJSONEqual(t *testing.T, got json.RawMessage, want json.RawMessage) {
+	t.Helper()
+	var gotValue any
+	if err := json.Unmarshal(got, &gotValue); err != nil {
+		t.Fatalf("unmarshal got json: %v", err)
+	}
+	var wantValue any
+	if err := json.Unmarshal(want, &wantValue); err != nil {
+		t.Fatalf("unmarshal want json: %v", err)
+	}
+	gotEncoded, _ := json.Marshal(gotValue)
+	wantEncoded, _ := json.Marshal(wantValue)
+	if string(gotEncoded) != string(wantEncoded) {
+		t.Fatalf("json mismatch: got %s want %s", gotEncoded, wantEncoded)
 	}
 }
 

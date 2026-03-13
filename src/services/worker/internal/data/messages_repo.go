@@ -3,6 +3,7 @@ package data
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -15,9 +16,11 @@ import (
 type MessagesRepository struct{}
 
 type ThreadMessage struct {
+	ID          uuid.UUID
 	Role        string
 	Content     string
 	ContentJSON json.RawMessage
+	CreatedAt   time.Time
 }
 
 type ConversationSearchHit struct {
@@ -34,9 +37,9 @@ func (MessagesRepository) InsertAssistantMessage(
 	threadID uuid.UUID,
 	runID uuid.UUID,
 	content string,
-) error {
+) (uuid.UUID, error) {
 	if strings.TrimSpace(content) == "" {
-		return nil
+		return uuid.Nil, nil
 	}
 	metadataJSON := map[string]any{}
 	if runID != uuid.Nil {
@@ -44,22 +47,63 @@ func (MessagesRepository) InsertAssistantMessage(
 	}
 	metadataRaw, err := json.Marshal(metadataJSON)
 	if err != nil {
-		return fmt.Errorf("marshal metadata_json: %w", err)
+		return uuid.Nil, fmt.Errorf("marshal metadata_json: %w", err)
 	}
-	_, err = tx.Exec(
+	var messageID uuid.UUID
+	err = tx.QueryRow(
 		ctx,
 		`INSERT INTO messages (
 			account_id, thread_id, created_by_user_id, role, content, metadata_json
 		) VALUES (
 			$1, $2, NULL, $3, $4, $5::jsonb
-		)`,
+		)
+		 RETURNING id`,
 		accountID,
 		threadID,
 		"assistant",
 		content,
 		string(metadataRaw),
+	).Scan(&messageID)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	return messageID, nil
+}
+
+func (MessagesRepository) FindAssistantMessageByRunID(
+	ctx context.Context,
+	tx pgx.Tx,
+	runID uuid.UUID,
+) (*uuid.UUID, string, error) {
+	if tx == nil {
+		return nil, "", fmt.Errorf("tx must not be nil")
+	}
+	if runID == uuid.Nil {
+		return nil, "", fmt.Errorf("run_id must not be empty")
+	}
+
+	var (
+		messageID uuid.UUID
+		content   string
 	)
-	return err
+	err := tx.QueryRow(
+		ctx,
+		`SELECT id, content
+		   FROM messages
+		  WHERE role = 'assistant'
+		    AND metadata_json->>'run_id' = $1
+		    AND deleted_at IS NULL
+		  ORDER BY created_at DESC, id DESC
+		  LIMIT 1`,
+		runID.String(),
+	).Scan(&messageID, &content)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, "", nil
+		}
+		return nil, "", err
+	}
+	return &messageID, strings.TrimSpace(content), nil
 }
 
 func (MessagesRepository) ListByThread(
@@ -74,7 +118,7 @@ func (MessagesRepository) ListByThread(
 	}
 	rows, err := tx.Query(
 		ctx,
-		`SELECT role, content, content_json
+		`SELECT id, role, content, content_json, created_at
 		 FROM messages
 		 WHERE account_id = $1
 		   AND thread_id = $2
@@ -94,7 +138,7 @@ func (MessagesRepository) ListByThread(
 	out := []ThreadMessage{}
 	for rows.Next() {
 		var item ThreadMessage
-		if err := rows.Scan(&item.Role, &item.Content, &item.ContentJSON); err != nil {
+		if err := rows.Scan(&item.ID, &item.Role, &item.Content, &item.ContentJSON, &item.CreatedAt); err != nil {
 			return nil, err
 		}
 		item.Role = strings.TrimSpace(item.Role)
@@ -108,6 +152,164 @@ func (MessagesRepository) ListByThread(
 		return nil, rows.Err()
 	}
 	return out, nil
+}
+
+func (MessagesRepository) ListByIDs(
+	ctx context.Context,
+	tx pgx.Tx,
+	orgID uuid.UUID,
+	threadID uuid.UUID,
+	messageIDs []uuid.UUID,
+) ([]ThreadMessage, error) {
+	if tx == nil {
+		return nil, fmt.Errorf("tx must not be nil")
+	}
+	if orgID == uuid.Nil || threadID == uuid.Nil {
+		return nil, fmt.Errorf("org_id and thread_id must not be empty")
+	}
+	if len(messageIDs) == 0 {
+		return nil, nil
+	}
+	rows, err := tx.Query(
+		ctx,
+		`SELECT id, role, content, content_json, created_at
+		 FROM messages
+		 WHERE org_id = $1
+		   AND thread_id = $2
+		   AND id = ANY($3)
+		   AND hidden = FALSE
+		   AND deleted_at IS NULL
+		 ORDER BY created_at ASC, id ASC`,
+		orgID,
+		threadID,
+		messageIDs,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]ThreadMessage, 0, len(messageIDs))
+	for rows.Next() {
+		var item ThreadMessage
+		if err := rows.Scan(&item.ID, &item.Role, &item.Content, &item.ContentJSON, &item.CreatedAt); err != nil {
+			return nil, err
+		}
+		item.Role = strings.TrimSpace(item.Role)
+		item.Content = strings.TrimSpace(item.Content)
+		if item.Role == "" {
+			continue
+		}
+		out = append(out, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (MessagesRepository) ListRecentByThread(
+	ctx context.Context,
+	tx pgx.Tx,
+	orgID uuid.UUID,
+	threadID uuid.UUID,
+	limit int,
+) ([]ThreadMessage, error) {
+	if tx == nil {
+		return nil, fmt.Errorf("tx must not be nil")
+	}
+	if orgID == uuid.Nil || threadID == uuid.Nil {
+		return nil, fmt.Errorf("org_id and thread_id must not be empty")
+	}
+	if limit <= 0 {
+		return nil, fmt.Errorf("limit must be positive")
+	}
+	rows, err := tx.Query(
+		ctx,
+		`SELECT id, role, content, content_json, created_at
+		 FROM (
+		 	SELECT id, role, content, content_json, created_at
+		 	  FROM messages
+		 	 WHERE org_id = $1
+		 	   AND thread_id = $2
+		 	   AND hidden = FALSE
+		 	   AND deleted_at IS NULL
+		 	 ORDER BY created_at DESC, id DESC
+		 	 LIMIT $3
+		 ) recent
+		 ORDER BY created_at ASC, id ASC`,
+		orgID,
+		threadID,
+		limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]ThreadMessage, 0, limit)
+	for rows.Next() {
+		var item ThreadMessage
+		if err := rows.Scan(&item.ID, &item.Role, &item.Content, &item.ContentJSON, &item.CreatedAt); err != nil {
+			return nil, err
+		}
+		item.Role = strings.TrimSpace(item.Role)
+		item.Content = strings.TrimSpace(item.Content)
+		if item.Role == "" {
+			continue
+		}
+		out = append(out, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (MessagesRepository) InsertThreadMessage(
+	ctx context.Context,
+	tx pgx.Tx,
+	orgID uuid.UUID,
+	threadID uuid.UUID,
+	role string,
+	content string,
+	contentJSON json.RawMessage,
+	createdByUserID *uuid.UUID,
+) (uuid.UUID, error) {
+	if tx == nil {
+		return uuid.Nil, fmt.Errorf("tx must not be nil")
+	}
+	if orgID == uuid.Nil || threadID == uuid.Nil {
+		return uuid.Nil, fmt.Errorf("org_id and thread_id must not be empty")
+	}
+	trimmedRole := strings.TrimSpace(role)
+	if trimmedRole == "" {
+		return uuid.Nil, fmt.Errorf("role must not be empty")
+	}
+	trimmedContent := strings.TrimSpace(content)
+	if trimmedContent == "" {
+		return uuid.Nil, fmt.Errorf("content must not be empty")
+	}
+	var messageID uuid.UUID
+	err := tx.QueryRow(
+		ctx,
+		`INSERT INTO messages (
+			org_id, thread_id, created_by_user_id, role, content, content_json
+		) VALUES (
+			$1, $2, $3, $4, $5, $6
+		)
+		 RETURNING id`,
+		orgID,
+		threadID,
+		createdByUserID,
+		trimmedRole,
+		trimmedContent,
+		contentJSON,
+	).Scan(&messageID)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	return messageID, nil
 }
 
 func (MessagesRepository) SearchVisibleByOwner(

@@ -16,6 +16,9 @@ func DefaultRegistry() *Registry {
 		if err := RegisterTrackB(r); err != nil {
 			panic(err)
 		}
+		if err := RegisterTrackE(r); err != nil {
+			panic(err)
+		}
 		defaultRegistry = r
 	})
 	return defaultRegistry

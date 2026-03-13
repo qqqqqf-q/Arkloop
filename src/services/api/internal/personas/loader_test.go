@@ -98,6 +98,51 @@ func TestLoadFromDirInlinesLuaScriptFile(t *testing.T) {
 	}
 }
 
+func TestLoadFromDirParsesRoles(t *testing.T) {
+	root := t.TempDir()
+	writeRepoPersonaFiles(t, root, "role-persona",
+		"id: role-persona\nversion: \"1\"\ntitle: Role Persona\nroles:\n  worker:\n    prompt_md: worker prompt\n    model: worker^gpt-5-mini\n    budgets:\n      max_output_tokens: 256\n",
+		"",
+		"persona prompt",
+	)
+
+	personas, err := LoadFromDir(root)
+	if err != nil {
+		t.Fatalf("LoadFromDir failed: %v", err)
+	}
+	if len(personas) != 1 {
+		t.Fatalf("expected 1 persona, got %d", len(personas))
+	}
+	worker, ok := personas[0].Roles["worker"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected worker role map, got %#v", personas[0].Roles)
+	}
+	if worker["prompt_md"] != "worker prompt" {
+		t.Fatalf("unexpected worker prompt: %#v", worker)
+	}
+	if worker["model"] != "worker^gpt-5-mini" {
+		t.Fatalf("unexpected worker model: %#v", worker)
+	}
+	budgets, ok := worker["budgets"].(map[string]any)
+	if !ok || budgets["max_output_tokens"] != float64(256) && budgets["max_output_tokens"] != 256 {
+		t.Fatalf("unexpected worker budgets: %#v", worker)
+	}
+}
+
+func TestLoadFromDirRejectsUnsupportedRoleField(t *testing.T) {
+	root := t.TempDir()
+	writeRepoPersonaFiles(t, root, "bad-role",
+		"id: bad-role\nversion: \"1\"\ntitle: Bad Role\nroles:\n  worker:\n    executor_type: agent.lua\n",
+		"",
+		"persona prompt",
+	)
+
+	_, err := LoadFromDir(root)
+	if err == nil || err.Error() != "persona bad-role roles: roles.worker contains unsupported field: executor_type" {
+		t.Fatalf("expected unsupported role field error, got %v", err)
+	}
+}
+
 func writeRepoPersonaFiles(t *testing.T, root, name, yamlContent, soulContent, promptContent string) {
 	t.Helper()
 	dir := filepath.Join(root, name)

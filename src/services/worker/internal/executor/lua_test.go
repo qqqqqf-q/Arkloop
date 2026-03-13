@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"arkloop/services/worker/internal/data"
 	"arkloop/services/worker/internal/events"
@@ -12,9 +14,112 @@ import (
 	"arkloop/services/worker/internal/memory"
 	"arkloop/services/worker/internal/pipeline"
 	"arkloop/services/worker/internal/routing"
+	"arkloop/services/worker/internal/subagentctl"
 	"arkloop/services/worker/internal/tools"
 	"github.com/google/uuid"
 )
+
+type stubSubAgentControl struct {
+	spawn     func(ctx context.Context, req subagentctl.SpawnRequest) (subagentctl.StatusSnapshot, error)
+	sendInput func(ctx context.Context, req subagentctl.SendInputRequest) (subagentctl.StatusSnapshot, error)
+	wait      func(ctx context.Context, req subagentctl.WaitRequest) (subagentctl.StatusSnapshot, error)
+	resume    func(ctx context.Context, req subagentctl.ResumeRequest) (subagentctl.StatusSnapshot, error)
+	close     func(ctx context.Context, req subagentctl.CloseRequest) (subagentctl.StatusSnapshot, error)
+	interrupt func(ctx context.Context, req subagentctl.InterruptRequest) (subagentctl.StatusSnapshot, error)
+	getStatus func(ctx context.Context, subAgentID uuid.UUID) (subagentctl.StatusSnapshot, error)
+	list      func(ctx context.Context) ([]subagentctl.StatusSnapshot, error)
+}
+
+func (s stubSubAgentControl) Spawn(ctx context.Context, req subagentctl.SpawnRequest) (subagentctl.StatusSnapshot, error) {
+	if s.spawn == nil {
+		return subagentctl.StatusSnapshot{}, errors.New("spawn not implemented")
+	}
+	return s.spawn(ctx, req)
+}
+
+func (s stubSubAgentControl) SendInput(ctx context.Context, req subagentctl.SendInputRequest) (subagentctl.StatusSnapshot, error) {
+	if s.sendInput == nil {
+		return subagentctl.StatusSnapshot{}, errors.New("send_input not implemented")
+	}
+	return s.sendInput(ctx, req)
+}
+
+func (s stubSubAgentControl) Wait(ctx context.Context, req subagentctl.WaitRequest) (subagentctl.StatusSnapshot, error) {
+	if s.wait == nil {
+		return subagentctl.StatusSnapshot{}, errors.New("wait not implemented")
+	}
+	return s.wait(ctx, req)
+}
+
+func (s stubSubAgentControl) Resume(ctx context.Context, req subagentctl.ResumeRequest) (subagentctl.StatusSnapshot, error) {
+	if s.resume == nil {
+		return subagentctl.StatusSnapshot{}, errors.New("resume not implemented")
+	}
+	return s.resume(ctx, req)
+}
+
+func (s stubSubAgentControl) Close(ctx context.Context, req subagentctl.CloseRequest) (subagentctl.StatusSnapshot, error) {
+	if s.close == nil {
+		return subagentctl.StatusSnapshot{}, errors.New("close not implemented")
+	}
+	return s.close(ctx, req)
+}
+
+func (s stubSubAgentControl) Interrupt(ctx context.Context, req subagentctl.InterruptRequest) (subagentctl.StatusSnapshot, error) {
+	if s.interrupt == nil {
+		return subagentctl.StatusSnapshot{}, errors.New("interrupt not implemented")
+	}
+	return s.interrupt(ctx, req)
+}
+
+func (s stubSubAgentControl) GetStatus(ctx context.Context, subAgentID uuid.UUID) (subagentctl.StatusSnapshot, error) {
+	if s.getStatus == nil {
+		return subagentctl.StatusSnapshot{}, errors.New("get_status not implemented")
+	}
+	return s.getStatus(ctx, subAgentID)
+}
+
+func (s stubSubAgentControl) ListChildren(ctx context.Context) ([]subagentctl.StatusSnapshot, error) {
+	if s.list == nil {
+		return nil, errors.New("list not implemented")
+	}
+	return s.list(ctx)
+}
+
+func newOutputControl(run func(personaID string, input string) (string, error)) stubSubAgentControl {
+	var (
+		mu      sync.Mutex
+		outputs = map[uuid.UUID]string{}
+		errs    = map[uuid.UUID]error{}
+	)
+	return stubSubAgentControl{
+		spawn: func(_ context.Context, req subagentctl.SpawnRequest) (subagentctl.StatusSnapshot, error) {
+			subAgentID := uuid.New()
+			output, err := run(req.PersonaID, req.Input)
+			mu.Lock()
+			outputs[subAgentID] = output
+			errs[subAgentID] = err
+			mu.Unlock()
+			personaID := req.PersonaID
+			return subagentctl.StatusSnapshot{
+				SubAgentID:  subAgentID,
+				Status:      data.SubAgentStatusQueued,
+				PersonaID:   &personaID,
+				ContextMode: req.ContextMode,
+			}, nil
+		},
+		wait: func(_ context.Context, req subagentctl.WaitRequest) (subagentctl.StatusSnapshot, error) {
+			mu.Lock()
+			output := outputs[req.SubAgentID]
+			err := errs[req.SubAgentID]
+			mu.Unlock()
+			if err != nil {
+				return subagentctl.StatusSnapshot{}, err
+			}
+			return subagentctl.StatusSnapshot{SubAgentID: req.SubAgentID, Status: data.SubAgentStatusCompleted, LastOutput: &output}, nil
+		},
+	}
+}
 
 func TestNewLuaExecutor_MissingScript(t *testing.T) {
 	_, err := NewLuaExecutor(map[string]any{})
@@ -199,114 +304,6 @@ end
 	t.Fatal("expected message.delta with 'nil_ok'")
 }
 
-func TestLuaExecutor_AgentRun_SpawnChildRunNil(t *testing.T) {
-	ex, _ := NewLuaExecutor(map[string]any{
-		"script": `
-local out, err = agent.run("some_persona", "input")
-if err then
-  context.set_output("err:" .. err)
-end
-`,
-	})
-	rc := buildLuaRC(nil)
-	rc.SpawnChildRun = nil // 未初始化
-
-	emitter := events.NewEmitter("trace")
-	var got []events.RunEvent
-	_ = ex.Execute(context.Background(), rc, emitter, func(ev events.RunEvent) error {
-		got = append(got, ev)
-		return nil
-	})
-
-	for _, ev := range got {
-		if ev.Type == "message.delta" {
-			delta, _ := ev.DataJSON["content_delta"].(string)
-			if strings.HasPrefix(delta, "err:") {
-				return
-			}
-		}
-	}
-	t.Fatal("expected error message when SpawnChildRun is nil")
-}
-
-func TestLuaExecutor_AgentRun_SpawnChildRunCalled(t *testing.T) {
-	var capturedPersona, capturedInput string
-	ex, _ := NewLuaExecutor(map[string]any{
-		"script": `
-local out, err = agent.run("lite", "what is 2+2?")
-if err then error(err) end
-context.set_output(out)
-`,
-	})
-	rc := buildLuaRC(nil)
-	rc.SpawnChildRun = func(_ context.Context, personaID string, input string) (string, error) {
-		capturedPersona = personaID
-		capturedInput = input
-		return "4", nil
-	}
-
-	emitter := events.NewEmitter("trace")
-	var got []events.RunEvent
-	err := ex.Execute(context.Background(), rc, emitter, func(ev events.RunEvent) error {
-		got = append(got, ev)
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("Execute failed: %v", err)
-	}
-	if capturedPersona != "lite" {
-		t.Fatalf("expected persona 'lite', got %q", capturedPersona)
-	}
-	if capturedInput != "what is 2+2?" {
-		t.Fatalf("unexpected input: %q", capturedInput)
-	}
-	for _, ev := range got {
-		if ev.Type == "message.delta" {
-			if delta, _ := ev.DataJSON["content_delta"].(string); delta == "4" {
-				return
-			}
-		}
-	}
-	t.Fatal("expected message.delta with '4'")
-}
-
-func TestLuaExecutor_ContextCancelled_AgentRun(t *testing.T) {
-	ex, _ := NewLuaExecutor(map[string]any{
-		"script": `
-local out, err = agent.run("lite", "input")
-if err then
-  context.set_output("cancelled")
-end
-`,
-	})
-	rc := buildLuaRC(nil)
-	rc.SpawnChildRun = func(_ context.Context, _ string, _ string) (string, error) {
-		return "", errors.New("some error")
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // 立即取消
-
-	emitter := events.NewEmitter("trace")
-	var got []events.RunEvent
-	_ = ex.Execute(ctx, rc, emitter, func(ev events.RunEvent) error {
-		got = append(got, ev)
-		return nil
-	})
-	// 取消后 agent.run binding 应返回 ctx error，脚本设置输出 "cancelled"
-	found := false
-	for _, ev := range got {
-		if ev.Type == "message.delta" {
-			if delta, _ := ev.DataJSON["content_delta"].(string); delta == "cancelled" {
-				found = true
-			}
-		}
-	}
-	if !found {
-		t.Fatal("expected 'cancelled' output when context is already cancelled")
-	}
-}
-
 func TestLuaExecutor_MemorySearch_Stub(t *testing.T) {
 	ex, _ := NewLuaExecutor(map[string]any{
 		"script": `
@@ -386,315 +383,6 @@ func (g *luaSeqGateway) Stream(_ context.Context, _ llm.Request, yield func(llm.
 	return nil
 }
 
-func TestLuaExecutor_AgentRunParallel_SpawnChildRunNil(t *testing.T) {
-	ex, _ := NewLuaExecutor(map[string]any{
-		"script": `
-local results, errs = agent.run_parallel({{persona="lite", input="q"}})
-if errs == nil then
-  context.set_output("err:" .. tostring(results))
-else
-  context.set_output("err:nil_spawn")
-end
-`,
-	})
-	rc := buildLuaRC(nil)
-	rc.SpawnChildRun = nil
-
-	emitter := events.NewEmitter("trace")
-	var got []events.RunEvent
-	_ = ex.Execute(context.Background(), rc, emitter, func(ev events.RunEvent) error {
-		got = append(got, ev)
-		return nil
-	})
-
-	for _, ev := range got {
-		if ev.Type == "message.delta" {
-			if delta, _ := ev.DataJSON["content_delta"].(string); strings.HasPrefix(delta, "err:") {
-				return
-			}
-		}
-	}
-	t.Fatal("expected error output when SpawnChildRun is nil")
-}
-
-func TestLuaExecutor_AgentRunParallel_EmptyTasks(t *testing.T) {
-	ex, _ := NewLuaExecutor(map[string]any{
-		"script": `
-local results, errs = agent.run_parallel({})
-context.set_output(tostring(#results) .. ":" .. tostring(#errs))
-`,
-	})
-	rc := buildLuaRC(nil)
-	rc.SpawnChildRun = func(_ context.Context, _ string, _ string) (string, error) {
-		return "x", nil
-	}
-
-	emitter := events.NewEmitter("trace")
-	var got []events.RunEvent
-	err := ex.Execute(context.Background(), rc, emitter, func(ev events.RunEvent) error {
-		got = append(got, ev)
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("Execute failed: %v", err)
-	}
-	for _, ev := range got {
-		if ev.Type == "message.delta" {
-			if delta, _ := ev.DataJSON["content_delta"].(string); delta == "0:0" {
-				return
-			}
-		}
-	}
-	t.Fatal("expected '0:0' for empty tasks")
-}
-
-func TestLuaExecutor_AgentRunParallel_AllSucceed(t *testing.T) {
-	ex, _ := NewLuaExecutor(map[string]any{
-		"script": `
-local tasks = {
-  {persona="lite", input="q1"},
-  {persona="lite", input="q2"},
-  {persona="lite", input="q3"},
-}
-local results, errs = agent.run_parallel(tasks)
-local out = ""
-for i = 1, #results do
-  if errs[i] ~= nil then error("unexpected error at " .. i) end
-  out = out .. results[i]
-end
-context.set_output(out)
-`,
-	})
-	rc := buildLuaRC(nil)
-	rc.SpawnChildRun = func(_ context.Context, _ string, input string) (string, error) {
-		return input + "_ok", nil
-	}
-
-	emitter := events.NewEmitter("trace")
-	var got []events.RunEvent
-	err := ex.Execute(context.Background(), rc, emitter, func(ev events.RunEvent) error {
-		got = append(got, ev)
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("Execute failed: %v", err)
-	}
-	for _, ev := range got {
-		if ev.Type == "message.delta" {
-			if delta, _ := ev.DataJSON["content_delta"].(string); delta == "q1_okq2_okq3_ok" {
-				return
-			}
-		}
-	}
-	t.Fatal("expected concatenated results from parallel tasks")
-}
-
-func TestLuaExecutor_AgentRunParallel_PartialFailure(t *testing.T) {
-	ex, _ := NewLuaExecutor(map[string]any{
-		"script": `
-local tasks = {
-  {persona="lite", input="ok"},
-  {persona="lite", input="fail"},
-}
-local results, errs = agent.run_parallel(tasks)
-local out = ""
-if results[1] ~= nil then out = out .. "r1:" .. results[1] end
-if errs[2] ~= nil then out = out .. ";e2:yes" end
-context.set_output(out)
-`,
-	})
-	rc := buildLuaRC(nil)
-	rc.SpawnChildRun = func(_ context.Context, _ string, input string) (string, error) {
-		if input == "fail" {
-			return "", errors.New("task failed")
-		}
-		return input + "_done", nil
-	}
-
-	emitter := events.NewEmitter("trace")
-	var got []events.RunEvent
-	err := ex.Execute(context.Background(), rc, emitter, func(ev events.RunEvent) error {
-		got = append(got, ev)
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("Execute failed: %v", err)
-	}
-	for _, ev := range got {
-		if ev.Type == "message.delta" {
-			if delta, _ := ev.DataJSON["content_delta"].(string); delta == "r1:ok_done;e2:yes" {
-				return
-			}
-		}
-	}
-	t.Fatal("expected partial failure output")
-}
-
-func TestLuaExecutor_AgentRunParallel_ContextAlreadyCancelled(t *testing.T) {
-	ex, _ := NewLuaExecutor(map[string]any{
-		"script": `
-local results, errs = agent.run_parallel({{persona="lite", input="q"}})
-if errs == nil then
-  context.set_output("early_cancel_err:" .. tostring(results))
-else
-  context.set_output("early_cancel_ok")
-end
-`,
-	})
-	rc := buildLuaRC(nil)
-	rc.SpawnChildRun = func(_ context.Context, _ string, _ string) (string, error) {
-		return "", errors.New("irrelevant")
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // 立即取消
-
-	emitter := events.NewEmitter("trace")
-	var got []events.RunEvent
-	_ = ex.Execute(ctx, rc, emitter, func(ev events.RunEvent) error {
-		got = append(got, ev)
-		return nil
-	})
-
-	for _, ev := range got {
-		if ev.Type == "message.delta" {
-			if delta, _ := ev.DataJSON["content_delta"].(string); strings.HasPrefix(delta, "early_cancel") {
-				return
-			}
-		}
-	}
-	t.Fatal("expected output after cancelled context")
-}
-
-func TestLuaExecutor_AgentRunParallel_ExceedsLimit(t *testing.T) {
-	// 构造超过 maxParallelTasks 数量的任务
-	script := `
-local tasks = {}
-for i = 1, 33 do
-  tasks[i] = {persona="lite", input="q"}
-end
-local results, errs = agent.run_parallel(tasks)
-if errs == nil then
-  context.set_output("unexpected_success")
-else
-  context.set_output("limit_exceeded")
-end
-`
-	ex, _ := NewLuaExecutor(map[string]any{"script": script})
-	rc := buildLuaRC(nil)
-	rc.SpawnChildRun = func(_ context.Context, _ string, _ string) (string, error) {
-		return "x", nil
-	}
-
-	emitter := events.NewEmitter("trace")
-	var got []events.RunEvent
-	err := ex.Execute(context.Background(), rc, emitter, func(ev events.RunEvent) error {
-		got = append(got, ev)
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("Execute failed: %v", err)
-	}
-	for _, ev := range got {
-		if ev.Type == "message.delta" {
-			if delta, _ := ev.DataJSON["content_delta"].(string); delta == "limit_exceeded" {
-				return
-			}
-		}
-	}
-	t.Fatal("expected limit_exceeded when task count exceeds maxParallelTasks")
-}
-
-func TestLuaExecutor_AgentRunParallel_ExceedsCustomLimit(t *testing.T) {
-	ex, _ := NewLuaExecutor(map[string]any{"script": `
-local tasks = {
-  {persona="lite", input="q1"},
-  {persona="lite", input="q2"},
-  {persona="lite", input="q3"},
-}
-local results, errs = agent.run_parallel(tasks)
-if errs == nil then
-  context.set_output("unexpected_success")
-else
-  context.set_output("limit_exceeded")
-end
-`})
-	rc := buildLuaRC(nil)
-	rc.MaxParallelTasks = 2
-	rc.SpawnChildRun = func(_ context.Context, _ string, _ string) (string, error) {
-		return "x", nil
-	}
-
-	emitter := events.NewEmitter("trace")
-	var got []events.RunEvent
-	err := ex.Execute(context.Background(), rc, emitter, func(ev events.RunEvent) error {
-		got = append(got, ev)
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("Execute failed: %v", err)
-	}
-	for _, ev := range got {
-		if ev.Type == "message.delta" {
-			if delta, _ := ev.DataJSON["content_delta"].(string); delta == "limit_exceeded" {
-				return
-			}
-		}
-	}
-	t.Fatal("expected limit_exceeded when task count exceeds rc.MaxParallelTasks")
-}
-
-func TestLuaExecutor_AgentRunParallel_ObservabilityEvents(t *testing.T) {
-	ex, _ := NewLuaExecutor(map[string]any{
-		"script": `
-local tasks = {
-  {persona="lite", input="q1"},
-  {persona="pro",  input="q2"},
-  {persona="lite", input="q3"},
-}
-local results, errs = agent.run_parallel(tasks)
-context.set_output("ok")
-`,
-	})
-	rc := buildLuaRC(nil)
-	rc.SpawnChildRun = func(_ context.Context, _ string, input string) (string, error) {
-		return input + "_done", nil
-	}
-
-	emitter := events.NewEmitter("trace")
-	var got []events.RunEvent
-	err := ex.Execute(context.Background(), rc, emitter, func(ev events.RunEvent) error {
-		got = append(got, ev)
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("Execute failed: %v", err)
-	}
-
-	var dispatchFound, completeFound bool
-	for _, ev := range got {
-		if ev.Type == "agent.parallel_dispatch" {
-			count, _ := ev.DataJSON["task_count"].(int)
-			if count == 3 {
-				dispatchFound = true
-			}
-		}
-		if ev.Type == "agent.parallel_complete" {
-			success, _ := ev.DataJSON["success_count"].(int)
-			errCount, _ := ev.DataJSON["error_count"].(int)
-			if success == 3 && errCount == 0 {
-				completeFound = true
-			}
-		}
-	}
-	if !dispatchFound {
-		t.Error("agent.parallel_dispatch event with task_count=3 not found")
-	}
-	if !completeFound {
-		t.Error("agent.parallel_complete event with success_count=3 not found")
-	}
-}
-
 // --- mock MemoryProvider for Lua binding tests ---
 
 type luaMemMock struct {
@@ -766,6 +454,213 @@ func deltaTexts(evs []events.RunEvent) []string {
 		}
 	}
 	return out
+}
+
+func TestLuaExecutor_SubAgentLegacyBindingsRemoved(t *testing.T) {
+	evs := runLuaScript(t, `
+if agent.run == nil and agent.run_parallel == nil then
+  context.set_output("legacy_removed")
+else
+  context.set_output("legacy_present")
+end
+`, buildLuaRC(nil))
+
+	texts := deltaTexts(evs)
+	if len(texts) == 0 || texts[0] != "legacy_removed" {
+		t.Fatalf("expected legacy bindings removed, got: %v", texts)
+	}
+}
+
+func TestLuaExecutor_SubAgentSpawn_Unavailable(t *testing.T) {
+	evs := runLuaScript(t, `
+local status, err = agent.spawn({ persona_id = "lite", input = "hello" })
+if status ~= nil then
+  error("unexpected status")
+end
+context.set_output(err or "")
+`, buildLuaRC(nil))
+
+	texts := deltaTexts(evs)
+	if len(texts) == 0 || texts[0] != "agent.spawn not available: SubAgentControl not initialized" {
+		t.Fatalf("unexpected spawn unavailable output: %v", texts)
+	}
+}
+
+func TestLuaExecutor_SubAgentSpawnWait_Success(t *testing.T) {
+	var captured subagentctl.SpawnRequest
+	rc := buildLuaRC(nil)
+	rc.SubAgentControl = stubSubAgentControl{
+		spawn: func(_ context.Context, req subagentctl.SpawnRequest) (subagentctl.StatusSnapshot, error) {
+			captured = req
+			subAgentID := uuid.New()
+			personaID := req.PersonaID
+			return subagentctl.StatusSnapshot{
+				SubAgentID:  subAgentID,
+				Status:      data.SubAgentStatusQueued,
+				PersonaID:   &personaID,
+				ContextMode: req.ContextMode,
+			}, nil
+		},
+		wait: func(_ context.Context, req subagentctl.WaitRequest) (subagentctl.StatusSnapshot, error) {
+			output := "4"
+			return subagentctl.StatusSnapshot{
+				SubAgentID:  req.SubAgentID,
+				Status:      data.SubAgentStatusCompleted,
+				ContextMode: data.SubAgentContextModeIsolated,
+				LastOutput:  &output,
+			}, nil
+		},
+	}
+
+	evs := runLuaScript(t, `
+local spawned, spawn_err = agent.spawn({ persona_id = "lite", input = "what is 2+2?" })
+if spawn_err ~= nil then error(spawn_err) end
+if spawned.id == nil or spawned.status ~= "queued" or spawned.context_mode ~= "isolated" then
+  error("bad spawn status")
+end
+local waited, wait_err = agent.wait(spawned.id)
+if wait_err ~= nil then error(wait_err) end
+context.set_output(waited.output or "")
+`, rc)
+
+	if captured.PersonaID != "lite" {
+		t.Fatalf("expected persona lite, got %q", captured.PersonaID)
+	}
+	if captured.Input != "what is 2+2?" {
+		t.Fatalf("unexpected input: %q", captured.Input)
+	}
+	if captured.ContextMode != data.SubAgentContextModeIsolated {
+		t.Fatalf("expected isolated context mode, got %q", captured.ContextMode)
+	}
+	texts := deltaTexts(evs)
+	if len(texts) == 0 || texts[0] != "4" {
+		t.Fatalf("expected waited output 4, got: %v", texts)
+	}
+}
+
+func TestLuaExecutor_SubAgentSend_Interrupt(t *testing.T) {
+	subAgentID := uuid.New()
+	var captured subagentctl.SendInputRequest
+	rc := buildLuaRC(nil)
+	rc.SubAgentControl = stubSubAgentControl{
+		sendInput: func(_ context.Context, req subagentctl.SendInputRequest) (subagentctl.StatusSnapshot, error) {
+			captured = req
+			return subagentctl.StatusSnapshot{SubAgentID: req.SubAgentID, Status: data.SubAgentStatusRunning}, nil
+		},
+	}
+
+	evs := runLuaScript(t, `
+local sent, err = agent.send("`+subAgentID.String()+`", "follow-up", { interrupt = true })
+if err ~= nil then error(err) end
+context.set_output(sent.status)
+`, rc)
+
+	if captured.SubAgentID != subAgentID {
+		t.Fatalf("unexpected sub_agent_id: %s", captured.SubAgentID)
+	}
+	if captured.Input != "follow-up" {
+		t.Fatalf("unexpected send input: %q", captured.Input)
+	}
+	if !captured.Interrupt {
+		t.Fatal("expected interrupt=true")
+	}
+	texts := deltaTexts(evs)
+	if len(texts) == 0 || texts[0] != data.SubAgentStatusRunning {
+		t.Fatalf("expected running status output, got: %v", texts)
+	}
+}
+
+func TestLuaExecutor_SubAgentWait_TimeoutMs(t *testing.T) {
+	subAgentID := uuid.New()
+	var captured time.Duration
+	rc := buildLuaRC(nil)
+	rc.SubAgentControl = stubSubAgentControl{
+		wait: func(_ context.Context, req subagentctl.WaitRequest) (subagentctl.StatusSnapshot, error) {
+			captured = req.Timeout
+			return subagentctl.StatusSnapshot{SubAgentID: req.SubAgentID, Status: data.SubAgentStatusCompleted}, nil
+		},
+	}
+
+	evs := runLuaScript(t, `
+local waited, err = agent.wait("`+subAgentID.String()+`", 2500)
+if err ~= nil then error(err) end
+context.set_output(waited.status)
+`, rc)
+
+	if captured != 2500*time.Millisecond {
+		t.Fatalf("expected 2500ms timeout, got %s", captured)
+	}
+	texts := deltaTexts(evs)
+	if len(texts) == 0 || texts[0] != data.SubAgentStatusCompleted {
+		t.Fatalf("expected completed status output, got: %v", texts)
+	}
+}
+
+func TestLuaExecutor_SubAgentResumeAndClose_ReturnStatus(t *testing.T) {
+	resumeID := uuid.New()
+	closeID := uuid.New()
+	var resumedID uuid.UUID
+	var closedID uuid.UUID
+	rc := buildLuaRC(nil)
+	rc.SubAgentControl = stubSubAgentControl{
+		resume: func(_ context.Context, req subagentctl.ResumeRequest) (subagentctl.StatusSnapshot, error) {
+			resumedID = req.SubAgentID
+			return subagentctl.StatusSnapshot{SubAgentID: req.SubAgentID, Status: data.SubAgentStatusRunning}, nil
+		},
+		close: func(_ context.Context, req subagentctl.CloseRequest) (subagentctl.StatusSnapshot, error) {
+			closedID = req.SubAgentID
+			return subagentctl.StatusSnapshot{SubAgentID: req.SubAgentID, Status: data.SubAgentStatusClosed}, nil
+		},
+	}
+
+	evs := runLuaScript(t, `
+local resumed, resume_err = agent.resume("`+resumeID.String()+`")
+if resume_err ~= nil then error(resume_err) end
+local closed, close_err = agent.close("`+closeID.String()+`")
+if close_err ~= nil then error(close_err) end
+context.set_output(resumed.status .. "|" .. closed.status)
+`, rc)
+
+	if resumedID != resumeID {
+		t.Fatalf("unexpected resume id: %s", resumedID)
+	}
+	if closedID != closeID {
+		t.Fatalf("unexpected close id: %s", closedID)
+	}
+	texts := deltaTexts(evs)
+	if len(texts) == 0 || texts[0] != data.SubAgentStatusRunning+"|"+data.SubAgentStatusClosed {
+		t.Fatalf("unexpected resume/close output: %v", texts)
+	}
+}
+
+func TestLuaExecutor_SubAgentContextCancelled(t *testing.T) {
+	rc := buildLuaRC(nil)
+	rc.SubAgentControl = stubSubAgentControl{}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	ex, err := NewLuaExecutor(map[string]any{
+		"script": `
+local status, spawn_err = agent.spawn({ persona_id = "lite", input = "hi" })
+if status ~= nil then error("unexpected status") end
+context.set_output(spawn_err or "")
+`,
+	})
+	if err != nil {
+		t.Fatalf("NewLuaExecutor failed: %v", err)
+	}
+	emitter := events.NewEmitter("trace")
+	var evs []events.RunEvent
+	if err := ex.Execute(ctx, rc, emitter, func(ev events.RunEvent) error {
+		evs = append(evs, ev)
+		return nil
+	}); err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+	texts := deltaTexts(evs)
+	if len(texts) == 0 || texts[0] != context.Canceled.Error() {
+		t.Fatalf("expected cancelled output, got: %v", texts)
+	}
 }
 
 func TestLuaExecutor_MemorySearch_WithProvider(t *testing.T) {

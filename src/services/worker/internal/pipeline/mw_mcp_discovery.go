@@ -7,6 +7,7 @@ import (
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/mcp"
 	"arkloop/services/worker/internal/tools"
+	spawnagent "arkloop/services/worker/internal/tools/builtin/spawn_agent"
 )
 
 // NewMCPDiscoveryMiddleware 按 org 从 DB 加载 MCP 工具（带缓存），合并到 RunContext 的工具集。
@@ -29,12 +30,22 @@ func NewMCPDiscoveryMiddleware(
 				slog.WarnContext(ctx, "mcp discovery failed, falling back to base tools", "account_id", rc.Run.AccountID, "err", orgErr)
 			}
 			if orgErr == nil && len(orgReg.Executors) > 0 {
-				runRegistry = ForkRegistry(baseRegistry, orgReg.AgentSpecs)
+				// 过滤与内置 spawn_agent 系列同名的 MCP 工具，避免后续注册冲突
+				filteredSpecs := filterBuiltinConflicts(orgReg.AgentSpecs)
+				runRegistry = ForkRegistry(baseRegistry, filteredSpecs)
 				for name, exec := range orgReg.Executors {
+					if _, builtin := spawnagent.BuiltinNames[name]; builtin {
+						continue
+					}
 					runToolExecutors[name] = exec
 				}
-				runAllLlmSpecs = append(runAllLlmSpecs, orgReg.LlmSpecs...)
-				for _, spec := range orgReg.AgentSpecs {
+				for _, spec := range orgReg.LlmSpecs {
+					if _, builtin := spawnagent.BuiltinNames[spec.Name]; builtin {
+						continue
+					}
+					runAllLlmSpecs = append(runAllLlmSpecs, spec)
+				}
+				for _, spec := range filteredSpecs {
 					runAllowlistSet[spec.Name] = struct{}{}
 				}
 			}
@@ -47,4 +58,17 @@ func NewMCPDiscoveryMiddleware(
 
 		return next(ctx, rc)
 	}
+}
+
+// filterBuiltinConflicts 移除与内置 spawn_agent 工具同名的 MCP spec
+func filterBuiltinConflicts(specs []tools.AgentToolSpec) []tools.AgentToolSpec {
+	out := make([]tools.AgentToolSpec, 0, len(specs))
+	for _, spec := range specs {
+		if _, builtin := spawnagent.BuiltinNames[spec.Name]; builtin {
+			slog.Debug("mcp tool shadowed by builtin, skipped", "name", spec.Name)
+			continue
+		}
+		out = append(out, spec)
+	}
+	return out
 }

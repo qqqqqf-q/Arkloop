@@ -37,6 +37,11 @@ type RunContext struct {
 	ProfileRef             string
 	WorkspaceRef           string
 	EnabledSkills          []skillstore.ResolvedSkill
+	ToolAllowlist          []string
+	ToolDenylist           []string
+	RouteID                string
+	Model                  string
+	MemoryScope            string
 	TraceID                string
 	InputJSON              map[string]any
 	ReasoningIterations    int
@@ -46,6 +51,8 @@ type RunContext struct {
 	ToolTimeoutMs          *int
 	ToolBudget             map[string]any
 	PerToolSoftLimits      tools.PerToolSoftLimits
+	MaxCostMicros          *int64
+	MaxTotalOutputTokens   *int64
 	ToolExecutor           *tools.DispatchingExecutor
 	ToolSpecs              []llm.ToolSpec
 	PendingMemoryWrites    *memory.PendingWriteBuffer
@@ -164,6 +171,10 @@ func (l *Loop) Run(
 			return yield(event)
 		}
 		completionTotals.Add(turn.CompletedDataJSON)
+
+		if msg, exceeded := costBudgetExceeded(completionTotals, runCtx.MaxCostMicros, runCtx.MaxTotalOutputTokens); exceeded {
+			return yield(emitter.Emit("run.failed", completionTotals.Apply(costBudgetExceededError(msg)), nil, stringPtr(llm.ErrorClassBudgetExceeded)))
+		}
 
 		if len(turn.ToolCalls) == 0 {
 			reasoningTurnsUsed++
@@ -443,6 +454,11 @@ func (l *Loop) executeToolCall(
 		ProfileRef:          runCtx.ProfileRef,
 		WorkspaceRef:        runCtx.WorkspaceRef,
 		EnabledSkills:       append([]skillstore.ResolvedSkill(nil), runCtx.EnabledSkills...),
+		ToolAllowlist:       append([]string(nil), runCtx.ToolAllowlist...),
+		ToolDenylist:        append([]string(nil), runCtx.ToolDenylist...),
+		RouteID:             runCtx.RouteID,
+		Model:               runCtx.Model,
+		MemoryScope:         runCtx.MemoryScope,
 		AgentID:             runCtx.AgentID,
 		TimeoutMs:           runCtx.ToolTimeoutMs,
 		Budget:              copyMap(runCtx.ToolBudget),
@@ -615,6 +631,23 @@ type turnResult struct {
 	ToolResults       []llm.StreamToolResult
 	AssistantText     string
 	CompletedDataJSON map[string]any
+}
+
+func costBudgetExceeded(totals *completionTotals, maxCostMicros *int64, maxTotalOutputTokens *int64) (string, bool) {
+	if maxCostMicros != nil && *maxCostMicros > 0 && totals.hasCostMicros && totals.costMicros > *maxCostMicros {
+		return fmt.Sprintf("cost budget exceeded: %d/%d micros", totals.costMicros, *maxCostMicros), true
+	}
+	if maxTotalOutputTokens != nil && *maxTotalOutputTokens > 0 && totals.hasOutputTokens && totals.outputTokens > *maxTotalOutputTokens {
+		return fmt.Sprintf("output token budget exceeded: %d/%d tokens", totals.outputTokens, *maxTotalOutputTokens), true
+	}
+	return "", false
+}
+
+func costBudgetExceededError(message string) map[string]any {
+	return map[string]any{
+		"error_class": llm.ErrorClassBudgetExceeded,
+		"message":     message,
+	}
 }
 
 type completionTotals struct {

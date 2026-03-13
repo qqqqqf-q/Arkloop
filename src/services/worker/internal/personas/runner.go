@@ -68,7 +68,7 @@ func ResolvePersona(inputJSON map[string]any, registry *Registry) Resolution {
 				ErrorClass: ErrorClassPersonaVersionMismatch,
 				Message:    "persona version mismatch",
 				Details: map[string]any{
-					"persona_id":          personaID,
+					"persona_id":        personaID,
 					"requested_version": requestedVersion,
 					"available_version": def.Version,
 				},
@@ -76,9 +76,14 @@ func ResolvePersona(inputJSON map[string]any, registry *Registry) Resolution {
 		}
 	}
 
-	return Resolution{
-		Definition: &def,
+	role := ""
+	if inputJSON != nil {
+		if rawRole, ok := inputJSON["role"].(string); ok {
+			role = strings.TrimSpace(rawRole)
+		}
 	}
+	resolved, _ := ApplyRoleOverride(def, role)
+	return Resolution{Definition: &resolved}
 }
 
 func parsePersonaRef(value string) (string, string, error) {
@@ -96,4 +101,3 @@ func parsePersonaRef(value string) (string, string, error) {
 	}
 	return personaID, version, nil
 }
-

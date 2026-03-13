@@ -114,7 +114,37 @@ var registry = []ToolMeta{
 		Name:           "spawn_agent",
 		Group:          GroupOrchestration,
 		Label:          "Spawn agent",
-		LLMDescription: "spawn a sub-agent to execute a task with a specific persona, returns the sub-agent output",
+		LLMDescription: "spawn a sub-agent to execute a task with a specific persona. Returns a handle with sub_agent_id, run state, and related identifiers instead of waiting for the final output.",
+	},
+	{
+		Name:           "send_input",
+		Group:          GroupOrchestration,
+		Label:          "Send input",
+		LLMDescription: "send a follow-up input to an existing sub-agent by sub_agent_id. Use this before resume_agent when continuing a previous collaboration thread.",
+	},
+	{
+		Name:           "wait_agent",
+		Group:          GroupOrchestration,
+		Label:          "Wait agent",
+		LLMDescription: "wait for a sub-agent to reach a resolved state and return its latest status snapshot, including output when available.",
+	},
+	{
+		Name:           "resume_agent",
+		Group:          GroupOrchestration,
+		Label:          "Resume agent",
+		LLMDescription: "resume a resumable sub-agent after new input has been sent.",
+	},
+	{
+		Name:           "close_agent",
+		Group:          GroupOrchestration,
+		Label:          "Close agent",
+		LLMDescription: "close a sub-agent handle once no further collaboration is needed.",
+	},
+	{
+		Name:           "interrupt_agent",
+		Group:          GroupOrchestration,
+		Label:          "Interrupt agent",
+		LLMDescription: "interrupt the currently active run of a sub-agent.",
 	},
 	{
 		Name:           "summarize_thread",

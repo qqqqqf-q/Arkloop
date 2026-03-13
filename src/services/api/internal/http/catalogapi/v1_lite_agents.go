@@ -229,6 +229,7 @@ func createLiteAgent(
 		req.ToolDenylist,
 		mergeLiteAgentBudgets(nil, req.Temperature, req.MaxOutputTokens),
 		nil,
+		nil,
 		req.Model,
 		req.ReasoningMode,
 		"none",

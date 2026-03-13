@@ -151,6 +151,28 @@ func appendAndCommitSingle(
 		}); err != nil {
 			return err
 		}
+
+		// 同步 sub_agents 终态，避免 wait_agent 永久轮询
+		subAgent, err := (data.SubAgentRepository{}).GetByCurrentRunID(ctx, tx, run.ID)
+		if err != nil {
+			return err
+		}
+		if subAgent != nil {
+			var lastError *string
+			if msg := terminalStatusMessage(ev.DataJSON); msg != "" {
+				lastError = &msg
+			}
+			if err := (data.SubAgentRepository{}).TransitionToTerminal(ctx, tx, run.ID, status, lastError); err != nil {
+				return err
+			}
+			eventType, err := data.SubAgentTerminalEventType(status)
+			if err != nil {
+				return err
+			}
+			if _, err := (data.SubAgentEventAppender{}).Append(ctx, tx, subAgent.ID, &run.ID, eventType, ev.DataJSON, ev.ErrorClass); err != nil {
+				return err
+			}
+		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {

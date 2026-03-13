@@ -61,6 +61,7 @@ func NewMemoryMiddleware(provider memory.MemoryProvider, pool *pgxpool.Pool, con
 
 		err := next(ctx, rc)
 		flushPendingWritesAfterRun(ctx, activeProvider, pool, configResolver, rc)
+		distillAfterRun(activeProvider, pool, configResolver, rc, ident)
 		return err
 	}
 }
@@ -294,6 +295,124 @@ func lastUserMessageText(messages []llm.Message) string {
 		}
 	}
 	return ""
+}
+
+// distillAfterRun 在 run 完成后判断是否触发 Memory 提炼。
+// 条件：tool call >= min_tool_calls OR 迭代轮数 >= min_rounds，且 FinalAssistantOutput 非空。
+// 异步执行，不阻塞 run 返回。
+func distillAfterRun(provider memory.MemoryProvider, pool *pgxpool.Pool, configResolver sharedconfig.Resolver, rc *RunContext, ident memory.MemoryIdentity) {
+	if strings.TrimSpace(rc.FinalAssistantOutput) == "" {
+		return
+	}
+
+	enabled, minToolCalls, minRounds := resolveDistillConfig(context.Background(), configResolver)
+	if !enabled {
+		return
+	}
+	if rc.RunToolCallCount < minToolCalls && rc.RunIterationCount < minRounds {
+		return
+	}
+
+	msgs := buildDistillMessages(rc)
+	if len(msgs) == 0 {
+		return
+	}
+
+	sessionID := rc.Run.ThreadID.String()
+	costPerCommit := resolveCommitCost(context.Background(), configResolver)
+	orgID := rc.Run.OrgID
+	runID := rc.Run.ID
+
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), memoryFlushTimeout)
+		defer cancel()
+
+		if err := provider.AppendSessionMessages(ctx, ident, sessionID, msgs); err != nil {
+			slog.Warn("memory: distill append failed",
+				"org_id", orgID.String(),
+				"session_id", sessionID,
+				"err", err.Error(),
+			)
+			return
+		}
+
+		if err := provider.CommitSession(ctx, ident, sessionID); err != nil {
+			slog.Warn("memory: distill commit failed",
+				"org_id", orgID.String(),
+				"session_id", sessionID,
+				"err", err.Error(),
+			)
+			return
+		}
+
+		if costPerCommit > 0 && pool != nil {
+			uCtx, uCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer uCancel()
+			if err := usageRepo.InsertMemoryUsage(uCtx, pool, orgID, runID, costPerCommit); err != nil {
+				slog.Warn("memory: distill usage record failed",
+					"run_id", runID.String(),
+					"err", err.Error(),
+				)
+			}
+		}
+	}()
+}
+
+// resolveDistillConfig 从配置中读取提炼触发条件。
+func resolveDistillConfig(ctx context.Context, resolver sharedconfig.Resolver) (enabled bool, minToolCalls int, minRounds int) {
+	enabled = true
+	minToolCalls = 2
+	minRounds = 3
+
+	if resolver == nil {
+		return
+	}
+
+	if raw, err := resolver.Resolve(ctx, "memory.distill_enabled", sharedconfig.Scope{}); err == nil {
+		if strings.TrimSpace(strings.ToLower(raw)) == "false" {
+			enabled = false
+		}
+	}
+
+	if raw, err := resolver.Resolve(ctx, "memory.distill_min_tool_calls", sharedconfig.Scope{}); err == nil {
+		if v, parseErr := strconv.Atoi(strings.TrimSpace(raw)); parseErr == nil && v > 0 {
+			minToolCalls = v
+		}
+	}
+
+	if raw, err := resolver.Resolve(ctx, "memory.distill_min_rounds", sharedconfig.Scope{}); err == nil {
+		if v, parseErr := strconv.Atoi(strings.TrimSpace(raw)); parseErr == nil && v > 0 {
+			minRounds = v
+		}
+	}
+
+	return
+}
+
+// buildDistillMessages 从 RunContext 提取用于提炼的消息。
+func buildDistillMessages(rc *RunContext) []memory.MemoryMessage {
+	var msgs []memory.MemoryMessage
+
+	for _, msg := range rc.Messages {
+		if msg.Role != "user" {
+			continue
+		}
+		var parts []string
+		for _, part := range msg.Content {
+			if t := strings.TrimSpace(llm.PartPromptText(part)); t != "" {
+				parts = append(parts, t)
+			}
+		}
+		if text := strings.Join(parts, "\n"); text != "" {
+			msgs = append(msgs, memory.MemoryMessage{Role: "user", Content: text})
+		}
+	}
+
+	if text := strings.TrimSpace(rc.FinalAssistantOutput); text != "" {
+		msgs = append(msgs, memory.MemoryMessage{Role: "assistant", Content: text})
+	}
+
+	return msgs
 }
 
 // resolveCommitCost 从配置中获取每次 commit 的费用（USD），解析失败或未配置时返回 0。

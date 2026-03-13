@@ -16,11 +16,21 @@ if loop_err ~= nil then
   return
 end
 
-local child_output, child_err = agent.run(OUTPUT_PERSONA_ID, cot_text)
-if child_err ~= nil then
-  error(child_err)
+local child, spawn_err = agent.spawn({
+  persona_id = OUTPUT_PERSONA_ID,
+  context_mode = "isolated",
+  input = cot_text,
+})
+if spawn_err ~= nil then
+  error(spawn_err)
 end
 
-if child_output ~= nil and child_output ~= "" then
+local resolved, wait_err = agent.wait(child.id)
+if wait_err ~= nil then
+  error(wait_err)
+end
+
+local child_output = resolved.output or ""
+if child_output ~= "" then
   context.set_output(child_output)
 end

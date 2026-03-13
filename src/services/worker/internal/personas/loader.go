@@ -140,6 +140,10 @@ func loadSinglePersona(yamlPath string) (Definition, error) {
 	if err != nil {
 		return Definition{}, err
 	}
+	roles, err := parseRoleOverrides(obj["roles"])
+	if err != nil {
+		return Definition{}, err
+	}
 
 	personaDir := filepath.Dir(yamlPath)
 	promptPath := filepath.Join(personaDir, "prompt.md")
@@ -196,6 +200,7 @@ func loadSinglePersona(yamlPath string) (Definition, error) {
 		Model:               model,
 		ReasoningMode:       reasoningMode,
 		PromptCacheControl:  promptCacheControl,
+		Roles:               roles,
 		TitleSummarizer:     titleSummarizer,
 	}, nil
 }
@@ -314,7 +319,7 @@ func normalizePersonaReasoningMode(value *string) string {
 		return "auto"
 	}
 	switch strings.TrimSpace(*value) {
-	case "enabled", "disabled", "none", "auto":
+	case "enabled", "disabled", "none", "auto", "low", "medium", "high":
 		return strings.TrimSpace(*value)
 	default:
 		return "auto"
@@ -471,7 +476,7 @@ func LoadFromDB(ctx context.Context, pool *pgxpool.Pool, projectID *uuid.UUID) (
 	if projectID != nil {
 		query = `SELECT persona_key, version, display_name, description,
 		        soul_md, user_selectable, selector_name, selector_order,
-		        prompt_md, tool_allowlist, COALESCE(tool_denylist, '{}'), budgets_json, title_summarize_json,
+		        prompt_md, tool_allowlist, COALESCE(tool_denylist, '{}'), budgets_json, COALESCE(roles_json, '{}'::jsonb), title_summarize_json,
 		        executor_type, executor_config_json,
 		        preferred_credential, model, reasoning_mode, prompt_cache_control
 		 FROM personas
@@ -510,6 +515,7 @@ func LoadFromDB(ctx context.Context, pool *pgxpool.Pool, projectID *uuid.UUID) (
 			toolAllowlist       []string
 			toolDenylist        []string
 			budgetsRaw          []byte
+			rolesRaw            []byte
 			titleSummarizeRaw   []byte
 			executorType        string
 			executorConfigRaw   []byte
@@ -520,7 +526,7 @@ func LoadFromDB(ctx context.Context, pool *pgxpool.Pool, projectID *uuid.UUID) (
 		)
 		if err := rows.Scan(&personaKey, &version, &displayName, &description,
 			&soulMD, &userSelectable, &selectorName, &selectorOrder,
-			&promptMD, &toolAllowlist, &toolDenylist, &budgetsRaw, &titleSummarizeRaw,
+			&promptMD, &toolAllowlist, &toolDenylist, &budgetsRaw, &rolesRaw, &titleSummarizeRaw,
 			&executorType, &executorConfigRaw, &preferredCredential, &model, &reasoningMode, &promptCacheControl); err != nil {
 			return nil, err
 		}
@@ -540,6 +546,10 @@ func LoadFromDB(ctx context.Context, pool *pgxpool.Pool, projectID *uuid.UUID) (
 		titleSummarizer, err := parseTitleSummarizeJSON(titleSummarizeRaw)
 		if err != nil {
 			return nil, fmt.Errorf("persona %q title_summarize_json: %w", personaKey, err)
+		}
+		roles, err := parseRoleOverridesJSON(rolesRaw)
+		if err != nil {
+			return nil, fmt.Errorf("persona %q roles_json: %w", personaKey, err)
 		}
 
 		if strings.TrimSpace(executorType) == "" {
@@ -564,6 +574,7 @@ func LoadFromDB(ctx context.Context, pool *pgxpool.Pool, projectID *uuid.UUID) (
 			Model:               model,
 			ReasoningMode:       normalizePersonaReasoningMode(strPtrOrNil(reasoningMode)),
 			PromptCacheControl:  normalizePersonaPromptCacheControl(strPtrOrNil(promptCacheControl)),
+			Roles:               roles,
 			TitleSummarizer:     titleSummarizer,
 		}
 		if description != nil && strings.TrimSpace(*description) != "" {

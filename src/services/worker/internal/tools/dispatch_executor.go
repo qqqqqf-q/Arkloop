@@ -28,6 +28,11 @@ type ExecutionContext struct {
 	ProfileRef          string
 	WorkspaceRef        string
 	EnabledSkills       []skillstore.ResolvedSkill
+	ToolAllowlist       []string
+	ToolDenylist        []string
+	RouteID             string
+	Model               string
+	MemoryScope         string
 	AgentID             string
 	TimeoutMs           *int
 	Budget              map[string]any
@@ -41,6 +46,13 @@ type ExecutionError struct {
 	ErrorClass string
 	Message    string
 	Details    map[string]any
+}
+
+func (e *ExecutionError) Error() string {
+	if e == nil {
+		return ""
+	}
+	return e.Message
 }
 
 func (e ExecutionError) ToJSON() map[string]any {
