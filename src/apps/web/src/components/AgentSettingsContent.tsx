@@ -21,8 +21,6 @@ export function AgentSettingsContent({ accessToken }: Props) {
   const [personas, setPersonas] = useState<Persona[]>([])
   const [providers, setProviders] = useState<LlmProvider[]>([])
   const [loading, setLoading] = useState(true)
-  const [applyingAll, setApplyingAll] = useState(false)
-  const [applyMsg, setApplyMsg] = useState('')
 
   const load = useCallback(async () => {
     try {
@@ -45,51 +43,14 @@ export function AgentSettingsContent({ accessToken }: Props) {
     new Set(providers.flatMap((p) => p.models.map((m) => m.model))),
   ).sort()
 
-  const handleApplyAll = async () => {
-    if (personas.length === 0) return
-    const first = personas[0]
-    const patch = {
-      model: first.model ?? undefined,
-      reasoning_mode: first.reasoning_mode || undefined,
-      preferred_credential: first.preferred_credential ?? undefined,
-      budgets: first.budgets,
-    }
-    setApplyingAll(true)
-    setApplyMsg('')
-    try {
-      for (const p of personas.slice(1)) {
-        await patchPersona(accessToken, p.id, patch)
-      }
-      load()
-      setApplyMsg(a.applyAllDone)
-    } catch (e) {
-      setApplyMsg(isApiError(e) ? e.message : a.saveFailed)
-    } finally {
-      setApplyingAll(false)
-    }
-  }
-
   if (loading) return <div className="text-sm text-[var(--c-text-tertiary)]">{t.loading}</div>
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="text-sm font-medium text-[var(--c-text-heading)]">{a.title}</h3>
-          <p className="mt-0.5 text-xs text-[var(--c-text-tertiary)]">{a.subtitle}</p>
-        </div>
-        {personas.length > 1 && (
-          <button
-            onClick={handleApplyAll}
-            disabled={applyingAll}
-            className="rounded-md px-3 py-1.5 text-xs transition-colors disabled:opacity-40"
-            style={{ border: '0.5px solid var(--c-border-subtle)', color: 'var(--c-text-heading)' }}
-          >
-            {applyingAll ? a.applyingAll : a.applyAll}
-          </button>
-        )}
+      <div>
+        <h3 className="text-sm font-medium text-[var(--c-text-heading)]">{a.title}</h3>
+        <p className="mt-0.5 text-xs text-[var(--c-text-tertiary)]">{a.subtitle}</p>
       </div>
-      {applyMsg && <p className="text-xs text-[var(--c-text-tertiary)]">{applyMsg}</p>}
 
       {personas.length === 0 ? (
         <p className="text-sm text-[var(--c-text-tertiary)]">{a.noPersonas}</p>
@@ -137,7 +98,7 @@ function PersonaRow({
     setSaving(true)
     setErr('')
     try {
-      await patchPersona(accessToken, persona.id, { [field]: value || undefined })
+      await patchPersona(accessToken, persona.id, { [field]: value || null }, persona.scope)
       onUpdated()
     } catch (e) {
       setErr(isApiError(e) ? e.message : a.saveFailed)
@@ -152,7 +113,7 @@ function PersonaRow({
     try {
       await patchPersona(accessToken, persona.id, {
         budgets: { ...budgets, [key]: value },
-      })
+      }, persona.scope)
       onUpdated()
     } catch (e) {
       setErr(isApiError(e) ? e.message : a.saveFailed)

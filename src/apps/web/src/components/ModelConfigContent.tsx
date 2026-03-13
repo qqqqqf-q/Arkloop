@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Plus, Trash2, ChevronRight, Download, X } from 'lucide-react'
+import { Plus, Trash2, Download, X, Loader2 } from 'lucide-react'
 import {
   type LlmProvider,
   type AvailableModel,
@@ -10,9 +10,13 @@ import {
   createProviderModel,
   deleteProviderModel,
   listAvailableModels,
+  listPersonas,
+  patchPersona,
   isApiError,
 } from '../api'
 import { useLocale } from '../contexts/LocaleContext'
+
+const inputCls = 'w-full rounded-md border border-[var(--c-border-subtle)] bg-[var(--c-bg-input)] px-3 py-1.5 text-sm text-[var(--c-text-primary)] outline-none placeholder:text-[var(--c-text-muted)] focus:border-[var(--c-border)]'
 
 const PROVIDER_PRESETS = [
   { key: 'openai_responses', provider: 'openai', openai_api_mode: 'responses' },
@@ -31,12 +35,6 @@ function presetLabel(key: string, m: { vendorOpenaiResponses: string; vendorOpen
   return map[key] ?? key
 }
 
-function resolvePresetKey(provider: LlmProvider): ProviderPresetKey {
-  if (provider.provider === 'anthropic') return 'anthropic_message'
-  if (provider.openai_api_mode === 'chat_completions') return 'openai_chat_completions'
-  return 'openai_responses'
-}
-
 type Props = {
   accessToken: string
 }
@@ -48,6 +46,7 @@ export function ModelConfigContent({ accessToken }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [showAddProvider, setShowAddProvider] = useState(false)
 
   const load = useCallback(async () => {
     try {
@@ -65,36 +64,50 @@ export function ModelConfigContent({ accessToken }: Props) {
 
   const selected = providers.find((p) => p.id === selectedId) ?? null
 
-  if (loading) return <div className="text-sm text-[var(--c-text-tertiary)]">{t.loading}</div>
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-16">
+        <Loader2 size={18} className="animate-spin text-[var(--c-text-muted)]" />
+      </div>
+    )
+  }
 
   return (
-    <div className="flex h-full gap-0" style={{ minHeight: 420 }}>
+    <div className="-m-6 flex overflow-hidden" style={{ height: 'calc(100% + 48px)' }}>
       {/* provider list */}
-      <div
-        className="flex w-[180px] shrink-0 flex-col gap-1 overflow-y-auto pr-3"
-        style={{ borderRight: '0.5px solid var(--c-border-subtle)' }}
-      >
-        {providers.map((p) => (
+      <div className="flex w-[140px] shrink-0 flex-col overflow-hidden border-r border-[var(--c-border-subtle)]">
+        <div className="flex-1 overflow-y-auto px-2 py-1">
+          <div className="flex flex-col gap-[3px]">
+            {providers.map((p) => (
+              <button
+                key={p.id}
+                onClick={() => setSelectedId(p.id)}
+                className={[
+                  'flex h-[30px] items-center truncate rounded-[5px] px-3 text-left text-sm font-medium transition-colors',
+                  selectedId === p.id
+                    ? 'bg-[var(--c-bg-sub)] text-[var(--c-text-primary)]'
+                    : 'text-[var(--c-text-tertiary)] hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-secondary)]',
+                ].join(' ')}
+              >
+                {p.name}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="border-t border-[var(--c-border-subtle)] px-3 py-3">
           <button
-            key={p.id}
-            onClick={() => setSelectedId(p.id)}
-            className={[
-              'flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors',
-              selectedId === p.id
-                ? 'bg-[var(--c-bg-deep)] text-[var(--c-text-heading)]'
-                : 'text-[var(--c-text-secondary)] hover:bg-[var(--c-bg-deep)]',
-            ].join(' ')}
+            onClick={() => setShowAddProvider(true)}
+            className="flex h-7 w-full items-center justify-center gap-1.5 rounded-md text-sm text-[var(--c-text-muted)] transition-colors hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-secondary)]"
           >
-            <ChevronRight size={12} className={selectedId === p.id ? 'opacity-100' : 'opacity-0'} />
-            <span className="truncate">{p.name}</span>
+            <Plus size={14} />
+            {m.addProvider}
           </button>
-        ))}
-        <AddProviderButton accessToken={accessToken} onCreated={load} />
-        {error && <p className="px-2 text-xs text-red-400">{error}</p>}
+        </div>
+        {error && <p className="px-2 pb-2 text-xs text-red-400">{error}</p>}
       </div>
 
       {/* detail */}
-      <div className="flex-1 overflow-y-auto pl-4">
+      <div className="flex-1 overflow-y-auto p-5">
         {selected ? (
           <ProviderDetail
             key={selected.id}
@@ -104,30 +117,39 @@ export function ModelConfigContent({ accessToken }: Props) {
             onDeleted={load}
           />
         ) : (
-          <div className="flex flex-col items-center justify-center gap-2 py-16 text-sm text-[var(--c-text-tertiary)]">
-            <p>{m.noProviders}</p>
-            <p>{m.noProvidersDesc}</p>
+          <div className="flex h-full items-center justify-center">
+            <p className="text-sm text-[var(--c-text-muted)]">{m.noProviders}</p>
           </div>
         )}
       </div>
+
+      {/* add provider modal */}
+      {showAddProvider && (
+        <AddProviderModal
+          accessToken={accessToken}
+          onClose={() => setShowAddProvider(false)}
+          onCreated={() => { setShowAddProvider(false); load() }}
+        />
+      )}
     </div>
   )
 }
 
-// -- Add Provider Button --
+// -- Add Provider Modal --
 
-function AddProviderButton({ accessToken, onCreated }: { accessToken: string; onCreated: () => void }) {
+function AddProviderModal({ accessToken, onClose, onCreated }: {
+  accessToken: string
+  onClose: () => void
+  onCreated: () => void
+}) {
   const { t } = useLocale()
   const m = t.models
-  const [open, setOpen] = useState(false)
   const [name, setName] = useState('')
   const [preset, setPreset] = useState<ProviderPresetKey>('openai_responses')
   const [apiKey, setApiKey] = useState('')
   const [baseUrl, setBaseUrl] = useState('')
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
-
-  const reset = () => { setName(''); setPreset('openai_responses'); setApiKey(''); setBaseUrl(''); setErr(''); setOpen(false) }
 
   const handleSave = async () => {
     if (!name.trim() || !apiKey.trim()) return
@@ -142,7 +164,6 @@ function AddProviderButton({ accessToken, onCreated }: { accessToken: string; on
         base_url: baseUrl.trim() || undefined,
         openai_api_mode: p.openai_api_mode,
       })
-      reset()
       onCreated()
     } catch (e) {
       setErr(isApiError(e) ? e.message : m.saveFailed)
@@ -152,68 +173,63 @@ function AddProviderButton({ accessToken, onCreated }: { accessToken: string; on
   }
 
   return (
-    <>
-      <button
-        onClick={() => setOpen(true)}
-        className="mt-1 flex items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-[var(--c-text-tertiary)] transition-colors hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-heading)]"
-      >
-        <Plus size={13} />
-        <span>{m.addProvider}</span>
-      </button>
-
-      {open && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center"
-          style={{ background: 'rgba(0,0,0,0.45)' }}
-          onClick={(e) => { if (e.target === e.currentTarget) reset() }}
-        >
-          <div
-            className="flex w-[400px] flex-col gap-4 rounded-xl p-5"
-            style={{ background: 'var(--c-bg-page)', border: '0.5px solid var(--c-border-subtle)' }}
-          >
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-medium text-[var(--c-text-heading)]">{m.addProvider}</h3>
-              <button onClick={reset} className="text-[var(--c-text-tertiary)] hover:text-[var(--c-text-heading)]">
-                <X size={16} />
-              </button>
-            </div>
-
-            <InputField label={m.providerName} value={name} onChange={setName} placeholder="My Provider" />
-
-            <div className="flex flex-col gap-1">
-              <label className="text-xs text-[var(--c-text-tertiary)]">{m.providerVendor}</label>
-              <select
-                value={preset}
-                onChange={(e) => setPreset(e.target.value as ProviderPresetKey)}
-                className="h-8 rounded-md px-2 text-sm outline-none"
-                style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-deep)', color: 'var(--c-text-heading)' }}
-              >
-                {PROVIDER_PRESETS.map((p) => (
-                  <option key={p.key} value={p.key}>{presetLabel(p.key, m)}</option>
-                ))}
-              </select>
-            </div>
-
-            <InputField label={m.apiKey} value={apiKey} onChange={setApiKey} placeholder={m.apiKeyPlaceholder} type="password" />
-            <InputField label={m.baseUrl} value={baseUrl} onChange={setBaseUrl} placeholder={m.baseUrlPlaceholder} />
-
-            {err && <p className="text-xs text-red-400">{err}</p>}
-
-            <div className="flex gap-2">
-              <button onClick={reset} className="flex-1 rounded-md py-2 text-sm text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)]">{m.cancel}</button>
-              <button
-                onClick={handleSave}
-                disabled={saving || !name.trim() || !apiKey.trim()}
-                className="flex-1 rounded-md py-2 text-sm transition-colors disabled:opacity-40"
-                style={{ background: 'var(--c-btn-bg)', color: 'var(--c-btn-text)' }}
-              >
-                {saving ? m.saving : m.save}
-              </button>
-            </div>
-          </div>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/45"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
+    >
+      <div className="flex w-[420px] flex-col gap-4 rounded-xl bg-[var(--c-bg-deep)] p-5 shadow-lg">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-[var(--c-text-primary)]">{m.addProvider}</h3>
+          <button onClick={onClose} className="rounded p-1 text-[var(--c-text-muted)] transition-colors hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-secondary)]">
+            <X size={16} />
+          </button>
         </div>
-      )}
-    </>
+
+        <div className="space-y-3">
+          <FormField label={m.providerName}>
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="My Provider" className={inputCls} />
+          </FormField>
+
+          <FormField label={m.providerVendor}>
+            <select
+              value={preset}
+              onChange={(e) => setPreset(e.target.value as ProviderPresetKey)}
+              className={inputCls}
+            >
+              {PROVIDER_PRESETS.map((p) => (
+                <option key={p.key} value={p.key}>{presetLabel(p.key, m)}</option>
+              ))}
+            </select>
+          </FormField>
+
+          <FormField label={m.apiKey}>
+            <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={m.apiKeyPlaceholder} className={inputCls} />
+          </FormField>
+
+          <FormField label={m.baseUrl}>
+            <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder={m.baseUrlPlaceholder} className={inputCls} />
+          </FormField>
+        </div>
+
+        {err && <p className="text-xs text-red-400">{err}</p>}
+
+        <div className="flex items-center justify-end gap-2 pt-1">
+          <button
+            onClick={onClose}
+            className="rounded-md border border-[var(--c-border-subtle)] px-3.5 py-1.5 text-sm text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-sub)]"
+          >
+            {m.cancel}
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={saving || !name.trim() || !apiKey.trim()}
+            className="rounded-md bg-[var(--c-btn-bg)] px-4 py-1.5 text-sm font-medium text-[var(--c-btn-text)] transition-colors hover:opacity-90 disabled:opacity-50"
+          >
+            {saving ? <Loader2 size={14} className="animate-spin" /> : m.save}
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -232,10 +248,9 @@ function ProviderDetail({
 }) {
   const { t } = useLocale()
   const m = t.models
-  const [editMode, setEditMode] = useState(false)
-  const [name, setName] = useState(provider.name)
-  const [apiKey, setApiKey] = useState('')
-  const [baseUrl, setBaseUrl] = useState(provider.base_url ?? '')
+  const [formName, setFormName] = useState(provider.name)
+  const [formApiKey, setFormApiKey] = useState('')
+  const [formBaseUrl, setFormBaseUrl] = useState(provider.base_url ?? '')
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
   const [deleting, setDeleting] = useState(false)
@@ -246,12 +261,11 @@ function ProviderDetail({
     setErr('')
     try {
       await updateLlmProvider(accessToken, provider.id, {
-        name: name.trim() || undefined,
-        api_key: apiKey.trim() || undefined,
-        base_url: baseUrl.trim() || null,
+        name: formName.trim() || undefined,
+        api_key: formApiKey.trim() || undefined,
+        base_url: formBaseUrl.trim() || null,
       })
-      setEditMode(false)
-      setApiKey('')
+      setFormApiKey('')
       onUpdated()
     } catch (e) {
       setErr(isApiError(e) ? e.message : m.saveFailed)
@@ -273,64 +287,70 @@ function ProviderDetail({
   }
 
   return (
-    <div className="flex flex-col gap-5">
-      {/* header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="text-sm font-medium text-[var(--c-text-heading)]">{provider.name}</h3>
-          <span className="text-xs text-[var(--c-text-tertiary)]">
-            {presetLabel(resolvePresetKey(provider), m)}
-            {provider.key_prefix && <> &middot; {provider.key_prefix}***</>}
-          </span>
-        </div>
-        <div className="flex gap-1">
-          {!editMode && (
-            <button
-              onClick={() => setEditMode(true)}
-              className="rounded-md px-2.5 py-1 text-xs text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)]"
-            >
-              {m.editProvider}
-            </button>
+    <div className="mx-auto max-w-2xl space-y-6">
+      {/* provider name */}
+      <h3 className="text-base font-semibold text-[var(--c-text-primary)]">{provider.name}</h3>
+
+      {/* provider form (always visible, like console-lite) */}
+      <div className="space-y-4">
+        <FormField label={m.providerName}>
+          <input value={formName} onChange={(e) => setFormName(e.target.value)} className={inputCls} />
+        </FormField>
+
+        <FormField label={m.apiKey}>
+          <input
+            type="password"
+            value={formApiKey}
+            onChange={(e) => setFormApiKey(e.target.value)}
+            placeholder={provider.key_prefix ? `${provider.key_prefix}${'*'.repeat(40)}` : m.apiKeyPlaceholder}
+            className={inputCls}
+          />
+          {provider.key_prefix && (
+            <p className="mt-1 text-xs text-[var(--c-text-muted)]">
+              {provider.key_prefix}{'*'.repeat(8)}
+            </p>
           )}
-          {confirmDelete ? (
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-[var(--c-text-tertiary)]">{m.deleteProviderConfirm}</span>
-              <button onClick={handleDelete} disabled={deleting} className="rounded-md px-2 py-1 text-xs text-red-400 transition-colors hover:bg-red-400/10">
-                {m.deleteProvider}
-              </button>
-              <button onClick={() => setConfirmDelete(false)} className="rounded-md px-2 py-1 text-xs text-[var(--c-text-secondary)]">{m.cancel}</button>
-            </div>
-          ) : (
-            <button
-              onClick={() => setConfirmDelete(true)}
-              className="rounded-md p-1 text-[var(--c-text-tertiary)] transition-colors hover:bg-red-400/10 hover:text-red-400"
-            >
-              <Trash2 size={14} />
-            </button>
-          )}
-        </div>
+        </FormField>
+
+        <FormField label={m.baseUrl}>
+          <input value={formBaseUrl} onChange={(e) => setFormBaseUrl(e.target.value)} placeholder={m.baseUrlPlaceholder} className={inputCls} />
+        </FormField>
       </div>
 
-      {/* edit form */}
-      {editMode && (
-        <div className="flex flex-col gap-3 rounded-lg p-3" style={{ background: 'var(--c-bg-deep)' }}>
-          <InputField label={m.providerName} value={name} onChange={setName} />
-          <InputField label={m.apiKey} value={apiKey} onChange={setApiKey} placeholder={m.apiKeyPlaceholder} type="password" />
-          <InputField label={m.baseUrl} value={baseUrl} onChange={setBaseUrl} placeholder={m.baseUrlPlaceholder} />
-          {err && <p className="text-xs text-red-400">{err}</p>}
-          <div className="flex gap-2">
-            <button onClick={() => { setEditMode(false); setErr('') }} className="flex-1 rounded-md py-1.5 text-sm text-[var(--c-text-secondary)]">{m.cancel}</button>
+      {err && <p className="text-xs text-red-400">{err}</p>}
+
+      {/* action bar */}
+      <div className="flex items-center justify-between border-b border-[var(--c-border-subtle)] pb-4">
+        {confirmDelete ? (
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-[var(--c-text-tertiary)]">{m.deleteProviderConfirm}</span>
             <button
-              onClick={handleSave}
-              disabled={saving}
-              className="flex-1 rounded-md py-1.5 text-sm disabled:opacity-40"
-              style={{ background: 'var(--c-btn-bg)', color: 'var(--c-btn-text)' }}
+              onClick={handleDelete}
+              disabled={deleting}
+              className="rounded-md bg-red-600 px-3 py-1 text-xs font-medium text-white transition-colors hover:bg-red-700 disabled:opacity-50"
             >
-              {saving ? m.saving : m.save}
+              {m.deleteProvider}
+            </button>
+            <button onClick={() => setConfirmDelete(false)} className="rounded-md px-3 py-1 text-xs text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-sub)]">
+              {m.cancel}
             </button>
           </div>
-        </div>
-      )}
+        ) : (
+          <button
+            onClick={() => setConfirmDelete(true)}
+            className="inline-flex items-center gap-1.5 rounded-md border border-[var(--c-border-subtle)] px-3 py-1.5 text-xs font-medium text-[var(--c-text-muted)] transition-colors hover:border-red-500/30 hover:text-red-500"
+          >
+            <Trash2 size={12} />
+          </button>
+        )}
+        <button
+          onClick={handleSave}
+          disabled={saving || !formName.trim()}
+          className="rounded-md bg-[var(--c-btn-bg)] px-4 py-1.5 text-sm font-medium text-[var(--c-btn-text)] transition-colors hover:opacity-90 disabled:opacity-50"
+        >
+          {saving ? <Loader2 size={14} className="animate-spin" /> : m.save}
+        </button>
+      </div>
 
       {/* models */}
       <ModelsSection provider={provider} accessToken={accessToken} onChanged={onUpdated} />
@@ -356,13 +376,15 @@ function ModelsSection({
   const [addingModel, setAddingModel] = useState(false)
   const [newModel, setNewModel] = useState('')
   const [err, setErr] = useState('')
+  const [applyMsg, setApplyMsg] = useState('')
+  const [applyingModel, setApplyingModel] = useState<string | null>(null)
 
   const loadAvailable = useCallback(async () => {
     try {
       const res = await listAvailableModels(accessToken, provider.id)
       setAvailable(res.models)
     } catch {
-      // upstream unavailable, ignore
+      // upstream unavailable
     }
   }, [accessToken, provider.id])
 
@@ -408,99 +430,138 @@ function ModelsSection({
     }
   }
 
+  const handleApplyToAll = async (modelName: string) => {
+    setApplyingModel(modelName)
+    setErr('')
+    setApplyMsg('')
+    try {
+      const personas = await listPersonas(accessToken)
+      let count = 0
+      for (const p of personas) {
+        try {
+          await patchPersona(accessToken, p.id, {
+            model: modelName,
+            preferred_credential: provider.id,
+          }, p.scope)
+          count++
+        } catch {
+          // skip personas that can't be patched (e.g. platform-scoped)
+        }
+      }
+      setApplyMsg(m.applyDone.replace('{count}', String(count)))
+    } catch (e) {
+      setErr(isApiError(e) ? e.message : m.saveFailed)
+    } finally {
+      setApplyingModel(null)
+    }
+  }
+
+  const handleDeleteAll = async () => {
+    setErr('')
+    try {
+      for (const pm of provider.models) {
+        await deleteProviderModel(accessToken, provider.id, pm.id)
+      }
+      onChanged()
+    } catch (e) {
+      setErr(isApiError(e) ? e.message : m.deleteFailed)
+    }
+  }
+
   const unconfiguredCount = available?.filter((am) => !am.configured).length ?? 0
 
   return (
-    <div className="flex flex-col gap-2">
+    <div>
       <div className="flex items-center justify-between">
-        <h4 className="text-xs font-medium text-[var(--c-text-heading)]">{m.modelsSection}</h4>
-        <div className="flex gap-1">
+        <h4 className="text-sm font-medium text-[var(--c-text-primary)]">{m.modelsSection}</h4>
+        <div className="flex items-center gap-2">
+          {provider.models.length > 0 && (
+            <button
+              onClick={handleDeleteAll}
+              className="inline-flex items-center gap-1.5 rounded-md border border-[var(--c-border-subtle)] px-3 py-1.5 text-xs font-medium text-[var(--c-text-muted)] transition-colors hover:border-red-500/30 hover:text-red-500"
+            >
+              <Trash2 size={12} />
+              {m.deleteAll}
+            </button>
+          )}
           {unconfiguredCount > 0 && (
             <button
               onClick={handleImportAll}
               disabled={importing}
-              className="flex items-center gap-1 rounded-md px-2 py-0.5 text-xs text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)]"
+              className="inline-flex items-center gap-1.5 rounded-md border border-[var(--c-border-subtle)] px-3 py-1.5 text-xs font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-sub)]"
             >
               <Download size={12} />
               {importing ? m.importing : `${m.importAll} (${unconfiguredCount})`}
             </button>
           )}
           <button
-            onClick={() => setAddingModel(true)}
-            className="flex items-center gap-1 rounded-md px-2 py-0.5 text-xs text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)]"
+            onClick={() => { setAddingModel(true); setNewModel('') }}
+            className="rounded-md bg-[var(--c-btn-bg)] px-3 py-1.5 text-xs font-medium text-[var(--c-btn-text)] transition-colors hover:opacity-90"
           >
-            <Plus size={12} />
             {m.addModel}
           </button>
         </div>
       </div>
 
       {addingModel && (
-        <div className="flex items-center gap-2">
+        <div className="mt-3 flex items-center gap-2">
           <input
             value={newModel}
             onChange={(e) => setNewModel(e.target.value)}
             placeholder={m.modelNamePlaceholder}
-            className="h-7 flex-1 rounded-md px-2 text-xs outline-none"
-            style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-page)', color: 'var(--c-text-heading)' }}
+            className={inputCls + ' flex-1'}
             onKeyDown={(e) => { if (e.key === 'Enter') handleAddModel(); if (e.key === 'Escape') setAddingModel(false) }}
             autoFocus
           />
-          <button onClick={() => setAddingModel(false)} className="text-[var(--c-text-tertiary)]"><X size={14} /></button>
+          <button onClick={() => setAddingModel(false)} className="rounded p-1.5 text-[var(--c-text-muted)] transition-colors hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-secondary)]">
+            <X size={14} />
+          </button>
         </div>
       )}
 
-      {err && <p className="text-xs text-red-400">{err}</p>}
+      {err && <p className="mt-2 text-xs text-red-400">{err}</p>}
+      {applyMsg && <p className="mt-2 text-xs text-green-500">{applyMsg}</p>}
 
-      {provider.models.length === 0 && !addingModel ? (
-        <p className="text-xs text-[var(--c-text-tertiary)]">{m.noModels}</p>
-      ) : (
-        <div className="flex flex-col gap-0.5">
-          {provider.models.map((pm) => (
-            <div key={pm.id} className="group flex items-center justify-between rounded-md px-2 py-1.5 transition-colors hover:bg-[var(--c-bg-deep)]">
-              <span className="text-sm text-[var(--c-text-heading)]">{pm.model}</span>
-              <button
-                onClick={() => handleDeleteModel(pm.id)}
-                className="rounded p-0.5 text-[var(--c-text-tertiary)] opacity-0 transition-opacity group-hover:opacity-100 hover:text-red-400"
-              >
-                <Trash2 size={13} />
-              </button>
+      <div className="mt-3 space-y-2">
+        {provider.models.length === 0 && !addingModel ? (
+          <p className="py-8 text-center text-sm text-[var(--c-text-muted)]">--</p>
+        ) : (
+          provider.models.map((pm) => (
+            <div
+              key={pm.id}
+              className="group flex items-center justify-between rounded-lg border border-[var(--c-border-subtle)] px-4 py-3"
+            >
+              <p className="text-sm font-medium text-[var(--c-text-primary)]">{pm.model}</p>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => handleApplyToAll(pm.model)}
+                  disabled={applyingModel === pm.model}
+                  className="rounded-md px-2 py-1 text-xs text-[var(--c-text-muted)] transition-colors hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-secondary)] disabled:opacity-50"
+                >
+                  {applyingModel === pm.model ? <Loader2 size={12} className="animate-spin" /> : m.applyToAll}
+                </button>
+                <button
+                  onClick={() => handleDeleteModel(pm.id)}
+                  className="rounded p-1.5 text-[var(--c-text-muted)] transition-colors hover:bg-[var(--c-bg-sub)] hover:text-red-500"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
             </div>
-          ))}
-        </div>
-      )}
+          ))
+        )}
+      </div>
     </div>
   )
 }
 
-// -- Shared Helpers --
+// -- Shared --
 
-function InputField({
-  label,
-  value,
-  onChange,
-  placeholder,
-  type = 'text',
-}: {
-  label: string
-  value: string
-  onChange: (v: string) => void
-  placeholder?: string
-  type?: string
-}) {
+function FormField({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="flex flex-col gap-1">
-      <label className="text-xs text-[var(--c-text-tertiary)]">{label}</label>
-      <input
-        type={type}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        className="h-8 rounded-md px-2.5 text-sm outline-none"
-        style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-page)', color: 'var(--c-text-heading)' }}
-      />
+    <div>
+      <label className="mb-1 block text-xs font-medium text-[var(--c-text-tertiary)]">{label}</label>
+      {children}
     </div>
   )
 }
-
-

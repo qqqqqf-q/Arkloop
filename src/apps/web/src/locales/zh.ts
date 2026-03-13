@@ -363,6 +363,10 @@ export const zh: LocaleStrings = {
     vendorOpenaiResponses: 'OpenAI Responses',
     vendorOpenaiChatCompletions: 'OpenAI Chat Completions',
     vendorAnthropicMessage: 'Anthropic Messages',
+    applyToAll: '应用到所有智能体',
+    applyingToAll: '应用中...',
+    applyDone: '已应用到 {count} 个智能体',
+    deleteAll: '全部删除',
   },
   // agent settings
   agentSettings: {
@@ -376,9 +380,6 @@ export const zh: LocaleStrings = {
     maxOutputTokens: '最大输出 Token',
     noPersonas: '暂无可用智能体',
     saveFailed: '保存失败',
-    applyAll: '应用到所有智能体',
-    applyingAll: '应用中...',
-    applyAllDone: '已应用到所有智能体',
     reasoningModes: {
       default: '默认',
       enabled: '启用',

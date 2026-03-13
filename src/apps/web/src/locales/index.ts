@@ -371,6 +371,10 @@ export interface LocaleStrings {
     vendorOpenaiResponses: string
     vendorOpenaiChatCompletions: string
     vendorAnthropicMessage: string
+    applyToAll: string
+    applyingToAll: string
+    applyDone: string
+    deleteAll: string
   }
   // agent settings
   agentSettings: {
@@ -384,9 +388,6 @@ export interface LocaleStrings {
     maxOutputTokens: string
     noPersonas: string
     saveFailed: string
-    applyAll: string
-    applyingAll: string
-    applyAllDone: string
     reasoningModes: {
       default: string
       enabled: string

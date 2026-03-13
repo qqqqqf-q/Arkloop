@@ -363,6 +363,10 @@ export const en: LocaleStrings = {
     vendorOpenaiResponses: 'OpenAI Responses',
     vendorOpenaiChatCompletions: 'OpenAI Chat Completions',
     vendorAnthropicMessage: 'Anthropic Messages',
+    applyToAll: 'Apply to all agents',
+    applyingToAll: 'Applying...',
+    applyDone: 'Applied to {count} agents',
+    deleteAll: 'Delete all',
   },
   // agent settings
   agentSettings: {
@@ -376,9 +380,6 @@ export const en: LocaleStrings = {
     maxOutputTokens: 'Max Output Tokens',
     noPersonas: 'No agents available',
     saveFailed: 'Failed to save',
-    applyAll: 'Apply to All Agents',
-    applyingAll: 'Applying...',
-    applyAllDone: 'Applied to all agents',
     reasoningModes: {
       default: 'Default',
       enabled: 'Enabled',

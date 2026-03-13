@@ -162,7 +162,7 @@ export type GitHubImportResponse = {
 export type Persona = {
   id: string
   project_id: string | null
-  scope: 'org' | 'platform'
+  scope: 'platform' | 'project'
   source?: 'builtin' | 'custom'
   persona_key: string
   version: string
@@ -1259,8 +1259,10 @@ export async function patchPersona(
   accessToken: string,
   personaId: string,
   req: PatchPersonaRequest,
+  scope?: string,
 ): Promise<Persona> {
-  return await apiFetch<Persona>(`/v1/personas/${personaId}`, {
+  const qs = scope ? `?scope=${scope}` : ''
+  return await apiFetch<Persona>(`/v1/personas/${personaId}${qs}`, {
     method: 'PATCH',
     accessToken,
     body: JSON.stringify(req),
