@@ -380,6 +380,8 @@ export const zh: LocaleStrings = {
     maxOutputTokens: '最大输出 Token',
     noPersonas: '暂无可用智能体',
     saveFailed: '保存失败',
+    resetAll: '全部重置为默认',
+    resetDone: '已重置 {count} 个智能体',
     reasoningModes: {
       default: '默认',
       enabled: '启用',

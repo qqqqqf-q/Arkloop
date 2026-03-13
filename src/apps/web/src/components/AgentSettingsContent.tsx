@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { RotateCcw } from 'lucide-react'
 import {
   type Persona,
   type LlmProvider,
@@ -21,6 +22,8 @@ export function AgentSettingsContent({ accessToken }: Props) {
   const [personas, setPersonas] = useState<Persona[]>([])
   const [providers, setProviders] = useState<LlmProvider[]>([])
   const [loading, setLoading] = useState(true)
+  const [resetting, setResetting] = useState(false)
+  const [resetMsg, setResetMsg] = useState('')
 
   const load = useCallback(async () => {
     try {
@@ -39,18 +42,41 @@ export function AgentSettingsContent({ accessToken }: Props) {
 
   useEffect(() => { load() }, [load])
 
-  const allModels = Array.from(
-    new Set(providers.flatMap((p) => p.models.map((m) => m.model))),
-  ).sort()
+  const handleResetAll = async () => {
+    setResetting(true)
+    setResetMsg('')
+    let count = 0
+    for (const p of personas) {
+      try {
+        await patchPersona(accessToken, p.id, { model: '', preferred_credential: '' }, p.scope)
+        count++
+      } catch { /* skip */ }
+    }
+    setResetMsg(a.resetDone.replace('{count}', String(count)))
+    setResetting(false)
+    void load()
+  }
 
   if (loading) return <div className="text-sm text-[var(--c-text-tertiary)]">{t.loading}</div>
 
   return (
     <div className="flex flex-col gap-4">
-      <div>
-        <h3 className="text-sm font-medium text-[var(--c-text-heading)]">{a.title}</h3>
-        <p className="mt-0.5 text-xs text-[var(--c-text-tertiary)]">{a.subtitle}</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-sm font-medium text-[var(--c-text-heading)]">{a.title}</h3>
+          <p className="mt-0.5 text-xs text-[var(--c-text-tertiary)]">{a.subtitle}</p>
+        </div>
+        <button
+          onClick={handleResetAll}
+          disabled={resetting || personas.length === 0}
+          className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--c-bg-sub)] disabled:opacity-50"
+          style={{ borderColor: 'var(--c-border-subtle)', color: 'var(--c-text-tertiary)' }}
+        >
+          <RotateCcw size={12} />
+          {resetting ? '...' : a.resetAll}
+        </button>
       </div>
+      {resetMsg && <p className="text-xs text-green-500">{resetMsg}</p>}
 
       {personas.length === 0 ? (
         <p className="text-sm text-[var(--c-text-tertiary)]">{a.noPersonas}</p>
@@ -60,7 +86,6 @@ export function AgentSettingsContent({ accessToken }: Props) {
             <PersonaRow
               key={p.id}
               persona={p}
-              allModels={allModels}
               providers={providers}
               accessToken={accessToken}
               onUpdated={load}
@@ -74,13 +99,11 @@ export function AgentSettingsContent({ accessToken }: Props) {
 
 function PersonaRow({
   persona,
-  allModels,
   providers,
   accessToken,
   onUpdated,
 }: {
   persona: Persona
-  allModels: string[]
   providers: LlmProvider[]
   accessToken: string
   onUpdated: () => void
@@ -94,11 +117,50 @@ function PersonaRow({
   const temperature = typeof budgets.temperature === 'number' ? budgets.temperature : 1
   const maxOutputTokens = typeof budgets.max_output_tokens === 'number' ? budgets.max_output_tokens : 4096
 
-  const handleChange = async (field: 'model' | 'reasoning_mode' | 'preferred_credential', value: string) => {
+  // build combined model options: "credentialName^modelName"
+  const modelOptions: { value: string; label: string }[] = [
+    { value: '', label: a.credentialDefault },
+  ]
+  for (const p of providers) {
+    for (const m of p.models) {
+      modelOptions.push({ value: `${p.name}^${m.model}`, label: `${p.name} / ${m.model}` })
+    }
+  }
+
+  // current combined value: model field may already be "credName^model" or just "model"
+  const currentCombo = (() => {
+    const model = persona.model ?? ''
+    if (!model) return ''
+    if (model.includes('^')) return model
+    // legacy: model is plain model name + separate preferred_credential
+    const cred = persona.preferred_credential ?? ''
+    return cred ? `${cred}^${model}` : model
+  })()
+
+  const handleModelComboChange = async (combo: string) => {
     setSaving(true)
     setErr('')
     try {
-      await patchPersona(accessToken, persona.id, { [field]: value || null }, persona.scope)
+      if (!combo) {
+        // reset to platform default
+        await patchPersona(accessToken, persona.id, { model: '', preferred_credential: '' }, persona.scope)
+      } else {
+        // combo is "credName^model"
+        await patchPersona(accessToken, persona.id, { model: combo, preferred_credential: '' }, persona.scope)
+      }
+      onUpdated()
+    } catch (e) {
+      setErr(isApiError(e) ? e.message : a.saveFailed)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleChange = async (field: 'reasoning_mode', value: string) => {
+    setSaving(true)
+    setErr('')
+    try {
+      await patchPersona(accessToken, persona.id, { [field]: value }, persona.scope)
       onUpdated()
     } catch (e) {
       setErr(isApiError(e) ? e.message : a.saveFailed)
@@ -134,13 +196,13 @@ function PersonaRow({
         {saving && <span className="text-xs text-[var(--c-text-tertiary)]">...</span>}
       </div>
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-        {/* model */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+        {/* model + credential combined */}
         <SelectField
           label={a.model}
-          value={persona.model ?? ''}
-          onChange={(v) => handleChange('model', v)}
-          options={[{ value: '', label: a.credentialDefault }, ...allModels.map((m) => ({ value: m, label: m }))]}
+          value={currentCombo}
+          onChange={handleModelComboChange}
+          options={modelOptions}
         />
 
         {/* reasoning mode */}
@@ -149,17 +211,6 @@ function PersonaRow({
           value={persona.reasoning_mode || 'default'}
           onChange={(v) => handleChange('reasoning_mode', v)}
           options={REASONING_MODES.map((mode) => ({ value: mode, label: a.reasoningModes[mode] }))}
-        />
-
-        {/* preferred credential */}
-        <SelectField
-          label={a.credential}
-          value={persona.preferred_credential ?? ''}
-          onChange={(v) => handleChange('preferred_credential', v)}
-          options={[
-            { value: '', label: a.credentialDefault },
-            ...providers.map((p) => ({ value: p.id, label: p.name })),
-          ]}
         />
 
         {/* temperature */}

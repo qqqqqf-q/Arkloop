@@ -388,6 +388,8 @@ export interface LocaleStrings {
     maxOutputTokens: string
     noPersonas: string
     saveFailed: string
+    resetAll: string
+    resetDone: string
     reasoningModes: {
       default: string
       enabled: string
