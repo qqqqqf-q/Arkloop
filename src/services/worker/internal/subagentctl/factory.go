@@ -189,7 +189,7 @@ func (f *SubAgentRunFactory) createChildThread(ctx context.Context, tx pgx.Tx, p
 	}
 	var childThreadID uuid.UUID
 	if err := tx.QueryRow(ctx,
-		`INSERT INTO threads (org_id, project_id, is_private, expires_at)
+		`INSERT INTO threads (account_id, project_id, is_private, expires_at)
 		 VALUES ($1, $2, TRUE, now() + make_interval(secs => $3))
 		 RETURNING id`,
 		parentRun.AccountID,
@@ -219,7 +219,7 @@ func (f *SubAgentRunFactory) createQueuedRun(
 	}
 	profileRef, workspaceRef := inheritedBindings(parentRun, snapshot)
 	if _, err := tx.Exec(ctx,
-		`INSERT INTO runs (id, org_id, thread_id, parent_run_id, created_by_user_id, profile_ref, workspace_ref, status)
+		`INSERT INTO runs (id, account_id, thread_id, parent_run_id, created_by_user_id, profile_ref, workspace_ref, status)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, 'running')`,
 		childRunID,
 		parentRun.AccountID,

@@ -476,7 +476,7 @@ func seedThreadMessages(t *testing.T, pool *pgxpool.Pool, orgID uuid.UUID, threa
 		if idx%2 == 1 {
 			role = "assistant"
 		}
-		if _, err := pool.Exec(context.Background(), `INSERT INTO messages (org_id, thread_id, role, content) VALUES ($1, $2, $3, $4)`, orgID, threadID, role, content); err != nil {
+		if _, err := pool.Exec(context.Background(), `INSERT INTO messages (account_id, thread_id, role, content) VALUES ($1, $2, $3, $4)`, orgID, threadID, role, content); err != nil {
 			t.Fatalf("insert message %q failed: %v", content, err)
 		}
 	}
@@ -527,7 +527,7 @@ func seedThreadAndRun(t *testing.T, pool *pgxpool.Pool, orgID, threadID uuid.UUI
 	t.Helper()
 	_, err := pool.Exec(
 		context.Background(),
-		`INSERT INTO threads (id, org_id, created_by_user_id, project_id)
+		`INSERT INTO threads (id, account_id, created_by_user_id, project_id)
 		 VALUES ($1, $2, $3, $4)`,
 		threadID,
 		orgID,
@@ -539,7 +539,7 @@ func seedThreadAndRun(t *testing.T, pool *pgxpool.Pool, orgID, threadID uuid.UUI
 	}
 	_, err = pool.Exec(
 		context.Background(),
-		`INSERT INTO runs (id, org_id, thread_id, created_by_user_id, status)
+		`INSERT INTO runs (id, account_id, thread_id, created_by_user_id, status)
 		 VALUES ($1, $2, $3, $4, 'running')`,
 		runID,
 		orgID,

@@ -29,10 +29,10 @@ func TestSubAgentContextMiddlewareRestoresRouteAndNarrowsAllowlist(t *testing.T)
 	parentRunID := uuid.New()
 	childRunID := uuid.New()
 	subAgentID := uuid.New()
-	if _, err := pool.Exec(context.Background(), `INSERT INTO threads (id, org_id, project_id) VALUES ($1, $2, $3), ($4, $2, $3)`, parentThreadID, orgID, projectID, childThreadID); err != nil {
+	if _, err := pool.Exec(context.Background(), `INSERT INTO threads (id, account_id, project_id) VALUES ($1, $2, $3), ($4, $2, $3)`, parentThreadID, orgID, projectID, childThreadID); err != nil {
 		t.Fatalf("insert threads: %v", err)
 	}
-	if _, err := pool.Exec(context.Background(), `INSERT INTO runs (id, org_id, thread_id, status) VALUES ($1, $2, $3, 'running'), ($4, $2, $5, 'running')`, parentRunID, orgID, parentThreadID, childRunID, childThreadID); err != nil {
+	if _, err := pool.Exec(context.Background(), `INSERT INTO runs (id, account_id, thread_id, status) VALUES ($1, $2, $3, 'running'), ($4, $2, $5, 'running')`, parentRunID, orgID, parentThreadID, childRunID, childThreadID); err != nil {
 		t.Fatalf("insert runs: %v", err)
 	}
 	if _, err := pool.Exec(context.Background(), `INSERT INTO sub_agents (id, org_id, parent_run_id, parent_thread_id, root_run_id, root_thread_id, depth, source_type, context_mode, status, current_run_id) VALUES ($1, $2, $3, $4, $3, $4, 1, $5, $6, $7, $8)`, subAgentID, orgID, parentRunID, parentThreadID, data.SubAgentSourceTypeThreadSpawn, data.SubAgentContextModeForkRecent, data.SubAgentStatusQueued, childRunID); err != nil {
@@ -114,10 +114,10 @@ func TestSubAgentContextMiddlewareNarrowsRoleExpandedAllowlist(t *testing.T) {
 	parentRunID := uuid.New()
 	childRunID := uuid.New()
 	subAgentID := uuid.New()
-	if _, err := pool.Exec(context.Background(), `INSERT INTO threads (id, org_id, project_id) VALUES ($1, $2, $3), ($4, $2, $3)`, parentThreadID, orgID, projectID, childThreadID); err != nil {
+	if _, err := pool.Exec(context.Background(), `INSERT INTO threads (id, account_id, project_id) VALUES ($1, $2, $3), ($4, $2, $3)`, parentThreadID, orgID, projectID, childThreadID); err != nil {
 		t.Fatalf("insert threads: %v", err)
 	}
-	if _, err := pool.Exec(context.Background(), `INSERT INTO runs (id, org_id, thread_id, status) VALUES ($1, $2, $3, 'running'), ($4, $2, $5, 'running')`, parentRunID, orgID, parentThreadID, childRunID, childThreadID); err != nil {
+	if _, err := pool.Exec(context.Background(), `INSERT INTO runs (id, account_id, thread_id, status) VALUES ($1, $2, $3, 'running'), ($4, $2, $5, 'running')`, parentRunID, orgID, parentThreadID, childRunID, childThreadID); err != nil {
 		t.Fatalf("insert runs: %v", err)
 	}
 	if _, err := pool.Exec(context.Background(), `INSERT INTO sub_agents (id, org_id, parent_run_id, parent_thread_id, root_run_id, root_thread_id, depth, source_type, context_mode, status, current_run_id) VALUES ($1, $2, $3, $4, $3, $4, 1, $5, $6, $7, $8)`, subAgentID, orgID, parentRunID, parentThreadID, data.SubAgentSourceTypeThreadSpawn, data.SubAgentContextModeForkRecent, data.SubAgentStatusQueued, childRunID); err != nil {

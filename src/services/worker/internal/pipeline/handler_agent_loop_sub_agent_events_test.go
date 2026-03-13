@@ -176,7 +176,7 @@ func TestEventWriterAppend_AutoQueuesNextRunFromPendingInputs(t *testing.T) {
 
 func seedPipelineThread(t *testing.T, pool *pgxpool.Pool, orgID, threadID, projectID uuid.UUID) {
 	t.Helper()
-	_, err := pool.Exec(context.Background(), `INSERT INTO threads (id, org_id, project_id) VALUES ($1, $2, $3)`, threadID, orgID, projectID)
+	_, err := pool.Exec(context.Background(), `INSERT INTO threads (id, account_id, project_id) VALUES ($1, $2, $3)`, threadID, orgID, projectID)
 	if err != nil {
 		t.Fatalf("insert thread: %v", err)
 	}
@@ -184,7 +184,7 @@ func seedPipelineThread(t *testing.T, pool *pgxpool.Pool, orgID, threadID, proje
 
 func seedPipelineRun(t *testing.T, pool *pgxpool.Pool, orgID, threadID, runID uuid.UUID, parentRunID *uuid.UUID) {
 	t.Helper()
-	_, err := pool.Exec(context.Background(), `INSERT INTO runs (id, org_id, thread_id, parent_run_id, status) VALUES ($1, $2, $3, $4, 'running')`, runID, orgID, threadID, parentRunID)
+	_, err := pool.Exec(context.Background(), `INSERT INTO runs (id, account_id, thread_id, parent_run_id, status) VALUES ($1, $2, $3, $4, 'running')`, runID, orgID, threadID, parentRunID)
 	if err != nil {
 		t.Fatalf("insert run: %v", err)
 	}

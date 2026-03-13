@@ -174,7 +174,7 @@ func (MessagesRepository) ListByIDs(
 		ctx,
 		`SELECT id, role, content, content_json, created_at
 		 FROM messages
-		 WHERE org_id = $1
+		 WHERE account_id = $1
 		   AND thread_id = $2
 		   AND id = ANY($3)
 		   AND hidden = FALSE
@@ -230,7 +230,7 @@ func (MessagesRepository) ListRecentByThread(
 		 FROM (
 		 	SELECT id, role, content, content_json, created_at
 		 	  FROM messages
-		 	 WHERE org_id = $1
+		 	 WHERE account_id = $1
 		 	   AND thread_id = $2
 		 	   AND hidden = FALSE
 		 	   AND deleted_at IS NULL
@@ -294,7 +294,7 @@ func (MessagesRepository) InsertThreadMessage(
 	err := tx.QueryRow(
 		ctx,
 		`INSERT INTO messages (
-			org_id, thread_id, created_by_user_id, role, content, content_json
+			account_id, thread_id, created_by_user_id, role, content, content_json
 		) VALUES (
 			$1, $2, $3, $4, $5, $6
 		)

@@ -22,10 +22,10 @@ func TestLoadRunInputsIncludesRoleFromFirstEvent(t *testing.T) {
 	projectID := uuid.New()
 	threadID := uuid.New()
 	runID := uuid.New()
-	if _, err := pool.Exec(context.Background(), `INSERT INTO threads (id, org_id, project_id) VALUES ($1, $2, $3)`, threadID, orgID, projectID); err != nil {
+	if _, err := pool.Exec(context.Background(), `INSERT INTO threads (id, account_id, project_id) VALUES ($1, $2, $3)`, threadID, orgID, projectID); err != nil {
 		t.Fatalf("insert thread: %v", err)
 	}
-	if _, err := pool.Exec(context.Background(), `INSERT INTO runs (id, org_id, thread_id, status) VALUES ($1, $2, $3, 'running')`, runID, orgID, threadID); err != nil {
+	if _, err := pool.Exec(context.Background(), `INSERT INTO runs (id, account_id, thread_id, status) VALUES ($1, $2, $3, 'running')`, runID, orgID, threadID); err != nil {
 		t.Fatalf("insert run: %v", err)
 	}
 	if _, err := pool.Exec(context.Background(), `INSERT INTO run_events (run_id, seq, type, data_json) VALUES ($1, 1, 'run.started', '{"persona_id":"p1","role":"worker"}'::jsonb)`, runID); err != nil {
