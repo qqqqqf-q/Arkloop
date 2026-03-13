@@ -16,5 +16,5 @@ func (r *shimRow) Scan(dest ...any) error {
 	if r.err != nil {
 		return translateError(r.err)
 	}
-	return translateError(r.row.Scan(dest...))
+	return translateError(r.row.Scan(wrapScanTargets(dest)...))
 }

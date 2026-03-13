@@ -42,6 +42,14 @@ func rewriteSQL(sql string) string {
 		sql = forUpdateRe.ReplaceAllString(sql, "")
 	}
 
+	if lateralRe.MatchString(sql) {
+		sql = rewriteLateral(sql)
+	}
+
+	if strings.Contains(sql, "GREATEST(") || strings.Contains(sql, "greatest(") {
+		sql = greatestRe.ReplaceAllString(sql, "MAX($1)")
+	}
+
 	return sql
 }
 
@@ -56,4 +64,41 @@ func rewriteInterval(match string) string {
 		unit += "s"
 	}
 	return "'+'" + parts[1] + " " + unit + "'"
+}
+
+// lateralRe detects LEFT JOIN LATERAL or JOIN LATERAL.
+var lateralRe = regexp.MustCompile(`(?is)LEFT\s+JOIN\s+LATERAL|JOIN\s+LATERAL`)
+
+// greatestRe matches PostgreSQL GREATEST() which is MAX() in SQLite.
+var greatestRe = regexp.MustCompile(`(?i)GREATEST\(([^)]+)\)`)
+
+// rewriteLateral converts LEFT JOIN LATERAL (subquery) alias ON true
+// to correlated subqueries in the SELECT clause.
+// Only handles single-column LATERAL subqueries with ON true.
+func rewriteLateral(sql string) string {
+	// Match: LEFT JOIN LATERAL ( ... ) alias ON true
+	// Strategy: find each LATERAL block, extract subquery + alias,
+	// remove the JOIN, replace alias.col references with the subquery.
+	re := regexp.MustCompile(`(?is)(LEFT\s+)?JOIN\s+LATERAL\s*\(` +
+		`((?:[^()]*|\((?:[^()]*|\([^()]*\))*\))*)` + // nested parens up to 2 levels
+		`\)\s+(\w+)\s+ON\s+true`)
+
+	for {
+		loc := re.FindStringSubmatchIndex(sql)
+		if loc == nil {
+			break
+		}
+		fullStart, fullEnd := loc[0], loc[1]
+		subquery := strings.TrimSpace(sql[loc[4]:loc[5]])
+		alias := sql[loc[6]:loc[7]]
+
+		// Remove the JOIN LATERAL clause
+		sql = sql[:fullStart] + sql[fullEnd:]
+
+		// Replace alias.column references with the subquery
+		// Common pattern: alias.column_name (optionally followed by AS)
+		colRef := regexp.MustCompile(`\b` + regexp.QuoteMeta(alias) + `\.(\w+)`)
+		sql = colRef.ReplaceAllString(sql, "("+subquery+") /* $1 */")
+	}
+	return sql
 }

@@ -50,7 +50,7 @@ func (r *shimRows) Scan(dest ...any) error {
 	if r.err != nil {
 		return r.err
 	}
-	return translateError(r.rows.Scan(dest...))
+	return translateError(r.rows.Scan(wrapScanTargets(dest)...))
 }
 
 func (r *shimRows) Values() ([]any, error) {
