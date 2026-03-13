@@ -5,17 +5,13 @@ import (
 	"strings"
 )
 
-func routeRequest(apiProxy http.Handler, frontendProxy http.Handler, bootstrapProxy http.Handler) http.Handler {
+func routeRequest(apiProxy http.Handler, frontendProxy http.Handler) http.Handler {
 	if frontendProxy == nil {
 		return apiProxy
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if shouldProxyToAPI(r.URL.Path) {
 			apiProxy.ServeHTTP(w, r)
-			return
-		}
-		if bootstrapProxy != nil && strings.HasPrefix(r.URL.Path, "/bootstrap/") {
-			bootstrapProxy.ServeHTTP(w, r)
 			return
 		}
 		frontendProxy.ServeHTTP(w, r)

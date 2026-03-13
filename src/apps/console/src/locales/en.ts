@@ -81,6 +81,21 @@ export const en: LocaleStrings = {
   otpSendingCountdown: (s: number) => `Resend in ${s}s`,
   otpVerifyBtn: 'Sign in',
   loading: 'Loading...',
+  bootstrap: {
+    title: 'Initialize Platform Admin',
+    subtitle: 'Create the first admin account and enter Console automatically.',
+    username: 'Admin username',
+    usernamePlaceholder: 'Enter admin username',
+    password: 'Admin password',
+    passwordPlaceholder: 'Set admin password',
+    submit: 'Create and enter Console',
+    verifying: 'Verifying bootstrap link...',
+    successTitle: 'Initialization complete',
+    successBody: 'The admin account is ready. Redirecting to Console...',
+    invalidTitle: 'Bootstrap link expired',
+    invalidBody: 'This link is missing, expired, or already used. Return to the installer terminal to get a new one.',
+    expiresAt: (value: string) => `Expires at: ${value}`,
+  },
   pages: {
     credentials: {
       title: 'LLM Providers',

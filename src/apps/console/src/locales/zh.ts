@@ -81,6 +81,21 @@ export const zh: LocaleStrings = {
   otpSendingCountdown: (s: number) => `${s}s 后可重发`,
   otpVerifyBtn: '登录',
   loading: '加载中...',
+  bootstrap: {
+    title: '初始化平台管理员',
+    subtitle: '创建首个管理员账户，完成后自动进入控制台。',
+    username: '管理员用户名',
+    usernamePlaceholder: '输入管理员用户名',
+    password: '管理员密码',
+    passwordPlaceholder: '设置管理员密码',
+    submit: '创建并进入控制台',
+    verifying: '正在验证引导链接...',
+    successTitle: '初始化完成',
+    successBody: '管理员账户已就绪，正在跳转至控制台...',
+    invalidTitle: '引导链接已失效',
+    invalidBody: '此链接缺失、已过期或已被使用，请返回安装终端获取新的链接。',
+    expiresAt: (value: string) => `过期时间: ${value}`,
+  },
   pages: {
     credentials: {
       title: 'LLM 提供方',
