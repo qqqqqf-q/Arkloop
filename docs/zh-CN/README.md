@@ -88,8 +88,10 @@ curl -s https://raw.githubusercontent.com/qqqqqf/Arkloop/refs/heads/main/docs/gu
 | Gateway | Go | 反向代理、速率限制、风控评分、Geo-IP |
 | Worker | Go | 任务执行、LLM 路由、工具调度、Persona 管理 |
 | Sandbox | Go | Firecracker 微虚拟机或 Docker 容器中的代码执行 |
+| Bridge | Go | 项目桥接服务 |
 | Web | React / TypeScript | 面向用户的聊天界面 |
 | Console | React / TypeScript | 平台管理仪表板 |
+| Console Lite | React / TypeScript | 轻量管理仪表板 (默认) |
 
 基础设施：PostgreSQL + PgBouncer、Redis、MinIO（S3 兼容存储）、OpenViking（向量记忆）。
 

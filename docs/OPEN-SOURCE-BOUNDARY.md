@@ -65,7 +65,7 @@ This document defines the open-source boundary of the Arkloop repository: what b
 
 Primary license is the Arkloop License (modified Apache 2.0), with additional terms:
 
-1. **Multi-tenant restriction**: Source code may not be used to operate a multi-tenant SaaS (one Organization = one tenant)
+1. **Multi-tenant restriction**: Source code may not be used to operate a multi-tenant SaaS (one Account = one tenant)
 2. **Brand protection**: LOGO and copyright information in `src/apps/web/` and `src/apps/console/` must not be removed
 
 See the root `LICENSE` file for full details.

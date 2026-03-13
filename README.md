@@ -86,7 +86,7 @@ Deep web search that synthesizes sources into structured answers with citations.
 Isolated execution environments powered by Firecracker microVMs or Docker containers. Supports Python, data analysis, chart generation, and file operations with strict resource limits.
 
 **4. Tool Providers**
-Unified provider management for search and fetch tools. Configure platform defaults and org-level overrides without changing agent prompts.
+Unified provider management for search and fetch tools. Configure platform defaults and account-level overrides without changing agent prompts.
 
 **5. Custom Personas**
 Define specialized agent configurations with distinct system prompts, tool sets, and behavioral tiers. Switch between general-purpose, research-focused, and domain-specific modes.
@@ -108,8 +108,10 @@ Search and import skills from ClawHub, with compatibility for OpenClaw skill fol
 | Gateway | Go | Reverse proxy, rate limiting, risk scoring, geo-IP |
 | Worker | Go | Job execution, LLM routing, tool dispatch, persona management |
 | Sandbox | Go | Code execution in Firecracker VMs or Docker containers |
+| Bridge | Go | Project bridge service |
 | Web | React / TypeScript | User-facing chat interface |
 | Console | React / TypeScript | Platform administration dashboard |
+| Console Lite | React / TypeScript | Lightweight administration dashboard (default) |
 
 Infrastructure: PostgreSQL + PgBouncer, Redis, MinIO (S3-compatible), OpenViking (vector memory).
 
