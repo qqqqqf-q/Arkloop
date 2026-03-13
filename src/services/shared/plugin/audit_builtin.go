@@ -60,7 +60,7 @@ func (s *DBSink) Emit(ctx context.Context, event AuditEvent) error {
 	traceID := uuid.New().String()
 
 	_, err = s.db.Exec(ctx,
-		`INSERT INTO audit_logs (org_id, actor_user_id, action, target_type, target_id, trace_id, metadata_json, ip_address, user_agent, ts)
+		`INSERT INTO audit_logs (account_id, actor_user_id, action, target_type, target_id, trace_id, metadata_json, ip_address, user_agent, ts)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::inet, $9, $10)`,
 		orgID,
 		actorID,
