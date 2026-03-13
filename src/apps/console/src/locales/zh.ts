@@ -98,6 +98,11 @@ export const zh: LocaleStrings = {
     invalidTitle: '引导链接已失效',
     invalidBody: '此链接缺失、已过期或已被使用，请返回安装终端获取新的链接。',
     expiresAt: (value: string) => `过期时间: ${value}`,
+    selectHint: '选择控制台',
+    consoleLabel: 'Console',
+    consoleDescription: '完整管理控制台',
+    consoleLiteLabel: 'Console Lite',
+    consoleLiteDescription: '轻量管理面板',
   },
   pages: {
     credentials: {

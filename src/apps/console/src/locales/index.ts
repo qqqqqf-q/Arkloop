@@ -107,6 +107,11 @@ export interface LocaleStrings {
     invalidTitle: string
     invalidBody: string
     expiresAt: (value: string) => string
+    selectHint: string
+    consoleLabel: string
+    consoleDescription: string
+    consoleLiteLabel: string
+    consoleLiteDescription: string
   }
   // pages
   pages: {

@@ -26,9 +26,17 @@ export type BootstrapTranslations = {
     invalidTitle: string
     invalidBody: string
     expiresAt: (value: string) => string
+    selectHint: string
   }
   loading: string
   requestFailed: string
+}
+
+export type ConsoleTarget = {
+  name: string
+  description: string
+  url: string
+  current?: boolean
 }
 
 type Phase = 'verifying' | 'invalid' | 'form' | 'success'
@@ -37,9 +45,10 @@ type Props = {
   onLoggedIn: (accessToken: string) => void
   t: BootstrapTranslations
   locale: Locale
+  consoles?: ConsoleTarget[]
 }
 
-export function BootstrapPage({ onLoggedIn, t, locale }: Props) {
+export function BootstrapPage({ onLoggedIn, t, locale, consoles }: Props) {
   const { token = '' } = useParams()
   const navigate = useNavigate()
 
@@ -88,14 +97,17 @@ export function BootstrapPage({ onLoggedIn, t, locale }: Props) {
     return () => clearTimeout(timer)
   }, [phase])
 
+  const hasMultipleConsoles = consoles && consoles.length > 1
+
   useEffect(() => {
     if (phase !== 'success' || !pendingAccessToken) return
+    if (hasMultipleConsoles) return
     const timer = window.setTimeout(() => {
       onLoggedIn(pendingAccessToken)
       navigate('/dashboard', { replace: true })
     }, 900)
     return () => window.clearTimeout(timer)
-  }, [navigate, onLoggedIn, pendingAccessToken, phase])
+  }, [navigate, onLoggedIn, pendingAccessToken, phase, hasMultipleConsoles])
 
   const expiresLabel = useMemo(() => {
     if (!expiresAt) return ''
@@ -138,6 +150,16 @@ export function BootstrapPage({ onLoggedIn, t, locale }: Props) {
       }
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  function handleConsoleSelect(target: ConsoleTarget) {
+    if (!pendingAccessToken) return
+    onLoggedIn(pendingAccessToken)
+    if (target.current) {
+      navigate('/dashboard', { replace: true })
+    } else {
+      window.location.href = `${target.url}?_t=${encodeURIComponent(pendingAccessToken)}`
     }
   }
 
@@ -219,10 +241,52 @@ export function BootstrapPage({ onLoggedIn, t, locale }: Props) {
 
           {/* success state */}
           <Reveal active={phase === 'success'}>
-            <div style={{ paddingTop: '4px', textAlign: 'center' }}>
-              <div style={{ fontSize: '13px', color: 'var(--c-text-secondary)' }}>
-                {t.bootstrap.successBody}
-              </div>
+            <div style={{ paddingTop: '4px' }}>
+              {hasMultipleConsoles ? (
+                <>
+                  <div style={{ fontSize: '12px', color: 'var(--c-placeholder)', textAlign: 'center', marginBottom: '14px' }}>
+                    {t.bootstrap.selectHint}
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column' as const, gap: '8px' }}>
+                    {consoles!.map((c) => (
+                      <button
+                        key={c.url}
+                        onClick={() => handleConsoleSelect(c)}
+                        style={{
+                          width: '100%',
+                          padding: '14px 16px',
+                          borderRadius: '10px',
+                          border: '0.5px solid var(--c-border)',
+                          background: 'var(--c-bg-input)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '12px',
+                          cursor: 'pointer',
+                          textAlign: 'left' as const,
+                          fontFamily: 'inherit',
+                          transition: TRANSITION,
+                        }}
+                      >
+                        <div>
+                          <div style={{ fontSize: '14px', fontWeight: 500, color: 'var(--c-text-primary)' }}>
+                            {c.name}
+                          </div>
+                          <div style={{ fontSize: '12px', color: 'var(--c-placeholder)', marginTop: '2px' }}>
+                            {c.description}
+                          </div>
+                        </div>
+                        <span style={{ marginLeft: 'auto', fontSize: '15px', color: 'var(--c-placeholder)' }}>{'\u2192'}</span>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: '13px', color: 'var(--c-text-secondary)' }}>
+                    {t.bootstrap.successBody}
+                  </div>
+                </div>
+              )}
             </div>
           </Reveal>
 

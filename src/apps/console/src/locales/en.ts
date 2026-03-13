@@ -98,6 +98,11 @@ export const en: LocaleStrings = {
     invalidTitle: 'Bootstrap link expired',
     invalidBody: 'This link is missing, expired, or already used. Return to the installer terminal to get a new one.',
     expiresAt: (value: string) => `Expires at: ${value}`,
+    selectHint: 'Select a console to get started',
+    consoleLabel: 'Console',
+    consoleDescription: 'Full-featured admin dashboard',
+    consoleLiteLabel: 'Console Lite',
+    consoleLiteDescription: 'Lightweight management panel',
   },
   pages: {
     credentials: {
