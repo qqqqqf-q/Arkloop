@@ -10,11 +10,21 @@ export default defineConfig(({ mode }) => {
     process.env.ARKLOOP_API_PROXY_TARGET ??
     'http://127.0.0.1:19001'
 
+  const bridgeProxyTarget =
+    env.ARKLOOP_BRIDGE_PROXY_TARGET ??
+    process.env.ARKLOOP_BRIDGE_PROXY_TARGET ??
+    'http://127.0.0.1:19003'
+
   return {
     plugins: [tailwindcss(), react()],
     server: {
       port: 19081,
       proxy: {
+        '/bridge': {
+          target: bridgeProxyTarget,
+          changeOrigin: true,
+          rewrite: (path: string) => path.replace(/^\/bridge/, ''),
+        },
         '/v1': {
           target: apiProxyTarget,
           changeOrigin: true,

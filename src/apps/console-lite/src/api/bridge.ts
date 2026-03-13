@@ -1,8 +1,6 @@
-// Bridge API client - connects to Installer Bridge service.
-// PR5: Bridge not yet available, all calls degrade gracefully.
-// PR6: Bridge goes live, zero frontend changes needed.
+// Bridge API client - proxied through Vite dev server to avoid CORS.
 
-const BRIDGE_BASE_URL = import.meta.env.VITE_BRIDGE_URL ?? 'http://localhost:19003'
+const BRIDGE_BASE_URL = import.meta.env.VITE_BRIDGE_URL ?? '/bridge'
 
 export type ModuleStatus =
   | 'not_installed'

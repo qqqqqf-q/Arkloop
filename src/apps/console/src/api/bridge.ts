@@ -1,7 +1,6 @@
-// Bridge API client for full console - identical contract to console-lite.
-// Connects to Installer Bridge service on localhost:19003.
+// Bridge API client - proxied through Vite dev server to avoid CORS.
 
-const BRIDGE_BASE_URL = import.meta.env.VITE_BRIDGE_URL ?? 'http://localhost:19003'
+const BRIDGE_BASE_URL = import.meta.env.VITE_BRIDGE_URL ?? '/bridge'
 
 export type ModuleStatus =
   | 'not_installed'
