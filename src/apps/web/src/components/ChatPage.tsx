@@ -1203,10 +1203,14 @@ export function ChatPage() {
         setPendingUserInput(null)
         setCheckInDraft('')
         if (threadId) onRunEnded(threadId)
-        const obj = event.data as { message?: unknown; error_class?: unknown }
+        const obj = event.data as { message?: unknown; error_class?: unknown; details?: unknown }
+        const details = (obj?.details && typeof obj.details === 'object' && !Array.isArray(obj.details))
+          ? obj.details as Record<string, unknown>
+          : undefined
         setError({
           message: typeof obj?.message === 'string' ? obj.message : '运行失败',
           code: typeof obj?.error_class === 'string' ? obj.error_class : undefined,
+          details,
         })
       }
     }

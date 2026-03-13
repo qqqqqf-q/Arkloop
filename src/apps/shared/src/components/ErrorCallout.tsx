@@ -6,6 +6,7 @@ export type AppError = {
   message: string
   traceId?: string
   code?: string
+  details?: Record<string, unknown>
 }
 
 type FriendlyText = { zh: string; en: string }
@@ -36,6 +37,8 @@ const FRIENDLY_ERROR_MESSAGES: Record<string, FriendlyText> = {
   'runs.not_found': { zh: '任务不存在', en: 'Run not found.' },
   'runs.limit_exceeded': { zh: '当前有任务在运行，请稍后再试', en: 'Too many concurrent runs.' },
   'credits.insufficient': { zh: '积分不足', en: 'Insufficient credits.' },
+  'provider.non_retryable': { zh: '模型服务商请求失败', en: 'Provider request failed (non-retryable).' },
+  'provider.retryable': { zh: '模型服务商暂时不可用，请重试', en: 'Provider temporarily unavailable. Please retry.' },
   'bootstrap.invalid_token': { zh: '初始化链接已失效', en: 'Bootstrap link expired.' },
   'bootstrap.already_initialized': { zh: '平台管理员已初始化', en: 'Platform admin already initialized.' },
 }
@@ -74,11 +77,14 @@ export function ErrorCallout({ error, locale, requestFailedText }: ErrorCalloutP
     return requestFailedText
   }, [code, locale, rawMessage, requestFailedText])
 
+  const details = useMemo(() => error.details, [error.details])
+
   const showDetails = useMemo(() => {
     if (code || traceId) return true
     if (rawMessage && rawMessage !== title) return true
+    if (details && Object.keys(details).length > 0) return true
     return false
-  }, [code, rawMessage, title, traceId])
+  }, [code, details, rawMessage, title, traceId])
 
   const labels = useMemo(() => {
     if (locale === 'zh') {
@@ -132,6 +138,15 @@ export function ErrorCallout({ error, locale, requestFailedText }: ErrorCalloutP
           )}
           {code && <div className="font-mono break-words">{labels.code}: {code}</div>}
           {traceId && <div className="font-mono break-words">{labels.trace}: {traceId}</div>}
+          {details && Object.keys(details).length > 0 && (
+            <div className="mt-1 space-y-0.5">
+              {Object.entries(details).map(([k, v]) => (
+                <div key={k} className="font-mono break-words">
+                  {k}: {String(v)}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>
