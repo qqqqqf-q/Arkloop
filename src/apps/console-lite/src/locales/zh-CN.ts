@@ -308,6 +308,8 @@ export const zhCN: LocaleStrings = {
     actionDisable: '禁用',
     actionConfigure: '配置',
     actionSave: '保存',
+    actionReconfigure: '重新配置',
+    statusPendingInstall: '待安装',
     semanticProviderLocal: '本地模型',
     semanticProviderApi: 'API 接入',
     semanticLocalDesc: '通过 ONNX Runtime 在本地运行 Prompt Guard 模型。',

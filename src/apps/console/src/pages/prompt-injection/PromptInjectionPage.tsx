@@ -9,7 +9,7 @@ import { isApiError } from '../../api'
 import { useLocale } from '../../contexts/LocaleContext'
 import { getPlatformSetting, setPlatformSetting } from '../../api/platform-settings'
 import { listAuditLogs, type AuditLog } from '../../api/audit'
-import { checkBridgeAvailable } from '../../api/bridge'
+import { bridgeClient, checkBridgeAvailable } from '../../api/bridge'
 
 const KEY_REGEX_ENABLED = 'security.injection_scan.regex_enabled'
 const KEY_TRUST_SOURCE_ENABLED = 'security.injection_scan.trust_source_enabled'
@@ -362,17 +362,20 @@ export function PromptInjectionPage() {
   const [toggling, setToggling] = useState('')
   const [settings, setSettings] = useState<Record<string, boolean>>({})
   const [semanticProvider, setSemanticProvider] = useState('')
+  const [semanticEndpoint, setSemanticEndpoint] = useState('')
   const [bridgeAvailable, setBridgeAvailable] = useState(false)
+  const [localModelInstalled, setLocalModelInstalled] = useState(false)
   const [semanticSetupOpen, setSemanticSetupOpen] = useState(false)
 
   const loadSettings = useCallback(async () => {
     setLoading(true)
     try {
-      const [regexResult, trustResult, semanticResult, providerResult] = await Promise.all([
+      const [regexResult, trustResult, semanticResult, providerResult, endpointResult] = await Promise.all([
         getPlatformSetting(KEY_REGEX_ENABLED, accessToken).catch(() => ({ value: 'true' })),
         getPlatformSetting(KEY_TRUST_SOURCE_ENABLED, accessToken).catch(() => ({ value: 'true' })),
         getPlatformSetting(KEY_SEMANTIC_ENABLED, accessToken).catch(() => ({ value: 'true' })),
         getPlatformSetting(KEY_SEMANTIC_PROVIDER, accessToken).catch(() => ({ value: '' })),
+        getPlatformSetting(KEY_SEMANTIC_API_ENDPOINT, accessToken).catch(() => ({ value: '' })),
       ])
       setSettings({
         [KEY_REGEX_ENABLED]: regexResult.value === 'true',
@@ -380,9 +383,20 @@ export function PromptInjectionPage() {
         [KEY_SEMANTIC_ENABLED]: semanticResult.value === 'true',
       })
       setSemanticProvider(providerResult.value)
+      setSemanticEndpoint(endpointResult.value)
 
       const online = await checkBridgeAvailable()
       setBridgeAvailable(online)
+
+      if (online && providerResult.value === 'local') {
+        try {
+          const modules = await bridgeClient.listModules()
+          const pg = modules.find(m => m.id === 'prompt-guard')
+          setLocalModelInstalled(pg?.status === 'running' || pg?.status === 'installed_disconnected')
+        } catch {
+          setLocalModelInstalled(false)
+        }
+      }
     } catch (err) {
       addToast(isApiError(err) ? err.message : tp.toastLoadFailed, 'error')
     } finally {
@@ -406,10 +420,29 @@ export function PromptInjectionPage() {
     }
   }, [toggling, accessToken, addToast, tp.toastUpdated, tp.toastFailed])
 
+  const handleReconfigure = useCallback(async () => {
+    try {
+      await setPlatformSetting(KEY_SEMANTIC_PROVIDER, '', accessToken)
+      await setPlatformSetting(KEY_SEMANTIC_ENABLED, 'false', accessToken)
+      setSemanticProvider('')
+      setSettings(prev => ({ ...prev, [KEY_SEMANTIC_ENABLED]: false }))
+      setSemanticSetupOpen(true)
+    } catch (err) {
+      addToast(isApiError(err) ? err.message : tp.toastFailed, 'error')
+    }
+  }, [accessToken, addToast, tp.toastFailed])
+
   const tabItems = TABS.map(key => ({
     key,
     label: key === 'layers' ? tp.tabLayers : tp.tabAudit,
   }))
+
+  const semanticConfigured = semanticProvider !== ''
+  const semanticCanEnable = semanticProvider === 'api'
+    ? semanticEndpoint !== ''
+    : semanticProvider === 'local'
+      ? localModelInstalled
+      : false
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -430,7 +463,16 @@ export function PromptInjectionPage() {
                 const enabled = settings[layer.settingsKey] ?? true
                 const isToggling = toggling === layer.settingsKey
                 const isSemantic = layer.id === 'semantic'
-                const semanticConfigured = semanticProvider !== ''
+
+                const semanticBadge = () => {
+                  if (!isSemantic) return null
+                  if (!semanticConfigured) return <Badge variant="neutral">{tp.statusNotConfigured}</Badge>
+                  if (semanticProvider === 'local' && !localModelInstalled)
+                    return <Badge variant="warning">{tp.statusPendingInstall}</Badge>
+                  return null
+                }
+
+                const canToggle = !isSemantic || (semanticConfigured && semanticCanEnable)
 
                 return (
                   <div key={layer.id}>
@@ -440,9 +482,7 @@ export function PromptInjectionPage() {
                           <span className="text-sm font-medium text-[var(--c-text-primary)]">
                             {tp[layer.nameKey]}
                           </span>
-                          {isSemantic && !semanticConfigured ? (
-                            <Badge variant="neutral">{tp.statusNotConfigured}</Badge>
-                          ) : (
+                          {semanticBadge() ?? (
                             <Badge variant={enabled ? 'success' : 'warning'}>
                               {enabled ? tp.statusEnabled : tp.statusDisabled}
                             </Badge>
@@ -458,31 +498,41 @@ export function PromptInjectionPage() {
                         </span>
                       </div>
 
-                      {isSemantic && !semanticConfigured ? (
-                        <button
-                          onClick={() => setSemanticSetupOpen(v => !v)}
-                          className="shrink-0 rounded-md border border-[var(--c-border-console)] px-3 py-1.5 text-xs font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-sub)]"
-                        >
-                          {tp.actionConfigure}
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => handleToggle(layer.settingsKey, enabled)}
-                          disabled={isToggling || loading}
-                          className={[
-                            'shrink-0 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors',
-                            enabled
-                              ? 'border-[var(--c-border-console)] text-[var(--c-text-secondary)] hover:bg-[var(--c-bg-sub)]'
-                              : 'border-[var(--c-status-success-text)] text-[var(--c-status-success-text)] hover:bg-[var(--c-status-success-bg)]',
-                            (isToggling || loading) ? 'opacity-50 cursor-not-allowed' : '',
-                          ].join(' ')}
-                        >
-                          {isToggling
-                            ? <Loader2 size={12} className="inline animate-spin" />
-                            : enabled ? tp.actionDisable : tp.actionEnable
-                          }
-                        </button>
-                      )}
+                      <div className="flex shrink-0 items-center gap-2">
+                        {isSemantic && semanticConfigured && (
+                          <button
+                            onClick={handleReconfigure}
+                            className="rounded-md px-2 py-1 text-[10px] text-[var(--c-text-muted)] transition-colors hover:text-[var(--c-text-secondary)]"
+                          >
+                            {tp.actionReconfigure}
+                          </button>
+                        )}
+                        {isSemantic && !semanticConfigured ? (
+                          <button
+                            onClick={() => setSemanticSetupOpen(v => !v)}
+                            className="rounded-md border border-[var(--c-border-console)] px-3 py-1.5 text-xs font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-sub)]"
+                          >
+                            {tp.actionConfigure}
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => handleToggle(layer.settingsKey, enabled)}
+                            disabled={isToggling || !canToggle}
+                            className={[
+                              'rounded-md border px-3 py-1.5 text-xs font-medium transition-colors',
+                              enabled
+                                ? 'border-[var(--c-border-console)] text-[var(--c-text-secondary)] hover:bg-[var(--c-bg-sub)]'
+                                : 'border-[var(--c-status-success-text)] text-[var(--c-status-success-text)] hover:bg-[var(--c-status-success-bg)]',
+                              (isToggling || !canToggle) ? 'opacity-50 cursor-not-allowed' : '',
+                            ].join(' ')}
+                          >
+                            {isToggling
+                              ? <Loader2 size={12} className="inline animate-spin" />
+                              : enabled ? tp.actionDisable : tp.actionEnable
+                            }
+                          </button>
+                        )}
+                      </div>
                     </div>
 
                     {isSemantic && !semanticConfigured && semanticSetupOpen && (

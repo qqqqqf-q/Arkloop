@@ -11,7 +11,7 @@ import {
   isApiError,
 } from '../api'
 import { listAuditLogs, type AuditLog } from '../api/audit'
-import { checkBridgeAvailable } from '../api/bridge'
+import { bridgeClient, checkBridgeAvailable } from '../api/bridge'
 
 const KEY_REGEX_ENABLED = 'security.injection_scan.regex_enabled'
 const KEY_TRUST_SOURCE_ENABLED = 'security.injection_scan.trust_source_enabled'
@@ -363,6 +363,7 @@ export function SecurityPage() {
   const [toggling, setToggling] = useState<string | null>(null)
   const [semanticProvider, setSemanticProvider] = useState('')
   const [bridgeAvailable, setBridgeAvailable] = useState(false)
+  const [localModelInstalled, setLocalModelInstalled] = useState(false)
   const [semanticSetupOpen, setSemanticSetupOpen] = useState(false)
 
   const load = useCallback(async () => {
@@ -371,10 +372,22 @@ export function SecurityPage() {
       const map: Record<string, string> = {}
       for (const s of list) map[s.key] = s.value
       setValues(map)
-      setSemanticProvider(map[KEY_SEMANTIC_PROVIDER] ?? '')
+
+      const provider = map[KEY_SEMANTIC_PROVIDER] ?? ''
+      setSemanticProvider(provider)
 
       const online = await checkBridgeAvailable()
       setBridgeAvailable(online)
+
+      if (online && provider === 'local') {
+        try {
+          const modules = await bridgeClient.listModules()
+          const pg = modules.find(m => m.id === 'prompt-guard')
+          setLocalModelInstalled(pg?.status === 'running' || pg?.status === 'installed_disconnected')
+        } catch {
+          setLocalModelInstalled(false)
+        }
+      }
     } catch (err) {
       if (isApiError(err)) addToast(ts.toastLoadFailed, 'error')
     } finally {
@@ -397,7 +410,27 @@ export function SecurityPage() {
     }
   }, [accessToken, addToast, ts.toastUpdated, ts.toastFailed])
 
+  const handleReconfigure = useCallback(async () => {
+    try {
+      await updatePlatformSetting(KEY_SEMANTIC_PROVIDER, '', accessToken)
+      await updatePlatformSetting(KEY_SEMANTIC_ENABLED, 'false', accessToken)
+      setSemanticProvider('')
+      setValues(prev => ({ ...prev, [KEY_SEMANTIC_ENABLED]: 'false', [KEY_SEMANTIC_PROVIDER]: '' }))
+      setSemanticSetupOpen(true)
+    } catch (err) {
+      if (isApiError(err)) addToast(ts.toastFailed, 'error')
+    }
+  }, [accessToken, addToast, ts.toastFailed])
+
   const isEnabled = (key: string) => values[key] === 'true'
+
+  const semanticConfigured = semanticProvider !== ''
+  const semanticEndpoint = values[KEY_SEMANTIC_API_ENDPOINT] ?? ''
+  const semanticCanEnable = semanticProvider === 'api'
+    ? semanticEndpoint !== ''
+    : semanticProvider === 'local'
+      ? localModelInstalled
+      : false
 
   const tabItems = TABS.map(key => ({
     key,
@@ -431,7 +464,23 @@ export function SecurityPage() {
                 const enabled = isEnabled(layer.settingKey)
                 const busy = toggling === layer.settingKey
                 const isSemantic = layer.id === 'semantic'
-                const semanticConfigured = semanticProvider !== ''
+
+                const semanticBadge = () => {
+                  if (!isSemantic) return null
+                  if (!semanticConfigured) return (
+                    <span className="rounded-md bg-[var(--c-bg-tag)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--c-text-muted)]">
+                      {ts.statusNotConfigured}
+                    </span>
+                  )
+                  if (semanticProvider === 'local' && !localModelInstalled) return (
+                    <span className="rounded-md bg-[var(--c-status-warning-bg)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--c-status-warning-text)]">
+                      {ts.statusPendingInstall}
+                    </span>
+                  )
+                  return null
+                }
+
+                const canToggle = !isSemantic || (semanticConfigured && semanticCanEnable)
 
                 return (
                   <div key={layer.id}>
@@ -441,11 +490,7 @@ export function SecurityPage() {
                           <span className="text-sm font-medium text-[var(--c-text-primary)]">
                             {ts[layer.nameKey]}
                           </span>
-                          {isSemantic && !semanticConfigured ? (
-                            <span className="rounded-md bg-[var(--c-bg-tag)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--c-text-muted)]">
-                              {ts.statusNotConfigured}
-                            </span>
-                          ) : (
+                          {semanticBadge() ?? (
                             <span
                               className={[
                                 'rounded-md px-1.5 py-0.5 text-[10px] font-medium',
@@ -468,31 +513,41 @@ export function SecurityPage() {
                         </p>
                       </div>
 
-                      {isSemantic && !semanticConfigured ? (
-                        <button
-                          onClick={() => setSemanticSetupOpen(v => !v)}
-                          className="shrink-0 rounded-md border border-[var(--c-border-console)] px-2.5 py-1 text-xs font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-sub)]"
-                        >
-                          {ts.actionConfigure}
-                        </button>
-                      ) : (
-                        <button
-                          disabled={busy}
-                          onClick={() => void toggle(layer.settingKey, enabled)}
-                          className={[
-                            'shrink-0 rounded-md border px-2.5 py-1 text-xs font-medium transition-colors',
-                            enabled
-                              ? 'border-[var(--c-border-console)] text-[var(--c-text-secondary)] hover:bg-[var(--c-bg-sub)]'
-                              : 'border-[var(--c-status-success-text)] text-[var(--c-status-success-text)] hover:bg-[var(--c-status-success-bg)]',
-                            busy ? 'opacity-50 cursor-not-allowed' : '',
-                          ].join(' ')}
-                        >
-                          {busy
-                            ? <Loader2 size={12} className="inline animate-spin" />
-                            : enabled ? ts.actionDisable : ts.actionEnable
-                          }
-                        </button>
-                      )}
+                      <div className="flex shrink-0 items-center gap-2">
+                        {isSemantic && semanticConfigured && (
+                          <button
+                            onClick={() => void handleReconfigure()}
+                            className="rounded-md px-2 py-1 text-[10px] text-[var(--c-text-muted)] transition-colors hover:text-[var(--c-text-secondary)]"
+                          >
+                            {ts.actionReconfigure}
+                          </button>
+                        )}
+                        {isSemantic && !semanticConfigured ? (
+                          <button
+                            onClick={() => setSemanticSetupOpen(v => !v)}
+                            className="rounded-md border border-[var(--c-border-console)] px-2.5 py-1 text-xs font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-sub)]"
+                          >
+                            {ts.actionConfigure}
+                          </button>
+                        ) : (
+                          <button
+                            disabled={busy || !canToggle}
+                            onClick={() => void toggle(layer.settingKey, enabled)}
+                            className={[
+                              'rounded-md border px-2.5 py-1 text-xs font-medium transition-colors',
+                              enabled
+                                ? 'border-[var(--c-border-console)] text-[var(--c-text-secondary)] hover:bg-[var(--c-bg-sub)]'
+                                : 'border-[var(--c-status-success-text)] text-[var(--c-status-success-text)] hover:bg-[var(--c-status-success-bg)]',
+                              (busy || !canToggle) ? 'opacity-50 cursor-not-allowed' : '',
+                            ].join(' ')}
+                          >
+                            {busy
+                              ? <Loader2 size={12} className="inline animate-spin" />
+                              : enabled ? ts.actionDisable : ts.actionEnable
+                            }
+                          </button>
+                        )}
+                      </div>
                     </div>
 
                     {isSemantic && !semanticConfigured && semanticSetupOpen && (

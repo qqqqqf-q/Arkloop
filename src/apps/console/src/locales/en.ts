@@ -1028,6 +1028,8 @@ export const en: LocaleStrings = {
       actionDisable: 'Disable',
       actionConfigure: 'Configure',
       actionSave: 'Save',
+      actionReconfigure: 'Reconfigure',
+      statusPendingInstall: 'Pending Install',
       semanticProviderLocal: 'Local Model',
       semanticProviderApi: 'API Endpoint',
       semanticLocalDesc: 'Run Prompt Guard model locally via ONNX Runtime.',
