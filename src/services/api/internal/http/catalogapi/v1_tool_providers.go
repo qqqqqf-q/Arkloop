@@ -47,11 +47,12 @@ var toolProviderCatalog = []toolProviderDefinition{
 	{GroupName: "web_fetch", ProviderName: "web_fetch.jina", RequiresAPIKey: true},
 	{GroupName: "web_fetch", ProviderName: "web_fetch.firecrawl", RequiresAPIKey: true, AllowsInternalHTTP: true, DefaultBaseURL: "http://firecrawl:19012"},
 	{GroupName: "web_fetch", ProviderName: "web_fetch.basic"},
-	{GroupName: "sandbox", ProviderName: "sandbox.docker", RequiresBaseURL: true, AllowsInternalHTTP: true},
-	{GroupName: "sandbox", ProviderName: "sandbox.firecracker", RequiresBaseURL: true, AllowsInternalHTTP: true},
+	{GroupName: "sandbox", ProviderName: "sandbox.docker", RequiresBaseURL: true, AllowsInternalHTTP: true, DefaultBaseURL: "http://sandbox:19002"},
+	{GroupName: "sandbox", ProviderName: "sandbox.firecracker", RequiresBaseURL: true, AllowsInternalHTTP: true, DefaultBaseURL: "http://sandbox:19002"},
 	{
 		GroupName: "memory", ProviderName: "memory.openviking",
 		RequiresBaseURL: true, RequiresAPIKey: true, AllowsInternalHTTP: true,
+		DefaultBaseURL: "http://openviking:1933",
 		ConfigFields: []ConfigFieldDef{
 			{Key: "embedding.provider", Label: "Embedding Provider", Type: "select", Required: true, Default: "volcengine", Options: []string{"openai", "volcengine", "vikingdb", "jina"}, Group: "embedding"},
 			{Key: "embedding.model", Label: "Embedding Model", Type: "string", Required: true, Default: "doubao-embedding-vision-250615", Group: "embedding", Placeholder: "e.g. text-embedding-3-small"},
