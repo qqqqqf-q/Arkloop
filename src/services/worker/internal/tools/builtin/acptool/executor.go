@@ -13,6 +13,11 @@ import (
 
 var defaultCommand = []string{"opencode", "acp"}
 
+// agentCommands maps agent name to launch command.
+var agentCommands = map[string][]string{
+	"opencode": {"opencode", "acp"},
+}
+
 type ToolExecutor struct{}
 
 func (e ToolExecutor) Execute(
@@ -25,7 +30,7 @@ func (e ToolExecutor) Execute(
 	started := time.Now()
 
 	if execCtx.RuntimeSnapshot == nil || execCtx.RuntimeSnapshot.SandboxBaseURL == "" {
-		return errResult("tool.sandbox_unavailable", "sandbox not available for code agent", started)
+		return errResult("tool.sandbox_unavailable", "sandbox not available for acp agent", started)
 	}
 
 	task, ok := args["task"].(string)
@@ -34,9 +39,18 @@ func (e ToolExecutor) Execute(
 	}
 	task = strings.TrimSpace(task)
 
+	// resolve agent command
+	agentName := "opencode"
+	if a, ok := args["agent"].(string); ok && strings.TrimSpace(a) != "" {
+		agentName = strings.TrimSpace(a)
+	}
+	cmd, known := agentCommands[agentName]
+	if !known {
+		return errResult("tool.args_invalid", fmt.Sprintf("unknown agent: %s", agentName), started)
+	}
+
 	cwd := "/workspace"
-	cmd := append([]string(nil), defaultCommand...)
-	cmd = append(cmd, "--cwd", cwd)
+	cmd = append(append([]string(nil), cmd...), "--cwd", cwd)
 
 	rt := execCtx.RuntimeSnapshot
 	accountID := ""
@@ -84,7 +98,7 @@ func (e ToolExecutor) Execute(
 		return tools.ExecutionResult{
 			Error: &tools.ExecutionError{
 				ErrorClass: "tool.execution_failed",
-				Message:    fmt.Sprintf("code agent execution failed: %s", err),
+				Message:    fmt.Sprintf("acp agent execution failed: %s", err),
 			},
 			DurationMs: elapsed,
 			Events:     collectedEvents,
@@ -94,11 +108,11 @@ func (e ToolExecutor) Execute(
 	if len(collectedEvents) > 0 {
 		last := collectedEvents[len(collectedEvents)-1]
 		if last.Type == "run.failed" {
-			msg := "code agent reported failure"
+			msg := "acp agent reported failure"
 			if m, ok := last.DataJSON["message"].(string); ok {
 				msg = m
 			}
-			errClass := "tool.code_agent_failed"
+			errClass := "tool.acp_agent_failed"
 			if ec, ok := last.DataJSON["error_class"].(string); ok {
 				errClass = ec
 			}
