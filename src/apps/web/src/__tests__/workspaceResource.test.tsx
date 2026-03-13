@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { WorkspaceResource } from '../components/WorkspaceResource'
+import { LocaleProvider } from '../contexts/LocaleContext'
 
 function flushMicrotasks(): Promise<void> {
   return Promise.resolve()
@@ -41,11 +42,13 @@ describe('WorkspaceResource', () => {
 
     await act(async () => {
       root.render(
-        <WorkspaceResource
-          accessToken="token"
-          runId="run-1"
-          file={{ path: '/notes/example.txt', filename: 'example.txt', mime_type: 'text/plain' }}
-        />,
+        <LocaleProvider>
+          <WorkspaceResource
+            accessToken="token"
+            runId="run-1"
+            file={{ path: '/notes/example.txt', filename: 'example.txt', mime_type: 'text/plain' }}
+          />
+        </LocaleProvider>,
       )
     })
     await act(async () => {
@@ -72,11 +75,13 @@ describe('WorkspaceResource', () => {
 
     await act(async () => {
       root.render(
-        <WorkspaceResource
-          accessToken="token"
-          projectId="project-1"
-          file={{ path: '/notes/example.txt', filename: 'example.txt', mime_type: 'text/plain' }}
-        />,
+        <LocaleProvider>
+          <WorkspaceResource
+            accessToken="token"
+            projectId="project-1"
+            file={{ path: '/notes/example.txt', filename: 'example.txt', mime_type: 'text/plain' }}
+          />
+        </LocaleProvider>,
       )
     })
     await act(async () => {
