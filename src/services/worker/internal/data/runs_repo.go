@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -21,13 +22,14 @@ type TerminalStatusUpdate struct {
 
 type Run struct {
 	ID              uuid.UUID
-	AccountID           uuid.UUID
+	AccountID       uuid.UUID
 	ThreadID        uuid.UUID
 	ProjectID       *uuid.UUID
 	ParentRunID     *uuid.UUID // nil 表示顶级 Run，非 nil 表示子 Run
 	CreatedByUserID *uuid.UUID // nil 表示系统触发或用户已删除，Memory 层按此隔离
 	ProfileRef      *string
 	WorkspaceRef    *string
+	CreatedAt       time.Time
 }
 
 type RunLineage struct {
@@ -78,13 +80,14 @@ func (RunsRepository) GetRun(ctx context.Context, tx pgx.Tx, runID uuid.UUID) (*
 		        r.parent_run_id,
 		        r.created_by_user_id,
 		        r.profile_ref,
-		        r.workspace_ref
+		        r.workspace_ref,
+		        r.created_at
 		   FROM runs r
 		   LEFT JOIN threads t ON t.id = r.thread_id
 		  WHERE r.id = $1
 		  LIMIT 1`,
 		runID,
-	).Scan(&run.ID, &run.AccountID, &run.ThreadID, &run.ProjectID, &run.ParentRunID, &run.CreatedByUserID, &run.ProfileRef, &run.WorkspaceRef)
+	).Scan(&run.ID, &run.AccountID, &run.ThreadID, &run.ProjectID, &run.ParentRunID, &run.CreatedByUserID, &run.ProfileRef, &run.WorkspaceRef, &run.CreatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil

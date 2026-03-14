@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"context"
+	"log/slog"
 	"strings"
 
 	sharedexec "arkloop/services/shared/executionconfig"
@@ -31,7 +32,9 @@ func NewPersonaResolutionMiddleware(
 				}
 				failed := rc.Emitter.Emit("run.failed", payload, nil, StringPtr("internal.error"))
 				var releaseFn func()
-				if releaseSlot != nil {
+				if rc.ReleaseSlot != nil {
+					releaseFn = rc.ReleaseSlot
+				} else if releaseSlot != nil {
 					run := rc.Run
 					releaseFn = func() { releaseSlot(ctx, run) }
 				}
@@ -60,7 +63,9 @@ func NewPersonaResolutionMiddleware(
 				StringPtr(resolution.Error.ErrorClass),
 			)
 			var releaseFn func()
-			if releaseSlot != nil {
+			if rc.ReleaseSlot != nil {
+				releaseFn = rc.ReleaseSlot
+			} else if releaseSlot != nil {
 				run := rc.Run
 				releaseFn = func() { releaseSlot(ctx, run) }
 			}
@@ -74,6 +79,20 @@ func NewPersonaResolutionMiddleware(
 		rc.AgentConfig = nil
 		rc.AgentConfigID = nil
 		rc.AgentConfigName = ""
+
+		// 版本漂移检测：persona 在 run 创建后被修改
+		if resolution.Definition != nil &&
+			!resolution.Definition.UpdatedAt.IsZero() &&
+			!rc.Run.CreatedAt.IsZero() &&
+			resolution.Definition.UpdatedAt.After(rc.Run.CreatedAt) {
+			slog.WarnContext(ctx, "persona version drift detected: persona modified after run creation",
+				"run_id", rc.Run.ID,
+				"persona_id", resolution.Definition.ID,
+				"persona_version", resolution.Definition.Version,
+				"run_created_at", rc.Run.CreatedAt,
+				"persona_updated_at", resolution.Definition.UpdatedAt,
+			)
+		}
 
 		normalizedLimits := sharedexec.NormalizePlatformLimits(sharedexec.PlatformLimits{
 			AgentReasoningIterations: rc.AgentReasoningIterationsLimit,

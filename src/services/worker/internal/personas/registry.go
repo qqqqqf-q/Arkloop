@@ -3,6 +3,7 @@ package personas
 import (
 	"fmt"
 	"sort"
+	"time"
 
 	"arkloop/services/worker/internal/tools"
 )
@@ -95,6 +96,7 @@ type Definition struct {
 	PromptCacheControl  string
 	Roles               map[string]RoleOverride
 	TitleSummarizer     *TitleSummarizerConfig // nil 表示此 persona 不自动生成标题
+	UpdatedAt           time.Time              // DB persona 最后修改时间，用于版本漂移检测
 }
 
 type Registry struct {
