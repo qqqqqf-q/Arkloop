@@ -1,399 +1,19 @@
-import { useState, useEffect, useCallback, useRef, Fragment } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useOutletContext } from 'react-router-dom'
-import { Loader2, RefreshCw, ChevronDown, ChevronRight } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 import type { ConsoleOutletContext } from '../../layouts/ConsoleLayout'
 import { PageHeader } from '../../components/PageHeader'
-import { Badge } from '../../components/Badge'
 import { useToast } from '@arkloop/shared'
 import { isApiError } from '../../api'
 import { useLocale } from '../../contexts/LocaleContext'
 import { getPlatformSetting, setPlatformSetting, deletePlatformSetting } from '../../api/platform-settings'
-import { listAuditLogs, type AuditLog } from '../../api/audit'
+import { listAuditLogs } from '../../api/audit'
 import { bridgeClient, checkBridgeAvailable } from '../../api/bridge'
-
-const KEY_REGEX_ENABLED = 'security.injection_scan.regex_enabled'
-const KEY_TRUST_SOURCE_ENABLED = 'security.injection_scan.trust_source_enabled'
-const KEY_SEMANTIC_ENABLED = 'security.injection_scan.semantic_enabled'
-const KEY_BLOCKING_ENABLED = 'security.injection_scan.blocking_enabled'
-const KEY_TOOL_SCAN_ENABLED = 'security.injection_scan.tool_output_scan_enabled'
-const KEY_SEMANTIC_PROVIDER = 'security.semantic_scanner.provider'
-const KEY_SEMANTIC_API_ENDPOINT = 'security.semantic_scanner.api_endpoint'
-const KEY_SEMANTIC_API_KEY = 'security.semantic_scanner.api_key'
-const AUDIT_ACTION = 'security.injection_detected'
-const AUDIT_PAGE_SIZE = 30
-
-type Layer = {
-  id: string
-  nameKey: 'layerRegex' | 'layerSemantic' | 'layerTrustSource' | 'layerBlocking' | 'layerToolScan'
-  descKey: 'layerRegexDesc' | 'layerSemanticDesc' | 'layerTrustSourceDesc' | 'layerBlockingDesc' | 'layerToolScanDesc'
-  settingsKey: string
-  defaultEnabled?: boolean
-}
-
-const LAYERS: Layer[] = [
-  { id: 'regex', nameKey: 'layerRegex', descKey: 'layerRegexDesc', settingsKey: KEY_REGEX_ENABLED },
-  { id: 'trust-source', nameKey: 'layerTrustSource', descKey: 'layerTrustSourceDesc', settingsKey: KEY_TRUST_SOURCE_ENABLED },
-  { id: 'semantic', nameKey: 'layerSemantic', descKey: 'layerSemanticDesc', settingsKey: KEY_SEMANTIC_ENABLED },
-  { id: 'blocking', nameKey: 'layerBlocking', descKey: 'layerBlockingDesc', settingsKey: KEY_BLOCKING_ENABLED, defaultEnabled: false },
-  { id: 'tool-scan', nameKey: 'layerToolScan', descKey: 'layerToolScanDesc', settingsKey: KEY_TOOL_SCAN_ENABLED },
-]
-
-type Tab = 'layers' | 'audit'
-const TABS: Tab[] = ['layers', 'audit']
-
-function truncateId(id: string): string {
-  return id.length > 8 ? id.slice(0, 8) : id
-}
-
-function TabBar({ tabs, active, onChange }: {
-  tabs: { key: Tab; label: string }[]
-  active: Tab
-  onChange: (t: Tab) => void
-}) {
-  const barRef = useRef<HTMLDivElement>(null)
-  const [indicator, setIndicator] = useState({ left: 0, width: 0 })
-
-  useEffect(() => {
-    const container = barRef.current
-    if (!container) return
-    const btn = container.querySelector<HTMLButtonElement>(`[data-tab="${active}"]`)
-    if (!btn) return
-    setIndicator({ left: btn.offsetLeft, width: btn.offsetWidth })
-  }, [active])
-
-  return (
-    <div ref={barRef} className="relative mb-6 flex gap-1 border-b border-[var(--c-border-console)]">
-      {tabs.map(tab => (
-        <button
-          key={tab.key}
-          data-tab={tab.key}
-          onClick={() => onChange(tab.key)}
-          className={`relative px-4 py-2 text-sm transition-colors ${
-            active === tab.key
-              ? 'font-medium text-[var(--c-text-primary)]'
-              : 'text-[var(--c-text-muted)] hover:text-[var(--c-text-secondary)]'
-          }`}
-        >
-          {tab.label}
-        </button>
-      ))}
-      <span
-        className="absolute bottom-0 h-0.5 bg-[var(--c-text-primary)] transition-all duration-200"
-        style={{ left: indicator.left, width: indicator.width }}
-      />
-    </div>
-  )
-}
-
-function AuditTab({ accessToken }: { accessToken: string }) {
-  const { addToast } = useToast()
-  const { t } = useLocale()
-  const tp = t.pages.promptInjection
-
-  const [logs, setLogs] = useState<AuditLog[]>([])
-  const [total, setTotal] = useState(0)
-  const [loading, setLoading] = useState(true)
-  const [offset, setOffset] = useState(0)
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
-
-  const fetchLogs = useCallback(async (currentOffset: number) => {
-    setLoading(true)
-    try {
-      const resp = await listAuditLogs(
-        { action: AUDIT_ACTION, limit: AUDIT_PAGE_SIZE, offset: currentOffset },
-        accessToken,
-      )
-      setLogs(resp.data)
-      setTotal(resp.total)
-    } catch {
-      addToast(tp.toastLoadFailed, 'error')
-    } finally {
-      setLoading(false)
-    }
-  }, [accessToken, addToast, tp.toastLoadFailed])
-
-  useEffect(() => { fetchLogs(offset) }, [fetchLogs, offset])
-
-  const toggleExpand = useCallback((id: string) => {
-    setExpandedIds(prev => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }, [])
-
-  const totalPages = Math.ceil(total / AUDIT_PAGE_SIZE)
-  const currentPage = Math.floor(offset / AUDIT_PAGE_SIZE) + 1
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-16">
-        <Loader2 size={20} className="animate-spin text-[var(--c-text-muted)]" />
-      </div>
-    )
-  }
-
-  if (logs.length === 0) {
-    return (
-      <div className="flex items-center justify-center py-16">
-        <p className="text-sm text-[var(--c-text-muted)]">{tp.auditEmpty}</p>
-      </div>
-    )
-  }
-
-  return (
-    <div className="flex flex-col">
-      <div className="mb-3 flex items-center justify-between">
-        <span className="text-xs text-[var(--c-text-muted)]">{total} events</span>
-        <button
-          onClick={() => fetchLogs(offset)}
-          className="flex items-center gap-1 rounded-lg border border-[var(--c-border)] px-2.5 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-[var(--c-bg-sub)]"
-        >
-          <RefreshCw size={13} />
-        </button>
-      </div>
-      <table className="w-full text-left text-sm">
-        <thead>
-          <tr className="border-b border-[var(--c-border-console)]">
-            <th className="w-6 px-3 py-2.5" />
-            <th className="whitespace-nowrap px-4 py-2.5 text-xs font-medium text-[var(--c-text-muted)]">{tp.auditColTime}</th>
-            <th className="whitespace-nowrap px-4 py-2.5 text-xs font-medium text-[var(--c-text-muted)]">{tp.auditColRunId}</th>
-            <th className="whitespace-nowrap px-4 py-2.5 text-xs font-medium text-[var(--c-text-muted)]">{tp.auditColCount}</th>
-            <th className="whitespace-nowrap px-4 py-2.5 text-xs font-medium text-[var(--c-text-muted)]">{tp.auditColPatterns}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {logs.map(log => {
-            const expanded = expandedIds.has(log.id)
-            const meta = log.metadata as Record<string, unknown>
-            const count = (meta?.detection_count as number) ?? 0
-            const patterns = (meta?.patterns as Array<Record<string, string>>) ?? []
-            const hasDetail = patterns.length > 0
-
-            return (
-              <Fragment key={log.id}>
-                <tr
-                  onClick={() => hasDetail && toggleExpand(log.id)}
-                  className={[
-                    'border-b border-[var(--c-border-console)] transition-colors hover:bg-[var(--c-bg-sub)]',
-                    hasDetail ? 'cursor-pointer' : '',
-                  ].join(' ')}
-                >
-                  <td className="w-6 px-3 py-2.5 text-[var(--c-text-muted)]">
-                    {hasDetail && (expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />)}
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-2.5 text-xs tabular-nums text-[var(--c-text-secondary)]">
-                    {new Date(log.created_at).toLocaleString()}
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-2.5 text-[var(--c-text-secondary)]">
-                    <span className="font-mono text-xs" title={log.target_id ?? ''}>
-                      {log.target_id ? truncateId(log.target_id) : '--'}
-                    </span>
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-2.5 text-xs text-[var(--c-text-secondary)]">
-                    {count}
-                  </td>
-                  <td className="px-4 py-2.5 text-xs text-[var(--c-text-secondary)]">
-                    {patterns.slice(0, 3).map(p => p.pattern_id ?? p.category).join(', ')}
-                    {patterns.length > 3 && ` +${patterns.length - 3}`}
-                  </td>
-                </tr>
-                {expanded && (
-                  <tr className="bg-[var(--c-bg-deep2)]">
-                    <td colSpan={5} className="px-6 py-3">
-                      <pre className="overflow-auto rounded-md bg-[var(--c-bg-tag)] p-3 text-xs leading-relaxed text-[var(--c-text-secondary)]">
-                        {JSON.stringify(meta, null, 2)}
-                      </pre>
-                    </td>
-                  </tr>
-                )}
-              </Fragment>
-            )
-          })}
-        </tbody>
-      </table>
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between border-t border-[var(--c-border-console)] px-4 py-2">
-          <span className="text-xs text-[var(--c-text-muted)]">
-            {offset + 1}--{Math.min(offset + AUDIT_PAGE_SIZE, total)} / {total}
-          </span>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setOffset(p => Math.max(0, p - AUDIT_PAGE_SIZE))}
-              disabled={currentPage <= 1}
-              className="rounded border border-[var(--c-border)] px-2.5 py-1 text-xs text-[var(--c-text-secondary)] disabled:opacity-40 hover:bg-[var(--c-bg-sub)]"
-            >
-              Prev
-            </button>
-            <span className="flex items-center text-xs text-[var(--c-text-muted)]">{currentPage} / {totalPages}</span>
-            <button
-              onClick={() => setOffset(p => p + AUDIT_PAGE_SIZE)}
-              disabled={currentPage >= totalPages}
-              className="rounded border border-[var(--c-border)] px-2.5 py-1 text-xs text-[var(--c-text-secondary)] disabled:opacity-40 hover:bg-[var(--c-bg-sub)]"
-            >
-              Next
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
-function SemanticSetupPanel({
-  accessToken,
-  bridgeAvailable,
-  onSaved,
-}: {
-  accessToken: string
-  bridgeAvailable: boolean
-  onSaved: () => void
-}) {
-  const { addToast } = useToast()
-  const { t } = useLocale()
-  const tp = t.pages.promptInjection
-
-  const [mode, setMode] = useState<'local' | 'api'>('api')
-  const [variant, setVariant] = useState<'22m' | '86m'>('22m')
-  const [endpoint, setEndpoint] = useState('')
-  const [apiKey, setApiKey] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [installError, setInstallError] = useState('')
-
-  const handleSaveApi = async () => {
-    if (!endpoint.trim()) return
-    setSaving(true)
-    try {
-      await setPlatformSetting(KEY_SEMANTIC_PROVIDER, 'api', accessToken)
-      await setPlatformSetting(KEY_SEMANTIC_API_ENDPOINT, endpoint.trim(), accessToken)
-      if (apiKey.trim()) {
-        await setPlatformSetting(KEY_SEMANTIC_API_KEY, apiKey.trim(), accessToken)
-      }
-      addToast(tp.toastUpdated, 'success')
-      onSaved()
-    } catch (err) {
-      addToast(isApiError(err) ? err.message : tp.toastFailed, 'error')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const handleInstallLocal = async () => {
-    setSaving(true)
-    setInstallError('')
-    try {
-      await setPlatformSetting(KEY_SEMANTIC_PROVIDER, 'local', accessToken)
-      const { operation_id } = await bridgeClient.performAction('prompt-guard', 'install', { variant })
-      addToast(`${tp.semanticInstallStarted} (${operation_id.slice(0, 8)})`, 'success')
-      onSaved()
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : tp.toastFailed
-      setInstallError(msg)
-      addToast(msg, 'error')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const modeBtn = (value: 'local' | 'api', label: string) => (
-    <button
-      onClick={() => { setMode(value); setInstallError('') }}
-      className={[
-        'rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
-        mode === value
-          ? 'bg-[var(--c-text-primary)] text-[var(--c-bg-card)]'
-          : 'bg-[var(--c-bg-tag)] text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)]',
-      ].join(' ')}
-    >
-      {label}
-    </button>
-  )
-
-  return (
-    <div className="mt-2 rounded-lg border border-[var(--c-border-console)] bg-[var(--c-bg-deep2)] p-4">
-      <div className="mb-4 flex gap-2">
-        {modeBtn('local', tp.semanticProviderLocal)}
-        {modeBtn('api', tp.semanticProviderApi)}
-      </div>
-
-      {mode === 'local' && (
-        <div className="flex flex-col gap-3">
-          <p className="text-xs text-[var(--c-text-muted)]">{tp.semanticLocalDesc}</p>
-          <div className="flex flex-col gap-1.5">
-            <span className="text-xs font-medium text-[var(--c-text-secondary)]">{tp.semanticModelVariant}</span>
-            <div className="flex gap-2">
-              {(['22m', '86m'] as const).map(v => (
-                <button
-                  key={v}
-                  onClick={() => setVariant(v)}
-                  className={[
-                    'rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
-                    variant === v
-                      ? 'bg-[var(--c-text-primary)] text-[var(--c-bg-card)]'
-                      : 'bg-[var(--c-bg-tag)] text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)]',
-                  ].join(' ')}
-                >
-                  {v === '22m' ? tp.semanticModel22m : tp.semanticModel86m}
-                </button>
-              ))}
-            </div>
-          </div>
-          {!bridgeAvailable && (
-            <p className="text-xs text-[var(--c-status-warning-text)]">{tp.semanticBridgeRequired}</p>
-          )}
-          {installError && (
-            <p className="text-xs text-[var(--c-status-error-text,red)]">{installError}</p>
-          )}
-          <button
-            disabled={!bridgeAvailable || saving}
-            onClick={handleInstallLocal}
-            className={[
-              'w-fit rounded-md border px-3 py-1.5 text-xs font-medium transition-colors',
-              bridgeAvailable
-                ? 'border-[var(--c-status-success-text)] text-[var(--c-status-success-text)] hover:bg-[var(--c-status-success-bg)]'
-                : 'border-[var(--c-border-console)] text-[var(--c-text-muted)] opacity-50 cursor-not-allowed',
-            ].join(' ')}
-          >
-            {saving ? <Loader2 size={12} className="inline animate-spin" /> : tp.actionInstallModel}
-          </button>
-        </div>
-      )}
-
-      {mode === 'api' && (
-        <div className="flex flex-col gap-3">
-          <p className="text-xs text-[var(--c-text-muted)]">{tp.semanticApiDesc}</p>
-          <input
-            type="url"
-            value={endpoint}
-            onChange={e => setEndpoint(e.target.value)}
-            placeholder={tp.semanticApiEndpointHint}
-            className="rounded-md border border-[var(--c-border-console)] bg-[var(--c-bg-card)] px-3 py-2 text-xs text-[var(--c-text-primary)] placeholder:text-[var(--c-text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--c-text-muted)]"
-          />
-          <input
-            type="password"
-            value={apiKey}
-            onChange={e => setApiKey(e.target.value)}
-            placeholder={tp.semanticApiKeyHint}
-            className="rounded-md border border-[var(--c-border-console)] bg-[var(--c-bg-card)] px-3 py-2 text-xs text-[var(--c-text-primary)] placeholder:text-[var(--c-text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--c-text-muted)]"
-          />
-          <button
-            disabled={saving || !endpoint.trim()}
-            onClick={handleSaveApi}
-            className={[
-              'w-fit rounded-md border px-3 py-1.5 text-xs font-medium transition-colors',
-              endpoint.trim()
-                ? 'border-[var(--c-status-success-text)] text-[var(--c-status-success-text)] hover:bg-[var(--c-status-success-bg)]'
-                : 'border-[var(--c-border-console)] text-[var(--c-text-muted)] opacity-50 cursor-not-allowed',
-            ].join(' ')}
-          >
-            {saving ? <Loader2 size={12} className="inline animate-spin" /> : tp.actionSave}
-          </button>
-        </div>
-      )}
-    </div>
-  )
-}
+import {
+  TabBar, AuditTab, SemanticSetupPanel, LayerCard,
+  SETTING_KEYS, LAYERS, TABS,
+  type Tab,
+} from '@arkloop/shared/components/prompt-injection'
 
 export function PromptInjectionPage() {
   const { accessToken } = useOutletContext<ConsoleOutletContext>()
@@ -415,20 +35,20 @@ export function PromptInjectionPage() {
     setLoading(true)
     try {
       const [regexResult, trustResult, semanticResult, providerResult, endpointResult, blockingResult, toolScanResult] = await Promise.all([
-        getPlatformSetting(KEY_REGEX_ENABLED, accessToken).catch(() => ({ value: 'true' })),
-        getPlatformSetting(KEY_TRUST_SOURCE_ENABLED, accessToken).catch(() => ({ value: 'true' })),
-        getPlatformSetting(KEY_SEMANTIC_ENABLED, accessToken).catch(() => ({ value: 'true' })),
-        getPlatformSetting(KEY_SEMANTIC_PROVIDER, accessToken).catch(() => ({ value: '' })),
-        getPlatformSetting(KEY_SEMANTIC_API_ENDPOINT, accessToken).catch(() => ({ value: '' })),
-        getPlatformSetting(KEY_BLOCKING_ENABLED, accessToken).catch(() => ({ value: 'false' })),
-        getPlatformSetting(KEY_TOOL_SCAN_ENABLED, accessToken).catch(() => ({ value: 'true' })),
+        getPlatformSetting(SETTING_KEYS.REGEX_ENABLED, accessToken).catch(() => ({ value: 'true' })),
+        getPlatformSetting(SETTING_KEYS.TRUST_SOURCE_ENABLED, accessToken).catch(() => ({ value: 'true' })),
+        getPlatformSetting(SETTING_KEYS.SEMANTIC_ENABLED, accessToken).catch(() => ({ value: 'true' })),
+        getPlatformSetting(SETTING_KEYS.SEMANTIC_PROVIDER, accessToken).catch(() => ({ value: '' })),
+        getPlatformSetting(SETTING_KEYS.SEMANTIC_API_ENDPOINT, accessToken).catch(() => ({ value: '' })),
+        getPlatformSetting(SETTING_KEYS.BLOCKING_ENABLED, accessToken).catch(() => ({ value: 'false' })),
+        getPlatformSetting(SETTING_KEYS.TOOL_SCAN_ENABLED, accessToken).catch(() => ({ value: 'true' })),
       ])
       setSettings({
-        [KEY_REGEX_ENABLED]: regexResult.value === 'true',
-        [KEY_TRUST_SOURCE_ENABLED]: trustResult.value === 'true',
-        [KEY_SEMANTIC_ENABLED]: semanticResult.value === 'true',
-        [KEY_BLOCKING_ENABLED]: blockingResult.value === 'true',
-        [KEY_TOOL_SCAN_ENABLED]: toolScanResult.value === 'true',
+        [SETTING_KEYS.REGEX_ENABLED]: regexResult.value === 'true',
+        [SETTING_KEYS.TRUST_SOURCE_ENABLED]: trustResult.value === 'true',
+        [SETTING_KEYS.SEMANTIC_ENABLED]: semanticResult.value === 'true',
+        [SETTING_KEYS.BLOCKING_ENABLED]: blockingResult.value === 'true',
+        [SETTING_KEYS.TOOL_SCAN_ENABLED]: toolScanResult.value === 'true',
       })
       setSemanticProvider(providerResult.value)
       setSemanticEndpoint(endpointResult.value)
@@ -462,7 +82,7 @@ export function PromptInjectionPage() {
       await setPlatformSetting(key, String(!current), accessToken)
       addToast(tp.toastUpdated, 'success')
     } catch (err) {
-      // 请求失败，回滚到原始状态
+      // 回滚
       setSettings(prev => ({ ...prev, [key]: current }))
       addToast(isApiError(err) ? err.message : tp.toastFailed, 'error')
     } finally {
@@ -472,12 +92,12 @@ export function PromptInjectionPage() {
 
   const handleReconfigure = useCallback(async () => {
     try {
-      await deletePlatformSetting(KEY_SEMANTIC_PROVIDER, accessToken).catch(() => {})
-      await deletePlatformSetting(KEY_SEMANTIC_API_ENDPOINT, accessToken).catch(() => {})
-      await deletePlatformSetting(KEY_SEMANTIC_API_KEY, accessToken).catch(() => {})
-      await setPlatformSetting(KEY_SEMANTIC_ENABLED, 'false', accessToken)
+      await deletePlatformSetting(SETTING_KEYS.SEMANTIC_PROVIDER, accessToken).catch(() => {})
+      await deletePlatformSetting(SETTING_KEYS.SEMANTIC_API_ENDPOINT, accessToken).catch(() => {})
+      await deletePlatformSetting(SETTING_KEYS.SEMANTIC_API_KEY, accessToken).catch(() => {})
+      await setPlatformSetting(SETTING_KEYS.SEMANTIC_ENABLED, 'false', accessToken)
       setSemanticProvider('')
-      setSettings(prev => ({ ...prev, [KEY_SEMANTIC_ENABLED]: false }))
+      setSettings(prev => ({ ...prev, [SETTING_KEYS.SEMANTIC_ENABLED]: false }))
       setSemanticSetupOpen(true)
     } catch (err) {
       addToast(isApiError(err) ? err.message : tp.toastFailed, 'error')
@@ -513,95 +133,48 @@ export function PromptInjectionPage() {
             <div className="flex flex-col gap-3">
               {LAYERS.map(layer => {
                 const enabled = settings[layer.settingsKey] ?? (layer.defaultEnabled !== undefined ? layer.defaultEnabled : true)
-                const isToggling = toggling === layer.settingsKey
                 const isSemantic = layer.id === 'semantic'
-
-                const semanticBadge = () => {
-                  if (!isSemantic) return null
-                  if (!semanticConfigured) return <Badge variant="neutral">{tp.statusNotConfigured}</Badge>
-                  if (semanticProvider === 'local' && !localModelInstalled)
-                    return <Badge variant="warning">{tp.statusPendingInstall}</Badge>
-                  return null
-                }
-
-                const canToggle = !isSemantic || (semanticConfigured && semanticCanEnable)
-
                 return (
-                  <div key={layer.id}>
-                    <div className="flex items-center justify-between rounded-lg border border-[var(--c-border-console)] bg-[var(--c-bg-card)] px-5 py-4">
-                      <div className="flex flex-col gap-1">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-medium text-[var(--c-text-primary)]">
-                            {tp[layer.nameKey]}
-                          </span>
-                          {semanticBadge() ?? (
-                            <Badge variant={enabled ? 'success' : 'warning'}>
-                              {enabled ? tp.statusEnabled : tp.statusDisabled}
-                            </Badge>
-                          )}
-                          {isSemantic && semanticConfigured && (
-                            <span className="text-[10px] text-[var(--c-text-muted)]">
-                              ({semanticProvider === 'api' ? 'API' : 'Local'})
-                            </span>
-                          )}
-                        </div>
-                        <span className="text-xs text-[var(--c-text-muted)]">
-                          {tp[layer.descKey]}
-                        </span>
-                      </div>
-
-                      <div className="flex shrink-0 items-center gap-2">
-                        {isSemantic && semanticConfigured && (
-                          <button
-                            onClick={handleReconfigure}
-                            className="rounded-md px-2 py-1 text-[10px] text-[var(--c-text-muted)] transition-colors hover:text-[var(--c-text-secondary)]"
-                          >
-                            {tp.actionReconfigure}
-                          </button>
-                        )}
-                        {isSemantic && !semanticConfigured ? (
-                          <button
-                            onClick={() => setSemanticSetupOpen(v => !v)}
-                            className="rounded-md border border-[var(--c-border-console)] px-3 py-1.5 text-xs font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-sub)]"
-                          >
-                            {tp.actionConfigure}
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => handleToggle(layer.settingsKey, enabled)}
-                            disabled={isToggling || !canToggle}
-                            className={[
-                              'rounded-md border px-3 py-1.5 text-xs font-medium transition-colors',
-                              enabled
-                                ? 'border-[var(--c-border-console)] text-[var(--c-text-secondary)] hover:bg-[var(--c-bg-sub)]'
-                                : 'border-[var(--c-status-success-text)] text-[var(--c-status-success-text)] hover:bg-[var(--c-status-success-bg)]',
-                              (isToggling || !canToggle) ? 'opacity-50 cursor-not-allowed' : '',
-                            ].join(' ')}
-                          >
-                            {isToggling
-                              ? <Loader2 size={12} className="inline animate-spin" />
-                              : enabled ? tp.actionDisable : tp.actionEnable
-                            }
-                          </button>
-                        )}
-                      </div>
-                    </div>
-
-                    {isSemantic && !semanticConfigured && semanticSetupOpen && (
-                      <SemanticSetupPanel
-                        accessToken={accessToken}
-                        bridgeAvailable={bridgeAvailable}
-                        onSaved={loadSettings}
-                      />
-                    )}
-                  </div>
+                  <LayerCard
+                    key={layer.id}
+                    layer={layer}
+                    enabled={enabled}
+                    toggling={toggling === layer.settingsKey}
+                    texts={tp}
+                    semanticConfigured={semanticConfigured}
+                    semanticProvider={semanticProvider}
+                    localModelInstalled={localModelInstalled}
+                    semanticCanEnable={semanticCanEnable}
+                    onToggle={() => handleToggle(layer.settingsKey, enabled)}
+                    onReconfigure={handleReconfigure}
+                    onSetupToggle={() => setSemanticSetupOpen(v => !v)}
+                    setupPanel={
+                      isSemantic && !semanticConfigured && semanticSetupOpen ? (
+                        <SemanticSetupPanel
+                          accessToken={accessToken}
+                          bridgeAvailable={bridgeAvailable}
+                          onSaved={loadSettings}
+                          texts={tp}
+                          setSetting={setPlatformSetting}
+                          bridgeInstall={v => bridgeClient.performAction('prompt-guard', 'install', { variant: v })}
+                          formatError={err => isApiError(err) ? err.message : tp.toastFailed}
+                        />
+                      ) : undefined
+                    }
+                  />
                 )
               })}
             </div>
           )
         )}
 
-        {activeTab === 'audit' && <AuditTab accessToken={accessToken} />}
+        {activeTab === 'audit' && (
+          <AuditTab
+            accessToken={accessToken}
+            texts={tp}
+            listAuditLogs={listAuditLogs}
+          />
+        )}
       </div>
     </div>
   )

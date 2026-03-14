@@ -9,7 +9,8 @@
     "./api/types": "./src/api/types.ts",
     "./storage": "./src/storage/tokens.ts",
     "./contexts/theme": "./src/contexts/ThemeContext.tsx",
-    "./contexts/locale": "./src/contexts/LocaleContext.tsx"
+    "./contexts/locale": "./src/contexts/LocaleContext.tsx",
+    "./components/prompt-injection": "./src/components/prompt-injection/index.ts"
   },
   "peerDependencies": {
     "lucide-react": ">=0.400.0",
