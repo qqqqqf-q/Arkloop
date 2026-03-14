@@ -40,7 +40,7 @@ func LlmSpecs() []llm.ToolSpec {
 		TimelineTitleLlmSpec,
 		websearch.LlmSpec,
 		webfetch.LlmSpec,
-		// spawn_agent 由 NewSpawnAgentMiddleware 按需动态注入，不在此处静态注册
+		// spawn_agent 由 NewSpawnAgentMiddleware 按需动态注入
 		summarizethread.LlmSpec,
 		askuser.LlmSpec,
 	}

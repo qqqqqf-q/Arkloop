@@ -83,6 +83,9 @@ type EngineV1Deps struct {
 	MemoryProviderFactory  *workerruntime.MemoryProviderFactory
 	RoutingConfigLoader    *routing.ConfigLoader
 	MessageAttachmentStore pipeline.MessageAttachmentStore
+
+	// PlatformToolExecutor: platform_manage 的执行器，nil 时跳过注入
+	PlatformToolExecutor tools.Executor
 }
 
 func NewEngineV1(deps EngineV1Deps) (*EngineV1, error) {
@@ -177,6 +180,8 @@ func NewEngineV1(deps EngineV1Deps) (*EngineV1, error) {
 		pipeline.NewRoutingMiddleware(deps.Router, deps.RoutingConfigLoader, deps.StubGateway, deps.EmitDebugEvents, runsRepo, eventsRepo, releaseSlot, resolver),
 		pipeline.NewTitleSummarizerMiddleware(deps.DBPool, deps.RunLimiterRDB, deps.StubGateway, deps.EmitDebugEvents, deps.RoutingConfigLoader),
 		pipeline.NewToolDescriptionOverrideMiddleware(deps.ToolDescriptionOverridesRepo),
+		pipeline.NewCallPlatformMiddleware(),
+		pipeline.NewPlatformToolsMiddleware(deps.PlatformToolExecutor),
 		pipeline.NewToolBuildMiddleware(),
 	}
 
