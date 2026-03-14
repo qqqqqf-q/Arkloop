@@ -15,6 +15,7 @@ import (
 	"arkloop/services/worker/internal/data"
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/mcp"
+	"arkloop/services/worker/internal/personas"
 	"arkloop/services/worker/internal/pipeline"
 	"arkloop/services/worker/internal/queue"
 	"arkloop/services/worker/internal/routing"
@@ -24,6 +25,7 @@ import (
 	"arkloop/services/worker/internal/tools"
 	"arkloop/services/worker/internal/tools/builtin"
 	documentwritetool "arkloop/services/worker/internal/tools/builtin/document_write"
+	"arkloop/services/worker/internal/tools/builtin/platform"
 	sandboxtool "arkloop/services/worker/internal/tools/builtin/sandbox"
 	conversationtool "arkloop/services/worker/internal/tools/conversation"
 	memorytool "arkloop/services/worker/internal/tools/memory"
@@ -88,6 +90,18 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 
 	executors := builtin.Executors(pool, rdb, configResolver)
 	allLlmSpecs := builtin.LlmSpecs()
+
+	// platform_manage executor (通过 PlatformToolsMiddleware 按需注入，不全局注册)
+	var platformExec tools.Executor
+	if tp := initPlatformTokenProvider(ctx, pool); tp != nil {
+		apiURL := strings.TrimSpace(os.Getenv("ARKLOOP_PLATFORM_API_URL"))
+		if apiURL == "" {
+			apiURL = "http://127.0.0.1:19001"
+		}
+		bridgeURL := strings.TrimSpace(os.Getenv("ARKLOOP_BRIDGE_URL"))
+		platformExec = platform.NewExecutor(apiURL, bridgeURL, tp)
+		slog.InfoContext(ctx, "platform_manage tool registered", "api_url", apiURL)
+	}
 	allLlmSpecs = append(allLlmSpecs, sandboxtool.LlmSpecs()...)
 	allLlmSpecs = append(allLlmSpecs, sandboxtool.BrowserLlmSpec)
 	allLlmSpecs = append(allLlmSpecs, memorytool.LlmSpecs()...)
@@ -225,6 +239,16 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 
 	baseAllowlistNames := resolveBaseToolAllowlistNames(ctx, toolRegistry)
 
+	// 加载文件系统 persona registry，用于与 DB persona 合并
+	var personaRegistryGetter func() *personas.Registry
+	personasRoot, err := personas.BuiltinPersonasRoot()
+	if err == nil {
+		baseRegistry, loadErr := personas.LoadRegistry(personasRoot)
+		if loadErr == nil && len(baseRegistry.ListIDs()) > 0 {
+			personaRegistryGetter = func() *personas.Registry { return baseRegistry }
+		}
+	}
+
 	return runengine.NewEngineV1(runengine.EngineV1Deps{
 		Router:                       router,
 		DBPool:                       pool,
@@ -237,7 +261,7 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 		ToolExecutors:                executors,
 		AllLlmToolSpecs:              allLlmSpecs,
 		BaseToolAllowlistNames:       baseAllowlistNames,
-		PersonaRegistryGetter:        nil,
+		PersonaRegistryGetter:        personaRegistryGetter,
 		MCPPool:                      mcpPool,
 		MCPDiscoveryCache:            discoveryCache,
 		ToolProviderCache:            toolProviderCache,
@@ -251,6 +275,7 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 		MemoryProviderFactory:        memoryProviderFactory,
 		RoutingConfigLoader:          routingLoader,
 		MessageAttachmentStore:       messageAttachmentStore,
+		PlatformToolExecutor:         platformExec,
 	})
 }
 
@@ -347,4 +372,32 @@ func resolveSandboxBillingConfig(ctx context.Context, resolver sharedconfig.Reso
 		}
 	}
 	return cfg
+}
+
+// initPlatformTokenProvider 从环境变量读取 JWT secret，从 DB 查询 system_agent user ID，
+// 构造用于 platform tool executor 的 TokenProvider。任何前置条件不满足时返回 nil（跳过注册）。
+func initPlatformTokenProvider(ctx context.Context, pool *pgxpool.Pool) *platform.TokenProvider {
+	secret := strings.TrimSpace(os.Getenv("ARKLOOP_AUTH_JWT_SECRET"))
+	if len(secret) < 32 {
+		slog.WarnContext(ctx, "platform tools: ARKLOOP_AUTH_JWT_SECRET not set or too short, skipping")
+		return nil
+	}
+	if pool == nil {
+		slog.WarnContext(ctx, "platform tools: no database pool, skipping")
+		return nil
+	}
+	var userID, accountID, role string
+	err := pool.QueryRow(ctx,
+		`SELECT u.id, am.account_id, am.role
+		   FROM users u
+		   JOIN account_memberships am ON am.user_id = u.id
+		  WHERE u.username = 'system_agent' AND u.deleted_at IS NULL
+		  ORDER BY CASE am.role WHEN 'platform_admin' THEN 0 ELSE 1 END
+		  LIMIT 1`,
+	).Scan(&userID, &accountID, &role)
+	if err != nil {
+		slog.WarnContext(ctx, "platform tools: system_agent user/account not found, skipping", "err", err.Error())
+		return nil
+	}
+	return platform.NewTokenProvider([]byte(secret), userID, accountID, role, 15*time.Minute)
 }

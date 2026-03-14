@@ -74,29 +74,32 @@ type TitleSummarizerConfig struct {
 }
 
 type Definition struct {
-	ID                  string
-	Version             string
-	Title               string
-	Description         *string
-	UserSelectable      bool
-	SelectorName        *string
-	SelectorOrder       *int
-	ToolAllowlist       []string
-	ToolDenylist        []string
-	Budgets             Budgets
-	SoulMD              string
-	PromptMD            string
-	RoleSoulMD          string
-	RolePromptMD        string
-	ExecutorType        string         // 执行策略类型，默认 "agent.simple"
-	ExecutorConfig      map[string]any // Executor 配置，默认 {}
-	PreferredCredential *string        // 偏好凭证名称，nil 表示不绑定
-	Model               *string        // model selector，优先 provider^model，其次兼容裸 model
-	ReasoningMode       string
-	PromptCacheControl  string
-	Roles               map[string]RoleOverride
-	TitleSummarizer     *TitleSummarizerConfig // nil 表示此 persona 不自动生成标题
-	UpdatedAt           time.Time              // DB persona 最后修改时间，用于版本漂移检测
+	ID                      string
+	Version                 string
+	Title                   string
+	Description             *string
+	UserSelectable          bool
+	SelectorName            *string
+	SelectorOrder           *int
+	ToolAllowlist           []string
+	ToolDenylist            []string
+	Budgets                 Budgets
+	SoulMD                  string
+	PromptMD                string
+	RoleSoulMD              string
+	RolePromptMD            string
+	ExecutorType            string         // 执行策略类型，默认 "agent.simple"
+	ExecutorConfig          map[string]any // Executor 配置，默认 {}
+	PreferredCredential     *string        // 偏好凭证名称，nil 表示不绑定
+	Model                   *string        // model selector，优先 provider^model，其次兼容裸 model
+	ReasoningMode           string
+	PromptCacheControl      string
+	Roles                   map[string]RoleOverride
+	TitleSummarizer         *TitleSummarizerConfig // nil 表示此 persona 不自动生成标题
+	UpdatedAt               time.Time              // DB persona 最后修改时间，用于版本漂移检测
+	IsSystem                bool                   // 系统级 persona，不可被 DB 覆盖或删除
+	IsBuiltin               bool                   // 内置 persona，随代码分发
+	AllowPlatformDelegation bool                   // 允许 admin 用户调用 call_platform 委托平台管理操作
 }
 
 type Registry struct {

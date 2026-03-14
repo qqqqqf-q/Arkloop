@@ -270,6 +270,16 @@ func deleteUser(
 			return
 		}
 
+		u, err := usersRepo.GetByID(r.Context(), userID)
+		if err != nil {
+			httpkit.WriteError(w, nethttp.StatusNotFound, "users.not_found", "user not found", traceID, nil)
+			return
+		}
+		if u.Username == "system_agent" {
+			httpkit.WriteError(w, nethttp.StatusConflict, "conflict", "cannot delete system agent", traceID, nil)
+			return
+		}
+
 		if err := usersRepo.SoftDelete(r.Context(), userID); err != nil {
 			if strings.Contains(err.Error(), "not found") {
 				httpkit.WriteError(w, nethttp.StatusNotFound, "users.not_found", "user not found", traceID, nil)

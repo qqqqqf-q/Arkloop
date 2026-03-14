@@ -41,6 +41,7 @@ type SpawnRequest struct {
 	ContextMode string
 	Inherit     SpawnInheritRequest
 	Input       string
+	SourceType  string // 默认 "thread_spawn"，platform agent 设为 "platform_agent"
 
 	ParentContext SpawnParentContext
 }
@@ -62,6 +63,7 @@ type ResolvedSpawnRequest struct {
 	ContextMode string
 	Inherit     ResolvedSpawnInherit
 	Input       string
+	SourceType  string
 
 	ParentContext SpawnParentContext
 }

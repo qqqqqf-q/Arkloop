@@ -27,6 +27,7 @@ const (
 	SubAgentSourceTypeReview              = "review"
 	SubAgentSourceTypeMemoryConsolidation = "memory_consolidation"
 	SubAgentSourceTypeAgentJob            = "agent_job"
+	SubAgentSourceTypePlatformAgent       = "platform_agent"
 	SubAgentSourceTypeOther               = "other"
 
 	SubAgentContextModeIsolated            = "isolated"
@@ -586,6 +587,7 @@ func validateSubAgentSourceType(sourceType string) error {
 		SubAgentSourceTypeReview,
 		SubAgentSourceTypeMemoryConsolidation,
 		SubAgentSourceTypeAgentJob,
+		SubAgentSourceTypePlatformAgent,
 		SubAgentSourceTypeOther:
 		return nil
 	default:

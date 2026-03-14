@@ -5,6 +5,7 @@ const (
 	RolePlatformAdmin = "platform_admin"
 	RoleAccountAdmin  = "account_admin"
 	RoleAccountMember = "account_member"
+	RoleSystemAgent   = "system_agent"
 )
 
 var accountAdminPerms = []string{
@@ -36,6 +37,16 @@ var accountMemberPerms = []string{
 	PermDataSubscriptionsRead,
 }
 
+var systemAgentPerms = []string{
+	PermDataPersonasRead, PermDataPersonasManage,
+	PermDataSkillsRead, PermDataSkillsManage,
+	PermDataLLMCreds,
+	PermDataMCPConfigs,
+	PermDataProjectsRead, PermDataProjectsManage,
+	PermDataWebhooksManage,
+	PermPlatformFeatureFlagsManage,
+}
+
 var platformAdminPerms = append(
 	[]string{
 		PermPlatformAdmin,
@@ -59,6 +70,8 @@ func PermissionsForRole(role string) []string {
 		src = accountAdminPerms
 	case RoleAccountMember, "member":
 		src = accountMemberPerms
+	case RoleSystemAgent:
+		src = systemAgentPerms
 	default:
 		return nil
 	}

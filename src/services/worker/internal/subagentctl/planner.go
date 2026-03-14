@@ -59,6 +59,10 @@ func (p *ChildRunPlanner) PlanSpawn(req SpawnRequest) (childRunPlan, error) {
 	resolved.Role = normalizeOptionalString(req.Role)
 	resolved.Nickname = normalizeOptionalString(req.Nickname)
 	resolved.ParentContext = req.ParentContext
+	resolved.SourceType = strings.TrimSpace(req.SourceType)
+	if resolved.SourceType == "" {
+		resolved.SourceType = data.SubAgentSourceTypeThreadSpawn
+	}
 	return childRunPlan{
 		Mode:             childRunPlanModeCreateRun,
 		Spawn:            &resolved,

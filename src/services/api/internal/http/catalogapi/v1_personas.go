@@ -113,6 +113,7 @@ func personaEntry(
 	authService *auth.Service,
 	membershipRepo *data.AccountMembershipRepository,
 	personasRepo *data.PersonasRepository,
+	repoPersonas []repopersonas.RepoPersona,
 	syncTrigger personaSyncTrigger,
 	projectRepo *data.ProjectRepository,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
@@ -136,7 +137,7 @@ func personaEntry(
 		case nethttp.MethodPatch:
 			patchPersona(w, r, traceID, personaID, authService, membershipRepo, personasRepo, syncTrigger, projectRepo)
 		case nethttp.MethodDelete:
-			deletePersona(w, r, traceID, personaID, authService, membershipRepo, personasRepo, syncTrigger, projectRepo)
+			deletePersona(w, r, traceID, personaID, authService, membershipRepo, personasRepo, repoPersonas, syncTrigger, projectRepo)
 		default:
 			httpkit.WriteMethodNotAllowed(w, r)
 		}
@@ -204,6 +205,10 @@ func createPersona(
 			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "copy_from_repo_persona_key is invalid", traceID, nil)
 			return
 		}
+		if repoPersona.IsSystem {
+			httpkit.WriteError(w, nethttp.StatusForbidden, "personas.system_protected", "system persona cannot be created via API", traceID, nil)
+			return
+		}
 		if req.PersonaKey != "" && req.PersonaKey != repoPersona.ID {
 			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "persona_key must match repo persona key", traceID, nil)
 			return
@@ -235,6 +240,11 @@ func createPersona(
 
 	if req.PersonaKey == "" || req.Version == "" || req.DisplayName == "" || req.PromptMD == "" {
 		httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "persona_key, version, display_name, and prompt_md are required", traceID, nil)
+		return
+	}
+
+	if isSystemPersonaKey(repoPersonas, req.PersonaKey) {
+		httpkit.WriteError(w, nethttp.StatusForbidden, "personas.system_protected", "system persona cannot be created via API", traceID, nil)
 		return
 	}
 
@@ -551,6 +561,7 @@ func deletePersona(
 	authService *auth.Service,
 	membershipRepo *data.AccountMembershipRepository,
 	personasRepo *data.PersonasRepository,
+	repoPersonas []repopersonas.RepoPersona,
 	syncTrigger personaSyncTrigger,
 	projectRepo *data.ProjectRepository,
 ) {
@@ -580,6 +591,20 @@ func deletePersona(
 		if !resolved {
 			return
 		}
+	}
+
+	existing, err := personasRepo.GetByIDInScope(r.Context(), scopeID, personaID, scope)
+	if err != nil {
+		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+		return
+	}
+	if existing == nil {
+		httpkit.WriteError(w, nethttp.StatusNotFound, "personas.not_found", "persona not found", traceID, nil)
+		return
+	}
+	if isSystemPersonaKey(repoPersonas, existing.PersonaKey) {
+		httpkit.WriteError(w, nethttp.StatusForbidden, "personas.system_protected", "cannot delete system persona", traceID, nil)
+		return
 	}
 
 	deleted, err := personasRepo.DeleteInScope(r.Context(), scopeID, personaID, scope)
@@ -877,4 +902,13 @@ func optionalTrimmedString(value string) *string {
 		return nil
 	}
 	return &trimmed
+}
+
+func isSystemPersonaKey(repoPersonas []repopersonas.RepoPersona, key string) bool {
+	for _, rp := range repoPersonas {
+		if rp.ID == key && rp.IsSystem {
+			return true
+		}
+	}
+	return false
 }

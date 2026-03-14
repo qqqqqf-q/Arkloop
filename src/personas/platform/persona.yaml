@@ -1,0 +1,17 @@
+id: platform
+version: "1"
+title: Platform
+description: 平台管理 Agent，处理从基础设施配置到 Agent 创建的一切管理操作。
+soul_file: soul.md
+is_builtin: true
+is_system: true
+user_selectable: false
+tool_allowlist:
+  - platform_manage
+budgets:
+  reasoning_iterations: 20
+  max_output_tokens: 4096
+  temperature: 0.3
+reasoning_mode: disabled
+prompt_cache_control: none
+executor_type: agent.simple

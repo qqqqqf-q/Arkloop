@@ -40,8 +40,12 @@ func NewPersonaResolutionMiddleware(
 				}
 				return appendAndCommitSingle(ctx, rc.Pool, rc.Run, runsRepo, eventsRepo, failed, releaseFn, rc.BroadcastRDB)
 			}
-			for _, def := range dbDefs {
-				runPersonaRegistry.Set(def)
+			if getBaseRegistry != nil {
+				runPersonaRegistry = personas.MergeRegistry(getBaseRegistry(), dbDefs)
+			} else {
+				for _, def := range dbDefs {
+					runPersonaRegistry.Set(def)
+				}
 			}
 		} else if getBaseRegistry != nil {
 			runPersonaRegistry = getBaseRegistry()

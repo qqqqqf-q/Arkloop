@@ -53,6 +53,8 @@ type RepoPersona struct {
 	ExecutorConfig      map[string]any `yaml:"executor_config"`
 	Roles               map[string]any `yaml:"roles"`
 	SoulFile            string         `yaml:"soul_file"`
+	IsSystem            bool           `yaml:"is_system"`
+	IsBuiltin           bool           `yaml:"is_builtin"`
 	DirName             string         `yaml:"-"`
 	SoulMD              string         `yaml:"-"`
 	PromptMD            string         `yaml:"-"`

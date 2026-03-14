@@ -71,7 +71,7 @@ func RegisterRoutes(mux *nethttp.ServeMux, deps Deps) {
 	mux.HandleFunc("/v1/me/selectable-personas", selectablePersonasEntry(deps.AuthService, deps.AccountMembershipRepo, deps.PersonasRepo, deps.RepoPersonas, deps.ProjectRepo))
 	mux.HandleFunc("/v1/workspaces/", workspaceSkillsEntry(deps.AuthService, deps.AccountMembershipRepo, deps.APIKeysRepo, deps.AuditWriter, deps.SkillPackagesRepo, deps.ProfileSkillInstallsRepo, deps.WorkspaceSkillEnableRepo, deps.WorkspaceRegistriesRepo, deps.ProfileRegistriesRepo, deps.Pool))
 	mux.HandleFunc("/v1/personas", personasEntry(deps.AuthService, deps.AccountMembershipRepo, deps.PersonasRepo, deps.RepoPersonas, deps.PersonaSyncTrigger, deps.ProjectRepo))
-	mux.HandleFunc("/v1/personas/", personaEntry(deps.AuthService, deps.AccountMembershipRepo, deps.PersonasRepo, deps.PersonaSyncTrigger, deps.ProjectRepo))
+	mux.HandleFunc("/v1/personas/", personaEntry(deps.AuthService, deps.AccountMembershipRepo, deps.PersonasRepo, deps.RepoPersonas, deps.PersonaSyncTrigger, deps.ProjectRepo))
 	mux.HandleFunc("/v1/admin/skill-packages", adminSkillPackagesEntry(deps.AuthService, deps.AccountMembershipRepo, deps.APIKeysRepo, deps.AuditWriter, deps.SkillPackagesRepo, deps.SkillStore))
 	mux.HandleFunc("/v1/profiles/me/skills/install", profileSkillsInstallEntry(deps.AuthService, deps.AccountMembershipRepo, deps.APIKeysRepo, deps.AuditWriter, deps.SkillPackagesRepo, deps.ProfileSkillInstallsRepo, deps.ProfileRegistriesRepo))
 	mux.HandleFunc("/v1/lite/agents", liteAgentsEntry(deps.AuthService, deps.AccountMembershipRepo, deps.PersonasRepo, deps.RepoPersonas, deps.PersonaSyncTrigger))
