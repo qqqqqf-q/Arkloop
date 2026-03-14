@@ -223,6 +223,7 @@ export function ChatPage() {
   const [sending, setSending] = useState(false)
   const [cancelSubmitting, setCancelSubmitting] = useState(false)
   const [error, setError] = useState<AppError | null>(null)
+  const [injectionBlocked, setInjectionBlocked] = useState<string | null>(null)
   const [queuedDraft, setQueuedDraft] = useState<string | null>(null)
   const [awaitingInput, setAwaitingInput] = useState(false)
   const [checkInDraft, setCheckInDraft] = useState('')
@@ -562,6 +563,7 @@ export function ChatPage() {
     if (!threadId) return
     setSending(true)
     setError(null)
+    setInjectionBlocked(null)
     try {
       const message = await createMessage(accessToken, threadId, { content: text })
       invalidateMessageSync()
@@ -593,6 +595,7 @@ export function ChatPage() {
 
     setMessagesLoading(true)
     setError(null)
+    setInjectionBlocked(null)
     setAssistantDraft('')
 
     void (async () => {
@@ -1205,14 +1208,22 @@ export function ChatPage() {
         setCheckInDraft('')
         if (threadId) onRunEnded(threadId)
         const obj = event.data as { message?: unknown; error_class?: unknown; details?: unknown }
+        const errorClass = typeof obj?.error_class === 'string' ? obj.error_class : undefined
         const details = (obj?.details && typeof obj.details === 'object' && !Array.isArray(obj.details))
           ? obj.details as Record<string, unknown>
           : undefined
-        setError({
-          message: typeof obj?.message === 'string' ? obj.message : '运行失败',
-          code: typeof obj?.error_class === 'string' ? obj.error_class : undefined,
-          details,
-        })
+
+        if (errorClass === 'security.injection_blocked') {
+          // 注入拦截：渲染在对话流中，不用底部 error card
+          setAssistantDraft('')
+          setInjectionBlocked(typeof obj?.message === 'string' ? obj.message : 'blocked')
+        } else {
+          setError({
+            message: typeof obj?.message === 'string' ? obj.message : '运行失败',
+            code: errorClass,
+            details,
+          })
+        }
       }
     }
   }, [activeRunId, refreshMessages, refreshCredits, sse.events]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -1431,6 +1442,7 @@ export function ChatPage() {
 
     setSending(true)
     setError(null)
+    setInjectionBlocked(null)
 
     try {
       const uploadAttachments = async (targetThreadId: string) => {
@@ -1492,6 +1504,7 @@ export function ChatPage() {
     if (isStreaming || sending || !threadId) return
     setSending(true)
     setError(null)
+    setInjectionBlocked(null)
     setAssistantDraft('')
     try {
       const run = await editMessage(accessToken, threadId, messageId, newContent)
@@ -1522,6 +1535,7 @@ export function ChatPage() {
     if (isStreaming || sending || !threadId) return
     setSending(true)
     setError(null)
+    setInjectionBlocked(null)
     setAssistantDraft('')
     try {
       const run = await retryThread(accessToken, threadId)
@@ -1557,6 +1571,7 @@ export function ChatPage() {
   const handleFork = useCallback(async (messageId: string) => {
     if (!threadId || isStreaming || sending) return
     setError(null)
+    setInjectionBlocked(null)
     try {
       const forked = await forkThread(accessToken, threadId, messageId)
       if (forked.id_mapping) migrateMessageMetadata(forked.id_mapping)
@@ -1578,6 +1593,7 @@ export function ChatPage() {
 
     setCheckInSubmitting(true)
     setError(null)
+    setInjectionBlocked(null)
     try {
       await provideInput(accessToken, activeRunId, text)
       setCheckInDraft('')
@@ -1597,6 +1613,7 @@ export function ChatPage() {
   const handleUserInputSubmit = useCallback(async (response: UserInputResponse) => {
     if (!activeRunId) return
     setError(null)
+    setInjectionBlocked(null)
     try {
       await provideInput(accessToken, activeRunId, JSON.stringify(response.answers))
       setPendingUserInput(null)
@@ -1614,6 +1631,7 @@ export function ChatPage() {
     const req = pendingUserInput
     if (!req) return
     setError(null)
+    setInjectionBlocked(null)
     try {
       await provideInput(accessToken, activeRunId, JSON.stringify({}))
       setPendingUserInput(null)
@@ -1638,6 +1656,7 @@ export function ChatPage() {
     setCheckInDraft('')
     setCancelSubmitting(true)
     setError(null)
+    setInjectionBlocked(null)
     pendingMessageRef.current = null
     setQueuedDraft(null)
     if (threadId) onRunEnded(threadId)
@@ -2167,6 +2186,20 @@ export function ChatPage() {
                   browserActions={topLevelBrowserActions.length > 0 ? topLevelBrowserActions : undefined}
                   accessToken={accessToken}
                 />
+              )}
+
+              {injectionBlocked && (
+                <div
+                  className="rounded-xl px-4 py-3 text-sm"
+                  style={{
+                    background: 'var(--c-status-error-bg, rgba(239, 68, 68, 0.08))',
+                    border: '0.5px solid var(--c-status-error-border, rgba(239, 68, 68, 0.2))',
+                    color: 'var(--c-status-error-text, #ef4444)',
+                    maxWidth: '720px',
+                  }}
+                >
+                  {injectionBlocked}
+                </div>
               )}
 
               {awaitingInput && (
