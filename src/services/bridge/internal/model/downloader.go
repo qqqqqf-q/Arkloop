@@ -20,6 +20,8 @@ type Variant struct {
 	Name            string
 	Image           string // OCI image containing model files
 	ModelScopeRepo  string // ModelScope repo for fallback download
+	HFRepo          string // HuggingFace repo for wget-based download
+	HFFiles         [][2]string // [remote_path, local_name] pairs
 	Size            string // human-readable size hint
 }
 
@@ -30,14 +32,24 @@ var Variants = map[string]Variant{
 		Name:           "Prompt Guard 2 (22M)",
 		Image:          "ghcr.io/arkloop/prompt-guard-22m-onnx:latest",
 		ModelScopeRepo: "LLM-Research/Llama-Prompt-Guard-2-22M",
-		Size:           "~270 MB",
+		HFRepo:         "protectai/deberta-v3-base-prompt-injection-v2",
+		HFFiles: [][2]string{
+			{"onnx/model.onnx", "model.onnx"},
+			{"onnx/tokenizer.json", "tokenizer.json"},
+		},
+		Size: "~270 MB",
 	},
 	"86m": {
 		ID:             "86m",
 		Name:           "Prompt Guard (86M)",
 		Image:          "ghcr.io/arkloop/prompt-guard-86m-onnx:latest",
 		ModelScopeRepo: "LLM-Research/Llama-Prompt-Guard-2-86M",
-		Size:           "~690 MB",
+		HFRepo:         "protectai/deberta-v3-base-prompt-injection-v2",
+		HFFiles: [][2]string{
+			{"onnx/model.onnx", "model.onnx"},
+			{"onnx/tokenizer.json", "tokenizer.json"},
+		},
+		Size: "~690 MB",
 	},
 }
 
@@ -140,7 +152,21 @@ func (d *Downloader) download(ctx context.Context, op *docker.Operation, v Varia
 		op.AppendLog(fmt.Sprintf("docker pull failed: %s", err))
 	}
 
-	// Strategy 2: ModelScope download + ONNX export.
+	// Strategy 2: wget from HuggingFace (requires no special tools).
+	if v.HFRepo != "" && len(v.HFFiles) > 0 {
+		hfRepo := v.HFRepo
+		if override := os.Getenv("ARKLOOP_PROMPT_GUARD_HF_REPO_" + strings.ToUpper(v.ID)); override != "" {
+			hfRepo = override
+		}
+		op.AppendLog(fmt.Sprintf("trying HuggingFace download: %s", hfRepo))
+		if err := d.tryHFInstall(ctx, op, hfRepo, v.HFFiles); err == nil {
+			return d.verifyFiles(op, v)
+		} else {
+			op.AppendLog(fmt.Sprintf("HuggingFace download failed: %s", err))
+		}
+	}
+
+	// Strategy 3: ModelScope download + ONNX export (requires modelscope + optimum).
 	if v.ModelScopeRepo != "" {
 		op.AppendLog(fmt.Sprintf("falling back to modelscope: %s", v.ModelScopeRepo))
 		if err := d.tryModelScopeInstall(ctx, op, v); err == nil {
@@ -193,6 +219,24 @@ func (d *Downloader) tryDockerInstall(ctx context.Context, op *docker.Operation,
 	err := d.run(ctx, op, "docker", "cp", src, d.modelDir)
 	_ = d.run(ctx, op, "docker", "rm", "-f", containerName)
 	return err
+}
+
+func (d *Downloader) tryHFInstall(ctx context.Context, op *docker.Operation, repo string, files [][2]string) error {
+	for _, pair := range files {
+		remotePath, localName := pair[0], pair[1]
+		url := fmt.Sprintf("https://huggingface.co/%s/resolve/main/%s", repo, remotePath)
+		dest := filepath.Join(d.modelDir, localName)
+		op.AppendLog(fmt.Sprintf("downloading %s ...", localName))
+		if err := d.run(ctx, op, "wget", "-O", dest, url); err != nil {
+			return fmt.Errorf("download %s: %w", remotePath, err)
+		}
+		info, err := os.Stat(dest)
+		if err != nil || info.Size() == 0 {
+			return fmt.Errorf("downloaded file empty or missing: %s", dest)
+		}
+		op.AppendLog(fmt.Sprintf("%s: %d bytes", localName, info.Size()))
+	}
+	return nil
 }
 
 func (d *Downloader) tryModelScopeInstall(ctx context.Context, op *docker.Operation, v Variant) error {

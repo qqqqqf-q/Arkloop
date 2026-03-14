@@ -236,6 +236,7 @@ services:
         condition: service_healthy
     volumes:
       - arkloop_storage:${ARKLOOP_STORAGE_ROOT:-/var/lib/arkloop/storage}
+      - arkloop_models:/var/lib/arkloop/models
 
   # --- Sandbox: Firecracker 模式 ---
   # 启用条件：ARKLOOP_SANDBOX_PROVIDER=firecracker（默认）
@@ -508,6 +509,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - .:/project:ro
+      - arkloop_models:/var/lib/arkloop/models
     ports:
       - "${ARKLOOP_BRIDGE_PORT:-19003}:19003"
 
@@ -519,6 +521,7 @@ volumes:
   firecrawl_pgdata:
   sandbox_sockets:
   arkloop_storage:
+  arkloop_models:
   searxng_data:
 
 networks:
