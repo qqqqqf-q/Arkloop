@@ -134,7 +134,7 @@ func (h *Handler) moduleStatus(ctx context.Context, def *module.ModuleDefinition
 // virtualModuleStatus checks file-based status for virtual modules.
 func (h *Handler) virtualModuleStatus(def *module.ModuleDefinition) module.ModuleStatus {
 	if def.ID == "prompt-guard" && h.modelDL != nil && h.modelDL.ModelFilesExist() {
-		return module.StatusInstalledDisconnected
+		return module.StatusRunning
 	}
 	return module.StatusNotInstalled
 }

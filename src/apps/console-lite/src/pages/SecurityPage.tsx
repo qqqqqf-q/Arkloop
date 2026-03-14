@@ -5,6 +5,7 @@ import type { LiteOutletContext } from '../layouts/LiteLayout'
 import { PageHeader } from '../components/PageHeader'
 import { useToast } from '@arkloop/shared'
 import { useLocale } from '../contexts/LocaleContext'
+import { useOperations } from '../contexts/OperationContext'
 import {
   listPlatformSettings,
   updatePlatformSetting,
@@ -23,6 +24,7 @@ export function SecurityPage() {
   const { accessToken } = useOutletContext<LiteOutletContext>()
   const { addToast } = useToast()
   const { t } = useLocale()
+  const { startOperation, setHistoryOpen } = useOperations()
   const ts = t.security
 
   const [activeTab, setActiveTab] = useState<Tab>('layers')
@@ -160,6 +162,10 @@ export function SecurityPage() {
                           setSetting={updatePlatformSetting}
                           bridgeInstall={v => bridgeClient.performAction('prompt-guard', 'install', { variant: v })}
                           formatError={err => err instanceof Error ? err.message : ts.toastFailed}
+                          onInstallStarted={opId => {
+                            startOperation('prompt-guard', 'Prompt Guard', 'install', opId)
+                            setHistoryOpen(true)
+                          }}
                         />
                       ) : undefined
                     }

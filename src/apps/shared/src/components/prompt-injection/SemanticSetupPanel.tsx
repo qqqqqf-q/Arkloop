@@ -12,6 +12,7 @@ export interface SemanticSetupPanelProps {
   setSetting: (key: string, value: string, token: string) => Promise<unknown>
   bridgeInstall: (variant: string) => Promise<{ operation_id: string }>
   formatError: (err: unknown) => string
+  onInstallStarted?: (operationId: string) => void
 }
 
 export function SemanticSetupPanel({
@@ -22,6 +23,7 @@ export function SemanticSetupPanel({
   setSetting,
   bridgeInstall,
   formatError,
+  onInstallStarted,
 }: SemanticSetupPanelProps) {
   const { addToast } = useToast()
 
@@ -56,6 +58,7 @@ export function SemanticSetupPanel({
     try {
       await setSetting(SETTING_KEYS.SEMANTIC_PROVIDER, 'local', accessToken)
       const { operation_id } = await bridgeInstall(variant)
+      onInstallStarted?.(operation_id)
       addToast(`${texts.semanticInstallStarted} (${operation_id.slice(0, 8)})`, 'success')
       onSaved()
     } catch (err) {
