@@ -13,7 +13,7 @@ import (
 var (
 	DesktopUserID    = uuid.MustParse("00000000-0000-4000-8000-000000000001")
 	DesktopAccountID = uuid.MustParse("00000000-0000-4000-8000-000000000002")
-	DesktopRole      = RoleAccountAdmin
+	DesktopRole      = RolePlatformAdmin
 )
 
 const desktopTokenDefault = "arkloop-desktop-local-token"
@@ -27,7 +27,8 @@ func DesktopToken() string {
 	return desktopTokenDefault
 }
 
-// DesktopVerifiedAccessToken 返回桌面模式的固定验证结果，角色为 account_admin（等同 owner）。
+// DesktopVerifiedAccessToken 返回桌面模式的固定验证结果。
+// Desktop 本地单用户环境视作 platform admin，避免本地设置面板与平台控制面权限不一致。
 func DesktopVerifiedAccessToken() VerifiedAccessToken {
 	return VerifiedAccessToken{
 		UserID:      DesktopUserID,

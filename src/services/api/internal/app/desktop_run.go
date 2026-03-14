@@ -284,6 +284,7 @@ func RunDesktop(ctx context.Context) error {
 		userRepo, credentialRepo, membershipRepo,
 		passwordHasher, tokenService, refreshTokenRepo,
 		nil, // redis
+		projectRepo,
 	)
 	if err != nil {
 		return fmt.Errorf("init auth service: %w", err)

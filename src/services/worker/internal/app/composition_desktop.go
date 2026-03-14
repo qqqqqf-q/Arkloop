@@ -417,7 +417,7 @@ func desktopRouting(
 
 		var decision routing.ProviderRouteDecision
 		if _, hasRouteID := rc.InputJSON["route_id"]; hasRouteID {
-			decision = router.Decide(rc.InputJSON, false)
+			decision = router.Decide(rc.InputJSON, false, false)
 		} else {
 			selector := ""
 			if rc.AgentConfig != nil && rc.AgentConfig.Model != nil {
@@ -441,7 +441,7 @@ func desktopRouting(
 				}
 			}
 			if decision.Selected == nil && decision.Denied == nil {
-				decision = router.Decide(rc.InputJSON, false)
+				decision = router.Decide(rc.InputJSON, false, false)
 			}
 		}
 
@@ -465,7 +465,7 @@ func desktopRouting(
 			if cleaned == "" {
 				return rc.Gateway, rc.SelectedRoute, nil
 			}
-			d := router.Decide(map[string]any{"route_id": cleaned}, false)
+			d := router.Decide(map[string]any{"route_id": cleaned}, false, false)
 			if d.Selected == nil {
 				return nil, nil, fmt.Errorf("route not found: %s", cleaned)
 			}

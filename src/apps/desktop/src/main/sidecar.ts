@@ -263,6 +263,10 @@ export async function startSidecar(port: number): Promise<void> {
     env: {
       ...process.env,
       ARKLOOP_API_GO_ADDR: `127.0.0.1:${port}`,
+      // Desktop local commonly runs behind fake-IP DNS/proxy stacks (for example Clash).
+      // Trust the RFC2544 fake-IP range by default here so upstream model discovery keeps
+      // working, while still allowing an explicit env override back to "false".
+      ARKLOOP_OUTBOUND_TRUST_FAKE_IP: process.env.ARKLOOP_OUTBOUND_TRUST_FAKE_IP ?? 'true',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
