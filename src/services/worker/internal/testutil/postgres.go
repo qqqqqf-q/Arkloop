@@ -287,7 +287,7 @@ func initRunsSchema(t *testing.T, dsn string) error {
 		)`,
 		`CREATE TABLE sub_agents (
 			id                    UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-			org_id                UUID        NOT NULL,
+			account_id                UUID        NOT NULL,
 			parent_run_id         UUID        NOT NULL,
 			parent_thread_id      UUID        NOT NULL,
 			root_run_id           UUID        NOT NULL,
@@ -308,7 +308,7 @@ func initRunsSchema(t *testing.T, dsn string) error {
 			completed_at          TIMESTAMPTZ NULL,
 			closed_at             TIMESTAMPTZ NULL
 		)`,
-		`CREATE INDEX idx_sub_agents_org_id ON sub_agents (org_id)`,
+		`CREATE INDEX idx_sub_agents_account_id ON sub_agents (account_id)`,
 		`CREATE INDEX idx_sub_agents_parent_run_id ON sub_agents (parent_run_id)`,
 		`CREATE INDEX idx_sub_agents_root_run_id ON sub_agents (root_run_id)`,
 		`CREATE INDEX idx_sub_agents_current_run_id ON sub_agents (current_run_id)`,

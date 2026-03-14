@@ -2,7 +2,7 @@
 
 CREATE TABLE sub_agents (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    org_id UUID NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
+    org_id UUID NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
     parent_run_id UUID NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
     parent_thread_id UUID NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
     root_run_id UUID NOT NULL REFERENCES runs(id) ON DELETE CASCADE,

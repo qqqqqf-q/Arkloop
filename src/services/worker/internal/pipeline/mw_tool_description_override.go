@@ -22,33 +22,15 @@ func NewToolDescriptionOverrideMiddleware(repo ToolDescriptionOverridesReader) R
 			return next(ctx, rc)
 		}
 
-		platformOverrides, err := repo.ListByScope(ctx, nil, "platform")
+		overrides, err := repo.ListByScope(ctx, nil, "platform")
 		if err != nil {
-			slog.WarnContext(ctx, "tool description override load failed", "run_id", rc.Run.ID, "scope", "platform", "err", err.Error())
+			slog.WarnContext(ctx, "tool description override load failed", "run_id", rc.Run.ID, "err", err.Error())
 			return next(ctx, rc)
 		}
 
-		var projectOverrides []data.ToolDescriptionOverride
-		if rc.Run.ProjectID != nil {
-			projectOverrides, err = repo.ListByScope(ctx, rc.Run.ProjectID, "project")
-			if err != nil {
-				slog.WarnContext(ctx, "tool description override load failed", "run_id", rc.Run.ID, "scope", "project", "project_id", *rc.Run.ProjectID, "err", err.Error())
-				return next(ctx, rc)
-			}
-		}
-
-		descriptionByTool := make(map[string]string, len(platformOverrides)+len(projectOverrides))
-		disabledByTool := make(map[string]struct{}, len(platformOverrides)+len(projectOverrides))
-		for _, override := range platformOverrides {
-			if override.IsDisabled {
-				disabledByTool[override.ToolName] = struct{}{}
-			}
-			if strings.TrimSpace(override.Description) == "" {
-				continue
-			}
-			descriptionByTool[override.ToolName] = override.Description
-		}
-		for _, override := range projectOverrides {
+		descriptionByTool := make(map[string]string, len(overrides))
+		disabledByTool := make(map[string]struct{}, len(overrides))
+		for _, override := range overrides {
 			if override.IsDisabled {
 				disabledByTool[override.ToolName] = struct{}{}
 			}

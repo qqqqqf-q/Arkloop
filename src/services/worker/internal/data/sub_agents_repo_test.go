@@ -185,7 +185,7 @@ func TestRunsRepository_GetLineage(t *testing.T) {
 func seedThread(t *testing.T, pool *pgxpool.Pool, orgID, threadID, projectID uuid.UUID, userID *uuid.UUID) {
 	t.Helper()
 	_, err := pool.Exec(context.Background(),
-		`INSERT INTO threads (id, org_id, created_by_user_id, project_id) VALUES ($1, $2, $3, $4)`,
+		`INSERT INTO threads (id, account_id, created_by_user_id, project_id) VALUES ($1, $2, $3, $4)`,
 		threadID, orgID, userID, projectID,
 	)
 	if err != nil {
@@ -196,7 +196,7 @@ func seedThread(t *testing.T, pool *pgxpool.Pool, orgID, threadID, projectID uui
 func seedRun(t *testing.T, pool *pgxpool.Pool, orgID, threadID, runID uuid.UUID, parentRunID *uuid.UUID) {
 	t.Helper()
 	_, err := pool.Exec(context.Background(),
-		`INSERT INTO runs (id, org_id, thread_id, parent_run_id, status) VALUES ($1, $2, $3, $4, 'running')`,
+		`INSERT INTO runs (id, account_id, thread_id, parent_run_id, status) VALUES ($1, $2, $3, $4, 'running')`,
 		runID, orgID, threadID, parentRunID,
 	)
 	if err != nil {

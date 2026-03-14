@@ -151,7 +151,7 @@ function ToolOptionCard({
         className={[
           'mt-0.5 flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[5px] border transition-colors',
           checked
-            ? 'border-[var(--c-accent)] bg-[var(--c-accent)] text-white'
+            ? 'border-[var(--c-accent)] bg-[var(--c-accent)] text-[var(--c-accent-text)]'
             : 'border-[var(--c-border)] bg-[var(--c-bg-input)] text-transparent',
         ].join(' ')}
       >
@@ -469,7 +469,7 @@ export function PersonasPage() {
               <button
                 onClick={handleSave}
                 disabled={saving || !form.displayName.trim()}
-                className="rounded-lg bg-[var(--c-accent)] px-3.5 py-1.5 text-xs font-medium text-white transition-colors hover:opacity-90 disabled:opacity-50"
+                className="rounded-lg bg-[var(--c-accent)] px-3.5 py-1.5 text-xs font-medium text-[var(--c-accent-text)] transition-colors hover:opacity-90 disabled:opacity-50"
               >
                 {saving ? '...' : tc.save}
               </button>
@@ -519,6 +519,26 @@ export function PersonasPage() {
                       />
                     </FormField>
                   </div>
+
+                  <label className="flex cursor-pointer select-none items-center gap-2.5 text-sm text-[var(--c-text-secondary)]">
+                    <input
+                      type="checkbox"
+                      checked={form.isActive}
+                      onChange={(e) => setForm((prev) => prev && { ...prev, isActive: e.target.checked })}
+                      className="sr-only"
+                    />
+                    <span
+                      className={[
+                        'flex h-[16px] w-[16px] shrink-0 items-center justify-center rounded-[4px] border transition-colors',
+                        form.isActive
+                          ? 'border-[var(--c-accent)] bg-[var(--c-accent)]'
+                          : 'border-[var(--c-border)] bg-[var(--c-bg-input)]',
+                      ].join(' ')}
+                    >
+                      {form.isActive && <Check size={11} className="text-[var(--c-accent-text)]" strokeWidth={3} />}
+                    </span>
+                    {tc.fieldIsActive}
+                  </label>
 
                   <FormField label={`${tc.fieldDisplayName} *`}>
                     <input
@@ -612,25 +632,6 @@ export function PersonasPage() {
                     />
                   </FormField>
 
-                  <label className="flex cursor-pointer select-none items-center gap-2.5 text-sm text-[var(--c-text-secondary)]">
-                    <input
-                      type="checkbox"
-                      checked={form.isActive}
-                      onChange={(e) => setForm((prev) => prev && { ...prev, isActive: e.target.checked })}
-                      className="sr-only"
-                    />
-                    <span
-                      className={[
-                        'flex h-[16px] w-[16px] shrink-0 items-center justify-center rounded-[4px] border transition-colors',
-                        form.isActive
-                          ? 'border-[var(--c-accent)] bg-[var(--c-accent)]'
-                          : 'border-[var(--c-border)] bg-[var(--c-bg-input)]',
-                      ].join(' ')}
-                    >
-                      {form.isActive && <Check size={11} className="text-white" strokeWidth={3} />}
-                    </span>
-                    {tc.fieldIsActive}
-                  </label>
 
                   <FormField label={tc.fieldBudgetsJSON}>
                     <textarea
@@ -944,7 +945,7 @@ export function PersonasPage() {
             <button
               onClick={handleCreate}
               disabled={creating || !createKey.trim() || !createName.trim()}
-              className="rounded-lg bg-[var(--c-accent)] px-3.5 py-1.5 text-sm font-medium text-white transition-colors hover:opacity-90 disabled:opacity-50"
+              className="rounded-lg bg-[var(--c-accent)] px-3.5 py-1.5 text-sm font-medium text-[var(--c-accent-text)] transition-colors hover:opacity-90 disabled:opacity-50"
             >
               {creating ? '...' : tc.create}
             </button>

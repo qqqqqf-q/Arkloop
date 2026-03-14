@@ -34,13 +34,34 @@ const BUTTON_PRIMARY_CLS =
 const BUTTON_DANGER_CLS =
   'rounded-lg border border-[var(--c-border)] px-3 py-1.5 text-sm text-red-500 transition-colors hover:bg-[var(--c-bg-sub)] disabled:opacity-50'
 
+type ApiFormat = 'openai_chat_completions' | 'openai_responses' | 'anthropic'
+
 type ProviderFormState = {
   name: string
-  provider: string
+  apiFormat: ApiFormat
   apiKey: string
   baseUrl: string
-  openAIAPIMode: string
   advancedJSON: string
+}
+
+function splitApiFormat(fmt: ApiFormat): { provider: string; openai_api_mode: string | null } {
+  switch (fmt) {
+    case 'openai_chat_completions': return { provider: 'openai', openai_api_mode: 'chat_completions' }
+    case 'openai_responses': return { provider: 'openai', openai_api_mode: 'responses' }
+    case 'anthropic': return { provider: 'anthropic', openai_api_mode: null }
+  }
+}
+
+function toApiFormat(provider: string, mode: string | null | undefined): ApiFormat {
+  if (provider === 'anthropic') return 'anthropic'
+  if (mode === 'chat_completions') return 'openai_chat_completions'
+  return 'openai_responses'
+}
+
+const API_FORMAT_LABELS: Record<ApiFormat, string> = {
+  openai_chat_completions: 'OpenAI Chat Completions',
+  openai_responses: 'OpenAI Responses',
+  anthropic: 'Anthropic',
 }
 
 type ModelFormState = {
@@ -60,10 +81,9 @@ type ModelFormState = {
 function emptyProviderForm(): ProviderFormState {
   return {
     name: '',
-    provider: 'openai',
+    apiFormat: 'openai_responses',
     apiKey: '',
     baseUrl: '',
-    openAIAPIMode: 'responses',
     advancedJSON: '{}',
   }
 }
@@ -87,10 +107,9 @@ function emptyModelForm(): ModelFormState {
 function providerToForm(provider: LlmProvider): ProviderFormState {
   return {
     name: provider.name,
-    provider: provider.provider,
+    apiFormat: toApiFormat(provider.provider, provider.openai_api_mode),
     apiKey: '',
     baseUrl: provider.base_url ?? '',
-    openAIAPIMode: provider.openai_api_mode ?? 'responses',
     advancedJSON: JSON.stringify(provider.advanced_json ?? {}, null, 2),
   }
 }
@@ -104,10 +123,10 @@ function modelToForm(model: LlmProviderModel): ModelFormState {
     whenJSON: JSON.stringify(model.when ?? {}, null, 2),
     advancedJSON: JSON.stringify(model.advanced_json ?? {}, null, 2),
     multiplier: String(model.multiplier ?? 1),
-    costInput: model.cost_per_1k_input != null ? String(model.cost_per_1k_input) : '',
-    costOutput: model.cost_per_1k_output != null ? String(model.cost_per_1k_output) : '',
-    costCacheWrite: model.cost_per_1k_cache_write != null ? String(model.cost_per_1k_cache_write) : '',
-    costCacheRead: model.cost_per_1k_cache_read != null ? String(model.cost_per_1k_cache_read) : '',
+    costInput: model.cost_per_1k_input != null ? String(model.cost_per_1k_input * 1000) : '',
+    costOutput: model.cost_per_1k_output != null ? String(model.cost_per_1k_output * 1000) : '',
+    costCacheWrite: model.cost_per_1k_cache_write != null ? String(model.cost_per_1k_cache_write * 1000) : '',
+    costCacheRead: model.cost_per_1k_cache_read != null ? String(model.cost_per_1k_cache_read * 1000) : '',
   }
 }
 
@@ -240,14 +259,15 @@ export function ProvidersPage() {
 
     setSavingProvider(true)
     try {
+      const { provider, openai_api_mode } = splitApiFormat(providerForm.apiFormat)
       await updateLlmProvider(selectedProvider.id, {
 		scope,
 		project_id: projectId || undefined,
         name,
-        provider: providerForm.provider,
+        provider,
         api_key: providerForm.apiKey.trim() || undefined,
         base_url: providerForm.baseUrl.trim() || null,
-        openai_api_mode: providerForm.provider === 'openai' ? (providerForm.openAIAPIMode.trim() || null) : null,
+        openai_api_mode,
         advanced_json: advancedJSON,
       }, accessToken)
       await load(selectedProvider.id)
@@ -263,7 +283,7 @@ export function ProvidersPage() {
   const handleCreateProvider = useCallback(async () => {
     const name = createForm.name.trim()
     const apiKey = createForm.apiKey.trim()
-    if (!name || !apiKey || !createForm.provider.trim()) {
+    if (!name || !apiKey) {
       setCreateError(tc.errRequired)
       return
     }
@@ -276,22 +296,24 @@ export function ProvidersPage() {
       return
     }
 
+    const { provider, openai_api_mode } = splitApiFormat(createForm.apiFormat)
+
     setCreating(true)
     try {
-      const provider = await createLlmProvider({
+      const created = await createLlmProvider({
 		scope,
 		project_id: projectId || undefined,
         name,
-        provider: createForm.provider,
+        provider,
         api_key: apiKey,
         base_url: createForm.baseUrl.trim() || undefined,
-        openai_api_mode: createForm.provider === 'openai' ? (createForm.openAIAPIMode.trim() || undefined) : undefined,
+        openai_api_mode: openai_api_mode ?? undefined,
         advanced_json: advancedJSON,
       }, accessToken)
       setCreateOpen(false)
       setCreateForm(emptyProviderForm())
       setCreateError('')
-      await load(provider.id)
+      await load(created.id)
       addToast(tc.toastCreated, 'success')
     } catch (err) {
       setCreateError(isApiError(err) ? err.message : tc.toastLoadFailed)
@@ -360,10 +382,10 @@ export function ProvidersPage() {
       when: whenJSON,
       advanced_json: advancedJSON,
       multiplier: parseOptionalNumber(modelForm.multiplier),
-      cost_per_1k_input: parseOptionalNumber(modelForm.costInput),
-      cost_per_1k_output: parseOptionalNumber(modelForm.costOutput),
-      cost_per_1k_cache_write: parseOptionalNumber(modelForm.costCacheWrite),
-      cost_per_1k_cache_read: parseOptionalNumber(modelForm.costCacheRead),
+      cost_per_1k_input: parseOptionalNumber(modelForm.costInput) != null ? parseOptionalNumber(modelForm.costInput)! / 1000 : undefined,
+      cost_per_1k_output: parseOptionalNumber(modelForm.costOutput) != null ? parseOptionalNumber(modelForm.costOutput)! / 1000 : undefined,
+      cost_per_1k_cache_write: parseOptionalNumber(modelForm.costCacheWrite) != null ? parseOptionalNumber(modelForm.costCacheWrite)! / 1000 : undefined,
+      cost_per_1k_cache_read: parseOptionalNumber(modelForm.costCacheRead) != null ? parseOptionalNumber(modelForm.costCacheRead)! / 1000 : undefined,
     }
 
     setSavingModel(true)
@@ -533,7 +555,7 @@ export function ProvidersPage() {
                       <div className="flex items-center justify-between gap-2">
                         <div className="min-w-0">
                           <div className="truncate text-sm font-medium text-[var(--c-text-primary)]">{provider.name}</div>
-                          <div className="truncate text-xs text-[var(--c-text-muted)]">{provider.provider}</div>
+                          <div className="truncate text-xs text-[var(--c-text-muted)]">{API_FORMAT_LABELS[toApiFormat(provider.provider, provider.openai_api_mode)]}</div>
                         </div>
                         <span className="rounded bg-[var(--c-bg-tag)] px-1.5 py-0.5 text-[10px] text-[var(--c-text-muted)]">
                           {provider.models.length}
@@ -583,11 +605,12 @@ export function ProvidersPage() {
                   <FormField label={tc.fieldProvider}>
                     <select
                       className={INPUT_CLS}
-                      value={providerForm.provider}
-                      onChange={(e) => setProviderForm((prev) => ({ ...prev, provider: e.target.value }))}
+                      value={providerForm.apiFormat}
+                      onChange={(e) => setProviderForm((prev) => ({ ...prev, apiFormat: e.target.value as ApiFormat }))}
                     >
-                      <option value="openai">openai</option>
-                      <option value="anthropic">anthropic</option>
+                      <option value="openai_chat_completions">OpenAI Chat Completions</option>
+                      <option value="openai_responses">OpenAI Responses</option>
+                      <option value="anthropic">Anthropic</option>
                     </select>
                   </FormField>
                   <FormField label={tc.fieldBaseUrl}>
@@ -596,18 +619,6 @@ export function ProvidersPage() {
                       value={providerForm.baseUrl}
                       onChange={(e) => setProviderForm((prev) => ({ ...prev, baseUrl: e.target.value }))}
                     />
-                  </FormField>
-                  <FormField label={tc.fieldApiMode}>
-                    <select
-                      className={INPUT_CLS}
-                      value={providerForm.openAIAPIMode}
-                      disabled={providerForm.provider !== 'openai'}
-                      onChange={(e) => setProviderForm((prev) => ({ ...prev, openAIAPIMode: e.target.value }))}
-                    >
-                      <option value="responses">responses</option>
-                      <option value="chat_completions">chat_completions</option>
-                      <option value="auto">auto</option>
-                    </select>
                   </FormField>
                 </div>
 
@@ -666,10 +677,10 @@ export function ProvidersPage() {
                               <div>{tc.routeWhen}: {JSON.stringify(model.when ?? {})}</div>
                               <div>{tc.routeAdvancedJson}: {model.advanced_json && Object.keys(model.advanced_json).length > 0 ? tc.routeAdvancedConfigured : '--'}</div>
                               <div>{tc.routeMultiplier}: {model.multiplier ?? 1}</div>
-                              <div>{tc.routeCostInput}: {model.cost_per_1k_input ?? '--'}</div>
-                              <div>{tc.routeCostOutput}: {model.cost_per_1k_output ?? '--'}</div>
-                              <div>{tc.routeCostCacheWrite}: {model.cost_per_1k_cache_write ?? '--'}</div>
-                              <div>{tc.routeCostCacheRead}: {model.cost_per_1k_cache_read ?? '--'}</div>
+                              <div>{tc.routeCostInput}: {model.cost_per_1k_input != null ? (model.cost_per_1k_input * 1000) : '--'}</div>
+                              <div>{tc.routeCostOutput}: {model.cost_per_1k_output != null ? (model.cost_per_1k_output * 1000) : '--'}</div>
+                              <div>{tc.routeCostCacheWrite}: {model.cost_per_1k_cache_write != null ? (model.cost_per_1k_cache_write * 1000) : '--'}</div>
+                              <div>{tc.routeCostCacheRead}: {model.cost_per_1k_cache_read != null ? (model.cost_per_1k_cache_read * 1000) : '--'}</div>
                             </div>
                           </div>
                           <div className="flex shrink-0 items-center gap-2">
@@ -698,9 +709,10 @@ export function ProvidersPage() {
               <input className={INPUT_CLS} value={createForm.name} onChange={(e) => { setCreateForm((prev) => ({ ...prev, name: e.target.value })); setCreateError('') }} />
             </FormField>
             <FormField label={tc.fieldProvider}>
-              <select className={INPUT_CLS} value={createForm.provider} onChange={(e) => { setCreateForm((prev) => ({ ...prev, provider: e.target.value })); setCreateError('') }}>
-                <option value="openai">openai</option>
-                <option value="anthropic">anthropic</option>
+              <select className={INPUT_CLS} value={createForm.apiFormat} onChange={(e) => { setCreateForm((prev) => ({ ...prev, apiFormat: e.target.value as ApiFormat })); setCreateError('') }}>
+                <option value="openai_chat_completions">OpenAI Chat Completions</option>
+                <option value="openai_responses">OpenAI Responses</option>
+                <option value="anthropic">Anthropic</option>
               </select>
             </FormField>
             <FormField label={tc.fieldApiKey}>
@@ -708,13 +720,6 @@ export function ProvidersPage() {
             </FormField>
             <FormField label={tc.fieldBaseUrl}>
               <input className={INPUT_CLS} value={createForm.baseUrl} onChange={(e) => { setCreateForm((prev) => ({ ...prev, baseUrl: e.target.value })); setCreateError('') }} />
-            </FormField>
-            <FormField label={tc.fieldApiMode}>
-              <select className={INPUT_CLS} value={createForm.openAIAPIMode} disabled={createForm.provider !== 'openai'} onChange={(e) => { setCreateForm((prev) => ({ ...prev, openAIAPIMode: e.target.value })); setCreateError('') }}>
-                <option value="responses">responses</option>
-                <option value="chat_completions">chat_completions</option>
-                <option value="auto">auto</option>
-              </select>
             </FormField>
           </div>
           <FormField label={tc.fieldAdvancedJson}>

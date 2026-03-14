@@ -339,6 +339,7 @@ export function ToolProvidersPage() {
                     setEditError('')
                   }}
                   className={inputCls}
+                  placeholder={editTarget.provider.default_base_url ?? ''}
                 />
               </FormField>
             )}
@@ -353,7 +354,7 @@ export function ToolProvidersPage() {
                     setEditError('')
                   }}
                   className={inputCls}
-                  placeholder={editTarget.provider.base_url ?? ''}
+                  placeholder={editTarget.provider.default_base_url ?? editTarget.provider.base_url ?? ''}
                 />
               </FormField>
             )}

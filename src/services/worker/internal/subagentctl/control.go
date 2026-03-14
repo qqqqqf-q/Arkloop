@@ -476,7 +476,7 @@ func (s *Service) mustLoadOwnedSubAgent(ctx context.Context, tx pgx.Tx, subAgent
 	if record == nil {
 		return nil, fmt.Errorf("sub_agent not found: %s", subAgentID)
 	}
-	if record.OrgID != s.parentRun.AccountID || record.ParentRunID != s.parentRun.ID {
+	if record.AccountID != s.parentRun.AccountID || record.ParentRunID != s.parentRun.ID {
 		return nil, fmt.Errorf("sub_agent not owned by current run: %s", subAgentID)
 	}
 	return record, nil

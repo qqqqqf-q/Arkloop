@@ -341,6 +341,9 @@ export interface LocaleStrings {
     usernamePlaceholder: string
     password: string
     passwordPlaceholder: string
+    confirmPassword: string
+    confirmPasswordPlaceholder: string
+    passwordMismatch: string
     submit: string
     verifying: string
     successTitle: string
@@ -348,6 +351,11 @@ export interface LocaleStrings {
     invalidTitle: string
     invalidBody: string
     expiresAt: (value: string) => string
+    selectHint: string
+    consoleLabel: string
+    consoleDescription: string
+    consoleLiteLabel: string
+    consoleLiteDescription: string
   }
   loginMode: string
   enterYourPasswordTitle: string

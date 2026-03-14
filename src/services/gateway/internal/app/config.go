@@ -31,7 +31,7 @@ const (
 	riskRejectThresholdEnv    = "ARKLOOP_GATEWAY_RISK_REJECT_THRESHOLD"
 
 	defaultAddr       = "0.0.0.0:19000"
-	defaultUpstream   = "http://127.0.0.1:19001"
+	defaultUpstream          = "http://127.0.0.1:19001"
 	defaultGeoIPDBDir = "/data/geoip"
 
 	defaultRedisTimeoutMs = 150
@@ -72,9 +72,9 @@ type Config struct {
 
 func DefaultConfig() Config {
 	return Config{
-		Addr:               defaultAddr,
-		Upstream:           defaultUpstream,
-		RateLimit:          ratelimit.DefaultConfig(),
+		Addr:              defaultAddr,
+		Upstream:          defaultUpstream,
+		RateLimit:         ratelimit.DefaultConfig(),
 		RedisTimeout:       defaultRedisTimeoutMs * time.Millisecond,
 		CORSAllowedOrigins: append([]string(nil), defaultCORSAllowedOrigins...),
 	}

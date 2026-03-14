@@ -17,7 +17,7 @@ type BillingProvider interface {
 
 type Subscription struct {
 	ID     string
-	OrgID  uuid.UUID
+	AccountID  uuid.UUID
 	PlanID string
 	Status string
 }

@@ -167,7 +167,7 @@ func (MessagesRepository) ListByIDs(
 		return nil, fmt.Errorf("tx must not be nil")
 	}
 	if orgID == uuid.Nil || threadID == uuid.Nil {
-		return nil, fmt.Errorf("org_id and thread_id must not be empty")
+		return nil, fmt.Errorf("account_id and thread_id must not be empty")
 	}
 	if len(messageIDs) == 0 {
 		return nil, nil
@@ -176,7 +176,7 @@ func (MessagesRepository) ListByIDs(
 		ctx,
 		`SELECT id, role, content, content_json, created_at
 		 FROM messages
-		 WHERE org_id = $1
+		 WHERE account_id = $1
 		   AND thread_id = $2
 		   AND id = ANY($3)
 		   AND hidden = FALSE
@@ -221,7 +221,7 @@ func (MessagesRepository) ListRecentByThread(
 		return nil, fmt.Errorf("tx must not be nil")
 	}
 	if orgID == uuid.Nil || threadID == uuid.Nil {
-		return nil, fmt.Errorf("org_id and thread_id must not be empty")
+		return nil, fmt.Errorf("account_id and thread_id must not be empty")
 	}
 	if limit <= 0 {
 		return nil, fmt.Errorf("limit must be positive")
@@ -232,7 +232,7 @@ func (MessagesRepository) ListRecentByThread(
 		 FROM (
 		 	SELECT id, role, content, content_json, created_at
 		 	  FROM messages
-		 	 WHERE org_id = $1
+		 	 WHERE account_id = $1
 		 	   AND thread_id = $2
 		 	   AND hidden = FALSE
 		 	   AND deleted_at IS NULL
@@ -282,7 +282,7 @@ func (MessagesRepository) InsertThreadMessage(
 		return uuid.Nil, fmt.Errorf("tx must not be nil")
 	}
 	if orgID == uuid.Nil || threadID == uuid.Nil {
-		return uuid.Nil, fmt.Errorf("org_id and thread_id must not be empty")
+		return uuid.Nil, fmt.Errorf("account_id and thread_id must not be empty")
 	}
 	trimmedRole := strings.TrimSpace(role)
 	if trimmedRole == "" {
@@ -296,7 +296,7 @@ func (MessagesRepository) InsertThreadMessage(
 	err := tx.QueryRow(
 		ctx,
 		`INSERT INTO messages (
-			org_id, thread_id, created_by_user_id, role, content, content_json
+			account_id, thread_id, created_by_user_id, role, content, content_json
 		) VALUES (
 			$1, $2, $3, $4, $5, $6
 		)

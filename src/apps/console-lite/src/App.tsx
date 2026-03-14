@@ -23,6 +23,19 @@ function App() {
   const [authChecked, setAuthChecked] = useState(false)
 
   useEffect(() => {
+    // bootstrap token handoff from another console
+    const params = new URLSearchParams(window.location.search)
+    const handoffToken = params.get('_t')
+    if (handoffToken) {
+      params.delete('_t')
+      const qs = params.toString()
+      window.history.replaceState({}, '', `${window.location.pathname}${qs ? '?' + qs : ''}`)
+      writeAccessTokenToStorage(handoffToken)
+      setAccessToken(handoffToken)
+      setAuthChecked(true)
+      return
+    }
+
     setClientApp('console-lite')
     setUnauthenticatedHandler(() => {
       clearAccessTokenFromStorage()

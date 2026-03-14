@@ -38,7 +38,7 @@ func (f *SubAgentRunFactory) CreateSpawnRun(
 		return data.SubAgentRecord{}, uuid.Nil, err
 	}
 	createdSubAgent, err := (data.SubAgentRepository{}).Create(ctx, tx, data.SubAgentCreateParams{
-		OrgID:          parentRun.AccountID,
+		AccountID:          parentRun.AccountID,
 		ParentRunID:    parentRun.ID,
 		ParentThreadID: parentRun.ThreadID,
 		RootRunID:      lineage.RootRunID,
@@ -119,7 +119,7 @@ func (f *SubAgentRunFactory) CreateRunForExistingSubAgent(
 	}
 	trimmedInput := strings.TrimSpace(input)
 	if trimmedInput != "" {
-		messageID, err := insertUserMessage(ctx, tx, subAgent.OrgID, threadID, trimmedInput)
+		messageID, err := insertUserMessage(ctx, tx, subAgent.AccountID, threadID, trimmedInput)
 		if err != nil {
 			return uuid.Nil, fmt.Errorf("insert sub_agent input: %w", err)
 		}
@@ -163,7 +163,7 @@ func (f *SubAgentRunFactory) CreateRunFromPendingInputs(ctx context.Context, tx 
 	if err != nil {
 		return nil, err
 	}
-	messageID, err := insertUserMessage(ctx, tx, subAgent.OrgID, threadID, combined)
+	messageID, err := insertUserMessage(ctx, tx, subAgent.AccountID, threadID, combined)
 	if err != nil {
 		return nil, fmt.Errorf("insert pending input message: %w", err)
 	}
@@ -189,7 +189,7 @@ func (f *SubAgentRunFactory) createChildThread(ctx context.Context, tx pgx.Tx, p
 	}
 	var childThreadID uuid.UUID
 	if err := tx.QueryRow(ctx,
-		`INSERT INTO threads (org_id, project_id, is_private, expires_at)
+		`INSERT INTO threads (account_id, project_id, is_private, expires_at)
 		 VALUES ($1, $2, TRUE, now() + make_interval(secs => $3))
 		 RETURNING id`,
 		parentRun.AccountID,
@@ -219,7 +219,7 @@ func (f *SubAgentRunFactory) createQueuedRun(
 	}
 	profileRef, workspaceRef := inheritedBindings(parentRun, snapshot)
 	if _, err := tx.Exec(ctx,
-		`INSERT INTO runs (id, org_id, thread_id, parent_run_id, created_by_user_id, profile_ref, workspace_ref, status)
+		`INSERT INTO runs (id, account_id, thread_id, parent_run_id, created_by_user_id, profile_ref, workspace_ref, status)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, 'running')`,
 		childRunID,
 		parentRun.AccountID,

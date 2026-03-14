@@ -58,10 +58,10 @@ func NewToolProviderMiddleware(cache *toolprovider.Cache) RunMiddleware {
 		}
 
 		var userProviders []toolprovider.ActiveProviderConfig
-		if rc.Run.ProjectID != nil {
-			userProviders, err = cache.GetUser(ctx, rc.Pool, *rc.Run.ProjectID)
+		if rc.Run.CreatedByUserID != nil {
+			userProviders, err = cache.GetUser(ctx, rc.Pool, *rc.Run.CreatedByUserID)
 			if err != nil {
-				slog.WarnContext(ctx, "tool provider: load project failed, skipping", "project_id", *rc.Run.ProjectID, "err", err.Error())
+				slog.WarnContext(ctx, "tool provider: load user failed, skipping", "user_id", *rc.Run.CreatedByUserID, "err", err.Error())
 				userProviders = nil
 			}
 		}
@@ -152,12 +152,12 @@ func buildProviderExecutor(cfg toolprovider.ActiveProviderConfig) tools.Executor
 		if cfg.APIKeyValue != nil {
 			key = strings.TrimSpace(*cfg.APIKeyValue)
 		}
-		if key == "" {
-			return notConfiguredExecutor{groupName: groupName, providerName: providerName, missing: []string{"api_key"}}
-		}
 		baseURL := ""
 		if cfg.BaseURL != nil {
 			baseURL = strings.TrimRight(strings.TrimSpace(*cfg.BaseURL), "/")
+		}
+		if key == "" && baseURL == "" {
+			return notConfiguredExecutor{groupName: groupName, providerName: providerName, missing: []string{"api_key"}}
 		}
 		provider := webfetch.NewFirecrawlProvider(key, baseURL)
 		return webfetch.NewToolExecutorWithProvider(provider)

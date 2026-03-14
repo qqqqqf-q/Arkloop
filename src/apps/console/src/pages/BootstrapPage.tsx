@@ -10,10 +10,10 @@ export function BootstrapPage({ onLoggedIn }: Props) {
   const { t, locale } = useLocale()
 
   const consoles = useMemo<ConsoleTarget[]>(() => {
-    const consoleUrl = import.meta.env.VITE_CONSOLE_URL || 'http://localhost:19081'
+    const consoleLiteUrl = import.meta.env.VITE_CONSOLE_LITE_URL || 'http://localhost:19000'
     return [
-      { name: t.bootstrap.consoleLiteLabel, description: t.bootstrap.consoleLiteDescription, url: '/dashboard', current: true },
-      { name: t.bootstrap.consoleLabel, description: t.bootstrap.consoleDescription, url: consoleUrl },
+      { name: t.bootstrap.consoleLabel, description: t.bootstrap.consoleDescription, url: '/dashboard', current: true },
+      { name: t.bootstrap.consoleLiteLabel, description: t.bootstrap.consoleLiteDescription, url: consoleLiteUrl },
     ]
   }, [t])
 

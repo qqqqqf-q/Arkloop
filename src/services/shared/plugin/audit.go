@@ -15,7 +15,7 @@ type AuditSink interface {
 type AuditEvent struct {
 	Timestamp  time.Time
 	ActorID    uuid.UUID
-	OrgID      uuid.UUID
+	AccountID      uuid.UUID
 	Action     string
 	Resource   string
 	ResourceID string

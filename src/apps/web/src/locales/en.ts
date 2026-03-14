@@ -401,6 +401,8 @@ export const en: LocaleStrings = {
     maxOutputTokens: 'Max Output Tokens',
     noPersonas: 'No agents available',
     saveFailed: 'Failed to save',
+    resetAll: 'Reset all to default',
+    resetDone: 'Reset {count} agents',
     reasoningModes: {
       default: 'Default',
       enabled: 'Enabled',

@@ -37,6 +37,18 @@ export { ErrorCallout } from './components/ErrorCallout'
 export type { AppError } from './components/ErrorCallout'
 export { AuthPage } from './components/AuthPage'
 export type { AuthPageTranslations, AuthApi } from './components/AuthPage'
+export { BootstrapPage } from './components/BootstrapPage'
+export type { BootstrapTranslations, ConsoleTarget } from './components/BootstrapPage'
+
+export {
+  verifyBootstrapToken,
+  setupBootstrapAdmin,
+} from './api/bootstrap'
+export type {
+  BootstrapVerifyResponse,
+  BootstrapSetupRequest,
+  BootstrapSetupResponse,
+} from './api/bootstrap'
 export { SettingsModal } from './components/SettingsModal'
 export type { SettingsModalTranslations } from './components/SettingsModal'
 

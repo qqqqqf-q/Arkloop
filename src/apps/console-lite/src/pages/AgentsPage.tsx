@@ -171,7 +171,7 @@ function ToolOptionCard({
         className={[
           'mt-0.5 flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[5px] border transition-colors',
           checked
-            ? 'border-[var(--c-accent)] bg-[var(--c-accent)] text-white'
+            ? 'border-[var(--c-accent)] bg-[var(--c-accent)] text-[var(--c-accent-text)]'
             : 'border-[var(--c-border)] bg-[var(--c-bg-input)] text-transparent',
         ].join(' ')}
       >
@@ -485,7 +485,7 @@ export function AgentsPage() {
               <button
                 onClick={handleSave}
                 disabled={saving || !form.name.trim()}
-                className="rounded-lg bg-[var(--c-accent)] px-3.5 py-1.5 text-xs font-medium text-white transition-colors hover:opacity-90 disabled:opacity-50"
+                className="rounded-lg bg-[var(--c-accent)] px-3.5 py-1.5 text-xs font-medium text-[var(--c-accent-text)] transition-colors hover:opacity-90 disabled:opacity-50"
               >
                 {saving ? '...' : t.common.save}
               </button>
@@ -842,7 +842,7 @@ export function AgentsPage() {
             <button
               onClick={handleCreate}
               disabled={creating || !createName.trim() || !createModel.trim()}
-              className="rounded-lg bg-[var(--c-accent)] px-3.5 py-1.5 text-sm font-medium text-white transition-colors hover:opacity-90 disabled:opacity-50"
+              className="rounded-lg bg-[var(--c-accent)] px-3.5 py-1.5 text-sm font-medium text-[var(--c-accent-text)] transition-colors hover:opacity-90 disabled:opacity-50"
             >
               {creating ? '...' : t.common.save}
             </button>

@@ -21,13 +21,13 @@ type SearxngProvider struct {
 
 func NewSearxngProvider(baseURL string) *SearxngProvider {
 	cleaned := strings.TrimRight(strings.TrimSpace(baseURL), "/")
-	normalizedBaseURL, baseURLErr := sharedoutbound.DefaultPolicy().NormalizeBaseURL(cleaned)
+	normalizedBaseURL, baseURLErr := sharedoutbound.DefaultPolicy().NormalizeInternalBaseURL(cleaned)
 	if baseURLErr == nil {
 		cleaned = normalizedBaseURL
 	}
 	return &SearxngProvider{
 		baseURL:    cleaned,
-		client:     sharedoutbound.DefaultPolicy().NewHTTPClient(15 * time.Second),
+		client:     sharedoutbound.DefaultPolicy().NewInternalHTTPClient(15 * time.Second),
 		baseURLErr: baseURLErr,
 	}
 }

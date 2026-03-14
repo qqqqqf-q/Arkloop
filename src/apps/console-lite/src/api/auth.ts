@@ -16,24 +16,6 @@ export type LoginResponse = {
   access_token: string
 }
 
-export type BootstrapVerifyResponse = {
-  valid: boolean
-  expires_at: string
-}
-
-export type BootstrapSetupRequest = {
-  token: string
-  username: string
-  password: string
-  locale?: string
-}
-
-export type BootstrapSetupResponse = {
-  user_id: string
-  token_type: string
-  access_token: string
-}
-
 export type MeResponse = {
   id: string
   username: string
@@ -48,6 +30,16 @@ export type LogoutResponse = {
   ok: boolean
 }
 
+export {
+  verifyBootstrapToken,
+  setupBootstrapAdmin,
+} from '@arkloop/shared'
+export type {
+  BootstrapVerifyResponse,
+  BootstrapSetupRequest,
+  BootstrapSetupResponse,
+} from '@arkloop/shared'
+
 export async function login(req: LoginRequest): Promise<LoginResponse> {
   return await apiFetch<LoginResponse>('/v1/auth/login', {
     method: 'POST',
@@ -57,17 +49,6 @@ export async function login(req: LoginRequest): Promise<LoginResponse> {
 
 export async function getCaptchaConfig(): Promise<CaptchaConfigResponse> {
   return await apiFetch<CaptchaConfigResponse>('/v1/auth/captcha-config')
-}
-
-export async function verifyBootstrapToken(token: string): Promise<BootstrapVerifyResponse> {
-  return await apiFetch<BootstrapVerifyResponse>(`/v1/bootstrap/verify/${encodeURIComponent(token)}`)
-}
-
-export async function setupBootstrapAdmin(req: BootstrapSetupRequest): Promise<BootstrapSetupResponse> {
-  return await apiFetch<BootstrapSetupResponse>('/v1/bootstrap/setup', {
-    method: 'POST',
-    body: JSON.stringify(req),
-  })
 }
 
 

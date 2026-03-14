@@ -145,6 +145,8 @@ services:
       context: .
       dockerfile: src/apps/console-lite/Dockerfile
     restart: unless-stopped
+    ports:
+      - "${ARKLOOP_CONSOLE_LITE_PORT:-19082}:80"
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1/healthz"]
       interval: 15s
@@ -160,6 +162,19 @@ services:
       - console-full
     ports:
       - "${ARKLOOP_CONSOLE_PORT:-19081}:80"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/healthz"]
+      interval: 15s
+      timeout: 3s
+      retries: 10
+
+  web:
+    build:
+      context: .
+      dockerfile: src/apps/web/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${ARKLOOP_WEB_PORT:-19080}:80"
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1/healthz"]
       interval: 15s
@@ -375,10 +390,12 @@ services:
   searxng:
     image: searxng/searxng:2025.9.29-77fd3ee53
     restart: unless-stopped
+    entrypoint: ["/bin/sh", "/opt/patch-settings.sh"]
     profiles:
       - searxng
     volumes:
       - searxng_data:/etc/searxng
+      - ./config/searxng/patch-settings.sh:/opt/patch-settings.sh:ro
     healthcheck:
       test: ["CMD", "wget", "-qO", "/dev/null", "http://localhost:8080/"]
       interval: 30s
@@ -398,17 +415,25 @@ services:
       REDIS_URL: "redis://firecrawl-redis:6379"
       REDIS_RATE_LIMIT_URL: "redis://firecrawl-redis:6379"
       USE_DB_AUTHENTICATION: "false"
+      ALLOW_LOCAL_WEBHOOKS: "true"
       PORT: "19012"
       HOST: "0.0.0.0"
-      NUM_WORKERS_PER_QUEUE: "${ARKLOOP_FIRECRAWL_WORKERS:-4}"
+      NUM_WORKERS_PER_QUEUE: "${ARKLOOP_FIRECRAWL_WORKERS:-2}"
+      NUQ_WORKER_COUNT: "2"
       PLAYWRIGHT_MICROSERVICE_URL: "http://firecrawl-playwright:3000/chromium"
+      NUQ_DATABASE_URL: "postgres://firecrawl:firecrawl@firecrawl-postgres:5432/firecrawl"
+      NUQ_RABBITMQ_URL: "amqp://guest:guest@firecrawl-rabbitmq:5672"
     depends_on:
       firecrawl-redis:
         condition: service_healthy
       firecrawl-playwright:
         condition: service_started
+      firecrawl-postgres:
+        condition: service_healthy
+      firecrawl-rabbitmq:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:19012/"]
+      test: ["CMD", "node", "-e", "fetch('http://localhost:19012/').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
       interval: 30s
       timeout: 5s
       retries: 10
@@ -438,6 +463,35 @@ services:
       timeout: 3s
       retries: 20
 
+  firecrawl-postgres:
+    build:
+      context: config/firecrawl-postgres
+    restart: unless-stopped
+    profiles:
+      - firecrawl
+    environment:
+      POSTGRES_USER: firecrawl
+      POSTGRES_PASSWORD: firecrawl
+      POSTGRES_DB: firecrawl
+    volumes:
+      - firecrawl_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U firecrawl"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  firecrawl-rabbitmq:
+    image: rabbitmq:3-alpine
+    restart: unless-stopped
+    profiles:
+      - firecrawl
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   bridge:
     build:
       context: .
@@ -461,6 +515,7 @@ volumes:
   redis_data:
   seaweedfs_data:
   openviking_data:
+  firecrawl_pgdata:
   sandbox_sockets:
   arkloop_storage:
   searxng_data:

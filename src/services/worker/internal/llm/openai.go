@@ -1806,16 +1806,26 @@ func openAIParseFailure(err error, message string, toolCallMessage string) Strea
 func openAIErrorMessageAndDetails(body []byte, status int, fallback string) (string, map[string]any) {
 	details := map[string]any{"status_code": status}
 
+	if len(body) == 0 {
+		return fallback, details
+	}
+
 	var parsed any
 	if err := json.Unmarshal(body, &parsed); err != nil {
+		raw, _ := truncateUTF8(string(body), 512)
+		details["raw_body"] = raw
 		return fallback, details
 	}
 	root, ok := parsed.(map[string]any)
 	if !ok {
+		raw, _ := truncateUTF8(string(body), 512)
+		details["raw_body"] = raw
 		return fallback, details
 	}
 	errObj, ok := root["error"].(map[string]any)
 	if !ok {
+		raw, _ := truncateUTF8(string(body), 512)
+		details["raw_body"] = raw
 		return fallback, details
 	}
 

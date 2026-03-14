@@ -1158,11 +1158,12 @@ export function ChatPage() {
         // 标题生成在后端异步执行，run.completed 后 SSE 已断开，轮询补偿
         if (threadId) {
           const tid = threadId
+          const oldTitle = threads.find(th => th.id === tid)?.title ?? ''
           const pollTitle = (remaining: number) => {
             if (remaining <= 0) return
             setTimeout(() => {
               void getThread(accessToken, tid).then((resp) => {
-                if (resp.title) onThreadTitleUpdated(tid, resp.title)
+                if (resp.title && resp.title !== oldTitle) onThreadTitleUpdated(tid, resp.title)
                 else if (remaining > 1) pollTitle(remaining - 1)
               }).catch(() => {})
             }, 3000)
@@ -1208,10 +1209,14 @@ export function ChatPage() {
         setPendingUserInput(null)
         setCheckInDraft('')
         if (threadId) onRunEnded(threadId)
-        const obj = event.data as { message?: unknown; error_class?: unknown }
+        const obj = event.data as { message?: unknown; error_class?: unknown; details?: unknown }
+        const details = (obj?.details && typeof obj.details === 'object' && !Array.isArray(obj.details))
+          ? obj.details as Record<string, unknown>
+          : undefined
         setError({
           message: typeof obj?.message === 'string' ? obj.message : '运行失败',
           code: typeof obj?.error_class === 'string' ? obj.error_class : undefined,
+          details,
         })
       }
     }

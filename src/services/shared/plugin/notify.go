@@ -13,7 +13,7 @@ type NotificationChannel interface {
 
 type Notification struct {
 	EventType string
-	OrgID     uuid.UUID
+	AccountID     uuid.UUID
 	Title     string
 	Body      string
 	Metadata  map[string]any

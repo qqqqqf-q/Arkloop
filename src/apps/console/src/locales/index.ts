@@ -90,6 +90,29 @@ export interface LocaleStrings {
   otpVerifyBtn: string
   // common
   loading: string
+  bootstrap: {
+    title: string
+    subtitle: string
+    username: string
+    usernamePlaceholder: string
+    password: string
+    passwordPlaceholder: string
+    confirmPassword: string
+    confirmPasswordPlaceholder: string
+    passwordMismatch: string
+    submit: string
+    verifying: string
+    successTitle: string
+    successBody: string
+    invalidTitle: string
+    invalidBody: string
+    expiresAt: (value: string) => string
+    selectHint: string
+    consoleLabel: string
+    consoleDescription: string
+    consoleLiteLabel: string
+    consoleLiteDescription: string
+  }
   // pages
   pages: {
     credentials: {
@@ -100,7 +123,6 @@ export interface LocaleStrings {
       colProvider: string
       colKeyPrefix: string
       colBaseUrl: string
-      colApiMode: string
       colRoutes: string
       colCreatedAt: string
       // empty state
@@ -114,7 +136,6 @@ export interface LocaleStrings {
       fieldProvider: string
       fieldApiKey: string
       fieldBaseUrl: string
-      fieldApiMode: string
       fieldAdvancedJson: string
       fieldRoutes: string
       // route row

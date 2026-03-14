@@ -22,8 +22,8 @@ func LoadPlatformProviders(ctx context.Context, pool *pgxpool.Pool, decrypt Prov
 		SELECT c.group_name, c.provider_name, c.base_url,
 		       s.encrypted_value, s.key_version
 		FROM tool_provider_configs c
-		LEFT JOIN secrets s ON s.id = c.secret_id AND s.scope = 'platform'
-		WHERE c.scope = 'platform' AND c.is_active = TRUE
+		LEFT JOIN secrets s ON s.id = c.secret_id AND s.owner_kind = 'platform'
+		WHERE c.owner_kind = 'platform' AND c.is_active = TRUE
 		ORDER BY c.updated_at DESC
 	`)
 	if err != nil {

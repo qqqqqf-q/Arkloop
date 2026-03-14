@@ -1,5 +1,6 @@
 @import "katex/dist/katex.min.css";
 @import "tailwindcss";
+@source "../../shared/src";
 
 button:not(:disabled) {
   cursor: pointer;

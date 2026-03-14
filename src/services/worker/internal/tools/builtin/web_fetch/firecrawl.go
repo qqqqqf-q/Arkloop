@@ -28,7 +28,7 @@ func NewFirecrawlProvider(apiKey string, baseURL string) *FirecrawlProvider {
 	if trimmedBase == "" {
 		trimmedBase = defaultFirecrawlBaseURL
 	}
-	normalizedBaseURL, baseURLErr := sharedoutbound.DefaultPolicy().NormalizeBaseURL(trimmedBase)
+	normalizedBaseURL, baseURLErr := sharedoutbound.DefaultPolicy().NormalizeInternalBaseURL(trimmedBase)
 	if baseURLErr == nil {
 		trimmedBase = normalizedBaseURL
 	}
@@ -36,7 +36,7 @@ func NewFirecrawlProvider(apiKey string, baseURL string) *FirecrawlProvider {
 	return &FirecrawlProvider{
 		apiKey:     cleanedKey,
 		baseURL:    trimmedBase,
-		client:     sharedoutbound.DefaultPolicy().NewHTTPClient(60 * time.Second),
+		client:     sharedoutbound.DefaultPolicy().NewInternalHTTPClient(60 * time.Second),
 		baseURLErr: baseURLErr,
 	}
 }

@@ -329,7 +329,7 @@ func distillAfterRun(provider memory.MemoryProvider, pool *pgxpool.Pool, configR
 
 		if err := provider.AppendSessionMessages(ctx, ident, sessionID, msgs); err != nil {
 			slog.Warn("memory: distill append failed",
-				"org_id", orgID.String(),
+				"account_id", orgID.String(),
 				"session_id", sessionID,
 				"err", err.Error(),
 			)
@@ -338,7 +338,7 @@ func distillAfterRun(provider memory.MemoryProvider, pool *pgxpool.Pool, configR
 
 		if err := provider.CommitSession(ctx, ident, sessionID); err != nil {
 			slog.Warn("memory: distill commit failed",
-				"org_id", orgID.String(),
+				"account_id", orgID.String(),
 				"session_id", sessionID,
 				"err", err.Error(),
 			)

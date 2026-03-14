@@ -40,7 +40,7 @@ const (
 
 type SubAgentRecord struct {
 	ID                 uuid.UUID
-	OrgID              uuid.UUID
+	AccountID              uuid.UUID
 	ParentRunID        uuid.UUID
 	ParentThreadID     uuid.UUID
 	RootRunID          uuid.UUID
@@ -64,7 +64,7 @@ type SubAgentRecord struct {
 
 type SubAgentCreateParams struct {
 	ID             uuid.UUID
-	OrgID          uuid.UUID
+	AccountID          uuid.UUID
 	ParentRunID    uuid.UUID
 	ParentThreadID uuid.UUID
 	RootRunID      uuid.UUID
@@ -86,8 +86,8 @@ func (SubAgentRepository) Create(ctx context.Context, tx pgx.Tx, params SubAgent
 	if params.ID == uuid.Nil {
 		params.ID = uuid.New()
 	}
-	if params.OrgID == uuid.Nil {
-		return SubAgentRecord{}, fmt.Errorf("org_id must not be empty")
+	if params.AccountID == uuid.Nil {
+		return SubAgentRecord{}, fmt.Errorf("account_id must not be empty")
 	}
 	if params.ParentRunID == uuid.Nil {
 		return SubAgentRecord{}, fmt.Errorf("parent_run_id must not be empty")
@@ -114,18 +114,18 @@ func (SubAgentRepository) Create(ctx context.Context, tx pgx.Tx, params SubAgent
 	return scanSubAgent(tx.QueryRow(
 		ctx,
 		`INSERT INTO sub_agents (
-			id, org_id, parent_run_id, parent_thread_id, root_run_id, root_thread_id,
+			id, account_id, parent_run_id, parent_thread_id, root_run_id, root_thread_id,
 			depth, role, persona_id, nickname, source_type, context_mode, status
 		 ) VALUES (
 			$1, $2, $3, $4, $5, $6,
 			$7, $8, $9, $10, $11, $12, $13
 		 )
-		 RETURNING id, org_id, parent_run_id, parent_thread_id, root_run_id, root_thread_id,
+		 RETURNING id, account_id, parent_run_id, parent_thread_id, root_run_id, root_thread_id,
 		           depth, role, persona_id, nickname, source_type, context_mode, status,
 		           current_run_id, last_completed_run_id, last_output_ref, last_error,
 		           created_at, started_at, completed_at, closed_at`,
 		params.ID,
-		params.OrgID,
+		params.AccountID,
 		params.ParentRunID,
 		params.ParentThreadID,
 		params.RootRunID,
@@ -442,7 +442,7 @@ func (repo SubAgentRepository) getForUpdateByCurrentRunID(ctx context.Context, t
 	return scanSubAgentNullable(tx.QueryRow(ctx, subAgentSelectBy+` WHERE current_run_id = $1 FOR UPDATE`, runID))
 }
 
-const subAgentSelectBy = `SELECT id, org_id, parent_run_id, parent_thread_id, root_run_id, root_thread_id,
+const subAgentSelectBy = `SELECT id, account_id, parent_run_id, parent_thread_id, root_run_id, root_thread_id,
 	       depth, role, persona_id, nickname, source_type, context_mode, status,
 	       current_run_id, last_completed_run_id, last_output_ref, last_error,
 	       created_at, started_at, completed_at, closed_at
@@ -452,7 +452,7 @@ func scanSubAgent(row pgx.Row) (SubAgentRecord, error) {
 	var record SubAgentRecord
 	err := row.Scan(
 		&record.ID,
-		&record.OrgID,
+		&record.AccountID,
 		&record.ParentRunID,
 		&record.ParentThreadID,
 		&record.RootRunID,
@@ -491,7 +491,7 @@ func scanSubAgentFromRows(rows pgx.Rows) (SubAgentRecord, error) {
 	var record SubAgentRecord
 	err := rows.Scan(
 		&record.ID,
-		&record.OrgID,
+		&record.AccountID,
 		&record.ParentRunID,
 		&record.ParentThreadID,
 		&record.RootRunID,

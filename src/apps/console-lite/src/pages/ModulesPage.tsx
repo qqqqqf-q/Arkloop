@@ -200,7 +200,7 @@ function ModuleRow({
                   href={mod.web_url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center gap-1 rounded-md bg-[var(--c-accent)] px-2.5 py-1 text-[11px] font-medium text-white transition-opacity hover:opacity-80"
+                  className="flex items-center gap-1 rounded-md bg-[var(--c-accent)] px-2.5 py-1 text-[11px] font-medium text-[var(--c-accent-text)] transition-opacity hover:opacity-80"
                 >
                   <ExternalLink size={11} />
                   {t.actionOpen ?? 'Open'}

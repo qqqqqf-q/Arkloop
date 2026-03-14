@@ -34,6 +34,8 @@ import { AccessLogPage } from './pages/access-log/AccessLogPage'
 import { EntitlementsPage } from './pages/entitlements/EntitlementsPage'
 import { ModulesPage } from './pages/modules/ModulesPage'
 
+import { BootstrapPage } from './pages/BootstrapPage'
+
 import { OperationProvider, useOperations } from './contexts/OperationContext'
 import { OperationHistoryModal } from './components/OperationHistoryModal'
 
@@ -67,6 +69,19 @@ function App() {
 
   useEffect(() => {
     const controller = new AbortController()
+
+    // bootstrap token handoff from another console
+    const params = new URLSearchParams(window.location.search)
+    const handoffToken = params.get('_t')
+    if (handoffToken) {
+      params.delete('_t')
+      const qs = params.toString()
+      window.history.replaceState({}, '', `${window.location.pathname}${qs ? '?' + qs : ''}`)
+      writeAccessTokenToStorage(handoffToken)
+      setAccessToken(handoffToken)
+      setAuthChecked(true)
+      return
+    }
 
     setClientApp('console')
     setUnauthenticatedHandler(() => {
@@ -107,72 +122,71 @@ function App() {
 
   if (!authChecked) return null
 
-  if (!accessToken) {
-    return <AuthPage onLoggedIn={handleLoggedIn} />
-  }
-
   return (
-    <OperationProvider>
-    <OperationHistoryModalWrapper />
     <Routes>
-      <Route
-        element={(
-          <ConsoleLayout accessToken={accessToken} onLoggedOut={handleLoggedOut} />
-        )}
-      >
-        <Route index element={<Navigate to="/dashboard" replace />} />
-        {/* Operations */}
-        <Route path="dashboard" element={<DashboardPage />} />
-        <Route path="runs" element={<RunsPage />} />
-        <Route path="audit" element={<AuditPage />} />
-        <Route path="reports" element={<ReportsPage />} />
-        {/* Configuration */}
-        <Route path="providers" element={<ProvidersPage />} />
-        <Route path="mcp-configs" element={<MCPConfigsPage />} />
-        <Route path="tools" element={<ToolsPage />} />
-        <Route path="personas" element={<PersonasPage />} />
-        <Route path="asr-credentials" element={<AsrCredentialsPage />} />
-        <Route path="title-summarizer" element={<TitleSummarizerPage />} />
-        <Route path="skills" element={<SkillsPage />} />
+      <Route path="/bootstrap/:token" element={<BootstrapPage onLoggedIn={handleLoggedIn} />} />
 
-        <Route path="execution-governance" element={<ExecutionGovernancePage />} />
-        {/* Integration */}
-        <Route path="api-keys" element={<APIKeysPage />} />
-        <Route path="webhooks" element={<PlaceholderPage title="Webhooks" />} />
-        {/* Security */}
-        <Route path="ip-rules" element={<IPRulesPage />} />
-        <Route path="captcha" element={<CaptchaPage />} />
-        <Route path="gateway-config" element={<GatewayConfigPage />} />
-        <Route path="access-log" element={<AccessLogPage />} />
-
-        {/* Billing */}
-        <Route path="plans" element={<PlaceholderPage title="Plans" />} />
-        <Route path="subscriptions" element={<PlaceholderPage title="Subscriptions" />} />
-        <Route path="entitlements" element={<EntitlementsPage />} />
-        <Route path="usage" element={<UsagePage />} />
-        <Route path="my-usage" element={<MyUsagePage />} />
-        {/* Platform */}
-        <Route path="feature-flags" element={<FeatureFlagsPage />} />
-        <Route path="users" element={<UsersPage />} />
-        <Route path="registration" element={<RegistrationPage />} />
-        <Route path="invite-codes" element={<InviteCodesPage />} />
-        <Route path="redemption-codes" element={<RedemptionCodesPage />} />
-        <Route path="credits-admin" element={<CreditsAdminPage />} />
-        <Route path="broadcasts" element={<BroadcastsPage />} />
-        <Route path="email" element={<EmailPage />} />
-        {/* Infrastructure */}
-        <Route path="modules" element={<ModulesPage />} />
-        {/* Redirects */}
-        
-        <Route path="tool-providers" element={<Navigate to="/tools" replace />} />
-        <Route path="sandbox-config" element={<Navigate to="/tools" replace />} />
-        <Route path="memory-config" element={<Navigate to="/tools" replace />} />
-        <Route path="members" element={<Navigate to="/users" replace />} />
-        <Route path="teams" element={<Navigate to="/users" replace />} />
-        <Route path="*" element={<Navigate to="/dashboard" replace />} />
-      </Route>
+      {!accessToken ? (
+        <Route path="*" element={<AuthPage onLoggedIn={handleLoggedIn} />} />
+      ) : (
+        <Route
+          element={
+            <OperationProvider>
+              <OperationHistoryModalWrapper />
+              <ConsoleLayout accessToken={accessToken} onLoggedOut={handleLoggedOut} />
+            </OperationProvider>
+          }
+        >
+          <Route index element={<Navigate to="/dashboard" replace />} />
+          {/* Operations */}
+          <Route path="dashboard" element={<DashboardPage />} />
+          <Route path="runs" element={<RunsPage />} />
+          <Route path="audit" element={<AuditPage />} />
+          <Route path="reports" element={<ReportsPage />} />
+          {/* Configuration */}
+          <Route path="providers" element={<ProvidersPage />} />
+          <Route path="mcp-configs" element={<MCPConfigsPage />} />
+          <Route path="tools" element={<ToolsPage />} />
+          <Route path="personas" element={<PersonasPage />} />
+          <Route path="asr-credentials" element={<AsrCredentialsPage />} />
+          <Route path="title-summarizer" element={<TitleSummarizerPage />} />
+          <Route path="skills" element={<SkillsPage />} />
+          <Route path="execution-governance" element={<ExecutionGovernancePage />} />
+          {/* Integration */}
+          <Route path="api-keys" element={<APIKeysPage />} />
+          <Route path="webhooks" element={<PlaceholderPage title="Webhooks" />} />
+          {/* Security */}
+          <Route path="ip-rules" element={<IPRulesPage />} />
+          <Route path="captcha" element={<CaptchaPage />} />
+          <Route path="gateway-config" element={<GatewayConfigPage />} />
+          <Route path="access-log" element={<AccessLogPage />} />
+          {/* Billing */}
+          <Route path="plans" element={<PlaceholderPage title="Plans" />} />
+          <Route path="subscriptions" element={<PlaceholderPage title="Subscriptions" />} />
+          <Route path="entitlements" element={<EntitlementsPage />} />
+          <Route path="usage" element={<UsagePage />} />
+          <Route path="my-usage" element={<MyUsagePage />} />
+          {/* Platform */}
+          <Route path="feature-flags" element={<FeatureFlagsPage />} />
+          <Route path="users" element={<UsersPage />} />
+          <Route path="registration" element={<RegistrationPage />} />
+          <Route path="invite-codes" element={<InviteCodesPage />} />
+          <Route path="redemption-codes" element={<RedemptionCodesPage />} />
+          <Route path="credits-admin" element={<CreditsAdminPage />} />
+          <Route path="broadcasts" element={<BroadcastsPage />} />
+          <Route path="email" element={<EmailPage />} />
+          {/* Infrastructure */}
+          <Route path="modules" element={<ModulesPage />} />
+          {/* Redirects */}
+          <Route path="tool-providers" element={<Navigate to="/tools" replace />} />
+          <Route path="sandbox-config" element={<Navigate to="/tools" replace />} />
+          <Route path="memory-config" element={<Navigate to="/tools" replace />} />
+          <Route path="members" element={<Navigate to="/users" replace />} />
+          <Route path="teams" element={<Navigate to="/users" replace />} />
+          <Route path="*" element={<Navigate to="/dashboard" replace />} />
+        </Route>
+      )}
     </Routes>
-    </OperationProvider>
   )
 }
 

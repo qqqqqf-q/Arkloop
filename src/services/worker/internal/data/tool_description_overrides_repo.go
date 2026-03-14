@@ -11,8 +11,6 @@ import (
 )
 
 type ToolDescriptionOverride struct {
-	ProjectID   *uuid.UUID
-	Scope       string
 	ToolName    string
 	Description string
 	IsDisabled  bool
@@ -35,28 +33,13 @@ func NewToolDescriptionOverridesRepository(db toolDescriptionOverrideQuerier) (*
 }
 
 func (r *ToolDescriptionOverridesRepository) ListByScope(ctx context.Context, projectID *uuid.UUID, scope string) ([]ToolDescriptionOverride, error) {
-	if scope != "project" && scope != "platform" {
-		return nil, fmt.Errorf("scope must be project or platform")
-	}
+	_ = projectID
+	_ = scope
 
-	var query string
-	var args []any
-	if scope == "platform" {
-		query = `
-			SELECT project_id, scope, tool_name, description, is_disabled, updated_at
-			FROM tool_description_overrides
-			WHERE project_id IS NULL AND scope = 'platform'
-			ORDER BY tool_name ASC`
-	} else {
-		query = `
-			SELECT project_id, scope, tool_name, description, is_disabled, updated_at
-			FROM tool_description_overrides
-			WHERE project_id = $1 AND scope = 'project'
-			ORDER BY tool_name ASC`
-		args = append(args, projectID)
-	}
-
-	rows, err := r.db.Query(ctx, query, args...)
+	rows, err := r.db.Query(ctx, `
+		SELECT tool_name, description, is_disabled, updated_at
+		FROM tool_description_overrides
+		ORDER BY tool_name ASC`)
 	if err != nil {
 		return nil, err
 	}
@@ -65,7 +48,7 @@ func (r *ToolDescriptionOverridesRepository) ListByScope(ctx context.Context, pr
 	out := make([]ToolDescriptionOverride, 0)
 	for rows.Next() {
 		var override ToolDescriptionOverride
-		if err := rows.Scan(&override.ProjectID, &override.Scope, &override.ToolName, &override.Description, &override.IsDisabled, &override.UpdatedAt); err != nil {
+		if err := rows.Scan(&override.ToolName, &override.Description, &override.IsDisabled, &override.UpdatedAt); err != nil {
 			return nil, err
 		}
 		override.ToolName = strings.TrimSpace(override.ToolName)
