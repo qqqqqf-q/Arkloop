@@ -47,7 +47,7 @@ func (f *SubAgentRunFactory) CreateSpawnRun(
 		Role:           cloneStringPtr(spawnReq.Role),
 		PersonaID:      stringPtr(spawnReq.PersonaID),
 		Nickname:       cloneStringPtr(spawnReq.Nickname),
-		SourceType:     data.SubAgentSourceTypeThreadSpawn,
+		SourceType:     spawnReq.SourceType,
 		ContextMode:    spawnReq.ContextMode,
 	})
 	if err != nil {
@@ -59,7 +59,7 @@ func (f *SubAgentRunFactory) CreateSpawnRun(
 	if _, err := (data.SubAgentEventAppender{}).Append(ctx, tx, createdSubAgent.ID, nil, data.SubAgentEventTypeSpawnRequested, map[string]any{
 		"persona_id":       spawnReq.PersonaID,
 		"context_mode":     createdSubAgent.ContextMode,
-		"source_type":      data.SubAgentSourceTypeThreadSpawn,
+		"source_type":      spawnReq.SourceType,
 		"parent_run_id":    parentRun.ID.String(),
 		"parent_thread_id": parentRun.ThreadID.String(),
 	}, nil); err != nil {
@@ -218,6 +218,14 @@ func (f *SubAgentRunFactory) createQueuedRun(
 		childRunID = *forcedRunID
 	}
 	profileRef, workspaceRef := inheritedBindings(parentRun, snapshot)
+
+	createdByUserID := parentRun.CreatedByUserID
+	if subAgent.SourceType == data.SubAgentSourceTypePlatformAgent {
+		if sysUID, err := f.resolveSystemAgentUserID(ctx, tx); err == nil && sysUID != uuid.Nil {
+			createdByUserID = &sysUID
+		}
+	}
+
 	if _, err := tx.Exec(ctx,
 		`INSERT INTO runs (id, account_id, thread_id, parent_run_id, created_by_user_id, profile_ref, workspace_ref, status)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, 'running')`,
@@ -225,7 +233,7 @@ func (f *SubAgentRunFactory) createQueuedRun(
 		parentRun.AccountID,
 		threadID,
 		parentRun.ID,
-		parentRun.CreatedByUserID,
+		createdByUserID,
 		profileRef,
 		workspaceRef,
 	); err != nil {
@@ -350,4 +358,16 @@ func cloneMap(src map[string]any) map[string]any {
 		cloned[key] = value
 	}
 	return cloned
+}
+
+// resolveSystemAgentUserID 从 DB 查询 system_agent 的 user_id。
+func (f *SubAgentRunFactory) resolveSystemAgentUserID(ctx context.Context, tx pgx.Tx) (uuid.UUID, error) {
+	var uid uuid.UUID
+	err := tx.QueryRow(ctx,
+		`SELECT id FROM users WHERE username = 'system_agent' AND deleted_at IS NULL LIMIT 1`,
+	).Scan(&uid)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	return uid, nil
 }
