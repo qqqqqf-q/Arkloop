@@ -415,6 +415,7 @@ services:
       REDIS_URL: "redis://firecrawl-redis:6379"
       REDIS_RATE_LIMIT_URL: "redis://firecrawl-redis:6379"
       USE_DB_AUTHENTICATION: "false"
+      ALLOW_LOCAL_WEBHOOKS: "true"
       PORT: "19012"
       HOST: "0.0.0.0"
       NUM_WORKERS_PER_QUEUE: "${ARKLOOP_FIRECRAWL_WORKERS:-2}"
