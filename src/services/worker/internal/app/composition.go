@@ -96,7 +96,7 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 	if tp := initPlatformTokenProvider(ctx, pool); tp != nil {
 		apiURL := strings.TrimSpace(os.Getenv("ARKLOOP_PLATFORM_API_URL"))
 		if apiURL == "" {
-			apiURL = "http://127.0.0.1:8001"
+			apiURL = "http://127.0.0.1:19001"
 		}
 		bridgeURL := strings.TrimSpace(os.Getenv("ARKLOOP_BRIDGE_URL"))
 		platformExec = platform.NewExecutor(apiURL, bridgeURL, tp)

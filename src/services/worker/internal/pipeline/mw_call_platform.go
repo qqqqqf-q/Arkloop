@@ -13,7 +13,7 @@ import (
 // 同时满足以下条件时注入：
 //  1. SubAgentControl 可用
 //  2. 当前 Persona 的 AllowPlatformDelegation 为 true
-//  3. 当前用户持有 org_admin 或 platform_admin 角色
+//  3. 当前用户持有 account_admin 或 platform_admin 角色
 func NewCallPlatformMiddleware() RunMiddleware {
 	return func(ctx context.Context, rc *RunContext, next RunHandler) error {
 		if !shouldInjectCallPlatform(ctx, rc) {
@@ -55,5 +55,5 @@ func shouldInjectCallPlatform(ctx context.Context, rc *RunContext) bool {
 	if membership == nil {
 		return false
 	}
-	return membership.Role == "org_admin" || membership.Role == "platform_admin"
+	return membership.Role == "account_admin" || membership.Role == "platform_admin"
 }
