@@ -4,6 +4,8 @@ import { Reveal, inputCls, inputStyle, labelStyle, SpinnerIcon } from '@arkloop/
 import { getDesktopApi } from '@arkloop/shared/desktop'
 import type { ConnectionMode } from '@arkloop/shared/desktop'
 import { useLocale } from '../contexts/LocaleContext'
+import { createLlmProvider, listAvailableModels, createProviderModel } from '../api'
+import type { AvailableModel } from '../api'
 
 type Step =
   | 'welcome'
@@ -14,16 +16,25 @@ type Step =
   | 'self-host'
   | 'complete'
 
-type Vendor = 'openai' | 'anthropic' | 'custom'
+type Vendor = 'openai_responses' | 'openai_chat_completions' | 'anthropic'
 type VerifyStatus = 'idle' | 'verifying' | 'verified' | 'failed'
 type TestStatus = 'idle' | 'testing' | 'connected' | 'failed'
+type ModelImportStatus = 'idle' | 'loading' | 'ready' | 'importing' | 'done' | 'failed'
 
 type Props = { onComplete: () => void }
 
+const LOCAL_ACCESS_TOKEN = 'desktop-local-token'
+
+const VENDOR_OPTIONS = [
+  { key: 'openai_responses' as const, label: 'OpenAI (Responses)', provider: 'openai', openai_api_mode: 'responses' as string | undefined },
+  { key: 'openai_chat_completions' as const, label: 'OpenAI (Chat Completions)', provider: 'openai', openai_api_mode: 'chat_completions' as string | undefined },
+  { key: 'anthropic' as const, label: 'Anthropic', provider: 'anthropic', openai_api_mode: undefined as string | undefined },
+] as const
+
 const VENDOR_URLS: Record<Vendor, string> = {
-  openai: 'https://api.openai.com/v1',
+  openai_responses: 'https://api.openai.com/v1',
+  openai_chat_completions: 'https://api.openai.com/v1',
   anthropic: 'https://api.anthropic.com/v1',
-  custom: '',
 }
 
 const btnBase: React.CSSProperties = {
@@ -131,10 +142,16 @@ export function OnboardingWizard({ onComplete }: Props) {
   const [downloadError, setDownloadError] = useState('')
 
   // local provider
-  const [vendor, setVendor] = useState<Vendor>('openai')
+  const [vendor, setVendor] = useState<Vendor>('openai_responses')
   const [apiKey, setApiKey] = useState('')
-  const [baseUrl, setBaseUrl] = useState(VENDOR_URLS.openai)
+  const [baseUrl, setBaseUrl] = useState(VENDOR_URLS.openai_responses)
   const [verifyStatus, setVerifyStatus] = useState<VerifyStatus>('idle')
+
+  // model import
+  const [modelImportStatus, setModelImportStatus] = useState<ModelImportStatus>('idle')
+  const [availableModels, setAvailableModels] = useState<AvailableModel[]>([])
+  const [selectedModelIds, setSelectedModelIds] = useState<Set<string>>(new Set())
+  const [createdProviderId, setCreatedProviderId] = useState<string | null>(null)
 
   // self-host
   const [selfHostUrl, setSelfHostUrl] = useState('')
@@ -159,11 +176,15 @@ export function OnboardingWizard({ onComplete }: Props) {
     }
   })()
 
-  // vendor change -> fill default url
+  // vendor change -> fill default url and reset model state
   const handleVendorChange = useCallback((v: Vendor) => {
     setVendor(v)
     setBaseUrl(VENDOR_URLS[v])
     setVerifyStatus('idle')
+    setModelImportStatus('idle')
+    setAvailableModels([])
+    setSelectedModelIds(new Set())
+    setCreatedProviderId(null)
   }, [])
 
   // save mode to config
@@ -250,20 +271,70 @@ export function OnboardingWizard({ onComplete }: Props) {
     }
   }, [step])
 
-  // verify provider key
+  // verify provider key, create provider in backend, and fetch available models
   const handleVerify = useCallback(async () => {
     setVerifyStatus('verifying')
     try {
-      const url = baseUrl.replace(/\/$/, '')
-      const resp = await fetch(`${url}/models`, {
-        headers: { Authorization: `Bearer ${apiKey}` },
-        signal: AbortSignal.timeout(10000),
+      const vendorOpt = VENDOR_OPTIONS.find((o) => o.key === vendor)!
+      const trimmedUrl = baseUrl.replace(/\/$/, '') || undefined
+
+      // Create the provider via the sidecar API
+      const provider = await createLlmProvider(LOCAL_ACCESS_TOKEN, {
+        name: vendorOpt.label,
+        provider: vendorOpt.provider,
+        api_key: apiKey,
+        ...(trimmedUrl ? { base_url: trimmedUrl } : {}),
+        ...(vendorOpt.openai_api_mode ? { openai_api_mode: vendorOpt.openai_api_mode } : {}),
       })
-      setVerifyStatus(resp.ok ? 'verified' : 'failed')
+      setCreatedProviderId(provider.id)
+      setVerifyStatus('verified')
+
+      // Fetch available models from the provider
+      setModelImportStatus('loading')
+      try {
+        const resp = await listAvailableModels(LOCAL_ACCESS_TOKEN, provider.id)
+        const models = resp.models ?? []
+        setAvailableModels(models)
+        // Pre-select all unconfigured models
+        setSelectedModelIds(new Set(models.filter((m) => !m.configured).map((m) => m.id)))
+        setModelImportStatus(models.length > 0 ? 'ready' : 'done')
+      } catch {
+        setAvailableModels([])
+        setModelImportStatus('failed')
+      }
     } catch {
       setVerifyStatus('failed')
     }
-  }, [apiKey, baseUrl])
+  }, [apiKey, baseUrl, vendor])
+
+  // toggle model selection
+  const toggleModelSelection = useCallback((modelId: string) => {
+    setSelectedModelIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(modelId)) next.delete(modelId)
+      else next.add(modelId)
+      return next
+    })
+  }, [])
+
+  // import selected models
+  const handleImportModels = useCallback(async () => {
+    if (!createdProviderId || selectedModelIds.size === 0) return
+    setModelImportStatus('importing')
+    try {
+      const modelIds = Array.from(selectedModelIds)
+      for (let i = 0; i < modelIds.length; i++) {
+        await createProviderModel(LOCAL_ACCESS_TOKEN, createdProviderId, {
+          model: modelIds[i],
+          is_default: i === 0,
+          priority: modelIds.length - i,
+        })
+      }
+      setModelImportStatus('done')
+    } catch {
+      setModelImportStatus('failed')
+    }
+  }, [createdProviderId, selectedModelIds])
 
   // finish local provider step
   const handleProviderDone = useCallback(async () => {
@@ -271,10 +342,11 @@ export function OnboardingWizard({ onComplete }: Props) {
     setSaving(true)
     try {
       const current = await api.config.get()
+      const vendorOpt = VENDOR_OPTIONS.find((o) => o.key === vendor)!
       await api.config.set({
         ...current,
         mode: 'local' as ConnectionMode,
-        local: { ...current.local, provider: { vendor, apiKey, baseUrl } },
+        local: { ...current.local, provider: { vendor: vendorOpt.provider, apiKey, baseUrl } },
       })
       setStep('complete')
     } finally {
@@ -442,10 +514,11 @@ export function OnboardingWizard({ onComplete }: Props) {
                     style={{ ...inputStyle, cursor: 'pointer' }}
                     value={vendor}
                     onChange={(e) => handleVendorChange(e.target.value as Vendor)}
+                    disabled={verifyStatus === 'verified'}
                   >
-                    <option value="openai">OpenAI</option>
-                    <option value="anthropic">Anthropic</option>
-                    <option value="custom">Custom (OpenAI Compatible)</option>
+                    {VENDOR_OPTIONS.map((opt) => (
+                      <option key={opt.key} value={opt.key}>{opt.label}</option>
+                    ))}
                   </select>
                 </div>
 
@@ -460,6 +533,7 @@ export function OnboardingWizard({ onComplete }: Props) {
                     value={apiKey}
                     onChange={(e) => { setApiKey(e.target.value); setVerifyStatus('idle') }}
                     autoComplete="off"
+                    disabled={verifyStatus === 'verified'}
                   />
                 </div>
 
@@ -472,6 +546,7 @@ export function OnboardingWizard({ onComplete }: Props) {
                     placeholder={ob.localProviderBaseUrlPlaceholder}
                     value={baseUrl}
                     onChange={(e) => { setBaseUrl(e.target.value); setVerifyStatus('idle') }}
+                    disabled={verifyStatus === 'verified'}
                   />
                 </div>
               </div>
@@ -488,6 +563,83 @@ export function OnboardingWizard({ onComplete }: Props) {
                 </div>
               )}
 
+              {/* Model import section — appears after provider is verified */}
+              {verifyStatus === 'verified' && modelImportStatus !== 'idle' && (
+                <div style={{ marginBottom: '16px' }}>
+                  <div style={{ fontSize: '14px', fontWeight: 500, color: 'var(--c-text-heading)', marginBottom: '4px' }}>
+                    {ob.localImportModels}
+                  </div>
+                  <div style={{ fontSize: '12px', color: 'var(--c-placeholder)', marginBottom: '12px' }}>
+                    {ob.localImportModelsDesc}
+                  </div>
+
+                  {modelImportStatus === 'loading' && (
+                    <div className="flex items-center gap-2" style={{ fontSize: '13px', color: 'var(--c-text-muted)' }}>
+                      <SpinnerIcon /> {ob.localImportingModels}
+                    </div>
+                  )}
+
+                  {modelImportStatus === 'ready' && availableModels.length > 0 && (
+                    <div>
+                      <div style={{
+                        maxHeight: '200px',
+                        overflowY: 'auto',
+                        border: '1px solid var(--c-border-subtle)',
+                        borderRadius: '8px',
+                        marginBottom: '12px',
+                      }}>
+                        {availableModels.filter((m) => !m.configured).map((model) => (
+                          <label
+                            key={model.id}
+                            className="flex items-center gap-3 px-3 py-2 cursor-pointer"
+                            style={{
+                              borderBottom: '1px solid var(--c-border-subtle)',
+                              fontSize: '13px',
+                              color: 'var(--c-text-primary)',
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selectedModelIds.has(model.id)}
+                              onChange={() => toggleModelSelection(model.id)}
+                              style={{ accentColor: 'var(--c-btn-bg)' }}
+                            />
+                            <span>{model.name || model.id}</span>
+                          </label>
+                        ))}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleImportModels}
+                        disabled={selectedModelIds.size === 0}
+                        style={primaryBtn}
+                        className="disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {ob.localSelectModels}
+                      </button>
+                    </div>
+                  )}
+
+                  {modelImportStatus === 'importing' && (
+                    <div className="flex items-center gap-2" style={{ fontSize: '13px', color: 'var(--c-text-muted)' }}>
+                      <SpinnerIcon /> {ob.localImportingModels}
+                    </div>
+                  )}
+
+                  {modelImportStatus === 'done' && (
+                    <div className="flex items-center gap-2" style={{ fontSize: '13px', color: '#22c55e', marginBottom: '12px' }}>
+                      <CheckCircle size={14} /> {ob.localModelsImported}
+                    </div>
+                  )}
+
+                  {modelImportStatus === 'failed' && availableModels.length === 0 && (
+                    <div className="flex items-center gap-2" style={{ fontSize: '13px', color: 'var(--c-text-muted)', marginBottom: '12px' }}>
+                      {ob.localNoModels}
+                    </div>
+                  )}
+                </div>
+              )}
+
               {verifyStatus !== 'verified' ? (
                 <button
                   type="button"
@@ -498,11 +650,11 @@ export function OnboardingWizard({ onComplete }: Props) {
                 >
                   {verifyStatus === 'verifying' ? <><SpinnerIcon /> {ob.localProviderVerifying}</> : ob.localProviderVerify}
                 </button>
-              ) : (
+              ) : (modelImportStatus === 'done' || modelImportStatus === 'failed') ? (
                 <button type="button" onClick={handleProviderDone} disabled={saving} style={primaryBtn} className="disabled:cursor-not-allowed disabled:opacity-50">
                   {saving ? <SpinnerIcon /> : ob.next}
                 </button>
-              )}
+              ) : null}
 
               <button type="button" onClick={handleProviderDone} style={ghostBtn}>
                 {ob.localProviderSkip}

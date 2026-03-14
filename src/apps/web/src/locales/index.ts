@@ -631,6 +631,12 @@ export interface LocaleStrings {
     localProviderVerified: string
     localProviderFailed: string
     localProviderSkip: string
+    localImportModels: string
+    localImportModelsDesc: string
+    localSelectModels: string
+    localImportingModels: string
+    localModelsImported: string
+    localNoModels: string
     selfHostUrlLabel: string
     selfHostUrlPlaceholder: string
     selfHostTest: string
