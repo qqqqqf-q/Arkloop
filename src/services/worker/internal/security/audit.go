@@ -51,7 +51,7 @@ func (a *SecurityAuditor) EmitInjectionDetected(
 	_ = a.sink.Emit(ctx, plugin.AuditEvent{
 		Timestamp:  time.Now().UTC(),
 		ActorID:    actor,
-		OrgID:      accountID,
+		AccountID:  accountID,
 		Action:     "security.injection_detected",
 		Resource:   targetType,
 		ResourceID: targetID,
@@ -59,5 +59,59 @@ func (a *SecurityAuditor) EmitInjectionDetected(
 			"detection_count": len(results),
 			"patterns":        patterns,
 		},
+	})
+}
+
+// EmitToolOutputInjectionDetected 记录工具输出间接注入检测事件到审计日志。
+func (a *SecurityAuditor) EmitToolOutputInjectionDetected(
+	ctx context.Context,
+	runID uuid.UUID,
+	accountID uuid.UUID,
+	actorUserID *uuid.UUID,
+	toolName string,
+	results []ScanResult,
+	semantic *SemanticResult,
+) {
+	if a == nil || a.sink == nil {
+		return
+	}
+
+	var actor uuid.UUID
+	if actorUserID != nil {
+		actor = *actorUserID
+	}
+
+	detail := map[string]any{
+		"tool_name":       toolName,
+		"detection_count": len(results),
+	}
+
+	if len(results) > 0 {
+		patterns := make([]map[string]string, 0, len(results))
+		for _, r := range results {
+			patterns = append(patterns, map[string]string{
+				"pattern_id": r.PatternID,
+				"category":   r.Category,
+				"severity":   r.Severity,
+			})
+		}
+		detail["patterns"] = patterns
+	}
+
+	if semantic != nil {
+		detail["semantic"] = map[string]any{
+			"label": semantic.Label,
+			"score": semantic.Score,
+		}
+	}
+
+	_ = a.sink.Emit(ctx, plugin.AuditEvent{
+		Timestamp:  time.Now().UTC(),
+		ActorID:    actor,
+		AccountID:  accountID,
+		Action:     "security.tool_output_injection_detected",
+		Resource:   "run",
+		ResourceID: runID.String(),
+		Detail:     detail,
 	})
 }

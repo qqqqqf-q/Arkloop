@@ -124,7 +124,7 @@ func NewInjectionScanMiddleware(
 
 		// 为 agent loop 注入 tool output 扫描函数
 		if toolScanEnabled {
-			rc.ToolOutputScanFunc = buildToolOutputScanFunc(composite, regexEnabled, semanticEnabled)
+			rc.ToolOutputScanFunc = buildToolOutputScanFunc(composite, regexEnabled, semanticEnabled, auditor, eventsRepo, rc)
 		}
 
 		return next(ctx, rc)
@@ -170,28 +170,66 @@ func blockRun(ctx context.Context, rc *RunContext, eventsRepo data.RunEventsRepo
 func buildToolOutputScanFunc(
 	composite *security.CompositeScanner,
 	regexEnabled, semanticEnabled bool,
+	auditor *security.SecurityAuditor,
+	eventsRepo data.RunEventsRepository,
+	rc *RunContext,
 ) func(string, string) (string, bool) {
 	return func(toolName, text string) (string, bool) {
 		result := composite.Scan(text)
 
 		detected := false
+		var allDetections []security.ScanResult
+		var semanticResult *security.SemanticResult
+
 		if regexEnabled && len(result.RegexMatches) > 0 {
 			detected = true
+			allDetections = result.RegexMatches
+			for _, r := range result.RegexMatches {
+				security.DetectionTotal.WithLabelValues("tool_output_" + r.Category).Inc()
+			}
 		}
-		if semanticEnabled && result.SemanticResult != nil && result.SemanticResult.IsInjection {
-			detected = true
+		if semanticEnabled && result.SemanticResult != nil {
+			semanticResult = result.SemanticResult
+			if result.SemanticResult.IsInjection {
+				detected = true
+				security.DetectionTotal.WithLabelValues("tool_output_semantic_" + strings.ToLower(result.SemanticResult.Label)).Inc()
+			}
 		}
 
-		if !detected {
-			return "", false
+		// 闭包内无请求级 context，用 Background 做 best-effort 记录
+		ctx := context.Background()
+
+		if detected {
+			slog.Warn("indirect injection detected in tool output",
+				"run_id", rc.Run.ID,
+				"tool_name", toolName,
+				"regex_matches", len(allDetections),
+			)
+			security.ScanTotal.WithLabelValues("tool_output_detected").Inc()
+
+			auditor.EmitToolOutputInjectionDetected(ctx, rc.Run.ID, rc.Run.AccountID, rc.UserID, toolName, allDetections, semanticResult)
+
+			eventData := map[string]any{
+				"tool_name":       toolName,
+				"detection_count": len(allDetections),
+			}
+			if semanticResult != nil {
+				eventData["semantic"] = map[string]any{
+					"label": semanticResult.Label,
+					"score": semanticResult.Score,
+				}
+			}
+			emitRunEvent(ctx, rc, eventsRepo, "security.tool_output.detected", eventData)
+
+			return "[content filtered: potential injection detected in tool output]", true
 		}
 
-		slog.Warn("indirect injection detected in tool output",
-			"tool_name", toolName,
-			"regex_matches", len(result.RegexMatches),
-		)
+		security.ScanTotal.WithLabelValues("tool_output_clean").Inc()
+		emitRunEvent(ctx, rc, eventsRepo, "security.tool_output.clean", map[string]any{
+			"tool_name": toolName,
+		})
 
-		return "[content filtered: potential injection detected in tool output]", true
+		return "", false
 	}
 }
 
