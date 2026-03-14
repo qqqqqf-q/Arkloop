@@ -14,7 +14,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type broadcastResponse struct {
@@ -60,7 +59,7 @@ func adminBroadcastsEntry(
 	notifRepo *data.NotificationsRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,
-	pool *pgxpool.Pool,
+	pool data.DB,
 	logger *observability.JSONLogger,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
@@ -122,7 +121,7 @@ func createBroadcast(
 	notifRepo *data.NotificationsRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,
-	pool *pgxpool.Pool,
+	pool data.DB,
 	logger *observability.JSONLogger,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {

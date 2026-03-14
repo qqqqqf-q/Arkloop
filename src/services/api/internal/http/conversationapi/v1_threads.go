@@ -19,7 +19,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -99,7 +98,7 @@ func createThread(
 	membershipRepo *data.AccountMembershipRepository,
 	threadRepo *data.ThreadRepository,
 	projectRepo *data.ProjectRepository,
-	pool *pgxpool.Pool,
+	pool data.TxStarter,
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
@@ -496,7 +495,7 @@ func threadsEntry(
 	membershipRepo *data.AccountMembershipRepository,
 	threadRepo *data.ThreadRepository,
 	projectRepo *data.ProjectRepository,
-	pool *pgxpool.Pool,
+	pool data.TxStarter,
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
@@ -595,7 +594,7 @@ func forkThread(
 	threadRepo *data.ThreadRepository,
 	messageRepo *data.MessageRepository,
 	auditWriter *audit.Writer,
-	pool *pgxpool.Pool,
+	pool data.TxStarter,
 	apiKeysRepo *data.APIKeysRepository,
 ) func(nethttp.ResponseWriter, *nethttp.Request, uuid.UUID) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request, threadID uuid.UUID) {
@@ -714,7 +713,7 @@ func threadEntry(
 	projectRepo *data.ProjectRepository,
 	teamRepo *data.TeamRepository,
 	auditWriter *audit.Writer,
-	pool *pgxpool.Pool,
+	pool data.DB,
 	apiKeysRepo *data.APIKeysRepository,
 	runLimiter *data.RunLimiter,
 	entSvc *entitlement.Service,

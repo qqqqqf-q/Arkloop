@@ -29,7 +29,7 @@ type Deps struct {
 	ProjectRepo              *data.ProjectRepository
 	TeamRepo                 *data.TeamRepository
 	AuditWriter              *audit.Writer
-	Pool                     *pgxpool.Pool
+	Pool                     data.DB
 	DirectPool               *pgxpool.Pool
 	DirectPoolAcquireTimeout time.Duration
 	APIKeysRepo              *data.APIKeysRepository

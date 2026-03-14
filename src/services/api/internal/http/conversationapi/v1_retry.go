@@ -13,7 +13,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func editThreadMessage(
@@ -22,7 +21,7 @@ func editThreadMessage(
 	threadRepo *data.ThreadRepository,
 	messageRepo *data.MessageRepository,
 	auditWriter *audit.Writer,
-	pool *pgxpool.Pool,
+	pool data.TxStarter,
 	apiKeysRepo *data.APIKeysRepository,
 ) func(nethttp.ResponseWriter, *nethttp.Request, uuid.UUID, uuid.UUID) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request, threadID uuid.UUID, messageID uuid.UUID) {
@@ -165,7 +164,7 @@ func retryThread(
 	threadRepo *data.ThreadRepository,
 	messageRepo *data.MessageRepository,
 	auditWriter *audit.Writer,
-	pool *pgxpool.Pool,
+	pool data.TxStarter,
 	apiKeysRepo *data.APIKeysRepository,
 ) func(nethttp.ResponseWriter, *nethttp.Request, uuid.UUID) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request, threadID uuid.UUID) {

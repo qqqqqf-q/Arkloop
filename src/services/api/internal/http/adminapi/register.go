@@ -10,7 +10,6 @@ import (
 	repopersonas "arkloop/services/api/internal/personas"
 	sharedconfig "arkloop/services/shared/config"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -32,7 +31,7 @@ type Deps struct {
 	CreditsRepo          *data.CreditsRepository
 	RedemptionCodesRepo  *data.RedemptionCodesRepository
 	NotificationsRepo    *data.NotificationsRepository
-	Pool                 *pgxpool.Pool
+	Pool                 data.DB
 	Logger               *observability.JSONLogger
 	GatewayRedisClient   *redis.Client
 	PlatformSettingsRepo *data.PlatformSettingsRepository

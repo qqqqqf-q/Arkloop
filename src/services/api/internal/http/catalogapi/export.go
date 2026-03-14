@@ -6,7 +6,6 @@ import (
 	"arkloop/services/api/internal/data"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type ToolCatalogItem = toolCatalogItem
@@ -23,7 +22,7 @@ func BuildEffectiveToolCatalogCompat(
 	ctx context.Context,
 	projectID uuid.UUID,
 	overridesRepo *data.ToolDescriptionOverridesRepository,
-	pool *pgxpool.Pool,
+	pool data.DB,
 	mcpCache *EffectiveToolCatalogCache,
 	artifactStoreAvailable bool,
 ) (ToolCatalogResponse, error) {

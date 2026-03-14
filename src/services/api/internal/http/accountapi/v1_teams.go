@@ -14,7 +14,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type teamResponse struct {
@@ -47,7 +46,7 @@ func teamsEntry(
 	teamRepo *data.TeamRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	entSvc *entitlement.Service,
-	pool *pgxpool.Pool,
+	pool data.DB,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		switch r.Method {
@@ -67,7 +66,7 @@ func teamEntry(
 	teamRepo *data.TeamRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	entSvc *entitlement.Service,
-	pool *pgxpool.Pool,
+	pool data.DB,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		traceID := observability.TraceIDFromContext(r.Context())
@@ -226,7 +225,7 @@ func addTeamMember(
 	teamRepo *data.TeamRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	entSvc *entitlement.Service,
-	pool *pgxpool.Pool,
+	pool data.DB,
 ) {
 	if authService == nil {
 		httpkit.WriteAuthNotConfigured(w, traceID)

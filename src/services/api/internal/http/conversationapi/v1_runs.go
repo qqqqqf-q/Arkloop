@@ -117,7 +117,7 @@ func createThreadRun(
 	membershipRepo *data.AccountMembershipRepository,
 	threadRepo *data.ThreadRepository,
 	auditWriter *audit.Writer,
-	pool *pgxpool.Pool,
+	pool data.DB,
 	apiKeysRepo *data.APIKeysRepository,
 	limiter *data.RunLimiter,
 	entSvc *entitlement.Service,
@@ -324,7 +324,7 @@ func normalizeSearchOutputModelKey(raw string) string {
 
 func resolveSearchOutputRouteID(
 	ctx context.Context,
-	pool *pgxpool.Pool,
+	pool data.DB,
 	thread *data.Thread,
 	outputModelKey string,
 ) (string, error) {
@@ -342,7 +342,7 @@ func resolveSearchOutputRouteID(
 
 func resolveSearchOutputRouteIDFromPlatformSetting(
 	ctx context.Context,
-	pool *pgxpool.Pool,
+	pool data.DB,
 	accountID uuid.UUID,
 	outputModelKey string,
 ) (string, error) {
@@ -385,7 +385,7 @@ func pickSearchOutputModelSelector(models map[string]any, outputModelKey string)
 
 func resolveSearchOutputRouteIDByModelSelector(
 	ctx context.Context,
-	pool *pgxpool.Pool,
+	pool data.DB,
 	accountID uuid.UUID,
 	selector string,
 ) (string, error) {
@@ -637,7 +637,7 @@ func cancelRun(
 	membershipRepo *data.AccountMembershipRepository,
 	runRepo *data.RunEventRepository,
 	auditWriter *audit.Writer,
-	pool *pgxpool.Pool,
+	pool data.DB,
 	apiKeysRepo *data.APIKeysRepository,
 ) func(nethttp.ResponseWriter, *nethttp.Request, uuid.UUID) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request, runID uuid.UUID) {
@@ -718,7 +718,7 @@ func submitRunInput(
 	membershipRepo *data.AccountMembershipRepository,
 	runRepo *data.RunEventRepository,
 	auditWriter *audit.Writer,
-	pool *pgxpool.Pool,
+	pool data.DB,
 	apiKeysRepo *data.APIKeysRepository,
 	resolver sharedconfig.Resolver,
 ) func(nethttp.ResponseWriter, *nethttp.Request, uuid.UUID) {
@@ -1116,7 +1116,7 @@ func runEntry(
 	membershipRepo *data.AccountMembershipRepository,
 	runRepo *data.RunEventRepository,
 	auditWriter *audit.Writer,
-	pool *pgxpool.Pool,
+	pool data.DB,
 	directPool *pgxpool.Pool,
 	directPoolAcquireTimeout time.Duration,
 	sseConfig SSEConfig,

@@ -16,7 +16,7 @@ func toolProvidersEntry(
 	_ *data.AccountMembershipRepository,
 	_ *data.ToolProviderConfigsRepository,
 	_ *data.SecretsRepository,
-	_ *pgxpool.Pool,
+	_ data.DB,
 	_ *pgxpool.Pool,
 	_ *data.ProjectRepository,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
@@ -30,7 +30,7 @@ func toolProviderEntry(
 	_ *data.AccountMembershipRepository,
 	_ *data.ToolProviderConfigsRepository,
 	_ *data.SecretsRepository,
-	_ *pgxpool.Pool,
+	_ data.DB,
 	_ *pgxpool.Pool,
 	_ *data.ProjectRepository,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {

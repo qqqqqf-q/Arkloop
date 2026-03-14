@@ -103,7 +103,7 @@ func toolProvidersEntry(
 	membershipRepo *data.AccountMembershipRepository,
 	toolProvidersRepo *data.ToolProviderConfigsRepository,
 	secretsRepo *data.SecretsRepository,
-	pool *pgxpool.Pool,
+	pool data.DB,
 	directPool *pgxpool.Pool,
 	projectRepo *data.ProjectRepository,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
@@ -123,7 +123,7 @@ func toolProviderEntry(
 	membershipRepo *data.AccountMembershipRepository,
 	toolProvidersRepo *data.ToolProviderConfigsRepository,
 	secretsRepo *data.SecretsRepository,
-	pool *pgxpool.Pool,
+	pool data.DB,
 	directPool *pgxpool.Pool,
 	projectRepo *data.ProjectRepository,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
@@ -312,7 +312,7 @@ func activateToolProvider(
 	authService *auth.Service,
 	membershipRepo *data.AccountMembershipRepository,
 	toolProvidersRepo *data.ToolProviderConfigsRepository,
-	pool *pgxpool.Pool,
+	pool data.DB,
 	directPool *pgxpool.Pool,
 	projectRepo *data.ProjectRepository,
 ) {
@@ -377,7 +377,7 @@ func deactivateToolProvider(
 	authService *auth.Service,
 	membershipRepo *data.AccountMembershipRepository,
 	toolProvidersRepo *data.ToolProviderConfigsRepository,
-	pool *pgxpool.Pool,
+	pool data.DB,
 	directPool *pgxpool.Pool,
 	projectRepo *data.ProjectRepository,
 ) {
@@ -423,7 +423,7 @@ func upsertToolProviderCredential(
 	membershipRepo *data.AccountMembershipRepository,
 	toolProvidersRepo *data.ToolProviderConfigsRepository,
 	secretsRepo *data.SecretsRepository,
-	pool *pgxpool.Pool,
+	pool data.DB,
 	directPool *pgxpool.Pool,
 	projectRepo *data.ProjectRepository,
 ) {
@@ -561,7 +561,7 @@ func clearToolProviderCredential(
 	membershipRepo *data.AccountMembershipRepository,
 	toolProvidersRepo *data.ToolProviderConfigsRepository,
 	secretsRepo *data.SecretsRepository,
-	pool *pgxpool.Pool,
+	pool data.DB,
 	directPool *pgxpool.Pool,
 	projectRepo *data.ProjectRepository,
 ) {
@@ -638,7 +638,7 @@ func updateToolProviderConfig(
 	authService *auth.Service,
 	membershipRepo *data.AccountMembershipRepository,
 	toolProvidersRepo *data.ToolProviderConfigsRepository,
-	pool *pgxpool.Pool,
+	pool data.DB,
 	directPool *pgxpool.Pool,
 	projectRepo *data.ProjectRepository,
 ) {
@@ -694,15 +694,14 @@ func findProviderDef(groupName string, providerName string) (toolProviderDefinit
 	return toolProviderDefinition{}, false
 }
 
-func notifyToolProviderChanged(ctx context.Context, directPool *pgxpool.Pool, pool *pgxpool.Pool, payload string) {
-	db := directPool
-	if db == nil {
-		db = pool
-	}
-	if db == nil {
+func notifyToolProviderChanged(ctx context.Context, directPool *pgxpool.Pool, pool data.DB, payload string) {
+	if directPool != nil {
+		_, _ = directPool.Exec(ctx, "SELECT pg_notify('tool_provider_config_changed', $1)", payload)
 		return
 	}
-	_, _ = db.Exec(ctx, "SELECT pg_notify('tool_provider_config_changed', $1)", payload)
+	if pool != nil {
+		_, _ = pool.Exec(ctx, "SELECT pg_notify('tool_provider_config_changed', $1)", payload)
+	}
 }
 
 // applyProviderDefaults fills in default base_url for providers that have known internal defaults

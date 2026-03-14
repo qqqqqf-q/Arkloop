@@ -17,7 +17,6 @@ import (
 	"arkloop/services/shared/objectstore"
 	"arkloop/services/shared/workspaceblob"
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 const workspaceRootPath = "/workspace"
@@ -28,7 +27,7 @@ func workspaceFilesEntry(
 	apiKeysRepo *data.APIKeysRepository,
 	runRepo *data.RunEventRepository,
 	auditWriter *audit.Writer,
-	pool *pgxpool.Pool,
+	pool data.DB,
 	store environmentStore,
 ) nethttp.HandlerFunc {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
@@ -149,11 +148,11 @@ type workspaceManifestEntry struct {
 
 const workspaceEntryTypeFile = "file"
 
-func readWorkspaceFile(ctx context.Context, pool *pgxpool.Pool, store environmentStore, workspaceRef string, relativePath string) ([]byte, string, error) {
+func readWorkspaceFile(ctx context.Context, pool data.DB, store environmentStore, workspaceRef string, relativePath string) ([]byte, string, error) {
 	return readWorkspaceFileFromManifest(ctx, pool, store, workspaceRef, relativePath)
 }
 
-func readWorkspaceFileFromManifest(ctx context.Context, pool *pgxpool.Pool, store environmentStore, workspaceRef string, relativePath string) ([]byte, string, error) {
+func readWorkspaceFileFromManifest(ctx context.Context, pool data.DB, store environmentStore, workspaceRef string, relativePath string) ([]byte, string, error) {
 	revision, err := loadWorkspaceManifestRevision(ctx, pool, workspaceRef)
 	if err != nil {
 		return nil, "", err
@@ -195,7 +194,7 @@ func readWorkspaceFileFromManifest(ctx context.Context, pool *pgxpool.Pool, stor
 	return nil, "", errWorkspaceFileNotFound
 }
 
-func loadWorkspaceManifestRevision(ctx context.Context, pool *pgxpool.Pool, workspaceRef string) (string, error) {
+func loadWorkspaceManifestRevision(ctx context.Context, pool data.DB, workspaceRef string) (string, error) {
 	if pool == nil {
 		return "", errWorkspaceFileNotFound
 	}

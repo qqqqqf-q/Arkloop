@@ -17,7 +17,7 @@ type Deps struct {
 	LlmCredentialsRepo           *data.LlmCredentialsRepository
 	LlmRoutesRepo                *data.LlmRoutesRepository
 	SecretsRepo                  *data.SecretsRepository
-	Pool                         *pgxpool.Pool
+	Pool                         data.DB
 	DirectPool                   *pgxpool.Pool
 	AsrCredentialsRepo           *data.AsrCredentialsRepository
 	MCPConfigsRepo               *data.MCPConfigsRepository

@@ -364,7 +364,7 @@ func workspaceSkillsEntry(
 	enableRepo *data.WorkspaceSkillEnablementsRepository,
 	workspaceRepo *data.WorkspaceRegistriesRepository,
 	profileRepo *data.ProfileRegistriesRepository,
-	pool dbBeginner,
+	pool data.TxStarter,
 ) nethttp.HandlerFunc {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		traceID := observability.TraceIDFromContext(r.Context())
@@ -435,7 +435,7 @@ func workspaceSkillsEntry(
 				}
 				items = append(items, data.WorkspaceSkillEnablement{SkillKey: item.SkillKey, Version: item.Version})
 			}
-			tx, err := pool.Begin(r.Context())
+			tx, err := pool.BeginTx(r.Context(), pgx.TxOptions{})
 			if err != nil {
 				httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 				return
@@ -462,10 +462,6 @@ func workspaceSkillsEntry(
 			writeMethodNotAllowedJSON(w, traceID)
 		}
 	}
-}
-
-type dbBeginner interface {
-	Begin(ctx context.Context) (pgx.Tx, error)
 }
 
 func toSkillPackageResponses(items []data.SkillPackage) []skillPackageResponse {

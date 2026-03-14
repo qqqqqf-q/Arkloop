@@ -15,6 +15,7 @@ import (
 	"arkloop/services/api/internal/observability"
 	sharedenvironmentref "arkloop/services/shared/environmentref"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 )
 
 type defaultSkillsReplaceRequest struct {
@@ -56,7 +57,7 @@ func profileDefaultSkillsEntry(
 	enableRepo *data.WorkspaceSkillEnablementsRepository,
 	profileRepo *data.ProfileRegistriesRepository,
 	workspaceRepo *data.WorkspaceRegistriesRepository,
-	pool dbBeginner,
+	pool data.TxStarter,
 ) nethttp.HandlerFunc {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		traceID := observability.TraceIDFromContext(r.Context())
@@ -99,7 +100,7 @@ func profileDefaultSkillsEntry(
 				writeSkillValidationError(w, traceID, err)
 				return
 			}
-			tx, err := pool.Begin(r.Context())
+			tx, err := pool.BeginTx(r.Context(), pgx.TxOptions{})
 			if err != nil {
 				httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 				return

@@ -17,7 +17,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 var executionGovernanceKeys = []string{
@@ -67,7 +66,7 @@ func adminExecutionGovernance(
 	personasRepo *data.PersonasRepository,
 	repoPersonas []repopersonas.RepoPersona,
 	registry *sharedconfig.Registry,
-	pool *pgxpool.Pool,
+	pool data.DB,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		if r.Method != nethttp.MethodGet {
@@ -92,7 +91,10 @@ func adminExecutionGovernance(
 			return
 		}
 
-		store := sharedconfig.NewPGXStore(pool)
+		var store sharedconfig.Store
+		if pool != nil {
+			store = sharedconfig.NewPGXStore(pool)
+		}
 		scope := sharedconfig.Scope{ProjectID: projectID}
 		resp := executionGovernanceResponse{
 			Limits:   make([]sharedconfig.SettingInspection, 0, len(executionGovernanceKeys)),
@@ -168,7 +170,7 @@ func inspectionEffectiveInt(inspection sharedconfig.SettingInspection) int {
 	return value
 }
 
-func loadTitleSummarizerModel(ctx context.Context, pool *pgxpool.Pool) (*string, error) {
+func loadTitleSummarizerModel(ctx context.Context, pool data.DB) (*string, error) {
 	if pool == nil {
 		return nil, nil
 	}

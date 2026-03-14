@@ -60,9 +60,10 @@ type skillStore interface {
 }
 
 // HandlerConfig for desktop mode.
-// No *pgxpool.Pool, no *redis.Client: all dependencies go through
+// No *redis.Client: all dependencies go through
 // repository interfaces or can accept nil gracefully.
 type HandlerConfig struct {
+	Pool                 data.DB // *sqlitepgx.Pool in desktop mode
 	Logger               *observability.JSONLogger
 	SchemaRepository     *data.SchemaRepository
 	TrustIncomingTraceID bool
@@ -205,7 +206,7 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 		ProjectRepo:           cfg.ProjectRepo,
 		TeamRepo:              cfg.TeamRepo,
 		AuditWriter:           cfg.AuditWriter,
-		Pool:                  nil, // desktop: no pgxpool
+		Pool:                  cfg.Pool, // desktop: SQLite via sqlitepgx
 		DirectPool:            nil, // desktop: no LISTEN/NOTIFY
 		APIKeysRepo:           cfg.APIKeysRepo,
 		RunLimiter:            cfg.RunLimiter,
@@ -223,7 +224,7 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 		LlmCredentialsRepo:           cfg.LlmCredentialsRepo,
 		LlmRoutesRepo:                cfg.LlmRoutesRepo,
 		SecretsRepo:                  cfg.SecretsRepo,
-		Pool:                         nil,
+		Pool:                         cfg.Pool,
 		DirectPool:                   nil,
 		AsrCredentialsRepo:           cfg.AsrCredentialsRepo,
 		MCPConfigsRepo:               cfg.MCPConfigsRepo,
@@ -260,7 +261,7 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 		ReferralsRepo:       cfg.ReferralsRepo,
 		RedemptionCodesRepo: cfg.RedemptionCodesRepo,
 		AuditWriter:         cfg.AuditWriter,
-		Pool:                nil,
+		Pool:                cfg.Pool,
 	})
 
 	accountapi.RegisterRoutes(mux, accountapi.Deps{
@@ -271,7 +272,7 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 		APIKeysRepo:           cfg.APIKeysRepo,
 		AuditWriter:           cfg.AuditWriter,
 		EntitlementService:    cfg.EntitlementService,
-		Pool:                  nil,
+		Pool:                  cfg.Pool,
 		AccountRepo:           cfg.AccountRepo,
 		AccountService:        cfg.AccountService,
 		WebhookRepo:           cfg.WebhookRepo,
@@ -316,7 +317,7 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 		CreditsRepo:           cfg.CreditsRepo,
 		RedemptionCodesRepo:   cfg.RedemptionCodesRepo,
 		NotificationsRepo:     cfg.NotificationsRepo,
-		Pool:                  nil,
+		Pool:                  cfg.Pool,
 		Logger:                cfg.Logger,
 		GatewayRedisClient:    nil,
 		PlatformSettingsRepo:  cfg.PlatformSettingsRepo,

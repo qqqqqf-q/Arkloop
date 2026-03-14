@@ -11,9 +11,9 @@ import (
 	"strings"
 
 	httpkit "arkloop/services/api/internal/http/httpkit"
+	"arkloop/services/api/internal/data"
 	"arkloop/services/shared/objectstore"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 var errWorkspacePathInvalid = errors.New("invalid workspace path")
@@ -66,7 +66,7 @@ func displayWorkspacePath(relativePath string) string {
 	return "/" + relativePath
 }
 
-func loadWorkspaceManifest(ctx context.Context, db *pgxpool.Pool, store environmentStore, workspaceRef string) (workspaceManifest, error) {
+func loadWorkspaceManifest(ctx context.Context, db data.DB, store environmentStore, workspaceRef string) (workspaceManifest, error) {
 	revision, err := loadWorkspaceManifestRevision(ctx, db, workspaceRef)
 	if err != nil {
 		return workspaceManifest{}, err
@@ -90,7 +90,7 @@ func loadWorkspaceManifest(ctx context.Context, db *pgxpool.Pool, store environm
 
 func listWorkspaceManifestEntries(
 	ctx context.Context,
-	db *pgxpool.Pool,
+	db data.DB,
 	store environmentStore,
 	workspaceRef string,
 	relativePath string,

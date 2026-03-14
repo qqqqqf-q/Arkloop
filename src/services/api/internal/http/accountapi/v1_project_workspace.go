@@ -17,7 +17,7 @@ import (
 	"arkloop/services/shared/environmentref"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5"
 )
 
 var errProjectWorkspaceNotFound = errors.New("project workspace not found")
@@ -82,7 +82,7 @@ func handleProjectWorkspaceRoute(
 	projectRepo *data.ProjectRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,
-	db *pgxpool.Pool,
+	db data.DB,
 	store environmentStore,
 	flagService *featureflag.Service,
 ) {
@@ -118,7 +118,7 @@ func getProjectWorkspace(
 	projectRepo *data.ProjectRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,
-	db *pgxpool.Pool,
+	db data.DB,
 	flagService *featureflag.Service,
 ) {
 	if !featuregate.EnsureClawEnabled(w, traceID, r.Context(), flagService) {
@@ -165,7 +165,7 @@ func listProjectWorkspaceFiles(
 	projectRepo *data.ProjectRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,
-	db *pgxpool.Pool,
+	db data.DB,
 	store environmentStore,
 	flagService *featureflag.Service,
 ) {
@@ -220,7 +220,7 @@ func getProjectWorkspaceFile(
 	projectRepo *data.ProjectRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,
-	db *pgxpool.Pool,
+	db data.DB,
 	store environmentStore,
 	flagService *featureflag.Service,
 ) {
@@ -290,7 +290,7 @@ func resolveProjectWorkspaceForActor(
 	w nethttp.ResponseWriter,
 	r *nethttp.Request,
 	traceID string,
-	db *pgxpool.Pool,
+	db data.DB,
 	projectRepo *data.ProjectRepository,
 	projectID uuid.UUID,
 	actor *httpkit.Actor,
@@ -313,7 +313,7 @@ func resolveProjectWorkspaceForActor(
 
 func resolveProjectWorkspace(
 	ctx context.Context,
-	db *pgxpool.Pool,
+	db data.DB,
 	projectRepo *data.ProjectRepository,
 	projectID uuid.UUID,
 	actor *httpkit.Actor,
@@ -333,7 +333,7 @@ func resolveProjectWorkspace(
 	}
 
 	profileRef := environmentref.BuildProfileRef(actor.AccountID, &actor.UserID)
-	tx, err := db.Begin(ctx)
+	tx, err := db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return nil, err
 	}

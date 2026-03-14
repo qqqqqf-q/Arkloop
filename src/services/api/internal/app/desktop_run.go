@@ -342,6 +342,8 @@ func RunDesktop(ctx context.Context) error {
 		TrustXForwardedFor:   false,
 		MaxInFlight:          cfg.MaxInFlight,
 
+		Pool: pgxPool,
+
 		AuthService:           authService,
 		RegistrationService:   nil,
 		EmailVerifyService:    nil,

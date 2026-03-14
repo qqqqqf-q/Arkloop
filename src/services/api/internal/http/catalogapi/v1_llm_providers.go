@@ -17,7 +17,6 @@ import (
 	"arkloop/services/api/internal/observability"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type createLlmProviderRequest struct {
@@ -107,7 +106,7 @@ func llmProvidersEntry(
 	routeRepo *data.LlmRoutesRepository,
 	secretsRepo *data.SecretsRepository,
 	projectRepo *data.ProjectRepository,
-	pool *pgxpool.Pool,
+	pool data.TxStarter,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	service := llmproviders.NewService(pool, credRepo, routeRepo, secretsRepo, projectRepo)
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
@@ -130,7 +129,7 @@ func llmProviderEntry(
 	routeRepo *data.LlmRoutesRepository,
 	secretsRepo *data.SecretsRepository,
 	projectRepo *data.ProjectRepository,
-	pool *pgxpool.Pool,
+	pool data.TxStarter,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	service := llmproviders.NewService(pool, credRepo, routeRepo, secretsRepo, projectRepo)
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {

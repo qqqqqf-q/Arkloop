@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"arkloop/services/api/internal/data"
+
 	apicrypto "arkloop/services/api/internal/crypto"
 	sharedconfig "arkloop/services/shared/config"
 	sharedtoolruntime "arkloop/services/shared/toolruntime"
@@ -14,12 +16,16 @@ import (
 
 func buildEffectiveBuiltinToolNameSet(
 	ctx context.Context,
-	pool *pgxpool.Pool,
+	pool data.DB,
 	artifactStoreAvailable bool,
 ) map[string]struct{} {
+	var configStore sharedconfig.Store
+	if pool != nil {
+		configStore = sharedconfig.NewPGXStore(pool)
+	}
 	resolver, _ := sharedconfig.NewResolver(
 		sharedconfig.DefaultRegistry(),
-		sharedconfig.NewPGXStore(pool),
+		configStore,
 		nil,
 		0,
 	)
@@ -29,7 +35,10 @@ func buildEffectiveBuiltinToolNameSet(
 		HasConversationSearch:  pool != nil,
 		ArtifactStoreAvailable: artifactStoreAvailable,
 		LoadPlatformProviders: func(loadCtx context.Context) ([]sharedtoolruntime.ProviderConfig, error) {
-			return sharedtoolruntime.LoadPlatformProviders(loadCtx, pool, decryptPlatformProviderSecret)
+			if pgxPool, ok := pool.(*pgxpool.Pool); ok {
+				return sharedtoolruntime.LoadPlatformProviders(loadCtx, pgxPool, decryptPlatformProviderSecret)
+			}
+			return nil, nil
 		},
 	})
 	if err != nil {

@@ -14,7 +14,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type createMCPConfigRequest struct {
@@ -66,7 +65,7 @@ func mcpConfigsEntry(
 	membershipRepo *data.AccountMembershipRepository,
 	mcpRepo *data.MCPConfigsRepository,
 	secretsRepo *data.SecretsRepository,
-	pool *pgxpool.Pool,
+	pool data.DB,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		traceID := observability.TraceIDFromContext(r.Context())
@@ -86,7 +85,7 @@ func mcpConfigEntry(
 	membershipRepo *data.AccountMembershipRepository,
 	mcpRepo *data.MCPConfigsRepository,
 	secretsRepo *data.SecretsRepository,
-	pool *pgxpool.Pool,
+	pool data.DB,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		traceID := observability.TraceIDFromContext(r.Context())
@@ -123,7 +122,7 @@ func createMCPConfig(
 	membershipRepo *data.AccountMembershipRepository,
 	mcpRepo *data.MCPConfigsRepository,
 	secretsRepo *data.SecretsRepository,
-	pool *pgxpool.Pool,
+	pool data.DB,
 ) {
 	if authService == nil {
 		httpkit.WriteAuthNotConfigured(w, traceID)
@@ -293,7 +292,7 @@ func patchMCPConfig(
 	membershipRepo *data.AccountMembershipRepository,
 	mcpRepo *data.MCPConfigsRepository,
 	secretsRepo *data.SecretsRepository,
-	pool *pgxpool.Pool,
+	pool data.DB,
 ) {
 	if authService == nil {
 		httpkit.WriteAuthNotConfigured(w, traceID)
@@ -399,7 +398,7 @@ func deleteMCPConfig(
 	authService *auth.Service,
 	membershipRepo *data.AccountMembershipRepository,
 	mcpRepo *data.MCPConfigsRepository,
-	pool *pgxpool.Pool,
+	pool data.DB,
 ) {
 	if authService == nil {
 		httpkit.WriteAuthNotConfigured(w, traceID)

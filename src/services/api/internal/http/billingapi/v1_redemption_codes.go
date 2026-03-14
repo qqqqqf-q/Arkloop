@@ -14,7 +14,7 @@ import (
 	"arkloop/services/api/internal/observability"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5"
 )
 
 type redemptionCodeResponse struct {
@@ -59,7 +59,7 @@ func adminRedemptionCodesBatch(
 	redemptionRepo *data.RedemptionCodesRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,
-	pool *pgxpool.Pool,
+	pool data.DB,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	type batchRequest struct {
 		Count     int     `json:"count"`
@@ -134,7 +134,7 @@ func adminRedemptionCodesBatch(
 		}
 
 		ctx := r.Context()
-		tx, err := pool.Begin(ctx)
+		tx, err := pool.BeginTx(ctx, pgx.TxOptions{})
 		if err != nil {
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
@@ -329,7 +329,7 @@ func meRedeem(
 	creditsRepo *data.CreditsRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,
-	pool *pgxpool.Pool,
+	pool data.DB,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	type redeemRequest struct {
 		Code string `json:"code"`
@@ -404,7 +404,7 @@ func meRedeem(
 			return
 		}
 
-		tx, err := pool.Begin(ctx)
+		tx, err := pool.BeginTx(ctx, pgx.TxOptions{})
 		if err != nil {
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return

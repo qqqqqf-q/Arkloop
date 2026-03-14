@@ -11,7 +11,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 var ErrNotConfigured = errors.New("llm providers service not configured")
@@ -112,7 +111,7 @@ func (e ProviderSecretMissingError) Error() string {
 }
 
 type Service struct {
-	pool        *pgxpool.Pool
+	pool        data.TxStarter
 	credentials *data.LlmCredentialsRepository
 	routes      *data.LlmRoutesRepository
 	secrets     *data.SecretsRepository
@@ -120,7 +119,7 @@ type Service struct {
 }
 
 func NewService(
-	pool *pgxpool.Pool,
+	pool data.TxStarter,
 	credentials *data.LlmCredentialsRepository,
 	routes *data.LlmRoutesRepository,
 	secrets *data.SecretsRepository,
