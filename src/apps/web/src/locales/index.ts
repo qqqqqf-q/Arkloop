@@ -444,6 +444,48 @@ export interface LocaleStrings {
     save: string
   }
 
+  // desktop settings navigation
+  desktopSettings: {
+    backToChat: string
+    settingsTitle: string
+    // section headers
+    mainSection: string
+    desktopSection: string
+    // nav items
+    general: string
+    providers: string
+    personas: string
+    skills: string
+    mcp: string
+    connectors: string
+    connection: string
+    extensions: string
+    developer: string
+    // general settings
+    profileSection: string
+    appearanceSection: string
+    // placeholder pages
+    mcpTitle: string
+    mcpDesc: string
+    connectorsTitle: string
+    connectorsDesc: string
+    extensionsTitle: string
+    extensionsDesc: string
+    developerTitle: string
+    developerDesc: string
+    debugMode: string
+    debugModeDesc: string
+    logLevel: string
+    logLevelInfo: string
+    logLevelDebug: string
+    logLevelWarn: string
+    logLevelError: string
+    resetOnboarding: string
+    resetOnboardingDesc: string
+    resetOnboardingBtn: string
+    appVersion: string
+  }
+
   // onboarding wizard (desktop)
   onboarding: {
     welcomeTitle: string

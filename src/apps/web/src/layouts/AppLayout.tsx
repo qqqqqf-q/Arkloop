@@ -5,6 +5,8 @@ import { isDesktop } from '@arkloop/shared/desktop'
 import { Sidebar } from '../components/Sidebar'
 import { DesktopTitleBar } from '../components/DesktopTitleBar'
 import { SettingsModal } from '../components/SettingsModal'
+import { DesktopSettings } from '../components/DesktopSettings'
+import type { DesktopSettingsKey } from '../components/DesktopSettings'
 import { ChatsSearchModal } from '../components/ChatsSearchModal'
 import { NotificationsPanel } from '../components/NotificationsPanel'
 import { EmailVerificationGate } from '../components/EmailVerificationGate'
@@ -51,6 +53,7 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
   const isSearchModeRef = useRef(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsInitialTab, setSettingsInitialTab] = useState<SettingsTab>('account')
+  const [desktopSettingsSection, setDesktopSettingsSection] = useState<DesktopSettingsKey>('general')
   const [notificationsOpen, setNotificationsOpen] = useState(
     () => new URLSearchParams(location.search).has('notices'),
   )
@@ -272,7 +275,23 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
           accessToken={accessToken}
           onNewThread={handleNewThread}
           onLogout={handleLogout}
-          onOpenSettings={(tab = 'account') => { setSettingsInitialTab(tab); setSettingsOpen(true) }}
+          onOpenSettings={(tab = 'account') => {
+            if (desktop) {
+              const keyMap: Record<string, DesktopSettingsKey> = {
+                account: 'general',
+                settings: 'general',
+                skills: 'skills',
+                models: 'providers',
+                agents: 'personas',
+                connection: 'connection',
+              }
+              setDesktopSettingsSection(keyMap[tab] ?? 'general')
+              setSettingsOpen(true)
+            } else {
+              setSettingsInitialTab(tab)
+              setSettingsOpen(true)
+            }
+          }}
           collapsed={sidebarCollapsed}
           onToggleCollapse={() => setSidebarCollapsed(true)}
           onOpenSearch={() => {
@@ -288,7 +307,8 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
           desktopMode={desktop}
         />
 
-        {settingsOpen && (
+        {/* Settings modal for web mode */}
+        {settingsOpen && !desktop && (
           <SettingsModal
             me={me}
             accessToken={accessToken}
@@ -309,12 +329,29 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
           <ChatsSearchModal threads={threads} accessToken={accessToken} onClose={handleCloseSearch} />
         )}
 
-        <main className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
-          <Outlet context={{ accessToken, onLoggedOut, me, creditsBalance, onThreadCreated: handleThreadCreated, onRunStarted: handleRunStarted, onRunEnded: handleRunEnded, onThreadTitleUpdated: handleThreadTitleUpdated, refreshCredits, onOpenNotifications: openNotifications, notificationVersion, isPrivateMode, onTogglePrivateMode: handleTogglePrivateMode, privateThreadIds, isSearchMode, onEnterSearchMode: () => { window.history.pushState({ searchMode: true }, '', '/'); setIsSearchMode(true) }, onExitSearchMode: () => setIsSearchMode(false), onSetPendingIncognito: handleSetPendingIncognito, onRightPanelChange: setRightPanelOpen, threads, onThreadDeleted: handleThreadDeleted, pendingSkillPrompt, onConsumeSkillPrompt: () => setPendingSkillPrompt(null), appMode, availableAppModes, onSetAppMode: handleSetAppMode }} />
-          {notificationsOpen && (
-            <NotificationsPanel accessToken={accessToken} onClose={closeNotifications} onMarkedRead={handleNotificationMarkedRead} />
-          )}
-        </main>
+        {/* Desktop mode: full-screen settings replaces main content */}
+        {desktop && settingsOpen ? (
+          <DesktopSettings
+            me={me}
+            accessToken={accessToken}
+            initialSection={desktopSettingsSection}
+            onClose={() => setSettingsOpen(false)}
+            onLogout={handleLogout}
+            onMeUpdated={(updated) => setMe(updated)}
+            onTrySkill={(prompt) => {
+              setSettingsOpen(false)
+              navigate('/')
+              setPendingSkillPrompt(prompt)
+            }}
+          />
+        ) : (
+          <main className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
+            <Outlet context={{ accessToken, onLoggedOut, me, creditsBalance, onThreadCreated: handleThreadCreated, onRunStarted: handleRunStarted, onRunEnded: handleRunEnded, onThreadTitleUpdated: handleThreadTitleUpdated, refreshCredits, onOpenNotifications: openNotifications, notificationVersion, isPrivateMode, onTogglePrivateMode: handleTogglePrivateMode, privateThreadIds, isSearchMode, onEnterSearchMode: () => { window.history.pushState({ searchMode: true }, '', '/'); setIsSearchMode(true) }, onExitSearchMode: () => setIsSearchMode(false), onSetPendingIncognito: handleSetPendingIncognito, onRightPanelChange: setRightPanelOpen, threads, onThreadDeleted: handleThreadDeleted, pendingSkillPrompt, onConsumeSkillPrompt: () => setPendingSkillPrompt(null), appMode, availableAppModes, onSetAppMode: handleSetAppMode }} />
+            {notificationsOpen && (
+              <NotificationsPanel accessToken={accessToken} onClose={closeNotifications} onMarkedRead={handleNotificationMarkedRead} />
+            )}
+          </main>
+        )}
       </div>
     </div>
   )
