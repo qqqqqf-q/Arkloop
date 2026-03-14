@@ -820,3 +820,37 @@ func TestLimitedBufferExactFit(t *testing.T) {
 		t.Errorf("after extra write, String() = %q, want %q", s, "exact")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// PR-10: acp_status tests
+// ---------------------------------------------------------------------------
+
+func TestACPStatus(t *testing.T) {
+	agent, err := NewAgent("test-status")
+	if err != nil {
+		t.Fatalf("NewAgent: %v", err)
+	}
+	defer agent.Close()
+
+	addr := agent.Addr()
+	pid := startEcho(t, addr)
+
+	// Wait for echo to exit
+	time.Sleep(200 * time.Millisecond)
+
+	// Query status
+	resp := sendACPRequest(t, addr, agentRequest{
+		Action:    "acp_status",
+		ACPStatus: &acpStatusPayload{ProcessID: pid},
+	})
+	if resp.Error != "" {
+		t.Fatalf("acp_status error: %s", resp.Error)
+	}
+	if resp.ACPStatus == nil {
+		t.Fatal("acp_status: nil result")
+	}
+	// echo exits quickly, so we expect exited
+	if !resp.ACPStatus.Exited {
+		t.Error("expected exited=true for echo process")
+	}
+}

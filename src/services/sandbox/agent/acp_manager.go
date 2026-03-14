@@ -78,6 +78,17 @@ type ACPWaitResponse struct {
 	Stderr   string `json:"stderr,omitempty"`
 }
 
+type ACPStatusRequest struct {
+	ProcessID string `json:"process_id"`
+}
+
+type ACPStatusResponse struct {
+	Running      bool   `json:"running"`
+	StdoutCursor uint64 `json:"stdout_cursor"`
+	Exited       bool   `json:"exited"`
+	ExitCode     *int   `json:"exit_code,omitempty"`
+}
+
 // ---------- internal ----------
 
 const (
@@ -294,6 +305,32 @@ func (m *ACPManager) Wait(req ACPWaitRequest) (*ACPWaitResponse, error) {
 	}
 	p.mu.Unlock()
 	return resp, nil
+}
+
+// ---------- Status ----------
+
+func (m *ACPManager) Status(req ACPStatusRequest) (*ACPStatusResponse, error) {
+	p, err := m.lookup(req.ProcessID)
+	if err != nil {
+		return nil, err
+	}
+
+	p.mu.Lock()
+	running := !p.exited
+	exited := p.exited
+	var code *int
+	if exited {
+		code = p.exitCode
+	}
+	cursor := p.stdout.EndCursor()
+	p.mu.Unlock()
+
+	return &ACPStatusResponse{
+		Running:      running,
+		StdoutCursor: cursor,
+		Exited:       exited,
+		ExitCode:     code,
+	}, nil
 }
 
 // ---------- helpers ----------

@@ -28,6 +28,10 @@ var agentCommands = map[string][]string{
 	"opencode": {"opencode", "acp"},
 }
 
+// sessionRegistry is a package-level singleton shared across all executor calls
+// within the same worker process, enabling ACP session reuse across tool invocations.
+var sessionRegistry = acp.NewRegistry()
+
 type ToolExecutor struct {
 	ConfigResolver sharedconfig.Resolver
 	JWTSecret      string
@@ -141,17 +145,53 @@ func (e ToolExecutor) Execute(
 	}
 
 	client := acp.NewClient(rt.SandboxBaseURL, rt.SandboxAuthToken)
+	emitter := execCtx.Emitter
+	sandboxSessionID := execCtx.RunID.String()
+
+	// Try to reuse existing session
+	if entry := sessionRegistry.Get(sandboxSessionID); entry != nil {
+		result, reused := e.tryReuse(ctx, client, cfg, entry, task, emitter, started)
+		if reused {
+			return result
+		}
+		// Reuse failed, remove stale entry and fall through to fresh session
+		sessionRegistry.Remove(sandboxSessionID)
+		slog.Info("acp: session reuse failed, creating fresh session", "session_id", sandboxSessionID)
+	}
+
+	// Fresh session
+	return e.runFresh(ctx, client, cfg, sandboxSessionID, task, emitter, started)
+}
+
+func (e ToolExecutor) tryReuse(
+	ctx context.Context,
+	client *acp.Client,
+	cfg acp.BridgeConfig,
+	entry *acp.SessionEntry,
+	task string,
+	emitter events.Emitter,
+	started time.Time,
+) (tools.ExecutionResult, bool) {
 	bridge := acp.NewBridge(client, cfg)
+	bridge.Bind(acp.BridgeState{
+		ProcessID:    entry.ProcessID,
+		ACPSessionID: entry.ACPSessionID,
+		Cursor:       entry.Cursor,
+		AgentVersion: entry.AgentVersion,
+	})
+
+	// Verify the process is still alive
+	if err := bridge.CheckAlive(ctx); err != nil {
+		slog.Warn("acp: reuse check failed", "error", err, "session_id", cfg.SessionID)
+		return tools.ExecutionResult{}, false
+	}
 
 	var collectedEvents []events.RunEvent
 	var outputParts []string
 	var summary string
 
-	emitter := execCtx.Emitter
-
-	err := bridge.Run(ctx, task, emitter, func(ev events.RunEvent) error {
+	err := bridge.RunPrompt(ctx, task, emitter, func(ev events.RunEvent) error {
 		collectedEvents = append(collectedEvents, ev)
-
 		switch ev.Type {
 		case "message.delta":
 			if delta, ok := ev.DataJSON["content_delta"].(string); ok {
@@ -168,6 +208,57 @@ func (e ToolExecutor) Execute(
 	elapsed := int(time.Since(started) / time.Millisecond)
 
 	if err != nil {
+		slog.Warn("acp: reuse prompt failed", "error", err, "session_id", cfg.SessionID)
+		return tools.ExecutionResult{}, false
+	}
+
+	// Update registry with new cursor position
+	state := bridge.State()
+	sessionRegistry.Store(cfg.SessionID, acp.SessionEntry{
+		ProcessID:    state.ProcessID,
+		ACPSessionID: state.ACPSessionID,
+		Cursor:       state.Cursor,
+		AgentVersion: state.AgentVersion,
+	})
+
+	result := e.buildResult(collectedEvents, outputParts, summary, elapsed)
+	return result, true
+}
+
+func (e ToolExecutor) runFresh(
+	ctx context.Context,
+	client *acp.Client,
+	cfg acp.BridgeConfig,
+	sandboxSessionID string,
+	task string,
+	emitter events.Emitter,
+	started time.Time,
+) tools.ExecutionResult {
+	bridge := acp.NewBridge(client, cfg)
+
+	var collectedEvents []events.RunEvent
+	var outputParts []string
+	var summary string
+
+	err := bridge.Run(ctx, task, emitter, func(ev events.RunEvent) error {
+		collectedEvents = append(collectedEvents, ev)
+		switch ev.Type {
+		case "message.delta":
+			if delta, ok := ev.DataJSON["content_delta"].(string); ok {
+				outputParts = append(outputParts, delta)
+			}
+		case "run.completed":
+			if s, ok := ev.DataJSON["summary"].(string); ok {
+				summary = s
+			}
+		}
+		return nil
+	})
+
+	elapsed := int(time.Since(started) / time.Millisecond)
+
+	if err != nil {
+		bridge.Close()
 		return tools.ExecutionResult{
 			Error: &tools.ExecutionError{
 				ErrorClass: "tool.execution_failed",
@@ -178,6 +269,33 @@ func (e ToolExecutor) Execute(
 		}
 	}
 
+	// Save session for reuse (process stays alive)
+	state := bridge.State()
+	if state.ProcessID != "" && state.ACPSessionID != "" {
+		sessionRegistry.Store(sandboxSessionID, acp.SessionEntry{
+			ProcessID:    state.ProcessID,
+			ACPSessionID: state.ACPSessionID,
+			Cursor:       state.Cursor,
+			AgentVersion: state.AgentVersion,
+		})
+		slog.Info("acp: session saved for reuse",
+			"session_id", sandboxSessionID,
+			"process_id", state.ProcessID,
+			"acp_session_id", state.ACPSessionID,
+		)
+	} else {
+		bridge.Close()
+	}
+
+	return e.buildResult(collectedEvents, outputParts, summary, elapsed)
+}
+
+func (e ToolExecutor) buildResult(
+	collectedEvents []events.RunEvent,
+	outputParts []string,
+	summary string,
+	elapsed int,
+) tools.ExecutionResult {
 	if len(collectedEvents) > 0 {
 		last := collectedEvents[len(collectedEvents)-1]
 		if last.Type == "run.failed" {

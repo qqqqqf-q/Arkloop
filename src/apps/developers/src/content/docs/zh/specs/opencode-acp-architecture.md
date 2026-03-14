@@ -719,6 +719,8 @@ LLM -> acp_agent(task="...", profile="strong")
 
 ### PR-9：权限确认与治理增强
 
+当前状态：**已完成**
+
 目标：把 OpenCode 执行从“能跑”提升到“可控”。
 
 范围：
@@ -737,6 +739,8 @@ LLM -> acp_agent(task="...", profile="strong")
 
 ### PR-10：恢复与复用能力
 
+当前状态：**已完成**
+
 目标：让 code session 更接近持久化工作流，而不是一次性短进程。
 
 范围：
@@ -750,6 +754,13 @@ LLM -> acp_agent(task="...", profile="strong")
 
 - 同一个 code session 能跨多次 prompt 继续使用
 - 中间断线不必强制重新起整个 sandbox
+
+实现内容：
+
+- **sandbox 状态查询端点**：新增 `acp_status` 端点，查询进程存活状态和 stdout cursor 位置
+- **Bridge 多 prompt 支持**：`Bind()` 绑定已有进程、`RunPrompt()` 复用 session 发送新 prompt、`CheckAlive()` 健康检查、`State()` 导出状态
+- **Worker 会话注册表**：`Registry` 缓存活跃 ACP session，支持跨 tool call 复用
+- **执行器复用逻辑**：`acp_agent` 工具优先复用已有 session，失败时自动回退到新建
 
 ### 延后项
 
@@ -777,11 +788,9 @@ LLM -> acp_agent(task="...", profile="strong")
 7. PR-7 本地 sandbox / cowork 复用
 8. 真实测试：验证完整链路（LLM -> acp_agent -> OpenCode -> 完成编码任务）
 9. PR-7.5 LLM Proxy + Profile 映射
-10. PR-10 恢复与复用
-11. PR-9 权限与治理增强
+10. PR-9 权限确认与治理增强（已完成）
+11. PR-10 恢复与复用（已完成）
 12. ~~PR-8 MCP 最小注入~~（移除，第一阶段不需要）
-9. PR-9 权限与治理增强
-10. PR-10 恢复与复用
 
 ### 收敛标准
 

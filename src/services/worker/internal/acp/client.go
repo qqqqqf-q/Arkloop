@@ -94,6 +94,21 @@ type WaitResponse struct {
 	Stderr   string `json:"stderr,omitempty"`
 }
 
+type StatusRequest struct {
+	SessionID string `json:"session_id"`
+	AccountID string `json:"account_id,omitempty"`
+	ProcessID string `json:"process_id"`
+}
+
+type StatusResponse struct {
+	SessionID    string `json:"session_id"`
+	ProcessID    string `json:"process_id"`
+	Running      bool   `json:"running"`
+	StdoutCursor uint64 `json:"stdout_cursor"`
+	Exited       bool   `json:"exited"`
+	ExitCode     *int   `json:"exit_code,omitempty"`
+}
+
 // --- Structured errors ---
 
 type ClientError struct {
@@ -135,6 +150,14 @@ func (c *Client) Stop(ctx context.Context, req StopRequest) error {
 func (c *Client) Wait(ctx context.Context, req WaitRequest) (*WaitResponse, error) {
 	var resp WaitResponse
 	if err := c.post(ctx, "/v1/acp/wait", req, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+func (c *Client) Status(ctx context.Context, req StatusRequest) (*StatusResponse, error) {
+	var resp StatusResponse
+	if err := c.post(ctx, "/v1/acp/status", req, &resp); err != nil {
 		return nil, err
 	}
 	return &resp, nil

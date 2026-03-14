@@ -123,6 +123,7 @@ type AgentRequest struct {
 	ACPRead      *ACPReadRequest                 `json:"acp_read,omitempty"`
 	ACPStop      *ACPStopRequest                 `json:"acp_stop,omitempty"`
 	ACPWait      *ACPWaitRequest                 `json:"acp_wait,omitempty"`
+	ACPStatus    *ACPStatusRequest               `json:"acp_status,omitempty"`
 }
 
 // AgentResponse 是 v2 协议的统一响应。
@@ -140,6 +141,7 @@ type AgentResponse struct {
 	ACPRead      *ACPReadResponse               `json:"acp_read,omitempty"`
 	ACPStop      *ACPStopResponse               `json:"acp_stop,omitempty"`
 	ACPWait      *ACPWaitResponse               `json:"acp_wait,omitempty"`
+	ACPStatus    *ACPStatusResponse             `json:"acp_status,omitempty"`
 	Code         string                         `json:"code,omitempty"`
 	Error        string                         `json:"error,omitempty"`
 }
@@ -422,6 +424,18 @@ func handleV2(conn net.Conn, req AgentRequest) {
 			return
 		}
 		writeJSON(conn, AgentResponse{Action: req.Action, ACPWait: resp})
+
+	case "acp_status":
+		if req.ACPStatus == nil {
+			writeJSON(conn, AgentResponse{Action: req.Action, Error: "acp_status is required"})
+			return
+		}
+		resp, err := acpManager.Status(*req.ACPStatus)
+		if err != nil {
+			writeJSON(conn, AgentResponse{Action: req.Action, Error: err.Error()})
+			return
+		}
+		writeJSON(conn, AgentResponse{Action: req.Action, ACPStatus: resp})
 
 	default:
 		writeJSON(conn, AgentResponse{Action: req.Action, Error: fmt.Sprintf("unknown action: %s", req.Action)})

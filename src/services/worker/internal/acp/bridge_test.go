@@ -14,12 +14,13 @@ import (
 // --- mock transport ---
 
 type mockTransport struct {
-	mu      sync.Mutex
-	startFn func(ctx context.Context, req StartRequest) (*StartResponse, error)
-	writeFn func(ctx context.Context, req WriteRequest) error
-	readFn  func(ctx context.Context, req ReadRequest) (*ReadResponse, error)
-	stopFn  func(ctx context.Context, req StopRequest) error
-	waitFn  func(ctx context.Context, req WaitRequest) (*WaitResponse, error)
+	mu       sync.Mutex
+	startFn  func(ctx context.Context, req StartRequest) (*StartResponse, error)
+	writeFn  func(ctx context.Context, req WriteRequest) error
+	readFn   func(ctx context.Context, req ReadRequest) (*ReadResponse, error)
+	stopFn   func(ctx context.Context, req StopRequest) error
+	waitFn   func(ctx context.Context, req WaitRequest) (*WaitResponse, error)
+	statusFn func(ctx context.Context, req StatusRequest) (*StatusResponse, error)
 
 	writes  []WriteRequest
 	stopped bool
@@ -58,6 +59,13 @@ func (m *mockTransport) Wait(ctx context.Context, req WaitRequest) (*WaitRespons
 		return m.waitFn(ctx, req)
 	}
 	return &WaitResponse{}, nil
+}
+
+func (m *mockTransport) Status(ctx context.Context, req StatusRequest) (*StatusResponse, error) {
+	if m.statusFn != nil {
+		return m.statusFn(ctx, req)
+	}
+	return &StatusResponse{Running: true}, nil
 }
 
 // --- test helpers ---
@@ -202,8 +210,8 @@ func TestBridge_FullLifecycle(t *testing.T) {
 		t.Errorf("summary = %v, want %q", got[2].DataJSON["summary"], "done")
 	}
 
-	if !mock.stopped {
-		t.Error("process was not stopped during cleanup")
+	if mock.stopped {
+		t.Error("process should not be stopped after successful Run (caller owns lifecycle)")
 	}
 }
 
@@ -259,6 +267,7 @@ func TestBridge_ErrorDuringExecution(t *testing.T) {
 	if got[1].DataJSON["message"] != "out of tokens" {
 		t.Errorf("message = %v, want %q", got[1].DataJSON["message"], "out of tokens")
 	}
+	bridge.Close()
 	if !mock.stopped {
 		t.Error("process was not stopped during cleanup")
 	}
@@ -306,6 +315,7 @@ func TestBridge_ProcessExitsUnexpectedly(t *testing.T) {
 	if got[1].ErrorClass == nil || *got[1].ErrorClass != "acp.process_exited" {
 		t.Errorf("error_class = %v, want %q", got[1].ErrorClass, "acp.process_exited")
 	}
+	bridge.Close()
 	if !mock.stopped {
 		t.Error("process was not stopped during cleanup")
 	}
@@ -362,7 +372,6 @@ func TestBridge_ContextCancellation(t *testing.T) {
 
 	// session/cancel should have been sent
 	mock.mu.Lock()
-	defer mock.mu.Unlock()
 	cancelSent := false
 	for _, w := range mock.writes {
 		if strings.Contains(w.Data, "session/cancel") {
@@ -370,9 +379,11 @@ func TestBridge_ContextCancellation(t *testing.T) {
 			break
 		}
 	}
+	mock.mu.Unlock()
 	if !cancelSent {
 		t.Error("session/cancel was not sent")
 	}
+	bridge.Close()
 	if !mock.stopped {
 		t.Error("process was not stopped during cleanup")
 	}
@@ -661,5 +672,283 @@ func TestBridge_ProcessExitWithDiagnostics(t *testing.T) {
 	}
 	if failData["agent_version"] != "local-sandbox/1.0" {
 		t.Errorf("agent_version = %v, want %q", failData["agent_version"], "local-sandbox/1.0")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// PR-10: State / Bind / CheckAlive / RunPrompt tests
+// ---------------------------------------------------------------------------
+
+func TestBridge_State(t *testing.T) {
+	const acpSID = "acp-session-state"
+	readCount := 0
+
+	mock := &mockTransport{
+		startFn: func(_ context.Context, _ StartRequest) (*StartResponse, error) {
+			return &StartResponse{ProcessID: "proc-state", AgentVersion: "v1.0"}, nil
+		},
+		readFn: func(_ context.Context, _ ReadRequest) (*ReadResponse, error) {
+			readCount++
+			switch readCount {
+			case 1:
+				return &ReadResponse{Data: sessionNewResponseLine(1, acpSID), NextCursor: 100}, nil
+			case 2:
+				return &ReadResponse{
+					Data:       sessionUpdateLine(acpSID, SessionUpdateParams{Type: UpdateTypeComplete, Summary: "ok"}),
+					NextCursor: 250,
+				}, nil
+			default:
+				return nil, nil
+			}
+		},
+	}
+
+	bridge := NewBridge(mock, testConfig())
+	emitter := events.NewEmitter("trace-state")
+
+	err := bridge.Run(context.Background(), "test", emitter, func(ev events.RunEvent) error { return nil })
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	state := bridge.State()
+	if state.ProcessID != "proc-state" {
+		t.Errorf("ProcessID = %q, want %q", state.ProcessID, "proc-state")
+	}
+	if state.ACPSessionID != acpSID {
+		t.Errorf("ACPSessionID = %q, want %q", state.ACPSessionID, acpSID)
+	}
+	if state.Cursor != 250 {
+		t.Errorf("Cursor = %d, want 250", state.Cursor)
+	}
+	if state.AgentVersion != "v1.0" {
+		t.Errorf("AgentVersion = %q, want %q", state.AgentVersion, "v1.0")
+	}
+}
+
+func TestBridge_BindAndRunPrompt(t *testing.T) {
+	const acpSID = "acp-session-reuse"
+	readCount := 0
+
+	mock := &mockTransport{
+		startFn: func(_ context.Context, _ StartRequest) (*StartResponse, error) {
+			t.Fatal("Start should not be called during RunPrompt")
+			return nil, nil
+		},
+		readFn: func(_ context.Context, req ReadRequest) (*ReadResponse, error) {
+			readCount++
+			switch readCount {
+			case 1:
+				return &ReadResponse{
+					Data:       sessionUpdateLine(acpSID, SessionUpdateParams{Type: UpdateTypeTextDelta, Content: "reused output"}),
+					NextCursor: 350,
+				}, nil
+			case 2:
+				return &ReadResponse{
+					Data:       sessionUpdateLine(acpSID, SessionUpdateParams{Type: UpdateTypeComplete, Summary: "reuse done"}),
+					NextCursor: 400,
+				}, nil
+			default:
+				return nil, nil
+			}
+		},
+	}
+
+	bridge := NewBridge(mock, testConfig())
+	bridge.Bind(BridgeState{
+		ProcessID:    "proc-existing",
+		ACPSessionID: acpSID,
+		Cursor:       300,
+		AgentVersion: "v1.0",
+	})
+
+	emitter := events.NewEmitter("trace-reuse")
+	var got []events.RunEvent
+
+	err := bridge.RunPrompt(context.Background(), "second task", emitter, func(ev events.RunEvent) error {
+		got = append(got, ev)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("RunPrompt: %v", err)
+	}
+
+	wantTypes := []string{"run.started", "message.delta", "run.completed"}
+	if len(got) != len(wantTypes) {
+		t.Fatalf("got %d events %v, want %d", len(got), eventTypes(got), len(wantTypes))
+	}
+	for i, want := range wantTypes {
+		if got[i].Type != want {
+			t.Errorf("event[%d].Type = %q, want %q", i, got[i].Type, want)
+		}
+	}
+
+	// Verify "reused" flag in run.started event
+	if got[0].DataJSON["reused"] != true {
+		t.Errorf("run.started reused = %v, want true", got[0].DataJSON["reused"])
+	}
+
+	// Verify session/prompt was sent (not session/new)
+	mock.mu.Lock()
+	promptSent := false
+	newSent := false
+	for _, w := range mock.writes {
+		if strings.Contains(w.Data, "session/prompt") {
+			promptSent = true
+		}
+		if strings.Contains(w.Data, "session/new") {
+			newSent = true
+		}
+	}
+	mock.mu.Unlock()
+	if !promptSent {
+		t.Error("session/prompt was not sent")
+	}
+	if newSent {
+		t.Error("session/new should not be sent during RunPrompt")
+	}
+
+	// Verify cursor advanced
+	state := bridge.State()
+	if state.Cursor != 400 {
+		t.Errorf("cursor = %d, want 400", state.Cursor)
+	}
+}
+
+func TestBridge_CheckAlive(t *testing.T) {
+	t.Run("alive", func(t *testing.T) {
+		mock := &mockTransport{
+			statusFn: func(_ context.Context, req StatusRequest) (*StatusResponse, error) {
+				return &StatusResponse{
+					Running:      true,
+					StdoutCursor: 500,
+				}, nil
+			},
+		}
+		bridge := NewBridge(mock, testConfig())
+		bridge.Bind(BridgeState{ProcessID: "proc-alive", ACPSessionID: "ses-alive", Cursor: 100})
+
+		if err := bridge.CheckAlive(context.Background()); err != nil {
+			t.Fatalf("CheckAlive: %v", err)
+		}
+		// Cursor should be updated to server-reported position
+		if bridge.State().Cursor != 500 {
+			t.Errorf("cursor = %d, want 500", bridge.State().Cursor)
+		}
+	})
+
+	t.Run("dead", func(t *testing.T) {
+		mock := &mockTransport{
+			statusFn: func(_ context.Context, _ StatusRequest) (*StatusResponse, error) {
+				return &StatusResponse{Running: false, Exited: true}, nil
+			},
+		}
+		bridge := NewBridge(mock, testConfig())
+		bridge.Bind(BridgeState{ProcessID: "proc-dead", ACPSessionID: "ses-dead"})
+
+		if err := bridge.CheckAlive(context.Background()); err == nil {
+			t.Fatal("CheckAlive should fail for dead process")
+		}
+	})
+
+	t.Run("no_process", func(t *testing.T) {
+		mock := &mockTransport{}
+		bridge := NewBridge(mock, testConfig())
+		if err := bridge.CheckAlive(context.Background()); err == nil {
+			t.Fatal("CheckAlive should fail with no process bound")
+		}
+	})
+}
+
+func TestBridge_RunPromptRequiresState(t *testing.T) {
+	mock := &mockTransport{}
+	bridge := NewBridge(mock, testConfig())
+	emitter := events.NewEmitter("trace-noop")
+
+	err := bridge.RunPrompt(context.Background(), "test", emitter, func(ev events.RunEvent) error { return nil })
+	if err == nil {
+		t.Fatal("RunPrompt should fail without Bind/Run")
+	}
+	if !strings.Contains(err.Error(), "no process bound") {
+		t.Errorf("error = %q, want 'no process bound'", err.Error())
+	}
+}
+
+func TestBridge_MultiplePrompts(t *testing.T) {
+	const acpSID = "acp-session-multi"
+	readCount := 0
+
+	mock := &mockTransport{
+		startFn: func(_ context.Context, _ StartRequest) (*StartResponse, error) {
+			return &StartResponse{ProcessID: "proc-multi", AgentVersion: "v1.0"}, nil
+		},
+		readFn: func(_ context.Context, req ReadRequest) (*ReadResponse, error) {
+			readCount++
+			switch readCount {
+			case 1: // session/new response
+				return &ReadResponse{Data: sessionNewResponseLine(1, acpSID), NextCursor: 100}, nil
+			case 2: // first prompt complete
+				return &ReadResponse{
+					Data:       sessionUpdateLine(acpSID, SessionUpdateParams{Type: UpdateTypeComplete, Summary: "first done"}),
+					NextCursor: 200,
+				}, nil
+			case 3: // second prompt output
+				return &ReadResponse{
+					Data:       sessionUpdateLine(acpSID, SessionUpdateParams{Type: UpdateTypeTextDelta, Content: "second output"}),
+					NextCursor: 300,
+				}, nil
+			case 4: // second prompt complete
+				return &ReadResponse{
+					Data:       sessionUpdateLine(acpSID, SessionUpdateParams{Type: UpdateTypeComplete, Summary: "second done"}),
+					NextCursor: 400,
+				}, nil
+			default:
+				return nil, nil
+			}
+		},
+	}
+
+	bridge := NewBridge(mock, testConfig())
+	emitter := events.NewEmitter("trace-multi")
+
+	// First prompt via Run()
+	var firstEvents []events.RunEvent
+	err := bridge.Run(context.Background(), "first task", emitter, func(ev events.RunEvent) error {
+		firstEvents = append(firstEvents, ev)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("first Run: %v", err)
+	}
+	if len(firstEvents) != 2 || firstEvents[1].Type != "run.completed" {
+		t.Fatalf("first run events: %v", eventTypes(firstEvents))
+	}
+
+	// Second prompt via RunPrompt() (reuse)
+	var secondEvents []events.RunEvent
+	err = bridge.RunPrompt(context.Background(), "second task", emitter, func(ev events.RunEvent) error {
+		secondEvents = append(secondEvents, ev)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("second RunPrompt: %v", err)
+	}
+	if len(secondEvents) != 3 {
+		t.Fatalf("second run events: %v", eventTypes(secondEvents))
+	}
+	wantTypes := []string{"run.started", "message.delta", "run.completed"}
+	for i, want := range wantTypes {
+		if secondEvents[i].Type != want {
+			t.Errorf("second event[%d].Type = %q, want %q", i, secondEvents[i].Type, want)
+		}
+	}
+
+	// Verify cursor reflects all reads
+	state := bridge.State()
+	if state.Cursor != 400 {
+		t.Errorf("final cursor = %d, want 400", state.Cursor)
+	}
+	if state.ProcessID != "proc-multi" {
+		t.Errorf("processID = %q, want %q", state.ProcessID, "proc-multi")
 	}
 }

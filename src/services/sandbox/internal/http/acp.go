@@ -170,6 +170,38 @@ func handleACPWait(svc acp.Service, _ *logging.JSONLogger) http.HandlerFunc {
 	}
 }
 
+func handleACPStatus(svc acp.Service, _ *logging.JSONLogger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if svc == nil {
+			writeError(w, http.StatusServiceUnavailable, "acp.not_configured", "acp service not configured")
+			return
+		}
+		var req acp.StatusACPRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, http.StatusBadRequest, "sandbox.invalid_request", "invalid JSON body")
+			return
+		}
+		req.SessionID = strings.TrimSpace(req.SessionID)
+		req.AccountID = strings.TrimSpace(req.AccountID)
+		req.ProcessID = strings.TrimSpace(req.ProcessID)
+		if req.SessionID == "" {
+			writeError(w, http.StatusBadRequest, "sandbox.missing_session_id", "session_id is required")
+			return
+		}
+		if req.ProcessID == "" {
+			writeError(w, http.StatusBadRequest, "acp.missing_process_id", "process_id is required")
+			return
+		}
+
+		resp, err := svc.StatusACP(r.Context(), req)
+		if err != nil {
+			writeACPError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, resp)
+	}
+}
+
 func writeACPError(w http.ResponseWriter, err error) {
 	if acpErr, ok := err.(*acp.Error); ok {
 		status := acpErr.HTTPStatus

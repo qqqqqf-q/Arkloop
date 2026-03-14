@@ -81,6 +81,21 @@ type WaitACPAgentResponse struct {
 	Stderr   string `json:"stderr,omitempty"`
 }
 
+type StatusACPRequest struct {
+	SessionID string `json:"session_id"`
+	AccountID string `json:"account_id,omitempty"`
+	ProcessID string `json:"process_id"`
+}
+
+type StatusACPResponse struct {
+	SessionID    string `json:"session_id"`
+	ProcessID    string `json:"process_id"`
+	Running      bool   `json:"running"`
+	StdoutCursor uint64 `json:"stdout_cursor"`
+	Exited       bool   `json:"exited"`
+	ExitCode     *int   `json:"exit_code,omitempty"`
+}
+
 // Service defines the ACP session management interface.
 type Service interface {
 	StartACPAgent(ctx context.Context, req StartACPAgentRequest) (*StartACPAgentResponse, error)
@@ -88,6 +103,7 @@ type Service interface {
 	ReadACP(ctx context.Context, req ReadACPRequest) (*ReadACPResponse, error)
 	StopACPAgent(ctx context.Context, req StopACPAgentRequest) (*StopACPAgentResponse, error)
 	WaitACPAgent(ctx context.Context, req WaitACPAgentRequest) (*WaitACPAgentResponse, error)
+	StatusACP(ctx context.Context, req StatusACPRequest) (*StatusACPResponse, error)
 	Close(ctx context.Context, sessionID, accountID string) error
 }
 
@@ -98,8 +114,9 @@ type agentRequest struct {
 	ACPStart *acpStartPayload `json:"acp_start,omitempty"`
 	ACPWrite *acpWritePayload `json:"acp_write,omitempty"`
 	ACPRead  *acpReadPayload  `json:"acp_read,omitempty"`
-	ACPStop  *acpStopPayload  `json:"acp_stop,omitempty"`
-	ACPWait  *acpWaitPayload  `json:"acp_wait,omitempty"`
+	ACPStop    *acpStopPayload    `json:"acp_stop,omitempty"`
+	ACPWait    *acpWaitPayload    `json:"acp_wait,omitempty"`
+	ACPStatus  *acpStatusPayload  `json:"acp_status,omitempty"`
 }
 
 type agentResponse struct {
@@ -107,9 +124,10 @@ type agentResponse struct {
 	ACPStart *acpStartResult `json:"acp_start,omitempty"`
 	ACPWrite *acpWriteResult `json:"acp_write,omitempty"`
 	ACPRead  *acpReadResult  `json:"acp_read,omitempty"`
-	ACPStop  *acpStopResult  `json:"acp_stop,omitempty"`
-	ACPWait  *acpWaitResult  `json:"acp_wait,omitempty"`
-	Error    string          `json:"error,omitempty"`
+	ACPStop    *acpStopResult    `json:"acp_stop,omitempty"`
+	ACPWait    *acpWaitResult    `json:"acp_wait,omitempty"`
+	ACPStatus  *acpStatusResult  `json:"acp_status,omitempty"`
+	Error      string            `json:"error,omitempty"`
 }
 
 type acpStartPayload struct {
@@ -172,6 +190,17 @@ type acpWaitResult struct {
 	ExitCode *int   `json:"exit_code,omitempty"`
 	Stdout   string `json:"stdout,omitempty"`
 	Stderr   string `json:"stderr,omitempty"`
+}
+
+type acpStatusPayload struct {
+	ProcessID string `json:"process_id"`
+}
+
+type acpStatusResult struct {
+	Running      bool   `json:"running"`
+	StdoutCursor uint64 `json:"stdout_cursor"`
+	Exited       bool   `json:"exited"`
+	ExitCode     *int   `json:"exit_code,omitempty"`
 }
 
 // --- Error types ---

@@ -30,6 +30,7 @@ func NewHandler(mgr *session.Manager, envMgr *environment.Manager, skillMgr *san
 	mux.HandleFunc("POST /v1/acp/read", handleACPRead(acpSvc, logger))
 	mux.HandleFunc("POST /v1/acp/stop", handleACPStop(acpSvc, logger))
 	mux.HandleFunc("POST /v1/acp/wait", handleACPWait(acpSvc, logger))
+	mux.HandleFunc("POST /v1/acp/status", handleACPStatus(acpSvc, logger))
 	return recoverMiddleware(authMiddleware(mux, authToken, logger), logger)
 }
 

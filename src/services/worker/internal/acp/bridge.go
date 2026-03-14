@@ -18,6 +18,7 @@ type transport interface {
 	Read(ctx context.Context, req ReadRequest) (*ReadResponse, error)
 	Stop(ctx context.Context, req StopRequest) error
 	Wait(ctx context.Context, req WaitRequest) (*WaitResponse, error)
+	Status(ctx context.Context, req StatusRequest) (*StatusResponse, error)
 }
 
 const (
@@ -42,6 +43,14 @@ type BridgeConfig struct {
 	CleanupDelayMs int           // configurable cleanup delay
 }
 
+// BridgeState holds the serializable state of a Bridge for registry storage.
+type BridgeState struct {
+	ProcessID    string
+	ACPSessionID string
+	Cursor       uint64
+	AgentVersion string
+}
+
 // Bridge manages a single ACP session lifecycle.
 type Bridge struct {
 	tr           transport
@@ -62,6 +71,79 @@ func NewBridge(tr transport, config BridgeConfig) *Bridge {
 		config.ReadMaxBytes = defaultReadMaxBytes
 	}
 	return &Bridge{tr: tr, config: config}
+}
+
+// State returns the current bridge state for serialization.
+func (b *Bridge) State() BridgeState {
+	return BridgeState{
+		ProcessID:    b.processID,
+		ACPSessionID: b.acpSessionID,
+		Cursor:       b.cursor,
+		AgentVersion: b.agentVersion,
+	}
+}
+
+// Bind connects the bridge to an existing process and ACP session without starting a new one.
+func (b *Bridge) Bind(state BridgeState) {
+	b.processID = state.ProcessID
+	b.acpSessionID = state.ACPSessionID
+	b.cursor = state.Cursor
+	b.agentVersion = state.AgentVersion
+}
+
+// CheckAlive queries the sandbox for the process status.
+// Returns nil if the process is running, error otherwise.
+// Also updates the cursor to the latest stdout position.
+func (b *Bridge) CheckAlive(ctx context.Context) error {
+	if b.processID == "" {
+		return fmt.Errorf("bridge: no process bound")
+	}
+	resp, err := b.tr.Status(ctx, StatusRequest{
+		SessionID: b.config.SessionID,
+		AccountID: b.config.AccountID,
+		ProcessID: b.processID,
+	})
+	if err != nil {
+		return fmt.Errorf("bridge: status check failed: %w", err)
+	}
+	if !resp.Running {
+		return fmt.Errorf("bridge: process %s is not running (exited=%v)", b.processID, resp.Exited)
+	}
+	b.cursor = resp.StdoutCursor
+	return nil
+}
+
+// RunPrompt sends a prompt to an already-established ACP session.
+// The bridge must have processID and acpSessionID set (via prior Run or Bind).
+// Unlike Run, this does not start a process or create a new session.
+func (b *Bridge) RunPrompt(ctx context.Context, prompt string, emitter events.Emitter, yield func(events.RunEvent) error) error {
+	if b.processID == "" {
+		return fmt.Errorf("bridge: no process bound, call Run or Bind first")
+	}
+	if b.acpSessionID == "" {
+		return fmt.Errorf("bridge: no ACP session, call Run or Bind first")
+	}
+
+	if err := yield(emitter.Emit("run.started", map[string]any{
+		"status":        "working",
+		"command":       b.config.Command,
+		"agent_version": b.agentVersion,
+		"session_id":    b.config.SessionID,
+		"reused":        true,
+	}, nil, nil)); err != nil {
+		return err
+	}
+
+	if err := b.sendMessage(ctx, NewSessionPromptMessage(b.nextID(), b.acpSessionID, prompt)); err != nil {
+		return fmt.Errorf("bridge: send session/prompt: %w", err)
+	}
+
+	return b.pollUpdates(ctx, emitter, yield)
+}
+
+// Close explicitly stops the ACP process. Call when the session is truly done.
+func (b *Bridge) Close() {
+	b.cleanup()
 }
 
 func (b *Bridge) nextID() int {
@@ -93,7 +175,6 @@ func (b *Bridge) Run(ctx context.Context, prompt string, emitter events.Emitter,
 	b.processID = resp.ProcessID
 	b.agentVersion = resp.AgentVersion
 	slog.Info("acp: agent process started", "process_id", b.processID, "session_id", b.config.SessionID, "command", cmd[0])
-	defer b.cleanup()
 
 	if err := b.sendMessage(ctx, NewSessionNewMessage(b.nextID(), SessionModeCode, b.config.Cwd)); err != nil {
 		return fmt.Errorf("bridge: send session/new: %w", err)

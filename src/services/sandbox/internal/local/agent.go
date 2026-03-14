@@ -20,8 +20,9 @@ type agentRequest struct {
 	ACPStart *acpStartPayload `json:"acp_start,omitempty"`
 	ACPWrite *acpWritePayload `json:"acp_write,omitempty"`
 	ACPRead  *acpReadPayload  `json:"acp_read,omitempty"`
-	ACPStop  *acpStopPayload  `json:"acp_stop,omitempty"`
-	ACPWait  *acpWaitPayload  `json:"acp_wait,omitempty"`
+	ACPStop    *acpStopPayload    `json:"acp_stop,omitempty"`
+	ACPWait    *acpWaitPayload    `json:"acp_wait,omitempty"`
+	ACPStatus  *acpStatusPayload  `json:"acp_status,omitempty"`
 }
 
 type agentResponse struct {
@@ -29,9 +30,10 @@ type agentResponse struct {
 	ACPStart *acpStartResult `json:"acp_start,omitempty"`
 	ACPWrite *acpWriteResult `json:"acp_write,omitempty"`
 	ACPRead  *acpReadResult  `json:"acp_read,omitempty"`
-	ACPStop  *acpStopResult  `json:"acp_stop,omitempty"`
-	ACPWait  *acpWaitResult  `json:"acp_wait,omitempty"`
-	Error    string          `json:"error,omitempty"`
+	ACPStop    *acpStopResult    `json:"acp_stop,omitempty"`
+	ACPWait    *acpWaitResult    `json:"acp_wait,omitempty"`
+	ACPStatus  *acpStatusResult  `json:"acp_status,omitempty"`
+	Error      string            `json:"error,omitempty"`
 }
 
 type acpStartPayload struct {
@@ -94,6 +96,17 @@ type acpWaitResult struct {
 	ExitCode *int   `json:"exit_code,omitempty"`
 	Stdout   string `json:"stdout,omitempty"`
 	Stderr   string `json:"stderr,omitempty"`
+}
+
+type acpStatusPayload struct {
+	ProcessID string `json:"process_id"`
+}
+
+type acpStatusResult struct {
+	Running      bool   `json:"running"`
+	StdoutCursor uint64 `json:"stdout_cursor"`
+	Exited       bool   `json:"exited"`
+	ExitCode     *int   `json:"exit_code,omitempty"`
 }
 
 // --- Agent ---
@@ -194,6 +207,8 @@ func (a *Agent) dispatch(req agentRequest) agentResponse {
 		return a.handleStop(req)
 	case "acp_wait":
 		return a.handleWait(req)
+	case "acp_status":
+		return a.handleStatus(req)
 	default:
 		return agentResponse{Action: req.Action, Error: fmt.Sprintf("unknown action: %s", req.Action)}
 	}
@@ -363,6 +378,36 @@ func (a *Agent) handleWait(req agentRequest) agentResponse {
 	p.mu.Unlock()
 
 	return resp
+}
+
+func (a *Agent) handleStatus(req agentRequest) agentResponse {
+	if req.ACPStatus == nil {
+		return agentResponse{Action: req.Action, Error: "acp_status payload is required"}
+	}
+	p, err := a.lookup(req.ACPStatus.ProcessID)
+	if err != nil {
+		return agentResponse{Action: req.Action, Error: err.Error()}
+	}
+
+	p.mu.Lock()
+	running := !p.exited
+	exited := p.exited
+	var code *int
+	if exited {
+		code = p.exitCode
+	}
+	cursor := p.stdout.EndCursor()
+	p.mu.Unlock()
+
+	return agentResponse{
+		Action: req.Action,
+		ACPStatus: &acpStatusResult{
+			Running:      running,
+			StdoutCursor: cursor,
+			Exited:       exited,
+			ExitCode:     code,
+		},
+	}
 }
 
 func (a *Agent) lookup(id string) (*process, error) {

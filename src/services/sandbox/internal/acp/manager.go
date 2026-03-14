@@ -252,6 +252,38 @@ func (m *Manager) Close(ctx context.Context, sessionID, accountID string) error 
 
 // --- internal helpers ---
 
+func (m *Manager) StatusACP(ctx context.Context, req StatusACPRequest) (*StatusACPResponse, error) {
+	entry, err := m.getEntry(req.SessionID, req.AccountID)
+	if err != nil {
+		return nil, err
+	}
+
+	result, err := m.invokeACPAction(ctx, entry.compute, agentRequest{
+		Action: "acp_status",
+		ACPStatus: &acpStatusPayload{
+			ProcessID: req.ProcessID,
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	if result.ACPStatus == nil {
+		return nil, newError(CodeTransportError, "missing acp_status in response", http.StatusBadGateway)
+	}
+
+	r := result.ACPStatus
+	return &StatusACPResponse{
+		SessionID:    req.SessionID,
+		ProcessID:    req.ProcessID,
+		Running:      r.Running,
+		StdoutCursor: r.StdoutCursor,
+		Exited:       r.Exited,
+		ExitCode:     r.ExitCode,
+	}, nil
+}
+
+// --- internal helpers (invoke / getEntry) ---
+
 func (m *Manager) invokeACPAction(ctx context.Context, sn *session.Session, payload agentRequest) (*agentResponse, error) {
 	return m.invokeACPActionWithTimeout(ctx, sn, defaultCallTimeout, payload)
 }
