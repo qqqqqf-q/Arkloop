@@ -7,6 +7,7 @@ import {
   Search,
   SearchCheck,
   PanelLeftClose,
+  PanelLeftOpen,
   Bolt,
   Glasses,
   MoreHorizontal,
@@ -18,6 +19,7 @@ import {
 import type { SettingsTab } from './SettingsModal'
 import type { ThreadResponse, MeResponse } from '../api'
 import { listStarredThreadIds, starThread, unstarThread, updateThreadTitle, deleteThread } from '../api'
+import { isLocalMode } from '@arkloop/shared/desktop'
 import { useLocale } from '../contexts/LocaleContext'
 import { ShareModal } from './ShareModal'
 
@@ -173,24 +175,67 @@ export function Sidebar({
     <aside
       className={[
         'flex h-full shrink-0 flex-col overflow-hidden bg-[var(--c-bg-sidebar)]',
-        collapsed ? 'w-0' : narrow ? 'w-[240px]' : 'w-[304px]',
+        collapsed ? 'w-[48px]' : narrow ? 'w-[240px]' : 'w-[304px]',
       ].join(' ')}
       style={{
         transition: 'width 280ms cubic-bezier(0.16,1,0.3,1)',
         willChange: 'width',
-        ...(collapsed ? {} : { borderRight: '0.5px solid rgba(0,0,0,0.16)' }),
+        borderRight: '0.5px solid rgba(0,0,0,0.16)',
       }}
     >
+      {collapsed ? (
+        <div className="flex h-full flex-col items-center py-3 gap-1">
+          {desktopMode && <div className="h-2" />}
+          <button
+            onClick={onNewThread}
+            title={t.newChat}
+            className="flex h-9 w-9 items-center justify-center rounded-lg text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]"
+          >
+            <SquarePen size={16} />
+          </button>
+          <button
+            onClick={() => {
+              const basePath = location.pathname.replace(/\/search$/, '') || '/'
+              const searchPath = basePath.endsWith('/') ? `${basePath}search` : `${basePath}/search`
+              navigate(searchPath)
+            }}
+            title={t.chats}
+            className="flex h-9 w-9 items-center justify-center rounded-lg text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]"
+          >
+            <Search size={16} />
+          </button>
+          <button
+            onClick={onOpenSearch}
+            title={t.retrieve}
+            className={[
+              'flex h-9 w-9 items-center justify-center rounded-lg transition-colors hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]',
+              isSearchMode ? 'bg-[var(--c-bg-deep)] text-[var(--c-text-primary)]' : 'text-[var(--c-text-secondary)]',
+            ].join(' ')}
+          >
+            <SearchCheck size={16} />
+          </button>
+          <div className="flex-1" />
+          <button
+            onClick={onToggleCollapse}
+            title="Expand"
+            className="flex h-9 w-9 items-center justify-center rounded-lg text-[var(--c-text-tertiary)] transition-colors hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]"
+          >
+            <PanelLeftOpen size={16} />
+          </button>
+          <button
+            onClick={() => onOpenSettings('settings')}
+            title="Settings"
+            className="flex h-9 w-9 items-center justify-center rounded-lg text-[var(--c-text-icon)] transition-colors hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]"
+          >
+            <Bolt size={15} />
+          </button>
+        </div>
+      ) : (
       <div
-        className={[
-          'flex min-h-0 flex-1 flex-col',
-          collapsed ? 'opacity-0' : 'opacity-100',
-        ].join(' ')}
+        className="flex min-h-0 flex-1 flex-col opacity-100"
         style={{
           minWidth: narrow ? '240px' : '304px',
-          transition: collapsed
-            ? 'min-width 280ms cubic-bezier(0.16,1,0.3,1), opacity 100ms'
-            : 'min-width 280ms cubic-bezier(0.16,1,0.3,1), opacity 200ms 150ms',
+          transition: 'min-width 280ms cubic-bezier(0.16,1,0.3,1), opacity 200ms 150ms',
         }}
       >
       {/* 顶部标题栏 (desktop mode uses titlebar instead) */}
@@ -421,26 +466,28 @@ export function Sidebar({
 
       {/* 用户信息 */}
       <div className="mt-auto p-2" style={{ borderTop: '0.5px solid var(--c-border-subtle)' }}>
-        <button
-          onClick={() => onOpenSettings('account')}
-          className="flex w-full items-center gap-3 rounded-xl px-3 py-[10px] transition-[background-color] duration-[60ms] hover:bg-[var(--c-bg-deep)]"
-          style={{ border: '0.5px solid var(--c-border-subtle)' }}
-        >
-          <div
-            className="flex h-[39px] w-[39px] shrink-0 items-center justify-center rounded-full text-[15px] font-medium"
-            style={{ background: 'var(--c-avatar-bg)', color: 'var(--c-avatar-text)' }}
+        {!isLocalMode() && (
+          <button
+            onClick={() => onOpenSettings('account')}
+            className="flex w-full items-center gap-3 rounded-xl px-3 py-[10px] transition-[background-color] duration-[60ms] hover:bg-[var(--c-bg-deep)]"
+            style={{ border: '0.5px solid var(--c-border-subtle)' }}
           >
-            {userInitial}
-          </div>
-          <div className="flex min-w-0 flex-1 flex-col gap-[2px] text-left">
-            <div className="truncate text-sm font-medium text-[var(--c-text-secondary)]">
-              {me?.username ?? t.loading}
+            <div
+              className="flex h-[39px] w-[39px] shrink-0 items-center justify-center rounded-full text-[15px] font-medium"
+              style={{ background: 'var(--c-avatar-bg)', color: 'var(--c-avatar-text)' }}
+            >
+              {userInitial}
             </div>
-            <div className="text-xs font-normal text-[var(--c-text-tertiary)]">
-              {t.enterprisePlan}
+            <div className="flex min-w-0 flex-1 flex-col gap-[2px] text-left">
+              <div className="truncate text-sm font-medium text-[var(--c-text-secondary)]">
+                {me?.username ?? t.loading}
+              </div>
+              <div className="text-xs font-normal text-[var(--c-text-tertiary)]">
+                {t.enterprisePlan}
+              </div>
             </div>
-          </div>
-        </button>
+          </button>
+        )}
 
         {/* 底部快捷图标 */}
         <div className="mt-1 flex items-center gap-[2px] px-1">
@@ -453,6 +500,7 @@ export function Sidebar({
         </div>
       </div>
       </div>
+      )}
     </aside>
 
     {/* 三点菜单 - portal 挂到 body 避免被 overflow 裁切 */}

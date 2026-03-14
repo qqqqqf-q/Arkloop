@@ -1,6 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
-import { PanelLeftOpen } from 'lucide-react'
 import { isDesktop } from '@arkloop/shared/desktop'
 import { Sidebar } from '../components/Sidebar'
 import { DesktopTitleBar } from '../components/DesktopTitleBar'
@@ -254,16 +253,6 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
       )}
 
       <div className="flex min-h-0 flex-1">
-        {/* 侧边栏折叠时的展开按钮 (non-desktop only, desktop uses titlebar toggle) */}
-        {sidebarCollapsed && !desktop && (
-          <button
-            onClick={() => setSidebarCollapsed(false)}
-            className="fixed left-3 top-3 z-40 flex h-8 w-8 items-center justify-center rounded-lg text-[var(--c-text-tertiary)] transition-colors hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-secondary)]"
-          >
-            <PanelLeftOpen size={18} />
-          </button>
-        )}
-
         <Sidebar
           me={me}
           threads={threads}
@@ -293,7 +282,7 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
             }
           }}
           collapsed={sidebarCollapsed}
-          onToggleCollapse={() => setSidebarCollapsed(true)}
+          onToggleCollapse={() => setSidebarCollapsed(v => !v)}
           onOpenSearch={() => {
               if (location.pathname !== '/') navigate('/')
               window.history.pushState({ searchMode: true }, '', '/')
