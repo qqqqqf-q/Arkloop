@@ -10,7 +10,7 @@ export type ModuleStatus =
   | 'stopped'
   | 'error'
 
-export type ModuleCategory = 'memory' | 'sandbox' | 'search' | 'browser' | 'console' | 'infrastructure'
+export type ModuleCategory = 'memory' | 'sandbox' | 'search' | 'browser' | 'console' | 'infrastructure' | 'security'
 
 export type ModuleCapabilities = {
   installable: boolean

@@ -251,6 +251,7 @@ export const zhCN: LocaleStrings = {
     tabSearch: '搜索',
     tabBrowser: '浏览器',
     tabConsole: '控制台',
+    tabSecurity: '安全',
     statusUnknown: '未知',
     statusNotInstalled: '未安装',
     statusDisconnected: '未连接',

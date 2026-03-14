@@ -251,6 +251,7 @@ export const en: LocaleStrings = {
     tabSearch: 'Search',
     tabBrowser: 'Browser',
     tabConsole: 'Console',
+    tabSecurity: 'Security',
     statusUnknown: 'Unknown',
     statusNotInstalled: 'Not Installed',
     statusDisconnected: 'Disconnected',

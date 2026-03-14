@@ -69,9 +69,10 @@ function categoryLabel(cat: ModuleCategory, t: ModulesLocale): string {
     search: t.tabSearch,
     browser: t.tabBrowser,
     console: t.tabConsole,
+    security: t.tabSecurity,
     infrastructure: 'Infra',
   }
-  return map[cat]
+  return map[cat] ?? cat
 }
 
 function availableActions(mod: ModuleInfo, bridgeOnline: boolean): ModuleAction[] {
@@ -86,7 +87,9 @@ function availableActions(mod: ModuleInfo, bridgeOnline: boolean): ModuleAction[
     case 'pending_bootstrap':
       return mod.capabilities.bootstrap_supported ? ['bootstrap_defaults'] : []
     case 'installed_disconnected':
-      return mod.capabilities.configurable ? ['configure_connection'] : []
+      if (mod.capabilities.configurable) return ['configure_connection']
+      if (mod.capabilities.installable) return ['install']
+      return []
     case 'error':
       return ['restart', 'stop']
   }

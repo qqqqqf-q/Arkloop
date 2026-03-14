@@ -227,6 +227,8 @@ services:
       ARKLOOP_STORAGE_ROOT: "${ARKLOOP_STORAGE_ROOT:-/var/lib/arkloop/storage}"
       ARKLOOP_S3_ENDPOINT: "${ARKLOOP_S3_ENDPOINT_DOCKER:-}"
       ARKLOOP_OUTBOUND_TRUST_FAKE_IP: "${ARKLOOP_OUTBOUND_TRUST_FAKE_IP:-true}"
+      ARKLOOP_PROMPT_GUARD_MODEL_DIR: "/var/lib/arkloop/models/prompt-guard"
+      ARKLOOP_ONNX_RUNTIME_LIB: "/usr/lib/libonnxruntime.so"
     depends_on:
       migrate:
         condition: service_completed_successfully
