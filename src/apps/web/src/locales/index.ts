@@ -486,6 +486,120 @@ export interface LocaleStrings {
     appVersion: string
   }
 
+  // admin providers/models settings (ported from console-lite)
+  adminProviders: {
+    title: string
+    addProvider: string
+    editProvider: string
+    deleteProvider: string
+    deleteProviderConfirm: string
+    providerName: string
+    providerNamePlaceholder: string
+    vendor: string
+    apiKey: string
+    apiKeyPlaceholder: string
+    apiKeyHint: string
+    baseUrl: string
+    baseUrlPlaceholder: string
+    save: string
+    saving: string
+    cancel: string
+    noProviders: string
+    noProvidersDesc: string
+    modelsSection: string
+    addModel: string
+    editModel: string
+    deleteModel: string
+    importModels: string
+    importing: string
+    importDone: (count: number) => string
+    modelName: string
+    modelNamePlaceholder: string
+    priority: string
+    isDefault: string
+    tags: string
+    tagsPlaceholder: string
+    noModels: string
+    loadFailed: string
+    saveFailed: string
+    deleteFailed: string
+    vendorOpenai: string
+    vendorOpenaiChat: string
+    vendorAnthropic: string
+    advancedConfig: string
+    searchProviders: string
+  }
+  // admin agents settings (ported from console-lite)
+  adminAgents: {
+    title: string
+    subtitle: string
+    addAgent: string
+    editAgent: string
+    deleteAgent: string
+    deleteAgentConfirm: string
+    displayName: string
+    displayNamePlaceholder: string
+    personaKey: string
+    model: string
+    modelPlaceholder: string
+    noModel: string
+    active: string
+    inactive: string
+    builtIn: string
+    custom: string
+    promptTab: string
+    overviewTab: string
+    toolsTab: string
+    prompt: string
+    promptPlaceholder: string
+    reasoningMode: string
+    reasoningDefault: string
+    reasoningEnabled: string
+    reasoningDisabled: string
+    temperature: string
+    maxOutputTokens: string
+    toolSelectionInherit: string
+    toolSelectionCustom: string
+    toolsInheritDesc: string
+    toolsCustomDesc: string
+    enableAll: string
+    disableAll: string
+    noAgents: string
+    saveFailed: string
+    noTools: string
+    toolSearch: string
+  }
+  // admin tools/connectors settings (ported from console-lite)
+  adminTools: {
+    title: string
+    subtitle: string
+    activate: string
+    deactivate: string
+    configured: string
+    unconfigured: string
+    editCredentials: string
+    clearCredentials: string
+    clearCredentialsConfirm: string
+    apiKey: string
+    apiKeyPlaceholder: string
+    baseUrl: string
+    baseUrlPlaceholder: string
+    save: string
+    saving: string
+    cancel: string
+    noProviders: string
+    toolDescriptions: string
+    editDescription: string
+    resetDescription: string
+    enableTool: string
+    disableTool: string
+    descriptionOverride: string
+    configSection: string
+    applyConfig: string
+    applying: string
+    applied: string
+  }
+
   // onboarding wizard (desktop)
   onboarding: {
     welcomeTitle: string

@@ -116,7 +116,7 @@ export function DesktopSettings({
       case 'mcp':
         return <MCPSettings />
       case 'connectors':
-        return <ConnectorsSettings />
+        return <ConnectorsSettings accessToken={accessToken} />
       case 'connection':
         return <ConnectionSettings />
       case 'extensions':
