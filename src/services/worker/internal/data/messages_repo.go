@@ -157,14 +157,14 @@ func (MessagesRepository) ListByThread(
 func (MessagesRepository) ListByIDs(
 	ctx context.Context,
 	tx pgx.Tx,
-	orgID uuid.UUID,
+	accountID uuid.UUID,
 	threadID uuid.UUID,
 	messageIDs []uuid.UUID,
 ) ([]ThreadMessage, error) {
 	if tx == nil {
 		return nil, fmt.Errorf("tx must not be nil")
 	}
-	if orgID == uuid.Nil || threadID == uuid.Nil {
+	if accountID == uuid.Nil || threadID == uuid.Nil {
 		return nil, fmt.Errorf("account_id and thread_id must not be empty")
 	}
 	if len(messageIDs) == 0 {
@@ -180,7 +180,7 @@ func (MessagesRepository) ListByIDs(
 		   AND hidden = FALSE
 		   AND deleted_at IS NULL
 		 ORDER BY created_at ASC, id ASC`,
-		orgID,
+		accountID,
 		threadID,
 		messageIDs,
 	)
@@ -211,14 +211,14 @@ func (MessagesRepository) ListByIDs(
 func (MessagesRepository) ListRecentByThread(
 	ctx context.Context,
 	tx pgx.Tx,
-	orgID uuid.UUID,
+	accountID uuid.UUID,
 	threadID uuid.UUID,
 	limit int,
 ) ([]ThreadMessage, error) {
 	if tx == nil {
 		return nil, fmt.Errorf("tx must not be nil")
 	}
-	if orgID == uuid.Nil || threadID == uuid.Nil {
+	if accountID == uuid.Nil || threadID == uuid.Nil {
 		return nil, fmt.Errorf("account_id and thread_id must not be empty")
 	}
 	if limit <= 0 {
@@ -238,7 +238,7 @@ func (MessagesRepository) ListRecentByThread(
 		 	 LIMIT $3
 		 ) recent
 		 ORDER BY created_at ASC, id ASC`,
-		orgID,
+		accountID,
 		threadID,
 		limit,
 	)
@@ -269,7 +269,7 @@ func (MessagesRepository) ListRecentByThread(
 func (MessagesRepository) InsertThreadMessage(
 	ctx context.Context,
 	tx pgx.Tx,
-	orgID uuid.UUID,
+	accountID uuid.UUID,
 	threadID uuid.UUID,
 	role string,
 	content string,
@@ -279,7 +279,7 @@ func (MessagesRepository) InsertThreadMessage(
 	if tx == nil {
 		return uuid.Nil, fmt.Errorf("tx must not be nil")
 	}
-	if orgID == uuid.Nil || threadID == uuid.Nil {
+	if accountID == uuid.Nil || threadID == uuid.Nil {
 		return uuid.Nil, fmt.Errorf("account_id and thread_id must not be empty")
 	}
 	trimmedRole := strings.TrimSpace(role)
@@ -299,7 +299,7 @@ func (MessagesRepository) InsertThreadMessage(
 			$1, $2, $3, $4, $5, $6
 		)
 		 RETURNING id`,
-		orgID,
+		accountID,
 		threadID,
 		createdByUserID,
 		trimmedRole,

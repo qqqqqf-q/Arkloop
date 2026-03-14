@@ -46,7 +46,7 @@ func getWebhookEndpoint(ctx context.Context, pool *pgxpool.Pool, id uuid.UUID) (
 	return &ep, false, nil
 }
 
-// listEndpointsForEvent 返回指定 org 中订阅了给定事件类型的所有启用端点。
+// listEndpointsForEvent 返回指定 account 中订阅了给定事件类型的所有启用端点。
 func listEndpointsForEvent(ctx context.Context, pool *pgxpool.Pool, accountID uuid.UUID, eventType string) ([]endpointRow, error) {
 	rows, err := pool.Query(ctx,
 		`SELECT e.id, e.url, s.encrypted_value, e.events, e.enabled

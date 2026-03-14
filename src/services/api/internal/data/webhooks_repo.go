@@ -13,7 +13,7 @@ import (
 
 type WebhookEndpoint struct {
 	ID        uuid.UUID
-	AccountID     uuid.UUID
+	AccountID uuid.UUID
 	URL       string
 	SecretID  *uuid.UUID
 	Events    []string
@@ -142,7 +142,7 @@ func (r *WebhookEndpointRepository) SetEnabled(ctx context.Context, id uuid.UUID
 	return &ep, nil
 }
 
-// Delete 删除指定 org 下的 webhook 端点，通过 account_id 条件避免越权删除。
+// Delete 删除指定 account 下的 webhook 端点，通过 account_id 条件避免越权删除。
 func (r *WebhookEndpointRepository) Delete(ctx context.Context, id uuid.UUID, accountID uuid.UUID) error {
 	tag, err := r.db.Exec(
 		ctx,

@@ -58,7 +58,7 @@ func (c *DiscoveryCache) Get(ctx context.Context, pool *pgxpool.Pool, accountID 
 	return reg, nil
 }
 
-// Invalidate 删除指定 org 的缓存条目。
+// Invalidate 删除指定 account 的缓存条目。
 func (c *DiscoveryCache) Invalidate(accountID uuid.UUID) {
 	c.entries.Delete(accountID.String())
 }

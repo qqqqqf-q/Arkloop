@@ -69,7 +69,7 @@ type EngineV1Deps struct {
 
 	PersonaRegistryGetter        func() *personas.Registry
 	MCPPool                      *mcp.Pool
-	MCPDiscoveryCache            *mcp.DiscoveryCache // 缓存 DiscoverFromDB 结果，nil 时跳过 per-org MCP 发现
+	MCPDiscoveryCache            *mcp.DiscoveryCache // 缓存 DiscoverFromDB 结果，nil 时跳过 per-account MCP 发现
 	ToolProviderCache            *toolprovider.Cache
 	ToolDescriptionOverridesRepo pipeline.ToolDescriptionOverridesReader
 	ExecutorRegistry             pipeline.AgentExecutorBuilder // 必填，nil 时 NewEngineV1 返回错误

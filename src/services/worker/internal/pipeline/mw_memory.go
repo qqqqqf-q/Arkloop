@@ -49,9 +49,9 @@ func NewMemoryMiddleware(provider memory.MemoryProvider, pool *pgxpool.Pool, con
 		}
 
 		ident := memory.MemoryIdentity{
-			AccountID:   rc.Run.AccountID,
-			UserID:  *rc.UserID,
-			AgentID: agentID,
+			AccountID: rc.Run.AccountID,
+			UserID:    *rc.UserID,
+			AgentID:   agentID,
 		}
 
 		userQuery := lastUserMessageText(rc.Messages)
@@ -320,7 +320,7 @@ func distillAfterRun(provider memory.MemoryProvider, pool *pgxpool.Pool, configR
 
 	sessionID := rc.Run.ThreadID.String()
 	costPerCommit := resolveCommitCost(context.Background(), configResolver)
-	orgID := rc.Run.AccountID
+	accountID := rc.Run.AccountID
 	runID := rc.Run.ID
 
 	go func() {
@@ -329,7 +329,7 @@ func distillAfterRun(provider memory.MemoryProvider, pool *pgxpool.Pool, configR
 
 		if err := provider.AppendSessionMessages(ctx, ident, sessionID, msgs); err != nil {
 			slog.Warn("memory: distill append failed",
-				"account_id", orgID.String(),
+				"account_id", accountID.String(),
 				"session_id", sessionID,
 				"err", err.Error(),
 			)
@@ -338,7 +338,7 @@ func distillAfterRun(provider memory.MemoryProvider, pool *pgxpool.Pool, configR
 
 		if err := provider.CommitSession(ctx, ident, sessionID); err != nil {
 			slog.Warn("memory: distill commit failed",
-				"account_id", orgID.String(),
+				"account_id", accountID.String(),
 				"session_id", sessionID,
 				"err", err.Error(),
 			)
@@ -348,7 +348,7 @@ func distillAfterRun(provider memory.MemoryProvider, pool *pgxpool.Pool, configR
 		if costPerCommit > 0 && pool != nil {
 			uCtx, uCancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer uCancel()
-			if err := usageRepo.InsertMemoryUsage(uCtx, pool, orgID, runID, costPerCommit); err != nil {
+			if err := usageRepo.InsertMemoryUsage(uCtx, pool, accountID, runID, costPerCommit); err != nil {
 				slog.Warn("memory: distill usage record failed",
 					"run_id", runID.String(),
 					"err", err.Error(),

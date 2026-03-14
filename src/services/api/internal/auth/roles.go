@@ -7,7 +7,7 @@ const (
 	RoleAccountMember = "account_member"
 )
 
-var orgAdminPerms = []string{
+var accountAdminPerms = []string{
 	PermOrgMembersInvite, PermOrgMembersList, PermOrgMembersRevoke,
 	PermOrgTeamsRead, PermOrgTeamsManage,
 	PermDataThreadsRead, PermDataThreadsWrite,
@@ -24,11 +24,11 @@ var orgAdminPerms = []string{
 	PermOrgAuditRead,
 }
 
-var orgMemberPerms = []string{
+var accountMemberPerms = []string{
 	PermOrgTeamsRead,
 	PermDataThreadsRead, PermDataThreadsWrite,
 	PermDataRunsRead, PermDataRunsWrite,
-	// 成员可管理自己名下的 API Key，符合最小特权原则——Key 归属于创建者，不涉及 org 级写操作。
+	// 成员可管理自己名下的 API Key，符合最小特权原则，不涉及 account 级写操作。
 	PermDataAPIKeysManage,
 	PermDataPersonasRead,
 	PermDataProjectsRead,
@@ -45,7 +45,7 @@ var platformAdminPerms = append(
 		PermPlatformFeatureFlagsManage,
 		PermPlatformInviteCodesManage,
 	},
-	orgAdminPerms...,
+	accountAdminPerms...,
 )
 
 // PermissionsForRole 根据角色名返回权限集合的副本，同时兼容旧值 "owner"/"member"。
@@ -56,9 +56,9 @@ func PermissionsForRole(role string) []string {
 	case RolePlatformAdmin:
 		src = platformAdminPerms
 	case RoleAccountAdmin, "owner":
-		src = orgAdminPerms
+		src = accountAdminPerms
 	case RoleAccountMember, "member":
-		src = orgMemberPerms
+		src = accountMemberPerms
 	default:
 		return nil
 	}

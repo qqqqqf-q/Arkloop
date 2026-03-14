@@ -32,11 +32,11 @@ func NewSubAgentStateProjector(pool *pgxpool.Pool, rdb *redis.Client, jobQueue q
 	}
 }
 
-func (p *SubAgentStateProjector) EnqueueRun(ctx context.Context, orgID uuid.UUID, runID uuid.UUID, traceID string, availableAt *time.Time) error {
+func (p *SubAgentStateProjector) EnqueueRun(ctx context.Context, accountID uuid.UUID, runID uuid.UUID, traceID string, availableAt *time.Time) error {
 	if p.jobQueue == nil {
 		return fmt.Errorf("sub-agent control job queue must not be nil")
 	}
-	_, err := p.jobQueue.EnqueueRun(ctx, orgID, runID, strings.TrimSpace(traceID), queue.RunExecuteJobType, map[string]any{}, availableAt)
+	_, err := p.jobQueue.EnqueueRun(ctx, accountID, runID, strings.TrimSpace(traceID), queue.RunExecuteJobType, map[string]any{}, availableAt)
 	return err
 }
 

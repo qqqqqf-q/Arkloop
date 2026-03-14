@@ -31,7 +31,7 @@ func TestPersonasRepositoryScopesRowsToProject(t *testing.T) {
 	}
 	orgRepo, err := NewAccountRepository(pool)
 	if err != nil {
-		t.Fatalf("new org repo: %v", err)
+		t.Fatalf("new account repo: %v", err)
 	}
 	projectRepo, err := NewProjectRepository(pool)
 	if err != nil {
@@ -40,7 +40,7 @@ func TestPersonasRepositoryScopesRowsToProject(t *testing.T) {
 
 	org, err := orgRepo.Create(ctx, "persona-scope-org", "Persona Scope Org", "personal")
 	if err != nil {
-		t.Fatalf("create org: %v", err)
+		t.Fatalf("create account: %v", err)
 	}
 	project, err := projectRepo.Create(ctx, org.ID, nil, "default", nil, "private")
 	if err != nil {
@@ -125,28 +125,28 @@ func TestPersonasRepositoryRolesJSONRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new repo: %v", err)
 	}
-	orgRepo, err := NewOrgRepository(pool)
+	accountRepo, err := NewAccountRepository(pool)
 	if err != nil {
-		t.Fatalf("new org repo: %v", err)
+		t.Fatalf("new account repo: %v", err)
 	}
 
-	org, err := orgRepo.Create(ctx, "persona-role-org", "Persona Role Org", "personal")
+	account, err := accountRepo.Create(ctx, "persona-role-org", "Persona Role Org", "personal")
 	if err != nil {
-		t.Fatalf("create org: %v", err)
+		t.Fatalf("create account: %v", err)
 	}
 	rolesJSON := json.RawMessage(`{"worker":{"prompt_md":"worker prompt","model":"worker^gpt-5-mini"}}`)
-	created, err := repo.Create(ctx, org.ID, "roleful", "1", "Roleful", nil, "prompt", nil, nil, nil, rolesJSON, nil, nil, "auto", "none", "agent.simple", nil)
+	created, err := repo.Create(ctx, account.ID, "roleful", "1", "Roleful", nil, "prompt", nil, nil, nil, rolesJSON, nil, nil, "auto", "none", "agent.simple", nil)
 	if err != nil {
 		t.Fatalf("create persona: %v", err)
 	}
 	assertJSONEqual(t, created.RolesJSON, rolesJSON)
 
-	patched, err := repo.Patch(ctx, org.ID, created.ID, PersonaPatch{RolesJSON: json.RawMessage(`{}`)})
+	patched, err := repo.Patch(ctx, account.ID, created.ID, PersonaPatch{RolesJSON: json.RawMessage(`{}`)})
 	if err != nil {
 		t.Fatalf("patch persona: %v", err)
 	}
 	assertJSONEqual(t, patched.RolesJSON, json.RawMessage(`{}`))
-	got, err := repo.GetByID(ctx, org.ID, created.ID)
+	got, err := repo.GetByID(ctx, account.ID, created.ID)
 	if err != nil {
 		t.Fatalf("get persona: %v", err)
 	}

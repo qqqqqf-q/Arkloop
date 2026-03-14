@@ -18,7 +18,7 @@ type stubJobQueue struct {
 	enqueuedRunIDs []uuid.UUID
 }
 
-func (s *stubJobQueue) EnqueueRun(ctx context.Context, orgID uuid.UUID, runID uuid.UUID, traceID string, queueJobType string, payload map[string]any, availableAt *time.Time) (uuid.UUID, error) {
+func (s *stubJobQueue) EnqueueRun(ctx context.Context, accountID uuid.UUID, runID uuid.UUID, traceID string, queueJobType string, payload map[string]any, availableAt *time.Time) (uuid.UUID, error) {
 	s.enqueuedRunIDs = append(s.enqueuedRunIDs, runID)
 	return uuid.New(), nil
 }
@@ -45,14 +45,14 @@ func TestServiceSpawnAndWaitCompleted(t *testing.T) {
 	}
 	t.Cleanup(pool.Close)
 
-	orgID := uuid.New()
+	accountID := uuid.New()
 	projectID := uuid.New()
 	threadID := uuid.New()
 	runID := uuid.New()
 	userID := uuid.New()
-	seedThreadAndRun(t, pool, orgID, threadID, &projectID, &userID, runID)
+	seedThreadAndRun(t, pool, accountID, threadID, &projectID, &userID, runID)
 
-	parentRun := data.Run{ID: runID, AccountID: orgID, ThreadID: threadID, ProjectID: &projectID, CreatedByUserID: &userID}
+	parentRun := data.Run{ID: runID, AccountID: accountID, ThreadID: threadID, ProjectID: &projectID, CreatedByUserID: &userID}
 	jobQueue := &stubJobQueue{}
 	service := NewService(pool, nil, jobQueue, parentRun, "trace-1", SubAgentLimits{}, BackpressureConfig{})
 
@@ -91,14 +91,14 @@ func TestServiceSendInputCreatesQueuedRunDirectly(t *testing.T) {
 	}
 	t.Cleanup(pool.Close)
 
-	orgID := uuid.New()
+	accountID := uuid.New()
 	projectID := uuid.New()
 	threadID := uuid.New()
 	runID := uuid.New()
 	userID := uuid.New()
-	seedThreadAndRun(t, pool, orgID, threadID, &projectID, &userID, runID)
+	seedThreadAndRun(t, pool, accountID, threadID, &projectID, &userID, runID)
 
-	parentRun := data.Run{ID: runID, AccountID: orgID, ThreadID: threadID, ProjectID: &projectID, CreatedByUserID: &userID}
+	parentRun := data.Run{ID: runID, AccountID: accountID, ThreadID: threadID, ProjectID: &projectID, CreatedByUserID: &userID}
 	jobQueue := &stubJobQueue{}
 	service := NewService(pool, nil, jobQueue, parentRun, "trace-2", SubAgentLimits{}, BackpressureConfig{})
 
@@ -131,14 +131,14 @@ func TestServiceResumeRequeuesCompletedSubAgent(t *testing.T) {
 	}
 	t.Cleanup(pool.Close)
 
-	orgID := uuid.New()
+	accountID := uuid.New()
 	projectID := uuid.New()
 	threadID := uuid.New()
 	runID := uuid.New()
 	userID := uuid.New()
-	seedThreadAndRun(t, pool, orgID, threadID, &projectID, &userID, runID)
+	seedThreadAndRun(t, pool, accountID, threadID, &projectID, &userID, runID)
 
-	parentRun := data.Run{ID: runID, AccountID: orgID, ThreadID: threadID, ProjectID: &projectID, CreatedByUserID: &userID}
+	parentRun := data.Run{ID: runID, AccountID: accountID, ThreadID: threadID, ProjectID: &projectID, CreatedByUserID: &userID}
 	jobQueue := &stubJobQueue{}
 	service := NewService(pool, nil, jobQueue, parentRun, "trace-2b", SubAgentLimits{}, BackpressureConfig{})
 
@@ -171,14 +171,14 @@ func TestServiceSendInputQueuesRunningSubAgentAndMergesPendingBatch(t *testing.T
 	}
 	t.Cleanup(pool.Close)
 
-	orgID := uuid.New()
+	accountID := uuid.New()
 	projectID := uuid.New()
 	threadID := uuid.New()
 	runID := uuid.New()
 	userID := uuid.New()
-	seedThreadAndRun(t, pool, orgID, threadID, &projectID, &userID, runID)
+	seedThreadAndRun(t, pool, accountID, threadID, &projectID, &userID, runID)
 
-	parentRun := data.Run{ID: runID, AccountID: orgID, ThreadID: threadID, ProjectID: &projectID, CreatedByUserID: &userID}
+	parentRun := data.Run{ID: runID, AccountID: accountID, ThreadID: threadID, ProjectID: &projectID, CreatedByUserID: &userID}
 	jobQueue := &stubJobQueue{}
 	service := NewService(pool, nil, jobQueue, parentRun, "trace-3", SubAgentLimits{}, BackpressureConfig{})
 
@@ -274,13 +274,13 @@ func TestServiceSpawnForkRecentCopiesHistoryAndStoresSnapshot(t *testing.T) {
 	}
 	t.Cleanup(pool.Close)
 
-	orgID := uuid.New()
+	accountID := uuid.New()
 	projectID := uuid.New()
 	threadID := uuid.New()
 	runID := uuid.New()
 	userID := uuid.New()
-	seedThreadAndRun(t, pool, orgID, threadID, &projectID, &userID, runID)
-	seedThreadMessages(t, pool, orgID, threadID, []string{"u1", "a1", "u2", "a2", "u3", "a3", "u4", "a4", "u5", "a5", "u6", "a6", "u7", "a7"})
+	seedThreadAndRun(t, pool, accountID, threadID, &projectID, &userID, runID)
+	seedThreadMessages(t, pool, accountID, threadID, []string{"u1", "a1", "u2", "a2", "u3", "a3", "u4", "a4", "u5", "a5", "u6", "a6", "u7", "a7"})
 
 	profileRef := "profile_parent"
 	workspaceRef := "workspace_parent"
@@ -288,7 +288,7 @@ func TestServiceSpawnForkRecentCopiesHistoryAndStoresSnapshot(t *testing.T) {
 		t.Fatalf("update parent bindings: %v", err)
 	}
 
-	parentRun := data.Run{ID: runID, AccountID: orgID, ThreadID: threadID, ProjectID: &projectID, CreatedByUserID: &userID, ProfileRef: &profileRef, WorkspaceRef: &workspaceRef}
+	parentRun := data.Run{ID: runID, AccountID: accountID, ThreadID: threadID, ProjectID: &projectID, CreatedByUserID: &userID, ProfileRef: &profileRef, WorkspaceRef: &workspaceRef}
 	service := NewService(pool, nil, &stubJobQueue{}, parentRun, "trace-fork", SubAgentLimits{}, BackpressureConfig{})
 
 	role := "worker"
@@ -373,13 +373,13 @@ func TestServiceSpawnSharedWorkspaceOnlyOmitsHistory(t *testing.T) {
 	}
 	t.Cleanup(pool.Close)
 
-	orgID := uuid.New()
+	accountID := uuid.New()
 	projectID := uuid.New()
 	threadID := uuid.New()
 	runID := uuid.New()
 	userID := uuid.New()
-	seedThreadAndRun(t, pool, orgID, threadID, &projectID, &userID, runID)
-	seedThreadMessages(t, pool, orgID, threadID, []string{"parent one", "parent two"})
+	seedThreadAndRun(t, pool, accountID, threadID, &projectID, &userID, runID)
+	seedThreadMessages(t, pool, accountID, threadID, []string{"parent one", "parent two"})
 
 	profileRef := "profile_parent"
 	workspaceRef := "workspace_parent"
@@ -387,7 +387,7 @@ func TestServiceSpawnSharedWorkspaceOnlyOmitsHistory(t *testing.T) {
 		t.Fatalf("update parent bindings: %v", err)
 	}
 
-	parentRun := data.Run{ID: runID, AccountID: orgID, ThreadID: threadID, ProjectID: &projectID, CreatedByUserID: &userID, ProfileRef: &profileRef, WorkspaceRef: &workspaceRef}
+	parentRun := data.Run{ID: runID, AccountID: accountID, ThreadID: threadID, ProjectID: &projectID, CreatedByUserID: &userID, ProfileRef: &profileRef, WorkspaceRef: &workspaceRef}
 	service := NewService(pool, nil, &stubJobQueue{}, parentRun, "trace-shared", SubAgentLimits{}, BackpressureConfig{})
 
 	snapshot, err := service.Spawn(context.Background(), SpawnRequest{
@@ -435,14 +435,14 @@ func TestServiceSpawnWritesRoleToChildRunStartedEvent(t *testing.T) {
 	}
 	t.Cleanup(pool.Close)
 
-	orgID := uuid.New()
+	accountID := uuid.New()
 	projectID := uuid.New()
 	threadID := uuid.New()
 	runID := uuid.New()
 	userID := uuid.New()
-	seedThreadAndRun(t, pool, orgID, threadID, &projectID, &userID, runID)
+	seedThreadAndRun(t, pool, accountID, threadID, &projectID, &userID, runID)
 
-	parentRun := data.Run{ID: runID, AccountID: orgID, ThreadID: threadID, ProjectID: &projectID, CreatedByUserID: &userID}
+	parentRun := data.Run{ID: runID, AccountID: accountID, ThreadID: threadID, ProjectID: &projectID, CreatedByUserID: &userID}
 	service := NewService(pool, nil, &stubJobQueue{}, parentRun, "trace-role", SubAgentLimits{}, BackpressureConfig{})
 	role := "worker"
 
@@ -469,14 +469,14 @@ func TestServiceSpawnWritesRoleToChildRunStartedEvent(t *testing.T) {
 	}
 }
 
-func seedThreadMessages(t *testing.T, pool *pgxpool.Pool, orgID uuid.UUID, threadID uuid.UUID, contents []string) {
+func seedThreadMessages(t *testing.T, pool *pgxpool.Pool, accountID uuid.UUID, threadID uuid.UUID, contents []string) {
 	t.Helper()
 	for idx, content := range contents {
 		role := "user"
 		if idx%2 == 1 {
 			role = "assistant"
 		}
-		if _, err := pool.Exec(context.Background(), `INSERT INTO messages (account_id, thread_id, role, content) VALUES ($1, $2, $3, $4)`, orgID, threadID, role, content); err != nil {
+		if _, err := pool.Exec(context.Background(), `INSERT INTO messages (account_id, thread_id, role, content) VALUES ($1, $2, $3, $4)`, accountID, threadID, role, content); err != nil {
 			t.Fatalf("insert message %q failed: %v", content, err)
 		}
 	}
@@ -495,8 +495,8 @@ func completeSubAgentRun(t *testing.T, pool *pgxpool.Pool, subAgentID uuid.UUID,
 	if err := (data.SubAgentRepository{}).TransitionToTerminal(context.Background(), tx, runID, data.SubAgentStatusCompleted, nil); err != nil {
 		t.Fatalf("transition terminal: %v", err)
 	}
-	orgID, threadID := mustRunContext(t, tx, subAgentID)
-	messageID, err := (data.MessagesRepository{}).InsertAssistantMessage(context.Background(), tx, orgID, threadID, runID, output)
+	accountID, threadID := mustRunContext(t, tx, subAgentID)
+	messageID, err := (data.MessagesRepository{}).InsertAssistantMessage(context.Background(), tx, accountID, threadID, runID, output)
 	if err != nil {
 		t.Fatalf("insert assistant message: %v", err)
 	}
@@ -511,26 +511,26 @@ func completeSubAgentRun(t *testing.T, pool *pgxpool.Pool, subAgentID uuid.UUID,
 func mustRunContext(t *testing.T, tx pgx.Tx, subAgentID uuid.UUID) (uuid.UUID, uuid.UUID) {
 	t.Helper()
 	var (
-		orgID    uuid.UUID
-		threadID uuid.UUID
+		accountID uuid.UUID
+		threadID  uuid.UUID
 	)
 	if err := tx.QueryRow(context.Background(), `
-		SELECT sa.org_id, r.thread_id
+		SELECT sa.account_id, r.thread_id
 		  FROM sub_agents sa
 		  JOIN runs r ON r.id = sa.last_completed_run_id
-		 WHERE sa.id = $1`, subAgentID).Scan(&orgID, &threadID); err != nil {
-		t.Fatalf("load sub_agent org/thread: %v", err)
+		 WHERE sa.id = $1`, subAgentID).Scan(&accountID, &threadID); err != nil {
+		t.Fatalf("load sub_agent account/thread: %v", err)
 	}
-	return orgID, threadID
+	return accountID, threadID
 }
-func seedThreadAndRun(t *testing.T, pool *pgxpool.Pool, orgID, threadID uuid.UUID, projectID, userID *uuid.UUID, runID uuid.UUID) {
+func seedThreadAndRun(t *testing.T, pool *pgxpool.Pool, accountID, threadID uuid.UUID, projectID, userID *uuid.UUID, runID uuid.UUID) {
 	t.Helper()
 	_, err := pool.Exec(
 		context.Background(),
 		`INSERT INTO threads (id, account_id, created_by_user_id, project_id)
 		 VALUES ($1, $2, $3, $4)`,
 		threadID,
-		orgID,
+		accountID,
 		userID,
 		projectID,
 	)
@@ -542,7 +542,7 @@ func seedThreadAndRun(t *testing.T, pool *pgxpool.Pool, orgID, threadID uuid.UUI
 		`INSERT INTO runs (id, account_id, thread_id, created_by_user_id, status)
 		 VALUES ($1, $2, $3, $4, 'running')`,
 		runID,
-		orgID,
+		accountID,
 		threadID,
 		userID,
 	)

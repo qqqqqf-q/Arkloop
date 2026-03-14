@@ -17,11 +17,11 @@ func TestSubAgentEventsRepository_AppendAndList(t *testing.T) {
 	}
 	t.Cleanup(pool.Close)
 
-	orgID := uuid.New()
+	accountID := uuid.New()
 	threadID := uuid.New()
 	runID := uuid.New()
-	seedThread(t, pool, orgID, threadID, uuid.New(), nil)
-	seedRun(t, pool, orgID, threadID, runID, nil)
+	seedThread(t, pool, accountID, threadID, uuid.New(), nil)
+	seedRun(t, pool, accountID, threadID, runID, nil)
 
 	tx, err := pool.Begin(context.Background())
 	if err != nil {
@@ -31,7 +31,7 @@ func TestSubAgentEventsRepository_AppendAndList(t *testing.T) {
 
 	repo := SubAgentRepository{}
 	record, err := repo.Create(context.Background(), tx, SubAgentCreateParams{
-		AccountID:      orgID,
+		AccountID:      accountID,
 		ParentRunID:    runID,
 		ParentThreadID: threadID,
 		RootRunID:      runID,

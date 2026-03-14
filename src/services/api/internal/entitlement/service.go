@@ -79,7 +79,7 @@ func NewService(
 	}, nil
 }
 
-// Resolve 按优先级返回权益值：org override (未过期) > plan entitlement > 平台默认值。
+// Resolve 按优先级返回权益值：account override (未过期) > plan entitlement > 平台默认值。
 func (s *Service) Resolve(ctx context.Context, accountID uuid.UUID, key string) (EntitlementValue, error) {
 	// 尝试从缓存读取
 	if s.rdb != nil {
@@ -103,7 +103,7 @@ func (s *Service) Resolve(ctx context.Context, accountID uuid.UUID, key string) 
 }
 
 func (s *Service) resolveFromDB(ctx context.Context, accountID uuid.UUID, key string) (EntitlementValue, error) {
-	// 1. org override (未过期)
+	// 1. account override (未过期)
 	override, err := s.entitlementsRepo.GetOverride(ctx, accountID, key)
 	if err != nil {
 		return EntitlementValue{}, fmt.Errorf("entitlement.Resolve override: %w", err)
@@ -197,7 +197,7 @@ func (s *Service) setCache(ctx context.Context, accountID uuid.UUID, key string,
 	_, _ = pipe.Exec(ctx)
 }
 
-// InvalidateCache 删除指定 org + key 的缓存，用于 override 变更后立即生效。
+// InvalidateCache 删除指定 account + key 的缓存，用于 override 变更后立即生效。
 func (s *Service) InvalidateCache(ctx context.Context, accountID uuid.UUID, key string) {
 	if s.rdb == nil {
 		return

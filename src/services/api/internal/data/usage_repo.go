@@ -12,7 +12,7 @@ import (
 
 type UsageRecord struct {
 	ID           uuid.UUID
-	AccountID        uuid.UUID
+	AccountID    uuid.UUID
 	RunID        uuid.UUID
 	Model        string
 	InputTokens  int64
@@ -22,7 +22,7 @@ type UsageRecord struct {
 }
 
 type UsageSummary struct {
-	AccountID             uuid.UUID
+	AccountID         uuid.UUID
 	Year              int
 	Month             int
 	TotalInputTokens  int64
@@ -73,8 +73,8 @@ func (r *UsageRepository) Insert(
 	return rec, nil
 }
 
-// GetMonthlyUsage 汇总指定 org 在某月的 token 用量和成本。
-// 使用时间范围查询，确保索引 idx_usage_records_org_recorded 可被命中。
+// GetMonthlyUsage 汇总指定 account 在某月的 token 用量和成本。
+// 使用时间范围查询，确保 account 维度索引可被命中。
 func (r *UsageRepository) GetMonthlyUsage(
 	ctx context.Context,
 	accountID uuid.UUID,
@@ -129,7 +129,7 @@ type ModelUsage struct {
 	RecordCount  int64
 }
 
-// GetDailyUsage 按日聚合指定 org 在 [startDate, endDate) 内的用量。
+// GetDailyUsage 按日聚合指定 account 在 [startDate, endDate) 内的用量。
 func (r *UsageRepository) GetDailyUsage(
 	ctx context.Context,
 	accountID uuid.UUID,
@@ -169,7 +169,7 @@ func (r *UsageRepository) GetDailyUsage(
 	return result, rows.Err()
 }
 
-// GetUsageByModel 按模型分组聚合指定 org 在某月的用量。
+// GetUsageByModel 按模型分组聚合指定 account 在某月的用量。
 func (r *UsageRepository) GetUsageByModel(
 	ctx context.Context,
 	accountID uuid.UUID,

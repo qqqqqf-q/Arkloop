@@ -17,7 +17,7 @@ import (
 
 type projectResponse struct {
 	ID          string  `json:"id"`
-	AccountID       string  `json:"account_id"`
+	AccountID   string  `json:"account_id"`
 	TeamID      *string `json:"team_id,omitempty"`
 	OwnerUserID *string `json:"owner_user_id,omitempty"`
 	Name        string  `json:"name"`
@@ -134,7 +134,7 @@ func createProject(
 		return
 	}
 
-	// 验证 team_id 归属于同一 org
+	// 验证 team_id 归属于同一 account
 	var teamID *uuid.UUID
 	if req.TeamID != nil {
 		tid, err := uuid.Parse(strings.TrimSpace(*req.TeamID))
@@ -307,7 +307,7 @@ func deleteProject(
 func toProjectResponse(p data.Project) projectResponse {
 	resp := projectResponse{
 		ID:          p.ID.String(),
-		AccountID:       p.AccountID.String(),
+		AccountID:   p.AccountID.String(),
 		Name:        p.Name,
 		Description: p.Description,
 		Visibility:  p.Visibility,

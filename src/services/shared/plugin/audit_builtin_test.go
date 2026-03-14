@@ -40,7 +40,7 @@ func TestDBSink_Name(t *testing.T) {
 }
 
 func TestDBSink_Emit_Success(t *testing.T) {
-	orgID := uuid.New()
+	accountID := uuid.New()
 	actorID := uuid.New()
 	ts := time.Now().UTC()
 
@@ -55,7 +55,7 @@ func TestDBSink_Emit_Success(t *testing.T) {
 	err := sink.Emit(context.Background(), AuditEvent{
 		Timestamp:  ts,
 		ActorID:    actorID,
-		OrgID:      orgID,
+		AccountID:  accountID,
 		Action:     "user.login",
 		Resource:   "session",
 		ResourceID: "sess-123",
@@ -71,9 +71,9 @@ func TestDBSink_Emit_Success(t *testing.T) {
 		t.Fatalf("expected 10 arguments, got %d", len(captured))
 	}
 
-	// orgID
-	if v, ok := captured[0].(*uuid.UUID); !ok || *v != orgID {
-		t.Errorf("arg[0] orgID mismatch")
+	// accountID
+	if v, ok := captured[0].(*uuid.UUID); !ok || *v != accountID {
+		t.Errorf("arg[0] accountID mismatch")
 	}
 	// actorID
 	if v, ok := captured[1].(*uuid.UUID); !ok || *v != actorID {
@@ -130,9 +130,9 @@ func TestDBSink_Emit_NilUUIDs(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// OrgID = uuid.Nil -> typed nil *uuid.UUID
+	// AccountID = uuid.Nil -> typed nil *uuid.UUID
 	if v, ok := captured[0].(*uuid.UUID); !ok || v != nil {
-		t.Errorf("arg[0] orgID should be nil for uuid.Nil")
+		t.Errorf("arg[0] accountID should be nil for uuid.Nil")
 	}
 	// ActorID = uuid.Nil -> typed nil *uuid.UUID
 	if v, ok := captured[1].(*uuid.UUID); !ok || v != nil {

@@ -38,7 +38,7 @@ func (f *SubAgentRunFactory) CreateSpawnRun(
 		return data.SubAgentRecord{}, uuid.Nil, err
 	}
 	createdSubAgent, err := (data.SubAgentRepository{}).Create(ctx, tx, data.SubAgentCreateParams{
-		AccountID:          parentRun.AccountID,
+		AccountID:      parentRun.AccountID,
 		ParentRunID:    parentRun.ID,
 		ParentThreadID: parentRun.ThreadID,
 		RootRunID:      lineage.RootRunID,
@@ -278,13 +278,13 @@ func (f *SubAgentRunFactory) createQueuedRun(
 	return childRunID, nil
 }
 
-func (f *SubAgentRunFactory) copySnapshotMessages(ctx context.Context, tx pgx.Tx, orgID uuid.UUID, threadID uuid.UUID, messages []ContextSnapshotMessage) error {
+func (f *SubAgentRunFactory) copySnapshotMessages(ctx context.Context, tx pgx.Tx, accountID uuid.UUID, threadID uuid.UUID, messages []ContextSnapshotMessage) error {
 	if len(messages) == 0 {
 		return nil
 	}
 	repo := data.MessagesRepository{}
 	for _, item := range messages {
-		if _, err := repo.InsertThreadMessage(ctx, tx, orgID, threadID, item.Role, item.Content, cloneRawJSON(item.ContentJSON), nil); err != nil {
+		if _, err := repo.InsertThreadMessage(ctx, tx, accountID, threadID, item.Role, item.Content, cloneRawJSON(item.ContentJSON), nil); err != nil {
 			return fmt.Errorf("copy snapshot message: %w", err)
 		}
 	}
@@ -344,8 +344,8 @@ func resolveSubAgentThread(ctx context.Context, tx pgx.Tx, record data.SubAgentR
 	return run.ThreadID, run.ID, nil
 }
 
-func insertUserMessage(ctx context.Context, tx pgx.Tx, orgID uuid.UUID, threadID uuid.UUID, content string) (uuid.UUID, error) {
-	return data.MessagesRepository{}.InsertThreadMessage(ctx, tx, orgID, threadID, "user", strings.TrimSpace(content), nil, nil)
+func insertUserMessage(ctx context.Context, tx pgx.Tx, accountID uuid.UUID, threadID uuid.UUID, content string) (uuid.UUID, error) {
+	return data.MessagesRepository{}.InsertThreadMessage(ctx, tx, accountID, threadID, "user", strings.TrimSpace(content), nil, nil)
 }
 
 func cloneMap(src map[string]any) map[string]any {

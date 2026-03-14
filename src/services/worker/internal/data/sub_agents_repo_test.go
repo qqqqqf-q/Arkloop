@@ -17,15 +17,15 @@ func TestSubAgentRepository_CreateAndTransitions(t *testing.T) {
 	}
 	t.Cleanup(pool.Close)
 
-	orgID := uuid.New()
+	accountID := uuid.New()
 	parentThreadID := uuid.New()
 	childThreadID := uuid.New()
 	parentRunID := uuid.New()
 	childRunID := uuid.New()
-	seedThread(t, pool, orgID, parentThreadID, uuid.New(), nil)
-	seedRun(t, pool, orgID, parentThreadID, parentRunID, nil)
-	seedThread(t, pool, orgID, childThreadID, uuid.New(), nil)
-	seedRun(t, pool, orgID, childThreadID, childRunID, &parentRunID)
+	seedThread(t, pool, accountID, parentThreadID, uuid.New(), nil)
+	seedRun(t, pool, accountID, parentThreadID, parentRunID, nil)
+	seedThread(t, pool, accountID, childThreadID, uuid.New(), nil)
+	seedRun(t, pool, accountID, childThreadID, childRunID, &parentRunID)
 
 	tx, err := pool.Begin(context.Background())
 	if err != nil {
@@ -35,7 +35,7 @@ func TestSubAgentRepository_CreateAndTransitions(t *testing.T) {
 
 	repo := SubAgentRepository{}
 	record, err := repo.Create(context.Background(), tx, SubAgentCreateParams{
-		AccountID:      orgID,
+		AccountID:      accountID,
 		ParentRunID:    parentRunID,
 		ParentThreadID: parentThreadID,
 		RootRunID:      parentRunID,
@@ -99,11 +99,11 @@ func TestSubAgentRepository_RejectsIllegalTransitions(t *testing.T) {
 	}
 	t.Cleanup(pool.Close)
 
-	orgID := uuid.New()
+	accountID := uuid.New()
 	threadID := uuid.New()
 	runID := uuid.New()
-	seedThread(t, pool, orgID, threadID, uuid.New(), nil)
-	seedRun(t, pool, orgID, threadID, runID, nil)
+	seedThread(t, pool, accountID, threadID, uuid.New(), nil)
+	seedRun(t, pool, accountID, threadID, runID, nil)
 
 	tx, err := pool.Begin(context.Background())
 	if err != nil {
@@ -113,7 +113,7 @@ func TestSubAgentRepository_RejectsIllegalTransitions(t *testing.T) {
 
 	repo := SubAgentRepository{}
 	record, err := repo.Create(context.Background(), tx, SubAgentCreateParams{
-		AccountID:      orgID,
+		AccountID:      accountID,
 		ParentRunID:    runID,
 		ParentThreadID: threadID,
 		RootRunID:      runID,
@@ -144,7 +144,7 @@ func TestRunsRepository_GetLineage(t *testing.T) {
 	}
 	t.Cleanup(pool.Close)
 
-	orgID := uuid.New()
+	accountID := uuid.New()
 	rootThreadID := uuid.New()
 	childThreadID := uuid.New()
 	grandThreadID := uuid.New()
@@ -152,12 +152,12 @@ func TestRunsRepository_GetLineage(t *testing.T) {
 	childRunID := uuid.New()
 	grandRunID := uuid.New()
 
-	seedThread(t, pool, orgID, rootThreadID, uuid.New(), nil)
-	seedRun(t, pool, orgID, rootThreadID, rootRunID, nil)
-	seedThread(t, pool, orgID, childThreadID, uuid.New(), nil)
-	seedRun(t, pool, orgID, childThreadID, childRunID, &rootRunID)
-	seedThread(t, pool, orgID, grandThreadID, uuid.New(), nil)
-	seedRun(t, pool, orgID, grandThreadID, grandRunID, &childRunID)
+	seedThread(t, pool, accountID, rootThreadID, uuid.New(), nil)
+	seedRun(t, pool, accountID, rootThreadID, rootRunID, nil)
+	seedThread(t, pool, accountID, childThreadID, uuid.New(), nil)
+	seedRun(t, pool, accountID, childThreadID, childRunID, &rootRunID)
+	seedThread(t, pool, accountID, grandThreadID, uuid.New(), nil)
+	seedRun(t, pool, accountID, grandThreadID, grandRunID, &childRunID)
 
 	tx, err := pool.Begin(context.Background())
 	if err != nil {
@@ -182,22 +182,22 @@ func TestRunsRepository_GetLineage(t *testing.T) {
 	}
 }
 
-func seedThread(t *testing.T, pool *pgxpool.Pool, orgID, threadID, projectID uuid.UUID, userID *uuid.UUID) {
+func seedThread(t *testing.T, pool *pgxpool.Pool, accountID, threadID, projectID uuid.UUID, userID *uuid.UUID) {
 	t.Helper()
 	_, err := pool.Exec(context.Background(),
 		`INSERT INTO threads (id, account_id, created_by_user_id, project_id) VALUES ($1, $2, $3, $4)`,
-		threadID, orgID, userID, projectID,
+		threadID, accountID, userID, projectID,
 	)
 	if err != nil {
 		t.Fatalf("insert thread: %v", err)
 	}
 }
 
-func seedRun(t *testing.T, pool *pgxpool.Pool, orgID, threadID, runID uuid.UUID, parentRunID *uuid.UUID) {
+func seedRun(t *testing.T, pool *pgxpool.Pool, accountID, threadID, runID uuid.UUID, parentRunID *uuid.UUID) {
 	t.Helper()
 	_, err := pool.Exec(context.Background(),
 		`INSERT INTO runs (id, account_id, thread_id, parent_run_id, status) VALUES ($1, $2, $3, $4, 'running')`,
-		runID, orgID, threadID, parentRunID,
+		runID, accountID, threadID, parentRunID,
 	)
 	if err != nil {
 		t.Fatalf("insert run: %v", err)

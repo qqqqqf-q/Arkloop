@@ -48,7 +48,7 @@ func NewSpawnAgentMiddleware() RunMiddleware {
 	}
 }
 
-// loadPersonaKeys 从 DB 加载当前 org 可用的 persona ID 列表
+// loadPersonaKeys 从 DB 加载当前 account 可用的 persona ID 列表
 func loadPersonaKeys(ctx context.Context, rc *RunContext) []string {
 	if rc.Pool == nil {
 		return nil

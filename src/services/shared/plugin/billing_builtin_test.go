@@ -11,50 +11,50 @@ import (
 // --- mock 定义 ---
 
 type mockCreditOps struct {
-	getBalanceFn func(ctx context.Context, orgID uuid.UUID) (int64, error)
-	deductFn     func(ctx context.Context, orgID uuid.UUID, amount int64, txType string, refID uuid.UUID, metadata map[string]any) error
+	getBalanceFn func(ctx context.Context, accountID uuid.UUID) (int64, error)
+	deductFn     func(ctx context.Context, accountID uuid.UUID, amount int64, txType string, refID uuid.UUID, metadata map[string]any) error
 }
 
-func (m *mockCreditOps) GetBalance(ctx context.Context, orgID uuid.UUID) (int64, error) {
-	return m.getBalanceFn(ctx, orgID)
+func (m *mockCreditOps) GetBalance(ctx context.Context, accountID uuid.UUID) (int64, error) {
+	return m.getBalanceFn(ctx, accountID)
 }
 
-func (m *mockCreditOps) Deduct(ctx context.Context, orgID uuid.UUID, amount int64, txType string, refID uuid.UUID, metadata map[string]any) error {
-	return m.deductFn(ctx, orgID, amount, txType, refID, metadata)
+func (m *mockCreditOps) Deduct(ctx context.Context, accountID uuid.UUID, amount int64, txType string, refID uuid.UUID, metadata map[string]any) error {
+	return m.deductFn(ctx, accountID, amount, txType, refID, metadata)
 }
 
 type mockSubscriptionOps struct {
-	createFn    func(ctx context.Context, orgID uuid.UUID, planID string) error
-	cancelFn    func(ctx context.Context, orgID uuid.UUID) error
-	getActiveFn func(ctx context.Context, orgID uuid.UUID) (*Subscription, error)
+	createFn    func(ctx context.Context, accountID uuid.UUID, planID string) error
+	cancelFn    func(ctx context.Context, accountID uuid.UUID) error
+	getActiveFn func(ctx context.Context, accountID uuid.UUID) (*Subscription, error)
 }
 
-func (m *mockSubscriptionOps) Create(ctx context.Context, orgID uuid.UUID, planID string) error {
-	return m.createFn(ctx, orgID, planID)
+func (m *mockSubscriptionOps) Create(ctx context.Context, accountID uuid.UUID, planID string) error {
+	return m.createFn(ctx, accountID, planID)
 }
 
-func (m *mockSubscriptionOps) Cancel(ctx context.Context, orgID uuid.UUID) error {
-	return m.cancelFn(ctx, orgID)
+func (m *mockSubscriptionOps) Cancel(ctx context.Context, accountID uuid.UUID) error {
+	return m.cancelFn(ctx, accountID)
 }
 
-func (m *mockSubscriptionOps) GetActive(ctx context.Context, orgID uuid.UUID) (*Subscription, error) {
-	return m.getActiveFn(ctx, orgID)
+func (m *mockSubscriptionOps) GetActive(ctx context.Context, accountID uuid.UUID) (*Subscription, error) {
+	return m.getActiveFn(ctx, accountID)
 }
 
 type mockQuotaOps struct {
-	checkFn func(ctx context.Context, orgID uuid.UUID, resource string) (bool, error)
+	checkFn func(ctx context.Context, accountID uuid.UUID, resource string) (bool, error)
 }
 
-func (m *mockQuotaOps) Check(ctx context.Context, orgID uuid.UUID, resource string) (bool, error) {
-	return m.checkFn(ctx, orgID, resource)
+func (m *mockQuotaOps) Check(ctx context.Context, accountID uuid.UUID, resource string) (bool, error) {
+	return m.checkFn(ctx, accountID, resource)
 }
 
 type mockCreditCalculator struct {
-	calculateFn func(ctx context.Context, orgID uuid.UUID, usage UsageRecord) (int64, error)
+	calculateFn func(ctx context.Context, accountID uuid.UUID, usage UsageRecord) (int64, error)
 }
 
-func (m *mockCreditCalculator) Calculate(ctx context.Context, orgID uuid.UUID, usage UsageRecord) (int64, error) {
-	return m.calculateFn(ctx, orgID, usage)
+func (m *mockCreditCalculator) Calculate(ctx context.Context, accountID uuid.UUID, usage UsageRecord) (int64, error) {
+	return m.calculateFn(ctx, accountID, usage)
 }
 
 // --- helper ---
@@ -119,7 +119,7 @@ func TestNewBuiltinBillingProvider_NilDeps(t *testing.T) {
 }
 
 func TestBuiltinBillingProvider_CreateSubscription(t *testing.T) {
-	orgID := uuid.New()
+	accountID := uuid.New()
 	ctx := context.Background()
 
 	t.Run("success", func(t *testing.T) {
@@ -131,11 +131,11 @@ func TestBuiltinBillingProvider_CreateSubscription(t *testing.T) {
 			gotPlan = plan
 			return nil
 		}
-		if err := p.CreateSubscription(ctx, orgID, "pro"); err != nil {
+		if err := p.CreateSubscription(ctx, accountID, "pro"); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if gotOrg != orgID {
-			t.Errorf("orgID = %v, want %v", gotOrg, orgID)
+		if gotOrg != accountID {
+			t.Errorf("accountID = %v, want %v", gotOrg, accountID)
 		}
 		if gotPlan != "pro" {
 			t.Errorf("planID = %q, want %q", gotPlan, "pro")
@@ -146,14 +146,14 @@ func TestBuiltinBillingProvider_CreateSubscription(t *testing.T) {
 		p, _, subs, _, _ := newTestProvider(t)
 		want := errors.New("db down")
 		subs.createFn = func(context.Context, uuid.UUID, string) error { return want }
-		if err := p.CreateSubscription(ctx, orgID, "pro"); !errors.Is(err, want) {
+		if err := p.CreateSubscription(ctx, accountID, "pro"); !errors.Is(err, want) {
 			t.Errorf("error = %v, want %v", err, want)
 		}
 	})
 }
 
 func TestBuiltinBillingProvider_CancelSubscription(t *testing.T) {
-	orgID := uuid.New()
+	accountID := uuid.New()
 	ctx := context.Background()
 
 	t.Run("success", func(t *testing.T) {
@@ -163,11 +163,11 @@ func TestBuiltinBillingProvider_CancelSubscription(t *testing.T) {
 			gotOrg = org
 			return nil
 		}
-		if err := p.CancelSubscription(ctx, orgID); err != nil {
+		if err := p.CancelSubscription(ctx, accountID); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if gotOrg != orgID {
-			t.Errorf("orgID = %v, want %v", gotOrg, orgID)
+		if gotOrg != accountID {
+			t.Errorf("accountID = %v, want %v", gotOrg, accountID)
 		}
 	})
 
@@ -175,21 +175,21 @@ func TestBuiltinBillingProvider_CancelSubscription(t *testing.T) {
 		p, _, subs, _, _ := newTestProvider(t)
 		want := errors.New("not found")
 		subs.cancelFn = func(context.Context, uuid.UUID) error { return want }
-		if err := p.CancelSubscription(ctx, orgID); !errors.Is(err, want) {
+		if err := p.CancelSubscription(ctx, accountID); !errors.Is(err, want) {
 			t.Errorf("error = %v, want %v", err, want)
 		}
 	})
 }
 
 func TestBuiltinBillingProvider_GetActiveSubscription(t *testing.T) {
-	orgID := uuid.New()
+	accountID := uuid.New()
 	ctx := context.Background()
 
 	t.Run("has subscription", func(t *testing.T) {
 		p, _, subs, _, _ := newTestProvider(t)
-		want := &Subscription{ID: "sub-1", OrgID: orgID, PlanID: "pro", Status: "active"}
+		want := &Subscription{ID: "sub-1", AccountID: accountID, PlanID: "pro", Status: "active"}
 		subs.getActiveFn = func(context.Context, uuid.UUID) (*Subscription, error) { return want, nil }
-		got, err := p.GetActiveSubscription(ctx, orgID)
+		got, err := p.GetActiveSubscription(ctx, accountID)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -201,7 +201,7 @@ func TestBuiltinBillingProvider_GetActiveSubscription(t *testing.T) {
 	t.Run("no subscription", func(t *testing.T) {
 		p, _, subs, _, _ := newTestProvider(t)
 		subs.getActiveFn = func(context.Context, uuid.UUID) (*Subscription, error) { return nil, nil }
-		got, err := p.GetActiveSubscription(ctx, orgID)
+		got, err := p.GetActiveSubscription(ctx, accountID)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -212,7 +212,7 @@ func TestBuiltinBillingProvider_GetActiveSubscription(t *testing.T) {
 }
 
 func TestBuiltinBillingProvider_ReportUsage(t *testing.T) {
-	orgID := uuid.New()
+	accountID := uuid.New()
 	runID := uuid.New()
 	ctx := context.Background()
 	usage := UsageRecord{RunID: runID, TokensIn: 100, TokensOut: 200, ToolCalls: 3, DurationMs: 500}
@@ -229,7 +229,7 @@ func TestBuiltinBillingProvider_ReportUsage(t *testing.T) {
 			gotRefID = refID
 			return nil
 		}
-		if err := p.ReportUsage(ctx, orgID, usage); err != nil {
+		if err := p.ReportUsage(ctx, accountID, usage); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		if deducted != 42 {
@@ -251,7 +251,7 @@ func TestBuiltinBillingProvider_ReportUsage(t *testing.T) {
 			called = true
 			return nil
 		}
-		if err := p.ReportUsage(ctx, orgID, usage); err != nil {
+		if err := p.ReportUsage(ctx, accountID, usage); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		if called {
@@ -263,7 +263,7 @@ func TestBuiltinBillingProvider_ReportUsage(t *testing.T) {
 		p, _, _, _, calc := newTestProvider(t)
 		calcErr := errors.New("calc failed")
 		calc.calculateFn = func(context.Context, uuid.UUID, UsageRecord) (int64, error) { return 0, calcErr }
-		err := p.ReportUsage(ctx, orgID, usage)
+		err := p.ReportUsage(ctx, accountID, usage)
 		if !errors.Is(err, calcErr) {
 			t.Errorf("error = %v, want wrapping %v", err, calcErr)
 		}
@@ -276,20 +276,20 @@ func TestBuiltinBillingProvider_ReportUsage(t *testing.T) {
 		credits.deductFn = func(context.Context, uuid.UUID, int64, string, uuid.UUID, map[string]any) error {
 			return deductErr
 		}
-		if err := p.ReportUsage(ctx, orgID, usage); !errors.Is(err, deductErr) {
+		if err := p.ReportUsage(ctx, accountID, usage); !errors.Is(err, deductErr) {
 			t.Errorf("error = %v, want %v", err, deductErr)
 		}
 	})
 }
 
 func TestBuiltinBillingProvider_CheckQuota(t *testing.T) {
-	orgID := uuid.New()
+	accountID := uuid.New()
 	ctx := context.Background()
 
 	t.Run("allowed", func(t *testing.T) {
 		p, _, _, quotas, _ := newTestProvider(t)
 		quotas.checkFn = func(context.Context, uuid.UUID, string) (bool, error) { return true, nil }
-		ok, err := p.CheckQuota(ctx, orgID, "messages")
+		ok, err := p.CheckQuota(ctx, accountID, "messages")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -301,7 +301,7 @@ func TestBuiltinBillingProvider_CheckQuota(t *testing.T) {
 	t.Run("exceeded", func(t *testing.T) {
 		p, _, _, quotas, _ := newTestProvider(t)
 		quotas.checkFn = func(context.Context, uuid.UUID, string) (bool, error) { return false, nil }
-		ok, err := p.CheckQuota(ctx, orgID, "messages")
+		ok, err := p.CheckQuota(ctx, accountID, "messages")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}

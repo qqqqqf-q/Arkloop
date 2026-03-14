@@ -10,7 +10,7 @@ import (
 	spawnagent "arkloop/services/worker/internal/tools/builtin/spawn_agent"
 )
 
-// NewMCPDiscoveryMiddleware 按 org 从 DB 加载 MCP 工具（带缓存），合并到 RunContext 的工具集。
+// NewMCPDiscoveryMiddleware 按 account 从 DB 加载 MCP 工具（带缓存），合并到 RunContext 的工具集。
 func NewMCPDiscoveryMiddleware(
 	discoveryCache *mcp.DiscoveryCache,
 	baseToolExecutors map[string]tools.Executor,
@@ -25,21 +25,21 @@ func NewMCPDiscoveryMiddleware(
 		runRegistry := baseRegistry
 
 		if discoveryCache != nil {
-			orgReg, orgErr := discoveryCache.Get(ctx, rc.Pool, rc.Run.AccountID)
-			if orgErr != nil {
-				slog.WarnContext(ctx, "mcp discovery failed, falling back to base tools", "account_id", rc.Run.AccountID, "err", orgErr)
+			accountReg, accountErr := discoveryCache.Get(ctx, rc.Pool, rc.Run.AccountID)
+			if accountErr != nil {
+				slog.WarnContext(ctx, "mcp discovery failed, falling back to base tools", "account_id", rc.Run.AccountID, "err", accountErr)
 			}
-			if orgErr == nil && len(orgReg.Executors) > 0 {
+			if accountErr == nil && len(accountReg.Executors) > 0 {
 				// 过滤与内置 spawn_agent 系列同名的 MCP 工具，避免后续注册冲突
-				filteredSpecs := filterBuiltinConflicts(orgReg.AgentSpecs)
+				filteredSpecs := filterBuiltinConflicts(accountReg.AgentSpecs)
 				runRegistry = ForkRegistry(baseRegistry, filteredSpecs)
-				for name, exec := range orgReg.Executors {
+				for name, exec := range accountReg.Executors {
 					if _, builtin := spawnagent.BuiltinNames[name]; builtin {
 						continue
 					}
 					runToolExecutors[name] = exec
 				}
-				for _, spec := range orgReg.LlmSpecs {
+				for _, spec := range accountReg.LlmSpecs {
 					if _, builtin := spawnagent.BuiltinNames[spec.Name]; builtin {
 						continue
 					}

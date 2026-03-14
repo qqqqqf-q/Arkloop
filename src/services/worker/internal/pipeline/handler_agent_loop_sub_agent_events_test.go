@@ -18,7 +18,7 @@ type stubJobQueue struct {
 	enqueuedRunIDs []uuid.UUID
 }
 
-func (s *stubJobQueue) EnqueueRun(ctx context.Context, orgID uuid.UUID, runID uuid.UUID, traceID string, queueJobType string, payload map[string]any, availableAt *time.Time) (uuid.UUID, error) {
+func (s *stubJobQueue) EnqueueRun(ctx context.Context, accountID uuid.UUID, runID uuid.UUID, traceID string, queueJobType string, payload map[string]any, availableAt *time.Time) (uuid.UUID, error) {
 	s.enqueuedRunIDs = append(s.enqueuedRunIDs, runID)
 	return uuid.New(), nil
 }
@@ -38,16 +38,16 @@ func TestEventWriterAppend_AppendsSubAgentCompletedEvent(t *testing.T) {
 	}
 	t.Cleanup(pool.Close)
 
-	orgID := uuid.New()
+	accountID := uuid.New()
 	projectID := uuid.New()
 	threadID := uuid.New()
 	runID := uuid.New()
 	subAgentID := uuid.New()
-	seedPipelineThread(t, pool, orgID, threadID, projectID)
-	seedPipelineRun(t, pool, orgID, threadID, runID, nil)
-	seedPipelineSubAgent(t, pool, subAgentID, orgID, threadID, runID)
+	seedPipelineThread(t, pool, accountID, threadID, projectID)
+	seedPipelineRun(t, pool, accountID, threadID, runID, nil)
+	seedPipelineSubAgent(t, pool, subAgentID, accountID, threadID, runID)
 
-	writer := newEventWriter(pool, data.Run{ID: runID, AccountID: orgID, ThreadID: threadID}, "trace-1", nil, nil, "", "", data.UsageRecordsRepository{}, data.CreditsRepository{}, 1000, 1, nil, nil, nil, nil, creditpolicy.DefaultPolicy, nil)
+	writer := newEventWriter(pool, data.Run{ID: runID, AccountID: accountID, ThreadID: threadID}, "trace-1", nil, nil, "", "", data.UsageRecordsRepository{}, data.CreditsRepository{}, 1000, 1, nil, nil, nil, nil, creditpolicy.DefaultPolicy, nil)
 	ev := events.NewEmitter("trace-1").Emit("run.completed", map[string]any{}, nil, nil)
 	if err := writer.Append(context.Background(), data.RunsRepository{}, data.RunEventsRepository{}, runID, ev); err != nil {
 		t.Fatalf("append terminal event: %v", err)
@@ -73,14 +73,14 @@ func TestEventWriterAppend_AppendsSubAgentCancelledEventOnCancelRequest(t *testi
 	}
 	t.Cleanup(pool.Close)
 
-	orgID := uuid.New()
+	accountID := uuid.New()
 	projectID := uuid.New()
 	threadID := uuid.New()
 	runID := uuid.New()
 	subAgentID := uuid.New()
-	seedPipelineThread(t, pool, orgID, threadID, projectID)
-	seedPipelineRun(t, pool, orgID, threadID, runID, nil)
-	seedPipelineSubAgent(t, pool, subAgentID, orgID, threadID, runID)
+	seedPipelineThread(t, pool, accountID, threadID, projectID)
+	seedPipelineRun(t, pool, accountID, threadID, runID, nil)
+	seedPipelineSubAgent(t, pool, subAgentID, accountID, threadID, runID)
 
 	tx, err := pool.Begin(context.Background())
 	if err != nil {
@@ -93,7 +93,7 @@ func TestEventWriterAppend_AppendsSubAgentCancelledEventOnCancelRequest(t *testi
 		t.Fatalf("commit cancel_requested: %v", err)
 	}
 
-	writer := newEventWriter(pool, data.Run{ID: runID, AccountID: orgID, ThreadID: threadID}, "trace-2", nil, nil, "", "", data.UsageRecordsRepository{}, data.CreditsRepository{}, 1000, 1, nil, nil, nil, nil, creditpolicy.DefaultPolicy, nil)
+	writer := newEventWriter(pool, data.Run{ID: runID, AccountID: accountID, ThreadID: threadID}, "trace-2", nil, nil, "", "", data.UsageRecordsRepository{}, data.CreditsRepository{}, 1000, 1, nil, nil, nil, nil, creditpolicy.DefaultPolicy, nil)
 	ev := events.NewEmitter("trace-2").Emit("message.delta", map[string]any{"content_delta": "ignored"}, nil, nil)
 	if err := writer.Append(context.Background(), data.RunsRepository{}, data.RunEventsRepository{}, runID, ev); err != nil {
 		t.Fatalf("append after cancel request: %v", err)
@@ -116,23 +116,23 @@ func TestEventWriterAppend_AutoQueuesNextRunFromPendingInputs(t *testing.T) {
 	}
 	t.Cleanup(pool.Close)
 
-	orgID := uuid.New()
+	accountID := uuid.New()
 	projectID := uuid.New()
 	parentThreadID := uuid.New()
 	childThreadID := uuid.New()
 	parentRunID := uuid.New()
 	childRunID := uuid.New()
 	subAgentID := uuid.New()
-	seedPipelineThread(t, pool, orgID, parentThreadID, projectID)
-	seedPipelineThread(t, pool, orgID, childThreadID, projectID)
-	seedPipelineRun(t, pool, orgID, parentThreadID, parentRunID, nil)
-	seedPipelineRun(t, pool, orgID, childThreadID, childRunID, &parentRunID)
+	seedPipelineThread(t, pool, accountID, parentThreadID, projectID)
+	seedPipelineThread(t, pool, accountID, childThreadID, projectID)
+	seedPipelineRun(t, pool, accountID, parentThreadID, parentRunID, nil)
+	seedPipelineRun(t, pool, accountID, childThreadID, childRunID, &parentRunID)
 	_, err = pool.Exec(context.Background(), `
 		INSERT INTO sub_agents (
-			id, org_id, parent_run_id, parent_thread_id, root_run_id, root_thread_id,
+			id, account_id, parent_run_id, parent_thread_id, root_run_id, root_thread_id,
 			depth, source_type, context_mode, status, current_run_id
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-	`, subAgentID, orgID, parentRunID, parentThreadID, parentRunID, parentThreadID, 1, data.SubAgentSourceTypeThreadSpawn, data.SubAgentContextModeIsolated, data.SubAgentStatusRunning, childRunID)
+	`, subAgentID, accountID, parentRunID, parentThreadID, parentRunID, parentThreadID, 1, data.SubAgentSourceTypeThreadSpawn, data.SubAgentContextModeIsolated, data.SubAgentStatusRunning, childRunID)
 	if err != nil {
 		t.Fatalf("insert sub_agent: %v", err)
 	}
@@ -142,7 +142,7 @@ func TestEventWriterAppend_AutoQueuesNextRunFromPendingInputs(t *testing.T) {
 	}
 
 	jobQueue := &stubJobQueue{}
-	writer := newEventWriter(pool, data.Run{ID: childRunID, AccountID: orgID, ThreadID: childThreadID, ParentRunID: &parentRunID}, "trace-3", nil, jobQueue, "", "", data.UsageRecordsRepository{}, data.CreditsRepository{}, 1000, 1, nil, nil, nil, nil, creditpolicy.DefaultPolicy, nil)
+	writer := newEventWriter(pool, data.Run{ID: childRunID, AccountID: accountID, ThreadID: childThreadID, ParentRunID: &parentRunID}, "trace-3", nil, jobQueue, "", "", data.UsageRecordsRepository{}, data.CreditsRepository{}, 1000, 1, nil, nil, nil, nil, creditpolicy.DefaultPolicy, nil)
 	ev := events.NewEmitter("trace-3").Emit("run.completed", map[string]any{}, nil, nil)
 	if err := writer.Append(context.Background(), data.RunsRepository{}, data.RunEventsRepository{}, childRunID, ev); err != nil {
 		t.Fatalf("append terminal event: %v", err)
@@ -174,33 +174,33 @@ func TestEventWriterAppend_AutoQueuesNextRunFromPendingInputs(t *testing.T) {
 	}
 }
 
-func seedPipelineThread(t *testing.T, pool *pgxpool.Pool, orgID, threadID, projectID uuid.UUID) {
+func seedPipelineThread(t *testing.T, pool *pgxpool.Pool, accountID, threadID, projectID uuid.UUID) {
 	t.Helper()
-	_, err := pool.Exec(context.Background(), `INSERT INTO threads (id, account_id, project_id) VALUES ($1, $2, $3)`, threadID, orgID, projectID)
+	_, err := pool.Exec(context.Background(), `INSERT INTO threads (id, account_id, project_id) VALUES ($1, $2, $3)`, threadID, accountID, projectID)
 	if err != nil {
 		t.Fatalf("insert thread: %v", err)
 	}
 }
 
-func seedPipelineRun(t *testing.T, pool *pgxpool.Pool, orgID, threadID, runID uuid.UUID, parentRunID *uuid.UUID) {
+func seedPipelineRun(t *testing.T, pool *pgxpool.Pool, accountID, threadID, runID uuid.UUID, parentRunID *uuid.UUID) {
 	t.Helper()
-	_, err := pool.Exec(context.Background(), `INSERT INTO runs (id, account_id, thread_id, parent_run_id, status) VALUES ($1, $2, $3, $4, 'running')`, runID, orgID, threadID, parentRunID)
+	_, err := pool.Exec(context.Background(), `INSERT INTO runs (id, account_id, thread_id, parent_run_id, status) VALUES ($1, $2, $3, $4, 'running')`, runID, accountID, threadID, parentRunID)
 	if err != nil {
 		t.Fatalf("insert run: %v", err)
 	}
 }
 
-func seedPipelineSubAgent(t *testing.T, pool *pgxpool.Pool, subAgentID, orgID, threadID, runID uuid.UUID) {
+func seedPipelineSubAgent(t *testing.T, pool *pgxpool.Pool, subAgentID, accountID, threadID, runID uuid.UUID) {
 	t.Helper()
 	_, err := pool.Exec(context.Background(), `
 		INSERT INTO sub_agents (
-			id, org_id, parent_run_id, parent_thread_id, root_run_id, root_thread_id,
+			id, account_id, parent_run_id, parent_thread_id, root_run_id, root_thread_id,
 			depth, source_type, context_mode, status, current_run_id
 		) VALUES (
 			$1, $2, $3, $4, $5, $6,
 			$7, $8, $9, $10, $11
 		)
-	`, subAgentID, orgID, runID, threadID, runID, threadID, 1, data.SubAgentSourceTypeThreadSpawn, data.SubAgentContextModeIsolated, data.SubAgentStatusRunning, runID)
+	`, subAgentID, accountID, runID, threadID, runID, threadID, 1, data.SubAgentSourceTypeThreadSpawn, data.SubAgentContextModeIsolated, data.SubAgentStatusRunning, runID)
 	if err != nil {
 		t.Fatalf("insert sub_agent: %v", err)
 	}

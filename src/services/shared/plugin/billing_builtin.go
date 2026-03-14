@@ -13,25 +13,25 @@ var ErrWebhookNotSupported = errors.New("webhook handling not supported in OSS b
 
 // CreditOps 积分操作抽象。
 type CreditOps interface {
-	GetBalance(ctx context.Context, orgID uuid.UUID) (int64, error)
-	Deduct(ctx context.Context, orgID uuid.UUID, amount int64, txType string, refID uuid.UUID, metadata map[string]any) error
+	GetBalance(ctx context.Context, accountID uuid.UUID) (int64, error)
+	Deduct(ctx context.Context, accountID uuid.UUID, amount int64, txType string, refID uuid.UUID, metadata map[string]any) error
 }
 
 // SubscriptionOps 订阅操作抽象。
 type SubscriptionOps interface {
-	Create(ctx context.Context, orgID uuid.UUID, planID string) error
-	Cancel(ctx context.Context, orgID uuid.UUID) error
-	GetActive(ctx context.Context, orgID uuid.UUID) (*Subscription, error)
+	Create(ctx context.Context, accountID uuid.UUID, planID string) error
+	Cancel(ctx context.Context, accountID uuid.UUID) error
+	GetActive(ctx context.Context, accountID uuid.UUID) (*Subscription, error)
 }
 
 // QuotaOps 配额检查抽象。
 type QuotaOps interface {
-	Check(ctx context.Context, orgID uuid.UUID, resource string) (bool, error)
+	Check(ctx context.Context, accountID uuid.UUID, resource string) (bool, error)
 }
 
 // CreditCalculator 将用量转换为积分扣减额。
 type CreditCalculator interface {
-	Calculate(ctx context.Context, orgID uuid.UUID, usage UsageRecord) (int64, error)
+	Calculate(ctx context.Context, accountID uuid.UUID, usage UsageRecord) (int64, error)
 }
 
 // BuiltinBillingProvider OSS 默认计费实现。
@@ -66,27 +66,27 @@ func NewBuiltinBillingProvider(credits CreditOps, subs SubscriptionOps, quotas Q
 	}, nil
 }
 
-func (p *BuiltinBillingProvider) CreateSubscription(ctx context.Context, orgID uuid.UUID, planID string) error {
-	return p.subs.Create(ctx, orgID, planID)
+func (p *BuiltinBillingProvider) CreateSubscription(ctx context.Context, accountID uuid.UUID, planID string) error {
+	return p.subs.Create(ctx, accountID, planID)
 }
 
-func (p *BuiltinBillingProvider) CancelSubscription(ctx context.Context, orgID uuid.UUID) error {
-	return p.subs.Cancel(ctx, orgID)
+func (p *BuiltinBillingProvider) CancelSubscription(ctx context.Context, accountID uuid.UUID) error {
+	return p.subs.Cancel(ctx, accountID)
 }
 
-func (p *BuiltinBillingProvider) GetActiveSubscription(ctx context.Context, orgID uuid.UUID) (*Subscription, error) {
-	return p.subs.GetActive(ctx, orgID)
+func (p *BuiltinBillingProvider) GetActiveSubscription(ctx context.Context, accountID uuid.UUID) (*Subscription, error) {
+	return p.subs.GetActive(ctx, accountID)
 }
 
-func (p *BuiltinBillingProvider) ReportUsage(ctx context.Context, orgID uuid.UUID, usage UsageRecord) error {
-	amount, err := p.calculator.Calculate(ctx, orgID, usage)
+func (p *BuiltinBillingProvider) ReportUsage(ctx context.Context, accountID uuid.UUID, usage UsageRecord) error {
+	amount, err := p.calculator.Calculate(ctx, accountID, usage)
 	if err != nil {
 		return fmt.Errorf("calculate credits: %w", err)
 	}
 	if amount <= 0 {
 		return nil
 	}
-	return p.credits.Deduct(ctx, orgID, amount, "run", usage.RunID, map[string]any{
+	return p.credits.Deduct(ctx, accountID, amount, "run", usage.RunID, map[string]any{
 		"tokens_in":   usage.TokensIn,
 		"tokens_out":  usage.TokensOut,
 		"tool_calls":  usage.ToolCalls,
@@ -94,8 +94,8 @@ func (p *BuiltinBillingProvider) ReportUsage(ctx context.Context, orgID uuid.UUI
 	})
 }
 
-func (p *BuiltinBillingProvider) CheckQuota(ctx context.Context, orgID uuid.UUID, resource string) (bool, error) {
-	return p.quotas.Check(ctx, orgID, resource)
+func (p *BuiltinBillingProvider) CheckQuota(ctx context.Context, accountID uuid.UUID, resource string) (bool, error) {
+	return p.quotas.Check(ctx, accountID, resource)
 }
 
 func (p *BuiltinBillingProvider) HandleWebhook(ctx context.Context, provider string, payload []byte, signature string) error {

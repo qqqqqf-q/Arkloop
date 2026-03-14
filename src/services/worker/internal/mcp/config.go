@@ -21,7 +21,7 @@ const defaultCallTimeoutMs = 10000
 
 type ServerConfig struct {
 	ServerID  string
-	AccountID     string // 用于 pool 隔离；全局（env 加载）工具为空字符串
+	AccountID string // 用于 pool 隔离；全局（env 加载）工具为空字符串
 	Transport string // stdio / http_sse / streamable_http
 	// HTTP 传输字段
 	URL         string
@@ -222,7 +222,7 @@ func parseServerConfig(serverID string, payload map[string]any) (ServerConfig, e
 }
 
 // LoadConfigFromDB 按 account_id 从数据库加载 MCP 配置，JOIN secrets 解密 bearer token。
-// 返回 nil 表示该 org 没有活跃配置。
+// 返回 nil 表示该 account 没有活跃配置。
 func LoadConfigFromDB(ctx context.Context, pool *pgxpool.Pool, accountID uuid.UUID) (*Config, error) {
 	if pool == nil {
 		return nil, fmt.Errorf("mcp: pool must not be nil")
@@ -283,7 +283,7 @@ func LoadConfigFromDB(ctx context.Context, pool *pgxpool.Pool, accountID uuid.UU
 	for _, rd := range allRows {
 		server := ServerConfig{
 			ServerID:      rd.name, // 用 name 保证工具名可读，和 env 文件行为一致
-			AccountID:         accountID.String(),
+			AccountID:     accountID.String(),
 			Transport:     rd.transport,
 			CallTimeoutMs: rd.callTimeoutMs,
 		}

@@ -12,7 +12,7 @@ import (
 
 type Subscription struct {
 	ID                 uuid.UUID
-	AccountID              uuid.UUID
+	AccountID          uuid.UUID
 	PlanID             uuid.UUID
 	Status             string
 	CurrentPeriodStart time.Time
@@ -87,7 +87,7 @@ func (r *SubscriptionRepository) GetByID(ctx context.Context, id uuid.UUID) (*Su
 	return &s, nil
 }
 
-// GetActiveByAccountID 返回 org 当前 active 的订阅。
+// GetActiveByAccountID 返回 account 当前 active 的订阅。
 func (r *SubscriptionRepository) GetActiveByAccountID(ctx context.Context, accountID uuid.UUID) (*Subscription, error) {
 	var s Subscription
 	err := r.db.QueryRow(
