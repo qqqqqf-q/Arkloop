@@ -42,7 +42,7 @@ func TestComposeSmoke(t *testing.T) {
 	t.Log("step 2: register user")
 	login := "smoke_" + randHex(t, 4)
 	status, body = doPost(t, client, baseURL+"/v1/auth/register", nil,
-		map[string]any{"login": login, "password": "smoke_pwd_123456"})
+		map[string]any{"login": login, "password": "smoke_pwd_123456", "email": login + "@smoke-test.local"})
 	if status != http.StatusCreated {
 		t.Fatalf("register: expected 201, got %d body=%s", status, truncate(body, 512))
 	}
@@ -66,14 +66,14 @@ func TestComposeSmoke(t *testing.T) {
 		t.Fatalf("create thread: expected 201, got %d body=%s", status, truncate(body, 512))
 	}
 	var threadResp struct {
-		ID    string `json:"id"`
-		OrgID string `json:"org_id"`
+		ID        string `json:"id"`
+		AccountID string `json:"account_id"`
 	}
 	if err := json.Unmarshal(body, &threadResp); err != nil {
 		t.Fatalf("create thread: unmarshal: %v body=%s", err, truncate(body, 512))
 	}
-	if threadResp.ID == "" || threadResp.OrgID == "" {
-		t.Fatalf("create thread: missing id or org_id: %s", truncate(body, 512))
+	if threadResp.ID == "" || threadResp.AccountID == "" {
+		t.Fatalf("create thread: missing id or account_id: %s", truncate(body, 512))
 	}
 
 	t.Log("step 4: create run")
@@ -98,9 +98,9 @@ func TestComposeSmoke(t *testing.T) {
 		t.Fatalf("get run: expected 200, got %d body=%s", status, truncate(body, 512))
 	}
 	var getRunResp struct {
-		RunID    string `json:"run_id"`
-		ThreadID string `json:"thread_id"`
-		OrgID    string `json:"org_id"`
+		RunID     string `json:"run_id"`
+		ThreadID  string `json:"thread_id"`
+		AccountID string `json:"account_id"`
 	}
 	if err := json.Unmarshal(body, &getRunResp); err != nil {
 		t.Fatalf("get run: unmarshal: %v body=%s", err, truncate(body, 512))
@@ -111,8 +111,8 @@ func TestComposeSmoke(t *testing.T) {
 	if getRunResp.ThreadID != threadResp.ID {
 		t.Fatalf("get run: thread_id mismatch: expected %q, got %q", threadResp.ID, getRunResp.ThreadID)
 	}
-	if getRunResp.OrgID != threadResp.OrgID {
-		t.Fatalf("get run: org_id mismatch: expected %q, got %q", threadResp.OrgID, getRunResp.OrgID)
+	if getRunResp.AccountID != threadResp.AccountID {
+		t.Fatalf("get run: account_id mismatch: expected %q, got %q", threadResp.AccountID, getRunResp.AccountID)
 	}
 
 	t.Log("smoke test passed")

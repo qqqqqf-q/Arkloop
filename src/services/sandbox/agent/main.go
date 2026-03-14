@@ -118,6 +118,12 @@ type AgentRequest struct {
 	Environment *EnvironmentRequest               `json:"environment,omitempty"`
 	Network     *GuestNetworkRequest              `json:"network,omitempty"`
 	SkillOverlay *SkillOverlayRequest             `json:"skill_overlay,omitempty"`
+	ACPStart     *ACPStartRequest                `json:"acp_start,omitempty"`
+	ACPWrite     *ACPWriteRequest                `json:"acp_write,omitempty"`
+	ACPRead      *ACPReadRequest                 `json:"acp_read,omitempty"`
+	ACPStop      *ACPStopRequest                 `json:"acp_stop,omitempty"`
+	ACPWait      *ACPWaitRequest                 `json:"acp_wait,omitempty"`
+	ACPStatus    *ACPStatusRequest               `json:"acp_status,omitempty"`
 }
 
 // AgentResponse 是 v2 协议的统一响应。
@@ -130,6 +136,12 @@ type AgentResponse struct {
 	Session      *shellapi.AgentSessionResponse `json:"session,omitempty"`
 	Debug        *shellapi.AgentDebugResponse   `json:"debug,omitempty"`
 	State        *shellapi.AgentStateResponse   `json:"state,omitempty"`
+	ACPStart     *ACPStartResponse              `json:"acp_start,omitempty"`
+	ACPWrite     *ACPWriteResponse              `json:"acp_write,omitempty"`
+	ACPRead      *ACPReadResponse               `json:"acp_read,omitempty"`
+	ACPStop      *ACPStopResponse               `json:"acp_stop,omitempty"`
+	ACPWait      *ACPWaitResponse               `json:"acp_wait,omitempty"`
+	ACPStatus    *ACPStatusResponse             `json:"acp_status,omitempty"`
 	Code         string                         `json:"code,omitempty"`
 	Error        string                         `json:"error,omitempty"`
 }
@@ -189,6 +201,7 @@ type FetchArtifactsResult struct {
 }
 
 var shellController = NewShellController()
+var acpManager = NewACPManager()
 
 func main() {
 	if err := run(); err != nil {
@@ -351,6 +364,78 @@ func handleV2(conn net.Conn, req AgentRequest) {
 			return
 		}
 		writeJSON(conn, AgentResponse{Action: req.Action})
+
+	case "acp_start":
+		if req.ACPStart == nil {
+			writeJSON(conn, AgentResponse{Action: req.Action, Error: "acp_start is required"})
+			return
+		}
+		resp, err := acpManager.Start(*req.ACPStart)
+		if err != nil {
+			writeJSON(conn, AgentResponse{Action: req.Action, Error: err.Error()})
+			return
+		}
+		writeJSON(conn, AgentResponse{Action: req.Action, ACPStart: resp})
+
+	case "acp_write":
+		if req.ACPWrite == nil {
+			writeJSON(conn, AgentResponse{Action: req.Action, Error: "acp_write is required"})
+			return
+		}
+		resp, err := acpManager.Write(*req.ACPWrite)
+		if err != nil {
+			writeJSON(conn, AgentResponse{Action: req.Action, Error: err.Error()})
+			return
+		}
+		writeJSON(conn, AgentResponse{Action: req.Action, ACPWrite: resp})
+
+	case "acp_read":
+		if req.ACPRead == nil {
+			writeJSON(conn, AgentResponse{Action: req.Action, Error: "acp_read is required"})
+			return
+		}
+		resp, err := acpManager.Read(*req.ACPRead)
+		if err != nil {
+			writeJSON(conn, AgentResponse{Action: req.Action, Error: err.Error()})
+			return
+		}
+		writeJSON(conn, AgentResponse{Action: req.Action, ACPRead: resp})
+
+	case "acp_stop":
+		if req.ACPStop == nil {
+			writeJSON(conn, AgentResponse{Action: req.Action, Error: "acp_stop is required"})
+			return
+		}
+		resp, err := acpManager.Stop(*req.ACPStop)
+		if err != nil {
+			writeJSON(conn, AgentResponse{Action: req.Action, Error: err.Error()})
+			return
+		}
+		writeJSON(conn, AgentResponse{Action: req.Action, ACPStop: resp})
+
+	case "acp_wait":
+		if req.ACPWait == nil {
+			writeJSON(conn, AgentResponse{Action: req.Action, Error: "acp_wait is required"})
+			return
+		}
+		resp, err := acpManager.Wait(*req.ACPWait)
+		if err != nil {
+			writeJSON(conn, AgentResponse{Action: req.Action, Error: err.Error()})
+			return
+		}
+		writeJSON(conn, AgentResponse{Action: req.Action, ACPWait: resp})
+
+	case "acp_status":
+		if req.ACPStatus == nil {
+			writeJSON(conn, AgentResponse{Action: req.Action, Error: "acp_status is required"})
+			return
+		}
+		resp, err := acpManager.Status(*req.ACPStatus)
+		if err != nil {
+			writeJSON(conn, AgentResponse{Action: req.Action, Error: err.Error()})
+			return
+		}
+		writeJSON(conn, AgentResponse{Action: req.Action, ACPStatus: resp})
 
 	default:
 		writeJSON(conn, AgentResponse{Action: req.Action, Error: fmt.Sprintf("unknown action: %s", req.Action)})

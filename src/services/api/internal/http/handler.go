@@ -5,12 +5,13 @@ import (
 	nethttp "net/http"
 	"time"
 
+	"arkloop/services/api/internal/http/accountapi"
 	"arkloop/services/api/internal/http/adminapi"
 	"arkloop/services/api/internal/http/authapi"
 	"arkloop/services/api/internal/http/billingapi"
 	"arkloop/services/api/internal/http/catalogapi"
 	"arkloop/services/api/internal/http/conversationapi"
-	"arkloop/services/api/internal/http/accountapi"
+	"arkloop/services/api/internal/http/llmproxyapi"
 	"arkloop/services/api/internal/http/platformapi"
 
 	"arkloop/services/api/internal/audit"
@@ -21,6 +22,7 @@ import (
 	"arkloop/services/api/internal/observability"
 	"arkloop/services/api/internal/personas"
 	sharedconfig "arkloop/services/shared/config"
+	"arkloop/services/shared/acptoken"
 	"arkloop/services/shared/objectstore"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -136,6 +138,8 @@ type HandlerConfig struct {
 
 	RepoPersonas       []personas.RepoPersona
 	PersonaSyncTrigger interface{ Trigger() }
+
+	ACPTokenValidator *acptoken.Validator
 }
 
 type artifactStore interface {
@@ -352,6 +356,16 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 		JobRepo:              cfg.JobRepo,
 		SmtpProviderRepo:     cfg.SmtpProviderRepo,
 		UserCredentialRepo:   cfg.UserCredentialRepo,
+	})
+
+	llmproxyapi.RegisterRoutes(mux, llmproxyapi.Deps{
+		TokenValidator: cfg.ACPTokenValidator,
+		LlmCredRepo:   cfg.LlmCredentialsRepo,
+		LlmRoutesRepo: cfg.LlmRoutesRepo,
+		SecretsRepo:   cfg.SecretsRepo,
+		Pool:          cfg.Pool,
+		RedisClient:   cfg.RedisClient,
+		RunEventRepo:  cfg.RunEventRepo,
 	})
 
 	notFound := nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {

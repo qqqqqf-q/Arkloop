@@ -112,6 +112,30 @@ func RegisterTrackE(r *Registry) error {
 			Sensitive:   false,
 			Scope:       ScopeBoth,
 		},
+		{
+			Key:         "spawn.profile.fast",
+			Type:        TypeString,
+			Default:     "anthropic^claude-haiku-3-5",
+			Description: "ACP agent 'fast' profile: 低延迟低成本模型",
+			Sensitive:   false,
+			Scope:       ScopeBoth,
+		},
+		{
+			Key:         "spawn.profile.balanced",
+			Type:        TypeString,
+			Default:     "anthropic^claude-sonnet-4-5",
+			Description: "ACP agent 'balanced' profile: 平衡性价比模型",
+			Sensitive:   false,
+			Scope:       ScopeBoth,
+		},
+		{
+			Key:         "spawn.profile.strong",
+			Type:        TypeString,
+			Default:     "anthropic^claude-sonnet-4-5",
+			Description: "ACP agent 'strong' profile: 最强推理能力模型",
+			Sensitive:   false,
+			Scope:       ScopeBoth,
+		},
 	}
 
 	for _, e := range entries {

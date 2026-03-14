@@ -46,6 +46,7 @@ const (
 const (
 	ProviderFirecracker = "firecracker"
 	ProviderDocker      = "docker"
+	ProviderLocal       = "local"
 )
 
 type Config struct {
@@ -383,9 +384,12 @@ func (c Config) Validate() error {
 		return fmt.Errorf("addr invalid: %w", err)
 	}
 	switch c.Provider {
-	case ProviderFirecracker, ProviderDocker:
+	case ProviderFirecracker, ProviderDocker, ProviderLocal:
 	default:
-		return fmt.Errorf("provider must be %q or %q", ProviderFirecracker, ProviderDocker)
+		return fmt.Errorf("provider must be %q, %q, or %q", ProviderFirecracker, ProviderDocker, ProviderLocal)
+	}
+	if c.Provider == ProviderLocal {
+		return nil
 	}
 	if c.BootTimeoutSeconds <= 0 {
 		return fmt.Errorf("boot_timeout_seconds must be positive")

@@ -24,6 +24,13 @@ ARG NODE_VERSION=20.18.1
 COPY src/services/sandbox/rootfs/install_guest_baseline.sh /tmp/install_guest_baseline.sh
 COPY src/services/sandbox/rootfs/guest-requirements.txt /tmp/guest-requirements.txt
 RUN chmod +x /tmp/install_guest_baseline.sh && /tmp/install_guest_baseline.sh && rm -f /tmp/install_guest_baseline.sh /tmp/guest-requirements.txt
+# Install opencode (ACP-compatible coding agent)
+# Copy binary instead of symlink so uid 1000 (arkloop) can access it
+# (symlink to /root/.opencode/bin/ fails because /root is mode 700)
+RUN curl -fsSL https://opencode.ai/install | bash && \
+    cp /root/.opencode/bin/opencode /usr/local/bin/opencode && \
+    chmod 755 /usr/local/bin/opencode && \
+    rm -rf /root/.opencode
 COPY --from=builder /sandbox-agent /usr/local/bin/sandbox-agent
 COPY src/services/sandbox/rootfs/chart_prelude.py /usr/local/share/arkloop/chart_prelude.py
 ENV SANDBOX_AGENT_LISTEN=tcp

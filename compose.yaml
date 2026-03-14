@@ -105,6 +105,9 @@ services:
     volumes:
       - ./src/personas:/usr/local/share/arkloop/personas
       - arkloop_storage:${ARKLOOP_STORAGE_ROOT:-/var/lib/arkloop/storage}
+    networks:
+      default:
+      sandbox_agent_egress:
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:19001/healthz"]
       interval: 15s

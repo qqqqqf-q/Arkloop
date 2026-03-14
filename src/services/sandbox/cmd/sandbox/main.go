@@ -9,8 +9,10 @@ import (
 	"syscall"
 	"time"
 
+	"arkloop/services/sandbox/internal/acp"
 	"arkloop/services/sandbox/internal/app"
 	dockerpool "arkloop/services/sandbox/internal/docker"
+	localpool "arkloop/services/sandbox/internal/local"
 	"arkloop/services/sandbox/internal/environment"
 	"arkloop/services/sandbox/internal/firecracker"
 	sandboxhttp "arkloop/services/sandbox/internal/http"
@@ -92,6 +94,8 @@ func run() error {
 		vmPool, err = buildFirecrackerPool(cfg, logger)
 	case app.ProviderDocker:
 		vmPool, err = buildDockerPool(cfg, logger)
+	case app.ProviderLocal:
+		vmPool = localpool.New(localpool.Config{Logger: logger})
 	default:
 		err = fmt.Errorf("unknown provider: %s", cfg.Provider)
 	}
@@ -133,8 +137,9 @@ func run() error {
 	shellMgr := shell.NewManager(mgr, artifactStore, stateStore, restoreRegistry, envMgr, skillOverlay, logger, shell.Config{
 		RestoreTTL: time.Duration(cfg.RestoreTTLDays) * 24 * time.Hour,
 	})
+	acpMgr := acp.NewManager(mgr, logger)
 
-	handler := sandboxhttp.NewHandler(mgr, envMgr, skillOverlay, shellMgr, artifactStore, logger, cfg.AuthToken)
+	handler := sandboxhttp.NewHandler(mgr, envMgr, skillOverlay, shellMgr, acpMgr, artifactStore, logger, cfg.AuthToken)
 
 	if cfg.AuthToken == "" {
 		logger.Warn("ARKLOOP_SANDBOX_AUTH_TOKEN not set, auth disabled", logging.LogFields{}, nil)

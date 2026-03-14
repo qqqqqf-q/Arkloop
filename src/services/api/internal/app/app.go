@@ -23,6 +23,7 @@ import (
 	"arkloop/services/api/internal/observability"
 	"arkloop/services/api/internal/personas"
 	"arkloop/services/api/internal/personasync"
+	"arkloop/services/shared/acptoken"
 	sharedconfig "arkloop/services/shared/config"
 	"arkloop/services/shared/objectstore"
 	sharedredis "arkloop/services/shared/redis"
@@ -270,6 +271,7 @@ func (a *Application) Run(ctx context.Context) error {
 
 		emailVerifyTokenRepo *data.EmailVerificationTokenRepository
 
+		acpTokenValidator    *acptoken.Validator
 		authService          *auth.Service
 		registrationService  *auth.RegistrationService
 		emailVerifyService   *auth.EmailVerifyService
@@ -502,6 +504,10 @@ func (a *Application) Run(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		acpTokenValidator, err = acptoken.NewValidator(a.config.Auth.JWTSecret)
+		if err != nil {
+			return err
+		}
 		authService, err = auth.NewService(userRepo, credentialRepo, membershipRepo, passwordHasher, tokenService, refreshTokenRepo, redisClient, projectRepo)
 		if err != nil {
 			return err
@@ -700,6 +706,7 @@ func (a *Application) Run(ctx context.Context) error {
 			},
 			RepoPersonas:       repoPersonas,
 			PersonaSyncTrigger: personaSyncManager,
+			ACPTokenValidator:  acpTokenValidator,
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
