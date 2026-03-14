@@ -4,6 +4,9 @@ server {
   root /usr/share/nginx/html;
   index index.html;
 
+  # Re-resolve DNS periodically (Docker container IPs may change).
+  resolver 127.0.0.11 valid=10s;
+
   location = /healthz {
     access_log off;
     add_header Content-Type text/plain;
@@ -11,7 +14,8 @@ server {
   }
 
   location /v1/ {
-    proxy_pass ${API_UPSTREAM};
+    set $api_upstream ${API_UPSTREAM};
+    proxy_pass $api_upstream;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -21,7 +25,8 @@ server {
   }
 
   location /bridge/ {
-    proxy_pass ${BRIDGE_UPSTREAM}/;
+    set $bridge_upstream ${BRIDGE_UPSTREAM};
+    proxy_pass $bridge_upstream/;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
