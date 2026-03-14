@@ -42,7 +42,7 @@ func NewCancelGuardMiddleware(
 		}
 		if cancelType == "run.cancel_requested" {
 			return appendAndCommitSingle(ctx, pool, run, runsRepo, eventsRepo,
-				rc.Emitter.Emit("run.cancelled", map[string]any{}, nil, nil), nil, rc.BroadcastRDB)
+				rc.Emitter.Emit("run.cancelled", map[string]any{}, nil, nil), rc.ReleaseSlot, rc.BroadcastRDB)
 		}
 
 		terminalType, err := readLatestEventType(ctx, pool, eventsRepo, run.ID, terminalEventTypes)
@@ -135,6 +135,15 @@ func appendAndCommitSingle(
 	releaseSlot func(),
 	rdb *redis.Client,
 ) error {
+	// For terminal events, guarantee slot release on all exit paths (including errors).
+	if _, ok := TerminalStatuses[ev.Type]; ok && releaseSlot != nil {
+		defer func() {
+			if releaseSlot != nil {
+				releaseSlot()
+			}
+		}()
+	}
+
 	tx, err := pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return err
@@ -187,8 +196,10 @@ func appendAndCommitSingle(
 		_, _ = rdb.Publish(ctx, redisChannel, "").Result()
 	}
 
+	// Success path: release now and nil out so defer does not double-call.
 	if _, ok := TerminalStatuses[ev.Type]; ok && releaseSlot != nil {
 		releaseSlot()
+		releaseSlot = nil
 	}
 
 	if rdb != nil {

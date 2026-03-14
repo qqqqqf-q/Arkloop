@@ -32,7 +32,7 @@ func TestLoadRunInputsIncludesRoleFromFirstEvent(t *testing.T) {
 		t.Fatalf("insert run event: %v", err)
 	}
 
-	inputJSON, messages, err := loadRunInputs(context.Background(), pool, data.Run{ID: runID, OrgID: orgID, ThreadID: threadID}, data.RunEventsRepository{}, data.MessagesRepository{}, 20)
+	inputJSON, messages, err := loadRunInputs(context.Background(), pool, data.Run{ID: runID, AccountID: orgID, ThreadID: threadID}, data.RunEventsRepository{}, data.MessagesRepository{}, 20)
 	if err != nil {
 		t.Fatalf("loadRunInputs failed: %v", err)
 	}

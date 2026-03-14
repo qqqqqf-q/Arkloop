@@ -317,7 +317,7 @@ func resolveBaseToolAllowlistNames(ctx context.Context, toolRegistry *tools.Regi
 // loadRoutingConfig 优先从 DB 加载路由配置，无数据时回退到环境变量。
 func loadRoutingConfig(ctx context.Context, pool *pgxpool.Pool) (routing.ProviderRoutingConfig, error) {
 	if pool != nil {
-		dbCfg, err := routing.LoadRoutingConfigFromDB(ctx, pool, nil)
+		dbCfg, err := routing.LoadRoutingConfigFromDB(ctx, pool, nil, nil)
 		if err != nil {
 			slog.WarnContext(ctx, "routing: db load failed, falling back to env", "err", err.Error())
 		} else if len(dbCfg.Routes) > 0 {

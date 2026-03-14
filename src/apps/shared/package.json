@@ -20,6 +20,8 @@
   "devDependencies": {
     "@types/react": "^19.2.5",
     "@types/react-dom": "^19.2.3",
-    "react-router-dom": "^7.13.1"
+    "react-router-dom": "^7.13.1",
+    "typescript": "~5.9.3",
+    "vite": "^7.3.1"
   }
 }

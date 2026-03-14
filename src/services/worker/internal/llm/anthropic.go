@@ -105,6 +105,8 @@ func (g *AnthropicGateway) Stream(ctx context.Context, request Request, yield fu
 	if g.baseURLErr != nil {
 		return yield(StreamRunFailed{Error: GatewayError{ErrorClass: ErrorClassInternalError, Message: "Anthropic base_url blocked", Details: map[string]any{"reason": g.baseURLErr.Error()}}})
 	}
+	ctx, cancel := context.WithTimeout(ctx, g.cfg.TotalTimeout)
+	defer cancel()
 	llmCallID := uuid.NewString()
 
 	system, messages, err := toAnthropicMessages(request.Messages)

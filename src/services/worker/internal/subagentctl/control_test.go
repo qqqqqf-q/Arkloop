@@ -52,7 +52,7 @@ func TestServiceSpawnAndWaitCompleted(t *testing.T) {
 	userID := uuid.New()
 	seedThreadAndRun(t, pool, orgID, threadID, &projectID, &userID, runID)
 
-	parentRun := data.Run{ID: runID, OrgID: orgID, ThreadID: threadID, ProjectID: &projectID, CreatedByUserID: &userID}
+	parentRun := data.Run{ID: runID, AccountID: orgID, ThreadID: threadID, ProjectID: &projectID, CreatedByUserID: &userID}
 	jobQueue := &stubJobQueue{}
 	service := NewService(pool, nil, jobQueue, parentRun, "trace-1", SubAgentLimits{}, BackpressureConfig{})
 
@@ -98,7 +98,7 @@ func TestServiceSendInputCreatesQueuedRunDirectly(t *testing.T) {
 	userID := uuid.New()
 	seedThreadAndRun(t, pool, orgID, threadID, &projectID, &userID, runID)
 
-	parentRun := data.Run{ID: runID, OrgID: orgID, ThreadID: threadID, ProjectID: &projectID, CreatedByUserID: &userID}
+	parentRun := data.Run{ID: runID, AccountID: orgID, ThreadID: threadID, ProjectID: &projectID, CreatedByUserID: &userID}
 	jobQueue := &stubJobQueue{}
 	service := NewService(pool, nil, jobQueue, parentRun, "trace-2", SubAgentLimits{}, BackpressureConfig{})
 
@@ -138,7 +138,7 @@ func TestServiceResumeRequeuesCompletedSubAgent(t *testing.T) {
 	userID := uuid.New()
 	seedThreadAndRun(t, pool, orgID, threadID, &projectID, &userID, runID)
 
-	parentRun := data.Run{ID: runID, OrgID: orgID, ThreadID: threadID, ProjectID: &projectID, CreatedByUserID: &userID}
+	parentRun := data.Run{ID: runID, AccountID: orgID, ThreadID: threadID, ProjectID: &projectID, CreatedByUserID: &userID}
 	jobQueue := &stubJobQueue{}
 	service := NewService(pool, nil, jobQueue, parentRun, "trace-2b", SubAgentLimits{}, BackpressureConfig{})
 
@@ -178,7 +178,7 @@ func TestServiceSendInputQueuesRunningSubAgentAndMergesPendingBatch(t *testing.T
 	userID := uuid.New()
 	seedThreadAndRun(t, pool, orgID, threadID, &projectID, &userID, runID)
 
-	parentRun := data.Run{ID: runID, OrgID: orgID, ThreadID: threadID, ProjectID: &projectID, CreatedByUserID: &userID}
+	parentRun := data.Run{ID: runID, AccountID: orgID, ThreadID: threadID, ProjectID: &projectID, CreatedByUserID: &userID}
 	jobQueue := &stubJobQueue{}
 	service := NewService(pool, nil, jobQueue, parentRun, "trace-3", SubAgentLimits{}, BackpressureConfig{})
 
@@ -288,7 +288,7 @@ func TestServiceSpawnForkRecentCopiesHistoryAndStoresSnapshot(t *testing.T) {
 		t.Fatalf("update parent bindings: %v", err)
 	}
 
-	parentRun := data.Run{ID: runID, OrgID: orgID, ThreadID: threadID, ProjectID: &projectID, CreatedByUserID: &userID, ProfileRef: &profileRef, WorkspaceRef: &workspaceRef}
+	parentRun := data.Run{ID: runID, AccountID: orgID, ThreadID: threadID, ProjectID: &projectID, CreatedByUserID: &userID, ProfileRef: &profileRef, WorkspaceRef: &workspaceRef}
 	service := NewService(pool, nil, &stubJobQueue{}, parentRun, "trace-fork", SubAgentLimits{}, BackpressureConfig{})
 
 	role := "worker"
@@ -387,7 +387,7 @@ func TestServiceSpawnSharedWorkspaceOnlyOmitsHistory(t *testing.T) {
 		t.Fatalf("update parent bindings: %v", err)
 	}
 
-	parentRun := data.Run{ID: runID, OrgID: orgID, ThreadID: threadID, ProjectID: &projectID, CreatedByUserID: &userID, ProfileRef: &profileRef, WorkspaceRef: &workspaceRef}
+	parentRun := data.Run{ID: runID, AccountID: orgID, ThreadID: threadID, ProjectID: &projectID, CreatedByUserID: &userID, ProfileRef: &profileRef, WorkspaceRef: &workspaceRef}
 	service := NewService(pool, nil, &stubJobQueue{}, parentRun, "trace-shared", SubAgentLimits{}, BackpressureConfig{})
 
 	snapshot, err := service.Spawn(context.Background(), SpawnRequest{
@@ -442,7 +442,7 @@ func TestServiceSpawnWritesRoleToChildRunStartedEvent(t *testing.T) {
 	userID := uuid.New()
 	seedThreadAndRun(t, pool, orgID, threadID, &projectID, &userID, runID)
 
-	parentRun := data.Run{ID: runID, OrgID: orgID, ThreadID: threadID, ProjectID: &projectID, CreatedByUserID: &userID}
+	parentRun := data.Run{ID: runID, AccountID: orgID, ThreadID: threadID, ProjectID: &projectID, CreatedByUserID: &userID}
 	service := NewService(pool, nil, &stubJobQueue{}, parentRun, "trace-role", SubAgentLimits{}, BackpressureConfig{})
 	role := "worker"
 

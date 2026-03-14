@@ -28,6 +28,19 @@ type subAgentEventQuerier interface {
 
 type SubAgentEventsRepository struct{}
 
+// allocateSubAgentEventSeq returns a gapless per-sub_agent sequence number.
+func allocateSubAgentEventSeq(ctx context.Context, tx pgx.Tx, subAgentID uuid.UUID) (int64, error) {
+	if _, err := tx.Exec(ctx, `SELECT 1 FROM sub_agents WHERE id = $1 FOR UPDATE`, subAgentID); err != nil {
+		return 0, err
+	}
+	var seq int64
+	err := tx.QueryRow(ctx,
+		`SELECT COALESCE(MAX(seq), 0) + 1 FROM sub_agent_events WHERE sub_agent_id = $1`,
+		subAgentID,
+	).Scan(&seq)
+	return seq, err
+}
+
 func (r SubAgentEventsRepository) AppendEvent(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -48,7 +61,7 @@ func (r SubAgentEventsRepository) AppendEvent(
 		return 0, fmt.Errorf("event_type must not be empty")
 	}
 
-	seq, err := (RunEventsRepository{}).allocateSeq(ctx, tx)
+	seq, err := allocateSubAgentEventSeq(ctx, tx, subAgentID)
 	if err != nil {
 		return 0, err
 	}

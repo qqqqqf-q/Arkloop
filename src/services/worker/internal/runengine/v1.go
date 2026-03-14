@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"strconv"
 	"strings"
+	"sync"
 
 	sharedconfig "arkloop/services/shared/config"
 	sharedent "arkloop/services/shared/entitlement"
@@ -43,6 +44,7 @@ type EngineV1 struct {
 	llmRetryMaxAttempts   int
 	llmRetryBaseDelayMs   int
 	configResolver        sharedconfig.Resolver
+	releaseSlot           func(ctx context.Context, run data.Run)
 }
 
 type ExecuteInput struct {
@@ -169,7 +171,6 @@ func NewEngineV1(deps EngineV1Deps) (*EngineV1, error) {
 		),
 		pipeline.NewSpawnAgentMiddleware(),
 		pipeline.NewToolProviderMiddleware(deps.ToolProviderCache),
-		pipeline.NewAgentConfigMiddleware(deps.DBPool),
 		pipeline.NewPersonaResolutionMiddleware(deps.PersonaRegistryGetter, deps.DBPool, runsRepo, eventsRepo, releaseSlot),
 		pipeline.NewSubAgentContextMiddleware(subagentctl.NewSnapshotStorage()),
 		pipeline.NewSkillContextMiddleware(deps.DBPool, nil),
@@ -195,6 +196,7 @@ func NewEngineV1(deps EngineV1Deps) (*EngineV1, error) {
 		llmRetryMaxAttempts:   deps.LlmRetryMaxAttempts,
 		llmRetryBaseDelayMs:   deps.LlmRetryBaseDelayMs,
 		configResolver:        cfgResolver,
+		releaseSlot:           releaseSlot,
 	}, nil
 }
 
@@ -278,6 +280,17 @@ func (e *EngineV1) Execute(ctx context.Context, pool *pgxpool.Pool, run data.Run
 		}
 		rc.SubAgentControl = subagentctl.NewService(pool, e.broadcastRDB, e.jobQueue, run, traceID, subAgentLimits, bpConfig)
 	}
+
+	// Per-run idempotent slot release; deferred as safety net for all exit paths.
+	var slotOnce sync.Once
+	rc.ReleaseSlot = func() {
+		slotOnce.Do(func() {
+			if e.releaseSlot != nil {
+				e.releaseSlot(context.Background(), run)
+			}
+		})
+	}
+	defer rc.ReleaseSlot()
 
 	handler := pipeline.Build(e.middlewares, e.terminal)
 	err = handler(ctx, rc)

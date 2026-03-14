@@ -5,6 +5,7 @@ import (
 	"log/slog"
 
 	sharedtoolruntime "arkloop/services/shared/toolruntime"
+	"arkloop/services/worker/internal/tools"
 )
 
 var runtimeManagedToolNames = map[string]struct{}{
@@ -37,6 +38,8 @@ func NewToolBuildMiddleware() RunMiddleware {
 			slog.WarnContext(ctx, "tool allowlist dropped unbound executors", "run_id", rc.Run.ID, "tools", dropped)
 		}
 
+		filteredAllowlist = filterNotConfiguredExecutors(filteredAllowlist, rc.ToolExecutors)
+
 		executor, err := BuildDispatchExecutor(rc.ToolRegistry, rc.ToolExecutors, filteredAllowlist)
 		if err != nil {
 			return err
@@ -47,6 +50,18 @@ func NewToolBuildMiddleware() RunMiddleware {
 
 		return next(ctx, rc)
 	}
+}
+
+func filterNotConfiguredExecutors(allowlistSet map[string]struct{}, executors map[string]tools.Executor) map[string]struct{} {
+	out := CopyStringSet(allowlistSet)
+	for name := range out {
+		if exec, ok := executors[name]; ok {
+			if nc, ok := exec.(tools.NotConfiguredChecker); ok && nc.IsNotConfigured() {
+				delete(out, name)
+			}
+		}
+	}
+	return out
 }
 
 func filterAllowlistByRuntime(allowlistSet map[string]struct{}, snapshot *sharedtoolruntime.RuntimeSnapshot) map[string]struct{} {

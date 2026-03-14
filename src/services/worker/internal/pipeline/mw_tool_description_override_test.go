@@ -76,7 +76,7 @@ func TestToolDescriptionOverrideMiddlewareAppliesPlatformAndOrg(t *testing.T) {
 func TestToolDescriptionOverrideMiddlewareFailsOpenOnRepoError(t *testing.T) {
 	projectID := uuid.New()
 	repo := stubToolDescriptionOverridesRepo{
-		platform: []data.ToolDescriptionOverride{{ToolName: "web_search", Description: "platform search"}},
+		platform:   []data.ToolDescriptionOverride{{ToolName: "web_search", Description: "platform search"}},
 		projectErr: errors.New("boom"),
 	}
 
@@ -86,12 +86,11 @@ func TestToolDescriptionOverrideMiddlewareFailsOpenOnRepoError(t *testing.T) {
 			websearch.LlmSpec,
 		},
 	}
-	defaultDescription := deref(websearch.LlmSpec.Description)
 
 	mw := pipeline.NewToolDescriptionOverrideMiddleware(repo)
 	h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(_ context.Context, rc *pipeline.RunContext) error {
-		if got := deref(rc.ToolSpecs[0].Description); got != defaultDescription {
-			t.Fatalf("expected default description on repo failure, got %s", got)
+		if got := deref(rc.ToolSpecs[0].Description); got != "platform search" {
+			t.Fatalf("expected platform override when project fails, got %s", got)
 		}
 		return nil
 	})

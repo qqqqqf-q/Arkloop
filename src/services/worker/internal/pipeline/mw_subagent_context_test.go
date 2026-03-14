@@ -70,7 +70,7 @@ func TestSubAgentContextMiddlewareRestoresRouteAndNarrowsAllowlist(t *testing.T)
 	}
 
 	rc := &RunContext{
-		Run:          data.Run{ID: childRunID, OrgID: orgID, ThreadID: childThreadID, ParentRunID: &parentRunID},
+		Run:          data.Run{ID: childRunID, AccountID: orgID, ThreadID: childThreadID, ParentRunID: &parentRunID},
 		Pool:         pool,
 		InputJSON:    map[string]any{},
 		AllowlistSet: map[string]struct{}{"echo": {}, "noop": {}, "browser": {}},
@@ -172,7 +172,7 @@ func TestSubAgentContextMiddlewareNarrowsRoleExpandedAllowlist(t *testing.T) {
 	}
 
 	rc := &RunContext{
-		Run:          data.Run{ID: childRunID, OrgID: orgID, ThreadID: childThreadID, ParentRunID: &parentRunID},
+		Run:          data.Run{ID: childRunID, AccountID: orgID, ThreadID: childThreadID, ParentRunID: &parentRunID},
 		Pool:         pool,
 		InputJSON:    map[string]any{"persona_id": "p1", "role": "worker"},
 		AllowlistSet: map[string]struct{}{"tool_a": {}, "tool_b": {}, "tool_c": {}},

@@ -2,6 +2,7 @@ package runlimit
 
 import (
 	"context"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -12,7 +13,28 @@ const KeyPrefix = "arkloop:account:active_runs:"
 
 const defaultTTL = 24 * time.Hour
 
+// degradedMultiplier scales the limit when using in-memory fallback,
+// compensating for per-process (not global) counting.
+const degradedMultiplier int64 = 3
+
 var now = time.Now
+
+// rate-limited warning for Redis unavailability
+var warnState struct {
+	mu   sync.Mutex
+	last time.Time
+}
+
+func warnDegraded() {
+	const interval = time.Minute
+	warnState.mu.Lock()
+	defer warnState.mu.Unlock()
+	if time.Since(warnState.last) < interval {
+		return
+	}
+	warnState.last = time.Now()
+	slog.Warn("runlimit: Redis unavailable, using in-memory fallback")
+}
 
 type localCounter struct {
 	count     int64
@@ -64,28 +86,33 @@ end
 return redis.call("DECR", key)
 `)
 
-// TryAcquire 为 account 原子地获取一个并发 run 槽。
-// Redis 运行时不可用时回退到进程内计数器。
+// TryAcquire atomically acquires a concurrent run slot for an account.
+// Falls back to in-memory counter with relaxed limit when Redis is unavailable.
 func TryAcquire(ctx context.Context, rdb *redis.Client, key string, maxRuns int64) bool {
+	degradedMax := maxRuns * degradedMultiplier
 	if rdb == nil {
-		return true
+		warnDegraded()
+		return fallbackCounters.tryAcquire(key, degradedMax)
 	}
 	ttlSecs := int64(defaultTTL.Seconds())
 	result, err := tryAcquireScript.Run(ctx, rdb, []string{key}, maxRuns, ttlSecs).Slice()
 	if err != nil {
-		return fallbackCounters.tryAcquire(key, maxRuns)
+		warnDegraded()
+		return fallbackCounters.tryAcquire(key, degradedMax)
 	}
 	allowed, count, ok := parseTryAcquireResult(result)
 	if !ok {
-		return fallbackCounters.tryAcquire(key, maxRuns)
+		warnDegraded()
+		return fallbackCounters.tryAcquire(key, degradedMax)
 	}
 	fallbackCounters.set(key, count, defaultTTL)
 	return allowed
 }
 
-// Release 为 account 原子地释放一个并发 run 槽，计数不低于 0。
+// Release atomically releases a concurrent run slot, count never goes below 0.
 func Release(ctx context.Context, rdb *redis.Client, key string) {
 	if rdb == nil {
+		fallbackCounters.release(key)
 		return
 	}
 	result, err := releaseScript.Run(ctx, rdb, []string{key}).Int64()

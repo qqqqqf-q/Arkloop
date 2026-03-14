@@ -572,7 +572,7 @@ func getRun(
 			return
 		}
 
-		run, err := runRepo.GetRun(r.Context(), runID)
+		run, err := runRepo.GetRunForAccount(r.Context(), actor.AccountID, runID)
 		if err != nil {
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
@@ -659,7 +659,7 @@ func cancelRun(
 			return
 		}
 
-		run, err := runRepo.GetRun(r.Context(), runID)
+		run, err := runRepo.GetRunForAccount(r.Context(), actor.AccountID, runID)
 		if err != nil {
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
@@ -768,7 +768,7 @@ func submitRunInput(
 			return
 		}
 
-		run, err := runRepo.GetRun(r.Context(), runID)
+		run, err := runRepo.GetRunForAccount(r.Context(), actor.AccountID, runID)
 		if err != nil {
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
@@ -847,7 +847,7 @@ func streamRunEvents(
 			return
 		}
 
-		run, err := runRepo.GetRun(r.Context(), runID)
+		run, err := runRepo.GetRunForAccount(r.Context(), actor.AccountID, runID)
 		if err != nil {
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return

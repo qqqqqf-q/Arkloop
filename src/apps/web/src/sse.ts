@@ -61,10 +61,14 @@ export type SSEClientOptions = {
   onEvent: (event: RunEvent) => void
   onStateChange?: (state: SSEClientState) => void
   onError?: (error: Error) => void
+  /** Called on 401 to refresh the access token. Should return the new token. */
+  onTokenRefresh?: () => Promise<string>
   maxRetries?: number
   retryDelayMs?: number
   /** 读超时（毫秒）。超过此时间未收到任何数据（含心跳）则判定连接死亡并重连。默认 45000（3x 服务端心跳） */
   readTimeoutMs?: number
+  /** Max token-refresh attempts on consecutive 401s before treating as fatal. Default 3 */
+  maxAuthRetries?: number
 }
 
 async function readJsonSafely(response: Response): Promise<unknown | null> {
@@ -147,12 +151,13 @@ export function parseSSEChunk(buffer: string): { events: SSEEvent[]; remaining: 
  * 管理连接生命周期、自动重连、游标续传
  */
 export class SSEClient {
-  private options: Required<Omit<SSEClientOptions, 'onStateChange' | 'onError'>> &
-    Pick<SSEClientOptions, 'onStateChange' | 'onError'>
+  private options: Required<Omit<SSEClientOptions, 'onStateChange' | 'onError' | 'onTokenRefresh'>> &
+    Pick<SSEClientOptions, 'onStateChange' | 'onError' | 'onTokenRefresh'>
   private state: SSEClientState = 'idle'
   private abortController: AbortController | null = null
   private lastSeq: number
   private retryCount = 0
+  private authRetryCount = 0
   private closed = false
 
   constructor(options: SSEClientOptions) {
@@ -162,6 +167,7 @@ export class SSEClient {
       maxRetries: 5,
       retryDelayMs: 1000,
       readTimeoutMs: 45_000,
+      maxAuthRetries: 3,
       ...options,
     }
     this.lastSeq = this.options.afterSeq
@@ -202,6 +208,16 @@ export class SSEClient {
       }
 
       this.options.onError?.(error)
+
+      // 401: attempt token refresh before giving up
+      if (error instanceof SSEApiError && error.status === 401) {
+        if (await this.tryTokenRefresh()) {
+          await this.connect()
+          return
+        }
+        this.setState('error')
+        return
+      }
 
       const isNonRetryableClientError =
         error instanceof SSEApiError &&
@@ -267,6 +283,7 @@ export class SSEClient {
 
     this.setState('connected')
     this.retryCount = 0
+    this.authRetryCount = 0
 
     await this.readStream(response.body)
   }
@@ -310,13 +327,29 @@ export class SSEClient {
     }
   }
 
+  private async tryTokenRefresh(): Promise<boolean> {
+    if (!this.options.onTokenRefresh) return false
+    if (this.authRetryCount >= this.options.maxAuthRetries) return false
+
+    this.authRetryCount++
+    try {
+      const newToken = await this.options.onTokenRefresh()
+      this.options.accessToken = newToken
+      return true
+    } catch {
+      return false
+    }
+  }
+
   private processEvent(sseEvent: SSEEvent): void {
     if (!sseEvent.data) return
 
     try {
       const runEvent = JSON.parse(sseEvent.data) as RunEvent
 
-      // 更新游标
+      // Gap-tolerant cursor: accept any received seq regardless of gaps.
+      // PG sequence skips/rollbacks may produce non-contiguous seq numbers;
+      // we never block waiting for intermediate seq values.
       if (typeof runEvent.seq === 'number') {
         this.lastSeq = runEvent.seq
       }
@@ -362,6 +395,7 @@ export class SSEClient {
 
     this.closed = false
     this.retryCount = 0
+    this.authRetryCount = 0
     await this.connect()
   }
 }

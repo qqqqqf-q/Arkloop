@@ -50,8 +50,8 @@ func TestRoutingUserRouteIDTakesPriority(t *testing.T) {
 	cfg := routing.ProviderRoutingConfig{
 		DefaultRouteID: "default",
 		Credentials: []routing.ProviderCredential{
-			{ID: "c-default", Scope: routing.CredentialScopePlatform, ProviderKind: routing.ProviderKindStub, AdvancedJSON: map[string]any{}},
-			{ID: "c-alt", Scope: routing.CredentialScopePlatform, ProviderKind: routing.ProviderKindStub, AdvancedJSON: map[string]any{}},
+			{ID: "c-default", OwnerKind: routing.CredentialScopePlatform, ProviderKind: routing.ProviderKindStub, AdvancedJSON: map[string]any{}},
+			{ID: "c-alt", OwnerKind: routing.CredentialScopePlatform, ProviderKind: routing.ProviderKindStub, AdvancedJSON: map[string]any{}},
 		},
 		Routes: []routing.ProviderRouteRule{
 			{ID: "default", Model: "stub", CredentialID: "c-default", When: map[string]any{}},
@@ -84,8 +84,8 @@ func TestRoutingResolverByRouteID(t *testing.T) {
 	cfg := routing.ProviderRoutingConfig{
 		DefaultRouteID: "default",
 		Credentials: []routing.ProviderCredential{
-			{ID: "c-default", Scope: routing.CredentialScopePlatform, ProviderKind: routing.ProviderKindStub, AdvancedJSON: map[string]any{}},
-			{ID: "c-final", Scope: routing.CredentialScopePlatform, ProviderKind: routing.ProviderKindStub, AdvancedJSON: map[string]any{}},
+			{ID: "c-default", OwnerKind: routing.CredentialScopePlatform, ProviderKind: routing.ProviderKindStub, AdvancedJSON: map[string]any{}},
+			{ID: "c-final", OwnerKind: routing.CredentialScopePlatform, ProviderKind: routing.ProviderKindStub, AdvancedJSON: map[string]any{}},
 		},
 		Routes: []routing.ProviderRouteRule{
 			{ID: "default", Model: "stub-default", CredentialID: "c-default", When: map[string]any{}},

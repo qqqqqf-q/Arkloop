@@ -90,7 +90,7 @@ func TestSpawnGovernorActivePerRootRunLimit(t *testing.T) {
 	seedSubAgent(t, pool, orgID, runID, threadID, runID, threadID, 1, data.SubAgentStatusQueued)
 
 	governor := NewSpawnGovernor(SubAgentLimits{MaxActivePerRootRun: 2}, BackpressureConfig{})
-	parentRun := data.Run{ID: runID, OrgID: orgID}
+	parentRun := data.Run{ID: runID, AccountID: orgID}
 
 	tx, err := pool.Begin(context.Background())
 	if err != nil {
@@ -113,7 +113,7 @@ func TestSpawnGovernorParallelChildrenLimit(t *testing.T) {
 	seedSubAgent(t, pool, orgID, runID, threadID, runID, threadID, 1, data.SubAgentStatusRunning)
 
 	governor := NewSpawnGovernor(SubAgentLimits{MaxParallelChildren: 1}, BackpressureConfig{})
-	parentRun := data.Run{ID: runID, OrgID: orgID}
+	parentRun := data.Run{ID: runID, AccountID: orgID}
 
 	tx, err := pool.Begin(context.Background())
 	if err != nil {
@@ -138,7 +138,7 @@ func TestSpawnGovernorDescendantsPerRootRunLimit(t *testing.T) {
 	seedSubAgent(t, pool, orgID, runID, threadID, runID, threadID, 1, data.SubAgentStatusRunning)
 
 	governor := NewSpawnGovernor(SubAgentLimits{MaxDescendantsPerRootRun: 3}, BackpressureConfig{})
-	parentRun := data.Run{ID: runID, OrgID: orgID}
+	parentRun := data.Run{ID: runID, AccountID: orgID}
 
 	tx, err := pool.Begin(context.Background())
 	if err != nil {
@@ -188,7 +188,7 @@ func TestSpawnGovernorZeroLimitMeansUnlimited(t *testing.T) {
 	}
 
 	governor := NewSpawnGovernor(SubAgentLimits{}, BackpressureConfig{})
-	parentRun := data.Run{ID: runID, OrgID: orgID}
+	parentRun := data.Run{ID: runID, AccountID: orgID}
 
 	tx, err := pool.Begin(context.Background())
 	if err != nil {
@@ -219,7 +219,7 @@ func TestServiceSpawnRejectsOnParallelChildrenLimit(t *testing.T) {
 	userID := uuid.New()
 	seedThreadAndRun(t, pool, orgID, threadID, &projectID, &userID, runID)
 
-	parentRun := data.Run{ID: runID, OrgID: orgID, ThreadID: threadID, ProjectID: &projectID, CreatedByUserID: &userID}
+	parentRun := data.Run{ID: runID, AccountID: orgID, ThreadID: threadID, ProjectID: &projectID, CreatedByUserID: &userID}
 	service := NewService(pool, nil, &stubJobQueue{}, parentRun, "trace-gov", SubAgentLimits{MaxParallelChildren: 1}, BackpressureConfig{})
 
 	_, err = service.Spawn(context.Background(), isolatedSpawnRequest("first child"))

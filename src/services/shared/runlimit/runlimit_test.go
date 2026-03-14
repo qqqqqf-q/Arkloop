@@ -9,6 +9,28 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+func TestTryAcquireNilRdbUsesFallback(t *testing.T) {
+	setFallbackTestState(t, time.Minute)
+
+	ctx := context.Background()
+	key := Key("org-nil")
+
+	// nil rdb uses degraded mode: maxRuns=2, limit=6
+	for i := 0; i < 6; i++ {
+		if !TryAcquire(ctx, nil, key, 2) {
+			t.Fatalf("nil-rdb acquire %d should succeed (degraded limit=6)", i+1)
+		}
+	}
+	if TryAcquire(ctx, nil, key, 2) {
+		t.Fatal("nil-rdb should reject after reaching degraded limit")
+	}
+
+	Release(ctx, nil, key)
+	if !TryAcquire(ctx, nil, key, 2) {
+		t.Fatal("nil-rdb acquire after release should succeed")
+	}
+}
+
 func TestTryAcquireWithRedisEnforcesLimit(t *testing.T) {
 	setFallbackTestState(t, time.Minute)
 
@@ -42,14 +64,14 @@ func TestTryAcquireFallsBackWhenRedisUnavailable(t *testing.T) {
 	ctx := context.Background()
 	key := Key("org-fallback")
 
-	if !TryAcquire(ctx, rdb, key, 2) {
-		t.Fatal("first fallback acquire should succeed")
-	}
-	if !TryAcquire(ctx, rdb, key, 2) {
-		t.Fatal("second fallback acquire should succeed")
+	// degraded mode: maxRuns=2, in-memory limit = 2*3 = 6
+	for i := 0; i < 6; i++ {
+		if !TryAcquire(ctx, rdb, key, 2) {
+			t.Fatalf("fallback acquire %d should succeed (degraded limit=6)", i+1)
+		}
 	}
 	if TryAcquire(ctx, rdb, key, 2) {
-		t.Fatal("fallback acquire should reject after reaching limit")
+		t.Fatal("fallback acquire should reject after reaching degraded limit")
 	}
 
 	Release(ctx, rdb, key)
@@ -74,11 +96,14 @@ func TestTryAcquireUsesWarmStateAfterRedisFailure(t *testing.T) {
 
 	mr.Close()
 
-	if !TryAcquire(ctx, rdb, key, 2) {
-		t.Fatal("fallback should allow one more slot from warm state")
+	// warm state: count=1, degraded limit=6, so 5 more slots available
+	for i := 0; i < 5; i++ {
+		if !TryAcquire(ctx, rdb, key, 2) {
+			t.Fatalf("fallback should allow slot %d from warm state (degraded limit=6)", i+2)
+		}
 	}
 	if TryAcquire(ctx, rdb, key, 2) {
-		t.Fatal("fallback should reject after warm state reaches limit")
+		t.Fatal("fallback should reject after warm state reaches degraded limit")
 	}
 }
 
@@ -89,7 +114,8 @@ func TestSetUpdatesFallbackCounter(t *testing.T) {
 	ctx := context.Background()
 	key := Key("org-set")
 
-	if err := Set(ctx, rdb, key, 2); err == nil {
+	// set count to degraded limit (2*3=6) so TryAcquire is rejected
+	if err := Set(ctx, rdb, key, 6); err == nil {
 		t.Fatal("Set should return redis error when redis is unavailable")
 	}
 	if TryAcquire(ctx, rdb, key, 2) {
@@ -111,8 +137,11 @@ func TestFallbackCounterExpires(t *testing.T) {
 	ctx := context.Background()
 	key := Key("org-expire")
 
-	if !TryAcquire(ctx, rdb, key, 1) {
-		t.Fatal("initial fallback acquire should succeed")
+	// degraded mode: maxRuns=1, limit=3
+	for i := 0; i < 3; i++ {
+		if !TryAcquire(ctx, rdb, key, 1) {
+			t.Fatalf("fallback acquire %d should succeed (degraded limit=3)", i+1)
+		}
 	}
 	if TryAcquire(ctx, rdb, key, 1) {
 		t.Fatal("fallback acquire should reject before ttl expires")

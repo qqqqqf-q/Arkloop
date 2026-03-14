@@ -11,7 +11,6 @@ import (
 
 	"arkloop/services/shared/creditpolicy"
 	sharedent "arkloop/services/shared/entitlement"
-	"arkloop/services/shared/runlimit"
 	"arkloop/services/worker/internal/data"
 	"arkloop/services/worker/internal/events"
 	"arkloop/services/worker/internal/queue"
@@ -80,6 +79,7 @@ func NewAgentLoopHandler(
 			selected.Route.Multiplier, selected.Route.CostPer1kInput, selected.Route.CostPer1kOutput,
 			selected.Route.CostPer1kCacheWrite, selected.Route.CostPer1kCacheRead,
 			policy,
+			rc.ReleaseSlot,
 		)
 		defer writer.Close(ctx)
 
@@ -154,13 +154,14 @@ type eventWriter struct {
 	pool          *pgxpool.Pool
 	run           data.Run
 	traceID       string
-	runLimiterRDB *redis.Client // 双职责：并发槽释放（runlimit.Release）+ 跨实例 SSE 广播（Publish）
+	runLimiterRDB *redis.Client // SSE 广播（Publish）; slot release via releaseSlot closure
 	jobQueue      queue.JobQueue
 	projector     *subagentctl.SubAgentStateProjector
 	model         string
 	personaID     string
 	usageRepo     data.UsageRecordsRepository
 	creditsRepo   data.CreditsRepository
+	releaseSlot   func() // idempotent per-run slot release (from RunContext)
 
 	multiplier          float64
 	costPer1kInput      *float64
@@ -209,6 +210,7 @@ func newEventWriter(
 	costPer1kCacheWrite *float64,
 	costPer1kCacheRead *float64,
 	policy creditpolicy.CreditDeductionPolicy,
+	releaseSlot func(),
 ) *eventWriter {
 	if creditsPerUSD <= 0 {
 		creditsPerUSD = 1000.0
@@ -235,6 +237,7 @@ func newEventWriter(
 		costPer1kCacheWrite: costPer1kCacheWrite,
 		costPer1kCacheRead:  costPer1kCacheRead,
 		policy:              policy,
+		releaseSlot:         releaseSlot,
 	}
 }
 
@@ -447,10 +450,8 @@ func (w *eventWriter) commit(ctx context.Context) error {
 		}
 		w.hasTerminal = false
 		w.terminalMessage = ""
-		// 子 Run 没有通过 API 层 TryAcquire，不释放并发槽
-		if w.run.ParentRunID == nil {
-			key := runlimit.Key(w.run.AccountID.String())
-			runlimit.Release(ctx, w.runLimiterRDB, key)
+		if w.releaseSlot != nil {
+			w.releaseSlot()
 		}
 	}
 

@@ -137,7 +137,13 @@ func emitTitleEvent(
 	defer tx.Rollback(ctx)
 
 	var seq int64
-	if err = tx.QueryRow(ctx, `SELECT nextval('run_events_seq_global')`).Scan(&seq); err != nil {
+	if _, err = tx.Exec(ctx, `SELECT 1 FROM runs WHERE id = $1 FOR UPDATE`, runID); err != nil {
+		return
+	}
+	if err = tx.QueryRow(ctx,
+		`SELECT COALESCE(MAX(seq), 0) + 1 FROM run_events WHERE run_id = $1`,
+		runID,
+	).Scan(&seq); err != nil {
 		return
 	}
 

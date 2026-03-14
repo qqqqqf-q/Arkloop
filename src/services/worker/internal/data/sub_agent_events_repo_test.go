@@ -31,7 +31,7 @@ func TestSubAgentEventsRepository_AppendAndList(t *testing.T) {
 
 	repo := SubAgentRepository{}
 	record, err := repo.Create(context.Background(), tx, SubAgentCreateParams{
-		OrgID:          orgID,
+		AccountID:      orgID,
 		ParentRunID:    runID,
 		ParentThreadID: threadID,
 		RootRunID:      runID,

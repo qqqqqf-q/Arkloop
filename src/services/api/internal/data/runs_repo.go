@@ -153,6 +153,45 @@ func (r *RunEventRepository) GetRun(ctx context.Context, runID uuid.UUID) (*Run,
 	return &run, nil
 }
 
+// GetRunForAccount returns a run only if it belongs to the specified account.
+func (r *RunEventRepository) GetRunForAccount(ctx context.Context, accountID uuid.UUID, runID uuid.UUID) (*Run, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if accountID == uuid.Nil {
+		return nil, fmt.Errorf("account_id must not be empty")
+	}
+	if runID == uuid.Nil {
+		return nil, fmt.Errorf("run_id must not be empty")
+	}
+
+	var run Run
+	err := r.db.QueryRow(
+		ctx,
+		`SELECT id, account_id, thread_id, created_by_user_id, status, created_at,
+		        parent_run_id, status_updated_at, completed_at, failed_at,
+		        duration_ms, total_input_tokens, total_output_tokens, total_cost_usd,
+		        model, persona_id, profile_ref, workspace_ref, deleted_at
+		 FROM runs
+		 WHERE id = $1 AND account_id = $2
+		 LIMIT 1`,
+		runID,
+		accountID,
+	).Scan(
+		&run.ID, &run.AccountID, &run.ThreadID, &run.CreatedByUserID, &run.Status, &run.CreatedAt,
+		&run.ParentRunID, &run.StatusUpdatedAt, &run.CompletedAt, &run.FailedAt,
+		&run.DurationMs, &run.TotalInputTokens, &run.TotalOutputTokens, &run.TotalCostUSD,
+		&run.Model, &run.PersonaID, &run.ProfileRef, &run.WorkspaceRef, &run.DeletedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &run, nil
+}
+
 func (r *RunEventRepository) ListRunsByThread(
 	ctx context.Context,
 	accountID uuid.UUID,
@@ -389,7 +428,7 @@ func (r *RunEventRepository) insertEvent(
 	toolName *string,
 	errorClass *string,
 ) (RunEvent, error) {
-	seq, err := r.allocateSeq(ctx)
+	seq, err := r.allocateSeq(ctx, runID)
 	if err != nil {
 		return RunEvent{}, err
 	}
@@ -431,13 +470,18 @@ func (r *RunEventRepository) insertEvent(
 	return event, nil
 }
 
-func (r *RunEventRepository) allocateSeq(ctx context.Context) (int64, error) {
-	var seq int64
-	err := r.db.QueryRow(ctx, `SELECT nextval('run_events_seq_global')`).Scan(&seq)
-	if err != nil {
+// allocateSeq returns a gapless per-run sequence number.
+// Requires r.db to be a transaction for cross-query lock persistence.
+func (r *RunEventRepository) allocateSeq(ctx context.Context, runID uuid.UUID) (int64, error) {
+	if _, err := r.db.Exec(ctx, `SELECT 1 FROM runs WHERE id = $1 FOR UPDATE`, runID); err != nil {
 		return 0, err
 	}
-	return seq, nil
+	var seq int64
+	err := r.db.QueryRow(ctx,
+		`SELECT COALESCE(MAX(seq), 0) + 1 FROM run_events WHERE run_id = $1`,
+		runID,
+	).Scan(&seq)
+	return seq, err
 }
 
 // ProvideInput 向运行中的 run 注入用户输入。
@@ -737,8 +781,7 @@ func (r *RunEventRepository) ForceFailRun(ctx context.Context, runID uuid.UUID) 
 		return false, fmt.Errorf("run_id must not be empty")
 	}
 
-	// 单条 CTE 原子完成：UPDATE + event INSERT，seq/ts/event_id 均由列默认值生成。
-	// 若 run 已不在 running 状态，UPDATE 返回 0 行，INSERT 也插入 0 行。
+	// UPDATE takes an exclusive lock on the runs row, serializing seq allocation.
 	tag, err := r.db.Exec(
 		ctx,
 		`WITH updated AS (
@@ -749,13 +792,19 @@ func (r *RunEventRepository) ForceFailRun(ctx context.Context, runID uuid.UUID) 
 		     WHERE id = $1
 		       AND status = 'running'
 		     RETURNING id
+		 ),
+		 next_seq AS (
+		     SELECT COALESCE(MAX(seq), 0) + 1 AS seq
+		     FROM run_events
+		     WHERE run_id = $1
 		 )
-		 INSERT INTO run_events (run_id, type, data_json, error_class)
+		 INSERT INTO run_events (run_id, seq, type, data_json, error_class)
 		 SELECT updated.id,
+		        next_seq.seq,
 		        'run.failed',
 		        '{"reason":"stale run reaped by system"}'::jsonb,
 		        'worker.timeout'
-		 FROM updated`,
+		 FROM updated, next_seq`,
 		runID,
 	)
 	if err != nil {

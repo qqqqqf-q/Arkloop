@@ -22,23 +22,39 @@ func NewToolDescriptionOverrideMiddleware(repo ToolDescriptionOverridesReader) R
 			return next(ctx, rc)
 		}
 
-		overrides, err := repo.ListByScope(ctx, nil, "platform")
+		descriptionByTool := make(map[string]string)
+		disabledByTool := make(map[string]struct{})
+
+		platformOverrides, err := repo.ListByScope(ctx, nil, "platform")
 		if err != nil {
-			slog.WarnContext(ctx, "tool description override load failed", "run_id", rc.Run.ID, "err", err.Error())
+			slog.WarnContext(ctx, "tool description override load failed", "scope", "platform", "run_id", rc.Run.ID, "err", err.Error())
 			return next(ctx, rc)
 		}
-
-		descriptionByTool := make(map[string]string, len(overrides))
-		disabledByTool := make(map[string]struct{}, len(overrides))
-		for _, override := range overrides {
+		for _, override := range platformOverrides {
 			if override.IsDisabled {
 				disabledByTool[override.ToolName] = struct{}{}
 			}
-			if strings.TrimSpace(override.Description) == "" {
-				continue
+			if strings.TrimSpace(override.Description) != "" {
+				descriptionByTool[override.ToolName] = override.Description
 			}
-			descriptionByTool[override.ToolName] = override.Description
 		}
+
+		if rc.Run.ProjectID != nil {
+			projectOverrides, err := repo.ListByScope(ctx, rc.Run.ProjectID, "project")
+			if err != nil {
+				slog.WarnContext(ctx, "tool description override load failed", "scope", "project", "run_id", rc.Run.ID, "err", err.Error())
+			} else {
+				for _, override := range projectOverrides {
+					if override.IsDisabled {
+						disabledByTool[override.ToolName] = struct{}{}
+					}
+					if strings.TrimSpace(override.Description) != "" {
+						descriptionByTool[override.ToolName] = override.Description
+					}
+				}
+			}
+		}
+
 		for toolName := range disabledByTool {
 			RemoveToolOrGroup(rc.AllowlistSet, rc.ToolRegistry, toolName)
 		}

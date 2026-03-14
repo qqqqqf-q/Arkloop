@@ -22,7 +22,7 @@ func buildStubRouterConfig() routing.ProviderRoutingConfig {
 	return routing.ProviderRoutingConfig{
 		DefaultRouteID: "route-default",
 		Credentials: []routing.ProviderCredential{
-			{ID: "cred-stub", Name: "stub-cred", Scope: routing.CredentialScopePlatform, ProviderKind: routing.ProviderKindStub},
+			{ID: "cred-stub", Name: "stub-cred", OwnerKind: routing.CredentialScopePlatform, ProviderKind: routing.ProviderKindStub},
 		},
 		Routes: []routing.ProviderRouteRule{
 			{ID: "route-default", Model: "stub-model", CredentialID: "cred-stub", Multiplier: 1.0},
@@ -140,7 +140,7 @@ func TestRoutingMiddleware_UnknownProviderKind(t *testing.T) {
 	cfg := routing.ProviderRoutingConfig{
 		DefaultRouteID: "route-unknown",
 		Credentials: []routing.ProviderCredential{
-			{ID: "cred-x", Name: "unknown-cred", Scope: routing.CredentialScopePlatform, ProviderKind: "unknown_kind"},
+			{ID: "cred-x", Name: "unknown-cred", OwnerKind: routing.CredentialScopePlatform, ProviderKind: "unknown_kind"},
 		},
 		Routes: []routing.ProviderRouteRule{
 			{ID: "route-unknown", Model: "x-model", CredentialID: "cred-x", Multiplier: 1.0},
@@ -281,7 +281,7 @@ func TestRoutingMiddleware_OpenAIGateway_WithEnvApiKey(t *testing.T) {
 		Credentials: []routing.ProviderCredential{
 			{
 				ID: "cred-openai", Name: "openai-cred",
-				Scope: routing.CredentialScopePlatform, ProviderKind: routing.ProviderKindOpenAI,
+				OwnerKind: routing.CredentialScopePlatform, ProviderKind: routing.ProviderKindOpenAI,
 				APIKeyEnv: strPtr(envKey),
 			},
 		},
@@ -322,7 +322,7 @@ func TestRoutingMiddleware_AnthropicGateway_WithDirectApiKey(t *testing.T) {
 		Credentials: []routing.ProviderCredential{
 			{
 				ID: "cred-anthropic", Name: "anthropic-cred",
-				Scope: routing.CredentialScopePlatform, ProviderKind: routing.ProviderKindAnthropic,
+				OwnerKind: routing.CredentialScopePlatform, ProviderKind: routing.ProviderKindAnthropic,
 				APIKeyValue: strPtr("sk-ant-test-key"),
 			},
 		},
@@ -363,7 +363,7 @@ func TestRoutingMiddleware_MissingApiKey_Panics(t *testing.T) {
 		Credentials: []routing.ProviderCredential{
 			{
 				ID: "cred-nokey", Name: "nokey-cred",
-				Scope: routing.CredentialScopePlatform, ProviderKind: routing.ProviderKindOpenAI,
+				OwnerKind: routing.CredentialScopePlatform, ProviderKind: routing.ProviderKindOpenAI,
 				APIKeyEnv: strPtr("ARKLOOP_NONEXISTENT_KEY_FOR_TEST"),
 			},
 		},

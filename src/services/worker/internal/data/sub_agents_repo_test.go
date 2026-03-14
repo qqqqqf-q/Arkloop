@@ -35,7 +35,7 @@ func TestSubAgentRepository_CreateAndTransitions(t *testing.T) {
 
 	repo := SubAgentRepository{}
 	record, err := repo.Create(context.Background(), tx, SubAgentCreateParams{
-		OrgID:          orgID,
+		AccountID:      orgID,
 		ParentRunID:    parentRunID,
 		ParentThreadID: parentThreadID,
 		RootRunID:      parentRunID,
@@ -113,7 +113,7 @@ func TestSubAgentRepository_RejectsIllegalTransitions(t *testing.T) {
 
 	repo := SubAgentRepository{}
 	record, err := repo.Create(context.Background(), tx, SubAgentCreateParams{
-		OrgID:          orgID,
+		AccountID:      orgID,
 		ParentRunID:    runID,
 		ParentThreadID: threadID,
 		RootRunID:      runID,

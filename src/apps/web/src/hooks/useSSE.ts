@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { refreshAccessToken, writeAccessToken } from '@arkloop/shared'
 import { createSSEClient, type RunEvent, type SSEClient, type SSEClientState } from '../sse'
 import { clearLastSeqInStorage, readLastSeqFromStorage, writeLastSeqToStorage } from '../storage'
 
@@ -63,6 +64,12 @@ export function useSSE(options: UseSSEOptions): UseSSEResult {
     setError(err)
   }, [])
 
+  const handleTokenRefresh = useCallback(async (): Promise<string> => {
+    const resp = await refreshAccessToken()
+    writeAccessToken(resp.access_token)
+    return resp.access_token
+  }, [])
+
   const connect = useCallback(() => {
     if (!runId || !accessToken) return
 
@@ -93,11 +100,12 @@ export function useSSE(options: UseSSEOptions): UseSSEResult {
       onEvent: handleEvent,
       onStateChange: handleStateChange,
       onError: handleError,
+      onTokenRefresh: handleTokenRefresh,
     })
 
     clientRef.current = client
     void client.connect()
-  }, [sseUrl, accessToken, runId, handleEvent, handleStateChange, handleError])
+  }, [sseUrl, accessToken, runId, handleEvent, handleStateChange, handleError, handleTokenRefresh])
 
   const disconnect = useCallback(() => {
     clientRef.current?.close()

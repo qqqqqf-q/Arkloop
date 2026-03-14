@@ -8,6 +8,7 @@ import (
 	"os"
 	"reflect"
 	"regexp"
+	"sort"
 	"strings"
 
 	workerCrypto "arkloop/services/worker/internal/crypto"
@@ -82,6 +83,8 @@ type ProviderRouteRule struct {
 	CostPer1kOutput     *float64
 	CostPer1kCacheWrite *float64
 	CostPer1kCacheRead  *float64
+	Priority            int
+	ProjectScoped       bool
 }
 
 func (r ProviderRouteRule) Matches(input map[string]any) bool {
@@ -342,9 +345,8 @@ func (c ProviderRoutingConfig) GetCredential(credentialID string) (ProviderCrede
 	return ProviderCredential{}, false
 }
 
-// GetHighestPriorityRouteByCredentialName 按凭证显示名称找到最优路由。
-// 优先匹配有 When 条件且命中 inputJSON 的路由，其次取该凭证首条路由。
-// routes 已按 priority DESC 排好序，直接遍历取首个匹配项即可。
+// GetHighestPriorityRouteByCredentialName finds the best route for a credential display name.
+// Collects all matching routes, sorts by priority DESC, project-scoped first, When-specificity.
 func (c ProviderRoutingConfig) GetHighestPriorityRouteByCredentialName(name string, inputJSON map[string]any) (ProviderRouteRule, ProviderCredential, bool) {
 	if strings.TrimSpace(name) == "" {
 		return ProviderRouteRule{}, ProviderCredential{}, false
@@ -378,34 +380,61 @@ func (c ProviderRoutingConfig) GetHighestPriorityRouteByModel(model string, inpu
 }
 
 func (c ProviderRoutingConfig) findCredentialIDByName(name string) string {
+	// exact (case-sensitive) match first
 	for _, cred := range c.Credentials {
-		if strings.EqualFold(cred.Name, name) {
+		if cred.Name == name {
 			return cred.ID
 		}
 	}
-	return ""
+	// case-insensitive fallback: prefer user-scoped over platform-scoped
+	var userMatch, platformMatch string
+	for _, cred := range c.Credentials {
+		if strings.EqualFold(cred.Name, name) {
+			if cred.OwnerKind == CredentialScopeUser && userMatch == "" {
+				userMatch = cred.ID
+			} else if platformMatch == "" {
+				platformMatch = cred.ID
+			}
+		}
+	}
+	if userMatch != "" {
+		return userMatch
+	}
+	return platformMatch
 }
 
 func (c ProviderRoutingConfig) pickBestRoute(match func(ProviderRouteRule) bool, inputJSON map[string]any) (ProviderRouteRule, ProviderCredential, bool) {
+	// collect routes where When conditions are satisfied (or empty)
+	var candidates []ProviderRouteRule
 	for _, route := range c.Routes {
-		if match(route) && len(route.When) > 0 && route.Matches(inputJSON) {
-			cred, _ := c.GetCredential(route.CredentialID)
-			return route, cred, true
+		if match(route) && route.Matches(inputJSON) {
+			candidates = append(candidates, route)
 		}
 	}
-	for _, route := range c.Routes {
-		if match(route) && len(route.When) == 0 {
-			cred, _ := c.GetCredential(route.CredentialID)
-			return route, cred, true
+	// last resort: include routes whose When conditions don't match
+	if len(candidates) == 0 {
+		for _, route := range c.Routes {
+			if match(route) {
+				candidates = append(candidates, route)
+			}
 		}
 	}
-	for _, route := range c.Routes {
-		if match(route) {
-			cred, _ := c.GetCredential(route.CredentialID)
-			return route, cred, true
-		}
+	if len(candidates) == 0 {
+		return ProviderRouteRule{}, ProviderCredential{}, false
 	}
-	return ProviderRouteRule{}, ProviderCredential{}, false
+	sort.SliceStable(candidates, func(i, j int) bool {
+		if candidates[i].Priority != candidates[j].Priority {
+			return candidates[i].Priority > candidates[j].Priority
+		}
+		if candidates[i].ProjectScoped != candidates[j].ProjectScoped {
+			return candidates[i].ProjectScoped
+		}
+		// prefer When-specific over catch-all at same priority
+		return len(candidates[i].When) > len(candidates[j].When)
+	})
+	best := candidates[0]
+	cred, _ := c.GetCredential(best.CredentialID)
+	return best, cred, true
 }
 
 func (c ProviderRoutingConfig) GetRoute(routeID string) (ProviderRouteRule, bool) {
@@ -466,10 +495,11 @@ func parseOwnerKind(value string) (CredentialScope, error) {
 	}
 }
 
-// LoadRoutingConfigFromDB 从数据库加载路由配置。
-// projectID 为 nil 时只加载 platform 路由；非 nil 时加载 platform + 该 project 的路由（project 优先）。
-// 若数据库中无路由配置（len(Routes)==0），调用方应回退到环境变量。
-func LoadRoutingConfigFromDB(ctx context.Context, pool *pgxpool.Pool, projectID *uuid.UUID) (ProviderRoutingConfig, error) {
+// LoadRoutingConfigFromDB loads routing config from DB.
+// projectID nil: only platform routes; non-nil: platform + project routes (project takes precedence).
+// accountID is used to filter project routes by account, preventing cross-account leakage.
+// If no routes found (len(Routes)==0), caller should fall back to env config.
+func LoadRoutingConfigFromDB(ctx context.Context, pool *pgxpool.Pool, projectID *uuid.UUID, accountID *uuid.UUID) (ProviderRoutingConfig, error) {
 	if pool == nil {
 		return ProviderRoutingConfig{}, fmt.Errorf("pool must not be nil")
 	}
@@ -487,6 +517,7 @@ func LoadRoutingConfigFromDB(ctx context.Context, pool *pgxpool.Pool, projectID 
 		SELECT r.id, r.credential_id, r.model, r.when_json, r.is_default,
 		       r.advanced_json, r.multiplier, r.cost_per_1k_input, r.cost_per_1k_output,
 		       r.cost_per_1k_cache_write, r.cost_per_1k_cache_read,
+		       r.priority, r.project_id,
 		       c.id, c.owner_kind, c.name, c.provider, c.base_url, c.openai_api_mode, c.advanced_json,
 		       s.encrypted_value, s.key_version
 		FROM llm_routes r
@@ -504,6 +535,7 @@ func LoadRoutingConfigFromDB(ctx context.Context, pool *pgxpool.Pool, projectID 
 		SELECT r.id, r.credential_id, r.model, r.when_json, r.is_default,
 		       r.advanced_json, r.multiplier, r.cost_per_1k_input, r.cost_per_1k_output,
 		       r.cost_per_1k_cache_write, r.cost_per_1k_cache_read,
+		       r.priority, r.project_id,
 		       c.id, c.owner_kind, c.name, c.provider, c.base_url, c.openai_api_mode, c.advanced_json,
 		       s.encrypted_value, s.key_version
 		FROM llm_routes r
@@ -512,14 +544,14 @@ func LoadRoutingConfigFromDB(ctx context.Context, pool *pgxpool.Pool, projectID 
 		WHERE c.revoked_at IS NULL
 		  AND (
 			r.project_id IS NULL
-			OR r.project_id = $1
+			OR (r.project_id = $1 AND ($2::UUID IS NULL OR r.account_id = $2))
 		  )
 		ORDER BY CASE WHEN r.project_id IS NOT NULL THEN 0 ELSE 1 END ASC,
 		         r.is_default DESC,
 		         r.priority DESC,
 		         r.created_at ASC,
 		         r.id ASC
-	`, *projectID)
+	`, *projectID, accountID)
 	}
 	if err != nil {
 		return ProviderRoutingConfig{}, fmt.Errorf("routing: db query: %w", err)
@@ -538,6 +570,8 @@ func LoadRoutingConfigFromDB(ctx context.Context, pool *pgxpool.Pool, projectID 
 		costPer1kOutput     *float64
 			costPer1kCacheWrite *float64
 			costPer1kCacheRead  *float64
+			priority            int
+			projectID           *uuid.UUID
 			credID              uuid.UUID
 			ownerKind           string
 			credName            string
@@ -556,6 +590,7 @@ func LoadRoutingConfigFromDB(ctx context.Context, pool *pgxpool.Pool, projectID 
 			&rd.routeID, &rd.credentialID, &rd.model, &rd.whenJSON, &rd.isDefault,
 			&rd.routeAdvancedJSON, &rd.multiplier, &rd.costPer1kInput, &rd.costPer1kOutput,
 			&rd.costPer1kCacheWrite, &rd.costPer1kCacheRead,
+			&rd.priority, &rd.projectID,
 			&rd.credID, &rd.ownerKind, &rd.credName, &rd.provider, &rd.baseURL, &rd.openaiAPIMode, &rd.advancedJSON,
 			&rd.encryptedValue, &rd.keyVersion,
 		); err != nil {
@@ -686,6 +721,8 @@ func LoadRoutingConfigFromDB(ctx context.Context, pool *pgxpool.Pool, projectID 
 			CostPer1kOutput:     rd.costPer1kOutput,
 			CostPer1kCacheWrite: rd.costPer1kCacheWrite,
 			CostPer1kCacheRead:  rd.costPer1kCacheRead,
+			Priority:            rd.priority,
+			ProjectScoped:       rd.projectID != nil,
 		}
 		routes = append(routes, route)
 	}

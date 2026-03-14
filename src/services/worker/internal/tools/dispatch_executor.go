@@ -84,6 +84,11 @@ type Executor interface {
 	) ExecutionResult
 }
 
+// NotConfiguredChecker is implemented by executors that represent unconfigured tool backends.
+type NotConfiguredChecker interface {
+	IsNotConfigured() bool
+}
+
 type DispatchingExecutor struct {
 	registry       *Registry
 	policyEnforcer *PolicyEnforcer

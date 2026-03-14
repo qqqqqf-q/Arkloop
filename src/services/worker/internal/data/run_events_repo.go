@@ -51,7 +51,7 @@ func (r RunEventsRepository) AppendEvent(
 	toolName *string,
 	errorClass *string,
 ) (int64, error) {
-	seq, err := r.allocateSeq(ctx, tx)
+	seq, err := r.allocateSeq(ctx, tx, runID)
 	if err != nil {
 		return 0, err
 	}
@@ -122,13 +122,19 @@ func (RunEventsRepository) FirstEventData(
 	return eventType, obj, nil
 }
 
-func (RunEventsRepository) allocateSeq(ctx context.Context, tx pgx.Tx) (int64, error) {
-	var seq int64
-	err := tx.QueryRow(ctx, `SELECT nextval('run_events_seq_global')`).Scan(&seq)
-	if err != nil {
+// allocateSeq returns a gapless per-run sequence number.
+// It locks the runs row to serialize concurrent allocations for the same run,
+// then computes MAX(seq)+1 from committed run_events.
+func (RunEventsRepository) allocateSeq(ctx context.Context, tx pgx.Tx, runID uuid.UUID) (int64, error) {
+	if _, err := tx.Exec(ctx, `SELECT 1 FROM runs WHERE id = $1 FOR UPDATE`, runID); err != nil {
 		return 0, err
 	}
-	return seq, nil
+	var seq int64
+	err := tx.QueryRow(ctx,
+		`SELECT COALESCE(MAX(seq), 0) + 1 FROM run_events WHERE run_id = $1`,
+		runID,
+	).Scan(&seq)
+	return seq, err
 }
 
 func mapOrEmpty(value map[string]any) map[string]any {

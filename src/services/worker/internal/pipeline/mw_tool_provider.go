@@ -18,6 +18,8 @@ type notConfiguredExecutor struct {
 	missing      []string
 }
 
+func (notConfiguredExecutor) IsNotConfigured() bool { return true }
+
 func (e notConfiguredExecutor) Execute(
 	_ context.Context,
 	_ string,

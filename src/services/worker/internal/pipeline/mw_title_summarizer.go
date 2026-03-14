@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/routing"
@@ -14,6 +15,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 )
+
+const titleSummarizerTimeout = 30 * time.Second
 
 const settingTitleSummarizerModel = "title_summarizer.model"
 
@@ -29,6 +32,7 @@ func NewTitleSummarizerMiddleware(pool *pgxpool.Pool, rdb *redis.Client, stubGat
 
 		threadID := rc.Run.ThreadID
 		projectID := rc.Run.ProjectID
+		accountID := &rc.Run.AccountID
 		firstRun, err := isFirstRunOfThread(ctx, pool, threadID)
 		if err != nil {
 			slog.WarnContext(ctx, "title_summarizer: check failed", "err", err.Error())
@@ -50,13 +54,13 @@ func NewTitleSummarizerMiddleware(pool *pgxpool.Pool, rdb *redis.Client, stubGat
 		llmMaxResponseBytes := rc.LlmMaxResponseBytes
 
 		go func() {
-			// goroutine 超出请求生命周期，需要独立 context
-			bgCtx := context.Background()
-			gateway, model := resolveTitleGateway(bgCtx, pool, projectID, fallbackGateway, fallbackModel, stubGateway, emitDebugEvents, llmMaxResponseBytes, configLoader)
+			ctx, cancel := context.WithTimeout(context.Background(), titleSummarizerTimeout)
+			defer cancel()
+			gateway, model := resolveTitleGateway(ctx, pool, projectID, accountID, fallbackGateway, fallbackModel, stubGateway, emitDebugEvents, llmMaxResponseBytes, configLoader)
 			if gateway == nil {
 				return
 			}
-			generateTitle(pool, rdb, gateway, runID, threadID, model, messages, prompt, maxTokens)
+			generateTitle(ctx, pool, rdb, gateway, runID, threadID, model, messages, prompt, maxTokens)
 		}()
 
 		return next(ctx, rc)
@@ -67,6 +71,7 @@ func resolveTitleGateway(
 	ctx context.Context,
 	pool *pgxpool.Pool,
 	projectID *uuid.UUID,
+	accountID *uuid.UUID,
 	fallbackGateway llm.Gateway,
 	fallbackModel string,
 	stubGateway llm.Gateway,
@@ -87,7 +92,7 @@ func resolveTitleGateway(
 	if configLoader == nil {
 		return fallbackGateway, fallbackModel
 	}
-	routingCfg, err := configLoader.Load(ctx, projectID)
+	routingCfg, err := configLoader.Load(ctx, projectID, accountID)
 	if err != nil {
 		slog.Warn("title_summarizer: load routing config failed", "err", err.Error())
 		return fallbackGateway, fallbackModel
@@ -122,6 +127,7 @@ func isFirstRunOfThread(ctx context.Context, pool *pgxpool.Pool, threadID uuid.U
 }
 
 func generateTitle(
+	ctx context.Context,
 	pool *pgxpool.Pool,
 	rdb *redis.Client,
 	gateway llm.Gateway,
@@ -132,8 +138,6 @@ func generateTitle(
 	prompt string,
 	maxTokens int,
 ) {
-	// 由 fire-and-forget goroutine 调用，需要独立 context
-	ctx := context.Background()
 
 	userText := extractUserText(messages)
 	if userText == "" {
@@ -167,7 +171,11 @@ func generateTitle(
 		return nil
 	})
 	if err != nil && err != sentinel {
-		slog.Warn("title_summarizer: llm call failed", "err", err.Error())
+		if ctx.Err() == context.DeadlineExceeded {
+			slog.Warn("title_summarizer: timeout exceeded", "timeout", titleSummarizerTimeout)
+		} else {
+			slog.Warn("title_summarizer: llm call failed", "err", err.Error())
+		}
 		return
 	}
 
@@ -215,7 +223,13 @@ func emitTitleEvent(
 	defer tx.Rollback(ctx)
 
 	var seq int64
-	if err = tx.QueryRow(ctx, `SELECT nextval('run_events_seq_global')`).Scan(&seq); err != nil {
+	if _, err = tx.Exec(ctx, `SELECT 1 FROM runs WHERE id = $1 FOR UPDATE`, runID); err != nil {
+		return
+	}
+	if err = tx.QueryRow(ctx,
+		`SELECT COALESCE(MAX(seq), 0) + 1 FROM run_events WHERE run_id = $1`,
+		runID,
+	).Scan(&seq); err != nil {
 		return
 	}
 

@@ -30,7 +30,9 @@ func NewEntitlementMiddleware(
 		accountID := rc.Run.AccountID
 
 		var releaseFn func()
-		if releaseSlot != nil {
+		if rc.ReleaseSlot != nil {
+			releaseFn = rc.ReleaseSlot
+		} else if releaseSlot != nil {
 			run := rc.Run
 			releaseFn = func() { releaseSlot(ctx, run) }
 		}

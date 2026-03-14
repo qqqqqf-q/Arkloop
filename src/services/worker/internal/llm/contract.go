@@ -13,6 +13,7 @@ const (
 	ErrorClassPolicyDenied         = "policy.denied"
 	ErrorClassInternalError        = "internal.error"
 	ErrorClassInternalStreamEnded  = "internal.stream_ended"
+	ErrorClassRoutingNotFound      = "routing.not_found"
 )
 
 type Usage struct {

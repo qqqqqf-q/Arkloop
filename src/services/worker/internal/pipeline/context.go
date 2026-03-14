@@ -71,7 +71,7 @@ type RunContext struct {
 	InputJSON map[string]any
 	Messages  []llm.Message
 
-	// -- AgentConfigMiddleware 写入 --
+	// -- PersonaResolutionMiddleware 写入 --
 	AgentConfig     *ResolvedAgentConfig
 	AgentConfigID   *uuid.UUID
 	AgentConfigName string
@@ -148,4 +148,9 @@ type RunContext struct {
 
 	// -- PersonaResolutionMiddleware 写入，TitleSummarizerMiddleware 读取 --
 	TitleSummarizer *personas.TitleSummarizerConfig
+
+	// -- EngineV1.Execute 注入：并发槽释放（idempotent，多次调用安全）--
+	// 通过 sync.Once 保证底层 runlimit.Release 只执行一次。
+	// nil 时表示未启用（测试上下文或 sub-agent）。
+	ReleaseSlot func()
 }

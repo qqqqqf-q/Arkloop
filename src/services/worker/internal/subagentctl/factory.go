@@ -231,8 +231,15 @@ func (f *SubAgentRunFactory) createQueuedRun(
 	); err != nil {
 		return uuid.Nil, fmt.Errorf("insert child run: %w", err)
 	}
+	// Lock the run row to serialize per-run seq allocation
+	if _, err := tx.Exec(ctx, `SELECT 1 FROM runs WHERE id = $1 FOR UPDATE`, childRunID); err != nil {
+		return uuid.Nil, fmt.Errorf("lock run for seq: %w", err)
+	}
 	var seq int64
-	if err := tx.QueryRow(ctx, `SELECT nextval('run_events_seq_global')`).Scan(&seq); err != nil {
+	if err := tx.QueryRow(ctx,
+		`SELECT COALESCE(MAX(seq), 0) + 1 FROM run_events WHERE run_id = $1`,
+		childRunID,
+	).Scan(&seq); err != nil {
 		return uuid.Nil, fmt.Errorf("alloc seq: %w", err)
 	}
 	personaID := derefString(subAgent.PersonaID)

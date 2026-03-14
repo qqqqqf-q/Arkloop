@@ -47,7 +47,7 @@ func TestEventWriterAppend_AppendsSubAgentCompletedEvent(t *testing.T) {
 	seedPipelineRun(t, pool, orgID, threadID, runID, nil)
 	seedPipelineSubAgent(t, pool, subAgentID, orgID, threadID, runID)
 
-	writer := newEventWriter(pool, data.Run{ID: runID, OrgID: orgID, ThreadID: threadID}, "trace-1", nil, nil, "", "", data.UsageRecordsRepository{}, data.CreditsRepository{}, 1000, 1, nil, nil, nil, nil, creditpolicy.DefaultPolicy)
+	writer := newEventWriter(pool, data.Run{ID: runID, AccountID: orgID, ThreadID: threadID}, "trace-1", nil, nil, "", "", data.UsageRecordsRepository{}, data.CreditsRepository{}, 1000, 1, nil, nil, nil, nil, creditpolicy.DefaultPolicy, nil)
 	ev := events.NewEmitter("trace-1").Emit("run.completed", map[string]any{}, nil, nil)
 	if err := writer.Append(context.Background(), data.RunsRepository{}, data.RunEventsRepository{}, runID, ev); err != nil {
 		t.Fatalf("append terminal event: %v", err)
@@ -93,7 +93,7 @@ func TestEventWriterAppend_AppendsSubAgentCancelledEventOnCancelRequest(t *testi
 		t.Fatalf("commit cancel_requested: %v", err)
 	}
 
-	writer := newEventWriter(pool, data.Run{ID: runID, OrgID: orgID, ThreadID: threadID}, "trace-2", nil, nil, "", "", data.UsageRecordsRepository{}, data.CreditsRepository{}, 1000, 1, nil, nil, nil, nil, creditpolicy.DefaultPolicy)
+	writer := newEventWriter(pool, data.Run{ID: runID, AccountID: orgID, ThreadID: threadID}, "trace-2", nil, nil, "", "", data.UsageRecordsRepository{}, data.CreditsRepository{}, 1000, 1, nil, nil, nil, nil, creditpolicy.DefaultPolicy, nil)
 	ev := events.NewEmitter("trace-2").Emit("message.delta", map[string]any{"content_delta": "ignored"}, nil, nil)
 	if err := writer.Append(context.Background(), data.RunsRepository{}, data.RunEventsRepository{}, runID, ev); err != nil {
 		t.Fatalf("append after cancel request: %v", err)
@@ -142,7 +142,7 @@ func TestEventWriterAppend_AutoQueuesNextRunFromPendingInputs(t *testing.T) {
 	}
 
 	jobQueue := &stubJobQueue{}
-	writer := newEventWriter(pool, data.Run{ID: childRunID, OrgID: orgID, ThreadID: childThreadID, ParentRunID: &parentRunID}, "trace-3", nil, jobQueue, "", "", data.UsageRecordsRepository{}, data.CreditsRepository{}, 1000, 1, nil, nil, nil, nil, creditpolicy.DefaultPolicy)
+	writer := newEventWriter(pool, data.Run{ID: childRunID, AccountID: orgID, ThreadID: childThreadID, ParentRunID: &parentRunID}, "trace-3", nil, jobQueue, "", "", data.UsageRecordsRepository{}, data.CreditsRepository{}, 1000, 1, nil, nil, nil, nil, creditpolicy.DefaultPolicy, nil)
 	ev := events.NewEmitter("trace-3").Emit("run.completed", map[string]any{}, nil, nil)
 	if err := writer.Append(context.Background(), data.RunsRepository{}, data.RunEventsRepository{}, childRunID, ev); err != nil {
 		t.Fatalf("append terminal event: %v", err)

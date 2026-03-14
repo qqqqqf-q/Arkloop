@@ -80,8 +80,15 @@ func (p *SubAgentStateProjector) MarkRunFailed(ctx context.Context, childRunID u
 	if err != nil {
 		return err
 	}
+	// Lock the run row to serialize per-run seq allocation
+	if _, err := tx.Exec(ctx, `SELECT 1 FROM runs WHERE id = $1 FOR UPDATE`, childRunID); err != nil {
+		return err
+	}
 	var seq int64
-	if err := tx.QueryRow(ctx, `SELECT nextval('run_events_seq_global')`).Scan(&seq); err != nil {
+	if err := tx.QueryRow(ctx,
+		`SELECT COALESCE(MAX(seq), 0) + 1 FROM run_events WHERE run_id = $1`,
+		childRunID,
+	).Scan(&seq); err != nil {
 		return err
 	}
 	errData, _ := json.Marshal(map[string]any{
