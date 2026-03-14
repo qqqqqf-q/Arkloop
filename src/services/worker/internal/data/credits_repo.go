@@ -9,6 +9,16 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+// InsufficientCreditsError 余额不足时返回。
+type InsufficientCreditsError struct {
+	Required  int64
+	Available int64
+}
+
+func (e *InsufficientCreditsError) Error() string {
+	return fmt.Sprintf("insufficient credits: required %d, available %d", e.Required, e.Available)
+}
+
 // CreditsRepository 在 Worker 侧扣减积分，与 UsageRecordsRepository 风格一致（零值可用）。
 type CreditsRepository struct{}
 
@@ -79,13 +89,12 @@ func deductBalance(ctx context.Context, tx pgx.Tx, accountID uuid.UUID, amount i
 		return err
 	}
 	if tag.RowsAffected() == 0 {
-		_, err = tx.Exec(ctx,
-			`UPDATE credits SET balance = 0, updated_at = now() WHERE account_id = $1 AND balance > 0`,
+		var balance int64
+		_ = tx.QueryRow(ctx,
+			`SELECT COALESCE(balance, 0) FROM credits WHERE account_id = $1`,
 			accountID,
-		)
-		if err != nil {
-			return fmt.Errorf("fallback: %w", err)
-		}
+		).Scan(&balance)
+		return &InsufficientCreditsError{Required: amount, Available: balance}
 	}
 	return nil
 }

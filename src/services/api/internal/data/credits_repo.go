@@ -98,6 +98,7 @@ func (r *CreditsRepository) InitBalance(ctx context.Context, accountID uuid.UUID
 }
 
 // Deduct 原子扣减积分，余额不足时返回 InsufficientCreditsError。
+// 使用 writable CTE 确保余额扣减与流水写入在同一语句内原子完成。
 func (r *CreditsRepository) Deduct(
 	ctx context.Context,
 	accountID uuid.UUID,
@@ -108,27 +109,23 @@ func (r *CreditsRepository) Deduct(
 	note *string,
 ) error {
 	tag, err := r.db.Exec(ctx,
-		`UPDATE credits SET balance = balance - $1, updated_at = now()
-		 WHERE account_id = $2 AND balance >= $1`,
-		amount, accountID,
+		`WITH deducted AS (
+			UPDATE credits SET balance = balance - $1, updated_at = now()
+			WHERE account_id = $2 AND balance >= $1
+			RETURNING account_id
+		)
+		INSERT INTO credit_transactions (account_id, amount, type, reference_type, reference_id, note)
+		SELECT $2, $3, $4, $5, $6, $7
+		FROM deducted`,
+		amount, accountID, -amount, txType, referenceType, referenceID, note,
 	)
 	if err != nil {
 		return fmt.Errorf("credits.Deduct: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
-		// 查询实际余额用于错误信息
 		var balance int64
 		_ = r.db.QueryRow(ctx, `SELECT COALESCE(balance, 0) FROM credits WHERE account_id = $1`, accountID).Scan(&balance)
 		return InsufficientCreditsError{Required: amount, Available: balance}
-	}
-
-	_, err = r.db.Exec(ctx,
-		`INSERT INTO credit_transactions (account_id, amount, type, reference_type, reference_id, note)
-		 VALUES ($1, $2, $3, $4, $5, $6)`,
-		accountID, -amount, txType, referenceType, referenceID, note,
-	)
-	if err != nil {
-		return fmt.Errorf("credits.Deduct tx: %w", err)
 	}
 	return nil
 }
