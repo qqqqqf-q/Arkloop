@@ -3,13 +3,23 @@ package acptool
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"os"
 	"strings"
 	"time"
 
+	"arkloop/services/shared/acptoken"
+	sharedconfig "arkloop/services/shared/config"
 	"arkloop/services/worker/internal/acp"
 	"arkloop/services/worker/internal/events"
 	"arkloop/services/worker/internal/tools"
 )
+
+const defaultLLMProxyBaseURL = "http://api:19001/v1/llm-proxy"
+
+// envSkipLLMProxy, when set to "true", forces the executor to skip
+// LLM proxy injection so the inner agent uses the user's own API keys.
+const envSkipLLMProxy = "ARKLOOP_ACP_SKIP_LLM_PROXY"
 
 var defaultCommand = []string{"opencode", "acp"}
 
@@ -18,7 +28,10 @@ var agentCommands = map[string][]string{
 	"opencode": {"opencode", "acp"},
 }
 
-type ToolExecutor struct{}
+type ToolExecutor struct {
+	ConfigResolver sharedconfig.Resolver
+	JWTSecret      string
+}
 
 func (e ToolExecutor) Execute(
 	ctx context.Context,
@@ -58,6 +71,54 @@ func (e ToolExecutor) Execute(
 		accountID = execCtx.AccountID.String()
 	}
 
+	env := make(map[string]string)
+
+	// resolve profile and inject LLM proxy configuration (skip in local mode)
+	if profileName, ok := args["profile"].(string); ok && strings.TrimSpace(profileName) != "" {
+		profileName = strings.TrimSpace(profileName)
+
+		// Local mode: skip LLM proxy if explicitly disabled or if running locally
+		skipProxy := os.Getenv(envSkipLLMProxy) == "true"
+		if !skipProxy {
+			sandboxURL := strings.ToLower(rt.SandboxBaseURL)
+			if strings.Contains(sandboxURL, "localhost") || strings.Contains(sandboxURL, "127.0.0.1") {
+				skipProxy = true
+				slog.Info("acp: local sandbox detected, skipping LLM proxy injection",
+					"sandbox_url", rt.SandboxBaseURL,
+					"run_id", execCtx.RunID.String(),
+				)
+			}
+		}
+
+		if !skipProxy && e.ConfigResolver != nil {
+			mapping, err := sharedconfig.ResolveProfile(ctx, e.ConfigResolver, profileName)
+			if err != nil {
+				return errResult("tool.profile_invalid", fmt.Sprintf("failed to resolve profile %q: %s", profileName, err), started)
+			}
+
+			if e.JWTSecret != "" {
+				issuer, err := acptoken.NewIssuer(e.JWTSecret, 30*time.Minute)
+				if err != nil {
+					return errResult("tool.token_issue_failed", fmt.Sprintf("create token issuer: %s", err), started)
+				}
+
+				token, err := issuer.Issue(acptoken.IssueParams{
+					RunID:     execCtx.RunID.String(),
+					AccountID: accountID,
+					Models:    []string{mapping.Model},
+					Budget:    0,
+				})
+				if err != nil {
+					return errResult("tool.token_issue_failed", fmt.Sprintf("issue session token: %s", err), started)
+				}
+
+				env["OPENCODE_API_BASE"] = defaultLLMProxyBaseURL
+				env["OPENCODE_API_KEY"] = token
+				env["OPENCODE_MODEL"] = mapping.Model
+			}
+		}
+	}
+
 	cfg := acp.BridgeConfig{
 		SandboxBaseURL:   rt.SandboxBaseURL,
 		SandboxAuthToken: rt.SandboxAuthToken,
@@ -65,6 +126,7 @@ func (e ToolExecutor) Execute(
 		AccountID:        accountID,
 		Command:          cmd,
 		Cwd:              cwd,
+		Env:              env,
 	}
 
 	client := acp.NewClient(rt.SandboxBaseURL, rt.SandboxAuthToken)

@@ -74,13 +74,15 @@
 | sandbox.warm_browser | int | platform | 1 | false | browser tier 预热实例数 |
 | sandbox.warm_lite | int | platform | 3 | false | lite tier 预热实例数 |
 | sandbox.warm_pro | int | platform | 2 | false | pro tier 预热实例数 |
-| sandbox.warm_ultra | int | platform | 1 | false | ultra tier 预热实例数 |
 | skills.market.skillsmp_api_key | string | platform |  | true | SkillsMP 官方市场 API Key |
 | skills.market.skillsmp_base_url | string | platform | https://skillsmp.com | false | SkillsMP 官方市场基础地址 |
 | skills.registry.api_base_url | string | platform |  | false | 官方技能 Registry API 基础地址，留空则沿用 Base URL |
 | skills.registry.api_key | string | platform |  | true | 官方技能 Registry API Key |
 | skills.registry.base_url | string | platform | https://clawhub.ai | false | 官方技能 Registry 页面基础地址 |
 | skills.registry.provider | string | platform | clawhub | false | 官方技能 Registry Provider |
+| spawn.profile.balanced | string | both | anthropic^claude-sonnet-4-5 | false | ACP agent 'balanced' profile: 平衡性价比模型 |
+| spawn.profile.fast | string | both | anthropic^claude-haiku-3-5 | false | ACP agent 'fast' profile: 低延迟低成本模型 |
+| spawn.profile.strong | string | both | anthropic^claude-sonnet-4-5 | false | ACP agent 'strong' profile: 最强推理能力模型 |
 | turnstile.allowed_host | string | platform |  | false | Turnstile Allowed Host |
 | turnstile.secret_key | string | platform |  | true | Turnstile Secret Key |
 | turnstile.site_key | string | platform |  | false | Turnstile Site Key |

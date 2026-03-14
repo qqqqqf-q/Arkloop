@@ -28,6 +28,11 @@ var LlmSpec = llm.ToolSpec{
 				"description": "ACP agent to use. Defaults to opencode.",
 				"default":     "opencode",
 			},
+			"profile": map[string]any{
+				"type":        "string",
+				"description": "LLM profile for the agent. Controls which model the agent uses. Options: fast (low latency), balanced (default), strong (best reasoning). If not set, the agent uses its own default configuration.",
+				"enum":        []string{"fast", "balanced", "strong"},
+			},
 		},
 		"required":             []string{"task"},
 		"additionalProperties": false,

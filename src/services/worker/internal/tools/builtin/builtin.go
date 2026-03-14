@@ -63,6 +63,6 @@ func Executors(pool *pgxpool.Pool, rdb *redis.Client, resolver sharedconfig.Reso
 		webfetch.AgentSpecBasic.Name:     webfetch.NewBasicExecutor(resolver),
 		summarizethread.AgentSpec.Name:   &summarizethread.ToolExecutor{Pool: pool, RDB: rdb},
 		askuser.AgentSpec.Name:           askuser.ToolExecutor{},
-		acptool.AgentSpec.Name:           acptool.ToolExecutor{},
+		acptool.AgentSpec.Name:           acptool.ToolExecutor{ConfigResolver: resolver},
 	}
 }
