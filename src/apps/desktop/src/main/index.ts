@@ -1,14 +1,164 @@
 import { app, BrowserWindow, session } from 'electron'
 import * as path from 'path'
-import { loadConfig, saveConfig } from './config'
-import { startSidecar, stopSidecar, setStatusListener } from './sidecar'
+import { loadConfig, normalizeConfig, saveConfig } from './config'
+import {
+  startSidecar,
+  stopSidecar,
+  setStatusListener,
+  setRuntimeListener,
+  getSidecarRuntime,
+  type SidecarRuntime,
+} from './sidecar'
 import { createTray, registerGlobalShortcut, destroyTray } from './tray'
 import { registerIpcHandlers } from './ipc'
+import type { AppConfig } from './types'
 
 let mainWindow: BrowserWindow | null = null
+let activeSidecarPort: number | null = null
 
 function getWindow(): BrowserWindow | null {
   return mainWindow
+}
+
+function mergeConfigWithRuntime(config: AppConfig, runtime: SidecarRuntime): AppConfig {
+  if (config.mode !== 'local') return config
+  return normalizeConfig({
+    ...config,
+    local: {
+      ...config.local,
+      port: runtime.port ?? config.local.port,
+      portMode: runtime.portMode,
+    },
+  })
+}
+
+function syncConfigToRenderer(config: AppConfig): void {
+  const win = getWindow()
+  if (win) {
+    win.webContents.send('arkloop:config:changed', config)
+  }
+}
+
+function syncRuntimeToRenderer(runtime: SidecarRuntime): void {
+  const win = getWindow()
+  if (win) {
+    win.webContents.send('arkloop:sidecar:runtime-changed', runtime)
+  }
+}
+
+function syncActiveSidecarPort(config: AppConfig, runtime: SidecarRuntime): void {
+  activeSidecarPort = config.mode === 'local'
+    ? (runtime.port ?? config.local.port)
+    : null
+}
+
+function handleRuntimeUpdate(runtime: SidecarRuntime): void {
+  const current = loadConfig()
+  const next = mergeConfigWithRuntime(current, runtime)
+  syncActiveSidecarPort(next, runtime)
+  if (next.local.port !== current.local.port || next.local.portMode !== current.local.portMode) {
+    saveConfig(next)
+    syncConfigToRenderer(next)
+  }
+  syncRuntimeToRenderer(runtime)
+}
+
+async function ensureLocalSidecar(config: AppConfig): Promise<AppConfig> {
+  if (config.mode !== 'local') {
+    activeSidecarPort = null
+    return config
+  }
+
+  const runtime = await startSidecar(config.local.port, config.local.portMode)
+  const next = mergeConfigWithRuntime(config, runtime)
+  syncActiveSidecarPort(next, runtime)
+  if (next.local.port !== config.local.port || next.local.portMode !== config.local.portMode) {
+    saveConfig(next)
+  }
+  return next
+}
+
+async function applyConfigUpdate(config: AppConfig): Promise<AppConfig> {
+  const previous = loadConfig()
+  const candidate = normalizeConfig(config)
+  const needsRestart = previous.mode !== candidate.mode
+    || previous.local.port !== candidate.local.port
+    || previous.local.portMode !== candidate.local.portMode
+
+  if (!needsRestart) {
+    saveConfig(candidate)
+    syncActiveSidecarPort(candidate, getSidecarRuntime())
+    syncConfigToRenderer(candidate)
+    return candidate
+  }
+
+  await stopSidecar()
+  try {
+    const applied = await ensureLocalSidecar(candidate)
+    saveConfig(applied)
+    syncConfigToRenderer(applied)
+    return applied
+  } catch (error) {
+    if (previous.mode === 'local') {
+      try {
+        const restored = await ensureLocalSidecar(previous)
+        saveConfig(restored)
+        syncConfigToRenderer(restored)
+      } catch {}
+    } else {
+      activeSidecarPort = null
+    }
+    throw error
+  }
+}
+
+async function restartLocalSidecar(): Promise<SidecarRuntime> {
+  const config = loadConfig()
+  await stopSidecar()
+  const next = await ensureLocalSidecar(config)
+  saveConfig(next)
+  syncConfigToRenderer(next)
+  return getSidecarRuntime()
+}
+
+function isActiveSidecarRequest(urlString: string): boolean {
+  try {
+    const parsed = new URL(urlString)
+    return parsed.protocol === 'http:'
+      && parsed.hostname === '127.0.0.1'
+      && activeSidecarPort != null
+      && parsed.port === String(activeSidecarPort)
+  } catch {
+    return false
+  }
+}
+
+function registerSidecarSessionHooks(): void {
+  session.defaultSession.webRequest.onBeforeSendHeaders(
+    { urls: ['http://127.0.0.1:*/*'] },
+    (details, callback) => {
+      if (isActiveSidecarRequest(details.url)) {
+        delete details.requestHeaders.Origin
+      }
+      callback({ requestHeaders: details.requestHeaders })
+    },
+  )
+
+  session.defaultSession.webRequest.onHeadersReceived(
+    { urls: ['http://127.0.0.1:*/*'] },
+    (details, callback) => {
+      if (!isActiveSidecarRequest(details.url)) {
+        callback({})
+        return
+      }
+
+      const headers = details.responseHeaders ?? {}
+      headers['Access-Control-Allow-Origin'] = ['*']
+      headers['Access-Control-Allow-Methods'] = ['GET, POST, PUT, PATCH, DELETE, OPTIONS']
+      headers['Access-Control-Allow-Headers'] = ['Content-Type, Authorization, X-Trace-Id']
+      callback({ responseHeaders: headers })
+    },
+  )
 }
 
 function createWindow(): BrowserWindow {
@@ -79,38 +229,29 @@ app.on('before-quit', () => {
 })
 
 app.whenReady().then(async () => {
+  setStatusListener((status) => {
+    mainWindow?.webContents.send('arkloop:sidecar:status-changed', status)
+  })
+  setRuntimeListener((runtime) => {
+    handleRuntimeUpdate(runtime)
+  })
+
+  registerIpcHandlers(getWindow, {
+    applyConfigUpdate,
+    restartLocalSidecar,
+    getSidecarRuntime,
+  })
+  registerSidecarSessionHooks()
+
   const config = loadConfig()
-
-  registerIpcHandlers(getWindow)
-
-  // 为 sidecar 请求注入 CORS 头，生产模式下 file:// -> http://localhost 需要
   if (config.mode === 'local') {
-    const sidecarOrigin = `http://127.0.0.1:${config.local.port}`
-    session.defaultSession.webRequest.onBeforeSendHeaders(
-      { urls: [`${sidecarOrigin}/*`] },
-      (details, callback) => {
-        delete details.requestHeaders['Origin']
-        callback({ requestHeaders: details.requestHeaders })
-      },
-    )
-    session.defaultSession.webRequest.onHeadersReceived(
-      { urls: [`${sidecarOrigin}/*`] },
-      (details, callback) => {
-        const headers = details.responseHeaders ?? {}
-        headers['Access-Control-Allow-Origin'] = ['*']
-        headers['Access-Control-Allow-Methods'] = ['GET, POST, PUT, PATCH, DELETE, OPTIONS']
-        headers['Access-Control-Allow-Headers'] = ['Content-Type, Authorization, X-Trace-Id']
-        callback({ responseHeaders: headers })
-      },
-    )
-  }
-
-  // Local 模式下启动 sidecar
-  if (config.mode === 'local') {
-    setStatusListener((s) => {
-      mainWindow?.webContents.send('arkloop:sidecar:status-changed', s)
-    })
-    await startSidecar(config.local.port)
+    try {
+      await ensureLocalSidecar(config)
+    } catch (error) {
+      console.error('[desktop] failed to start local sidecar:', error)
+    }
+  } else {
+    activeSidecarPort = null
   }
 
   mainWindow = createWindow()

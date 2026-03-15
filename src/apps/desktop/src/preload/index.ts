@@ -1,17 +1,24 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
 export type ConnectionMode = 'local' | 'saas' | 'self-hosted'
+export type LocalPortMode = 'auto' | 'manual'
 
 export type AppConfig = {
   mode: ConnectionMode
   saas: { baseUrl: string }
   selfHosted: { baseUrl: string }
-  local: { port: number }
+  local: { port: number; portMode: LocalPortMode }
   window: { width: number; height: number }
   onboarding_completed: boolean
 }
 
 export type SidecarStatus = 'stopped' | 'starting' | 'running' | 'crashed'
+export type SidecarRuntime = {
+  status: SidecarStatus
+  port: number | null
+  portMode: LocalPortMode
+  lastError?: string
+}
 
 export type DownloadProgress = {
   phase: 'connecting' | 'downloading' | 'verifying' | 'done' | 'error'
@@ -53,11 +60,13 @@ export type ArkloopDesktopApi = {
   }
   sidecar: {
     getStatus: () => Promise<SidecarStatus>
+    getRuntime: () => Promise<SidecarRuntime>
     restart: () => Promise<SidecarStatus>
     download: () => Promise<{ ok: boolean }>
     isAvailable: () => Promise<boolean>
     checkUpdate: () => Promise<SidecarVersionInfo>
     onStatusChanged: (callback: (status: SidecarStatus) => void) => () => void
+    onRuntimeChanged: (callback: (runtime: SidecarRuntime) => void) => () => void
     onDownloadProgress: (callback: (progress: DownloadProgress) => void) => () => void
   }
   rootfs: {
@@ -84,23 +93,47 @@ const config = ipcRenderer.sendSync('arkloop:config:get-sync') as {
   mode: string
   saas: { baseUrl: string }
   selfHosted: { baseUrl: string }
-  local: { port: number }
+  local: { port: number; portMode: LocalPortMode }
 }
 
-const isDevMode = process.env.ELECTRON_DEV === 'true'
+let configSnapshot: AppConfig = config as AppConfig
+let sidecarRuntimeSnapshot: SidecarRuntime = {
+  status: 'stopped',
+  port: config.local.port,
+  portMode: config.local.portMode,
+}
 
-let apiBaseUrl = ''
-if (config.mode === 'local') {
-  apiBaseUrl = isDevMode ? '' : `http://127.0.0.1:${config.local.port}`
-} else if (config.mode === 'saas') {
-  apiBaseUrl = config.saas.baseUrl
-} else if (config.mode === 'self-hosted') {
-  apiBaseUrl = config.selfHosted.baseUrl
+function computeApiBaseUrl(nextConfig: AppConfig, runtime: SidecarRuntime): string {
+  if (nextConfig.mode === 'local') {
+    const port = runtime.port ?? nextConfig.local.port
+    return `http://127.0.0.1:${port}`
+  }
+  if (nextConfig.mode === 'saas') {
+    return nextConfig.saas.baseUrl
+  }
+  if (nextConfig.mode === 'self-hosted') {
+    return nextConfig.selfHosted.baseUrl
+  }
+  return ''
+}
+
+function getCurrentApiBaseUrl(): string {
+  return computeApiBaseUrl(configSnapshot, sidecarRuntimeSnapshot)
 }
 
 contextBridge.exposeInMainWorld('__ARKLOOP_DESKTOP__', {
-  apiBaseUrl,
-  mode: config.mode,
+  apiBaseUrl: getCurrentApiBaseUrl(),
+  mode: configSnapshot.mode,
+  getApiBaseUrl: () => getCurrentApiBaseUrl(),
+  getMode: () => configSnapshot.mode,
+})
+
+ipcRenderer.on('arkloop:config:changed', (_event: Electron.IpcRendererEvent, nextConfig: AppConfig) => {
+  configSnapshot = nextConfig
+})
+
+ipcRenderer.on('arkloop:sidecar:runtime-changed', (_event: Electron.IpcRendererEvent, runtime: SidecarRuntime) => {
+  sidecarRuntimeSnapshot = runtime
 })
 
 const api: ArkloopDesktopApi = {
@@ -119,6 +152,7 @@ const api: ArkloopDesktopApi = {
 
   sidecar: {
     getStatus: () => ipcRenderer.invoke('arkloop:sidecar:status'),
+    getRuntime: () => ipcRenderer.invoke('arkloop:sidecar:runtime'),
     restart: () => ipcRenderer.invoke('arkloop:sidecar:restart'),
     download: () => ipcRenderer.invoke('arkloop:sidecar:download'),
     isAvailable: () => ipcRenderer.invoke('arkloop:sidecar:is-available'),
@@ -127,6 +161,11 @@ const api: ArkloopDesktopApi = {
       const handler = (_event: Electron.IpcRendererEvent, status: SidecarStatus) => callback(status)
       ipcRenderer.on('arkloop:sidecar:status-changed', handler)
       return () => ipcRenderer.removeListener('arkloop:sidecar:status-changed', handler)
+    },
+    onRuntimeChanged: (callback) => {
+      const handler = (_event: Electron.IpcRendererEvent, runtime: SidecarRuntime) => callback(runtime)
+      ipcRenderer.on('arkloop:sidecar:runtime-changed', handler)
+      return () => ipcRenderer.removeListener('arkloop:sidecar:runtime-changed', handler)
     },
     onDownloadProgress: (callback) => {
       const handler = (_event: Electron.IpcRendererEvent, progress: DownloadProgress) => callback(progress)

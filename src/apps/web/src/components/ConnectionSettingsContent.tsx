@@ -1,11 +1,26 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Wifi, HardDrive, Cloud, Server, RefreshCw, CheckCircle, XCircle } from 'lucide-react'
+import {
+  CheckCircle,
+  ChevronDown,
+  ChevronRight,
+  Cloud,
+  HardDrive,
+  RefreshCw,
+  RotateCcw,
+  Server,
+  Wifi,
+  XCircle,
+} from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
+import { ErrorCallout } from '@arkloop/shared'
 import { getDesktopApi } from '@arkloop/shared/desktop'
-import type { ConnectionMode } from '@arkloop/shared/desktop'
+import type {
+  ConnectionMode,
+  DesktopConfig,
+  LocalPortMode,
+  SidecarRuntime,
+} from '@arkloop/shared/desktop'
 import { useLocale } from '../contexts/LocaleContext'
-
-type SidecarStatus = 'stopped' | 'starting' | 'running' | 'crashed'
 
 type ModeCardProps = {
   mode: ConnectionMode
@@ -14,6 +29,12 @@ type ModeCardProps = {
   desc: string
   selected: boolean
   onSelect: () => void
+}
+
+const DEFAULT_RUNTIME: SidecarRuntime = {
+  status: 'stopped',
+  port: null,
+  portMode: 'auto',
 }
 
 function ModeCard({ icon: Icon, label, desc, selected, onSelect }: ModeCardProps) {
@@ -53,12 +74,12 @@ function ModeCard({ icon: Icon, label, desc, selected, onSelect }: ModeCardProps
   )
 }
 
-function StatusBadge({ status, t }: { status: SidecarStatus; t: Record<string, string> }) {
-  const map: Record<SidecarStatus, { color: string; label: string }> = {
-    running:  { color: '#22c55e', label: t.running },
-    stopped:  { color: '#94a3b8', label: t.stopped },
+function StatusBadge({ status, t }: { status: SidecarRuntime['status']; t: Record<string, string> }) {
+  const map: Record<SidecarRuntime['status'], { color: string; label: string }> = {
+    running: { color: '#22c55e', label: t.running },
+    stopped: { color: '#94a3b8', label: t.stopped },
     starting: { color: '#f59e0b', label: t.starting },
-    crashed:  { color: '#ef4444', label: t.crashed },
+    crashed: { color: '#ef4444', label: t.crashed },
   }
   const { color, label } = map[status]
   return (
@@ -69,33 +90,92 @@ function StatusBadge({ status, t }: { status: SidecarStatus; t: Record<string, s
   )
 }
 
+function FieldRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div
+      className="flex items-center justify-between rounded-xl bg-[var(--c-bg-menu)] px-4 py-3"
+      style={{ border: '0.5px solid var(--c-border-subtle)' }}
+    >
+      <div className="text-sm text-[var(--c-text-secondary)]">{label}</div>
+      <div className="font-mono text-sm text-[var(--c-text-primary)]">{value}</div>
+    </div>
+  )
+}
+
+function applyConfigToState(config: DesktopConfig, setters: {
+  setMode: (mode: ConnectionMode) => void
+  setSaasUrl: (value: string) => void
+  setSelfHostedUrl: (value: string) => void
+  setLocalPort: (value: string) => void
+  setLocalPortMode: (value: LocalPortMode) => void
+}) {
+  setters.setMode(config.mode)
+  setters.setSaasUrl(config.saas.baseUrl)
+  setters.setSelfHostedUrl(config.selfHosted.baseUrl)
+  setters.setLocalPort(String(config.local.port))
+  setters.setLocalPortMode(config.local.portMode)
+}
+
 export function ConnectionSettingsContent() {
-  const { t } = useLocale()
+  const { t, locale } = useLocale()
   const ct = t.connection
   const api = getDesktopApi()
 
+  const [configSnapshot, setConfigSnapshot] = useState<DesktopConfig | null>(null)
   const [mode, setMode] = useState<ConnectionMode>('local')
   const [saasUrl, setSaasUrl] = useState('')
   const [selfHostedUrl, setSelfHostedUrl] = useState('')
-  const [sidecarStatus, setSidecarStatus] = useState<SidecarStatus>('stopped')
+  const [localPort, setLocalPort] = useState('19001')
+  const [localPortMode, setLocalPortMode] = useState<LocalPortMode>('auto')
+  const [sidecarRuntime, setSidecarRuntime] = useState<SidecarRuntime>(DEFAULT_RUNTIME)
   const [testResult, setTestResult] = useState<'connected' | 'failed' | null>(null)
   const [saving, setSaving] = useState(false)
+  const [showAdvanced, setShowAdvanced] = useState(false)
+  const [localError, setLocalError] = useState('')
 
   useEffect(() => {
     if (!api) return
-    api.config.get().then((cfg) => {
-      setMode(cfg.mode)
-      setSaasUrl(cfg.saas.baseUrl)
-      setSelfHostedUrl(cfg.selfHosted.baseUrl)
+
+    const applyConfig = (config: DesktopConfig) => {
+      setConfigSnapshot(config)
+      applyConfigToState(config, {
+        setMode,
+        setSaasUrl,
+        setSelfHostedUrl,
+        setLocalPort,
+        setLocalPortMode,
+      })
+    }
+
+    void api.config.get().then(applyConfig)
+    void api.sidecar.getRuntime().then(setSidecarRuntime)
+
+    const unsubConfig = api.config.onChanged((config) => {
+      applyConfig(config)
     })
-    api.sidecar.getStatus().then(setSidecarStatus)
-    const unsub = api.sidecar.onStatusChanged((s) => setSidecarStatus(s as SidecarStatus))
-    return unsub
+    const unsubRuntime = api.sidecar.onRuntimeChanged((runtime) => {
+      setSidecarRuntime(runtime)
+    })
+
+    return () => {
+      unsubConfig()
+      unsubRuntime()
+    }
   }, [api])
 
   const handleSave = useCallback(async () => {
     if (!api) return
+
+    const parsedPort = Number.parseInt(localPort, 10)
+    if (mode === 'local' && localPortMode === 'manual' && (!Number.isInteger(parsedPort) || parsedPort < 1 || parsedPort > 65535)) {
+      setLocalError(locale === 'zh'
+        ? `${ct.manualPort}必须在 1 到 65535 之间。`
+        : `${ct.manualPort} must be between 1 and 65535.`)
+      return
+    }
+
     setSaving(true)
+    setLocalError('')
     try {
       const current = await api.config.get()
       await api.config.set({
@@ -103,37 +183,106 @@ export function ConnectionSettingsContent() {
         mode,
         saas: { baseUrl: saasUrl },
         selfHosted: { baseUrl: selfHostedUrl },
+        local: {
+          port: mode === 'local' && localPortMode === 'manual'
+            ? parsedPort
+            : current.local.port,
+          portMode: localPortMode,
+        },
       })
+    } catch (error) {
+      setLocalError(error instanceof Error ? error.message : t.requestFailed)
+      const current = await api.config.get()
+      setConfigSnapshot(current)
+      applyConfigToState(current, {
+        setMode,
+        setSaasUrl,
+        setSelfHostedUrl,
+        setLocalPort,
+        setLocalPortMode,
+      })
+      const runtime = await api.sidecar.getRuntime().catch(() => DEFAULT_RUNTIME)
+      setSidecarRuntime(runtime)
     } finally {
       setSaving(false)
     }
-  }, [api, mode, saasUrl, selfHostedUrl])
+  }, [api, ct.manualPort, locale, localPort, localPortMode, mode, saasUrl, selfHostedUrl, t.requestFailed])
 
   const handleTest = useCallback(async () => {
     setTestResult(null)
+
     let url: string
     if (mode === 'local') {
-      const cfg = await api?.config.get()
-      url = `http://127.0.0.1:${cfg?.local.port ?? 19001}`
+      const config = await api?.config.get()
+      const port = sidecarRuntime.port
+        ?? config?.local.port
+        ?? (Number.parseInt(localPort, 10) || 19001)
+      url = `http://127.0.0.1:${port}`
     } else if (mode === 'saas') {
       url = saasUrl
     } else {
       url = selfHostedUrl
     }
+
     try {
       const resp = await fetch(`${url}/healthz`, { signal: AbortSignal.timeout(5000) })
       setTestResult(resp.ok ? 'connected' : 'failed')
     } catch {
       setTestResult('failed')
     }
-  }, [api, mode, saasUrl, selfHostedUrl])
+  }, [api, localPort, mode, saasUrl, selfHostedUrl, sidecarRuntime.port])
 
   const handleRestart = useCallback(async () => {
     if (!api) return
-    await api.sidecar.restart()
-  }, [api])
+    setLocalError('')
+    try {
+      await api.sidecar.restart()
+    } catch (error) {
+      setLocalError(error instanceof Error ? error.message : t.requestFailed)
+      const runtime = await api.sidecar.getRuntime().catch(() => DEFAULT_RUNTIME)
+      setSidecarRuntime(runtime)
+    }
+  }, [api, t.requestFailed])
+
+  const handleRestoreAuto = useCallback(async () => {
+    if (!api) return
+    setLocalPortMode('auto')
+    setLocalError('')
+    setSaving(true)
+    try {
+      const current = await api.config.get()
+      await api.config.set({
+        ...current,
+        local: {
+          ...current.local,
+          portMode: 'auto',
+        },
+      })
+    } catch (error) {
+      setLocalError(error instanceof Error ? error.message : t.requestFailed)
+      const current = await api.config.get()
+      setConfigSnapshot(current)
+      applyConfigToState(current, {
+        setMode,
+        setSaasUrl,
+        setSelfHostedUrl,
+        setLocalPort,
+        setLocalPortMode,
+      })
+      const runtime = await api.sidecar.getRuntime().catch(() => DEFAULT_RUNTIME)
+      setSidecarRuntime(runtime)
+    } finally {
+      setSaving(false)
+    }
+  }, [api, t.requestFailed])
 
   if (!api) return null
+
+  const effectivePort = sidecarRuntime.port
+    ?? configSnapshot?.local.port
+    ?? (Number.parseInt(localPort, 10) || 19001)
+  const currentPortMode = configSnapshot?.local.portMode ?? sidecarRuntime.portMode
+  const runtimeError = localError || sidecarRuntime.lastError
 
   return (
     <div className="flex flex-col gap-6">
@@ -141,39 +290,125 @@ export function ConnectionSettingsContent() {
         <span className="text-sm font-medium text-[var(--c-text-heading)]">{ct.title}</span>
         <div className="flex flex-col gap-2">
           <ModeCard
-            mode="local" icon={HardDrive}
-            label={ct.local} desc={ct.localDesc}
-            selected={mode === 'local'} onSelect={() => setMode('local')}
+            mode="local"
+            icon={HardDrive}
+            label={ct.local}
+            desc={ct.localDesc}
+            selected={mode === 'local'}
+            onSelect={() => setMode('local')}
           />
           <ModeCard
-            mode="saas" icon={Cloud}
-            label={ct.saas} desc={ct.saasDesc}
-            selected={mode === 'saas'} onSelect={() => setMode('saas')}
+            mode="saas"
+            icon={Cloud}
+            label={ct.saas}
+            desc={ct.saasDesc}
+            selected={mode === 'saas'}
+            onSelect={() => setMode('saas')}
           />
           <ModeCard
-            mode="self-hosted" icon={Server}
-            label={ct.selfHosted} desc={ct.selfHostedDesc}
-            selected={mode === 'self-hosted'} onSelect={() => setMode('self-hosted')}
+            mode="self-hosted"
+            icon={Server}
+            label={ct.selfHosted}
+            desc={ct.selfHostedDesc}
+            selected={mode === 'self-hosted'}
+            onSelect={() => setMode('self-hosted')}
           />
         </div>
       </div>
 
       {mode === 'local' && (
         <div className="flex flex-col gap-3">
-          <div className="flex items-center justify-between">
-            <span className="text-sm text-[var(--c-text-secondary)]">{ct.status}</span>
-            <div className="flex items-center gap-2">
-              <StatusBadge status={sidecarStatus} t={ct} />
-              <button
-                type="button"
-                onClick={handleRestart}
-                className="flex h-6 items-center gap-1 rounded-md px-2 text-xs text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-sub)]"
-              >
-                <RefreshCw size={12} />
-                <span>{ct.restart}</span>
-              </button>
+          <div
+            className="rounded-xl bg-[var(--c-bg-menu)] px-4 py-3"
+            style={{ border: '0.5px solid var(--c-border-subtle)' }}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-[var(--c-text-secondary)]">{ct.status}</span>
+              <div className="flex items-center gap-2">
+                <StatusBadge status={sidecarRuntime.status} t={ct} />
+                <button
+                  type="button"
+                  onClick={() => void handleRestart()}
+                  className="flex h-6 items-center gap-1 rounded-md px-2 text-xs text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-sub)]"
+                >
+                  <RefreshCw size={12} />
+                  <span>{ct.restart}</span>
+                </button>
+              </div>
             </div>
           </div>
+
+          <FieldRow label={ct.currentPort} value={String(effectivePort)} />
+          <FieldRow label={ct.portMode} value={currentPortMode === 'auto' ? ct.portModeAuto : ct.portModeManual} />
+
+          <button
+            type="button"
+            onClick={() => setShowAdvanced((value) => !value)}
+            className="flex items-center gap-2 rounded-xl bg-[var(--c-bg-menu)] px-4 py-3 text-sm text-[var(--c-text-secondary)]"
+            style={{ border: '0.5px solid var(--c-border-subtle)' }}
+          >
+            {showAdvanced ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+            <span>{ct.advanced}</span>
+          </button>
+
+          {showAdvanced && (
+            <div
+              className="flex flex-col gap-4 rounded-xl bg-[var(--c-bg-menu)] px-4 py-4"
+              style={{ border: '0.5px solid var(--c-border-subtle)' }}
+            >
+              <div className="text-sm text-[var(--c-text-secondary)]">{ct.advancedDesc}</div>
+
+              <div className="flex flex-col gap-2">
+                <label className="text-sm text-[var(--c-text-secondary)]">{ct.portMode}</label>
+                <select
+                  value={localPortMode}
+                  onChange={(event) => setLocalPortMode(event.target.value as LocalPortMode)}
+                  className="h-9 rounded-lg px-3 text-sm text-[var(--c-text-primary)] outline-none"
+                  style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-page)' }}
+                >
+                  <option value="auto">{ct.portModeAuto}</option>
+                  <option value="manual">{ct.portModeManual}</option>
+                </select>
+              </div>
+
+              {localPortMode === 'manual' && (
+                <div className="flex flex-col gap-2">
+                  <label className="text-sm text-[var(--c-text-secondary)]">{ct.manualPort}</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={65535}
+                    value={localPort}
+                    onChange={(event) => setLocalPort(event.target.value)}
+                    className="h-9 rounded-lg px-3 text-sm text-[var(--c-text-primary)] outline-none"
+                    style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-page)' }}
+                  />
+                  <div className="text-xs text-[var(--c-text-muted)]">{ct.manualPortHint}</div>
+                </div>
+              )}
+
+              {(runtimeError || localPortMode === 'manual') && (
+                <button
+                  type="button"
+                  onClick={() => void handleRestoreAuto()}
+                  disabled={saving}
+                  className="flex h-8 w-fit items-center gap-1.5 rounded-lg px-3 text-sm text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-sub)] disabled:opacity-50"
+                  style={{ border: '0.5px solid var(--c-border-subtle)' }}
+                >
+                  <RotateCcw size={13} />
+                  <span>{ct.restoreAutoPort}</span>
+                </button>
+              )}
+            </div>
+          )}
+
+          {runtimeError && (
+            <ErrorCallout
+              error={{ message: runtimeError }}
+              locale={locale}
+              requestFailedText={runtimeError}
+            />
+          )}
         </div>
       )}
 
@@ -183,7 +418,7 @@ export function ConnectionSettingsContent() {
           <input
             type="url"
             value={saasUrl}
-            onChange={(e) => setSaasUrl(e.target.value)}
+            onChange={(event) => setSaasUrl(event.target.value)}
             className="h-9 rounded-lg px-3 text-sm text-[var(--c-text-primary)] outline-none"
             style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-page)' }}
           />
@@ -196,7 +431,7 @@ export function ConnectionSettingsContent() {
           <input
             type="url"
             value={selfHostedUrl}
-            onChange={(e) => setSelfHostedUrl(e.target.value)}
+            onChange={(event) => setSelfHostedUrl(event.target.value)}
             placeholder="https://your-server.com"
             className="h-9 rounded-lg px-3 text-sm text-[var(--c-text-primary)] outline-none"
             style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-page)' }}
@@ -207,16 +442,16 @@ export function ConnectionSettingsContent() {
       <div className="flex items-center gap-2">
         <button
           type="button"
-          onClick={handleSave}
+          onClick={() => void handleSave()}
           disabled={saving}
-          className="flex h-8 items-center rounded-lg px-4 text-sm font-medium text-white transition-colors"
+          className="flex h-8 items-center rounded-lg px-4 text-sm font-medium text-white transition-colors disabled:opacity-50"
           style={{ background: 'var(--c-accent)' }}
         >
           {ct.save}
         </button>
         <button
           type="button"
-          onClick={handleTest}
+          onClick={() => void handleTest()}
           className="flex h-8 items-center gap-1.5 rounded-lg px-3 text-sm text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-sub)]"
           style={{ border: '0.5px solid var(--c-border-subtle)' }}
         >

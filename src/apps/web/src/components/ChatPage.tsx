@@ -38,6 +38,7 @@ import {
   buildMessageBrowserActionsFromRunEvents,
 } from '../runEventProcessing'
 import { useLocale } from '../contexts/LocaleContext'
+import { apiBaseUrl } from '@arkloop/shared/api'
 import type { UserInputRequest, UserInputResponse, RequestedSchema } from '../userInputTypes'
 import {
   createMessage,
@@ -212,7 +213,7 @@ export function ChatPage() {
   const navigate = useNavigate()
   const { t } = useLocale()
 
-  const baseUrl = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? ''
+  const baseUrl = apiBaseUrl()
 
   const [isSearchThread, setIsSearchThread] = useState(
     () => locationState?.isSearch === true || isSearchThreadId(threadId ?? ''),
@@ -786,7 +787,7 @@ export function ChatPage() {
     setCancelSubmitting(false)
     return () => { sse.disconnect() }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeRunId])
+  }, [activeRunId, baseUrl])
 
   // 避免上一轮 run 的 closed/error 状态误触发当前 run 的终端兜底。
   useEffect(() => {

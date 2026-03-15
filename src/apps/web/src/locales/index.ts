@@ -438,6 +438,16 @@ export interface LocaleStrings {
     starting: string
     crashed: string
     restart: string
+    currentPort: string
+    portMode: string
+    portModeAuto: string
+    portModeManual: string
+    advanced: string
+    advancedDesc: string
+    manualPort: string
+    manualPortHint: string
+    restoreAutoPort: string
+    runtimeError: string
     testConnection: string
     connected: string
     failed: string

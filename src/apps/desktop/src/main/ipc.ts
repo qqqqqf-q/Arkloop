@@ -1,10 +1,19 @@
 import { ipcMain, BrowserWindow } from 'electron'
 import { loadConfig, saveConfig, getConfigPath } from './config'
-import { getSidecarStatus, startSidecar, stopSidecar, downloadSidecar, isSidecarAvailable, checkSidecarVersion } from './sidecar'
+import { getSidecarStatus, downloadSidecar, isSidecarAvailable, checkSidecarVersion, type SidecarRuntime } from './sidecar'
 import { getRootfsStatus, isRootfsAvailable, getRootfsPath, checkRootfsVersion, downloadRootfs, deleteRootfs } from './rootfs'
 import type { AppConfig } from './types'
 
-export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void {
+type DesktopController = {
+  applyConfigUpdate: (config: AppConfig) => Promise<AppConfig>
+  restartLocalSidecar: () => Promise<SidecarRuntime>
+  getSidecarRuntime: () => SidecarRuntime
+}
+
+export function registerIpcHandlers(
+  getWindow: () => BrowserWindow | null,
+  controller: DesktopController,
+): void {
   // preload 同步获取配置, 确保 __ARKLOOP_DESKTOP__ 在页面脚本之前注入
   ipcMain.on('arkloop:config:get-sync', (event) => {
     event.returnValue = loadConfig()
@@ -15,20 +24,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   })
 
   ipcMain.handle('arkloop:config:set', async (_event, config: AppConfig) => {
-    const prev = loadConfig()
-    saveConfig(config)
-
-    // 模式切换时重启 sidecar
-    if (prev.mode !== config.mode || prev.local.port !== config.local.port) {
-      await stopSidecar()
-      if (config.mode === 'local') {
-        await startSidecar(config.local.port)
-      }
-      // 通知渲染进程重新加载
-      const win = getWindow()
-      if (win) win.webContents.send('arkloop:config:changed', config)
-    }
-
+    await controller.applyConfigUpdate(config)
     return { ok: true }
   })
 
@@ -40,10 +36,12 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
     return getSidecarStatus()
   })
 
+  ipcMain.handle('arkloop:sidecar:runtime', () => {
+    return controller.getSidecarRuntime()
+  })
+
   ipcMain.handle('arkloop:sidecar:restart', async () => {
-    const config = loadConfig()
-    await stopSidecar()
-    await startSidecar(config.local.port)
+    await controller.restartLocalSidecar()
     return getSidecarStatus()
   })
 
