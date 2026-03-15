@@ -24,6 +24,8 @@ import (
 	"arkloop/services/worker/internal/routing"
 	"arkloop/services/worker/internal/tools"
 	"arkloop/services/worker/internal/tools/builtin"
+	"arkloop/services/worker/internal/tools/localfs"
+	"arkloop/services/worker/internal/tools/localshell"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -65,8 +67,29 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 			slog.WarnContext(ctx, "desktop: skip tool registration", "name", spec.Name, "err", err)
 		}
 	}
+	for _, spec := range localshell.AgentSpecs() {
+		if err := toolRegistry.Register(spec); err != nil {
+			slog.WarnContext(ctx, "desktop: skip tool registration", "name", spec.Name, "err", err)
+		}
+	}
+	for _, spec := range localfs.AgentSpecs() {
+		if err := toolRegistry.Register(spec); err != nil {
+			slog.WarnContext(ctx, "desktop: skip tool registration", "name", spec.Name, "err", err)
+		}
+	}
+
 	executors := builtin.Executors(nil, nil, nil)
-	allLlmSpecs := builtin.LlmSpecs()
+
+	shellExec := localshell.NewExecutor()
+	executors[localshell.ExecCommandAgentSpec.Name] = shellExec
+	executors[localshell.WriteStdinAgentSpec.Name] = shellExec
+
+	fsExec := localfs.NewExecutor()
+	executors[localfs.FileReadAgentSpec.Name] = fsExec
+	executors[localfs.FileWriteAgentSpec.Name] = fsExec
+
+	allLlmSpecs := append(builtin.LlmSpecs(), localshell.LlmSpecs()...)
+	allLlmSpecs = append(allLlmSpecs, localfs.LlmSpecs()...)
 
 	baseAllowlist := make(map[string]struct{})
 	for _, name := range toolRegistry.ListNames() {

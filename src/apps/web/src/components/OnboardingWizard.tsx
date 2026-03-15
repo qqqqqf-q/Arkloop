@@ -1,19 +1,11 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import {
-  Bot,
   CheckCircle,
-  Cloud,
-  Database,
   Download,
-  Globe,
-  HardDrive,
   Plus,
-  Search,
-  Server,
-  Shield,
+  Settings,
   X,
   XCircle,
-  type LucideIcon,
 } from 'lucide-react'
 import { ErrorCallout, isApiError, type AppError } from '@arkloop/shared'
 import {
@@ -25,7 +17,6 @@ import {
   normalizeError,
 } from '@arkloop/shared/components/auth-ui'
 import { getDesktopApi, getDesktopAccessToken } from '@arkloop/shared/desktop'
-import type { ConnectionMode } from '@arkloop/shared/desktop'
 import { useLocale } from '../contexts/LocaleContext'
 import {
   createLlmProvider,
@@ -39,27 +30,11 @@ import type {
   LlmProvider,
   LlmProviderModel,
 } from '../api'
-import {
-  bridgeClient,
-  checkBridgeAvailable,
-  type ModuleAction,
-  type ModuleInfo,
-  type ModuleStatus,
-} from '../api-bridge'
 
-type Step =
-  | 'welcome'
-  | 'mode'
-  | 'saas'
-  | 'local-download'
-  | 'local-provider'
-  | 'local-modules'
-  | 'self-host'
-  | 'complete'
+type Step = 'welcome' | 'provider' | 'complete'
 
 type Vendor = 'openai_responses' | 'openai_chat_completions' | 'anthropic'
 type VerifyStatus = 'idle' | 'verifying' | 'verified' | 'failed'
-type TestStatus = 'idle' | 'testing' | 'connected' | 'failed'
 type ModelImportStatus =
   | 'idle'
   | 'loading'
@@ -68,25 +43,8 @@ type ModelImportStatus =
   | 'importing'
   | 'done'
   | 'failed'
-type OptionalModuleId =
-  | 'sandbox-docker'
-  | 'openviking'
-  | 'searxng'
-  | 'firecrawl'
-  | 'browser'
-type ModuleRunState = 'idle' | 'running' | 'done' | 'failed'
 
 type Props = { onComplete: () => void }
-
-type ModuleSpec = {
-  id: OptionalModuleId
-  category: ModuleInfo['category']
-  icon: LucideIcon
-  title: string
-  description: string
-  recommended?: boolean
-  dependsOn?: OptionalModuleId[]
-}
 
 const LOCAL_ACCESS_TOKEN = getDesktopAccessToken() ?? 'arkloop-desktop-local-token'
 
@@ -192,21 +150,6 @@ function mergeConfiguredModels(
   return Array.from(merged.values())
 }
 
-function isInstalledStatus(status: ModuleStatus): boolean {
-  return status !== 'not_installed'
-}
-
-function actionForModuleStatus(status: ModuleStatus): ModuleAction | null {
-  switch (status) {
-    case 'not_installed':
-      return 'install'
-    case 'stopped':
-      return 'start'
-    default:
-      return null
-  }
-}
-
 function StepIndicator({
   current,
   total,
@@ -220,56 +163,6 @@ function StepIndicator({
     <div style={{ fontSize: '12px', color: 'var(--c-text-muted)', marginBottom: '24px' }}>
       {stepOf(current, total)}
     </div>
-  )
-}
-
-function ModeCard({
-  icon: Icon,
-  label,
-  desc,
-  selected,
-  onSelect,
-}: {
-  icon: typeof Cloud
-  label: string
-  desc: string
-  selected: boolean
-  onSelect: () => void
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onSelect}
-      className="flex items-start gap-3 rounded-xl p-4 text-left transition-colors"
-      style={{
-        width: '100%',
-        cursor: 'pointer',
-        fontFamily: 'inherit',
-        border: selected ? '1.5px solid var(--c-text-secondary)' : '1px solid var(--c-border-subtle)',
-        background: selected ? 'var(--c-bg-deep)' : 'var(--c-bg-page)',
-      }}
-    >
-      <div
-        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg"
-        style={{
-          background: selected ? 'var(--c-btn-bg)' : 'var(--c-bg-sub)',
-          color: selected ? 'var(--c-btn-text)' : 'var(--c-text-secondary)',
-        }}
-      >
-        <Icon size={18} />
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="text-sm font-medium text-[var(--c-text-heading)]">{label}</div>
-        <div className="mt-0.5 text-xs text-[var(--c-text-muted)]">{desc}</div>
-      </div>
-      <div
-        className="mt-1 h-4 w-4 shrink-0 rounded-full"
-        style={{
-          border: selected ? '5px solid var(--c-btn-bg)' : '1.5px solid var(--c-border-subtle)',
-          background: selected ? 'var(--c-bg-page)' : 'transparent',
-        }}
-      />
-    </button>
   )
 }
 
@@ -289,149 +182,27 @@ function ProgressBar({ percent }: { percent: number }) {
   )
 }
 
-function ModuleOptionCard({
-  spec,
-  selected,
-  installed,
-  disabled,
-  runState,
-  dependsLabel,
-  recommendedLabel,
-  installedLabel,
-  installingLabel,
-  requestFailedText,
-  onSelect,
-}: {
-  spec: ModuleSpec
-  selected: boolean
-  installed: boolean
-  disabled: boolean
-  runState: ModuleRunState
-  dependsLabel: string
-  recommendedLabel: string
-  installedLabel: string
-  installingLabel: string
-  requestFailedText: string
-  onSelect: () => void
-}) {
-  const Icon = spec.icon
-  const showSelected = installed || selected
-
-  return (
-    <button
-      type="button"
-      onClick={onSelect}
-      disabled={disabled}
-      className="rounded-2xl p-4 text-left transition-colors disabled:cursor-not-allowed"
-      style={{
-        width: '100%',
-        border: showSelected ? '1px solid var(--c-text-secondary)' : '0.5px solid var(--c-border-subtle)',
-        background: showSelected ? 'var(--c-bg-menu)' : 'var(--c-bg-page)',
-        opacity: disabled && !installed ? 0.7 : 1,
-      }}
-    >
-      <div className="flex items-start gap-3">
-        <div
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl"
-          style={{
-            background: showSelected ? 'var(--c-btn-bg)' : 'var(--c-bg-sub)',
-            color: showSelected ? 'var(--c-btn-text)' : 'var(--c-text-secondary)',
-          }}
-        >
-          <Icon size={18} />
-        </div>
-
-        <div className="min-w-0 flex-1">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <div className="text-sm font-medium text-[var(--c-text-heading)]">{spec.title}</div>
-              <div className="mt-1 text-xs leading-5 text-[var(--c-text-muted)]">{spec.description}</div>
-            </div>
-            <div
-              className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full"
-              style={{
-                border: showSelected ? 'none' : '1px solid var(--c-border-subtle)',
-                background: showSelected ? 'var(--c-btn-bg)' : 'transparent',
-                color: showSelected ? 'var(--c-btn-text)' : 'transparent',
-              }}
-            >
-              <CheckCircle size={14} />
-            </div>
-          </div>
-
-          <div className="mt-3 flex flex-wrap gap-2">
-            {spec.recommended && (
-              <span className="rounded-full px-2 py-1 text-[11px]" style={{ background: 'var(--c-bg-sub)', color: 'var(--c-text-secondary)' }}>
-                {recommendedLabel}
-              </span>
-            )}
-            {spec.dependsOn?.length ? (
-              <span className="rounded-full px-2 py-1 text-[11px]" style={{ background: 'var(--c-bg-sub)', color: 'var(--c-text-secondary)' }}>
-                {dependsLabel} Sandbox
-              </span>
-            ) : null}
-            {runState === 'running' ? (
-              <span className="rounded-full px-2 py-1 text-[11px]" style={{ background: 'rgba(245, 158, 11, 0.14)', color: '#f59e0b' }}>
-                {installingLabel}
-              </span>
-            ) : null}
-            {runState === 'failed' ? (
-              <span className="rounded-full px-2 py-1 text-[11px]" style={{ background: 'rgba(239, 68, 68, 0.14)', color: '#ef4444' }}>
-                {requestFailedText}
-              </span>
-            ) : null}
-            {(runState === 'done' || installed) ? (
-              <span className="rounded-full px-2 py-1 text-[11px]" style={{ background: 'rgba(34, 197, 94, 0.14)', color: '#22c55e' }}>
-                {installedLabel}
-              </span>
-            ) : null}
-          </div>
-        </div>
-      </div>
-    </button>
-  )
-}
-
-async function runModuleAction(moduleId: string, action: ModuleAction): Promise<void> {
-  const { operation_id } = await bridgeClient.performAction(moduleId, action)
-
-  await new Promise<void>((resolve, reject) => {
-    let finished = false
-    const stop = bridgeClient.streamOperation(
-      operation_id,
-      () => {},
-      (result) => {
-        if (finished) return
-        finished = true
-        stop()
-        if (result.status === 'completed') {
-          resolve()
-        } else {
-          reject(new Error(result.error ?? `${action} failed`))
-        }
-      },
-    )
-  })
-}
-
 export function OnboardingWizard({ onComplete }: Props) {
   const { t, locale } = useLocale()
   const ob = t.onboarding
   const api = getDesktopApi()
 
   const [step, setStep] = useState<Step>('welcome')
-  const [selectedMode, setSelectedMode] = useState<ConnectionMode | null>(null)
 
+  // Sidecar readiness (auto-download if needed)
+  const [sidecarReady, setSidecarReady] = useState<boolean | null>(null)
   const [downloadPhase, setDownloadPhase] = useState('')
   const [downloadPercent, setDownloadPercent] = useState(0)
   const [downloadError, setDownloadError] = useState('')
 
+  // Provider state
   const [vendor, setVendor] = useState<Vendor>('openai_responses')
   const [apiKey, setApiKey] = useState('')
   const [baseUrl, setBaseUrl] = useState(VENDOR_URLS.openai_responses)
   const [verifyStatus, setVerifyStatus] = useState<VerifyStatus>('idle')
   const [providerError, setProviderError] = useState<AppError | null>(null)
 
+  // Model import state
   const [modelImportStatus, setModelImportStatus] = useState<ModelImportStatus>('idle')
   const [availableModels, setAvailableModels] = useState<AvailableModel[]>([])
   const [selectedModelIds, setSelectedModelIds] = useState<Set<string>>(new Set())
@@ -443,134 +214,26 @@ export function OnboardingWizard({ onComplete }: Props) {
   const [manualModelName, setManualModelName] = useState('')
   const [addingModel, setAddingModel] = useState(false)
 
-  const [bridgeOnline, setBridgeOnline] = useState<boolean | null>(null)
-  const [modulesLoading, setModulesLoading] = useState(false)
-  const [optionalModules, setOptionalModules] = useState<ModuleInfo[]>([])
-  const [selectedModuleIds, setSelectedModuleIds] = useState<Set<OptionalModuleId>>(
-    () => new Set(['sandbox-docker']),
-  )
-  const [moduleRunStates, setModuleRunStates] = useState<Record<string, ModuleRunState>>({})
-  const [installingModules, setInstallingModules] = useState(false)
-  const [moduleError, setModuleError] = useState<AppError | null>(null)
-
-  const [selfHostUrl, setSelfHostUrl] = useState('')
-  const [testStatus, setTestStatus] = useState<TestStatus>('idle')
-
   const [saving, setSaving] = useState(false)
   const apiKeyRef = useRef<HTMLInputElement>(null)
-  const selfHostRef = useRef<HTMLInputElement>(null)
-
-  const moduleSpecs = useMemo<ModuleSpec[]>(() => [
-    {
-      id: 'sandbox-docker',
-      category: 'sandbox',
-      icon: Shield,
-      title: ob.localModulesSandboxTitle,
-      description: ob.localModulesSandboxDesc,
-      recommended: true,
-    },
-    {
-      id: 'openviking',
-      category: 'memory',
-      icon: Database,
-      title: ob.localModulesMemoryTitle,
-      description: ob.localModulesMemoryDesc,
-    },
-    {
-      id: 'searxng',
-      category: 'search',
-      icon: Search,
-      title: ob.localModulesSearchTitle,
-      description: ob.localModulesSearchDesc,
-    },
-    {
-      id: 'firecrawl',
-      category: 'search',
-      icon: Globe,
-      title: ob.localModulesCrawlerTitle,
-      description: ob.localModulesCrawlerDesc,
-    },
-    {
-      id: 'browser',
-      category: 'browser',
-      icon: Bot,
-      title: ob.localModulesBrowserTitle,
-      description: ob.localModulesBrowserDesc,
-      dependsOn: ['sandbox-docker'],
-    },
-  ], [ob])
-
-  const isLocalFlow = selectedMode === 'local'
-    || step === 'local-download'
-    || step === 'local-provider'
-    || step === 'local-modules'
-
-  const totalSteps = isLocalFlow ? 4 : 3
 
   const stepMeta = useMemo(() => {
     switch (step) {
-      case 'mode':
-        return { n: 1, total: totalSteps }
-      case 'saas':
-      case 'local-download':
-      case 'local-provider':
-      case 'self-host':
-        return { n: 2, total: totalSteps }
-      case 'local-modules':
-        return { n: 3, total: 4 }
+      case 'provider':
+        return { n: 1, total: 2 }
       case 'complete':
-        return { n: totalSteps, total: totalSteps }
+        return { n: 2, total: 2 }
       default:
         return null
     }
-  }, [step, totalSteps])
+  }, [step])
 
   const importableModels = useMemo(
     () => availableModels.filter((model) => !model.configured),
     [availableModels],
   )
 
-  const orderedModules = useMemo(() => {
-    return moduleSpecs.map((spec) => {
-      const found = optionalModules.find((mod) => mod.id === spec.id)
-      return {
-        spec,
-        module: found ?? {
-          id: spec.id,
-          name: spec.title,
-          description: spec.description,
-          category: spec.category,
-          status: 'not_installed' as ModuleStatus,
-          capabilities: {
-            installable: true,
-            configurable: true,
-            healthcheck: true,
-            bootstrap_supported: false,
-            external_admin_supported: false,
-            privileged_required: false,
-          },
-          depends_on: spec.dependsOn ?? [],
-          mutually_exclusive: [],
-        },
-      }
-    })
-  }, [moduleSpecs, optionalModules])
-
-  const moduleQueue = useMemo(() => {
-    return orderedModules
-      .filter(({ spec }) => selectedModuleIds.has(spec.id))
-      .map(({ module }) => {
-        const action = actionForModuleStatus(module.status)
-        return action ? { id: module.id, action } : null
-      })
-      .filter((item): item is { id: string; action: ModuleAction } => item != null)
-  }, [orderedModules, selectedModuleIds])
-
-  const providerVerified = step === 'local-provider' && verifyStatus === 'verified' && !!createdProviderId
-
-  const sectionWidth = step === 'local-modules'
-    ? 'min(760px, 100%)'
-    : 'min(520px, 100%)'
+  const providerVerified = step === 'provider' && verifyStatus === 'verified' && !!createdProviderId
 
   const resetProviderState = useCallback(() => {
     setVerifyStatus('idle')
@@ -592,44 +255,16 @@ export function OnboardingWizard({ onComplete }: Props) {
     resetProviderState()
   }, [resetProviderState])
 
-  const saveMode = useCallback(async (mode: ConnectionMode, extra?: Record<string, unknown>) => {
+  // Check sidecar readiness and auto-download when entering provider step
+  const ensureSidecar = useCallback(async () => {
     if (!api) return
-    const current = await api.config.get()
-    await api.config.set({ ...current, mode, ...extra })
-  }, [api])
-
-  const handleModeNext = useCallback(async () => {
-    if (!selectedMode || !api) return
-    await saveMode(selectedMode)
-    switch (selectedMode) {
-      case 'saas':
-        setStep('saas')
-        break
-      case 'local': {
-        const available = await api.sidecar.isAvailable()
-        setStep(available ? 'local-provider' : 'local-download')
-        break
-      }
-      case 'self-hosted':
-        setStep('self-host')
-        break
+    const available = await api.sidecar.isAvailable()
+    if (available) {
+      setSidecarReady(true)
+      return
     }
-  }, [selectedMode, api, saveMode])
 
-  const handleSaasNext = useCallback(async () => {
-    if (!api) return
-    setSaving(true)
-    try {
-      await saveMode('saas')
-      await api.onboarding.complete()
-      onComplete()
-    } finally {
-      setSaving(false)
-    }
-  }, [api, onComplete, saveMode])
-
-  const startDownload = useCallback(async () => {
-    if (!api) return
+    setSidecarReady(false)
     setDownloadError('')
     setDownloadPercent(0)
     setDownloadPhase(ob.localDownloading)
@@ -649,7 +284,7 @@ export function OnboardingWizard({ onComplete }: Props) {
       }
       setDownloadPhase(ob.localStarting)
       await api.sidecar.restart()
-      setStep('local-provider')
+      setSidecarReady(true)
     } catch (error) {
       unsub()
       setDownloadError(error instanceof Error ? error.message : ob.localDownloadFailed)
@@ -657,22 +292,24 @@ export function OnboardingWizard({ onComplete }: Props) {
   }, [api, ob.localDownloadFailed, ob.localDownloading, ob.localStarting])
 
   useEffect(() => {
-    if (step === 'local-download') {
-      void startDownload()
+    if (step === 'provider') {
+      void ensureSidecar()
     }
-  }, [startDownload, step])
+  }, [ensureSidecar, step])
 
   useEffect(() => {
-    if (step !== 'local-provider') return
-    const timer = setTimeout(() => apiKeyRef.current?.focus(), 420)
-    return () => clearTimeout(timer)
-  }, [step])
+    if (step === 'provider' && sidecarReady) {
+      const timer = setTimeout(() => apiKeyRef.current?.focus(), 420)
+      return () => clearTimeout(timer)
+    }
+  }, [step, sidecarReady])
 
-  useEffect(() => {
-    if (step !== 'self-host') return
-    const timer = setTimeout(() => selfHostRef.current?.focus(), 420)
-    return () => clearTimeout(timer)
-  }, [step])
+  const handleWelcomeNext = useCallback(async () => {
+    if (!api) return
+    const current = await api.config.get()
+    await api.config.set({ ...current, mode: 'local' })
+    setStep('provider')
+  }, [api])
 
   const upsertProviderCredential = useCallback(async (): Promise<LlmProvider> => {
     const vendorOpt = VENDOR_OPTIONS.find((option) => option.key === vendor)!
@@ -830,165 +467,9 @@ export function OnboardingWizard({ onComplete }: Props) {
     }
   }, [configuredModels.length, createdProviderId, manualModelName, t.requestFailed])
 
-  const handleProviderDone = useCallback(async () => {
-    if (!api) return
-    setSaving(true)
-    try {
-      await saveMode('local')
-      setStep('local-modules')
-    } finally {
-      setSaving(false)
-    }
-  }, [api, saveMode])
-
-  const loadOptionalModules = useCallback(async () => {
-    const fallbackModules = moduleSpecs.map<ModuleInfo>((spec) => ({
-      id: spec.id,
-      name: spec.title,
-      description: spec.description,
-      category: spec.category,
-      status: 'not_installed',
-      capabilities: {
-        installable: true,
-        configurable: true,
-        healthcheck: true,
-        bootstrap_supported: false,
-        external_admin_supported: false,
-        privileged_required: false,
-      },
-      depends_on: spec.dependsOn ?? [],
-      mutually_exclusive: [],
-    }))
-
-    setModulesLoading(true)
-    setModuleError(null)
-    try {
-      const online = await checkBridgeAvailable()
-      setBridgeOnline(online)
-      if (!online) {
-        setOptionalModules(fallbackModules)
-        return
-      }
-
-      const remoteModules = await bridgeClient.listModules()
-      setOptionalModules(
-        fallbackModules.map((fallback) =>
-          remoteModules.find((remote) => remote.id === fallback.id) ?? fallback),
-      )
-    } catch (error) {
-      setBridgeOnline(false)
-      setOptionalModules(fallbackModules)
-      setModuleError(normalizeError(error, t.requestFailed))
-    } finally {
-      setModulesLoading(false)
-    }
-  }, [moduleSpecs, t.requestFailed])
-
-  useEffect(() => {
-    if (step !== 'local-modules') return
-    let cancelled = false
-
-    void (async () => {
-      await loadOptionalModules()
-      if (cancelled) return
-      setModuleRunStates({})
-    })()
-
-    return () => {
-      cancelled = true
-    }
-  }, [loadOptionalModules, step])
-
-  useEffect(() => {
-    if (step !== 'local-modules' || orderedModules.length === 0) return
-
-    setSelectedModuleIds((current) => {
-      const next = new Set(current)
-      for (const { spec, module } of orderedModules) {
-        if (isInstalledStatus(module.status)) {
-          next.add(spec.id)
-        }
-      }
-      if (next.has('browser')) next.add('sandbox-docker')
-      return next
-    })
-  }, [orderedModules, step])
-
-  const handleToggleModule = useCallback((moduleId: OptionalModuleId) => {
-    if (installingModules || bridgeOnline === false) return
-
-    const module = orderedModules.find((item) => item.spec.id === moduleId)?.module
-    if (module && isInstalledStatus(module.status)) return
-
-    setSelectedModuleIds((current) => {
-      const next = new Set(current)
-      if (next.has(moduleId)) next.delete(moduleId)
-      else next.add(moduleId)
-
-      if (moduleId === 'browser' && next.has('browser')) next.add('sandbox-docker')
-      if (moduleId === 'sandbox-docker' && !next.has('sandbox-docker')) next.delete('browser')
-
-      return next
-    })
-  }, [bridgeOnline, installingModules, orderedModules])
-
-  const handleModulesContinue = useCallback(async () => {
-    if (bridgeOnline !== true || moduleQueue.length === 0) {
-      setStep('complete')
-      return
-    }
-
-    setInstallingModules(true)
-    setModuleError(null)
-    setModuleRunStates(
-      moduleQueue.reduce<Record<string, ModuleRunState>>((acc, item) => {
-        acc[item.id] = 'idle'
-        return acc
-      }, {}),
-    )
-
-    try {
-      for (const item of moduleQueue) {
-        setModuleRunStates((current) => ({ ...current, [item.id]: 'running' }))
-        try {
-          await runModuleAction(item.id, item.action)
-          setModuleRunStates((current) => ({ ...current, [item.id]: 'done' }))
-        } catch (error) {
-          setModuleRunStates((current) => ({ ...current, [item.id]: 'failed' }))
-          throw error
-        }
-      }
-
-      await loadOptionalModules()
-      setStep('complete')
-    } catch (error) {
-      setModuleError(normalizeError(error, t.requestFailed))
-    } finally {
-      setInstallingModules(false)
-    }
-  }, [bridgeOnline, loadOptionalModules, moduleQueue, t.requestFailed])
-
-  const handleSelfHostTest = useCallback(async () => {
-    setTestStatus('testing')
-    try {
-      const response = await fetch(`${selfHostUrl.replace(/\/$/, '')}/healthz`, {
-        signal: AbortSignal.timeout(5000),
-      })
-      setTestStatus(response.ok ? 'connected' : 'failed')
-    } catch {
-      setTestStatus('failed')
-    }
-  }, [selfHostUrl])
-
-  const handleSelfHostDone = useCallback(async () => {
-    setSaving(true)
-    try {
-      await saveMode('self-hosted', { selfHosted: { baseUrl: selfHostUrl.replace(/\/$/, '') } })
-      setStep('complete')
-    } finally {
-      setSaving(false)
-    }
-  }, [saveMode, selfHostUrl])
+  const handleProviderDone = useCallback(() => {
+    setStep('complete')
+  }, [])
 
   const handleComplete = useCallback(async () => {
     if (!api) return
@@ -1020,11 +501,12 @@ export function OnboardingWizard({ onComplete }: Props) {
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '48px 20px', position: 'relative', zIndex: 1 }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: '24px', width: '100%', justifyContent: 'center' }}>
-        <section style={{ width: sectionWidth, flexShrink: 0 }}>
+        <section style={{ width: providerVerified ? 'min(520px, 100%)' : 'min(520px, 100%)', flexShrink: 0 }}>
           {stepMeta && (
             <StepIndicator current={stepMeta.n} total={stepMeta.total} stepOf={ob.stepOf} />
           )}
 
+          {/* Welcome */}
           <Reveal active={step === 'welcome'}>
             <div style={{ textAlign: 'center' }}>
               <div style={{ fontSize: '28px', fontWeight: 500, color: 'var(--c-text-primary)', marginBottom: '8px' }}>
@@ -1033,97 +515,45 @@ export function OnboardingWizard({ onComplete }: Props) {
               <div style={{ fontSize: '14px', color: 'var(--c-placeholder)', marginBottom: '32px' }}>
                 {ob.welcomeDesc}
               </div>
-              <button type="button" onClick={() => setStep('mode')} style={primaryBtn}>
+              <button type="button" onClick={() => void handleWelcomeNext()} style={primaryBtn}>
                 {ob.getStarted}
               </button>
             </div>
           </Reveal>
 
-          <Reveal active={step === 'mode'}>
+          {/* Provider configuration (with inline sidecar download if needed) */}
+          <Reveal active={step === 'provider'}>
             <div>
-              <div style={{ fontSize: '18px', fontWeight: 500, color: 'var(--c-text-heading)', marginBottom: '4px' }}>
-                {ob.modeTitle}
-              </div>
-              <div style={{ fontSize: '13px', color: 'var(--c-placeholder)', marginBottom: '20px' }}>
-                {ob.modeDesc}
-              </div>
-
-              <div className="flex flex-col gap-3" style={{ marginBottom: '24px' }}>
-                <ModeCard icon={Cloud} label={ob.saasTitle} desc={ob.saasDesc} selected={selectedMode === 'saas'} onSelect={() => setSelectedMode('saas')} />
-                <ModeCard icon={HardDrive} label={ob.localTitle} desc={ob.localDesc} selected={selectedMode === 'local'} onSelect={() => setSelectedMode('local')} />
-                <ModeCard icon={Server} label={ob.selfHostTitle} desc={ob.selfHostDesc} selected={selectedMode === 'self-hosted'} onSelect={() => setSelectedMode('self-hosted')} />
-              </div>
-
-              <button
-                type="button"
-                onClick={handleModeNext}
-                disabled={!selectedMode}
-                style={primaryBtn}
-                className="disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {ob.next}
-              </button>
-              <button type="button" onClick={() => setStep('welcome')} style={ghostBtn}>
-                {ob.back}
-              </button>
-            </div>
-          </Reveal>
-
-          <Reveal active={step === 'saas'}>
-            <div>
-              <div style={{ fontSize: '18px', fontWeight: 500, color: 'var(--c-text-heading)', marginBottom: '4px' }}>
-                {ob.saasTitle}
-              </div>
-              <div style={{ fontSize: '14px', color: 'var(--c-placeholder)', marginBottom: '32px' }}>
-                {ob.saasLoginHint}
-              </div>
-              <button type="button" onClick={handleSaasNext} disabled={saving} style={primaryBtn} className="disabled:cursor-not-allowed disabled:opacity-50">
-                {saving ? <SpinnerIcon /> : ob.next}
-              </button>
-              <button type="button" onClick={() => setStep('mode')} style={ghostBtn}>
-                {ob.back}
-              </button>
-            </div>
-          </Reveal>
-
-          <Reveal active={step === 'local-download'}>
-            <div>
-              <div style={{ fontSize: '18px', fontWeight: 500, color: 'var(--c-text-heading)', marginBottom: '4px' }}>
-                {ob.localTitle}
-              </div>
-              <div style={{ fontSize: '14px', color: 'var(--c-placeholder)', marginBottom: '24px' }}>
-                {downloadPhase || ob.localDownloading}
-              </div>
-
-              <ProgressBar percent={downloadPercent} />
+              {sidecarReady === false && !downloadError && (
+                <div style={{ marginBottom: '24px' }}>
+                  <div style={{ fontSize: '14px', color: 'var(--c-placeholder)', marginBottom: '12px' }}>
+                    {downloadPhase || ob.localDownloading}
+                  </div>
+                  <ProgressBar percent={downloadPercent} />
+                </div>
+              )}
 
               {downloadError && (
-                <div style={{ marginTop: '16px' }}>
+                <div style={{ marginBottom: '24px' }}>
                   <div className="flex items-center gap-2" style={{ fontSize: '13px', color: '#ef4444', marginBottom: '12px' }}>
                     <XCircle size={14} />
                     {downloadError}
                   </div>
-                  <button type="button" onClick={() => void startDownload()} style={primaryBtn}>
+                  <button type="button" onClick={() => { setDownloadError(''); void ensureSidecar() }} style={primaryBtn}>
                     {ob.localRetryDownload}
-                  </button>
-                  <button type="button" onClick={() => setStep('mode')} style={ghostBtn}>
-                    {ob.back}
                   </button>
                 </div>
               )}
-            </div>
-          </Reveal>
 
-          <Reveal active={step === 'local-provider'}>
-            <div>
-              {/* Left column – provider config & verification */}
-              <div>
-                <div style={{ fontSize: '18px', fontWeight: 500, color: 'var(--c-text-heading)', marginBottom: '4px' }}>
-                  {ob.localProviderTitle}
-                </div>
-                <div style={{ fontSize: '13px', color: 'var(--c-placeholder)', marginBottom: '20px' }}>
-                  {ob.localProviderDesc}
-                </div>
+              {(sidecarReady === true || sidecarReady === null) && (
+                <>
+                  <div style={{ fontSize: '18px', fontWeight: 500, color: 'var(--c-text-heading)', marginBottom: '4px' }}>
+                    {ob.localProviderTitle}
+                  </div>
+                  <div style={{ fontSize: '13px', color: 'var(--c-placeholder)', marginBottom: '20px' }}>
+                    {ob.localProviderDesc}
+                  </div>
+
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginBottom: '18px' }}>
                     <div>
                       <label style={labelStyle}>{ob.localProviderVendor}</label>
@@ -1205,158 +635,49 @@ export function OnboardingWizard({ onComplete }: Props) {
                   ) : (
                     <button
                       type="button"
-                      onClick={() => void handleProviderDone()}
-                      disabled={saving}
+                      onClick={handleProviderDone}
                       style={primaryBtn}
-                      className="disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      {saving ? <SpinnerIcon /> : ob.next}
+                      {ob.next}
                     </button>
                   )}
 
                   <button
                     type="button"
-                    onClick={() => (verifyStatus === 'verified' ? setStep('mode') : void handleProviderDone())}
+                    onClick={verifyStatus === 'verified' ? () => setStep('welcome') : handleProviderDone}
                     style={ghostBtn}
                   >
                     {verifyStatus === 'verified' ? ob.back : ob.localProviderSkip}
                   </button>
-              </div>
-            </div>
-           </Reveal>
-
-          <Reveal active={step === 'local-modules'}>
-            <div>
-              <div style={{ fontSize: '18px', fontWeight: 500, color: 'var(--c-text-heading)', marginBottom: '4px' }}>
-                {ob.localModulesTitle}
-              </div>
-              <div style={{ fontSize: '13px', color: 'var(--c-placeholder)', marginBottom: '20px' }}>
-                {ob.localModulesDesc}
-              </div>
-
-              {bridgeOnline === false && (
-                <div style={{ ...sectionCardStyle, marginBottom: '16px', fontSize: '13px', color: 'var(--c-text-muted)' }}>
-                  {ob.localModulesInstallerOffline}
-                </div>
+                </>
               )}
-
-              {moduleError && (
-                <ErrorCallout error={moduleError} locale={locale} requestFailedText={t.requestFailed} />
-              )}
-
-              {modulesLoading ? (
-                <div style={{ ...sectionCardStyle, marginBottom: '16px' }}>
-                  <div className="flex items-center gap-2 text-sm text-[var(--c-text-muted)]">
-                    <SpinnerIcon />
-                    {ob.localModulesInstalling}
-                  </div>
-                </div>
-              ) : (
-                <div className="grid gap-3 md:grid-cols-2" style={{ marginBottom: '16px' }}>
-                  {orderedModules.map(({ spec, module }) => (
-                    <ModuleOptionCard
-                      key={spec.id}
-                      spec={spec}
-                      selected={selectedModuleIds.has(spec.id)}
-                      installed={isInstalledStatus(module.status)}
-                      disabled={installingModules || bridgeOnline === false}
-                      runState={moduleRunStates[spec.id] ?? 'idle'}
-                      dependsLabel={ob.localModulesDependsOn}
-                      recommendedLabel={ob.localModulesRecommended}
-                      installedLabel={ob.localModulesInstalled}
-                      installingLabel={ob.localModulesInstalling}
-                      requestFailedText={t.requestFailed}
-                      onSelect={() => handleToggleModule(spec.id)}
-                    />
-                  ))}
-                </div>
-              )}
-
-              <button
-                type="button"
-                onClick={() => void handleModulesContinue()}
-                disabled={installingModules || modulesLoading}
-                style={primaryBtn}
-                className="disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {installingModules
-                  ? <><SpinnerIcon /> {ob.localModulesInstalling}</>
-                  : (bridgeOnline === true && moduleQueue.length > 0 ? ob.localModulesContinue : ob.next)}
-              </button>
-              <button type="button" onClick={() => setStep('complete')} style={ghostBtn}>
-                {ob.localModulesSkip}
-              </button>
             </div>
           </Reveal>
 
-          <Reveal active={step === 'self-host'}>
-            <div>
-              <div style={{ fontSize: '18px', fontWeight: 500, color: 'var(--c-text-heading)', marginBottom: '4px' }}>
-                {ob.selfHostTitle}
-              </div>
-              <div style={{ fontSize: '13px', color: 'var(--c-placeholder)', marginBottom: '20px' }}>
-                {ob.selfHostDesc}
-              </div>
-
-              <div style={{ marginBottom: '24px' }}>
-                <label style={labelStyle}>{ob.selfHostUrlLabel}</label>
-                <input
-                  ref={selfHostRef}
-                  className={inputCls}
-                  style={inputStyle}
-                  type="url"
-                  placeholder={ob.selfHostUrlPlaceholder}
-                  value={selfHostUrl}
-                  onChange={(event) => {
-                    setSelfHostUrl(event.target.value)
-                    setTestStatus('idle')
-                  }}
-                />
-              </div>
-
-              {testStatus === 'connected' && (
-                <div className="flex items-center gap-2" style={{ fontSize: '13px', color: '#22c55e', marginBottom: '12px' }}>
-                  <CheckCircle size={14} />
-                  {ob.selfHostConnected}
-                </div>
-              )}
-              {testStatus === 'failed' && (
-                <div className="flex items-center gap-2" style={{ fontSize: '13px', color: '#ef4444', marginBottom: '12px' }}>
-                  <XCircle size={14} />
-                  {ob.selfHostFailed}
-                </div>
-              )}
-
-              {testStatus !== 'connected' ? (
-                <button
-                  type="button"
-                  onClick={() => void handleSelfHostTest()}
-                  disabled={!selfHostUrl || testStatus === 'testing'}
-                  style={primaryBtn}
-                  className="disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {testStatus === 'testing' ? <><SpinnerIcon /> {ob.selfHostTesting}</> : ob.selfHostTest}
-                </button>
-              ) : (
-                <button type="button" onClick={() => void handleSelfHostDone()} disabled={saving} style={primaryBtn} className="disabled:cursor-not-allowed disabled:opacity-50">
-                  {saving ? <SpinnerIcon /> : ob.next}
-                </button>
-              )}
-
-              <button type="button" onClick={() => setStep('mode')} style={ghostBtn}>
-                {ob.back}
-              </button>
-            </div>
-          </Reveal>
-
+          {/* Completion */}
           <Reveal active={step === 'complete'}>
             <div style={{ textAlign: 'center' }}>
               <CheckCircle size={40} style={{ color: '#22c55e', margin: '0 auto 16px' }} />
               <div style={{ fontSize: '18px', fontWeight: 500, color: 'var(--c-text-heading)', marginBottom: '8px' }}>
                 {ob.completionTitle}
               </div>
-              <div style={{ fontSize: '14px', color: 'var(--c-placeholder)', marginBottom: '32px' }}>
+              <div style={{ fontSize: '14px', color: 'var(--c-placeholder)', marginBottom: '12px' }}>
                 {ob.completionDesc}
+              </div>
+              <div
+                className="flex items-center justify-center gap-2"
+                style={{
+                  fontSize: '13px',
+                  color: 'var(--c-text-muted)',
+                  marginBottom: '32px',
+                  padding: '10px 16px',
+                  borderRadius: '10px',
+                  background: 'var(--c-bg-menu)',
+                  border: '0.5px solid var(--c-border-subtle)',
+                }}
+              >
+                <Settings size={14} />
+                {ob.completionModulesHint}
               </div>
               <button type="button" onClick={() => void handleComplete()} disabled={saving} style={primaryBtn} className="disabled:cursor-not-allowed disabled:opacity-50">
                 {saving ? <SpinnerIcon /> : ob.startChatting}
@@ -1365,7 +686,7 @@ export function OnboardingWizard({ onComplete }: Props) {
           </Reveal>
         </section>
 
-        {/* Right side panel – model import (sibling of section, visible after provider verification) */}
+        {/* Right side panel – model import (visible after provider verification) */}
         {providerVerified && (
           <div style={{
             width: 'min(360px, 40vw)',
