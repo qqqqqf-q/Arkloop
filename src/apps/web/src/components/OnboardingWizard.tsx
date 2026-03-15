@@ -11,6 +11,7 @@ import {
   Search,
   Server,
   Shield,
+  X,
   XCircle,
   type LucideIcon,
 } from 'lucide-react'
@@ -146,7 +147,7 @@ const ghostBtn: React.CSSProperties = {
 
 const secondaryActionBtn: React.CSSProperties = {
   height: '30px',
-  borderRadius: '999px',
+  borderRadius: '10px',
   border: '0.5px solid var(--c-border-subtle)',
   background: 'var(--c-bg-page)',
   color: 'var(--c-text-secondary)',
@@ -564,6 +565,8 @@ export function OnboardingWizard({ onComplete }: Props) {
       })
       .filter((item): item is { id: string; action: ModuleAction } => item != null)
   }, [orderedModules, selectedModuleIds])
+
+  const providerVerified = step === 'local-provider' && verifyStatus === 'verified' && !!createdProviderId
 
   const sectionWidth = step === 'local-modules'
     ? 'min(760px, 100%)'
@@ -1002,12 +1005,22 @@ export function OnboardingWizard({ onComplete }: Props) {
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--c-bg-page)', display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden' }}>
+      <style>{`
+        @keyframes onb-slide-in {
+          from { opacity: 0; transform: translateX(24px); }
+          to { opacity: 1; transform: translateX(0); }
+        }
+        .onb-check { appearance: none; width: 16px; height: 16px; border: 1.5px solid var(--c-border-subtle); border-radius: 4px; background: var(--c-bg-input); cursor: pointer; position: relative; flex-shrink: 0; transition: background 0.15s, border-color 0.15s; }
+        .onb-check:checked { background: var(--c-btn-bg); border-color: var(--c-btn-bg); }
+        .onb-check:checked::after { content: ''; position: absolute; left: 4.5px; top: 1.5px; width: 5px; height: 9px; border: solid var(--c-btn-text); border-width: 0 2px 2px 0; transform: rotate(45deg); }
+      `}</style>
       <div className="auth-dots" />
       <div className="auth-glow auth-glow-top" />
       <div className="auth-glow auth-glow-bottom" />
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '48px 20px', position: 'relative', zIndex: 1 }}>
-        <section style={{ width: sectionWidth }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '24px', width: '100%', justifyContent: 'center' }}>
+        <section style={{ width: sectionWidth, flexShrink: 0 }}>
           {stepMeta && (
             <StepIndicator current={stepMeta.n} total={stepMeta.total} stepOf={ob.stepOf} />
           )}
@@ -1103,271 +1116,114 @@ export function OnboardingWizard({ onComplete }: Props) {
 
           <Reveal active={step === 'local-provider'}>
             <div>
-              <div style={{ fontSize: '18px', fontWeight: 500, color: 'var(--c-text-heading)', marginBottom: '4px' }}>
-                {ob.localProviderTitle}
-              </div>
-              <div style={{ fontSize: '13px', color: 'var(--c-placeholder)', marginBottom: '20px' }}>
-                {ob.localProviderDesc}
-              </div>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginBottom: '18px' }}>
-                <div>
-                  <label style={labelStyle}>{ob.localProviderVendor}</label>
-                  <select
-                    className={inputCls}
-                    style={{ ...inputStyle, cursor: 'pointer' }}
-                    value={vendor}
-                    onChange={(event) => handleVendorChange(event.target.value as Vendor)}
-                  >
-                    {VENDOR_OPTIONS.map((option) => (
-                      <option key={option.key} value={option.key}>{option.label}</option>
-                    ))}
-                  </select>
+              {/* Left column – provider config & verification */}
+              <div>
+                <div style={{ fontSize: '18px', fontWeight: 500, color: 'var(--c-text-heading)', marginBottom: '4px' }}>
+                  {ob.localProviderTitle}
                 </div>
-
-                <div>
-                  <label style={labelStyle}>{ob.localProviderApiKey}</label>
-                  <input
-                    ref={apiKeyRef}
-                    className={inputCls}
-                    style={inputStyle}
-                    type="password"
-                    placeholder={ob.localProviderApiKeyPlaceholder}
-                    value={apiKey}
-                    onChange={(event) => {
-                      setApiKey(event.target.value)
-                      resetProviderState()
-                    }}
-                    autoComplete="off"
-                  />
+                <div style={{ fontSize: '13px', color: 'var(--c-placeholder)', marginBottom: '20px' }}>
+                  {ob.localProviderDesc}
                 </div>
-
-                <div>
-                  <label style={labelStyle}>{ob.localProviderBaseUrl}</label>
-                  <input
-                    className={inputCls}
-                    style={inputStyle}
-                    type="text"
-                    placeholder={ob.localProviderBaseUrlPlaceholder}
-                    value={baseUrl}
-                    onChange={(event) => {
-                      setBaseUrl(event.target.value)
-                      resetProviderState()
-                    }}
-                  />
-                </div>
-              </div>
-
-              {verifyStatus === 'verified' && (
-                <div className="flex items-center gap-2" style={{ fontSize: '13px', color: '#22c55e', marginBottom: '12px' }}>
-                  <CheckCircle size={14} />
-                  {ob.localProviderVerified}
-                </div>
-              )}
-
-              {verifyStatus === 'failed' && !providerError && (
-                <div className="flex items-center gap-2" style={{ fontSize: '13px', color: '#ef4444', marginBottom: '12px' }}>
-                  <XCircle size={14} />
-                  {ob.localProviderFailed}
-                </div>
-              )}
-
-              {providerError && (
-                    <ErrorCallout error={providerError} locale={locale} requestFailedText={t.requestFailed} />
-              )}
-
-              {createdProviderId && verifyStatus === 'verified' && (
-                <div style={{ ...sectionCardStyle, marginTop: '16px', marginBottom: '16px' }}>
-                  <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginBottom: '18px' }}>
                     <div>
-                      <div style={{ fontSize: '14px', fontWeight: 500, color: 'var(--c-text-heading)' }}>
-                        {ob.localImportModels}
-                      </div>
-                      <div style={{ fontSize: '12px', color: 'var(--c-placeholder)', marginTop: '4px' }}>
-                        {ob.localImportModelsDesc}
-                      </div>
-                    </div>
-
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={() => void handleOpenImportModels()}
-                        style={secondaryActionBtn}
+                      <label style={labelStyle}>{ob.localProviderVendor}</label>
+                      <select
+                        className={inputCls}
+                        style={{ ...inputStyle, cursor: 'pointer' }}
+                        value={vendor}
+                        onChange={(event) => handleVendorChange(event.target.value as Vendor)}
                       >
-                        <Download size={12} />
-                        {ob.localImportModels}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setShowAddModelForm((current) => !current)
-                          setShowImportPanel(false)
-                          setModelError(null)
-                        }}
-                        style={secondaryActionBtn}
-                      >
-                        <Plus size={12} />
-                        {ob.localAddModel}
-                      </button>
-                    </div>
-                  </div>
-
-                  {modelImportStatus === 'done' && (
-                    <div className="mt-3 flex items-center gap-2 text-sm" style={{ color: '#22c55e' }}>
-                      <CheckCircle size={14} />
-                      {ob.localModelsImported}
-                    </div>
-                  )}
-
-                  {modelError && (
-                    <ErrorCallout error={modelError} locale={locale} requestFailedText={t.requestFailed} />
-                  )}
-
-                  {showAddModelForm && (
-                    <div style={{ ...sectionCardStyle, marginTop: '12px', background: 'var(--c-bg-page)', padding: '12px' }}>
-                      <label style={labelStyle}>{ob.localAddModel}</label>
-                      <div className="flex flex-col gap-2 md:flex-row">
-                        <input
-                          className={inputCls}
-                          style={{ ...inputStyle, flex: 1 }}
-                          type="text"
-                          placeholder={ob.localManualModelPlaceholder}
-                          value={manualModelName}
-                          onChange={(event) => setManualModelName(event.target.value)}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => void handleAddModel()}
-                          disabled={!manualModelName.trim() || addingModel}
-                          style={{ ...primaryBtn, width: 'auto', minWidth: '132px' }}
-                          className="disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          {addingModel ? <SpinnerIcon /> : ob.localAddModel}
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {showImportPanel && (
-                    <div style={{ ...sectionCardStyle, marginTop: '12px', background: 'var(--c-bg-page)', padding: '12px' }}>
-                      {modelImportStatus === 'loading' || modelImportStatus === 'importing' ? (
-                        <div className="flex items-center gap-2 text-sm text-[var(--c-text-muted)]">
-                          <SpinnerIcon />
-                          {ob.localImportingModels}
-                        </div>
-                      ) : importableModels.length > 0 ? (
-                        <>
-                          <div
-                            style={{
-                              maxHeight: '220px',
-                              overflowY: 'auto',
-                              border: '0.5px solid var(--c-border-subtle)',
-                              borderRadius: '12px',
-                              background: 'var(--c-bg-menu)',
-                            }}
-                          >
-                            {importableModels.map((model, index) => (
-                              <label
-                                key={model.id}
-                                className="flex cursor-pointer items-center gap-3 px-3 py-2.5"
-                                style={{
-                                  borderBottom: index < importableModels.length - 1 ? '0.5px solid var(--c-border-subtle)' : 'none',
-                                }}
-                              >
-                                <input
-                                  type="checkbox"
-                                  checked={selectedModelIds.has(model.id)}
-                                  onChange={() => toggleModelSelection(model.id)}
-                                  style={{ accentColor: 'var(--c-btn-bg)' }}
-                                />
-                                <span style={{ fontSize: '13px', color: 'var(--c-text-primary)' }}>
-                                  {model.name || model.id}
-                                </span>
-                              </label>
-                            ))}
-                          </div>
-
-                          <button
-                            type="button"
-                            onClick={() => void handleImportModels()}
-                            disabled={selectedModelIds.size === 0}
-                            style={{ ...primaryBtn, marginTop: '12px' }}
-                            className="disabled:cursor-not-allowed disabled:opacity-50"
-                          >
-                            {ob.localSelectModels}
-                            {selectedModelIds.size > 0 ? ` (${selectedModelIds.size})` : ''}
-                          </button>
-                        </>
-                      ) : (
-                        <div style={{ fontSize: '13px', color: 'var(--c-text-muted)' }}>
-                          {ob.localNoImportableModels}
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  <div style={{ marginTop: '14px' }}>
-                    <div style={{ fontSize: '12px', fontWeight: 500, color: 'var(--c-text-secondary)', marginBottom: '8px' }}>
-                      {ob.localConfiguredModels}
-                    </div>
-                    {configuredModels.length > 0 ? (
-                      <div className="flex flex-wrap gap-2">
-                        {configuredModels.map((model) => (
-                          <span
-                            key={model.id}
-                            className="rounded-full px-3 py-1 text-xs"
-                            style={{
-                              border: '0.5px solid var(--c-border-subtle)',
-                              background: 'var(--c-bg-page)',
-                              color: 'var(--c-text-secondary)',
-                            }}
-                          >
-                            {model.model}
-                          </span>
+                        {VENDOR_OPTIONS.map((option) => (
+                          <option key={option.key} value={option.key}>{option.label}</option>
                         ))}
-                      </div>
-                    ) : (
-                      <div style={{ fontSize: '13px', color: 'var(--c-text-muted)' }}>
-                        {ob.localNoConfiguredModels}
-                      </div>
-                    )}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label style={labelStyle}>{ob.localProviderApiKey}</label>
+                      <input
+                        ref={apiKeyRef}
+                        className={inputCls}
+                        style={inputStyle}
+                        type="password"
+                        placeholder={ob.localProviderApiKeyPlaceholder}
+                        value={apiKey}
+                        onChange={(event) => {
+                          setApiKey(event.target.value)
+                          resetProviderState()
+                        }}
+                        autoComplete="off"
+                      />
+                    </div>
+
+                    <div>
+                      <label style={labelStyle}>{ob.localProviderBaseUrl}</label>
+                      <input
+                        className={inputCls}
+                        style={inputStyle}
+                        type="text"
+                        placeholder={ob.localProviderBaseUrlPlaceholder}
+                        value={baseUrl}
+                        onChange={(event) => {
+                          setBaseUrl(event.target.value)
+                          resetProviderState()
+                        }}
+                      />
+                    </div>
                   </div>
-                </div>
-              )}
 
-              {verifyStatus !== 'verified' ? (
-                <button
-                  type="button"
-                  onClick={() => void handleVerify()}
-                  disabled={!apiKey.trim() || verifyStatus === 'verifying'}
-                  style={primaryBtn}
-                  className="disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {verifyStatus === 'verifying'
-                    ? <><SpinnerIcon /> {ob.localProviderVerifying}</>
-                    : ob.localProviderVerify}
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => void handleProviderDone()}
-                  disabled={saving}
-                  style={primaryBtn}
-                  className="disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {saving ? <SpinnerIcon /> : ob.next}
-                </button>
-              )}
+                  {verifyStatus === 'verified' && (
+                    <div className="flex items-center gap-2" style={{ fontSize: '13px', color: '#22c55e', marginBottom: '12px' }}>
+                      <CheckCircle size={14} />
+                      {ob.localProviderVerified}
+                    </div>
+                  )}
 
-              <button
-                type="button"
-                onClick={() => (verifyStatus === 'verified' ? setStep('mode') : void handleProviderDone())}
-                style={ghostBtn}
-              >
-                {verifyStatus === 'verified' ? ob.back : ob.localProviderSkip}
-              </button>
+                  {verifyStatus === 'failed' && !providerError && (
+                    <div className="flex items-center gap-2" style={{ fontSize: '13px', color: '#ef4444', marginBottom: '12px' }}>
+                      <XCircle size={14} />
+                      {ob.localProviderFailed}
+                    </div>
+                  )}
+
+                  {providerError && (
+                    <ErrorCallout error={providerError} locale={locale} requestFailedText={t.requestFailed} />
+                  )}
+
+                  {verifyStatus !== 'verified' ? (
+                    <button
+                      type="button"
+                      onClick={() => void handleVerify()}
+                      disabled={!apiKey.trim() || verifyStatus === 'verifying'}
+                      style={primaryBtn}
+                      className="disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {verifyStatus === 'verifying'
+                        ? <><SpinnerIcon /> {ob.localProviderVerifying}</>
+                        : ob.localProviderVerify}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => void handleProviderDone()}
+                      disabled={saving}
+                      style={primaryBtn}
+                      className="disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {saving ? <SpinnerIcon /> : ob.next}
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => (verifyStatus === 'verified' ? setStep('mode') : void handleProviderDone())}
+                    style={ghostBtn}
+                  >
+                    {verifyStatus === 'verified' ? ob.back : ob.localProviderSkip}
+                  </button>
+              </div>
             </div>
-          </Reveal>
+           </Reveal>
 
           <Reveal active={step === 'local-modules'}>
             <div>
@@ -1508,6 +1364,208 @@ export function OnboardingWizard({ onComplete }: Props) {
             </div>
           </Reveal>
         </section>
+
+        {/* Right side panel – model import (sibling of section, visible after provider verification) */}
+        {providerVerified && (
+          <div style={{
+            width: 'min(360px, 40vw)',
+            flexShrink: 0,
+            alignSelf: 'flex-start',
+            marginTop: '40px',
+            animation: 'onb-slide-in 0.38s cubic-bezier(0.4,0,0.2,1) both',
+          }}>
+            <div style={{ ...sectionCardStyle, maxHeight: 'calc(100vh - 160px)', overflowY: 'auto' }}>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <div style={{ fontSize: '14px', fontWeight: 500, color: 'var(--c-text-heading)' }}>
+                    {ob.localImportModels}
+                  </div>
+                  <div style={{ fontSize: '12px', color: 'var(--c-placeholder)', marginTop: '4px' }}>
+                    {ob.localImportModelsDesc}
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void handleOpenImportModels()}
+                    style={secondaryActionBtn}
+                  >
+                    <Download size={12} />
+                    {ob.localImportModels}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowAddModelForm((current) => !current)
+                      setShowImportPanel(false)
+                      setModelError(null)
+                    }}
+                    style={secondaryActionBtn}
+                  >
+                    <Plus size={12} />
+                    {ob.localAddModel}
+                  </button>
+                </div>
+              </div>
+
+              {modelImportStatus === 'done' && (
+                <div className="mt-3 flex items-center gap-2 text-sm" style={{ color: '#22c55e' }}>
+                  <CheckCircle size={14} />
+                  {ob.localModelsImported}
+                </div>
+              )}
+
+              {modelError && (
+                <ErrorCallout error={modelError} locale={locale} requestFailedText={t.requestFailed} />
+              )}
+
+              {showAddModelForm && (
+                <div style={{ ...sectionCardStyle, marginTop: '12px', background: 'var(--c-bg-page)', padding: '12px' }}>
+                  <div className="flex items-center justify-between" style={{ marginBottom: '8px' }}>
+                    <label style={{ ...labelStyle, marginBottom: 0 }}>{ob.localAddModel}</label>
+                    <button
+                      type="button"
+                      onClick={() => { setShowAddModelForm(false); setModelError(null) }}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--c-text-muted)', padding: '2px', display: 'flex' }}
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <input
+                      className={inputCls}
+                      style={inputStyle}
+                      type="text"
+                      placeholder={ob.localManualModelPlaceholder}
+                      value={manualModelName}
+                      onChange={(event) => setManualModelName(event.target.value)}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void handleAddModel()}
+                      disabled={!manualModelName.trim() || addingModel}
+                      style={{ ...primaryBtn, minWidth: '132px' }}
+                      className="disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {addingModel ? <SpinnerIcon /> : ob.localAddModel}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {showImportPanel && (
+                <div style={{ ...sectionCardStyle, marginTop: '12px', background: 'var(--c-bg-page)', padding: '12px' }}>
+                  <div className="flex items-center justify-between" style={{ marginBottom: '8px' }}>
+                    <span style={{ fontSize: '12px', fontWeight: 500, color: 'var(--c-text-secondary)' }}>{ob.localImportModels}</span>
+                    <button
+                      type="button"
+                      onClick={() => setShowImportPanel(false)}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--c-text-muted)', padding: '2px', display: 'flex' }}
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                  {modelImportStatus === 'loading' ? (
+                    <div className="flex items-center gap-2 text-sm text-[var(--c-text-muted)]">
+                      <SpinnerIcon />
+                      {ob.localImportingModels}
+                    </div>
+                  ) : importableModels.length > 0 ? (
+                    <>
+                      <div
+                        style={{
+                          maxHeight: '220px',
+                          overflowY: 'auto',
+                          border: '0.5px solid var(--c-border-subtle)',
+                          borderRadius: '12px',
+                          background: 'var(--c-bg-menu)',
+                          opacity: modelImportStatus === 'importing' ? 0.6 : 1,
+                          pointerEvents: modelImportStatus === 'importing' ? 'none' : 'auto',
+                          transition: 'opacity 0.2s',
+                        }}
+                      >
+                        {importableModels.map((model, index) => (
+                          <label
+                            key={model.id}
+                            className="flex cursor-pointer items-center gap-3 px-3 py-2.5"
+                            style={{
+                              borderBottom: index < importableModels.length - 1 ? '0.5px solid var(--c-border-subtle)' : 'none',
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selectedModelIds.has(model.id)}
+                              onChange={() => toggleModelSelection(model.id)}
+                              className="onb-check"
+                            />
+                            <span style={{ fontSize: '13px', color: 'var(--c-text-primary)' }}>
+                              {model.name || model.id}
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => void handleImportModels()}
+                        disabled={selectedModelIds.size === 0 || modelImportStatus === 'importing'}
+                        style={{ ...primaryBtn, marginTop: '12px' }}
+                        className="disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {modelImportStatus === 'importing'
+                          ? <><SpinnerIcon /> {ob.localImportingModels}</>
+                          : <>{ob.localSelectModels}{selectedModelIds.size > 0 ? ` (${selectedModelIds.size})` : ''}</>}
+                      </button>
+                    </>
+                  ) : (
+                    <div style={{ fontSize: '13px', color: 'var(--c-text-muted)' }}>
+                      {ob.localNoImportableModels}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div style={{ marginTop: '14px' }}>
+                <div style={{ fontSize: '12px', fontWeight: 500, color: 'var(--c-text-secondary)', marginBottom: '8px' }}>
+                  {ob.localConfiguredModels}
+                  {configuredModels.length > 0 && (
+                    <span style={{ fontWeight: 400, color: 'var(--c-text-muted)', marginLeft: '6px' }}>
+                      ({configuredModels.length})
+                    </span>
+                  )}
+                </div>
+                {configuredModels.length > 0 ? (
+                  <div className="flex flex-wrap gap-1.5" style={{ maxHeight: '68px', overflowY: 'auto' }}>
+                    {configuredModels.slice(0, 6).map((model) => (
+                      <span
+                        key={model.id}
+                        className="rounded-full px-2.5 py-0.5 text-xs"
+                        style={{
+                          border: '0.5px solid var(--c-border-subtle)',
+                          background: 'var(--c-bg-page)',
+                          color: 'var(--c-text-secondary)',
+                        }}
+                      >
+                        {model.model}
+                      </span>
+                    ))}
+                    {configuredModels.length > 6 && (
+                      <span className="rounded-full px-2.5 py-0.5 text-xs" style={{ color: 'var(--c-text-muted)' }}>
+                        +{configuredModels.length - 6}
+                      </span>
+                    )}
+                  </div>
+                ) : (
+                  <div style={{ fontSize: '13px', color: 'var(--c-text-muted)' }}>
+                    {ob.localNoConfiguredModels}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+        </div>
       </div>
 
       <footer style={{ textAlign: 'center', padding: '16px', fontSize: '12px', color: 'var(--c-text-muted)', position: 'relative', zIndex: 1 }}>

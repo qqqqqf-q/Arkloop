@@ -287,11 +287,16 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-function isPortConflictText(text: string): boolean {
+function isPortConflictText(text: string, sidecarPort: number): boolean {
   const normalized = text.toLowerCase()
-  return normalized.includes('address already in use')
+  const hasConflictKeyword = normalized.includes('address already in use')
     || normalized.includes('bind address already in use')
     || normalized.includes('eaddrinuse')
+  if (!hasConflictKeyword) return false
+  // Only treat as sidecar port conflict if the message references the sidecar's
+  // own port. Other components (e.g., bridge) may log bind failures for their
+  // own ports which should not abort the sidecar launch.
+  return normalized.includes(`:${sidecarPort}`)
 }
 
 function isPortInUseError(error: unknown): error is SidecarStartError {
@@ -445,7 +450,7 @@ async function launchOnPort(port: number, portMode: LocalPortMode): Promise<Side
     const text = chunk.toString()
     recentOutput = `${recentOutput}${text}`.slice(-4000)
     process[stream].write(`[sidecar] ${text}`)
-    if (isPortConflictText(text)) {
+    if (isPortConflictText(text, port)) {
       launchError = setPortConflictError(port)
     }
   }

@@ -621,7 +621,7 @@ export const en: LocaleStrings = {
     localProviderVerified: 'Verified',
     localProviderFailed: 'Verification failed',
     localProviderSkip: 'Skip for now',
-    localImportModels: 'Import Models',
+    localImportModels: 'Import All Models',
     localImportModelsDesc: 'Select models to import from your provider.',
     localSelectModels: 'Import selected',
     localAddModel: 'Add model',

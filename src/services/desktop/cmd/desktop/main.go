@@ -11,6 +11,7 @@ import (
 	"time"
 
 	api "arkloop/services/api"
+	bridge "arkloop/services/bridge"
 	"arkloop/services/shared/desktop"
 	worker "arkloop/services/worker"
 )
@@ -63,6 +64,13 @@ func run() error {
 	workerErr := make(chan error, 1)
 	go func() {
 		workerErr <- worker.StartDesktop(ctx)
+	}()
+
+	// 5. Bridge service (best-effort, does not block API/Worker).
+	go func() {
+		if err := bridge.StartDesktop(ctx); err != nil {
+			fmt.Fprintf(os.Stderr, "bridge: %v\n", err)
+		}
 	}()
 
 	select {

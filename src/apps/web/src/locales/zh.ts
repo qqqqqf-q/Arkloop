@@ -621,7 +621,7 @@ export const zh: LocaleStrings = {
     localProviderVerified: '验证通过',
     localProviderFailed: '验证失败',
     localProviderSkip: '稍后配置',
-    localImportModels: '导入模型',
+    localImportModels: '导入所有模型',
     localImportModelsDesc: '从服务商导入可用模型。',
     localSelectModels: '导入所选模型',
     localAddModel: '添加模型',
