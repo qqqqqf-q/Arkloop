@@ -8,6 +8,7 @@ import { ChatInput, type Attachment } from './ChatInput'
 import { MessageBubble, StreamingBubble } from './MessageBubble'
 import { ThinkingBlock, CodeExecutionCard, type CodeExecution } from './ThinkingBlock'
 import { ShellExecutionBlock } from './ShellExecutionBlock'
+import { SubAgentBlock } from './SubAgentBlock'
 import { SearchTimeline, type SearchStep } from './SearchTimeline'
 import UserInputCard from './UserInputCard'
 import { resolveMessageSourcesForRender } from './chatSourceResolver'
@@ -33,6 +34,9 @@ import {
   applyBrowserToolCall,
   applyBrowserToolResult,
   buildMessageBrowserActionsFromRunEvents,
+  applySubAgentToolCall,
+  applySubAgentToolResult,
+  buildMessageSubAgentsFromRunEvents,
 } from '../runEventProcessing'
 import { useLocale } from '../contexts/LocaleContext'
 import type { UserInputRequest, UserInputResponse, RequestedSchema } from '../userInputTypes'
@@ -80,8 +84,11 @@ import {
   type ArtifactRef,
   type CodeExecutionRef,
   type BrowserActionRef,
+  type SubAgentRef,
   type MessageThinkingRef,
   type MessageSearchStepRef,
+  readMessageSubAgents,
+  writeMessageSubAgents,
   migrateMessageMetadata,
 } from '../storage'
 
@@ -248,6 +255,10 @@ export function ChatPage() {
   const [messageBrowserActionsMap, setMessageBrowserActionsMap] = useState<Map<string, BrowserActionRef[]>>(new Map())
   const currentRunBrowserActionsRef = useRef<BrowserActionRef[]>([])
   const [topLevelBrowserActions, setTopLevelBrowserActions] = useState<BrowserActionRef[]>([])
+  // sub-agent 记录
+  const [messageSubAgentsMap, setMessageSubAgentsMap] = useState<Map<string, SubAgentRef[]>>(new Map())
+  const currentRunSubAgentsRef = useRef<SubAgentRef[]>([])
+  const [topLevelSubAgents, setTopLevelSubAgents] = useState<SubAgentRef[]>([])
   const [, setMessageThinkingMap] = useState<Map<string, MessageThinkingRef>>(new Map())
   // Search 时间轴缓存：messageId -> steps
   const [messageSearchStepsMap, setMessageSearchStepsMap] = useState<Map<string, MessageSearchStepRef[]>>(new Map())
@@ -616,6 +627,7 @@ export function ChatPage() {
         const artifactsMap = new Map<string, ArtifactRef[]>()
         const codeExecMap = new Map<string, CodeExecutionRef[]>()
         const browserActionsMap = new Map<string, BrowserActionRef[]>()
+        const subAgentsMap = new Map<string, SubAgentRef[]>()
         const thinkingMap = new Map<string, MessageThinkingRef>()
         const searchStepsMap = new Map<string, MessageSearchStepRef[]>()
         for (const msg of items) {
@@ -629,6 +641,8 @@ export function ChatPage() {
           if (cachedExec) codeExecMap.set(msg.id, cachedExec)
           const cachedBrowserActions = readMessageBrowserActions(msg.id)
           if (cachedBrowserActions) browserActionsMap.set(msg.id, cachedBrowserActions)
+          const cachedSubAgents = readMessageSubAgents(msg.id)
+          if (cachedSubAgents) subAgentsMap.set(msg.id, cachedSubAgents)
           const cachedThinking = readMessageThinking(msg.id)
           if (cachedThinking) thinkingMap.set(msg.id, cachedThinking)
           const cachedSearchSteps = readMessageSearchSteps(msg.id)
@@ -646,7 +660,8 @@ export function ChatPage() {
         const replayThinkingNeeded = !!(lastAssistant && !thinkingMap.has(lastAssistant.id))
         const replayCodeExecNeeded = !!(lastAssistant && shouldReplayMessageCodeExecutions(codeExecMap.get(lastAssistant.id)))
         const replayBrowserActionsNeeded = !!(lastAssistant && !browserActionsMap.has(lastAssistant.id))
-        if (latest && latest.status !== 'running' && lastAssistant && (replayThinkingNeeded || replayCodeExecNeeded || replayBrowserActionsNeeded)) {
+        const replaySubAgentsNeeded = !!(lastAssistant && !subAgentsMap.has(lastAssistant.id))
+        if (latest && latest.status !== 'running' && lastAssistant && (replayThinkingNeeded || replayCodeExecNeeded || replayBrowserActionsNeeded || replaySubAgentsNeeded)) {
           try {
             const replayEvents = await listRunEvents(accessToken, latest.run_id, { follow: false })
             if (replayThinkingNeeded) {
@@ -668,6 +683,13 @@ export function ChatPage() {
                 writeMessageBrowserActions(lastAssistant.id, replayActions)
               }
             }
+            if (replaySubAgentsNeeded) {
+              const replayAgents = buildMessageSubAgentsFromRunEvents(replayEvents)
+              if (replayAgents.length > 0) {
+                subAgentsMap.set(lastAssistant.id, replayAgents)
+                writeMessageSubAgents(lastAssistant.id, replayAgents)
+              }
+            }
           } catch {
             // 回放失败不影响主流程
           }
@@ -677,6 +699,7 @@ export function ChatPage() {
         setMessageArtifactsMap(artifactsMap)
         setMessageCodeExecutionsMap(codeExecMap)
         setMessageBrowserActionsMap(browserActionsMap)
+        setMessageSubAgentsMap(subAgentsMap)
         setMessageThinkingMap(thinkingMap)
         setMessageSearchStepsMap(searchStepsMap)
 
@@ -735,10 +758,12 @@ export function ChatPage() {
     currentRunArtifactsRef.current = []
     currentRunCodeExecutionsRef.current = []
     currentRunBrowserActionsRef.current = []
+    currentRunSubAgentsRef.current = []
     setMessageSourcesMap(new Map())
     setMessageArtifactsMap(new Map())
     setMessageCodeExecutionsMap(new Map())
     setMessageBrowserActionsMap(new Map())
+    setMessageSubAgentsMap(new Map())
     setMessageThinkingMap(new Map())
     setMessageSearchStepsMap(new Map())
     setSourcePanelMessageId(null)
@@ -770,12 +795,14 @@ export function ChatPage() {
     currentRunArtifactsRef.current = []
     currentRunCodeExecutionsRef.current = []
     currentRunBrowserActionsRef.current = []
+    currentRunSubAgentsRef.current = []
     setAssistantDraft('')
     setSegments([])
     activeSegmentIdRef.current = null
     setThinkingDraft('')
     setTopLevelCodeExecutions([])
     setTopLevelBrowserActions([])
+    setTopLevelSubAgents([])
     resetSearchSteps()
     setCancelSubmitting(false)
     return () => { sse.disconnect() }
@@ -928,6 +955,12 @@ export function ChatPage() {
           currentRunBrowserActionsRef.current = browserCall.nextActions
           setTopLevelBrowserActions((prev) => [...prev, browserCall.appended!])
         }
+        // spawn_agent tool.call
+        const subAgentCall = applySubAgentToolCall(currentRunSubAgentsRef.current, event)
+        if (subAgentCall.appended) {
+          currentRunSubAgentsRef.current = subAgentCall.nextAgents
+          setTopLevelSubAgents((prev) => [...prev, subAgentCall.appended!])
+        }
         // 搜索模式：模型输出的 planning 小标题
         if (toolName === SEARCH_PLANNING_TOOL_NAME) {
           const args = obj.arguments as Record<string, unknown> | undefined
@@ -1046,6 +1079,16 @@ export function ChatPage() {
             })
           }
         }
+        // sub-agent tool.result
+        const subAgentResult = applySubAgentToolResult(currentRunSubAgentsRef.current, event)
+        if (subAgentResult.updated) {
+          currentRunSubAgentsRef.current = subAgentResult.nextAgents
+          setTopLevelSubAgents((prev) => {
+            const idx = prev.findIndex((a) => a.id === subAgentResult.updated!.id)
+            if (idx >= 0) return prev.map((a, i) => i === idx ? subAgentResult.updated! : a)
+            return [...prev, subAgentResult.updated!]
+          })
+        }
         continue
       }
 
@@ -1087,6 +1130,7 @@ export function ChatPage() {
         setThinkingDraft('')
         setTopLevelCodeExecutions([])
         setTopLevelBrowserActions([])
+        setTopLevelSubAgents([])
         setSegments([])
         activeSegmentIdRef.current = null
         const runSearchSteps = finalizeSearchSteps(searchStepsRef.current)
@@ -1115,6 +1159,8 @@ export function ChatPage() {
         currentRunCodeExecutionsRef.current = []
         const runBrowserActions = [...currentRunBrowserActionsRef.current]
         currentRunBrowserActionsRef.current = []
+        const runSubAgents = [...currentRunSubAgentsRef.current]
+        currentRunSubAgentsRef.current = []
         void refreshMessages({ requiredCompletedRunId: completedRunId }).then((items) => {
           // setMessages 已在 refreshMessages 内完成，同一微任务中清除 draft
           // React 18+ 自动批处理保证二者在同一帧渲染，无闪烁
@@ -1138,6 +1184,10 @@ export function ChatPage() {
             if (runBrowserActions.length > 0) {
               writeMessageBrowserActions(completedAssistant.id, runBrowserActions)
               setMessageBrowserActionsMap((prev) => new Map(prev).set(completedAssistant.id, runBrowserActions))
+            }
+            if (runSubAgents.length > 0) {
+              writeMessageSubAgents(completedAssistant.id, runSubAgents)
+              setMessageSubAgentsMap((prev) => new Map(prev).set(completedAssistant.id, runSubAgents))
             }
             if (runThinking) {
               writeMessageThinking(completedAssistant.id, runThinking)
@@ -1174,11 +1224,13 @@ export function ChatPage() {
         setThinkingDraft('')
         setTopLevelCodeExecutions([])
         setTopLevelBrowserActions([])
+        setTopLevelSubAgents([])
         setSegments([])
         resetSearchSteps()
         activeSegmentIdRef.current = null
         currentRunCodeExecutionsRef.current = []
         currentRunBrowserActionsRef.current = []
+        currentRunSubAgentsRef.current = []
         setAwaitingInput(false)
         setPendingUserInput(null)
         setCheckInDraft('')
@@ -1195,11 +1247,13 @@ export function ChatPage() {
         setThinkingDraft('')
         setTopLevelCodeExecutions([])
         setTopLevelBrowserActions([])
+        setTopLevelSubAgents([])
         setSegments([])
         resetSearchSteps()
         activeSegmentIdRef.current = null
         currentRunCodeExecutionsRef.current = []
         currentRunBrowserActionsRef.current = []
+        currentRunSubAgentsRef.current = []
         setAwaitingInput(false)
         setPendingUserInput(null)
         setCheckInDraft('')
@@ -1249,12 +1303,15 @@ export function ChatPage() {
     currentRunArtifactsRef.current = []
     currentRunCodeExecutionsRef.current = []
     currentRunBrowserActionsRef.current = []
+    const runSubAgents = [...currentRunSubAgentsRef.current]
+    currentRunSubAgentsRef.current = []
 
     setActiveRunId(null)
     setAssistantDraft('')
     setThinkingDraft('')
     setTopLevelCodeExecutions([])
     setTopLevelBrowserActions([])
+    setTopLevelSubAgents([])
     setSegments([])
     activeSegmentIdRef.current = null
     const runSearchSteps = finalizeSearchSteps(searchStepsRef.current)
@@ -1286,6 +1343,10 @@ export function ChatPage() {
         if (runBrowserActions.length > 0) {
           writeMessageBrowserActions(completedAssistant.id, runBrowserActions)
           setMessageBrowserActionsMap((prev) => new Map(prev).set(completedAssistant.id, runBrowserActions))
+        }
+        if (runSubAgents.length > 0) {
+          writeMessageSubAgents(completedAssistant.id, runSubAgents)
+          setMessageSubAgentsMap((prev) => new Map(prev).set(completedAssistant.id, runSubAgents))
         }
         if (runThinking) {
           writeMessageThinking(completedAssistant.id, runThinking)
@@ -1768,8 +1829,9 @@ export function ChatPage() {
     const codeExecSteps = timelineSteps === 0 && segmentSteps === 0
       ? dedupedTopLevelCodeExecutions.length
       : 0
-    return timelineSteps + segmentSteps + codeExecSteps
-  }, [searchSteps, segments, dedupedTopLevelCodeExecutions])
+    const agentSteps = topLevelSubAgents.length
+    return timelineSteps + segmentSteps + codeExecSteps + agentSteps
+  }, [searchSteps, segments, dedupedTopLevelCodeExecutions, topLevelSubAgents])
 
   const copHeaderLabel = !assistantDraft
     ? 'Thinking'
@@ -1922,11 +1984,12 @@ export function ChatPage() {
                 const timelineSources = timeline?.sources ?? (resolvedSources ?? [])
                 const messageCodeExecutions = msg.role === 'assistant' ? messageCodeExecutionsMap.get(msg.id) : undefined
                 const hasMessageCodeExecutions = !!(messageCodeExecutions && messageCodeExecutions.length > 0)
+                const messageSubAgents = msg.role === 'assistant' ? messageSubAgentsMap.get(msg.id) : undefined
 
                 return (
                   <div key={msg.id} ref={idx === lastUserMsgIdx ? lastUserMsgRef : undefined}>
                   {/* 完成后的搜索时间轴：最后一条 assistant 消息上方 */}
-                  {(timelineSteps.length > 0 || hasMessageCodeExecutions) && (
+                  {(timelineSteps.length > 0 || hasMessageCodeExecutions || (messageSubAgents && messageSubAgents.length > 0)) && (
                     <div style={{ marginBottom: '12px' }}>
                       <SearchTimeline
                         steps={timelineSteps}
@@ -1935,6 +1998,7 @@ export function ChatPage() {
                         codeExecutions={messageCodeExecutions}
                         onOpenCodeExecution={openCodePanel}
                         activeCodeExecutionId={codePanelExecution?.id}
+                        subAgents={messageSubAgents}
                       />
                     </div>
                   )}
@@ -2011,7 +2075,7 @@ export function ChatPage() {
               })}
 
               {/* 流式 COP 状态指示：Thinking / XX steps completed */}
-              {isStreaming && searchSteps.length === 0 && (segments.length > 0 || dedupedTopLevelCodeExecutions.length > 0 || !assistantDraft) && (
+              {isStreaming && searchSteps.length === 0 && (segments.length > 0 || dedupedTopLevelCodeExecutions.length > 0 || topLevelSubAgents.length > 0 || !assistantDraft) && (
                 <motion.div
                   initial={{ opacity: 0, y: 6 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -2110,6 +2174,27 @@ export function ChatPage() {
                       })}
                     </div>
                   )}
+                  {topLevelSubAgents.length > 0 && (
+                    <div style={{ paddingLeft: '24px', paddingTop: '6px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      {topLevelSubAgents.map((agent) => (
+                        <motion.div
+                          key={agent.id}
+                          initial={{ opacity: 0, y: 6 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ duration: 0.25, ease: 'easeOut' }}
+                        >
+                          <SubAgentBlock
+                            nickname={agent.nickname}
+                            personaId={agent.personaId}
+                            input={agent.input}
+                            output={agent.output}
+                            status={agent.status}
+                            error={agent.error}
+                          />
+                        </motion.div>
+                      ))}
+                    </div>
+                  )}
                 </motion.div>
               )}
 
@@ -2122,6 +2207,7 @@ export function ChatPage() {
                   codeExecutions={dedupedTopLevelCodeExecutions.length > 0 ? dedupedTopLevelCodeExecutions : undefined}
                   onOpenCodeExecution={openCodePanel}
                   activeCodeExecutionId={codePanelExecution?.id}
+                  subAgents={topLevelSubAgents.length > 0 ? topLevelSubAgents : undefined}
                   headerOverride={!liveTimelineExiting ? copHeaderLabel : undefined}
                   shimmer={!liveTimelineExiting && !assistantDraft}
                 />
@@ -2152,13 +2238,17 @@ export function ChatPage() {
               )}
 
               {/* 无 COP 时，顶层代码执行卡片独立渲染（仅流式结束后、run.completed 前的短暂窗口） */}
-              {!isStreaming && dedupedTopLevelCodeExecutions.length > 0 && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  {dedupedTopLevelCodeExecutions.map((ce) =>
-                    ce.language === 'shell'
-                      ? <ShellExecutionBlock key={ce.id} code={ce.code} output={ce.output} status={ce.status} errorMessage={ce.errorMessage} />
-                      : <CodeExecutionCard key={ce.id} language={ce.language} code={ce.code} output={ce.output} errorMessage={ce.errorMessage} status={ce.status} onOpen={() => openCodePanel(ce)} isActive={codePanelExecution?.id === ce.id} />
-                  )}
+              {!isStreaming && (dedupedTopLevelCodeExecutions.length > 0 || topLevelSubAgents.length > 0) && (
+                <div style={{ maxWidth: '663px' }}>
+                  <SearchTimeline
+                    steps={[]}
+                    sources={[]}
+                    isComplete
+                    codeExecutions={dedupedTopLevelCodeExecutions.length > 0 ? dedupedTopLevelCodeExecutions : undefined}
+                    onOpenCodeExecution={openCodePanel}
+                    activeCodeExecutionId={codePanelExecution?.id}
+                    subAgents={topLevelSubAgents.length > 0 ? topLevelSubAgents : undefined}
+                  />
                 </div>
               )}
 

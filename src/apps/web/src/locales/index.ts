@@ -317,6 +317,16 @@ export interface LocaleStrings {
   shellFailed: string
   shellCompleted: string
   shellNoOutput: string
+  // sub-agent
+  agentSubAgent: string
+  agentSpawning: string
+  agentRunning: string
+  agentCompleted: string
+  agentFailed: string
+  agentClosed: string
+  agentInput: string
+  agentOutput: string
+  agentNoOutput: string
   // pasted content
   pastedContent: string
   pastedLines: (n: number) => string
@@ -395,6 +405,32 @@ export interface LocaleStrings {
       enabled: string
       disabled: string
     }
+  }
+  // claw right panel
+  claw: {
+    progress: string
+    progressEmpty: string
+    workingFolder: string
+    workingFolderEmpty: string
+    workingFolderLoading: string
+    workingFolderError: string
+    workingFolderEmptyDir: string
+    workingFolderSelectFile: string
+    context: string
+    contextDesc: string
+    contextEmpty: string
+    stepComplete: string
+    stepInProgress: string
+    stepPending: string
+    toolsCalled: string
+    filesReferenced: string
+    agents: string
+    agentsEmpty: string
+    agentSpawning: string
+    agentRunning: string
+    agentCompleted: string
+    agentFailed: string
+    agentClosed: string
   }
   // chat page
   checkInPlaceholder: string

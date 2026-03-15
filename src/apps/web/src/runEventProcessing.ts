@@ -1,6 +1,6 @@
 import type { MessageResponse, ThreadRunResponse } from './api'
 import type { RunEvent } from './sse'
-import type { ArtifactRef, BrowserActionRef, CodeExecutionRef, MessageThinkingRef } from './storage'
+import type { ArtifactRef, BrowserActionRef, CodeExecutionRef, MessageThinkingRef, SubAgentRef } from './storage'
 
 const CODE_EXECUTION_TOOL_NAMES = new Set(['python_execute', 'exec_command'])
 const CODE_EXECUTION_RESULT_TOOL_NAMES = new Set(['python_execute', 'exec_command', 'write_stdin'])
@@ -577,4 +577,171 @@ export function buildMessageBrowserActionsFromRunEvents(events: RunEvent[]): Bro
     }
   }
   return actions
+}
+
+// --- Sub-agent processing ---
+
+type SubAgentToolCallPatch = {
+  nextAgents: SubAgentRef[]
+  appended?: SubAgentRef
+}
+
+type SubAgentToolResultPatch = {
+  nextAgents: SubAgentRef[]
+  updated?: SubAgentRef
+}
+
+const SUB_AGENT_CALL_TOOL_NAMES = new Set(['spawn_agent'])
+const SUB_AGENT_RESULT_TOOL_NAMES = new Set([
+  'spawn_agent', 'send_input', 'wait_agent', 'resume_agent', 'close_agent', 'interrupt_agent',
+])
+
+function extractSpawnArguments(data: unknown): Partial<SubAgentRef> {
+  if (!data || typeof data !== 'object') return {}
+  const args = (data as { arguments?: unknown }).arguments
+  if (!args || typeof args !== 'object') return {}
+  const typed = args as Record<string, unknown>
+  return {
+    nickname: typeof typed.nickname === 'string' ? typed.nickname : undefined,
+    role: typeof typed.role === 'string' ? typed.role : undefined,
+    personaId: typeof typed.persona_id === 'string' ? typed.persona_id : undefined,
+    contextMode: typeof typed.context_mode === 'string' ? typed.context_mode : undefined,
+    input: typeof typed.input === 'string' ? typed.input : undefined,
+  }
+}
+
+function extractSubAgentResult(data: unknown): Record<string, unknown> {
+  if (!data || typeof data !== 'object') return {}
+  const result = (data as { result?: unknown }).result
+  if (!result || typeof result !== 'object') return {}
+  return result as Record<string, unknown>
+}
+
+function extractSubAgentError(data: unknown): string | undefined {
+  if (!data || typeof data !== 'object') return undefined
+  const rawError = (data as { error?: unknown }).error
+  if (!rawError || typeof rawError !== 'object') return undefined
+  const typed = rawError as { message?: unknown; error_class?: unknown }
+  if (typeof typed.message === 'string') return typed.message
+  if (typeof typed.error_class === 'string') return typed.error_class
+  return undefined
+}
+
+function hasSubAgentError(data: unknown): boolean {
+  if (!data || typeof data !== 'object') return false
+  const rawError = (data as { error?: unknown }).error
+  return rawError != null && typeof rawError === 'object'
+}
+
+function findAgentByToolCallId(agents: SubAgentRef[], toolCallId: string): number {
+  return agents.findIndex((a) => a.id === toolCallId)
+}
+
+function findAgentBySubAgentId(agents: SubAgentRef[], subAgentId: string): number {
+  return agents.findIndex((a) => a.subAgentId === subAgentId)
+}
+
+export function applySubAgentToolCall(
+  agents: SubAgentRef[],
+  event: RunEvent,
+): SubAgentToolCallPatch {
+  if (event.type !== 'tool.call') return { nextAgents: agents }
+  const toolName = pickToolName(event.data)
+  if (!SUB_AGENT_CALL_TOOL_NAMES.has(toolName)) return { nextAgents: agents }
+
+  const fields = extractSpawnArguments(event.data)
+  const appended: SubAgentRef = {
+    id: pickToolCallId(event),
+    status: 'spawning',
+    nickname: fields.nickname,
+    role: fields.role,
+    personaId: fields.personaId,
+    contextMode: fields.contextMode,
+    input: fields.input,
+  }
+  return { appended, nextAgents: [...agents, appended] }
+}
+
+export function applySubAgentToolResult(
+  agents: SubAgentRef[],
+  event: RunEvent,
+): SubAgentToolResultPatch {
+  if (event.type !== 'tool.result') return { nextAgents: agents }
+  const toolName = pickToolName(event.data)
+  if (!SUB_AGENT_RESULT_TOOL_NAMES.has(toolName)) return { nextAgents: agents }
+
+  const toolCallId = pickToolCallId(event)
+  const result = extractSubAgentResult(event.data)
+  const errorMessage = extractSubAgentError(event.data)
+  const isError = hasSubAgentError(event.data)
+  const subAgentId = typeof result.sub_agent_id === 'string' ? result.sub_agent_id : undefined
+  const output = typeof result.output === 'string' ? result.output : undefined
+  const nickname = typeof result.nickname === 'string' ? result.nickname : undefined
+  const depth = typeof result.depth === 'number' ? result.depth : undefined
+
+  if (toolName === 'spawn_agent') {
+    const idx = findAgentByToolCallId(agents, toolCallId)
+    if (idx < 0) return { nextAgents: agents }
+    const updated: SubAgentRef = {
+      ...agents[idx],
+      subAgentId,
+      output,
+      depth,
+      status: isError ? 'failed' : 'active',
+      error: errorMessage,
+    }
+    if (nickname) updated.nickname = nickname
+    return { updated, nextAgents: agents.map((a, i) => i === idx ? updated : a) }
+  }
+
+  // For other tools, locate by sub_agent_id in result
+  const targetIdx = subAgentId ? findAgentBySubAgentId(agents, subAgentId) : -1
+
+  if (toolName === 'close_agent') {
+    if (targetIdx < 0) return { nextAgents: agents }
+    const updated: SubAgentRef = {
+      ...agents[targetIdx],
+      status: isError ? 'failed' : 'closed',
+      error: errorMessage,
+    }
+    return { updated, nextAgents: agents.map((a, i) => i === targetIdx ? updated : a) }
+  }
+
+  if (toolName === 'interrupt_agent') {
+    if (targetIdx < 0) return { nextAgents: agents }
+    const updated: SubAgentRef = {
+      ...agents[targetIdx],
+      status: isError ? 'failed' : agents[targetIdx].status,
+      error: errorMessage,
+    }
+    if (output) updated.output = output
+    return { updated, nextAgents: agents.map((a, i) => i === targetIdx ? updated : a) }
+  }
+
+  // wait_agent, send_input, resume_agent
+  if (targetIdx < 0) return { nextAgents: agents }
+  const resultStatus = typeof result.status === 'string' ? result.status : undefined
+  const resolvedStatus = isError
+    ? 'failed' as const
+    : resultStatus === 'completed' ? 'completed' as const : agents[targetIdx].status
+  const updated: SubAgentRef = {
+    ...agents[targetIdx],
+    status: resolvedStatus,
+    error: errorMessage,
+  }
+  if (output) updated.output = output
+  if (nickname) updated.nickname = nickname
+  return { updated, nextAgents: agents.map((a, i) => i === targetIdx ? updated : a) }
+}
+
+export function buildMessageSubAgentsFromRunEvents(events: RunEvent[]): SubAgentRef[] {
+  let agents: SubAgentRef[] = []
+  for (const event of events) {
+    if (event.type === 'tool.call') {
+      agents = applySubAgentToolCall(agents, event).nextAgents
+    } else if (event.type === 'tool.result') {
+      agents = applySubAgentToolResult(agents, event).nextAgents
+    }
+  }
+  return agents
 }

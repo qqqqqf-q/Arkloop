@@ -403,6 +403,68 @@ export function writeMessageSearchSteps(messageId: string, steps: MessageSearchS
   } catch { /* ignore */ }
 }
 
+// -- Sub-Agent --
+
+export type SubAgentStatus = 'spawning' | 'active' | 'completed' | 'failed' | 'closed'
+
+export type SubAgentRef = {
+  id: string
+  subAgentId?: string
+  nickname?: string
+  role?: string
+  personaId?: string
+  contextMode?: string
+  input?: string
+  output?: string
+  status: SubAgentStatus
+  error?: string
+  depth?: number
+}
+
+function isSubAgentStatus(v: unknown): v is SubAgentStatus {
+  return v === 'spawning' || v === 'active' || v === 'completed' || v === 'failed' || v === 'closed'
+}
+
+function isSubAgentRef(v: unknown): v is SubAgentRef {
+  if (!v || typeof v !== 'object') return false
+  const o = v as Record<string, unknown>
+  if (typeof o.id !== 'string' || !o.id) return false
+  if (!isSubAgentStatus(o.status)) return false
+  return true
+}
+
+function messageSubAgentsKey(messageId: string): string {
+  return `arkloop:web:msg_sub_agents:${messageId}`
+}
+
+export function readMessageSubAgents(messageId: string): SubAgentRef[] | null {
+  if (!canUseLocalStorage() || !messageId) return null
+  try {
+    const raw = localStorage.getItem(messageSubAgentsKey(messageId))
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) {
+      localStorage.removeItem(messageSubAgentsKey(messageId))
+      return null
+    }
+    if (!parsed.every((item) => isSubAgentRef(item))) {
+      localStorage.removeItem(messageSubAgentsKey(messageId))
+      return null
+    }
+    return parsed
+  } catch {
+    try { localStorage.removeItem(messageSubAgentsKey(messageId)) } catch { /* ignore */ }
+    return null
+  }
+}
+
+export function writeMessageSubAgents(messageId: string, agents: SubAgentRef[]): void {
+  if (!canUseLocalStorage() || !messageId || agents.length === 0) return
+  try {
+    localStorage.setItem(messageSubAgentsKey(messageId), JSON.stringify(agents))
+  } catch { /* ignore */ }
+}
+
 const SEARCH_THREAD_IDS_KEY = 'arkloop:web:search_thread_ids'
 
 export function addSearchThreadId(threadId: string): void {
