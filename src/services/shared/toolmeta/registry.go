@@ -111,6 +111,12 @@ var registry = []ToolMeta{
 		LLMDescription: "write a Markdown document and save it as a downloadable file artifact. Use this tool when the user requests a report, summary, plan, article, or any long-form document. Provide the full Markdown content; the file will be uploaded and returned as a downloadable artifact. Reference the result artifact using [label](artifact:<key>).",
 	},
 	{
+		Name:           "acp_agent",
+		Group:          GroupOrchestration,
+		Label:          "ACP agent",
+		LLMDescription: "delegate a task to an ACP-compatible agent running inside sandbox. The delegated agent can autonomously use its own model, tools, and workspace access for code-heavy or long-running tasks such as implementation, debugging, refactoring, or test execution.",
+	},
+	{
 		Name:           "spawn_agent",
 		Group:          GroupOrchestration,
 		Label:          "Spawn agent",

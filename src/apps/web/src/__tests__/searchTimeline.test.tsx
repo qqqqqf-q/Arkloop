@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { SearchTimeline } from '../components/SearchTimeline'
-import type { WebSource } from '../storage'
+import { LocaleProvider } from '../contexts/LocaleContext'
+import type { SubAgentRef, WebSource } from '../storage'
 import type { CodeExecution } from '../components/ThinkingBlock'
 
 function renderTimeline(params: {
@@ -9,14 +10,18 @@ function renderTimeline(params: {
   steps: { id: string; kind: 'planning' | 'searching' | 'reviewing' | 'finished'; label: string; status: 'active' | 'done'; queries?: string[] }[]
   sources: WebSource[]
   codeExecutions?: CodeExecution[]
+  subAgents?: SubAgentRef[]
 }): string {
   return renderToStaticMarkup(
-    <SearchTimeline
-      steps={params.steps}
-      sources={params.sources}
-      isComplete={params.isComplete}
-      codeExecutions={params.codeExecutions}
-    />,
+    <LocaleProvider>
+      <SearchTimeline
+        steps={params.steps}
+        sources={params.sources}
+        isComplete={params.isComplete}
+        codeExecutions={params.codeExecutions}
+        subAgents={params.subAgents}
+      />
+    </LocaleProvider>,
   )
 }
 
@@ -58,6 +63,19 @@ describe('SearchTimeline', () => {
     })
 
     expect(html).toContain('Python')
+    expect(html).toContain('left:-19px')
+    expect(html).toContain('width:8px;height:8px;border-radius:50%')
+  })
+
+  it('单条 sub-agent 也应显示时间轴圆点', () => {
+    const html = renderTimeline({
+      isComplete: false,
+      steps: [],
+      sources: [],
+      subAgents: [{ id: 'sa-1', nickname: 'WikiFetcher', personaId: 'normal', status: 'active' }],
+    })
+
+    expect(html).toContain('WikiFetcher')
     expect(html).toContain('left:-19px')
     expect(html).toContain('width:8px;height:8px;border-radius:50%')
   })

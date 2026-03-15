@@ -49,6 +49,7 @@ func TestResolveBuiltinUsesEnvAndProviders(t *testing.T) {
 
 	got := resolved.ToolNames()
 	want := []string{
+		"acp_agent",
 		"ask_user",
 		"browser",
 		"close_agent",

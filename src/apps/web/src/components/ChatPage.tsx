@@ -2249,24 +2249,60 @@ export function ChatPage() {
                     </div>
                   )}
                   {topLevelSubAgents.length > 0 && (
-                    <div style={{ paddingLeft: '24px', paddingTop: '6px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                      {topLevelSubAgents.map((agent) => (
-                        <motion.div
-                          key={agent.id}
-                          initial={{ opacity: 0, y: 6 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ duration: 0.25, ease: 'easeOut' }}
-                        >
-                          <SubAgentBlock
-                            nickname={agent.nickname}
-                            personaId={agent.personaId}
-                            input={agent.input}
-                            output={agent.output}
-                            status={agent.status}
-                            error={agent.error}
-                          />
-                        </motion.div>
-                      ))}
+                    <div style={{ paddingLeft: '24px', paddingTop: '6px', display: 'flex', flexDirection: 'column' }}>
+                      {topLevelSubAgents.map((agent, idx) => {
+                        const isFirst = idx === 0
+                        const isLast = idx === topLevelSubAgents.length - 1
+                        const dotTop = 8
+                        const multiItems = topLevelSubAgents.length >= 2
+                        const hasCodeExecutionsBefore = dedupedTopLevelCodeExecutions.length > 0
+                        const dotColor = agent.status === 'completed'
+                          ? 'var(--c-text-muted)'
+                          : agent.status === 'failed'
+                            ? 'var(--c-status-error-text, #ef4444)'
+                            : 'var(--c-text-secondary)'
+
+                        return (
+                          <motion.div
+                            key={agent.id}
+                            initial={{ opacity: 0, y: 6 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ duration: 0.25, ease: 'easeOut' }}
+                            style={{ position: 'relative', paddingBottom: isLast ? 0 : '6px' }}
+                          >
+                            {multiItems && !isLast && (
+                              <div style={{ position: 'absolute', left: '-16px', top: `${dotTop + 8}px`, bottom: 0, width: '1.5px', background: 'var(--c-border-subtle)', zIndex: 0 }} />
+                            )}
+                            {multiItems && !isFirst && (
+                              <div style={{ position: 'absolute', left: '-16px', top: 0, height: `${dotTop}px`, width: '1.5px', background: 'var(--c-border-subtle)', zIndex: 0 }} />
+                            )}
+                            {isFirst && hasCodeExecutionsBefore && (
+                              <div style={{ position: 'absolute', left: '-16px', top: '-8px', height: `${dotTop + 8}px`, width: '1.5px', background: 'var(--c-border-subtle)', zIndex: 0 }} />
+                            )}
+                            <div
+                              style={{
+                                position: 'absolute',
+                                left: '-19px',
+                                top: `${dotTop}px`,
+                                width: '8px',
+                                height: '8px',
+                                borderRadius: '50%',
+                                background: dotColor,
+                                border: '2px solid var(--c-bg-page)',
+                                zIndex: 1,
+                              }}
+                            />
+                            <SubAgentBlock
+                              nickname={agent.nickname}
+                              personaId={agent.personaId}
+                              input={agent.input}
+                              output={agent.output}
+                              status={agent.status}
+                              error={agent.error}
+                            />
+                          </motion.div>
+                        )
+                      })}
                     </div>
                   )}
                 </motion.div>

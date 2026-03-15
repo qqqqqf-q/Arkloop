@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildMessageCodeExecutionsFromRunEvents,
+  buildMessageSubAgentsFromRunEvents,
   buildMessageThinkingFromRunEvents,
   findAssistantMessageForRun,
   patchCodeExecutionList,
@@ -408,6 +409,68 @@ describe('buildMessageCodeExecutionsFromRunEvents', () => {
     expect(executions).toHaveLength(2)
     expect(executions[0]).toMatchObject({ id: 'call_bad', status: 'failed' })
     expect(executions[1]).toMatchObject({ id: 'call_good', status: 'success' })
+  })
+})
+
+describe('buildMessageSubAgentsFromRunEvents', () => {
+  it('应在 spawn_agent 调用开始时创建条目，并在 wait_agent 后收敛为 completed', () => {
+    const events = [
+      makeRunEvent({
+        runId: 'run_1',
+        seq: 1,
+        type: 'tool.call',
+        data: {
+          tool_name: 'spawn_agent',
+          tool_call_id: 'call_spawn',
+          arguments: {
+            persona_id: 'normal',
+            nickname: 'WikiFetcher',
+            context_mode: 'isolated',
+            input: '抓取维基百科',
+          },
+        },
+      }),
+      makeRunEvent({
+        runId: 'run_1',
+        seq: 2,
+        type: 'tool.result',
+        data: {
+          tool_name: 'spawn_agent',
+          tool_call_id: 'call_spawn',
+          result: {
+            sub_agent_id: 'sub_1',
+            status: 'queued',
+          },
+        },
+      }),
+      makeRunEvent({
+        runId: 'run_1',
+        seq: 3,
+        type: 'tool.result',
+        data: {
+          tool_name: 'wait_agent',
+          tool_call_id: 'call_wait',
+          result: {
+            sub_agent_id: 'sub_1',
+            status: 'completed',
+            output: '总结完成',
+          },
+        },
+      }),
+    ]
+
+    const agents = buildMessageSubAgentsFromRunEvents(events)
+    expect(agents).toHaveLength(1)
+    expect(agents[0]).toMatchObject({
+      id: 'call_spawn',
+      subAgentId: 'sub_1',
+      nickname: 'WikiFetcher',
+      personaId: 'normal',
+      contextMode: 'isolated',
+      input: '抓取维基百科',
+      output: '总结完成',
+      status: 'completed',
+    })
   })
 })
 

@@ -21,11 +21,12 @@ type LLMProviderAvailableModelsResponse = llmProviderAvailableModelsResponse
 
 func BuildEffectiveToolCatalogCompat(
 	ctx context.Context,
+	accountID uuid.UUID,
 	projectID uuid.UUID,
 	overridesRepo *data.ToolDescriptionOverridesRepository,
 	pool *pgxpool.Pool,
 	mcpCache *EffectiveToolCatalogCache,
 	artifactStoreAvailable bool,
 ) (ToolCatalogResponse, error) {
-	return buildEffectiveToolCatalog(ctx, projectID, overridesRepo, pool, mcpCache, artifactStoreAvailable)
+	return buildEffectiveToolCatalog(ctx, accountID, projectID, overridesRepo, pool, mcpCache, artifactStoreAvailable)
 }

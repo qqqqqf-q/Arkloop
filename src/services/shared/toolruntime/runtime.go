@@ -152,7 +152,7 @@ func ResolveBuiltin(input ResolveInput) BuiltinAvailability {
 		}
 	}
 	if sandboxBaseURL != "" {
-		for _, name := range []string{"python_execute", "exec_command", "write_stdin"} {
+		for _, name := range []string{"acp_agent", "python_execute", "exec_command", "write_stdin"} {
 			available[name] = struct{}{}
 		}
 		if input.BrowserEnabled {
