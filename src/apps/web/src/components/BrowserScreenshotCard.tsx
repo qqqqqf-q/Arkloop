@@ -179,7 +179,7 @@ export function BrowserScreenshotCard({ artifact, accessToken, command, url }: P
             position: 'fixed',
             inset: 0,
             zIndex: 9999,
-            background: show ? 'rgba(0,0,0,0.45)' : 'rgba(0,0,0,0)',
+            background: show ? 'var(--c-lightbox-overlay)' : 'transparent',
             backdropFilter: show ? 'blur(12px)' : 'blur(0px)',
             WebkitBackdropFilter: show ? 'blur(12px)' : 'blur(0px)',
             display: 'flex',

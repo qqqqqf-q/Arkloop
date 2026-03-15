@@ -229,7 +229,7 @@ function ImageThumbnailCard({
             position: 'fixed',
             inset: 0,
             zIndex: 9999,
-            background: lbShow ? 'rgba(0,0,0,0.45)' : 'rgba(0,0,0,0)',
+            background: lbShow ? 'var(--c-lightbox-overlay)' : 'transparent',
             backdropFilter: lbShow ? 'blur(12px)' : 'blur(0px)',
             WebkitBackdropFilter: lbShow ? 'blur(12px)' : 'blur(0px)',
             display: 'flex',

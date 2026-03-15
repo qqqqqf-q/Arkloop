@@ -39,6 +39,7 @@ button:not(:disabled) {
   --c-accent-send-text: #e8e8e3;
   --c-pro-bg: rgba(70, 145, 246, 0.12);
   --c-overlay: rgba(0, 0, 0, 0.60);
+  --c-lightbox-overlay: rgba(255, 255, 255, 0.12);
   --c-modal-ring: rgba(255, 255, 255, 0.07);
   --c-bg-github-btn: #3d3d3b;
   --c-github-btn-border: rgba(255, 255, 255, 0.10);
@@ -114,6 +115,7 @@ button:not(:disabled) {
     --c-accent-send-text: #1A1A19;
     --c-pro-bg: #EAF2FC;
     --c-overlay: rgba(0, 0, 0, 0.25);
+    --c-lightbox-overlay: rgba(255, 255, 255, 0.55);
     --c-modal-ring: rgba(0, 0, 0, 0.09);
     --c-bg-github-btn: #FFFFFF;
     --c-github-btn-border: rgba(0, 0, 0, 0.08);
@@ -190,6 +192,7 @@ button:not(:disabled) {
   --c-accent-send-text: #1A1A19;
   --c-pro-bg: #EAF2FC;
   --c-overlay: rgba(0, 0, 0, 0.25);
+  --c-lightbox-overlay: rgba(255, 255, 255, 0.55);
   --c-modal-ring: rgba(0, 0, 0, 0.09);
   --c-bg-github-btn: #FFFFFF;
   --c-github-btn-border: rgba(0, 0, 0, 0.08);
