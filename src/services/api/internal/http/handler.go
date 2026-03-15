@@ -78,6 +78,7 @@ type HandlerConfig struct {
 	PersonasRepo                 *data.PersonasRepository
 	SkillPackagesRepo            *data.SkillPackagesRepository
 	ProfileSkillInstallsRepo     *data.ProfileSkillInstallsRepository
+	PlatformSkillOverridesRepo   *data.PlatformSkillOverridesRepository
 	WorkspaceSkillEnableRepo     *data.WorkspaceSkillEnablementsRepository
 	ProfileRegistriesRepo        *data.ProfileRegistriesRepository
 	WorkspaceRegistriesRepo      *data.WorkspaceRegistriesRepository
@@ -260,6 +261,7 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 		PersonasRepo:                 cfg.PersonasRepo,
 		SkillPackagesRepo:            cfg.SkillPackagesRepo,
 		ProfileSkillInstallsRepo:     cfg.ProfileSkillInstallsRepo,
+		PlatformSkillOverridesRepo:   cfg.PlatformSkillOverridesRepo,
 		WorkspaceSkillEnableRepo:     cfg.WorkspaceSkillEnableRepo,
 		ProfileRegistriesRepo:        cfg.ProfileRegistriesRepo,
 		WorkspaceRegistriesRepo:      cfg.WorkspaceRegistriesRepo,

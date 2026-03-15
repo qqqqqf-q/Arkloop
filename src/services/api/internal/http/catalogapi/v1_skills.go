@@ -88,6 +88,8 @@ type installedSkillResponse struct {
 	ScanEngine          *string `json:"scan_engine,omitempty"`
 	ScanSummary         *string `json:"scan_summary,omitempty"`
 	ModerationVerdict   *string `json:"moderation_verdict,omitempty"`
+	IsPlatform          bool    `json:"is_platform,omitempty"`
+	PlatformStatus      string  `json:"platform_status,omitempty"`
 }
 
 func skillPackagesEntry(
@@ -219,9 +221,10 @@ func profileSkillsEntry(
 	membershipRepo *data.AccountMembershipRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,
-	_ *data.SkillPackagesRepository,
+	packagesRepo *data.SkillPackagesRepository,
 	installsRepo *data.ProfileSkillInstallsRepository,
 	_ *data.ProfileRegistriesRepository,
+	overridesRepo *data.PlatformSkillOverridesRepository,
 ) nethttp.HandlerFunc {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		traceID := observability.TraceIDFromContext(r.Context())
@@ -246,7 +249,41 @@ func profileSkillsEntry(
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
 		}
-		httpkit.WriteJSON(w, traceID, nethttp.StatusOK, map[string]any{"items": toInstalledSkillResponses(items)})
+		allItems := toInstalledSkillResponses(items)
+
+		if packagesRepo != nil && overridesRepo != nil {
+			platformSkills, err := packagesRepo.ListPlatformSkills(r.Context())
+			if err == nil {
+				overrides, err := overridesRepo.ListByProfile(r.Context(), profileRef)
+				if err == nil {
+					overrideMap := make(map[string]string)
+					for _, o := range overrides {
+						overrideMap[o.SkillKey+"@"+o.Version] = o.Status
+					}
+					for _, sp := range platformSkills {
+						key := sp.SkillKey + "@" + sp.Version
+						status := "auto"
+						if s, ok := overrideMap[key]; ok {
+							if s == "removed" {
+								continue
+							}
+							status = s
+						}
+						allItems = append(allItems, installedSkillResponse{
+							SkillKey:       sp.SkillKey,
+							Version:        sp.Version,
+							DisplayName:    sp.DisplayName,
+							Description:    sp.Description,
+							Source:         "builtin",
+							IsPlatform:     true,
+							PlatformStatus: status,
+						})
+					}
+				}
+			}
+		}
+
+		httpkit.WriteJSON(w, traceID, nethttp.StatusOK, map[string]any{"items": allItems})
 	}
 }
 
@@ -310,6 +347,8 @@ func profileSkillEntry(
 	auditWriter *audit.Writer,
 	installsRepo *data.ProfileSkillInstallsRepository,
 	profileRepo *data.ProfileRegistriesRepository,
+	packagesRepo *data.SkillPackagesRepository,
+	overridesRepo *data.PlatformSkillOverridesRepository,
 ) nethttp.HandlerFunc {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		traceID := observability.TraceIDFromContext(r.Context())
@@ -333,6 +372,22 @@ func profileSkillEntry(
 			return
 		}
 		profileRef := sharedenvironmentref.BuildProfileRef(actor.AccountID, &actor.UserID)
+
+		// handle platform skill deletion as an override
+		if packagesRepo != nil && overridesRepo != nil {
+			platformSkills, _ := packagesRepo.ListPlatformSkills(r.Context())
+			for _, ps := range platformSkills {
+				if ps.SkillKey == skillKey && ps.Version == version {
+					if err := overridesRepo.SetOverride(r.Context(), profileRef, skillKey, version, "removed"); err != nil {
+						httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+						return
+					}
+					w.WriteHeader(nethttp.StatusNoContent)
+					return
+				}
+			}
+		}
+
 		used, err := installsRepo.IsInstalledInAnyWorkspaceForOwner(r.Context(), actor.AccountID, actor.UserID, skillKey, version)
 		if err != nil {
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
@@ -351,6 +406,126 @@ func profileSkillEntry(
 			return
 		}
 		w.WriteHeader(nethttp.StatusNoContent)
+	}
+}
+
+func platformSkillOverrideEntry(
+	authService *auth.Service,
+	membershipRepo *data.AccountMembershipRepository,
+	apiKeysRepo *data.APIKeysRepository,
+	auditWriter *audit.Writer,
+	packagesRepo *data.SkillPackagesRepository,
+	overridesRepo *data.PlatformSkillOverridesRepository,
+) nethttp.HandlerFunc {
+	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		traceID := observability.TraceIDFromContext(r.Context())
+		if packagesRepo == nil || overridesRepo == nil {
+			httpkit.WriteError(w, nethttp.StatusServiceUnavailable, "skills.not_configured", "skills not configured", traceID, nil)
+			return
+		}
+		actor, ok := httpkit.ResolveActor(w, r, traceID, authService, membershipRepo, apiKeysRepo, auditWriter)
+		if !ok {
+			return
+		}
+		profileRef := sharedenvironmentref.BuildProfileRef(actor.AccountID, &actor.UserID)
+
+		switch r.Method {
+		case nethttp.MethodGet:
+			if !httpkit.RequirePerm(actor, auth.PermDataPersonasRead, w, traceID) {
+				return
+			}
+			platformSkills, err := packagesRepo.ListPlatformSkills(r.Context())
+			if err != nil {
+				httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+				return
+			}
+			overrides, err := overridesRepo.ListByProfile(r.Context(), profileRef)
+			if err != nil {
+				httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+				return
+			}
+			overrideMap := make(map[string]string)
+			for _, o := range overrides {
+				overrideMap[o.SkillKey+"@"+o.Version] = o.Status
+			}
+			items := make([]installedSkillResponse, 0, len(platformSkills))
+			for _, sp := range platformSkills {
+				status := "auto"
+				if s, exists := overrideMap[sp.SkillKey+"@"+sp.Version]; exists {
+					status = s
+				}
+				items = append(items, installedSkillResponse{
+					SkillKey:       sp.SkillKey,
+					Version:        sp.Version,
+					DisplayName:    sp.DisplayName,
+					Description:    sp.Description,
+					Source:         "builtin",
+					IsPlatform:     true,
+					PlatformStatus: status,
+				})
+			}
+			httpkit.WriteJSON(w, traceID, nethttp.StatusOK, map[string]any{"items": items})
+
+		case nethttp.MethodPut:
+			if !httpkit.RequirePerm(actor, auth.PermDataPersonasManage, w, traceID) {
+				return
+			}
+			skillKey, version, ok := parseSkillPackagePath(w, traceID, r.URL.Path, "/v1/profiles/me/platform-skills/")
+			if !ok {
+				return
+			}
+
+			var req struct {
+				Status string `json:"status"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				httpkit.WriteError(w, nethttp.StatusBadRequest, "skills.invalid_request", "invalid JSON body", traceID, nil)
+				return
+			}
+			req.Status = strings.TrimSpace(req.Status)
+			if req.Status != "auto" && req.Status != "manual" && req.Status != "removed" {
+				httpkit.WriteError(w, nethttp.StatusBadRequest, "skills.invalid_status", "status must be auto, manual, or removed", traceID, nil)
+				return
+			}
+
+			// validate the skill exists as a platform skill
+			platformSkills, err := packagesRepo.ListPlatformSkills(r.Context())
+			if err != nil {
+				httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+				return
+			}
+			found := false
+			for _, ps := range platformSkills {
+				if ps.SkillKey == skillKey && ps.Version == version {
+					found = true
+					break
+				}
+			}
+			if !found {
+				httpkit.WriteError(w, nethttp.StatusNotFound, "skills.not_found", "platform skill not found", traceID, nil)
+				return
+			}
+
+			if req.Status == "auto" {
+				if err := overridesRepo.DeleteOverride(r.Context(), profileRef, skillKey, version); err != nil {
+					httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+					return
+				}
+			} else {
+				if err := overridesRepo.SetOverride(r.Context(), profileRef, skillKey, version, req.Status); err != nil {
+					httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+					return
+				}
+			}
+			httpkit.WriteJSON(w, traceID, nethttp.StatusOK, map[string]any{
+				"skill_key": skillKey,
+				"version":   version,
+				"status":    req.Status,
+			})
+
+		default:
+			writeMethodNotAllowedJSON(w, traceID)
+		}
 	}
 }
 

@@ -25,6 +25,7 @@ func TestSkillContextMiddlewareInjectsPromptAndContext(t *testing.T) {
 		Version:         "1",
 		MountPath:       skillstore.MountPath("grep-helper", "1"),
 		InstructionPath: skillstore.InstructionPathDefault,
+		AutoInject:      true,
 	}}})
 	rc := &RunContext{Run: data.Run{AccountID: uuid.New()}, ProfileRef: "pref_test", WorkspaceRef: "wsref_test", SystemPrompt: "base"}
 	called := false

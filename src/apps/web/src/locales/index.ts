@@ -43,6 +43,7 @@ export interface LocaleStrings {
     title: string
     subtitle: string
     searchPlaceholder: string
+    searchPlaceholderMarketplace: string
     registryTab: string
     localTab: string
     officialOnly: string
@@ -70,6 +71,8 @@ export interface LocaleStrings {
     sourceOfficial: string
     sourceCustom: string
     sourceGitHub: string
+    sourcePlatform: string
+    sourceBuiltin: string
     installed: string
     notInstalled: string
     enabledByDefault: string
@@ -142,6 +145,11 @@ export interface LocaleStrings {
     detailUpdatedAt: string
     detailDescription: string
     noDescription: string
+    builtinTab: string
+    builtinTitle: string
+    builtinEmpty: string
+    restore: string
+    backToSkills: string
   }
   // invite code
   inviteCode: string

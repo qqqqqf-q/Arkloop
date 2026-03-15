@@ -30,6 +30,7 @@ type Deps struct {
 	ProfileRegistriesRepo        *data.ProfileRegistriesRepository
 	WorkspaceRegistriesRepo      *data.WorkspaceRegistriesRepository
 	PlatformSettingsRepo         *data.PlatformSettingsRepository
+	PlatformSkillOverridesRepo   *data.PlatformSkillOverridesRepository
 	APIKeysRepo                  *data.APIKeysRepository
 	ProjectRepo                  *data.ProjectRepository
 	AuditWriter                  *audit.Writer
@@ -65,8 +66,10 @@ func RegisterRoutes(mux *nethttp.ServeMux, deps Deps) {
 	mux.HandleFunc("/v1/market/skills/import", marketSkillsImportEntry(deps.AuthService, deps.AccountMembershipRepo, deps.APIKeysRepo, deps.AuditWriter, deps.PlatformSettingsRepo, deps.SkillPackagesRepo, deps.SkillStore))
 	mux.HandleFunc("/v1/skill-packages/import/registry", marketSkillsImportEntry(deps.AuthService, deps.AccountMembershipRepo, deps.APIKeysRepo, deps.AuditWriter, deps.PlatformSettingsRepo, deps.SkillPackagesRepo, deps.SkillStore))
 	mux.HandleFunc("/v1/skill-packages/import/skillsmp", marketSkillsImportEntry(deps.AuthService, deps.AccountMembershipRepo, deps.APIKeysRepo, deps.AuditWriter, deps.PlatformSettingsRepo, deps.SkillPackagesRepo, deps.SkillStore))
-	mux.HandleFunc("/v1/profiles/me/skills", profileSkillsEntry(deps.AuthService, deps.AccountMembershipRepo, deps.APIKeysRepo, deps.AuditWriter, deps.SkillPackagesRepo, deps.ProfileSkillInstallsRepo, deps.ProfileRegistriesRepo))
-	mux.HandleFunc("/v1/profiles/me/skills/", profileSkillEntry(deps.AuthService, deps.AccountMembershipRepo, deps.APIKeysRepo, deps.AuditWriter, deps.ProfileSkillInstallsRepo, deps.ProfileRegistriesRepo))
+	mux.HandleFunc("/v1/profiles/me/skills", profileSkillsEntry(deps.AuthService, deps.AccountMembershipRepo, deps.APIKeysRepo, deps.AuditWriter, deps.SkillPackagesRepo, deps.ProfileSkillInstallsRepo, deps.ProfileRegistriesRepo, deps.PlatformSkillOverridesRepo))
+	mux.HandleFunc("/v1/profiles/me/skills/", profileSkillEntry(deps.AuthService, deps.AccountMembershipRepo, deps.APIKeysRepo, deps.AuditWriter, deps.ProfileSkillInstallsRepo, deps.ProfileRegistriesRepo, deps.SkillPackagesRepo, deps.PlatformSkillOverridesRepo))
+	mux.HandleFunc("/v1/profiles/me/platform-skills", platformSkillOverrideEntry(deps.AuthService, deps.AccountMembershipRepo, deps.APIKeysRepo, deps.AuditWriter, deps.SkillPackagesRepo, deps.PlatformSkillOverridesRepo))
+	mux.HandleFunc("/v1/profiles/me/platform-skills/", platformSkillOverrideEntry(deps.AuthService, deps.AccountMembershipRepo, deps.APIKeysRepo, deps.AuditWriter, deps.SkillPackagesRepo, deps.PlatformSkillOverridesRepo))
 	mux.HandleFunc("/v1/profiles/me/default-skills", profileDefaultSkillsEntry(deps.AuthService, deps.AccountMembershipRepo, deps.APIKeysRepo, deps.AuditWriter, deps.SkillPackagesRepo, deps.ProfileSkillInstallsRepo, deps.WorkspaceSkillEnableRepo, deps.ProfileRegistriesRepo, deps.WorkspaceRegistriesRepo, deps.Pool))
 	mux.HandleFunc("/v1/me/selectable-personas", selectablePersonasEntry(deps.AuthService, deps.AccountMembershipRepo, deps.PersonasRepo, deps.RepoPersonas, deps.ProjectRepo))
 	mux.HandleFunc("/v1/workspaces/", workspaceSkillsEntry(deps.AuthService, deps.AccountMembershipRepo, deps.APIKeysRepo, deps.AuditWriter, deps.SkillPackagesRepo, deps.ProfileSkillInstallsRepo, deps.WorkspaceSkillEnableRepo, deps.WorkspaceRegistriesRepo, deps.ProfileRegistriesRepo, deps.Pool))

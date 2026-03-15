@@ -23,6 +23,7 @@ import (
 	"arkloop/services/api/internal/observability"
 	"arkloop/services/api/internal/personas"
 	"arkloop/services/api/internal/personasync"
+	"arkloop/services/api/internal/skillseed"
 	"arkloop/services/shared/acptoken"
 	sharedconfig "arkloop/services/shared/config"
 	"arkloop/services/shared/objectstore"
@@ -237,6 +238,7 @@ func (a *Application) Run(ctx context.Context) error {
 		personasRepo                 *data.PersonasRepository
 		skillPackagesRepo            *data.SkillPackagesRepository
 		profileSkillInstallsRepo     *data.ProfileSkillInstallsRepository
+		platformSkillOverridesRepo   *data.PlatformSkillOverridesRepository
 		workspaceSkillEnableRepo     *data.WorkspaceSkillEnablementsRepository
 		profileRegistriesRepo        *data.ProfileRegistriesRepository
 		workspaceRegistriesRepo      *data.WorkspaceRegistriesRepository
@@ -362,6 +364,10 @@ func (a *Application) Run(ctx context.Context) error {
 			return err
 		}
 		profileSkillInstallsRepo, err = data.NewProfileSkillInstallsRepository(pool)
+		if err != nil {
+			return err
+		}
+		platformSkillOverridesRepo, err = data.NewPlatformSkillOverridesRepository(pool)
 		if err != nil {
 			return err
 		}
@@ -624,6 +630,21 @@ func (a *Application) Run(ctx context.Context) error {
 		go personaSyncManager.Run(ctx)
 	}
 
+	// Platform skill seeder
+	var skillSeeder *skillseed.Seeder
+	if pool != nil && skillPackagesRepo != nil && skillStore != nil {
+		skillsRoot, skillsRootErr := skillseed.BuiltinSkillsRoot()
+		if skillsRootErr != nil {
+			a.logger.Warn("platform_skills_root_not_found", observability.LogFields{}, map[string]any{"error": skillsRootErr.Error()})
+		} else {
+			skillSeeder = skillseed.NewSeeder(skillsRoot, pool, skillPackagesRepo, skillStore, a.logger)
+			if err := skillSeeder.SyncNow(ctx); err != nil {
+				a.logger.Warn("platform_skills_sync_failed", observability.LogFields{}, map[string]any{"error": err.Error()})
+			}
+			go skillSeeder.Run(ctx)
+		}
+	}
+
 	server := &http.Server{
 		Handler: apihttp.NewHandler(apihttp.HandlerConfig{
 			Pool:                         pool,
@@ -656,6 +677,7 @@ func (a *Application) Run(ctx context.Context) error {
 			PersonasRepo:                 personasRepo,
 			SkillPackagesRepo:            skillPackagesRepo,
 			ProfileSkillInstallsRepo:     profileSkillInstallsRepo,
+			PlatformSkillOverridesRepo:   platformSkillOverridesRepo,
 			WorkspaceSkillEnableRepo:     workspaceSkillEnableRepo,
 			ProfileRegistriesRepo:        profileRegistriesRepo,
 			WorkspaceRegistriesRepo:      workspaceRegistriesRepo,

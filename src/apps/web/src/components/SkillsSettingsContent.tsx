@@ -1,6 +1,7 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   Download,
   Github,
@@ -30,8 +31,11 @@ import {
   isApiError,
   listDefaultSkills,
   listInstalledSkills,
+  listPlatformSkills,
+  type PlatformSkillItem,
   replaceDefaultSkills,
   searchMarketSkills,
+  setPlatformSkillOverride,
 } from '../api'
 import { useLocale } from '../contexts/LocaleContext'
 
@@ -40,7 +44,7 @@ type Props = {
   onTrySkill?: (prompt: string) => void
 }
 
-type BrowseMode = 'registry' | 'local'
+type ViewMode = 'installed' | 'builtin' | 'marketplace'
 
 type ViewSkill = {
   id: string
@@ -53,7 +57,7 @@ type ViewSkill = {
   registry_provider?: string
   registry_slug?: string
   owner_handle?: string
-  source: 'official' | 'custom' | 'github'
+  source: 'official' | 'custom' | 'github' | 'platform'
   updated_at?: string
   installed: boolean
   enabled_by_default: boolean
@@ -61,6 +65,8 @@ type ViewSkill = {
   scan_has_warnings?: boolean
   scan_summary?: string
   moderation_verdict?: string
+  is_platform?: boolean
+  platform_status?: 'auto' | 'manual' | 'removed'
 }
 
 type CandidateState = {
@@ -104,7 +110,7 @@ function matchesSkillQuery(item: ViewSkill, normalized: string): boolean {
   return `${item.display_name} ${item.description ?? ''} ${item.skill_key} ${item.owner_handle ?? ''}`.toLowerCase().includes(normalized)
 }
 
-function mergeSkills(installed: InstalledSkill[], defaults: InstalledSkill[], market: MarketSkill[], query: string, browseMode: BrowseMode): ViewSkill[] {
+function mergeSkills(installed: InstalledSkill[], defaults: InstalledSkill[], market: MarketSkill[], query: string, viewMode: ViewMode): ViewSkill[] {
   const defaultKeys = new Set(defaults.flatMap((item) => buildSkillKey(item.skill_key, item.version, item.registry_slug)))
   const installedByKey = new Map(installed.map((item) => [item.skill_key, item]))
   const installedByRegistrySlug = new Map(
@@ -128,11 +134,15 @@ function mergeSkills(installed: InstalledSkill[], defaults: InstalledSkill[], ma
     source: item.source ?? 'custom',
     updated_at: item.updated_at,
     installed: true,
-    enabled_by_default: buildSkillKey(item.skill_key, item.version, item.registry_slug).some((key) => defaultKeys.has(key)),
+    enabled_by_default: item.is_platform
+      ? item.platform_status !== 'manual'
+      : buildSkillKey(item.skill_key, item.version, item.registry_slug).some((key) => defaultKeys.has(key)),
     scan_status: item.scan_status,
     scan_has_warnings: item.scan_has_warnings,
     scan_summary: item.scan_summary,
     moderation_verdict: item.moderation_verdict,
+    is_platform: item.is_platform,
+    platform_status: item.platform_status ?? (item.is_platform ? 'auto' : undefined),
   }))
 
   const marketViews = market.map<ViewSkill>((item) => {
@@ -161,7 +171,7 @@ function mergeSkills(installed: InstalledSkill[], defaults: InstalledSkill[], ma
     }
   })
 
-  const sourceItems = browseMode === 'local' ? installedViews : marketViews
+  const sourceItems = viewMode === 'installed' ? installedViews : marketViews
   return sourceItems.filter((item) => matchesSkillQuery(item, normalized))
 }
 
@@ -169,7 +179,7 @@ export function SkillsSettingsContent({ accessToken, onTrySkill }: Props) {
   const { t, locale } = useLocale()
   const skillText = t.skills
   const [query, setQuery] = useState('')
-  const [browseMode, setBrowseMode] = useState<BrowseMode>('local')
+  const [viewMode, setViewMode] = useState<ViewMode>('installed')
   const [showAddMenu, setShowAddMenu] = useState(false)
   const [menuSkillId, setMenuSkillId] = useState<string | null>(null)
   const [installedSkills, setInstalledSkills] = useState<InstalledSkill[]>([])
@@ -190,9 +200,18 @@ export function SkillsSettingsContent({ accessToken, onTrySkill }: Props) {
   const [githubRef, setGitHubRef] = useState('')
   const [importing, setImporting] = useState(false)
   const [detailSkill, setDetailSkill] = useState<ViewSkill | null>(null)
+  const [builtinSkills, setBuiltinSkills] = useState<PlatformSkillItem[]>([])
+  const [builtinLoading, setBuiltinLoading] = useState(false)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const addMenuRef = useRef<HTMLDivElement>(null)
   const cardMenuRef = useRef<HTMLDivElement>(null)
+
+  const refreshBuiltin = useCallback(async () => {
+    try {
+      const items = await listPlatformSkills(accessToken)
+      setBuiltinSkills(items)
+    } catch { /* silent */ }
+  }, [accessToken])
 
   const refreshInstalled = useCallback(async () => {
     const [installed, defaults] = await Promise.all([
@@ -219,7 +238,7 @@ export function SkillsSettingsContent({ accessToken, onTrySkill }: Props) {
   }, [refreshInstalled, skillText.loadFailed])
 
   useEffect(() => {
-    if (browseMode !== 'registry') {
+    if (viewMode !== 'marketplace') {
       setMarketLoading(false)
       setOfficialDisabled(false)
       return
@@ -248,11 +267,17 @@ export function SkillsSettingsContent({ accessToken, onTrySkill }: Props) {
       }
     }, query.trim() ? 160 : 0)
     return () => window.clearTimeout(timer)
-  }, [accessToken, browseMode, query, skillText.officialSearchFailed, skillText.officialUnconfigured])
+  }, [accessToken, viewMode, query, skillText.officialSearchFailed, skillText.officialUnconfigured])
 
   useEffect(() => {
     setError('')
-  }, [browseMode])
+  }, [viewMode])
+
+  useEffect(() => {
+    if (viewMode !== 'builtin') return
+    setBuiltinLoading(true)
+    refreshBuiltin().finally(() => setBuiltinLoading(false))
+  }, [viewMode, refreshBuiltin])
 
   useEffect(() => {
     const handler = (event: MouseEvent) => {
@@ -268,10 +293,10 @@ export function SkillsSettingsContent({ accessToken, onTrySkill }: Props) {
     return () => document.removeEventListener('mousedown', handler)
   }, [])
 
-  const items = useMemo(
-    () => mergeSkills(installedSkills, defaultSkills, marketSkills, query, browseMode),
-    [browseMode, defaultSkills, installedSkills, marketSkills, query],
-  )
+  const items = useMemo(() => {
+    if (viewMode === 'builtin') return []
+    return mergeSkills(installedSkills, defaultSkills, marketSkills, query, viewMode)
+  }, [viewMode, defaultSkills, installedSkills, marketSkills, query])
 
   const syncDefaultSkills = useCallback(async (updater: (current: SkillReference[]) => SkillReference[]) => {
     const current = defaultSkills.map(asSkillRef)
@@ -300,6 +325,11 @@ export function SkillsSettingsContent({ accessToken, onTrySkill }: Props) {
     setBusySkillId(item.id)
     setError('')
     try {
+      if (item.is_platform && item.version) {
+        await setPlatformSkillOverride(accessToken, item.skill_key, item.version, 'auto')
+        await Promise.all([refreshInstalled(), refreshBuiltin()])
+        return
+      }
       if (item.installed && item.version) {
         const version = item.version
         if (!shouldConfirmRisk(item)) return
@@ -326,13 +356,18 @@ export function SkillsSettingsContent({ accessToken, onTrySkill }: Props) {
     } finally {
       setBusySkillId(null)
     }
-  }, [accessToken, ensureInstalledAndDefault, refreshInstalled, shouldConfirmRisk, skillText.importFailed, skillText.repositoryMissing, syncDefaultSkills])
+  }, [accessToken, ensureInstalledAndDefault, refreshBuiltin, refreshInstalled, shouldConfirmRisk, skillText.importFailed, skillText.repositoryMissing, syncDefaultSkills])
 
   const handleRemove = useCallback(async (item: ViewSkill) => {
     if (!item.version) return
     setBusySkillId(item.id)
     setError('')
     try {
+      if (item.is_platform) {
+        await setPlatformSkillOverride(accessToken, item.skill_key, item.version, 'removed')
+        await Promise.all([refreshInstalled(), refreshBuiltin()])
+        return
+      }
       await syncDefaultSkills((current) => current.filter((skill) => !(skill.skill_key === item.skill_key && skill.version === item.version)))
       await deleteSkill(accessToken, { skill_key: item.skill_key, version: item.version })
       await refreshInstalled()
@@ -346,13 +381,18 @@ export function SkillsSettingsContent({ accessToken, onTrySkill }: Props) {
     } finally {
       setBusySkillId(null)
     }
-  }, [accessToken, refreshInstalled, skillText.deleteConflict, skillText.importFailed, syncDefaultSkills])
+  }, [accessToken, refreshBuiltin, refreshInstalled, skillText.deleteConflict, skillText.importFailed, syncDefaultSkills])
 
   const handleDisable = useCallback(async (item: ViewSkill) => {
     if (!item.version) return
     setBusySkillId(item.id)
     setError('')
     try {
+      if (item.is_platform) {
+        await setPlatformSkillOverride(accessToken, item.skill_key, item.version, 'manual')
+        await Promise.all([refreshInstalled(), refreshBuiltin()])
+        return
+      }
       await syncDefaultSkills((current) => current.filter((skill) => !(skill.skill_key === item.skill_key && skill.version === item.version)))
       await refreshInstalled()
     } catch {
@@ -360,7 +400,7 @@ export function SkillsSettingsContent({ accessToken, onTrySkill }: Props) {
     } finally {
       setBusySkillId(null)
     }
-  }, [refreshInstalled, skillText.disableFailed, syncDefaultSkills])
+  }, [accessToken, refreshBuiltin, refreshInstalled, skillText.disableFailed, syncDefaultSkills])
 
   const handleGitHubImport = useCallback(async (candidatePath?: string) => {
     setImporting(true)
@@ -451,61 +491,48 @@ export function SkillsSettingsContent({ accessToken, onTrySkill }: Props) {
 
   return (
     <div className="flex flex-col gap-4">
-      {/* 切换 + 搜索 + 添加 */}
+      {/* 搜索 + 内置 + 添加 */}
       <div className="flex flex-wrap items-center gap-2">
-        <div
-          className="relative shrink-0"
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-            padding: '2px',
-            borderRadius: '10px',
-            background: 'var(--c-bg-deep)',
-            minWidth: '168px',
-          }}
-        >
-          <div
-            aria-hidden
-            className="pointer-events-none absolute left-[2px] top-[2px] h-8 rounded-lg"
-            style={{
-              width: 'calc((100% - 4px) / 2)',
-              background: 'var(--c-bg-page)',
-              border: '0.5px solid var(--c-border-subtle)',
-              transition: 'transform 180ms cubic-bezier(0.16, 1, 0.3, 1)',
-              transform: browseMode === 'registry' ? 'translateX(0)' : 'translateX(100%)',
-            }}
-          />
+        {viewMode === 'marketplace' && (
           <button
             type="button"
-            onClick={() => setBrowseMode('registry')}
-            className="relative z-[1] flex h-8 items-center justify-center rounded-lg px-3 text-sm transition-colors"
-            style={{ color: browseMode === 'registry' ? 'var(--c-text-heading)' : 'var(--c-text-tertiary)' }}
+            onClick={() => { setViewMode('installed'); setQuery('') }}
+            className="slide-in-left group flex h-9 shrink-0 items-center gap-1 rounded-lg px-2.5 text-xs font-medium text-[var(--c-text-secondary)] transition-all duration-200 hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-heading)] hover:gap-1.5"
+            style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-page)' }}
           >
-            {skillText.registryTab}
+            <ChevronLeft size={13} className="transition-transform duration-200 group-hover:-translate-x-0.5" />
+            {skillText.backToSkills}
           </button>
-          <button
-            type="button"
-            onClick={() => setBrowseMode('local')}
-            className="relative z-[1] flex h-8 items-center justify-center rounded-lg px-3 text-sm transition-colors"
-            style={{ color: browseMode === 'local' ? 'var(--c-text-heading)' : 'var(--c-text-tertiary)' }}
-          >
-            {skillText.localTab}
-          </button>
-        </div>
+        )}
         <div className="relative min-w-[220px] flex-1">
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--c-text-tertiary)]" />
           <input
             ref={searchInputRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder={skillText.searchPlaceholder}
+            placeholder={viewMode === 'marketplace' ? skillText.searchPlaceholderMarketplace : skillText.searchPlaceholder}
             className="h-9 w-full rounded-lg pl-9 pr-3 text-sm text-[var(--c-text-heading)] outline-none placeholder:text-[var(--c-text-tertiary)]"
             style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-page)' }}
           />
-          {browseMode === 'registry' && marketLoading && (
+          {viewMode === 'marketplace' && marketLoading && (
             <Loader2 size={14} className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-[var(--c-text-tertiary)]" />
           )}
         </div>
+
+        <button
+          type="button"
+          onClick={() => setViewMode((v) => v === 'builtin' ? 'installed' : 'builtin')}
+          className="flex h-9 items-center gap-1.5 rounded-lg px-3 text-sm font-medium transition-colors"
+          style={{
+            border: '0.5px solid var(--c-border-subtle)',
+            background: viewMode === 'builtin' ? 'var(--c-btn-bg)' : 'var(--c-bg-page)',
+            color: viewMode === 'builtin' ? 'var(--c-btn-text)' : 'var(--c-text-heading)',
+          }}
+        >
+          <Sparkles size={14} />
+          {skillText.builtinTab}
+        </button>
+
         <div className="relative" ref={addMenuRef}>
           <button
             type="button"
@@ -529,23 +556,163 @@ export function SkillsSettingsContent({ accessToken, onTrySkill }: Props) {
                 boxShadow: 'var(--c-dropdown-shadow)',
               }}
             >
-              <DropdownAction icon={<Sparkles size={14} />} label={skillText.createWithArkloop} disabled onClick={() => {}} />
+              <DropdownAction icon={<ShieldCheck size={14} />} label={skillText.addFromSkillsmp} onClick={() => { setShowAddMenu(false); setViewMode('marketplace'); searchInputRef.current?.focus() }} />
               <DropdownAction icon={<Upload size={14} />} label={skillText.addFromUpload} onClick={() => { setShowAddMenu(false); setUploadOpen(true) }} />
-              <DropdownAction icon={<ShieldCheck size={14} />} label={skillText.addFromSkillsmp} onClick={() => { setShowAddMenu(false); setBrowseMode('registry'); searchInputRef.current?.focus() }} />
               <DropdownAction icon={<Github size={14} />} label={skillText.addFromGitHub} onClick={() => { setShowAddMenu(false); setGitHubOpen(true) }} />
             </div>
           )}
         </div>
       </div>
 
-      {browseMode === 'registry' && officialDisabled && (
+      {viewMode === 'marketplace' && officialDisabled && (
         <p className="text-xs text-[var(--c-text-tertiary)]">{skillText.officialUnconfigured}</p>
       )}
       {error && (
         <p className="text-xs" style={{ color: 'var(--c-status-error-text, #ef4444)' }}>{error}</p>
       )}
 
+      {/* 内置技能视图 */}
+      {viewMode === 'builtin' && (
+        <div className="flex flex-col gap-2">
+          <span className="text-xs font-medium text-[var(--c-text-tertiary)]">
+            {skillText.builtinTitle}
+          </span>
+          {builtinLoading ? (
+            <div className="flex h-40 items-center justify-center">
+              <Loader2 size={16} className="animate-spin text-[var(--c-text-tertiary)]" />
+            </div>
+          ) : builtinSkills.length === 0 ? (
+            <div
+              className="flex flex-col items-center justify-center gap-1 rounded-xl py-12 text-center"
+              style={{ border: '0.5px solid var(--c-border-subtle)' }}
+            >
+              <span className="text-sm font-medium text-[var(--c-text-heading)]">{skillText.builtinEmpty}</span>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {builtinSkills
+                .filter((s) => matchesSkillQuery({ id: s.skill_key, skill_key: s.skill_key, display_name: s.display_name, description: s.description, source: 'platform', installed: true, enabled_by_default: s.platform_status === 'auto' } as ViewSkill, query.trim().toLowerCase()))
+                .map((skill) => {
+                  const isRemoved = skill.platform_status === 'removed'
+                  const isEnabled = skill.platform_status === 'auto'
+                  const busy = busySkillId === `builtin:${skill.skill_key}@${skill.version}`
+                  return (
+                    <div
+                      key={`${skill.skill_key}@${skill.version}`}
+                      className="flex items-center gap-3 rounded-xl p-3 transition-colors duration-100"
+                      style={{
+                        border: '0.5px solid var(--c-border-subtle)',
+                        background: isRemoved ? 'var(--c-bg-page)' : 'var(--c-bg-menu)',
+                        opacity: isRemoved ? 0.55 : 1,
+                      }}
+                    >
+                      <div className="flex min-w-0 flex-1 flex-col gap-1">
+                        <div className="flex items-center gap-2">
+                          <span className="truncate text-sm font-medium text-[var(--c-text-heading)]">
+                            {skill.display_name}
+                          </span>
+                          <span
+                            className="shrink-0 rounded px-1.5 py-px text-[10px] font-medium leading-tight text-[var(--c-text-secondary)]"
+                            style={{ background: 'var(--c-bg-deep)' }}
+                          >
+                            {skillText.sourceBuiltin}
+                          </span>
+                          {isEnabled && (
+                            <span
+                              className="shrink-0 rounded px-1.5 py-px text-[10px] font-medium leading-tight"
+                              style={{ background: 'var(--c-status-ok-bg,#f0fdf4)', color: 'var(--c-status-ok-text,#15803d)' }}
+                            >
+                              {skillText.enabledByDefault}
+                            </span>
+                          )}
+                        </div>
+                        {skill.description && (
+                          <span className="line-clamp-2 text-xs text-[var(--c-text-tertiary)]">{skill.description}</span>
+                        )}
+                      </div>
+
+                      {isRemoved ? (
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={async () => {
+                            setBusySkillId(`builtin:${skill.skill_key}@${skill.version}`)
+                            try {
+                              await setPlatformSkillOverride(accessToken, skill.skill_key, skill.version, 'auto')
+                              const items = await listPlatformSkills(accessToken)
+                              setBuiltinSkills(items)
+                              await refreshInstalled()
+                            } catch {
+                              setError(skillText.importFailed)
+                            } finally {
+                              setBusySkillId(null)
+                            }
+                          }}
+                          className="flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--c-bg-deep)]"
+                          style={{ border: '0.5px solid var(--c-border-subtle)', color: 'var(--c-text-heading)' }}
+                        >
+                          {busy ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+                          {skillText.restore}
+                        </button>
+                      ) : (
+                        <>
+                          <label className="relative mt-0.5 inline-flex shrink-0 cursor-pointer items-center">
+                            <input
+                              type="checkbox"
+                              checked={isEnabled}
+                              disabled={busy}
+                              onChange={async () => {
+                                setBusySkillId(`builtin:${skill.skill_key}@${skill.version}`)
+                                try {
+                                  const newStatus = isEnabled ? 'manual' : 'auto'
+                                  await setPlatformSkillOverride(accessToken, skill.skill_key, skill.version, newStatus)
+                                  const refreshed = await listPlatformSkills(accessToken)
+                                  setBuiltinSkills(refreshed)
+                                  await refreshInstalled()
+                                } catch {
+                                  setError(skillText.disableFailed)
+                                } finally {
+                                  setBusySkillId(null)
+                                }
+                              }}
+                              className="peer sr-only"
+                            />
+                            <span className="h-5 w-9 rounded-full transition-colors" style={{ background: isEnabled ? 'var(--c-btn-bg)' : 'var(--c-border-mid)' }} />
+                            <span className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full transition-transform peer-checked:translate-x-4" style={{ background: isEnabled ? 'var(--c-btn-text)' : 'var(--c-bg-page)' }} />
+                          </label>
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={async () => {
+                              setBusySkillId(`builtin:${skill.skill_key}@${skill.version}`)
+                              try {
+                                await setPlatformSkillOverride(accessToken, skill.skill_key, skill.version, 'removed')
+                                const refreshed = await listPlatformSkills(accessToken)
+                                setBuiltinSkills(refreshed)
+                                await refreshInstalled()
+                              } catch {
+                                setError(skillText.importFailed)
+                              } finally {
+                                setBusySkillId(null)
+                              }
+                            }}
+                            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-[var(--c-error-bg)]"
+                            style={{ color: 'var(--c-status-error-text, #ef4444)' }}
+                          >
+                            {busy ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  )
+                })}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* 技能列表 */}
+      {viewMode !== 'builtin' && (
       <div className="flex flex-col gap-2">
         <span className="text-xs font-medium text-[var(--c-text-tertiary)]">
           {skillText.searchResults(items.length)}
@@ -561,7 +728,7 @@ export function SkillsSettingsContent({ accessToken, onTrySkill }: Props) {
             style={{ border: '0.5px solid var(--c-border-subtle)' }}
           >
             <span className="text-sm font-medium text-[var(--c-text-heading)]">{skillText.emptyTitle}</span>
-            <span className="text-xs text-[var(--c-text-tertiary)]">{browseMode === 'local' ? skillText.emptyBodyNoMarket : skillText.emptyDesc}</span>
+            <span className="text-xs text-[var(--c-text-tertiary)]">{viewMode === 'installed' ? skillText.emptyBodyNoMarket : skillText.emptyDesc}</span>
           </div>
         ) : (
           <div className="flex flex-col gap-2">
@@ -602,6 +769,14 @@ export function SkillsSettingsContent({ accessToken, onTrySkill }: Props) {
                         >
                           <Github size={9} />
                           {skillText.sourceGitHub}
+                        </span>
+                      )}
+                      {item.source === 'platform' && (
+                        <span
+                          className="shrink-0 rounded px-1.5 py-px text-[10px] font-medium leading-tight text-[var(--c-text-secondary)]"
+                          style={{ background: 'var(--c-bg-deep)' }}
+                        >
+                          {skillText.sourceBuiltin}
                         </span>
                       )}
                       {scanBadge && (
@@ -679,27 +854,31 @@ export function SkillsSettingsContent({ accessToken, onTrySkill }: Props) {
                         <DropdownAction
                           icon={<MessageSquare size={14} />}
                           label={skillText.trySkill}
-                          disabled={!item.installed || !item.enabled_by_default}
+                          disabled={!item.installed}
                           onClick={() => {
                             setMenuSkillId(null)
                             onTrySkill?.(skillText.trySkillPrompt(item.skill_key))
                           }}
                         />
-                        <DropdownAction
-                          icon={<Download size={14} />}
-                          label={skillText.download}
-                          disabled={!item.detail_url}
-                          onClick={() => {
-                            setMenuSkillId(null)
-                            if (item.detail_url) window.open(item.detail_url, '_blank', 'noopener,noreferrer')
-                          }}
-                        />
-                        <DropdownAction
-                          icon={<RefreshCw size={14} />}
-                          label={skillText.replace}
-                          disabled={item.source === 'custom' || (!item.detail_url && !item.repository_url)}
-                          onClick={() => { setMenuSkillId(null); void handleEnable(item) }}
-                        />
+                        {!item.is_platform && (
+                          <DropdownAction
+                            icon={<Download size={14} />}
+                            label={skillText.download}
+                            disabled={!item.detail_url}
+                            onClick={() => {
+                              setMenuSkillId(null)
+                              if (item.detail_url) window.open(item.detail_url, '_blank', 'noopener,noreferrer')
+                            }}
+                          />
+                        )}
+                        {!item.is_platform && (
+                          <DropdownAction
+                            icon={<RefreshCw size={14} />}
+                            label={skillText.replace}
+                            disabled={item.source === 'custom' || (!item.detail_url && !item.repository_url)}
+                            onClick={() => { setMenuSkillId(null); void handleEnable(item) }}
+                          />
+                        )}
                         <DropdownAction
                           icon={<Trash2 size={14} />}
                           label={skillText.remove}
@@ -716,6 +895,7 @@ export function SkillsSettingsContent({ accessToken, onTrySkill }: Props) {
           </div>
         )}
       </div>
+      )}
 
       {/* 上传对话框 */}
       {uploadOpen && (
@@ -911,7 +1091,7 @@ export function SkillsSettingsContent({ accessToken, onTrySkill }: Props) {
         const scanBadge = scanStatusBadge(item)
         const providerLabel = item.registry_provider?.trim().toLowerCase() === 'clawhub'
           ? 'ClawHub'
-          : item.registry_provider?.trim() || (item.source === 'official' ? skillText.sourceOfficial : item.source === 'github' ? skillText.sourceGitHub : skillText.sourceCustom)
+          : item.registry_provider?.trim() || (item.source === 'official' ? skillText.sourceOfficial : item.source === 'github' ? skillText.sourceGitHub : item.source === 'platform' ? skillText.sourceBuiltin : skillText.sourceCustom)
         return (
           <div
             className="fixed inset-0 z-[60] flex items-center justify-center"
@@ -938,6 +1118,11 @@ export function SkillsSettingsContent({ accessToken, onTrySkill }: Props) {
                         {skillText.sourceGitHub}
                       </span>
                     )}
+                    {item.source === 'platform' && (
+                      <span className="shrink-0 rounded px-1.5 py-px text-[10px] font-medium leading-tight text-[var(--c-text-secondary)]" style={{ background: 'var(--c-bg-deep)' }}>
+                        {skillText.sourceBuiltin}
+                      </span>
+                    )}
                     {scanBadge && (
                       <span className="shrink-0 rounded px-1.5 py-px text-[10px] font-medium leading-tight" style={scanBadge.style}>
                         {scanBadge.label}
@@ -953,7 +1138,7 @@ export function SkillsSettingsContent({ accessToken, onTrySkill }: Props) {
                       setDetailSkill(null)
                       onTrySkill?.(skillText.trySkillPrompt(item.skill_key))
                     }}
-                    disabled={!item.installed || !enabled}
+                    disabled={!item.installed}
                     className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors disabled:opacity-40"
                     style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-page)', color: 'var(--c-text-heading)' }}
                   >
@@ -1009,11 +1194,12 @@ export function SkillsSettingsContent({ accessToken, onTrySkill }: Props) {
               {/* footer */}
               <div className="flex items-center justify-between border-t px-5 py-3" style={{ borderColor: 'var(--c-border-subtle)' }}>
                 <div className="flex items-center gap-2">
-                  {item.detail_url && (
+                  {!item.is_platform && (
                     <button
                       type="button"
-                      onClick={() => window.open(item.detail_url!, '_blank', 'noopener,noreferrer')}
-                      className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)]"
+                      disabled={!item.detail_url}
+                      onClick={() => item.detail_url && window.open(item.detail_url, '_blank', 'noopener,noreferrer')}
+                      className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)] disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
                       style={{ border: '0.5px solid var(--c-border-subtle)' }}
                     >
                       <Download size={12} />

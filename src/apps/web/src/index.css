@@ -582,6 +582,15 @@ button:not(:disabled) {
 .overlay-fade-in {
   animation: overlay-fade-in 0.12s ease-out;
 }
+@keyframes slide-in-left {
+  from { opacity: 0; transform: translateX(-10px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+.slide-in-left {
+  animation: slide-in-left 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
 @keyframes dropdown-slide-in {
   from { opacity: 0; transform: translateY(-3px); }
   to   { opacity: 1; transform: translateY(0); }

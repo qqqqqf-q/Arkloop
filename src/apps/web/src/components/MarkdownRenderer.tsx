@@ -14,6 +14,8 @@ import { ArtifactImage } from './ArtifactImage'
 import { ArtifactHtmlPreview } from './ArtifactHtmlPreview'
 import { ArtifactDownload } from './ArtifactDownload'
 import { MindmapBlock } from './MindmapBlock'
+import { MermaidBlock } from './MermaidBlock'
+import { GeoGebraBlock } from './GeoGebraBlock'
 import { WorkspaceResource, type WorkspaceFileRef } from './WorkspaceResource'
 
 type ArtifactsContextValue = {
@@ -428,6 +430,12 @@ function buildMarkdownComponents(compact: boolean): Components {
     const lang = extractCodeLanguage(children)
     if (lang === 'mindmap') {
       return <MindmapBlock content={extractTextFromChildren(children)} />
+    }
+    if (lang === 'mermaid') {
+      return <MermaidBlock content={extractTextFromChildren(children)} />
+    }
+    if (lang === 'ggbscript' || lang === 'ggb' || lang === 'geogebra') {
+      return <GeoGebraBlock content={extractTextFromChildren(children)} />
     }
       return <CodeBlockWrapper compact={compact}>{children}</CodeBlockWrapper>
     },

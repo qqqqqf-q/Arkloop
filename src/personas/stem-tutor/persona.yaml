@@ -1,0 +1,19 @@
+id: stem-tutor
+version: "1"
+title: STEM Tutor
+description: STEM 学科教学模式，支持数学可视化、分步教学和严谨的解题验证。
+soul_file: soul.md
+user_selectable: true
+selector_name: STEM Tutor
+selector_order: 3
+budgets:
+    max_output_tokens: 20480
+    reasoning_iterations: 99999
+    temperature: 0.7
+title_summarize:
+    max_tokens: 20
+    prompt: Keep it under 10 Chinese characters. Capture the STEM topic or question.
+reasoning_mode: disabled
+prompt_cache_control: none
+executor_type: agent.simple
+allow_platform_delegation: false

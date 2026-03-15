@@ -39,13 +39,22 @@ func buildSkillPromptBlock(skills []skillstore.ResolvedSkill) string {
 	if len(skills) == 0 {
 		return ""
 	}
+	var autoSkills []skillstore.ResolvedSkill
+	for _, s := range skills {
+		if s.AutoInject {
+			autoSkills = append(autoSkills, s)
+		}
+	}
+	if len(autoSkills) == 0 {
+		return ""
+	}
 	var sb strings.Builder
 	sb.WriteString("\n\n<skills>\n")
 	sb.WriteString("- Enabled skill index: ")
 	sb.WriteString(skillstore.IndexPath)
 	sb.WriteString("\n")
 	sb.WriteString("- Skill files are mounted read-only under /opt/arkloop/skills. Read the relevant SKILL.md before using a skill.\n")
-	for _, item := range skills {
+	for _, item := range autoSkills {
 		sb.WriteString("- ")
 		sb.WriteString(strings.TrimSpace(item.SkillKey))
 		sb.WriteString("@")

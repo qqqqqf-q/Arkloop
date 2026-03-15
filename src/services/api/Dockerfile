@@ -9,6 +9,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 COPY src/services/api src/services/api
 COPY src/services/shared src/services/shared
 COPY src/personas src/personas
+COPY src/skills src/skills
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     go build -ldflags="-s -w" -o /api ./src/services/api/cmd/api && \
@@ -19,5 +20,7 @@ RUN apk add --no-cache ca-certificates tzdata wget
 COPY --from=builder /api     /usr/local/bin/api
 COPY --from=builder /migrate /usr/local/bin/migrate
 COPY --from=builder /workspace/src/personas /usr/local/share/arkloop/personas
+COPY --from=builder /workspace/src/skills /usr/local/share/arkloop/skills
 ENV ARKLOOP_PERSONAS_ROOT=/usr/local/share/arkloop/personas
+ENV ARKLOOP_SKILLS_ROOT=/usr/local/share/arkloop/skills
 ENTRYPOINT ["api"]

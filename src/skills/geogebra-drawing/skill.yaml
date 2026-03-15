@@ -1,0 +1,5 @@
+skill_key: geogebra-drawing
+version: "1"
+display_name: GeoGebra Drawing
+description: GeoGebra interactive math visualization with function plotting, geometry construction, and coordinate systems.
+instruction_path: SKILL.md

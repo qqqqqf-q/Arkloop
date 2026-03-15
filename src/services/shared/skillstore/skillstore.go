@@ -63,6 +63,7 @@ type ResolvedSkill struct {
 	BundleRef       string `json:"bundle_ref"`
 	MountPath       string `json:"mount_path"`
 	InstructionPath string `json:"instruction_path,omitempty"`
+	AutoInject      bool   `json:"auto_inject"`
 }
 
 type IndexEntry struct {

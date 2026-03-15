@@ -107,7 +107,9 @@ export type SkillPackageResponse = {
 export type InstalledSkill = SkillPackageResponse & {
   profile_ref?: string
   workspace_ref?: string
-  source?: 'official' | 'custom' | 'github'
+  source?: 'official' | 'custom' | 'github' | 'platform'
+  is_platform?: boolean
+  platform_status?: 'auto' | 'manual' | 'removed'
   created_at?: string
   updated_at?: string
 }
@@ -318,6 +320,35 @@ export async function deleteSkill(accessToken: string, skill: SkillReference): P
   await apiFetch<void>(`/v1/profiles/me/skills/${encodeURIComponent(skill.skill_key)}/${encodeURIComponent(skill.version)}`, {
     method: 'DELETE',
     accessToken,
+  })
+}
+
+export type PlatformSkillItem = {
+  skill_key: string
+  version: string
+  display_name: string
+  description?: string
+  platform_status: 'auto' | 'manual' | 'removed'
+  is_platform: true
+}
+
+export async function listPlatformSkills(accessToken: string): Promise<PlatformSkillItem[]> {
+  const response = await apiFetch<{ items: PlatformSkillItem[] }>('/v1/profiles/me/platform-skills', {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  })
+  return response.items ?? []
+}
+
+export async function setPlatformSkillOverride(
+  accessToken: string,
+  skillKey: string,
+  version: string,
+  status: 'auto' | 'manual' | 'removed',
+): Promise<void> {
+  await apiFetch(`/v1/profiles/me/platform-skills/${encodeURIComponent(skillKey)}/${encodeURIComponent(version)}`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status }),
   })
 }
 

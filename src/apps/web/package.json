@@ -20,6 +20,7 @@
     "lucide-react": "^0.575.0",
     "markmap-lib": "^0.18.12",
     "markmap-view": "^0.18.12",
+    "mermaid": "^11.13.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-markdown": "^10.1.0",
