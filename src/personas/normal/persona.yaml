@@ -6,19 +6,6 @@ soul_file: soul.md
 user_selectable: true
 selector_name: Normal
 selector_order: 1
-tool_denylist:
-    - web_search
-    - web_fetch
-    - conversation_search
-    - spawn_agent
-    - send_input
-    - wait_agent
-    - resume_agent
-    - close_agent
-    - interrupt_agent
-    - summarize_thread
-    - timeline_title
-    - ask_user
 budgets:
     max_output_tokens: 20480
     reasoning_iterations: 99999
