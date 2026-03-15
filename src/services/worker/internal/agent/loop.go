@@ -139,11 +139,13 @@ func (l *Loop) Run(
 
 		hasToolCalls := len(turn.ToolCalls) > 0
 		for _, event := range turn.Events {
-			// 当 turn 同时产生了 tool calls 时，跳过非 thinking 的 message.delta，
-			// 避免 LLM echo 出的工具参数 JSON 被累积到最终消息内容中
+			// 当 turn 同时产生了 tool calls 时，只丢弃看起来是 JSON 的非 thinking delta，
+			// 保留模型在调用工具前输出的简短说明文本
 			if hasToolCalls && event.Type == "message.delta" {
 				if ch, _ := event.DataJSON["channel"].(string); ch == "" {
-					continue
+					if text, _ := event.DataJSON["content_delta"].(string); looksLikeJSON(text) {
+						continue
+					}
 				}
 			}
 			if err := yield(event); err != nil {
@@ -1321,4 +1323,11 @@ func injectWebSourceIDs(resultJSON map[string]any, currentCount int) int {
 		entry["id"] = fmt.Sprintf("web:%d", currentCount)
 	}
 	return currentCount
+}
+
+// looksLikeJSON 判断文本是否疑似工具参数 echo（JSON 片段），
+// 用于在 preamble 过滤中区分正常说明文字和 JSON 内容
+func looksLikeJSON(text string) bool {
+	t := strings.TrimSpace(text)
+	return len(t) > 0 && (t[0] == '{' || t[0] == '[')
 }
