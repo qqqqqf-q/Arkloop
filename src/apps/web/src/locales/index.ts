@@ -644,9 +644,33 @@ export interface LocaleStrings {
     localImportModels: string
     localImportModelsDesc: string
     localSelectModels: string
+    localAddModel: string
+    localManualModelPlaceholder: string
     localImportingModels: string
     localModelsImported: string
     localNoModels: string
+    localNoImportableModels: string
+    localConfiguredModels: string
+    localNoConfiguredModels: string
+    localModulesTitle: string
+    localModulesDesc: string
+    localModulesInstallerOffline: string
+    localModulesContinue: string
+    localModulesSkip: string
+    localModulesRecommended: string
+    localModulesInstalled: string
+    localModulesInstalling: string
+    localModulesDependsOn: string
+    localModulesSandboxTitle: string
+    localModulesSandboxDesc: string
+    localModulesMemoryTitle: string
+    localModulesMemoryDesc: string
+    localModulesSearchTitle: string
+    localModulesSearchDesc: string
+    localModulesCrawlerTitle: string
+    localModulesCrawlerDesc: string
+    localModulesBrowserTitle: string
+    localModulesBrowserDesc: string
     selfHostUrlLabel: string
     selfHostUrlPlaceholder: string
     selfHostTest: string

@@ -15,6 +15,7 @@ import (
 	"arkloop/services/api/internal/data"
 	"arkloop/services/api/internal/llmproviders"
 	"arkloop/services/api/internal/observability"
+	sharedoutbound "arkloop/services/shared/outboundurl"
 
 	"github.com/google/uuid"
 )
@@ -834,18 +835,45 @@ func writeLlmProviderServiceError(ctx context.Context, w nethttp.ResponseWriter,
 	}
 	var upstreamErr *llmproviders.UpstreamListModelsError
 	if errors.As(err, &upstreamErr) {
+		details := buildLlmUpstreamErrorDetails(upstreamErr)
 		switch upstreamErr.Kind {
 		case "auth":
-			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "llm_providers.upstream_auth_failed", "provider authentication failed", traceID, nil)
+			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "llm_providers.upstream_auth_failed", "provider authentication failed", traceID, details)
 		case "request", "unsupported_provider":
-			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "llm_providers.upstream_request_failed", "provider request failed", traceID, nil)
+			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "llm_providers.upstream_request_failed", "provider request failed", traceID, details)
 		default:
-			httpkit.WriteError(w, nethttp.StatusBadGateway, "llm_providers.upstream_error", "provider upstream error", traceID, nil)
+			httpkit.WriteError(w, nethttp.StatusBadGateway, "llm_providers.upstream_error", "provider upstream error", traceID, details)
 		}
 		return
 	}
 	slog.ErrorContext(ctx, "unhandled llm provider error", "err", err, "trace_id", traceID)
 	httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+}
+
+func buildLlmUpstreamErrorDetails(err *llmproviders.UpstreamListModelsError) map[string]any {
+	if err == nil {
+		return nil
+	}
+
+	details := map[string]any{
+		"kind": err.Kind,
+	}
+	if err.StatusCode > 0 {
+		details["status_code"] = err.StatusCode
+	}
+	if err.Err != nil {
+		details["raw_error"] = err.Err.Error()
+	}
+
+	var denied sharedoutbound.DeniedError
+	if errors.As(err.Err, &denied) {
+		details["denied_reason"] = denied.Reason
+		if len(denied.Details) > 0 {
+			details["denied_details"] = denied.Details
+		}
+	}
+
+	return details
 }
 
 func toLlmProviderResponse(provider llmproviders.Provider) llmProviderResponse {

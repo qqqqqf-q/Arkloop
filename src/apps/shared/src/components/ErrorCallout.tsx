@@ -52,6 +52,10 @@ const FRIENDLY_ERROR_MESSAGES: Record<string, FriendlyText> = {
   'policy.byok_disabled': { zh: '平台未启用自带密钥功能', en: 'Bring-your-own-key is not enabled on this platform.' },
   'routing.model_not_found': { zh: '指定模型未找到，请检查 LLM 供应商配置', en: 'Specified model not found. Please check LLM provider settings.' },
   'projects.delete_default': { zh: '默认项目不可删除', en: 'Default project cannot be deleted.' },
+  'llm_providers.name_conflict': { zh: '同名 AI 服务商已存在', en: 'A provider with the same name already exists.' },
+  'llm_providers.upstream_auth_failed': { zh: '服务商认证失败，请检查 API Key 或 Base URL', en: 'Provider authentication failed. Check the API key or base URL.' },
+  'llm_providers.upstream_request_failed': { zh: '服务商请求失败，请检查兼容性或稍后重试', en: 'Provider request failed. Check compatibility or try again later.' },
+  'llm_provider_models.model_conflict': { zh: '该模型已存在', en: 'That model already exists.' },
 }
 
 function hasCjk(text: string): boolean {
@@ -62,6 +66,18 @@ function isNetworkErrorMessage(text: string): boolean {
   const m = text.trim().toLowerCase()
   if (!m) return false
   return m.includes('failed to fetch') || m.includes('networkerror') || m.includes('network error') || m.includes('load failed')
+}
+
+function formatDetailValue(value: unknown): string {
+  if (value == null) return String(value)
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return String(value)
+  }
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return String(value)
+  }
 }
 
 type ErrorCalloutProps = {
@@ -153,7 +169,7 @@ export function ErrorCallout({ error, locale, requestFailedText }: ErrorCalloutP
             <div className="mt-1 space-y-0.5">
               {Object.entries(details).map(([k, v]) => (
                 <div key={k} className="font-mono break-words">
-                  {k}: {String(v)}
+                  {k}: {formatDetailValue(v)}
                 </div>
               ))}
             </div>
