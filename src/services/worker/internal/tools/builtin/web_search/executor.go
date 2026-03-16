@@ -114,7 +114,12 @@ func (e *ToolExecutor) IsNotConfigured() bool {
 	if e.provider != nil {
 		return false
 	}
-	return e.resolver == nil
+	if e.resolver != nil {
+		return false
+	}
+	// No resolver: check env-based config as fallback (Desktop mode).
+	cfg, err := ConfigFromEnv(false)
+	return err != nil || cfg == nil
 }
 
 func (e *ToolExecutor) Execute(
@@ -182,7 +187,12 @@ func (e *ToolExecutor) Execute(
 
 func (e *ToolExecutor) loadProvider(ctx context.Context, execCtx tools.ExecutionContext) (Provider, error) {
 	if e.resolver == nil {
-		return nil, nil
+		// No resolver: fall back to env vars (Desktop mode).
+		cfg, err := ConfigFromEnv(false)
+		if err != nil || cfg == nil {
+			return nil, nil
+		}
+		return buildProvider(cfg)
 	}
 	scope := sharedconfig.Scope{}
 	m, err := e.resolver.ResolvePrefix(ctx, "web_search.", scope)

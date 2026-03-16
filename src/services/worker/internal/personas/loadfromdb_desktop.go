@@ -23,7 +23,7 @@ type pgxQuerier interface {
 
 const personaSelectSQL = `SELECT persona_key, version, display_name, description,
 	        soul_md, user_selectable, selector_name, selector_order,
-	        prompt_md, tool_allowlist, tool_denylist, budgets_json,
+	        prompt_md, tool_allowlist, tool_denylist, COALESCE(core_tools, '[]'), budgets_json,
 	        roles_json, title_summarize_json,
 	        executor_type, executor_config_json,
 	        preferred_credential, model, reasoning_mode, prompt_cache_control
@@ -80,6 +80,7 @@ func scanPersonaRows(rows personaRowScanner) ([]Definition, error) {
 			promptMD            string
 			toolAllowlistStr    string
 			toolDenylistStr     string
+			coreToolsStr        string
 			budgetsStr          string
 			rolesStr            *string
 			titleSummarizeStr   *string
@@ -93,7 +94,7 @@ func scanPersonaRows(rows personaRowScanner) ([]Definition, error) {
 		if err := rows.Scan(
 			&personaKey, &version, &displayName, &description,
 			&soulMD, &userSelectable, &selectorName, &selectorOrder,
-			&promptMD, &toolAllowlistStr, &toolDenylistStr, &budgetsStr,
+			&promptMD, &toolAllowlistStr, &toolDenylistStr, &coreToolsStr, &budgetsStr,
 			&rolesStr, &titleSummarizeStr,
 			&executorType, &executorConfigStr,
 			&preferredCredential, &model, &reasoningMode, &promptCacheControl,
@@ -108,6 +109,10 @@ func scanPersonaRows(rows personaRowScanner) ([]Definition, error) {
 		toolDenylist, err := desktopParseJSONStringArray(toolDenylistStr)
 		if err != nil {
 			return nil, fmt.Errorf("persona %q tool_denylist: %w", personaKey, err)
+		}
+		coreTools, err := desktopParseJSONStringArray(coreToolsStr)
+		if err != nil {
+			return nil, fmt.Errorf("persona %q core_tools: %w", personaKey, err)
 		}
 
 		budgets, err := parseBudgetsJSON([]byte(budgetsStr))
@@ -154,6 +159,7 @@ func scanPersonaRows(rows personaRowScanner) ([]Definition, error) {
 			SelectorOrder:       selectorOrder,
 			ToolAllowlist:       toolAllowlist,
 			ToolDenylist:        toolDenylist,
+			CoreTools:           coreTools,
 			Budgets:             budgets,
 			SoulMD:              strings.TrimSpace(soulMD),
 			PromptMD:            promptMD,

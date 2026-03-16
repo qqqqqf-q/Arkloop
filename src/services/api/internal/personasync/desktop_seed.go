@@ -61,7 +61,7 @@ func insertPersona(ctx context.Context, db database.DB, p repopersonas.RepoPerso
 		`INSERT INTO personas (
 			persona_key, version, display_name, description,
 			soul_md, user_selectable, selector_name, selector_order,
-			prompt_md, tool_allowlist, tool_denylist, budgets_json,
+			prompt_md, tool_allowlist, tool_denylist, core_tools, budgets_json,
 			roles_json, title_summarize_json,
 			is_active, executor_type, executor_config_json,
 			preferred_credential, model, reasoning_mode, prompt_cache_control,
@@ -69,7 +69,7 @@ func insertPersona(ctx context.Context, db database.DB, p repopersonas.RepoPerso
 		) VALUES (
 			?, ?, ?, ?,
 			?, ?, ?, ?,
-			?, ?, ?, ?,
+			?, ?, ?, ?, ?,
 			?, ?,
 			1, ?, ?,
 			?, ?, ?, ?,
@@ -86,6 +86,7 @@ func insertPersona(ctx context.Context, db database.DB, p repopersonas.RepoPerso
 		strings.TrimSpace(p.PromptMD),
 		seedJSONArray(p.ToolAllowlist),
 		seedJSONArray(p.ToolDenylist),
+		seedJSONArray(p.CoreTools),
 		seedJSONObject(p.Budgets),
 		seedJSONObject(p.Roles),
 		seedJSONObjectNullable(p.TitleSummarize),
@@ -111,7 +112,7 @@ func updatePersona(ctx context.Context, db database.DB, p repopersonas.RepoPerso
 		`UPDATE personas SET
 			version = ?, display_name = ?, description = ?,
 			soul_md = ?, user_selectable = ?, selector_name = ?, selector_order = ?,
-			prompt_md = ?, tool_allowlist = ?, tool_denylist = ?, budgets_json = ?,
+			prompt_md = ?, tool_allowlist = ?, tool_denylist = ?, core_tools = ?, budgets_json = ?,
 			roles_json = ?, title_summarize_json = ?,
 			is_active = 1, executor_type = ?, executor_config_json = ?,
 			preferred_credential = ?, model = ?, reasoning_mode = ?, prompt_cache_control = ?,
@@ -127,6 +128,7 @@ func updatePersona(ctx context.Context, db database.DB, p repopersonas.RepoPerso
 		strings.TrimSpace(p.PromptMD),
 		seedJSONArray(p.ToolAllowlist),
 		seedJSONArray(p.ToolDenylist),
+		seedJSONArray(p.CoreTools),
 		seedJSONObject(p.Budgets),
 		seedJSONObject(p.Roles),
 		seedJSONObjectNullable(p.TitleSummarize),
