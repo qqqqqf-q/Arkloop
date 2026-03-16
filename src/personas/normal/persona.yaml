@@ -6,6 +6,15 @@ soul_file: soul.md
 user_selectable: true
 selector_name: Normal
 selector_order: 1
+core_tools:
+    - timeline_title
+    - ask_user
+    - web_search
+    - web_fetch
+    - python_execute
+    - exec_command
+    - document_write
+    - memory_search
 budgets:
     max_output_tokens: 20480
     reasoning_iterations: 99999

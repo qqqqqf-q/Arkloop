@@ -293,6 +293,7 @@ func cloneDefinition(def Definition) Definition {
 	cloned.SelectorOrder = copyOptionalInt(def.SelectorOrder)
 	cloned.ToolAllowlist = append([]string(nil), def.ToolAllowlist...)
 	cloned.ToolDenylist = append([]string(nil), def.ToolDenylist...)
+	cloned.CoreTools = append([]string(nil), def.CoreTools...)
 	cloned.Budgets = cloneBudgets(def.Budgets)
 	cloned.ExecutorConfig = cloneToolBudget(def.ExecutorConfig)
 	cloned.PreferredCredential = cloneStringPtr(def.PreferredCredential)

@@ -371,6 +371,13 @@ func (l *Loop) Run(
 			}
 		}
 
+		// search_tools dynamic activation: inject newly activated tool specs
+		if l.toolExecutor != nil {
+			if activated := l.toolExecutor.DrainActivated(); len(activated) > 0 {
+				request.Tools = append(request.Tools, activated...)
+			}
+		}
+
 		reasoningUsedThisTurn := !pureContinuationTurn || continuationRejected
 		if reasoningUsedThisTurn && pureContinuationTurn && hasReasoningIterationLimit(runCtx.ReasoningIterations) {
 			if reasoningTurnsUsed >= runCtx.ReasoningIterations {

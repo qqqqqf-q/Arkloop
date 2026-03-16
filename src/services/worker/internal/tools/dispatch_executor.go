@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"arkloop/services/shared/skillstore"
 	sharedtoolruntime "arkloop/services/shared/toolruntime"
 	"arkloop/services/worker/internal/events"
+	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/memory"
 	"github.com/google/uuid"
 )
@@ -89,20 +91,59 @@ type NotConfiguredChecker interface {
 	IsNotConfigured() bool
 }
 
+// ToolActivator allows dynamic tool activation during agent loop execution.
+// search_tools executor calls Activate to mark tools for injection;
+// the agent loop calls DrainActivated to collect and append them to request.Tools.
+type ToolActivator interface {
+	Activate(specs ...llm.ToolSpec)
+	DrainActivated() []llm.ToolSpec
+}
+
 type DispatchingExecutor struct {
 	registry       *Registry
 	policyEnforcer *PolicyEnforcer
 	executors      map[string]Executor
 	llmNameIndex   map[string]string
+
+	// search_tools support: specs not in request.Tools, available via search_tools
+	searchableSpecs map[string]llm.ToolSpec
+	activatedMu     sync.Mutex
+	activatedSpecs  []llm.ToolSpec
 }
 
 func NewDispatchingExecutor(registry *Registry, policyEnforcer *PolicyEnforcer) *DispatchingExecutor {
 	return &DispatchingExecutor{
-		registry:       registry,
-		policyEnforcer: policyEnforcer,
-		executors:      map[string]Executor{},
-		llmNameIndex:   map[string]string{},
+		registry:        registry,
+		policyEnforcer:  policyEnforcer,
+		executors:       map[string]Executor{},
+		llmNameIndex:    map[string]string{},
+		searchableSpecs: map[string]llm.ToolSpec{},
 	}
+}
+
+// SetSearchableSpecs stores tool specs that are not initially visible to the LLM
+// but can be loaded via search_tools.
+func (e *DispatchingExecutor) SetSearchableSpecs(specs map[string]llm.ToolSpec) {
+	e.searchableSpecs = specs
+}
+
+// SearchableSpecs returns the current searchable spec map (read-only usage).
+func (e *DispatchingExecutor) SearchableSpecs() map[string]llm.ToolSpec {
+	return e.searchableSpecs
+}
+
+func (e *DispatchingExecutor) Activate(specs ...llm.ToolSpec) {
+	e.activatedMu.Lock()
+	defer e.activatedMu.Unlock()
+	e.activatedSpecs = append(e.activatedSpecs, specs...)
+}
+
+func (e *DispatchingExecutor) DrainActivated() []llm.ToolSpec {
+	e.activatedMu.Lock()
+	defer e.activatedMu.Unlock()
+	out := e.activatedSpecs
+	e.activatedSpecs = nil
+	return out
 }
 
 func (e *DispatchingExecutor) Bind(toolName string, executor Executor) error {

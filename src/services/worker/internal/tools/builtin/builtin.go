@@ -6,6 +6,7 @@ import (
 	"arkloop/services/worker/internal/tools"
 	"arkloop/services/worker/internal/tools/builtin/acptool"
 	"arkloop/services/worker/internal/tools/builtin/askuser"
+	searchtools "arkloop/services/worker/internal/tools/builtin/search_tools"
 	spawnagent "arkloop/services/worker/internal/tools/builtin/spawn_agent"
 	summarizethread "arkloop/services/worker/internal/tools/builtin/summarize_thread"
 	webfetch "arkloop/services/worker/internal/tools/builtin/web_fetch"
@@ -17,6 +18,7 @@ import (
 
 func AgentSpecs() []tools.AgentToolSpec {
 	return []tools.AgentToolSpec{
+		searchtools.AgentSpec,
 		TimelineTitleAgentSpec,
 		websearch.AgentSpec,
 		websearch.AgentSpecTavily,
@@ -39,6 +41,7 @@ func AgentSpecs() []tools.AgentToolSpec {
 
 func LlmSpecs() []llm.ToolSpec {
 	return []llm.ToolSpec{
+		searchtools.LlmSpec,
 		TimelineTitleLlmSpec,
 		websearch.LlmSpec,
 		webfetch.LlmSpec,

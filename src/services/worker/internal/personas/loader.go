@@ -137,6 +137,10 @@ func loadSinglePersona(yamlPath string) (Definition, error) {
 	if err != nil {
 		return Definition{}, err
 	}
+	coreTools, err := asToolNameList(obj["core_tools"], "core_tools")
+	if err != nil {
+		return Definition{}, err
+	}
 	budgets, err := asBudgets(obj["budgets"])
 	if err != nil {
 		return Definition{}, err
@@ -192,6 +196,7 @@ func loadSinglePersona(yamlPath string) (Definition, error) {
 		SelectorOrder:       selectorOrder,
 		ToolAllowlist:       allowlist,
 		ToolDenylist:        denylist,
+		CoreTools:           coreTools,
 		Budgets:             budgets,
 		SoulMD:              soulMD,
 		PromptMD:            prompt,
@@ -614,6 +619,9 @@ func mergeDefinition(base Definition, override Definition) Definition {
 	merged.IsSystem = base.IsSystem
 	merged.IsBuiltin = base.IsBuiltin
 	merged.AllowPlatformDelegation = base.AllowPlatformDelegation
+	if len(merged.CoreTools) == 0 {
+		merged.CoreTools = base.CoreTools
+	}
 	return merged
 }
 
