@@ -52,7 +52,9 @@ func NewToolBuildMiddleware() RunMiddleware {
 		// Pre-bind search_tools executor before filtering so it survives
 		// FilterAllowlistToBoundExecutors. Uses lazy reference because
 		// DispatchingExecutor is created after this point.
+		// coreSpecsMap is populated after splitToolSpecs; the closure captures it by reference.
 		var dispatchRef *tools.DispatchingExecutor
+		var coreSpecsMap map[string]llm.ToolSpec
 		if _, inAllowlist := resolvedAllowlist["search_tools"]; inAllowlist {
 			rc.ToolExecutors["search_tools"] = searchtools.NewExecutor(
 				&lazyActivator{ref: &dispatchRef},
@@ -61,6 +63,9 @@ func NewToolBuildMiddleware() RunMiddleware {
 						return nil
 					}
 					return dispatchRef.SearchableSpecs()
+				},
+				func() map[string]llm.ToolSpec {
+					return coreSpecsMap
 				},
 			)
 		}
@@ -98,6 +103,15 @@ func NewToolBuildMiddleware() RunMiddleware {
 		coreSet := resolveCoreToolSet(rc)
 		if coreSet != nil {
 			coreSpecs, searchableSpecs := splitToolSpecs(allSpecs, coreSet)
+
+			// Populate coreSpecsMap so search_tools can resolve queries against active tools.
+			if len(coreSpecs) > 0 {
+				coreSpecsMap = make(map[string]llm.ToolSpec, len(coreSpecs))
+				for _, spec := range coreSpecs {
+					coreSpecsMap[spec.Name] = spec
+				}
+			}
+
 			if len(searchableSpecs) > 0 {
 				searchableMap := make(map[string]llm.ToolSpec, len(searchableSpecs))
 				for _, spec := range searchableSpecs {

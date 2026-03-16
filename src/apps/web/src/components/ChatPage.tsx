@@ -1067,8 +1067,12 @@ export function ChatPage() {
             setAssistantDraft('')
           }
           applyCopBlocks((prev) => {
-            if (prev.length > 0 && prev[prev.length - 1].title === '') {
-              return prev.map((b, i) => i === prev.length - 1 ? { ...b, title: label } : b)
+            if (prev.length > 0) {
+              const last = prev[prev.length - 1]
+              const isEmpty = last.steps.length === 0 && last.codeExecutions.length === 0 && last.sources.length === 0
+              if (last.title === '' || isEmpty) {
+                return prev.map((b, i) => i === prev.length - 1 ? { ...b, title: label } : b)
+              }
             }
             return [...prev, { id: crypto.randomUUID(), title: label, steps: [], sources: [], codeExecutions: [] }]
           })
@@ -2195,6 +2199,8 @@ export function ChatPage() {
                             subAgents={bi === historicalBlocks.length - 1 ? messageSubAgents : undefined}
                             fileOps={bi === historicalBlocks.length - 1 ? messageFileOps : undefined}
                             headerOverride={block.title || undefined}
+                            accessToken={accessToken}
+                            baseUrl={baseUrl}
                           />
                           {historicalBridgeTexts[bi] && (
                             <div style={{ padding: '6px 0 8px', fontSize: '14px', lineHeight: '1.6', color: 'var(--c-text-primary)', maxWidth: '663px' }}>
@@ -2214,6 +2220,8 @@ export function ChatPage() {
                           activeCodeExecutionId={codePanelExecution?.id}
                           subAgents={messageSubAgents}
                           fileOps={messageFileOps}
+                          accessToken={accessToken}
+                          baseUrl={baseUrl}
                         />
                       )}
                     </div>
@@ -2439,6 +2447,9 @@ export function ChatPage() {
                               status={agent.status}
                               error={agent.error}
                               live={isStreaming}
+                              currentRunId={agent.currentRunId}
+                              accessToken={accessToken}
+                              baseUrl={baseUrl}
                             />
                           </motion.div>
                         )
@@ -2523,6 +2534,8 @@ export function ChatPage() {
                           headerOverride={block.title || (!liveTimelineExiting ? copHeaderLabel : undefined)}
                           shimmer={!liveTimelineExiting && isLastBlock && !assistantDraft}
                           live={!liveTimelineExiting && isLastBlock}
+                          accessToken={accessToken}
+                          baseUrl={baseUrl}
                         />
                         {bridgeTexts[bi] && (
                           <div style={{ padding: '4px 0', fontSize: '14px', lineHeight: '1.6', color: 'var(--c-text-primary)', maxWidth: '663px' }}>
@@ -2571,6 +2584,8 @@ export function ChatPage() {
                     activeCodeExecutionId={codePanelExecution?.id}
                     subAgents={topLevelSubAgents.length > 0 ? topLevelSubAgents : undefined}
                     fileOps={topLevelFileOps.length > 0 ? topLevelFileOps : undefined}
+                    accessToken={accessToken}
+                    baseUrl={baseUrl}
                   />
                 </div>
               )}

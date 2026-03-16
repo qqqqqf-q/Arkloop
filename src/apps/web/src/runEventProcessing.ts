@@ -682,6 +682,7 @@ export function applySubAgentToolResult(
   if (toolName === 'spawn_agent') {
     const idx = findAgentByToolCallId(agents, toolCallId)
     if (idx < 0) return { nextAgents: agents }
+    const currentRunId = typeof result.current_run_id === 'string' ? result.current_run_id : undefined
     const updated: SubAgentRef = {
       ...agents[idx],
       subAgentId,
@@ -689,6 +690,7 @@ export function applySubAgentToolResult(
       depth,
       status: isError ? 'failed' : 'active',
       error: errorMessage,
+      currentRunId: currentRunId ?? agents[idx].currentRunId,
     }
     if (nickname) updated.nickname = nickname
     return { updated, nextAgents: agents.map((a, i) => i === idx ? updated : a) }

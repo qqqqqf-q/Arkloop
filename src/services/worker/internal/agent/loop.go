@@ -976,9 +976,9 @@ func copyRequest(request llm.Request, messages []llm.Message) llm.Request {
 }
 
 // maxToolResultHistoryChars is the soft cap on total accumulated tool result text
-// sent in a single LLM request. At ~4 chars/token this is ≈50K tokens.
+// sent in a single LLM request. At ~4 chars/token this is ≈20K tokens.
 // Oldest tool results are compacted first when the cap is exceeded.
-const maxToolResultHistoryChars = 200_000
+const maxToolResultHistoryChars = 80_000
 
 // compactToolResults returns a copy of messages where the oldest tool result
 // messages are replaced by minimal placeholders if the total tool result

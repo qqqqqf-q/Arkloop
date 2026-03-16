@@ -302,10 +302,10 @@ var registry = []ToolMeta{
 		Label:     "Timeline title",
 		ShortDesc: "set a label for the user-facing thinking timeline",
 		LLMDescription: "set a short label for the user-facing thinking timeline. " +
-			"Call in parallel with your first tool call each round, and whenever you are thinking without other tools. " +
+			"Call only in parallel with tools that produce visible timeline entries (web_search, python_execute, exec_command, browser). " +
+			"Never call alone or alongside web_fetch only. " +
 			"Label: single-line plain text, same language as user input. " +
-			"Length: 8-16 Chinese characters or <=8 English words. " +
-			"May prefix with stage words: 'Searching ...', 'Analyzing ...', etc.",
+			"Length: 8-16 Chinese characters or <=8 English words.",
 	},
 	{
 		Name:           "ask_user",

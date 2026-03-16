@@ -680,12 +680,13 @@ func truncateOutputByLimit(value string, limit *int) (string, bool) {
 	if len(value) <= *limit {
 		return value, false
 	}
-	marker := fmt.Sprintf("\n...[truncated %d bytes]", len(value)-*limit)
-	allowed := *limit - len(marker)
-	if allowed < 0 {
-		allowed = 0
-	}
-	return value[:allowed] + marker, true
+	// 保留头尾各一半，中间显示截断信息，保留结果的上下文。
+	half := *limit / 2
+	head := value[:half]
+	tail := value[len(value)-half:]
+	skipped := countOutputLines(value[half : len(value)-half])
+	marker := fmt.Sprintf("\n...[%d lines truncated]\n", skipped)
+	return head + marker + tail, true
 }
 
 type requestError struct {
@@ -970,7 +971,18 @@ func truncateOutput(s string) string {
 	if len(s) <= maxOutputBytes {
 		return s
 	}
-	return s[:maxOutputBytes] + fmt.Sprintf("\n... (truncated, total %d bytes)", len(s))
+	half := maxOutputBytes / 2
+	head := s[:half]
+	tail := s[len(s)-half:]
+	skipped := countOutputLines(s[half : len(s)-half])
+	return fmt.Sprintf("%s\n...[%d lines truncated]\n%s", head, skipped, tail)
+}
+
+func countOutputLines(s string) int {
+	if s == "" {
+		return 0
+	}
+	return strings.Count(s, "\n") + 1
 }
 
 var (
@@ -1004,6 +1016,31 @@ func collapseCarriageReturns(s string) string {
 	return strings.Join(lines, "\n")
 }
 
+// collapseBackspaces simulates terminal backspace (\b) overwriting.
+// pip and similar tools use \b sequences like "\b \b" to update spinner/progress
+// in place. Each \b moves the virtual cursor one position left; a subsequent
+// character overwrites. This function resolves each line to its final visible state.
+func collapseBackspaces(s string) string {
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		if !strings.ContainsRune(line, '\b') {
+			continue
+		}
+		buf := make([]rune, 0, len(line))
+		for _, ch := range line {
+			if ch == '\b' {
+				if len(buf) > 0 {
+					buf = buf[:len(buf)-1]
+				}
+			} else {
+				buf = append(buf, ch)
+			}
+		}
+		lines[i] = string(buf)
+	}
+	return strings.Join(lines, "\n")
+}
+
 // stripANSI removes ANSI/VT100 escape sequences from s.
 func stripANSI(s string) string {
 	s = ansiOSCRe.ReplaceAllString(s, "")
@@ -1012,11 +1049,12 @@ func stripANSI(s string) string {
 	return s
 }
 
-// sanitizeShellOutput strips terminal control sequences and collapses
-// carriage-return overwrites before the output reaches the LLM.
+// sanitizeShellOutput strips terminal control sequences, collapses carriage-return
+// and backspace overwrites before the output reaches the LLM.
 // This can cut token count by 10-100x for commands that produce progress bars.
 func sanitizeShellOutput(s string) string {
 	s = collapseCarriageReturns(s)
+	s = collapseBackspaces(s)
 	s = stripANSI(s)
 	return s
 }

@@ -585,6 +585,7 @@ export type SubAgentRef = {
   status: SubAgentStatus
   error?: string
   depth?: number
+  currentRunId?: string
 }
 
 function isSubAgentStatus(v: unknown): v is SubAgentStatus {

@@ -30,6 +30,8 @@ type Props = {
   headerOverride?: string
   shimmer?: boolean
   live?: boolean
+  accessToken?: string
+  baseUrl?: string
 }
 
 function TypewriterText({ text, className, active }: { text: string; className?: string; active: boolean }) {
@@ -152,7 +154,7 @@ const SHELL_DOT_TOP = 9
 // CodeExecutionCard: border(0.5) + padding(6) + icon-center(14) = 20.5 → dot top ≈ 16
 const PYTHON_DOT_TOP = 16
 
-export function SearchTimeline({ steps, sources, isComplete, codeExecutions, onOpenCodeExecution, activeCodeExecutionId, subAgents, fileOps, headerOverride, shimmer, live }: Props) {
+export function SearchTimeline({ steps, sources, isComplete, codeExecutions, onOpenCodeExecution, activeCodeExecutionId, subAgents, fileOps, headerOverride, shimmer, live, accessToken, baseUrl }: Props) {
   const [collapsed, setCollapsed] = useState(() => isComplete)
   const prevIsCompleteRef = useRef(isComplete)
   useEffect(() => {
@@ -482,6 +484,9 @@ export function SearchTimeline({ steps, sources, isComplete, codeExecutions, onO
                           status={agent.status}
                           error={agent.error}
                           live={live}
+                          currentRunId={agent.currentRunId}
+                          accessToken={accessToken}
+                          baseUrl={baseUrl}
                         />
                       </div>
                     )
