@@ -3,6 +3,7 @@ import { X, FileText, Download, Eye, Code } from 'lucide-react'
 import { apiBaseUrl } from '@arkloop/shared/api'
 import type { ArtifactRef } from '../storage'
 import { MarkdownRenderer } from './MarkdownRenderer'
+import { ArtifactIframe } from './ArtifactIframe'
 import { useLocale } from '../contexts/LocaleContext'
 
 const toggleButtonWidth = 36
@@ -45,6 +46,14 @@ function getFilenameExtension(filename: string): string {
 function isTextMime(mime: string | null | undefined): boolean {
   const normalized = normalizeMime(mime)
   return normalized.startsWith('text/') || textLikeMimeTypes.has(normalized)
+}
+
+const iframeRenderableMimes = new Set(['text/html', 'image/svg+xml'])
+const iframeRenderableExtensions = new Set(['html', 'htm', 'svg'])
+
+function shouldRenderAsIframe(artifact: ArtifactRef): boolean {
+  if (iframeRenderableMimes.has(normalizeMime(artifact.mime_type))) return true
+  return iframeRenderableExtensions.has(getFilenameExtension(artifact.filename))
 }
 
 export function canPreviewDocumentAsText(serverMime: string | null | undefined, artifactMime: string | null | undefined, filename: string): boolean {
@@ -303,7 +312,18 @@ export function DocumentPanel({ artifact, artifacts, accessToken, runId, onClose
           </div>
         )}
 
-        {loadState.status === 'text' && mode === 'preview' && (
+        {loadState.status === 'text' && mode === 'preview' && shouldRenderAsIframe(artifact) && (
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+            <ArtifactIframe
+              mode="static"
+              artifact={artifact}
+              accessToken={accessToken}
+              style={{ flex: 1, minHeight: '400px', border: 'none', borderRadius: 0 }}
+            />
+          </div>
+        )}
+
+        {loadState.status === 'text' && mode === 'preview' && !shouldRenderAsIframe(artifact) && (
           <div style={{ padding: '20px 28px' }}>
             <MarkdownRenderer content={loadState.content} artifacts={artifacts} accessToken={accessToken} runId={runId} compact />
           </div>

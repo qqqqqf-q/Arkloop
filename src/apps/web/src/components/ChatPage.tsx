@@ -11,6 +11,7 @@ import { ShellExecutionBlock } from './ShellExecutionBlock'
 import { FileOpBlock } from './FileOpBlock'
 import { SubAgentBlock } from './SubAgentBlock'
 import { SearchTimeline, type SearchStep } from './SearchTimeline'
+import { ArtifactStreamBlock, extractPartialArtifactFields, type StreamingArtifactEntry } from './ArtifactStreamBlock'
 import UserInputCard from './UserInputCard'
 import { resolveMessageSourcesForRender } from './chatSourceResolver'
 import { ErrorCallout, type AppError } from './ErrorCallout'
@@ -292,6 +293,9 @@ export function ChatPage() {
   const [messageWebFetchesMap, setMessageWebFetchesMap] = useState<Map<string, WebFetchRef[]>>(new Map())
   const currentRunWebFetchesRef = useRef<WebFetchRef[]>([])
   const [topLevelWebFetches, setTopLevelWebFetches] = useState<WebFetchRef[]>([])
+  // streaming artifact 状态
+  const streamingArtifactsRef = useRef<StreamingArtifactEntry[]>([])
+  const [streamingArtifacts, setStreamingArtifacts] = useState<StreamingArtifactEntry[]>([])
   const [, setMessageThinkingMap] = useState<Map<string, MessageThinkingRef>>(new Map())
   // COP blocks 缓存：messageId -> cop blocks data
   const [messageCopBlocksMap, setMessageCopBlocksMap] = useState<Map<string, MessageCopBlocksRef>>(new Map())
@@ -665,6 +669,12 @@ export function ChatPage() {
   const sendMessageRef = useRef(sendMessage)
   useEffect(() => { sendMessageRef.current = sendMessage }, [sendMessage])
 
+  const handleArtifactAction = useCallback((action: { type: string; text?: string }) => {
+    if (action.type === 'prompt' && typeof action.text === 'string' && action.text.trim()) {
+      void sendMessageRef.current(action.text.trim())
+    }
+  }, [])
+
   // 加载 thread 数据
   useEffect(() => {
     if (!threadId) return
@@ -901,6 +911,8 @@ export function ChatPage() {
     setTopLevelSubAgents([])
     setTopLevelFileOps([])
     setTopLevelWebFetches([])
+    streamingArtifactsRef.current = []
+    setStreamingArtifacts([])
     resetCopState()
     setCancelSubmitting(false)
     return () => { sse.disconnect() }
@@ -1037,6 +1049,31 @@ export function ChatPage() {
         continue
       }
 
+      if (event.type === 'tool.call.delta') {
+        const obj = event.data as { tool_call_index?: number; tool_call_id?: string; tool_name?: string; arguments_delta?: string }
+        const idx = typeof obj.tool_call_index === 'number' ? obj.tool_call_index : -1
+        if (idx >= 0 && typeof obj.arguments_delta === 'string') {
+          let entry = streamingArtifactsRef.current.find((e) => e.toolCallIndex === idx)
+          if (!entry) {
+            entry = { toolCallIndex: idx, argumentsBuffer: '', complete: false }
+            streamingArtifactsRef.current = [...streamingArtifactsRef.current, entry]
+          }
+          if (obj.tool_call_id) entry.toolCallId = obj.tool_call_id
+          if (obj.tool_name) entry.toolName = obj.tool_name
+          entry.argumentsBuffer += obj.arguments_delta
+
+          if (entry.toolName === 'create_artifact' || (!entry.toolName && entry.argumentsBuffer.includes('"content"'))) {
+            const parsed = extractPartialArtifactFields(entry.argumentsBuffer)
+            if (parsed.title) entry.title = parsed.title
+            if (parsed.filename) entry.filename = parsed.filename
+            if (parsed.display) entry.display = parsed.display as 'inline' | 'panel'
+            if (parsed.content) entry.content = parsed.content
+            setStreamingArtifacts([...streamingArtifactsRef.current])
+          }
+        }
+        continue
+      }
+
       if (event.type === 'tool.call') {
         const obj = event.data as { tool_name?: unknown; llm_name?: unknown; tool_call_id?: unknown; arguments?: unknown }
         const toolName = typeof obj.tool_name === 'string' ? obj.tool_name : event.tool_name
@@ -1136,6 +1173,20 @@ export function ChatPage() {
             queries: displayQueries,
           }))
         }
+        // create_artifact tool.call: mark streaming entry as complete
+        if (toolName === 'create_artifact') {
+          const args = obj.arguments as Record<string, unknown> | undefined
+          const callId = typeof obj.tool_call_id === 'string' ? obj.tool_call_id : undefined
+          const entry = streamingArtifactsRef.current.find((e) => e.toolCallId === callId)
+          if (entry) {
+            entry.complete = true
+            if (typeof args?.content === 'string') entry.content = args.content
+            if (typeof args?.title === 'string') entry.title = args.title
+            if (typeof args?.filename === 'string') entry.filename = args.filename
+            if (typeof args?.display === 'string') entry.display = args.display as 'inline' | 'panel'
+            setStreamingArtifacts([...streamingArtifactsRef.current])
+          }
+        }
         continue
       }
 
@@ -1181,8 +1232,8 @@ export function ChatPage() {
             })
           }
         }
-        // 检测 sandbox 执行产物 + document_write 产物 + browser 产物
-        if (obj.tool_name === 'python_execute' || obj.tool_name === 'exec_command' || obj.tool_name === 'write_stdin' || obj.tool_name === 'document_write' || obj.tool_name === 'browser') {
+        // 检测 sandbox 执行产物 + document_write / create_artifact 产物 + browser 产物
+        if (obj.tool_name === 'python_execute' || obj.tool_name === 'exec_command' || obj.tool_name === 'write_stdin' || obj.tool_name === 'document_write' || obj.tool_name === 'create_artifact' || obj.tool_name === 'browser') {
           const result = obj.result as { artifacts?: unknown[]; stdout?: unknown; stderr?: unknown; exit_code?: unknown; output?: unknown } | undefined
           if (Array.isArray(result?.artifacts)) {
             const newArtifacts: ArtifactRef[] = result.artifacts
@@ -1193,9 +1244,24 @@ export function ChatPage() {
                 filename: a.filename as string,
                 size: typeof a.size === 'number' ? a.size : 0,
                 mime_type: typeof a.mime_type === 'string' ? a.mime_type : '',
+                title: typeof a.title === 'string' ? a.title : undefined,
+                display: a.display === 'inline' || a.display === 'panel' ? a.display as 'inline' | 'panel' : undefined,
               }))
             if (newArtifacts.length > 0) {
               currentRunArtifactsRef.current = [...currentRunArtifactsRef.current, ...newArtifacts]
+              // link artifact refs to streaming entries
+              if (obj.tool_name === 'create_artifact') {
+                const callId = typeof obj.tool_call_id === 'string' ? obj.tool_call_id : undefined
+                for (const art of newArtifacts) {
+                  const entry = callId
+                    ? streamingArtifactsRef.current.find((e) => e.toolCallId === callId)
+                    : undefined
+                  if (entry) {
+                    entry.artifactRef = art
+                  }
+                }
+                setStreamingArtifacts([...streamingArtifactsRef.current])
+              }
             }
           }
           const codeExecutionResult = applyCodeExecutionToolResult(currentRunCodeExecutionsRef.current, event)
@@ -1328,6 +1394,8 @@ export function ChatPage() {
         setTopLevelBrowserActions([])
         setTopLevelSubAgents([])
         setTopLevelFileOps([])
+        streamingArtifactsRef.current = []
+        setStreamingArtifacts([])
         setSegments([])
         activeSegmentIdRef.current = null
         const runCopData = finalizeCopBlocks(copBlocksRef.current, bridgeTextsRef.current)
@@ -2693,6 +2761,15 @@ export function ChatPage() {
                   />
                 </div>
               )}
+
+              {streamingArtifacts.filter((e) => e.toolName === 'create_artifact' && e.content && e.display !== 'panel').map((entry) => (
+                <ArtifactStreamBlock
+                  key={`streaming-artifact-${entry.toolCallIndex}`}
+                  entry={entry}
+                  accessToken={accessToken}
+                  onAction={handleArtifactAction}
+                />
+              ))}
 
               {assistantDraft && (
                 <StreamingBubble

@@ -24,6 +24,7 @@ import (
 	"arkloop/services/worker/internal/toolprovider"
 	"arkloop/services/worker/internal/tools"
 	"arkloop/services/worker/internal/tools/builtin"
+	artifactguidelinestool "arkloop/services/worker/internal/tools/builtin/artifact_guidelines"
 	documentwritetool "arkloop/services/worker/internal/tools/builtin/document_write"
 	"arkloop/services/worker/internal/tools/builtin/platform"
 	sandboxtool "arkloop/services/worker/internal/tools/builtin/sandbox"
@@ -200,13 +201,27 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 	}
 
 	if artifactStore != nil {
+		artifactExecutor := documentwritetool.NewToolExecutor(artifactStore)
+
+		if err := toolRegistry.Register(artifactguidelinestool.AgentSpec); err != nil {
+			return nil, err
+		}
+		executors[artifactguidelinestool.AgentSpec.Name] = artifactguidelinestool.ToolExecutor{}
+		allLlmSpecs = append(allLlmSpecs, artifactguidelinestool.LlmSpec)
+
+		if err := toolRegistry.Register(documentwritetool.CreateArtifactAgentSpec); err != nil {
+			return nil, err
+		}
+		executors[documentwritetool.CreateArtifactAgentSpec.Name] = artifactExecutor
+		allLlmSpecs = append(allLlmSpecs, documentwritetool.CreateArtifactLlmSpec)
+
 		if err := toolRegistry.Register(documentwritetool.AgentSpec); err != nil {
 			return nil, err
 		}
-		dwExecutor := documentwritetool.NewToolExecutor(artifactStore)
-		executors[documentwritetool.AgentSpec.Name] = dwExecutor
+		executors[documentwritetool.AgentSpec.Name] = artifactExecutor
 		allLlmSpecs = append(allLlmSpecs, documentwritetool.LlmSpec)
-		slog.InfoContext(ctx, "document_write: tool registered")
+
+		slog.InfoContext(ctx, "artifact tools registered: artifact_guidelines, create_artifact, document_write")
 	}
 
 	var toolDescriptionOverridesRepo *data.ToolDescriptionOverridesRepository

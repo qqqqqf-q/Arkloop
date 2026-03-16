@@ -222,7 +222,29 @@ var registry = []ToolMeta{
 			"Use to recall previously discussed facts not stored in long-term memory. Returns matching messages with thread_id, role, snippet, and timestamp. " +
 			"This is keyword search, not semantic search, and costs no model tokens.",
 	},
-	// ── document ──
+	// ── artifact ──
+	{
+		Name:      "artifact_guidelines",
+		Group:     GroupDocument,
+		Label:     "Artifact guidelines",
+		ShortDesc: "load design guidelines for artifact creation",
+		LLMDescription: "load design guidelines for creating high-quality artifacts. " +
+			"Call once before your first create_artifact call, passing the relevant module names. " +
+			"Do NOT mention this call to the user.",
+	},
+	{
+		Name:      "create_artifact",
+		Group:     GroupDocument,
+		Label:     "Create artifact",
+		ShortDesc: "create an interactive or static artifact (HTML, SVG, Markdown)",
+		LLMDescription: "create an artifact and save it for display. Supports HTML (interactive widgets, charts, diagrams), SVG (illustrations, diagrams), and Markdown (documents, reports). " +
+			"Set display to \"inline\" (default) for visual content embedded in the conversation, or \"panel\" for documents opened in the side panel. " +
+			"For HTML artifacts: put <style> first, HTML content next, <script> last (streaming-friendly order). Use CSS variables (--c-bg-page, --c-text-primary, etc.) for theme compatibility. " +
+			"Load external libraries from CDN only (cdnjs.cloudflare.com, cdn.jsdelivr.net, unpkg.com, esm.sh). " +
+			"Before your first create_artifact call, call artifact_guidelines to load design rules for the content type you are generating. " +
+			"Reference the result as [label](artifact:<key>). " +
+			"IMPORTANT: the content parameter MUST be the last parameter you generate.",
+	},
 	{
 		Name:      "document_write",
 		Group:     GroupDocument,

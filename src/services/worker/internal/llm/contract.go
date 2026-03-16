@@ -435,6 +435,29 @@ func (s StreamSegmentEnd) ToDataJSON() map[string]any {
 	}
 }
 
+// ToolCallArgumentDelta carries a single streaming chunk of tool call arguments.
+// Yielded by LLM providers during streaming to enable progressive frontend rendering.
+type ToolCallArgumentDelta struct {
+	ToolCallIndex  int
+	ToolCallID     string
+	ToolName       string
+	ArgumentsDelta string
+}
+
+func (d ToolCallArgumentDelta) ToDataJSON() map[string]any {
+	m := map[string]any{
+		"tool_call_index": d.ToolCallIndex,
+		"arguments_delta": d.ArgumentsDelta,
+	}
+	if d.ToolCallID != "" {
+		m["tool_call_id"] = d.ToolCallID
+	}
+	if d.ToolName != "" {
+		m["tool_name"] = d.ToolName
+	}
+	return m
+}
+
 func InternalStreamEndedError() GatewayError {
 	return GatewayError{
 		ErrorClass: ErrorClassInternalStreamEnded,

@@ -28,6 +28,7 @@ type ArtifactsContextValue = {
 const ArtifactsContext = createContext<ArtifactsContextValue>({ artifacts: [], accessToken: '' })
 
 function isDocumentArtifact(artifact: ArtifactRef): boolean {
+  if (artifact.display === 'panel') return true
   return !artifact.mime_type.startsWith('image/') && artifact.mime_type !== 'text/html'
 }
 

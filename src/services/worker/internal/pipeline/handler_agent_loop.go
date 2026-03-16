@@ -36,6 +36,7 @@ var (
 		"llm.response.chunk": {},
 		"run.segment.start":  {},
 		"run.segment.end":    {},
+		"tool.call.delta":    {},
 	}
 	errStopProcessing = errors.New("stop_processing")
 )

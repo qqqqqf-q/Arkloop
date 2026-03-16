@@ -800,6 +800,16 @@ func (g *OpenAIGateway) streamChatCompletionsSSE(
 		}
 		for idx, toolDelta := range choice.Delta.ToolCalls {
 			toolBuffer.Add(toolDelta, idx)
+			if toolDelta.Function.Arguments != "" {
+				if err := yield(ToolCallArgumentDelta{
+					ToolCallIndex:  idx,
+					ToolCallID:     toolDelta.ID,
+					ToolName:       toolDelta.Function.Name,
+					ArgumentsDelta: toolDelta.Function.Arguments,
+				}); err != nil {
+					return err
+				}
+			}
 		}
 
 		if choice.FinishReason != nil {

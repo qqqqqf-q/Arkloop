@@ -14,6 +14,7 @@ import { useLocale } from '../contexts/LocaleContext'
 import { extractLegacyFilesFromContent, isFilePart, isImagePart, isPastedFile, messageAttachmentParts, messageTextContent } from '../messageContent'
 
 function isDocumentArtifact(artifact: ArtifactRef): boolean {
+  if (artifact.display === 'panel') return true
   return !artifact.mime_type.startsWith('image/') && artifact.mime_type !== 'text/html'
 }
 

@@ -912,6 +912,9 @@ func (l *Loop) runSingleTurn(
 		case llm.StreamProviderFallback:
 			eventsOut = append(eventsOut, emitter.Emit("run.provider_fallback", typed.ToDataJSON(), nil, nil))
 			return nil
+		case llm.ToolCallArgumentDelta:
+			eventsOut = append(eventsOut, emitter.Emit("tool.call.delta", typed.ToDataJSON(), nil, nil))
+			return nil
 		case llm.ToolCall:
 			toolCalls = append(toolCalls, typed)
 			return nil

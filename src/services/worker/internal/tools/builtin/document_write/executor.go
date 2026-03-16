@@ -16,7 +16,17 @@ const (
 	errorUploadFailed = "tool.upload_failed"
 )
 
-// ToolExecutor 将 Markdown 内容直接上传到 S3，不经过 Sandbox。
+var mimeByExt = map[string]string{
+	".md":      "text/markdown",
+	".html":    "text/html",
+	".htm":     "text/html",
+	".svg":     "image/svg+xml",
+	".json":    "application/json",
+	".css":     "text/css",
+	".js":      "text/javascript",
+	".mermaid": "text/x-mermaid",
+}
+
 type ToolExecutor struct {
 	store interface {
 		PutObject(ctx context.Context, key string, data []byte, options objectstore.PutOptions) error
@@ -49,6 +59,18 @@ func (e *ToolExecutor) Execute(
 		return errResult(errorArgsInvalid, "parameter content is required", started)
 	}
 
+	title, _ := args["title"].(string)
+	title = strings.TrimSpace(title)
+	if title == "" {
+		title = strings.TrimSuffix(filepath.Base(filename), filepath.Ext(filename))
+	}
+
+	display, _ := args["display"].(string)
+	display = strings.TrimSpace(strings.ToLower(display))
+	if display != "inline" && display != "panel" {
+		display = "inline"
+	}
+
 	var orgPrefix string
 	if execCtx.AccountID != nil {
 		orgPrefix = execCtx.AccountID.String()
@@ -63,10 +85,7 @@ func (e *ToolExecutor) Execute(
 	}
 	metadata := objectstore.ArtifactMetadata(objectstore.ArtifactOwnerKindRun, execCtx.RunID.String(), orgPrefix, threadID)
 
-	contentType := "text/markdown"
-	if ext := strings.ToLower(filepath.Ext(filename)); ext != ".md" {
-		contentType = "text/plain"
-	}
+	contentType := inferContentType(filename)
 
 	if err := e.store.PutObject(ctx, key, []byte(content), objectstore.PutOptions{ContentType: contentType, Metadata: metadata}); err != nil {
 		return errResult(errorUploadFailed, fmt.Sprintf("upload failed: %s", err.Error()), started)
@@ -80,11 +99,21 @@ func (e *ToolExecutor) Execute(
 					"filename":  filename,
 					"size":      len(content),
 					"mime_type": contentType,
+					"title":     title,
+					"display":   display,
 				},
 			},
 		},
 		DurationMs: durationMs(started),
 	}
+}
+
+func inferContentType(filename string) string {
+	ext := strings.ToLower(filepath.Ext(filename))
+	if ct, ok := mimeByExt[ext]; ok {
+		return ct
+	}
+	return "text/plain"
 }
 
 func errResult(errorClass, message string, started time.Time) tools.ExecutionResult {
