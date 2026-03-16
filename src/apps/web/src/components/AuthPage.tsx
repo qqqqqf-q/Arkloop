@@ -7,13 +7,16 @@ import {
   sendResolvedEmailOTP,
   verifyResolvedEmailOTP,
   getCaptchaConfig,
+  isApiError,
 } from '../api'
 import type { RegistrationModeResponse } from '../api'
 import { ErrorCallout } from './ErrorCallout'
+import type { AppError } from './ErrorCallout'
 import { Turnstile } from '@arkloop/shared'
 import { useLocale } from '../contexts/LocaleContext'
 import {
   SpinnerIcon,
+  EyeIcon,
   normalizeError,
   Reveal,
   PasswordEye,

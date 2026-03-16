@@ -227,7 +227,7 @@ export const ArtifactIframe = forwardRef<ArtifactIframeHandle, Props>(
         if (!iframe?.contentWindow) return
         try {
           const escaped = escapeJSString(html)
-          iframe.contentWindow.eval(`window._setContent('${escaped}')`)
+          ;(iframe.contentWindow as Window & { eval: (code: string) => void }).eval(`window._setContent('${escaped}')`)
         } catch {
           // iframe not ready yet
         }
@@ -237,7 +237,7 @@ export const ArtifactIframe = forwardRef<ArtifactIframeHandle, Props>(
         if (!iframe?.contentWindow) return
         try {
           const escaped = escapeJSString(html)
-          iframe.contentWindow.eval(`window._setContent('${escaped}'); window._runScripts();`)
+          ;(iframe.contentWindow as Window & { eval: (code: string) => void }).eval(`window._setContent('${escaped}'); window._runScripts();`)
         } catch {
           // iframe not ready yet
         }
