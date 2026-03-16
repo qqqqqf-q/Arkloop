@@ -3,7 +3,6 @@ package writefile
 import (
 	"context"
 	"fmt"
-	"os"
 	"time"
 
 	"arkloop/services/worker/internal/tools"
@@ -29,14 +28,7 @@ func (e *Executor) Execute(
 	}
 	content, _ := args["content"].(string)
 
-	backend := fileops.ResolveBackend(execCtx.RuntimeSnapshot, "", execCtx.RunID.String(), resolveAccountID(execCtx))
-
-	var oldContent string
-	existing, readErr := backend.ReadFile(ctx, filePath)
-	isNew := readErr != nil && os.IsNotExist(readErr)
-	if readErr == nil {
-		oldContent = string(existing)
-	}
+	backend := fileops.ResolveBackend(execCtx.RuntimeSnapshot, "", execCtx.RunID.String(), resolveAccountID(execCtx), execCtx.ProfileRef, execCtx.WorkspaceRef)
 
 	if err := backend.WriteFile(ctx, filePath, []byte(content)); err != nil {
 		return errResult(fmt.Sprintf("write failed: %s", err.Error()), started)
@@ -47,13 +39,6 @@ func (e *Executor) Execute(
 	result := map[string]any{
 		"file_path": filePath,
 		"status":    "written",
-	}
-	if isNew {
-		result["created"] = true
-	} else if readErr == nil {
-		additions, removals := fileops.CountDiffLines(oldContent, content)
-		result["additions"] = additions
-		result["removals"] = removals
 	}
 
 	return tools.ExecutionResult{

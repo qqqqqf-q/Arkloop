@@ -1,6 +1,6 @@
 import type { MessageResponse, ThreadRunResponse } from './api'
 import type { RunEvent } from './sse'
-import type { ArtifactRef, BrowserActionRef, CodeExecutionRef, MessageThinkingRef, SubAgentRef } from './storage'
+import type { ArtifactRef, BrowserActionRef, CodeExecutionRef, FileOpRef, MessageThinkingRef, SubAgentRef } from './storage'
 
 const CODE_EXECUTION_TOOL_NAMES = new Set(['python_execute', 'exec_command'])
 const CODE_EXECUTION_RESULT_TOOL_NAMES = new Set(['python_execute', 'exec_command', 'write_stdin'])
@@ -682,6 +682,7 @@ export function applySubAgentToolResult(
   if (toolName === 'spawn_agent') {
     const idx = findAgentByToolCallId(agents, toolCallId)
     if (idx < 0) return { nextAgents: agents }
+    const currentRunId = typeof result.current_run_id === 'string' ? result.current_run_id : undefined
     const updated: SubAgentRef = {
       ...agents[idx],
       subAgentId,
@@ -689,6 +690,7 @@ export function applySubAgentToolResult(
       depth,
       status: isError ? 'failed' : 'active',
       error: errorMessage,
+      currentRunId: currentRunId ?? agents[idx].currentRunId,
     }
     if (nickname) updated.nickname = nickname
     return { updated, nextAgents: agents.map((a, i) => i === idx ? updated : a) }
@@ -744,4 +746,149 @@ export function buildMessageSubAgentsFromRunEvents(events: RunEvent[]): SubAgent
     }
   }
   return agents
+}
+
+// --- File operation processing ---
+
+const FILE_OP_TOOL_NAMES = new Set(['grep', 'glob', 'read_file', 'write_file', 'edit_file'])
+
+type FileOpToolCallPatch = {
+  nextOps: FileOpRef[]
+  appended?: FileOpRef
+}
+
+type FileOpToolResultPatch = {
+  nextOps: FileOpRef[]
+  updated?: FileOpRef
+}
+
+function fileOpLabel(toolName: string, args: Record<string, unknown>): string {
+  const truncate = (s: string, max: number) => s.length > max ? s.slice(0, max) + '…' : s
+  const basename = (p: string) => p.replace(/\\/g, '/').split('/').pop() ?? p
+
+  switch (toolName) {
+    case 'grep': {
+      const pattern = typeof args.pattern === 'string' ? args.pattern : ''
+      const path = typeof args.path === 'string' ? args.path : ''
+      const label = `grep "${truncate(pattern, 32)}"`
+      return path ? `${label} in ${truncate(basename(path), 24)}` : label
+    }
+    case 'glob': {
+      const pattern = typeof args.pattern === 'string' ? args.pattern : ''
+      const path = typeof args.path === 'string' ? args.path : ''
+      const label = `glob "${truncate(pattern, 32)}"`
+      return path ? `${label} in ${truncate(basename(path), 24)}` : label
+    }
+    case 'read_file': {
+      const filePath = typeof args.file_path === 'string' ? args.file_path : ''
+      return filePath ? truncate(basename(filePath), 48) : 'read file'
+    }
+    case 'write_file': {
+      const filePath = typeof args.file_path === 'string' ? args.file_path : ''
+      return filePath ? truncate(basename(filePath), 48) : 'write file'
+    }
+    case 'edit_file': {
+      const filePath = typeof args.file_path === 'string' ? args.file_path : ''
+      return filePath ? truncate(basename(filePath), 48) : 'edit file'
+    }
+    default:
+      return toolName
+  }
+}
+
+function fileOpOutputFromResult(toolName: string, result: unknown): string | undefined {
+  if (!result || typeof result !== 'object') return undefined
+  const r = result as Record<string, unknown>
+
+  switch (toolName) {
+    case 'grep': {
+      const count = typeof r.count === 'number' ? r.count : 0
+      const matches = typeof r.matches === 'string' ? r.matches.trim() : ''
+      if (count === 0) return '(no matches)'
+      return `${count} match${count === 1 ? '' : 'es'}\n${matches}`
+    }
+    case 'glob': {
+      const files = Array.isArray(r.files) ? (r.files as unknown[]).filter((f): f is string => typeof f === 'string') : []
+      const count = typeof r.count === 'number' ? r.count : files.length
+      if (count === 0) return '(no files)'
+      return `${count} file${count === 1 ? '' : 's'}\n${files.join('\n')}`
+    }
+    case 'read_file': {
+      const content = typeof r.content === 'string' ? r.content.trim() : ''
+      return content || undefined
+    }
+    case 'write_file': {
+      const filePath = typeof r.file_path === 'string' ? r.file_path : ''
+      return filePath ? `written: ${filePath}` : 'written'
+    }
+    case 'edit_file': {
+      const filePath = typeof r.file_path === 'string' ? r.file_path : ''
+      return filePath ? `edited: ${filePath}` : 'edited'
+    }
+    default:
+      return undefined
+  }
+}
+
+export function applyFileOpToolCall(
+  ops: FileOpRef[],
+  event: RunEvent,
+): FileOpToolCallPatch {
+  if (event.type !== 'tool.call') return { nextOps: ops }
+  const toolName = pickToolName(event.data)
+  if (!FILE_OP_TOOL_NAMES.has(toolName)) return { nextOps: ops }
+
+  const args = event.data && typeof event.data === 'object'
+    ? (event.data as { arguments?: unknown }).arguments as Record<string, unknown> | undefined ?? {}
+    : {}
+  const appended: FileOpRef = {
+    id: pickToolCallId(event),
+    toolName,
+    label: fileOpLabel(toolName, args),
+    status: 'running',
+  }
+  return { appended, nextOps: [...ops, appended] }
+}
+
+export function applyFileOpToolResult(
+  ops: FileOpRef[],
+  event: RunEvent,
+): FileOpToolResultPatch {
+  if (event.type !== 'tool.result') return { nextOps: ops }
+  const toolName = pickToolName(event.data)
+  if (!FILE_OP_TOOL_NAMES.has(toolName)) return { nextOps: ops }
+
+  const toolCallId = pickToolCallId(event)
+  const data = event.data && typeof event.data === 'object'
+    ? event.data as { result?: unknown }
+    : undefined
+  const result = data?.result
+  const error = extractCodeExecutionError(event)
+  const hasError = !!(error.errorClass || error.errorMessage)
+
+  const targetIdx = ops.findIndex((o) => o.id === toolCallId)
+  if (targetIdx < 0) return { nextOps: ops }
+
+  const updated: FileOpRef = {
+    ...ops[targetIdx],
+    status: hasError ? 'failed' : 'success',
+    output: hasError ? undefined : fileOpOutputFromResult(toolName, result),
+    errorMessage: hasError ? (error.errorMessage ?? error.errorClass) : undefined,
+  }
+  return {
+    updated,
+    nextOps: ops.map((o, i) => i === targetIdx ? updated : o),
+  }
+}
+
+export function buildMessageFileOpsFromRunEvents(events: RunEvent[]): FileOpRef[] {
+  let ops: FileOpRef[] = []
+  for (const event of events) {
+    if (event.type === 'tool.call') {
+      ops = applyFileOpToolCall(ops, event).nextOps
+    } else if (event.type === 'tool.result') {
+      ops = applyFileOpToolResult(ops, event).nextOps
+    }
+  }
+  return ops
 }

@@ -14,6 +14,7 @@ import (
 	searchtools "arkloop/services/worker/internal/tools/builtin/search_tools"
 	spawnagent "arkloop/services/worker/internal/tools/builtin/spawn_agent"
 	summarizethread "arkloop/services/worker/internal/tools/builtin/summarize_thread"
+	todowrite "arkloop/services/worker/internal/tools/builtin/todo_write"
 	webfetch "arkloop/services/worker/internal/tools/builtin/web_fetch"
 	websearch "arkloop/services/worker/internal/tools/builtin/web_search"
 	writefile "arkloop/services/worker/internal/tools/builtin/write_file"
@@ -47,6 +48,7 @@ func AgentSpecs() []tools.AgentToolSpec {
 		summarizethread.AgentSpec,
 		askuser.AgentSpec,
 		acptool.AgentSpec,
+		todowrite.AgentSpec,
 	}
 }
 
@@ -65,6 +67,7 @@ func LlmSpecs() []llm.ToolSpec {
 		summarizethread.LlmSpec,
 		askuser.LlmSpec,
 		acptool.LlmSpec,
+		todowrite.LlmSpec,
 	}
 }
 
@@ -89,5 +92,6 @@ func Executors(pool *pgxpool.Pool, rdb *redis.Client, resolver sharedconfig.Reso
 		summarizethread.AgentSpec.Name:   &summarizethread.ToolExecutor{Pool: pool, RDB: rdb},
 		askuser.AgentSpec.Name:           askuser.ToolExecutor{},
 		acptool.AgentSpec.Name:           acptool.ToolExecutor{ConfigResolver: resolver},
+		todowrite.AgentSpec.Name:         &todowrite.Executor{},
 	}
 }

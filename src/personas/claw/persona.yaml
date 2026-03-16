@@ -3,6 +3,7 @@ version: "1"
 title: Claw
 description: 面向多步任务执行的自主 Agent 模式。
 user_selectable: false
+soul_file: soul.md
 tool_allowlist:
   - web_search
   - web_fetch
@@ -17,6 +18,7 @@ tool_allowlist:
   - spawn_agent
   - summarize_thread
   - timeline_title
+  - todo_write
 budgets:
   max_output_tokens: 12288
   reasoning_iterations: 99999

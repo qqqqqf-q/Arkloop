@@ -761,6 +761,10 @@ func (o *sessionOrchestrator) prepareExecWriterLease(
 	}
 	record := o.sessionRecord(execCtx, resolution)
 	if record.State == data.ShellSessionStateBusy && hasActiveWriterLease(record, time.Now().UTC()) {
+		currentOwner := strings.TrimSpace(stringPtrValue(record.LeaseOwnerID))
+		if isLeaseFromSameRun(currentOwner, execCtx.RunID) {
+			return sessionRunningError(resolution.SessionRef)
+		}
 		return shellBusyError(resolution.SessionRef, "fork")
 	}
 	updated, err := o.acquireWriterLease(ctx, execCtx, resolution, ownerID, execWriterLeaseUntil(timeoutMs))
@@ -1040,4 +1044,27 @@ func timePtr(value time.Time) *time.Time {
 	}
 	copyValue := value.UTC()
 	return &copyValue
+}
+
+// isLeaseFromSameRun reports whether a lease owner ID belongs to the given run.
+func isLeaseFromSameRun(leaseOwnerID string, runID uuid.UUID) bool {
+	if runID == uuid.Nil || leaseOwnerID == "" {
+		return false
+	}
+	return strings.HasPrefix(leaseOwnerID, "run:"+runID.String()+":")
+}
+
+// sessionRunningError is returned when the session is busy because a command
+// from the same run is still executing. The model should poll with write_stdin.
+func sessionRunningError(sessionRef string) *tools.ExecutionError {
+	details := map[string]any{
+		"code":        "shell.session_running",
+		"retry_via":   "write_stdin",
+		"session_ref": sessionRef,
+	}
+	return &tools.ExecutionError{
+		ErrorClass: errorSandboxError,
+		Message:    "shell session has a running command",
+		Details:    details,
+	}
 }

@@ -47,7 +47,7 @@ func (e *Executor) Execute(
 	}
 	searchPath, _ := args["path"].(string)
 
-	backend := fileops.ResolveBackend(execCtx.RuntimeSnapshot, "", execCtx.RunID.String(), resolveAccountID(execCtx))
+	backend := fileops.ResolveBackend(execCtx.RuntimeSnapshot, "", execCtx.RunID.String(), resolveAccountID(execCtx), execCtx.ProfileRef, execCtx.WorkspaceRef)
 
 	matches, truncated, err := globFiles(ctx, backend, pattern, searchPath)
 	if err != nil {
@@ -80,7 +80,8 @@ func globFiles(ctx context.Context, backend fileops.Backend, pattern, searchPath
 }
 
 func globWithRipgrep(ctx context.Context, backend fileops.Backend, pattern, searchPath string) ([]string, error) {
-	cmd := fmt.Sprintf("rg --files --glob %s --null", shellQuote(pattern))
+	// Avoid --null: PTY sessions may corrupt NUL bytes in the output stream.
+	cmd := fmt.Sprintf("rg --files --glob %s", shellQuote(pattern))
 	if searchPath != "" {
 		cmd += " " + shellQuote(searchPath)
 	}
@@ -88,11 +89,15 @@ func globWithRipgrep(ctx context.Context, backend fileops.Backend, pattern, sear
 	if err != nil {
 		return nil, err
 	}
+	// rg exits 1 when no files match — not an error
+	if exitCode == 1 {
+		return nil, nil
+	}
 	if exitCode != 0 && stdout == "" {
 		return nil, fmt.Errorf("rg exited %d", exitCode)
 	}
 	var matches []string
-	for _, path := range strings.Split(stdout, "\x00") {
+	for _, path := range strings.Split(stdout, "\n") {
 		path = strings.TrimSpace(path)
 		if path == "" {
 			continue

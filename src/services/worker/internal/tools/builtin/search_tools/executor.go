@@ -20,15 +20,19 @@ const (
 type Executor struct {
 	activator        tools.ToolActivator
 	specsFn          func() map[string]llm.ToolSpec
+	activeSpecsFn    func() map[string]llm.ToolSpec // core tools already in request.Tools
 	alreadyActivated map[string]struct{}
 }
 
 // NewExecutor creates a search_tools executor.
 // specsFn is called lazily because searchable specs are set after executor creation.
-func NewExecutor(activator tools.ToolActivator, specsFn func() map[string]llm.ToolSpec) *Executor {
+// activeSpecsFn (optional) provides core/already-active specs so queries against them
+// return schema info with already_active:true rather than "no results".
+func NewExecutor(activator tools.ToolActivator, specsFn func() map[string]llm.ToolSpec, activeSpecsFn func() map[string]llm.ToolSpec) *Executor {
 	return &Executor{
 		activator:        activator,
 		specsFn:          specsFn,
+		activeSpecsFn:    activeSpecsFn,
 		alreadyActivated: map[string]struct{}{},
 	}
 }
@@ -62,7 +66,22 @@ func (e *Executor) Execute(
 	}
 
 	searchable := e.specsFn()
-	matched := matchTools(queries, searchable)
+
+	// Build combined pool: searchable tools + already-active core tools.
+	// Core tools are matched for schema lookup but never re-activated.
+	var activeSpecs map[string]llm.ToolSpec
+	if e.activeSpecsFn != nil {
+		activeSpecs = e.activeSpecsFn()
+	}
+	pool := make(map[string]llm.ToolSpec, len(searchable)+len(activeSpecs))
+	for k, v := range activeSpecs {
+		pool[k] = v
+	}
+	for k, v := range searchable {
+		pool[k] = v
+	}
+
+	matched := matchTools(queries, pool)
 
 	if len(matched) == 0 {
 		return tools.ExecutionResult{
@@ -74,16 +93,21 @@ func (e *Executor) Execute(
 		}
 	}
 
-	// Only activate tools not yet injected into request.Tools.
-	// Don't mutate the searchable map — it's a shared reference.
+	// Activate searchable tools not yet injected; core tools are already active.
 	var newSpecs []llm.ToolSpec
 	results := make([]map[string]any, 0, len(matched))
 	for _, spec := range matched {
-		results = append(results, specToJSON(spec))
-		if _, done := e.alreadyActivated[spec.Name]; !done {
-			e.alreadyActivated[spec.Name] = struct{}{}
-			newSpecs = append(newSpecs, spec)
+		entry := specToJSON(spec)
+		_, isSearchable := searchable[spec.Name]
+		if isSearchable {
+			if _, done := e.alreadyActivated[spec.Name]; !done {
+				e.alreadyActivated[spec.Name] = struct{}{}
+				newSpecs = append(newSpecs, spec)
+			}
+		} else {
+			entry["already_active"] = true
 		}
+		results = append(results, entry)
 	}
 
 	if len(newSpecs) > 0 {

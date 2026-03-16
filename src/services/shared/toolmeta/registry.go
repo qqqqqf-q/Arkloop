@@ -302,10 +302,10 @@ var registry = []ToolMeta{
 		Label:     "Timeline title",
 		ShortDesc: "set a label for the user-facing thinking timeline",
 		LLMDescription: "set a short label for the user-facing thinking timeline. " +
-			"Call in parallel with your first tool call each round, and whenever you are thinking without other tools. " +
+			"Call only in parallel with tools that produce visible timeline entries (web_search, python_execute, exec_command, browser). " +
+			"Never call alone or alongside web_fetch only. " +
 			"Label: single-line plain text, same language as user input. " +
-			"Length: 8-16 Chinese characters or <=8 English words. " +
-			"May prefix with stage words: 'Searching ...', 'Analyzing ...', etc.",
+			"Length: 8-16 Chinese characters or <=8 English words.",
 	},
 	{
 		Name:           "ask_user",
@@ -313,6 +313,17 @@ var registry = []ToolMeta{
 		Label:          "Ask user",
 		ShortDesc:      "present multiple-choice questions to the user",
 		LLMDescription: "present structured multiple-choice questions to the user. Use when a clear choice between specific options is needed.",
+	},
+	{
+		Name:      "todo_write",
+		Group:     GroupOrchestration,
+		Label:     "Todo write",
+		ShortDesc: "manage a structured todo list for the current run",
+		LLMDescription: "create and update a structured todo list for the current run. " +
+			"Each call fully replaces the list. " +
+			"Use to track multi-step plans: start with all items pending, update status as work progresses. " +
+			"status must be one of: pending, in_progress, completed, cancelled. " +
+			"Only one item should be in_progress at a time.",
 	},
 }
 

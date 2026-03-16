@@ -3,6 +3,8 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { ChevronRight, ChevronDown, Loader2 } from 'lucide-react'
 import { useLocale } from '../contexts/LocaleContext'
 import { useTypewriter } from '../hooks/useTypewriter'
+import { useSubAgentCop } from '../hooks/useSubAgentCop'
+import { SearchTimeline } from './SearchTimeline'
 
 type Props = {
   nickname?: string
@@ -13,6 +15,9 @@ type Props = {
   status: 'spawning' | 'active' | 'completed' | 'failed' | 'closed'
   error?: string
   live?: boolean
+  currentRunId?: string
+  accessToken?: string
+  baseUrl?: string
 }
 
 type Status = Props['status']
@@ -29,7 +34,18 @@ function maskFor(edge: ScrollEdge): string | undefined {
   return undefined
 }
 
-export function SubAgentBlock({ nickname, personaId, input, output, status, error, live }: Props) {
+export function SubAgentBlock({
+  nickname,
+  personaId,
+  input,
+  output,
+  status,
+  error,
+  live,
+  currentRunId,
+  accessToken = '',
+  baseUrl = '',
+}: Props) {
   const [expanded, setExpanded] = useState(false)
   const { t } = useLocale()
   const outputRef = useRef<HTMLDivElement>(null)
@@ -38,13 +54,24 @@ export function SubAgentBlock({ nickname, personaId, input, output, status, erro
   const rawLabel = nickname || personaId || t.agentSubAgent
   const displayedLabel = useTypewriter(live ? rawLabel : '')
   const label = live ? displayedLabel : rawLabel
+
+  const cop = useSubAgentCop({
+    runId: currentRunId,
+    accessToken,
+    baseUrl,
+    enabled: expanded && !!currentRunId,
+  })
+
+  const hasCop = cop.steps.length > 0 || cop.sources.length > 0
+
   const displayOutput = output?.trim() ? output : error?.trim() ? error : undefined
-  const hasOutput = !!displayOutput
+  // COP 激活时不显示原始 output 区域（除非最终 output 有意义且 COP 已完成）
+  const showRawOutput = !hasCop && !!displayOutput
   const isWaiting = status === 'spawning' || status === 'active'
 
   useEffect(() => {
     const el = outputRef.current
-    if (!el || !expanded) return
+    if (!el || !expanded || hasCop) return
     const update = () => {
       const { scrollTop, scrollHeight, clientHeight } = el
       if (scrollHeight <= clientHeight + 1) { setScrollEdge('none'); return }
@@ -58,7 +85,7 @@ export function SubAgentBlock({ nickname, personaId, input, output, status, erro
     update()
     el.addEventListener('scroll', update, { passive: true })
     return () => el.removeEventListener('scroll', update)
-  }, [expanded, displayOutput])
+  }, [expanded, displayOutput, hasCop])
 
   const mask = maskFor(scrollEdge)
 
@@ -68,7 +95,12 @@ export function SubAgentBlock({ nickname, personaId, input, output, status, erro
         role="button"
         tabIndex={0}
         onClick={() => setExpanded((p) => !p)}
-        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded((p) => !p) } }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            setExpanded((p) => !p)
+          }
+        }}
         style={{
           display: 'inline-flex',
           alignItems: 'center',
@@ -110,9 +142,21 @@ export function SubAgentBlock({ nickname, personaId, input, output, status, erro
             transition={expandTransition}
             style={{ overflow: 'hidden' }}
           >
-            <div style={{ borderRadius: '8px', background: 'var(--c-bg-menu)', overflow: 'hidden', marginTop: '4px' }}>
+            <div style={{
+              borderRadius: '8px',
+              background: 'var(--c-bg-menu)',
+              overflow: 'hidden',
+              marginTop: '4px',
+            }}>
               {/* type label */}
-              <div style={{ padding: '6px 10px 2px', fontSize: '10px', color: 'var(--c-text-muted)', fontFamily: MONO, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              <div style={{
+                padding: '6px 10px 2px',
+                fontSize: '10px',
+                color: 'var(--c-text-muted)',
+                fontFamily: MONO,
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em',
+              }}>
                 agent
               </div>
 
@@ -138,14 +182,44 @@ export function SubAgentBlock({ nickname, personaId, input, output, status, erro
                 </div>
               )}
 
-              {/* Output */}
-              {(hasOutput || isWaiting) && (
+              {/* 嵌套 COP：sub-agent 的 search timeline */}
+              {hasCop && (
+                <div style={{
+                  padding: '4px 10px 8px',
+                  borderLeft: '2px solid var(--c-border-subtle)',
+                  marginLeft: '10px',
+                  marginRight: '10px',
+                  marginBottom: '4px',
+                }}>
+                  <SearchTimeline
+                    steps={cop.steps}
+                    sources={cop.sources}
+                    isComplete={cop.isComplete}
+                    live={cop.isStreaming}
+                  />
+                </div>
+              )}
+
+              {/* 等待中且无 COP：显示光标 */}
+              {!hasCop && isWaiting && !cop.isStreaming && (
+                <div style={{ padding: '4px 10px 8px' }}>
+                  <div style={{ minHeight: '48px', display: 'flex', alignItems: 'center', padding: '4px 0' }}>
+                    <span style={{
+                      fontFamily: MONO,
+                      fontSize: '10.5px',
+                      color: 'var(--c-text-muted)',
+                      animation: 'terminal-blink 1.2s step-start infinite',
+                    }}>▮</span>
+                  </div>
+                </div>
+              )}
+
+              {/* 原始 output（仅 COP 未激活时显示） */}
+              {showRawOutput && (
                 <div style={{ position: 'relative' }}>
-                  {hasOutput && (
-                    <div style={{ padding: '2px 10px 0', fontSize: '10px', color: 'var(--c-text-muted)', fontFamily: MONO, marginBottom: '2px' }}>
-                      {t.agentOutput}
-                    </div>
-                  )}
+                  <div style={{ padding: '2px 10px 0', fontSize: '10px', color: 'var(--c-text-muted)', fontFamily: MONO, marginBottom: '2px' }}>
+                    {t.agentOutput}
+                  </div>
                   <div
                     ref={outputRef}
                     style={{
@@ -156,35 +230,29 @@ export function SubAgentBlock({ nickname, personaId, input, output, status, erro
                       WebkitMaskImage: mask,
                     }}
                   >
-                    {hasOutput ? (
-                      <pre style={{
-                        margin: 0,
-                        fontSize: '10.5px',
-                        lineHeight: '1.4',
-                        color: status === 'failed' ? 'var(--c-status-error-text, #ef4444)' : 'var(--c-text-secondary)',
-                        fontFamily: MONO,
-                        whiteSpace: 'pre-wrap',
-                        wordBreak: 'break-word',
-                      }}>
-                        {displayOutput!.trimEnd()}
-                      </pre>
-                    ) : (
-                      <div style={{ minHeight: '48px', display: 'flex', alignItems: 'center', padding: '4px 0' }}>
-                        <span style={{ fontFamily: MONO, fontSize: '10.5px', color: 'var(--c-text-muted)', animation: 'terminal-blink 1.2s step-start infinite' }}>▮</span>
-                      </div>
-                    )}
+                    <pre style={{
+                      margin: 0,
+                      fontSize: '10.5px',
+                      lineHeight: '1.4',
+                      color: status === 'failed' ? 'var(--c-status-error-text, #ef4444)' : 'var(--c-text-secondary)',
+                      fontFamily: MONO,
+                      whiteSpace: 'pre-wrap',
+                      wordBreak: 'break-word',
+                    }}>
+                      {displayOutput!.trimEnd()}
+                    </pre>
                   </div>
                 </div>
               )}
 
-              {/* No output */}
-              {!hasOutput && !isWaiting && (
+              {/* 无内容 */}
+              {!hasCop && !showRawOutput && !isWaiting && (
                 <div style={{ padding: '4px 10px 8px', fontSize: '10.5px', color: 'var(--c-text-muted)', fontStyle: 'italic', fontFamily: MONO }}>
                   {t.agentNoOutput}
                 </div>
               )}
 
-              {/* Status bottom-right */}
+              {/* Status */}
               <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '0 10px 6px' }}>
                 <StatusBadge status={status} />
               </div>

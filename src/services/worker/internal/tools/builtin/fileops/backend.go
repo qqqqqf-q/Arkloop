@@ -25,13 +25,15 @@ type FileInfo struct {
 
 // ResolveBackend returns a SandboxExecBackend when a sandbox service is
 // reachable, otherwise falls back to a LocalBackend rooted at workDir.
-func ResolveBackend(snapshot *sharedtoolruntime.RuntimeSnapshot, workDir string, runID, accountID string) Backend {
+func ResolveBackend(snapshot *sharedtoolruntime.RuntimeSnapshot, workDir string, runID, accountID, profileRef, workspaceRef string) Backend {
 	if snapshot != nil && snapshot.SandboxBaseURL != "" {
 		return &SandboxExecBackend{
-			baseURL:   snapshot.SandboxBaseURL,
-			authToken: snapshot.SandboxAuthToken,
-			sessionID: runID + "/file",
-			accountID: accountID,
+			baseURL:      snapshot.SandboxBaseURL,
+			authToken:    snapshot.SandboxAuthToken,
+			sessionID:    runID + "/file",
+			accountID:    accountID,
+			profileRef:   profileRef,
+			workspaceRef: workspaceRef,
 		}
 	}
 	if workDir == "" {

@@ -10,6 +10,7 @@ import { MessageBubble, StreamingBubble } from './MessageBubble'
 import { RunDetailPanel } from './RunDetailPanel'
 import { ThinkingBlock, CodeExecutionCard, type CodeExecution } from './ThinkingBlock'
 import { ShellExecutionBlock } from './ShellExecutionBlock'
+import { FileOpBlock } from './FileOpBlock'
 import { SubAgentBlock } from './SubAgentBlock'
 import { SearchTimeline, type SearchStep } from './SearchTimeline'
 import { MemoryActionBlock } from './MemoryActionBlock'
@@ -43,6 +44,9 @@ import {
   applySubAgentToolCall,
   applySubAgentToolResult,
   buildMessageSubAgentsFromRunEvents,
+  applyFileOpToolCall,
+  applyFileOpToolResult,
+  buildMessageFileOpsFromRunEvents,
 } from '../runEventProcessing'
 import { useLocale } from '../contexts/LocaleContext'
 import { apiBaseUrl } from '@arkloop/shared/api'
@@ -96,12 +100,15 @@ import {
   type CodeExecutionRef,
   type BrowserActionRef,
   type SubAgentRef,
+  type FileOpRef,
   type MessageThinkingRef,
   type MessageSearchStepRef,
   type MemoryActionRef,
   type MessageCopBlocksRef,
   readMessageSubAgents,
   writeMessageSubAgents,
+  readMessageFileOps,
+  writeMessageFileOps,
   migrateMessageMetadata,
   readDeveloperShowRunEvents,
   readMsgRunEvents,
@@ -176,6 +183,7 @@ type CopBlock = {
   title: string
   steps: SearchStep[]
   sources: WebSource[]
+  codeExecutions: CodeExecution[]
 }
 
 // finalizeSearchSteps converts live SearchStep[] to the storage format.
@@ -218,6 +226,7 @@ function finalizeCopBlocks(blocks: CopBlock[], bridgeTexts: string[]): MessageCo
       title: block.title,
       steps: finalizeBlockSteps(block.steps),
       sources: [...block.sources],
+      codeExecutions: block.codeExecutions.length > 0 ? [...block.codeExecutions] : undefined,
     })),
     bridgeTexts: [...bridgeTexts],
   }
@@ -225,7 +234,7 @@ function finalizeCopBlocks(blocks: CopBlock[], bridgeTexts: string[]): MessageCo
 
 function ensureCopBlock(blocks: CopBlock[]): CopBlock[] {
   if (blocks.length > 0) return blocks
-  return [{ id: crypto.randomUUID(), title: '', steps: [], sources: [] }]
+  return [{ id: crypto.randomUUID(), title: '', steps: [], sources: [], codeExecutions: [] }]
 }
 
 function addStepToLastBlock(blocks: CopBlock[], step: SearchStep): CopBlock[] {
@@ -299,6 +308,10 @@ export function ChatPage() {
   const [messageSubAgentsMap, setMessageSubAgentsMap] = useState<Map<string, SubAgentRef[]>>(new Map())
   const currentRunSubAgentsRef = useRef<SubAgentRef[]>([])
   const [topLevelSubAgents, setTopLevelSubAgents] = useState<SubAgentRef[]>([])
+  // 文件操作记录
+  const [messageFileOpsMap, setMessageFileOpsMap] = useState<Map<string, FileOpRef[]>>(new Map())
+  const currentRunFileOpsRef = useRef<FileOpRef[]>([])
+  const [topLevelFileOps, setTopLevelFileOps] = useState<FileOpRef[]>([])
   const [, setMessageThinkingMap] = useState<Map<string, MessageThinkingRef>>(new Map())
   // Search 时间轴缓存：messageId -> steps
   const [messageSearchStepsMap, setMessageSearchStepsMap] = useState<Map<string, MessageSearchStepRef[]>>(new Map())
@@ -738,6 +751,7 @@ export function ChatPage() {
         const codeExecMap = new Map<string, CodeExecutionRef[]>()
         const browserActionsMap = new Map<string, BrowserActionRef[]>()
         const subAgentsMap = new Map<string, SubAgentRef[]>()
+        const fileOpsMap = new Map<string, FileOpRef[]>()
         const thinkingMap = new Map<string, MessageThinkingRef>()
         const searchStepsMap = new Map<string, MessageSearchStepRef[]>()
         const memoryActionsMap = new Map<string, MemoryActionRef[]>()
@@ -756,6 +770,8 @@ export function ChatPage() {
           if (cachedBrowserActions) browserActionsMap.set(msg.id, cachedBrowserActions)
           const cachedSubAgents = readMessageSubAgents(msg.id)
           if (cachedSubAgents) subAgentsMap.set(msg.id, cachedSubAgents)
+          const cachedFileOps = readMessageFileOps(msg.id)
+          if (cachedFileOps) fileOpsMap.set(msg.id, cachedFileOps)
           const cachedThinking = readMessageThinking(msg.id)
           if (cachedThinking) thinkingMap.set(msg.id, cachedThinking)
           const cachedSearchSteps = readMessageSearchSteps(msg.id)
@@ -780,7 +796,8 @@ export function ChatPage() {
         const replayCodeExecNeeded = !!(lastAssistant && shouldReplayMessageCodeExecutions(codeExecMap.get(lastAssistant.id)))
         const replayBrowserActionsNeeded = !!(lastAssistant && !browserActionsMap.has(lastAssistant.id))
         const replaySubAgentsNeeded = !!(lastAssistant && !subAgentsMap.has(lastAssistant.id))
-        if (latest && latest.status !== 'running' && lastAssistant && (replayThinkingNeeded || replayCodeExecNeeded || replayBrowserActionsNeeded || replaySubAgentsNeeded)) {
+        const replayFileOpsNeeded = !!(lastAssistant && !fileOpsMap.has(lastAssistant.id))
+        if (latest && latest.status !== 'running' && lastAssistant && (replayThinkingNeeded || replayCodeExecNeeded || replayBrowserActionsNeeded || replaySubAgentsNeeded || replayFileOpsNeeded)) {
           try {
             const replayEvents = await listRunEvents(accessToken, latest.run_id, { follow: false })
             if (replayThinkingNeeded) {
@@ -807,6 +824,13 @@ export function ChatPage() {
               if (replayAgents.length > 0) {
                 subAgentsMap.set(lastAssistant.id, replayAgents)
                 writeMessageSubAgents(lastAssistant.id, replayAgents)
+              }
+            }
+            if (replayFileOpsNeeded) {
+              const replayFileOps = buildMessageFileOpsFromRunEvents(replayEvents)
+              if (replayFileOps.length > 0) {
+                fileOpsMap.set(lastAssistant.id, replayFileOps)
+                writeMessageFileOps(lastAssistant.id, replayFileOps)
               }
             }
           } catch {
@@ -925,6 +949,7 @@ export function ChatPage() {
     currentRunCodeExecutionsRef.current = []
     currentRunBrowserActionsRef.current = []
     currentRunSubAgentsRef.current = []
+    currentRunFileOpsRef.current = []
     setAssistantDraft('')
     setSegments([])
     activeSegmentIdRef.current = null
@@ -932,6 +957,7 @@ export function ChatPage() {
     setTopLevelCodeExecutions([])
     setTopLevelBrowserActions([])
     setTopLevelSubAgents([])
+    setTopLevelFileOps([])
     resetCopState()
     setCancelSubmitting(false)
     return () => { sse.disconnect() }
@@ -1084,6 +1110,10 @@ export function ChatPage() {
                   : s,
               ),
             )
+          } else if (copBlocksRef.current.length > 0) {
+            applyCopBlocks((prev) => prev.map((b, i) =>
+              i === prev.length - 1 ? { ...b, codeExecutions: [...b.codeExecutions, entry] } : b,
+            ))
           } else {
             setTopLevelCodeExecutions((prev) => [...prev, entry])
           }
@@ -1099,6 +1129,12 @@ export function ChatPage() {
         if (subAgentCall.appended) {
           currentRunSubAgentsRef.current = subAgentCall.nextAgents
           setTopLevelSubAgents((prev) => [...prev, subAgentCall.appended!])
+        }
+        // file op tool.call (grep/glob/read_file/write_file/edit_file)
+        const fileOpCall = applyFileOpToolCall(currentRunFileOpsRef.current, event)
+        if (fileOpCall.appended) {
+          currentRunFileOpsRef.current = fileOpCall.nextOps
+          setTopLevelFileOps((prev) => [...prev, fileOpCall.appended!])
         }
         // timeline_title: COP 块分割线
         if (toolName === SEARCH_PLANNING_TOOL_NAME) {
@@ -1116,7 +1152,16 @@ export function ChatPage() {
             pendingTextRef.current = ''
             setAssistantDraft('')
           }
-          applyCopBlocks((prev) => [...prev, { id: crypto.randomUUID(), title: label, steps: [], sources: [] }])
+          applyCopBlocks((prev) => {
+            if (prev.length > 0) {
+              const last = prev[prev.length - 1]
+              const isEmpty = last.steps.length === 0 && last.codeExecutions.length === 0 && last.sources.length === 0
+              if (last.title === '' || isEmpty) {
+                return prev.map((b, i) => i === prev.length - 1 ? { ...b, title: label } : b)
+              }
+            }
+            return [...prev, { id: crypto.randomUUID(), title: label, steps: [], sources: [], codeExecutions: [] }]
+          })
           continue
         }
         // memory_* tool.call 驱动 MemoryActionBlock
@@ -1192,7 +1237,6 @@ export function ChatPage() {
               }))
               .filter((s) => !!s.url)
             currentRunSourcesRef.current = [...currentRunSourcesRef.current, ...newSources]
-            // 实时追加到当前块的 sources
             applyCopBlocks((prev) => {
               if (prev.length === 0) return prev
               return prev.map((b, i) =>
@@ -1242,7 +1286,13 @@ export function ChatPage() {
             currentRunCodeExecutionsRef.current = codeExecutionResult.nextExecutions
             const target: CodeExecution = codeExecutionResult.updated
             if (codeExecutionResult.appended) {
-              setTopLevelCodeExecutions((prev) => [...prev, target])
+              if (copBlocksRef.current.length > 0) {
+                applyCopBlocks((prev) => prev.map((b, i) =>
+                  i === prev.length - 1 ? { ...b, codeExecutions: [...b.codeExecutions, target] } : b,
+                ))
+              } else {
+                setTopLevelCodeExecutions((prev) => [...prev, target])
+              }
             } else {
               setTopLevelCodeExecutions((prev) => patchCodeExecutionList(prev, target).next)
               setSegments((prev) =>
@@ -1251,6 +1301,10 @@ export function ChatPage() {
                   codeExecutions: patchCodeExecutionList(segment.codeExecutions, target).next,
                 })),
               )
+              applyCopBlocks((prev) => prev.map((b) => ({
+                ...b,
+                codeExecutions: patchCodeExecutionList(b.codeExecutions, target).next,
+              })))
             }
           }
         }
@@ -1274,6 +1328,16 @@ export function ChatPage() {
             const idx = prev.findIndex((a) => a.id === subAgentResult.updated!.id)
             if (idx >= 0) return prev.map((a, i) => i === idx ? subAgentResult.updated! : a)
             return [...prev, subAgentResult.updated!]
+          })
+        }
+        // file op tool.result
+        const fileOpResult = applyFileOpToolResult(currentRunFileOpsRef.current, event)
+        if (fileOpResult.updated) {
+          currentRunFileOpsRef.current = fileOpResult.nextOps
+          setTopLevelFileOps((prev) => {
+            const idx = prev.findIndex((o) => o.id === fileOpResult.updated!.id)
+            if (idx >= 0) return prev.map((o, i) => i === idx ? fileOpResult.updated! : o)
+            return [...prev, fileOpResult.updated!]
           })
         }
         continue
@@ -1334,6 +1398,7 @@ export function ChatPage() {
         setTopLevelCodeExecutions([])
         setTopLevelBrowserActions([])
         setTopLevelSubAgents([])
+        setTopLevelFileOps([])
         setSegments([])
         activeSegmentIdRef.current = null
         const runMemoryActions = [...memoryActionsRef.current]
@@ -1343,7 +1408,14 @@ export function ChatPage() {
         if (runSearchSteps.length > 0) applySearchSteps(() => runSearchSteps)
         const runCopData = finalizeCopBlocks(copBlocksRef.current, bridgeTextsRef.current)
         if (runCopData.blocks.length > 0) {
-          applyCopBlocks(() => runCopData.blocks.map((b) => ({ id: b.id, title: b.title, steps: b.steps, sources: b.sources })))
+          const currentBlocks = copBlocksRef.current
+          applyCopBlocks(() => runCopData.blocks.map((b, i) => ({
+            id: b.id,
+            title: b.title,
+            steps: b.steps,
+            sources: b.sources,
+            codeExecutions: currentBlocks[i]?.codeExecutions ?? [],
+          })))
         }
         // 让 live SearchTimeline 平滑收起而非瞬间消失
         if (copBlocksRef.current.length > 0) {
@@ -1370,6 +1442,8 @@ export function ChatPage() {
         currentRunBrowserActionsRef.current = []
         const runSubAgents = [...currentRunSubAgentsRef.current]
         currentRunSubAgentsRef.current = []
+        const runFileOps = [...currentRunFileOpsRef.current]
+        currentRunFileOpsRef.current = []
         void refreshMessages({ requiredCompletedRunId: completedRunId }).then((items) => {
           const completedAssistant = findAssistantMessageForRun(items, completedRunId)
           if (completedAssistant) {
@@ -1401,6 +1475,10 @@ export function ChatPage() {
             if (runSubAgents.length > 0) {
               writeMessageSubAgents(completedAssistant.id, runSubAgents)
               setMessageSubAgentsMap((prev) => new Map(prev).set(completedAssistant.id, runSubAgents))
+            }
+            if (runFileOps.length > 0) {
+              writeMessageFileOps(completedAssistant.id, runFileOps)
+              setMessageFileOpsMap((prev) => new Map(prev).set(completedAssistant.id, runFileOps))
             }
             if (runThinking) {
               writeMessageThinking(completedAssistant.id, runThinking)
@@ -1451,12 +1529,14 @@ export function ChatPage() {
         setTopLevelCodeExecutions([])
         setTopLevelBrowserActions([])
         setTopLevelSubAgents([])
+        setTopLevelFileOps([])
         setSegments([])
         resetCopState()
         activeSegmentIdRef.current = null
         currentRunCodeExecutionsRef.current = []
         currentRunBrowserActionsRef.current = []
         currentRunSubAgentsRef.current = []
+        currentRunFileOpsRef.current = []
         setAwaitingInput(false)
         setPendingUserInput(null)
         setCheckInDraft('')
@@ -1477,12 +1557,14 @@ export function ChatPage() {
         setTopLevelCodeExecutions([])
         setTopLevelBrowserActions([])
         setTopLevelSubAgents([])
+        setTopLevelFileOps([])
         setSegments([])
         resetCopState()
         activeSegmentIdRef.current = null
         currentRunCodeExecutionsRef.current = []
         currentRunBrowserActionsRef.current = []
         currentRunSubAgentsRef.current = []
+        currentRunFileOpsRef.current = []
         setAwaitingInput(false)
         setPendingUserInput(null)
         setCheckInDraft('')
@@ -1540,6 +1622,8 @@ export function ChatPage() {
     currentRunBrowserActionsRef.current = []
     const runSubAgents = [...currentRunSubAgentsRef.current]
     currentRunSubAgentsRef.current = []
+    const runFileOps = [...currentRunFileOpsRef.current]
+    currentRunFileOpsRef.current = []
 
     setActiveRunId(null)
     setAssistantDraft('')
@@ -1547,11 +1631,19 @@ export function ChatPage() {
     setTopLevelCodeExecutions([])
     setTopLevelBrowserActions([])
     setTopLevelSubAgents([])
+    setTopLevelFileOps([])
     setSegments([])
     activeSegmentIdRef.current = null
     const runCopData = finalizeCopBlocks(copBlocksRef.current, bridgeTextsRef.current)
     if (runCopData.blocks.length > 0) {
-      applyCopBlocks(() => runCopData.blocks.map((b) => ({ id: b.id, title: b.title, steps: b.steps, sources: b.sources })))
+      const currentBlocks = copBlocksRef.current
+      applyCopBlocks(() => runCopData.blocks.map((b, i) => ({
+        id: b.id,
+        title: b.title,
+        steps: b.steps,
+        sources: b.sources,
+        codeExecutions: currentBlocks[i]?.codeExecutions ?? [],
+      })))
     }
     pendingTextRef.current = ''
     setQueuedDraft(null)
@@ -1585,6 +1677,10 @@ export function ChatPage() {
         if (runSubAgents.length > 0) {
           writeMessageSubAgents(completedAssistant.id, runSubAgents)
           setMessageSubAgentsMap((prev) => new Map(prev).set(completedAssistant.id, runSubAgents))
+        }
+        if (runFileOps.length > 0) {
+          writeMessageFileOps(completedAssistant.id, runFileOps)
+          setMessageFileOpsMap((prev) => new Map(prev).set(completedAssistant.id, runFileOps))
         }
         if (runThinking) {
           writeMessageThinking(completedAssistant.id, runThinking)
@@ -2060,7 +2156,9 @@ export function ChatPage() {
       ? segments.filter(s => s.mode !== 'hidden').length
       : 0
     const codeExecSteps = timelineSteps === 0 && segmentSteps === 0
-      ? dedupedTopLevelCodeExecutions.length
+      ? copBlocks.length > 0
+        ? copBlocks.reduce((sum, b) => sum + b.codeExecutions.length, 0)
+        : dedupedTopLevelCodeExecutions.length
       : 0
     const agentSteps = topLevelSubAgents.length
     return timelineSteps + segmentSteps + codeExecSteps + agentSteps
@@ -2235,7 +2333,8 @@ export function ChatPage() {
                 const messageMemoryActions = msg.role === 'assistant' ? messageMemoryActionsMap.get(msg.id) : undefined
                 const messageSearchSteps = msg.role === 'assistant' ? messageSearchStepsMap.get(msg.id) : undefined
                 const timelineSteps = messageSearchSteps ?? []
-
+                const messageFileOps = msg.role === 'assistant' ? messageFileOpsMap.get(msg.id) : undefined
+                const hasPerBlockCodeExecs = historicalBlocks.some(b => b.codeExecutions && b.codeExecutions.length > 0)
                 return (
                   <div key={msg.id} ref={idx === lastUserMsgIdx ? lastUserMsgRef : undefined}>
                   {/* 完成后：记忆操作 + 搜索时间轴（最后一条 assistant 消息上方） */}
@@ -2243,19 +2342,26 @@ export function ChatPage() {
                     <MemoryActionBlock actions={messageMemoryActions} />
                   )}
                   {/* 完成后的 COP 时间轴 */}
-                  {(historicalBlocks.length > 0 || timelineSteps.length > 0 || hasMessageCodeExecutions || (messageSubAgents && messageSubAgents.length > 0)) && (
+                  {(historicalBlocks.length > 0 || timelineSteps.length > 0 || hasMessageCodeExecutions || (messageSubAgents && messageSubAgents.length > 0) || (messageFileOps && messageFileOps.length > 0)) && (
                     <div style={{ marginBottom: '12px' }}>
-                      {historicalBlocks.map((block, bi) => (
+                      {historicalBlocks.map((block, bi) => {
+                        const blockCodeExecs = hasPerBlockCodeExecs
+                          ? (block.codeExecutions?.length ? block.codeExecutions : undefined)
+                          : (bi === historicalBlocks.length - 1 ? messageCodeExecutions : undefined)
+                        return (
                         <Fragment key={block.id}>
                           <SearchTimeline
                             steps={block.steps}
                             sources={block.sources}
                             isComplete
-                            codeExecutions={bi === historicalBlocks.length - 1 ? messageCodeExecutions : undefined}
+                            codeExecutions={blockCodeExecs}
                             onOpenCodeExecution={openCodePanel}
                             activeCodeExecutionId={codePanelExecution?.id}
                             subAgents={bi === historicalBlocks.length - 1 ? messageSubAgents : undefined}
+                            fileOps={bi === historicalBlocks.length - 1 ? messageFileOps : undefined}
                             headerOverride={block.title || undefined}
+                            accessToken={accessToken}
+                            baseUrl={baseUrl}
                           />
                           {historicalBridgeTexts[bi] && (
                             <div style={{ padding: '6px 0 8px', fontSize: '14px', lineHeight: '1.6', color: 'var(--c-text-primary)', maxWidth: '663px' }}>
@@ -2263,7 +2369,8 @@ export function ChatPage() {
                             </div>
                           )}
                         </Fragment>
-                      ))}
+                        )
+                      })}
                       {historicalBlocks.length === 0 && timelineSteps.length > 0 && (
                         <SearchTimeline
                           steps={timelineSteps}
@@ -2273,9 +2380,12 @@ export function ChatPage() {
                           onOpenCodeExecution={openCodePanel}
                           activeCodeExecutionId={codePanelExecution?.id}
                           subAgents={messageSubAgents}
+                          fileOps={messageFileOps}
+                          accessToken={accessToken}
+                          baseUrl={baseUrl}
                         />
                       )}
-                      {historicalBlocks.length === 0 && timelineSteps.length === 0 && (hasMessageCodeExecutions || (messageSubAgents && messageSubAgents.length > 0)) && (
+                      {historicalBlocks.length === 0 && timelineSteps.length === 0 && (hasMessageCodeExecutions || (messageSubAgents && messageSubAgents.length > 0) || (messageFileOps && messageFileOps.length > 0)) && (
                         <SearchTimeline
                           steps={[]}
                           sources={[]}
@@ -2284,6 +2394,9 @@ export function ChatPage() {
                           onOpenCodeExecution={openCodePanel}
                           activeCodeExecutionId={codePanelExecution?.id}
                           subAgents={messageSubAgents}
+                          fileOps={messageFileOps}
+                          accessToken={accessToken}
+                          baseUrl={baseUrl}
                         />
                       )}
                     </div>
@@ -2509,6 +2622,64 @@ export function ChatPage() {
                               status={agent.status}
                               error={agent.error}
                               live={isStreaming}
+                              currentRunId={agent.currentRunId}
+                              accessToken={accessToken}
+                              baseUrl={baseUrl}
+                            />
+                          </motion.div>
+                        )
+                      })}
+                    </div>
+                  )}
+                  {topLevelFileOps.length > 0 && (
+                    <div style={{ paddingLeft: '24px', paddingTop: '6px', display: 'flex', flexDirection: 'column' }}>
+                      {topLevelFileOps.map((op, idx) => {
+                        const isFirst = idx === 0
+                        const isLast = idx === topLevelFileOps.length - 1
+                        const dotTop = 8
+                        const multiItems = topLevelFileOps.length >= 2
+                        const hasPrevItems = dedupedTopLevelCodeExecutions.length > 0 || topLevelSubAgents.length > 0
+                        const dotColor = op.status === 'failed'
+                          ? 'var(--c-status-error-text, #ef4444)'
+                          : op.status === 'running'
+                            ? 'var(--c-text-secondary)'
+                            : 'var(--c-text-muted)'
+                        return (
+                          <motion.div
+                            key={op.id}
+                            initial={{ opacity: 0, y: 6 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ duration: 0.25, ease: 'easeOut' }}
+                            style={{ position: 'relative', paddingBottom: isLast ? 0 : '4px' }}
+                          >
+                            {multiItems && !isLast && (
+                              <div style={{ position: 'absolute', left: '-16px', top: `${dotTop + 8}px`, bottom: 0, width: '1.5px', background: 'var(--c-border-subtle)', zIndex: 0 }} />
+                            )}
+                            {multiItems && !isFirst && (
+                              <div style={{ position: 'absolute', left: '-16px', top: 0, height: `${dotTop}px`, width: '1.5px', background: 'var(--c-border-subtle)', zIndex: 0 }} />
+                            )}
+                            {isFirst && hasPrevItems && (
+                              <div style={{ position: 'absolute', left: '-16px', top: '-6px', height: `${dotTop + 6}px`, width: '1.5px', background: 'var(--c-border-subtle)', zIndex: 0 }} />
+                            )}
+                            <div
+                              style={{
+                                position: 'absolute',
+                                left: '-19px',
+                                top: `${dotTop}px`,
+                                width: '8px',
+                                height: '8px',
+                                borderRadius: '50%',
+                                background: dotColor,
+                                border: '2px solid var(--c-bg-page)',
+                                zIndex: 1,
+                              }}
+                            />
+                            <FileOpBlock
+                              toolName={op.toolName}
+                              label={op.label}
+                              output={op.output}
+                              status={op.status}
+                              errorMessage={op.errorMessage}
                             />
                           </motion.div>
                         )
@@ -2523,7 +2694,6 @@ export function ChatPage() {
                 <MemoryActionBlock actions={memoryActions} live />
               )}
 
-              {/* 流式期间的 live 时间轴 */}
               {/* 流式期间的 live COP / Search 时间轴 */}
               {(isStreaming || liveTimelineExiting) && (copBlocks.length > 0 || searchSteps.length > 0) && (
                 copBlocks.length > 0 ? (
@@ -2537,13 +2707,16 @@ export function ChatPage() {
                             steps={block.steps}
                             sources={block.sources}
                             isComplete={blockComplete}
-                            codeExecutions={isLastBlock && dedupedTopLevelCodeExecutions.length > 0 ? dedupedTopLevelCodeExecutions : undefined}
+                            codeExecutions={block.codeExecutions?.length > 0 ? block.codeExecutions : (isLastBlock && dedupedTopLevelCodeExecutions.length > 0 ? dedupedTopLevelCodeExecutions : undefined)}
                             onOpenCodeExecution={openCodePanel}
                             activeCodeExecutionId={codePanelExecution?.id}
                             subAgents={isLastBlock && topLevelSubAgents.length > 0 ? topLevelSubAgents : undefined}
+                            fileOps={isLastBlock && topLevelFileOps.length > 0 ? topLevelFileOps : undefined}
                             headerOverride={block.title || (!liveTimelineExiting ? copHeaderLabel : undefined)}
                             shimmer={!liveTimelineExiting && isLastBlock && !assistantDraft}
                             live={!liveTimelineExiting && isLastBlock}
+                            accessToken={accessToken}
+                            baseUrl={baseUrl}
                           />
                           {bridgeTexts[bi] && (
                             <div style={{ padding: '4px 0', fontSize: '14px', lineHeight: '1.6', color: 'var(--c-text-primary)', maxWidth: '663px' }}>
@@ -2563,9 +2736,12 @@ export function ChatPage() {
                     onOpenCodeExecution={openCodePanel}
                     activeCodeExecutionId={codePanelExecution?.id}
                     subAgents={topLevelSubAgents.length > 0 ? topLevelSubAgents : undefined}
+                    fileOps={topLevelFileOps.length > 0 ? topLevelFileOps : undefined}
                     headerOverride={!liveTimelineExiting ? copHeaderLabel : undefined}
                     shimmer={!liveTimelineExiting && !assistantDraft}
                     live={!liveTimelineExiting}
+                    accessToken={accessToken}
+                    baseUrl={baseUrl}
                   />
                 )
               )}
@@ -2595,7 +2771,7 @@ export function ChatPage() {
               )}
 
               {/* 无 COP 时，顶层代码执行卡片独立渲染（仅流式结束后、run.completed 前的短暂窗口） */}
-              {!isStreaming && (dedupedTopLevelCodeExecutions.length > 0 || topLevelSubAgents.length > 0) && (
+              {!isStreaming && (dedupedTopLevelCodeExecutions.length > 0 || topLevelSubAgents.length > 0 || topLevelFileOps.length > 0) && (
                 <div style={{ maxWidth: '663px' }}>
                   <SearchTimeline
                     steps={[]}
@@ -2605,6 +2781,9 @@ export function ChatPage() {
                     onOpenCodeExecution={openCodePanel}
                     activeCodeExecutionId={codePanelExecution?.id}
                     subAgents={topLevelSubAgents.length > 0 ? topLevelSubAgents : undefined}
+                    fileOps={topLevelFileOps.length > 0 ? topLevelFileOps : undefined}
+                    accessToken={accessToken}
+                    baseUrl={baseUrl}
                   />
                 </div>
               )}
