@@ -128,7 +128,7 @@ func (l *Loop) Run(
 			}
 		}
 
-		turnRequest := copyRequest(request, messages)
+		turnRequest := copyRequest(request, compactToolResults(messages))
 		turn, err := l.runTurnWithRetry(ctx, runCtx, turnRequest, emitter, yield)
 		if err != nil {
 			return err
@@ -972,6 +972,77 @@ func copyRequest(request llm.Request, messages []llm.Message) llm.Request {
 		MaxOutputTokens: request.MaxOutputTokens,
 		Tools:           append([]llm.ToolSpec{}, request.Tools...),
 		Metadata:        copyMap(request.Metadata),
+	}
+}
+
+// maxToolResultHistoryChars is the soft cap on total accumulated tool result text
+// sent in a single LLM request. At ~4 chars/token this is ≈50K tokens.
+// Oldest tool results are compacted first when the cap is exceeded.
+const maxToolResultHistoryChars = 200_000
+
+// compactToolResults returns a copy of messages where the oldest tool result
+// messages are replaced by minimal placeholders if the total tool result
+// character count exceeds maxToolResultHistoryChars.
+// The original messages slice is never modified.
+func compactToolResults(messages []llm.Message) []llm.Message {
+	total := 0
+	for _, m := range messages {
+		if m.Role == "tool" {
+			for _, p := range m.Content {
+				total += len(p.Text)
+			}
+		}
+	}
+	if total <= maxToolResultHistoryChars {
+		return messages
+	}
+
+	out := make([]llm.Message, len(messages))
+	copy(out, messages)
+
+	excess := total - maxToolResultHistoryChars
+	for i := range out {
+		if excess <= 0 {
+			break
+		}
+		if out[i].Role != "tool" {
+			continue
+		}
+		msgSize := 0
+		for _, p := range out[i].Content {
+			msgSize += len(p.Text)
+		}
+		if msgSize == 0 {
+			continue
+		}
+		out[i] = compactedToolMessage(out[i])
+		excess -= msgSize
+	}
+	return out
+}
+
+// compactedToolMessage returns a minimal version of a tool result message,
+// preserving only the tool_call_id so the conversation structure stays valid.
+func compactedToolMessage(m llm.Message) llm.Message {
+	if len(m.Content) == 0 {
+		return m
+	}
+	var envelope map[string]any
+	if err := json.Unmarshal([]byte(m.Content[0].Text), &envelope); err != nil {
+		// unparseable: emit a safe stub
+		return llm.Message{
+			Role:    "tool",
+			Content: []llm.TextPart{{Text: `{"tool_call_id":"","result":{"compacted":true}}`, TrustSource: m.Content[0].TrustSource}},
+		}
+	}
+	stub := map[string]any{
+		"tool_call_id": envelope["tool_call_id"],
+		"result":       map[string]any{"compacted": true},
+	}
+	text, _ := json.Marshal(stub)
+	return llm.Message{
+		Role:    "tool",
+		Content: []llm.TextPart{{Text: string(text), TrustSource: m.Content[0].TrustSource}},
 	}
 }
 

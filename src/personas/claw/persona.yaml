@@ -1,0 +1,27 @@
+id: claw
+version: "1"
+title: Claw
+description: 面向多步任务执行的自主 Agent 模式。
+soul_file: soul.md
+tool_allowlist:
+    - web_search
+    - web_fetch
+    - exec_command
+    - write_stdin
+    - python_execute
+    - browser
+    - document_write
+    - memory_search
+    - memory_read
+    - conversation_search
+    - spawn_agent
+    - summarize_thread
+    - timeline_title
+budgets:
+    max_output_tokens: 12288
+    reasoning_iterations: 99999
+    temperature: 0.4
+    tool_continuation_budget: 128
+reasoning_mode: disabled
+prompt_cache_control: none
+executor_type: agent.simple

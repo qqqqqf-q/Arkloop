@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -227,8 +228,8 @@ func (e *ToolExecutor) executePython(
 	}
 
 	resultJSON := map[string]any{
-		"stdout":      truncateOutput(result.Stdout),
-		"stderr":      truncateOutput(result.Stderr),
+		"stdout":      truncateOutput(sanitizeShellOutput(result.Stdout)),
+		"stderr":      truncateOutput(sanitizeShellOutput(result.Stderr)),
 		"exit_code":   result.ExitCode,
 		"duration_ms": result.DurationMs,
 	}
@@ -269,8 +270,16 @@ func (e *ToolExecutor) executeExecCommand(
 		}
 	}
 	leaseOwnerID := writerLeaseOwner(execCtx, toolCallID)
-	if leaseErr := e.orchestrator.prepareExecWriterLease(ctx, execCtx, resolution, leaseOwnerID, reqArgs.TimeoutMs); leaseErr != nil {
-		return tools.ExecutionResult{Error: leaseErr, DurationMs: durationMs(started)}
+	leaseErr := e.orchestrator.prepareExecWriterLease(ctx, execCtx, resolution, leaseOwnerID, reqArgs.TimeoutMs)
+	if leaseErr != nil {
+		if isSessionBusy(leaseErr) && isCrossRunLease(resolution, execCtx) {
+			if e.tryRecoverStaleSessionLease(ctx, execCtx, resolution, leaseOwnerID, reqArgs.TimeoutMs) {
+				leaseErr = nil
+			}
+		}
+		if leaseErr != nil {
+			return tools.ExecutionResult{Error: leaseErr, DurationMs: durationMs(started)}
+		}
 	}
 
 	request := execCommandRequest{
@@ -629,7 +638,7 @@ func (e *ToolExecutor) executeExecSessionRequest(
 	if err := json.Unmarshal(body, &result); err != nil {
 		return errResult(errorSandboxError, "decode response failed", started)
 	}
-	output, outputTruncated := truncateOutputByLimit(result.Output, tools.ResolveToolSoftLimit(softLimits, toolName).MaxOutputBytes)
+	output, outputTruncated := truncateOutputByLimit(sanitizeShellOutput(result.Output), tools.ResolveToolSoftLimit(softLimits, toolName).MaxOutputBytes)
 	resultJSON := map[string]any{
 		"session_id":                  result.SessionID,
 		"status":                      result.Status,
@@ -734,6 +743,12 @@ func parseExecCommandArgs(args map[string]any) (execCommandArgs, *tools.Executio
 	}
 	if strings.TrimSpace(request.Command) == "" {
 		return execCommandArgs{}, sandboxArgsError("parameter command is required")
+	}
+	if request.YieldTimeMs <= 0 {
+		request.YieldTimeMs = min(request.TimeoutMs, 30_000)
+		if request.YieldTimeMs <= 0 {
+			request.YieldTimeMs = 30_000
+		}
 	}
 	return request, nil
 }
@@ -958,6 +973,54 @@ func truncateOutput(s string) string {
 	return s[:maxOutputBytes] + fmt.Sprintf("\n... (truncated, total %d bytes)", len(s))
 }
 
+var (
+	// CSI sequences: ESC [ ... final-byte (colors, cursor movement, erase, etc.)
+	ansiCSIRe = regexp.MustCompile(`\x1b\[[0-9;?]*[a-zA-Z]`)
+	// OSC sequences: ESC ] ... (BEL or ESC \)
+	ansiOSCRe = regexp.MustCompile(`\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)`)
+	// Remaining lone ESC + single char (e.g. ESC M, ESC c)
+	ansiTwoRe = regexp.MustCompile(`\x1b[^[\]]`)
+)
+
+// collapseCarriageReturns simulates terminal line overwriting caused by \r.
+// git, wget, curl and similar tools use \r to rewrite progress lines in place.
+// Without a real TTY the captured output contains all intermediate states;
+// this reduces each "virtual line" to its final written value.
+func collapseCarriageReturns(s string) string {
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		if !strings.Contains(line, "\r") {
+			continue
+		}
+		parts := strings.Split(line, "\r")
+		last := ""
+		for _, p := range parts {
+			if p != "" {
+				last = p
+			}
+		}
+		lines[i] = last
+	}
+	return strings.Join(lines, "\n")
+}
+
+// stripANSI removes ANSI/VT100 escape sequences from s.
+func stripANSI(s string) string {
+	s = ansiOSCRe.ReplaceAllString(s, "")
+	s = ansiCSIRe.ReplaceAllString(s, "")
+	s = ansiTwoRe.ReplaceAllString(s, "")
+	return s
+}
+
+// sanitizeShellOutput strips terminal control sequences and collapses
+// carriage-return overwrites before the output reaches the LLM.
+// This can cut token count by 10-100x for commands that produce progress bars.
+func sanitizeShellOutput(s string) string {
+	s = collapseCarriageReturns(s)
+	s = stripANSI(s)
+	return s
+}
+
 func isSessionUnavailable(err *tools.ExecutionError) bool {
 	if err == nil {
 		return false
@@ -1130,6 +1193,44 @@ func isSessionBusy(err *tools.ExecutionError) bool {
 		return true
 	}
 	return strings.Contains(strings.ToLower(strings.TrimSpace(err.Message)), "session is busy")
+}
+
+// isCrossRunLease reports whether the session's current lease belongs to a different run.
+func isCrossRunLease(resolution *resolvedSession, execCtx tools.ExecutionContext) bool {
+	if resolution == nil || resolution.Record == nil || resolution.Record.LeaseOwnerID == nil {
+		return false
+	}
+	return !isLeaseFromSameRun(strings.TrimSpace(*resolution.Record.LeaseOwnerID), execCtx.RunID)
+}
+
+// tryRecoverStaleSessionLease polls the sandbox once to verify whether the "busy"
+// session's command has actually finished. If it has, the stale lease is cleared
+// and a fresh lease is acquired. Returns true only when recovery fully succeeds.
+func (e *ToolExecutor) tryRecoverStaleSessionLease(
+	ctx context.Context,
+	execCtx tools.ExecutionContext,
+	resolution *resolvedSession,
+	newOwnerID string,
+	timeoutMs int,
+) bool {
+	pollReq := writeStdinRequest{
+		SessionID:   resolution.SessionRef,
+		AccountID:   resolveAccountID(execCtx),
+		YieldTimeMs: 2000,
+	}
+	pollResult := e.executeExecSessionRequest(
+		ctx, e.baseURL+"/v1/write_stdin", "write_stdin",
+		pollReq, pollReq.AccountID, execCtx.PerToolSoftLimits, time.Now(),
+	)
+	if pollResult.Error != nil {
+		return false
+	}
+	resp := decodeExecSessionResult(pollResult.ResultJSON)
+	if resp == nil || resp.Running {
+		return false
+	}
+	_ = e.orchestrator.clearFinishedWriterLease(ctx, execCtx, resolution)
+	return e.orchestrator.prepareExecWriterLease(ctx, execCtx, resolution, newOwnerID, timeoutMs) == nil
 }
 
 func isSessionNotRunning(err *tools.ExecutionError) bool {

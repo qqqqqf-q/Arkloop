@@ -159,6 +159,7 @@ type CopBlock = {
   title: string
   steps: SearchStep[]
   sources: WebSource[]
+  codeExecutions: CodeExecution[]
 }
 
 function finalizeBlockSteps(steps: SearchStep[]): MessageSearchStepRef[] {
@@ -194,7 +195,7 @@ function finalizeCopBlocks(blocks: CopBlock[], bridgeTexts: string[]): MessageCo
 
 function ensureCopBlock(blocks: CopBlock[]): CopBlock[] {
   if (blocks.length > 0) return blocks
-  return [{ id: crypto.randomUUID(), title: '', steps: [], sources: [] }]
+  return [{ id: crypto.randomUUID(), title: '', steps: [], sources: [], codeExecutions: [] }]
 }
 
 function addStepToLastBlock(blocks: CopBlock[], step: SearchStep): CopBlock[] {
@@ -998,6 +999,10 @@ export function ChatPage() {
                   : s,
               ),
             )
+          } else if (copBlocksRef.current.length > 0) {
+            applyCopBlocks((prev) => prev.map((b, i) =>
+              i === prev.length - 1 ? { ...b, codeExecutions: [...b.codeExecutions, entry] } : b,
+            ))
           } else {
             setTopLevelCodeExecutions((prev) => [...prev, entry])
           }
@@ -1030,7 +1035,7 @@ export function ChatPage() {
             pendingTextRef.current = ''
             setAssistantDraft('')
           }
-          applyCopBlocks((prev) => [...prev, { id: crypto.randomUUID(), title: label, steps: [], sources: [] }])
+          applyCopBlocks((prev) => [...prev, { id: crypto.randomUUID(), title: label, steps: [], sources: [], codeExecutions: [] }])
           continue
         }
         // web_search tool.call → 添加到当前 COP 块
@@ -1122,7 +1127,13 @@ export function ChatPage() {
             currentRunCodeExecutionsRef.current = codeExecutionResult.nextExecutions
             const target: CodeExecution = codeExecutionResult.updated
             if (codeExecutionResult.appended) {
-              setTopLevelCodeExecutions((prev) => [...prev, target])
+              if (copBlocksRef.current.length > 0) {
+                applyCopBlocks((prev) => prev.map((b, i) =>
+                  i === prev.length - 1 ? { ...b, codeExecutions: [...b.codeExecutions, target] } : b,
+                ))
+              } else {
+                setTopLevelCodeExecutions((prev) => [...prev, target])
+              }
             } else {
               setTopLevelCodeExecutions((prev) => patchCodeExecutionList(prev, target).next)
               setSegments((prev) =>
@@ -1131,6 +1142,10 @@ export function ChatPage() {
                   codeExecutions: patchCodeExecutionList(segment.codeExecutions, target).next,
                 })),
               )
+              applyCopBlocks((prev) => prev.map((b) => ({
+                ...b,
+                codeExecutions: patchCodeExecutionList(b.codeExecutions, target).next,
+              })))
             }
           }
         }
@@ -1218,7 +1233,14 @@ export function ChatPage() {
         activeSegmentIdRef.current = null
         const runCopData = finalizeCopBlocks(copBlocksRef.current, bridgeTextsRef.current)
         if (runCopData.blocks.length > 0) {
-          applyCopBlocks(() => runCopData.blocks.map((b) => ({ id: b.id, title: b.title, steps: b.steps, sources: b.sources })))
+          const currentBlocks = copBlocksRef.current
+          applyCopBlocks(() => runCopData.blocks.map((b, i) => ({
+            id: b.id,
+            title: b.title,
+            steps: b.steps,
+            sources: b.sources,
+            codeExecutions: currentBlocks[i]?.codeExecutions ?? [],
+          })))
         }
         // 让 live SearchTimeline 平滑收起而非瞬间消失
         if (copBlocksRef.current.length > 0) {
@@ -1409,7 +1431,14 @@ export function ChatPage() {
     activeSegmentIdRef.current = null
     const runCopData = finalizeCopBlocks(copBlocksRef.current, bridgeTextsRef.current)
     if (runCopData.blocks.length > 0) {
-      applyCopBlocks(() => runCopData.blocks.map((b) => ({ id: b.id, title: b.title, steps: b.steps, sources: b.sources })))
+      const currentBlocks = copBlocksRef.current
+      applyCopBlocks(() => runCopData.blocks.map((b, i) => ({
+        id: b.id,
+        title: b.title,
+        steps: b.steps,
+        sources: b.sources,
+        codeExecutions: currentBlocks[i]?.codeExecutions ?? [],
+      })))
     }
     pendingTextRef.current = ''
     setQueuedDraft(null)
@@ -1918,7 +1947,9 @@ export function ChatPage() {
       ? segments.filter(s => s.mode !== 'hidden').length
       : 0
     const codeExecSteps = timelineSteps === 0 && segmentSteps === 0
-      ? dedupedTopLevelCodeExecutions.length
+      ? copBlocks.length > 0
+        ? copBlocks.reduce((sum, b) => sum + b.codeExecutions.length, 0)
+        : dedupedTopLevelCodeExecutions.length
       : 0
     const agentSteps = topLevelSubAgents.length
     return timelineSteps + segmentSteps + codeExecSteps + agentSteps
@@ -2358,7 +2389,7 @@ export function ChatPage() {
                           steps={block.steps}
                           sources={block.sources}
                           isComplete={blockComplete}
-                          codeExecutions={isLastBlock && dedupedTopLevelCodeExecutions.length > 0 ? dedupedTopLevelCodeExecutions : undefined}
+                          codeExecutions={block.codeExecutions.length > 0 ? block.codeExecutions : undefined}
                           onOpenCodeExecution={openCodePanel}
                           activeCodeExecutionId={codePanelExecution?.id}
                           subAgents={isLastBlock && topLevelSubAgents.length > 0 ? topLevelSubAgents : undefined}
