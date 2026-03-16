@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"arkloop/services/shared/eventbus"
 	"arkloop/services/worker/internal/data"
 	"arkloop/services/worker/internal/events"
 
@@ -42,7 +43,7 @@ func NewCancelGuardMiddleware(
 		}
 		if cancelType == "run.cancel_requested" {
 			return appendAndCommitSingle(ctx, pool, run, runsRepo, eventsRepo,
-				rc.Emitter.Emit("run.cancelled", map[string]any{}, nil, nil), rc.ReleaseSlot, rc.BroadcastRDB)
+				rc.Emitter.Emit("run.cancelled", map[string]any{}, nil, nil), rc.ReleaseSlot, rc.BroadcastRDB, rc.EventBus)
 		}
 
 		terminalType, err := readLatestEventType(ctx, pool, eventsRepo, run.ID, terminalEventTypes)
@@ -134,6 +135,7 @@ func appendAndCommitSingle(
 	ev events.RunEvent,
 	releaseSlot func(),
 	rdb *redis.Client,
+	bus eventbus.EventBus,
 ) error {
 	// For terminal events, guarantee slot release on all exit paths (including errors).
 	if _, ok := TerminalStatuses[ev.Type]; ok && releaseSlot != nil {
@@ -189,7 +191,11 @@ func appendAndCommitSingle(
 	}
 
 	channel := fmt.Sprintf("run_events:%s", run.ID.String())
-	_, _ = pool.Exec(ctx, "SELECT pg_notify($1, '')", channel)
+	if bus != nil {
+		_ = bus.Publish(ctx, channel, "")
+	} else {
+		_, _ = pool.Exec(ctx, "SELECT pg_notify($1, '')", channel)
+	}
 
 	if rdb != nil {
 		redisChannel := fmt.Sprintf("arkloop:sse:run_events:%s", run.ID.String())

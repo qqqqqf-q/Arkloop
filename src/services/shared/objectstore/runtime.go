@@ -81,7 +81,7 @@ func (c RuntimeConfig) BucketOpener() (BucketOpener, error) {
 	case BackendFilesystem:
 		return NewFilesystemOpener(normalized.RootDir), nil
 	case BackendS3:
-		return NewS3Opener(normalized.S3Config), nil
+		return newS3BucketOpener(normalized.S3Config), nil
 	default:
 		return nil, fmt.Errorf("unsupported storage backend: %s", normalized.Backend)
 	}

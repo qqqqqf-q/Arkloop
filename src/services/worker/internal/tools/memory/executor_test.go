@@ -1,3 +1,5 @@
+//go:build !desktop
+
 package memory
 
 import (
@@ -16,6 +18,8 @@ import (
 )
 
 // --- mock ---
+
+var testPool = new(pgxpool.Pool)
 
 type mockProvider struct {
 	findHits    []workermemory.MemoryHit
@@ -208,7 +212,7 @@ func TestMemoryExecutor_Write_Success(t *testing.T) {
 	mp := &mockProvider{}
 	snapshots := &snapshotMock{}
 	execCtx := newUserExecCtx()
-	ex := NewToolExecutor(mp, &pgxpool.Pool{}, snapshots)
+	ex := NewToolExecutor(mp, testPool, snapshots)
 	result := ex.Execute(context.Background(), "memory_write", map[string]any{
 		"category": "preferences",
 		"key":      "language",
@@ -236,7 +240,7 @@ func TestMemoryExecutor_Write_SnapshotFailure(t *testing.T) {
 	mp := &mockProvider{}
 	snapshots := &snapshotMock{appendErr: errors.New("db down")}
 	execCtx := newUserExecCtx()
-	ex := NewToolExecutor(mp, &pgxpool.Pool{}, snapshots)
+	ex := NewToolExecutor(mp, testPool, snapshots)
 	result := ex.Execute(context.Background(), "memory_write", map[string]any{
 		"category": "preferences",
 		"key":      "language",
@@ -253,7 +257,7 @@ func TestMemoryExecutor_Write_SnapshotFailure(t *testing.T) {
 
 func TestMemoryExecutor_Write_MissingCategory(t *testing.T) {
 	execCtx := newUserExecCtx()
-	ex := NewToolExecutor(&mockProvider{}, &pgxpool.Pool{}, &snapshotMock{})
+	ex := NewToolExecutor(&mockProvider{}, testPool, &snapshotMock{})
 	result := ex.Execute(context.Background(), "memory_write", map[string]any{
 		"key": "lang", "content": "go",
 	}, execCtx, "")
@@ -264,7 +268,7 @@ func TestMemoryExecutor_Write_MissingCategory(t *testing.T) {
 
 func TestMemoryExecutor_Write_MissingKey(t *testing.T) {
 	execCtx := newUserExecCtx()
-	ex := NewToolExecutor(&mockProvider{}, &pgxpool.Pool{}, &snapshotMock{})
+	ex := NewToolExecutor(&mockProvider{}, testPool, &snapshotMock{})
 	result := ex.Execute(context.Background(), "memory_write", map[string]any{
 		"category": "preferences", "content": "go",
 	}, execCtx, "")
@@ -277,7 +281,7 @@ func TestMemoryExecutor_Write_AgentScope(t *testing.T) {
 	mp := &mockProvider{}
 	snapshots := &snapshotMock{}
 	execCtx := newUserExecCtx()
-	ex := NewToolExecutor(mp, &pgxpool.Pool{}, snapshots)
+	ex := NewToolExecutor(mp, testPool, snapshots)
 	result := ex.Execute(context.Background(), "memory_write", map[string]any{
 		"category": "patterns",
 		"key":      "retry",
@@ -299,7 +303,7 @@ func TestMemoryExecutor_Write_AgentScope(t *testing.T) {
 func TestMemoryExecutor_Write_MissingPendingBuffer(t *testing.T) {
 	execCtx := newUserExecCtx()
 	execCtx.PendingMemoryWrites = nil
-	ex := NewToolExecutor(&mockProvider{}, &pgxpool.Pool{}, &snapshotMock{})
+	ex := NewToolExecutor(&mockProvider{}, testPool, &snapshotMock{})
 	result := ex.Execute(context.Background(), "memory_write", map[string]any{
 		"category": "preferences",
 		"key":      "language",

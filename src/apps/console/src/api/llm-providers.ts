@@ -44,6 +44,11 @@ export type AvailableModel = {
   id: string
   name: string
   configured: boolean
+  type?: string
+  context_length?: number | null
+  max_output_tokens?: number | null
+  input_modalities?: string[]
+  output_modalities?: string[]
 }
 
 export type CreateLlmProviderRequest = {
@@ -71,6 +76,7 @@ export type CreateProviderModelRequest = {
   model: string
   priority: number
   is_default: boolean
+  show_in_picker?: boolean
   tags?: string[]
   when?: Record<string, unknown>
   advanced_json?: Record<string, unknown> | null
@@ -86,6 +92,7 @@ export type UpdateProviderModelRequest = {
   model?: string
   priority?: number
   is_default?: boolean
+  show_in_picker?: boolean
   tags?: string[]
   when?: Record<string, unknown>
   advanced_json?: Record<string, unknown> | null

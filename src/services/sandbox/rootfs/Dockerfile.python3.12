@@ -6,16 +6,20 @@
 
 # -- Stage 1: sandbox-agent --
 FROM golang:1.26-alpine AS agent
+ARG TARGETARCH
 WORKDIR /build
 COPY src/services/sandbox/go.mod src/services/sandbox/go.sum src/services/sandbox/
-RUN printf 'go 1.26.0\nuse (\n\t./src/services/sandbox\n)\n' > go.work
+COPY src/services/shared/go.mod src/services/shared/go.sum src/services/shared/
+RUN printf 'go 1.26.0\nuse (\n\t./src/services/sandbox\n\t./src/services/shared\n)\n' > go.work
 RUN --mount=type=cache,target=/go/pkg/mod \
-    cd src/services/sandbox && go mod download
+    cd src/services/sandbox && go mod download && \
+    cd /build/src/services/shared && go mod download
 COPY src/services/sandbox src/services/sandbox
+COPY src/services/shared src/services/shared
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     cd src/services/sandbox && \
-    GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
+    GOOS=linux GOARCH=${TARGETARCH} CGO_ENABLED=0 \
     go build -ldflags="-s -w" -o /sandbox-agent ./agent
 
 # -- Stage 2: rootfs 文件系统 --

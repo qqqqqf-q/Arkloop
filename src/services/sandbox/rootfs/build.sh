@@ -29,7 +29,7 @@ echo "context: $PROJECT_ROOT"
 mkdir -p "$OUTPUT_DIR"
 
 docker buildx build \
-    --platform linux/amd64 \
+    --platform "${PLATFORM:-linux/amd64}" \
     --file "$DOCKERFILE" \
     --output "type=local,dest=$OUTPUT_DIR" \
     "$PROJECT_ROOT"

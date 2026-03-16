@@ -1,3 +1,5 @@
+//go:build !desktop
+
 package http
 
 import (
@@ -43,7 +45,7 @@ func defaultSSEConfig() SSEConfig {
 }
 
 type HandlerConfig struct {
-	Pool                     *pgxpool.Pool
+	Pool                     data.DB
 	DirectPool               *pgxpool.Pool // LISTEN/NOTIFY 专用，不走 PgBouncer
 	InvalidationListenerCtx  context.Context
 	DirectPoolAcquireTimeout time.Duration

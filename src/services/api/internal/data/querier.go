@@ -12,3 +12,15 @@ type Querier interface {
 	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
+
+// TxStarter provides transaction support. Both *pgxpool.Pool (PostgreSQL)
+// and *sqlitepgx.Pool (desktop SQLite) satisfy this interface.
+type TxStarter interface {
+	BeginTx(ctx context.Context, txOptions pgx.TxOptions) (pgx.Tx, error)
+}
+
+// DB combines Querier with transaction support.
+type DB interface {
+	Querier
+	TxStarter
+}

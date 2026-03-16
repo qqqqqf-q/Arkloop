@@ -37,6 +37,7 @@ button:not(:disabled) {
   --c-accent-send: #1A1A19;
   --c-accent-send-hover: #2e2e2c;
   --c-accent-send-text: #e8e8e3;
+  --c-accent: #FAF9F6;
   --c-pro-bg: rgba(70, 145, 246, 0.12);
   --c-overlay: rgba(0, 0, 0, 0.60);
   --c-lightbox-overlay: rgba(255, 255, 255, 0.12);
@@ -77,6 +78,33 @@ button:not(:disabled) {
   --title-btn-dim: rgba(255, 255, 255, 0.04);
   --title-btn-hover: rgba(255, 255, 255, 0.09);
   --c-sidebar-btn-hover: rgba(255, 255, 255, 0.14);
+  --c-mode-switch-track: rgba(255, 255, 255, 0.06);
+  --c-mode-switch-border: rgba(255, 255, 255, 0.08);
+  --c-mode-switch-pill: rgba(255, 255, 255, 0.10);
+  --c-mode-switch-pill-shadow: 0 1px 3px rgba(0, 0, 0, 0.25), inset 0 0.5px 0 rgba(255, 255, 255, 0.06);
+  --c-mode-switch-active-text: #faf9f5;
+  --c-mode-switch-inactive-text: #6b6b68;
+  --c-claw-card-border: rgba(255, 255, 255, 0.12);
+  --c-claw-card-hover: rgba(255, 255, 255, 0.04);
+  --c-claw-step-done: var(--c-text-tertiary);
+  --c-claw-step-pending: rgba(255, 255, 255, 0.12);
+  --c-claw-step-line: rgba(255, 255, 255, 0.10);
+  --c-claw-file-bg: rgba(255, 255, 255, 0.03);
+  --c-claw-file-border: rgba(255, 255, 255, 0.06);
+  --c-accent-fg: #141413;
+  --c-bg-deep2: #0f0f0e;
+  --c-bg-tag: #30302e;
+  --c-bg-card: #242422;
+  --c-border-console: #40403d;
+  --c-status-ok-bg: rgba(34, 197, 94, 0.10);
+  --c-status-ok-text: #4ade80;
+  --c-status-error-text: #f87171;
+  --c-status-warning-text: #fbbf24;
+  --c-status-success-text: #4ade80;
+  --c-status-danger-bg: rgba(239, 68, 68, 0.10);
+  --c-status-danger-text: #f87171;
+  --c-status-warn-bg: rgba(245, 158, 11, 0.12);
+  --c-status-warn-text: #fbbf24;
 }
 
 @media (prefers-color-scheme: light) {
@@ -111,6 +139,7 @@ button:not(:disabled) {
     --c-accent-send: #FFFFFF;
     --c-accent-send-hover: #EBEBEB;
     --c-accent-send-text: #1A1A19;
+    --c-accent: #1A1A18;
     --c-pro-bg: #EAF2FC;
     --c-overlay: rgba(0, 0, 0, 0.25);
     --c-lightbox-overlay: rgba(255, 255, 255, 0.55);
@@ -152,6 +181,33 @@ button:not(:disabled) {
     --title-btn-dim: rgba(0, 0, 0, 0.06);
     --title-btn-hover: rgba(0, 0, 0, 0.10);
     --c-sidebar-btn-hover: rgba(0, 0, 0, 0.12);
+    --c-mode-switch-track: rgba(0, 0, 0, 0.05);
+    --c-mode-switch-border: rgba(0, 0, 0, 0.08);
+    --c-mode-switch-pill: #FFFFFF;
+    --c-mode-switch-pill-shadow: 0 1px 3px rgba(0, 0, 0, 0.10), 0 0.5px 1px rgba(0, 0, 0, 0.06);
+    --c-mode-switch-active-text: #141412;
+    --c-mode-switch-inactive-text: #8C8C8A;
+    --c-claw-card-border: rgba(0, 0, 0, 0.10);
+    --c-claw-card-hover: rgba(0, 0, 0, 0.03);
+    --c-claw-step-done: var(--c-text-tertiary);
+    --c-claw-step-pending: rgba(0, 0, 0, 0.12);
+    --c-claw-step-line: rgba(0, 0, 0, 0.10);
+    --c-claw-file-bg: rgba(0, 0, 0, 0.02);
+    --c-claw-file-border: rgba(0, 0, 0, 0.06);
+    --c-accent-fg: #FAFAFA;
+    --c-bg-deep2: #E5E5E3;
+    --c-bg-tag: #E5E5E3;
+    --c-bg-card: #FFFFFF;
+    --c-border-console: #DEDEDE;
+    --c-status-ok-bg: #f0fdf4;
+    --c-status-ok-text: #15803d;
+    --c-status-error-text: #dc2626;
+    --c-status-warning-text: #d97706;
+    --c-status-success-text: #16a34a;
+    --c-status-danger-bg: rgba(220, 38, 38, 0.08);
+    --c-status-danger-text: #dc2626;
+    --c-status-warn-bg: #fff7ed;
+    --c-status-warn-text: #c2410c;
   }
 }
 
@@ -186,6 +242,7 @@ button:not(:disabled) {
   --c-accent-send: #FFFFFF;
   --c-accent-send-hover: #EBEBEB;
   --c-accent-send-text: #1A1A19;
+  --c-accent: #1A1A18;
   --c-pro-bg: #EAF2FC;
   --c-overlay: rgba(0, 0, 0, 0.25);
   --c-lightbox-overlay: rgba(255, 255, 255, 0.55);
@@ -227,6 +284,33 @@ button:not(:disabled) {
   --title-btn-dim: rgba(0, 0, 0, 0.06);
   --title-btn-hover: rgba(0, 0, 0, 0.10);
   --c-sidebar-btn-hover: rgba(0, 0, 0, 0.12);
+  --c-mode-switch-track: rgba(0, 0, 0, 0.05);
+  --c-mode-switch-border: rgba(0, 0, 0, 0.08);
+  --c-mode-switch-pill: #FFFFFF;
+  --c-mode-switch-pill-shadow: 0 1px 3px rgba(0, 0, 0, 0.10), 0 0.5px 1px rgba(0, 0, 0, 0.06);
+  --c-mode-switch-active-text: #141412;
+  --c-mode-switch-inactive-text: #8C8C8A;
+  --c-claw-card-border: rgba(0, 0, 0, 0.10);
+  --c-claw-card-hover: rgba(0, 0, 0, 0.03);
+  --c-claw-step-done: var(--c-text-tertiary);
+  --c-claw-step-pending: rgba(0, 0, 0, 0.12);
+  --c-claw-step-line: rgba(0, 0, 0, 0.10);
+  --c-claw-file-bg: rgba(0, 0, 0, 0.02);
+  --c-claw-file-border: rgba(0, 0, 0, 0.06);
+  --c-accent-fg: #FAFAFA;
+  --c-bg-deep2: #E5E5E3;
+  --c-bg-tag: #E5E5E3;
+  --c-bg-card: #FFFFFF;
+  --c-border-console: #DEDEDE;
+  --c-status-ok-bg: #f0fdf4;
+  --c-status-ok-text: #15803d;
+  --c-status-error-text: #dc2626;
+  --c-status-warning-text: #d97706;
+  --c-status-success-text: #16a34a;
+  --c-status-danger-bg: rgba(220, 38, 38, 0.08);
+  --c-status-danger-text: #dc2626;
+  --c-status-warn-bg: #fff7ed;
+  --c-status-warn-text: #c2410c;
 }
 
 .chat-input-box {
@@ -603,6 +687,11 @@ button:not(:disabled) {
 @keyframes thinking-shimmer {
   0% { background-position: 200% 0; }
   100% { background-position: -200% 0; }
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 .thinking-shimmer {
   background: linear-gradient(

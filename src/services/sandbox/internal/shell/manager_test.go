@@ -500,18 +500,19 @@ func testManagerConfig(pool session.VMPool) session.ManagerConfig {
 	}
 }
 
-func (p *fakePool) Acquire(_ context.Context, tier string) (*session.Session, *os.Process, error) {
+func (p *fakePool) Acquire(_ context.Context, sessionID, tier string) (*session.Session, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.acquireCount++
 	return &session.Session{
+		ID:        sessionID,
 		Tier:      tier,
 		SocketDir: "fake-socket",
 		Dial:      p.agent.Dial,
-	}, nil, nil
+	}, nil
 }
 
-func (p *fakePool) DestroyVM(_ *os.Process, _ string) {
+func (p *fakePool) Destroy(_ string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.destroyCount++

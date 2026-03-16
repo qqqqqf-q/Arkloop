@@ -469,19 +469,19 @@ export function SkillsSettingsContent({ accessToken, onTrySkill }: Props) {
     if (status === 'clean') {
       return {
         label: skillText.scanStatusLabel(status),
-        style: { background: 'var(--c-status-ok-bg,#f0fdf4)', color: 'var(--c-status-ok-text,#15803d)' },
+        style: { background: 'var(--c-status-ok-bg)', color: 'var(--c-status-ok-text)' },
       }
     }
     if (status === 'suspicious') {
       return {
         label: skillText.scanStatusLabel(status),
-        style: { background: 'rgba(245, 158, 11, 0.12)', color: '#b45309' },
+        style: { background: 'var(--c-status-danger-bg)', color: 'var(--c-status-warning-text)' },
       }
     }
     if (status === 'malicious') {
       return {
         label: skillText.scanStatusLabel(status),
-        style: { background: 'rgba(239, 68, 68, 0.12)', color: '#b91c1c' },
+        style: { background: 'var(--c-status-danger-bg)', color: 'var(--c-status-danger-text)' },
       }
     }
     return {
@@ -569,7 +569,7 @@ export function SkillsSettingsContent({ accessToken, onTrySkill }: Props) {
         <p className="text-xs text-[var(--c-text-tertiary)]">{skillText.officialUnconfigured}</p>
       )}
       {error && (
-        <p className="text-xs" style={{ color: 'var(--c-status-error-text, #ef4444)' }}>{error}</p>
+        <p className="text-xs" style={{ color: 'var(--c-status-error-text)' }}>{error}</p>
       )}
 
       {/* 内置技能视图 */}
@@ -621,7 +621,7 @@ export function SkillsSettingsContent({ accessToken, onTrySkill }: Props) {
                           {isEnabled && (
                             <span
                               className="shrink-0 rounded px-1.5 py-px text-[10px] font-medium leading-tight"
-                              style={{ background: 'var(--c-status-ok-bg,#f0fdf4)', color: 'var(--c-status-ok-text,#15803d)' }}
+                              style={{ background: 'var(--c-status-ok-bg)', color: 'var(--c-status-ok-text)' }}
                             >
                               {skillText.enabledByDefault}
                             </span>
@@ -698,7 +698,7 @@ export function SkillsSettingsContent({ accessToken, onTrySkill }: Props) {
                               }
                             }}
                             className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-[var(--c-error-bg)]"
-                            style={{ color: 'var(--c-status-error-text, #ef4444)' }}
+                            style={{ color: 'var(--c-status-error-text)' }}
                           >
                             {busy ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
                           </button>
@@ -791,7 +791,7 @@ export function SkillsSettingsContent({ accessToken, onTrySkill }: Props) {
                       {enabled && (
                         <span
                           className="shrink-0 rounded px-1.5 py-px text-[10px] font-medium leading-tight"
-                          style={{ background: 'var(--c-status-ok-bg,#f0fdf4)', color: 'var(--c-status-ok-text,#15803d)' }}
+                          style={{ background: 'var(--c-status-ok-bg)', color: 'var(--c-status-ok-text)' }}
                         >
                           {skillText.enabledByDefault}
                         </span>
@@ -1166,7 +1166,7 @@ export function SkillsSettingsContent({ accessToken, onTrySkill }: Props) {
                       type="button"
                       onClick={() => { setDetailSkill(null); void handleRemove(item) }}
                       className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--c-error-bg)]"
-                      style={{ color: 'var(--c-status-error-text, #ef4444)' }}
+                      style={{ color: 'var(--c-status-error-text)' }}
                     >
                       <Trash2 size={12} />
                       {skillText.remove}
@@ -1207,7 +1207,7 @@ function DropdownAction({ icon, label, onClick, disabled, destructive }: { icon:
       className={`flex w-full items-center gap-2 px-3 py-2 text-sm transition-colors duration-100 disabled:cursor-not-allowed disabled:opacity-40 bg-[var(--c-bg-menu)] ${destructive ? '[&:not(:disabled)]:hover:bg-[var(--c-error-bg)]' : '[&:not(:disabled)]:hover:bg-[var(--c-bg-deep)]'}`}
       style={{
         borderRadius: '8px',
-        color: destructive ? 'var(--c-status-error-text, #ef4444)' : 'var(--c-text-secondary)',
+        color: destructive ? 'var(--c-status-error-text)' : 'var(--c-text-secondary)',
       }}
     >
       {icon}

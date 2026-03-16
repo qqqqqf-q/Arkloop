@@ -13,11 +13,14 @@ const ACTIVE_THREAD_ID_KEY = 'arkloop:web:active_thread_id'
 const LOCALE_KEY = 'arkloop:web:locale'
 const THEME_KEY = 'arkloop:web:theme'
 const SELECTED_PERSONA_KEY = 'arkloop:web:selected_persona_key'
+const APP_MODE_KEY = 'arkloop:web:app_mode'
 const SELECTED_MODEL_KEY = 'arkloop:web:selected_model'
 
 export const DEFAULT_PERSONA_KEY = 'normal'
 export const SEARCH_PERSONA_KEY = 'extended-search'
 export const LEARNING_PERSONA_KEY = 'stem-tutor'
+
+export type AppMode = 'chat' | 'claw'
 
 function canUseLocalStorage(): boolean {
   return canUseStorage()
@@ -123,6 +126,26 @@ export function writeThemeToStorage(theme: Theme): void {
   if (!canUseLocalStorage()) return
   try {
     localStorage.setItem(THEME_KEY, theme)
+  } catch {
+    // 忽略存储失败
+  }
+}
+
+export function readAppModeFromStorage(): AppMode {
+  if (!canUseLocalStorage()) return 'chat'
+  try {
+    const raw = localStorage.getItem(APP_MODE_KEY)
+    if (raw === 'chat' || raw === 'claw') return raw
+    return 'chat'
+  } catch {
+    return 'chat'
+  }
+}
+
+export function writeAppModeToStorage(mode: AppMode): void {
+  if (!canUseLocalStorage()) return
+  try {
+    localStorage.setItem(APP_MODE_KEY, mode)
   } catch {
     // 忽略存储失败
   }
@@ -429,6 +452,54 @@ export function writeMessageSearchSteps(messageId: string, steps: MessageSearchS
   } catch { /* ignore */ }
 }
 
+// -- Memory Actions --
+
+export type MemoryActionRef = {
+  id: string
+  toolName: 'memory_write' | 'memory_search' | 'memory_read' | 'memory_forget'
+  args: { category?: string; key?: string; query?: string; uri?: string }
+  status: 'active' | 'done' | 'error'
+  resultSummary?: string
+}
+
+function messageMemoryActionsKey(messageId: string): string {
+  return `arkloop:web:msg_memory_actions:${messageId}`
+}
+
+export function readMessageMemoryActions(messageId: string): MemoryActionRef[] | null {
+  if (!canUseLocalStorage() || !messageId) return null
+  try {
+    const raw = localStorage.getItem(messageMemoryActionsKey(messageId))
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) return null
+    const actions = parsed
+      .filter((item): item is Record<string, unknown> => item != null && typeof item === 'object')
+      .map((item): MemoryActionRef | null => {
+        const id = typeof item.id === 'string' ? item.id : ''
+        const toolName = item.toolName
+        const args = (item.args ?? {}) as MemoryActionRef['args']
+        const status = item.status
+        const resultSummary = typeof item.resultSummary === 'string' ? item.resultSummary : undefined
+        if (!id) return null
+        if (toolName !== 'memory_write' && toolName !== 'memory_search' && toolName !== 'memory_read' && toolName !== 'memory_forget') return null
+        if (status !== 'active' && status !== 'done' && status !== 'error') return null
+        return { id, toolName, args, status, resultSummary }
+      })
+      .filter((a): a is MemoryActionRef => a != null)
+    return actions.length > 0 ? actions : null
+  } catch {
+    return null
+  }
+}
+
+export function writeMessageMemoryActions(messageId: string, actions: MemoryActionRef[]): void {
+  if (!canUseLocalStorage() || !messageId || actions.length === 0) return
+  try {
+    localStorage.setItem(messageMemoryActionsKey(messageId), JSON.stringify(actions))
+  } catch { /* ignore */ }
+}
+
 // -- COP Blocks --
 
 export type CopBlockRef = {
@@ -683,6 +754,125 @@ export function writeMessageWebFetches(messageId: string, fetches: WebFetchRef[]
   try {
     localStorage.setItem(messageWebFetchesKey(messageId), JSON.stringify(fetches))
   } catch { /* ignore */ }
+}
+
+// -- Developer Settings --
+
+const DEVELOPER_SHOW_RUN_EVENTS_KEY = 'arkloop:web:developer_show_run_events'
+
+export function readDeveloperShowRunEvents(): boolean {
+  if (!canUseLocalStorage()) return false
+  try {
+    return localStorage.getItem(DEVELOPER_SHOW_RUN_EVENTS_KEY) === 'true'
+  } catch { return false }
+}
+
+export function writeDeveloperShowRunEvents(value: boolean): void {
+  if (!canUseLocalStorage()) return
+  try {
+    localStorage.setItem(DEVELOPER_SHOW_RUN_EVENTS_KEY, value ? 'true' : 'false')
+    window.dispatchEvent(new CustomEvent('arkloop:developer_show_run_events', { detail: value }))
+  } catch { /* ignore */ }
+}
+
+// -- Per-message run events (for inline debug display) --
+
+export type MsgRunEvent = {
+  event_id: string
+  run_id: string
+  seq: number
+  ts: string
+  type: string
+  data: unknown
+  tool_name?: string
+  error_class?: string
+}
+
+function messageRunEventsKey(messageId: string): string {
+  return `arkloop:web:msg_run_events:${messageId}`
+}
+
+export function readMsgRunEvents(messageId: string): MsgRunEvent[] | null {
+  if (!canUseLocalStorage() || !messageId) return null
+  try {
+    const raw = localStorage.getItem(messageRunEventsKey(messageId))
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) return null
+    const events = parsed.filter(
+      (item): item is MsgRunEvent =>
+        item != null &&
+        typeof item === 'object' &&
+        typeof (item as Record<string, unknown>).event_id === 'string' &&
+        typeof (item as Record<string, unknown>).type === 'string',
+    )
+    return events.length > 0 ? events : null
+  } catch { return null }
+}
+
+export function writeMsgRunEvents(messageId: string, events: MsgRunEvent[]): void {
+  if (!canUseLocalStorage() || !messageId || events.length === 0) return
+  try {
+    localStorage.setItem(messageRunEventsKey(messageId), JSON.stringify(events))
+  } catch { /* ignore */ }
+}
+
+// -- Thread Mode Tracking --
+
+const THREAD_MODES_KEY = 'arkloop:web:thread_modes'
+
+export function writeThreadMode(threadId: string, mode: AppMode): void {
+  if (!canUseLocalStorage() || !threadId) return
+  try {
+    const raw = localStorage.getItem(THREAD_MODES_KEY)
+    const map: Record<string, string> = raw ? (JSON.parse(raw) as Record<string, string>) : {}
+    map[threadId] = mode
+    localStorage.setItem(THREAD_MODES_KEY, JSON.stringify(map))
+  } catch { /* ignore */ }
+}
+
+export function readThreadMode(threadId: string): AppMode {
+  if (!canUseLocalStorage() || !threadId) return 'chat'
+  try {
+    const raw = localStorage.getItem(THREAD_MODES_KEY)
+    if (!raw) return 'chat'
+    const map = JSON.parse(raw) as Record<string, string>
+    const mode = map[threadId]
+    return mode === 'claw' ? 'claw' : 'chat'
+  } catch { return 'chat' }
+}
+
+// -- Claw Work Folder --
+
+const CLAW_WORK_FOLDER_KEY = 'arkloop:web:claw_work_folder'
+const CLAW_RECENT_FOLDERS_KEY = 'arkloop:web:claw_recent_folders'
+
+export function readClawWorkFolder(): string | null {
+  if (!canUseLocalStorage()) return null
+  try {
+    return localStorage.getItem(CLAW_WORK_FOLDER_KEY) || null
+  } catch { return null }
+}
+
+export function writeClawWorkFolder(folder: string): void {
+  if (!canUseLocalStorage()) return
+  try {
+    localStorage.setItem(CLAW_WORK_FOLDER_KEY, folder)
+    // also add to recent
+    const raw = localStorage.getItem(CLAW_RECENT_FOLDERS_KEY)
+    const recents: string[] = raw ? (JSON.parse(raw) as string[]) : []
+    const next = [folder, ...recents.filter((f) => f !== folder)].slice(0, 8)
+    localStorage.setItem(CLAW_RECENT_FOLDERS_KEY, JSON.stringify(next))
+  } catch { /* ignore */ }
+}
+
+export function readClawRecentFolders(): string[] {
+  if (!canUseLocalStorage()) return []
+  try {
+    const raw = localStorage.getItem(CLAW_RECENT_FOLDERS_KEY)
+    if (!raw) return []
+    return JSON.parse(raw) as string[]
+  } catch { return [] }
 }
 
 const SEARCH_THREAD_IDS_KEY = 'arkloop:web:search_thread_ids'

@@ -1,3 +1,5 @@
+//go:build !desktop
+
 package consumer
 
 import (
@@ -7,12 +9,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
-
-type UnlockFunc func(ctx context.Context) error
-
-type RunLocker interface {
-	TryAcquire(ctx context.Context, runID uuid.UUID) (UnlockFunc, bool, error)
-}
 
 type PgAdvisoryLocker struct {
 	pool *pgxpool.Pool

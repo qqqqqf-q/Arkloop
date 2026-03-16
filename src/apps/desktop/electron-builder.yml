@@ -1,0 +1,72 @@
+appId: com.arkloop.desktop
+productName: Arkloop
+copyright: Copyright (c) Arkloop
+
+directories:
+  output: release
+
+files:
+  - dist/**/*
+  - resources/**/*
+
+extraResources:
+  - from: ../web/dist/
+    to: renderer
+    filter:
+      - "**/*"
+  - from: ../../../compose.yaml
+    to: arkloop-project/compose.yaml
+  - from: ../../../install/modules.yaml
+    to: arkloop-project/install/modules.yaml
+  - from: ../../../config/searxng
+    to: arkloop-project/config/searxng
+  - from: ../../../config/firecrawl-postgres
+    to: arkloop-project/config/firecrawl-postgres
+  - from: ../../../src/services/sandbox
+    to: arkloop-project/src/services/sandbox
+  - from: ../../../src/services/shared
+    to: arkloop-project/src/services/shared
+
+publish:
+  provider: github
+  owner: nicepkg
+  repo: arkloop
+  releaseType: release
+
+mac:
+  category: public.app-category.developer-tools
+  target:
+    - target: dmg
+      arch:
+        - arm64
+        - x64
+  icon: resources/icon.icns
+  notarize: true
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.inherit.plist
+  hardenedRuntime: true
+  extraResources:
+    - from: sidecar-bin/desktop-darwin-${arch}
+      to: sidecar/desktop
+
+linux:
+  category: Development
+  target:
+    - AppImage
+    - deb
+  icon: resources/icon.png
+  extraResources:
+    - from: sidecar-bin/desktop-linux-${arch}
+      to: sidecar/desktop
+
+win:
+  target:
+    - nsis
+  icon: resources/icon.ico
+  extraResources:
+    - from: sidecar-bin/desktop-win32-${arch}.exe
+      to: sidecar/desktop.exe
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true

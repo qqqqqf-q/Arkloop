@@ -4,6 +4,7 @@ import { Glasses } from 'lucide-react'
 import { ChatInput, type Attachment } from './ChatInput'
 import { ErrorCallout, type AppError } from './ErrorCallout'
 import { NotificationBell } from './NotificationBell'
+import { isDesktop } from '@arkloop/shared/desktop'
 import { createThread, createMessage, createRun, uploadThreadAttachment, isApiError, type ThreadResponse, type MeResponse } from '../api'
 import { writeActiveThreadIdToStorage, addSearchThreadId, SEARCH_PERSONA_KEY } from '../storage'
 import { useLocale } from '../contexts/LocaleContext'
@@ -43,6 +44,7 @@ type OutletContext = {
   pendingSkillPrompt?: string | null
   onConsumeSkillPrompt?: () => void
   onOpenSettings?: (tab: string) => void
+  appMode?: import('../storage').AppMode
 }
 
 // 按时段、星期、节日生成问候语，全部基于浏览器本地时间。
@@ -114,7 +116,7 @@ function buildGreeting(name: string | null, now: Date): string {
 
 
 export function WelcomePage() {
-  const { accessToken, onLoggedOut, onThreadCreated, refreshCredits, onOpenNotifications, notificationVersion, creditsBalance: _creditsBalance, me, isPrivateMode, onTogglePrivateMode, isSearchMode, onEnterSearchMode, onExitSearchMode, pendingSkillPrompt, onConsumeSkillPrompt, onOpenSettings } = useOutletContext<OutletContext>()
+  const { accessToken, onLoggedOut, onThreadCreated, refreshCredits, onOpenNotifications, notificationVersion, creditsBalance: _creditsBalance, me, isPrivateMode, onTogglePrivateMode, isSearchMode, onEnterSearchMode, onExitSearchMode, pendingSkillPrompt, onConsumeSkillPrompt, onOpenSettings, appMode } = useOutletContext<OutletContext>()
   const [draft, setDraft] = useState('')
   const [attachments, setAttachments] = useState<Attachment[]>([])
   const attachmentsRef = useRef<Attachment[]>([])
@@ -137,6 +139,7 @@ export function WelcomePage() {
   const [typedGreeting, setTypedGreeting] = useState('')
   useEffect(() => {
     setTypedGreeting('')
+    if (isPrivateMode) return
     let i = 0
     const id = setInterval(() => {
       i++
@@ -144,7 +147,21 @@ export function WelcomePage() {
       setTypedGreeting(greeting.slice(0, i))
     }, 45)
     return () => clearInterval(id)
-  }, [greeting])
+  }, [greeting, isPrivateMode])
+
+  const [typedIncognito, setTypedIncognito] = useState('')
+  useEffect(() => {
+    setTypedIncognito('')
+    if (!isPrivateMode) return
+    let i = 0
+    const text = t.youAreIncognito
+    const id = setInterval(() => {
+      i++
+      if (i > text.length) { clearInterval(id); return }
+      setTypedIncognito(text.slice(0, i))
+    }, 55)
+    return () => clearInterval(id)
+  }, [isPrivateMode, t.youAreIncognito])
 
   const revokeDraftAttachment = useCallback((attachment: Attachment) => {
     if (attachment.preview_url) URL.revokeObjectURL(attachment.preview_url)
@@ -292,40 +309,53 @@ export function WelcomePage() {
     <div className="flex h-full flex-col">
       {/* 顶部 header */}
       <div className="relative z-10 flex min-h-[51px] items-center justify-end gap-2 px-[15px] py-[15px]">
-        <NotificationBell accessToken={accessToken} onClick={onOpenNotifications} refreshKey={notificationVersion} title={t.notificationsTitle} />
-        <button
-          onClick={onTogglePrivateMode}
-          title={isPrivateMode ? t.disableIncognito : t.enableIncognito}
-          className={[
-            'flex h-8 w-8 items-center justify-center rounded-lg transition-colors',
-            isPrivateMode
-              ? 'bg-[var(--c-bg-deep)] text-[var(--c-text-primary)]'
-              : 'text-[var(--c-text-secondary)] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]',
-          ].join(' ')}
-        >
-          <Glasses size={18} />
-        </button>
+        {!isDesktop() && (
+          <NotificationBell accessToken={accessToken} onClick={onOpenNotifications} refreshKey={notificationVersion} title={t.notificationsTitle} />
+        )}
+        {!isDesktop() && (
+          <button
+            onClick={onTogglePrivateMode}
+            title={isPrivateMode ? t.disableIncognito : t.enableIncognito}
+            className={[
+              'flex h-8 w-8 items-center justify-center rounded-lg transition-colors',
+              isPrivateMode
+                ? 'bg-[var(--c-bg-deep)] text-[var(--c-text-primary)]'
+                : 'text-[var(--c-text-secondary)] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]',
+            ].join(' ')}
+          >
+            <Glasses size={18} />
+          </button>
+        )}
       </div>
 
-      {/* 居中内容 */}
+      {/* 居中内容 — paddingTop 带过渡动画，模式切换时平滑移动 */}
       <div
-        className="flex flex-1 flex-col items-center px-5 pt-[27vh]"
+        className="flex flex-1 flex-col items-center px-5"
+        style={{
+          paddingTop: appMode === 'claw' ? '32vh' : '27vh',
+          transition: 'padding-top 0.38s cubic-bezier(0.16, 1, 0.3, 1)',
+        }}
       >
-        {/* 标题：两层绝对定位交叉淡出，容器高度由下层撑开 */}
+        {/* 标题：三层绝对定位交叉淡出 */}
         <div className="mb-[40px]" style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           {/* 常规问候 / 无痕文本 */}
           <h2
-            className="text-[40px] font-normal tracking-[-0.5px] text-[var(--c-text-heading)]"
+            className="relative whitespace-nowrap text-[40px] font-normal tracking-[-0.5px] text-[var(--c-text-heading)]"
             style={{
-              opacity: isSearchMode ? 0 : 1,
-              transform: isSearchMode ? 'translateY(-6px)' : 'translateY(0)',
-              transition: 'opacity 0.2s ease, transform 0.22s ease',
-              pointerEvents: isSearchMode ? 'none' : 'auto',
+              opacity: (isSearchMode || appMode === 'claw') ? 0 : 1,
+              transform: (isSearchMode || appMode === 'claw') ? 'translateY(-6px)' : 'translateY(0)',
+              transition: 'opacity 0.22s ease, transform 0.24s ease',
+              pointerEvents: (isSearchMode || appMode === 'claw') ? 'none' : 'auto',
             }}
           >
-            {isPrivateMode ? t.youAreIncognito : typedGreeting}
+            <span className="invisible select-none" aria-hidden="true">
+              {isPrivateMode ? t.youAreIncognito : greeting}
+            </span>
+            <span className="absolute inset-0">
+              {isPrivateMode ? typedIncognito : typedGreeting}
+            </span>
           </h2>
-          {/* Search for everything — 绝对覆盖，不撑开高度 */}
+          {/* Search for everything */}
           <h2
             className="absolute text-[40px] font-normal tracking-[-0.5px] text-[var(--c-text-heading)]"
             style={{
@@ -337,6 +367,19 @@ export function WelcomePage() {
             }}
           >
             Search for everything
+          </h2>
+          {/* Claw 模式欢迎语 */}
+          <h2
+            className="absolute text-[40px] font-normal tracking-[-0.5px] text-[var(--c-text-heading)]"
+            style={{
+              opacity: appMode === 'claw' && !isSearchMode ? 1 : 0,
+              transform: appMode === 'claw' && !isSearchMode ? 'translateY(0)' : 'translateY(6px)',
+              transition: 'opacity 0.22s ease, transform 0.24s ease',
+              pointerEvents: appMode === 'claw' && !isSearchMode ? 'auto' : 'none',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {t.clawGreeting}
           </h2>
         </div>
 
@@ -361,6 +404,7 @@ export function WelcomePage() {
               else if (personaKey !== SEARCH_PERSONA_KEY && isSearchMode) onExitSearchMode()
             }}
             onOpenSettings={onOpenSettings}
+            appMode={appMode}
           />
           {/* incognito note: 平滑展开/收起 */}
           <div

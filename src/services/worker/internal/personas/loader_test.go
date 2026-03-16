@@ -34,6 +34,36 @@ func TestLoadRegistryLoadsNormalPersona(t *testing.T) {
 	}
 }
 
+func TestLoadRegistryLoadsClawPersona(t *testing.T) {
+	root, err := BuiltinPersonasRoot()
+	if err != nil {
+		t.Fatalf("BuiltinPersonasRoot failed: %v", err)
+	}
+	registry, err := LoadRegistry(root)
+	if err != nil {
+		t.Fatalf("LoadRegistry failed: %v", err)
+	}
+	def, ok := registry.Get("claw")
+	if !ok {
+		t.Fatalf("expected claw persona loaded")
+	}
+	if def.UserSelectable {
+		t.Fatal("expected claw persona not user selectable")
+	}
+	if def.ExecutorType != "agent.simple" {
+		t.Fatalf("unexpected executor_type: %s", def.ExecutorType)
+	}
+	if def.Budgets.MaxOutputTokens == nil || *def.Budgets.MaxOutputTokens != 12288 {
+		t.Fatalf("unexpected max_output_tokens: %#v", def.Budgets.MaxOutputTokens)
+	}
+	if len(def.ToolAllowlist) == 0 {
+		t.Fatal("expected claw tool allowlist")
+	}
+	if def.PromptMD == "" || def.SoulMD == "" {
+		t.Fatal("expected claw prompt and soul")
+	}
+}
+
 func TestResolvePersonaVersionMismatch(t *testing.T) {
 	registry := NewRegistry()
 	if err := registry.Register(Definition{ID: "demo", Version: "1", Title: "t"}); err != nil {

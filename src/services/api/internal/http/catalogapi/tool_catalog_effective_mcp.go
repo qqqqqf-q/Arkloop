@@ -23,6 +23,7 @@ import (
 	"time"
 
 	apicrypto "arkloop/services/api/internal/crypto"
+	"arkloop/services/api/internal/data"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -60,7 +61,7 @@ func (c *effectiveToolCatalogCache) GetEnv(ctx context.Context) ([]toolCatalogIt
 	})
 }
 
-func (c *effectiveToolCatalogCache) GetAccount(ctx context.Context, pool *pgxpool.Pool, accountID uuid.UUID) ([]toolCatalogItem, error) {
+func (c *effectiveToolCatalogCache) GetAccount(ctx context.Context, pool data.DB, accountID uuid.UUID) ([]toolCatalogItem, error) {
 	if accountID == uuid.Nil {
 		return nil, nil
 	}
@@ -226,7 +227,7 @@ func loadEffectiveMCPConfigFromEnv() ([]effectiveMCPServerConfig, error) {
 	return servers, nil
 }
 
-func loadEffectiveMCPConfigFromDB(ctx context.Context, pool *pgxpool.Pool, accountID uuid.UUID) ([]effectiveMCPServerConfig, error) {
+func loadEffectiveMCPConfigFromDB(ctx context.Context, pool data.DB, accountID uuid.UUID) ([]effectiveMCPServerConfig, error) {
 	if pool == nil || accountID == uuid.Nil {
 		return nil, nil
 	}

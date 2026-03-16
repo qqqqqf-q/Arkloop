@@ -13,7 +13,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type createAsrCredentialRequest struct {
@@ -49,7 +48,7 @@ func asrCredentialsEntry(
 	membershipRepo *data.AccountMembershipRepository,
 	credRepo *data.AsrCredentialsRepository,
 	secretsRepo *data.SecretsRepository,
-	pool *pgxpool.Pool,
+	pool data.TxStarter,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		traceID := observability.TraceIDFromContext(r.Context())
@@ -116,7 +115,7 @@ func createAsrCredential(
 	membershipRepo *data.AccountMembershipRepository,
 	credRepo *data.AsrCredentialsRepository,
 	secretsRepo *data.SecretsRepository,
-	pool *pgxpool.Pool,
+	pool data.TxStarter,
 ) {
 	if authService == nil {
 		httpkit.WriteAuthNotConfigured(w, traceID)

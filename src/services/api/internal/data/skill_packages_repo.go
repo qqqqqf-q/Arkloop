@@ -421,6 +421,36 @@ func (r *SkillPackagesRepository) ListPlatformSkills(ctx context.Context) ([]Ski
 	return items, nil
 }
 
+// ListPlatformSkillHashes returns a map of skill_key → content_hash for all
+// active platform skills. Used by the desktop seeder to detect changes without
+// a raw pgxpool query (which is PostgreSQL-specific).
+func (r *SkillPackagesRepository) ListPlatformSkillHashes(ctx context.Context) (map[string]string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	rows, err := r.db.Query(
+		ctx,
+		`SELECT skill_key, COALESCE(content_hash, '')
+		   FROM skill_packages
+		  WHERE account_id IS NULL
+		    AND sync_mode = 'platform_skill'
+		    AND is_active = true`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	hashes := make(map[string]string)
+	for rows.Next() {
+		var key, hash string
+		if err := rows.Scan(&key, &hash); err != nil {
+			return nil, err
+		}
+		hashes[key] = hash
+	}
+	return hashes, rows.Err()
+}
+
 func (r *SkillPackagesRepository) DeactivatePlatformSkill(ctx context.Context, skillKey string) (int64, error) {
 	if ctx == nil {
 		ctx = context.Background()

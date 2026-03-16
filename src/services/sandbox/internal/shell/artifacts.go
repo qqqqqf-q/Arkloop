@@ -137,8 +137,6 @@ type artifactStore interface {
 	PutObject(ctx context.Context, key string, data []byte, options objectstore.PutOptions) error
 }
 
-var _ artifactStore = (*objectstore.S3Store)(nil)
-
 func resolveArtifactOwnerRunID(sessionID string) string {
 	if sessionID == "" {
 		return ""

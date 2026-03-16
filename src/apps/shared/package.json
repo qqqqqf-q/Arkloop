@@ -8,6 +8,7 @@
     "./api": "./src/api/client.ts",
     "./api/types": "./src/api/types.ts",
     "./storage": "./src/storage/tokens.ts",
+    "./desktop": "./src/desktop.ts",
     "./contexts/theme": "./src/contexts/ThemeContext.tsx",
     "./contexts/locale": "./src/contexts/LocaleContext.tsx",
     "./components/auth-ui": "./src/components/auth-ui.tsx",

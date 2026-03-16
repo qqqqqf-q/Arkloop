@@ -14,7 +14,7 @@ import (
 )
 
 func TestTitleSummarizerMiddleware_NilConfigPassThrough(t *testing.T) {
-	mw := pipeline.NewTitleSummarizerMiddleware(nil, nil, nil, false)
+	mw := pipeline.NewTitleSummarizerMiddleware(nil, nil, nil, false, nil)
 
 	rc := &pipeline.RunContext{
 		Emitter: events.NewEmitter("test"),
@@ -40,7 +40,7 @@ func TestTitleSummarizerMiddleware_WithConfigCallsNextImmediately(t *testing.T) 
 	stubCfg.DeltaInterval = 0
 	stubGateway := llm.NewStubGateway(stubCfg)
 
-	mw := pipeline.NewTitleSummarizerMiddleware(nil, nil, stubGateway, false)
+	mw := pipeline.NewTitleSummarizerMiddleware(nil, nil, stubGateway, false, nil)
 
 	rc := &pipeline.RunContext{
 		Run: data.Run{

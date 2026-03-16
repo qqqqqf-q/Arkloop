@@ -1,9 +1,12 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
-import { PanelLeftOpen } from 'lucide-react'
+import { isDesktop } from '@arkloop/shared/desktop'
 import { LoadingPage } from '@arkloop/shared'
 import { Sidebar } from '../components/Sidebar'
+import { DesktopTitleBar } from '../components/DesktopTitleBar'
 import { SettingsModal } from '../components/SettingsModal'
+import { DesktopSettings } from '../components/DesktopSettings'
+import type { DesktopSettingsKey } from '../components/DesktopSettings'
 import { ChatsSearchModal } from '../components/ChatsSearchModal'
 import { NotificationsPanel } from '../components/NotificationsPanel'
 import { EmailVerificationGate } from '../components/EmailVerificationGate'
@@ -18,7 +21,8 @@ import {
   type MeResponse,
   type ThreadResponse,
 } from '../api'
-import { clearActiveThreadIdInStorage, writeSelectedPersonaKeyToStorage, SEARCH_PERSONA_KEY } from '../storage'
+import { clearActiveThreadIdInStorage, writeSelectedPersonaKeyToStorage, SEARCH_PERSONA_KEY, DEFAULT_PERSONA_KEY, readAppModeFromStorage, writeAppModeToStorage, writeThreadMode, readThreadMode } from '../storage'
+import type { AppMode } from '../storage'
 
 type Props = {
   accessToken: string
@@ -51,12 +55,26 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
   const isSearchModeRef = useRef(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsInitialTab, setSettingsInitialTab] = useState<SettingsTab>('account')
+  const [desktopSettingsSection, setDesktopSettingsSection] = useState<DesktopSettingsKey>('general')
   const [notificationsOpen, setNotificationsOpen] = useState(
     () => new URLSearchParams(location.search).has('notices'),
   )
   const [notificationVersion, setNotificationVersion] = useState(0)
   const [creditsBalance, setCreditsBalance] = useState(0)
   const [pendingSkillPrompt, setPendingSkillPrompt] = useState<string | null>(null)
+  const [appMode, setAppMode] = useState<AppMode>(readAppModeFromStorage)
+  const desktop = isDesktop()
+
+  const availableAppModes: AppMode[] = (desktop || me?.claw_enabled !== false) ? ['chat', 'claw'] : ['chat']
+
+  const handleSetAppMode = useCallback((mode: AppMode) => {
+    writeAppModeToStorage(mode)
+    setAppMode(mode)
+    // 切换模式时，如果当前在某个会话内，跳回新建对话页
+    if (/^\/t\//.test(location.pathname)) {
+      navigate('/')
+    }
+  }, [location.pathname, navigate])
 
   const handleNotificationMarkedRead = useCallback(() => {
     setNotificationVersion((v) => v + 1)
@@ -96,6 +114,13 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
   useEffect(() => {
     setRightPanelOpen(false)
     if (notificationsOpen) closeNotifications()
+  }, [location.pathname]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Desktop 模式下，点击历史记录跳转到会话时关闭设置界面
+  useEffect(() => {
+    if (desktop && settingsOpen && /^\/t\//.test(location.pathname)) {
+      setSettingsOpen(false)
+    }
   }, [location.pathname]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Mouse 5 / 浏览器返回键：退出搜索模式而非离开页面
@@ -143,30 +168,37 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
   const handleLogout = useCallback(async () => {
     try {
       await logout(accessToken)
-    } catch (err) {
-      if (isApiError(err) && err.status !== 401) return
+    } catch {
+      // Best-effort server revocation — always proceed with local cleanup
     }
     clearActiveThreadIdInStorage()
     onLoggedOut()
   }, [accessToken, onLoggedOut])
 
   const handleNewThread = useCallback(() => {
+    // Leaving search/retrieval mode — reset persona back to default
+    if (isSearchModeRef.current) {
+      writeSelectedPersonaKeyToStorage(DEFAULT_PERSONA_KEY)
+    }
     setIsSearchMode(false)
     closeNotifications()
+    // In desktop mode, close settings so the chat view becomes visible
+    if (desktop) setSettingsOpen(false)
     navigate('/')
-  }, [navigate, closeNotifications])
+  }, [navigate, closeNotifications, desktop])
 
-  // 从 WelcomePage 新建的 thread 需要注入到列表
+  // 从 WelcomePage 新建的 thread 需要注入到列表，并标记所属模式
   const handleThreadCreated = useCallback((thread: ThreadResponse) => {
     if (thread.is_private) {
       setPrivateThreadIds((prev) => new Set(prev).add(thread.id))
       return
     }
+    writeThreadMode(thread.id, appMode)
     setThreads((prev) => {
       if (prev.some((t) => t.id === thread.id)) return prev
       return [thread, ...prev]
     })
-  }, [])
+  }, [appMode])
 
   const handleTogglePrivateMode = useCallback(() => {
     setIsPrivateMode((prev) => !prev)
@@ -236,70 +268,110 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
   }
 
   return (
-    <div className="flex h-screen overflow-hidden bg-[var(--c-bg-page)]">
-      {/* 侧边栏折叠时的展开按钮 */}
-      {sidebarCollapsed && (
-        <button
-          onClick={() => setSidebarCollapsed(false)}
-          className="fixed left-3 top-3 z-40 flex h-8 w-8 items-center justify-center rounded-lg text-[var(--c-text-tertiary)] transition-colors hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-secondary)]"
-        >
-          <PanelLeftOpen size={18} />
-        </button>
-      )}
-
-      <Sidebar
-        me={me}
-        threads={threads}
-        runningThreadIds={runningThreadIds}
-        isPrivateMode={(() => {
-          const currentThreadId = location.pathname.match(/^\/t\/([^/]+)/)?.[1] ?? null
-          return isPrivateMode || pendingIncognitoMode || (currentThreadId != null && privateThreadIds.has(currentThreadId))
-        })()}
-        accessToken={accessToken}
-        onNewThread={handleNewThread}
-        onLogout={handleLogout}
-        onOpenSettings={(tab = 'account') => { setSettingsInitialTab(tab); setSettingsOpen(true) }}
-        collapsed={sidebarCollapsed}
-        onToggleCollapse={() => setSidebarCollapsed(true)}
-        onOpenSearch={() => {
-            if (location.pathname !== '/') navigate('/')
-            window.history.pushState({ searchMode: true }, '', '/')
-            writeSelectedPersonaKeyToStorage(SEARCH_PERSONA_KEY)
-            setIsSearchMode(true)
-          }}
-        isSearchMode={isSearchMode}
-        onThreadTitleUpdated={handleThreadTitleUpdated}
-        onThreadDeleted={handleThreadDeleted}
-        narrow={rightPanelOpen}
-      />
-
-      {settingsOpen && (
-        <SettingsModal
-          me={me}
-          accessToken={accessToken}
-          initialTab={settingsInitialTab}
-          onClose={() => setSettingsOpen(false)}
-          onLogout={handleLogout}
-          onCreditsChanged={(balance) => setCreditsBalance(balance)}
-          onMeUpdated={(updated) => setMe(updated)}
-          onTrySkill={(prompt) => {
-            setSettingsOpen(false)
-            navigate('/')
-            setPendingSkillPrompt(prompt)
-          }}
+    <div className="flex h-screen flex-col overflow-hidden bg-[var(--c-bg-page)]">
+      {desktop && (
+        <DesktopTitleBar
+          sidebarCollapsed={sidebarCollapsed}
+          onToggleSidebar={() => setSidebarCollapsed((v) => !v)}
+          appMode={appMode}
+          onSetAppMode={handleSetAppMode}
+          availableModes={availableAppModes}
+          isPrivateMode={isPrivateMode || pendingIncognitoMode}
+          onTogglePrivateMode={handleTogglePrivateMode}
         />
       )}
 
-      {isSearchOpen && (
-        <ChatsSearchModal threads={threads} accessToken={accessToken} onClose={handleCloseSearch} />
-      )}
+      <div className="flex min-h-0 flex-1">
+        <Sidebar
+          me={me}
+          threads={threads.filter((t) => readThreadMode(t.id) === appMode)}
+          runningThreadIds={runningThreadIds}
+          isPrivateMode={(() => {
+            const currentThreadId = location.pathname.match(/^\/t\/([^/]+)/)?.[1] ?? null
+            return isPrivateMode || pendingIncognitoMode || (currentThreadId != null && privateThreadIds.has(currentThreadId))
+          })()}
+          accessToken={accessToken}
+          onNewThread={handleNewThread}
+          onLogout={handleLogout}
+          onOpenSettings={(tab = 'account') => {
+            if (desktop) {
+              const keyMap: Record<string, DesktopSettingsKey> = {
+                account: 'general',
+                settings: 'general',
+                skills: 'skills',
+                models: 'providers',
+                agents: 'personas',
+                connection: 'connection',
+              }
+              setDesktopSettingsSection(keyMap[tab] ?? 'general')
+              setSettingsOpen(true)
+            } else {
+              setSettingsInitialTab(tab)
+              setSettingsOpen(true)
+            }
+          }}
+          collapsed={sidebarCollapsed}
+          onToggleCollapse={() => setSidebarCollapsed(v => !v)}
+          onOpenSearch={() => {
+              if (location.pathname !== '/') navigate('/')
+              window.history.pushState({ searchMode: true }, '', '/')
+              writeSelectedPersonaKeyToStorage(SEARCH_PERSONA_KEY)
+              setIsSearchMode(true)
+            }}
+          isSearchMode={isSearchMode}
+          onThreadTitleUpdated={handleThreadTitleUpdated}
+          onThreadDeleted={handleThreadDeleted}
+          narrow={rightPanelOpen}
+          desktopMode={desktop}
+          appMode={appMode}
+        />
 
-      <main className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
-        <Outlet context={{ accessToken, onLoggedOut, me, creditsBalance, onThreadCreated: handleThreadCreated, onRunStarted: handleRunStarted, onRunEnded: handleRunEnded, onThreadTitleUpdated: handleThreadTitleUpdated, refreshCredits, onOpenNotifications: openNotifications, notificationVersion, isPrivateMode, onTogglePrivateMode: handleTogglePrivateMode, privateThreadIds, isSearchMode, onEnterSearchMode: () => { window.history.pushState({ searchMode: true }, '', '/'); setIsSearchMode(true) }, onExitSearchMode: () => setIsSearchMode(false), onSetPendingIncognito: handleSetPendingIncognito, onRightPanelChange: setRightPanelOpen, threads, onThreadDeleted: handleThreadDeleted, pendingSkillPrompt, onConsumeSkillPrompt: () => setPendingSkillPrompt(null), onOpenSettings: (tab: SettingsTab = 'account') => { setSettingsInitialTab(tab); setSettingsOpen(true) } }} />
-        {notificationsOpen && (
-          <NotificationsPanel accessToken={accessToken} onClose={closeNotifications} onMarkedRead={handleNotificationMarkedRead} />
+        {/* Settings modal for web mode */}
+        {settingsOpen && !desktop && (
+          <SettingsModal
+            me={me}
+            accessToken={accessToken}
+            initialTab={settingsInitialTab}
+            onClose={() => setSettingsOpen(false)}
+            onLogout={handleLogout}
+            onCreditsChanged={(balance) => setCreditsBalance(balance)}
+            onMeUpdated={(updated) => setMe(updated)}
+            onTrySkill={(prompt) => {
+              setSettingsOpen(false)
+              navigate('/')
+              setPendingSkillPrompt(prompt)
+            }}
+          />
         )}
-      </main>
+
+        {isSearchOpen && (
+          <ChatsSearchModal threads={threads} accessToken={accessToken} onClose={handleCloseSearch} />
+        )}
+
+        {/* Desktop mode: full-screen settings replaces main content */}
+        {desktop && settingsOpen ? (
+          <DesktopSettings
+            me={me}
+            accessToken={accessToken}
+            initialSection={desktopSettingsSection}
+            onClose={() => setSettingsOpen(false)}
+            onLogout={handleLogout}
+            onMeUpdated={(updated) => setMe(updated)}
+            onTrySkill={(prompt) => {
+              setSettingsOpen(false)
+              navigate('/')
+              setPendingSkillPrompt(prompt)
+            }}
+          />
+        ) : (
+          <main className="relative flex min-w-0 flex-1 flex-col overflow-y-auto">
+            <Outlet context={{ accessToken, onLoggedOut, me, creditsBalance, onThreadCreated: handleThreadCreated, onRunStarted: handleRunStarted, onRunEnded: handleRunEnded, onThreadTitleUpdated: handleThreadTitleUpdated, refreshCredits, onOpenNotifications: openNotifications, notificationVersion, isPrivateMode, onTogglePrivateMode: handleTogglePrivateMode, privateThreadIds, isSearchMode, onEnterSearchMode: () => { window.history.pushState({ searchMode: true }, '', '/'); setIsSearchMode(true) }, onExitSearchMode: () => setIsSearchMode(false), onSetPendingIncognito: handleSetPendingIncognito, onRightPanelChange: setRightPanelOpen, threads, onThreadDeleted: handleThreadDeleted, pendingSkillPrompt, onConsumeSkillPrompt: () => setPendingSkillPrompt(null), onOpenSettings: (tab: SettingsTab = 'account') => { setSettingsInitialTab(tab); setSettingsOpen(true) }, appMode, availableAppModes, onSetAppMode: handleSetAppMode }} />
+            {notificationsOpen && (
+              <NotificationsPanel accessToken={accessToken} onClose={closeNotifications} onMarkedRead={handleNotificationMarkedRead} />
+            )}
+          </main>
+        )}
+      </div>
     </div>
   )
 }

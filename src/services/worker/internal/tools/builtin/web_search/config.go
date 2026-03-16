@@ -7,15 +7,17 @@ import (
 )
 
 const (
-	webSearchProviderEnv = "ARKLOOP_WEB_SEARCH_PROVIDER"
-	searxngBaseURLEnv    = "ARKLOOP_WEB_SEARCH_SEARXNG_BASE_URL"
-	tavilyAPIKeyEnv      = "ARKLOOP_WEB_SEARCH_TAVILY_API_KEY"
+	webSearchProviderEnv        = "ARKLOOP_WEB_SEARCH_PROVIDER"
+	searxngBaseURLEnv           = "ARKLOOP_WEB_SEARCH_SEARXNG_BASE_URL"
+	tavilyAPIKeyEnv             = "ARKLOOP_WEB_SEARCH_TAVILY_API_KEY"
+	desktopCallbackAddrEnv      = "ARKLOOP_WEB_SEARCH_DESKTOP_CALLBACK_ADDR"
 )
 
 const (
-	settingProvider   = "web_search.provider"
-	settingSearxngURL = "web_search.searxng_base_url"
-	settingTavilyKey  = "web_search.tavily_api_key"
+	settingProvider             = "web_search.provider"
+	settingSearxngURL           = "web_search.searxng_base_url"
+	settingTavilyKey            = "web_search.tavily_api_key"
+	settingDesktopCallbackAddr  = "web_search.desktop_callback_addr"
 )
 
 type ProviderKind string
@@ -24,12 +26,16 @@ const (
 	ProviderKindSearxng ProviderKind = "searxng"
 	ProviderKindTavily  ProviderKind = "tavily"
 	ProviderKindSerper  ProviderKind = "serper"
+	// ProviderKindBrowser delegates search to the Electron host browser via
+	// a local HTTP callback server. Requires ARKLOOP_WEB_SEARCH_DESKTOP_CALLBACK_ADDR.
+	ProviderKindBrowser ProviderKind = "browser"
 )
 
 type Config struct {
-	ProviderKind   ProviderKind
-	SearxngBaseURL string
-	TavilyAPIKey   string
+	ProviderKind        ProviderKind
+	SearxngBaseURL      string
+	TavilyAPIKey        string
+	DesktopCallbackAddr string
 }
 
 func ConfigFromEnv(required bool) (*Config, error) {
@@ -68,8 +74,14 @@ func ConfigFromEnv(required bool) (*Config, error) {
 		}, nil
 	case ProviderKindSerper:
 		return &Config{ProviderKind: kind}, nil
+	case ProviderKindBrowser:
+		addr := strings.TrimSpace(os.Getenv(desktopCallbackAddrEnv))
+		return &Config{
+			ProviderKind:        kind,
+			DesktopCallbackAddr: addr,
+		}, nil
 	default:
-		return nil, fmt.Errorf("%s must be searxng/tavily/serper", webSearchProviderEnv)
+		return nil, fmt.Errorf("%s must be searxng/tavily/serper/browser", webSearchProviderEnv)
 	}
 }
 
@@ -82,7 +94,9 @@ func parseProviderKind(raw string) (ProviderKind, error) {
 		return ProviderKindTavily, nil
 	case "serper":
 		return ProviderKindSerper, nil
+	case "browser":
+		return ProviderKindBrowser, nil
 	default:
-		return "", fmt.Errorf("%s must be searxng/tavily/serper", webSearchProviderEnv)
+		return "", fmt.Errorf("%s must be searxng/tavily/serper/browser", webSearchProviderEnv)
 	}
 }

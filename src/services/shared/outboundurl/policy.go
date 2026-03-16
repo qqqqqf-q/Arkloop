@@ -53,7 +53,7 @@ func allowLoopbackHTTPFromEnv() bool {
 func trustFakeIPFromEnv() bool {
 	raw := strings.TrimSpace(os.Getenv(TrustFakeIPEnv))
 	if raw == "" {
-		return false
+		return defaultTrustFakeIP()
 	}
 	ok, err := strconv.ParseBool(raw)
 	return err == nil && ok

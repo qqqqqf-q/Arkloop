@@ -1,0 +1,220 @@
+name: Build Desktop
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version override (e.g. 0.2.0)"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  packages: read
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Job 1 – Cross-compile Go sidecar for every target platform/arch
+  # ---------------------------------------------------------------------------
+  build-sidecar:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: darwin
+            goarch: arm64
+            electron_platform: darwin
+            electron_arch: arm64
+          - goos: darwin
+            goarch: amd64
+            electron_platform: darwin
+            electron_arch: x64
+          - goos: linux
+            goarch: amd64
+            electron_platform: linux
+            electron_arch: x64
+          - goos: linux
+            goarch: arm64
+            electron_platform: linux
+            electron_arch: arm64
+          - goos: windows
+            goarch: amd64
+            electron_platform: win32
+            electron_arch: x64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.work
+
+      - name: Build sidecar
+        run: |
+          BIN_NAME="desktop-${{ matrix.electron_platform }}-${{ matrix.electron_arch }}"
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            BIN_NAME="${BIN_NAME}.exe"
+          fi
+          mkdir -p dist
+          CGO_ENABLED=0 GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} \
+            go build -tags desktop -trimpath -ldflags '-s -w' \
+            -o "dist/${BIN_NAME}" \
+            ./src/services/desktop/cmd/desktop
+          echo "Built dist/${BIN_NAME}"
+          ls -lh dist/
+
+      - name: Upload sidecar artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sidecar-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # Job 2 – Build Electron installers per platform
+  # ---------------------------------------------------------------------------
+  build-desktop:
+    needs: build-sidecar
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            platform: darwin
+            electron_arch: arm64
+            sidecar_artifact: sidecar-darwin-arm64
+            builder_args: --mac --arm64
+          - os: macos-13
+            platform: darwin
+            electron_arch: x64
+            sidecar_artifact: sidecar-darwin-amd64
+            builder_args: --mac --x64
+          - os: ubuntu-latest
+            platform: linux
+            electron_arch: x64
+            sidecar_artifact: sidecar-linux-amd64
+            builder_args: --linux --x64
+          - os: windows-latest
+            platform: win32
+            electron_arch: x64
+            sidecar_artifact: sidecar-windows-amd64
+            builder_args: --win --x64
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Download sidecar binary
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.sidecar_artifact }}
+          path: src/apps/desktop/sidecar-bin/
+
+      - name: Make sidecar executable
+        if: runner.os != 'Windows'
+        run: chmod +x src/apps/desktop/sidecar-bin/*
+
+      - name: Build web app
+        run: pnpm --filter web build
+
+      - name: Build Electron TypeScript
+        run: pnpm --filter @arkloop/desktop build:electron
+
+      - name: Run electron-builder (macOS)
+        if: matrix.platform == 'darwin'
+        working-directory: src/apps/desktop
+        env:
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: npx electron-builder ${{ matrix.builder_args }}
+
+      - name: Run electron-builder (Linux)
+        if: matrix.platform == 'linux'
+        working-directory: src/apps/desktop
+        run: npx electron-builder ${{ matrix.builder_args }}
+
+      - name: Run electron-builder (Windows)
+        if: matrix.platform == 'win32'
+        working-directory: src/apps/desktop
+        env:
+          CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+        run: npx electron-builder ${{ matrix.builder_args }}
+
+      - name: Upload installer artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-installer-${{ matrix.platform }}-${{ matrix.electron_arch }}
+          path: |
+            src/apps/desktop/release/*.dmg
+            src/apps/desktop/release/*.AppImage
+            src/apps/desktop/release/*.deb
+            src/apps/desktop/release/*.exe
+            src/apps/desktop/release/*.blockmap
+            src/apps/desktop/release/latest*.yml
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # Job 3 – Create GitHub Release with all assets
+  # ---------------------------------------------------------------------------
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build-sidecar, build-desktop]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download all sidecar artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: sidecar-*
+          path: release-assets/sidecar/
+          merge-multiple: true
+
+      - name: Download all installer artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: desktop-installer-*
+          path: release-assets/installers/
+          merge-multiple: true
+
+      - name: List release assets
+        run: find release-assets -type f | sort
+
+      - name: Collect release files
+        run: |
+          mkdir -p release-files
+          find release-assets -type f -exec cp {} release-files/ \;
+          echo "--- Release files ---"
+          ls -lh release-files/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: release-files/*

@@ -6,7 +6,12 @@
 	},
 	"pnpm": {
 		"onlyBuiltDependencies": [
-			"esbuild"
+			"esbuild",
+			"electron"
+		],
+		"ignoredBuiltDependencies": [
+			"electron-winstaller",
+			"sharp"
 		]
 	}
 }

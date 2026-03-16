@@ -70,6 +70,7 @@ export type MeResponse = {
   email?: string
   email_verified: boolean
   email_verification_required: boolean
+  claw_enabled: boolean
 }
 
 export type SkillReference = {
@@ -460,19 +461,90 @@ export async function logout(accessToken: string): Promise<LogoutResponse> {
 export type CreateThreadRequest = {
   title?: string
   is_private?: boolean
+  mode?: ThreadMode
   project_id?: string
 }
+
+export type ThreadMode = 'chat' | 'claw'
 
 export type ThreadResponse = {
   id: string
   account_id: string
   created_by_user_id: string
+  mode: ThreadMode
   title: string | null
   project_id: string
   created_at: string
   active_run_id: string | null
   is_private: boolean
   parent_thread_id?: string | null
+}
+
+export type ProjectWorkspaceStatus = 'active' | 'idle' | 'unavailable'
+
+export type ProjectWorkspace = {
+	project_id: string
+	workspace_ref: string
+	owner_user_id: string
+	status: ProjectWorkspaceStatus
+	last_used_at: string
+	active_session?: {
+		session_ref: string
+		session_type: string
+		state: string
+		last_used_at: string
+	}
+}
+
+export type ProjectWorkspaceFileEntry = {
+	name: string
+	path: string
+	type: 'dir' | 'file' | 'symlink'
+	size?: number
+	mtime_unix_ms?: number
+	mime_type?: string
+	has_children?: boolean
+}
+
+export type ProjectWorkspaceFilesResponse = {
+	workspace_ref: string
+	path: string
+	items: ProjectWorkspaceFileEntry[]
+}
+
+function normalizeWorkspaceQueryPath(pathname?: string): string {
+	const trimmed = (pathname ?? '').trim()
+	if (!trimmed || trimmed === '/') return '/'
+	return trimmed.startsWith('/') ? trimmed : `/${trimmed}`
+}
+
+export async function getProjectWorkspace(accessToken: string, projectId: string): Promise<ProjectWorkspace> {
+	return await apiFetch<ProjectWorkspace>(`/v1/projects/${projectId}/workspace`, {
+		method: 'GET',
+		accessToken,
+	})
+}
+
+export async function listProjectWorkspaceFiles(
+	accessToken: string,
+	projectId: string,
+	pathname = '/',
+): Promise<ProjectWorkspaceFilesResponse> {
+	const sp = new URLSearchParams()
+	const normalizedPath = normalizeWorkspaceQueryPath(pathname)
+	if (normalizedPath !== '/') {
+		sp.set('path', normalizedPath)
+	}
+	const query = sp.toString()
+	return await apiFetch<ProjectWorkspaceFilesResponse>(`/v1/projects/${projectId}/workspace/files${query ? `?${query}` : ''}`, {
+		method: 'GET',
+		accessToken,
+	})
+}
+
+export function buildProjectWorkspaceFileUrl(projectId: string, pathname: string): string {
+	const sp = new URLSearchParams({ path: normalizeWorkspaceQueryPath(pathname) })
+	return buildUrl(`/v1/projects/${projectId}/workspace/file?${sp.toString()}`)
 }
 
 export async function getThread(
@@ -500,6 +572,7 @@ export type ListThreadsRequest = {
   limit?: number
   before_created_at?: string
   before_id?: string
+  mode?: ThreadMode
 }
 
 export async function listThreads(
@@ -510,6 +583,7 @@ export async function listThreads(
   if (req?.limit) sp.set('limit', String(req.limit))
   if (req?.before_created_at) sp.set('before_created_at', req.before_created_at)
   if (req?.before_id) sp.set('before_id', req.before_id)
+  if (req?.mode) sp.set('mode', req.mode)
   const suffix = sp.toString() ? `?${sp.toString()}` : ''
   return await apiFetch<ThreadResponse[]>(`/v1/threads${suffix}`, {
     method: 'GET',
@@ -520,9 +594,11 @@ export async function listThreads(
 export async function searchThreads(
   accessToken: string,
   q: string,
+  mode?: ThreadMode,
   limit = 50,
 ): Promise<ThreadResponse[]> {
   const sp = new URLSearchParams({ q, limit: String(limit) })
+  if (mode) sp.set('mode', mode)
   return await apiFetch<ThreadResponse[]>(`/v1/threads/search?${sp.toString()}`, {
     method: 'GET',
     accessToken,
@@ -1191,6 +1267,11 @@ export type AvailableModel = {
   id: string
   name: string
   configured: boolean
+  type?: string
+  context_length?: number | null
+  max_output_tokens?: number | null
+  input_modalities?: string[]
+  output_modalities?: string[]
 }
 
 const BYOK_SCOPE = 'user'
@@ -1273,7 +1354,7 @@ export async function patchProviderModel(
   accessToken: string,
   providerId: string,
   modelId: string,
-  data: { show_in_picker?: boolean },
+  data: { show_in_picker?: boolean; tags?: string[] },
 ): Promise<LlmProviderModel> {
   return await apiFetch<LlmProviderModel>(
     withScope(`/v1/llm-providers/${providerId}/models/${modelId}`, BYOK_SCOPE),
@@ -1317,6 +1398,32 @@ export async function patchPersona(
     accessToken,
     body: JSON.stringify(req),
   })
+}
+
+export type RunDetail = {
+  run_id: string
+  status: string
+  model?: string
+  persona_id?: string
+  total_input_tokens?: number
+  total_output_tokens?: number
+  total_cost_usd?: number
+  duration_ms?: number
+  cache_hit_rate?: number
+  credits_used?: number
+  created_at: string
+  completed_at?: string
+  failed_at?: string
+  created_by_user_id?: string
+  created_by_user_name?: string
+  created_by_email?: string
+}
+
+export async function getRunDetail(
+  accessToken: string,
+  runId: string,
+): Promise<RunDetail> {
+  return await apiFetch<RunDetail>(`/v1/admin/runs/${runId}`, { accessToken })
 }
 
 export type SpawnProfile = {

@@ -2,7 +2,6 @@ package session
 
 import (
 	"context"
-	"os"
 	"testing"
 )
 
@@ -10,15 +9,15 @@ type stubPool struct {
 	tier string
 }
 
-func (p *stubPool) Acquire(_ context.Context, tier string) (*Session, *os.Process, error) {
+func (p *stubPool) Acquire(_ context.Context, sessionID, tier string) (*Session, error) {
 	p.tier = tier
-	return &Session{Tier: tier}, nil, nil
+	return &Session{ID: sessionID, Tier: tier}, nil
 }
 
-func (p *stubPool) DestroyVM(_ *os.Process, _ string) {}
-func (p *stubPool) Ready() bool                       { return true }
-func (p *stubPool) Stats() PoolStats                  { return PoolStats{} }
-func (p *stubPool) Drain(_ context.Context)           {}
+func (p *stubPool) Destroy(_ string)           {}
+func (p *stubPool) Ready() bool                { return true }
+func (p *stubPool) Stats() PoolStats           { return PoolStats{} }
+func (p *stubPool) Drain(_ context.Context)    {}
 
 func TestValidTierAcceptsBrowser(t *testing.T) {
 	if err := ValidTier(TierBrowser); err != nil {

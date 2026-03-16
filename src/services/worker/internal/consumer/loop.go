@@ -23,7 +23,7 @@ type Loop struct {
 	locker   RunLocker
 	config   Config
 	logger   *app.JSONLogger
-	notifier *Notifier
+	notifier WorkNotifier
 }
 
 func NewLoop(
@@ -32,7 +32,7 @@ func NewLoop(
 	locker RunLocker,
 	config Config,
 	logger *app.JSONLogger,
-	notifier *Notifier,
+	notifier WorkNotifier,
 ) (*Loop, error) {
 	if queueClient == nil {
 		return nil, fmt.Errorf("queue must not be nil")

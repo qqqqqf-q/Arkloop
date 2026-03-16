@@ -170,7 +170,10 @@ func (e *ToolExecutor) Execute(
 					DurationMs: durationMs(started),
 				}
 			}
-			provider = NewBasicProvider()
+			// Default: anonymous Jina (free tier) with silent fallback to basic.
+			// Jina converts pages to clean markdown without requiring an account.
+			jinaProvider, _ := NewJinaProvider("")
+			provider = &jinaWithBasicFallback{jina: jinaProvider, basic: NewBasicProvider()}
 		} else {
 			provider = built
 		}
@@ -417,4 +420,28 @@ func durationMs(started time.Time) int {
 		return 0
 	}
 	return millis
+}
+
+// jinaWithBasicFallback tries Jina (anonymous free tier) first and silently
+// falls back to the basic HTTP provider on any non-policy, non-timeout error.
+type jinaWithBasicFallback struct {
+	jina  Provider
+	basic Provider
+}
+
+func (p *jinaWithBasicFallback) Fetch(ctx context.Context, url string, maxLength int) (Result, error) {
+	result, err := p.jina.Fetch(ctx, url, maxLength)
+	if err == nil {
+		return result, nil
+	}
+	// Do not fall back for URL policy violations or context cancellation —
+	// those errors would be the same with basic.
+	var policyErr UrlPolicyDeniedError
+	if errors.As(err, &policyErr) {
+		return Result{}, err
+	}
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return Result{}, err
+	}
+	return p.basic.Fetch(ctx, url, maxLength)
 }

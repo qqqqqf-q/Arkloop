@@ -14,6 +14,7 @@ export type WorkspaceFileRef = {
 type Props = {
   file: WorkspaceFileRef
   runId?: string
+  projectId?: string
   accessToken: string
 }
 
@@ -32,6 +33,11 @@ function normalizeWorkspacePath(path: string): string {
 function buildWorkspaceUrl(runId: string, path: string): string {
   const sp = new URLSearchParams({ run_id: runId, path: normalizeWorkspacePath(path) })
   return `${apiBaseUrl()}/v1/workspace-files?${sp.toString()}`
+}
+
+function buildProjectWorkspaceUrl(projectId: string, path: string): string {
+  const sp = new URLSearchParams({ path: normalizeWorkspacePath(path) })
+  return `${apiBaseUrl()}/v1/projects/${projectId}/workspace/file?${sp.toString()}`
 }
 
 const EXT_MIME: Record<string, string> = {
@@ -70,7 +76,7 @@ function fileExtension(filename: string): string {
   return ext || 'file'
 }
 
-export function WorkspaceResource({ file, runId, accessToken }: Props) {
+export function WorkspaceResource({ file, runId, projectId, accessToken }: Props) {
   const { t } = useLocale()
   const [loadState, setLoadState] = useState<LoadState>({ status: 'loading' })
   const [visible, setVisible] = useState(false)
@@ -82,14 +88,16 @@ export function WorkspaceResource({ file, runId, accessToken }: Props) {
   const expectedKind = useMemo(() => workspaceKind(normalizeMimeType(file.mime_type, file.filename)), [file.filename, file.mime_type])
 
   useEffect(() => {
-    if (!runId || !accessToken) {
+    if ((!runId && !projectId) || !accessToken) {
       setLoadState({ status: 'error' })
       return
     }
 
     let cancelled = false
     let localBlobUrl: string | null = null
-    const url = buildWorkspaceUrl(runId, normalizedPath)
+    const url = projectId
+      ? buildProjectWorkspaceUrl(projectId, file.path)
+      : buildWorkspaceUrl(runId!, normalizedPath)
 
     setLoadState({ status: 'loading' })
     fetch(url, {
@@ -119,7 +127,7 @@ export function WorkspaceResource({ file, runId, accessToken }: Props) {
       cancelled = true
       if (localBlobUrl) URL.revokeObjectURL(localBlobUrl)
     }
-  }, [accessToken, file.filename, file.mime_type, normalizedPath, runId])
+  }, [accessToken, file.filename, file.mime_type, file.path, normalizedPath, projectId, runId])
 
   useEffect(() => () => {
     if (closingTimer.current) clearTimeout(closingTimer.current)

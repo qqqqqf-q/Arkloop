@@ -15,7 +15,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 var validWebhookEvents = map[string]struct{}{
@@ -48,7 +47,7 @@ func webhookEndpointsEntry(
 	webhookRepo *data.WebhookEndpointRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	secretsRepo *data.SecretsRepository,
-	pool *pgxpool.Pool,
+	pool data.DB,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		switch r.Method {
@@ -105,7 +104,7 @@ func createWebhookEndpoint(
 	webhookRepo *data.WebhookEndpointRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	secretsRepo *data.SecretsRepository,
-	pool *pgxpool.Pool,
+	pool data.DB,
 ) {
 	traceID := observability.TraceIDFromContext(r.Context())
 	if authService == nil {

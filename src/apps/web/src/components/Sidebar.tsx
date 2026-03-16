@@ -18,8 +18,10 @@ import {
 import type { SettingsTab } from './SettingsModal'
 import type { ThreadResponse, MeResponse } from '../api'
 import { listStarredThreadIds, starThread, unstarThread, updateThreadTitle, deleteThread } from '../api'
+import { isLocalMode } from '@arkloop/shared/desktop'
 import { useLocale } from '../contexts/LocaleContext'
 import { ShareModal } from './ShareModal'
+import type { AppMode } from '../storage'
 
 type Props = {
   me: MeResponse | null
@@ -37,6 +39,8 @@ type Props = {
   onThreadTitleUpdated: (threadId: string, title: string) => void
   onThreadDeleted: (threadId: string) => void
   narrow?: boolean
+  desktopMode?: boolean
+  appMode?: AppMode
 }
 
 function threadTitle(thread: ThreadResponse, untitled: string): string {
@@ -60,7 +64,10 @@ export function Sidebar({
   onThreadTitleUpdated,
   onThreadDeleted,
   narrow,
+  desktopMode,
+  appMode,
 }: Props) {
+  const isClawMode = appMode === 'claw'
   const navigate = useNavigate()
   const location = useLocation()
   const { threadId } = useParams<{ threadId: string }>()
@@ -171,62 +178,58 @@ export function Sidebar({
     <aside
       className={[
         'flex h-full shrink-0 flex-col overflow-hidden bg-[var(--c-bg-sidebar)]',
-        collapsed ? 'w-0' : narrow ? 'w-[240px]' : 'w-[304px]',
+        collapsed ? 'w-[48px]' : narrow ? 'w-[224px]' : desktopMode ? 'w-[284px]' : 'w-[304px]',
       ].join(' ')}
       style={{
         transition: 'width 280ms cubic-bezier(0.16,1,0.3,1)',
         willChange: 'width',
-        ...(collapsed ? {} : { borderRight: '0.5px solid rgba(0,0,0,0.16)' }),
+        borderRight: '0.5px solid rgba(0,0,0,0.16)',
       }}
     >
-      <div
-        className={[
-          'flex min-h-0 flex-1 flex-col',
-          collapsed ? 'opacity-0' : 'opacity-100',
-        ].join(' ')}
-        style={{
-          minWidth: narrow ? '240px' : '304px',
-          transition: collapsed
-            ? 'min-width 280ms cubic-bezier(0.16,1,0.3,1), opacity 100ms'
-            : 'min-width 280ms cubic-bezier(0.16,1,0.3,1), opacity 200ms 150ms',
-        }}
-      >
-      {/* 顶部标题栏 */}
-      <div className="flex min-h-[56px] items-center justify-between px-4 py-3">
-        <div className="flex items-center gap-2 overflow-hidden">
-          <h1 className="text-[16px] font-semibold tracking-tight text-[var(--c-text-primary)] shrink-0">Arkloop</h1>
-          {/* 从右滑入 */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              opacity: isPrivateMode ? 1 : 0,
-              transform: isPrivateMode ? 'translateX(0)' : 'translateX(14px)',
-              transition: 'opacity 0.18s ease, transform 0.18s ease',
-              pointerEvents: 'none',
-            }}
-          >
-            <span className="h-[5px] w-[5px] shrink-0 rounded-full bg-[var(--c-text-tertiary)]" style={{ opacity: 0.5 }} />
-            <span className="text-[12px] font-medium text-[var(--c-text-tertiary)] whitespace-nowrap">{t.incognitoMode}</span>
-          </div>
-        </div>
-        <button
-          onClick={onToggleCollapse}
-          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[var(--c-text-tertiary)] transition-[background-color,color] duration-[60ms] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]"
-        >
-          <PanelLeftClose size={16} />
-        </button>
-      </div>
+      {/* Desktop title bar spacer */}
+      {desktopMode && <div className="h-3" />}
 
-      {/* 导航 */}
-      <nav className="flex flex-col gap-px px-2">
+      {/* Non-desktop title bar or spacer */}
+      {!desktopMode && (
+        collapsed ? (
+          <div className="h-3" />
+        ) : (
+          <div className="flex min-h-[56px] items-center justify-between px-4 py-3">
+            <div className="flex items-center gap-2 overflow-hidden">
+              <h1 className="text-[16px] font-semibold tracking-tight text-[var(--c-text-primary)] shrink-0">Arkloop</h1>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  opacity: isPrivateMode ? 1 : 0,
+                  transform: isPrivateMode ? 'translateX(0)' : 'translateX(14px)',
+                  transition: 'opacity 0.18s ease, transform 0.18s ease',
+                  pointerEvents: 'none',
+                }}
+              >
+                <span className="h-[5px] w-[5px] shrink-0 rounded-full bg-[var(--c-text-tertiary)]" style={{ opacity: 0.5 }} />
+                <span className="text-[12px] font-medium text-[var(--c-text-tertiary)] whitespace-nowrap">{t.incognitoMode}</span>
+              </div>
+            </div>
+            <button
+              onClick={onToggleCollapse}
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--c-text-secondary)] transition-[background-color,color] duration-[60ms] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]"
+            >
+              <PanelLeftClose size={17} />
+            </button>
+          </div>
+        )
+      )}
+
+      {/* Nav buttons — always rendered, text clips when sidebar narrows */}
+      <nav className="flex flex-col gap-px px-2 pt-1">
         <button
           onClick={onNewThread}
-          className="group flex h-9 items-center gap-2.5 rounded-lg px-2 text-[16px] text-[var(--c-text-secondary)] transition-[background-color,color] duration-[60ms] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]"
+          className="group flex h-9 items-center gap-2.5 overflow-hidden whitespace-nowrap rounded-lg px-2 text-[16px] text-[var(--c-text-secondary)] transition-[background-color,color] duration-[60ms] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]"
         >
           <SquarePen size={16} className="shrink-0 transition-transform duration-100 group-hover:scale-[1.05]" />
-          <span>{t.newChat}</span>
+          <span>{isClawMode ? t.newTask : t.newChat}</span>
         </button>
 
         <button
@@ -235,33 +238,41 @@ export function Sidebar({
             const searchPath = basePath.endsWith('/') ? `${basePath}search` : `${basePath}/search`
             navigate(searchPath)
           }}
-          className="group flex h-9 items-center gap-2.5 rounded-lg px-2 text-[16px] text-[var(--c-text-secondary)] transition-[background-color,color] duration-[60ms] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]"
+          className="group flex h-9 items-center gap-2.5 overflow-hidden whitespace-nowrap rounded-lg px-2 text-[16px] text-[var(--c-text-secondary)] transition-[background-color,color] duration-[60ms] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]"
         >
           <Search size={16} className="shrink-0 transition-transform duration-100 group-hover:scale-[1.05]" />
-          <span>{t.chats}</span>
+          <span>{isClawMode ? t.tasks : t.chats}</span>
         </button>
 
-        <button
-          onClick={onOpenSearch}
-          className={[
-            'group flex h-9 items-center gap-2.5 rounded-lg px-2 text-[16px] transition-[background-color,color] duration-[60ms] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]',
-            isSearchMode ? 'bg-[var(--c-bg-deep)] text-[var(--c-text-primary)]' : 'text-[var(--c-text-secondary)]',
-          ].join(' ')}
-        >
-          <SearchCheck size={16} className="shrink-0 transition-transform duration-100 group-hover:scale-[1.05]" />
-          <span>{t.retrieve}</span>
-        </button>
+        {!isClawMode && (
+          <button
+            onClick={onOpenSearch}
+            className={[
+              'group flex h-9 items-center gap-2.5 overflow-hidden whitespace-nowrap rounded-lg px-2 text-[16px] transition-[background-color,color] duration-[60ms] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]',
+              isSearchMode ? 'bg-[var(--c-bg-deep)] text-[var(--c-text-primary)]' : 'text-[var(--c-text-secondary)]',
+            ].join(' ')}
+          >
+            <SearchCheck size={16} className="shrink-0 transition-transform duration-100 group-hover:scale-[1.05]" />
+            <span>{t.retrieve}</span>
+          </button>
+        )}
       </nav>
 
-      {/* 最近会话 */}
-      <div className="mt-6 flex min-h-0 flex-1 flex-col overflow-y-auto px-2">
+      {/* Thread list — hidden when collapsed */}
+      <div
+        className={[
+          'mt-6 flex min-h-0 flex-1 flex-col overflow-y-auto px-2',
+          collapsed ? 'pointer-events-none opacity-0' : 'opacity-100',
+        ].join(' ')}
+        style={{ transition: 'opacity 150ms ease' }}
+      >
         <div className="mb-[12px] flex shrink-0 items-center gap-2 px-2">
           <h3 className="text-[14px] font-medium tracking-[0.3px] text-[var(--c-text-muted)]">
-            {t.recents}
+            {isClawMode ? t.tasks : t.recents}
           </h3>
         </div>
         <div className="flex flex-col gap-[2px]">
-          {/* incognito 占位：平滑展开/收起 */}
+          {/* incognito placeholder */}
           <div
             style={{
               display: 'grid',
@@ -285,7 +296,7 @@ export function Sidebar({
             </div>
           </div>
 
-          {/* 线程列表：始终渲染，淡入避免位移感 */}
+          {/* Thread list */}
           <div
             className="w-full flex flex-col gap-[2px]"
             style={{
@@ -295,7 +306,7 @@ export function Sidebar({
             }}
           >
             {threads.length === 0 ? (
-              <p className="px-2 py-1 text-[12px] text-[var(--c-text-muted)]">{t.recentsEmpty}</p>
+              <p className="overflow-hidden whitespace-nowrap px-2 py-1 text-[12px] text-[var(--c-text-muted)]">{isClawMode ? t.tasksEmpty : t.recentsEmpty}</p>
             ) : (() => {
               const starredSet = new Set(starredIds)
               const starredThreads = starredIds
@@ -356,16 +367,11 @@ export function Sidebar({
                       </button>
                     )}
 
-                    {/* 右侧操作区：编辑模式下隐藏 */}
                     {!isEditing && (
                       <div className="flex shrink-0 items-center mr-1">
                         {isRunning && (
                           <span className="shrink-0 h-3 w-3 animate-spin rounded-full border border-[var(--c-text-muted)] border-t-transparent mr-1" />
                         )}
-                        {/*
-                          运行中：width 0→6 滑入（spinner 在左，三点从右挤入）
-                          静止时：w-6 固定占位，纯 opacity 渐显，无位移感
-                        */}
                         <div
                           className={[
                             'shrink-0',
@@ -414,40 +420,50 @@ export function Sidebar({
         </div>
       </div>
 
-      {/* 用户信息 */}
-      <div className="mt-auto p-2" style={{ borderTop: '0.5px solid var(--c-border-subtle)' }}>
-        <button
-          onClick={() => onOpenSettings('account')}
-          className="flex w-full items-center gap-3 rounded-xl px-3 py-[10px] transition-[background-color] duration-[60ms] hover:bg-[var(--c-bg-deep)]"
-          style={{ border: '0.5px solid var(--c-border-subtle)' }}
-        >
-          <div
-            className="flex h-[39px] w-[39px] shrink-0 items-center justify-center rounded-full text-[15px] font-medium"
-            style={{ background: 'var(--c-avatar-bg)', color: 'var(--c-avatar-text)' }}
+      {/* Bottom area */}
+      <div
+        className="mt-auto px-2 pb-2 pt-1"
+        style={{
+          borderTop: '0.5px solid var(--c-border-subtle)',
+          borderTopColor: collapsed ? 'transparent' : 'var(--c-border-subtle)',
+          transition: 'border-top-color 280ms cubic-bezier(0.16,1,0.3,1)',
+        }}
+      >
+        {!collapsed && !isLocalMode() && (
+          <button
+            onClick={() => onOpenSettings('account')}
+            className="flex w-full items-center gap-3 rounded-xl px-3 py-[10px] transition-[background-color] duration-[60ms] hover:bg-[var(--c-bg-deep)]"
+            style={{ border: '0.5px solid var(--c-border-subtle)' }}
           >
-            {userInitial}
-          </div>
-          <div className="flex min-w-0 flex-1 flex-col gap-[2px] text-left">
-            <div className="truncate text-sm font-medium text-[var(--c-text-secondary)]">
-              {me?.username ?? t.loading}
+            <div
+              className="flex h-[39px] w-[39px] shrink-0 items-center justify-center rounded-full text-[15px] font-medium"
+              style={{ background: 'var(--c-avatar-bg)', color: 'var(--c-avatar-text)' }}
+            >
+              {userInitial}
             </div>
-            <div className="text-xs font-normal text-[var(--c-text-tertiary)]">
-              {t.enterprisePlan}
+            <div className="flex min-w-0 flex-1 flex-col gap-[2px] text-left">
+              <div className="truncate text-sm font-medium text-[var(--c-text-secondary)]">
+                {me?.username ?? t.loading}
+              </div>
+              <div className="text-xs font-normal text-[var(--c-text-tertiary)]">
+                {t.enterprisePlan}
+              </div>
             </div>
-          </div>
-        </button>
+          </button>
+        )}
 
-        {/* 底部快捷图标 */}
-        <div className="mt-1 flex items-center gap-[2px] px-1">
+        {/* Settings button: fixed pl-1 so the icon x-position never
+            changes during sidebar collapse/expand — no justifyContent flip. */}
+        <div className="mt-0.5 pl-1">
           <button
             onClick={() => onOpenSettings('settings')}
             className="flex h-7 w-7 items-center justify-center rounded-md text-[var(--c-text-icon)] transition-[background-color,color] duration-[60ms] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]"
           >
-            <Bolt size={15} />
+            <Bolt size={16} />
           </button>
         </div>
       </div>
-      </div>
+
     </aside>
 
     {/* 三点菜单 - portal 挂到 body 避免被 overflow 裁切 */}

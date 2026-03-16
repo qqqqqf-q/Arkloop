@@ -54,6 +54,9 @@ export type {
 export { SettingsModal } from './components/SettingsModal'
 export type { SettingsModalTranslations } from './components/SettingsModal'
 
+export { isDesktop, getDesktopApi, getDesktopMode, isLocalMode } from './desktop'
+export type { ConnectionMode, ArkloopDesktopApi } from './desktop'
+
 export { Badge } from './components/Badge'
 export type { BadgeVariant } from './components/Badge'
 
@@ -97,6 +100,8 @@ export { AccessDeniedPage } from './components/AccessDeniedPage'
 export { FullScreenLoading } from './components/FullScreenLoading'
 
 export { CollapseBlock, PreText, JsonBlock } from './components/TurnViewBlocks'
+
+export { TurnView } from './components/TurnView'
 
 export { buildTurns } from './run-turns'
 export type { LlmTurn, RunEventRaw } from './run-turns'

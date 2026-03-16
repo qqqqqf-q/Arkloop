@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"strings"
 
-	"arkloop/services/shared/objectstore"
 	"arkloop/services/shared/skillstore"
 )
 
@@ -106,5 +105,3 @@ func normalizeResolvedSkills(values []skillstore.ResolvedSkill) []skillstore.Res
 	}
 	return out
 }
-
-var _ Store = (*objectstore.S3Store)(nil)

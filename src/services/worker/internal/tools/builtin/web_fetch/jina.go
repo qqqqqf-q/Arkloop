@@ -2,7 +2,6 @@ package webfetch
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -17,13 +16,11 @@ type JinaProvider struct {
 	client  *http.Client
 }
 
+// NewJinaProvider creates a Jina provider. apiKey may be empty for anonymous
+// free-tier access (rate-limited but requires no account).
 func NewJinaProvider(apiKey string) (*JinaProvider, error) {
-	cleaned := strings.TrimSpace(apiKey)
-	if cleaned == "" {
-		return nil, fmt.Errorf("jina api_key must not be empty")
-	}
 	return &JinaProvider{
-		apiKey:  cleaned,
+		apiKey:  strings.TrimSpace(apiKey),
 		baseURL: defaultJinaBaseURL,
 		client:  &http.Client{Timeout: 60 * time.Second},
 	}, nil
@@ -37,7 +34,9 @@ func (p *JinaProvider) Fetch(ctx context.Context, targetURL string, maxLength in
 	if err != nil {
 		return Result{}, err
 	}
-	req.Header.Set("Authorization", "Bearer "+p.apiKey)
+	if p.apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+p.apiKey)
+	}
 
 	resp, err := p.client.Do(req)
 	if err != nil {

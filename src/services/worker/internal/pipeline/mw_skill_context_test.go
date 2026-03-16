@@ -1,3 +1,5 @@
+//go:build !desktop
+
 package pipeline
 
 import (
@@ -5,22 +7,31 @@ import (
 	"strings"
 	"testing"
 
+	"arkloop/services/shared/database"
 	"arkloop/services/shared/skillstore"
 	"arkloop/services/worker/internal/data"
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type fakeSkillResolver struct {
 	skills []skillstore.ResolvedSkill
 }
 
-func (f fakeSkillResolver) ResolveEnabledSkills(_ context.Context, _ *pgxpool.Pool, _ uuid.UUID, _ string, _ string) ([]skillstore.ResolvedSkill, error) {
+func (f fakeSkillResolver) ResolveEnabledSkills(_ context.Context, _ database.DB, _ uuid.UUID, _ string, _ string) ([]skillstore.ResolvedSkill, error) {
 	return append([]skillstore.ResolvedSkill(nil), f.skills...), nil
 }
 
+type nopDB struct{}
+
+func (nopDB) Exec(context.Context, string, ...any) (database.Result, error) { return nil, nil }
+func (nopDB) Query(context.Context, string, ...any) (database.Rows, error) { return nil, nil }
+func (nopDB) QueryRow(context.Context, string, ...any) database.Row        { return nil }
+func (nopDB) Begin(context.Context) (database.Tx, error)                   { return nil, nil }
+func (nopDB) Close() error                                                 { return nil }
+func (nopDB) Ping(context.Context) error                                   { return nil }
+
 func TestSkillContextMiddlewareInjectsPromptAndContext(t *testing.T) {
-	mw := NewSkillContextMiddleware(&pgxpool.Pool{}, fakeSkillResolver{skills: []skillstore.ResolvedSkill{{
+	mw := NewSkillContextMiddleware(nopDB{}, fakeSkillResolver{skills: []skillstore.ResolvedSkill{{
 		SkillKey:        "grep-helper",
 		Version:         "1",
 		MountPath:       skillstore.MountPath("grep-helper", "1"),

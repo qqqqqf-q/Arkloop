@@ -3,6 +3,7 @@ package pipeline
 import (
 	"context"
 
+	"arkloop/services/shared/eventbus"
 	"arkloop/services/shared/skillstore"
 	sharedtoolruntime "arkloop/services/shared/toolruntime"
 	"arkloop/services/worker/internal/data"
@@ -42,7 +43,8 @@ type RunContext struct {
 	Run          data.Run
 	Pool         *pgxpool.Pool
 	DirectPool   *pgxpool.Pool // LISTEN/NOTIFY 专用直连，不走 PgBouncer；由 Execute 保证非 nil
-	BroadcastRDB *redis.Client // 跨实例 SSE 广播，nil 时仅走 pg_notify
+	BroadcastRDB *redis.Client    // 跨实例 SSE 广播，nil 时仅走 pg_notify
+	EventBus     eventbus.EventBus // 进程内 SSE 通知（Desktop 模式替代 pg_notify + Redis）
 	TraceID      string
 	Emitter      events.Emitter
 	Router       *routing.ProviderRouter

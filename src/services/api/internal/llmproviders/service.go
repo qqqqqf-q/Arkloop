@@ -11,7 +11,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 var ErrNotConfigured = errors.New("llm providers service not configured")
@@ -22,9 +21,14 @@ type Provider struct {
 }
 
 type AvailableModel struct {
-	ID         string
-	Name       string
-	Configured bool
+	ID               string
+	Name             string
+	Configured       bool
+	Type             string // "chat", "embedding", "moderation", "image", "audio", "other"
+	ContextLength    *int
+	MaxOutputTokens  *int
+	InputModalities  []string // e.g. ["text","image"]
+	OutputModalities []string // e.g. ["text"] or ["embedding"]
 }
 
 type CreateProviderInput struct {
@@ -115,7 +119,7 @@ func (e ProviderSecretMissingError) Error() string {
 }
 
 type Service struct {
-	pool        *pgxpool.Pool
+	pool        data.TxStarter
 	credentials *data.LlmCredentialsRepository
 	routes      *data.LlmRoutesRepository
 	secrets     *data.SecretsRepository
@@ -123,7 +127,7 @@ type Service struct {
 }
 
 func NewService(
-	pool *pgxpool.Pool,
+	pool data.TxStarter,
 	credentials *data.LlmCredentialsRepository,
 	routes *data.LlmRoutesRepository,
 	secrets *data.SecretsRepository,

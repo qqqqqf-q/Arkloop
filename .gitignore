@@ -43,3 +43,10 @@ src/apps/developers/dist
 src/apps/developers/.astro
 src/services/api/api
 .data/
+src/services/desktop/bin/
+src/apps/desktop/dist/
+src/apps/desktop/release/
+src/apps/desktop/sidecar-bin/
+src/apps/desktop/resources/arkloop-sidecar
+/bin/
+/desktop

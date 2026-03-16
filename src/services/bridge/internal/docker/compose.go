@@ -101,8 +101,9 @@ func (c *Compose) ContainerStatus(ctx context.Context, serviceName string, profi
 
 // ContainerStatuses returns the module status for multiple Docker Compose
 // services in a single CLI call. Missing services are reported as
-// "not_installed".
-func (c *Compose) ContainerStatuses(ctx context.Context, serviceNames []string) (map[string]string, error) {
+// "not_installed". Any required profiles must be supplied so that
+// profile-gated services are visible to `docker compose ps`.
+func (c *Compose) ContainerStatuses(ctx context.Context, serviceNames []string, profiles []string) (map[string]string, error) {
 	if err := c.validateProjectDir(); err != nil {
 		return nil, err
 	}
@@ -116,6 +117,9 @@ func (c *Compose) ContainerStatuses(ctx context.Context, serviceNames []string) 
 	}
 
 	args := c.baseArgs()
+	for _, p := range profiles {
+		args = append(args, "--profile", p)
+	}
 	args = append(args, "ps", "--all", "--format", "json")
 	args = append(args, serviceNames...)
 

@@ -9,7 +9,6 @@ import (
 	"arkloop/services/api/internal/entitlement"
 	sharedconfig "arkloop/services/shared/config"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -21,7 +20,7 @@ type Deps struct {
 	APIKeysRepo        *data.APIKeysRepository
 	AuditWriter        *audit.Writer
 	EntitlementService *entitlement.Service
-	Pool               *pgxpool.Pool
+	Pool               data.DB
 	AccountRepo        *data.AccountRepository
 	AccountService     *auth.AccountService
 	WebhookRepo              *data.WebhookEndpointRepository

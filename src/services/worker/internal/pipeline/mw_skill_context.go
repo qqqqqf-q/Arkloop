@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"arkloop/services/shared/skillstore"
-	"arkloop/services/worker/internal/data"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -18,9 +17,9 @@ type SkillResolver interface {
 func NewSkillContextMiddleware(pool *pgxpool.Pool, resolver SkillResolver) RunMiddleware {
 	return func(ctx context.Context, rc *RunContext, next RunHandler) error {
 		if resolver == nil {
-			resolver = data.SkillsRepository{}
+			resolver = defaultSkillResolver()
 		}
-		if pool == nil || rc.Run.AccountID == uuid.Nil || strings.TrimSpace(rc.ProfileRef) == "" || strings.TrimSpace(rc.WorkspaceRef) == "" {
+		if pool == nil || resolver == nil || rc.Run.AccountID == uuid.Nil || strings.TrimSpace(rc.ProfileRef) == "" || strings.TrimSpace(rc.WorkspaceRef) == "" {
 			return next(ctx, rc)
 		}
 		skills, err := resolver.ResolveEnabledSkills(ctx, pool, rc.Run.AccountID, rc.ProfileRef, rc.WorkspaceRef)

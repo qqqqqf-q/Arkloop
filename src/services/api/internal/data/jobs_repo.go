@@ -22,6 +22,16 @@ const (
 	JobPayloadVersionV1 = 1
 )
 
+// afterCommitter is satisfied by sqlitepgx.Tx and allows deferring
+// side-effects (like worker notification) until the transaction commits.
+type afterCommitter interface {
+	AfterCommit(fn func())
+}
+
+// jobEnqueueNotify 在 job INSERT 后调用，桌面合并模式下将作业转发到 Worker 内存队列。
+// 由 jobs_repo_desktop.go 的 init 设置，非桌面构建保持 nil。
+var jobEnqueueNotify func(ctx context.Context, accountID, runID uuid.UUID, traceID, jobType string, payload map[string]any, availableAt *time.Time)
+
 type JobRepository struct {
 	db Querier
 }
@@ -103,8 +113,20 @@ func (r *JobRepository) EnqueueRun(
 		return uuid.Nil, err
 	}
 
-	// 通知 Worker 有新 job 入队
+	// pg_notify is transaction-safe in PostgreSQL (delivered after commit).
+	// Silently ignored on SQLite where pg_notify does not exist.
 	_, _ = r.db.Exec(ctx, `SELECT pg_notify('arkloop:jobs', '')`)
+
+	if jobEnqueueNotify != nil {
+		notify := func() {
+			jobEnqueueNotify(ctx, accountID, runID, chosenTraceID, chosenJobType, payloadCopy, availableAt)
+		}
+		if ac, ok := r.db.(afterCommitter); ok {
+			ac.AfterCommit(notify)
+		} else {
+			notify()
+		}
+	}
 
 	return jobID, nil
 }

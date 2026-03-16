@@ -3,6 +3,8 @@ package queue
 import (
 	"context"
 	"fmt"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -19,7 +21,47 @@ const (
 	JobStatusDead   = "dead"
 
 	JobPayloadVersionV1 = 1
+
+	leaseAttemptsReapLimit = 10
+
+	// defaultPruneThreshold is the number of total jobs above which
+	// terminal (done/dead) jobs are pruned from the in-memory queue
+	// during EnqueueRun. Keeps memory bounded for long-running Desktop
+	// processes.
+	defaultPruneThreshold = 1000
 )
+
+var traceIDRegex = regexp.MustCompile(`^[0-9a-fA-F]{32}$`)
+
+func normalizeTraceID(value string) string {
+	cleaned := strings.TrimSpace(value)
+	if cleaned == "" {
+		return ""
+	}
+	if !traceIDRegex.MatchString(cleaned) {
+		return ""
+	}
+	return strings.ToLower(cleaned)
+}
+
+func normalizeJobTypes(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	deduped := make([]string, 0, len(values))
+	for _, item := range values {
+		cleaned := strings.TrimSpace(item)
+		if cleaned == "" {
+			continue
+		}
+		if _, ok := seen[cleaned]; ok {
+			continue
+		}
+		seen[cleaned] = struct{}{}
+		deduped = append(deduped, cleaned)
+	}
+	return deduped
+}
+
+
 
 type JobLease struct {
 	JobID       uuid.UUID

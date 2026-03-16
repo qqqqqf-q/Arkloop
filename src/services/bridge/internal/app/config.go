@@ -72,7 +72,7 @@ func LoadConfigFromEnv() (Config, error) {
 	cfg.AuditLog = strings.TrimSpace(os.Getenv(bridgeAuditLogEnv))
 
 	if raw := strings.TrimSpace(os.Getenv(bridgeCORSOriginsEnv)); raw != "" {
-		cfg.CORSAllowedOrigins = splitCSV(raw)
+		cfg.CORSAllowedOrigins = append(cfg.CORSAllowedOrigins, splitCSV(raw)...)
 	}
 
 	if err := cfg.Validate(); err != nil {

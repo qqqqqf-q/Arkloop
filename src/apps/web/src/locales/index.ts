@@ -1,267 +1,279 @@
-import { zh } from './zh'
-import { en } from './en'
+import { zh } from "./zh";
+import { en } from "./en";
 
-export type Locale = 'zh' | 'en'
+export type Locale = "zh" | "en";
 
 export interface LocaleStrings {
   // sidebar
-  newChat: string
-  chats: string
-  projects: string
-  retrieve: string
-  legal: string
-  recents: string
-  recentsEmpty: string
-  untitled: string
-  loading: string
-  enterprisePlan: string
+  newChat: string;
+  chats: string;
+  projects: string;
+  retrieve: string;
+  legal: string;
+  recents: string;
+  recentsEmpty: string;
+  untitled: string;
+  loading: string;
+  enterprisePlan: string;
   // settings nav
   nav: {
-    account: string
-    settings: string
-    skills: string
-    credits: string
-    models: string
-    agents: string
-    channels: string
-  }
+    account: string;
+    settings: string;
+    skills: string;
+    credits: string;
+    models: string;
+    agents: string;
+    channels: string;
+    connection: string;
+  };
   // settings
-  getHelp: string
-  submitSuggestion: string
-  suggestionTitle: string
-  suggestionPlaceholder: string
-  suggestionSubmit: string
-  suggestionSuccess: string
-  comingSoon: string
-  requestFailed: string
-  logout: string
-  language: string
-  appearance: string
-  themeSystem: string
-  themeLight: string
-  themeDark: string
+  getHelp: string;
+  submitSuggestion: string;
+  suggestionTitle: string;
+  suggestionPlaceholder: string;
+  suggestionSubmit: string;
+  suggestionSuccess: string;
+  comingSoon: string;
+  requestFailed: string;
+  logout: string;
+  language: string;
+  appearance: string;
+  themeSystem: string;
+  themeLight: string;
+  themeDark: string;
   skills: {
-    title: string
-    subtitle: string
-    searchPlaceholder: string
-    searchPlaceholderMarketplace: string
-    registryTab: string
-    localTab: string
-    officialOnly: string
-    officialOnlyShort: string
-    officialUnconfigured: string
-    marketUnconfiguredTitle: string
-    marketUnconfiguredBody: string
-    marketLoading: string
-    add: string
-    addFromUpload: string
-    addFromSkillsmp: string
-    addFromSkillsmpDesc: string
-    addFromGitHub: string
-    addFromGitHubDesc: string
-    createWithArkloop: string
-    createWithArkloopHint: string
-    uploadTitle: string
-    githubTitle: string
-    officialImportTitle: string
-    localSectionTitle: string
-    localSectionDesc: string
-    emptyTitle: string
-    emptyDesc: string
-    emptyBodyNoMarket: string
-    sourceOfficial: string
-    sourceCustom: string
-    sourceGitHub: string
-    sourcePlatform: string
-    sourceBuiltin: string
-    installed: string
-    notInstalled: string
-    enabledByDefault: string
-    install: string
-    installing: string
-    remove: string
-    removing: string
-    update: string
-    viewDetail: string
-    more: string
-    updatedAt: (value: string) => string
-    importFailed: string
-    repositoryMissing: string
-    loadFailed: string
-    officialSearchFailed: string
-    uploadFileLabel: string
-    uploadFileHint: string
-    uploadImmediateInstall: string
-    uploadAction: string
-    uploading: string
-    githubUrlLabel: string
-    githubRefLabel: string
-    githubAction: string
-    githubInvalidUrl: string
-    githubSkillNotFound: string
-    importing: string
-    importOfficialAction: string
-    noResults: string
-    searchResults: (count: number) => string
-    deleteConflict: string
-    candidatesTitle: string
-    chooseCandidate: string
-    installSuccess: (name: string) => string
-    removeSuccess: (name: string) => string
-    updateSuccess: (name: string) => string
-    importSuccess: (name: string) => string
-    updateFailed: string
-    updateBadge: string
-    descriptionFallback: string
-    githubLabel: string
-    githubUrlRequired: string
-    githubUrlPlaceholder: string
-    githubRefPlaceholder: string
-    githubDialogTitle: string
-    githubDialogSubtitle: string
-    uploadDialogTitle: string
-    uploadDialogSubtitle: string
-    uploadArchive: string
-    uploadArchiveDesc: string
-    uploadFolder: string
-    uploadFolderDesc: string
-    uploadSelect: string
-    uploadSelected: (count: number) => string
-    officialDialogTitle: string
-    officialDialogSubtitle: string
-    officialDialogHintTitle: string
-    officialDialogHintBody: string
-    scanStatusLabel: (status: string) => string
-    riskConfirm: (name: string, status: string, summary?: string) => string
-    cancelAction: string
-    trySkill: string
-    download: string
-    replace: string
-    disable: string
-    disableFailed: string
-    detailTitle: string
-    trySkillPrompt: (skillKey: string) => string
-    detailVersion: string
-    detailSource: string
-    detailUpdatedAt: string
-    detailDescription: string
-    noDescription: string
-    builtinTab: string
-    builtinTitle: string
-    builtinEmpty: string
-    restore: string
-    backToSkills: string
-  }
+    title: string;
+    subtitle: string;
+    searchPlaceholder: string;
+    searchPlaceholderMarketplace: string;
+    registryTab: string;
+    localTab: string;
+    officialOnly: string;
+    officialOnlyShort: string;
+    officialUnconfigured: string;
+    marketUnconfiguredTitle: string;
+    marketUnconfiguredBody: string;
+    marketLoading: string;
+    add: string;
+    addFromUpload: string;
+    addFromSkillsmp: string;
+    addFromSkillsmpDesc: string;
+    addFromGitHub: string;
+    addFromGitHubDesc: string;
+    createWithArkloop: string;
+    createWithArkloopHint: string;
+    uploadTitle: string;
+    githubTitle: string;
+    officialImportTitle: string;
+    localSectionTitle: string;
+    localSectionDesc: string;
+    emptyTitle: string;
+    emptyDesc: string;
+    emptyBodyNoMarket: string;
+    sourceOfficial: string;
+    sourceCustom: string;
+    sourceGitHub: string;
+    sourcePlatform: string;
+    sourceBuiltin: string;
+    installed: string;
+    notInstalled: string;
+    enabledByDefault: string;
+    install: string;
+    installing: string;
+    remove: string;
+    removing: string;
+    update: string;
+    viewDetail: string;
+    more: string;
+    updatedAt: (value: string) => string;
+    importFailed: string;
+    repositoryMissing: string;
+    loadFailed: string;
+    officialSearchFailed: string;
+    uploadFileLabel: string;
+    uploadFileHint: string;
+    uploadImmediateInstall: string;
+    uploadAction: string;
+    uploading: string;
+    githubUrlLabel: string;
+    githubRefLabel: string;
+    githubAction: string;
+    githubInvalidUrl: string;
+    githubSkillNotFound: string;
+    importing: string;
+    importOfficialAction: string;
+    noResults: string;
+    searchResults: (count: number) => string;
+    deleteConflict: string;
+    candidatesTitle: string;
+    chooseCandidate: string;
+    installSuccess: (name: string) => string;
+    removeSuccess: (name: string) => string;
+    updateSuccess: (name: string) => string;
+    importSuccess: (name: string) => string;
+    updateFailed: string;
+    updateBadge: string;
+    descriptionFallback: string;
+    githubLabel: string;
+    githubUrlRequired: string;
+    githubUrlPlaceholder: string;
+    githubRefPlaceholder: string;
+    githubDialogTitle: string;
+    githubDialogSubtitle: string;
+    uploadDialogTitle: string;
+    uploadDialogSubtitle: string;
+    uploadArchive: string;
+    uploadArchiveDesc: string;
+    uploadFolder: string;
+    uploadFolderDesc: string;
+    uploadSelect: string;
+    uploadSelected: (count: number) => string;
+    officialDialogTitle: string;
+    officialDialogSubtitle: string;
+    officialDialogHintTitle: string;
+    officialDialogHintBody: string;
+    scanStatusLabel: (status: string) => string;
+    riskConfirm: (name: string, status: string, summary?: string) => string;
+    cancelAction: string;
+    trySkill: string;
+    download: string;
+    replace: string;
+    disable: string;
+    disableFailed: string;
+    detailTitle: string;
+    trySkillPrompt: (skillKey: string) => string;
+    detailVersion: string;
+    detailSource: string;
+    detailUpdatedAt: string;
+    detailDescription: string;
+    noDescription: string;
+    builtinTab: string;
+    builtinTitle: string;
+    builtinEmpty: string;
+    restore: string;
+    backToSkills: string;
+  };
   // invite code
-  inviteCode: string
-  inviteCodeDesc: string
-  inviteCodeCopy: string
-  inviteCodeCopied: string
-  inviteCodeReset: string
-  inviteCodeResetting: string
-  inviteCodeUses: (used: number, max: number) => string
-  inviteCodeResetCooldown: string
+  inviteCode: string;
+  inviteCodeDesc: string;
+  inviteCodeCopy: string;
+  inviteCodeCopied: string;
+  inviteCodeReset: string;
+  inviteCodeResetting: string;
+  inviteCodeUses: (used: number, max: number) => string;
+  inviteCodeResetCooldown: string;
   // credits
-  creditsBalance: string
-  creditsBalanceUnit: string
-  creditsRedeem: string
-  creditsRedeemPlaceholder: string
-  creditsRedeemBtn: string
-  creditsRedeemSuccess: (value: string) => string
-  creditsRedeemError: (code: string) => string
-  creditsUsage: string
-  creditsUsageQuery: string
-  creditsHistoryDetails: string
-  creditsHistoryDate: string
-  creditsHistoryCreditChange: string
-  creditsHistoryEmpty: string
-  creditsHistoryRecent: string
-  creditsHistoryMonthly: string
-  creditsTxTypeLabel: (type: string) => string
+  creditsBalance: string;
+  creditsBalanceUnit: string;
+  creditsRedeem: string;
+  creditsRedeemPlaceholder: string;
+  creditsRedeemBtn: string;
+  creditsRedeemSuccess: (value: string) => string;
+  creditsRedeemError: (code: string) => string;
+  creditsUsage: string;
+  creditsUsageQuery: string;
+  creditsHistoryDetails: string;
+  creditsHistoryDate: string;
+  creditsHistoryCreditChange: string;
+  creditsHistoryEmpty: string;
+  creditsHistoryRecent: string;
+  creditsHistoryMonthly: string;
+  creditsTxTypeLabel: (type: string) => string;
   // auth
-  loginMode: string
-  registerMode: string
-  identityPlaceholder: string
-  enterUsername: string
-  enterEmail: string
-  enterPassword: string
-  enterInviteCode: string
-  enterInviteCodeOptional: string
-  editProfile: string
-  continueBtn: string
-  noAccount: string
-  hasAccount: string
-  useEmailOtpHint: string
-  creatingAccountHint: string
-  enterYourPasswordTitle: string
-  fieldIdentity: string
-  fieldPassword: string
-  registerPasswordHint: string
-  backBtn: string
-  editIdentity: string
+  loginMode: string;
+  registerMode: string;
+  identityPlaceholder: string;
+  enterUsername: string;
+  enterEmail: string;
+  enterPassword: string;
+  enterInviteCode: string;
+  enterInviteCodeOptional: string;
+  editProfile: string;
+  continueBtn: string;
+  orDivider: string;
+  githubLogin: string;
+  noAccount: string;
+  hasAccount: string;
+  useEmailOtpHint: string;
+  creatingAccountHint: string;
+  enterYourPasswordTitle: string;
+  fieldIdentity: string;
+  fieldPassword: string;
+  registerPasswordHint: string;
+  backBtn: string;
+  editIdentity: string;
   // profile editing
-  profileTitle: string
-  profileName: string
-  profileUsername: string
-  profileUserId: string
-  profileSave: string
-  profileEmail: string
-  emailUnverified: string
-  emailVerified: string
-  emailVerifySend: string
-  emailVerifySent: string
-  emailVerifyCodePlaceholder: string
-  emailVerifyConfirmBtn: string
-  emailVerifySuccess: string
-  emailVerifyFailed: string
-  emailVerifyGoToApp: string
+  profileTitle: string;
+  profileName: string;
+  profileUsername: string;
+  profileUserId: string;
+  profileSave: string;
+  profileEmail: string;
+  emailUnverified: string;
+  emailVerified: string;
+  emailVerifySend: string;
+  emailVerifySent: string;
+  emailVerifyCodePlaceholder: string;
+  emailVerifyConfirmBtn: string;
+  emailVerifySuccess: string;
+  emailVerifyFailed: string;
+  emailVerifyGoToApp: string;
   // EmailVerificationGate
-  emailGateTitle: string
-  emailGateDesc: (email: string) => string
-  emailGateResend: string
-  emailGateResent: string
-  emailGateUseOtp: string
-  emailGateAlreadyVerified: string
-  otpLoginTab: string
-  passwordLoginTab: string
-  otpEmailPlaceholder: string
-  otpCodePlaceholder: string
-  otpSendBtn: string
-  otpSendingCountdown: (s: number) => string
-  otpVerifyBtn: string
-  emailNotVerifiedHint: string
-  newChatTitle: string
-  chatPlaceholder: string
+  emailGateTitle: string;
+  emailGateDesc: (email: string) => string;
+  emailGateResend: string;
+  emailGateResent: string;
+  emailGateUseOtp: string;
+  emailGateAlreadyVerified: string;
+  otpLoginTab: string;
+  passwordLoginTab: string;
+  otpEmailPlaceholder: string;
+  otpCodePlaceholder: string;
+  otpSendBtn: string;
+  otpSendingCountdown: (s: number) => string;
+  otpVerifyBtn: string;
+  emailNotVerifiedHint: string;
+  newChatTitle: string;
+  chatPlaceholder: string;
   // notifications
-  notificationsTitle: string
-  notificationsEmpty: string
-  notificationsMarkRead: string
+  notificationsTitle: string;
+  notificationsEmpty: string;
+  notificationsMarkRead: string;
   // free plan badge
-  freePlan: string
-  freeTrial: string
-  freeTrialDesc: string
+  freePlan: string;
+  freeTrial: string;
+  freeTrialDesc: string;
   // chat input menu
-  addFromLocal: string
-  learningMode: string
-  dragToAttach: string
+  addFromLocal: string;
+  addFromGitHub: string;
+  learningMode: string;
+  dragToAttach: string;
   // chats search modal
-  searchChatsPlaceholder: string
-  searchNoResults: string
-  searchToday: string
-  searchYesterday: string
-  searchLastWeek: string
-  searchEarlier: string
+  searchChatsPlaceholder: string;
+  searchNoResults: string;
+  searchToday: string;
+  searchYesterday: string;
+  searchLastWeek: string;
+  searchEarlier: string;
   // incognito
-  incognitoMode: string
-  incognitoHistoryNote: string
-  youAreIncognito: string
-  enableIncognito: string
-  disableIncognito: string
-  incognitoThreadNote: string
-  incognitoLabel: string
-  thisThreadIsIncognito: string
-  toggleIncognito: string
-  incognitoForkDivider: string
+  incognitoMode: string;
+  incognitoHistoryNote: string;
+  youAreIncognito: string;
+  enableIncognito: string;
+  disableIncognito: string;
+  incognitoThreadNote: string;
+  incognitoLabel: string;
+  thisThreadIsIncognito: string;
+  toggleIncognito: string;
+  incognitoForkDivider: string;
+  // mode switch
+  modeChat: string;
+  modeClaw: string;
+  // claw mode sidebar
+  newTask: string;
+  tasks: string;
+  tasksEmpty: string;
+  clawGreeting: string;
   // thread context menu
   starThread: string
   unstarThread: string
@@ -395,6 +407,8 @@ export interface LocaleStrings {
     searchPlaceholder: string
     showInPicker: string
     hideFromPicker: string
+    embeddingTagAdd: string
+    embeddingTagRemove: string
   }
   // agent settings
   agentSettings: {
@@ -467,35 +481,387 @@ export interface LocaleStrings {
   }
   // claw right panel
   claw: {
-    progress: string
-    progressEmpty: string
-    workingFolder: string
-    workingFolderEmpty: string
-    workingFolderLoading: string
-    workingFolderError: string
-    workingFolderEmptyDir: string
-    workingFolderSelectFile: string
-    context: string
-    contextDesc: string
-    contextEmpty: string
-    stepComplete: string
-    stepInProgress: string
-    stepPending: string
-    toolsCalled: string
-    filesReferenced: string
-    agents: string
-    agentsEmpty: string
-    agentSpawning: string
-    agentRunning: string
-    agentCompleted: string
-    agentFailed: string
-    agentClosed: string
-  }
+    progress: string;
+    progressEmpty: string;
+    workingFolder: string;
+    workingFolderEmpty: string;
+    workingFolderLoading: string;
+    workingFolderError: string;
+    workingFolderEmptyDir: string;
+    workingFolderSelectFile: string;
+    context: string;
+    contextDesc: string;
+    contextEmpty: string;
+    stepComplete: string;
+    stepInProgress: string;
+    stepPending: string;
+    toolsCalled: string;
+    filesReferenced: string;
+    agents: string;
+    agentsEmpty: string;
+    agentSpawning: string;
+    agentRunning: string;
+    agentCompleted: string;
+    agentFailed: string;
+    agentClosed: string;
+  };
   // chat page
-  checkInPlaceholder: string
-  replyPlaceholder: string
+  checkInPlaceholder: string;
+  replyPlaceholder: string;
+  // connection settings (desktop only)
+  connection: {
+    title: string;
+    local: string;
+    localDesc: string;
+    saas: string;
+    saasDesc: string;
+    selfHosted: string;
+    selfHostedDesc: string;
+    baseUrl: string;
+    status: string;
+    running: string;
+    stopped: string;
+    starting: string;
+    crashed: string;
+    restart: string;
+    currentPort: string;
+    portMode: string;
+    portModeAuto: string;
+    portModeManual: string;
+    advanced: string;
+    advancedDesc: string;
+    manualPort: string;
+    manualPortHint: string;
+    restoreAutoPort: string;
+    runtimeError: string;
+    testConnection: string;
+    connected: string;
+    failed: string;
+    save: string;
+  };
+
+  // desktop settings navigation
+  desktopSettings: {
+    backToChat: string;
+    settingsTitle: string;
+    // section headers
+    mainSection: string;
+    desktopSection: string;
+    // nav items
+    general: string;
+    providers: string;
+    personas: string;
+    skills: string;
+    mcp: string;
+    connectors: string;
+    searchFetch: string;
+    connection: string;
+    extensions: string;
+    developer: string;
+    // general settings
+    profileSection: string;
+    localModeLabel: string;
+    appearanceSection: string;
+    // placeholder pages
+    mcpTitle: string;
+    mcpDesc: string;
+    connectorsTitle: string;
+    connectorsDesc: string;
+    extensionsTitle: string;
+    extensionsDesc: string;
+    developerTitle: string;
+    developerDesc: string;
+    debugMode: string;
+    debugModeDesc: string;
+    logLevel: string;
+    logLevelInfo: string;
+    logLevelDebug: string;
+    logLevelWarn: string;
+    logLevelError: string;
+    showRunEvents: string;
+    showRunEventsDesc: string;
+    viewRunDetail: string;
+    runDetailTitle: string;
+    runDetailOverview: string;
+    runDetailConversation: string;
+    runDetailEvents: string;
+    runDetailNoEvents: string;
+    runDetailLoadError: string;
+    resetOnboarding: string;
+    resetOnboardingDesc: string;
+    resetOnboardingBtn: string;
+    appVersion: string;
+    // desktop connectors section
+    desktopConnectorsTitle: string;
+    desktopConnectorsDesc: string;
+    fetchConnectorTitle: string;
+    fetchConnectorDesc: string;
+    searchConnectorTitle: string;
+    searchConnectorDesc: string;
+    providerLabel: string;
+    apiKeyLabel: string;
+    apiKeyOptionalLabel: string;
+    baseUrlLabel: string;
+    connectorSaveBtn: string;
+    connectorSaving: string;
+    connectorSaved: string;
+    connectorFreeTier: string;
+    connectorConfigured: string;
+    connectorNotConfigured: string;
+    fetchProviderJina: string;
+    fetchProviderBasic: string;
+    fetchProviderFirecrawl: string;
+    searchProviderBrowser: string;
+    searchProviderTavily: string;
+    searchProviderSearxng: string;
+    searchProviderBrowserDesc: string;
+    searchProviderTavilyDesc: string;
+    searchProviderSearxngDesc: string;
+    fetchProviderJinaDesc: string;
+    fetchProviderBasicDesc: string;
+    fetchProviderFirecrawlDesc: string;
+    // memory settings tab
+    memory: string;
+    memorySettingsTitle: string;
+    memorySettingsDesc: string;
+    memoryLocalProvider: string;
+    memoryLocalProviderDesc: string;
+    memoryOpenvikingProvider: string;
+    memoryOpenvikingProviderDesc: string;
+    memoryOpenvikingNote: string;
+    memoryEntriesTitle: string;
+    memoryEmptyTitle: string;
+    memoryEmptyDesc: string;
+    memoryClearAll: string;
+    memoryClearAllConfirm: string;
+    memoryDeleteConfirm: string;
+    memorySnapshotTitle: string;
+    memoryEnabled: string;
+    memoryEnabledDesc: string;
+    memorySystem: string;
+    memorySystemSimple: string;
+    memorySystemSimpleDesc: string;
+    memorySystemOpenViking: string;
+    memorySystemOpenVikingDesc: string;
+    memoryModuleNotInstalled: string;
+    memoryModuleRunning: string;
+    memoryModuleStopped: string;
+    memoryModuleInstalling: string;
+    memoryModuleInstall: string;
+    memoryModuleStart: string;
+    memoryToolModel: string;
+    memoryToolModelDesc: string;
+    memoryEmbeddingModel: string;
+    memoryEmbeddingModelDesc: string;
+    memoryEmbeddingProvider: string;
+    memoryEmbeddingModelName: string;
+    memoryEmbeddingApiKey: string;
+    memoryEmbeddingApiBase: string;
+    memoryEmbeddingDimension: string;
+    memoryOpenvikingRootApiKey: string;
+    memoryOpenvikingRootApiKeyDesc: string;
+    memoryConfigureSave: string;
+    memoryConfiguring: string;
+    memoryConfigured: string;
+    memoryConfigureError: string;
+    memoryProviderActivated: string;
+    memoryNoEmbeddingModels: string;
+  };
+
+  // admin providers/models settings (ported from console-lite)
+  adminProviders: {
+    title: string;
+    addProvider: string;
+    editProvider: string;
+    deleteProvider: string;
+    deleteProviderConfirm: string;
+    providerName: string;
+    providerNamePlaceholder: string;
+    vendor: string;
+    apiKey: string;
+    apiKeyPlaceholder: string;
+    apiKeyHint: string;
+    baseUrl: string;
+    baseUrlPlaceholder: string;
+    save: string;
+    saving: string;
+    cancel: string;
+    noProviders: string;
+    noProvidersDesc: string;
+    modelsSection: string;
+    addModel: string;
+    editModel: string;
+    deleteModel: string;
+    importModels: string;
+    importing: string;
+    importDone: (count: number) => string;
+    modelName: string;
+    modelNamePlaceholder: string;
+    priority: string;
+    isDefault: string;
+    tags: string;
+    tagsPlaceholder: string;
+    noModels: string;
+    loadFailed: string;
+    saveFailed: string;
+    deleteFailed: string;
+    vendorOpenai: string;
+    vendorOpenaiChat: string;
+    vendorAnthropic: string;
+    advancedConfig: string;
+    searchProviders: string;
+  };
+  // admin agents settings (ported from console-lite)
+  adminAgents: {
+    title: string;
+    subtitle: string;
+    addAgent: string;
+    editAgent: string;
+    deleteAgent: string;
+    deleteAgentConfirm: string;
+    displayName: string;
+    displayNamePlaceholder: string;
+    personaKey: string;
+    model: string;
+    modelPlaceholder: string;
+    noModel: string;
+    active: string;
+    inactive: string;
+    builtIn: string;
+    custom: string;
+    promptTab: string;
+    overviewTab: string;
+    toolsTab: string;
+    prompt: string;
+    promptPlaceholder: string;
+    reasoningMode: string;
+    reasoningDefault: string;
+    reasoningEnabled: string;
+    reasoningDisabled: string;
+    temperature: string;
+    maxOutputTokens: string;
+    toolSelectionInherit: string;
+    toolSelectionCustom: string;
+    toolsInheritDesc: string;
+    toolsCustomDesc: string;
+    enableAll: string;
+    disableAll: string;
+    noAgents: string;
+    saveFailed: string;
+    noTools: string;
+    toolSearch: string;
+  };
+  // admin tools/connectors settings (ported from console-lite)
+  adminTools: {
+    title: string;
+    subtitle: string;
+    activate: string;
+    deactivate: string;
+    configured: string;
+    unconfigured: string;
+    editCredentials: string;
+    clearCredentials: string;
+    clearCredentialsConfirm: string;
+    apiKey: string;
+    apiKeyPlaceholder: string;
+    baseUrl: string;
+    baseUrlPlaceholder: string;
+    save: string;
+    saving: string;
+    cancel: string;
+    noProviders: string;
+    toolDescriptions: string;
+    editDescription: string;
+    resetDescription: string;
+    enableTool: string;
+    disableTool: string;
+    descriptionOverride: string;
+    configSection: string;
+    applyConfig: string;
+    applying: string;
+    applied: string;
+  };
+
+  // onboarding wizard (desktop)
+  onboarding: {
+    welcomeTitle: string;
+    welcomeDesc: string;
+    getStarted: string;
+    modeTitle: string;
+    modeDesc: string;
+    saasTitle: string;
+    saasDesc: string;
+    localTitle: string;
+    localDesc: string;
+    selfHostTitle: string;
+    selfHostDesc: string;
+    saasLoginHint: string;
+    localDownloading: string;
+    localDownloadFailed: string;
+    localRetryDownload: string;
+    localDownloadComplete: string;
+    localStarting: string;
+    localProviderTitle: string;
+    localProviderDesc: string;
+    localProviderVendor: string;
+    localProviderApiKey: string;
+    localProviderApiKeyPlaceholder: string;
+    localProviderBaseUrl: string;
+    localProviderBaseUrlPlaceholder: string;
+    localProviderVerify: string;
+    localProviderVerifying: string;
+    localProviderVerified: string;
+    localProviderFailed: string;
+    localProviderSkip: string;
+    localImportModels: string;
+    localImportModelsDesc: string;
+    localSelectModels: string;
+    localAddModel: string;
+    localManualModelPlaceholder: string;
+    localImportingModels: string;
+    localModelsImported: string;
+    localNoModels: string;
+    localNoImportableModels: string;
+    localConfiguredModels: string;
+    localNoConfiguredModels: string;
+    localSearchModels: string;
+    localModelsShowing: (total: number, enabled: number) => string;
+    localModulesTitle: string;
+    localModulesDesc: string;
+    localModulesInstallerOffline: string;
+    localModulesContinue: string;
+    localModulesSkip: string;
+    localModulesRecommended: string;
+    localModulesInstalled: string;
+    localModulesInstalling: string;
+    localModulesDependsOn: string;
+    localModulesSandboxTitle: string;
+    localModulesSandboxDesc: string;
+    localModulesMemoryTitle: string;
+    localModulesMemoryDesc: string;
+    localModulesSearchTitle: string;
+    localModulesSearchDesc: string;
+    localModulesCrawlerTitle: string;
+    localModulesCrawlerDesc: string;
+    localModulesBrowserTitle: string;
+    localModulesBrowserDesc: string;
+    selfHostUrlLabel: string;
+    selfHostUrlPlaceholder: string;
+    selfHostTest: string;
+    selfHostTesting: string;
+    selfHostConnected: string;
+    selfHostFailed: string;
+    completionTitle: string;
+    completionDesc: string;
+    completionModulesHint: string;
+    startChatting: string;
+    back: string;
+    next: string;
+    skip: string;
+    stepOf: (current: number, total: number) => string;
+  };
 }
 
-export const locales: Record<Locale, LocaleStrings> = { zh, en }
+export const locales: Record<Locale, LocaleStrings> = { zh, en };
 
-export const SUPPORTED_LOCALES: Locale[] = ['zh', 'en']
+export const SUPPORTED_LOCALES: Locale[] = ["zh", "en"];

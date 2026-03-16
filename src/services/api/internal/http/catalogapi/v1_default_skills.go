@@ -15,6 +15,7 @@ import (
 	"arkloop/services/api/internal/observability"
 	sharedenvironmentref "arkloop/services/shared/environmentref"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 )
 
 type defaultSkillsReplaceRequest struct {
@@ -56,7 +57,7 @@ func profileDefaultSkillsEntry(
 	enableRepo *data.WorkspaceSkillEnablementsRepository,
 	profileRepo *data.ProfileRegistriesRepository,
 	workspaceRepo *data.WorkspaceRegistriesRepository,
-	pool dbBeginner,
+	pool data.TxStarter,
 ) nethttp.HandlerFunc {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		traceID := observability.TraceIDFromContext(r.Context())
@@ -99,7 +100,7 @@ func profileDefaultSkillsEntry(
 				writeSkillValidationError(w, traceID, err)
 				return
 			}
-			tx, err := pool.Begin(r.Context())
+			tx, err := pool.BeginTx(r.Context(), pgx.TxOptions{})
 			if err != nil {
 				httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 				return
@@ -190,13 +191,13 @@ func ensureDefaultWorkspaceForProfile(ctx context.Context, profileRepo *data.Pro
 	}
 	if profile != nil && profile.DefaultWorkspaceRef != nil && strings.TrimSpace(*profile.DefaultWorkspaceRef) != "" {
 		workspaceRef := strings.TrimSpace(*profile.DefaultWorkspaceRef)
-		if err := workspaceRepo.Ensure(ctx, workspaceRef, accountID, userID); err != nil {
+		if err := workspaceRepo.Ensure(ctx, workspaceRef, accountID, userID, nil); err != nil {
 			return "", err
 		}
 		return workspaceRef, nil
 	}
 	workspaceRef := newDefaultWorkspaceRef()
-	if err := workspaceRepo.Ensure(ctx, workspaceRef, accountID, userID); err != nil {
+	if err := workspaceRepo.Ensure(ctx, workspaceRef, accountID, userID, nil); err != nil {
 		return "", err
 	}
 	if err := profileRepo.SetDefaultWorkspaceRef(ctx, profileRef, workspaceRef); err != nil {

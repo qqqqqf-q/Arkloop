@@ -26,3 +26,4 @@ title_summarize:
 reasoning_mode: auto
 prompt_cache_control: none
 executor_type: agent.simple
+allow_platform_delegation: true

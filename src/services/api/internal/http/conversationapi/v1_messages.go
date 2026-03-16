@@ -13,6 +13,7 @@ import (
 	"arkloop/services/api/internal/audit"
 	"arkloop/services/api/internal/auth"
 	"arkloop/services/api/internal/data"
+	"arkloop/services/api/internal/featureflag"
 	"arkloop/services/api/internal/observability"
 
 	"github.com/google/uuid"
@@ -25,6 +26,7 @@ func createThreadMessage(
 	messageRepo *data.MessageRepository,
 	auditWriter *audit.Writer,
 	apiKeysRepo *data.APIKeysRepository,
+	flagService *featureflag.Service,
 ) func(nethttp.ResponseWriter, *nethttp.Request, uuid.UUID) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request, threadID uuid.UUID) {
 		if r.Method != nethttp.MethodPost {
@@ -97,6 +99,7 @@ func listThreadMessages(
 	messageRepo *data.MessageRepository,
 	auditWriter *audit.Writer,
 	apiKeysRepo *data.APIKeysRepository,
+	flagService *featureflag.Service,
 ) func(nethttp.ResponseWriter, *nethttp.Request, uuid.UUID) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request, threadID uuid.UUID) {
 		if r.Method != nethttp.MethodGet {

@@ -7,6 +7,7 @@ import { WelcomePage } from './components/WelcomePage'
 import { ChatPage } from './components/ChatPage'
 import { SharePage } from './components/SharePage'
 import { VerifyEmailPage } from './components/VerifyEmailPage'
+import { OnboardingWizard } from './components/OnboardingWizard'
 import { useLocale } from './contexts/LocaleContext'
 import {
   clearActiveThreadIdInStorage,
@@ -15,6 +16,12 @@ import {
 } from './storage'
 import { setUnauthenticatedHandler, setAccessTokenHandler, restoreAccessSession } from './api'
 import { setClientApp } from '@arkloop/shared/api'
+import {
+  isLocalMode,
+  isDesktop,
+  getDesktopApi,
+  getDesktopAccessToken,
+} from '@arkloop/shared/desktop'
 
 const sessionRestoreRetries = 12
 const sessionRestoreDelayMs = 1000
@@ -23,6 +30,21 @@ function App() {
   const { t } = useLocale()
   const [accessToken, setAccessToken] = useState<string | null>(null)
   const [authChecked, setAuthChecked] = useState(false)
+  const [onboardingDone, setOnboardingDone] = useState<boolean | null>(null)
+
+  // Desktop: 检查 onboarding 状态
+  useEffect(() => {
+    if (!isDesktop()) {
+      setOnboardingDone(true)
+      return
+    }
+    const api = getDesktopApi()
+    if (!api) {
+      setOnboardingDone(true)
+      return
+    }
+    api.onboarding.getStatus().then((s) => setOnboardingDone(s.completed)).catch(() => setOnboardingDone(true))
+  }, [])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -37,6 +59,15 @@ function App() {
       writeAccessTokenToStorage(token)
       setAccessToken(token)
     })
+
+    // Local 模式: Go 后端使用固定 token，跳过刷新流程
+    if (isLocalMode()) {
+      const desktopToken = getDesktopAccessToken() ?? 'arkloop-desktop-local-token'
+      writeAccessTokenToStorage(desktopToken)
+      setAccessToken(desktopToken)
+      setAuthChecked(true)
+      return
+    }
 
     restoreAccessSession({
       signal: controller.signal,
@@ -67,10 +98,25 @@ function App() {
   }, [])
 
   const handleLoggedOut = useCallback(() => {
+    // Local mode uses a fixed token — logout should be a no-op (button hidden, but guard here too)
+    if (isLocalMode()) {
+      const desktopToken = getDesktopAccessToken() ?? 'arkloop-desktop-local-token'
+      writeAccessTokenToStorage(desktopToken)
+      setAccessToken(desktopToken)
+      return
+    }
     clearAccessTokenFromStorage()
     clearActiveThreadIdInStorage()
     setAccessToken(null)
   }, [])
+
+  const handleOnboardingComplete = useCallback(() => {
+    // config.mode 在 onboarding 中可能已变更，需要 reload 使 preload 重新注入 __ARKLOOP_DESKTOP__
+    window.location.reload()
+  }, [])
+
+  if (onboardingDone === null) return null
+  if (onboardingDone === false) return <OnboardingWizard onComplete={handleOnboardingComplete} />
 
   return (
     <Routes>

@@ -193,8 +193,12 @@ func corsMiddleware(allowedOrigins []string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
 		if origin != "" {
-			normalized := strings.TrimRight(origin, "/")
-			if _, ok := originSet[normalized]; ok {
+			allowed := origin == "null" || strings.HasPrefix(origin, "file://")
+			if !allowed {
+				normalized := strings.TrimRight(origin, "/")
+				_, allowed = originSet[normalized]
+			}
+			if allowed {
 				w.Header().Set("Access-Control-Allow-Origin", origin)
 				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 				w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")

@@ -11,6 +11,7 @@ import (
 
 	"arkloop/services/shared/creditpolicy"
 	sharedent "arkloop/services/shared/entitlement"
+	"arkloop/services/shared/eventbus"
 	"arkloop/services/worker/internal/data"
 	"arkloop/services/worker/internal/events"
 	"arkloop/services/worker/internal/queue"
@@ -74,7 +75,7 @@ func NewAgentLoopHandler(
 
 		writer := newEventWriter(
 			rc.Pool, rc.Run, rc.TraceID, runLimiterRDB,
-			jobQueue,
+			rc.EventBus, jobQueue,
 			selected.Route.Model, personaID, usageRepo, creditsRepo,
 			creditsPerUSD,
 			selected.Route.Multiplier, selected.Route.CostPer1kInput, selected.Route.CostPer1kOutput,
@@ -156,6 +157,7 @@ type eventWriter struct {
 	run           data.Run
 	traceID       string
 	runLimiterRDB *redis.Client // SSE 广播（Publish）; slot release via releaseSlot closure
+	eventBus      eventbus.EventBus
 	jobQueue      queue.JobQueue
 	projector     *subagentctl.SubAgentStateProjector
 	model         string
@@ -199,6 +201,7 @@ func newEventWriter(
 	run data.Run,
 	traceID string,
 	runLimiterRDB *redis.Client,
+	bus eventbus.EventBus,
 	jobQueue queue.JobQueue,
 	model string,
 	personaID string,
@@ -225,6 +228,7 @@ func newEventWriter(
 		traceID:             strings.TrimSpace(traceID),
 		lastCommitAt:        time.Now(),
 		runLimiterRDB:       runLimiterRDB,
+		eventBus:            bus,
 		jobQueue:            jobQueue,
 		projector:           subagentctl.NewSubAgentStateProjector(pool, runLimiterRDB, jobQueue),
 		model:               model,
@@ -421,7 +425,11 @@ func (w *eventWriter) commit(ctx context.Context) error {
 	w.lastCommitAt = time.Now()
 
 	channel := fmt.Sprintf("run_events:%s", w.run.ID.String())
-	_, _ = w.pool.Exec(ctx, "SELECT pg_notify($1, '')", channel)
+	if w.eventBus != nil {
+		_ = w.eventBus.Publish(ctx, channel, "")
+	} else {
+		_, _ = w.pool.Exec(ctx, "SELECT pg_notify($1, '')", channel)
+	}
 
 	if w.runLimiterRDB != nil {
 		redisChannel := fmt.Sprintf("arkloop:sse:run_events:%s", w.run.ID.String())

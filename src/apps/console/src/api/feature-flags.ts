@@ -5,6 +5,7 @@ export type FeatureFlag = {
   key: string
   description: string | null
   default_value: boolean
+  supports_org_overrides: boolean
   created_at: string
 }
 

@@ -9,6 +9,8 @@ import (
 	"arkloop/services/api/internal/audit"
 	"arkloop/services/api/internal/auth"
 	"arkloop/services/api/internal/data"
+	"arkloop/services/api/internal/featureflag"
+	"arkloop/services/api/internal/http/featuregate"
 	"arkloop/services/api/internal/observability"
 	"arkloop/services/shared/objectstore"
 
@@ -20,10 +22,12 @@ func artifactsEntry(
 	membershipRepo *data.AccountMembershipRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	runRepo *data.RunEventRepository,
+	threadRepo *data.ThreadRepository,
 	shellSessionRepo *data.ShellSessionRepository,
 	threadShareRepo *data.ThreadShareRepository,
 	auditWriter *audit.Writer,
 	store artifactStore,
+	flagService *featureflag.Service,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		traceID := observability.TraceIDFromContext(r.Context())
@@ -60,6 +64,9 @@ func artifactsEntry(
 		run, ok := resolveArtifactRun(r.Context(), runRepo, shellSessionRepo, key, info)
 		if !ok || run == nil {
 			httpkit.WriteError(w, nethttp.StatusForbidden, "artifacts.forbidden", "access denied", traceID, nil)
+			return
+		}
+		if !featuregate.EnsureClawEnabledForRun(w, traceID, r.Context(), run, threadRepo, flagService) {
 			return
 		}
 

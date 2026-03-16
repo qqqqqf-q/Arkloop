@@ -4,3 +4,4 @@ packages:
   - src/apps/console
   - src/apps/console-lite
   - src/apps/developers
+  - src/apps/desktop

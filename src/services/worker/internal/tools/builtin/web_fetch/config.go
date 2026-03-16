@@ -63,9 +63,6 @@ func ConfigFromEnv(required bool) (*Config, error) {
 		}, nil
 	case ProviderKindJina:
 		apiKey := strings.TrimSpace(os.Getenv(jinaAPIKeyEnv))
-		if apiKey == "" {
-			return nil, fmt.Errorf("missing environment variable %s", jinaAPIKeyEnv)
-		}
 		return &Config{
 			ProviderKind: kind,
 			JinaAPIKey:   apiKey,

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"arkloop/services/shared/eventbus"
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/routing"
 
@@ -52,6 +53,7 @@ func NewTitleSummarizerMiddleware(pool *pgxpool.Pool, rdb *redis.Client, stubGat
 		maxTokens := rc.TitleSummarizer.MaxTokens
 		llmMaxResponseBytes := rc.LlmMaxResponseBytes
 
+		bus := rc.EventBus
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), titleSummarizerTimeout)
 			defer cancel()
@@ -59,7 +61,7 @@ func NewTitleSummarizerMiddleware(pool *pgxpool.Pool, rdb *redis.Client, stubGat
 			if gateway == nil {
 				return
 			}
-			generateTitle(ctx, pool, rdb, gateway, runID, threadID, model, messages, prompt, maxTokens)
+			generateTitle(ctx, pool, rdb, bus, gateway, runID, threadID, model, messages, prompt, maxTokens)
 		}()
 
 		return next(ctx, rc)
@@ -128,6 +130,7 @@ func generateTitle(
 	ctx context.Context,
 	pool *pgxpool.Pool,
 	rdb *redis.Client,
+	bus eventbus.EventBus,
 	gateway llm.Gateway,
 	runID uuid.UUID,
 	threadID uuid.UUID,
@@ -194,13 +197,14 @@ func generateTitle(
 		return
 	}
 
-	emitTitleEvent(ctx, pool, rdb, runID, threadID, title)
+	emitTitleEvent(ctx, pool, rdb, bus, runID, threadID, title)
 }
 
 func emitTitleEvent(
 	ctx context.Context,
 	pool *pgxpool.Pool,
 	rdb *redis.Client,
+	bus eventbus.EventBus,
 	runID uuid.UUID,
 	threadID uuid.UUID,
 	title string,
@@ -243,8 +247,13 @@ func emitTitleEvent(
 		return
 	}
 
-	pgChannel := fmt.Sprintf(`"run_events:%s"`, runID.String())
-	_, _ = pool.Exec(ctx, "SELECT pg_notify($1, $2)", pgChannel, "ping")
+	channel := fmt.Sprintf("run_events:%s", runID.String())
+	if bus != nil {
+		_ = bus.Publish(ctx, channel, "")
+	} else {
+		pgChannel := fmt.Sprintf(`"%s"`, channel)
+		_, _ = pool.Exec(ctx, "SELECT pg_notify($1, $2)", pgChannel, "ping")
+	}
 	if rdb != nil {
 		rdbChannel := fmt.Sprintf("arkloop:sse:run_events:%s", runID.String())
 		_, _ = rdb.Publish(ctx, rdbChannel, "ping").Result()

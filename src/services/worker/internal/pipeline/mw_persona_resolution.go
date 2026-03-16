@@ -38,7 +38,7 @@ func NewPersonaResolutionMiddleware(
 					run := rc.Run
 					releaseFn = func() { releaseSlot(ctx, run) }
 				}
-				return appendAndCommitSingle(ctx, rc.Pool, rc.Run, runsRepo, eventsRepo, failed, releaseFn, rc.BroadcastRDB)
+				return appendAndCommitSingle(ctx, rc.Pool, rc.Run, runsRepo, eventsRepo, failed, releaseFn, rc.BroadcastRDB, rc.EventBus)
 			}
 			if getBaseRegistry != nil {
 				runPersonaRegistry = personas.MergeRegistry(getBaseRegistry(), dbDefs)
@@ -73,7 +73,7 @@ func NewPersonaResolutionMiddleware(
 				run := rc.Run
 				releaseFn = func() { releaseSlot(ctx, run) }
 			}
-			return appendAndCommitSingle(ctx, rc.Pool, rc.Run, runsRepo, eventsRepo, failed, releaseFn, rc.BroadcastRDB)
+			return appendAndCommitSingle(ctx, rc.Pool, rc.Run, runsRepo, eventsRepo, failed, releaseFn, rc.BroadcastRDB, rc.EventBus)
 		}
 
 		rc.ToolBudget = map[string]any{}

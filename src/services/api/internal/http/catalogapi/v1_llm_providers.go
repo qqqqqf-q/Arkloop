@@ -15,9 +15,9 @@ import (
 	"arkloop/services/api/internal/data"
 	"arkloop/services/api/internal/llmproviders"
 	"arkloop/services/api/internal/observability"
+	sharedoutbound "arkloop/services/shared/outboundurl"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type createLlmProviderRequest struct {
@@ -82,9 +82,14 @@ type llmProviderAvailableModelsResponse struct {
 }
 
 type llmProviderAvailableModel struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	Configured bool   `json:"configured"`
+	ID               string   `json:"id"`
+	Name             string   `json:"name"`
+	Configured       bool     `json:"configured"`
+	Type             string   `json:"type,omitempty"`
+	ContextLength    *int     `json:"context_length,omitempty"`
+	MaxOutputTokens  *int     `json:"max_output_tokens,omitempty"`
+	InputModalities  []string `json:"input_modalities,omitempty"`
+	OutputModalities []string `json:"output_modalities,omitempty"`
 }
 
 var validLlmProviders = map[string]bool{
@@ -109,7 +114,7 @@ func llmProvidersEntry(
 	routeRepo *data.LlmRoutesRepository,
 	secretsRepo *data.SecretsRepository,
 	projectRepo *data.ProjectRepository,
-	pool *pgxpool.Pool,
+	pool data.TxStarter,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	service := llmproviders.NewService(pool, credRepo, routeRepo, secretsRepo, projectRepo)
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
@@ -132,7 +137,7 @@ func llmProviderEntry(
 	routeRepo *data.LlmRoutesRepository,
 	secretsRepo *data.SecretsRepository,
 	projectRepo *data.ProjectRepository,
-	pool *pgxpool.Pool,
+	pool data.TxStarter,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	service := llmproviders.NewService(pool, credRepo, routeRepo, secretsRepo, projectRepo)
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
@@ -710,9 +715,14 @@ func listLlmProviderAvailableModels(
 	resp := llmProviderAvailableModelsResponse{Models: make([]llmProviderAvailableModel, 0, len(models))}
 	for _, model := range models {
 		resp.Models = append(resp.Models, llmProviderAvailableModel{
-			ID:         model.ID,
-			Name:       model.Name,
-			Configured: model.Configured,
+			ID:               model.ID,
+			Name:             model.Name,
+			Configured:       model.Configured,
+			Type:             model.Type,
+			ContextLength:    model.ContextLength,
+			MaxOutputTokens:  model.MaxOutputTokens,
+			InputModalities:  model.InputModalities,
+			OutputModalities: model.OutputModalities,
 		})
 	}
 	httpkit.WriteJSON(w, traceID, nethttp.StatusOK, resp)
@@ -849,18 +859,45 @@ func writeLlmProviderServiceError(ctx context.Context, w nethttp.ResponseWriter,
 	}
 	var upstreamErr *llmproviders.UpstreamListModelsError
 	if errors.As(err, &upstreamErr) {
+		details := buildLlmUpstreamErrorDetails(upstreamErr)
 		switch upstreamErr.Kind {
 		case "auth":
-			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "llm_providers.upstream_auth_failed", "provider authentication failed", traceID, nil)
+			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "llm_providers.upstream_auth_failed", "provider authentication failed", traceID, details)
 		case "request", "unsupported_provider":
-			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "llm_providers.upstream_request_failed", "provider request failed", traceID, nil)
+			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "llm_providers.upstream_request_failed", "provider request failed", traceID, details)
 		default:
-			httpkit.WriteError(w, nethttp.StatusBadGateway, "llm_providers.upstream_error", "provider upstream error", traceID, nil)
+			httpkit.WriteError(w, nethttp.StatusBadGateway, "llm_providers.upstream_error", "provider upstream error", traceID, details)
 		}
 		return
 	}
 	slog.ErrorContext(ctx, "unhandled llm provider error", "err", err, "trace_id", traceID)
 	httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+}
+
+func buildLlmUpstreamErrorDetails(err *llmproviders.UpstreamListModelsError) map[string]any {
+	if err == nil {
+		return nil
+	}
+
+	details := map[string]any{
+		"kind": err.Kind,
+	}
+	if err.StatusCode > 0 {
+		details["status_code"] = err.StatusCode
+	}
+	if err.Err != nil {
+		details["raw_error"] = err.Err.Error()
+	}
+
+	var denied sharedoutbound.DeniedError
+	if errors.As(err.Err, &denied) {
+		details["denied_reason"] = denied.Reason
+		if len(denied.Details) > 0 {
+			details["denied_details"] = denied.Details
+		}
+	}
+
+	return details
 }
 
 func toLlmProviderResponse(provider llmproviders.Provider) llmProviderResponse {

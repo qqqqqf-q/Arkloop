@@ -8,7 +8,6 @@ import (
 	"arkloop/services/api/internal/data"
 	"arkloop/services/api/internal/entitlement"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type Deps struct {
@@ -25,7 +24,7 @@ type Deps struct {
 	ReferralsRepo       *data.ReferralRepository
 	RedemptionCodesRepo *data.RedemptionCodesRepository
 	AuditWriter         *audit.Writer
-	Pool                *pgxpool.Pool
+	Pool                data.DB
 }
 
 func RegisterRoutes(mux *nethttp.ServeMux, deps Deps) {

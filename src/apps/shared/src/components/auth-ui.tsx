@@ -23,7 +23,14 @@ export function EyeIcon({ open }: { open: boolean }) {
 }
 
 export function normalizeError(error: unknown, fallback: string): AppError {
-  if (isApiError(error)) return { message: error.message, traceId: error.traceId, code: error.code }
+  if (isApiError(error)) {
+    return {
+      message: error.message,
+      traceId: error.traceId,
+      code: error.code,
+      details: error.details as Record<string, unknown> | undefined,
+    }
+  }
   if (error instanceof Error) return { message: error.message }
   return { message: fallback }
 }

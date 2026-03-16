@@ -94,6 +94,8 @@ func run() error {
 		vmPool, err = buildFirecrackerPool(cfg, logger)
 	case app.ProviderDocker:
 		vmPool, err = buildDockerPool(cfg, logger)
+	case app.ProviderVz:
+		vmPool, err = buildVzPool(cfg, logger)
 	case app.ProviderLocal:
 		vmPool = localpool.New(localpool.Config{Logger: logger})
 	default:

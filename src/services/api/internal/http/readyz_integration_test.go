@@ -1,3 +1,5 @@
+//go:build !desktop
+
 package http
 
 import (
@@ -17,13 +19,13 @@ import (
 func TestReadyzOKWhenDatabaseReachable(t *testing.T) {
 	db := setupTestDatabase(t, "api_go_readyz_http")
 
-	pool, err := data.NewPool(t.Context(), db.DSN, data.PoolLimits{MaxConns: 32, MinConns: 0})
+	appDB, _, err := data.NewPool(t.Context(), db.DSN, data.PoolLimits{MaxConns: 32, MinConns: 0})
 	if err != nil {
 		t.Fatalf("new pool: %v", err)
 	}
-	defer pool.Close()
+	defer appDB.Close()
 
-	schemaRepo, err := data.NewSchemaRepository(pool)
+	schemaRepo, err := data.NewSchemaRepository(appDB)
 	if err != nil {
 		t.Fatalf("new repo: %v", err)
 	}
@@ -59,18 +61,18 @@ func TestReadyz503WhenSchemaMismatch(t *testing.T) {
 	db := setupTestDatabase(t, "api_go_readyz_mismatch")
 
 	ctx := context.Background()
-	pool, err := data.NewPool(ctx, db.DSN, data.PoolLimits{MaxConns: 32, MinConns: 0})
+	appDB, _, err := data.NewPool(ctx, db.DSN, data.PoolLimits{MaxConns: 32, MinConns: 0})
 	if err != nil {
 		t.Fatalf("new pool: %v", err)
 	}
-	defer pool.Close()
+	defer appDB.Close()
 
 	// Roll back one migration to create a version mismatch.
 	if _, err := migrate.DownOne(ctx, db.DSN); err != nil {
 		t.Fatalf("down one: %v", err)
 	}
 
-	schemaRepo, err := data.NewSchemaRepository(pool)
+	schemaRepo, err := data.NewSchemaRepository(appDB)
 	if err != nil {
 		t.Fatalf("new repo: %v", err)
 	}

@@ -35,6 +35,10 @@ jobs:
       - name: go vet
         run: go vet ./...
 
+      - name: go vet (desktop)
+        if: matrix.module == 'worker'
+        run: go vet -tags desktop ./...
+
       - name: staticcheck
         run: |
           go install honnef.co/go/tools/cmd/staticcheck@v0.7.0

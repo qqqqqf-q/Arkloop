@@ -3,24 +3,28 @@ import { useParams, useLocation, useOutletContext, useNavigate } from 'react-rou
 import { createPortal } from 'react-dom'
 import { motion } from 'framer-motion'
 import { ArrowDown, ChevronDown, Glasses, Loader2, Pencil, Share2, Star, Trash2, X } from 'lucide-react'
+import { isDesktop } from '@arkloop/shared/desktop'
 import { codeExecutionAccentColor } from '../codeExecutionStatus'
 import { ChatInput, type Attachment } from './ChatInput'
 import { MessageBubble, StreamingBubble } from './MessageBubble'
+import { RunDetailPanel } from './RunDetailPanel'
 import { ThinkingBlock, CodeExecutionCard, type CodeExecution } from './ThinkingBlock'
 import { ShellExecutionBlock } from './ShellExecutionBlock'
 import { FileOpBlock } from './FileOpBlock'
 import { SubAgentBlock } from './SubAgentBlock'
 import { SearchTimeline, type SearchStep } from './SearchTimeline'
 import { ArtifactStreamBlock, extractPartialArtifactFields, type StreamingArtifactEntry } from './ArtifactStreamBlock'
+import { MemoryActionBlock } from './MemoryActionBlock'
 import UserInputCard from './UserInputCard'
 import { resolveMessageSourcesForRender } from './chatSourceResolver'
 import { ErrorCallout, type AppError } from './ErrorCallout'
 import { ShareModal } from './ShareModal'
-import { ReportModal } from './ReportModal'
 import { NotificationBell } from './NotificationBell'
+import { ModeSwitch } from './ModeSwitch'
 import { SourcesPanel } from './SourcesPanel'
 import { CodeExecutionPanel } from './CodeExecutionPanel'
 import { DocumentPanel } from './DocumentPanel'
+import { ClawRightPanel } from './ClawRightPanel'
 import { useSSE } from '../hooks/useSSE'
 import { useTypewriter } from '../hooks/useTypewriter'
 import { SSEApiError } from '../sse'
@@ -49,6 +53,7 @@ import {
   buildMessageWebFetchesFromRunEvents,
 } from '../runEventProcessing'
 import { useLocale } from '../contexts/LocaleContext'
+import { apiBaseUrl } from '@arkloop/shared/api'
 import type { UserInputRequest, UserInputResponse, RequestedSchema } from '../userInputTypes'
 import {
   createMessage,
@@ -88,6 +93,10 @@ import {
   writeMessageThinking,
   readMessageBrowserActions,
   writeMessageBrowserActions,
+  readMessageMemoryActions,
+  writeMessageMemoryActions,
+  readMessageSearchSteps,
+  writeMessageSearchSteps,
   readMessageCopBlocks,
   writeMessageCopBlocks,
   type WebSource,
@@ -98,6 +107,7 @@ import {
   type FileOpRef,
   type MessageThinkingRef,
   type MessageSearchStepRef,
+  type MemoryActionRef,
   type MessageCopBlocksRef,
   readMessageSubAgents,
   writeMessageSubAgents,
@@ -107,6 +117,10 @@ import {
   writeMessageWebFetches,
   type WebFetchRef,
   migrateMessageMetadata,
+  readDeveloperShowRunEvents,
+  readMsgRunEvents,
+  writeMsgRunEvents,
+  type MsgRunEvent,
 } from '../storage'
 
 const sidePanelWidth = 420
@@ -143,6 +157,9 @@ type OutletContext = {
   onRightPanelChange?: (open: boolean) => void
   threads: ThreadResponse[]
   onThreadDeleted: (threadId: string) => void
+  appMode: import('../storage').AppMode
+  availableAppModes: import('../storage').AppMode[]
+  onSetAppMode: (mode: import('../storage').AppMode) => void
   onOpenSettings?: (tab: string) => void
 }
 
@@ -174,6 +191,20 @@ type CopBlock = {
   steps: SearchStep[]
   sources: WebSource[]
   codeExecutions: CodeExecution[]
+}
+
+// finalizeSearchSteps converts live SearchStep[] to the storage format.
+// Identical to finalizeBlockSteps but kept as a standalone function for the
+// legacy (non-COP) search path.
+function finalizeSearchSteps(steps: SearchStep[]): MessageSearchStepRef[] {
+  return finalizeBlockSteps(steps)
+}
+
+// patchLegacySearchSteps normalises search step refs loaded from localStorage.
+// readMessageSearchSteps already validates structure, so no structural changes
+// are needed today — we just return a no-op result.
+function patchLegacySearchSteps(steps: MessageSearchStepRef[]): { steps: MessageSearchStepRef[]; changed: boolean } {
+  return { steps, changed: false }
 }
 
 function finalizeBlockSteps(steps: SearchStep[]): MessageSearchStepRef[] {
@@ -230,14 +261,14 @@ function updateStepInBlocks(blocks: CopBlock[], stepId: string, updater: (s: Sea
 }
 
 export function ChatPage() {
-  const { accessToken, onLoggedOut, onRunStarted, onRunEnded, onThreadCreated, onThreadTitleUpdated, refreshCredits, onOpenNotifications, notificationVersion, creditsBalance: _creditsBalance, onTogglePrivateMode, privateThreadIds, onSetPendingIncognito, onRightPanelChange, threads, onThreadDeleted, onOpenSettings } = useOutletContext<OutletContext>()
+  const { accessToken, onLoggedOut, onRunStarted, onRunEnded, onThreadCreated, onThreadTitleUpdated, refreshCredits, onOpenNotifications, notificationVersion, creditsBalance: _creditsBalance, onTogglePrivateMode, privateThreadIds, onSetPendingIncognito, onRightPanelChange, threads, onThreadDeleted, appMode, availableAppModes, onSetAppMode, onOpenSettings } = useOutletContext<OutletContext>()
   const { threadId } = useParams<{ threadId: string }>()
   const location = useLocation()
   const locationState = location.state as LocationState
   const navigate = useNavigate()
   const { t } = useLocale()
 
-  const baseUrl = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? ''
+  const baseUrl = apiBaseUrl()
 
   const [isSearchThread, setIsSearchThread] = useState(
     () => locationState?.isSearch === true || isSearchThreadId(threadId ?? ''),
@@ -262,7 +293,6 @@ export function ChatPage() {
   const [checkInSubmitting, setCheckInSubmitting] = useState(false)
   const [pendingUserInput, setPendingUserInput] = useState<UserInputRequest | null>(null)
   const [shareModalOpen, setShareModalOpen] = useState(false)
-  const [reportModalOpen, setReportModalOpen] = useState(false)
   const [sharingMessageId, setSharingMessageId] = useState<string | null>(null)
   const [sharedMessageId, setSharedMessageId] = useState<string | null>(null)
   const [pendingIncognito, setPendingIncognito] = useState(false)
@@ -297,6 +327,15 @@ export function ChatPage() {
   const streamingArtifactsRef = useRef<StreamingArtifactEntry[]>([])
   const [streamingArtifacts, setStreamingArtifacts] = useState<StreamingArtifactEntry[]>([])
   const [, setMessageThinkingMap] = useState<Map<string, MessageThinkingRef>>(new Map())
+  // Search 时间轴缓存：messageId -> steps
+  const [messageSearchStepsMap, setMessageSearchStepsMap] = useState<Map<string, MessageSearchStepRef[]>>(new Map())
+  // Live search steps for the legacy (non-COP) search path
+  const [searchSteps, setSearchSteps] = useState<SearchStep[]>([])
+  const searchStepsRef = useRef<SearchStep[]>([])
+  // 记忆操作缓存：messageId -> actions
+  const [messageMemoryActionsMap, setMessageMemoryActionsMap] = useState<Map<string, MemoryActionRef[]>>(new Map())
+  const [memoryActions, setMemoryActions] = useState<MemoryActionRef[]>([])
+  const memoryActionsRef = useRef<MemoryActionRef[]>([])
   // COP blocks 缓存：messageId -> cop blocks data
   const [messageCopBlocksMap, setMessageCopBlocksMap] = useState<Map<string, MessageCopBlocksRef>>(new Map())
   // 跟踪未响应的用户消息，用于取消后重发时替换
@@ -332,6 +371,19 @@ export function ChatPage() {
   const pendingTextRef = useRef('')
   const [liveTimelineExiting, setLiveTimelineExiting] = useState(false)
   const liveTimelineExitTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+
+  // --- 开发者调试 ---
+  const [showRunEvents, setShowRunEvents] = useState(() => readDeveloperShowRunEvents())
+  const [runDetailPanelRunId, setRunDetailPanelRunId] = useState<string | null>(null)
+  const [msgRunEventsMap, setMsgRunEventsMap] = useState<Map<string, MsgRunEvent[]>>(new Map())
+
+  useEffect(() => {
+    const handleChange = (e: Event) => {
+      setShowRunEvents((e as CustomEvent<boolean>).detail)
+    }
+    window.addEventListener('arkloop:developer_show_run_events', handleChange)
+    return () => window.removeEventListener('arkloop:developer_show_run_events', handleChange)
+  }, [])
 
   // --- 标题下拉菜单 ---
   const [titleMenuOpen, setTitleMenuOpen] = useState(false)
@@ -463,6 +515,16 @@ export function ChatPage() {
     setBridgeTexts([])
     pendingTextRef.current = ''
   }, [])
+  const resetSearchSteps = useCallback(() => {
+    searchStepsRef.current = []
+    setSearchSteps([])
+  }, [])
+  // applySearchSteps queues finalized steps for storage once the message ID is
+  // known (handled in the run.completed refreshMessages callback).
+  const pendingSearchStepsRef = useRef<MessageSearchStepRef[] | null>(null)
+  const applySearchSteps = useCallback((getter: () => MessageSearchStepRef[]) => {
+    pendingSearchStepsRef.current = getter()
+  }, [])
   const clearLiveRunSecurityArtifacts = useCallback(() => {
     setAssistantDraft('')
     setThinkingDraft('')
@@ -475,11 +537,15 @@ export function ChatPage() {
     currentRunArtifactsRef.current = []
     currentRunCodeExecutionsRef.current = []
     currentRunBrowserActionsRef.current = []
+    memoryActionsRef.current = []
+    setMemoryActions([])
+    resetSearchSteps()
+    pendingSearchStepsRef.current = null
     resetCopState()
     setAwaitingInput(false)
     setPendingUserInput(null)
     setCheckInDraft('')
-  }, [resetCopState])
+  }, [resetCopState, resetSearchSteps])
 
   const bottomRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -712,6 +778,9 @@ export function ChatPage() {
         const fileOpsMap = new Map<string, FileOpRef[]>()
         const webFetchesMap = new Map<string, WebFetchRef[]>()
         const thinkingMap = new Map<string, MessageThinkingRef>()
+        const searchStepsMap = new Map<string, MessageSearchStepRef[]>()
+        const memoryActionsMap = new Map<string, MemoryActionRef[]>()
+        const runEventsMap = new Map<string, MsgRunEvent[]>()
         const copBlocksMap = new Map<string, MessageCopBlocksRef>()
         for (const msg of items) {
           if (msg.role !== 'assistant') continue
@@ -732,6 +801,16 @@ export function ChatPage() {
           if (cachedWebFetches) webFetchesMap.set(msg.id, cachedWebFetches)
           const cachedThinking = readMessageThinking(msg.id)
           if (cachedThinking) thinkingMap.set(msg.id, cachedThinking)
+          const cachedSearchSteps = readMessageSearchSteps(msg.id)
+          if (cachedSearchSteps) {
+            const patched = patchLegacySearchSteps(cachedSearchSteps)
+            if (patched.changed) writeMessageSearchSteps(msg.id, patched.steps)
+            searchStepsMap.set(msg.id, patched.steps)
+          }
+          const cachedMemoryActions = readMessageMemoryActions(msg.id)
+          if (cachedMemoryActions) memoryActionsMap.set(msg.id, cachedMemoryActions)
+          const cachedRunEvents = readMsgRunEvents(msg.id)
+          if (cachedRunEvents) runEventsMap.set(msg.id, cachedRunEvents)
           const cachedCopBlocks = readMessageCopBlocks(msg.id)
           if (cachedCopBlocks) copBlocksMap.set(msg.id, cachedCopBlocks)
         }
@@ -801,6 +880,9 @@ export function ChatPage() {
         setMessageSubAgentsMap(subAgentsMap)
         setMessageFileOpsMap(fileOpsMap)
         setMessageThinkingMap(thinkingMap)
+        setMessageSearchStepsMap(searchStepsMap)
+        setMessageMemoryActionsMap(memoryActionsMap)
+        setMsgRunEventsMap(runEventsMap)
         setMessageCopBlocksMap(copBlocksMap)
         setMessageWebFetchesMap(webFetchesMap)
 
@@ -862,12 +944,16 @@ export function ChatPage() {
     currentRunCodeExecutionsRef.current = []
     currentRunBrowserActionsRef.current = []
     currentRunSubAgentsRef.current = []
+    memoryActionsRef.current = []
+    setMemoryActions([])
     setMessageSourcesMap(new Map())
     setMessageArtifactsMap(new Map())
     setMessageCodeExecutionsMap(new Map())
     setMessageBrowserActionsMap(new Map())
     setMessageSubAgentsMap(new Map())
     setMessageThinkingMap(new Map())
+    setMessageSearchStepsMap(new Map())
+    setMessageMemoryActionsMap(new Map())
     setMessageCopBlocksMap(new Map())
     setSourcePanelMessageId(null)
     disconnectSSE()
@@ -917,7 +1003,7 @@ export function ChatPage() {
     setCancelSubmitting(false)
     return () => { sse.disconnect() }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeRunId])
+  }, [activeRunId, baseUrl])
 
   // 避免上一轮 run 的 closed/error 状态误触发当前 run 的终端兜底。
   useEffect(() => {
@@ -1152,6 +1238,24 @@ export function ChatPage() {
           })
           continue
         }
+        // memory_* tool.call 驱动 MemoryActionBlock
+        if (toolName === 'memory_write' || toolName === 'memory_search' || toolName === 'memory_read' || toolName === 'memory_forget') {
+          const callId = typeof obj.tool_call_id === 'string' ? obj.tool_call_id : `${toolName}-${Date.now()}`
+          const args = obj.arguments as Record<string, unknown> | undefined
+          const newAction: MemoryActionRef = {
+            id: callId,
+            toolName: toolName as MemoryActionRef['toolName'],
+            args: {
+              category: typeof args?.category === 'string' ? args.category : undefined,
+              key: typeof args?.key === 'string' ? args.key : undefined,
+              query: typeof args?.query === 'string' ? args.query : undefined,
+              uri: typeof args?.uri === 'string' ? args.uri : undefined,
+            },
+            status: 'active',
+          }
+          memoryActionsRef.current = [...memoryActionsRef.current, newAction]
+          setMemoryActions([...memoryActionsRef.current])
+        }
         // web_search tool.call → 添加到当前 COP 块
         if (toolName === 'web_search' || llmName === 'web_search') {
           const callId = typeof obj.tool_call_id === 'string' ? obj.tool_call_id : event.event_id
@@ -1191,8 +1295,24 @@ export function ChatPage() {
       }
 
       if (event.type === 'tool.result') {
-        const obj = event.data as { tool_name?: unknown; tool_call_id?: unknown; result?: unknown }
+        const obj = event.data as { tool_name?: unknown; tool_call_id?: unknown; result?: unknown; error?: unknown }
         const resultToolName = typeof obj.tool_name === 'string' ? obj.tool_name : ''
+        // memory_* tool.result — 更新 MemoryActionBlock
+        if (resultToolName === 'memory_write' || resultToolName === 'memory_search' || resultToolName === 'memory_read' || resultToolName === 'memory_forget') {
+          const callId = typeof obj.tool_call_id === 'string' ? obj.tool_call_id : undefined
+          const result = obj.result as Record<string, unknown> | undefined
+          const isError = obj.error != null || (result != null && 'error' in result)
+          let summary: string | undefined
+          if (resultToolName === 'memory_search' && Array.isArray(result?.hits)) {
+            summary = `${result.hits.length} 条结果`
+          }
+          if (callId) {
+            memoryActionsRef.current = memoryActionsRef.current.map((a) =>
+              a.id === callId ? { ...a, status: isError ? 'error' : 'done', resultSummary: summary } : a,
+            )
+            setMemoryActions([...memoryActionsRef.current])
+          }
+        }
         if (resultToolName === 'web_search' || resultToolName.startsWith('web_search.')) {
           const result = obj.result as { results?: unknown[] } | undefined
           if (Array.isArray(result?.results)) {
@@ -1398,6 +1518,11 @@ export function ChatPage() {
         setStreamingArtifacts([])
         setSegments([])
         activeSegmentIdRef.current = null
+        const runMemoryActions = [...memoryActionsRef.current]
+        memoryActionsRef.current = []
+        setMemoryActions([])
+        const runSearchSteps = finalizeSearchSteps(searchStepsRef.current)
+        if (runSearchSteps.length > 0) applySearchSteps(() => runSearchSteps)
         const runCopData = finalizeCopBlocks(copBlocksRef.current, bridgeTextsRef.current)
         if (runCopData.blocks.length > 0) {
           const currentBlocks = copBlocksRef.current
@@ -1446,6 +1571,12 @@ export function ChatPage() {
               writeMessageSources(completedAssistant.id, runSources)
               setMessageSourcesMap((prev) => new Map(prev).set(completedAssistant.id, runSources))
             }
+            const pendingSearchSteps = pendingSearchStepsRef.current
+            pendingSearchStepsRef.current = null
+            if (pendingSearchSteps && pendingSearchSteps.length > 0) {
+              writeMessageSearchSteps(completedAssistant.id, pendingSearchSteps)
+              setMessageSearchStepsMap((prev) => new Map(prev).set(completedAssistant.id, pendingSearchSteps))
+            }
             if (runCopData.blocks.length > 0) {
               writeMessageCopBlocks(completedAssistant.id, runCopData)
               setMessageCopBlocksMap((prev) => new Map(prev).set(completedAssistant.id, runCopData))
@@ -1475,6 +1606,17 @@ export function ChatPage() {
             if (runThinking) {
               writeMessageThinking(completedAssistant.id, runThinking)
               setMessageThinkingMap((prev) => new Map(prev).set(completedAssistant.id, runThinking))
+            }
+            if (runMemoryActions.length > 0) {
+              writeMessageMemoryActions(completedAssistant.id, runMemoryActions)
+              setMessageMemoryActionsMap((prev) => new Map(prev).set(completedAssistant.id, runMemoryActions))
+            }
+            const completedRunEvents = (sse.events as MsgRunEvent[]).filter(
+              (e) => e.run_id === completedRunId,
+            )
+            if (completedRunEvents.length > 0) {
+              writeMsgRunEvents(completedAssistant.id, completedRunEvents)
+              setMsgRunEventsMap((prev) => new Map(prev).set(completedAssistant.id, completedRunEvents))
             }
           }
           const pending = pendingMessageRef.current
@@ -2132,7 +2274,7 @@ export function ChatPage() {
   const isSourcePanelOpen = !!(sourcePanelSources && sourcePanelSources.length > 0)
   const isCodePanelOpen = !!codePanelExecution
   const isDocumentPanelOpen = !!documentPanelArtifact
-  const isPanelOpen = isSourcePanelOpen || isCodePanelOpen || isDocumentPanelOpen
+  const isPanelOpen = isSourcePanelOpen || isCodePanelOpen || isDocumentPanelOpen || appMode === 'claw'
 
   const openCodePanel = useCallback((ce: CodeExecution) => {
     setCodePanelExecution((prev) => {
@@ -2279,10 +2421,20 @@ export function ChatPage() {
 
         {/* 右侧：操作按钮 */}
         <div className="flex items-center gap-2">
-          {threadId && privateThreadIds.has(threadId) && (
+          {!isDesktop() && (
+            <ModeSwitch
+              mode={appMode}
+              onChange={onSetAppMode}
+              labels={{ chat: t.modeChat, claw: t.modeClaw }}
+              availableModes={availableAppModes}
+            />
+          )}
+          {!isDesktop() && threadId && privateThreadIds.has(threadId) && (
             <span className="text-xs font-medium text-[var(--c-text-muted)]">{t.incognitoLabel}</span>
           )}
-          <NotificationBell accessToken={accessToken} onClick={onOpenNotifications} refreshKey={notificationVersion} title={t.notificationsTitle} />
+          {!isDesktop() && (
+            <NotificationBell accessToken={accessToken} onClick={onOpenNotifications} refreshKey={notificationVersion} title={t.notificationsTitle} />
+          )}
           {threadId && !privateThreadIds.has(threadId) && (
             <button
               onClick={() => setShareModalOpen(true)}
@@ -2292,27 +2444,29 @@ export function ChatPage() {
               <Share2 size={18} />
             </button>
           )}
-          <button
-            onClick={
-              threadId && privateThreadIds.has(threadId)
-                ? undefined
-                : pendingIncognito
-                  ? () => setPendingIncognito(false)
-                  : messages.length > 0
-                    ? () => setPendingIncognito(true)
-                    : onTogglePrivateMode
-            }
-            title={threadId && privateThreadIds.has(threadId) ? t.thisThreadIsIncognito : t.toggleIncognito}
-            className={[
-              'flex h-8 w-8 items-center justify-center rounded-lg transition-colors',
-              threadId && privateThreadIds.has(threadId) || pendingIncognito
-                ? 'bg-[var(--c-bg-deep)] text-[var(--c-text-primary)]'
-                : 'text-[var(--c-text-secondary)] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]',
-              threadId && privateThreadIds.has(threadId) ? 'cursor-default' : 'cursor-pointer',
-            ].join(' ')}
-          >
-            <Glasses size={18} />
-          </button>
+          {!isDesktop() && (
+            <button
+              onClick={
+                threadId && privateThreadIds.has(threadId)
+                  ? undefined
+                  : pendingIncognito
+                    ? () => setPendingIncognito(false)
+                    : messages.length > 0
+                      ? () => setPendingIncognito(true)
+                      : onTogglePrivateMode
+              }
+              title={threadId && privateThreadIds.has(threadId) ? t.thisThreadIsIncognito : t.toggleIncognito}
+              className={[
+                'flex h-8 w-8 items-center justify-center rounded-lg transition-colors',
+                threadId && privateThreadIds.has(threadId) || pendingIncognito
+                  ? 'bg-[var(--c-bg-deep)] text-[var(--c-text-primary)]'
+                  : 'text-[var(--c-text-secondary)] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]',
+                threadId && privateThreadIds.has(threadId) ? 'cursor-default' : 'cursor-pointer',
+              ].join(' ')}
+            >
+              <Glasses size={18} />
+            </button>
+          )}
         </div>
       </div>
 
@@ -2343,13 +2497,20 @@ export function ChatPage() {
                 const messageCodeExecutions = msg.role === 'assistant' ? messageCodeExecutionsMap.get(msg.id) : undefined
                 const hasMessageCodeExecutions = !!(messageCodeExecutions && messageCodeExecutions.length > 0)
                 const messageSubAgents = msg.role === 'assistant' ? messageSubAgentsMap.get(msg.id) : undefined
+                const messageMemoryActions = msg.role === 'assistant' ? messageMemoryActionsMap.get(msg.id) : undefined
+                const messageSearchSteps = msg.role === 'assistant' ? messageSearchStepsMap.get(msg.id) : undefined
+                const timelineSteps = messageSearchSteps ?? []
                 const messageFileOps = msg.role === 'assistant' ? messageFileOpsMap.get(msg.id) : undefined
                 const messageWebFetches = msg.role === 'assistant' ? messageWebFetchesMap.get(msg.id) : undefined
                 const hasPerBlockCodeExecs = historicalBlocks.some(b => b.codeExecutions && b.codeExecutions.length > 0)
                 return (
                   <div key={msg.id} ref={idx === lastUserMsgIdx ? lastUserMsgRef : undefined}>
+                  {/* 完成后：记忆操作 + 搜索时间轴（最后一条 assistant 消息上方） */}
+                  {messageMemoryActions && messageMemoryActions.length > 0 && (
+                    <MemoryActionBlock actions={messageMemoryActions} />
+                  )}
                   {/* 完成后的 COP 时间轴 */}
-                  {(historicalBlocks.length > 0 || hasMessageCodeExecutions || (messageSubAgents && messageSubAgents.length > 0) || (messageFileOps && messageFileOps.length > 0) || (messageWebFetches && messageWebFetches.length > 0)) && (
+                  {(historicalBlocks.length > 0 || timelineSteps.length > 0 || hasMessageCodeExecutions || (messageSubAgents && messageSubAgents.length > 0) || (messageFileOps && messageFileOps.length > 0) || (messageWebFetches && messageWebFetches.length > 0)) && (
                     <div style={{ marginBottom: '12px' }}>
                       {historicalBlocks.map((block, bi) => {
                         const blockCodeExecs = hasPerBlockCodeExecs
@@ -2379,7 +2540,22 @@ export function ChatPage() {
                         </Fragment>
                         )
                       })}
-                      {historicalBlocks.length === 0 && (hasMessageCodeExecutions || (messageSubAgents && messageSubAgents.length > 0) || (messageFileOps && messageFileOps.length > 0) || (messageWebFetches && messageWebFetches.length > 0)) && (
+                      {historicalBlocks.length === 0 && timelineSteps.length > 0 && (
+                        <SearchTimeline
+                          steps={timelineSteps}
+                          sources={resolvedSources ?? []}
+                          isComplete
+                          codeExecutions={messageCodeExecutions}
+                          onOpenCodeExecution={openCodePanel}
+                          activeCodeExecutionId={codePanelExecution?.id}
+                          subAgents={messageSubAgents}
+                          fileOps={messageFileOps}
+                          webFetches={messageWebFetches}
+                          accessToken={accessToken}
+                          baseUrl={baseUrl}
+                        />
+                      )}
+                      {historicalBlocks.length === 0 && timelineSteps.length === 0 && (hasMessageCodeExecutions || (messageSubAgents && messageSubAgents.length > 0) || (messageFileOps && messageFileOps.length > 0) || (messageWebFetches && messageWebFetches.length > 0)) && (
                         <SearchTimeline
                           steps={[]}
                           sources={[]}
@@ -2435,11 +2611,6 @@ export function ChatPage() {
                     shareState={
                       sharingMessageId === msg.id ? 'sharing' : sharedMessageId === msg.id ? 'shared' : 'idle'
                     }
-                    onReport={
-                      msg.role === 'assistant' && !isStreaming && !sending && threadId
-                        ? () => setReportModalOpen(true)
-                        : undefined
-                    }
                     webSources={resolvedSources}
                     artifacts={msg.role === 'assistant' ? messageArtifactsMap.get(msg.id) : undefined}
                     browserActions={msg.role === 'assistant' ? messageBrowserActionsMap.get(msg.id) : undefined}
@@ -2459,6 +2630,11 @@ export function ChatPage() {
                     }
                     onOpenDocument={msg.role === 'assistant' ? openDocumentPanel : undefined}
                     activePanelArtifactKey={documentPanelArtifact?.artifact.key ?? null}
+                    onViewRunDetail={
+                      showRunEvents && msg.role === 'assistant' && msg.run_id
+                        ? () => setRunDetailPanelRunId(msg.run_id!)
+                        : undefined
+                    }
                   />
                   {/* 无痕分割线：固定在 fork 基点之后 */}
                   {locationState?.isIncognitoFork && locationState.forkBaseCount != null && idx === locationState.forkBaseCount - 1 && (
@@ -2684,39 +2860,63 @@ export function ChatPage() {
                 </motion.div>
               )}
 
+              {/* 流式期间：live 记忆操作 */}
+              {isStreaming && memoryActions.length > 0 && (
+                <MemoryActionBlock actions={memoryActions} live />
+              )}
+
               {/* 流式期间的 live COP 时间轴 */}
-              {(isStreaming || liveTimelineExiting) && copBlocks.length > 0 && (
-                <div>
-                  {copBlocks.map((block, bi) => {
-                    const isLastBlock = bi === copBlocks.length - 1
-                    const blockComplete = !isLastBlock || (liveTimelineExiting && !isStreaming)
-                    return (
-                      <Fragment key={block.id}>
-                        <SearchTimeline
-                          steps={block.steps}
-                          sources={block.sources}
-                          isComplete={blockComplete}
-                          codeExecutions={block.codeExecutions.length > 0 ? block.codeExecutions : undefined}
-                          onOpenCodeExecution={openCodePanel}
-                          activeCodeExecutionId={codePanelExecution?.id}
-                          subAgents={isLastBlock && topLevelSubAgents.length > 0 ? topLevelSubAgents : undefined}
-                          fileOps={isLastBlock && topLevelFileOps.length > 0 ? topLevelFileOps : undefined}
-                          webFetches={isLastBlock && topLevelWebFetches.length > 0 ? topLevelWebFetches : undefined}
-                          headerOverride={block.title || (!liveTimelineExiting ? copHeaderLabel : undefined)}
-                          shimmer={!liveTimelineExiting && isLastBlock && !assistantDraft}
-                          live={!liveTimelineExiting && isLastBlock}
-                          accessToken={accessToken}
-                          baseUrl={baseUrl}
-                        />
-                        {bridgeTexts[bi] && (
-                          <div style={{ padding: '4px 0', fontSize: '14px', lineHeight: '1.6', color: 'var(--c-text-primary)', maxWidth: '663px' }}>
-                            {bridgeTexts[bi]}
-                          </div>
-                        )}
-                      </Fragment>
-                    )
-                  })}
-                </div>
+              {(isStreaming || liveTimelineExiting) && (copBlocks.length > 0 || searchSteps.length > 0) && (
+                copBlocks.length > 0 ? (
+                  <div>
+                    {copBlocks.map((block, bi) => {
+                      const isLastBlock = bi === copBlocks.length - 1
+                      const blockComplete = !isLastBlock || (liveTimelineExiting && !isStreaming)
+                      return (
+                        <Fragment key={block.id}>
+                          <SearchTimeline
+                            steps={block.steps}
+                            sources={block.sources}
+                            isComplete={blockComplete}
+                            codeExecutions={(block.codeExecutions?.length ?? 0) > 0 ? block.codeExecutions : (isLastBlock && dedupedTopLevelCodeExecutions.length > 0 ? dedupedTopLevelCodeExecutions : undefined)}
+                            onOpenCodeExecution={openCodePanel}
+                            activeCodeExecutionId={codePanelExecution?.id}
+                            subAgents={isLastBlock && topLevelSubAgents.length > 0 ? topLevelSubAgents : undefined}
+                            fileOps={isLastBlock && topLevelFileOps.length > 0 ? topLevelFileOps : undefined}
+                            webFetches={isLastBlock && topLevelWebFetches.length > 0 ? topLevelWebFetches : undefined}
+                            headerOverride={block.title || (!liveTimelineExiting ? copHeaderLabel : undefined)}
+                            shimmer={!liveTimelineExiting && isLastBlock && !assistantDraft}
+                            live={!liveTimelineExiting && isLastBlock}
+                            accessToken={accessToken}
+                            baseUrl={baseUrl}
+                          />
+                          {bridgeTexts[bi] && (
+                            <div style={{ padding: '4px 0', fontSize: '14px', lineHeight: '1.6', color: 'var(--c-text-primary)', maxWidth: '663px' }}>
+                              {bridgeTexts[bi]}
+                            </div>
+                          )}
+                        </Fragment>
+                      )
+                    })}
+                  </div>
+                ) : (
+                  <SearchTimeline
+                    steps={searchSteps}
+                    sources={currentRunSourcesRef.current}
+                    isComplete={liveTimelineExiting && !isStreaming}
+                    codeExecutions={dedupedTopLevelCodeExecutions.length > 0 ? dedupedTopLevelCodeExecutions : undefined}
+                    onOpenCodeExecution={openCodePanel}
+                    activeCodeExecutionId={codePanelExecution?.id}
+                    subAgents={topLevelSubAgents.length > 0 ? topLevelSubAgents : undefined}
+                    fileOps={topLevelFileOps.length > 0 ? topLevelFileOps : undefined}
+                    webFetches={topLevelWebFetches.length > 0 ? topLevelWebFetches : undefined}
+                    headerOverride={!liveTimelineExiting ? copHeaderLabel : undefined}
+                    shimmer={!liveTimelineExiting && !assistantDraft}
+                    live={!liveTimelineExiting}
+                    accessToken={accessToken}
+                    baseUrl={baseUrl}
+                  />
+                )
               )}
 
               {/* 非搜索模式：常规 segment 渲染 */}
@@ -2930,6 +3130,7 @@ export function ChatPage() {
             searchMode={isSearchThread}
             onPersonaChange={(personaKey) => setIsSearchThread(personaKey === SEARCH_PERSONA_KEY)}
             onOpenSettings={onOpenSettings}
+            appMode={appMode}
           />
         )}
         <p style={{ color: 'var(--c-text-muted)', fontSize: '13px', letterSpacing: '-0.52px', textAlign: 'center' }}>
@@ -2945,6 +3146,9 @@ export function ChatPage() {
 
         </div>
         {/* 右侧面板 - width 过渡驱动整体布局动画 */}
+        {appMode === 'claw' ? (
+          <ClawRightPanel accessToken={accessToken} projectId={currentThread?.project_id || undefined} onForbidden={() => onSetAppMode('chat')} />
+        ) : (
         <div
           style={{
             width: isDocumentPanelOpen ? `${documentPanelWidth}px` : (isSourcePanelOpen || isCodePanelOpen) ? `${sidePanelWidth}px` : '0px',
@@ -2988,6 +3192,7 @@ export function ChatPage() {
             </div>
           )}
         </div>
+        )}
       </div>
 
       {threadId && (
@@ -2996,15 +3201,6 @@ export function ChatPage() {
           threadId={threadId}
           open={shareModalOpen}
           onClose={() => setShareModalOpen(false)}
-        />
-      )}
-
-      {threadId && (
-        <ReportModal
-          accessToken={accessToken}
-          threadId={threadId}
-          open={reportModalOpen}
-          onClose={() => setReportModalOpen(false)}
         />
       )}
 
@@ -3130,6 +3326,14 @@ export function ChatPage() {
           </div>
         </div>,
         document.body,
+      )}
+
+      {runDetailPanelRunId && (
+        <RunDetailPanel
+          runId={runDetailPanelRunId}
+          accessToken={accessToken}
+          onClose={() => setRunDetailPanelRunId(null)}
+        />
       )}
     </div>
   )

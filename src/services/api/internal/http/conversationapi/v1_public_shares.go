@@ -14,6 +14,8 @@ import (
 	nethttp "net/http"
 
 	"arkloop/services/api/internal/data"
+	"arkloop/services/api/internal/featureflag"
+	"arkloop/services/api/internal/http/featuregate"
 	"arkloop/services/api/internal/observability"
 )
 
@@ -54,6 +56,7 @@ func publicShareEntry(
 	threadShareRepo *data.ThreadShareRepository,
 	threadRepo *data.ThreadRepository,
 	messageRepo *data.MessageRepository,
+	flagService *featureflag.Service,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		traceID := observability.TraceIDFromContext(r.Context())
@@ -73,7 +76,7 @@ func publicShareEntry(
 				httpkit.WriteMethodNotAllowed(w, r)
 				return
 			}
-			handleShareVerify(w, r, traceID, token, threadShareRepo)
+			handleShareVerify(w, r, traceID, token, threadShareRepo, threadRepo, flagService)
 			return
 		}
 
@@ -82,7 +85,7 @@ func publicShareEntry(
 				httpkit.WriteMethodNotAllowed(w, r)
 				return
 			}
-			handleShareGet(w, r, traceID, token, threadShareRepo, threadRepo, messageRepo)
+			handleShareGet(w, r, traceID, token, threadShareRepo, threadRepo, messageRepo, flagService)
 			return
 		}
 
@@ -98,6 +101,7 @@ func handleShareGet(
 	threadShareRepo *data.ThreadShareRepository,
 	threadRepo *data.ThreadRepository,
 	messageRepo *data.MessageRepository,
+	flagService *featureflag.Service,
 ) {
 	if threadShareRepo == nil || threadRepo == nil || messageRepo == nil {
 		httpkit.WriteError(w, nethttp.StatusServiceUnavailable, "database.not_configured", "database not configured", traceID, nil)
@@ -134,6 +138,9 @@ func handleShareGet(
 	}
 	if thread == nil {
 		httpkit.WriteError(w, nethttp.StatusNotFound, "shares.not_found", "share not found", traceID, nil)
+		return
+	}
+	if !featuregate.EnsureClawEnabledForThread(w, traceID, r.Context(), thread, flagService) {
 		return
 	}
 
@@ -178,8 +185,10 @@ func handleShareVerify(
 	traceID string,
 	token string,
 	threadShareRepo *data.ThreadShareRepository,
+	threadRepo *data.ThreadRepository,
+	flagService *featureflag.Service,
 ) {
-	if threadShareRepo == nil {
+	if threadShareRepo == nil || threadRepo == nil {
 		httpkit.WriteError(w, nethttp.StatusServiceUnavailable, "database.not_configured", "database not configured", traceID, nil)
 		return
 	}
@@ -201,6 +210,18 @@ func handleShareVerify(
 	}
 	if share == nil {
 		httpkit.WriteError(w, nethttp.StatusNotFound, "shares.not_found", "share not found", traceID, nil)
+		return
+	}
+	thread, err := threadRepo.GetByID(r.Context(), share.ThreadID)
+	if err != nil {
+		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+		return
+	}
+	if thread == nil {
+		httpkit.WriteError(w, nethttp.StatusNotFound, "shares.not_found", "share not found", traceID, nil)
+		return
+	}
+	if !featuregate.EnsureClawEnabledForThread(w, traceID, r.Context(), thread, flagService) {
 		return
 	}
 

@@ -11,7 +11,6 @@ import (
 	sharedtoolmeta "arkloop/services/shared/toolmeta"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"log/slog"
 	nethttp "net/http"
 )
@@ -22,7 +21,7 @@ func toolCatalogEffectiveEntry(
 	authService *auth.Service,
 	membershipRepo *data.AccountMembershipRepository,
 	overridesRepo *data.ToolDescriptionOverridesRepository,
-	pool *pgxpool.Pool,
+	pool data.DB,
 	mcpCache *effectiveToolCatalogCache,
 	artifactStoreAvailable bool,
 	projectRepo *data.ProjectRepository,
@@ -66,7 +65,7 @@ func buildEffectiveToolCatalog(
 	accountID uuid.UUID,
 	projectID uuid.UUID,
 	overridesRepo *data.ToolDescriptionOverridesRepository,
-	pool *pgxpool.Pool,
+	pool data.DB,
 	mcpCache *effectiveToolCatalogCache,
 	artifactStoreAvailable bool,
 ) (toolCatalogResponse, error) {
