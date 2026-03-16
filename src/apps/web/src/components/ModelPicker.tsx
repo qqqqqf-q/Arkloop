@@ -3,6 +3,9 @@ import { ChevronDown } from 'lucide-react'
 import { listLlmProviders, type LlmProvider } from '../api'
 import { useLocale } from '../contexts/LocaleContext'
 
+// 模块级缓存：accessToken -> providers，打开时先展示缓存，后台静默刷新
+const providersCache = new Map<string, LlmProvider[]>()
+
 type Props = {
   accessToken?: string
   value: string | null
@@ -15,31 +18,38 @@ export function ModelPicker({ accessToken, value, onChange, onAddApiKey, variant
   const { t } = useLocale()
   const mp = t.modelPicker
   const [open, setOpen] = useState(false)
-  const [providers, setProviders] = useState<LlmProvider[]>([])
+  const cached = accessToken ? (providersCache.get(accessToken) ?? null) : null
+  const [providers, setProviders] = useState<LlmProvider[]>(cached ?? [])
+  const [loading, setLoading] = useState(false)
   const [search, setSearch] = useState('')
   const [hovered, setHovered] = useState(false)
   const btnRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (silent: boolean) => {
     if (!accessToken) return
+    if (!silent) setLoading(true)
     try {
       const list = await listLlmProviders(accessToken)
+      providersCache.set(accessToken, list)
       setProviders(list)
     } catch {
-      // 静默失败，model picker 不影响聊天主流程
+      // 静默失败
+    } finally {
+      if (!silent) setLoading(false)
     }
   }, [accessToken])
 
-  // 每次打开时刷新，避免新添加的模型不显示
+  // 打开时：有缓存则静默刷新，无缓存则显示 loading
   useEffect(() => {
     if (open) {
-      void load()
+      const hasCached = accessToken ? providersCache.has(accessToken) : false
+      void load(!hasCached ? false : true)
       setSearch('')
       setTimeout(() => searchRef.current?.focus(), 30)
     }
-  }, [open, load])
+  }, [open, load, accessToken])
 
   useEffect(() => {
     if (!open) return
@@ -156,6 +166,11 @@ export function ModelPicker({ accessToken, value, onChange, onAddApiKey, variant
                 <span style={{ marginLeft: 'auto', fontSize: '12px', color: 'var(--c-text-muted)' }}>✓</span>
               )}
             </button>
+
+            {/* 无缓存时的首次加载态 */}
+            {loading && providers.length === 0 && (
+              <p className="px-3 py-2 text-xs" style={{ color: 'var(--c-text-muted)' }}>...</p>
+            )}
 
             {/* 可滚动模型列表 */}
             {hasModels && (

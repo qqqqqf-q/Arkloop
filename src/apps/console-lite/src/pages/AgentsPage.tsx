@@ -752,7 +752,7 @@ export function AgentsPage() {
               className="w-[112px] rounded-lg border border-[var(--c-border)] bg-[var(--c-bg-input)] px-3 py-1 text-xs text-[var(--c-text-primary)] outline-none transition-colors focus:border-[var(--c-border-focus)]"
             >
               <option value="platform">{ta.scopePlatform}</option>
-              <option value="user">{ta.scopeProject}</option>
+              <option value="user">{ta.scopeAccount}</option>
             </select>
             <button
               onClick={() => {

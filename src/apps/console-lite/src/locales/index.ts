@@ -49,7 +49,7 @@ export interface LocaleStrings {
     platformDefault: string
     fieldScope: string
     scopePlatform: string
-    scopeProject: string
+    scopeAccount: string
     hybrid: string
     toolsSelected: (selected: number, total: number) => string
     enableAllTools: string

@@ -93,6 +93,9 @@ func loadRunInputs(
 		if rawOutputRouteID, ok := dataJSON["output_route_id"].(string); ok && strings.TrimSpace(rawOutputRouteID) != "" {
 			inputJSON["output_route_id"] = strings.TrimSpace(rawOutputRouteID)
 		}
+		if rawModel, ok := dataJSON["model"].(string); ok && strings.TrimSpace(rawModel) != "" {
+			inputJSON["model"] = strings.TrimSpace(rawModel)
+		}
 	}
 
 	messages, err := messagesRepo.ListByThread(ctx, tx, run.AccountID, run.ThreadID, messageLimit)
