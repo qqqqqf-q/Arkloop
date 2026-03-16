@@ -70,12 +70,12 @@ export function DesktopTitleBar({ sidebarCollapsed, onToggleSidebar, appMode, on
         />
       </div>
 
-      {/* Right side: private mode toggle (hidden in claw mode) */}
-      {appMode !== 'claw' && onTogglePrivateMode && (
-        <div
-          className="ml-auto flex items-center"
-          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-        >
+      {/* Right side: always no-drag to prevent drag region from blocking right-side panels */}
+      <div
+        className="ml-auto flex items-center"
+        style={{ WebkitAppRegion: 'no-drag', minWidth: '300px' } as React.CSSProperties}
+      >
+        {appMode !== 'claw' && onTogglePrivateMode && (
           <button
             onClick={onTogglePrivateMode}
             title={t.toggleIncognito}
@@ -88,8 +88,8 @@ export function DesktopTitleBar({ sidebarCollapsed, onToggleSidebar, appMode, on
           >
             <Glasses size={15} />
           </button>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   )
 }

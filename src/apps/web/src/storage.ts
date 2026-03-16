@@ -866,6 +866,13 @@ export function writeClawWorkFolder(folder: string): void {
   } catch { /* ignore */ }
 }
 
+export function clearClawWorkFolder(): void {
+  if (!canUseLocalStorage()) return
+  try {
+    localStorage.removeItem(CLAW_WORK_FOLDER_KEY)
+  } catch { /* ignore */ }
+}
+
 export function readClawRecentFolders(): string[] {
   if (!canUseLocalStorage()) return []
   try {

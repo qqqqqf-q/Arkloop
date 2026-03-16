@@ -51,6 +51,7 @@ import {
   applyWebFetchToolCall,
   applyWebFetchToolResult,
   buildMessageWebFetchesFromRunEvents,
+  buildMessageCopBlocksFromRunEvents,
 } from '../runEventProcessing'
 import { useLocale } from '../contexts/LocaleContext'
 import { apiBaseUrl } from '@arkloop/shared/api'
@@ -372,10 +373,13 @@ export function ChatPage() {
   const [liveTimelineExiting, setLiveTimelineExiting] = useState(false)
   const liveTimelineExitTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
+  // --- Claw todo 进度 ---
+  const [clawTodos, setClawTodos] = useState<Array<{ id: string; content: string; status: string }>>([])
+
   // --- 开发者调试 ---
   const [showRunEvents, setShowRunEvents] = useState(() => readDeveloperShowRunEvents())
   const [runDetailPanelRunId, setRunDetailPanelRunId] = useState<string | null>(null)
-  const [msgRunEventsMap, setMsgRunEventsMap] = useState<Map<string, MsgRunEvent[]>>(new Map())
+  const [_msgRunEventsMap, setMsgRunEventsMap] = useState<Map<string, MsgRunEvent[]>>(new Map())
 
   useEffect(() => {
     const handleChange = (e: Event) => {
@@ -680,6 +684,14 @@ export function ChatPage() {
     }
   }, [])
 
+  const prevActiveRunIdRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (activeRunId && activeRunId !== prevActiveRunIdRef.current) {
+      setClawTodos([])
+    }
+    prevActiveRunIdRef.current = activeRunId
+  }, [activeRunId])
+
   const sse = useSSE({ runId: activeRunId ?? '', accessToken, baseUrl })
   const disconnectSSE = sse.disconnect
 
@@ -825,7 +837,8 @@ export function ChatPage() {
         const replaySubAgentsNeeded = !!(lastAssistant && !subAgentsMap.has(lastAssistant.id))
         const replayFileOpsNeeded = !!(lastAssistant && !fileOpsMap.has(lastAssistant.id))
         const replayWebFetchesNeeded = !!(lastAssistant && !webFetchesMap.has(lastAssistant.id))
-        if (latest && latest.status !== 'running' && lastAssistant && (replayThinkingNeeded || replayCodeExecNeeded || replayBrowserActionsNeeded || replaySubAgentsNeeded || replayFileOpsNeeded || replayWebFetchesNeeded)) {
+        const replayCopBlocksNeeded = !!(lastAssistant && !copBlocksMap.has(lastAssistant.id))
+        if (latest && latest.status !== 'running' && lastAssistant && (replayThinkingNeeded || replayCodeExecNeeded || replayBrowserActionsNeeded || replaySubAgentsNeeded || replayFileOpsNeeded || replayWebFetchesNeeded || replayCopBlocksNeeded)) {
           try {
             const replayEvents = await listRunEvents(accessToken, latest.run_id, { follow: false })
             if (replayThinkingNeeded) {
@@ -866,6 +879,13 @@ export function ChatPage() {
               if (replayWebFetches.length > 0) {
                 webFetchesMap.set(lastAssistant.id, replayWebFetches)
                 writeMessageWebFetches(lastAssistant.id, replayWebFetches)
+              }
+            }
+            if (replayCopBlocksNeeded) {
+              const replayCopBlocks = buildMessageCopBlocksFromRunEvents(replayEvents)
+              if (replayCopBlocks) {
+                copBlocksMap.set(lastAssistant.id, replayCopBlocks)
+                writeMessageCopBlocks(lastAssistant.id, replayCopBlocks)
               }
             }
           } catch {
@@ -1087,6 +1107,20 @@ export function ChatPage() {
           }
         } else {
           setSegments((prev) => [...prev, { segmentId, kind, mode, label, content: '', isStreaming: true, codeExecutions: [] }])
+        }
+        continue
+      }
+
+      if (event.type === 'todo.updated') {
+        const obj = event.data as { todos?: unknown }
+        if (Array.isArray(obj.todos)) {
+          const items = (obj.todos as unknown[]).flatMap((t) => {
+            if (!t || typeof t !== 'object') return []
+            const item = t as { id?: unknown; content?: unknown; status?: unknown }
+            if (typeof item.id !== 'string' || typeof item.content !== 'string' || typeof item.status !== 'string') return []
+            return [{ id: item.id, content: item.content, status: item.status }]
+          })
+          setClawTodos(items)
         }
         continue
       }
@@ -3043,7 +3077,7 @@ export function ChatPage() {
 
       {/* 输入区域 */}
       <div
-        style={{ maxWidth: 1200, margin: '0 auto', padding: `12px ${isPanelOpen ? '32px' : '60px'} 16px`, transition: 'padding 280ms cubic-bezier(0.16,1,0.3,1)', position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 10, background: 'linear-gradient(to bottom, transparent 0%, var(--c-bg-page) 24px)' }}
+        style={{ maxWidth: 1200, margin: '0 auto', padding: `12px ${appMode === 'claw' ? '12px' : isPanelOpen ? '32px' : '60px'} 16px`, transition: 'padding 280ms cubic-bezier(0.16,1,0.3,1)', position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 10, background: 'linear-gradient(to bottom, transparent 0%, var(--c-bg-page) 24px)' }}
         className="flex w-full flex-col items-center gap-2"
       >
         {/* 滚动到底部按钮：始终锚定在输入框顶边正上方 */}
@@ -3147,7 +3181,16 @@ export function ChatPage() {
         </div>
         {/* 右侧面板 - width 过渡驱动整体布局动画 */}
         {appMode === 'claw' ? (
-          <ClawRightPanel accessToken={accessToken} projectId={currentThread?.project_id || undefined} onForbidden={() => onSetAppMode('chat')} />
+          <ClawRightPanel
+            accessToken={accessToken}
+            projectId={currentThread?.project_id || undefined}
+            steps={clawTodos.map((td) => ({
+              id: td.id,
+              label: td.content,
+              status: td.status === 'completed' ? 'done' : td.status === 'in_progress' ? 'active' : 'pending',
+            }))}
+            onForbidden={() => onSetAppMode('chat')}
+          />
         ) : (
         <div
           style={{

@@ -119,7 +119,7 @@ export function RunDetailPanel({ runId, accessToken, onClose }: Props) {
   return createPortal(
     <aside
       className="fixed inset-y-0 right-0 z-50 flex w-[520px] max-w-full flex-col border-l border-[var(--c-border)]"
-      style={{ background: 'var(--c-bg-menu, #1a1a1a)' }}
+      style={{ background: 'var(--c-bg-menu, #1a1a1a)', WebkitAppRegion: 'no-drag' } as React.CSSProperties}
     >
         {/* Header */}
         <div className="flex min-h-[46px] items-center justify-between border-b border-[var(--c-border)] px-4">
