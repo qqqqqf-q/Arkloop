@@ -90,11 +90,20 @@ func (h *Handler) listModules(w http.ResponseWriter, r *http.Request) {
 	defs := h.registry.OptionalModules()
 	infos := make([]module.ModuleInfo, 0, len(defs))
 	serviceNames := make([]string, 0, len(defs))
+	profileSet := make(map[string]struct{})
 
 	for i := range defs {
 		if defs[i].ComposeService != "" {
 			serviceNames = append(serviceNames, defs[i].ComposeService)
+			if defs[i].ComposeProfile != "" {
+				profileSet[defs[i].ComposeProfile] = struct{}{}
+			}
 		}
+	}
+
+	profiles := make([]string, 0, len(profileSet))
+	for p := range profileSet {
+		profiles = append(profiles, p)
 	}
 
 	var statuses map[string]string
@@ -103,7 +112,7 @@ func (h *Handler) listModules(w http.ResponseWriter, r *http.Request) {
 		defer cancel()
 
 		var err error
-		statuses, err = h.compose.ContainerStatuses(queryCtx, serviceNames)
+		statuses, err = h.compose.ContainerStatuses(queryCtx, serviceNames, profiles)
 		if err != nil {
 			h.appLogger.Error("batch container status query failed", map[string]any{
 				"error": err.Error(),

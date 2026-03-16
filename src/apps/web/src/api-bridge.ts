@@ -95,21 +95,36 @@ class BridgeClient {
     onLog: (line: string) => void,
     onDone: (result: { status: string; error?: string }) => void,
   ): () => void {
+    let finished = false
+    let retries = 0
+    const MAX_RETRIES = 3
+
     const es = new EventSource(
       `${this.baseUrl()}/v1/operations/${encodeURIComponent(operationId)}/stream`,
     )
     es.addEventListener('log', (event: MessageEvent) => {
+      retries = 0
       onLog(event.data as string)
     })
     es.addEventListener('status', (event: MessageEvent) => {
-      onDone(JSON.parse(event.data as string) as { status: string; error?: string })
+      if (finished) return
+      finished = true
       es.close()
+      onDone(JSON.parse(event.data as string) as { status: string; error?: string })
     })
     es.onerror = () => {
-      onDone({ status: 'failed', error: 'Connection lost' })
+      if (finished) return
+      retries++
+      if (retries > MAX_RETRIES) {
+        finished = true
+        es.close()
+        onDone({ status: 'failed', error: 'Connection lost' })
+      }
+    }
+    return () => {
+      finished = true
       es.close()
     }
-    return () => es.close()
   }
 }
 

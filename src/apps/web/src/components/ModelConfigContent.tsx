@@ -584,7 +584,7 @@ function ModelsSection({
               <div className="min-w-0 flex-1 flex items-center gap-1.5">
                 <p className="truncate text-sm font-medium text-[var(--c-text-primary)]">{pm.model}</p>
                 {pm.tags.includes('embedding') && (
-                  <span className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium" style={{ background: 'var(--c-accent-subtle, color-mix(in srgb, var(--c-accent) 15%, transparent))', color: 'var(--c-accent)', border: '1px solid var(--c-accent)' }}>emb</span>
+                  <span className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium" style={{ background: 'var(--c-bg-sub)', color: 'var(--c-text-muted)' }}>emb</span>
                 )}
               </div>
               <div className="flex items-center gap-1.5 flex-shrink-0">

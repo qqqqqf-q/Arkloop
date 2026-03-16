@@ -696,7 +696,7 @@ export function ProvidersPage() {
                             <div className="flex flex-wrap items-center gap-2">
                               <div className="truncate font-mono text-sm text-[var(--c-text-primary)]">{model.model}</div>
                               {model.tags.includes('embedding') && (
-                                <span className="rounded px-1.5 py-0.5 text-[10px] font-medium" style={{ background: 'var(--c-accent-subtle, color-mix(in srgb, var(--c-accent) 15%, transparent))', color: 'var(--c-accent)', border: '1px solid var(--c-accent)' }}>emb</span>
+                                <span className="rounded px-1.5 py-0.5 text-[10px] font-medium" style={{ background: 'var(--c-bg-sub)', color: 'var(--c-text-muted)' }}>emb</span>
                               )}
                               {model.is_default && <Badge variant="success">{tc.routeDefault}</Badge>}
                               <span className="text-xs text-[var(--c-text-muted)]">priority {model.priority}</span>

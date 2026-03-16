@@ -80,7 +80,7 @@ export function ModelPicker({ accessToken, value, onChange, onAddApiKey, variant
   const visibleProviders = providers
     .map((p) => ({
       ...p,
-      models: p.models.filter((m) => m.show_in_picker && (!q || m.model.toLowerCase().includes(q))),
+      models: p.models.filter((m) => m.show_in_picker && !m.tags.includes('embedding') && (!q || m.model.toLowerCase().includes(q))),
     }))
     .filter((p) => p.models.length > 0)
 
@@ -176,52 +176,54 @@ export function ModelPicker({ accessToken, value, onChange, onAddApiKey, variant
             {hasModels && (
               <>
                 <div style={{ height: '1px', background: 'var(--c-border-subtle)', margin: '2px 4px' }} />
-                <div
-                  style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}
-                >
-                  {visibleProviders.map((provider) =>
-                    provider.models.map((m) => {
-                      const combo = `${provider.name}^${m.model}`
-                      const isSelected = value === combo
-                      return (
-                        <button
-                          key={combo}
-                          type="button"
-                          onClick={() => handleSelect(combo)}
-                          className="flex w-full items-center rounded-lg px-3 py-2 text-sm hover:bg-[var(--c-bg-deep)]"
-                          style={{
-                            color: isSelected ? 'var(--c-text-primary)' : 'var(--c-text-secondary)',
-                            fontWeight: isSelected ? 600 : 400,
-                          }}
-                        >
-                          <span
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1px' }}>
+                  {visibleProviders.map((provider) => (
+                    <div key={provider.id}>
+                      <div
+                        style={{
+                          padding: '6px 12px 3px',
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          color: 'var(--c-text-muted)',
+                          letterSpacing: '0.01em',
+                          userSelect: 'none',
+                        }}
+                      >
+                        {provider.name}
+                      </div>
+                      {provider.models.map((m) => {
+                        const combo = `${provider.name}^${m.model}`
+                        const isSelected = value === combo
+                        return (
+                          <button
+                            key={combo}
+                            type="button"
+                            onClick={() => handleSelect(combo)}
+                            className="flex w-full items-center rounded-lg px-3 py-[6px] text-sm hover:bg-[var(--c-bg-deep)]"
                             style={{
-                              flex: 1,
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              whiteSpace: 'nowrap',
-                              textAlign: 'left',
+                              color: isSelected ? 'var(--c-text-primary)' : 'var(--c-text-secondary)',
+                              fontWeight: isSelected ? 600 : 400,
                             }}
                           >
-                            {m.model}
-                          </span>
-                          <span
-                            style={{
-                              fontSize: '11px',
-                              color: 'var(--c-text-muted)',
-                              flexShrink: 0,
-                              marginLeft: '8px',
-                            }}
-                          >
-                            {provider.name}
-                          </span>
-                          {isSelected && (
-                            <span style={{ marginLeft: '6px', fontSize: '12px', color: 'var(--c-text-muted)', flexShrink: 0 }}>✓</span>
-                          )}
-                        </button>
-                      )
-                    })
-                  )}
+                            <span
+                              style={{
+                                flex: 1,
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                                textAlign: 'left',
+                              }}
+                            >
+                              {m.model}
+                            </span>
+                            {isSelected && (
+                              <span style={{ marginLeft: '6px', fontSize: '12px', color: 'var(--c-text-muted)', flexShrink: 0 }}>✓</span>
+                            )}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  ))}
                 </div>
               </>
             )}

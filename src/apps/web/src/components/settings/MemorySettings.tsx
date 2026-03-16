@@ -487,13 +487,20 @@ export function MemorySettings({ accessToken }: Props) {
     void loadProviders()
   }, [loadData, loadBridge, loadProviders])
 
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void loadBridge()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [loadBridge])
+
   const saveConfig = useCallback(async (next: MemoryConfig) => {
     if (!api?.memory) return
     await api.memory.setConfig(next)
     setMemConfigState(next)
   }, [api])
 
-  // Module action — identical to ModulesSettings.tsx handleAction
   const handleModuleAction = useCallback(async (action: ModuleAction) => {
     setActionInProgress(true); setBridgeError(null)
     try {
@@ -506,10 +513,11 @@ export function MemorySettings({ accessToken }: Props) {
           else reject(new Error(result.error ?? `${action} failed`))
         })
       })
-      await loadBridge()
     } catch (e) {
       setBridgeError(e instanceof Error ? e.message : `${action} failed`)
     } finally {
+      await new Promise((r) => setTimeout(r, 1500))
+      await loadBridge()
       setActionInProgress(false)
     }
   }, [loadBridge])
