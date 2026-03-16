@@ -389,11 +389,8 @@ export const zh: LocaleStrings = {
   // agent settings
   agentSettings: {
     title: '智能体',
-    subtitle: '为每个智能体配置模型与推理模式。',
-    model: '模型',
+    subtitle: '为每个模式配置推理参数。',
     reasoningMode: '推理模式',
-    credential: '凭证',
-    credentialDefault: '默认',
     temperature: '温度',
     maxOutputTokens: '最大输出 Token',
     noPersonas: '暂无可用智能体',
@@ -405,6 +402,13 @@ export const zh: LocaleStrings = {
       enabled: '启用',
       disabled: '禁用',
     },
+  },
+  // model picker
+  modelPicker: {
+    defaultLabel: '默认',
+    addApiKey: '添加 API Key',
+    byokSection: '你的 API Key',
+    noByok: '暂无自定义模型',
   },
   claw: {
     progress: '进度',

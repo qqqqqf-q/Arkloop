@@ -1,9 +1,11 @@
 import { useRef, useEffect, useCallback, useMemo, useState } from 'react'
-import { Plus, ChevronDown, ArrowUp, Square, Paperclip, Mic, X, Check, Loader2, BookOpen } from 'lucide-react'
+import { Plus, ArrowUp, Square, Paperclip, Mic, X, Check, Loader2, BookOpen, Search } from 'lucide-react'
 import type { FormEvent, KeyboardEvent, ClipboardEvent as ReactClipboardEvent } from 'react'
 import { listSelectablePersonas, transcribeAudio, type SelectablePersona, type UploadedThreadAttachment } from '../api'
 import { useLocale } from '../contexts/LocaleContext'
 import { PastedContentModal } from './PastedContentModal'
+import { ModelPicker } from './ModelPicker'
+import type { SettingsTab } from './SettingsModal'
 import {
   DEFAULT_PERSONA_KEY,
   SEARCH_PERSONA_KEY,
@@ -27,7 +29,7 @@ export type Attachment = {
 type Props = {
   value: string
   onChange: (val: string) => void
-  onSubmit: (e: FormEvent<HTMLFormElement>, personaKey: string) => void
+  onSubmit: (e: FormEvent<HTMLFormElement>, personaKey: string, modelOverride?: string) => void
   onCancel?: () => void
   placeholder?: string
   disabled?: boolean
@@ -43,6 +45,7 @@ type Props = {
   accessToken?: string
   onAsrError?: (error: unknown) => void
   onPersonaChange?: (personaKey: string) => void
+  onOpenSettings?: (tab: SettingsTab) => void
 }
 
 const FALLBACK_SELECTOR_NAMES: Record<string, string> = {
@@ -388,13 +391,12 @@ export function ChatInput({
   accessToken,
   onAsrError,
   onPersonaChange,
+  onOpenSettings,
 }: Props) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const plusBtnRef = useRef<HTMLButtonElement>(null)
-  const tierMenuRef = useRef<HTMLDivElement>(null)
-  const chevronBtnRef = useRef<HTMLButtonElement>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
   const analyserRef = useRef<AnalyserNode | null>(null)
@@ -416,10 +418,8 @@ export function ChatInput({
   const { t } = useLocale()
 
   const [menuOpen, setMenuOpen] = useState(false)
-  const [tierMenuOpen, setTierMenuOpen] = useState(false)
   const [selectablePersonas, setSelectablePersonas] = useState<SelectablePersona[]>([])
   const [selectedPersonaKey, setSelectedPersonaKey] = useState(readSelectedPersonaKeyFromStorage)
-  const [tierHovered, setTierHovered] = useState(false)
   const [focused, setFocused] = useState(false)
   const [isRecording, setIsRecording] = useState(false)
   const [isTranscribing, setIsTranscribing] = useState(false)
@@ -439,10 +439,9 @@ export function ChatInput({
     }
   }, [])
 
-  const persistSelectedPersona = useCallback((personaKey: string, closeMenu = false) => {
+  const persistSelectedPersona = useCallback((personaKey: string) => {
     setSelectedPersonaKey(personaKey)
     writeSelectedPersonaKeyToStorage(personaKey)
-    if (closeMenu) setTierMenuOpen(false)
     onPersonaChange?.(personaKey)
   }, [onPersonaChange])
 
@@ -485,10 +484,11 @@ export function ChatInput({
   )
 
   const [chipExiting, setChipExiting] = useState(false)
+  const [selectedModel, setSelectedModel] = useState<string | null>(null)
 
-  const isLearningMode = selectedPersonaKey === LEARNING_PERSONA_KEY
+  const isNonDefaultMode = selectedPersonaKey !== DEFAULT_PERSONA_KEY
 
-  const deactivateLearningMode = useCallback(() => {
+  const deactivateMode = useCallback(() => {
     setChipExiting(true)
     setTimeout(() => {
       persistSelectedPersona(DEFAULT_PERSONA_KEY)
@@ -496,14 +496,14 @@ export function ChatInput({
     }, 120)
   }, [persistSelectedPersona])
 
-  const activateLearningMode = useCallback(() => {
-    if (isLearningMode || chipExiting) {
-      deactivateLearningMode()
+  const handleModeSelect = useCallback((personaKey: string) => {
+    if (selectedPersonaKey === personaKey && !chipExiting) {
+      deactivateMode()
     } else {
-      persistSelectedPersona(LEARNING_PERSONA_KEY)
+      persistSelectedPersona(personaKey)
     }
     setMenuOpen(false)
-  }, [isLearningMode, chipExiting, persistSelectedPersona, deactivateLearningMode])
+  }, [selectedPersonaKey, chipExiting, persistSelectedPersona, deactivateMode])
 
   const formatRecordingTime = (secs: number) => {
     const m = Math.floor(secs / 60)
@@ -660,19 +660,6 @@ export function ChatInput({
     return () => document.removeEventListener('mousedown', handleClick)
   }, [menuOpen])
 
-  useEffect(() => {
-    if (!tierMenuOpen) return
-    const handleClick = (e: MouseEvent) => {
-      if (
-        tierMenuRef.current?.contains(e.target as Node) ||
-        chevronBtnRef.current?.contains(e.target as Node)
-      ) return
-      setTierMenuOpen(false)
-    }
-    document.addEventListener('mousedown', handleClick)
-    return () => document.removeEventListener('mousedown', handleClick)
-  }, [tierMenuOpen])
-
   const handleAttachTransfer = useCallback((dataTransfer?: DataTransfer | null) => {
     if (pasteProcessingRef.current) return false
     const files = extractFilesFromTransfer(dataTransfer)
@@ -813,10 +800,6 @@ export function ChatInput({
   }
 
 
-
-  const handlePersonaSelect = (personaKey: string) => {
-    persistSelectedPersona(personaKey, true)
-  }
 
   return (
     <div className="w-full max-w-[840px]" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -984,7 +967,7 @@ export function ChatInput({
           </div>
         </div>
       </div>
-      <form onSubmit={(e) => onSubmit(e, selectedPersonaKey)} style={{ padding: '8px 22px 20px' }}>
+      <form onSubmit={(e) => onSubmit(e, selectedPersonaKey, selectedModel ?? undefined)} style={{ padding: '8px 22px 20px' }}>
         <textarea
           ref={textareaRef}
           rows={1}
@@ -1040,39 +1023,50 @@ export function ChatInput({
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                   <button
                     type="button"
-                    onClick={() => fileInputRef.current?.click()}
+                    onClick={() => { fileInputRef.current?.click(); setMenuOpen(false) }}
                     className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-[var(--c-text-secondary)] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]"
                   >
                     <Paperclip size={14} style={{ color: 'var(--c-text-secondary)', flexShrink: 0 }} />
                     {t.addFromLocal}
                   </button>
                   <div style={{ height: '1px', background: 'var(--c-border-subtle)', margin: '2px 4px' }} />
-                  <button
-                    type="button"
-                    onClick={activateLearningMode}
-                    className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm hover:bg-[var(--c-bg-deep)]"
-                    style={{
-                      color: isLearningMode ? 'var(--c-text-primary)' : 'var(--c-text-secondary)',
-                      fontWeight: isLearningMode ? 500 : 400,
-                    }}
-                  >
-                    <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <BookOpen size={14} style={{ flexShrink: 0 }} />
-                      {t.learningMode}
-                    </span>
-                    {(isLearningMode || chipExiting) && (
-                      <Check size={13} style={{ color: '#4691F6', flexShrink: 0 }} />
-                    )}
-                  </button>
+                  {personas.map((persona) => {
+                    const isActive = selectedPersonaKey === persona.persona_key
+                    const icon = persona.persona_key === LEARNING_PERSONA_KEY
+                      ? <BookOpen size={14} style={{ flexShrink: 0 }} />
+                      : persona.persona_key === SEARCH_PERSONA_KEY
+                        ? <Search size={14} style={{ flexShrink: 0 }} />
+                        : null
+                    return (
+                      <button
+                        key={persona.persona_key}
+                        type="button"
+                        onClick={() => handleModeSelect(persona.persona_key)}
+                        className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm hover:bg-[var(--c-bg-deep)]"
+                        style={{
+                          color: isActive ? 'var(--c-text-primary)' : 'var(--c-text-secondary)',
+                          fontWeight: isActive ? 500 : 400,
+                        }}
+                      >
+                        <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          {icon}
+                          {persona.selector_name}
+                        </span>
+                        {(isActive || (chipExiting && selectedPersonaKey === persona.persona_key)) && (
+                          <Check size={13} style={{ color: '#4691F6', flexShrink: 0 }} />
+                        )}
+                      </button>
+                    )
+                  })}
                 </div>
               </div>
             )}
           </div>
 
-          {(isLearningMode || chipExiting) && (
+          {(isNonDefaultMode || chipExiting) && (
             <button
               type="button"
-              onClick={deactivateLearningMode}
+              onClick={deactivateMode}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -1092,84 +1086,33 @@ export function ChatInput({
                   : 'chip-enter 0.14s cubic-bezier(0.16, 1, 0.3, 1) both',
               }}
             >
-              <BookOpen size={12} style={{ color: 'var(--c-text-secondary)', flexShrink: 0 }} />
-              <span style={{ fontSize: '13px', color: 'var(--c-text-secondary)', fontWeight: 450, whiteSpace: 'nowrap', margin: '0 4px' }}>
-                {t.learningMode}
+              {selectedPersonaKey === LEARNING_PERSONA_KEY && (
+                <BookOpen size={12} style={{ color: 'var(--c-text-secondary)', flexShrink: 0 }} />
+              )}
+              {selectedPersonaKey === SEARCH_PERSONA_KEY && (
+                <Search size={12} style={{ color: '#4691F6', flexShrink: 0 }} />
+              )}
+              <span style={{
+                fontSize: '13px',
+                color: selectedPersonaKey === SEARCH_PERSONA_KEY ? '#4691F6' : 'var(--c-text-secondary)',
+                fontWeight: 450,
+                whiteSpace: 'nowrap',
+                margin: '0 4px',
+              }}>
+                {selectedPersona?.selector_name ?? selectedPersonaKey}
               </span>
               <X size={9} style={{ color: 'var(--c-text-muted)', flexShrink: 0 }} />
             </button>
           )}
 
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '2px', position: 'relative' }}>
-            <button
-              ref={chevronBtnRef}
-              type="button"
-              onClick={() => setTierMenuOpen((v) => !v)}
-              onMouseEnter={() => setTierHovered(true)}
-              onMouseLeave={() => setTierHovered(false)}
-              className="relative top-px flex h-8 items-center gap-1 rounded-lg"
-              style={{
-                padding: '0 8px 0 10px',
-                overflow: 'hidden',
-                whiteSpace: 'nowrap',
-                flexShrink: 0,
-                cursor: 'pointer',
-                fontWeight: 450,
-                background: selectedPersonaKey === SEARCH_PERSONA_KEY
-                  ? 'var(--c-pro-bg)'
-                  : tierHovered ? 'var(--c-bg-deep)' : 'transparent',
-                color: selectedPersonaKey === SEARCH_PERSONA_KEY
-                  ? '#4691F6'
-                  : 'var(--c-text-secondary)',
-                opacity: selectedPersonaKey === SEARCH_PERSONA_KEY
-                  ? 1 : tierHovered ? 1 : 0.85,
-                fontSize: '14px',
-                transition: 'background-color 60ms ease, color 60ms ease, opacity 60ms ease',
-              }}
-            >
-              {selectedPersona?.selector_name ?? selectedPersonaKey}
-              <ChevronDown size={14} style={{ opacity: 0.6, flexShrink: 0 }} />
-            </button>
-
-            {tierMenuOpen && (
-              <div
-                ref={tierMenuRef}
-                className={`absolute right-0 z-50 ${variant === 'welcome' ? 'dropdown-menu' : 'dropdown-menu-up'}`}
-                style={{
-                  ...(variant === 'welcome'
-                    ? { top: 'calc(100% + 8px)' }
-                    : { bottom: 'calc(100% + 8px)' }),
-                  border: '0.5px solid var(--c-border-subtle)',
-                  borderRadius: '10px',
-                  padding: '4px',
-                  background: 'var(--c-bg-menu)',
-                  minWidth: '120px',
-                  boxShadow: 'var(--c-dropdown-shadow)',
-                }}
-              >
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                  {personas.map((persona) => {
-                    const isBlue = persona.persona_key === SEARCH_PERSONA_KEY
-                    const isSelected = selectedPersonaKey === persona.persona_key
-                    return (
-                      <button
-                        key={persona.persona_key}
-                        type="button"
-                        onClick={() => handlePersonaSelect(persona.persona_key)}
-                        className="flex w-full items-center rounded-lg px-3 py-2 text-sm hover:bg-[var(--c-bg-deep)]"
-                        style={{
-                          color: isSelected && isBlue ? '#4691F6' : 'var(--c-text-secondary)',
-                          fontWeight: isSelected ? 600 : 400,
-                        }}
-                      >
-                        {persona.selector_name}
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
+            <ModelPicker
+              accessToken={accessToken}
+              value={selectedModel}
+              onChange={setSelectedModel}
+              onAddApiKey={() => onOpenSettings?.('models')}
+              variant={variant}
+            /></div>
 
             <button
               type="button"

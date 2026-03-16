@@ -2,9 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { RotateCcw } from 'lucide-react'
 import {
   type Persona,
-  type LlmProvider,
   listPersonas,
-  listLlmProviders,
   patchPersona,
   isApiError,
 } from '../api'
@@ -20,19 +18,14 @@ export function AgentSettingsContent({ accessToken }: Props) {
   const { t } = useLocale()
   const a = t.agentSettings
   const [personas, setPersonas] = useState<Persona[]>([])
-  const [providers, setProviders] = useState<LlmProvider[]>([])
   const [loading, setLoading] = useState(true)
   const [resetting, setResetting] = useState(false)
   const [resetMsg, setResetMsg] = useState('')
 
   const load = useCallback(async () => {
     try {
-      const [p, prov] = await Promise.all([
-        listPersonas(accessToken),
-        listLlmProviders(accessToken),
-      ])
+      const p = await listPersonas(accessToken)
       setPersonas(p)
-      setProviders(prov)
     } catch {
       // load error handled per-row
     } finally {
@@ -86,7 +79,6 @@ export function AgentSettingsContent({ accessToken }: Props) {
             <PersonaRow
               key={p.id}
               persona={p}
-              providers={providers}
               accessToken={accessToken}
               onUpdated={load}
             />
@@ -99,12 +91,10 @@ export function AgentSettingsContent({ accessToken }: Props) {
 
 function PersonaRow({
   persona,
-  providers,
   accessToken,
   onUpdated,
 }: {
   persona: Persona
-  providers: LlmProvider[]
   accessToken: string
   onUpdated: () => void
 }) {
@@ -116,45 +106,6 @@ function PersonaRow({
   const budgets = (persona.budgets ?? {}) as Record<string, unknown>
   const temperature = typeof budgets.temperature === 'number' ? budgets.temperature : 1
   const maxOutputTokens = typeof budgets.max_output_tokens === 'number' ? budgets.max_output_tokens : 4096
-
-  // build combined model options: "credentialName^modelName"
-  const modelOptions: { value: string; label: string }[] = [
-    { value: '', label: a.credentialDefault },
-  ]
-  for (const p of providers) {
-    for (const m of p.models) {
-      modelOptions.push({ value: `${p.name}^${m.model}`, label: `${p.name} / ${m.model}` })
-    }
-  }
-
-  // current combined value: model field may already be "credName^model" or just "model"
-  const currentCombo = (() => {
-    const model = persona.model ?? ''
-    if (!model) return ''
-    if (model.includes('^')) return model
-    // legacy: model is plain model name + separate preferred_credential
-    const cred = persona.preferred_credential ?? ''
-    return cred ? `${cred}^${model}` : model
-  })()
-
-  const handleModelComboChange = async (combo: string) => {
-    setSaving(true)
-    setErr('')
-    try {
-      if (!combo) {
-        // reset to platform default
-        await patchPersona(accessToken, persona.id, { model: '', preferred_credential: '' }, persona.scope)
-      } else {
-        // combo is "credName^model"
-        await patchPersona(accessToken, persona.id, { model: combo, preferred_credential: '' }, persona.scope)
-      }
-      onUpdated()
-    } catch (e) {
-      setErr(isApiError(e) ? e.message : a.saveFailed)
-    } finally {
-      setSaving(false)
-    }
-  }
 
   const handleChange = async (field: 'reasoning_mode', value: string) => {
     setSaving(true)
@@ -196,15 +147,7 @@ function PersonaRow({
         {saving && <span className="text-xs text-[var(--c-text-tertiary)]">...</span>}
       </div>
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-        {/* model + credential combined */}
-        <SelectField
-          label={a.model}
-          value={currentCombo}
-          onChange={handleModelComboChange}
-          options={modelOptions}
-        />
-
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         {/* reasoning mode */}
         <SelectField
           label={a.reasoningMode}

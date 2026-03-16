@@ -128,6 +128,7 @@ type OutletContext = {
   onRightPanelChange?: (open: boolean) => void
   threads: ThreadResponse[]
   onThreadDeleted: (threadId: string) => void
+  onOpenSettings?: (tab: string) => void
 }
 
 type LocationState = { initialRunId?: string; isSearch?: boolean; isIncognitoFork?: boolean; forkBaseCount?: number } | null
@@ -208,7 +209,7 @@ function finalizeSearchSteps(steps: SearchStep[]): MessageSearchStepRef[] {
 }
 
 export function ChatPage() {
-  const { accessToken, onLoggedOut, onRunStarted, onRunEnded, onThreadCreated, onThreadTitleUpdated, refreshCredits, onOpenNotifications, notificationVersion, creditsBalance: _creditsBalance, onTogglePrivateMode, privateThreadIds, onSetPendingIncognito, onRightPanelChange, threads, onThreadDeleted } = useOutletContext<OutletContext>()
+  const { accessToken, onLoggedOut, onRunStarted, onRunEnded, onThreadCreated, onThreadTitleUpdated, refreshCredits, onOpenNotifications, notificationVersion, creditsBalance: _creditsBalance, onTogglePrivateMode, privateThreadIds, onSetPendingIncognito, onRightPanelChange, threads, onThreadDeleted, onOpenSettings } = useOutletContext<OutletContext>()
   const { threadId } = useParams<{ threadId: string }>()
   const location = useLocation()
   const locationState = location.state as LocationState
@@ -1537,7 +1538,7 @@ export function ChatPage() {
     })
   }, [revokeDraftAttachment])
 
-  const handleSend = async (e: React.FormEvent<HTMLFormElement>, personaKey: string) => {
+  const handleSend = async (e: React.FormEvent<HTMLFormElement>, personaKey: string, modelOverride?: string) => {
     e.preventDefault()
     if (sending || !threadId) return
 
@@ -1578,7 +1579,7 @@ export function ChatPage() {
         onThreadCreated(forked)
         const uploaded = await uploadAttachments(forked.id)
         await createMessage(accessToken, forked.id, buildMessageRequest(text, uploaded))
-        const run = await createRun(accessToken, forked.id, personaKey)
+        const run = await createRun(accessToken, forked.id, personaKey, modelOverride)
         if (personaKey === SEARCH_PERSONA_KEY) addSearchThreadId(forked.id)
         attachments.forEach((attachment) => revokeDraftAttachment(attachment))
         setDraft('')
@@ -1601,7 +1602,7 @@ export function ChatPage() {
       setAssistantDraft('')
       injectionBlockedRunIdRef.current = null
 
-      const run = await createRun(accessToken, threadId, personaKey)
+      const run = await createRun(accessToken, threadId, personaKey, modelOverride)
       if (personaKey === SEARCH_PERSONA_KEY) addSearchThreadId(threadId)
       setActiveRunId(run.run_id)
       onRunStarted(threadId)
@@ -2522,6 +2523,7 @@ export function ChatPage() {
             onAsrError={handleAsrError}
             searchMode={isSearchThread}
             onPersonaChange={(personaKey) => setIsSearchThread(personaKey === SEARCH_PERSONA_KEY)}
+            onOpenSettings={onOpenSettings}
           />
         )}
         <p style={{ color: 'var(--c-text-muted)', fontSize: '13px', letterSpacing: '-0.52px', textAlign: 'center' }}>

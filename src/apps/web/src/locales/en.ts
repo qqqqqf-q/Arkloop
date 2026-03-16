@@ -389,11 +389,8 @@ export const en: LocaleStrings = {
   // agent settings
   agentSettings: {
     title: 'Agents',
-    subtitle: 'Configure model and reasoning for each agent.',
-    model: 'Model',
+    subtitle: 'Configure reasoning parameters for each mode.',
     reasoningMode: 'Reasoning',
-    credential: 'Credential',
-    credentialDefault: 'Default',
     temperature: 'Temperature',
     maxOutputTokens: 'Max Output Tokens',
     noPersonas: 'No agents available',
@@ -405,6 +402,13 @@ export const en: LocaleStrings = {
       enabled: 'Enabled',
       disabled: 'Disabled',
     },
+  },
+  // model picker
+  modelPicker: {
+    defaultLabel: 'Default',
+    addApiKey: 'Add API Key',
+    byokSection: 'Your API Keys',
+    noByok: 'No custom models',
   },
   claw: {
     progress: 'Progress',

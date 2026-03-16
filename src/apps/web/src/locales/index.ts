@@ -398,10 +398,7 @@ export interface LocaleStrings {
   agentSettings: {
     title: string
     subtitle: string
-    model: string
     reasoningMode: string
-    credential: string
-    credentialDefault: string
     temperature: string
     maxOutputTokens: string
     noPersonas: string
@@ -413,6 +410,13 @@ export interface LocaleStrings {
       enabled: string
       disabled: string
     }
+  }
+  // model picker (chat input)
+  modelPicker: {
+    defaultLabel: string
+    addApiKey: string
+    byokSection: string
+    noByok: string
   }
   // claw right panel
   claw: {

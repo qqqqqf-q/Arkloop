@@ -478,7 +478,12 @@ func mapLlmRouteWriteError(err error, credentialID uuid.UUID, model string) erro
 	if pgErr.Code != "23505" {
 		return err
 	}
-	if pgErr.ConstraintName == "ux_llm_routes_credential_model_lower" {
+	switch pgErr.ConstraintName {
+	case "ux_llm_routes_credential_model_lower":
+		return LlmRouteModelConflictError{CredentialID: credentialID, Model: model}
+	case "ux_llm_routes_credential_default":
+		// treating a duplicate-default as a model conflict so the caller
+		// can show a user-friendly error rather than "internal error"
 		return LlmRouteModelConflictError{CredentialID: credentialID, Model: model}
 	}
 	return err
