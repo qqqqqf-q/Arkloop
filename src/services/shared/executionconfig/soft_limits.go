@@ -13,6 +13,7 @@ const (
 	DefaultWriteStdinMaxContinuations = 16
 	DefaultWriteStdinMaxYieldTimeMs   = 5_000
 	DefaultWriteStdinMaxOutputBytes   = 16 * 1024
+	DefaultGenericMaxOutputBytes      = 32 * 1024
 	HardMaxToolSoftLimitContinuations = 256
 	HardMaxToolSoftLimitYieldTimeMs   = 30_000
 	HardMaxToolSoftLimitOutputBytes   = 65_536

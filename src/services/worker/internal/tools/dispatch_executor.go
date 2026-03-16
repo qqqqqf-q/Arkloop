@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -109,6 +110,8 @@ type DispatchingExecutor struct {
 	searchableSpecs map[string]llm.ToolSpec
 	activatedMu     sync.Mutex
 	activatedSpecs  []llm.ToolSpec
+
+	summarizer *ResultSummarizer
 }
 
 func NewDispatchingExecutor(registry *Registry, policyEnforcer *PolicyEnforcer) *DispatchingExecutor {
@@ -119,6 +122,11 @@ func NewDispatchingExecutor(registry *Registry, policyEnforcer *PolicyEnforcer) 
 		llmNameIndex:    map[string]string{},
 		searchableSpecs: map[string]llm.ToolSpec{},
 	}
+}
+
+// SetSummarizer attaches a ResultSummarizer for Layer 2 LLM-based compression.
+func (e *DispatchingExecutor) SetSummarizer(s *ResultSummarizer) {
+	e.summarizer = s
 }
 
 // SetSearchableSpecs stores tool specs that are not initially visible to the LLM
@@ -238,6 +246,19 @@ func (e *DispatchingExecutor) Execute(
 		}()
 		result = executor.Execute(ctx, resolvedName, args, context, decision.ToolCallID)
 	}()
+
+	// Layer 1: smart truncation
+	if result.ResultJSON != nil && result.Error == nil {
+		limit := resolveOutputLimit(context.PerToolSoftLimits, resolvedName)
+		result = CompressResult(resolvedName, result, limit)
+	}
+
+	// Layer 2: LLM summarization
+	if e.summarizer != nil && result.ResultJSON != nil && result.Error == nil {
+		if raw, _ := json.Marshal(result.ResultJSON); len(raw) > e.summarizer.threshold {
+			result = e.summarizer.Summarize(ctx, resolvedName, result)
+		}
+	}
 
 	result.DurationMs = durationMs(started)
 	result.Events = append(policyEvents, result.Events...)

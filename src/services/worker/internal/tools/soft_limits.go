@@ -11,10 +11,20 @@ const (
 	DefaultWriteStdinMaxContinuations = sharedexec.DefaultWriteStdinMaxContinuations
 	DefaultWriteStdinMaxYieldTimeMs   = sharedexec.DefaultWriteStdinMaxYieldTimeMs
 	DefaultWriteStdinMaxOutputBytes   = sharedexec.DefaultWriteStdinMaxOutputBytes
+	DefaultGenericMaxOutputBytes      = sharedexec.DefaultGenericMaxOutputBytes
 	HardMaxToolSoftLimitContinuations = sharedexec.HardMaxToolSoftLimitContinuations
 	HardMaxToolSoftLimitYieldTimeMs   = sharedexec.HardMaxToolSoftLimitYieldTimeMs
 	HardMaxToolSoftLimitOutputBytes   = sharedexec.HardMaxToolSoftLimitOutputBytes
 )
+
+func resolveOutputLimit(limits PerToolSoftLimits, toolName string) int {
+	if limits != nil {
+		if l, ok := limits[toolName]; ok && l.MaxOutputBytes != nil {
+			return *l.MaxOutputBytes
+		}
+	}
+	return DefaultGenericMaxOutputBytes
+}
 
 func DefaultPerToolSoftLimits() PerToolSoftLimits {
 	return sharedexec.DefaultPerToolSoftLimits()

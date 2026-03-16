@@ -31,6 +31,10 @@ RUN curl -fsSL https://opencode.ai/install | bash && \
     cp /root/.opencode/bin/opencode /usr/local/bin/opencode && \
     chmod 755 /usr/local/bin/opencode && \
     rm -rf /root/.opencode
+RUN curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh \
+    && cp /root/.local/bin/rtk /usr/local/bin/rtk \
+    && chmod 755 /usr/local/bin/rtk \
+    && rm -rf /root/.local/bin/rtk
 COPY --from=builder /sandbox-agent /usr/local/bin/sandbox-agent
 COPY src/services/sandbox/rootfs/chart_prelude.py /usr/local/share/arkloop/chart_prelude.py
 ENV SANDBOX_AGENT_LISTEN=tcp

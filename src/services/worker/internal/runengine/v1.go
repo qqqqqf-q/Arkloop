@@ -213,6 +213,7 @@ func NewEngineV1(deps EngineV1Deps) (*EngineV1, error) {
 		pipeline.NewCallPlatformMiddleware(),
 		pipeline.NewPlatformToolsMiddleware(deps.PlatformToolExecutor),
 		pipeline.NewToolBuildMiddleware(),
+		pipeline.NewResultSummarizerMiddleware(deps.DBPool, deps.StubGateway, deps.EmitDebugEvents, 0, deps.RoutingConfigLoader),
 	}
 
 	terminal := pipeline.NewAgentLoopHandler(runsRepo, eventsRepo, messagesRepo, deps.RunLimiterRDB, deps.JobQueue, usageRepo, creditsRepo, resolver)
