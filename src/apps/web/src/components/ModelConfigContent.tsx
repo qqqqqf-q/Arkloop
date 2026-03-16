@@ -11,8 +11,6 @@ import {
   deleteProviderModel,
   patchProviderModel,
   listAvailableModels,
-  listPersonas,
-  patchPersona,
   isApiError,
 } from '../api'
 import { useLocale } from '../contexts/LocaleContext'
@@ -391,24 +389,27 @@ function ModelsSection({
   const { t } = useLocale()
   const m = t.models
   const [available, setAvailable] = useState<AvailableModel[] | null>(null)
+  const [loadingAvailable, setLoadingAvailable] = useState(false)
   const [importing, setImporting] = useState(false)
+  const [deletingAll, setDeletingAll] = useState(false)
   const [addingModel, setAddingModel] = useState(false)
   const [newModel, setNewModel] = useState('')
   const [err, setErr] = useState('')
-  const [applyMsg, setApplyMsg] = useState('')
-  const [applyingModel, setApplyingModel] = useState<string | null>(null)
   const [search, setSearch] = useState('')
 
   const loadAvailable = useCallback(async () => {
+    setLoadingAvailable(true)
     try {
       const res = await listAvailableModels(accessToken, provider.id)
       setAvailable(res.models)
     } catch {
       // upstream unavailable
+    } finally {
+      setLoadingAvailable(false)
     }
   }, [accessToken, provider.id])
 
-  useEffect(() => { loadAvailable() }, [loadAvailable])
+  useEffect(() => { void loadAvailable() }, [loadAvailable])
 
   const handleImportAll = async () => {
     if (!available) return
@@ -417,10 +418,11 @@ function ModelsSection({
     try {
       const unconfigured = available.filter((am) => !am.configured)
       for (const am of unconfigured) {
-        await createProviderModel(accessToken, provider.id, { model: am.id })
+        // default show_in_picker=false so users can selectively enable
+        await createProviderModel(accessToken, provider.id, { model: am.id, show_in_picker: false })
       }
       onChanged()
-      loadAvailable()
+      void loadAvailable()
     } catch (e) {
       setErr(isApiError(e) ? e.message : m.saveFailed)
     } finally {
@@ -450,43 +452,23 @@ function ModelsSection({
     }
   }
 
-  const handleApplyToAll = async (modelName: string) => {
-    setApplyingModel(modelName)
-    setErr('')
-    setApplyMsg('')
-    try {
-      const personas = await listPersonas(accessToken)
-      let count = 0
-      const combo = `${provider.name}^${modelName}`
-      for (const p of personas) {
-        try {
-          await patchPersona(accessToken, p.id, {
-            model: combo,
-            preferred_credential: '',
-          }, p.scope)
-          count++
-        } catch {
-          // skip personas that can't be patched (e.g. platform-scoped)
-        }
-      }
-      setApplyMsg(m.applyDone.replace('{count}', String(count)))
-    } catch (e) {
-      setErr(isApiError(e) ? e.message : m.saveFailed)
-    } finally {
-      setApplyingModel(null)
-    }
-  }
-
   const handleDeleteAll = async () => {
+    setDeletingAll(true)
     setErr('')
-    try {
-      for (const pm of provider.models) {
+    // snapshot the list before any deletions
+    const toDelete = [...provider.models]
+    let anyFailed = false
+    for (const pm of toDelete) {
+      try {
         await deleteProviderModel(accessToken, provider.id, pm.id)
+      } catch (e) {
+        if (isApiError(e) && e.code === 'llm_provider_models.not_found') continue
+        anyFailed = true
       }
-      onChanged()
-    } catch (e) {
-      setErr(isApiError(e) ? e.message : m.deleteFailed)
     }
+    setDeletingAll(false)
+    onChanged()
+    if (anyFailed) setErr(m.deleteFailed)
   }
 
   const handleTogglePicker = async (modelId: string, current: boolean) => {
@@ -510,18 +492,22 @@ function ModelsSection({
         <div className="flex items-center gap-2">
           {provider.models.length > 0 && (
             <button
-              onClick={handleDeleteAll}
-              className="inline-flex items-center gap-1.5 rounded-md border border-[var(--c-border-subtle)] px-3 py-1.5 text-xs font-medium text-[var(--c-text-muted)] transition-colors hover:border-red-500/30 hover:text-red-500"
+              onClick={() => void handleDeleteAll()}
+              disabled={deletingAll}
+              className="inline-flex items-center gap-1.5 rounded-md border border-[var(--c-border-subtle)] px-3 py-1.5 text-xs font-medium text-[var(--c-text-muted)] transition-colors hover:border-red-500/30 hover:text-red-500 disabled:opacity-50"
             >
-              <Trash2 size={12} />
+              {deletingAll ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
               {m.deleteAll}
             </button>
           )}
+          {loadingAvailable && !available && (
+            <Loader2 size={12} className="animate-spin text-[var(--c-text-muted)]" />
+          )}
           {unconfiguredCount > 0 && (
             <button
-              onClick={handleImportAll}
+              onClick={() => void handleImportAll()}
               disabled={importing}
-              className="inline-flex items-center gap-1.5 rounded-md border border-[var(--c-border-subtle)] px-3 py-1.5 text-xs font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-sub)]"
+              className="inline-flex items-center gap-1.5 rounded-md border border-[var(--c-border-subtle)] px-3 py-1.5 text-xs font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-sub)] disabled:opacity-50"
             >
               <Download size={12} />
               {importing ? m.importing : `${m.importAll} (${unconfiguredCount})`}
@@ -553,7 +539,6 @@ function ModelsSection({
       )}
 
       {err && <p className="mt-2 text-xs text-red-400">{err}</p>}
-      {applyMsg && <p className="mt-2 text-xs text-green-500">{applyMsg}</p>}
 
       {provider.models.length > 0 && (
         <div className="mt-3">
@@ -577,20 +562,22 @@ function ModelsSection({
               key={pm.id}
               className="group flex items-center justify-between rounded-lg border border-[var(--c-border-subtle)] px-4 py-2.5"
             >
-              <div className="flex min-w-0 flex-1 items-center gap-3">
+              <p className="min-w-0 flex-1 truncate text-sm font-medium text-[var(--c-text-primary)]">{pm.model}</p>
+              <div className="flex items-center gap-2 flex-shrink-0">
                 {/* show_in_picker toggle */}
                 <button
                   type="button"
-                  onClick={() => handleTogglePicker(pm.id, pm.show_in_picker)}
+                  onClick={() => void handleTogglePicker(pm.id, pm.show_in_picker)}
                   title={pm.show_in_picker ? m.hideFromPicker : m.showInPicker}
-                  className="flex-shrink-0 rounded transition-opacity hover:opacity-80"
+                  className="flex-shrink-0 focus:outline-none"
                   style={{
                     width: '28px',
                     height: '16px',
                     borderRadius: '8px',
-                    background: pm.show_in_picker ? 'var(--c-accent-send)' : 'var(--c-border-subtle)',
+                    background: pm.show_in_picker ? 'var(--c-accent-send)' : 'var(--c-border-mid, var(--c-border-subtle))',
                     position: 'relative',
                     transition: 'background 120ms ease',
+                    flexShrink: 0,
                   }}
                 >
                   <span
@@ -601,24 +588,14 @@ function ModelsSection({
                       width: '12px',
                       height: '12px',
                       borderRadius: '50%',
-                      background: 'white',
+                      background: 'var(--c-bg-page)',
                       transition: 'left 120ms ease',
-                      boxShadow: '0 1px 2px rgba(0,0,0,0.2)',
+                      boxShadow: '0 1px 2px rgba(0,0,0,0.25)',
                     }}
                   />
                 </button>
-                <p className="truncate text-sm font-medium text-[var(--c-text-primary)]">{pm.model}</p>
-              </div>
-              <div className="flex items-center gap-1 flex-shrink-0">
                 <button
-                  onClick={() => handleApplyToAll(pm.model)}
-                  disabled={applyingModel === pm.model}
-                  className="rounded-md px-2 py-1 text-xs text-[var(--c-text-muted)] transition-colors hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-secondary)] disabled:opacity-50"
-                >
-                  {applyingModel === pm.model ? <Loader2 size={12} className="animate-spin" /> : m.applyToAll}
-                </button>
-                <button
-                  onClick={() => handleDeleteModel(pm.id)}
+                  onClick={() => void handleDeleteModel(pm.id)}
                   className="rounded p-1.5 text-[var(--c-text-muted)] transition-colors hover:bg-[var(--c-bg-sub)] hover:text-red-500"
                 >
                   <Trash2 size={14} />

@@ -1190,6 +1190,7 @@ export type CreateModelRequest = {
   model: string
   priority?: number
   is_default?: boolean
+  show_in_picker?: boolean
   tags?: string[]
 }
 

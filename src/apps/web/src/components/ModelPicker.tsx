@@ -116,8 +116,10 @@ export function ModelPicker({ accessToken, value, onChange, onAddApiKey, variant
             borderRadius: '10px',
             padding: '4px',
             background: 'var(--c-bg-menu)',
-            minWidth: '200px',
-            maxWidth: '260px',
+            minWidth: '220px',
+            maxWidth: '280px',
+            maxHeight: 'min(420px, calc(100vh - 120px))',
+            overflowY: 'auto',
             boxShadow: 'var(--c-dropdown-shadow)',
           }}
         >
@@ -160,7 +162,7 @@ export function ModelPicker({ accessToken, value, onChange, onAddApiKey, variant
               <>
                 <div style={{ height: '1px', background: 'var(--c-border-subtle)', margin: '2px 4px' }} />
                 <div
-                  style={{ overflowY: 'auto', maxHeight: '240px', display: 'flex', flexDirection: 'column', gap: '2px' }}
+                  style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}
                 >
                   {visibleProviders.map((provider) =>
                     provider.models.map((m) => {
