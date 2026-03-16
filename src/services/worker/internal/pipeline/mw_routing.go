@@ -313,6 +313,21 @@ func gatewayFromSelectedRoute(selected routing.SelectedProviderRoute, stubGatewa
 			EmitDebugEvents:  emitDebugEvents,
 			MaxResponseBytes: llmMaxResponseBytes,
 		}), nil
+	case routing.ProviderKindGemini:
+		apiKey, err := resolveAPIKey(credential)
+		if err != nil {
+			return nil, err
+		}
+		baseURL := ""
+		if credential.BaseURL != nil {
+			baseURL = *credential.BaseURL
+		}
+		return llm.NewGeminiGateway(llm.GeminiGatewayConfig{
+			APIKey:          apiKey,
+			BaseURL:         baseURL,
+			AdvancedJSON:    advancedJSON,
+			EmitDebugEvents: emitDebugEvents,
+		}), nil
 	default:
 		return nil, fmt.Errorf("unknown provider_kind: %s", credential.ProviderKind)
 	}

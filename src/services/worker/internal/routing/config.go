@@ -32,6 +32,7 @@ const (
 	ProviderKindStub      ProviderKind = "stub"
 	ProviderKindOpenAI    ProviderKind = "openai"
 	ProviderKindAnthropic ProviderKind = "anthropic"
+	ProviderKindGemini    ProviderKind = "gemini"
 )
 
 type CredentialScope string
@@ -500,8 +501,10 @@ func parseProviderKind(value string) (ProviderKind, error) {
 		return ProviderKindOpenAI, nil
 	case "anthropic":
 		return ProviderKindAnthropic, nil
+	case "gemini":
+		return ProviderKindGemini, nil
 	default:
-		return "", fmt.Errorf("must be stub/openai/anthropic")
+		return "", fmt.Errorf("must be stub/openai/anthropic/gemini")
 	}
 }
 
@@ -782,6 +785,8 @@ func dbProviderToKind(provider string) (ProviderKind, error) {
 		return ProviderKindOpenAI, nil
 	case "anthropic":
 		return ProviderKindAnthropic, nil
+	case "gemini":
+		return ProviderKindGemini, nil
 	default:
 		return "", fmt.Errorf("unsupported provider: %s", provider)
 	}
