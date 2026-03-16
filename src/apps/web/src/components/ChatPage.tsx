@@ -88,6 +88,8 @@ import {
   writeMessageBrowserActions,
   readMessageMemoryActions,
   writeMessageMemoryActions,
+  readMessageSearchSteps,
+  writeMessageSearchSteps,
   readMessageCopBlocks,
   writeMessageCopBlocks,
   type WebSource,
@@ -175,6 +177,20 @@ type CopBlock = {
   title: string
   steps: SearchStep[]
   sources: WebSource[]
+}
+
+// finalizeSearchSteps converts live SearchStep[] to the storage format.
+// Identical to finalizeBlockSteps but kept as a standalone function for the
+// legacy (non-COP) search path.
+function finalizeSearchSteps(steps: SearchStep[]): MessageSearchStepRef[] {
+  return finalizeBlockSteps(steps)
+}
+
+// patchLegacySearchSteps normalises search step refs loaded from localStorage.
+// readMessageSearchSteps already validates structure, so no structural changes
+// are needed today — we just return a no-op result.
+function patchLegacySearchSteps(steps: MessageSearchStepRef[]): { steps: MessageSearchStepRef[]; changed: boolean } {
+  return { steps, changed: false }
 }
 
 function finalizeBlockSteps(steps: SearchStep[]): MessageSearchStepRef[] {
@@ -288,6 +304,9 @@ export function ChatPage() {
   const [, setMessageThinkingMap] = useState<Map<string, MessageThinkingRef>>(new Map())
   // Search 时间轴缓存：messageId -> steps
   const [messageSearchStepsMap, setMessageSearchStepsMap] = useState<Map<string, MessageSearchStepRef[]>>(new Map())
+  // Live search steps for the legacy (non-COP) search path
+  const [searchSteps, setSearchSteps] = useState<SearchStep[]>([])
+  const searchStepsRef = useRef<SearchStep[]>([])
   // 记忆操作缓存：messageId -> actions
   const [messageMemoryActionsMap, setMessageMemoryActionsMap] = useState<Map<string, MemoryActionRef[]>>(new Map())
   const [memoryActions, setMemoryActions] = useState<MemoryActionRef[]>([])
@@ -467,6 +486,16 @@ export function ChatPage() {
     setBridgeTexts([])
     pendingTextRef.current = ''
   }, [])
+  const resetSearchSteps = useCallback(() => {
+    searchStepsRef.current = []
+    setSearchSteps([])
+  }, [])
+  // applySearchSteps queues finalized steps for storage once the message ID is
+  // known (handled in the run.completed refreshMessages callback).
+  const pendingSearchStepsRef = useRef<MessageSearchStepRef[] | null>(null)
+  const applySearchSteps = useCallback((getter: () => MessageSearchStepRef[]) => {
+    pendingSearchStepsRef.current = getter()
+  }, [])
   const clearLiveRunSecurityArtifacts = useCallback(() => {
     setAssistantDraft('')
     setThinkingDraft('')
@@ -482,6 +511,7 @@ export function ChatPage() {
     memoryActionsRef.current = []
     setMemoryActions([])
     resetSearchSteps()
+    pendingSearchStepsRef.current = null
     resetCopState()
     setAwaitingInput(false)
     setPendingUserInput(null)
@@ -1349,6 +1379,12 @@ export function ChatPage() {
             if (runSources.length > 0) {
               writeMessageSources(completedAssistant.id, runSources)
               setMessageSourcesMap((prev) => new Map(prev).set(completedAssistant.id, runSources))
+            }
+            const pendingSearchSteps = pendingSearchStepsRef.current
+            pendingSearchStepsRef.current = null
+            if (pendingSearchSteps && pendingSearchSteps.length > 0) {
+              writeMessageSearchSteps(completedAssistant.id, pendingSearchSteps)
+              setMessageSearchStepsMap((prev) => new Map(prev).set(completedAssistant.id, pendingSearchSteps))
             }
             if (runCopData.blocks.length > 0) {
               writeMessageCopBlocks(completedAssistant.id, runCopData)
