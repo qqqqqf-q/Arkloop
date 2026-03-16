@@ -26,35 +26,6 @@ export type MemoryConfig = {
   provider: MemoryProvider
 }
 
-export type IsolationMode = 'trusted' | 'vm'
-
-export type IsolationConfig = {
-  mode: IsolationMode
-  vmResources?: {
-    cpuCount?: number
-    memoryMiB?: number
-  }
-  vmKernelPath?: string
-  vmRootfsPath?: string
-  vmInitrdPath?: string
-}
-
-export type VmImageStatus = 'not_installed' | 'downloading' | 'ready' | 'error' | 'unsupported'
-
-export type VmImageProgress = {
-  phase: 'connecting' | 'downloading' | 'extracting' | 'done' | 'error'
-  percent: number
-  bytesDownloaded: number
-  bytesTotal: number
-  error?: string
-}
-
-export type VmImageVersionInfo = {
-  current: string | null
-  latest: string | null
-  updateAvailable: boolean
-}
-
 export type MemoryEntry = {
   id: string
   scope: string
@@ -73,7 +44,6 @@ export type AppConfig = {
   onboarding_completed: boolean
   connectors: ConnectorsConfig
   memory: MemoryConfig
-  isolation: IsolationConfig
 }
 
 export type SidecarStatus = 'stopped' | 'starting' | 'running' | 'crashed'
@@ -98,22 +68,6 @@ export type SidecarVersionInfo = {
   updateAvailable: boolean
 }
 
-export type RootfsStatus = 'not_installed' | 'downloading' | 'ready' | 'error'
-
-export type RootfsProgress = {
-  phase: 'connecting' | 'downloading' | 'extracting' | 'done' | 'error'
-  percent: number
-  bytesDownloaded: number
-  bytesTotal: number
-  error?: string
-}
-
-export type RootfsVersionInfo = {
-  current: string | null
-  latest: string | null
-  updateAvailable: boolean
-}
-
 export type ArkloopDesktopApi = {
   isDesktop: true
   config: {
@@ -133,15 +87,6 @@ export type ArkloopDesktopApi = {
     onRuntimeChanged: (callback: (runtime: SidecarRuntime) => void) => () => void
     onDownloadProgress: (callback: (progress: DownloadProgress) => void) => () => void
   }
-  rootfs: {
-    getStatus: () => Promise<RootfsStatus>
-    isAvailable: () => Promise<boolean>
-    getPath: () => Promise<string>
-    checkVersion: () => Promise<RootfsVersionInfo>
-    download: () => Promise<{ ok: boolean }>
-    delete: () => Promise<{ ok: boolean }>
-    onDownloadProgress: (callback: (progress: RootfsProgress) => void) => () => void
-  }
   onboarding: {
     getStatus: () => Promise<{ completed: boolean }>
     complete: () => Promise<{ ok: boolean }>
@@ -156,20 +101,6 @@ export type ArkloopDesktopApi = {
     list: (agentId?: string) => Promise<{ entries: MemoryEntry[] }>
     delete: (id: string, agentId?: string) => Promise<{ status: string }>
     getSnapshot: (agentId?: string) => Promise<{ memory_block: string }>
-  }
-  isolation: {
-    getConfig: () => Promise<IsolationConfig>
-    setConfig: (config: IsolationConfig) => Promise<{ ok: boolean }>
-  }
-  vm: {
-    getStatus: () => Promise<VmImageStatus>
-    isAvailable: () => Promise<boolean>
-    getPath: () => Promise<string>
-    checkVersion: () => Promise<VmImageVersionInfo>
-    download: () => Promise<{ ok: boolean }>
-    delete: () => Promise<{ ok: boolean }>
-    installLocal: (kernelPath: string, rootfsPath: string, initrdPath?: string) => Promise<{ ok: boolean }>
-    onDownloadProgress: (callback: (progress: VmImageProgress) => void) => () => void
   }
   app: {
     getVersion: () => Promise<string>
@@ -275,20 +206,6 @@ const api: ArkloopDesktopApi = {
     },
   },
 
-  rootfs: {
-    getStatus: () => ipcRenderer.invoke('arkloop:rootfs:status'),
-    isAvailable: () => ipcRenderer.invoke('arkloop:rootfs:available'),
-    getPath: () => ipcRenderer.invoke('arkloop:rootfs:path'),
-    checkVersion: () => ipcRenderer.invoke('arkloop:rootfs:check-version'),
-    download: () => ipcRenderer.invoke('arkloop:rootfs:download'),
-    delete: () => ipcRenderer.invoke('arkloop:rootfs:delete'),
-    onDownloadProgress: (callback) => {
-      const handler = (_event: Electron.IpcRendererEvent, progress: RootfsProgress) => callback(progress)
-      ipcRenderer.on('arkloop:rootfs:download-progress', handler)
-      return () => ipcRenderer.removeListener('arkloop:rootfs:download-progress', handler)
-    },
-  },
-
   onboarding: {
     getStatus: () => ipcRenderer.invoke('arkloop:onboarding:status'),
     complete: () => ipcRenderer.invoke('arkloop:onboarding:complete'),
@@ -305,26 +222,6 @@ const api: ArkloopDesktopApi = {
     list: (agentId?: string) => ipcRenderer.invoke('arkloop:memory:list', agentId),
     delete: (id: string, agentId?: string) => ipcRenderer.invoke('arkloop:memory:delete', id, agentId),
     getSnapshot: (agentId?: string) => ipcRenderer.invoke('arkloop:memory:get-snapshot', agentId),
-  },
-
-  isolation: {
-    getConfig: () => ipcRenderer.invoke('arkloop:isolation:get-config'),
-    setConfig: (config: IsolationConfig) => ipcRenderer.invoke('arkloop:isolation:set-config', config),
-  },
-
-  vm: {
-    getStatus: () => ipcRenderer.invoke('arkloop:vm:status'),
-    isAvailable: () => ipcRenderer.invoke('arkloop:vm:available'),
-    getPath: () => ipcRenderer.invoke('arkloop:vm:path'),
-    checkVersion: () => ipcRenderer.invoke('arkloop:vm:check-version'),
-    download: () => ipcRenderer.invoke('arkloop:vm:download'),
-    delete: () => ipcRenderer.invoke('arkloop:vm:delete'),
-    installLocal: (kernelPath, rootfsPath, initrdPath) => ipcRenderer.invoke('arkloop:vm:install-local', kernelPath, rootfsPath, initrdPath),
-    onDownloadProgress: (callback) => {
-      const handler = (_event: Electron.IpcRendererEvent, progress: VmImageProgress) => callback(progress)
-      ipcRenderer.on('arkloop:vm:download-progress', handler)
-      return () => ipcRenderer.removeListener('arkloop:vm:download-progress', handler)
-    },
   },
 
   app: {

@@ -14,7 +14,6 @@ import {
   Package,
   Globe,
   Brain,
-  Shield,
 } from "lucide-react";
 import type { MeResponse } from "../api";
 import { useLocale } from "../contexts/LocaleContext";
@@ -31,7 +30,6 @@ import {
   ExtensionsSettings,
   ModulesSettings,
   DeveloperSettings,
-  IsolationSettings,
 } from "./settings";
 
 export type DesktopSettingsKey =
@@ -44,7 +42,6 @@ export type DesktopSettingsKey =
   | "searchFetch"
   | "memory"
   | "connection"
-  | "isolation"
   | "modules"
   | "extensions"
   | "developer";
@@ -66,7 +63,6 @@ const MAIN_NAV: NavItem[] = [
 
 const DESKTOP_NAV: NavItem[] = [
   { key: "connection", icon: Wifi },
-  { key: "isolation", icon: Shield },
   { key: "memory", icon: Brain },
   { key: "modules", icon: Package },
   { key: "extensions", icon: Blocks },
@@ -151,8 +147,6 @@ export function DesktopSettings({
         return <MemorySettings />;
       case "connection":
         return <ConnectionSettings />;
-      case "isolation":
-        return <IsolationSettings />;
       case "modules":
         return <ModulesSettings />;
       case "extensions":

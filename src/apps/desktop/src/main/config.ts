@@ -8,8 +8,6 @@ import type {
   ConnectorsConfig,
   FetchConnectorConfig,
   FetchProvider,
-  IsolationConfig,
-  IsolationMode,
   LocalConfig,
   LocalPortMode,
   MemoryConfig,
@@ -92,33 +90,6 @@ function normalizeMemory(raw: unknown): MemoryConfig {
   }
 }
 
-function normalizeIsolationMode(m: unknown): IsolationMode {
-  if (m === 'vm' && process.platform === 'darwin') return 'vm'
-  return 'trusted'
-}
-
-function normalizeIsolation(raw: unknown): IsolationConfig {
-  const r = (raw && typeof raw === 'object') ? raw as Partial<IsolationConfig> : {}
-  const mode = normalizeIsolationMode(r.mode)
-  const result: IsolationConfig = { mode }
-  if (mode === 'vm' && r.vmResources && typeof r.vmResources === 'object') {
-    const cpu = typeof r.vmResources.cpuCount === 'number' ? Math.max(1, Math.min(4, r.vmResources.cpuCount)) : 1
-    const mem = typeof r.vmResources.memoryMiB === 'number' ? Math.max(256, Math.min(4096, r.vmResources.memoryMiB)) : 512
-    result.vmResources = { cpuCount: cpu, memoryMiB: mem }
-  }
-  // Preserve custom path overrides (dev / advanced use)
-  if (typeof r.vmKernelPath === 'string' && r.vmKernelPath.trim()) {
-    result.vmKernelPath = r.vmKernelPath.trim()
-  }
-  if (typeof r.vmRootfsPath === 'string' && r.vmRootfsPath.trim()) {
-    result.vmRootfsPath = r.vmRootfsPath.trim()
-  }
-  if (typeof r.vmInitrdPath === 'string' && r.vmInitrdPath.trim()) {
-    result.vmInitrdPath = r.vmInitrdPath.trim()
-  }
-  return result
-}
-
 export function normalizeConfig(config: Partial<AppConfig> | null | undefined): AppConfig {
   const parsed = config ?? {}
   return {
@@ -141,7 +112,6 @@ export function normalizeConfig(config: Partial<AppConfig> | null | undefined): 
       : DEFAULT_CONFIG.onboarding_completed,
     connectors: normalizeConnectors(parsed.connectors),
     memory: normalizeMemory(parsed.memory),
-    isolation: normalizeIsolation(parsed.isolation),
   }
 }
 

@@ -8,7 +8,6 @@ import {
   setRuntimeListener,
   setBridgeUrlListener,
   setConnectorsConfig,
-  setIsolationConfig,
   setBrowserSearchCallbackAddr,
   getSidecarRuntime,
   getBridgeBaseUrl,
@@ -83,7 +82,6 @@ async function ensureLocalSidecar(config: AppConfig): Promise<AppConfig> {
   }
 
   setConnectorsConfig(config.connectors)
-  setIsolationConfig(config.isolation)
 
   const runtime = await startSidecar(config.local.port, config.local.portMode)
   const next = mergeConfigWithRuntime(config, runtime)
@@ -105,7 +103,6 @@ async function applyConfigUpdate(config: AppConfig): Promise<AppConfig> {
     || previous.local.port !== candidate.local.port
     || previous.local.portMode !== candidate.local.portMode
     || connectorsChanged(previous, candidate)
-    || previous.isolation.mode !== candidate.isolation.mode
 
   if (!needsRestart) {
     saveConfig(candidate)

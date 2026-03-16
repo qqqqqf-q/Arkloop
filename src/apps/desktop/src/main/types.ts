@@ -28,21 +28,6 @@ export type MemoryConfig = {
   provider: MemoryProvider
 }
 
-export type IsolationMode = 'trusted' | 'vm'
-
-export type IsolationConfig = {
-  mode: IsolationMode
-  vmResources?: {
-    cpuCount?: number
-    memoryMiB?: number
-  }
-  // Optional path overrides — when set, these are used instead of ~/.arkloop/vm/
-  // Useful for local development (e.g. point to /tmp/vz-test/ assets)
-  vmKernelPath?: string
-  vmRootfsPath?: string
-  vmInitrdPath?: string
-}
-
 export type LocalConfig = {
   port: number
   portMode: LocalPortMode
@@ -57,7 +42,6 @@ export type AppConfig = {
   onboarding_completed: boolean
   connectors: ConnectorsConfig
   memory: MemoryConfig
-  isolation: IsolationConfig
 }
 
 export const DEFAULT_CONFIG: AppConfig = {
@@ -72,5 +56,4 @@ export const DEFAULT_CONFIG: AppConfig = {
     search: { provider: 'browser' },
   },
   memory: { provider: 'local' },
-  isolation: { mode: 'trusted' },
 }

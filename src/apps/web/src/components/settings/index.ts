@@ -14,4 +14,3 @@ export { ConnectionSettings } from "./ConnectionSettings";
 export { ExtensionsSettings } from "./ExtensionsSettings";
 export { ModulesSettings } from "./ModulesSettings";
 export { DeveloperSettings } from "./DeveloperSettings";
-export { IsolationSettings } from "./IsolationSettings";
