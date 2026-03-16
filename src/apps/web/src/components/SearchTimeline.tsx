@@ -3,10 +3,11 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { ChevronRight, Loader2, Search } from 'lucide-react'
 import { useTypewriter } from '../hooks/useTypewriter'
 import type { WebSource } from '../storage'
-import type { SubAgentRef } from '../storage'
+import type { SubAgentRef, FileOpRef } from '../storage'
 import { codeExecutionAccentColor } from '../codeExecutionStatus'
 import { CodeExecutionCard, type CodeExecution } from './ThinkingBlock'
 import { ShellExecutionBlock } from './ShellExecutionBlock'
+import { FileOpBlock } from './FileOpBlock'
 import { SubAgentBlock } from './SubAgentBlock'
 
 export type SearchStep = {
@@ -25,6 +26,7 @@ type Props = {
   onOpenCodeExecution?: (ce: CodeExecution) => void
   activeCodeExecutionId?: string
   subAgents?: SubAgentRef[]
+  fileOps?: FileOpRef[]
   headerOverride?: string
   shimmer?: boolean
   live?: boolean
@@ -83,7 +85,6 @@ function QueryPill({ text }: { text: string }) {
           display: 'inline-flex',
           alignItems: 'center',
           gap: '5px',
-          animation: 'timeline-slide-in 0.3s ease-out both',
         }}
       >
         <Search size={11} style={{ flexShrink: 0, color: 'var(--c-text-muted)' }} />
@@ -147,11 +148,11 @@ function SourceItem({ source }: { source: WebSource }) {
 
 const DOT_TOP = 5
 const DOT_SIZE = 8
-const SHELL_DOT_TOP = 8
+const SHELL_DOT_TOP = 9
 // CodeExecutionCard: border(0.5) + padding(6) + icon-center(14) = 20.5 → dot top ≈ 16
 const PYTHON_DOT_TOP = 16
 
-export function SearchTimeline({ steps, sources, isComplete, codeExecutions, onOpenCodeExecution, activeCodeExecutionId, subAgents, headerOverride, shimmer, live }: Props) {
+export function SearchTimeline({ steps, sources, isComplete, codeExecutions, onOpenCodeExecution, activeCodeExecutionId, subAgents, fileOps, headerOverride, shimmer, live }: Props) {
   const [collapsed, setCollapsed] = useState(() => isComplete)
   const prevIsCompleteRef = useRef(isComplete)
   useEffect(() => {
@@ -165,10 +166,11 @@ export function SearchTimeline({ steps, sources, isComplete, codeExecutions, onO
 
   const codeExecCount = codeExecutions?.length ?? 0
   const subAgentCount = subAgents?.length ?? 0
-  if (steps.length === 0 && codeExecCount === 0 && subAgentCount === 0 && !headerOverride) return null
+  const fileOpCount = fileOps?.length ?? 0
+  if (steps.length === 0 && codeExecCount === 0 && subAgentCount === 0 && fileOpCount === 0 && !headerOverride) return null
 
   const stepsExcludingFinished = steps.filter(s => s.kind !== 'finished').length
-  const effectiveStepCount = stepsExcludingFinished || (codeExecCount + subAgentCount)
+  const effectiveStepCount = stepsExcludingFinished || (codeExecCount + subAgentCount + fileOpCount)
 
   const autoLabel = isComplete
     ? sources.length > 0
@@ -206,7 +208,7 @@ export function SearchTimeline({ steps, sources, isComplete, codeExecutions, onO
               ? 'var(--c-text-tertiary)'
               : 'var(--c-text-secondary)',
           fontSize: '13px',
-          fontWeight: isComplete && collapsed && !hovered ? 400 : 500,
+          fontWeight: isComplete && collapsed ? 400 : 500,
           transition: 'color 0.15s ease',
         }}
       >
@@ -295,7 +297,7 @@ export function SearchTimeline({ steps, sources, isComplete, codeExecutions, onO
                       <div style={{ position: 'absolute', left: '-16px', top: `${DOT_TOP + DOT_SIZE}px`, bottom: 0, width: '1.5px', background: 'var(--c-border-subtle)', zIndex: 0 }} />
                     )}
                     {/* Last step extends line down when code executions or sub agents follow */}
-                    {isLast && (codeExecCount > 0 || subAgentCount > 0) && (
+                    {isLast && (step.kind === 'finished' ? subAgentCount > 0 : (codeExecCount > 0 || subAgentCount > 0)) && (
                       <div style={{ position: 'absolute', left: '-16px', top: `${DOT_TOP + DOT_SIZE}px`, bottom: 0, width: '1.5px', background: 'var(--c-border-subtle)', zIndex: 0 }} />
                     )}
                     {multiSteps && !isFirst && (
@@ -364,13 +366,7 @@ export function SearchTimeline({ steps, sources, isComplete, codeExecutions, onO
                         }}
                       >
                         {sources.map((s, i) => (
-                          <div
-                            key={`${s.url}-${i}`}
-                            style={{
-                              animation: 'timeline-slide-in 0.25s ease-out both',
-                              animationDelay: `${i * 0.03}s`,
-                            }}
-                          >
+                          <div key={`${s.url}-${i}`}>
                             <SourceItem source={s} />
                           </div>
                         ))}
@@ -486,6 +482,56 @@ export function SearchTimeline({ steps, sources, isComplete, codeExecutions, onO
                           status={agent.status}
                           error={agent.error}
                           live={live}
+                        />
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+
+              {fileOps && fileOps.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', paddingTop: steps.length > 0 || codeExecCount > 0 || subAgentCount > 0 ? '8px' : '0' }}>
+                  {fileOps.map((op, idx) => {
+                    const isFirst = idx === 0
+                    const isLast = idx === fileOps.length - 1
+                    const dotTop = SHELL_DOT_TOP
+                    const hasPrevItems = steps.length > 0 || codeExecCount > 0 || subAgentCount > 0
+                    const multiItems = fileOps.length >= 2
+                    const dotColor = op.status === 'failed'
+                      ? 'var(--c-status-error-text, #ef4444)'
+                      : op.status === 'running'
+                        ? 'var(--c-text-secondary)'
+                        : 'var(--c-text-muted)'
+                    return (
+                      <div key={op.id} style={{ position: 'relative', paddingBottom: isLast ? 0 : '4px' }}>
+                        {multiItems && !isLast && (
+                          <div style={{ position: 'absolute', left: '-16px', top: `${dotTop + DOT_SIZE}px`, bottom: 0, width: '1.5px', background: 'var(--c-border-subtle)', zIndex: 0 }} />
+                        )}
+                        {multiItems && !isFirst && (
+                          <div style={{ position: 'absolute', left: '-16px', top: 0, height: `${dotTop}px`, width: '1.5px', background: 'var(--c-border-subtle)', zIndex: 0 }} />
+                        )}
+                        {isFirst && hasPrevItems && (
+                          <div style={{ position: 'absolute', left: '-16px', top: '-8px', height: `${dotTop + 8}px`, width: '1.5px', background: 'var(--c-border-subtle)', zIndex: 0 }} />
+                        )}
+                        <div
+                          style={{
+                            position: 'absolute',
+                            left: '-19px',
+                            top: `${dotTop}px`,
+                            width: `${DOT_SIZE}px`,
+                            height: `${DOT_SIZE}px`,
+                            borderRadius: '50%',
+                            background: dotColor,
+                            border: '2px solid var(--c-bg-page)',
+                            zIndex: 1,
+                          }}
+                        />
+                        <FileOpBlock
+                          toolName={op.toolName}
+                          label={op.label}
+                          output={op.output}
+                          status={op.status}
+                          errorMessage={op.errorMessage}
                         />
                       </div>
                     )

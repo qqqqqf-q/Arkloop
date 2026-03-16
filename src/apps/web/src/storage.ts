@@ -435,6 +435,7 @@ export type CopBlockRef = {
   title: string
   steps: MessageSearchStepRef[]
   sources: WebSource[]
+  codeExecutions?: CodeExecutionRef[]
 }
 
 export type MessageCopBlocksRef = {
@@ -491,7 +492,10 @@ export function readMessageCopBlocks(messageId: string): MessageCopBlocksRef | n
               }))
               .filter((s) => !!s.url)
           : []
-        return { id, title, steps, sources }
+        const codeExecutions: CodeExecutionRef[] = Array.isArray(b.codeExecutions)
+          ? (b.codeExecutions as unknown[]).filter(isCodeExecutionRef)
+          : []
+        return { id, title, steps, sources, codeExecutions: codeExecutions.length > 0 ? codeExecutions : undefined }
       })
       .filter((b): b is CopBlockRef => b != null)
     if (blocks.length === 0) return null
@@ -508,6 +512,60 @@ export function writeMessageCopBlocks(messageId: string, data: MessageCopBlocksR
   if (!canUseLocalStorage() || !messageId || data.blocks.length === 0) return
   try {
     localStorage.setItem(messageCopBlocksKey(messageId), JSON.stringify(data))
+  } catch { /* ignore */ }
+}
+
+// -- File Operations --
+
+export type FileOpRef = {
+  id: string
+  toolName: string
+  label: string
+  output?: string
+  status: 'running' | 'success' | 'failed'
+  errorMessage?: string
+}
+
+function isFileOpRef(v: unknown): v is FileOpRef {
+  if (!v || typeof v !== 'object') return false
+  const o = v as Record<string, unknown>
+  if (typeof o.id !== 'string' || !o.id) return false
+  if (typeof o.toolName !== 'string') return false
+  if (typeof o.label !== 'string') return false
+  const s = o.status
+  if (s !== 'running' && s !== 'success' && s !== 'failed') return false
+  return true
+}
+
+function messageFileOpsKey(messageId: string): string {
+  return `arkloop:web:msg_file_ops:${messageId}`
+}
+
+export function readMessageFileOps(messageId: string): FileOpRef[] | null {
+  if (!canUseLocalStorage() || !messageId) return null
+  try {
+    const raw = localStorage.getItem(messageFileOpsKey(messageId))
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) {
+      localStorage.removeItem(messageFileOpsKey(messageId))
+      return null
+    }
+    if (!parsed.every((item) => isFileOpRef(item))) {
+      localStorage.removeItem(messageFileOpsKey(messageId))
+      return null
+    }
+    return parsed
+  } catch {
+    try { localStorage.removeItem(messageFileOpsKey(messageId)) } catch { /* ignore */ }
+    return null
+  }
+}
+
+export function writeMessageFileOps(messageId: string, ops: FileOpRef[]): void {
+  if (!canUseLocalStorage() || !messageId || ops.length === 0) return
+  try {
+    localStorage.setItem(messageFileOpsKey(messageId), JSON.stringify(ops))
   } catch { /* ignore */ }
 }
 
@@ -612,5 +670,7 @@ export function migrateMessageMetadata(mapping: Array<{ old_id: string; new_id: 
     if (searchSteps) writeMessageSearchSteps(new_id, searchSteps)
     const copBlocks = readMessageCopBlocks(old_id)
     if (copBlocks) writeMessageCopBlocks(new_id, copBlocks)
+    const fileOps = readMessageFileOps(old_id)
+    if (fileOps) writeMessageFileOps(new_id, fileOps)
   }
 }
