@@ -82,9 +82,14 @@ type llmProviderAvailableModelsResponse struct {
 }
 
 type llmProviderAvailableModel struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	Configured bool   `json:"configured"`
+	ID               string   `json:"id"`
+	Name             string   `json:"name"`
+	Configured       bool     `json:"configured"`
+	Type             string   `json:"type,omitempty"`
+	ContextLength    *int     `json:"context_length,omitempty"`
+	MaxOutputTokens  *int     `json:"max_output_tokens,omitempty"`
+	InputModalities  []string `json:"input_modalities,omitempty"`
+	OutputModalities []string `json:"output_modalities,omitempty"`
 }
 
 var validLlmProviders = map[string]bool{
@@ -710,9 +715,14 @@ func listLlmProviderAvailableModels(
 	resp := llmProviderAvailableModelsResponse{Models: make([]llmProviderAvailableModel, 0, len(models))}
 	for _, model := range models {
 		resp.Models = append(resp.Models, llmProviderAvailableModel{
-			ID:         model.ID,
-			Name:       model.Name,
-			Configured: model.Configured,
+			ID:               model.ID,
+			Name:             model.Name,
+			Configured:       model.Configured,
+			Type:             model.Type,
+			ContextLength:    model.ContextLength,
+			MaxOutputTokens:  model.MaxOutputTokens,
+			InputModalities:  model.InputModalities,
+			OutputModalities: model.OutputModalities,
 		})
 	}
 	httpkit.WriteJSON(w, traceID, nethttp.StatusOK, resp)

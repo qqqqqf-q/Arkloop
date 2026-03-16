@@ -54,7 +54,7 @@ function ModeCard({ icon: Icon, label, desc, selected, onSelect }: ModeCardProps
         className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg"
         style={{
           background: selected ? 'var(--c-accent)' : 'var(--c-bg-sub)',
-          color: selected ? '#fff' : 'var(--c-text-secondary)',
+          color: selected ? 'var(--c-accent-fg)' : 'var(--c-text-secondary)',
         }}
       >
         <Icon size={18} />
@@ -67,7 +67,7 @@ function ModeCard({ icon: Icon, label, desc, selected, onSelect }: ModeCardProps
         className="mt-1 h-4 w-4 shrink-0 rounded-full"
         style={{
           border: selected ? '5px solid var(--c-accent)' : '1.5px solid var(--c-border-subtle)',
-          background: selected ? '#fff' : 'transparent',
+          background: selected ? 'var(--c-accent-fg)' : 'transparent',
         }}
       />
     </button>

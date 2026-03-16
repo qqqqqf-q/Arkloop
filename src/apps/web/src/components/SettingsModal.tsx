@@ -254,7 +254,7 @@ function AccountContent({
               {!me.email_verified && (
                 <span
                   className="shrink-0 rounded px-1 py-px text-[10px] font-medium leading-tight"
-                  style={{ background: 'var(--c-status-warn-bg,#fff7ed)', color: 'var(--c-status-warn-text,#c2410c)' }}
+                  style={{ background: 'var(--c-status-warn-bg)', color: 'var(--c-status-warn-text)' }}
                 >
                   {t.emailUnverified}
                 </span>
@@ -410,7 +410,7 @@ function ProfileContent({
             )}
           </div>
           {error && (
-            <p className="text-xs text-[var(--c-status-error-text,#ef4444)]">{error}</p>
+            <p className="text-xs text-[var(--c-status-error-text)]">{error}</p>
           )}
         </div>
       </div>
@@ -451,14 +451,14 @@ function ProfileContent({
               {me.email_verified ? (
                 <span
                   className="rounded px-1.5 py-px text-[10px] font-medium leading-tight"
-                  style={{ background: 'var(--c-status-ok-bg,#f0fdf4)', color: 'var(--c-status-ok-text,#15803d)' }}
+                  style={{ background: 'var(--c-status-ok-bg)', color: 'var(--c-status-ok-text)' }}
                 >
                   {t.emailVerified}
                 </span>
               ) : (
                 <span
                   className="rounded px-1.5 py-px text-[10px] font-medium leading-tight"
-                  style={{ background: 'var(--c-status-warn-bg,#fff7ed)', color: 'var(--c-status-warn-text,#c2410c)' }}
+                  style={{ background: 'var(--c-status-warn-bg)', color: 'var(--c-status-warn-text)' }}
                 >
                   {t.emailUnverified}
                 </span>
@@ -502,7 +502,7 @@ function ProfileContent({
                       </button>
                     </div>
                     {verifyError && (
-                      <span className="text-xs" style={{ color: 'var(--c-status-warn-text,#c2410c)' }}>
+                      <span className="text-xs" style={{ color: 'var(--c-status-warn-text)' }}>
                         {verifyError}
                       </span>
                     )}
@@ -736,11 +736,11 @@ function InviteCodeContent({ accessToken }: { accessToken: string }) {
             </button>
           </div>
           {error && (
-            <p className="text-xs text-[var(--c-status-error-text,#ef4444)]">{error}</p>
+            <p className="text-xs text-[var(--c-status-error-text)]">{error}</p>
           )}
         </div>
       ) : error ? (
-        <p className="text-xs text-[var(--c-status-error-text,#ef4444)]">{error}</p>
+        <p className="text-xs text-[var(--c-status-error-text)]">{error}</p>
       ) : null}
     </div>
   )
@@ -850,7 +850,7 @@ function ReportFeedbackContent({ accessToken }: { accessToken: string }) {
 
             <div className="mt-2 flex items-center justify-between">
               <span className="text-xs text-[var(--c-text-tertiary)]">{feedback.length}/2000</span>
-              {error && <span className="text-xs text-[var(--c-status-error-text,#ef4444)]">{error}</span>}
+              {error && <span className="text-xs text-[var(--c-status-error-text)]">{error}</span>}
               {!error && success && <span className="text-xs text-[var(--c-status-success-text,#22c55e)]">{t.suggestionSuccess}</span>}
             </div>
 
@@ -996,7 +996,7 @@ function CreditsContent({ accessToken, onCreditsChanged }: { accessToken: string
         {redeemMsg && (
           <p
             className="text-xs"
-            style={{ color: redeemMsg.ok ? 'var(--c-status-success-text, #22c55e)' : 'var(--c-status-error-text, #ef4444)' }}
+            style={{ color: redeemMsg.ok ? 'var(--c-status-success-text)' : 'var(--c-status-error-text)' }}
           >
             {redeemMsg.text}
           </p>
@@ -1047,7 +1047,7 @@ function CreditsContent({ accessToken, onCreditsChanged }: { accessToken: string
             </button>
           </div>
           {txError && (
-            <p className="text-xs text-[var(--c-status-error-text,#ef4444)]">{txError}</p>
+            <p className="text-xs text-[var(--c-status-error-text)]">{txError}</p>
           )}
           {monthlyTransactions !== null && (
             <CreditTransactionTable transactions={monthlyTransactions} loading={txLoading} t={t} />
@@ -1126,7 +1126,7 @@ function CreditTransactionTable({
                 </td>
                 <td
                   className="whitespace-nowrap px-4 py-2 text-right font-medium tabular-nums"
-                  style={{ color: isPositive ? 'var(--c-status-success-text, #22c55e)' : 'var(--c-status-error-text, #ef4444)' }}
+                  style={{ color: isPositive ? 'var(--c-status-success-text)' : 'var(--c-status-error-text)' }}
                 >
                   {isPositive ? '+' : ''}{tx.amount}
                 </td>

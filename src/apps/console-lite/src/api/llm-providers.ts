@@ -13,6 +13,7 @@ export type LlmProviderModel = {
   model: string
   priority: number
   is_default: boolean
+  show_in_picker: boolean
   tags: string[]
   when: Record<string, unknown>
   advanced_json?: Record<string, unknown> | null
@@ -62,6 +63,7 @@ export type CreateModelRequest = {
   model: string
   priority?: number
   is_default?: boolean
+  show_in_picker?: boolean
   tags?: string[]
   when?: Record<string, unknown>
   advanced_json?: Record<string, unknown> | null
@@ -73,6 +75,7 @@ export type UpdateModelRequest = {
   model?: string
   priority?: number
   is_default?: boolean
+  show_in_picker?: boolean
   tags?: string[]
   when?: Record<string, unknown>
   advanced_json?: Record<string, unknown> | null
@@ -83,6 +86,11 @@ export type AvailableModel = {
   id: string
   name: string
   configured: boolean
+  type?: string
+  context_length?: number | null
+  max_output_tokens?: number | null
+  input_modalities?: string[]
+  output_modalities?: string[]
 }
 
 export async function listLlmProviders(accessToken: string, scope: LlmProviderScope): Promise<LlmProvider[]> {

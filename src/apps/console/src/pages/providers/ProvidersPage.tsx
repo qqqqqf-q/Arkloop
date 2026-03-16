@@ -452,12 +452,17 @@ export function ProvidersPage() {
     if (!selectedProvider || importing || importSelected.size === 0) return
     setImporting(true)
     try {
-		for (const modelID of importSelected) {
-				await createProviderModel(selectedProvider.id, {
-					scope,
-					model: modelID,
-	          priority: 1,
-	          is_default: false,
+      const embeddingIds = new Set(
+        availableModels.filter((am) => am.type === 'embedding').map((am) => am.id),
+      )
+      for (const modelID of importSelected) {
+        const isEmb = embeddingIds.has(modelID)
+        await createProviderModel(selectedProvider.id, {
+          scope,
+          model: modelID,
+          priority: 1,
+          is_default: false,
+          tags: isEmb ? ['embedding'] : undefined,
         }, accessToken)
       }
       setShowImport(false)
@@ -468,7 +473,46 @@ export function ProvidersPage() {
     } finally {
       setImporting(false)
     }
-	  }, [accessToken, addToast, importSelected, importing, load, scope, selectedProvider, tc])
+  }, [accessToken, addToast, availableModels, importSelected, importing, load, scope, selectedProvider, tc])
+
+  const handleImportAll = useCallback(async () => {
+    if (!selectedProvider) return
+    setImporting(true)
+    try {
+      const data = await listAvailableModels(selectedProvider.id, scope, accessToken)
+      const unconfigured = data.models.filter((am) => !am.configured)
+      const embeddingIds = new Set(
+        unconfigured.filter((am) => am.type === 'embedding').map((am) => am.id.toLowerCase()),
+      )
+      for (const am of unconfigured) {
+        const isEmb = am.type === 'embedding'
+        await createProviderModel(selectedProvider.id, {
+          scope,
+          model: am.id,
+          priority: 1,
+          is_default: false,
+          show_in_picker: false,
+          tags: isEmb ? ['embedding'] : undefined,
+        }, accessToken)
+      }
+      await load(selectedProvider.id)
+      addToast(tc.toastRouteCreated, 'success')
+    } catch (err) {
+      addToast(isApiError(err) ? err.message : tc.importModelsError, 'error')
+    } finally {
+      setImporting(false)
+    }
+  }, [accessToken, addToast, load, scope, selectedProvider, tc])
+
+  const handleTogglePicker = useCallback(async (model: LlmProviderModel) => {
+    if (!selectedProvider) return
+    try {
+      await updateProviderModel(selectedProvider.id, model.id, { scope, show_in_picker: !model.show_in_picker }, accessToken)
+      await load(selectedProvider.id)
+    } catch (err) {
+      addToast(isApiError(err) ? err.message : tc.toastRouteUpdateFailed, 'error')
+    }
+  }, [accessToken, addToast, load, scope, selectedProvider, tc])
 
   const copySelector = useCallback(async (providerName: string, modelName: string) => {
     try {
@@ -633,8 +677,8 @@ export function ProvidersPage() {
                 <div className="mb-4 flex items-center justify-between gap-3">
                   <h3 className="text-sm font-medium text-[var(--c-text-primary)]">{tc.fieldRoutes}</h3>
                   <div className="flex shrink-0 items-center gap-2">
-                    <button onClick={() => void openImport()} className={BUTTON_PRIMARY_CLS}>
-                      {tc.importModels}
+                    <button onClick={() => void handleImportAll()} disabled={importing} className={BUTTON_PRIMARY_CLS}>
+                      {importing ? <Loader2 size={14} className="animate-spin" /> : tc.importModels}
                     </button>
                     <button onClick={openCreateModel} className={BUTTON_PRIMARY_CLS}>
                       {tc.addRoute}
@@ -651,6 +695,9 @@ export function ProvidersPage() {
                           <div className="min-w-0 flex-1">
                             <div className="flex flex-wrap items-center gap-2">
                               <div className="truncate font-mono text-sm text-[var(--c-text-primary)]">{model.model}</div>
+                              {model.tags.includes('embedding') && (
+                                <span className="rounded px-1.5 py-0.5 text-[10px] font-medium" style={{ background: 'var(--c-accent-subtle, color-mix(in srgb, var(--c-accent) 15%, transparent))', color: 'var(--c-accent)', border: '1px solid var(--c-accent)' }}>emb</span>
+                              )}
                               {model.is_default && <Badge variant="success">{tc.routeDefault}</Badge>}
                               <span className="text-xs text-[var(--c-text-muted)]">priority {model.priority}</span>
                             </div>
@@ -672,6 +719,12 @@ export function ProvidersPage() {
                             </div>
                           </div>
                           <div className="flex shrink-0 items-center gap-2">
+                            {/* show_in_picker toggle */}
+                            <label className="relative inline-flex shrink-0 cursor-pointer items-center" title={model.show_in_picker ? 'Hide from picker' : 'Show in picker'}>
+                              <input type="checkbox" checked={model.show_in_picker} onChange={() => void handleTogglePicker(model)} className="peer sr-only" />
+                              <span className="h-5 w-9 rounded-full transition-colors" style={{ background: model.show_in_picker ? 'var(--c-btn-bg)' : 'var(--c-border-mid, var(--c-border))' }} />
+                              <span className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full transition-transform peer-checked:translate-x-4" style={{ background: model.show_in_picker ? 'var(--c-btn-text)' : 'var(--c-bg-page)' }} />
+                            </label>
                             <button onClick={() => openEditModel(model)} className={BUTTON_PRIMARY_CLS}>
                               <Settings size={14} />
                             </button>
@@ -804,6 +857,9 @@ export function ProvidersPage() {
                         className="rounded"
                       />
                       <span className="text-sm text-[var(--c-text-primary)]">{model.id}</span>
+                      {model.type && model.type !== 'chat' && (
+                        <span className="rounded px-1.5 py-0.5 text-[10px] font-medium" style={{ background: 'var(--c-bg-deep)', color: 'var(--c-text-muted)' }}>{model.type}</span>
+                      )}
                     </label>
                   ))}
                 </div>

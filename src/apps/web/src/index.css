@@ -93,6 +93,20 @@ button:not(:disabled) {
   --c-claw-step-line: rgba(255, 255, 255, 0.10);
   --c-claw-file-bg: rgba(255, 255, 255, 0.03);
   --c-claw-file-border: rgba(255, 255, 255, 0.06);
+  --c-accent-fg: #141413;
+  --c-bg-deep2: #0f0f0e;
+  --c-bg-tag: #30302e;
+  --c-bg-card: #242422;
+  --c-border-console: #40403d;
+  --c-status-ok-bg: rgba(34, 197, 94, 0.10);
+  --c-status-ok-text: #4ade80;
+  --c-status-error-text: #f87171;
+  --c-status-warning-text: #fbbf24;
+  --c-status-success-text: #4ade80;
+  --c-status-danger-bg: rgba(239, 68, 68, 0.10);
+  --c-status-danger-text: #f87171;
+  --c-status-warn-bg: rgba(245, 158, 11, 0.12);
+  --c-status-warn-text: #fbbf24;
 }
 
 @media (prefers-color-scheme: light) {
@@ -184,6 +198,20 @@ button:not(:disabled) {
     --c-claw-step-line: rgba(0, 0, 0, 0.10);
     --c-claw-file-bg: rgba(0, 0, 0, 0.02);
     --c-claw-file-border: rgba(0, 0, 0, 0.06);
+    --c-accent-fg: #FAFAFA;
+    --c-bg-deep2: #E5E5E3;
+    --c-bg-tag: #E5E5E3;
+    --c-bg-card: #FFFFFF;
+    --c-border-console: #DEDEDE;
+    --c-status-ok-bg: #f0fdf4;
+    --c-status-ok-text: #15803d;
+    --c-status-error-text: #dc2626;
+    --c-status-warning-text: #d97706;
+    --c-status-success-text: #16a34a;
+    --c-status-danger-bg: rgba(220, 38, 38, 0.08);
+    --c-status-danger-text: #dc2626;
+    --c-status-warn-bg: #fff7ed;
+    --c-status-warn-text: #c2410c;
   }
 }
 
@@ -275,6 +303,20 @@ button:not(:disabled) {
   --c-claw-step-line: rgba(0, 0, 0, 0.10);
   --c-claw-file-bg: rgba(0, 0, 0, 0.02);
   --c-claw-file-border: rgba(0, 0, 0, 0.06);
+  --c-accent-fg: #FAFAFA;
+  --c-bg-deep2: #E5E5E3;
+  --c-bg-tag: #E5E5E3;
+  --c-bg-card: #FFFFFF;
+  --c-border-console: #DEDEDE;
+  --c-status-ok-bg: #f0fdf4;
+  --c-status-ok-text: #15803d;
+  --c-status-error-text: #dc2626;
+  --c-status-warning-text: #d97706;
+  --c-status-success-text: #16a34a;
+  --c-status-danger-bg: rgba(220, 38, 38, 0.08);
+  --c-status-danger-text: #dc2626;
+  --c-status-warn-bg: #fff7ed;
+  --c-status-warn-text: #c2410c;
 }
 
 .chat-input-box {

@@ -417,13 +417,24 @@ function ModelsSection({
     setErr('')
     try {
       const unconfigured = available.filter((am) => !am.configured)
-      const created = await Promise.all(
-        unconfigured.map((am) =>
-          createProviderModel(accessToken, provider.id, { model: am.id, show_in_picker: false })
-        )
+      const embeddingIds = new Set(
+        unconfigured.filter((am) => am.type === 'embedding').map((am) => am.id.toLowerCase()),
       )
-      // auto-enable common models as a useful default (gpt-4o-mini)
-      const toEnable = created.filter((pm) => pm.model.toLowerCase().includes('gpt-4o-mini'))
+      const created = await Promise.all(
+        unconfigured.map((am) => {
+          const isEmb = am.type === 'embedding'
+          return createProviderModel(accessToken, provider.id, {
+            model: am.id,
+            show_in_picker: false,
+            tags: isEmb ? ['embedding'] : undefined,
+          })
+        })
+      )
+      const toEnable = created.filter(
+        (pm) =>
+          pm.model.toLowerCase().includes('gpt-4o-mini') &&
+          !embeddingIds.has(pm.model.toLowerCase()),
+      )
       await Promise.all(
         toEnable.map((pm) =>
           patchProviderModel(accessToken, provider.id, pm.id, { show_in_picker: true })
@@ -482,19 +493,6 @@ function ModelsSection({
   const handleTogglePicker = async (modelId: string, current: boolean) => {
     try {
       await patchProviderModel(accessToken, provider.id, modelId, { show_in_picker: !current })
-      onChanged()
-    } catch (e) {
-      setErr(isApiError(e) ? e.message : m.saveFailed)
-    }
-  }
-
-  const handleToggleEmbedding = async (modelId: string, currentTags: string[]) => {
-    const hasEmbedding = currentTags.includes('embedding')
-    const nextTags = hasEmbedding
-      ? currentTags.filter((t) => t !== 'embedding')
-      : [...currentTags, 'embedding']
-    try {
-      await patchProviderModel(accessToken, provider.id, modelId, { tags: nextTags })
       onChanged()
     } catch (e) {
       setErr(isApiError(e) ? e.message : m.saveFailed)
@@ -583,30 +581,13 @@ function ModelsSection({
               key={pm.id}
               className="group flex items-center justify-between rounded-lg border border-[var(--c-border-subtle)] px-4 py-2.5"
             >
-              <p className="min-w-0 flex-1 truncate text-sm font-medium text-[var(--c-text-primary)]">{pm.model}</p>
+              <div className="min-w-0 flex-1 flex items-center gap-1.5">
+                <p className="truncate text-sm font-medium text-[var(--c-text-primary)]">{pm.model}</p>
+                {pm.tags.includes('embedding') && (
+                  <span className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium" style={{ background: 'var(--c-accent-subtle, color-mix(in srgb, var(--c-accent) 15%, transparent))', color: 'var(--c-accent)', border: '1px solid var(--c-accent)' }}>emb</span>
+                )}
+              </div>
               <div className="flex items-center gap-1.5 flex-shrink-0">
-                <label
-                  className="relative inline-flex shrink-0 cursor-pointer items-center"
-                  title={pm.tags.includes('embedding') ? m.embeddingTagRemove : m.embeddingTagAdd}
-                >
-                  <input
-                    type="checkbox"
-                    checked={pm.tags.includes('embedding')}
-                    onChange={() => void handleToggleEmbedding(pm.id, pm.tags)}
-                    className="peer sr-only"
-                  />
-                  <span
-                    className="rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors"
-                    style={{
-                      background: pm.tags.includes('embedding') ? 'var(--c-accent-subtle, color-mix(in srgb, var(--c-accent) 15%, transparent))' : 'var(--c-bg-deep)',
-                      color: pm.tags.includes('embedding') ? 'var(--c-accent)' : 'var(--c-text-muted)',
-                      border: '1px solid',
-                      borderColor: pm.tags.includes('embedding') ? 'var(--c-accent)' : 'var(--c-border-subtle)',
-                    }}
-                  >
-                    emb
-                  </span>
-                </label>
                 <label
                   className="relative inline-flex shrink-0 cursor-pointer items-center"
                   title={pm.show_in_picker ? m.hideFromPicker : m.showInPicker}

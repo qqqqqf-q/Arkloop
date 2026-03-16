@@ -21,9 +21,14 @@ type Provider struct {
 }
 
 type AvailableModel struct {
-	ID         string
-	Name       string
-	Configured bool
+	ID               string
+	Name             string
+	Configured       bool
+	Type             string // "chat", "embedding", "moderation", "image", "audio", "other"
+	ContextLength    *int
+	MaxOutputTokens  *int
+	InputModalities  []string // e.g. ["text","image"]
+	OutputModalities []string // e.g. ["text"] or ["embedding"]
 }
 
 type CreateProviderInput struct {

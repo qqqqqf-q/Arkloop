@@ -1,16 +1,13 @@
-import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import {
   Plus,
   Trash2,
   Download,
   X,
   Loader2,
-  Search,
-  ChevronRight,
 } from 'lucide-react'
 import {
   type LlmProvider,
-  type LlmProviderModel,
   type AvailableModel,
   listLlmProviders,
   createLlmProvider,
@@ -18,13 +15,11 @@ import {
   deleteLlmProvider,
   createProviderModel,
   deleteProviderModel,
+  patchProviderModel,
   listAvailableModels,
+  isApiError,
 } from '../../api'
 import { useLocale } from '../../contexts/LocaleContext'
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
 
 const VENDOR_PRESETS = [
   { key: 'openai_responses', provider: 'openai', openai_api_mode: 'responses' },
@@ -55,295 +50,40 @@ function toVendorKey(provider: string, mode: string | null): VendorPresetKey {
 const INPUT_CLS =
   'w-full rounded-md border border-[var(--c-border-subtle)] bg-[var(--c-bg-input)] px-3 py-1.5 text-sm text-[var(--c-text-primary)] outline-none placeholder:text-[var(--c-text-muted)] focus:border-[var(--c-border)]'
 
-// ---------------------------------------------------------------------------
-// Props
-// ---------------------------------------------------------------------------
-
-type Props = {
-  accessToken: string
-}
-
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
+type Props = { accessToken: string }
 
 export function ProvidersSettings({ accessToken }: Props) {
   const { t } = useLocale()
   const p = t.adminProviders
 
-  // -- provider list state --
   const [providers, setProviders] = useState<LlmProvider[]>([])
-  const [selectedId, setSelectedId] = useState<string>('')
-  const [searchQuery, setSearchQuery] = useState('')
+  const [selectedId, setSelectedId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
-  const [loadError, setLoadError] = useState('')
-
-  // -- provider detail form --
-  const [formName, setFormName] = useState('')
-  const [formApiKey, setFormApiKey] = useState('')
-  const [formBaseUrl, setFormBaseUrl] = useState('')
-  const [saving, setSaving] = useState(false)
-
-  // -- add provider modal --
+  const [error, setError] = useState('')
   const [showAddProvider, setShowAddProvider] = useState(false)
-  const [newVendor, setNewVendor] = useState<VendorPresetKey>('openai_responses')
-  const [newName, setNewName] = useState('')
-  const [newApiKey, setNewApiKey] = useState('')
-  const [newBaseUrl, setNewBaseUrl] = useState('')
-  const [newError, setNewError] = useState('')
-  const [creating, setCreating] = useState(false)
-
-  // -- delete provider --
-  const [deleteTarget, setDeleteTarget] = useState<LlmProvider | null>(null)
-  const [deleting, setDeleting] = useState(false)
-
-  // -- add model modal --
-  const [showAddModel, setShowAddModel] = useState(false)
-  const [newModelName, setNewModelName] = useState('')
-  const [newModelTags, setNewModelTags] = useState<string[]>([])
-  const [newModelTagInput, setNewModelTagInput] = useState('')
-  const [newModelDefault, setNewModelDefault] = useState(false)
-  const [newModelError, setNewModelError] = useState('')
-  const [addingModel, setAddingModel] = useState(false)
-
-  // -- delete model --
-  const [deleteModelTarget, setDeleteModelTarget] = useState<LlmProviderModel | null>(null)
-  const [deletingModel, setDeletingModel] = useState(false)
-
-  // -- import models modal --
-  const [showImport, setShowImport] = useState(false)
-  const [availableModels, setAvailableModels] = useState<AvailableModel[]>([])
-  const [importSelected, setImportSelected] = useState<Set<string>>(new Set())
-  const [importLoading, setImportLoading] = useState(false)
-  const [importError, setImportError] = useState('')
-  const [importing, setImporting] = useState(false)
-  const [importSearch, setImportSearch] = useState('')
 
   const firstLoadRef = useRef(true)
 
-  // -----------------------------------------------------------------------
-  // Data fetching
-  // -----------------------------------------------------------------------
-
-  const fetchProviders = useCallback(async () => {
-    setLoading(true)
-    setLoadError('')
+  const load = useCallback(async () => {
     try {
-      const data = await listLlmProviders(accessToken)
-      setProviders(data)
-      if (firstLoadRef.current && data.length > 0) {
-        setSelectedId(data[0].id)
+      const list = await listLlmProviders(accessToken)
+      setProviders(list)
+      if (firstLoadRef.current && list.length > 0) {
+        setSelectedId(list[0].id)
         firstLoadRef.current = false
+      } else {
+        setSelectedId((prev) => list.find((pv) => pv.id === prev) ? prev : (list[0]?.id ?? null))
       }
     } catch {
-      setLoadError(p.loadFailed)
+      setError(p.loadFailed)
     } finally {
       setLoading(false)
     }
   }, [accessToken, p.loadFailed])
 
-  useEffect(() => {
-    void fetchProviders()
-  }, [fetchProviders])
+  useEffect(() => { void load() }, [load])
 
-  const selected = providers.find((pv) => pv.id === selectedId)
-
-  // sync form when selection changes
-  useEffect(() => {
-    if (!selected) return
-    setFormName(selected.name)
-    setFormApiKey('')
-    setFormBaseUrl(selected.base_url ?? '')
-  }, [selected])
-
-  const filtered = providers.filter(
-    (pv) => !searchQuery || pv.name.toLowerCase().includes(searchQuery.toLowerCase()),
-  )
-
-  // -----------------------------------------------------------------------
-  // Handlers — Provider CRUD
-  // -----------------------------------------------------------------------
-
-  const handleSaveProvider = useCallback(async () => {
-    if (!selected || saving) return
-    const name = formName.trim()
-    if (!name) return
-    setSaving(true)
-    try {
-      const req: Record<string, unknown> = { name }
-      if (formApiKey.trim()) req.api_key = formApiKey.trim()
-      req.base_url = formBaseUrl.trim() || null
-      await updateLlmProvider(accessToken, selected.id, req)
-      await fetchProviders()
-    } catch {
-      // error silently consumed — user can retry
-    } finally {
-      setSaving(false)
-    }
-  }, [selected, saving, formName, formApiKey, formBaseUrl, accessToken, fetchProviders])
-
-  const handleCreateProvider = useCallback(async () => {
-    const name = newName.trim()
-    const apiKey = newApiKey.trim()
-    if (!name) {
-      setNewError(p.providerName)
-      return
-    }
-    if (!apiKey) {
-      setNewError(p.apiKey)
-      return
-    }
-    setCreating(true)
-    setNewError('')
-    try {
-      const preset = VENDOR_PRESETS.find((v) => v.key === newVendor)!
-      const baseUrl = newBaseUrl.trim()
-      const created = await createLlmProvider(accessToken, {
-        name,
-        provider: preset.provider,
-        api_key: apiKey,
-        ...(baseUrl ? { base_url: baseUrl } : {}),
-        ...(preset.openai_api_mode ? { openai_api_mode: preset.openai_api_mode } : {}),
-      })
-      setShowAddProvider(false)
-      setNewName('')
-      setNewApiKey('')
-      setNewBaseUrl('')
-      setNewVendor('openai_responses')
-      await fetchProviders()
-      setSelectedId(created.id)
-    } catch {
-      setNewError(p.saveFailed)
-    } finally {
-      setCreating(false)
-    }
-  }, [newName, newApiKey, newVendor, newBaseUrl, accessToken, fetchProviders, p])
-
-  const handleDeleteProvider = useCallback(async () => {
-    if (!deleteTarget) return
-    setDeleting(true)
-    try {
-      await deleteLlmProvider(accessToken, deleteTarget.id)
-      setDeleteTarget(null)
-      if (selectedId === deleteTarget.id) {
-        setSelectedId(providers.find((pv) => pv.id !== deleteTarget.id)?.id ?? '')
-      }
-      await fetchProviders()
-    } catch {
-      // error silently consumed
-    } finally {
-      setDeleting(false)
-    }
-  }, [deleteTarget, selectedId, providers, accessToken, fetchProviders])
-
-  // -----------------------------------------------------------------------
-  // Handlers — Model CRUD
-  // -----------------------------------------------------------------------
-
-  const handleAddModel = useCallback(async () => {
-    if (!selected || addingModel) return
-    const model = newModelName.trim()
-    if (!model) {
-      setNewModelError(p.modelName)
-      return
-    }
-    setAddingModel(true)
-    setNewModelError('')
-    try {
-      await createProviderModel(accessToken, selected.id, {
-        model,
-        tags: newModelTags,
-        is_default: newModelDefault,
-        priority: 1,
-      })
-      setShowAddModel(false)
-      setNewModelName('')
-      setNewModelTags([])
-      setNewModelTagInput('')
-      setNewModelDefault(false)
-      await fetchProviders()
-    } catch {
-      setNewModelError(p.saveFailed)
-    } finally {
-      setAddingModel(false)
-    }
-  }, [selected, addingModel, newModelName, newModelTags, newModelDefault, accessToken, fetchProviders, p])
-
-  const handleDeleteModel = useCallback(async () => {
-    if (!selected || !deleteModelTarget) return
-    setDeletingModel(true)
-    try {
-      await deleteProviderModel(accessToken, selected.id, deleteModelTarget.id)
-      setDeleteModelTarget(null)
-      await fetchProviders()
-    } catch {
-      // error silently consumed
-    } finally {
-      setDeletingModel(false)
-    }
-  }, [selected, deleteModelTarget, accessToken, fetchProviders])
-
-  // -----------------------------------------------------------------------
-  // Handlers — Import models
-  // -----------------------------------------------------------------------
-
-  const openImport = useCallback(async () => {
-    if (!selected) return
-    setShowImport(true)
-    setImportLoading(true)
-    setImportError('')
-    setImportSelected(new Set())
-    setImportSearch('')
-    try {
-      const data = await listAvailableModels(accessToken, selected.id)
-      setAvailableModels(data.models.filter((m) => !m.configured))
-    } catch {
-      setImportError(p.loadFailed)
-      setAvailableModels([])
-    } finally {
-      setImportLoading(false)
-    }
-  }, [selected, accessToken, p.loadFailed])
-
-  const handleImport = useCallback(async () => {
-    if (!selected || importing || importSelected.size === 0) return
-    setImporting(true)
-    try {
-      for (const modelId of importSelected) {
-        await createProviderModel(accessToken, selected.id, {
-          model: modelId,
-          priority: 1,
-        })
-      }
-      setShowImport(false)
-      await fetchProviders()
-    } catch {
-      // error silently consumed
-    } finally {
-      setImporting(false)
-    }
-  }, [selected, importing, importSelected, accessToken, fetchProviders])
-
-  const toggleImportModel = useCallback((id: string) => {
-    setImportSelected((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }, [])
-
-  const filteredImportModels = useMemo(() => {
-    const kw = importSearch.trim().toLowerCase()
-    if (!kw) return availableModels
-    return availableModels.filter(
-      (m) => m.id.toLowerCase().includes(kw) || m.name.toLowerCase().includes(kw),
-    )
-  }, [availableModels, importSearch])
-
-  // -----------------------------------------------------------------------
-  // Render — Loading
-  // -----------------------------------------------------------------------
+  const selected = providers.find((pv) => pv.id === selectedId) ?? null
 
   if (loading) {
     return (
@@ -353,55 +93,19 @@ export function ProvidersSettings({ accessToken }: Props) {
     )
   }
 
-  if (loadError) {
-    return (
-      <div className="flex flex-col items-center justify-center gap-2 py-16">
-        <p className="text-sm text-red-400">{loadError}</p>
-        <button
-          onClick={() => void fetchProviders()}
-          className="text-sm text-[var(--c-text-link)] hover:underline"
-        >
-          Retry
-        </button>
-      </div>
-    )
-  }
-
-  // -----------------------------------------------------------------------
-  // Render — Main layout
-  // -----------------------------------------------------------------------
-
   return (
     <div className="-m-6 flex overflow-hidden" style={{ height: 'calc(100% + 48px)' }}>
-      {/* ---- Left sidebar: provider list ---- */}
-      <div className="flex w-[240px] shrink-0 flex-col overflow-hidden border-r border-[var(--c-border-subtle)]">
-        {/* Search */}
-        <div className="p-2">
-          <div className="relative">
-            <Search
-              size={14}
-              className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--c-text-muted)]"
-            />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder={p.searchProviders}
-              className={`${INPUT_CLS} pl-8`}
-            />
-          </div>
-        </div>
-
-        {/* List */}
-        <div className="flex-1 overflow-y-auto px-2">
+      {/* Provider list */}
+      <div className="flex w-[140px] shrink-0 flex-col overflow-hidden border-r border-[var(--c-border-subtle)]">
+        <div className="flex-1 overflow-y-auto px-2 py-1">
           <div className="flex flex-col gap-[3px]">
-            {filtered.map((pv) => (
+            {providers.map((pv) => (
               <button
                 key={pv.id}
                 onClick={() => setSelectedId(pv.id)}
                 className={[
                   'flex h-[30px] items-center truncate rounded-[5px] px-3 text-left text-sm font-medium transition-colors',
-                  pv.id === selectedId
+                  selectedId === pv.id
                     ? 'bg-[var(--c-bg-sub)] text-[var(--c-text-primary)]'
                     : 'text-[var(--c-text-tertiary)] hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-secondary)]',
                 ].join(' ')}
@@ -411,626 +115,394 @@ export function ProvidersSettings({ accessToken }: Props) {
             ))}
           </div>
         </div>
-
-        {/* Add provider button */}
         <div className="border-t border-[var(--c-border-subtle)] px-3 py-3">
           <button
-            onClick={() => {
-              setShowAddProvider(true)
-              setNewName('')
-              setNewApiKey('')
-              setNewBaseUrl('')
-              setNewVendor('openai_responses')
-              setNewError('')
-            }}
+            onClick={() => setShowAddProvider(true)}
             className="flex h-7 w-full items-center justify-center gap-1.5 rounded-md text-sm text-[var(--c-text-muted)] transition-colors hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-secondary)]"
           >
             <Plus size={14} />
             {p.addProvider}
           </button>
         </div>
+        {error && <p className="px-2 pb-2 text-xs text-red-400">{error}</p>}
       </div>
 
-      {/* ---- Right panel: provider detail ---- */}
+      {/* Detail */}
       <div className="flex-1 overflow-y-auto p-5">
         {selected ? (
-          <div className="mx-auto max-w-2xl space-y-6">
-            {/* Provider name header */}
-            <div className="flex items-center gap-2">
-              <h3 className="text-base font-semibold text-[var(--c-text-primary)]">
-                {selected.name}
-              </h3>
-              <span className="rounded bg-[var(--c-bg-sub)] px-1.5 py-0.5 text-[10px] text-[var(--c-text-muted)]">
-                {vendorLabel(
-                  toVendorKey(selected.provider, selected.openai_api_mode),
-                  p,
-                )}
-              </span>
-            </div>
-
-            {/* Provider edit form */}
-            <div className="space-y-4">
-              <div>
-                <label className="mb-1 block text-sm font-medium text-[var(--c-text-primary)]">
-                  {p.providerName}
-                </label>
-                <input
-                  type="text"
-                  value={formName}
-                  onChange={(e) => setFormName(e.target.value)}
-                  placeholder={p.providerNamePlaceholder}
-                  className={INPUT_CLS}
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-sm font-medium text-[var(--c-text-primary)]">
-                  {p.apiKey}
-                </label>
-                <input
-                  type="password"
-                  value={formApiKey}
-                  onChange={(e) => setFormApiKey(e.target.value)}
-                  placeholder={
-                    selected.key_prefix
-                      ? `${selected.key_prefix}${'*'.repeat(32)}`
-                      : p.apiKeyPlaceholder
-                  }
-                  className={INPUT_CLS}
-                />
-                {selected.key_prefix && (
-                  <p className="mt-1 text-xs text-[var(--c-text-muted)]">
-                    {p.apiKeyHint}
-                  </p>
-                )}
-              </div>
-              <div>
-                <label className="mb-1 block text-sm font-medium text-[var(--c-text-primary)]">
-                  {p.baseUrl}
-                </label>
-                <input
-                  type="text"
-                  value={formBaseUrl}
-                  onChange={(e) => setFormBaseUrl(e.target.value)}
-                  placeholder={p.baseUrlPlaceholder}
-                  className={INPUT_CLS}
-                />
-              </div>
-            </div>
-
-            {/* Provider action bar */}
-            <div className="flex items-center justify-between border-b border-[var(--c-border-subtle)] pb-4">
-              <button
-                onClick={() => setDeleteTarget(selected)}
-                className="inline-flex items-center gap-1.5 rounded-md border border-[var(--c-border-subtle)] px-3 py-1.5 text-xs font-medium text-[var(--c-text-muted)] transition-colors hover:border-red-500/30 hover:text-red-500"
-              >
-                <Trash2 size={12} />
-                {p.deleteProvider}
-              </button>
-              <button
-                onClick={() => void handleSaveProvider()}
-                disabled={saving || !formName.trim()}
-                className="rounded-md bg-[var(--c-accent)] px-4 py-1.5 text-sm font-medium text-white transition-colors hover:opacity-90 disabled:opacity-50"
-              >
-                {saving ? (
-                  <Loader2 size={14} className="animate-spin" />
-                ) : (
-                  p.save
-                )}
-              </button>
-            </div>
-
-            {/* ---- Models section ---- */}
-            <div>
-              <div className="flex items-center justify-between">
-                <h4 className="text-sm font-medium text-[var(--c-text-primary)]">
-                  {p.modelsSection}
-                </h4>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => void openImport()}
-                    className="inline-flex items-center gap-1.5 rounded-md border border-[var(--c-border-subtle)] px-3 py-1.5 text-xs font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-sub)]"
-                  >
-                    <Download size={12} />
-                    {p.importModels}
-                  </button>
-                  <button
-                    onClick={() => {
-                      setShowAddModel(true)
-                      setNewModelName('')
-                      setNewModelTags([])
-                      setNewModelTagInput('')
-                      setNewModelDefault(false)
-                      setNewModelError('')
-                    }}
-                    className="inline-flex items-center gap-1.5 rounded-md bg-[var(--c-accent)] px-3 py-1.5 text-xs font-medium text-white transition-colors hover:opacity-90"
-                  >
-                    <Plus size={12} />
-                    {p.addModel}
-                  </button>
-                </div>
-              </div>
-
-              <div className="mt-3 space-y-2">
-                {selected.models.length === 0 ? (
-                  <p className="py-8 text-center text-sm text-[var(--c-text-muted)]">
-                    {p.noModels}
-                  </p>
-                ) : (
-                  selected.models.map((m) => (
-                    <div
-                      key={m.id}
-                      className="flex items-center justify-between rounded-xl border px-4 py-3"
-                      style={{ borderColor: 'var(--c-border-subtle)', background: 'var(--c-bg-menu)' }}
-                    >
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium text-[var(--c-text-primary)]">
-                          {m.model}
-                          {m.is_default && (
-                            <span className="ml-2 rounded-full bg-[var(--c-accent)]/10 px-1.5 py-0.5 text-[10px] font-medium text-[var(--c-accent)]">
-                              {p.isDefault}
-                            </span>
-                          )}
-                        </p>
-                        {m.tags.length > 0 && (
-                          <div className="mt-1.5 flex flex-wrap gap-1">
-                            {m.tags.map((tag) => (
-                              <span
-                                key={tag}
-                                className="rounded bg-[var(--c-bg-sub)] px-1.5 py-0.5 text-[11px] text-[var(--c-text-secondary)]"
-                              >
-                                {tag}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                      <button
-                        onClick={() => setDeleteModelTarget(m)}
-                        className="ml-2 shrink-0 rounded p-1.5 text-[var(--c-text-muted)] transition-colors hover:bg-[var(--c-bg-sub)] hover:text-red-500"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          </div>
+          <ProviderDetail
+            key={selected.id}
+            provider={selected}
+            accessToken={accessToken}
+            onUpdated={load}
+            onDeleted={load}
+            p={p}
+          />
         ) : (
-          <div className="flex h-full flex-col items-center justify-center gap-2">
-            <ChevronRight size={24} className="text-[var(--c-text-muted)]" />
+          <div className="flex h-full items-center justify-center">
             <p className="text-sm text-[var(--c-text-muted)]">{p.noProviders}</p>
-            <p className="text-xs text-[var(--c-text-muted)]">{p.noProvidersDesc}</p>
           </div>
         )}
       </div>
 
-      {/* ================================================================ */}
-      {/* Modals — rendered inline (no portal)                             */}
-      {/* ================================================================ */}
-
-      {/* ---- Add Provider Modal ---- */}
       {showAddProvider && (
-        <Overlay onClose={() => !creating && setShowAddProvider(false)}>
-          <h3 className="mb-4 text-sm font-semibold text-[var(--c-text-primary)]">
-            {p.addProvider}
-          </h3>
-          <div className="flex flex-col gap-4">
-            <Field label={p.vendor}>
-              <select
-                value={newVendor}
-                onChange={(e) => {
-                  setNewVendor(e.target.value as VendorPresetKey)
-                  setNewError('')
-                }}
-                className={INPUT_CLS}
-              >
-                {VENDOR_PRESETS.map((v) => (
-                  <option key={v.key} value={v.key}>
-                    {vendorLabel(v.key, p)}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <Field label={p.providerName}>
-              <input
-                type="text"
-                value={newName}
-                onChange={(e) => {
-                  setNewName(e.target.value)
-                  setNewError('')
-                }}
-                placeholder={p.providerNamePlaceholder}
-                className={INPUT_CLS}
-              />
-            </Field>
-            <Field label={p.apiKey}>
-              <input
-                type="password"
-                value={newApiKey}
-                onChange={(e) => {
-                  setNewApiKey(e.target.value)
-                  setNewError('')
-                }}
-                placeholder={p.apiKeyPlaceholder}
-                className={INPUT_CLS}
-              />
-            </Field>
-            <Field label={p.baseUrl}>
-              <input
-                type="text"
-                value={newBaseUrl}
-                onChange={(e) => setNewBaseUrl(e.target.value)}
-                placeholder={p.baseUrlPlaceholder}
-                className={INPUT_CLS}
-              />
-            </Field>
-            {newError && (
-              <p className="text-xs text-red-400">{newError}</p>
-            )}
-            <div className="mt-2 flex justify-end gap-2">
-              <button
-                onClick={() => setShowAddProvider(false)}
-                disabled={creating}
-                className="rounded-md border border-[var(--c-border-subtle)] px-3.5 py-1.5 text-sm text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-sub)] disabled:opacity-50"
-              >
-                {p.cancel}
-              </button>
-              <button
-                onClick={() => void handleCreateProvider()}
-                disabled={creating}
-                className="rounded-md bg-[var(--c-accent)] px-3.5 py-1.5 text-sm font-medium text-white transition-colors hover:opacity-90 disabled:opacity-50"
-              >
-                {creating ? (
-                  <Loader2 size={14} className="animate-spin" />
-                ) : (
-                  p.addProvider
-                )}
-              </button>
-            </div>
-          </div>
-        </Overlay>
-      )}
-
-      {/* ---- Delete Provider Confirmation ---- */}
-      {deleteTarget && (
-        <Overlay onClose={() => !deleting && setDeleteTarget(null)}>
-          <h3 className="mb-2 text-sm font-semibold text-[var(--c-text-primary)]">
-            {p.deleteProvider}
-          </h3>
-          <p className="mb-4 text-sm text-[var(--c-text-secondary)]">
-            {p.deleteProviderConfirm}
-          </p>
-          <div className="flex justify-end gap-2">
-            <button
-              onClick={() => setDeleteTarget(null)}
-              disabled={deleting}
-              className="rounded-md border border-[var(--c-border-subtle)] px-3.5 py-1.5 text-sm text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-sub)] disabled:opacity-50"
-            >
-              {p.cancel}
-            </button>
-            <button
-              onClick={() => void handleDeleteProvider()}
-              disabled={deleting}
-              className="rounded-md bg-red-600 px-3.5 py-1.5 text-sm font-medium text-white transition-colors hover:bg-red-700 disabled:opacity-50"
-            >
-              {deleting ? (
-                <Loader2 size={14} className="animate-spin" />
-              ) : (
-                p.deleteProvider
-              )}
-            </button>
-          </div>
-        </Overlay>
-      )}
-
-      {/* ---- Add Model Modal ---- */}
-      {showAddModel && (
-        <Overlay onClose={() => !addingModel && setShowAddModel(false)}>
-          <h3 className="mb-4 text-sm font-semibold text-[var(--c-text-primary)]">
-            {p.addModel}
-          </h3>
-          <div className="flex flex-col gap-4">
-            <Field label={p.modelName}>
-              <input
-                type="text"
-                value={newModelName}
-                onChange={(e) => {
-                  setNewModelName(e.target.value)
-                  setNewModelError('')
-                }}
-                placeholder={p.modelNamePlaceholder}
-                className={INPUT_CLS}
-              />
-            </Field>
-            <TagInput
-              label={p.tags}
-              tags={newModelTags}
-              tagInput={newModelTagInput}
-              onTagsChange={setNewModelTags}
-              onTagInputChange={setNewModelTagInput}
-              placeholder={p.tagsPlaceholder}
-            />
-            <label className="flex items-center gap-2 text-sm text-[var(--c-text-secondary)]">
-              <input
-                type="checkbox"
-                checked={newModelDefault}
-                onChange={(e) => setNewModelDefault(e.target.checked)}
-                className="rounded"
-              />
-              {p.isDefault}
-            </label>
-            {newModelError && (
-              <p className="text-xs text-red-400">{newModelError}</p>
-            )}
-            <div className="mt-2 flex justify-end gap-2">
-              <button
-                onClick={() => setShowAddModel(false)}
-                disabled={addingModel}
-                className="rounded-md border border-[var(--c-border-subtle)] px-3.5 py-1.5 text-sm text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-sub)] disabled:opacity-50"
-              >
-                {p.cancel}
-              </button>
-              <button
-                onClick={() => void handleAddModel()}
-                disabled={addingModel}
-                className="rounded-md bg-[var(--c-accent)] px-3.5 py-1.5 text-sm font-medium text-white transition-colors hover:opacity-90 disabled:opacity-50"
-              >
-                {addingModel ? (
-                  <Loader2 size={14} className="animate-spin" />
-                ) : (
-                  p.addModel
-                )}
-              </button>
-            </div>
-          </div>
-        </Overlay>
-      )}
-
-      {/* ---- Delete Model Confirmation ---- */}
-      {deleteModelTarget && (
-        <Overlay onClose={() => !deletingModel && setDeleteModelTarget(null)}>
-          <h3 className="mb-2 text-sm font-semibold text-[var(--c-text-primary)]">
-            {p.deleteModel}
-          </h3>
-          <p className="mb-4 text-sm text-[var(--c-text-secondary)]">
-            {deleteModelTarget.model}
-          </p>
-          <div className="flex justify-end gap-2">
-            <button
-              onClick={() => setDeleteModelTarget(null)}
-              disabled={deletingModel}
-              className="rounded-md border border-[var(--c-border-subtle)] px-3.5 py-1.5 text-sm text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-sub)] disabled:opacity-50"
-            >
-              {p.cancel}
-            </button>
-            <button
-              onClick={() => void handleDeleteModel()}
-              disabled={deletingModel}
-              className="rounded-md bg-red-600 px-3.5 py-1.5 text-sm font-medium text-white transition-colors hover:bg-red-700 disabled:opacity-50"
-            >
-              {deletingModel ? (
-                <Loader2 size={14} className="animate-spin" />
-              ) : (
-                p.deleteModel
-              )}
-            </button>
-          </div>
-        </Overlay>
-      )}
-
-      {/* ---- Import Models Modal ---- */}
-      {showImport && (
-        <Overlay onClose={() => !importing && setShowImport(false)}>
-          <h3 className="mb-4 text-sm font-semibold text-[var(--c-text-primary)]">
-            {p.importModels}
-          </h3>
-          <div className="flex flex-col gap-4">
-            {importLoading ? (
-              <div className="flex items-center justify-center py-8">
-                <Loader2 size={20} className="animate-spin text-[var(--c-text-muted)]" />
-                <span className="ml-2 text-sm text-[var(--c-text-muted)]">
-                  {p.importing}
-                </span>
-              </div>
-            ) : importError ? (
-              <p className="py-4 text-center text-sm text-red-400">{importError}</p>
-            ) : availableModels.length === 0 ? (
-              <p className="py-4 text-center text-sm text-[var(--c-text-muted)]">
-                {p.noModels}
-              </p>
-            ) : (
-              <>
-                <div className="relative">
-                  <Search
-                    size={14}
-                    className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--c-text-muted)]"
-                  />
-                  <input
-                    type="text"
-                    value={importSearch}
-                    onChange={(e) => setImportSearch(e.target.value)}
-                    placeholder={p.searchProviders}
-                    className={`${INPUT_CLS} pl-9`}
-                  />
-                </div>
-                {filteredImportModels.length === 0 ? (
-                  <p className="py-4 text-center text-sm text-[var(--c-text-muted)]">
-                    {p.noModels}
-                  </p>
-                ) : (
-                  <div className="max-h-[400px] space-y-1 overflow-y-auto">
-                    {filteredImportModels.map((m) => (
-                      <label
-                        key={m.id}
-                        className="flex cursor-pointer items-center gap-3 rounded-md px-3 py-2 transition-colors hover:bg-[var(--c-bg-sub)]"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={importSelected.has(m.id)}
-                          onChange={() => toggleImportModel(m.id)}
-                          className="rounded"
-                        />
-                        <span className="text-sm text-[var(--c-text-primary)]">
-                          {m.id}
-                        </span>
-                      </label>
-                    ))}
-                  </div>
-                )}
-              </>
-            )}
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => setShowImport(false)}
-                disabled={importing}
-                className="rounded-md border border-[var(--c-border-subtle)] px-3.5 py-1.5 text-sm text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-sub)] disabled:opacity-50"
-              >
-                {p.cancel}
-              </button>
-              <button
-                onClick={() => void handleImport()}
-                disabled={importing || importSelected.size === 0}
-                className="rounded-md bg-[var(--c-accent)] px-3.5 py-1.5 text-sm font-medium text-white transition-colors hover:opacity-90 disabled:opacity-50"
-              >
-                {importing ? (
-                  <Loader2 size={14} className="animate-spin" />
-                ) : (
-                  <>
-                    {p.importModels}
-                    {importSelected.size > 0 && (
-                      <span className="ml-1">({importSelected.size})</span>
-                    )}
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-        </Overlay>
+        <AddProviderModal
+          accessToken={accessToken}
+          p={p}
+          onClose={() => setShowAddProvider(false)}
+          onCreated={() => { setShowAddProvider(false); void load() }}
+        />
       )}
     </div>
   )
 }
 
-// ---------------------------------------------------------------------------
-// Inline helper components
-// ---------------------------------------------------------------------------
+// -- Add Provider Modal --
 
-function Overlay({
-  children,
-  onClose,
-}: {
-  children: React.ReactNode
+function AddProviderModal({ accessToken, p, onClose, onCreated }: {
+  accessToken: string
+  p: ReturnType<typeof useLocale>['t']['adminProviders']
   onClose: () => void
+  onCreated: () => void
 }) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      {/* backdrop */}
-      <div
-        className="absolute inset-0 bg-black/40"
-        onClick={onClose}
-        onKeyDown={(e) => e.key === 'Escape' && onClose()}
-        role="presentation"
-      />
-      {/* panel */}
-      <div
-        className="relative z-10 w-full max-w-md rounded-xl p-5"
-        style={{
-          background: 'var(--c-bg-menu)',
-          border: '0.5px solid var(--c-border-subtle)',
-        }}
-      >
-        <button
-          onClick={onClose}
-          className="absolute right-3 top-3 rounded p-1 text-[var(--c-text-muted)] transition-colors hover:text-[var(--c-text-primary)]"
-        >
-          <X size={14} />
-        </button>
-        {children}
-      </div>
-    </div>
-  )
-}
+  const [name, setName] = useState('')
+  const [preset, setPreset] = useState<VendorPresetKey>('openai_responses')
+  const [apiKey, setApiKey] = useState('')
+  const [baseUrl, setBaseUrl] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState('')
 
-function Field({
-  label,
-  children,
-}: {
-  label: string
-  children: React.ReactNode
-}) {
-  return (
-    <div>
-      <label className="mb-1 block text-sm font-medium text-[var(--c-text-primary)]">
-        {label}
-      </label>
-      {children}
-    </div>
-  )
-}
-
-function TagInput({
-  label,
-  tags,
-  tagInput,
-  onTagsChange,
-  onTagInputChange,
-  placeholder,
-}: {
-  label: string
-  tags: string[]
-  tagInput: string
-  onTagsChange: (t: string[]) => void
-  onTagInputChange: (v: string) => void
-  placeholder: string
-}) {
-  const addTag = () => {
-    const tag = tagInput.trim()
-    if (tag && !tags.includes(tag)) {
-      onTagsChange([...tags, tag])
+  const handleSave = async () => {
+    if (!name.trim() || !apiKey.trim()) return
+    setSaving(true)
+    setErr('')
+    try {
+      const v = VENDOR_PRESETS.find((vv) => vv.key === preset)!
+      await createLlmProvider(accessToken, {
+        name: name.trim(),
+        provider: v.provider,
+        api_key: apiKey.trim(),
+        base_url: baseUrl.trim() || undefined,
+        openai_api_mode: v.openai_api_mode,
+      })
+      onCreated()
+    } catch (e) {
+      setErr(isApiError(e) ? e.message : p.saveFailed)
+    } finally {
+      setSaving(false)
     }
-    onTagInputChange('')
   }
 
   return (
-    <div>
-      <label className="mb-1 block text-sm font-medium text-[var(--c-text-primary)]">
-        {label}
-      </label>
-      <div className="flex flex-wrap items-center gap-1.5">
-        {tags.map((tag) => (
-          <span
-            key={tag}
-            className="inline-flex items-center gap-1 rounded bg-[var(--c-bg-sub)] px-1.5 py-0.5 text-[11px] text-[var(--c-text-secondary)]"
-          >
-            {tag}
-            <button
-              type="button"
-              onClick={() => onTagsChange(tags.filter((tt) => tt !== tag))}
-              className="text-[var(--c-text-muted)] hover:text-[var(--c-text-primary)]"
-            >
-              <X size={10} />
-            </button>
-          </span>
-        ))}
-        <input
-          type="text"
-          value={tagInput}
-          onChange={(e) => onTagInputChange(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault()
-              addTag()
-            }
-            if (e.key === 'Backspace' && !tagInput && tags.length > 0) {
-              onTagsChange(tags.slice(0, -1))
-            }
-          }}
-          onBlur={addTag}
-          placeholder={placeholder}
-          className={`${INPUT_CLS} min-w-[100px] flex-1`}
-        />
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45" onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="flex w-[420px] flex-col gap-4 rounded-xl bg-[var(--c-bg-deep)] p-5 shadow-lg">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-[var(--c-text-primary)]">{p.addProvider}</h3>
+          <button onClick={onClose} className="rounded p-1 text-[var(--c-text-muted)] transition-colors hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-secondary)]"><X size={16} /></button>
+        </div>
+        <div className="space-y-3">
+          <LabelField label={p.providerName}>
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="My Provider" className={INPUT_CLS} />
+          </LabelField>
+          <LabelField label={p.vendor}>
+            <select value={preset} onChange={(e) => setPreset(e.target.value as VendorPresetKey)} className={INPUT_CLS}>
+              {VENDOR_PRESETS.map((v) => <option key={v.key} value={v.key}>{vendorLabel(v.key, p)}</option>)}
+            </select>
+          </LabelField>
+          <LabelField label={p.apiKey}>
+            <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={p.apiKeyPlaceholder} className={INPUT_CLS} />
+          </LabelField>
+          <LabelField label={p.baseUrl}>
+            <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder={p.baseUrlPlaceholder} className={INPUT_CLS} />
+          </LabelField>
+        </div>
+        {err && <p className="text-xs text-red-400">{err}</p>}
+        <div className="flex items-center justify-end gap-2 pt-1">
+          <button onClick={onClose} className="rounded-md border border-[var(--c-border-subtle)] px-3.5 py-1.5 text-sm text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-sub)]">{p.cancel}</button>
+          <button onClick={() => void handleSave()} disabled={saving || !name.trim() || !apiKey.trim()} className="rounded-md bg-[var(--c-btn-bg)] px-4 py-1.5 text-sm font-medium text-[var(--c-btn-text)] transition-colors hover:opacity-90 disabled:opacity-50">
+            {saving ? <Loader2 size={14} className="animate-spin" /> : p.save}
+          </button>
+        </div>
       </div>
+    </div>
+  )
+}
+
+// -- Provider Detail --
+
+function ProviderDetail({ provider, accessToken, onUpdated, onDeleted, p }: {
+  provider: LlmProvider
+  accessToken: string
+  onUpdated: () => void
+  onDeleted: () => void
+  p: ReturnType<typeof useLocale>['t']['adminProviders']
+}) {
+  const [formPreset, setFormPreset] = useState<VendorPresetKey>(toVendorKey(provider.provider, provider.openai_api_mode))
+  const [formName, setFormName] = useState(provider.name)
+  const [formApiKey, setFormApiKey] = useState('')
+  const [formBaseUrl, setFormBaseUrl] = useState(provider.base_url ?? '')
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState('')
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+
+  const handleSave = async () => {
+    setSaving(true)
+    setErr('')
+    try {
+      const selected = VENDOR_PRESETS.find((v) => v.key === formPreset)
+      await updateLlmProvider(accessToken, provider.id, {
+        name: formName.trim() || undefined,
+        api_key: formApiKey.trim() || undefined,
+        base_url: formBaseUrl.trim() || null,
+        provider: selected?.provider,
+        openai_api_mode: selected?.openai_api_mode ?? null,
+      })
+      setFormApiKey('')
+      onUpdated()
+    } catch (e) {
+      setErr(isApiError(e) ? e.message : p.saveFailed)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleDelete = async () => {
+    setDeleting(true)
+    try {
+      await deleteLlmProvider(accessToken, provider.id)
+      onDeleted()
+    } catch (e) {
+      setErr(isApiError(e) ? e.message : p.saveFailed)
+      setDeleting(false)
+      setConfirmDelete(false)
+    }
+  }
+
+  return (
+    <div className="mx-auto max-w-2xl space-y-6">
+      <h3 className="text-base font-semibold text-[var(--c-text-primary)]">{provider.name}</h3>
+
+      <div className="space-y-4">
+        <LabelField label={p.vendor}>
+          <select value={formPreset} onChange={(e) => setFormPreset(e.target.value as VendorPresetKey)} className={INPUT_CLS}>
+            {VENDOR_PRESETS.map((v) => <option key={v.key} value={v.key}>{vendorLabel(v.key, p)}</option>)}
+          </select>
+        </LabelField>
+        <LabelField label={p.providerName}>
+          <input value={formName} onChange={(e) => setFormName(e.target.value)} className={INPUT_CLS} />
+        </LabelField>
+        <LabelField label={p.apiKey}>
+          <input type="password" value={formApiKey} onChange={(e) => setFormApiKey(e.target.value)} placeholder={provider.key_prefix ? `${provider.key_prefix}${'*'.repeat(40)}` : p.apiKeyPlaceholder} className={INPUT_CLS} />
+          {provider.key_prefix && <p className="mt-1 text-xs text-[var(--c-text-muted)]">{provider.key_prefix}{'*'.repeat(8)}</p>}
+        </LabelField>
+        <LabelField label={p.baseUrl}>
+          <input value={formBaseUrl} onChange={(e) => setFormBaseUrl(e.target.value)} placeholder={p.baseUrlPlaceholder} className={INPUT_CLS} />
+        </LabelField>
+      </div>
+
+      {err && <p className="text-xs text-red-400">{err}</p>}
+
+      <div className="flex items-center justify-between border-b border-[var(--c-border-subtle)] pb-4">
+        {confirmDelete ? (
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-[var(--c-text-tertiary)]">{p.deleteProviderConfirm}</span>
+            <button onClick={() => void handleDelete()} disabled={deleting} className="rounded-md bg-red-600 px-3 py-1 text-xs font-medium text-white transition-colors hover:bg-red-700 disabled:opacity-50">{p.deleteProvider}</button>
+            <button onClick={() => setConfirmDelete(false)} className="rounded-md px-3 py-1 text-xs text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-sub)]">{p.cancel}</button>
+          </div>
+        ) : (
+          <button onClick={() => setConfirmDelete(true)} className="inline-flex items-center gap-1.5 rounded-md border border-[var(--c-border-subtle)] px-3 py-1.5 text-xs font-medium text-[var(--c-text-muted)] transition-colors hover:border-red-500/30 hover:text-red-500">
+            <Trash2 size={12} />
+          </button>
+        )}
+        <button onClick={() => void handleSave()} disabled={saving || !formName.trim()} className="rounded-md bg-[var(--c-btn-bg)] px-4 py-1.5 text-sm font-medium text-[var(--c-btn-text)] transition-colors hover:opacity-90 disabled:opacity-50">
+          {saving ? <Loader2 size={14} className="animate-spin" /> : p.save}
+        </button>
+      </div>
+
+      <ModelsSection provider={provider} accessToken={accessToken} onChanged={onUpdated} p={p} />
+    </div>
+  )
+}
+
+// -- Models Section (same pattern as ModelConfigContent) --
+
+function ModelsSection({ provider, accessToken, onChanged, p }: {
+  provider: LlmProvider
+  accessToken: string
+  onChanged: () => void
+  p: ReturnType<typeof useLocale>['t']['adminProviders']
+}) {
+  const [available, setAvailable] = useState<AvailableModel[] | null>(null)
+  const [loadingAvailable, setLoadingAvailable] = useState(false)
+  const [importing, setImporting] = useState(false)
+  const [deletingAll, setDeletingAll] = useState(false)
+  const [addingModel, setAddingModel] = useState(false)
+  const [newModel, setNewModel] = useState('')
+  const [err, setErr] = useState('')
+  const [search, setSearch] = useState('')
+
+  const loadAvailable = useCallback(async () => {
+    setLoadingAvailable(true)
+    try {
+      const res = await listAvailableModels(accessToken, provider.id)
+      setAvailable(res.models)
+    } catch { /* upstream unavailable */ } finally {
+      setLoadingAvailable(false)
+    }
+  }, [accessToken, provider.id])
+
+  useEffect(() => { void loadAvailable() }, [loadAvailable])
+
+  const handleImportAll = async () => {
+    if (!available) return
+    setImporting(true)
+    setErr('')
+    try {
+      const unconfigured = available.filter((am) => !am.configured)
+      const embeddingIds = new Set(unconfigured.filter((am) => am.type === 'embedding').map((am) => am.id.toLowerCase()))
+      const created = await Promise.all(
+        unconfigured.map((am) => {
+          const isEmb = am.type === 'embedding'
+          return createProviderModel(accessToken, provider.id, { model: am.id, show_in_picker: false, tags: isEmb ? ['embedding'] : undefined })
+        })
+      )
+      const toEnable = created.filter((pm) => pm.model.toLowerCase().includes('gpt-4o-mini') && !embeddingIds.has(pm.model.toLowerCase()))
+      await Promise.all(toEnable.map((pm) => patchProviderModel(accessToken, provider.id, pm.id, { show_in_picker: true })))
+      onChanged()
+      void loadAvailable()
+    } catch (e) {
+      setErr(isApiError(e) ? e.message : p.saveFailed)
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  const handleAddModel = async () => {
+    if (!newModel.trim()) return
+    setErr('')
+    try {
+      await createProviderModel(accessToken, provider.id, { model: newModel.trim() })
+      setNewModel('')
+      setAddingModel(false)
+      onChanged()
+    } catch (e) {
+      setErr(isApiError(e) ? e.message : p.saveFailed)
+    }
+  }
+
+  const handleDeleteModel = async (modelId: string) => {
+    try {
+      await deleteProviderModel(accessToken, provider.id, modelId)
+      onChanged()
+    } catch (e) {
+      setErr(isApiError(e) ? e.message : p.saveFailed)
+    }
+  }
+
+  const handleDeleteAll = async () => {
+    setDeletingAll(true)
+    setErr('')
+    for (const pm of provider.models) {
+      try { await deleteProviderModel(accessToken, provider.id, pm.id) } catch { /* skip */ }
+    }
+    setDeletingAll(false)
+    onChanged()
+    void loadAvailable()
+  }
+
+  const handleTogglePicker = async (modelId: string, current: boolean) => {
+    try {
+      await patchProviderModel(accessToken, provider.id, modelId, { show_in_picker: !current })
+      onChanged()
+    } catch (e) {
+      setErr(isApiError(e) ? e.message : p.saveFailed)
+    }
+  }
+
+  const unconfiguredCount = available?.filter((am) => !am.configured).length ?? 0
+  const filteredModels = search.trim()
+    ? provider.models.filter((pm) => pm.model.toLowerCase().includes(search.trim().toLowerCase()))
+    : provider.models
+
+  return (
+    <div>
+      <div className="flex items-center justify-between">
+        <h4 className="text-sm font-medium text-[var(--c-text-primary)]">{p.modelsSection}</h4>
+        <div className="flex items-center gap-2">
+          {provider.models.length > 0 && (
+            <button onClick={() => void handleDeleteAll()} disabled={deletingAll} className="inline-flex items-center gap-1.5 rounded-md border border-[var(--c-border-subtle)] px-3 py-1.5 text-xs font-medium text-[var(--c-text-muted)] transition-colors hover:border-red-500/30 hover:text-red-500 disabled:opacity-50">
+              {deletingAll ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
+              {p.deleteAll ?? 'Delete all'}
+            </button>
+          )}
+          {loadingAvailable && !available && <Loader2 size={12} className="animate-spin text-[var(--c-text-muted)]" />}
+          {unconfiguredCount > 0 && (
+            <button onClick={() => void handleImportAll()} disabled={importing} className="inline-flex items-center gap-1.5 rounded-md border border-[var(--c-border-subtle)] px-3 py-1.5 text-xs font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-sub)] disabled:opacity-50">
+              <Download size={12} />
+              {importing ? (p.importing ?? '...') : `${p.importAll ?? 'Import all'} (${unconfiguredCount})`}
+            </button>
+          )}
+          <button onClick={() => { setAddingModel(true); setNewModel('') }} className="rounded-md bg-[var(--c-btn-bg)] px-3 py-1.5 text-xs font-medium text-[var(--c-btn-text)] transition-colors hover:opacity-90">
+            {p.addModel}
+          </button>
+        </div>
+      </div>
+
+      {addingModel && (
+        <div className="mt-3 flex items-center gap-2">
+          <input value={newModel} onChange={(e) => setNewModel(e.target.value)} placeholder={p.modelNamePlaceholder ?? 'Model name'} className={INPUT_CLS + ' flex-1'} onKeyDown={(e) => { if (e.key === 'Enter') void handleAddModel(); if (e.key === 'Escape') setAddingModel(false) }} autoFocus />
+          <button onClick={() => setAddingModel(false)} className="rounded p-1.5 text-[var(--c-text-muted)] transition-colors hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-secondary)]"><X size={14} /></button>
+        </div>
+      )}
+
+      {err && <p className="mt-2 text-xs text-red-400">{err}</p>}
+
+      {provider.models.length > 0 && (
+        <div className="mt-3">
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={p.searchProviders} className={INPUT_CLS + ' w-full'} />
+        </div>
+      )}
+
+      <div className="mt-2 space-y-1 overflow-y-auto" style={{ maxHeight: '320px' }}>
+        {provider.models.length === 0 && !addingModel ? (
+          <p className="py-8 text-center text-sm text-[var(--c-text-muted)]">--</p>
+        ) : filteredModels.length === 0 ? (
+          <p className="py-4 text-center text-sm text-[var(--c-text-muted)]">--</p>
+        ) : (
+          filteredModels.map((pm) => (
+            <div key={pm.id} className="group flex items-center justify-between rounded-lg border border-[var(--c-border-subtle)] px-4 py-2.5">
+              <div className="min-w-0 flex-1 flex items-center gap-1.5">
+                <p className="truncate text-sm font-medium text-[var(--c-text-primary)]">{pm.model}</p>
+                {pm.tags.includes('embedding') && (
+                  <span className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium" style={{ background: 'var(--c-accent-subtle, color-mix(in srgb, var(--c-accent) 15%, transparent))', color: 'var(--c-accent)', border: '1px solid var(--c-accent)' }}>emb</span>
+                )}
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                {/* show_in_picker toggle */}
+                <label className="relative inline-flex shrink-0 cursor-pointer items-center" title={pm.show_in_picker ? 'Hide from picker' : 'Show in picker'}>
+                  <input type="checkbox" checked={pm.show_in_picker} onChange={() => void handleTogglePicker(pm.id, pm.show_in_picker)} className="peer sr-only" />
+                  <span className="h-5 w-9 rounded-full transition-colors" style={{ background: pm.show_in_picker ? 'var(--c-btn-bg)' : 'var(--c-border-mid)' }} />
+                  <span className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full transition-transform peer-checked:translate-x-4" style={{ background: pm.show_in_picker ? 'var(--c-btn-text)' : 'var(--c-bg-page)' }} />
+                </label>
+                {/* Delete */}
+                <button onClick={() => void handleDeleteModel(pm.id)} className="rounded p-1.5 text-[var(--c-text-muted)] transition-colors hover:bg-[var(--c-bg-sub)] hover:text-red-500">
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  )
+}
+
+function LabelField({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <label className="mb-1 block text-xs font-medium text-[var(--c-text-tertiary)]">{label}</label>
+      {children}
     </div>
   )
 }

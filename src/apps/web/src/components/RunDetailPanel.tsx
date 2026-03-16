@@ -118,7 +118,7 @@ export function RunDetailPanel({ runId, accessToken, onClose }: Props) {
 
   return createPortal(
     <aside
-      className="fixed inset-y-0 right-0 z-50 flex w-[520px] max-w-full flex-col border-l border-[var(--c-border)] shadow-2xl"
+      className="fixed inset-y-0 right-0 z-50 flex w-[520px] max-w-full flex-col border-l border-[var(--c-border)]"
       style={{ background: 'var(--c-bg-menu, #1a1a1a)' }}
     >
         {/* Header */}

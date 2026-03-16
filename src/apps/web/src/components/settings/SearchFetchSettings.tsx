@@ -40,9 +40,9 @@ function configEqual(a: ConnectorsConfig, b: ConnectorsConfig): boolean {
 type BadgeVariant = 'free' | 'configured' | 'always' | 'missing'
 
 const BADGE: Record<BadgeVariant, { cls: string; dot: string; label: (t: BadgeT) => string }> = {
-  free:       { cls: 'bg-blue-500/15 text-blue-400 dark:text-blue-300',   dot: 'bg-blue-400 dark:bg-blue-300',   label: (t) => t.connectorFreeTier },
-  configured: { cls: 'bg-green-500/15 text-green-500 dark:text-green-400', dot: 'bg-green-500 dark:bg-green-400', label: (t) => t.connectorConfigured },
-  always:     { cls: 'bg-green-500/15 text-green-500 dark:text-green-400', dot: 'bg-green-500 dark:bg-green-400', label: (t) => t.connectorConfigured },
+  free:       { cls: 'bg-blue-500/15 text-blue-400',   dot: 'bg-blue-400',   label: (t) => t.connectorFreeTier },
+  configured: { cls: 'bg-green-500/15 text-green-400', dot: 'bg-green-400', label: (t) => t.connectorConfigured },
+  always:     { cls: 'bg-green-500/15 text-green-400', dot: 'bg-green-400', label: (t) => t.connectorConfigured },
   missing:    { cls: 'bg-[var(--c-bg-deep)] text-[var(--c-text-muted)]',   dot: 'bg-[var(--c-text-muted)]',       label: (t) => t.connectorNotConfigured },
 }
 
@@ -416,7 +416,7 @@ export function SearchFetchSettings() {
           {saving ? ds.connectorSaving : ds.connectorSaveBtn}
         </button>
         {saved && !dirty && (
-          <span className="flex items-center gap-1 text-xs text-green-500 dark:text-green-400">
+          <span className="flex items-center gap-1 text-xs text-green-400">
             <Check size={11} />
             {ds.connectorSaved}
           </span>

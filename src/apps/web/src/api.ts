@@ -1274,6 +1274,11 @@ export type AvailableModel = {
   id: string
   name: string
   configured: boolean
+  type?: string
+  context_length?: number | null
+  max_output_tokens?: number | null
+  input_modalities?: string[]
+  output_modalities?: string[]
 }
 
 const BYOK_SCOPE = 'user'
