@@ -734,3 +734,12 @@ button:not(:disabled) {
   0%, 100% { opacity: 1; }
   50% { opacity: 0; }
 }
+
+@keyframes arrow-breathe {
+  0%, 100% { color: var(--c-text-secondary); }
+  50% { color: var(--c-text-primary); }
+}
+
+.arrow-breathe {
+  animation: arrow-breathe 1.8s ease-in-out infinite;
+}

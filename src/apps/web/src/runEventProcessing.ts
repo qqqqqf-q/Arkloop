@@ -1,6 +1,6 @@
 import type { MessageResponse, ThreadRunResponse } from './api'
 import type { RunEvent } from './sse'
-import type { ArtifactRef, BrowserActionRef, CodeExecutionRef, FileOpRef, MessageThinkingRef, SubAgentRef } from './storage'
+import type { ArtifactRef, BrowserActionRef, CodeExecutionRef, FileOpRef, MessageThinkingRef, SubAgentRef, WebFetchRef } from './storage'
 
 const CODE_EXECUTION_TOOL_NAMES = new Set(['python_execute', 'exec_command'])
 const CODE_EXECUTION_RESULT_TOOL_NAMES = new Set(['python_execute', 'exec_command', 'write_stdin'])
@@ -891,4 +891,80 @@ export function buildMessageFileOpsFromRunEvents(events: RunEvent[]): FileOpRef[
     }
   }
   return ops
+}
+
+// --- Web Fetch processing ---
+
+type WebFetchToolCallPatch = {
+  nextFetches: WebFetchRef[]
+  appended?: WebFetchRef
+}
+
+type WebFetchToolResultPatch = {
+  nextFetches: WebFetchRef[]
+  updated?: WebFetchRef
+}
+
+export function applyWebFetchToolCall(
+  fetches: WebFetchRef[],
+  event: RunEvent,
+): WebFetchToolCallPatch {
+  if (event.type !== 'tool.call') return { nextFetches: fetches }
+  const toolName = pickToolName(event.data)
+  if (toolName !== 'web_fetch') return { nextFetches: fetches }
+
+  const args = event.data && typeof event.data === 'object'
+    ? (event.data as { arguments?: unknown }).arguments as Record<string, unknown> | undefined ?? {}
+    : {}
+  const url = typeof args.url === 'string' ? args.url : ''
+  const appended: WebFetchRef = {
+    id: pickToolCallId(event),
+    url,
+    status: 'fetching',
+  }
+  return { appended, nextFetches: [...fetches, appended] }
+}
+
+export function applyWebFetchToolResult(
+  fetches: WebFetchRef[],
+  event: RunEvent,
+): WebFetchToolResultPatch {
+  if (event.type !== 'tool.result') return { nextFetches: fetches }
+  const toolName = pickToolName(event.data)
+  if (toolName !== 'web_fetch') return { nextFetches: fetches }
+
+  const toolCallId = pickToolCallId(event)
+  const data = event.data && typeof event.data === 'object'
+    ? event.data as { result?: unknown }
+    : undefined
+  const result = data?.result as Record<string, unknown> | undefined
+  const hasError = !!(event.error_class)
+  const title = typeof result?.title === 'string' ? result.title : undefined
+  const statusCode = typeof result?.status_code === 'number' ? result.status_code : undefined
+
+  const targetIdx = fetches.findIndex((f) => f.id === toolCallId)
+  if (targetIdx < 0) return { nextFetches: fetches }
+
+  const updated: WebFetchRef = {
+    ...fetches[targetIdx],
+    title,
+    statusCode,
+    status: hasError ? 'failed' : 'done',
+  }
+  return {
+    updated,
+    nextFetches: fetches.map((f, i) => i === targetIdx ? updated : f),
+  }
+}
+
+export function buildMessageWebFetchesFromRunEvents(events: RunEvent[]): WebFetchRef[] {
+  let fetches: WebFetchRef[] = []
+  for (const event of events) {
+    if (event.type === 'tool.call') {
+      fetches = applyWebFetchToolCall(fetches, event).nextFetches
+    } else if (event.type === 'tool.result') {
+      fetches = applyWebFetchToolResult(fetches, event).nextFetches
+    }
+  }
+  return fetches
 }

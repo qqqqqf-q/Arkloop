@@ -632,6 +632,58 @@ export function writeMessageSubAgents(messageId: string, agents: SubAgentRef[]):
   } catch { /* ignore */ }
 }
 
+// -- Web Fetch --
+
+export type WebFetchRef = {
+  id: string
+  url: string
+  title?: string
+  status: 'fetching' | 'done' | 'failed'
+  statusCode?: number
+}
+
+function isWebFetchRef(v: unknown): v is WebFetchRef {
+  if (!v || typeof v !== 'object') return false
+  const o = v as Record<string, unknown>
+  if (typeof o.id !== 'string' || !o.id) return false
+  if (typeof o.url !== 'string') return false
+  const s = o.status
+  if (s !== 'fetching' && s !== 'done' && s !== 'failed') return false
+  return true
+}
+
+function messageWebFetchesKey(messageId: string): string {
+  return `arkloop:web:msg_web_fetches:${messageId}`
+}
+
+export function readMessageWebFetches(messageId: string): WebFetchRef[] | null {
+  if (!canUseLocalStorage() || !messageId) return null
+  try {
+    const raw = localStorage.getItem(messageWebFetchesKey(messageId))
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) {
+      localStorage.removeItem(messageWebFetchesKey(messageId))
+      return null
+    }
+    if (!parsed.every((item) => isWebFetchRef(item))) {
+      localStorage.removeItem(messageWebFetchesKey(messageId))
+      return null
+    }
+    return parsed
+  } catch {
+    try { localStorage.removeItem(messageWebFetchesKey(messageId)) } catch { /* ignore */ }
+    return null
+  }
+}
+
+export function writeMessageWebFetches(messageId: string, fetches: WebFetchRef[]): void {
+  if (!canUseLocalStorage() || !messageId || fetches.length === 0) return
+  try {
+    localStorage.setItem(messageWebFetchesKey(messageId), JSON.stringify(fetches))
+  } catch { /* ignore */ }
+}
+
 const SEARCH_THREAD_IDS_KEY = 'arkloop:web:search_thread_ids'
 
 export function addSearchThreadId(threadId: string): void {
@@ -673,5 +725,7 @@ export function migrateMessageMetadata(mapping: Array<{ old_id: string; new_id: 
     if (copBlocks) writeMessageCopBlocks(new_id, copBlocks)
     const fileOps = readMessageFileOps(old_id)
     if (fileOps) writeMessageFileOps(new_id, fileOps)
+    const webFetches = readMessageWebFetches(old_id)
+    if (webFetches) writeMessageWebFetches(new_id, webFetches)
   }
 }

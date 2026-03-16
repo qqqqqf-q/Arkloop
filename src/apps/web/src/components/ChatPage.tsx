@@ -43,6 +43,9 @@ import {
   applyFileOpToolCall,
   applyFileOpToolResult,
   buildMessageFileOpsFromRunEvents,
+  applyWebFetchToolCall,
+  applyWebFetchToolResult,
+  buildMessageWebFetchesFromRunEvents,
 } from '../runEventProcessing'
 import { useLocale } from '../contexts/LocaleContext'
 import type { UserInputRequest, UserInputResponse, RequestedSchema } from '../userInputTypes'
@@ -99,6 +102,9 @@ import {
   writeMessageSubAgents,
   readMessageFileOps,
   writeMessageFileOps,
+  readMessageWebFetches,
+  writeMessageWebFetches,
+  type WebFetchRef,
   migrateMessageMetadata,
 } from '../storage'
 
@@ -282,6 +288,10 @@ export function ChatPage() {
   const [messageFileOpsMap, setMessageFileOpsMap] = useState<Map<string, FileOpRef[]>>(new Map())
   const currentRunFileOpsRef = useRef<FileOpRef[]>([])
   const [topLevelFileOps, setTopLevelFileOps] = useState<FileOpRef[]>([])
+  // web fetch 记录
+  const [messageWebFetchesMap, setMessageWebFetchesMap] = useState<Map<string, WebFetchRef[]>>(new Map())
+  const currentRunWebFetchesRef = useRef<WebFetchRef[]>([])
+  const [topLevelWebFetches, setTopLevelWebFetches] = useState<WebFetchRef[]>([])
   const [, setMessageThinkingMap] = useState<Map<string, MessageThinkingRef>>(new Map())
   // COP blocks 缓存：messageId -> cop blocks data
   const [messageCopBlocksMap, setMessageCopBlocksMap] = useState<Map<string, MessageCopBlocksRef>>(new Map())
@@ -686,6 +696,7 @@ export function ChatPage() {
         const browserActionsMap = new Map<string, BrowserActionRef[]>()
         const subAgentsMap = new Map<string, SubAgentRef[]>()
         const fileOpsMap = new Map<string, FileOpRef[]>()
+        const webFetchesMap = new Map<string, WebFetchRef[]>()
         const thinkingMap = new Map<string, MessageThinkingRef>()
         const copBlocksMap = new Map<string, MessageCopBlocksRef>()
         for (const msg of items) {
@@ -703,6 +714,8 @@ export function ChatPage() {
           if (cachedSubAgents) subAgentsMap.set(msg.id, cachedSubAgents)
           const cachedFileOps = readMessageFileOps(msg.id)
           if (cachedFileOps) fileOpsMap.set(msg.id, cachedFileOps)
+          const cachedWebFetches = readMessageWebFetches(msg.id)
+          if (cachedWebFetches) webFetchesMap.set(msg.id, cachedWebFetches)
           const cachedThinking = readMessageThinking(msg.id)
           if (cachedThinking) thinkingMap.set(msg.id, cachedThinking)
           const cachedCopBlocks = readMessageCopBlocks(msg.id)
@@ -718,7 +731,8 @@ export function ChatPage() {
         const replayBrowserActionsNeeded = !!(lastAssistant && !browserActionsMap.has(lastAssistant.id))
         const replaySubAgentsNeeded = !!(lastAssistant && !subAgentsMap.has(lastAssistant.id))
         const replayFileOpsNeeded = !!(lastAssistant && !fileOpsMap.has(lastAssistant.id))
-        if (latest && latest.status !== 'running' && lastAssistant && (replayThinkingNeeded || replayCodeExecNeeded || replayBrowserActionsNeeded || replaySubAgentsNeeded || replayFileOpsNeeded)) {
+        const replayWebFetchesNeeded = !!(lastAssistant && !webFetchesMap.has(lastAssistant.id))
+        if (latest && latest.status !== 'running' && lastAssistant && (replayThinkingNeeded || replayCodeExecNeeded || replayBrowserActionsNeeded || replaySubAgentsNeeded || replayFileOpsNeeded || replayWebFetchesNeeded)) {
           try {
             const replayEvents = await listRunEvents(accessToken, latest.run_id, { follow: false })
             if (replayThinkingNeeded) {
@@ -754,6 +768,13 @@ export function ChatPage() {
                 writeMessageFileOps(lastAssistant.id, replayFileOps)
               }
             }
+            if (replayWebFetchesNeeded) {
+              const replayWebFetches = buildMessageWebFetchesFromRunEvents(replayEvents)
+              if (replayWebFetches.length > 0) {
+                webFetchesMap.set(lastAssistant.id, replayWebFetches)
+                writeMessageWebFetches(lastAssistant.id, replayWebFetches)
+              }
+            }
           } catch {
             // 回放失败不影响主流程
           }
@@ -764,8 +785,10 @@ export function ChatPage() {
         setMessageCodeExecutionsMap(codeExecMap)
         setMessageBrowserActionsMap(browserActionsMap)
         setMessageSubAgentsMap(subAgentsMap)
+        setMessageFileOpsMap(fileOpsMap)
         setMessageThinkingMap(thinkingMap)
         setMessageCopBlocksMap(copBlocksMap)
+        setMessageWebFetchesMap(webFetchesMap)
 
         // 若 location state 已提供 initialRunId，优先使用（来自 WelcomePage 新建后导航）
         // 必须显式调用 setActiveRunId，因为 React Router 复用组件实例，useState 初始值不会重新求值
@@ -864,6 +887,7 @@ export function ChatPage() {
     currentRunBrowserActionsRef.current = []
     currentRunSubAgentsRef.current = []
     currentRunFileOpsRef.current = []
+    currentRunWebFetchesRef.current = []
     setAssistantDraft('')
     setSegments([])
     activeSegmentIdRef.current = null
@@ -872,6 +896,7 @@ export function ChatPage() {
     setTopLevelBrowserActions([])
     setTopLevelSubAgents([])
     setTopLevelFileOps([])
+    setTopLevelWebFetches([])
     resetCopState()
     setCancelSubmitting(false)
     return () => { sse.disconnect() }
@@ -1050,6 +1075,12 @@ export function ChatPage() {
           currentRunFileOpsRef.current = fileOpCall.nextOps
           setTopLevelFileOps((prev) => [...prev, fileOpCall.appended!])
         }
+        // web_fetch tool.call
+        const webFetchCall = applyWebFetchToolCall(currentRunWebFetchesRef.current, event)
+        if (webFetchCall.appended) {
+          currentRunWebFetchesRef.current = webFetchCall.nextFetches
+          setTopLevelWebFetches((prev) => [...prev, webFetchCall.appended!])
+        }
         // timeline_title: COP 块分割线
         if (toolName === SEARCH_PLANNING_TOOL_NAME) {
           const args = obj.arguments as Record<string, unknown> | undefined
@@ -1220,6 +1251,16 @@ export function ChatPage() {
             return [...prev, fileOpResult.updated!]
           })
         }
+        // web_fetch tool.result
+        const webFetchResult = applyWebFetchToolResult(currentRunWebFetchesRef.current, event)
+        if (webFetchResult.updated) {
+          currentRunWebFetchesRef.current = webFetchResult.nextFetches
+          setTopLevelWebFetches((prev) => {
+            const idx = prev.findIndex((f) => f.id === webFetchResult.updated!.id)
+            if (idx >= 0) return prev.map((f, i) => i === idx ? webFetchResult.updated! : f)
+            return [...prev, webFetchResult.updated!]
+          })
+        }
         continue
       }
 
@@ -1319,6 +1360,8 @@ export function ChatPage() {
         currentRunSubAgentsRef.current = []
         const runFileOps = [...currentRunFileOpsRef.current]
         currentRunFileOpsRef.current = []
+        const runWebFetches = [...currentRunWebFetchesRef.current]
+        currentRunWebFetchesRef.current = []
         void refreshMessages({ requiredCompletedRunId: completedRunId }).then((items) => {
           const completedAssistant = findAssistantMessageForRun(items, completedRunId)
           if (completedAssistant) {
@@ -1348,6 +1391,10 @@ export function ChatPage() {
             if (runFileOps.length > 0) {
               writeMessageFileOps(completedAssistant.id, runFileOps)
               setMessageFileOpsMap((prev) => new Map(prev).set(completedAssistant.id, runFileOps))
+            }
+            if (runWebFetches.length > 0) {
+              writeMessageWebFetches(completedAssistant.id, runWebFetches)
+              setMessageWebFetchesMap((prev) => new Map(prev).set(completedAssistant.id, runWebFetches))
             }
             if (runThinking) {
               writeMessageThinking(completedAssistant.id, runThinking)
@@ -1388,6 +1435,7 @@ export function ChatPage() {
         setTopLevelBrowserActions([])
         setTopLevelSubAgents([])
         setTopLevelFileOps([])
+        setTopLevelWebFetches([])
         setSegments([])
         resetCopState()
         activeSegmentIdRef.current = null
@@ -1395,6 +1443,7 @@ export function ChatPage() {
         currentRunBrowserActionsRef.current = []
         currentRunSubAgentsRef.current = []
         currentRunFileOpsRef.current = []
+        currentRunWebFetchesRef.current = []
         setAwaitingInput(false)
         setPendingUserInput(null)
         setCheckInDraft('')
@@ -1416,6 +1465,7 @@ export function ChatPage() {
         setTopLevelBrowserActions([])
         setTopLevelSubAgents([])
         setTopLevelFileOps([])
+        setTopLevelWebFetches([])
         setSegments([])
         resetCopState()
         activeSegmentIdRef.current = null
@@ -1423,6 +1473,7 @@ export function ChatPage() {
         currentRunBrowserActionsRef.current = []
         currentRunSubAgentsRef.current = []
         currentRunFileOpsRef.current = []
+        currentRunWebFetchesRef.current = []
         setAwaitingInput(false)
         setPendingUserInput(null)
         setCheckInDraft('')
@@ -1482,6 +1533,8 @@ export function ChatPage() {
     currentRunSubAgentsRef.current = []
     const runFileOps = [...currentRunFileOpsRef.current]
     currentRunFileOpsRef.current = []
+    const runWebFetches2 = [...currentRunWebFetchesRef.current]
+    currentRunWebFetchesRef.current = []
 
     setActiveRunId(null)
     setAssistantDraft('')
@@ -1490,6 +1543,7 @@ export function ChatPage() {
     setTopLevelBrowserActions([])
     setTopLevelSubAgents([])
     setTopLevelFileOps([])
+    setTopLevelWebFetches([])
     setSegments([])
     activeSegmentIdRef.current = null
     const runCopData = finalizeCopBlocks(copBlocksRef.current, bridgeTextsRef.current)
@@ -1539,6 +1593,10 @@ export function ChatPage() {
         if (runFileOps.length > 0) {
           writeMessageFileOps(completedAssistant.id, runFileOps)
           setMessageFileOpsMap((prev) => new Map(prev).set(completedAssistant.id, runFileOps))
+        }
+        if (runWebFetches2.length > 0) {
+          writeMessageWebFetches(completedAssistant.id, runWebFetches2)
+          setMessageWebFetchesMap((prev) => new Map(prev).set(completedAssistant.id, runWebFetches2))
         }
         if (runThinking) {
           writeMessageThinking(completedAssistant.id, runThinking)
@@ -2177,11 +2235,12 @@ export function ChatPage() {
                 const hasMessageCodeExecutions = !!(messageCodeExecutions && messageCodeExecutions.length > 0)
                 const messageSubAgents = msg.role === 'assistant' ? messageSubAgentsMap.get(msg.id) : undefined
                 const messageFileOps = msg.role === 'assistant' ? messageFileOpsMap.get(msg.id) : undefined
+                const messageWebFetches = msg.role === 'assistant' ? messageWebFetchesMap.get(msg.id) : undefined
                 const hasPerBlockCodeExecs = historicalBlocks.some(b => b.codeExecutions && b.codeExecutions.length > 0)
                 return (
                   <div key={msg.id} ref={idx === lastUserMsgIdx ? lastUserMsgRef : undefined}>
                   {/* 完成后的 COP 时间轴 */}
-                  {(historicalBlocks.length > 0 || hasMessageCodeExecutions || (messageSubAgents && messageSubAgents.length > 0) || (messageFileOps && messageFileOps.length > 0)) && (
+                  {(historicalBlocks.length > 0 || hasMessageCodeExecutions || (messageSubAgents && messageSubAgents.length > 0) || (messageFileOps && messageFileOps.length > 0) || (messageWebFetches && messageWebFetches.length > 0)) && (
                     <div style={{ marginBottom: '12px' }}>
                       {historicalBlocks.map((block, bi) => {
                         const blockCodeExecs = hasPerBlockCodeExecs
@@ -2198,6 +2257,7 @@ export function ChatPage() {
                             activeCodeExecutionId={codePanelExecution?.id}
                             subAgents={bi === historicalBlocks.length - 1 ? messageSubAgents : undefined}
                             fileOps={bi === historicalBlocks.length - 1 ? messageFileOps : undefined}
+                            webFetches={bi === historicalBlocks.length - 1 ? messageWebFetches : undefined}
                             headerOverride={block.title || undefined}
                             accessToken={accessToken}
                             baseUrl={baseUrl}
@@ -2689,7 +2749,7 @@ export function ChatPage() {
             cursor: 'pointer',
           }}
         >
-          <ArrowDown size={16} />
+          <ArrowDown size={16} className={isStreaming && !isAtBottom ? 'arrow-breathe' : ''} />
         </button>
         {queuedDraft && (
           <div

@@ -178,6 +178,12 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
 
   const handleRunStarted = useCallback((threadId: string) => {
     setRunningThreadIds((prev) => new Set(prev).add(threadId))
+    setThreads((prev) => {
+      const idx = prev.findIndex((t) => t.id === threadId)
+      if (idx <= 0) return prev
+      const thread = prev[idx]
+      return [thread, ...prev.slice(0, idx), ...prev.slice(idx + 1)]
+    })
   }, [])
 
   const handleRunEnded = useCallback((threadId: string) => {
