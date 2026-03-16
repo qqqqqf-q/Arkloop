@@ -44,6 +44,7 @@ type OutletContext = {
   pendingSkillPrompt?: string | null
   onConsumeSkillPrompt?: () => void
   onOpenSettings?: (tab: string) => void
+  appMode?: import('../storage').AppMode
 }
 
 // 按时段、星期、节日生成问候语，全部基于浏览器本地时间。
@@ -115,7 +116,7 @@ function buildGreeting(name: string | null, now: Date): string {
 
 
 export function WelcomePage() {
-  const { accessToken, onLoggedOut, onThreadCreated, refreshCredits, onOpenNotifications, notificationVersion, creditsBalance: _creditsBalance, me, isPrivateMode, onTogglePrivateMode, isSearchMode, onEnterSearchMode, onExitSearchMode, pendingSkillPrompt, onConsumeSkillPrompt, onOpenSettings } = useOutletContext<OutletContext>()
+  const { accessToken, onLoggedOut, onThreadCreated, refreshCredits, onOpenNotifications, notificationVersion, creditsBalance: _creditsBalance, me, isPrivateMode, onTogglePrivateMode, isSearchMode, onEnterSearchMode, onExitSearchMode, pendingSkillPrompt, onConsumeSkillPrompt, onOpenSettings, appMode } = useOutletContext<OutletContext>()
   const [draft, setDraft] = useState('')
   const [attachments, setAttachments] = useState<Attachment[]>([])
   const attachmentsRef = useRef<Attachment[]>([])
@@ -327,34 +328,34 @@ export function WelcomePage() {
         )}
       </div>
 
-      {/* 居中内容 */}
+      {/* 居中内容 — paddingTop 带过渡动画，模式切换时平滑移动 */}
       <div
-        className="flex flex-1 flex-col items-center px-5 pt-[27vh]"
+        className="flex flex-1 flex-col items-center px-5"
+        style={{
+          paddingTop: appMode === 'claw' ? '32vh' : '27vh',
+          transition: 'padding-top 0.38s cubic-bezier(0.16, 1, 0.3, 1)',
+        }}
       >
-        {/* 标题：两层绝对定位交叉淡出，容器高度由下层撑开 */}
+        {/* 标题：三层绝对定位交叉淡出 */}
         <div className="mb-[40px]" style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          {/* 常规问候 / 无痕文本
-              外层 h2 用 relative + 透明占位 span 始终保持完整文本高度，
-              避免打字机从空字符开始时造成布局跳动。 */}
+          {/* 常规问候 / 无痕文本 */}
           <h2
             className="relative whitespace-nowrap text-[40px] font-normal tracking-[-0.5px] text-[var(--c-text-heading)]"
             style={{
-              opacity: isSearchMode ? 0 : 1,
-              transform: isSearchMode ? 'translateY(-6px)' : 'translateY(0)',
-              transition: 'opacity 0.2s ease, transform 0.22s ease',
-              pointerEvents: isSearchMode ? 'none' : 'auto',
+              opacity: (isSearchMode || appMode === 'claw') ? 0 : 1,
+              transform: (isSearchMode || appMode === 'claw') ? 'translateY(-6px)' : 'translateY(0)',
+              transition: 'opacity 0.22s ease, transform 0.24s ease',
+              pointerEvents: (isSearchMode || appMode === 'claw') ? 'none' : 'auto',
             }}
           >
-            {/* 透明占位：始终渲染完整文本，撑住高度/宽度，不可见不可选 */}
             <span className="invisible select-none" aria-hidden="true">
               {isPrivateMode ? t.youAreIncognito : greeting}
             </span>
-            {/* 打字机文字：绝对覆盖在占位之上 */}
             <span className="absolute inset-0">
               {isPrivateMode ? typedIncognito : typedGreeting}
             </span>
           </h2>
-          {/* Search for everything — 绝对覆盖，不撑开高度 */}
+          {/* Search for everything */}
           <h2
             className="absolute text-[40px] font-normal tracking-[-0.5px] text-[var(--c-text-heading)]"
             style={{
@@ -366,6 +367,19 @@ export function WelcomePage() {
             }}
           >
             Search for everything
+          </h2>
+          {/* Claw 模式欢迎语 */}
+          <h2
+            className="absolute text-[40px] font-normal tracking-[-0.5px] text-[var(--c-text-heading)]"
+            style={{
+              opacity: appMode === 'claw' && !isSearchMode ? 1 : 0,
+              transform: appMode === 'claw' && !isSearchMode ? 'translateY(0)' : 'translateY(6px)',
+              transition: 'opacity 0.22s ease, transform 0.24s ease',
+              pointerEvents: appMode === 'claw' && !isSearchMode ? 'auto' : 'none',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {t.clawGreeting}
           </h2>
         </div>
 
@@ -390,6 +404,7 @@ export function WelcomePage() {
               else if (personaKey !== SEARCH_PERSONA_KEY && isSearchMode) onExitSearchMode()
             }}
             onOpenSettings={onOpenSettings}
+            appMode={appMode}
           />
           {/* incognito note: 平滑展开/收起 */}
           <div

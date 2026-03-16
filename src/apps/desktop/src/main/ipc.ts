@@ -156,6 +156,16 @@ export function registerIpcHandlers(
       return os.hostname()
     }
   })
+
+  ipcMain.handle('arkloop:dialog:open-folder', async (event) => {
+    const { dialog } = require('electron') as typeof import('electron')
+    const win = getWindow()
+    const result = await dialog.showOpenDialog(win ?? BrowserWindow.getFocusedWindow()!, {
+      properties: ['openDirectory', 'createDirectory'],
+    })
+    if (result.canceled || result.filePaths.length === 0) return null
+    return result.filePaths[0]
+  })
 }
 
 function getLocalApiBaseUrl(): string | null {

@@ -107,13 +107,13 @@ export function DesktopSettings({
         key={key}
         onClick={() => handleTabChange(key)}
         className={[
-          "flex h-8 items-center gap-2.5 rounded-lg px-2.5 text-[13px] font-medium transition-colors",
+          "flex h-[38px] items-center gap-2.5 rounded-lg px-2.5 text-[14px] font-medium transition-colors",
           activeKey === key
             ? "bg-[var(--c-bg-deep)] text-[var(--c-text-heading)]"
             : "text-[var(--c-text-secondary)] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-heading)]",
         ].join(" ")}
       >
-        <Icon size={15} />
+        <Icon size={16} />
         <span>{ds[key as keyof typeof ds]}</span>
       </button>
     ));
@@ -186,7 +186,7 @@ export function DesktopSettings({
           <div className="mb-1 px-2.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--c-text-muted)]">
             {ds.mainSection}
           </div>
-          <div className="flex flex-col gap-[2px]">{renderNav(MAIN_NAV)}</div>
+          <div className="flex flex-col gap-[3px]">{renderNav(MAIN_NAV)}</div>
         </div>
 
         {/* Desktop section */}
@@ -194,7 +194,7 @@ export function DesktopSettings({
           <div className="mb-1 px-2.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--c-text-muted)]">
             {ds.desktopSection}
           </div>
-          <div className="flex flex-col gap-[2px]">
+          <div className="flex flex-col gap-[3px]">
             {renderNav(DESKTOP_NAV)}
           </div>
         </div>

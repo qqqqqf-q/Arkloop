@@ -104,6 +104,9 @@ export type ArkloopDesktopApi = {
     getVersion: () => Promise<string>
     quit: () => Promise<void>
   }
+  dialog?: {
+    openFolder: () => Promise<string | null>
+  }
 }
 
 export function isDesktop(): boolean {

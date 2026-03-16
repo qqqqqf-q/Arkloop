@@ -17,7 +17,6 @@ import UserInputCard from './UserInputCard'
 import { resolveMessageSourcesForRender } from './chatSourceResolver'
 import { ErrorCallout, type AppError } from './ErrorCallout'
 import { ShareModal } from './ShareModal'
-import { ReportModal } from './ReportModal'
 import { NotificationBell } from './NotificationBell'
 import { ModeSwitch } from './ModeSwitch'
 import { SourcesPanel } from './SourcesPanel'
@@ -278,7 +277,6 @@ export function ChatPage() {
   const [checkInSubmitting, setCheckInSubmitting] = useState(false)
   const [pendingUserInput, setPendingUserInput] = useState<UserInputRequest | null>(null)
   const [shareModalOpen, setShareModalOpen] = useState(false)
-  const [reportModalOpen, setReportModalOpen] = useState(false)
   const [sharingMessageId, setSharingMessageId] = useState<string | null>(null)
   const [sharedMessageId, setSharedMessageId] = useState<string | null>(null)
   const [pendingIncognito, setPendingIncognito] = useState(false)
@@ -2329,11 +2327,6 @@ export function ChatPage() {
                     shareState={
                       sharingMessageId === msg.id ? 'sharing' : sharedMessageId === msg.id ? 'shared' : 'idle'
                     }
-                    onReport={
-                      msg.role === 'assistant' && !isStreaming && !sending && threadId
-                        ? () => setReportModalOpen(true)
-                        : undefined
-                    }
                     webSources={resolvedSources}
                     artifacts={msg.role === 'assistant' ? messageArtifactsMap.get(msg.id) : undefined}
                     browserActions={msg.role === 'assistant' ? messageBrowserActionsMap.get(msg.id) : undefined}
@@ -2775,6 +2768,7 @@ export function ChatPage() {
             searchMode={isSearchThread}
             onPersonaChange={(personaKey) => setIsSearchThread(personaKey === SEARCH_PERSONA_KEY)}
             onOpenSettings={onOpenSettings}
+            appMode={appMode}
           />
         )}
         <p style={{ color: 'var(--c-text-muted)', fontSize: '13px', letterSpacing: '-0.52px', textAlign: 'center' }}>
@@ -2845,15 +2839,6 @@ export function ChatPage() {
           threadId={threadId}
           open={shareModalOpen}
           onClose={() => setShareModalOpen(false)}
-        />
-      )}
-
-      {threadId && (
-        <ReportModal
-          accessToken={accessToken}
-          threadId={threadId}
-          open={reportModalOpen}
-          onClose={() => setReportModalOpen(false)}
         />
       )}
 

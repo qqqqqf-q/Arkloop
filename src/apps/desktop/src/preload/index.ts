@@ -76,6 +76,9 @@ export type ArkloopDesktopApi = {
     getPath: () => Promise<string>
     onChanged: (callback: (config: AppConfig) => void) => () => void
   }
+  dialog: {
+    openFolder: () => Promise<string | null>
+  }
   sidecar: {
     getStatus: () => Promise<SidecarStatus>
     getRuntime: () => Promise<SidecarRuntime>
@@ -228,6 +231,10 @@ const api: ArkloopDesktopApi = {
     getVersion: () => ipcRenderer.invoke('arkloop:app:version'),
     quit: () => ipcRenderer.invoke('arkloop:app:quit'),
     getOsUsername: () => ipcRenderer.invoke('arkloop:app:os-username'),
+  },
+
+  dialog: {
+    openFolder: () => ipcRenderer.invoke('arkloop:dialog:open-folder'),
   },
 }
 

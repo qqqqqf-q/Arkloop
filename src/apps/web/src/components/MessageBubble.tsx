@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { Copy, Check, RefreshCw, Share2, Split, Paperclip, Pencil, MoreHorizontal, Flag, X, Download, ExternalLink, Terminal } from 'lucide-react'
+import { Copy, Check, RefreshCw, Share2, Split, Paperclip, Pencil, X, Download, ExternalLink, Terminal } from 'lucide-react'
 import { apiBaseUrl } from '@arkloop/shared/api'
 import type { MessageResponse } from '../api'
 import type { WebSource, ArtifactRef } from '../storage'
@@ -86,7 +86,6 @@ type Props = {
   onEdit?: (newContent: string) => void
   onFork?: () => void
   onShare?: () => void
-  onReport?: () => void
   shareState?: 'idle' | 'sharing' | 'shared'
   webSources?: WebSource[]
   artifacts?: ArtifactRef[]
@@ -449,27 +448,15 @@ function PastedBubbleCard({
 }
 
 
-export function MessageBubble({ message, onRetry, onEdit, onFork, onShare, onReport, shareState, webSources, artifacts, browserActions, accessToken, onShowSources, onOpenDocument, activePanelArtifactKey, onViewRunDetail }: Props) {
+export function MessageBubble({ message, onRetry, onEdit, onFork, onShare, shareState, webSources, artifacts, browserActions, accessToken, onShowSources, onOpenDocument, activePanelArtifactKey, onViewRunDetail }: Props) {
   const { t } = useLocale()
   const [copied, setCopied] = useState(false)
   const [editing, setEditing] = useState(false)
   const [editText, setEditText] = useState('')
-  const [moreOpen, setMoreOpen] = useState(false)
   const [userTextExpanded, setUserTextExpanded] = useState(false)
   const [userTextOverflows, setUserTextOverflows] = useState(false)
-  const moreRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const userTextRef = useRef<HTMLDivElement>(null)
-
-  // close popover on outside click
-  useEffect(() => {
-    if (!moreOpen) return
-    const handler = (e: MouseEvent) => {
-      if (moreRef.current && !moreRef.current.contains(e.target as Node)) setMoreOpen(false)
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [moreOpen])
 
   const handleCopy = () => {
     const plainText = message.role === 'user' ? messageTextContent(message) : message.content
@@ -907,54 +894,14 @@ export function MessageBubble({ message, onRetry, onEdit, onFork, onShare, onRep
             >
               <Split size={15} />
             </button>
-            {(onReport || onViewRunDetail) && (
-              <div ref={moreRef} style={{ position: 'relative' }}>
-                <button
-                  onClick={() => setMoreOpen(v => !v)}
-                  className="flex h-7 w-7 items-center justify-center rounded-lg text-[var(--c-text-secondary)] opacity-60 transition-[opacity,background] duration-[60ms] hover:bg-[var(--c-bg-deep)] hover:opacity-100 cursor-pointer border-none bg-transparent"
-                >
-                  <MoreHorizontal size={15} />
-                </button>
-                {moreOpen && (
-                  <div
-                    className="dropdown-menu"
-                    style={{
-                      position: 'absolute',
-                      top: '100%',
-                      left: 0,
-                      marginTop: '4px',
-                      background: 'var(--c-bg-menu)',
-                      border: '0.5px solid var(--c-border-subtle)',
-                      borderRadius: '10px',
-                      padding: '4px',
-                      zIndex: 20,
-                      minWidth: '140px',
-                      boxShadow: 'var(--c-dropdown-shadow)',
-                    }}
-                  >
-                    {onViewRunDetail && (
-                      <button
-                        onClick={() => { setMoreOpen(false); onViewRunDetail() }}
-                        className="flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-[13px] text-[var(--c-text-secondary)] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]"
-                        style={{ border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}
-                      >
-                        <Terminal size={13} style={{ color: 'var(--c-text-muted)', flexShrink: 0 }} />
-                        {t.desktopSettings.viewRunDetail}
-                      </button>
-                    )}
-                    {onReport && (
-                      <button
-                        onClick={() => { setMoreOpen(false); onReport() }}
-                        className="flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-[13px] text-[var(--c-text-secondary)] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]"
-                        style={{ border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}
-                      >
-                        <Flag size={13} style={{ color: 'var(--c-text-muted)', flexShrink: 0 }} />
-                        {t.reportButton}
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
+            {onViewRunDetail && (
+              <button
+                onClick={onViewRunDetail}
+                className="flex h-7 w-7 items-center justify-center rounded-lg text-[var(--c-text-secondary)] opacity-60 transition-[opacity,background] duration-[60ms] hover:bg-[var(--c-bg-deep)] hover:opacity-100 cursor-pointer border-none bg-transparent"
+                title={t.desktopSettings.viewRunDetail}
+              >
+                <Terminal size={15} />
+              </button>
             )}
             {webSources && webSources.length > 0 && onShowSources && (
               <button

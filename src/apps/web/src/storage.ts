@@ -704,6 +704,64 @@ export function writeMsgRunEvents(messageId: string, events: MsgRunEvent[]): voi
   } catch { /* ignore */ }
 }
 
+// -- Thread Mode Tracking --
+
+const THREAD_MODES_KEY = 'arkloop:web:thread_modes'
+
+export function writeThreadMode(threadId: string, mode: AppMode): void {
+  if (!canUseLocalStorage() || !threadId) return
+  try {
+    const raw = localStorage.getItem(THREAD_MODES_KEY)
+    const map: Record<string, string> = raw ? (JSON.parse(raw) as Record<string, string>) : {}
+    map[threadId] = mode
+    localStorage.setItem(THREAD_MODES_KEY, JSON.stringify(map))
+  } catch { /* ignore */ }
+}
+
+export function readThreadMode(threadId: string): AppMode {
+  if (!canUseLocalStorage() || !threadId) return 'chat'
+  try {
+    const raw = localStorage.getItem(THREAD_MODES_KEY)
+    if (!raw) return 'chat'
+    const map = JSON.parse(raw) as Record<string, string>
+    const mode = map[threadId]
+    return mode === 'claw' ? 'claw' : 'chat'
+  } catch { return 'chat' }
+}
+
+// -- Claw Work Folder --
+
+const CLAW_WORK_FOLDER_KEY = 'arkloop:web:claw_work_folder'
+const CLAW_RECENT_FOLDERS_KEY = 'arkloop:web:claw_recent_folders'
+
+export function readClawWorkFolder(): string | null {
+  if (!canUseLocalStorage()) return null
+  try {
+    return localStorage.getItem(CLAW_WORK_FOLDER_KEY) || null
+  } catch { return null }
+}
+
+export function writeClawWorkFolder(folder: string): void {
+  if (!canUseLocalStorage()) return
+  try {
+    localStorage.setItem(CLAW_WORK_FOLDER_KEY, folder)
+    // also add to recent
+    const raw = localStorage.getItem(CLAW_RECENT_FOLDERS_KEY)
+    const recents: string[] = raw ? (JSON.parse(raw) as string[]) : []
+    const next = [folder, ...recents.filter((f) => f !== folder)].slice(0, 8)
+    localStorage.setItem(CLAW_RECENT_FOLDERS_KEY, JSON.stringify(next))
+  } catch { /* ignore */ }
+}
+
+export function readClawRecentFolders(): string[] {
+  if (!canUseLocalStorage()) return []
+  try {
+    const raw = localStorage.getItem(CLAW_RECENT_FOLDERS_KEY)
+    if (!raw) return []
+    return JSON.parse(raw) as string[]
+  } catch { return [] }
+}
+
 const SEARCH_THREAD_IDS_KEY = 'arkloop:web:search_thread_ids'
 
 export function addSearchThreadId(threadId: string): void {

@@ -21,6 +21,7 @@ import { listStarredThreadIds, starThread, unstarThread, updateThreadTitle, dele
 import { isLocalMode } from '@arkloop/shared/desktop'
 import { useLocale } from '../contexts/LocaleContext'
 import { ShareModal } from './ShareModal'
+import type { AppMode } from '../storage'
 
 type Props = {
   me: MeResponse | null
@@ -39,6 +40,7 @@ type Props = {
   onThreadDeleted: (threadId: string) => void
   narrow?: boolean
   desktopMode?: boolean
+  appMode?: AppMode
 }
 
 function threadTitle(thread: ThreadResponse, untitled: string): string {
@@ -63,7 +65,9 @@ export function Sidebar({
   onThreadDeleted,
   narrow,
   desktopMode,
+  appMode,
 }: Props) {
+  const isClawMode = appMode === 'claw'
   const navigate = useNavigate()
   const location = useLocation()
   const { threadId } = useParams<{ threadId: string }>()
@@ -225,7 +229,7 @@ export function Sidebar({
           className="group flex h-9 items-center gap-2.5 overflow-hidden whitespace-nowrap rounded-lg px-2 text-[16px] text-[var(--c-text-secondary)] transition-[background-color,color] duration-[60ms] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]"
         >
           <SquarePen size={16} className="shrink-0 transition-transform duration-100 group-hover:scale-[1.05]" />
-          <span>{t.newChat}</span>
+          <span>{isClawMode ? t.newTask : t.newChat}</span>
         </button>
 
         <button
@@ -237,19 +241,21 @@ export function Sidebar({
           className="group flex h-9 items-center gap-2.5 overflow-hidden whitespace-nowrap rounded-lg px-2 text-[16px] text-[var(--c-text-secondary)] transition-[background-color,color] duration-[60ms] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]"
         >
           <Search size={16} className="shrink-0 transition-transform duration-100 group-hover:scale-[1.05]" />
-          <span>{t.chats}</span>
+          <span>{isClawMode ? t.tasks : t.chats}</span>
         </button>
 
-        <button
-          onClick={onOpenSearch}
-          className={[
-            'group flex h-9 items-center gap-2.5 overflow-hidden whitespace-nowrap rounded-lg px-2 text-[16px] transition-[background-color,color] duration-[60ms] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]',
-            isSearchMode ? 'bg-[var(--c-bg-deep)] text-[var(--c-text-primary)]' : 'text-[var(--c-text-secondary)]',
-          ].join(' ')}
-        >
-          <SearchCheck size={16} className="shrink-0 transition-transform duration-100 group-hover:scale-[1.05]" />
-          <span>{t.retrieve}</span>
-        </button>
+        {!isClawMode && (
+          <button
+            onClick={onOpenSearch}
+            className={[
+              'group flex h-9 items-center gap-2.5 overflow-hidden whitespace-nowrap rounded-lg px-2 text-[16px] transition-[background-color,color] duration-[60ms] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]',
+              isSearchMode ? 'bg-[var(--c-bg-deep)] text-[var(--c-text-primary)]' : 'text-[var(--c-text-secondary)]',
+            ].join(' ')}
+          >
+            <SearchCheck size={16} className="shrink-0 transition-transform duration-100 group-hover:scale-[1.05]" />
+            <span>{t.retrieve}</span>
+          </button>
+        )}
       </nav>
 
       {/* Thread list — hidden when collapsed */}
@@ -262,7 +268,7 @@ export function Sidebar({
       >
         <div className="mb-[12px] flex shrink-0 items-center gap-2 px-2">
           <h3 className="text-[14px] font-medium tracking-[0.3px] text-[var(--c-text-muted)]">
-            {t.recents}
+            {isClawMode ? t.tasks : t.recents}
           </h3>
         </div>
         <div className="flex flex-col gap-[2px]">
@@ -300,7 +306,7 @@ export function Sidebar({
             }}
           >
             {threads.length === 0 ? (
-              <p className="overflow-hidden whitespace-nowrap px-2 py-1 text-[12px] text-[var(--c-text-muted)]">{t.recentsEmpty}</p>
+              <p className="overflow-hidden whitespace-nowrap px-2 py-1 text-[12px] text-[var(--c-text-muted)]">{isClawMode ? t.tasksEmpty : t.recentsEmpty}</p>
             ) : (() => {
               const starredSet = new Set(starredIds)
               const starredThreads = starredIds

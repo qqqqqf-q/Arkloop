@@ -1,11 +1,12 @@
 import { useRef, useEffect, useCallback, useMemo, useState } from 'react'
-import { Plus, ArrowUp, Square, Paperclip, Mic, X, Check, Loader2, BookOpen, Search } from 'lucide-react'
+import { Plus, ArrowUp, Square, Paperclip, Mic, X, Check, Loader2, BookOpen, Search, Folder, FolderOpen, ChevronRight } from 'lucide-react'
 import type { FormEvent, KeyboardEvent, ClipboardEvent as ReactClipboardEvent } from 'react'
 import { listSelectablePersonas, transcribeAudio, type SelectablePersona, type UploadedThreadAttachment } from '../api'
 import { useLocale } from '../contexts/LocaleContext'
 import { PastedContentModal } from './PastedContentModal'
 import { ModelPicker } from './ModelPicker'
 import type { SettingsTab } from './SettingsModal'
+import { getDesktopApi } from '@arkloop/shared/desktop'
 import {
   DEFAULT_PERSONA_KEY,
   SEARCH_PERSONA_KEY,
@@ -14,7 +15,11 @@ import {
   writeSelectedPersonaKeyToStorage,
   readSelectedModelFromStorage,
   writeSelectedModelToStorage,
+  readClawWorkFolder,
+  writeClawWorkFolder,
+  readClawRecentFolders,
 } from '../storage'
+import type { AppMode } from '../storage'
 
 export type Attachment = {
   id: string
@@ -48,6 +53,7 @@ type Props = {
   onAsrError?: (error: unknown) => void
   onPersonaChange?: (personaKey: string) => void
   onOpenSettings?: (tab: SettingsTab) => void
+  appMode?: AppMode
 }
 
 const FALLBACK_SELECTOR_NAMES: Record<string, string> = {
@@ -394,6 +400,7 @@ export function ChatInput({
   onAsrError,
   onPersonaChange,
   onOpenSettings,
+  appMode,
 }: Props) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -432,6 +439,12 @@ export function ChatInput({
   const [pastedModalAttachment, setPastedModalAttachment] = useState<Attachment | null>(null)
   const lastPasteRef = useRef(0)
   const pasteProcessingRef = useRef(false)
+  // claw mode folder picker
+  const [folderMenuOpen, setFolderMenuOpen] = useState(false)
+  const [clawFolder, setClawFolder] = useState<string | null>(() => readClawWorkFolder())
+  const [recentFolders, setRecentFolders] = useState<string[]>(() => readClawRecentFolders())
+  const folderMenuRef = useRef<HTMLDivElement>(null)
+  const folderBtnRef = useRef<HTMLButtonElement>(null)
 
   // cleanup on unmount
   useEffect(() => {
@@ -446,6 +459,35 @@ export function ChatInput({
     writeSelectedPersonaKeyToStorage(personaKey)
     onPersonaChange?.(personaKey)
   }, [onPersonaChange])
+
+  // close folder menu on outside click
+  useEffect(() => {
+    if (!folderMenuOpen) return
+    const handler = (e: MouseEvent) => {
+      const target = e.target as HTMLElement
+      if (folderBtnRef.current?.contains(target)) return
+      if (folderMenuRef.current && !folderMenuRef.current.contains(target)) {
+        setFolderMenuOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [folderMenuOpen])
+
+  const handleSelectFolder = useCallback(async (path?: string) => {
+    let folder = path
+    if (!folder) {
+      const api = getDesktopApi()
+      if (api?.dialog) {
+        folder = (await api.dialog.openFolder()) ?? undefined
+      }
+    }
+    if (!folder) return
+    writeClawWorkFolder(folder)
+    setClawFolder(folder)
+    setRecentFolders(readClawRecentFolders())
+    setFolderMenuOpen(false)
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -1002,13 +1044,116 @@ export function ChatInput({
         />
 
         <div className="flex items-center" style={{ gap: '2px' }}>
+          {/* claw 模式：Work in a folder 按钮 */}
+          {appMode === 'claw' && (
+            <div
+              className="relative -ml-1.5"
+              style={{
+                marginRight: '2px',
+                animation: 'chip-enter 0.18s cubic-bezier(0.16, 1, 0.3, 1) both',
+              }}
+            >
+              <button
+                ref={folderBtnRef}
+                type="button"
+                onClick={() => setFolderMenuOpen((v) => !v)}
+                className="relative top-[2px] flex h-8 items-center gap-1.5 rounded-lg px-2 text-[var(--c-text-secondary)] transition-[background] duration-[60ms] hover:bg-[var(--c-bg-deep)]"
+                style={{ maxWidth: '160px' }}
+              >
+                {clawFolder
+                  ? <FolderOpen size={15} strokeWidth={1.5} style={{ flexShrink: 0 }} />
+                  : <Folder size={15} strokeWidth={1.5} style={{ flexShrink: 0 }} />
+                }
+                <span
+                  className="text-[12px] truncate"
+                  style={{ fontWeight: 400, maxWidth: '120px', color: clawFolder ? 'var(--c-text-primary)' : 'var(--c-text-secondary)' }}
+                >
+                  {clawFolder
+                    ? clawFolder.split('/').pop() || clawFolder
+                    : 'Work in a folder'
+                  }
+                </span>
+              </button>
+
+              {folderMenuOpen && (
+                <div
+                  ref={folderMenuRef}
+                  className={`absolute left-0 z-50 ${variant === 'welcome' ? 'dropdown-menu' : 'dropdown-menu-up'}`}
+                  style={{
+                    ...(variant === 'welcome'
+                      ? { top: 'calc(100% + 8px)' }
+                      : { bottom: 'calc(100% + 8px)' }),
+                    border: '0.5px solid var(--c-border-subtle)',
+                    borderRadius: '10px',
+                    padding: '4px',
+                    background: 'var(--c-bg-menu)',
+                    minWidth: '220px',
+                    boxShadow: 'var(--c-dropdown-shadow)',
+                  }}
+                >
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                    {/* Recent folders */}
+                    {recentFolders.length > 0 && (
+                      <>
+                        <div style={{ padding: '4px 12px 2px', fontSize: '11px', fontWeight: 500, color: 'var(--c-text-muted)', letterSpacing: '0.3px', textTransform: 'uppercase' }}>
+                          Recent
+                        </div>
+                        {recentFolders.map((folder) => (
+                          <button
+                            key={folder}
+                            type="button"
+                            onClick={() => { void handleSelectFolder(folder) }}
+                            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-[var(--c-text-secondary)] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]"
+                          >
+                            <Folder size={13} style={{ flexShrink: 0, color: 'var(--c-text-muted)' }} />
+                            <span className="truncate" style={{ flex: 1, textAlign: 'left' }}>
+                              {folder.split('/').pop() || folder}
+                            </span>
+                            <ChevronRight size={12} style={{ flexShrink: 0, color: 'var(--c-text-muted)', opacity: 0.5 }} />
+                          </button>
+                        ))}
+                        <div style={{ height: '1px', background: 'var(--c-border-subtle)', margin: '2px 4px' }} />
+                      </>
+                    )}
+
+                    {/* Model section */}
+                    <div style={{ padding: '4px 12px 2px', fontSize: '11px', fontWeight: 500, color: 'var(--c-text-muted)', letterSpacing: '0.3px', textTransform: 'uppercase' }}>
+                      Model
+                    </div>
+                    <div style={{ padding: '2px 8px 4px' }}>
+                      <ModelPicker
+                        accessToken={accessToken}
+                        value={selectedModel}
+                        onChange={(m) => { handleModelChange(m); setFolderMenuOpen(false) }}
+                        onAddApiKey={() => { onOpenSettings?.('models'); setFolderMenuOpen(false) }}
+                        variant={variant}
+                      />
+                    </div>
+
+                    <div style={{ height: '1px', background: 'var(--c-border-subtle)', margin: '2px 4px' }} />
+
+                    {/* Choose different folder */}
+                    <button
+                      type="button"
+                      onClick={() => { void handleSelectFolder() }}
+                      className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-[var(--c-text-secondary)] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]"
+                    >
+                      <FolderOpen size={13} style={{ flexShrink: 0, color: 'var(--c-text-muted)' }} />
+                      Choose a different folder
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* + 按钮及菜单 */}
           <div className="relative -ml-1.5">
             <button
               ref={plusBtnRef}
               type="button"
               onClick={() => setMenuOpen((v) => !v)}
-              className="relative top-px flex h-8 w-8 items-center justify-center rounded-lg text-[var(--c-text-secondary)] transition-[background] duration-[60ms] hover:bg-[var(--c-bg-deep)]"
+              className="relative top-[2px] flex h-8 w-8 items-center justify-center rounded-lg text-[var(--c-text-secondary)] transition-[background] duration-[60ms] hover:bg-[var(--c-bg-deep)]"
             >
               <Plus size={20} strokeWidth={1.5} />
             </button>

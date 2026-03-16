@@ -21,7 +21,7 @@ import {
   type MeResponse,
   type ThreadResponse,
 } from '../api'
-import { clearActiveThreadIdInStorage, writeSelectedPersonaKeyToStorage, SEARCH_PERSONA_KEY, DEFAULT_PERSONA_KEY, readAppModeFromStorage, writeAppModeToStorage } from '../storage'
+import { clearActiveThreadIdInStorage, writeSelectedPersonaKeyToStorage, SEARCH_PERSONA_KEY, DEFAULT_PERSONA_KEY, readAppModeFromStorage, writeAppModeToStorage, writeThreadMode, readThreadMode } from '../storage'
 import type { AppMode } from '../storage'
 
 type Props = {
@@ -70,7 +70,11 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
   const handleSetAppMode = useCallback((mode: AppMode) => {
     writeAppModeToStorage(mode)
     setAppMode(mode)
-  }, [])
+    // 切换模式时，如果当前在某个会话内，跳回新建对话页
+    if (/^\/t\//.test(location.pathname)) {
+      navigate('/')
+    }
+  }, [location.pathname, navigate])
 
   const handleNotificationMarkedRead = useCallback(() => {
     setNotificationVersion((v) => v + 1)
@@ -110,6 +114,13 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
   useEffect(() => {
     setRightPanelOpen(false)
     if (notificationsOpen) closeNotifications()
+  }, [location.pathname]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Desktop 模式下，点击历史记录跳转到会话时关闭设置界面
+  useEffect(() => {
+    if (desktop && settingsOpen && /^\/t\//.test(location.pathname)) {
+      setSettingsOpen(false)
+    }
   }, [location.pathname]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Mouse 5 / 浏览器返回键：退出搜索模式而非离开页面
@@ -176,17 +187,18 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
     navigate('/')
   }, [navigate, closeNotifications, desktop])
 
-  // 从 WelcomePage 新建的 thread 需要注入到列表
+  // 从 WelcomePage 新建的 thread 需要注入到列表，并标记所属模式
   const handleThreadCreated = useCallback((thread: ThreadResponse) => {
     if (thread.is_private) {
       setPrivateThreadIds((prev) => new Set(prev).add(thread.id))
       return
     }
+    writeThreadMode(thread.id, appMode)
     setThreads((prev) => {
       if (prev.some((t) => t.id === thread.id)) return prev
       return [thread, ...prev]
     })
-  }, [])
+  }, [appMode])
 
   const handleTogglePrivateMode = useCallback(() => {
     setIsPrivateMode((prev) => !prev)
@@ -266,7 +278,7 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
       <div className="flex min-h-0 flex-1">
         <Sidebar
           me={me}
-          threads={threads}
+          threads={threads.filter((t) => readThreadMode(t.id) === appMode)}
           runningThreadIds={runningThreadIds}
           isPrivateMode={(() => {
             const currentThreadId = location.pathname.match(/^\/t\/([^/]+)/)?.[1] ?? null
@@ -305,6 +317,7 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
           onThreadDeleted={handleThreadDeleted}
           narrow={rightPanelOpen}
           desktopMode={desktop}
+          appMode={appMode}
         />
 
         {/* Settings modal for web mode */}

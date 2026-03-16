@@ -268,6 +268,11 @@ export interface LocaleStrings {
   // mode switch
   modeChat: string;
   modeClaw: string;
+  // claw mode sidebar
+  newTask: string;
+  tasks: string;
+  tasksEmpty: string;
+  clawGreeting: string;
   // thread context menu
   starThread: string
   unstarThread: string
@@ -401,6 +406,8 @@ export interface LocaleStrings {
     searchPlaceholder: string
     showInPicker: string
     hideFromPicker: string
+    embeddingTagAdd: string
+    embeddingTagRemove: string
   }
   // agent settings
   agentSettings: {
@@ -589,6 +596,36 @@ export interface LocaleStrings {
     memoryClearAllConfirm: string;
     memoryDeleteConfirm: string;
     memorySnapshotTitle: string;
+    memoryEnabled: string;
+    memoryEnabledDesc: string;
+    memorySystem: string;
+    memorySystemSimple: string;
+    memorySystemSimpleDesc: string;
+    memorySystemOpenViking: string;
+    memorySystemOpenVikingDesc: string;
+    memoryModuleNotInstalled: string;
+    memoryModuleRunning: string;
+    memoryModuleStopped: string;
+    memoryModuleInstalling: string;
+    memoryModuleInstall: string;
+    memoryModuleStart: string;
+    memoryToolModel: string;
+    memoryToolModelDesc: string;
+    memoryEmbeddingModel: string;
+    memoryEmbeddingModelDesc: string;
+    memoryEmbeddingProvider: string;
+    memoryEmbeddingModelName: string;
+    memoryEmbeddingApiKey: string;
+    memoryEmbeddingApiBase: string;
+    memoryEmbeddingDimension: string;
+    memoryOpenvikingRootApiKey: string;
+    memoryOpenvikingRootApiKeyDesc: string;
+    memoryConfigureSave: string;
+    memoryConfiguring: string;
+    memoryConfigured: string;
+    memoryConfigureError: string;
+    memoryProviderActivated: string;
+    memoryNoEmbeddingModels: string;
   };
 
   // admin providers/models settings (ported from console-lite)

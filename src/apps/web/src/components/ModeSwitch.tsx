@@ -30,13 +30,13 @@ export function ModeSwitch({ mode, onChange, labels, availableModes = OPTIONS }:
             key={opt}
             type="button"
             onClick={() => onChange(opt)}
-            className="relative z-10 flex items-center justify-center rounded-md px-3 py-[3px] text-[13px] leading-[18px] transition-colors duration-200"
+            className="relative z-10 flex items-center justify-center rounded-md px-3 py-[3px] text-[12px] leading-[18px] transition-colors duration-200"
             style={{
               color: active
                 ? 'var(--c-mode-switch-active-text)'
                 : 'var(--c-mode-switch-inactive-text)',
-              fontWeight: active ? 520 : 400,
-              minWidth: '56px',
+              fontWeight: 350,
+              minWidth: '52px',
             }}
           >
             {active && (
