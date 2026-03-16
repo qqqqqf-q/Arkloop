@@ -163,17 +163,17 @@ func (r *LlmRoutesRepository) ListByCredential(ctx context.Context, accountID, c
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	// credential ownership is already verified by the caller; filtering routes by
+	// account_id here causes routes created under a different account context to
+	// become invisible while still blocking the unique index — filter by
+	// credential_id alone is sufficient.
+	_ = accountID
+	_ = scope
 	query := `SELECT id, project_id, credential_id, model, priority, is_default, tags, when_json, advanced_json, multiplier, cost_per_1k_input, cost_per_1k_output, cost_per_1k_cache_write, cost_per_1k_cache_read, created_at
 		 FROM llm_routes
-		 WHERE credential_id = $1`
-	args := []any{credentialID}
-	var err error
-	query, args, err = appendLlmRouteScopeFilter(query, args, accountID, scope)
-	if err != nil {
-		return nil, err
-	}
-	query += ` ORDER BY priority DESC, created_at ASC`
-	return r.list(ctx, query, args...)
+		 WHERE credential_id = $1
+		 ORDER BY priority DESC, created_at ASC`
+	return r.list(ctx, query, credentialID)
 }
 
 func (r *LlmRoutesRepository) ListByScope(ctx context.Context, accountID uuid.UUID, scope string) ([]LlmRoute, error) {
