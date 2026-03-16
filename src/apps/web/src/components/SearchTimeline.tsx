@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, Fragment } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ChevronRight, Loader2, Search } from 'lucide-react'
+import { useTypewriter } from '../hooks/useTypewriter'
 import type { WebSource } from '../storage'
 import type { SubAgentRef } from '../storage'
 import { codeExecutionAccentColor } from '../codeExecutionStatus'
@@ -26,6 +27,12 @@ type Props = {
   subAgents?: SubAgentRef[]
   headerOverride?: string
   shimmer?: boolean
+  live?: boolean
+}
+
+function TypewriterText({ text, className, active }: { text: string; className?: string; active: boolean }) {
+  const displayed = useTypewriter(active ? text : '')
+  return <span className={className}>{active ? displayed : text}</span>
 }
 
 function getDomain(url: string): string {
@@ -144,7 +151,7 @@ const SHELL_DOT_TOP = 8
 // CodeExecutionCard: border(0.5) + padding(6) + icon-center(14) = 20.5 → dot top ≈ 16
 const PYTHON_DOT_TOP = 16
 
-export function SearchTimeline({ steps, sources, isComplete, codeExecutions, onOpenCodeExecution, activeCodeExecutionId, subAgents, headerOverride, shimmer }: Props) {
+export function SearchTimeline({ steps, sources, isComplete, codeExecutions, onOpenCodeExecution, activeCodeExecutionId, subAgents, headerOverride, shimmer, live }: Props) {
   const [collapsed, setCollapsed] = useState(() => isComplete)
   const prevIsCompleteRef = useRef(isComplete)
   useEffect(() => {
@@ -194,7 +201,7 @@ export function SearchTimeline({ steps, sources, isComplete, codeExecutions, onO
           fontWeight: 500,
         }}
       >
-        <span className={shimmer ? 'thinking-shimmer' : undefined}>{headerLabel}</span>
+        <TypewriterText text={headerLabel} className={shimmer ? 'thinking-shimmer' : undefined} active={!!live} />
         {isComplete && (
           <motion.div
             animate={{ rotate: collapsed ? 0 : 90 }}
@@ -274,7 +281,7 @@ export function SearchTimeline({ steps, sources, isComplete, codeExecutions, onO
                       <div style={{ position: 'absolute', left: '-16px', top: `${DOT_TOP + DOT_SIZE}px`, bottom: 0, width: '1.5px', background: 'var(--c-border-subtle)', zIndex: 0 }} />
                     )}
                     {/* Last step extends line down when code executions or sub agents follow */}
-                    {isLast && !steps.some((s) => s.kind === 'finished') && (codeExecCount > 0 || subAgentCount > 0) && (
+                    {isLast && (codeExecCount > 0 || subAgentCount > 0) && (
                       <div style={{ position: 'absolute', left: '-16px', top: `${DOT_TOP + DOT_SIZE}px`, bottom: 0, width: '1.5px', background: 'var(--c-border-subtle)', zIndex: 0 }} />
                     )}
                     {multiSteps && !isFirst && (
@@ -314,9 +321,11 @@ export function SearchTimeline({ steps, sources, isComplete, codeExecutions, onO
                           style={{ color: 'var(--c-text-secondary)', flexShrink: 0 }}
                         />
                       )}
-                      <span className={step.kind === 'reviewing' && step.status === 'active' ? 'thinking-shimmer-dim' : undefined}>
-                        {step.kind === 'reviewing' ? 'Reviewing sources' : step.label}
-                      </span>
+                      <TypewriterText
+                        text={step.kind === 'reviewing' ? 'Reviewing sources' : step.label}
+                        className={step.kind === 'reviewing' && step.status === 'active' ? 'thinking-shimmer-dim' : undefined}
+                        active={!!live}
+                      />
                     </div>
 
                     {step.kind === 'searching' && step.queries && step.queries.length > 0 && (
@@ -462,6 +471,7 @@ export function SearchTimeline({ steps, sources, isComplete, codeExecutions, onO
                           output={agent.output}
                           status={agent.status}
                           error={agent.error}
+                          live={live}
                         />
                       </div>
                     )

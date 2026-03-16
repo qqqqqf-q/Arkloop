@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ChevronRight, ChevronDown, Loader2 } from 'lucide-react'
 import { useLocale } from '../contexts/LocaleContext'
+import { useTypewriter } from '../hooks/useTypewriter'
 
 type Props = {
   nickname?: string
@@ -11,6 +12,7 @@ type Props = {
   output?: string
   status: 'spawning' | 'active' | 'completed' | 'failed' | 'closed'
   error?: string
+  live?: boolean
 }
 
 type Status = Props['status']
@@ -27,13 +29,15 @@ function maskFor(edge: ScrollEdge): string | undefined {
   return undefined
 }
 
-export function SubAgentBlock({ nickname, personaId, input, output, status, error }: Props) {
+export function SubAgentBlock({ nickname, personaId, input, output, status, error, live }: Props) {
   const [expanded, setExpanded] = useState(false)
   const { t } = useLocale()
   const outputRef = useRef<HTMLDivElement>(null)
   const [scrollEdge, setScrollEdge] = useState<ScrollEdge>('none')
 
-  const label = nickname || personaId || t.agentSubAgent
+  const rawLabel = nickname || personaId || t.agentSubAgent
+  const displayedLabel = useTypewriter(live ? rawLabel : '')
+  const label = live ? displayedLabel : rawLabel
   const displayOutput = output?.trim() ? output : error?.trim() ? error : undefined
   const hasOutput = !!displayOutput
   const isWaiting = status === 'spawning' || status === 'active'

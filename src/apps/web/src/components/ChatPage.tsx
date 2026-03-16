@@ -2299,6 +2299,7 @@ export function ChatPage() {
                               output={agent.output}
                               status={agent.status}
                               error={agent.error}
+                              live={isStreaming}
                             />
                           </motion.div>
                         )
@@ -2320,6 +2321,7 @@ export function ChatPage() {
                   subAgents={topLevelSubAgents.length > 0 ? topLevelSubAgents : undefined}
                   headerOverride={!liveTimelineExiting ? copHeaderLabel : undefined}
                   shimmer={!liveTimelineExiting && !assistantDraft}
+                  live={!liveTimelineExiting}
                 />
               )}
 
