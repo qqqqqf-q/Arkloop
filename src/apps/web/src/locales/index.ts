@@ -540,6 +540,15 @@ export interface LocaleStrings {
     logLevelDebug: string;
     logLevelWarn: string;
     logLevelError: string;
+    showRunEvents: string;
+    showRunEventsDesc: string;
+    viewRunDetail: string;
+    runDetailTitle: string;
+    runDetailOverview: string;
+    runDetailConversation: string;
+    runDetailEvents: string;
+    runDetailNoEvents: string;
+    runDetailLoadError: string;
     resetOnboarding: string;
     resetOnboardingDesc: string;
     resetOnboardingBtn: string;

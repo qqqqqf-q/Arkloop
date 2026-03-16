@@ -1401,3 +1401,29 @@ export async function patchPersona(
     body: JSON.stringify(req),
   })
 }
+
+export type RunDetail = {
+  run_id: string
+  status: string
+  model?: string
+  persona_id?: string
+  total_input_tokens?: number
+  total_output_tokens?: number
+  total_cost_usd?: number
+  duration_ms?: number
+  cache_hit_rate?: number
+  credits_used?: number
+  created_at: string
+  completed_at?: string
+  failed_at?: string
+  created_by_user_id?: string
+  created_by_user_name?: string
+  created_by_email?: string
+}
+
+export async function getRunDetail(
+  accessToken: string,
+  runId: string,
+): Promise<RunDetail> {
+  return await apiFetch<RunDetail>(`/v1/admin/runs/${runId}`, { accessToken })
+}

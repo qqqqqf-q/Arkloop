@@ -1,12 +1,14 @@
 import { useState, useEffect } from 'react'
 import { getDesktopApi } from '@arkloop/shared/desktop'
 import { useLocale } from '../../contexts/LocaleContext'
+import { readDeveloperShowRunEvents, writeDeveloperShowRunEvents } from '../../storage'
 
 export function DeveloperSettings() {
   const { t } = useLocale()
   const ds = t.desktopSettings
   const [appVersion, setAppVersion] = useState('')
   const [resetDone, setResetDone] = useState(false)
+  const [showRunEvents, setShowRunEvents] = useState(() => readDeveloperShowRunEvents())
 
   useEffect(() => {
     const api = getDesktopApi()
@@ -40,6 +42,42 @@ export function DeveloperSettings() {
       </div>
 
       <div className="flex flex-col gap-4">
+        {/* Show run events toggle */}
+        <div
+          className="flex items-center justify-between rounded-xl bg-[var(--c-bg-menu)] px-4 py-3"
+          style={{ border: '0.5px solid var(--c-border-subtle)' }}
+        >
+          <div>
+            <div className="text-sm font-medium text-[var(--c-text-primary)]">
+              {ds.showRunEvents}
+            </div>
+            <div className="text-xs text-[var(--c-text-muted)]">
+              {ds.showRunEventsDesc}
+            </div>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={showRunEvents}
+            onClick={() => {
+              const next = !showRunEvents
+              setShowRunEvents(next)
+              writeDeveloperShowRunEvents(next)
+            }}
+            className={[
+              'relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200',
+              showRunEvents ? 'bg-[var(--c-accent)]' : 'bg-[var(--c-border)]',
+            ].join(' ')}
+          >
+            <span
+              className={[
+                'pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow ring-0 transition-transform duration-200',
+                showRunEvents ? 'translate-x-4' : 'translate-x-0',
+              ].join(' ')}
+            />
+          </button>
+        </div>
+
         {/* Reset onboarding */}
         <div
           className="flex items-center justify-between rounded-xl bg-[var(--c-bg-menu)] px-4 py-3"

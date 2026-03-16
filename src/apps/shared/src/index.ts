@@ -101,5 +101,7 @@ export { FullScreenLoading } from './components/FullScreenLoading'
 
 export { CollapseBlock, PreText, JsonBlock } from './components/TurnViewBlocks'
 
+export { TurnView } from './components/TurnView'
+
 export { buildTurns } from './run-turns'
 export type { LlmTurn, RunEventRaw } from './run-turns'

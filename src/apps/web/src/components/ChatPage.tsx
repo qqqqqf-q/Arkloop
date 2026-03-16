@@ -7,6 +7,7 @@ import { isDesktop } from '@arkloop/shared/desktop'
 import { codeExecutionAccentColor } from '../codeExecutionStatus'
 import { ChatInput, type Attachment } from './ChatInput'
 import { MessageBubble, StreamingBubble } from './MessageBubble'
+import { RunDetailPanel } from './RunDetailPanel'
 import { ThinkingBlock, CodeExecutionCard, type CodeExecution } from './ThinkingBlock'
 import { ShellExecutionBlock } from './ShellExecutionBlock'
 import { SubAgentBlock } from './SubAgentBlock'
@@ -100,6 +101,10 @@ import {
   readMessageSubAgents,
   writeMessageSubAgents,
   migrateMessageMetadata,
+  readDeveloperShowRunEvents,
+  readMsgRunEvents,
+  writeMsgRunEvents,
+  type MsgRunEvent,
 } from '../storage'
 
 const sidePanelWidth = 420
@@ -308,6 +313,19 @@ export function ChatPage() {
   const searchStepsRef = useRef<SearchStep[]>([])
   const [liveTimelineExiting, setLiveTimelineExiting] = useState(false)
   const liveTimelineExitTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+
+  // --- 开发者调试 ---
+  const [showRunEvents, setShowRunEvents] = useState(() => readDeveloperShowRunEvents())
+  const [runDetailPanelRunId, setRunDetailPanelRunId] = useState<string | null>(null)
+  const [msgRunEventsMap, setMsgRunEventsMap] = useState<Map<string, MsgRunEvent[]>>(new Map())
+
+  useEffect(() => {
+    const handleChange = (e: Event) => {
+      setShowRunEvents((e as CustomEvent<boolean>).detail)
+    }
+    window.addEventListener('arkloop:developer_show_run_events', handleChange)
+    return () => window.removeEventListener('arkloop:developer_show_run_events', handleChange)
+  }, [])
 
   // --- 标题下拉菜单 ---
   const [titleMenuOpen, setTitleMenuOpen] = useState(false)
@@ -674,6 +692,7 @@ export function ChatPage() {
         const thinkingMap = new Map<string, MessageThinkingRef>()
         const searchStepsMap = new Map<string, MessageSearchStepRef[]>()
         const memoryActionsMap = new Map<string, MemoryActionRef[]>()
+        const runEventsMap = new Map<string, MsgRunEvent[]>()
         for (const msg of items) {
           if (msg.role !== 'assistant') continue
 
@@ -697,6 +716,8 @@ export function ChatPage() {
           }
           const cachedMemoryActions = readMessageMemoryActions(msg.id)
           if (cachedMemoryActions) memoryActionsMap.set(msg.id, cachedMemoryActions)
+          const cachedRunEvents = readMsgRunEvents(msg.id)
+          if (cachedRunEvents) runEventsMap.set(msg.id, cachedRunEvents)
         }
 
         // 服务端回放：补齐最新一轮的 thinking / 代码执行缓存
@@ -749,6 +770,7 @@ export function ChatPage() {
         setMessageThinkingMap(thinkingMap)
         setMessageSearchStepsMap(searchStepsMap)
         setMessageMemoryActionsMap(memoryActionsMap)
+        setMsgRunEventsMap(runEventsMap)
 
         // 若 location state 已提供 initialRunId，优先使用（来自 WelcomePage 新建后导航）
         // 必须显式调用 setActiveRunId，因为 React Router 复用组件实例，useState 初始值不会重新求值
@@ -1310,6 +1332,13 @@ export function ChatPage() {
             if (runMemoryActions.length > 0) {
               writeMessageMemoryActions(completedAssistant.id, runMemoryActions)
               setMessageMemoryActionsMap((prev) => new Map(prev).set(completedAssistant.id, runMemoryActions))
+            }
+            const completedRunEvents = (sse.events as MsgRunEvent[]).filter(
+              (e) => e.run_id === completedRunId,
+            )
+            if (completedRunEvents.length > 0) {
+              writeMsgRunEvents(completedAssistant.id, completedRunEvents)
+              setMsgRunEventsMap((prev) => new Map(prev).set(completedAssistant.id, completedRunEvents))
             }
           }
           const pending = pendingMessageRef.current
@@ -2224,6 +2253,11 @@ export function ChatPage() {
                     }
                     onOpenDocument={msg.role === 'assistant' ? openDocumentPanel : undefined}
                     activePanelArtifactKey={documentPanelArtifact?.artifact.key ?? null}
+                    onViewRunDetail={
+                      showRunEvents && msg.role === 'assistant' && msg.run_id
+                        ? () => setRunDetailPanelRunId(msg.run_id!)
+                        : undefined
+                    }
                   />
                   {/* 无痕分割线：固定在 fork 基点之后 */}
                   {locationState?.isIncognitoFork && locationState.forkBaseCount != null && idx === locationState.forkBaseCount - 1 && (
@@ -2814,6 +2848,14 @@ export function ChatPage() {
           </div>
         </div>,
         document.body,
+      )}
+
+      {runDetailPanelRunId && (
+        <RunDetailPanel
+          runId={runDetailPanelRunId}
+          accessToken={accessToken}
+          onClose={() => setRunDetailPanelRunId(null)}
+        />
       )}
     </div>
   )

@@ -560,6 +560,67 @@ export function writeMessageSubAgents(messageId: string, agents: SubAgentRef[]):
   } catch { /* ignore */ }
 }
 
+// -- Developer Settings --
+
+const DEVELOPER_SHOW_RUN_EVENTS_KEY = 'arkloop:web:developer_show_run_events'
+
+export function readDeveloperShowRunEvents(): boolean {
+  if (!canUseLocalStorage()) return false
+  try {
+    return localStorage.getItem(DEVELOPER_SHOW_RUN_EVENTS_KEY) === 'true'
+  } catch { return false }
+}
+
+export function writeDeveloperShowRunEvents(value: boolean): void {
+  if (!canUseLocalStorage()) return
+  try {
+    localStorage.setItem(DEVELOPER_SHOW_RUN_EVENTS_KEY, value ? 'true' : 'false')
+    window.dispatchEvent(new CustomEvent('arkloop:developer_show_run_events', { detail: value }))
+  } catch { /* ignore */ }
+}
+
+// -- Per-message run events (for inline debug display) --
+
+export type MsgRunEvent = {
+  event_id: string
+  run_id: string
+  seq: number
+  ts: string
+  type: string
+  data: unknown
+  tool_name?: string
+  error_class?: string
+}
+
+function messageRunEventsKey(messageId: string): string {
+  return `arkloop:web:msg_run_events:${messageId}`
+}
+
+export function readMsgRunEvents(messageId: string): MsgRunEvent[] | null {
+  if (!canUseLocalStorage() || !messageId) return null
+  try {
+    const raw = localStorage.getItem(messageRunEventsKey(messageId))
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) return null
+    const events = parsed.filter(
+      (item): item is MsgRunEvent =>
+        item != null &&
+        typeof item === 'object' &&
+        typeof (item as Record<string, unknown>).event_id === 'string' &&
+        typeof (item as Record<string, unknown>).type === 'string',
+    )
+    return events.length > 0 ? events : null
+  } catch { return null }
+}
+
+export function writeMsgRunEvents(messageId: string, events: MsgRunEvent[]): void {
+  if (!canUseLocalStorage() || !messageId || events.length === 0) return
+  try {
+    localStorage.setItem(messageRunEventsKey(messageId), JSON.stringify(events))
+  } catch { /* ignore */ }
+}
+
 const SEARCH_THREAD_IDS_KEY = 'arkloop:web:search_thread_ids'
 
 export function addSearchThreadId(threadId: string): void {

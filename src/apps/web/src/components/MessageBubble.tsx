@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { Copy, Check, RefreshCw, Share2, Split, Paperclip, Pencil, MoreHorizontal, Flag, X, Download, ExternalLink } from 'lucide-react'
+import { Copy, Check, RefreshCw, Share2, Split, Paperclip, Pencil, MoreHorizontal, Flag, X, Download, ExternalLink, Terminal } from 'lucide-react'
 import { apiBaseUrl } from '@arkloop/shared/api'
 import type { MessageResponse } from '../api'
 import type { WebSource, ArtifactRef } from '../storage'
@@ -95,6 +95,7 @@ type Props = {
   onShowSources?: () => void
   onOpenDocument?: (artifact: ArtifactRef, options?: { trigger?: HTMLElement | null; artifacts?: ArtifactRef[]; runId?: string }) => void
   activePanelArtifactKey?: string | null
+  onViewRunDetail?: () => void
 }
 
 function getDomain(url: string): string {
@@ -448,7 +449,7 @@ function PastedBubbleCard({
 }
 
 
-export function MessageBubble({ message, onRetry, onEdit, onFork, onShare, onReport, shareState, webSources, artifacts, browserActions, accessToken, onShowSources, onOpenDocument, activePanelArtifactKey }: Props) {
+export function MessageBubble({ message, onRetry, onEdit, onFork, onShare, onReport, shareState, webSources, artifacts, browserActions, accessToken, onShowSources, onOpenDocument, activePanelArtifactKey, onViewRunDetail }: Props) {
   const { t } = useLocale()
   const [copied, setCopied] = useState(false)
   const [editing, setEditing] = useState(false)
@@ -906,7 +907,7 @@ export function MessageBubble({ message, onRetry, onEdit, onFork, onShare, onRep
             >
               <Split size={15} />
             </button>
-            {onReport && (
+            {(onReport || onViewRunDetail) && (
               <div ref={moreRef} style={{ position: 'relative' }}>
                 <button
                   onClick={() => setMoreOpen(v => !v)}
@@ -927,18 +928,30 @@ export function MessageBubble({ message, onRetry, onEdit, onFork, onShare, onRep
                       borderRadius: '10px',
                       padding: '4px',
                       zIndex: 20,
-                      minWidth: '120px',
+                      minWidth: '140px',
                       boxShadow: 'var(--c-dropdown-shadow)',
                     }}
                   >
-                    <button
-                      onClick={() => { setMoreOpen(false); onReport() }}
-                      className="flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-[13px] text-[var(--c-text-secondary)] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]"
-                      style={{ border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}
-                    >
-                      <Flag size={13} style={{ color: 'var(--c-text-muted)', flexShrink: 0 }} />
-                      {t.reportButton}
-                    </button>
+                    {onViewRunDetail && (
+                      <button
+                        onClick={() => { setMoreOpen(false); onViewRunDetail() }}
+                        className="flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-[13px] text-[var(--c-text-secondary)] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]"
+                        style={{ border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}
+                      >
+                        <Terminal size={13} style={{ color: 'var(--c-text-muted)', flexShrink: 0 }} />
+                        {t.desktopSettings.viewRunDetail}
+                      </button>
+                    )}
+                    {onReport && (
+                      <button
+                        onClick={() => { setMoreOpen(false); onReport() }}
+                        className="flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-[13px] text-[var(--c-text-secondary)] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]"
+                        style={{ border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}
+                      >
+                        <Flag size={13} style={{ color: 'var(--c-text-muted)', flexShrink: 0 }} />
+                        {t.reportButton}
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
@@ -991,6 +1004,7 @@ export function MessageBubble({ message, onRetry, onEdit, onFork, onShare, onRep
           </div>
         </div>
       </div>
+
     </div>
   )
 }
