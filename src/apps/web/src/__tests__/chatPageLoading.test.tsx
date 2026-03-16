@@ -77,6 +77,8 @@ vi.mock('../storage', async () => {
     writeMessageThinking: vi.fn(),
     readMessageSearchSteps: vi.fn(() => null),
     writeMessageSearchSteps: vi.fn(),
+    readMessageCopBlocks: vi.fn(() => null),
+    writeMessageCopBlocks: vi.fn(),
     readMessageBrowserActions: vi.fn(() => null),
     writeMessageBrowserActions: vi.fn(),
     migrateMessageMetadata: vi.fn(),

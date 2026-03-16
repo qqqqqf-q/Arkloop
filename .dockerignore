@@ -19,7 +19,7 @@
 Thumbs.db
 
 # Node
-node_modules
+**/node_modules
 
 # Build artifacts
 *.exe
@@ -27,6 +27,8 @@ node_modules
 src/services/worker/worker
 src/docs/.vitepress/dist
 src/docs/.vitepress/cache
+**/dist
+**/.vite
 
 # Temp / local-only
 temp

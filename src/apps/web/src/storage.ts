@@ -428,6 +428,89 @@ export function writeMessageSearchSteps(messageId: string, steps: MessageSearchS
   } catch { /* ignore */ }
 }
 
+// -- COP Blocks --
+
+export type CopBlockRef = {
+  id: string
+  title: string
+  steps: MessageSearchStepRef[]
+  sources: WebSource[]
+}
+
+export type MessageCopBlocksRef = {
+  blocks: CopBlockRef[]
+  bridgeTexts: string[]
+}
+
+function messageCopBlocksKey(messageId: string): string {
+  return `arkloop:web:msg_cop_blocks:${messageId}`
+}
+
+function parseStepRef(s: Record<string, unknown>): MessageSearchStepRef | null {
+  const id = typeof s.id === 'string' ? s.id : ''
+  const kind = s.kind
+  const label = typeof s.label === 'string' ? s.label : ''
+  const status = s.status
+  const queries = Array.isArray(s.queries)
+    ? (s.queries as unknown[]).filter((q): q is string => typeof q === 'string')
+    : undefined
+  if (!id) return null
+  if (kind !== 'planning' && kind !== 'searching' && kind !== 'reviewing' && kind !== 'finished') return null
+  if (status !== 'active' && status !== 'done') return null
+  return { id, kind, label, status, queries }
+}
+
+export function readMessageCopBlocks(messageId: string): MessageCopBlocksRef | null {
+  if (!canUseLocalStorage() || !messageId) return null
+  try {
+    const raw = localStorage.getItem(messageCopBlocksKey(messageId))
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as unknown
+    if (typeof parsed !== 'object' || parsed == null) return null
+    const obj = parsed as Record<string, unknown>
+    if (!Array.isArray(obj.blocks)) return null
+    const blocks: CopBlockRef[] = (obj.blocks as unknown[])
+      .filter((b): b is Record<string, unknown> => b != null && typeof b === 'object')
+      .map((b): CopBlockRef | null => {
+        const id = typeof b.id === 'string' ? b.id : ''
+        const title = typeof b.title === 'string' ? b.title : ''
+        if (!id) return null
+        const steps = Array.isArray(b.steps)
+          ? (b.steps as unknown[])
+              .filter((s): s is Record<string, unknown> => s != null && typeof s === 'object')
+              .map(parseStepRef)
+              .filter((s): s is MessageSearchStepRef => s != null)
+          : []
+        const sources: WebSource[] = Array.isArray(b.sources)
+          ? (b.sources as unknown[])
+              .filter((s): s is Record<string, unknown> => s != null && typeof s === 'object')
+              .map((s) => ({
+                title: typeof s.title === 'string' ? s.title : '',
+                url: typeof s.url === 'string' ? s.url : '',
+                snippet: typeof s.snippet === 'string' ? s.snippet : undefined,
+              }))
+              .filter((s) => !!s.url)
+          : []
+        return { id, title, steps, sources }
+      })
+      .filter((b): b is CopBlockRef => b != null)
+    if (blocks.length === 0) return null
+    const bridgeTexts = Array.isArray(obj.bridgeTexts)
+      ? (obj.bridgeTexts as unknown[]).map(t => typeof t === 'string' ? t : '')
+      : []
+    return { blocks, bridgeTexts }
+  } catch {
+    return null
+  }
+}
+
+export function writeMessageCopBlocks(messageId: string, data: MessageCopBlocksRef): void {
+  if (!canUseLocalStorage() || !messageId || data.blocks.length === 0) return
+  try {
+    localStorage.setItem(messageCopBlocksKey(messageId), JSON.stringify(data))
+  } catch { /* ignore */ }
+}
+
 // -- Sub-Agent --
 
 export type SubAgentStatus = 'spawning' | 'active' | 'completed' | 'failed' | 'closed'
@@ -527,5 +610,7 @@ export function migrateMessageMetadata(mapping: Array<{ old_id: string; new_id: 
     if (thinking) writeMessageThinking(new_id, thinking)
     const searchSteps = readMessageSearchSteps(old_id)
     if (searchSteps) writeMessageSearchSteps(new_id, searchSteps)
+    const copBlocks = readMessageCopBlocks(old_id)
+    if (copBlocks) writeMessageCopBlocks(new_id, copBlocks)
   }
 }

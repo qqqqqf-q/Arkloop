@@ -165,7 +165,7 @@ export function SearchTimeline({ steps, sources, isComplete, codeExecutions, onO
 
   const codeExecCount = codeExecutions?.length ?? 0
   const subAgentCount = subAgents?.length ?? 0
-  if (steps.length === 0 && codeExecCount === 0 && subAgentCount === 0) return null
+  if (steps.length === 0 && codeExecCount === 0 && subAgentCount === 0 && !headerOverride) return null
 
   const stepsExcludingFinished = steps.filter(s => s.kind !== 'finished').length
   const effectiveStepCount = stepsExcludingFinished || (codeExecCount + subAgentCount)
@@ -183,11 +183,15 @@ export function SearchTimeline({ steps, sources, isComplete, codeExecutions, onO
   const headerLabel = headerOverride ?? autoLabel
   const dottedStepCount = steps.length
 
+  const [hovered, setHovered] = useState(false)
+
   return (
     <div style={{ maxWidth: '663px' }}>
       <button
         type="button"
         onClick={() => setCollapsed((p) => !p)}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -196,12 +200,22 @@ export function SearchTimeline({ steps, sources, isComplete, codeExecutions, onO
           background: 'none',
           border: 'none',
           cursor: 'pointer',
-          color: 'var(--c-text-secondary)',
+          color: hovered
+            ? 'var(--c-text-primary)'
+            : isComplete && collapsed
+              ? 'var(--c-text-tertiary)'
+              : 'var(--c-text-secondary)',
           fontSize: '13px',
-          fontWeight: 500,
+          fontWeight: isComplete && collapsed && !hovered ? 400 : 500,
+          transition: 'color 0.15s ease',
         }}
       >
         <TypewriterText text={headerLabel} className={shimmer ? 'thinking-shimmer' : undefined} active={!!live} />
+        {isComplete && sources.length > 0 && (
+          <span style={{ fontSize: '12px', color: hovered ? 'var(--c-text-secondary)' : 'var(--c-text-muted)', fontWeight: 400, transition: 'color 0.15s ease' }}>
+            {sources.length} sources
+          </span>
+        )}
         {isComplete && (
           <motion.div
             animate={{ rotate: collapsed ? 0 : 90 }}
