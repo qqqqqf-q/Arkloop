@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { motion } from "framer-motion";
 import {
   ChevronLeft,
@@ -13,6 +13,7 @@ import {
   Bug,
   Package,
   Globe,
+  Brain,
 } from "lucide-react";
 import type { MeResponse } from "../api";
 import { useLocale } from "../contexts/LocaleContext";
@@ -24,6 +25,7 @@ import {
   MCPSettings,
   ConnectorsSettings,
   SearchFetchSettings,
+  MemorySettings,
   ConnectionSettings,
   ExtensionsSettings,
   ModulesSettings,
@@ -38,6 +40,7 @@ export type DesktopSettingsKey =
   | "mcp"
   | "connectors"
   | "searchFetch"
+  | "memory"
   | "connection"
   | "modules"
   | "extensions"
@@ -60,6 +63,7 @@ const MAIN_NAV: NavItem[] = [
 
 const DESKTOP_NAV: NavItem[] = [
   { key: "connection", icon: Wifi },
+  { key: "memory", icon: Brain },
   { key: "modules", icon: Package },
   { key: "extensions", icon: Blocks },
   { key: "developer", icon: Bug },
@@ -88,12 +92,20 @@ export function DesktopSettings({
   const ds = t.desktopSettings;
   const [activeKey, setActiveKey] =
     useState<DesktopSettingsKey>(initialSection);
+  const [scrolled, setScrolled] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  const handleTabChange = (key: DesktopSettingsKey) => {
+    setActiveKey(key);
+    setScrolled(false);
+    if (scrollRef.current) scrollRef.current.scrollTop = 0;
+  };
 
   const renderNav = (items: NavItem[]) =>
     items.map(({ key, icon: Icon }) => (
       <button
         key={key}
-        onClick={() => setActiveKey(key)}
+        onClick={() => handleTabChange(key)}
         className={[
           "flex h-8 items-center gap-2.5 rounded-lg px-2.5 text-[13px] font-medium transition-colors",
           activeKey === key
@@ -131,6 +143,8 @@ export function DesktopSettings({
         return <ConnectorsSettings accessToken={accessToken} />;
       case "searchFetch":
         return <SearchFetchSettings />;
+      case "memory":
+        return <MemorySettings />;
       case "connection":
         return <ConnectionSettings />;
       case "modules":
@@ -186,14 +200,21 @@ export function DesktopSettings({
         </div>
       </div>
 
-      {/* Right content area with top fade mask */}
+      {/* Right content area with scroll-aware top fade mask */}
       <div className="relative flex min-w-0 flex-1 overflow-hidden">
-        {/* Fade mask — covers the first 32px so content doesn't visually bleed into the top bar when scrolled */}
+        {/* Fade mask — only visible once the user has scrolled down */}
         <div
-          className="pointer-events-none absolute left-0 right-0 top-0 z-10 h-8"
-          style={{ background: 'linear-gradient(to bottom, var(--c-bg-page) 0%, transparent 100%)' }}
+          className="pointer-events-none absolute left-0 right-0 top-0 z-10 h-8 transition-opacity duration-200"
+          style={{
+            background: 'linear-gradient(to bottom, var(--c-bg-page) 0%, transparent 100%)',
+            opacity: scrolled ? 1 : 0,
+          }}
         />
-        <div className="flex min-w-0 flex-1 flex-col overflow-y-auto p-6">
+        <div
+          ref={scrollRef}
+          className="flex min-w-0 flex-1 flex-col overflow-y-auto p-6"
+          onScroll={(e) => setScrolled((e.currentTarget as HTMLDivElement).scrollTop > 8)}
+        >
           {renderContent()}
         </div>
       </div>

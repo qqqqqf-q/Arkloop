@@ -22,6 +22,21 @@ export type ConnectorsConfig = {
   search: SearchConnectorConfig
 }
 
+export type MemoryProvider = 'local' | 'openviking'
+
+export type MemoryConfig = {
+  provider: MemoryProvider
+}
+
+export type MemoryEntry = {
+  id: string
+  scope: string
+  category: string
+  key: string
+  content: string
+  created_at: string
+}
+
 export type DesktopConfig = {
   mode: ConnectionMode
   saas: { baseUrl: string }
@@ -30,6 +45,7 @@ export type DesktopConfig = {
   window: { width: number; height: number }
   onboarding_completed: boolean
   connectors: ConnectorsConfig
+  memory: MemoryConfig
 }
 
 export type SidecarRuntime = {
@@ -61,6 +77,13 @@ export type ArkloopDesktopApi = {
   connectors?: {
     get: () => Promise<ConnectorsConfig>
     set: (config: ConnectorsConfig) => Promise<{ ok: boolean }>
+  }
+  memory?: {
+    getConfig: () => Promise<MemoryConfig>
+    setConfig: (config: MemoryConfig) => Promise<{ ok: boolean }>
+    list: (agentId?: string) => Promise<{ entries: MemoryEntry[] }>
+    delete: (id: string, agentId?: string) => Promise<{ status: string }>
+    getSnapshot: (agentId?: string) => Promise<{ memory_block: string }>
   }
   sidecar: {
     getStatus: () => Promise<'stopped' | 'starting' | 'running' | 'crashed'>

@@ -19,6 +19,7 @@ import (
 	"arkloop/services/worker/internal/events"
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/memory"
+	localmemory "arkloop/services/worker/internal/memory/local"
 	"arkloop/services/worker/internal/personas"
 	"arkloop/services/worker/internal/pipeline"
 	"arkloop/services/worker/internal/routing"
@@ -26,6 +27,7 @@ import (
 	"arkloop/services/worker/internal/tools/builtin"
 	"arkloop/services/worker/internal/tools/localfs"
 	"arkloop/services/worker/internal/tools/localshell"
+	memorytool "arkloop/services/worker/internal/tools/memory"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -88,8 +90,20 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 	executors[localfs.FileReadAgentSpec.Name] = fsExec
 	executors[localfs.FileWriteAgentSpec.Name] = fsExec
 
+	memProvider := localmemory.NewProvider(db)
+	memExec := memorytool.NewToolExecutor(memProvider)
+	for _, spec := range memorytool.AgentSpecs() {
+		executors[spec.Name] = memExec
+	}
+	for _, spec := range memorytool.AgentSpecs() {
+		if err := toolRegistry.Register(spec); err != nil {
+			slog.WarnContext(ctx, "desktop: skip memory tool registration", "name", spec.Name, "err", err)
+		}
+	}
+
 	allLlmSpecs := append(builtin.LlmSpecs(), localshell.LlmSpecs()...)
 	allLlmSpecs = append(allLlmSpecs, localfs.LlmSpecs()...)
+	allLlmSpecs = append(allLlmSpecs, memorytool.LlmSpecs()...)
 
 	baseAllowlist := make(map[string]struct{})
 	for _, name := range toolRegistry.ListNames() {

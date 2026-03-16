@@ -10,6 +10,8 @@ import type {
   FetchProvider,
   LocalConfig,
   LocalPortMode,
+  MemoryConfig,
+  MemoryProvider,
   SearchConnectorConfig,
   SearchProvider,
 } from './types'
@@ -77,6 +79,17 @@ function normalizeConnectors(raw: unknown): ConnectorsConfig {
   }
 }
 
+function normalizeMemoryProvider(p: unknown): MemoryProvider {
+  return p === 'openviking' ? 'openviking' : 'local'
+}
+
+function normalizeMemory(raw: unknown): MemoryConfig {
+  const r = (raw && typeof raw === 'object') ? raw as Partial<MemoryConfig> : {}
+  return {
+    provider: normalizeMemoryProvider(r.provider),
+  }
+}
+
 export function normalizeConfig(config: Partial<AppConfig> | null | undefined): AppConfig {
   const parsed = config ?? {}
   return {
@@ -98,6 +111,7 @@ export function normalizeConfig(config: Partial<AppConfig> | null | undefined): 
       ? parsed.onboarding_completed
       : DEFAULT_CONFIG.onboarding_completed,
     connectors: normalizeConnectors(parsed.connectors),
+    memory: normalizeMemory(parsed.memory),
   }
 }
 

@@ -22,6 +22,12 @@ export type ConnectorsConfig = {
   search: SearchConnectorConfig
 }
 
+export type MemoryProvider = 'local' | 'openviking'
+
+export type MemoryConfig = {
+  provider: MemoryProvider
+}
+
 export type LocalConfig = {
   port: number
   portMode: LocalPortMode
@@ -35,6 +41,7 @@ export type AppConfig = {
   window: { width: number; height: number }
   onboarding_completed: boolean
   connectors: ConnectorsConfig
+  memory: MemoryConfig
 }
 
 export const DEFAULT_CONFIG: AppConfig = {
@@ -48,4 +55,5 @@ export const DEFAULT_CONFIG: AppConfig = {
     fetch: { provider: 'jina' },
     search: { provider: 'browser' },
   },
+  memory: { provider: 'local' },
 }

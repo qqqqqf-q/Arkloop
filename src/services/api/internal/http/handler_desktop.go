@@ -12,6 +12,7 @@ import (
 	"arkloop/services/api/internal/http/billingapi"
 	"arkloop/services/api/internal/http/catalogapi"
 	"arkloop/services/api/internal/http/conversationapi"
+	"arkloop/services/api/internal/http/memoryapi"
 	"arkloop/services/api/internal/http/platformapi"
 
 	"arkloop/services/api/internal/audit"
@@ -329,6 +330,10 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 		JobRepo:               cfg.JobRepo,
 		SmtpProviderRepo:      cfg.SmtpProviderRepo,
 		UserCredentialRepo:    cfg.UserCredentialRepo,
+	})
+
+	memoryapi.RegisterRoutes(mux, memoryapi.Deps{
+		Pool: cfg.Pool,
 	})
 
 	notFound := nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {

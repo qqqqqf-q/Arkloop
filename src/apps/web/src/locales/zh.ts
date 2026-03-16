@@ -538,6 +538,22 @@ export const zh: LocaleStrings = {
     fetchProviderJinaDesc: "通过 Jina Reader 将页面转为干净 Markdown，免费层无需 API Key 即可使用。",
     fetchProviderBasicDesc: "直接 HTTP 抓取并去除 HTML 标签，始终可用，无需任何配置。",
     fetchProviderFirecrawlDesc: "高级网页爬取与内容提取，需要 Firecrawl API Key。",
+    // Memory settings tab
+    memory: "记忆",
+    memorySettingsTitle: "记忆",
+    memorySettingsDesc: "查看和管理 AI 存储的记忆。模型会在对话中自动写入和读取这些内容。",
+    memoryLocalProvider: "本地记忆",
+    memoryLocalProviderDesc: "记忆以文本形式存储在本地 SQLite 中，无需外部服务。",
+    memoryOpenvikingProvider: "OpenViking 记忆",
+    memoryOpenvikingProviderDesc: "记忆由 OpenViking 服务管理。",
+    memoryOpenvikingNote: "记忆由 OpenViking 外部管理，下方显示的是最新的本地缓存快照。",
+    memoryEntriesTitle: "已存储的记忆",
+    memoryEmptyTitle: "暂无记忆",
+    memoryEmptyDesc: "AI 会在对话过程中将记忆写入此处。",
+    memoryClearAll: "清除全部",
+    memoryClearAllConfirm: "这将永久删除所有已存储的记忆，确定继续？",
+    memoryDeleteConfirm: "删除这条记忆？",
+    memorySnapshotTitle: "记忆快照",
   },
 
   adminProviders: {

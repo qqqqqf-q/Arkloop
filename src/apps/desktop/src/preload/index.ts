@@ -20,6 +20,21 @@ export type ConnectorsConfig = {
   }
 }
 
+export type MemoryProvider = 'local' | 'openviking'
+
+export type MemoryConfig = {
+  provider: MemoryProvider
+}
+
+export type MemoryEntry = {
+  id: string
+  scope: string
+  category: string
+  key: string
+  content: string
+  created_at: string
+}
+
 export type AppConfig = {
   mode: ConnectionMode
   saas: { baseUrl: string }
@@ -28,6 +43,7 @@ export type AppConfig = {
   window: { width: number; height: number }
   onboarding_completed: boolean
   connectors: ConnectorsConfig
+  memory: MemoryConfig
 }
 
 export type SidecarStatus = 'stopped' | 'starting' | 'running' | 'crashed'
@@ -103,6 +119,13 @@ export type ArkloopDesktopApi = {
   connectors: {
     get: () => Promise<ConnectorsConfig>
     set: (config: ConnectorsConfig) => Promise<{ ok: boolean }>
+  }
+  memory: {
+    getConfig: () => Promise<MemoryConfig>
+    setConfig: (config: MemoryConfig) => Promise<{ ok: boolean }>
+    list: (agentId?: string) => Promise<{ entries: MemoryEntry[] }>
+    delete: (id: string, agentId?: string) => Promise<{ status: string }>
+    getSnapshot: (agentId?: string) => Promise<{ memory_block: string }>
   }
   app: {
     getVersion: () => Promise<string>
@@ -229,6 +252,14 @@ const api: ArkloopDesktopApi = {
   connectors: {
     get: () => ipcRenderer.invoke('arkloop:connectors:get'),
     set: (config: ConnectorsConfig) => ipcRenderer.invoke('arkloop:connectors:set', config),
+  },
+
+  memory: {
+    getConfig: () => ipcRenderer.invoke('arkloop:memory:get-config'),
+    setConfig: (config: MemoryConfig) => ipcRenderer.invoke('arkloop:memory:set-config', config),
+    list: (agentId?: string) => ipcRenderer.invoke('arkloop:memory:list', agentId),
+    delete: (id: string, agentId?: string) => ipcRenderer.invoke('arkloop:memory:delete', id, agentId),
+    getSnapshot: (agentId?: string) => ipcRenderer.invoke('arkloop:memory:get-snapshot', agentId),
   },
 
   app: {

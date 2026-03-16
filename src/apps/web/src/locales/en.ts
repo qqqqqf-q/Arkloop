@@ -548,6 +548,22 @@ export const en: LocaleStrings = {
     fetchProviderFirecrawlDesc: "Advanced web crawling and content extraction. Requires a Firecrawl API key.",
     resetOnboardingBtn: "Reset",
     appVersion: "App version",
+    // Memory settings tab
+    memory: "Memory",
+    memorySettingsTitle: "Memory",
+    memorySettingsDesc: "View and manage memories stored by the AI. The model writes and reads these automatically during conversations.",
+    memoryLocalProvider: "Local Memory",
+    memoryLocalProviderDesc: "Memories are stored locally in SQLite. No external service required.",
+    memoryOpenvikingProvider: "OpenViking Memory",
+    memoryOpenvikingProviderDesc: "Memories are managed by the OpenViking service.",
+    memoryOpenvikingNote: "Memories are managed externally by OpenViking. The snapshot below reflects the latest local cache.",
+    memoryEntriesTitle: "Stored Memories",
+    memoryEmptyTitle: "No memories yet",
+    memoryEmptyDesc: "The AI will write memories here as you chat.",
+    memoryClearAll: "Clear all",
+    memoryClearAllConfirm: "This will permanently delete all stored memories. Continue?",
+    memoryDeleteConfirm: "Delete this memory entry?",
+    memorySnapshotTitle: "Memory Snapshot",
   },
 
   adminProviders: {

@@ -2,6 +2,7 @@ import { ipcMain, BrowserWindow } from 'electron'
 import { loadConfig, saveConfig, getConfigPath } from './config'
 import {
   getSidecarStatus,
+  getSidecarRuntime,
   downloadSidecar,
   isSidecarAvailable,
   checkSidecarVersion,
@@ -10,7 +11,7 @@ import {
   type SidecarRuntime,
 } from './sidecar'
 import { getRootfsStatus, isRootfsAvailable, getRootfsPath, checkRootfsVersion, downloadRootfs, deleteRootfs } from './rootfs'
-import type { AppConfig, ConnectorsConfig } from './types'
+import type { AppConfig, ConnectorsConfig, MemoryConfig } from './types'
 
 type DesktopController = {
   applyConfigUpdate: (config: AppConfig) => Promise<AppConfig>
@@ -126,6 +127,45 @@ export function registerIpcHandlers(
     return { ok: true }
   })
 
+  ipcMain.handle('arkloop:memory:get-config', () => {
+    const config = loadConfig()
+    return config.memory
+  })
+
+  ipcMain.handle('arkloop:memory:set-config', async (_event, memory: MemoryConfig) => {
+    const config = loadConfig()
+    const next: AppConfig = { ...config, memory }
+    await controller.applyConfigUpdate(next)
+    return { ok: true }
+  })
+
+  ipcMain.handle('arkloop:memory:list', async (_event, agentId?: string) => {
+    const apiBaseUrl = getLocalApiBaseUrl()
+    if (!apiBaseUrl) return { entries: [] }
+    const token = getDesktopAccessToken()
+    const url = `${apiBaseUrl}/v1/desktop/memory/entries?agent_id=${encodeURIComponent(agentId ?? 'default')}`
+    const resp = await makeApiRequest(url, 'GET', token)
+    return resp
+  })
+
+  ipcMain.handle('arkloop:memory:delete', async (_event, id: string, agentId?: string) => {
+    const apiBaseUrl = getLocalApiBaseUrl()
+    if (!apiBaseUrl) return { status: 'error', message: 'sidecar not running' }
+    const token = getDesktopAccessToken()
+    const url = `${apiBaseUrl}/v1/desktop/memory/entries/${encodeURIComponent(id)}?agent_id=${encodeURIComponent(agentId ?? 'default')}`
+    const resp = await makeApiRequest(url, 'DELETE', token)
+    return resp
+  })
+
+  ipcMain.handle('arkloop:memory:get-snapshot', async (_event, agentId?: string) => {
+    const apiBaseUrl = getLocalApiBaseUrl()
+    if (!apiBaseUrl) return { memory_block: '' }
+    const token = getDesktopAccessToken()
+    const url = `${apiBaseUrl}/v1/desktop/memory/snapshot?agent_id=${encodeURIComponent(agentId ?? 'default')}`
+    const resp = await makeApiRequest(url, 'GET', token)
+    return resp
+  })
+
   ipcMain.handle('arkloop:app:version', () => {
     const { app } = require('electron')
     return app.getVersion()
@@ -134,5 +174,41 @@ export function registerIpcHandlers(
   ipcMain.handle('arkloop:app:quit', () => {
     const { app } = require('electron')
     app.quit()
+  })
+}
+
+function getLocalApiBaseUrl(): string | null {
+  const runtime = getSidecarRuntime()
+  if (runtime.status !== 'running' || !runtime.port) return null
+  return `http://127.0.0.1:${runtime.port}`
+}
+
+async function makeApiRequest(url: string, method: string, token: string): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(url)
+    const options = {
+      hostname: parsed.hostname,
+      port: parseInt(parsed.port, 10) || 80,
+      path: parsed.pathname + parsed.search,
+      method,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    }
+    const http = require('http') as typeof import('http')
+    const req = http.request(options, (res) => {
+      let body = ''
+      res.on('data', (chunk: Buffer) => { body += chunk.toString() })
+      res.on('end', () => {
+        try {
+          resolve(JSON.parse(body))
+        } catch {
+          resolve({ raw: body })
+        }
+      })
+    })
+    req.on('error', reject)
+    req.end()
   })
 }

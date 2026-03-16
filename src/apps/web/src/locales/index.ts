@@ -524,6 +524,22 @@ export interface LocaleStrings {
     fetchProviderJinaDesc: string;
     fetchProviderBasicDesc: string;
     fetchProviderFirecrawlDesc: string;
+    // memory settings tab
+    memory: string;
+    memorySettingsTitle: string;
+    memorySettingsDesc: string;
+    memoryLocalProvider: string;
+    memoryLocalProviderDesc: string;
+    memoryOpenvikingProvider: string;
+    memoryOpenvikingProviderDesc: string;
+    memoryOpenvikingNote: string;
+    memoryEntriesTitle: string;
+    memoryEmptyTitle: string;
+    memoryEmptyDesc: string;
+    memoryClearAll: string;
+    memoryClearAllConfirm: string;
+    memoryDeleteConfirm: string;
+    memorySnapshotTitle: string;
   };
 
   // admin providers/models settings (ported from console-lite)
