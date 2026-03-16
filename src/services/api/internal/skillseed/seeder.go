@@ -64,10 +64,35 @@ func NewSeeder(root string, pool *pgxpool.Pool, repo *data.SkillPackagesReposito
 	}
 }
 
+// NewSeederDirect creates a Seeder without a pgxpool.Pool. It can only be used
+// with SyncOnceDirect (no advisory-lock election). Intended for desktop mode
+// where there is always a single process and PostgreSQL is not available.
+func NewSeederDirect(root string, repo *data.SkillPackagesRepository, store objectStore, logger *observability.JSONLogger) *Seeder {
+	return &Seeder{
+		root:    root,
+		repo:    repo,
+		store:   store,
+		logger:  logger,
+		trigger: make(chan struct{}, 1),
+	}
+}
+
 // SyncNow performs a single leader-elected sync cycle.
 func (s *Seeder) SyncNow(ctx context.Context) error {
 	_, err := s.syncIfLeader(ctx)
 	return err
+}
+
+// SyncOnceDirect runs a single sync cycle without acquiring a PostgreSQL
+// advisory lock. Safe to call in desktop mode (single process, no PG).
+func (s *Seeder) SyncOnceDirect(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if s.repo == nil || s.root == "" {
+		return nil
+	}
+	return s.syncOnce(ctx)
 }
 
 // Run starts the background sync loop: bootstrap once, then tick every 30s
@@ -292,26 +317,7 @@ func computeContentHash(files map[string][]byte) string {
 // ---------------------------------------------------------------------------
 
 func (s *Seeder) loadDBHashes(ctx context.Context) (map[string]string, error) {
-	rows, err := s.pool.Query(ctx,
-		`SELECT skill_key, COALESCE(content_hash, '')
-		   FROM skill_packages
-		  WHERE account_id IS NULL
-		    AND sync_mode = 'platform_skill'
-		    AND is_active = true`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	hashes := make(map[string]string)
-	for rows.Next() {
-		var key, hash string
-		if err := rows.Scan(&key, &hash); err != nil {
-			return nil, err
-		}
-		hashes[key] = hash
-	}
-	return hashes, rows.Err()
+	return s.repo.ListPlatformSkillHashes(ctx)
 }
 
 // ---------------------------------------------------------------------------

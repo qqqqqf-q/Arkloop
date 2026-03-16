@@ -26,6 +26,7 @@ func (t *Tx) AfterCommit(fn func()) {
 func (t *Tx) Exec(ctx context.Context, query string, args ...any) (pgconn.CommandTag, error) {
 	query = rewriteSQL(query)
 	query, args = expandAnyArgs(query, args)
+	args = convertArgs(args)
 	r, err := t.tx.ExecContext(ctx, query, args...)
 	if err != nil {
 		return pgconn.NewCommandTag(""), translateError(err)
@@ -37,6 +38,7 @@ func (t *Tx) Exec(ctx context.Context, query string, args ...any) (pgconn.Comman
 func (t *Tx) Query(ctx context.Context, query string, args ...any) (pgx.Rows, error) {
 	query = rewriteSQL(query)
 	query, args = expandAnyArgs(query, args)
+	args = convertArgs(args)
 	r, err := t.tx.QueryContext(ctx, query, args...)
 	if err != nil {
 		return &shimRows{err: translateError(err)}, nil
@@ -47,6 +49,7 @@ func (t *Tx) Query(ctx context.Context, query string, args ...any) (pgx.Rows, er
 func (t *Tx) QueryRow(ctx context.Context, query string, args ...any) pgx.Row {
 	query = rewriteSQL(query)
 	query, args = expandAnyArgs(query, args)
+	args = convertArgs(args)
 	return &shimRow{row: t.tx.QueryRowContext(ctx, query, args...)}
 }
 

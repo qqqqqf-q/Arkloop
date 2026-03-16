@@ -8,6 +8,7 @@ package sqlitepgx
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
@@ -60,6 +61,7 @@ func Open(dsn string) (*Pool, error) {
 func (p *Pool) Exec(ctx context.Context, query string, args ...any) (pgconn.CommandTag, error) {
 	query = rewriteSQL(query)
 	query, args = expandAnyArgs(query, args)
+	args = convertArgs(args)
 	r, err := p.db.ExecContext(ctx, query, args...)
 	if err != nil {
 		return pgconn.NewCommandTag(""), translateError(err)
@@ -71,6 +73,7 @@ func (p *Pool) Exec(ctx context.Context, query string, args ...any) (pgconn.Comm
 func (p *Pool) Query(ctx context.Context, query string, args ...any) (pgx.Rows, error) {
 	query = rewriteSQL(query)
 	query, args = expandAnyArgs(query, args)
+	args = convertArgs(args)
 	r, err := p.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return &shimRows{err: translateError(err)}, nil
@@ -81,7 +84,36 @@ func (p *Pool) Query(ctx context.Context, query string, args ...any) (pgx.Rows, 
 func (p *Pool) QueryRow(ctx context.Context, query string, args ...any) pgx.Row {
 	query = rewriteSQL(query)
 	query, args = expandAnyArgs(query, args)
+	args = convertArgs(args)
 	return &shimRow{row: p.db.QueryRowContext(ctx, query, args...)}
+}
+
+// convertArgs converts Go types that database/sql / SQLite do not natively
+// support into compatible types:
+//   - []string  → JSON array string  (e.g. `["a","b"]`)
+//   - []byte    → passed as-is (already handled by database/sql)
+//   - map/slice → JSON string fallback
+func convertArgs(args []any) []any {
+	result := make([]any, len(args))
+	for i, a := range args {
+		result[i] = convertArg(a)
+	}
+	return result
+}
+
+func convertArg(v any) any {
+	if v == nil {
+		return nil
+	}
+	switch val := v.(type) {
+	case []string:
+		b, _ := json.Marshal(val)
+		return string(b)
+	case []any:
+		b, _ := json.Marshal(val)
+		return string(b)
+	}
+	return v
 }
 
 func (p *Pool) Begin(ctx context.Context) (*Tx, error) {

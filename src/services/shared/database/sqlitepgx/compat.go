@@ -12,6 +12,13 @@ import (
 // typeCastRe matches PostgreSQL type casts like ::jsonb, ::text, ::uuid etc.
 var typeCastRe = regexp.MustCompile(`::(?:jsonb|json|text|integer|bigint|boolean|uuid)\b`)
 
+// platformSkillConflictRe matches the PostgreSQL partial-index ON CONFLICT
+// target used for platform skills: ON CONFLICT (account_id, skill_key, version)
+// WHERE account_id IS NULL.  SQLite represents this with a partial unique index
+// (skill_key, version) WHERE account_id IS NULL, so we rewrite the target.
+var platformSkillConflictRe = regexp.MustCompile(
+	`(?i)ON CONFLICT\s*\(\s*account_id\s*,\s*skill_key\s*,\s*version\s*\)\s*WHERE\s+account_id\s+IS\s+NULL`)
+
 // intervalRe matches PostgreSQL interval literals like interval '30 days'.
 var intervalRe = regexp.MustCompile(`(?i)interval\s+'(\d+)\s+(day|hour|minute|second)s?'`)
 
@@ -58,6 +65,13 @@ func rewriteSQL(sql string) string {
 
 	if strings.Contains(sql, "GREATEST(") || strings.Contains(sql, "greatest(") {
 		sql = greatestRe.ReplaceAllString(sql, "MAX($1)")
+	}
+
+	// Rewrite platform-skill partial-index conflict target to match the SQLite
+	// partial unique index (skill_key, version) WHERE account_id IS NULL.
+	if platformSkillConflictRe.MatchString(sql) {
+		sql = platformSkillConflictRe.ReplaceAllString(sql,
+			"ON CONFLICT (skill_key, version) WHERE account_id IS NULL")
 	}
 
 	return sql

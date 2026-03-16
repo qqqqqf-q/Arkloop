@@ -23,6 +23,7 @@ import (
 	"arkloop/services/api/internal/observability"
 	repopersonas "arkloop/services/api/internal/personas"
 	"arkloop/services/api/internal/personasync"
+	"arkloop/services/api/internal/skillseed"
 
 	sharedconfig "arkloop/services/shared/config"
 	"arkloop/services/shared/database/sqliteadapter"
@@ -51,6 +52,10 @@ func RunDesktop(ctx context.Context) error {
 
 	if err := os.MkdirAll(cfg.DataDir, 0o755); err != nil {
 		return fmt.Errorf("create data dir: %w", err)
+	}
+	// Chat 模式默认 workspace 根目录（无 workspace 时在此按需创建子目录）
+	if err := os.MkdirAll(filepath.Join(cfg.DataDir, "workspaces"), 0o755); err != nil {
+		return fmt.Errorf("create workspaces dir: %w", err)
 	}
 
 	// ---- SQLite ----
@@ -188,6 +193,10 @@ func RunDesktop(ctx context.Context) error {
 	workspaceSkillEnableRepo, err := data.NewWorkspaceSkillEnablementsRepository(pgxPool)
 	if err != nil {
 		return fmt.Errorf("init workspace skill enable repo: %w", err)
+	}
+	platformSkillOverridesRepo, err := data.NewPlatformSkillOverridesRepository(pgxPool)
+	if err != nil {
+		return fmt.Errorf("init platform skill overrides repo: %w", err)
 	}
 	profileRegistriesRepo, err := data.NewProfileRegistriesRepository(pgxPool)
 	if err != nil {
@@ -334,6 +343,19 @@ func RunDesktop(ctx context.Context) error {
 		return fmt.Errorf("open skill store: %w", err)
 	}
 
+	// ---- platform skill seeder ----
+	// Desktop runs as a single process — skip the PG advisory-lock election
+	// used in the cloud seeder and sync built-in skills directly.
+
+	skillsRoot, skillsRootErr := skillseed.BuiltinSkillsRoot()
+	if skillsRootErr != nil {
+		logger.Warn("platform_skills_root_not_found", observability.LogFields{}, map[string]any{"error": skillsRootErr.Error()})
+	} else {
+		if seedErr := skillseed.SeedDesktopSkills(ctx, skillsRoot, skillPackagesRepo, skillStore, logger); seedErr != nil {
+			logger.Warn("platform_skills_sync_failed", observability.LogFields{}, map[string]any{"error": seedErr.Error()})
+		}
+	}
+
 	// ---- HTTP handler ----
 
 	handler := apihttp.NewHandler(apihttp.HandlerConfig{
@@ -371,6 +393,7 @@ func RunDesktop(ctx context.Context) error {
 		SkillPackagesRepo:            skillPackagesRepo,
 		ProfileSkillInstallsRepo:     profileSkillInstallsRepo,
 		WorkspaceSkillEnableRepo:     workspaceSkillEnableRepo,
+		PlatformSkillOverridesRepo:   platformSkillOverridesRepo,
 		ProfileRegistriesRepo:        profileRegistriesRepo,
 		WorkspaceRegistriesRepo:      workspaceRegistriesRepo,
 		IPRulesRepo:                  ipRulesRepo,
