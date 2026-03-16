@@ -729,7 +729,7 @@ func authenticateLLMProviderActor(
 		httpkit.WriteAuthNotConfigured(w, traceID)
 		return nil, false
 	}
-	actor, ok := httpkit.AuthenticateActor(w, r, traceID, authService, membershipRepo)
+	actor, ok := httpkit.AuthenticateActor(w, r, traceID, authService)
 	if !ok {
 		return nil, false
 	}

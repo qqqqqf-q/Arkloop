@@ -167,7 +167,7 @@ func TestMessagesCreateListAndAudit(t *testing.T) {
 	denyList := doJSON(handler, nethttp.MethodGet, "/v1/threads/"+threadPayload.ID+"/messages", nil, bobHeaders)
 	assertErrorEnvelope(t, denyList, nethttp.StatusForbidden, "policy.denied")
 
-	deniedCreateCount, err := countDeniedAudit(ctx, pool, "messages.create", "org_mismatch")
+	deniedCreateCount, err := countDeniedAudit(ctx, pool, "messages.create", "account_mismatch")
 	if err != nil {
 		t.Fatalf("count denied audit: %v", err)
 	}
@@ -175,7 +175,7 @@ func TestMessagesCreateListAndAudit(t *testing.T) {
 		t.Fatalf("unexpected denied create audit count: %d", deniedCreateCount)
 	}
 
-	deniedListCount, err := countDeniedAudit(ctx, pool, "messages.list", "org_mismatch")
+	deniedListCount, err := countDeniedAudit(ctx, pool, "messages.list", "account_mismatch")
 	if err != nil {
 		t.Fatalf("count denied audit: %v", err)
 	}

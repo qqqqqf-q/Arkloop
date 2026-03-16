@@ -41,8 +41,6 @@ button:not(:disabled) {
   --c-overlay: rgba(0, 0, 0, 0.60);
   --c-lightbox-overlay: rgba(255, 255, 255, 0.12);
   --c-modal-ring: rgba(255, 255, 255, 0.07);
-  --c-bg-github-btn: #3d3d3b;
-  --c-github-btn-border: rgba(255, 255, 255, 0.10);
   --c-md-code-block-bg: #2B2B29;
   --c-md-code-label-bg: #2B2A29;
   --c-md-table-bg: #1E1D1C;
@@ -117,8 +115,6 @@ button:not(:disabled) {
     --c-overlay: rgba(0, 0, 0, 0.25);
     --c-lightbox-overlay: rgba(255, 255, 255, 0.55);
     --c-modal-ring: rgba(0, 0, 0, 0.09);
-    --c-bg-github-btn: #FFFFFF;
-    --c-github-btn-border: rgba(0, 0, 0, 0.08);
     --c-md-code-block-bg: #F6F4F2;
     --c-md-code-label-bg: #ECE9E6;
     --c-md-table-bg: #FEFDFD;
@@ -194,8 +190,6 @@ button:not(:disabled) {
   --c-overlay: rgba(0, 0, 0, 0.25);
   --c-lightbox-overlay: rgba(255, 255, 255, 0.55);
   --c-modal-ring: rgba(0, 0, 0, 0.09);
-  --c-bg-github-btn: #FFFFFF;
-  --c-github-btn-border: rgba(0, 0, 0, 0.08);
   --c-md-code-block-bg: #F6F4F2;
   --c-md-code-label-bg: #ECE9E6;
   --c-md-table-bg: #FEFDFD;
@@ -536,32 +530,6 @@ button:not(:disabled) {
 }
 :root[data-theme="light"] .auth-glow-bottom {
   background: radial-gradient(circle, rgba(20, 184, 166, 0.04) 0%, transparent 65%);
-}
-
-/* GitHub 登录按钮 */
-.github-btn {
-  width: 100%;
-  height: 40px;
-  border-radius: 10px;
-  border: 0.5px solid var(--c-github-btn-border);
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 500;
-  font-family: inherit;
-  background: var(--c-bg-github-btn);
-  color: var(--c-text-primary);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  box-shadow: 0 2px 3px -1px rgba(0, 0, 0, 0.10);
-  transition: opacity 0.15s ease;
-}
-.github-btn:hover {
-  opacity: 0.82;
-}
-.github-btn:active {
-  opacity: 0.65;
 }
 
 @keyframes modal-enter {

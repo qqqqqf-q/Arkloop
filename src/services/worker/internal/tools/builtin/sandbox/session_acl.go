@@ -11,7 +11,6 @@ import (
 )
 
 const (
-	accountRoleOwner         = "owner"
 	accountRoleAdmin         = "account_admin"
 	accountRolePlatformAdmin = "platform_admin"
 )
@@ -33,7 +32,7 @@ func (e *sessionACLEvaluator) AuthorizeSession(
 	requestedAccountID := derefUUID(execCtx.AccountID)
 	if record.AccountID != uuid.Nil && requestedAccountID != uuid.Nil && record.AccountID != requestedAccountID {
 		return sandboxPermissionDenied("shell session access denied", map[string]any{
-			"reason":      "org_mismatch",
+			"reason":      "account_mismatch",
 			"session_ref": record.SessionRef,
 		})
 	}
@@ -137,7 +136,7 @@ func (e *sessionACLEvaluator) authorizeAccountShare(
 
 func canUseOrgSharedSession(role string) bool {
 	switch strings.TrimSpace(role) {
-	case accountRoleOwner, accountRoleAdmin, accountRolePlatformAdmin:
+	case accountRoleAdmin, accountRolePlatformAdmin:
 		return true
 	default:
 		return false

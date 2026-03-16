@@ -26,38 +26,38 @@ export type ModelUsage = {
   record_count: number
 }
 
-export async function getProjectUsage(
-  projectId: string,
+export async function getAccountUsage(
+  accountId: string,
   year: number,
   month: number,
   accessToken: string,
 ): Promise<UsageSummary> {
   return apiFetch<UsageSummary>(
-    `/v1/accounts/${encodeURIComponent(projectId)}/usage?year=${year}&month=${month}`,
+    `/v1/accounts/${encodeURIComponent(accountId)}/usage?year=${year}&month=${month}`,
     { accessToken },
   )
 }
 
-export async function getProjectDailyUsage(
-  projectId: string,
+export async function getAccountDailyUsage(
+  accountId: string,
   start: string,
   end: string,
   accessToken: string,
 ): Promise<DailyUsage[]> {
   return apiFetch<DailyUsage[]>(
-    `/v1/accounts/${encodeURIComponent(projectId)}/usage/daily?start=${start}&end=${end}`,
+    `/v1/accounts/${encodeURIComponent(accountId)}/usage/daily?start=${start}&end=${end}`,
     { accessToken },
   )
 }
 
-export async function getProjectUsageByModel(
-  projectId: string,
+export async function getAccountUsageByModel(
+  accountId: string,
   year: number,
   month: number,
   accessToken: string,
 ): Promise<ModelUsage[]> {
   return apiFetch<ModelUsage[]>(
-    `/v1/accounts/${encodeURIComponent(projectId)}/usage/by-model?year=${year}&month=${month}`,
+    `/v1/accounts/${encodeURIComponent(accountId)}/usage/by-model?year=${year}&month=${month}`,
     { accessToken },
   )
 }

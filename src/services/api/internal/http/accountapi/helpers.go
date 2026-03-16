@@ -116,7 +116,7 @@ func authorizeRunOrAudit(
 
 	denyReason := "owner_mismatch"
 	if actor.AccountID != run.AccountID {
-		denyReason = "org_mismatch"
+		denyReason = "account_mismatch"
 	} else if run.CreatedByUserID == nil {
 		denyReason = "no_owner"
 	} else if *run.CreatedByUserID == actor.UserID {

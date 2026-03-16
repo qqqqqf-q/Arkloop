@@ -158,7 +158,7 @@ func TestThreadsCreateListGetPatchAndAudit(t *testing.T) {
 		t.Fatalf("unexpected patch payload: %#v", updatedPayload)
 	}
 
-	deniedCount, err := countDeniedAudit(ctx, pool, "threads.get", "org_mismatch")
+	deniedCount, err := countDeniedAudit(ctx, pool, "threads.get", "account_mismatch")
 	if err != nil {
 		t.Fatalf("count denied audit: %v", err)
 	}
@@ -315,7 +315,7 @@ func TestThreadsPatchDeleteOwnershipFallbacks(t *testing.T) {
 			bobHeaders,
 		)
 		assertErrorEnvelope(t, resp, nethttp.StatusForbidden, "policy.denied")
-		count, err := countDeniedAudit(ctx, pool, "threads.update", "org_mismatch")
+		count, err := countDeniedAudit(ctx, pool, "threads.update", "account_mismatch")
 		if err != nil {
 			t.Fatalf("count patch denied audit: %v", err)
 		}
@@ -369,7 +369,7 @@ func TestThreadsPatchDeleteOwnershipFallbacks(t *testing.T) {
 	t.Run("non owner delete denied", func(t *testing.T) {
 		resp := doJSON(handler, nethttp.MethodDelete, "/v1/threads/"+deleteThread.ID, nil, bobHeaders)
 		assertErrorEnvelope(t, resp, nethttp.StatusForbidden, "policy.denied")
-		count, err := countDeniedAudit(ctx, pool, "threads.delete", "org_mismatch")
+		count, err := countDeniedAudit(ctx, pool, "threads.delete", "account_mismatch")
 		if err != nil {
 			t.Fatalf("count delete denied audit: %v", err)
 		}

@@ -108,7 +108,7 @@ func createIPRule(
 		return
 	}
 
-	actor, ok := httpkit.AuthenticateActor(w, r, traceID, authService, membershipRepo)
+	actor, ok := httpkit.AuthenticateActor(w, r, traceID, authService)
 	if !ok {
 		return
 	}
@@ -158,12 +158,12 @@ func listIPRules(
 		return
 	}
 
-	actor, ok := httpkit.AuthenticateActor(w, r, traceID, authService, membershipRepo)
+	actor, ok := httpkit.AuthenticateActor(w, r, traceID, authService)
 	if !ok {
 		return
 	}
 
-	rules, err := ipRulesRepo.ListByOrg(r.Context(), actor.AccountID)
+	rules, err := ipRulesRepo.ListByAccount(r.Context(), actor.AccountID)
 	if err != nil {
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
@@ -196,7 +196,7 @@ func deleteIPRule(
 		return
 	}
 
-	actor, ok := httpkit.AuthenticateActor(w, r, traceID, authService, membershipRepo)
+	actor, ok := httpkit.AuthenticateActor(w, r, traceID, authService)
 	if !ok {
 		return
 	}
@@ -221,7 +221,7 @@ func syncIPRulesCache(ctx context.Context, repo *data.IPRulesRepository, client 
 		return
 	}
 
-	rules, err := repo.ListByOrg(ctx, accountID)
+	rules, err := repo.ListByAccount(ctx, accountID)
 	if err != nil {
 		return
 	}

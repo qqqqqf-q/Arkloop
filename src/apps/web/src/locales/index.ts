@@ -188,8 +188,6 @@ export interface LocaleStrings {
   enterInviteCodeOptional: string
   editProfile: string
   continueBtn: string
-  orDivider: string
-  githubLogin: string
   noAccount: string
   hasAccount: string
   useEmailOtpHint: string

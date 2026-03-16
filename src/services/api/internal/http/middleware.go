@@ -7,13 +7,14 @@ import (
 
 	nethttp "net/http"
 
+	"arkloop/services/api/internal/http/httpkit"
 	"arkloop/services/api/internal/observability"
 	"arkloop/services/shared/httputil"
 )
 
 // requirePerm 校验 actor 是否拥有指定权限点。
 // 无权或 actor 为 nil 时写 403 响应并返回 false，调用方应立即 return。
-func requirePerm(a *actor, perm string, w nethttp.ResponseWriter, traceID string) bool {
+func requirePerm(a *httpkit.Actor, perm string, w nethttp.ResponseWriter, traceID string) bool {
 	if a != nil && a.HasPermission(perm) {
 		return true
 	}

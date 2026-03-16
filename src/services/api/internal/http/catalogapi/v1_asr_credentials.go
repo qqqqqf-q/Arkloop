@@ -127,7 +127,7 @@ func createAsrCredential(
 		return
 	}
 
-	actor, ok := httpkit.AuthenticateActor(w, r, traceID, authService, membershipRepo)
+	actor, ok := httpkit.AuthenticateActor(w, r, traceID, authService)
 	if !ok {
 		return
 	}
@@ -247,7 +247,7 @@ func listAsrCredentials(
 		return
 	}
 
-	actor, ok := httpkit.AuthenticateActor(w, r, traceID, authService, membershipRepo)
+	actor, ok := httpkit.AuthenticateActor(w, r, traceID, authService)
 	if !ok {
 		return
 	}
@@ -283,7 +283,7 @@ func deleteAsrCredential(
 		return
 	}
 
-	actor, ok := httpkit.AuthenticateActor(w, r, traceID, authService, membershipRepo)
+	actor, ok := httpkit.AuthenticateActor(w, r, traceID, authService)
 	if !ok {
 		return
 	}
@@ -328,7 +328,7 @@ func setDefaultAsrCredential(
 		return
 	}
 
-	actor, ok := httpkit.AuthenticateActor(w, r, traceID, authService, membershipRepo)
+	actor, ok := httpkit.AuthenticateActor(w, r, traceID, authService)
 	if !ok {
 		return
 	}

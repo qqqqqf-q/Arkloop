@@ -1,8 +1,7 @@
-import type { LlmTurn } from '../run-turns'
-import { CollapseBlock, PreText, JsonBlock } from '@arkloop/shared'
+import { CollapseBlock, PreText, JsonBlock, type LlmTurn } from '@arkloop/shared'
 import { useLocale } from '../contexts/LocaleContext'
 
-export type { LlmTurn } from '../run-turns'
+export type { LlmTurn }
 
 function previewText(text: string): string {
   return text.slice(0, 80) + (text.length > 80 ? '...' : '')

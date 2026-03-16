@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -82,10 +84,7 @@ func AuthenticateActor(
 	r *nethttp.Request,
 	traceID string,
 	authService *auth.Service,
-	membershipRepo *data.AccountMembershipRepository,
 ) (*Actor, bool) {
-	_ = membershipRepo
-
 	if authService == nil {
 		WriteAuthNotConfigured(w, traceID)
 		return nil, false
@@ -213,7 +212,7 @@ func ResolveActorFromAPIKey(
 		return nil, false
 	}
 
-	membership, err := membershipRepo.GetByOrgAndUser(r.Context(), apiKey.AccountID, apiKey.UserID)
+	membership, err := membershipRepo.GetByAccountAndUser(r.Context(), apiKey.AccountID, apiKey.UserID)
 	if err != nil {
 		WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return nil, false
@@ -296,5 +295,61 @@ func WriteAuthNotConfigured(w nethttp.ResponseWriter, traceID string) {
 
 func WriteNotFound(w nethttp.ResponseWriter, r *nethttp.Request) {
 	traceID := observability.TraceIDFromContext(r.Context())
-	WriteError(w, nethttp.StatusNotFound, "http.method_not_allowed", "Not Found", traceID, nil)
+	WriteError(w, nethttp.StatusNotFound, "http.not_found", "Not Found", traceID, nil)
+}
+
+func ParseLimit(w nethttp.ResponseWriter, traceID string, raw string) (int, bool) {
+	if strings.TrimSpace(raw) == "" {
+		return 50, true
+	}
+	parsed, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || parsed < 1 || parsed > 200 {
+		WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "request validation failed", traceID, nil)
+		return 0, false
+	}
+	return parsed, true
+}
+
+func ParseThreadCursor(
+	w nethttp.ResponseWriter,
+	traceID string,
+	values url.Values,
+) (*time.Time, *uuid.UUID, bool) {
+	beforeCreatedAtRaw := strings.TrimSpace(First(values, "before_created_at"))
+	beforeIDRaw := strings.TrimSpace(First(values, "before_id"))
+
+	if (beforeCreatedAtRaw == "") != (beforeIDRaw == "") {
+		WriteError(
+			w,
+			nethttp.StatusUnprocessableEntity,
+			"validation.error",
+			"request validation failed",
+			traceID,
+			map[string]any{"reason": "cursor_incomplete", "required": []string{"before_created_at", "before_id"}},
+		)
+		return nil, nil, false
+	}
+	if beforeCreatedAtRaw == "" {
+		return nil, nil, true
+	}
+
+	parsedTime, err := time.Parse(time.RFC3339Nano, beforeCreatedAtRaw)
+	if err != nil {
+		WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "request validation failed", traceID, nil)
+		return nil, nil, false
+	}
+	parsedID, err := uuid.Parse(beforeIDRaw)
+	if err != nil {
+		WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "request validation failed", traceID, nil)
+		return nil, nil, false
+	}
+	return &parsedTime, &parsedID, true
+}
+
+func First(values url.Values, key string) string {
+	raw := values[key]
+	if len(raw) == 0 {
+		return ""
+	}
+	return raw[0]
 }

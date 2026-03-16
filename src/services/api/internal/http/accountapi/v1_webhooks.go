@@ -215,7 +215,7 @@ func listWebhookEndpoints(
 		return
 	}
 
-	endpoints, err := webhookRepo.ListByOrg(r.Context(), actor.AccountID)
+	endpoints, err := webhookRepo.ListByAccount(r.Context(), actor.AccountID)
 	if err != nil {
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return

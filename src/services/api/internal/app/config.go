@@ -38,8 +38,8 @@ const (
 
 	redisURLEnv                    = "ARKLOOP_REDIS_URL"
 	gatewayRedisURLEnv             = "ARKLOOP_GATEWAY_REDIS_URL"
-	maxConcurrentRunsPerOrgEnv     = "ARKLOOP_MAX_CONCURRENT_RUNS_PER_ORG"
-	defaultMaxConcurrentRunsPerOrg = int64(10)
+	maxConcurrentRunsPerAccountEnv     = "ARKLOOP_MAX_CONCURRENT_RUNS_PER_ACCOUNT"
+	defaultMaxConcurrentRunsPerAccount = int64(10)
 
 	s3EndpointEnv  = "ARKLOOP_S3_ENDPOINT"
 	s3AccessKeyEnv = "ARKLOOP_S3_ACCESS_KEY"
@@ -99,7 +99,7 @@ type Config struct {
 
 	RedisURL                string
 	GatewayRedisURL         string
-	MaxConcurrentRunsPerOrg int64
+	MaxConcurrentRunsPerAccount int64
 
 	S3Endpoint     string
 	S3AccessKey    string
@@ -131,7 +131,7 @@ func DefaultConfig() Config {
 		DirectPoolAcquireTimeoutMs: defaultDirectPoolAcquireTimeoutMs,
 		MaxInFlight:                defaultMaxInFlight,
 		SSE:                        defaultSSEConfig(),
-		MaxConcurrentRunsPerOrg:    defaultMaxConcurrentRunsPerOrg,
+		MaxConcurrentRunsPerAccount: defaultMaxConcurrentRunsPerAccount,
 		RunTimeoutMinutes:          defaultRunTimeoutMinutes,
 		RunEventsRetentionMonths:   defaultRunEventsRetentionMonths,
 	}
@@ -238,12 +238,12 @@ func LoadConfigFromEnv() (Config, error) {
 	if raw, ok := lookupEnv(gatewayRedisURLEnv); ok {
 		cfg.GatewayRedisURL = raw
 	}
-	if raw, ok := lookupEnv(maxConcurrentRunsPerOrgEnv); ok {
+	if raw, ok := lookupEnv(maxConcurrentRunsPerAccountEnv); ok {
 		v, err := parsePositiveInt64(raw)
 		if err != nil {
-			return Config{}, fmt.Errorf("%s: %w", maxConcurrentRunsPerOrgEnv, err)
+			return Config{}, fmt.Errorf("%s: %w", maxConcurrentRunsPerAccountEnv, err)
 		}
-		cfg.MaxConcurrentRunsPerOrg = v
+		cfg.MaxConcurrentRunsPerAccount = v
 	}
 	if raw, ok := lookupEnv(s3EndpointEnv); ok {
 		cfg.S3Endpoint = raw

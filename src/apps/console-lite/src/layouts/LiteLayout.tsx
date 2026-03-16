@@ -15,7 +15,7 @@ import { getMe, logout, isApiError, type MeResponse } from '../api'
 import { LiteSettingsModal } from '../components/SettingsModal'
 import { OperationHistoryModal } from '../components/OperationHistoryModal'
 import { useLocale } from '../contexts/LocaleContext'
-import { useOperations } from '../contexts/OperationContext'
+import { useOperations } from '@arkloop/shared'
 import type { LocaleStrings } from '../locales'
 import { NavButton, AccessDeniedPage, FullScreenLoading } from '@arkloop/shared'
 

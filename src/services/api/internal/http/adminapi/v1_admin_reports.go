@@ -61,7 +61,7 @@ func adminReportsEntry(
 			return
 		}
 
-		limit, ok := parseLimit(w, traceID, r.URL.Query().Get("limit"))
+		limit, ok := httpkit.ParseLimit(w, traceID, r.URL.Query().Get("limit"))
 		if !ok {
 			return
 		}

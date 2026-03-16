@@ -3,7 +3,6 @@ package authapi
 import (
 	httpkit "arkloop/services/api/internal/http/httpkit"
 	"context"
-	"encoding/json"
 	"errors"
 	"net"
 	"net/mail"
@@ -768,17 +767,6 @@ func me(authService *auth.Service, membershipRepo *data.AccountMembershipReposit
 	}
 }
 
-// maxJSONBodySize 限制 JSON 请求体最大 1 MiB，防止大 payload DoS。
-const maxJSONBodySize = 1 << 20
-
-func decodeJSON(r *nethttp.Request, dst any) error {
-	reader := nethttp.MaxBytesReader(nil, r.Body, maxJSONBodySize)
-	decoder := json.NewDecoder(reader)
-	decoder.UseNumber()
-	decoder.DisallowUnknownFields()
-	return decoder.Decode(dst)
-}
-
 func isValidEmail(value string) bool {
 	if strings.ContainsAny(value, "\r\n") {
 		return false
@@ -792,18 +780,6 @@ func isValidEmail(value string) bool {
 		return false
 	}
 	return addr.Address == trimmed
-}
-
-func writeJSON(w nethttp.ResponseWriter, traceID string, statusCode int, payload any) {
-	raw, err := json.Marshal(payload)
-	if err != nil {
-		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(statusCode)
-	_, _ = w.Write(raw)
 }
 
 func requestClientIP(r *nethttp.Request) string {

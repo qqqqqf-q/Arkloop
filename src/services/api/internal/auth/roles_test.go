@@ -14,13 +14,13 @@ func TestPermissionsForRole(t *testing.T) {
 	}{
 		{
 			role:     RolePlatformAdmin,
-			mustHave: []string{PermPlatformAdmin, PermOrgMembersInvite, PermDataThreadsRead},
+			mustHave: []string{PermPlatformAdmin, PermAccountMembersInvite, PermDataThreadsRead},
 		},
 		{
 			role: RoleAccountAdmin,
 			mustHave: []string{
-				PermOrgMembersInvite, PermOrgMembersList, PermOrgMembersRevoke,
-				PermOrgTeamsRead, PermOrgTeamsManage,
+				PermAccountMembersInvite, PermAccountMembersList, PermAccountMembersRevoke,
+				PermAccountTeamsRead, PermAccountTeamsManage,
 				PermDataThreadsRead,
 				PermDataProjectsRead, PermDataProjectsManage,
 			},
@@ -30,8 +30,8 @@ func TestPermissionsForRole(t *testing.T) {
 			// 旧值 "owner" 兼容
 			role: "owner",
 			mustHave: []string{
-				PermOrgMembersInvite, PermDataThreadsRead,
-				PermOrgTeamsManage, PermDataProjectsManage,
+				PermAccountMembersInvite, PermDataThreadsRead,
+				PermAccountTeamsManage, PermDataProjectsManage,
 			},
 			mustNot: []string{PermPlatformAdmin},
 		},
@@ -39,18 +39,18 @@ func TestPermissionsForRole(t *testing.T) {
 			role: RoleAccountMember,
 			mustHave: []string{
 				PermDataThreadsRead, PermDataRunsRead, PermDataAPIKeysManage,
-				PermOrgTeamsRead, PermDataProjectsRead,
+				PermAccountTeamsRead, PermDataProjectsRead,
 			},
 			mustNot: []string{
-				PermPlatformAdmin, PermOrgMembersInvite,
-				PermOrgTeamsManage, PermDataProjectsManage,
+				PermPlatformAdmin, PermAccountMembersInvite,
+				PermAccountTeamsManage, PermDataProjectsManage,
 			},
 		},
 		{
 			// 旧值 "member" 兼容
 			role: "member",
-			mustHave: []string{PermDataThreadsRead, PermOrgTeamsRead},
-			mustNot:  []string{PermOrgMembersInvite, PermOrgTeamsManage, PermDataProjectsManage},
+			mustHave: []string{PermDataThreadsRead, PermAccountTeamsRead},
+			mustNot:  []string{PermAccountMembersInvite, PermAccountTeamsManage, PermDataProjectsManage},
 		},
 		{
 			role:    "unknown",

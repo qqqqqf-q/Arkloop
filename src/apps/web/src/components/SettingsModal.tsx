@@ -40,7 +40,7 @@ import {
 import { useLocale } from '../contexts/LocaleContext'
 import { useTheme } from '../contexts/ThemeContext'
 import type { Locale } from '../locales'
-import type { Theme } from '../storage'
+import type { Theme } from '@arkloop/shared/contexts/theme'
 import { SkillsSettingsContent } from './SkillsSettingsContent'
 import { ModelConfigContent } from './ModelConfigContent'
 import { AgentSettingsContent } from './AgentSettingsContent'
@@ -229,9 +229,9 @@ function AccountContent({
           <span className="truncate text-base font-semibold text-[var(--c-text-heading)]">
             {me?.username ?? t.loading}
           </span>
-          {me?.login && (
+          {me?.username && (
             <span className="truncate text-xs text-[var(--c-text-tertiary)]">
-              {me.login}
+              {me.username}
             </span>
           )}
           {me?.email && (
@@ -406,7 +406,7 @@ function ProfileContent({
       {/* 用户名 */}
       <div className="flex flex-col gap-1">
         <span className="text-sm font-medium text-[var(--c-text-heading)]">{t.profileUsername}</span>
-        <span className="text-sm text-[var(--c-text-tertiary)]">{me?.login ?? '—'}</span>
+        <span className="text-sm text-[var(--c-text-tertiary)]">{me?.username ?? '—'}</span>
       </div>
 
       {/* 用户 ID */}

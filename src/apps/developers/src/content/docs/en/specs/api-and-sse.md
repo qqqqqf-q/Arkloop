@@ -387,7 +387,7 @@ Request processing order:
 | `ARKLOOP_BOOTSTRAP_PLATFORM_ADMIN` | Initial admin user_id (UUID) |
 | `ARKLOOP_TRUST_INCOMING_TRACE_ID` | Trust upstream trace_id |
 | `ARKLOOP_TRUST_X_FORWARDED_FOR` | Trust X-Forwarded-For |
-| `ARKLOOP_MAX_CONCURRENT_RUNS_PER_ORG` | Max concurrent runs per organization (default 10) |
+| `ARKLOOP_MAX_CONCURRENT_RUNS_PER_ACCOUNT` | Max concurrent runs per account (default 10) |
 | `ARKLOOP_SSE_HEARTBEAT_SECONDS` | SSE heartbeat interval (default 15) |
 | `ARKLOOP_SSE_BATCH_LIMIT` | SSE batch limit (default 500) |
 | `ARKLOOP_RUN_TIMEOUT_MINUTES` | Run timeout (default 5) |

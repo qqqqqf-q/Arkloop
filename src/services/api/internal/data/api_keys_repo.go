@@ -87,7 +87,7 @@ func (r *APIKeysRepository) Create(
 	return key, fullKey, nil
 }
 
-func (r *APIKeysRepository) ListByOrg(ctx context.Context, accountID uuid.UUID) ([]APIKey, error) {
+func (r *APIKeysRepository) ListByAccount(ctx context.Context, accountID uuid.UUID) ([]APIKey, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -119,7 +119,7 @@ func (r *APIKeysRepository) ListByOrg(ctx context.Context, accountID uuid.UUID) 
 	return keys, rows.Err()
 }
 
-func (r *APIKeysRepository) ListByOrgAndUser(ctx context.Context, accountID, userID uuid.UUID) ([]APIKey, error) {
+func (r *APIKeysRepository) ListByAccountAndUser(ctx context.Context, accountID, userID uuid.UUID) ([]APIKey, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}

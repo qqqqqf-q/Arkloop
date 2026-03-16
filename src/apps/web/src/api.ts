@@ -66,7 +66,6 @@ export type ResolveIdentityResponse =
 
 export type MeResponse = {
   id: string
-  login: string
   username: string
   email?: string
   email_verified: boolean
@@ -177,6 +176,7 @@ export type Persona = {
   prompt_md: string
   tool_allowlist: string[]
   tool_denylist: string[]
+  core_tools: string[]
   budgets: Record<string, unknown>
   is_active: boolean
   created_at: string
@@ -299,13 +299,6 @@ export async function importSkillsMPSkill(
     accessToken,
     body: JSON.stringify(payload),
   })
-}
-
-export async function importMarketSkill(
-  accessToken: string,
-  payload: { slug?: string; version?: string; skill_key?: string; detail_url?: string; repository_url?: string },
-): Promise<SkillPackageResponse> {
-  return await importRegistrySkill(accessToken, payload)
 }
 
 export async function installSkill(accessToken: string, skill: SkillReference): Promise<void> {

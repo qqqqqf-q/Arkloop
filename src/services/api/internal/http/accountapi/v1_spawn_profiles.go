@@ -200,7 +200,7 @@ func deleteSpawnProfile(
 	}
 
 	key := "spawn.profile." + name
-	existing, err := entitlementsRepo.GetOverrideByOrgAndKey(r.Context(), actor.AccountID, key)
+	existing, err := entitlementsRepo.GetOverrideByAccountAndKey(r.Context(), actor.AccountID, key)
 	if err != nil {
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return

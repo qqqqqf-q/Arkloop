@@ -11,7 +11,7 @@ import { ModulesPage } from './pages/ModulesPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { SecurityPage } from './pages/SecurityPage'
 import { BootstrapPage } from './pages/BootstrapPage'
-import { OperationProvider } from './contexts/OperationContext'
+import { OperationProvider } from '@arkloop/shared'
 import { bridgeClient } from './api/bridge'
 import {
   writeAccessTokenToStorage,

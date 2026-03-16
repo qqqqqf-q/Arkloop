@@ -5,6 +5,8 @@ import (
 	nethttp "net/http"
 	"net/http/httptest"
 	"testing"
+
+	"arkloop/services/api/internal/http/httpkit"
 )
 
 func TestResolveActorAuthServiceNilReturns503(t *testing.T) {
@@ -12,7 +14,7 @@ func TestResolveActorAuthServiceNilReturns503(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer some-token")
 
 	recorder := httptest.NewRecorder()
-	_, ok := resolveActor(recorder, req, "trace123", nil, nil, nil, nil)
+	_, ok := httpkit.ResolveActor(recorder, req, "trace123", nil, nil, nil, nil)
 	if ok {
 		t.Fatalf("expected ok=false")
 	}

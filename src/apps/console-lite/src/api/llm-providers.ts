@@ -13,6 +13,7 @@ export type LlmProviderModel = {
   model: string
   priority: number
   is_default: boolean
+  show_in_picker: boolean
   tags: string[]
   when: Record<string, unknown>
   advanced_json?: Record<string, unknown> | null

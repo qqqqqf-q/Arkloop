@@ -152,7 +152,7 @@ func createTeam(
 	if !ok {
 		return
 	}
-	if !httpkit.RequirePerm(actor, auth.PermOrgTeamsManage, w, traceID) {
+	if !httpkit.RequirePerm(actor, auth.PermAccountTeamsManage, w, traceID) {
 		return
 	}
 
@@ -199,11 +199,11 @@ func listTeams(
 	if !ok {
 		return
 	}
-	if !httpkit.RequirePerm(actor, auth.PermOrgTeamsRead, w, traceID) {
+	if !httpkit.RequirePerm(actor, auth.PermAccountTeamsRead, w, traceID) {
 		return
 	}
 
-	teams, err := teamRepo.ListByOrgWithCounts(r.Context(), actor.AccountID)
+	teams, err := teamRepo.ListByAccountWithCounts(r.Context(), actor.AccountID)
 	if err != nil {
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
@@ -241,7 +241,7 @@ func addTeamMember(
 	if !ok {
 		return
 	}
-	if !httpkit.RequirePerm(actor, auth.PermOrgTeamsManage, w, traceID) {
+	if !httpkit.RequirePerm(actor, auth.PermAccountTeamsManage, w, traceID) {
 		return
 	}
 
@@ -269,7 +269,7 @@ func addTeamMember(
 
 	// 确保被添加的用户确实是同一 account 的成员，防止跨 account 数据注入
 	if membershipRepo != nil {
-		exists, err := membershipRepo.ExistsForOrgAndUser(r.Context(), actor.AccountID, userID)
+		exists, err := membershipRepo.ExistsForAccountAndUser(r.Context(), actor.AccountID, userID)
 		if err != nil {
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
@@ -378,7 +378,7 @@ func listTeamMembers(
 	if !ok {
 		return
 	}
-	if !httpkit.RequirePerm(actor, auth.PermOrgTeamsRead, w, traceID) {
+	if !httpkit.RequirePerm(actor, auth.PermAccountTeamsRead, w, traceID) {
 		return
 	}
 
@@ -428,7 +428,7 @@ func removeTeamMember(
 	if !ok {
 		return
 	}
-	if !httpkit.RequirePerm(actor, auth.PermOrgTeamsManage, w, traceID) {
+	if !httpkit.RequirePerm(actor, auth.PermAccountTeamsManage, w, traceID) {
 		return
 	}
 
@@ -473,7 +473,7 @@ func deleteTeam(
 	if !ok {
 		return
 	}
-	if !httpkit.RequirePerm(actor, auth.PermOrgTeamsManage, w, traceID) {
+	if !httpkit.RequirePerm(actor, auth.PermAccountTeamsManage, w, traceID) {
 		return
 	}
 

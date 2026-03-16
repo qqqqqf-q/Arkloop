@@ -148,7 +148,7 @@ func (r *MCPConfigsRepository) GetByID(ctx context.Context, accountID, id uuid.U
 	return &cfg, nil
 }
 
-func (r *MCPConfigsRepository) ListByOrg(ctx context.Context, accountID uuid.UUID) ([]MCPConfig, error) {
+func (r *MCPConfigsRepository) ListByAccount(ctx context.Context, accountID uuid.UUID) ([]MCPConfig, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}

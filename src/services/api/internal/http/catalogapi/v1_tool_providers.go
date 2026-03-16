@@ -233,7 +233,7 @@ func listToolProviders(
 		return
 	}
 
-	actor, ok := httpkit.AuthenticateActor(w, r, traceID, authService, membershipRepo)
+	actor, ok := httpkit.AuthenticateActor(w, r, traceID, authService)
 	if !ok {
 		return
 	}
@@ -326,7 +326,7 @@ func activateToolProvider(
 		return
 	}
 
-	actor, ok := httpkit.AuthenticateActor(w, r, traceID, authService, membershipRepo)
+	actor, ok := httpkit.AuthenticateActor(w, r, traceID, authService)
 	if !ok {
 		return
 	}
@@ -391,7 +391,7 @@ func deactivateToolProvider(
 		return
 	}
 
-	actor, ok := httpkit.AuthenticateActor(w, r, traceID, authService, membershipRepo)
+	actor, ok := httpkit.AuthenticateActor(w, r, traceID, authService)
 	if !ok {
 		return
 	}
@@ -439,7 +439,7 @@ func upsertToolProviderCredential(
 
 	def, _ := findProviderDef(groupName, providerName)
 
-	actor, ok := httpkit.AuthenticateActor(w, r, traceID, authService, membershipRepo)
+	actor, ok := httpkit.AuthenticateActor(w, r, traceID, authService)
 	if !ok {
 		return
 	}
@@ -579,7 +579,7 @@ func clearToolProviderCredential(
 		return
 	}
 
-	actor, ok := httpkit.AuthenticateActor(w, r, traceID, authService, membershipRepo)
+	actor, ok := httpkit.AuthenticateActor(w, r, traceID, authService)
 	if !ok {
 		return
 	}
@@ -652,7 +652,7 @@ func updateToolProviderConfig(
 		return
 	}
 
-	actor, ok := httpkit.AuthenticateActor(w, r, traceID, authService, membershipRepo)
+	actor, ok := httpkit.AuthenticateActor(w, r, traceID, authService)
 	if !ok {
 		return
 	}

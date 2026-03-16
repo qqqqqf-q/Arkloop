@@ -167,7 +167,7 @@ func createPersona(
 		return
 	}
 
-	actor, ok := httpkit.AuthenticateActor(w, r, traceID, authService, membershipRepo)
+	actor, ok := httpkit.AuthenticateActor(w, r, traceID, authService)
 	if !ok {
 		return
 	}
@@ -308,7 +308,7 @@ func listPersonas(
 		return
 	}
 
-	actor, ok := httpkit.AuthenticateActor(w, r, traceID, authService, membershipRepo)
+	actor, ok := httpkit.AuthenticateActor(w, r, traceID, authService)
 	if !ok {
 		return
 	}
@@ -371,7 +371,7 @@ func selectablePersonasEntry(
 			return
 		}
 
-		actor, ok := httpkit.AuthenticateActor(w, r, traceID, authService, membershipRepo)
+		actor, ok := httpkit.AuthenticateActor(w, r, traceID, authService)
 		if !ok {
 			return
 		}
@@ -482,7 +482,7 @@ func patchPersona(
 		return
 	}
 
-	actor, ok := httpkit.AuthenticateActor(w, r, traceID, authService, membershipRepo)
+	actor, ok := httpkit.AuthenticateActor(w, r, traceID, authService)
 	if !ok {
 		return
 	}
@@ -578,7 +578,7 @@ func deletePersona(
 		return
 	}
 
-	actor, ok := httpkit.AuthenticateActor(w, r, traceID, authService, membershipRepo)
+	actor, ok := httpkit.AuthenticateActor(w, r, traceID, authService)
 	if !ok {
 		return
 	}

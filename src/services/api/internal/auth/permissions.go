@@ -8,11 +8,11 @@ import (
 // 系统权限点常量。
 const (
 	PermPlatformAdmin         = "platform.admin"
-	PermOrgMembersInvite      = "org.members.invite"
-	PermOrgMembersList        = "org.members.list"
-	PermOrgMembersRevoke      = "org.members.revoke"
-	PermOrgTeamsRead          = "org.teams.read"
-	PermOrgTeamsManage        = "org.teams.manage"
+	PermAccountMembersInvite  = "org.members.invite"
+	PermAccountMembersList   = "org.members.list"
+	PermAccountMembersRevoke  = "org.members.revoke"
+	PermAccountTeamsRead      = "org.teams.read"
+	PermAccountTeamsManage    = "org.teams.manage"
 	PermDataThreadsRead       = "data.threads.read"
 	PermDataThreadsWrite      = "data.threads.write"
 	PermDataRunsRead          = "data.runs.read"
@@ -30,7 +30,7 @@ const (
 	PermDataWebhooksManage    = "data.webhooks.manage"
 	PermDataSubscriptionsRead = "data.subscriptions.read"
 	PermDataUsageRead         = "data.usage.read"
-	PermOrgAuditRead          = "org.audit_read"
+	PermAccountAuditRead      = "org.audit_read"
 
 	PermPlatformPlansManage         = "platform.plans.manage"
 	PermPlatformSubscriptionsManage = "platform.subscriptions.manage"
@@ -41,11 +41,11 @@ const (
 
 var allPermissions = []string{
 	PermPlatformAdmin,
-	PermOrgMembersInvite,
-	PermOrgMembersList,
-	PermOrgMembersRevoke,
-	PermOrgTeamsRead,
-	PermOrgTeamsManage,
+	PermAccountMembersInvite,
+	PermAccountMembersList,
+	PermAccountMembersRevoke,
+	PermAccountTeamsRead,
+	PermAccountTeamsManage,
 	PermDataThreadsRead,
 	PermDataThreadsWrite,
 	PermDataRunsRead,
@@ -63,7 +63,7 @@ var allPermissions = []string{
 	PermDataWebhooksManage,
 	PermDataSubscriptionsRead,
 	PermDataUsageRead,
-	PermOrgAuditRead,
+	PermAccountAuditRead,
 	PermPlatformPlansManage,
 	PermPlatformSubscriptionsManage,
 	PermPlatformEntitlementsManage,

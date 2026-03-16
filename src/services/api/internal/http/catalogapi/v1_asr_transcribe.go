@@ -47,7 +47,7 @@ func asrTranscribeEntry(
 			return
 		}
 
-		actor, ok := httpkit.AuthenticateActor(w, r, traceID, authService, membershipRepo)
+		actor, ok := httpkit.AuthenticateActor(w, r, traceID, authService)
 		if !ok {
 			return
 		}

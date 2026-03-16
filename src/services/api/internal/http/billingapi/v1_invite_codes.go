@@ -265,11 +265,11 @@ func listAdminInviteCodes(
 			return
 		}
 
-		limit, ok := parseLimit(w, traceID, r.URL.Query().Get("limit"))
+		limit, ok := httpkit.ParseLimit(w, traceID, r.URL.Query().Get("limit"))
 		if !ok {
 			return
 		}
-		beforeCreatedAt, beforeID, ok := parseThreadCursor(w, traceID, r.URL.Query())
+		beforeCreatedAt, beforeID, ok := httpkit.ParseThreadCursor(w, traceID, r.URL.Query())
 		if !ok {
 			return
 		}
@@ -489,11 +489,11 @@ func adminReferralsEntry(
 			return
 		}
 
-		limit, ok := parseLimit(w, traceID, r.URL.Query().Get("limit"))
+		limit, ok := httpkit.ParseLimit(w, traceID, r.URL.Query().Get("limit"))
 		if !ok {
 			return
 		}
-		beforeCreatedAt, beforeID, ok := parseThreadCursor(w, traceID, r.URL.Query())
+		beforeCreatedAt, beforeID, ok := httpkit.ParseThreadCursor(w, traceID, r.URL.Query())
 		if !ok {
 			return
 		}

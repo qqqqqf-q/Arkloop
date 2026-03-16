@@ -1,6 +1,7 @@
 import {
   canUseStorage,
 } from '@arkloop/shared/storage'
+import type { Theme } from '@arkloop/shared/contexts/theme'
 
 export {
   readAccessToken as readAccessTokenFromStorage,
@@ -17,8 +18,6 @@ const SELECTED_MODEL_KEY = 'arkloop:web:selected_model'
 export const DEFAULT_PERSONA_KEY = 'normal'
 export const SEARCH_PERSONA_KEY = 'extended-search'
 export const LEARNING_PERSONA_KEY = 'stem-tutor'
-
-export type Theme = 'system' | 'light' | 'dark'
 
 function canUseLocalStorage(): boolean {
   return canUseStorage()
@@ -207,6 +206,8 @@ export type ArtifactRef = {
   filename: string
   size: number
   mime_type: string
+  title?: string
+  display?: 'inline' | 'panel'
 }
 
 function messageArtifactsKey(messageId: string): string {

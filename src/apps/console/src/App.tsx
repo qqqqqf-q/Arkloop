@@ -37,7 +37,7 @@ import { ModulesPage } from './pages/modules/ModulesPage'
 import { PromptInjectionPage } from './pages/prompt-injection/PromptInjectionPage'
 import { BootstrapPage } from './pages/BootstrapPage'
 
-import { OperationProvider, useOperations } from './contexts/OperationContext'
+import { OperationProvider, useOperations } from '@arkloop/shared'
 import { OperationHistoryModal } from './components/OperationHistoryModal'
 import { bridgeClient } from './api/bridge'
 

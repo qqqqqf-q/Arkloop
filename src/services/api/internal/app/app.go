@@ -158,14 +158,14 @@ func (a *Application) Run(ctx context.Context) error {
 	}
 
 	var runLimiter *data.RunLimiter
-	if redisClient != nil && a.config.MaxConcurrentRunsPerOrg > 0 {
-		rl, err := data.NewRunLimiter(redisClient, a.config.MaxConcurrentRunsPerOrg)
+	if redisClient != nil && a.config.MaxConcurrentRunsPerAccount > 0 {
+		rl, err := data.NewRunLimiter(redisClient, a.config.MaxConcurrentRunsPerAccount)
 		if err != nil {
 			return fmt.Errorf("run limiter: %w", err)
 		}
 		runLimiter = rl
 		a.logger.Info("run limiter enabled", observability.LogFields{}, map[string]any{
-			"max_per_org": a.config.MaxConcurrentRunsPerOrg,
+			"max_per_account": a.config.MaxConcurrentRunsPerAccount,
 		})
 	}
 

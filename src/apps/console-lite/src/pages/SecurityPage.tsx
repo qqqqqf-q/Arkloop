@@ -5,7 +5,7 @@ import type { LiteOutletContext } from '../layouts/LiteLayout'
 import { PageHeader } from '../components/PageHeader'
 import { useToast } from '@arkloop/shared'
 import { useLocale } from '../contexts/LocaleContext'
-import { useOperations } from '../contexts/OperationContext'
+import { useOperations } from '@arkloop/shared'
 import {
   listPlatformSettings,
   updatePlatformSetting,

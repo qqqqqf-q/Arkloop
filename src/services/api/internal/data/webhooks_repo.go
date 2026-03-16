@@ -90,7 +90,7 @@ func (r *WebhookEndpointRepository) GetByID(ctx context.Context, id uuid.UUID) (
 	return &ep, nil
 }
 
-func (r *WebhookEndpointRepository) ListByOrg(ctx context.Context, accountID uuid.UUID) ([]WebhookEndpoint, error) {
+func (r *WebhookEndpointRepository) ListByAccount(ctx context.Context, accountID uuid.UUID) ([]WebhookEndpoint, error) {
 	rows, err := r.db.Query(
 		ctx,
 		`SELECT id, account_id, url, secret_id, events, enabled, created_at
@@ -100,7 +100,7 @@ func (r *WebhookEndpointRepository) ListByOrg(ctx context.Context, accountID uui
 		accountID,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("webhooks.ListByOrg: %w", err)
+		return nil, fmt.Errorf("webhooks.ListByAccount: %w", err)
 	}
 	defer rows.Close()
 
@@ -111,12 +111,12 @@ func (r *WebhookEndpointRepository) ListByOrg(ctx context.Context, accountID uui
 			&ep.ID, &ep.AccountID, &ep.URL, &ep.SecretID,
 			&ep.Events, &ep.Enabled, &ep.CreatedAt,
 		); err != nil {
-			return nil, fmt.Errorf("webhooks.ListByOrg scan: %w", err)
+			return nil, fmt.Errorf("webhooks.ListByAccount scan: %w", err)
 		}
 		endpoints = append(endpoints, ep)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("webhooks.ListByOrg rows: %w", err)
+		return nil, fmt.Errorf("webhooks.ListByAccount rows: %w", err)
 	}
 	return endpoints, nil
 }

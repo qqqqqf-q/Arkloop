@@ -203,7 +203,7 @@ func createBroadcast(
 			if broadcast.TargetType == "all" {
 				sentCount, execErr = bgRepo.BroadcastToAll(bgCtx, broadcast)
 			} else {
-				sentCount, execErr = bgRepo.BroadcastToOrg(bgCtx, broadcast, *broadcast.TargetID)
+				sentCount, execErr = bgRepo.BroadcastToAccount(bgCtx, broadcast, *broadcast.TargetID)
 			}
 
 			status := "completed"
@@ -253,11 +253,11 @@ func listBroadcasts(
 			return
 		}
 
-		limit, ok := parseLimit(w, traceID, r.URL.Query().Get("limit"))
+		limit, ok := httpkit.ParseLimit(w, traceID, r.URL.Query().Get("limit"))
 		if !ok {
 			return
 		}
-		beforeCreatedAt, beforeID, ok := parseThreadCursor(w, traceID, r.URL.Query())
+		beforeCreatedAt, beforeID, ok := httpkit.ParseThreadCursor(w, traceID, r.URL.Query())
 		if !ok {
 			return
 		}

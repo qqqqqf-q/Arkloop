@@ -1,8 +1,7 @@
-import type { LlmTurn } from '../run-turns'
-import { CollapseBlock, PreText, JsonBlock } from '@arkloop/shared'
+import { CollapseBlock, PreText, JsonBlock, buildTurns, type LlmTurn } from '@arkloop/shared'
 
-export { buildTurns } from '../run-turns'
-export type { LlmTurn } from '../run-turns'
+export { buildTurns }
+export type { LlmTurn }
 
 type TurnViewProps = {
   turn: LlmTurn

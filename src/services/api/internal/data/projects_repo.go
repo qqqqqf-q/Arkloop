@@ -206,7 +206,7 @@ func (r *ProjectRepository) SoftDelete(ctx context.Context, projectID uuid.UUID)
 	return err
 }
 
-func (r *ProjectRepository) ListByOrg(ctx context.Context, accountID uuid.UUID) ([]Project, error) {
+func (r *ProjectRepository) ListByAccount(ctx context.Context, accountID uuid.UUID) ([]Project, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}

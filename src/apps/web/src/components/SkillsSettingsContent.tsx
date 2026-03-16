@@ -25,7 +25,7 @@ import {
   type SkillPackageResponse,
   type SkillReference,
   deleteSkill,
-  importMarketSkill,
+  importRegistrySkill,
   importSkillFromGitHub,
   importSkillFromUpload,
   installSkill,
@@ -338,7 +338,7 @@ export function SkillsSettingsContent({ accessToken, onTrySkill }: Props) {
         await refreshInstalled()
         return
       }
-      const imported = await importMarketSkill(accessToken, {
+      const imported = await importRegistrySkill(accessToken, {
         slug: item.registry_slug ?? item.skill_key,
         version: item.version,
         skill_key: item.skill_key,

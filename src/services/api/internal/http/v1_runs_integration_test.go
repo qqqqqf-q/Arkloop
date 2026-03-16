@@ -578,7 +578,7 @@ func TestRunsCreateListGetCancelAndEnqueue(t *testing.T) {
 	denyGet := doJSON(handler, nethttp.MethodGet, "/v1/runs/"+runPayload.RunID, nil, authHeader(bob.AccessToken))
 	assertErrorEnvelope(t, denyGet, nethttp.StatusForbidden, "policy.denied")
 
-	deniedCount, err := countDeniedAudit(ctx, pool, "runs.get", "org_mismatch")
+	deniedCount, err := countDeniedAudit(ctx, pool, "runs.get", "account_mismatch")
 	if err != nil {
 		t.Fatalf("count denied audit: %v", err)
 	}

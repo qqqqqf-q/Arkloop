@@ -134,7 +134,7 @@ func createMCPConfig(
 		return
 	}
 
-	actor, ok := httpkit.AuthenticateActor(w, r, traceID, authService, membershipRepo)
+	actor, ok := httpkit.AuthenticateActor(w, r, traceID, authService)
 	if !ok {
 		return
 	}
@@ -265,12 +265,12 @@ func listMCPConfigs(
 		return
 	}
 
-	actor, ok := httpkit.AuthenticateActor(w, r, traceID, authService, membershipRepo)
+	actor, ok := httpkit.AuthenticateActor(w, r, traceID, authService)
 	if !ok {
 		return
 	}
 
-	configs, err := mcpRepo.ListByOrg(r.Context(), actor.AccountID)
+	configs, err := mcpRepo.ListByAccount(r.Context(), actor.AccountID)
 	if err != nil {
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
@@ -304,7 +304,7 @@ func patchMCPConfig(
 		return
 	}
 
-	actor, ok := httpkit.AuthenticateActor(w, r, traceID, authService, membershipRepo)
+	actor, ok := httpkit.AuthenticateActor(w, r, traceID, authService)
 	if !ok {
 		return
 	}
@@ -410,7 +410,7 @@ func deleteMCPConfig(
 		return
 	}
 
-	actor, ok := httpkit.AuthenticateActor(w, r, traceID, authService, membershipRepo)
+	actor, ok := httpkit.AuthenticateActor(w, r, traceID, authService)
 	if !ok {
 		return
 	}

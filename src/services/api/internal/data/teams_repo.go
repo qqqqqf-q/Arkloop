@@ -80,7 +80,7 @@ func (r *TeamRepository) GetByID(ctx context.Context, teamID uuid.UUID) (*Team, 
 	return &t, nil
 }
 
-func (r *TeamRepository) ListByOrg(ctx context.Context, accountID uuid.UUID) ([]Team, error) {
+func (r *TeamRepository) ListByAccount(ctx context.Context, accountID uuid.UUID) ([]Team, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -176,8 +176,8 @@ type TeamWithCount struct {
 	MembersCount int64
 }
 
-// ListByOrgWithCounts 返回 account 下所有 team，每行含当前成员数。
-func (r *TeamRepository) ListByOrgWithCounts(ctx context.Context, accountID uuid.UUID) ([]TeamWithCount, error) {
+// ListByAccountWithCounts 返回 account 下所有 team，每行含当前成员数。
+func (r *TeamRepository) ListByAccountWithCounts(ctx context.Context, accountID uuid.UUID) ([]TeamWithCount, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}

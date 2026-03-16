@@ -387,7 +387,7 @@ HTTP Header 同时返回 `X-Trace-Id`。
 | `ARKLOOP_BOOTSTRAP_PLATFORM_ADMIN` | 初始管理员 user_id（UUID） |
 | `ARKLOOP_TRUST_INCOMING_TRACE_ID` | 信任上游 trace_id |
 | `ARKLOOP_TRUST_X_FORWARDED_FOR` | 信任 X-Forwarded-For |
-| `ARKLOOP_MAX_CONCURRENT_RUNS_PER_ORG` | 组织并发 run 上限（默认 10） |
+| `ARKLOOP_MAX_CONCURRENT_RUNS_PER_ACCOUNT` | 账户并发 run 上限（默认 10） |
 | `ARKLOOP_SSE_HEARTBEAT_SECONDS` | SSE 心跳间隔（默认 15） |
 | `ARKLOOP_SSE_BATCH_LIMIT` | SSE 批次上限（默认 500） |
 | `ARKLOOP_RUN_TIMEOUT_MINUTES` | Run 超时（默认 5） |

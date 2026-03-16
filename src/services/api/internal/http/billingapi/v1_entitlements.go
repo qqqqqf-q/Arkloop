@@ -152,7 +152,7 @@ func createEntitlementOverride(
 		expiresAt = &t
 	}
 
-	previous, err := entitlementsRepo.GetOverrideByOrgAndKey(r.Context(), accountID, req.Key)
+	previous, err := entitlementsRepo.GetOverrideByAccountAndKey(r.Context(), accountID, req.Key)
 	if err != nil {
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
@@ -223,7 +223,7 @@ func listEntitlementOverrides(
 		return
 	}
 
-	overrides, err := entitlementsRepo.ListOverridesByOrg(r.Context(), accountID)
+	overrides, err := entitlementsRepo.ListOverridesByAccount(r.Context(), accountID)
 	if err != nil {
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return

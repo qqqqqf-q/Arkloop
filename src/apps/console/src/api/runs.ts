@@ -75,6 +75,8 @@ export type AdminRunDetail = {
   total_input_tokens?: number
   total_output_tokens?: number
   total_cost_usd?: number
+  cache_hit_rate?: number
+  credits_used?: number
   created_at: string
   completed_at?: string
   failed_at?: string

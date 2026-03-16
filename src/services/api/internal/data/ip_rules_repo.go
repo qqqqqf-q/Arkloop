@@ -75,7 +75,7 @@ func (r *IPRulesRepository) Create(
 	return rule, nil
 }
 
-func (r *IPRulesRepository) ListByOrg(ctx context.Context, accountID uuid.UUID) ([]IPRule, error) {
+func (r *IPRulesRepository) ListByAccount(ctx context.Context, accountID uuid.UUID) ([]IPRule, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}

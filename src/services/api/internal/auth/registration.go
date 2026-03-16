@@ -259,7 +259,7 @@ func (s *RegistrationService) Register(
 		return RegisterResult{}, err
 	}
 
-	if _, err := membershipRepo.Create(ctx, account.ID, user.ID, "owner"); err != nil {
+	if _, err := membershipRepo.Create(ctx, account.ID, user.ID, RoleAccountAdmin); err != nil {
 		return RegisterResult{}, err
 	}
 
@@ -397,7 +397,7 @@ func (s *RegistrationService) Register(
 	}
 
 	now := s.now()
-	token, err := s.tokenService.Issue(user.ID, account.ID, "owner", now)
+	token, err := s.tokenService.Issue(user.ID, account.ID, RoleAccountAdmin, now)
 	if err != nil {
 		return RegisterResult{}, err
 	}
@@ -481,7 +481,7 @@ func (s *RegistrationService) createLocalAccountTx(
 		return createdLocalAccount{}, err
 	}
 
-	if _, err := membershipRepo.Create(ctx, account.ID, user.ID, "owner"); err != nil {
+	if _, err := membershipRepo.Create(ctx, account.ID, user.ID, RoleAccountAdmin); err != nil {
 		return createdLocalAccount{}, err
 	}
 

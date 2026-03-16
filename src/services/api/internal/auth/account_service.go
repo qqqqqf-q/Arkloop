@@ -66,7 +66,7 @@ func (s *AccountService) CreateWorkspace(ctx context.Context, slug, name string,
 		return CreateWorkspaceResult{}, fmt.Errorf("account_service.CreateWorkspace: create account: %w", err)
 	}
 
-	membership, err := membershipRepo.Create(ctx, account.ID, ownerUserID, "owner")
+	membership, err := membershipRepo.Create(ctx, account.ID, ownerUserID, RoleAccountAdmin)
 	if err != nil {
 		return CreateWorkspaceResult{}, fmt.Errorf("account_service.CreateWorkspace: create membership: %w", err)
 	}

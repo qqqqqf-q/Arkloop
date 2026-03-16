@@ -174,7 +174,7 @@ func (r *EntitlementsRepository) CreateOverride(
 	return o, nil
 }
 
-func (r *EntitlementsRepository) ListOverridesByOrg(ctx context.Context, accountID uuid.UUID) ([]AccountEntitlementOverride, error) {
+func (r *EntitlementsRepository) ListOverridesByAccount(ctx context.Context, accountID uuid.UUID) ([]AccountEntitlementOverride, error) {
 	rows, err := r.db.Query(
 		ctx,
 		`SELECT id, account_id, key, value, value_type, reason, expires_at, created_by_user_id, created_at
@@ -184,7 +184,7 @@ func (r *EntitlementsRepository) ListOverridesByOrg(ctx context.Context, account
 		accountID,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("entitlements.ListOverridesByOrg: %w", err)
+		return nil, fmt.Errorf("entitlements.ListOverridesByAccount: %w", err)
 	}
 	defer rows.Close()
 
@@ -195,14 +195,14 @@ func (r *EntitlementsRepository) ListOverridesByOrg(ctx context.Context, account
 			&o.ID, &o.AccountID, &o.Key, &o.Value, &o.ValueType,
 			&o.Reason, &o.ExpiresAt, &o.CreatedByUserID, &o.CreatedAt,
 		); err != nil {
-			return nil, fmt.Errorf("entitlements.ListOverridesByOrg scan: %w", err)
+			return nil, fmt.Errorf("entitlements.ListOverridesByAccount scan: %w", err)
 		}
 		items = append(items, o)
 	}
 	return items, rows.Err()
 }
 
-func (r *EntitlementsRepository) GetOverrideByOrgAndKey(
+func (r *EntitlementsRepository) GetOverrideByAccountAndKey(
 	ctx context.Context,
 	accountID uuid.UUID,
 	key string,
@@ -222,7 +222,7 @@ func (r *EntitlementsRepository) GetOverrideByOrgAndKey(
 		return nil, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("entitlements.GetOverrideByOrgAndKey: %w", err)
+		return nil, fmt.Errorf("entitlements.GetOverrideByAccountAndKey: %w", err)
 	}
 	return &o, nil
 }

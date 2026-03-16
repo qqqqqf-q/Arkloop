@@ -120,7 +120,7 @@ func createAPIKey(
 		return
 	}
 
-	actor, ok := httpkit.AuthenticateActor(w, r, traceID, authService, membershipRepo)
+	actor, ok := httpkit.AuthenticateActor(w, r, traceID, authService)
 	if !ok {
 		return
 	}
@@ -193,7 +193,7 @@ func listAPIKeys(
 		return
 	}
 
-	actor, ok := httpkit.AuthenticateActor(w, r, traceID, authService, membershipRepo)
+	actor, ok := httpkit.AuthenticateActor(w, r, traceID, authService)
 	if !ok {
 		return
 	}
@@ -234,7 +234,7 @@ func revokeAPIKey(
 		return
 	}
 
-	actor, ok := httpkit.AuthenticateActor(w, r, traceID, authService, membershipRepo)
+	actor, ok := httpkit.AuthenticateActor(w, r, traceID, authService)
 	if !ok {
 		return
 	}
@@ -312,9 +312,9 @@ func toAPIKeyResponse(k data.APIKey) apiKeyResponse {
 
 func listVisibleAPIKeys(ctx context.Context, actor *httpkit.Actor, repo *data.APIKeysRepository) ([]data.APIKey, error) {
 	if isAccountAPIKeyAdmin(actor) {
-		return repo.ListByOrg(ctx, actor.AccountID)
+		return repo.ListByAccount(ctx, actor.AccountID)
 	}
-	return repo.ListByOrgAndUser(ctx, actor.AccountID, actor.UserID)
+	return repo.ListByAccountAndUser(ctx, actor.AccountID, actor.UserID)
 }
 
 func revokeVisibleAPIKey(ctx context.Context, actor *httpkit.Actor, repo *data.APIKeysRepository, keyID uuid.UUID) (string, error) {

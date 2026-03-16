@@ -190,8 +190,6 @@ export const zh: LocaleStrings = {
   enterInviteCodeOptional: '输入邀请码（可选）',
   editProfile: '编辑',
   continueBtn: '继续',
-  orDivider: '或',
-  githubLogin: '使用 GitHub 登录',
   noAccount: '没有账号？注册',
   hasAccount: '已有账号？登录',
   requestFailed: '请求失败',

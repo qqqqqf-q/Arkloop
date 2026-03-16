@@ -9,8 +9,8 @@ const (
 )
 
 var accountAdminPerms = []string{
-	PermOrgMembersInvite, PermOrgMembersList, PermOrgMembersRevoke,
-	PermOrgTeamsRead, PermOrgTeamsManage,
+	PermAccountMembersInvite, PermAccountMembersList, PermAccountMembersRevoke,
+	PermAccountTeamsRead, PermAccountTeamsManage,
 	PermDataThreadsRead, PermDataThreadsWrite,
 	PermDataRunsRead, PermDataRunsWrite,
 	PermDataAPIKeysManage,
@@ -22,11 +22,11 @@ var accountAdminPerms = []string{
 	PermDataSkillsRead, PermDataSkillsManage,
 	PermDataSubscriptionsRead,
 	PermDataUsageRead,
-	PermOrgAuditRead,
+	PermAccountAuditRead,
 }
 
 var accountMemberPerms = []string{
-	PermOrgTeamsRead,
+	PermAccountTeamsRead,
 	PermDataThreadsRead, PermDataThreadsWrite,
 	PermDataRunsRead, PermDataRunsWrite,
 	// 成员可管理自己名下的 API Key，符合最小特权原则，不涉及 account 级写操作。

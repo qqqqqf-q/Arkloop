@@ -191,7 +191,7 @@ func listProjects(
 		return
 	}
 
-	projects, err := projectRepo.ListByOrg(r.Context(), actor.AccountID)
+	projects, err := projectRepo.ListByAccount(r.Context(), actor.AccountID)
 	if err != nil {
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return

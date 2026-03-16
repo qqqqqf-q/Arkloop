@@ -10,7 +10,7 @@ import { Badge, type BadgeVariant } from '../../components/Badge'
 import { OperationModal } from '../../components/OperationModal'
 import { useToast } from '@arkloop/shared'
 import { useLocale } from '../../contexts/LocaleContext'
-import { useOperations } from '../../contexts/OperationContext'
+import { useOperations } from '@arkloop/shared'
 import type { LocaleStrings } from '../../locales'
 import { listPlatformSettings, type PlatformSetting } from '../../api/platform-settings'
 import {

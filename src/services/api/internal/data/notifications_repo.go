@@ -223,11 +223,11 @@ func (r *NotificationsRepository) CreateBroadcast(
 	if title == "" {
 		return NotificationBroadcast{}, fmt.Errorf("broadcasts: title must not be empty")
 	}
-	if targetType != "all" && targetType != "org" {
-		return NotificationBroadcast{}, fmt.Errorf("broadcasts: target_type must be 'all' or 'org'")
+	if targetType != "all" && targetType != "account" {
+		return NotificationBroadcast{}, fmt.Errorf("broadcasts: target_type must be 'all' or 'account'")
 	}
-	if targetType == "org" && (targetID == nil || *targetID == uuid.Nil) {
-		return NotificationBroadcast{}, fmt.Errorf("broadcasts: target_id required when target_type is 'org'")
+	if targetType == "account" && (targetID == nil || *targetID == uuid.Nil) {
+		return NotificationBroadcast{}, fmt.Errorf("broadcasts: target_id required when target_type is 'account'")
 	}
 	if createdBy == uuid.Nil {
 		return NotificationBroadcast{}, fmt.Errorf("broadcasts: created_by must not be empty")
@@ -269,8 +269,8 @@ func (r *NotificationsRepository) BroadcastToAll(ctx context.Context, broadcast 
 	return int(tag.RowsAffected()), nil
 }
 
-// BroadcastToOrg 将广播展开到指定 account 的所有成员。
-func (r *NotificationsRepository) BroadcastToOrg(ctx context.Context, broadcast NotificationBroadcast, accountID uuid.UUID) (int, error) {
+// BroadcastToAccount 将广播展开到指定 account 的所有成员。
+func (r *NotificationsRepository) BroadcastToAccount(ctx context.Context, broadcast NotificationBroadcast, accountID uuid.UUID) (int, error) {
 	if accountID == uuid.Nil {
 		return 0, fmt.Errorf("broadcasts: account_id must not be empty")
 	}
@@ -284,7 +284,7 @@ func (r *NotificationsRepository) BroadcastToOrg(ctx context.Context, broadcast 
 		broadcast.ID, broadcast.Type, broadcast.Title, broadcast.Body, broadcast.PayloadJSON, accountID,
 	)
 	if err != nil {
-		return 0, fmt.Errorf("broadcasts.BroadcastToOrg: %w", err)
+		return 0, fmt.Errorf("broadcasts.BroadcastToAccount: %w", err)
 	}
 	return int(tag.RowsAffected()), nil
 }
@@ -360,7 +360,7 @@ func (r *NotificationsRepository) BackfillBroadcastsForMembership(ctx context.Co
 		 SELECT $1, $2, nb.type, nb.title, nb.body, nb.payload_json, nb.id
 		 FROM notification_broadcasts nb
 		 WHERE nb.deleted_at IS NULL
-		   AND (nb.target_type = 'all' OR (nb.target_type = 'org' AND nb.target_id = $2))
+		   AND (nb.target_type = 'all' OR (nb.target_type = 'account' AND nb.target_id = $2))
 		 ON CONFLICT DO NOTHING`,
 		userID, accountID,
 	)

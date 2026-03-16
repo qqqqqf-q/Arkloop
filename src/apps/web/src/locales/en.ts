@@ -190,8 +190,6 @@ export const en: LocaleStrings = {
   enterInviteCodeOptional: 'Enter invite code (optional)',
   editProfile: 'Edit',
   continueBtn: 'Continue',
-  orDivider: 'or',
-  githubLogin: 'Login with GitHub',
   noAccount: 'No account? Register',
   hasAccount: 'Have an account? Log in',
   requestFailed: 'Request failed',

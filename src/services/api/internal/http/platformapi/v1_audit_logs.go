@@ -73,7 +73,7 @@ func listAuditLogs(
 
 	isPlatformAdmin := actor.HasPermission(auth.PermPlatformAdmin)
 	if !isPlatformAdmin {
-		if !httpkit.RequirePerm(actor, auth.PermOrgAuditRead, w, traceID) {
+		if !httpkit.RequirePerm(actor, auth.PermAccountAuditRead, w, traceID) {
 			return
 		}
 	}

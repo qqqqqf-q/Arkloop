@@ -3,127 +3,35 @@ import {
   login,
   register,
   getRegistrationMode,
-  isApiError,
   resolveIdentity,
   sendResolvedEmailOTP,
   verifyResolvedEmailOTP,
   getCaptchaConfig,
 } from '../api'
 import type { RegistrationModeResponse } from '../api'
-import { ErrorCallout, type AppError } from './ErrorCallout'
-import { Turnstile } from './Turnstile'
+import { ErrorCallout } from './ErrorCallout'
+import { Turnstile } from '@arkloop/shared'
 import { useLocale } from '../contexts/LocaleContext'
-
-function SpinnerIcon() {
-  return (
-    <svg className="animate-spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true">
-      <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-    </svg>
-  )
-}
-
-function GitHubIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-      <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z" />
-    </svg>
-  )
-}
-
-function EyeIcon({ open }: { open: boolean }) {
-  return open ? (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
-      <path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z" /><circle cx="12" cy="12" r="3" />
-    </svg>
-  ) : (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
-      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-6 0-10-8-10-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c6 0 10 8 10 8a18.5 18.5 0 0 1-2.16 3.19M1 1l22 22" />
-    </svg>
-  )
-}
-
-function normalizeError(error: unknown, fallback: string): AppError {
-  if (isApiError(error)) return { message: error.message, traceId: error.traceId, code: error.code }
-  if (error instanceof Error) return { message: error.message }
-  return { message: fallback }
-}
-
-// CSS grid 0fr→1fr 展开动效，无需预知高度
-function Reveal({ active, children }: { active: boolean; children: React.ReactNode }) {
-  return (
-    <div style={{
-      display: 'grid',
-      gridTemplateRows: active ? '1fr' : '0fr',
-      opacity: active ? 1 : 0,
-      transition: 'grid-template-rows 0.38s cubic-bezier(0.4,0,0.2,1), opacity 0.25s ease',
-    }}>
-      <div style={{ overflow: 'hidden' }}>{children}</div>
-    </div>
-  )
-}
+import {
+  SpinnerIcon,
+  normalizeError,
+  Reveal,
+  PasswordEye,
+  TRANSITION,
+  inputCls,
+  inputStyle,
+  labelStyle,
+} from '@arkloop/shared/components/auth-ui'
 
 type Phase = 'identity' | 'password' | 'otp-code' | 'register'
 
 type Props = { onLoggedIn: (accessToken: string) => void }
 
-const TRANSITION = '0.42s cubic-bezier(0.4,0,0.2,1)'
 const passwordEncoder = new TextEncoder()
 
 function registerPasswordMeetsPolicy(password: string): boolean {
 	const passwordBytes = passwordEncoder.encode(password).length
 	return passwordBytes >= 8 && passwordBytes <= 72 && /\p{L}/u.test(password) && /\p{N}/u.test(password)
-}
-
-const inputCls = 'w-full rounded-[10px] bg-[var(--c-bg-input)] text-[var(--c-text-primary)] outline-none placeholder:text-[var(--c-placeholder)]'
-const inputStyle = {
-  border: '0.5px solid var(--c-border-auth)',
-  height: '36px',
-  padding: '0 14px',
-  fontSize: '13px',
-  fontWeight: 500,
-  fontFamily: 'inherit',
-} as const
-const labelStyle = {
-  fontSize: '11px',
-  fontWeight: 500 as const,
-  color: 'var(--c-placeholder)',
-  paddingLeft: '2px',
-  marginBottom: '4px',
-  display: 'block',
-} as const
-
-interface PasswordEyeProps {
-  inputRef: React.RefObject<HTMLInputElement | null>
-  placeholder: string
-  value: string
-  onChange: (v: string) => void
-  showPassword: boolean
-  onToggleShow: () => void
-}
-
-function PasswordEye({ inputRef, placeholder, value, onChange, showPassword, onToggleShow }: PasswordEyeProps) {
-  return (
-    <div style={{ position: 'relative' }}>
-      <input
-        ref={inputRef}
-        className={inputCls}
-        style={{ ...inputStyle, paddingRight: '38px' }}
-        type={showPassword ? 'text' : 'password'}
-        placeholder={placeholder}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        autoComplete="current-password"
-      />
-      <button
-        type="button"
-        tabIndex={-1}
-        onClick={onToggleShow}
-        style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--c-placeholder)', padding: '2px', display: 'flex', alignItems: 'center' }}
-      >
-        <EyeIcon open={showPassword} />
-      </button>
-    </div>
-  )
 }
 
 export function AuthPage({ onLoggedIn }: Props) {
@@ -673,20 +581,6 @@ export function AuthPage({ onLoggedIn }: Props) {
 	              {otpCountdown > 0 ? t.otpSendingCountdown(otpCountdown) : t.otpSendBtn}
 	            </button>
 	          </Reveal>
-
-          {/* identity 阶段：GitHub 登录 */}
-          <Reveal active={phase === 'identity'}>
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', margin: '16px 0' }}>
-                <div style={{ flex: 1, height: '0.5px', background: 'var(--c-border-auth)' }} />
-                <span style={{ fontSize: '11px', color: 'var(--c-placeholder)', fontWeight: 500 }}>{t.orDivider}</span>
-                <div style={{ flex: 1, height: '0.5px', background: 'var(--c-border-auth)' }} />
-              </div>
-              <button type="button" className="github-btn">
-                <GitHubIcon />{t.githubLogin}
-              </button>
-            </div>
-          </Reveal>
 
           {error && <ErrorCallout error={error} />}
         </section>

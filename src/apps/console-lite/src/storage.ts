@@ -1,6 +1,7 @@
 import {
   canUseStorage,
 } from '@arkloop/shared/storage'
+import type { Theme } from '@arkloop/shared/contexts/theme'
 
 export {
   readAccessToken as readAccessTokenFromStorage,
@@ -10,14 +11,8 @@ export {
 
 const THEME_KEY = 'arkloop:lite:theme'
 
-export type Theme = 'system' | 'light' | 'dark'
-
-function canUseLocalStorage(): boolean {
-  return canUseStorage()
-}
-
 export function readThemeFromStorage(): Theme {
-  if (!canUseLocalStorage()) return 'system'
+  if (!canUseStorage()) return 'system'
   try {
     const raw = localStorage.getItem(THEME_KEY)
     if (raw === 'system' || raw === 'light' || raw === 'dark') return raw
@@ -28,7 +23,7 @@ export function readThemeFromStorage(): Theme {
 }
 
 export function writeThemeToStorage(theme: Theme): void {
-  if (!canUseLocalStorage()) return
+  if (!canUseStorage()) return
   try {
     localStorage.setItem(THEME_KEY, theme)
   } catch {
@@ -39,7 +34,7 @@ export function writeThemeToStorage(theme: Theme): void {
 const LOCALE_KEY = 'arkloop:lite:locale'
 
 export function readLocaleFromStorage(): import('./locales').Locale {
-  if (!canUseLocalStorage()) return 'zh'
+  if (!canUseStorage()) return 'zh'
   try {
     const raw = localStorage.getItem(LOCALE_KEY)
     if (raw === 'zh' || raw === 'en') return raw
@@ -50,7 +45,7 @@ export function readLocaleFromStorage(): import('./locales').Locale {
 }
 
 export function writeLocaleToStorage(locale: import('./locales').Locale): void {
-  if (!canUseLocalStorage()) return
+  if (!canUseStorage()) return
   try {
     localStorage.setItem(LOCALE_KEY, locale)
   } catch {
