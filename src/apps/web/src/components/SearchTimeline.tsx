@@ -475,7 +475,7 @@ export function SearchTimeline({ steps, sources, isComplete, codeExecutions, onO
                         }}
                       >
                         {/* bottom connector: dot bottom → container bottom */}
-                        {(multiItems && !isLast) || (isLast && subAgentCount > 0) ? (
+                        {(multiItems && !isLast) || (isLast && (subAgentCount > 0 || fileOpCount > 0 || webFetchCount > 0)) ? (
                           <div style={{ position: 'absolute', left: '-16px', top: `${dotTop + DOT_SIZE}px`, bottom: 0, width: '1.5px', background: 'var(--c-border-subtle)', zIndex: 0 }} />
                         ) : null}
                         {/* top connector: container top → dot top */}

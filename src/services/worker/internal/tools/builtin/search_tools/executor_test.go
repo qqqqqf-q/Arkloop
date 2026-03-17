@@ -47,7 +47,7 @@ func strPtr(s string) *string { return &s }
 func TestExactNameMatch(t *testing.T) {
 	activator := &mockActivator{}
 	pool := makeSearchable()
-	exec := NewExecutor(activator, func() map[string]llm.ToolSpec { return pool })
+	exec := NewExecutor(activator, func() map[string]llm.ToolSpec { return pool }, nil)
 
 	result := exec.Execute(
 		context.Background(),
@@ -75,7 +75,7 @@ func TestExactNameMatch(t *testing.T) {
 func TestBatchQuery(t *testing.T) {
 	activator := &mockActivator{}
 	pool := makeSearchable()
-	exec := NewExecutor(activator, func() map[string]llm.ToolSpec { return pool })
+	exec := NewExecutor(activator, func() map[string]llm.ToolSpec { return pool }, nil)
 
 	result := exec.Execute(
 		context.Background(),
@@ -99,7 +99,7 @@ func TestBatchQuery(t *testing.T) {
 func TestSubstringMatch(t *testing.T) {
 	activator := &mockActivator{}
 	pool := makeSearchable()
-	exec := NewExecutor(activator, func() map[string]llm.ToolSpec { return pool })
+	exec := NewExecutor(activator, func() map[string]llm.ToolSpec { return pool }, nil)
 
 	result := exec.Execute(
 		context.Background(),
@@ -121,7 +121,7 @@ func TestSubstringMatch(t *testing.T) {
 func TestNoMatch(t *testing.T) {
 	activator := &mockActivator{}
 	pool := makeSearchable()
-	exec := NewExecutor(activator, func() map[string]llm.ToolSpec { return pool })
+	exec := NewExecutor(activator, func() map[string]llm.ToolSpec { return pool }, nil)
 
 	result := exec.Execute(
 		context.Background(),
@@ -142,7 +142,7 @@ func TestNoMatch(t *testing.T) {
 
 func TestInvalidArgs(t *testing.T) {
 	activator := &mockActivator{}
-	exec := NewExecutor(activator, func() map[string]llm.ToolSpec { return nil })
+	exec := NewExecutor(activator, func() map[string]llm.ToolSpec { return nil }, nil)
 
 	result := exec.Execute(
 		context.Background(),
@@ -163,7 +163,7 @@ func TestInvalidArgs(t *testing.T) {
 func TestWildcardAll(t *testing.T) {
 	activator := &mockActivator{}
 	pool := makeSearchable()
-	exec := NewExecutor(activator, func() map[string]llm.ToolSpec { return pool })
+	exec := NewExecutor(activator, func() map[string]llm.ToolSpec { return pool }, nil)
 
 	result := exec.Execute(
 		context.Background(),
@@ -187,7 +187,7 @@ func TestWildcardAll(t *testing.T) {
 func TestDuplicateSearchDoesNotReactivate(t *testing.T) {
 	activator := &mockActivator{}
 	pool := makeSearchable()
-	exec := NewExecutor(activator, func() map[string]llm.ToolSpec { return pool })
+	exec := NewExecutor(activator, func() map[string]llm.ToolSpec { return pool }, nil)
 
 	// First search activates web_search
 	exec.Execute(
@@ -227,7 +227,7 @@ func TestSearchableMapNotMutated(t *testing.T) {
 	activator := &mockActivator{}
 	pool := makeSearchable()
 	originalLen := len(pool)
-	exec := NewExecutor(activator, func() map[string]llm.ToolSpec { return pool })
+	exec := NewExecutor(activator, func() map[string]llm.ToolSpec { return pool }, nil)
 
 	exec.Execute(
 		context.Background(),

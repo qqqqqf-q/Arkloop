@@ -21,6 +21,18 @@ type SubAgentPendingInputRecord struct {
 
 type SubAgentPendingInputsRepository struct{}
 
+func allocateSubAgentPendingInputSeq(ctx context.Context, tx pgx.Tx, subAgentID uuid.UUID) (int64, error) {
+	if _, err := tx.Exec(ctx, `SELECT 1 FROM sub_agents WHERE id = $1 FOR UPDATE`, subAgentID); err != nil {
+		return 0, err
+	}
+	var seq int64
+	err := tx.QueryRow(ctx,
+		`SELECT COALESCE(MAX(seq), 0) + 1 FROM sub_agent_pending_inputs WHERE sub_agent_id = $1`,
+		subAgentID,
+	).Scan(&seq)
+	return seq, err
+}
+
 func (SubAgentPendingInputsRepository) Enqueue(ctx context.Context, tx pgx.Tx, subAgentID uuid.UUID, input string, priority bool) (SubAgentPendingInputRecord, error) {
 	if tx == nil {
 		return SubAgentPendingInputRecord{}, fmt.Errorf("tx must not be nil")
@@ -32,12 +44,17 @@ func (SubAgentPendingInputsRepository) Enqueue(ctx context.Context, tx pgx.Tx, s
 	if trimmed == "" {
 		return SubAgentPendingInputRecord{}, fmt.Errorf("input must not be empty")
 	}
+	seq, err := allocateSubAgentPendingInputSeq(ctx, tx, subAgentID)
+	if err != nil {
+		return SubAgentPendingInputRecord{}, err
+	}
 	var record SubAgentPendingInputRecord
-	err := tx.QueryRow(ctx,
-		`INSERT INTO sub_agent_pending_inputs (sub_agent_id, input, priority)
-		 VALUES ($1, $2, $3)
+	err = tx.QueryRow(ctx,
+		`INSERT INTO sub_agent_pending_inputs (sub_agent_id, seq, input, priority)
+		 VALUES ($1, $2, $3, $4)
 		 RETURNING id, sub_agent_id, seq, input, priority, created_at`,
 		subAgentID,
+		seq,
 		trimmed,
 		priority,
 	).Scan(&record.ID, &record.SubAgentID, &record.Seq, &record.Input, &record.Priority, &record.CreatedAt)

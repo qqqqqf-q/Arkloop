@@ -213,7 +213,9 @@ func BuildCatalogPrompt(searchable map[string]llm.ToolSpec) string {
 
 	var sb strings.Builder
 	sb.WriteString("\n<available_tools>\n")
-	sb.WriteString("Use search_tools to get the full schema before calling any of these tools.\n")
+	sb.WriteString("These tools are not callable yet.\n")
+	sb.WriteString("Use search_tools to get the full schema before calling any of them.\n")
+	sb.WriteString("A matched tool only becomes callable in a later turn after it has been loaded into the real tool list.\n")
 
 	for name := range searchable {
 		shortDesc := name

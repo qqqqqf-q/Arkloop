@@ -114,13 +114,13 @@ func (SubAgentRepository) Create(ctx context.Context, tx pgx.Tx, params SubAgent
 	return scanSubAgent(tx.QueryRow(
 		ctx,
 		`INSERT INTO sub_agents (
-			id, org_id, parent_run_id, parent_thread_id, root_run_id, root_thread_id,
+			id, account_id, parent_run_id, parent_thread_id, root_run_id, root_thread_id,
 			depth, role, persona_id, nickname, source_type, context_mode, status
 		 ) VALUES (
 			$1, $2, $3, $4, $5, $6,
 			$7, $8, $9, $10, $11, $12, $13
 		 )
-		 RETURNING id, org_id, parent_run_id, parent_thread_id, root_run_id, root_thread_id,
+		 RETURNING id, account_id, parent_run_id, parent_thread_id, root_run_id, root_thread_id,
 		           depth, role, persona_id, nickname, source_type, context_mode, status,
 		           current_run_id, last_completed_run_id, last_output_ref, last_error,
 		           created_at, started_at, completed_at, closed_at`,
@@ -442,7 +442,7 @@ func (repo SubAgentRepository) getForUpdateByCurrentRunID(ctx context.Context, t
 	return scanSubAgentNullable(tx.QueryRow(ctx, subAgentSelectBy+` WHERE current_run_id = $1 FOR UPDATE`, runID))
 }
 
-const subAgentSelectBy = `SELECT id, org_id, parent_run_id, parent_thread_id, root_run_id, root_thread_id,
+const subAgentSelectBy = `SELECT id, account_id, parent_run_id, parent_thread_id, root_run_id, root_thread_id,
 	       depth, role, persona_id, nickname, source_type, context_mode, status,
 	       current_run_id, last_completed_run_id, last_output_ref, last_error,
 	       created_at, started_at, completed_at, closed_at

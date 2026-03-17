@@ -87,16 +87,15 @@ func TestAutoMigrate(t *testing.T) {
 	pool := migratedTestDB(t)
 	ctx := context.Background()
 
-	// Verify that at least one application table exists (orgs from migration 1).
-	// orgs is kept in desktop mode as a workspace container; many tables have org_id FKs.
+	// Verify that at least one application table exists after the orgs -> accounts rename.
 	var count int
 	err := pool.QueryRow(ctx,
-		`SELECT count(*) FROM sqlite_master WHERE type='table' AND name='orgs'`).Scan(&count)
+		`SELECT count(*) FROM sqlite_master WHERE type='table' AND name='accounts'`).Scan(&count)
 	if err != nil {
 		t.Fatalf("query sqlite_master: %v", err)
 	}
 	if count != 1 {
-		t.Fatalf("orgs table not found after auto-migrate")
+		t.Fatalf("accounts table not found after auto-migrate")
 	}
 
 	// Verify _sequences table exists (needed by SQLiteDialect.Sequence()).

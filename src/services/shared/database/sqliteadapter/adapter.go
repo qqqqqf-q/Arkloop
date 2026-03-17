@@ -139,15 +139,19 @@ type rows struct {
 	rows *sql.Rows
 }
 
-func (r *rows) Next() bool            { return r.rows.Next() }
+func (r *rows) Next() bool             { return r.rows.Next() }
 func (r *rows) Scan(dest ...any) error { return translateError(r.rows.Scan(wrapTimeTargets(dest)...)) }
-func (r *rows) Close()                { r.rows.Close() }
-func (r *rows) Err() error            { return translateError(r.rows.Err()) }
+func (r *rows) Close()                 { r.rows.Close() }
+func (r *rows) Err() error             { return translateError(r.rows.Err()) }
 
 // sqlite 常见时间格式
 var timeFormats = []string{
 	time.RFC3339Nano,
 	time.RFC3339,
+	"2006-01-02 15:04:05.999999999 -0700 MST",
+	"2006-01-02 15:04:05 -0700 MST",
+	"2006-01-02 15:04:05.999999999 -0700",
+	"2006-01-02 15:04:05 -0700",
 	"2006-01-02T15:04:05",
 	"2006-01-02 15:04:05",
 	"2006-01-02",
@@ -186,6 +190,16 @@ func (ts *timeScanner) Scan(src any) error {
 		}
 	case string:
 		t, err := parseTime(v)
+		if err != nil {
+			return err
+		}
+		if ts.ptr {
+			ts.dest.Set(reflect.ValueOf(&t))
+		} else {
+			ts.dest.Set(reflect.ValueOf(t))
+		}
+	case []byte:
+		t, err := parseTime(string(v))
 		if err != nil {
 			return err
 		}

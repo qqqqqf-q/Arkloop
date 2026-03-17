@@ -13,6 +13,10 @@ import (
 var timeFormats = []string{
 	time.RFC3339Nano,
 	time.RFC3339,
+	"2006-01-02 15:04:05.999999999 -0700 MST",
+	"2006-01-02 15:04:05 -0700 MST",
+	"2006-01-02 15:04:05.999999999 -0700",
+	"2006-01-02 15:04:05 -0700",
 	"2006-01-02T15:04:05",
 	"2006-01-02 15:04:05",
 	"2006-01-02",
@@ -51,6 +55,16 @@ func (ts *timeScanner) Scan(src any) error {
 		}
 	case string:
 		t, err := parseTime(v)
+		if err != nil {
+			return err
+		}
+		if ts.ptr {
+			ts.dest.Set(reflect.ValueOf(&t))
+		} else {
+			ts.dest.Set(reflect.ValueOf(t))
+		}
+	case []byte:
+		t, err := parseTime(string(v))
 		if err != nil {
 			return err
 		}
@@ -116,8 +130,8 @@ func (jr *jsonRawScanner) Scan(src any) error {
 }
 
 var (
-	timeType       = reflect.TypeOf(time.Time{})
-	timePtrType    = reflect.TypeOf((*time.Time)(nil))
+	timeType        = reflect.TypeOf(time.Time{})
+	timePtrType     = reflect.TypeOf((*time.Time)(nil))
 	stringSliceType = reflect.TypeOf([]string(nil))
 	rawMessageType  = reflect.TypeOf(json.RawMessage(nil))
 )

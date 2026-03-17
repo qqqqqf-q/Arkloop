@@ -750,7 +750,7 @@ export function buildMessageSubAgentsFromRunEvents(events: RunEvent[]): SubAgent
 
 // --- File operation processing ---
 
-const FILE_OP_TOOL_NAMES = new Set(['grep', 'glob', 'read_file', 'write_file', 'edit', 'edit_file'])
+const FILE_OP_TOOL_NAMES = new Set(['grep', 'glob', 'read_file', 'write_file', 'edit', 'edit_file', 'search_tools'])
 
 type FileOpToolCallPatch = {
   nextOps: FileOpRef[]
@@ -792,6 +792,16 @@ function fileOpLabel(toolName: string, args: Record<string, unknown>): string {
       const filePath = typeof args.file_path === 'string' ? args.file_path : ''
       return filePath ? truncate(basename(filePath), 48) : 'edit file'
     }
+    case 'search_tools': {
+      const queries = Array.isArray(args.queries)
+        ? (args.queries as unknown[]).filter((q): q is string => typeof q === 'string')
+        : []
+      if (queries.length > 0) {
+        const qs = queries.slice(0, 2).map((q) => `"${truncate(q, 24)}"`).join(', ')
+        return `search_tools ${qs}${queries.length > 2 ? ', …' : ''}`
+      }
+      return 'search_tools'
+    }
     default:
       return toolName
   }
@@ -826,6 +836,17 @@ function fileOpOutputFromResult(toolName: string, result: unknown): string | und
     case 'edit_file': {
       const filePath = typeof r.file_path === 'string' ? r.file_path : ''
       return filePath ? `edited: ${filePath}` : 'edited'
+    }
+    case 'search_tools': {
+      const count = typeof r.count === 'number' ? r.count : 0
+      if (count === 0) return '(no matches)'
+      const matched = Array.isArray(r.matched) ? r.matched as unknown[] : []
+      const names = matched.slice(0, 5).map((m) => {
+        if (typeof m === 'string') return m
+        if (m && typeof m === 'object') return String((m as Record<string, unknown>).name ?? '')
+        return ''
+      }).filter(Boolean)
+      return `${count} match${count === 1 ? '' : 'es'}${names.length > 0 ? ': ' + names.join(', ') : ''}`
     }
     default:
       return undefined
