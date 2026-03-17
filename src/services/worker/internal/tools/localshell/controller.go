@@ -62,7 +62,6 @@ type shellController struct {
 	lastTO       bool
 	updateCh     chan struct{}
 	workDir      string
-	rtkAvailable bool
 }
 
 type pendingCommand struct {
@@ -173,15 +172,7 @@ func (c *shellController) ensureStarted() error {
 		" TERM='xterm-256color'" +
 		" LANG='en_US.UTF-8'\nstty -echo\n"
 	_, err = c.runControlCommand(initCmd, c.workDir, defaultControlTimeout)
-	if err != nil {
-		return err
-	}
-	if _, statErr := os.Stat(rtkBinPath()); statErr == nil {
-		c.mu.Lock()
-		c.rtkAvailable = true
-		c.mu.Unlock()
-	}
-	return nil
+	return err
 }
 
 func (c *shellController) runControlCommand(command, cwd string, timeoutMs int) (*shellResponse, error) {
@@ -245,7 +236,7 @@ func (c *shellController) startCommand(command, cwd string, timeoutMs int, suppr
 	}
 	c.current = current
 
-	wrapped := buildWrappedCommand(token, cwd, command, c.rtkAvailable)
+	wrapped := buildWrappedCommand(token, cwd, command)
 	if _, err := io.WriteString(c.ptyFile, wrapped); err != nil {
 		if current.timer != nil {
 			current.timer.Stop()
@@ -583,7 +574,7 @@ func buildLocalShellEnv(workDir string) []string {
 	return result
 }
 
-func buildWrappedCommand(token, cwd, command string, rtkAvailable bool) string {
+func buildWrappedCommand(token, cwd, command string) string {
 	encoded := base64.StdEncoding.EncodeToString([]byte(command))
 	var b strings.Builder
 	b.WriteString("ark_mark_a='__ARK'\n")
@@ -601,24 +592,12 @@ func buildWrappedCommand(token, cwd, command string, rtkAvailable bool) string {
 	b.WriteString(encoded)
 	b.WriteString("'; ")
 	b.WriteString("ark_cmd_file=$(mktemp); ")
-	if rtkAvailable {
-		b.WriteString("if printf '%s' \"$ark_cmd_b64\" | base64 -d > \"$ark_cmd_file\"; then " +
-			"ark_out=$(. \"$ark_cmd_file\" 2>&1); ark_rc=$?; " +
-			"printf '%s' \"$ark_out\" | " + shellQuote(rtkBinPath()) + " compress 2>/dev/null || printf '%s' \"$ark_out\"; " +
-			"else ark_rc=1; fi; ")
-	} else {
-		b.WriteString("if printf '%s' \"$ark_cmd_b64\" | base64 -d > \"$ark_cmd_file\"; then . \"$ark_cmd_file\"; ark_rc=$?; else ark_rc=1; fi; ")
-	}
+	b.WriteString("if printf '%s' \"$ark_cmd_b64\" | base64 -d > \"$ark_cmd_file\"; then . \"$ark_cmd_file\"; ark_rc=$?; else ark_rc=1; fi; ")
 	b.WriteString("rm -f \"$ark_cmd_file\"; fi; ")
 	b.WriteString("printf '\\n%s%s")
 	b.WriteString(token)
 	b.WriteString("__RC=%s__PWD=%s\\n' \"$ark_mark_a\" '_END__' \"$ark_rc\" \"$PWD\"\n")
 	return b.String()
-}
-
-func rtkBinPath() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".arkloop", "bin", "rtk")
 }
 
 func shellQuote(value string) string {

@@ -41,7 +41,6 @@ type ShellController struct {
 	lastExit      *int
 	lastTO        bool
 	updateCh      chan struct{}
-	rtkAvailable  bool
 }
 
 type shellCommand struct {
@@ -162,15 +161,7 @@ func (c *ShellController) ensureStarted(req shellapi.AgentExecCommandRequest) er
 		" HISTFILE=" + shellQuote(shellHomeDir+"/.bash_history") +
 		"\nstty -echo\nmkdir -p /tmp/output " + shellQuote(shellWorkspaceDir) + " " + shellQuote(shellHomeDir) + " " + shellQuote(shellTempDir)
 	_, err = c.runControlCommand(initCommand, shellWorkspaceDir, defaultControlTimeout)
-	if err != nil {
-		return err
-	}
-	if _, statErr := os.Stat("/usr/local/bin/rtk"); statErr == nil {
-		c.mu.Lock()
-		c.rtkAvailable = true
-		c.mu.Unlock()
-	}
-	return nil
+	return err
 }
 
 func (c *ShellController) runControlCommand(command, cwd string, timeoutMs int) (*shellapi.AgentSessionResponse, error) {
@@ -228,7 +219,7 @@ func (c *ShellController) startCommand(command, cwd string, timeoutMs int, suppr
 		})
 	}
 	c.current = current
-	wrapped := buildWrappedCommand(token, cwd, command, c.rtkAvailable)
+	wrapped := buildWrappedCommand(token, cwd, command)
 	if _, err := io.WriteString(c.ptyFile, wrapped); err != nil {
 		if current.timer != nil {
 			current.timer.Stop()
@@ -610,7 +601,7 @@ func resolveShellCommand() (string, []string) {
 	return "/bin/sh", []string{"-i"}
 }
 
-func buildWrappedCommand(token, cwd, command string, rtkAvailable bool) string {
+func buildWrappedCommand(token, cwd, command string) string {
 	encoded := base64.StdEncoding.EncodeToString([]byte(command))
 	var builder strings.Builder
 	builder.WriteString("ark_mark_a='__ARK'\n")
@@ -628,15 +619,7 @@ func buildWrappedCommand(token, cwd, command string, rtkAvailable bool) string {
 	builder.WriteString(encoded)
 	builder.WriteString("'; ")
 	builder.WriteString("ark_cmd_file=$(mktemp); ")
-	if rtkAvailable {
-		// Capture stdout+stderr, run through RTK compress; fall back to raw on RTK failure.
-		builder.WriteString("if printf '%s' \"$ark_cmd_b64\" | base64 -d > \"$ark_cmd_file\"; then " +
-			"ark_out=$(. \"$ark_cmd_file\" 2>&1); ark_rc=$?; " +
-			"printf '%s' \"$ark_out\" | /usr/local/bin/rtk compress 2>/dev/null || printf '%s' \"$ark_out\"; " +
-			"else ark_rc=1; fi; ")
-	} else {
-		builder.WriteString("if printf '%s' \"$ark_cmd_b64\" | base64 -d > \"$ark_cmd_file\"; then . \"$ark_cmd_file\"; ark_rc=$?; else ark_rc=1; fi; ")
-	}
+	builder.WriteString("if printf '%s' \"$ark_cmd_b64\" | base64 -d > \"$ark_cmd_file\"; then . \"$ark_cmd_file\"; ark_rc=$?; else ark_rc=1; fi; ")
 	builder.WriteString("rm -f \"$ark_cmd_file\"; fi; ")
 	builder.WriteString("printf '\\n%s%s")
 	builder.WriteString(token)
