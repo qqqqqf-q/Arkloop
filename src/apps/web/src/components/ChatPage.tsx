@@ -2308,7 +2308,7 @@ export function ChatPage() {
   const isSourcePanelOpen = !!(sourcePanelSources && sourcePanelSources.length > 0)
   const isCodePanelOpen = !!codePanelExecution
   const isDocumentPanelOpen = !!documentPanelArtifact
-  const isPanelOpen = isSourcePanelOpen || isCodePanelOpen || isDocumentPanelOpen || appMode === 'claw'
+  const isPanelOpen = isSourcePanelOpen || isCodePanelOpen || isDocumentPanelOpen
 
   const openCodePanel = useCallback((ce: CodeExecution) => {
     setCodePanelExecution((prev) => {
@@ -2469,7 +2469,7 @@ export function ChatPage() {
           {!isDesktop() && (
             <NotificationBell accessToken={accessToken} onClick={onOpenNotifications} refreshKey={notificationVersion} title={t.notificationsTitle} />
           )}
-          {threadId && !privateThreadIds.has(threadId) && (
+          {!isDesktop() && threadId && !privateThreadIds.has(threadId) && (
             <button
               onClick={() => setShareModalOpen(true)}
               title={t.shareTitle}
@@ -2505,7 +2505,7 @@ export function ChatPage() {
       </div>
 
       {/* 主体区域：消息 + 输入 + 可选的 sources 侧边面板 */}
-      <div className="flex flex-1 min-h-0">
+      <div className="relative flex flex-1 min-h-0">
         <div className="relative flex flex-1 min-w-0 flex-col">
           {/* 消息列表 */}
           <div
@@ -3077,7 +3077,7 @@ export function ChatPage() {
 
       {/* 输入区域 */}
       <div
-        style={{ maxWidth: 1200, margin: '0 auto', padding: `12px ${appMode === 'claw' ? '12px' : isPanelOpen ? '32px' : '60px'} 16px`, transition: 'padding 280ms cubic-bezier(0.16,1,0.3,1)', position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 10, background: 'linear-gradient(to bottom, transparent 0%, var(--c-bg-page) 24px)' }}
+        style={{ maxWidth: 1200, margin: '0 auto', padding: `12px ${isPanelOpen ? '32px' : '60px'} 16px`, position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 10, background: 'linear-gradient(to bottom, transparent 0%, var(--c-bg-page) 24px)' }}
         className="flex w-full flex-col items-center gap-2"
       >
         {/* 滚动到底部按钮：始终锚定在输入框顶边正上方 */}
@@ -3179,21 +3179,18 @@ export function ChatPage() {
       </div>
 
         </div>
-        {/* 右侧面板 - width 过渡驱动整体布局动画 */}
-        {appMode === 'claw' ? (
-          <ClawRightPanel
-            accessToken={accessToken}
-            projectId={currentThread?.project_id || undefined}
-            steps={clawTodos.map((td) => ({
-              id: td.id,
-              label: td.content,
-              status: td.status === 'completed' ? 'done' : td.status === 'in_progress' ? 'active' : 'pending',
-            }))}
-            onForbidden={() => onSetAppMode('chat')}
-          />
-        ) : (
+        {/* 右侧面板：claw 模式 absolute overlay 不影响布局；其他面板 flex 子元素带宽度过渡 */}
         <div
-          style={{
+          style={appMode === 'claw' ? {
+            position: 'absolute',
+            right: 0,
+            top: 0,
+            bottom: 0,
+            width: '300px',
+            overflow: 'hidden',
+            borderLeft: '0.5px solid var(--c-border-subtle)',
+            zIndex: 2,
+          } : {
             width: isDocumentPanelOpen ? `${documentPanelWidth}px` : (isSourcePanelOpen || isCodePanelOpen) ? `${sidePanelWidth}px` : '0px',
             overflow: 'hidden',
             flexShrink: 0,
@@ -3202,40 +3199,54 @@ export function ChatPage() {
             borderLeft: (panelDisplaySources || codePanelDisplay || documentPanelDisplay) ? '0.5px solid var(--c-border-subtle)' : 'none',
           }}
         >
-          {isSourcePanelOpen && panelDisplaySources && panelDisplaySources.length > 0 && (
-            <div style={{ width: `${sidePanelWidth}px`, height: '100%', contain: 'layout style' }}>
-              <SourcesPanel
-                sources={panelDisplaySources}
-                userQuery={panelDisplayQuery}
-                onClose={() => { setSourcePanelMessageId(null); onRightPanelChange?.(false) }}
-              />
-            </div>
-          )}
-          {isCodePanelOpen && codePanelDisplay && (
-            <div style={{ width: `${sidePanelWidth}px`, height: '100%', contain: 'layout style' }}>
-              <CodeExecutionPanel
-                execution={codePanelDisplay}
-                onClose={() => { setCodePanelExecution(null); onRightPanelChange?.(false) }}
-              />
-            </div>
-          )}
-          {isDocumentPanelOpen && documentPanelDisplay && (
-            <div style={{ width: `${documentPanelWidth}px`, height: '100%', contain: 'layout style' }}>
-              <DocumentPanel
-                artifact={documentPanelDisplay.artifact}
-                artifacts={documentPanelDisplay.artifacts}
-                accessToken={accessToken}
-                runId={documentPanelDisplay.runId}
-                onClose={() => {
-                  stabilizeDocumentPanelScroll()
-                  setDocumentPanelArtifact(null)
-                  onRightPanelChange?.(false)
-                }}
-              />
-            </div>
+          {appMode === 'claw' ? (
+            <ClawRightPanel
+              accessToken={accessToken}
+              projectId={currentThread?.project_id || undefined}
+              steps={clawTodos.map((td) => ({
+                id: td.id,
+                label: td.content,
+                status: td.status === 'completed' ? 'done' : td.status === 'in_progress' ? 'active' : 'pending',
+              }))}
+              onForbidden={() => onSetAppMode('chat')}
+            />
+          ) : (
+            <>
+              {isSourcePanelOpen && panelDisplaySources && panelDisplaySources.length > 0 && (
+                <div style={{ width: `${sidePanelWidth}px`, height: '100%', contain: 'layout style' }}>
+                  <SourcesPanel
+                    sources={panelDisplaySources}
+                    userQuery={panelDisplayQuery}
+                    onClose={() => { setSourcePanelMessageId(null); onRightPanelChange?.(false) }}
+                  />
+                </div>
+              )}
+              {isCodePanelOpen && codePanelDisplay && (
+                <div style={{ width: `${sidePanelWidth}px`, height: '100%', contain: 'layout style' }}>
+                  <CodeExecutionPanel
+                    execution={codePanelDisplay}
+                    onClose={() => { setCodePanelExecution(null); onRightPanelChange?.(false) }}
+                  />
+                </div>
+              )}
+              {isDocumentPanelOpen && documentPanelDisplay && (
+                <div style={{ width: `${documentPanelWidth}px`, height: '100%', contain: 'layout style' }}>
+                  <DocumentPanel
+                    artifact={documentPanelDisplay.artifact}
+                    artifacts={documentPanelDisplay.artifacts}
+                    accessToken={accessToken}
+                    runId={documentPanelDisplay.runId}
+                    onClose={() => {
+                      stabilizeDocumentPanelScroll()
+                      setDocumentPanelArtifact(null)
+                      onRightPanelChange?.(false)
+                    }}
+                  />
+                </div>
+              )}
+            </>
           )}
         </div>
-        )}
       </div>
 
       {threadId && (

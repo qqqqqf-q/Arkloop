@@ -164,21 +164,27 @@ function WebFetchItem({ fetch: f }: { fetch: WebFetchRef }) {
   const shortName = getShortName(f.url)
   const isFetching = f.status === 'fetching'
   return (
-    <div
+    <a
+      href={isFetching ? undefined : f.url}
+      target="_blank"
+      rel="noopener noreferrer"
       style={{
         display: 'flex',
         alignItems: 'center',
         gap: '7px',
         padding: '3px 0',
+        textDecoration: 'none',
+        cursor: isFetching ? 'default' : 'pointer',
       }}
     >
       <div
         style={{
           display: 'inline-flex',
           alignItems: 'center',
-          gap: '5px',
-          padding: '2px 7px',
-          borderRadius: '6px',
+          justifyContent: 'center',
+          width: '20px',
+          height: '20px',
+          borderRadius: '5px',
           border: '0.5px solid var(--c-border-subtle)',
           background: 'var(--c-bg-menu)',
           flexShrink: 0,
@@ -212,7 +218,7 @@ function WebFetchItem({ fetch: f }: { fetch: WebFetchRef }) {
       <span style={{ fontSize: '11px', color: 'var(--c-text-muted)', flexShrink: 0 }}>
         {shortName}
       </span>
-    </div>
+    </a>
   )
 }
 
@@ -279,7 +285,7 @@ export function SearchTimeline({ steps, sources, isComplete, codeExecutions, onO
               ? 'var(--c-text-tertiary)'
               : 'var(--c-text-secondary)',
           fontSize: '13px',
-          fontWeight: isComplete && collapsed ? 400 : 500,
+          fontWeight: 400,
           transition: 'color 0.15s ease',
         }}
       >
