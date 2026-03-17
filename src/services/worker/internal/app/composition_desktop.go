@@ -345,7 +345,7 @@ func desktopInputLoader(
 			"thread_id":  rc.Run.ThreadID.String(),
 		}
 		if dataJSON != nil {
-			for _, key := range []string{"route_id", "persona_id", "role", "output_route_id"} {
+			for _, key := range []string{"route_id", "persona_id", "role", "output_route_id", "model"} {
 				if v, ok := dataJSON[key].(string); ok && strings.TrimSpace(v) != "" {
 					inputJSON[key] = strings.TrimSpace(v)
 				}
@@ -557,15 +557,26 @@ func desktopRouting(
 		if _, hasRouteID := rc.InputJSON["route_id"]; hasRouteID {
 			decision = router.Decide(rc.InputJSON, false, false)
 		} else {
+			// user model override takes priority over persona default
 			selector := ""
-			if rc.AgentConfig != nil && rc.AgentConfig.Model != nil {
+			if modelOverride, ok := rc.InputJSON["model"].(string); ok && strings.TrimSpace(modelOverride) != "" {
+				selector = strings.TrimSpace(modelOverride)
+			} else if rc.AgentConfig != nil && rc.AgentConfig.Model != nil {
 				selector = strings.TrimSpace(*rc.AgentConfig.Model)
 			}
 			if selector != "" {
-				route, cred, ok := cfg.GetHighestPriorityRouteByModel(selector, rc.InputJSON)
-				if ok {
-					decision = routing.ProviderRouteDecision{
-						Selected: &routing.SelectedProviderRoute{Route: route, Credential: cred},
+				credName, modelName, exact := splitDesktopModelSelector(selector)
+				if exact {
+					if route, cred, ok := cfg.GetHighestPriorityRouteByCredentialAndModel(credName, modelName, rc.InputJSON); ok {
+						decision = routing.ProviderRouteDecision{
+							Selected: &routing.SelectedProviderRoute{Route: route, Credential: cred},
+						}
+					}
+				} else {
+					if route, cred, ok := cfg.GetHighestPriorityRouteByModel(selector, rc.InputJSON); ok {
+						decision = routing.ProviderRouteDecision{
+							Selected: &routing.SelectedProviderRoute{Route: route, Credential: cred},
+						}
 					}
 				}
 			}
@@ -1007,6 +1018,21 @@ func mergeJSON(a, b map[string]any) map[string]any {
 		out[k] = v
 	}
 	return out
+}
+
+// splitDesktopModelSelector splits "credName^modelName" into parts.
+// Returns (credName, modelName, true) for exact selectors, ("", selector, false) otherwise.
+func splitDesktopModelSelector(selector string) (string, string, bool) {
+	parts := strings.SplitN(strings.TrimSpace(selector), "^", 2)
+	if len(parts) != 2 {
+		return "", strings.TrimSpace(selector), false
+	}
+	left := strings.TrimSpace(parts[0])
+	right := strings.TrimSpace(parts[1])
+	if left == "" || right == "" {
+		return "", strings.TrimSpace(selector), false
+	}
+	return left, right, true
 }
 
 // loadDesktopRoutingConfig builds a ProviderRoutingConfig from the SQLite
