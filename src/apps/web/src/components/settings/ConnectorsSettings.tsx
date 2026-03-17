@@ -15,6 +15,7 @@ import {
   Plug,
 } from 'lucide-react'
 import { Modal, ConfirmDialog } from '@arkloop/shared'
+import { isDesktop } from '@arkloop/shared/desktop'
 import { useLocale } from '../../contexts/LocaleContext'
 import {
   type ToolProviderGroup,
@@ -132,7 +133,7 @@ export function ConnectorsSettings({ accessToken }: Props) {
   }, [accessToken])
 
   useEffect(() => {
-    void fetchAll()
+    if (!isDesktop()) void fetchAll()
   }, [fetchAll])
 
   // Auto-select first group when data loads
@@ -345,6 +346,29 @@ export function ConnectorsSettings({ accessToken }: Props) {
       setConfigForm((prev) => ({ ...prev, [key]: e.target.value }))
 
   // ---- Render ----
+
+  if (isDesktop()) {
+    return (
+      <div className="flex flex-col gap-4">
+        <div>
+          <h3 className="text-base font-semibold text-[var(--c-text-heading)]">
+            {ds.connectorsTitle}
+          </h3>
+          <p className="mt-1 text-sm text-[var(--c-text-secondary)]">
+            {ds.connectorsDesc}
+          </p>
+        </div>
+        <div
+          className="flex flex-col items-center justify-center rounded-xl bg-[var(--c-bg-menu)] py-16"
+          style={{ border: '0.5px solid var(--c-border-subtle)' }}
+        >
+          <p className="text-sm text-[var(--c-text-muted)]">
+            In Desktop mode, configure connectors in the Search & Fetch settings.
+          </p>
+        </div>
+      </div>
+    )
+  }
 
   if (loading) {
     return (

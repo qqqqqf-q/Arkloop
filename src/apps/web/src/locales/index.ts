@@ -606,6 +606,20 @@ export interface LocaleStrings {
     resetOnboardingDesc: string;
     resetOnboardingBtn: string;
     appVersion: string;
+    runsHistory: string;
+    runsHistoryDesc: string;
+    runsHistoryEmpty: string;
+    runsHistoryLoading: string;
+    runsHistoryLoadError: string;
+    runsHistoryRefresh: string;
+    runsHistoryColId: string;
+    runsHistoryColModel: string;
+    runsHistoryColStatus: string;
+    runsHistoryColTokens: string;
+    runsHistoryColTime: string;
+    runsHistoryOpen: string;
+    runsHistoryPrev: string;
+    runsHistoryNext: string;
     // desktop connectors section
     desktopConnectorsTitle: string;
     desktopConnectorsDesc: string;
@@ -620,6 +634,7 @@ export interface LocaleStrings {
     connectorSaveBtn: string;
     connectorSaving: string;
     connectorSaved: string;
+    connectorRestarting: string;
     connectorFreeTier: string;
     connectorConfigured: string;
     connectorNotConfigured: string;

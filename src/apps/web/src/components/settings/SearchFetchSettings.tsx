@@ -207,6 +207,7 @@ export function SearchFetchSettings() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [restarting, setRestarting] = useState(false)
 
   // Track the last-saved config so dirty = current !== saved
   const savedConfigRef = useRef<ConnectorsConfig | null>(null)
@@ -234,7 +235,9 @@ export function SearchFetchSettings() {
       await api.connectors.set(config)
       savedConfigRef.current = config
       setSaved(true)
+      setRestarting(true)
       setTimeout(() => setSaved(false), 3000)
+      setTimeout(() => setRestarting(false), 5000)
     } finally {
       setSaving(false)
     }
@@ -419,6 +422,12 @@ export function SearchFetchSettings() {
           <span className="flex items-center gap-1 text-xs text-green-400">
             <Check size={11} />
             {ds.connectorSaved}
+          </span>
+        )}
+        {restarting && (
+          <span className="flex items-center gap-1 text-xs text-[var(--c-text-muted)]">
+            <Loader2 size={11} className="animate-spin" />
+            {ds.connectorRestarting}
           </span>
         )}
       </div>

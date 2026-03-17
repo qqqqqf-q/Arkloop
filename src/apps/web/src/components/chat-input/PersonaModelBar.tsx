@@ -3,7 +3,7 @@ import { Plus, Paperclip, BookOpen, Search, Folder, FolderOpen, ChevronRight, X,
 import type { SelectablePersona } from '../../api'
 import { ModelPicker } from '../ModelPicker'
 import type { SettingsTab } from '../SettingsModal'
-import { getDesktopApi } from '@arkloop/shared/desktop'
+import { getDesktopApi, isDesktop } from '@arkloop/shared/desktop'
 import {
   SEARCH_PERSONA_KEY,
   LEARNING_PERSONA_KEY,
@@ -104,8 +104,8 @@ export function PersonaModelBar({
 
   return (
     <>
-      {/* claw folder picker */}
-      {appMode === 'claw' && (
+      {/* claw folder picker -- desktop only (relies on IPC dialog) */}
+      {appMode === 'claw' && isDesktop() && (
         <div
           className="relative -ml-1.5"
           style={{
