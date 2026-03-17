@@ -167,11 +167,11 @@ export function DesktopSettings({
     >
       {/* Left navigation sidebar */}
       <div
-        className="flex w-[220px] shrink-0 flex-col overflow-y-auto py-4"
+        className="flex w-[280px] shrink-0 flex-col overflow-y-auto py-4"
         style={{ borderRight: "0.5px solid var(--c-border-subtle)" }}
       >
         {/* Back button / header */}
-        <div className="mb-4 px-3">
+        <div className="mb-4 px-5">
           <button
             onClick={onClose}
             className="flex items-center gap-1.5 rounded-lg px-1 py-1 text-sm font-semibold text-[var(--c-text-heading)] transition-colors hover:text-[var(--c-text-primary)]"
@@ -182,7 +182,7 @@ export function DesktopSettings({
         </div>
 
         {/* Platform section */}
-        <div className="px-2">
+        <div className="px-4">
           <div className="mb-1 px-2.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--c-text-muted)]">
             {ds.mainSection}
           </div>
@@ -190,7 +190,7 @@ export function DesktopSettings({
         </div>
 
         {/* Desktop section */}
-        <div className="mt-5 px-2">
+        <div className="mt-5 px-4">
           <div className="mb-1 px-2.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--c-text-muted)]">
             {ds.desktopSection}
           </div>

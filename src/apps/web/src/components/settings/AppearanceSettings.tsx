@@ -3,6 +3,9 @@ import type { LucideIcon } from 'lucide-react'
 import { ChevronDown, Monitor, Sun, Moon } from 'lucide-react'
 import type { Locale } from '../../locales'
 import type { Theme } from '@arkloop/shared/contexts/theme'
+import { FontSettings } from './FontSettings'
+import { ThemePresetPicker } from './ThemePresetPicker'
+import { ThemeColorEditor } from './ThemeColorEditor'
 
 const LOCALE_OPTIONS: { value: Locale; label: string }[] = [
   { value: 'zh', label: '\u4e2d\u6587' },
@@ -131,6 +134,38 @@ export function ThemeContent({
           )
         })}
       </div>
+    </div>
+  )
+}
+
+type AppearanceContentProps = {
+  locale: Locale
+  setLocale: (l: Locale) => void
+  theme: Theme
+  setTheme: (t: Theme) => void
+  t: {
+    language: string
+    appearance: string
+    themeSystem: string
+    themeLight: string
+    themeDark: string
+    themePresetSection: string
+    fontSection: string
+  }
+}
+
+export function AppearanceContent({ locale, setLocale, theme, setTheme, t }: AppearanceContentProps) {
+  const [showEditor, setShowEditor] = useState(false)
+
+  return (
+    <div className="flex flex-col gap-6">
+      <LanguageContent locale={locale} setLocale={setLocale} label={t.language} />
+      <ThemeContent theme={theme} setTheme={setTheme} label={t.appearance} t={t} />
+      <ThemePresetPicker onEditColors={() => setShowEditor(v => !v)} />
+      {showEditor && (
+        <ThemeColorEditor onClose={() => setShowEditor(false)} />
+      )}
+      <FontSettings />
     </div>
   )
 }
