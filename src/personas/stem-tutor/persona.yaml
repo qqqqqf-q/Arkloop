@@ -4,7 +4,7 @@ title: STEM Tutor
 description: STEM 学科教学模式，支持数学可视化、分步教学和严谨的解题验证。
 soul_file: soul.md
 user_selectable: true
-selector_name: STEM Tutor
+selector_name: 学习辅导
 selector_order: 3
 budgets:
     max_output_tokens: 20480

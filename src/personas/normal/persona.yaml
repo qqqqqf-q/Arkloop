@@ -3,7 +3,7 @@ version: "1"
 title: Normal
 description: 通用对话模式，支持工具调用、多轮推理和深度分析。
 soul_file: soul.md
-user_selectable: true
+user_selectable: false
 selector_name: Normal
 selector_order: 1
 core_tools:

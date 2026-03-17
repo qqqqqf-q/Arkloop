@@ -58,25 +58,14 @@ type Props = {
   appMode?: AppMode
 }
 
-const FALLBACK_SELECTOR_NAMES: Record<string, string> = {
-  [DEFAULT_PERSONA_KEY]: 'Normal',
-  [SEARCH_PERSONA_KEY]: 'Search',
-}
-
-function buildFallbackSelectablePersonas(selectedPersonaKey: string): SelectablePersona[] {
-  const keys = [DEFAULT_PERSONA_KEY]
-  if (selectedPersonaKey !== DEFAULT_PERSONA_KEY) keys.push(selectedPersonaKey)
-  return keys.map((personaKey, index) => ({
-    persona_key: personaKey,
-    selector_name: FALLBACK_SELECTOR_NAMES[personaKey] ?? personaKey,
-    selector_order: index,
-  }))
+function buildFallbackSelectablePersonas(_selectedPersonaKey: string): SelectablePersona[] {
+  return []
 }
 
 function pickPreferredPersonaKey(personas: SelectablePersona[], preferred?: string): string {
   if (preferred && personas.some((persona) => persona.persona_key === preferred)) return preferred
   if (personas.some((persona) => persona.persona_key === DEFAULT_PERSONA_KEY)) return DEFAULT_PERSONA_KEY
-  return personas[0]?.persona_key ?? DEFAULT_PERSONA_KEY
+  return DEFAULT_PERSONA_KEY
 }
 
 export function formatFileSize(bytes: number): string {

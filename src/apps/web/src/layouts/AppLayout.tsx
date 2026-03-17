@@ -21,7 +21,7 @@ import {
   type MeResponse,
   type ThreadResponse,
 } from '../api'
-import { clearActiveThreadIdInStorage, writeSelectedPersonaKeyToStorage, SEARCH_PERSONA_KEY, DEFAULT_PERSONA_KEY, readAppModeFromStorage, writeAppModeToStorage, writeThreadMode, readThreadMode } from '../storage'
+import { clearActiveThreadIdInStorage, writeSelectedPersonaKeyToStorage, DEFAULT_PERSONA_KEY, readAppModeFromStorage, writeAppModeToStorage, writeThreadMode, readThreadMode } from '../storage'
 import type { AppMode } from '../storage'
 
 type Props = {
@@ -148,11 +148,17 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
         ])
         if (!mountedRef.current) return
         // local 模式没有 user_credentials，用 OS 用户名填充
+        let resolvedMe = meResp
         if (isLocalMode() && !meResp.username) {
-          const osName = await getDesktopApi()?.app?.getOsUsername?.().catch(() => '') ?? ''
-          if (osName) meResp = { ...meResp, username: osName }
+          try {
+            const fn = getDesktopApi()?.app.getOsUsername
+            const osName = fn ? await fn() : ''
+            if (osName) resolvedMe = { ...meResp, username: osName }
+          } catch {
+            // ignore，降级无名字问候
+          }
         }
-        setMe(meResp)
+        setMe(resolvedMe)
         setThreads(threadItems)
         setCreditsBalance(creditsResp.balance)
         setRunningThreadIds(
@@ -317,13 +323,6 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
           }}
           collapsed={sidebarCollapsed}
           onToggleCollapse={() => setSidebarCollapsed(v => !v)}
-          onOpenSearch={() => {
-              if (location.pathname !== '/') navigate('/')
-              window.history.pushState({ searchMode: true }, '', '/')
-              writeSelectedPersonaKeyToStorage(SEARCH_PERSONA_KEY)
-              setIsSearchMode(true)
-            }}
-          isSearchMode={isSearchMode}
           onThreadTitleUpdated={handleThreadTitleUpdated}
           onThreadDeleted={handleThreadDeleted}
           narrow={rightPanelOpen}
@@ -369,7 +368,7 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
             }}
           />
         ) : (
-          <main className="relative flex min-w-0 flex-1 flex-col overflow-y-auto">
+          <main className="relative flex min-w-0 flex-1 flex-col overflow-y-auto" style={{ scrollbarGutter: 'stable' }}>
             <Outlet context={{ accessToken, onLoggedOut, me, creditsBalance, onThreadCreated: handleThreadCreated, onRunStarted: handleRunStarted, onRunEnded: handleRunEnded, onThreadTitleUpdated: handleThreadTitleUpdated, refreshCredits, onOpenNotifications: openNotifications, notificationVersion, isPrivateMode, onTogglePrivateMode: handleTogglePrivateMode, privateThreadIds, isSearchMode, onEnterSearchMode: () => { window.history.pushState({ searchMode: true }, '', '/'); setIsSearchMode(true) }, onExitSearchMode: () => setIsSearchMode(false), onSetPendingIncognito: handleSetPendingIncognito, onRightPanelChange: setRightPanelOpen, threads, onThreadDeleted: handleThreadDeleted, pendingSkillPrompt, onConsumeSkillPrompt: () => setPendingSkillPrompt(null), onOpenSettings: (tab: SettingsTab = 'account') => { setSettingsInitialTab(tab); setSettingsOpen(true) }, appMode, availableAppModes, onSetAppMode: handleSetAppMode }} />
             {notificationsOpen && (
               <NotificationsPanel accessToken={accessToken} onClose={closeNotifications} onMarkedRead={handleNotificationMarkedRead} />

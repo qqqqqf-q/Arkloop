@@ -3,7 +3,7 @@ version: "1"
 title: Extended Search
 description: 联网搜索模式，自动检索网络信息并综合输出。
 soul_file: soul.md
-user_selectable: true
+user_selectable: false
 selector_name: Search
 selector_order: 2
 budgets:
