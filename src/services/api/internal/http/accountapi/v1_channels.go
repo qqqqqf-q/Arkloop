@@ -13,6 +13,7 @@ import (
 	"arkloop/services/api/internal/data"
 	httpkit "arkloop/services/api/internal/http/httpkit"
 	"arkloop/services/api/internal/observability"
+	"arkloop/services/shared/telegrambot"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -54,15 +55,17 @@ func channelsEntry(
 	authService *auth.Service,
 	membershipRepo *data.AccountMembershipRepository,
 	channelsRepo *data.ChannelsRepository,
+	personasRepo *data.PersonasRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	secretsRepo *data.SecretsRepository,
 	pool data.DB,
 	appBaseURL string,
+	telegramClient *telegrambot.Client,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		switch r.Method {
 		case nethttp.MethodPost:
-			createChannel(w, r, authService, membershipRepo, channelsRepo, apiKeysRepo, secretsRepo, pool, appBaseURL)
+			createChannel(w, r, authService, membershipRepo, channelsRepo, personasRepo, apiKeysRepo, secretsRepo, pool, appBaseURL, telegramClient)
 		case nethttp.MethodGet:
 			listChannels(w, r, authService, membershipRepo, channelsRepo, apiKeysRepo)
 		default:
@@ -75,9 +78,11 @@ func channelEntry(
 	authService *auth.Service,
 	membershipRepo *data.AccountMembershipRepository,
 	channelsRepo *data.ChannelsRepository,
+	personasRepo *data.PersonasRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	secretsRepo *data.SecretsRepository,
 	pool data.DB,
+	telegramClient *telegrambot.Client,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		traceID := observability.TraceIDFromContext(r.Context())
@@ -99,9 +104,9 @@ func channelEntry(
 		case nethttp.MethodGet:
 			getChannel(w, r, traceID, channelID, authService, membershipRepo, channelsRepo, apiKeysRepo)
 		case nethttp.MethodPatch:
-			updateChannel(w, r, traceID, channelID, authService, membershipRepo, channelsRepo, apiKeysRepo, secretsRepo, pool)
+			updateChannel(w, r, traceID, channelID, authService, membershipRepo, channelsRepo, personasRepo, apiKeysRepo, secretsRepo, pool, telegramClient)
 		case nethttp.MethodDelete:
-			deleteChannel(w, r, traceID, channelID, authService, membershipRepo, channelsRepo, apiKeysRepo, secretsRepo, pool)
+			deleteChannel(w, r, traceID, channelID, authService, membershipRepo, channelsRepo, apiKeysRepo, secretsRepo, pool, telegramClient)
 		default:
 			httpkit.WriteMethodNotAllowed(w, r)
 		}
@@ -114,17 +119,19 @@ func createChannel(
 	authService *auth.Service,
 	membershipRepo *data.AccountMembershipRepository,
 	channelsRepo *data.ChannelsRepository,
+	personasRepo *data.PersonasRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	secretsRepo *data.SecretsRepository,
 	pool data.DB,
 	appBaseURL string,
+	telegramClient *telegrambot.Client,
 ) {
 	traceID := observability.TraceIDFromContext(r.Context())
 	if authService == nil {
 		httpkit.WriteAuthNotConfigured(w, traceID)
 		return
 	}
-	if channelsRepo == nil || pool == nil {
+	if channelsRepo == nil {
 		httpkit.WriteError(w, nethttp.StatusServiceUnavailable, "database.not_configured", "database not configured", traceID, nil)
 		return
 	}
@@ -155,6 +162,12 @@ func createChannel(
 		return
 	}
 
+	normalizedConfig, _, err := normalizeChannelConfigJSON(req.ChannelType, req.ConfigJSON)
+	if err != nil {
+		httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", err.Error(), traceID, nil)
+		return
+	}
+
 	var personaID *uuid.UUID
 	if req.PersonaID != nil {
 		pid, err := uuid.Parse(*req.PersonaID)
@@ -163,6 +176,19 @@ func createChannel(
 			return
 		}
 		personaID = &pid
+		if personasRepo == nil {
+			httpkit.WriteError(w, nethttp.StatusServiceUnavailable, "database.not_configured", "database not configured", traceID, nil)
+			return
+		}
+		persona, err := personasRepo.GetByIDForAccount(r.Context(), actor.AccountID, pid)
+		if err != nil {
+			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			return
+		}
+		if persona == nil {
+			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "persona not found", traceID, nil)
+			return
+		}
 	}
 
 	existing, err := channelsRepo.GetByAccountAndType(r.Context(), actor.AccountID, req.ChannelType)
@@ -201,10 +227,21 @@ func createChannel(
 		credentialsID = &secret.ID
 	}
 
-	ch, err := channelsRepo.WithTx(tx).Create(r.Context(), actor.AccountID, req.ChannelType, personaID, credentialsID, webhookSecret, webhookURL, req.ConfigJSON)
+	ch, err := channelsRepo.WithTx(tx).Create(r.Context(), actor.AccountID, req.ChannelType, personaID, credentialsID, webhookSecret, webhookURL, normalizedConfig)
 	if err != nil {
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
+	}
+
+	if req.ChannelType == "telegram" && ch.IsActive {
+		if _, _, _, err := mustValidateTelegramActivation(r.Context(), actor.AccountID, personasRepo, ch.PersonaID, ch.ConfigJSON); err != nil {
+			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", err.Error(), traceID, nil)
+			return
+		}
+		if err := configureTelegramRemote(r.Context(), telegramClient, req.BotToken, ch); err != nil {
+			httpkit.WriteError(w, nethttp.StatusBadGateway, "channels.telegram_remote_failed", err.Error(), traceID, nil)
+			return
+		}
 	}
 
 	if err := tx.Commit(r.Context()); err != nil {
@@ -302,9 +339,11 @@ func updateChannel(
 	authService *auth.Service,
 	membershipRepo *data.AccountMembershipRepository,
 	channelsRepo *data.ChannelsRepository,
+	personasRepo *data.PersonasRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	secretsRepo *data.SecretsRepository,
 	pool data.DB,
+	telegramClient *telegrambot.Client,
 ) {
 	if authService == nil {
 		httpkit.WriteAuthNotConfigured(w, traceID)
@@ -339,9 +378,13 @@ func updateChannel(
 		return
 	}
 
-	upd := data.ChannelUpdate{
-		IsActive:   req.IsActive,
-		ConfigJSON: req.ConfigJSON,
+	upd := data.ChannelUpdate{IsActive: req.IsActive}
+
+	desiredPersonaID := ch.PersonaID
+	desiredConfigJSON := ch.ConfigJSON
+	desiredIsActive := ch.IsActive
+	if req.IsActive != nil {
+		desiredIsActive = *req.IsActive
 	}
 
 	if req.PersonaID != nil {
@@ -349,6 +392,7 @@ func updateChannel(
 		if raw == "" {
 			var nilUUID *uuid.UUID
 			upd.PersonaID = &nilUUID
+			desiredPersonaID = nil
 		} else {
 			pid, err := uuid.Parse(raw)
 			if err != nil {
@@ -357,29 +401,108 @@ func updateChannel(
 			}
 			pp := &pid
 			upd.PersonaID = &pp
-		}
-	}
-
-	if req.BotToken != nil && secretsRepo != nil && pool != nil {
-		token := strings.TrimSpace(*req.BotToken)
-		if token != "" {
-			secret, err := secretsRepo.Upsert(r.Context(), actor.UserID, data.ChannelSecretName(channelID), token)
+			desiredPersonaID = pp
+			if personasRepo == nil {
+				httpkit.WriteError(w, nethttp.StatusServiceUnavailable, "database.not_configured", "database not configured", traceID, nil)
+				return
+			}
+			persona, err := personasRepo.GetByIDForAccount(r.Context(), actor.AccountID, pid)
 			if err != nil {
 				httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 				return
 			}
-			cp := &secret.ID
-			upd.CredentialsID = &cp
+			if persona == nil {
+				httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "persona not found", traceID, nil)
+				return
+			}
 		}
 	}
 
-	updated, err := channelsRepo.Update(r.Context(), channelID, actor.AccountID, upd)
+	if req.ConfigJSON != nil {
+		normalizedConfig, _, err := normalizeChannelConfigJSON(ch.ChannelType, *req.ConfigJSON)
+		if err != nil {
+			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", err.Error(), traceID, nil)
+			return
+		}
+		upd.ConfigJSON = &normalizedConfig
+		desiredConfigJSON = normalizedConfig
+	}
+
+	var nextToken string
+	if req.BotToken != nil {
+		nextToken = strings.TrimSpace(*req.BotToken)
+	}
+	if nextToken == "" && ch.CredentialsID != nil && secretsRepo != nil {
+		currentToken, err := secretsRepo.DecryptByID(r.Context(), *ch.CredentialsID)
+		if err != nil {
+			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			return
+		}
+		if currentToken != nil {
+			nextToken = strings.TrimSpace(*currentToken)
+		}
+	}
+
+	tx, err := pool.BeginTx(r.Context(), pgx.TxOptions{})
+	if err != nil {
+		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+		return
+	}
+	defer tx.Rollback(r.Context()) //nolint:errcheck
+
+	if req.BotToken != nil && strings.TrimSpace(*req.BotToken) != "" {
+		secret, err := secretsRepo.WithTx(tx).Upsert(r.Context(), actor.UserID, data.ChannelSecretName(channelID), strings.TrimSpace(*req.BotToken))
+		if err != nil {
+			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			return
+		}
+		cp := &secret.ID
+		upd.CredentialsID = &cp
+	}
+
+	if ch.ChannelType == "telegram" && desiredIsActive {
+		desiredChannel := *ch
+		desiredChannel.PersonaID = desiredPersonaID
+		desiredChannel.ConfigJSON = desiredConfigJSON
+		desiredChannel.IsActive = true
+		if _, _, _, err := mustValidateTelegramActivation(r.Context(), actor.AccountID, personasRepo, desiredPersonaID, desiredConfigJSON); err != nil {
+			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", err.Error(), traceID, nil)
+			return
+		}
+		if nextToken == "" {
+			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "telegram channel requires bot_token before activation", traceID, nil)
+			return
+		}
+		if !ch.IsActive || (req.BotToken != nil && strings.TrimSpace(*req.BotToken) != "") {
+			if err := configureTelegramRemote(r.Context(), telegramClient, nextToken, desiredChannel); err != nil {
+				httpkit.WriteError(w, nethttp.StatusBadGateway, "channels.telegram_remote_failed", err.Error(), traceID, nil)
+				return
+			}
+		}
+	}
+
+	if ch.ChannelType == "telegram" && ch.IsActive && !desiredIsActive {
+		if nextToken == "" {
+			httpkit.WriteError(w, nethttp.StatusBadGateway, "channels.telegram_remote_failed", "telegram token unavailable", traceID, nil)
+			return
+		}
+		if err := disableTelegramRemote(r.Context(), telegramClient, nextToken); err != nil {
+			httpkit.WriteError(w, nethttp.StatusBadGateway, "channels.telegram_remote_failed", err.Error(), traceID, nil)
+			return
+		}
+	}
+
+	updated, err := channelsRepo.WithTx(tx).Update(r.Context(), channelID, actor.AccountID, upd)
 	if err != nil {
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
 	}
 	if updated == nil {
 		httpkit.WriteError(w, nethttp.StatusNotFound, "channels.not_found", "channel not found", traceID, nil)
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
 	}
 
@@ -397,6 +520,7 @@ func deleteChannel(
 	apiKeysRepo *data.APIKeysRepository,
 	secretsRepo *data.SecretsRepository,
 	pool data.DB,
+	telegramClient *telegrambot.Client,
 ) {
 	if authService == nil {
 		httpkit.WriteAuthNotConfigured(w, traceID)
@@ -425,11 +549,48 @@ func deleteChannel(
 		return
 	}
 
+	token := ""
 	if ch.CredentialsID != nil && secretsRepo != nil {
-		_ = secretsRepo.Delete(r.Context(), actor.UserID, data.ChannelSecretName(channelID))
+		currentToken, err := secretsRepo.DecryptByID(r.Context(), *ch.CredentialsID)
+		if err != nil {
+			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			return
+		}
+		if currentToken != nil {
+			token = strings.TrimSpace(*currentToken)
+		}
 	}
 
-	if err := channelsRepo.Delete(r.Context(), channelID, actor.AccountID); err != nil {
+	tx, err := pool.BeginTx(r.Context(), pgx.TxOptions{})
+	if err != nil {
+		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+		return
+	}
+	defer tx.Rollback(r.Context()) //nolint:errcheck
+
+	if ch.ChannelType == "telegram" && ch.IsActive {
+		if token == "" {
+			httpkit.WriteError(w, nethttp.StatusBadGateway, "channels.telegram_remote_failed", "telegram token unavailable", traceID, nil)
+			return
+		}
+		if err := disableTelegramRemote(r.Context(), telegramClient, token); err != nil {
+			httpkit.WriteError(w, nethttp.StatusBadGateway, "channels.telegram_remote_failed", err.Error(), traceID, nil)
+			return
+		}
+	}
+
+	if ch.CredentialsID != nil && secretsRepo != nil {
+		if err := secretsRepo.WithTx(tx).Delete(r.Context(), actor.UserID, data.ChannelSecretName(channelID)); err != nil {
+			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			return
+		}
+	}
+
+	if err := channelsRepo.WithTx(tx).Delete(r.Context(), channelID, actor.AccountID); err != nil {
+		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
 	}

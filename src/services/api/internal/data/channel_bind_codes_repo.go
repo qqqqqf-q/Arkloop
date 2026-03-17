@@ -13,14 +13,14 @@ import (
 )
 
 type ChannelBindCode struct {
-	ID                       uuid.UUID
-	Token                    string
-	IssuedByUserID           uuid.UUID
-	ChannelType              *string
-	UsedAt                   *time.Time
-	UsedByChannelIdentityID  *uuid.UUID
-	ExpiresAt                time.Time
-	CreatedAt                time.Time
+	ID                      uuid.UUID
+	Token                   string
+	IssuedByUserID          uuid.UUID
+	ChannelType             *string
+	UsedAt                  *time.Time
+	UsedByChannelIdentityID *uuid.UUID
+	ExpiresAt               time.Time
+	CreatedAt               time.Time
 }
 
 type ChannelBindCodesRepository struct {
@@ -117,6 +117,62 @@ func (r *ChannelBindCodesRepository) Consume(ctx context.Context, token string, 
 	}
 	if err != nil {
 		return nil, fmt.Errorf("bind_codes.Consume: %w", err)
+	}
+	return &bc, nil
+}
+
+func (r *ChannelBindCodesRepository) ConsumeForChannel(
+	ctx context.Context,
+	token string,
+	channelIdentityID uuid.UUID,
+	channelType string,
+) (*ChannelBindCode, error) {
+	if token == "" {
+		return nil, fmt.Errorf("bind_codes: token must not be empty")
+	}
+	if channelIdentityID == uuid.Nil {
+		return nil, fmt.Errorf("bind_codes: channel_identity_id must not be empty")
+	}
+	if channelType == "" {
+		return nil, fmt.Errorf("bind_codes: channel_type must not be empty")
+	}
+
+	bc, err := scanBindCode(r.db.QueryRow(ctx,
+		`UPDATE channel_identity_bind_codes
+		 SET used_at = now(), used_by_channel_identity_id = $2
+		 WHERE token = $1
+		   AND used_at IS NULL
+		   AND expires_at > now()
+		   AND (channel_type IS NULL OR channel_type = $3)
+		 RETURNING `+bindCodeColumns,
+		token, channelIdentityID, channelType,
+	))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("bind_codes.ConsumeForChannel: %w", err)
+	}
+	return &bc, nil
+}
+
+func (r *ChannelBindCodesRepository) GetActiveByToken(ctx context.Context, token string) (*ChannelBindCode, error) {
+	if token == "" {
+		return nil, fmt.Errorf("bind_codes: token must not be empty")
+	}
+	bc, err := scanBindCode(r.db.QueryRow(ctx,
+		`SELECT `+bindCodeColumns+`
+		 FROM channel_identity_bind_codes
+		 WHERE token = $1
+		   AND used_at IS NULL
+		   AND expires_at > now()`,
+		token,
+	))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("bind_codes.GetActiveByToken: %w", err)
 	}
 	return &bc, nil
 }

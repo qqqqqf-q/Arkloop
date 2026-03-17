@@ -13,6 +13,7 @@ import (
 type User struct {
 	ID                  uuid.UUID
 	Username            string
+	Source              string
 	Email               *string
 	EmailVerifiedAt     *time.Time
 	Status              string
@@ -27,6 +28,10 @@ type User struct {
 
 type UserRepository struct {
 	db Querier
+}
+
+func (r *UserRepository) WithTx(tx pgx.Tx) *UserRepository {
+	return &UserRepository{db: tx}
 }
 
 func NewUserRepository(db Querier) (*UserRepository, error) {
@@ -50,11 +55,11 @@ func (r *UserRepository) Create(ctx context.Context, username string, email stri
 		ctx,
 		`INSERT INTO users (username, email, locale)
 		 VALUES ($1, NULLIF($2, ''), NULLIF($3, ''))
-		 RETURNING id, username, email, email_verified_at, status, deleted_at,
+		 RETURNING id, username, source, email, email_verified_at, status, deleted_at,
 		           avatar_url, locale, timezone, last_login_at, tokens_invalid_before, created_at`,
 		username, email, locale,
 	).Scan(
-		&user.ID, &user.Username, &user.Email, &user.EmailVerifiedAt,
+		&user.ID, &user.Username, &user.Source, &user.Email, &user.EmailVerifiedAt,
 		&user.Status, &user.DeletedAt, &user.AvatarURL, &user.Locale,
 		&user.Timezone, &user.LastLoginAt, &user.TokensInvalidBefore, &user.CreatedAt,
 	)
@@ -72,14 +77,14 @@ func (r *UserRepository) GetByID(ctx context.Context, userID uuid.UUID) (*User, 
 	var user User
 	err := r.db.QueryRow(
 		ctx,
-		`SELECT id, username, email, email_verified_at, status, deleted_at,
+		`SELECT id, username, source, email, email_verified_at, status, deleted_at,
 		        avatar_url, locale, timezone, last_login_at, tokens_invalid_before, created_at
 		 FROM users
 		 WHERE id = $1
 		 LIMIT 1`,
 		userID,
 	).Scan(
-		&user.ID, &user.Username, &user.Email, &user.EmailVerifiedAt,
+		&user.ID, &user.Username, &user.Source, &user.Email, &user.EmailVerifiedAt,
 		&user.Status, &user.DeletedAt, &user.AvatarURL, &user.Locale,
 		&user.Timezone, &user.LastLoginAt, &user.TokensInvalidBefore, &user.CreatedAt,
 	)
@@ -157,14 +162,14 @@ func (r *UserRepository) GetByEmail(ctx context.Context, email string) (*User, e
 	var user User
 	err := r.db.QueryRow(
 		ctx,
-		`SELECT id, username, email, email_verified_at, status, deleted_at,
+		`SELECT id, username, source, email, email_verified_at, status, deleted_at,
 		        avatar_url, locale, timezone, last_login_at, tokens_invalid_before, created_at
 		 FROM users
 		 WHERE email = $1 AND deleted_at IS NULL
 		 LIMIT 1`,
 		email,
 	).Scan(
-		&user.ID, &user.Username, &user.Email, &user.EmailVerifiedAt,
+		&user.ID, &user.Username, &user.Source, &user.Email, &user.EmailVerifiedAt,
 		&user.Status, &user.DeletedAt, &user.AvatarURL, &user.Locale,
 		&user.Timezone, &user.LastLoginAt, &user.TokensInvalidBefore, &user.CreatedAt,
 	)
@@ -224,7 +229,7 @@ func (r *UserRepository) List(
 		return nil, fmt.Errorf("before_created_at and before_id must be provided together")
 	}
 
-	sql := `SELECT id, username, email, email_verified_at, status, deleted_at,
+	sql := `SELECT id, username, source, email, email_verified_at, status, deleted_at,
 	               avatar_url, locale, timezone, last_login_at, tokens_invalid_before, created_at
 	        FROM users
 	        WHERE deleted_at IS NULL`
@@ -263,7 +268,7 @@ func (r *UserRepository) List(
 	for rows.Next() {
 		var u User
 		if err := rows.Scan(
-			&u.ID, &u.Username, &u.Email, &u.EmailVerifiedAt,
+			&u.ID, &u.Username, &u.Source, &u.Email, &u.EmailVerifiedAt,
 			&u.Status, &u.DeletedAt, &u.AvatarURL, &u.Locale,
 			&u.Timezone, &u.LastLoginAt, &u.TokensInvalidBefore, &u.CreatedAt,
 		); err != nil {
@@ -293,11 +298,11 @@ func (r *UserRepository) UpdateStatus(ctx context.Context, userID uuid.UUID, sta
 		ctx,
 		`UPDATE users SET status = $1
 		 WHERE id = $2 AND deleted_at IS NULL
-		 RETURNING id, username, email, email_verified_at, status, deleted_at,
+		 RETURNING id, username, source, email, email_verified_at, status, deleted_at,
 		           avatar_url, locale, timezone, last_login_at, tokens_invalid_before, created_at`,
 		status, userID,
 	).Scan(
-		&user.ID, &user.Username, &user.Email, &user.EmailVerifiedAt,
+		&user.ID, &user.Username, &user.Source, &user.Email, &user.EmailVerifiedAt,
 		&user.Status, &user.DeletedAt, &user.AvatarURL, &user.Locale,
 		&user.Timezone, &user.LastLoginAt, &user.TokensInvalidBefore, &user.CreatedAt,
 	)
@@ -352,11 +357,11 @@ func (r *UserRepository) UpdateProfile(ctx context.Context, userID uuid.UUID, pa
 		`UPDATE users
 		 SET username = $1, email = $2, email_verified_at = $3, locale = $4, timezone = $5
 		 WHERE id = $6 AND deleted_at IS NULL
-		 RETURNING id, username, email, email_verified_at, status, deleted_at,
+		 RETURNING id, username, source, email, email_verified_at, status, deleted_at,
 		           avatar_url, locale, timezone, last_login_at, tokens_invalid_before, created_at`,
 		params.Username, params.Email, params.EmailVerifiedAt, params.Locale, params.Timezone, userID,
 	).Scan(
-		&user.ID, &user.Username, &user.Email, &user.EmailVerifiedAt,
+		&user.ID, &user.Username, &user.Source, &user.Email, &user.EmailVerifiedAt,
 		&user.Status, &user.DeletedAt, &user.AvatarURL, &user.Locale,
 		&user.Timezone, &user.LastLoginAt, &user.TokensInvalidBefore, &user.CreatedAt,
 	)
@@ -411,11 +416,11 @@ func (r *UserRepository) CreateShadow(ctx context.Context, username string, sour
 		ctx,
 		`INSERT INTO users (username, source)
 		 VALUES ($1, $2)
-		 RETURNING id, username, email, email_verified_at, status, deleted_at,
+		 RETURNING id, username, source, email, email_verified_at, status, deleted_at,
 		           avatar_url, locale, timezone, last_login_at, tokens_invalid_before, created_at`,
 		username, source,
 	).Scan(
-		&user.ID, &user.Username, &user.Email, &user.EmailVerifiedAt,
+		&user.ID, &user.Username, &user.Source, &user.Email, &user.EmailVerifiedAt,
 		&user.Status, &user.DeletedAt, &user.AvatarURL, &user.Locale,
 		&user.Timezone, &user.LastLoginAt, &user.TokensInvalidBefore, &user.CreatedAt,
 	)

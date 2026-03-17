@@ -42,8 +42,8 @@ type RunContext struct {
 	// -- 初始化时写入 --
 	Run          data.Run
 	Pool         *pgxpool.Pool
-	DirectPool   *pgxpool.Pool // LISTEN/NOTIFY 专用直连，不走 PgBouncer；由 Execute 保证非 nil
-	BroadcastRDB *redis.Client    // 跨实例 SSE 广播，nil 时仅走 pg_notify
+	DirectPool   *pgxpool.Pool     // LISTEN/NOTIFY 专用直连，不走 PgBouncer；由 Execute 保证非 nil
+	BroadcastRDB *redis.Client     // 跨实例 SSE 广播，nil 时仅走 pg_notify
 	EventBus     eventbus.EventBus // 进程内 SSE 通知（Desktop 模式替代 pg_notify + Redis）
 	TraceID      string
 	Emitter      events.Emitter
@@ -69,6 +69,9 @@ type RunContext struct {
 	// -- CancelGuardMiddleware 写入 --
 	CancelFunc context.CancelFunc // 释放 LISTEN 连接
 	ListenDone <-chan struct{}    // LISTEN goroutine 完成信号
+
+	// -- EngineV1.Execute 注入 --
+	JobPayload map[string]any
 
 	// -- InputLoaderMiddleware 写入 --
 	InputJSON map[string]any
@@ -114,6 +117,9 @@ type RunContext struct {
 	// -- ToolBuildMiddleware 写入 --
 	ToolExecutor *tools.DispatchingExecutor
 	FinalSpecs   []llm.ToolSpec
+
+	// -- ChannelContextMiddleware 写入 --
+	ChannelContext *ChannelContext
 
 	// -- EngineV1.Execute 注入：平台限制 --
 	ThreadMessageHistoryLimit     int

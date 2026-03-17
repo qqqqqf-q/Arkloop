@@ -93,6 +93,22 @@ func (r *ChannelIdentitiesRepository) GetByID(ctx context.Context, id uuid.UUID)
 	return &ci, nil
 }
 
+func (r *ChannelIdentitiesRepository) GetByChannelAndSubject(ctx context.Context, channelType, platformSubjectID string) (*ChannelIdentity, error) {
+	ci, err := scanIdentity(r.db.QueryRow(ctx,
+		`SELECT `+identityColumns+`
+		 FROM channel_identities
+		 WHERE channel_type = $1 AND platform_subject_id = $2`,
+		channelType, platformSubjectID,
+	))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("channel_identities.GetByChannelAndSubject: %w", err)
+	}
+	return &ci, nil
+}
+
 func (r *ChannelIdentitiesRepository) ListByUserID(ctx context.Context, userID uuid.UUID) ([]ChannelIdentity, error) {
 	rows, err := r.db.Query(ctx,
 		`SELECT `+identityColumns+` FROM channel_identities WHERE user_id = $1 ORDER BY created_at ASC`,

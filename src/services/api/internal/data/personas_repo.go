@@ -375,6 +375,40 @@ func (r *PersonasRepository) GetByID(ctx context.Context, projectID, id uuid.UUI
 	return r.GetByIDInScope(ctx, projectID, id, PersonaScopeProject)
 }
 
+func (r *PersonasRepository) GetByIDForAccount(ctx context.Context, accountID, id uuid.UUID) (*Persona, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if accountID == uuid.Nil {
+		return nil, fmt.Errorf("account_id must not be nil")
+	}
+	if id == uuid.Nil {
+		return nil, fmt.Errorf("id must not be nil")
+	}
+
+	var persona Persona
+	err := scanPersona(r.db.QueryRow(
+		ctx,
+		fmt.Sprintf(`SELECT %s
+		 FROM personas p
+		 LEFT JOIN projects pr ON pr.id = p.project_id
+		 WHERE p.id = $1
+		   AND (
+		     pr.account_id = $2
+		     OR p.project_id IS NULL
+		   )`, personaSelectColumns),
+		id,
+		accountID,
+	), &persona)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &persona, nil
+}
+
 func (r *PersonasRepository) GetByIDInScope(ctx context.Context, projectID, id uuid.UUID, scope string) (*Persona, error) {
 	if ctx == nil {
 		ctx = context.Background()

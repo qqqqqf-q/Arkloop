@@ -53,7 +53,8 @@ type EngineV1 struct {
 }
 
 type ExecuteInput struct {
-	TraceID string
+	TraceID    string
+	JobPayload map[string]any
 }
 
 type EngineV1Deps struct {
@@ -202,6 +203,7 @@ func NewEngineV1(deps EngineV1Deps) (*EngineV1, error) {
 		pipeline.NewSpawnAgentMiddleware(),
 		pipeline.NewToolProviderMiddleware(deps.ToolProviderCache),
 		pipeline.NewPersonaResolutionMiddleware(deps.PersonaRegistryGetter, deps.DBPool, runsRepo, eventsRepo, releaseSlot),
+		pipeline.NewChannelContextMiddleware(deps.DBPool),
 		pipeline.NewSubAgentContextMiddleware(subagentctl.NewSnapshotStorage()),
 		pipeline.NewSkillContextMiddleware(deps.DBPool, nil),
 		pipeline.NewMemoryMiddleware(nil, deps.DBPool, deps.ConfigResolver),
@@ -214,6 +216,7 @@ func NewEngineV1(deps EngineV1Deps) (*EngineV1, error) {
 		pipeline.NewPlatformToolsMiddleware(deps.PlatformToolExecutor),
 		pipeline.NewToolBuildMiddleware(),
 		pipeline.NewResultSummarizerMiddleware(deps.DBPool, deps.StubGateway, deps.EmitDebugEvents, 0, deps.RoutingConfigLoader),
+		pipeline.NewChannelDeliveryMiddleware(deps.DBPool),
 	}
 
 	terminal := pipeline.NewAgentLoopHandler(runsRepo, eventsRepo, messagesRepo, deps.RunLimiterRDB, deps.JobQueue, usageRepo, creditsRepo, resolver)
@@ -275,6 +278,7 @@ func (e *EngineV1) Execute(ctx context.Context, pool *pgxpool.Pool, run data.Run
 		Router:              e.router,
 		Runtime:             &runtimeSnapshot,
 		UserID:              run.CreatedByUserID,
+		JobPayload:          cloneMap(input.JobPayload),
 		ProfileRef:          derefString(run.ProfileRef),
 		WorkspaceRef:        derefString(run.WorkspaceRef),
 		ExecutorBuilder:     e.executorRegistry,
@@ -384,6 +388,17 @@ func resolveBool(ctx context.Context, resolver sharedconfig.Resolver, registry *
 		return fallback
 	}
 	return v
+}
+
+func cloneMap(input map[string]any) map[string]any {
+	if len(input) == 0 {
+		return nil
+	}
+	out := make(map[string]any, len(input))
+	for key, value := range input {
+		out[key] = value
+	}
+	return out
 }
 
 func resolveString(ctx context.Context, resolver sharedconfig.Resolver, registry *sharedconfig.Registry, key string, scope sharedconfig.Scope, lastResort string) string {

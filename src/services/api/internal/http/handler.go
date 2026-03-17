@@ -5,6 +5,7 @@ package http
 import (
 	"context"
 	nethttp "net/http"
+	"os"
 	"time"
 
 	"arkloop/services/api/internal/http/accountapi"
@@ -26,6 +27,7 @@ import (
 	"arkloop/services/shared/acptoken"
 	sharedconfig "arkloop/services/shared/config"
 	"arkloop/services/shared/objectstore"
+	"arkloop/services/shared/telegrambot"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
@@ -92,6 +94,8 @@ type HandlerConfig struct {
 	ChannelsRepo                 *data.ChannelsRepository
 	ChannelIdentitiesRepo        *data.ChannelIdentitiesRepository
 	ChannelBindCodesRepo         *data.ChannelBindCodesRepository
+	ChannelDMThreadsRepo         *data.ChannelDMThreadsRepository
+	ChannelReceiptsRepo          *data.ChannelMessageReceiptsRepository
 	PlansRepo                    *data.PlanRepository
 	SubscriptionsRepo            *data.SubscriptionRepository
 	EntitlementsRepo             *data.EntitlementsRepository
@@ -127,6 +131,8 @@ type HandlerConfig struct {
 
 	EmailFrom  string
 	AppBaseURL string
+
+	TelegramBotClient *telegrambot.Client
 
 	TurnstileEnvSecretKey   string
 	TurnstileEnvSiteKey     string
@@ -190,6 +196,11 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 		if inv, ok := resolver.(sharedconfig.Invalidator); ok {
 			invalidator = inv
 		}
+	}
+
+	telegramClient := cfg.TelegramBotClient
+	if telegramClient == nil {
+		telegramClient = telegrambot.NewClient(os.Getenv("ARKLOOP_TELEGRAM_BOT_API_BASE_URL"), nil)
 	}
 
 	gatewayRedis := cfg.GatewayRedisClient
@@ -302,6 +313,7 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 	accountapi.RegisterRoutes(mux, accountapi.Deps{
 		AuthService:           cfg.AuthService,
 		AccountMembershipRepo: cfg.AccountMembershipRepo,
+		ThreadRepo:            cfg.ThreadRepo,
 		TeamRepo:              cfg.TeamRepo,
 		ProjectRepo:           cfg.ProjectRepo,
 		APIKeysRepo:           cfg.APIKeysRepo,
@@ -317,6 +329,14 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 		ChannelsRepo:          cfg.ChannelsRepo,
 		ChannelIdentitiesRepo: cfg.ChannelIdentitiesRepo,
 		ChannelBindCodesRepo:  cfg.ChannelBindCodesRepo,
+		ChannelDMThreadsRepo:  cfg.ChannelDMThreadsRepo,
+		ChannelReceiptsRepo:   cfg.ChannelReceiptsRepo,
+		UsersRepo:             cfg.UsersRepo,
+		MessageRepo:           cfg.MessageRepo,
+		JobRepo:               cfg.JobRepo,
+		CreditsRepo:           cfg.CreditsRepo,
+		PersonasRepo:          cfg.PersonasRepo,
+		TelegramBotClient:     telegramClient,
 		AppBaseURL:            cfg.AppBaseURL,
 		EnvironmentStore:      cfg.EnvironmentStore,
 		RunEventRepo:          cfg.RunEventRepo,

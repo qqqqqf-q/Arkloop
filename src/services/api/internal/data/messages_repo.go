@@ -45,6 +45,10 @@ type MessageRepository struct {
 	db Querier
 }
 
+func (r *MessageRepository) WithTx(tx pgx.Tx) *MessageRepository {
+	return &MessageRepository{db: tx}
+}
+
 func NewMessageRepository(db Querier) (*MessageRepository, error) {
 	if db == nil {
 		return nil, errors.New("db must not be nil")

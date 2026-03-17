@@ -475,8 +475,8 @@ func asBudgets(value any) (Budgets, error) {
 	}, nil
 }
 
-// LoadFromDB 从数据库加载运行期有效的平台 persona。
-func LoadFromDB(ctx context.Context, pool *pgxpool.Pool, _ *uuid.UUID) ([]Definition, error) {
+// LoadFromDB 从数据库加载运行期有效的 persona。
+func LoadFromDB(ctx context.Context, pool *pgxpool.Pool, projectID *uuid.UUID) ([]Definition, error) {
 	if pool == nil {
 		return nil, fmt.Errorf("pool must not be nil")
 	}
@@ -488,10 +488,10 @@ func LoadFromDB(ctx context.Context, pool *pgxpool.Pool, _ *uuid.UUID) ([]Defini
 		        preferred_credential, model, reasoning_mode, prompt_cache_control,
 		        updated_at
 		 FROM personas
-		 WHERE is_active = TRUE AND project_id IS NULL
+		 WHERE is_active = TRUE AND project_id = $1
 		 ORDER BY created_at ASC`
 
-	rows, err := pool.Query(ctx, query)
+	rows, err := pool.Query(ctx, query, projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -509,10 +509,10 @@ func LoadFromDB(ctx context.Context, pool *pgxpool.Pool, _ *uuid.UUID) ([]Defini
 			selectorName        *string
 			selectorOrder       *int
 			promptMD            string
-		toolAllowlist       []string
-		toolDenylist        []string
-		coreTools           []string
-		budgetsRaw          []byte
+			toolAllowlist       []string
+			toolDenylist        []string
+			coreTools           []string
+			budgetsRaw          []byte
 			rolesRaw            []byte
 			titleSummarizeRaw   []byte
 			executorType        string
@@ -562,10 +562,10 @@ func LoadFromDB(ctx context.Context, pool *pgxpool.Pool, _ *uuid.UUID) ([]Defini
 			UserSelectable:      userSelectable,
 			SelectorName:        strPtrOrNilPtr(selectorName),
 			SelectorOrder:       selectorOrder,
-		ToolAllowlist:       toolAllowlist,
-		ToolDenylist:        toolDenylist,
-		CoreTools:           coreTools,
-		Budgets:             budgets,
+			ToolAllowlist:       toolAllowlist,
+			ToolDenylist:        toolDenylist,
+			CoreTools:           coreTools,
+			Budgets:             budgets,
 			SoulMD:              strings.TrimSpace(soulMD),
 			PromptMD:            promptMD,
 			ExecutorType:        executorType,

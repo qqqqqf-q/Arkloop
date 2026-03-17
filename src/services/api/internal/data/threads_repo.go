@@ -13,7 +13,7 @@ import (
 
 type Thread struct {
 	ID              uuid.UUID
-	AccountID           uuid.UUID
+	AccountID       uuid.UUID
 	CreatedByUserID *uuid.UUID
 	Title           *string
 	CreatedAt       time.Time
@@ -36,6 +36,10 @@ type ThreadWithActiveRun struct {
 
 type ThreadRepository struct {
 	db Querier
+}
+
+func (r *ThreadRepository) WithTx(tx pgx.Tx) *ThreadRepository {
+	return &ThreadRepository{db: tx}
 }
 
 func NewThreadRepository(db Querier) (*ThreadRepository, error) {
@@ -213,6 +217,36 @@ func (r *ThreadRepository) UpdateTitle(ctx context.Context, threadID uuid.UUID, 
 		 RETURNING id, account_id, created_by_user_id, title, created_at, deleted_at, project_id, is_private, expires_at, parent_thread_id, branched_from_message_id, title_locked`,
 		title,
 		threadID,
+	).Scan(&thread.ID, &thread.AccountID, &thread.CreatedByUserID, &thread.Title, &thread.CreatedAt,
+		&thread.DeletedAt, &thread.ProjectID, &thread.IsPrivate, &thread.ExpiresAt,
+		&thread.ParentThreadID, &thread.BranchedFromMessageID, &thread.TitleLocked)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &thread, nil
+}
+
+func (r *ThreadRepository) UpdateOwner(ctx context.Context, threadID uuid.UUID, ownerUserID *uuid.UUID) (*Thread, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if threadID == uuid.Nil {
+		return nil, fmt.Errorf("thread_id must not be empty")
+	}
+
+	var thread Thread
+	err := r.db.QueryRow(
+		ctx,
+		`UPDATE threads
+		 SET created_by_user_id = $2
+		 WHERE id = $1
+		   AND deleted_at IS NULL
+		 RETURNING id, account_id, created_by_user_id, title, created_at, deleted_at, project_id, is_private, expires_at, parent_thread_id, branched_from_message_id, title_locked`,
+		threadID,
+		ownerUserID,
 	).Scan(&thread.ID, &thread.AccountID, &thread.CreatedByUserID, &thread.Title, &thread.CreatedAt,
 		&thread.DeletedAt, &thread.ProjectID, &thread.IsPrivate, &thread.ExpiresAt,
 		&thread.ParentThreadID, &thread.BranchedFromMessageID, &thread.TitleLocked)

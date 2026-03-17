@@ -12,7 +12,7 @@ import (
 
 type AccountMembership struct {
 	ID        uuid.UUID
-	AccountID     uuid.UUID
+	AccountID uuid.UUID
 	UserID    uuid.UUID
 	Role      string
 	RoleID    *uuid.UUID
@@ -21,6 +21,10 @@ type AccountMembership struct {
 
 type AccountMembershipRepository struct {
 	db Querier
+}
+
+func (r *AccountMembershipRepository) WithTx(tx pgx.Tx) *AccountMembershipRepository {
+	return &AccountMembershipRepository{db: tx}
 }
 
 func NewAccountMembershipRepository(db Querier) (*AccountMembershipRepository, error) {
@@ -111,6 +115,10 @@ func (r *AccountMembershipRepository) GetByAccountAndUser(ctx context.Context, a
 		return nil, err
 	}
 	return &membership, nil
+}
+
+func (r *AccountMembershipRepository) GetByOrgAndUser(ctx context.Context, accountID, userID uuid.UUID) (*AccountMembership, error) {
+	return r.GetByAccountAndUser(ctx, accountID, userID)
 }
 
 // SetRoleForUser 将用户的默认 membership（最早创建）的角色更新为 role。

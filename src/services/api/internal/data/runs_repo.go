@@ -14,7 +14,7 @@ import (
 
 type Run struct {
 	ID              uuid.UUID
-	AccountID           uuid.UUID
+	AccountID       uuid.UUID
 	ThreadID        uuid.UUID
 	CreatedByUserID *uuid.UUID
 	Status          string
@@ -57,6 +57,10 @@ func (e RunNotFoundError) Error() string {
 
 type RunEventRepository struct {
 	db Querier
+}
+
+func (r *RunEventRepository) WithTx(tx pgx.Tx) *RunEventRepository {
+	return &RunEventRepository{db: tx}
 }
 
 func NewRunEventRepository(db Querier) (*RunEventRepository, error) {
@@ -558,7 +562,7 @@ type RunWithUser struct {
 type ListRunsParams struct {
 	RunID          *uuid.UUID
 	RunIDPrefix    *string
-	AccountID          *uuid.UUID
+	AccountID      *uuid.UUID
 	ThreadID       *uuid.UUID
 	ThreadIDPrefix *string
 	UserID         *uuid.UUID

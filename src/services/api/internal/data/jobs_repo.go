@@ -11,6 +11,7 @@ import (
 	"arkloop/services/api/internal/observability"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 )
 
 const (
@@ -48,6 +49,10 @@ var jobEnqueueDirect func(
 
 type JobRepository struct {
 	db Querier
+}
+
+func (r *JobRepository) WithTx(tx pgx.Tx) *JobRepository {
+	return &JobRepository{db: tx}
 }
 
 func NewJobRepository(db Querier) (*JobRepository, error) {

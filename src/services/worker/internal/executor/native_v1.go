@@ -102,10 +102,10 @@ func (h *NativeRunEngineV1Handler) Handle(ctx context.Context, lease queue.JobLe
 		payload.RunID,
 		"worker.job.received",
 		map[string]any{
-			"trace_id": payload.TraceID,
-			"job_id":   payload.JobID.String(),
-			"job_type": payload.JobType,
-			"account_id":   payload.AccountID.String(),
+			"trace_id":   payload.TraceID,
+			"job_id":     payload.JobID.String(),
+			"job_type":   payload.JobType,
+			"account_id": payload.AccountID.String(),
 		},
 		nil,
 		nil,
@@ -122,7 +122,7 @@ func (h *NativeRunEngineV1Handler) Handle(ctx context.Context, lease queue.JobLe
 		ctx,
 		h.pool,
 		*run,
-		runengine.ExecuteInput{TraceID: payload.TraceID},
+		runengine.ExecuteInput{TraceID: payload.TraceID, JobPayload: payload.Payload},
 	)
 	if err != nil {
 		return err
@@ -148,7 +148,7 @@ func (h *NativeRunEngineV1Handler) dispatchWebhooks(ctx context.Context, payload
 	runPayload := map[string]any{
 		"event":      eventType,
 		"run_id":     run.ID.String(),
-		"account_id":     run.AccountID.String(),
+		"account_id": run.AccountID.String(),
 		"thread_id":  run.ThreadID.String(),
 		"status":     status,
 		"created_at": createdAt.UTC().Format(time.RFC3339Nano),
@@ -174,11 +174,12 @@ func getRunStatus(ctx context.Context, pool *pgxpool.Pool, runID uuid.UUID) (str
 }
 
 type workerPayload struct {
-	JobID   uuid.UUID
-	JobType string
-	TraceID string
-	AccountID   uuid.UUID
-	RunID   uuid.UUID
+	JobID     uuid.UUID
+	JobType   string
+	TraceID   string
+	Payload   map[string]any
+	AccountID uuid.UUID
+	RunID     uuid.UUID
 }
 
 func parseWorkerPayload(payload map[string]any) (workerPayload, error) {
@@ -202,12 +203,19 @@ func parseWorkerPayload(payload map[string]any) (workerPayload, error) {
 	if err != nil {
 		return workerPayload{}, err
 	}
+	payloadMap := map[string]any{}
+	if rawPayload, ok := payload["payload"].(map[string]any); ok {
+		for key, value := range rawPayload {
+			payloadMap[key] = value
+		}
+	}
 	return workerPayload{
-		JobID:   jobID,
-		JobType: jobType,
-		TraceID: traceID,
-		AccountID:   accountID,
-		RunID:   runID,
+		JobID:     jobID,
+		JobType:   jobType,
+		TraceID:   traceID,
+		Payload:   payloadMap,
+		AccountID: accountID,
+		RunID:     runID,
 	}, nil
 }
 
@@ -220,4 +228,3 @@ func (p workerPayload) LogFields(lease queue.JobLease) app.LogFields {
 	fields.RunID = stringPtr(p.RunID.String())
 	return fields
 }
-

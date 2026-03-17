@@ -472,6 +472,8 @@ export interface LocaleStrings {
     platform: string
     botToken: string
     botTokenPlaceholder: string
+    allowedUsers: string
+    allowedUsersPlaceholder: string
     persona: string
     personaDefault: string
     webhookUrl: string
@@ -490,6 +492,8 @@ export interface LocaleStrings {
     saveFailed: string
     deleteFailed: string
     loadFailed: string
+    personaRequired: string
+    allowlistRequired: string
     telegram: string
     discord: string
     feishu: string

@@ -30,6 +30,10 @@ type AccountRepository struct {
 	db Querier
 }
 
+func (r *AccountRepository) WithTx(tx pgx.Tx) *AccountRepository {
+	return &AccountRepository{db: tx}
+}
+
 func NewAccountRepository(db Querier) (*AccountRepository, error) {
 	if db == nil {
 		return nil, errors.New("db must not be nil")

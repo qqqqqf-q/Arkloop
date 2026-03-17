@@ -5,6 +5,7 @@ package http
 import (
 	"context"
 	nethttp "net/http"
+	"os"
 
 	"arkloop/services/api/internal/http/accountapi"
 	"arkloop/services/api/internal/http/adminapi"
@@ -26,6 +27,7 @@ import (
 	"arkloop/services/shared/desktop"
 	"arkloop/services/shared/eventbus"
 	"arkloop/services/shared/objectstore"
+	"arkloop/services/shared/telegrambot"
 )
 
 // SSEConfig controls SSE stream heartbeat behavior.
@@ -110,6 +112,8 @@ type HandlerConfig struct {
 	ChannelsRepo                 *data.ChannelsRepository
 	ChannelIdentitiesRepo        *data.ChannelIdentitiesRepository
 	ChannelBindCodesRepo         *data.ChannelBindCodesRepository
+	ChannelDMThreadsRepo         *data.ChannelDMThreadsRepository
+	ChannelReceiptsRepo          *data.ChannelMessageReceiptsRepository
 	PlansRepo                    *data.PlanRepository
 	SubscriptionsRepo            *data.SubscriptionRepository
 	EntitlementsRepo             *data.EntitlementsRepository
@@ -153,6 +157,8 @@ type HandlerConfig struct {
 
 	RepoPersonas       []repopersonas.RepoPersona
 	PersonaSyncTrigger interface{ Trigger() }
+
+	TelegramBotClient *telegrambot.Client
 }
 
 func NewHandler(cfg HandlerConfig) nethttp.Handler {
@@ -172,6 +178,11 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 		if inv, ok := resolver.(sharedconfig.Invalidator); ok {
 			invalidator = inv
 		}
+	}
+
+	telegramClient := cfg.TelegramBotClient
+	if telegramClient == nil {
+		telegramClient = telegrambot.NewClient(os.Getenv("ARKLOOP_TELEGRAM_BOT_API_BASE_URL"), nil)
 	}
 
 	effectiveToolCatalogCache := catalogapi.NewEffectiveToolCatalogCache(catalogapi.EffectiveToolCatalogTTL)
@@ -281,6 +292,7 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 	accountapi.RegisterRoutes(mux, accountapi.Deps{
 		AuthService:           cfg.AuthService,
 		AccountMembershipRepo: cfg.AccountMembershipRepo,
+		ThreadRepo:            cfg.ThreadRepo,
 		TeamRepo:              cfg.TeamRepo,
 		ProjectRepo:           cfg.ProjectRepo,
 		APIKeysRepo:           cfg.APIKeysRepo,
@@ -296,6 +308,14 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 		ChannelsRepo:          cfg.ChannelsRepo,
 		ChannelIdentitiesRepo: cfg.ChannelIdentitiesRepo,
 		ChannelBindCodesRepo:  cfg.ChannelBindCodesRepo,
+		ChannelDMThreadsRepo:  cfg.ChannelDMThreadsRepo,
+		ChannelReceiptsRepo:   cfg.ChannelReceiptsRepo,
+		UsersRepo:             cfg.UsersRepo,
+		MessageRepo:           cfg.MessageRepo,
+		JobRepo:               cfg.JobRepo,
+		CreditsRepo:           cfg.CreditsRepo,
+		PersonasRepo:          cfg.PersonasRepo,
+		TelegramBotClient:     telegramClient,
 		AppBaseURL:            "",
 		EnvironmentStore:      cfg.EnvironmentStore,
 		RunEventRepo:          cfg.RunEventRepo,

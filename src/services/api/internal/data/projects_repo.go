@@ -15,7 +15,7 @@ const DefaultProjectName = "Default"
 
 type Project struct {
 	ID          uuid.UUID
-	AccountID       uuid.UUID
+	AccountID   uuid.UUID
 	TeamID      *uuid.UUID
 	OwnerUserID *uuid.UUID
 	Name        string
@@ -29,6 +29,10 @@ type Project struct {
 
 type ProjectRepository struct {
 	db Querier
+}
+
+func (r *ProjectRepository) WithTx(tx pgx.Tx) *ProjectRepository {
+	return &ProjectRepository{db: tx}
 }
 
 func NewProjectRepository(db Querier) (*ProjectRepository, error) {

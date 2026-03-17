@@ -23,6 +23,13 @@ type Props = {
 const CHANNEL_TYPES = ['telegram', 'discord', 'feishu'] as const
 type ChannelType = (typeof CHANNEL_TYPES)[number]
 
+function parseAllowedUserIds(input: string): string[] {
+  return input
+    .split(/[\n,\s]+/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
 export function ChannelsSettingsContent({ accessToken }: Props) {
   const { t } = useLocale()
   const ct = t.channels
@@ -37,6 +44,7 @@ export function ChannelsSettingsContent({ accessToken }: Props) {
   const [formType, setFormType] = useState<ChannelType>('telegram')
   const [formToken, setFormToken] = useState('')
   const [formPersonaId, setFormPersonaId] = useState('')
+  const [formAllowedUsers, setFormAllowedUsers] = useState('')
   const [saving, setSaving] = useState(false)
 
   const [bindCode, setBindCode] = useState<string | null>(null)
@@ -71,10 +79,14 @@ export function ChannelsSettingsContent({ accessToken }: Props) {
         channel_type: formType,
         bot_token: formToken,
         persona_id: formPersonaId || undefined,
+        config_json: formType === 'telegram'
+          ? { allowed_user_ids: parseAllowedUserIds(formAllowedUsers) }
+          : undefined,
       })
       setShowForm(false)
       setFormToken('')
       setFormPersonaId('')
+      setFormAllowedUsers('')
       await load()
     } catch (err) {
       setError(isApiError(err) ? err.message : ct.saveFailed)
@@ -84,6 +96,19 @@ export function ChannelsSettingsContent({ accessToken }: Props) {
   }
 
   const handleToggle = async (ch: ChannelResponse) => {
+    if (!ch.is_active && ch.channel_type === 'telegram') {
+      if (!ch.persona_id) {
+        setError(ct.personaRequired)
+        return
+      }
+      const allowedUsers = Array.isArray(ch.config_json?.allowed_user_ids)
+        ? ch.config_json.allowed_user_ids.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+        : []
+      if (allowedUsers.length === 0) {
+        setError(ct.allowlistRequired)
+        return
+      }
+    }
     try {
       await updateChannel(accessToken, ch.id, { is_active: !ch.is_active })
       await load()
@@ -194,6 +219,20 @@ export function ChannelsSettingsContent({ accessToken }: Props) {
             />
           </div>
 
+          {formType === 'telegram' && (
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-medium text-[var(--c-text-secondary)]">{ct.allowedUsers}</label>
+              <textarea
+                value={formAllowedUsers}
+                onChange={(e) => setFormAllowedUsers(e.target.value)}
+                placeholder={ct.allowedUsersPlaceholder}
+                rows={3}
+                className="rounded-lg bg-[var(--c-bg-input)] px-3 py-2 text-sm text-[var(--c-text-primary)] outline-none placeholder:text-[var(--c-text-muted)] resize-none"
+                style={{ border: '0.5px solid var(--c-border-subtle)' }}
+              />
+            </div>
+          )}
+
           {personas.length > 0 && (
             <div className="flex flex-col gap-1">
               <label className="text-xs font-medium text-[var(--c-text-secondary)]">{ct.persona}</label>
@@ -221,7 +260,7 @@ export function ChannelsSettingsContent({ accessToken }: Props) {
               {saving ? ct.saving : ct.save}
             </button>
             <button
-              onClick={() => { setShowForm(false); setFormToken(''); setFormPersonaId('') }}
+              onClick={() => { setShowForm(false); setFormToken(''); setFormPersonaId(''); setFormAllowedUsers('') }}
               className="rounded-lg px-4 py-1.5 text-xs font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)]"
               style={{ border: '0.5px solid var(--c-border-subtle)' }}
             >
