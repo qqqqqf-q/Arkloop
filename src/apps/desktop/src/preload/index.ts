@@ -85,6 +85,17 @@ export type SidecarVersionInfo = {
   updateAvailable: boolean
 }
 
+export type LocalFileEntry = {
+  name: string
+  path: string
+  type: 'file' | 'dir'
+  size?: number
+  mtime_unix_ms?: number
+}
+
+export type LocalDirResult = { entries: LocalFileEntry[] }
+export type LocalFileResult = { data: string; mime_type: string } | { error: string }
+
 export type ArkloopDesktopApi = {
   isDesktop: true
   config: {
@@ -126,6 +137,10 @@ export type ArkloopDesktopApi = {
     getVersion: () => Promise<string>
     quit: () => Promise<void>
     getOsUsername: () => Promise<string>
+  }
+  fs: {
+    listDir: (folderPath: string, subPath?: string) => Promise<LocalDirResult>
+    readFile: (folderPath: string, relativePath: string) => Promise<LocalFileResult>
   }
 }
 
@@ -252,6 +267,11 @@ const api: ArkloopDesktopApi = {
 
   dialog: {
     openFolder: () => ipcRenderer.invoke('arkloop:dialog:open-folder'),
+  },
+
+  fs: {
+    listDir: (folderPath: string, subPath = '/') => ipcRenderer.invoke('arkloop:fs:list-dir', folderPath, subPath),
+    readFile: (folderPath: string, relativePath: string) => ipcRenderer.invoke('arkloop:fs:read-file', folderPath, relativePath),
   },
 }
 

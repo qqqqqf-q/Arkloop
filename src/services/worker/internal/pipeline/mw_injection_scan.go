@@ -143,7 +143,7 @@ func blockRun(ctx context.Context, rc *RunContext, eventsRepo data.RunEventsRepo
 	}
 	defer tx.Rollback(ctx)
 
-	if _, err := eventsRepo.AppendEvent(ctx, tx, rc.Run.ID, failedEvent.Type, failedEvent.DataJSON, failedEvent.ToolName, failedEvent.ErrorClass); err != nil {
+	if _, err := eventsRepo.AppendRunEvent(ctx, tx, rc.Run.ID, failedEvent); err != nil {
 		return fmt.Errorf("injection block append event: %w", err)
 	}
 
@@ -264,7 +264,7 @@ func emitRunEvent(ctx context.Context, rc *RunContext, eventsRepo data.RunEvents
 		return
 	}
 	defer tx.Rollback(ctx)
-	if _, err := eventsRepo.AppendEvent(ctx, tx, rc.Run.ID, ev.Type, ev.DataJSON, ev.ToolName, ev.ErrorClass); err != nil {
+	if _, err := eventsRepo.AppendRunEvent(ctx, tx, rc.Run.ID, ev); err != nil {
 		slog.WarnContext(ctx, "injection scan event append failed", "error", err)
 		return
 	}
@@ -529,7 +529,7 @@ func cancelRunForSpeculativeInjectionBlock(
 			"reason":   "security_injection_blocked",
 			"message":  injectionBlockedMessage,
 		}, nil, nil)
-		if _, err := eventsRepo.AppendEvent(ctx, tx, rc.Run.ID, cancelRequested.Type, cancelRequested.DataJSON, cancelRequested.ToolName, cancelRequested.ErrorClass); err != nil {
+		if _, err := eventsRepo.AppendRunEvent(ctx, tx, rc.Run.ID, cancelRequested); err != nil {
 			return fmt.Errorf("speculative injection cancel append event: %w", err)
 		}
 	}

@@ -1,12 +1,16 @@
 package events
 
-import "strings"
+import (
+	"strings"
+	"time"
+)
 
 type RunEvent struct {
 	Type       string
 	DataJSON   map[string]any
 	ToolName   *string
 	ErrorClass *string
+	OccurredAt time.Time
 }
 
 type Emitter struct {
@@ -30,6 +34,6 @@ func (e Emitter) Emit(eventType string, dataJSON map[string]any, toolName *strin
 		DataJSON:   payload,
 		ToolName:   toolName,
 		ErrorClass: errorClass,
+		OccurredAt: time.Now().UTC(),
 	}
 }
-

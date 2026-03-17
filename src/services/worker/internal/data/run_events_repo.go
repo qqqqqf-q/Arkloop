@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"time"
 
+	workerevents "arkloop/services/worker/internal/events"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
@@ -51,6 +53,32 @@ func (r RunEventsRepository) AppendEvent(
 	toolName *string,
 	errorClass *string,
 ) (int64, error) {
+	return r.appendEventAt(ctx, tx, runID, eventType, dataJSON, toolName, errorClass, nil)
+}
+
+func (r RunEventsRepository) AppendRunEvent(
+	ctx context.Context,
+	tx pgx.Tx,
+	runID uuid.UUID,
+	ev workerevents.RunEvent,
+) (int64, error) {
+	occurredAt := ev.OccurredAt
+	if occurredAt.IsZero() {
+		return r.appendEventAt(ctx, tx, runID, ev.Type, ev.DataJSON, ev.ToolName, ev.ErrorClass, nil)
+	}
+	return r.appendEventAt(ctx, tx, runID, ev.Type, ev.DataJSON, ev.ToolName, ev.ErrorClass, &occurredAt)
+}
+
+func (r RunEventsRepository) appendEventAt(
+	ctx context.Context,
+	tx pgx.Tx,
+	runID uuid.UUID,
+	eventType string,
+	dataJSON map[string]any,
+	toolName *string,
+	errorClass *string,
+	occurredAt *time.Time,
+) (int64, error) {
 	seq, err := r.allocateSeq(ctx, tx, runID)
 	if err != nil {
 		return 0, err
@@ -61,20 +89,38 @@ func (r RunEventsRepository) AppendEvent(
 		return 0, err
 	}
 
-	_, err = tx.Exec(
-		ctx,
-		`INSERT INTO run_events (
-			run_id, seq, type, data_json, tool_name, error_class
-		) VALUES (
-			$1, $2, $3, $4::jsonb, $5, $6
-		)`,
-		runID,
-		seq,
-		eventType,
-		string(encoded),
-		toolName,
-		errorClass,
-	)
+	if occurredAt != nil && !occurredAt.IsZero() {
+		_, err = tx.Exec(
+			ctx,
+			`INSERT INTO run_events (
+				run_id, seq, ts, type, data_json, tool_name, error_class
+			) VALUES (
+				$1, $2, $3, $4, $5::jsonb, $6, $7
+			)`,
+			runID,
+			seq,
+			occurredAt.UTC(),
+			eventType,
+			string(encoded),
+			toolName,
+			errorClass,
+		)
+	} else {
+		_, err = tx.Exec(
+			ctx,
+			`INSERT INTO run_events (
+				run_id, seq, type, data_json, tool_name, error_class
+			) VALUES (
+				$1, $2, $3, $4::jsonb, $5, $6
+			)`,
+			runID,
+			seq,
+			eventType,
+			string(encoded),
+			toolName,
+			errorClass,
+		)
+	}
 	if err != nil {
 		return 0, err
 	}

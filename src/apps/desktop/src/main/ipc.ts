@@ -166,6 +166,88 @@ export function registerIpcHandlers(
     if (result.canceled || result.filePaths.length === 0) return null
     return result.filePaths[0]
   })
+
+  ipcMain.handle('arkloop:fs:list-dir', (_event, folderPath: string, subPath: string) => {
+    const path = require('path') as typeof import('path')
+    const fs = require('fs') as typeof import('fs')
+
+    const normalizedSub = subPath.replace(/^[/\\]+/, '')
+    const fullPath = normalizedSub ? path.join(folderPath, normalizedSub) : folderPath
+
+    const base = path.resolve(folderPath)
+    const resolved = path.resolve(fullPath)
+    if (resolved !== base && !resolved.startsWith(base + path.sep)) {
+      return { entries: [] }
+    }
+
+    try {
+      const dirents = fs.readdirSync(fullPath, { withFileTypes: true })
+      const entries = dirents
+        .map((d) => {
+          const entryPath = normalizedSub ? `/${normalizedSub}/${d.name}` : `/${d.name}`
+          const type: 'file' | 'dir' = d.isDirectory() ? 'dir' : 'file'
+          let size: number | undefined
+          let mtime_unix_ms: number | undefined
+          if (!d.isDirectory()) {
+            try {
+              const stat = fs.statSync(path.join(fullPath, d.name))
+              size = stat.size
+              mtime_unix_ms = stat.mtimeMs
+            } catch { /* ignore */ }
+          }
+          return { name: d.name, path: entryPath, type, size, mtime_unix_ms }
+        })
+        .sort((a, b) => {
+          if (a.type !== b.type) return a.type === 'dir' ? -1 : 1
+          return a.name.localeCompare(b.name)
+        })
+      return { entries }
+    } catch {
+      return { entries: [] }
+    }
+  })
+
+  ipcMain.handle('arkloop:fs:read-file', (_event, folderPath: string, relativePath: string) => {
+    const path = require('path') as typeof import('path')
+    const fs = require('fs') as typeof import('fs')
+
+    const normalizedRel = relativePath.replace(/^[/\\]+/, '')
+    if (!normalizedRel) return { error: 'forbidden' }
+
+    const fullPath = path.join(folderPath, normalizedRel)
+    const base = path.resolve(folderPath)
+    const resolved = path.resolve(fullPath)
+    if (!resolved.startsWith(base + path.sep)) {
+      return { error: 'forbidden' }
+    }
+
+    try {
+      const stat = fs.statSync(fullPath)
+      if (stat.size > 5 * 1024 * 1024) return { error: 'too_large' }
+      const data = fs.readFileSync(fullPath)
+      return { data: data.toString('base64'), mime_type: guessMimeTypeByExt(relativePath) }
+    } catch {
+      return { error: 'read_failed' }
+    }
+  })
+}
+
+const MIME_BY_EXT: Record<string, string> = {
+  png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif',
+  svg: 'image/svg+xml', webp: 'image/webp', bmp: 'image/bmp',
+  html: 'text/html', htm: 'text/html',
+  md: 'text/markdown', txt: 'text/plain', json: 'application/json', csv: 'text/csv',
+  log: 'text/plain', py: 'text/x-python', ts: 'text/typescript', tsx: 'text/typescript',
+  js: 'text/javascript', jsx: 'text/javascript', sh: 'text/x-shellscript',
+  go: 'text/plain', rs: 'text/plain', c: 'text/plain', cpp: 'text/plain', h: 'text/plain',
+  yml: 'text/yaml', yaml: 'text/yaml', xml: 'application/xml', sql: 'text/plain',
+  toml: 'text/plain', ini: 'text/plain', conf: 'text/plain', css: 'text/css',
+  pdf: 'application/pdf', zip: 'application/zip',
+}
+
+function guessMimeTypeByExt(filepath: string): string {
+  const ext = filepath.split('.').pop()?.toLowerCase() ?? ''
+  return MIME_BY_EXT[ext] ?? 'application/octet-stream'
 }
 
 function getLocalApiBaseUrl(): string | null {

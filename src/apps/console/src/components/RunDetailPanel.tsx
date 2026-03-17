@@ -580,6 +580,17 @@ function UsageBreakdownTable({ self, children, aggregate, onOpenRun }: UsageBrea
 
 type RawEventRowProps = { event: RunEventRaw }
 
+function formatEventTime(value: string): string {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return new Intl.DateTimeFormat(undefined, {
+    hour: 'numeric',
+    minute: '2-digit',
+    second: '2-digit',
+    fractionalSecondDigits: 3,
+  }).format(date)
+}
+
 function UserPromptBlock({ prompt, label }: { prompt: string; label: string }) {
   const [open, setOpen] = useState(false)
   const preview = prompt.slice(0, 100) + (prompt.length > 100 ? '…' : '')
@@ -629,8 +640,8 @@ function RawEventRow({ event }: RawEventRowProps) {
         {event.error_class && (
           <span className="ml-auto text-xs text-red-500">{event.error_class}</span>
         )}
-        <span className="ml-auto text-xs text-[var(--c-text-muted)]">
-          {new Date(event.ts).toLocaleTimeString()}
+        <span className="ml-auto text-xs text-[var(--c-text-muted)]" title={event.ts}>
+          {formatEventTime(event.ts)}
         </span>
       </button>
       {open && hasData && (

@@ -152,7 +152,7 @@ func appendAndCommitSingle(
 	}
 	defer tx.Rollback(ctx)
 
-	if _, err := eventsRepo.AppendEvent(ctx, tx, run.ID, ev.Type, ev.DataJSON, ev.ToolName, ev.ErrorClass); err != nil {
+	if _, err := eventsRepo.AppendRunEvent(ctx, tx, run.ID, ev); err != nil {
 		return err
 	}
 

@@ -125,6 +125,18 @@ export type ArkloopDesktopApi = {
   dialog?: {
     openFolder: () => Promise<string | null>
   }
+  fs?: {
+    listDir: (folderPath: string, subPath?: string) => Promise<{ entries: LocalFileEntry[] }>
+    readFile: (folderPath: string, relativePath: string) => Promise<{ data: string; mime_type: string } | { error: string }>
+  }
+}
+
+export type LocalFileEntry = {
+  name: string
+  path: string
+  type: 'file' | 'dir'
+  size?: number
+  mtime_unix_ms?: number
 }
 
 export function isDesktop(): boolean {

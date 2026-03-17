@@ -876,6 +876,7 @@ export function writeClawWorkFolder(folder: string): void {
     const next = [folder, ...recents.filter((f) => f !== folder)].slice(0, 8)
     localStorage.setItem(CLAW_RECENT_FOLDERS_KEY, JSON.stringify(next))
   } catch { /* ignore */ }
+  window.dispatchEvent(new CustomEvent('arkloop:claw-folder-changed'))
 }
 
 export function clearClawWorkFolder(): void {
@@ -883,6 +884,7 @@ export function clearClawWorkFolder(): void {
   try {
     localStorage.removeItem(CLAW_WORK_FOLDER_KEY)
   } catch { /* ignore */ }
+  window.dispatchEvent(new CustomEvent('arkloop:claw-folder-changed'))
 }
 
 export function readClawRecentFolders(): string[] {

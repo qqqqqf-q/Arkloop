@@ -954,7 +954,7 @@ func (w *desktopEventWriter) append(ctx context.Context, runID uuid.UUID, ev eve
 	if cancelType == "run.cancel_requested" {
 		emitter := events.NewEmitter(w.traceID)
 		cancelled := emitter.Emit("run.cancelled", map[string]any{}, nil, nil)
-		_, _ = w.eventsRepo.AppendEvent(ctx, w.tx, runID, cancelled.Type, cancelled.DataJSON, cancelled.ToolName, cancelled.ErrorClass)
+		_, _ = w.eventsRepo.AppendRunEvent(ctx, w.tx, runID, cancelled)
 		if w.projector != nil {
 			nextRunID, err := w.projector.ProjectRunTerminal(ctx, w.tx, w.run, data.SubAgentStatusCancelled, map[string]any{"run_id": runID.String()}, nil)
 			if err != nil {
@@ -973,7 +973,7 @@ func (w *desktopEventWriter) append(ctx context.Context, runID uuid.UUID, ev eve
 		return errDesktopStopProcessing
 	}
 
-	if _, err := w.eventsRepo.AppendEvent(ctx, w.tx, runID, ev.Type, ev.DataJSON, ev.ToolName, ev.ErrorClass); err != nil {
+	if _, err := w.eventsRepo.AppendRunEvent(ctx, w.tx, runID, ev); err != nil {
 		return err
 	}
 	w.pendingEventsSinceCommit++
@@ -1116,7 +1116,7 @@ func desktopWriteFailure(
 	}
 	defer tx.Rollback(ctx)
 
-	if _, err := eventsRepo.AppendEvent(ctx, tx, run.ID, failed.Type, failed.DataJSON, failed.ToolName, failed.ErrorClass); err != nil {
+	if _, err := eventsRepo.AppendRunEvent(ctx, tx, run.ID, failed); err != nil {
 		return err
 	}
 	if err := runsRepo.UpdateRunTerminalStatus(ctx, tx, run.ID, data.TerminalStatusUpdate{Status: "failed"}); err != nil {

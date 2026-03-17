@@ -287,7 +287,7 @@ func (w *eventWriter) Append(
 	if cancelType == "run.cancel_requested" {
 		emitter := events.NewEmitter(w.traceID)
 		cancelled := emitter.Emit("run.cancelled", map[string]any{}, nil, nil)
-		if _, err := eventsRepo.AppendEvent(ctx, w.tx, runID, cancelled.Type, cancelled.DataJSON, cancelled.ToolName, cancelled.ErrorClass); err != nil {
+		if _, err := eventsRepo.AppendRunEvent(ctx, w.tx, runID, cancelled); err != nil {
 			return err
 		}
 		if w.projector != nil {
@@ -335,7 +335,7 @@ func (w *eventWriter) Append(
 		}
 		return errStopProcessing
 	}
-	if _, err := eventsRepo.AppendEvent(ctx, w.tx, runID, ev.Type, ev.DataJSON, ev.ToolName, ev.ErrorClass); err != nil {
+	if _, err := eventsRepo.AppendRunEvent(ctx, w.tx, runID, ev); err != nil {
 		return err
 	}
 	w.pendingEventsSinceCommit++

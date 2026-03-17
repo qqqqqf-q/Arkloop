@@ -18,6 +18,8 @@ import {
 } from '../api'
 import { useLocale } from '../contexts/LocaleContext'
 import { WorkspaceResource } from './WorkspaceResource'
+import { getDesktopApi, isDesktop, type LocalFileEntry } from '@arkloop/shared/desktop'
+import { readClawWorkFolder } from '../storage'
 
 export type StepStatus = 'done' | 'active' | 'pending'
 
@@ -329,7 +331,13 @@ function normalizePath(path: string): string {
   return trimmed || '/'
 }
 
-function FileTree({
+type BaseFileEntry = {
+  name: string
+  path: string
+  type: string
+}
+
+function FileTree<T extends BaseFileEntry>({
   itemsByPath,
   loadingPaths,
   expandedPaths,
@@ -338,12 +346,12 @@ function FileTree({
   onSelectFile,
   rootPath,
 }: {
-  itemsByPath: Record<string, ProjectWorkspaceFileEntry[]>
+  itemsByPath: Record<string, T[]>
   loadingPaths: Record<string, boolean>
   expandedPaths: Record<string, boolean>
   selectedFilePath?: string
-  onToggleDir: (entry: ProjectWorkspaceFileEntry) => void
-  onSelectFile: (entry: ProjectWorkspaceFileEntry) => void
+  onToggleDir: (entry: T) => void
+  onSelectFile: (entry: T) => void
   rootPath: string
 }) {
   const renderLevel = (currentPath: string, depth: number): React.ReactNode => {
@@ -409,8 +417,217 @@ function FileTree({
   return <div>{renderLevel(rootPath, 0)}</div>
 }
 
+type LocalPreviewState =
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | { status: 'too_large'; name: string; size?: number }
+  | { status: 'error'; name: string }
+  | { status: 'text'; content: string; mimeType: string; name: string }
+  | { status: 'image'; dataUrl: string; name: string }
+  | { status: 'binary'; name: string; size?: number }
+
+function LocalFilePreview({
+  folderPath,
+  entry,
+}: {
+  folderPath: string
+  entry: LocalFileEntry
+}) {
+  const [state, setState] = useState<LocalPreviewState>({ status: 'loading' })
+
+  useEffect(() => {
+    setState({ status: 'loading' })
+    const api = getDesktopApi()
+    if (!api?.fs) {
+      setState({ status: 'error', name: entry.name })
+      return
+    }
+    let cancelled = false
+    api.fs.readFile(folderPath, entry.path).then((result) => {
+      if (cancelled) return
+      if ('error' in result) {
+        if (result.error === 'too_large') {
+          setState({ status: 'too_large', name: entry.name, size: entry.size })
+        } else {
+          setState({ status: 'error', name: entry.name })
+        }
+        return
+      }
+      const mimeType = result.mime_type
+      if (mimeType.startsWith('image/')) {
+        setState({ status: 'image', dataUrl: `data:${mimeType};base64,${result.data}`, name: entry.name })
+        return
+      }
+      if (mimeType.startsWith('text/') || mimeType === 'application/json' || mimeType === 'application/xml') {
+        const content = atob(result.data)
+        // show at most 200 lines
+        const lines = content.split('\n')
+        const preview = lines.length > 200 ? lines.slice(0, 200).join('\n') + '\n…' : content
+        setState({ status: 'text', content: preview, mimeType, name: entry.name })
+        return
+      }
+      setState({ status: 'binary', name: entry.name, size: entry.size })
+    }).catch(() => {
+      if (!cancelled) setState({ status: 'error', name: entry.name })
+    })
+    return () => { cancelled = true }
+  }, [folderPath, entry.path, entry.name, entry.size])
+
+  const ext = fileExtension(entry.name).toUpperCase()
+
+  if (state.status === 'loading') {
+    return (
+      <div
+        style={{
+          width: '100%',
+          minHeight: '84px',
+          borderRadius: '10px',
+          border: '0.5px solid var(--c-border-subtle)',
+          background: 'var(--c-bg-sub)',
+          padding: '12px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '8px',
+        }}
+      >
+        <span style={{ fontSize: '12px', color: 'var(--c-text-secondary)' }}>{entry.name}</span>
+        <div style={{ height: '36px', borderRadius: '8px', background: 'var(--c-bg-deep)' }} />
+      </div>
+    )
+  }
+
+  if (state.status === 'text') {
+    return (
+      <div
+        style={{
+          margin: '8px 0',
+          borderRadius: '12px',
+          border: '0.5px solid var(--c-border-subtle)',
+          background: 'var(--c-bg-sub)',
+          overflow: 'hidden',
+        }}
+      >
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '8px',
+            padding: '10px 12px',
+            borderBottom: '0.5px solid var(--c-border-subtle)',
+            background: 'var(--c-bg-deep)',
+          }}
+        >
+          <span style={{ fontSize: '13px', color: 'var(--c-text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {state.name}
+          </span>
+          <span style={{ fontSize: '11px', color: 'var(--c-text-tertiary)', textTransform: 'uppercase', flexShrink: 0 }}>
+            {ext}
+          </span>
+        </div>
+        <pre
+          style={{
+            margin: 0,
+            padding: '12px',
+            maxHeight: '320px',
+            overflow: 'auto',
+            fontSize: '12px',
+            lineHeight: 1.6,
+            color: 'var(--c-text-primary)',
+            background: 'var(--c-bg-sub)',
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word',
+          }}
+        >
+          <code>{state.content}</code>
+        </pre>
+      </div>
+    )
+  }
+
+  if (state.status === 'image') {
+    return (
+      <div style={{ display: 'inline-block', border: '0.5px solid var(--c-border-subtle)', borderRadius: '12px', padding: '8px' }}>
+        <img
+          src={state.dataUrl}
+          alt={state.name}
+          draggable={false}
+          style={{ maxWidth: '100%', display: 'block', borderRadius: '6px' }}
+        />
+      </div>
+    )
+  }
+
+  if (state.status === 'too_large') {
+    return (
+      <div style={{ fontSize: '12px', color: 'var(--c-text-muted)', padding: '8px 0' }}>
+        {state.name}{state.size != null ? ` (${(state.size / 1024 / 1024).toFixed(1)} MB)` : ''}
+      </div>
+    )
+  }
+
+  // binary or error
+  return (
+    <span style={{ fontSize: '12px', color: 'var(--c-text-muted)' }}>
+      {entry.name}
+    </span>
+  )
+}
+
 function WorkingFolderPanel({ accessToken, projectId, onForbidden }: { accessToken?: string; projectId?: string; onForbidden?: () => void }) {
   const { t } = useLocale()
+
+  // --- local mode state ---
+  const [localFolder, setLocalFolder] = useState<string | null>(() => readClawWorkFolder())
+  const [localItemsByPath, setLocalItemsByPath] = useState<Record<string, LocalFileEntry[]>>({})
+  const [localLoadingPaths, setLocalLoadingPaths] = useState<Record<string, boolean>>({})
+  const [localExpandedPaths, setLocalExpandedPaths] = useState<Record<string, boolean>>({})
+  const [localSelectedFile, setLocalSelectedFile] = useState<LocalFileEntry | null>(null)
+
+  const isLocalMode = isDesktop() && !!localFolder
+
+  useEffect(() => {
+    const handler = () => setLocalFolder(readClawWorkFolder())
+    window.addEventListener('arkloop:claw-folder-changed', handler)
+    return () => window.removeEventListener('arkloop:claw-folder-changed', handler)
+  }, [])
+
+  async function loadLocalDirectory(subPath: string) {
+    const api = getDesktopApi()
+    if (!api?.fs || !localFolder) return
+    const key = normalizePath(subPath)
+    setLocalLoadingPaths((p) => ({ ...p, [key]: true }))
+    try {
+      const result = await api.fs.listDir(localFolder, subPath)
+      setLocalItemsByPath((p) => ({ ...p, [key]: result.entries }))
+    } finally {
+      setLocalLoadingPaths((p) => {
+        const next = { ...p }
+        delete next[key]
+        return next
+      })
+    }
+  }
+
+  useEffect(() => {
+    if (!isLocalMode) return
+    setLocalItemsByPath({})
+    setLocalExpandedPaths({})
+    setLocalSelectedFile(null)
+    void loadLocalDirectory('/')
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [localFolder])
+
+  function handleLocalToggleDir(entry: LocalFileEntry) {
+    const key = normalizePath(entry.path)
+    const nowExpanded = !localExpandedPaths[key]
+    setLocalExpandedPaths((p) => ({ ...p, [key]: nowExpanded }))
+    if (nowExpanded && !localItemsByPath[key]) {
+      void loadLocalDirectory(entry.path)
+    }
+  }
+
+  // --- server workspace state ---
   const [workspace, setWorkspace] = useState<ProjectWorkspace | null>(null)
   const [workspaceLoading, setWorkspaceLoading] = useState(false)
   const [workspaceError, setWorkspaceError] = useState(false)
@@ -421,6 +638,7 @@ function WorkingFolderPanel({ accessToken, projectId, onForbidden }: { accessTok
   const [filesError, setFilesError] = useState(false)
 
   useEffect(() => {
+    if (isLocalMode) return
     let cancelled = false
     if (!accessToken || !projectId) {
       setWorkspace(null)
@@ -468,7 +686,7 @@ function WorkingFolderPanel({ accessToken, projectId, onForbidden }: { accessTok
     return () => {
       cancelled = true
     }
-  }, [accessToken, projectId])
+  }, [accessToken, projectId, isLocalMode])
 
   async function loadDirectory(entry: ProjectWorkspaceFileEntry) {
     if (!accessToken || !projectId || entry.type !== 'dir') return
@@ -503,6 +721,86 @@ function WorkingFolderPanel({ accessToken, projectId, onForbidden }: { accessTok
     }
   }
 
+  // --- local mode render ---
+  if (isLocalMode) {
+    const rootPath = '/'
+    const rootItems = localItemsByPath[rootPath] ?? []
+    const folderName = localFolder.split(/[/\\]/).filter(Boolean).pop() ?? localFolder
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <span
+          style={{
+            fontSize: '12px',
+            color: 'var(--c-text-muted)',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+          title={localFolder}
+        >
+          {folderName}
+        </span>
+
+        {!localItemsByPath[rootPath] ? (
+          <p style={{ fontSize: '13px', color: 'var(--c-text-muted)', margin: 0, lineHeight: 1.5 }}>
+            {t.claw.workingFolderLoading}
+          </p>
+        ) : rootItems.length === 0 ? (
+          <p style={{ fontSize: '13px', color: 'var(--c-text-muted)', margin: 0, lineHeight: 1.5 }}>
+            {t.claw.workingFolderEmptyDir}
+          </p>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div
+              style={{
+                borderRadius: 10,
+                border: '0.5px solid var(--c-claw-card-border)',
+                background: 'var(--c-bg-sub)',
+                padding: 6,
+              }}
+            >
+              <FileTree
+                itemsByPath={localItemsByPath}
+                loadingPaths={localLoadingPaths}
+                expandedPaths={localExpandedPaths}
+                selectedFilePath={localSelectedFile?.path}
+                onToggleDir={handleLocalToggleDir}
+                onSelectFile={setLocalSelectedFile}
+                rootPath={rootPath}
+              />
+            </div>
+
+            {localSelectedFile ? (
+              <div data-testid="claw-local-file-preview" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <FileText size={14} style={{ color: 'var(--c-text-muted)', flexShrink: 0 }} />
+                  <span
+                    style={{
+                      fontSize: '12px',
+                      color: 'var(--c-text-muted)',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {localSelectedFile.path}
+                  </span>
+                </div>
+                <LocalFilePreview folderPath={localFolder} entry={localSelectedFile} />
+              </div>
+            ) : (
+              <p style={{ fontSize: '12px', color: 'var(--c-text-muted)', margin: 0, lineHeight: 1.5 }}>
+                {t.claw.workingFolderSelectFile}
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // --- server workspace render ---
   const rootPath = '/'
   const rootItems = itemsByPath[rootPath] ?? []
   const title = workspace?.workspace_ref || t.claw.workingFolder
