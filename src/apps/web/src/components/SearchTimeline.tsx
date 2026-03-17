@@ -159,7 +159,7 @@ function getShortName(url: string): string {
   }
 }
 
-function WebFetchItem({ fetch: f }: { fetch: WebFetchRef }) {
+export function WebFetchItem({ fetch: f }: { fetch: WebFetchRef }) {
   const domain = getDomain(f.url)
   const shortName = getShortName(f.url)
   const isFetching = f.status === 'fetching'
@@ -245,6 +245,30 @@ export function SearchTimeline({ steps, sources, isComplete, codeExecutions, onO
   const fileOpCount = fileOps?.length ?? 0
   const webFetchCount = webFetches?.length ?? 0
   if (steps.length === 0 && codeExecCount === 0 && subAgentCount === 0 && fileOpCount === 0 && webFetchCount === 0 && !headerOverride) return null
+
+  // 当所有 non-step 项都带有 seq 时使用统一交错渲染
+  type UEntry =
+    | { kind: 'code'; id: string; seq: number; item: CodeExecution }
+    | { kind: 'agent'; id: string; seq: number; item: SubAgentRef }
+    | { kind: 'fileop'; id: string; seq: number; item: FileOpRef }
+    | { kind: 'fetch'; id: string; seq: number; item: WebFetchRef }
+  const standaloneCodeExecs = !steps.some(s => s.kind === 'finished') ? (codeExecutions ?? []) : []
+  const allUnified: UEntry[] = []
+  for (const ce of standaloneCodeExecs) {
+    if (ce.seq != null) allUnified.push({ kind: 'code', id: ce.id, seq: ce.seq, item: ce })
+  }
+  for (const a of (subAgents ?? [])) {
+    if (a.seq != null) allUnified.push({ kind: 'agent', id: a.id, seq: a.seq, item: a })
+  }
+  for (const op of (fileOps ?? [])) {
+    if (op.seq != null) allUnified.push({ kind: 'fileop', id: op.id, seq: op.seq, item: op })
+  }
+  for (const wf of (webFetches ?? [])) {
+    if (wf.seq != null) allUnified.push({ kind: 'fetch', id: wf.id, seq: wf.seq, item: wf })
+  }
+  const totalUnifiableItems = standaloneCodeExecs.length + subAgentCount + fileOpCount + webFetchCount
+  const useUnified = allUnified.length === totalUnifiableItems && totalUnifiableItems > 0
+  if (useUnified) allUnified.sort((a, b) => a.seq - b.seq)
 
   const stepsExcludingFinished = steps.filter(s => s.kind !== 'finished').length
   const effectiveStepCount = stepsExcludingFinished || (codeExecCount + subAgentCount + fileOpCount + webFetchCount)
@@ -373,8 +397,10 @@ export function SearchTimeline({ steps, sources, isComplete, codeExecutions, onO
                     {multiSteps && !isLast && (
                       <div style={{ position: 'absolute', left: '-16px', top: `${DOT_TOP + DOT_SIZE}px`, bottom: 0, width: '1.5px', background: 'var(--c-border-subtle)', zIndex: 0 }} />
                     )}
-                    {/* Last step extends line down when code executions or sub agents follow */}
-                    {isLast && (step.kind === 'finished' ? subAgentCount > 0 : (codeExecCount > 0 || subAgentCount > 0)) && (
+                    {/* Last step extends line down when any items follow */}
+                    {isLast && (step.kind === 'finished'
+                      ? (useUnified ? allUnified.length > 0 : subAgentCount > 0)
+                      : (useUnified ? allUnified.length > 0 : (codeExecCount > 0 || subAgentCount > 0 || fileOpCount > 0 || webFetchCount > 0))) && (
                       <div style={{ position: 'absolute', left: '-16px', top: `${DOT_TOP + DOT_SIZE}px`, bottom: 0, width: '1.5px', background: 'var(--c-border-subtle)', zIndex: 0 }} />
                     )}
                     {multiSteps && !isFirst && (
@@ -455,212 +481,158 @@ export function SearchTimeline({ steps, sources, isComplete, codeExecutions, onO
               })}
               </AnimatePresence>
 
-              {/* 仅代码执行时也保留时间轴节点 */}
-              {codeExecutions && codeExecutions.length > 0 && !steps.some((s) => s.kind === 'finished') && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0px', paddingTop: steps.length > 0 ? '8px' : '0' }}>
-                  {codeExecutions.map((ce, idx) => {
-                    const isLast = idx === codeExecutions.length - 1
+              {useUnified ? (
+                <div style={{ display: 'flex', flexDirection: 'column', paddingTop: steps.length > 0 ? '8px' : '0' }}>
+                  {allUnified.map((entry, idx) => {
                     const isFirst = idx === 0
-                    const showDot = codeExecutions.length > 0
-                    const multiItems = codeExecutions.length >= 2
-                    const isShell = ce.language === 'shell'
-                    const dotTop = isShell ? SHELL_DOT_TOP : PYTHON_DOT_TOP
-                    const hasStepsBefore = steps.length > 0
+                    const isLast = idx === allUnified.length - 1
+                    const multiItems = allUnified.length >= 2
+                    const dotTop = entry.kind === 'code' && entry.item.language !== 'shell' ? PYTHON_DOT_TOP : SHELL_DOT_TOP
+                    const dotColor = entry.kind === 'code'
+                      ? codeExecutionAccentColor(entry.item.status)
+                      : entry.kind === 'agent'
+                        ? entry.item.status === 'completed' ? 'var(--c-text-muted)' : entry.item.status === 'failed' ? 'var(--c-status-error-text, #ef4444)' : 'var(--c-text-secondary)'
+                        : entry.kind === 'fileop'
+                          ? entry.item.status === 'failed' ? 'var(--c-status-error-text, #ef4444)' : entry.item.status === 'running' ? 'var(--c-text-secondary)' : 'var(--c-text-muted)'
+                          : entry.item.status === 'failed' ? 'var(--c-status-error-text, #ef4444)' : entry.item.status === 'fetching' ? 'var(--c-text-secondary)' : 'var(--c-text-muted)'
                     return (
-                      <div
-                        key={ce.id}
-                        style={{
-                          position: 'relative',
-                          paddingBottom: isLast ? 0 : '8px',
-                        }}
-                      >
-                        {/* bottom connector: dot bottom → container bottom */}
-                        {(multiItems && !isLast) || (isLast && (subAgentCount > 0 || fileOpCount > 0 || webFetchCount > 0)) ? (
-                          <div style={{ position: 'absolute', left: '-16px', top: `${dotTop + DOT_SIZE}px`, bottom: 0, width: '1.5px', background: 'var(--c-border-subtle)', zIndex: 0 }} />
-                        ) : null}
-                        {/* top connector: container top → dot top */}
-                        {multiItems && !isFirst && (
-                          <div style={{ position: 'absolute', left: '-16px', top: 0, height: `${dotTop}px`, width: '1.5px', background: 'var(--c-border-subtle)', zIndex: 0 }} />
-                        )}
-                        {/* bridge: step 区域 → 第一个代码执行节点 */}
-                        {isFirst && hasStepsBefore && (
-                          <div style={{ position: 'absolute', left: '-16px', top: '-8px', height: `${dotTop + 8}px`, width: '1.5px', background: 'var(--c-border-subtle)', zIndex: 0 }} />
-                        )}
-                        {showDot && (
-                          <div
-                            style={{
-                              position: 'absolute',
-                              left: '-19px',
-                              top: `${dotTop}px`,
-                              width: `${DOT_SIZE}px`,
-                              height: `${DOT_SIZE}px`,
-                              borderRadius: '50%',
-                              background: codeExecutionAccentColor(ce.status),
-                              border: '2px solid var(--c-bg-page)',
-                              zIndex: 1,
-                            }}
-                          />
-                        )}
-                        {ce.language === 'shell'
-                          ? <ShellExecutionBlock code={ce.code} output={ce.output} status={ce.status} errorMessage={ce.errorMessage} />
-                          : <CodeExecutionCard
-                              language={ce.language}
-                              code={ce.code}
-                              output={ce.output}
-                              errorMessage={ce.errorMessage}
-                              status={ce.status}
-                              onOpen={onOpenCodeExecution ? () => onOpenCodeExecution(ce) : undefined}
-                              isActive={activeCodeExecutionId === ce.id}
-                            />
-                        }
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
-
-              {subAgents && subAgents.length > 0 && (
-                <div style={{ display: 'flex', flexDirection: 'column', paddingTop: steps.length > 0 || codeExecCount > 0 ? '8px' : '0' }}>
-                  {subAgents.map((agent, idx) => {
-                    const isFirst = idx === 0
-                    const isLast = idx === subAgents.length - 1
-                    const dotTop = SHELL_DOT_TOP
-                    const hasPrevItems = steps.length > 0 || codeExecCount > 0
-                    const multiItems = subAgents.length >= 2
-                    return (
-                      <div key={agent.id} style={{ position: 'relative', paddingBottom: isLast ? 0 : '6px' }}>
-                        {multiItems && !isLast && (
+                      <div key={entry.id} style={{ position: 'relative', paddingBottom: isLast ? 0 : '6px' }}>
+                        {!isLast && (
                           <div style={{ position: 'absolute', left: '-16px', top: `${dotTop + DOT_SIZE}px`, bottom: 0, width: '1.5px', background: 'var(--c-border-subtle)', zIndex: 0 }} />
                         )}
                         {multiItems && !isFirst && (
                           <div style={{ position: 'absolute', left: '-16px', top: 0, height: `${dotTop}px`, width: '1.5px', background: 'var(--c-border-subtle)', zIndex: 0 }} />
                         )}
-                        {isFirst && hasPrevItems && (
+                        {isFirst && steps.length > 0 && (
                           <div style={{ position: 'absolute', left: '-16px', top: '-8px', height: `${dotTop + 8}px`, width: '1.5px', background: 'var(--c-border-subtle)', zIndex: 0 }} />
                         )}
-                        <div
-                          style={{
-                            position: 'absolute',
-                            left: '-19px',
-                            top: `${dotTop}px`,
-                            width: `${DOT_SIZE}px`,
-                            height: `${DOT_SIZE}px`,
-                            borderRadius: '50%',
-                            background: agent.status === 'completed' ? 'var(--c-text-muted)' : agent.status === 'failed' ? 'var(--c-status-error-text, #ef4444)' : 'var(--c-text-secondary)',
-                            border: '2px solid var(--c-bg-page)',
-                            zIndex: 1,
-                          }}
-                        />
-                        <SubAgentBlock
-                          nickname={agent.nickname}
-                          personaId={agent.personaId}
-                          input={agent.input}
-                          output={agent.output}
-                          status={agent.status}
-                          error={agent.error}
-                          live={live}
-                          currentRunId={agent.currentRunId}
-                          accessToken={accessToken}
-                          baseUrl={baseUrl}
-                        />
+                        <div style={{ position: 'absolute', left: '-19px', top: `${dotTop}px`, width: `${DOT_SIZE}px`, height: `${DOT_SIZE}px`, borderRadius: '50%', background: dotColor, border: '2px solid var(--c-bg-page)', zIndex: 1 }} />
+                        {entry.kind === 'code' && (entry.item.language === 'shell'
+                          ? <ShellExecutionBlock code={entry.item.code} output={entry.item.output} status={entry.item.status} errorMessage={entry.item.errorMessage} />
+                          : <CodeExecutionCard language={entry.item.language} code={entry.item.code} output={entry.item.output} errorMessage={entry.item.errorMessage} status={entry.item.status} onOpen={onOpenCodeExecution ? () => onOpenCodeExecution(entry.item as CodeExecution) : undefined} isActive={activeCodeExecutionId === entry.item.id} />
+                        )}
+                        {entry.kind === 'agent' && (
+                          <SubAgentBlock nickname={entry.item.nickname} personaId={entry.item.personaId} input={entry.item.input} output={entry.item.output} status={entry.item.status} error={entry.item.error} live={live} currentRunId={entry.item.currentRunId} accessToken={accessToken} baseUrl={baseUrl} />
+                        )}
+                        {entry.kind === 'fileop' && (
+                          <FileOpBlock toolName={entry.item.toolName} label={entry.item.label} output={entry.item.output} status={entry.item.status} errorMessage={entry.item.errorMessage} />
+                        )}
+                        {entry.kind === 'fetch' && <WebFetchItem fetch={entry.item} />}
                       </div>
                     )
                   })}
                 </div>
-              )}
-
-              {fileOps && fileOps.length > 0 && (
-                <div style={{ display: 'flex', flexDirection: 'column', paddingTop: steps.length > 0 || codeExecCount > 0 || subAgentCount > 0 ? '8px' : '0' }}>
-                  {fileOps.map((op, idx) => {
-                    const isFirst = idx === 0
-                    const isLast = idx === fileOps.length - 1
-                    const dotTop = SHELL_DOT_TOP
-                    const hasPrevItems = steps.length > 0 || codeExecCount > 0 || subAgentCount > 0
-                    const multiItems = fileOps.length >= 2
-                    const dotColor = op.status === 'failed'
-                      ? 'var(--c-status-error-text, #ef4444)'
-                      : op.status === 'running'
-                        ? 'var(--c-text-secondary)'
-                        : 'var(--c-text-muted)'
-                    return (
-                      <div key={op.id} style={{ position: 'relative', paddingBottom: isLast ? 0 : '4px' }}>
-                        {multiItems && !isLast && (
-                          <div style={{ position: 'absolute', left: '-16px', top: `${dotTop + DOT_SIZE}px`, bottom: 0, width: '1.5px', background: 'var(--c-border-subtle)', zIndex: 0 }} />
-                        )}
-                        {multiItems && !isFirst && (
-                          <div style={{ position: 'absolute', left: '-16px', top: 0, height: `${dotTop}px`, width: '1.5px', background: 'var(--c-border-subtle)', zIndex: 0 }} />
-                        )}
-                        {isFirst && hasPrevItems && (
-                          <div style={{ position: 'absolute', left: '-16px', top: '-8px', height: `${dotTop + 8}px`, width: '1.5px', background: 'var(--c-border-subtle)', zIndex: 0 }} />
-                        )}
-                        <div
-                          style={{
-                            position: 'absolute',
-                            left: '-19px',
-                            top: `${dotTop}px`,
-                            width: `${DOT_SIZE}px`,
-                            height: `${DOT_SIZE}px`,
-                            borderRadius: '50%',
-                            background: dotColor,
-                            border: '2px solid var(--c-bg-page)',
-                            zIndex: 1,
-                          }}
-                        />
-                        <FileOpBlock
-                          toolName={op.toolName}
-                          label={op.label}
-                          output={op.output}
-                          status={op.status}
-                          errorMessage={op.errorMessage}
-                        />
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
-
-              {webFetches && webFetches.length > 0 && (
-                <div style={{ display: 'flex', flexDirection: 'column', paddingTop: steps.length > 0 || codeExecCount > 0 || subAgentCount > 0 || fileOpCount > 0 ? '8px' : '0' }}>
-                  {webFetches.map((f, idx) => {
-                    const isFirst = idx === 0
-                    const isLast = idx === webFetches.length - 1
-                    const dotTop = SHELL_DOT_TOP
-                    const hasPrevItems = steps.length > 0 || codeExecCount > 0 || subAgentCount > 0 || fileOpCount > 0
-                    const multiItems = webFetches.length >= 2
-                    const dotColor = f.status === 'failed'
-                      ? 'var(--c-status-error-text, #ef4444)'
-                      : f.status === 'fetching'
-                        ? 'var(--c-text-secondary)'
-                        : 'var(--c-text-muted)'
-                    return (
-                      <div key={f.id} style={{ position: 'relative', paddingBottom: isLast ? 0 : '4px' }}>
-                        {multiItems && !isLast && (
-                          <div style={{ position: 'absolute', left: '-16px', top: `${dotTop + DOT_SIZE}px`, bottom: 0, width: '1.5px', background: 'var(--c-border-subtle)', zIndex: 0 }} />
-                        )}
-                        {multiItems && !isFirst && (
-                          <div style={{ position: 'absolute', left: '-16px', top: 0, height: `${dotTop}px`, width: '1.5px', background: 'var(--c-border-subtle)', zIndex: 0 }} />
-                        )}
-                        {isFirst && hasPrevItems && (
-                          <div style={{ position: 'absolute', left: '-16px', top: '-8px', height: `${dotTop + 8}px`, width: '1.5px', background: 'var(--c-border-subtle)', zIndex: 0 }} />
-                        )}
-                        <div
-                          style={{
-                            position: 'absolute',
-                            left: '-19px',
-                            top: `${dotTop}px`,
-                            width: `${DOT_SIZE}px`,
-                            height: `${DOT_SIZE}px`,
-                            borderRadius: '50%',
-                            background: dotColor,
-                            border: '2px solid var(--c-bg-page)',
-                            zIndex: 1,
-                          }}
-                        />
-                        <WebFetchItem fetch={f} />
-                      </div>
-                    )
-                  })}
-                </div>
+              ) : (
+                <>
+                  {codeExecutions && codeExecutions.length > 0 && !steps.some((s) => s.kind === 'finished') && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0px', paddingTop: steps.length > 0 ? '8px' : '0' }}>
+                      {codeExecutions.map((ce, idx) => {
+                        const isLast = idx === codeExecutions.length - 1
+                        const isFirst = idx === 0
+                        const multiItems = codeExecutions.length >= 2
+                        const dotTop = ce.language === 'shell' ? SHELL_DOT_TOP : PYTHON_DOT_TOP
+                        return (
+                          <div key={ce.id} style={{ position: 'relative', paddingBottom: isLast ? 0 : '8px' }}>
+                            {(multiItems && !isLast) || (isLast && (subAgentCount > 0 || fileOpCount > 0 || webFetchCount > 0)) ? (
+                              <div style={{ position: 'absolute', left: '-16px', top: `${dotTop + DOT_SIZE}px`, bottom: 0, width: '1.5px', background: 'var(--c-border-subtle)', zIndex: 0 }} />
+                            ) : null}
+                            {multiItems && !isFirst && (
+                              <div style={{ position: 'absolute', left: '-16px', top: 0, height: `${dotTop}px`, width: '1.5px', background: 'var(--c-border-subtle)', zIndex: 0 }} />
+                            )}
+                            {isFirst && steps.length > 0 && (
+                              <div style={{ position: 'absolute', left: '-16px', top: '-8px', height: `${dotTop + 8}px`, width: '1.5px', background: 'var(--c-border-subtle)', zIndex: 0 }} />
+                            )}
+                            <div style={{ position: 'absolute', left: '-19px', top: `${dotTop}px`, width: `${DOT_SIZE}px`, height: `${DOT_SIZE}px`, borderRadius: '50%', background: codeExecutionAccentColor(ce.status), border: '2px solid var(--c-bg-page)', zIndex: 1 }} />
+                            {ce.language === 'shell'
+                              ? <ShellExecutionBlock code={ce.code} output={ce.output} status={ce.status} errorMessage={ce.errorMessage} />
+                              : <CodeExecutionCard language={ce.language} code={ce.code} output={ce.output} errorMessage={ce.errorMessage} status={ce.status} onOpen={onOpenCodeExecution ? () => onOpenCodeExecution(ce) : undefined} isActive={activeCodeExecutionId === ce.id} />
+                            }
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                  {subAgents && subAgents.length > 0 && (
+                    <div style={{ display: 'flex', flexDirection: 'column', paddingTop: steps.length > 0 || codeExecCount > 0 ? '8px' : '0' }}>
+                      {subAgents.map((agent, idx) => {
+                        const isFirst = idx === 0
+                        const isLast = idx === subAgents.length - 1
+                        const dotTop = SHELL_DOT_TOP
+                        const hasPrevItems = steps.length > 0 || codeExecCount > 0
+                        const multiItems = subAgents.length >= 2
+                        return (
+                          <div key={agent.id} style={{ position: 'relative', paddingBottom: isLast ? 0 : '6px' }}>
+                            {multiItems && !isLast && (
+                              <div style={{ position: 'absolute', left: '-16px', top: `${dotTop + DOT_SIZE}px`, bottom: 0, width: '1.5px', background: 'var(--c-border-subtle)', zIndex: 0 }} />
+                            )}
+                            {multiItems && !isFirst && (
+                              <div style={{ position: 'absolute', left: '-16px', top: 0, height: `${dotTop}px`, width: '1.5px', background: 'var(--c-border-subtle)', zIndex: 0 }} />
+                            )}
+                            {isFirst && hasPrevItems && (
+                              <div style={{ position: 'absolute', left: '-16px', top: '-8px', height: `${dotTop + 8}px`, width: '1.5px', background: 'var(--c-border-subtle)', zIndex: 0 }} />
+                            )}
+                            <div style={{ position: 'absolute', left: '-19px', top: `${dotTop}px`, width: `${DOT_SIZE}px`, height: `${DOT_SIZE}px`, borderRadius: '50%', background: agent.status === 'completed' ? 'var(--c-text-muted)' : agent.status === 'failed' ? 'var(--c-status-error-text, #ef4444)' : 'var(--c-text-secondary)', border: '2px solid var(--c-bg-page)', zIndex: 1 }} />
+                            <SubAgentBlock nickname={agent.nickname} personaId={agent.personaId} input={agent.input} output={agent.output} status={agent.status} error={agent.error} live={live} currentRunId={agent.currentRunId} accessToken={accessToken} baseUrl={baseUrl} />
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                  {fileOps && fileOps.length > 0 && (
+                    <div style={{ display: 'flex', flexDirection: 'column', paddingTop: steps.length > 0 || codeExecCount > 0 || subAgentCount > 0 ? '8px' : '0' }}>
+                      {fileOps.map((op, idx) => {
+                        const isFirst = idx === 0
+                        const isLast = idx === fileOps.length - 1
+                        const dotTop = SHELL_DOT_TOP
+                        const hasPrevItems = steps.length > 0 || codeExecCount > 0 || subAgentCount > 0
+                        const multiItems = fileOps.length >= 2
+                        const dotColor = op.status === 'failed' ? 'var(--c-status-error-text, #ef4444)' : op.status === 'running' ? 'var(--c-text-secondary)' : 'var(--c-text-muted)'
+                        return (
+                          <div key={op.id} style={{ position: 'relative', paddingBottom: isLast ? 0 : '4px' }}>
+                            {multiItems && !isLast && (
+                              <div style={{ position: 'absolute', left: '-16px', top: `${dotTop + DOT_SIZE}px`, bottom: 0, width: '1.5px', background: 'var(--c-border-subtle)', zIndex: 0 }} />
+                            )}
+                            {multiItems && !isFirst && (
+                              <div style={{ position: 'absolute', left: '-16px', top: 0, height: `${dotTop}px`, width: '1.5px', background: 'var(--c-border-subtle)', zIndex: 0 }} />
+                            )}
+                            {isFirst && hasPrevItems && (
+                              <div style={{ position: 'absolute', left: '-16px', top: '-8px', height: `${dotTop + 8}px`, width: '1.5px', background: 'var(--c-border-subtle)', zIndex: 0 }} />
+                            )}
+                            <div style={{ position: 'absolute', left: '-19px', top: `${dotTop}px`, width: `${DOT_SIZE}px`, height: `${DOT_SIZE}px`, borderRadius: '50%', background: dotColor, border: '2px solid var(--c-bg-page)', zIndex: 1 }} />
+                            <FileOpBlock toolName={op.toolName} label={op.label} output={op.output} status={op.status} errorMessage={op.errorMessage} />
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                  {webFetches && webFetches.length > 0 && (
+                    <div style={{ display: 'flex', flexDirection: 'column', paddingTop: steps.length > 0 || codeExecCount > 0 || subAgentCount > 0 || fileOpCount > 0 ? '8px' : '0' }}>
+                      {webFetches.map((f, idx) => {
+                        const isFirst = idx === 0
+                        const isLast = idx === webFetches.length - 1
+                        const dotTop = SHELL_DOT_TOP
+                        const hasPrevItems = steps.length > 0 || codeExecCount > 0 || subAgentCount > 0 || fileOpCount > 0
+                        const multiItems = webFetches.length >= 2
+                        const dotColor = f.status === 'failed' ? 'var(--c-status-error-text, #ef4444)' : f.status === 'fetching' ? 'var(--c-text-secondary)' : 'var(--c-text-muted)'
+                        return (
+                          <div key={f.id} style={{ position: 'relative', paddingBottom: isLast ? 0 : '4px' }}>
+                            {multiItems && !isLast && (
+                              <div style={{ position: 'absolute', left: '-16px', top: `${dotTop + DOT_SIZE}px`, bottom: 0, width: '1.5px', background: 'var(--c-border-subtle)', zIndex: 0 }} />
+                            )}
+                            {multiItems && !isFirst && (
+                              <div style={{ position: 'absolute', left: '-16px', top: 0, height: `${dotTop}px`, width: '1.5px', background: 'var(--c-border-subtle)', zIndex: 0 }} />
+                            )}
+                            {isFirst && hasPrevItems && (
+                              <div style={{ position: 'absolute', left: '-16px', top: '-8px', height: `${dotTop + 8}px`, width: '1.5px', background: 'var(--c-border-subtle)', zIndex: 0 }} />
+                            )}
+                            <div style={{ position: 'absolute', left: '-19px', top: `${dotTop}px`, width: `${DOT_SIZE}px`, height: `${DOT_SIZE}px`, borderRadius: '50%', background: dotColor, border: '2px solid var(--c-bg-page)', zIndex: 1 }} />
+                            <WebFetchItem fetch={f} />
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </>
               )}
             </div>
           </motion.div>

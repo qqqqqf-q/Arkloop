@@ -25,17 +25,17 @@ var WriteStdinAgentSpec = tools.AgentToolSpec{
 
 var ExecCommandLlmSpec = llm.ToolSpec{
 	Name:        "exec_command",
-	Description: strPtr("Execute a shell command on the local machine. The shell session persists across calls within the same conversation. Use this to run terminal commands, install packages, manage files, run scripts, etc."),
+	Description: strPtr("Execute a shell command on the local machine. The shell session persists across calls within the same conversation. Prefer the cwd parameter for directory changes instead of prefixing commands with cd &&. Use this to run terminal commands, install packages, manage files, run scripts, etc."),
 	JSONSchema: map[string]any{
 		"type": "object",
 		"properties": map[string]any{
 			"command": map[string]any{
 				"type":        "string",
-				"description": "command to execute",
+				"description": "command to execute; keep the command body focused and prefer cwd for directory changes instead of prefixing cd &&",
 			},
 			"cwd": map[string]any{
 				"type":        "string",
-				"description": "optional working directory for the command",
+				"description": "optional working directory for the command; prefer this over embedding cd ... && inside command",
 			},
 			"timeout_ms": map[string]any{
 				"type":        "integer",

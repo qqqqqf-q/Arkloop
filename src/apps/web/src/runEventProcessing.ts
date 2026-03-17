@@ -219,6 +219,7 @@ export function applyCodeExecutionToolCall(
     language,
     code,
     status: 'running',
+    seq: event.seq,
   }
   return {
     appended,
@@ -658,6 +659,7 @@ export function applySubAgentToolCall(
     personaId: fields.personaId,
     contextMode: fields.contextMode,
     input: fields.input,
+    seq: event.seq,
   }
   return { appended, nextAgents: [...agents, appended] }
 }
@@ -750,7 +752,7 @@ export function buildMessageSubAgentsFromRunEvents(events: RunEvent[]): SubAgent
 
 // --- File operation processing ---
 
-const FILE_OP_TOOL_NAMES = new Set(['grep', 'glob', 'read_file', 'write_file', 'edit', 'edit_file', 'search_tools'])
+const FILE_OP_TOOL_NAMES = new Set(['grep', 'glob', 'read_file', 'write_file', 'edit', 'edit_file', 'search_tools', 'memory_write', 'memory_search', 'memory_read', 'memory_forget'])
 
 type FileOpToolCallPatch = {
   nextOps: FileOpRef[]
@@ -802,6 +804,24 @@ function fileOpLabel(toolName: string, args: Record<string, unknown>): string {
       }
       return 'search_tools'
     }
+    case 'memory_write': {
+      const key = typeof args.key === 'string' ? args.key : ''
+      const category = typeof args.category === 'string' ? args.category : ''
+      if (key) return `memory_write ${category ? category + '/' : ''}${truncate(key, 32)}`
+      return 'memory_write'
+    }
+    case 'memory_search': {
+      const query = typeof args.query === 'string' ? args.query : ''
+      return query ? `memory_search "${truncate(query, 36)}"` : 'memory_search'
+    }
+    case 'memory_read': {
+      const uri = typeof args.uri === 'string' ? args.uri : ''
+      return uri ? `memory_read ${truncate(uri, 40)}` : 'memory_read'
+    }
+    case 'memory_forget': {
+      const uri = typeof args.uri === 'string' ? args.uri : ''
+      return uri ? `memory_forget ${truncate(uri, 40)}` : 'memory_forget'
+    }
     default:
       return toolName
   }
@@ -848,6 +868,23 @@ function fileOpOutputFromResult(toolName: string, result: unknown): string | und
       }).filter(Boolean)
       return `${count} match${count === 1 ? '' : 'es'}${names.length > 0 ? ': ' + names.join(', ') : ''}`
     }
+    case 'memory_write': {
+      const stored = typeof r.stored === 'boolean' ? r.stored : true
+      return stored ? 'stored' : 'failed'
+    }
+    case 'memory_search': {
+      const results = Array.isArray(r.results) ? r.results as unknown[] : []
+      const count = results.length
+      if (count === 0) return '(no results)'
+      return `${count} result${count === 1 ? '' : 's'}`
+    }
+    case 'memory_read': {
+      const content = typeof r.content === 'string' ? r.content.trim() : ''
+      return content ? content.slice(0, 80) + (content.length > 80 ? '…' : '') : 'read'
+    }
+    case 'memory_forget': {
+      return 'forgotten'
+    }
     default:
       return undefined
   }
@@ -869,6 +906,7 @@ export function applyFileOpToolCall(
     toolName,
     label: fileOpLabel(toolName, args),
     status: 'running',
+    seq: event.seq,
   }
   return { appended, nextOps: [...ops, appended] }
 }
@@ -944,6 +982,7 @@ export function applyWebFetchToolCall(
     id: pickToolCallId(event),
     url,
     status: 'fetching',
+    seq: event.seq,
   }
   return { appended, nextFetches: [...fetches, appended] }
 }
@@ -995,6 +1034,8 @@ export function buildMessageWebFetchesFromRunEvents(events: RunEvent[]): WebFetc
 export function buildMessageCopBlocksFromRunEvents(events: RunEvent[]): MessageCopBlocksRef | null {
   type Block = { id: string; title: string; steps: MessageSearchStepRef[]; sources: [] }
   const blocks: Block[] = []
+  let preTextChunks: string[] = []
+  let seenToolCall = false
 
   const ensureBlock = () => {
     if (blocks.length === 0) {
@@ -1003,6 +1044,18 @@ export function buildMessageCopBlocksFromRunEvents(events: RunEvent[]): MessageC
   }
 
   for (const event of events) {
+    if (!seenToolCall && event.type === 'message.delta') {
+      const obj = event.data as { content_delta?: unknown; role?: unknown; channel?: unknown }
+      if ((obj.role == null || obj.role === 'assistant') && obj.channel !== 'thinking' && typeof obj.content_delta === 'string') {
+        preTextChunks.push(obj.content_delta)
+      }
+      continue
+    }
+
+    if (event.type === 'tool.call') {
+      seenToolCall = true
+    }
+
     if (event.type === 'tool.call' && pickToolName(event.data) === 'timeline_title') {
       const args = event.data && typeof event.data === 'object'
         ? (event.data as { arguments?: unknown }).arguments as Record<string, unknown> | undefined ?? {}
@@ -1044,5 +1097,6 @@ export function buildMessageCopBlocksFromRunEvents(events: RunEvent[]): MessageC
   }
 
   if (blocks.length === 0) return null
-  return { blocks, bridgeTexts: [] }
+  const preText = preTextChunks.join('').trim() || undefined
+  return { blocks, bridgeTexts: [], preText }
 }

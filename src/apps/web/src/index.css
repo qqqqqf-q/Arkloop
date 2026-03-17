@@ -520,6 +520,15 @@ button:not(:disabled) {
   font-feature-settings: 'onum' 1, 'pnum' 1, 'ss01' 1, 'cv01' 1;
 }
 
+.md-content > h1:first-child,
+.md-content > h2:first-child,
+.md-content > h3:first-child,
+.md-content > h4:first-child,
+.md-content > h5:first-child,
+.md-content > h6:first-child {
+  margin-top: 0 !important;
+}
+
 .md-content--compact .md-table {
   font-size: 13px;
 }

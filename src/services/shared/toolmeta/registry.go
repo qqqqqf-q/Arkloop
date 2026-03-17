@@ -97,6 +97,7 @@ var registry = []ToolMeta{
 		ShortDesc: "run a shell command in a persistent sandbox session",
 		LLMDescription: "run a shell command in a persistent sandbox session. Use session_mode=auto by default. " +
 			"Reuse the session_ref returned by the first call; do not issue a new exec_command to poll a busy session — use write_stdin instead. " +
+			"The shell keeps its state across calls. When you only need to change directories, prefer the cwd parameter instead of prefixing the command with cd &&. " +
 			"If the result shows running=true or only control sequences, continue with write_stdin. " +
 			"Working files go to /workspace/; final user-visible files go to /tmp/output/ (auto-uploaded as artifacts). " +
 			"Two distinct reference formats — use the correct one:\n" +

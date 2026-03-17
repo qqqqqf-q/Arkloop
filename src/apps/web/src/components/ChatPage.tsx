@@ -12,9 +12,8 @@ import { ThinkingBlock, CodeExecutionCard, type CodeExecution } from './Thinking
 import { ShellExecutionBlock } from './ShellExecutionBlock'
 import { FileOpBlock } from './FileOpBlock'
 import { SubAgentBlock } from './SubAgentBlock'
-import { SearchTimeline, type SearchStep } from './SearchTimeline'
+import { SearchTimeline, WebFetchItem, type SearchStep } from './SearchTimeline'
 import { ArtifactStreamBlock, extractPartialArtifactFields, type StreamingArtifactEntry } from './ArtifactStreamBlock'
-import { MemoryActionBlock } from './MemoryActionBlock'
 import UserInputCard from './UserInputCard'
 import { resolveMessageSourcesForRender } from './chatSourceResolver'
 import { ErrorCallout, type AppError } from './ErrorCallout'
@@ -95,8 +94,7 @@ import {
   writeMessageThinking,
   readMessageBrowserActions,
   writeMessageBrowserActions,
-  readMessageMemoryActions,
-  writeMessageMemoryActions,
+
   readMessageSearchSteps,
   writeMessageSearchSteps,
   readMessageCopBlocks,
@@ -109,7 +107,7 @@ import {
   type FileOpRef,
   type MessageThinkingRef,
   type MessageSearchStepRef,
-  type MemoryActionRef,
+
   type MessageCopBlocksRef,
   readMessageSubAgents,
   writeMessageSubAgents,
@@ -281,6 +279,8 @@ export function ChatPage() {
   const [draft, setDraft] = useState('')
   const [attachments, setAttachments] = useState<Attachment[]>([])
   const [assistantDraft, setAssistantDraft] = useState('')
+  const [preCopText, setPreCopText] = useState('')
+  const seenFirstToolCallInRunRef = useRef(false)
   const [activeRunId, setActiveRunId] = useState<string | null>(
     locationState?.initialRunId ?? null,
   )
@@ -334,10 +334,6 @@ export function ChatPage() {
   // Live search steps for the legacy (non-COP) search path
   const [searchSteps, setSearchSteps] = useState<SearchStep[]>([])
   const searchStepsRef = useRef<SearchStep[]>([])
-  // 记忆操作缓存：messageId -> actions
-  const [messageMemoryActionsMap, setMessageMemoryActionsMap] = useState<Map<string, MemoryActionRef[]>>(new Map())
-  const [memoryActions, setMemoryActions] = useState<MemoryActionRef[]>([])
-  const memoryActionsRef = useRef<MemoryActionRef[]>([])
   // COP blocks 缓存：messageId -> cop blocks data
   const [messageCopBlocksMap, setMessageCopBlocksMap] = useState<Map<string, MessageCopBlocksRef>>(new Map())
   // 跟踪未响应的用户消息，用于取消后重发时替换
@@ -532,6 +528,8 @@ export function ChatPage() {
   }, [])
   const clearLiveRunSecurityArtifacts = useCallback(() => {
     setAssistantDraft('')
+    setPreCopText('')
+    seenFirstToolCallInRunRef.current = false
     setThinkingDraft('')
     setTopLevelCodeExecutions([])
     setTopLevelBrowserActions([])
@@ -542,8 +540,6 @@ export function ChatPage() {
     currentRunArtifactsRef.current = []
     currentRunCodeExecutionsRef.current = []
     currentRunBrowserActionsRef.current = []
-    memoryActionsRef.current = []
-    setMemoryActions([])
     resetSearchSteps()
     pendingSearchStepsRef.current = null
     resetCopState()
@@ -792,7 +788,7 @@ export function ChatPage() {
         const webFetchesMap = new Map<string, WebFetchRef[]>()
         const thinkingMap = new Map<string, MessageThinkingRef>()
         const searchStepsMap = new Map<string, MessageSearchStepRef[]>()
-        const memoryActionsMap = new Map<string, MemoryActionRef[]>()
+
         const runEventsMap = new Map<string, MsgRunEvent[]>()
         const copBlocksMap = new Map<string, MessageCopBlocksRef>()
         for (const msg of items) {
@@ -820,8 +816,7 @@ export function ChatPage() {
             if (patched.changed) writeMessageSearchSteps(msg.id, patched.steps)
             searchStepsMap.set(msg.id, patched.steps)
           }
-          const cachedMemoryActions = readMessageMemoryActions(msg.id)
-          if (cachedMemoryActions) memoryActionsMap.set(msg.id, cachedMemoryActions)
+
           const cachedRunEvents = readMsgRunEvents(msg.id)
           if (cachedRunEvents) runEventsMap.set(msg.id, cachedRunEvents)
           const cachedCopBlocks = readMessageCopBlocks(msg.id)
@@ -902,7 +897,7 @@ export function ChatPage() {
         setMessageFileOpsMap(fileOpsMap)
         setMessageThinkingMap(thinkingMap)
         setMessageSearchStepsMap(searchStepsMap)
-        setMessageMemoryActionsMap(memoryActionsMap)
+
         setMsgRunEventsMap(runEventsMap)
         setMessageCopBlocksMap(copBlocksMap)
         setMessageWebFetchesMap(webFetchesMap)
@@ -944,6 +939,8 @@ export function ChatPage() {
   useEffect(() => {
     setActiveRunId(null)
     setAssistantDraft('')
+    setPreCopText('')
+    seenFirstToolCallInRunRef.current = false
     setInjectionBlocked(null)
     injectionBlockedRunIdRef.current = null
     setSegments([])
@@ -965,8 +962,6 @@ export function ChatPage() {
     currentRunCodeExecutionsRef.current = []
     currentRunBrowserActionsRef.current = []
     currentRunSubAgentsRef.current = []
-    memoryActionsRef.current = []
-    setMemoryActions([])
     setMessageSourcesMap(new Map())
     setMessageArtifactsMap(new Map())
     setMessageCodeExecutionsMap(new Map())
@@ -974,7 +969,6 @@ export function ChatPage() {
     setMessageSubAgentsMap(new Map())
     setMessageThinkingMap(new Map())
     setMessageSearchStepsMap(new Map())
-    setMessageMemoryActionsMap(new Map())
     setMessageCopBlocksMap(new Map())
     setSourcePanelMessageId(null)
     disconnectSSE()
@@ -1163,6 +1157,8 @@ export function ChatPage() {
           }
         } else if (isThinking) {
           setThinkingDraft((prev) => prev + delta)
+        } else if (!seenFirstToolCallInRunRef.current) {
+          setPreCopText((prev) => prev + delta)
         } else {
           pendingTextRef.current += delta
           setAssistantDraft((prev) => prev + delta)
@@ -1196,6 +1192,7 @@ export function ChatPage() {
       }
 
       if (event.type === 'tool.call') {
+        seenFirstToolCallInRunRef.current = true
         const obj = event.data as { tool_name?: unknown; llm_name?: unknown; tool_call_id?: unknown; arguments?: unknown }
         const toolName = typeof obj.tool_name === 'string' ? obj.tool_name : event.tool_name
         const llmName = typeof obj.llm_name === 'string' ? obj.llm_name : undefined
@@ -1273,24 +1270,6 @@ export function ChatPage() {
           })
           continue
         }
-        // memory_* tool.call 驱动 MemoryActionBlock
-        if (toolName === 'memory_write' || toolName === 'memory_search' || toolName === 'memory_read' || toolName === 'memory_forget') {
-          const callId = typeof obj.tool_call_id === 'string' ? obj.tool_call_id : `${toolName}-${Date.now()}`
-          const args = obj.arguments as Record<string, unknown> | undefined
-          const newAction: MemoryActionRef = {
-            id: callId,
-            toolName: toolName as MemoryActionRef['toolName'],
-            args: {
-              category: typeof args?.category === 'string' ? args.category : undefined,
-              key: typeof args?.key === 'string' ? args.key : undefined,
-              query: typeof args?.query === 'string' ? args.query : undefined,
-              uri: typeof args?.uri === 'string' ? args.uri : undefined,
-            },
-            status: 'active',
-          }
-          memoryActionsRef.current = [...memoryActionsRef.current, newAction]
-          setMemoryActions([...memoryActionsRef.current])
-        }
         // web_search tool.call → 添加到当前 COP 块
         if (toolName === 'web_search' || llmName === 'web_search') {
           const callId = typeof obj.tool_call_id === 'string' ? obj.tool_call_id : event.event_id
@@ -1332,22 +1311,6 @@ export function ChatPage() {
       if (event.type === 'tool.result') {
         const obj = event.data as { tool_name?: unknown; tool_call_id?: unknown; result?: unknown; error?: unknown }
         const resultToolName = typeof obj.tool_name === 'string' ? obj.tool_name : ''
-        // memory_* tool.result — 更新 MemoryActionBlock
-        if (resultToolName === 'memory_write' || resultToolName === 'memory_search' || resultToolName === 'memory_read' || resultToolName === 'memory_forget') {
-          const callId = typeof obj.tool_call_id === 'string' ? obj.tool_call_id : undefined
-          const result = obj.result as Record<string, unknown> | undefined
-          const isError = obj.error != null || (result != null && 'error' in result)
-          let summary: string | undefined
-          if (resultToolName === 'memory_search' && Array.isArray(result?.hits)) {
-            summary = `${result.hits.length} 条结果`
-          }
-          if (callId) {
-            memoryActionsRef.current = memoryActionsRef.current.map((a) =>
-              a.id === callId ? { ...a, status: isError ? 'error' : 'done', resultSummary: summary } : a,
-            )
-            setMemoryActions([...memoryActionsRef.current])
-          }
-        }
         if (resultToolName === 'web_search' || resultToolName.startsWith('web_search.')) {
           const result = obj.result as { results?: unknown[] } | undefined
           if (Array.isArray(result?.results)) {
@@ -1553,9 +1516,7 @@ export function ChatPage() {
         setStreamingArtifacts([])
         setSegments([])
         activeSegmentIdRef.current = null
-        const runMemoryActions = [...memoryActionsRef.current]
-        memoryActionsRef.current = []
-        setMemoryActions([])
+
         const runSearchSteps = finalizeSearchSteps(searchStepsRef.current)
         if (runSearchSteps.length > 0) applySearchSteps(() => runSearchSteps)
         const runCopData = finalizeCopBlocks(copBlocksRef.current, bridgeTextsRef.current)
@@ -1642,10 +1603,7 @@ export function ChatPage() {
               writeMessageThinking(completedAssistant.id, runThinking)
               setMessageThinkingMap((prev) => new Map(prev).set(completedAssistant.id, runThinking))
             }
-            if (runMemoryActions.length > 0) {
-              writeMessageMemoryActions(completedAssistant.id, runMemoryActions)
-              setMessageMemoryActionsMap((prev) => new Map(prev).set(completedAssistant.id, runMemoryActions))
-            }
+
             const completedRunEvents = (sse.events as MsgRunEvent[]).filter(
               (e) => e.run_id === completedRunId,
             )
@@ -2361,6 +2319,13 @@ export function ChatPage() {
     })
   }, [topLevelCodeExecutions])
 
+  const allStreamItems = useMemo(() => [
+    ...dedupedTopLevelCodeExecutions.map(ce => ({ kind: 'code' as const, id: ce.id, seq: ce.seq ?? 0, item: ce })),
+    ...topLevelSubAgents.map(a => ({ kind: 'agent' as const, id: a.id, seq: a.seq ?? 0, item: a })),
+    ...topLevelFileOps.map(op => ({ kind: 'fileop' as const, id: op.id, seq: op.seq ?? 0, item: op })),
+    ...topLevelWebFetches.map(wf => ({ kind: 'fetch' as const, id: wf.id, seq: wf.seq ?? 0, item: wf })),
+  ].sort((a, b) => a.seq - b.seq), [dedupedTopLevelCodeExecutions, topLevelSubAgents, topLevelFileOps, topLevelWebFetches])
+
   const copStepCount = useMemo(() => {
     const timelineSteps = copBlocks.flatMap((b) => b.steps).filter((s) => s.kind !== 'finished').length
     const segmentSteps = copBlocks.length === 0
@@ -2537,11 +2502,11 @@ export function ChatPage() {
                 const historicalCop = msg.role === 'assistant' ? historicalCopMap.get(msg.id) : undefined
                 const historicalBlocks = historicalCop?.copData.blocks ?? []
                 const historicalBridgeTexts = historicalCop?.copData.bridgeTexts ?? []
+                const historicalPreText = historicalCop?.copData.preText
 
                 const messageCodeExecutions = msg.role === 'assistant' ? messageCodeExecutionsMap.get(msg.id) : undefined
                 const hasMessageCodeExecutions = !!(messageCodeExecutions && messageCodeExecutions.length > 0)
                 const messageSubAgents = msg.role === 'assistant' ? messageSubAgentsMap.get(msg.id) : undefined
-                const messageMemoryActions = msg.role === 'assistant' ? messageMemoryActionsMap.get(msg.id) : undefined
                 const messageSearchSteps = msg.role === 'assistant' ? messageSearchStepsMap.get(msg.id) : undefined
                 const timelineSteps = messageSearchSteps ?? []
                 const messageFileOps = msg.role === 'assistant' ? messageFileOpsMap.get(msg.id) : undefined
@@ -2549,13 +2514,14 @@ export function ChatPage() {
                 const hasPerBlockCodeExecs = historicalBlocks.some(b => b.codeExecutions && b.codeExecutions.length > 0)
                 return (
                   <div key={msg.id} ref={idx === lastUserMsgIdx ? lastUserMsgRef : undefined}>
-                  {/* 完成后：记忆操作 + 搜索时间轴（最后一条 assistant 消息上方） */}
-                  {messageMemoryActions && messageMemoryActions.length > 0 && (
-                    <MemoryActionBlock actions={messageMemoryActions} />
-                  )}
                   {/* 完成后的 COP 时间轴 */}
                   {(historicalBlocks.length > 0 || timelineSteps.length > 0 || hasMessageCodeExecutions || (messageSubAgents && messageSubAgents.length > 0) || (messageFileOps && messageFileOps.length > 0) || (messageWebFetches && messageWebFetches.length > 0)) && (
                     <div style={{ marginBottom: '12px' }}>
+                      {historicalPreText && (
+                        <div style={{ fontSize: '14px', lineHeight: '1.6', color: 'var(--c-text-primary)', maxWidth: '663px', paddingBottom: '8px' }}>
+                          {historicalPreText}
+                        </div>
+                      )}
                       {historicalBlocks.map((block, bi) => {
                         const blockCodeExecs = hasPerBlockCodeExecs
                           ? (block.codeExecutions?.length ? block.codeExecutions : undefined)
@@ -2679,6 +2645,7 @@ export function ChatPage() {
                         ? () => setRunDetailPanelRunId(msg.run_id!)
                         : undefined
                     }
+                    contentPrefix={msg.role === 'assistant' ? historicalPreText : undefined}
                   />
                   {/* 无痕分割线：固定在 fork 基点之后 */}
                   {locationState?.isIncognitoFork && locationState.forkBaseCount != null && idx === locationState.forkBaseCount - 1 && (
@@ -2689,7 +2656,7 @@ export function ChatPage() {
               })}
 
               {/* 流式 COP 状态指示（无 copBlocks 时）：Thinking / XX steps completed */}
-              {isStreaming && copBlocks.length === 0 && (segments.length > 0 || dedupedTopLevelCodeExecutions.length > 0 || topLevelSubAgents.length > 0 || !assistantDraft) && (
+              {isStreaming && copBlocks.length === 0 && (segments.length > 0 || allStreamItems.length > 0 || !assistantDraft) && (
                 <motion.div
                   initial={{ opacity: 0, y: 6 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -2733,169 +2700,47 @@ export function ChatPage() {
                       ))}
                     </div>
                   )}
-                  {dedupedTopLevelCodeExecutions.length > 0 && (
-                    <div ref={copCodeExecScrollRef} style={{ paddingLeft: '24px', paddingTop: '6px', maxHeight: '60vh', overflowY: 'auto', position: 'relative' }}>
-                      {dedupedTopLevelCodeExecutions.map((ce, idx) => {
+                  {allStreamItems.length > 0 && (
+                    <div ref={copCodeExecScrollRef} style={{ paddingLeft: '24px', paddingTop: '6px', display: 'flex', flexDirection: 'column' }}>
+                      {allStreamItems.map((entry, idx) => {
                         const isFirst = idx === 0
-                        const isLast = idx === dedupedTopLevelCodeExecutions.length - 1
-                        const showDot = dedupedTopLevelCodeExecutions.length > 0
-                        const multiItems = dedupedTopLevelCodeExecutions.length >= 2
-                        const isShell = ce.language === 'shell'
-                        const dotTop = isShell ? 8 : 16
+                        const isLast = idx === allStreamItems.length - 1
+                        const multiItems = allStreamItems.length >= 2
+                        const isShell = entry.kind === 'code' && entry.item.language === 'shell'
+                        const dotTop = entry.kind === 'code' && !isShell ? 16 : 8
+                        const dotColor = entry.kind === 'code'
+                          ? codeExecutionAccentColor(entry.item.status)
+                          : entry.kind === 'agent'
+                            ? entry.item.status === 'completed' ? 'var(--c-text-muted)' : entry.item.status === 'failed' ? 'var(--c-status-error-text, #ef4444)' : 'var(--c-text-secondary)'
+                            : entry.kind === 'fileop'
+                              ? entry.item.status === 'failed' ? 'var(--c-status-error-text, #ef4444)' : entry.item.status === 'running' ? 'var(--c-text-secondary)' : 'var(--c-text-muted)'
+                              : entry.item.status === 'failed' ? 'var(--c-status-error-text, #ef4444)' : entry.item.status === 'fetching' ? 'var(--c-text-secondary)' : 'var(--c-text-muted)'
                         return (
                           <motion.div
-                            key={ce.id}
-                            initial={{ opacity: 0, y: 6 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ duration: 0.25, ease: 'easeOut' }}
-                            style={{
-                              position: 'relative',
-                              paddingBottom: isLast ? 0 : '8px',
-                            }}
-                          >
-                            {/* bottom connector: dot bottom → container bottom */}
-                            {(multiItems && !isLast) || (isLast && topLevelSubAgents.length > 0) ? (
-                              <div style={{ position: 'absolute', left: '-16px', top: `${dotTop + 8}px`, bottom: 0, width: '1.5px', background: 'var(--c-border-subtle)', zIndex: 0 }} />
-                            ) : null}
-                            {/* top connector: container top → dot top */}
-                            {multiItems && !isFirst && (
-                              <div style={{ position: 'absolute', left: '-16px', top: 0, height: `${dotTop}px`, width: '1.5px', background: 'var(--c-border-subtle)', zIndex: 0 }} />
-                            )}
-                            {showDot && (
-                              <div
-                                style={{
-                                  position: 'absolute',
-                                  left: '-19px',
-                                  top: `${dotTop}px`,
-                                  width: '8px',
-                                  height: '8px',
-                                  borderRadius: '50%',
-                                  background: codeExecutionAccentColor(ce.status),
-                                  border: '2px solid var(--c-bg-page)',
-                                  zIndex: 1,
-                                }}
-                              />
-                            )}
-                            {ce.language === 'shell'
-                              ? <ShellExecutionBlock code={ce.code} output={ce.output} status={ce.status} errorMessage={ce.errorMessage} />
-                              : <CodeExecutionCard language={ce.language} code={ce.code} output={ce.output} errorMessage={ce.errorMessage} status={ce.status} onOpen={() => openCodePanel(ce)} isActive={codePanelExecution?.id === ce.id} />
-                            }
-                          </motion.div>
-                        )
-                      })}
-                    </div>
-                  )}
-                  {topLevelSubAgents.length > 0 && (
-                    <div style={{ paddingLeft: '24px', paddingTop: '6px', display: 'flex', flexDirection: 'column' }}>
-                      {topLevelSubAgents.map((agent, idx) => {
-                        const isFirst = idx === 0
-                        const isLast = idx === topLevelSubAgents.length - 1
-                        const dotTop = 8
-                        const multiItems = topLevelSubAgents.length >= 2
-                        const hasCodeExecutionsBefore = dedupedTopLevelCodeExecutions.length > 0
-                        const dotColor = agent.status === 'completed'
-                          ? 'var(--c-text-muted)'
-                          : agent.status === 'failed'
-                            ? 'var(--c-status-error-text, #ef4444)'
-                            : 'var(--c-text-secondary)'
-
-                        return (
-                          <motion.div
-                            key={agent.id}
+                            key={entry.id}
                             initial={{ opacity: 0, y: 6 }}
                             animate={{ opacity: 1, y: 0 }}
                             transition={{ duration: 0.25, ease: 'easeOut' }}
                             style={{ position: 'relative', paddingBottom: isLast ? 0 : '6px' }}
                           >
-                            {multiItems && !isLast && (
+                            {!isLast && (
                               <div style={{ position: 'absolute', left: '-16px', top: `${dotTop + 8}px`, bottom: 0, width: '1.5px', background: 'var(--c-border-subtle)', zIndex: 0 }} />
                             )}
                             {multiItems && !isFirst && (
                               <div style={{ position: 'absolute', left: '-16px', top: 0, height: `${dotTop}px`, width: '1.5px', background: 'var(--c-border-subtle)', zIndex: 0 }} />
                             )}
-                            {isFirst && hasCodeExecutionsBefore && (
-                              <div style={{ position: 'absolute', left: '-16px', top: '-8px', height: `${dotTop + 8}px`, width: '1.5px', background: 'var(--c-border-subtle)', zIndex: 0 }} />
+                            <div style={{ position: 'absolute', left: '-19px', top: `${dotTop}px`, width: '8px', height: '8px', borderRadius: '50%', background: dotColor, border: '2px solid var(--c-bg-page)', zIndex: 1 }} />
+                            {entry.kind === 'code' && (isShell
+                              ? <ShellExecutionBlock code={entry.item.code} output={entry.item.output} status={entry.item.status} errorMessage={entry.item.errorMessage} />
+                              : <CodeExecutionCard language={entry.item.language} code={entry.item.code} output={entry.item.output} errorMessage={entry.item.errorMessage} status={entry.item.status} onOpen={() => openCodePanel(entry.item as CodeExecution)} isActive={codePanelExecution?.id === entry.item.id} />
                             )}
-                            <div
-                              style={{
-                                position: 'absolute',
-                                left: '-19px',
-                                top: `${dotTop}px`,
-                                width: '8px',
-                                height: '8px',
-                                borderRadius: '50%',
-                                background: dotColor,
-                                border: '2px solid var(--c-bg-page)',
-                                zIndex: 1,
-                              }}
-                            />
-                            <SubAgentBlock
-                              nickname={agent.nickname}
-                              personaId={agent.personaId}
-                              input={agent.input}
-                              output={agent.output}
-                              status={agent.status}
-                              error={agent.error}
-                              live={isStreaming}
-                              currentRunId={agent.currentRunId}
-                              accessToken={accessToken}
-                              baseUrl={baseUrl}
-                            />
-                          </motion.div>
-                        )
-                      })}
-                    </div>
-                  )}
-                  {topLevelFileOps.length > 0 && (
-                    <div style={{ paddingLeft: '24px', paddingTop: '6px', display: 'flex', flexDirection: 'column' }}>
-                      {topLevelFileOps.map((op, idx) => {
-                        const isFirst = idx === 0
-                        const isLast = idx === topLevelFileOps.length - 1
-                        const dotTop = 8
-                        const multiItems = topLevelFileOps.length >= 2
-                        const hasPrevItems = dedupedTopLevelCodeExecutions.length > 0 || topLevelSubAgents.length > 0
-                        const dotColor = op.status === 'failed'
-                          ? 'var(--c-status-error-text, #ef4444)'
-                          : op.status === 'running'
-                            ? 'var(--c-text-secondary)'
-                            : 'var(--c-text-muted)'
-                        return (
-                          <motion.div
-                            key={op.id}
-                            initial={{ opacity: 0, y: 6 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ duration: 0.25, ease: 'easeOut' }}
-                            style={{ position: 'relative', paddingBottom: isLast ? 0 : '4px' }}
-                          >
-                            {multiItems && !isLast && (
-                              <div style={{ position: 'absolute', left: '-16px', top: `${dotTop + 8}px`, bottom: 0, width: '1.5px', background: 'var(--c-border-subtle)', zIndex: 0 }} />
+                            {entry.kind === 'agent' && (
+                              <SubAgentBlock nickname={entry.item.nickname} personaId={entry.item.personaId} input={entry.item.input} output={entry.item.output} status={entry.item.status} error={entry.item.error} live={isStreaming} currentRunId={entry.item.currentRunId} accessToken={accessToken} baseUrl={baseUrl} />
                             )}
-                            {multiItems && !isFirst && (
-                              <div style={{ position: 'absolute', left: '-16px', top: 0, height: `${dotTop}px`, width: '1.5px', background: 'var(--c-border-subtle)', zIndex: 0 }} />
+                            {entry.kind === 'fileop' && (
+                              <FileOpBlock toolName={entry.item.toolName} label={entry.item.label} output={entry.item.output} status={entry.item.status} errorMessage={entry.item.errorMessage} />
                             )}
-                            {isFirst && hasPrevItems && (
-                              <div style={{ position: 'absolute', left: '-16px', top: '-6px', height: `${dotTop + 6}px`, width: '1.5px', background: 'var(--c-border-subtle)', zIndex: 0 }} />
-                            )}
-                            <div
-                              style={{
-                                position: 'absolute',
-                                left: '-19px',
-                                top: `${dotTop}px`,
-                                width: '8px',
-                                height: '8px',
-                                borderRadius: '50%',
-                                background: dotColor,
-                                border: '2px solid var(--c-bg-page)',
-                                zIndex: 1,
-                              }}
-                            />
-                            <FileOpBlock
-                              toolName={op.toolName}
-                              label={op.label}
-                              output={op.output}
-                              status={op.status}
-                              errorMessage={op.errorMessage}
-                            />
+                            {entry.kind === 'fetch' && <WebFetchItem fetch={entry.item} />}
                           </motion.div>
                         )
                       })}
@@ -2904,9 +2749,11 @@ export function ChatPage() {
                 </motion.div>
               )}
 
-              {/* 流式期间：live 记忆操作 */}
-              {isStreaming && memoryActions.length > 0 && (
-                <MemoryActionBlock actions={memoryActions} live />
+              {/* 流式期间 tool 调用前生成的文字 */}
+              {(isStreaming || liveTimelineExiting) && preCopText && (
+                <div style={{ fontSize: '14px', lineHeight: '1.6', color: 'var(--c-text-primary)', maxWidth: '663px', paddingBottom: '8px' }}>
+                  {preCopText}
+                </div>
               )}
 
               {/* 流式期间的 live COP 时间轴 */}

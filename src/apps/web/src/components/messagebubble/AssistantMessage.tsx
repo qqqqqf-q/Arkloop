@@ -22,6 +22,7 @@ type Props = {
   onOpenDocument?: (artifact: ArtifactRef, options?: { trigger?: HTMLElement | null; artifacts?: ArtifactRef[]; runId?: string }) => void
   activePanelArtifactKey?: string | null
   onViewRunDetail?: () => void
+  contentPrefix?: string
 }
 
 function renderBrowserScreenshots(browserActions?: BrowserActionRef[], accessToken?: string) {
@@ -58,6 +59,7 @@ export function AssistantMessage({
   onOpenDocument,
   activePanelArtifactKey,
   onViewRunDetail,
+  contentPrefix,
 }: Props) {
   const { t } = useLocale()
   const [copied, setCopied] = useState(false)
@@ -89,7 +91,7 @@ export function AssistantMessage({
           )
         })()}
         {renderBrowserScreenshots(browserActions, accessToken)}
-        <MarkdownRenderer content={message.content} webSources={webSources} artifacts={artifacts} accessToken={accessToken} runId={message.run_id} onOpenDocument={onOpenDocument} />
+        <MarkdownRenderer content={contentPrefix && message.content.startsWith(contentPrefix) ? message.content.slice(contentPrefix.length).trimStart() : message.content} webSources={webSources} artifacts={artifacts} accessToken={accessToken} runId={message.run_id} onOpenDocument={onOpenDocument} />
         <div style={{ marginTop: '16px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
             <div style={{ position: 'relative' }}>

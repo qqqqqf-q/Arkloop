@@ -21,9 +21,10 @@ type Props = {
   onOpenDocument?: (artifact: ArtifactRef, options?: { trigger?: HTMLElement | null; artifacts?: ArtifactRef[]; runId?: string }) => void
   activePanelArtifactKey?: string | null
   onViewRunDetail?: () => void
+  contentPrefix?: string
 }
 
-export function MessageBubble({ message, onRetry, onEdit, onFork, onShare, shareState, webSources, artifacts, browserActions, accessToken, onShowSources, onOpenDocument, activePanelArtifactKey, onViewRunDetail }: Props) {
+export function MessageBubble({ message, onRetry, onEdit, onFork, onShare, shareState, webSources, artifacts, browserActions, accessToken, onShowSources, onOpenDocument, activePanelArtifactKey, onViewRunDetail, contentPrefix }: Props) {
   if (message.role === 'user') {
     return (
       <UserMessage
@@ -50,6 +51,7 @@ export function MessageBubble({ message, onRetry, onEdit, onFork, onShare, share
       onOpenDocument={onOpenDocument}
       activePanelArtifactKey={activePanelArtifactKey}
       onViewRunDetail={onViewRunDetail}
+      contentPrefix={contentPrefix}
     />
   )
 }

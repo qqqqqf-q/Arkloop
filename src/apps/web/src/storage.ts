@@ -302,6 +302,7 @@ export type CodeExecutionRef = {
   status: 'running' | 'success' | 'failed' | 'completed'
   errorClass?: string
   errorMessage?: string
+  seq?: number
 }
 
 function isCodeExecutionStatus(value: unknown): value is CodeExecutionRef['status'] {
@@ -519,6 +520,7 @@ export type CopBlockRef = {
 export type MessageCopBlocksRef = {
   blocks: CopBlockRef[]
   bridgeTexts: string[]
+  preText?: string
 }
 
 function messageCopBlocksKey(messageId: string): string {
@@ -580,7 +582,8 @@ export function readMessageCopBlocks(messageId: string): MessageCopBlocksRef | n
     const bridgeTexts = Array.isArray(obj.bridgeTexts)
       ? (obj.bridgeTexts as unknown[]).map(t => typeof t === 'string' ? t : '')
       : []
-    return { blocks, bridgeTexts }
+    const preText = typeof obj.preText === 'string' && obj.preText ? obj.preText : undefined
+    return { blocks, bridgeTexts, preText }
   } catch {
     return null
   }
@@ -602,6 +605,7 @@ export type FileOpRef = {
   output?: string
   status: 'running' | 'success' | 'failed'
   errorMessage?: string
+  seq?: number
 }
 
 function isFileOpRef(v: unknown): v is FileOpRef {
@@ -664,6 +668,7 @@ export type SubAgentRef = {
   error?: string
   depth?: number
   currentRunId?: string
+  seq?: number
 }
 
 function isSubAgentStatus(v: unknown): v is SubAgentStatus {
@@ -718,6 +723,7 @@ export type WebFetchRef = {
   title?: string
   status: 'fetching' | 'done' | 'failed'
   statusCode?: number
+  seq?: number
 }
 
 function isWebFetchRef(v: unknown): v is WebFetchRef {

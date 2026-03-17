@@ -79,11 +79,11 @@ var ExecCommandLlmSpec = llm.ToolSpec{
 			},
 			"command": map[string]any{
 				"type":        "string",
-				"description": "command to execute",
+				"description": "command to execute; keep the command body focused and prefer cwd for directory changes instead of prefixing cd &&",
 			},
 			"cwd": map[string]any{
 				"type":        "string",
-				"description": "optional working directory for the command",
+				"description": "optional working directory for the command; prefer this over embedding cd ... && inside command",
 			},
 			"timeout_ms": map[string]any{
 				"type":        "integer",
