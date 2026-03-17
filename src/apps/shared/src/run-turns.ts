@@ -31,6 +31,13 @@ export type LlmTurn = {
   messageCount?: number
   temperature?: number
   maxOutputTokens?: number
+  // 上下文分解统计
+  systemBytes?: number
+  toolsBytes?: number
+  messagesBytes?: number
+  roleBytes?: Record<string, number>
+  toolSchemaBytesMap?: Record<string, number>
+  stablePrefixHash?: string
 }
 
 function extractToolName(tool: Record<string, unknown>): string {
@@ -128,6 +135,12 @@ export function buildTurns(events: RunEventRaw[]): LlmTurn[] {
             : typeof payload?.max_output_tokens === 'number'
               ? payload.max_output_tokens
               : undefined,
+        systemBytes: typeof d.system_bytes === 'number' ? d.system_bytes : undefined,
+        toolsBytes: typeof d.tools_bytes === 'number' ? d.tools_bytes : undefined,
+        messagesBytes: typeof d.messages_bytes === 'number' ? d.messages_bytes : undefined,
+        roleBytes: d.role_bytes as Record<string, number> | undefined,
+        toolSchemaBytesMap: d.tool_schema_bytes_by_name as Record<string, number> | undefined,
+        stablePrefixHash: typeof d.stable_prefix_hash === 'string' ? d.stable_prefix_hash : undefined,
       }
       turns.push(current)
     } else if (ev.type === 'message.delta' && current) {

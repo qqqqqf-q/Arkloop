@@ -99,11 +99,18 @@ func (g *StubGateway) Stream(ctx context.Context, request Request, yield func(St
 	}
 
 	llmCallID := uuid.NewString()
+	stats := ComputeRequestStats(request)
 	if err := yield(StreamLlmRequest{
-		LlmCallID:    llmCallID,
-		ProviderKind: defaultStubProviderKind,
-		APIMode:      defaultStubAPIMode,
-		PayloadJSON:  request.ToJSON(),
+		LlmCallID:          llmCallID,
+		ProviderKind:       defaultStubProviderKind,
+		APIMode:            defaultStubAPIMode,
+		PayloadJSON:        request.ToJSON(),
+		SystemBytes:        stats.SystemBytes,
+		ToolsBytes:         stats.ToolsBytes,
+		MessagesBytes:      stats.MessagesBytes,
+		RoleBytes:          stats.RoleBytes,
+		ToolSchemaBytesMap: stats.ToolSchemaBytesMap,
+		StablePrefixHash:   stats.StablePrefixHash,
 	}); err != nil {
 		return err
 	}

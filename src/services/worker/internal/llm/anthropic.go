@@ -112,6 +112,7 @@ func (g *AnthropicGateway) Stream(ctx context.Context, request Request, yield fu
 	system, messages, err := toAnthropicMessages(request.Messages)
 	if err != nil {
 		return yield(StreamRunFailed{
+			LlmCallID: llmCallID,
 			Error: GatewayError{
 				ErrorClass: ErrorClassInternalError,
 				Message:    "Anthropic messages construction failed",
@@ -148,7 +149,7 @@ func (g *AnthropicGateway) Stream(ctx context.Context, request Request, yield fu
 		if typed, ok := err.(anthropicAdvancedJSONError); ok && len(typed.Details) > 0 {
 			ge.Details = typed.Details
 		}
-		return yield(StreamRunFailed{Error: ge})
+		return yield(StreamRunFailed{LlmCallID: llmCallID, Error: ge})
 	}
 
 	// merge keys not already present in payload
@@ -189,13 +190,20 @@ func (g *AnthropicGateway) Stream(ctx context.Context, request Request, yield fu
 
 	baseURL := g.cfg.BaseURL
 	path := "/messages"
+	stats := ComputeRequestStats(request)
 	if err := yield(StreamLlmRequest{
-		LlmCallID:    llmCallID,
-		ProviderKind: "anthropic",
-		APIMode:      "messages",
-		BaseURL:      &baseURL,
-		Path:         &path,
-		PayloadJSON:  payload,
+		LlmCallID:          llmCallID,
+		ProviderKind:       "anthropic",
+		APIMode:            "messages",
+		BaseURL:            &baseURL,
+		Path:               &path,
+		PayloadJSON:        payload,
+		SystemBytes:        stats.SystemBytes,
+		ToolsBytes:         stats.ToolsBytes,
+		MessagesBytes:      stats.MessagesBytes,
+		RoleBytes:          stats.RoleBytes,
+		ToolSchemaBytesMap: stats.ToolSchemaBytesMap,
+		StablePrefixHash:   stats.StablePrefixHash,
 	}); err != nil {
 		return err
 	}
@@ -203,6 +211,7 @@ func (g *AnthropicGateway) Stream(ctx context.Context, request Request, yield fu
 	encoded, err := json.Marshal(payload)
 	if err != nil {
 		return yield(StreamRunFailed{
+			LlmCallID: llmCallID,
 			Error: GatewayError{
 				ErrorClass: ErrorClassInternalError,
 				Message:    "Anthropic request serialization failed",
@@ -213,6 +222,7 @@ func (g *AnthropicGateway) Stream(ctx context.Context, request Request, yield fu
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, g.cfg.BaseURL+"/messages", bytes.NewReader(encoded))
 	if err != nil {
 		return yield(StreamRunFailed{
+			LlmCallID: llmCallID,
 			Error: GatewayError{
 				ErrorClass: ErrorClassInternalError,
 				Message:    "Anthropic request construction failed",
@@ -232,9 +242,10 @@ func (g *AnthropicGateway) Stream(ctx context.Context, request Request, yield fu
 	if err != nil {
 		var denied sharedoutbound.DeniedError
 		if errors.As(err, &denied) {
-			return yield(StreamRunFailed{Error: GatewayError{ErrorClass: ErrorClassInternalError, Message: "Anthropic base_url blocked", Details: map[string]any{"reason": denied.Error()}}})
+			return yield(StreamRunFailed{LlmCallID: llmCallID, Error: GatewayError{ErrorClass: ErrorClassInternalError, Message: "Anthropic base_url blocked", Details: map[string]any{"reason": denied.Error()}}})
 		}
 		return yield(StreamRunFailed{
+			LlmCallID: llmCallID,
 			Error: GatewayError{
 				ErrorClass: ErrorClassProviderRetryable,
 				Message:    "Anthropic network error",
@@ -262,6 +273,7 @@ func (g *AnthropicGateway) Stream(ctx context.Context, request Request, yield fu
 	if status < 200 || status >= 300 {
 		message, details := anthropicErrorMessageAndDetails(body, status)
 		return yield(StreamRunFailed{
+			LlmCallID: llmCallID,
 			Error: GatewayError{
 				ErrorClass: errorClassFromStatus(status),
 				Message:    message,
@@ -274,6 +286,7 @@ func (g *AnthropicGateway) Stream(ctx context.Context, request Request, yield fu
 	if err != nil {
 		if errors.Is(err, errAnthropicToolUseInput) {
 			return yield(StreamRunFailed{
+				LlmCallID: llmCallID,
 				Error: GatewayError{
 					ErrorClass: ErrorClassProviderNonRetryable,
 					Message:    "Anthropic tool_use input parse failed",
@@ -282,6 +295,7 @@ func (g *AnthropicGateway) Stream(ctx context.Context, request Request, yield fu
 			})
 		}
 		return yield(StreamRunFailed{
+			LlmCallID: llmCallID,
 			Error: GatewayError{
 				ErrorClass: ErrorClassInternalError,
 				Message:    "Anthropic response parse failed",
@@ -309,7 +323,7 @@ func (g *AnthropicGateway) Stream(ctx context.Context, request Request, yield fu
 		}
 	}
 
-	return yield(StreamRunCompleted{Usage: parseAnthropicUsage(body)})
+	return yield(StreamRunCompleted{LlmCallID: llmCallID, Usage: parseAnthropicUsage(body)})
 }
 
 func parseAnthropicAdvancedJSON(raw map[string]any) (anthropicAdvancedConfig, error) {

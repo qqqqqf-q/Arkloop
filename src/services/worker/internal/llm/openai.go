@@ -128,6 +128,7 @@ func (g *OpenAIGateway) chatCompletions(ctx context.Context, request Request, yi
 	messagesPayload, err := toOpenAIChatMessages(request.Messages)
 	if err != nil {
 		return yield(StreamRunFailed{
+			LlmCallID: llmCallID,
 			Error: GatewayError{
 				ErrorClass: ErrorClassInternalError,
 				Message:    "OpenAI chat messages construction failed",
@@ -155,6 +156,7 @@ func (g *OpenAIGateway) chatCompletions(ctx context.Context, request Request, yi
 	for k := range g.cfg.AdvancedJSON {
 		if _, denied := openAIAdvancedJSONDenylist[k]; denied {
 			return yield(StreamRunFailed{
+				LlmCallID: llmCallID,
 				Error: GatewayError{
 					ErrorClass: ErrorClassInternalError,
 					Message:    fmt.Sprintf("advanced_json must not set critical field: %s", k),
@@ -182,13 +184,20 @@ func (g *OpenAIGateway) chatCompletions(ctx context.Context, request Request, yi
 
 	baseURL := g.cfg.BaseURL
 	path := "/chat/completions"
+	stats := ComputeRequestStats(request)
 	if err := yield(StreamLlmRequest{
-		LlmCallID:    llmCallID,
-		ProviderKind: "openai",
-		APIMode:      "chat_completions",
-		BaseURL:      &baseURL,
-		Path:         &path,
-		PayloadJSON:  payload,
+		LlmCallID:          llmCallID,
+		ProviderKind:       "openai",
+		APIMode:            "chat_completions",
+		BaseURL:            &baseURL,
+		Path:               &path,
+		PayloadJSON:        payload,
+		SystemBytes:        stats.SystemBytes,
+		ToolsBytes:         stats.ToolsBytes,
+		MessagesBytes:      stats.MessagesBytes,
+		RoleBytes:          stats.RoleBytes,
+		ToolSchemaBytesMap: stats.ToolSchemaBytesMap,
+		StablePrefixHash:   stats.StablePrefixHash,
 	}); err != nil {
 		return err
 	}
@@ -196,6 +205,7 @@ func (g *OpenAIGateway) chatCompletions(ctx context.Context, request Request, yi
 	encoded, err := json.Marshal(payload)
 	if err != nil {
 		failed := StreamRunFailed{
+			LlmCallID: llmCallID,
 			Error: GatewayError{
 				ErrorClass: ErrorClassInternalError,
 				Message:    "OpenAI request serialization failed",
@@ -207,6 +217,7 @@ func (g *OpenAIGateway) chatCompletions(ctx context.Context, request Request, yi
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, g.cfg.BaseURL+"/chat/completions", bytes.NewReader(encoded))
 	if err != nil {
 		return yield(StreamRunFailed{
+			LlmCallID: llmCallID,
 			Error: GatewayError{
 				ErrorClass: ErrorClassInternalError,
 				Message:    "OpenAI request construction failed",
@@ -222,10 +233,11 @@ func (g *OpenAIGateway) chatCompletions(ctx context.Context, request Request, yi
 	if err != nil {
 		var denied sharedoutbound.DeniedError
 		if errors.As(err, &denied) {
-			failed := StreamRunFailed{Error: GatewayError{ErrorClass: ErrorClassInternalError, Message: "OpenAI base_url blocked", Details: map[string]any{"reason": denied.Error()}}}
+			failed := StreamRunFailed{LlmCallID: llmCallID, Error: GatewayError{ErrorClass: ErrorClassInternalError, Message: "OpenAI base_url blocked", Details: map[string]any{"reason": denied.Error()}}}
 			return yield(failed)
 		}
 		failed := StreamRunFailed{
+			LlmCallID: llmCallID,
 			Error: GatewayError{
 				ErrorClass: ErrorClassProviderRetryable,
 				Message:    "OpenAI network error",
@@ -242,6 +254,7 @@ func (g *OpenAIGateway) chatCompletions(ctx context.Context, request Request, yi
 
 		errClass := errorClassFromStatus(status)
 		failed := StreamRunFailed{
+			LlmCallID: llmCallID,
 			Error: GatewayError{
 				ErrorClass: errClass,
 				Message:    message,
@@ -300,7 +313,7 @@ func (g *OpenAIGateway) chatCompletions(ctx context.Context, request Request, yi
 		}
 	}
 
-	return yield(StreamRunCompleted{Usage: usage, Cost: cost})
+	return yield(StreamRunCompleted{LlmCallID: llmCallID, Usage: usage, Cost: cost})
 }
 
 type openAIResponsesNotSupportedError struct {
@@ -317,6 +330,7 @@ func (g *OpenAIGateway) responses(ctx context.Context, request Request, yield fu
 	input, err := toOpenAIResponsesInput(request.Messages)
 	if err != nil {
 		return yield(StreamRunFailed{
+			LlmCallID: llmCallID,
 			Error: GatewayError{
 				ErrorClass: ErrorClassInternalError,
 				Message:    "OpenAI responses input construction failed",
@@ -343,6 +357,7 @@ func (g *OpenAIGateway) responses(ctx context.Context, request Request, yield fu
 	for k := range g.cfg.AdvancedJSON {
 		if _, denied := openAIAdvancedJSONDenylist[k]; denied {
 			return yield(StreamRunFailed{
+				LlmCallID: llmCallID,
 				Error: GatewayError{
 					ErrorClass: ErrorClassInternalError,
 					Message:    fmt.Sprintf("advanced_json must not set critical field: %s", k),
@@ -379,13 +394,20 @@ func (g *OpenAIGateway) responses(ctx context.Context, request Request, yield fu
 
 	baseURL := g.cfg.BaseURL
 	path := "/responses"
+	stats := ComputeRequestStats(request)
 	if err := yield(StreamLlmRequest{
-		LlmCallID:    llmCallID,
-		ProviderKind: "openai",
-		APIMode:      "responses",
-		BaseURL:      &baseURL,
-		Path:         &path,
-		PayloadJSON:  payload,
+		LlmCallID:          llmCallID,
+		ProviderKind:       "openai",
+		APIMode:            "responses",
+		BaseURL:            &baseURL,
+		Path:               &path,
+		PayloadJSON:        payload,
+		SystemBytes:        stats.SystemBytes,
+		ToolsBytes:         stats.ToolsBytes,
+		MessagesBytes:      stats.MessagesBytes,
+		RoleBytes:          stats.RoleBytes,
+		ToolSchemaBytesMap: stats.ToolSchemaBytesMap,
+		StablePrefixHash:   stats.StablePrefixHash,
 	}); err != nil {
 		return err
 	}
@@ -393,6 +415,7 @@ func (g *OpenAIGateway) responses(ctx context.Context, request Request, yield fu
 	encoded, err := json.Marshal(payload)
 	if err != nil {
 		return yield(StreamRunFailed{
+			LlmCallID: llmCallID,
 			Error: GatewayError{
 				ErrorClass: ErrorClassInternalError,
 				Message:    "OpenAI request serialization failed",
@@ -403,6 +426,7 @@ func (g *OpenAIGateway) responses(ctx context.Context, request Request, yield fu
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, g.cfg.BaseURL+"/responses", bytes.NewReader(encoded))
 	if err != nil {
 		return yield(StreamRunFailed{
+			LlmCallID: llmCallID,
 			Error: GatewayError{
 				ErrorClass: ErrorClassInternalError,
 				Message:    "OpenAI request construction failed",
@@ -418,9 +442,10 @@ func (g *OpenAIGateway) responses(ctx context.Context, request Request, yield fu
 	if err != nil {
 		var denied sharedoutbound.DeniedError
 		if errors.As(err, &denied) {
-			return yield(StreamRunFailed{Error: GatewayError{ErrorClass: ErrorClassInternalError, Message: "OpenAI base_url blocked", Details: map[string]any{"reason": denied.Error()}}})
+			return yield(StreamRunFailed{LlmCallID: llmCallID, Error: GatewayError{ErrorClass: ErrorClassInternalError, Message: "OpenAI base_url blocked", Details: map[string]any{"reason": denied.Error()}}})
 		}
 		return yield(StreamRunFailed{
+			LlmCallID: llmCallID,
 			Error: GatewayError{
 				ErrorClass: ErrorClassProviderRetryable,
 				Message:    "OpenAI network error",
@@ -452,6 +477,7 @@ func (g *OpenAIGateway) responses(ctx context.Context, request Request, yield fu
 		errClass := errorClassFromStatus(status)
 		message, details := openAIErrorMessageAndDetails(body, status, "OpenAI request failed")
 		return yield(StreamRunFailed{
+			LlmCallID: llmCallID,
 			Error: GatewayError{
 				ErrorClass: errClass,
 				Message:    message,

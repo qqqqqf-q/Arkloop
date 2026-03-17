@@ -268,6 +268,13 @@ type StreamLlmRequest struct {
 	Path          *string
 	PayloadJSON   map[string]any
 	RedactedHints map[string]any
+	// 上下文分解统计
+	SystemBytes        int
+	ToolsBytes         int
+	MessagesBytes      int
+	RoleBytes          map[string]int // "system"/"user"/"assistant"/"tool" -> bytes
+	ToolSchemaBytesMap map[string]int // tool name -> schema bytes
+	StablePrefixHash   string
 }
 
 func (r StreamLlmRequest) ToDataJSON() map[string]any {
@@ -283,6 +290,24 @@ func (r StreamLlmRequest) ToDataJSON() map[string]any {
 	}
 	if r.Path != nil {
 		payload["path"] = *r.Path
+	}
+	if r.SystemBytes > 0 {
+		payload["system_bytes"] = r.SystemBytes
+	}
+	if r.ToolsBytes > 0 {
+		payload["tools_bytes"] = r.ToolsBytes
+	}
+	if r.MessagesBytes > 0 {
+		payload["messages_bytes"] = r.MessagesBytes
+	}
+	if len(r.RoleBytes) > 0 {
+		payload["role_bytes"] = r.RoleBytes
+	}
+	if len(r.ToolSchemaBytesMap) > 0 {
+		payload["tool_schema_bytes_by_name"] = r.ToolSchemaBytesMap
+	}
+	if r.StablePrefixHash != "" {
+		payload["stable_prefix_hash"] = r.StablePrefixHash
 	}
 	return payload
 }
@@ -365,12 +390,16 @@ func (f StreamProviderFallback) ToDataJSON() map[string]any {
 }
 
 type StreamRunCompleted struct {
-	Usage *Usage
-	Cost  *Cost
+	LlmCallID string
+	Usage     *Usage
+	Cost      *Cost
 }
 
 func (c StreamRunCompleted) ToDataJSON() map[string]any {
 	payload := map[string]any{}
+	if c.LlmCallID != "" {
+		payload["llm_call_id"] = c.LlmCallID
+	}
 	if c.Usage != nil {
 		payload["usage"] = c.Usage.ToJSON()
 	}
@@ -381,13 +410,17 @@ func (c StreamRunCompleted) ToDataJSON() map[string]any {
 }
 
 type StreamRunFailed struct {
-	Error GatewayError
-	Usage *Usage
-	Cost  *Cost
+	LlmCallID string
+	Error     GatewayError
+	Usage     *Usage
+	Cost      *Cost
 }
 
 func (f StreamRunFailed) ToDataJSON() map[string]any {
 	payload := f.Error.ToJSON()
+	if f.LlmCallID != "" {
+		payload["llm_call_id"] = f.LlmCallID
+	}
 	if f.Usage != nil {
 		payload["usage"] = f.Usage.ToJSON()
 	}

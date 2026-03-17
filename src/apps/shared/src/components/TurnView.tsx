@@ -66,8 +66,58 @@ export function TurnView({ turn, index }: TurnViewProps) {
             {turn.toolNames.map((name) => (
               <span key={name} className="rounded bg-[var(--c-bg-sub)] px-1.5 py-0.5 font-mono text-[11px] text-[var(--c-text-secondary)]">
                 {name}
+                {turn.toolSchemaBytesMap?.[name] != null && (
+                  <span className="ml-1 opacity-50">
+                    {(turn.toolSchemaBytesMap[name] / 1024).toFixed(1)}KB
+                  </span>
+                )}
               </span>
             ))}
+          </div>
+        </CollapseBlock>
+      )}
+
+      {(turn.systemBytes != null || turn.toolsBytes != null || turn.messagesBytes != null) && (
+        <CollapseBlock
+          label={`Context${turn.messagesBytes != null ? ` ${(turn.messagesBytes / 1024).toFixed(1)}KB` : ''}`}
+          preview={[
+            turn.systemBytes != null ? `sys ${(turn.systemBytes / 1024).toFixed(1)}KB` : null,
+            turn.toolsBytes != null ? `tools ${(turn.toolsBytes / 1024).toFixed(1)}KB` : null,
+            turn.stablePrefixHash ? `prefix ${turn.stablePrefixHash.slice(0, 8)}` : null,
+          ].filter(Boolean).join(' · ')}
+        >
+          <div className="space-y-1 text-xs font-mono text-[var(--c-text-muted)]">
+            {turn.systemBytes != null && (
+              <div className="flex justify-between">
+                <span>system</span>
+                <span>{(turn.systemBytes / 1024).toFixed(2)} KB</span>
+              </div>
+            )}
+            {turn.toolsBytes != null && (
+              <div className="flex justify-between">
+                <span>tools</span>
+                <span>{(turn.toolsBytes / 1024).toFixed(2)} KB</span>
+              </div>
+            )}
+            {turn.messagesBytes != null && (
+              <div className="flex justify-between">
+                <span>messages</span>
+                <span>{(turn.messagesBytes / 1024).toFixed(2)} KB</span>
+              </div>
+            )}
+            {turn.roleBytes &&
+              Object.entries(turn.roleBytes).map(([role, bytes]) => (
+                <div key={role} className="flex justify-between pl-3 text-[10px] opacity-70">
+                  <span>{role}</span>
+                  <span>{(bytes / 1024).toFixed(2)} KB</span>
+                </div>
+              ))}
+            {turn.stablePrefixHash && (
+              <div className="flex justify-between border-t border-[var(--c-border-subtle)] pt-1 mt-1">
+                <span>prefix hash</span>
+                <span className="font-mono">{turn.stablePrefixHash}</span>
+              </div>
+            )}
           </div>
         </CollapseBlock>
       )}

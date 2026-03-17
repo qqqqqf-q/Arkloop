@@ -102,13 +102,20 @@ func (g *GeminiGateway) Stream(ctx context.Context, request Request, yield func(
 
 	baseURL := g.cfg.BaseURL
 	path := fmt.Sprintf("/models/%s:streamGenerateContent", request.Model)
+	stats := ComputeRequestStats(request)
 	if err := yield(StreamLlmRequest{
-		LlmCallID:    llmCallID,
-		ProviderKind: "gemini",
-		APIMode:      "generate_content",
-		BaseURL:      &baseURL,
-		Path:         &path,
-		PayloadJSON:  payload,
+		LlmCallID:          llmCallID,
+		ProviderKind:       "gemini",
+		APIMode:            "generate_content",
+		BaseURL:            &baseURL,
+		Path:               &path,
+		PayloadJSON:        payload,
+		SystemBytes:        stats.SystemBytes,
+		ToolsBytes:         stats.ToolsBytes,
+		MessagesBytes:      stats.MessagesBytes,
+		RoleBytes:          stats.RoleBytes,
+		ToolSchemaBytesMap: stats.ToolSchemaBytesMap,
+		StablePrefixHash:   stats.StablePrefixHash,
 	}); err != nil {
 		return err
 	}
