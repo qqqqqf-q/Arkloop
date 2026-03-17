@@ -13,7 +13,7 @@ import (
 
 type Message struct {
 	ID              uuid.UUID
-	AccountID           uuid.UUID
+	AccountID       uuid.UUID
 	ThreadID        uuid.UUID
 	CreatedByUserID *uuid.UUID
 	Role            string
@@ -509,44 +509,79 @@ func (r *MessageRepository) CopyUpTo(
 		return nil, fmt.Errorf("accountID, sourceThreadID, targetThreadID and upToMessageID must not be empty")
 	}
 
+	type sourceMessage struct {
+		OldID           uuid.UUID
+		CreatedByUserID *uuid.UUID
+		Role            string
+		Content         string
+		ContentJSON     json.RawMessage
+		MetadataJSON    json.RawMessage
+		CreatedAt       time.Time
+	}
+
 	rows, err := r.db.Query(
 		ctx,
-		`WITH src AS (
-		   SELECT id AS old_id, gen_random_uuid() AS new_id,
-		          created_by_user_id, role, content, content_json, metadata_json, created_at
-		   FROM messages
-		   WHERE account_id = $1
-		     AND thread_id = $2
-		     AND hidden = FALSE
-		     AND deleted_at IS NULL
-		     AND (created_at, id) <= (
-		       SELECT created_at, id FROM messages WHERE id = $4 AND account_id = $1
-		     )
-		   ORDER BY created_at ASC, id ASC
-		 ),
-		 inserted AS (
-		   INSERT INTO messages (id, account_id, thread_id, created_by_user_id, role, content, content_json, metadata_json, created_at)
-		   SELECT new_id, $1, $3, created_by_user_id, role, content, content_json, metadata_json, created_at
-		   FROM src
-		 )
-		 SELECT old_id, new_id FROM src`,
-		accountID, sourceThreadID, targetThreadID, upToMessageID,
+		`SELECT id, created_by_user_id, role, content, content_json, metadata_json, created_at
+		 FROM messages
+		 WHERE account_id = $1
+		   AND thread_id = $2
+		   AND hidden = FALSE
+		   AND deleted_at IS NULL
+		   AND (created_at, id) <= (
+		     SELECT created_at, id
+		     FROM messages
+		     WHERE id = $3
+		       AND account_id = $1
+		       AND thread_id = $2
+		   )
+		 ORDER BY created_at ASC, id ASC`,
+		accountID, sourceThreadID, upToMessageID,
 	)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var pairs []MessageIDPair
+	var sourceMessages []sourceMessage
 	for rows.Next() {
-		var p MessageIDPair
-		if err := rows.Scan(&p.OldID, &p.NewID); err != nil {
+		var message sourceMessage
+		if err := rows.Scan(
+			&message.OldID,
+			&message.CreatedByUserID,
+			&message.Role,
+			&message.Content,
+			&message.ContentJSON,
+			&message.MetadataJSON,
+			&message.CreatedAt,
+		); err != nil {
 			return nil, err
 		}
-		pairs = append(pairs, p)
+		sourceMessages = append(sourceMessages, message)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
+	}
+
+	pairs := make([]MessageIDPair, 0, len(sourceMessages))
+	for _, message := range sourceMessages {
+		newID := uuid.New()
+		if _, err := r.db.Exec(
+			ctx,
+			`INSERT INTO messages (id, account_id, thread_id, created_by_user_id, role, content, content_json, metadata_json, created_at)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+			newID,
+			accountID,
+			targetThreadID,
+			message.CreatedByUserID,
+			message.Role,
+			message.Content,
+			message.ContentJSON,
+			message.MetadataJSON,
+			message.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		pairs = append(pairs, MessageIDPair{OldID: message.OldID, NewID: newID})
 	}
 	return pairs, nil
 }
