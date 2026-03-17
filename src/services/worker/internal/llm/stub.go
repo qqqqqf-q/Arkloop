@@ -140,7 +140,7 @@ func (g *StubGateway) Stream(ctx context.Context, request Request, yield func(St
 			return err
 		}
 	}
-	return yield(StreamRunCompleted{})
+	return yield(StreamRunCompleted{LlmCallID: llmCallID})
 }
 
 func sleepWithContext(ctx context.Context, d time.Duration) error {

@@ -83,7 +83,7 @@ func (g *GeminiGateway) Stream(ctx context.Context, request Request, yield func(
 
 	for k := range g.cfg.AdvancedJSON {
 		if _, denied := geminiAdvancedJSONDenylist[k]; denied {
-			return yield(StreamRunFailed{Error: GatewayError{
+			return yield(StreamRunFailed{LlmCallID: llmCallID, Error: GatewayError{
 				ErrorClass: ErrorClassInternalError,
 				Message:    fmt.Sprintf("advanced_json must not set critical field: %s", k),
 				Details:    map[string]any{"denied_key": k},
@@ -93,7 +93,7 @@ func (g *GeminiGateway) Stream(ctx context.Context, request Request, yield func(
 
 	payload, err := toGeminiPayload(request, g.cfg.AdvancedJSON)
 	if err != nil {
-		return yield(StreamRunFailed{Error: GatewayError{
+		return yield(StreamRunFailed{LlmCallID: llmCallID, Error: GatewayError{
 			ErrorClass: ErrorClassInternalError,
 			Message:    "Gemini payload construction failed",
 			Details:    map[string]any{"reason": err.Error()},
@@ -122,7 +122,7 @@ func (g *GeminiGateway) Stream(ctx context.Context, request Request, yield func(
 
 	encoded, err := json.Marshal(payload)
 	if err != nil {
-		return yield(StreamRunFailed{Error: GatewayError{
+		return yield(StreamRunFailed{LlmCallID: llmCallID, Error: GatewayError{
 			ErrorClass: ErrorClassInternalError,
 			Message:    "Gemini request serialization failed",
 		}})
@@ -131,7 +131,7 @@ func (g *GeminiGateway) Stream(ctx context.Context, request Request, yield func(
 	endpoint := fmt.Sprintf("%s/models/%s:streamGenerateContent?alt=sse", g.cfg.BaseURL, request.Model)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(encoded))
 	if err != nil {
-		return yield(StreamRunFailed{Error: GatewayError{
+		return yield(StreamRunFailed{LlmCallID: llmCallID, Error: GatewayError{
 			ErrorClass: ErrorClassInternalError,
 			Message:    "Gemini request construction failed",
 			Details:    map[string]any{"reason": err.Error()},
@@ -145,13 +145,13 @@ func (g *GeminiGateway) Stream(ctx context.Context, request Request, yield func(
 	if err != nil {
 		var denied sharedoutbound.DeniedError
 		if errors.As(err, &denied) {
-			return yield(StreamRunFailed{Error: GatewayError{
+			return yield(StreamRunFailed{LlmCallID: llmCallID, Error: GatewayError{
 				ErrorClass: ErrorClassInternalError,
 				Message:    "Gemini base_url blocked",
 				Details:    map[string]any{"reason": denied.Error()},
 			}})
 		}
-		return yield(StreamRunFailed{Error: GatewayError{
+		return yield(StreamRunFailed{LlmCallID: llmCallID, Error: GatewayError{
 			ErrorClass: ErrorClassProviderRetryable,
 			Message:    "Gemini network error",
 		}})
@@ -173,7 +173,7 @@ func (g *GeminiGateway) Stream(ctx context.Context, request Request, yield func(
 			})
 		}
 		message, details := geminiErrorMessageAndDetails(body, status)
-		return yield(StreamRunFailed{Error: GatewayError{
+		return yield(StreamRunFailed{LlmCallID: llmCallID, Error: GatewayError{
 			ErrorClass: errorClassFromStatus(status),
 			Message:    message,
 			Details:    details,
@@ -257,14 +257,14 @@ func (g *GeminiGateway) streamGeminiSSE(ctx context.Context, body interface{ Rea
 			// 继续或正常结束
 		case "SAFETY", "RECITATION":
 			terminalEmitted = true
-			return yield(StreamRunFailed{Error: GatewayError{
+			return yield(StreamRunFailed{LlmCallID: llmCallID, Error: GatewayError{
 				ErrorClass: ErrorClassPolicyDenied,
 				Message:    fmt.Sprintf("Gemini content blocked: %s", candidate.FinishReason),
 				Details:    map[string]any{"finish_reason": candidate.FinishReason},
 			}})
 		default:
 			terminalEmitted = true
-			return yield(StreamRunFailed{Error: GatewayError{
+			return yield(StreamRunFailed{LlmCallID: llmCallID, Error: GatewayError{
 				ErrorClass: ErrorClassProviderRetryable,
 				Message:    fmt.Sprintf("Gemini unexpected finish: %s", candidate.FinishReason),
 				Details:    map[string]any{"finish_reason": candidate.FinishReason},
@@ -279,7 +279,7 @@ func (g *GeminiGateway) streamGeminiSSE(ctx context.Context, body interface{ Rea
 	}
 
 	if sseErr != nil {
-		return yield(StreamRunFailed{Error: GatewayError{
+		return yield(StreamRunFailed{LlmCallID: llmCallID, Error: GatewayError{
 			ErrorClass: ErrorClassProviderRetryable,
 			Message:    "Gemini stream read error",
 			Details:    map[string]any{"reason": sseErr.Error()},
@@ -287,13 +287,13 @@ func (g *GeminiGateway) streamGeminiSSE(ctx context.Context, body interface{ Rea
 	}
 
 	if parseErr != nil {
-		return yield(StreamRunFailed{Error: GatewayError{
+		return yield(StreamRunFailed{LlmCallID: llmCallID, Error: GatewayError{
 			ErrorClass: ErrorClassProviderNonRetryable,
 			Message:    parseErr.Error(),
 		}})
 	}
 
-	return yield(StreamRunCompleted{Usage: parseGeminiUsage(lastUsage)})
+	return yield(StreamRunCompleted{LlmCallID: llmCallID, Usage: parseGeminiUsage(lastUsage)})
 }
 
 // toGeminiPayload 构建完整请求体，合并 advancedJSON。

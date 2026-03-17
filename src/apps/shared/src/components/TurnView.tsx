@@ -11,11 +11,6 @@ function preview(text: string): string {
 }
 
 export function TurnView({ turn, index }: TurnViewProps) {
-  const tokenLabel =
-    turn.inputTokens != null && turn.outputTokens != null
-      ? `${turn.inputTokens}in / ${turn.outputTokens}out`
-      : ''
-
   return (
     <div className="space-y-1.5 rounded-lg border border-[var(--c-border)] p-3">
       <div className="mb-2 flex items-center gap-2 text-xs text-[var(--c-text-muted)]">
@@ -25,7 +20,13 @@ export function TurnView({ turn, index }: TurnViewProps) {
         {turn.model && <span className="font-medium text-[var(--c-text-secondary)]">{turn.model}</span>}
         <span>{turn.providerKind}</span>
         {turn.apiMode && <span className="opacity-60">· {turn.apiMode}</span>}
-        {tokenLabel && <span className="ml-auto tabular-nums">{tokenLabel}</span>}
+        {turn.inputTokens != null && (
+          <span className="ml-auto tabular-nums">
+            {turn.inputTokens}in
+            {turn.cachedTokens != null && ` · ${turn.cachedTokens}cache`}
+            {turn.outputTokens != null && ` / ${turn.outputTokens}out`}
+          </span>
+        )}
       </div>
 
       <div className="mb-2 flex flex-wrap items-center gap-1.5">
@@ -47,6 +48,16 @@ export function TurnView({ turn, index }: TurnViewProps) {
         {turn.maxOutputTokens != null && (
           <span className="rounded bg-[var(--c-bg-sub)] px-1.5 py-0.5 text-[11px] tabular-nums text-[var(--c-text-muted)]">
             max {turn.maxOutputTokens}
+          </span>
+        )}
+        {turn.cacheCreationTokens != null && (
+          <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[11px] tabular-nums text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+            +{turn.cacheCreationTokens} cache write
+          </span>
+        )}
+        {turn.payloadBytes != null && (
+          <span className="rounded bg-[var(--c-bg-sub)] px-1.5 py-0.5 text-[11px] tabular-nums text-[var(--c-text-muted)]">
+            {(turn.payloadBytes / 1024).toFixed(1)}KB
           </span>
         )}
       </div>

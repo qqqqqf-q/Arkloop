@@ -15,6 +15,10 @@ export type LlmTurn = {
   apiMode: string
   inputTokens?: number
   outputTokens?: number
+  cachedTokens?: number
+  cacheCreationTokens?: number
+  payloadBytes?: number
+  estimatedInputTokens?: number
   userInput?: string
   assistantText: string
   toolCalls: Array<{
@@ -88,6 +92,7 @@ export function buildTurns(events: RunEventRaw[]): LlmTurn[] {
   let current: LlmTurn | null = null
   const assistantChunks: string[] = []
   const resultMap: Record<string, { resultJSON?: Record<string, unknown>; errorClass?: string }> = {}
+  const turnByCallId = new Map<string, LlmTurn>()
 
   for (const ev of events) {
     if (ev.type === 'llm.request') {
@@ -143,6 +148,9 @@ export function buildTurns(events: RunEventRaw[]): LlmTurn[] {
         stablePrefixHash: typeof d.stable_prefix_hash === 'string' ? d.stable_prefix_hash : undefined,
       }
       turns.push(current)
+      if (current.llmCallId) {
+        turnByCallId.set(current.llmCallId, current)
+      }
     } else if (ev.type === 'message.delta' && current) {
       const d = ev.data as Record<string, unknown>
       assistantChunks.push(String(d.content_delta ?? ''))
@@ -159,17 +167,23 @@ export function buildTurns(events: RunEventRaw[]): LlmTurn[] {
         resultJSON: d.result as Record<string, unknown> | undefined,
         errorClass: ev.error_class,
       }
+    } else if (ev.type === 'llm.turn.completed') {
+      const d = ev.data as Record<string, unknown>
+      const llmCallId = String(d.llm_call_id ?? '')
+      const target = llmCallId ? turnByCallId.get(llmCallId) : null
+      if (target) {
+        const usage = d.usage as Record<string, unknown> | undefined
+        if (usage) {
+          target.inputTokens = usage.input_tokens as number | undefined
+          target.outputTokens = usage.output_tokens as number | undefined
+          target.cachedTokens = (usage.cached_tokens ?? usage.cache_read_input_tokens) as number | undefined
+          target.cacheCreationTokens = usage.cache_creation_input_tokens as number | undefined
+        }
+      }
     } else if (ev.type === 'run.completed' || ev.type === 'run.failed') {
       if (current) {
         current.assistantText = assistantChunks.join('')
         assistantChunks.length = 0
-        const usage = (ev.data as Record<string, unknown>).usage as
-          | Record<string, unknown>
-          | undefined
-        if (usage) {
-          current.inputTokens = usage.input_tokens as number | undefined
-          current.outputTokens = usage.output_tokens as number | undefined
-        }
       }
       current = null
     }

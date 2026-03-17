@@ -184,6 +184,13 @@ func (l *Loop) Run(
 		}
 		completionTotals.Add(turn.CompletedDataJSON)
 
+		// emit per-turn 完成事件，含 llm_call_id 和本轮 usage
+		if turn.CompletedDataJSON != nil {
+			if err := yield(emitter.Emit("llm.turn.completed", turn.CompletedDataJSON, nil, nil)); err != nil {
+				return err
+			}
+		}
+
 		if msg, exceeded := costBudgetExceeded(completionTotals, runCtx.MaxCostMicros, runCtx.MaxTotalOutputTokens); exceeded {
 			return yield(emitter.Emit("run.failed", completionTotals.Apply(costBudgetExceededError(msg)), nil, stringPtr(llm.ErrorClassBudgetExceeded)))
 		}
