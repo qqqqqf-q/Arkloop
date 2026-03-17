@@ -6,6 +6,7 @@ import { WidgetBlock } from '../WidgetBlock'
 import { MarkdownRenderer } from '../MarkdownRenderer'
 import { DocumentCard } from '../DocumentCard'
 import { BrowserScreenshotCard } from '../BrowserScreenshotCard'
+import type { ArtifactAction } from '../ArtifactIframe'
 import { useLocale } from '../../contexts/LocaleContext'
 import { isDesktop } from '@arkloop/shared/desktop'
 import { isDocumentArtifact, isArtifactReferenced, getDomain } from './utils'
@@ -21,11 +22,13 @@ type Props = {
   browserActions?: BrowserActionRef[]
   widgets?: WidgetRef[]
   accessToken?: string
+  onWidgetAction?: (action: ArtifactAction) => void
   onShowSources?: () => void
   onOpenDocument?: (artifact: ArtifactRef, options?: { trigger?: HTMLElement | null; artifacts?: ArtifactRef[]; runId?: string }) => void
   activePanelArtifactKey?: string | null
   onViewRunDetail?: () => void
   contentPrefix?: string
+  contentOverride?: string
 }
 
 function renderBrowserScreenshots(browserActions?: BrowserActionRef[], accessToken?: string) {
@@ -59,17 +62,20 @@ export function AssistantMessage({
   browserActions,
   widgets,
   accessToken,
+  onWidgetAction,
   onShowSources,
   onOpenDocument,
   activePanelArtifactKey,
   onViewRunDetail,
   contentPrefix,
+  contentOverride,
 }: Props) {
   const { t } = useLocale()
   const [copied, setCopied] = useState(false)
+  const renderedContent = contentOverride ?? (contentPrefix && message.content.startsWith(contentPrefix) ? message.content.slice(contentPrefix.length).trimStart() : message.content)
 
   const handleCopy = () => {
-    void navigator.clipboard.writeText(message.content).then(() => {
+    void navigator.clipboard.writeText(renderedContent).then(() => {
       setCopied(true)
       setTimeout(() => setCopied(false), 1500)
     })
@@ -77,6 +83,13 @@ export function AssistantMessage({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column' }}>
+      {widgets && widgets.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '8px', width: '100%' }}>
+          {widgets.map((w) => (
+            <WidgetBlock key={w.id} html={w.html} title={w.title} complete={true} onAction={onWidgetAction} />
+          ))}
+        </div>
+      )}
       <div style={{ maxWidth: '663px' }}>
         {artifacts && onOpenDocument && (() => {
           const referenced = artifacts.filter((a) => isDocumentArtifact(a) && isArtifactReferenced(message.content, a.key))
@@ -95,14 +108,7 @@ export function AssistantMessage({
           )
         })()}
         {renderBrowserScreenshots(browserActions, accessToken)}
-        {widgets && widgets.length > 0 && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '8px' }}>
-            {widgets.map((w) => (
-              <WidgetBlock key={w.id} html={w.html} title={w.title} complete={true} />
-            ))}
-          </div>
-        )}
-        <MarkdownRenderer content={contentPrefix && message.content.startsWith(contentPrefix) ? message.content.slice(contentPrefix.length).trimStart() : message.content} webSources={webSources} artifacts={artifacts} accessToken={accessToken} runId={message.run_id} onOpenDocument={onOpenDocument} />
+        <MarkdownRenderer content={renderedContent} webSources={webSources} artifacts={artifacts} accessToken={accessToken} runId={message.run_id} onOpenDocument={onOpenDocument} />
         <div style={{ marginTop: '16px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
             <div style={{ position: 'relative' }}>

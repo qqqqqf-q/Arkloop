@@ -16,11 +16,19 @@ export type SearchStep = {
   label: string
   status: 'active' | 'done'
   queries?: string[]
+  seq?: number
+}
+
+export type SearchNarrative = {
+  id: string
+  text: string
+  seq: number
 }
 
 type Props = {
   steps: SearchStep[]
   sources: WebSource[]
+  narratives?: SearchNarrative[]
   isComplete: boolean
   codeExecutions?: CodeExecution[]
   onOpenCodeExecution?: (ce: CodeExecution) => void
@@ -228,7 +236,7 @@ const SHELL_DOT_TOP = 9
 // CodeExecutionCard: border(0.5) + padding(6) + icon-center(14) = 20.5 → dot top ≈ 16
 const PYTHON_DOT_TOP = 16
 
-export function SearchTimeline({ steps, sources, isComplete, codeExecutions, onOpenCodeExecution, activeCodeExecutionId, subAgents, fileOps, webFetches, headerOverride, shimmer, live, accessToken, baseUrl }: Props) {
+export function SearchTimeline({ steps, sources, narratives, isComplete, codeExecutions, onOpenCodeExecution, activeCodeExecutionId, subAgents, fileOps, webFetches, headerOverride, shimmer, live, accessToken, baseUrl }: Props) {
   const [collapsed, setCollapsed] = useState(() => isComplete)
   const prevIsCompleteRef = useRef(isComplete)
   useEffect(() => {
@@ -240,21 +248,30 @@ export function SearchTimeline({ steps, sources, isComplete, codeExecutions, onO
     prevIsCompleteRef.current = isComplete
   }, [isComplete])
 
+  const visibleSteps = steps.filter((step) => step.kind !== 'finished')
+  const textEntries = narratives ?? []
   const codeExecCount = codeExecutions?.length ?? 0
   const subAgentCount = subAgents?.length ?? 0
   const fileOpCount = fileOps?.length ?? 0
   const webFetchCount = webFetches?.length ?? 0
-  if (steps.length === 0 && codeExecCount === 0 && subAgentCount === 0 && fileOpCount === 0 && webFetchCount === 0 && !headerOverride) return null
+  if (visibleSteps.length === 0 && textEntries.length === 0 && codeExecCount === 0 && subAgentCount === 0 && fileOpCount === 0 && webFetchCount === 0 && !headerOverride) return null
 
-  // 当所有 non-step 项都带有 seq 时使用统一交错渲染
   type UEntry =
+    | { kind: 'step'; id: string; seq: number; item: SearchStep }
+    | { kind: 'text'; id: string; seq: number; item: SearchNarrative }
     | { kind: 'code'; id: string; seq: number; item: CodeExecution }
     | { kind: 'agent'; id: string; seq: number; item: SubAgentRef }
     | { kind: 'fileop'; id: string; seq: number; item: FileOpRef }
     | { kind: 'fetch'; id: string; seq: number; item: WebFetchRef }
-  const standaloneCodeExecs = !steps.some(s => s.kind === 'finished') ? (codeExecutions ?? []) : []
+
   const allUnified: UEntry[] = []
-  for (const ce of standaloneCodeExecs) {
+  for (const step of visibleSteps) {
+    if (step.seq != null) allUnified.push({ kind: 'step', id: step.id, seq: step.seq, item: step })
+  }
+  for (const narrative of textEntries) {
+    allUnified.push({ kind: 'text', id: narrative.id, seq: narrative.seq, item: narrative })
+  }
+  for (const ce of (codeExecutions ?? [])) {
     if (ce.seq != null) allUnified.push({ kind: 'code', id: ce.id, seq: ce.seq, item: ce })
   }
   for (const a of (subAgents ?? [])) {
@@ -266,12 +283,21 @@ export function SearchTimeline({ steps, sources, isComplete, codeExecutions, onO
   for (const wf of (webFetches ?? [])) {
     if (wf.seq != null) allUnified.push({ kind: 'fetch', id: wf.id, seq: wf.seq, item: wf })
   }
-  const totalUnifiableItems = standaloneCodeExecs.length + subAgentCount + fileOpCount + webFetchCount
+  const totalUnifiableItems = visibleSteps.length + textEntries.length + codeExecCount + subAgentCount + fileOpCount + webFetchCount
   const useUnified = allUnified.length === totalUnifiableItems && totalUnifiableItems > 0
-  if (useUnified) allUnified.sort((a, b) => a.seq - b.seq)
+  if (useUnified) {
+    const priority: Record<UEntry['kind'], number> = {
+      step: 0,
+      text: 1,
+      code: 2,
+      agent: 3,
+      fileop: 4,
+      fetch: 5,
+    }
+    allUnified.sort((a, b) => a.seq - b.seq || priority[a.kind] - priority[b.kind] || a.id.localeCompare(b.id))
+  }
 
-  const stepsExcludingFinished = steps.filter(s => s.kind !== 'finished').length
-  const effectiveStepCount = stepsExcludingFinished || (codeExecCount + subAgentCount + fileOpCount + webFetchCount)
+  const effectiveStepCount = visibleSteps.length || (codeExecCount + subAgentCount + fileOpCount + webFetchCount)
 
   const autoLabel = isComplete
     ? sources.length > 0
@@ -279,12 +305,12 @@ export function SearchTimeline({ steps, sources, isComplete, codeExecutions, onO
       : effectiveStepCount > 0
         ? `${effectiveStepCount} step${effectiveStepCount === 1 ? '' : 's'} completed`
         : 'Completed'
-    : steps.length > 0
-      ? (steps[steps.length - 1]?.label || 'Searching...')
+    : visibleSteps.length > 0
+      ? (visibleSteps[visibleSteps.length - 1]?.label || 'Searching...')
       : 'Thinking'
 
   const headerLabel = headerOverride ?? autoLabel
-  const dottedStepCount = steps.length
+  const dottedStepCount = visibleSteps.length
 
   const [hovered, setHovered] = useState(false)
 
@@ -339,12 +365,12 @@ export function SearchTimeline({ steps, sources, isComplete, codeExecutions, onO
             transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
             style={{ overflow: 'hidden' }}
           >
-            <div style={{ position: 'relative', paddingLeft: steps.length > 0 || codeExecCount > 0 || subAgentCount > 0 || webFetchCount > 0 || fileOpCount > 0 ? '24px' : undefined, paddingTop: '2px', paddingBottom: '2px' }}>
+            <div style={{ position: 'relative', paddingLeft: visibleSteps.length > 0 || textEntries.length > 0 || codeExecCount > 0 || subAgentCount > 0 || webFetchCount > 0 || fileOpCount > 0 ? '24px' : undefined, paddingTop: '2px', paddingBottom: '2px' }}>
 
               <AnimatePresence initial={false}>
-              {steps.map((step, idx) => {
+              {!useUnified && visibleSteps.map((step, idx) => {
                 const isFirst = idx === 0
-                const isLast = idx === steps.length - 1
+                const isLast = idx === visibleSteps.length - 1
                 const hasDot = true
                 const multiSteps = dottedStepCount >= 2
                 const dotColor =
@@ -356,35 +382,6 @@ export function SearchTimeline({ steps, sources, isComplete, codeExecutions, onO
 
                 return (
                   <Fragment key={step.id}>
-                    {step.kind === 'finished' && codeExecutions && codeExecutions.length > 0 && (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', paddingBottom: '14px', position: 'relative' }}>
-                        {/* Line through code execution area */}
-                        {multiSteps && (
-                          <div style={{ position: 'absolute', left: '-16px', top: 0, bottom: 0, width: '1.5px', background: 'var(--c-border-subtle)', zIndex: 0 }} />
-                        )}
-                        {codeExecutions.map((ce) => (
-                          <motion.div
-                            key={ce.id}
-                            initial={{ opacity: 0, y: 6 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ duration: 0.25, ease: 'easeOut' }}
-                          >
-                            {ce.language === 'shell'
-                              ? <ShellExecutionBlock code={ce.code} output={ce.output} status={ce.status} errorMessage={ce.errorMessage} />
-                              : <CodeExecutionCard
-                                  language={ce.language}
-                                  code={ce.code}
-                                  output={ce.output}
-                                  errorMessage={ce.errorMessage}
-                                  status={ce.status}
-                                  onOpen={onOpenCodeExecution ? () => onOpenCodeExecution(ce) : undefined}
-                                  isActive={activeCodeExecutionId === ce.id}
-                                />
-                            }
-                          </motion.div>
-                        ))}
-                      </div>
-                    )}
                     <motion.div
                       initial={{ opacity: 0, x: -6 }}
                       animate={{ opacity: 1, x: 0 }}
@@ -397,10 +394,7 @@ export function SearchTimeline({ steps, sources, isComplete, codeExecutions, onO
                     {multiSteps && !isLast && (
                       <div style={{ position: 'absolute', left: '-16px', top: `${DOT_TOP + DOT_SIZE}px`, bottom: 0, width: '1.5px', background: 'var(--c-border-subtle)', zIndex: 0 }} />
                     )}
-                    {/* Last step extends line down when any items follow */}
-                    {isLast && (step.kind === 'finished'
-                      ? (useUnified ? allUnified.length > 0 : subAgentCount > 0)
-                      : (useUnified ? allUnified.length > 0 : (codeExecCount > 0 || subAgentCount > 0 || fileOpCount > 0 || webFetchCount > 0))) && (
+                    {isLast && (codeExecCount > 0 || textEntries.length > 0 || subAgentCount > 0 || fileOpCount > 0 || webFetchCount > 0) && (
                       <div style={{ position: 'absolute', left: '-16px', top: `${DOT_TOP + DOT_SIZE}px`, bottom: 0, width: '1.5px', background: 'var(--c-border-subtle)', zIndex: 0 }} />
                     )}
                     {multiSteps && !isFirst && (
@@ -482,19 +476,25 @@ export function SearchTimeline({ steps, sources, isComplete, codeExecutions, onO
               </AnimatePresence>
 
               {useUnified ? (
-                <div style={{ display: 'flex', flexDirection: 'column', paddingTop: steps.length > 0 ? '8px' : '0' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', paddingTop: allUnified.length > 0 ? '0' : undefined }}>
                   {allUnified.map((entry, idx) => {
                     const isFirst = idx === 0
                     const isLast = idx === allUnified.length - 1
                     const multiItems = allUnified.length >= 2
-                    const dotTop = entry.kind === 'code' && entry.item.language !== 'shell' ? PYTHON_DOT_TOP : SHELL_DOT_TOP
-                    const dotColor = entry.kind === 'code'
-                      ? codeExecutionAccentColor(entry.item.status)
-                      : entry.kind === 'agent'
-                        ? entry.item.status === 'completed' ? 'var(--c-text-muted)' : entry.item.status === 'failed' ? 'var(--c-status-error-text, #ef4444)' : 'var(--c-text-secondary)'
-                        : entry.kind === 'fileop'
-                          ? entry.item.status === 'failed' ? 'var(--c-status-error-text, #ef4444)' : entry.item.status === 'running' ? 'var(--c-text-secondary)' : 'var(--c-text-muted)'
-                          : entry.item.status === 'failed' ? 'var(--c-status-error-text, #ef4444)' : entry.item.status === 'fetching' ? 'var(--c-text-secondary)' : 'var(--c-text-muted)'
+                    const dotTop = entry.kind === 'code' && entry.item.language !== 'shell' ? PYTHON_DOT_TOP : DOT_TOP
+                    const dotColor = entry.kind === 'step'
+                      ? entry.item.status === 'active'
+                        ? 'var(--c-text-secondary)'
+                        : 'var(--c-text-muted)'
+                      : entry.kind === 'text'
+                        ? 'var(--c-border-mid)'
+                        : entry.kind === 'code'
+                          ? codeExecutionAccentColor(entry.item.status)
+                          : entry.kind === 'agent'
+                            ? entry.item.status === 'completed' ? 'var(--c-text-muted)' : entry.item.status === 'failed' ? 'var(--c-status-error-text, #ef4444)' : 'var(--c-text-secondary)'
+                            : entry.kind === 'fileop'
+                              ? entry.item.status === 'failed' ? 'var(--c-status-error-text, #ef4444)' : entry.item.status === 'running' ? 'var(--c-text-secondary)' : 'var(--c-text-muted)'
+                              : entry.item.status === 'failed' ? 'var(--c-status-error-text, #ef4444)' : entry.item.status === 'fetching' ? 'var(--c-text-secondary)' : 'var(--c-text-muted)'
                     return (
                       <div key={entry.id} style={{ position: 'relative', paddingBottom: isLast ? 0 : '6px' }}>
                         {!isLast && (
@@ -503,10 +503,76 @@ export function SearchTimeline({ steps, sources, isComplete, codeExecutions, onO
                         {multiItems && !isFirst && (
                           <div style={{ position: 'absolute', left: '-16px', top: 0, height: `${dotTop}px`, width: '1.5px', background: 'var(--c-border-subtle)', zIndex: 0 }} />
                         )}
-                        {isFirst && steps.length > 0 && (
-                          <div style={{ position: 'absolute', left: '-16px', top: '-8px', height: `${dotTop + 8}px`, width: '1.5px', background: 'var(--c-border-subtle)', zIndex: 0 }} />
-                        )}
                         <div style={{ position: 'absolute', left: '-19px', top: `${dotTop}px`, width: `${DOT_SIZE}px`, height: `${DOT_SIZE}px`, borderRadius: '50%', background: dotColor, border: '2px solid var(--c-bg-page)', zIndex: 1 }} />
+                        {entry.kind === 'step' && (
+                          <div>
+                            <div
+                              style={{
+                                fontSize: '13px',
+                                color: 'var(--c-text-tertiary)',
+                                lineHeight: '18px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                              }}
+                            >
+                              {entry.item.status === 'active' && entry.item.kind !== 'reviewing' && (
+                                <Loader2
+                                  size={12}
+                                  className="animate-spin"
+                                  style={{ color: 'var(--c-text-secondary)', flexShrink: 0 }}
+                                />
+                              )}
+                              <TypewriterText
+                                text={entry.item.kind === 'reviewing' ? 'Reviewing sources' : entry.item.label}
+                                className={entry.item.kind === 'reviewing' && entry.item.status === 'active' ? 'thinking-shimmer-dim' : undefined}
+                                active={!!live}
+                              />
+                            </div>
+
+                            {entry.item.kind === 'searching' && entry.item.queries && entry.item.queries.length > 0 && (
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '6px' }}>
+                                {entry.item.queries.map((q) => (
+                                  <QueryPill key={q} text={q} />
+                                ))}
+                              </div>
+                            )}
+
+                            {entry.item.kind === 'reviewing' && sources.length > 0 && (
+                              <div
+                                style={{
+                                  marginTop: '8px',
+                                  borderRadius: '10px',
+                                  border: '0.5px solid var(--c-border-subtle)',
+                                  background: 'var(--c-bg-menu)',
+                                  maxHeight: '240px',
+                                  overflowY: 'auto',
+                                  overflowX: 'hidden',
+                                  padding: '4px',
+                                }}
+                              >
+                                {sources.map((s, sourceIdx) => (
+                                  <div key={`${s.url}-${sourceIdx}`}>
+                                    <SourceItem source={s} />
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        {entry.kind === 'text' && (
+                          <div
+                            style={{
+                              fontSize: '14px',
+                              lineHeight: '1.6',
+                              color: 'var(--c-text-primary)',
+                              whiteSpace: 'pre-wrap',
+                              wordBreak: 'break-word',
+                            }}
+                          >
+                            {entry.item.text}
+                          </div>
+                        )}
                         {entry.kind === 'code' && (entry.item.language === 'shell'
                           ? <ShellExecutionBlock code={entry.item.code} output={entry.item.output} status={entry.item.status} errorMessage={entry.item.errorMessage} />
                           : <CodeExecutionCard language={entry.item.language} code={entry.item.code} output={entry.item.output} errorMessage={entry.item.errorMessage} status={entry.item.status} onOpen={onOpenCodeExecution ? () => onOpenCodeExecution(entry.item as CodeExecution) : undefined} isActive={activeCodeExecutionId === entry.item.id} />
@@ -524,8 +590,17 @@ export function SearchTimeline({ steps, sources, isComplete, codeExecutions, onO
                 </div>
               ) : (
                 <>
-                  {codeExecutions && codeExecutions.length > 0 && !steps.some((s) => s.kind === 'finished') && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0px', paddingTop: steps.length > 0 ? '8px' : '0' }}>
+                  {textEntries.length > 0 && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', paddingTop: visibleSteps.length > 0 ? '8px' : '0' }}>
+                      {textEntries.map((entry) => (
+                        <div key={entry.id} style={{ fontSize: '14px', lineHeight: '1.6', color: 'var(--c-text-primary)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                          {entry.text}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {codeExecutions && codeExecutions.length > 0 && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0px', paddingTop: visibleSteps.length > 0 || textEntries.length > 0 ? '8px' : '0' }}>
                       {codeExecutions.map((ce, idx) => {
                         const isLast = idx === codeExecutions.length - 1
                         const isFirst = idx === 0
@@ -539,7 +614,7 @@ export function SearchTimeline({ steps, sources, isComplete, codeExecutions, onO
                             {multiItems && !isFirst && (
                               <div style={{ position: 'absolute', left: '-16px', top: 0, height: `${dotTop}px`, width: '1.5px', background: 'var(--c-border-subtle)', zIndex: 0 }} />
                             )}
-                            {isFirst && steps.length > 0 && (
+                            {isFirst && (visibleSteps.length > 0 || textEntries.length > 0) && (
                               <div style={{ position: 'absolute', left: '-16px', top: '-8px', height: `${dotTop + 8}px`, width: '1.5px', background: 'var(--c-border-subtle)', zIndex: 0 }} />
                             )}
                             <div style={{ position: 'absolute', left: '-19px', top: `${dotTop}px`, width: `${DOT_SIZE}px`, height: `${DOT_SIZE}px`, borderRadius: '50%', background: codeExecutionAccentColor(ce.status), border: '2px solid var(--c-bg-page)', zIndex: 1 }} />
@@ -553,12 +628,12 @@ export function SearchTimeline({ steps, sources, isComplete, codeExecutions, onO
                     </div>
                   )}
                   {subAgents && subAgents.length > 0 && (
-                    <div style={{ display: 'flex', flexDirection: 'column', paddingTop: steps.length > 0 || codeExecCount > 0 ? '8px' : '0' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', paddingTop: visibleSteps.length > 0 || textEntries.length > 0 || codeExecCount > 0 ? '8px' : '0' }}>
                       {subAgents.map((agent, idx) => {
                         const isFirst = idx === 0
                         const isLast = idx === subAgents.length - 1
                         const dotTop = SHELL_DOT_TOP
-                        const hasPrevItems = steps.length > 0 || codeExecCount > 0
+                        const hasPrevItems = visibleSteps.length > 0 || textEntries.length > 0 || codeExecCount > 0
                         const multiItems = subAgents.length >= 2
                         return (
                           <div key={agent.id} style={{ position: 'relative', paddingBottom: isLast ? 0 : '6px' }}>
@@ -579,12 +654,12 @@ export function SearchTimeline({ steps, sources, isComplete, codeExecutions, onO
                     </div>
                   )}
                   {fileOps && fileOps.length > 0 && (
-                    <div style={{ display: 'flex', flexDirection: 'column', paddingTop: steps.length > 0 || codeExecCount > 0 || subAgentCount > 0 ? '8px' : '0' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', paddingTop: visibleSteps.length > 0 || textEntries.length > 0 || codeExecCount > 0 || subAgentCount > 0 ? '8px' : '0' }}>
                       {fileOps.map((op, idx) => {
                         const isFirst = idx === 0
                         const isLast = idx === fileOps.length - 1
                         const dotTop = SHELL_DOT_TOP
-                        const hasPrevItems = steps.length > 0 || codeExecCount > 0 || subAgentCount > 0
+                        const hasPrevItems = visibleSteps.length > 0 || textEntries.length > 0 || codeExecCount > 0 || subAgentCount > 0
                         const multiItems = fileOps.length >= 2
                         const dotColor = op.status === 'failed' ? 'var(--c-status-error-text, #ef4444)' : op.status === 'running' ? 'var(--c-text-secondary)' : 'var(--c-text-muted)'
                         return (
@@ -606,12 +681,12 @@ export function SearchTimeline({ steps, sources, isComplete, codeExecutions, onO
                     </div>
                   )}
                   {webFetches && webFetches.length > 0 && (
-                    <div style={{ display: 'flex', flexDirection: 'column', paddingTop: steps.length > 0 || codeExecCount > 0 || subAgentCount > 0 || fileOpCount > 0 ? '8px' : '0' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', paddingTop: visibleSteps.length > 0 || textEntries.length > 0 || codeExecCount > 0 || subAgentCount > 0 || fileOpCount > 0 ? '8px' : '0' }}>
                       {webFetches.map((f, idx) => {
                         const isFirst = idx === 0
                         const isLast = idx === webFetches.length - 1
                         const dotTop = SHELL_DOT_TOP
-                        const hasPrevItems = steps.length > 0 || codeExecCount > 0 || subAgentCount > 0 || fileOpCount > 0
+                        const hasPrevItems = visibleSteps.length > 0 || textEntries.length > 0 || codeExecCount > 0 || subAgentCount > 0 || fileOpCount > 0
                         const multiItems = webFetches.length >= 2
                         const dotColor = f.status === 'failed' ? 'var(--c-status-error-text, #ef4444)' : f.status === 'fetching' ? 'var(--c-text-secondary)' : 'var(--c-text-muted)'
                         return (

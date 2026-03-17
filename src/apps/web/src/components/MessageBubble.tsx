@@ -5,6 +5,7 @@ import { MarkdownRenderer } from './MarkdownRenderer'
 import { BrowserScreenshotCard } from './BrowserScreenshotCard'
 import { UserMessage } from './messagebubble/UserMessage'
 import { AssistantMessage } from './messagebubble/AssistantMessage'
+import type { ArtifactAction } from './ArtifactIframe'
 
 type Props = {
   message: MessageResponse
@@ -18,14 +19,16 @@ type Props = {
   browserActions?: BrowserActionRef[]
   widgets?: WidgetRef[]
   accessToken?: string
+  onWidgetAction?: (action: ArtifactAction) => void
   onShowSources?: () => void
   onOpenDocument?: (artifact: ArtifactRef, options?: { trigger?: HTMLElement | null; artifacts?: ArtifactRef[]; runId?: string }) => void
   activePanelArtifactKey?: string | null
   onViewRunDetail?: () => void
   contentPrefix?: string
+  contentOverride?: string
 }
 
-export function MessageBubble({ message, onRetry, onEdit, onFork, onShare, shareState, webSources, artifacts, browserActions, widgets, accessToken, onShowSources, onOpenDocument, activePanelArtifactKey, onViewRunDetail, contentPrefix }: Props) {
+export function MessageBubble({ message, onRetry, onEdit, onFork, onShare, shareState, webSources, artifacts, browserActions, widgets, accessToken, onWidgetAction, onShowSources, onOpenDocument, activePanelArtifactKey, onViewRunDetail, contentPrefix, contentOverride }: Props) {
   if (message.role === 'user') {
     return (
       <UserMessage
@@ -49,11 +52,13 @@ export function MessageBubble({ message, onRetry, onEdit, onFork, onShare, share
       browserActions={browserActions}
       widgets={widgets}
       accessToken={accessToken}
+      onWidgetAction={onWidgetAction}
       onShowSources={onShowSources}
       onOpenDocument={onOpenDocument}
       activePanelArtifactKey={activePanelArtifactKey}
       onViewRunDetail={onViewRunDetail}
       contentPrefix={contentPrefix}
+      contentOverride={contentOverride}
     />
   )
 }

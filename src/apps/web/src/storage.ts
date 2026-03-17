@@ -442,6 +442,7 @@ export type MessageSearchStepRef = {
   label: string
   status: 'active' | 'done'
   queries?: string[]
+  seq?: number
 }
 
 function messageSearchStepsKey(messageId: string): string {
@@ -462,13 +463,14 @@ export function readMessageSearchSteps(messageId: string): MessageSearchStepRef[
         const kind = item.kind
         const label = typeof item.label === 'string' ? item.label : ''
         const status = item.status
+        const seq = typeof item.seq === 'number' ? item.seq : undefined
         const queries = Array.isArray(item.queries)
           ? item.queries.filter((q): q is string => typeof q === 'string')
           : undefined
         if (!id) return null
         if (kind !== 'planning' && kind !== 'searching' && kind !== 'reviewing' && kind !== 'finished') return null
         if (status !== 'active' && status !== 'done') return null
-        return { id, kind, label, status, queries }
+        return { id, kind, label, status, queries, seq }
       })
       .filter((step): step is MessageSearchStepRef => step != null)
     return steps.length > 0 ? steps : null
@@ -539,13 +541,18 @@ export type CopBlockRef = {
   title: string
   steps: MessageSearchStepRef[]
   sources: WebSource[]
+  narratives?: Array<{ id: string; text: string; seq: number }>
   codeExecutions?: CodeExecutionRef[]
+  subAgents?: SubAgentRef[]
+  fileOps?: FileOpRef[]
+  webFetches?: WebFetchRef[]
 }
 
 export type MessageCopBlocksRef = {
   blocks: CopBlockRef[]
-  bridgeTexts: string[]
   preText?: string
+  finalContent?: string
+  bridgeTexts?: string[]
 }
 
 function messageCopBlocksKey(messageId: string): string {
@@ -557,13 +564,14 @@ function parseStepRef(s: Record<string, unknown>): MessageSearchStepRef | null {
   const kind = s.kind
   const label = typeof s.label === 'string' ? s.label : ''
   const status = s.status
+  const seq = typeof s.seq === 'number' ? s.seq : undefined
   const queries = Array.isArray(s.queries)
     ? (s.queries as unknown[]).filter((q): q is string => typeof q === 'string')
     : undefined
   if (!id) return null
   if (kind !== 'planning' && kind !== 'searching' && kind !== 'reviewing' && kind !== 'finished') return null
   if (status !== 'active' && status !== 'done') return null
-  return { id, kind, label, status, queries }
+  return { id, kind, label, status, queries, seq }
 }
 
 export function readMessageCopBlocks(messageId: string): MessageCopBlocksRef | null {
@@ -597,10 +605,40 @@ export function readMessageCopBlocks(messageId: string): MessageCopBlocksRef | n
               }))
               .filter((s) => !!s.url)
           : []
+        const narratives = Array.isArray(b.narratives)
+          ? (b.narratives as unknown[])
+              .filter((n): n is Record<string, unknown> => n != null && typeof n === 'object')
+              .flatMap((n) => {
+                const narrativeId = typeof n.id === 'string' ? n.id : ''
+                const text = typeof n.text === 'string' ? n.text : ''
+                const seq = typeof n.seq === 'number' ? n.seq : undefined
+                if (!narrativeId || !text || seq == null) return []
+                return [{ id: narrativeId, text, seq }]
+              })
+          : []
         const codeExecutions: CodeExecutionRef[] = Array.isArray(b.codeExecutions)
           ? (b.codeExecutions as unknown[]).filter(isCodeExecutionRef)
           : []
-        return { id, title, steps, sources, codeExecutions: codeExecutions.length > 0 ? codeExecutions : undefined }
+        const subAgents: SubAgentRef[] = Array.isArray(b.subAgents)
+          ? (b.subAgents as unknown[]).filter(isSubAgentRef)
+          : []
+        const fileOps: FileOpRef[] = Array.isArray(b.fileOps)
+          ? (b.fileOps as unknown[]).filter(isFileOpRef)
+          : []
+        const webFetches: WebFetchRef[] = Array.isArray(b.webFetches)
+          ? (b.webFetches as unknown[]).filter(isWebFetchRef)
+          : []
+        return {
+          id,
+          title,
+          steps,
+          sources,
+          narratives: narratives.length > 0 ? narratives : undefined,
+          codeExecutions: codeExecutions.length > 0 ? codeExecutions : undefined,
+          subAgents: subAgents.length > 0 ? subAgents : undefined,
+          fileOps: fileOps.length > 0 ? fileOps : undefined,
+          webFetches: webFetches.length > 0 ? webFetches : undefined,
+        }
       })
       .filter((b): b is CopBlockRef => b != null)
     if (blocks.length === 0) return null
@@ -608,7 +646,8 @@ export function readMessageCopBlocks(messageId: string): MessageCopBlocksRef | n
       ? (obj.bridgeTexts as unknown[]).map(t => typeof t === 'string' ? t : '')
       : []
     const preText = typeof obj.preText === 'string' && obj.preText ? obj.preText : undefined
-    return { blocks, bridgeTexts, preText }
+    const finalContent = typeof obj.finalContent === 'string' ? obj.finalContent : undefined
+    return { blocks, preText, finalContent, bridgeTexts: bridgeTexts.length > 0 ? bridgeTexts : undefined }
   } catch {
     return null
   }
@@ -999,6 +1038,8 @@ export function migrateMessageMetadata(mapping: Array<{ old_id: string; new_id: 
     if (sources) writeMessageSources(new_id, sources)
     const artifacts = readMessageArtifacts(old_id)
     if (artifacts) writeMessageArtifacts(new_id, artifacts)
+    const widgets = readMessageWidgets(old_id)
+    if (widgets) writeMessageWidgets(new_id, widgets)
     const codeExec = readMessageCodeExecutions(old_id)
     if (codeExec) writeMessageCodeExecutions(new_id, codeExec)
     const thinking = readMessageThinking(old_id)

@@ -1,6 +1,6 @@
 import type { MessageResponse, ThreadRunResponse } from './api'
 import type { RunEvent } from './sse'
-import type { ArtifactRef, BrowserActionRef, CodeExecutionRef, FileOpRef, MessageCopBlocksRef, MessageSearchStepRef, MessageThinkingRef, SubAgentRef, WebFetchRef } from './storage'
+import type { ArtifactRef, BrowserActionRef, CodeExecutionRef, FileOpRef, MessageCopBlocksRef, MessageSearchStepRef, MessageThinkingRef, SubAgentRef, WebFetchRef, WebSource, WidgetRef } from './storage'
 
 const CODE_EXECUTION_TOOL_NAMES = new Set(['python_execute', 'exec_command'])
 const CODE_EXECUTION_RESULT_TOOL_NAMES = new Set(['python_execute', 'exec_command', 'write_stdin'])
@@ -360,7 +360,9 @@ export function selectFreshRunEvents(params: {
 
   const slice = events.slice(normalizedProcessedCount)
   return {
-    fresh: slice.filter((event) => event.run_id === activeRunId),
+    fresh: slice
+      .filter((event) => event.run_id === activeRunId)
+      .sort((left, right) => left.seq - right.seq || left.ts.localeCompare(right.ts)),
     nextProcessedCount: events.length,
   }
 }
@@ -389,6 +391,43 @@ export function shouldRefetchCompletedRunMessages(params: {
   const { messages, latestRun } = params
   if (!latestRun || latestRun.status !== 'completed') return false
   return findAssistantMessageForRun(messages, latestRun.run_id) == null
+}
+
+function extractWidgetArguments(data: unknown): { title?: string; html?: string } {
+  if (!data || typeof data !== 'object') return {}
+  const args = (data as { arguments?: unknown }).arguments
+  if (!args || typeof args !== 'object') return {}
+  const typed = args as Record<string, unknown>
+  return {
+    title: typeof typed.title === 'string' ? typed.title : undefined,
+    html: typeof typed.widget_code === 'string' ? typed.widget_code : undefined,
+  }
+}
+
+export function buildMessageWidgetsFromRunEvents(events: RunEvent[]): WidgetRef[] {
+  const widgets: WidgetRef[] = []
+  const seen = new Set<string>()
+
+  for (const event of events) {
+    if (event.type !== 'tool.call') continue
+    const toolName = pickToolName(event.data) || event.tool_name || ''
+    if (toolName !== 'show_widget') continue
+
+    const { title, html } = extractWidgetArguments(event.data)
+    if (!html) continue
+
+    const id = pickToolCallId(event)
+    if (seen.has(id)) continue
+    seen.add(id)
+
+    widgets.push({
+      id,
+      title: title?.trim() || 'Widget',
+      html,
+    })
+  }
+
+  return widgets
 }
 
 export function buildMessageThinkingFromRunEvents(events: RunEvent[]): MessageThinkingRef | null {
@@ -896,13 +935,15 @@ function summarizeSearchToolsResult(result: Record<string, unknown>): string | u
   const matched = Array.isArray(result.matched) ? result.matched as unknown[] : []
   if (matched.length === 0) return undefined
 
-  const hasStateInfo = matched.some((entry) =>
-    !!(entry && typeof entry === 'object' && (
-      typeof entry.state === 'string'
-      || entry.already_active === true
-      || entry.already_loaded === true
-    )),
-  )
+  const hasStateInfo = matched.some((entry) => {
+    if (!entry || typeof entry !== 'object') return false
+    const typed = entry as Record<string, unknown>
+    return (
+      typeof typed.state === 'string'
+      || typed.already_active === true
+      || typed.already_loaded === true
+    )
+  })
   if (!hasStateInfo) return undefined
 
   const counts = new Map<string, { count: number; names: string[] }>()
@@ -914,15 +955,16 @@ function summarizeSearchToolsResult(result: Record<string, unknown>): string | u
     if (typeof entry === 'string') {
       name = entry
     } else if (entry && typeof entry === 'object') {
-      if (typeof entry.name === 'string') {
-        name = entry.name
+      const typed = entry as Record<string, unknown>
+      if (typeof typed.name === 'string') {
+        name = typed.name
       }
-      if (typeof entry.state === 'string') {
-        rawState = entry.state
+      if (typeof typed.state === 'string') {
+        rawState = typed.state
       }
-      if (!rawState && entry.already_active === true) {
+      if (!rawState && typed.already_active === true) {
         rawState = 'already_active'
-      } else if (!rawState && entry.already_loaded === true) {
+      } else if (!rawState && typed.already_loaded === true) {
         rawState = 'already_loaded'
       }
     }
@@ -1104,24 +1146,100 @@ export function buildMessageWebFetchesFromRunEvents(events: RunEvent[]): WebFetc
 }
 
 export function buildMessageCopBlocksFromRunEvents(events: RunEvent[]): MessageCopBlocksRef | null {
-  type Block = { id: string; title: string; steps: MessageSearchStepRef[]; sources: [] }
+  type Block = {
+    id: string
+    title: string
+    steps: MessageSearchStepRef[]
+    sources: WebSource[]
+    narratives: Array<{ id: string; text: string; seq: number }>
+    codeExecutions: CodeExecutionRef[]
+    subAgents: SubAgentRef[]
+    fileOps: FileOpRef[]
+    webFetches: WebFetchRef[]
+  }
   const blocks: Block[] = []
   let preTextChunks: string[] = []
+  let pendingText = ''
+  let pendingTextSeq: number | null = null
   let seenToolCall = false
+  let executions: CodeExecutionRef[] = []
+  let subAgents: SubAgentRef[] = []
+  let fileOps: FileOpRef[] = []
+  let webFetches: WebFetchRef[] = []
 
   const ensureBlock = () => {
     if (blocks.length === 0) {
-      blocks.push({ id: crypto.randomUUID(), title: '', steps: [], sources: [] })
+      blocks.push({
+        id: crypto.randomUUID(),
+        title: '',
+        steps: [],
+        sources: [],
+        narratives: [],
+        codeExecutions: [],
+        subAgents: [],
+        fileOps: [],
+        webFetches: [],
+      })
     }
   }
 
-  for (const event of events) {
-    if (!seenToolCall && event.type === 'message.delta') {
+  const flushPendingNarrative = () => {
+    if (!pendingText.trim() || pendingTextSeq == null) return
+    ensureBlock()
+    blocks[blocks.length - 1].narratives.push({
+      id: crypto.randomUUID(),
+      text: pendingText,
+      seq: pendingTextSeq,
+    })
+    pendingText = ''
+    pendingTextSeq = null
+  }
+
+  const patchExecutionsInBlocks = (target: CodeExecutionRef) => {
+    for (const block of blocks) {
+      block.codeExecutions = patchCodeExecutionList(block.codeExecutions, target).next
+    }
+  }
+
+  const patchSubAgentsInBlocks = (target: SubAgentRef) => {
+    for (const block of blocks) {
+      block.subAgents = block.subAgents.map((agent) => agent.id === target.id ? target : agent)
+    }
+  }
+
+  const patchFileOpsInBlocks = (target: FileOpRef) => {
+    for (const block of blocks) {
+      block.fileOps = block.fileOps.map((op) => op.id === target.id ? target : op)
+    }
+  }
+
+  const patchWebFetchesInBlocks = (target: WebFetchRef) => {
+    for (const block of blocks) {
+      block.webFetches = block.webFetches.map((fetch) => fetch.id === target.id ? target : fetch)
+    }
+  }
+
+  const orderedEvents = [...events].sort((left, right) => left.seq - right.seq || left.ts.localeCompare(right.ts))
+
+  for (const event of orderedEvents) {
+    if (event.type === 'message.delta') {
       const obj = event.data as { content_delta?: unknown; role?: unknown; channel?: unknown }
       if ((obj.role == null || obj.role === 'assistant') && obj.channel !== 'thinking' && typeof obj.content_delta === 'string') {
-        preTextChunks.push(obj.content_delta)
+        if (!seenToolCall) {
+          preTextChunks.push(obj.content_delta)
+        } else {
+          if (pendingTextSeq == null) pendingTextSeq = event.seq
+          pendingText += obj.content_delta
+        }
       }
       continue
+    }
+
+    if (
+      pendingText.trim() &&
+      (event.type === 'run.segment.start' || event.type === 'tool.call' || event.type === 'tool.result')
+    ) {
+      flushPendingNarrative()
     }
 
     if (event.type === 'tool.call') {
@@ -1135,12 +1253,29 @@ export function buildMessageCopBlocksFromRunEvents(events: RunEvent[]): MessageC
       const label = typeof args.label === 'string' ? args.label.trim() : ''
       if (blocks.length > 0) {
         const last = blocks[blocks.length - 1]
-        if (last.title === '' || last.steps.length === 0) {
+        const isEmpty = last.steps.length === 0
+          && last.narratives.length === 0
+          && last.codeExecutions.length === 0
+          && last.subAgents.length === 0
+          && last.fileOps.length === 0
+          && last.webFetches.length === 0
+          && last.sources.length === 0
+        if (last.title === '' || isEmpty) {
           last.title = label
           continue
         }
       }
-      blocks.push({ id: crypto.randomUUID(), title: label, steps: [], sources: [] })
+      blocks.push({
+        id: crypto.randomUUID(),
+        title: label,
+        steps: [],
+        sources: [],
+        narratives: [],
+        codeExecutions: [],
+        subAgents: [],
+        fileOps: [],
+        webFetches: [],
+      })
       continue
     }
 
@@ -1164,11 +1299,162 @@ export function buildMessageCopBlocksFromRunEvents(events: RunEvent[]): MessageC
         ? (display.queries as unknown[]).filter((q): q is string => typeof q === 'string')
         : undefined
       ensureBlock()
-      blocks[blocks.length - 1].steps.push({ id: segmentId, kind: stepKind, label, status: 'done', queries })
+      blocks[blocks.length - 1].steps.push({
+        id: segmentId,
+        kind: stepKind,
+        label,
+        status: 'active',
+        queries,
+        seq: event.seq,
+      })
+      continue
+    }
+
+    if (event.type === 'run.segment.end') {
+      const obj = event.data as { segment_id?: unknown }
+      const segmentId = typeof obj.segment_id === 'string' ? obj.segment_id : ''
+      if (!segmentId) continue
+      for (const block of blocks) {
+        block.steps = block.steps.map((step) => step.id === segmentId ? { ...step, status: 'done' } : step)
+      }
+      continue
+    }
+
+    if (event.type === 'tool.call') {
+      const toolName = pickToolName(event.data)
+      if (toolName === 'web_search' || toolName.startsWith('web_search.')) {
+        const obj = event.data as { tool_call_id?: unknown; arguments?: unknown }
+        const callId = typeof obj.tool_call_id === 'string' ? obj.tool_call_id : event.event_id
+        const args = obj.arguments as Record<string, unknown> | undefined
+        const query = typeof args?.query === 'string' ? args.query : undefined
+        const queries = Array.isArray(args?.queries)
+          ? (args.queries as unknown[]).filter((q): q is string => typeof q === 'string' && q.trim().length > 0)
+          : undefined
+        const displayQueries = queries && queries.length > 0 ? queries : query ? [query] : undefined
+        ensureBlock()
+        blocks[blocks.length - 1].steps.push({
+          id: callId,
+          kind: 'searching',
+          label: 'Searching',
+          status: 'active',
+          queries: displayQueries,
+          seq: event.seq,
+        })
+      }
+
+      const codeExecutionCall = applyCodeExecutionToolCall(executions, event)
+      executions = codeExecutionCall.nextExecutions
+      if (codeExecutionCall.appended && blocks.length > 0) {
+        blocks[blocks.length - 1].codeExecutions.push(codeExecutionCall.appended)
+      }
+
+      const subAgentCall = applySubAgentToolCall(subAgents, event)
+      subAgents = subAgentCall.nextAgents
+      if (subAgentCall.appended && blocks.length > 0) {
+        blocks[blocks.length - 1].subAgents.push(subAgentCall.appended)
+      }
+
+      const fileOpCall = applyFileOpToolCall(fileOps, event)
+      fileOps = fileOpCall.nextOps
+      if (fileOpCall.appended && blocks.length > 0) {
+        blocks[blocks.length - 1].fileOps.push(fileOpCall.appended)
+      }
+
+      const webFetchCall = applyWebFetchToolCall(webFetches, event)
+      webFetches = webFetchCall.nextFetches
+      if (webFetchCall.appended && blocks.length > 0) {
+        blocks[blocks.length - 1].webFetches.push(webFetchCall.appended)
+      }
+      continue
+    }
+
+    if (event.type === 'tool.result') {
+      const toolName = pickToolName(event.data)
+      if (toolName === 'web_search' || toolName.startsWith('web_search.')) {
+        const obj = event.data as { tool_call_id?: unknown; result?: unknown }
+        const callId = typeof obj.tool_call_id === 'string' ? obj.tool_call_id : undefined
+        const result = obj.result as { results?: unknown[] } | undefined
+        const newSources: WebSource[] = Array.isArray(result?.results)
+          ? result.results
+              .filter((r): r is Record<string, unknown> => r != null && typeof r === 'object')
+              .map((r) => ({
+                title: typeof r.title === 'string' ? r.title : '',
+                url: typeof r.url === 'string' ? r.url : '',
+                snippet: typeof r.snippet === 'string' ? r.snippet : undefined,
+              }))
+              .filter((source) => !!source.url)
+          : []
+        if (newSources.length > 0 && blocks.length > 0) {
+          blocks[blocks.length - 1].sources.push(...newSources)
+        }
+        if (callId) {
+          for (const block of blocks) {
+            block.steps = block.steps.map((step) => step.id === callId ? { ...step, status: 'done' } : step)
+          }
+          const lastBlock = blocks[blocks.length - 1]
+          if (lastBlock) {
+            const allSearchDone = lastBlock.steps
+              .filter((step) => step.kind === 'searching')
+              .every((step) => step.status === 'done')
+            if (allSearchDone && !lastBlock.steps.some((step) => step.kind === 'reviewing')) {
+              lastBlock.steps.push({
+                id: 'auto-reviewing',
+                kind: 'reviewing',
+                label: 'Reviewing sources',
+                status: 'active',
+                seq: event.seq,
+              })
+            }
+          }
+        }
+      }
+
+      const codeExecutionResult = applyCodeExecutionToolResult(executions, event)
+      executions = codeExecutionResult.nextExecutions
+      if (codeExecutionResult.updated) {
+        if (codeExecutionResult.appended && blocks.length > 0) {
+          blocks[blocks.length - 1].codeExecutions.push(codeExecutionResult.updated)
+        } else {
+          patchExecutionsInBlocks(codeExecutionResult.updated)
+        }
+      }
+
+      const subAgentResult = applySubAgentToolResult(subAgents, event)
+      subAgents = subAgentResult.nextAgents
+      if (subAgentResult.updated) {
+        patchSubAgentsInBlocks(subAgentResult.updated)
+      }
+
+      const fileOpResult = applyFileOpToolResult(fileOps, event)
+      fileOps = fileOpResult.nextOps
+      if (fileOpResult.updated) {
+        patchFileOpsInBlocks(fileOpResult.updated)
+      }
+
+      const webFetchResult = applyWebFetchToolResult(webFetches, event)
+      webFetches = webFetchResult.nextFetches
+      if (webFetchResult.updated) {
+        patchWebFetchesInBlocks(webFetchResult.updated)
+      }
     }
   }
 
   if (blocks.length === 0) return null
   const preText = preTextChunks.join('').trim() || undefined
-  return { blocks, bridgeTexts: [], preText }
+  const finalContent = pendingText.trim() ? pendingText : undefined
+  return {
+    blocks: blocks.map((block) => ({
+      id: block.id,
+      title: block.title,
+      steps: block.steps.map((step) => ({ ...step, status: 'done' })),
+      sources: block.sources,
+      narratives: block.narratives.length > 0 ? block.narratives : undefined,
+      codeExecutions: block.codeExecutions.length > 0 ? block.codeExecutions : undefined,
+      subAgents: block.subAgents.length > 0 ? block.subAgents : undefined,
+      fileOps: block.fileOps.length > 0 ? block.fileOps : undefined,
+      webFetches: block.webFetches.length > 0 ? block.webFetches : undefined,
+    })),
+    preText,
+    finalContent,
+  }
 }

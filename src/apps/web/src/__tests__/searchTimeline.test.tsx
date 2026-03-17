@@ -7,19 +7,23 @@ import type { CodeExecution } from '../components/ThinkingBlock'
 
 function renderTimeline(params: {
   isComplete: boolean
-  steps: { id: string; kind: 'planning' | 'searching' | 'reviewing' | 'finished'; label: string; status: 'active' | 'done'; queries?: string[] }[]
+  steps: { id: string; kind: 'planning' | 'searching' | 'reviewing' | 'finished'; label: string; status: 'active' | 'done'; queries?: string[]; seq?: number }[]
   sources: WebSource[]
+  narratives?: Array<{ id: string; text: string; seq: number }>
   codeExecutions?: CodeExecution[]
   subAgents?: SubAgentRef[]
+  fileOps?: Array<{ id: string; toolName: string; label: string; status: 'running' | 'success' | 'failed'; seq?: number }>
 }): string {
   return renderToStaticMarkup(
     <LocaleProvider>
       <SearchTimeline
         steps={params.steps}
         sources={params.sources}
+        narratives={params.narratives}
         isComplete={params.isComplete}
         codeExecutions={params.codeExecutions}
         subAgents={params.subAgents}
+        fileOps={params.fileOps}
       />
     </LocaleProvider>,
   )
@@ -78,5 +82,29 @@ describe('SearchTimeline', () => {
     expect(html).toContain('WikiFetcher')
     expect(html).toContain('left:-19px')
     expect(html).toContain('width:8px;height:8px;border-radius:50%')
+  })
+
+  it('统一时间线应按 seq 交错排序不同类型条目', () => {
+    const html = renderTimeline({
+      isComplete: false,
+      steps: [
+        { id: 's1', kind: 'searching', label: 'Searching', status: 'done', seq: 30 },
+      ],
+      sources: [],
+      narratives: [
+        { id: 'n1', text: '先整理一下现有工具。', seq: 20 },
+      ],
+      fileOps: [
+        { id: 'op1', toolName: 'search_tools', label: 'search_tools "exec_command"', status: 'success', seq: 10 },
+      ],
+    })
+
+    const fileOpIndex = html.indexOf('search_tools &quot;exec_command&quot;')
+    const narrativeIndex = html.indexOf('先整理一下现有工具。')
+    const stepIndex = html.lastIndexOf('Searching')
+    expect(fileOpIndex).toBeGreaterThanOrEqual(0)
+    expect(narrativeIndex).toBeGreaterThan(fileOpIndex)
+    expect(stepIndex).toBeGreaterThan(narrativeIndex)
+    expect(html).not.toContain('Finished')
   })
 })

@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
+  buildMessageCopBlocksFromRunEvents,
   buildMessageFileOpsFromRunEvents,
   buildMessageCodeExecutionsFromRunEvents,
   buildMessageSubAgentsFromRunEvents,
   buildMessageThinkingFromRunEvents,
+  buildMessageWidgetsFromRunEvents,
   findAssistantMessageForRun,
   patchCodeExecutionList,
   selectFreshRunEvents,
@@ -162,6 +164,95 @@ describe('completed run message sync', () => {
       messages,
       latestRun: { run_id: 'run_2', status: 'completed' },
     })).toBe(false)
+  })
+})
+
+describe('buildMessageWidgetsFromRunEvents', () => {
+  it('应从 show_widget 的 tool.call 事件恢复 widget', () => {
+    const events = [
+      makeRunEvent({
+        runId: 'run_1',
+        seq: 1,
+        type: 'tool.call',
+        data: {
+          tool_name: 'show_widget',
+          tool_call_id: 'call_widget',
+          arguments: {
+            title: '销售图表',
+            widget_code: '<div id="chart">ok</div>',
+          },
+        },
+      }),
+      makeRunEvent({
+        runId: 'run_1',
+        seq: 2,
+        type: 'tool.result',
+        data: {
+          tool_name: 'show_widget',
+          tool_call_id: 'call_widget',
+          result: { ok: true },
+        },
+      }),
+    ]
+
+    expect(buildMessageWidgetsFromRunEvents(events)).toEqual([
+      {
+        id: 'call_widget',
+        title: '销售图表',
+        html: '<div id="chart">ok</div>',
+      },
+    ])
+  })
+
+  it('应忽略缺少 widget_code 的 show_widget 事件和重复 call id', () => {
+    const events = [
+      makeRunEvent({
+        runId: 'run_1',
+        seq: 1,
+        type: 'tool.call',
+        data: {
+          tool_name: 'show_widget',
+          tool_call_id: 'call_widget',
+          arguments: {
+            title: '默认标题',
+            widget_code: '<div>first</div>',
+          },
+        },
+      }),
+      makeRunEvent({
+        runId: 'run_1',
+        seq: 2,
+        type: 'tool.call',
+        data: {
+          tool_name: 'show_widget',
+          tool_call_id: 'call_widget',
+          arguments: {
+            title: '重复调用',
+            widget_code: '<div>second</div>',
+          },
+        },
+      }),
+      makeRunEvent({
+        runId: 'run_1',
+        seq: 3,
+        type: 'tool.call',
+        data: {
+          tool_name: 'show_widget',
+          tool_call_id: 'call_missing',
+          arguments: {
+            title: '缺内容',
+          },
+        },
+      }),
+    ]
+
+    expect(buildMessageWidgetsFromRunEvents(events)).toEqual([
+      {
+        id: 'call_widget',
+        title: '默认标题',
+        html: '<div>first</div>',
+      },
+    ])
   })
 })
 
@@ -838,5 +929,102 @@ describe('search_tools summary', () => {
       matched: ['web_search', 'web_fetch'],
     })
     expect(result).toBe('2 matches: web_search, web_fetch')
+  })
+})
+
+describe('buildMessageCopBlocksFromRunEvents', () => {
+  it('应把工具间正文落到 narrative，并保留最终正文', () => {
+    const events = [
+      makeRunEvent({
+        runId: 'run_1',
+        seq: 1,
+        type: 'tool.call',
+        data: {
+          tool_name: 'timeline_title',
+          tool_call_id: 'call_title',
+          arguments: { label: '检查已启用的 skills' },
+        },
+      }),
+      makeRunEvent({
+        runId: 'run_1',
+        seq: 2,
+        type: 'tool.call',
+        data: {
+          tool_name: 'search_tools',
+          tool_call_id: 'call_tools',
+          arguments: { queries: ['exec_command', 'python_execute'] },
+        },
+      }),
+      makeRunEvent({
+        runId: 'run_1',
+        seq: 3,
+        type: 'tool.result',
+        data: {
+          tool_name: 'search_tools',
+          tool_call_id: 'call_tools',
+          result: { count: 2, matched: ['exec_command', 'python_execute'] },
+        },
+      }),
+      makeRunEvent({
+        runId: 'run_1',
+        seq: 4,
+        type: 'message.delta',
+        data: { role: 'assistant', content_delta: '我先整理一下现有工具。' },
+      }),
+      makeRunEvent({
+        runId: 'run_1',
+        seq: 5,
+        type: 'tool.call',
+        data: {
+          tool_name: 'web_search',
+          tool_call_id: 'call_search',
+          arguments: { query: 'GeoGebra API embed JavaScript graphing calculator' },
+        },
+      }),
+      makeRunEvent({
+        runId: 'run_1',
+        seq: 6,
+        type: 'tool.result',
+        data: {
+          tool_name: 'web_search',
+          tool_call_id: 'call_search',
+          result: {
+            results: [
+              { title: 'GeoGebra Manual', url: 'https://geogebra.org/manual', snippet: 'manual' },
+            ],
+          },
+        },
+      }),
+      makeRunEvent({
+        runId: 'run_1',
+        seq: 7,
+        type: 'message.delta',
+        data: { role: 'assistant', content_delta: '最终我建议直接走 skill。' },
+      }),
+      makeRunEvent({
+        runId: 'run_1',
+        seq: 8,
+        type: 'run.completed',
+        data: {},
+      }),
+    ]
+
+    const cop = buildMessageCopBlocksFromRunEvents(events)
+    expect(cop).not.toBeNull()
+    expect(cop?.blocks).toHaveLength(1)
+    expect(cop?.blocks[0]?.title).toBe('检查已启用的 skills')
+    expect(cop?.blocks[0]?.narratives).toEqual([
+      { id: expect.any(String), text: '我先整理一下现有工具。', seq: 4 },
+    ])
+    expect(cop?.blocks[0]?.fileOps?.[0]).toMatchObject({
+      id: 'call_tools',
+      toolName: 'search_tools',
+      seq: 2,
+    })
+    expect(cop?.blocks[0]?.steps.map((step) => ({ kind: step.kind, seq: step.seq }))).toEqual([
+      { kind: 'searching', seq: 5 },
+      { kind: 'reviewing', seq: 6 },
+    ])
+    expect(cop?.finalContent).toBe('最终我建议直接走 skill。')
   })
 })

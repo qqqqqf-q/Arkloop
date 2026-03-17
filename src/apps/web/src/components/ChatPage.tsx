@@ -12,7 +12,7 @@ import { ThinkingBlock, CodeExecutionCard, type CodeExecution } from './Thinking
 import { ShellExecutionBlock } from './ShellExecutionBlock'
 import { FileOpBlock } from './FileOpBlock'
 import { SubAgentBlock } from './SubAgentBlock'
-import { SearchTimeline, WebFetchItem, type SearchStep } from './SearchTimeline'
+import { SearchTimeline, WebFetchItem, type SearchNarrative, type SearchStep } from './SearchTimeline'
 import { ArtifactStreamBlock, extractPartialArtifactFields, type StreamingArtifactEntry } from './ArtifactStreamBlock'
 import { WidgetBlock } from './WidgetBlock'
 import UserInputCard from './UserInputCard'
@@ -35,6 +35,7 @@ import {
   buildMessageCodeExecutionsFromRunEvents,
   patchCodeExecutionList,
   buildMessageThinkingFromRunEvents,
+  buildMessageWidgetsFromRunEvents,
   findAssistantMessageForRun,
   selectFreshRunEvents,
   shouldRefetchCompletedRunMessages,
@@ -195,7 +196,11 @@ type CopBlock = {
   title: string
   steps: SearchStep[]
   sources: WebSource[]
+  narratives: SearchNarrative[]
   codeExecutions: CodeExecution[]
+  subAgents: SubAgentRef[]
+  fileOps: FileOpRef[]
+  webFetches: WebFetchRef[]
 }
 
 // finalizeSearchSteps converts live SearchStep[] to the storage format.
@@ -214,39 +219,47 @@ function patchLegacySearchSteps(steps: MessageSearchStepRef[]): { steps: Message
 
 function finalizeBlockSteps(steps: SearchStep[]): MessageSearchStepRef[] {
   if (steps.length === 0) return []
-  const normalized: MessageSearchStepRef[] = steps.map((step) => ({
+  return steps.map((step) => ({
     id: step.id,
     kind: step.kind,
     label: step.label,
     status: 'done',
     queries: step.queries ? [...step.queries] : undefined,
+    seq: step.seq,
   }))
-  const hasSearch = normalized.some((step) => step.kind === 'searching')
-  if (hasSearch && !normalized.some((step) => step.kind === 'reviewing')) {
-    normalized.push({ id: 'reviewing', kind: 'reviewing', label: 'Reviewing', status: 'done' })
-  }
-  if (!normalized.some((step) => step.kind === 'finished')) {
-    normalized.push({ id: 'finished', kind: 'finished', label: 'Finished', status: 'done' })
-  }
-  return normalized
 }
 
-function finalizeCopBlocks(blocks: CopBlock[], bridgeTexts: string[]): MessageCopBlocksRef {
+function collectCompletedWidgets(entries: StreamingArtifactEntry[]): WidgetRef[] {
+  return entries
+    .filter((entry) => entry.toolName === 'show_widget' && entry.complete && entry.content && entry.toolCallId)
+    .map((entry) => ({
+      id: entry.toolCallId!,
+      title: entry.title ?? 'Widget',
+      html: entry.content!,
+    }))
+}
+
+function finalizeCopBlocks(blocks: CopBlock[], finalContent?: string): MessageCopBlocksRef {
+  const normalizedFinalContent = finalContent && finalContent.trim() ? finalContent : undefined
   return {
     blocks: blocks.map((block) => ({
       id: block.id,
       title: block.title,
       steps: finalizeBlockSteps(block.steps),
       sources: [...block.sources],
+      narratives: block.narratives.length > 0 ? [...block.narratives] : undefined,
       codeExecutions: block.codeExecutions.length > 0 ? [...block.codeExecutions] : undefined,
+      subAgents: block.subAgents.length > 0 ? [...block.subAgents] : undefined,
+      fileOps: block.fileOps.length > 0 ? [...block.fileOps] : undefined,
+      webFetches: block.webFetches.length > 0 ? [...block.webFetches] : undefined,
     })),
-    bridgeTexts: [...bridgeTexts],
+    finalContent: normalizedFinalContent,
   }
 }
 
 function ensureCopBlock(blocks: CopBlock[]): CopBlock[] {
   if (blocks.length > 0) return blocks
-  return [{ id: crypto.randomUUID(), title: '', steps: [], sources: [], codeExecutions: [] }]
+  return [{ id: crypto.randomUUID(), title: '', steps: [], sources: [], narratives: [], codeExecutions: [], subAgents: [], fileOps: [], webFetches: [] }]
 }
 
 function addStepToLastBlock(blocks: CopBlock[], step: SearchStep): CopBlock[] {
@@ -262,6 +275,79 @@ function updateStepInBlocks(blocks: CopBlock[], stepId: string, updater: (s: Sea
   return blocks.map((b) => ({
     ...b,
     steps: b.steps.map((s) => s.id === stepId ? updater(s) : s),
+  }))
+}
+
+function addNarrativeToLastBlock(blocks: CopBlock[], narrative: SearchNarrative): CopBlock[] {
+  const withBlock = ensureCopBlock(blocks)
+  return withBlock.map((block, index) =>
+    index === withBlock.length - 1
+      ? { ...block, narratives: [...block.narratives, narrative] }
+      : block,
+  )
+}
+
+function appendCodeExecutionToLastBlock(blocks: CopBlock[], entry: CodeExecution): CopBlock[] {
+  const withBlock = ensureCopBlock(blocks)
+  return withBlock.map((block, index) =>
+    index === withBlock.length - 1
+      ? { ...block, codeExecutions: [...block.codeExecutions, entry] }
+      : block,
+  )
+}
+
+function patchCodeExecutionInBlocks(blocks: CopBlock[], target: CodeExecution): CopBlock[] {
+  return blocks.map((block) => ({
+    ...block,
+    codeExecutions: patchCodeExecutionList(block.codeExecutions, target).next,
+  }))
+}
+
+function appendSubAgentToLastBlock(blocks: CopBlock[], entry: SubAgentRef): CopBlock[] {
+  const withBlock = ensureCopBlock(blocks)
+  return withBlock.map((block, index) =>
+    index === withBlock.length - 1
+      ? { ...block, subAgents: [...block.subAgents, entry] }
+      : block,
+  )
+}
+
+function patchSubAgentInBlocks(blocks: CopBlock[], target: SubAgentRef): CopBlock[] {
+  return blocks.map((block) => ({
+    ...block,
+    subAgents: block.subAgents.map((agent) => agent.id === target.id ? target : agent),
+  }))
+}
+
+function appendFileOpToLastBlock(blocks: CopBlock[], entry: FileOpRef): CopBlock[] {
+  const withBlock = ensureCopBlock(blocks)
+  return withBlock.map((block, index) =>
+    index === withBlock.length - 1
+      ? { ...block, fileOps: [...block.fileOps, entry] }
+      : block,
+  )
+}
+
+function patchFileOpInBlocks(blocks: CopBlock[], target: FileOpRef): CopBlock[] {
+  return blocks.map((block) => ({
+    ...block,
+    fileOps: block.fileOps.map((op) => op.id === target.id ? target : op),
+  }))
+}
+
+function appendWebFetchToLastBlock(blocks: CopBlock[], entry: WebFetchRef): CopBlock[] {
+  const withBlock = ensureCopBlock(blocks)
+  return withBlock.map((block, index) =>
+    index === withBlock.length - 1
+      ? { ...block, webFetches: [...block.webFetches, entry] }
+      : block,
+  )
+}
+
+function patchWebFetchInBlocks(blocks: CopBlock[], target: WebFetchRef): CopBlock[] {
+  return blocks.map((block) => ({
+    ...block,
+    webFetches: block.webFetches.map((fetch) => fetch.id === target.id ? target : fetch),
   }))
 }
 
@@ -371,9 +457,8 @@ export function ChatPage() {
   // COP blocks: 多段工作流（run 结束后保持，下次 run 开始时清除）
   const [copBlocks, setCopBlocks] = useState<CopBlock[]>([])
   const copBlocksRef = useRef<CopBlock[]>([])
-  const [bridgeTexts, setBridgeTexts] = useState<string[]>([])
-  const bridgeTextsRef = useRef<string[]>([])
   const pendingTextRef = useRef('')
+  const pendingTextSeqRef = useRef<number | null>(null)
   const [liveTimelineExiting, setLiveTimelineExiting] = useState(false)
   const liveTimelineExitTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
@@ -509,20 +594,25 @@ export function ChatPage() {
       return next
     })
   }, [])
-  const applyBridgeTexts = useCallback((updater: (prev: string[]) => string[]) => {
-    setBridgeTexts((prev) => {
-      const next = updater(prev)
-      bridgeTextsRef.current = next
-      return next
-    })
-  }, [])
   const resetCopState = useCallback(() => {
     copBlocksRef.current = []
     setCopBlocks([])
-    bridgeTextsRef.current = []
-    setBridgeTexts([])
     pendingTextRef.current = ''
+    pendingTextSeqRef.current = null
   }, [])
+  const flushPendingNarrativeToTimeline = useCallback(() => {
+    const text = pendingTextRef.current
+    const seq = pendingTextSeqRef.current
+    if (!text.trim() || seq == null) return
+    applyCopBlocks((prev) => addNarrativeToLastBlock(prev, {
+      id: crypto.randomUUID(),
+      text,
+      seq,
+    }))
+    pendingTextRef.current = ''
+    pendingTextSeqRef.current = null
+    setAssistantDraft('')
+  }, [applyCopBlocks])
   const resetSearchSteps = useCallback(() => {
     searchStepsRef.current = []
     setSearchSteps([])
@@ -724,12 +814,19 @@ export function ChatPage() {
   // 仅用于 streaming 结束后自动发送排队消息（无附件）
   const sendMessage = useCallback(async (text: string) => {
     if (!threadId) return
+    const normalized = text.trim()
+    if (!normalized) return
+    if (activeRunId || sending) {
+      pendingMessageRef.current = normalized
+      setQueuedDraft(normalized)
+      return
+    }
     setSending(true)
     setError(null)
     setInjectionBlocked(null)
     injectionBlockedRunIdRef.current = null
     try {
-      const message = await createMessage(accessToken, threadId, { content: text })
+      const message = await createMessage(accessToken, threadId, { content: normalized })
       invalidateMessageSync()
       setMessages((prev) => [...prev, message])
       setAssistantDraft('')
@@ -745,7 +842,7 @@ export function ChatPage() {
     } finally {
       setSending(false)
     }
-  }, [accessToken, threadId, onLoggedOut, onRunStarted, invalidateMessageSync])
+  }, [accessToken, threadId, activeRunId, sending, onLoggedOut, onRunStarted, invalidateMessageSync])
 
   // 用 ref 持有最新的 sendMessage，避免 SSE 事件闭包中捕获旧引用
   const sendMessageRef = useRef(sendMessage)
@@ -763,9 +860,13 @@ export function ChatPage() {
     return () => window.removeEventListener('arkloop:send-prompt', handler)
   }, [])
 
-  const handleArtifactAction = useCallback((action: { type: string; text?: string }) => {
+  const handleArtifactAction = useCallback((action: { type: string; text?: string; message?: string }) => {
     if (action.type === 'prompt' && typeof action.text === 'string' && action.text.trim()) {
       void sendMessageRef.current(action.text.trim())
+      return
+    }
+    if (action.type === 'error' && typeof action.message === 'string' && action.message.trim()) {
+      setError({ message: action.message.trim() })
     }
   }, [])
 
@@ -800,6 +901,7 @@ export function ChatPage() {
         // 加载各消息缓存的 web 来源
         const sourcesMap = new Map<string, WebSource[]>()
         const artifactsMap = new Map<string, ArtifactRef[]>()
+        const widgetsMap = new Map<string, WidgetRef[]>()
         const codeExecMap = new Map<string, CodeExecutionRef[]>()
         const browserActionsMap = new Map<string, BrowserActionRef[]>()
         const subAgentsMap = new Map<string, SubAgentRef[]>()
@@ -817,6 +919,8 @@ export function ChatPage() {
           if (cached) sourcesMap.set(msg.id, cached)
           const cachedArt = readMessageArtifacts(msg.id)
           if (cachedArt) artifactsMap.set(msg.id, cachedArt)
+          const cachedWidgets = readMessageWidgets(msg.id)
+          if (cachedWidgets) widgetsMap.set(msg.id, cachedWidgets)
           const cachedExec = readMessageCodeExecutions(msg.id)
           if (cachedExec) codeExecMap.set(msg.id, cachedExec)
           const cachedBrowserActions = readMessageBrowserActions(msg.id)
@@ -847,13 +951,14 @@ export function ChatPage() {
           ? findAssistantMessageForRun(items, latest.run_id)
           : [...items].reverse().find((m) => m.role === 'assistant')
         const replayThinkingNeeded = !!(lastAssistant && !thinkingMap.has(lastAssistant.id))
+        const replayWidgetsNeeded = !!(lastAssistant && !widgetsMap.has(lastAssistant.id))
         const replayCodeExecNeeded = !!(lastAssistant && shouldReplayMessageCodeExecutions(codeExecMap.get(lastAssistant.id)))
         const replayBrowserActionsNeeded = !!(lastAssistant && !browserActionsMap.has(lastAssistant.id))
         const replaySubAgentsNeeded = !!(lastAssistant && !subAgentsMap.has(lastAssistant.id))
         const replayFileOpsNeeded = !!(lastAssistant && !fileOpsMap.has(lastAssistant.id))
         const replayWebFetchesNeeded = !!(lastAssistant && !webFetchesMap.has(lastAssistant.id))
         const replayCopBlocksNeeded = !!(lastAssistant && !copBlocksMap.has(lastAssistant.id))
-        if (latest && latest.status !== 'running' && lastAssistant && (replayThinkingNeeded || replayCodeExecNeeded || replayBrowserActionsNeeded || replaySubAgentsNeeded || replayFileOpsNeeded || replayWebFetchesNeeded || replayCopBlocksNeeded)) {
+        if (latest && latest.status !== 'running' && lastAssistant && (replayThinkingNeeded || replayWidgetsNeeded || replayCodeExecNeeded || replayBrowserActionsNeeded || replaySubAgentsNeeded || replayFileOpsNeeded || replayWebFetchesNeeded || replayCopBlocksNeeded)) {
           try {
             const replayEvents = await listRunEvents(accessToken, latest.run_id, { follow: false })
             if (replayThinkingNeeded) {
@@ -861,6 +966,13 @@ export function ChatPage() {
               if (thinking) {
                 thinkingMap.set(lastAssistant.id, thinking)
                 writeMessageThinking(lastAssistant.id, thinking)
+              }
+            }
+            if (replayWidgetsNeeded) {
+              const replayWidgets = buildMessageWidgetsFromRunEvents(replayEvents)
+              if (replayWidgets.length > 0) {
+                widgetsMap.set(lastAssistant.id, replayWidgets)
+                writeMessageWidgets(lastAssistant.id, replayWidgets)
               }
             }
             if (replayCodeExecNeeded) {
@@ -910,6 +1022,7 @@ export function ChatPage() {
 
         setMessageSourcesMap(sourcesMap)
         setMessageArtifactsMap(artifactsMap)
+        setMessageWidgetsMap(widgetsMap)
         setMessageCodeExecutionsMap(codeExecMap)
         setMessageBrowserActionsMap(browserActionsMap)
         setMessageSubAgentsMap(subAgentsMap)
@@ -983,6 +1096,7 @@ export function ChatPage() {
     currentRunSubAgentsRef.current = []
     setMessageSourcesMap(new Map())
     setMessageArtifactsMap(new Map())
+    setMessageWidgetsMap(new Map())
     setMessageCodeExecutionsMap(new Map())
     setMessageBrowserActionsMap(new Map())
     setMessageSubAgentsMap(new Map())
@@ -1090,6 +1204,7 @@ export function ChatPage() {
       }
 
       if (event.type === 'run.segment.start') {
+        flushPendingNarrativeToTimeline()
         const obj = event.data as { segment_id?: unknown; kind?: unknown; display?: unknown }
         const segmentId = typeof obj.segment_id === 'string' ? obj.segment_id : ''
         const kind = typeof obj.kind === 'string' ? obj.kind : 'planning_round'
@@ -1117,6 +1232,7 @@ export function ChatPage() {
               label,
               status: 'active',
               queries,
+              seq: event.seq,
             }))
           }
         } else {
@@ -1163,6 +1279,7 @@ export function ChatPage() {
         const activeSeg = activeSegmentIdRef.current
         if (activeSeg) {
           if (!isThinking && !SHOW_EXPLICIT_THINKING) {
+            if (pendingTextSeqRef.current == null) pendingTextSeqRef.current = event.seq
             pendingTextRef.current += delta
             setAssistantDraft((prev) => prev + delta)
           } else {
@@ -1179,6 +1296,7 @@ export function ChatPage() {
         } else if (!seenFirstToolCallInRunRef.current) {
           setPreCopText((prev) => prev + delta)
         } else {
+          if (pendingTextSeqRef.current == null) pendingTextSeqRef.current = event.seq
           pendingTextRef.current += delta
           setAssistantDraft((prev) => prev + delta)
         }
@@ -1200,10 +1318,10 @@ export function ChatPage() {
 
           if (entry.toolName === 'show_widget' || entry.toolName === 'create_artifact' || (!entry.toolName && (entry.argumentsBuffer.includes('"content"') || entry.argumentsBuffer.includes('"widget_code"')))) {
             const parsed = extractPartialArtifactFields(entry.argumentsBuffer)
-            if (parsed.title) entry.title = parsed.title
-            if (parsed.filename) entry.filename = parsed.filename
-            if (parsed.display) entry.display = parsed.display as 'inline' | 'panel'
-            if (parsed.content) entry.content = parsed.content
+            if (parsed.title !== undefined) entry.title = parsed.title
+            if (parsed.filename !== undefined) entry.filename = parsed.filename
+            if (parsed.display !== undefined) entry.display = parsed.display as 'inline' | 'panel'
+            if (parsed.content !== undefined) entry.content = parsed.content
             setStreamingArtifacts([...streamingArtifactsRef.current])
           }
         }
@@ -1211,6 +1329,7 @@ export function ChatPage() {
       }
 
       if (event.type === 'tool.call') {
+        flushPendingNarrativeToTimeline()
         seenFirstToolCallInRunRef.current = true
         const obj = event.data as { tool_name?: unknown; llm_name?: unknown; tool_call_id?: unknown; arguments?: unknown }
         const toolName = typeof obj.tool_name === 'string' ? obj.tool_name : event.tool_name
@@ -1230,9 +1349,7 @@ export function ChatPage() {
               ),
             )
           } else if (copBlocksRef.current.length > 0) {
-            applyCopBlocks((prev) => prev.map((b, i) =>
-              i === prev.length - 1 ? { ...b, codeExecutions: [...b.codeExecutions, entry] } : b,
-            ))
+            applyCopBlocks((prev) => appendCodeExecutionToLastBlock(prev, entry))
           } else {
             setTopLevelCodeExecutions((prev) => [...prev, entry])
           }
@@ -1247,45 +1364,52 @@ export function ChatPage() {
         const subAgentCall = applySubAgentToolCall(currentRunSubAgentsRef.current, event)
         if (subAgentCall.appended) {
           currentRunSubAgentsRef.current = subAgentCall.nextAgents
-          setTopLevelSubAgents((prev) => [...prev, subAgentCall.appended!])
+          if (copBlocksRef.current.length > 0) {
+            applyCopBlocks((prev) => appendSubAgentToLastBlock(prev, subAgentCall.appended!))
+          } else {
+            setTopLevelSubAgents((prev) => [...prev, subAgentCall.appended!])
+          }
         }
         // file op tool.call (grep/glob/read_file/write_file/edit_file)
         const fileOpCall = applyFileOpToolCall(currentRunFileOpsRef.current, event)
         if (fileOpCall.appended) {
           currentRunFileOpsRef.current = fileOpCall.nextOps
-          setTopLevelFileOps((prev) => [...prev, fileOpCall.appended!])
+          if (copBlocksRef.current.length > 0) {
+            applyCopBlocks((prev) => appendFileOpToLastBlock(prev, fileOpCall.appended!))
+          } else {
+            setTopLevelFileOps((prev) => [...prev, fileOpCall.appended!])
+          }
         }
         // web_fetch tool.call
         const webFetchCall = applyWebFetchToolCall(currentRunWebFetchesRef.current, event)
         if (webFetchCall.appended) {
           currentRunWebFetchesRef.current = webFetchCall.nextFetches
-          setTopLevelWebFetches((prev) => [...prev, webFetchCall.appended!])
+          if (copBlocksRef.current.length > 0) {
+            applyCopBlocks((prev) => appendWebFetchToLastBlock(prev, webFetchCall.appended!))
+          } else {
+            setTopLevelWebFetches((prev) => [...prev, webFetchCall.appended!])
+          }
         }
         // timeline_title: COP 块分割线
         if (toolName === SEARCH_PLANNING_TOOL_NAME) {
           const args = obj.arguments as Record<string, unknown> | undefined
           const rawLabel = typeof args?.label === 'string' ? args.label : undefined
           const label = compactSingleLine(rawLabel) || ''
-          // 如果有累积的 pending text，存为上一个块的 bridge text
-          if (pendingTextRef.current.trim() && copBlocksRef.current.length > 0) {
-            const bridgeIdx = copBlocksRef.current.length - 1
-            applyBridgeTexts((prev) => {
-              const next = [...prev]
-              next[bridgeIdx] = pendingTextRef.current.trim()
-              return next
-            })
-            pendingTextRef.current = ''
-            setAssistantDraft('')
-          }
           applyCopBlocks((prev) => {
             if (prev.length > 0) {
               const last = prev[prev.length - 1]
-              const isEmpty = last.steps.length === 0 && last.codeExecutions.length === 0 && last.sources.length === 0
+              const isEmpty = last.steps.length === 0
+                && last.narratives.length === 0
+                && last.codeExecutions.length === 0
+                && last.subAgents.length === 0
+                && last.fileOps.length === 0
+                && last.webFetches.length === 0
+                && last.sources.length === 0
               if (last.title === '' || isEmpty) {
                 return prev.map((b, i) => i === prev.length - 1 ? { ...b, title: label } : b)
               }
             }
-            return [...prev, { id: crypto.randomUUID(), title: label, steps: [], sources: [], codeExecutions: [] }]
+            return [...prev, { id: crypto.randomUUID(), title: label, steps: [], sources: [], narratives: [], codeExecutions: [], subAgents: [], fileOps: [], webFetches: [] }]
           })
           continue
         }
@@ -1308,38 +1432,62 @@ export function ChatPage() {
             label: 'Searching',
             status: 'active' as const,
             queries: displayQueries,
+            seq: event.seq,
           }))
         }
         // show_widget tool.call: mark streaming entry as complete
         if (toolName === 'show_widget') {
           const args = obj.arguments as Record<string, unknown> | undefined
           const callId = typeof obj.tool_call_id === 'string' ? obj.tool_call_id : undefined
-          const entry = streamingArtifactsRef.current.find((e) => e.toolCallId === callId)
-          if (entry) {
-            entry.complete = true
-            if (typeof args?.widget_code === 'string') entry.content = args.widget_code
-            if (typeof args?.title === 'string') entry.title = args.title
-            setStreamingArtifacts([...streamingArtifactsRef.current])
+          let entry = callId
+            ? streamingArtifactsRef.current.find((e) => e.toolCallId === callId)
+            : undefined
+          if (!entry) {
+            entry = {
+              toolCallIndex: streamingArtifactsRef.current.length,
+              toolCallId: callId,
+              toolName: 'show_widget',
+              argumentsBuffer: '',
+              complete: false,
+            }
+            streamingArtifactsRef.current = [...streamingArtifactsRef.current, entry]
           }
+          entry.complete = true
+          entry.toolName = 'show_widget'
+          if (typeof args?.widget_code === 'string') entry.content = args.widget_code
+          if (typeof args?.title === 'string') entry.title = args.title
+          setStreamingArtifacts([...streamingArtifactsRef.current])
         }
         // create_artifact tool.call: mark streaming entry as complete
         if (toolName === 'create_artifact') {
           const args = obj.arguments as Record<string, unknown> | undefined
           const callId = typeof obj.tool_call_id === 'string' ? obj.tool_call_id : undefined
-          const entry = streamingArtifactsRef.current.find((e) => e.toolCallId === callId)
-          if (entry) {
-            entry.complete = true
-            if (typeof args?.content === 'string') entry.content = args.content
-            if (typeof args?.title === 'string') entry.title = args.title
-            if (typeof args?.filename === 'string') entry.filename = args.filename
-            if (typeof args?.display === 'string') entry.display = args.display as 'inline' | 'panel'
-            setStreamingArtifacts([...streamingArtifactsRef.current])
+          let entry = callId
+            ? streamingArtifactsRef.current.find((e) => e.toolCallId === callId)
+            : undefined
+          if (!entry) {
+            entry = {
+              toolCallIndex: streamingArtifactsRef.current.length,
+              toolCallId: callId,
+              toolName: 'create_artifact',
+              argumentsBuffer: '',
+              complete: false,
+            }
+            streamingArtifactsRef.current = [...streamingArtifactsRef.current, entry]
           }
+          entry.complete = true
+          entry.toolName = 'create_artifact'
+          if (typeof args?.content === 'string') entry.content = args.content
+          if (typeof args?.title === 'string') entry.title = args.title
+          if (typeof args?.filename === 'string') entry.filename = args.filename
+          if (typeof args?.display === 'string') entry.display = args.display as 'inline' | 'panel'
+          setStreamingArtifacts([...streamingArtifactsRef.current])
         }
         continue
       }
 
       if (event.type === 'tool.result') {
+        flushPendingNarrativeToTimeline()
         const obj = event.data as { tool_name?: unknown; tool_call_id?: unknown; result?: unknown; error?: unknown }
         const resultToolName = typeof obj.tool_name === 'string' ? obj.tool_name : ''
         if (resultToolName === 'web_search' || resultToolName.startsWith('web_search.')) {
@@ -1372,7 +1520,7 @@ export function ChatPage() {
                 if (allSearchDone && !lastBlock.steps.some((s) => s.kind === 'reviewing')) {
                   next = next.map((b, i) =>
                     i === next.length - 1
-                      ? { ...b, steps: [...b.steps, { id: 'auto-reviewing', kind: 'reviewing' as const, label: 'Reviewing sources', status: 'active' as const }] }
+                      ? { ...b, steps: [...b.steps, { id: 'auto-reviewing', kind: 'reviewing' as const, label: 'Reviewing sources', status: 'active' as const, seq: event.seq }] }
                       : b,
                   )
                 }
@@ -1419,9 +1567,7 @@ export function ChatPage() {
             const target: CodeExecution = codeExecutionResult.updated
             if (codeExecutionResult.appended) {
               if (copBlocksRef.current.length > 0) {
-                applyCopBlocks((prev) => prev.map((b, i) =>
-                  i === prev.length - 1 ? { ...b, codeExecutions: [...b.codeExecutions, target] } : b,
-                ))
+                applyCopBlocks((prev) => appendCodeExecutionToLastBlock(prev, target))
               } else {
                 setTopLevelCodeExecutions((prev) => [...prev, target])
               }
@@ -1433,10 +1579,7 @@ export function ChatPage() {
                   codeExecutions: patchCodeExecutionList(segment.codeExecutions, target).next,
                 })),
               )
-              applyCopBlocks((prev) => prev.map((b) => ({
-                ...b,
-                codeExecutions: patchCodeExecutionList(b.codeExecutions, target).next,
-              })))
+              applyCopBlocks((prev) => patchCodeExecutionInBlocks(prev, target))
             }
           }
         }
@@ -1456,31 +1599,43 @@ export function ChatPage() {
         const subAgentResult = applySubAgentToolResult(currentRunSubAgentsRef.current, event)
         if (subAgentResult.updated) {
           currentRunSubAgentsRef.current = subAgentResult.nextAgents
-          setTopLevelSubAgents((prev) => {
-            const idx = prev.findIndex((a) => a.id === subAgentResult.updated!.id)
-            if (idx >= 0) return prev.map((a, i) => i === idx ? subAgentResult.updated! : a)
-            return [...prev, subAgentResult.updated!]
-          })
+          if (copBlocksRef.current.length > 0) {
+            applyCopBlocks((prev) => patchSubAgentInBlocks(prev, subAgentResult.updated!))
+          } else {
+            setTopLevelSubAgents((prev) => {
+              const idx = prev.findIndex((a) => a.id === subAgentResult.updated!.id)
+              if (idx >= 0) return prev.map((a, i) => i === idx ? subAgentResult.updated! : a)
+              return [...prev, subAgentResult.updated!]
+            })
+          }
         }
         // file op tool.result
         const fileOpResult = applyFileOpToolResult(currentRunFileOpsRef.current, event)
         if (fileOpResult.updated) {
           currentRunFileOpsRef.current = fileOpResult.nextOps
-          setTopLevelFileOps((prev) => {
-            const idx = prev.findIndex((o) => o.id === fileOpResult.updated!.id)
-            if (idx >= 0) return prev.map((o, i) => i === idx ? fileOpResult.updated! : o)
-            return [...prev, fileOpResult.updated!]
-          })
+          if (copBlocksRef.current.length > 0) {
+            applyCopBlocks((prev) => patchFileOpInBlocks(prev, fileOpResult.updated!))
+          } else {
+            setTopLevelFileOps((prev) => {
+              const idx = prev.findIndex((o) => o.id === fileOpResult.updated!.id)
+              if (idx >= 0) return prev.map((o, i) => i === idx ? fileOpResult.updated! : o)
+              return [...prev, fileOpResult.updated!]
+            })
+          }
         }
         // web_fetch tool.result
         const webFetchResult = applyWebFetchToolResult(currentRunWebFetchesRef.current, event)
         if (webFetchResult.updated) {
           currentRunWebFetchesRef.current = webFetchResult.nextFetches
-          setTopLevelWebFetches((prev) => {
-            const idx = prev.findIndex((f) => f.id === webFetchResult.updated!.id)
-            if (idx >= 0) return prev.map((f, i) => i === idx ? webFetchResult.updated! : f)
-            return [...prev, webFetchResult.updated!]
-          })
+          if (copBlocksRef.current.length > 0) {
+            applyCopBlocks((prev) => patchWebFetchInBlocks(prev, webFetchResult.updated!))
+          } else {
+            setTopLevelWebFetches((prev) => {
+              const idx = prev.findIndex((f) => f.id === webFetchResult.updated!.id)
+              if (idx >= 0) return prev.map((f, i) => i === idx ? webFetchResult.updated! : f)
+              return [...prev, webFetchResult.updated!]
+            })
+          }
         }
         continue
       }
@@ -1535,6 +1690,8 @@ export function ChatPage() {
         noResponseMsgIdRef.current = null
         replaceOnCancelRef.current = null
         const runThinking = buildLiveThinkingSnapshot()
+        const runWidgets = collectCompletedWidgets(streamingArtifactsRef.current)
+        const runFinalContent = pendingTextRef.current
         sse.disconnect()
         setActiveRunId(null)
         // assistantDraft 延迟到 refreshMessages 完成后清除，避免"闪空"
@@ -1550,7 +1707,7 @@ export function ChatPage() {
 
         const runSearchSteps = finalizeSearchSteps(searchStepsRef.current)
         if (runSearchSteps.length > 0) applySearchSteps(() => runSearchSteps)
-        const runCopData = finalizeCopBlocks(copBlocksRef.current, bridgeTextsRef.current)
+        const runCopData = finalizeCopBlocks(copBlocksRef.current, runFinalContent)
         if (runCopData.blocks.length > 0) {
           const currentBlocks = copBlocksRef.current
           applyCopBlocks(() => runCopData.blocks.map((b, i) => ({
@@ -1558,7 +1715,11 @@ export function ChatPage() {
             title: b.title,
             steps: b.steps,
             sources: b.sources,
+            narratives: currentBlocks[i]?.narratives ?? [],
             codeExecutions: currentBlocks[i]?.codeExecutions ?? [],
+            subAgents: currentBlocks[i]?.subAgents ?? [],
+            fileOps: currentBlocks[i]?.fileOps ?? [],
+            webFetches: currentBlocks[i]?.webFetches ?? [],
           })))
         }
         // 让 live SearchTimeline 平滑收起而非瞬间消失
@@ -1571,6 +1732,7 @@ export function ChatPage() {
           }, 500)
         }
         pendingTextRef.current = ''
+        pendingTextSeqRef.current = null
         setQueuedDraft(null)
         setAwaitingInput(false)
         setPendingUserInput(null)
@@ -1590,9 +1752,6 @@ export function ChatPage() {
         currentRunFileOpsRef.current = []
         const runWebFetches = [...currentRunWebFetchesRef.current]
         currentRunWebFetchesRef.current = []
-        const runWidgets = streamingArtifactsRef.current
-          .filter((e) => e.toolName === 'show_widget' && e.complete && e.content && e.toolCallId)
-          .map((e) => ({ id: e.toolCallId!, title: e.title ?? 'Widget', html: e.content! }))
         void refreshMessages({ requiredCompletedRunId: completedRunId }).then((items) => {
           const completedAssistant = findAssistantMessageForRun(items, completedRunId)
           if (completedAssistant) {
@@ -1773,6 +1932,8 @@ export function ChatPage() {
     const runThinking = buildLiveThinkingSnapshot()
     const runSources = [...currentRunSourcesRef.current]
     const runArtifacts = [...currentRunArtifactsRef.current]
+    const runWidgets = collectCompletedWidgets(streamingArtifactsRef.current)
+    const runFinalContent = pendingTextRef.current
     const runCodeExecs = [...currentRunCodeExecutionsRef.current]
     const runBrowserActions = [...currentRunBrowserActionsRef.current]
     currentRunArtifactsRef.current = []
@@ -1793,9 +1954,11 @@ export function ChatPage() {
     setTopLevelSubAgents([])
     setTopLevelFileOps([])
     setTopLevelWebFetches([])
+    streamingArtifactsRef.current = []
+    setStreamingArtifacts([])
     setSegments([])
     activeSegmentIdRef.current = null
-    const runCopData = finalizeCopBlocks(copBlocksRef.current, bridgeTextsRef.current)
+    const runCopData = finalizeCopBlocks(copBlocksRef.current, runFinalContent)
     if (runCopData.blocks.length > 0) {
       const currentBlocks = copBlocksRef.current
       applyCopBlocks(() => runCopData.blocks.map((b, i) => ({
@@ -1803,10 +1966,15 @@ export function ChatPage() {
         title: b.title,
         steps: b.steps,
         sources: b.sources,
+        narratives: currentBlocks[i]?.narratives ?? [],
         codeExecutions: currentBlocks[i]?.codeExecutions ?? [],
+        subAgents: currentBlocks[i]?.subAgents ?? [],
+        fileOps: currentBlocks[i]?.fileOps ?? [],
+        webFetches: currentBlocks[i]?.webFetches ?? [],
       })))
     }
     pendingTextRef.current = ''
+    pendingTextSeqRef.current = null
     setQueuedDraft(null)
     setAwaitingInput(false)
     setPendingUserInput(null)
@@ -1817,6 +1985,10 @@ export function ChatPage() {
     void refreshMessages({ requiredCompletedRunId: terminalRunId }).then((items) => {
       const completedAssistant = findAssistantMessageForRun(items, terminalRunId)
       if (completedAssistant) {
+        if (runWidgets.length > 0) {
+          writeMessageWidgets(completedAssistant.id, runWidgets)
+          setMessageWidgetsMap((prev) => new Map(prev).set(completedAssistant.id, runWidgets))
+        }
         if (runSources.length > 0) {
           writeMessageSources(completedAssistant.id, runSources)
           setMessageSourcesMap((prev) => new Map(prev).set(completedAssistant.id, runSources))
@@ -2399,6 +2571,13 @@ export function ChatPage() {
     : copStepCount > 0
       ? `${copStepCount} steps completed`
       : 'Completed'
+  const hasStreamingWidgetPreview = streamingArtifacts.some((entry) => entry.toolName === 'show_widget' && !!entry.content)
+  const hasStreamingInlineArtifact = streamingArtifacts.some((entry) => entry.toolName === 'create_artifact' && !!entry.content && entry.display !== 'panel')
+  const hideLiveCopHeader = !assistantDraft
+    && segments.length === 0
+    && allStreamItems.length === 0
+    && !preCopText
+    && (hasStreamingWidgetPreview || hasStreamingInlineArtifact)
 
   const copHeaderDisplayed = useTypewriter(isStreaming ? copHeaderLabel : '')
 
@@ -2539,7 +2718,7 @@ export function ChatPage() {
           <div
             ref={scrollContainerRef}
             onScroll={handleScrollContainerScroll}
-            className="relative flex-1 min-h-0 overflow-y-auto bg-[var(--c-bg-page)] [scrollbar-gutter:stable]"
+            className="chat-scroll-hidden relative flex-1 min-h-0 overflow-y-auto bg-[var(--c-bg-page)] [scrollbar-gutter:stable]"
           >
         <div
           style={{ maxWidth: 800, margin: '0 auto', padding: `50px ${isPanelOpen ? '32px' : '60px'} 200px`, transition: 'padding 280ms cubic-bezier(0.16,1,0.3,1)' }}
@@ -2554,8 +2733,8 @@ export function ChatPage() {
                 const canShowSources = !!(resolvedSources && resolvedSources.length > 0)
                 const historicalCop = msg.role === 'assistant' ? historicalCopMap.get(msg.id) : undefined
                 const historicalBlocks = historicalCop?.copData.blocks ?? []
-                const historicalBridgeTexts = historicalCop?.copData.bridgeTexts ?? []
                 const historicalPreText = historicalCop?.copData.preText
+                const historicalFinalContent = historicalCop?.copData.finalContent
 
                 const messageCodeExecutions = msg.role === 'assistant' ? messageCodeExecutionsMap.get(msg.id) : undefined
                 const hasMessageCodeExecutions = !!(messageCodeExecutions && messageCodeExecutions.length > 0)
@@ -2584,20 +2763,21 @@ export function ChatPage() {
                           <SearchTimeline
                             steps={block.steps}
                             sources={block.sources}
+                            narratives={block.narratives}
                             isComplete
                             codeExecutions={blockCodeExecs}
                             onOpenCodeExecution={openCodePanel}
                             activeCodeExecutionId={codePanelExecution?.id}
-                            subAgents={bi === historicalBlocks.length - 1 ? messageSubAgents : undefined}
-                            fileOps={bi === historicalBlocks.length - 1 ? messageFileOps : undefined}
-                            webFetches={bi === historicalBlocks.length - 1 ? messageWebFetches : undefined}
+                            subAgents={(block.subAgents?.length ?? 0) > 0 ? block.subAgents : (bi === historicalBlocks.length - 1 ? messageSubAgents : undefined)}
+                            fileOps={(block.fileOps?.length ?? 0) > 0 ? block.fileOps : (bi === historicalBlocks.length - 1 ? messageFileOps : undefined)}
+                            webFetches={(block.webFetches?.length ?? 0) > 0 ? block.webFetches : (bi === historicalBlocks.length - 1 ? messageWebFetches : undefined)}
                             headerOverride={block.title || undefined}
                             accessToken={accessToken}
                             baseUrl={baseUrl}
                           />
-                          {historicalBridgeTexts[bi] && (
+                          {(!block.narratives || block.narratives.length === 0) && historicalCop?.copData.bridgeTexts?.[bi] && (
                             <div style={{ padding: '6px 0 8px', fontSize: '14px', lineHeight: '1.6', color: 'var(--c-text-primary)', maxWidth: '663px' }}>
-                              {historicalBridgeTexts[bi]}
+                              {historicalCop.copData.bridgeTexts[bi]}
                             </div>
                           )}
                         </Fragment>
@@ -2679,6 +2859,7 @@ export function ChatPage() {
                     browserActions={msg.role === 'assistant' ? messageBrowserActionsMap.get(msg.id) : undefined}
                     widgets={msg.role === 'assistant' ? (messageWidgetsMap.get(msg.id) ?? readMessageWidgets(msg.id) ?? undefined) : undefined}
                     accessToken={accessToken}
+                    onWidgetAction={msg.role === 'assistant' ? handleArtifactAction : undefined}
                     onShowSources={
                       msg.role === 'assistant' && canShowSources
                         ? () => {
@@ -2699,7 +2880,8 @@ export function ChatPage() {
                         ? () => setRunDetailPanelRunId(msg.run_id!)
                         : undefined
                     }
-                    contentPrefix={msg.role === 'assistant' ? historicalPreText : undefined}
+                    contentPrefix={msg.role === 'assistant' && !historicalFinalContent ? historicalPreText : undefined}
+                    contentOverride={msg.role === 'assistant' ? historicalFinalContent : undefined}
                   />
                   {/* 无痕分割线：固定在 fork 基点之后 */}
                   {locationState?.isIncognitoFork && locationState.forkBaseCount != null && idx === locationState.forkBaseCount - 1 && (
@@ -2710,7 +2892,7 @@ export function ChatPage() {
               })}
 
               {/* 流式 COP 状态指示（无 copBlocks 时）：Thinking / XX steps completed */}
-              {isStreaming && copBlocks.length === 0 && (segments.length > 0 || allStreamItems.length > 0 || !assistantDraft) && (
+              {isStreaming && copBlocks.length === 0 && !hideLiveCopHeader && (segments.length > 0 || allStreamItems.length > 0 || !assistantDraft) && (
                 <motion.div
                   initial={{ opacity: 0, y: 6 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -2822,24 +3004,20 @@ export function ChatPage() {
                           <SearchTimeline
                             steps={block.steps}
                             sources={block.sources}
+                            narratives={block.narratives}
                             isComplete={blockComplete}
                             codeExecutions={(block.codeExecutions?.length ?? 0) > 0 ? block.codeExecutions : (isLastBlock && dedupedTopLevelCodeExecutions.length > 0 ? dedupedTopLevelCodeExecutions : undefined)}
                             onOpenCodeExecution={openCodePanel}
                             activeCodeExecutionId={codePanelExecution?.id}
-                            subAgents={isLastBlock && topLevelSubAgents.length > 0 ? topLevelSubAgents : undefined}
-                            fileOps={isLastBlock && topLevelFileOps.length > 0 ? topLevelFileOps : undefined}
-                            webFetches={isLastBlock && topLevelWebFetches.length > 0 ? topLevelWebFetches : undefined}
+                            subAgents={(block.subAgents?.length ?? 0) > 0 ? block.subAgents : (isLastBlock && topLevelSubAgents.length > 0 ? topLevelSubAgents : undefined)}
+                            fileOps={(block.fileOps?.length ?? 0) > 0 ? block.fileOps : (isLastBlock && topLevelFileOps.length > 0 ? topLevelFileOps : undefined)}
+                            webFetches={(block.webFetches?.length ?? 0) > 0 ? block.webFetches : (isLastBlock && topLevelWebFetches.length > 0 ? topLevelWebFetches : undefined)}
                             headerOverride={block.title || (!liveTimelineExiting ? copHeaderLabel : undefined)}
                             shimmer={!liveTimelineExiting && isLastBlock && !assistantDraft}
                             live={!liveTimelineExiting && isLastBlock}
                             accessToken={accessToken}
                             baseUrl={baseUrl}
                           />
-                          {bridgeTexts[bi] && (
-                            <div style={{ padding: '4px 0', fontSize: '14px', lineHeight: '1.6', color: 'var(--c-text-primary)', maxWidth: '663px' }}>
-                              {bridgeTexts[bi]}
-                            </div>
-                          )}
                         </Fragment>
                       )
                     })}
@@ -2913,6 +3091,7 @@ export function ChatPage() {
                   html={entry.content!}
                   title={entry.title ?? 'Widget'}
                   complete={entry.complete}
+                  onAction={handleArtifactAction}
                 />
               ))}
 
