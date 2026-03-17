@@ -3,11 +3,13 @@
 package localshell
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -79,6 +81,10 @@ func (e *Executor) executeExecCommand(
 	timeoutMs := readIntArg(args, "timeout_ms")
 
 	controller := e.getOrCreateController(execCtx.RunID.String())
+
+	if rewritten := rtkRewrite(command); rewritten != "" {
+		command = rewritten
+	}
 
 	slog.Info("local_shell: exec_command",
 		"run_id", execCtx.RunID.String(),
@@ -241,6 +247,43 @@ func sanitizeOutput(s string) string {
 		i++
 	}
 	return out.String()
+}
+
+// rtkRewrite returns the RTK-optimized version of a shell command, or "" if
+// RTK has no wrapper for it. Uses ~/.arkloop/bin/rtk, falling back to PATH.
+func rtkRewrite(command string) string {
+	bin := resolvedRTKBin()
+	if bin == "" {
+		return ""
+	}
+	var out bytes.Buffer
+	cmd := exec.Command(bin, append([]string{"rewrite"}, strings.Fields(command)...)...)
+	cmd.Stdout = &out
+	if err := cmd.Run(); err != nil {
+		// exit 1 = no RTK equivalent, that's fine
+		return ""
+	}
+	return strings.TrimSpace(out.String())
+}
+
+var (
+	rtkBinOnce  sync.Once
+	rtkBinCache string
+)
+
+func resolvedRTKBin() string {
+	rtkBinOnce.Do(func() {
+		home, _ := os.UserHomeDir()
+		arkBin := home + "/.arkloop/bin/rtk"
+		if _, err := os.Stat(arkBin); err == nil {
+			rtkBinCache = arkBin
+			return
+		}
+		if p, err := exec.LookPath("rtk"); err == nil {
+			rtkBinCache = p
+		}
+	})
+	return rtkBinCache
 }
 
 func truncateForLog(s string, maxLen int) string {

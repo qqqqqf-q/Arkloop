@@ -7,8 +7,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"arkloop/services/shared/skillstore"
@@ -282,6 +286,11 @@ func (e *ToolExecutor) executeExecCommand(
 		}
 	}
 
+	command := reqArgs.Command
+	if rewritten := rtkRewriteSandbox(command); rewritten != "" {
+		command = rewritten
+	}
+
 	request := execCommandRequest{
 		SessionID:     resolution.SessionRef,
 		OpenMode:      resolution.OpenMode,
@@ -291,7 +300,7 @@ func (e *ToolExecutor) executeExecCommand(
 		EnabledSkills: append([]skillstore.ResolvedSkill(nil), execCtx.EnabledSkills...),
 		Tier:          resolveTier("exec_command", execCtx.Budget),
 		Cwd:           reqArgs.Cwd,
-		Command:       reqArgs.Command,
+		Command:       command,
 		TimeoutMs:     reqArgs.TimeoutMs,
 		YieldTimeMs:   reqArgs.YieldTimeMs,
 	}
@@ -1340,6 +1349,44 @@ func isSessionNotRunning(err *tools.ExecutionError) bool {
 		return true
 	}
 	return strings.Contains(strings.ToLower(strings.TrimSpace(err.Message)), "not running")
+}
+
+var (
+	sandboxRTKOnce  sync.Once
+	sandboxRTKCache string
+)
+
+// rtkRewriteSandbox rewrites a shell command to its RTK-optimized equivalent,
+// running rtk on the worker host (not inside the sandbox container).
+// Returns "" when RTK is unavailable or has no wrapper for the command.
+func rtkRewriteSandbox(command string) string {
+	sandboxRTKOnce.Do(func() {
+		// Container path first, then ~/.arkloop/bin/rtk, then PATH.
+		if _, err := os.Stat("/usr/local/bin/rtk"); err == nil {
+			sandboxRTKCache = "/usr/local/bin/rtk"
+			return
+		}
+		if home, err := os.UserHomeDir(); err == nil {
+			candidate := filepath.Join(home, ".arkloop", "bin", "rtk")
+			if _, err := os.Stat(candidate); err == nil {
+				sandboxRTKCache = candidate
+				return
+			}
+		}
+		if p, err := exec.LookPath("rtk"); err == nil {
+			sandboxRTKCache = p
+		}
+	})
+	if sandboxRTKCache == "" {
+		return ""
+	}
+	var out bytes.Buffer
+	cmd := exec.Command(sandboxRTKCache, append([]string{"rewrite"}, strings.Fields(command)...)...)
+	cmd.Stdout = &out
+	if err := cmd.Run(); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(out.String())
 }
 
 func (e *ToolExecutor) resolveEnabledSkills(ctx context.Context, execCtx tools.ExecutionContext) ([]skillstore.ResolvedSkill, error) {
