@@ -244,18 +244,27 @@ export function Sidebar({
           <span>{isClawMode ? t.tasks : t.chats}</span>
         </button>
 
-        {!isClawMode && (
-          <button
-            onClick={onOpenSearch}
-            className={[
-              'group flex h-9 items-center gap-2.5 overflow-hidden whitespace-nowrap rounded-lg px-2 text-[16px] transition-[background-color,color] duration-[60ms] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]',
-              isSearchMode ? 'bg-[var(--c-bg-deep)] text-[var(--c-text-primary)]' : 'text-[var(--c-text-secondary)]',
-            ].join(' ')}
-          >
-            <SearchCheck size={16} className="shrink-0 transition-transform duration-100 group-hover:scale-[1.05]" />
-            <span>{t.retrieve}</span>
-          </button>
-        )}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateRows: !isClawMode ? '1fr' : '0fr',
+            overflow: 'hidden',
+            transition: 'grid-template-rows 0.2s cubic-bezier(0.16,1,0.3,1)',
+          }}
+        >
+          <div style={{ minHeight: 0 }}>
+            <button
+              onClick={onOpenSearch}
+              className={[
+                'group flex h-9 items-center gap-2.5 overflow-hidden whitespace-nowrap rounded-lg px-2 text-[16px] transition-[background-color,color] duration-[60ms] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]',
+                isSearchMode ? 'bg-[var(--c-bg-deep)] text-[var(--c-text-primary)]' : 'text-[var(--c-text-secondary)]',
+              ].join(' ')}
+            >
+              <SearchCheck size={16} className="shrink-0 transition-transform duration-100 group-hover:scale-[1.05]" />
+              <span>{t.retrieve}</span>
+            </button>
+          </div>
+        </div>
       </nav>
 
       {/* Thread list — hidden when collapsed */}
@@ -296,8 +305,10 @@ export function Sidebar({
             </div>
           </div>
 
-          {/* Thread list */}
+          {/* Thread list — keyed by appMode so switching modes replaces the whole list
+              without triggering mass exit animations on individual items */}
           <div
+            key={appMode}
             className="w-full flex flex-col gap-[2px]"
             style={{
               opacity: isPrivateMode ? 0 : 1,

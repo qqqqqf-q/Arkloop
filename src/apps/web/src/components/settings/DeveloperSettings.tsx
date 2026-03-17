@@ -1,14 +1,21 @@
 import { useState, useEffect } from 'react'
+import { ChevronLeft } from 'lucide-react'
 import { getDesktopApi } from '@arkloop/shared/desktop'
 import { useLocale } from '../../contexts/LocaleContext'
 import { readDeveloperShowRunEvents, writeDeveloperShowRunEvents } from '../../storage'
+import { RunsSettings } from './RunsSettings'
 
-export function DeveloperSettings() {
+type Props = {
+  accessToken?: string
+}
+
+export function DeveloperSettings({ accessToken }: Props) {
   const { t } = useLocale()
   const ds = t.desktopSettings
   const [appVersion, setAppVersion] = useState('')
   const [resetDone, setResetDone] = useState(false)
   const [showRunEvents, setShowRunEvents] = useState(() => readDeveloperShowRunEvents())
+  const [runsOpen, setRunsOpen] = useState(false)
 
   useEffect(() => {
     const api = getDesktopApi()
@@ -28,6 +35,21 @@ export function DeveloperSettings() {
     } catch {
       /* ignore */
     }
+  }
+
+  if (runsOpen && accessToken) {
+    return (
+      <div className="flex flex-col gap-5">
+        <button
+          onClick={() => setRunsOpen(false)}
+          className="flex items-center gap-1 self-start text-sm text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] transition-colors"
+        >
+          <ChevronLeft size={15} />
+          {ds.developerTitle}
+        </button>
+        <RunsSettings accessToken={accessToken} />
+      </div>
+    )
   }
 
   return (
@@ -75,6 +97,29 @@ export function DeveloperSettings() {
                 showRunEvents ? 'translate-x-4' : 'translate-x-0',
               ].join(' ')}
             />
+          </button>
+        </div>
+
+        {/* Run history */}
+        <div
+          className="flex items-center justify-between rounded-xl bg-[var(--c-bg-menu)] px-4 py-3"
+          style={{ border: '0.5px solid var(--c-border-subtle)' }}
+        >
+          <div>
+            <div className="text-sm font-medium text-[var(--c-text-primary)]">
+              {ds.runsHistory}
+            </div>
+            <div className="text-xs text-[var(--c-text-muted)]">
+              {ds.runsHistoryDesc}
+            </div>
+          </div>
+          <button
+            onClick={() => setRunsOpen(true)}
+            disabled={!accessToken}
+            className="rounded-md bg-[var(--c-bg-deep)] px-3 py-1.5 text-xs font-medium text-[var(--c-text-secondary)] transition-colors hover:text-[var(--c-text-primary)] disabled:opacity-40"
+            style={{ border: '0.5px solid var(--c-border-subtle)' }}
+          >
+            {ds.runsHistoryOpen}
           </button>
         </div>
 

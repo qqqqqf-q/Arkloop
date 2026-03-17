@@ -640,28 +640,18 @@ func (r *RunEventRepository) ListRuns(ctx context.Context, params ListRunsParams
 		return nil, 0, fmt.Errorf("count runs: %w", err)
 	}
 
+	// 用关联子查询替代 LEFT JOIN LATERAL，兼容 PostgreSQL 和 SQLite。
 	query := fmt.Sprintf(`SELECT r.id, r.account_id, r.thread_id, r.created_by_user_id, r.status, r.created_at,
 		        r.parent_run_id, r.status_updated_at, r.completed_at, r.failed_at,
 		        r.duration_ms, r.total_input_tokens, r.total_output_tokens, r.total_cost_usd,
 		        r.model, r.persona_id, r.deleted_at,
 		        u.username, u.email,
-		        ur.cache_read_tokens, ur.cache_creation_tokens, ur.cached_tokens,
-		        ct.credits_used
+		        (SELECT SUM(ur2.cache_read_tokens)     FROM usage_records ur2 WHERE ur2.run_id = r.id) AS cache_read_tokens,
+		        (SELECT SUM(ur2.cache_creation_tokens) FROM usage_records ur2 WHERE ur2.run_id = r.id) AS cache_creation_tokens,
+		        (SELECT SUM(ur2.cached_tokens)         FROM usage_records ur2 WHERE ur2.run_id = r.id) AS cached_tokens,
+		        (SELECT ABS(SUM(ct2.amount)) FROM credit_transactions ct2 WHERE ct2.reference_id = r.id AND ct2.type = 'consumption') AS credits_used
 		 FROM runs r
-		 LEFT JOIN users u ON u.id = r.created_by_user_id
-		 LEFT JOIN LATERAL (
-		 	SELECT
-		 		SUM(ur.cache_read_tokens) AS cache_read_tokens,
-		 		SUM(ur.cache_creation_tokens) AS cache_creation_tokens,
-		 		SUM(ur.cached_tokens) AS cached_tokens
-		 	FROM usage_records ur
-		 	WHERE ur.run_id = r.id
-		 ) ur ON true
-		 LEFT JOIN LATERAL (
-		 	SELECT ABS(SUM(ct.amount)) AS credits_used
-		 	FROM credit_transactions ct
-		 	WHERE ct.reference_id = r.id AND ct.type = 'consumption'
-		 ) ct ON true%s
+		 LEFT JOIN users u ON u.id = r.created_by_user_id%s
 		 ORDER BY r.created_at DESC, r.id DESC
 		 LIMIT %s OFFSET %s`,
 		where, addArg(limit), addArg(offset),

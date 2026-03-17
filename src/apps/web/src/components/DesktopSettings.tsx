@@ -152,7 +152,7 @@ export function DesktopSettings({
       case "extensions":
         return <ExtensionsSettings />;
       case "developer":
-        return <DeveloperSettings />;
+        return <DeveloperSettings accessToken={accessToken} />;
       default:
         return null;
     }

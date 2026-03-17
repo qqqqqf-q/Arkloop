@@ -72,7 +72,7 @@ export function DesktopTitleBar({ sidebarCollapsed, onToggleSidebar, appMode, on
 
       {/* Right side: always no-drag to prevent drag region from blocking right-side panels */}
       <div
-        className="ml-auto flex items-center"
+        className="ml-auto flex items-center justify-end"
         style={{ WebkitAppRegion: 'no-drag', minWidth: '300px' } as React.CSSProperties}
       >
         {appMode !== 'claw' && onTogglePrivateMode && (

@@ -16,7 +16,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 var validChannelTypes = map[string]struct{}{
@@ -57,7 +56,7 @@ func channelsEntry(
 	channelsRepo *data.ChannelsRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	secretsRepo *data.SecretsRepository,
-	pool *pgxpool.Pool,
+	pool data.DB,
 	appBaseURL string,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
@@ -78,7 +77,7 @@ func channelEntry(
 	channelsRepo *data.ChannelsRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	secretsRepo *data.SecretsRepository,
-	pool *pgxpool.Pool,
+	pool data.DB,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		traceID := observability.TraceIDFromContext(r.Context())
@@ -117,7 +116,7 @@ func createChannel(
 	channelsRepo *data.ChannelsRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	secretsRepo *data.SecretsRepository,
-	pool *pgxpool.Pool,
+	pool data.DB,
 	appBaseURL string,
 ) {
 	traceID := observability.TraceIDFromContext(r.Context())
@@ -305,7 +304,7 @@ func updateChannel(
 	channelsRepo *data.ChannelsRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	secretsRepo *data.SecretsRepository,
-	pool *pgxpool.Pool,
+	pool data.DB,
 ) {
 	if authService == nil {
 		httpkit.WriteAuthNotConfigured(w, traceID)
@@ -397,7 +396,7 @@ func deleteChannel(
 	channelsRepo *data.ChannelsRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	secretsRepo *data.SecretsRepository,
-	pool *pgxpool.Pool,
+	pool data.DB,
 ) {
 	if authService == nil {
 		httpkit.WriteAuthNotConfigured(w, traceID)

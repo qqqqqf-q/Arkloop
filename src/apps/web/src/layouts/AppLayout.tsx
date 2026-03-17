@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
-import { isDesktop } from '@arkloop/shared/desktop'
+import { isDesktop, isLocalMode, getDesktopApi } from '@arkloop/shared/desktop'
 import { LoadingPage } from '@arkloop/shared'
 import { Sidebar } from '../components/Sidebar'
 import { DesktopTitleBar } from '../components/DesktopTitleBar'
@@ -147,6 +147,11 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
           getMyCredits(accessToken),
         ])
         if (!mountedRef.current) return
+        // local 模式没有 user_credentials，用 OS 用户名填充
+        if (isLocalMode() && !meResp.username) {
+          const osName = await getDesktopApi()?.app?.getOsUsername?.().catch(() => '') ?? ''
+          if (osName) meResp = { ...meResp, username: osName }
+        }
         setMe(meResp)
         setThreads(threadItems)
         setCreditsBalance(creditsResp.balance)

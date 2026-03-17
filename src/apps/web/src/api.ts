@@ -1427,6 +1427,41 @@ export async function getRunDetail(
   return await apiFetch<RunDetail>(`/v1/admin/runs/${runId}`, { accessToken })
 }
 
+export type Run = {
+  run_id: string
+  thread_id: string
+  status: string
+  model?: string
+  persona_id?: string
+  total_input_tokens?: number
+  total_output_tokens?: number
+  total_cost_usd?: number
+  duration_ms?: number
+  cache_hit_rate?: number
+  credits_used?: number
+  created_at: string
+  completed_at?: string
+  failed_at?: string
+  created_by_user_name?: string
+  created_by_email?: string
+}
+
+export type ListRunsResponse = {
+  data: Run[]
+  total: number
+}
+
+export async function listRuns(
+  accessToken: string,
+  params: { limit?: number; offset?: number } = {},
+): Promise<ListRunsResponse> {
+  const qs = new URLSearchParams()
+  if (params.limit != null) qs.set('limit', String(params.limit))
+  if (params.offset != null) qs.set('offset', String(params.offset))
+  const query = qs.toString()
+  return apiFetch<ListRunsResponse>(`/v1/runs${query ? `?${query}` : ''}`, { accessToken })
+}
+
 export type SpawnProfile = {
   profile: string
   resolved_model: string
