@@ -5,10 +5,12 @@ import (
 	"arkloop/services/worker/internal/data"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -80,6 +82,93 @@ func browserSnapshotJSON(url string, title string, snapshot string, refs map[str
 		},
 	})
 	return string(payload)
+}
+
+func disableSandboxRTK(t *testing.T) {
+	t.Helper()
+	originalBin := sandboxRTKCache
+	originalRun := sandboxRTKRun
+	sandboxRTKCache = ""
+	sandboxRTKRun = originalRun
+	sandboxRTKOnce = syncOnceDone()
+	t.Cleanup(func() {
+		sandboxRTKCache = originalBin
+		sandboxRTKRun = originalRun
+		sandboxRTKOnce = sync.Once{}
+	})
+}
+
+func TestShouldAttemptRTKRewriteSandboxSkipsComplexShell(t *testing.T) {
+	tests := []string{
+		"cat << 'EOF' > /tmp/x\nhello\nEOF",
+		"echo hi > /tmp/x",
+		"echo 'quoted'",
+		"git status | cat",
+	}
+	for _, command := range tests {
+		if shouldAttemptRTKRewriteSandbox(command) {
+			t.Fatalf("expected complex command to skip rewrite: %q", command)
+		}
+	}
+	if !shouldAttemptRTKRewriteSandbox("git status") {
+		t.Fatal("expected simple command to allow rewrite")
+	}
+}
+
+func TestRTKRewriteSandboxTimesOutAndFallsBack(t *testing.T) {
+	originalBin := sandboxRTKCache
+	originalRunner := sandboxRTKRun
+	sandboxRTKCache = "/tmp/fake-rtk"
+	sandboxRTKOnce = syncOnceDone()
+	defer func() {
+		sandboxRTKCache = originalBin
+		sandboxRTKOnce = sync.Once{}
+		sandboxRTKRun = originalRunner
+	}()
+
+	sandboxRTKRun = func(ctx context.Context, bin string, command string) (string, error) {
+		_ = bin
+		_ = command
+		<-ctx.Done()
+		return "", ctx.Err()
+	}
+
+	started := time.Now()
+	if got := rtkRewriteSandbox("git status"); got != "" {
+		t.Fatalf("expected empty rewrite on timeout, got %q", got)
+	}
+	if elapsed := time.Since(started); elapsed > 3*time.Second {
+		t.Fatalf("rewrite timeout took too long: %s", elapsed)
+	}
+}
+
+func TestRTKRewriteSandboxSkipsUnsafeCommandWithoutRunner(t *testing.T) {
+	originalBin := sandboxRTKCache
+	originalRunner := sandboxRTKRun
+	sandboxRTKCache = "/tmp/fake-rtk"
+	sandboxRTKOnce = syncOnceDone()
+	defer func() {
+		sandboxRTKCache = originalBin
+		sandboxRTKOnce = sync.Once{}
+		sandboxRTKRun = originalRunner
+	}()
+
+	sandboxRTKRun = func(ctx context.Context, bin string, command string) (string, error) {
+		_ = ctx
+		_ = bin
+		_ = command
+		return "", errors.New("runner should not be called")
+	}
+
+	if got := rtkRewriteSandbox("cat << 'EOF' > /tmp/x\nhello\nEOF"); got != "" {
+		t.Fatalf("expected empty rewrite for unsafe command, got %q", got)
+	}
+}
+
+func syncOnceDone() sync.Once {
+	var once sync.Once
+	once.Do(func() {})
+	return once
 }
 
 func TestPythonExecute_Success(t *testing.T) {
@@ -203,6 +292,7 @@ func TestExecCommand_UsesExecEndpoint(t *testing.T) {
 }
 
 func TestExecCommand_UsesDefaultSessionID(t *testing.T) {
+	disableSandboxRTK(t)
 	runID := uuid.MustParse("33333333-3333-3333-3333-333333333333")
 	seenSessionRef := ""
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -322,6 +412,7 @@ func TestWriteStdin_UsesCharsPayload(t *testing.T) {
 }
 
 func TestExecCommandAndWriteStdin_ShareDefaultSessionAcrossCalls(t *testing.T) {
+	disableSandboxRTK(t)
 	runID := uuid.MustParse("55555555-5555-5555-5555-555555555555")
 	var got []string
 	firstSessionRef := ""
@@ -355,8 +446,8 @@ func TestExecCommandAndWriteStdin_ShareDefaultSessionAcrossCalls(t *testing.T) {
 	if first.Error != nil || second.Error != nil {
 		t.Fatalf("unexpected errors: first=%+v second=%+v", first.Error, second.Error)
 	}
-	if len(got) != 2 {
-		t.Fatalf("expected 2 calls, got %d", len(got))
+	if len(got) != 3 {
+		t.Fatalf("expected 3 calls (exec + auto-poll + explicit poll), got %d", len(got))
 	}
 	for _, sessionID := range got {
 		if sessionID != firstSessionRef {
@@ -785,6 +876,7 @@ func TestWriteStdin_ClampsYieldTimeMsBySoftLimit(t *testing.T) {
 }
 
 func TestExecCommand_TruncatesOutputBySoftLimit(t *testing.T) {
+	disableSandboxRTK(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(execSessionResponse{
@@ -863,7 +955,7 @@ func TestAccountID_Propagation(t *testing.T) {
 
 	accountID := uuid.New()
 	ctx := tools.ExecutionContext{
-		RunID: uuid.New(),
+		RunID:     uuid.New(),
 		AccountID: &accountID,
 	}
 
@@ -908,14 +1000,14 @@ func TestExecCommand_AutoReusesThreadDefaultAcrossRunsWithPool(t *testing.T) {
 	threadID := uuid.MustParse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
 	ctx1 := tools.ExecutionContext{
 		RunID:        uuid.MustParse("11111111-2222-3333-4444-555555555555"),
-		AccountID:        &accountID,
+		AccountID:    &accountID,
 		ThreadID:     &threadID,
 		ProfileRef:   "pref_test",
 		WorkspaceRef: "wsref_test",
 	}
 	ctx2 := tools.ExecutionContext{
 		RunID:        uuid.MustParse("66666666-7777-8888-9999-aaaaaaaaaaaa"),
-		AccountID:        &accountID,
+		AccountID:    &accountID,
 		ThreadID:     &threadID,
 		ProfileRef:   "pref_test",
 		WorkspaceRef: "wsref_test",
@@ -989,10 +1081,10 @@ func TestExecCommand_ResolvesMissingEnvironmentBindingsFromRunContext(t *testing
 
 	exec := NewToolExecutorWithPool(server.URL, "", pool)
 	ctx := tools.ExecutionContext{
-		RunID:    runID,
-		AccountID:    &accountID,
-		ThreadID: &threadID,
-		UserID:   &userID,
+		RunID:     runID,
+		AccountID: &accountID,
+		ThreadID:  &threadID,
+		UserID:    &userID,
 	}
 	result := exec.Execute(t.Context(), "exec_command", map[string]any{"command": "pwd"}, ctx, "")
 	if result.Error != nil {
@@ -1057,7 +1149,7 @@ func TestExecCommand_ResumeWithoutLiveOrRestoreFails(t *testing.T) {
 	repo := data.ShellSessionsRepository{}
 	if err := repo.Upsert(t.Context(), pool, data.ShellSessionRecord{
 		SessionRef:   "shref_existing",
-		AccountID:        accountID,
+		AccountID:    accountID,
 		ProfileRef:   "pref_test",
 		WorkspaceRef: "wsref_test",
 		ShareScope:   data.ShellShareScopeWorkspace,
@@ -1112,7 +1204,7 @@ func TestExecCommand_AutoFallsBackAfterStaleThreadDefault(t *testing.T) {
 	repo := data.ShellSessionsRepository{}
 	if err := repo.Upsert(t.Context(), pool, data.ShellSessionRecord{
 		SessionRef:        "shref_old",
-		AccountID:             accountID,
+		AccountID:         accountID,
 		ProfileRef:        "pref_test",
 		WorkspaceRef:      "wsref_test",
 		ThreadID:          &threadID,
@@ -1147,7 +1239,7 @@ func TestExecCommand_AutoFallsBackAfterStaleThreadDefault(t *testing.T) {
 	exec := NewToolExecutorWithPool(server.URL, "", pool)
 	ctx := tools.ExecutionContext{
 		RunID:        uuid.New(),
-		AccountID:        &accountID,
+		AccountID:    &accountID,
 		ThreadID:     &threadID,
 		ProfileRef:   "pref_test",
 		WorkspaceRef: "wsref_test",
@@ -1192,7 +1284,7 @@ func TestExecCommand_AutoFallsBackAfterStaleWorkspaceDefaultKeepsWorkspaceScope(
 	repo := data.ShellSessionsRepository{}
 	if err := repo.Upsert(t.Context(), pool, data.ShellSessionRecord{
 		SessionRef:        "shref_workspace_old",
-		AccountID:             accountID,
+		AccountID:         accountID,
 		ProfileRef:        "pref_test",
 		WorkspaceRef:      workspaceRef,
 		ShareScope:        data.ShellShareScopeWorkspace,
@@ -1267,7 +1359,7 @@ func TestExecCommand_WorkspaceDefaultUpdatesWorkspaceRegistry(t *testing.T) {
 	exec := NewToolExecutorWithPool(server.URL, "", pool)
 	ctx := tools.ExecutionContext{
 		RunID:        uuid.New(),
-		AccountID:        &accountID,
+		AccountID:    &accountID,
 		ProjectID:    &projectID,
 		UserID:       &userID,
 		ProfileRef:   "pref_test",
@@ -1380,7 +1472,7 @@ func TestExecCommand_NewSessionPersistsRequestedShareScope(t *testing.T) {
 	exec := NewToolExecutorWithPool(server.URL, "", pool)
 	ctx := tools.ExecutionContext{
 		RunID:        uuid.New(),
-		AccountID:        &accountID,
+		AccountID:    &accountID,
 		UserID:       &userID,
 		ProfileRef:   "pref_test",
 		WorkspaceRef: "wsref_test",
@@ -1420,7 +1512,7 @@ func TestExecCommand_ResumeRunScopeRequiresSameRun(t *testing.T) {
 	otherRunID := uuid.New()
 	if err := repo.Upsert(t.Context(), pool, data.ShellSessionRecord{
 		SessionRef:   "shref_run_only",
-		AccountID:        accountID,
+		AccountID:    accountID,
 		ProfileRef:   "pref_test",
 		WorkspaceRef: "wsref_test",
 		RunID:        &otherRunID,
@@ -1457,7 +1549,7 @@ func TestExecCommand_ResumeOrgScopeRejectedForMember(t *testing.T) {
 	repo := data.ShellSessionsRepository{}
 	if err := repo.Upsert(t.Context(), pool, data.ShellSessionRecord{
 		SessionRef:   "shref_org",
-		AccountID:        accountID,
+		AccountID:    accountID,
 		ProfileRef:   "pref_test",
 		WorkspaceRef: "wsref_test",
 		ShareScope:   data.ShellShareScopeAccount,
@@ -1493,7 +1585,7 @@ func TestExecCommand_ResumeOrgScopeAllowedForAdmin(t *testing.T) {
 	repo := data.ShellSessionsRepository{}
 	if err := repo.Upsert(t.Context(), pool, data.ShellSessionRecord{
 		SessionRef:   "shref_org_ok",
-		AccountID:        accountID,
+		AccountID:    accountID,
 		ProfileRef:   "pref_test",
 		WorkspaceRef: "wsref_test",
 		ShareScope:   data.ShellShareScopeAccount,
@@ -1547,7 +1639,7 @@ func TestExecCommand_ResumeOrgScopePreservesSourceWorkspaceIdentity(t *testing.T
 	repo := data.ShellSessionsRepository{}
 	if err := repo.Upsert(t.Context(), pool, data.ShellSessionRecord{
 		SessionRef:   "shref_account_identity",
-		AccountID:        accountID,
+		AccountID:    accountID,
 		ProfileRef:   "pref_test",
 		WorkspaceRef: "wsref_source",
 		ProjectID:    uuidPtr(uuid.New()),
@@ -1604,7 +1696,7 @@ func TestExecCommand_ResumeOrgScopeRejectsCrossProfile(t *testing.T) {
 	repo := data.ShellSessionsRepository{}
 	if err := repo.Upsert(t.Context(), pool, data.ShellSessionRecord{
 		SessionRef:   "shref_other_profile",
-		AccountID:        accountID,
+		AccountID:    accountID,
 		ProfileRef:   "pref_other",
 		WorkspaceRef: "wsref_test",
 		ShareScope:   data.ShellShareScopeAccount,
@@ -1642,7 +1734,7 @@ func TestExecCommand_AutoSkipsUnauthorizedCandidateAndCreatesNew(t *testing.T) {
 	bindingKey := "workspace:" + workspaceRef
 	if err := repo.Upsert(t.Context(), pool, data.ShellSessionRecord{
 		SessionRef:        "shref_forbidden",
-		AccountID:             accountID,
+		AccountID:         accountID,
 		ProfileRef:        "pref_test",
 		WorkspaceRef:      workspaceRef,
 		ShareScope:        data.ShellShareScopeAccount,
@@ -1697,7 +1789,7 @@ func TestExecCommand_ForkInheritsShareScope(t *testing.T) {
 	restoreRev := "rev-1"
 	if err := repo.Upsert(t.Context(), pool, data.ShellSessionRecord{
 		SessionRef:       "shref_source",
-		AccountID:            accountID,
+		AccountID:        accountID,
 		ProfileRef:       "pref_test",
 		WorkspaceRef:     "wsref_test",
 		ShareScope:       data.ShellShareScopeAccount,
@@ -1872,7 +1964,7 @@ func TestExecCommand_BusySessionRejectedBeforeSandbox(t *testing.T) {
 	repo := data.ShellSessionsRepository{}
 	if err := repo.Upsert(t.Context(), pool, data.ShellSessionRecord{
 		SessionRef:   "shref_busy",
-		AccountID:        accountID,
+		AccountID:    accountID,
 		ProfileRef:   "pref_test",
 		WorkspaceRef: "wsref_test",
 		ThreadID:     &threadID,
@@ -1926,7 +2018,7 @@ func TestWriteStdin_PollAllowedButCrossRunInputRejected(t *testing.T) {
 	repo := data.ShellSessionsRepository{}
 	if err := repo.Upsert(t.Context(), pool, data.ShellSessionRecord{
 		SessionRef:   "shref_busy",
-		AccountID:        accountID,
+		AccountID:    accountID,
 		ProfileRef:   "pref_test",
 		WorkspaceRef: "wsref_test",
 		ShareScope:   data.ShellShareScopeWorkspace,
@@ -1995,7 +2087,7 @@ func TestExecCommand_ExpiredLeaseCanBeTakenOver(t *testing.T) {
 	repo := data.ShellSessionsRepository{}
 	if err := repo.Upsert(t.Context(), pool, data.ShellSessionRecord{
 		SessionRef:   "shref_stale",
-		AccountID:        accountID,
+		AccountID:    accountID,
 		ProfileRef:   "pref_test",
 		WorkspaceRef: "wsref_test",
 		ShareScope:   data.ShellShareScopeWorkspace,
@@ -2061,7 +2153,7 @@ func TestBrowser_UsesBrowserTierAndAgentBrowserCommand(t *testing.T) {
 	runID := uuid.New()
 	ctx := tools.ExecutionContext{
 		RunID:        runID,
-		AccountID:        &accountID,
+		AccountID:    &accountID,
 		ProfileRef:   "pref_test",
 		WorkspaceRef: "wsref_test",
 	}
@@ -2137,7 +2229,7 @@ func TestBrowser_ForwardsYieldTimeMs(t *testing.T) {
 	accountID := uuid.New()
 	ctx := tools.ExecutionContext{
 		RunID:        uuid.New(),
-		AccountID:        &accountID,
+		AccountID:    &accountID,
 		ProfileRef:   "pref_test",
 		WorkspaceRef: "wsref_test",
 	}
@@ -2176,7 +2268,7 @@ func TestBrowser_AutoScreenshotCommandRaisesTinyYieldTime(t *testing.T) {
 	accountID := uuid.New()
 	ctx := tools.ExecutionContext{
 		RunID:        uuid.New(),
-		AccountID:        &accountID,
+		AccountID:    &accountID,
 		ProfileRef:   "pref_test",
 		WorkspaceRef: "wsref_test",
 	}
@@ -2208,7 +2300,7 @@ func TestBrowser_AutoPollsRunningResultBeforeScreenshot(t *testing.T) {
 	runID := uuid.New()
 	ctx := tools.ExecutionContext{
 		RunID:        runID,
-		AccountID:        &accountID,
+		AccountID:    &accountID,
 		ProfileRef:   "pref_test",
 		WorkspaceRef: "wsref_test",
 	}
@@ -2272,7 +2364,7 @@ func TestBrowser_DoesNotAutoScreenshotWhileRunning(t *testing.T) {
 	runID := uuid.New()
 	ctx := tools.ExecutionContext{
 		RunID:        runID,
-		AccountID:        &accountID,
+		AccountID:    &accountID,
 		ProfileRef:   "pref_test",
 		WorkspaceRef: "wsref_test",
 	}
@@ -2329,7 +2421,7 @@ func TestBrowser_AutoSessionDoesNotReuseShellSession(t *testing.T) {
 	runID := uuid.New()
 	ctx := tools.ExecutionContext{
 		RunID:        runID,
-		AccountID:        &accountID,
+		AccountID:    &accountID,
 		ProfileRef:   "pref_test",
 		WorkspaceRef: "wsref_test",
 	}
@@ -2402,14 +2494,14 @@ func TestBrowser_AutoReusesThreadDefaultAcrossRunsWithPool(t *testing.T) {
 	threadID := uuid.New()
 	ctx1 := tools.ExecutionContext{
 		RunID:        uuid.New(),
-		AccountID:        &accountID,
+		AccountID:    &accountID,
 		ThreadID:     &threadID,
 		ProfileRef:   "pref_test",
 		WorkspaceRef: "wsref_test",
 	}
 	ctx2 := tools.ExecutionContext{
 		RunID:        uuid.New(),
-		AccountID:        &accountID,
+		AccountID:    &accountID,
 		ThreadID:     &threadID,
 		ProfileRef:   "pref_test",
 		WorkspaceRef: "wsref_test",
@@ -2467,14 +2559,14 @@ func TestBrowser_AutoReusesWorkspaceDefaultAcrossThreads(t *testing.T) {
 	accountID := uuid.New()
 	ctx1 := tools.ExecutionContext{
 		RunID:        uuid.New(),
-		AccountID:        &accountID,
+		AccountID:    &accountID,
 		ProfileRef:   "pref_test",
 		WorkspaceRef: "wsref_test",
 	}
 	threadID := uuid.New()
 	ctx2 := tools.ExecutionContext{
 		RunID:        uuid.New(),
-		AccountID:        &accountID,
+		AccountID:    &accountID,
 		ThreadID:     &threadID,
 		ProfileRef:   "pref_test",
 		WorkspaceRef: "wsref_test",
@@ -2532,13 +2624,13 @@ func TestBrowser_AutoDoesNotReuseAcrossWorkspaces(t *testing.T) {
 	accountID := uuid.New()
 	ctx1 := tools.ExecutionContext{
 		RunID:        uuid.New(),
-		AccountID:        &accountID,
+		AccountID:    &accountID,
 		ProfileRef:   "pref_test",
 		WorkspaceRef: "wsref_a",
 	}
 	ctx2 := tools.ExecutionContext{
 		RunID:        uuid.New(),
-		AccountID:        &accountID,
+		AccountID:    &accountID,
 		ProfileRef:   "pref_test",
 		WorkspaceRef: "wsref_b",
 	}
@@ -2603,7 +2695,7 @@ func TestBrowser_AutoFallsBackAfterDisconnectedThreadDefault(t *testing.T) {
 	if err := repo.Upsert(t.Context(), pool, data.ShellSessionRecord{
 		SessionRef:        "brref_old",
 		SessionType:       data.ShellSessionTypeBrowser,
-		AccountID:             accountID,
+		AccountID:         accountID,
 		ProfileRef:        "pref_test",
 		WorkspaceRef:      "wsref_test",
 		ThreadID:          &threadID,
@@ -2644,7 +2736,7 @@ func TestBrowser_AutoFallsBackAfterDisconnectedThreadDefault(t *testing.T) {
 	exec := NewToolExecutorWithPool(server.URL, "", pool)
 	ctx := tools.ExecutionContext{
 		RunID:        uuid.New(),
-		AccountID:        &accountID,
+		AccountID:    &accountID,
 		ThreadID:     &threadID,
 		ProfileRef:   "pref_test",
 		WorkspaceRef: "wsref_test",
@@ -2676,7 +2768,7 @@ func TestBrowser_RetriesAfterSessionBusy(t *testing.T) {
 	runID := uuid.New()
 	ctx := tools.ExecutionContext{
 		RunID:        runID,
-		AccountID:        &accountID,
+		AccountID:    &accountID,
 		ProfileRef:   "pref_test",
 		WorkspaceRef: "wsref_test",
 	}

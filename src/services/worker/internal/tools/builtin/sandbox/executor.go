@@ -34,11 +34,12 @@ const (
 	defaultTimeoutMs  = 30_000
 	maxOutputBytes    = 32 * 1024
 	httpClientTimeout = 5 * time.Minute
+	rtkRewriteTimeout = 1500 * time.Millisecond
 )
 
 type execRequest struct {
 	SessionID     string                     `json:"session_id"`
-	AccountID         string                     `json:"account_id,omitempty"`
+	AccountID     string                     `json:"account_id,omitempty"`
 	ProfileRef    string                     `json:"profile_ref,omitempty"`
 	WorkspaceRef  string                     `json:"workspace_ref,omitempty"`
 	EnabledSkills []skillstore.ResolvedSkill `json:"enabled_skills,omitempty"`
@@ -60,7 +61,7 @@ type execResponse struct {
 type execCommandRequest struct {
 	SessionID     string                     `json:"session_id"`
 	OpenMode      string                     `json:"open_mode,omitempty"`
-	AccountID         string                     `json:"account_id,omitempty"`
+	AccountID     string                     `json:"account_id,omitempty"`
 	ProfileRef    string                     `json:"profile_ref,omitempty"`
 	WorkspaceRef  string                     `json:"workspace_ref,omitempty"`
 	EnabledSkills []skillstore.ResolvedSkill `json:"enabled_skills,omitempty"`
@@ -73,13 +74,13 @@ type execCommandRequest struct {
 
 type writeStdinRequest struct {
 	SessionID   string `json:"session_id"`
-	AccountID       string `json:"account_id,omitempty"`
+	AccountID   string `json:"account_id,omitempty"`
 	Chars       string `json:"chars,omitempty"`
 	YieldTimeMs int    `json:"yield_time_ms,omitempty"`
 }
 
 type forkSessionRequest struct {
-	AccountID         string `json:"account_id,omitempty"`
+	AccountID     string `json:"account_id,omitempty"`
 	FromSessionID string `json:"from_session_id"`
 	ToSessionID   string `json:"to_session_id"`
 }
@@ -199,7 +200,7 @@ func (e *ToolExecutor) executePython(
 
 	payload, err := json.Marshal(execRequest{
 		SessionID:     execCtx.RunID.String(),
-		AccountID:         resolveAccountID(execCtx),
+		AccountID:     resolveAccountID(execCtx),
 		ProfileRef:    resolveProfileRef(execCtx),
 		WorkspaceRef:  resolveWorkspaceRef(execCtx),
 		EnabledSkills: append([]skillstore.ResolvedSkill(nil), execCtx.EnabledSkills...),
@@ -294,7 +295,7 @@ func (e *ToolExecutor) executeExecCommand(
 	request := execCommandRequest{
 		SessionID:     resolution.SessionRef,
 		OpenMode:      resolution.OpenMode,
-		AccountID:         resolveAccountID(execCtx),
+		AccountID:     resolveAccountID(execCtx),
 		ProfileRef:    resolution.ProfileRef(resolveProfileRef(execCtx)),
 		WorkspaceRef:  resolution.WorkspaceRef(resolveWorkspaceRef(execCtx)),
 		EnabledSkills: append([]skillstore.ResolvedSkill(nil), execCtx.EnabledSkills...),
@@ -433,7 +434,7 @@ func (e *ToolExecutor) executeWriteStdin(
 
 	request := writeStdinRequest{
 		SessionID:   resolution.SessionRef,
-		AccountID:       resolveAccountID(execCtx),
+		AccountID:   resolveAccountID(execCtx),
 		Chars:       reqArgs.Chars,
 		YieldTimeMs: clampYieldTimeMs(reqArgs.YieldTimeMs, tools.ResolveToolSoftLimit(execCtx.PerToolSoftLimits, "write_stdin")),
 	}
@@ -484,7 +485,7 @@ func (e *ToolExecutor) executeBrowser(
 	request := execCommandRequest{
 		SessionID:     resolution.SessionRef,
 		OpenMode:      resolution.OpenMode,
-		AccountID:         resolveAccountID(execCtx),
+		AccountID:     resolveAccountID(execCtx),
 		ProfileRef:    resolution.ProfileRef(resolveProfileRef(execCtx)),
 		WorkspaceRef:  resolution.WorkspaceRef(resolveWorkspaceRef(execCtx)),
 		EnabledSkills: append([]skillstore.ResolvedSkill(nil), execCtx.EnabledSkills...),
@@ -524,7 +525,7 @@ func (e *ToolExecutor) executeBrowser(
 	if shouldAutoScreenshot(reqArgs.Command) {
 		screenshotReq := execCommandRequest{
 			SessionID:     resolution.SessionRef,
-			AccountID:         resolveAccountID(execCtx),
+			AccountID:     resolveAccountID(execCtx),
 			EnabledSkills: append([]skillstore.ResolvedSkill(nil), execCtx.EnabledSkills...),
 			Tier:          "browser",
 			Command:       buildBrowserCommand(resolution.SessionRef, buildAutoScreenshotCommand()),
@@ -585,7 +586,7 @@ func (e *ToolExecutor) waitForBrowserSessionIdle(
 ) (tools.ExecutionResult, *tools.ExecutionError) {
 	pollReq := writeStdinRequest{
 		SessionID:   sessionRef,
-		AccountID:       resolveAccountID(execCtx),
+		AccountID:   resolveAccountID(execCtx),
 		YieldTimeMs: browserContinuationYieldTimeMs(requestedYieldTimeMs),
 	}
 	for attempt := 0; attempt < browserAutoPollAttempts; attempt++ {
@@ -648,7 +649,7 @@ func (e *ToolExecutor) forkSessionCheckpoint(
 	toSessionRef string,
 ) (string, *tools.ExecutionError) {
 	payload, err := json.Marshal(forkSessionRequest{
-		AccountID:         resolveAccountID(execCtx),
+		AccountID:     resolveAccountID(execCtx),
 		FromSessionID: fromSessionRef,
 		ToSessionID:   toSessionRef,
 	})
@@ -749,12 +750,18 @@ func truncateOutputByLimit(value string, limit *int) (string, bool) {
 	if len(value) <= *limit {
 		return value, false
 	}
-	// 保留头尾各一半，中间显示截断信息，保留结果的上下文。
+	// 保留头尾上下文，但最终结果长度不能超过 limit。
 	half := *limit / 2
-	head := value[:half]
-	tail := value[len(value)-half:]
 	skipped := countOutputLines(value[half : len(value)-half])
 	marker := fmt.Sprintf("\n...[%d lines truncated]\n", skipped)
+	if len(marker) >= *limit {
+		return marker[:*limit], true
+	}
+	remain := *limit - len(marker)
+	headLen := remain / 2
+	tailLen := remain - headLen
+	head := value[:headLen]
+	tail := value[len(value)-tailLen:]
 	return head + marker + tail, true
 }
 
@@ -883,7 +890,7 @@ func (e *ToolExecutor) ensureEnvironmentBindings(
 
 	run := data.Run{
 		ID:              execCtx.RunID,
-		AccountID:           *execCtx.AccountID,
+		AccountID:       *execCtx.AccountID,
 		ProjectID:       execCtx.ProjectID,
 		CreatedByUserID: execCtx.UserID,
 		ProfileRef:      stringPtr(execCtx.ProfileRef),
@@ -1354,6 +1361,15 @@ func isSessionNotRunning(err *tools.ExecutionError) bool {
 var (
 	sandboxRTKOnce  sync.Once
 	sandboxRTKCache string
+	sandboxRTKRun   = func(ctx context.Context, bin string, command string) (string, error) {
+		var out bytes.Buffer
+		cmd := exec.CommandContext(ctx, bin, append([]string{"rewrite"}, strings.Fields(command)...)...)
+		cmd.Stdout = &out
+		if err := cmd.Run(); err != nil {
+			return "", err
+		}
+		return strings.TrimSpace(out.String()), nil
+	}
 )
 
 // rtkRewriteSandbox rewrites a shell command to its RTK-optimized equivalent,
@@ -1380,13 +1396,30 @@ func rtkRewriteSandbox(command string) string {
 	if sandboxRTKCache == "" {
 		return ""
 	}
-	var out bytes.Buffer
-	cmd := exec.Command(sandboxRTKCache, append([]string{"rewrite"}, strings.Fields(command)...)...)
-	cmd.Stdout = &out
-	if err := cmd.Run(); err != nil {
+	if !shouldAttemptRTKRewriteSandbox(command) {
 		return ""
 	}
-	return strings.TrimSpace(out.String())
+	ctx, cancel := context.WithTimeout(context.Background(), rtkRewriteTimeout)
+	defer cancel()
+	rewritten, err := sandboxRTKRun(ctx, sandboxRTKCache, command)
+	if err != nil {
+		return ""
+	}
+	return rewritten
+}
+
+func shouldAttemptRTKRewriteSandbox(command string) bool {
+	trimmed := strings.TrimSpace(command)
+	if trimmed == "" {
+		return false
+	}
+	if strings.ContainsAny(trimmed, "\r\n") {
+		return false
+	}
+	if strings.ContainsAny(trimmed, "'\"`|;&<>$()") {
+		return false
+	}
+	return true
 }
 
 func (e *ToolExecutor) resolveEnabledSkills(ctx context.Context, execCtx tools.ExecutionContext) ([]skillstore.ResolvedSkill, error) {
