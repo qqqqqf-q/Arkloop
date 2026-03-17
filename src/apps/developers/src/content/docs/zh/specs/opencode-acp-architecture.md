@@ -1,21 +1,35 @@
 ---
-title: OpenCode + ACP 接入架构设计
-description: Arkloop 接入 OpenCode 与 ACP 的第一阶段设计稿，覆盖运行位置、控制面、Sandbox 边界、MCP 关系与后续演进。
-sidebarLabel: OpenCode + ACP 架构
+title: ACP Provider 接入架构设计（OpenCode 首实现）
+description: Arkloop 接入 ACP Provider 的修订设计稿。保留 Desktop 与 SaaS 双路线，OpenCode 作为第一个落地 provider。
+sidebarLabel: ACP Provider 架构
 order: 123
 ---
 
-# OpenCode + ACP 接入架构设计
+# ACP Provider 接入架构设计（OpenCode 首实现）
 
-本文给出 Arkloop 接入 OpenCode 与 ACP 的设计方案。目标不是把 ACP 当作另一套 MCP，也不是在现有 sandbox shell 外再叠一层临时协议，而是用最小改动把「代码代理 + 本地 sandbox + 现有 Worker」串起来。
+本文给出 Arkloop 接入 ACP Provider 的修订方案。目标不是把 ACP 当作另一套 MCP，也不是继续把 ACP 绑定成 sandbox 的专属功能，而是把「ACP provider runtime + host backend + 现有 Worker」串起来。OpenCode 作为第一个落地 provider，但不再被视为最终唯一实现。
 
 结论先行：
 
-- 第一阶段采用 **co-located** 模式：`OpenCode` 进程直接运行在 sandbox 内，与 workspace 共处同一文件系统。
+- `ACP` 在 Arkloop 中应定义为 **代码 agent 接入层**，不是 sandbox 的附属功能。
+- 第一阶段 provider 仍然以 `OpenCode` 为主，启动命令直接使用 `opencode acp`。
+- Desktop 使用 **Local Process Host**：直接在用户机器上拉起 provider command，认证和模型配置交给 provider 自己处理。
+- SaaS 使用 **Sandbox Process Host**：在 sandbox 内托管 provider command，按需注入 LLM Proxy / session token，保护真实 API key。
 - `ACP` 在第一阶段主要承担 **prompt、session 控制、流式更新、取消**；不追求一次性实现完整 `fs/*` 与 `terminal/*`。
 - `MCP` 继续作为工具层存在，不与 ACP 平级竞争；第一阶段不要求把 Arkloop 全量 MCP 能力注入给 OpenCode。
-- Arkloop 不额外维护第二条交互 shell；应新增一条 **非 PTY 的 ACP 子进程通道** 来启动和托管 `opencode acp`。
-- 本设计优先服务 **本地 sandbox / cowork** 形态；云端只保留架构兼容，不把远程 OpenCode 作为主交付目标。
+- Arkloop 不额外维护第二条交互 shell；无论 Desktop 还是 SaaS，都优先使用 **非 PTY** 的 ACP 通道。
+- Worker / Frontend / RunEvent / `acp_agent` Tool 共用同一套控制面；host 可以不同，但上层协议与事件模型保持一致。
+
+---
+
+## 0. 修正说明（2026-03）
+
+当前仓库中的 ACP 实现已经完成第一批基础设施，但仍停留在 `sandbox + opencode` 的首版形态：
+
+- 已完成：sandbox ACP 子进程托管、sandbox service 会话管理、Worker ACP bridge、`acp_agent` 工具、`acp_status` 与会话复用基础。
+- 已落地但未完全闭环：LLM Proxy API 端点与 token 结构已存在，但 Worker 运行态仍需补齐完整 wiring 和预算治理。
+- 明显缺口：Desktop 还没有独立的 ACP host/runtime，当前 `acp_agent` 仍依赖 `SandboxBaseURL`，无法作为 Desktop provider 直接使用。
+- 架构修正：从“为 sandbox 接一个 OpenCode”升级为“定义通用 ACP Provider 架构，OpenCode 作为首个 provider，Desktop 与 SaaS 共用控制面但使用不同 host”。
 
 ---
 
@@ -47,17 +61,19 @@ Arkloop 当前已经具备三类相关能力：
 ### 2.1 目标
 
 - 让 Arkloop 能把 code-heavy 任务委托给 OpenCode 执行
-- 让 OpenCode 在 sandbox 内直接读写 workspace、执行测试和命令
+- 让 OpenCode 作为第一个 ACP provider，在 Desktop 与 SaaS 两条线路都能接入
+- 让 provider 在各自 host 中直接读写 workspace、执行测试和命令
 - 保持 Arkloop 现有 Thread / Run / Event 模型不变
 - 避免为首版引入过多新协议面和双重 authority
-- 为本地 sandbox / cowork 与云端 sandbox 复用同一套启动方式
+- 为 Desktop 与 SaaS 保留两条 host backend，但共用同一套 ACP 控制面
+- 让后续接入 Codex CLI、Claude Agent、Gemini CLI 等 provider 时，不需要重写 Worker 主链路
 
 ### 2.2 非目标
 
 - 不在第一阶段实现完整 ACP 全能力兼容
 - 不在第一阶段重构 Arkloop 全部 MCP 子系统
 - 不在第一阶段做 IDE 级文件细粒度授权
-- 不在第一阶段做 OpenCode 之外的多 code-agent 兼容层
+- 不在第一阶段一次性完成多个 provider 的产品化接入，但 provider 规格必须预留多实现
 - 不把 OpenCode 设计成 MCP Server
 
 ---
@@ -83,12 +99,12 @@ Arkloop 当前已经具备三类相关能力：
 - `acp_agent` tool：LLM 发起委托 -> Bridge 管理完整 session -> 返回结果
 - 普通 MCP tool：LLM 发起调用 -> 执行单个函数 -> 返回结果
 
-### 3.2 第一阶段不需要手写 file runtime
+### 3.2 第一阶段不需要手写 file runtime，但必须抽出 host 边界
 
-由于 `OpenCode` 与 `workspace` 同处 sandbox：
+当 provider 与 `workspace` 共置于同一个 host 时：
 
-- OpenCode 直接用本地 Linux 文件系统读写文件
-- OpenCode 直接在 sandbox 内执行 `git`、`go test`、`pnpm`、`rg`
+- Desktop 路线下，provider 直接使用用户本机文件系统与工具链
+- SaaS 路线下，provider 直接使用 sandbox 内文件系统与工具链
 - Arkloop 不需要先实现 ACP `fs/read_text_file`、`fs/write_text_file` 才能跑通首版
 
 这意味着第一阶段的 ACP 可以做减法：
@@ -97,16 +113,16 @@ Arkloop 当前已经具备三类相关能力：
 - 可选：权限确认、mode 同步
 - 暂缓：`fs/*`、`terminal/*`、`loadSession`
 
-### 3.3 不要再开第二条 shell
+### 3.3 不要再开第二条 shell，也不要把 host 写死为 sandbox
 
-Arkloop 不应再为 OpenCode 额外维护一条“给 agent 用的交互 shell”。
+Arkloop 不应再为 provider 额外维护一条“给 agent 用的交互 shell”。
 
 更合适的模型是：
 
-- 一个 sandbox session
-- 一个 `opencode acp` 子进程
+- Desktop：一个本地 provider 进程
+- SaaS：一个 sandbox session + 一个 provider 子进程
 - 一条 ACP over stdio 的控制通道
-- OpenCode 自己在 sandbox 内拉起需要的命令进程
+- provider 自己在 host 内拉起需要的命令进程
 
 这样可以避免：
 
@@ -147,26 +163,28 @@ LLM Agent Loop
   └─ tool call: acp_agent(task="...", agent="opencode")
        │
        ▼
-  ACP Bridge (protocol, client, session management)
+  ACP Runtime (provider resolution, session management, event mapping)
        │
-       ▼
-  Sandbox ACP endpoints (acp_start, acp_write, acp_read, acp_stop, acp_wait)
+       ├─ Desktop: Local Process Host
+       │      ▼
+       │   OpenCode / Codex / Claude / Gemini command
        │
-       ▼
-  OpenCode process (ACP over stdio)
-       ├─ 直接访问 workspace
-       ├─ 直接执行 git / test / build
-       └─ 可按需连接 MCP tools
+       └─ SaaS: Sandbox Process Host
+              ▼
+         Sandbox ACP endpoints (acp_start, acp_write, acp_read, acp_stop, acp_wait)
+              ▼
+         OpenCode process (ACP over stdio)
 ```
 
 完整调用链：
 
 1. LLM 在 agent loop 中决定调用 `acp_agent(task="实现用户认证模块", agent="opencode")`
-2. `acptool/executor.go` 校验 sandbox 可用性，解析 agent 命令
-3. 创建 ACP Bridge，通过 Sandbox Service 启动 `opencode acp` 子进程
-4. Bridge 发送 `session/new` + `session/prompt`
-5. Bridge 轮询 `session/update`，将 update 映射为 `run_events`
-6. 收集终态结果，返回给 LLM
+2. `acptool/executor.go` 解析 provider 与 host，确定启动命令
+3. ACP Runtime 选择 Desktop Local Process Host 或 SaaS Sandbox Process Host
+4. Runtime 启动 provider command，例如 `opencode acp`
+5. Bridge 发送 `session/new` + `session/prompt`
+6. Bridge 轮询 `session/update`，将 update 映射为 `run_events`
+7. 收集终态结果，返回给 LLM
 
 ### 4.1 关键分层
 
@@ -175,10 +193,11 @@ LLM Agent Loop
 | Frontend | 展示 run 过程、终态结果、取消与错误 |
 | LLM Agent Loop | 决定何时委托任务给 code agent |
 | acp_agent Tool | 封装 ACP Bridge 调用，对 LLM 屏蔽 session 细节 |
-| ACP Bridge | 管理 session 生命周期、发送 prompt、聚合 update |
-| Sandbox Service | 分配 session、维护生命周期、桥接 guest agent |
-| sandbox-agent | 启动并托管 `opencode acp` 进程 |
-| OpenCode | 真正执行代码代理逻辑 |
+| ACP Runtime | 解析 provider、选择 host、管理 session 生命周期 |
+| ACP Bridge | 管理协议收发、发送 prompt、聚合 update |
+| Local Process Host | Desktop 场景下直接拉起本地 provider command |
+| Sandbox Process Host | SaaS 场景下通过 sandbox endpoint 托管 provider |
+| OpenCode | 第一个落地 provider |
 | MCP | 可选工具层，由 OpenCode 或 Arkloop 使用 |
 
 ---
@@ -189,10 +208,10 @@ LLM Agent Loop
 
 当 LLM 在 agent loop 中调用 `acp_agent(task="...", agent="opencode")` 时：
 
-1. `acptool/executor.go` 校验当前 run 是否有可用 sandbox
+1. `acptool/executor.go` 解析 provider 与 host
 2. 解析 agent 参数，确定启动命令（默认 `opencode acp --cwd <workspace>`）
 3. 创建 ACP Bridge 实例
-4. Bridge 通过 Sandbox Service 启动 `opencode acp` 子进程
+4. Desktop 下由 Local Process Host 启动本地 command；SaaS 下由 Sandbox Process Host 启动子进程
 5. Bridge 持有该子进程的 stdio 通道，发送 `session/new` 创建 ACP 会话
 
 ### 5.2 prompt 执行
@@ -200,10 +219,10 @@ LLM Agent Loop
 一次 `acp_agent` 工具调用的完整流程：
 
 1. LLM 决定调用 `acp_agent(task="...", agent="opencode")`
-2. Tool executor 校验 sandbox 可用性
-3. Bridge 在 sandbox 内启动 ACP agent 进程
+2. Tool executor 解析 host 与 provider command
+3. Bridge 在对应 host 中启动 ACP agent 进程
 4. Bridge 发送 `session/new` + `session/prompt`
-5. OpenCode 在 sandbox 内部执行（读取代码、修改文件、运行命令、生成总结）
+5. OpenCode 在对应 host 内执行（读取代码、修改文件、运行命令、生成总结）
 6. Bridge 轮询 `session/update`，将 update 映射为 `run_events`
 7. Bridge 收集终态结果，返回给 tool executor
 8. Tool executor 将结果返回给 LLM
@@ -213,8 +232,8 @@ LLM Agent Loop
 Worker 保持现有 run 级治理不变：
 
 - 触发取消时，对应 ACP `session/cancel`
-- 若 agent 进程未在宽限期内退出，sandbox-agent 强制终止子进程
-- sandbox session 的生命周期继续由 Sandbox Service 统一管理
+- 若 agent 进程未在宽限期内退出，由对应 host 强制终止
+- SaaS 下 sandbox session 的生命周期继续由 Sandbox Service 统一管理
 
 ---
 
@@ -379,26 +398,46 @@ MCP 可以同步做小步升级，但不应阻塞 ACP 接入：
 
 ---
 
-## 10. 本地 sandbox / cowork 与云端兼容
+## 10. Desktop 与 SaaS 双路线
 
-### 10.1 本地优先
+### 10.1 Desktop 路线
 
-本方案优先服务本地 sandbox / cowork：
+Desktop 不应强依赖 sandbox，也不应默认依赖 LLM Proxy：
 
-- 本地工作目录更接近真实开发体验
-- OpenCode 在本地更有价值
-- 用户对文件与命令的预期与 CLI 一致
+- 直接拉起本地 provider command，例如 `opencode acp`
+- provider 自己决定认证方式、模型选择与本地配置
+- OpenCode 实测可通过 terminal auth 暴露 `opencode auth login`
+- Desktop 只负责 session、事件流、权限边界与 UI 承载
 
-### 10.2 云端保持同构
+实测记录（2026-03-17）：
 
-虽然云端 OpenCode 不是主卖点，但架构上仍应保持同构：
+- `opencode` 版本：`1.2.27`
+- ACP 启动命令：`opencode acp`
+- ACP `initialize` 返回的认证方式：terminal auth，命令为 `opencode auth login`
+
+实现注意事项：
+
+- provider 启动时可能读取用户本机配置和插件
+- Desktop 接入应提供可选的干净配置目录或专用 provider profile，避免启动被插件更新阻塞
+
+### 10.2 SaaS 路线
+
+SaaS 路线必须保留，但职责要收敛为“受控 host + 安全治理”：
 
 - 一样是 sandbox session
 - 一样启动 `opencode acp`
 - 一样通过 stdio 说 ACP
 - 一样由 Worker 负责 run / event / cancel
+- 仅在 SaaS 路线下注入 LLM Proxy / 临时 token，保护真实 API key
 
-这样本地与云端不会分裂成两套系统。
+### 10.3 共享控制面
+
+Desktop 与 SaaS 不需要共用同一个 host，但必须共用同一个控制面：
+
+- 统一的 provider 规格
+- 统一的 ACP Bridge 与事件映射
+- 统一的 `acp_agent` Tool 语义
+- 统一的 session / cancel / resume 抽象
 
 ---
 
@@ -644,23 +683,42 @@ Arkloop 接入 OpenCode 的第一阶段，最简单且最稳的方案是：
 - 用户能从现有事件流中观察到 OpenCode 执行过程
 - 支持取消
 
-### PR-7：本地 sandbox / cowork 接入
+### PR-7：ACP Host 抽象与 Provider 规格
 
-目标：让本地运行形态也复用同一套 OpenCode 启动方式。
+目标：把当前 `sandbox + opencode` 首版实现升级为通用 ACP provider runtime。
 
 范围：
 
-- 本地 sandbox provider 复用 ACP 子进程托管接口
-- 本地工作目录与 `--cwd` 绑定
-- 校验本地环境中的 `opencode` 可执行文件探测与版本信息
-- 保持云端与本地的上层协议一致
+- 抽出 `Local Process Host` / `Sandbox Process Host`
+- 定义 provider 规格：`id`、`command`、`args`、`auth_strategy`、`capabilities`
+- `acp_agent` 从写死 `opencode` 改为 provider-first
+- 保持 Desktop 与 SaaS 共用上层协议与事件模型
 
 验收标准：
 
-- 本地 sandbox 可启动 OpenCode
-- Worker 无需区分本地 / 云端两套 ACP 通道实现
+- Worker 不再把 ACP 绑定为 sandbox 专属能力
+- 新 provider 不需要重写 Worker 主链路
 
-### PR-7.5：LLM Proxy + Profile 映射
+### PR-7.1：Desktop Local Process Host + OpenCode 首接入
+
+目标：让 Desktop 先以 OpenCode 作为第一个 provider 真正跑通。
+
+范围：
+
+- Desktop 运行态补齐 ACP host/runtime，不再依赖 `SandboxBaseURL`
+- 增加 OpenCode provider preset，启动命令固定为 `opencode acp`
+- 允许保留 custom command provider，便于后续接入 Codex / Claude / Gemini
+- 处理 Desktop provider 的干净配置目录与启动超时治理
+
+验收标准：
+
+- Desktop 可直接拉起 `opencode acp`
+- 不依赖 LLM Proxy 也能完成认证与会话初始化
+- 用户可以把 OpenCode 作为第一个 ACP provider 使用
+
+### PR-7.5：SaaS LLM Proxy + Profile 映射
+
+当前状态：**部分完成**
 
 目标：让 sandbox 内的 ACP agent 能安全地调用 LLM，不暴露真实 API key。
 
@@ -704,7 +762,7 @@ LLM -> acp_agent(task="...", profile="strong")
   -> API proxy 验证 token + 转发到实际 provider
 ```
 
-**本地模式降级**：本地 sandbox / cowork 场景下，如果用户本机已有 OpenCode 配置（~/.config/opencode/opencode.json），可以跳过 proxy 直接使用用户自己的 API key。proxy 主要服务于 SaaS 和缺少本地配置的场景。
+**Desktop 直连**：Desktop 场景下默认跳过 proxy，直接使用 provider 自己的认证方式和本机配置。proxy 主要服务于 SaaS 和缺少本地凭据的场景。
 
 验收标准：
 
@@ -739,7 +797,7 @@ LLM -> acp_agent(task="...", profile="strong")
 
 ### PR-10：恢复与复用能力
 
-当前状态：**已完成**
+当前状态：**已完成第一版**
 
 目标：让 code session 更接近持久化工作流，而不是一次性短进程。
 
@@ -761,6 +819,11 @@ LLM -> acp_agent(task="...", profile="strong")
 - **Bridge 多 prompt 支持**：`Bind()` 绑定已有进程、`RunPrompt()` 复用 session 发送新 prompt、`CheckAlive()` 健康检查、`State()` 导出状态
 - **Worker 会话注册表**：`Registry` 缓存活跃 ACP session，支持跨 tool call 复用
 - **执行器复用逻辑**：`acp_agent` 工具优先复用已有 session，失败时自动回退到新建
+
+后续补强：
+
+- 将当前 `run_id` 级复用提升为 `workspace/thread/provider` 级复用
+- 让 Desktop 与 SaaS 共用同一套恢复语义，而不是只复用 sandbox 句柄
 
 ### 延后项
 
@@ -785,23 +848,25 @@ LLM -> acp_agent(task="...", profile="strong")
 4. PR-4 Worker ACP Bridge 传输层（已完成）
 5. PR-5 `acp_agent` builtin tool（已完成）
 6. PR-6 前端展示（延后，复用 subagent UI）
-7. PR-7 本地 sandbox / cowork 复用
-8. 真实测试：验证完整链路（LLM -> acp_agent -> OpenCode -> 完成编码任务）
-9. PR-7.5 LLM Proxy + Profile 映射
-10. PR-9 权限确认与治理增强（已完成）
-11. PR-10 恢复与复用（已完成）
-12. ~~PR-8 MCP 最小注入~~（移除，第一阶段不需要）
+7. PR-7 ACP Host 抽象与 Provider 规格
+8. PR-7.1 Desktop Local Process Host + OpenCode 首接入
+9. 真实测试：验证 Desktop 完整链路（ACP Thread / `acp_agent` -> OpenCode -> 完成编码任务）
+10. PR-7.5 SaaS LLM Proxy + Profile 映射补齐运行态 wiring
+11. PR-9 权限确认与治理增强（已完成）
+12. PR-10 恢复与复用（已完成第一版）
+13. ~~PR-8 MCP 最小注入~~（移除，第一阶段不需要）
 
 ### 收敛标准
 
-当满足以下条件时，可认为第一阶段完成：
+当满足以下条件时，可认为修订后的第一阶段完成：
 
-- Arkloop 能在 sandbox 内启动 OpenCode
+- Arkloop 能在 Desktop 直接启动 OpenCode
+- Arkloop 能在 SaaS sandbox 内启动 OpenCode
 - LLM 能通过 `acp_agent` 工具自主决定何时委托任务给代码 agent
 - Worker 能通过 ACP Bridge 发 prompt 并收回 update
 - OpenCode 能直接读写 workspace、直接运行测试命令
-- ACP agent 通过 LLM Proxy 安全调用模型，sandbox 内无真实 API key
+- SaaS 路线下，ACP agent 通过 LLM Proxy 安全调用模型，sandbox 内无真实 API key
 - UI 能通过现有事件流看到执行过程与终态结果
-- 本地 sandbox 与云端 sandbox 共用同一条 ACP 启动链路
+- Desktop 与 SaaS 共用同一套 ACP 控制面，但允许使用不同 host
 
-到这一步，Arkloop 已具备最小可用的 code-agent 能力。后续再决定是否抽更通用的 runtime 与完整 ACP 面。
+到这一步，Arkloop 才算具备最小可用且方向正确的 ACP provider 能力。后续再决定是否补完整 ACP 面、更多 provider 适配与更深的 IDE 集成。
