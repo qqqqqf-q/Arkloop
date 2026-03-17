@@ -229,29 +229,31 @@ func (l *Loop) Run(
 			if runCtx.ToolExecutor == nil {
 				return fmt.Errorf("tool executor not initialized")
 			}
-			executedCalls := l.executePendingToolCalls(ctx, runCtx, regularPending, emitter, &continuationState)
+			preparedPending := make([]llm.ToolCall, 0, len(regularPending))
+			for _, pendingCall := range regularPending {
+				call, startEvent := prepareToolCallStart(emitter, runCtx.ToolExecutor, pendingCall)
+				if err := yield(startEvent); err != nil {
+					return err
+				}
+				preparedPending = append(preparedPending, call)
+			}
+			executedCalls := l.executePendingToolCalls(ctx, runCtx, preparedPending, emitter, &continuationState)
 			for _, executed := range executedCalls {
 				call := executed.Call
 				result := executed.Result
 				if isContinuationBudgetError(result.Error) {
 					continuationRejected = true
 				}
-				emittedToolCall := false
 				for _, ev := range result.Events {
 					if ev.Type == "tool.call" {
-						emittedToolCall = true
+						continue
 					}
 					if err := yield(ev); err != nil {
 						return err
 					}
 				}
-				if !emittedToolCall {
-					if err := yield(emitter.Emit("tool.call", call.ToDataJSON(), stringPtr(call.ToolName), nil)); err != nil {
-						return err
-					}
-				}
 
-				resolvedID := resolveToolCallID(call.ToolCallID, result.Events)
+				resolvedID := call.ToolCallID
 				toolResult := toolResultFromExecution(resolvedID, call.ToolName, result)
 
 				if call.ToolName == "web_search" {
@@ -291,12 +293,13 @@ func (l *Loop) Run(
 
 		// ask_user 拦截：不走 dispatcher，直接 yield 事件并阻塞等待用户输入
 		if askUserCall != nil {
-			if err := yield(emitter.Emit("tool.call", askUserCall.ToDataJSON(), stringPtr(askUserToolName), nil)); err != nil {
+			preparedAskUserCall, startEvent := prepareToolCallStart(emitter, nil, *askUserCall)
+			if err := yield(startEvent); err != nil {
 				return err
 			}
 
-			requestID := askUserCall.ToolCallID
-			callArgs := askUserCall.ArgumentsJSON
+			requestID := preparedAskUserCall.ToolCallID
+			callArgs := preparedAskUserCall.ArgumentsJSON
 
 			message, schema, normErr := askuser.ValidateAndNormalize(callArgs)
 			if normErr != nil {
@@ -1298,6 +1301,30 @@ func resolveToolCallID(fallback string, eventsIn []events.RunEvent) string {
 		}
 	}
 	return fallback
+}
+
+func ensureToolCallID(call llm.ToolCall) llm.ToolCall {
+	if strings.TrimSpace(call.ToolCallID) != "" {
+		return call
+	}
+	call.ToolCallID = uuid.NewString()
+	return call
+}
+
+func prepareToolCallStart(
+	emitter events.Emitter,
+	dispatcher *tools.DispatchingExecutor,
+	call llm.ToolCall,
+) (llm.ToolCall, events.RunEvent) {
+	call = ensureToolCallID(call)
+	if dispatcher == nil {
+		return call, emitter.Emit("tool.call", call.ToDataJSON(), stringPtr(call.ToolName), nil)
+	}
+	ev := dispatcher.ToolCallEvent(emitter, call.ToolName, call.ArgumentsJSON, call.ToolCallID)
+	if raw, ok := ev.DataJSON["tool_call_id"].(string); ok && strings.TrimSpace(raw) != "" {
+		call.ToolCallID = strings.TrimSpace(raw)
+	}
+	return call, ev
 }
 
 func toolResultFromExecution(toolCallID string, toolName string, result tools.ExecutionResult) llm.StreamToolResult {

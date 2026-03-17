@@ -14,8 +14,8 @@ import (
 )
 
 const (
-	RunExecuteJobType  = "run.execute"
-	EmailSendJobType   = "email.send"
+	RunExecuteJobType = "run.execute"
+	EmailSendJobType  = "email.send"
 
 	JobStatusQueued = "queued"
 
@@ -31,6 +31,20 @@ type afterCommitter interface {
 // jobEnqueueNotify 在 job INSERT 后调用，桌面合并模式下将作业转发到 Worker 内存队列。
 // 由 jobs_repo_desktop.go 的 init 设置，非桌面构建保持 nil。
 var jobEnqueueNotify func(ctx context.Context, accountID, runID uuid.UUID, traceID, jobType string, payload map[string]any, availableAt *time.Time)
+
+// jobEnqueueDirect allows desktop mode to bypass the persistent jobs table for
+// run.execute while still preserving after-commit enqueue semantics.
+// It returns (jobID, handled, err).
+var jobEnqueueDirect func(
+	ctx context.Context,
+	db Querier,
+	accountID uuid.UUID,
+	runID uuid.UUID,
+	traceID string,
+	jobType string,
+	payload map[string]any,
+	availableAt *time.Time,
+) (uuid.UUID, bool, error)
 
 type JobRepository struct {
 	db Querier
@@ -75,13 +89,13 @@ func (r *JobRepository) EnqueueRun(
 	}
 
 	payloadJSON := map[string]any{
-		"v":        JobPayloadVersionV1,
-		"job_id":   jobID.String(),
-		"type":     RunExecuteJobType,
-		"trace_id": chosenTraceID,
-		"account_id":   accountID.String(),
-		"run_id":   runID.String(),
-		"payload":  payloadCopy,
+		"v":          JobPayloadVersionV1,
+		"job_id":     jobID.String(),
+		"type":       RunExecuteJobType,
+		"trace_id":   chosenTraceID,
+		"account_id": accountID.String(),
+		"run_id":     runID.String(),
+		"payload":    payloadCopy,
 	}
 
 	encoded, err := json.Marshal(payloadJSON)
@@ -92,6 +106,21 @@ func (r *JobRepository) EnqueueRun(
 	chosenJobType := strings.TrimSpace(queueJobType)
 	if chosenJobType == "" {
 		chosenJobType = RunExecuteJobType
+	}
+
+	if jobEnqueueDirect != nil {
+		if directJobID, handled, err := jobEnqueueDirect(
+			ctx,
+			r.db,
+			accountID,
+			runID,
+			chosenTraceID,
+			chosenJobType,
+			payloadCopy,
+			availableAt,
+		); handled {
+			return directJobID, err
+		}
 	}
 
 	_, err = r.db.Exec(

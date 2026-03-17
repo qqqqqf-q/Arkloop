@@ -3,7 +3,10 @@
 package localshell
 
 import (
+	"context"
+	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -184,4 +187,77 @@ func TestShellQuote(t *testing.T) {
 			t.Errorf("shellQuote(%q) = %q, want %q", tc.input, got, tc.want)
 		}
 	}
+}
+
+func TestShouldAttemptRTKRewriteSkipsComplexShell(t *testing.T) {
+	tests := []string{
+		"cat << 'EOF' > /tmp/x\nhello\nEOF",
+		"echo hi > /tmp/x",
+		"echo 'quoted'",
+		"git status | cat",
+	}
+	for _, command := range tests {
+		if shouldAttemptRTKRewrite(command) {
+			t.Fatalf("expected complex command to skip rewrite: %q", command)
+		}
+	}
+	if !shouldAttemptRTKRewrite("git status") {
+		t.Fatal("expected simple command to allow rewrite")
+	}
+}
+
+func TestRTKRewriteTimesOutAndFallsBack(t *testing.T) {
+	originalBin := rtkBinCache
+	originalRunner := rtkRewriteRunner
+	rtkBinCache = "/tmp/fake-rtk"
+	rtkBinOnce = syncOnceDone()
+	defer func() {
+		rtkBinCache = originalBin
+		rtkBinOnce = sync.Once{}
+		rtkRewriteRunner = originalRunner
+	}()
+
+	rtkRewriteRunner = func(ctx context.Context, bin string, command string) (string, error) {
+		_ = bin
+		_ = command
+		<-ctx.Done()
+		return "", ctx.Err()
+	}
+
+	started := time.Now()
+	if got := rtkRewrite(context.Background(), "git status"); got != "" {
+		t.Fatalf("expected empty rewrite on timeout, got %q", got)
+	}
+	if elapsed := time.Since(started); elapsed > 3*time.Second {
+		t.Fatalf("rewrite timeout took too long: %s", elapsed)
+	}
+}
+
+func TestRTKRewriteSkipsUnsafeCommandWithoutRunner(t *testing.T) {
+	originalBin := rtkBinCache
+	originalRunner := rtkRewriteRunner
+	rtkBinCache = "/tmp/fake-rtk"
+	rtkBinOnce = syncOnceDone()
+	defer func() {
+		rtkBinCache = originalBin
+		rtkBinOnce = sync.Once{}
+		rtkRewriteRunner = originalRunner
+	}()
+
+	rtkRewriteRunner = func(ctx context.Context, bin string, command string) (string, error) {
+		_ = ctx
+		_ = bin
+		_ = command
+		return "", errors.New("runner should not be called")
+	}
+
+	if got := rtkRewrite(context.Background(), "cat << 'EOF' > /tmp/x\nhello\nEOF"); got != "" {
+		t.Fatalf("expected empty rewrite for unsafe command, got %q", got)
+	}
+}
+
+func syncOnceDone() sync.Once {
+	var once sync.Once
+	once.Do(func() {})
+	return once
 }

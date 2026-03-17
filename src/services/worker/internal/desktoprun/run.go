@@ -82,6 +82,12 @@ func RunDesktop(ctx context.Context) error {
 		return fmt.Errorf("compose desktop engine: %w", err)
 	}
 
+	lifecycle := newLifecycleManager(db, cq, logger)
+	if err := lifecycle.Bootstrap(ctx); err != nil {
+		return fmt.Errorf("desktop lifecycle bootstrap: %w", err)
+	}
+	lifecycle.Start(ctx)
+
 	handler := &desktopHandler{
 		db:     db,
 		bus:    bus,

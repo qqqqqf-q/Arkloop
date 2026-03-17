@@ -1,0 +1,335 @@
+//go:build desktop
+
+package desktoprun
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"strconv"
+	"strings"
+	"time"
+
+	"arkloop/services/worker/internal/app"
+	"arkloop/services/worker/internal/data"
+	"arkloop/services/worker/internal/queue"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+)
+
+const (
+	desktopRunTimeoutEnv            = "ARKLOOP_RUN_TIMEOUT_MINUTES"
+	defaultDesktopRunTimeoutMinutes = 5
+	desktopReaperInterval           = time.Minute
+	desktopRecoveryGrace            = 3 * time.Second
+)
+
+var desktopTerminalEventStatus = map[string]string{
+	"run.completed": "completed",
+	"run.failed":    "failed",
+	"run.cancelled": "cancelled",
+}
+
+type lifecycleManager struct {
+	db      data.DesktopDB
+	queue   queue.JobQueue
+	logger  *app.JSONLogger
+	timeout time.Duration
+}
+
+type desktopRunSnapshot struct {
+	RunID         uuid.UUID
+	AccountID     uuid.UUID
+	LastEventType string
+	LastTraceID   string
+	LastActivity  time.Time
+}
+
+func newLifecycleManager(db data.DesktopDB, q queue.JobQueue, logger *app.JSONLogger) *lifecycleManager {
+	timeoutMinutes := defaultDesktopRunTimeoutMinutes
+	if raw := strings.TrimSpace(os.Getenv(desktopRunTimeoutEnv)); raw != "" {
+		if value, err := strconv.Atoi(raw); err == nil && value > 0 {
+			timeoutMinutes = value
+		}
+	}
+	return &lifecycleManager{
+		db:      db,
+		queue:   q,
+		logger:  logger,
+		timeout: time.Duration(timeoutMinutes) * time.Minute,
+	}
+}
+
+func (m *lifecycleManager) Bootstrap(ctx context.Context) error {
+	if m == nil {
+		return nil
+	}
+	if err := m.markLegacyRunJobsDead(ctx); err != nil {
+		return err
+	}
+	if err := m.reapOnce(ctx); err != nil {
+		return err
+	}
+	return m.recoverRuns(ctx)
+}
+
+func (m *lifecycleManager) Start(ctx context.Context) {
+	if m == nil {
+		return
+	}
+	go m.reaperLoop(ctx)
+}
+
+func (m *lifecycleManager) reaperLoop(ctx context.Context) {
+	ticker := time.NewTicker(desktopReaperInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := m.reapOnce(ctx); err != nil && m.logger != nil {
+				m.logger.Error("desktop stale run reap failed", app.LogFields{}, map[string]any{"error": err.Error()})
+			}
+		}
+	}
+}
+
+func (m *lifecycleManager) markLegacyRunJobsDead(ctx context.Context) error {
+	if m.db == nil {
+		return nil
+	}
+	tag, err := m.db.Exec(ctx,
+		`UPDATE jobs
+		    SET status = $1,
+		        leased_until = NULL,
+		        lease_token = NULL,
+		        updated_at = datetime('now')
+		  WHERE job_type = $2
+		    AND status IN ($3, $4)`,
+		queue.JobStatusDead,
+		queue.RunExecuteJobType,
+		queue.JobStatusQueued,
+		queue.JobStatusLeased,
+	)
+	if err != nil {
+		return fmt.Errorf("mark legacy desktop run jobs dead: %w", err)
+	}
+	if m.logger != nil && tag.RowsAffected() > 0 {
+		m.logger.Info("desktop legacy run jobs abandoned", app.LogFields{}, map[string]any{"rows": tag.RowsAffected()})
+	}
+	return nil
+}
+
+func (m *lifecycleManager) reapOnce(ctx context.Context) error {
+	if m.db == nil || m.timeout <= 0 {
+		return nil
+	}
+	staleBefore := time.Now().UTC().Add(-m.timeout)
+	runs, err := listRunningRuns(ctx, m.db)
+	if err != nil {
+		return err
+	}
+	for _, snapshot := range runs {
+		if snapshot.LastEventType != "" {
+			if terminalStatus, ok := desktopTerminalEventStatus[snapshot.LastEventType]; ok {
+				if err := syncRunStatusFromTerminalEvent(ctx, m.db, snapshot.RunID, terminalStatus); err != nil {
+					return err
+				}
+				continue
+			}
+		}
+		if snapshot.LastActivity.After(staleBefore) {
+			continue
+		}
+		reaped, err := forceFailDesktopRun(ctx, m.db, snapshot.RunID)
+		if err != nil {
+			return err
+		}
+		if reaped && m.logger != nil {
+			runID := snapshot.RunID.String()
+			accountID := snapshot.AccountID.String()
+			m.logger.Info("desktop stale run reaped", app.LogFields{RunID: &runID, AccountID: &accountID}, nil)
+		}
+	}
+	return nil
+}
+
+func (m *lifecycleManager) recoverRuns(ctx context.Context) error {
+	if m.db == nil || m.queue == nil {
+		return nil
+	}
+	recoverBefore := time.Now().UTC().Add(-desktopRecoveryGrace)
+	staleBefore := time.Now().UTC().Add(-m.timeout)
+	runs, err := listRunningRuns(ctx, m.db)
+	if err != nil {
+		return err
+	}
+	for _, snapshot := range runs {
+		if snapshot.LastActivity.After(recoverBefore) || !snapshot.LastActivity.After(staleBefore) {
+			continue
+		}
+		if _, ok := desktopTerminalEventStatus[snapshot.LastEventType]; ok {
+			continue
+		}
+		if snapshot.LastEventType == "run.input_requested" || snapshot.LastEventType == "run.cancel_requested" {
+			continue
+		}
+		if _, err := m.queue.EnqueueRun(ctx, snapshot.AccountID, snapshot.RunID, snapshot.LastTraceID, queue.RunExecuteJobType, map[string]any{
+			"source": "desktop_recovery",
+		}, nil); err != nil {
+			return fmt.Errorf("recover desktop run %s: %w", snapshot.RunID, err)
+		}
+		if m.logger != nil {
+			runID := snapshot.RunID.String()
+			accountID := snapshot.AccountID.String()
+			m.logger.Info("desktop run recovered", app.LogFields{RunID: &runID, AccountID: &accountID}, map[string]any{
+				"last_event_type": snapshot.LastEventType,
+			})
+		}
+	}
+	return nil
+}
+
+func listRunningRuns(ctx context.Context, db data.DesktopDB) ([]desktopRunSnapshot, error) {
+	rows, err := db.Query(ctx,
+		`SELECT r.id,
+		        r.account_id,
+		        COALESCE((
+		            SELECT type
+		              FROM run_events re
+		             WHERE re.run_id = r.id
+		             ORDER BY seq DESC
+		             LIMIT 1
+		        ), ''),
+		        COALESCE((
+		            SELECT json_extract(re.data_json, '$.trace_id')
+		              FROM run_events re
+		             WHERE re.run_id = r.id
+		               AND json_extract(re.data_json, '$.trace_id') IS NOT NULL
+		             ORDER BY seq DESC
+		             LIMIT 1
+		        ), ''),
+		        COALESCE((
+		            SELECT MAX(ts)
+		              FROM run_events re
+		             WHERE re.run_id = r.id
+		        ), r.created_at)
+		   FROM runs r
+		  WHERE r.status = 'running'
+		  ORDER BY r.created_at ASC`)
+	if err != nil {
+		return nil, fmt.Errorf("list running desktop runs: %w", err)
+	}
+	defer rows.Close()
+
+	snapshots := make([]desktopRunSnapshot, 0)
+	for rows.Next() {
+		var snapshot desktopRunSnapshot
+		if err := rows.Scan(
+			&snapshot.RunID,
+			&snapshot.AccountID,
+			&snapshot.LastEventType,
+			&snapshot.LastTraceID,
+			&snapshot.LastActivity,
+		); err != nil {
+			return nil, fmt.Errorf("scan running desktop run: %w", err)
+		}
+		snapshots = append(snapshots, snapshot)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate running desktop runs: %w", err)
+	}
+	return snapshots, nil
+}
+
+func syncRunStatusFromTerminalEvent(ctx context.Context, db data.DesktopDB, runID uuid.UUID, status string) error {
+	if runID == uuid.Nil || strings.TrimSpace(status) == "" {
+		return nil
+	}
+	tx, err := db.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return fmt.Errorf("begin desktop terminal sync tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	tag, err := tx.Exec(ctx,
+		`UPDATE runs
+		    SET status = $2,
+		        status_updated_at = datetime('now'),
+		        completed_at = CASE
+		            WHEN $2 = 'completed' THEN COALESCE(completed_at, datetime('now'))
+		            ELSE completed_at
+		        END,
+		        failed_at = CASE
+		            WHEN $2 = 'failed' THEN COALESCE(failed_at, datetime('now'))
+		            ELSE failed_at
+		        END,
+		        duration_ms = COALESCE(duration_ms, CAST((julianday('now') - julianday(created_at)) * 86400000 AS INTEGER))
+		  WHERE id = $1
+		    AND status = 'running'`,
+		runID,
+		status,
+	)
+	if err != nil {
+		return fmt.Errorf("sync desktop terminal status: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return nil
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit desktop terminal sync: %w", err)
+	}
+	return nil
+}
+
+func forceFailDesktopRun(ctx context.Context, db data.DesktopDB, runID uuid.UUID) (bool, error) {
+	if runID == uuid.Nil {
+		return false, fmt.Errorf("run_id must not be empty")
+	}
+	tx, err := db.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return false, fmt.Errorf("begin desktop force-fail tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	tag, err := tx.Exec(ctx,
+		`UPDATE runs
+		    SET status = 'failed',
+		        failed_at = datetime('now'),
+		        status_updated_at = datetime('now')
+		  WHERE id = $1
+		    AND status = 'running'`,
+		runID,
+	)
+	if err != nil {
+		return false, fmt.Errorf("update desktop run failed status: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return false, nil
+	}
+
+	repo := data.DesktopRunEventsRepository{}
+	if _, err := repo.AppendEvent(ctx, tx, runID,
+		"run.failed",
+		map[string]any{"reason": "stale run reaped by system"},
+		nil,
+		stringPtr("worker.timeout"),
+	); err != nil {
+		return false, fmt.Errorf("append desktop stale run failed event: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return false, fmt.Errorf("commit desktop force-fail tx: %w", err)
+	}
+	return true, nil
+}
+
+func stringPtr(value string) *string {
+	cleaned := strings.TrimSpace(value)
+	if cleaned == "" {
+		return nil
+	}
+	return &cleaned
+}

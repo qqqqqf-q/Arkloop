@@ -24,7 +24,7 @@ const (
 type ExecutionContext struct {
 	RunID               uuid.UUID
 	TraceID             string
-	AccountID               *uuid.UUID
+	AccountID           *uuid.UUID
 	ThreadID            *uuid.UUID
 	ProjectID           *uuid.UUID
 	UserID              *uuid.UUID
@@ -152,6 +152,24 @@ func (e *DispatchingExecutor) DrainActivated() []llm.ToolSpec {
 	out := e.activatedSpecs
 	e.activatedSpecs = nil
 	return out
+}
+
+func (e *DispatchingExecutor) ToolCallEvent(
+	emitter events.Emitter,
+	toolName string,
+	args map[string]any,
+	toolCallID string,
+) events.RunEvent {
+	resolvedName := e.resolveToolName(toolName)
+	if e.policyEnforcer == nil {
+		payload := map[string]any{
+			"tool_call_id": strings.TrimSpace(toolCallID),
+			"tool_name":    resolvedName,
+			"arguments":    args,
+		}
+		return emitter.Emit("tool.call", payload, stringPtr(resolvedName), nil)
+	}
+	return e.policyEnforcer.BuildToolCallEvent(emitter, resolvedName, args, toolCallID)
 }
 
 func (e *DispatchingExecutor) Bind(toolName string, executor Executor) error {

@@ -23,6 +23,7 @@ const (
 	errorDisabled     = "tool.local_shell_disabled"
 	maxOutputBytes    = 32 * 1024
 	envLocalShellWork = "ARKLOOP_LOCAL_SHELL_WORKSPACE"
+	rtkRewriteTimeout = 1500 * time.Millisecond
 )
 
 // Executor implements tools.Executor for local trusted shell execution.
@@ -30,6 +31,16 @@ type Executor struct {
 	mu          sync.Mutex
 	controllers map[string]*shellController
 	workDir     string
+}
+
+var rtkRewriteRunner = func(ctx context.Context, bin string, command string) (string, error) {
+	var out bytes.Buffer
+	cmd := exec.CommandContext(ctx, bin, append([]string{"rewrite"}, strings.Fields(command)...)...)
+	cmd.Stdout = &out
+	if err := cmd.Run(); err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out.String()), nil
 }
 
 func NewExecutor() *Executor {
@@ -67,7 +78,7 @@ func (e *Executor) Execute(
 }
 
 func (e *Executor) executeExecCommand(
-	_ context.Context,
+	ctx context.Context,
 	args map[string]any,
 	execCtx tools.ExecutionContext,
 	started time.Time,
@@ -82,7 +93,7 @@ func (e *Executor) executeExecCommand(
 
 	controller := e.getOrCreateController(execCtx.RunID.String())
 
-	if rewritten := rtkRewrite(command); rewritten != "" {
+	if rewritten := rtkRewrite(ctx, command); rewritten != "" {
 		command = rewritten
 	}
 
@@ -249,21 +260,41 @@ func sanitizeOutput(s string) string {
 	return out.String()
 }
 
-// rtkRewrite returns the RTK-optimized version of a shell command, or "" if
-// RTK has no wrapper for it. Uses ~/.arkloop/bin/rtk, falling back to PATH.
-func rtkRewrite(command string) string {
+// rtkRewrite returns the RTK-optimized version of a simple shell command, or
+// "" if RTK is unavailable, times out, or the command requires full shell parsing.
+func rtkRewrite(ctx context.Context, command string) string {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	bin := resolvedRTKBin()
 	if bin == "" {
 		return ""
 	}
-	var out bytes.Buffer
-	cmd := exec.Command(bin, append([]string{"rewrite"}, strings.Fields(command)...)...)
-	cmd.Stdout = &out
-	if err := cmd.Run(); err != nil {
-		// exit 1 = no RTK equivalent, that's fine
+	if !shouldAttemptRTKRewrite(command) {
 		return ""
 	}
-	return strings.TrimSpace(out.String())
+	rewriteCtx, cancel := context.WithTimeout(ctx, rtkRewriteTimeout)
+	defer cancel()
+	rewritten, err := rtkRewriteRunner(rewriteCtx, bin, command)
+	if err != nil {
+		// exit 1 / timeout / cancellation 都视为放弃重写，保持原命令
+		return ""
+	}
+	return rewritten
+}
+
+func shouldAttemptRTKRewrite(command string) bool {
+	trimmed := strings.TrimSpace(command)
+	if trimmed == "" {
+		return false
+	}
+	if strings.ContainsAny(trimmed, "\r\n") {
+		return false
+	}
+	if strings.ContainsAny(trimmed, "'\"`|;&<>$()") {
+		return false
+	}
+	return true
 }
 
 var (

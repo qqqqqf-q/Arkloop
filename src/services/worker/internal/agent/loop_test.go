@@ -193,6 +193,104 @@ func TestAgentLoopExecutesMultipleToolCallsInParallel(t *testing.T) {
 	}
 }
 
+func TestAgentLoopEmitsToolCallBeforeExecutorReturns(t *testing.T) {
+	registry := tools.NewRegistry()
+	if err := registry.Register(builtin.EchoAgentSpec); err != nil {
+		t.Fatalf("register echo failed: %v", err)
+	}
+
+	allowlist := tools.AllowlistFromNames([]string{"echo"})
+	dispatcher := tools.NewDispatchingExecutor(registry, tools.NewPolicyEnforcer(registry, allowlist))
+	blocking := &blockingToolExecutor{
+		started: make(chan struct{}, 1),
+		release: make(chan struct{}),
+	}
+	if err := dispatcher.Bind("echo", blocking); err != nil {
+		t.Fatalf("bind echo failed: %v", err)
+	}
+
+	loop := NewLoop(&scriptedGateway{}, dispatcher)
+	emitter := events.NewEmitter("trace")
+
+	eventCh := make(chan events.RunEvent, 16)
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- loop.Run(
+			context.Background(),
+			RunContext{
+				RunID:               uuid.New(),
+				TraceID:             "trace",
+				InputJSON:           map[string]any{},
+				ReasoningIterations: 3,
+				ToolExecutor:        dispatcher,
+				ToolTimeoutMs:       intPtr(1000),
+				ToolBudget:          map[string]any{},
+				CancelSignal:        func() bool { return false },
+			},
+			llm.Request{Model: "stub"},
+			emitter,
+			func(ev events.RunEvent) error {
+				eventCh <- ev
+				return nil
+			},
+		)
+		close(eventCh)
+	}()
+
+	select {
+	case <-blocking.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("tool executor did not start")
+	}
+
+	var seen []string
+loopScan:
+	for {
+		select {
+		case ev, ok := <-eventCh:
+			if !ok {
+				t.Fatalf("event stream closed before tool.call, seen=%v", seen)
+			}
+			seen = append(seen, ev.Type)
+			if ev.Type == "tool.call" {
+				break loopScan
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatalf("expected tool.call before executor finished, seen=%v", seen)
+		}
+	}
+
+	close(blocking.release)
+	if err := <-errCh; err != nil {
+		t.Fatalf("loop.Run failed: %v", err)
+	}
+
+	toolCallCount := 0
+	toolResultCount := 0
+	for _, eventType := range seen {
+		if eventType == "tool.call" {
+			toolCallCount++
+		}
+		if eventType == "tool.result" {
+			toolResultCount++
+		}
+	}
+	for ev := range eventCh {
+		if ev.Type == "tool.call" {
+			toolCallCount++
+		}
+		if ev.Type == "tool.result" {
+			toolResultCount++
+		}
+	}
+	if toolCallCount != 1 {
+		t.Fatalf("expected exactly 1 tool.call, got %d", toolCallCount)
+	}
+	if toolResultCount != 1 {
+		t.Fatalf("expected exactly 1 tool.result, got %d", toolResultCount)
+	}
+}
+
 func TestAgentLoopAggregatesUsageAcrossTurns(t *testing.T) {
 	registry := tools.NewRegistry()
 	if err := registry.Register(builtin.EchoAgentSpec); err != nil {
@@ -856,6 +954,28 @@ func (e *observedSlowExecutor) Execute(
 	time.Sleep(e.delay)
 	atomic.AddInt32(&e.active, -1)
 
+	return tools.ExecutionResult{ResultJSON: map[string]any{"ok": true}}
+}
+
+type blockingToolExecutor struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (e *blockingToolExecutor) Execute(
+	ctx context.Context,
+	toolName string,
+	args map[string]any,
+	execCtx tools.ExecutionContext,
+	toolCallID string,
+) tools.ExecutionResult {
+	_ = ctx
+	_ = toolName
+	_ = args
+	_ = execCtx
+	_ = toolCallID
+	e.started <- struct{}{}
+	<-e.release
 	return tools.ExecutionResult{ResultJSON: map[string]any{"ok": true}}
 }
 
