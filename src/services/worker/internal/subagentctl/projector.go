@@ -12,18 +12,17 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 )
 
 type SubAgentStateProjector struct {
-	pool     *pgxpool.Pool
+	pool     data.DB
 	rdb      *redis.Client
 	jobQueue queue.JobQueue
 	factory  *SubAgentRunFactory
 }
 
-func NewSubAgentStateProjector(pool *pgxpool.Pool, rdb *redis.Client, jobQueue queue.JobQueue) *SubAgentStateProjector {
+func NewSubAgentStateProjector(pool data.DB, rdb *redis.Client, jobQueue queue.JobQueue) *SubAgentStateProjector {
 	return &SubAgentStateProjector{
 		pool:     pool,
 		rdb:      rdb,

@@ -11,7 +11,6 @@ import (
 	"arkloop/services/worker/internal/data"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type SnapshotStorage struct {
@@ -44,14 +43,14 @@ func (s *SnapshotStorage) LoadBySubAgent(ctx context.Context, tx pgx.Tx, subAgen
 	return decodeContextSnapshot(record.SnapshotJSON)
 }
 
-func (s *SnapshotStorage) LoadByCurrentRun(ctx context.Context, pool *pgxpool.Pool, runID uuid.UUID) (*ContextSnapshot, error) {
+func (s *SnapshotStorage) LoadByCurrentRun(ctx context.Context, db data.DB, runID uuid.UUID) (*ContextSnapshot, error) {
 	if s == nil {
 		return nil, fmt.Errorf("snapshot storage must not be nil")
 	}
-	if pool == nil {
+	if db == nil {
 		return nil, fmt.Errorf("pool must not be nil")
 	}
-	tx, err := pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return nil, err
 	}

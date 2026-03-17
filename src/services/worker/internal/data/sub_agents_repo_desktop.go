@@ -160,14 +160,14 @@ func (SubAgentRepository) GetByCurrentRunID(ctx context.Context, tx pgx.Tx, runI
 	return scanSubAgentNullable(tx.QueryRow(ctx, subAgentSelectBy+` WHERE current_run_id = $1 LIMIT 1`, runID))
 }
 
-func (SubAgentRepository) ListByParentRun(ctx context.Context, pool DesktopDB, parentRunID uuid.UUID) ([]SubAgentRecord, error) {
-	if pool == nil {
+func (SubAgentRepository) ListByParentRun(ctx context.Context, db QueryDB, parentRunID uuid.UUID) ([]SubAgentRecord, error) {
+	if db == nil {
 		return nil, fmt.Errorf("pool must not be nil")
 	}
 	if parentRunID == uuid.Nil {
 		return nil, fmt.Errorf("parent_run_id must not be empty")
 	}
-	rows, err := pool.Query(ctx, subAgentSelectBy+` WHERE parent_run_id = $1 ORDER BY created_at ASC, id ASC`, parentRunID)
+	rows, err := db.Query(ctx, subAgentSelectBy+` WHERE parent_run_id = $1 ORDER BY created_at ASC, id ASC`, parentRunID)
 	if err != nil {
 		return nil, err
 	}

@@ -27,12 +27,13 @@ type JobEnqueuer interface {
 }
 
 var (
-	mu          sync.Mutex
-	jobEnqueuer JobEnqueuer
-	eventBus    any
-	sandboxAddr string
-	ready       chan struct{}
-	apiReady    chan struct{}
+	mu           sync.Mutex
+	jobEnqueuer  JobEnqueuer
+	eventBus     any
+	workNotifier any
+	sandboxAddr  string
+	ready        chan struct{}
+	apiReady     chan struct{}
 )
 
 func init() {
@@ -45,6 +46,9 @@ func GetJobEnqueuer() JobEnqueuer  { mu.Lock(); defer mu.Unlock(); return jobEnq
 
 func SetEventBus(b any) { mu.Lock(); eventBus = b; mu.Unlock() }
 func GetEventBus() any  { mu.Lock(); defer mu.Unlock(); return eventBus }
+
+func SetWorkNotifier(n any) { mu.Lock(); workNotifier = n; mu.Unlock() }
+func GetWorkNotifier() any  { mu.Lock(); defer mu.Unlock(); return workNotifier }
 
 func SetSandboxAddr(addr string) { mu.Lock(); sandboxAddr = addr; mu.Unlock() }
 func GetSandboxAddr() string     { mu.Lock(); defer mu.Unlock(); return sandboxAddr }

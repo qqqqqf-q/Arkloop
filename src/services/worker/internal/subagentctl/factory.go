@@ -11,17 +11,16 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 const childThreadTTL = 7 * 24 * time.Hour
 
 type SubAgentRunFactory struct {
-	pool            *pgxpool.Pool
+	pool            data.DB
 	snapshotStorage *SnapshotStorage
 }
 
-func NewSubAgentRunFactory(pool *pgxpool.Pool, snapshotStorage *SnapshotStorage) *SubAgentRunFactory {
+func NewSubAgentRunFactory(pool data.DB, snapshotStorage *SnapshotStorage) *SubAgentRunFactory {
 	return &SubAgentRunFactory{pool: pool, snapshotStorage: snapshotStorage}
 }
 

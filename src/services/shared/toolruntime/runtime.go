@@ -123,8 +123,12 @@ func BuildRuntimeSnapshot(ctx context.Context, input SnapshotInput) (RuntimeSnap
 
 func ResolveBuiltin(input ResolveInput) BuiltinAvailability {
 	available := map[string]struct{}{
+		"edit":             {},
 		"close_agent":      {},
+		"glob":             {},
 		"interrupt_agent":  {},
+		"grep":             {},
+		"read_file":        {},
 		"resume_agent":     {},
 		"send_input":       {},
 		"timeline_title":   {},
@@ -132,6 +136,7 @@ func ResolveBuiltin(input ResolveInput) BuiltinAvailability {
 		"summarize_thread": {},
 		"ask_user":         {},
 		"wait_agent":       {},
+		"write_file":       {},
 	}
 
 	if webSearchEnvConfigured(input.Env) || findProvider(input.PlatformProviders, "web_search") != nil {

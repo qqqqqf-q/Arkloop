@@ -750,7 +750,7 @@ export function buildMessageSubAgentsFromRunEvents(events: RunEvent[]): SubAgent
 
 // --- File operation processing ---
 
-const FILE_OP_TOOL_NAMES = new Set(['grep', 'glob', 'read_file', 'write_file', 'edit_file'])
+const FILE_OP_TOOL_NAMES = new Set(['grep', 'glob', 'read_file', 'write_file', 'edit', 'edit_file'])
 
 type FileOpToolCallPatch = {
   nextOps: FileOpRef[]
@@ -787,6 +787,7 @@ function fileOpLabel(toolName: string, args: Record<string, unknown>): string {
       const filePath = typeof args.file_path === 'string' ? args.file_path : ''
       return filePath ? truncate(basename(filePath), 48) : 'write file'
     }
+    case 'edit':
     case 'edit_file': {
       const filePath = typeof args.file_path === 'string' ? args.file_path : ''
       return filePath ? truncate(basename(filePath), 48) : 'edit file'
@@ -821,6 +822,7 @@ function fileOpOutputFromResult(toolName: string, result: unknown): string | und
       const filePath = typeof r.file_path === 'string' ? r.file_path : ''
       return filePath ? `written: ${filePath}` : 'written'
     }
+    case 'edit':
     case 'edit_file': {
       const filePath = typeof r.file_path === 'string' ? r.file_path : ''
       return filePath ? `edited: ${filePath}` : 'edited'

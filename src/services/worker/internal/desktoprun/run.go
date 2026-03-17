@@ -48,12 +48,15 @@ func RunDesktop(ctx context.Context) error {
 		return fmt.Errorf("event bus not initialized, call InitDesktopInfra first")
 	}
 
+	notifier, ok := desktop.GetWorkNotifier().(*consumer.LocalNotifier)
+	if !ok || notifier == nil {
+		return fmt.Errorf("work notifier not initialized, call InitDesktopInfra first")
+	}
+
 	cq, ok := desktop.GetJobEnqueuer().(*queue.ChannelJobQueue)
 	if !ok || cq == nil {
 		return fmt.Errorf("job queue not initialized, call InitDesktopInfra first")
 	}
-
-	localNotifier := consumer.NewLocalNotifier()
 
 	dataDir := os.Getenv("ARKLOOP_DATA_DIR")
 	if dataDir == "" {
@@ -74,7 +77,7 @@ func RunDesktop(ctx context.Context) error {
 	}
 	defer db.Close()
 
-	engine, err := app.ComposeDesktopEngine(ctx, db, bus, executor.DefaultExecutorRegistry())
+	engine, err := app.ComposeDesktopEngine(ctx, db, bus, executor.DefaultExecutorRegistry(), cq)
 	if err != nil {
 		return fmt.Errorf("compose desktop engine: %w", err)
 	}
@@ -89,23 +92,23 @@ func RunDesktop(ctx context.Context) error {
 	loop, err := consumer.NewLoop(
 		cq,
 		handler,
-		nil,
+		consumer.NewLocalRunLocker(),
 		consumer.Config{
-			Concurrency:      1,
+			Concurrency:      2,
 			PollSeconds:      cfg.PollSeconds,
 			LeaseSeconds:     cfg.LeaseSeconds,
 			HeartbeatSeconds: cfg.HeartbeatSeconds,
 			QueueJobTypes:    cfg.QueueJobTypes,
 		},
 		logger,
-		localNotifier,
+		notifier,
 	)
 	if err != nil {
 		return err
 	}
 
 	logger.Info("desktop worker entering consume mode", app.LogFields{}, map[string]any{
-		"concurrency": 1,
+		"concurrency": 2,
 		"job_types":   cfg.QueueJobTypes,
 		"sqlite_path": sqlitePath,
 	})

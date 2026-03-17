@@ -30,6 +30,7 @@ function toolKindLabel(toolName: string): string {
     case 'glob': return 'glob'
     case 'read_file': return 'read'
     case 'write_file': return 'write'
+    case 'edit':
     case 'edit_file': return 'edit'
     default: return toolName
   }

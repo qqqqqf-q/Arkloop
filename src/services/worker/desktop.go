@@ -26,6 +26,7 @@ func InitDesktopInfra() error {
 	desktop.SetEventBus(bus)
 
 	localNotifier := consumer.NewLocalNotifier()
+	desktop.SetWorkNotifier(localNotifier)
 	cq, err := queue.NewChannelJobQueue(25, localNotifier.Notify)
 	if err != nil {
 		return err

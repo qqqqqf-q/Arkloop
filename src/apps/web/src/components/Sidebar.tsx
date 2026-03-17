@@ -17,7 +17,7 @@ import {
 import type { SettingsTab } from './SettingsModal'
 import type { ThreadResponse, MeResponse } from '../api'
 import { listStarredThreadIds, starThread, unstarThread, updateThreadTitle, deleteThread } from '../api'
-import { isLocalMode } from '@arkloop/shared/desktop'
+import { isLocalMode, isDesktop } from '@arkloop/shared/desktop'
 import { useLocale } from '../contexts/LocaleContext'
 import { ShareModal } from './ShareModal'
 import type { AppMode } from '../storage'
@@ -495,17 +495,19 @@ export function Sidebar({
             />
             {starredIds.includes(menuThreadId) ? t.unstarThread : t.starThread}
           </button>
-          <button
-            onClick={() => {
-              const id = menuThreadId
-              setMenuThreadId(null)
-              setShareModalThreadId(id)
-            }}
-            className="flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-[13px] text-[var(--c-text-secondary)] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]"
-          >
-            <Share2 size={13} style={{ flexShrink: 0 }} />
-            {t.shareThread}
-          </button>
+          {!isDesktop() && (
+            <button
+              onClick={() => {
+                const id = menuThreadId
+                setMenuThreadId(null)
+                setShareModalThreadId(id)
+              }}
+              className="flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-[13px] text-[var(--c-text-secondary)] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]"
+            >
+              <Share2 size={13} style={{ flexShrink: 0 }} />
+              {t.shareThread}
+            </button>
+          )}
           <div style={{ height: '1px', background: 'var(--c-border-subtle)', margin: '2px 0' }} />
           <button
             onClick={() => {

@@ -3179,17 +3179,12 @@ export function ChatPage() {
       </div>
 
         </div>
-        {/* 右侧面板：claw 模式 absolute overlay 不影响布局；其他面板 flex 子元素带宽度过渡 */}
+        {/* 右侧面板：flex 兄弟节点，主内容区自然收窄 */}
         <div
           style={appMode === 'claw' ? {
-            position: 'absolute',
-            right: 0,
-            top: 0,
-            bottom: 0,
             width: '300px',
+            flexShrink: 0,
             overflow: 'hidden',
-            borderLeft: '0.5px solid var(--c-border-subtle)',
-            zIndex: 2,
           } : {
             width: isDocumentPanelOpen ? `${documentPanelWidth}px` : (isSourcePanelOpen || isCodePanelOpen) ? `${sidePanelWidth}px` : '0px',
             overflow: 'hidden',

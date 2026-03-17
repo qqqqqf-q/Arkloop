@@ -11,7 +11,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -29,7 +28,7 @@ type Control interface {
 }
 
 type Service struct {
-	pool             *pgxpool.Pool
+	pool             data.DB
 	rdb              *redis.Client
 	jobQueue         queue.JobQueue
 	parentRun        data.Run
@@ -45,7 +44,7 @@ type Service struct {
 
 func CreateInitialRun(
 	ctx context.Context,
-	pool *pgxpool.Pool,
+	pool data.DB,
 	rdb *redis.Client,
 	jobQueue queue.JobQueue,
 	parentRun data.Run,
@@ -59,7 +58,7 @@ func CreateInitialRun(
 	return err
 }
 
-func NewService(pool *pgxpool.Pool, rdb *redis.Client, jobQueue queue.JobQueue, parentRun data.Run, traceID string, limits SubAgentLimits, bp BackpressureConfig) *Service {
+func NewService(pool data.DB, rdb *redis.Client, jobQueue queue.JobQueue, parentRun data.Run, traceID string, limits SubAgentLimits, bp BackpressureConfig) *Service {
 	snapshotStorage := NewSnapshotStorage()
 	factory := NewSubAgentRunFactory(pool, snapshotStorage)
 	projector := NewSubAgentStateProjector(pool, rdb, jobQueue)
@@ -80,11 +79,11 @@ func NewService(pool *pgxpool.Pool, rdb *redis.Client, jobQueue queue.JobQueue, 
 	}
 }
 
-func MarkRunning(ctx context.Context, pool *pgxpool.Pool, runID uuid.UUID) error {
+func MarkRunning(ctx context.Context, pool data.DB, runID uuid.UUID) error {
 	return NewSubAgentStateProjector(pool, nil, nil).MarkRunning(ctx, runID)
 }
 
-func MarkRunFailed(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, childRunID uuid.UUID) {
+func MarkRunFailed(ctx context.Context, pool data.DB, rdb *redis.Client, childRunID uuid.UUID) {
 	_ = NewSubAgentStateProjector(pool, rdb, nil).MarkRunFailed(ctx, childRunID, "failed to enqueue child run job")
 }
 

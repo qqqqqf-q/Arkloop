@@ -17,9 +17,9 @@ import (
 	"strings"
 	"time"
 
-	sharedexec "arkloop/services/shared/executionconfig"
 	"arkloop/services/shared/desktop"
 	"arkloop/services/shared/eventbus"
+	sharedexec "arkloop/services/shared/executionconfig"
 	"arkloop/services/worker/internal/data"
 	"arkloop/services/worker/internal/events"
 	"arkloop/services/worker/internal/llm"
@@ -28,13 +28,15 @@ import (
 	"arkloop/services/worker/internal/memory/openviking"
 	"arkloop/services/worker/internal/personas"
 	"arkloop/services/worker/internal/pipeline"
+	"arkloop/services/worker/internal/queue"
 	"arkloop/services/worker/internal/routing"
+	"arkloop/services/worker/internal/subagentctl"
 	"arkloop/services/worker/internal/tools"
 	"arkloop/services/worker/internal/tools/builtin"
-	"arkloop/services/worker/internal/tools/localfs"
+	conversationtool "arkloop/services/worker/internal/tools/conversation"
 	"arkloop/services/worker/internal/tools/localshell"
-	"arkloop/services/worker/internal/tools/sandboxshell"
 	memorytool "arkloop/services/worker/internal/tools/memory"
+	"arkloop/services/worker/internal/tools/sandboxshell"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -55,11 +57,12 @@ type DesktopEngine struct {
 	personaRegistry  func() *personas.Registry
 	memProvider      memory.MemoryProvider
 	useOV            bool
+	jobQueue         queue.JobQueue
 }
 
 // ComposeDesktopEngine assembles a DesktopEngine from environment configuration.
 // execRegistry is the agent executor builder (e.g., executor.DefaultExecutorRegistry()).
-func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.EventBus, execRegistry pipeline.AgentExecutorBuilder) (*DesktopEngine, error) {
+func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.EventBus, execRegistry pipeline.AgentExecutorBuilder, jobQueue queue.JobQueue) (*DesktopEngine, error) {
 	// Router is loaded dynamically per-run in desktopRouting middleware
 	// so that credentials configured after startup are picked up immediately.
 	stubRouter := routing.NewProviderRouter(routing.DefaultRoutingConfig())
@@ -92,7 +95,7 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 			}
 		}
 	}
-	for _, spec := range localfs.AgentSpecs() {
+	for _, spec := range conversationtool.AgentSpecs() {
 		if err := toolRegistry.Register(spec); err != nil {
 			slog.WarnContext(ctx, "desktop: skip tool registration", "name", spec.Name, "err", err)
 		}
@@ -116,9 +119,10 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 		}
 	}
 
-	fsExec := localfs.NewExecutor()
-	executors[localfs.FileReadAgentSpec.Name] = fsExec
-	executors[localfs.FileWriteAgentSpec.Name] = fsExec
+	convExec := conversationtool.NewToolExecutor(db, data.MessagesRepository{})
+	for _, spec := range conversationtool.AgentSpecs() {
+		executors[spec.Name] = convExec
+	}
 
 	memEnabled := strings.TrimSpace(os.Getenv("ARKLOOP_MEMORY_ENABLED")) != "false"
 	ovURL := strings.TrimSpace(os.Getenv("ARKLOOP_OPENVIKING_BASE_URL"))
@@ -156,7 +160,7 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 		shellLlmSpecs = localshell.LlmSpecs()
 	}
 	allLlmSpecs := append(builtin.LlmSpecs(), shellLlmSpecs...)
-	allLlmSpecs = append(allLlmSpecs, localfs.LlmSpecs()...)
+	allLlmSpecs = append(allLlmSpecs, conversationtool.LlmSpecs()...)
 	if memProvider != nil {
 		allLlmSpecs = append(allLlmSpecs, memorytool.LlmSpecs()...)
 	}
@@ -191,6 +195,7 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 		personaRegistry:  personaGetter,
 		memProvider:      memProvider,
 		useOV:            useOV,
+		jobQueue:         jobQueue,
 	}, nil
 }
 
@@ -210,6 +215,13 @@ func loadPersonaRegistryFromFS() func() *personas.Registry {
 func (e *DesktopEngine) Execute(ctx context.Context, run data.Run, traceID string) error {
 	traceID = strings.TrimSpace(traceID)
 	emitter := events.NewEmitter(traceID)
+
+	subAgentsEnabled := desktopSubAgentSchemaAvailable(ctx, e.db)
+	if subAgentsEnabled {
+		if err := subagentctl.MarkRunning(ctx, e.db, run.ID); err != nil {
+			return fmt.Errorf("mark sub_agent running: %w", err)
+		}
+	}
 
 	runsRepo := data.DesktopRunsRepository{}
 	eventsRepo := data.DesktopRunEventsRepository{}
@@ -235,11 +247,15 @@ func (e *DesktopEngine) Execute(ctx context.Context, run data.Run, traceID strin
 		ToolContinuationBudgetLimit:   32,
 		MaxParallelTasks:              4,
 		CreditPerUSD:                  1000,
-		LlmMaxResponseBytes:          16384,
+		LlmMaxResponseBytes:           16384,
 
 		UserID:       run.CreatedByUserID,
 		ProfileRef:   derefStr(run.ProfileRef),
 		WorkspaceRef: derefStr(run.WorkspaceRef),
+	}
+
+	if e.jobQueue != nil && subAgentsEnabled {
+		rc.SubAgentControl = subagentctl.NewService(e.db, nil, e.jobQueue, run, traceID, subagentctl.SubAgentLimits{}, subagentctl.BackpressureConfig{})
 	}
 
 	// pipeline 限制规范化
@@ -265,12 +281,14 @@ func (e *DesktopEngine) Execute(ctx context.Context, run data.Run, traceID strin
 		desktopCancelGuard(),
 		desktopInputLoader(e.db, eventsRepo),
 		desktopToolInit(e.toolExecutors, e.allLlmSpecs, e.baseAllowlist, e.toolRegistry),
+		pipeline.NewSpawnAgentMiddleware(),
 		desktopPersonaResolution(e.db, e.personaRegistry, runsRepo, eventsRepo),
+		desktopSubAgentContext(e.db, subagentctl.NewSnapshotStorage()),
 		memMiddleware,
 		desktopRouting(e.stubRouter, e.stubGateway, e.emitDebugEvents, e.db, runsRepo, eventsRepo),
 		pipeline.NewToolBuildMiddleware(),
 	}
-	terminal := desktopAgentLoop(e.db, runsRepo, eventsRepo)
+	terminal := desktopAgentLoop(e.db, e.bus, e.jobQueue, runsRepo, eventsRepo)
 	handler := pipeline.Build(middlewares, terminal)
 
 	return handler(ctx, rc)
@@ -402,6 +420,84 @@ func desktopToolInit(
 		rc.ToolRegistry = registry
 		return next(ctx, rc)
 	}
+}
+
+func desktopSubAgentContext(db data.DesktopDB, storage *subagentctl.SnapshotStorage) pipeline.RunMiddleware {
+	return func(ctx context.Context, rc *pipeline.RunContext, next pipeline.RunHandler) error {
+		if storage == nil || rc == nil || db == nil || rc.Run.ParentRunID == nil {
+			return next(ctx, rc)
+		}
+		if !desktopSubAgentSchemaAvailable(ctx, db) {
+			return next(ctx, rc)
+		}
+		snapshot, err := storage.LoadByCurrentRun(ctx, db, rc.Run.ID)
+		if err != nil {
+			return err
+		}
+		if snapshot == nil {
+			return next(ctx, rc)
+		}
+		if routeID := strings.TrimSpace(snapshot.Runtime.RouteID); routeID != "" {
+			if _, ok := rc.InputJSON["route_id"]; !ok {
+				rc.InputJSON["route_id"] = routeID
+			}
+		}
+		if model := strings.TrimSpace(snapshot.Runtime.Model); model != "" {
+			if _, ok := rc.InputJSON["model"]; !ok {
+				rc.InputJSON["model"] = model
+			}
+		}
+		if len(snapshot.Runtime.ToolAllowlist) > 0 {
+			rc.AllowlistSet = desktopIntersectAllowlist(rc.AllowlistSet, snapshot.Runtime.ToolAllowlist, rc.ToolRegistry)
+		}
+		if len(snapshot.Runtime.ToolDenylist) > 0 {
+			for _, denied := range snapshot.Runtime.ToolDenylist {
+				pipeline.RemoveToolOrGroup(rc.AllowlistSet, rc.ToolRegistry, denied)
+			}
+			rc.ToolDenylist = desktopMergeToolNames(rc.ToolDenylist, snapshot.Runtime.ToolDenylist)
+		}
+		return next(ctx, rc)
+	}
+}
+
+func desktopIntersectAllowlist(current map[string]struct{}, parent []string, registry *tools.Registry) map[string]struct{} {
+	resolved := map[string]struct{}{}
+	if len(current) == 0 || len(parent) == 0 {
+		return resolved
+	}
+	parentSet := make(map[string]struct{}, len(parent))
+	for _, item := range parent {
+		cleaned := strings.TrimSpace(item)
+		if cleaned == "" {
+			continue
+		}
+		parentSet[cleaned] = struct{}{}
+	}
+	for name := range current {
+		if pipeline.ToolAllowed(parentSet, registry, name) {
+			resolved[name] = struct{}{}
+		}
+	}
+	return resolved
+}
+
+func desktopMergeToolNames(left []string, right []string) []string {
+	seen := map[string]struct{}{}
+	result := make([]string, 0, len(left)+len(right))
+	for _, group := range [][]string{left, right} {
+		for _, item := range group {
+			cleaned := strings.TrimSpace(item)
+			if cleaned == "" {
+				continue
+			}
+			if _, ok := seen[cleaned]; ok {
+				continue
+			}
+			seen[cleaned] = struct{}{}
+			result = append(result, cleaned)
+		}
+	}
+	return result
 }
 
 // desktopPersonaResolution resolves persona from desktop DB or filesystem.
@@ -703,19 +799,27 @@ var desktopTerminalStatuses = map[string]string{
 
 func desktopAgentLoop(
 	db data.DesktopDB,
+	bus eventbus.EventBus,
+	jobQueue queue.JobQueue,
 	runsRepo data.DesktopRunsRepository,
 	eventsRepo data.DesktopRunEventsRepository,
 ) pipeline.RunHandler {
 	return func(ctx context.Context, rc *pipeline.RunContext) error {
 		selected := rc.SelectedRoute
+		var projector *subagentctl.SubAgentStateProjector
+		if desktopSubAgentSchemaAvailable(ctx, db) {
+			projector = subagentctl.NewSubAgentStateProjector(db, nil, jobQueue)
+		}
 
 		w := &desktopEventWriter{
 			db:         db,
+			bus:        bus,
 			run:        rc.Run,
 			traceID:    rc.TraceID,
 			model:      selected.Route.Model,
 			runsRepo:   runsRepo,
 			eventsRepo: eventsRepo,
+			projector:  projector,
 		}
 		defer w.close(ctx)
 
@@ -779,20 +883,24 @@ var errDesktopStopProcessing = errors.New("desktop_stop_processing")
 // desktopEventWriter batches event writes into transactions using DesktopDB.
 type desktopEventWriter struct {
 	db         data.DesktopDB
+	bus        eventbus.EventBus
 	run        data.Run
 	traceID    string
 	model      string
 	runsRepo   data.DesktopRunsRepository
 	eventsRepo data.DesktopRunEventsRepository
+	projector  *subagentctl.SubAgentStateProjector
 
 	tx                       pgx.Tx
 	pendingEventsSinceCommit int
 	lastCommitAt             time.Time
+	pendingEnqueueRunIDs     []uuid.UUID
 	assistantDeltas          []string
 	toolCallCount            int
 	iterationCount           int
 	completed                bool
 	hasTerminal              bool
+	terminalRunStatus        string
 	totalInputTokens         int64
 	totalOutputTokens        int64
 	totalCostUSD             float64
@@ -838,10 +946,20 @@ func (w *desktopEventWriter) append(ctx context.Context, runID uuid.UUID, ev eve
 		emitter := events.NewEmitter(w.traceID)
 		cancelled := emitter.Emit("run.cancelled", map[string]any{}, nil, nil)
 		_, _ = w.eventsRepo.AppendEvent(ctx, w.tx, runID, cancelled.Type, cancelled.DataJSON, cancelled.ToolName, cancelled.ErrorClass)
+		if w.projector != nil {
+			nextRunID, err := w.projector.ProjectRunTerminal(ctx, w.tx, w.run, data.SubAgentStatusCancelled, map[string]any{"run_id": runID.String()}, nil)
+			if err != nil {
+				return err
+			}
+			if nextRunID != nil {
+				w.pendingEnqueueRunIDs = append(w.pendingEnqueueRunIDs, *nextRunID)
+			}
+		}
 		_ = w.runsRepo.UpdateRunTerminalStatus(ctx, w.tx, runID, data.TerminalStatusUpdate{
 			Status: "cancelled", TotalInputTokens: w.totalInputTokens, TotalOutputTokens: w.totalOutputTokens, TotalCostUSD: w.totalCostUSD,
 		})
 		w.hasTerminal = true
+		w.terminalRunStatus = "cancelled"
 		_ = w.commit(ctx)
 		return errDesktopStopProcessing
 	}
@@ -874,7 +992,17 @@ func (w *desktopEventWriter) append(ctx context.Context, runID uuid.UUID, ev eve
 		_ = w.runsRepo.UpdateRunTerminalStatus(ctx, w.tx, runID, data.TerminalStatusUpdate{
 			Status: status, TotalInputTokens: w.totalInputTokens, TotalOutputTokens: w.totalOutputTokens, TotalCostUSD: w.totalCostUSD,
 		})
+		if w.projector != nil {
+			nextRunID, err := w.projector.ProjectRunTerminal(ctx, w.tx, w.run, status, ev.DataJSON, ev.ErrorClass)
+			if err != nil {
+				return err
+			}
+			if nextRunID != nil {
+				w.pendingEnqueueRunIDs = append(w.pendingEnqueueRunIDs, *nextRunID)
+			}
+		}
 		w.hasTerminal = true
+		w.terminalRunStatus = status
 		return nil
 	}
 
@@ -896,6 +1024,23 @@ func (w *desktopEventWriter) commit(ctx context.Context) error {
 	w.tx = nil
 	w.pendingEventsSinceCommit = 0
 	w.lastCommitAt = time.Now()
+	if w.bus != nil {
+		channel := fmt.Sprintf("run_events:%s", w.run.ID.String())
+		_ = w.bus.Publish(ctx, channel, "")
+	}
+	if w.hasTerminal {
+		for _, nextRunID := range w.pendingEnqueueRunIDs {
+			if w.projector == nil {
+				continue
+			}
+			if err := w.projector.EnqueueRun(ctx, w.run.AccountID, nextRunID, w.traceID, nil); err != nil {
+				_ = w.projector.MarkRunFailed(context.Background(), nextRunID, "failed to enqueue child run job")
+			}
+		}
+		w.pendingEnqueueRunIDs = nil
+		w.hasTerminal = false
+		w.terminalRunStatus = ""
+	}
 	return nil
 }
 
@@ -1009,6 +1154,20 @@ func derefStr(v *string) string {
 	return *v
 }
 
+func desktopSubAgentSchemaAvailable(ctx context.Context, db data.DesktopDB) bool {
+	if db == nil {
+		return false
+	}
+	const requiredTables = 4
+	var count int
+	err := db.QueryRow(ctx,
+		`SELECT COUNT(*) FROM sqlite_master
+		 WHERE type = 'table'
+		   AND name IN ('sub_agents', 'sub_agent_events', 'sub_agent_pending_inputs', 'sub_agent_context_snapshots')`,
+	).Scan(&count)
+	return err == nil && count == requiredTables
+}
+
 func mergeJSON(a, b map[string]any) map[string]any {
 	out := make(map[string]any, len(a)+len(b))
 	for k, v := range a {
@@ -1099,7 +1258,7 @@ func loadDesktopRoutingConfig(ctx context.Context, db data.DesktopDB) (routing.P
 		creds = append(creds, routing.ProviderCredential{
 			ID: c.id, Name: c.name, OwnerKind: scope,
 			ProviderKind: routing.ProviderKind(c.provider),
-			APIKeyValue: apiKey, BaseURL: c.baseURL, OpenAIMode: c.openAIMode, AdvancedJSON: advanced,
+			APIKeyValue:  apiKey, BaseURL: c.baseURL, OpenAIMode: c.openAIMode, AdvancedJSON: advanced,
 		})
 		credMap[c.id] = struct{}{}
 	}

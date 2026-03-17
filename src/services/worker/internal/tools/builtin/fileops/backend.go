@@ -39,5 +39,13 @@ func ResolveBackend(snapshot *sharedtoolruntime.RuntimeSnapshot, workDir string,
 	if workDir == "" {
 		workDir = os.Getenv("ARKLOOP_WORKING_DIR")
 	}
+	if workDir == "" {
+		workDir = os.Getenv("ARKLOOP_LOCAL_SHELL_WORKSPACE")
+	}
+	if workDir == "" {
+		if wd, err := os.Getwd(); err == nil {
+			workDir = wd
+		}
+	}
 	return &LocalBackend{WorkDir: workDir}
 }
