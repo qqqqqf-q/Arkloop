@@ -145,7 +145,7 @@ func (e *Executor) CloseSession(runID string) {
 }
 
 func buildResult(resp *shellResponse, runID string, started time.Time) tools.ExecutionResult {
-	output := resp.Output
+	output := sanitizeOutput(resp.Output)
 	truncated := false
 	if len(output) > maxOutputBytes {
 		marker := fmt.Sprintf("\n...[truncated %d bytes]", len(output)-maxOutputBytes)
@@ -161,7 +161,6 @@ func buildResult(resp *shellResponse, runID string, started time.Time) tools.Exe
 		"status":    resp.Status,
 		"cwd":       resp.Cwd,
 		"output":    output,
-		"stdout":    output,
 		"running":   resp.Running,
 		"timed_out": resp.TimedOut,
 		"truncated": truncated,
@@ -214,6 +213,34 @@ func readIntArg(args map[string]any, key string) int {
 		}
 	}
 	return 0
+}
+
+// sanitizeOutput strips ANSI escape codes and collapses carriage-return overwrites.
+func sanitizeOutput(s string) string {
+	// Collapse \r overwrites (progress bars, spinners).
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		parts := strings.Split(line, "\r")
+		lines[i] = parts[len(parts)-1]
+	}
+	s = strings.Join(lines, "\n")
+	// Strip ANSI escape sequences.
+	var out strings.Builder
+	out.Grow(len(s))
+	i := 0
+	for i < len(s) {
+		if s[i] == '\x1b' && i+1 < len(s) && s[i+1] == '[' {
+			i += 2
+			for i < len(s) && s[i] != 'm' && s[i] != 'J' && s[i] != 'K' && s[i] != 'H' && s[i] != 'A' && s[i] != 'B' && s[i] != 'C' && s[i] != 'D' {
+				i++
+			}
+			i++ // skip terminator
+			continue
+		}
+		out.WriteByte(s[i])
+		i++
+	}
+	return out.String()
 }
 
 func truncateForLog(s string, maxLen int) string {

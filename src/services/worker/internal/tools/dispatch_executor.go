@@ -247,10 +247,10 @@ func (e *DispatchingExecutor) Execute(
 		result = executor.Execute(ctx, resolvedName, args, context, decision.ToolCallID)
 	}()
 
-	// Layer 1: smart truncation
+	// Layer 1: smart truncation — use CompressTargetBytes as the LLM-facing budget,
+	// independent from the executor-level MaxOutputBytes truncation.
 	if result.ResultJSON != nil && result.Error == nil {
-		limit := resolveOutputLimit(context.PerToolSoftLimits, resolvedName)
-		result = CompressResult(resolvedName, result, limit)
+		result = CompressResult(resolvedName, result, CompressTargetBytes)
 	}
 
 	// Layer 2: LLM summarization
