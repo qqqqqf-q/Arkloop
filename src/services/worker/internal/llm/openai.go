@@ -745,11 +745,19 @@ func (g *OpenAIGateway) streamChatCompletionsSSE(
 				if streamedUsage != nil {
 					details["usage"] = streamedUsage.ToJSON()
 				}
+				// 模型有 reasoning/thinking 输出但无可见内容：属于 provider/model 异常行为，可重试。
+				// 纯空响应（无任何输出）：仍为 internal.error。
+				errClass := ErrorClassInternalError
+				errMsg := "OpenAI stream completed without content"
+				if emittedAnyOutput {
+					errClass = ErrorClassProviderRetryable
+					errMsg = "LLM generated only internal reasoning without visible output"
+				}
 				return yield(StreamRunFailed{
 					LlmCallID: llmCallID,
 					Error: GatewayError{
-						ErrorClass: ErrorClassInternalError,
-						Message:    "OpenAI stream completed without content",
+						ErrorClass: errClass,
+						Message:    errMsg,
 						Details:    details,
 					},
 					Usage: streamedUsage,
@@ -914,11 +922,19 @@ func (g *OpenAIGateway) streamChatCompletionsSSE(
 				if streamedUsage != nil {
 					details["usage"] = streamedUsage.ToJSON()
 				}
+				// 模型有 reasoning/thinking 输出但无可见内容：属于 provider/model 异常行为，可重试。
+				// 纯空响应（无任何输出）：仍为 internal.error。
+				errClass := ErrorClassInternalError
+				errMsg := "OpenAI stream ended without content"
+				if emittedAnyOutput {
+					errClass = ErrorClassProviderRetryable
+					errMsg = "LLM generated only internal reasoning without visible output"
+				}
 				return yield(StreamRunFailed{
 					LlmCallID: llmCallID,
 					Error: GatewayError{
-						ErrorClass: ErrorClassInternalError,
-						Message:    "OpenAI stream ended without content",
+						ErrorClass: errClass,
+						Message:    errMsg,
 						Details:    details,
 					},
 				})
@@ -983,11 +999,19 @@ func (g *OpenAIGateway) streamChatCompletionsSSE(
 		if streamedUsage != nil {
 			details["usage"] = streamedUsage.ToJSON()
 		}
+		// 模型有 reasoning/thinking 输出但无可见内容：属于 provider/model 异常行为，可重试。
+		// 纯空响应（无任何输出）：仍为 internal.error。
+		errClass := ErrorClassInternalError
+		errMsg := "OpenAI stream completed without content"
+		if emittedAnyOutput {
+			errClass = ErrorClassProviderRetryable
+			errMsg = "LLM generated only internal reasoning without visible output"
+		}
 		return yield(StreamRunFailed{
 			LlmCallID: llmCallID,
 			Error: GatewayError{
-				ErrorClass: ErrorClassInternalError,
-				Message:    "OpenAI stream completed without content",
+				ErrorClass: errClass,
+				Message:    errMsg,
 				Details:    details,
 			},
 		})
@@ -1507,17 +1531,17 @@ func toolOutputTextFromEnvelope(envelope map[string]any) string {
 	result, hasResult := envelope["result"]
 	errObj, hasErr := envelope["error"]
 
-	// 同时存在 result + error 时，必须把 error 也传给 LLM，
-	// 否则会出现“工具实际失败，但模型误以为成功”的误导。
+	// 用可读文本格式而非 JSON 对象传递 tool 错误，让 LLM 更易理解并正常响应。
+	// JSON 格式的 {"error":{...}} 会导致部分模型产生 reasoning-only 响应（无可见输出）。
 	if hasErr && errObj != nil {
-		payload := map[string]any{"error": errObj}
+		msg := extractToolErrorMessage(errObj)
 		if hasResult && result != nil {
-			payload["result"] = result
+			encoded, err := stablejson.Encode(result)
+			if err == nil && encoded != "" {
+				return "Error: " + msg + "\nPartial result: " + encoded
+			}
 		}
-		encoded, err := stablejson.Encode(payload)
-		if err == nil && encoded != "" {
-			return encoded
-		}
+		return "Error: " + msg
 	}
 
 	if hasResult && result != nil {
@@ -1537,6 +1561,25 @@ func toolOutputTextFromEnvelope(envelope map[string]any) string {
 		return "{}"
 	}
 	return string(encodedBytes)
+}
+
+// extractToolErrorMessage 从 tool error 对象中提取可读文本，供 toolOutputTextFromEnvelope 使用。
+func extractToolErrorMessage(errObj any) string {
+	if m, ok := errObj.(map[string]any); ok {
+		msg, _ := m["message"].(string)
+		cls, _ := m["error_class"].(string)
+		if cls != "" && msg != "" {
+			return "[" + cls + "] " + msg
+		}
+		if msg != "" {
+			return msg
+		}
+	}
+	encoded, err := stablejson.Encode(errObj)
+	if err == nil && encoded != "" {
+		return encoded
+	}
+	return "tool execution failed"
 }
 
 func isOpenAIResponsesNotSupported(status int, body []byte) bool {
