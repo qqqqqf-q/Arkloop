@@ -1,5 +1,5 @@
 import { useRef, useState, useCallback, useEffect } from 'react'
-import { Plus, Paperclip, BookOpen, Search, Folder, FolderOpen, ChevronRight, X, Check } from 'lucide-react'
+import { Plus, Paperclip, BookOpen, Search, Folder, FolderOpen, X, Check } from 'lucide-react'
 import type { SelectablePersona } from '../../api'
 import { ModelPicker } from '../ModelPicker'
 import type { SettingsTab } from '../SettingsModal'
@@ -11,6 +11,8 @@ import {
   writeClawWorkFolder,
   clearClawWorkFolder,
   readClawRecentFolders,
+  writeThreadClawFolder,
+  clearThreadClawFolder,
 } from '../../storage'
 import type { AppMode } from '../../storage'
 import { useLocale } from '../../contexts/LocaleContext'
@@ -30,6 +32,8 @@ type Props = {
   accessToken?: string
   variant?: 'welcome' | 'chat'
   appMode?: AppMode
+  threadHasMessages?: boolean
+  clawThreadId?: string
 }
 
 export function PersonaModelBar({
@@ -47,6 +51,8 @@ export function PersonaModelBar({
   accessToken,
   variant,
   appMode,
+  threadHasMessages,
+  clawThreadId,
 }: Props) {
   const { t } = useLocale()
   const menuRef = useRef<HTMLDivElement>(null)
@@ -96,16 +102,20 @@ export function PersonaModelBar({
       }
     }
     if (!folder) return
-    writeClawWorkFolder(folder)
+    if (clawThreadId) {
+      writeThreadClawFolder(clawThreadId, folder)
+    } else {
+      writeClawWorkFolder(folder)
+    }
     setClawFolder(folder)
     setRecentFolders(readClawRecentFolders())
     setFolderMenuOpen(false)
-  }, [])
+  }, [clawThreadId])
 
   return (
     <>
-      {/* claw folder picker -- desktop only (relies on IPC dialog) */}
-      {appMode === 'claw' && isDesktop() && (
+      {/* claw folder picker -- desktop only, hidden once thread has messages */}
+      {appMode === 'claw' && isDesktop() && !threadHasMessages && (
         <div
           className="relative -ml-1.5"
           style={{
@@ -117,7 +127,7 @@ export function PersonaModelBar({
             ref={folderBtnRef}
             type="button"
             onClick={() => setFolderMenuOpen((v) => !v)}
-            className="relative top-[2px] flex h-8 items-center gap-1.5 rounded-lg px-2 text-[var(--c-text-secondary)] transition-[background] duration-[60ms] hover:bg-[var(--c-bg-deep)]"
+            className="flex h-8 items-center gap-1.5 rounded-lg px-2 text-[var(--c-text-secondary)] transition-[background] duration-[60ms] hover:bg-[var(--c-bg-deep)]"
             style={{ maxWidth: '160px' }}
           >
             {clawFolder
@@ -168,27 +178,14 @@ export function PersonaModelBar({
                         <span className="truncate" style={{ flex: 1, textAlign: 'left' }}>
                           {folder.split('/').pop() || folder}
                         </span>
-                        <ChevronRight size={12} style={{ flexShrink: 0, color: 'var(--c-text-muted)', opacity: 0.5 }} />
+                        {clawFolder === folder ? (
+                          <Check size={12} style={{ flexShrink: 0, color: '#4691F6' }} />
+                        ) : null}
                       </button>
                     ))}
                     <div style={{ height: '1px', background: 'var(--c-border-subtle)', margin: '2px 4px' }} />
                   </>
                 )}
-
-                <div style={{ padding: '4px 12px 2px', fontSize: '11px', fontWeight: 500, color: 'var(--c-text-muted)', letterSpacing: '0.3px', textTransform: 'uppercase' }}>
-                  Model
-                </div>
-                <div style={{ padding: '2px 8px 4px' }}>
-                  <ModelPicker
-                    accessToken={accessToken}
-                    value={selectedModel}
-                    onChange={(m) => { onModelChange(m); setFolderMenuOpen(false) }}
-                    onAddApiKey={() => { onOpenSettings?.('models'); setFolderMenuOpen(false) }}
-                    variant={variant}
-                  />
-                </div>
-
-                <div style={{ height: '1px', background: 'var(--c-border-subtle)', margin: '2px 4px' }} />
 
                 <button
                   type="button"
@@ -203,7 +200,11 @@ export function PersonaModelBar({
                   <button
                     type="button"
                     onClick={() => {
-                      clearClawWorkFolder()
+                      if (clawThreadId) {
+                        clearThreadClawFolder(clawThreadId)
+                      } else {
+                        clearClawWorkFolder()
+                      }
                       setClawFolder(null)
                       setFolderMenuOpen(false)
                     }}
@@ -225,7 +226,7 @@ export function PersonaModelBar({
           ref={plusBtnRef}
           type="button"
           onClick={() => setMenuOpen((v) => !v)}
-          className="relative top-[2px] flex h-8 w-8 items-center justify-center rounded-lg text-[var(--c-text-secondary)] transition-[background] duration-[60ms] hover:bg-[var(--c-bg-deep)]"
+          className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--c-text-secondary)] transition-[background] duration-[60ms] hover:bg-[var(--c-bg-deep)]"
         >
           <Plus size={20} strokeWidth={1.5} />
         </button>

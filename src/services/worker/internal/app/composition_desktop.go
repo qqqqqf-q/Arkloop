@@ -363,7 +363,7 @@ func desktopInputLoader(
 			"thread_id":  rc.Run.ThreadID.String(),
 		}
 		if dataJSON != nil {
-			for _, key := range []string{"route_id", "persona_id", "role", "output_route_id", "model"} {
+			for _, key := range []string{"route_id", "persona_id", "role", "output_route_id", "model", "work_dir"} {
 				if v, ok := dataJSON[key].(string); ok && strings.TrimSpace(v) != "" {
 					inputJSON[key] = strings.TrimSpace(v)
 				}
@@ -382,6 +382,9 @@ func desktopInputLoader(
 		tx.Rollback(ctx)
 
 		rc.InputJSON = inputJSON
+		if wd, ok := inputJSON["work_dir"].(string); ok && strings.TrimSpace(wd) != "" {
+			rc.WorkDir = strings.TrimSpace(wd)
+		}
 		llmMessages := make([]llm.Message, 0, len(messages))
 		for _, msg := range messages {
 			if strings.TrimSpace(msg.Role) == "" {

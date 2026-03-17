@@ -56,6 +56,8 @@ type Props = {
   onPersonaChange?: (personaKey: string) => void
   onOpenSettings?: (tab: SettingsTab) => void
   appMode?: AppMode
+  hasMessages?: boolean
+  clawThreadId?: string
 }
 
 function buildFallbackSelectablePersonas(_selectedPersonaKey: string): SelectablePersona[] {
@@ -95,6 +97,8 @@ export function ChatInput({
   onPersonaChange,
   onOpenSettings,
   appMode,
+  hasMessages,
+  clawThreadId,
 }: Props) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -483,6 +487,8 @@ export function ChatInput({
             accessToken={accessToken}
             variant={variant}
             appMode={appMode}
+            threadHasMessages={hasMessages}
+            clawThreadId={clawThreadId}
           />
 
           <button

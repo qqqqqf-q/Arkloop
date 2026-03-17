@@ -56,7 +56,7 @@ func (e *Executor) Execute(
 	searchPath, _ := args["path"].(string)
 	include, _ := args["include"].(string)
 
-	backend := fileops.ResolveBackend(execCtx.RuntimeSnapshot, "", execCtx.RunID.String(), resolveAccountID(execCtx), execCtx.ProfileRef, execCtx.WorkspaceRef)
+	backend := fileops.ResolveBackend(execCtx.RuntimeSnapshot, execCtx.WorkDir, execCtx.RunID.String(), resolveAccountID(execCtx), execCtx.ProfileRef, execCtx.WorkspaceRef)
 
 	matches, truncated, err := searchFiles(ctx, backend, pattern, searchPath, include)
 	if err != nil {

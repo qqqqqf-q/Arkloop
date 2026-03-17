@@ -59,6 +59,7 @@ type createRunRequest struct {
 	OutputRouteID  *string `json:"output_route_id"`
 	OutputModelKey *string `json:"output_model_key"`
 	Model          *string `json:"model"`
+	WorkDir        *string `json:"work_dir"`
 }
 
 type createRunResponse struct {
@@ -199,6 +200,12 @@ func createThreadRun(
 			model := strings.TrimSpace(*body.Model)
 			if model != "" {
 				startedData["model"] = model
+			}
+		}
+		if body != nil && body.WorkDir != nil {
+			wd := strings.TrimSpace(*body.WorkDir)
+			if wd != "" {
+				startedData["work_dir"] = wd
 			}
 		}
 

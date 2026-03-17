@@ -59,6 +59,7 @@ func (e *SimpleExecutor) Execute(
 		ProjectID:              rc.Run.ProjectID,
 		ProfileRef:             rc.ProfileRef,
 		WorkspaceRef:           rc.WorkspaceRef,
+		WorkDir:                rc.WorkDir,
 		EnabledSkills:          append([]skillstore.ResolvedSkill(nil), rc.EnabledSkills...),
 		ToolAllowlist:          sortedToolNames(rc.AllowlistSet),
 		ToolDenylist:           append([]string(nil), rc.ToolDenylist...),

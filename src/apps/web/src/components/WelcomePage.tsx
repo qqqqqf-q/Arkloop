@@ -6,7 +6,7 @@ import { ErrorCallout, type AppError } from './ErrorCallout'
 import { NotificationBell } from './NotificationBell'
 import { isDesktop } from '@arkloop/shared/desktop'
 import { createThread, createMessage, createRun, uploadThreadAttachment, isApiError, type ThreadResponse, type MeResponse } from '../api'
-import { writeActiveThreadIdToStorage, addSearchThreadId, SEARCH_PERSONA_KEY } from '../storage'
+import { writeActiveThreadIdToStorage, addSearchThreadId, SEARCH_PERSONA_KEY, transferGlobalClawFolderToThread, readClawWorkFolder } from '../storage'
 import { useLocale } from '../contexts/LocaleContext'
 import { buildMessageRequest } from '../messageContent'
 
@@ -284,7 +284,7 @@ export function WelcomePage() {
         }),
       )
       await createMessage(accessToken, thread.id, buildMessageRequest(text, uploaded))
-      const run = await createRun(accessToken, thread.id, personaKey, modelOverride)
+      const run = await createRun(accessToken, thread.id, personaKey, modelOverride, readClawWorkFolder() ?? undefined)
 
       if (personaKey === SEARCH_PERSONA_KEY) addSearchThreadId(thread.id)
       attachments.forEach((attachment) => revokeDraftAttachment(attachment))
@@ -292,6 +292,7 @@ export function WelcomePage() {
       setAttachments([])
       refreshCredits()
       writeActiveThreadIdToStorage(thread.id)
+      if (appMode === 'claw') transferGlobalClawFolderToThread(thread.id)
       onThreadCreated(thread)
       navigate(`/t/${thread.id}`, { state: { initialRunId: run.run_id, isSearch: personaKey === SEARCH_PERSONA_KEY } })
     } catch (err) {

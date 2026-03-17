@@ -28,7 +28,7 @@ func (e *Executor) Execute(
 	}
 	content, _ := args["content"].(string)
 
-	backend := fileops.ResolveBackend(execCtx.RuntimeSnapshot, "", execCtx.RunID.String(), resolveAccountID(execCtx), execCtx.ProfileRef, execCtx.WorkspaceRef)
+	backend := fileops.ResolveBackend(execCtx.RuntimeSnapshot, execCtx.WorkDir, execCtx.RunID.String(), resolveAccountID(execCtx), execCtx.ProfileRef, execCtx.WorkspaceRef)
 
 	if err := backend.WriteFile(ctx, filePath, []byte(content)); err != nil {
 		return errResult(fmt.Sprintf("write failed: %s", err.Error()), started)

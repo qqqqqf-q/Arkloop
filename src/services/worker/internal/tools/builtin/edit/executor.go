@@ -31,7 +31,7 @@ func (e *Executor) Execute(
 	oldString, _ := args["old_string"].(string)
 	newString, _ := args["new_string"].(string)
 
-	backend := fileops.ResolveBackend(execCtx.RuntimeSnapshot, "", execCtx.RunID.String(), resolveAccountID(execCtx), execCtx.ProfileRef, execCtx.WorkspaceRef)
+	backend := fileops.ResolveBackend(execCtx.RuntimeSnapshot, execCtx.WorkDir, execCtx.RunID.String(), resolveAccountID(execCtx), execCtx.ProfileRef, execCtx.WorkspaceRef)
 
 	// old_string empty -> create new file
 	if oldString == "" {

@@ -47,7 +47,7 @@ func (e *Executor) Execute(
 	}
 	searchPath, _ := args["path"].(string)
 
-	backend := fileops.ResolveBackend(execCtx.RuntimeSnapshot, "", execCtx.RunID.String(), resolveAccountID(execCtx), execCtx.ProfileRef, execCtx.WorkspaceRef)
+	backend := fileops.ResolveBackend(execCtx.RuntimeSnapshot, execCtx.WorkDir, execCtx.RunID.String(), resolveAccountID(execCtx), execCtx.ProfileRef, execCtx.WorkspaceRef)
 
 	matches, truncated, err := globFiles(ctx, backend, pattern, searchPath)
 	if err != nil {

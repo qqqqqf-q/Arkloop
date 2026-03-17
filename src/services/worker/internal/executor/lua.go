@@ -1479,6 +1479,7 @@ func (rt *luaRuntime) runAgentLoop(
 		ProjectID:              rt.rc.Run.ProjectID,
 		ProfileRef:             rt.rc.ProfileRef,
 		WorkspaceRef:           rt.rc.WorkspaceRef,
+		WorkDir:                rt.rc.WorkDir,
 		EnabledSkills:          append([]skillstore.ResolvedSkill(nil), rt.rc.EnabledSkills...),
 		ToolAllowlist:          sortedToolNames(rt.rc.AllowlistSet),
 		ToolDenylist:           append([]string(nil), rt.rc.ToolDenylist...),

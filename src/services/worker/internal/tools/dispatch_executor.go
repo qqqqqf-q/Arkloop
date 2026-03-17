@@ -30,6 +30,7 @@ type ExecutionContext struct {
 	UserID              *uuid.UUID
 	ProfileRef          string
 	WorkspaceRef        string
+	WorkDir             string
 	EnabledSkills       []skillstore.ResolvedSkill
 	ToolAllowlist       []string
 	ToolDenylist        []string

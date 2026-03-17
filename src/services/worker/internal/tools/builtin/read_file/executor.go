@@ -36,7 +36,7 @@ func (e *Executor) Execute(
 		limit = fileops.DefaultReadLimit
 	}
 
-	backend := fileops.ResolveBackend(execCtx.RuntimeSnapshot, "", execCtx.RunID.String(), resolveAccountID(execCtx), execCtx.ProfileRef, execCtx.WorkspaceRef)
+	backend := fileops.ResolveBackend(execCtx.RuntimeSnapshot, execCtx.WorkDir, execCtx.RunID.String(), resolveAccountID(execCtx), execCtx.ProfileRef, execCtx.WorkspaceRef)
 
 	info, err := backend.Stat(ctx, filePath)
 	if err != nil {

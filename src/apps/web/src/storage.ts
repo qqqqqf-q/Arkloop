@@ -261,6 +261,31 @@ export function writeMessageArtifacts(messageId: string, artifacts: ArtifactRef[
   } catch { /* ignore */ }
 }
 
+export type WidgetRef = {
+  id: string       // tool_call_id
+  title: string
+  html: string     // widget_code
+}
+
+function messageWidgetsKey(messageId: string): string {
+  return `arkloop:web:msg_widgets:${messageId}`
+}
+
+export function readMessageWidgets(messageId: string): WidgetRef[] | null {
+  if (!canUseLocalStorage() || !messageId) return null
+  try {
+    const raw = localStorage.getItem(messageWidgetsKey(messageId))
+    return raw ? (JSON.parse(raw) as WidgetRef[]) : null
+  } catch { return null }
+}
+
+export function writeMessageWidgets(messageId: string, widgets: WidgetRef[]): void {
+  if (!canUseLocalStorage() || !messageId || widgets.length === 0) return
+  try {
+    localStorage.setItem(messageWidgetsKey(messageId), JSON.stringify(widgets))
+  } catch { /* ignore */ }
+}
+
 export type BrowserActionRef = {
   id: string
   command: string
@@ -859,6 +884,20 @@ export function readThreadMode(threadId: string): AppMode {
 const CLAW_WORK_FOLDER_KEY = 'arkloop:web:claw_work_folder'
 const CLAW_RECENT_FOLDERS_KEY = 'arkloop:web:claw_recent_folders'
 
+function threadClawFolderKey(threadId: string): string {
+  return `arkloop:web:claw_work_folder:${threadId}`
+}
+
+function addToRecents(folder: string): void {
+  try {
+    const raw = localStorage.getItem(CLAW_RECENT_FOLDERS_KEY)
+    const recents: string[] = raw ? (JSON.parse(raw) as string[]) : []
+    const next = [folder, ...recents.filter((f) => f !== folder)].slice(0, 8)
+    localStorage.setItem(CLAW_RECENT_FOLDERS_KEY, JSON.stringify(next))
+  } catch { /* ignore */ }
+}
+
+// Global (pending) key — used before a thread is created
 export function readClawWorkFolder(): string | null {
   if (!canUseLocalStorage()) return null
   try {
@@ -870,11 +909,7 @@ export function writeClawWorkFolder(folder: string): void {
   if (!canUseLocalStorage()) return
   try {
     localStorage.setItem(CLAW_WORK_FOLDER_KEY, folder)
-    // also add to recent
-    const raw = localStorage.getItem(CLAW_RECENT_FOLDERS_KEY)
-    const recents: string[] = raw ? (JSON.parse(raw) as string[]) : []
-    const next = [folder, ...recents.filter((f) => f !== folder)].slice(0, 8)
-    localStorage.setItem(CLAW_RECENT_FOLDERS_KEY, JSON.stringify(next))
+    addToRecents(folder)
   } catch { /* ignore */ }
   window.dispatchEvent(new CustomEvent('arkloop:claw-folder-changed'))
 }
@@ -882,6 +917,43 @@ export function writeClawWorkFolder(folder: string): void {
 export function clearClawWorkFolder(): void {
   if (!canUseLocalStorage()) return
   try {
+    localStorage.removeItem(CLAW_WORK_FOLDER_KEY)
+  } catch { /* ignore */ }
+  window.dispatchEvent(new CustomEvent('arkloop:claw-folder-changed'))
+}
+
+// Per-thread key — used once a thread exists
+export function readThreadClawFolder(threadId: string): string | null {
+  if (!canUseLocalStorage() || !threadId) return null
+  try {
+    return localStorage.getItem(threadClawFolderKey(threadId)) || null
+  } catch { return null }
+}
+
+export function writeThreadClawFolder(threadId: string, folder: string): void {
+  if (!canUseLocalStorage() || !threadId) return
+  try {
+    localStorage.setItem(threadClawFolderKey(threadId), folder)
+    addToRecents(folder)
+  } catch { /* ignore */ }
+  window.dispatchEvent(new CustomEvent('arkloop:claw-folder-changed'))
+}
+
+export function clearThreadClawFolder(threadId: string): void {
+  if (!canUseLocalStorage() || !threadId) return
+  try {
+    localStorage.removeItem(threadClawFolderKey(threadId))
+  } catch { /* ignore */ }
+  window.dispatchEvent(new CustomEvent('arkloop:claw-folder-changed'))
+}
+
+// Called when a new thread is created: move the pending global folder to the thread
+export function transferGlobalClawFolderToThread(threadId: string): void {
+  if (!canUseLocalStorage() || !threadId) return
+  try {
+    const pending = localStorage.getItem(CLAW_WORK_FOLDER_KEY)
+    if (!pending) return
+    localStorage.setItem(threadClawFolderKey(threadId), pending)
     localStorage.removeItem(CLAW_WORK_FOLDER_KEY)
   } catch { /* ignore */ }
   window.dispatchEvent(new CustomEvent('arkloop:claw-folder-changed'))

@@ -39,6 +39,7 @@ type RunContext struct {
 	ProjectID              *uuid.UUID
 	ProfileRef             string
 	WorkspaceRef           string
+	WorkDir                string
 	EnabledSkills          []skillstore.ResolvedSkill
 	ToolAllowlist          []string
 	ToolDenylist           []string
@@ -504,6 +505,7 @@ func (l *Loop) executeToolCall(
 		UserID:              runCtx.UserID,
 		ProfileRef:          runCtx.ProfileRef,
 		WorkspaceRef:        runCtx.WorkspaceRef,
+		WorkDir:             runCtx.WorkDir,
 		EnabledSkills:       append([]skillstore.ResolvedSkill(nil), runCtx.EnabledSkills...),
 		ToolAllowlist:       append([]string(nil), runCtx.ToolAllowlist...),
 		ToolDenylist:        append([]string(nil), runCtx.ToolDenylist...),

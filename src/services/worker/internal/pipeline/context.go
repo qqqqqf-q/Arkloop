@@ -56,6 +56,7 @@ type RunContext struct {
 	// 长期环境绑定，由 EngineV1.Execute 在 run 启动时解析并注入。
 	ProfileRef    string
 	WorkspaceRef  string
+	WorkDir       string // 用户选定的工作目录（Claw 模式），空字符串时由后端 fallback
 	EnabledSkills []skillstore.ResolvedSkill
 
 	// -- AgentLoopHandler 写入：run 完成后的 assistant 最终拼接文本，供 MemoryMiddleware 写入 --

@@ -776,8 +776,9 @@ export async function createRun(
   threadId: string,
   personaId?: string,
   modelOverride?: string,
+  workDir?: string,
 ): Promise<CreateRunResponse> {
-  const hasBody = personaId || modelOverride
+  const hasBody = personaId || modelOverride || workDir
   return await apiFetch<CreateRunResponse>(`/v1/threads/${threadId}/runs`, {
     method: 'POST',
     accessToken,
@@ -785,6 +786,7 @@ export async function createRun(
       ? JSON.stringify({
           ...(personaId ? { persona_id: personaId } : {}),
           ...(modelOverride ? { model: modelOverride } : {}),
+          ...(workDir ? { work_dir: workDir } : {}),
         })
       : undefined,
   })

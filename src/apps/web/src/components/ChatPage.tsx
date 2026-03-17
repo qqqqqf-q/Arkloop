@@ -14,6 +14,7 @@ import { FileOpBlock } from './FileOpBlock'
 import { SubAgentBlock } from './SubAgentBlock'
 import { SearchTimeline, WebFetchItem, type SearchStep } from './SearchTimeline'
 import { ArtifactStreamBlock, extractPartialArtifactFields, type StreamingArtifactEntry } from './ArtifactStreamBlock'
+import { WidgetBlock } from './WidgetBlock'
 import UserInputCard from './UserInputCard'
 import { resolveMessageSourcesForRender } from './chatSourceResolver'
 import { ErrorCallout, type AppError } from './ErrorCallout'
@@ -116,11 +117,15 @@ import {
   readMessageWebFetches,
   writeMessageWebFetches,
   type WebFetchRef,
+  readMessageWidgets,
+  writeMessageWidgets,
+  type WidgetRef,
   migrateMessageMetadata,
   readDeveloperShowRunEvents,
   readMsgRunEvents,
   writeMsgRunEvents,
   type MsgRunEvent,
+  readThreadClawFolder,
 } from '../storage'
 
 const sidePanelWidth = 420
@@ -336,6 +341,8 @@ export function ChatPage() {
   const searchStepsRef = useRef<SearchStep[]>([])
   // COP blocks 缓存：messageId -> cop blocks data
   const [messageCopBlocksMap, setMessageCopBlocksMap] = useState<Map<string, MessageCopBlocksRef>>(new Map())
+  // show_widget 缓存：messageId -> WidgetRef[]
+  const [messageWidgetsMap, setMessageWidgetsMap] = useState<Map<string, WidgetRef[]>>(new Map())
   // 跟踪未响应的用户消息，用于取消后重发时替换
   const noResponseMsgIdRef = useRef<string | null>(null)
   const replaceOnCancelRef = useRef<string | null>(null)
@@ -726,7 +733,7 @@ export function ChatPage() {
       invalidateMessageSync()
       setMessages((prev) => [...prev, message])
       setAssistantDraft('')
-      const run = await createRun(accessToken, threadId)
+      const run = await createRun(accessToken, threadId, undefined, undefined, readThreadClawFolder(threadId) ?? undefined)
       setActiveRunId(run.run_id)
       onRunStarted(threadId)
     } catch (err) {
@@ -1976,7 +1983,7 @@ export function ChatPage() {
         onThreadCreated(forked)
         const uploaded = await uploadAttachments(forked.id)
         await createMessage(accessToken, forked.id, buildMessageRequest(text, uploaded))
-        const run = await createRun(accessToken, forked.id, personaKey, modelOverride)
+        const run = await createRun(accessToken, forked.id, personaKey, modelOverride, readThreadClawFolder(threadId) ?? undefined)
         if (personaKey === SEARCH_PERSONA_KEY) addSearchThreadId(forked.id)
         attachments.forEach((attachment) => revokeDraftAttachment(attachment))
         setDraft('')
@@ -2030,7 +2037,7 @@ export function ChatPage() {
         injectionBlockedRunIdRef.current = null
         noResponseMsgIdRef.current = message.id
 
-        const run = await createRun(accessToken, threadId, personaKey, modelOverride)
+        const run = await createRun(accessToken, threadId, personaKey, modelOverride, readThreadClawFolder(threadId) ?? undefined)
         if (personaKey === SEARCH_PERSONA_KEY) addSearchThreadId(threadId)
         setActiveRunId(run.run_id)
         onRunStarted(threadId)
@@ -2277,6 +2284,21 @@ export function ChatPage() {
   const isCodePanelOpen = !!codePanelExecution
   const isDocumentPanelOpen = !!documentPanelArtifact
   const isPanelOpen = isSourcePanelOpen || isCodePanelOpen || isDocumentPanelOpen
+
+  const allReadFiles = useMemo(() => {
+    const seen = new Set<string>()
+    const result: string[] = []
+    const addOps = (ops: FileOpRef[]) => {
+      for (const op of ops) {
+        if (op.toolName === 'read_file' && op.status === 'success' && op.label && op.label !== 'read file') {
+          if (!seen.has(op.label)) { seen.add(op.label); result.push(op.label) }
+        }
+      }
+    }
+    for (const ops of messageFileOpsMap.values()) addOps(ops)
+    addOps(topLevelFileOps)
+    return result
+  }, [messageFileOpsMap, topLevelFileOps])
 
   const openCodePanel = useCallback((ce: CodeExecution) => {
     setCodePanelExecution((prev) => {
@@ -2934,7 +2956,7 @@ export function ChatPage() {
 
       {/* 输入区域 */}
       <div
-        style={{ maxWidth: 1200, margin: '0 auto', padding: `12px ${isPanelOpen ? '32px' : '60px'} 16px`, position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 10, background: 'linear-gradient(to bottom, transparent 0%, var(--c-bg-page) 24px)' }}
+        style={{ maxWidth: 1200, margin: '0 auto', padding: `12px ${appMode === 'claw' ? '14px' : isPanelOpen ? '32px' : '60px'} ${appMode === 'claw' ? '22px' : '16px'}`, position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 10, background: 'linear-gradient(to bottom, transparent 0%, var(--c-bg-page) 24px)' }}
         className="flex w-full flex-col items-center gap-2"
       >
         {/* 滚动到底部按钮：始终锚定在输入框顶边正上方 */}
@@ -3022,9 +3044,11 @@ export function ChatPage() {
             onPersonaChange={(personaKey) => setIsSearchThread(personaKey === SEARCH_PERSONA_KEY)}
             onOpenSettings={onOpenSettings}
             appMode={appMode}
+            hasMessages={messages.length > 0}
+            clawThreadId={threadId}
           />
         )}
-        <p style={{ color: 'var(--c-text-muted)', fontSize: '13px', letterSpacing: '-0.52px', textAlign: 'center' }}>
+        <p style={{ color: 'var(--c-text-muted)', fontSize: '11px', letterSpacing: '-0.3px', textAlign: 'center', marginBottom: 0, marginTop: '-2px' }}>
           Arkloop is AI and can make mistakes. Please double-check responses.
         </p>
 
@@ -3061,6 +3085,8 @@ export function ChatPage() {
                 status: td.status === 'completed' ? 'done' : td.status === 'in_progress' ? 'active' : 'pending',
               }))}
               onForbidden={() => onSetAppMode('chat')}
+              readFiles={allReadFiles}
+              threadId={threadId}
             />
           ) : (
             <>

@@ -91,7 +91,7 @@ func (e *Executor) executeExecCommand(
 	cwd := readStringArg(args, "cwd")
 	timeoutMs := readIntArg(args, "timeout_ms")
 
-	controller := e.getOrCreateController(execCtx.RunID.String())
+	controller := e.getOrCreateController(execCtx.RunID.String(), execCtx.WorkDir)
 
 	if rewritten := rtkRewrite(ctx, command); rewritten != "" {
 		command = rewritten
@@ -120,7 +120,7 @@ func (e *Executor) executeWriteStdin(
 	chars := readStringArg(args, "chars")
 	yieldTimeMs := readIntArg(args, "yield_time_ms")
 
-	controller := e.getOrCreateController(execCtx.RunID.String())
+	controller := e.getOrCreateController(execCtx.RunID.String(), execCtx.WorkDir)
 
 	if chars != "" {
 		slog.Info("local_shell: write_stdin",
@@ -137,13 +137,17 @@ func (e *Executor) executeWriteStdin(
 	return buildResult(resp, execCtx.RunID.String(), started)
 }
 
-func (e *Executor) getOrCreateController(runID string) *shellController {
+func (e *Executor) getOrCreateController(runID string, workDir string) *shellController {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if ctrl, ok := e.controllers[runID]; ok {
 		return ctrl
 	}
-	ctrl := newShellController(e.workDir)
+	wd := workDir
+	if wd == "" {
+		wd = e.workDir
+	}
+	ctrl := newShellController(wd)
 	e.controllers[runID] = ctrl
 	return ctrl
 }
