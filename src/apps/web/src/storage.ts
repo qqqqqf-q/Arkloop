@@ -2,6 +2,7 @@ import {
   canUseStorage,
 } from '@arkloop/shared/storage'
 import type { Theme } from '@arkloop/shared/contexts/theme'
+import type { FontFamily, CodeFontFamily, FontSize, ThemePreset, ThemeDefinition } from './themes/types'
 
 export {
   readAccessToken as readAccessTokenFromStorage,
@@ -15,6 +16,10 @@ const THEME_KEY = 'arkloop:web:theme'
 const SELECTED_PERSONA_KEY = 'arkloop:web:selected_persona_key'
 const APP_MODE_KEY = 'arkloop:web:app_mode'
 const SELECTED_MODEL_KEY = 'arkloop:web:selected_model'
+const FONT_SETTINGS_KEY = 'arkloop:web:font-settings'
+const THEME_PRESET_KEY = 'arkloop:web:theme-preset'
+const CUSTOM_THEME_ID_KEY = 'arkloop:web:custom-theme-id'
+const CUSTOM_THEMES_KEY = 'arkloop:web:custom-themes'
 
 export const DEFAULT_PERSONA_KEY = 'normal'
 export const SEARCH_PERSONA_KEY = 'extended-search'
@@ -926,4 +931,91 @@ export function migrateMessageMetadata(mapping: Array<{ old_id: string; new_id: 
     const webFetches = readMessageWebFetches(old_id)
     if (webFetches) writeMessageWebFetches(new_id, webFetches)
   }
+}
+
+// -- Appearance Settings --
+
+export type FontSettings = {
+  fontFamily: FontFamily
+  codeFontFamily: CodeFontFamily
+  fontSize: FontSize
+}
+
+export function readFontSettingsFromStorage(): FontSettings {
+  if (!canUseLocalStorage()) return { fontFamily: 'inter', codeFontFamily: 'jetbrains-mono', fontSize: 'normal' }
+  try {
+    const raw = localStorage.getItem(FONT_SETTINGS_KEY)
+    if (!raw) return { fontFamily: 'inter', codeFontFamily: 'jetbrains-mono', fontSize: 'normal' }
+    const parsed = JSON.parse(raw) as Partial<FontSettings>
+    return {
+      fontFamily: (['inter', 'system', 'serif', 'noto-sans', 'source-sans'] as FontFamily[]).includes(parsed.fontFamily as FontFamily) ? parsed.fontFamily as FontFamily : 'inter',
+      codeFontFamily: (['jetbrains-mono', 'fira-code', 'cascadia-code', 'source-code-pro'] as CodeFontFamily[]).includes(parsed.codeFontFamily as CodeFontFamily) ? parsed.codeFontFamily as CodeFontFamily : 'jetbrains-mono',
+      fontSize: (['compact', 'normal', 'relaxed'] as FontSize[]).includes(parsed.fontSize as FontSize) ? parsed.fontSize as FontSize : 'normal',
+    }
+  } catch {
+    return { fontFamily: 'inter', codeFontFamily: 'jetbrains-mono', fontSize: 'normal' }
+  }
+}
+
+export function writeFontSettingsToStorage(settings: FontSettings): void {
+  if (!canUseLocalStorage()) return
+  try {
+    localStorage.setItem(FONT_SETTINGS_KEY, JSON.stringify(settings))
+  } catch { /* ignore */ }
+}
+
+export function readThemePresetFromStorage(): ThemePreset {
+  if (!canUseLocalStorage()) return 'default'
+  try {
+    const raw = localStorage.getItem(THEME_PRESET_KEY)
+    const valid: ThemePreset[] = ['default', 'terra', 'github', 'nord', 'catppuccin', 'tokyo-night', 'custom']
+    return valid.includes(raw as ThemePreset) ? (raw as ThemePreset) : 'default'
+  } catch {
+    return 'default'
+  }
+}
+
+export function writeThemePresetToStorage(preset: ThemePreset): void {
+  if (!canUseLocalStorage()) return
+  try {
+    localStorage.setItem(THEME_PRESET_KEY, preset)
+  } catch { /* ignore */ }
+}
+
+export function readCustomThemeIdFromStorage(): string | null {
+  if (!canUseLocalStorage()) return null
+  try {
+    return localStorage.getItem(CUSTOM_THEME_ID_KEY) || null
+  } catch {
+    return null
+  }
+}
+
+export function writeCustomThemeIdToStorage(id: string | null): void {
+  if (!canUseLocalStorage()) return
+  try {
+    if (id) {
+      localStorage.setItem(CUSTOM_THEME_ID_KEY, id)
+    } else {
+      localStorage.removeItem(CUSTOM_THEME_ID_KEY)
+    }
+  } catch { /* ignore */ }
+}
+
+export function readCustomThemesFromStorage(): Record<string, ThemeDefinition> {
+  if (!canUseLocalStorage()) return {}
+  try {
+    const raw = localStorage.getItem(CUSTOM_THEMES_KEY)
+    if (!raw) return {}
+    return JSON.parse(raw) as Record<string, ThemeDefinition>
+  } catch {
+    return {}
+  }
+}
+
+export function writeCustomThemesToStorage(themes: Record<string, ThemeDefinition>): void {
+  if (!canUseLocalStorage()) return
+  try {
+    localStorage.setItem(CUSTOM_THEMES_KEY, JSON.stringify(themes))
+  } catch { /* ignore */ }
 }

@@ -1,8 +1,10 @@
-import { useState, useRef, useEffect } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 import type { LucideIcon } from 'lucide-react'
 import { ChevronDown, Monitor, Sun, Moon } from 'lucide-react'
 import type { Locale } from '../../locales'
 import type { Theme } from '@arkloop/shared/contexts/theme'
+import { useLocale } from '../../contexts/LocaleContext'
+import { useTheme } from '../../contexts/ThemeContext'
 import { FontSettings } from './FontSettings'
 import { ThemePresetPicker } from './ThemePresetPicker'
 import { ThemeColorEditor } from './ThemeColorEditor'
@@ -138,29 +140,125 @@ export function ThemeContent({
   )
 }
 
-type AppearanceContentProps = {
-  locale: Locale
-  setLocale: (l: Locale) => void
-  theme: Theme
-  setTheme: (t: Theme) => void
-  t: {
-    language: string
-    appearance: string
-    themeSystem: string
-    themeLight: string
-    themeDark: string
-    themePresetSection: string
-    fontSection: string
-  }
+// Mini preview renders ─────────────────────────────────────────────────────
+
+function LightPreview() {
+  return (
+    <div className="flex h-full w-full" style={{ background: '#F5F5F4' }}>
+      <div style={{ width: 22, flexShrink: 0, background: '#EBEBEB' }} />
+      <div className="flex flex-1 flex-col gap-1.5 p-2">
+        <div style={{ height: 5, width: '70%', background: '#C8C8C6', borderRadius: 2 }} />
+        <div style={{ height: 5, width: '55%', background: '#C8C8C6', borderRadius: 2 }} />
+        <div style={{ height: 5, width: '65%', background: '#C8C8C6', borderRadius: 2 }} />
+        <div style={{ marginTop: 'auto', height: 9, background: '#E0E0DE', borderRadius: 4 }} />
+      </div>
+    </div>
+  )
 }
 
-export function AppearanceContent({ locale, setLocale, theme, setTheme, t }: AppearanceContentProps) {
+function DarkPreview() {
+  return (
+    <div className="flex h-full w-full" style={{ background: '#1E1D1C' }}>
+      <div style={{ width: 22, flexShrink: 0, background: '#141413' }} />
+      <div className="flex flex-1 flex-col gap-1.5 p-2">
+        <div style={{ height: 5, width: '70%', background: '#4A4A48', borderRadius: 2 }} />
+        <div style={{ height: 5, width: '55%', background: '#4A4A48', borderRadius: 2 }} />
+        <div style={{ height: 5, width: '65%', background: '#4A4A48', borderRadius: 2 }} />
+        <div style={{ marginTop: 'auto', height: 9, background: '#383836', borderRadius: 4 }} />
+      </div>
+    </div>
+  )
+}
+
+function SystemPreview() {
+  return (
+    <div className="flex h-full w-full overflow-hidden">
+      {/* light half */}
+      <div className="flex flex-1 overflow-hidden" style={{ background: '#F5F5F4' }}>
+        <div style={{ width: 11, flexShrink: 0, background: '#EBEBEB' }} />
+        <div className="flex flex-1 flex-col gap-1 p-1.5">
+          <div style={{ height: 4, width: '70%', background: '#C8C8C6', borderRadius: 2 }} />
+          <div style={{ height: 4, width: '55%', background: '#C8C8C6', borderRadius: 2 }} />
+          <div style={{ marginTop: 'auto', height: 7, background: '#E0E0DE', borderRadius: 3 }} />
+        </div>
+      </div>
+      {/* divider */}
+      <div style={{ width: 0.5, flexShrink: 0, background: 'rgba(0,0,0,0.15)' }} />
+      {/* dark half */}
+      <div className="flex flex-1 overflow-hidden" style={{ background: '#1E1D1C' }}>
+        <div style={{ width: 11, flexShrink: 0, background: '#141413' }} />
+        <div className="flex flex-1 flex-col gap-1 p-1.5">
+          <div style={{ height: 4, width: '70%', background: '#4A4A48', borderRadius: 2 }} />
+          <div style={{ height: 4, width: '55%', background: '#4A4A48', borderRadius: 2 }} />
+          <div style={{ marginTop: 'auto', height: 7, background: '#383836', borderRadius: 3 }} />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export function ThemeModePicker() {
+  const { t } = useLocale()
+  const { theme, setTheme } = useTheme()
+
+  const options: { value: Theme; label: string; Preview: () => React.JSX.Element }[] = [
+    { value: 'light',  label: t.themeLight,  Preview: LightPreview  },
+    { value: 'dark',   label: t.themeDark,   Preview: DarkPreview   },
+    { value: 'system', label: t.themeSystem, Preview: SystemPreview },
+  ]
+
+  return (
+    <div className="flex flex-col gap-2">
+      <span className="text-sm font-medium text-[var(--c-text-heading)]">{t.appearance}</span>
+      <div className="flex gap-3">
+        {options.map(({ value, label, Preview }) => {
+          const active = theme === value
+          return (
+            <button
+              key={value}
+              type="button"
+              onClick={() => setTheme(value)}
+              className="flex flex-col items-center gap-2"
+            >
+              <div
+                style={{
+                  width: 96,
+                  height: 64,
+                  borderRadius: 10,
+                  overflow: 'hidden',
+                  border: active
+                    ? '2px solid #3B82F6'
+                    : '1px solid var(--c-border-subtle)',
+                  boxShadow: active ? '0 0 0 3px rgba(59,130,246,0.15)' : 'none',
+                  transition: 'border-color 0.15s, box-shadow 0.15s',
+                  flexShrink: 0,
+                }}
+              >
+                <Preview />
+              </div>
+              <span
+                className="text-xs"
+                style={{
+                  color: active ? 'var(--c-text-heading)' : 'var(--c-text-tertiary)',
+                  fontWeight: active ? 500 : 400,
+                }}
+              >
+                {label}
+              </span>
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+export function AppearanceContent() {
   const [showEditor, setShowEditor] = useState(false)
 
   return (
     <div className="flex flex-col gap-6">
-      <LanguageContent locale={locale} setLocale={setLocale} label={t.language} />
-      <ThemeContent theme={theme} setTheme={setTheme} label={t.appearance} t={t} />
+      <ThemeModePicker />
       <ThemePresetPicker onEditColors={() => setShowEditor(v => !v)} />
       {showEditor && (
         <ThemeColorEditor onClose={() => setShowEditor(false)} />

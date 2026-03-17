@@ -5,14 +5,17 @@ import './index.css'
 import App from './App.tsx'
 import { LocaleProvider } from './contexts/LocaleContext'
 import { ThemeProvider } from './contexts/ThemeContext'
+import { AppearanceProvider } from './contexts/AppearanceContext'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BrowserRouter>
       <ThemeProvider>
-        <LocaleProvider>
-          <App />
-        </LocaleProvider>
+        <AppearanceProvider>
+          <LocaleProvider>
+            <App />
+          </LocaleProvider>
+        </AppearanceProvider>
       </ThemeProvider>
     </BrowserRouter>
   </StrictMode>,

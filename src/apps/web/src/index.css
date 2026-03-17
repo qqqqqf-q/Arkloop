@@ -8,6 +8,10 @@ button:not(:disabled) {
 
 :root {
   color-scheme: dark;
+  /* Font variables — overridden by AppearanceContext */
+  --c-font-body: 'Inter', system-ui, sans-serif;
+  --c-font-code: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', monospace;
+  --c-font-size-base: 14px;
   --c-bg-page: #1E1D1C;
   --c-bg-sidebar: #242422;
   --c-bg-deep: #141413;
@@ -498,7 +502,7 @@ button:not(:disabled) {
   border-radius: 6px;
   padding: 1px 5px;
   font-size: 0.875em;
-  font-family: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', monospace;
+  font-family: var(--c-font-code);
   color: var(--c-md-inline-code-color, #ED8784);
   border: 0.5px solid var(--c-border-subtle);
 }
@@ -730,7 +734,8 @@ button:not(:disabled) {
   }
 
   body {
-    font-family: 'Inter', system-ui, sans-serif;
+    font-family: var(--c-font-body);
+    font-size: var(--c-font-size-base);
     font-feature-settings: 'tnum' 1, 'ss01' 1, 'cv01' 1;
     background: var(--c-bg-page);
     color: var(--c-text-primary);

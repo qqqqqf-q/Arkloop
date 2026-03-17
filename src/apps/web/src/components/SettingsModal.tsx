@@ -11,6 +11,7 @@ import {
   Bot,
   Radio,
   Wifi,
+  Palette,
 } from 'lucide-react'
 import type { MeResponse } from '../api'
 import { useLocale } from '../contexts/LocaleContext'
@@ -21,24 +22,25 @@ import { AgentSettingsContent } from './AgentSettingsContent'
 import { ChannelsSettingsContent } from './ChannelsSettingsContent'
 import { ConnectionSettingsContent } from './ConnectionSettingsContent'
 import { AccountContent, ProfileContent } from './settings/AccountSettings'
-import { LanguageContent, ThemeContent } from './settings/AppearanceSettings'
+import { AppearanceContent, LanguageContent, ThemeContent } from './settings/AppearanceSettings'
 import { InviteCodeContent } from './settings/InviteSettings'
 import { HelpContent, ReportFeedbackContent } from './settings/HelpSettings'
 import { CreditsContent } from './settings/CreditsSettings'
 import { isDesktop, isLocalMode } from '@arkloop/shared/desktop'
 
-export type SettingsTab = 'account' | 'settings' | 'skills' | 'credits' | 'models' | 'agents' | 'channels' | 'connection'
+export type SettingsTab = 'account' | 'appearance' | 'settings' | 'skills' | 'credits' | 'models' | 'agents' | 'channels' | 'connection'
 
 type NavItem = { key: SettingsTab; icon: LucideIcon }
 
 const BASE_NAV_ITEMS: NavItem[] = [
-  { key: 'account', icon: User },
-  { key: 'settings', icon: Settings },
-  { key: 'skills', icon: Puzzle },
-  { key: 'models', icon: Cpu },
-  { key: 'agents', icon: Bot },
-  { key: 'channels', icon: Radio },
-  { key: 'credits', icon: Coins },
+  { key: 'account',    icon: User },
+  { key: 'appearance', icon: Palette },
+  { key: 'settings',   icon: Settings },
+  { key: 'skills',     icon: Puzzle },
+  { key: 'models',     icon: Cpu },
+  { key: 'agents',     icon: Bot },
+  { key: 'channels',   icon: Radio },
+  { key: 'credits',    icon: Coins },
 ]
 
 const DESKTOP_NAV_ITEMS: NavItem[] = [
@@ -158,6 +160,9 @@ export function SettingsModal({ me, accessToken, initialTab = 'account', onClose
                 userInitial={userInitial}
                 onMeUpdated={onMeUpdated}
               />
+            )}
+            {activeKey === 'appearance' && (
+              <AppearanceContent />
             )}
             {activeKey === 'settings' && (
               <div className="flex flex-col gap-6">
