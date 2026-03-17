@@ -18,6 +18,7 @@ export interface LocaleStrings {
   // settings nav
   nav: {
     account: string;
+    appearance: string;
     settings: string;
     skills: string;
     credits: string;
@@ -41,6 +42,35 @@ export interface LocaleStrings {
   themeSystem: string;
   themeLight: string;
   themeDark: string;
+  // appearance tab
+  fontSection: string;
+  fontBody: string;
+  fontCode: string;
+  fontSize: string;
+  fontSizeCompact: string;
+  fontSizeNormal: string;
+  fontSizeRelaxed: string;
+  themePresetSection: string;
+  themePresetDefault: string;
+  themeColorEditor: string;
+  colorGroupBackgrounds: string;
+  colorGroupText: string;
+  colorGroupBorders: string;
+  colorGroupAccent: string;
+  colorGroupStatus: string;
+  colorGroupCode: string;
+  colorGroupInteractive: string;
+  colorGroupInput: string;
+  colorGroupClaw: string;
+  editColors: string;
+  resetToDefault: string;
+  saveAsCustom: string;
+  customThemeName: string;
+  customThemeNamePlaceholder: string;
+  importTheme: string;
+  exportTheme: string;
+  deleteCustomTheme: string;
+  myThemes: string;
   skills: {
     title: string;
     subtitle: string;
@@ -550,7 +580,9 @@ export interface LocaleStrings {
     desktopSection: string;
     // nav items
     general: string;
+    appearance: string;
     providers: string;
+    routing: string;
     personas: string;
     skills: string;
     mcp: string;
@@ -696,6 +728,10 @@ export interface LocaleStrings {
     memoryConfigureError: string;
     memoryProviderActivated: string;
     memoryNoEmbeddingModels: string;
+    // tool model
+    toolModel: string;
+    toolModelDesc: string;
+    toolModelPlatformDefault: string;
   };
 
   // admin providers/models settings (ported from console-lite)

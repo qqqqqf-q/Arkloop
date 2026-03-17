@@ -7,23 +7,25 @@ import {
   Bot,
   Puzzle,
   Server,
-  Plug,
   Wifi,
   Blocks,
   Bug,
   Package,
   Globe,
   Brain,
+  Palette,
+  Route,
 } from "lucide-react";
 import type { MeResponse } from "../api";
 import { useLocale } from "../contexts/LocaleContext";
 import {
   GeneralSettings,
+  DesktopAppearanceSettings,
   ProvidersSettings,
+  RoutingSettings,
   PersonasSettings,
   SkillsSettings,
   MCPSettings,
-  ConnectorsSettings,
   SearchFetchSettings,
   MemorySettings,
   ConnectionSettings,
@@ -34,11 +36,12 @@ import {
 
 export type DesktopSettingsKey =
   | "general"
+  | "appearance"
   | "providers"
+  | "routing"
   | "personas"
   | "skills"
   | "mcp"
-  | "connectors"
   | "searchFetch"
   | "memory"
   | "connection"
@@ -52,13 +55,14 @@ type NavItem = {
 };
 
 const MAIN_NAV: NavItem[] = [
-  { key: "general", icon: Settings },
-  { key: "providers", icon: Cpu },
-  { key: "personas", icon: Bot },
-  { key: "skills", icon: Puzzle },
-  { key: "mcp", icon: Server },
-  { key: "connectors", icon: Plug },
-  { key: "searchFetch", icon: Globe },
+  { key: "general",    icon: Settings },
+  { key: "appearance", icon: Palette },
+  { key: "providers",  icon: Cpu },
+  { key: "routing",    icon: Route },
+  { key: "personas",   icon: Bot },
+  { key: "skills",     icon: Puzzle },
+  { key: "mcp",        icon: Server },
+  { key: "searchFetch",icon: Globe },
 ];
 
 const DESKTOP_NAV: NavItem[] = [
@@ -129,8 +133,12 @@ export function DesktopSettings({
             onMeUpdated={onMeUpdated}
           />
         );
+      case "appearance":
+        return <DesktopAppearanceSettings />;
       case "providers":
         return <ProvidersSettings accessToken={accessToken} />;
+      case "routing":
+        return <RoutingSettings accessToken={accessToken} />;
       case "personas":
         return <PersonasSettings accessToken={accessToken} />;
       case "skills":
@@ -139,8 +147,6 @@ export function DesktopSettings({
         );
       case "mcp":
         return <MCPSettings />;
-      case "connectors":
-        return <ConnectorsSettings accessToken={accessToken} />;
       case "searchFetch":
         return <SearchFetchSettings />;
       case "memory":

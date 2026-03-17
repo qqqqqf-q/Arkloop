@@ -79,6 +79,13 @@ func resolveTitleGateway(
 	llmMaxResponseBytes int,
 	configLoader *routing.ConfigLoader,
 ) (llm.Gateway, string) {
+	// account-level override takes precedence over platform setting
+	if accountID != nil && pool != nil {
+		if gw, model, ok := resolveAccountToolGateway(ctx, pool, *accountID, stubGateway, emitDebugEvents, llmMaxResponseBytes, configLoader); ok {
+			return gw, model
+		}
+	}
+
 	var selector string
 	err := pool.QueryRow(ctx,
 		`SELECT value FROM platform_settings WHERE key = $1`,
@@ -277,6 +284,54 @@ func extractUserText(messages []llm.Message) string {
 		joined = string([]rune(joined)[:500])
 	}
 	return joined
+}
+
+// resolveAccountToolGateway 查询账户级 spawn.profile.tool override，若存在则构建对应 gateway。
+func resolveAccountToolGateway(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	accountID uuid.UUID,
+	stubGateway llm.Gateway,
+	emitDebugEvents bool,
+	llmMaxResponseBytes int,
+	configLoader *routing.ConfigLoader,
+) (llm.Gateway, string, bool) {
+	var selector string
+	err := pool.QueryRow(ctx,
+		`SELECT value FROM account_entitlement_overrides
+		  WHERE account_id = $1 AND key = 'spawn.profile.tool'
+		    AND (expires_at IS NULL OR expires_at > NOW())
+		  LIMIT 1`,
+		accountID,
+	).Scan(&selector)
+	selector = strings.TrimSpace(selector)
+	if err != nil || selector == "" {
+		return nil, "", false
+	}
+
+	if configLoader == nil {
+		return nil, "", false
+	}
+	routingCfg, err := configLoader.Load(ctx, nil)
+	if err != nil {
+		slog.Warn("title_summarizer: load routing config for tool profile failed", "err", err.Error())
+		return nil, "", false
+	}
+
+	selected, err := resolveSelectedRouteBySelector(routingCfg, selector, map[string]any{}, true)
+	if err != nil || selected == nil {
+		if err != nil {
+			slog.Warn("title_summarizer: tool profile selector resolve failed", "selector", selector, "err", err.Error())
+		}
+		return nil, "", false
+	}
+
+	gw, err := gatewayFromSelectedRoute(*selected, stubGateway, emitDebugEvents, llmMaxResponseBytes)
+	if err != nil {
+		slog.Warn("title_summarizer: tool profile build gateway failed", "err", err.Error())
+		return nil, "", false
+	}
+	return gw, selected.Route.Model, true
 }
 
 func buildSummarizeSystem(styleHint string) string {

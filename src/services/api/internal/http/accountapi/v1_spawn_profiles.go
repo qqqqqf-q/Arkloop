@@ -19,6 +19,7 @@ var allowedProfiles = map[string]struct{}{
 	"explore": {},
 	"task":    {},
 	"strong":  {},
+	"tool":    {},
 }
 
 type spawnProfileResponse struct {
@@ -67,7 +68,7 @@ func spawnProfileEntry(
 			return
 		}
 		if _, ok := allowedProfiles[name]; !ok {
-			httpkit.WriteError(w, nethttp.StatusBadRequest, "validation.error", "profile must be one of: explore, task, strong", traceID, nil)
+			httpkit.WriteError(w, nethttp.StatusBadRequest, "validation.error", "profile must be one of: explore, task, strong, tool", traceID, nil)
 			return
 		}
 
@@ -97,7 +98,7 @@ func listSpawnProfiles(
 		return
 	}
 
-	profiles := []string{"explore", "task", "strong"}
+	profiles := []string{"explore", "task", "strong", "tool"}
 	result := make([]spawnProfileResponse, 0, len(profiles))
 
 	for _, name := range profiles {
