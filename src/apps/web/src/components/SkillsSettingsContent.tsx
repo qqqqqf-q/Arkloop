@@ -74,6 +74,16 @@ type CandidateState = {
   candidates: SkillImportCandidate[]
 }
 
+function normalizeInstalledSource(item: InstalledSkill): ViewSkill['source'] {
+  if (item.is_platform || item.source === 'builtin' || item.source === 'platform') {
+    return 'platform'
+  }
+  if (item.source === 'official' || item.source === 'github') {
+    return item.source
+  }
+  return 'custom'
+}
+
 function dedupeSkillRefs(items: SkillReference[]): SkillReference[] {
   const seen = new Set<string>()
   return items.filter((item) => {
@@ -132,11 +142,11 @@ function mergeSkills(installed: InstalledSkill[], defaults: InstalledSkill[], ma
     registry_provider: item.registry_provider,
     registry_slug: item.registry_slug,
     owner_handle: item.registry_owner_handle,
-    source: item.source ?? 'custom',
+    source: normalizeInstalledSource(item),
     updated_at: item.updated_at,
     installed: true,
     enabled_by_default: item.is_platform
-      ? item.platform_status !== 'manual'
+      ? item.platform_status === 'auto'
       : buildSkillKey(item.skill_key, item.version, item.registry_slug).some((key) => defaultKeys.has(key)),
     scan_status: item.scan_status,
     scan_has_warnings: item.scan_has_warnings,
@@ -159,7 +169,7 @@ function mergeSkills(installed: InstalledSkill[], defaults: InstalledSkill[], ma
       registry_provider: installedItem?.registry_provider ?? item.registry_provider,
       registry_slug: installedItem?.registry_slug ?? item.registry_slug,
       owner_handle: installedItem?.registry_owner_handle ?? item.owner_handle,
-      source: installedItem?.source ?? 'official',
+      source: installedItem ? normalizeInstalledSource(installedItem) : 'official',
       updated_at: installedItem?.updated_at ?? item.updated_at ?? undefined,
       installed: installedItem != null || item.installed,
       enabled_by_default: installedItem != null
@@ -462,6 +472,20 @@ export function SkillsSettingsContent({ accessToken, onTrySkill }: Props) {
   }, [accessToken, ensureInstalledAndDefault, file, installAfterImport, refreshInstalled, skillText.importFailed])
 
   const active = (item: ViewSkill) => item.installed && item.enabled_by_default
+  const platformAvailabilityLabel = (status?: ViewSkill['platform_status']) => {
+    if (status === 'auto') return skillText.enabledByDefault
+    if (status === 'manual') return skillText.manualAvailable
+    return ''
+  }
+  const platformAvailabilityStyle = (status?: ViewSkill['platform_status']) => {
+    if (status === 'auto') {
+      return { background: 'var(--c-status-ok-bg)', color: 'var(--c-status-ok-text)' }
+    }
+    if (status === 'manual') {
+      return { background: 'var(--c-bg-deep)', color: 'var(--c-text-secondary)' }
+    }
+    return null
+  }
 
   const scanStatusBadge = useCallback((item: ViewSkill) => {
     const status = item.scan_status ?? (item.scan_has_warnings ? 'suspicious' : 'unknown')
@@ -596,6 +620,8 @@ export function SkillsSettingsContent({ accessToken, onTrySkill }: Props) {
                 .map((skill) => {
                   const isRemoved = skill.platform_status === 'removed'
                   const isEnabled = skill.platform_status === 'auto'
+                  const availabilityLabel = platformAvailabilityLabel(skill.platform_status)
+                  const availabilityStyle = platformAvailabilityStyle(skill.platform_status)
                   const busy = busySkillId === `builtin:${skill.skill_key}@${skill.version}`
                   return (
                     <div
@@ -618,12 +644,12 @@ export function SkillsSettingsContent({ accessToken, onTrySkill }: Props) {
                           >
                             {skillText.sourceBuiltin}
                           </span>
-                          {isEnabled && (
+                          {availabilityLabel && availabilityStyle && (
                             <span
                               className="shrink-0 rounded px-1.5 py-px text-[10px] font-medium leading-tight"
-                              style={{ background: 'var(--c-status-ok-bg)', color: 'var(--c-status-ok-text)' }}
+                              style={availabilityStyle}
                             >
-                              {skillText.enabledByDefault}
+                              {availabilityLabel}
                             </span>
                           )}
                         </div>
@@ -736,6 +762,8 @@ export function SkillsSettingsContent({ accessToken, onTrySkill }: Props) {
             {items.map((item) => {
               const busy = busySkillId === item.id
               const enabled = active(item)
+              const platformBadgeLabel = item.is_platform ? platformAvailabilityLabel(item.platform_status) : ''
+              const platformBadgeStyle = item.is_platform ? platformAvailabilityStyle(item.platform_status) : null
               const scanBadge = scanStatusBadge(item)
               const providerLabel = item.registry_provider?.trim().toLowerCase() === 'clawhub'
                 ? 'ClawHub'
@@ -772,7 +800,7 @@ export function SkillsSettingsContent({ accessToken, onTrySkill }: Props) {
                           {skillText.sourceGitHub}
                         </span>
                       )}
-                      {item.source === 'platform' && (
+                      {item.is_platform && (
                         <span
                           className="shrink-0 rounded px-1.5 py-px text-[10px] font-medium leading-tight text-[var(--c-text-secondary)]"
                           style={{ background: 'var(--c-bg-deep)' }}
@@ -788,7 +816,14 @@ export function SkillsSettingsContent({ accessToken, onTrySkill }: Props) {
                           {scanBadge.label}
                         </span>
                       )}
-                      {enabled && (
+                      {platformBadgeLabel && platformBadgeStyle ? (
+                        <span
+                          className="shrink-0 rounded px-1.5 py-px text-[10px] font-medium leading-tight"
+                          style={platformBadgeStyle}
+                        >
+                          {platformBadgeLabel}
+                        </span>
+                      ) : enabled && (
                         <span
                           className="shrink-0 rounded px-1.5 py-px text-[10px] font-medium leading-tight"
                           style={{ background: 'var(--c-status-ok-bg)', color: 'var(--c-status-ok-text)' }}
@@ -1043,10 +1078,12 @@ export function SkillsSettingsContent({ accessToken, onTrySkill }: Props) {
       {detailSkill && (() => {
         const item = detailSkill
         const enabled = active(item)
+        const platformBadgeLabel = item.is_platform ? platformAvailabilityLabel(item.platform_status) : ''
+        const platformBadgeStyle = item.is_platform ? platformAvailabilityStyle(item.platform_status) : null
         const scanBadge = scanStatusBadge(item)
         const providerLabel = item.registry_provider?.trim().toLowerCase() === 'clawhub'
           ? 'ClawHub'
-          : item.registry_provider?.trim() || (item.source === 'official' ? skillText.sourceOfficial : item.source === 'github' ? skillText.sourceGitHub : item.source === 'platform' ? skillText.sourceBuiltin : skillText.sourceCustom)
+          : item.registry_provider?.trim() || (item.source === 'official' ? skillText.sourceOfficial : item.source === 'github' ? skillText.sourceGitHub : item.is_platform ? skillText.sourceBuiltin : skillText.sourceCustom)
         return (
           <div
             className="fixed inset-0 z-[60] flex items-center justify-center"
@@ -1073,9 +1110,14 @@ export function SkillsSettingsContent({ accessToken, onTrySkill }: Props) {
                         {skillText.sourceGitHub}
                       </span>
                     )}
-                    {item.source === 'platform' && (
+                    {item.is_platform && (
                       <span className="shrink-0 rounded px-1.5 py-px text-[10px] font-medium leading-tight text-[var(--c-text-secondary)]" style={{ background: 'var(--c-bg-deep)' }}>
                         {skillText.sourceBuiltin}
+                      </span>
+                    )}
+                    {platformBadgeLabel && platformBadgeStyle && (
+                      <span className="shrink-0 rounded px-1.5 py-px text-[10px] font-medium leading-tight" style={platformBadgeStyle}>
+                        {platformBadgeLabel}
                       </span>
                     )}
                     {scanBadge && (
@@ -1174,7 +1216,9 @@ export function SkillsSettingsContent({ accessToken, onTrySkill }: Props) {
                   )}
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
-                  <span className="text-xs text-[var(--c-text-tertiary)]">{enabled ? skillText.enabledByDefault : skillText.disable}</span>
+                  <span className="text-xs text-[var(--c-text-tertiary)]">
+                    {platformAvailabilityLabel(item.platform_status) || (enabled ? skillText.enabledByDefault : skillText.disable)}
+                  </span>
                   <label className="relative inline-flex shrink-0 cursor-pointer items-center">
                     <input
                       type="checkbox"

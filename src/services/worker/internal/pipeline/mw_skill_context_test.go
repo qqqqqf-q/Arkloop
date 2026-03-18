@@ -96,3 +96,40 @@ func TestSkillContextMiddlewareUsesLayoutResolver(t *testing.T) {
 		t.Fatalf("expected dynamic layout index path in prompt, got %q", rc.SystemPrompt)
 	}
 }
+
+func TestSkillContextMiddlewareKeepsManualSkillsOutOfPrompt(t *testing.T) {
+	layout := skillstore.PathLayout{
+		MountRoot: "/tmp/skills",
+		IndexPath: "/tmp/enabled-skills.json",
+	}
+	mw := NewSkillContextMiddleware(SkillContextConfig{
+		Resolve: func(_ context.Context, _ uuid.UUID, _ string, _ string) ([]skillstore.ResolvedSkill, error) {
+			return []skillstore.ResolvedSkill{
+				{
+					SkillKey:   "builtin-auto",
+					Version:    "1",
+					AutoInject: true,
+				},
+				{
+					SkillKey:   "builtin-manual",
+					Version:    "1",
+					AutoInject: false,
+				},
+			}, nil
+		},
+		Layout: layout,
+	})
+	rc := &RunContext{Run: data.Run{AccountID: uuid.New()}, SystemPrompt: "base"}
+	if err := mw(context.Background(), rc, func(ctx context.Context, rc *RunContext) error { return nil }); err != nil {
+		t.Fatalf("middleware failed: %v", err)
+	}
+	if len(rc.EnabledSkills) != 2 {
+		t.Fatalf("expected both auto and manual skills in context, got %#v", rc.EnabledSkills)
+	}
+	if !strings.Contains(rc.SystemPrompt, "builtin-auto@1") {
+		t.Fatalf("expected auto skill in prompt, got %q", rc.SystemPrompt)
+	}
+	if strings.Contains(rc.SystemPrompt, "builtin-manual@1") {
+		t.Fatalf("expected manual skill omitted from prompt, got %q", rc.SystemPrompt)
+	}
+}

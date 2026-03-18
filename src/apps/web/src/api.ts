@@ -108,7 +108,7 @@ export type SkillPackageResponse = {
 export type InstalledSkill = SkillPackageResponse & {
   profile_ref?: string
   workspace_ref?: string
-  source?: 'official' | 'custom' | 'github' | 'platform'
+  source?: 'official' | 'custom' | 'github' | 'platform' | 'builtin'
   is_platform?: boolean
   platform_status?: 'auto' | 'manual' | 'removed'
   created_at?: string
@@ -381,12 +381,25 @@ export async function listPersonas(accessToken: string): Promise<Persona[]> {
 }
 
 export async function listChannelPersonas(accessToken: string): Promise<Persona[]> {
-  const personas = await apiFetch<Persona[]>('/v1/personas', {
-    method: 'GET',
-    accessToken,
-  })
+  const [projectScoped, platformScoped] = await Promise.all([
+    apiFetch<Persona[]>('/v1/personas?scope=user', {
+      method: 'GET',
+      accessToken,
+    }),
+    apiFetch<Persona[]>('/v1/personas?scope=platform', {
+      method: 'GET',
+      accessToken,
+    }),
+  ])
 
-  return personas
+  const byKey = new Map<string, Persona>()
+  for (const persona of [...platformScoped, ...projectScoped]) {
+    if (!persona.is_active) continue
+    if (!isUUIDLike(persona.id)) continue
+    byKey.set(persona.persona_key, persona)
+  }
+
+  return Array.from(byKey.values())
     .filter((persona) => persona.is_active)
     .sort((left, right) => {
       const leftOrder = left.selector_order ?? 99
@@ -400,6 +413,10 @@ export async function listChannelPersonas(accessToken: string): Promise<Persona[
       if (byName !== 0) return byName
       return left.persona_key.localeCompare(right.persona_key)
     })
+}
+
+function isUUIDLike(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.trim())
 }
 
 export async function listSelectablePersonas(accessToken: string): Promise<SelectablePersona[]> {

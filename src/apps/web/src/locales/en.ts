@@ -102,6 +102,7 @@ export const en: LocaleStrings = {
     installed: "Installed",
     notInstalled: "Not installed",
     enabledByDefault: "Default",
+    manualAvailable: "Manual only",
     install: "Install",
     installing: "Installing",
     remove: "Delete",

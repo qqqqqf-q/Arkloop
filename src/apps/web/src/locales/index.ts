@@ -110,6 +110,7 @@ export interface LocaleStrings {
     installed: string;
     notInstalled: string;
     enabledByDefault: string;
+    manualAvailable: string;
     install: string;
     installing: string;
     remove: string;

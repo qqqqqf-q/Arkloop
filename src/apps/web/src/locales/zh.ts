@@ -102,6 +102,7 @@ export const zh: LocaleStrings = {
     installed: "已安装",
     notInstalled: "未安装",
     enabledByDefault: "默认可用",
+    manualAvailable: "手动可用",
     install: "安装",
     installing: "安装中",
     remove: "删除",
