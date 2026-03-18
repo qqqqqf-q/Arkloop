@@ -28,15 +28,16 @@ var validChannelTypes = map[string]struct{}{
 }
 
 type channelResponse struct {
-	ID          string          `json:"id"`
-	AccountID   string          `json:"account_id"`
-	ChannelType string          `json:"channel_type"`
-	PersonaID   *string         `json:"persona_id"`
-	WebhookURL  *string         `json:"webhook_url"`
-	IsActive    bool            `json:"is_active"`
-	ConfigJSON  json.RawMessage `json:"config_json"`
-	CreatedAt   string          `json:"created_at"`
-	UpdatedAt   string          `json:"updated_at"`
+	ID             string          `json:"id"`
+	AccountID      string          `json:"account_id"`
+	ChannelType    string          `json:"channel_type"`
+	PersonaID      *string         `json:"persona_id"`
+	WebhookURL     *string         `json:"webhook_url"`
+	IsActive       bool            `json:"is_active"`
+	ConfigJSON     json.RawMessage `json:"config_json"`
+	HasCredentials bool            `json:"has_credentials"`
+	CreatedAt      string          `json:"created_at"`
+	UpdatedAt      string          `json:"updated_at"`
 }
 
 type createChannelRequest struct {
@@ -651,15 +652,16 @@ func toChannelResponse(ch data.Channel) channelResponse {
 		configJSON = json.RawMessage(`{}`)
 	}
 	return channelResponse{
-		ID:          ch.ID.String(),
-		AccountID:   ch.AccountID.String(),
-		ChannelType: ch.ChannelType,
-		PersonaID:   personaID,
-		WebhookURL:  ch.WebhookURL,
-		IsActive:    ch.IsActive,
-		ConfigJSON:  configJSON,
-		CreatedAt:   ch.CreatedAt.UTC().Format(time.RFC3339Nano),
-		UpdatedAt:   ch.UpdatedAt.UTC().Format(time.RFC3339Nano),
+		ID:             ch.ID.String(),
+		AccountID:      ch.AccountID.String(),
+		ChannelType:    ch.ChannelType,
+		PersonaID:      personaID,
+		WebhookURL:     ch.WebhookURL,
+		IsActive:       ch.IsActive,
+		ConfigJSON:     configJSON,
+		HasCredentials: ch.CredentialsID != nil,
+		CreatedAt:      ch.CreatedAt.UTC().Format(time.RFC3339Nano),
+		UpdatedAt:      ch.UpdatedAt.UTC().Format(time.RFC3339Nano),
 	}
 }
 

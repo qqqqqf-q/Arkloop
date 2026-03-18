@@ -46,6 +46,7 @@ export function ChannelsSettingsContent({ accessToken }: Props) {
   const [formPersonaId, setFormPersonaId] = useState('')
   const [formAllowedUsers, setFormAllowedUsers] = useState('')
   const [saving, setSaving] = useState(false)
+  const [tokenDrafts, setTokenDrafts] = useState<Record<string, string>>({})
 
   const [bindCode, setBindCode] = useState<string | null>(null)
   const [generating, setGenerating] = useState(false)
@@ -142,6 +143,16 @@ export function ChannelsSettingsContent({ accessToken }: Props) {
       setError('Failed to generate bind code')
     } finally {
       setGenerating(false)
+    }
+  }
+
+  const handleUpdateToken = async (channelId: string, token: string) => {
+    try {
+      await updateChannel(accessToken, channelId, { bot_token: token })
+      setTokenDrafts(prev => ({ ...prev, [channelId]: '' }))
+      await load()
+    } catch (err) {
+      setError(isApiError(err) ? err.message : ct.saveFailed)
     }
   }
 
@@ -281,50 +292,74 @@ export function ChannelsSettingsContent({ accessToken }: Props) {
           {channels.map((ch) => (
             <div
               key={ch.id}
-              className="flex items-center gap-3 rounded-lg px-4 py-3"
+              className="flex flex-col gap-2 rounded-lg px-4 py-3"
               style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-page)' }}
             >
-              <div className="flex flex-1 flex-col gap-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-[var(--c-text-heading)]">{channelLabel(ch.channel_type)}</span>
-                  <span
-                    className="rounded px-1.5 py-0.5 text-[10px] font-medium"
-                    style={{
-                      background: ch.is_active ? 'var(--c-status-success-bg, rgba(34,197,94,0.1))' : 'var(--c-bg-deep)',
-                      color: ch.is_active ? 'var(--c-status-success, #22c55e)' : 'var(--c-text-muted)',
-                    }}
-                  >
-                    {ch.is_active ? ct.active : ct.inactive}
-                  </span>
-                </div>
-                {ch.webhook_url && (
-                  <div className="flex items-center gap-1.5">
-                    <span className="truncate text-xs text-[var(--c-text-tertiary)]">{ch.webhook_url}</span>
-                    <button
-                      onClick={() => handleCopyWebhook(ch.webhook_url!)}
-                      className="shrink-0 text-[var(--c-text-muted)] hover:text-[var(--c-text-secondary)]"
+              <div className="flex items-center gap-3">
+                <div className="flex flex-1 flex-col gap-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-[var(--c-text-heading)]">{channelLabel(ch.channel_type)}</span>
+                    <span
+                      className="rounded px-1.5 py-0.5 text-[10px] font-medium"
+                      style={{
+                        background: ch.is_active ? 'var(--c-status-success-bg, rgba(34,197,94,0.1))' : 'var(--c-bg-deep)',
+                        color: ch.is_active ? 'var(--c-status-success, #22c55e)' : 'var(--c-text-muted)',
+                      }}
                     >
-                      {copiedWebhook === ch.webhook_url ? <Check size={12} /> : <Copy size={12} />}
-                    </button>
+                      {ch.is_active ? ct.active : ct.inactive}
+                    </span>
                   </div>
-                )}
+                  {ch.webhook_url && (
+                    <div className="flex items-center gap-1.5">
+                      <span className="truncate text-xs text-[var(--c-text-tertiary)]">{ch.webhook_url}</span>
+                      <button
+                        onClick={() => handleCopyWebhook(ch.webhook_url!)}
+                        className="shrink-0 text-[var(--c-text-muted)] hover:text-[var(--c-text-secondary)]"
+                      >
+                        {copiedWebhook === ch.webhook_url ? <Check size={12} /> : <Copy size={12} />}
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    onClick={() => handleToggle(ch)}
+                    className="rounded-lg px-3 py-1 text-xs text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)]"
+                    style={{ border: '0.5px solid var(--c-border-subtle)' }}
+                  >
+                    {ch.is_active ? ct.inactive : ct.active}
+                  </button>
+                  <button
+                    onClick={() => handleDelete(ch)}
+                    className="text-[var(--c-text-muted)] hover:text-[var(--c-status-error,#ef4444)]"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
               </div>
 
-              <div className="flex items-center gap-2 shrink-0">
-                <button
-                  onClick={() => handleToggle(ch)}
-                  className="rounded-lg px-3 py-1 text-xs text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)]"
-                  style={{ border: '0.5px solid var(--c-border-subtle)' }}
-                >
-                  {ch.is_active ? ct.inactive : ct.active}
-                </button>
-                <button
-                  onClick={() => handleDelete(ch)}
-                  className="text-[var(--c-text-muted)] hover:text-[var(--c-status-error,#ef4444)]"
-                >
-                  <Trash2 size={14} />
-                </button>
-              </div>
+              {ch.channel_type === 'telegram' && (
+                <div className="flex gap-2">
+                  <input
+                    type="password"
+                    value={tokenDrafts[ch.id] ?? ''}
+                    onChange={(e) => setTokenDrafts(prev => ({ ...prev, [ch.id]: e.target.value }))}
+                    placeholder={ch.has_credentials && !(tokenDrafts[ch.id] ?? '') ? ct.tokenAlreadyConfigured : ct.botTokenPlaceholder}
+                    className="h-8 flex-1 rounded-lg bg-[var(--c-bg-input)] px-3 text-xs text-[var(--c-text-primary)] outline-none placeholder:text-[var(--c-text-muted)]"
+                    style={{ border: '0.5px solid var(--c-border-subtle)' }}
+                  />
+                  {(tokenDrafts[ch.id] ?? '').trim() && (
+                    <button
+                      onClick={() => handleUpdateToken(ch.id, tokenDrafts[ch.id])}
+                      className="rounded-lg px-3 text-xs font-medium text-white"
+                      style={{ background: 'var(--c-accent, #3b82f6)' }}
+                    >
+                      {ct.save}
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           ))}
         </div>

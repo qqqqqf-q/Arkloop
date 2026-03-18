@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	nethttp "net/http"
 	"regexp"
 	"strconv"
@@ -216,19 +217,22 @@ func configureTelegramPollingRemote(
 	client *telegrambot.Client,
 	token string,
 ) error {
+	if client == nil {
+		return nil
+	}
 	remoteCtx, cancel := context.WithTimeout(ctx, telegramRemoteRequestTimeout)
 	defer cancel()
-	if client == nil {
-		return fmt.Errorf("telegram client not configured")
-	}
 	if err := client.DeleteWebhook(remoteCtx, token); err != nil {
-		return err
+		slog.WarnContext(ctx, "telegram delete_webhook failed (non-fatal)", "err", err)
 	}
-	return client.SetMyCommands(remoteCtx, token, []telegrambot.BotCommand{
+	if err := client.SetMyCommands(remoteCtx, token, []telegrambot.BotCommand{
 		{Command: "start", Description: "开始使用"},
 		{Command: "help", Description: "查看帮助"},
 		{Command: "bind", Description: "绑定账号"},
-	})
+	}); err != nil {
+		slog.WarnContext(ctx, "telegram set_my_commands failed (non-fatal)", "err", err)
+	}
+	return nil
 }
 
 func configureTelegramActivationRemote(
