@@ -227,17 +227,28 @@ var registry = []ToolMeta{
 	},
 	// ── artifact ──
 	{
+		Name:      "visualize_read_me",
+		Group:     GroupDocument,
+		Label:     "Read guidelines",
+		ShortDesc: "load the canonical generative UI design system modules",
+		LLMDescription: "Returns design guidelines for show_widget and HTML/SVG visual generation. " +
+			"Call once before your first show_widget call. Do NOT mention this call to the user. " +
+			"Pick the modules that match your use case: interactive, chart, mockup, art, diagram. " +
+			"This tool returns the full canonical guideline text and must not be summarized.",
+	},
+	{
 		Name:      "show_widget",
 		Group:     GroupDocument,
 		Label:     "Show widget",
 		ShortDesc: "render an interactive HTML widget inline in the conversation",
 		LLMDescription: "render an interactive HTML/SVG widget directly in the chat. " +
-			"Use for charts, diagrams, dashboards, calculators, and visual interactive content. " +
-			"Call artifact_guidelines first with relevant module names. " +
+			"Use for charts, diagrams, dashboards, calculators, interactive explainers, UI mockups, and visual interactive content. " +
+			"Always call visualize_read_me first to load the full design guidelines, then set i_have_seen_read_me=true. " +
 			"widget_code is a raw HTML fragment (no DOCTYPE/html/head/body tags). " +
 			"Structure: <style> first, HTML elements next, <script> last. " +
 			"CSS variables (--c-bg-page, --c-text-primary, --c-border etc.) are automatically available. " +
-			"To send a follow-up message from a widget: window.dispatchEvent(new CustomEvent('arkloop:send-prompt',{detail:text})). " +
+			"The host runtime provides preloaded SVG helper classes and host skin tokens; keep the outer shell transparent and host-native. " +
+			"To send a follow-up message from a widget: call sendPrompt(text). " +
 			"NEVER use python_execute + exec_command open for HTML visualizations.",
 	},
 	{
@@ -245,9 +256,9 @@ var registry = []ToolMeta{
 		Group:     GroupDocument,
 		Label:     "Artifact guidelines",
 		ShortDesc: "load design guidelines for artifact creation",
-		LLMDescription: "load design guidelines for creating high-quality artifacts. " +
-			"Call once before your first create_artifact call, passing the relevant module names. " +
-			"Do NOT mention this call to the user.",
+		LLMDescription: "Compatibility alias of visualize_read_me. " +
+			"Loads the same full canonical generative UI design guidelines with the same module set. " +
+			"Call silently before visual generation when legacy prompts still reference artifact_guidelines.",
 	},
 	{
 		Name:      "create_artifact",

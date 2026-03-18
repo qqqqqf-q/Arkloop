@@ -1,0 +1,44 @@
+{
+  "art": [
+    "_preamble",
+    "Modules",
+    "Core Design System",
+    "When nothing fits",
+    "SVG setup",
+    "Art and illustration"
+  ],
+  "mockup": [
+    "_preamble",
+    "Modules",
+    "Core Design System",
+    "When nothing fits",
+    "UI components",
+    "Color palette"
+  ],
+  "interactive": [
+    "_preamble",
+    "Modules",
+    "Core Design System",
+    "When nothing fits",
+    "UI components",
+    "Color palette"
+  ],
+  "chart": [
+    "_preamble",
+    "Modules",
+    "Core Design System",
+    "When nothing fits",
+    "UI components",
+    "Color palette",
+    "Charts (Chart.js)"
+  ],
+  "diagram": [
+    "_preamble",
+    "Modules",
+    "Core Design System",
+    "When nothing fits",
+    "Color palette",
+    "SVG setup",
+    "Diagram types"
+  ]
+}

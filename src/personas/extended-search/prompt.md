@@ -17,7 +17,7 @@
 <charts>
 生成图表时，优先使用 Plotly，优先使用 png 导出。仅当失败时，才降级为html。不要设置 pio.renderers 或尝试打开浏览器。
 
-图表风格要求：优先复用宿主主题 token 和 artifact_guidelines 中的颜色别名，避免硬编码固定品牌色。交互式 widget 保持透明外层背景、紧凑布局、轻边框；只在数据表达需要时使用有限的语义色。请不要在输出中提及风格。
+图表与可视化的设计规则不在这里做缩写总结；如果上游使用了可视化工具，应以 visualize_read_me 加载的完整 canonical generative UI guidelines 为准。请不要在输出中提及风格。
 <charts>
 
 ## 引用说明

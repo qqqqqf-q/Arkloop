@@ -17,16 +17,7 @@ import (
 
 const defaultLLMProxyBaseURL = "http://api:19001/v1/llm-proxy"
 
-// envSkipLLMProxy, when set to "true", forces the executor to skip
-// LLM proxy injection so the inner agent uses the user's own API keys.
 const envSkipLLMProxy = "ARKLOOP_ACP_SKIP_LLM_PROXY"
-
-var defaultCommand = []string{"opencode", "acp"}
-
-// agentCommands maps agent name to launch command.
-var agentCommands = map[string][]string{
-	"opencode": {"opencode", "acp"},
-}
 
 // sessionRegistry is a package-level singleton shared across all executor calls
 // within the same worker process, enabling ACP session reuse across tool invocations.
@@ -45,10 +36,7 @@ func (e ToolExecutor) Execute(
 	toolCallID string,
 ) tools.ExecutionResult {
 	started := time.Now()
-
-	if execCtx.RuntimeSnapshot == nil || execCtx.RuntimeSnapshot.SandboxBaseURL == "" {
-		return errResult("tool.sandbox_unavailable", "sandbox not available for acp agent", started)
-	}
+	rt := execCtx.RuntimeSnapshot
 
 	task, ok := args["task"].(string)
 	if !ok || strings.TrimSpace(task) == "" {
@@ -56,123 +44,89 @@ func (e ToolExecutor) Execute(
 	}
 	task = strings.TrimSpace(task)
 
-	// resolve agent command
-	agentName := "opencode"
-	if a, ok := args["agent"].(string); ok && strings.TrimSpace(a) != "" {
-		agentName = strings.TrimSpace(a)
-	}
-	cmd, known := agentCommands[agentName]
-	if !known {
-		return errResult("tool.args_invalid", fmt.Sprintf("unknown agent: %s", agentName), started)
+	if _, hasLegacyAgent := args["agent"]; hasLegacyAgent {
+		return errResult("tool.args_invalid", "agent parameter has been removed, use provider", started)
 	}
 
-	cwd := "/workspace"
-	cmd = append(append([]string(nil), cmd...), "--cwd", cwd)
+	providerArg := ""
+	if rawProvider, ok := args["provider"].(string); ok {
+		providerArg = strings.TrimSpace(rawProvider)
+	}
 
-	rt := execCtx.RuntimeSnapshot
+	invocation, err := acp.ResolveProviderInvocation(
+		providerArg,
+		execCtx.ActiveToolProviderConfigsByGroup,
+		rt,
+		execCtx.WorkDir,
+	)
+	if err != nil {
+		if strings.Contains(err.Error(), "no ACP host available") {
+			return errResult("tool.acp_unavailable", err.Error(), started)
+		}
+		return errResult("tool.args_invalid", err.Error(), started)
+	}
+
 	accountID := ""
 	if execCtx.AccountID != nil {
 		accountID = execCtx.AccountID.String()
 	}
 
-	env := make(map[string]string)
-
-	// resolve profile and inject LLM proxy configuration (skip in local mode)
-	if profileName, ok := args["profile"].(string); ok && strings.TrimSpace(profileName) != "" {
-		profileName = strings.TrimSpace(profileName)
-
-		// Local mode: skip LLM proxy if explicitly disabled or if running locally
-		skipProxy := os.Getenv(envSkipLLMProxy) == "true"
-		if !skipProxy {
-			sandboxURL := strings.ToLower(rt.SandboxBaseURL)
-			if strings.Contains(sandboxURL, "localhost") || strings.Contains(sandboxURL, "127.0.0.1") {
-				skipProxy = true
-				slog.Info("acp: local sandbox detected, skipping LLM proxy injection",
-					"sandbox_url", rt.SandboxBaseURL,
-					"run_id", execCtx.RunID.String(),
-				)
-			}
-		}
-
-		if !skipProxy && e.ConfigResolver != nil {
-			mapping, err := sharedconfig.ResolveProfile(ctx, e.ConfigResolver, profileName)
-			if err != nil {
-				return errResult("tool.profile_invalid", fmt.Sprintf("failed to resolve profile %q: %s", profileName, err), started)
-			}
-
-			if e.JWTSecret != "" {
-				issuer, err := acptoken.NewIssuer(e.JWTSecret, 30*time.Minute)
-				if err != nil {
-					return errResult("tool.token_issue_failed", fmt.Sprintf("create token issuer: %s", err), started)
-				}
-
-				token, err := issuer.Issue(acptoken.IssueParams{
-					RunID:     execCtx.RunID.String(),
-					AccountID: accountID,
-					Models:    []string{mapping.Model},
-					Budget:    0,
-				})
-				if err != nil {
-					return errResult("tool.token_issue_failed", fmt.Sprintf("issue session token: %s", err), started)
-				}
-
-				// opencode reads OPENCODE_API_KEY for its "opencode" provider
-				// and OPENAI_API_KEY / OPENAI_BASE_URL for OpenAI-based models.
-				// Override the provider API URL via config so requests hit our proxy.
-				env["OPENCODE_API_KEY"] = token
-				env["OPENAI_API_KEY"] = token
-				env["OPENAI_BASE_URL"] = defaultLLMProxyBaseURL
-				env["OPENCODE_CONFIG_CONTENT"] = fmt.Sprintf(
-					`{"provider":{"opencode":{"api":%q}}}`,
-					defaultLLMProxyBaseURL,
-				)
-				env["OPENCODE_DISABLE_AUTOUPDATE"] = "true"
-				env["OPENCODE_DISABLE_MODELS_FETCH"] = "true"
-			}
-		}
+	env := copyStringMap(invocation.Env)
+	profileName := ""
+	if rawProfile, ok := args["profile"].(string); ok {
+		profileName = strings.TrimSpace(rawProfile)
 	}
+	if err := e.injectProviderEnv(ctx, execCtx.RunID.String(), accountID, profileName, invocation.Provider, env); err != nil {
+		return errResult(err.ErrorClass, err.Message, started)
+	}
+
+	cmd := append([]string{invocation.Provider.Command}, invocation.Provider.Args...)
+	cmd = append(cmd, "--cwd", invocation.Cwd)
 
 	cfg := acp.BridgeConfig{
-		SandboxBaseURL:   rt.SandboxBaseURL,
-		SandboxAuthToken: rt.SandboxAuthToken,
-		SessionID:        execCtx.RunID.String(),
-		AccountID:        accountID,
-		Command:          cmd,
-		Cwd:              cwd,
-		Env:              env,
-		KillGraceMs:      5000,   // 5 second default grace for ACP tool calls
-		CleanupDelayMs:   300000, // 5 min cleanup delay
+		SessionID:      execCtx.RunID.String(),
+		AccountID:      accountID,
+		Command:        cmd,
+		Cwd:            invocation.Cwd,
+		Env:            env,
+		KillGraceMs:    5000,   // 5 second default grace for ACP tool calls
+		CleanupDelayMs: 300000, // 5 min cleanup delay
 	}
 
-	client := acp.NewClient(rt.SandboxBaseURL, rt.SandboxAuthToken)
+	host, err := acp.ResolveProcessHost(invocation.Provider, rt)
+	if err != nil {
+		return errResult("tool.acp_unavailable", err.Error(), started)
+	}
+
 	emitter := execCtx.Emitter
-	sandboxSessionID := execCtx.RunID.String()
+	sessionKey := buildSessionKey(execCtx.RunID.String(), invocation.Provider)
 
 	// Try to reuse existing session
-	if entry := sessionRegistry.Get(sandboxSessionID); entry != nil {
-		result, reused := e.tryReuse(ctx, client, cfg, entry, task, emitter, started)
+	if entry := sessionRegistry.Get(sessionKey); entry != nil {
+		result, reused := e.tryReuse(ctx, host, cfg, sessionKey, entry, task, emitter, started)
 		if reused {
 			return result
 		}
 		// Reuse failed, remove stale entry and fall through to fresh session
-		sessionRegistry.Remove(sandboxSessionID)
-		slog.Info("acp: session reuse failed, creating fresh session", "session_id", sandboxSessionID)
+		sessionRegistry.Remove(sessionKey)
+		slog.Info("acp: session reuse failed, creating fresh session", "session_id", sessionKey, "provider", invocation.Provider.ID)
 	}
 
 	// Fresh session
-	return e.runFresh(ctx, client, cfg, sandboxSessionID, task, emitter, started)
+	return e.runFresh(ctx, host, cfg, sessionKey, task, emitter, started)
 }
 
 func (e ToolExecutor) tryReuse(
 	ctx context.Context,
-	client *acp.Client,
+	host acp.ProcessHost,
 	cfg acp.BridgeConfig,
+	sessionKey string,
 	entry *acp.SessionEntry,
 	task string,
 	emitter events.Emitter,
 	started time.Time,
 ) (tools.ExecutionResult, bool) {
-	bridge := acp.NewBridge(client, cfg)
+	bridge := acp.NewBridge(host, cfg)
 	bridge.Bind(acp.BridgeState{
 		ProcessID:    entry.ProcessID,
 		ACPSessionID: entry.ACPSessionID,
@@ -214,7 +168,7 @@ func (e ToolExecutor) tryReuse(
 
 	// Update registry with new cursor position
 	state := bridge.State()
-	sessionRegistry.Store(cfg.SessionID, acp.SessionEntry{
+	sessionRegistry.Store(sessionKey, acp.SessionEntry{
 		ProcessID:    state.ProcessID,
 		ACPSessionID: state.ACPSessionID,
 		Cursor:       state.Cursor,
@@ -227,14 +181,14 @@ func (e ToolExecutor) tryReuse(
 
 func (e ToolExecutor) runFresh(
 	ctx context.Context,
-	client *acp.Client,
+	host acp.ProcessHost,
 	cfg acp.BridgeConfig,
-	sandboxSessionID string,
+	sessionKey string,
 	task string,
 	emitter events.Emitter,
 	started time.Time,
 ) tools.ExecutionResult {
-	bridge := acp.NewBridge(client, cfg)
+	bridge := acp.NewBridge(host, cfg)
 
 	var collectedEvents []events.RunEvent
 	var outputParts []string
@@ -272,14 +226,14 @@ func (e ToolExecutor) runFresh(
 	// Save session for reuse (process stays alive)
 	state := bridge.State()
 	if state.ProcessID != "" && state.ACPSessionID != "" {
-		sessionRegistry.Store(sandboxSessionID, acp.SessionEntry{
+		sessionRegistry.Store(sessionKey, acp.SessionEntry{
 			ProcessID:    state.ProcessID,
 			ACPSessionID: state.ACPSessionID,
 			Cursor:       state.Cursor,
 			AgentVersion: state.AgentVersion,
 		})
 		slog.Info("acp: session saved for reuse",
-			"session_id", sandboxSessionID,
+			"session_id", sessionKey,
 			"process_id", state.ProcessID,
 			"acp_session_id", state.ACPSessionID,
 		)
@@ -288,6 +242,82 @@ func (e ToolExecutor) runFresh(
 	}
 
 	return e.buildResult(collectedEvents, outputParts, summary, elapsed)
+}
+
+func (e ToolExecutor) injectProviderEnv(
+	ctx context.Context,
+	runID string,
+	accountID string,
+	profileName string,
+	provider acp.ResolvedProvider,
+	env map[string]string,
+) *tools.ExecutionError {
+	if provider.AuthStrategy == acp.AuthStrategyProviderNative || profileName == "" {
+		return nil
+	}
+
+	if os.Getenv(envSkipLLMProxy) == "true" {
+		return nil
+	}
+	if e.ConfigResolver == nil {
+		return nil
+	}
+
+	mapping, err := sharedconfig.ResolveProfile(ctx, e.ConfigResolver, profileName)
+	if err != nil {
+		return &tools.ExecutionError{
+			ErrorClass: "tool.profile_invalid",
+			Message:    fmt.Sprintf("failed to resolve profile %q: %s", profileName, err),
+		}
+	}
+	if e.JWTSecret == "" {
+		return nil
+	}
+
+	issuer, err := acptoken.NewIssuer(e.JWTSecret, 30*time.Minute)
+	if err != nil {
+		return &tools.ExecutionError{
+			ErrorClass: "tool.token_issue_failed",
+			Message:    fmt.Sprintf("create token issuer: %s", err),
+		}
+	}
+
+	token, err := issuer.Issue(acptoken.IssueParams{
+		RunID:     runID,
+		AccountID: accountID,
+		Models:    []string{mapping.Model},
+		Budget:    0,
+	})
+	if err != nil {
+		return &tools.ExecutionError{
+			ErrorClass: "tool.token_issue_failed",
+			Message:    fmt.Sprintf("issue session token: %s", err),
+		}
+	}
+
+	env["OPENCODE_API_KEY"] = token
+	env["OPENAI_API_KEY"] = token
+	env["OPENAI_BASE_URL"] = defaultLLMProxyBaseURL
+	env["OPENCODE_CONFIG_CONTENT"] = fmt.Sprintf(`{"provider":{"opencode":{"api":%q}}}`, defaultLLMProxyBaseURL)
+	env["OPENCODE_DISABLE_AUTOUPDATE"] = "true"
+	env["OPENCODE_DISABLE_MODELS_FETCH"] = "true"
+	env["ARKLOOP_ACP_HOST_KIND"] = string(provider.HostKind)
+	return nil
+}
+
+func buildSessionKey(runID string, provider acp.ResolvedProvider) string {
+	return strings.Join([]string{runID, provider.ID, string(provider.HostKind)}, "|")
+}
+
+func copyStringMap(src map[string]string) map[string]string {
+	if len(src) == 0 {
+		return map[string]string{}
+	}
+	out := make(map[string]string, len(src))
+	for k, v := range src {
+		out[k] = v
+	}
+	return out
 }
 
 func (e ToolExecutor) buildResult(

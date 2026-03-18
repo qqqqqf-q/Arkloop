@@ -12,6 +12,7 @@ import (
 
 	"arkloop/services/shared/database"
 
+	"github.com/google/uuid"
 	_ "modernc.org/sqlite" // SQLite driver registration.
 )
 
@@ -214,9 +215,49 @@ func (ts *timeScanner) Scan(src any) error {
 	return nil
 }
 
+type uuidScanner struct {
+	dest reflect.Value
+	ptr  bool
+}
+
+func (us *uuidScanner) Scan(src any) error {
+	if src == nil {
+		if us.ptr {
+			us.dest.Set(reflect.Zero(us.dest.Type()))
+		} else {
+			us.dest.Set(reflect.ValueOf(uuid.UUID{}))
+		}
+		return nil
+	}
+
+	var raw string
+	switch v := src.(type) {
+	case string:
+		raw = v
+	case []byte:
+		raw = string(v)
+	default:
+		return fmt.Errorf("sqliteadapter: cannot scan %T into uuid.UUID", src)
+	}
+
+	parsed, err := uuid.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("sqliteadapter: parse uuid %q: %w", raw, err)
+	}
+
+	if us.ptr {
+		us.dest.Set(reflect.ValueOf(&parsed))
+	} else {
+		us.dest.Set(reflect.ValueOf(parsed))
+	}
+	return nil
+}
+
 var (
 	timeType    = reflect.TypeOf(time.Time{})
 	timePtrType = reflect.TypeOf((*time.Time)(nil))
+	uuidType    = reflect.TypeOf(uuid.UUID{})
+	uuidPtrType = reflect.TypeOf((*uuid.UUID)(nil))
 )
 
 // wrapTimeTargets 遍历 Scan 目标参数，将 *time.Time 和 **time.Time 替换为 timeScanner。
@@ -232,6 +273,12 @@ func wrapTimeTargets(dest []any) []any {
 				continue
 			case timePtrType:
 				out[i] = &timeScanner{dest: elem, ptr: true}
+				continue
+			case uuidType:
+				out[i] = &uuidScanner{dest: elem, ptr: false}
+				continue
+			case uuidPtrType:
+				out[i] = &uuidScanner{dest: elem, ptr: true}
 				continue
 			}
 		}

@@ -173,5 +173,9 @@ func AutoMigrate(ctx context.Context, dataSourceName string) (*Pool, error) {
 		pool.Close()
 		return nil, fmt.Errorf("sqliteadapter: auto-migrate: %w", err)
 	}
+	if err := repairLegacySchemas(ctx, pool.Unwrap()); err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("sqliteadapter: repair legacy schemas: %w", err)
+	}
 	return pool, nil
 }

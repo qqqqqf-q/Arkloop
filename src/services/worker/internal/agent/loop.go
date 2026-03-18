@@ -31,37 +31,38 @@ const (
 )
 
 type RunContext struct {
-	RunID                  uuid.UUID
-	AccountID              *uuid.UUID
-	UserID                 *uuid.UUID
-	AgentID                string
-	ThreadID               *uuid.UUID
-	ProjectID              *uuid.UUID
-	ProfileRef             string
-	WorkspaceRef           string
-	WorkDir                string
-	EnabledSkills          []skillstore.ResolvedSkill
-	ToolAllowlist          []string
-	ToolDenylist           []string
-	RouteID                string
-	Model                  string
-	MemoryScope            string
-	TraceID                string
-	InputJSON              map[string]any
-	ReasoningIterations    int
-	ToolContinuationBudget int
-	SystemPrompt           string
-	MaxOutputTokens        *int
-	ToolTimeoutMs          *int
-	ToolBudget             map[string]any
-	PerToolSoftLimits      tools.PerToolSoftLimits
-	MaxCostMicros          *int64
-	MaxTotalOutputTokens   *int64
-	ToolExecutor           *tools.DispatchingExecutor
-	ToolSpecs              []llm.ToolSpec
-	PendingMemoryWrites    *memory.PendingWriteBuffer
-	Runtime                *sharedtoolruntime.RuntimeSnapshot
-	CancelSignal           func() bool
+	RunID                            uuid.UUID
+	AccountID                        *uuid.UUID
+	UserID                           *uuid.UUID
+	AgentID                          string
+	ThreadID                         *uuid.UUID
+	ProjectID                        *uuid.UUID
+	ProfileRef                       string
+	WorkspaceRef                     string
+	WorkDir                          string
+	EnabledSkills                    []skillstore.ResolvedSkill
+	ToolAllowlist                    []string
+	ToolDenylist                     []string
+	ActiveToolProviderConfigsByGroup map[string]sharedtoolruntime.ProviderConfig
+	RouteID                          string
+	Model                            string
+	MemoryScope                      string
+	TraceID                          string
+	InputJSON                        map[string]any
+	ReasoningIterations              int
+	ToolContinuationBudget           int
+	SystemPrompt                     string
+	MaxOutputTokens                  *int
+	ToolTimeoutMs                    *int
+	ToolBudget                       map[string]any
+	PerToolSoftLimits                tools.PerToolSoftLimits
+	MaxCostMicros                    *int64
+	MaxTotalOutputTokens             *int64
+	ToolExecutor                     *tools.DispatchingExecutor
+	ToolSpecs                        []llm.ToolSpec
+	PendingMemoryWrites              *memory.PendingWriteBuffer
+	Runtime                          *sharedtoolruntime.RuntimeSnapshot
+	CancelSignal                     func() bool
 
 	// LLM 调用重试配置，0 值表示不重试
 	LlmRetryMaxAttempts int
@@ -497,30 +498,59 @@ func (l *Loop) executeToolCall(
 	emitter events.Emitter,
 ) tools.ExecutionResult {
 	execCtx := tools.ExecutionContext{
-		RunID:               runCtx.RunID,
-		TraceID:             runCtx.TraceID,
-		AccountID:           runCtx.AccountID,
-		ThreadID:            runCtx.ThreadID,
-		ProjectID:           runCtx.ProjectID,
-		UserID:              runCtx.UserID,
-		ProfileRef:          runCtx.ProfileRef,
-		WorkspaceRef:        runCtx.WorkspaceRef,
-		WorkDir:             runCtx.WorkDir,
-		EnabledSkills:       append([]skillstore.ResolvedSkill(nil), runCtx.EnabledSkills...),
-		ToolAllowlist:       append([]string(nil), runCtx.ToolAllowlist...),
-		ToolDenylist:        append([]string(nil), runCtx.ToolDenylist...),
-		RouteID:             runCtx.RouteID,
-		Model:               runCtx.Model,
-		MemoryScope:         runCtx.MemoryScope,
-		AgentID:             runCtx.AgentID,
-		TimeoutMs:           runCtx.ToolTimeoutMs,
-		Budget:              copyMap(runCtx.ToolBudget),
-		PerToolSoftLimits:   tools.CopyPerToolSoftLimits(runCtx.PerToolSoftLimits),
-		Emitter:             emitter,
-		PendingMemoryWrites: runCtx.PendingMemoryWrites,
-		RuntimeSnapshot:     runCtx.Runtime,
+		RunID:                            runCtx.RunID,
+		TraceID:                          runCtx.TraceID,
+		AccountID:                        runCtx.AccountID,
+		ThreadID:                         runCtx.ThreadID,
+		ProjectID:                        runCtx.ProjectID,
+		UserID:                           runCtx.UserID,
+		ProfileRef:                       runCtx.ProfileRef,
+		WorkspaceRef:                     runCtx.WorkspaceRef,
+		WorkDir:                          runCtx.WorkDir,
+		EnabledSkills:                    append([]skillstore.ResolvedSkill(nil), runCtx.EnabledSkills...),
+		ToolAllowlist:                    append([]string(nil), runCtx.ToolAllowlist...),
+		ToolDenylist:                     append([]string(nil), runCtx.ToolDenylist...),
+		ActiveToolProviderConfigsByGroup: copyProviderConfigs(runCtx.ActiveToolProviderConfigsByGroup),
+		RouteID:                          runCtx.RouteID,
+		Model:                            runCtx.Model,
+		MemoryScope:                      runCtx.MemoryScope,
+		AgentID:                          runCtx.AgentID,
+		TimeoutMs:                        runCtx.ToolTimeoutMs,
+		Budget:                           copyMap(runCtx.ToolBudget),
+		PerToolSoftLimits:                tools.CopyPerToolSoftLimits(runCtx.PerToolSoftLimits),
+		Emitter:                          emitter,
+		PendingMemoryWrites:              runCtx.PendingMemoryWrites,
+		RuntimeSnapshot:                  runCtx.Runtime,
 	}
 	return runCtx.ToolExecutor.Execute(ctx, call.ToolName, copyMap(call.ArgumentsJSON), execCtx, call.ToolCallID)
+}
+
+func copyProviderConfigs(src map[string]sharedtoolruntime.ProviderConfig) map[string]sharedtoolruntime.ProviderConfig {
+	if len(src) == 0 {
+		return nil
+	}
+	out := make(map[string]sharedtoolruntime.ProviderConfig, len(src))
+	for group, cfg := range src {
+		out[group] = sharedtoolruntime.ProviderConfig{
+			GroupName:    cfg.GroupName,
+			ProviderName: cfg.ProviderName,
+			BaseURL:      cfg.BaseURL,
+			APIKeyValue:  cfg.APIKeyValue,
+			ConfigJSON:   copyProviderConfigJSON(cfg.ConfigJSON),
+		}
+	}
+	return out
+}
+
+func copyProviderConfigJSON(src map[string]any) map[string]any {
+	if len(src) == 0 {
+		return nil
+	}
+	out := make(map[string]any, len(src))
+	for k, v := range src {
+		out[k] = v
+	}
+	return out
 }
 
 func (l *Loop) executeContinuationToolCall(
@@ -1050,9 +1080,16 @@ func compactedToolMessage(m llm.Message) llm.Message {
 			Content: []llm.TextPart{{Text: `{"tool_call_id":"","result":{"compacted":true}}`, TrustSource: m.Content[0].TrustSource}},
 		}
 	}
+	toolName, _ := envelope["tool_name"].(string)
+	if tools.IsGenerativeUIBootstrapTool(toolName) {
+		return m
+	}
 	stub := map[string]any{
 		"tool_call_id": envelope["tool_call_id"],
 		"result":       map[string]any{"compacted": true},
+	}
+	if strings.TrimSpace(toolName) != "" {
+		stub["tool_name"] = strings.TrimSpace(toolName)
 	}
 	text, _ := json.Marshal(stub)
 	return llm.Message{
@@ -1076,6 +1113,7 @@ func assistantMessage(text string, toolCalls []llm.ToolCall) llm.Message {
 func toolResultMessage(result llm.StreamToolResult) llm.Message {
 	envelope := map[string]any{
 		"tool_call_id": result.ToolCallID,
+		"tool_name":    result.ToolName,
 	}
 	if result.ResultJSON != nil {
 		envelope["result"] = result.ResultJSON
@@ -1178,6 +1216,9 @@ func toolResultDedupKey(toolName string, args map[string]any, result llm.StreamT
 	if strings.TrimSpace(toolName) == "" || args == nil {
 		return "", "", false
 	}
+	if tools.IsGenerativeUIBootstrapTool(toolName) {
+		return "", "", false
+	}
 
 	if result.Error != nil {
 		return "", "", false
@@ -1261,6 +1302,7 @@ func toolResultMessageDedup(result llm.StreamToolResult, refToolCallID string) l
 	}
 	envelope := map[string]any{
 		"tool_call_id": result.ToolCallID,
+		"tool_name":    result.ToolName,
 		"result":       dedup,
 	}
 	if result.Error != nil {

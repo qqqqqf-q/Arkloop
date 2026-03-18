@@ -17,6 +17,7 @@ import (
 	spawnagent "arkloop/services/worker/internal/tools/builtin/spawn_agent"
 	summarizethread "arkloop/services/worker/internal/tools/builtin/summarize_thread"
 	todowrite "arkloop/services/worker/internal/tools/builtin/todo_write"
+	visualizereadme "arkloop/services/worker/internal/tools/builtin/visualize_read_me"
 	webfetch "arkloop/services/worker/internal/tools/builtin/web_fetch"
 	websearch "arkloop/services/worker/internal/tools/builtin/web_search"
 	writefile "arkloop/services/worker/internal/tools/builtin/write_file"
@@ -29,6 +30,7 @@ func AgentSpecs() []tools.AgentToolSpec {
 	return []tools.AgentToolSpec{
 		searchtools.AgentSpec,
 		TimelineTitleAgentSpec,
+		visualizereadme.AgentSpec,
 		artifactguidelines.AgentSpec,
 		websearch.AgentSpec,
 		websearch.AgentSpecTavily,
@@ -60,6 +62,7 @@ func LlmSpecs() []llm.ToolSpec {
 	return []llm.ToolSpec{
 		searchtools.LlmSpec,
 		TimelineTitleLlmSpec,
+		visualizereadme.LlmSpec,
 		artifactguidelines.LlmSpec,
 		websearch.LlmSpec,
 		webfetch.LlmSpec,
@@ -83,6 +86,7 @@ func Executors(pool *pgxpool.Pool, rdb *redis.Client, resolver sharedconfig.Reso
 	tracker := fileops.NewFileTracker()
 	return map[string]tools.Executor{
 		TimelineTitleAgentSpec.Name:       TimelineTitleExecutor{},
+		visualizereadme.AgentSpec.Name:    visualizereadme.NewToolExecutor(),
 		artifactguidelines.AgentSpec.Name: artifactguidelines.ToolExecutor{},
 		websearch.AgentSpec.Name:          websearch.NewToolExecutor(resolver),
 		websearch.AgentSpecTavily.Name:    websearch.NewTavilyExecutor(resolver),

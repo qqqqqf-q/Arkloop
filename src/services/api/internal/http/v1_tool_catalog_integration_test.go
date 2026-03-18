@@ -452,6 +452,9 @@ func TestBuildEffectiveToolCatalogOmitsStoredArtifactsWithoutArtifactStore(t *te
 	if err != nil {
 		t.Fatalf("build effective tool catalog: %v", err)
 	}
+	if _, ok := findCatalogTool(catalog, "document", "visualize_read_me"); !ok {
+		t.Fatal("visualize_read_me should remain available without artifact store")
+	}
 	if _, ok := findCatalogTool(catalog, "document", "artifact_guidelines"); !ok {
 		t.Fatal("artifact_guidelines should remain available without artifact store")
 	}

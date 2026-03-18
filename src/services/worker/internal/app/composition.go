@@ -323,6 +323,7 @@ func toRuntimeProviders(platformProviders []toolprovider.ActiveProviderConfig) [
 			ProviderName: provider.ProviderName,
 			BaseURL:      provider.BaseURL,
 			APIKeyValue:  provider.APIKeyValue,
+			ConfigJSON:   provider.ConfigJSON,
 		})
 	}
 	return providers

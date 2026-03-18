@@ -48,9 +48,9 @@ function buildThemeCSS(cssVars: string): string {
     --color-text-danger: var(--c-status-error-text, var(--c-text-primary));
     --color-text-success: var(--c-status-success-text, var(--c-text-primary));
     --color-text-warning: var(--c-status-warning-text, var(--c-text-primary));
-    --color-background-primary: var(--c-bg-sub);
-    --color-background-secondary: var(--c-bg-page);
-    --color-background-tertiary: var(--c-bg-deep);
+    --color-background-primary: var(--c-bg-card, var(--c-bg-sub));
+    --color-background-secondary: var(--c-bg-sub);
+    --color-background-tertiary: var(--c-bg-page);
     --color-background-info: var(--c-status-info-bg, var(--c-bg-sub));
     --color-background-danger: var(--c-status-danger-bg, var(--c-bg-sub));
     --color-background-success: var(--c-status-success-bg, var(--c-bg-sub));
@@ -174,7 +174,7 @@ ${buildThemeCSS(snapshot.cssVars)}
     padding: 6px 14px;
   }
   :where(button:hover) {
-    background: var(--color-background-tertiary);
+    background: var(--color-background-secondary);
   }
   :where(select, input[type="text"], input[type="number"], textarea) {
     appearance: none;
@@ -189,36 +189,59 @@ ${buildThemeCSS(snapshot.cssVars)}
     padding: 10px;
   }
   :where(input[type="range"]) {
+    -webkit-appearance: none;
     appearance: none;
     width: 100%;
     min-width: 88px;
     height: 20px;
-    background: transparent;
+    padding: 0;
+    border: none;
+    border-radius: 999px;
+    background:
+      linear-gradient(
+        to right,
+        var(--color-text-primary) 0%,
+        var(--color-text-primary) var(--arkloop-range-fill, 0%),
+        var(--color-border-primary) var(--arkloop-range-fill, 0%),
+        var(--color-border-primary) 100%
+      )
+      center / 100% 4px no-repeat;
+    accent-color: var(--color-text-primary);
   }
   :where(input[type="range"]::-webkit-slider-runnable-track) {
-    height: 2px;
+    -webkit-appearance: none;
+    height: 4px;
     border-radius: 999px;
-    background: var(--color-border-secondary);
+    background: transparent;
   }
   :where(input[type="range"]::-webkit-slider-thumb) {
+    -webkit-appearance: none;
     appearance: none;
-    width: 12px;
-    height: 12px;
+    width: 14px;
+    height: 14px;
     margin-top: -5px;
     border-radius: 999px;
-    border: none;
+    border: 2px solid var(--color-background-primary);
     background: var(--color-text-primary);
   }
+  :where(input[type="range"]::-webkit-slider-thumb:hover) {
+    transform: scale(1.04);
+  }
   :where(input[type="range"]::-moz-range-track) {
-    height: 2px;
+    height: 4px;
     border: none;
     border-radius: 999px;
-    background: var(--color-border-secondary);
+    background: var(--color-border-primary);
+  }
+  :where(input[type="range"]::-moz-range-progress) {
+    height: 4px;
+    border-radius: 999px;
+    background: var(--color-text-primary);
   }
   :where(input[type="range"]::-moz-range-thumb) {
-    width: 12px;
-    height: 12px;
-    border: none;
+    width: 14px;
+    height: 14px;
+    border: 2px solid var(--color-background-primary);
     border-radius: 999px;
     background: var(--color-text-primary);
   }
@@ -251,6 +274,9 @@ ${ARTIFACT_SVG_STYLES}
       window.parent.postMessage({ type: 'arkloop:artifact:action', action: 'prompt', text: String(text).slice(0, 4000) }, '*');
     }
   };
+  window.sendPrompt = function(text) {
+    window.arkloop.sendPrompt(text);
+  };
 
   function reportError(message) {
     window.parent.postMessage({ type: 'arkloop:artifact:action', action: 'error', message: String(message || 'render error').slice(0, 4000) }, '*');
@@ -266,9 +292,9 @@ ${ARTIFACT_SVG_STYLES}
       + '    --color-text-danger: var(--c-status-error-text, var(--c-text-primary));\\n'
       + '    --color-text-success: var(--c-status-success-text, var(--c-text-primary));\\n'
       + '    --color-text-warning: var(--c-status-warning-text, var(--c-text-primary));\\n'
-      + '    --color-background-primary: var(--c-bg-sub);\\n'
-      + '    --color-background-secondary: var(--c-bg-page);\\n'
-      + '    --color-background-tertiary: var(--c-bg-deep);\\n'
+      + '    --color-background-primary: var(--c-bg-card, var(--c-bg-sub));\\n'
+      + '    --color-background-secondary: var(--c-bg-sub);\\n'
+      + '    --color-background-tertiary: var(--c-bg-page);\\n'
       + '    --color-background-info: var(--c-status-info-bg, var(--c-bg-sub));\\n'
       + '    --color-background-danger: var(--c-status-danger-bg, var(--c-bg-sub));\\n'
       + '    --color-background-success: var(--c-status-success-bg, var(--c-bg-sub));\\n'
@@ -293,6 +319,35 @@ ${ARTIFACT_SVG_STYLES}
     return Array.prototype.map.call(nodes, function(node) {
       return node.outerHTML;
     }).join('');
+  }
+
+  function updateRangeFill(input) {
+    if (!input) return;
+    var min = Number.parseFloat(input.min || '0');
+    var max = Number.parseFloat(input.max || '100');
+    var value = Number.parseFloat(input.value || String(min));
+    if (!Number.isFinite(min)) min = 0;
+    if (!Number.isFinite(max) || max <= min) max = min + 100;
+    if (!Number.isFinite(value)) value = min;
+    var ratio = ((value - min) / (max - min)) * 100;
+    var clamped = Math.max(0, Math.min(100, ratio));
+    input.style.setProperty('--arkloop-range-fill', clamped + '%');
+  }
+
+  function decorateRangeInputs(root) {
+    if (!root) return;
+    var inputs = root.querySelectorAll('input[type="range"]');
+    Array.prototype.forEach.call(inputs, function(input) {
+      updateRangeFill(input);
+      if (input.dataset.arkloopRangeBound === 'true') return;
+      input.dataset.arkloopRangeBound = 'true';
+      input.addEventListener('input', function() {
+        updateRangeFill(input);
+      });
+      input.addEventListener('change', function() {
+        updateRangeFill(input);
+      });
+    });
   }
 
   function normalizeContent(html, contentType) {
@@ -337,11 +392,6 @@ ${ARTIFACT_SVG_STYLES}
       return source;
     }
   }
-
-  window.addEventListener('arkloop:send-prompt', function(event) {
-    var text = event && typeof event.detail === 'string' ? event.detail : '';
-    if (text) window.arkloop.sendPrompt(text);
-  });
 
   window.addEventListener('error', function(event) {
     reportError(event && event.message ? event.message : 'render error');
@@ -397,39 +447,47 @@ ${ARTIFACT_SVG_STYLES}
       }
     });
 
+    decorateRangeInputs(root);
     window._notifyHeight();
     if (finalize === true) {
       window._runScripts();
     }
   };
 
-  window._runScripts = async function() {
+  window._runScripts = function() {
     var scripts = Array.prototype.slice.call(document.querySelectorAll('#root script'));
+    var pendingExternal = 0;
+
     for (var index = 0; index < scripts.length; index++) {
-      await new Promise(function(resolve) {
-        var old = scripts[index];
-        if (!old || !old.parentNode) { resolve(); return; }
-        var script = document.createElement('script');
-        var isExternal = !!old.src;
-        if (isExternal) {
-          script.src = old.src;
-          script.onload = function() { resolve(); };
-          script.onerror = function() {
-            reportError('failed to load script: ' + old.src);
-            resolve();
-          };
-        } else {
-          script.textContent = old.textContent;
-        }
-        for (var i = 0; i < old.attributes.length; i++) {
-          var attr = old.attributes[i];
-          if (attr.name !== 'src') script.setAttribute(attr.name, attr.value);
-        }
-        old.parentNode.replaceChild(script, old);
-        if (!isExternal) resolve();
-      });
+      var old = scripts[index];
+      if (!old || !old.parentNode) continue;
+
+      var script = document.createElement('script');
+      var isExternal = !!old.src;
+      if (isExternal) {
+        let externalSrc = old.src;
+        pendingExternal += 1;
+        script.src = externalSrc;
+        script.addEventListener('load', function() {
+          pendingExternal -= 1;
+          window._notifyHeight();
+        });
+        script.addEventListener('error', function() {
+          pendingExternal -= 1;
+          reportError('failed to load script: ' + externalSrc);
+          window._notifyHeight();
+        });
+      } else {
+        script.textContent = old.textContent;
+      }
+      for (var i = 0; i < old.attributes.length; i++) {
+        var attr = old.attributes[i];
+        if (attr.name !== 'src') script.setAttribute(attr.name, attr.value);
+      }
+      old.parentNode.replaceChild(script, old);
     }
-    window._notifyHeight();
+    decorateRangeInputs(document.getElementById('root'));
+    if (pendingExternal === 0) window._notifyHeight();
   };
 
   window._notifyHeight = function() {

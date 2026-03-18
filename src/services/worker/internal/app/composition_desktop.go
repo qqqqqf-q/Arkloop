@@ -120,12 +120,16 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 		runtimeSnapshot = &sharedtoolruntime.RuntimeSnapshot{
 			SandboxBaseURL:   "http://" + sandboxAddr,
 			SandboxAuthToken: authToken,
+			ACPHostKind:      "sandbox",
 		}
 		slog.Info("desktop: using VM isolation for shell execution", "sandbox_addr", sandboxAddr)
 	} else {
 		shellExec := localshell.NewExecutor()
 		executors[localshell.ExecCommandAgentSpec.Name] = shellExec
 		executors[localshell.WriteStdinAgentSpec.Name] = shellExec
+		runtimeSnapshot = &sharedtoolruntime.RuntimeSnapshot{
+			ACPHostKind: "local",
+		}
 		if isolationMode == "vm" {
 			slog.Warn("desktop: VM isolation requested but sandbox not available, falling back to trusted local shell")
 		}

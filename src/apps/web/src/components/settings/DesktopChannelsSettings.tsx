@@ -32,6 +32,10 @@ type Props = {
 
 const inputCls =
   'w-full rounded-lg border border-[var(--c-border-subtle)] bg-[var(--c-bg-input)] px-3 py-2 text-sm text-[var(--c-text-primary)] outline-none placeholder:text-[var(--c-text-muted)] focus:border-[var(--c-border)] transition-colors'
+const secondaryButtonCls =
+  'inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)] disabled:opacity-50'
+const primaryButtonCls =
+  'inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium transition-colors hover:opacity-90 disabled:opacity-50'
 
 function readAllowedUserIDs(channel: ChannelResponse | null): string[] {
   const raw = channel?.config_json?.allowed_user_ids
@@ -53,6 +57,19 @@ function parseAllowedUserIDs(input: string): string[] {
     .split(/[\n,\s]+/)
     .map((item) => item.trim())
     .filter(Boolean)
+}
+
+function mergeAllowedUserIDs(existing: string[], pendingInput: string): string[] {
+  const seen = new Set<string>()
+  const merged: string[] = []
+
+  for (const item of [...existing, ...parseAllowedUserIDs(pendingInput)]) {
+    if (!item || seen.has(item)) continue
+    seen.add(item)
+    merged.push(item)
+  }
+
+  return merged
 }
 
 function sameItems(a: string[], b: string[]): boolean {
@@ -152,6 +169,10 @@ export function DesktopChannelsSettings({ accessToken }: Props) {
     () => readAllowedUserIDs(telegramChannel),
     [telegramChannel],
   )
+  const effectiveAllowedUserIDs = useMemo(
+    () => mergeAllowedUserIDs(allowedUserIDs, allowedUserInput),
+    [allowedUserIDs, allowedUserInput],
+  )
   const effectivePersonaID = useMemo(
     () => resolvePersonaID(personas, telegramChannel?.persona_id),
     [personas, telegramChannel?.persona_id],
@@ -161,11 +182,11 @@ export function DesktopChannelsSettings({ accessToken }: Props) {
     if (loading) return false
     if ((telegramChannel?.is_active ?? false) !== enabled) return true
     if (effectivePersonaID !== personaID) return true
-    if (!sameItems(persistedAllowedUserIDs, allowedUserIDs)) return true
+    if (!sameItems(persistedAllowedUserIDs, effectiveAllowedUserIDs)) return true
     return tokenDraft.trim().length > 0
   }, [
     effectivePersonaID,
-    allowedUserIDs,
+    effectiveAllowedUserIDs,
     enabled,
     loading,
     persistedAllowedUserIDs,
@@ -178,18 +199,9 @@ export function DesktopChannelsSettings({ accessToken }: Props) {
   const tokenConfigured = telegramChannel !== null
 
   const handleAddAllowedUsers = () => {
-    const nextIDs = parseAllowedUserIDs(allowedUserInput)
-    if (nextIDs.length === 0) return
-    setAllowedUserIDs((current) => {
-      const seen = new Set(current)
-      const merged = [...current]
-      for (const id of nextIDs) {
-        if (seen.has(id)) continue
-        seen.add(id)
-        merged.push(id)
-      }
-      return merged
-    })
+    const nextIDs = mergeAllowedUserIDs(allowedUserIDs, allowedUserInput)
+    if (nextIDs.length === allowedUserIDs.length) return
+    setAllowedUserIDs(nextIDs)
     setAllowedUserInput('')
     setSaved(false)
   }
@@ -200,11 +212,13 @@ export function DesktopChannelsSettings({ accessToken }: Props) {
   }
 
   const handleSave = async () => {
+    const nextAllowedUserIDs = mergeAllowedUserIDs(allowedUserIDs, allowedUserInput)
+
     if (enabled && !personaID) {
       setError(ct.personaRequired)
       return
     }
-    if (enabled && allowedUserIDs.length === 0) {
+    if (enabled && nextAllowedUserIDs.length === 0) {
       setError(ct.allowlistRequired)
       return
     }
@@ -212,7 +226,7 @@ export function DesktopChannelsSettings({ accessToken }: Props) {
     setSaving(true)
     setError('')
     try {
-      const configJSON = { allowed_user_ids: allowedUserIDs }
+      const configJSON = { allowed_user_ids: nextAllowedUserIDs }
 
       if (telegramChannel == null) {
         const created = await createChannel(accessToken, {
@@ -233,6 +247,8 @@ export function DesktopChannelsSettings({ accessToken }: Props) {
         })
       }
 
+      setAllowedUserIDs(nextAllowedUserIDs)
+      setAllowedUserInput('')
       setSaved(true)
       setTimeout(() => setSaved(false), 2500)
       await load()
@@ -411,8 +427,11 @@ export function DesktopChannelsSettings({ accessToken }: Props) {
                 <button
                   type="button"
                   onClick={handleAddAllowedUsers}
-                  className="inline-flex shrink-0 items-center gap-1 rounded-lg px-3 py-2 text-sm font-medium text-[var(--c-text-heading)] transition-colors hover:bg-[var(--c-bg-deep)]"
-                  style={{ border: '0.5px solid var(--c-border-subtle)' }}
+                  className={`${secondaryButtonCls} shrink-0`}
+                  style={{
+                    border: '0.5px solid var(--c-border-subtle)',
+                    background: 'var(--c-bg-page)',
+                  }}
                 >
                   <Plus size={14} />
                   {t.skills.add}
@@ -468,8 +487,11 @@ export function DesktopChannelsSettings({ accessToken }: Props) {
               type="button"
               onClick={() => void handleGenerateBindCode()}
               disabled={generatingCode}
-              className="inline-flex shrink-0 items-center gap-1 rounded-lg px-3 py-2 text-sm font-medium text-[var(--c-text-heading)] transition-colors hover:bg-[var(--c-bg-deep)] disabled:opacity-50"
-              style={{ border: '0.5px solid var(--c-border-subtle)' }}
+              className={`${secondaryButtonCls} shrink-0`}
+              style={{
+                border: '0.5px solid var(--c-border-subtle)',
+                background: 'var(--c-bg-page)',
+              }}
             >
               {generatingCode ? <Loader2 size={14} className="animate-spin" /> : <Link2 size={14} />}
               {generatingCode ? ct.generating : ct.generateCode}
@@ -519,11 +541,8 @@ export function DesktopChannelsSettings({ accessToken }: Props) {
           type="button"
           onClick={() => void handleSave()}
           disabled={saving || !canSave}
-          className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-[background,color,opacity] duration-150 disabled:pointer-events-none disabled:opacity-40"
-          style={{
-            background: canSave ? 'var(--c-accent)' : 'var(--c-bg-deep)',
-            color: canSave ? 'var(--c-accent-fg)' : 'var(--c-text-muted)',
-          }}
+          className={primaryButtonCls}
+          style={{ background: 'var(--c-btn-bg)', color: 'var(--c-btn-text)' }}
         >
           {saving && <Loader2 size={13} className="animate-spin" />}
           {!saving && saved && <Check size={13} />}

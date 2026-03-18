@@ -13,6 +13,7 @@ import (
 
 	sharedoutbound "arkloop/services/shared/outboundurl"
 
+	"arkloop/services/worker/internal/stablejson"
 	"github.com/google/uuid"
 )
 
@@ -186,6 +187,7 @@ func (g *GeminiGateway) Stream(ctx context.Context, request Request, yield func(
 func (g *GeminiGateway) streamGeminiSSE(ctx context.Context, body interface{ Read([]byte) (int, error) }, llmCallID string, yield func(StreamEvent) error) error {
 	var lastUsage *geminiUsageMetadata
 	terminalEmitted := false
+	toolCalls := map[int]*geminiStreamingToolCall{}
 
 	var parseErr error
 	sseErr := forEachSSEData(ctx, body, func(data string) error {
@@ -219,7 +221,7 @@ func (g *GeminiGateway) streamGeminiSSE(ctx context.Context, body interface{ Rea
 		}
 		candidate := chunk.Candidates[0]
 
-		for _, part := range candidate.Content.Parts {
+		for idx, part := range candidate.Content.Parts {
 			if part.Thought {
 				ch := "thinking"
 				if err := yield(StreamMessageDelta{
@@ -242,18 +244,66 @@ func (g *GeminiGateway) streamGeminiSSE(ctx context.Context, body interface{ Rea
 			}
 			if part.FunctionCall != nil {
 				args := mapOrEmpty(part.FunctionCall.Args)
-				if err := yield(ToolCall{
-					ToolCallID:    uuid.NewString(),
-					ToolName:      part.FunctionCall.Name,
-					ArgumentsJSON: args,
-				}); err != nil {
+				encodedArgs, err := stablejson.Encode(args)
+				if err != nil {
 					return err
 				}
+				call := toolCalls[idx]
+				if call == nil {
+					call = &geminiStreamingToolCall{
+						ToolCallID: fmt.Sprintf("%s:%d", llmCallID, idx),
+					}
+					toolCalls[idx] = call
+				}
+				call.ToolName = part.FunctionCall.Name
+				call.ArgumentsJSON = args
+				if call.EncodedArgs == "" {
+					call.EncodedArgs = encodedArgs
+					if err := yield(ToolCallArgumentDelta{
+						ToolCallIndex:  idx,
+						ToolCallID:     call.ToolCallID,
+						ToolName:       call.ToolName,
+						ArgumentsDelta: encodedArgs,
+					}); err != nil {
+						return err
+					}
+					continue
+				}
+				if encodedArgs == call.EncodedArgs {
+					continue
+				}
+				if strings.HasPrefix(encodedArgs, call.EncodedArgs) {
+					if err := yield(ToolCallArgumentDelta{
+						ToolCallIndex:  idx,
+						ToolCallID:     call.ToolCallID,
+						ToolName:       call.ToolName,
+						ArgumentsDelta: encodedArgs[len(call.EncodedArgs):],
+					}); err != nil {
+						return err
+					}
+				}
+				call.EncodedArgs = encodedArgs
 			}
 		}
 
 		switch candidate.FinishReason {
 		case "STOP", "MAX_TOKENS", "":
+			if candidate.FinishReason != "" {
+				for idx := 0; idx < len(toolCalls); idx++ {
+					call := toolCalls[idx]
+					if call == nil {
+						continue
+					}
+					if err := yield(ToolCall{
+						ToolCallID:    call.ToolCallID,
+						ToolName:      call.ToolName,
+						ArgumentsJSON: call.ArgumentsJSON,
+					}); err != nil {
+						return err
+					}
+					delete(toolCalls, idx)
+				}
+			}
 			// 继续或正常结束
 		case "SAFETY", "RECITATION":
 			terminalEmitted = true
@@ -292,8 +342,31 @@ func (g *GeminiGateway) streamGeminiSSE(ctx context.Context, body interface{ Rea
 			Message:    parseErr.Error(),
 		}})
 	}
+	if len(toolCalls) > 0 {
+		for idx := 0; idx < len(toolCalls); idx++ {
+			call := toolCalls[idx]
+			if call == nil {
+				continue
+			}
+			if err := yield(ToolCall{
+				ToolCallID:    call.ToolCallID,
+				ToolName:      call.ToolName,
+				ArgumentsJSON: call.ArgumentsJSON,
+			}); err != nil {
+				return err
+			}
+			delete(toolCalls, idx)
+		}
+	}
 
 	return yield(StreamRunCompleted{LlmCallID: llmCallID, Usage: parseGeminiUsage(lastUsage)})
+}
+
+type geminiStreamingToolCall struct {
+	ToolCallID    string
+	ToolName      string
+	EncodedArgs   string
+	ArgumentsJSON map[string]any
 }
 
 // toGeminiPayload 构建完整请求体，合并 advancedJSON。

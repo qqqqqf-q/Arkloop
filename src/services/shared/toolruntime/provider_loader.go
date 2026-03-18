@@ -2,6 +2,7 @@ package toolruntime
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -19,7 +20,7 @@ func LoadPlatformProviders(ctx context.Context, pool *pgxpool.Pool, decrypt Prov
 	}
 
 	rows, err := pool.Query(ctx, `
-		SELECT c.group_name, c.provider_name, c.base_url,
+		SELECT c.group_name, c.provider_name, c.base_url, c.config_json,
 		       s.encrypted_value, s.key_version
 		FROM tool_provider_configs c
 		LEFT JOIN secrets s ON s.id = c.secret_id AND s.owner_kind = 'platform'
@@ -37,10 +38,11 @@ func LoadPlatformProviders(ctx context.Context, pool *pgxpool.Pool, decrypt Prov
 			groupName    string
 			providerName string
 			baseURL      *string
+			configJSON   []byte
 			encrypted    *string
 			keyVersion   *int
 		)
-		if err := rows.Scan(&groupName, &providerName, &baseURL, &encrypted, &keyVersion); err != nil {
+		if err := rows.Scan(&groupName, &providerName, &baseURL, &configJSON, &encrypted, &keyVersion); err != nil {
 			return nil, fmt.Errorf("tool_provider_configs scan: %w", err)
 		}
 
@@ -52,11 +54,17 @@ func LoadPlatformProviders(ctx context.Context, pool *pgxpool.Pool, decrypt Prov
 			}
 		}
 
+		parsedConfig := map[string]any{}
+		if len(configJSON) > 0 {
+			_ = json.Unmarshal(configJSON, &parsedConfig)
+		}
+
 		providers = append(providers, ProviderConfig{
 			GroupName:    strings.TrimSpace(groupName),
 			ProviderName: strings.TrimSpace(providerName),
 			BaseURL:      baseURL,
 			APIKeyValue:  apiKeyValue,
+			ConfigJSON:   parsedConfig,
 		})
 	}
 	if err := rows.Err(); err != nil {

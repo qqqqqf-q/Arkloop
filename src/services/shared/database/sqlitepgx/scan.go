@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"reflect"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // sqlite 常见时间格式
@@ -129,11 +131,51 @@ func (jr *jsonRawScanner) Scan(src any) error {
 	return nil
 }
 
+type uuidScanner struct {
+	dest reflect.Value
+	ptr  bool
+}
+
+func (us *uuidScanner) Scan(src any) error {
+	if src == nil {
+		if us.ptr {
+			us.dest.Set(reflect.Zero(us.dest.Type()))
+		} else {
+			us.dest.Set(reflect.ValueOf(uuid.UUID{}))
+		}
+		return nil
+	}
+
+	var raw string
+	switch v := src.(type) {
+	case string:
+		raw = v
+	case []byte:
+		raw = string(v)
+	default:
+		return fmt.Errorf("sqlitepgx: cannot scan %T into uuid.UUID", src)
+	}
+
+	parsed, err := uuid.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("sqlitepgx: parse uuid %q: %w", raw, err)
+	}
+
+	if us.ptr {
+		us.dest.Set(reflect.ValueOf(&parsed))
+	} else {
+		us.dest.Set(reflect.ValueOf(parsed))
+	}
+	return nil
+}
+
 var (
 	timeType        = reflect.TypeOf(time.Time{})
 	timePtrType     = reflect.TypeOf((*time.Time)(nil))
 	stringSliceType = reflect.TypeOf([]string(nil))
 	rawMessageType  = reflect.TypeOf(json.RawMessage(nil))
+	uuidType        = reflect.TypeOf(uuid.UUID{})
+	uuidPtrType     = reflect.TypeOf((*uuid.UUID)(nil))
 )
 
 // wrapScanTargets 遍历 Scan 目标参数，将需要特殊处理的类型替换为自定义 scanner。
@@ -155,6 +197,12 @@ func wrapScanTargets(dest []any) []any {
 				continue
 			case rawMessageType:
 				out[i] = &jsonRawScanner{dest: elem}
+				continue
+			case uuidType:
+				out[i] = &uuidScanner{dest: elem, ptr: false}
+				continue
+			case uuidPtrType:
+				out[i] = &uuidScanner{dest: elem, ptr: true}
 				continue
 			}
 		}

@@ -4,6 +4,8 @@ package sqliteadapter
 
 import (
 	"context"
+	"database/sql"
+	"path/filepath"
 	"testing"
 
 	"arkloop/services/shared/database"
@@ -106,6 +108,147 @@ func TestAutoMigrate(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("run_events_seq_global row not found in _sequences after auto-migrate")
+	}
+
+	for _, tableName := range []string{
+		"channels",
+		"channel_identities",
+		"channel_identity_bind_codes",
+		"channel_dm_threads",
+		"channel_message_receipts",
+	} {
+		err = pool.QueryRow(ctx,
+			`SELECT count(*) FROM sqlite_master WHERE type='table' AND name=?`,
+			tableName,
+		).Scan(&count)
+		if err != nil {
+			t.Fatalf("query sqlite_master for %s: %v", tableName, err)
+		}
+		if count != 1 {
+			t.Fatalf("%s table not found after auto-migrate", tableName)
+		}
+	}
+}
+
+func TestAutoMigrateRepairsLegacySecretsSchema(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "desktop.db")
+
+	pool, err := AutoMigrate(ctx, dbPath)
+	if err != nil {
+		t.Fatalf("auto migrate sqlite: %v", err)
+	}
+
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO users (id, username, email, status)
+		VALUES (?, 'desktop', 'desktop@localhost', 'active')`,
+		desktopCompatUserID,
+	); err != nil {
+		t.Fatalf("seed desktop user: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO accounts (id, slug, name, type, owner_user_id)
+		VALUES (?, 'desktop', 'Desktop', 'personal', ?)`,
+		desktopCompatAccountID, desktopCompatUserID,
+	); err != nil {
+		t.Fatalf("seed desktop account: %v", err)
+	}
+
+	for _, stmt := range []string{
+		`PRAGMA foreign_keys = OFF`,
+		`DROP INDEX IF EXISTS secrets_platform_name_idx`,
+		`DROP INDEX IF EXISTS secrets_user_name_idx`,
+		`ALTER TABLE secrets RENAME TO secrets_aligned_backup`,
+		`CREATE TABLE secrets (
+			id              TEXT PRIMARY KEY,
+			account_id      TEXT NOT NULL,
+			name            TEXT NOT NULL,
+			encrypted_value TEXT NOT NULL,
+			key_version     INTEGER NOT NULL DEFAULT 1,
+			created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+			updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
+			UNIQUE(account_id, name)
+		)`,
+		`DROP TABLE channels`,
+		`CREATE TABLE channels (
+			id             TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))),2) || '-' || substr('89ab',abs(random()) % 4 + 1, 1) || substr(lower(hex(randomblob(2))),2) || '-' || lower(hex(randomblob(6)))),
+			account_id     TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+			channel_type   TEXT NOT NULL,
+			persona_id     TEXT REFERENCES personas(id) ON DELETE SET NULL,
+			credentials_id TEXT REFERENCES secrets(id),
+			webhook_secret TEXT,
+			webhook_url    TEXT,
+			is_active      INTEGER NOT NULL DEFAULT 0,
+			config_json    TEXT NOT NULL DEFAULT '{}',
+			created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+			updated_at     TEXT NOT NULL DEFAULT (datetime('now')),
+			UNIQUE (account_id, channel_type)
+		)`,
+		`DROP TABLE secrets_aligned_backup`,
+		`PRAGMA foreign_keys = ON`,
+	} {
+		if _, err := pool.Exec(ctx, stmt); err != nil {
+			t.Fatalf("downgrade secrets schema: %v", err)
+		}
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO secrets (id, account_id, name, encrypted_value, key_version)
+		VALUES (?, ?, 'legacy-bot-token', 'ciphertext', 7)`,
+		"11111111-1111-4111-8111-111111111111",
+		desktopCompatAccountID,
+	); err != nil {
+		t.Fatalf("insert legacy secret: %v", err)
+	}
+
+	if err := pool.Close(); err != nil {
+		t.Fatalf("close sqlite before reopen: %v", err)
+	}
+
+	repairedPool, err := AutoMigrate(ctx, dbPath)
+	if err != nil {
+		t.Fatalf("repair auto migrate sqlite: %v", err)
+	}
+	defer repairedPool.Close()
+
+	columns, err := sqliteTableColumns(ctx, repairedPool.Unwrap(), "secrets")
+	if err != nil {
+		t.Fatalf("load repaired secrets columns: %v", err)
+	}
+	if !hasSQLiteColumns(columns, "owner_kind", "owner_user_id", "rotated_at") {
+		t.Fatalf("repaired secrets table missing owner columns: %v", columns)
+	}
+
+	var (
+		ownerKind   string
+		ownerUserID sql.NullString
+		name        string
+		keyVersion  int
+		rotatedAt   sql.NullString
+	)
+	if err := repairedPool.QueryRow(ctx, `
+		SELECT owner_kind, owner_user_id, name, key_version, rotated_at
+		FROM secrets
+		WHERE id = ?`,
+		"11111111-1111-4111-8111-111111111111",
+	).Scan(&ownerKind, &ownerUserID, &name, &keyVersion, &rotatedAt); err != nil {
+		t.Fatalf("query repaired secret: %v", err)
+	}
+	if ownerKind != "user" {
+		t.Fatalf("owner_kind = %q, want user", ownerKind)
+	}
+	if !ownerUserID.Valid || ownerUserID.String != desktopCompatUserID {
+		t.Fatalf("owner_user_id = %#v, want %s", ownerUserID, desktopCompatUserID)
+	}
+	if name != "legacy-bot-token" {
+		t.Fatalf("name = %q, want legacy-bot-token", name)
+	}
+	if keyVersion != 7 {
+		t.Fatalf("key_version = %d, want 7", keyVersion)
+	}
+	if rotatedAt.Valid {
+		t.Fatalf("rotated_at = %#v, want NULL", rotatedAt)
 	}
 }
 

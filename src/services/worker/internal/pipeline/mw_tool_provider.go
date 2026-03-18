@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"strings"
 
+	sharedtoolruntime "arkloop/services/shared/toolruntime"
 	"arkloop/services/worker/internal/toolprovider"
 	"arkloop/services/worker/internal/tools"
 	webfetch "arkloop/services/worker/internal/tools/builtin/web_fetch"
@@ -75,6 +76,9 @@ func NewToolProviderMiddleware(cache *toolprovider.Cache) RunMiddleware {
 		if rc.ActiveToolProviderByGroup == nil {
 			rc.ActiveToolProviderByGroup = map[string]string{}
 		}
+		if rc.ActiveToolProviderConfigsByGroup == nil {
+			rc.ActiveToolProviderConfigsByGroup = map[string]sharedtoolruntime.ProviderConfig{}
+		}
 
 		apply := func(cfg toolprovider.ActiveProviderConfig, override bool) {
 			groupName := strings.TrimSpace(cfg.GroupName)
@@ -96,8 +100,10 @@ func NewToolProviderMiddleware(cache *toolprovider.Cache) RunMiddleware {
 
 			if !exists {
 				rc.ActiveToolProviderByGroup[groupName] = providerName
+				rc.ActiveToolProviderConfigsByGroup[groupName] = toRuntimeProviderConfig(cfg)
 			} else if override {
 				rc.ActiveToolProviderByGroup[groupName] = providerName
+				rc.ActiveToolProviderConfigsByGroup[groupName] = toRuntimeProviderConfig(cfg)
 			} else if rc.ActiveToolProviderByGroup[groupName] != providerName {
 				slog.WarnContext(ctx, "tool provider: duplicate active provider", "group_name", groupName, "provider_name", providerName)
 			}
@@ -116,6 +122,27 @@ func NewToolProviderMiddleware(cache *toolprovider.Cache) RunMiddleware {
 
 		return next(ctx, rc)
 	}
+}
+
+func toRuntimeProviderConfig(cfg toolprovider.ActiveProviderConfig) sharedtoolruntime.ProviderConfig {
+	return sharedtoolruntime.ProviderConfig{
+		GroupName:    strings.TrimSpace(cfg.GroupName),
+		ProviderName: strings.TrimSpace(cfg.ProviderName),
+		BaseURL:      cfg.BaseURL,
+		APIKeyValue:  cfg.APIKeyValue,
+		ConfigJSON:   copyJSONMap(cfg.ConfigJSON),
+	}
+}
+
+func copyJSONMap(src map[string]any) map[string]any {
+	if len(src) == 0 {
+		return nil
+	}
+	out := make(map[string]any, len(src))
+	for k, v := range src {
+		out[k] = v
+	}
+	return out
 }
 
 func buildProviderExecutor(cfg toolprovider.ActiveProviderConfig) tools.Executor {

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -146,6 +147,36 @@ func TestQueryRow_ErrNoRows(t *testing.T) {
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
 		t.Errorf("expected pgx.ErrNoRows; got %v", err)
+	}
+}
+
+func TestQueryRow_ScanUUIDPointer(t *testing.T) {
+	t.Parallel()
+	pool := openTestDB(t)
+	ctx := context.Background()
+
+	if _, err := pool.Exec(ctx, `CREATE TABLE uuids (id TEXT PRIMARY KEY, parent_id TEXT)`); err != nil {
+		t.Fatalf("create table: %v", err)
+	}
+
+	id := uuid.New()
+	parentID := uuid.New()
+	if _, err := pool.Exec(ctx, `INSERT INTO uuids (id, parent_id) VALUES (?, ?)`, id.String(), parentID.String()); err != nil {
+		t.Fatalf("insert row: %v", err)
+	}
+
+	var (
+		gotID     uuid.UUID
+		gotParent *uuid.UUID
+	)
+	if err := pool.QueryRow(ctx, `SELECT id, parent_id FROM uuids WHERE id = ?`, id.String()).Scan(&gotID, &gotParent); err != nil {
+		t.Fatalf("scan uuid row: %v", err)
+	}
+	if gotID != id {
+		t.Fatalf("id = %s, want %s", gotID, id)
+	}
+	if gotParent == nil || *gotParent != parentID {
+		t.Fatalf("parent_id = %#v, want %s", gotParent, parentID)
 	}
 }
 

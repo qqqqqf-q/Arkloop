@@ -24,6 +24,11 @@ func (m *mockActivator) DrainActivated() []llm.ToolSpec {
 
 func makeSearchable() map[string]llm.ToolSpec {
 	return map[string]llm.ToolSpec{
+		"visualize_read_me": {
+			Name:        "visualize_read_me",
+			Description: strPtr("load generative ui design rules"),
+			JSONSchema:  map[string]any{"type": "object"},
+		},
 		"artifact_guidelines": {
 			Name:        "artifact_guidelines",
 			Description: strPtr("load artifact design rules"),
@@ -143,7 +148,7 @@ func TestDependencyToolAutoActivated(t *testing.T) {
 	entries := matchedEntries(t, result.ResultJSON)
 	foundDependency := false
 	for _, entry := range entries {
-		if entry["name"] != "artifact_guidelines" {
+		if entry["name"] != "visualize_read_me" {
 			continue
 		}
 		foundDependency = true
@@ -152,7 +157,7 @@ func TestDependencyToolAutoActivated(t *testing.T) {
 		}
 	}
 	if !foundDependency {
-		t.Fatalf("expected artifact_guidelines dependency in matched entries, got %#v", entries)
+		t.Fatalf("expected visualize_read_me dependency in matched entries, got %#v", entries)
 	}
 }
 
@@ -303,11 +308,11 @@ func TestWildcardAll(t *testing.T) {
 	if result.Error != nil {
 		t.Fatalf("unexpected error: %s", result.Error.Message)
 	}
-	if count := result.ResultJSON["count"].(int); count != 5 {
-		t.Fatalf("expected 5 matches (all searchable), got %d", count)
+	if count := result.ResultJSON["count"].(int); count != 6 {
+		t.Fatalf("expected 6 matches (all searchable), got %d", count)
 	}
-	if len(activator.activated) != 5 {
-		t.Fatalf("expected 5 activated, got %d", len(activator.activated))
+	if len(activator.activated) != 6 {
+		t.Fatalf("expected 6 activated, got %d", len(activator.activated))
 	}
 	if got := result.ResultJSON["already_active_count"]; got != 0 {
 		t.Fatalf("expected already_active_count=0, got %v", got)

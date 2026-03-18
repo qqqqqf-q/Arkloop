@@ -3,6 +3,7 @@ import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 
 import { DocumentPanel } from '../components/DocumentPanel'
+import { LocaleProvider } from '../contexts/LocaleContext'
 import type { ArtifactRef } from '../storage'
 
 type URLWithObjectURL = typeof URL & {
@@ -89,12 +90,14 @@ describe('DocumentPanel artifact preview', () => {
 
     await act(async () => {
       root.render(
-        <DocumentPanel
-          artifact={markdownArtifact}
-          artifacts={[htmlArtifact]}
-          accessToken="token"
-          onClose={() => {}}
-        />,
+        <LocaleProvider>
+          <DocumentPanel
+            artifact={markdownArtifact}
+            artifacts={[htmlArtifact]}
+            accessToken="token"
+            onClose={() => {}}
+          />
+        </LocaleProvider>,
       )
     })
 

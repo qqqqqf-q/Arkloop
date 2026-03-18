@@ -22,28 +22,30 @@ const (
 )
 
 type ExecutionContext struct {
-	RunID               uuid.UUID
-	TraceID             string
-	AccountID           *uuid.UUID
-	ThreadID            *uuid.UUID
-	ProjectID           *uuid.UUID
-	UserID              *uuid.UUID
-	ProfileRef          string
-	WorkspaceRef        string
-	WorkDir             string
-	EnabledSkills       []skillstore.ResolvedSkill
-	ToolAllowlist       []string
-	ToolDenylist        []string
-	RouteID             string
-	Model               string
-	MemoryScope         string
-	AgentID             string
-	TimeoutMs           *int
-	Budget              map[string]any
-	PerToolSoftLimits   PerToolSoftLimits
-	Emitter             events.Emitter
-	PendingMemoryWrites *memory.PendingWriteBuffer
-	RuntimeSnapshot     *sharedtoolruntime.RuntimeSnapshot
+	RunID                            uuid.UUID
+	TraceID                          string
+	AccountID                        *uuid.UUID
+	ThreadID                         *uuid.UUID
+	ProjectID                        *uuid.UUID
+	UserID                           *uuid.UUID
+	ProfileRef                       string
+	WorkspaceRef                     string
+	WorkDir                          string
+	EnabledSkills                    []skillstore.ResolvedSkill
+	ToolAllowlist                    []string
+	ToolDenylist                     []string
+	ActiveToolProviderConfigsByGroup map[string]sharedtoolruntime.ProviderConfig
+	RouteID                          string
+	Model                            string
+	MemoryScope                      string
+	AgentID                          string
+	TimeoutMs                        *int
+	Budget                           map[string]any
+	PerToolSoftLimits                PerToolSoftLimits
+	Emitter                          events.Emitter
+	PendingMemoryWrites              *memory.PendingWriteBuffer
+	RuntimeSnapshot                  *sharedtoolruntime.RuntimeSnapshot
+	GenerativeUIReadMeSeen           bool
 }
 
 type ExecutionError struct {
@@ -112,7 +114,8 @@ type DispatchingExecutor struct {
 	activatedMu     sync.Mutex
 	activatedSpecs  []llm.ToolSpec
 
-	summarizer *ResultSummarizer
+	summarizer             *ResultSummarizer
+	generativeUIReadMeSeen bool
 }
 
 func NewDispatchingExecutor(registry *Registry, policyEnforcer *PolicyEnforcer) *DispatchingExecutor {
@@ -263,20 +266,24 @@ func (e *DispatchingExecutor) Execute(
 				}
 			}
 		}()
+		context.GenerativeUIReadMeSeen = e.generativeUIReadMeSeen
 		result = executor.Execute(ctx, resolvedName, args, context, decision.ToolCallID)
 	}()
 
 	// Layer 1: smart truncation — use CompressTargetBytes as the LLM-facing budget,
 	// independent from the executor-level MaxOutputBytes truncation.
-	if result.ResultJSON != nil && result.Error == nil {
+	if result.ResultJSON != nil && result.Error == nil && !ShouldBypassResultCompression(resolvedName) {
 		result = CompressResult(resolvedName, result, CompressTargetBytes)
 	}
 
 	// Layer 2: LLM summarization
-	if e.summarizer != nil && result.ResultJSON != nil && result.Error == nil {
+	if e.summarizer != nil && result.ResultJSON != nil && result.Error == nil && !ShouldBypassResultSummarization(resolvedName) {
 		if raw, _ := json.Marshal(result.ResultJSON); len(raw) > e.summarizer.threshold {
 			result = e.summarizer.Summarize(ctx, resolvedName, result)
 		}
+	}
+	if result.Error == nil && IsGenerativeUIBootstrapTool(resolvedName) {
+		e.generativeUIReadMeSeen = true
 	}
 
 	result.DurationMs = durationMs(started)

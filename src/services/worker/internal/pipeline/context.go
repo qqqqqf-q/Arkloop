@@ -104,6 +104,8 @@ type RunContext struct {
 	ToolRegistry  *tools.Registry
 	// group_name -> provider_name
 	ActiveToolProviderByGroup map[string]string
+	// group_name -> active provider config
+	ActiveToolProviderConfigsByGroup map[string]sharedtoolruntime.ProviderConfig
 
 	// -- RoutingMiddleware 写入 --
 	Gateway       llm.Gateway

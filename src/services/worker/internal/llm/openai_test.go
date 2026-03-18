@@ -572,14 +572,24 @@ func TestOpenAIGateway_Stream_ChatCompletions_SSE_ToolCalls(t *testing.T) {
 	}
 
 	var gotCall *ToolCall
+	var gotDeltas []ToolCallArgumentDelta
 	for _, item := range events {
-		call, ok := item.(ToolCall)
-		if !ok {
-			continue
+		switch typed := item.(type) {
+		case ToolCallArgumentDelta:
+			gotDeltas = append(gotDeltas, typed)
+		case ToolCall:
+			copied := typed
+			gotCall = &copied
 		}
-		copied := call
-		gotCall = &copied
-		break
+	}
+	if len(gotDeltas) != 2 {
+		t.Fatalf("expected 2 tool call deltas, got %d events: %v", len(events), streamEventTypes(events))
+	}
+	if gotDeltas[0].ToolCallID != "call_1" || gotDeltas[0].ToolName != "web_search" || gotDeltas[0].ArgumentsDelta != `{"query":` {
+		t.Fatalf("unexpected first tool call delta: %#v", gotDeltas[0])
+	}
+	if gotDeltas[1].ArgumentsDelta != `"hello"}` {
+		t.Fatalf("unexpected second tool call delta: %#v", gotDeltas[1])
 	}
 	if gotCall == nil {
 		t.Fatalf("expected tool call event, got %d events: %v", len(events), streamEventTypes(events))

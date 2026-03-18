@@ -228,13 +228,23 @@ func TestGeminiGateway_Stream_ToolCalls(t *testing.T) {
 		return nil
 	})
 
+	var delta *ToolCallArgumentDelta
 	var call *ToolCall
 	for _, ev := range events {
-		if c, ok := ev.(ToolCall); ok {
-			copied := c
+		switch typed := ev.(type) {
+		case ToolCallArgumentDelta:
+			copy := typed
+			delta = &copy
+		case ToolCall:
+			copied := typed
 			call = &copied
-			break
 		}
+	}
+	if delta == nil {
+		t.Fatal("expected ToolCallArgumentDelta event")
+	}
+	if delta.ToolName != "web_search" || delta.ArgumentsDelta != `{"query":"cats"}` {
+		t.Fatalf("unexpected tool call delta: %#v", delta)
 	}
 	if call == nil {
 		t.Fatal("expected ToolCall event")

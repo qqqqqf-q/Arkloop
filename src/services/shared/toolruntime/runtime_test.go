@@ -7,6 +7,9 @@ import (
 
 func TestResolveBuiltinArtifactToolsReflectStorageAvailability(t *testing.T) {
 	resolved := ResolveBuiltin(ResolveInput{})
+	if _, ok := resolved.ToolNameSet()["visualize_read_me"]; !ok {
+		t.Fatal("visualize_read_me should be present without artifact store")
+	}
 	if _, ok := resolved.ToolNameSet()["artifact_guidelines"]; !ok {
 		t.Fatal("artifact_guidelines should be present without artifact store")
 	}
@@ -86,6 +89,7 @@ func TestResolveBuiltinUsesEnvAndProviders(t *testing.T) {
 		"spawn_agent",
 		"summarize_thread",
 		"timeline_title",
+		"visualize_read_me",
 		"wait_agent",
 		"web_fetch",
 		"web_search",
@@ -159,5 +163,25 @@ func TestResolveBuiltinHidesWebToolsWhenEnvIncomplete(t *testing.T) {
 	}
 	if _, ok := resolved.ToolNameSet()["web_fetch"]; ok {
 		t.Fatal("web_fetch should be absent when jina has no API key")
+	}
+}
+
+func TestResolveBuiltinAddsACPFromProviderConfig(t *testing.T) {
+	resolved := ResolveBuiltin(ResolveInput{
+		PlatformProviders: []ProviderConfig{
+			{
+				GroupName:    "acp",
+				ProviderName: "acp.opencode",
+				ConfigJSON: map[string]any{
+					"host_kind": "local",
+				},
+			},
+		},
+	})
+	if _, ok := resolved.ToolNameSet()["acp_agent"]; !ok {
+		t.Fatal("acp_agent should be present when ACP provider config resolves a host")
+	}
+	if resolved.ACPHostKind != "local" {
+		t.Fatalf("unexpected ACP host kind: %q", resolved.ACPHostKind)
 	}
 }

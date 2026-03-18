@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -139,6 +140,7 @@ func (g *AnthropicGateway) Stream(ctx context.Context, request Request, yield fu
 	if len(request.Tools) > 0 {
 		payload["tools"] = toAnthropicTools(request.Tools)
 	}
+	payload["stream"] = true
 
 	advancedCfg, err := parseAnthropicAdvancedJSON(g.cfg.AdvancedJSON)
 	if err != nil {
@@ -235,7 +237,7 @@ func (g *AnthropicGateway) Stream(ctx context.Context, request Request, yield fu
 	for k, v := range advancedCfg.ExtraHeaders {
 		req.Header.Set(k, v)
 	}
-	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := g.client.Do(req)
@@ -254,23 +256,22 @@ func (g *AnthropicGateway) Stream(ctx context.Context, request Request, yield fu
 	}
 	defer resp.Body.Close()
 
-	body, bodyTruncated, _ := readAllWithLimit(resp.Body, g.cfg.MaxResponseBytes)
 	status := resp.StatusCode
 
-	if g.cfg.EmitDebugEvents {
-		raw, rawTruncated := truncateUTF8(string(body), anthropicMaxDebugChunkBytes)
-		chunk := StreamLlmResponseChunk{
-			LlmCallID:    llmCallID,
-			ProviderKind: "anthropic",
-			APIMode:      "messages",
-			Raw:          raw,
-			StatusCode:   &status,
-			Truncated:    bodyTruncated || rawTruncated,
-		}
-		_ = yield(chunk)
-	}
-
 	if status < 200 || status >= 300 {
+		body, bodyTruncated, _ := readAllWithLimit(resp.Body, g.cfg.MaxResponseBytes)
+		if g.cfg.EmitDebugEvents {
+			raw, rawTruncated := truncateUTF8(string(body), anthropicMaxDebugChunkBytes)
+			chunk := StreamLlmResponseChunk{
+				LlmCallID:    llmCallID,
+				ProviderKind: "anthropic",
+				APIMode:      "messages",
+				Raw:          raw,
+				StatusCode:   &status,
+				Truncated:    bodyTruncated || rawTruncated,
+			}
+			_ = yield(chunk)
+		}
 		message, details := anthropicErrorMessageAndDetails(body, status)
 		return yield(StreamRunFailed{
 			LlmCallID: llmCallID,
@@ -282,48 +283,7 @@ func (g *AnthropicGateway) Stream(ctx context.Context, request Request, yield fu
 		})
 	}
 
-	content, thinkingText, toolCalls, err := parseAnthropicMessage(body)
-	if err != nil {
-		if errors.Is(err, errAnthropicToolUseInput) {
-			return yield(StreamRunFailed{
-				LlmCallID: llmCallID,
-				Error: GatewayError{
-					ErrorClass: ErrorClassProviderNonRetryable,
-					Message:    "Anthropic tool_use input parse failed",
-					Details:    map[string]any{"reason": err.Error()},
-				},
-			})
-		}
-		return yield(StreamRunFailed{
-			LlmCallID: llmCallID,
-			Error: GatewayError{
-				ErrorClass: ErrorClassInternalError,
-				Message:    "Anthropic response parse failed",
-				Details:    map[string]any{"reason": err.Error()},
-			},
-		})
-	}
-
-	if thinkingText != "" {
-		thinkingChannel := "thinking"
-		if err := yield(StreamMessageDelta{ContentDelta: thinkingText, Role: "assistant", Channel: &thinkingChannel}); err != nil {
-			return err
-		}
-	}
-
-	if content != "" {
-		if err := yield(StreamMessageDelta{ContentDelta: content, Role: "assistant"}); err != nil {
-			return err
-		}
-	}
-
-	for _, call := range toolCalls {
-		if err := yield(call); err != nil {
-			return err
-		}
-	}
-
-	return yield(StreamRunCompleted{LlmCallID: llmCallID, Usage: parseAnthropicUsage(body)})
+	return g.streamAnthropicSSE(ctx, resp.Body, llmCallID, yield)
 }
 
 func parseAnthropicAdvancedJSON(raw map[string]any) (anthropicAdvancedConfig, error) {
@@ -696,6 +656,252 @@ func parseAnthropicUsage(body []byte) *Usage {
 	}
 	usageObj, ok := root["usage"].(map[string]any)
 	if !ok {
+		return nil
+	}
+	input, hasInput := usageObj["input_tokens"].(float64)
+	output, hasOutput := usageObj["output_tokens"].(float64)
+	cacheCreate, hasCacheCreate := usageObj["cache_creation_input_tokens"].(float64)
+	cacheRead, hasCacheRead := usageObj["cache_read_input_tokens"].(float64)
+
+	if !hasInput && !hasOutput && !hasCacheCreate && !hasCacheRead {
+		return nil
+	}
+	u := &Usage{}
+	if hasInput {
+		iv := int(input)
+		u.InputTokens = &iv
+	}
+	if hasOutput {
+		ov := int(output)
+		u.OutputTokens = &ov
+	}
+	if hasCacheCreate {
+		cv := int(cacheCreate)
+		u.CacheCreationInputTokens = &cv
+	}
+	if hasCacheRead {
+		rv := int(cacheRead)
+		u.CacheReadInputTokens = &rv
+	}
+	return u
+}
+
+type anthropicStreamEvent struct {
+	Type         string                     `json:"type"`
+	Index        *int                       `json:"index"`
+	ContentBlock *anthropicStreamBlock      `json:"content_block"`
+	Delta        *anthropicStreamDelta      `json:"delta"`
+	Message      *anthropicStreamMessage    `json:"message"`
+	Usage        map[string]any             `json:"usage"`
+}
+
+type anthropicStreamMessage struct {
+	Usage map[string]any `json:"usage"`
+}
+
+type anthropicStreamBlock struct {
+	Type     string         `json:"type"`
+	Text     string         `json:"text"`
+	Thinking string         `json:"thinking"`
+	ID       string         `json:"id"`
+	Name     string         `json:"name"`
+	Input    map[string]any `json:"input"`
+}
+
+type anthropicStreamDelta struct {
+	Type        string `json:"type"`
+	Text        string `json:"text"`
+	Thinking    string `json:"thinking"`
+	PartialJSON string `json:"partial_json"`
+}
+
+type anthropicToolUseBuffer struct {
+	ID   string
+	Name string
+	JSON strings.Builder
+}
+
+func (g *AnthropicGateway) streamAnthropicSSE(ctx context.Context, body io.Reader, llmCallID string, yield func(StreamEvent) error) error {
+	var usage *Usage
+	toolBuffers := map[int]*anthropicToolUseBuffer{}
+	completed := false
+
+	err := forEachSSEData(ctx, body, func(data string) error {
+		data = strings.TrimSpace(data)
+		if data == "" {
+			return nil
+		}
+		if g.cfg.EmitDebugEvents {
+			raw, rawTruncated := truncateUTF8(data, anthropicMaxDebugChunkBytes)
+			if err := yield(StreamLlmResponseChunk{
+				LlmCallID:    llmCallID,
+				ProviderKind: "anthropic",
+				APIMode:      "messages",
+				Raw:          raw,
+				Truncated:    rawTruncated,
+			}); err != nil {
+				return err
+			}
+		}
+
+		var event anthropicStreamEvent
+		if err := json.Unmarshal([]byte(data), &event); err != nil {
+			return yield(StreamRunFailed{
+				LlmCallID: llmCallID,
+				Error: GatewayError{
+					ErrorClass: ErrorClassInternalError,
+					Message:    "Anthropic response parse failed",
+					Details:    map[string]any{"reason": err.Error()},
+				},
+			})
+		}
+
+		if parsed := parseAnthropicUsageMap(event.Usage); parsed != nil {
+			usage = parsed
+		}
+		if event.Message != nil {
+			if parsed := parseAnthropicUsageMap(event.Message.Usage); parsed != nil {
+				usage = parsed
+			}
+		}
+
+		idx := 0
+		if event.Index != nil {
+			idx = *event.Index
+		}
+
+		switch event.Type {
+		case "content_block_start":
+			if event.ContentBlock == nil {
+				return nil
+			}
+			switch event.ContentBlock.Type {
+			case "text":
+				if strings.TrimSpace(event.ContentBlock.Text) == "" {
+					return nil
+				}
+				return yield(StreamMessageDelta{ContentDelta: event.ContentBlock.Text, Role: "assistant"})
+			case "thinking":
+				if strings.TrimSpace(event.ContentBlock.Thinking) == "" {
+					return nil
+				}
+				channel := "thinking"
+				return yield(StreamMessageDelta{ContentDelta: event.ContentBlock.Thinking, Role: "assistant", Channel: &channel})
+			case "tool_use":
+				buffer := &anthropicToolUseBuffer{
+					ID:   strings.TrimSpace(event.ContentBlock.ID),
+					Name: strings.TrimSpace(event.ContentBlock.Name),
+				}
+				toolBuffers[idx] = buffer
+				if len(event.ContentBlock.Input) == 0 {
+					return nil
+				}
+				encoded, err := stablejson.Encode(event.ContentBlock.Input)
+				if err != nil {
+					return err
+				}
+				buffer.JSON.WriteString(encoded)
+				return yield(ToolCallArgumentDelta{
+					ToolCallIndex:  idx,
+					ToolCallID:     buffer.ID,
+					ToolName:       buffer.Name,
+					ArgumentsDelta: encoded,
+				})
+			}
+		case "content_block_delta":
+			if event.Delta == nil {
+				return nil
+			}
+			switch event.Delta.Type {
+			case "text_delta":
+				if event.Delta.Text == "" {
+					return nil
+				}
+				return yield(StreamMessageDelta{ContentDelta: event.Delta.Text, Role: "assistant"})
+			case "thinking_delta":
+				if event.Delta.Thinking == "" {
+					return nil
+				}
+				channel := "thinking"
+				return yield(StreamMessageDelta{ContentDelta: event.Delta.Thinking, Role: "assistant", Channel: &channel})
+			case "input_json_delta":
+				buffer := toolBuffers[idx]
+				if buffer == nil {
+					return nil
+				}
+				buffer.JSON.WriteString(event.Delta.PartialJSON)
+				return yield(ToolCallArgumentDelta{
+					ToolCallIndex:  idx,
+					ToolCallID:     buffer.ID,
+					ToolName:       buffer.Name,
+					ArgumentsDelta: event.Delta.PartialJSON,
+				})
+			}
+		case "content_block_stop":
+			buffer := toolBuffers[idx]
+			if buffer == nil {
+				return nil
+			}
+			delete(toolBuffers, idx)
+			if strings.TrimSpace(buffer.ID) == "" || strings.TrimSpace(buffer.Name) == "" {
+				return yield(StreamRunFailed{
+					LlmCallID: llmCallID,
+					Error: GatewayError{
+						ErrorClass: ErrorClassProviderNonRetryable,
+						Message:    "Anthropic tool_use input parse failed",
+						Details:    map[string]any{"reason": "content block missing tool_use id or name"},
+					},
+				})
+			}
+			argumentsJSON := map[string]any{}
+			rawArgs := strings.TrimSpace(buffer.JSON.String())
+			if rawArgs != "" {
+				var parsed any
+				if err := json.Unmarshal([]byte(rawArgs), &parsed); err != nil {
+					return yield(StreamRunFailed{
+						LlmCallID: llmCallID,
+						Error: GatewayError{
+							ErrorClass: ErrorClassProviderNonRetryable,
+							Message:    "Anthropic tool_use input parse failed",
+							Details:    map[string]any{"reason": err.Error()},
+						},
+					})
+				}
+				obj, ok := parsed.(map[string]any)
+				if !ok {
+					return yield(StreamRunFailed{
+						LlmCallID: llmCallID,
+						Error: GatewayError{
+							ErrorClass: ErrorClassProviderNonRetryable,
+							Message:    "Anthropic tool_use input parse failed",
+							Details:    map[string]any{"reason": "tool_use input must be a JSON object"},
+						},
+					})
+				}
+				argumentsJSON = obj
+			}
+			return yield(ToolCall{
+				ToolCallID:    buffer.ID,
+				ToolName:      buffer.Name,
+				ArgumentsJSON: argumentsJSON,
+			})
+		case "message_stop":
+			completed = true
+			return nil
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	if !completed {
+		return yield(StreamRunFailed{LlmCallID: llmCallID, Error: InternalStreamEndedError()})
+	}
+	return yield(StreamRunCompleted{LlmCallID: llmCallID, Usage: usage})
+}
+
+func parseAnthropicUsageMap(usageObj map[string]any) *Usage {
+	if len(usageObj) == 0 {
 		return nil
 	}
 	input, hasInput := usageObj["input_tokens"].(float64)

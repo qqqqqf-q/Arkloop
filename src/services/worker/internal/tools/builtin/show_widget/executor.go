@@ -15,10 +15,18 @@ func (e *ToolExecutor) Execute(
 	_ context.Context,
 	_ string,
 	args map[string]any,
-	_ tools.ExecutionContext,
+	execCtx tools.ExecutionContext,
 	_ string,
 ) tools.ExecutionResult {
 	started := time.Now()
+
+	seenReadMe, _ := args["i_have_seen_read_me"].(bool)
+	if !seenReadMe {
+		return errResult("tool.args_invalid", "i_have_seen_read_me must be true after visualize_read_me", started)
+	}
+	if !execCtx.GenerativeUIReadMeSeen {
+		return errResult("tool.execution_failed", "visualize_read_me or artifact_guidelines must be called earlier in this run", started)
+	}
 
 	widgetCode, _ := args["widget_code"].(string)
 	if widgetCode == "" {

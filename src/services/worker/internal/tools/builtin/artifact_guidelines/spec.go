@@ -2,6 +2,7 @@ package artifactguidelines
 
 import (
 	sharedtoolmeta "arkloop/services/shared/toolmeta"
+	generativeuisource "arkloop/services/worker/internal/tools/builtin/generative_ui_source"
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/tools"
 )
@@ -24,7 +25,7 @@ var LlmSpec = llm.ToolSpec{
 				"type": "array",
 				"items": map[string]any{
 					"type": "string",
-					"enum": []string{"interactive", "chart", "diagram", "art"},
+					"enum": generativeuisource.AvailableModules(),
 				},
 				"description": "which design guideline modules to load",
 			},

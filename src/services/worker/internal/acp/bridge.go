@@ -11,16 +11,6 @@ import (
 	"arkloop/services/worker/internal/events"
 )
 
-// transport abstracts the sandbox ACP client for testing.
-type transport interface {
-	Start(ctx context.Context, req StartRequest) (*StartResponse, error)
-	Write(ctx context.Context, req WriteRequest) error
-	Read(ctx context.Context, req ReadRequest) (*ReadResponse, error)
-	Stop(ctx context.Context, req StopRequest) error
-	Wait(ctx context.Context, req WaitRequest) (*WaitResponse, error)
-	Status(ctx context.Context, req StatusRequest) (*StatusResponse, error)
-}
-
 const (
 	defaultPollInterval = 500 * time.Millisecond
 	defaultReadMaxBytes = 32 * 1024
@@ -28,14 +18,12 @@ const (
 
 // BridgeConfig holds configuration for a single ACP bridge run.
 type BridgeConfig struct {
-	SandboxBaseURL   string
-	SandboxAuthToken string
-	SessionID        string // sandbox session ID (typically run ID)
-	AccountID        string
-	Tier             string
-	Command          []string          // agent launch command, e.g. ["opencode","acp","--cwd","/workspace"]
-	Cwd              string            // workspace directory inside sandbox
-	Env              map[string]string
+	SessionID string // sandbox session ID (typically run ID)
+	AccountID string
+	Tier      string
+	Command   []string // agent launch command, e.g. ["opencode","acp","--cwd","/workspace"]
+	Cwd       string   // workspace directory inside sandbox
+	Env       map[string]string
 
 	PollInterval   time.Duration // how often to read stdout, default 500ms
 	ReadMaxBytes   int           // max bytes per read, default 32KB
@@ -53,7 +41,7 @@ type BridgeState struct {
 
 // Bridge manages a single ACP session lifecycle.
 type Bridge struct {
-	tr           transport
+	tr           ProcessHost
 	config       BridgeConfig
 	processID    string // set after Start
 	acpSessionID string // set after session/new
@@ -62,8 +50,8 @@ type Bridge struct {
 	msgIDSeq     int    // JSON-RPC message ID sequence
 }
 
-// NewBridge creates a Bridge. The transport is typically a *Client.
-func NewBridge(tr transport, config BridgeConfig) *Bridge {
+// NewBridge creates a Bridge. The host can be backed by sandbox or local processes.
+func NewBridge(tr ProcessHost, config BridgeConfig) *Bridge {
 	if config.PollInterval == 0 {
 		config.PollInterval = defaultPollInterval
 	}

@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"testing"
 
@@ -11,6 +12,12 @@ import (
 type recordingExecutor struct {
 	mu         sync.Mutex
 	calledWith string
+}
+
+type fixedResultExecutor struct {
+	mu      sync.Mutex
+	context ExecutionContext
+	result  ExecutionResult
 }
 
 func (e *recordingExecutor) Execute(
@@ -30,6 +37,25 @@ func (e *recordingExecutor) CalledWith() string {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	return e.calledWith
+}
+
+func (e *fixedResultExecutor) Execute(
+	_ context.Context,
+	_ string,
+	_ map[string]any,
+	ctx ExecutionContext,
+	_ string,
+) ExecutionResult {
+	e.mu.Lock()
+	e.context = ctx
+	e.mu.Unlock()
+	return e.result
+}
+
+func (e *fixedResultExecutor) Context() ExecutionContext {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.context
 }
 
 func TestDispatchingExecutorResolvesLlmNameToProvider(t *testing.T) {
@@ -92,5 +118,60 @@ func TestDispatchingExecutorUsesLegacyNameWhenBound(t *testing.T) {
 	}
 	if got := exec.CalledWith(); got != "web_search" {
 		t.Fatalf("expected web_search, got %q", got)
+	}
+}
+
+func TestDispatchingExecutorBypassesCompressionAndSummarizationForGenerativeUIBootstrapTools(t *testing.T) {
+	registry := NewRegistry()
+	if err := registry.Register(AgentToolSpec{
+		Name:        "visualize_read_me",
+		Version:     "1",
+		Description: "x",
+		RiskLevel:   RiskLevelLow,
+	}); err != nil {
+		t.Fatalf("register failed: %v", err)
+	}
+
+	allowlist := AllowlistFromNames([]string{"visualize_read_me"})
+	policy := NewPolicyEnforcer(registry, allowlist)
+	dispatch := NewDispatchingExecutor(registry, policy)
+	dispatch.SetSummarizer(NewResultSummarizer(&mockGateway{response: "should not run"}, "test-model", 10))
+
+	longGuidelines := strings.Repeat("guideline line\n", 5000)
+	exec := &fixedResultExecutor{
+		result: ExecutionResult{
+			ResultJSON: map[string]any{
+				"guidelines": longGuidelines,
+			},
+		},
+	}
+	if err := dispatch.Bind("visualize_read_me", exec); err != nil {
+		t.Fatalf("bind failed: %v", err)
+	}
+
+	result := dispatch.Execute(
+		context.Background(),
+		"visualize_read_me",
+		map[string]any{"modules": []string{"interactive"}},
+		ExecutionContext{Emitter: events.NewEmitter("trace")},
+		"call_bootstrap",
+	)
+	if result.Error != nil {
+		t.Fatalf("unexpected error: %+v", result.Error)
+	}
+	if result.ResultJSON["guidelines"] != longGuidelines {
+		t.Fatal("guidelines should pass through without compression")
+	}
+	if _, ok := result.ResultJSON["_compressed"]; ok {
+		t.Fatal("bootstrap result should not be compressed")
+	}
+	if _, ok := result.ResultJSON["_summarized"]; ok {
+		t.Fatal("bootstrap result should not be summarized")
+	}
+	if exec.Context().GenerativeUIReadMeSeen {
+		t.Fatal("bootstrap tool should not see read_me flag before it runs")
+	}
+	if !dispatch.generativeUIReadMeSeen {
+		t.Fatal("dispatch should remember read_me at run scope after bootstrap tool succeeds")
 	}
 }

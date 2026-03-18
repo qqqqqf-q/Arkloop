@@ -6,8 +6,19 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
+
+func anthropicSSEBody(chunks []string) string {
+	var sb strings.Builder
+	for _, c := range chunks {
+		sb.WriteString("data: ")
+		sb.WriteString(c)
+		sb.WriteString("\n\n")
+	}
+	return sb.String()
+}
 
 func TestToAnthropicMessages_ToolEnvelope(t *testing.T) {
 	system, messages, err := toAnthropicMessages([]Message{
@@ -129,15 +140,13 @@ func TestAnthropicGateway_Stream_ToolUse(t *testing.T) {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{
-  "id":"msg_test",
-  "type":"message",
-  "role":"assistant",
-  "content":[
-    {"type":"tool_use","id":"call_1","name":"web_search","input":{"query":"hello"}}
-  ]
-}`))
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(anthropicSSEBody([]string{
+			`{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"call_1","name":"web_search","input":{}}}`,
+			`{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"query\":\"hello\"}"}}`,
+			`{"type":"content_block_stop","index":0}`,
+			`{"type":"message_stop"}`,
+		})))
 	}))
 	t.Cleanup(server.Close)
 
@@ -164,15 +173,23 @@ func TestAnthropicGateway_Stream_ToolUse(t *testing.T) {
 		t.Fatalf("stream failed: %v", err)
 	}
 
+	var gotDelta *ToolCallArgumentDelta
 	var gotCall *ToolCall
 	for _, item := range events {
-		call, ok := item.(ToolCall)
-		if !ok {
-			continue
+		switch typed := item.(type) {
+		case ToolCallArgumentDelta:
+			copy := typed
+			gotDelta = &copy
+		case ToolCall:
+			copy := typed
+			gotCall = &copy
 		}
-		copied := call
-		gotCall = &copied
-		break
+	}
+	if gotDelta == nil {
+		t.Fatalf("expected tool call delta event, got %d events", len(events))
+	}
+	if gotDelta.ToolCallID != "call_1" || gotDelta.ToolName != "web_search" || gotDelta.ArgumentsDelta != `{"query":"hello"}` {
+		t.Fatalf("unexpected tool call delta: %#v", gotDelta)
 	}
 	if gotCall == nil {
 		t.Fatalf("expected tool call event, got %d events", len(events))
@@ -188,8 +205,11 @@ func TestAnthropicGateway_Stream_ToolUse(t *testing.T) {
 
 func TestAnthropicGateway_Stream_DebugChunk_NotTruncated(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"id":"msg_test","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}]}`))
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(anthropicSSEBody([]string{
+			`{"type":"content_block_start","index":0,"content_block":{"type":"text","text":"ok"}}`,
+			`{"type":"message_stop"}`,
+		})))
 	}))
 	t.Cleanup(server.Close)
 
@@ -220,23 +240,28 @@ func TestAnthropicGateway_Stream_DebugChunk_NotTruncated(t *testing.T) {
 }
 
 func TestAnthropicGateway_Stream_DebugChunk_Truncated(t *testing.T) {
-	limit := 1024
-	// build a response body exceeding MaxResponseBytes (not valid JSON, but enough to trigger truncation path)
-	bigPayload := make([]byte, limit+100)
-	for i := range bigPayload {
-		bigPayload[i] = 'x'
-	}
+	largeText := strings.Repeat("x", anthropicMaxDebugChunkBytes+128)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write(bigPayload)
+		w.Header().Set("Content-Type", "text/event-stream")
+		payload, _ := json.Marshal(map[string]any{
+			"type": "content_block_start",
+			"index": 0,
+			"content_block": map[string]any{
+				"type": "text",
+				"text": largeText,
+			},
+		})
+		_, _ = w.Write([]byte(anthropicSSEBody([]string{
+			string(payload),
+			`{"type":"message_stop"}`,
+		})))
 	}))
 	t.Cleanup(server.Close)
 
 	gateway := NewAnthropicGateway(AnthropicGatewayConfig{
-		APIKey:           "test",
-		BaseURL:          server.URL,
-		EmitDebugEvents:  true,
-		MaxResponseBytes: limit,
+		APIKey:          "test",
+		BaseURL:         server.URL,
+		EmitDebugEvents: true,
 	})
 
 	var chunks []StreamLlmResponseChunk
@@ -254,7 +279,7 @@ func TestAnthropicGateway_Stream_DebugChunk_Truncated(t *testing.T) {
 		t.Fatal("expected at least one debug chunk")
 	}
 	if !chunks[0].Truncated {
-		t.Fatalf("expected truncated=true for oversized body, got false")
+		t.Fatalf("expected truncated=true for oversized debug chunk, got false")
 	}
 }
 

@@ -24,12 +24,16 @@ var LlmSpec = llm.ToolSpec{
 				"type":        "string",
 				"description": "widget display title",
 			},
+			"i_have_seen_read_me": map[string]any{
+				"type":        "boolean",
+				"description": "must be true after calling visualize_read_me or artifact_guidelines in the current run",
+			},
 			"widget_code": map[string]any{
 				"type":        "string",
 				"description": "raw HTML fragment. Order: <style>, HTML structure, <script>. MUST be last parameter.",
 			},
 		},
-		"required":             []string{"title", "widget_code"},
+		"required":             []string{"title", "i_have_seen_read_me", "widget_code"},
 		"additionalProperties": false,
 	},
 }

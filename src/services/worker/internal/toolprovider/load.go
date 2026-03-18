@@ -111,7 +111,7 @@ func LoadActivePlatformProviders(ctx context.Context, pool *pgxpool.Pool) ([]Act
 			ProviderName: provider.ProviderName,
 			APIKeyValue:  provider.APIKeyValue,
 			BaseURL:      provider.BaseURL,
-			ConfigJSON:   map[string]any{},
+			ConfigJSON:   provider.ConfigJSON,
 		})
 	}
 	return out, nil

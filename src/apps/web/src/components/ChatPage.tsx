@@ -87,6 +87,8 @@ import {
   addSearchThreadId,
   SEARCH_PERSONA_KEY,
   isSearchThreadId,
+  readSelectedPersonaKeyFromStorage,
+  readSelectedModelFromStorage,
   readMessageSources,
   writeMessageSources,
   readMessageArtifacts,
@@ -847,7 +849,10 @@ export function ChatPage() {
 
   // 仅用于 streaming 结束后自动发送排队消息（无附件）
   const sendMessage = useCallback(async (text: string) => {
-    if (!threadId) return
+    if (!threadId) {
+      setError({ message: '当前没有活动会话，无法发送组件消息。' })
+      return
+    }
     const normalized = text.trim()
     if (!normalized) return
     if (activeRunId || sending) {
@@ -855,18 +860,27 @@ export function ChatPage() {
       setQueuedDraft(normalized)
       return
     }
+
+    const personaKey = readSelectedPersonaKeyFromStorage()
+    const modelOverride = readSelectedModelFromStorage() ?? undefined
+
     setSending(true)
     setError(null)
     setInjectionBlocked(null)
     injectionBlockedRunIdRef.current = null
     try {
-      const message = await createMessage(accessToken, threadId, { content: normalized })
+      const message = await createMessage(accessToken, threadId, buildMessageRequest(normalized, []))
       invalidateMessageSync()
       setMessages((prev) => [...prev, message])
       setAssistantDraft('')
-      const run = await createRun(accessToken, threadId, undefined, undefined, readThreadClawFolder(threadId) ?? undefined)
+      noResponseMsgIdRef.current = message.id
+      const run = await createRun(accessToken, threadId, personaKey, modelOverride, readThreadClawFolder(threadId) ?? undefined)
+      if (personaKey === SEARCH_PERSONA_KEY) addSearchThreadId(threadId)
       setActiveRunId(run.run_id)
       onRunStarted(threadId)
+      isAtBottomRef.current = true
+      setIsAtBottom(true)
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
     } catch (err) {
       if (isApiError(err) && err.status === 401) {
         onLoggedOut()
@@ -878,21 +892,9 @@ export function ChatPage() {
     }
   }, [accessToken, threadId, activeRunId, sending, onLoggedOut, onRunStarted, invalidateMessageSync])
 
-  // 用 ref 持有最新的 sendMessage，避免 SSE 事件闭包中捕获旧引用
+  // 用 ref 持有最新的 sendMessage，避免 widget 回调闭包中捕获旧引用
   const sendMessageRef = useRef(sendMessage)
   useEffect(() => { sendMessageRef.current = sendMessage }, [sendMessage])
-
-  // 监听 widget 发出的 arkloop:send-prompt 自定义事件
-  useEffect(() => {
-    const handler = (e: Event) => {
-      const text = (e as CustomEvent<string>).detail
-      if (typeof text === 'string' && text.trim()) {
-        void sendMessageRef.current(text.trim())
-      }
-    }
-    window.addEventListener('arkloop:send-prompt', handler)
-    return () => window.removeEventListener('arkloop:send-prompt', handler)
-  }, [])
 
   const handleArtifactAction = useCallback((action: { type: string; text?: string; message?: string }) => {
     if (action.type === 'prompt' && typeof action.text === 'string' && action.text.trim()) {

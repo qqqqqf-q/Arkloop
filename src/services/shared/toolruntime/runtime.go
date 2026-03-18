@@ -14,6 +14,7 @@ type ProviderConfig struct {
 	ProviderName string
 	BaseURL      *string
 	APIKeyValue  *string
+	ConfigJSON   map[string]any
 }
 
 type EnvConfig struct {
@@ -40,6 +41,7 @@ type RuntimeSnapshot struct {
 	BrowserEnabled    bool
 	SandboxBaseURL    string
 	SandboxAuthToken  string
+	ACPHostKind       string
 	MemoryBaseURL     string
 	MemoryRootAPIKey  string
 	PlatformProviders []ProviderConfig
@@ -58,6 +60,7 @@ type SnapshotInput struct {
 type BuiltinAvailability struct {
 	toolNames        []string
 	SandboxBaseURL   string
+	ACPHostKind      string
 	MemoryBaseURL    string
 	MemoryRootAPIKey string
 	DocumentWrite    bool
@@ -114,6 +117,7 @@ func BuildRuntimeSnapshot(ctx context.Context, input SnapshotInput) (RuntimeSnap
 		BrowserEnabled:      browserEnabled,
 		SandboxBaseURL:      availability.SandboxBaseURL,
 		SandboxAuthToken:    strings.TrimSpace(os.Getenv(authTokenEnvName)),
+		ACPHostKind:         availability.ACPHostKind,
 		MemoryBaseURL:       availability.MemoryBaseURL,
 		MemoryRootAPIKey:    availability.MemoryRootAPIKey,
 		PlatformProviders:   copyProviders(providers),
@@ -123,6 +127,7 @@ func BuildRuntimeSnapshot(ctx context.Context, input SnapshotInput) (RuntimeSnap
 
 func ResolveBuiltin(input ResolveInput) BuiltinAvailability {
 	available := map[string]struct{}{
+		"visualize_read_me":   {},
 		"artifact_guidelines": {},
 		"edit":                {},
 		"close_agent":         {},
@@ -159,12 +164,17 @@ func ResolveBuiltin(input ResolveInput) BuiltinAvailability {
 		}
 	}
 	if sandboxBaseURL != "" {
-		for _, name := range []string{"acp_agent", "python_execute", "exec_command", "write_stdin"} {
+		for _, name := range []string{"python_execute", "exec_command", "write_stdin"} {
 			available[name] = struct{}{}
 		}
 		if input.BrowserEnabled {
 			available["browser"] = struct{}{}
 		}
+	}
+
+	acpHostKind := resolveACPHostKind(sandboxBaseURL, input.PlatformProviders)
+	if acpHostKind != "" {
+		available["acp_agent"] = struct{}{}
 	}
 
 	memoryBaseURL := strings.TrimSpace(input.Env.MemoryBaseURL)
@@ -199,6 +209,7 @@ func ResolveBuiltin(input ResolveInput) BuiltinAvailability {
 	return BuiltinAvailability{
 		toolNames:        names,
 		SandboxBaseURL:   sandboxBaseURL,
+		ACPHostKind:      acpHostKind,
 		MemoryBaseURL:    memoryBaseURL,
 		MemoryRootAPIKey: memoryRootAPIKey,
 		DocumentWrite:    input.ArtifactStoreAvailable,
@@ -228,8 +239,19 @@ func (s RuntimeSnapshot) BuiltinToolNameSet() map[string]struct{} {
 }
 
 func (s RuntimeSnapshot) BuiltinAvailable(toolName string) bool {
-	_, ok := s.BuiltinToolNameSet()[strings.TrimSpace(toolName)]
-	return ok
+	name := strings.TrimSpace(toolName)
+	_, ok := s.BuiltinToolNameSet()[name]
+	if ok {
+		return true
+	}
+	switch name {
+	case "acp_agent":
+		return strings.TrimSpace(s.ACPHostKind) != ""
+	case "exec_command", "write_stdin":
+		return strings.TrimSpace(s.SandboxBaseURL) != "" || strings.TrimSpace(s.ACPHostKind) == "local"
+	default:
+		return false
+	}
 }
 
 func resolveBrowserEnabled(ctx context.Context, resolver sharedconfig.Resolver) bool {
@@ -254,6 +276,20 @@ func copyProviders(src []ProviderConfig) []ProviderConfig {
 	}
 	out := make([]ProviderConfig, len(src))
 	copy(out, src)
+	for i := range out {
+		out[i].ConfigJSON = copyJSONMap(src[i].ConfigJSON)
+	}
+	return out
+}
+
+func copyJSONMap(src map[string]any) map[string]any {
+	if len(src) == 0 {
+		return nil
+	}
+	out := make(map[string]any, len(src))
+	for k, v := range src {
+		out[k] = v
+	}
 	return out
 }
 
@@ -264,6 +300,31 @@ func findProvider(providers []ProviderConfig, groupName string) *ProviderConfig 
 		}
 	}
 	return nil
+}
+
+func resolveACPHostKind(sandboxBaseURL string, providers []ProviderConfig) string {
+	if provider := findProvider(providers, "acp"); provider != nil {
+		if hostKind := normalizedACPHostKind(provider.ConfigJSON); hostKind != "" {
+			return hostKind
+		}
+	}
+	if sandboxBaseURL != "" {
+		return "sandbox"
+	}
+	return ""
+}
+
+func normalizedACPHostKind(config map[string]any) string {
+	if len(config) == 0 {
+		return ""
+	}
+	value, _ := config["host_kind"].(string)
+	switch strings.TrimSpace(strings.ToLower(value)) {
+	case "local", "sandbox":
+		return strings.TrimSpace(strings.ToLower(value))
+	default:
+		return ""
+	}
 }
 
 func normalizeBaseURL(raw string) string {

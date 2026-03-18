@@ -23,8 +23,8 @@ const (
 )
 
 var toolDependencies = map[string][]string{
-	"show_widget":     {"artifact_guidelines"},
-	"create_artifact": {"artifact_guidelines"},
+	"show_widget":     {"visualize_read_me"},
+	"create_artifact": {"visualize_read_me"},
 }
 
 // Executor resolves tool queries against the searchable pool and activates matches.

@@ -2,9 +2,9 @@ package artifactguidelines
 
 import (
 	"context"
-	"strings"
 	"time"
 
+	generativeuisource "arkloop/services/worker/internal/tools/builtin/generative_ui_source"
 	"arkloop/services/worker/internal/tools"
 )
 
@@ -27,43 +27,25 @@ func (e ToolExecutor) Execute(
 		}
 	}
 
-	content := buildGuidelines(modules)
+	document, err := generativeuisource.BuildDocument(modules)
+	if err != nil {
+		return tools.ExecutionResult{
+			Error: &tools.ExecutionError{
+				ErrorClass: "tool.execution_failed",
+				Message:    err.Error(),
+			},
+			DurationMs: durationMs(started),
+		}
+	}
 
 	return tools.ExecutionResult{
 		ResultJSON: map[string]any{
-			"guidelines": content,
+			"source":     document.Source,
+			"modules":    document.Modules,
+			"guidelines": document.Content,
 		},
 		DurationMs: durationMs(started),
 	}
-}
-
-func buildGuidelines(modules []string) string {
-	var sb strings.Builder
-	sb.WriteString(guidelineCore)
-	seen := map[string]bool{}
-	for _, mod := range modules {
-		sections, ok := moduleSections[mod]
-		if !ok {
-			continue
-		}
-		for _, section := range sections {
-			key := sectionKey(section)
-			if seen[key] {
-				continue
-			}
-			seen[key] = true
-			sb.WriteString("\n\n")
-			sb.WriteString(section)
-		}
-	}
-	return sb.String()
-}
-
-func sectionKey(s string) string {
-	if len(s) > 60 {
-		return s[:60]
-	}
-	return s
 }
 
 func durationMs(started time.Time) int {

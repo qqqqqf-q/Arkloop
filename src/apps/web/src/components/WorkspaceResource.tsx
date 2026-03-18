@@ -189,14 +189,15 @@ export function WorkspaceResource({ file, runId, projectId, accessToken }: Props
     const kind = workspaceKind(loadState.mimeType)
     if (kind === 'html') {
       return (
-        <ArtifactIframe
-          mode="static"
-          content={loadState.content}
-          contentType={loadState.mimeType}
-          frameTitle={file.filename}
-          style={{ minHeight: '300px' }}
-          className="my-2"
-        />
+        <div data-workspace-kind="html" style={{ margin: '8px 0' }}>
+          <ArtifactIframe
+            mode="static"
+            content={loadState.content}
+            contentType={loadState.mimeType}
+            frameTitle={file.filename}
+            style={{ minHeight: '300px' }}
+          />
+        </div>
       )
     }
 

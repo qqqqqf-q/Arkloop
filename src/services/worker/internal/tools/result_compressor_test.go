@@ -129,3 +129,14 @@ func TestCompressResult_NestedMap(t *testing.T) {
 		t.Fatal("inner string should be truncated")
 	}
 }
+
+func TestShouldBypassResultCompression_GenerativeUIBootstrapTools(t *testing.T) {
+	for _, toolName := range []string{"visualize_read_me", "artifact_guidelines"} {
+		if !ShouldBypassResultCompression(toolName) {
+			t.Fatalf("expected compression bypass for %s", toolName)
+		}
+		if !ShouldBypassResultSummarization(toolName) {
+			t.Fatalf("expected summarization bypass for %s", toolName)
+		}
+	}
+}

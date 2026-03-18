@@ -84,14 +84,14 @@ describe('ArtifactHtmlPreview', () => {
     Object.defineProperty(iframe, 'contentWindow', { value: iframeWindow, configurable: true })
 
     const badSource = new MessageEvent('message', {
-      data: { type: 'arkloop-iframe-resize', height: 123 },
+      data: { type: 'arkloop:artifact:action', action: 'resize', height: 123 },
     })
     Object.defineProperty(badSource, 'source', { value: window, configurable: true })
     window.dispatchEvent(badSource)
     expect(iframe.style.height).not.toBe('123px')
 
     const goodSource = new MessageEvent('message', {
-      data: { type: 'arkloop-iframe-resize', height: 456 },
+      data: { type: 'arkloop:artifact:action', action: 'resize', height: 456 },
     })
     Object.defineProperty(goodSource, 'source', { value: iframeWindow, configurable: true })
     window.dispatchEvent(goodSource)

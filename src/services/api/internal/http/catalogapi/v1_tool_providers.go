@@ -49,6 +49,15 @@ var toolProviderCatalog = []toolProviderDefinition{
 	{GroupName: "web_fetch", ProviderName: "web_fetch.jina", RequiresAPIKey: true},
 	{GroupName: "web_fetch", ProviderName: "web_fetch.firecrawl", RequiresBaseURL: true, AllowsInternalHTTP: true, DefaultBaseURL: "http://firecrawl:19012"},
 	{GroupName: "web_fetch", ProviderName: "web_fetch.basic"},
+	{
+		GroupName: "acp", ProviderName: "acp.opencode",
+		ConfigFields: []ConfigFieldDef{
+			{Key: "host_kind", Label: "Host Kind", Type: "select", Required: false, Default: "sandbox", Options: []string{"sandbox", "local"}},
+			{Key: "auth_strategy", Label: "Auth Strategy", Type: "select", Required: false, Default: "arkloop_proxy", Options: []string{"arkloop_proxy", "provider_native"}},
+			{Key: "cwd", Label: "Working Directory", Type: "string", Required: false, Placeholder: "/workspace"},
+			{Key: "env_overrides", Label: "Env Overrides", Type: "string", Required: false, Placeholder: "{\"KEY\":\"value\"}"},
+		},
+	},
 	{GroupName: "sandbox", ProviderName: "sandbox.docker", RequiresBaseURL: true, AllowsInternalHTTP: true, DefaultBaseURL: "http://sandbox-docker:19002"},
 	{GroupName: "sandbox", ProviderName: "sandbox.firecracker", RequiresBaseURL: true, AllowsInternalHTTP: true, DefaultBaseURL: "http://sandbox:19002"},
 	{
@@ -256,7 +265,7 @@ func listToolProviders(
 		byProvider[cfg.ProviderName] = cfg
 	}
 
-	groupOrder := []string{"web_search", "web_fetch", "sandbox", "memory"}
+	groupOrder := []string{"web_search", "web_fetch", "acp", "sandbox", "memory"}
 	groups := make([]toolProviderGroupResponse, 0, len(groupOrder))
 	for _, groupName := range groupOrder {
 		items := []toolProviderItemResponse{}
