@@ -49,6 +49,7 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
   const [isPrivateMode, setIsPrivateMode] = useState(false)
   const [pendingIncognitoMode, setPendingIncognitoMode] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [sidebarHiddenByWidth, setSidebarHiddenByWidth] = useState(() => window.innerWidth < 900)
   const [rightPanelOpen, setRightPanelOpen] = useState(false)
   const [isSearchMode, setIsSearchMode] = useState(false)
   // ref 用于在 popstate 回调里读取最新值，避免闭包过期
@@ -75,6 +76,12 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
       navigate('/')
     }
   }, [location.pathname, navigate])
+
+  useEffect(() => {
+    const handler = () => setSidebarHiddenByWidth(window.innerWidth < 900)
+    window.addEventListener('resize', handler)
+    return () => window.removeEventListener('resize', handler)
+  }, [])
 
   const handleNotificationMarkedRead = useCallback(() => {
     setNotificationVersion((v) => v + 1)
@@ -293,7 +300,7 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
       )}
 
       <div className="flex min-h-0 flex-1">
-        <Sidebar
+        {!sidebarHiddenByWidth && <Sidebar
           me={me}
           threads={threads.filter((t) => readThreadMode(t.id) === appMode)}
           runningThreadIds={runningThreadIds}
@@ -329,7 +336,7 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
           narrow={rightPanelOpen}
           desktopMode={desktop}
           appMode={appMode}
-        />
+        />}
 
         {/* Settings modal for web mode */}
         {settingsOpen && !desktop && (

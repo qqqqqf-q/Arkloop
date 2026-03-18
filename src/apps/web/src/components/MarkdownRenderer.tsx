@@ -417,14 +417,14 @@ function WithCitations({ children, prefix }: { children: ReactNode; prefix: stri
 }
 
 function buildMarkdownComponents(compact: boolean): Components {
-  const paragraphFontSize = compact ? '13.5px' : '16px'
+  const paragraphFontSize = compact ? '13.5px' : '16.5px'
   const heading1FontSize = compact ? '20px' : '24px'
   const heading2FontSize = compact ? '17px' : '20px'
   const heading3FontSize = compact ? '15px' : '17px'
   const heading4FontSize = compact ? '15px' : '17px'
   const heading5FontSize = compact ? '13px' : '14px'
   const heading6FontSize = compact ? '13px' : '14px'
-  const listFontSize = compact ? '13.5px' : '16px'
+  const listFontSize = compact ? '13.5px' : '16.5px'
 
   return {
     pre: ({ children }) => {
@@ -455,7 +455,7 @@ function buildMarkdownComponents(compact: boolean): Components {
       }
 
       return (
-        <p style={{ color: 'var(--c-text-primary)', fontSize: paragraphFontSize, lineHeight: 1.6, letterSpacing: '0.01px', margin: '0 0 0.5em' }}>
+        <p style={{ color: 'var(--c-text-body)', fontWeight: 'var(--c-text-body-weight)' as unknown as number, fontSize: paragraphFontSize, lineHeight: 1.6, letterSpacing: '0.01px', margin: '0 0 0.5em' }}>
           <WithCitations prefix="p">{children}</WithCitations>
         </p>
       )
@@ -498,13 +498,13 @@ function buildMarkdownComponents(compact: boolean): Components {
     ),
 
     ul: ({ children }) => (
-      <ul style={{ color: 'var(--c-text-primary)', fontSize: listFontSize, lineHeight: 1.6, paddingLeft: '2em', margin: '0 0 1em', listStyleType: 'disc' }}>
+      <ul style={{ color: 'var(--c-text-body)', fontWeight: 'var(--c-text-body-weight)' as unknown as number, fontSize: listFontSize, lineHeight: 1.6, paddingLeft: '2em', margin: '0 0 1em', listStyleType: 'disc' }}>
         {children}
       </ul>
     ),
 
     ol: ({ children }) => (
-      <ol style={{ color: 'var(--c-text-primary)', fontSize: listFontSize, lineHeight: 1.6, paddingLeft: '2em', margin: '0 0 1em', listStyleType: 'decimal' }}>
+      <ol style={{ color: 'var(--c-text-body)', fontWeight: 'var(--c-text-body-weight)' as unknown as number, fontSize: listFontSize, lineHeight: 1.6, paddingLeft: '2em', margin: '0 0 1em', listStyleType: 'decimal' }}>
         {children}
       </ol>
     ),

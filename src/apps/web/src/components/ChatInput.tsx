@@ -295,8 +295,7 @@ export function ChatInput({
         display: 'flex',
         flexDirection: 'column',
         gap: '8px',
-        maxWidth: (variant === 'chat' && hasMessages) ? '720px' : '840px',
-        transition: 'max-width 200ms ease',
+        maxWidth: variant === 'welcome' ? '840px' : '720px',
       }}
     >
       {isFileDragging && (
@@ -455,8 +454,8 @@ export function ChatInput({
           </div>
         </div>
       </div>
-      <form onSubmit={(e) => onSubmit(e, selectedPersonaKey, selectedModel ?? undefined)} style={{ padding: '8px 22px 20px' }}>
-        <div style={{ position: 'relative', marginBottom: '20px' }}>
+      <form onSubmit={(e) => onSubmit(e, selectedPersonaKey, selectedModel ?? undefined)} style={{ padding: '8px 14px 14px 22px' }}>
+        <div style={{ position: 'relative', marginBottom: '12px' }}>
           <textarea
             ref={textareaRef}
             rows={1}

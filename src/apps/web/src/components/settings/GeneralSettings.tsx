@@ -276,17 +276,17 @@ export function GeneralSettings({ me, accessToken, onLogout, onMeUpdated: _onMeU
     <div className="flex flex-col gap-6">
       {/* Profile */}
       <div
-        className="flex items-center gap-3 rounded-xl bg-[var(--c-bg-menu)] px-4 py-3"
+        className="flex items-center gap-4 rounded-xl bg-[var(--c-bg-menu)] px-5 py-4"
         style={{ border: '0.5px solid var(--c-border-subtle)' }}
       >
         <div
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-semibold"
+          className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-base font-semibold"
           style={{ background: 'var(--c-avatar-bg)', color: 'var(--c-avatar-text)' }}
         >
           {userInitial}
         </div>
         <div className="flex min-w-0 flex-1 flex-col">
-          <span className="truncate text-sm font-semibold text-[var(--c-text-heading)]">
+          <span className="truncate text-base font-semibold text-[var(--c-text-heading)]">
             {displayName === '?' ? t.loading : displayName}
           </span>
           {localMode ? (

@@ -5,6 +5,8 @@ import {
   Download,
   X,
   Loader2,
+  ChevronDown,
+  Check,
 } from 'lucide-react'
 import {
   type LlmProvider,
@@ -52,6 +54,71 @@ function toVendorKey(provider: string, mode: string | null): VendorPresetKey {
 
 const INPUT_CLS =
   'w-full rounded-md border border-[var(--c-border-subtle)] bg-[var(--c-bg-input)] px-3 py-1.5 text-sm text-[var(--c-text-primary)] outline-none placeholder:text-[var(--c-text-muted)] focus:border-[var(--c-border)]'
+
+function VendorDropdown({
+  value,
+  onChange,
+  p,
+}: {
+  value: VendorPresetKey
+  onChange: (v: VendorPresetKey) => void
+  p: ReturnType<typeof useLocale>['t']['adminProviders']
+}) {
+  const [open, setOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
+  const btnRef = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current?.contains(e.target as Node) || btnRef.current?.contains(e.target as Node)) return
+      setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  return (
+    <div className="relative">
+      <button
+        ref={btnRef}
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        className="flex w-full items-center justify-between rounded-md bg-[var(--c-bg-input)] px-3 py-1.5 text-sm text-[var(--c-text-primary)] transition-colors hover:bg-[var(--c-bg-deep)]"
+        style={{ border: '1px solid var(--c-border-subtle)' }}
+      >
+        <span className="truncate">{vendorLabel(value, p)}</span>
+        <ChevronDown size={13} className="ml-2 shrink-0 text-[var(--c-text-muted)]" />
+      </button>
+      {open && (
+        <div
+          ref={menuRef}
+          className="dropdown-menu absolute left-0 top-[calc(100%+4px)] z-50 min-w-full"
+          style={{
+            border: '0.5px solid var(--c-border-subtle)',
+            borderRadius: '10px',
+            padding: '4px',
+            background: 'var(--c-bg-menu)',
+            boxShadow: 'var(--c-dropdown-shadow)',
+          }}
+        >
+          {VENDOR_PRESETS.map((v) => (
+            <button
+              key={v.key}
+              type="button"
+              onClick={() => { onChange(v.key); setOpen(false) }}
+              className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition-colors hover:bg-[var(--c-bg-deep)]"
+              style={{ color: value === v.key ? 'var(--c-text-heading)' : 'var(--c-text-secondary)', fontWeight: value === v.key ? 500 : 400 }}
+            >
+              <span>{vendorLabel(v.key, p)}</span>
+              {value === v.key && <Check size={13} className="shrink-0" />}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
 
 type Props = { accessToken: string }
 
@@ -196,42 +263,95 @@ function AddProviderModal({ accessToken, p, onClose, onCreated }: {
     }
   }
 
+  const fieldLabelCls = 'block text-[11px] font-medium text-[var(--c-placeholder)] mb-1 pl-[2px]'
+  const fieldInputCls = 'w-full rounded-[10px] bg-[var(--c-bg-input)] text-[var(--c-text-primary)] outline-none placeholder:text-[var(--c-placeholder)]'
+  const fieldInputStyle = {
+    border: '0.5px solid var(--c-border-auth)',
+    height: '36px',
+    padding: '0 14px',
+    fontSize: '13px',
+    fontWeight: 500,
+    fontFamily: 'inherit',
+  } as const
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45" onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="flex w-[420px] flex-col gap-4 rounded-xl bg-[var(--c-bg-deep)] p-5 shadow-lg">
+    <div
+      className="overlay-fade-in fixed inset-0 z-50 flex items-center justify-center"
+      style={{ background: 'var(--c-overlay)' }}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
+    >
+      <div
+        className="modal-enter flex w-[460px] flex-col gap-5 rounded-[14px] p-6"
+        style={{ background: 'var(--c-bg-page)', border: '0.5px solid var(--c-border-subtle)' }}
+      >
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-[var(--c-text-primary)]">{p.addProvider}</h3>
-          <button onClick={onClose} className="rounded p-1 text-[var(--c-text-muted)] transition-colors hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-secondary)]"><X size={16} /></button>
+          <h3 className="text-[15px] font-semibold text-[var(--c-text-heading)]">{p.addProvider}</h3>
+          <button
+            onClick={onClose}
+            className="flex h-7 w-7 items-center justify-center rounded-md text-[var(--c-text-muted)] transition-colors hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-secondary)]"
+          >
+            <X size={14} />
+          </button>
         </div>
-        <div className="space-y-3">
-          <LabelField label={p.providerName}>
-            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="My Provider" className={INPUT_CLS} />
-          </LabelField>
-          <LabelField label={p.vendor}>
-            <select value={preset} onChange={(e) => setPreset(e.target.value as VendorPresetKey)} className={INPUT_CLS}>
-              {VENDOR_PRESETS.map((v) => <option key={v.key} value={v.key}>{vendorLabel(v.key, p)}</option>)}
-            </select>
-          </LabelField>
-          <LabelField label={p.apiKey}>
-            <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={p.apiKeyPlaceholder} className={INPUT_CLS} />
-          </LabelField>
-          <LabelField label={p.baseUrl}>
+
+        <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+          <div>
+            <label className={fieldLabelCls}>{p.providerName}</label>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="My Provider"
+              className={fieldInputCls}
+              style={fieldInputStyle}
+            />
+          </div>
+          <div>
+            <label className={fieldLabelCls}>{p.vendor}</label>
+            <VendorDropdown value={preset} onChange={setPreset} p={p} />
+          </div>
+          <div className="col-span-2">
+            <label className={fieldLabelCls}>{p.apiKey}</label>
+            <input
+              type="password"
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              placeholder={p.apiKeyPlaceholder}
+              className={fieldInputCls}
+              style={fieldInputStyle}
+            />
+          </div>
+          <div className="col-span-2">
+            <label className={fieldLabelCls}>{p.baseUrl}</label>
             <input
               value={baseUrl}
               onChange={(e) => setBaseUrl(e.target.value.slice(0, 500))}
               placeholder={p.baseUrlPlaceholder ?? 'https://api.example.com/v1'}
-              className={INPUT_CLS}
+              className={fieldInputCls}
+              style={fieldInputStyle}
               maxLength={500}
             />
             {baseUrl.trim() && !baseUrl.trim().startsWith('https://') && !baseUrl.trim().startsWith('http://') && (
-              <p className="mt-1 text-xs text-[var(--c-text-muted)]">需以 https:// 开头</p>
+              <span className="mt-1 block text-xs text-[var(--c-text-muted)]">需以 https:// 开头</span>
             )}
-          </LabelField>
+          </div>
         </div>
-        {err && <p className="text-xs text-red-400">{err}</p>}
-        <div className="flex items-center justify-end gap-2 pt-1">
-          <button onClick={onClose} className="rounded-md border border-[var(--c-border-subtle)] px-3.5 py-1.5 text-sm text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-sub)]">{p.cancel}</button>
-          <button onClick={() => void handleSave()} disabled={saving || !name.trim() || !apiKey.trim()} className="rounded-md bg-[var(--c-btn-bg)] px-4 py-1.5 text-sm font-medium text-[var(--c-btn-text)] transition-colors hover:opacity-90 disabled:opacity-50">
+
+        {err && <p className="text-xs text-[var(--c-status-error-text)]">{err}</p>}
+
+        <div className="flex items-center justify-end gap-2">
+          <button
+            onClick={onClose}
+            className="rounded-[9px] px-4 py-1.5 text-sm text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-sub)]"
+            style={{ border: '0.5px solid var(--c-border-subtle)' }}
+          >
+            {p.cancel}
+          </button>
+          <button
+            onClick={() => void handleSave()}
+            disabled={saving || !name.trim() || !apiKey.trim()}
+            className="rounded-[9px] px-4 py-1.5 text-sm font-medium text-[var(--c-btn-text)] transition-opacity hover:opacity-90 disabled:opacity-50"
+            style={{ background: 'var(--c-btn-bg)' }}
+          >
             {saving ? <Loader2 size={14} className="animate-spin" /> : p.save}
           </button>
         </div>
@@ -297,9 +417,7 @@ function ProviderDetail({ provider, accessToken, onUpdated, onDeleted, p }: {
 
       <div className="space-y-4">
         <LabelField label={p.vendor}>
-          <select value={formPreset} onChange={(e) => setFormPreset(e.target.value as VendorPresetKey)} className={INPUT_CLS}>
-            {VENDOR_PRESETS.map((v) => <option key={v.key} value={v.key}>{vendorLabel(v.key, p)}</option>)}
-          </select>
+          <VendorDropdown value={formPreset} onChange={setFormPreset} p={p} />
         </LabelField>
         <LabelField label={p.providerName}>
           <input value={formName} onChange={(e) => setFormName(e.target.value)} className={INPUT_CLS} />

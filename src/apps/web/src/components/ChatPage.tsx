@@ -1315,8 +1315,6 @@ export function ChatPage() {
         const delta = obj.content_delta
         const isThinking = obj.channel === 'thinking'
         const activeSeg = activeSegmentIdRef.current
-        // DEBUG: 追踪路由决策
-        console.log(`[delta] seq=${event.seq} activeSeg=${activeSeg} seenTool=${seenFirstToolCallInRunRef.current} isThinking=${isThinking} len=${delta.length}`)
         if (activeSeg) {
           if (!isThinking && !SHOW_EXPLICIT_THINKING) {
             if (pendingTextSeqRef.current == null) pendingTextSeqRef.current = event.seq
@@ -2651,7 +2649,7 @@ export function ChatPage() {
   return (
     <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-[var(--c-bg-page)]">
       {/* 顶部 header */}
-      <div className="flex min-h-[51px] items-center justify-between gap-2 px-[15px] py-[15px]">
+      <div className="flex min-h-[78px] items-center justify-between gap-2 px-[15px] py-[15px]">
         {/* 左侧：对话标题 */}
         <div className="flex min-w-0 flex-1 items-center">
           {threadId && currentTitle && (
@@ -2699,7 +2697,7 @@ export function ChatPage() {
                     borderRadius: '7px 0 0 7px',
                     padding: '5px 10px',
                     fontSize: '14px',
-                    fontWeight: 450,
+                    fontWeight: 350,
                     maxWidth: '280px',
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',

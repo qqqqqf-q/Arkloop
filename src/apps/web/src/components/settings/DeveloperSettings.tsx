@@ -87,14 +87,14 @@ export function DeveloperSettings({ accessToken }: Props) {
               writeDeveloperShowRunEvents(next)
             }}
             className={[
-              'relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200',
+              'relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-[5px] p-[2px] transition-colors duration-200',
               showRunEvents ? 'bg-[var(--c-accent)]' : 'bg-[var(--c-border)]',
             ].join(' ')}
           >
             <span
               className={[
-                'pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow ring-0 transition-transform duration-200',
-                showRunEvents ? 'translate-x-4' : 'translate-x-0',
+                'pointer-events-none inline-block h-4 w-4 rounded-[3px] bg-white transition-transform duration-200',
+                showRunEvents ? 'translate-x-[14px]' : 'translate-x-0',
               ].join(' ')}
             />
           </button>

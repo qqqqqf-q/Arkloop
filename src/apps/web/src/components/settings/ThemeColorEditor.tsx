@@ -181,6 +181,8 @@ const DEFAULT_DARK: ThemeColorVars = {
   '--c-claw-step-line': 'rgba(255,255,255,0.10)',
   '--c-claw-file-bg': 'rgba(255,255,255,0.03)',
   '--c-claw-file-border': 'rgba(255,255,255,0.06)',
+  '--c-chip-active-bg': '#141413',
+  '--c-chip-active-text': '#c2c0b6',
 }
 
 const DEFAULT_LIGHT: ThemeColorVars = {
@@ -259,6 +261,8 @@ const DEFAULT_LIGHT: ThemeColorVars = {
   '--c-claw-step-line': 'rgba(0,0,0,0.10)',
   '--c-claw-file-bg': 'rgba(0,0,0,0.02)',
   '--c-claw-file-border': 'rgba(0,0,0,0.05)',
+  '--c-chip-active-bg': '#EBEBEB',
+  '--c-chip-active-text': '#3D3D3B',
 }
 
 function resolveVars(partial: Partial<ThemeColorVars>, base: ThemeColorVars): ThemeColorVars {

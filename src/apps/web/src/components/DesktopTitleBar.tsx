@@ -4,7 +4,7 @@ import { ModeSwitch } from './ModeSwitch'
 import { useLocale } from '../contexts/LocaleContext'
 import type { AppMode } from '../storage'
 
-export const DESKTOP_TITLEBAR_HEIGHT = 38
+export const DESKTOP_TITLEBAR_HEIGHT = 44
 
 type Props = {
   sidebarCollapsed: boolean
@@ -24,7 +24,7 @@ export function DesktopTitleBar({ sidebarCollapsed, onToggleSidebar, appMode, on
   const isMac = navigator.platform.toLowerCase().includes('mac')
 
   const btnCls = [
-    'flex h-7 w-7 items-center justify-center rounded-md',
+    'flex h-8 w-8 items-center justify-center rounded-md',
     'text-[var(--c-text-tertiary)] transition-colors',
     'hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-secondary)]',
   ].join(' ')
@@ -43,17 +43,17 @@ export function DesktopTitleBar({ sidebarCollapsed, onToggleSidebar, appMode, on
     >
       {/* sidebar toggle + back/forward — nudged 1px down to align with macOS traffic lights */}
       <div
-        className="flex items-center gap-1 translate-y-px"
+        className="flex items-center gap-1 self-start pt-[6px]"
         style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
       >
         <button onClick={onToggleSidebar} className={btnCls}>
-          {sidebarCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+          {sidebarCollapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
         </button>
         <button onClick={() => window.history.back()} className={btnCls}>
-          <ChevronLeft size={16} />
+          <ChevronLeft size={17} />
         </button>
         <button onClick={() => window.history.forward()} className={btnCls}>
-          <ChevronRight size={16} />
+          <ChevronRight size={17} />
         </button>
       </div>
 
@@ -80,13 +80,13 @@ export function DesktopTitleBar({ sidebarCollapsed, onToggleSidebar, appMode, on
             onClick={onTogglePrivateMode}
             title={t.toggleIncognito}
             className={[
-              'flex h-7 w-7 items-center justify-center rounded-md transition-colors',
+              'flex h-8 w-8 items-center justify-center rounded-md transition-colors',
               isPrivateMode
                 ? 'bg-[var(--c-bg-deep)] text-[var(--c-text-primary)]'
                 : 'text-[var(--c-text-tertiary)] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-secondary)]',
             ].join(' ')}
           >
-            <Glasses size={15} />
+            <Glasses size={17} />
           </button>
         )}
       </div>

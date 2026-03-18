@@ -114,9 +114,9 @@ export function AssistantMessage({
             <div style={{ position: 'relative' }}>
               <button
                 onClick={handleCopy}
-                className="flex h-7 w-7 items-center justify-center rounded-lg text-[var(--c-text-secondary)] opacity-60 transition-[opacity,background] duration-[60ms] hover:bg-[var(--c-bg-deep)] hover:opacity-100 cursor-pointer border-none bg-transparent"
+                className="flex h-9 w-9 items-center justify-center rounded-[7px] text-[var(--c-text-secondary)] opacity-60 transition-[opacity,background,color] duration-[60ms] hover:bg-[var(--c-bg-deep)] hover:opacity-100 hover:text-[var(--c-text-primary)] cursor-pointer border-none bg-transparent"
               >
-                {copied ? <Check size={15} /> : <Copy size={15} />}
+                {copied ? <Check size={16} /> : <Copy size={16} />}
               </button>
               <span
                 style={{
@@ -147,18 +147,18 @@ export function AssistantMessage({
             <button
               onClick={onRetry}
               disabled={!onRetry}
-              className={`flex h-7 w-7 items-center justify-center rounded-lg text-[var(--c-text-secondary)] transition-[opacity,background] duration-[60ms] border-none bg-transparent ${onRetry ? 'opacity-60 hover:bg-[var(--c-bg-deep)] hover:opacity-100 cursor-pointer' : 'opacity-25 cursor-default'}`}
+              className={`flex h-9 w-9 items-center justify-center rounded-[7px] text-[var(--c-text-secondary)] transition-[opacity,background,color] duration-[60ms] border-none bg-transparent ${onRetry ? 'opacity-60 hover:bg-[var(--c-bg-deep)] hover:opacity-100 hover:text-[var(--c-text-primary)] cursor-pointer' : 'opacity-25 cursor-default'}`}
             >
-              <RefreshCw size={15} />
+              <RefreshCw size={16} />
             </button>
             {!isDesktop() && (
             <div style={{ position: 'relative', display: 'inline-flex' }}>
               <button
                 onClick={onShare}
                 disabled={!onShare || shareState === 'sharing'}
-                className={`flex h-7 w-7 items-center justify-center rounded-lg text-[var(--c-text-secondary)] transition-[opacity,background] duration-[60ms] border-none bg-transparent ${onShare && shareState !== 'sharing' ? 'opacity-60 hover:bg-[var(--c-bg-deep)] hover:opacity-100 cursor-pointer' : 'opacity-25 cursor-default'}`}
+                className={`flex h-9 w-9 items-center justify-center rounded-[7px] text-[var(--c-text-secondary)] transition-[opacity,background,color] duration-[60ms] border-none bg-transparent ${onShare && shareState !== 'sharing' ? 'opacity-60 hover:bg-[var(--c-bg-deep)] hover:opacity-100 hover:text-[var(--c-text-primary)] cursor-pointer' : 'opacity-25 cursor-default'}`}
               >
-                {shareState === 'shared' ? <Check size={15} /> : <Share2 size={15} />}
+                {shareState === 'shared' ? <Check size={16} /> : <Share2 size={16} />}
               </button>
               <span
                 className="absolute -top-7 left-1/2 -translate-x-1/2 rounded px-1.5 py-0.5 text-[11px]"
@@ -181,17 +181,17 @@ export function AssistantMessage({
             <button
               onClick={onFork}
               disabled={!onFork}
-              className={`flex h-7 w-7 items-center justify-center rounded-lg text-[var(--c-text-secondary)] transition-[opacity,background] duration-[60ms] border-none bg-transparent ${onFork ? 'opacity-60 hover:bg-[var(--c-bg-deep)] hover:opacity-100 cursor-pointer' : 'opacity-25 cursor-default'}`}
+              className={`flex h-9 w-9 items-center justify-center rounded-[7px] text-[var(--c-text-secondary)] transition-[opacity,background,color] duration-[60ms] border-none bg-transparent ${onFork ? 'opacity-60 hover:bg-[var(--c-bg-deep)] hover:opacity-100 hover:text-[var(--c-text-primary)] cursor-pointer' : 'opacity-25 cursor-default'}`}
             >
-              <Split size={15} />
+              <Split size={16} />
             </button>
             {onViewRunDetail && (
               <button
                 onClick={onViewRunDetail}
-                className="flex h-7 w-7 items-center justify-center rounded-lg text-[var(--c-text-secondary)] opacity-60 transition-[opacity,background] duration-[60ms] hover:bg-[var(--c-bg-deep)] hover:opacity-100 cursor-pointer border-none bg-transparent"
+                className="flex h-9 w-9 items-center justify-center rounded-[7px] text-[var(--c-text-secondary)] opacity-60 transition-[opacity,background,color] duration-[60ms] hover:bg-[var(--c-bg-deep)] hover:opacity-100 hover:text-[var(--c-text-primary)] cursor-pointer border-none bg-transparent"
                 title={t.desktopSettings.viewRunDetail}
               >
-                <Terminal size={15} />
+                <Terminal size={16} />
               </button>
             )}
             {webSources && webSources.length > 0 && onShowSources && (

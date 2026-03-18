@@ -100,11 +100,11 @@ export function ModelPicker({ accessToken, value, onChange, onAddApiKey, variant
           overflow: 'hidden',
           whiteSpace: 'nowrap',
           cursor: 'pointer',
-          fontWeight: 450,
-          fontSize: '14px',
+          fontWeight: 400,
+          fontSize: '13px',
           background: hovered ? 'var(--c-bg-deep)' : 'transparent',
-          color: value ? 'var(--c-text-primary)' : 'var(--c-text-secondary)',
-          opacity: hovered ? 1 : 0.85,
+          color: value ? 'var(--c-text-secondary)' : 'var(--c-text-tertiary)',
+          opacity: hovered ? 1 : 0.8,
           transition: 'background-color 60ms ease, color 60ms ease, opacity 60ms ease',
         }}
       >

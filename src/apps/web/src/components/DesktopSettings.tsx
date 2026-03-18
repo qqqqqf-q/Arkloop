@@ -183,12 +183,12 @@ export function DesktopSettings({
         style={{ borderRight: "0.5px solid var(--c-border-subtle)" }}
       >
         {/* Back button / header */}
-        <div className="mb-4 px-5">
+        <div className="mb-4 px-4">
           <button
             onClick={onClose}
-            className="flex items-center gap-1.5 rounded-lg px-1 py-1 text-sm font-semibold text-[var(--c-text-heading)] transition-colors hover:text-[var(--c-text-primary)]"
+            className="flex h-[38px] w-full items-center gap-2.5 rounded-lg px-2.5 text-[14px] font-medium transition-colors text-[var(--c-text-secondary)] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-heading)]"
           >
-            <ChevronLeft size={16} className="text-[var(--c-text-muted)]" />
+            <ChevronLeft size={16} />
             {ds.settingsTitle}
           </button>
         </div>

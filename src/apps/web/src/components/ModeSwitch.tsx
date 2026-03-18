@@ -17,7 +17,7 @@ export function ModeSwitch({ mode, onChange, labels, availableModes = OPTIONS }:
 
   return (
     <div
-      className="relative flex items-center rounded-xl p-[2px]"
+      className="relative flex items-center rounded-[10px] p-[2px]"
       style={{
         background: 'var(--c-mode-switch-track)',
       }}
@@ -29,13 +29,13 @@ export function ModeSwitch({ mode, onChange, labels, availableModes = OPTIONS }:
             key={opt}
             type="button"
             onClick={() => onChange(opt)}
-            className="relative z-10 flex items-center justify-center rounded-[9px] px-2.5 py-[2px] text-[11.5px] leading-[17px] transition-colors duration-200"
+            className="relative z-10 flex items-center justify-center rounded-[9px] px-3.5 py-[5px] text-[12.5px] leading-[19px] transition-colors duration-200"
             style={{
               color: active
                 ? 'var(--c-mode-switch-active-text)'
                 : 'var(--c-mode-switch-inactive-text)',
               fontWeight: 350,
-              minWidth: '44px',
+              minWidth: '58px',
             }}
           >
             {active && (
@@ -44,7 +44,6 @@ export function ModeSwitch({ mode, onChange, labels, availableModes = OPTIONS }:
                 className="absolute inset-0 rounded-[9px]"
                 style={{
                   background: 'var(--c-mode-switch-pill)',
-                  boxShadow: 'var(--c-mode-switch-pill-shadow)',
                   border: '0.5px solid var(--c-mode-switch-border)',
                 }}
                 transition={{

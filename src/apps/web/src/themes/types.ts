@@ -89,6 +89,8 @@ export type ThemeColorVars = {
   '--c-claw-step-line': string
   '--c-claw-file-bg': string
   '--c-claw-file-border': string
+  '--c-chip-active-bg': string
+  '--c-chip-active-text': string
 }
 
 export type ThemeDefinition = {

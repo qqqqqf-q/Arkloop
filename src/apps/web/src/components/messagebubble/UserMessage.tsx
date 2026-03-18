@@ -316,7 +316,7 @@ export function UserMessage({ message, onEdit, accessToken }: Props) {
                 padding: '10px 16px',
                 color: 'var(--c-text-primary)',
                 fontSize: '16.5px',
-                fontWeight: 350,
+                fontWeight: 300,
                 lineHeight: 1.6,
                 letterSpacing: '-0.64px',
                 wordBreak: 'break-word',

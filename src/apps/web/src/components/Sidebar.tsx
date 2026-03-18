@@ -178,7 +178,7 @@ export function Sidebar({
       style={{
         transition: 'width 280ms cubic-bezier(0.16,1,0.3,1)',
         willChange: 'width',
-        borderRight: '0.5px solid rgba(0,0,0,0.16)',
+        borderRight: '0.5px solid var(--c-border)',
       }}
     >
       {/* Desktop title bar spacer */}
@@ -221,7 +221,7 @@ export function Sidebar({
       <nav className="flex flex-col gap-px px-2 pt-1">
         <button
           onClick={onNewThread}
-          className="group flex h-9 items-center gap-2.5 overflow-hidden whitespace-nowrap rounded-lg px-2 text-[16px] text-[var(--c-text-secondary)] transition-[background-color,color] duration-[60ms] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]"
+          className="group flex h-9 items-center gap-2.5 overflow-hidden whitespace-nowrap rounded-lg px-2 text-[15px] font-[300] text-[var(--c-text-secondary)] transition-[background-color,color] duration-[60ms] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]"
         >
           <SquarePen size={16} className="shrink-0 transition-transform duration-100 group-hover:scale-[1.05]" />
           <span style={{ overflow: 'hidden', maxWidth: collapsed ? 0 : '200px', opacity: collapsed ? 0 : 1, transition: 'max-width 280ms cubic-bezier(0.16,1,0.3,1), opacity 150ms ease', whiteSpace: 'nowrap' }}>{isClawMode ? t.newTask : t.newChat}</span>
@@ -233,7 +233,7 @@ export function Sidebar({
             const searchPath = basePath.endsWith('/') ? `${basePath}search` : `${basePath}/search`
             navigate(searchPath)
           }}
-          className="group flex h-9 items-center gap-2.5 overflow-hidden whitespace-nowrap rounded-lg px-2 text-[16px] text-[var(--c-text-secondary)] transition-[background-color,color] duration-[60ms] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]"
+          className="group flex h-9 items-center gap-2.5 overflow-hidden whitespace-nowrap rounded-lg px-2 text-[15px] font-[300] text-[var(--c-text-secondary)] transition-[background-color,color] duration-[60ms] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]"
         >
           <Search size={16} className="shrink-0 transition-transform duration-100 group-hover:scale-[1.05]" />
           <span style={{ overflow: 'hidden', maxWidth: collapsed ? 0 : '200px', opacity: collapsed ? 0 : 1, transition: 'max-width 280ms cubic-bezier(0.16,1,0.3,1), opacity 150ms ease', whiteSpace: 'nowrap' }}>{isClawMode ? t.searchTasks : t.searchChats}</span>
@@ -249,8 +249,8 @@ export function Sidebar({
         ].join(' ')}
         style={{ transition: 'opacity 150ms ease' }}
       >
-        <div className="mb-[12px] flex shrink-0 items-center gap-2 px-2">
-          <h3 className="text-[14px] font-medium tracking-[0.3px] text-[var(--c-text-muted)]">
+        <div className="mb-[12px] mt-1 flex shrink-0 items-center gap-2 px-2">
+          <h3 className="text-[11px] font-[350] tracking-[0.3px] text-[var(--c-text-tertiary)]">
             {t.recents}
           </h3>
         </div>
@@ -331,7 +331,7 @@ export function Sidebar({
                             setEditingThreadId(null)
                           }
                         }}
-                        className="min-w-0 flex-1 bg-transparent px-2 py-[7px] text-[13px] font-[300] text-[var(--c-text-primary)] outline-none"
+                        className="min-w-0 flex-1 bg-transparent px-2 py-[7px] text-[13px] font-[350] text-[var(--c-text-primary)] outline-none"
                         style={{ border: 'none' }}
                         maxLength={200}
                       />
@@ -339,7 +339,7 @@ export function Sidebar({
                       <button
                         onClick={() => navigate(`/t/${thread.id}`)}
                         className={[
-                          'flex min-w-0 flex-1 items-center gap-2 px-2 py-[7px] text-left text-[14px] font-[350] group-hover:text-[var(--c-text-primary)]',
+                          'flex min-w-0 flex-1 items-center gap-2 px-2 py-[7px] text-left text-[14px] font-[325] group-hover:text-[var(--c-text-primary)]',
                           thread.id === threadId
                             ? 'text-[var(--c-text-primary)]'
                             : 'text-[var(--c-text-secondary)]',
@@ -409,8 +409,8 @@ export function Sidebar({
       <div
         className="mt-auto px-2 pb-2 pt-1"
         style={{
-          borderTop: '0.5px solid var(--c-border-subtle)',
-          borderTopColor: collapsed ? 'transparent' : 'var(--c-border-subtle)',
+          borderTop: '1px solid var(--c-border)',
+          borderTopColor: collapsed ? 'transparent' : 'var(--c-border)',
           transition: 'border-top-color 280ms cubic-bezier(0.16,1,0.3,1)',
         }}
       >
@@ -442,9 +442,9 @@ export function Sidebar({
         <div className="mt-0.5 pl-1">
           <button
             onClick={() => onOpenSettings('settings')}
-            className="flex h-7 w-7 items-center justify-center rounded-md text-[var(--c-text-icon)] transition-[background-color,color] duration-[60ms] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]"
+            className="flex h-8 w-8 items-center justify-center rounded-md text-[var(--c-text-icon)] transition-[background-color,color] duration-[60ms] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]"
           >
-            <Bolt size={16} />
+            <Bolt size={18} />
           </button>
         </div>
       </div>
