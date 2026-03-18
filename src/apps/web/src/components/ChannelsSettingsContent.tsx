@@ -5,13 +5,13 @@ import {
   type ChannelIdentityResponse,
   type Persona,
   listChannels,
+  listChannelPersonas,
   createChannel,
   updateChannel,
   deleteChannel,
   listMyChannelIdentities,
   createChannelBindCode,
   unbindChannelIdentity,
-  listPersonas,
   isApiError,
 } from '../api'
 import { useLocale } from '../contexts/LocaleContext'
@@ -56,7 +56,7 @@ export function ChannelsSettingsContent({ accessToken }: Props) {
       const [ch, ids, p] = await Promise.all([
         listChannels(accessToken),
         listMyChannelIdentities(accessToken).catch(() => [] as ChannelIdentityResponse[]),
-        listPersonas(accessToken).catch(() => [] as Persona[]),
+        listChannelPersonas(accessToken).catch(() => [] as Persona[]),
       ])
       setChannels(ch)
       setIdentities(ids)

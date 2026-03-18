@@ -13,6 +13,7 @@ function renderTimeline(params: {
   codeExecutions?: CodeExecution[]
   subAgents?: SubAgentRef[]
   fileOps?: Array<{ id: string; toolName: string; label: string; status: 'running' | 'success' | 'failed'; seq?: number }>
+  webFetches?: Array<{ id: string; url: string; title?: string; status: 'fetching' | 'done' | 'failed'; statusCode?: number; seq?: number }>
 }): string {
   return renderToStaticMarkup(
     <LocaleProvider>
@@ -24,6 +25,7 @@ function renderTimeline(params: {
         codeExecutions={params.codeExecutions}
         subAgents={params.subAgents}
         fileOps={params.fileOps}
+        webFetches={params.webFetches}
       />
     </LocaleProvider>,
   )
@@ -106,5 +108,20 @@ describe('SearchTimeline', () => {
     expect(narrativeIndex).toBeGreaterThan(fileOpIndex)
     expect(stepIndex).toBeGreaterThan(narrativeIndex)
     expect(html).not.toContain('Finished')
+  })
+
+  it('web_fetch 遇到 file 地址时不应渲染坏掉的 favicon', () => {
+    const html = renderTimeline({
+      isComplete: false,
+      steps: [],
+      sources: [],
+      webFetches: [
+        { id: 'wf-1', url: 'file:///Users/demo/runtime/skills/demo/SKILL.md', status: 'failed' },
+      ],
+    })
+
+    expect(html).toContain('file:///Users/demo/runtime/skills/demo/SKILL.md')
+    expect(html).toContain('>file<')
+    expect(html).not.toContain('google.com/s2/favicons')
   })
 })

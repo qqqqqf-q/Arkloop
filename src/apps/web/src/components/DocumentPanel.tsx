@@ -316,8 +316,9 @@ export function DocumentPanel({ artifact, artifacts, accessToken, runId, onClose
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
             <ArtifactIframe
               mode="static"
-              artifact={artifact}
-              accessToken={accessToken}
+              content={loadState.content}
+              contentType={artifact.mime_type}
+              frameTitle={artifact.title ?? artifact.filename}
               style={{ flex: 1, minHeight: '400px', border: 'none', borderRadius: 0 }}
             />
           </div>

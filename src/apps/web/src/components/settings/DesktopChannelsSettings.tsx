@@ -16,13 +16,14 @@ import {
   createChannel,
   createChannelBindCode,
   isApiError,
+  listChannelPersonas,
   listChannels,
   listMyChannelIdentities,
-  listPersonas,
   unbindChannelIdentity,
   updateChannel,
 } from '../../api'
 import { useLocale } from '../../contexts/LocaleContext'
+import { DEFAULT_PERSONA_KEY } from '../../storage'
 import { SettingsSectionHeader } from './_SettingsSectionHeader'
 
 type Props = {
@@ -56,6 +57,17 @@ function parseAllowedUserIDs(input: string): string[] {
 
 function sameItems(a: string[], b: string[]): boolean {
   return a.length === b.length && a.every((item, index) => item === b[index])
+}
+
+function defaultPersonaID(personas: Persona[]): string {
+  const preferred = personas.find((persona) => persona.persona_key === DEFAULT_PERSONA_KEY)
+  return preferred?.id ?? personas[0]?.id ?? ''
+}
+
+function resolvePersonaID(personas: Persona[], storedPersonaID?: string | null): string {
+  const cleaned = storedPersonaID?.trim()
+  if (cleaned) return cleaned
+  return defaultPersonaID(personas)
 }
 
 function StatusBadge({
@@ -113,14 +125,14 @@ export function DesktopChannelsSettings({ accessToken }: Props) {
       const [channels, linkedIdentities, allPersonas] = await Promise.all([
         listChannels(accessToken),
         listMyChannelIdentities(accessToken).catch(() => [] as ChannelIdentityResponse[]),
-        listPersonas(accessToken).catch(() => [] as Persona[]),
+        listChannelPersonas(accessToken).catch(() => [] as Persona[]),
       ])
       const channel = channels.find((item) => item.channel_type === 'telegram') ?? null
       setTelegramChannel(channel)
       setPersonas(allPersonas)
       setIdentities(linkedIdentities.filter((item) => item.channel_type === 'telegram'))
       setEnabled(channel?.is_active ?? false)
-      setPersonaID(channel?.persona_id ?? '')
+      setPersonaID(resolvePersonaID(allPersonas, channel?.persona_id))
       setAllowedUserIDs(readAllowedUserIDs(channel))
       setTokenDraft('')
       setAllowedUserInput('')
@@ -140,14 +152,19 @@ export function DesktopChannelsSettings({ accessToken }: Props) {
     () => readAllowedUserIDs(telegramChannel),
     [telegramChannel],
   )
+  const effectivePersonaID = useMemo(
+    () => resolvePersonaID(personas, telegramChannel?.persona_id),
+    [personas, telegramChannel?.persona_id],
+  )
 
   const dirty = useMemo(() => {
     if (loading) return false
     if ((telegramChannel?.is_active ?? false) !== enabled) return true
-    if ((telegramChannel?.persona_id ?? '') !== personaID) return true
+    if (effectivePersonaID !== personaID) return true
     if (!sameItems(persistedAllowedUserIDs, allowedUserIDs)) return true
     return tokenDraft.trim().length > 0
   }, [
+    effectivePersonaID,
     allowedUserIDs,
     enabled,
     loading,
@@ -415,7 +432,9 @@ export function DesktopChannelsSettings({ accessToken }: Props) {
                 }}
                 className={inputCls}
               >
-                <option value="">{ct.personaDefault}</option>
+                {personas.length === 0 && (
+                  <option value="">{ct.personaDefault}</option>
+                )}
                 {personas.map((persona) => (
                   <option key={persona.id} value={persona.id}>
                     {persona.display_name || persona.id}

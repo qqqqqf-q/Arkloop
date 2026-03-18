@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, Fragment } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ChevronRight, Loader2, Search } from 'lucide-react'
+import { ChevronRight, Globe, Loader2, Search } from 'lucide-react'
 import { useTypewriter } from '../hooks/useTypewriter'
 import type { WebSource } from '../storage'
 import type { SubAgentRef, FileOpRef, WebFetchRef } from '../storage'
@@ -167,24 +167,29 @@ function getShortName(url: string): string {
   }
 }
 
+function getUrlScheme(url: string): string {
+  try {
+    return new URL(url).protocol.replace(/:$/, '')
+  } catch {
+    const match = /^([a-z][a-z0-9+.-]*):/i.exec(url.trim())
+    return match?.[1]?.toLowerCase() ?? ''
+  }
+}
+
 export function WebFetchItem({ fetch: f }: { fetch: WebFetchRef }) {
-  const domain = getDomain(f.url)
-  const shortName = getShortName(f.url)
+  const [faviconFailed, setFaviconFailed] = useState(false)
   const isFetching = f.status === 'fetching'
-  return (
-    <a
-      href={isFetching ? undefined : f.url}
-      target="_blank"
-      rel="noopener noreferrer"
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: '7px',
-        padding: '3px 0',
-        textDecoration: 'none',
-        cursor: isFetching ? 'default' : 'pointer',
-      }}
-    >
+  const isHttp = isHttpUrl(f.url)
+  const isFailed = f.status === 'failed'
+  const domain = isHttp ? getDomain(f.url) : ''
+  const scheme = getUrlScheme(f.url)
+  const shortName = isHttp ? getShortName(f.url) : (scheme || 'invalid')
+  const primaryText = f.title || (isHttp ? domain : (f.url || 'Invalid URL'))
+  const secondaryText = typeof f.statusCode === 'number'
+    ? `${f.statusCode}`
+    : shortName
+  const content = (
+    <>
       <div
         style={{
           display: 'inline-flex',
@@ -201,13 +206,24 @@ export function WebFetchItem({ fetch: f }: { fetch: WebFetchRef }) {
         {isFetching ? (
           <Loader2 size={11} className="animate-spin" style={{ color: 'var(--c-text-muted)', flexShrink: 0 }} />
         ) : (
-          <img
-            src={`https://www.google.com/s2/favicons?sz=16&domain=${domain}`}
-            alt=""
-            width={12}
-            height={12}
-            style={{ flexShrink: 0, borderRadius: '2px' }}
-          />
+          isHttp && !faviconFailed ? (
+            <img
+              src={`https://www.google.com/s2/favicons?sz=16&domain=${domain}`}
+              alt=""
+              width={12}
+              height={12}
+              style={{ flexShrink: 0, borderRadius: '2px' }}
+              onError={() => setFaviconFailed(true)}
+            />
+          ) : (
+            <Globe
+              size={11}
+              style={{
+                color: isFailed ? 'var(--c-status-error-text, #ef4444)' : 'var(--c-text-muted)',
+                flexShrink: 0,
+              }}
+            />
+          )
         )}
       </div>
       <span
@@ -221,20 +237,57 @@ export function WebFetchItem({ fetch: f }: { fetch: WebFetchRef }) {
           minWidth: 0,
         }}
       >
-        {f.title || domain}
+        {primaryText}
       </span>
       <span style={{ fontSize: '11px', color: 'var(--c-text-muted)', flexShrink: 0 }}>
-        {shortName}
+        {secondaryText}
       </span>
-    </a>
+    </>
+  )
+
+  if (!isFetching && isHttp) {
+    return (
+      <a
+        href={f.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        title={f.url}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '7px',
+          padding: '3px 0',
+          textDecoration: 'none',
+          cursor: 'pointer',
+        }}
+      >
+        {content}
+      </a>
+    )
+  }
+
+  return (
+    <div
+      title={f.url}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '7px',
+        padding: '3px 0',
+        cursor: isFetching ? 'default' : 'not-allowed',
+      }}
+    >
+      {content}
+    </div>
   )
 }
 
-const DOT_TOP = 5
+const TIMELINE_DOT_NUDGE_Y = 1
+const DOT_TOP = 5 + TIMELINE_DOT_NUDGE_Y
 const DOT_SIZE = 8
-const SHELL_DOT_TOP = 9
+const SHELL_DOT_TOP = 9 + TIMELINE_DOT_NUDGE_Y
 // CodeExecutionCard: border(0.5) + padding(6) + icon-center(14) = 20.5 → dot top ≈ 16
-const PYTHON_DOT_TOP = 16
+const PYTHON_DOT_TOP = 16 + TIMELINE_DOT_NUDGE_Y
 
 export function SearchTimeline({ steps, sources, narratives, isComplete, codeExecutions, onOpenCodeExecution, activeCodeExecutionId, subAgents, fileOps, webFetches, headerOverride, shimmer, live, accessToken, baseUrl }: Props) {
   const [collapsed, setCollapsed] = useState(() => isComplete)

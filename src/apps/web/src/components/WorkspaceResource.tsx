@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Download, ExternalLink, FileCode2, X } from 'lucide-react'
 import { apiBaseUrl } from '@arkloop/shared/api'
 import { useLocale } from '../contexts/LocaleContext'
+import { ArtifactIframe } from './ArtifactIframe'
 
 const ANIM_MS = 120
 
@@ -65,8 +66,8 @@ function isTextMime(mimeType: string): boolean {
 }
 
 function workspaceKind(mimeType: string): 'image' | 'html' | 'text' | 'binary' {
+  if (mimeType === 'text/html' || mimeType === 'image/svg+xml') return 'html'
   if (mimeType.startsWith('image/')) return 'image'
-  if (mimeType === 'text/html') return 'html'
   if (isTextMime(mimeType)) return 'text'
   return 'binary'
 }
@@ -82,7 +83,6 @@ export function WorkspaceResource({ file, runId, projectId, accessToken }: Props
   const [visible, setVisible] = useState(false)
   const [show, setShow] = useState(false)
   const closingTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const iframeRef = useRef<HTMLIFrameElement>(null)
 
   const normalizedPath = useMemo(() => normalizeWorkspacePath(file.path), [file.path])
   const expectedKind = useMemo(() => workspaceKind(normalizeMimeType(file.mime_type, file.filename)), [file.filename, file.mime_type])
@@ -106,7 +106,8 @@ export function WorkspaceResource({ file, runId, projectId, accessToken }: Props
       .then(async (res) => {
         if (!res.ok) throw new Error(`${res.status}`)
         const mimeType = normalizeMimeType(res.headers.get('content-type') ?? file.mime_type, file.filename)
-        if (workspaceKind(mimeType) === 'text') {
+        const kind = workspaceKind(mimeType)
+        if (kind === 'text' || kind === 'html') {
           const content = await res.text()
           if (cancelled) return
           setLoadState({ status: 'text', content, mimeType })
@@ -131,19 +132,6 @@ export function WorkspaceResource({ file, runId, projectId, accessToken }: Props
 
   useEffect(() => () => {
     if (closingTimer.current) clearTimeout(closingTimer.current)
-  }, [])
-
-  useEffect(() => {
-    const handler = (event: MessageEvent) => {
-      const iframe = iframeRef.current
-      if (!iframe) return
-      if (event.source !== iframe.contentWindow) return
-      if (event.data?.type !== 'arkloop-iframe-resize') return
-      if (typeof event.data.height !== 'number') return
-      iframe.style.height = `${event.data.height}px`
-    }
-    window.addEventListener('message', handler)
-    return () => window.removeEventListener('message', handler)
   }, [])
 
   const openLightbox = useCallback(() => {
@@ -198,6 +186,20 @@ export function WorkspaceResource({ file, runId, projectId, accessToken }: Props
   }
 
   if (loadState.status === 'text') {
+    const kind = workspaceKind(loadState.mimeType)
+    if (kind === 'html') {
+      return (
+        <ArtifactIframe
+          mode="static"
+          content={loadState.content}
+          contentType={loadState.mimeType}
+          frameTitle={file.filename}
+          style={{ minHeight: '300px' }}
+          className="my-2"
+        />
+      )
+    }
+
     return (
       <div
         data-workspace-kind="text"
@@ -251,24 +253,6 @@ export function WorkspaceResource({ file, runId, projectId, accessToken }: Props
   }
 
   const kind = workspaceKind(loadState.mimeType)
-  if (kind === 'html') {
-    return (
-      <iframe
-        ref={iframeRef}
-        data-workspace-kind="html"
-        src={loadState.blobUrl}
-        sandbox="allow-scripts"
-        style={{
-          width: '100%',
-          minHeight: '300px',
-          border: '0.5px solid var(--c-border-subtle)',
-          borderRadius: '10px',
-          background: '#fff',
-        }}
-      />
-    )
-  }
-
   if (kind === 'image') {
     const transition = `all ${ANIM_MS}ms ease-out`
     return (

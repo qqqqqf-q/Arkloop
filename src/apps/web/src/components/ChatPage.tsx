@@ -132,6 +132,9 @@ import {
 
 const sidePanelWidth = 420
 const documentPanelWidth = 560
+const LIVE_TIMELINE_DOT_NUDGE_Y = 1
+const LIVE_TIMELINE_DOT_TOP = 8 + LIVE_TIMELINE_DOT_NUDGE_Y
+const LIVE_TIMELINE_CODE_DOT_TOP = 16 + LIVE_TIMELINE_DOT_NUDGE_Y
 
 function normalizeError(error: unknown): AppError {
   if (isApiError(error)) {
@@ -1732,6 +1735,7 @@ export function ChatPage() {
         setTopLevelBrowserActions([])
         setTopLevelSubAgents([])
         setTopLevelFileOps([])
+        setTopLevelWebFetches([])
         streamingArtifactsRef.current = []
         setStreamingArtifacts([])
         setSegments([])
@@ -3001,7 +3005,9 @@ export function ChatPage() {
                         const isLast = idx === allStreamItems.length - 1
                         const multiItems = allStreamItems.length >= 2
                         const isShell = entry.kind === 'code' && entry.item.language === 'shell'
-                        const dotTop = entry.kind === 'code' && !isShell ? 16 : 8
+                        const dotTop = entry.kind === 'code' && !isShell
+                          ? LIVE_TIMELINE_CODE_DOT_TOP
+                          : LIVE_TIMELINE_DOT_TOP
                         const dotColor = entry.kind === 'code'
                           ? codeExecutionAccentColor(entry.item.status)
                           : entry.kind === 'agent'

@@ -380,6 +380,28 @@ export async function listPersonas(accessToken: string): Promise<Persona[]> {
   })
 }
 
+export async function listChannelPersonas(accessToken: string): Promise<Persona[]> {
+  const personas = await apiFetch<Persona[]>('/v1/personas', {
+    method: 'GET',
+    accessToken,
+  })
+
+  return personas
+    .filter((persona) => persona.is_active)
+    .sort((left, right) => {
+      const leftOrder = left.selector_order ?? 99
+      const rightOrder = right.selector_order ?? 99
+      if (leftOrder !== rightOrder) {
+        return leftOrder - rightOrder
+      }
+      const leftName = (left.selector_name ?? left.display_name).trim() || left.persona_key
+      const rightName = (right.selector_name ?? right.display_name).trim() || right.persona_key
+      const byName = leftName.localeCompare(rightName)
+      if (byName !== 0) return byName
+      return left.persona_key.localeCompare(right.persona_key)
+    })
+}
+
 export async function listSelectablePersonas(accessToken: string): Promise<SelectablePersona[]> {
   const personas = await listPersonas(accessToken)
 
