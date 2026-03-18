@@ -1315,6 +1315,8 @@ export function ChatPage() {
         const delta = obj.content_delta
         const isThinking = obj.channel === 'thinking'
         const activeSeg = activeSegmentIdRef.current
+        // DEBUG: 追踪路由决策
+        console.log(`[delta] seq=${event.seq} activeSeg=${activeSeg} seenTool=${seenFirstToolCallInRunRef.current} isThinking=${isThinking} len=${delta.length}`)
         if (activeSeg) {
           if (!isThinking && !SHOW_EXPLICIT_THINKING) {
             if (pendingTextSeqRef.current == null) pendingTextSeqRef.current = event.seq
@@ -2096,8 +2098,8 @@ export function ChatPage() {
   // 新消息/流式内容时，仅在用户停留在底部时自动滚动
   useEffect(() => {
     if (!isAtBottomRef.current) return
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, assistantDraft, segments])
+    bottomRef.current?.scrollIntoView({ behavior: isStreaming ? 'instant' : 'smooth' })
+  }, [messages, assistantDraft, segments, isStreaming])
 
   // COP 代码执行列表：新 item 添加时自动滚动到底部
   useEffect(() => {
@@ -3179,6 +3181,7 @@ export function ChatPage() {
               {assistantDraft && (
                 <StreamingBubble
                   content={assistantDraft}
+                  isComplete={!isStreaming}
                   webSources={currentRunSourcesRef.current.length > 0 ? currentRunSourcesRef.current : undefined}
                   browserActions={topLevelBrowserActions.length > 0 ? topLevelBrowserActions : undefined}
                   accessToken={accessToken}
@@ -3248,7 +3251,7 @@ export function ChatPage() {
 
       {/* 输入区域 */}
       <div
-        style={{ maxWidth: 1200, margin: '0 auto', padding: `12px ${appMode === 'claw' ? '14px' : isPanelOpen ? '32px' : '60px'} ${appMode === 'claw' ? '22px' : '16px'}`, position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 10, background: 'linear-gradient(to bottom, transparent 0%, var(--c-bg-page) 24px)' }}
+        style={{ maxWidth: 1200, margin: '0 auto', padding: `12px ${appMode === 'claw' ? '14px' : isPanelOpen ? '32px' : '60px'} ${appMode === 'claw' ? '22px' : '8px'}`, position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 10, background: 'linear-gradient(to bottom, transparent 0%, var(--c-bg-page) 24px)' }}
         className="flex w-full flex-col items-center gap-2"
       >
         {/* 滚动到底部按钮：始终锚定在输入框顶边正上方 */}

@@ -289,7 +289,16 @@ export function ChatInput({
   }
 
   return (
-    <div className="w-full max-w-[840px]" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+    <div
+      className="w-full"
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '8px',
+        maxWidth: (variant === 'chat' && hasMessages) ? '720px' : '840px',
+        transition: 'max-width 200ms ease',
+      }}
+    >
       {isFileDragging && (
         <div
           className="flex items-center justify-center rounded-xl px-4 py-2 text-sm"
@@ -447,31 +456,56 @@ export function ChatInput({
         </div>
       </div>
       <form onSubmit={(e) => onSubmit(e, selectedPersonaKey, selectedModel ?? undefined)} style={{ padding: '8px 22px 20px' }}>
-        <textarea
-          ref={textareaRef}
-          rows={1}
-          className="w-full resize-none bg-transparent outline-none placeholder:text-[var(--c-placeholder)] placeholder:font-[360] disabled:cursor-not-allowed"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          onKeyDown={handleKeyDown}
-          onPaste={handleTextareaPaste}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
-          placeholder={placeholder}
-          disabled={disabled}
-          style={{
-            fontFamily: 'inherit',
-            fontSize: '16px',
-            fontWeight: 310,
-            color: 'var(--c-text-primary)',
-            marginTop: '0px',
-            marginBottom: '20px',
-            letterSpacing: '-0.16px',
-            overflow: 'auto',
-          }}
-        />
+        <div style={{ position: 'relative', marginBottom: '20px' }}>
+          <textarea
+            ref={textareaRef}
+            rows={1}
+            className="w-full resize-none bg-transparent outline-none placeholder:text-[var(--c-placeholder)] placeholder:font-[360] disabled:cursor-not-allowed"
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            onKeyDown={handleKeyDown}
+            onPaste={handleTextareaPaste}
+            onFocus={() => setFocused(true)}
+            onBlur={() => setFocused(false)}
+            placeholder={placeholder}
+            disabled={disabled}
+            style={{
+              fontFamily: 'inherit',
+              fontSize: '16px',
+              fontWeight: 310,
+              color: 'var(--c-text-primary)',
+              marginTop: '0px',
+              marginBottom: '0px',
+              letterSpacing: '-0.16px',
+              overflow: 'auto',
+            }}
+          />
+          {disabled && (
+            <div
+              style={{
+                position: 'absolute',
+                inset: 0,
+                borderRadius: '6px',
+                background: 'rgba(0,0,0,0.06)',
+                overflow: 'hidden',
+                pointerEvents: 'none',
+              }}
+            >
+              <div
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  bottom: 0,
+                  width: '35%',
+                  background: 'linear-gradient(90deg, transparent, rgba(0,0,0,0.05), transparent)',
+                  animation: 'input-sweep 1.4s linear infinite',
+                }}
+              />
+            </div>
+          )}
+        </div>
 
-        <div className="flex items-center" style={{ gap: '2px' }}>
+        <div className="flex items-center" style={{ gap: '2px', minHeight: '32px' }}>
           <PersonaModelBar
             personas={personas}
             selectedPersonaKey={selectedPersonaKey}
@@ -491,38 +525,58 @@ export function ChatInput({
             clawThreadId={clawThreadId}
           />
 
-          <button
-            type="button"
-            onClick={startRecording}
-            disabled={isRecording || isTranscribing || !accessToken}
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--c-text-secondary)] opacity-70 transition-[opacity,background] duration-[60ms] hover:bg-[var(--c-bg-deep)] hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-30"
-          >
-            <Mic size={16} />
-          </button>
-          {isStreaming && canCancel ? (
-            <button
-              type="button"
-              onClick={onCancel}
-              disabled={cancelSubmitting}
-              className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--c-accent-send)] text-[var(--c-accent-send-text)] transition-[background-color,opacity] duration-[60ms] hover:bg-[var(--c-accent-send-hover)] active:opacity-[0.75] disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <Square size={14} fill="currentColor" />
-            </button>
-          ) : (
-            <button
-              type="submit"
-              disabled={disabled || isStreaming || (!value.trim() && attachments.length === 0)}
-              className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--c-accent-send)] text-[var(--c-accent-send-text)] transition-[background-color,opacity] duration-[60ms] hover:bg-[var(--c-accent-send-hover)] active:opacity-[0.75] active:scale-[0.93] disabled:cursor-not-allowed disabled:opacity-50"
-              style={{
-                transform: (value.trim() || attachments.length > 0) ? 'scale(1)' : 'scale(0)',
-                opacity: (value.trim() || attachments.length > 0) ? 1 : 0,
-                transition: 'transform 180ms cubic-bezier(0.34, 1.56, 0.64, 1), opacity 120ms ease, background-color 60ms ease',
-                pointerEvents: (value.trim() || attachments.length > 0) ? 'auto' : 'none',
-              }}
-            >
-              <ArrowUp size={16} />
-            </button>
-          )}
+          {/* mic + send 共用同一位置，disabled 时显示 spinner */}
+          <div style={{ position: 'relative', width: '32px', height: '32px', flexShrink: 0 }}>
+            {disabled ? (
+              <div className="flex h-full w-full items-center justify-center rounded-lg bg-[var(--c-accent-send)]" style={{ opacity: 0.5 }}>
+                <Loader2 size={14} className="animate-spin" style={{ color: 'var(--c-accent-send-text)' }} />
+              </div>
+            ) : isStreaming && canCancel ? (
+              <button
+                type="button"
+                onClick={onCancel}
+                disabled={cancelSubmitting}
+                className="flex h-full w-full items-center justify-center rounded-lg bg-[var(--c-accent-send)] text-[var(--c-accent-send-text)] transition-[background-color,opacity] duration-[60ms] hover:bg-[var(--c-accent-send-hover)] active:opacity-[0.75] disabled:cursor-not-allowed disabled:opacity-50"
+                style={{ position: 'absolute', inset: 0 }}
+              >
+                <Square size={14} fill="currentColor" />
+              </button>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={startRecording}
+                  disabled={isRecording || isTranscribing || !accessToken}
+                  className="flex h-full w-full items-center justify-center rounded-lg text-[var(--c-text-secondary)] hover:bg-[var(--c-bg-deep)] disabled:cursor-not-allowed disabled:opacity-30"
+                  style={{
+                    position: 'absolute',
+                    inset: 0,
+                    opacity: (value.trim() || attachments.length > 0) ? 0 : 0.65,
+                    transform: (value.trim() || attachments.length > 0) ? 'scale(0.7)' : 'scale(1)',
+                    transition: 'opacity 150ms ease, transform 150ms ease',
+                    pointerEvents: (value.trim() || attachments.length > 0) ? 'none' : 'auto',
+                  }}
+                >
+                  <Mic size={16} />
+                </button>
+                <button
+                  type="submit"
+                  disabled={isStreaming || (!value.trim() && attachments.length === 0)}
+                  className="flex h-full w-full items-center justify-center rounded-lg bg-[var(--c-accent-send)] text-[var(--c-accent-send-text)] hover:bg-[var(--c-accent-send-hover)] active:opacity-[0.75] active:scale-[0.93] disabled:cursor-not-allowed"
+                  style={{
+                    position: 'absolute',
+                    inset: 0,
+                    transform: (value.trim() || attachments.length > 0) ? 'scale(1)' : 'scale(0)',
+                    opacity: (value.trim() || attachments.length > 0) ? 1 : 0,
+                    transition: 'transform 180ms cubic-bezier(0.34, 1.56, 0.64, 1), opacity 120ms ease, background-color 60ms ease',
+                    pointerEvents: (value.trim() || attachments.length > 0) ? 'auto' : 'none',
+                  }}
+                >
+                  <ArrowUp size={16} />
+                </button>
+              </>
+            )}
+          </div>
         </div>
       </form>
 

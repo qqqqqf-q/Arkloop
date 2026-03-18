@@ -48,6 +48,11 @@ export function useSSE(options: UseSSEOptions): UseSSEResult {
     if (seenSeqsRef.current.has(event.seq)) return
     seenSeqsRef.current.add(event.seq)
 
+    // DEBUG: 追踪事件到达时序，用于诊断流式渲染问题
+    if (event.type === 'message.delta' || event.type === 'run.completed' || event.type === 'run.segment.start') {
+      console.log(`[sse] t=${Date.now()} type=${event.type} seq=${event.seq}`)
+    }
+
     setEvents(prev => [...prev, event])
 
     if (typeof event.seq === 'number' && event.seq >= 0) {

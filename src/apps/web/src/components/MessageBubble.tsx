@@ -85,13 +85,14 @@ function renderBrowserScreenshots(browserActions?: BrowserActionRef[], accessTok
 
 type StreamingBubbleProps = {
   content: string
+  isComplete?: boolean
   webSources?: WebSource[]
   browserActions?: BrowserActionRef[]
   accessToken?: string
 }
 
-export function StreamingBubble({ content, webSources, browserActions, accessToken }: StreamingBubbleProps) {
-  const displayed = useTypewriter(content)
+export function StreamingBubble({ content, isComplete, webSources, browserActions, accessToken }: StreamingBubbleProps) {
+  const displayed = useTypewriter(content, isComplete)
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column' }}>

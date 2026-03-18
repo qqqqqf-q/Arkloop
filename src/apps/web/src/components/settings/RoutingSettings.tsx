@@ -57,7 +57,7 @@ function ModelDropdown({
         type="button"
         disabled={disabled}
         onClick={() => setOpen(v => !v)}
-        className="flex h-8 w-full items-center justify-between rounded-lg px-3 text-xs transition-colors hover:bg-[var(--c-bg-deep)] disabled:opacity-50"
+        className="flex h-9 w-full items-center justify-between rounded-lg px-3 text-sm transition-colors hover:bg-[var(--c-bg-deep)] disabled:opacity-50"
         style={{
           border: '0.5px solid var(--c-border-subtle)',
           background: 'var(--c-bg-page)',
@@ -84,7 +84,7 @@ function ModelDropdown({
           <button
             type="button"
             onClick={() => { onChange(''); setOpen(false) }}
-            className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs transition-colors hover:bg-[var(--c-bg-deep)]"
+            className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition-colors hover:bg-[var(--c-bg-deep)]"
             style={{
               color: value === '' ? 'var(--c-text-heading)' : 'var(--c-text-secondary)',
               fontWeight: value === '' ? 500 : 400,
@@ -98,7 +98,7 @@ function ModelDropdown({
               key={o.value}
               type="button"
               onClick={() => { onChange(o.value); setOpen(false) }}
-              className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs transition-colors hover:bg-[var(--c-bg-deep)]"
+              className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition-colors hover:bg-[var(--c-bg-deep)]"
               style={{
                 color: value === o.value ? 'var(--c-text-heading)' : 'var(--c-text-secondary)',
                 fontWeight: value === o.value ? 500 : 400,
@@ -173,7 +173,7 @@ export function RoutingSettings({ accessToken }: Props) {
             const currentValue = profile?.has_override ? profile.resolved_model : ''
             return (
               <div key={name} className="flex items-center gap-3">
-                <span className="w-16 shrink-0 text-xs text-[var(--c-text-tertiary)]">
+                <span className="w-20 shrink-0 text-sm text-[var(--c-text-secondary)]">
                   {profileLabels[name]}
                 </span>
                 <ModelDropdown

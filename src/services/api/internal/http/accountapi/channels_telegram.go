@@ -29,6 +29,7 @@ const telegramRemoteRequestTimeout = 5 * time.Second
 
 type telegramChannelConfig struct {
 	AllowedUserIDs []string `json:"allowed_user_ids"`
+	DefaultModel   string   `json:"default_model,omitempty"`
 }
 
 type telegramUpdate struct {
@@ -84,6 +85,7 @@ func normalizeChannelConfigJSON(channelType string, raw json.RawMessage) (json.R
 		return nil, nil, err
 	}
 	cfg.AllowedUserIDs = normalizedIDs
+	cfg.DefaultModel = strings.TrimSpace(cfg.DefaultModel)
 	normalized, err := json.Marshal(cfg)
 	if err != nil {
 		return nil, nil, err
@@ -429,21 +431,25 @@ func (c telegramConnector) HandleUpdate(
 	if err != nil {
 		return err
 	}
+	jobPayload := map[string]any{
+		"source": "telegram",
+		"channel_delivery": map[string]any{
+			"channel_id":                 ch.ID.String(),
+			"channel_type":               "telegram",
+			"platform_chat_id":           strconv.FormatInt(update.Message.Chat.ID, 10),
+			"sender_channel_identity_id": identity.ID.String(),
+		},
+	}
+	if model := strings.TrimSpace(cfg.DefaultModel); model != "" {
+		jobPayload["model"] = model
+	}
 	if _, err := c.jobRepo.WithTx(tx).EnqueueRun(
 		ctx,
 		ch.AccountID,
 		run.ID,
 		traceID,
 		data.RunExecuteJobType,
-		map[string]any{
-			"source": "telegram",
-			"channel_delivery": map[string]any{
-				"channel_id":                 ch.ID.String(),
-				"channel_type":               "telegram",
-				"platform_chat_id":           strconv.FormatInt(update.Message.Chat.ID, 10),
-				"sender_channel_identity_id": identity.ID.String(),
-			},
-		},
+		jobPayload,
 		nil,
 	); err != nil {
 		return err

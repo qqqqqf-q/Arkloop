@@ -301,23 +301,18 @@ export function GeneralSettings({ me, accessToken, onLogout, onMeUpdated: _onMeU
       </div>
 
       {/* Language & Theme — image-card picker */}
-      <section>
-        <p className="mb-3 px-1 text-[11px] font-semibold uppercase tracking-wider text-[var(--c-text-muted)]">
-          {ds.appearanceSection}
-        </p>
-        <div className="flex flex-col gap-4">
-          <LanguageContent locale={locale} setLocale={setLocale} label={t.language} />
-          <ThemeModePicker />
-        </div>
-      </section>
+      <div className="flex flex-col gap-4">
+        <LanguageContent locale={locale} setLocale={setLocale} label={t.language} />
+        <ThemeModePicker />
+      </div>
 
       {/* Tool Model */}
       <section>
-        <p className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-[var(--c-text-muted)]">
+        <p className="mb-2 text-sm font-medium text-[var(--c-text-heading)]">
           {ds.toolModel}
         </p>
         <div className="flex flex-col gap-2">
-          <p className="px-1 text-xs text-[var(--c-text-tertiary)]">{ds.toolModelDesc}</p>
+          <p className="text-xs text-[var(--c-text-tertiary)]">{ds.toolModelDesc}</p>
           <ModelDropdown
             value={toolModelValue}
             options={modelOptions}

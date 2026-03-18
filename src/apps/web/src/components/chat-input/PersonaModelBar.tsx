@@ -302,7 +302,7 @@ export function PersonaModelBar({
             height: '32px',
             padding: '0 8px 0 9px',
             borderRadius: '8px',
-            background: 'var(--c-bg-deep)',
+            background: 'var(--c-chip-active-bg)',
             border: '0.5px solid var(--c-border-subtle)',
             flexShrink: 0,
             marginLeft: '4px',
@@ -313,21 +313,21 @@ export function PersonaModelBar({
           }}
         >
           {selectedPersonaKey === LEARNING_PERSONA_KEY && (
-            <BookOpen size={12} style={{ color: 'var(--c-text-secondary)', flexShrink: 0 }} />
+            <BookOpen size={12} style={{ color: 'var(--c-chip-active-text)', flexShrink: 0 }} />
           )}
           {selectedPersonaKey === SEARCH_PERSONA_KEY && (
             <Search size={12} style={{ color: '#4691F6', flexShrink: 0 }} />
           )}
           <span style={{
             fontSize: '13px',
-            color: selectedPersonaKey === SEARCH_PERSONA_KEY ? '#4691F6' : 'var(--c-text-secondary)',
+            color: selectedPersonaKey === SEARCH_PERSONA_KEY ? '#4691F6' : 'var(--c-chip-active-text)',
             fontWeight: 450,
             whiteSpace: 'nowrap',
             margin: '0 4px',
           }}>
             {selectedPersona?.selector_name ?? selectedPersonaKey}
           </span>
-          <X size={9} style={{ color: 'var(--c-text-muted)', flexShrink: 0 }} />
+          <X size={9} style={{ color: 'var(--c-chip-active-text)', opacity: 0.5, flexShrink: 0 }} />
         </button>
       )}
 

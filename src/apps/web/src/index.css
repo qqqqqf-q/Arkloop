@@ -12,11 +12,11 @@ button:not(:disabled) {
   --c-font-body: 'Inter', system-ui, sans-serif;
   --c-font-code: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', monospace;
   --c-font-size-base: 14px;
-  --c-bg-page: #1E1D1C;
-  --c-bg-sidebar: #242422;
+  --c-bg-page: #262624;
+  --c-bg-sidebar: #262624;
   --c-bg-deep: #141413;
-  --c-bg-sub: #1e1e1c;
-  --c-bg-card-hover: #2a2a28;
+  --c-bg-sub: #1E1D1B;
+  --c-bg-card-hover: #2E2E2C;
   --c-bg-input: #30302e;
   --c-bg-plus: #363633;
   --c-bg-menu: #2a2a28;
@@ -38,9 +38,11 @@ button:not(:disabled) {
   --c-avatar-text: #242422;
   --c-btn-bg: #FAF9F6;
   --c-btn-text: #141413;
-  --c-accent-send: #1A1A19;
-  --c-accent-send-hover: #2e2e2c;
-  --c-accent-send-text: #e8e8e3;
+  --c-accent-send: #363734;
+  --c-accent-send-hover: #3e3e3c;
+  --c-accent-send-text: #F0EFE9;
+  --c-chip-active-bg: #EFEEDD;
+  --c-chip-active-text: #2A2A28;
   --c-accent: #FAF9F6;
   --c-pro-bg: rgba(70, 145, 246, 0.12);
   --c-overlay: rgba(0, 0, 0, 0.60);
@@ -114,11 +116,11 @@ button:not(:disabled) {
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]) {
     color-scheme: light;
-    --c-bg-page: #F5F5F4;
-    --c-bg-sidebar: #FAFAFA;
-    --c-bg-deep: #EBEBEB;
-    --c-bg-sub: #EBEBEB;
-    --c-bg-card-hover: #EFEFED;
+    --c-bg-page: #FAF9F6;
+    --c-bg-sidebar: #FAF9F6;
+    --c-bg-deep: #F0EEE7;
+    --c-bg-sub: #F0EEE7;
+    --c-bg-card-hover: #F0EEE7;
     --c-bg-input: #FFFFFF;
     --c-bg-plus: #E5E5E3;
     --c-bg-menu: #FFFFFF;
@@ -141,9 +143,11 @@ button:not(:disabled) {
     --c-btn-bg: #1A1A18;
     --c-btn-text: #FAFAFA;
     --c-accent-send: #FFFFFF;
-    --c-accent-send-hover: #EBEBEB;
+    --c-accent-send-hover: #F0EEE7;
     --c-accent-send-text: #1A1A19;
     --c-accent: #1A1A18;
+    --c-chip-active-bg: #F0EEE7;
+    --c-chip-active-text: #3D3D3B;
     --c-pro-bg: #EAF2FC;
     --c-overlay: rgba(0, 0, 0, 0.25);
     --c-lightbox-overlay: rgba(255, 255, 255, 0.55);
@@ -185,9 +189,9 @@ button:not(:disabled) {
     --title-btn-dim: rgba(0, 0, 0, 0.06);
     --title-btn-hover: rgba(0, 0, 0, 0.10);
     --c-sidebar-btn-hover: rgba(0, 0, 0, 0.12);
-    --c-mode-switch-track: rgba(0, 0, 0, 0.05);
-    --c-mode-switch-border: rgba(0, 0, 0, 0.08);
-    --c-mode-switch-pill: #FFFFFF;
+    --c-mode-switch-track: #F0EEE7;
+    --c-mode-switch-border: rgba(0, 0, 0, 0.06);
+    --c-mode-switch-pill: #FAF9F6;
     --c-mode-switch-pill-shadow: 0 1px 3px rgba(0, 0, 0, 0.10), 0 0.5px 1px rgba(0, 0, 0, 0.06);
     --c-mode-switch-active-text: #141412;
     --c-mode-switch-inactive-text: #8C8C8A;
@@ -217,11 +221,11 @@ button:not(:disabled) {
 
 :root[data-theme="light"] {
   color-scheme: light;
-  --c-bg-page: #F5F5F4;
-  --c-bg-sidebar: #FAFAFA;
-  --c-bg-deep: #EBEBEB;
-  --c-bg-sub: #EBEBEB;
-  --c-bg-card-hover: #EFEFED;
+  --c-bg-page: #FAF9F6;
+  --c-bg-sidebar: #FAF9F6;
+  --c-bg-deep: #F0EEE7;
+  --c-bg-sub: #F0EEE7;
+  --c-bg-card-hover: #F0EEE7;
   --c-bg-input: #FFFFFF;
   --c-bg-plus: #E5E5E3;
   --c-bg-menu: #FFFFFF;
@@ -244,9 +248,11 @@ button:not(:disabled) {
   --c-btn-bg: #1A1A18;
   --c-btn-text: #FAFAFA;
   --c-accent-send: #FFFFFF;
-  --c-accent-send-hover: #EBEBEB;
+  --c-accent-send-hover: #F0EEE7;
   --c-accent-send-text: #1A1A19;
   --c-accent: #1A1A18;
+  --c-chip-active-bg: #F0EEE7;
+  --c-chip-active-text: #3D3D3B;
   --c-pro-bg: #EAF2FC;
   --c-overlay: rgba(0, 0, 0, 0.25);
   --c-lightbox-overlay: rgba(255, 255, 255, 0.55);
@@ -288,9 +294,9 @@ button:not(:disabled) {
   --title-btn-dim: rgba(0, 0, 0, 0.06);
   --title-btn-hover: rgba(0, 0, 0, 0.10);
   --c-sidebar-btn-hover: rgba(0, 0, 0, 0.12);
-  --c-mode-switch-track: rgba(0, 0, 0, 0.05);
-  --c-mode-switch-border: rgba(0, 0, 0, 0.08);
-  --c-mode-switch-pill: #FFFFFF;
+  --c-mode-switch-track: #F0EEE7;
+  --c-mode-switch-border: rgba(0, 0, 0, 0.06);
+  --c-mode-switch-pill: #FAF9F6;
   --c-mode-switch-pill-shadow: 0 1px 3px rgba(0, 0, 0, 0.10), 0 0.5px 1px rgba(0, 0, 0, 0.06);
   --c-mode-switch-active-text: #141412;
   --c-mode-switch-inactive-text: #8C8C8A;
@@ -690,6 +696,11 @@ button:not(:disabled) {
 @keyframes timeline-line-grow {
   from { transform: scaleY(0); }
   to { transform: scaleY(1); }
+}
+
+@keyframes input-sweep {
+  0% { transform: translateX(-100%) skewX(-15deg); }
+  100% { transform: translateX(350%) skewX(-15deg); }
 }
 
 @keyframes timeline-slide-in {

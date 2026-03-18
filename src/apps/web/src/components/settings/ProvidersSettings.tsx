@@ -99,7 +99,7 @@ export function ProvidersSettings({ accessToken }: Props) {
   return (
     <div className="-m-6 flex overflow-hidden" style={{ height: 'calc(100% + 48px)' }}>
       {/* Provider list */}
-      <div className="flex w-[140px] shrink-0 flex-col overflow-hidden border-r border-[var(--c-border-subtle)]">
+      <div className="flex w-[200px] shrink-0 flex-col overflow-hidden border-r border-[var(--c-border-subtle)]">
         <div className="flex-1 overflow-y-auto px-2 py-1">
           <div className="flex flex-col gap-[3px]">
             {providers.map((pv) => (
@@ -107,7 +107,7 @@ export function ProvidersSettings({ accessToken }: Props) {
                 key={pv.id}
                 onClick={() => setSelectedId(pv.id)}
                 className={[
-                  'flex h-[30px] items-center truncate rounded-[5px] px-3 text-left text-sm font-medium transition-colors',
+                  'flex h-[34px] items-center truncate rounded-[5px] px-3 text-left text-[13px] font-medium transition-colors',
                   selectedId === pv.id
                     ? 'bg-[var(--c-bg-sub)] text-[var(--c-text-primary)]'
                     : 'text-[var(--c-text-tertiary)] hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-secondary)]',
@@ -121,7 +121,7 @@ export function ProvidersSettings({ accessToken }: Props) {
         <div className="border-t border-[var(--c-border-subtle)] px-3 py-3">
           <button
             onClick={() => setShowAddProvider(true)}
-            className="flex h-7 w-full items-center justify-center gap-1.5 rounded-md text-sm text-[var(--c-text-muted)] transition-colors hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-secondary)]"
+            className="flex h-8 w-full items-center justify-center gap-1.5 rounded-md text-[13px] text-[var(--c-text-muted)] transition-colors hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-secondary)]"
           >
             <Plus size={14} />
             {p.addProvider}
@@ -216,7 +216,16 @@ function AddProviderModal({ accessToken, p, onClose, onCreated }: {
             <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={p.apiKeyPlaceholder} className={INPUT_CLS} />
           </LabelField>
           <LabelField label={p.baseUrl}>
-            <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder={p.baseUrlPlaceholder} className={INPUT_CLS} />
+            <input
+              value={baseUrl}
+              onChange={(e) => setBaseUrl(e.target.value.slice(0, 500))}
+              placeholder={p.baseUrlPlaceholder ?? 'https://api.example.com/v1'}
+              className={INPUT_CLS}
+              maxLength={500}
+            />
+            {baseUrl.trim() && !baseUrl.trim().startsWith('https://') && !baseUrl.trim().startsWith('http://') && (
+              <p className="mt-1 text-xs text-[var(--c-text-muted)]">需以 https:// 开头</p>
+            )}
           </LabelField>
         </div>
         {err && <p className="text-xs text-red-400">{err}</p>}
@@ -300,7 +309,16 @@ function ProviderDetail({ provider, accessToken, onUpdated, onDeleted, p }: {
           {provider.key_prefix && <p className="mt-1 text-xs text-[var(--c-text-muted)]">{provider.key_prefix}{'*'.repeat(8)}</p>}
         </LabelField>
         <LabelField label={p.baseUrl}>
-          <input value={formBaseUrl} onChange={(e) => setFormBaseUrl(e.target.value)} placeholder={p.baseUrlPlaceholder} className={INPUT_CLS} />
+          <input
+            value={formBaseUrl}
+            onChange={(e) => setFormBaseUrl(e.target.value.slice(0, 500))}
+            placeholder={p.baseUrlPlaceholder ?? 'https://api.example.com/v1'}
+            className={INPUT_CLS}
+            maxLength={500}
+          />
+          {formBaseUrl.trim() && !formBaseUrl.trim().startsWith('https://') && !formBaseUrl.trim().startsWith('http://') && (
+            <p className="mt-1 text-xs text-[var(--c-text-muted)]">需以 https:// 开头</p>
+          )}
         </LabelField>
       </div>
 

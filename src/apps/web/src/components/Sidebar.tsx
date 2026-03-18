@@ -339,7 +339,7 @@ export function Sidebar({
                       <button
                         onClick={() => navigate(`/t/${thread.id}`)}
                         className={[
-                          'flex min-w-0 flex-1 items-center gap-2 px-2 py-[7px] text-left text-[13px] font-[350] group-hover:text-[var(--c-text-primary)]',
+                          'flex min-w-0 flex-1 items-center gap-2 px-2 py-[7px] text-left text-[14px] font-[350] group-hover:text-[var(--c-text-primary)]',
                           thread.id === threadId
                             ? 'text-[var(--c-text-primary)]'
                             : 'text-[var(--c-text-secondary)]',

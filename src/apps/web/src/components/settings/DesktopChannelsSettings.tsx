@@ -133,6 +133,7 @@ export function DesktopChannelsSettings({ accessToken }: Props) {
 
   const [tokenDraft, setTokenDraft] = useState('')
   const [showToken, setShowToken] = useState(false)
+  const [defaultModel, setDefaultModel] = useState('')
 
   const [verifying, setVerifying] = useState(false)
   const [verifyResult, setVerifyResult] = useState<{ ok: boolean; message: string } | null>(null)
@@ -155,6 +156,7 @@ export function DesktopChannelsSettings({ accessToken }: Props) {
       setEnabled(channel?.is_active ?? false)
       setPersonaID(resolvePersonaID(allPersonas, channel?.persona_id))
       setAllowedUserIDs(readAllowedUserIDs(channel))
+      setDefaultModel((channel?.config_json?.default_model as string | undefined) ?? '')
       setTokenDraft('')
       setAllowedUserInput('')
       setError('')
@@ -182,18 +184,23 @@ export function DesktopChannelsSettings({ accessToken }: Props) {
     [personas, telegramChannel?.persona_id],
   )
 
+  const persistedDefaultModel = (telegramChannel?.config_json?.default_model as string | undefined) ?? ''
+
   const dirty = useMemo(() => {
     if (loading) return false
     if ((telegramChannel?.is_active ?? false) !== enabled) return true
     if (effectivePersonaID !== personaID) return true
     if (!sameItems(persistedAllowedUserIDs, effectiveAllowedUserIDs)) return true
+    if (defaultModel !== persistedDefaultModel) return true
     return tokenDraft.trim().length > 0
   }, [
+    defaultModel,
     effectiveAllowedUserIDs,
     effectivePersonaID,
     enabled,
     loading,
     persistedAllowedUserIDs,
+    persistedDefaultModel,
     personaID,
     telegramChannel,
     tokenDraft,
@@ -230,7 +237,8 @@ export function DesktopChannelsSettings({ accessToken }: Props) {
     setSaving(true)
     setError('')
     try {
-      const configJSON = { allowed_user_ids: nextAllowedUserIDs }
+      const configJSON: Record<string, unknown> = { allowed_user_ids: nextAllowedUserIDs }
+      if (defaultModel.trim()) configJSON.default_model = defaultModel.trim()
 
       if (telegramChannel == null) {
         const created = await createChannel(accessToken, {
@@ -390,13 +398,13 @@ export function DesktopChannelsSettings({ accessToken }: Props) {
                 setSaved(false)
               }}
               className={[
-                'relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200',
+                'relative inline-flex h-5 w-10 shrink-0 items-center rounded-[5px] p-[2px] transition-colors duration-200',
                 enabled ? 'bg-[var(--c-accent)]' : 'bg-[var(--c-border)]',
               ].join(' ')}
             >
               <span
                 className={[
-                  'pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow transition-transform duration-200',
+                  'pointer-events-none inline-block h-4 w-4 rounded-[3px] bg-white transition-transform duration-200',
                   enabled ? 'translate-x-5' : 'translate-x-0',
                 ].join(' ')}
               />
@@ -505,6 +513,22 @@ export function DesktopChannelsSettings({ accessToken }: Props) {
                 ))}
               </select>
             </div>
+
+            <div className="md:col-span-2">
+              <label className="mb-1.5 block text-xs font-medium text-[var(--c-text-secondary)]">
+                {ds.connectorDefaultModel}
+              </label>
+              <input
+                type="text"
+                value={defaultModel}
+                onChange={(e) => {
+                  setDefaultModel(e.target.value)
+                  setSaved(false)
+                }}
+                placeholder={ds.connectorDefaultModelPlaceholder}
+                className={inputCls}
+              />
+            </div>
           </div>
         </div>
       </div>
@@ -518,10 +542,9 @@ export function DesktopChannelsSettings({ accessToken }: Props) {
             <div>
               <div className="text-sm font-medium text-[var(--c-text-heading)]">{ct.bindingsTitle}</div>
               {bindCode && (
-                <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-[var(--c-text-secondary)]">
-                  <span className="text-xs text-[var(--c-text-muted)]">{ct.bindCode}</span>
-                  <code className="rounded-md bg-[var(--c-bg-deep)] px-2 py-1 font-mono text-[var(--c-text-heading)]">
-                    {bindCode}
+                <div className="mt-2">
+                  <code className="rounded-md bg-[var(--c-bg-deep)] px-2 py-1 font-mono text-sm text-[var(--c-text-heading)] select-all">
+                    /bind {bindCode}
                   </code>
                 </div>
               )}
@@ -538,15 +561,9 @@ export function DesktopChannelsSettings({ accessToken }: Props) {
               }}
             >
               {generatingCode ? <Loader2 size={14} className="animate-spin" /> : <Link2 size={14} />}
-              {generatingCode ? ct.generating : ct.generateCode}
+              {generatingCode ? ct.generating : bindCode ? ds.connectorRegenerateCode : ct.generateCode}
             </button>
           </div>
-
-          {bindCode && (
-            <p className="text-xs text-[var(--c-text-muted)]">
-              {ct.bindCodeHint.replace('{code}', bindCode)}
-            </p>
-          )}
 
           {identities.length === 0 ? (
             <p className="text-sm text-[var(--c-text-muted)]">{ct.bindingsEmpty}</p>
