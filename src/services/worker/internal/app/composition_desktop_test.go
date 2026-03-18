@@ -339,6 +339,205 @@ func TestPrepareDesktopHostSkillsMaterializesBundlesAndIndex(t *testing.T) {
 	}
 }
 
+func TestResolveDesktopRunBindingsPersistsAndExposesInheritedSkills(t *testing.T) {
+	ctx := context.Background()
+
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "desktop.db"))
+	if err != nil {
+		t.Fatalf("auto migrate sqlite: %v", err)
+	}
+	defer sqlitePool.Close()
+
+	db := sqlitepgx.New(sqlitePool.Unwrap())
+	accountID := uuid.New()
+	userID := uuid.New()
+	threadID1 := uuid.New()
+	threadID2 := uuid.New()
+	runID1 := uuid.New()
+	runID2 := uuid.New()
+
+	seedDesktopRunBindingAccount(t, db, accountID, userID)
+	seedDesktopRunBindingThread(t, db, accountID, threadID1, nil, &userID)
+	seedDesktopRunBindingThread(t, db, accountID, threadID2, nil, &userID)
+	seedDesktopRunBindingRun(t, db, accountID, threadID1, &userID, runID1)
+	seedDesktopRunBindingRun(t, db, accountID, threadID2, &userID, runID2)
+
+	first, err := resolveDesktopRunBindings(ctx, db, data.Run{
+		ID:              runID1,
+		AccountID:       accountID,
+		ThreadID:        threadID1,
+		CreatedByUserID: &userID,
+	})
+	if err != nil {
+		t.Fatalf("resolve first desktop run bindings: %v", err)
+	}
+	seedDesktopOwnedSkillPackage(t, db, accountID, "grep-helper", "1")
+	if _, err := db.Exec(
+		ctx,
+		`INSERT INTO profile_skill_installs (profile_ref, account_id, owner_user_id, skill_key, version)
+		 VALUES ($1, $2, $3, 'grep-helper', '1')`,
+		derefStr(first.ProfileRef),
+		accountID,
+		userID,
+	); err != nil {
+		t.Fatalf("seed profile install: %v", err)
+	}
+	if _, err := db.Exec(
+		ctx,
+		`INSERT INTO workspace_skill_enablements (workspace_ref, account_id, enabled_by_user_id, skill_key, version)
+		 VALUES ($1, $2, $3, 'grep-helper', '1')`,
+		derefStr(first.WorkspaceRef),
+		accountID,
+		userID,
+	); err != nil {
+		t.Fatalf("seed workspace enablement: %v", err)
+	}
+
+	second, err := resolveDesktopRunBindings(ctx, db, data.Run{
+		ID:              runID2,
+		AccountID:       accountID,
+		ThreadID:        threadID2,
+		CreatedByUserID: &userID,
+	})
+	if err != nil {
+		t.Fatalf("resolve second desktop run bindings: %v", err)
+	}
+	if derefStr(first.WorkspaceRef) == derefStr(second.WorkspaceRef) {
+		t.Fatalf("expected new thread to bind a different workspace, got %q", derefStr(second.WorkspaceRef))
+	}
+
+	var storedProfileRef string
+	var storedWorkspaceRef string
+	if err := db.QueryRow(
+		ctx,
+		`SELECT profile_ref, workspace_ref FROM runs WHERE id = $1`,
+		runID2,
+	).Scan(&storedProfileRef, &storedWorkspaceRef); err != nil {
+		t.Fatalf("load persisted run bindings: %v", err)
+	}
+	if storedProfileRef != derefStr(second.ProfileRef) || storedWorkspaceRef != derefStr(second.WorkspaceRef) {
+		t.Fatalf("unexpected persisted bindings: %q %q", storedProfileRef, storedWorkspaceRef)
+	}
+
+	resolver := desktopSkillResolver(db)
+	items, err := resolver(ctx, accountID, storedProfileRef, storedWorkspaceRef)
+	if err != nil {
+		t.Fatalf("resolve desktop skills: %v", err)
+	}
+	if len(items) != 1 || items[0].SkillKey != "grep-helper" || items[0].Version != "1" {
+		t.Fatalf("unexpected resolved skills: %#v", items)
+	}
+}
+
+func TestResolveDesktopRunBindingsIgnoresWorkDirForWorkspaceAndSkills(t *testing.T) {
+	ctx := context.Background()
+
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "desktop.db"))
+	if err != nil {
+		t.Fatalf("auto migrate sqlite: %v", err)
+	}
+	defer sqlitePool.Close()
+
+	db := sqlitepgx.New(sqlitePool.Unwrap())
+	accountID := uuid.New()
+	userID := uuid.New()
+	threadID := uuid.New()
+	runID1 := uuid.New()
+	runID2 := uuid.New()
+
+	seedDesktopRunBindingAccount(t, db, accountID, userID)
+	seedDesktopRunBindingThread(t, db, accountID, threadID, nil, &userID)
+	seedDesktopRunBindingRun(t, db, accountID, threadID, &userID, runID1)
+	seedDesktopRunBindingRun(t, db, accountID, threadID, &userID, runID2)
+	if _, err := db.Exec(ctx, `INSERT INTO run_events (run_id, seq, type, data_json) VALUES ($1, 1, 'run.started', '{"work_dir":"/tmp/work-a"}')`, runID1); err != nil {
+		t.Fatalf("seed first run.started: %v", err)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO run_events (run_id, seq, type, data_json) VALUES ($1, 1, 'run.started', '{"work_dir":"/tmp/work-b"}')`, runID2); err != nil {
+		t.Fatalf("seed second run.started: %v", err)
+	}
+
+	first, err := resolveDesktopRunBindings(ctx, db, data.Run{
+		ID:              runID1,
+		AccountID:       accountID,
+		ThreadID:        threadID,
+		CreatedByUserID: &userID,
+	})
+	if err != nil {
+		t.Fatalf("resolve first desktop run bindings: %v", err)
+	}
+	seedDesktopOwnedSkillPackage(t, db, accountID, "write-helper", "1")
+	if _, err := db.Exec(
+		ctx,
+		`INSERT INTO profile_skill_installs (profile_ref, account_id, owner_user_id, skill_key, version)
+		 VALUES ($1, $2, $3, 'write-helper', '1')`,
+		derefStr(first.ProfileRef),
+		accountID,
+		userID,
+	); err != nil {
+		t.Fatalf("seed profile install: %v", err)
+	}
+	if _, err := db.Exec(
+		ctx,
+		`INSERT INTO workspace_skill_enablements (workspace_ref, account_id, enabled_by_user_id, skill_key, version)
+		 VALUES ($1, $2, $3, 'write-helper', '1')`,
+		derefStr(first.WorkspaceRef),
+		accountID,
+		userID,
+	); err != nil {
+		t.Fatalf("seed workspace enablement: %v", err)
+	}
+
+	second, err := resolveDesktopRunBindings(ctx, db, data.Run{
+		ID:              runID2,
+		AccountID:       accountID,
+		ThreadID:        threadID,
+		CreatedByUserID: &userID,
+	})
+	if err != nil {
+		t.Fatalf("resolve second desktop run bindings: %v", err)
+	}
+	if derefStr(first.WorkspaceRef) != derefStr(second.WorkspaceRef) {
+		t.Fatalf("expected same thread to reuse workspace despite work_dir change, got %q vs %q", derefStr(first.WorkspaceRef), derefStr(second.WorkspaceRef))
+	}
+
+	resolver := desktopSkillResolver(db)
+	firstItems, err := resolver(ctx, accountID, derefStr(first.ProfileRef), derefStr(first.WorkspaceRef))
+	if err != nil {
+		t.Fatalf("resolve first run skills: %v", err)
+	}
+	secondItems, err := resolver(ctx, accountID, derefStr(second.ProfileRef), derefStr(second.WorkspaceRef))
+	if err != nil {
+		t.Fatalf("resolve second run skills: %v", err)
+	}
+	if len(firstItems) != 1 || len(secondItems) != 1 {
+		t.Fatalf("unexpected resolved skills: first=%#v second=%#v", firstItems, secondItems)
+	}
+	if firstItems[0].SkillKey != secondItems[0].SkillKey || firstItems[0].Version != secondItems[0].Version {
+		t.Fatalf("expected identical skill sets, got first=%#v second=%#v", firstItems, secondItems)
+	}
+
+	loader := desktopInputLoader(db, data.DesktopRunEventsRepository{})
+	firstRC := &pipeline.RunContext{Run: first, ThreadMessageHistoryLimit: 10}
+	if err := loader(ctx, firstRC, func(_ context.Context, rc *pipeline.RunContext) error {
+		if rc.WorkDir != "/tmp/work-a" {
+			t.Fatalf("unexpected first work_dir: %q", rc.WorkDir)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("load first desktop input: %v", err)
+	}
+
+	secondRC := &pipeline.RunContext{Run: second, ThreadMessageHistoryLimit: 10}
+	if err := loader(ctx, secondRC, func(_ context.Context, rc *pipeline.RunContext) error {
+		if rc.WorkDir != "/tmp/work-b" {
+			t.Fatalf("unexpected second work_dir: %q", rc.WorkDir)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("load second desktop input: %v", err)
+	}
+}
+
 func TestDesktopEventWriterCommitsNonStreamingEventsBeforeToolExecution(t *testing.T) {
 	ctx := context.Background()
 
@@ -764,6 +963,79 @@ func TestDesktopChannelDeliveryRecordsFailureWhenChannelMissing(t *testing.T) {
 	}
 	if errorMessage != "channel not found or inactive" {
 		t.Fatalf("unexpected delivery failure error: %q", errorMessage)
+	}
+}
+
+func seedDesktopRunBindingAccount(t *testing.T, db data.DB, accountID, userID uuid.UUID) {
+	t.Helper()
+	if _, err := db.Exec(
+		context.Background(),
+		`INSERT INTO users (id, username, email, status)
+		 VALUES ($1, $2, $3, 'active')`,
+		userID,
+		"desktop-run-user-"+userID.String(),
+		"desktop-run-"+userID.String()+"@test.local",
+	); err != nil {
+		t.Fatalf("seed desktop run user: %v", err)
+	}
+	if _, err := db.Exec(
+		context.Background(),
+		`INSERT INTO accounts (id, slug, name, type, status, owner_user_id)
+		 VALUES ($1, $2, $3, 'personal', 'active', $4)`,
+		accountID,
+		"desktop-run-account-"+accountID.String(),
+		"Desktop Run Bindings",
+		userID,
+	); err != nil {
+		t.Fatalf("seed desktop run account: %v", err)
+	}
+}
+
+func seedDesktopRunBindingThread(t *testing.T, db data.DB, accountID, threadID uuid.UUID, projectID, userID *uuid.UUID) {
+	t.Helper()
+	if _, err := db.Exec(
+		context.Background(),
+		`INSERT INTO threads (id, account_id, created_by_user_id, project_id, is_private)
+		 VALUES ($1, $2, $3, $4, TRUE)`,
+		threadID,
+		accountID,
+		userID,
+		projectID,
+	); err != nil {
+		t.Fatalf("seed desktop run thread: %v", err)
+	}
+}
+
+func seedDesktopRunBindingRun(t *testing.T, db data.DB, accountID, threadID uuid.UUID, userID *uuid.UUID, runID uuid.UUID) {
+	t.Helper()
+	if _, err := db.Exec(
+		context.Background(),
+		`INSERT INTO runs (id, account_id, thread_id, created_by_user_id, status)
+		 VALUES ($1, $2, $3, $4, 'running')`,
+		runID,
+		accountID,
+		threadID,
+		userID,
+	); err != nil {
+		t.Fatalf("seed desktop run: %v", err)
+	}
+}
+
+func seedDesktopOwnedSkillPackage(t *testing.T, db data.DB, accountID uuid.UUID, skillKey string, version string) {
+	t.Helper()
+	if _, err := db.Exec(
+		context.Background(),
+		`INSERT INTO skill_packages (account_id, skill_key, version, display_name, instruction_path, manifest_key, bundle_key, files_prefix)
+		 VALUES ($1, $2, $3, $4, 'SKILL.md', $5, $6, $7)`,
+		accountID,
+		skillKey,
+		version,
+		skillKey,
+		skillKey+"-manifest",
+		skillKey+"-bundle",
+		skillKey+"-files",
+	); err != nil {
+		t.Fatalf("seed desktop skill package %s@%s: %v", skillKey, version, err)
 	}
 }
 

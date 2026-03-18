@@ -10,10 +10,12 @@ import (
 	"arkloop/services/worker/internal/data"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-func ResolveAndPersistRun(ctx context.Context, pool *pgxpool.Pool, run data.Run) (data.Run, error) {
+func ResolveAndPersistRun(ctx context.Context, pool data.DB, run data.Run) (data.Run, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	profileRef := strings.TrimSpace(derefString(run.ProfileRef))
 	if profileRef == "" {
 		profileRef = sharedenvironmentref.BuildProfileRef(run.AccountID, run.CreatedByUserID)
@@ -196,7 +198,7 @@ func inheritWorkspaceSkillRefs(
 
 func syncEnvironmentRegistries(
 	ctx context.Context,
-	pool *pgxpool.Pool,
+	pool data.DB,
 	accountID uuid.UUID,
 	ownerUserID *uuid.UUID,
 	projectID *uuid.UUID,
@@ -211,7 +213,7 @@ func syncEnvironmentRegistries(
 	profileRepo := data.ProfileRegistriesRepository{}
 	if err := profileRepo.UpsertTouch(ctx, pool, data.RegistryRecord{
 		Ref:                 strings.TrimSpace(profileRef),
-		AccountID:               accountID,
+		AccountID:           accountID,
 		OwnerUserID:         ownerUserID,
 		DefaultWorkspaceRef: stringPtr(workspaceRef),
 		FlushState:          data.FlushStateIdle,
@@ -227,7 +229,7 @@ func syncEnvironmentRegistries(
 	workspaceRepo := data.WorkspaceRegistriesRepository{}
 	return workspaceRepo.UpsertTouch(ctx, pool, data.RegistryRecord{
 		Ref:          strings.TrimSpace(workspaceRef),
-		AccountID:        accountID,
+		AccountID:    accountID,
 		OwnerUserID:  ownerUserID,
 		ProjectID:    projectID,
 		FlushState:   data.FlushStateIdle,

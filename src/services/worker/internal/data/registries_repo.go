@@ -1,5 +1,3 @@
-//go:build !desktop
-
 package data
 
 import (
@@ -14,7 +12,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 const (
@@ -28,7 +25,7 @@ var ErrFlushConflict = registryerr.ErrFlushConflict
 
 type RegistryRecord struct {
 	Ref                    string
-	AccountID                  uuid.UUID
+	AccountID              uuid.UUID
 	OwnerUserID            *uuid.UUID
 	ProjectID              *uuid.UUID
 	LatestManifestRev      *string
@@ -56,101 +53,101 @@ type RegistryLatestManifest struct {
 	LatestManifestRev string
 }
 
-func (ProfileRegistriesRepository) Get(ctx context.Context, pool *pgxpool.Pool, profileRef string) (RegistryRecord, error) {
+func (ProfileRegistriesRepository) Get(ctx context.Context, pool DB, profileRef string) (RegistryRecord, error) {
 	return getProfileRegistry(ctx, pool, profileRef)
 }
 
-func (WorkspaceRegistriesRepository) Get(ctx context.Context, pool *pgxpool.Pool, workspaceRef string) (RegistryRecord, error) {
+func (WorkspaceRegistriesRepository) Get(ctx context.Context, pool DB, workspaceRef string) (RegistryRecord, error) {
 	return getWorkspaceRegistry(ctx, pool, workspaceRef)
 }
 
-func (repo ProfileRegistriesRepository) GetOrCreate(ctx context.Context, pool *pgxpool.Pool, record RegistryRecord) (RegistryRecord, error) {
+func (repo ProfileRegistriesRepository) GetOrCreate(ctx context.Context, pool DB, record RegistryRecord) (RegistryRecord, error) {
 	if err := repo.UpsertTouch(ctx, pool, record); err != nil {
 		return RegistryRecord{}, err
 	}
 	return repo.Get(ctx, pool, record.Ref)
 }
 
-func (repo WorkspaceRegistriesRepository) GetOrCreate(ctx context.Context, pool *pgxpool.Pool, record RegistryRecord) (RegistryRecord, error) {
+func (repo WorkspaceRegistriesRepository) GetOrCreate(ctx context.Context, pool DB, record RegistryRecord) (RegistryRecord, error) {
 	if err := repo.UpsertTouch(ctx, pool, record); err != nil {
 		return RegistryRecord{}, err
 	}
 	return repo.Get(ctx, pool, record.Ref)
 }
 
-func (ProfileRegistriesRepository) UpsertTouch(ctx context.Context, pool *pgxpool.Pool, record RegistryRecord) error {
+func (ProfileRegistriesRepository) UpsertTouch(ctx context.Context, pool DB, record RegistryRecord) error {
 	return upsertProfileRegistry(ctx, pool, record)
 }
 
-func (WorkspaceRegistriesRepository) UpsertTouch(ctx context.Context, pool *pgxpool.Pool, record RegistryRecord) error {
+func (WorkspaceRegistriesRepository) UpsertTouch(ctx context.Context, pool DB, record RegistryRecord) error {
 	return upsertWorkspaceRegistry(ctx, pool, record)
 }
 
-func (ProfileRegistriesRepository) MarkFlushPending(ctx context.Context, pool *pgxpool.Pool, profileRef string) error {
+func (ProfileRegistriesRepository) MarkFlushPending(ctx context.Context, pool DB, profileRef string) error {
 	return markRegistryFlushPending(ctx, pool, "profile_registries", "profile_ref", profileRef)
 }
 
-func (WorkspaceRegistriesRepository) MarkFlushPending(ctx context.Context, pool *pgxpool.Pool, workspaceRef string) error {
+func (WorkspaceRegistriesRepository) MarkFlushPending(ctx context.Context, pool DB, workspaceRef string) error {
 	return markRegistryFlushPending(ctx, pool, "workspace_registries", "workspace_ref", workspaceRef)
 }
 
-func (ProfileRegistriesRepository) MarkFlushRunning(ctx context.Context, pool *pgxpool.Pool, profileRef string) error {
+func (ProfileRegistriesRepository) MarkFlushRunning(ctx context.Context, pool DB, profileRef string) error {
 	return markRegistryFlushRunning(ctx, pool, "profile_registries", "profile_ref", profileRef)
 }
 
-func (WorkspaceRegistriesRepository) MarkFlushRunning(ctx context.Context, pool *pgxpool.Pool, workspaceRef string) error {
+func (WorkspaceRegistriesRepository) MarkFlushRunning(ctx context.Context, pool DB, workspaceRef string) error {
 	return markRegistryFlushRunning(ctx, pool, "workspace_registries", "workspace_ref", workspaceRef)
 }
 
-func (ProfileRegistriesRepository) MarkFlushFailed(ctx context.Context, pool *pgxpool.Pool, profileRef string, failedAt time.Time) error {
+func (ProfileRegistriesRepository) MarkFlushFailed(ctx context.Context, pool DB, profileRef string, failedAt time.Time) error {
 	return markRegistryFlushFailed(ctx, pool, "profile_registries", "profile_ref", profileRef, failedAt)
 }
 
-func (WorkspaceRegistriesRepository) MarkFlushFailed(ctx context.Context, pool *pgxpool.Pool, workspaceRef string, failedAt time.Time) error {
+func (WorkspaceRegistriesRepository) MarkFlushFailed(ctx context.Context, pool DB, workspaceRef string, failedAt time.Time) error {
 	return markRegistryFlushFailed(ctx, pool, "workspace_registries", "workspace_ref", workspaceRef, failedAt)
 }
 
-func (ProfileRegistriesRepository) MarkFlushSucceeded(ctx context.Context, pool *pgxpool.Pool, profileRef string, revision string, succeededAt time.Time) error {
+func (ProfileRegistriesRepository) MarkFlushSucceeded(ctx context.Context, pool DB, profileRef string, revision string, succeededAt time.Time) error {
 	return markRegistryFlushSucceeded(ctx, pool, "profile_registries", "profile_ref", profileRef, revision, succeededAt)
 }
 
-func (WorkspaceRegistriesRepository) MarkFlushSucceeded(ctx context.Context, pool *pgxpool.Pool, workspaceRef string, revision string, succeededAt time.Time) error {
+func (WorkspaceRegistriesRepository) MarkFlushSucceeded(ctx context.Context, pool DB, workspaceRef string, revision string, succeededAt time.Time) error {
 	return markRegistryFlushSucceeded(ctx, pool, "workspace_registries", "workspace_ref", workspaceRef, revision, succeededAt)
 }
 
-func (ProfileRegistriesRepository) AcquireFlushLease(ctx context.Context, pool *pgxpool.Pool, profileRef string, holderID string, expectedBaseRevision string, leaseUntil time.Time) error {
+func (ProfileRegistriesRepository) AcquireFlushLease(ctx context.Context, pool DB, profileRef string, holderID string, expectedBaseRevision string, leaseUntil time.Time) error {
 	return acquireRegistryFlushLease(ctx, pool, "profile_registries", "profile_ref", profileRef, holderID, expectedBaseRevision, leaseUntil)
 }
 
-func (WorkspaceRegistriesRepository) AcquireFlushLease(ctx context.Context, pool *pgxpool.Pool, workspaceRef string, holderID string, expectedBaseRevision string, leaseUntil time.Time) error {
+func (WorkspaceRegistriesRepository) AcquireFlushLease(ctx context.Context, pool DB, workspaceRef string, holderID string, expectedBaseRevision string, leaseUntil time.Time) error {
 	return acquireRegistryFlushLease(ctx, pool, "workspace_registries", "workspace_ref", workspaceRef, holderID, expectedBaseRevision, leaseUntil)
 }
 
-func (ProfileRegistriesRepository) ReleaseFlushFailure(ctx context.Context, pool *pgxpool.Pool, profileRef string, holderID string, failedAt time.Time) error {
+func (ProfileRegistriesRepository) ReleaseFlushFailure(ctx context.Context, pool DB, profileRef string, holderID string, failedAt time.Time) error {
 	return releaseRegistryFlushFailure(ctx, pool, "profile_registries", "profile_ref", profileRef, holderID, failedAt)
 }
 
-func (WorkspaceRegistriesRepository) ReleaseFlushFailure(ctx context.Context, pool *pgxpool.Pool, workspaceRef string, holderID string, failedAt time.Time) error {
+func (WorkspaceRegistriesRepository) ReleaseFlushFailure(ctx context.Context, pool DB, workspaceRef string, holderID string, failedAt time.Time) error {
 	return releaseRegistryFlushFailure(ctx, pool, "workspace_registries", "workspace_ref", workspaceRef, holderID, failedAt)
 }
 
-func (ProfileRegistriesRepository) CommitFlushSuccess(ctx context.Context, pool *pgxpool.Pool, profileRef string, holderID string, expectedBaseRevision string, revision string, succeededAt time.Time) error {
+func (ProfileRegistriesRepository) CommitFlushSuccess(ctx context.Context, pool DB, profileRef string, holderID string, expectedBaseRevision string, revision string, succeededAt time.Time) error {
 	return commitRegistryFlushSuccess(ctx, pool, "profile_registries", "profile_ref", profileRef, holderID, expectedBaseRevision, revision, succeededAt)
 }
 
-func (WorkspaceRegistriesRepository) CommitFlushSuccess(ctx context.Context, pool *pgxpool.Pool, workspaceRef string, holderID string, expectedBaseRevision string, revision string, succeededAt time.Time) error {
+func (WorkspaceRegistriesRepository) CommitFlushSuccess(ctx context.Context, pool DB, workspaceRef string, holderID string, expectedBaseRevision string, revision string, succeededAt time.Time) error {
 	return commitRegistryFlushSuccess(ctx, pool, "workspace_registries", "workspace_ref", workspaceRef, holderID, expectedBaseRevision, revision, succeededAt)
 }
 
-func (ProfileRegistriesRepository) ListLatestManifestRevisions(ctx context.Context, pool *pgxpool.Pool) ([]RegistryLatestManifest, error) {
+func (ProfileRegistriesRepository) ListLatestManifestRevisions(ctx context.Context, pool DB) ([]RegistryLatestManifest, error) {
 	return listLatestManifestRevisions(ctx, pool, "profile_registries", "profile_ref")
 }
 
-func (WorkspaceRegistriesRepository) ListLatestManifestRevisions(ctx context.Context, pool *pgxpool.Pool) ([]RegistryLatestManifest, error) {
+func (WorkspaceRegistriesRepository) ListLatestManifestRevisions(ctx context.Context, pool DB) ([]RegistryLatestManifest, error) {
 	return listLatestManifestRevisions(ctx, pool, "workspace_registries", "workspace_ref")
 }
 
-func getProfileRegistry(ctx context.Context, pool *pgxpool.Pool, profileRef string) (RegistryRecord, error) {
+func getProfileRegistry(ctx context.Context, pool DB, profileRef string) (RegistryRecord, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -209,7 +206,7 @@ func getProfileRegistry(ctx context.Context, pool *pgxpool.Pool, profileRef stri
 	return decodeRegistryRecord(record, metadataRaw), nil
 }
 
-func getWorkspaceRegistry(ctx context.Context, pool *pgxpool.Pool, workspaceRef string) (RegistryRecord, error) {
+func getWorkspaceRegistry(ctx context.Context, pool DB, workspaceRef string) (RegistryRecord, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -270,7 +267,7 @@ func getWorkspaceRegistry(ctx context.Context, pool *pgxpool.Pool, workspaceRef 
 	return decodeRegistryRecord(record, metadataRaw), nil
 }
 
-func upsertProfileRegistry(ctx context.Context, pool *pgxpool.Pool, record RegistryRecord) error {
+func upsertProfileRegistry(ctx context.Context, pool DB, record RegistryRecord) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -318,7 +315,7 @@ func upsertProfileRegistry(ctx context.Context, pool *pgxpool.Pool, record Regis
 	return err
 }
 
-func upsertWorkspaceRegistry(ctx context.Context, pool *pgxpool.Pool, record RegistryRecord) error {
+func upsertWorkspaceRegistry(ctx context.Context, pool DB, record RegistryRecord) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -407,19 +404,19 @@ func decodeRegistryRecord(record RegistryRecord, metadataRaw []byte) RegistryRec
 	return record
 }
 
-func markRegistryFlushPending(ctx context.Context, pool *pgxpool.Pool, table string, keyColumn string, ref string) error {
+func markRegistryFlushPending(ctx context.Context, pool DB, table string, keyColumn string, ref string) error {
 	return updateRegistryState(ctx, pool, table, keyColumn, ref, `
 		flush_state = 'pending',
 		updated_at = now()`)
 }
 
-func markRegistryFlushRunning(ctx context.Context, pool *pgxpool.Pool, table string, keyColumn string, ref string) error {
+func markRegistryFlushRunning(ctx context.Context, pool DB, table string, keyColumn string, ref string) error {
 	return updateRegistryState(ctx, pool, table, keyColumn, ref, `
 		flush_state = 'running',
 		updated_at = now()`)
 }
 
-func markRegistryFlushFailed(ctx context.Context, pool *pgxpool.Pool, table string, keyColumn string, ref string, failedAt time.Time) error {
+func markRegistryFlushFailed(ctx context.Context, pool DB, table string, keyColumn string, ref string, failedAt time.Time) error {
 	if failedAt.IsZero() {
 		failedAt = time.Now().UTC()
 	}
@@ -430,7 +427,7 @@ func markRegistryFlushFailed(ctx context.Context, pool *pgxpool.Pool, table stri
 		updated_at = now()`, failedAt.UTC())
 }
 
-func markRegistryFlushSucceeded(ctx context.Context, pool *pgxpool.Pool, table string, keyColumn string, ref string, revision string, succeededAt time.Time) error {
+func markRegistryFlushSucceeded(ctx context.Context, pool DB, table string, keyColumn string, ref string, revision string, succeededAt time.Time) error {
 	if succeededAt.IsZero() {
 		succeededAt = time.Now().UTC()
 	}
@@ -448,7 +445,7 @@ func markRegistryFlushSucceeded(ctx context.Context, pool *pgxpool.Pool, table s
 		updated_at = now()`, revision, succeededAt.UTC())
 }
 
-func acquireRegistryFlushLease(ctx context.Context, pool *pgxpool.Pool, table string, keyColumn string, ref string, holderID string, expectedBaseRevision string, leaseUntil time.Time) error {
+func acquireRegistryFlushLease(ctx context.Context, pool DB, table string, keyColumn string, ref string, holderID string, expectedBaseRevision string, leaseUntil time.Time) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -495,7 +492,7 @@ func acquireRegistryFlushLease(ctx context.Context, pool *pgxpool.Pool, table st
 	return detectRegistryFlushConflict(ctx, pool, table, keyColumn, ref, holderID, expectedBaseRevision)
 }
 
-func releaseRegistryFlushFailure(ctx context.Context, pool *pgxpool.Pool, table string, keyColumn string, ref string, holderID string, failedAt time.Time) error {
+func releaseRegistryFlushFailure(ctx context.Context, pool DB, table string, keyColumn string, ref string, holderID string, failedAt time.Time) error {
 	if failedAt.IsZero() {
 		failedAt = time.Now().UTC()
 	}
@@ -508,7 +505,7 @@ func releaseRegistryFlushFailure(ctx context.Context, pool *pgxpool.Pool, table 
 		updated_at = now()`, strings.TrimSpace(holderID), failedAt.UTC())
 }
 
-func commitRegistryFlushSuccess(ctx context.Context, pool *pgxpool.Pool, table string, keyColumn string, ref string, holderID string, expectedBaseRevision string, revision string, succeededAt time.Time) error {
+func commitRegistryFlushSuccess(ctx context.Context, pool DB, table string, keyColumn string, ref string, holderID string, expectedBaseRevision string, revision string, succeededAt time.Time) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -558,7 +555,7 @@ func commitRegistryFlushSuccess(ctx context.Context, pool *pgxpool.Pool, table s
 	return detectRegistryFlushConflict(ctx, pool, table, keyColumn, ref, holderID, expectedBaseRevision)
 }
 
-func listLatestManifestRevisions(ctx context.Context, pool *pgxpool.Pool, table string, keyColumn string) ([]RegistryLatestManifest, error) {
+func listLatestManifestRevisions(ctx context.Context, pool DB, table string, keyColumn string) ([]RegistryLatestManifest, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -594,7 +591,7 @@ func listLatestManifestRevisions(ctx context.Context, pool *pgxpool.Pool, table 
 	return items, nil
 }
 
-func detectRegistryFlushConflict(ctx context.Context, pool *pgxpool.Pool, table string, keyColumn string, ref string, holderID string, expectedBaseRevision string) error {
+func detectRegistryFlushConflict(ctx context.Context, pool DB, table string, keyColumn string, ref string, holderID string, expectedBaseRevision string) error {
 	var currentRef string
 	var latestManifestRev *string
 	var leaseHolderID *string
@@ -626,7 +623,7 @@ func detectRegistryFlushConflict(ctx context.Context, pool *pgxpool.Pool, table 
 	return ErrFlushConflict
 }
 
-func updateRegistryState(ctx context.Context, pool *pgxpool.Pool, table string, keyColumn string, ref string, setClause string, args ...any) error {
+func updateRegistryState(ctx context.Context, pool DB, table string, keyColumn string, ref string, setClause string, args ...any) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}

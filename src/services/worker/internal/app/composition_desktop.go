@@ -23,6 +23,7 @@ import (
 	"arkloop/services/shared/telegrambot"
 	sharedtoolruntime "arkloop/services/shared/toolruntime"
 	"arkloop/services/worker/internal/data"
+	"arkloop/services/worker/internal/environmentbindings"
 	"arkloop/services/worker/internal/events"
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/memory"
@@ -255,6 +256,12 @@ func (e *DesktopEngine) Execute(ctx context.Context, run data.Run, traceID strin
 	traceID = strings.TrimSpace(traceID)
 	emitter := events.NewEmitter(traceID)
 
+	resolvedRun, err := resolveDesktopRunBindings(ctx, e.db, run)
+	if err != nil {
+		return fmt.Errorf("resolve environment bindings: %w", err)
+	}
+	run = resolvedRun
+
 	subAgentsEnabled := desktopSubAgentSchemaAvailable(ctx, e.db)
 	if subAgentsEnabled {
 		if err := subagentctl.MarkRunning(ctx, e.db, run.ID); err != nil {
@@ -347,6 +354,13 @@ func (e *DesktopEngine) Execute(ctx context.Context, run data.Run, traceID strin
 	handler := pipeline.Build(middlewares, terminal)
 
 	return handler(ctx, rc)
+}
+
+func resolveDesktopRunBindings(ctx context.Context, db data.DesktopDB, run data.Run) (data.Run, error) {
+	if db == nil {
+		return run, fmt.Errorf("desktop db must not be nil")
+	}
+	return environmentbindings.ResolveAndPersistRun(ctx, db, run)
 }
 
 // --------------- desktop middleware ---------------
