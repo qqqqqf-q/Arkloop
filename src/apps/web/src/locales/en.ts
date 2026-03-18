@@ -660,6 +660,7 @@ export const en: LocaleStrings = {
     connectorSaveBtn: "Save",
     connectorSaving: "Saving…",
     connectorSaved: "Saved",
+    connectorSaveTimeout: "Request timed out — check your network and try again",
     connectorRestarting: "Service restarting with new settings…",
     connectorFreeTier: "Free tier (no key needed)",
     connectorConfigured: "Configured",

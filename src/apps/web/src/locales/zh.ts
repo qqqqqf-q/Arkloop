@@ -668,6 +668,7 @@ export const zh: LocaleStrings = {
     connectorSaveBtn: "保存",
     connectorSaving: "保存中…",
     connectorSaved: "已保存",
+    connectorSaveTimeout: "请求超时，请检查网络后重试",
     connectorRestarting: "服务正在以新配置重启…",
     connectorFreeTier: "免费层（无需 API Key）",
     connectorConfigured: "已配置",

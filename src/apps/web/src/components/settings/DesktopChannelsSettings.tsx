@@ -253,7 +253,11 @@ export function DesktopChannelsSettings({ accessToken }: Props) {
       setTimeout(() => setSaved(false), 2500)
       await load()
     } catch (err) {
-      setError(isApiError(err) ? err.message : ct.saveFailed)
+      if (err instanceof Error && err.name === 'AbortError') {
+        setError(ds.connectorSaveTimeout)
+      } else {
+        setError(isApiError(err) ? err.message : ct.saveFailed)
+      }
     } finally {
       setSaving(false)
     }

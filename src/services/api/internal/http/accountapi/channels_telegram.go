@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log/slog"
 	nethttp "net/http"
 	"regexp"
 	"strconv"
@@ -217,21 +216,10 @@ func configureTelegramPollingRemote(
 	client *telegrambot.Client,
 	token string,
 ) error {
-	if client == nil {
-		return nil
-	}
-	remoteCtx, cancel := context.WithTimeout(ctx, telegramRemoteRequestTimeout)
-	defer cancel()
-	if err := client.DeleteWebhook(remoteCtx, token); err != nil {
-		slog.WarnContext(ctx, "telegram delete_webhook failed (non-fatal)", "err", err)
-	}
-	if err := client.SetMyCommands(remoteCtx, token, []telegrambot.BotCommand{
-		{Command: "start", Description: "开始使用"},
-		{Command: "help", Description: "查看帮助"},
-		{Command: "bind", Description: "绑定账号"},
-	}); err != nil {
-		slog.WarnContext(ctx, "telegram set_my_commands failed (non-fatal)", "err", err)
-	}
+	// Polling mode connects via getUpdates; no webhook or command registration needed.
+	_ = ctx
+	_ = client
+	_ = token
 	return nil
 }
 
@@ -257,12 +245,11 @@ func disableTelegramActivationRemote(
 	if telegramModeUsesWebhook(mode) {
 		return disableTelegramRemote(ctx, client, token)
 	}
-	remoteCtx, cancel := context.WithTimeout(ctx, telegramRemoteRequestTimeout)
-	defer cancel()
-	if client == nil {
-		return fmt.Errorf("telegram client not configured")
-	}
-	return client.DeleteWebhook(remoteCtx, token)
+	// Polling mode: no webhook to remove.
+	_ = ctx
+	_ = client
+	_ = token
+	return nil
 }
 
 type telegramConnector struct {

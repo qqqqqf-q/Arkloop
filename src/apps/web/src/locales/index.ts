@@ -686,6 +686,7 @@ export interface LocaleStrings {
     connectorSaveBtn: string;
     connectorSaving: string;
     connectorSaved: string;
+    connectorSaveTimeout: string;
     connectorRestarting: string;
     connectorFreeTier: string;
     connectorConfigured: string;
