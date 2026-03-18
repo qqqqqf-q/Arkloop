@@ -251,15 +251,20 @@ func createChannel(
 			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", err.Error(), traceID, nil)
 			return
 		}
-		if err := configureTelegramActivationRemote(r.Context(), telegramClient, req.BotToken, ch, telegramMode); err != nil {
-			httpkit.WriteError(w, nethttp.StatusBadGateway, "channels.telegram_remote_failed", err.Error(), traceID, nil)
-			return
-		}
 	}
 
 	if err := tx.Commit(r.Context()); err != nil {
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
+	}
+
+	if req.ChannelType == "telegram" && ch.IsActive {
+		if err := configureTelegramActivationRemote(r.Context(), telegramClient, req.BotToken, ch, telegramMode); err != nil {
+			falseVal := false
+			_, _ = channelsRepo.Update(r.Context(), channelID, actor.AccountID, data.ChannelUpdate{IsActive: &falseVal})
+			httpkit.WriteError(w, nethttp.StatusBadGateway, "channels.telegram_remote_failed", err.Error(), traceID, nil)
+			return
+		}
 	}
 
 	httpkit.WriteJSON(w, traceID, nethttp.StatusCreated, toChannelResponse(ch))
@@ -485,8 +490,13 @@ func updateChannel(
 		upd.CredentialsID = &cp
 	}
 
+	// Validate telegram activation requirements before the transaction.
+	needsActivate := false
+	needsDeactivate := false
+	var desiredChannel data.Channel
+
 	if ch.ChannelType == "telegram" && desiredIsActive {
-		desiredChannel := *ch
+		desiredChannel = *ch
 		desiredChannel.PersonaID = desiredPersonaID
 		desiredChannel.ConfigJSON = desiredConfigJSON
 		desiredChannel.IsActive = true
@@ -498,12 +508,7 @@ func updateChannel(
 			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "telegram channel requires bot_token before activation", traceID, nil)
 			return
 		}
-		if !ch.IsActive || (req.BotToken != nil && strings.TrimSpace(*req.BotToken) != "") {
-			if err := configureTelegramActivationRemote(r.Context(), telegramClient, nextToken, desiredChannel, telegramMode); err != nil {
-				httpkit.WriteError(w, nethttp.StatusBadGateway, "channels.telegram_remote_failed", err.Error(), traceID, nil)
-				return
-			}
-		}
+		needsActivate = !ch.IsActive || (req.BotToken != nil && strings.TrimSpace(*req.BotToken) != "")
 	}
 
 	if ch.ChannelType == "telegram" && ch.IsActive && !desiredIsActive {
@@ -511,10 +516,7 @@ func updateChannel(
 			httpkit.WriteError(w, nethttp.StatusBadGateway, "channels.telegram_remote_failed", "telegram token unavailable", traceID, nil)
 			return
 		}
-		if err := disableTelegramActivationRemote(r.Context(), telegramClient, nextToken, telegramMode); err != nil {
-			httpkit.WriteError(w, nethttp.StatusBadGateway, "channels.telegram_remote_failed", err.Error(), traceID, nil)
-			return
-		}
+		needsDeactivate = true
 	}
 
 	updated, err := channelsRepo.WithTx(tx).Update(r.Context(), channelID, actor.AccountID, upd)
@@ -529,6 +531,25 @@ func updateChannel(
 	if err := tx.Commit(r.Context()); err != nil {
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
+	}
+
+	// Telegram API calls happen after tx.Commit to avoid holding DB connections
+	// during external network requests. On failure, roll back the channel state.
+	if needsActivate {
+		if err := configureTelegramActivationRemote(r.Context(), telegramClient, nextToken, desiredChannel, telegramMode); err != nil {
+			falseVal := false
+			_, _ = channelsRepo.Update(r.Context(), channelID, actor.AccountID, data.ChannelUpdate{IsActive: &falseVal})
+			httpkit.WriteError(w, nethttp.StatusBadGateway, "channels.telegram_remote_failed", err.Error(), traceID, nil)
+			return
+		}
+	}
+	if needsDeactivate {
+		if err := disableTelegramActivationRemote(r.Context(), telegramClient, nextToken, telegramMode); err != nil {
+			trueVal := true
+			_, _ = channelsRepo.Update(r.Context(), channelID, actor.AccountID, data.ChannelUpdate{IsActive: &trueVal})
+			httpkit.WriteError(w, nethttp.StatusBadGateway, "channels.telegram_remote_failed", err.Error(), traceID, nil)
+			return
+		}
 	}
 
 	httpkit.WriteJSON(w, traceID, nethttp.StatusOK, toChannelResponse(*updated))
@@ -587,23 +608,18 @@ func deleteChannel(
 		}
 	}
 
+	// Best-effort Telegram cleanup before the transaction — don't block
+	// the delete if Telegram API is unreachable.
+	if ch.ChannelType == "telegram" && ch.IsActive && token != "" {
+		_ = disableTelegramActivationRemote(r.Context(), telegramClient, token, telegramMode)
+	}
+
 	tx, err := pool.BeginTx(r.Context(), pgx.TxOptions{})
 	if err != nil {
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
 	}
 	defer tx.Rollback(r.Context()) //nolint:errcheck
-
-	if ch.ChannelType == "telegram" && ch.IsActive {
-		if token == "" {
-			httpkit.WriteError(w, nethttp.StatusBadGateway, "channels.telegram_remote_failed", "telegram token unavailable", traceID, nil)
-			return
-		}
-		if err := disableTelegramActivationRemote(r.Context(), telegramClient, token, telegramMode); err != nil {
-			httpkit.WriteError(w, nethttp.StatusBadGateway, "channels.telegram_remote_failed", err.Error(), traceID, nil)
-			return
-		}
-	}
 
 	if ch.CredentialsID != nil && secretsRepo != nil {
 		if err := secretsRepo.WithTx(tx).Delete(r.Context(), actor.UserID, data.ChannelSecretName(channelID)); err != nil {

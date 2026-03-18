@@ -235,7 +235,8 @@ export async function apiFetch<T>(
   }
 
   const credentials = init?.credentials ?? 'include'
-  const response = await fetch(buildUrl(path), { ...init, headers, credentials })
+  const signal = init?.signal ?? AbortSignal.timeout(30_000)
+  const response = await fetch(buildUrl(path), { ...init, headers, credentials, signal })
   if (response.ok) {
     if (response.status === 204 || response.headers.get('content-length') === '0') {
       return undefined as T

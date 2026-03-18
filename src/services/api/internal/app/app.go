@@ -511,7 +511,7 @@ func (a *Application) Run(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		// 加密 key 未配置时 secrets/llm-credentials 端点不可用，但不影响其他功能启动
+		// when encryption key is not configured, secrets/llm-credentials endpoints are unavailable but other features still start
 		keyRing, keyRingErr := crypto.NewKeyRingFromEnv()
 		if keyRingErr == nil {
 			secretsRepo, err = data.NewSecretsRepository(pool, keyRing)
@@ -607,19 +607,19 @@ func (a *Application) Run(ctx context.Context) error {
 		}
 	}
 
-	// 启动分区管理器（自动创建/清理 run_events 月分区）
+	// start partition manager (auto-create/cleanup run_events monthly partitions)
 	if pool != nil {
 		partitionMgr := data.NewPartitionManagerWithRetention(pool, a.logger, a.config.RunEventsRetentionMonths)
 		go partitionMgr.Run(ctx)
 	}
 
-	// 启动卡死 run 清理器（R73: 修复 Redis 并发计数器泄漏）
+	// start stale run reaper (R73: fix Redis concurrent counter leak)
 	if pool != nil && runLimiter != nil {
 		reaper := jobs.NewStaleRunReaper(runEventRepo, runLimiter, auditRepo, pool, a.logger, a.config.RunTimeoutMinutes)
 		go reaper.Run(ctx)
 	}
 
-	// 启动私密 thread 清理器（每小时硬删除过期私密对话）
+	// start private thread reaper (hard-delete expired private threads hourly)
 	if threadRepo != nil {
 		privateReaper := jobs.NewPrivateThreadReaper(threadRepo, a.logger)
 		go privateReaper.Run(ctx)
@@ -764,6 +764,8 @@ func (a *Application) Run(ctx context.Context) error {
 			ACPTokenValidator:  acpTokenValidator,
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 
 	errCh := make(chan error, 1)
@@ -963,7 +965,7 @@ func bootstrapPlatformAdminOnce(
 	return nil
 }
 
-// entitlementAdapter 将 entitlement.Service 适配为 auth.EntitlementResolver 接口。
+// entitlementAdapter adapts entitlement.Service to the auth.EntitlementResolver interface.
 type entitlementAdapter struct {
 	svc *entitlement.Service
 }

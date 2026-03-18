@@ -11,6 +11,7 @@ import (
 	nethttp "net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"arkloop/services/api/internal/audit"
@@ -33,10 +34,15 @@ import (
 	"arkloop/services/shared/objectstore"
 )
 
-const desktopJWTSecret = "arkloop-desktop-mode-jwt-secret-not-validated"
+func desktopJWTSecretValue() string {
+	if v := strings.TrimSpace(os.Getenv("ARKLOOP_DESKTOP_JWT_SECRET")); v != "" {
+		return v
+	}
+	return "arkloop-desktop-mode-jwt-secret-not-validated"
+}
 
-// RunDesktop 启动桌面模式 API 服务，阻塞直到 ctx 取消或出错。
-// 调用方负责信号处理，ctx 取消后自动触发优雅关闭。
+// RunDesktop starts the desktop-mode API server, blocking until ctx is cancelled or an error occurs.
+// The caller handles signals; cancelling ctx triggers graceful shutdown.
 func RunDesktop(ctx context.Context) error {
 	if _, err := LoadDotenvIfEnabled(false); err != nil {
 		return err
@@ -54,7 +60,7 @@ func RunDesktop(ctx context.Context) error {
 	if err := os.MkdirAll(cfg.DataDir, 0o755); err != nil {
 		return fmt.Errorf("create data dir: %w", err)
 	}
-	// Chat 模式默认 workspace 根目录（无 workspace 时在此按需创建子目录）
+	// default workspace root for chat mode (subdirectories created on demand when no workspace exists)
 	if err := os.MkdirAll(filepath.Join(cfg.DataDir, "workspaces"), 0o755); err != nil {
 		return fmt.Errorf("create workspaces dir: %w", err)
 	}
@@ -306,7 +312,7 @@ func RunDesktop(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("init password hasher: %w", err)
 	}
-	tokenService, err := auth.NewJwtAccessTokenService(desktopJWTSecret, 3600, 86400)
+	tokenService, err := auth.NewJwtAccessTokenService(desktopJWTSecretValue(), 3600, 86400)
 	if err != nil {
 		return fmt.Errorf("init token service: %w", err)
 	}
@@ -503,6 +509,8 @@ func RunDesktop(ctx context.Context) error {
 		Addr:              cfg.ListenAddr,
 		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 
 	errCh := make(chan error, 1)
@@ -535,7 +543,7 @@ func RunDesktop(ctx context.Context) error {
 	return nil
 }
 
-// desktopKeyRing 加载或生成桌面模式的加密密钥。
+// desktopKeyRing loads or generates the encryption key for desktop mode.
 func desktopKeyRing(dataDir string) (*internalcrypto.KeyRing, error) {
 	if kr, err := internalcrypto.NewKeyRingFromEnv(); err == nil {
 		return kr, nil

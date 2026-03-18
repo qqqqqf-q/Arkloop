@@ -299,10 +299,12 @@ func (c telegramConnector) HandleUpdate(
 	senderUserID := strconv.FormatInt(update.Message.From.ID, 10)
 	if !telegramUserAllowed(cfg.AllowedUserIDs, senderUserID) {
 		if c.telegramClient != nil && strings.TrimSpace(token) != "" {
-			_ = c.telegramClient.SendMessage(ctx, token, telegrambot.SendMessageRequest{
+			sendCtx, sendCancel := context.WithTimeout(ctx, telegramRemoteRequestTimeout)
+			_ = c.telegramClient.SendMessage(sendCtx, token, telegrambot.SendMessageRequest{
 				ChatID: senderUserID,
 				Text:   "当前账号未被授权使用这个机器人。",
 			})
+			sendCancel()
 		}
 		return nil
 	}
@@ -355,10 +357,12 @@ func (c telegramConnector) HandleUpdate(
 			return err
 		}
 		if c.telegramClient != nil && strings.TrimSpace(token) != "" {
-			_ = c.telegramClient.SendMessage(ctx, token, telegrambot.SendMessageRequest{
+			sendCtx, sendCancel := context.WithTimeout(ctx, telegramRemoteRequestTimeout)
+			_ = c.telegramClient.SendMessage(sendCtx, token, telegrambot.SendMessageRequest{
 				ChatID: senderUserID,
 				Text:   replyText,
 			})
+			sendCancel()
 		}
 		return nil
 	}
@@ -687,7 +691,10 @@ func pollTelegramDesktopOnce(
 		}
 
 		var updates []telegramUpdate
-		if err := client.GetUpdates(ctx, strings.TrimSpace(*token), req, &updates); err != nil {
+		pollCtx, pollCancel := context.WithTimeout(ctx, telegramRemoteRequestTimeout)
+		err = client.GetUpdates(pollCtx, strings.TrimSpace(*token), req, &updates)
+		pollCancel()
+		if err != nil {
 			continue
 		}
 
