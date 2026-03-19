@@ -5,48 +5,48 @@ import (
 	"time"
 )
 
-// SessionEntry holds the state of a reusable ACP session.
-type SessionEntry struct {
-	ProcessID    string
-	ACPSessionID string
-	Cursor       uint64
-	AgentVersion string
-	CreatedAt    time.Time
-	LastUsedAt   time.Time
+// RuntimeHandleEntry caches a reusable ACP runtime handle inside the worker process.
+type RuntimeHandleEntry struct {
+	HostProcessID     string
+	ProtocolSessionID string
+	OutputCursor      uint64
+	AgentVersion      string
+	CreatedAt         time.Time
+	LastUsedAt        time.Time
 }
 
-// Registry is a thread-safe cache of active ACP sessions keyed by sandbox session ID.
+// Registry is a thread-safe cache of active ACP runtime handles keyed by runtime session key.
 type Registry struct {
 	mu      sync.Mutex
-	entries map[string]*SessionEntry
+	entries map[string]*RuntimeHandleEntry
 }
 
 // NewRegistry creates an empty session registry.
 func NewRegistry() *Registry {
 	return &Registry{
-		entries: make(map[string]*SessionEntry),
+		entries: make(map[string]*RuntimeHandleEntry),
 	}
 }
 
-// Store saves or updates a session entry.
-func (r *Registry) Store(sandboxSessionID string, entry SessionEntry) {
+// Store saves or updates a runtime handle entry.
+func (r *Registry) Store(runtimeSessionKey string, entry RuntimeHandleEntry) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	entry.LastUsedAt = time.Now()
-	if existing, ok := r.entries[sandboxSessionID]; ok {
+	if existing, ok := r.entries[runtimeSessionKey]; ok {
 		// Preserve CreatedAt from original entry.
 		entry.CreatedAt = existing.CreatedAt
 	} else if entry.CreatedAt.IsZero() {
 		entry.CreatedAt = time.Now()
 	}
-	r.entries[sandboxSessionID] = &entry
+	r.entries[runtimeSessionKey] = &entry
 }
 
-// Get retrieves a session entry if it exists.
-func (r *Registry) Get(sandboxSessionID string) *SessionEntry {
+// Get retrieves a runtime handle entry if it exists.
+func (r *Registry) Get(runtimeSessionKey string) *RuntimeHandleEntry {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	entry, ok := r.entries[sandboxSessionID]
+	entry, ok := r.entries[runtimeSessionKey]
 	if !ok {
 		return nil
 	}
@@ -56,10 +56,10 @@ func (r *Registry) Get(sandboxSessionID string) *SessionEntry {
 }
 
 // Remove deletes a session entry.
-func (r *Registry) Remove(sandboxSessionID string) {
+func (r *Registry) Remove(runtimeSessionKey string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	delete(r.entries, sandboxSessionID)
+	delete(r.entries, runtimeSessionKey)
 }
 
 // RemoveExpired removes entries older than the given max age based on LastUsedAt.

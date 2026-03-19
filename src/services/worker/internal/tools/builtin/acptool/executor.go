@@ -21,13 +21,13 @@ const envSkipLLMProxy = "ARKLOOP_ACP_SKIP_LLM_PROXY"
 
 const envLLMProxyBaseURL = "ARKLOOP_ACP_LLM_PROXY_URL"
 
-// sessionRegistry is a package-level singleton shared across all executor calls
-// within the same worker process, enabling ACP session reuse across tool invocations.
-var sessionRegistry = acp.NewRegistry()
+// runtimeHandleRegistry caches reusable ACP runtime handles inside this worker process.
+// It is run-scoped and memory-only; it is not the source of truth for ACP sessions.
+var runtimeHandleRegistry = acp.NewRegistry()
 
 type ToolExecutor struct {
-	ConfigResolver sharedconfig.Resolver
-	JWTSecret      string
+	ConfigResolver  sharedconfig.Resolver
+	JWTSecret       string
 	LLMProxyBaseURL string
 }
 
@@ -97,13 +97,13 @@ func (e ToolExecutor) Execute(
 	cmd = append(cmd, "--cwd", invocation.Cwd)
 
 	cfg := acp.BridgeConfig{
-		SessionID:      execCtx.RunID.String(),
-		AccountID:      accountID,
-		Command:        cmd,
-		Cwd:            invocation.Cwd,
-		Env:            env,
-		KillGraceMs:    5000,   // 5 second default grace for ACP tool calls
-		CleanupDelayMs: 300000, // 5 min cleanup delay
+		RuntimeSessionKey: execCtx.RunID.String(),
+		AccountID:         accountID,
+		Command:           cmd,
+		Cwd:               invocation.Cwd,
+		Env:               env,
+		KillGraceMs:       5000,   // 5 second default grace for ACP tool calls
+		CleanupDelayMs:    300000, // 5 min cleanup delay
 	}
 
 	host, err := acp.ResolveProcessHost(invocation.Provider, rt)
@@ -112,44 +112,44 @@ func (e ToolExecutor) Execute(
 	}
 
 	emitter := execCtx.Emitter
-	sessionKey := buildSessionKey(execCtx.RunID.String(), invocation.Provider)
+	runtimeSessionKey := buildRuntimeSessionKey(execCtx.RunID.String(), invocation.Provider)
 
 	// Try to reuse existing session
-	if entry := sessionRegistry.Get(sessionKey); entry != nil {
-		result, reused := e.tryReuse(ctx, host, cfg, sessionKey, entry, task, emitter, started)
+	if entry := runtimeHandleRegistry.Get(runtimeSessionKey); entry != nil {
+		result, reused := e.tryReuse(ctx, host, cfg, runtimeSessionKey, entry, task, emitter, started)
 		if reused {
 			return result
 		}
 		// Reuse failed, remove stale entry and fall through to fresh session
-		sessionRegistry.Remove(sessionKey)
-		slog.Info("acp: session reuse failed, creating fresh session", "session_id", sessionKey, "provider", invocation.Provider.ID)
+		runtimeHandleRegistry.Remove(runtimeSessionKey)
+		slog.Info("acp: session reuse failed, creating fresh session", "runtime_session_key", runtimeSessionKey, "provider", invocation.Provider.ID)
 	}
 
 	// Fresh session
-	return e.runFresh(ctx, host, cfg, sessionKey, task, emitter, started)
+	return e.runFresh(ctx, host, cfg, runtimeSessionKey, task, emitter, started)
 }
 
 func (e ToolExecutor) tryReuse(
 	ctx context.Context,
 	host acp.ProcessHost,
 	cfg acp.BridgeConfig,
-	sessionKey string,
-	entry *acp.SessionEntry,
+	runtimeSessionKey string,
+	entry *acp.RuntimeHandleEntry,
 	task string,
 	emitter events.Emitter,
 	started time.Time,
 ) (tools.ExecutionResult, bool) {
 	bridge := acp.NewBridge(host, cfg)
 	bridge.Bind(acp.BridgeState{
-		ProcessID:    entry.ProcessID,
-		ACPSessionID: entry.ACPSessionID,
-		Cursor:       entry.Cursor,
-		AgentVersion: entry.AgentVersion,
+		HostProcessID:     entry.HostProcessID,
+		ProtocolSessionID: entry.ProtocolSessionID,
+		OutputCursor:      entry.OutputCursor,
+		AgentVersion:      entry.AgentVersion,
 	})
 
 	// Verify the process is still alive
-	if err := bridge.CheckAlive(ctx); err != nil {
-		slog.Warn("acp: reuse check failed", "error", err, "session_id", cfg.SessionID)
+	if err := bridge.CheckRuntimeAlive(ctx); err != nil {
+		slog.Warn("acp: reuse check failed", "error", err, "runtime_session_key", cfg.RuntimeSessionKey)
 		return tools.ExecutionResult{}, false
 	}
 
@@ -157,7 +157,7 @@ func (e ToolExecutor) tryReuse(
 	var outputParts []string
 	var summary string
 
-	err := bridge.RunPrompt(ctx, task, emitter, func(ev events.RunEvent) error {
+	err := bridge.EnsureAndRunTurn(ctx, task, emitter, func(ev events.RunEvent) error {
 		collectedEvents = append(collectedEvents, ev)
 		switch ev.Type {
 		case "message.delta":
@@ -175,17 +175,17 @@ func (e ToolExecutor) tryReuse(
 	elapsed := int(time.Since(started) / time.Millisecond)
 
 	if err != nil {
-		slog.Warn("acp: reuse prompt failed", "error", err, "session_id", cfg.SessionID)
+		slog.Warn("acp: reuse prompt failed", "error", err, "runtime_session_key", cfg.RuntimeSessionKey)
 		return tools.ExecutionResult{}, false
 	}
 
 	// Update registry with new cursor position
 	state := bridge.State()
-	sessionRegistry.Store(sessionKey, acp.SessionEntry{
-		ProcessID:    state.ProcessID,
-		ACPSessionID: state.ACPSessionID,
-		Cursor:       state.Cursor,
-		AgentVersion: state.AgentVersion,
+	runtimeHandleRegistry.Store(runtimeSessionKey, acp.RuntimeHandleEntry{
+		HostProcessID:     state.HostProcessID,
+		ProtocolSessionID: state.ProtocolSessionID,
+		OutputCursor:      state.OutputCursor,
+		AgentVersion:      state.AgentVersion,
 	})
 
 	result := e.buildResult(collectedEvents, outputParts, summary, elapsed)
@@ -196,7 +196,7 @@ func (e ToolExecutor) runFresh(
 	ctx context.Context,
 	host acp.ProcessHost,
 	cfg acp.BridgeConfig,
-	sessionKey string,
+	runtimeSessionKey string,
 	task string,
 	emitter events.Emitter,
 	started time.Time,
@@ -207,7 +207,7 @@ func (e ToolExecutor) runFresh(
 	var outputParts []string
 	var summary string
 
-	err := bridge.Run(ctx, task, emitter, func(ev events.RunEvent) error {
+	err := bridge.EnsureAndRunTurn(ctx, task, emitter, func(ev events.RunEvent) error {
 		collectedEvents = append(collectedEvents, ev)
 		switch ev.Type {
 		case "message.delta":
@@ -238,17 +238,17 @@ func (e ToolExecutor) runFresh(
 
 	// Save session for reuse (process stays alive)
 	state := bridge.State()
-	if state.ProcessID != "" && state.ACPSessionID != "" {
-		sessionRegistry.Store(sessionKey, acp.SessionEntry{
-			ProcessID:    state.ProcessID,
-			ACPSessionID: state.ACPSessionID,
-			Cursor:       state.Cursor,
-			AgentVersion: state.AgentVersion,
+	if state.HostProcessID != "" && state.ProtocolSessionID != "" {
+		runtimeHandleRegistry.Store(runtimeSessionKey, acp.RuntimeHandleEntry{
+			HostProcessID:     state.HostProcessID,
+			ProtocolSessionID: state.ProtocolSessionID,
+			OutputCursor:      state.OutputCursor,
+			AgentVersion:      state.AgentVersion,
 		})
 		slog.Info("acp: session saved for reuse",
-			"session_id", sessionKey,
-			"process_id", state.ProcessID,
-			"acp_session_id", state.ACPSessionID,
+			"runtime_session_key", runtimeSessionKey,
+			"process_id", state.HostProcessID,
+			"protocol_session_id", state.ProtocolSessionID,
 		)
 	} else {
 		bridge.Close()
@@ -319,7 +319,7 @@ func (e ToolExecutor) injectProviderEnv(
 	return nil
 }
 
-func buildSessionKey(runID string, provider acp.ResolvedProvider) string {
+func buildRuntimeSessionKey(runID string, provider acp.ResolvedProvider) string {
 	return strings.Join([]string{runID, provider.ID, string(provider.HostKind)}, "|")
 }
 

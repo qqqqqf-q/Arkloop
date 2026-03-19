@@ -126,12 +126,12 @@ func sessionUpdateLine(sessionID string, u SessionUpdateParams) string {
 
 func testConfig() BridgeConfig {
 	return BridgeConfig{
-		SessionID:    "ses-1",
-		AccountID:    "acc-1",
-		Command:      []string{"opencode", "acp", "--cwd", "/workspace"},
-		Cwd:          "/workspace",
-		PollInterval: time.Millisecond,
-		ReadMaxBytes: 32 * 1024,
+		RuntimeSessionKey: "ses-1",
+		AccountID:         "acc-1",
+		Command:           []string{"opencode", "acp", "--cwd", "/workspace"},
+		Cwd:               "/workspace",
+		PollInterval:      time.Millisecond,
+		ReadMaxBytes:      32 * 1024,
 	}
 }
 
@@ -712,14 +712,14 @@ func TestBridge_State(t *testing.T) {
 	}
 
 	state := bridge.State()
-	if state.ProcessID != "proc-state" {
-		t.Errorf("ProcessID = %q, want %q", state.ProcessID, "proc-state")
+	if state.HostProcessID != "proc-state" {
+		t.Errorf("HostProcessID = %q, want %q", state.HostProcessID, "proc-state")
 	}
-	if state.ACPSessionID != acpSID {
-		t.Errorf("ACPSessionID = %q, want %q", state.ACPSessionID, acpSID)
+	if state.ProtocolSessionID != acpSID {
+		t.Errorf("ProtocolSessionID = %q, want %q", state.ProtocolSessionID, acpSID)
 	}
-	if state.Cursor != 250 {
-		t.Errorf("Cursor = %d, want 250", state.Cursor)
+	if state.OutputCursor != 250 {
+		t.Errorf("OutputCursor = %d, want 250", state.OutputCursor)
 	}
 	if state.AgentVersion != "v1.0" {
 		t.Errorf("AgentVersion = %q, want %q", state.AgentVersion, "v1.0")
@@ -756,10 +756,10 @@ func TestBridge_BindAndRunPrompt(t *testing.T) {
 
 	bridge := NewBridge(mock, testConfig())
 	bridge.Bind(BridgeState{
-		ProcessID:    "proc-existing",
-		ACPSessionID: acpSID,
-		Cursor:       300,
-		AgentVersion: "v1.0",
+		HostProcessID:     "proc-existing",
+		ProtocolSessionID: acpSID,
+		OutputCursor:      300,
+		AgentVersion:      "v1.0",
 	})
 
 	emitter := events.NewEmitter("trace-reuse")
@@ -810,8 +810,8 @@ func TestBridge_BindAndRunPrompt(t *testing.T) {
 
 	// Verify cursor advanced
 	state := bridge.State()
-	if state.Cursor != 400 {
-		t.Errorf("cursor = %d, want 400", state.Cursor)
+	if state.OutputCursor != 400 {
+		t.Errorf("OutputCursor = %d, want 400", state.OutputCursor)
 	}
 }
 
@@ -826,14 +826,14 @@ func TestBridge_CheckAlive(t *testing.T) {
 			},
 		}
 		bridge := NewBridge(mock, testConfig())
-		bridge.Bind(BridgeState{ProcessID: "proc-alive", ACPSessionID: "ses-alive", Cursor: 100})
+		bridge.Bind(BridgeState{HostProcessID: "proc-alive", ProtocolSessionID: "ses-alive", OutputCursor: 100})
 
 		if err := bridge.CheckAlive(context.Background()); err != nil {
 			t.Fatalf("CheckAlive: %v", err)
 		}
 		// Cursor should be updated to server-reported position
-		if bridge.State().Cursor != 500 {
-			t.Errorf("cursor = %d, want 500", bridge.State().Cursor)
+		if bridge.State().OutputCursor != 500 {
+			t.Errorf("OutputCursor = %d, want 500", bridge.State().OutputCursor)
 		}
 	})
 
@@ -844,7 +844,7 @@ func TestBridge_CheckAlive(t *testing.T) {
 			},
 		}
 		bridge := NewBridge(mock, testConfig())
-		bridge.Bind(BridgeState{ProcessID: "proc-dead", ACPSessionID: "ses-dead"})
+		bridge.Bind(BridgeState{HostProcessID: "proc-dead", ProtocolSessionID: "ses-dead"})
 
 		if err := bridge.CheckAlive(context.Background()); err == nil {
 			t.Fatal("CheckAlive should fail for dead process")
@@ -945,10 +945,10 @@ func TestBridge_MultiplePrompts(t *testing.T) {
 
 	// Verify cursor reflects all reads
 	state := bridge.State()
-	if state.Cursor != 400 {
-		t.Errorf("final cursor = %d, want 400", state.Cursor)
+	if state.OutputCursor != 400 {
+		t.Errorf("final OutputCursor = %d, want 400", state.OutputCursor)
 	}
-	if state.ProcessID != "proc-multi" {
-		t.Errorf("processID = %q, want %q", state.ProcessID, "proc-multi")
+	if state.HostProcessID != "proc-multi" {
+		t.Errorf("HostProcessID = %q, want %q", state.HostProcessID, "proc-multi")
 	}
 }

@@ -18,12 +18,12 @@ const (
 
 // BridgeConfig holds configuration for a single ACP bridge run.
 type BridgeConfig struct {
-	SessionID string // sandbox session ID (typically run ID)
-	AccountID string
-	Tier      string
-	Command   []string // agent launch command, e.g. ["opencode","acp","--cwd","/workspace"]
-	Cwd       string   // workspace directory inside sandbox
-	Env       map[string]string
+	RuntimeSessionKey string
+	AccountID         string
+	Tier              string
+	Command           []string // agent launch command, e.g. ["opencode","acp","--cwd","/workspace"]
+	Cwd               string   // workspace directory inside sandbox
+	Env               map[string]string
 
 	PollInterval   time.Duration // how often to read stdout, default 500ms
 	ReadMaxBytes   int           // max bytes per read, default 32KB
@@ -33,21 +33,26 @@ type BridgeConfig struct {
 
 // BridgeState holds the serializable state of a Bridge for registry storage.
 type BridgeState struct {
-	ProcessID    string
-	ACPSessionID string
-	Cursor       uint64
-	AgentVersion string
+	HostProcessID     string
+	ProtocolSessionID string
+	OutputCursor      uint64
+	AgentVersion      string
+}
+
+// EnsureSessionResult describes whether EnsureSession created a new runtime handle.
+type EnsureSessionResult struct {
+	Created bool
 }
 
 // Bridge manages a single ACP session lifecycle.
 type Bridge struct {
-	tr           ProcessHost
-	config       BridgeConfig
-	processID    string // set after Start
-	acpSessionID string // set after session/new
-	agentVersion string // set after Start
-	cursor       uint64 // read cursor for stdout
-	msgIDSeq     int    // JSON-RPC message ID sequence
+	tr                ProcessHost
+	config            BridgeConfig
+	hostProcessID     string // host-side process/runtime handle
+	protocolSessionID string // provider protocol session id returned by session/new
+	agentVersion      string // set after Start
+	outputCursor      uint64 // read cursor for stdout
+	msgIDSeq          int    // JSON-RPC message ID sequence
 }
 
 // NewBridge creates a Bridge. The host can be backed by sandbox or local processes.
@@ -64,65 +69,86 @@ func NewBridge(tr ProcessHost, config BridgeConfig) *Bridge {
 // State returns the current bridge state for serialization.
 func (b *Bridge) State() BridgeState {
 	return BridgeState{
-		ProcessID:    b.processID,
-		ACPSessionID: b.acpSessionID,
-		Cursor:       b.cursor,
-		AgentVersion: b.agentVersion,
+		HostProcessID:     b.hostProcessID,
+		ProtocolSessionID: b.protocolSessionID,
+		OutputCursor:      b.outputCursor,
+		AgentVersion:      b.agentVersion,
 	}
 }
 
 // Bind connects the bridge to an existing process and ACP session without starting a new one.
 func (b *Bridge) Bind(state BridgeState) {
-	b.processID = state.ProcessID
-	b.acpSessionID = state.ACPSessionID
-	b.cursor = state.Cursor
+	b.hostProcessID = state.HostProcessID
+	b.protocolSessionID = state.ProtocolSessionID
+	b.outputCursor = state.OutputCursor
 	b.agentVersion = state.AgentVersion
 }
 
-// CheckAlive queries the sandbox for the process status.
+// CheckRuntimeAlive queries the host for the existing runtime handle status.
 // Returns nil if the process is running, error otherwise.
 // Also updates the cursor to the latest stdout position.
-func (b *Bridge) CheckAlive(ctx context.Context) error {
-	if b.processID == "" {
+func (b *Bridge) CheckRuntimeAlive(ctx context.Context) error {
+	if b.hostProcessID == "" {
 		return fmt.Errorf("bridge: no process bound")
 	}
 	resp, err := b.tr.Status(ctx, StatusRequest{
-		SessionID: b.config.SessionID,
+		SessionID: b.config.RuntimeSessionKey,
 		AccountID: b.config.AccountID,
-		ProcessID: b.processID,
+		ProcessID: b.hostProcessID,
 	})
 	if err != nil {
 		return fmt.Errorf("bridge: status check failed: %w", err)
 	}
 	if !resp.Running {
-		return fmt.Errorf("bridge: process %s is not running (exited=%v)", b.processID, resp.Exited)
+		return fmt.Errorf("bridge: process %s is not running (exited=%v)", b.hostProcessID, resp.Exited)
 	}
-	b.cursor = resp.StdoutCursor
+	b.outputCursor = resp.StdoutCursor
 	return nil
 }
 
-// RunPrompt sends a prompt to an already-established ACP session.
-// The bridge must have processID and acpSessionID set (via prior Run or Bind).
-// Unlike Run, this does not start a process or create a new session.
-func (b *Bridge) RunPrompt(ctx context.Context, prompt string, emitter events.Emitter, yield func(events.RunEvent) error) error {
-	if b.processID == "" {
-		return fmt.Errorf("bridge: no process bound, call Run or Bind first")
+// CheckAlive keeps the older method name used by existing callers and tests.
+func (b *Bridge) CheckAlive(ctx context.Context) error {
+	return b.CheckRuntimeAlive(ctx)
+}
+
+// EnsureSession makes sure the host runtime process and ACP protocol session exist.
+func (b *Bridge) EnsureSession(ctx context.Context) (*EnsureSessionResult, error) {
+	result := &EnsureSessionResult{}
+	if err := b.ensureHostProcess(ctx, result); err != nil {
+		return nil, err
 	}
-	if b.acpSessionID == "" {
-		return fmt.Errorf("bridge: no ACP session, call Run or Bind first")
+	if err := b.ensureProtocolSession(ctx, result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (b *Bridge) emitRunStarted(reused bool, emitter events.Emitter, yield func(events.RunEvent) error) error {
+	return yield(emitter.Emit("run.started", map[string]any{
+		"status":              "working",
+		"command":             b.config.Command,
+		"agent_version":       b.agentVersion,
+		"session_id":          b.config.RuntimeSessionKey,
+		"runtime_session_key": b.config.RuntimeSessionKey,
+		"reused":              reused,
+	}, nil, nil))
+}
+
+// RunPrompt sends a prompt to an already-established ACP session.
+// The bridge must already be bound to a runtime handle and protocol session.
+func (b *Bridge) RunPrompt(ctx context.Context, prompt string, emitter events.Emitter, yield func(events.RunEvent) error) error {
+	if b.hostProcessID == "" {
+		return fmt.Errorf("bridge: no process bound, call EnsureSession or Bind first")
+	}
+	if b.protocolSessionID == "" {
+		return fmt.Errorf("bridge: no ACP session, call EnsureSession or Bind first")
 	}
 
-	if err := yield(emitter.Emit("run.started", map[string]any{
-		"status":        "working",
-		"command":       b.config.Command,
-		"agent_version": b.agentVersion,
-		"session_id":    b.config.SessionID,
-		"reused":        true,
-	}, nil, nil)); err != nil {
+	if err := b.emitRunStarted(true, emitter, yield); err != nil {
 		return err
 	}
 
-	if err := b.sendMessage(ctx, NewSessionPromptMessage(b.nextID(), b.acpSessionID, prompt)); err != nil {
+	if err := b.sendMessage(ctx, NewSessionPromptMessage(b.nextID(), b.protocolSessionID, prompt)); err != nil {
 		return fmt.Errorf("bridge: send session/prompt: %w", err)
 	}
 
@@ -139,16 +165,17 @@ func (b *Bridge) nextID() int {
 	return b.msgIDSeq
 }
 
-// Run executes the full ACP lifecycle: start -> session/new -> prompt -> poll -> cleanup.
-// It yields RunEvents through the provided callback. ctx cancellation triggers session/cancel.
-func (b *Bridge) Run(ctx context.Context, prompt string, emitter events.Emitter, yield func(events.RunEvent) error) error {
+func (b *Bridge) ensureHostProcess(ctx context.Context, result *EnsureSessionResult) error {
+	if b.hostProcessID != "" {
+		return nil
+	}
 	cmd := b.config.Command
 	if len(cmd) == 0 {
 		return fmt.Errorf("acp bridge: command not configured")
 	}
 
 	resp, err := b.tr.Start(ctx, StartRequest{
-		SessionID:      b.config.SessionID,
+		SessionID:      b.config.RuntimeSessionKey,
 		AccountID:      b.config.AccountID,
 		Tier:           b.config.Tier,
 		Command:        cmd,
@@ -160,32 +187,46 @@ func (b *Bridge) Run(ctx context.Context, prompt string, emitter events.Emitter,
 	if err != nil {
 		return fmt.Errorf("bridge: start opencode process: %w", err)
 	}
-	b.processID = resp.ProcessID
+	b.hostProcessID = resp.ProcessID
 	b.agentVersion = resp.AgentVersion
-	slog.Info("acp: agent process started", "process_id", b.processID, "session_id", b.config.SessionID, "command", cmd[0])
+	result.Created = true
+	slog.Info("acp: agent process started", "process_id", b.hostProcessID, "runtime_session_key", b.config.RuntimeSessionKey, "command", cmd[0])
+	return nil
+}
 
+func (b *Bridge) ensureProtocolSession(ctx context.Context, result *EnsureSessionResult) error {
+	if b.protocolSessionID != "" {
+		return nil
+	}
 	if err := b.sendMessage(ctx, NewSessionNewMessage(b.nextID(), SessionModeCode, b.config.Cwd)); err != nil {
 		return fmt.Errorf("bridge: send session/new: %w", err)
 	}
 	if err := b.waitForSessionNew(ctx); err != nil {
 		return fmt.Errorf("bridge: wait for session/new response: %w", err)
 	}
-	slog.Info("acp: session created", "acp_session_id", b.acpSessionID)
+	result.Created = true
+	slog.Info("acp: session created", "protocol_session_id", b.protocolSessionID, "runtime_session_key", b.config.RuntimeSessionKey)
+	return nil
+}
 
-	if err := yield(emitter.Emit("run.started", map[string]any{
-		"status":        "working",
-		"command":       cmd,
-		"agent_version": b.agentVersion,
-		"session_id":    b.config.SessionID,
-	}, nil, nil)); err != nil {
+// EnsureAndRunTurn ensures the session exists and then runs one prompt turn on it.
+func (b *Bridge) EnsureAndRunTurn(ctx context.Context, prompt string, emitter events.Emitter, yield func(events.RunEvent) error) error {
+	ensureResult, err := b.EnsureSession(ctx)
+	if err != nil {
 		return err
 	}
-
-	if err := b.sendMessage(ctx, NewSessionPromptMessage(b.nextID(), b.acpSessionID, prompt)); err != nil {
+	if err := b.emitRunStarted(!ensureResult.Created, emitter, yield); err != nil {
+		return err
+	}
+	if err := b.sendMessage(ctx, NewSessionPromptMessage(b.nextID(), b.protocolSessionID, prompt)); err != nil {
 		return fmt.Errorf("bridge: send session/prompt: %w", err)
 	}
-
 	return b.pollUpdates(ctx, emitter, yield)
+}
+
+// Run keeps the original method shape for existing callers.
+func (b *Bridge) Run(ctx context.Context, prompt string, emitter events.Emitter, yield func(events.RunEvent) error) error {
+	return b.EnsureAndRunTurn(ctx, prompt, emitter, yield)
 }
 
 func (b *Bridge) sendMessage(ctx context.Context, msg ACPMessage) error {
@@ -194,19 +235,19 @@ func (b *Bridge) sendMessage(ctx context.Context, msg ACPMessage) error {
 		return err
 	}
 	return b.tr.Write(ctx, WriteRequest{
-		SessionID: b.config.SessionID,
+		SessionID: b.config.RuntimeSessionKey,
 		AccountID: b.config.AccountID,
-		ProcessID: b.processID,
+		ProcessID: b.hostProcessID,
 		Data:      string(data),
 	})
 }
 
 func (b *Bridge) read(ctx context.Context) (*ReadResponse, error) {
 	return b.tr.Read(ctx, ReadRequest{
-		SessionID: b.config.SessionID,
+		SessionID: b.config.RuntimeSessionKey,
 		AccountID: b.config.AccountID,
-		ProcessID: b.processID,
-		Cursor:    b.cursor,
+		ProcessID: b.hostProcessID,
+		Cursor:    b.outputCursor,
 		MaxBytes:  b.config.ReadMaxBytes,
 	})
 }
@@ -217,11 +258,11 @@ func (b *Bridge) waitForSessionNew(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("bridge: read stdout: %w", err)
 		}
-		b.cursor = resp.NextCursor
+		b.outputCursor = resp.NextCursor
 
 		if resp.Data != "" {
 			if sid, ok := parseSessionNewResponse(resp.Data); ok {
-				b.acpSessionID = sid
+				b.protocolSessionID = sid
 				return nil
 			}
 		}
@@ -276,7 +317,7 @@ func (b *Bridge) pollUpdates(ctx context.Context, emitter events.Emitter, yield 
 			}
 			return fmt.Errorf("bridge: read stdout: %w", err)
 		}
-		b.cursor = resp.NextCursor
+		b.outputCursor = resp.NextCursor
 
 		if resp.Data != "" {
 			updates, err := ParseUpdates(resp.Data)
@@ -290,7 +331,7 @@ func (b *Bridge) pollUpdates(ctx context.Context, emitter events.Emitter, yield 
 						"permission_id", u.PermissionID,
 						"description", u.Content,
 						"sensitive", u.Sensitive,
-						"session_id", b.config.SessionID,
+						"runtime_session_key", b.config.RuntimeSessionKey,
 					)
 					ev := emitter.Emit("acp.permission_required", map[string]any{
 						"permission_id": u.PermissionID,
@@ -302,9 +343,9 @@ func (b *Bridge) pollUpdates(ctx context.Context, emitter events.Emitter, yield 
 					if err := yield(ev); err != nil {
 						return err
 					}
-					if b.acpSessionID != "" {
+					if b.protocolSessionID != "" {
 						approveMsg := NewSessionPermissionMessage(
-							b.nextID(), b.acpSessionID, u.PermissionID, true, "auto-approved",
+							b.nextID(), b.protocolSessionID, u.PermissionID, true, "auto-approved",
 						)
 						if sendErr := b.sendMessage(ctx, approveMsg); sendErr != nil {
 							slog.Warn("acp: send permission response failed", "error", sendErr)
@@ -329,12 +370,13 @@ func (b *Bridge) pollUpdates(ctx context.Context, emitter events.Emitter, yield 
 		if resp.Exited {
 			errClass := "acp.process_exited"
 			diagnostic := map[string]any{
-				"error_class":   errClass,
-				"message":       "opencode process exited unexpectedly",
-				"layer":         "opencode",
-				"process_id":    b.processID,
-				"command":       b.config.Command,
-				"agent_version": b.agentVersion,
+				"error_class":         errClass,
+				"message":             "opencode process exited unexpectedly",
+				"layer":               "opencode",
+				"process_id":          b.hostProcessID,
+				"runtime_session_key": b.config.RuntimeSessionKey,
+				"command":             b.config.Command,
+				"agent_version":       b.agentVersion,
 			}
 			if resp.ErrorSummary != "" {
 				diagnostic["error_summary"] = resp.ErrorSummary
@@ -356,10 +398,10 @@ func (b *Bridge) pollUpdates(ctx context.Context, emitter events.Emitter, yield 
 }
 
 func (b *Bridge) handleCancellation(emitter events.Emitter, yield func(events.RunEvent) error) error {
-	if b.acpSessionID != "" {
+	if b.protocolSessionID != "" {
 		cancelCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		if err := b.sendMessage(cancelCtx, NewSessionCancelMessage(b.nextID(), b.acpSessionID)); err != nil {
+		if err := b.sendMessage(cancelCtx, NewSessionCancelMessage(b.nextID(), b.protocolSessionID)); err != nil {
 			slog.Warn("acp: send session/cancel failed", "error", err)
 		}
 	}
@@ -369,17 +411,17 @@ func (b *Bridge) handleCancellation(emitter events.Emitter, yield func(events.Ru
 }
 
 func (b *Bridge) cleanup() {
-	if b.processID == "" {
+	if b.hostProcessID == "" {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := b.tr.Stop(ctx, StopRequest{
-		SessionID: b.config.SessionID,
+		SessionID: b.config.RuntimeSessionKey,
 		AccountID: b.config.AccountID,
-		ProcessID: b.processID,
+		ProcessID: b.hostProcessID,
 	}); err != nil {
-		slog.Warn("acp: stop process failed", "error", err, "process_id", b.processID)
+		slog.Warn("acp: stop process failed", "error", err, "process_id", b.hostProcessID)
 	}
 }
 
