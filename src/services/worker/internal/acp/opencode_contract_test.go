@@ -57,7 +57,7 @@ func TestOpenCodeACPContract(t *testing.T) {
 			t.Fatalf("send session/prompt: %v", err)
 		}
 
-		updates, rawLines, sawPromptResult := contract.waitForPromptObservation(t, 45*time.Second)
+		updates, rawLines, sawPromptResult := contract.waitForPromptObservation(t, 2, 45*time.Second)
 		if len(rawLines) == 0 {
 			t.Fatal("session/prompt produced no observable stdout")
 		}
@@ -183,7 +183,7 @@ func (p *openCodeACPContractProcess) waitForSessionNew(t *testing.T, timeout tim
 	}
 }
 
-func (p *openCodeACPContractProcess) waitForPromptObservation(t *testing.T, timeout time.Duration) ([]SessionUpdateParams, []string, bool) {
+func (p *openCodeACPContractProcess) waitForPromptObservation(t *testing.T, promptRequestID int, timeout time.Duration) ([]SessionUpdateParams, []string, bool) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
@@ -212,14 +212,10 @@ func (p *openCodeACPContractProcess) waitForPromptObservation(t *testing.T, time
 
 		var msg ACPMessage
 		if err := json.Unmarshal([]byte(line), &msg); err == nil {
-			if msg.ID != nil && msg.Method == "" && msg.Result != nil {
+			if msg.ID != nil && *msg.ID == promptRequestID && msg.Method == "" && msg.Result != nil {
 				sawPromptResult = true
 				return updates, lines, sawPromptResult
 			}
-		}
-
-		if len(updates) > 0 {
-			return updates, lines, sawPromptResult
 		}
 	}
 }

@@ -50,8 +50,8 @@ func TestClient_Start(t *testing.T) {
 		var req StartRequest
 		readJSON(t, r, &req)
 
-		if req.SessionID != "sess-1" {
-			t.Errorf("session_id = %q, want %q", req.SessionID, "sess-1")
+		if req.RuntimeSessionKey != "sess-1" {
+			t.Errorf("runtime_session_key = %q, want %q", req.RuntimeSessionKey, "sess-1")
 		}
 		if req.AccountID != "acct-1" {
 			t.Errorf("account_id = %q, want %q", req.AccountID, "acct-1")
@@ -64,10 +64,10 @@ func TestClient_Start(t *testing.T) {
 	})
 
 	resp, err := client.Start(context.Background(), StartRequest{
-		SessionID: "sess-1",
-		AccountID: "acct-1",
-		Command:   []string{"opencode", "acp"},
-		Cwd:       "/workspace",
+		RuntimeSessionKey: "sess-1",
+		AccountID:         "acct-1",
+		Command:           []string{"opencode", "acp"},
+		Cwd:               "/workspace",
 	})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
@@ -100,10 +100,10 @@ func TestClient_Write(t *testing.T) {
 	})
 
 	err := client.Write(context.Background(), WriteRequest{
-		SessionID: "sess-1",
-		AccountID: "acct-1",
-		ProcessID: "proc-123",
-		Data:      `{"jsonrpc":"2.0"}`,
+		RuntimeSessionKey: "sess-1",
+		AccountID:         "acct-1",
+		ProcessID:         "proc-123",
+		Data:              `{"jsonrpc":"2.0"}`,
 	})
 	if err != nil {
 		t.Fatalf("Write: %v", err)
@@ -132,10 +132,10 @@ func TestClient_Read(t *testing.T) {
 	})
 
 	resp, err := client.Read(context.Background(), ReadRequest{
-		SessionID: "sess-1",
-		AccountID: "acct-1",
-		ProcessID: "proc-123",
-		Cursor:    42,
+		RuntimeSessionKey: "sess-1",
+		AccountID:         "acct-1",
+		ProcessID:         "proc-123",
+		Cursor:            42,
 	})
 	if err != nil {
 		t.Fatalf("Read: %v", err)
@@ -165,10 +165,10 @@ func TestClient_Stop(t *testing.T) {
 	})
 
 	err := client.Stop(context.Background(), StopRequest{
-		SessionID: "sess-1",
-		AccountID: "acct-1",
-		ProcessID: "proc-123",
-		Force:     false,
+		RuntimeSessionKey: "sess-1",
+		AccountID:         "acct-1",
+		ProcessID:         "proc-123",
+		Force:             false,
 	})
 	if err != nil {
 		t.Fatalf("Stop: %v", err)
@@ -197,10 +197,10 @@ func TestClient_Wait(t *testing.T) {
 	})
 
 	resp, err := client.Wait(context.Background(), WaitRequest{
-		SessionID: "sess-1",
-		AccountID: "acct-1",
-		ProcessID: "proc-123",
-		TimeoutMs: 30000,
+		RuntimeSessionKey: "sess-1",
+		AccountID:         "acct-1",
+		ProcessID:         "proc-123",
+		TimeoutMs:         30000,
 	})
 	if err != nil {
 		t.Fatalf("Wait: %v", err)
@@ -235,9 +235,9 @@ func TestClient_StartError(t *testing.T) {
 			})
 
 			_, err := client.Start(context.Background(), StartRequest{
-				SessionID: "sess-1",
-				AccountID: "acct-1",
-				Command:   []string{"opencode", "acp"},
+				RuntimeSessionKey: "sess-1",
+				AccountID:         "acct-1",
+				Command:           []string{"opencode", "acp"},
 			})
 			if err == nil {
 				t.Fatal("expected error, got nil")

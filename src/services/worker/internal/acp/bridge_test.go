@@ -151,8 +151,8 @@ func TestBridge_FullLifecycle(t *testing.T) {
 
 	mock := &mockTransport{
 		startFn: func(_ context.Context, req StartRequest) (*StartResponse, error) {
-			if req.SessionID != "ses-1" {
-				t.Errorf("start session_id = %q, want %q", req.SessionID, "ses-1")
+			if req.RuntimeSessionKey != "ses-1" {
+				t.Errorf("start runtime_session_key = %q, want %q", req.RuntimeSessionKey, "ses-1")
 			}
 			return &StartResponse{ProcessID: "proc-1", Status: "running"}, nil
 		},
@@ -205,6 +205,9 @@ func TestBridge_FullLifecycle(t *testing.T) {
 
 	if got[1].DataJSON["content_delta"] != "hello world" {
 		t.Errorf("delta content = %v, want %q", got[1].DataJSON["content_delta"], "hello world")
+	}
+	if got[0].DataJSON["runtime_session_key"] != "ses-1" {
+		t.Errorf("runtime_session_key = %v, want %q", got[0].DataJSON["runtime_session_key"], "ses-1")
 	}
 	if got[2].DataJSON["summary"] != "done" {
 		t.Errorf("summary = %v, want %q", got[2].DataJSON["summary"], "done")
@@ -786,6 +789,9 @@ func TestBridge_BindAndRunPrompt(t *testing.T) {
 	// Verify "reused" flag in run.started event
 	if got[0].DataJSON["reused"] != true {
 		t.Errorf("run.started reused = %v, want true", got[0].DataJSON["reused"])
+	}
+	if got[0].DataJSON["runtime_session_key"] != "ses-1" {
+		t.Errorf("runtime_session_key = %v, want %q", got[0].DataJSON["runtime_session_key"], "ses-1")
 	}
 
 	// Verify session/prompt was sent (not session/new)

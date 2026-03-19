@@ -30,15 +30,15 @@ func NewClient(baseURL, authToken string) *Client {
 // --- Request / Response types (worker-local, mirrors sandbox protocol) ---
 
 type StartRequest struct {
-	SessionID      string            `json:"session_id"`
-	AccountID      string            `json:"account_id,omitempty"`
-	Tier           string            `json:"tier,omitempty"`
-	Command        []string          `json:"command"`
-	Cwd            string            `json:"cwd,omitempty"`
-	Env            map[string]string `json:"env,omitempty"`
-	TimeoutMs      int               `json:"timeout_ms,omitempty"`
-	KillGraceMs    int               `json:"kill_grace_ms,omitempty"`
-	CleanupDelayMs int               `json:"cleanup_delay_ms,omitempty"`
+	RuntimeSessionKey string            `json:"runtime_session_key"`
+	AccountID         string            `json:"account_id,omitempty"`
+	Tier              string            `json:"tier,omitempty"`
+	Command           []string          `json:"command"`
+	Cwd               string            `json:"cwd,omitempty"`
+	Env               map[string]string `json:"env,omitempty"`
+	TimeoutMs         int               `json:"timeout_ms,omitempty"`
+	KillGraceMs       int               `json:"kill_grace_ms,omitempty"`
+	CleanupDelayMs    int               `json:"cleanup_delay_ms,omitempty"`
 }
 
 type StartResponse struct {
@@ -48,18 +48,18 @@ type StartResponse struct {
 }
 
 type WriteRequest struct {
-	SessionID string `json:"session_id"`
-	AccountID string `json:"account_id,omitempty"`
-	ProcessID string `json:"process_id"`
-	Data      string `json:"data"`
+	RuntimeSessionKey string `json:"runtime_session_key"`
+	AccountID         string `json:"account_id,omitempty"`
+	ProcessID         string `json:"process_id"`
+	Data              string `json:"data"`
 }
 
 type ReadRequest struct {
-	SessionID string `json:"session_id"`
-	AccountID string `json:"account_id,omitempty"`
-	ProcessID string `json:"process_id"`
-	Cursor    uint64 `json:"cursor"`
-	MaxBytes  int    `json:"max_bytes,omitempty"`
+	RuntimeSessionKey string `json:"runtime_session_key"`
+	AccountID         string `json:"account_id,omitempty"`
+	ProcessID         string `json:"process_id"`
+	Cursor            uint64 `json:"cursor"`
+	MaxBytes          int    `json:"max_bytes,omitempty"`
 }
 
 type ReadResponse struct {
@@ -73,18 +73,18 @@ type ReadResponse struct {
 }
 
 type StopRequest struct {
-	SessionID     string `json:"session_id"`
-	AccountID     string `json:"account_id,omitempty"`
-	ProcessID     string `json:"process_id"`
-	Force         bool   `json:"force,omitempty"`
-	GracePeriodMs int    `json:"grace_period_ms,omitempty"`
+	RuntimeSessionKey string `json:"runtime_session_key"`
+	AccountID         string `json:"account_id,omitempty"`
+	ProcessID         string `json:"process_id"`
+	Force             bool   `json:"force,omitempty"`
+	GracePeriodMs     int    `json:"grace_period_ms,omitempty"`
 }
 
 type WaitRequest struct {
-	SessionID string `json:"session_id"`
-	AccountID string `json:"account_id,omitempty"`
-	ProcessID string `json:"process_id"`
-	TimeoutMs int    `json:"timeout_ms,omitempty"`
+	RuntimeSessionKey string `json:"runtime_session_key"`
+	AccountID         string `json:"account_id,omitempty"`
+	ProcessID         string `json:"process_id"`
+	TimeoutMs         int    `json:"timeout_ms,omitempty"`
 }
 
 type WaitResponse struct {
@@ -95,18 +95,18 @@ type WaitResponse struct {
 }
 
 type StatusRequest struct {
-	SessionID string `json:"session_id"`
-	AccountID string `json:"account_id,omitempty"`
-	ProcessID string `json:"process_id"`
+	RuntimeSessionKey string `json:"runtime_session_key"`
+	AccountID         string `json:"account_id,omitempty"`
+	ProcessID         string `json:"process_id"`
 }
 
 type StatusResponse struct {
-	SessionID    string `json:"session_id"`
-	ProcessID    string `json:"process_id"`
-	Running      bool   `json:"running"`
-	StdoutCursor uint64 `json:"stdout_cursor"`
-	Exited       bool   `json:"exited"`
-	ExitCode     *int   `json:"exit_code,omitempty"`
+	RuntimeSessionKey string `json:"runtime_session_key"`
+	ProcessID         string `json:"process_id"`
+	Running           bool   `json:"running"`
+	StdoutCursor      uint64 `json:"stdout_cursor"`
+	Exited            bool   `json:"exited"`
+	ExitCode          *int   `json:"exit_code,omitempty"`
 }
 
 // --- Structured errors ---

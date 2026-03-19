@@ -8,29 +8,29 @@ import (
 // --- Service-level types (HTTP handler layer) ---
 
 type StartACPAgentRequest struct {
-	SessionID      string            `json:"session_id"`
-	AccountID      string            `json:"account_id,omitempty"`
-	Tier           string            `json:"tier,omitempty"`
-	Command        []string          `json:"command"`
-	Cwd            string            `json:"cwd,omitempty"`
-	Env            map[string]string `json:"env,omitempty"`
-	TimeoutMs      int               `json:"timeout_ms,omitempty"`
-	KillGraceMs    int               `json:"kill_grace_ms,omitempty"`
-	CleanupDelayMs int               `json:"cleanup_delay_ms,omitempty"`
+	RuntimeSessionKey string            `json:"runtime_session_key"`
+	AccountID         string            `json:"account_id,omitempty"`
+	Tier              string            `json:"tier,omitempty"`
+	Command           []string          `json:"command"`
+	Cwd               string            `json:"cwd,omitempty"`
+	Env               map[string]string `json:"env,omitempty"`
+	TimeoutMs         int               `json:"timeout_ms,omitempty"`
+	KillGraceMs       int               `json:"kill_grace_ms,omitempty"`
+	CleanupDelayMs    int               `json:"cleanup_delay_ms,omitempty"`
 }
 
 type StartACPAgentResponse struct {
-	SessionID    string `json:"session_id"`
-	ProcessID    string `json:"process_id"`
-	Status       string `json:"status"`
-	AgentVersion string `json:"agent_version,omitempty"` // version of the agent binary
+	RuntimeSessionKey string `json:"runtime_session_key"`
+	ProcessID         string `json:"process_id"`
+	Status            string `json:"status"`
+	AgentVersion      string `json:"agent_version,omitempty"` // version of the agent binary
 }
 
 type WriteACPRequest struct {
-	SessionID string `json:"session_id"`
-	AccountID string `json:"account_id,omitempty"`
-	ProcessID string `json:"process_id"`
-	Data      string `json:"data"`
+	RuntimeSessionKey string `json:"runtime_session_key"`
+	AccountID         string `json:"account_id,omitempty"`
+	ProcessID         string `json:"process_id"`
+	Data              string `json:"data"`
 }
 
 type WriteACPResponse struct {
@@ -38,11 +38,11 @@ type WriteACPResponse struct {
 }
 
 type ReadACPRequest struct {
-	SessionID string `json:"session_id"`
-	AccountID string `json:"account_id,omitempty"`
-	ProcessID string `json:"process_id"`
-	Cursor    uint64 `json:"cursor"`
-	MaxBytes  int    `json:"max_bytes,omitempty"`
+	RuntimeSessionKey string `json:"runtime_session_key"`
+	AccountID         string `json:"account_id,omitempty"`
+	ProcessID         string `json:"process_id"`
+	Cursor            uint64 `json:"cursor"`
+	MaxBytes          int    `json:"max_bytes,omitempty"`
 }
 
 type ReadACPResponse struct {
@@ -56,11 +56,11 @@ type ReadACPResponse struct {
 }
 
 type StopACPAgentRequest struct {
-	SessionID     string `json:"session_id"`
-	AccountID     string `json:"account_id,omitempty"`
-	ProcessID     string `json:"process_id"`
-	Force         bool   `json:"force,omitempty"`
-	GracePeriodMs int    `json:"grace_period_ms,omitempty"`
+	RuntimeSessionKey string `json:"runtime_session_key"`
+	AccountID         string `json:"account_id,omitempty"`
+	ProcessID         string `json:"process_id"`
+	Force             bool   `json:"force,omitempty"`
+	GracePeriodMs     int    `json:"grace_period_ms,omitempty"`
 }
 
 type StopACPAgentResponse struct {
@@ -68,10 +68,10 @@ type StopACPAgentResponse struct {
 }
 
 type WaitACPAgentRequest struct {
-	SessionID string `json:"session_id"`
-	AccountID string `json:"account_id,omitempty"`
-	ProcessID string `json:"process_id"`
-	TimeoutMs int    `json:"timeout_ms,omitempty"`
+	RuntimeSessionKey string `json:"runtime_session_key"`
+	AccountID         string `json:"account_id,omitempty"`
+	ProcessID         string `json:"process_id"`
+	TimeoutMs         int    `json:"timeout_ms,omitempty"`
 }
 
 type WaitACPAgentResponse struct {
@@ -82,18 +82,18 @@ type WaitACPAgentResponse struct {
 }
 
 type StatusACPRequest struct {
-	SessionID string `json:"session_id"`
-	AccountID string `json:"account_id,omitempty"`
-	ProcessID string `json:"process_id"`
+	RuntimeSessionKey string `json:"runtime_session_key"`
+	AccountID         string `json:"account_id,omitempty"`
+	ProcessID         string `json:"process_id"`
 }
 
 type StatusACPResponse struct {
-	SessionID    string `json:"session_id"`
-	ProcessID    string `json:"process_id"`
-	Running      bool   `json:"running"`
-	StdoutCursor uint64 `json:"stdout_cursor"`
-	Exited       bool   `json:"exited"`
-	ExitCode     *int   `json:"exit_code,omitempty"`
+	RuntimeSessionKey string `json:"runtime_session_key"`
+	ProcessID         string `json:"process_id"`
+	Running           bool   `json:"running"`
+	StdoutCursor      uint64 `json:"stdout_cursor"`
+	Exited            bool   `json:"exited"`
+	ExitCode          *int   `json:"exit_code,omitempty"`
 }
 
 // Service defines the ACP session management interface.
@@ -104,30 +104,30 @@ type Service interface {
 	StopACPAgent(ctx context.Context, req StopACPAgentRequest) (*StopACPAgentResponse, error)
 	WaitACPAgent(ctx context.Context, req WaitACPAgentRequest) (*WaitACPAgentResponse, error)
 	StatusACP(ctx context.Context, req StatusACPRequest) (*StatusACPResponse, error)
-	Close(ctx context.Context, sessionID, accountID string) error
+	Close(ctx context.Context, runtimeSessionKey, accountID string) error
 }
 
 // --- Agent-level types (JSON RPC to guest agent via Dial) ---
 
 type agentRequest struct {
-	Action   string           `json:"action"`
-	ACPStart *acpStartPayload `json:"acp_start,omitempty"`
-	ACPWrite *acpWritePayload `json:"acp_write,omitempty"`
-	ACPRead  *acpReadPayload  `json:"acp_read,omitempty"`
-	ACPStop    *acpStopPayload    `json:"acp_stop,omitempty"`
-	ACPWait    *acpWaitPayload    `json:"acp_wait,omitempty"`
-	ACPStatus  *acpStatusPayload  `json:"acp_status,omitempty"`
+	Action    string            `json:"action"`
+	ACPStart  *acpStartPayload  `json:"acp_start,omitempty"`
+	ACPWrite  *acpWritePayload  `json:"acp_write,omitempty"`
+	ACPRead   *acpReadPayload   `json:"acp_read,omitempty"`
+	ACPStop   *acpStopPayload   `json:"acp_stop,omitempty"`
+	ACPWait   *acpWaitPayload   `json:"acp_wait,omitempty"`
+	ACPStatus *acpStatusPayload `json:"acp_status,omitempty"`
 }
 
 type agentResponse struct {
-	Action   string          `json:"action"`
-	ACPStart *acpStartResult `json:"acp_start,omitempty"`
-	ACPWrite *acpWriteResult `json:"acp_write,omitempty"`
-	ACPRead  *acpReadResult  `json:"acp_read,omitempty"`
-	ACPStop    *acpStopResult    `json:"acp_stop,omitempty"`
-	ACPWait    *acpWaitResult    `json:"acp_wait,omitempty"`
-	ACPStatus  *acpStatusResult  `json:"acp_status,omitempty"`
-	Error      string            `json:"error,omitempty"`
+	Action    string           `json:"action"`
+	ACPStart  *acpStartResult  `json:"acp_start,omitempty"`
+	ACPWrite  *acpWriteResult  `json:"acp_write,omitempty"`
+	ACPRead   *acpReadResult   `json:"acp_read,omitempty"`
+	ACPStop   *acpStopResult   `json:"acp_stop,omitempty"`
+	ACPWait   *acpWaitResult   `json:"acp_wait,omitempty"`
+	ACPStatus *acpStatusResult `json:"acp_status,omitempty"`
+	Error     string           `json:"error,omitempty"`
 }
 
 type acpStartPayload struct {

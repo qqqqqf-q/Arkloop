@@ -96,8 +96,9 @@ func (e ToolExecutor) Execute(
 	cmd := append([]string{invocation.Provider.Command}, invocation.Provider.Args...)
 	cmd = append(cmd, "--cwd", invocation.Cwd)
 
+	runtimeSessionKey := buildRuntimeSessionKey(execCtx.RunID.String(), invocation.Provider)
 	cfg := acp.BridgeConfig{
-		RuntimeSessionKey: execCtx.RunID.String(),
+		RuntimeSessionKey: runtimeSessionKey,
 		AccountID:         accountID,
 		Command:           cmd,
 		Cwd:               invocation.Cwd,
@@ -112,7 +113,6 @@ func (e ToolExecutor) Execute(
 	}
 
 	emitter := execCtx.Emitter
-	runtimeSessionKey := buildRuntimeSessionKey(execCtx.RunID.String(), invocation.Provider)
 
 	// Try to reuse existing session
 	if entry := runtimeHandleRegistry.Get(runtimeSessionKey); entry != nil {

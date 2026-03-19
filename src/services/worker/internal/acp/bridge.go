@@ -92,9 +92,9 @@ func (b *Bridge) CheckRuntimeAlive(ctx context.Context) error {
 		return fmt.Errorf("bridge: no process bound")
 	}
 	resp, err := b.tr.Status(ctx, StatusRequest{
-		SessionID: b.config.RuntimeSessionKey,
-		AccountID: b.config.AccountID,
-		ProcessID: b.hostProcessID,
+		RuntimeSessionKey: b.config.RuntimeSessionKey,
+		AccountID:         b.config.AccountID,
+		ProcessID:         b.hostProcessID,
 	})
 	if err != nil {
 		return fmt.Errorf("bridge: status check failed: %w", err)
@@ -128,7 +128,6 @@ func (b *Bridge) emitRunStarted(reused bool, emitter events.Emitter, yield func(
 		"status":              "working",
 		"command":             b.config.Command,
 		"agent_version":       b.agentVersion,
-		"session_id":          b.config.RuntimeSessionKey,
 		"runtime_session_key": b.config.RuntimeSessionKey,
 		"reused":              reused,
 	}, nil, nil))
@@ -175,14 +174,14 @@ func (b *Bridge) ensureHostProcess(ctx context.Context, result *EnsureSessionRes
 	}
 
 	resp, err := b.tr.Start(ctx, StartRequest{
-		SessionID:      b.config.RuntimeSessionKey,
-		AccountID:      b.config.AccountID,
-		Tier:           b.config.Tier,
-		Command:        cmd,
-		Cwd:            b.config.Cwd,
-		Env:            b.config.Env,
-		KillGraceMs:    b.config.KillGraceMs,
-		CleanupDelayMs: b.config.CleanupDelayMs,
+		RuntimeSessionKey: b.config.RuntimeSessionKey,
+		AccountID:         b.config.AccountID,
+		Tier:              b.config.Tier,
+		Command:           cmd,
+		Cwd:               b.config.Cwd,
+		Env:               b.config.Env,
+		KillGraceMs:       b.config.KillGraceMs,
+		CleanupDelayMs:    b.config.CleanupDelayMs,
 	})
 	if err != nil {
 		return fmt.Errorf("bridge: start opencode process: %w", err)
@@ -235,20 +234,20 @@ func (b *Bridge) sendMessage(ctx context.Context, msg ACPMessage) error {
 		return err
 	}
 	return b.tr.Write(ctx, WriteRequest{
-		SessionID: b.config.RuntimeSessionKey,
-		AccountID: b.config.AccountID,
-		ProcessID: b.hostProcessID,
-		Data:      string(data),
+		RuntimeSessionKey: b.config.RuntimeSessionKey,
+		AccountID:         b.config.AccountID,
+		ProcessID:         b.hostProcessID,
+		Data:              string(data),
 	})
 }
 
 func (b *Bridge) read(ctx context.Context) (*ReadResponse, error) {
 	return b.tr.Read(ctx, ReadRequest{
-		SessionID: b.config.RuntimeSessionKey,
-		AccountID: b.config.AccountID,
-		ProcessID: b.hostProcessID,
-		Cursor:    b.outputCursor,
-		MaxBytes:  b.config.ReadMaxBytes,
+		RuntimeSessionKey: b.config.RuntimeSessionKey,
+		AccountID:         b.config.AccountID,
+		ProcessID:         b.hostProcessID,
+		Cursor:            b.outputCursor,
+		MaxBytes:          b.config.ReadMaxBytes,
 	})
 }
 
@@ -417,9 +416,9 @@ func (b *Bridge) cleanup() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := b.tr.Stop(ctx, StopRequest{
-		SessionID: b.config.RuntimeSessionKey,
-		AccountID: b.config.AccountID,
-		ProcessID: b.hostProcessID,
+		RuntimeSessionKey: b.config.RuntimeSessionKey,
+		AccountID:         b.config.AccountID,
+		ProcessID:         b.hostProcessID,
 	}); err != nil {
 		slog.Warn("acp: stop process failed", "error", err, "process_id", b.hostProcessID)
 	}

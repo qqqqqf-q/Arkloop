@@ -48,13 +48,13 @@ func (m *Manager) StartACPAgent(ctx context.Context, req StartACPAgentRequest) (
 		return nil, newError(CodeInvalidRequest, "command is required", http.StatusBadRequest)
 	}
 
-	sid := req.SessionID
+	runtimeSessionKey := req.RuntimeSessionKey
 	tier := req.Tier
 	if tier == "" {
 		tier = "pro"
 	}
 
-	sn, err := m.compute.GetOrCreate(ctx, sid, tier, req.AccountID)
+	sn, err := m.compute.GetOrCreate(ctx, runtimeSessionKey, tier, req.AccountID)
 	if err != nil {
 		if strings.Contains(err.Error(), "account mismatch") {
 			return nil, accountMismatchError()
@@ -81,7 +81,7 @@ func (m *Manager) StartACPAgent(ctx context.Context, req StartACPAgentRequest) (
 	}
 
 	m.mu.Lock()
-	m.sessions[sid] = &managedACPSession{
+	m.sessions[runtimeSessionKey] = &managedACPSession{
 		compute:        sn,
 		accountID:      req.AccountID,
 		processID:      result.ACPStart.ProcessID,
@@ -91,15 +91,15 @@ func (m *Manager) StartACPAgent(ctx context.Context, req StartACPAgentRequest) (
 	m.mu.Unlock()
 
 	return &StartACPAgentResponse{
-		SessionID:    sid,
-		ProcessID:    result.ACPStart.ProcessID,
-		Status:       result.ACPStart.Status,
-		AgentVersion: result.ACPStart.AgentVersion,
+		RuntimeSessionKey: runtimeSessionKey,
+		ProcessID:         result.ACPStart.ProcessID,
+		Status:            result.ACPStart.Status,
+		AgentVersion:      result.ACPStart.AgentVersion,
 	}, nil
 }
 
 func (m *Manager) WriteACP(ctx context.Context, req WriteACPRequest) (*WriteACPResponse, error) {
-	entry, err := m.getEntry(req.SessionID, req.AccountID)
+	entry, err := m.getEntry(req.RuntimeSessionKey, req.AccountID)
 	if err != nil {
 		return nil, err
 	}
@@ -122,7 +122,7 @@ func (m *Manager) WriteACP(ctx context.Context, req WriteACPRequest) (*WriteACPR
 }
 
 func (m *Manager) ReadACP(ctx context.Context, req ReadACPRequest) (*ReadACPResponse, error) {
-	entry, err := m.getEntry(req.SessionID, req.AccountID)
+	entry, err := m.getEntry(req.RuntimeSessionKey, req.AccountID)
 	if err != nil {
 		return nil, err
 	}
@@ -155,7 +155,7 @@ func (m *Manager) ReadACP(ctx context.Context, req ReadACPRequest) (*ReadACPResp
 }
 
 func (m *Manager) StopACPAgent(ctx context.Context, req StopACPAgentRequest) (*StopACPAgentResponse, error) {
-	entry, err := m.getEntry(req.SessionID, req.AccountID)
+	entry, err := m.getEntry(req.RuntimeSessionKey, req.AccountID)
 	if err != nil {
 		return nil, err
 	}
@@ -176,14 +176,14 @@ func (m *Manager) StopACPAgent(ctx context.Context, req StopACPAgentRequest) (*S
 	}
 
 	m.mu.Lock()
-	delete(m.sessions, req.SessionID)
+	delete(m.sessions, req.RuntimeSessionKey)
 	m.mu.Unlock()
 
 	return &StopACPAgentResponse{Status: result.ACPStop.Status}, nil
 }
 
 func (m *Manager) WaitACPAgent(ctx context.Context, req WaitACPAgentRequest) (*WaitACPAgentResponse, error) {
-	entry, err := m.getEntry(req.SessionID, req.AccountID)
+	entry, err := m.getEntry(req.RuntimeSessionKey, req.AccountID)
 	if err != nil {
 		return nil, err
 	}
@@ -213,7 +213,7 @@ func (m *Manager) WaitACPAgent(ctx context.Context, req WaitACPAgentRequest) (*W
 	r := result.ACPWait
 	if r.Exited {
 		m.mu.Lock()
-		delete(m.sessions, req.SessionID)
+		delete(m.sessions, req.RuntimeSessionKey)
 		m.mu.Unlock()
 	}
 
@@ -225,9 +225,9 @@ func (m *Manager) WaitACPAgent(ctx context.Context, req WaitACPAgentRequest) (*W
 	}, nil
 }
 
-func (m *Manager) Close(ctx context.Context, sessionID, accountID string) error {
+func (m *Manager) Close(ctx context.Context, runtimeSessionKey, accountID string) error {
 	m.mu.Lock()
-	entry, ok := m.sessions[sessionID]
+	entry, ok := m.sessions[runtimeSessionKey]
 	if !ok {
 		m.mu.Unlock()
 		return nil
@@ -236,14 +236,14 @@ func (m *Manager) Close(ctx context.Context, sessionID, accountID string) error 
 		m.mu.Unlock()
 		return accountMismatchError()
 	}
-	delete(m.sessions, sessionID)
+	delete(m.sessions, runtimeSessionKey)
 	m.mu.Unlock()
 
 	if entry.processID != "" {
 		stopCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
 		_, _ = m.invokeACPAction(stopCtx, entry.compute, agentRequest{
-			Action: "acp_stop",
+			Action:  "acp_stop",
 			ACPStop: &acpStopPayload{ProcessID: entry.processID, Force: true},
 		})
 	}
@@ -253,7 +253,7 @@ func (m *Manager) Close(ctx context.Context, sessionID, accountID string) error 
 // --- internal helpers ---
 
 func (m *Manager) StatusACP(ctx context.Context, req StatusACPRequest) (*StatusACPResponse, error) {
-	entry, err := m.getEntry(req.SessionID, req.AccountID)
+	entry, err := m.getEntry(req.RuntimeSessionKey, req.AccountID)
 	if err != nil {
 		return nil, err
 	}
@@ -273,12 +273,12 @@ func (m *Manager) StatusACP(ctx context.Context, req StatusACPRequest) (*StatusA
 
 	r := result.ACPStatus
 	return &StatusACPResponse{
-		SessionID:    req.SessionID,
-		ProcessID:    req.ProcessID,
-		Running:      r.Running,
-		StdoutCursor: r.StdoutCursor,
-		Exited:       r.Exited,
-		ExitCode:     r.ExitCode,
+		RuntimeSessionKey: req.RuntimeSessionKey,
+		ProcessID:         req.ProcessID,
+		Running:           r.Running,
+		StdoutCursor:      r.StdoutCursor,
+		Exited:            r.Exited,
+		ExitCode:          r.ExitCode,
 	}, nil
 }
 
@@ -325,9 +325,9 @@ func (m *Manager) invokeACPActionWithTimeout(ctx context.Context, sn *session.Se
 	return &resp, nil
 }
 
-func (m *Manager) getEntry(sessionID, accountID string) (*managedACPSession, error) {
+func (m *Manager) getEntry(runtimeSessionKey, accountID string) (*managedACPSession, error) {
 	m.mu.Lock()
-	entry, ok := m.sessions[sessionID]
+	entry, ok := m.sessions[runtimeSessionKey]
 	m.mu.Unlock()
 	if !ok {
 		return nil, sessionNotFoundError()

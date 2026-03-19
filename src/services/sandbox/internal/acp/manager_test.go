@@ -73,10 +73,10 @@ func TestManager_WriteACP(t *testing.T) {
 	}
 
 	resp, err := m.WriteACP(context.Background(), WriteACPRequest{
-		SessionID: "s1",
-		AccountID: "acct-1",
-		ProcessID: "pid-1",
-		Data:      "hello",
+		RuntimeSessionKey: "s1",
+		AccountID:         "acct-1",
+		ProcessID:         "pid-1",
+		Data:              "hello",
 	})
 	if err != nil {
 		t.Fatalf("WriteACP: %v", err)
@@ -109,11 +109,11 @@ func TestManager_ReadACP(t *testing.T) {
 	}
 
 	resp, err := m.ReadACP(context.Background(), ReadACPRequest{
-		SessionID: "s1",
-		AccountID: "acct-1",
-		ProcessID: "pid-1",
-		Cursor:    0,
-		MaxBytes:  4096,
+		RuntimeSessionKey: "s1",
+		AccountID:         "acct-1",
+		ProcessID:         "pid-1",
+		Cursor:            0,
+		MaxBytes:          4096,
 	})
 	if err != nil {
 		t.Fatalf("ReadACP: %v", err)
@@ -152,10 +152,10 @@ func TestManager_StopACPAgent(t *testing.T) {
 	}
 
 	resp, err := m.StopACPAgent(context.Background(), StopACPAgentRequest{
-		SessionID: "s1",
-		AccountID: "acct-1",
-		ProcessID: "pid-1",
-		Force:     true,
+		RuntimeSessionKey: "s1",
+		AccountID:         "acct-1",
+		ProcessID:         "pid-1",
+		Force:             true,
 	})
 	if err != nil {
 		t.Fatalf("StopACPAgent: %v", err)
@@ -193,10 +193,10 @@ func TestManager_WaitACPAgent_Exited(t *testing.T) {
 	}
 
 	resp, err := m.WaitACPAgent(context.Background(), WaitACPAgentRequest{
-		SessionID: "s1",
-		AccountID: "acct-1",
-		ProcessID: "pid-1",
-		TimeoutMs: 5000,
+		RuntimeSessionKey: "s1",
+		AccountID:         "acct-1",
+		ProcessID:         "pid-1",
+		TimeoutMs:         5000,
 	})
 	if err != nil {
 		t.Fatalf("WaitACPAgent: %v", err)
@@ -233,10 +233,10 @@ func TestManager_WaitACPAgent_Timeout(t *testing.T) {
 	}
 
 	resp, err := m.WaitACPAgent(context.Background(), WaitACPAgentRequest{
-		SessionID: "s1",
-		AccountID: "acct-1",
-		ProcessID: "pid-1",
-		TimeoutMs: 100,
+		RuntimeSessionKey: "s1",
+		AccountID:         "acct-1",
+		ProcessID:         "pid-1",
+		TimeoutMs:         100,
 	})
 	if err != nil {
 		t.Fatalf("WaitACPAgent: %v", err)
@@ -404,10 +404,10 @@ func TestManager_InvokeACPAction_AgentError(t *testing.T) {
 	}
 
 	_, err := m.WriteACP(context.Background(), WriteACPRequest{
-		SessionID: "s1",
-		AccountID: "acct-1",
-		ProcessID: "pid-1",
-		Data:      "x",
+		RuntimeSessionKey: "s1",
+		AccountID:         "acct-1",
+		ProcessID:         "pid-1",
+		Data:              "x",
 	})
 	if err == nil {
 		t.Fatal("expected error from agent")
@@ -438,9 +438,9 @@ func TestManager_InvokeACPAction_ProcessNotFound(t *testing.T) {
 	}
 
 	_, err := m.ReadACP(context.Background(), ReadACPRequest{
-		SessionID: "s1",
-		AccountID: "acct-1",
-		ProcessID: "pid-1",
+		RuntimeSessionKey: "s1",
+		AccountID:         "acct-1",
+		ProcessID:         "pid-1",
 	})
 	if err == nil {
 		t.Fatal("expected error from agent")
@@ -474,10 +474,10 @@ func TestManager_InvokeACPAction_DialFailure(t *testing.T) {
 	}
 
 	_, err := m.WriteACP(context.Background(), WriteACPRequest{
-		SessionID: "s1",
-		AccountID: "acct-1",
-		ProcessID: "pid-1",
-		Data:      "x",
+		RuntimeSessionKey: "s1",
+		AccountID:         "acct-1",
+		ProcessID:         "pid-1",
+		Data:              "x",
 	})
 	if err == nil {
 		t.Fatal("expected transport error")
@@ -513,10 +513,10 @@ func TestManager_InvokeACPAction_InvalidJSON(t *testing.T) {
 	}
 
 	_, err := m.WriteACP(context.Background(), WriteACPRequest{
-		SessionID: "s1",
-		AccountID: "acct-1",
-		ProcessID: "pid-1",
-		Data:      "x",
+		RuntimeSessionKey: "s1",
+		AccountID:         "acct-1",
+		ProcessID:         "pid-1",
+		Data:              "x",
 	})
 	if err == nil {
 		t.Fatal("expected error for empty response")
@@ -568,9 +568,9 @@ func TestManager_ReadACP_MissingPayload(t *testing.T) {
 	}
 
 	_, err := m.ReadACP(context.Background(), ReadACPRequest{
-		SessionID: "s1",
-		AccountID: "acct-1",
-		ProcessID: "pid-1",
+		RuntimeSessionKey: "s1",
+		AccountID:         "acct-1",
+		ProcessID:         "pid-1",
 	})
 	if err == nil {
 		t.Fatal("expected error for missing payload")
@@ -601,10 +601,10 @@ func TestManager_WriteACP_MissingPayload(t *testing.T) {
 	}
 
 	_, err := m.WriteACP(context.Background(), WriteACPRequest{
-		SessionID: "s1",
-		AccountID: "acct-1",
-		ProcessID: "pid-1",
-		Data:      "x",
+		RuntimeSessionKey: "s1",
+		AccountID:         "acct-1",
+		ProcessID:         "pid-1",
+		Data:              "x",
 	})
 	if err == nil {
 		t.Fatal("expected error for missing payload")
@@ -635,9 +635,9 @@ func TestManager_StopACPAgent_MissingPayload(t *testing.T) {
 	}
 
 	_, err := m.StopACPAgent(context.Background(), StopACPAgentRequest{
-		SessionID: "s1",
-		AccountID: "acct-1",
-		ProcessID: "pid-1",
+		RuntimeSessionKey: "s1",
+		AccountID:         "acct-1",
+		ProcessID:         "pid-1",
 	})
 	if err == nil {
 		t.Fatal("expected error for missing payload")
@@ -668,9 +668,9 @@ func TestManager_WaitACPAgent_MissingPayload(t *testing.T) {
 	}
 
 	_, err := m.WaitACPAgent(context.Background(), WaitACPAgentRequest{
-		SessionID: "s1",
-		AccountID: "acct-1",
-		ProcessID: "pid-1",
+		RuntimeSessionKey: "s1",
+		AccountID:         "acct-1",
+		ProcessID:         "pid-1",
 	})
 	if err == nil {
 		t.Fatal("expected error for missing payload")

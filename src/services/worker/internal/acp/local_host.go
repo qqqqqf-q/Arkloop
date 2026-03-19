@@ -256,12 +256,12 @@ func (h *LocalProcessHost) Status(_ context.Context, req StatusRequest) (*Status
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return &StatusResponse{
-		SessionID:    req.SessionID,
-		ProcessID:    req.ProcessID,
-		Running:      !p.exited,
-		StdoutCursor: p.stdout.EndCursor(),
-		Exited:       p.exited,
-		ExitCode:     p.exitCode,
+		RuntimeSessionKey: req.RuntimeSessionKey,
+		ProcessID:         req.ProcessID,
+		Running:           !p.exited,
+		StdoutCursor:      p.stdout.EndCursor(),
+		Exited:            p.exited,
+		ExitCode:          p.exitCode,
 	}, nil
 }
 

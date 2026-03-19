@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	sharedtoolruntime "arkloop/services/shared/toolruntime"
+	"arkloop/services/worker/internal/acp"
 	"arkloop/services/worker/internal/events"
 	"arkloop/services/worker/internal/tools"
 
@@ -92,5 +93,37 @@ func TestExecutor_UnknownProvider(t *testing.T) {
 	}, ctx, "tc-8")
 	if r.Error == nil || r.Error.ErrorClass != "tool.args_invalid" {
 		t.Fatalf("expected args_invalid for unknown provider, got %+v", r.Error)
+	}
+}
+
+func TestBuildRuntimeSessionKey(t *testing.T) {
+	runID := "run-123"
+	sandboxKey := buildRuntimeSessionKey(runID, acp.ResolvedProvider{
+		ID:       acp.DefaultProviderID,
+		HostKind: acp.HostKindSandbox,
+	})
+	localKey := buildRuntimeSessionKey(runID, acp.ResolvedProvider{
+		ID:       acp.DefaultProviderID,
+		HostKind: acp.HostKindLocal,
+	})
+	otherProviderKey := buildRuntimeSessionKey(runID, acp.ResolvedProvider{
+		ID:       "acp.other",
+		HostKind: acp.HostKindSandbox,
+	})
+
+	if sandboxKey != "run-123|acp.opencode|sandbox" {
+		t.Fatalf("sandboxKey = %q", sandboxKey)
+	}
+	if localKey != "run-123|acp.opencode|local" {
+		t.Fatalf("localKey = %q", localKey)
+	}
+	if otherProviderKey != "run-123|acp.other|sandbox" {
+		t.Fatalf("otherProviderKey = %q", otherProviderKey)
+	}
+	if sandboxKey == localKey {
+		t.Fatal("runtime session key should distinguish host kind")
+	}
+	if sandboxKey == otherProviderKey {
+		t.Fatal("runtime session key should distinguish provider")
 	}
 }

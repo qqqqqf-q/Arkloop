@@ -12,8 +12,8 @@ func TestLocalProcessHostLifecycle(t *testing.T) {
 	ctx := context.Background()
 
 	startResp, err := host.Start(ctx, StartRequest{
-		SessionID: "run-1",
-		Command:   []string{"sh", "-lc", "printf 'hello'; sleep 0.1"},
+		RuntimeSessionKey: "run-1",
+		Command:           []string{"sh", "-lc", "printf 'hello'; sleep 0.1"},
 	})
 	if err != nil {
 		t.Fatalf("Start returned error: %v", err)
@@ -21,7 +21,7 @@ func TestLocalProcessHostLifecycle(t *testing.T) {
 
 	time.Sleep(150 * time.Millisecond)
 
-	readResp, err := host.Read(ctx, ReadRequest{SessionID: "run-1", ProcessID: startResp.ProcessID})
+	readResp, err := host.Read(ctx, ReadRequest{RuntimeSessionKey: "run-1", ProcessID: startResp.ProcessID})
 	if err != nil {
 		t.Fatalf("Read returned error: %v", err)
 	}
@@ -29,7 +29,7 @@ func TestLocalProcessHostLifecycle(t *testing.T) {
 		t.Fatalf("unexpected read data: %q", readResp.Data)
 	}
 
-	statusResp, err := host.Status(ctx, StatusRequest{SessionID: "run-1", ProcessID: startResp.ProcessID})
+	statusResp, err := host.Status(ctx, StatusRequest{RuntimeSessionKey: "run-1", ProcessID: startResp.ProcessID})
 	if err != nil {
 		t.Fatalf("Status returned error: %v", err)
 	}
@@ -37,7 +37,7 @@ func TestLocalProcessHostLifecycle(t *testing.T) {
 		t.Fatal("expected stdout cursor to advance")
 	}
 
-	waitResp, err := host.Wait(ctx, WaitRequest{SessionID: "run-1", ProcessID: startResp.ProcessID, TimeoutMs: 2000})
+	waitResp, err := host.Wait(ctx, WaitRequest{RuntimeSessionKey: "run-1", ProcessID: startResp.ProcessID, TimeoutMs: 2000})
 	if err != nil {
 		t.Fatalf("Wait returned error: %v", err)
 	}
