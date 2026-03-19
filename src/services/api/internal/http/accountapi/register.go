@@ -14,39 +14,40 @@ import (
 )
 
 type Deps struct {
-	AuthService           *auth.Service
-	AccountMembershipRepo *data.AccountMembershipRepository
-	ThreadRepo            *data.ThreadRepository
-	TeamRepo              *data.TeamRepository
-	ProjectRepo           *data.ProjectRepository
-	APIKeysRepo           *data.APIKeysRepository
-	AuditWriter           *audit.Writer
-	EntitlementService    *entitlement.Service
-	Pool                  data.DB
-	AccountRepo           *data.AccountRepository
-	AccountService        *auth.AccountService
-	WebhookRepo           *data.WebhookEndpointRepository
-	SecretsRepo           *data.SecretsRepository
-	LlmCredentialsRepo    *data.LlmCredentialsRepository
-	LlmRoutesRepo         *data.LlmRoutesRepository
-	ChannelsRepo          *data.ChannelsRepository
-	ChannelIdentitiesRepo *data.ChannelIdentitiesRepository
-	ChannelBindCodesRepo  *data.ChannelBindCodesRepository
-	ChannelDMThreadsRepo  *data.ChannelDMThreadsRepository
-	ChannelReceiptsRepo   *data.ChannelMessageReceiptsRepository
-	UsersRepo             *data.UserRepository
-	MessageRepo           *data.MessageRepository
-	JobRepo               *data.JobRepository
-	CreditsRepo           *data.CreditsRepository
-	PersonasRepo          *data.PersonasRepository
-	TelegramBotClient     *telegrambot.Client
-	TelegramMode          string
-	AppBaseURL            string
-	EnvironmentStore      environmentStore
-	RunEventRepo          *data.RunEventRepository
-	GatewayRedisClient    *redis.Client
-	EntitlementsRepo      *data.EntitlementsRepository
-	ConfigResolver        sharedconfig.Resolver
+	AuthService             *auth.Service
+	AccountMembershipRepo   *data.AccountMembershipRepository
+	ThreadRepo              *data.ThreadRepository
+	TeamRepo                *data.TeamRepository
+	ProjectRepo             *data.ProjectRepository
+	APIKeysRepo             *data.APIKeysRepository
+	AuditWriter             *audit.Writer
+	EntitlementService      *entitlement.Service
+	Pool                    data.DB
+	AccountRepo             *data.AccountRepository
+	AccountService          *auth.AccountService
+	WebhookRepo             *data.WebhookEndpointRepository
+	SecretsRepo             *data.SecretsRepository
+	LlmCredentialsRepo      *data.LlmCredentialsRepository
+	LlmRoutesRepo           *data.LlmRoutesRepository
+	ChannelsRepo            *data.ChannelsRepository
+	ChannelIdentitiesRepo   *data.ChannelIdentitiesRepository
+	ChannelBindCodesRepo    *data.ChannelBindCodesRepository
+	ChannelDMThreadsRepo    *data.ChannelDMThreadsRepository
+	ChannelGroupThreadsRepo *data.ChannelGroupThreadsRepository
+	ChannelReceiptsRepo     *data.ChannelMessageReceiptsRepository
+	UsersRepo               *data.UserRepository
+	MessageRepo             *data.MessageRepository
+	JobRepo                 *data.JobRepository
+	CreditsRepo             *data.CreditsRepository
+	PersonasRepo            *data.PersonasRepository
+	TelegramBotClient       *telegrambot.Client
+	TelegramMode            string
+	AppBaseURL              string
+	EnvironmentStore        environmentStore
+	RunEventRepo            *data.RunEventRepository
+	GatewayRedisClient      *redis.Client
+	EntitlementsRepo        *data.EntitlementsRepository
+	ConfigResolver          sharedconfig.Resolver
 }
 
 func RegisterRoutes(mux *nethttp.ServeMux, deps Deps) {
@@ -79,6 +80,7 @@ func RegisterRoutes(mux *nethttp.ServeMux, deps Deps) {
 			deps.ChannelIdentitiesRepo,
 			deps.ChannelBindCodesRepo,
 			deps.ChannelDMThreadsRepo,
+			deps.ChannelGroupThreadsRepo,
 			deps.ChannelReceiptsRepo,
 			deps.SecretsRepo,
 			deps.PersonasRepo,

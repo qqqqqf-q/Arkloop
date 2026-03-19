@@ -15,7 +15,13 @@ type ChannelContext struct {
 	ChannelID               uuid.UUID
 	ChannelType             string
 	PlatformChatID          string
+	PlatformMessageID       string
 	ReplyToMessageID        *string
+	InboundReplyToMessageID *string
+	MessageThreadID         *string
+	ConversationType        string
+	MentionsBot             bool
+	IsReplyToBot            bool
 	SenderChannelIdentityID uuid.UUID
 	SenderUserID            *uuid.UUID
 }
@@ -68,6 +74,10 @@ func parseChannelContext(payload map[string]any) (*ChannelContext, error) {
 	if err != nil {
 		return nil, err
 	}
+	platformMessageID, err := requiredStringValue(payload, "platform_message_id")
+	if err != nil {
+		return nil, err
+	}
 	senderIdentityID, err := requiredUUIDValue(payload, "sender_channel_identity_id")
 	if err != nil {
 		return nil, err
@@ -78,12 +88,31 @@ func parseChannelContext(payload map[string]any) (*ChannelContext, error) {
 		value := strings.TrimSpace(raw)
 		replyToMessageID = &value
 	}
+	var inboundReplyToMessageID *string
+	if raw, ok := payload["inbound_reply_to_message_id"].(string); ok && strings.TrimSpace(raw) != "" {
+		value := strings.TrimSpace(raw)
+		inboundReplyToMessageID = &value
+	}
+	var messageThreadID *string
+	if raw, ok := payload["message_thread_id"].(string); ok && strings.TrimSpace(raw) != "" {
+		value := strings.TrimSpace(raw)
+		messageThreadID = &value
+	}
+	conversationType, _ := optionalStringValue(payload, "conversation_type")
+	mentionsBot, _ := optionalBoolValue(payload, "mentions_bot")
+	isReplyToBot, _ := optionalBoolValue(payload, "is_reply_to_bot")
 
 	return &ChannelContext{
 		ChannelID:               channelID,
 		ChannelType:             channelType,
 		PlatformChatID:          platformChatID,
+		PlatformMessageID:       platformMessageID,
 		ReplyToMessageID:        replyToMessageID,
+		InboundReplyToMessageID: inboundReplyToMessageID,
+		MessageThreadID:         messageThreadID,
+		ConversationType:        conversationType,
+		MentionsBot:             mentionsBot,
+		IsReplyToBot:            isReplyToBot,
 		SenderChannelIdentityID: senderIdentityID,
 	}, nil
 }
@@ -110,4 +139,28 @@ func requiredStringValue(values map[string]any, key string) (string, error) {
 		return "", fmt.Errorf("%s must be a non-empty string", key)
 	}
 	return strings.TrimSpace(text), nil
+}
+
+func optionalStringValue(values map[string]any, key string) (string, bool) {
+	raw, ok := values[key]
+	if !ok {
+		return "", false
+	}
+	text, ok := raw.(string)
+	if !ok || strings.TrimSpace(text) == "" {
+		return "", false
+	}
+	return strings.TrimSpace(text), true
+}
+
+func optionalBoolValue(values map[string]any, key string) (bool, bool) {
+	raw, ok := values[key]
+	if !ok {
+		return false, false
+	}
+	value, ok := raw.(bool)
+	if !ok {
+		return false, false
+	}
+	return value, true
 }

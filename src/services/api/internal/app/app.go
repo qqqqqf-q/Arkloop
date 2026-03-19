@@ -253,6 +253,7 @@ func (a *Application) Run(ctx context.Context) error {
 		channelIdentitiesRepo        *data.ChannelIdentitiesRepository
 		channelBindCodesRepo         *data.ChannelBindCodesRepository
 		channelDMThreadsRepo         *data.ChannelDMThreadsRepository
+		channelGroupThreadsRepo      *data.ChannelGroupThreadsRepository
 		channelReceiptsRepo          *data.ChannelMessageReceiptsRepository
 		plansRepo                    *data.PlanRepository
 		subscriptionsRepo            *data.SubscriptionRepository
@@ -423,6 +424,10 @@ func (a *Application) Run(ctx context.Context) error {
 			return err
 		}
 		channelDMThreadsRepo, err = data.NewChannelDMThreadsRepository(pool)
+		if err != nil {
+			return err
+		}
+		channelGroupThreadsRepo, err = data.NewChannelGroupThreadsRepository(pool)
 		if err != nil {
 			return err
 		}
@@ -717,6 +722,7 @@ func (a *Application) Run(ctx context.Context) error {
 			ChannelIdentitiesRepo:        channelIdentitiesRepo,
 			ChannelBindCodesRepo:         channelBindCodesRepo,
 			ChannelDMThreadsRepo:         channelDMThreadsRepo,
+			ChannelGroupThreadsRepo:      channelGroupThreadsRepo,
 			ChannelReceiptsRepo:          channelReceiptsRepo,
 			PlansRepo:                    plansRepo,
 			SubscriptionsRepo:            subscriptionsRepo,

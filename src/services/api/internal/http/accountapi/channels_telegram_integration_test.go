@@ -93,6 +93,10 @@ func setupTelegramChannelsTestEnv(t *testing.T, botClient *telegrambot.Client) t
 	if err != nil {
 		t.Fatalf("dm threads repo: %v", err)
 	}
+	channelGroupThreadsRepo, err := data.NewChannelGroupThreadsRepository(pool)
+	if err != nil {
+		t.Fatalf("group threads repo: %v", err)
+	}
 	channelReceiptsRepo, err := data.NewChannelMessageReceiptsRepository(pool)
 	if err != nil {
 		t.Fatalf("receipts repo: %v", err)
@@ -189,27 +193,28 @@ func setupTelegramChannelsTestEnv(t *testing.T, botClient *telegrambot.Client) t
 
 	mux := nethttp.NewServeMux()
 	RegisterRoutes(mux, Deps{
-		AuthService:           authService,
-		AccountMembershipRepo: membershipRepo,
-		ThreadRepo:            threadRepo,
-		ProjectRepo:           projectRepo,
-		APIKeysRepo:           nil,
-		Pool:                  pool,
-		AccountRepo:           accountRepo,
-		SecretsRepo:           secretsRepo,
-		ChannelsRepo:          channelsRepo,
-		ChannelIdentitiesRepo: channelIdentitiesRepo,
-		ChannelBindCodesRepo:  channelBindCodesRepo,
-		ChannelDMThreadsRepo:  channelDMThreadsRepo,
-		ChannelReceiptsRepo:   channelReceiptsRepo,
-		UsersRepo:             userRepo,
-		MessageRepo:           messageRepo,
-		RunEventRepo:          runEventRepo,
-		JobRepo:               jobRepo,
-		CreditsRepo:           creditsRepo,
-		PersonasRepo:          personasRepo,
-		AppBaseURL:            "https://app.example",
-		TelegramBotClient:     botClient,
+		AuthService:             authService,
+		AccountMembershipRepo:   membershipRepo,
+		ThreadRepo:              threadRepo,
+		ProjectRepo:             projectRepo,
+		APIKeysRepo:             nil,
+		Pool:                    pool,
+		AccountRepo:             accountRepo,
+		SecretsRepo:             secretsRepo,
+		ChannelsRepo:            channelsRepo,
+		ChannelIdentitiesRepo:   channelIdentitiesRepo,
+		ChannelBindCodesRepo:    channelBindCodesRepo,
+		ChannelDMThreadsRepo:    channelDMThreadsRepo,
+		ChannelGroupThreadsRepo: channelGroupThreadsRepo,
+		ChannelReceiptsRepo:     channelReceiptsRepo,
+		UsersRepo:               userRepo,
+		MessageRepo:             messageRepo,
+		RunEventRepo:            runEventRepo,
+		JobRepo:                 jobRepo,
+		CreditsRepo:             creditsRepo,
+		PersonasRepo:            personasRepo,
+		AppBaseURL:              "https://app.example",
+		TelegramBotClient:       botClient,
 	})
 
 	return telegramChannelsTestEnv{
@@ -685,6 +690,165 @@ func TestTelegramWebhookNewCommandStartsFreshDMThread(t *testing.T) {
 	}
 }
 
+func TestTelegramWebhookStoresStructuredInboundMessage(t *testing.T) {
+	env := setupTelegramChannelsTestEnv(t, telegrambot.NewClient("https://api.telegram.org", nil))
+	channel := createActiveTelegramChannelWithConfig(t, env, "bot-token", map[string]any{
+		"allowed_user_ids": []string{"10001"},
+	})
+
+	resp := doJSONAccount(
+		env.handler,
+		nethttp.MethodPost,
+		"/v1/channels/telegram/"+channel.ID.String()+"/webhook",
+		map[string]any{
+			"message": map[string]any{
+				"message_id": 7,
+				"date":       1710000000,
+				"caption":    "图像说明",
+				"chat": map[string]any{
+					"id":   10001,
+					"type": "private",
+				},
+				"photo": []map[string]any{
+					{"file_id": "small-photo", "file_size": 64, "width": 32, "height": 32},
+					{"file_id": "large-photo", "file_size": 256, "width": 128, "height": 128},
+				},
+				"from": map[string]any{
+					"id":         10001,
+					"is_bot":     false,
+					"first_name": "Alice",
+					"username":   "alice",
+				},
+			},
+		},
+		map[string]string{"X-Telegram-Bot-Api-Secret-Token": derefString(t, channel.WebhookSecret)},
+	)
+	if resp.Code != nethttp.StatusOK {
+		t.Fatalf("webhook status: %d %s", resp.Code, resp.Body.String())
+	}
+
+	var contentJSON []byte
+	var metadataJSON []byte
+	if err := env.pool.QueryRow(context.Background(), `SELECT content_json::text::jsonb, metadata_json::text::jsonb FROM messages LIMIT 1`).Scan(&contentJSON, &metadataJSON); err != nil {
+		t.Fatalf("query structured message: %v", err)
+	}
+
+	var content struct {
+		Parts []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"parts"`
+	}
+	if err := json.Unmarshal(contentJSON, &content); err != nil {
+		t.Fatalf("decode content_json: %v", err)
+	}
+	if len(content.Parts) != 1 || content.Parts[0].Type != "text" {
+		t.Fatalf("unexpected content_json: %s", string(contentJSON))
+	}
+	if !strings.Contains(content.Parts[0].Text, `[图片: image]`) {
+		t.Fatalf("expected attachment placeholder in content_json, got %s", content.Parts[0].Text)
+	}
+	if !strings.Contains(content.Parts[0].Text, `platform-message-id: "7"`) {
+		t.Fatalf("expected platform metadata in content_json, got %s", content.Parts[0].Text)
+	}
+
+	var metadata map[string]any
+	if err := json.Unmarshal(metadataJSON, &metadata); err != nil {
+		t.Fatalf("decode metadata_json: %v", err)
+	}
+	attachments, _ := metadata["media_attachments"].([]any)
+	if len(attachments) != 1 {
+		t.Fatalf("expected one media attachment in metadata, got %#v", metadata["media_attachments"])
+	}
+	if got := asString(metadata["platform_message_id"]); got != "7" {
+		t.Fatalf("unexpected platform_message_id: %q", got)
+	}
+}
+
+func TestTelegramWebhookGroupMessagePassiveAndActive(t *testing.T) {
+	env := setupTelegramChannelsTestEnv(t, telegrambot.NewClient("https://api.telegram.org", nil))
+	channel := createActiveTelegramChannelWithConfig(t, env, "bot-token", map[string]any{
+		"allowed_user_ids": []string{"10001"},
+		"bot_username":     "arkloopbot",
+	})
+	headers := map[string]string{"X-Telegram-Bot-Api-Secret-Token": derefString(t, channel.WebhookSecret)}
+
+	passive := map[string]any{
+		"message": map[string]any{
+			"message_id": 11,
+			"date":       1710000000,
+			"text":       "群里闲聊",
+			"chat": map[string]any{
+				"id":    -20001,
+				"type":  "supergroup",
+				"title": "Arkloop Group",
+			},
+			"from": map[string]any{
+				"id":         10001,
+				"is_bot":     false,
+				"first_name": "Alice",
+			},
+		},
+	}
+	resp := doJSONAccount(env.handler, nethttp.MethodPost, "/v1/channels/telegram/"+channel.ID.String()+"/webhook", passive, headers)
+	if resp.Code != nethttp.StatusOK {
+		t.Fatalf("passive webhook status: %d %s", resp.Code, resp.Body.String())
+	}
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM channel_group_threads`, 1)
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM messages`, 1)
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM runs`, 0)
+
+	active := map[string]any{
+		"message": map[string]any{
+			"message_id": 12,
+			"date":       1710000001,
+			"text":       "@arkloopbot 帮我看看",
+			"entities": []map[string]any{
+				{"type": "mention", "offset": 0, "length": 11},
+			},
+			"chat": map[string]any{
+				"id":    -20001,
+				"type":  "supergroup",
+				"title": "Arkloop Group",
+			},
+			"from": map[string]any{
+				"id":         10001,
+				"is_bot":     false,
+				"first_name": "Alice",
+			},
+		},
+	}
+	resp = doJSONAccount(env.handler, nethttp.MethodPost, "/v1/channels/telegram/"+channel.ID.String()+"/webhook", active, headers)
+	if resp.Code != nethttp.StatusOK {
+		t.Fatalf("active webhook status: %d %s", resp.Code, resp.Body.String())
+	}
+
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM channel_group_threads`, 1)
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM messages`, 2)
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM runs`, 1)
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM jobs`, 1)
+
+	var payloadJSON []byte
+	if err := env.pool.QueryRow(context.Background(), `SELECT payload_json::text::jsonb FROM jobs LIMIT 1`).Scan(&payloadJSON); err != nil {
+		t.Fatalf("query job payload: %v", err)
+	}
+	var jobEnvelope map[string]any
+	if err := json.Unmarshal(payloadJSON, &jobEnvelope); err != nil {
+		t.Fatalf("decode job payload: %v", err)
+	}
+	jobPayload, _ := jobEnvelope["payload"].(map[string]any)
+	delivery, _ := jobPayload["channel_delivery"].(map[string]any)
+	if got := asString(delivery["conversation_type"]); got != "supergroup" {
+		t.Fatalf("unexpected conversation_type: %#v", delivery)
+	}
+	if got := asString(delivery["reply_to_message_id"]); got != "12" {
+		t.Fatalf("unexpected reply_to_message_id: %#v", delivery)
+	}
+	if got := asString(delivery["platform_message_id"]); got != "12" {
+		t.Fatalf("unexpected platform_message_id: %#v", delivery)
+	}
+}
+
 func doJSONAccount(handler nethttp.Handler, method string, path string, payload any, headers map[string]string) *httptest.ResponseRecorder {
 	var body io.Reader
 	if payload != nil {
@@ -714,15 +878,19 @@ func decodeJSONBodyAccount[T any](t *testing.T, raw []byte) T {
 
 func createActiveTelegramChannel(t *testing.T, env telegramChannelsTestEnv, botToken string, allowedUserIDs []string, defaultModel string) data.Channel {
 	t.Helper()
+	config := map[string]any{"allowed_user_ids": allowedUserIDs}
+	if strings.TrimSpace(defaultModel) != "" {
+		config["default_model"] = strings.TrimSpace(defaultModel)
+	}
+	return createActiveTelegramChannelWithConfig(t, env, botToken, config)
+}
 
+func createActiveTelegramChannelWithConfig(t *testing.T, env telegramChannelsTestEnv, botToken string, config map[string]any) data.Channel {
+	t.Helper()
 	channelID := uuid.New()
 	secret, err := env.secretsRepo.Create(context.Background(), env.userID, data.ChannelSecretName(channelID), botToken)
 	if err != nil {
 		t.Fatalf("create secret: %v", err)
-	}
-	config := map[string]any{"allowed_user_ids": allowedUserIDs}
-	if strings.TrimSpace(defaultModel) != "" {
-		config["default_model"] = strings.TrimSpace(defaultModel)
 	}
 	configJSON, err := json.Marshal(config)
 	if err != nil {

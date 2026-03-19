@@ -30,6 +30,7 @@ const telegramRemoteRequestTimeout = 5 * time.Second
 type telegramChannelConfig struct {
 	AllowedUserIDs []string `json:"allowed_user_ids"`
 	DefaultModel   string   `json:"default_model,omitempty"`
+	BotUsername    string   `json:"bot_username,omitempty"`
 }
 
 type telegramUpdate struct {
@@ -38,16 +39,31 @@ type telegramUpdate struct {
 }
 
 type telegramMessage struct {
-	MessageID int64         `json:"message_id"`
-	Date      int64         `json:"date"`
-	Text      string        `json:"text"`
-	Chat      telegramChat  `json:"chat"`
-	From      *telegramUser `json:"from"`
+	MessageID       int64                   `json:"message_id"`
+	MessageThreadID *int64                  `json:"message_thread_id,omitempty"`
+	Date            int64                   `json:"date"`
+	Text            string                  `json:"text"`
+	Caption         string                  `json:"caption"`
+	Entities        []telegramMessageEntity `json:"entities,omitempty"`
+	CaptionEntities []telegramMessageEntity `json:"caption_entities,omitempty"`
+	Chat            telegramChat            `json:"chat"`
+	From            *telegramUser           `json:"from"`
+	ReplyToMessage  *telegramMessage        `json:"reply_to_message,omitempty"`
+	Photo           []telegramPhotoSize     `json:"photo,omitempty"`
+	Document        *telegramDocument       `json:"document,omitempty"`
+	Audio           *telegramAudio          `json:"audio,omitempty"`
+	Voice           *telegramVoice          `json:"voice,omitempty"`
+	Video           *telegramVideo          `json:"video,omitempty"`
+	Animation       *telegramAnimation      `json:"animation,omitempty"`
+	Sticker         *telegramSticker        `json:"sticker,omitempty"`
+	MediaGroupID    string                  `json:"media_group_id,omitempty"`
 }
 
 type telegramChat struct {
-	ID   int64  `json:"id"`
-	Type string `json:"type"`
+	ID       int64   `json:"id"`
+	Type     string  `json:"type"`
+	Title    *string `json:"title,omitempty"`
+	Username *string `json:"username,omitempty"`
 }
 
 type telegramUser struct {
@@ -56,6 +72,69 @@ type telegramUser struct {
 	Username  *string `json:"username"`
 	FirstName *string `json:"first_name"`
 	LastName  *string `json:"last_name"`
+}
+
+type telegramMessageEntity struct {
+	Type   string        `json:"type"`
+	Offset int           `json:"offset"`
+	Length int           `json:"length"`
+	User   *telegramUser `json:"user,omitempty"`
+}
+
+type telegramPhotoSize struct {
+	FileID   string `json:"file_id"`
+	FileSize int64  `json:"file_size"`
+	Width    int    `json:"width"`
+	Height   int    `json:"height"`
+}
+
+type telegramDocument struct {
+	FileID   string `json:"file_id"`
+	FileName string `json:"file_name"`
+	MimeType string `json:"mime_type"`
+	FileSize int64  `json:"file_size"`
+}
+
+type telegramAudio struct {
+	FileID   string `json:"file_id"`
+	FileName string `json:"file_name"`
+	MimeType string `json:"mime_type"`
+	FileSize int64  `json:"file_size"`
+	Duration int    `json:"duration"`
+}
+
+type telegramVoice struct {
+	FileID   string `json:"file_id"`
+	MimeType string `json:"mime_type"`
+	FileSize int64  `json:"file_size"`
+	Duration int    `json:"duration"`
+}
+
+type telegramVideo struct {
+	FileID   string `json:"file_id"`
+	FileName string `json:"file_name"`
+	MimeType string `json:"mime_type"`
+	FileSize int64  `json:"file_size"`
+	Duration int    `json:"duration"`
+	Width    int    `json:"width"`
+	Height   int    `json:"height"`
+}
+
+type telegramAnimation struct {
+	FileID   string `json:"file_id"`
+	FileName string `json:"file_name"`
+	MimeType string `json:"mime_type"`
+	FileSize int64  `json:"file_size"`
+	Duration int    `json:"duration"`
+	Width    int    `json:"width"`
+	Height   int    `json:"height"`
+}
+
+type telegramSticker struct {
+	FileID   string `json:"file_id"`
+	FileSize int64  `json:"file_size"`
+	Width    int    `json:"width"`
+	Height   int    `json:"height"`
 }
 
 func normalizeChannelConfigJSON(channelType string, raw json.RawMessage) (json.RawMessage, *telegramChannelConfig, error) {
@@ -86,6 +165,7 @@ func normalizeChannelConfigJSON(channelType string, raw json.RawMessage) (json.R
 	}
 	cfg.AllowedUserIDs = normalizedIDs
 	cfg.DefaultModel = strings.TrimSpace(cfg.DefaultModel)
+	cfg.BotUsername = strings.TrimSpace(strings.TrimPrefix(cfg.BotUsername, "@"))
 	normalized, err := json.Marshal(cfg)
 	if err != nil {
 		return nil, nil, err
@@ -256,23 +336,24 @@ func disableTelegramActivationRemote(
 }
 
 type telegramConnector struct {
-	channelIdentitiesRepo *data.ChannelIdentitiesRepository
-	channelBindCodesRepo  *data.ChannelBindCodesRepository
-	channelDMThreadsRepo  *data.ChannelDMThreadsRepository
-	channelReceiptsRepo   *data.ChannelMessageReceiptsRepository
-	personasRepo          *data.PersonasRepository
-	usersRepo             *data.UserRepository
-	accountRepo           *data.AccountRepository
-	membershipRepo        *data.AccountMembershipRepository
-	projectRepo           *data.ProjectRepository
-	threadRepo            *data.ThreadRepository
-	messageRepo           *data.MessageRepository
-	runEventRepo          *data.RunEventRepository
-	jobRepo               *data.JobRepository
-	creditsRepo           *data.CreditsRepository
-	pool                  data.DB
-	entitlementSvc        *entitlement.Service
-	telegramClient        *telegrambot.Client
+	channelIdentitiesRepo   *data.ChannelIdentitiesRepository
+	channelBindCodesRepo    *data.ChannelBindCodesRepository
+	channelDMThreadsRepo    *data.ChannelDMThreadsRepository
+	channelGroupThreadsRepo *data.ChannelGroupThreadsRepository
+	channelReceiptsRepo     *data.ChannelMessageReceiptsRepository
+	personasRepo            *data.PersonasRepository
+	usersRepo               *data.UserRepository
+	accountRepo             *data.AccountRepository
+	membershipRepo          *data.AccountMembershipRepository
+	projectRepo             *data.ProjectRepository
+	threadRepo              *data.ThreadRepository
+	messageRepo             *data.MessageRepository
+	runEventRepo            *data.RunEventRepository
+	jobRepo                 *data.JobRepository
+	creditsRepo             *data.CreditsRepository
+	pool                    data.DB
+	entitlementSvc          *entitlement.Service
+	telegramClient          *telegrambot.Client
 }
 
 func (c telegramConnector) HandleUpdate(
@@ -282,20 +363,30 @@ func (c telegramConnector) HandleUpdate(
 	token string,
 	update telegramUpdate,
 ) error {
-	if update.Message == nil || update.Message.Chat.Type != "private" || update.Message.From == nil {
+	if update.Message == nil || update.Message.From == nil {
 		return nil
 	}
 	cfg, err := resolveTelegramConfig(ch.ChannelType, ch.ConfigJSON)
 	if err != nil {
 		return fmt.Errorf("invalid channel config: %w", err)
 	}
+	rawPayload, err := json.Marshal(update)
+	if err != nil {
+		return err
+	}
+	incoming, err := normalizeTelegramIncomingMessage(ch.ID, ch.ChannelType, rawPayload, update, cfg.BotUsername)
+	if err != nil {
+		return err
+	}
+	if incoming == nil {
+		return nil
+	}
 
-	senderUserID := strconv.FormatInt(update.Message.From.ID, 10)
-	if !telegramUserAllowed(cfg.AllowedUserIDs, senderUserID) {
-		if c.telegramClient != nil && strings.TrimSpace(token) != "" {
+	if !telegramUserAllowed(cfg.AllowedUserIDs, incoming.PlatformUserID) {
+		if incoming.IsPrivate() && c.telegramClient != nil && strings.TrimSpace(token) != "" {
 			sendCtx, sendCancel := context.WithTimeout(ctx, telegramRemoteRequestTimeout)
-			_ = c.telegramClient.SendMessage(sendCtx, token, telegrambot.SendMessageRequest{
-				ChatID: senderUserID,
+			_, _ = c.telegramClient.SendMessage(sendCtx, token, telegrambot.SendMessageRequest{
+				ChatID: incoming.PlatformChatID,
 				Text:   "当前账号未被授权使用这个机器人。",
 			})
 			sendCancel()
@@ -329,8 +420,8 @@ func (c telegramConnector) HandleUpdate(
 	accepted, err := c.channelReceiptsRepo.WithTx(tx).Record(
 		ctx,
 		ch.ID,
-		strconv.FormatInt(update.Message.Chat.ID, 10),
-		strconv.FormatInt(update.Message.MessageID, 10),
+		incoming.PlatformChatID,
+		incoming.PlatformMsgID,
 	)
 	if err != nil {
 		return err
@@ -344,35 +435,37 @@ func (c telegramConnector) HandleUpdate(
 		return err
 	}
 
-	trimmedText := strings.TrimSpace(update.Message.Text)
-	if handled, replyText, err := handleTelegramCommand(
-		ctx,
-		tx,
-		&ch,
-		identity,
-		trimmedText,
-		c.channelBindCodesRepo,
-		c.channelIdentitiesRepo,
-		c.channelDMThreadsRepo,
-		c.threadRepo,
-		c.usersRepo,
-	); err != nil {
-		return err
-	} else if handled {
-		if err := tx.Commit(ctx); err != nil {
+	if incoming.IsPrivate() {
+		trimmedCommandText := strings.TrimSpace(incoming.CommandText)
+		if handled, replyText, err := handleTelegramCommand(
+			ctx,
+			tx,
+			&ch,
+			identity,
+			trimmedCommandText,
+			c.channelBindCodesRepo,
+			c.channelIdentitiesRepo,
+			c.channelDMThreadsRepo,
+			c.threadRepo,
+			c.usersRepo,
+		); err != nil {
 			return err
+		} else if handled {
+			if err := tx.Commit(ctx); err != nil {
+				return err
+			}
+			if c.telegramClient != nil && strings.TrimSpace(token) != "" {
+				sendCtx, sendCancel := context.WithTimeout(ctx, telegramRemoteRequestTimeout)
+				_, _ = c.telegramClient.SendMessage(sendCtx, token, telegrambot.SendMessageRequest{
+					ChatID: incoming.PlatformChatID,
+					Text:   replyText,
+				})
+				sendCancel()
+			}
+			return nil
 		}
-		if c.telegramClient != nil && strings.TrimSpace(token) != "" {
-			sendCtx, sendCancel := context.WithTimeout(ctx, telegramRemoteRequestTimeout)
-			_ = c.telegramClient.SendMessage(sendCtx, token, telegrambot.SendMessageRequest{
-				ChatID: senderUserID,
-				Text:   replyText,
-			})
-			sendCancel()
-		}
-		return nil
 	}
-	if trimmedText == "" {
+	if !incoming.HasContent() {
 		return tx.Commit(ctx)
 	}
 
@@ -398,33 +491,31 @@ func (c telegramConnector) HandleUpdate(
 	}
 
 	threadProjectID := derefUUID(persona.ProjectID)
-	threadMap, err := c.channelDMThreadsRepo.WithTx(tx).GetByBinding(ctx, ch.ID, identity.ID, persona.ID)
+	threadID, err := c.resolveTelegramThreadID(ctx, tx, ch, persona.ID, threadProjectID, identity, *incoming)
 	if err != nil {
 		return err
 	}
-	var threadID uuid.UUID
-	if threadMap == nil {
-		thread, err := c.threadRepo.WithTx(tx).Create(ctx, ch.AccountID, identity.UserID, threadProjectID, nil, false)
-		if err != nil {
-			return err
-		}
-		threadID = thread.ID
-		if _, err := c.channelDMThreadsRepo.WithTx(tx).Create(ctx, ch.ID, identity.ID, persona.ID, thread.ID); err != nil {
-			return err
-		}
-	} else {
-		threadID = threadMap.ThreadID
-	}
-
-	content := renderTelegramInboundMessage(identity, trimmedText, update.Message.Date)
-	if _, err := c.messageRepo.WithTx(tx).Create(ctx, ch.AccountID, threadID, "user", content, identity.UserID); err != nil {
+	content, contentJSON, metadataJSON, err := buildTelegramStructuredMessage(identity, *incoming)
+	if err != nil {
 		return err
 	}
-
-	runStartedData := map[string]any{"persona_id": personaRef}
-	if model := strings.TrimSpace(cfg.DefaultModel); model != "" {
-		runStartedData["model"] = model
+	if _, err := c.messageRepo.WithTx(tx).CreateStructuredWithMetadata(
+		ctx,
+		ch.AccountID,
+		threadID,
+		"user",
+		content,
+		contentJSON,
+		metadataJSON,
+		identity.UserID,
+	); err != nil {
+		return err
 	}
+	if !incoming.ShouldCreateRun() {
+		return tx.Commit(ctx)
+	}
+
+	runStartedData := buildTelegramRunStartedData(personaRef, cfg.DefaultModel)
 	run, _, err := c.runEventRepo.WithTx(tx).CreateRunWithStartedEvent(
 		ctx,
 		ch.AccountID,
@@ -437,13 +528,8 @@ func (c telegramConnector) HandleUpdate(
 		return err
 	}
 	jobPayload := map[string]any{
-		"source": "telegram",
-		"channel_delivery": map[string]any{
-			"channel_id":                 ch.ID.String(),
-			"channel_type":               "telegram",
-			"platform_chat_id":           strconv.FormatInt(update.Message.Chat.ID, 10),
-			"sender_channel_identity_id": identity.ID.String(),
-		},
+		"source":           "telegram",
+		"channel_delivery": buildTelegramChannelDeliveryPayload(ch.ID, identity.ID, *incoming),
 	}
 	if _, err := c.jobRepo.WithTx(tx).EnqueueRun(
 		ctx,
@@ -465,6 +551,7 @@ func telegramWebhookEntry(
 	channelIdentitiesRepo *data.ChannelIdentitiesRepository,
 	channelBindCodesRepo *data.ChannelBindCodesRepository,
 	channelDMThreadsRepo *data.ChannelDMThreadsRepository,
+	channelGroupThreadsRepo *data.ChannelGroupThreadsRepository,
 	channelReceiptsRepo *data.ChannelMessageReceiptsRepository,
 	secretsRepo *data.SecretsRepository,
 	personasRepo *data.PersonasRepository,
@@ -482,23 +569,24 @@ func telegramWebhookEntry(
 	telegramClient *telegrambot.Client,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	connector := telegramConnector{
-		channelIdentitiesRepo: channelIdentitiesRepo,
-		channelBindCodesRepo:  channelBindCodesRepo,
-		channelDMThreadsRepo:  channelDMThreadsRepo,
-		channelReceiptsRepo:   channelReceiptsRepo,
-		personasRepo:          personasRepo,
-		usersRepo:             usersRepo,
-		accountRepo:           accountRepo,
-		membershipRepo:        membershipRepo,
-		projectRepo:           projectRepo,
-		threadRepo:            threadRepo,
-		messageRepo:           messageRepo,
-		runEventRepo:          runEventRepo,
-		jobRepo:               jobRepo,
-		creditsRepo:           creditsRepo,
-		pool:                  pool,
-		entitlementSvc:        entitlementSvc,
-		telegramClient:        telegramClient,
+		channelIdentitiesRepo:   channelIdentitiesRepo,
+		channelBindCodesRepo:    channelBindCodesRepo,
+		channelDMThreadsRepo:    channelDMThreadsRepo,
+		channelGroupThreadsRepo: channelGroupThreadsRepo,
+		channelReceiptsRepo:     channelReceiptsRepo,
+		personasRepo:            personasRepo,
+		usersRepo:               usersRepo,
+		accountRepo:             accountRepo,
+		membershipRepo:          membershipRepo,
+		projectRepo:             projectRepo,
+		threadRepo:              threadRepo,
+		messageRepo:             messageRepo,
+		runEventRepo:            runEventRepo,
+		jobRepo:                 jobRepo,
+		creditsRepo:             creditsRepo,
+		pool:                    pool,
+		entitlementSvc:          entitlementSvc,
+		telegramClient:          telegramClient,
 	}
 
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
@@ -579,27 +667,28 @@ func telegramWebhookEntry(
 }
 
 type TelegramDesktopPollerDeps struct {
-	ChannelsRepo          *data.ChannelsRepository
-	ChannelIdentitiesRepo *data.ChannelIdentitiesRepository
-	ChannelBindCodesRepo  *data.ChannelBindCodesRepository
-	ChannelDMThreadsRepo  *data.ChannelDMThreadsRepository
-	ChannelReceiptsRepo   *data.ChannelMessageReceiptsRepository
-	SecretsRepo           *data.SecretsRepository
-	PersonasRepo          *data.PersonasRepository
-	UsersRepo             *data.UserRepository
-	AccountRepo           *data.AccountRepository
-	AccountMembershipRepo *data.AccountMembershipRepository
-	ProjectRepo           *data.ProjectRepository
-	ThreadRepo            *data.ThreadRepository
-	MessageRepo           *data.MessageRepository
-	RunEventRepo          *data.RunEventRepository
-	JobRepo               *data.JobRepository
-	CreditsRepo           *data.CreditsRepository
-	Pool                  data.DB
-	EntitlementService    *entitlement.Service
-	TelegramBotClient     *telegrambot.Client
-	PollInterval          time.Duration
-	PollLimit             int
+	ChannelsRepo            *data.ChannelsRepository
+	ChannelIdentitiesRepo   *data.ChannelIdentitiesRepository
+	ChannelBindCodesRepo    *data.ChannelBindCodesRepository
+	ChannelDMThreadsRepo    *data.ChannelDMThreadsRepository
+	ChannelGroupThreadsRepo *data.ChannelGroupThreadsRepository
+	ChannelReceiptsRepo     *data.ChannelMessageReceiptsRepository
+	SecretsRepo             *data.SecretsRepository
+	PersonasRepo            *data.PersonasRepository
+	UsersRepo               *data.UserRepository
+	AccountRepo             *data.AccountRepository
+	AccountMembershipRepo   *data.AccountMembershipRepository
+	ProjectRepo             *data.ProjectRepository
+	ThreadRepo              *data.ThreadRepository
+	MessageRepo             *data.MessageRepository
+	RunEventRepo            *data.RunEventRepository
+	JobRepo                 *data.JobRepository
+	CreditsRepo             *data.CreditsRepository
+	Pool                    data.DB
+	EntitlementService      *entitlement.Service
+	TelegramBotClient       *telegrambot.Client
+	PollInterval            time.Duration
+	PollLimit               int
 }
 
 func StartTelegramDesktopPoller(ctx context.Context, deps TelegramDesktopPollerDeps) {
@@ -608,6 +697,7 @@ func StartTelegramDesktopPoller(ctx context.Context, deps TelegramDesktopPollerD
 		deps.ChannelIdentitiesRepo == nil ||
 		deps.ChannelBindCodesRepo == nil ||
 		deps.ChannelDMThreadsRepo == nil ||
+		deps.ChannelGroupThreadsRepo == nil ||
 		deps.ChannelReceiptsRepo == nil ||
 		deps.SecretsRepo == nil ||
 		deps.PersonasRepo == nil ||
@@ -638,23 +728,24 @@ func StartTelegramDesktopPoller(ctx context.Context, deps TelegramDesktopPollerD
 	}
 
 	connector := telegramConnector{
-		channelIdentitiesRepo: deps.ChannelIdentitiesRepo,
-		channelBindCodesRepo:  deps.ChannelBindCodesRepo,
-		channelDMThreadsRepo:  deps.ChannelDMThreadsRepo,
-		channelReceiptsRepo:   deps.ChannelReceiptsRepo,
-		personasRepo:          deps.PersonasRepo,
-		usersRepo:             deps.UsersRepo,
-		accountRepo:           deps.AccountRepo,
-		membershipRepo:        deps.AccountMembershipRepo,
-		projectRepo:           deps.ProjectRepo,
-		threadRepo:            deps.ThreadRepo,
-		messageRepo:           deps.MessageRepo,
-		runEventRepo:          deps.RunEventRepo,
-		jobRepo:               deps.JobRepo,
-		creditsRepo:           deps.CreditsRepo,
-		pool:                  deps.Pool,
-		entitlementSvc:        deps.EntitlementService,
-		telegramClient:        client,
+		channelIdentitiesRepo:   deps.ChannelIdentitiesRepo,
+		channelBindCodesRepo:    deps.ChannelBindCodesRepo,
+		channelDMThreadsRepo:    deps.ChannelDMThreadsRepo,
+		channelGroupThreadsRepo: deps.ChannelGroupThreadsRepo,
+		channelReceiptsRepo:     deps.ChannelReceiptsRepo,
+		personasRepo:            deps.PersonasRepo,
+		usersRepo:               deps.UsersRepo,
+		accountRepo:             deps.AccountRepo,
+		membershipRepo:          deps.AccountMembershipRepo,
+		projectRepo:             deps.ProjectRepo,
+		threadRepo:              deps.ThreadRepo,
+		messageRepo:             deps.MessageRepo,
+		runEventRepo:            deps.RunEventRepo,
+		jobRepo:                 deps.JobRepo,
+		creditsRepo:             deps.CreditsRepo,
+		pool:                    deps.Pool,
+		entitlementSvc:          deps.EntitlementService,
+		telegramClient:          client,
 	}
 
 	go func() {
@@ -723,6 +814,83 @@ func pollTelegramDesktopOnce(
 		}
 	}
 	return nil
+}
+
+func (c telegramConnector) resolveTelegramThreadID(
+	ctx context.Context,
+	tx pgx.Tx,
+	ch data.Channel,
+	personaID uuid.UUID,
+	projectID uuid.UUID,
+	identity data.ChannelIdentity,
+	incoming telegramIncomingMessage,
+) (uuid.UUID, error) {
+	if incoming.IsPrivate() {
+		threadMap, err := c.channelDMThreadsRepo.WithTx(tx).GetByBinding(ctx, ch.ID, identity.ID, personaID)
+		if err != nil {
+			return uuid.Nil, err
+		}
+		if threadMap != nil {
+			return threadMap.ThreadID, nil
+		}
+		thread, err := c.threadRepo.WithTx(tx).Create(ctx, ch.AccountID, identity.UserID, projectID, nil, false)
+		if err != nil {
+			return uuid.Nil, err
+		}
+		if _, err := c.channelDMThreadsRepo.WithTx(tx).Create(ctx, ch.ID, identity.ID, personaID, thread.ID); err != nil {
+			return uuid.Nil, err
+		}
+		return thread.ID, nil
+	}
+
+	threadMap, err := c.channelGroupThreadsRepo.WithTx(tx).GetByBinding(ctx, ch.ID, incoming.PlatformChatID, personaID)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	if threadMap != nil {
+		return threadMap.ThreadID, nil
+	}
+	thread, err := c.threadRepo.WithTx(tx).Create(ctx, ch.AccountID, nil, projectID, nil, false)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	if _, err := c.channelGroupThreadsRepo.WithTx(tx).Create(ctx, ch.ID, incoming.PlatformChatID, personaID, thread.ID); err != nil {
+		return uuid.Nil, err
+	}
+	return thread.ID, nil
+}
+
+func buildTelegramRunStartedData(personaRef string, defaultModel string) map[string]any {
+	dataJSON := map[string]any{"persona_id": personaRef}
+	if model := strings.TrimSpace(defaultModel); model != "" {
+		dataJSON["model"] = model
+	}
+	return dataJSON
+}
+
+func buildTelegramChannelDeliveryPayload(
+	channelID uuid.UUID,
+	channelIdentityID uuid.UUID,
+	incoming telegramIncomingMessage,
+) map[string]any {
+	payload := map[string]any{
+		"channel_id":                 channelID.String(),
+		"channel_type":               "telegram",
+		"platform_chat_id":           incoming.PlatformChatID,
+		"platform_message_id":        incoming.PlatformMsgID,
+		"reply_to_message_id":        incoming.PlatformMsgID,
+		"sender_channel_identity_id": channelIdentityID.String(),
+		"conversation_type":          incoming.ChatType,
+		"mentions_bot":               incoming.MentionsBot,
+		"is_reply_to_bot":            incoming.IsReplyToBot,
+	}
+	if incoming.ReplyToMsgID != nil && strings.TrimSpace(*incoming.ReplyToMsgID) != "" {
+		payload["inbound_reply_to_message_id"] = strings.TrimSpace(*incoming.ReplyToMsgID)
+	}
+	if incoming.MessageThreadID != nil && strings.TrimSpace(*incoming.MessageThreadID) != "" {
+		payload["message_thread_id"] = strings.TrimSpace(*incoming.MessageThreadID)
+	}
+	return payload
 }
 
 func parseTelegramWebhookChannelID(path string) (uuid.UUID, bool) {

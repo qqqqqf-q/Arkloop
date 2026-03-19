@@ -78,3 +78,46 @@ func (ChannelDeliveryRepository) GetChannel(ctx context.Context, pool *pgxpool.P
 	item.Token = string(plaintext)
 	return &item, nil
 }
+
+func (ChannelDeliveryRepository) RecordDelivery(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	runID uuid.UUID,
+	threadID uuid.UUID,
+	channelID uuid.UUID,
+	platformChatID string,
+	platformMessageID string,
+) error {
+	if pool == nil {
+		return fmt.Errorf("pool must not be nil")
+	}
+	if channelID == uuid.Nil {
+		return fmt.Errorf("channel_id must not be empty")
+	}
+	if platformChatID == "" || platformMessageID == "" {
+		return fmt.Errorf("platform ids must not be empty")
+	}
+	var runRef *uuid.UUID
+	if runID != uuid.Nil {
+		runRef = &runID
+	}
+	var threadRef *uuid.UUID
+	if threadID != uuid.Nil {
+		threadRef = &threadID
+	}
+	_, err := pool.Exec(
+		ctx,
+		`INSERT INTO channel_message_deliveries (run_id, thread_id, channel_id, platform_chat_id, platform_message_id)
+		 VALUES ($1, $2, $3, $4, $5)
+		 ON CONFLICT (channel_id, platform_chat_id, platform_message_id) DO NOTHING`,
+		runRef,
+		threadRef,
+		channelID,
+		platformChatID,
+		platformMessageID,
+	)
+	if err != nil {
+		return fmt.Errorf("channel_delivery.RecordDelivery: %w", err)
+	}
+	return nil
+}

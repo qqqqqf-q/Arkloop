@@ -249,6 +249,10 @@ func RunDesktop(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("init channel dm threads repo: %w", err)
 	}
+	channelGroupThreadsRepo, err := data.NewChannelGroupThreadsRepository(pgxPool)
+	if err != nil {
+		return fmt.Errorf("init channel group threads repo: %w", err)
+	}
 	channelReceiptsRepo, err := data.NewChannelMessageReceiptsRepository(pgxPool)
 	if err != nil {
 		return fmt.Errorf("init channel receipts repo: %w", err)
@@ -433,6 +437,7 @@ func RunDesktop(ctx context.Context) error {
 		ChannelIdentitiesRepo:        channelIdentitiesRepo,
 		ChannelBindCodesRepo:         channelBindCodesRepo,
 		ChannelDMThreadsRepo:         channelDMThreadsRepo,
+		ChannelGroupThreadsRepo:      channelGroupThreadsRepo,
 		ChannelReceiptsRepo:          channelReceiptsRepo,
 		PlansRepo:                    planRepo,
 		SubscriptionsRepo:            subscriptionRepo,
@@ -483,24 +488,25 @@ func RunDesktop(ctx context.Context) error {
 	})
 
 	accountapi.StartTelegramDesktopPoller(ctx, accountapi.TelegramDesktopPollerDeps{
-		ChannelsRepo:          channelsRepo,
-		ChannelIdentitiesRepo: channelIdentitiesRepo,
-		ChannelBindCodesRepo:  channelBindCodesRepo,
-		ChannelDMThreadsRepo:  channelDMThreadsRepo,
-		ChannelReceiptsRepo:   channelReceiptsRepo,
-		SecretsRepo:           secretsRepo,
-		PersonasRepo:          personasRepo,
-		UsersRepo:             userRepo,
-		AccountRepo:           accountRepo,
-		AccountMembershipRepo: membershipRepo,
-		ProjectRepo:           projectRepo,
-		ThreadRepo:            threadRepo,
-		MessageRepo:           messageRepo,
-		RunEventRepo:          runEventRepo,
-		JobRepo:               jobRepo,
-		CreditsRepo:           creditsRepo,
-		Pool:                  pgxPool,
-		EntitlementService:    entitlementService,
+		ChannelsRepo:            channelsRepo,
+		ChannelIdentitiesRepo:   channelIdentitiesRepo,
+		ChannelBindCodesRepo:    channelBindCodesRepo,
+		ChannelDMThreadsRepo:    channelDMThreadsRepo,
+		ChannelGroupThreadsRepo: channelGroupThreadsRepo,
+		ChannelReceiptsRepo:     channelReceiptsRepo,
+		SecretsRepo:             secretsRepo,
+		PersonasRepo:            personasRepo,
+		UsersRepo:               userRepo,
+		AccountRepo:             accountRepo,
+		AccountMembershipRepo:   membershipRepo,
+		ProjectRepo:             projectRepo,
+		ThreadRepo:              threadRepo,
+		MessageRepo:             messageRepo,
+		RunEventRepo:            runEventRepo,
+		JobRepo:                 jobRepo,
+		CreditsRepo:             creditsRepo,
+		Pool:                    pgxPool,
+		EntitlementService:      entitlementService,
 	})
 
 	// ---- HTTP server ----

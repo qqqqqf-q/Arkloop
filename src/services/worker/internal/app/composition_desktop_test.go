@@ -854,6 +854,7 @@ func TestDesktopChannelContextOverridesUserIDFromPayload(t *testing.T) {
 				"channel_id":                 channelID.String(),
 				"channel_type":               "telegram",
 				"platform_chat_id":           "10001",
+				"platform_message_id":        "55",
 				"sender_channel_identity_id": identityID.String(),
 			},
 		},

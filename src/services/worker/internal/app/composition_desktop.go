@@ -563,14 +563,25 @@ func desktopChannelDelivery(db data.DesktopDB) pipeline.RunMiddleware {
 
 		segments := pipeline.SplitTelegramMessage(pipeline.EscapeTelegramMarkdownV2(output), 4096)
 		for idx, segment := range segments {
-			if sendErr := client.SendMessage(ctx, channel.Token, telegrambot.SendMessageRequest{
+			req := telegrambot.SendMessageRequest{
 				ChatID:    rc.ChannelContext.PlatformChatID,
 				Text:      segment,
 				ParseMode: "MarkdownV2",
-			}); sendErr != nil {
+			}
+			if rc.ChannelContext.ReplyToMessageID != nil {
+				req.ReplyToMessageID = *rc.ChannelContext.ReplyToMessageID
+			}
+			if rc.ChannelContext.MessageThreadID != nil {
+				req.MessageThreadID = *rc.ChannelContext.MessageThreadID
+			}
+			sent, sendErr := client.SendMessage(ctx, channel.Token, req)
+			if sendErr != nil {
 				recordDesktopChannelDeliveryFailure(db, rc.Run.ID, sendErr)
 				slog.WarnContext(ctx, "desktop telegram channel delivery failed", "run_id", rc.Run.ID, "err", sendErr.Error())
 				return err
+			}
+			if sent != nil && sent.MessageID != 0 {
+				recordDesktopChannelDelivery(db, rc.Run.ID, rc.Run.ThreadID, rc.ChannelContext.ChannelID, rc.ChannelContext.PlatformChatID, strconv.FormatInt(sent.MessageID, 10))
 			}
 			if idx < len(segments)-1 {
 				time.Sleep(50 * time.Millisecond)
@@ -652,6 +663,47 @@ func recordDesktopChannelDeliveryFailure(db data.DesktopDB, runID uuid.UUID, err
 	if _, appendErr := repo.AppendEvent(context.Background(), tx, runID, "run.channel_delivery_failed", map[string]any{
 		"error": err.Error(),
 	}, nil, nil); appendErr != nil {
+		return
+	}
+	_ = tx.Commit(context.Background())
+}
+
+func recordDesktopChannelDelivery(
+	db data.DesktopDB,
+	runID uuid.UUID,
+	threadID uuid.UUID,
+	channelID uuid.UUID,
+	platformChatID string,
+	platformMessageID string,
+) {
+	if db == nil || channelID == uuid.Nil || strings.TrimSpace(platformChatID) == "" || strings.TrimSpace(platformMessageID) == "" {
+		return
+	}
+	tx, txErr := db.BeginTx(context.Background(), pgx.TxOptions{})
+	if txErr != nil {
+		return
+	}
+	defer tx.Rollback(context.Background()) //nolint:errcheck
+
+	var runRef *uuid.UUID
+	if runID != uuid.Nil {
+		runRef = &runID
+	}
+	var threadRef *uuid.UUID
+	if threadID != uuid.Nil {
+		threadRef = &threadID
+	}
+	if _, err := tx.Exec(
+		context.Background(),
+		`INSERT INTO channel_message_deliveries (run_id, thread_id, channel_id, platform_chat_id, platform_message_id)
+		 VALUES ($1, $2, $3, $4, $5)
+		 ON CONFLICT (channel_id, platform_chat_id, platform_message_id) DO NOTHING`,
+		runRef,
+		threadRef,
+		channelID,
+		platformChatID,
+		platformMessageID,
+	); err != nil {
 		return
 	}
 	_ = tx.Commit(context.Background())

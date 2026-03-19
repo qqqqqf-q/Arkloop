@@ -47,9 +47,20 @@ type BotCommand struct {
 }
 
 type SendMessageRequest struct {
-	ChatID    string `json:"chat_id"`
-	Text      string `json:"text"`
-	ParseMode string `json:"parse_mode,omitempty"`
+	ChatID           string `json:"chat_id"`
+	Text             string `json:"text"`
+	ParseMode        string `json:"parse_mode,omitempty"`
+	ReplyToMessageID string `json:"reply_to_message_id,omitempty"`
+	MessageThreadID  string `json:"message_thread_id,omitempty"`
+}
+
+type SentMessage struct {
+	MessageID int64            `json:"message_id"`
+	Chat      *SentMessageChat `json:"chat,omitempty"`
+}
+
+type SentMessageChat struct {
+	ID int64 `json:"id"`
 }
 
 type GetUpdatesRequest struct {
@@ -77,8 +88,12 @@ func (c *Client) SetMyCommands(ctx context.Context, token string, commands []Bot
 	return c.callJSON(ctx, token, "setMyCommands", map[string]any{"commands": commands}, nil)
 }
 
-func (c *Client) SendMessage(ctx context.Context, token string, req SendMessageRequest) error {
-	return c.callJSON(ctx, token, "sendMessage", req, nil)
+func (c *Client) SendMessage(ctx context.Context, token string, req SendMessageRequest) (*SentMessage, error) {
+	var result SentMessage
+	if err := c.callJSON(ctx, token, "sendMessage", req, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
 }
 
 func (c *Client) GetUpdates(ctx context.Context, token string, req GetUpdatesRequest, out any) error {

@@ -49,15 +49,36 @@ func NewChannelDeliveryMiddleware(pool *pgxpool.Pool) RunMiddleware {
 
 		segments := splitTelegramMessage(escapeTelegramMarkdownV2(output), 4096)
 		for _, segment := range segments {
-			sendErr := client.SendMessage(ctx, channel.Token, telegrambot.SendMessageRequest{
+			req := telegrambot.SendMessageRequest{
 				ChatID:    rc.ChannelContext.PlatformChatID,
 				Text:      segment,
 				ParseMode: "MarkdownV2",
-			})
+			}
+			if rc.ChannelContext.ReplyToMessageID != nil {
+				req.ReplyToMessageID = *rc.ChannelContext.ReplyToMessageID
+			}
+			if rc.ChannelContext.MessageThreadID != nil {
+				req.MessageThreadID = *rc.ChannelContext.MessageThreadID
+			}
+			sent, sendErr := client.SendMessage(ctx, channel.Token, req)
 			if sendErr != nil {
 				recordChannelDeliveryFailure(ctx, pool, rc.Run.ID, sendErr)
 				slog.WarnContext(ctx, "telegram channel delivery failed", "run_id", rc.Run.ID, "err", sendErr.Error())
 				return err
+			}
+			if sent != nil && sent.MessageID != 0 {
+				if recordErr := repo.RecordDelivery(
+					ctx,
+					pool,
+					rc.Run.ID,
+					rc.Run.ThreadID,
+					rc.ChannelContext.ChannelID,
+					rc.ChannelContext.PlatformChatID,
+					strconv.FormatInt(sent.MessageID, 10),
+				); recordErr != nil {
+					recordChannelDeliveryFailure(ctx, pool, rc.Run.ID, recordErr)
+					slog.WarnContext(ctx, "telegram channel delivery record failed", "run_id", rc.Run.ID, "err", recordErr.Error())
+				}
 			}
 			if segmentDelay > 0 {
 				time.Sleep(segmentDelay)

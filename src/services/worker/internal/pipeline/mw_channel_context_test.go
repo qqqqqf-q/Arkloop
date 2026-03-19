@@ -17,6 +17,7 @@ func TestParseChannelContextRejectsInvalidChannelID(t *testing.T) {
 		"channel_id":                 "bad-id",
 		"channel_type":               "telegram",
 		"platform_chat_id":           "10001",
+		"platform_message_id":        "42",
 		"sender_channel_identity_id": uuid.NewString(),
 	})
 	if err == nil {
@@ -64,11 +65,15 @@ func TestChannelContextMiddlewareOverridesUserIDFromSenderIdentity(t *testing.T)
 		UserID: &originalUserID,
 		JobPayload: map[string]any{
 			"channel_delivery": map[string]any{
-				"channel_id":                 channelID.String(),
-				"channel_type":               "telegram",
-				"platform_chat_id":           "10001",
-				"reply_to_message_id":        "42",
-				"sender_channel_identity_id": identityID.String(),
+				"channel_id":                  channelID.String(),
+				"channel_type":                "telegram",
+				"platform_chat_id":            "10001",
+				"platform_message_id":         "99",
+				"reply_to_message_id":         "42",
+				"inbound_reply_to_message_id": "13",
+				"conversation_type":           "private",
+				"mentions_bot":                true,
+				"sender_channel_identity_id":  identityID.String(),
 			},
 		},
 	}
@@ -85,6 +90,15 @@ func TestChannelContextMiddlewareOverridesUserIDFromSenderIdentity(t *testing.T)
 		}
 		if rc.ChannelContext.ReplyToMessageID == nil || *rc.ChannelContext.ReplyToMessageID != "42" {
 			t.Fatalf("unexpected reply_to_message_id: %#v", rc.ChannelContext.ReplyToMessageID)
+		}
+		if rc.ChannelContext.InboundReplyToMessageID == nil || *rc.ChannelContext.InboundReplyToMessageID != "13" {
+			t.Fatalf("unexpected inbound_reply_to_message_id: %#v", rc.ChannelContext.InboundReplyToMessageID)
+		}
+		if rc.ChannelContext.PlatformMessageID != "99" {
+			t.Fatalf("unexpected platform_message_id: %q", rc.ChannelContext.PlatformMessageID)
+		}
+		if rc.ChannelContext.ConversationType != "private" || !rc.ChannelContext.MentionsBot {
+			t.Fatalf("unexpected conversation flags: %#v", rc.ChannelContext)
 		}
 		if rc.UserID == nil || *rc.UserID != senderUserID {
 			t.Fatalf("expected rc.UserID to be overridden, got %#v", rc.UserID)

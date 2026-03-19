@@ -133,6 +133,19 @@ func (r *MessageRepository) CreateStructured(
 	contentJSON json.RawMessage,
 	createdByUserID *uuid.UUID,
 ) (Message, error) {
+	return r.CreateStructuredWithMetadata(ctx, accountID, threadID, role, content, contentJSON, nil, createdByUserID)
+}
+
+func (r *MessageRepository) CreateStructuredWithMetadata(
+	ctx context.Context,
+	accountID uuid.UUID,
+	threadID uuid.UUID,
+	role string,
+	content string,
+	contentJSON json.RawMessage,
+	metadataJSON json.RawMessage,
+	createdByUserID *uuid.UUID,
+) (Message, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -153,6 +166,10 @@ func (r *MessageRepository) CreateStructured(
 	if len(contentJSON) > 0 {
 		normalizedContentJSON = contentJSON
 	}
+	var normalizedMetadataJSON json.RawMessage
+	if len(metadataJSON) > 0 {
+		normalizedMetadataJSON = metadataJSON
+	}
 
 	var message Message
 	err := r.db.QueryRow(
@@ -164,8 +181,8 @@ func (r *MessageRepository) CreateStructured(
 		     AND account_id = $1
 		   LIMIT 1
 		 )
-		 INSERT INTO messages (account_id, thread_id, created_by_user_id, role, content, content_json)
-		 SELECT $1, $2, $3, $4, $5, $6
+		 INSERT INTO messages (account_id, thread_id, created_by_user_id, role, content, content_json, metadata_json)
+		 SELECT $1, $2, $3, $4, $5, $6, $7
 		 FROM thread
 		 RETURNING id, account_id, thread_id, created_by_user_id, role, content,
 		           content_json, metadata_json, token_count, deleted_at, created_at, hidden`,
@@ -175,6 +192,7 @@ func (r *MessageRepository) CreateStructured(
 		role,
 		content,
 		normalizedContentJSON,
+		normalizedMetadataJSON,
 	).Scan(
 		&message.ID,
 		&message.AccountID,
