@@ -15,6 +15,11 @@ import (
 
 const envRunOpenCodeACPContract = "ARKLOOP_RUN_ACP_CONTRACT"
 
+const (
+	sessionCancelCalibrationPendingReason = "real OpenCode session/cancel contract is not calibrated yet; bridge must fall back to host/process stop until verified"
+	sessionPermissionPendingReason        = "real OpenCode session/permission contract is not calibrated yet; bridge must not auto-approve until verified"
+)
+
 func TestOpenCodeACPContract(t *testing.T) {
 	if os.Getenv(envRunOpenCodeACPContract) != "1" {
 		t.Skipf("set %s=1 to run real opencode ACP contract checks", envRunOpenCodeACPContract)
@@ -69,6 +74,14 @@ func TestOpenCodeACPContract(t *testing.T) {
 		for _, update := range updates {
 			t.Logf("update type=%s status=%s summary=%s message=%s", update.Type, update.Status, update.Summary, update.Message)
 		}
+	})
+
+	t.Run("session_cancel_requires_explicit_calibration", func(t *testing.T) {
+		t.Skip(sessionCancelCalibrationPendingReason)
+	})
+
+	t.Run("session_permission_requires_explicit_calibration", func(t *testing.T) {
+		t.Skip(sessionPermissionPendingReason)
 	})
 }
 

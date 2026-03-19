@@ -20,12 +20,12 @@ func handleACPStart(svc acp.Service, _ *logging.JSONLogger) http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "sandbox.invalid_request", "invalid JSON body")
 			return
 		}
-		req.SessionID = strings.TrimSpace(req.SessionID)
+		req.RuntimeSessionKey = strings.TrimSpace(req.RuntimeSessionKey)
 		req.AccountID = strings.TrimSpace(req.AccountID)
 		req.Tier = strings.TrimSpace(req.Tier)
 		req.Cwd = strings.TrimSpace(req.Cwd)
-		if req.SessionID == "" {
-			writeError(w, http.StatusBadRequest, "sandbox.missing_session_id", "session_id is required")
+		if req.RuntimeSessionKey == "" {
+			writeError(w, http.StatusBadRequest, "sandbox.missing_runtime_session_key", "runtime_session_key is required")
 			return
 		}
 		if len(req.Command) == 0 {
@@ -53,11 +53,11 @@ func handleACPWrite(svc acp.Service, _ *logging.JSONLogger) http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "sandbox.invalid_request", "invalid JSON body")
 			return
 		}
-		req.SessionID = strings.TrimSpace(req.SessionID)
+		req.RuntimeSessionKey = strings.TrimSpace(req.RuntimeSessionKey)
 		req.AccountID = strings.TrimSpace(req.AccountID)
 		req.ProcessID = strings.TrimSpace(req.ProcessID)
-		if req.SessionID == "" {
-			writeError(w, http.StatusBadRequest, "sandbox.missing_session_id", "session_id is required")
+		if req.RuntimeSessionKey == "" {
+			writeError(w, http.StatusBadRequest, "sandbox.missing_runtime_session_key", "runtime_session_key is required")
 			return
 		}
 		if req.ProcessID == "" {
@@ -85,11 +85,11 @@ func handleACPRead(svc acp.Service, _ *logging.JSONLogger) http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "sandbox.invalid_request", "invalid JSON body")
 			return
 		}
-		req.SessionID = strings.TrimSpace(req.SessionID)
+		req.RuntimeSessionKey = strings.TrimSpace(req.RuntimeSessionKey)
 		req.AccountID = strings.TrimSpace(req.AccountID)
 		req.ProcessID = strings.TrimSpace(req.ProcessID)
-		if req.SessionID == "" {
-			writeError(w, http.StatusBadRequest, "sandbox.missing_session_id", "session_id is required")
+		if req.RuntimeSessionKey == "" {
+			writeError(w, http.StatusBadRequest, "sandbox.missing_runtime_session_key", "runtime_session_key is required")
 			return
 		}
 		if req.ProcessID == "" {
@@ -117,11 +117,11 @@ func handleACPStop(svc acp.Service, _ *logging.JSONLogger) http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "sandbox.invalid_request", "invalid JSON body")
 			return
 		}
-		req.SessionID = strings.TrimSpace(req.SessionID)
+		req.RuntimeSessionKey = strings.TrimSpace(req.RuntimeSessionKey)
 		req.AccountID = strings.TrimSpace(req.AccountID)
 		req.ProcessID = strings.TrimSpace(req.ProcessID)
-		if req.SessionID == "" {
-			writeError(w, http.StatusBadRequest, "sandbox.missing_session_id", "session_id is required")
+		if req.RuntimeSessionKey == "" {
+			writeError(w, http.StatusBadRequest, "sandbox.missing_runtime_session_key", "runtime_session_key is required")
 			return
 		}
 		if req.ProcessID == "" {
@@ -149,11 +149,11 @@ func handleACPWait(svc acp.Service, _ *logging.JSONLogger) http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "sandbox.invalid_request", "invalid JSON body")
 			return
 		}
-		req.SessionID = strings.TrimSpace(req.SessionID)
+		req.RuntimeSessionKey = strings.TrimSpace(req.RuntimeSessionKey)
 		req.AccountID = strings.TrimSpace(req.AccountID)
 		req.ProcessID = strings.TrimSpace(req.ProcessID)
-		if req.SessionID == "" {
-			writeError(w, http.StatusBadRequest, "sandbox.missing_session_id", "session_id is required")
+		if req.RuntimeSessionKey == "" {
+			writeError(w, http.StatusBadRequest, "sandbox.missing_runtime_session_key", "runtime_session_key is required")
 			return
 		}
 		if req.ProcessID == "" {
@@ -181,11 +181,11 @@ func handleACPStatus(svc acp.Service, _ *logging.JSONLogger) http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "sandbox.invalid_request", "invalid JSON body")
 			return
 		}
-		req.SessionID = strings.TrimSpace(req.SessionID)
+		req.RuntimeSessionKey = strings.TrimSpace(req.RuntimeSessionKey)
 		req.AccountID = strings.TrimSpace(req.AccountID)
 		req.ProcessID = strings.TrimSpace(req.ProcessID)
-		if req.SessionID == "" {
-			writeError(w, http.StatusBadRequest, "sandbox.missing_session_id", "session_id is required")
+		if req.RuntimeSessionKey == "" {
+			writeError(w, http.StatusBadRequest, "sandbox.missing_runtime_session_key", "runtime_session_key is required")
 			return
 		}
 		if req.ProcessID == "" {

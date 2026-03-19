@@ -548,10 +548,8 @@ export function SearchTimeline({ steps, sources, narratives, isComplete, codeExe
                             : entry.kind === 'fileop'
                               ? entry.item.status === 'failed' ? 'var(--c-status-error-text, #ef4444)' : entry.item.status === 'running' ? 'var(--c-text-secondary)' : 'var(--c-text-muted)'
                               : entry.item.status === 'failed' ? 'var(--c-status-error-text, #ef4444)' : entry.item.status === 'fetching' ? 'var(--c-text-secondary)' : 'var(--c-text-muted)'
-                    const dotBackground = entry.kind === 'text' ? 'var(--c-bg-page)' : dotColor
-                    const dotBorder = entry.kind === 'text'
-                      ? '1.5px solid var(--c-border-mid)'
-                      : '2px solid var(--c-bg-page)'
+                    const dotBackground = dotColor
+                    const dotBorder = '2px solid var(--c-bg-page)'
                     return (
                       <div key={entry.id} style={{ position: 'relative', paddingBottom: isLast ? 0 : '6px' }}>
                         {!isLast && (
@@ -622,7 +620,8 @@ export function SearchTimeline({ steps, sources, narratives, isComplete, codeExe
                             style={{
                               fontSize: '14px',
                               lineHeight: '1.6',
-                              color: 'var(--c-text-primary)',
+                              color: 'var(--c-text-secondary)',
+                              fontWeight: 'var(--c-narrative-weight, 275)',
                               whiteSpace: 'pre-wrap',
                               wordBreak: 'break-word',
                             }}

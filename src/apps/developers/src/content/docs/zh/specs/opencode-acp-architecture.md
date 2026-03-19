@@ -32,6 +32,7 @@ order: 123
 - 已完成但文档过时：运行时已支持 `local` / `sandbox` 两类 host，`acp_agent` 入参已从 `agent` 收敛为 `provider`。
 - 当前最重要的修正：从“provider-first”继续收敛到“session-first”。也就是把 ACP 的主抽象从“启动哪个命令”改为“如何确保、驱动、取消、恢复一个 ACP session”。
 - 当前最重要的验证缺口：真实 provider contract 仍需持续校准，尤其是 `cancel` / `permission` / `status` 等控制方法不能只靠文档猜测。
+- 当前实现约束：在真实 contract 校准完成前，Worker 默认不把 `session/cancel` 与 `session/permission` 当稳定支持面；`cancel` 退化到 host/process stop，`permission_request` 只做观测与失败上报。
 
 ---
 
@@ -259,8 +260,9 @@ LLM Agent Loop
 
 Worker 保持现有 run 级治理不变：
 
-- 触发取消时，先尝试对当前 ACP session 发 cancel
-- 若 provider 不支持标准 cancel 或超时未退出，则退化为 host 级进程终止
+- 触发取消时，只有在真实 contract 已显式校准后才尝试对当前 ACP session 发标准 `session/cancel`
+- 若标准 cancel 未校准、发送失败、或发送后仍未观察到 turn 停止，则退化为 host/process 级 stop
+- `run.cancelled` 只能在底层 turn 已停止，或 host process 已停止之后发出；不能先宣称 cancelled 再让底层继续跑
 - `cancel` 与 `close` 语义分开：`cancel` 终止当前 turn，`close` 回收整个 session
 - SaaS 下 sandbox session 的生命周期继续由 Sandbox Service 统一管理
 
@@ -287,12 +289,16 @@ Worker 保持现有 run 级治理不变：
 - `session/new`
 - `session/prompt`
 - 能观察当前 turn 的明确终态
-- `session/cancel`（若真实 provider contract 支持）
+- `session/cancel`（仅在真实 provider contract 已校准时启用）
 
 如 OpenCode 实现要求，可追加：
 
-- `session/request_permission`
 - `session/set_mode`
+
+当前明确不作为稳定支持面的能力：
+
+- `session/permission`
+- 任何未校准即默认开启的自动批准逻辑
 
 ### 6.2 第一阶段暂缓的 ACP 能力
 
@@ -455,7 +461,8 @@ Desktop 不应强依赖 sandbox，也不应默认依赖 LLM Proxy：
 - `opencode` 版本：本地命令可用，`opencode acp --help` 可正常返回
 - ACP 启动命令：`opencode acp`
 - 直接发送 `session/new` 可返回 `sessionId`
-- 当前 contract 仍需继续校准：实测 `session/cancel` 与桥接层假设不一致，不能只按文档猜测控制方法
+- 当前 contract 仍需继续校准：`session/cancel` 不能只按文档猜测控制方法，未校准前必须退化到 host/process stop
+- 当前 contract 仍需继续校准：`session/permission` 不能默认自动批准，未校准前只能把 `permission_request` 视为观测信号而非可回写协议面
 
 实现注意事项：
 

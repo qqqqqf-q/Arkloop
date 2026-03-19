@@ -12,8 +12,9 @@ import (
 )
 
 const (
-	defaultPollInterval = 500 * time.Millisecond
-	defaultReadMaxBytes = 32 * 1024
+	defaultPollInterval   = 500 * time.Millisecond
+	defaultReadMaxBytes   = 32 * 1024
+	defaultControlTimeout = 5 * time.Second
 )
 
 // BridgeConfig holds configuration for a single ACP bridge run.
@@ -29,6 +30,9 @@ type BridgeConfig struct {
 	ReadMaxBytes   int           // max bytes per read, default 32KB
 	KillGraceMs    int           // configurable kill grace period
 	CleanupDelayMs int           // configurable cleanup delay
+	// StandardCancelCalibrated gates session/cancel usage behind an explicit
+	// contract calibration flag. When false, cancellation falls back to host stop.
+	StandardCancelCalibrated bool
 }
 
 // BridgeState holds the serializable state of a Bridge for registry storage.
@@ -324,33 +328,8 @@ func (b *Bridge) pollUpdates(ctx context.Context, emitter events.Emitter, yield 
 				slog.Warn("acp: parse updates failed", "error", err)
 			}
 			for _, u := range updates {
-				// Handle permission requests: auto-approve and send response
 				if u.Type == UpdateTypePermission {
-					slog.Info("acp: permission requested",
-						"permission_id", u.PermissionID,
-						"description", u.Content,
-						"sensitive", u.Sensitive,
-						"runtime_session_key", b.config.RuntimeSessionKey,
-					)
-					ev := emitter.Emit("acp.permission_required", map[string]any{
-						"permission_id": u.PermissionID,
-						"description":   u.Content,
-						"sensitive":     u.Sensitive,
-						"approved":      true,
-						"reason":        "auto-approved by governance policy",
-					}, nil, nil)
-					if err := yield(ev); err != nil {
-						return err
-					}
-					if b.protocolSessionID != "" {
-						approveMsg := NewSessionPermissionMessage(
-							b.nextID(), b.protocolSessionID, u.PermissionID, true, "auto-approved",
-						)
-						if sendErr := b.sendMessage(ctx, approveMsg); sendErr != nil {
-							slog.Warn("acp: send permission response failed", "error", sendErr)
-						}
-					}
-					continue
+					return b.handlePermissionRequest(emitter, yield, u)
 				}
 
 				ev, ok := mapUpdateToEvent(u, emitter)
@@ -397,29 +376,155 @@ func (b *Bridge) pollUpdates(ctx context.Context, emitter events.Emitter, yield 
 }
 
 func (b *Bridge) handleCancellation(emitter events.Emitter, yield func(events.RunEvent) error) error {
-	if b.protocolSessionID != "" {
-		cancelCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if err := b.sendMessage(cancelCtx, NewSessionCancelMessage(b.nextID(), b.protocolSessionID)); err != nil {
-			slog.Warn("acp: send session/cancel failed", "error", err)
+	cancelPayload := map[string]any{
+		"reason":      "context_cancelled",
+		"cancel_mode": "host_stop",
+	}
+
+	if b.protocolSessionID != "" && b.config.StandardCancelCalibrated {
+		if err := b.sendStandardCancel(); err != nil {
+			slog.Warn("acp: standard cancel failed, falling back to host stop", "error", err, "process_id", b.hostProcessID)
+			cancelPayload["fallback_from"] = "session_cancel"
+		} else {
+			stopped, err := b.waitForTurnStop()
+			if err == nil && stopped {
+				cancelPayload["cancel_mode"] = "session_cancel"
+				return yield(emitter.Emit("run.cancelled", cancelPayload, nil, nil))
+			}
+			slog.Warn("acp: session cancel did not settle turn, falling back to host stop", "error", err, "process_id", b.hostProcessID)
+			cancelPayload["fallback_from"] = "session_cancel"
 		}
 	}
-	return yield(emitter.Emit("run.cancelled", map[string]any{
-		"reason": "context_cancelled",
-	}, nil, nil))
+
+	if err := b.stopHostProcess(defaultControlTimeout, false); err != nil {
+		errClass := "acp.cancel_failed"
+		failed := map[string]any{
+			"error_class": errClass,
+			"message":     "failed to stop ACP process after cancellation",
+			"layer":       "opencode",
+			"process_id":  b.hostProcessID,
+		}
+		if fallbackFrom, ok := cancelPayload["fallback_from"]; ok {
+			failed["fallback_from"] = fallbackFrom
+		}
+		failed["stop_error"] = err.Error()
+		return yield(emitter.Emit("run.failed", failed, nil, &errClass))
+	}
+
+	return yield(emitter.Emit("run.cancelled", cancelPayload, nil, nil))
 }
 
-func (b *Bridge) cleanup() {
-	if b.hostProcessID == "" {
-		return
+func (b *Bridge) handlePermissionRequest(emitter events.Emitter, yield func(events.RunEvent) error, update SessionUpdateParams) error {
+	slog.Warn("acp: permission request observed before contract calibration",
+		"permission_id", update.PermissionID,
+		"description", update.Content,
+		"sensitive", update.Sensitive,
+		"runtime_session_key", b.config.RuntimeSessionKey,
+	)
+
+	if err := yield(emitter.Emit("acp.permission_required", map[string]any{
+		"permission_id":      update.PermissionID,
+		"description":        update.Content,
+		"sensitive":          update.Sensitive,
+		"approved":           false,
+		"response_supported": false,
+	}, nil, nil)); err != nil {
+		return err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+
+	stopErr := b.stopHostProcess(defaultControlTimeout, false)
+	errClass := "acp.permission_unsupported"
+	failed := map[string]any{
+		"error_class":        errClass,
+		"message":            "provider requested permission before session/permission was calibrated",
+		"layer":              "opencode",
+		"permission_id":      update.PermissionID,
+		"sensitive":          update.Sensitive,
+		"response_supported": false,
+	}
+	if update.Content != "" {
+		failed["description"] = update.Content
+	}
+	if stopErr != nil {
+		failed["stop_error"] = stopErr.Error()
+	}
+	return yield(emitter.Emit("run.failed", failed, nil, &errClass))
+}
+
+func (b *Bridge) sendStandardCancel() error {
+	cancelCtx, cancel := context.WithTimeout(context.Background(), defaultControlTimeout)
 	defer cancel()
+	return b.sendMessage(cancelCtx, NewSessionCancelMessage(b.nextID(), b.protocolSessionID))
+}
+
+func (b *Bridge) waitForTurnStop() (bool, error) {
+	waitCtx, cancel := context.WithTimeout(context.Background(), defaultControlTimeout)
+	defer cancel()
+
+	for {
+		resp, err := b.read(waitCtx)
+		if err != nil {
+			return false, err
+		}
+		b.outputCursor = resp.NextCursor
+
+		if resp.Data != "" {
+			updates, err := ParseUpdates(resp.Data)
+			if err != nil {
+				slog.Warn("acp: parse updates during cancel wait failed", "error", err)
+			}
+			for _, u := range updates {
+				if isTurnStoppedUpdate(u) {
+					return true, nil
+				}
+			}
+		}
+
+		if resp.Exited {
+			return true, nil
+		}
+
+		select {
+		case <-waitCtx.Done():
+			return false, waitCtx.Err()
+		case <-time.After(b.config.PollInterval):
+		}
+	}
+}
+
+func isTurnStoppedUpdate(update SessionUpdateParams) bool {
+	if update.Type == UpdateTypeComplete || update.Type == UpdateTypeError {
+		return true
+	}
+	return update.Type == UpdateTypeStatus && update.Status == StatusIdle
+}
+
+func (b *Bridge) stopHostProcess(timeout time.Duration, force bool) error {
+	if b.hostProcessID == "" {
+		return nil
+	}
+	processID := b.hostProcessID
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
 	if err := b.tr.Stop(ctx, StopRequest{
 		RuntimeSessionKey: b.config.RuntimeSessionKey,
 		AccountID:         b.config.AccountID,
-		ProcessID:         b.hostProcessID,
+		ProcessID:         processID,
+		Force:             force,
+		GracePeriodMs:     b.config.KillGraceMs,
 	}); err != nil {
+		return err
+	}
+
+	b.hostProcessID = ""
+	b.protocolSessionID = ""
+	b.outputCursor = 0
+	return nil
+}
+
+func (b *Bridge) cleanup() {
+	if err := b.stopHostProcess(10*time.Second, false); err != nil {
 		slog.Warn("acp: stop process failed", "error", err, "process_id", b.hostProcessID)
 	}
 }

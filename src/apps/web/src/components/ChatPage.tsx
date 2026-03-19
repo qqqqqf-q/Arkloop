@@ -3468,7 +3468,7 @@ export function ChatPage() {
               />
               {starredIds.includes(threadId) ? t.unstarThread : t.starThread}
             </button>
-            {!privateThreadIds.has(threadId) && (
+            {!isDesktop() && !privateThreadIds.has(threadId) && (
               <button
                 onClick={handleShareFromMenu}
                 className="flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-[13px] text-[var(--c-text-secondary)] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]"

@@ -77,7 +77,10 @@ func createThreadMessage(
 			return
 		}
 
-		message, err := messageRepo.CreateStructured(r.Context(), actor.AccountID, threadID, "user", projection, contentJSON, &actor.UserID)
+		// Use thread.AccountID to ensure message is created with the same account_id as the thread.
+		// This is critical for desktop mode where actor.AccountID may differ from the thread's actual account_id
+		// due to how interceptDesktopActor resolves the actor from a dynamic desktop token.
+		message, err := messageRepo.CreateStructured(r.Context(), thread.AccountID, threadID, "user", projection, contentJSON, &actor.UserID)
 		if err != nil {
 			var threadNotFound data.ThreadNotFoundError
 			if errors.As(err, &threadNotFound) {

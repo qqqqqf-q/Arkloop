@@ -29,6 +29,7 @@ button:not(:disabled) {
   --c-text-secondary: #c2c0b6;
   --c-text-tertiary: #9c9a92;
   --c-text-muted: #6b6b68;
+  --c-narrative-weight: 275;
   --c-text-icon: #7b7970;
   --c-text-icon2: #87867f;
   --c-placeholder: rgba(255, 255, 255, 0.42);
@@ -242,6 +243,7 @@ button:not(:disabled) {
   --c-text-secondary: #3D3D3B;
   --c-text-tertiary: #6B6B68;
   --c-text-muted: #8C8C8A;
+  --c-narrative-weight: 300;
   --c-text-icon: #7A7A78;
   --c-text-icon2: #6E6E6C;
   --c-placeholder: rgba(0, 0, 0, 0.45);

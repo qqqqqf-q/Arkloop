@@ -9,10 +9,13 @@ import (
 // ACP protocol messages (JSON-RPC over stdio to opencode process).
 //
 // Worker writes these to stdin via sandbox /v1/acp/write:
-//   - session/new, session/prompt, session/cancel
+//   - session/new, session/prompt
+//   - session/cancel only after the real provider contract is calibrated
 //
 // OpenCode writes these to stdout, Worker reads via /v1/acp/read:
 //   - session/update (various update types)
+//   - permission_request may be observed, but Worker does not round-trip
+//     session/permission until that contract is calibrated
 
 type ACPMessage struct {
 	JSONRPC string    `json:"jsonrpc"`
@@ -66,13 +69,13 @@ type sessionUpdateRaw struct {
 
 // SessionUpdateParams is the normalized update used internally.
 type SessionUpdateParams struct {
-	SessionID string         `json:"sessionId"`
-	Type      string         `json:"type"`
-	Status    string         `json:"status,omitempty"`
-	Content   string         `json:"content,omitempty"`
-	Name      string         `json:"name,omitempty"`
-	Arguments map[string]any `json:"arguments,omitempty"`
-	Output    string         `json:"output,omitempty"`
+	SessionID    string         `json:"sessionId"`
+	Type         string         `json:"type"`
+	Status       string         `json:"status,omitempty"`
+	Content      string         `json:"content,omitempty"`
+	Name         string         `json:"name,omitempty"`
+	Arguments    map[string]any `json:"arguments,omitempty"`
+	Output       string         `json:"output,omitempty"`
 	Summary      string         `json:"summary,omitempty"`
 	Message      string         `json:"message,omitempty"`
 	PermissionID string         `json:"permission_id,omitempty"`
@@ -118,28 +121,6 @@ func NewSessionCancelMessage(id int, sessionID string) ACPMessage {
 		ID:      &id,
 		Method:  "session/cancel",
 		Params:  SessionCancelParams{SessionID: sessionID},
-	}
-}
-
-// SessionPermissionParams are sent back to OpenCode to approve/deny a permission request.
-type SessionPermissionParams struct {
-	SessionID    string `json:"sessionId"`
-	PermissionID string `json:"permissionId"`
-	Approved     bool   `json:"approved"`
-	Reason       string `json:"reason,omitempty"`
-}
-
-func NewSessionPermissionMessage(id int, sessionID, permissionID string, approved bool, reason string) ACPMessage {
-	return ACPMessage{
-		JSONRPC: "2.0",
-		ID:      &id,
-		Method:  "session/permission",
-		Params: SessionPermissionParams{
-			SessionID:    sessionID,
-			PermissionID: permissionID,
-			Approved:     approved,
-			Reason:       reason,
-		},
 	}
 }
 

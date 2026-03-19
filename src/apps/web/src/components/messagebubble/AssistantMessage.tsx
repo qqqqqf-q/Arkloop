@@ -109,8 +109,8 @@ export function AssistantMessage({
         })()}
         {renderBrowserScreenshots(browserActions, accessToken)}
         <MarkdownRenderer content={renderedContent} webSources={webSources} artifacts={artifacts} accessToken={accessToken} runId={message.run_id} onOpenDocument={onOpenDocument} />
-        <div style={{ marginTop: '16px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+        <div style={{ marginTop: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
             <div style={{ position: 'relative' }}>
               <button
                 onClick={handleCopy}

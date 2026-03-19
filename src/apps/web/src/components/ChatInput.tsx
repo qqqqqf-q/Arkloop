@@ -479,29 +479,6 @@ export function ChatInput({
               overflow: 'auto',
             }}
           />
-          {disabled && (
-            <div
-              style={{
-                position: 'absolute',
-                inset: 0,
-                borderRadius: '6px',
-                background: 'rgba(0,0,0,0.06)',
-                overflow: 'hidden',
-                pointerEvents: 'none',
-              }}
-            >
-              <div
-                style={{
-                  position: 'absolute',
-                  top: 0,
-                  bottom: 0,
-                  width: '35%',
-                  background: 'linear-gradient(90deg, transparent, rgba(0,0,0,0.05), transparent)',
-                  animation: 'input-sweep 1.4s linear infinite',
-                }}
-              />
-            </div>
-          )}
         </div>
 
         <div className="flex items-center" style={{ gap: '2px', minHeight: '32px' }}>
@@ -586,6 +563,29 @@ export function ChatInput({
         className="hidden"
         onChange={handleFileChange}
       />
+      {disabled && (
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            borderRadius: '20px',
+            background: 'rgba(0,0,0,0.06)',
+            overflow: 'hidden',
+            pointerEvents: 'none',
+          }}
+        >
+          <div
+            style={{
+              position: 'absolute',
+              top: 0,
+              bottom: 0,
+              width: '35%',
+              background: 'linear-gradient(90deg, transparent, rgba(0,0,0,0.05), transparent)',
+              animation: 'input-sweep 1.4s linear infinite',
+            }}
+          />
+        </div>
+      )}
       </div>
 
       {pastedModalAttachment?.pasted && (

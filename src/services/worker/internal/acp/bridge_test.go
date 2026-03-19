@@ -143,6 +143,15 @@ func eventTypes(evts []events.RunEvent) []string {
 	return out
 }
 
+func hasWriteContaining(writes []WriteRequest, needle string) bool {
+	for _, w := range writes {
+		if strings.Contains(w.Data, needle) {
+			return true
+		}
+	}
+	return false
+}
+
 // --- tests ---
 
 func TestBridge_FullLifecycle(t *testing.T) {
@@ -329,6 +338,7 @@ func TestBridge_ContextCancellation(t *testing.T) {
 	readCount := 0
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	cancelEventAfterStop := false
 
 	mock := &mockTransport{
 		startFn: func(_ context.Context, _ StartRequest) (*StartResponse, error) {
@@ -356,6 +366,11 @@ func TestBridge_ContextCancellation(t *testing.T) {
 	var got []events.RunEvent
 
 	err := bridge.Run(ctx, "long task", emitter, func(ev events.RunEvent) error {
+		if ev.Type == "run.cancelled" {
+			mock.mu.Lock()
+			cancelEventAfterStop = mock.stopped
+			mock.mu.Unlock()
+		}
 		got = append(got, ev)
 		return nil
 	})
@@ -372,23 +387,161 @@ func TestBridge_ContextCancellation(t *testing.T) {
 			t.Errorf("event[%d].Type = %q, want %q", i, got[i].Type, want)
 		}
 	}
-
-	// session/cancel should have been sent
-	mock.mu.Lock()
-	cancelSent := false
-	for _, w := range mock.writes {
-		if strings.Contains(w.Data, "session/cancel") {
-			cancelSent = true
-			break
-		}
+	if got[2].DataJSON["cancel_mode"] != "host_stop" {
+		t.Errorf("cancel_mode = %v, want %q", got[2].DataJSON["cancel_mode"], "host_stop")
 	}
+	if !cancelEventAfterStop {
+		t.Error("run.cancelled emitted before host stop completed")
+	}
+
+	mock.mu.Lock()
+	cancelSent := hasWriteContaining(mock.writes, "session/cancel")
 	mock.mu.Unlock()
-	if !cancelSent {
-		t.Error("session/cancel was not sent")
+	if cancelSent {
+		t.Error("session/cancel should not be sent before contract calibration")
 	}
 	bridge.Close()
 	if !mock.stopped {
 		t.Error("process was not stopped during cleanup")
+	}
+}
+
+func TestBridge_ContextCancellation_UsesStandardCancelWhenCalibrated(t *testing.T) {
+	const acpSID = "acp-session-standard-cancel"
+	readCount := 0
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	mock := &mockTransport{
+		startFn: func(_ context.Context, _ StartRequest) (*StartResponse, error) {
+			return &StartResponse{ProcessID: "proc-standard-cancel"}, nil
+		},
+		readFn: func(rctx context.Context, _ ReadRequest) (*ReadResponse, error) {
+			readCount++
+			switch readCount {
+			case 1:
+				return &ReadResponse{Data: sessionNewResponseLine(1, acpSID), NextCursor: 100}, nil
+			case 2:
+				cancel()
+				return &ReadResponse{
+					Data:       sessionUpdateLine(acpSID, SessionUpdateParams{Type: UpdateTypeTextDelta, Content: "partial"}),
+					NextCursor: 200,
+				}, nil
+			case 3:
+				return &ReadResponse{
+					Data:       sessionUpdateLine(acpSID, SessionUpdateParams{Type: UpdateTypeComplete, Summary: "cancelled"}),
+					NextCursor: 300,
+				}, nil
+			default:
+				return nil, rctx.Err()
+			}
+		},
+	}
+
+	cfg := testConfig()
+	cfg.StandardCancelCalibrated = true
+	bridge := NewBridge(mock, cfg)
+	emitter := events.NewEmitter("trace-standard-cancel")
+	var got []events.RunEvent
+
+	err := bridge.Run(ctx, "long task", emitter, func(ev events.RunEvent) error {
+		got = append(got, ev)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	wantTypes := []string{"run.started", "message.delta", "run.cancelled"}
+	if len(got) != len(wantTypes) {
+		t.Fatalf("got %d events %v, want %d %v", len(got), eventTypes(got), len(wantTypes), wantTypes)
+	}
+	if got[2].DataJSON["cancel_mode"] != "session_cancel" {
+		t.Errorf("cancel_mode = %v, want %q", got[2].DataJSON["cancel_mode"], "session_cancel")
+	}
+	mock.mu.Lock()
+	defer mock.mu.Unlock()
+	if !hasWriteContaining(mock.writes, "session/cancel") {
+		t.Error("session/cancel was not sent after explicit calibration")
+	}
+	if mock.stopped {
+		t.Error("host stop should not run after successful calibrated session cancel")
+	}
+}
+
+func TestBridge_ContextCancellation_FallsBackWhenStandardCancelFails(t *testing.T) {
+	const acpSID = "acp-session-cancel-fallback"
+	readCount := 0
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cancelEventAfterStop := false
+
+	mock := &mockTransport{
+		startFn: func(_ context.Context, _ StartRequest) (*StartResponse, error) {
+			return &StartResponse{ProcessID: "proc-cancel-fallback"}, nil
+		},
+		writeFn: func(_ context.Context, req WriteRequest) error {
+			if strings.Contains(req.Data, "session/cancel") {
+				return context.DeadlineExceeded
+			}
+			return nil
+		},
+		readFn: func(rctx context.Context, _ ReadRequest) (*ReadResponse, error) {
+			readCount++
+			switch readCount {
+			case 1:
+				return &ReadResponse{Data: sessionNewResponseLine(1, acpSID), NextCursor: 100}, nil
+			case 2:
+				cancel()
+				return &ReadResponse{
+					Data:       sessionUpdateLine(acpSID, SessionUpdateParams{Type: UpdateTypeTextDelta, Content: "partial"}),
+					NextCursor: 200,
+				}, nil
+			default:
+				return nil, rctx.Err()
+			}
+		},
+	}
+
+	cfg := testConfig()
+	cfg.StandardCancelCalibrated = true
+	bridge := NewBridge(mock, cfg)
+	emitter := events.NewEmitter("trace-cancel-fallback")
+	var got []events.RunEvent
+
+	err := bridge.Run(ctx, "long task", emitter, func(ev events.RunEvent) error {
+		if ev.Type == "run.cancelled" {
+			mock.mu.Lock()
+			cancelEventAfterStop = mock.stopped
+			mock.mu.Unlock()
+		}
+		got = append(got, ev)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	wantTypes := []string{"run.started", "message.delta", "run.cancelled"}
+	if len(got) != len(wantTypes) {
+		t.Fatalf("got %d events %v, want %d %v", len(got), eventTypes(got), len(wantTypes), wantTypes)
+	}
+	if got[2].DataJSON["cancel_mode"] != "host_stop" {
+		t.Errorf("cancel_mode = %v, want %q", got[2].DataJSON["cancel_mode"], "host_stop")
+	}
+	if got[2].DataJSON["fallback_from"] != "session_cancel" {
+		t.Errorf("fallback_from = %v, want %q", got[2].DataJSON["fallback_from"], "session_cancel")
+	}
+	if !cancelEventAfterStop {
+		t.Error("run.cancelled emitted before fallback host stop completed")
+	}
+	mock.mu.Lock()
+	defer mock.mu.Unlock()
+	if !hasWriteContaining(mock.writes, "session/cancel") {
+		t.Error("session/cancel should be attempted when explicitly calibrated")
+	}
+	if !mock.stopped {
+		t.Error("host stop was not used after session/cancel failure")
 	}
 }
 
@@ -491,6 +644,7 @@ func TestMapUpdateToEvent(t *testing.T) {
 func TestBridge_PermissionRequest(t *testing.T) {
 	const acpSID = "acp-session-perm"
 	readCount := 0
+	failedAfterStop := false
 
 	mock := &mockTransport{
 		startFn: func(_ context.Context, _ StartRequest) (*StartResponse, error) {
@@ -528,6 +682,11 @@ func TestBridge_PermissionRequest(t *testing.T) {
 	var got []events.RunEvent
 
 	err := bridge.Run(context.Background(), "clean up", emitter, func(ev events.RunEvent) error {
+		if ev.Type == "run.failed" {
+			mock.mu.Lock()
+			failedAfterStop = mock.stopped
+			mock.mu.Unlock()
+		}
 		got = append(got, ev)
 		return nil
 	})
@@ -535,7 +694,7 @@ func TestBridge_PermissionRequest(t *testing.T) {
 		t.Fatalf("Run returned error: %v", err)
 	}
 
-	wantTypes := []string{"run.started", "acp.permission_required", "run.completed"}
+	wantTypes := []string{"run.started", "acp.permission_required", "run.failed"}
 	if len(got) != len(wantTypes) {
 		t.Fatalf("got %d events %v, want %d %v", len(got), eventTypes(got), len(wantTypes), wantTypes)
 	}
@@ -549,24 +708,30 @@ func TestBridge_PermissionRequest(t *testing.T) {
 	if permEvt.DataJSON["permission_id"] != "perm-001" {
 		t.Errorf("permission_id = %v, want %q", permEvt.DataJSON["permission_id"], "perm-001")
 	}
-	if permEvt.DataJSON["approved"] != true {
-		t.Errorf("approved = %v, want true", permEvt.DataJSON["approved"])
+	if permEvt.DataJSON["approved"] != false {
+		t.Errorf("approved = %v, want false", permEvt.DataJSON["approved"])
 	}
 	if permEvt.DataJSON["sensitive"] != true {
 		t.Errorf("sensitive = %v, want true", permEvt.DataJSON["sensitive"])
 	}
+	if permEvt.DataJSON["response_supported"] != false {
+		t.Errorf("response_supported = %v, want false", permEvt.DataJSON["response_supported"])
+	}
 
+	failEvt := got[2]
+	if failEvt.ErrorClass == nil || *failEvt.ErrorClass != "acp.permission_unsupported" {
+		t.Errorf("error_class = %v, want %q", failEvt.ErrorClass, "acp.permission_unsupported")
+	}
+	if !failedAfterStop {
+		t.Error("run.failed emitted before permission-triggered stop completed")
+	}
 	mock.mu.Lock()
 	defer mock.mu.Unlock()
-	permSent := false
-	for _, w := range mock.writes {
-		if strings.Contains(w.Data, "session/permission") && strings.Contains(w.Data, "perm-001") {
-			permSent = true
-			break
-		}
+	if hasWriteContaining(mock.writes, "session/permission") {
+		t.Error("session/permission should not be sent before contract calibration")
 	}
-	if !permSent {
-		t.Error("session/permission response was not sent back to OpenCode")
+	if !mock.stopped {
+		t.Error("process was not stopped after unsupported permission request")
 	}
 }
 
