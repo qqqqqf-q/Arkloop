@@ -44,19 +44,21 @@ export function TurnView({ turn, index }: TurnViewProps) {
 
   return (
     <div className="space-y-1.5 rounded-lg border border-[var(--c-border)] p-3">
-      <div className="mb-2 flex items-center gap-2 text-xs text-[var(--c-text-muted)]">
-        <span className="rounded bg-[var(--c-bg-sub)] px-1.5 py-0.5 font-mono font-medium text-[var(--c-text-secondary)]">
-          Turn {index + 1}
-        </span>
-        {turn.model && <span className="font-medium text-[var(--c-text-secondary)]">{turn.model}</span>}
-        <span>{turn.providerKind}</span>
-        {turn.apiMode && <span className="opacity-60">· {turn.apiMode}</span>}
+      <div className="mb-2 space-y-1 text-xs text-[var(--c-text-muted)]">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span className="rounded bg-[var(--c-bg-sub)] px-1.5 py-0.5 font-mono font-medium text-[var(--c-text-secondary)]">
+            Turn {index + 1}
+          </span>
+          {turn.model && <span className="font-medium text-[var(--c-text-secondary)]">{turn.model}</span>}
+          <span>{turn.providerKind}</span>
+          {turn.apiMode && <span className="opacity-60">· {turn.apiMode}</span>}
+        </div>
         {turn.inputTokens != null && (
-          <span className="ml-auto tabular-nums">
+          <div className="tabular-nums text-[var(--c-text-muted)]">
             {turn.inputTokens}in
             {turn.cachedTokens != null && ` · ${turn.cachedTokens}cache`}
             {turn.outputTokens != null && ` / ${turn.outputTokens}out`}
-          </span>
+          </div>
         )}
       </div>
 
@@ -82,7 +84,7 @@ export function TurnView({ turn, index }: TurnViewProps) {
           </span>
         )}
         {turn.cacheCreationTokens != null && (
-          <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[11px] tabular-nums text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+          <span className="rounded bg-[var(--c-bg-sub)] px-1.5 py-0.5 text-[11px] tabular-nums text-[var(--c-text-muted)]">
             +{turn.cacheCreationTokens} cache write
           </span>
         )}

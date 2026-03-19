@@ -179,49 +179,6 @@ time: "2026-03-19T10:19:42Z"
     ])
   })
 
-  it('reconstructs prior turns from the first llm request payload', () => {
-    const turns = buildTurns([
-      makeEvent({
-        seq: 1,
-        type: 'llm.request',
-        data: {
-          llm_call_id: 'call_1',
-          provider_kind: 'openai',
-          api_mode: 'chat_completions',
-          payload: {
-            messages: [
-              { role: 'system', content: '你是Arkloop' },
-              { role: 'user', content: '你是谁' },
-              { role: 'assistant', content: '我是 Arkloop。' },
-              { role: 'user', content: '我上一句话说的什么' },
-            ],
-          },
-        },
-      }),
-      makeEvent({
-        seq: 2,
-        type: 'message.delta',
-        data: { role: 'assistant', content_delta: '你的上一句话是“你是谁”。' },
-      }),
-      makeEvent({
-        seq: 3,
-        type: 'run.completed',
-        data: {},
-      }),
-    ])
-
-    expect(turns).toHaveLength(2)
-    expect(turns[0]).toMatchObject({
-      userInput: '你是谁',
-      assistantText: '我是 Arkloop。',
-      segments: [{ kind: 'assistant', text: '我是 Arkloop。', isFinal: true }],
-    })
-    expect(turns[1]).toMatchObject({
-      userInput: '我上一句话说的什么',
-      assistantText: '你的上一句话是“你是谁”。',
-    })
-  })
-
   it('falls back to completed assistant text when no visible delta exists', () => {
     const turns = buildTurns([
       makeEvent({

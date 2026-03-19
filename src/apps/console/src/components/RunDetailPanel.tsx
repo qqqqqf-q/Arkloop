@@ -1,9 +1,11 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { X, ChevronDown, ChevronRight, ArrowLeft } from 'lucide-react'
+import { useLocation } from 'react-router-dom'
 import type { GlobalRun, AdminRunDetail, AdminRunUsageItem, AdminRunUsageAggregate, RunEventRaw } from '../api/runs'
 import { getAdminRunDetail, fetchRunEventsOnce } from '../api/runs'
 import { TurnView, buildTurns } from './TurnView'
+import { buildThreadTurns, type ThreadTurn } from '@arkloop/shared'
 import { Badge, type BadgeVariant } from './Badge'
 import { useLocale } from '../contexts/LocaleContext'
 
@@ -98,13 +100,51 @@ type Props = {
   onClose: () => void
 }
 
+type TabKey = 'thread' | 'execution' | 'events' | 'overview'
+
+function ThreadTurnCard({ turn, index }: { turn: ThreadTurn; index: number }) {
+  return (
+    <div
+      className={[
+        'space-y-2 rounded-lg border bg-[var(--c-bg-deep)] p-3',
+        turn.isCurrent ? 'border-[var(--c-accent)] shadow-[inset_0_0_0_1px_var(--c-accent)]' : 'border-[var(--c-border)]',
+      ].join(' ')}
+    >
+      <div className="flex items-center gap-2 text-xs text-[var(--c-text-muted)]">
+        <span className="rounded bg-[var(--c-bg-sub)] px-1.5 py-0.5 font-mono font-medium text-[var(--c-text-secondary)]">
+          Turn {index + 1}
+        </span>
+        {turn.isCurrent && (
+          <span className="rounded bg-[var(--c-bg-sub)] px-1.5 py-0.5 text-[10px] text-[var(--c-text-secondary)]">
+            current run
+          </span>
+        )}
+      </div>
+      <div className="rounded border border-[var(--c-border)] overflow-hidden">
+        <div className="px-2.5 py-1.5 text-[11px] font-medium text-[var(--c-text-secondary)]">Input</div>
+        <div className="border-t border-[var(--c-border)] bg-[var(--c-bg-deep2)] px-2.5 py-2">
+          <pre className="whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-[var(--c-text-secondary)]">{turn.userText || 'Input unavailable'}</pre>
+        </div>
+      </div>
+      <div className="rounded border border-[var(--c-border)] overflow-hidden">
+        <div className="px-2.5 py-1.5 text-[11px] font-medium text-[var(--c-text-secondary)]">Assistant</div>
+        <div className="border-t border-[var(--c-border)] bg-[var(--c-bg-deep2)] px-2.5 py-2">
+          <pre className="whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-[var(--c-text-secondary)]">{turn.assistantText || 'Assistant output unavailable'}</pre>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function RunDetailPanel({ run, accessToken, onClose }: Props) {
+  const location = useLocation()
+  const [activeTab, setActiveTab] = useState<TabKey>('thread')
   const [detail, setDetail] = useState<AdminRunDetail | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
   const [events, setEvents] = useState<RunEventRaw[] | null>(null)
   const [eventsLoading, setEventsLoading] = useState(false)
   const [navStack, setNavStack] = useState<GlobalRun[]>([])
-  const { t } = useLocale()
+  const { t, locale } = useLocale()
   const rt = t.pages.runs
 
   // 当前正在查看的 run（可能是子 run）
@@ -115,6 +155,20 @@ export function RunDetailPanel({ run, accessToken, onClose }: Props) {
     setActiveRun(run)
     setNavStack([])
   }, [run])
+
+  const locationRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    const signature = `${location.pathname}?${location.search}#${location.hash}`
+    if (locationRef.current == null) {
+      locationRef.current = signature
+      return
+    }
+    if (locationRef.current !== signature) {
+      locationRef.current = signature
+      onClose()
+    }
+  }, [location.hash, location.pathname, location.search, onClose])
 
   const currentRun = activeRun
 
@@ -128,9 +182,11 @@ export function RunDetailPanel({ run, accessToken, onClose }: Props) {
     setDetail(null)
     setEvents(null)
     setDetailLoading(true)
-    getAdminRunDetail(currentRun.run_id, accessToken)
-      .then(setDetail)
-      .catch(() => {/* 静默，面板仍可展示列表数据 */})
+    Promise.allSettled([getAdminRunDetail(currentRun.run_id, accessToken)])
+      .then(([detailResult]) => {
+        if (detailResult.status === 'fulfilled') setDetail(detailResult.value)
+      })
+      .catch(() => undefined)
       .finally(() => setDetailLoading(false))
   }, [currentRun, accessToken])
 
@@ -143,6 +199,12 @@ export function RunDetailPanel({ run, accessToken, onClose }: Props) {
       .catch(() => setEvents([]))
       .finally(() => setEventsLoading(false))
   }, [currentRun, events, accessToken])
+
+  useEffect(() => {
+    if ((activeTab === 'execution' || activeTab === 'events') && events === null) {
+      loadEvents()
+    }
+  }, [activeTab, events, loadEvents])
 
   // 导航到子 Run
   const navigateToChild = useCallback((child: GlobalRun) => {
@@ -175,10 +237,17 @@ export function RunDetailPanel({ run, accessToken, onClose }: Props) {
   const r = currentRun ?? run
   const d = detail
   const turns = events ? buildTurns(events) : []
+  const threadTurns = useMemo(
+    () => buildThreadTurns(d?.thread_messages ?? [], r?.run_id ?? '', d?.user_prompt),
+    [d?.thread_messages, d?.user_prompt, r?.run_id],
+  )
+  const executionTurns = useMemo(() => turns, [turns])
+  const threadLabel = locale.startsWith('zh') ? '对话线程' : 'Thread'
+  const executionLabel = locale.startsWith('zh') ? '本轮执行' : 'Execution'
 
-  const conversationBadge =
+  const executionBadge =
     events !== null
-      ? `${turns.length} turn${turns.length !== 1 ? 's' : ''}` +
+      ? `${executionTurns.length} turn${executionTurns.length !== 1 ? 's' : ''}` +
         ((d?.events_stats.tool_calls ?? 0) > 0 ? ` · ${d!.events_stats.tool_calls} tool calls` : '') +
         ((d?.events_stats.provider_fallbacks ?? 0) > 0 ? ` · ${d!.events_stats.provider_fallbacks} fallbacks` : '')
       : d
@@ -279,8 +348,37 @@ export function RunDetailPanel({ run, accessToken, onClose }: Props) {
           </button>
         </div>
 
+        <div className="flex shrink-0 border-b border-[var(--c-border-console)] px-4">
+          {[
+            { key: 'thread', label: threadLabel, count: threadTurns.length },
+            { key: 'execution', label: executionLabel, count: executionTurns.length },
+            { key: 'events', label: rt.sectionRawEvents, count: events?.length ?? 0 },
+            { key: 'overview', label: rt.sectionOverview, count: 0 },
+          ].map((tab) => (
+            <button
+              key={tab.key}
+              type="button"
+              onClick={() => setActiveTab(tab.key as TabKey)}
+              className={[
+                'mr-4 border-b-2 py-2.5 text-xs font-medium transition-colors',
+                activeTab === tab.key
+                  ? 'border-[var(--c-accent)] text-[var(--c-text-primary)]'
+                  : 'border-transparent text-[var(--c-text-muted)] hover:text-[var(--c-text-secondary)]',
+              ].join(' ')}
+            >
+              {tab.label}
+              {tab.count > 0 && (
+                <span className="ml-1.5 rounded bg-[var(--c-bg-sub)] px-1 py-0.5 text-[10px] text-[var(--c-text-muted)]">
+                  {tab.count}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+
         <div className="flex-1 overflow-y-auto">
-          {/* OVERVIEW */}
+          {activeTab === 'overview' && (
+          <>
           <Section title={rt.sectionOverview} defaultOpen>
             {detailLoading && !d && (
               <p className="py-2 text-xs text-[var(--c-text-muted)]">{rt.loading}</p>
@@ -374,12 +472,36 @@ export function RunDetailPanel({ run, accessToken, onClose }: Props) {
               </div>
             </Section>
           )}
+          </>
+          )}
 
-          {/* CONVERSATION — 默认折叠，展开时懒加载 */}
+          {activeTab === 'thread' && (
           <Section
-            title={rt.sectionConversation}
-            badge={conversationBadge}
-            defaultOpen={false}
+            title={threadLabel}
+            badge={`${threadTurns.length} turn${threadTurns.length !== 1 ? 's' : ''}`}
+            defaultOpen
+          >
+            {detailLoading && (
+              <p className="py-2 text-xs text-[var(--c-text-muted)]">{rt.loading}</p>
+            )}
+            {!detailLoading && threadTurns.length === 0 && (
+              <p className="py-2 text-xs text-[var(--c-text-muted)]">{rt.noConversation}</p>
+            )}
+            {threadTurns.length > 0 && (
+              <div className="space-y-3">
+                {threadTurns.map((turn, i) => (
+                  <ThreadTurnCard key={turn.key} turn={turn} index={i} />
+                ))}
+              </div>
+            )}
+          </Section>
+          )}
+
+          {activeTab === 'execution' && (
+          <Section
+            title={executionLabel}
+            badge={executionBadge}
+            defaultOpen
             onOpen={loadEvents}
           >
             {eventsLoading && (
@@ -388,23 +510,24 @@ export function RunDetailPanel({ run, accessToken, onClose }: Props) {
             {d?.user_prompt && (
               <UserPromptBlock prompt={d.user_prompt} label={rt.userPrompt} />
             )}
-            {!eventsLoading && events !== null && turns.length === 0 && (
+            {!eventsLoading && events !== null && executionTurns.length === 0 && (
               <p className="py-2 text-xs text-[var(--c-text-muted)]">{rt.noConversation}</p>
             )}
-            {turns.length > 0 && (
+            {executionTurns.length > 0 && (
               <div className="space-y-3">
-                {turns.map((turn, i) => (
+                {executionTurns.map((turn, i) => (
                   <TurnView key={turn.llmCallId || i} turn={turn} index={i} />
                 ))}
               </div>
             )}
           </Section>
+          )}
 
-          {/* RAW EVENTS — 调试用，始终折叠 */}
+          {activeTab === 'events' && (
           <Section
             title={rt.sectionRawEvents}
             badge={rawEventsBadge}
-            defaultOpen={false}
+            defaultOpen
             onOpen={loadEvents}
           >
             {eventsLoading && (
@@ -422,6 +545,7 @@ export function RunDetailPanel({ run, accessToken, onClose }: Props) {
               </div>
             )}
           </Section>
+          )}
         </div>
       </div>
     </>,

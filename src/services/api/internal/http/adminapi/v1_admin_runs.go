@@ -3,6 +3,7 @@ package adminapi
 import (
 	httpkit "arkloop/services/api/internal/http/httpkit"
 	"context"
+	"encoding/json"
 	"sort"
 	"strings"
 	"time"
@@ -25,7 +26,7 @@ type adminRunEventsStats struct {
 
 type adminRunUsageItem struct {
 	RunID               string   `json:"run_id"`
-	AccountID               string   `json:"account_id"`
+	AccountID           string   `json:"account_id"`
 	ThreadID            string   `json:"thread_id"`
 	ParentRunID         *string  `json:"parent_run_id,omitempty"`
 	Status              string   `json:"status"`
@@ -55,30 +56,43 @@ type adminRunUsageAggregate struct {
 	CreditsUsed       *int64   `json:"credits_used,omitempty"`
 }
 
+type adminRunMessageResponse struct {
+	ID              string          `json:"id"`
+	AccountID       string          `json:"account_id"`
+	ThreadID        string          `json:"thread_id"`
+	CreatedByUserID *string         `json:"created_by_user_id,omitempty"`
+	RunID           *string         `json:"run_id,omitempty"`
+	Role            string          `json:"role"`
+	Content         string          `json:"content"`
+	ContentJSON     json.RawMessage `json:"content_json,omitempty"`
+	CreatedAt       string          `json:"created_at"`
+}
+
 type adminRunDetailResponse struct {
-	RunID             string                  `json:"run_id"`
-	AccountID             string                  `json:"account_id"`
-	ThreadID          string                  `json:"thread_id"`
-	Status            string                  `json:"status"`
-	Model             *string                 `json:"model,omitempty"`
-	PersonaID         *string                 `json:"persona_id,omitempty"`
-	ProviderKind      *string                 `json:"provider_kind,omitempty"`
-	CredentialName    *string                 `json:"credential_name,omitempty"`
-	PersonaModel      *string                 `json:"persona_model,omitempty"`
-	DurationMs        *int64                  `json:"duration_ms,omitempty"`
-	TotalInputTokens  *int64                  `json:"total_input_tokens,omitempty"`
-	TotalOutputTokens *int64                  `json:"total_output_tokens,omitempty"`
-	TotalCostUSD      *float64                `json:"total_cost_usd,omitempty"`
-	CreatedAt         string                  `json:"created_at"`
-	CompletedAt       *string                 `json:"completed_at,omitempty"`
-	FailedAt          *string                 `json:"failed_at,omitempty"`
-	CreatedByUserID   *string                 `json:"created_by_user_id,omitempty"`
-	CreatedByUserName *string                 `json:"created_by_user_name,omitempty"`
-	CreatedByEmail    *string                 `json:"created_by_email,omitempty"`
-	UserPrompt        *string                 `json:"user_prompt,omitempty"`
-	EventsStats       adminRunEventsStats     `json:"events_stats"`
-	Children          []adminRunUsageItem     `json:"children,omitempty"`
-	TotalAggregate    *adminRunUsageAggregate `json:"total_aggregate,omitempty"`
+	RunID             string                    `json:"run_id"`
+	AccountID         string                    `json:"account_id"`
+	ThreadID          string                    `json:"thread_id"`
+	Status            string                    `json:"status"`
+	Model             *string                   `json:"model,omitempty"`
+	PersonaID         *string                   `json:"persona_id,omitempty"`
+	ProviderKind      *string                   `json:"provider_kind,omitempty"`
+	CredentialName    *string                   `json:"credential_name,omitempty"`
+	PersonaModel      *string                   `json:"persona_model,omitempty"`
+	DurationMs        *int64                    `json:"duration_ms,omitempty"`
+	TotalInputTokens  *int64                    `json:"total_input_tokens,omitempty"`
+	TotalOutputTokens *int64                    `json:"total_output_tokens,omitempty"`
+	TotalCostUSD      *float64                  `json:"total_cost_usd,omitempty"`
+	CreatedAt         string                    `json:"created_at"`
+	CompletedAt       *string                   `json:"completed_at,omitempty"`
+	FailedAt          *string                   `json:"failed_at,omitempty"`
+	CreatedByUserID   *string                   `json:"created_by_user_id,omitempty"`
+	CreatedByUserName *string                   `json:"created_by_user_name,omitempty"`
+	CreatedByEmail    *string                   `json:"created_by_email,omitempty"`
+	UserPrompt        *string                   `json:"user_prompt,omitempty"`
+	ThreadMessages    []adminRunMessageResponse `json:"thread_messages,omitempty"`
+	EventsStats       adminRunEventsStats       `json:"events_stats"`
+	Children          []adminRunUsageItem       `json:"children,omitempty"`
+	TotalAggregate    *adminRunUsageAggregate   `json:"total_aggregate,omitempty"`
 }
 
 func adminRunsEntry(
@@ -170,7 +184,7 @@ func adminRunsEntry(
 
 		resp := adminRunDetailResponse{
 			RunID:             run.ID.String(),
-			AccountID:             run.AccountID.String(),
+			AccountID:         run.AccountID.String(),
 			ThreadID:          run.ThreadID.String(),
 			Status:            run.Status,
 			Model:             model,
@@ -209,6 +223,10 @@ func adminRunsEntry(
 		if messagesRepo != nil {
 			msgs, mErr := messagesRepo.ListByThread(r.Context(), run.AccountID, run.ThreadID, 200)
 			if mErr == nil {
+				resp.ThreadMessages = make([]adminRunMessageResponse, 0, len(msgs))
+				for _, msg := range msgs {
+					resp.ThreadMessages = append(resp.ThreadMessages, toAdminRunMessageResponse(msg))
+				}
 				for i := len(msgs) - 1; i >= 0; i-- {
 					m := msgs[i]
 					if m.Role == "user" && !m.CreatedAt.After(run.CreatedAt) {
@@ -332,7 +350,7 @@ func loadChildRunUsageRows(ctx context.Context, repo *data.RunEventRepository, p
 func toAdminRunUsageItem(rw data.RunWithUser, parentRunID *string) *adminRunUsageItem {
 	item := &adminRunUsageItem{
 		RunID:               rw.ID.String(),
-		AccountID:               rw.AccountID.String(),
+		AccountID:           rw.AccountID.String(),
 		ThreadID:            rw.ThreadID.String(),
 		ParentRunID:         parentRunID,
 		Status:              rw.Status,
@@ -462,4 +480,37 @@ func stringFromData(dataJSON any, key string) (string, bool) {
 	}
 	s, ok := v.(string)
 	return s, ok
+}
+
+func toAdminRunMessageResponse(message data.Message) adminRunMessageResponse {
+	var createdByUserID *string
+	if message.CreatedByUserID != nil {
+		value := message.CreatedByUserID.String()
+		createdByUserID = &value
+	}
+
+	var runID *string
+	if len(message.MetadataJSON) > 0 {
+		var metadata struct {
+			RunID string `json:"run_id"`
+		}
+		if err := json.Unmarshal(message.MetadataJSON, &metadata); err == nil {
+			metadata.RunID = strings.TrimSpace(metadata.RunID)
+			if metadata.RunID != "" {
+				runID = &metadata.RunID
+			}
+		}
+	}
+
+	return adminRunMessageResponse{
+		ID:              message.ID.String(),
+		AccountID:       message.AccountID.String(),
+		ThreadID:        message.ThreadID.String(),
+		CreatedByUserID: createdByUserID,
+		RunID:           runID,
+		Role:            message.Role,
+		Content:         message.Content,
+		ContentJSON:     message.ContentJSON,
+		CreatedAt:       message.CreatedAt.UTC().Format(time.RFC3339Nano),
+	}
 }

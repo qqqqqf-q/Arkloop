@@ -82,12 +82,6 @@ type TurnState = {
   userMessageCount: number
 }
 
-type TranscriptMessage = {
-  role: string
-  text: string
-  meta?: Record<string, string>
-}
-
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -238,68 +232,6 @@ function extractCompletedAssistantText(data: Record<string, unknown>): string | 
   return undefined
 }
 
-function extractTranscriptMessages(messages: Array<Record<string, unknown>>): TranscriptMessage[] {
-  const transcript: TranscriptMessage[] = []
-  for (const message of messages) {
-    const role = typeof message.role === 'string' ? message.role : ''
-    if (!role || role === 'system' || role === 'tool') continue
-    const rawText = cleanText(extractMessageText(message))
-    if (!rawText) continue
-    if (role === 'user') {
-      const parsed = parseChannelEnvelope(rawText)
-      if (parsed) {
-        transcript.push({ role, text: parsed.text, meta: parsed.meta })
-        continue
-      }
-    }
-    transcript.push({ role, text: rawText })
-  }
-  return transcript
-}
-
-function buildHistoricalTurns(messages: Array<Record<string, unknown>>): LlmTurn[] {
-  const transcript = extractTranscriptMessages(messages)
-  if (transcript.length < 2) return []
-
-  const turns: LlmTurn[] = []
-  let current: LlmTurn | null = null
-
-  for (const message of transcript) {
-    if (message.role === 'user') {
-      if (current) turns.push(current)
-      current = {
-        llmCallId: '',
-        providerKind: '',
-        apiMode: '',
-        userInput: message.text,
-        inputMeta: message.meta,
-        assistantText: '',
-        segments: [],
-        toolCalls: [],
-      }
-      continue
-    }
-
-    if (message.role === 'assistant' && current) {
-      if (current.assistantText) {
-        current.assistantText += message.text
-      } else {
-        current.assistantText = message.text
-      }
-    }
-  }
-
-  if (current) turns.push(current)
-  if (turns.length === 0) return []
-
-  const visibleTurns = turns.slice(0, -1)
-  for (const turn of visibleTurns) {
-    if (!turn.assistantText) continue
-    turn.segments = [{ kind: 'assistant', text: turn.assistantText, isFinal: true }]
-  }
-  return visibleTurns.filter((turn) => turn.userInput || turn.assistantText)
-}
-
 function uniqueStrings(values: Array<string | undefined>): string[] | undefined {
   const items = Array.from(new Set(values.map((value) => cleanText(value)).filter(Boolean) as string[]))
   return items.length > 0 ? items : undefined
@@ -434,7 +366,6 @@ export function buildTurns(events: RunEventRaw[]): LlmTurn[] {
   let currentState: TurnState | null = null
   let activeRequestCallID = ''
   const assistantChunks: string[] = []
-  let seededHistory = false
 
   const flushAssistant = () => {
     if (!currentState) return
@@ -451,10 +382,6 @@ export function buildTurns(events: RunEventRaw[]): LlmTurn[] {
       const data = event.data as Record<string, unknown>
       const payload = data.payload as Record<string, unknown> | undefined
       const input = extractLatestUserInput(payload)
-      if (!seededHistory) {
-        turns.push(...buildHistoricalTurns(input.messages))
-        seededHistory = true
-      }
       const shouldStartNewTurn =
         currentState == null ||
         (input.userMessageCount > 0 && input.userMessageCount > currentState.userMessageCount) ||

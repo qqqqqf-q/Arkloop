@@ -1445,6 +1445,7 @@ export async function patchPersona(
 
 export type RunDetail = {
   run_id: string
+  thread_id: string
   status: string
   model?: string
   persona_id?: string
@@ -1460,6 +1461,8 @@ export type RunDetail = {
   created_by_user_id?: string
   created_by_user_name?: string
   created_by_email?: string
+  user_prompt?: string
+  thread_messages?: MessageResponse[]
 }
 
 export async function getRunDetail(

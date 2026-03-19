@@ -105,3 +105,5 @@ export { TurnView } from './components/TurnView'
 
 export { buildTurns } from './run-turns'
 export type { LlmTurn, RunEventRaw } from './run-turns'
+export { buildThreadTurns, threadMessageTextContent } from './thread-turns'
+export type { ThreadMessage, ThreadTurn } from './thread-turns'

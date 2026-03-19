@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
+import { useLocation } from 'react-router-dom'
 import type { AdminRunDetail, GlobalRun, RunEventRaw } from '../api/runs'
 import { fetchRunEventsOnce, getRunDetail } from '../api/runs'
 import { TurnView } from './TurnView'
-import { buildTurns, type LlmTurn } from '@arkloop/shared'
+import { buildThreadTurns, buildTurns, type LlmTurn, type ThreadTurn } from '@arkloop/shared'
 import { Badge, type BadgeVariant } from './Badge'
 import { useLocale } from '../contexts/LocaleContext'
 import { useToast } from '@arkloop/shared'
@@ -16,6 +17,8 @@ type Props = {
   accessToken: string
   onClose: () => void
 }
+
+type TabKey = 'thread' | 'execution' | 'events' | 'overview'
 
 function statusVariant(status: string): BadgeVariant {
   switch (status) {
@@ -61,6 +64,37 @@ function formatEventJSON(event: RunEventRaw): string {
   }, null, 2)
 }
 
+
+function ThreadTurnCard({ turn, index }: { turn: ThreadTurn; index: number }) {
+  return (
+    <div
+      className={[
+        'space-y-2 rounded-lg border bg-[var(--c-bg-deep)] p-3',
+        turn.isCurrent ? 'border-[var(--c-accent)] shadow-[inset_0_0_0_1px_var(--c-accent)]' : 'border-[var(--c-border)]',
+      ].join(' ')}
+    >
+      <div className="flex items-center gap-2 text-xs text-[var(--c-text-muted)]">
+        <span className="rounded bg-[var(--c-bg-sub)] px-1.5 py-0.5 font-mono font-medium text-[var(--c-text-secondary)]">
+          Turn {index + 1}
+        </span>
+        {turn.isCurrent && (
+          <span className="rounded bg-[var(--c-bg-sub)] px-1.5 py-0.5 text-[10px] text-[var(--c-text-secondary)]">
+            current run
+          </span>
+        )}
+      </div>
+      <div className="rounded-lg border border-[var(--c-border)] bg-[var(--c-bg-deep2)] p-3">
+        <div className="mb-1 text-[11px] font-medium text-[var(--c-text-secondary)]">Input</div>
+        <pre className="whitespace-pre-wrap break-words text-[11px] text-[var(--c-text-secondary)]">{turn.userText || 'Input unavailable'}</pre>
+      </div>
+      <div className="rounded-lg border border-[var(--c-border)] bg-[var(--c-bg-deep2)] p-3">
+        <div className="mb-1 text-[11px] font-medium text-[var(--c-text-secondary)]">Assistant</div>
+        <pre className="whitespace-pre-wrap break-words text-[11px] text-[var(--c-text-secondary)]">{turn.assistantText || 'Assistant output unavailable'}</pre>
+      </div>
+    </div>
+  )
+}
+
 function formatCount(value: number | undefined, fallback: string): string {
   return value == null ? fallback : value.toLocaleString()
 }
@@ -92,7 +126,9 @@ function statusText(status: string, t: ReturnType<typeof useLocale>['t']['runs']
 
 export function RunDetailPanel({ run, agentName, accessToken, onClose }: Props) {
   const { locale, t } = useLocale()
+  const location = useLocation()
   const { addToast } = useToast()
+  const [activeTab, setActiveTab] = useState<TabKey>('thread')
   const [detail, setDetail] = useState<AdminRunDetail | null>(null)
   const [events, setEvents] = useState<RunEventRaw[] | null>(null)
   const [loading, setLoading] = useState(false)
@@ -105,6 +141,20 @@ export function RunDetailPanel({ run, agentName, accessToken, onClose }: Props) 
       mountedRef.current = false
     }
   }, [])
+
+  const locationRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    const signature = `${location.pathname}?${location.search}#${location.hash}`
+    if (locationRef.current == null) {
+      locationRef.current = signature
+      return
+    }
+    if (locationRef.current !== signature) {
+      locationRef.current = signature
+      onClose()
+    }
+  }, [location.hash, location.pathname, location.search, onClose])
 
   const load = useCallback(async () => {
     if (!run) return
@@ -163,6 +213,13 @@ export function RunDetailPanel({ run, agentName, accessToken, onClose }: Props) 
   const fallback = t.runs.emptyValue
   const status = detail?.status ?? run?.status ?? 'unknown'
   const turns: LlmTurn[] = useMemo(() => buildTurns(events ?? []), [events])
+  const threadTurns = useMemo(
+    () => buildThreadTurns(detail?.thread_messages ?? [], run?.run_id ?? '', detail?.user_prompt),
+    [detail?.thread_messages, detail?.user_prompt, run?.run_id],
+  )
+  const executionTurns = useMemo(() => turns, [turns])
+  const threadLabel = locale.startsWith('zh') ? '对话线程' : 'Thread'
+  const executionLabel = locale.startsWith('zh') ? '本轮执行' : 'Execution'
   const overview = useMemo(() => {
     if (!run) return null
     return {
@@ -202,7 +259,36 @@ export function RunDetailPanel({ run, agentName, accessToken, onClose }: Props) 
           </button>
         </div>
 
+        <div className="flex border-b border-[var(--c-border-console)] px-4">
+          {[
+            { key: 'thread', label: threadLabel, count: threadTurns.length },
+            { key: 'execution', label: executionLabel, count: executionTurns.length },
+            { key: 'events', label: t.runs.sectionEvents, count: events?.length ?? 0 },
+            { key: 'overview', label: t.runs.sectionOverview, count: 0 },
+          ].map((tab) => (
+            <button
+              key={tab.key}
+              type="button"
+              onClick={() => setActiveTab(tab.key as TabKey)}
+              className={[
+                'mr-4 border-b-2 py-2.5 text-xs font-medium transition-colors',
+                activeTab === tab.key
+                  ? 'border-[var(--c-accent)] text-[var(--c-text-primary)]'
+                  : 'border-transparent text-[var(--c-text-muted)] hover:text-[var(--c-text-secondary)]',
+              ].join(' ')}
+            >
+              {tab.label}
+              {tab.count > 0 && (
+                <span className="ml-1.5 rounded bg-[var(--c-bg-sub)] px-1 py-0.5 text-[10px] text-[var(--c-text-muted)]">
+                  {tab.count}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+
         <div className="flex-1 space-y-4 overflow-y-auto p-4">
+          {activeTab === 'overview' && (
           <section>
             <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--c-text-muted)]">
               {t.runs.sectionOverview}
@@ -224,28 +310,55 @@ export function RunDetailPanel({ run, agentName, accessToken, onClose }: Props) 
               <MetaRow label={t.runs.labelThread} value={overview.threadId} mono />
             </div>
           </section>
+          )}
 
+          {activeTab === 'thread' && (
           <section>
             <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--c-text-muted)]">
-              {t.runs.sectionConversation}
+              {threadLabel}
             </h4>
             {loading ? (
               <div className="rounded-lg border border-[var(--c-border)] bg-[var(--c-bg-deep)] p-3 text-xs text-[var(--c-text-muted)]">
                 {t.runs.loading}
               </div>
-            ) : turns.length === 0 ? (
+            ) : threadTurns.length === 0 ? (
               <div className="rounded-lg border border-[var(--c-border)] bg-[var(--c-bg-deep)] p-3 text-xs text-[var(--c-text-muted)]">
                 {t.runs.noConversation}
               </div>
             ) : (
               <div className="space-y-2.5">
-                {turns.map((turn, index) => (
+                {threadTurns.map((turn, index) => (
+                  <ThreadTurnCard key={turn.key} turn={turn} index={index} />
+                ))}
+              </div>
+            )}
+          </section>
+          )}
+
+          {activeTab === 'execution' && (
+          <section>
+            <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--c-text-muted)]">
+              {executionLabel}
+            </h4>
+            {loading ? (
+              <div className="rounded-lg border border-[var(--c-border)] bg-[var(--c-bg-deep)] p-3 text-xs text-[var(--c-text-muted)]">
+                {t.runs.loading}
+              </div>
+            ) : executionTurns.length === 0 ? (
+              <div className="rounded-lg border border-[var(--c-border)] bg-[var(--c-bg-deep)] p-3 text-xs text-[var(--c-text-muted)]">
+                {t.runs.noConversation}
+              </div>
+            ) : (
+              <div className="space-y-2.5">
+                {executionTurns.map((turn, index) => (
                   <TurnView key={turn.llmCallId || index} turn={turn} index={index} />
                 ))}
               </div>
             )}
           </section>
+          )}
 
+          {activeTab === 'events' && (
           <section>
             <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--c-text-muted)]">
               {t.runs.sectionEvents}
@@ -301,6 +414,7 @@ export function RunDetailPanel({ run, agentName, accessToken, onClose }: Props) 
               </div>
             )}
           </section>
+          )}
         </div>
       </aside>
     </div>,

@@ -191,55 +191,11 @@ describe('buildTurns', () => {
       }),
     ])
 
-    expect(turns).toHaveLength(2)
-    expect(turns[0]?.userInput).toBe('你是谁')
-    expect(turns[0]?.assistantText).toBe('我是Arkloop，很高兴见到你！我可以帮助你回答问题、提供信息或讨论各种话题。有任何想了解的，请随时问我。')
-    expect(turns[1]?.userInput).toBe('我上一句话说的什么')
-    expect(turns[1]?.inputMeta?.channel).toBe('telegram')
-    expect(turns[1]?.segments).toEqual([
+    expect(turns).toHaveLength(1)
+    expect(turns[0]?.userInput).toBe('我上一句话说的什么')
+    expect(turns[0]?.inputMeta?.channel).toBe('telegram')
+    expect(turns[0]?.segments).toEqual([
       { kind: 'assistant', text: '你上一句话是问：“你是谁”。', isFinal: true },
     ])
-  })
-
-  it('应在同一 thread 的后续 run 中重建上一轮 input 和 assistant', () => {
-    const turns = buildTurns([
-      makeEvent({
-        seq: 1,
-        type: 'llm.request',
-        data: {
-          llm_call_id: 'call_1',
-          provider_kind: 'openai',
-          api_mode: 'chat_completions',
-          payload: {
-            messages: [
-              { role: 'system', content: '你是Arkloop' },
-              { role: 'user', content: '你是谁' },
-              { role: 'assistant', content: '我是 Arkloop。' },
-              { role: 'user', content: '我上一句话说的什么' },
-            ],
-          },
-        },
-      }),
-      makeEvent({
-        seq: 2,
-        type: 'message.delta',
-        data: { role: 'assistant', content_delta: '你的上一句话是“你是谁”。' },
-      }),
-      makeEvent({
-        seq: 3,
-        type: 'run.completed',
-        data: {},
-      }),
-    ])
-
-    expect(turns).toHaveLength(2)
-    expect(turns[0]).toMatchObject({
-      userInput: '你是谁',
-      assistantText: '我是 Arkloop。',
-    })
-    expect(turns[1]).toMatchObject({
-      userInput: '我上一句话说的什么',
-      assistantText: '你的上一句话是“你是谁”。',
-    })
   })
 })

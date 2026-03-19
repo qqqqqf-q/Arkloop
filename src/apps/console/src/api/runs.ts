@@ -84,6 +84,7 @@ export type AdminRunDetail = {
   created_by_user_name?: string
   created_by_email?: string
   user_prompt?: string
+  thread_messages?: MessageResponse[]
   events_stats: AdminRunEventsStats
   children?: AdminRunUsageItem[]
   total_aggregate?: AdminRunUsageAggregate
@@ -98,6 +99,27 @@ export type RunEventRaw = {
   data: Record<string, unknown>
   tool_name?: string
   error_class?: string
+}
+
+export type MessageContentPart = {
+  type: string
+  text?: string
+}
+
+export type MessageContent = {
+  parts?: MessageContentPart[]
+}
+
+export type MessageResponse = {
+  id: string
+  account_id: string
+  thread_id: string
+  created_by_user_id?: string | null
+  role: string
+  content: string
+  content_json?: MessageContent
+  created_at: string
+  run_id?: string | null
 }
 
 export type ListRunsResponse = {
