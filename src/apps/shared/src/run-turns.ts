@@ -9,12 +9,27 @@ export type RunEventRaw = {
   error_class?: string
 }
 
+export type TurnSegment =
+  | {
+      kind: 'assistant'
+      text: string
+      isFinal?: boolean
+    }
+  | {
+      kind: 'tool_call'
+      toolCallId: string
+      toolName: string
+      argsJSON: Record<string, unknown>
+    }
+  | {
+      kind: 'tool_result'
+      toolCallId: string
+      toolName: string
+      resultJSON?: Record<string, unknown>
+      errorClass?: string
+    }
+
 export type LlmTurn = {
-  requestMessages: Array<{
-    role: string
-    text: string
-    meta?: Record<string, string>
-  }>
   llmCallId: string
   providerKind: string
   apiMode: string
@@ -27,6 +42,7 @@ export type LlmTurn = {
   userInput?: string
   inputMeta?: Record<string, string>
   assistantText: string
+  segments: TurnSegment[]
   toolCalls: Array<{
     toolCallId: string
     toolName: string
@@ -47,6 +63,29 @@ export type LlmTurn = {
   roleBytes?: Record<string, number>
   toolSchemaBytesMap?: Record<string, number>
   stablePrefixHash?: string
+}
+
+type UserInputInfo = {
+  userInput?: string
+  inputMeta?: Record<string, string>
+  messages: Array<Record<string, unknown>>
+  userMessageCount: number
+}
+
+type RequestState = {
+  turn: LlmTurn
+  sawVisibleAssistantDelta: boolean
+}
+
+type TurnState = {
+  turn: LlmTurn
+  userMessageCount: number
+}
+
+type TranscriptMessage = {
+  role: string
+  text: string
+  meta?: Record<string, string>
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
@@ -78,8 +117,8 @@ function extractMessageText(msg: Record<string, unknown>): string {
       .map((part: unknown) => {
         if (typeof part === 'string') return part
         if (typeof part === 'object' && part !== null) {
-          const p = part as Record<string, unknown>
-          return typeof p.text === 'string' ? p.text : JSON.stringify(p)
+          const record = part as Record<string, unknown>
+          return typeof record.text === 'string' ? record.text : JSON.stringify(record)
         }
         return ''
       })
@@ -110,26 +149,30 @@ function parseChannelEnvelope(text: string): { text: string; meta: Record<string
   return { text: body, meta }
 }
 
-function extractUserInputFromPayload(payload: Record<string, unknown> | undefined): {
-  userInput?: string
-  inputMeta?: Record<string, string>
-  messages: Array<Record<string, unknown>>
-} {
+function extractLatestUserInput(payload: Record<string, unknown> | undefined): UserInputInfo {
   const messages = Array.isArray(payload?.messages)
     ? (payload.messages as Array<Record<string, unknown>>)
     : []
+  const userMessages = messages.filter((message) => message.role === 'user')
 
   for (let i = messages.length - 1; i >= 0; i--) {
-    const msg = messages[i]
-    if (msg.role === 'user' || msg.role === 'tool') {
-      const text = cleanText(extractMessageText(msg))
-      if (text) {
-        const parsed = parseChannelEnvelope(text)
-        if (parsed) {
-          return { userInput: parsed.text, inputMeta: parsed.meta, messages }
-        }
-        return { userInput: text, messages }
+    const message = messages[i]
+    if (message.role !== 'user') continue
+    const text = cleanText(extractMessageText(message))
+    if (!text) continue
+    const parsed = parseChannelEnvelope(text)
+    if (parsed) {
+      return {
+        userInput: parsed.text,
+        inputMeta: parsed.meta,
+        messages,
+        userMessageCount: userMessages.length,
       }
+    }
+    return {
+      userInput: text,
+      messages,
+      userMessageCount: userMessages.length,
     }
   }
 
@@ -140,9 +183,18 @@ function extractUserInputFromPayload(payload: Record<string, unknown> | undefine
     if (!text) continue
     const parsed = parseChannelEnvelope(text)
     if (parsed) {
-      return { userInput: parsed.text, inputMeta: parsed.meta, messages }
+      return {
+        userInput: parsed.text,
+        inputMeta: parsed.meta,
+        messages,
+        userMessageCount: userMessages.length || 1,
+      }
     }
-    return { userInput: text, messages }
+    return {
+      userInput: text,
+      messages,
+      userMessageCount: userMessages.length || 1,
+    }
   }
 
   const inputRecord = asRecord(payload?.input)
@@ -156,176 +208,371 @@ function extractUserInputFromPayload(payload: Record<string, unknown> | undefine
   if (inputText) {
     const parsed = parseChannelEnvelope(inputText)
     if (parsed) {
-      return { userInput: parsed.text, inputMeta: parsed.meta, messages }
+      return {
+        userInput: parsed.text,
+        inputMeta: parsed.meta,
+        messages,
+        userMessageCount: userMessages.length || 1,
+      }
     }
-    return { userInput: inputText, messages }
+    return {
+      userInput: inputText,
+      messages,
+      userMessageCount: userMessages.length || 1,
+    }
   }
 
-  return { messages }
+  return {
+    messages,
+    userMessageCount: userMessages.length,
+  }
 }
 
 function extractCompletedAssistantText(data: Record<string, unknown>): string | undefined {
   const candidates = [data.output_text, data.assistant_text, data.final_output_text, data.text]
   for (const candidate of candidates) {
-    if (typeof candidate === 'string') {
-      const text = cleanText(candidate)
-      if (text) return text
-    }
+    if (typeof candidate !== 'string') continue
+    const text = cleanText(candidate)
+    if (text) return text
   }
   return undefined
 }
 
-function extractRequestMessages(messages: Array<Record<string, unknown>>): Array<{
-  role: string
-  text: string
-  meta?: Record<string, string>
-}> {
-  const result: Array<{
-    role: string
-    text: string
-    meta?: Record<string, string>
-  }> = []
-
+function extractTranscriptMessages(messages: Array<Record<string, unknown>>): TranscriptMessage[] {
+  const transcript: TranscriptMessage[] = []
   for (const message of messages) {
     const role = typeof message.role === 'string' ? message.role : ''
-    if (!role || role === 'system') continue
-
+    if (!role || role === 'system' || role === 'tool') continue
     const rawText = cleanText(extractMessageText(message))
     if (!rawText) continue
-
-    if (role === 'user' || role === 'tool') {
+    if (role === 'user') {
       const parsed = parseChannelEnvelope(rawText)
       if (parsed) {
-        result.push({ role, text: parsed.text, meta: parsed.meta })
+        transcript.push({ role, text: parsed.text, meta: parsed.meta })
         continue
       }
     }
-
-    result.push({ role, text: rawText })
+    transcript.push({ role, text: rawText })
   }
-
-  return result
+  return transcript
 }
 
-function mergeTurnResults(
-  turns: LlmTurn[],
-  resultMap: Record<string, { resultJSON?: Record<string, unknown>; errorClass?: string }>,
-) {
-  for (const turn of turns) {
-    for (const tc of turn.toolCalls) {
-      const r = resultMap[tc.toolCallId]
-      if (r) {
-        tc.resultJSON = r.resultJSON
-        tc.errorClass = r.errorClass
+function buildHistoricalTurns(messages: Array<Record<string, unknown>>): LlmTurn[] {
+  const transcript = extractTranscriptMessages(messages)
+  if (transcript.length < 2) return []
+
+  const turns: LlmTurn[] = []
+  let current: LlmTurn | null = null
+
+  for (const message of transcript) {
+    if (message.role === 'user') {
+      if (current) turns.push(current)
+      current = {
+        llmCallId: '',
+        providerKind: '',
+        apiMode: '',
+        userInput: message.text,
+        inputMeta: message.meta,
+        assistantText: '',
+        segments: [],
+        toolCalls: [],
+      }
+      continue
+    }
+
+    if (message.role === 'assistant' && current) {
+      if (current.assistantText) {
+        current.assistantText += message.text
+      } else {
+        current.assistantText = message.text
       }
     }
+  }
+
+  if (current) turns.push(current)
+  if (turns.length === 0) return []
+
+  const visibleTurns = turns.slice(0, -1)
+  for (const turn of visibleTurns) {
+    if (!turn.assistantText) continue
+    turn.segments = [{ kind: 'assistant', text: turn.assistantText, isFinal: true }]
+  }
+  return visibleTurns.filter((turn) => turn.userInput || turn.assistantText)
+}
+
+function uniqueStrings(values: Array<string | undefined>): string[] | undefined {
+  const items = Array.from(new Set(values.map((value) => cleanText(value)).filter(Boolean) as string[]))
+  return items.length > 0 ? items : undefined
+}
+
+function appendAssistantSegment(turn: LlmTurn, text: string) {
+  const cleaned = cleanText(text)
+  if (!cleaned) return
+
+  const lastSegment = turn.segments[turn.segments.length - 1]
+  if (lastSegment?.kind === 'assistant') {
+    lastSegment.text += cleaned
+    return
+  }
+
+  turn.segments.push({
+    kind: 'assistant',
+    text: cleaned,
+  })
+}
+
+function finalizeTurnAssistant(turn: LlmTurn) {
+  let lastAssistant: Extract<TurnSegment, { kind: 'assistant' }> | undefined
+  for (const segment of turn.segments) {
+    if (segment.kind === 'assistant') {
+      segment.isFinal = false
+      lastAssistant = segment
+    }
+  }
+
+  if (lastAssistant) {
+    lastAssistant.isFinal = true
+    turn.assistantText = lastAssistant.text
+  }
+}
+
+function startTurn(
+  requestData: Record<string, unknown>,
+  payload: Record<string, unknown> | undefined,
+  input: UserInputInfo,
+): TurnState {
+  const tools = Array.isArray(payload?.tools)
+    ? (payload.tools as Array<Record<string, unknown>>)
+    : []
+  const toolNames = uniqueStrings(tools.map(extractToolName))
+  const systemMessage = input.messages.find((message) => message.role === 'system')
+
+  return {
+    userMessageCount: input.userMessageCount,
+    turn: {
+      llmCallId: String(requestData.llm_call_id ?? ''),
+      providerKind: String(requestData.provider_kind ?? ''),
+      apiMode: String(requestData.api_mode ?? ''),
+      userInput: input.userInput,
+      inputMeta: input.inputMeta,
+      assistantText: '',
+      segments: [],
+      toolCalls: [],
+      model: payload?.model != null ? String(payload.model) : undefined,
+      systemPrompt: systemMessage ? extractMessageText(systemMessage) : undefined,
+      toolCount: tools.length > 0 ? tools.length : undefined,
+      toolNames,
+      messageCount: input.messages.length > 0 ? input.messages.length : undefined,
+      temperature: typeof payload?.temperature === 'number' ? payload.temperature : undefined,
+      maxOutputTokens:
+        typeof payload?.max_tokens === 'number'
+          ? payload.max_tokens
+          : typeof payload?.max_output_tokens === 'number'
+            ? payload.max_output_tokens
+            : undefined,
+      systemBytes: typeof requestData.system_bytes === 'number' ? requestData.system_bytes : undefined,
+      toolsBytes: typeof requestData.tools_bytes === 'number' ? requestData.tools_bytes : undefined,
+      messagesBytes: typeof requestData.messages_bytes === 'number' ? requestData.messages_bytes : undefined,
+      roleBytes: requestData.role_bytes as Record<string, number> | undefined,
+      toolSchemaBytesMap: requestData.tool_schema_bytes_by_name as Record<string, number> | undefined,
+      stablePrefixHash:
+        typeof requestData.stable_prefix_hash === 'string' ? requestData.stable_prefix_hash : undefined,
+    },
+  }
+}
+
+function mergeRequestMetadata(
+  turn: LlmTurn,
+  requestData: Record<string, unknown>,
+  payload: Record<string, unknown> | undefined,
+  input: UserInputInfo,
+) {
+  turn.providerKind = String(requestData.provider_kind ?? turn.providerKind)
+  turn.apiMode = String(requestData.api_mode ?? turn.apiMode)
+  if (payload?.model != null) turn.model = String(payload.model)
+  if (turn.systemPrompt == null) {
+    const systemMessage = input.messages.find((message) => message.role === 'system')
+    if (systemMessage) turn.systemPrompt = extractMessageText(systemMessage)
+  }
+
+  const tools = Array.isArray(payload?.tools)
+    ? (payload.tools as Array<Record<string, unknown>>)
+    : []
+  const mergedToolNames = uniqueStrings([...(turn.toolNames ?? []), ...tools.map(extractToolName)])
+  turn.toolNames = mergedToolNames
+  turn.toolCount = Math.max(turn.toolCount ?? 0, tools.length || 0) || undefined
+  turn.messageCount = Math.max(turn.messageCount ?? 0, input.messages.length || 0) || undefined
+  turn.temperature =
+    typeof payload?.temperature === 'number'
+      ? payload.temperature
+      : turn.temperature
+  turn.maxOutputTokens =
+    typeof payload?.max_tokens === 'number'
+      ? payload.max_tokens
+      : typeof payload?.max_output_tokens === 'number'
+        ? payload.max_output_tokens
+        : turn.maxOutputTokens
+  turn.systemBytes = Math.max(turn.systemBytes ?? 0, typeof requestData.system_bytes === 'number' ? requestData.system_bytes : 0) || undefined
+  turn.toolsBytes = Math.max(turn.toolsBytes ?? 0, typeof requestData.tools_bytes === 'number' ? requestData.tools_bytes : 0) || undefined
+  turn.messagesBytes = Math.max(turn.messagesBytes ?? 0, typeof requestData.messages_bytes === 'number' ? requestData.messages_bytes : 0) || undefined
+  if (requestData.role_bytes && typeof requestData.role_bytes === 'object') {
+    turn.roleBytes = requestData.role_bytes as Record<string, number>
+  }
+  if (requestData.tool_schema_bytes_by_name && typeof requestData.tool_schema_bytes_by_name === 'object') {
+    turn.toolSchemaBytesMap = requestData.tool_schema_bytes_by_name as Record<string, number>
+  }
+  if (typeof requestData.stable_prefix_hash === 'string') {
+    turn.stablePrefixHash = requestData.stable_prefix_hash
   }
 }
 
 export function buildTurns(events: RunEventRaw[]): LlmTurn[] {
   const orderedEvents = [...events].sort((left, right) => left.seq - right.seq)
   const turns: LlmTurn[] = []
-  let current: LlmTurn | null = null
+  const requestStates = new Map<string, RequestState>()
+  const toolNameByCallID = new Map<string, string>()
+  let currentState: TurnState | null = null
+  let activeRequestCallID = ''
   const assistantChunks: string[] = []
-  const resultMap: Record<string, { resultJSON?: Record<string, unknown>; errorClass?: string }> = {}
-  const turnByCallId = new Map<string, LlmTurn>()
+  let seededHistory = false
 
-  const finalizeCurrentTurn = (fallbackText?: string) => {
-    if (!current) return
+  const flushAssistant = () => {
+    if (!currentState) return
     const merged = cleanText(assistantChunks.join(''))
-    current.assistantText = merged ?? cleanText(fallbackText) ?? current.assistantText
     assistantChunks.length = 0
+    if (!merged) return
+    appendAssistantSegment(currentState.turn, merged)
   }
 
-  for (const ev of orderedEvents) {
-    if (ev.type === 'llm.request') {
-      finalizeCurrentTurn()
-      const d = ev.data as Record<string, unknown>
-      const payload = d.payload as Record<string, unknown> | undefined
-      const { userInput, inputMeta, messages } = extractUserInputFromPayload(payload)
+  for (const event of orderedEvents) {
+    if (event.type === 'llm.request') {
+      flushAssistant()
 
-      const systemMsg = messages.find((m) => m.role === 'system')
-      const systemPrompt = systemMsg ? extractMessageText(systemMsg) : undefined
-      const tools = Array.isArray(payload?.tools)
-        ? (payload.tools as Array<Record<string, unknown>>)
-        : []
-      const toolNames = tools.map(extractToolName).filter(Boolean)
+      const data = event.data as Record<string, unknown>
+      const payload = data.payload as Record<string, unknown> | undefined
+      const input = extractLatestUserInput(payload)
+      if (!seededHistory) {
+        turns.push(...buildHistoricalTurns(input.messages))
+        seededHistory = true
+      }
+      const shouldStartNewTurn =
+        currentState == null ||
+        (input.userMessageCount > 0 && input.userMessageCount > currentState.userMessageCount) ||
+        (
+          input.userMessageCount > 0 &&
+          input.userMessageCount === currentState.userMessageCount &&
+          cleanText(input.userInput) !== cleanText(currentState.turn.userInput)
+        )
 
-      current = {
-        requestMessages: extractRequestMessages(messages),
-        llmCallId: String(d.llm_call_id ?? ''),
-        providerKind: String(d.provider_kind ?? ''),
-        apiMode: String(d.api_mode ?? ''),
-        userInput,
-        inputMeta,
-        assistantText: '',
-        toolCalls: [],
-        model: payload?.model != null ? String(payload.model) : undefined,
-        systemPrompt,
-        toolCount: tools.length > 0 ? tools.length : undefined,
-        toolNames: toolNames.length > 0 ? toolNames : undefined,
-        messageCount: messages.length > 0 ? messages.length : undefined,
-        temperature: typeof payload?.temperature === 'number' ? payload.temperature : undefined,
-        maxOutputTokens:
-          typeof payload?.max_tokens === 'number'
-            ? payload.max_tokens
-            : typeof payload?.max_output_tokens === 'number'
-              ? payload.max_output_tokens
-              : undefined,
-        systemBytes: typeof d.system_bytes === 'number' ? d.system_bytes : undefined,
-        toolsBytes: typeof d.tools_bytes === 'number' ? d.tools_bytes : undefined,
-        messagesBytes: typeof d.messages_bytes === 'number' ? d.messages_bytes : undefined,
-        roleBytes: d.role_bytes as Record<string, number> | undefined,
-        toolSchemaBytesMap: d.tool_schema_bytes_by_name as Record<string, number> | undefined,
-        stablePrefixHash: typeof d.stable_prefix_hash === 'string' ? d.stable_prefix_hash : undefined,
+      if (shouldStartNewTurn) {
+        currentState = startTurn(data, payload, input)
+        turns.push(currentState.turn)
+      } else if (currentState) {
+        mergeRequestMetadata(currentState.turn, data, payload, input)
       }
-      turns.push(current)
-      if (current.llmCallId) {
-        turnByCallId.set(current.llmCallId, current)
+
+      activeRequestCallID = String(data.llm_call_id ?? '')
+      if (currentState && activeRequestCallID) {
+        requestStates.set(activeRequestCallID, {
+          turn: currentState.turn,
+          sawVisibleAssistantDelta: false,
+        })
       }
-    } else if (ev.type === 'message.delta' && current) {
-      const d = ev.data as Record<string, unknown>
-      if (d.channel !== 'thinking') {
-        assistantChunks.push(String(d.content_delta ?? ''))
-      }
-    } else if (ev.type === 'tool.call' && current) {
-      const d = ev.data as Record<string, unknown>
-      current.toolCalls.push({
-        toolCallId: String(d.tool_call_id ?? ''),
-        toolName: String(d.tool_name ?? ev.tool_name ?? ''),
-        argsJSON: (d.arguments as Record<string, unknown>) ?? {},
+      continue
+    }
+
+    if (!currentState) continue
+
+    if (event.type === 'message.delta') {
+      const data = event.data as Record<string, unknown>
+      if (data.channel === 'thinking') continue
+      const delta = String(data.content_delta ?? '')
+      if (!delta) continue
+      assistantChunks.push(delta)
+      const requestState = requestStates.get(activeRequestCallID)
+      if (requestState) requestState.sawVisibleAssistantDelta = true
+      continue
+    }
+
+    if (event.type === 'tool.call') {
+      flushAssistant()
+      const data = event.data as Record<string, unknown>
+      const toolCallId = String(data.tool_call_id ?? '')
+      const toolName = String(data.tool_name ?? event.tool_name ?? '')
+      const argsJSON = (data.arguments as Record<string, unknown>) ?? {}
+      currentState.turn.toolCalls.push({
+        toolCallId,
+        toolName,
+        argsJSON,
       })
-    } else if (ev.type === 'tool.result') {
-      const d = ev.data as Record<string, unknown>
-      resultMap[String(d.tool_call_id ?? '')] = {
-        resultJSON: d.result as Record<string, unknown> | undefined,
-        errorClass: ev.error_class,
+      currentState.turn.segments.push({
+        kind: 'tool_call',
+        toolCallId,
+        toolName,
+        argsJSON,
+      })
+      if (toolCallId) toolNameByCallID.set(toolCallId, toolName)
+      continue
+    }
+
+    if (event.type === 'tool.result') {
+      flushAssistant()
+      const data = event.data as Record<string, unknown>
+      const toolCallId = String(data.tool_call_id ?? '')
+      const toolName = String(data.tool_name ?? event.tool_name ?? toolNameByCallID.get(toolCallId) ?? '')
+      const resultJSON = data.result as Record<string, unknown> | undefined
+      const existing = currentState.turn.toolCalls.find((toolCall) => toolCall.toolCallId === toolCallId)
+      if (existing) {
+        existing.resultJSON = resultJSON
+        existing.errorClass = event.error_class
       }
-    } else if (ev.type === 'llm.turn.completed') {
-      const d = ev.data as Record<string, unknown>
-      const llmCallId = String(d.llm_call_id ?? '')
-      const target = llmCallId ? turnByCallId.get(llmCallId) : null
-      if (target) {
-        const usage = d.usage as Record<string, unknown> | undefined
-        if (usage) {
-          target.inputTokens = usage.input_tokens as number | undefined
-          target.outputTokens = usage.output_tokens as number | undefined
-          target.cachedTokens = (usage.cached_tokens ?? usage.cache_read_input_tokens) as number | undefined
-          target.cacheCreationTokens = usage.cache_creation_input_tokens as number | undefined
-        }
-        if (target === current) {
-          finalizeCurrentTurn(extractCompletedAssistantText(d))
-        } else if (!target.assistantText) {
-          target.assistantText = extractCompletedAssistantText(d) ?? target.assistantText
+      currentState.turn.segments.push({
+        kind: 'tool_result',
+        toolCallId,
+        toolName,
+        resultJSON,
+        errorClass: event.error_class,
+      })
+      continue
+    }
+
+    if (event.type === 'llm.turn.completed') {
+      const data = event.data as Record<string, unknown>
+      const llmCallId = String(data.llm_call_id ?? '')
+      const requestState = requestStates.get(llmCallId)
+      if (!requestState) continue
+
+      const usage = data.usage as Record<string, unknown> | undefined
+      if (usage) {
+        requestState.turn.inputTokens = (requestState.turn.inputTokens ?? 0) + Number(usage.input_tokens ?? 0)
+        requestState.turn.outputTokens = (requestState.turn.outputTokens ?? 0) + Number(usage.output_tokens ?? 0)
+        requestState.turn.cachedTokens =
+          (requestState.turn.cachedTokens ?? 0) +
+          Number(usage.cached_tokens ?? usage.cache_read_input_tokens ?? 0)
+        requestState.turn.cacheCreationTokens =
+          (requestState.turn.cacheCreationTokens ?? 0) +
+          Number(usage.cache_creation_input_tokens ?? 0)
+      }
+
+      if (llmCallId === activeRequestCallID) {
+        const hadPendingText = assistantChunks.length > 0
+        flushAssistant()
+        if (!hadPendingText && !requestState.sawVisibleAssistantDelta) {
+          const fallbackText = extractCompletedAssistantText(data)
+          if (fallbackText) appendAssistantSegment(requestState.turn, fallbackText)
         }
       }
-    } else if (ev.type === 'run.completed' || ev.type === 'run.failed' || ev.type === 'run.cancelled') {
-      finalizeCurrentTurn()
-      current = null
+      continue
+    }
+
+    if (event.type === 'run.completed' || event.type === 'run.failed' || event.type === 'run.cancelled') {
+      flushAssistant()
+      currentState = null
+      activeRequestCallID = ''
     }
   }
 
-  finalizeCurrentTurn()
-  mergeTurnResults(turns, resultMap)
+  flushAssistant()
+  turns.forEach(finalizeTurnAssistant)
   return turns
 }

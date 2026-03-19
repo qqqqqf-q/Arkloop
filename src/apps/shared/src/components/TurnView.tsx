@@ -1,4 +1,4 @@
-import type { LlmTurn } from '../run-turns'
+import type { LlmTurn, TurnSegment } from '../run-turns'
 import { CollapseBlock, PreText, JsonBlock } from './TurnViewBlocks'
 
 type TurnViewProps = {
@@ -10,14 +10,37 @@ function preview(text: string): string {
   return text.slice(0, 80) + (text.length > 80 ? '...' : '')
 }
 
+function previewJSON(value: unknown): string {
+  return JSON.stringify(value ?? null).slice(0, 60)
+}
+
+function executionSegments(turn: LlmTurn): TurnSegment[] {
+  let lastAssistantIndex = -1
+  for (let index = turn.segments.length - 1; index >= 0; index--) {
+    const segment = turn.segments[index]
+    if (segment.kind === 'assistant' && segment.isFinal) {
+      lastAssistantIndex = index
+      break
+    }
+  }
+  return turn.segments.filter((_, index) => index !== lastAssistantIndex)
+}
+
+function executionPreview(segments: TurnSegment[]): string {
+  return segments
+    .slice(0, 3)
+    .map((segment) => {
+      if (segment.kind === 'assistant') return `assistant: ${preview(segment.text)}`
+      if (segment.kind === 'tool_call') return `tool: ${segment.toolName}`
+      return `result: ${segment.toolName || 'tool'}`
+    })
+    .join(' · ')
+}
+
 export function TurnView({ turn, index }: TurnViewProps) {
   const inputMetaChips = [turn.inputMeta?.channel, turn.inputMeta?.['conversation-type'], turn.inputMeta?.['display-name']]
     .filter((value): value is string => !!value)
-  const requestHistory = turn.requestMessages.slice(0, -1)
-  const showChannelHistory = inputMetaChips.length > 0 && requestHistory.length > 0
-  const requestPreview = requestHistory
-    .map((message) => `${message.role}: ${preview(message.text)}`)
-    .join(' · ')
+  const orderedSegments = executionSegments(turn)
 
   return (
     <div className="space-y-1.5 rounded-lg border border-[var(--c-border)] p-3">
@@ -137,40 +160,11 @@ export function TurnView({ turn, index }: TurnViewProps) {
                 </div>
               ))}
             {turn.stablePrefixHash && (
-              <div className="flex justify-between border-t border-[var(--c-border-subtle)] pt-1 mt-1">
+              <div className="mt-1 flex justify-between border-t border-[var(--c-border-subtle)] pt-1">
                 <span>prefix hash</span>
                 <span className="font-mono">{turn.stablePrefixHash}</span>
               </div>
             )}
-          </div>
-        </CollapseBlock>
-      )}
-
-      {showChannelHistory && (
-        <CollapseBlock
-          label={`History (${requestHistory.length})`}
-          preview={requestPreview}
-        >
-          <div className="space-y-2">
-            {requestHistory.map((message, messageIndex) => {
-              const metaChips = [message.meta?.channel, message.meta?.['conversation-type'], message.meta?.['display-name']]
-                .filter((value): value is string => !!value)
-              return (
-                <div key={`${message.role}-${messageIndex}`} className="rounded border border-[var(--c-border-subtle)] bg-[var(--c-bg-sub)]/40 p-2">
-                  <div className="mb-1 flex flex-wrap items-center gap-1.5 text-[11px] text-[var(--c-text-muted)]">
-                    <span className="rounded bg-[var(--c-bg-sub)] px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-[var(--c-text-secondary)]">
-                      {message.role}
-                    </span>
-                    {metaChips.map((value) => (
-                      <span key={`${message.role}-${messageIndex}-${value}`} className="rounded bg-[var(--c-bg-sub)] px-1.5 py-0.5 text-[10px] text-[var(--c-text-muted)]">
-                        {value}
-                      </span>
-                    ))}
-                  </div>
-                  <PreText text={message.text} />
-                </div>
-              )
-            })}
           </div>
         </CollapseBlock>
       )}
@@ -182,51 +176,51 @@ export function TurnView({ turn, index }: TurnViewProps) {
         <PreText text={turn.userInput ?? 'Input unavailable'} />
       </CollapseBlock>
 
-      {turn.toolCalls.map((tc, i) => {
-        const isBrowser = tc.toolName === 'browser'
-        const browserCommand =
-          isBrowser && typeof tc.argsJSON?.command === 'string' ? tc.argsJSON.command : null
-        const hasScreenshot = isBrowser && tc.resultJSON?.has_screenshot === true
-        const artifactCount =
-          isBrowser && Array.isArray(tc.resultJSON?.artifacts)
-            ? (tc.resultJSON.artifacts as unknown[]).length
-            : 0
-        return (
-          <div key={tc.toolCallId || i} className="space-y-1">
-            <CollapseBlock
-              label={isBrowser ? `browser  ${browserCommand ?? ''}` : `tool.call  ${tc.toolName}`}
-              preview={isBrowser ? undefined : JSON.stringify(tc.argsJSON).slice(0, 60)}
-            >
-              <JsonBlock value={tc.argsJSON} />
-            </CollapseBlock>
-            {(tc.resultJSON != null || tc.errorClass) && (
-              <CollapseBlock
-                label={
-                  tc.errorClass
-                    ? 'tool.result  error'
-                    : hasScreenshot
-                      ? 'tool.result  screenshot'
-                      : 'tool.result'
-                }
-                preview={
-                  tc.errorClass
-                    ? tc.errorClass
-                    : hasScreenshot
-                      ? `${artifactCount} artifact(s)`
-                      : JSON.stringify(tc.resultJSON).slice(0, 60)
-                }
-                dim={!!tc.errorClass}
-              >
-                {tc.errorClass ? (
-                  <span className="text-xs text-red-500">{tc.errorClass}</span>
-                ) : (
-                  <JsonBlock value={tc.resultJSON} />
-                )}
-              </CollapseBlock>
-            )}
+      {orderedSegments.length > 0 && (
+        <CollapseBlock label="Execution" preview={executionPreview(orderedSegments)}>
+          <div className="space-y-2">
+            {orderedSegments.map((segment, segmentIndex) => {
+              if (segment.kind === 'assistant') {
+                return (
+                  <div key={`assistant-${segmentIndex}`} className="rounded border border-[var(--c-border-subtle)] bg-[var(--c-bg-sub)]/40 p-2">
+                    <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-[var(--c-text-muted)]">
+                      assistant
+                    </div>
+                    <PreText text={segment.text} />
+                  </div>
+                )
+              }
+
+              if (segment.kind === 'tool_call') {
+                return (
+                  <CollapseBlock
+                    key={segment.toolCallId || `tool-call-${segmentIndex}`}
+                    label={`tool.call  ${segment.toolName}`}
+                    preview={previewJSON(segment.argsJSON)}
+                  >
+                    <JsonBlock value={segment.argsJSON} />
+                  </CollapseBlock>
+                )
+              }
+
+              return (
+                <CollapseBlock
+                  key={segment.toolCallId || `tool-result-${segmentIndex}`}
+                  label={segment.errorClass ? `tool.result  ${segment.toolName || 'error'}` : `tool.result  ${segment.toolName}`}
+                  preview={segment.errorClass ?? previewJSON(segment.resultJSON)}
+                  dim={!!segment.errorClass}
+                >
+                  {segment.errorClass ? (
+                    <span className="text-xs text-red-500">{segment.errorClass}</span>
+                  ) : (
+                    <JsonBlock value={segment.resultJSON} />
+                  )}
+                </CollapseBlock>
+              )
+            })}
           </div>
-        )
-      })}
+        </CollapseBlock>
+      )}
 
       <CollapseBlock
         label="Assistant"

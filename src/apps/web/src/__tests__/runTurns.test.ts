@@ -17,12 +17,13 @@ function makeEvent(params: {
 }
 
 describe('buildTurns', () => {
-  it('应忽略 thinking channel，只保留正常 assistant 输出', () => {
+  it('应忽略 thinking channel，只保留最终 assistant 输出', () => {
     const turns = buildTurns([
       makeEvent({
         seq: 1,
         type: 'llm.request',
         data: {
+          llm_call_id: 'call_1',
           payload: {
             messages: [{ role: 'user', content: '帮我查一下' }],
           },
@@ -47,9 +48,109 @@ describe('buildTurns', () => {
 
     expect(turns).toHaveLength(1)
     expect(turns[0]?.assistantText).toBe('我先检查一下现有工具。')
+    expect(turns[0]?.segments).toEqual([
+      { kind: 'assistant', text: '我先检查一下现有工具。', isFinal: true },
+    ])
   })
 
-  it('应从 telegram envelope 消息中提取正文并保留 assistant 历史', () => {
+  it('应把同一用户输入内的多次 llm.request 合并为一个 turn', () => {
+    const turns = buildTurns([
+      makeEvent({
+        seq: 1,
+        type: 'llm.request',
+        data: {
+          llm_call_id: 'call_1',
+          provider_kind: 'openai',
+          api_mode: 'chat_completions',
+          payload: {
+            model: 'minimax/minimax-m2.7',
+            messages: [{ role: 'user', content: '我需要多久才能翻倍到20万？' }],
+          },
+        },
+      }),
+      makeEvent({
+        seq: 2,
+        type: 'message.delta',
+        data: { role: 'assistant', content_delta: '我先算一下。' },
+      }),
+      makeEvent({
+        seq: 3,
+        type: 'tool.call',
+        data: {
+          tool_call_id: 'tool_1',
+          tool_name: 'exec_command',
+          arguments: { command: 'node -e "console.log(14.21)"' },
+        },
+      }),
+      makeEvent({
+        seq: 4,
+        type: 'tool.result',
+        data: {
+          tool_call_id: 'tool_1',
+          tool_name: 'exec_command',
+          result: { output: '14.21' },
+        },
+      }),
+      makeEvent({
+        seq: 5,
+        type: 'llm.request',
+        data: {
+          llm_call_id: 'call_2',
+          provider_kind: 'openai',
+          api_mode: 'chat_completions',
+          payload: {
+            model: 'minimax/minimax-m2.7',
+            messages: [
+              { role: 'user', content: '我需要多久才能翻倍到20万？' },
+              { role: 'assistant', content: '我先算一下。' },
+              { role: 'tool', content: '{"output":"14.21"}' },
+            ],
+          },
+        },
+      }),
+      makeEvent({
+        seq: 6,
+        type: 'message.delta',
+        data: { role: 'assistant', content_delta: '需要 14.21 年。' },
+      }),
+      makeEvent({
+        seq: 7,
+        type: 'llm.turn.completed',
+        data: {
+          llm_call_id: 'call_2',
+          usage: { input_tokens: 10, output_tokens: 8 },
+        },
+      }),
+      makeEvent({
+        seq: 8,
+        type: 'run.completed',
+        data: {},
+      }),
+    ])
+
+    expect(turns).toHaveLength(1)
+    expect(turns[0]?.userInput).toBe('我需要多久才能翻倍到20万？')
+    expect(turns[0]?.assistantText).toBe('需要 14.21 年。')
+    expect(turns[0]?.segments).toEqual([
+      { kind: 'assistant', text: '我先算一下。', isFinal: false },
+      {
+        kind: 'tool_call',
+        toolCallId: 'tool_1',
+        toolName: 'exec_command',
+        argsJSON: { command: 'node -e "console.log(14.21)"' },
+      },
+      {
+        kind: 'tool_result',
+        toolCallId: 'tool_1',
+        toolName: 'exec_command',
+        resultJSON: { output: '14.21' },
+        errorClass: undefined,
+      },
+      { kind: 'assistant', text: '需要 14.21 年。', isFinal: true },
+    ])
+  })
+
+  it('应从 telegram envelope 提取正文，不重复摊开 request payload 历史', () => {
     const turns = buildTurns([
       makeEvent({
         seq: 1,
@@ -74,14 +175,6 @@ describe('buildTurns', () => {
                 role: 'user',
                 content: '---\nchannel-identity-id: "551ab5d6-0239-46d7-bf91-2ef87c9454d0"\ndisplay-name: "清凤"\nchannel: "telegram"\nconversation-type: "private"\ntime: "2026-03-19T10:19:42Z"\n---\n我上一句话说的什么',
               },
-              {
-                role: 'assistant',
-                content: '你上一句话是问：“你是谁”。如果你还有其他问题或者想聊的话题，请随时告诉我！',
-              },
-              {
-                role: 'user',
-                content: '---\nchannel-identity-id: "551ab5d6-0239-46d7-bf91-2ef87c9454d0"\ndisplay-name: "清凤"\nchannel: "telegram"\nconversation-type: "private"\ntime: "2026-03-19T10:44:37Z"\n---\n卡哇伊',
-              },
             ],
           },
         },
@@ -89,90 +182,27 @@ describe('buildTurns', () => {
       makeEvent({
         seq: 2,
         type: 'message.delta',
-        data: { role: 'assistant', content_delta: '你这是在夸可爱呀。' },
+        data: { role: 'assistant', content_delta: '你上一句话是问：“你是谁”。' },
       }),
       makeEvent({
         seq: 3,
-        type: 'message.delta',
-        data: { role: 'assistant', content_delta: '确实很卡哇伊。' },
-      }),
-      makeEvent({
-        seq: 4,
-        type: 'llm.turn.completed',
-        data: {
-          llm_call_id: 'call_1',
-          usage: { input_tokens: 10, output_tokens: 8 },
-        },
-      }),
-      makeEvent({
-        seq: 5,
         type: 'run.completed',
         data: {},
       }),
     ])
 
-    expect(turns).toHaveLength(1)
-    expect(turns[0]?.userInput).toBe('卡哇伊')
-    expect(turns[0]?.inputMeta?.channel).toBe('telegram')
-    expect(turns[0]?.inputMeta?.['conversation-type']).toBe('private')
-    expect(turns[0]?.requestMessages).toEqual([
-      {
-        role: 'user',
-        text: '你是谁',
-        meta: {
-          'channel-identity-id': '551ab5d6-0239-46d7-bf91-2ef87c9454d0',
-          'display-name': '清凤',
-          channel: 'telegram',
-          'conversation-type': 'private',
-          time: '2026-03-19T10:19:34Z',
-        },
-      },
-      {
-        role: 'assistant',
-        text: '我是Arkloop，很高兴见到你！我可以帮助你回答问题、提供信息或讨论各种话题。有任何想了解的，请随时问我。',
-      },
-      {
-        role: 'user',
-        text: '我上一句话说的什么',
-        meta: {
-          'channel-identity-id': '551ab5d6-0239-46d7-bf91-2ef87c9454d0',
-          'display-name': '清凤',
-          channel: 'telegram',
-          'conversation-type': 'private',
-          time: '2026-03-19T10:19:42Z',
-        },
-      },
-      {
-        role: 'assistant',
-        text: '你上一句话是问：“你是谁”。如果你还有其他问题或者想聊的话题，请随时告诉我！',
-      },
-      {
-        role: 'user',
-        text: '卡哇伊',
-        meta: {
-          'channel-identity-id': '551ab5d6-0239-46d7-bf91-2ef87c9454d0',
-          'display-name': '清凤',
-          channel: 'telegram',
-          'conversation-type': 'private',
-          time: '2026-03-19T10:44:37Z',
-        },
-      },
+    expect(turns).toHaveLength(2)
+    expect(turns[0]?.userInput).toBe('你是谁')
+    expect(turns[0]?.assistantText).toBe('我是Arkloop，很高兴见到你！我可以帮助你回答问题、提供信息或讨论各种话题。有任何想了解的，请随时问我。')
+    expect(turns[1]?.userInput).toBe('我上一句话说的什么')
+    expect(turns[1]?.inputMeta?.channel).toBe('telegram')
+    expect(turns[1]?.segments).toEqual([
+      { kind: 'assistant', text: '你上一句话是问：“你是谁”。', isFinal: true },
     ])
-    expect(turns[0]?.assistantText).toBe('你这是在夸可爱呀。确实很卡哇伊。')
   })
 
-  it('应先按 seq 排序，再处理乱序返回的事件', () => {
+  it('应在同一 thread 的后续 run 中重建上一轮 input 和 assistant', () => {
     const turns = buildTurns([
-      makeEvent({
-        seq: 2,
-        type: 'message.delta',
-        data: { role: 'assistant', content_delta: '的' },
-      }),
-      makeEvent({
-        seq: 3,
-        type: 'message.delta',
-        data: { role: 'assistant', content_delta: '确' },
-      }),
       makeEvent({
         seq: 1,
         type: 'llm.request',
@@ -183,33 +213,33 @@ describe('buildTurns', () => {
           payload: {
             messages: [
               { role: 'system', content: '你是Arkloop' },
-              { role: 'user', content: '---\nchannel: "telegram"\nconversation-type: "private"\n---\n卡哇伊' },
+              { role: 'user', content: '你是谁' },
+              { role: 'assistant', content: '我是 Arkloop。' },
+              { role: 'user', content: '我上一句话说的什么' },
             ],
           },
         },
       }),
       makeEvent({
-        seq: 5,
-        type: 'llm.turn.completed',
-        data: {
-          llm_call_id: 'call_1',
-          usage: { input_tokens: 1, output_tokens: 2 },
-        },
+        seq: 2,
+        type: 'message.delta',
+        data: { role: 'assistant', content_delta: '你的上一句话是“你是谁”。' },
       }),
       makeEvent({
-        seq: 6,
+        seq: 3,
         type: 'run.completed',
         data: {},
       }),
-      makeEvent({
-        seq: 4,
-        type: 'message.delta',
-        data: { role: 'assistant', content_delta: '实' },
-      }),
     ])
 
-    expect(turns).toHaveLength(1)
-    expect(turns[0]?.userInput).toBe('卡哇伊')
-    expect(turns[0]?.assistantText).toBe('的确实')
+    expect(turns).toHaveLength(2)
+    expect(turns[0]).toMatchObject({
+      userInput: '你是谁',
+      assistantText: '我是 Arkloop。',
+    })
+    expect(turns[1]).toMatchObject({
+      userInput: '我上一句话说的什么',
+      assistantText: '你的上一句话是“你是谁”。',
+    })
   })
 })
