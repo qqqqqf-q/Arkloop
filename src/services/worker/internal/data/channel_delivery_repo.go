@@ -9,8 +9,13 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+type channelDeliveryExecer interface {
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+}
 
 type ChannelIdentityRecord struct {
 	ID     uuid.UUID
@@ -81,15 +86,15 @@ func (ChannelDeliveryRepository) GetChannel(ctx context.Context, pool *pgxpool.P
 
 func (ChannelDeliveryRepository) RecordDelivery(
 	ctx context.Context,
-	pool *pgxpool.Pool,
+	db channelDeliveryExecer,
 	runID uuid.UUID,
 	threadID uuid.UUID,
 	channelID uuid.UUID,
 	platformChatID string,
 	platformMessageID string,
 ) error {
-	if pool == nil {
-		return fmt.Errorf("pool must not be nil")
+	if db == nil {
+		return fmt.Errorf("db must not be nil")
 	}
 	if channelID == uuid.Nil {
 		return fmt.Errorf("channel_id must not be empty")
@@ -105,7 +110,7 @@ func (ChannelDeliveryRepository) RecordDelivery(
 	if threadID != uuid.Nil {
 		threadRef = &threadID
 	}
-	_, err := pool.Exec(
+	_, err := db.Exec(
 		ctx,
 		`INSERT INTO channel_message_deliveries (run_id, thread_id, channel_id, platform_chat_id, platform_message_id)
 		 VALUES ($1, $2, $3, $4, $5)

@@ -758,15 +758,19 @@ func TestTelegramWebhookStoresStructuredInboundMessage(t *testing.T) {
 	if !strings.Contains(content.Parts[0].Text, `[图片: image]`) {
 		t.Fatalf("expected attachment placeholder in content_json, got %s", content.Parts[0].Text)
 	}
-	for _, forbidden := range []string{`platform-message-id: "7"`, `platform-chat-id: "10001"`, `channel-identity-id:`} {
-		if strings.Contains(content.Parts[0].Text, forbidden) {
-			t.Fatalf("expected prompt header to omit transport metadata %q, got %s", forbidden, content.Parts[0].Text)
-		}
-	}
 
 	var metadata map[string]any
 	if err := json.Unmarshal(metadataJSON, &metadata); err != nil {
 		t.Fatalf("decode metadata_json: %v", err)
+	}
+	senderRef := `sender-ref: "` + asString(metadata["channel_identity_id"]) + `"`
+	if !strings.Contains(content.Parts[0].Text, senderRef) {
+		t.Fatalf("expected prompt header to include sender ref %q, got %s", senderRef, content.Parts[0].Text)
+	}
+	for _, forbidden := range []string{`platform-message-id: "7"`, `platform-chat-id: "10001"`, `channel-identity-id:`} {
+		if strings.Contains(content.Parts[0].Text, forbidden) {
+			t.Fatalf("expected prompt header to omit transport metadata %q, got %s", forbidden, content.Parts[0].Text)
+		}
 	}
 	attachments, _ := metadata["media_attachments"].([]any)
 	if len(attachments) != 1 {
@@ -862,6 +866,42 @@ func TestTelegramWebhookGroupMessagePassiveAndActive(t *testing.T) {
 	conversationRef, _ := delivery["conversation_ref"].(map[string]any)
 	if got := asString(conversationRef["target"]); got != "-20001" {
 		t.Fatalf("unexpected conversation_ref: %#v", delivery)
+	}
+
+	var contentJSON []byte
+	var metadataJSON []byte
+	if err := env.pool.QueryRow(context.Background(), `
+		SELECT content_json::text::jsonb, metadata_json::text::jsonb
+		  FROM messages
+		 ORDER BY created_at DESC
+		 LIMIT 1`,
+	).Scan(&contentJSON, &metadataJSON); err != nil {
+		t.Fatalf("query latest message: %v", err)
+	}
+	var content struct {
+		Parts []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"parts"`
+	}
+	if err := json.Unmarshal(contentJSON, &content); err != nil {
+		t.Fatalf("decode group content_json: %v", err)
+	}
+	if len(content.Parts) != 1 || content.Parts[0].Type != "text" {
+		t.Fatalf("unexpected group content_json: %s", string(contentJSON))
+	}
+	var metadata map[string]any
+	if err := json.Unmarshal(metadataJSON, &metadata); err != nil {
+		t.Fatalf("decode group metadata_json: %v", err)
+	}
+	senderRef := `sender-ref: "` + asString(metadata["channel_identity_id"]) + `"`
+	if !strings.Contains(content.Parts[0].Text, senderRef) {
+		t.Fatalf("expected group prompt header to include sender ref %q, got %s", senderRef, content.Parts[0].Text)
+	}
+	for _, forbidden := range []string{`platform-message-id: "12"`, `platform-chat-id: "-20001"`} {
+		if strings.Contains(content.Parts[0].Text, forbidden) {
+			t.Fatalf("expected group prompt header to omit transport metadata %q, got %s", forbidden, content.Parts[0].Text)
+		}
 	}
 }
 

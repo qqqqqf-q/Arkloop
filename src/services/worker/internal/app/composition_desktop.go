@@ -572,8 +572,19 @@ func desktopChannelDelivery(db data.DesktopDB) pipeline.RunMiddleware {
 			slog.WarnContext(ctx, "desktop telegram channel delivery failed", "run_id", rc.Run.ID, "err", sendErr.Error())
 			return err
 		}
-		for _, messageID := range messageIDs {
-			recordDesktopChannelDelivery(db, rc.Run.ID, rc.Run.ThreadID, rc.ChannelContext.ChannelID, rc.ChannelContext.Conversation.Target, messageID)
+		if recordErr := recordDesktopChannelDelivery(
+			ctx,
+			db,
+			rc.Run.ID,
+			rc.Run.ThreadID,
+			rc.ChannelContext.ChannelID,
+			rc.ChannelContext.Conversation.Target,
+			rc.ChannelContext.TriggerMessage,
+			rc.ChannelContext.Conversation.ThreadID,
+			messageIDs,
+		); recordErr != nil {
+			recordDesktopChannelDeliveryFailure(db, rc.Run.ID, recordErr)
+			slog.WarnContext(ctx, "desktop telegram channel delivery record failed", "run_id", rc.Run.ID, "err", recordErr.Error())
 		}
 		return err
 	}
@@ -657,21 +668,24 @@ func recordDesktopChannelDeliveryFailure(db data.DesktopDB, runID uuid.UUID, err
 }
 
 func recordDesktopChannelDelivery(
+	ctx context.Context,
 	db data.DesktopDB,
 	runID uuid.UUID,
 	threadID uuid.UUID,
 	channelID uuid.UUID,
 	platformChatID string,
-	platformMessageID string,
-) {
-	if db == nil || channelID == uuid.Nil || strings.TrimSpace(platformChatID) == "" || strings.TrimSpace(platformMessageID) == "" {
-		return
+	replyTo *pipeline.ChannelMessageRef,
+	platformThreadID *string,
+	platformMessageIDs []string,
+) error {
+	if db == nil || channelID == uuid.Nil || strings.TrimSpace(platformChatID) == "" || len(platformMessageIDs) == 0 {
+		return nil
 	}
-	tx, txErr := db.BeginTx(context.Background(), pgx.TxOptions{})
+	tx, txErr := db.BeginTx(ctx, pgx.TxOptions{})
 	if txErr != nil {
-		return
+		return txErr
 	}
-	defer tx.Rollback(context.Background()) //nolint:errcheck
+	defer tx.Rollback(ctx) //nolint:errcheck
 
 	var runRef *uuid.UUID
 	if runID != uuid.Nil {
@@ -681,41 +695,43 @@ func recordDesktopChannelDelivery(
 	if threadID != uuid.Nil {
 		threadRef = &threadID
 	}
-	if _, err := tx.Exec(
-		context.Background(),
-		`INSERT INTO channel_message_deliveries (run_id, thread_id, channel_id, platform_chat_id, platform_message_id)
-		 VALUES ($1, $2, $3, $4, $5)
-		 ON CONFLICT (channel_id, platform_chat_id, platform_message_id) DO NOTHING`,
-		runRef,
-		threadRef,
-		channelID,
-		platformChatID,
-		platformMessageID,
-	); err != nil {
-		return
+	deliveryRepo := data.ChannelDeliveryRepository{}
+	ledgerRepo := data.ChannelMessageLedgerRepository{}
+	for _, platformMessageID := range platformMessageIDs {
+		if err := deliveryRepo.RecordDelivery(
+			ctx,
+			tx,
+			runID,
+			threadID,
+			channelID,
+			platformChatID,
+			platformMessageID,
+		); err != nil {
+			return err
+		}
+		if err := ledgerRepo.Record(ctx, tx, data.ChannelMessageLedgerRecordInput{
+			ChannelID:               channelID,
+			ChannelType:             "telegram",
+			Direction:               data.ChannelMessageDirectionOutbound,
+			ThreadID:                threadRef,
+			RunID:                   runRef,
+			PlatformConversationID:  platformChatID,
+			PlatformMessageID:       platformMessageID,
+			PlatformParentMessageID: channelMessageIDPtr(replyTo),
+			PlatformThreadID:        platformThreadID,
+		}); err != nil {
+			return err
+		}
 	}
-	if _, err := tx.Exec(
-		context.Background(),
-		`INSERT INTO channel_message_ledger (
-			channel_id,
-			channel_type,
-			direction,
-			thread_id,
-			run_id,
-			platform_conversation_id,
-			platform_message_id,
-			metadata_json
-		) VALUES ($1, 'telegram', 'outbound', $2, $3, $4, $5, '{}')
-		ON CONFLICT (channel_id, direction, platform_conversation_id, platform_message_id) DO NOTHING`,
-		channelID,
-		threadRef,
-		runRef,
-		platformChatID,
-		platformMessageID,
-	); err != nil {
-		return
+	return tx.Commit(ctx)
+}
+
+func channelMessageIDPtr(ref *pipeline.ChannelMessageRef) *string {
+	if ref == nil || strings.TrimSpace(ref.MessageID) == "" {
+		return nil
 	}
-	_ = tx.Commit(context.Background())
+	value := strings.TrimSpace(ref.MessageID)
+	return &value
 }
 
 func desktopSubAgentContext(db data.DesktopDB, storage *subagentctl.SnapshotStorage) pipeline.RunMiddleware {

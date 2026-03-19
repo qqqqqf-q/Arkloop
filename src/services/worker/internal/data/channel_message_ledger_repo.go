@@ -7,8 +7,12 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5/pgconn"
 )
+
+type channelMessageLedgerExecer interface {
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+}
 
 type ChannelMessageDirection string
 
@@ -33,9 +37,9 @@ type ChannelMessageLedgerRecordInput struct {
 
 type ChannelMessageLedgerRepository struct{}
 
-func (ChannelMessageLedgerRepository) Record(ctx context.Context, pool *pgxpool.Pool, input ChannelMessageLedgerRecordInput) error {
-	if pool == nil {
-		return fmt.Errorf("pool must not be nil")
+func (ChannelMessageLedgerRepository) Record(ctx context.Context, db channelMessageLedgerExecer, input ChannelMessageLedgerRecordInput) error {
+	if db == nil {
+		return fmt.Errorf("db must not be nil")
 	}
 	if input.ChannelID == uuid.Nil {
 		return fmt.Errorf("channel_message_ledger: channel_id must not be empty")
@@ -53,7 +57,7 @@ func (ChannelMessageLedgerRepository) Record(ctx context.Context, pool *pgxpool.
 	if len(metadataJSON) == 0 {
 		metadataJSON = json.RawMessage(`{}`)
 	}
-	_, err := pool.Exec(
+	_, err := db.Exec(
 		ctx,
 		`INSERT INTO channel_message_ledger (
 			channel_id,

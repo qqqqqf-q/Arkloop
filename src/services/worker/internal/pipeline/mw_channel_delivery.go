@@ -56,33 +56,9 @@ func NewChannelDeliveryMiddleware(pool *pgxpool.Pool) RunMiddleware {
 			slog.WarnContext(ctx, "telegram channel delivery failed", "run_id", rc.Run.ID, "err", sendErr.Error())
 			return err
 		}
-		for _, messageID := range messageIDs {
-			if recordErr := repo.RecordDelivery(
-				ctx,
-				pool,
-				rc.Run.ID,
-				rc.Run.ThreadID,
-				rc.ChannelContext.ChannelID,
-				rc.ChannelContext.Conversation.Target,
-				messageID,
-			); recordErr != nil {
-				recordChannelDeliveryFailure(ctx, pool, rc.Run.ID, recordErr)
-				slog.WarnContext(ctx, "telegram channel delivery record failed", "run_id", rc.Run.ID, "err", recordErr.Error())
-			}
-			if ledgerErr := ledgerRepo.Record(ctx, pool, data.ChannelMessageLedgerRecordInput{
-				ChannelID:               rc.ChannelContext.ChannelID,
-				ChannelType:             rc.ChannelContext.ChannelType,
-				Direction:               data.ChannelMessageDirectionOutbound,
-				ThreadID:                uuidPtr(rc.Run.ThreadID),
-				RunID:                   uuidPtr(rc.Run.ID),
-				PlatformConversationID:  rc.ChannelContext.Conversation.Target,
-				PlatformMessageID:       messageID,
-				PlatformParentMessageID: channelMessageIDPtr(rc.ChannelContext.TriggerMessage),
-				PlatformThreadID:        rc.ChannelContext.Conversation.ThreadID,
-			}); ledgerErr != nil {
-				recordChannelDeliveryFailure(ctx, pool, rc.Run.ID, ledgerErr)
-				slog.WarnContext(ctx, "telegram channel ledger record failed", "run_id", rc.Run.ID, "err", ledgerErr.Error())
-			}
+		if recordErr := recordChannelDeliverySuccess(ctx, pool, repo, ledgerRepo, rc, messageIDs); recordErr != nil {
+			recordChannelDeliveryFailure(ctx, pool, rc.Run.ID, recordErr)
+			slog.WarnContext(ctx, "telegram channel delivery record failed", "run_id", rc.Run.ID, "err", recordErr.Error())
 		}
 		return err
 	}
@@ -200,4 +176,50 @@ func recordChannelDeliveryFailure(ctx context.Context, pool *pgxpool.Pool, runID
 		return
 	}
 	_ = tx.Commit(context.Background())
+}
+
+func recordChannelDeliverySuccess(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	deliveryRepo data.ChannelDeliveryRepository,
+	ledgerRepo data.ChannelMessageLedgerRepository,
+	rc *RunContext,
+	messageIDs []string,
+) error {
+	if pool == nil || rc == nil || rc.ChannelContext == nil || len(messageIDs) == 0 {
+		return nil
+	}
+	tx, err := pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	for _, messageID := range messageIDs {
+		if err := deliveryRepo.RecordDelivery(
+			ctx,
+			tx,
+			rc.Run.ID,
+			rc.Run.ThreadID,
+			rc.ChannelContext.ChannelID,
+			rc.ChannelContext.Conversation.Target,
+			messageID,
+		); err != nil {
+			return err
+		}
+		if err := ledgerRepo.Record(ctx, tx, data.ChannelMessageLedgerRecordInput{
+			ChannelID:               rc.ChannelContext.ChannelID,
+			ChannelType:             rc.ChannelContext.ChannelType,
+			Direction:               data.ChannelMessageDirectionOutbound,
+			ThreadID:                uuidPtr(rc.Run.ThreadID),
+			RunID:                   uuidPtr(rc.Run.ID),
+			PlatformConversationID:  rc.ChannelContext.Conversation.Target,
+			PlatformMessageID:       messageID,
+			PlatformParentMessageID: channelMessageIDPtr(rc.ChannelContext.TriggerMessage),
+			PlatformThreadID:        rc.ChannelContext.Conversation.ThreadID,
+		}); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
 }

@@ -253,7 +253,7 @@ func buildTelegramStructuredMessage(
 	if identity.DisplayName != nil && strings.TrimSpace(*identity.DisplayName) != "" {
 		displayName = strings.TrimSpace(*identity.DisplayName)
 	}
-	projection := buildTelegramEnvelopeText(incoming, displayName, body)
+	projection := buildTelegramEnvelopeText(identity.ID, incoming, displayName, body)
 	content, err := messagecontent.Normalize(messagecontent.FromText(projection).Parts)
 	if err != nil {
 		return "", nil, nil, err
@@ -284,11 +284,14 @@ func buildTelegramStructuredMessage(
 	return projection, contentJSON, metadataJSON, nil
 }
 
-func buildTelegramEnvelopeText(incoming telegramIncomingMessage, displayName, body string) string {
+func buildTelegramEnvelopeText(identityID uuid.UUID, incoming telegramIncomingMessage, displayName, body string) string {
 	lines := []string{
 		fmt.Sprintf(`display-name: "%s"`, escapeTelegramEnvelopeValue(displayName)),
 		`channel: "telegram"`,
 		fmt.Sprintf(`conversation-type: "%s"`, escapeTelegramEnvelopeValue(normalizeTelegramConversationType(incoming.ChatType))),
+	}
+	if identityID != uuid.Nil {
+		lines = append(lines, fmt.Sprintf(`sender-ref: "%s"`, identityID.String()))
 	}
 	if strings.TrimSpace(incoming.PlatformUsername) != "" {
 		lines = append(lines, fmt.Sprintf(`platform-username: "%s"`, escapeTelegramEnvelopeValue(incoming.PlatformUsername)))
