@@ -853,7 +853,7 @@ func (l *Loop) runTurnWithRetry(
 	}
 
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		turn, err := l.runSingleTurn(ctx, runCtx, turnRequest, emitter)
+		turn, err := l.runSingleTurn(ctx, runCtx, turnRequest, emitter, yield)
 		if err != nil {
 			return turnResult{}, err
 		}
@@ -912,6 +912,7 @@ func (l *Loop) runSingleTurn(
 	runCtx RunContext,
 	request llm.Request,
 	emitter events.Emitter,
+	yield func(events.RunEvent) error,
 ) (turnResult, error) {
 	eventsOut := []events.RunEvent{}
 	toolCalls := []llm.ToolCall{}
@@ -922,6 +923,22 @@ func (l *Loop) runSingleTurn(
 	cancelledEarly := false
 	stopErr := fmt.Errorf("stop")
 
+	streamingEventTypes := map[string]struct{}{
+		"message.delta":      {},
+		"llm.response.chunk": {},
+		"run.segment.start":  {},
+		"run.segment.end":    {},
+		"tool.call.delta":    {},
+	}
+
+	yieldOrStop := func(ev events.RunEvent) error {
+		if _, isStreaming := streamingEventTypes[ev.Type]; isStreaming {
+			return yield(ev)
+		}
+		eventsOut = append(eventsOut, ev)
+		return nil
+	}
+
 	err := l.gateway.Stream(ctx, request, func(item llm.StreamEvent) error {
 		if cancelled(runCtx) {
 			cancelledEarly = true
@@ -930,11 +947,9 @@ func (l *Loop) runSingleTurn(
 
 		switch typed := item.(type) {
 		case llm.StreamSegmentStart:
-			eventsOut = append(eventsOut, emitter.Emit("run.segment.start", typed.ToDataJSON(), nil, nil))
-			return nil
+			return yieldOrStop(emitter.Emit("run.segment.start", typed.ToDataJSON(), nil, nil))
 		case llm.StreamSegmentEnd:
-			eventsOut = append(eventsOut, emitter.Emit("run.segment.end", typed.ToDataJSON(), nil, nil))
-			return nil
+			return yieldOrStop(emitter.Emit("run.segment.end", typed.ToDataJSON(), nil, nil))
 		case llm.StreamMessageDelta:
 			if typed.ContentDelta == "" {
 				return nil
@@ -943,20 +958,15 @@ func (l *Loop) runSingleTurn(
 			if typed.Channel == nil {
 				assistantChunks = append(assistantChunks, typed.ContentDelta)
 			}
-			eventsOut = append(eventsOut, emitter.Emit("message.delta", typed.ToDataJSON(), nil, nil))
-			return nil
+			return yieldOrStop(emitter.Emit("message.delta", typed.ToDataJSON(), nil, nil))
 		case llm.StreamLlmRequest:
-			eventsOut = append(eventsOut, emitter.Emit("llm.request", typed.ToDataJSON(), nil, nil))
-			return nil
+			return yieldOrStop(emitter.Emit("llm.request", typed.ToDataJSON(), nil, nil))
 		case llm.StreamLlmResponseChunk:
-			eventsOut = append(eventsOut, emitter.Emit("llm.response.chunk", typed.ToDataJSON(), nil, nil))
-			return nil
+			return yieldOrStop(emitter.Emit("llm.response.chunk", typed.ToDataJSON(), nil, nil))
 		case llm.StreamProviderFallback:
-			eventsOut = append(eventsOut, emitter.Emit("run.provider_fallback", typed.ToDataJSON(), nil, nil))
-			return nil
+			return yieldOrStop(emitter.Emit("run.provider_fallback", typed.ToDataJSON(), nil, nil))
 		case llm.ToolCallArgumentDelta:
-			eventsOut = append(eventsOut, emitter.Emit("tool.call.delta", typed.ToDataJSON(), nil, nil))
-			return nil
+			return yieldOrStop(emitter.Emit("tool.call.delta", typed.ToDataJSON(), nil, nil))
 		case llm.ToolCall:
 			toolCalls = append(toolCalls, typed)
 			return nil
@@ -966,8 +976,7 @@ func (l *Loop) runSingleTurn(
 			if typed.Error != nil {
 				errorClass = stringPtr(typed.Error.ErrorClass)
 			}
-			eventsOut = append(eventsOut, emitter.Emit("tool.result", typed.ToDataJSON(), stringPtr(typed.ToolName), errorClass))
-			return nil
+			return yieldOrStop(emitter.Emit("tool.result", typed.ToDataJSON(), stringPtr(typed.ToolName), errorClass))
 		case llm.StreamRunFailed:
 			errorClass := stringPtr(typed.Error.ErrorClass)
 			eventsOut = append(eventsOut, emitter.Emit("run.failed", typed.ToDataJSON(), nil, errorClass))
