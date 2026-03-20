@@ -78,8 +78,8 @@ Run execution progress is pushed via SSE events. For details, see [Run Execution
 - [Runs](./runs) — Agent Loop execution
 - [Projects](./projects) — session grouping
 
-### Organizations
-- [Orgs](./orgs) — multi-tenant management, teams, invitations
+### Accounts
+- [Accounts](./accounts) — personal and workspace accounts, memberships
 
 ### Configuration
 - [LLM Providers](./llm-providers) — provider accounts, model lists, and selector prefixes

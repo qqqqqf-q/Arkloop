@@ -7,22 +7,25 @@ interface LinkItem {
 interface Props {
   prev?: LinkItem | null;
   next?: LinkItem | null;
+  locale?: 'zh' | 'en';
 }
 
-const { prev = null, next = null } = Astro.props;
+const { prev = null, next = null, locale = 'en' } = Astro.props;
+const prevLabel = locale === 'zh' ? '上一篇' : 'Previous';
+const nextLabel = locale === 'zh' ? '下一篇' : 'Next';
 ---
 
 {(prev || next) && (
   <nav class="pagination-links" aria-label="Pagination">
     {prev ? (
       <a class="pagination-card" href={prev.href}>
-        <span class="pagination-label">Previous</span>
+        <span class="pagination-label">{prevLabel}</span>
         <strong>{prev.label}</strong>
       </a>
     ) : <span></span>}
     {next ? (
       <a class="pagination-card pagination-card-next" href={next.href}>
-        <span class="pagination-label">Next</span>
+        <span class="pagination-label">{nextLabel}</span>
         <strong>{next.label}</strong>
       </a>
     ) : <span></span>}

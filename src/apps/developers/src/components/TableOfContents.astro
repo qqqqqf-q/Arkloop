@@ -54,7 +54,9 @@ const visibleHeadings = headings.filter((heading) => heading.depth >= 2 && headi
       if (active) active.link.classList.add('toc-link-active');
     };
 
-    window.addEventListener('scroll', update, { passive: true });
+    const scrollRoot = document.querySelector('[data-docs-scroll-root]');
+    const scroller = scrollRoot instanceof HTMLElement ? scrollRoot : window;
+    scroller.addEventListener('scroll', update, { passive: true });
     update();
   })();
 </script>

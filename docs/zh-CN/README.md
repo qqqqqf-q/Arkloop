@@ -64,7 +64,7 @@ curl -s https://raw.githubusercontent.com/qqqqqf/Arkloop/refs/heads/main/docs/gu
 基于`多平台容器`的隔离执行环境。支持 Python、数据分析、图表生成和文件操作，具有严格的资源限制。
 
 **4. Tool Providers**  
-统一管理搜索与抓取工具后端。`甚至，使用 Sub Agent可以把 perplexity人格也作为 Search tool？？（这不是 api）`  
+统一管理搜索与抓取工具后端，支持自定义工具提供方与凭证。  
 
 **5. 自定义 Persona**  
 定义专业化的智能体配置，包含独立的系统提示词、工具集和行为层级。  

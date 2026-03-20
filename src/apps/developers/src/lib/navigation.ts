@@ -34,7 +34,6 @@ const zhDocsSidebar: SidebarGroup[] = [
       { label: '部署指南', href: '/docs/guide/deployment' },
       { label: '测试与基准', href: '/docs/guide/testing' },
       { label: 'SaaS 部署指南', href: '/docs/guide/saas-deployment' },
-      { label: 'Markdown 渲染测试', href: '/docs/guide/markdown-test' },
     ],
   },
   {
@@ -44,30 +43,15 @@ const zhDocsSidebar: SidebarGroup[] = [
       { label: '数据库架构与数据模型', href: '/docs/specs/database-architecture' },
       { label: '日志与可观测性方案', href: '/docs/specs/logging-and-observability' },
       { label: 'Run 执行架构', href: '/docs/specs/run-execution-architecture' },
-      { label: 'Console Lite Design Specification', href: '/docs/specs/console-lite' },
-      { label: 'Shell Execute 设计方案', href: '/docs/specs/shell-execute-architecture' },
-      { label: 'Installer Bridge 设计方案', href: '/docs/specs/installer-bridge-architecture' },
       { label: 'Browser Automation 设计方案', href: '/docs/specs/browser-automation-architecture' },
-      { label: 'Claw 设计方案', href: '/docs/specs/claw-architecture' },
       { label: '社交平台 Channel 接入架构', href: '/docs/specs/channel-integration-architecture' },
       { label: 'ACP Provider 接入架构', href: '/docs/specs/opencode-acp-architecture' },
       { label: 'Web App 移动端适配方案', href: '/docs/specs/mobile-adaptation' },
-      { label: 'Sub-agent 协作架构', href: '/docs/specs/sub-agent-architecture' },
-      { label: 'Platform Agent 架构', href: '/docs/specs/platform-agent-architecture' },
-      { label: 'Prompt Injection 防护', href: '/docs/specs/prompt-injection-protection' },
     ],
   },
   {
     label: '参考',
-    items: [
-      { label: '配置注册表', href: '/docs/reference/configuration' },
-    ],
-  },
-  {
-    label: '路线图',
-    items: [
-      { label: '开源准备度', href: '/docs/roadmap/open-source-readiness-roadmap' },
-    ],
+    items: [{ label: '配置注册表', href: '/docs/reference/configuration' }],
   },
 ];
 
@@ -87,20 +71,11 @@ const enDocsSidebar: SidebarGroup[] = [
       { label: 'Database Architecture and Data Models', href: '/en/docs/specs/database-architecture' },
       { label: 'Logging and Observability Strategy', href: '/en/docs/specs/logging-and-observability' },
       { label: 'Run Execution Architecture', href: '/en/docs/specs/run-execution-architecture' },
-      { label: 'Browser Automation Architecture', href: '/en/docs/specs/browser-automation-architecture' },
     ],
   },
   {
     label: 'Reference',
-    items: [
-      { label: 'Configuration Registry', href: '/en/docs/reference/configuration' },
-    ],
-  },
-  {
-    label: 'Roadmap',
-    items: [
-      { label: 'Open Source Readiness', href: '/en/docs/roadmap/open-source-readiness-roadmap' },
-    ],
+    items: [{ label: 'Configuration Registry', href: '/en/docs/reference/configuration' }],
   },
 ];
 
@@ -270,14 +245,14 @@ export function getLocaleSwitchPath(pathname: string): string | null {
 export function getHomeCards(locale: Locale) {
   if (locale === 'zh') {
     return [
-      { title: '工程文档', description: '架构设计、部署指南、配置注册表与演进路线图。', href: '/docs' },
+      { title: '工程文档', description: '架构设计、部署指南与配置注册表。', href: '/docs' },
       { title: 'API 参考', description: '认证、线程、运行、账户、计费与管理端点。', href: '/api' },
       { title: 'Research', description: 'Arkloop 运行时、Agent Loop 与系统设计研究。', href: '/research' },
     ];
   }
 
   return [
-    { title: 'Documentation', description: 'Architecture, deployment, configuration registry, and roadmap.', href: '/en/docs' },
+    { title: 'Documentation', description: 'Architecture, deployment, and configuration registry.', href: '/en/docs' },
     { title: 'API Reference', description: 'Auth, threads, runs, accounts, billing, and admin endpoints.', href: '/en/api' },
     { title: 'Research', description: 'Runtime, Agent Loop, and system design papers from Arkloop.', href: '/research' },
   ];

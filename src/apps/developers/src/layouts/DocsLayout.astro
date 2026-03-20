@@ -56,7 +56,7 @@ const sidebarTitle = section === 'api' ? 'API Reference' : locale === 'en' ? 'Do
   <div class="docs-shell">
     <Sidebar groups={sidebar} pathname={pathname} title={sidebarTitle} />
 
-    <article class="content-shell">
+    <article class="content-shell" data-docs-scroll-root>
       <header class="content-header">
         {showSyntheticTitle && <h1>{title}</h1>}
         {description && <p class="content-description">{description}</p>}
@@ -64,7 +64,7 @@ const sidebarTitle = section === 'api' ? 'API Reference' : locale === 'en' ? 'Do
       <div class="doc-content">
         <slot />
       </div>
-      <PrevNextNav prev={prev} next={next} />
+      <PrevNextNav prev={prev} next={next} locale={locale} />
     </article>
 
     <TableOfContents headings={headings} />
