@@ -64,6 +64,7 @@ type DesktopEngine struct {
 	skillLayout      pipeline.SkillLayoutResolver
 	runtimeSnapshot  *sharedtoolruntime.RuntimeSnapshot
 	jobQueue         queue.JobQueue
+	routingLoader    *routing.ConfigLoader
 }
 
 // ComposeDesktopEngine assembles a DesktopEngine from environment configuration.
@@ -196,7 +197,7 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 	envSnap, err := sharedtoolruntime.BuildRuntimeSnapshot(ctx, sharedtoolruntime.SnapshotInput{
 		HasConversationSearch:  true,
 		ArtifactStoreAvailable: artifactToolsRegistered,
-		ConfigResolver:          nil,
+		ConfigResolver:         nil,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("desktop: env runtime snapshot: %w", err)
@@ -225,6 +226,13 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 	// 尝试从 personas 目录加载
 	personaGetter := loadPersonaRegistryFromFS()
 
+	routingLoader := routing.NewDesktopSQLiteRoutingLoader(
+		func(ctx context.Context) (routing.ProviderRoutingConfig, error) {
+			return loadDesktopRoutingConfig(ctx, db)
+		},
+		routing.DefaultRoutingConfig(),
+	)
+
 	return &DesktopEngine{
 		db:               db,
 		bus:              bus,
@@ -243,6 +251,7 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 		skillLayout:      skillLayout,
 		runtimeSnapshot:  runtimeSnapshot,
 		jobQueue:         jobQueue,
+		routingLoader:    routingLoader,
 	}, nil
 }
 
@@ -374,7 +383,8 @@ func (e *DesktopEngine) Execute(ctx context.Context, run data.Run, traceID strin
 		}),
 		memMiddleware,
 		desktopRouting(e.stubRouter, e.stubGateway, e.emitDebugEvents, e.db, runsRepo, eventsRepo),
-		pipeline.NewContextCompactMiddleware(e.db, data.MessagesRepository{}, data.DesktopRunEventsRepository{}, e.stubGateway, e.emitDebugEvents),
+		pipeline.NewTitleSummarizerMiddleware(e.db, nil, e.stubGateway, e.emitDebugEvents, e.routingLoader),
+		pipeline.NewContextCompactMiddleware(e.db, data.MessagesRepository{}, data.DesktopRunEventsRepository{}, e.stubGateway, e.emitDebugEvents, e.routingLoader),
 		pipeline.NewToolBuildMiddleware(),
 		desktopChannelDelivery(e.db),
 	}
@@ -878,12 +888,24 @@ func desktopPersonaResolution(
 	eventsRepo data.DesktopRunEventsRepository,
 ) pipeline.RunMiddleware {
 	return func(ctx context.Context, rc *pipeline.RunContext, next pipeline.RunHandler) error {
-		registry := personas.NewRegistry()
+		var dbDefs []personas.Definition
+		if db != nil {
+			var err error
+			dbDefs, err = personas.LoadPersonasFromDesktopDB(ctx, db)
+			if err != nil {
+				slog.WarnContext(ctx, "desktop: persona db load failed, trying filesystem", "err", err)
+				dbDefs = nil
+			}
+		}
 
-		dbDefs, err := personas.LoadPersonasFromDesktopDB(ctx, db)
-		if err != nil {
-			slog.WarnContext(ctx, "desktop: persona db load failed, trying filesystem", "err", err)
-		} else {
+		var registry *personas.Registry
+		if getBaseRegistry != nil {
+			if base := getBaseRegistry(); base != nil {
+				registry = personas.MergeRegistry(base, dbDefs)
+			}
+		}
+		if registry == nil {
+			registry = personas.NewRegistry()
 			for _, def := range dbDefs {
 				registry.Set(def)
 			}
@@ -957,6 +979,9 @@ func desktopPersonaResolution(
 				pipeline.RemoveToolOrGroup(rc.AllowlistSet, rc.ToolRegistry, name)
 			}
 			rc.TitleSummarizer = def.TitleSummarizer
+			if rc.TitleSummarizer == nil {
+				rc.TitleSummarizer = personas.DesktopFallbackTitleSummarizer()
+			}
 		}
 
 		return next(ctx, rc)
@@ -1097,6 +1122,8 @@ func desktopRouting(
 		rc.ResolveGatewayForAgentName = func(ctx context.Context, name string) (llm.Gateway, *routing.SelectedProviderRoute, error) {
 			return resolveGateway(ctx, "")
 		}
+
+		rc.RoutingByokEnabled = false
 
 		return next(ctx, rc)
 	}
