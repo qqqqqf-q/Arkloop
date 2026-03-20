@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo, Fragment, type ComponentProps } from 'react'
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, Fragment, type ComponentProps } from 'react'
 import { useParams, useLocation, useOutletContext, useNavigate } from 'react-router-dom'
 import { createPortal } from 'react-dom'
 import { motion } from 'framer-motion'
@@ -181,9 +181,11 @@ type OutletContext = {
   availableAppModes: import('../storage').AppMode[]
   onSetAppMode: (mode: import('../storage').AppMode) => void
   onOpenSettings?: (tab: string) => void
+  /** Desktop 标题栏眼镜与 Chat 共用同一套点击逻辑 */
+  setTitleBarIncognitoClick?: (fn: (() => void) | null) => void
 }
 
-type LocationState = { initialRunId?: string; isSearch?: boolean; isIncognitoFork?: boolean; forkBaseCount?: number } | null
+type LocationState = { initialRunId?: string; isSearch?: boolean; isIncognitoFork?: boolean; forkBaseCount?: number; userEnterMessageId?: string } | null
 
 type DocumentPanelState = {
   artifact: ArtifactRef
@@ -311,7 +313,7 @@ function LiveTurnMarkdown({
 }
 
 export function ChatPage() {
-  const { accessToken, onLoggedOut, onRunStarted, onRunEnded, onThreadCreated, onThreadTitleUpdated, refreshCredits, onOpenNotifications, notificationVersion, creditsBalance: _creditsBalance, onTogglePrivateMode, privateThreadIds, onSetPendingIncognito, onRightPanelChange, threads, onThreadDeleted, appMode, availableAppModes, onSetAppMode, onOpenSettings } = useOutletContext<OutletContext>()
+  const { accessToken, onLoggedOut, onRunStarted, onRunEnded, onThreadCreated, onThreadTitleUpdated, refreshCredits, onOpenNotifications, notificationVersion, creditsBalance: _creditsBalance, onTogglePrivateMode, privateThreadIds, onSetPendingIncognito, setTitleBarIncognitoClick, onRightPanelChange, threads, onThreadDeleted, appMode, availableAppModes, onSetAppMode, onOpenSettings } = useOutletContext<OutletContext>()
   const { threadId } = useParams<{ threadId: string }>()
   const location = useLocation()
   const locationState = location.state as LocationState
@@ -575,6 +577,25 @@ export function ChatPage() {
     setCheckInDraft('')
   }, [resetAssistantTurnLive, resetSearchSteps])
 
+  /** run 结束后等 refreshMessages 落盘再清；避免「流式 DOM 拆掉、助手消息尚未进列表」的一帧空洞 */
+  const clearDeferredLiveRunUi = useCallback(() => {
+    setLiveAssistantTurn(null)
+    setTopLevelCodeExecutions([])
+    setTopLevelSubAgents([])
+    setTopLevelFileOps([])
+    setTopLevelWebFetches([])
+    streamingArtifactsRef.current = []
+    setStreamingArtifacts([])
+    setSegments([])
+    activeSegmentIdRef.current = null
+    currentRunArtifactsRef.current = []
+    currentRunCodeExecutionsRef.current = []
+    currentRunBrowserActionsRef.current = []
+    currentRunSubAgentsRef.current = []
+    currentRunFileOpsRef.current = []
+    currentRunWebFetchesRef.current = []
+  }, [])
+
   const bottomRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const copCodeExecScrollRef = useRef<HTMLDivElement>(null)
@@ -820,7 +841,10 @@ export function ChatPage() {
     setInjectionBlocked(null)
     injectionBlockedRunIdRef.current = null
 
+    const navUserEnterMessageId = locationState?.userEnterMessageId
+
     void (async () => {
+      let loadedItems: MessageResponse[] | null = null
       try {
         const [initialItems, runs] = await Promise.all([
           listMessages(accessToken, threadId),
@@ -834,6 +858,7 @@ export function ChatPage() {
           : initialItems
         if (disposed || !isMessageSyncCurrent(syncVersion)) return
 
+        loadedItems = items
         setMessages(items)
 
         // 加载各消息缓存的 web 来源
@@ -996,7 +1021,21 @@ export function ChatPage() {
         setError(normalizeError(err))
       } finally {
         if (!disposed && isMessageSyncCurrent(syncVersion)) {
+          if (
+            navUserEnterMessageId &&
+            loadedItems &&
+            loadedItems.some((m) => m.id === navUserEnterMessageId && m.role === 'user')
+          ) {
+            setUserEnterMessageId(navUserEnterMessageId)
+          }
           setMessagesLoading(false)
+          if (locationState?.userEnterMessageId) {
+            const rest: LocationState = { ...locationState }
+            delete rest.userEnterMessageId
+            queueMicrotask(() => {
+              navigate('.', { replace: true, state: Object.keys(rest as object).length > 0 ? rest : undefined })
+            })
+          }
         }
       }
     })()
@@ -1054,6 +1093,26 @@ export function ChatPage() {
     return () => { onSetPendingIncognito(false) }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingIncognito])
+
+  const handleTitleBarIncognitoClick = useCallback(() => {
+    if (!threadId) return
+    if (privateThreadIds.has(threadId)) return
+    if (pendingIncognito) {
+      setPendingIncognito(false)
+      return
+    }
+    if (messages.length > 0) {
+      setPendingIncognito(true)
+      return
+    }
+    onTogglePrivateMode()
+  }, [threadId, privateThreadIds, pendingIncognito, messages.length, onTogglePrivateMode])
+
+  useLayoutEffect(() => {
+    if (!isDesktop() || !setTitleBarIncognitoClick) return
+    setTitleBarIncognitoClick(handleTitleBarIncognitoClick)
+    return () => { setTitleBarIncognitoClick(null) }
+  }, [setTitleBarIncognitoClick, handleTitleBarIncognitoClick])
 
   // 连接 SSE
   useEffect(() => {
@@ -1489,18 +1548,10 @@ export function ChatPage() {
         const runThinking = buildLiveThinkingSnapshot()
         const runWidgets = collectCompletedWidgets(streamingArtifactsRef.current)
         const runAssistantTurn = drainAssistantTurnForPersist(assistantTurnFoldStateRef.current)
-        setLiveAssistantTurn(null)
+        setLiveAssistantTurn(runAssistantTurn.segments.length > 0 ? runAssistantTurn : null)
         sse.disconnect()
         setActiveRunId(null)
         setThinkingDraft('')
-        setTopLevelCodeExecutions([])
-        setTopLevelSubAgents([])
-        setTopLevelFileOps([])
-        setTopLevelWebFetches([])
-        streamingArtifactsRef.current = []
-        setStreamingArtifacts([])
-        setSegments([])
-        activeSegmentIdRef.current = null
 
         const runSearchSteps = finalizeSearchSteps(searchStepsRef.current)
         if (runSearchSteps.length > 0) applySearchSteps(() => runSearchSteps)
@@ -1512,79 +1563,75 @@ export function ChatPage() {
         refreshCredits()
         const runSources = [...currentRunSourcesRef.current]
         const runArtifacts = [...currentRunArtifactsRef.current]
-        currentRunArtifactsRef.current = []
         const runCodeExecs = [...currentRunCodeExecutionsRef.current]
-        currentRunCodeExecutionsRef.current = []
         const runBrowserActions = [...currentRunBrowserActionsRef.current]
-        currentRunBrowserActionsRef.current = []
         const runSubAgents = [...currentRunSubAgentsRef.current]
-        currentRunSubAgentsRef.current = []
         const runFileOps = [...currentRunFileOpsRef.current]
-        currentRunFileOpsRef.current = []
         const runWebFetches = [...currentRunWebFetchesRef.current]
-        currentRunWebFetchesRef.current = []
-        void refreshMessages({ requiredCompletedRunId: completedRunId }).then((items) => {
-          const completedAssistant = findAssistantMessageForRun(items, completedRunId)
-          if (completedAssistant) {
-            if (runWidgets.length > 0) {
-              writeMessageWidgets(completedAssistant.id, runWidgets)
-              setMessageWidgetsMap((prev) => new Map(prev).set(completedAssistant.id, runWidgets))
-            }
-            if (runSources.length > 0) {
-              writeMessageSources(completedAssistant.id, runSources)
-              setMessageSourcesMap((prev) => new Map(prev).set(completedAssistant.id, runSources))
-            }
-            const pendingSearchSteps = pendingSearchStepsRef.current
-            pendingSearchStepsRef.current = null
-            if (pendingSearchSteps && pendingSearchSteps.length > 0) {
-              writeMessageSearchSteps(completedAssistant.id, pendingSearchSteps)
-              setMessageSearchStepsMap((prev) => new Map(prev).set(completedAssistant.id, pendingSearchSteps))
-            }
-            if (runAssistantTurn.segments.length > 0) {
-              writeMessageAssistantTurn(completedAssistant.id, runAssistantTurn)
-              setMessageAssistantTurnMap((prev) => new Map(prev).set(completedAssistant.id, runAssistantTurn))
-            }
-            if (runArtifacts.length > 0) {
-              writeMessageArtifacts(completedAssistant.id, runArtifacts)
-              setMessageArtifactsMap((prev) => new Map(prev).set(completedAssistant.id, runArtifacts))
-            }
-            writeMessageCodeExecutions(completedAssistant.id, runCodeExecs)
-            setMessageCodeExecutionsMap((prev) => new Map(prev).set(completedAssistant.id, runCodeExecs))
-            if (runBrowserActions.length > 0) {
-              writeMessageBrowserActions(completedAssistant.id, runBrowserActions)
-              setMessageBrowserActionsMap((prev) => new Map(prev).set(completedAssistant.id, runBrowserActions))
-            }
-            if (runSubAgents.length > 0) {
-              writeMessageSubAgents(completedAssistant.id, runSubAgents)
-              setMessageSubAgentsMap((prev) => new Map(prev).set(completedAssistant.id, runSubAgents))
-            }
-            if (runFileOps.length > 0) {
-              writeMessageFileOps(completedAssistant.id, runFileOps)
-              setMessageFileOpsMap((prev) => new Map(prev).set(completedAssistant.id, runFileOps))
-            }
-            if (runWebFetches.length > 0) {
-              writeMessageWebFetches(completedAssistant.id, runWebFetches)
-              setMessageWebFetchesMap((prev) => new Map(prev).set(completedAssistant.id, runWebFetches))
-            }
-            if (runThinking) {
-              writeMessageThinking(completedAssistant.id, runThinking)
-              setMessageThinkingMap((prev) => new Map(prev).set(completedAssistant.id, runThinking))
-            }
+        void refreshMessages({ requiredCompletedRunId: completedRunId })
+          .then((items) => {
+            const completedAssistant = findAssistantMessageForRun(items, completedRunId)
+            if (completedAssistant) {
+              if (runWidgets.length > 0) {
+                writeMessageWidgets(completedAssistant.id, runWidgets)
+                setMessageWidgetsMap((prev) => new Map(prev).set(completedAssistant.id, runWidgets))
+              }
+              if (runSources.length > 0) {
+                writeMessageSources(completedAssistant.id, runSources)
+                setMessageSourcesMap((prev) => new Map(prev).set(completedAssistant.id, runSources))
+              }
+              const pendingSearchSteps = pendingSearchStepsRef.current
+              pendingSearchStepsRef.current = null
+              if (pendingSearchSteps && pendingSearchSteps.length > 0) {
+                writeMessageSearchSteps(completedAssistant.id, pendingSearchSteps)
+                setMessageSearchStepsMap((prev) => new Map(prev).set(completedAssistant.id, pendingSearchSteps))
+              }
+              if (runAssistantTurn.segments.length > 0) {
+                writeMessageAssistantTurn(completedAssistant.id, runAssistantTurn)
+                setMessageAssistantTurnMap((prev) => new Map(prev).set(completedAssistant.id, runAssistantTurn))
+              }
+              if (runArtifacts.length > 0) {
+                writeMessageArtifacts(completedAssistant.id, runArtifacts)
+                setMessageArtifactsMap((prev) => new Map(prev).set(completedAssistant.id, runArtifacts))
+              }
+              writeMessageCodeExecutions(completedAssistant.id, runCodeExecs)
+              setMessageCodeExecutionsMap((prev) => new Map(prev).set(completedAssistant.id, runCodeExecs))
+              if (runBrowserActions.length > 0) {
+                writeMessageBrowserActions(completedAssistant.id, runBrowserActions)
+                setMessageBrowserActionsMap((prev) => new Map(prev).set(completedAssistant.id, runBrowserActions))
+              }
+              if (runSubAgents.length > 0) {
+                writeMessageSubAgents(completedAssistant.id, runSubAgents)
+                setMessageSubAgentsMap((prev) => new Map(prev).set(completedAssistant.id, runSubAgents))
+              }
+              if (runFileOps.length > 0) {
+                writeMessageFileOps(completedAssistant.id, runFileOps)
+                setMessageFileOpsMap((prev) => new Map(prev).set(completedAssistant.id, runFileOps))
+              }
+              if (runWebFetches.length > 0) {
+                writeMessageWebFetches(completedAssistant.id, runWebFetches)
+                setMessageWebFetchesMap((prev) => new Map(prev).set(completedAssistant.id, runWebFetches))
+              }
+              if (runThinking) {
+                writeMessageThinking(completedAssistant.id, runThinking)
+                setMessageThinkingMap((prev) => new Map(prev).set(completedAssistant.id, runThinking))
+              }
 
-            const completedRunEvents = (sse.events as MsgRunEvent[]).filter(
-              (e) => e.run_id === completedRunId,
-            )
-            if (completedRunEvents.length > 0) {
-              writeMsgRunEvents(completedAssistant.id, completedRunEvents)
-              setMsgRunEventsMap((prev) => new Map(prev).set(completedAssistant.id, completedRunEvents))
+              const completedRunEvents = (sse.events as MsgRunEvent[]).filter(
+                (e) => e.run_id === completedRunId,
+              )
+              if (completedRunEvents.length > 0) {
+                writeMsgRunEvents(completedAssistant.id, completedRunEvents)
+                setMsgRunEventsMap((prev) => new Map(prev).set(completedAssistant.id, completedRunEvents))
+              }
             }
-          }
-          const pending = pendingMessageRef.current
-          if (pending) {
-            pendingMessageRef.current = null
-            void sendMessageRef.current(pending)
-          }
-        })
+            const pending = pendingMessageRef.current
+            if (pending) {
+              pendingMessageRef.current = null
+              void sendMessageRef.current(pending)
+            }
+          })
+          .finally(clearDeferredLiveRunUi)
         // 标题生成在后端异步执行，run.completed 后 SSE 已断开，轮询补偿
         if (threadId) {
           const tid = threadId
@@ -1673,7 +1720,7 @@ export function ChatPage() {
       }
     }
     if (dismissAssistantPlaceholder) setAwaitingFirstSse(false)
-  }, [activeRunId, clearLiveRunSecurityArtifacts, refreshMessages, refreshCredits, sse.events]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeRunId, clearDeferredLiveRunUi, clearLiveRunSecurityArtifacts, refreshMessages, refreshCredits, sse.events]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // 401 SSE 错误时登出
   useEffect(() => {
@@ -1702,29 +1749,15 @@ export function ChatPage() {
     const runArtifacts = [...currentRunArtifactsRef.current]
     const runWidgets = collectCompletedWidgets(streamingArtifactsRef.current)
     const runAssistantTurn = drainAssistantTurnForPersist(assistantTurnFoldStateRef.current)
-    setLiveAssistantTurn(null)
+    setLiveAssistantTurn(runAssistantTurn.segments.length > 0 ? runAssistantTurn : null)
     const runCodeExecs = [...currentRunCodeExecutionsRef.current]
     const runBrowserActions = [...currentRunBrowserActionsRef.current]
-    currentRunArtifactsRef.current = []
-    currentRunCodeExecutionsRef.current = []
-    currentRunBrowserActionsRef.current = []
     const runSubAgents = [...currentRunSubAgentsRef.current]
-    currentRunSubAgentsRef.current = []
     const runFileOps = [...currentRunFileOpsRef.current]
-    currentRunFileOpsRef.current = []
     const runWebFetches2 = [...currentRunWebFetchesRef.current]
-    currentRunWebFetchesRef.current = []
 
     setActiveRunId(null)
     setThinkingDraft('')
-    setTopLevelCodeExecutions([])
-    setTopLevelSubAgents([])
-    setTopLevelFileOps([])
-    setTopLevelWebFetches([])
-    streamingArtifactsRef.current = []
-    setStreamingArtifacts([])
-    setSegments([])
-    activeSegmentIdRef.current = null
     setQueuedDraft(null)
     setAwaitingInput(false)
     setPendingUserInput(null)
@@ -1732,50 +1765,52 @@ export function ChatPage() {
     if (threadId) onRunEnded(threadId)
     refreshCredits()
 
-    void refreshMessages({ requiredCompletedRunId: terminalRunId }).then((items) => {
-      const completedAssistant = findAssistantMessageForRun(items, terminalRunId)
-      if (completedAssistant) {
-        if (runWidgets.length > 0) {
-          writeMessageWidgets(completedAssistant.id, runWidgets)
-          setMessageWidgetsMap((prev) => new Map(prev).set(completedAssistant.id, runWidgets))
+    void refreshMessages({ requiredCompletedRunId: terminalRunId })
+      .then((items) => {
+        const completedAssistant = findAssistantMessageForRun(items, terminalRunId)
+        if (completedAssistant) {
+          if (runWidgets.length > 0) {
+            writeMessageWidgets(completedAssistant.id, runWidgets)
+            setMessageWidgetsMap((prev) => new Map(prev).set(completedAssistant.id, runWidgets))
+          }
+          if (runSources.length > 0) {
+            writeMessageSources(completedAssistant.id, runSources)
+            setMessageSourcesMap((prev) => new Map(prev).set(completedAssistant.id, runSources))
+          }
+          if (runAssistantTurn.segments.length > 0) {
+            writeMessageAssistantTurn(completedAssistant.id, runAssistantTurn)
+            setMessageAssistantTurnMap((prev) => new Map(prev).set(completedAssistant.id, runAssistantTurn))
+          }
+          if (runArtifacts.length > 0) {
+            writeMessageArtifacts(completedAssistant.id, runArtifacts)
+            setMessageArtifactsMap((prev) => new Map(prev).set(completedAssistant.id, runArtifacts))
+          }
+          writeMessageCodeExecutions(completedAssistant.id, runCodeExecs)
+          setMessageCodeExecutionsMap((prev) => new Map(prev).set(completedAssistant.id, runCodeExecs))
+          if (runBrowserActions.length > 0) {
+            writeMessageBrowserActions(completedAssistant.id, runBrowserActions)
+            setMessageBrowserActionsMap((prev) => new Map(prev).set(completedAssistant.id, runBrowserActions))
+          }
+          if (runSubAgents.length > 0) {
+            writeMessageSubAgents(completedAssistant.id, runSubAgents)
+            setMessageSubAgentsMap((prev) => new Map(prev).set(completedAssistant.id, runSubAgents))
+          }
+          if (runFileOps.length > 0) {
+            writeMessageFileOps(completedAssistant.id, runFileOps)
+            setMessageFileOpsMap((prev) => new Map(prev).set(completedAssistant.id, runFileOps))
+          }
+          if (runWebFetches2.length > 0) {
+            writeMessageWebFetches(completedAssistant.id, runWebFetches2)
+            setMessageWebFetchesMap((prev) => new Map(prev).set(completedAssistant.id, runWebFetches2))
+          }
+          if (runThinking) {
+            writeMessageThinking(completedAssistant.id, runThinking)
+            setMessageThinkingMap((prev) => new Map(prev).set(completedAssistant.id, runThinking))
+          }
         }
-        if (runSources.length > 0) {
-          writeMessageSources(completedAssistant.id, runSources)
-          setMessageSourcesMap((prev) => new Map(prev).set(completedAssistant.id, runSources))
-        }
-        if (runAssistantTurn.segments.length > 0) {
-          writeMessageAssistantTurn(completedAssistant.id, runAssistantTurn)
-          setMessageAssistantTurnMap((prev) => new Map(prev).set(completedAssistant.id, runAssistantTurn))
-        }
-        if (runArtifacts.length > 0) {
-          writeMessageArtifacts(completedAssistant.id, runArtifacts)
-          setMessageArtifactsMap((prev) => new Map(prev).set(completedAssistant.id, runArtifacts))
-        }
-        writeMessageCodeExecutions(completedAssistant.id, runCodeExecs)
-        setMessageCodeExecutionsMap((prev) => new Map(prev).set(completedAssistant.id, runCodeExecs))
-        if (runBrowserActions.length > 0) {
-          writeMessageBrowserActions(completedAssistant.id, runBrowserActions)
-          setMessageBrowserActionsMap((prev) => new Map(prev).set(completedAssistant.id, runBrowserActions))
-        }
-        if (runSubAgents.length > 0) {
-          writeMessageSubAgents(completedAssistant.id, runSubAgents)
-          setMessageSubAgentsMap((prev) => new Map(prev).set(completedAssistant.id, runSubAgents))
-        }
-        if (runFileOps.length > 0) {
-          writeMessageFileOps(completedAssistant.id, runFileOps)
-          setMessageFileOpsMap((prev) => new Map(prev).set(completedAssistant.id, runFileOps))
-        }
-        if (runWebFetches2.length > 0) {
-          writeMessageWebFetches(completedAssistant.id, runWebFetches2)
-          setMessageWebFetchesMap((prev) => new Map(prev).set(completedAssistant.id, runWebFetches2))
-        }
-        if (runThinking) {
-          writeMessageThinking(completedAssistant.id, runThinking)
-          setMessageThinkingMap((prev) => new Map(prev).set(completedAssistant.id, runThinking))
-        }
-      }
-    })
-  }, [activeRunId, sse.state, buildLiveThinkingSnapshot]) // eslint-disable-line react-hooks/exhaustive-deps
+      })
+      .finally(clearDeferredLiveRunUi)
+  }, [activeRunId, sse.state, buildLiveThinkingSnapshot, clearDeferredLiveRunUi]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // 初始加载完成后，将最后一条 user 消息滚动至顶部
   useEffect(() => {
@@ -1793,7 +1828,11 @@ export function ChatPage() {
   // 新消息/流式内容时，仅在用户停留在底部时自动滚动
   useEffect(() => {
     if (!isAtBottomRef.current) return
-    bottomRef.current?.scrollIntoView({ behavior: isStreaming ? 'instant' : 'smooth' })
+    const liveHandoffPaint =
+      liveAssistantTurn != null && liveAssistantTurn.segments.length > 0
+    bottomRef.current?.scrollIntoView({
+      behavior: isStreaming || liveHandoffPaint ? 'instant' : 'smooth',
+    })
   }, [messages, liveAssistantTurn, segments, isStreaming])
 
   // COP 代码执行列表：新 item 添加时自动滚动到底部
@@ -1935,14 +1974,19 @@ export function ChatPage() {
         if (forked.id_mapping) migrateMessageMetadata(forked.id_mapping)
         onThreadCreated(forked)
         const uploaded = await uploadAttachments(forked.id)
-        await createMessage(accessToken, forked.id, buildMessageRequest(text, uploaded))
+        const forkUserMessage = await createMessage(accessToken, forked.id, buildMessageRequest(text, uploaded))
         const run = await createRun(accessToken, forked.id, personaKey, modelOverride, readThreadClawFolder(threadId) ?? undefined)
         if (personaKey === SEARCH_PERSONA_KEY) addSearchThreadId(forked.id)
         attachments.forEach((attachment) => revokeDraftAttachment(attachment))
         setDraft('')
         setAttachments([])
         navigate(`/t/${forked.id}`, {
-          state: { isIncognitoFork: true, initialRunId: run.run_id, forkBaseCount: messages.length },
+          state: {
+            isIncognitoFork: true,
+            initialRunId: run.run_id,
+            forkBaseCount: messages.length,
+            userEnterMessageId: forkUserMessage.id,
+          },
           replace: false,
         })
         onRunStarted(forked.id)
@@ -2296,7 +2340,7 @@ export function ChatPage() {
   const livePlacedCreateArtifactCallIds = useMemo(() => liveCopCreateArtifactCallIds(liveAssistantTurn), [liveAssistantTurn])
 
   const copTimelineStreamHiddenIds = useMemo(() => {
-    if (!isStreaming || !liveAssistantTurn) return new Set<string>()
+    if (!liveAssistantTurn || liveAssistantTurn.segments.length === 0) return new Set<string>()
     return toolCallIdsInCopTimelines(liveAssistantTurn, {
       codeExecutions: topLevelCodeExecutions,
       fileOps: topLevelFileOps,
@@ -2305,7 +2349,7 @@ export function ChatPage() {
       searchSteps,
       sources: currentRunSourcesRef.current,
     })
-  }, [isStreaming, liveAssistantTurn, topLevelCodeExecutions, topLevelFileOps, topLevelWebFetches, topLevelSubAgents, searchSteps])
+  }, [liveAssistantTurn, topLevelCodeExecutions, topLevelFileOps, topLevelWebFetches, topLevelSubAgents, searchSteps])
 
   const allStreamItemsForUi = useMemo(() => {
     if (copTimelineStreamHiddenIds.size === 0) return allStreamItems
@@ -2405,7 +2449,7 @@ export function ChatPage() {
               availableModes={availableAppModes}
             />
           )}
-          {!isDesktop() && threadId && privateThreadIds.has(threadId) && (
+          {threadId && privateThreadIds.has(threadId) && (
             <span className="text-xs font-medium text-[var(--c-text-muted)]">{t.incognitoLabel}</span>
           )}
           {!isDesktop() && (
@@ -2721,7 +2765,7 @@ export function ChatPage() {
               )}
 
               {/* 流式：正文 Markdown + COP 用 CopTimeline 点线 */}
-              {isStreaming && liveAssistantTurn && liveAssistantTurn.segments.length > 0 && (
+              {liveAssistantTurn && liveAssistantTurn.segments.length > 0 && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 0, maxWidth: '663px' }}>
                   {liveAssistantTurn.segments.map((seg, si) => {
                     const lastSegIdx = liveAssistantTurn.segments.length - 1
@@ -2810,7 +2854,7 @@ export function ChatPage() {
               )}
 
               {/* 流式：顶层代码 / 子代理 / 文件 / 抓取（已出现在 COP CopTimeline 的 id 不再渲染） */}
-              {isStreaming && allStreamItemsForUi.length > 0 && (
+              {allStreamItemsForUi.length > 0 && (
                 <motion.div
                   initial={{ opacity: 0, y: 6 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -2890,8 +2934,11 @@ export function ChatPage() {
                 />
               )}
 
-              {/* 无 COP 时，顶层代码执行卡片独立渲染（仅流式结束后、run.completed 前的短暂窗口） */}
-              {!isStreaming && (dedupedTopLevelCodeExecutions.length > 0 || topLevelSubAgents.length > 0 || topLevelFileOps.length > 0 || topLevelWebFetches.length > 0) && (
+              {/* 无 live 助手块且无序列化顶层条时，用 CopTimeline 收束（与 allStreamItemsForUi 互斥） */}
+              {!isStreaming &&
+                liveAssistantTurn == null &&
+                allStreamItemsForUi.length === 0 &&
+                (dedupedTopLevelCodeExecutions.length > 0 || topLevelSubAgents.length > 0 || topLevelFileOps.length > 0 || topLevelWebFetches.length > 0) && (
                 <div style={{ maxWidth: '663px' }}>
                   <CopTimeline
                     steps={[]}

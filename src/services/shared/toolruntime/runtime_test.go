@@ -151,7 +151,7 @@ func TestResolveBuiltinAddsWebToolsFromEnv(t *testing.T) {
 	}
 }
 
-func TestResolveBuiltinHidesWebToolsWhenEnvIncomplete(t *testing.T) {
+func TestResolveBuiltinWebFetchJinaWorksWithoutAPIKey(t *testing.T) {
 	resolved := ResolveBuiltin(ResolveInput{
 		Env: EnvConfig{
 			WebSearchProvider: "tavily",
@@ -161,8 +161,8 @@ func TestResolveBuiltinHidesWebToolsWhenEnvIncomplete(t *testing.T) {
 	if _, ok := resolved.ToolNameSet()["web_search"]; ok {
 		t.Fatal("web_search should be absent when tavily has no API key")
 	}
-	if _, ok := resolved.ToolNameSet()["web_fetch"]; ok {
-		t.Fatal("web_fetch should be absent when jina has no API key")
+	if _, ok := resolved.ToolNameSet()["web_fetch"]; !ok {
+		t.Fatal("web_fetch should be present when jina provider is selected without API key")
 	}
 }
 

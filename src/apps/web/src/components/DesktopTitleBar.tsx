@@ -12,11 +12,22 @@ type Props = {
   appMode: AppMode
   onSetAppMode: (mode: AppMode) => void
   availableModes: AppMode[]
+  /** chat 模式下显示；claw 下隐藏。线程内点击由 ChatPage 注册到 layout，与欢迎页共用同一按钮 */
+  showIncognitoToggle?: boolean
   isPrivateMode?: boolean
   onTogglePrivateMode?: () => void
 }
 
-export function DesktopTitleBar({ sidebarCollapsed, onToggleSidebar, appMode, onSetAppMode, availableModes, isPrivateMode, onTogglePrivateMode }: Props) {
+export function DesktopTitleBar({
+  sidebarCollapsed,
+  onToggleSidebar,
+  appMode,
+  onSetAppMode,
+  availableModes,
+  showIncognitoToggle = true,
+  isPrivateMode,
+  onTogglePrivateMode,
+}: Props) {
   const { t } = useLocale()
 
   if (!isDesktop()) return null
@@ -75,7 +86,7 @@ export function DesktopTitleBar({ sidebarCollapsed, onToggleSidebar, appMode, on
         className="ml-auto flex items-center justify-end"
         style={{ WebkitAppRegion: 'no-drag', minWidth: '300px' } as React.CSSProperties}
       >
-        {appMode !== 'claw' && onTogglePrivateMode && (
+        {showIncognitoToggle && onTogglePrivateMode && (
           <button
             onClick={onTogglePrivateMode}
             title={t.toggleIncognito}

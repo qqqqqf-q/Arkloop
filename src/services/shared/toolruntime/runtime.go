@@ -349,7 +349,8 @@ func webFetchEnvConfigured(env EnvConfig) bool {
 	case "firecrawl":
 		return env.WebFetchBaseURL != ""
 	case "jina":
-		return env.WebFetchAPIKey != ""
+		// Reader 匿名档可不带 key（见 web_fetch.JinaProvider）；key 仅用于提高限额
+		return true
 	default:
 		return false
 	}

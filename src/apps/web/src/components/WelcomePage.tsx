@@ -45,6 +45,7 @@ type OutletContext = {
   onConsumeSkillPrompt?: () => void
   onOpenSettings?: (tab: string) => void
   appMode?: import('../storage').AppMode
+  setTitleBarIncognitoClick?: (fn: (() => void) | null) => void
 }
 
 // 按时段、星期、节日生成问候语，全部基于浏览器本地时间。
@@ -283,7 +284,7 @@ export function WelcomePage() {
           return await uploadThreadAttachment(accessToken, thread.id, attachment.file)
         }),
       )
-      await createMessage(accessToken, thread.id, buildMessageRequest(text, uploaded))
+      const userMessage = await createMessage(accessToken, thread.id, buildMessageRequest(text, uploaded))
       const run = await createRun(accessToken, thread.id, personaKey, modelOverride, readClawWorkFolder() ?? undefined)
 
       if (personaKey === SEARCH_PERSONA_KEY) addSearchThreadId(thread.id)
@@ -294,7 +295,13 @@ export function WelcomePage() {
       writeActiveThreadIdToStorage(thread.id)
       if (appMode === 'claw') transferGlobalClawFolderToThread(thread.id)
       onThreadCreated(thread)
-      navigate(`/t/${thread.id}`, { state: { initialRunId: run.run_id, isSearch: personaKey === SEARCH_PERSONA_KEY } })
+      navigate(`/t/${thread.id}`, {
+        state: {
+          initialRunId: run.run_id,
+          isSearch: personaKey === SEARCH_PERSONA_KEY,
+          userEnterMessageId: userMessage.id,
+        },
+      })
     } catch (err) {
       if (isApiError(err) && err.status === 401) {
         onLoggedOut()

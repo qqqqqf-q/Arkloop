@@ -874,9 +874,9 @@ button:not(:disabled) {
 
 @keyframes user-prompt-enter-dark {
   from {
-    transform: scale(1.14);
-    background-color: #1f1f1e;
-    color: #8a8780;
+    transform: scale(1.025);
+    background-color: color-mix(in srgb, var(--c-bg-deep) 88%, var(--c-bg-sub) 12%);
+    color: color-mix(in srgb, var(--c-text-primary) 86%, var(--c-text-secondary) 14%);
   }
   to {
     transform: scale(1);
@@ -887,9 +887,9 @@ button:not(:disabled) {
 
 @keyframes user-prompt-enter-light {
   from {
-    transform: scale(1.14);
-    background-color: #d8d8d6;
-    color: #6a6a68;
+    transform: scale(1.025);
+    background-color: color-mix(in srgb, var(--c-bg-deep) 82%, var(--c-bg-sub) 18%);
+    color: color-mix(in srgb, var(--c-text-primary) 88%, var(--c-text-secondary) 12%);
   }
   to {
     transform: scale(1);
@@ -905,7 +905,7 @@ button:not(:disabled) {
 
 .user-prompt-bubble-enter {
   transform-origin: right center;
-  animation: user-prompt-enter-dark 0.85s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: user-prompt-enter-dark 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 @media (prefers-reduced-motion: reduce) {

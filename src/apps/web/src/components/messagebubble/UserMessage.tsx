@@ -13,12 +13,13 @@ import { USER_TEXT_COLLAPSED_HEIGHT, USER_TEXT_FADE_HEIGHT } from './utils'
 type Props = {
   message: MessageResponse
   animateEnter?: boolean
+  onEnterAnimationEnd?: () => void
   onRetry?: () => void
   onEdit?: (newContent: string) => void
   accessToken?: string
 }
 
-export function UserMessage({ message, onEdit, accessToken, animateEnter }: Props) {
+export function UserMessage({ message, onEdit, accessToken, animateEnter, onEnterAnimationEnd }: Props) {
   const { t } = useLocale()
   const [copied, setCopied] = useState(false)
   const [editing, setEditing] = useState(false)
@@ -27,6 +28,30 @@ export function UserMessage({ message, onEdit, accessToken, animateEnter }: Prop
   const [userTextOverflows, setUserTextOverflows] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const userTextRef = useRef<HTMLDivElement>(null)
+  const enterBubbleRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!animateEnter || !onEnterAnimationEnd) return
+    const el = enterBubbleRef.current
+    let cleared = false
+    const done = () => {
+      if (cleared) return
+      cleared = true
+      onEnterAnimationEnd()
+    }
+    const reduced = typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const fallbackMs = reduced ? 48 : 2000
+    const t = window.setTimeout(done, fallbackMs)
+    const onEnd = () => {
+      window.clearTimeout(t)
+      done()
+    }
+    el?.addEventListener('animationend', onEnd, { once: true })
+    return () => {
+      window.clearTimeout(t)
+      el?.removeEventListener('animationend', onEnd)
+    }
+  }, [animateEnter, onEnterAnimationEnd])
 
   const handleCopy = () => {
     const plainText = messageTextContent(message)
@@ -311,6 +336,7 @@ export function UserMessage({ message, onEdit, accessToken, animateEnter }: Prop
           const fadeMask = `linear-gradient(to bottom, black calc(100% - ${USER_TEXT_FADE_HEIGHT}px), transparent)`
           return (
             <div
+              ref={enterBubbleRef}
               className={[animateEnter ? 'user-prompt-bubble-enter' : '', 'user-prompt-bubble'].filter(Boolean).join(' ')}
               style={{
                 borderRadius: '11px',

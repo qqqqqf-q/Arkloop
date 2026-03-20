@@ -12,6 +12,7 @@ type Props = {
   /** 仅当前线程正在 SSE 且本条为最后一条助手消息时为 true */
   streamAssistantMarkdown?: boolean
   animateUserEnter?: boolean
+  onUserEnterAnimationEnd?: () => void
   onRetry?: () => void
   onEdit?: (newContent: string) => void
   onFork?: () => void
@@ -32,12 +33,13 @@ type Props = {
   plainTextForCopy?: string
 }
 
-export function MessageBubble({ message, streamAssistantMarkdown, animateUserEnter, onRetry, onEdit, onFork, onShare, shareState, webSources, artifacts, browserActions, widgets, accessToken, onWidgetAction, onShowSources, onOpenDocument, activePanelArtifactKey, onViewRunDetail, contentPrefix, contentOverride, plainTextForCopy }: Props) {
+export function MessageBubble({ message, streamAssistantMarkdown, animateUserEnter, onUserEnterAnimationEnd, onRetry, onEdit, onFork, onShare, shareState, webSources, artifacts, browserActions, widgets, accessToken, onWidgetAction, onShowSources, onOpenDocument, activePanelArtifactKey, onViewRunDetail, contentPrefix, contentOverride, plainTextForCopy }: Props) {
   if (message.role === 'user') {
     return (
       <UserMessage
         message={message}
         animateEnter={animateUserEnter}
+        onEnterAnimationEnd={onUserEnterAnimationEnd}
         onRetry={onRetry}
         onEdit={onEdit}
         accessToken={accessToken}

@@ -226,6 +226,17 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
     setPendingIncognitoMode(v)
   }, [])
 
+  const titleBarIncognitoRef = useRef<(() => void) | null>(null)
+  const setTitleBarIncognitoClick = useCallback((fn: (() => void) | null) => {
+    titleBarIncognitoRef.current = fn
+  }, [])
+
+  const handleDesktopTitleBarIncognitoClick = useCallback(() => {
+    const fn = titleBarIncognitoRef.current
+    if (fn) fn()
+    else handleTogglePrivateMode()
+  }, [handleTogglePrivateMode])
+
   const handleRunStarted = useCallback((threadId: string) => {
     setRunningThreadIds((prev) => new Set(prev).add(threadId))
     setThreads((prev) => {
@@ -285,6 +296,12 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
     )
   }
 
+  const currentThreadId = location.pathname.match(/^\/t\/([^/]+)/)?.[1] ?? null
+  const titleBarIncognitoActive =
+    isPrivateMode ||
+    pendingIncognitoMode ||
+    (currentThreadId != null && privateThreadIds.has(currentThreadId))
+
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-[var(--c-bg-page)]">
       {desktop && (
@@ -294,8 +311,9 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
           appMode={appMode}
           onSetAppMode={handleSetAppMode}
           availableModes={availableAppModes}
-          isPrivateMode={isPrivateMode || pendingIncognitoMode}
-          onTogglePrivateMode={handleTogglePrivateMode}
+          showIncognitoToggle={appMode !== 'claw'}
+          isPrivateMode={titleBarIncognitoActive}
+          onTogglePrivateMode={handleDesktopTitleBarIncognitoClick}
         />
       )}
 
@@ -304,10 +322,8 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
           me={me}
           threads={threads.filter((t) => readThreadMode(t.id) === appMode)}
           runningThreadIds={runningThreadIds}
-          isPrivateMode={(() => {
-            const currentThreadId = location.pathname.match(/^\/t\/([^/]+)/)?.[1] ?? null
-            return isPrivateMode || pendingIncognitoMode || (currentThreadId != null && privateThreadIds.has(currentThreadId))
-          })()}
+          // 侧栏「小黑屋」仅跟全局开关与 pending fork；当前是否 private thread 不改变侧栏可导航性
+          isPrivateMode={isPrivateMode || pendingIncognitoMode}
           accessToken={accessToken}
           onNewThread={handleNewThread}
           onLogout={handleLogout}
@@ -377,7 +393,7 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
           />
         ) : (
           <main className="relative flex min-w-0 flex-1 flex-col overflow-y-auto" style={{ scrollbarGutter: 'stable' }}>
-            <Outlet context={{ accessToken, onLoggedOut, me, creditsBalance, onThreadCreated: handleThreadCreated, onRunStarted: handleRunStarted, onRunEnded: handleRunEnded, onThreadTitleUpdated: handleThreadTitleUpdated, refreshCredits, onOpenNotifications: openNotifications, notificationVersion, isPrivateMode, onTogglePrivateMode: handleTogglePrivateMode, privateThreadIds, isSearchMode, onEnterSearchMode: () => { window.history.pushState({ searchMode: true }, '', '/'); setIsSearchMode(true) }, onExitSearchMode: () => setIsSearchMode(false), onSetPendingIncognito: handleSetPendingIncognito, onRightPanelChange: setRightPanelOpen, threads, onThreadDeleted: handleThreadDeleted, pendingSkillPrompt, onConsumeSkillPrompt: () => setPendingSkillPrompt(null), onOpenSettings: (tab: SettingsTab = 'account') => { setSettingsInitialTab(tab); setSettingsOpen(true) }, appMode, availableAppModes, onSetAppMode: handleSetAppMode }} />
+            <Outlet context={{ accessToken, onLoggedOut, me, creditsBalance, onThreadCreated: handleThreadCreated, onRunStarted: handleRunStarted, onRunEnded: handleRunEnded, onThreadTitleUpdated: handleThreadTitleUpdated, refreshCredits, onOpenNotifications: openNotifications, notificationVersion, isPrivateMode, onTogglePrivateMode: handleTogglePrivateMode, privateThreadIds, isSearchMode, onEnterSearchMode: () => { window.history.pushState({ searchMode: true }, '', '/'); setIsSearchMode(true) }, onExitSearchMode: () => setIsSearchMode(false), onSetPendingIncognito: handleSetPendingIncognito, setTitleBarIncognitoClick, onRightPanelChange: setRightPanelOpen, threads, onThreadDeleted: handleThreadDeleted, pendingSkillPrompt, onConsumeSkillPrompt: () => setPendingSkillPrompt(null), onOpenSettings: (tab: SettingsTab = 'account') => { setSettingsInitialTab(tab); setSettingsOpen(true) }, appMode, availableAppModes, onSetAppMode: handleSetAppMode }} />
             {notificationsOpen && (
               <NotificationsPanel accessToken={accessToken} onClose={closeNotifications} onMarkedRead={handleNotificationMarkedRead} />
             )}
