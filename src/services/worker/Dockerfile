@@ -18,12 +18,14 @@ RUN ORT_ARCH=$([ "$TARGETARCH" = "arm64" ] && echo "aarch64" || echo "x64") && \
 WORKDIR /workspace
 COPY src/services/worker/go.mod src/services/worker/go.sum src/services/worker/
 COPY src/services/shared/go.mod src/services/shared/go.sum src/services/shared/
-RUN printf 'go 1.26.0\nuse (\n\t./src/services/worker\n\t./src/services/shared\n)\n' > go.work
+COPY src/services/api/go.mod src/services/api/go.sum src/services/api/
+RUN printf 'go 1.26.0\nuse (\n\t./src/services/api\n\t./src/services/worker\n\t./src/services/shared\n)\n' > go.work
 RUN --mount=type=cache,target=/go/pkg/mod \
     go mod download
 
 COPY src/services/worker src/services/worker
 COPY src/services/shared src/services/shared
+COPY src/services/api src/services/api
 COPY src/personas src/personas
 
 ENV CGO_ENABLED=1
