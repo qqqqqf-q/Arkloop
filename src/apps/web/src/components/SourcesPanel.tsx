@@ -19,7 +19,7 @@ export function SourcesPanel({ sources, userQuery, onClose }: Props) {
   return (
     <div
       style={{
-        width: '420px',
+        width: '100%',
         background: 'var(--c-bg-page)',
         display: 'flex',
         flexDirection: 'column',

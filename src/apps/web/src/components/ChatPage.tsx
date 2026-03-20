@@ -65,6 +65,7 @@ import {
   type AssistantTurnUi,
 } from '../assistantTurnSegments'
 import { copTimelinePayloadForSegment, toolCallIdsInCopTimelines } from '../copSegmentTimeline'
+import { applyRunEventToWebSearchSteps, isWebSearchToolName } from '../webSearchTimelineFromRunEvent'
 import { useLocale } from '../contexts/LocaleContext'
 import { apiBaseUrl } from '@arkloop/shared/api'
 import type { UserInputRequest, UserInputResponse, RequestedSchema } from '../userInputTypes'
@@ -140,7 +141,7 @@ import {
   readThreadClawFolder,
 } from '../storage'
 
-const sidePanelWidth = 420
+const sidePanelWidth = 360
 const documentPanelWidth = 560
 const LIVE_TIMELINE_DOT_NUDGE_Y = 1
 const LIVE_TIMELINE_DOT_TOP = 8 + LIVE_TIMELINE_DOT_NUDGE_Y
@@ -594,7 +595,8 @@ export function ChatPage() {
     currentRunSubAgentsRef.current = []
     currentRunFileOpsRef.current = []
     currentRunWebFetchesRef.current = []
-  }, [])
+    resetSearchSteps()
+  }, [resetSearchSteps])
 
   const bottomRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -791,6 +793,7 @@ export function ChatPage() {
       noResponseMsgIdRef.current = message.id
       const run = await createRun(accessToken, threadId, personaKey, modelOverride, readThreadClawFolder(threadId) ?? undefined)
       if (personaKey === SEARCH_PERSONA_KEY) addSearchThreadId(threadId)
+      resetSearchSteps()
       setAwaitingFirstSse(true)
       setActiveRunId(run.run_id)
       onRunStarted(threadId)
@@ -806,7 +809,7 @@ export function ChatPage() {
     } finally {
       setSending(false)
     }
-  }, [accessToken, threadId, activeRunId, sending, onLoggedOut, onRunStarted, invalidateMessageSync])
+  }, [accessToken, threadId, activeRunId, sending, onLoggedOut, onRunStarted, invalidateMessageSync, resetSearchSteps])
 
   // 用 ref 持有最新的 sendMessage，避免 widget 回调闭包中捕获旧引用
   const sendMessageRef = useRef(sendMessage)
@@ -1201,6 +1204,12 @@ export function ChatPage() {
         dismissAssistantPlaceholder = true
       }
 
+      const nextWebSearchSteps = applyRunEventToWebSearchSteps(searchStepsRef.current, event)
+      if (nextWebSearchSteps !== searchStepsRef.current) {
+        searchStepsRef.current = nextWebSearchSteps
+        setSearchSteps(nextWebSearchSteps)
+      }
+
       if (event.type === 'run.segment.start') {
         const obj = event.data as { segment_id?: unknown; kind?: unknown; display?: unknown }
         const segmentId = typeof obj.segment_id === 'string' ? obj.segment_id : ''
@@ -1391,7 +1400,7 @@ export function ChatPage() {
       if (event.type === 'tool.result') {
         const obj = event.data as { tool_name?: unknown; tool_call_id?: unknown; result?: unknown; error?: unknown }
         const resultToolName = typeof obj.tool_name === 'string' ? obj.tool_name : ''
-        if (resultToolName === 'web_search' || resultToolName.startsWith('web_search.')) {
+        if (isWebSearchToolName(resultToolName)) {
           const result = obj.result as { results?: unknown[] } | undefined
           if (Array.isArray(result?.results)) {
             const newSources: WebSource[] = result.results
@@ -1668,6 +1677,7 @@ export function ChatPage() {
         currentRunSubAgentsRef.current = []
         currentRunFileOpsRef.current = []
         currentRunWebFetchesRef.current = []
+        resetSearchSteps()
         setAwaitingInput(false)
         setPendingUserInput(null)
         setCheckInDraft('')
@@ -1697,6 +1707,7 @@ export function ChatPage() {
         currentRunSubAgentsRef.current = []
         currentRunFileOpsRef.current = []
         currentRunWebFetchesRef.current = []
+        resetSearchSteps()
         setAwaitingInput(false)
         setPendingUserInput(null)
         setCheckInDraft('')
@@ -1720,7 +1731,7 @@ export function ChatPage() {
       }
     }
     if (dismissAssistantPlaceholder) setAwaitingFirstSse(false)
-  }, [activeRunId, clearDeferredLiveRunUi, clearLiveRunSecurityArtifacts, refreshMessages, refreshCredits, sse.events]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeRunId, clearDeferredLiveRunUi, clearLiveRunSecurityArtifacts, refreshMessages, refreshCredits, resetSearchSteps, sse.events]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // 401 SSE 错误时登出
   useEffect(() => {
@@ -2018,6 +2029,7 @@ export function ChatPage() {
         const run = await editMessage(accessToken, threadId, replaceMessageId, text, replacedContentJson)
         if (personaKey === SEARCH_PERSONA_KEY) addSearchThreadId(threadId)
         noResponseMsgIdRef.current = replaceMessageId
+        resetSearchSteps()
         setAwaitingFirstSse(true)
         setActiveRunId(run.run_id)
         onRunStarted(threadId)
@@ -2036,6 +2048,7 @@ export function ChatPage() {
 
         const run = await createRun(accessToken, threadId, personaKey, modelOverride, readThreadClawFolder(threadId) ?? undefined)
         if (personaKey === SEARCH_PERSONA_KEY) addSearchThreadId(threadId)
+        resetSearchSteps()
         setAwaitingFirstSse(true)
         setActiveRunId(run.run_id)
         onRunStarted(threadId)
@@ -2073,6 +2086,7 @@ export function ChatPage() {
           i === idx ? { ...m, content: newContent, content_json: newContentJson ?? m.content_json } : m,
         )
       })
+      resetSearchSteps()
       setAwaitingFirstSse(true)
       setActiveRunId(run.run_id)
       onRunStarted(threadId)
@@ -2086,7 +2100,7 @@ export function ChatPage() {
     } finally {
       setSending(false)
     }
-  }, [accessToken, threadId, isStreaming, sending, onRunStarted, onLoggedOut, scrollToBottom, invalidateMessageSync])
+  }, [accessToken, threadId, isStreaming, sending, onRunStarted, onLoggedOut, scrollToBottom, invalidateMessageSync, resetSearchSteps])
 
   const handleRetry = useCallback(async () => {
     if (isStreaming || sending || !threadId) return
@@ -2103,6 +2117,7 @@ export function ChatPage() {
         if (lastAssistantIdx === -1) return prev
         return prev.filter((_, i) => i !== lastAssistantIdx)
       })
+      resetSearchSteps()
       setAwaitingFirstSse(true)
       setActiveRunId(run.run_id)
       onRunStarted(threadId)
@@ -2116,7 +2131,7 @@ export function ChatPage() {
     } finally {
       setSending(false)
     }
-  }, [accessToken, threadId, isStreaming, sending, onRunStarted, onLoggedOut, scrollToBottom, invalidateMessageSync])
+  }, [accessToken, threadId, isStreaming, sending, onRunStarted, onLoggedOut, scrollToBottom, invalidateMessageSync, resetSearchSteps])
 
   const handleAsrError = useCallback((err: unknown) => {
     if (isApiError(err) && err.status === 401) {
@@ -3146,22 +3161,15 @@ export function ChatPage() {
       </div>
 
         </div>
-        {/* 右侧面板：flex 兄弟节点，主内容区自然收窄 */}
-        <div
-          style={appMode === 'claw' ? {
-            width: '300px',
-            flexShrink: 0,
-            overflow: 'hidden',
-          } : {
-            width: isDocumentPanelOpen ? `${documentPanelWidth}px` : (isSourcePanelOpen || isCodePanelOpen) ? `${sidePanelWidth}px` : '0px',
-            overflow: 'hidden',
-            flexShrink: 0,
-            transition: 'width 280ms cubic-bezier(0.16,1,0.3,1)',
-            willChange: 'width',
-            borderLeft: (panelDisplaySources || codePanelDisplay || documentPanelDisplay) ? '0.5px solid var(--c-border-subtle)' : 'none',
-          }}
-        >
-          {appMode === 'claw' ? (
+        {/* 右侧面板：flex 兄弟节点；chat 模式下用 motion 驱动 width，避免嵌套 flex + CSS transition 偶发不插值 */}
+        {appMode === 'claw' ? (
+          <div
+            style={{
+              width: '300px',
+              flexShrink: 0,
+              overflow: 'hidden',
+            }}
+          >
             <ClawRightPanel
               accessToken={accessToken}
               projectId={currentThread?.project_id || undefined}
@@ -3174,43 +3182,59 @@ export function ChatPage() {
               readFiles={allReadFiles}
               threadId={threadId}
             />
-          ) : (
-            <>
-              {isSourcePanelOpen && panelDisplaySources && panelDisplaySources.length > 0 && (
-                <div style={{ width: `${sidePanelWidth}px`, height: '100%', contain: 'layout style' }}>
-                  <SourcesPanel
-                    sources={panelDisplaySources}
-                    userQuery={panelDisplayQuery}
-                    onClose={() => { setSourcePanelMessageId(null); onRightPanelChange?.(false) }}
-                  />
-                </div>
-              )}
-              {isCodePanelOpen && codePanelDisplay && (
-                <div style={{ width: `${sidePanelWidth}px`, height: '100%', contain: 'layout style' }}>
-                  <CodeExecutionPanel
-                    execution={codePanelDisplay}
-                    onClose={() => { setCodePanelExecution(null); onRightPanelChange?.(false) }}
-                  />
-                </div>
-              )}
-              {isDocumentPanelOpen && documentPanelDisplay && (
-                <div style={{ width: `${documentPanelWidth}px`, height: '100%', contain: 'layout style' }}>
-                  <DocumentPanel
-                    artifact={documentPanelDisplay.artifact}
-                    artifacts={documentPanelDisplay.artifacts}
-                    accessToken={accessToken}
-                    runId={documentPanelDisplay.runId}
-                    onClose={() => {
-                      stabilizeDocumentPanelScroll()
-                      setDocumentPanelArtifact(null)
-                      onRightPanelChange?.(false)
-                    }}
-                  />
-                </div>
-              )}
-            </>
-          )}
-        </div>
+          </div>
+        ) : (
+          <motion.div
+            className="flex-shrink-0 overflow-hidden"
+            initial={false}
+            animate={{
+              width: isDocumentPanelOpen
+                ? documentPanelWidth
+                : (isSourcePanelOpen || isCodePanelOpen)
+                  ? sidePanelWidth
+                  : 0,
+            }}
+            transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+            style={{
+              borderLeft: (panelDisplaySources || codePanelDisplay || documentPanelDisplay)
+                ? '0.5px solid var(--c-border-subtle)'
+                : 'none',
+            }}
+          >
+            {isSourcePanelOpen && panelDisplaySources && panelDisplaySources.length > 0 && (
+              <div style={{ width: `${sidePanelWidth}px`, height: '100%', contain: 'layout style' }}>
+                <SourcesPanel
+                  sources={panelDisplaySources}
+                  userQuery={panelDisplayQuery}
+                  onClose={() => { setSourcePanelMessageId(null); onRightPanelChange?.(false) }}
+                />
+              </div>
+            )}
+            {isCodePanelOpen && codePanelDisplay && (
+              <div style={{ width: `${sidePanelWidth}px`, height: '100%', contain: 'layout style' }}>
+                <CodeExecutionPanel
+                  execution={codePanelDisplay}
+                  onClose={() => { setCodePanelExecution(null); onRightPanelChange?.(false) }}
+                />
+              </div>
+            )}
+            {isDocumentPanelOpen && documentPanelDisplay && (
+              <div style={{ width: `${documentPanelWidth}px`, height: '100%', contain: 'layout style' }}>
+                <DocumentPanel
+                  artifact={documentPanelDisplay.artifact}
+                  artifacts={documentPanelDisplay.artifacts}
+                  accessToken={accessToken}
+                  runId={documentPanelDisplay.runId}
+                  onClose={() => {
+                    stabilizeDocumentPanelScroll()
+                    setDocumentPanelArtifact(null)
+                    onRightPanelChange?.(false)
+                  }}
+                />
+              </div>
+            )}
+          </motion.div>
+        )}
       </div>
 
       {threadId && (
