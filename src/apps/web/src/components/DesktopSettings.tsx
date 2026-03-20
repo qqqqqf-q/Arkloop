@@ -16,6 +16,7 @@ import {
   Brain,
   Palette,
   Route,
+  MessageSquare,
 } from "lucide-react";
 import type { MeResponse } from "../api";
 import { useLocale } from "../contexts/LocaleContext";
@@ -31,6 +32,7 @@ import {
   SearchFetchSettings,
   MemorySettings,
   ConnectionSettings,
+  ChatSettings,
   ExtensionsSettings,
   ModulesSettings,
   DeveloperSettings,
@@ -48,6 +50,7 @@ export type DesktopSettingsKey =
   | "searchFetch"
   | "memory"
   | "connection"
+  | "chat"
   | "modules"
   | "extensions"
   | "developer";
@@ -71,6 +74,7 @@ const MAIN_NAV: NavItem[] = [
 
 const DESKTOP_NAV: NavItem[] = [
   { key: "connection", icon: Wifi },
+  { key: "chat", icon: MessageSquare },
   { key: "memory", icon: Brain },
   { key: "modules", icon: Package },
   { key: "extensions", icon: Blocks },
@@ -159,6 +163,8 @@ export function DesktopSettings({
         return <MemorySettings accessToken={accessToken} />;
       case "connection":
         return <ConnectionSettings />;
+      case "chat":
+        return <ChatSettings accessToken={accessToken} />;
       case "modules":
         return <ModulesSettings />;
       case "extensions":

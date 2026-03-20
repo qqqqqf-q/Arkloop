@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { Plus, Trash2, Download, X, Loader2 } from 'lucide-react'
 import {
   type LlmProvider,
+  type LlmProviderModel,
   type AvailableModel,
   listLlmProviders,
   createLlmProvider,
@@ -13,6 +14,7 @@ import {
   listAvailableModels,
   isApiError,
 } from '../api'
+import { routeAdvancedJsonFromAvailableCatalog } from '@arkloop/shared/llm/available-catalog-advanced-json'
 import { useLocale } from '../contexts/LocaleContext'
 
 const inputCls = 'w-full rounded-md border border-[var(--c-border-subtle)] bg-[var(--c-bg-input)] px-3 py-1.5 text-sm text-[var(--c-text-primary)] outline-none placeholder:text-[var(--c-text-muted)] focus:border-[var(--c-border)]'
@@ -417,19 +419,31 @@ function ModelsSection({
     setErr('')
     try {
       const unconfigured = available.filter((am) => !am.configured)
+      const byLowerId = new Map<string, AvailableModel>()
+      for (const am of unconfigured) {
+        const k = am.id.toLowerCase()
+        if (!byLowerId.has(k)) byLowerId.set(k, am)
+      }
+      const toImport = [...byLowerId.values()]
       const embeddingIds = new Set(
-        unconfigured.filter((am) => am.type === 'embedding').map((am) => am.id.toLowerCase()),
+        toImport.filter((am) => am.type === 'embedding').map((am) => am.id.toLowerCase()),
       )
-      const created = await Promise.all(
-        unconfigured.map((am) => {
-          const isEmb = am.type === 'embedding'
-          return createProviderModel(accessToken, provider.id, {
+      const created: LlmProviderModel[] = []
+      for (const am of toImport) {
+        const isEmb = am.type === 'embedding'
+        try {
+          const pm = await createProviderModel(accessToken, provider.id, {
             model: am.id,
             show_in_picker: false,
             tags: isEmb ? ['embedding'] : undefined,
+            advanced_json: routeAdvancedJsonFromAvailableCatalog(am),
           })
-        })
-      )
+          created.push(pm)
+        } catch (e) {
+          if (isApiError(e) && e.code === 'llm_provider_models.model_conflict') continue
+          throw e
+        }
+      }
       const toEnable = created.filter(
         (pm) =>
           pm.model.toLowerCase().includes('gpt-4o-mini') &&

@@ -19,6 +19,7 @@ import {
   updateProviderModel,
   deleteProviderModel,
   listAvailableModels,
+  routeAdvancedJsonFromAvailableCatalog,
   type LlmProviderScope,
   type LlmProvider,
   type LlmProviderModel,
@@ -460,12 +461,22 @@ export function ProvidersPage() {
       )
       for (const modelID of importSelected) {
         const isEmb = embeddingIds.has(modelID)
+        const am = availableModels.find((m) => m.id === modelID)
         await createProviderModel(selectedProvider.id, {
           scope,
           model: modelID,
           priority: 1,
           is_default: false,
           tags: isEmb ? ['embedding'] : undefined,
+          advanced_json: routeAdvancedJsonFromAvailableCatalog({
+            id: modelID,
+            name: am?.name ?? modelID,
+            type: am?.type,
+            context_length: am?.context_length,
+            max_output_tokens: am?.max_output_tokens,
+            input_modalities: am?.input_modalities,
+            output_modalities: am?.output_modalities,
+          }),
         }, accessToken)
       }
       setShowImport(false)

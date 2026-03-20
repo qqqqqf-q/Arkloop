@@ -1304,7 +1304,14 @@ export type CreateModelRequest = {
   is_default?: boolean
   show_in_picker?: boolean
   tags?: string[]
+  /** worker compact 只认 advanced_json.available_catalog.context_length */
+  advanced_json?: Record<string, unknown>
 }
+
+export {
+  AVAILABLE_CATALOG_ADVANCED_KEY,
+  routeAdvancedJsonFromAvailableCatalog,
+} from '@arkloop/shared/llm/available-catalog-advanced-json'
 
 export type AvailableModel = {
   id: string

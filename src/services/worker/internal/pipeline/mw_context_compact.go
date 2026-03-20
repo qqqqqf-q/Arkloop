@@ -15,7 +15,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pkoukk/tiktoken-go"
 )
 
 const (
@@ -32,8 +32,9 @@ var errContextCompactStreamDone = errors.New("context_compact_stream_done")
 
 // NewContextCompactMiddleware 在 TitleSummarizer 之后运行：可选将头部区间摘要持久化，再按预算裁切消息。
 func NewContextCompactMiddleware(
-	pool *pgxpool.Pool,
+	pool CompactPersistDB,
 	messagesRepo data.MessagesRepository,
+	eventsRepo CompactRunEventAppender,
 	stubGateway llm.Gateway,
 	emitDebugEvents bool,
 	loaders ...*routing.ConfigLoader,
@@ -53,22 +54,44 @@ func NewContextCompactMiddleware(
 			rc.ContextCompact = cfg
 		}
 
+		var enc *tiktoken.Tiktoken
+		if rc.SelectedRoute != nil {
+			if tke, encErr := ResolveTiktokenForRoute(rc.SelectedRoute); encErr != nil {
+				slog.WarnContext(ctx, "context_compact", "phase", "tiktoken_route", "err", encErr.Error(), "run_id", rc.Run.ID.String())
+			} else {
+				enc = tke
+			}
+		}
+		if enc == nil {
+			enc, _ = tiktoken.GetEncoding(tiktoken.MODEL_O200K_BASE)
+		}
+
 		beforeN := len(rc.Messages)
 		msgs := rc.Messages
 		ids := rc.ThreadMessageIDs
 		persistSplit := 0
 
-		if cfg.PersistEnabled && pool != nil && rc.Gateway != nil && len(msgs) > 0 {
-			trigger := cfg.PersistTriggerApproxTokens
-			if trigger <= 0 {
-				trigger = defaultPersistTriggerApproxTokens
+		if cfg.PersistEnabled && pool != nil && rc.Gateway != nil && len(msgs) > 1 {
+			window := 0
+			if rc.SelectedRoute != nil {
+				window = routing.RouteContextWindowTokens(rc.SelectedRoute.Route)
 			}
+			trigger, window := compactPersistTriggerTokens(cfg, window)
 			keep := cfg.PersistKeepLastMessages
 			if keep <= 0 {
 				keep = defaultPersistKeepLastMessages
 			}
-			if countTotalTokens(msgs, 0) >= trigger && len(ids) == len(msgs) && len(msgs) > keep {
-				split := stabilizeCompactStart(msgs, len(msgs)-keep, 0)
+			// 配置的「保留最近 N 条」在总条数不足时按实际条数折算，否则 N≥len 时永远无法触发 persist。
+			tailKeep := keep
+			if tailKeep >= len(msgs) {
+				tailKeep = len(msgs) - 1
+			}
+			if tailKeep < 1 {
+				tailKeep = 1
+			}
+			histTok := HistoryThreadPromptTokens(enc, msgs)
+			if histTok >= trigger && len(ids) == len(msgs) {
+				split := stabilizeCompactStart(msgs, len(msgs)-tailKeep, 0)
 				if split > 0 {
 					gw, model := resolveCompactionGateway(ctx, pool, rc, stubGateway, emitDebugEvents, configLoader)
 					if gw == nil {
@@ -92,6 +115,37 @@ func NewContextCompactMiddleware(
 									if insErr != nil {
 										_ = tx.Rollback(ctx)
 										slog.WarnContext(ctx, "context_compact", "phase", "insert_summary", "err", insErr.Error(), "run_id", rc.Run.ID.String())
+									} else if eventsRepo != nil {
+										ev := rc.Emitter.Emit("run.context_compact", map[string]any{
+											"op":                     "persist",
+											"persist_split":          split,
+											"messages_before":        beforeN,
+											"thread_tokens_tiktoken": histTok,
+											"context_window_tokens":  window,
+											"trigger_tokens":         trigger,
+											"trigger_context_pct":    cfg.PersistTriggerContextPct,
+											"tail_keep_configured":   keep,
+											"tail_keep_effective":    tailKeep,
+										}, nil, nil)
+										if _, evErr := eventsRepo.AppendRunEvent(ctx, tx, rc.Run.ID, ev); evErr != nil {
+											_ = tx.Rollback(ctx)
+											slog.WarnContext(ctx, "context_compact", "phase", "run_event", "err", evErr.Error(), "run_id", rc.Run.ID.String())
+										} else if err := tx.Commit(ctx); err != nil {
+											slog.WarnContext(ctx, "context_compact", "phase", "tx_commit", "err", err.Error(), "run_id", rc.Run.ID.String())
+										} else {
+											persistSplit = split
+											summaryMsg := llm.Message{
+												Role:    "system",
+												Content: []llm.TextPart{{Text: strings.TrimSpace(summary)}},
+											}
+											tail := make([]llm.Message, len(msgs)-split)
+											copy(tail, msgs[split:])
+											tailIDs := append([]uuid.UUID{summaryID}, ids[split:]...)
+											msgs = append([]llm.Message{summaryMsg}, tail...)
+											ids = tailIDs
+											rc.Messages = msgs
+											rc.ThreadMessageIDs = ids
+										}
 									} else if err := tx.Commit(ctx); err != nil {
 										slog.WarnContext(ctx, "context_compact", "phase", "tx_commit", "err", err.Error(), "run_id", rc.Run.ID.String())
 									} else {
@@ -118,7 +172,8 @@ func NewContextCompactMiddleware(
 
 		if cfg.Enabled && ContextCompactHasActiveBudget(cfg) {
 			beforeTrim := len(rc.Messages)
-			out, outIDs, dropped := CompactThreadMessages(rc.Messages, rc.ThreadMessageIDs, cfg)
+			beforeTrimTok := HistoryThreadPromptTokens(enc, rc.Messages)
+			out, outIDs, dropped := CompactThreadMessages(rc.Messages, rc.ThreadMessageIDs, cfg, enc)
 			rc.Messages = out
 			rc.ThreadMessageIDs = outIDs
 			if dropped > 0 || len(out) != beforeTrim {
@@ -129,6 +184,28 @@ func NewContextCompactMiddleware(
 					"dropped_prefix", dropped,
 					"after", len(out),
 				)
+				if eventsRepo != nil && pool != nil {
+					tx, txErr := pool.BeginTx(ctx, pgx.TxOptions{})
+					if txErr != nil {
+						slog.WarnContext(ctx, "context_compact", "phase", "tx_begin_trim", "err", txErr.Error(), "run_id", rc.Run.ID.String())
+					} else {
+						ev := rc.Emitter.Emit("run.context_compact", map[string]any{
+							"op":                     "trim",
+							"dropped_prefix":         dropped,
+							"messages_before":        beforeTrim,
+							"messages_after":         len(out),
+							"thread_tokens_tiktoken_before": beforeTrimTok,
+							"thread_tokens_tiktoken_after":  HistoryThreadPromptTokens(enc, out),
+						}, nil, nil)
+						if _, evErr := eventsRepo.AppendRunEvent(ctx, tx, rc.Run.ID, ev); evErr != nil {
+							_ = tx.Rollback(ctx)
+							slog.WarnContext(ctx, "context_compact", "phase", "run_event_trim", "err", evErr.Error(), "run_id", rc.Run.ID.String())
+						} else if err := tx.Commit(ctx); err != nil {
+							_ = tx.Rollback(ctx)
+							slog.WarnContext(ctx, "context_compact", "phase", "tx_commit_trim", "err", err.Error(), "run_id", rc.Run.ID.String())
+						}
+					}
+				}
 			}
 		}
 
@@ -149,7 +226,7 @@ func NewContextCompactMiddleware(
 
 func resolveCompactionGateway(
 	ctx context.Context,
-	pool *pgxpool.Pool,
+	pool CompactPersistDB,
 	rc *RunContext,
 	stubGateway llm.Gateway,
 	emitDebugEvents bool,
@@ -198,6 +275,29 @@ func resolveCompactionGateway(
 		return fallbackGateway, fallbackModel
 	}
 	return gw, selected.Route.Model
+}
+
+func compactPersistTriggerTokens(cfg ContextCompactSettings, windowFromRoute int) (trigger int, window int) {
+	window = windowFromRoute
+	if window <= 0 {
+		window = cfg.FallbackContextWindowTokens
+	}
+	pct := cfg.PersistTriggerContextPct
+	if pct > 100 {
+		pct = 100
+	}
+	if pct > 0 && window > 0 {
+		trigger = window * pct / 100
+		if trigger < 1 {
+			trigger = 1
+		}
+		return trigger, window
+	}
+	trigger = cfg.PersistTriggerApproxTokens
+	if trigger <= 0 {
+		trigger = defaultPersistTriggerApproxTokens
+	}
+	return trigger, window
 }
 
 func runContextCompactLLM(ctx context.Context, gateway llm.Gateway, model string, prefix []llm.Message) (string, error) {

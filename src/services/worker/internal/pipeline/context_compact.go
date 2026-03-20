@@ -6,6 +6,7 @@ import (
 	"arkloop/services/worker/internal/llm"
 
 	"github.com/google/uuid"
+	"github.com/pkoukk/tiktoken-go"
 )
 
 // ContextCompactSettings 来自平台配置，供 ContextCompactMiddleware 使用。
@@ -22,7 +23,11 @@ type ContextCompactSettings struct {
 
 	PersistEnabled             bool
 	PersistTriggerApproxTokens int
-	PersistKeepLastMessages    int
+	// PersistTriggerContextPct 1–100：按「上下文窗口」比例计算触发阈值；0 表示仅用 PersistTriggerApproxTokens。
+	PersistTriggerContextPct int
+	// FallbackContextWindowTokens 路由无 available_catalog.context_length 时用于比例换算。
+	FallbackContextWindowTokens int
+	PersistKeepLastMessages       int
 }
 
 func approxTokensFromText(s string) int {
@@ -101,14 +106,14 @@ func stabilizeCompactStart(msgs []llm.Message, start int, maxMessages int) int {
 	return start
 }
 
-func budgetOK(msgs []llm.Message, start int, cfg ContextCompactSettings) bool {
+func budgetOK(msgs []llm.Message, start int, cfg ContextCompactSettings, enc *tiktoken.Tiktoken) bool {
 	if cfg.MaxMessages > 0 && len(msgs)-start > cfg.MaxMessages {
 		return false
 	}
-	if cfg.MaxUserMessageTokens > 0 && countUserTokens(msgs, start) > cfg.MaxUserMessageTokens {
+	if cfg.MaxUserMessageTokens > 0 && SuffixRoleAndContentTokens(enc, msgs, start, true) > cfg.MaxUserMessageTokens {
 		return false
 	}
-	if cfg.MaxTotalTextTokens > 0 && countTotalTokens(msgs, start) > cfg.MaxTotalTextTokens {
+	if cfg.MaxTotalTextTokens > 0 && SuffixRoleAndContentTokens(enc, msgs, start, false) > cfg.MaxTotalTextTokens {
 		return false
 	}
 	if cfg.MaxUserTextBytes > 0 && countUserBytes(msgs, start) > cfg.MaxUserTextBytes {
@@ -121,8 +126,9 @@ func budgetOK(msgs []llm.Message, start int, cfg ContextCompactSettings) bool {
 }
 
 // CompactThreadMessages 从头部裁掉消息直到满足预算；保证切口不以孤立的 tool 开头（尽力左扩）。
+// enc 为 nil 时 token 类预算退化为字节/4 近似（仅供测试）；生产路径应传入非 nil。
 // ids 若与 msgs 等长则同步裁切；否则 ids 原样截断或置 nil。
-func CompactThreadMessages(msgs []llm.Message, ids []uuid.UUID, cfg ContextCompactSettings) ([]llm.Message, []uuid.UUID, int) {
+func CompactThreadMessages(msgs []llm.Message, ids []uuid.UUID, cfg ContextCompactSettings, enc *tiktoken.Tiktoken) ([]llm.Message, []uuid.UUID, int) {
 	if len(msgs) == 0 {
 		return msgs, ids, 0
 	}
@@ -131,7 +137,7 @@ func CompactThreadMessages(msgs []llm.Message, ids []uuid.UUID, cfg ContextCompa
 		start = len(msgs) - cfg.MaxMessages
 	}
 	start = stabilizeCompactStart(msgs, start, cfg.MaxMessages)
-	for start < len(msgs) && !budgetOK(msgs, start, cfg) {
+	for start < len(msgs) && !budgetOK(msgs, start, cfg, enc) {
 		start++
 		start = stabilizeCompactStart(msgs, start, cfg.MaxMessages)
 	}

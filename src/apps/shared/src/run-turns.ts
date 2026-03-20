@@ -93,6 +93,21 @@ function cleanText(value: string | undefined): string | undefined {
   return trimmed ? trimmed : undefined
 }
 
+// 与 worker context_compact.approxTokensFromText 同阶：按 UTF-8 字节粗算 token，仅用于调试对照账单 in。
+function approxContextTokensFromPayloadBytes(turn: LlmTurn): number | undefined {
+  if (turn.systemBytes == null && turn.toolsBytes == null && turn.messagesBytes == null) {
+    return undefined
+  }
+  const total = (turn.systemBytes ?? 0) + (turn.toolsBytes ?? 0) + (turn.messagesBytes ?? 0)
+  if (total <= 0) return undefined
+  return Math.floor((total + 3) / 4)
+}
+
+function refreshContextTokenEstimate(turn: LlmTurn) {
+  const approx = approxContextTokensFromPayloadBytes(turn)
+  turn.estimatedInputTokens = approx
+}
+
 function extractToolName(tool: Record<string, unknown>): string {
   if (typeof tool.name === 'string') return tool.name
   const fn = tool.function
@@ -279,38 +294,37 @@ function startTurn(
   const toolNames = uniqueStrings(tools.map(extractToolName))
   const systemMessage = input.messages.find((message) => message.role === 'system')
 
-  return {
-    userMessageCount: input.userMessageCount,
-    turn: {
-      llmCallId: String(requestData.llm_call_id ?? ''),
-      providerKind: String(requestData.provider_kind ?? ''),
-      apiMode: String(requestData.api_mode ?? ''),
-      userInput: input.userInput,
-      inputMeta: input.inputMeta,
-      assistantText: '',
-      segments: [],
-      toolCalls: [],
-      model: payload?.model != null ? String(payload.model) : undefined,
-      systemPrompt: systemMessage ? extractMessageText(systemMessage) : undefined,
-      toolCount: tools.length > 0 ? tools.length : undefined,
-      toolNames,
-      messageCount: input.messages.length > 0 ? input.messages.length : undefined,
-      temperature: typeof payload?.temperature === 'number' ? payload.temperature : undefined,
-      maxOutputTokens:
-        typeof payload?.max_tokens === 'number'
-          ? payload.max_tokens
-          : typeof payload?.max_output_tokens === 'number'
-            ? payload.max_output_tokens
-            : undefined,
-      systemBytes: typeof requestData.system_bytes === 'number' ? requestData.system_bytes : undefined,
-      toolsBytes: typeof requestData.tools_bytes === 'number' ? requestData.tools_bytes : undefined,
-      messagesBytes: typeof requestData.messages_bytes === 'number' ? requestData.messages_bytes : undefined,
-      roleBytes: requestData.role_bytes as Record<string, number> | undefined,
-      toolSchemaBytesMap: requestData.tool_schema_bytes_by_name as Record<string, number> | undefined,
-      stablePrefixHash:
-        typeof requestData.stable_prefix_hash === 'string' ? requestData.stable_prefix_hash : undefined,
-    },
+  const turn: LlmTurn = {
+    llmCallId: String(requestData.llm_call_id ?? ''),
+    providerKind: String(requestData.provider_kind ?? ''),
+    apiMode: String(requestData.api_mode ?? ''),
+    userInput: input.userInput,
+    inputMeta: input.inputMeta,
+    assistantText: '',
+    segments: [],
+    toolCalls: [],
+    model: payload?.model != null ? String(payload.model) : undefined,
+    systemPrompt: systemMessage ? extractMessageText(systemMessage) : undefined,
+    toolCount: tools.length > 0 ? tools.length : undefined,
+    toolNames,
+    messageCount: input.messages.length > 0 ? input.messages.length : undefined,
+    temperature: typeof payload?.temperature === 'number' ? payload.temperature : undefined,
+    maxOutputTokens:
+      typeof payload?.max_tokens === 'number'
+        ? payload.max_tokens
+        : typeof payload?.max_output_tokens === 'number'
+          ? payload.max_output_tokens
+          : undefined,
+    systemBytes: typeof requestData.system_bytes === 'number' ? requestData.system_bytes : undefined,
+    toolsBytes: typeof requestData.tools_bytes === 'number' ? requestData.tools_bytes : undefined,
+    messagesBytes: typeof requestData.messages_bytes === 'number' ? requestData.messages_bytes : undefined,
+    roleBytes: requestData.role_bytes as Record<string, number> | undefined,
+    toolSchemaBytesMap: requestData.tool_schema_bytes_by_name as Record<string, number> | undefined,
+    stablePrefixHash:
+      typeof requestData.stable_prefix_hash === 'string' ? requestData.stable_prefix_hash : undefined,
   }
+  refreshContextTokenEstimate(turn)
+  return { userMessageCount: input.userMessageCount, turn }
 }
 
 function mergeRequestMetadata(
@@ -356,6 +370,7 @@ function mergeRequestMetadata(
   if (typeof requestData.stable_prefix_hash === 'string') {
     turn.stablePrefixHash = requestData.stable_prefix_hash
   }
+  refreshContextTokenEstimate(turn)
 }
 
 export function buildTurns(events: RunEventRaw[]): LlmTurn[] {
@@ -501,5 +516,6 @@ export function buildTurns(events: RunEventRaw[]): LlmTurn[] {
 
   flushAssistant()
   turns.forEach(finalizeTurnAssistant)
+  turns.forEach(refreshContextTokenEstimate)
   return turns
 }

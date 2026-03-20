@@ -10,6 +10,7 @@ import { FormField } from '../components/FormField'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { useToast } from '@arkloop/shared'
 import { useLocale } from '../contexts/LocaleContext'
+import { isApiError } from '../api/client'
 import {
   listLlmProviders,
   createLlmProvider,
@@ -19,9 +20,9 @@ import {
   updateProviderModel,
   deleteProviderModel,
   listAvailableModels,
+  routeAdvancedJsonFromAvailableCatalog,
   type LlmProviderScope,
   type LlmProvider,
-  type LlmProviderModel,
   type AvailableModel,
 } from '../api/llm-providers'
 
@@ -482,20 +483,27 @@ function ModelsSection({
     setErr('')
     try {
       const unconfigured = available.filter((am) => !am.configured)
-      const embeddingIds = new Set(
-        unconfigured.filter((am) => am.type === 'embedding').map((am) => am.id.toLowerCase()),
-      )
-      await Promise.all(
-        unconfigured.map((am) => {
-          const isEmb = am.type === 'embedding'
-          return createProviderModel(provider.id, {
+      const byLowerId = new Map<string, AvailableModel>()
+      for (const am of unconfigured) {
+        const k = am.id.toLowerCase()
+        if (!byLowerId.has(k)) byLowerId.set(k, am)
+      }
+      const toImport = [...byLowerId.values()]
+      for (const am of toImport) {
+        const isEmb = am.type === 'embedding'
+        try {
+          await createProviderModel(provider.id, {
             scope,
             model: am.id,
             show_in_picker: false,
             tags: isEmb ? ['embedding'] : undefined,
+            advanced_json: routeAdvancedJsonFromAvailableCatalog(am),
           }, accessToken)
-        })
-      )
+        } catch (e) {
+          if (isApiError(e) && e.code === 'llm_provider_models.model_conflict') continue
+          throw e
+        }
+      }
       onChanged()
       void loadAvailable()
     } catch {

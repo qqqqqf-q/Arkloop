@@ -28,6 +28,7 @@ import {
   updateLlmProvider,
 } from "../api";
 import type { AvailableModel, LlmProvider, LlmProviderModel } from "../api";
+import { routeAdvancedJsonFromAvailableCatalog } from "@arkloop/shared/llm/available-catalog-advanced-json";
 
 type Step = "welcome" | "mode" | "provider" | "complete";
 
@@ -672,6 +673,7 @@ export function OnboardingWizard({ onComplete }: Props) {
       const ids = Array.from(selectedModelIds);
       const imported: LlmProviderModel[] = [];
       for (const [index, modelId] of ids.entries()) {
+        const am = availableModels.find((m) => m.id === modelId);
         const created = await createProviderModel(
           LOCAL_ACCESS_TOKEN,
           createdProviderId,
@@ -679,6 +681,15 @@ export function OnboardingWizard({ onComplete }: Props) {
             model: modelId,
             is_default: configuredModels.length === 0 && index === 0,
             priority: Math.max(ids.length - index, 1),
+            advanced_json: routeAdvancedJsonFromAvailableCatalog({
+              id: modelId,
+              name: am?.name ?? modelId,
+              type: am?.type,
+              context_length: am?.context_length,
+              max_output_tokens: am?.max_output_tokens,
+              input_modalities: am?.input_modalities,
+              output_modalities: am?.output_modalities,
+            }),
           },
         );
         imported.push(created);
@@ -695,6 +706,7 @@ export function OnboardingWizard({ onComplete }: Props) {
       setModelError(normalizeError(error, t.requestFailed));
     }
   }, [
+    availableModels,
     configuredModels.length,
     createdProviderId,
     selectedModelIds,

@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 import {
   type LlmProvider,
+  type LlmProviderModel,
   type AvailableModel,
   listLlmProviders,
   createLlmProvider,
@@ -21,6 +22,7 @@ import {
   listAvailableModels,
   isApiError,
 } from '../../api'
+import { routeAdvancedJsonFromAvailableCatalog } from '@arkloop/shared/llm/available-catalog-advanced-json'
 import { useLocale } from '../../contexts/LocaleContext'
 
 const VENDOR_PRESETS = [
@@ -499,13 +501,29 @@ function ModelsSection({ provider, accessToken, onChanged, p }: {
     setErr('')
     try {
       const unconfigured = available.filter((am) => !am.configured)
-      const embeddingIds = new Set(unconfigured.filter((am) => am.type === 'embedding').map((am) => am.id.toLowerCase()))
-      const created = await Promise.all(
-        unconfigured.map((am) => {
-          const isEmb = am.type === 'embedding'
-          return createProviderModel(accessToken, provider.id, { model: am.id, show_in_picker: false, tags: isEmb ? ['embedding'] : undefined })
-        })
-      )
+      const byLowerId = new Map<string, AvailableModel>()
+      for (const am of unconfigured) {
+        const k = am.id.toLowerCase()
+        if (!byLowerId.has(k)) byLowerId.set(k, am)
+      }
+      const toImport = [...byLowerId.values()]
+      const embeddingIds = new Set(toImport.filter((am) => am.type === 'embedding').map((am) => am.id.toLowerCase()))
+      const created: LlmProviderModel[] = []
+      for (const am of toImport) {
+        const isEmb = am.type === 'embedding'
+        try {
+          const pm = await createProviderModel(accessToken, provider.id, {
+            model: am.id,
+            show_in_picker: false,
+            tags: isEmb ? ['embedding'] : undefined,
+            advanced_json: routeAdvancedJsonFromAvailableCatalog(am),
+          })
+          created.push(pm)
+        } catch (e) {
+          if (isApiError(e) && e.code === 'llm_provider_models.model_conflict') continue
+          throw e
+        }
+      }
       const toEnable = created.filter((pm) => pm.model.toLowerCase().includes('gpt-4o-mini') && !embeddingIds.has(pm.model.toLowerCase()))
       await Promise.all(toEnable.map((pm) => patchProviderModel(accessToken, provider.id, pm.id, { show_in_picker: true })))
       onChanged()

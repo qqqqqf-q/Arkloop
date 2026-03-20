@@ -17,7 +17,7 @@ func TestCompactThreadMessages_trimCount(t *testing.T) {
 	}
 	ids := []uuid.UUID{uuid.New(), uuid.New(), uuid.New()}
 	cfg := ContextCompactSettings{Enabled: true, MaxMessages: 2}
-	out, outIDs, dropped := CompactThreadMessages(msgs, ids, cfg)
+	out, outIDs, dropped := CompactThreadMessages(msgs, ids, cfg, nil)
 	if dropped != 1 || len(out) != 2 {
 		t.Fatalf("expected drop 1, len 2, got dropped=%d len=%d", dropped, len(out))
 	}
@@ -34,7 +34,7 @@ func TestCompactThreadMessages_userTokenBudget(t *testing.T) {
 		{Role: "user", Content: []llm.TextPart{{Text: "tail"}}},
 	}
 	cfg := ContextCompactSettings{Enabled: true, MaxUserMessageTokens: 120}
-	out, _, dropped := CompactThreadMessages(msgs, nil, cfg)
+	out, _, dropped := CompactThreadMessages(msgs, nil, cfg, nil)
 	if dropped == 0 || len(out) == len(msgs) {
 		t.Fatalf("expected head dropped, dropped=%d len=%d", dropped, len(out))
 	}

@@ -669,7 +669,7 @@ export const zh: LocaleStrings = {
     chatCompactThresholdEarly: "提前",
     chatCompactThresholdLate: "延迟",
     chatCompactThresholdDesc:
-      "合并与摘要会在近似用量达到该比例时更容易触发；更早触发留有余量，更晚触发保留更多原文。",
+      "分母为路由 advanced_json.available_catalog.context_length；未配置时使用平台 fallback_context_window_tokens。计量为线程消息的 tiktoken 估算（OpenAI 兼容模型尽量按模型名选编码）。",
     chatCompactKeepLabel: "保留最近消息数",
     chatCompactKeepDesc: "尾部始终保留的完整消息条数（2–50）。",
     chatCompactSave: "保存",

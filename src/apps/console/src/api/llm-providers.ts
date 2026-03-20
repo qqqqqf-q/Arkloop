@@ -1,5 +1,10 @@
 import { apiFetch } from './client'
 
+export {
+	AVAILABLE_CATALOG_ADVANCED_KEY,
+	routeAdvancedJsonFromAvailableCatalog,
+} from '@arkloop/shared/llm/available-catalog-advanced-json'
+
 export type LlmProviderScope = 'user' | 'platform'
 
 function withScope(path: string, scope: LlmProviderScope): string {

@@ -53,11 +53,19 @@ export function TurnView({ turn, index }: TurnViewProps) {
           <span>{turn.providerKind}</span>
           {turn.apiMode && <span className="opacity-60">· {turn.apiMode}</span>}
         </div>
-        {turn.inputTokens != null && (
+        {((turn.estimatedInputTokens != null && turn.estimatedInputTokens > 0) || turn.inputTokens != null) && (
           <div className="tabular-nums text-[var(--c-text-muted)]">
-            {turn.inputTokens}in
-            {turn.cachedTokens != null && ` · ${turn.cachedTokens}cache`}
-            {turn.outputTokens != null && ` / ${turn.outputTokens}out`}
+            {turn.estimatedInputTokens != null && turn.estimatedInputTokens > 0 && (
+              <span>{turn.estimatedInputTokens} ctx</span>
+            )}
+            {turn.inputTokens != null && (
+              <>
+                {turn.estimatedInputTokens != null && turn.estimatedInputTokens > 0 && ' · '}
+                {turn.inputTokens}in
+                {turn.cachedTokens != null && ` · ${turn.cachedTokens}cache`}
+                {turn.outputTokens != null && ` / ${turn.outputTokens}out`}
+              </>
+            )}
           </div>
         )}
       </div>

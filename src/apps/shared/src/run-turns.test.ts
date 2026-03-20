@@ -220,4 +220,34 @@ time: "2026-03-19T10:19:42Z"
       { kind: 'assistant', text: 'done', isFinal: true },
     ])
   })
+
+  it('estimates context tokens from llm.request payload byte stats', () => {
+    const turns = buildTurns([
+      makeEvent({
+        seq: 1,
+        type: 'llm.request',
+        data: {
+          llm_call_id: 'call_1',
+          provider_kind: 'openai',
+          api_mode: 'chat_completions',
+          system_bytes: 40,
+          tools_bytes: 40,
+          messages_bytes: 320,
+          payload: { messages: [{ role: 'user', content: 'hi' }] },
+        },
+      }),
+      makeEvent({
+        seq: 2,
+        type: 'llm.turn.completed',
+        data: {
+          llm_call_id: 'call_1',
+          usage: { input_tokens: 9000, output_tokens: 10 },
+        },
+      }),
+    ])
+
+    expect(turns).toHaveLength(1)
+    expect(turns[0]?.estimatedInputTokens).toBe(Math.floor((400 + 3) / 4))
+    expect(turns[0]?.inputTokens).toBe(9000)
+  })
 })

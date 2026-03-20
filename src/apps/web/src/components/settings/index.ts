@@ -14,6 +14,7 @@ export { ConnectorsSettings } from "./ConnectorsSettings";
 export { SearchFetchSettings } from "./SearchFetchSettings";
 export { MemorySettings } from "./MemorySettings";
 export { ConnectionSettings } from "./ConnectionSettings";
+export { ChatSettings } from "./ChatSettings";
 export { ExtensionsSettings } from "./ExtensionsSettings";
 export { ModulesSettings } from "./ModulesSettings";
 export { DeveloperSettings } from "./DeveloperSettings";

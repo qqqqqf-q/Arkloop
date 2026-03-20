@@ -13,7 +13,8 @@
     "./contexts/locale": "./src/contexts/LocaleContext.tsx",
     "./components/auth-ui": "./src/components/auth-ui.tsx",
     "./components/prompt-injection": "./src/components/prompt-injection/index.ts",
-    "./run-turns": "./src/run-turns.ts"
+    "./run-turns": "./src/run-turns.ts",
+    "./llm/available-catalog-advanced-json": "./src/llm/availableCatalogAdvancedJson.ts"
   },
   "peerDependencies": {
     "lucide-react": ">=0.400.0",

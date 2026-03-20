@@ -289,7 +289,7 @@ func extractUserText(messages []llm.Message) string {
 // resolveAccountToolGateway 查询账户级 spawn.profile.tool override，若存在则构建对应 gateway。
 func resolveAccountToolGateway(
 	ctx context.Context,
-	pool *pgxpool.Pool,
+	pool CompactPersistDB,
 	accountID uuid.UUID,
 	stubGateway llm.Gateway,
 	emitDebugEvents bool,

@@ -222,7 +222,7 @@ func NewEngineV1(deps EngineV1Deps) (*EngineV1, error) {
 		pipeline.NewInjectionScanMiddleware(compositeScanner, injectionAuditor, cfgResolver, eventsRepo),
 		pipeline.NewRoutingMiddleware(deps.Router, deps.RoutingConfigLoader, deps.StubGateway, deps.EmitDebugEvents, runsRepo, eventsRepo, releaseSlot, resolver),
 		pipeline.NewTitleSummarizerMiddleware(deps.DBPool, deps.RunLimiterRDB, deps.StubGateway, deps.EmitDebugEvents, deps.RoutingConfigLoader),
-		pipeline.NewContextCompactMiddleware(deps.DBPool, messagesRepo, deps.StubGateway, deps.EmitDebugEvents, deps.RoutingConfigLoader),
+		pipeline.NewContextCompactMiddleware(deps.DBPool, messagesRepo, eventsRepo, deps.StubGateway, deps.EmitDebugEvents, deps.RoutingConfigLoader),
 		pipeline.NewToolDescriptionOverrideMiddleware(deps.ToolDescriptionOverridesRepo),
 		pipeline.NewCallPlatformMiddleware(),
 		pipeline.NewPlatformToolsMiddleware(deps.PlatformToolExecutor),
@@ -305,6 +305,10 @@ func (e *EngineV1) Execute(ctx context.Context, pool *pgxpool.Pool, run data.Run
 	registry := sharedconfig.DefaultRegistry()
 	platformScope := sharedconfig.Scope{}
 	rc.ThreadMessageHistoryLimit = resolvePositiveInt(ctx, e.configResolver, registry, "limit.thread_message_history", platformScope, 200)
+	persistPct := resolveNonNegativeInt(ctx, e.configResolver, registry, "context.compact.persist_trigger_context_pct", platformScope, 0)
+	if persistPct > 100 {
+		persistPct = 100
+	}
 	rc.ContextCompact = pipeline.ContextCompactSettings{
 		Enabled:                    resolveBool(ctx, e.configResolver, registry, "context.compact.enabled", platformScope, false),
 		MaxMessages:                resolveNonNegativeInt(ctx, e.configResolver, registry, "context.compact.max_messages", platformScope, 0),
@@ -314,6 +318,8 @@ func (e *EngineV1) Execute(ctx context.Context, pool *pgxpool.Pool, run data.Run
 		MaxTotalTextBytes:          resolveNonNegativeInt(ctx, e.configResolver, registry, "context.compact.max_total_text_bytes", platformScope, 0),
 		PersistEnabled:             resolveBool(ctx, e.configResolver, registry, "context.compact.persist_enabled", platformScope, false),
 		PersistTriggerApproxTokens: resolvePositiveInt(ctx, e.configResolver, registry, "context.compact.persist_trigger_approx_tokens", platformScope, defaultPersistTriggerApproxTokensWorker),
+		PersistTriggerContextPct:   persistPct,
+		FallbackContextWindowTokens: resolvePositiveInt(ctx, e.configResolver, registry, "context.compact.fallback_context_window_tokens", platformScope, 200000),
 		PersistKeepLastMessages:    resolvePositiveInt(ctx, e.configResolver, registry, "context.compact.persist_keep_last_messages", platformScope, defaultPersistKeepLastMessagesWorker),
 	}
 	rc.AgentReasoningIterationsLimit = resolveNonNegativeInt(ctx, e.configResolver, registry, "limit.agent_reasoning_iterations", platformScope, 0)
