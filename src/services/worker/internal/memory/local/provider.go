@@ -134,22 +134,33 @@ func (p *Provider) CommitSession(_ context.Context, _ memory.MemoryIdentity, _ s
 
 // Write inserts a new memory entry and rebuilds the memory_block snapshot.
 func (p *Provider) Write(ctx context.Context, ident memory.MemoryIdentity, scope memory.MemoryScope, entry memory.MemoryEntry) error {
+	_, err := p.WriteReturningURI(ctx, ident, scope, entry)
+	return err
+}
+
+// WriteReturningURI inserts one row and returns local://memory/{id} for memory_read / memory_forget.
+func (p *Provider) WriteReturningURI(ctx context.Context, ident memory.MemoryIdentity, scope memory.MemoryScope, entry memory.MemoryEntry) (string, error) {
 	sc, cat, key := parseWritableContent(entry.Content)
 	if sc == "" {
 		sc = string(scope)
 	}
 
-	_, err := p.db.Exec(ctx,
+	var id string
+	err := p.db.QueryRow(ctx,
 		`INSERT INTO desktop_memory_entries (account_id, user_id, agent_id, scope, category, entry_key, content)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+		 VALUES ($1, $2, $3, $4, $5, $6, $7)
+		 RETURNING id`,
 		ident.AccountID.String(), ident.UserID.String(), agentID(ident.AgentID),
 		sc, cat, key, entry.Content,
-	)
+	).Scan(&id)
 	if err != nil {
-		return fmt.Errorf("memory write insert: %w", err)
+		return "", fmt.Errorf("memory write insert: %w", err)
 	}
 
-	return p.rebuildSnapshot(ctx, ident)
+	if err := p.rebuildSnapshot(ctx, ident); err != nil {
+		return "", err
+	}
+	return idToURI(id), nil
 }
 
 // Delete removes a memory entry by URI and rebuilds the memory_block snapshot.

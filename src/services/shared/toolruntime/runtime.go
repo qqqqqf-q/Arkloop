@@ -148,6 +148,26 @@ func (s RuntimeSnapshot) MergeBuiltinToolNamesFrom(other RuntimeSnapshot) Runtim
 	return out
 }
 
+// WithMergedBuiltinToolNames unions extra tool names into snapshot builtin availability.
+// Desktop uses this when memory executors are bound but BuildRuntimeSnapshot would omit memory_* (e.g. local SQLite).
+func (s RuntimeSnapshot) WithMergedBuiltinToolNames(extra ...string) RuntimeSnapshot {
+	set := s.BuiltinToolNameSet()
+	for _, n := range extra {
+		n = strings.TrimSpace(n)
+		if n != "" {
+			set[n] = struct{}{}
+		}
+	}
+	names := make([]string, 0, len(set))
+	for n := range set {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	out := s
+	out.builtinAvailability = BuiltinAvailability{toolNames: names}
+	return out
+}
+
 func ResolveBuiltin(input ResolveInput) BuiltinAvailability {
 	available := map[string]struct{}{
 		"visualize_read_me":   {},

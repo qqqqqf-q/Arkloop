@@ -73,7 +73,7 @@ func (e *ToolExecutor) search(ctx context.Context, args map[string]any, ident me
 		return argError("query must be a non-empty string", started)
 	}
 
-	scope := parseScope(args)
+	scope := memory.SearchScopeForDesktopLocal(args)
 	limit := parseLimit(args, defaultSearchLimit)
 
 	hits, err := e.provider.Find(ctx, ident, scope, query, limit)
@@ -132,6 +132,17 @@ func (e *ToolExecutor) write(ctx context.Context, args map[string]any, ident mem
 	scope := parseScope(args)
 	writable := buildWritableContent(scope, category, key, content)
 	entry := memory.MemoryEntry{Content: writable}
+
+	if w, ok := e.provider.(memory.DesktopLocalMemoryWriteURI); ok {
+		uri, err := w.WriteReturningURI(ctx, ident, scope, entry)
+		if err != nil {
+			return providerError("write", err, started)
+		}
+		return tools.ExecutionResult{
+			ResultJSON: map[string]any{"status": "ok", "uri": uri},
+			DurationMs: durationMs(started),
+		}
+	}
 
 	if err := e.provider.Write(ctx, ident, scope, entry); err != nil {
 		return providerError("write", err, started)

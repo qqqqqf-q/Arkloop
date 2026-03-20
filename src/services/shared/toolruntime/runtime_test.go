@@ -33,6 +33,18 @@ func TestResolveBuiltinArtifactToolsReflectStorageAvailability(t *testing.T) {
 	}
 }
 
+func TestRuntimeSnapshotWithMergedBuiltinToolNames(t *testing.T) {
+	snap := RuntimeSnapshot{}
+	snap.builtinAvailability = BuiltinAvailability{toolNames: []string{"grep"}}
+	merged := snap.WithMergedBuiltinToolNames("memory_search", "memory_read", "")
+	if !merged.BuiltinAvailable("grep") {
+		t.Fatal("expected grep preserved")
+	}
+	if !merged.BuiltinAvailable("memory_search") || !merged.BuiltinAvailable("memory_read") {
+		t.Fatalf("unexpected set: %v", merged.BuiltinToolNames())
+	}
+}
+
 func TestResolveBuiltinUsesEnvAndProviders(t *testing.T) {
 	memoryBaseURL := " http://memory.internal "
 	memoryAPIKey := " provider-key "

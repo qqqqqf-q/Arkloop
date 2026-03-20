@@ -202,6 +202,11 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 		return nil, fmt.Errorf("desktop: env runtime snapshot: %w", err)
 	}
 	mergedRT := (*runtimeSnapshot).MergeBuiltinToolNamesFrom(envSnap)
+	if memProvider != nil {
+		mergedRT = mergedRT.WithMergedBuiltinToolNames(
+			"memory_search", "memory_read", "memory_write", "memory_forget",
+		)
+	}
 	runtimeSnapshot = &mergedRT
 
 	baseAllowlist := make(map[string]struct{})
@@ -338,6 +343,12 @@ func (e *DesktopEngine) Execute(ctx context.Context, run data.Run, traceID strin
 	rc.ReasoningIterations = limits.AgentReasoningIterations
 	rc.ToolContinuationBudget = limits.ToolContinuationBudget
 
+	cc, err := resolveDesktopContextCompact(ctx, e.db)
+	if err != nil {
+		return err
+	}
+	rc.ContextCompact = cc
+
 	var memMiddleware pipeline.RunMiddleware
 	if e.useOV {
 		// OpenViking: full semantic memory middleware (nil pool = no snapshot cache, nil configResolver = no billing)
@@ -363,7 +374,7 @@ func (e *DesktopEngine) Execute(ctx context.Context, run data.Run, traceID strin
 		}),
 		memMiddleware,
 		desktopRouting(e.stubRouter, e.stubGateway, e.emitDebugEvents, e.db, runsRepo, eventsRepo),
-		pipeline.NewContextCompactMiddleware(nil, data.MessagesRepository{}, e.stubGateway, e.emitDebugEvents),
+		pipeline.NewContextCompactMiddleware(e.db, data.MessagesRepository{}, data.DesktopRunEventsRepository{}, e.stubGateway, e.emitDebugEvents),
 		pipeline.NewToolBuildMiddleware(),
 		desktopChannelDelivery(e.db),
 	}

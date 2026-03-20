@@ -92,3 +92,9 @@ type MemoryProvider interface {
 	// Delete 删除指定 URI 的记忆，同时从向量索引中移除。
 	Delete(ctx context.Context, ident MemoryIdentity, uri string) error
 }
+
+// DesktopLocalMemoryWriteURI is implemented by the Desktop SQLite provider so memory_write can return the canonical URI.
+type DesktopLocalMemoryWriteURI interface {
+	WriteReturningURI(ctx context.Context, ident MemoryIdentity, scope MemoryScope, entry MemoryEntry) (uri string, err error)
+}
+
