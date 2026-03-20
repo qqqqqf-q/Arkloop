@@ -49,19 +49,19 @@ type shellResponse struct {
 }
 
 type shellController struct {
-	mu           sync.Mutex
-	cmd          *exec.Cmd
-	ptyFile      *os.File
-	buf          []byte
-	cursor       uint64
-	endPos       uint64
-	status       string
-	cwd          string
-	current      *pendingCommand
-	lastExit     *int
-	lastTO       bool
-	updateCh     chan struct{}
-	workDir      string
+	mu       sync.Mutex
+	cmd      *exec.Cmd
+	ptyFile  *os.File
+	buf      []byte
+	cursor   uint64
+	endPos   uint64
+	status   string
+	cwd      string
+	current  *pendingCommand
+	lastExit *int
+	lastTO   bool
+	updateCh chan struct{}
+	workDir  string
 }
 
 type pendingCommand struct {
@@ -93,10 +93,81 @@ func (c *shellController) execCommand(command, cwd string, timeoutMs int) (*shel
 	if err := c.ensureStarted(); err != nil {
 		return nil, err
 	}
-	if err := c.startCommand(command, cwd, normalizeTimeoutMs(timeoutMs), false); err != nil {
+	tm := normalizeTimeoutMs(timeoutMs)
+	if err := c.startCommand(command, cwd, tm, false); err != nil {
 		return nil, err
 	}
-	return c.waitForDelivery(defaultYieldTimeMs), nil
+	first := c.waitForDelivery(defaultYieldTimeMs)
+	return c.drainUntilIdle(first, tm), nil
+}
+
+// drainUntilIdle extends the first exec yield with write_stdin polls (same idea as sandbox
+// pollExecUntilOutputOrDone) so a single exec_command tool result usually ends with running=false,
+// including after timeout kills the PTY.
+func (c *shellController) drainUntilIdle(first *shellResponse, commandTimeoutMs int) *shellResponse {
+	if first == nil || !first.Running {
+		return first
+	}
+	var out strings.Builder
+	out.WriteString(first.Output)
+	last := first
+	pollYield := normalizeYieldTimeMs(defaultYieldTimeMs)
+	if pollYield < 2000 {
+		pollYield = 2000
+	}
+	deadline := time.Now().Add(time.Duration(commandTimeoutMs)*time.Millisecond + timeoutKillDelay + 2*time.Second)
+
+	for last.Running {
+		if time.Now().After(deadline) {
+			break
+		}
+		next, err := c.writeStdin("", pollYield)
+		if err != nil {
+			return c.mergeClosedShellResponse(&out)
+		}
+		out.WriteString(next.Output)
+		last = next
+	}
+	last.Output = out.String()
+	if last.Running {
+		// Past overall deadline; avoid returning running=true if the PTY wedged.
+		last.Running = false
+		if last.ExitCode == nil {
+			x := 1
+			last.ExitCode = &x
+		}
+	}
+	return last
+}
+
+func (c *shellController) mergeClosedShellResponse(out *strings.Builder) *shellResponse {
+	c.mu.Lock()
+	if int(c.cursor) < len(c.buf) {
+		out.WriteString(string(c.buf[c.cursor:]))
+		c.cursor = uint64(len(c.buf))
+	}
+	timedOut := c.lastTO
+	var exitCode *int
+	if c.lastExit != nil {
+		exitCode = c.lastExit
+	} else if timedOut {
+		x := 124
+		exitCode = &x
+	} else {
+		x := 1
+		exitCode = &x
+	}
+	cwd := c.cwd
+	c.mu.Unlock()
+
+	return &shellResponse{
+		Status:   statusIdle,
+		Cwd:      cwd,
+		Output:   out.String(),
+		Running:  false,
+		TimedOut: timedOut,
+		ExitCode: exitCode,
+	}
 }
 
 func (c *shellController) writeStdin(chars string, yieldTimeMs int) (*shellResponse, error) {
@@ -592,7 +663,8 @@ func buildWrappedCommand(token, cwd, command string) string {
 	b.WriteString(encoded)
 	b.WriteString("'; ")
 	b.WriteString("ark_cmd_file=$(mktemp); ")
-	b.WriteString("if printf '%s' \"$ark_cmd_b64\" | base64 -d > \"$ark_cmd_file\"; then . \"$ark_cmd_file\"; ark_rc=$?; else ark_rc=1; fi; ")
+	// Sourced user script runs with stdin /dev/null so cat/read do not block on the PTY.
+	b.WriteString("if printf '%s' \"$ark_cmd_b64\" | base64 -d > \"$ark_cmd_file\"; then . \"$ark_cmd_file\" < /dev/null; ark_rc=$?; else ark_rc=1; fi; ")
 	b.WriteString("rm -f \"$ark_cmd_file\"; fi; ")
 	b.WriteString("printf '\\n%s%s")
 	b.WriteString(token)

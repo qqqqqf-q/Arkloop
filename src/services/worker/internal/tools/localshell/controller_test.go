@@ -34,18 +34,11 @@ func TestExecCommandBasic(t *testing.T) {
 	if resp == nil {
 		t.Fatal("response is nil")
 	}
-
-	output := resp.Output
-	for i := 0; i < 20 && !strings.Contains(output, "hello_test_output"); i++ {
-		time.Sleep(200 * time.Millisecond)
-		pollResp, pollErr := ctrl.writeStdin("", 500)
-		if pollErr != nil {
-			break
-		}
-		output += pollResp.Output
+	if resp.Running {
+		t.Fatalf("expected finished command, still running")
 	}
-	if !strings.Contains(output, "hello_test_output") {
-		t.Errorf("expected output to contain 'hello_test_output', got %q", output)
+	if !strings.Contains(resp.Output, "hello_test_output") {
+		t.Errorf("expected output to contain 'hello_test_output', got %q", resp.Output)
 	}
 }
 
@@ -59,20 +52,48 @@ func TestExecCommandExitCode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("exec failed: %v", err)
 	}
-
-	for i := 0; i < 20 && (resp.Running || resp.ExitCode == nil); i++ {
-		time.Sleep(200 * time.Millisecond)
-		pollResp, pollErr := ctrl.writeStdin("", 500)
-		if pollErr != nil {
-			break
-		}
-		resp = pollResp
+	if resp.Running {
+		t.Fatalf("expected finished command, still running")
 	}
-
 	if resp.ExitCode == nil {
-		t.Skip("exit code not captured within timeout")
-	} else if *resp.ExitCode != 1 {
+		t.Fatal("expected exit code")
+	}
+	if *resp.ExitCode != 1 {
 		t.Errorf("expected exit code 1, got %d", *resp.ExitCode)
+	}
+}
+
+func TestExecCommandCatNoArgsDoesNotBlock(t *testing.T) {
+	dir := t.TempDir()
+	ctrl := newShellController(dir)
+	defer ctrl.close()
+
+	resp, err := ctrl.execCommand("cat", "", 10000)
+	if err != nil {
+		t.Fatalf("exec failed: %v", err)
+	}
+	if resp.Running {
+		t.Fatalf("expected cat with stdin /dev/null to finish, still running")
+	}
+	if resp.ExitCode == nil || *resp.ExitCode != 0 {
+		t.Fatalf("expected exit 0, got %v", resp.ExitCode)
+	}
+}
+
+func TestExecCommandExceedsTimeoutSetsTimedOut(t *testing.T) {
+	dir := t.TempDir()
+	ctrl := newShellController(dir)
+	defer ctrl.close()
+
+	resp, err := ctrl.execCommand("sleep 60", "", 3000)
+	if err != nil {
+		t.Fatalf("exec failed: %v", err)
+	}
+	if resp.Running {
+		t.Fatalf("expected completed response, still running")
+	}
+	if !resp.TimedOut {
+		t.Fatalf("expected timed_out true, got false (output=%q)", resp.Output)
 	}
 }
 
