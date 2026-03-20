@@ -91,6 +91,8 @@ export interface LocaleStrings {
     importSelected: string
     importSearchPlaceholder: string
     modelName: string
+    showInPicker: string
+    hideFromPicker: string
     tags: string
     addTag: string
     setDefault: string
@@ -112,6 +114,10 @@ export interface LocaleStrings {
     toastFailed: string
     toastLoadFailed: string
     toastImported: string
+    saveFailed: string
+    deleteAll: string
+    importing: string
+    importAll: string
   }
   tools: {
     title: string
@@ -249,6 +255,7 @@ export interface LocaleStrings {
     loading: string
     default: string
     signOut: string
+    error: string
   }
   modules: {
     title: string

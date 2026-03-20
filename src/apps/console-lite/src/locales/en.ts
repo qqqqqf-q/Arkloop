@@ -87,6 +87,8 @@ export const en: LocaleStrings = {
     importSelected: 'Import Selected',
     importSearchPlaceholder: 'Search models',
     modelName: 'Model Name',
+    showInPicker: 'Show in picker',
+    hideFromPicker: 'Hide from picker',
     tags: 'Tags',
     addTag: 'Add tag...',
     setDefault: 'Set as default',
@@ -108,6 +110,10 @@ export const en: LocaleStrings = {
     toastFailed: 'Operation failed',
     toastLoadFailed: 'Failed to load',
     toastImported: 'Imported',
+    saveFailed: 'Save failed',
+    deleteAll: 'Delete all',
+    importing: 'Importing…',
+    importAll: 'Import all',
   },
   tools: {
     title: 'Tools',
@@ -245,6 +251,7 @@ export const en: LocaleStrings = {
     loading: 'Loading',
     default: 'Default',
     signOut: 'Sign out',
+    error: 'Error',
   },
   modules: {
     title: 'Modules',

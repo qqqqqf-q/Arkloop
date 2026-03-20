@@ -87,6 +87,8 @@ export const zhCN: LocaleStrings = {
     importSelected: '导入选中',
     importSearchPlaceholder: '搜索模型',
     modelName: '模型名称',
+    showInPicker: '在选择器中显示',
+    hideFromPicker: '从选择器隐藏',
     tags: '标签',
     addTag: '添加标签...',
     setDefault: '设为默认',
@@ -108,6 +110,10 @@ export const zhCN: LocaleStrings = {
     toastFailed: '操作失败',
     toastLoadFailed: '加载失败',
     toastImported: '已导入',
+    saveFailed: '保存失败',
+    deleteAll: '全部删除',
+    importing: '导入中…',
+    importAll: '全部导入',
   },
   tools: {
     title: '工具管理',
@@ -245,6 +251,7 @@ export const zhCN: LocaleStrings = {
     loading: '加载中',
     default: '默认',
     signOut: '退出',
+    error: '错误',
   },
   modules: {
     title: '模块',
