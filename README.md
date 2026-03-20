@@ -1,38 +1,32 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/Arkloop-AI%20Agent%20Platform-000000?style=for-the-badge&labelColor=000000" alt="Arkloop" />
+  <img src="https://cdn.nodeimage.com/i/WEaHFl5O8ZuWtaXykH4mOvJHxu8R3543.png" alt="Arkloop" />
 </p>
 
-<p align="center">
-  <a href="https://arkloop.ai">Arkloop Cloud</a> &middot;
-  <a href="#self-hosting">Self-hosting</a> &middot;
-  <a href="https://docs.arkloop.ai">Documentation</a>
-</p>
+<h3 align="center">AI agents, without the clutter.</h3>
 
 <p align="center">
+  <a href="./docs/zh-CN/README.md"><img alt="简体中文" src="https://img.shields.io/badge/简体中文-d9d9d9"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Arkloop%20License-blue"></a>
   <a href="https://github.com/qqqqqf/Arkloop/graphs/commit-activity"><img alt="Commits" src="https://img.shields.io/github/commit-activity/m/qqqqqf/Arkloop?labelColor=%2332b583&color=%2312b76a"></a>
-  <a href="https://github.com/qqqqqf/Arkloop/issues"><img alt="Issues" src="https://img.shields.io/github/issues-search?query=repo%3Aqqqqqf%2FArkloop%20is%3Aclosed&label=issues%20closed&labelColor=%237d89b0&color=%235d6b98"></a>
+  <a href="https://github.com/qqqqqf/Arkloop/issues"><img alt="Issues closed" src="https://img.shields.io/github/issues-search?query=repo%3Aqqqqqf%2FArkloop%20is%3Aclosed&label=issues%20closed&labelColor=%237d89b0&color=%235d6b98"></a>
   <a href="https://twitter.com/intent/follow?screen_name=qqqqqf_"><img alt="Follow on X" src="https://img.shields.io/twitter/follow/qqqqqf_?logo=X&color=%20%23f5f5f5"></a>
 </p>
 
-<p align="center">
-  <a href="./README.md"><img alt="English" src="https://img.shields.io/badge/English-blue"></a>
-  <a href="./docs/zh-CN/README.md"><img alt="简体中文" src="https://img.shields.io/badge/简体中文-d9d9d9"></a>
-</p>
+---
 
-Arkloop is an open-source AI agent platform that fuses autonomous task execution, real-time intelligent search, and secure sandboxed workspace into a single product. It integrates Memory for emotional support. It brings together the capabilities of Manus-style agents, Perplexity-grade search synthesis, and cloud-native infrastructure.
+Arkloop is an open-source AI agent platform that prioritizes design over dashboards. Multi-model routing, sandboxed execution, persistent memory -- all behind a clean interface that stays out of your way.
 
-## Quick Start
+Available as a **desktop app** (macOS / Linux / Windows) and a self-hosted server.
 
-### Arkloop Cloud
+## Download
 
-The fastest way to experience Arkloop -- zero setup, fully managed.
+Download the latest release from [GitHub Releases](https://github.com/qqqqqf/Arkloop/releases).
 
-[Get started on Arkloop Cloud](https://arkloop.ai)
+The desktop app bundles everything locally -- no Docker, no configuration. Just open and use.
 
-### Self-hosting
+## Self-Hosting
 
-> System requirements: Docker, Docker Compose, and Python 3 installed, 2+ CPU cores, 4+ GiB RAM.
+> Requires Docker, Docker Compose, and Python 3. 2+ CPU cores, 4+ GiB RAM.
 
 ```bash
 git clone https://github.com/qqqqqf/Arkloop.git
@@ -40,115 +34,72 @@ cd Arkloop
 ./setup.sh install
 ```
 
-For a non-interactive install, pass explicit parser flags to `./setup.sh install --non-interactive ...`.
-If port `19000` is already in use, set another gateway port, for example `./setup.sh install --gateway-port 8100`.
-If you want English prompts and logs, pass `--lang en`.
-Once the install is healthy, access the Console entry at `http://localhost:19000` or your custom gateway port.
-
-For host-level debugging ports such as PostgreSQL, API, Sandbox, or OpenViking, opt in explicitly:
-
-```bash
-docker compose -f compose.yaml -f compose.dev.yaml up -d
-```
-
-### Production Deployment
-
-For production, use pre-built multi-arch images (amd64 + arm64) from `ghcr.io/qqqqqf-q/arkloop-*` instead of building locally:
-
-```bash
-# Pull pre-built images and start
-docker compose -f compose.yaml -f compose.prod.yaml up -d
-
-# Pin a specific version
-ARKLOOP_VERSION=v0.5.0 docker compose -f compose.yaml -f compose.prod.yaml up -d
-
-# Pull images first (useful for zero-downtime upgrades)
-docker compose -f compose.yaml -f compose.prod.yaml pull
-```
-
-The `--prod` flag in `setup.sh` enables this automatically:
+For production deployment with pre-built images:
 
 ```bash
 ./setup.sh install --prod --non-interactive ...
 ```
 
-For detailed configuration, environment variables, and production deployment guides, refer to the [documentation](https://docs.arkloop.ai).
+See the full [installation guide](docs/installation.md) for configuration options.
 
-## Key Features
+## Features
 
-**1. Agent Loop**
-Autonomous multi-step execution with planning, reasoning, and tool orchestration. The agent maintains persistent memory across conversations -- system-level constraints, long-term facts, and session context.
+**Desktop App** -- Native Electron app with a Go sidecar. Runs entirely on your machine with automatic updates via GitHub Releases.
 
-**2. Intelligent Search**
-Deep web search that synthesizes sources into structured answers with citations. Not a wrapper around search APIs -- it reads, reasons, and responds.
+**Multi-Model Routing** -- OpenAI, Anthropic, and any OpenAI-compatible provider. Priority-based routing with rate limit handling and provider-level caching.
 
-**3. Sandboxed Code Execution**
-Isolated execution environments powered by Firecracker microVMs or Docker containers. Supports Python, data analysis, chart generation, and file operations with strict resource limits.
+**Sandboxed Execution** -- Firecracker microVMs (Linux) or Docker containers (macOS/Windows). Python, data analysis, chart generation with strict resource limits.
 
-**4. Tool Providers**
-Unified provider management for search and fetch tools. Configure platform defaults and account-level overrides without changing agent prompts.
+**Persistent Memory** -- System-level constraints, long-term facts, and session context that survive across conversations. Powered by OpenViking vector memory.
 
-**5. Custom Personas**
-Define specialized agent configurations with distinct system prompts, tool sets, and behavioral tiers. Switch between general-purpose, research-focused, and domain-specific modes.
+**Prompt Injection Protection** -- Semantic-level scanning that detects and blocks injection attempts. A feature most alternatives don't bother implementing.
 
-**6. Multi-Model Support**
-Integrates with OpenAI, Anthropic, and any OpenAI-compatible provider. Smart retry with rate limit handling and provider-level response caching.
+**Channel Integration** -- Connect your agent to Telegram with full media support, group context handling, and rate limiting.
 
-**7. Enterprise Console**
-Admin dashboard for user management, persona configuration, LLM credential management, usage analytics, audit logs, and feature flags.
+**ACP Integration** -- Agent Communication Protocol support for inter-agent coordination inside sandboxed environments.
 
-**8. ClawHub Registry**  
-Search and import skills from ClawHub, with compatibility for OpenClaw skill folders and `SKILL.md` layouts. Arkloop syncs upstream security scan status during import and surfaces risk warnings in the Web UI.
+**MCP Support** -- Model Context Protocol configuration for extending agent capabilities with external tools.
+
+**Custom Personas** -- Define specialized agent configurations with distinct system prompts, tool sets, and behavioral tiers. Optional Lua scripting for custom agent loops.
+
+**Skill Ecosystem** -- Search and import skills from ClawHub, compatible with OpenClaw `SKILL.md` layouts. Security scan status synced during import.
+
+**Admin Console** -- User management, persona configuration, LLM credential management, usage analytics, audit logs, and feature flags.
 
 ## Architecture
 
 | Service | Stack | Role |
 |---------|-------|------|
-| API | Go | Authentication, resource management, RBAC, audit logging |
+| API | Go | Authentication, RBAC, resource management, audit logging |
 | Gateway | Go | Reverse proxy, rate limiting, risk scoring, geo-IP |
-| Worker | Go | Job execution, LLM routing, tool dispatch, persona management |
+| Worker | Go | Job execution, LLM routing, tool dispatch, agent loop |
 | Sandbox | Go | Code execution in Firecracker VMs or Docker containers |
-| Bridge | Go | Project bridge service |
+| Desktop | Electron + Go | Native desktop app with embedded sidecar |
 | Web | React / TypeScript | User-facing chat interface |
-| Console | React / TypeScript | Platform administration dashboard |
-| Console Lite | React / TypeScript | Lightweight administration dashboard (default) |
+| Console | React / TypeScript | Administration dashboard |
 
 Infrastructure: PostgreSQL + PgBouncer, Redis, MinIO (S3-compatible), OpenViking (vector memory).
 
-## Star Us
-
-If you find Arkloop useful, give it a star -- it helps others discover the project.
-
-<!-- Star GIF will be added here -->
-
-
-## Developer Checks
-
-For daily local validation, use the repository CI helper:
+## Development
 
 ```bash
-# Fast daily checks
+# Quick local CI check
 bin/ci-local quick
 
-# Go integration checks with a temporary PostgreSQL container
+# Go integration tests
 bin/ci-local integration
 
-# Full local run
+# Full check
 bin/ci-local full
-
-# GitHub Actions style verification
-bin/ci-local act go-check
-bin/ci-local act typescript
 ```
 
-Recommended order: `bin/ci-local quick` -> `bin/ci-local integration` -> `bin/ci-local act <job>`.
-`quick` installs frontend dependencies automatically, so the first run can take longer.
-`bin/ci-local act ...` pulls a large runner image on first use.
-`bin/ci-local act go-integration` is currently not recommended; use `bin/ci-local integration` instead.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for commit conventions and development workflow.
 
 ## Contributing
 
-We welcome contributions. See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on how to get involved.
+We welcome contributions of all kinds.
+
+Even if you're not a developer -- if something feels off, a bit of spacing, a color that doesn't sit right, any tiny detail or even a big-picture direction -- please [open an issue](https://github.com/qqqqqf/Arkloop/issues). We take every UX detail seriously, and your feedback makes Arkloop better for everyone.
 
 ## Contributors
 
@@ -158,7 +109,7 @@ We welcome contributions. See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines 
 
 ## Security
 
-To report vulnerabilities, please email security@arkloop.ai instead of opening a public issue. See [SECURITY.md](SECURITY.md) for our disclosure policy.
+To report vulnerabilities, please email qingf622@outlook.com instead of opening a public issue. See [SECURITY.md](SECURITY.md) for our disclosure policy.
 
 ## License
 

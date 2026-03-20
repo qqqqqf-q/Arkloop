@@ -2,47 +2,205 @@
 import BaseLayout from '@/layouts/BaseLayout.astro';
 ---
 
-<BaseLayout title="Arkloop Developers" description="Arkloop developer portal for docs, API reference, and research." locale="en" pathname="/en" alternatePath="/">
-  <div class="home-shell">
-    <section class="home-landing">
-      <h1 class="home-title">Arkloop Developers</h1>
-      <p class="home-tagline">Open-source AI agent platform with autonomous execution, intelligent search, and sandboxed runtime.</p>
-      <div class="home-actions">
-        <a class="primary-button" href="/en/docs/guide">Get started</a>
-        <a class="secondary-button" href="/en/api">View API</a>
+<BaseLayout title="Arkloop Developers" description="Arkloop developer portal -- AI agents, without the clutter." locale="en" pathname="/en" alternatePath="/">
+  <div class="landing-shell">
+
+    <section class="landing-hero">
+      <div class="type-specimen" aria-label="Arkloop">
+        <svg class="type-svg" viewBox="0 0 526 210" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <g transform="translate(6, 0)">
+          <line x1="0" y1="15" x2="520" y2="15" stroke="var(--guide-line)" stroke-width="0.7" />
+          <text x="516" y="12" fill="var(--guide-label)" font-size="7" font-family="ui-monospace, monospace" text-anchor="end">cap height</text>
+          <line x1="0" y1="100" x2="520" y2="100" stroke="var(--guide-line)" stroke-width="0.7" />
+          <text x="516" y="97" fill="var(--guide-label)" font-size="7" font-family="ui-monospace, monospace" text-anchor="end">baseline</text>
+
+          <line x1="95" y1="6" x2="95" y2="108" stroke="var(--guide-line)" stroke-width="0.4" />
+          <line x1="180" y1="6" x2="180" y2="108" stroke="var(--guide-line)" stroke-width="0.4" />
+          <line x1="220" y1="6" x2="220" y2="108" stroke="var(--guide-line)" stroke-width="0.4" />
+          <line x1="270" y1="6" x2="270" y2="108" stroke="var(--guide-line)" stroke-width="0.4" />
+          <line x1="340" y1="6" x2="340" y2="108" stroke="var(--guide-line)" stroke-width="0.4" />
+
+          <line x1="137" y1="15" x2="97" y2="100" stroke="var(--construct-line)" stroke-width="0.7" stroke-dasharray="3 3" />
+          <line x1="137" y1="15" x2="177" y2="100" stroke="var(--construct-line)" stroke-width="0.7" stroke-dasharray="3 3" />
+          <circle cx="137" cy="15" r="2.5" fill="var(--guide-dot)" />
+          <line x1="113" y1="65" x2="161" y2="65" stroke="var(--construct-line)" stroke-width="0.5" stroke-dasharray="2 2" />
+
+          <line x1="283" y1="58" x2="332" y2="15" stroke="var(--construct-line)" stroke-width="0.6" stroke-dasharray="3 3" />
+          <line x1="283" y1="58" x2="337" y2="100" stroke="var(--construct-line)" stroke-width="0.6" stroke-dasharray="3 3" />
+          <circle cx="283" cy="58" r="2" fill="var(--guide-dot)" />
+
+          <line x1="118" y1="15" x2="118" y2="100" stroke="var(--dimension-line)" stroke-width="0.5" />
+          <line x1="116" y1="15" x2="121" y2="15" stroke="var(--dimension-line)" stroke-width="0.5" />
+          <line x1="116" y1="100" x2="121" y2="100" stroke="var(--dimension-line)" stroke-width="0.5" />
+          <text x="118" y="61" fill="var(--guide-label)" font-size="6.5" font-family="ui-monospace, monospace" text-anchor="middle" transform="rotate(-90, 118, 61)">87</text>
+
+          <line x1="385" y1="100" x2="385" y2="130" stroke="var(--dimension-line)" stroke-width="0.5" stroke-dasharray="2 4" />
+          <line x1="382" y1="100" x2="388" y2="100" stroke="var(--dimension-line)" stroke-width="0.5" />
+          <line x1="382" y1="130" x2="388" y2="130" stroke="var(--dimension-line)" stroke-width="0.5" />
+          <text x="394" y="118" fill="var(--guide-label)" font-size="6.5" font-family="ui-monospace, monospace">30</text>
+
+          <!-- === loop === -->
+          <line x1="202" y1="130" x2="520" y2="130" stroke="var(--guide-line)" stroke-width="0.5" stroke-dasharray="3 4" />
+          <text x="516" y="127" fill="var(--guide-label)" font-size="7" font-family="ui-monospace, monospace" text-anchor="end">ascender</text>
+          <line x1="202" y1="147" x2="520" y2="147" stroke="var(--guide-line)" stroke-width="0.6" stroke-dasharray="2 3" />
+          <text x="516" y="144" fill="var(--guide-label)" font-size="7" font-family="ui-monospace, monospace" text-anchor="end">x-height</text>
+          <line x1="202" y1="190" x2="520" y2="190" stroke="var(--guide-line)" stroke-width="0.7" />
+          <text x="516" y="187" fill="var(--guide-label)" font-size="7" font-family="ui-monospace, monospace" text-anchor="end">baseline</text>
+          <line x1="202" y1="208" x2="520" y2="208" stroke="var(--guide-line)" stroke-width="0.5" stroke-dasharray="3 4" />
+          <text x="516" y="205" fill="var(--guide-label)" font-size="7" font-family="ui-monospace, monospace" text-anchor="end">descender</text>
+
+          <line x1="217" y1="122" x2="217" y2="196" stroke="var(--guide-line)" stroke-width="0.4" />
+          <line x1="272" y1="140" x2="272" y2="196" stroke="var(--guide-line)" stroke-width="0.4" />
+          <line x1="342" y1="140" x2="342" y2="196" stroke="var(--guide-line)" stroke-width="0.4" />
+          <line x1="410" y1="140" x2="410" y2="210" stroke="var(--guide-line)" stroke-width="0.4" />
+          <line x1="477" y1="140" x2="477" y2="210" stroke="var(--guide-line)" stroke-width="0.4" />
+
+          <circle cx="227" cy="130" r="2" fill="var(--guide-dot)" />
+          <circle cx="227" cy="190" r="2" fill="var(--guide-dot)" />
+
+          <circle cx="307" cy="168" r="23" stroke="var(--construct-line)" stroke-width="0.7" stroke-dasharray="3 3" />
+          <circle cx="307" cy="168" r="2" fill="var(--guide-dot)" />
+          <line x1="307" y1="142" x2="307" y2="194" stroke="var(--construct-line)" stroke-width="0.4" />
+          <line x1="281" y1="168" x2="333" y2="168" stroke="var(--construct-line)" stroke-width="0.4" />
+
+          <circle cx="375" cy="168" r="23" stroke="var(--construct-line)" stroke-width="0.7" stroke-dasharray="3 3" />
+          <circle cx="375" cy="168" r="2" fill="var(--guide-dot)" />
+
+          <circle cx="447" cy="168" r="23" stroke="var(--construct-line)" stroke-width="0.7" stroke-dasharray="3 3" />
+          <circle cx="447" cy="168" r="2" fill="var(--guide-dot)" />
+          <circle cx="422" cy="208" r="2" fill="var(--guide-dot)" />
+
+          <line x1="210" y1="108" x2="250" y2="108" stroke="var(--dimension-line)" stroke-width="0.5" />
+          <line x1="210" y1="106" x2="210" y2="111" stroke="var(--dimension-line)" stroke-width="0.5" />
+          <line x1="250" y1="106" x2="250" y2="111" stroke="var(--dimension-line)" stroke-width="0.5" />
+          <text x="230" y="117" fill="var(--guide-label)" font-size="6" font-family="ui-monospace, monospace" text-anchor="middle">40</text>
+
+          <!-- === 文字 === -->
+          <text x="95" y="100" fill="var(--text-strong)" font-size="120" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-weight="600" letter-spacing="-0.04em">Ark</text>
+          <text x="217" y="190" fill="var(--text-strong)" font-size="82" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-weight="400" letter-spacing="-0.03em">loop</text>
+          </g>
+        </svg>
       </div>
-      <nav class="home-aux-links">
-        <a href="/research">Research</a>
-        <span class="home-aux-sep">/</span>
-        <a href="/en/docs/guide">Docs</a>
-      </nav>
+
+      <p class="landing-tagline">AI agents, without the clutter.</p>
+      <p class="landing-desc">Multi-model routing, sandboxed execution, persistent memory, prompt injection protection. All behind a clean interface that stays out of your way.</p>
+      <div class="landing-actions">
+        <a class="landing-btn-primary" href="/en/docs/guide">Get started</a>
+        <a class="landing-btn-secondary" href="/en/api">API reference</a>
+      </div>
     </section>
 
-    <section class="home-features">
-      <div class="home-feature">
-        <h3 class="home-feature-title">Agent Loop</h3>
-        <p class="home-feature-desc">Multi-step autonomous execution with planning, reasoning, and tool orchestration. Persistent memory across conversations.</p>
-      </div>
-      <div class="home-feature">
-        <h3 class="home-feature-title">Multi-Model</h3>
-        <p class="home-feature-desc">Integrates OpenAI, Anthropic, and any compatible provider. Priority-based routing with rate limit handling.</p>
-      </div>
-      <div class="home-feature">
-        <h3 class="home-feature-title">Sandboxed Execution</h3>
-        <p class="home-feature-desc">Isolated environments via Firecracker microVMs or Docker. Python, data analysis, chart generation with strict resource limits.</p>
-      </div>
-      <div class="home-feature">
-        <h3 class="home-feature-title">Tool Providers</h3>
-        <p class="home-feature-desc">Unified management for search and fetch backends, with platform defaults and org-level overrides.</p>
-      </div>
-      <div class="home-feature">
-        <h3 class="home-feature-title">Custom Personas</h3>
-        <p class="home-feature-desc">Specialized agent configs with distinct prompts, tool sets, and behavioral tiers. Supports Lua-based custom executors.</p>
-      </div>
-      <div class="home-feature">
-        <h3 class="home-feature-title">REST + SSE API</h3>
-        <p class="home-feature-desc">40+ endpoints covering threads, runs, personas, and providers. Monotonic event ordering with cursor-based continuation.</p>
+    <section class="landing-capabilities">
+      <div class="cap-grid">
+        <div class="cap-item">
+          <span class="cap-label">01</span>
+          <h3 class="cap-title">Agent Loop</h3>
+          <p class="cap-desc">Multi-step autonomous execution with planning, reasoning, and tool orchestration. Persistent memory across conversations.</p>
+        </div>
+        <div class="cap-item">
+          <span class="cap-label">02</span>
+          <h3 class="cap-title">Multi-Model</h3>
+          <p class="cap-desc">OpenAI, Anthropic, and any compatible provider. Priority-based routing with rate limit handling.</p>
+        </div>
+        <div class="cap-item">
+          <span class="cap-label">03</span>
+          <h3 class="cap-title">Sandbox</h3>
+          <p class="cap-desc">Firecracker microVMs or Docker containers. Code execution with strict resource limits.</p>
+        </div>
+        <div class="cap-item">
+          <span class="cap-label">04</span>
+          <h3 class="cap-title">Security</h3>
+          <p class="cap-desc">Semantic-level prompt injection scanning. Detect and block attacks to protect agent runtime.</p>
+        </div>
+        <div class="cap-item">
+          <span class="cap-label">05</span>
+          <h3 class="cap-title">Channels</h3>
+          <p class="cap-desc">Connect agents to Telegram with full media handling and group context support.</p>
+        </div>
+        <div class="cap-item">
+          <span class="cap-label">06</span>
+          <h3 class="cap-title">REST + SSE</h3>
+          <p class="cap-desc">40+ endpoints covering threads, runs, personas, and providers. Cursor-based continuation.</p>
+        </div>
       </div>
     </section>
+
+    <section class="landing-nav-cards">
+      <a class="nav-card" href="/en/docs/guide">
+        <span class="nav-card-label">Guide</span>
+        <span class="nav-card-title">Deployment & Configuration</span>
+        <span class="nav-card-arrow">&rarr;</span>
+      </a>
+      <a class="nav-card" href="/en/api">
+        <span class="nav-card-label">API</span>
+        <span class="nav-card-title">Reference</span>
+        <span class="nav-card-arrow">&rarr;</span>
+      </a>
+      <a class="nav-card" href="/research">
+        <span class="nav-card-label">Research</span>
+        <span class="nav-card-title">Technical Articles</span>
+        <span class="nav-card-arrow">&rarr;</span>
+      </a>
+    </section>
+
+    <footer class="landing-footer">
+      <p class="landing-footer-text">
+        <a href="https://github.com/qqqqqf/Arkloop">GitHub</a>
+        <span class="landing-footer-sep">/</span>
+        <a href="https://github.com/qqqqqf/Arkloop/releases">Releases</a>
+        <span class="landing-footer-sep">/</span>
+        <a href="https://github.com/qqqqqf/Arkloop/issues">Issues</a>
+      </p>
+    </footer>
+
   </div>
 </BaseLayout>
+
+<style>
+  :root {
+    --guide-line: rgba(255, 255, 255, 0.22);
+    --guide-dot: rgba(255, 255, 255, 0.35);
+    --guide-label: rgba(255, 255, 255, 0.25);
+    --construct-line: rgba(255, 255, 255, 0.15);
+    --dimension-line: rgba(255, 255, 255, 0.18);
+  }
+
+  :root[data-theme='light'] {
+    --guide-line: rgba(0, 0, 0, 0.22);
+    --guide-dot: rgba(0, 0, 0, 0.35);
+    --guide-label: rgba(0, 0, 0, 0.25);
+    --construct-line: rgba(0, 0, 0, 0.15);
+    --dimension-line: rgba(0, 0, 0, 0.18);
+  }
+
+  .landing-shell { max-width: 960px; margin: 0 auto; }
+  .landing-hero { display: grid; gap: 20px; justify-items: center; text-align: center; padding: 8vh 0 7vh; }
+  .type-specimen { width: 100%; max-width: 526px; padding: 0 16px; }
+  .type-svg { width: 100%; height: auto; }
+  .landing-tagline { margin: 0; font-size: 1.05rem; font-weight: 500; color: var(--text-primary); letter-spacing: -0.02em; }
+  .landing-desc { max-width: 480px; margin: 0; font-size: 0.88rem; line-height: 1.7; color: var(--text-secondary); }
+  .landing-actions { display: flex; gap: 10px; margin-top: 8px; }
+  .landing-btn-primary, .landing-btn-secondary { display: inline-flex; align-items: center; padding: 10px 20px; border-radius: 10px; font-size: 0.88rem; font-weight: 600; }
+  .landing-btn-primary { background: var(--accent); color: var(--accent-contrast); border: 1px solid transparent; }
+  .landing-btn-primary:hover { opacity: 0.9; }
+  .landing-btn-secondary { background: transparent; color: var(--text-primary); border: 1px solid var(--border-primary); }
+  .landing-btn-secondary:hover { background: var(--bg-surface-soft); }
+  .landing-capabilities { padding: 0 0 6vh; }
+  .cap-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; border: 1px solid var(--border-primary); border-radius: 14px; overflow: hidden; background: var(--border-primary); }
+  .cap-item { display: grid; gap: 6px; padding: 24px 20px; background: var(--bg-surface); }
+  .cap-label { font-size: 0.68rem; font-family: ui-monospace, monospace; color: var(--text-muted); letter-spacing: 0.06em; }
+  .cap-title { margin: 0; font-size: 0.94rem; font-weight: 600; color: var(--text-strong); letter-spacing: -0.02em; }
+  .cap-desc { margin: 0; font-size: 0.8rem; line-height: 1.65; color: var(--text-secondary); }
+  .landing-nav-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; padding-bottom: 6vh; }
+  .nav-card { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px; padding: 16px 18px; border: 1px solid var(--border-primary); border-radius: 12px; background: var(--bg-surface); transition: background-color 140ms ease, border-color 140ms ease; }
+  .nav-card:hover { background: var(--bg-surface-soft); border-color: var(--border-strong); }
+  .nav-card-label { font-size: 0.68rem; font-family: ui-monospace, monospace; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-muted); }
+  .nav-card-title { font-size: 0.88rem; font-weight: 500; color: var(--text-primary); }
+  .nav-card-arrow { color: var(--text-muted); font-size: 0.9rem; }
+  .landing-footer { padding: 4vh 0; border-top: 1px solid var(--border-primary); text-align: center; }
+  .landing-footer-text { margin: 0; font-size: 0.8rem; color: var(--text-muted); display: flex; align-items: center; justify-content: center; gap: 8px; }
+  .landing-footer-text a:hover { color: var(--text-primary); }
+  .landing-footer-sep { color: var(--border-primary); user-select: none; }
+  @media (max-width: 720px) { .landing-hero { padding: 5vh 0 4vh; } .landing-tagline { font-size: 0.92rem; } .cap-grid, .landing-nav-cards { grid-template-columns: 1fr; } }
+  @media (max-width: 960px) and (min-width: 721px) { .cap-grid { grid-template-columns: repeat(2, 1fr); } .landing-nav-cards { grid-template-columns: 1fr; } }
+</style>

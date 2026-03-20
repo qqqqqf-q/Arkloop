@@ -1,110 +1,106 @@
 <p align="center">
-<img src="https://cdn.nodeimage.com/i/WEaHFl5O8ZuWtaXykH4mOvJHxu8R3543.png" alt="WEaHFl5O8ZuWtaXykH4mOvJHxu8R3543">
+  <img src="https://cdn.nodeimage.com/i/WEaHFl5O8ZuWtaXykH4mOvJHxu8R3543.png" alt="Arkloop" />
 </p>
 
-<p align="center">
-  <a href="https://arkloop.ai">Arkloop Cloud</a> &middot;
-  <a href="https://docs.arkloop.ai">Documentation</a>
-</p>
-
-<p align="center">
-  <a href="../../LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Arkloop%20License-blue"></a>
-  <a href="https://github.com/qqqqqf/Arkloop/graphs/commit-activity"><img alt="Commits" src="https://img.shields.io/github/commit-activity/m/qqqqqf/Arkloop?labelColor=%2332b583&color=%2312b76a"></a>
-  <a href="https://github.com/qqqqqf/Arkloop/issues"><img alt="Issues" src="https://img.shields.io/github/issues-search?query=repo%3Aqqqqqf%2FArkloop%20is%3Aclosed&label=issues%20closed&labelColor=%237d89b0&color=%235d6b98"></a>
-  <a href="https://twitter.com/intent/follow?screen_name=qqqqqf_"><img alt="Follow on X" src="https://img.shields.io/twitter/follow/qqqqqf_?logo=X&color=%20%23f5f5f5"></a>
-</p>
+<h3 align="center">干净、强大、属于你的 AI Agent 平台</h3>
 
 <p align="center">
   <a href="../../README.md"><img alt="English" src="https://img.shields.io/badge/English-d9d9d9"></a>
-  <a href="./README.md"><img alt="简体中文" src="https://img.shields.io/badge/简体中文-blue"></a>
+  <a href="../../LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Arkloop%20License-blue"></a>
+  <a href="https://github.com/qqqqqf/Arkloop/graphs/commit-activity"><img alt="Commits" src="https://img.shields.io/github/commit-activity/m/qqqqqf/Arkloop?labelColor=%2332b583&color=%2312b76a"></a>
+  <a href="https://github.com/qqqqqf/Arkloop/issues"><img alt="Issues closed" src="https://img.shields.io/github/issues-search?query=repo%3Aqqqqqf%2FArkloop%20is%3Aclosed&label=issues%20closed&labelColor=%237d89b0&color=%235d6b98"></a>
+  <a href="https://twitter.com/intent/follow?screen_name=qqqqqf_"><img alt="Follow on X" src="https://img.shields.io/twitter/follow/qqqqqf_?logo=X&color=%20%23f5f5f5"></a>
 </p>
 
-<center><h1>你想要的，全都有</h1></center>
-<center>Arkloop 是一个开源 AI 智能体平台，将自主任务执行、实时智能搜索和安全沙箱工作空间融合为一体。并且接入了 Memory 等功能来实现情感支持。它结合了 Manus 风格的自主代理、Perplexity 级别的搜索综合能力，以及云原生基础设施。</center>
-<center>
-<strong>以及，最重要的，他可以接入第三方平台(Telegram/Discord)</strong>
-</center>
+---
 
-## 快速开始
+Arkloop 是一个注重设计的开源 AI 智能体平台。多模型路由、沙箱执行、持久记忆 -- 所有能力都在一个干净的界面背后，不会糊你一脸。
 
-### Arkloop Cloud
+提供**桌面应用**（macOS / Linux / Windows）和自托管服务器两种使用方式。
 
-最快的上手方式 -- 零配置，全托管。
+## 下载
 
-[立即体验 Arkloop Cloud](https://arkloop.ai)
+从 [GitHub Releases](https://github.com/qqqqqf/Arkloop/releases) 下载最新版本。
 
-### 自托管部署
+桌面应用内置完整运行环境 -- 无需 Docker，无需配置，打开即用。
 
-> 系统要求：已安装 Docker、Docker Compose 和 Python 3，2+ CPU 核心，4+ GiB 内存。
-### 给人类看的
+## 自托管部署
 
-复制并粘贴以下提示词到你的 LLM Agent (Claude Code, Openclaw等):
-
-```
-Install and configure Arkloop by following the instructions here:
-https://raw.githubusercontent.com/qqqqqf/Arkloop/refs/heads/main/docs/guide/installation.md
-```
-
-### 给 LLM Agent 看的
-
-获取安装指南并照做：
+> 系统要求：Docker、Docker Compose、Python 3，2+ CPU 核心，4+ GiB 内存。
 
 ```bash
-curl -s https://raw.githubusercontent.com/qqqqqf/Arkloop/refs/heads/main/docs/guide/installation.md
+git clone https://github.com/qqqqqf/Arkloop.git
+cd Arkloop
+./setup.sh install
 ```
-## 核心功能
 
-**1. Agent Loop**  
-自主多步骤执行，集成规划、推理和工具编排。智能体在对话间维护持久记忆 -- 系统级约束、长期事实和会话上下文。
-`并且支持不同的记忆系统`
-**2. 智能搜索**  
-深度网络搜索，将多个来源综合为带引用的结构化回答。不是搜索 API 的简单封装 -- 它阅读、推理、回应。
+生产环境使用预构建镜像：
 
-**3. 沙箱代码执行**  
-基于`多平台容器`的隔离执行环境。支持 Python、数据分析、图表生成和文件操作，具有严格的资源限制。
+```bash
+./setup.sh install --prod --non-interactive ...
+```
 
-**4. Tool Providers**  
-统一管理搜索与抓取工具后端，支持自定义工具提供方与凭证。  
+完整配置选项参见[安装指南](../installation.md)。
 
-**5. 自定义 Persona**  
-定义专业化的智能体配置，包含独立的系统提示词、工具集和行为层级。  
-在通用、研究，`甚至是 cosplay`的专用模式间切换。
+## 功能
 
-**6. 多模型支持**  
-集成 OpenAI、Anthropic 以及任何 OpenAI 兼容提供商。智能重试、速率限制处理和提供商级别的响应缓存。
+**桌面应用** -- 基于 Electron + Go Sidecar 的原生应用，完全本地运行，通过 GitHub Releases 自动更新。
 
-**7. 企业管理控制台**  
-管理仪表板，用于用户管理、Persona 配置、LLM 凭证管理、用量分析、审计日志和功能开关。  
-（歪，我不允许自建 SaaS 的）  
+**多模型路由** -- 集成 OpenAI、Anthropic 及任何 OpenAI 兼容接口。基于优先级的路由，自动处理限流与提供商级缓存。
 
-**8. ClawHub Registry**  
-支持从 ClawHub 搜索与导入技能，兼容 OpenClaw 的 `SKILL.md` 目录布局。导入时会同步上游安全扫描状态，并在 Web 端展示风险提示。
+**沙箱代码执行** -- Firecracker 微虚拟机（Linux）或 Docker 容器（macOS/Windows）。支持 Python、数据分析、图表生成，严格资源限制。
+
+**持久记忆** -- 系统级约束、长期事实和会话上下文在对话间持久保留，由 OpenViking 向量记忆驱动。
+
+**Prompt 注入防护** -- 语义级扫描，检测并拦截注入攻击。大多数同类产品不做的功能。
+
+**渠道接入** -- 将智能体接入 Telegram，支持完整的媒体处理、群组上下文和速率限制。
+
+**ACP 集成** -- Agent Communication Protocol 支持，在沙箱环境中实现智能体间协调。
+
+**MCP 支持** -- Model Context Protocol 配置，通过外部工具扩展智能体能力。
+
+**自定义 Persona** -- 定义专业化的智能体配置，包含独立的系统提示词、工具集和行为层级。支持 Lua 脚本自定义 Agent Loop。
+
+**技能生态** -- 从 ClawHub 搜索与导入技能，兼容 OpenClaw `SKILL.md` 格式。导入时同步上游安全扫描状态。
+
+**管理控制台** -- 用户管理、Persona 配置、LLM 凭证管理、用量分析、审计日志和功能开关。
 
 ## 架构
 
 | 服务 | 技术栈 | 职责 |
 |------|--------|------|
-| API | Go | 认证、资源管理、RBAC、审计日志 |
+| API | Go | 认证、RBAC、资源管理、审计日志 |
 | Gateway | Go | 反向代理、速率限制、风控评分、Geo-IP |
-| Worker | Go | 任务执行、LLM 路由、工具调度、Persona 管理 |
+| Worker | Go | 任务执行、LLM 路由、工具调度、Agent Loop |
 | Sandbox | Go | Firecracker 微虚拟机或 Docker 容器中的代码执行 |
-| Bridge | Go | 项目桥接服务 |
-| Web | React / TypeScript | 面向用户的聊天界面 |
-| Console | React / TypeScript | 平台管理仪表板 |
-| Console Lite | React / TypeScript | 轻量管理仪表板 (默认) |
+| Desktop | Electron + Go | 原生桌面应用，内嵌 Sidecar |
+| Web | React / TypeScript | 用户聊天界面 |
+| Console | React / TypeScript | 管理仪表板 |
 
 基础设施：PostgreSQL + PgBouncer、Redis、MinIO（S3 兼容存储）、OpenViking（向量记忆）。
 
-## Star
+## 开发
 
-如果你觉得 Arkloop 有用，给个 Star 吧 -- 帮助更多人发现这个项目。  
-![wkwUSiE3xZw1NeDrSFqJYDkkSEDULMfu](https://cdn.nodeimage.com/i/wkwUSiE3xZw1NeDrSFqJYDkkSEDULMfu.gif)
+```bash
+# 快速本地 CI 检查
+bin/ci-local quick
 
+# Go 集成测试
+bin/ci-local integration
+
+# 完整检查
+bin/ci-local full
+```
+
+提交规范和开发流程参见 [CONTRIBUTING.md](../../CONTRIBUTING.md)。
 
 ## 贡献
 
-欢迎贡献。查看 [CONTRIBUTING.md](./CONTRIBUTING.md) 了解参与方式。
-并前往[Arkloop Developer 文档站](https://docs.arkloop.ai)来查看文档
+我们欢迎所有形式的贡献。
+
+即使你不是开发者，只是一个普通用户 -- 如果你在使用中感到任何不舒服的地方，哪怕只是一点间距、一个颜色、一个很小很小的细节，或者是一个很大很大的方向，都可以直接[开一个 issue](https://github.com/qqqqqf/Arkloop/issues)。我们认真对待每一个体验细节，你的反馈会让所有人的体验变得更好。
+
 ## 贡献者
 
 <a href="https://github.com/qqqqqf/Arkloop/graphs/contributors">
@@ -113,7 +109,7 @@ curl -s https://raw.githubusercontent.com/qqqqqf/Arkloop/refs/heads/main/docs/gu
 
 ## 安全
 
-报告安全漏洞请发送邮件至 security@arkloop.ai，而非公开 Issue。详情见 [SECURITY.md](../../SECURITY.md)。
+报告安全漏洞请发送邮件至 qingf622@outlook.com，而非公开 Issue。详情见 [SECURITY.md](../../SECURITY.md)。
 
 ## 许可证
 

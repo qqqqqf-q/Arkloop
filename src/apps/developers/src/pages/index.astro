@@ -2,47 +2,425 @@
 import BaseLayout from '@/layouts/BaseLayout.astro';
 ---
 
-<BaseLayout title="Arkloop Developers" description="Arkloop 开发者门户，包含工程文档、API 参考与研究文章。" locale="zh" pathname="/" alternatePath="/en">
-  <div class="home-shell">
-    <section class="home-landing">
-      <h1 class="home-title">Arkloop 开发者站</h1>
-      <p class="home-tagline">开源 AI Agent 平台，集自主执行、智能搜索与沙箱运行时于一体。</p>
-      <div class="home-actions">
-        <a class="primary-button" href="/docs/guide">快速开始</a>
-        <a class="secondary-button" href="/api">查看 API</a>
+<BaseLayout title="Arkloop Developers" description="Arkloop 开发者门户 -- 干净、强大、属于你的 AI Agent 平台。" locale="zh" pathname="/" alternatePath="/en">
+  <div class="landing-shell">
+
+    <section class="landing-hero">
+      <div class="type-specimen" aria-label="Arkloop">
+        <svg class="type-svg" viewBox="0 0 526 210" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <!--
+            Ark: Inter 600, 120px, x=95, baseline y=100
+            loop: Inter 400, 82px, x=217, baseline y=190
+            外层 translate(6)：整块再微调右移，viewBox 右扩以容纳
+          -->
+          <g transform="translate(6, 0)">
+
+          <!-- === Ark 辅助线 === -->
+          <line x1="0" y1="15" x2="520" y2="15" stroke="var(--guide-line)" stroke-width="0.7" />
+          <text x="516" y="12" fill="var(--guide-label)" font-size="7" font-family="ui-monospace, monospace" text-anchor="end">cap height</text>
+
+          <line x1="0" y1="100" x2="520" y2="100" stroke="var(--guide-line)" stroke-width="0.7" />
+          <text x="516" y="97" fill="var(--guide-label)" font-size="7" font-family="ui-monospace, monospace" text-anchor="end">baseline</text>
+
+          <!-- Ark 垂直线 -->
+          <line x1="95" y1="6" x2="95" y2="108" stroke="var(--guide-line)" stroke-width="0.4" />
+          <line x1="180" y1="6" x2="180" y2="108" stroke="var(--guide-line)" stroke-width="0.4" />
+          <line x1="220" y1="6" x2="220" y2="108" stroke="var(--guide-line)" stroke-width="0.4" />
+          <line x1="270" y1="6" x2="270" y2="108" stroke="var(--guide-line)" stroke-width="0.4" />
+          <line x1="340" y1="6" x2="340" y2="108" stroke="var(--guide-line)" stroke-width="0.4" />
+
+          <!-- A 三角构造 -->
+          <line x1="137" y1="15" x2="97" y2="100" stroke="var(--construct-line)" stroke-width="0.7" stroke-dasharray="3 3" />
+          <line x1="137" y1="15" x2="177" y2="100" stroke="var(--construct-line)" stroke-width="0.7" stroke-dasharray="3 3" />
+          <circle cx="137" cy="15" r="2.5" fill="var(--guide-dot)" />
+          <line x1="113" y1="65" x2="161" y2="65" stroke="var(--construct-line)" stroke-width="0.5" stroke-dasharray="2 2" />
+
+          <!-- k 对角构造 -->
+          <line x1="283" y1="58" x2="332" y2="15" stroke="var(--construct-line)" stroke-width="0.6" stroke-dasharray="3 3" />
+          <line x1="283" y1="58" x2="337" y2="100" stroke="var(--construct-line)" stroke-width="0.6" stroke-dasharray="3 3" />
+          <circle cx="283" cy="58" r="2" fill="var(--guide-dot)" />
+
+          <!-- Ark 高度标注（随 Ark 右移 +30） -->
+          <line x1="118" y1="15" x2="118" y2="100" stroke="var(--dimension-line)" stroke-width="0.5" />
+          <line x1="116" y1="15" x2="121" y2="15" stroke="var(--dimension-line)" stroke-width="0.5" />
+          <line x1="116" y1="100" x2="121" y2="100" stroke="var(--dimension-line)" stroke-width="0.5" />
+          <text x="118" y="61" fill="var(--guide-label)" font-size="6.5" font-family="ui-monospace, monospace" text-anchor="middle" transform="rotate(-90, 118, 61)">87</text>
+
+          <!-- 行间距标注 -->
+          <line x1="385" y1="100" x2="385" y2="130" stroke="var(--dimension-line)" stroke-width="0.5" stroke-dasharray="2 4" />
+          <line x1="382" y1="100" x2="388" y2="100" stroke="var(--dimension-line)" stroke-width="0.5" />
+          <line x1="382" y1="130" x2="388" y2="130" stroke="var(--dimension-line)" stroke-width="0.5" />
+          <text x="394" y="118" fill="var(--guide-label)" font-size="6.5" font-family="ui-monospace, monospace">30</text>
+
+          <!-- === loop 辅助线 === -->
+          <line x1="202" y1="130" x2="520" y2="130" stroke="var(--guide-line)" stroke-width="0.5" stroke-dasharray="3 4" />
+          <text x="516" y="127" fill="var(--guide-label)" font-size="7" font-family="ui-monospace, monospace" text-anchor="end">ascender</text>
+
+          <line x1="202" y1="147" x2="520" y2="147" stroke="var(--guide-line)" stroke-width="0.6" stroke-dasharray="2 3" />
+          <text x="516" y="144" fill="var(--guide-label)" font-size="7" font-family="ui-monospace, monospace" text-anchor="end">x-height</text>
+
+          <line x1="202" y1="190" x2="520" y2="190" stroke="var(--guide-line)" stroke-width="0.7" />
+          <text x="516" y="187" fill="var(--guide-label)" font-size="7" font-family="ui-monospace, monospace" text-anchor="end">baseline</text>
+
+          <line x1="202" y1="208" x2="520" y2="208" stroke="var(--guide-line)" stroke-width="0.5" stroke-dasharray="3 4" />
+          <text x="516" y="205" fill="var(--guide-label)" font-size="7" font-family="ui-monospace, monospace" text-anchor="end">descender</text>
+
+          <!-- loop 垂直线 -->
+          <line x1="217" y1="122" x2="217" y2="196" stroke="var(--guide-line)" stroke-width="0.4" />
+          <line x1="272" y1="140" x2="272" y2="196" stroke="var(--guide-line)" stroke-width="0.4" />
+          <line x1="342" y1="140" x2="342" y2="196" stroke="var(--guide-line)" stroke-width="0.4" />
+          <line x1="410" y1="140" x2="410" y2="210" stroke="var(--guide-line)" stroke-width="0.4" />
+          <line x1="477" y1="140" x2="477" y2="210" stroke="var(--guide-line)" stroke-width="0.4" />
+
+          <!-- l 端点 -->
+          <circle cx="227" cy="130" r="2" fill="var(--guide-dot)" />
+          <circle cx="227" cy="190" r="2" fill="var(--guide-dot)" />
+
+          <!-- o1 -->
+          <circle cx="307" cy="168" r="23" stroke="var(--construct-line)" stroke-width="0.7" stroke-dasharray="3 3" />
+          <circle cx="307" cy="168" r="2" fill="var(--guide-dot)" />
+          <line x1="307" y1="142" x2="307" y2="194" stroke="var(--construct-line)" stroke-width="0.4" />
+          <line x1="281" y1="168" x2="333" y2="168" stroke="var(--construct-line)" stroke-width="0.4" />
+
+          <!-- o2 -->
+          <circle cx="375" cy="168" r="23" stroke="var(--construct-line)" stroke-width="0.7" stroke-dasharray="3 3" />
+          <circle cx="375" cy="168" r="2" fill="var(--guide-dot)" />
+
+          <!-- p bowl -->
+          <circle cx="447" cy="168" r="23" stroke="var(--construct-line)" stroke-width="0.7" stroke-dasharray="3 3" />
+          <circle cx="447" cy="168" r="2" fill="var(--guide-dot)" />
+          <circle cx="422" cy="208" r="2" fill="var(--guide-dot)" />
+
+          <!-- 字距标注: A-r -->
+          <line x1="210" y1="108" x2="250" y2="108" stroke="var(--dimension-line)" stroke-width="0.5" />
+          <line x1="210" y1="106" x2="210" y2="111" stroke="var(--dimension-line)" stroke-width="0.5" />
+          <line x1="250" y1="106" x2="250" y2="111" stroke="var(--dimension-line)" stroke-width="0.5" />
+          <text x="230" y="117" fill="var(--guide-label)" font-size="6" font-family="ui-monospace, monospace" text-anchor="middle">40</text>
+
+          <!-- === 文字 === -->
+          <text
+            x="95"
+            y="100"
+            fill="var(--text-strong)"
+            font-size="120"
+            font-family="Inter, ui-sans-serif, system-ui, sans-serif"
+            font-weight="600"
+            letter-spacing="-0.04em"
+          >Ark</text>
+
+          <text
+            x="217"
+            y="190"
+            fill="var(--text-strong)"
+            font-size="82"
+            font-family="Inter, ui-sans-serif, system-ui, sans-serif"
+            font-weight="400"
+            letter-spacing="-0.03em"
+          >loop</text>
+          </g>
+        </svg>
       </div>
-      <nav class="home-aux-links">
-        <a href="/research">Research</a>
-        <span class="home-aux-sep">/</span>
-        <a href="/docs/guide">Docs</a>
-      </nav>
+
+      <p class="landing-tagline">干净、强大、属于你的 AI Agent 平台</p>
+      <p class="landing-desc">多模型路由、沙箱执行、持久记忆、Prompt 注入防护。<br/>所有能力都在一个干净的界面背后。</p>
+      <div class="landing-actions">
+        <a class="landing-btn-primary" href="/docs/guide">快速开始</a>
+        <a class="landing-btn-secondary" href="/api">API 参考</a>
+      </div>
     </section>
 
-    <section class="home-features">
-      <div class="home-feature">
-        <h3 class="home-feature-title">Agent Loop</h3>
-        <p class="home-feature-desc">多步自主执行，支持规划、推理与工具编排。跨会话持久化记忆。</p>
-      </div>
-      <div class="home-feature">
-        <h3 class="home-feature-title">Multi-Model</h3>
-        <p class="home-feature-desc">集成 OpenAI、Anthropic 及任何兼容接口。基于优先级的路由，自动处理限流。</p>
-      </div>
-      <div class="home-feature">
-        <h3 class="home-feature-title">沙箱执行</h3>
-        <p class="home-feature-desc">Firecracker 微虚拟机或 Docker 隔离环境。Python、数据分析、图表生成，严格资源限制。</p>
-      </div>
-      <div class="home-feature">
-        <h3 class="home-feature-title">Tool Providers</h3>
-        <p class="home-feature-desc">统一管理搜索与抓取工具后端。支持 platform 默认配置与 org 级覆盖。</p>
-      </div>
-      <div class="home-feature">
-        <h3 class="home-feature-title">自定义 Personas</h3>
-        <p class="home-feature-desc">专用 Agent 配置：独立提示词、工具集与行为层级。支持 Lua 自定义执行器。</p>
-      </div>
-      <div class="home-feature">
-        <h3 class="home-feature-title">REST + SSE API</h3>
-        <p class="home-feature-desc">40+ 端点覆盖线程、运行、Personas 与模型供应商。单调事件序、游标续传。</p>
+    <section class="landing-capabilities">
+      <div class="cap-grid">
+        <div class="cap-item">
+          <span class="cap-label">01</span>
+          <h3 class="cap-title">Agent Loop</h3>
+          <p class="cap-desc">多步自主执行，规划、推理与工具编排。跨会话持久化记忆。</p>
+        </div>
+        <div class="cap-item">
+          <span class="cap-label">02</span>
+          <h3 class="cap-title">Multi-Model</h3>
+          <p class="cap-desc">OpenAI、Anthropic 及任何兼容接口。优先级路由，自动限流处理。</p>
+        </div>
+        <div class="cap-item">
+          <span class="cap-label">03</span>
+          <h3 class="cap-title">Sandbox</h3>
+          <p class="cap-desc">Firecracker 微虚拟机或 Docker 隔离环境。代码执行，严格资源限制。</p>
+        </div>
+        <div class="cap-item">
+          <span class="cap-label">04</span>
+          <h3 class="cap-title">Security</h3>
+          <p class="cap-desc">语义级 Prompt 注入扫描。检测并拦截攻击，保护 Agent 运行安全。</p>
+        </div>
+        <div class="cap-item">
+          <span class="cap-label">05</span>
+          <h3 class="cap-title">Channels</h3>
+          <p class="cap-desc">将 Agent 接入 Telegram，完整媒体处理与群组上下文支持。</p>
+        </div>
+        <div class="cap-item">
+          <span class="cap-label">06</span>
+          <h3 class="cap-title">REST + SSE</h3>
+          <p class="cap-desc">40+ 端点覆盖线程、运行、Personas 与模型供应商。游标续传。</p>
+        </div>
       </div>
     </section>
+
+    <section class="landing-nav-cards">
+      <a class="nav-card" href="/docs/guide">
+        <span class="nav-card-label">Guide</span>
+        <span class="nav-card-title">部署与配置</span>
+        <span class="nav-card-arrow">&rarr;</span>
+      </a>
+      <a class="nav-card" href="/api">
+        <span class="nav-card-label">API</span>
+        <span class="nav-card-title">接口参考</span>
+        <span class="nav-card-arrow">&rarr;</span>
+      </a>
+      <a class="nav-card" href="/research">
+        <span class="nav-card-label">Research</span>
+        <span class="nav-card-title">技术研究</span>
+        <span class="nav-card-arrow">&rarr;</span>
+      </a>
+    </section>
+
+    <footer class="landing-footer">
+      <p class="landing-footer-text">
+        <a href="https://github.com/qqqqqf/Arkloop">GitHub</a>
+        <span class="landing-footer-sep">/</span>
+        <a href="https://github.com/qqqqqf/Arkloop/releases">Releases</a>
+        <span class="landing-footer-sep">/</span>
+        <a href="https://github.com/qqqqqf/Arkloop/issues">Issues</a>
+      </p>
+    </footer>
+
   </div>
 </BaseLayout>
+
+<style>
+  :root {
+    --guide-line: rgba(255, 255, 255, 0.22);
+    --guide-dot: rgba(255, 255, 255, 0.35);
+    --guide-label: rgba(255, 255, 255, 0.25);
+    --construct-line: rgba(255, 255, 255, 0.15);
+    --dimension-line: rgba(255, 255, 255, 0.18);
+  }
+
+  :root[data-theme='light'] {
+    --guide-line: rgba(0, 0, 0, 0.22);
+    --guide-dot: rgba(0, 0, 0, 0.35);
+    --guide-label: rgba(0, 0, 0, 0.25);
+    --construct-line: rgba(0, 0, 0, 0.15);
+    --dimension-line: rgba(0, 0, 0, 0.18);
+  }
+
+  .landing-shell {
+    max-width: 960px;
+    margin: 0 auto;
+  }
+
+  .landing-hero {
+    display: grid;
+    gap: 20px;
+    justify-items: center;
+    text-align: center;
+    padding: 8vh 0 7vh;
+  }
+
+  .type-specimen {
+    width: 100%;
+    max-width: 526px;
+    padding: 0 16px;
+  }
+
+  .type-svg {
+    width: 100%;
+    height: auto;
+  }
+
+  .landing-tagline {
+    margin: 0;
+    font-size: 1.05rem;
+    font-weight: 500;
+    color: var(--text-primary);
+    letter-spacing: -0.02em;
+  }
+
+  .landing-desc {
+    max-width: 480px;
+    margin: 0;
+    font-size: 0.88rem;
+    line-height: 1.7;
+    color: var(--text-secondary);
+  }
+
+  .landing-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 8px;
+  }
+
+  .landing-btn-primary,
+  .landing-btn-secondary {
+    display: inline-flex;
+    align-items: center;
+    padding: 10px 20px;
+    border-radius: 10px;
+    font-size: 0.88rem;
+    font-weight: 600;
+  }
+
+  .landing-btn-primary {
+    background: var(--accent);
+    color: var(--accent-contrast);
+    border: 1px solid transparent;
+  }
+
+  .landing-btn-primary:hover {
+    opacity: 0.9;
+  }
+
+  .landing-btn-secondary {
+    background: transparent;
+    color: var(--text-primary);
+    border: 1px solid var(--border-primary);
+  }
+
+  .landing-btn-secondary:hover {
+    background: var(--bg-surface-soft);
+  }
+
+  .landing-capabilities {
+    padding: 0 0 6vh;
+  }
+
+  .cap-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1px;
+    border: 1px solid var(--border-primary);
+    border-radius: 14px;
+    overflow: hidden;
+    background: var(--border-primary);
+  }
+
+  .cap-item {
+    display: grid;
+    gap: 6px;
+    padding: 24px 20px;
+    background: var(--bg-surface);
+  }
+
+  .cap-label {
+    font-size: 0.68rem;
+    font-family: ui-monospace, monospace;
+    color: var(--text-muted);
+    letter-spacing: 0.06em;
+  }
+
+  .cap-title {
+    margin: 0;
+    font-size: 0.94rem;
+    font-weight: 600;
+    color: var(--text-strong);
+    letter-spacing: -0.02em;
+  }
+
+  .cap-desc {
+    margin: 0;
+    font-size: 0.8rem;
+    line-height: 1.65;
+    color: var(--text-secondary);
+  }
+
+  .landing-nav-cards {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    padding-bottom: 6vh;
+  }
+
+  .nav-card {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 10px;
+    padding: 16px 18px;
+    border: 1px solid var(--border-primary);
+    border-radius: 12px;
+    background: var(--bg-surface);
+    transition: background-color 140ms ease, border-color 140ms ease;
+  }
+
+  .nav-card:hover {
+    background: var(--bg-surface-soft);
+    border-color: var(--border-strong);
+  }
+
+  .nav-card-label {
+    font-size: 0.68rem;
+    font-family: ui-monospace, monospace;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-muted);
+  }
+
+  .nav-card-title {
+    font-size: 0.88rem;
+    font-weight: 500;
+    color: var(--text-primary);
+  }
+
+  .nav-card-arrow {
+    color: var(--text-muted);
+    font-size: 0.9rem;
+  }
+
+  .landing-footer {
+    padding: 4vh 0;
+    border-top: 1px solid var(--border-primary);
+    text-align: center;
+  }
+
+  .landing-footer-text {
+    margin: 0;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+
+  .landing-footer-text a:hover {
+    color: var(--text-primary);
+  }
+
+  .landing-footer-sep {
+    color: var(--border-primary);
+    user-select: none;
+  }
+
+  @media (max-width: 720px) {
+    .landing-hero {
+      padding: 5vh 0 4vh;
+    }
+
+    .landing-tagline {
+      font-size: 0.92rem;
+    }
+
+    .cap-grid,
+    .landing-nav-cards {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  @media (max-width: 960px) and (min-width: 721px) {
+    .cap-grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
+
+    .landing-nav-cards {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
