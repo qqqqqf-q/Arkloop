@@ -53,6 +53,7 @@ func NewResultSummarizerMiddleware(
 			fallbackGateway, fallbackModel,
 			stubGateway, emitDebugEvents,
 			llmMaxResponseBytes, configLoader,
+			rc.RoutingByokEnabled,
 		)
 		if gateway == nil {
 			slog.WarnContext(ctx, "result_summarizer: gateway resolve failed, skipping")

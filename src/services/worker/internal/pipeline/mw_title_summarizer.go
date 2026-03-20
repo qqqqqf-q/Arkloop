@@ -13,27 +13,35 @@ import (
 	"arkloop/services/worker/internal/routing"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/redis/go-redis/v9"
 )
+
+// titleSummarizerDB 由 *pgxpool.Pool 与 desktop 的 data.DesktopDB 实现。
+type titleSummarizerDB interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+	BeginTx(ctx context.Context, opts pgx.TxOptions) (pgx.Tx, error)
+}
 
 const titleSummarizerTimeout = 30 * time.Second
 
 const settingTitleSummarizerModel = "title_summarizer.model"
 
-func NewTitleSummarizerMiddleware(pool *pgxpool.Pool, rdb *redis.Client, stubGateway llm.Gateway, emitDebugEvents bool, loaders ...*routing.ConfigLoader) RunMiddleware {
+func NewTitleSummarizerMiddleware(db titleSummarizerDB, rdb *redis.Client, stubGateway llm.Gateway, emitDebugEvents bool, loaders ...*routing.ConfigLoader) RunMiddleware {
 	var configLoader *routing.ConfigLoader
 	if len(loaders) > 0 {
 		configLoader = loaders[0]
 	}
 	return func(ctx context.Context, rc *RunContext, next RunHandler) error {
-		if rc.TitleSummarizer == nil || pool == nil {
+		if rc.TitleSummarizer == nil || db == nil {
 			return next(ctx, rc)
 		}
 
 		threadID := rc.Run.ThreadID
 		accountID := &rc.Run.AccountID
-		firstRun, err := isFirstRunOfThread(ctx, pool, threadID)
+		firstRun, err := isFirstRunOfThread(ctx, db, threadID)
 		if err != nil {
 			slog.WarnContext(ctx, "title_summarizer: check failed", "err", err.Error())
 			return next(ctx, rc)
@@ -54,14 +62,15 @@ func NewTitleSummarizerMiddleware(pool *pgxpool.Pool, rdb *redis.Client, stubGat
 		llmMaxResponseBytes := rc.LlmMaxResponseBytes
 
 		bus := rc.EventBus
+		byok := rc.RoutingByokEnabled
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), titleSummarizerTimeout)
 			defer cancel()
-			gateway, model := resolveTitleGateway(ctx, pool, accountID, fallbackGateway, fallbackModel, stubGateway, emitDebugEvents, llmMaxResponseBytes, configLoader)
+			gateway, model := resolveTitleGateway(ctx, db, accountID, fallbackGateway, fallbackModel, stubGateway, emitDebugEvents, llmMaxResponseBytes, configLoader, byok)
 			if gateway == nil {
 				return
 			}
-			generateTitle(ctx, pool, rdb, bus, gateway, runID, threadID, model, messages, prompt, maxTokens)
+			generateTitle(ctx, db, rdb, bus, gateway, runID, threadID, model, messages, prompt, maxTokens)
 		}()
 
 		return next(ctx, rc)
@@ -70,7 +79,7 @@ func NewTitleSummarizerMiddleware(pool *pgxpool.Pool, rdb *redis.Client, stubGat
 
 func resolveTitleGateway(
 	ctx context.Context,
-	pool *pgxpool.Pool,
+	pool titleSummarizerDB,
 	accountID *uuid.UUID,
 	fallbackGateway llm.Gateway,
 	fallbackModel string,
@@ -78,10 +87,11 @@ func resolveTitleGateway(
 	emitDebugEvents bool,
 	llmMaxResponseBytes int,
 	configLoader *routing.ConfigLoader,
+	byokEnabled bool,
 ) (llm.Gateway, string) {
 	// account-level override takes precedence over platform setting
-	if accountID != nil && pool != nil {
-		if gw, model, ok := resolveAccountToolGateway(ctx, pool, *accountID, stubGateway, emitDebugEvents, llmMaxResponseBytes, configLoader); ok {
+	if accountID != nil {
+		if gw, model, ok := resolveAccountToolGateway(ctx, pool, *accountID, stubGateway, emitDebugEvents, llmMaxResponseBytes, configLoader, byokEnabled); ok {
 			return gw, model
 		}
 	}
@@ -99,13 +109,14 @@ func resolveTitleGateway(
 	if configLoader == nil {
 		return fallbackGateway, fallbackModel
 	}
-	routingCfg, err := configLoader.Load(ctx, nil)
+	routingCfg, err := configLoader.Load(ctx, accountID)
 	if err != nil {
 		slog.Warn("title_summarizer: load routing config failed", "err", err.Error())
 		return fallbackGateway, fallbackModel
 	}
 
-	selected, err := resolveSelectedRouteBySelector(routingCfg, selector, map[string]any{}, true)
+	platformCfg := routingCfg.PlatformOnly()
+	selected, err := resolveSelectedRouteBySelector(platformCfg, selector, map[string]any{}, byokEnabled)
 	if err != nil || selected == nil {
 		if err != nil {
 			slog.Warn("title_summarizer: selector resolve failed", "selector", selector, "err", err.Error())
@@ -121,7 +132,7 @@ func resolveTitleGateway(
 	return gw, selected.Route.Model
 }
 
-func isFirstRunOfThread(ctx context.Context, pool *pgxpool.Pool, threadID uuid.UUID) (bool, error) {
+func isFirstRunOfThread(ctx context.Context, pool titleSummarizerDB, threadID uuid.UUID) (bool, error) {
 	var count int
 	err := pool.QueryRow(ctx,
 		`SELECT COUNT(*) FROM runs WHERE thread_id = $1 AND deleted_at IS NULL`,
@@ -135,7 +146,7 @@ func isFirstRunOfThread(ctx context.Context, pool *pgxpool.Pool, threadID uuid.U
 
 func generateTitle(
 	ctx context.Context,
-	pool *pgxpool.Pool,
+	pool titleSummarizerDB,
 	rdb *redis.Client,
 	bus eventbus.EventBus,
 	gateway llm.Gateway,
@@ -209,7 +220,7 @@ func generateTitle(
 
 func emitTitleEvent(
 	ctx context.Context,
-	pool *pgxpool.Pool,
+	pool titleSummarizerDB,
 	rdb *redis.Client,
 	bus eventbus.EventBus,
 	runID uuid.UUID,
@@ -225,7 +236,7 @@ func emitTitleEvent(
 		return
 	}
 
-	tx, err := pool.Begin(ctx)
+	tx, err := pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return
 	}
@@ -295,6 +306,7 @@ func resolveAccountToolGateway(
 	emitDebugEvents bool,
 	llmMaxResponseBytes int,
 	configLoader *routing.ConfigLoader,
+	byokEnabled bool,
 ) (llm.Gateway, string, bool) {
 	var selector string
 	err := pool.QueryRow(ctx,
@@ -312,13 +324,14 @@ func resolveAccountToolGateway(
 	if configLoader == nil {
 		return nil, "", false
 	}
-	routingCfg, err := configLoader.Load(ctx, nil)
+	aid := accountID
+	routingCfg, err := configLoader.Load(ctx, &aid)
 	if err != nil {
 		slog.Warn("title_summarizer: load routing config for tool profile failed", "err", err.Error())
 		return nil, "", false
 	}
 
-	selected, err := resolveSelectedRouteBySelector(routingCfg, selector, map[string]any{}, true)
+	selected, err := resolveSelectedRouteBySelector(routingCfg, selector, map[string]any{}, byokEnabled)
 	if err != nil || selected == nil {
 		if err != nil {
 			slog.Warn("title_summarizer: tool profile selector resolve failed", "selector", selector, "err", err.Error())

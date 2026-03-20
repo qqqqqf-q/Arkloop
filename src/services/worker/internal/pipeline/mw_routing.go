@@ -57,6 +57,7 @@ func NewRoutingMiddleware(
 				byokEnabled = raw == "true"
 			}
 		}
+		rc.RoutingByokEnabled = byokEnabled
 
 		resolveGatewayForRouteID := func(resolveCtx context.Context, routeID string) (llm.Gateway, *routing.SelectedProviderRoute, error) {
 			_ = resolveCtx
@@ -106,19 +107,19 @@ func NewRoutingMiddleware(
 			return gw, selected, nil
 		}
 
-	var decision routing.ProviderRouteDecision
-	if _, hasRouteID := rc.InputJSON["route_id"]; hasRouteID {
-		decision = activeRouter.Decide(rc.InputJSON, byokEnabled, false)
-	} else {
-		selector := ""
-		userModelOverride := false
-		// model override from input_json (user-specified) takes priority over persona default
-		if modelOverride, ok := rc.InputJSON["model"].(string); ok && strings.TrimSpace(modelOverride) != "" {
-			selector = strings.TrimSpace(modelOverride)
-			userModelOverride = true
-		} else if rc.AgentConfig != nil && rc.AgentConfig.Model != nil {
-			selector = strings.TrimSpace(*rc.AgentConfig.Model)
-		}
+		var decision routing.ProviderRouteDecision
+		if _, hasRouteID := rc.InputJSON["route_id"]; hasRouteID {
+			decision = activeRouter.Decide(rc.InputJSON, byokEnabled, false)
+		} else {
+			selector := ""
+			userModelOverride := false
+			// model override from input_json (user-specified) takes priority over persona default
+			if modelOverride, ok := rc.InputJSON["model"].(string); ok && strings.TrimSpace(modelOverride) != "" {
+				selector = strings.TrimSpace(modelOverride)
+				userModelOverride = true
+			} else if rc.AgentConfig != nil && rc.AgentConfig.Model != nil {
+				selector = strings.TrimSpace(*rc.AgentConfig.Model)
+			}
 			if selector != "" {
 				// user-specified overrides must be able to resolve BYOK (user-scope) routes;
 				// persona-configured selectors only resolve against platform routes.

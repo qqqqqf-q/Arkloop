@@ -115,6 +115,8 @@ type RunContext struct {
 	// -- RoutingMiddleware 写入 --
 	Gateway       llm.Gateway
 	SelectedRoute *routing.SelectedProviderRoute
+	// RoutingByokEnabled 与 RoutingMiddleware 中 feature.byok_enabled 一致，供后续按 selector 解析路由使用。
+	RoutingByokEnabled bool
 	// ResolveGatewayForRouteID 按 route_id 构建目标 Gateway，用于同一 run 内切换输出模型。
 	// route_id 为空时应回退当前主路由；返回 error 时由上层决定是否降级。
 	ResolveGatewayForRouteID func(ctx context.Context, routeID string) (llm.Gateway, *routing.SelectedProviderRoute, error)
