@@ -16,7 +16,7 @@ import {
 } from './sidecar'
 import { createTray, registerGlobalShortcut, destroyTray } from './tray'
 import { registerIpcHandlers } from './ipc'
-import type { AppConfig } from './types'
+import type { AppConfig, ApplyConfigUpdateOptions } from './types'
 
 let mainWindow: BrowserWindow | null = null
 let activeSidecarPort: number | null = null
@@ -103,14 +103,19 @@ function memoryChanged(a: AppConfig, b: AppConfig): boolean {
     || JSON.stringify(a.memory.openviking) !== JSON.stringify(b.memory.openviking)
 }
 
-async function applyConfigUpdate(config: AppConfig): Promise<AppConfig> {
+async function applyConfigUpdate(
+  config: AppConfig,
+  options?: ApplyConfigUpdateOptions,
+): Promise<AppConfig> {
   const previous = loadConfig()
   const candidate = normalizeConfig(config)
+  const forceLocalReload = Boolean(options?.forceLocalSidecarRestart) && candidate.mode === 'local'
   const needsRestart = previous.mode !== candidate.mode
     || previous.local.port !== candidate.local.port
     || previous.local.portMode !== candidate.local.portMode
     || connectorsChanged(previous, candidate)
     || memoryChanged(previous, candidate)
+    || forceLocalReload
 
   if (!needsRestart) {
     saveConfig(candidate)

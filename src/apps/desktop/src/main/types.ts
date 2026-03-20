@@ -50,6 +50,12 @@ export type LocalConfig = {
   portMode: LocalPortMode
 }
 
+/** applyConfigUpdate 可选行为（仅 Electron 主进程使用） */
+export type ApplyConfigUpdateOptions = {
+  /** 本地模式：无论记忆字段是否变化都重启 sidecar，使 Worker 重读 ARKLOOP_MEMORY_* / OPENVIKING 等环境 */
+  forceLocalSidecarRestart?: boolean
+}
+
 export type AppConfig = {
   mode: ConnectionMode
   saas: { baseUrl: string }

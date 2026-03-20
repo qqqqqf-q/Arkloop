@@ -11,10 +11,10 @@ import {
   getBridgeBaseUrl,
   type SidecarRuntime,
 } from './sidecar'
-import type { AppConfig, ConnectorsConfig, MemoryConfig } from './types'
+import type { AppConfig, ApplyConfigUpdateOptions, ConnectorsConfig, MemoryConfig } from './types'
 
 type DesktopController = {
-  applyConfigUpdate: (config: AppConfig) => Promise<AppConfig>
+  applyConfigUpdate: (config: AppConfig, options?: ApplyConfigUpdateOptions) => Promise<AppConfig>
   restartLocalSidecar: () => Promise<SidecarRuntime>
   getSidecarRuntime: () => SidecarRuntime
 }
@@ -106,7 +106,7 @@ export function registerIpcHandlers(
   ipcMain.handle('arkloop:memory:set-config', async (_event, memory: MemoryConfig) => {
     const config = loadConfig()
     const next: AppConfig = { ...config, memory }
-    await controller.applyConfigUpdate(next)
+    await controller.applyConfigUpdate(next, { forceLocalSidecarRestart: true })
     return { ok: true }
   })
 
