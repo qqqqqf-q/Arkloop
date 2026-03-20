@@ -502,7 +502,7 @@ export function ChatInput({
           />
 
           {/* mic + send 共用同一位置，disabled 时显示 spinner */}
-          <div style={{ position: 'relative', width: '32px', height: '32px', flexShrink: 0 }}>
+          <div style={{ position: 'relative', width: '30px', height: '30px', flexShrink: 0 }}>
             {disabled ? (
               <div className="flex h-full w-full items-center justify-center rounded-lg bg-[var(--c-accent-send)]" style={{ opacity: 0.5 }}>
                 <Loader2 size={14} className="animate-spin" style={{ color: 'var(--c-accent-send-text)' }} />
@@ -533,7 +533,7 @@ export function ChatInput({
                     pointerEvents: (value.trim() || attachments.length > 0) ? 'none' : 'auto',
                   }}
                 >
-                  <Mic size={16} />
+                  <Mic size={18} />
                 </button>
                 <button
                   type="submit"

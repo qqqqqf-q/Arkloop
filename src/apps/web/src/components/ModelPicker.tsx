@@ -94,21 +94,25 @@ export function ModelPicker({ accessToken, value, onChange, onAddApiKey, variant
         onClick={() => setOpen((v) => !v)}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
-        className="relative top-px flex h-8 items-center gap-1 rounded-lg"
+        className="relative flex h-[31.5px] items-center gap-1 rounded-lg"
         style={{
           padding: '0 8px 0 10px',
           overflow: 'hidden',
           whiteSpace: 'nowrap',
           cursor: 'pointer',
           fontWeight: 400,
-          fontSize: '13px',
+          fontSize: '14px',
           background: hovered ? 'var(--c-bg-deep)' : 'transparent',
-          color: value ? 'var(--c-text-secondary)' : 'var(--c-text-tertiary)',
+          color: hovered && value
+            ? 'var(--c-text-primary)'
+            : value
+              ? 'var(--c-text-secondary)'
+              : 'var(--c-text-tertiary)',
           opacity: hovered ? 1 : 0.8,
-          transition: 'background-color 60ms ease, color 60ms ease, opacity 60ms ease',
+          transition: 'background-color 120ms ease, color 120ms ease, opacity 120ms ease',
         }}
       >
-        <span style={{ maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+        <span style={{ maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', paddingLeft: '1px' }}>
           {displayLabel}
         </span>
         <ChevronDown size={14} style={{ opacity: 0.6, flexShrink: 0 }} />
