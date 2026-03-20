@@ -44,6 +44,8 @@ func DefaultPatterns() []PatternDef {
 			Category: "system_prompt_leakage",
 			Rules: []PatternRule{
 				{Severity: "critical", Pattern: `(?i)(reveal|show|print|output|display|tell\s+me|give\s+me|repeat|share|expose|dump|leak|disclose)\s+(your\s+)?(system\s+prompt|initial\s+prompt|original\s+prompt|instructions?|directives?|configuration|rules?|system\s+message)`},
+				{Severity: "critical", Pattern: `(?i)(reveal|show|print|output|display|expose|dump|leak)\s+.{0,48}(original\s+system\s+instructions?|original\s+system\s+prompt|your\s+original\s+instructions?)`},
+				{Severity: "high", Pattern: `(?i)system\s+prompt\s+generator`},
 				{Severity: "critical", Pattern: `(?i)print\s+(your\s+)?(full\s+)?(system\s+prompt|initial\s+instructions?|prompt\s+above|configuration)`},
 				{Severity: "high", Pattern: `(?i)what\s+(are|were|is)\s+(your\s+)?(original\s+|initial\s+|actual\s+)?(instructions?|rules?|system\s+prompt|configuration|directives?|constraints?)`},
 				{Severity: "high", Pattern: `(?i)(ignore|disregard).{0,100}(reveal|print|show|output|expose|share)\s+(your\s+)?(system|prompt|instructions?|config)`},

@@ -1,7 +1,14 @@
-# Prompt Injection 正则模式库
-# 可热更新，Worker 启动时加载
+# Prompt Injection 正则参考（与实现对照用）
+# 实际运行：Worker 内建规则见 src/services/worker/internal/security/patterns.go DefaultPatterns()
 
 patterns:
+  - id: system_prompt_leakage
+    category: system_prompt_leakage
+    severity: high
+    patterns:
+      - '(?i)(reveal|show|print|output|display|expose|dump|leak)\s+.{0,48}(original\s+system\s+instructions?|original\s+system\s+prompt|your\s+original\s+instructions?)'
+      - '(?i)system\s+prompt\s+generator'
+
   - id: system_override
     category: instruction_override
     severity: high
