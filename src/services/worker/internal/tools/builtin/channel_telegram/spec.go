@@ -40,24 +40,18 @@ var ReactLlmSpec = llm.ToolSpec{
 		"properties": map[string]any{
 			"emoji": map[string]any{
 				"type":        "string",
-				"description": "Single emoji character or Telegram-supported reaction",
+				"description": "Single emoji or Telegram-supported reaction; provide emoji or reaction (exactly one non-empty)",
 			},
 			"reaction": map[string]any{
 				"type":        "string",
-				"description": "Same as emoji; use emoji OR reaction, not both unless emoji wins",
+				"description": "Alias of emoji; provide emoji or reaction (exactly one non-empty)",
 			},
 			"message_id": map[string]any{
-				"description": "Telegram message_id as string or integer",
-				"anyOf": []any{
-					map[string]any{"type": "string"},
-					map[string]any{"type": "integer"},
-				},
+				"type":        "string",
+				"description": "Telegram message_id as decimal string; omit to use inbound message from context",
 			},
 		},
-		"anyOf": []any{
-			map[string]any{"required": []string{"emoji"}},
-			map[string]any{"required": []string{"reaction"}},
-		},
+		// OpenAI tool parameters forbid top-level oneOf/anyOf; exclusivity validated in executor.
 		"additionalProperties": false,
 	},
 }
@@ -75,11 +69,8 @@ var ReplyLlmSpec = llm.ToolSpec{
 				"description": "Message body: common Markdown → Telegram HTML (bold, code, fenced block, https links)",
 			},
 			"reply_to_message_id": map[string]any{
-				"description": "Telegram message_id to reply to (string or integer)",
-				"anyOf": []any{
-					map[string]any{"type": "string"},
-					map[string]any{"type": "integer"},
-				},
+				"type":        "string",
+				"description": "Telegram message_id to reply to (decimal string)",
 			},
 		},
 		"required":             []string{"text", "reply_to_message_id"},

@@ -77,6 +77,28 @@ func TestExecutorReact(t *testing.T) {
 	}
 }
 
+func TestExecutorReact_UsesReactionKey(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"ok":true,"result":true}`))
+	}))
+	defer srv.Close()
+
+	chID := uuid.New()
+	exec := NewExecutor(fixedToken{token: "TEST"}, telegrambot.NewClient(srv.URL, srv.Client()))
+	surface := &tools.ChannelToolSurface{
+		ChannelID:        chID,
+		ChannelType:      "telegram",
+		PlatformChatID:   "1001",
+		InboundMessageID: "55",
+	}
+	res := exec.Execute(context.Background(), ToolReact, map[string]any{"reaction": "🔥"}, tools.ExecutionContext{
+		Channel: surface,
+	}, "")
+	if res.Error != nil {
+		t.Fatalf("react: %v", res.Error)
+	}
+}
+
 func TestExecutorReact_UsesNumericMessageIDArg(t *testing.T) {
 	var gotBody []byte
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

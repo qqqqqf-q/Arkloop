@@ -40,6 +40,18 @@ func TestParseArgsRejectTooManyQueries(t *testing.T) {
 	}
 }
 
+func TestParseArgsRejectsMissingQueryAndQueries(t *testing.T) {
+	_, _, err := parseArgs(map[string]any{
+		"max_results": 5,
+	})
+	if err == nil {
+		t.Fatal("expected error when query and queries omitted")
+	}
+	if err.ErrorClass != errorArgsInvalid {
+		t.Fatalf("error class: %s", err.ErrorClass)
+	}
+}
+
 func TestParseArgsDefaultsMaxResults(t *testing.T) {
 	queries, maxResults, err := parseArgs(map[string]any{
 		"query": "q1",

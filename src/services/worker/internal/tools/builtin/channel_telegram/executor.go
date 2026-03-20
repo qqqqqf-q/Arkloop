@@ -153,7 +153,7 @@ func (e *Executor) react(
 	emoji := strings.TrimSpace(firstNonEmptyArgString(args, "emoji", "reaction"))
 	if emoji == "" {
 		return tools.ExecutionResult{
-			Error:      &tools.ExecutionError{ErrorClass: tools.ErrorClassToolExecutionFailed, Message: "emoji is required"},
+			Error:      &tools.ExecutionError{ErrorClass: tools.ErrorClassToolExecutionFailed, Message: "emoji or reaction is required"},
 			DurationMs: ms(),
 		}
 	}

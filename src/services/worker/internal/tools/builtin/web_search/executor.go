@@ -62,11 +62,11 @@ var LlmSpec = llm.ToolSpec{
 		"properties": map[string]any{
 			"query": map[string]any{
 				"type":        "string",
-				"description": "single query; for multi-search prefer queries",
+				"description": "single search query; omit if using queries",
 			},
 			"queries": map[string]any{
 				"type":        "array",
-				"description": "multiple queries executed in parallel",
+				"description": "multiple queries in one call; omit if using query",
 				"minItems":    1,
 				"maxItems":    maxQueriesLimit,
 				"items":       map[string]any{"type": "string"},
@@ -79,10 +79,7 @@ var LlmSpec = llm.ToolSpec{
 				"maximum":     maxResultsLimit,
 			},
 		},
-		"anyOf": []any{
-			map[string]any{"required": []string{"query"}},
-			map[string]any{"required": []string{"queries"}},
-		},
+		// OpenAI tool parameters forbid top-level oneOf/anyOf; exclusivity of query vs queries is enforced in parseQueries.
 		"additionalProperties": false,
 	},
 }
