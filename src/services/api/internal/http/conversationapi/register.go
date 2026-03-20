@@ -19,7 +19,7 @@ import (
 
 type Deps struct {
 	AuthService              *auth.Service
-	AccountMembershipRepo        *data.AccountMembershipRepository
+	AccountMembershipRepo    *data.AccountMembershipRepository
 	ThreadRepo               *data.ThreadRepository
 	ThreadStarRepo           *data.ThreadStarRepository
 	ThreadShareRepo          *data.ThreadShareRepository
@@ -98,6 +98,6 @@ func RegisterRoutes(mux *nethttp.ServeMux, deps Deps) {
 	)
 	mux.HandleFunc(
 		"/v1/attachments/",
-		messageAttachmentsEntry(deps.AuthService, deps.AccountMembershipRepo, deps.ThreadRepo, deps.ThreadShareRepo, deps.ProjectRepo, deps.TeamRepo, deps.APIKeysRepo, deps.AuditWriter, deps.MessageAttachmentStore, deps.FlagService),
+		messageAttachmentsEntry(deps.AuthService, deps.AccountMembershipRepo, deps.ThreadRepo, deps.ThreadShareRepo, deps.ProjectRepo, deps.TeamRepo, deps.APIKeysRepo, deps.AuditWriter, deps.MessageAttachmentStore),
 	)
 }

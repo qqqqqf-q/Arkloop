@@ -33,7 +33,7 @@ type updateThreadRequest struct {
 
 type threadResponse struct {
 	ID              string  `json:"id"`
-	AccountID           string  `json:"account_id"`
+	AccountID       string  `json:"account_id"`
 	CreatedByUserID *string `json:"created_by_user_id"`
 	Title           *string `json:"title"`
 	ProjectID       *string `json:"project_id,omitempty"`
@@ -731,7 +731,7 @@ func threadEntry(
 	share := shareEntry(authService, membershipRepo, threadRepo, threadShareRepo, messageRepo, auditWriter, apiKeysRepo, flagService)
 	report := reportEntry(authService, membershipRepo, threadRepo, threadReportRepo, auditWriter, apiKeysRepo, flagService)
 	fork := forkThread(authService, membershipRepo, threadRepo, messageRepo, auditWriter, pool, apiKeysRepo)
-	uploadAttachment := uploadThreadAttachment(authService, membershipRepo, threadRepo, auditWriter, apiKeysRepo, attachmentStore, flagService)
+	uploadAttachment := uploadThreadAttachment(authService, membershipRepo, threadRepo, auditWriter, apiKeysRepo, attachmentStore)
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		if r.URL.Path == "/v1/threads/" {
 			threadsEntry(authService, membershipRepo, threadRepo, projectRepo, pool, apiKeysRepo, auditWriter)(w, r)
@@ -977,7 +977,7 @@ func toThreadResponse(thread data.Thread) threadResponse {
 	}
 	return threadResponse{
 		ID:              thread.ID.String(),
-		AccountID:           thread.AccountID.String(),
+		AccountID:       thread.AccountID.String(),
 		CreatedByUserID: createdByUserID,
 		Title:           thread.Title,
 		ProjectID:       projectID,

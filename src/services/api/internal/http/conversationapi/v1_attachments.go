@@ -12,8 +12,6 @@ import (
 	"arkloop/services/api/internal/audit"
 	"arkloop/services/api/internal/auth"
 	"arkloop/services/api/internal/data"
-	"arkloop/services/api/internal/featureflag"
-	"arkloop/services/api/internal/http/featuregate"
 	"arkloop/services/api/internal/observability"
 	"arkloop/services/shared/messagecontent"
 	"arkloop/services/shared/objectstore"
@@ -31,7 +29,6 @@ func uploadThreadAttachment(
 	auditWriter *audit.Writer,
 	apiKeysRepo *data.APIKeysRepository,
 	store messageAttachmentStore,
-	flagService *featureflag.Service,
 ) func(nethttp.ResponseWriter, *nethttp.Request, uuid.UUID) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request, threadID uuid.UUID) {
 		traceID := observability.TraceIDFromContext(r.Context())
@@ -128,7 +125,6 @@ func messageAttachmentsEntry(
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,
 	store messageAttachmentStore,
-	flagService *featureflag.Service,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		traceID := observability.TraceIDFromContext(r.Context())
@@ -160,9 +156,6 @@ func messageAttachmentsEntry(
 		thread, ok := resolveAttachmentThread(r.Context(), threadRepo, info)
 		if !ok || thread == nil {
 			httpkit.WriteError(w, nethttp.StatusForbidden, "attachments.forbidden", "access denied", traceID, nil)
-			return
-		}
-		if !featuregate.EnsureClawEnabledForThread(w, traceID, r.Context(), thread, flagService) {
 			return
 		}
 
