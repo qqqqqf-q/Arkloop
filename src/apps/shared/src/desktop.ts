@@ -140,7 +140,9 @@ export type LocalFileEntry = {
 }
 
 export function isDesktop(): boolean {
-  return !!(globalThis as Record<string, unknown>).arkloop
+  // Electron preload 同时注入 arkloop API 与 __ARKLOOP_DESKTOP__；dev/hmr 下偶发只其一可用。
+  const g = globalThis as Record<string, unknown>
+  return !!(g.arkloop || g.__ARKLOOP_DESKTOP__)
 }
 
 export function getDesktopApi(): ArkloopDesktopApi | null {
