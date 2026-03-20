@@ -42,7 +42,7 @@ func NewInputLoaderMiddleware(
 			if strings.TrimSpace(msg.Role) == "" {
 				continue
 			}
-			parts, err := buildMessageParts(ctx, attachmentStore, msg)
+			parts, err := BuildMessageParts(ctx, attachmentStore, msg)
 			if err != nil {
 				return err
 			}
@@ -81,8 +81,8 @@ func loadRunInputs(
 	}
 
 	inputJSON := map[string]any{
-		"account_id":    run.AccountID.String(),
-		"thread_id": run.ThreadID.String(),
+		"account_id": run.AccountID.String(),
+		"thread_id":  run.ThreadID.String(),
 	}
 	if dataJSON != nil {
 		if rawRouteID, ok := dataJSON["route_id"].(string); ok && strings.TrimSpace(rawRouteID) != "" {
@@ -118,7 +118,7 @@ func loadRunInputs(
 	return inputJSON, messages, nil
 }
 
-func buildMessageParts(ctx context.Context, store MessageAttachmentStore, msg data.ThreadMessage) ([]llm.ContentPart, error) {
+func BuildMessageParts(ctx context.Context, store MessageAttachmentStore, msg data.ThreadMessage) ([]llm.ContentPart, error) {
 	if len(msg.ContentJSON) == 0 {
 		return fallbackTextParts(msg.Content), nil
 	}

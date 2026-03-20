@@ -710,8 +710,6 @@ func asOptionalPositiveInt(value any, label string) (*int, error) {
 	return &number, nil
 }
 
-const defaultTitleSummarizeMaxTokens = 20
-
 // asTitleSummarizer 从 YAML 解析 title_summarize 字段。
 func asTitleSummarizer(value any) (*TitleSummarizerConfig, error) {
 	if value == nil {
@@ -725,7 +723,7 @@ func asTitleSummarizer(value any) (*TitleSummarizerConfig, error) {
 	if err != nil {
 		return nil, err
 	}
-	maxTokens := defaultTitleSummarizeMaxTokens
+	maxTokens := DefaultTitleSummarizeMaxOutputTokens
 	if raw, exists := m["max_tokens"]; exists {
 		parsed, err := asOptionalPositiveInt(raw, "title_summarize.max_tokens")
 		if err != nil {

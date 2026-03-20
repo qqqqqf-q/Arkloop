@@ -10,7 +10,7 @@ budgets:
     reasoning_iterations: 99999
     temperature: 0.7
 title_summarize:
-    max_tokens: 20
+    max_tokens: 512
     prompt: Keep it under 10 Chinese characters. Capture the STEM topic or question.
 reasoning_mode: auto
 prompt_cache_control: none

@@ -73,12 +73,16 @@ type TitleSummarizerConfig struct {
 	MaxTokens int
 }
 
+// DefaultTitleSummarizeMaxOutputTokens 标题概括的 max_output 上限。
+// Reasoning 模型会先占用 thinking，再输出短文；过小会在 output 前截断。
+const DefaultTitleSummarizeMaxOutputTokens = 512
+
 // DesktopFallbackTitleSummarizer 与内置 normal persona 的 title_summarize 一致。
 // 桌面 Worker 在仅 DB persona、且未合并到内置 YAML 时使用，避免标题能力静默缺失。
 func DesktopFallbackTitleSummarizer() *TitleSummarizerConfig {
 	return &TitleSummarizerConfig{
 		Prompt:    "Keep it under 10 Chinese characters. Capture the task goal.",
-		MaxTokens: 20,
+		MaxTokens: DefaultTitleSummarizeMaxOutputTokens,
 	}
 }
 
