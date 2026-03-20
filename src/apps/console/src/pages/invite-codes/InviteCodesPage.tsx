@@ -383,7 +383,9 @@ function InviteCodeRow({
 
   const [cachedReferrals, setCachedReferrals] = useState<Referral[]>([])
   useEffect(() => {
-    if (referrals.length > 0) setCachedReferrals(referrals)
+    if (referrals.length === 0) return
+    const id = requestAnimationFrame(() => setCachedReferrals(referrals))
+    return () => cancelAnimationFrame(id)
   }, [referrals])
   const renderReferrals = referrals.length > 0 ? referrals : cachedReferrals
 
@@ -409,7 +411,7 @@ function InviteCodeRow({
     const el = detailRef.current
     if (!el || !isExpanded) return
     el.style.maxHeight = `${el.scrollHeight}px`
-  }, [referrals, referralsLoading])
+  }, [referrals, referralsLoading, isExpanded])
 
   const statusKey = code.is_active ? 'active' : 'inactive'
 

@@ -610,17 +610,18 @@ function UserRow({
   const shortId = user.id.split('-')[0]
   const detailRef = useRef<HTMLDivElement>(null)
 
-  // 收缩动画期间保留上一次的 detail 内容，防止内容消失导致高度瞬降
+  // 收缩动画期间保留上一次的 detail；下一帧再写入 cache，避免同步截断内容
   const [cachedDetail, setCachedDetail] = useState<AdminUserDetail | null>(null)
   useEffect(() => {
-    if (detail !== null) setCachedDetail(detail)
+    if (detail === null) return
+    const id = requestAnimationFrame(() => setCachedDetail(detail))
+    return () => cancelAnimationFrame(id)
   }, [detail])
   const renderDetail = detail ?? cachedDetail
 
-  // 动画结束后清除缓存（210ms > 过渡时长 200ms）
   useEffect(() => {
     if (!isExpanded) {
-      const t = setTimeout(() => { setCachedDetail(null) }, 210)
+      const t = setTimeout(() => setCachedDetail(null), 210)
       return () => clearTimeout(t)
     }
   }, [isExpanded])
@@ -643,7 +644,7 @@ function UserRow({
     const el = detailRef.current
     if (!el || !isExpanded) return
     el.style.maxHeight = `${el.scrollHeight}px`
-  }, [detail, detailLoading])
+  }, [detail, detailLoading, isExpanded])
 
   return (
     <>

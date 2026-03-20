@@ -28,4 +28,22 @@ export default defineConfig([
       'react-hooks/set-state-in-effect': 'warn',
     },
   },
+  {
+    files: ['src/contexts/**/*.{ts,tsx}'],
+    rules: {
+      'react-refresh/only-export-components': 'off',
+    },
+  },
+  {
+    files: [
+      'src/components/ArtifactStreamBlock.tsx',
+      'src/components/ChatInput.tsx',
+      'src/components/CitationBadge.tsx',
+      'src/components/DocumentPanel.tsx',
+      'src/components/chat-input/AttachmentCard.tsx',
+    ],
+    rules: {
+      'react-refresh/only-export-components': 'off',
+    },
+  },
 ])

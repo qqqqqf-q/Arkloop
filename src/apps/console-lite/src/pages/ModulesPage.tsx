@@ -48,14 +48,18 @@ function readStoredModuleCategory(): ModuleCategory | null {
     ) {
       return raw
     }
-  } catch {}
+  } catch {
+    void 0
+  }
   return null
 }
 
 function rememberModuleCategory(category: ModuleCategory) {
   try {
     window.localStorage.setItem(MODULES_CATEGORY_STORAGE_KEY, category)
-  } catch {}
+  } catch {
+    void 0
+  }
 }
 
 function resolvePromptGuardMode(settings: PlatformSetting[]): PromptGuardMode {

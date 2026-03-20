@@ -89,8 +89,8 @@ export function WorkspaceResource({ file, runId, projectId, accessToken }: Props
 
   useEffect(() => {
     if ((!runId && !projectId) || !accessToken) {
-      setLoadState({ status: 'error' })
-      return
+      const id = requestAnimationFrame(() => setLoadState({ status: 'error' }))
+      return () => cancelAnimationFrame(id)
     }
 
     let cancelled = false
@@ -99,7 +99,9 @@ export function WorkspaceResource({ file, runId, projectId, accessToken }: Props
       ? buildProjectWorkspaceUrl(projectId, file.path)
       : buildWorkspaceUrl(runId!, normalizedPath)
 
-    setLoadState({ status: 'loading' })
+    const loadId = requestAnimationFrame(() => {
+      if (!cancelled) setLoadState({ status: 'loading' })
+    })
     fetch(url, {
       headers: { Authorization: `Bearer ${accessToken}` },
     })
@@ -126,6 +128,7 @@ export function WorkspaceResource({ file, runId, projectId, accessToken }: Props
 
     return () => {
       cancelled = true
+      cancelAnimationFrame(loadId)
       if (localBlobUrl) URL.revokeObjectURL(localBlobUrl)
     }
   }, [accessToken, file.filename, file.mime_type, file.path, normalizedPath, projectId, runId])

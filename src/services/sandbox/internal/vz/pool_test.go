@@ -36,7 +36,7 @@ func TestPool_StartDrain_NoWarm(t *testing.T) {
 func TestPool_Destroy_NotFound(t *testing.T) {
 	pool := New(newTestConfig(t))
 
-	pool.Destroy("nonexistent-session")
+	pool.DestroyVM(nil, filepath.Join(t.TempDir(), "nonexistent-session"))
 
 	stats := pool.Stats()
 	if stats.TotalDestroyed != 1 {
@@ -63,7 +63,7 @@ func TestPool_Destroy_Active(t *testing.T) {
 	}
 	pool.mu.Unlock()
 
-	pool.Destroy("test-session")
+	pool.DestroyVM(nil, socketDir)
 
 	pool.mu.Lock()
 	_, exists := pool.active["test-session"]
@@ -96,8 +96,8 @@ func TestPool_Stats_AfterOperations(t *testing.T) {
 	}
 
 	// Destroy two non-existent sessions.
-	pool.Destroy("a")
-	pool.Destroy("b")
+	pool.DestroyVM(nil, "a")
+	pool.DestroyVM(nil, "b")
 
 	stats = pool.Stats()
 	if stats.TotalDestroyed != 2 {
@@ -115,7 +115,7 @@ func TestPool_Stats_AfterOperations(t *testing.T) {
 	}
 	pool.mu.Unlock()
 
-	pool.Destroy("s1")
+	pool.DestroyVM(nil, socketDir)
 
 	stats = pool.Stats()
 	if stats.TotalDestroyed != 3 {

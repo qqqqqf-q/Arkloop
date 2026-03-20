@@ -32,9 +32,14 @@ export function NotificationBell({ accessToken, onClick, refreshKey, title }: Pr
   }, [accessToken])
 
   useEffect(() => {
-    void fetchNotifications()
-    const timer = setInterval(() => void fetchNotifications(), POLL_INTERVAL_MS)
-    return () => clearInterval(timer)
+    const kick = requestAnimationFrame(() => void fetchNotifications())
+    const timer = setInterval(() => {
+      requestAnimationFrame(() => void fetchNotifications())
+    }, POLL_INTERVAL_MS)
+    return () => {
+      cancelAnimationFrame(kick)
+      clearInterval(timer)
+    }
   }, [fetchNotifications, refreshKey])
 
   const unreadCount = items.length

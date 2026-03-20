@@ -83,9 +83,14 @@ function App() {
       const qs = params.toString()
       window.history.replaceState({}, '', `${window.location.pathname}${qs ? '?' + qs : ''}`)
       writeAccessTokenToStorage(handoffToken)
-      setAccessToken(handoffToken)
-      setAuthChecked(true)
-      return
+      const raf = requestAnimationFrame(() => {
+        setAccessToken(handoffToken)
+        setAuthChecked(true)
+      })
+      return () => {
+        controller.abort()
+        cancelAnimationFrame(raf)
+      }
     }
 
     setClientApp('console')

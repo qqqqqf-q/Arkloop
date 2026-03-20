@@ -35,15 +35,18 @@ function App() {
   // Desktop: 检查 onboarding 状态
   useEffect(() => {
     if (!isDesktop()) {
-      setOnboardingDone(true)
-      return
+      const id = requestAnimationFrame(() => setOnboardingDone(true))
+      return () => cancelAnimationFrame(id)
     }
     const api = getDesktopApi()
     if (!api) {
-      setOnboardingDone(true)
-      return
+      const id = requestAnimationFrame(() => setOnboardingDone(true))
+      return () => cancelAnimationFrame(id)
     }
-    api.onboarding.getStatus().then((s) => setOnboardingDone(s.completed)).catch(() => setOnboardingDone(true))
+    api.onboarding
+      .getStatus()
+      .then((s) => setOnboardingDone(s.completed))
+      .catch(() => setOnboardingDone(true))
   }, [])
 
   useEffect(() => {
@@ -64,9 +67,14 @@ function App() {
     if (isLocalMode()) {
       const desktopToken = getDesktopAccessToken() ?? 'arkloop-desktop-local-token'
       writeAccessTokenToStorage(desktopToken)
-      setAccessToken(desktopToken)
-      setAuthChecked(true)
-      return
+      const raf = requestAnimationFrame(() => {
+        setAccessToken(desktopToken)
+        setAuthChecked(true)
+      })
+      return () => {
+        controller.abort()
+        cancelAnimationFrame(raf)
+      }
     }
 
     restoreAccessSession({

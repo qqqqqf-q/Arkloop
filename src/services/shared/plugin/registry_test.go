@@ -157,7 +157,7 @@ func TestRegisterAndGetAuditSinks(t *testing.T) {
 
 	// 修改返回副本不影响内部状态
 	sinks[0] = &mockAuditSink{name: "replaced"}
-	sinks = append(sinks, &mockAuditSink{name: "extra"})
+	_ = append(sinks, &mockAuditSink{name: "extra"})
 
 	fresh := GetAuditSinks()
 	if len(fresh) != 2 {

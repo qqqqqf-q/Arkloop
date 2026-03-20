@@ -137,8 +137,11 @@ export function ChatInput({
     let cancelled = false
 
     if (!accessToken) {
-      setSelectablePersonas([])
-      return () => { cancelled = true }
+      const clearId = requestAnimationFrame(() => setSelectablePersonas([]))
+      return () => {
+        cancelled = true
+        cancelAnimationFrame(clearId)
+      }
     }
 
     void listSelectablePersonas(accessToken)
@@ -201,11 +204,14 @@ export function ChatInput({
   }
 
   useEffect(() => {
-    if (searchMode && selectedPersonaKey !== SEARCH_PERSONA_KEY) {
-      persistSelectedPersona(SEARCH_PERSONA_KEY)
-    } else if (!searchMode && selectedPersonaKey === SEARCH_PERSONA_KEY) {
-      persistSelectedPersona(DEFAULT_PERSONA_KEY)
-    }
+    const id = requestAnimationFrame(() => {
+      if (searchMode && selectedPersonaKey !== SEARCH_PERSONA_KEY) {
+        persistSelectedPersona(SEARCH_PERSONA_KEY)
+      } else if (!searchMode && selectedPersonaKey === SEARCH_PERSONA_KEY) {
+        persistSelectedPersona(DEFAULT_PERSONA_KEY)
+      }
+    })
+    return () => cancelAnimationFrame(id)
   }, [persistSelectedPersona, searchMode, selectedPersonaKey])
 
   const adjustHeight = useCallback(() => {
