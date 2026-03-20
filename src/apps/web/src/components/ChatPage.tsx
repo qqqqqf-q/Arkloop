@@ -2,7 +2,7 @@ import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMe
 import { useParams, useLocation, useOutletContext, useNavigate } from 'react-router-dom'
 import { createPortal } from 'react-dom'
 import { motion } from 'framer-motion'
-import { ArrowDown, ChevronDown, Glasses, Loader2, Pencil, Share2, Star, Trash2, X } from 'lucide-react'
+import { ArrowDown, Check, ChevronDown, Glasses, Loader2, Pencil, Share2, Star, Trash2, X } from 'lucide-react'
 import { isDesktop } from '@arkloop/shared/desktop'
 import { codeExecutionAccentColor } from '../codeExecutionStatus'
 import { ChatInput, type Attachment } from './ChatInput'
@@ -315,6 +315,8 @@ function LiveTurnMarkdown({
 
 export function ChatPage() {
   const { accessToken, onLoggedOut, onRunStarted, onRunEnded, onThreadCreated, onThreadTitleUpdated, refreshCredits, onOpenNotifications, notificationVersion, creditsBalance: _creditsBalance, onTogglePrivateMode, privateThreadIds, onSetPendingIncognito, setTitleBarIncognitoClick, onRightPanelChange, threads, onThreadDeleted, appMode, availableAppModes, onSetAppMode, onOpenSettings } = useOutletContext<OutletContext>()
+  const threadsRef = useRef(threads)
+  useEffect(() => { threadsRef.current = threads }, [threads])
   const { threadId } = useParams<{ threadId: string }>()
   const location = useLocation()
   const locationState = location.state as LocationState
@@ -352,6 +354,15 @@ export function ChatPage() {
   const [sharingMessageId, setSharingMessageId] = useState<string | null>(null)
   const [sharedMessageId, setSharedMessageId] = useState<string | null>(null)
   const [pendingIncognito, setPendingIncognito] = useState(false)
+  const [contextCompactBar, setContextCompactBar] = useState<'running' | 'done' | null>(null)
+  const contextCompactHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const clearContextCompactHideTimer = useCallback(() => {
+    if (contextCompactHideTimerRef.current != null) {
+      clearTimeout(contextCompactHideTimerRef.current)
+      contextCompactHideTimerRef.current = null
+    }
+  }, [])
 
   // web 引用来源：messageId -> WebSource[]
   const [messageSourcesMap, setMessageSourcesMap] = useState<Map<string, WebSource[]>>(new Map())
@@ -738,6 +749,19 @@ export function ChatPage() {
     }
     prevActiveRunIdRef.current = activeRunId
   }, [activeRunId])
+
+  useEffect(() => {
+    return () => {
+      clearContextCompactHideTimer()
+    }
+  }, [clearContextCompactHideTimer])
+
+  useEffect(() => {
+    if (!activeRunId) {
+      clearContextCompactHideTimer()
+      setContextCompactBar(null)
+    }
+  }, [activeRunId, clearContextCompactHideTimer])
 
   const sse = useSSE({ runId: activeRunId ?? '', accessToken, baseUrl })
   const disconnectSSE = sse.disconnect
@@ -1226,6 +1250,23 @@ export function ChatPage() {
         continue
       }
 
+      if (event.type === 'run.context_compact') {
+        const obj = event.data as { phase?: unknown }
+        const phase = typeof obj.phase === 'string' ? obj.phase : undefined
+        if (phase === 'started') {
+          clearContextCompactHideTimer()
+          setContextCompactBar('running')
+        } else if (phase === 'completed' || phase === undefined) {
+          clearContextCompactHideTimer()
+          setContextCompactBar('done')
+          contextCompactHideTimerRef.current = window.setTimeout(() => {
+            setContextCompactBar(null)
+            contextCompactHideTimerRef.current = null
+          }, 2800)
+        }
+        continue
+      }
+
       if (event.type === 'todo.updated') {
         const obj = event.data as { todos?: unknown }
         if (Array.isArray(obj.todos)) {
@@ -1641,20 +1682,23 @@ export function ChatPage() {
             }
           })
           .finally(clearDeferredLiveRunUi)
-        // 标题生成在后端异步执行，run.completed 后 SSE 已断开，轮询补偿
+        // 标题 summarizer 在 worker 内异步跑，超时约 30s；SSE 在 run.completed 已断，只能靠轮询对齐侧栏
         if (threadId) {
           const tid = threadId
-          const oldTitle = threads.find(th => th.id === tid)?.title ?? ''
           const pollTitle = (remaining: number) => {
             if (remaining <= 0) return
             setTimeout(() => {
               void getThread(accessToken, tid).then((resp) => {
-                if (resp.title && resp.title !== oldTitle) onThreadTitleUpdated(tid, resp.title)
-                else if (remaining > 1) pollTitle(remaining - 1)
-              }).catch(() => {})
-            }, 3000)
+                const next = (resp.title ?? '').trim()
+                const cur = (threadsRef.current.find((th) => th.id === tid)?.title ?? '').trim()
+                if (next && next !== cur) onThreadTitleUpdated(tid, next)
+                if (remaining > 1) pollTitle(remaining - 1)
+              }).catch(() => {
+                if (remaining > 1) pollTitle(remaining - 1)
+              })
+            }, 2000)
           }
-          pollTitle(3)
+          pollTitle(16)
         }
         continue
       }
@@ -1731,7 +1775,7 @@ export function ChatPage() {
       }
     }
     if (dismissAssistantPlaceholder) setAwaitingFirstSse(false)
-  }, [activeRunId, clearDeferredLiveRunUi, clearLiveRunSecurityArtifacts, refreshMessages, refreshCredits, resetSearchSteps, sse.events]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeRunId, clearContextCompactHideTimer, clearDeferredLiveRunUi, clearLiveRunSecurityArtifacts, refreshMessages, refreshCredits, resetSearchSteps, sse.events]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // 401 SSE 错误时登出
   useEffect(() => {
@@ -2522,6 +2566,13 @@ export function ChatPage() {
             <div className="py-20 text-center text-sm text-[var(--c-text-muted)]">{t.loading}</div>
           ) : (
             <>
+              {contextCompactBar && (
+                <ContextCompactBar
+                  variant={contextCompactBar}
+                  runningLabel={t.chatCompactBannerRunning}
+                  doneLabel={t.chatCompactBannerDone}
+                />
+              )}
               {messages.map((msg, idx) => {
                 const resolvedSources = msg.role === 'assistant' ? resolvedMessageSources.get(msg.id) : undefined
                 const canShowSources = !!(resolvedSources && resolvedSources.length > 0)
@@ -3378,6 +3429,38 @@ export function ChatPage() {
         />
       )}
     </div>
+  )
+}
+
+function ContextCompactBar({
+  variant,
+  runningLabel,
+  doneLabel,
+}: {
+  variant: 'running' | 'done'
+  runningLabel: string
+  doneLabel: string
+}) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, height: 0 }}
+      animate={{ opacity: 1, height: 'auto' }}
+      transition={{ duration: 0.28, ease: 'easeOut' }}
+      style={{ overflow: 'hidden' }}
+    >
+      <div className="flex items-center gap-3 py-1">
+        <div className="h-px flex-1 bg-[var(--c-border-subtle)]" />
+        <span className="flex items-center gap-1.5 text-xs text-[var(--c-text-muted)]">
+          {variant === 'running' ? (
+            <Loader2 size={12} strokeWidth={1.5} className="shrink-0 animate-spin opacity-80" />
+          ) : (
+            <Check size={12} strokeWidth={1.5} className="shrink-0 opacity-80" />
+          )}
+          {variant === 'running' ? runningLabel : doneLabel}
+        </span>
+        <div className="h-px flex-1 bg-[var(--c-border-subtle)]" />
+      </div>
+    </motion.div>
   )
 }
 
