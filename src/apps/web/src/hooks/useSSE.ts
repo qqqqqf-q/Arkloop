@@ -116,6 +116,7 @@ export function useSSE(options: UseSSEOptions): UseSSEResult {
   const disconnect = useCallback(() => {
     clientRef.current?.close()
     clientRef.current = null
+    setError(null)
   }, [])
 
   const reconnect = useCallback(() => {
