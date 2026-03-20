@@ -81,7 +81,7 @@ const DefaultTitleSummarizeMaxOutputTokens = 512
 // 桌面 Worker 在仅 DB persona、且未合并到内置 YAML 时使用，避免标题能力静默缺失。
 func DesktopFallbackTitleSummarizer() *TitleSummarizerConfig {
 	return &TitleSummarizerConfig{
-		Prompt:    "Keep it under 10 Chinese characters. Capture the task goal.",
+		Prompt:    "Keep it under 10 Chinese characters. Phrase the title as the user's task or question (e.g. 做个网页、改这段代码); avoid naming the business/theme of the thing they want produced.",
 		MaxTokens: DefaultTitleSummarizeMaxOutputTokens,
 	}
 }

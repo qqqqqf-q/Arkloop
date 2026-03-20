@@ -500,7 +500,8 @@ func resolveAccountToolGateway(
 }
 
 func buildSummarizeSystem(styleHint string) string {
-	base := "Generate a concise title for the conversation. Output ONLY the title text — no quotes, no punctuation at the end, no explanation, no prefix like 'Title:'. The title must be in the same language as the user's message."
+	base := "Summarize the user's request: what they want you to do in this chat (the ask), not the body of pasted specs, code, HTML, or long quotations, and not the thematic subject of a deliverable when they asked you to build or write something.\n" +
+		"Generate a concise title for the conversation. Output ONLY the title text — no quotes, no punctuation at the end, no explanation, no prefix like 'Title:'. The title must be in the same language as the user's message."
 	if styleHint != "" {
 		return base + "\n\n" + styleHint
 	}

@@ -21,7 +21,7 @@ budgets:
     temperature: 1
 title_summarize:
     max_tokens: 512
-    prompt: Keep it under 10 Chinese characters. Capture the task goal.
+    prompt: Keep it under 10 Chinese characters. Phrase the title as the user's task or question (e.g. 做个网页、改这段代码); avoid naming the business/theme of the thing they want produced.
 reasoning_mode: auto
 prompt_cache_control: none
 executor_type: agent.simple
