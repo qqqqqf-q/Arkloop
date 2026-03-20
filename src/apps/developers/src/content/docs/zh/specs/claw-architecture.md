@@ -467,7 +467,7 @@ func ResolveProvider() string {
   - 顶部：任务标题（可编辑）+ 下拉菜单
   - 主体：消息流（复用 Chat 的消息渲染组件）
   - 底部：输入框（Reply placeholder）+ 模型选择器 + 发送按钮
-  - 消息组件复用：ThinkingBlock、CodeExecutionCard、ShellExecutionBlock、SearchTimeline 等全部复用
+  - 消息组件复用：ThinkingBlock、CodeExecutionCard、ExecutionCard、SearchTimeline 等全部复用
 - **右栏**（~300px，可折叠）：
   - 三个可折叠面板的容器（详见 1.5-1.7）
   - 无任务时显示空状态引导

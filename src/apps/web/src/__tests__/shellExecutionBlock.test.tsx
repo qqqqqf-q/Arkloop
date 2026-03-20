@@ -29,7 +29,7 @@ function createMemoryStorage(): Storage {
   }
 }
 
-describe('ShellExecutionBlock', () => {
+describe('ExecutionCard shell variant', () => {
   const actEnvironment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
   const originalActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT
   const originalLocalStorage = globalThis.localStorage
