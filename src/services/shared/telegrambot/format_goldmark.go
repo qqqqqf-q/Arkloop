@@ -28,6 +28,18 @@ func formatAssistantMarkdownAsHTMLGoldmark(src string) string {
 	return strings.TrimSpace(buf.String())
 }
 
+func blockRawFromLines(lines *text.Segments, src []byte) string {
+	if lines == nil {
+		return ""
+	}
+	var b strings.Builder
+	for i := 0; i < lines.Len(); i++ {
+		seg := lines.At(i)
+		b.Write(seg.Value(src))
+	}
+	return b.String()
+}
+
 func renderGoldmark(w *bytes.Buffer, n ast.Node, src []byte) {
 	switch n := n.(type) {
 	case *ast.Document:
@@ -53,10 +65,10 @@ func renderGoldmark(w *bytes.Buffer, n ast.Node, src []byte) {
 		w.WriteString("</blockquote>\n")
 	case *ast.CodeBlock:
 		w.WriteString("<pre>")
-		w.WriteString(telegramEscapeHTML(string(n.Text(src))))
+		w.WriteString(telegramEscapeHTML(blockRawFromLines(n.Lines(), src)))
 		w.WriteString("</pre>\n")
 	case *ast.FencedCodeBlock:
-		body := strings.TrimRight(string(n.Text(src)), "\n")
+		body := strings.TrimRight(blockRawFromLines(n.Lines(), src), "\n")
 		escaped := telegramEscapeHTML(body)
 		lang := strings.TrimSpace(string(n.Language(src)))
 		if lang != "" {

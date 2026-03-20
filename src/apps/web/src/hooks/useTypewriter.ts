@@ -57,7 +57,8 @@ export function useTypewriter(targetText: string, isComplete = false): string {
 
   const isEmpty = targetText.length === 0
   useEffect(() => {
-    if (isEmpty) {
+    if (!isEmpty) return
+    const id = requestAnimationFrame(() => {
       lenRef.current = 0
       setDisplayedLen(0)
       prevTickRef.current = 0
@@ -66,7 +67,8 @@ export function useTypewriter(targetText: string, isComplete = false): string {
       chunkEwmaRef.current = MIN_CHUNK_EWMA
       gapEwmaRef.current = DEFAULT_GAP_MS
       pastFirstChunkRef.current = false
-    }
+    })
+    return () => cancelAnimationFrame(id)
   }, [isEmpty])
 
   useEffect(() => {
@@ -104,9 +106,12 @@ export function useTypewriter(targetText: string, isComplete = false): string {
   useEffect(() => {
     if (!isComplete) return
     const L = targetText.length
-    lenRef.current = L
-    setDisplayedLen(L)
-    prevTickRef.current = 0
+    const id = requestAnimationFrame(() => {
+      lenRef.current = L
+      setDisplayedLen(L)
+      prevTickRef.current = 0
+    })
+    return () => cancelAnimationFrame(id)
   }, [isComplete, targetText])
 
   useEffect(() => {

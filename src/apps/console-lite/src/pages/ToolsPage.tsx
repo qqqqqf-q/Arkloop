@@ -365,7 +365,7 @@ export function ToolsPage() {
     } finally {
       setConfigSaving(false)
     }
-  }, [activeProvider, hasConfig, configForm, selectedGroup, accessToken, addToast, tc])
+  }, [activeProvider, hasConfig, configForm, configSaved, selectedGroup, accessToken, addToast, tc])
 
   const handleSaveDescription = useCallback(async () => {
     if (!descEdit) return

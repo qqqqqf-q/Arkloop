@@ -20,7 +20,8 @@ export function WidgetBlock({ html, title, complete, loadingMessages, onAction }
   const showLoadingStrip = !complete && (loadingMessages?.length ?? 0) > 0
 
   useEffect(() => {
-    setLoadingIdx(0)
+    const id = requestAnimationFrame(() => setLoadingIdx(0))
+    return () => cancelAnimationFrame(id)
   }, [loadingMessages])
 
   useEffect(() => {
@@ -47,7 +48,8 @@ export function WidgetBlock({ html, title, complete, loadingMessages, onAction }
   }, [html, complete])
 
   useEffect(() => {
-    setRuntimeError(null)
+    const id = requestAnimationFrame(() => setRuntimeError(null))
+    return () => cancelAnimationFrame(id)
   }, [html])
 
   const handleAction = useCallback((action: ArtifactAction) => {

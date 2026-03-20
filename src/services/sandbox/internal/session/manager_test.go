@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"os"
 	"testing"
 )
 
@@ -9,12 +10,12 @@ type stubPool struct {
 	tier string
 }
 
-func (p *stubPool) Acquire(_ context.Context, sessionID, tier string) (*Session, error) {
+func (p *stubPool) Acquire(_ context.Context, tier string) (*Session, *os.Process, error) {
 	p.tier = tier
-	return &Session{ID: sessionID, Tier: tier}, nil
+	return &Session{Tier: tier}, nil, nil
 }
 
-func (p *stubPool) Destroy(_ string)           {}
+func (p *stubPool) DestroyVM(_ *os.Process, _ string) {}
 func (p *stubPool) Ready() bool                { return true }
 func (p *stubPool) Stats() PoolStats           { return PoolStats{} }
 func (p *stubPool) Drain(_ context.Context)    {}

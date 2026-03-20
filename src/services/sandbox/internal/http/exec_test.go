@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 
 	"arkloop/services/sandbox/internal/logging"
@@ -144,11 +145,11 @@ func newTestManager() *session.Manager {
 // noopPool 是测试用的 Provider 实现，不创建真实执行环境。
 type noopPool struct{}
 
-func (p *noopPool) Acquire(_ context.Context, sessionID, tier string) (*session.Session, error) {
-	return &session.Session{ID: sessionID, Tier: tier}, nil
+func (p *noopPool) Acquire(_ context.Context, tier string) (*session.Session, *os.Process, error) {
+	return &session.Session{Tier: tier}, nil, nil
 }
 
-func (p *noopPool) Destroy(_ string)           {}
+func (p *noopPool) DestroyVM(_ *os.Process, _ string) {}
 func (p *noopPool) Ready() bool                { return true }
 func (p *noopPool) Stats() session.PoolStats   { return session.PoolStats{} }
 func (p *noopPool) Drain(_ context.Context)    {}

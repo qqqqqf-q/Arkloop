@@ -419,7 +419,7 @@ export function PersonasSettings({ accessToken }: Props) {
     } finally {
       setSaving(false)
     }
-  }, [accessToken, form, load, selected, a.saveFailed, t.requestFailed])
+  }, [accessToken, form, load, selected, a.saveFailed])
 
   const handleDelete = useCallback(async () => {
     if (!selected) return

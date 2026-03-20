@@ -600,8 +600,9 @@ export const ArtifactIframe = forwardRef<ArtifactIframeHandle, Props>(
       const blob = new Blob([html], { type: 'text/html' })
       const url = URL.createObjectURL(blob)
       shellBlobRef.current = url
-      setShellUrl(url)
+      const raf = requestAnimationFrame(() => setShellUrl(url))
       return () => {
+        cancelAnimationFrame(raf)
         if (shellBlobRef.current === url) {
           shellBlobRef.current = null
         }
@@ -668,17 +669,33 @@ export const ArtifactIframe = forwardRef<ArtifactIframeHandle, Props>(
 
     useEffect(() => {
       if (mode !== 'static') return
-      setError(false)
-      if (typeof content === 'string') {
-        setStaticContent({ html: content, contentType })
-        return
-      }
-      if (!artifact || !accessToken) {
-        setStaticContent(null)
-        return
-      }
 
       let cancelled = false
+      const syncId = requestAnimationFrame(() => {
+        if (cancelled) return
+        setError(false)
+        if (typeof content === 'string') {
+          setStaticContent({ html: content, contentType })
+          return
+        }
+        if (!artifact || !accessToken) {
+          setStaticContent(null)
+        }
+      })
+
+      if (typeof content === 'string') {
+        return () => {
+          cancelled = true
+          cancelAnimationFrame(syncId)
+        }
+      }
+      if (!artifact || !accessToken) {
+        return () => {
+          cancelled = true
+          cancelAnimationFrame(syncId)
+        }
+      }
+
       const url = `${apiBaseUrl()}/v1/artifacts/${artifact.key}`
       fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } })
         .then(async (res) => {
@@ -695,6 +712,7 @@ export const ArtifactIframe = forwardRef<ArtifactIframeHandle, Props>(
 
       return () => {
         cancelled = true
+        cancelAnimationFrame(syncId)
       }
     }, [mode, artifact, accessToken, content, contentType])
 

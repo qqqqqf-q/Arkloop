@@ -131,7 +131,7 @@ export function AsrCredentialsPage() {
     } finally {
       setSubmitting(false)
     }
-  }, [form, accessToken, fetchCreds, addToast, tc])
+  }, [form, accessToken, fetchCreds, addToast, tc, isPlatformAdmin])
 
   const handleSetDefault = useCallback(async (id: string) => {
     try {

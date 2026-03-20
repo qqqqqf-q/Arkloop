@@ -114,20 +114,25 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
 
   // 离开 / 时退出搜索模式（覆盖 popstate 和 navigate 两种场景）
   useEffect(() => {
-    if (location.pathname !== '/') setIsSearchMode(false)
+    if (location.pathname === '/') return
+    const id = requestAnimationFrame(() => setIsSearchMode(false))
+    return () => cancelAnimationFrame(id)
   }, [location.pathname])
 
   // 路由切换时重置右侧面板状态，避免 sidebar 宽度残留
   useEffect(() => {
-    setRightPanelOpen(false)
-    if (notificationsOpen) closeNotifications()
+    const id = requestAnimationFrame(() => {
+      setRightPanelOpen(false)
+      if (notificationsOpen) closeNotifications()
+    })
+    return () => cancelAnimationFrame(id)
   }, [location.pathname]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Desktop 模式下，点击历史记录跳转到会话时关闭设置界面
   useEffect(() => {
-    if (desktop && settingsOpen && /^\/t\//.test(location.pathname)) {
-      setSettingsOpen(false)
-    }
+    if (!(desktop && settingsOpen && /^\/t\//.test(location.pathname))) return
+    const id = requestAnimationFrame(() => setSettingsOpen(false))
+    return () => cancelAnimationFrame(id)
   }, [location.pathname]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Mouse 5 / 浏览器返回键：退出搜索模式而非离开页面

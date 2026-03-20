@@ -79,12 +79,17 @@ export function ChatsSearchModal({ threads, accessToken, onClose }: Props) {
 
     const q = query.trim()
     if (!q) {
-      setSearchResults(null)
-      setSearching(false)
-      return
+      const id = requestAnimationFrame(() => {
+        setSearchResults(null)
+        setSearching(false)
+      })
+      return () => {
+        if (debounceRef.current) clearTimeout(debounceRef.current)
+        cancelAnimationFrame(id)
+      }
     }
 
-    setSearching(true)
+    const pendingId = requestAnimationFrame(() => setSearching(true))
     debounceRef.current = setTimeout(() => {
       void searchThreads(accessToken, q, 'chat').then((results) => {
         setSearchResults(results)
@@ -96,6 +101,7 @@ export function ChatsSearchModal({ threads, accessToken, onClose }: Props) {
     }, 300)
 
     return () => {
+      cancelAnimationFrame(pendingId)
       if (debounceRef.current) clearTimeout(debounceRef.current)
     }
   }, [query, accessToken])

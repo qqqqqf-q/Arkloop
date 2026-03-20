@@ -4,8 +4,8 @@ import { X, ChevronDown, ChevronRight, ArrowLeft } from 'lucide-react'
 import { useLocation } from 'react-router-dom'
 import type { GlobalRun, AdminRunDetail, AdminRunUsageItem, AdminRunUsageAggregate, RunEventRaw } from '../api/runs'
 import { getAdminRunDetail, fetchRunEventsOnce } from '../api/runs'
-import { TurnView, buildTurns } from './TurnView'
-import { buildThreadTurns, type ThreadTurn } from '@arkloop/shared'
+import { TurnView } from './TurnView'
+import { buildThreadTurns, buildTurns, type ThreadTurn } from '@arkloop/shared'
 import { Badge, type BadgeVariant } from './Badge'
 import { useLocale } from '../contexts/LocaleContext'
 
@@ -152,8 +152,11 @@ export function RunDetailPanel({ run, accessToken, onClose }: Props) {
 
   // 外部 run prop 变化时，重置导航栈
   useEffect(() => {
-    setActiveRun(run)
-    setNavStack([])
+    const id = requestAnimationFrame(() => {
+      setActiveRun(run)
+      setNavStack([])
+    })
+    return () => cancelAnimationFrame(id)
   }, [run])
 
   const locationRef = useRef<string | null>(null)
@@ -175,19 +178,32 @@ export function RunDetailPanel({ run, accessToken, onClose }: Props) {
   // 面板打开时加载 summary
   useEffect(() => {
     if (!currentRun) {
+      const id = requestAnimationFrame(() => {
+        setDetail(null)
+        setEvents(null)
+      })
+      return () => cancelAnimationFrame(id)
+    }
+    let cancelled = false
+    const id = requestAnimationFrame(() => {
+      if (cancelled) return
       setDetail(null)
       setEvents(null)
-      return
-    }
-    setDetail(null)
-    setEvents(null)
-    setDetailLoading(true)
+      setDetailLoading(true)
+    })
     Promise.allSettled([getAdminRunDetail(currentRun.run_id, accessToken)])
       .then(([detailResult]) => {
+        if (cancelled) return
         if (detailResult.status === 'fulfilled') setDetail(detailResult.value)
       })
       .catch(() => undefined)
-      .finally(() => setDetailLoading(false))
+      .finally(() => {
+        if (!cancelled) setDetailLoading(false)
+      })
+    return () => {
+      cancelled = true
+      cancelAnimationFrame(id)
+    }
   }, [currentRun, accessToken])
 
   // Conversation 展开时懒加载事件流
@@ -201,9 +217,9 @@ export function RunDetailPanel({ run, accessToken, onClose }: Props) {
   }, [currentRun, events, accessToken])
 
   useEffect(() => {
-    if ((activeTab === 'execution' || activeTab === 'events') && events === null) {
-      loadEvents()
-    }
+    if (!((activeTab === 'execution' || activeTab === 'events') && events === null)) return
+    const id = requestAnimationFrame(() => loadEvents())
+    return () => cancelAnimationFrame(id)
   }, [activeTab, events, loadEvents])
 
   // 导航到子 Run
@@ -236,12 +252,12 @@ export function RunDetailPanel({ run, accessToken, onClose }: Props) {
   // currentRun 可能是子 run，所有渲染基于 currentRun
   const r = currentRun ?? run
   const d = detail
-  const turns = events ? buildTurns(events) : []
+  const turns = useMemo(() => (events ? buildTurns(events) : []), [events])
   const threadTurns = useMemo(
     () => buildThreadTurns(d?.thread_messages ?? [], r?.run_id ?? '', d?.user_prompt),
     [d?.thread_messages, d?.user_prompt, r?.run_id],
   )
-  const executionTurns = useMemo(() => turns, [turns])
+  const executionTurns = turns
   const threadLabel = locale.startsWith('zh') ? '对话线程' : 'Thread'
   const executionLabel = locale.startsWith('zh') ? '本轮执行' : 'Execution'
 

@@ -231,7 +231,8 @@ func TestRTKRewriteTimesOutAndFallsBack(t *testing.T) {
 	originalBin := rtkBinCache
 	originalRunner := rtkRewriteRunner
 	rtkBinCache = "/tmp/fake-rtk"
-	rtkBinOnce = syncOnceDone()
+	rtkBinOnce = sync.Once{}
+	rtkBinOnce.Do(func() {})
 	defer func() {
 		rtkBinCache = originalBin
 		rtkBinOnce = sync.Once{}
@@ -258,7 +259,8 @@ func TestRTKRewriteSkipsUnsafeCommandWithoutRunner(t *testing.T) {
 	originalBin := rtkBinCache
 	originalRunner := rtkRewriteRunner
 	rtkBinCache = "/tmp/fake-rtk"
-	rtkBinOnce = syncOnceDone()
+	rtkBinOnce = sync.Once{}
+	rtkBinOnce.Do(func() {})
 	defer func() {
 		rtkBinCache = originalBin
 		rtkBinOnce = sync.Once{}
@@ -275,10 +277,4 @@ func TestRTKRewriteSkipsUnsafeCommandWithoutRunner(t *testing.T) {
 	if got := rtkRewrite(context.Background(), "cat << 'EOF' > /tmp/x\nhello\nEOF"); got != "" {
 		t.Fatalf("expected empty rewrite for unsafe command, got %q", got)
 	}
-}
-
-func syncOnceDone() sync.Once {
-	var once sync.Once
-	once.Do(func() {})
-	return once
 }

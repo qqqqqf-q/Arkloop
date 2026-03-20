@@ -90,7 +90,8 @@ func disableSandboxRTK(t *testing.T) {
 	originalRun := sandboxRTKRun
 	sandboxRTKCache = ""
 	sandboxRTKRun = originalRun
-	sandboxRTKOnce = syncOnceDone()
+	sandboxRTKOnce = sync.Once{}
+	sandboxRTKOnce.Do(func() {})
 	t.Cleanup(func() {
 		sandboxRTKCache = originalBin
 		sandboxRTKRun = originalRun
@@ -119,7 +120,8 @@ func TestRTKRewriteSandboxTimesOutAndFallsBack(t *testing.T) {
 	originalBin := sandboxRTKCache
 	originalRunner := sandboxRTKRun
 	sandboxRTKCache = "/tmp/fake-rtk"
-	sandboxRTKOnce = syncOnceDone()
+	sandboxRTKOnce = sync.Once{}
+	sandboxRTKOnce.Do(func() {})
 	defer func() {
 		sandboxRTKCache = originalBin
 		sandboxRTKOnce = sync.Once{}
@@ -146,7 +148,8 @@ func TestRTKRewriteSandboxSkipsUnsafeCommandWithoutRunner(t *testing.T) {
 	originalBin := sandboxRTKCache
 	originalRunner := sandboxRTKRun
 	sandboxRTKCache = "/tmp/fake-rtk"
-	sandboxRTKOnce = syncOnceDone()
+	sandboxRTKOnce = sync.Once{}
+	sandboxRTKOnce.Do(func() {})
 	defer func() {
 		sandboxRTKCache = originalBin
 		sandboxRTKOnce = sync.Once{}
@@ -163,12 +166,6 @@ func TestRTKRewriteSandboxSkipsUnsafeCommandWithoutRunner(t *testing.T) {
 	if got := rtkRewriteSandbox("cat << 'EOF' > /tmp/x\nhello\nEOF"); got != "" {
 		t.Fatalf("expected empty rewrite for unsafe command, got %q", got)
 	}
-}
-
-func syncOnceDone() sync.Once {
-	var once sync.Once
-	once.Do(func() {})
-	return once
 }
 
 func TestPythonExecute_Success(t *testing.T) {

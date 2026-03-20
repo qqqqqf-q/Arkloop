@@ -384,7 +384,10 @@ export function ClawRightPanel({
   )
 
   useEffect(() => {
-    setLocalFolder(threadId ? readThreadClawFolder(threadId) : null)
+    const id = requestAnimationFrame(() =>
+      setLocalFolder(threadId ? readThreadClawFolder(threadId) : null),
+    )
+    return () => cancelAnimationFrame(id)
   }, [threadId])
 
   useEffect(() => {

@@ -41,7 +41,7 @@ export function ArtifactDownload({ artifact, accessToken, pathPrefix = '/v1/arti
     } finally {
       setDownloading(false)
     }
-  }, [artifact, accessToken, downloading])
+  }, [artifact, accessToken, downloading, pathPrefix])
 
   return (
     <button

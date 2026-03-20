@@ -189,7 +189,7 @@ func DecodeBundleWithLimit(data []byte, maxBytes int64) (BundleImage, error) {
 		switch header.Typeflag {
 		case tar.TypeDir:
 			dirs[rel] = int64(header.FileInfo().Mode().Perm())
-		case tar.TypeReg, tar.TypeRegA:
+		case tar.TypeReg, 0:
 			fileData, readErr := io.ReadAll(reader)
 			if readErr != nil {
 				return BundleImage{}, fmt.Errorf("read bundle file %s: %w", rel, readErr)

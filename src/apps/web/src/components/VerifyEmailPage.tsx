@@ -12,8 +12,8 @@ export function VerifyEmailPage() {
 
   useEffect(() => {
     if (!token) {
-      setStatus('error')
-      return
+      const id = requestAnimationFrame(() => setStatus('error'))
+      return () => cancelAnimationFrame(id)
     }
     confirmEmailVerification(token)
       .then(() => setStatus('success'))

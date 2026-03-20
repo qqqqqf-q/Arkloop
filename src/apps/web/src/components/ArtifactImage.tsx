@@ -44,7 +44,7 @@ export function ArtifactImage({ artifact, accessToken, pathPrefix = '/v1/artifac
     return () => {
       cancelled = true
     }
-  }, [artifact.key, accessToken])
+  }, [artifact.key, accessToken, pathPrefix])
 
   useEffect(() => {
     return () => {
