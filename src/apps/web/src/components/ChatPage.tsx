@@ -381,6 +381,7 @@ export function ChatPage() {
 
   const [messages, setMessages] = useState<MessageResponse[]>([])
   const [messagesLoading, setMessagesLoading] = useState(false)
+  const [userEnterMessageId, setUserEnterMessageId] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
   const [attachments, setAttachments] = useState<Attachment[]>([])
   const [assistantDraft, setAssistantDraft] = useState('')
@@ -852,6 +853,7 @@ export function ChatPage() {
     try {
       const message = await createMessage(accessToken, threadId, buildMessageRequest(normalized, []))
       invalidateMessageSync()
+      setUserEnterMessageId(message.id)
       setMessages((prev) => [...prev, message])
       setAssistantDraft('')
       noResponseMsgIdRef.current = message.id
@@ -894,6 +896,7 @@ export function ChatPage() {
     let disposed = false
 
     setMessagesLoading(true)
+    setUserEnterMessageId(null)
     setError(null)
     setInjectionBlocked(null)
     injectionBlockedRunIdRef.current = null
@@ -2266,6 +2269,7 @@ export function ChatPage() {
         const uploaded = await uploadAttachments(threadId)
         const message = await createMessage(accessToken, threadId, buildMessageRequest(text, uploaded))
         invalidateMessageSync()
+        setUserEnterMessageId(message.id)
         setMessages((prev) => [...prev, message])
         attachments.forEach((attachment) => revokeDraftAttachment(attachment))
         setDraft('')
@@ -2481,6 +2485,12 @@ export function ChatPage() {
     return -1
   }, [messages])
 
+  useEffect(() => {
+    if (!userEnterMessageId) return
+    const t = window.setTimeout(() => setUserEnterMessageId(null), 600)
+    return () => window.clearTimeout(t)
+  }, [userEnterMessageId])
+
   const resolvedMessageSources = useMemo(() => {
     return resolveMessageSourcesForRender(messages, messageSourcesMap)
   }, [messages, messageSourcesMap])
@@ -2630,9 +2640,9 @@ export function ChatPage() {
   return (
     <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-[var(--c-bg-page)]">
       {/* 顶部 header */}
-      <div className="flex min-h-[78px] items-center justify-between gap-2 px-[15px] py-[15px]">
+      <div className="flex min-h-[60px] items-center justify-between gap-2 px-[15px] py-[8px]">
         {/* 左侧：对话标题 */}
-        <div className="flex min-w-0 flex-1 items-center">
+        <div className="flex min-w-0 flex-1 items-center pl-[5px]">
           {threadId && currentTitle && (
             editingTitle !== null ? (
               <input
@@ -2669,7 +2679,11 @@ export function ChatPage() {
                 }}
               />
             ) : (
-              <div ref={titleContainerRef} className="title-group flex items-stretch gap-[3px]">
+              <div
+                ref={titleContainerRef}
+                className="title-group flex items-stretch gap-[3px]"
+                style={{ transform: 'translateY(-3px)' }}
+              >
                 {/* 标题文字 */}
                 <button
                   onClick={openTitleMenu}
@@ -2867,6 +2881,7 @@ export function ChatPage() {
                   )}
                   <MessageBubble
                     message={msg}
+                    animateUserEnter={msg.role === 'user' && msg.id === userEnterMessageId}
                     onRetry={
                       msg.role === 'assistant' && idx === messages.length - 1 && !isStreaming && !sending
                         ? handleRetry

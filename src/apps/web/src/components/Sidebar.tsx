@@ -394,7 +394,7 @@ export function Sidebar({
                       animate={{ opacity: 1 }}
                       exit={{ opacity: 0 }}
                       transition={{ duration: 0.15 }}
-                      className="my-1 mx-2 h-px bg-[var(--c-bg-deep)]"
+                      className="my-1 mx-2 h-px bg-[var(--c-border-subtle)]"
                     />
                   )}
                   {regularThreads.map((t) => renderThread(t, 'regular'))}

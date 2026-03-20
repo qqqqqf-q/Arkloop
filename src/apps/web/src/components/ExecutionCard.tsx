@@ -198,7 +198,7 @@ export function ExecutionCard({ variant, toolName, label, code, output, errorMes
             transition={expandTransition}
             style={{ overflow: 'hidden' }}
           >
-            <div style={{ borderRadius: '8px', background: 'var(--c-bg-menu)', overflow: 'hidden', marginTop: '4px' }}>
+            <div style={{ borderRadius: '8px', background: 'var(--c-attachment-bg)', overflow: 'hidden', marginTop: '4px' }}>
               {/* Label */}
               <div style={{ padding: '6px 10px 2px', fontSize: '10px', color: 'var(--c-text-muted)', fontFamily: MONO, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                 {variant === 'shell' ? 'shell' : toolKindLabel(toolName || '')}

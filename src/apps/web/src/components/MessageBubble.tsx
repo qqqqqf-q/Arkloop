@@ -9,6 +9,7 @@ import { useTypewriter } from '../hooks/useTypewriter'
 
 type Props = {
   message: MessageResponse
+  animateUserEnter?: boolean
   onRetry?: () => void
   onEdit?: (newContent: string) => void
   onFork?: () => void
@@ -28,11 +29,12 @@ type Props = {
   contentOverride?: string
 }
 
-export function MessageBubble({ message, onRetry, onEdit, onFork, onShare, shareState, webSources, artifacts, browserActions, widgets, accessToken, onWidgetAction, onShowSources, onOpenDocument, activePanelArtifactKey, onViewRunDetail, contentPrefix, contentOverride }: Props) {
+export function MessageBubble({ message, animateUserEnter, onRetry, onEdit, onFork, onShare, shareState, webSources, artifacts, browserActions, widgets, accessToken, onWidgetAction, onShowSources, onOpenDocument, activePanelArtifactKey, onViewRunDetail, contentPrefix, contentOverride }: Props) {
   if (message.role === 'user') {
     return (
       <UserMessage
         message={message}
+        animateEnter={animateUserEnter}
         onRetry={onRetry}
         onEdit={onEdit}
         accessToken={accessToken}

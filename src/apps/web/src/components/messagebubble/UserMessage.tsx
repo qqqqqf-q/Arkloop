@@ -12,12 +12,13 @@ import { USER_TEXT_COLLAPSED_HEIGHT, USER_TEXT_FADE_HEIGHT } from './utils'
 
 type Props = {
   message: MessageResponse
+  animateEnter?: boolean
   onRetry?: () => void
   onEdit?: (newContent: string) => void
   accessToken?: string
 }
 
-export function UserMessage({ message, onEdit, accessToken }: Props) {
+export function UserMessage({ message, onEdit, accessToken, animateEnter }: Props) {
   const { t } = useLocale()
   const [copied, setCopied] = useState(false)
   const [editing, setEditing] = useState(false)
@@ -310,11 +311,10 @@ export function UserMessage({ message, onEdit, accessToken }: Props) {
           const fadeMask = `linear-gradient(to bottom, black calc(100% - ${USER_TEXT_FADE_HEIGHT}px), transparent)`
           return (
             <div
+              className={[animateEnter ? 'user-prompt-bubble-enter' : '', 'user-prompt-bubble'].filter(Boolean).join(' ')}
               style={{
-                background: 'var(--c-bg-deep)',
                 borderRadius: '11px',
                 padding: '10px 16px',
-                color: 'var(--c-text-primary)',
                 fontSize: '16.5px',
                 fontWeight: 300,
                 lineHeight: 1.6,

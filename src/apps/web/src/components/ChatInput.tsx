@@ -454,8 +454,18 @@ export function ChatInput({
           </div>
         </div>
       </div>
-      <form onSubmit={(e) => onSubmit(e, selectedPersonaKey, selectedModel ?? undefined)} style={{ padding: '8px 14px 14px 22px' }}>
-        <div style={{ position: 'relative', marginBottom: '12px' }}>
+      <form
+        onSubmit={(e) => onSubmit(e, selectedPersonaKey, selectedModel ?? undefined)}
+        style={{
+          padding: variant === 'welcome' ? '8px 14px 14px 22px' : '6px 12px 11px 20px',
+        }}
+      >
+        <div
+          style={{
+            position: 'relative',
+            marginBottom: variant === 'welcome' ? '12px' : '9px',
+          }}
+        >
           <textarea
             ref={textareaRef}
             rows={1}
@@ -472,6 +482,7 @@ export function ChatInput({
               fontFamily: 'inherit',
               fontSize: '16px',
               fontWeight: 310,
+              ...(variant === 'chat' ? { lineHeight: 1.45 as const } : {}),
               color: 'var(--c-text-primary)',
               marginTop: '0px',
               marginBottom: '0px',

@@ -843,3 +843,55 @@ button:not(:disabled) {
 .arrow-breathe {
   animation: arrow-breathe 1.8s ease-in-out infinite;
 }
+
+@keyframes user-prompt-enter-dark {
+  from {
+    transform: scale(1.06);
+    background-color: #1f1f1e;
+    color: #8a8780;
+  }
+  to {
+    transform: scale(1);
+    background-color: var(--c-bg-deep);
+    color: var(--c-text-primary);
+  }
+}
+
+@keyframes user-prompt-enter-light {
+  from {
+    transform: scale(1.06);
+    background-color: #d8d8d6;
+    color: #6a6a68;
+  }
+  to {
+    transform: scale(1);
+    background-color: var(--c-bg-deep);
+    color: var(--c-text-primary);
+  }
+}
+
+.user-prompt-bubble {
+  background: var(--c-bg-deep);
+  color: var(--c-text-primary);
+}
+
+.user-prompt-bubble-enter {
+  transform-origin: right center;
+  animation: user-prompt-enter-dark 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .user-prompt-bubble-enter {
+    animation: none;
+  }
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) .user-prompt-bubble-enter {
+    animation-name: user-prompt-enter-light;
+  }
+}
+
+:root[data-theme="light"] .user-prompt-bubble-enter {
+  animation-name: user-prompt-enter-light;
+}
