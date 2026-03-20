@@ -17,7 +17,7 @@ func resolveDesktopContextCompact(ctx context.Context, db data.DesktopDB) (pipel
 		return pipeline.ContextCompactSettings{}, nil
 	}
 	registry := sharedconfig.DefaultRegistry()
-	resolver, err := sharedconfig.NewResolver(registry, sharedconfig.NewPGXStore(db), nil, 0)
+	resolver, err := sharedconfig.NewResolver(registry, sharedconfig.NewPGXStoreQuerier(db), nil, 0)
 	if err != nil {
 		return pipeline.ContextCompactSettings{}, err
 	}

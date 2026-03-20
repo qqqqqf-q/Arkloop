@@ -32,7 +32,7 @@ func buildEffectiveBuiltinToolNameSet(
 ) map[string]struct{} {
 	var configStore sharedconfig.Store
 	if effectiveCatalogPoolReady(pool) {
-		configStore = sharedconfig.NewPGXStore(pool)
+		configStore = sharedconfig.NewPGXStoreQuerier(pool)
 	}
 	resolver, _ := sharedconfig.NewResolver(
 		sharedconfig.DefaultRegistry(),

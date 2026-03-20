@@ -93,7 +93,7 @@ func adminExecutionGovernance(
 
 		var store sharedconfig.Store
 		if pool != nil {
-			store = sharedconfig.NewPGXStore(pool)
+			store = sharedconfig.NewPGXStoreQuerier(pool)
 		}
 		scope := sharedconfig.Scope{ProjectID: projectID}
 		resp := executionGovernanceResponse{

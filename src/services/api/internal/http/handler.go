@@ -189,7 +189,7 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 		if cfg.RedisClient != nil && cacheTTL > 0 {
 			cache = sharedconfig.NewRedisCache(cfg.RedisClient)
 		}
-		fallback, _ := sharedconfig.NewResolver(registry, sharedconfig.NewPGXStore(cfg.Pool), cache, cacheTTL)
+		fallback, _ := sharedconfig.NewResolver(registry, sharedconfig.NewPGXStoreQuerier(cfg.Pool), cache, cacheTTL)
 		resolver = fallback
 	}
 	invalidator := cfg.ConfigInvalidator

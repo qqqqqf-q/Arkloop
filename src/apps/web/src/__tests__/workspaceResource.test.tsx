@@ -1,6 +1,6 @@
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest'
 
 import { WorkspaceResource } from '../components/WorkspaceResource'
 import { LocaleProvider } from '../contexts/LocaleContext'
@@ -18,8 +18,8 @@ describe('WorkspaceResource', () => {
   const actEnvironment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
   const originalActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT
 
-  let createObjectURLSpy: ReturnType<typeof vi.spyOn<typeof URL, 'createObjectURL'>>
-  let revokeObjectURLSpy: ReturnType<typeof vi.spyOn<typeof URL, 'revokeObjectURL'>>
+  let createObjectURLSpy: MockInstance<(obj: Blob | MediaSource) => string>
+  let revokeObjectURLSpy: MockInstance<(url: string) => void>
 
   beforeEach(() => {
     actEnvironment.IS_REACT_ACT_ENVIRONMENT = true

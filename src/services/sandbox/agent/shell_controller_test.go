@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -52,23 +53,50 @@ func drainShellOutput(t *testing.T, controller *ShellController, resp *shellapi.
 func TestShellControllerExecCommandPreservesCwd(t *testing.T) {
 	workspace := t.TempDir()
 	bindShellDirs(t, workspace)
+	target := filepath.Join(workspace, "cdtarget")
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	controller := NewShellController()
 	defer closeController(controller)
 
-	resp, code, msg := controller.ExecCommand(shellapi.AgentExecCommandRequest{Command: "cd /tmp && pwd", YieldTimeMs: 1000, TimeoutMs: 5000})
+	resp, code, msg := controller.ExecCommand(shellapi.AgentExecCommandRequest{
+		Command:     fmt.Sprintf("cd %q && pwd", target),
+		YieldTimeMs: 1000,
+		TimeoutMs:   5000,
+	})
 	if code != "" {
 		t.Fatalf("exec_command failed: %s %s", code, msg)
 	}
-	if resp.Cwd != "/tmp" {
-		t.Fatalf("expected cwd /tmp, got %s", resp.Cwd)
+	want, err := filepath.EvalSymlinks(target)
+	if err != nil {
+		want = target
+	}
+	got, err := filepath.EvalSymlinks(resp.Cwd)
+	if err != nil {
+		got = resp.Cwd
+	}
+	if got != want {
+		t.Fatalf("expected cwd %s, got %s", want, got)
 	}
 
 	resp, code, msg = controller.ExecCommand(shellapi.AgentExecCommandRequest{Command: "pwd", YieldTimeMs: 1000, TimeoutMs: 5000})
 	if code != "" {
 		t.Fatalf("exec_command failed: %s %s", code, msg)
 	}
-	if !strings.Contains(resp.Output, "/tmp") {
-		t.Fatalf("expected output to contain /tmp, got %q", resp.Output)
+	var outLine string
+	for _, part := range strings.Split(resp.Output, "\n") {
+		if s := strings.TrimSpace(part); s != "" {
+			outLine = s
+			break
+		}
+	}
+	outResolved, err := filepath.EvalSymlinks(outLine)
+	if err != nil {
+		outResolved = outLine
+	}
+	if outResolved != want {
+		t.Fatalf("expected pwd output cwd %s, got %s (raw %q)", want, outResolved, resp.Output)
 	}
 }
 
