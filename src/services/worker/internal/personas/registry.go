@@ -73,6 +73,15 @@ type TitleSummarizerConfig struct {
 	MaxTokens int
 }
 
+// DesktopFallbackTitleSummarizer 与内置 normal persona 的 title_summarize 一致。
+// 桌面 Worker 在仅 DB persona、且未合并到内置 YAML 时使用，避免标题能力静默缺失。
+func DesktopFallbackTitleSummarizer() *TitleSummarizerConfig {
+	return &TitleSummarizerConfig{
+		Prompt:    "Keep it under 10 Chinese characters. Capture the task goal.",
+		MaxTokens: 20,
+	}
+}
+
 type Definition struct {
 	ID                      string
 	Version                 string
