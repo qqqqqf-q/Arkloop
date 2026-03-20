@@ -153,6 +153,11 @@ func (r *EntitlementsRepository) CreateOverride(
 		return AccountEntitlementOverride{}, fmt.Errorf("entitlements: account_id must not be empty")
 	}
 
+	var createdBy any
+	if createdByUserID != uuid.Nil {
+		createdBy = createdByUserID
+	}
+
 	var o AccountEntitlementOverride
 	err := r.db.QueryRow(
 		ctx,
@@ -163,7 +168,7 @@ func (r *EntitlementsRepository) CreateOverride(
 		              reason = EXCLUDED.reason, expires_at = EXCLUDED.expires_at,
 		              created_by_user_id = EXCLUDED.created_by_user_id
 		 RETURNING id, account_id, key, value, value_type, reason, expires_at, created_by_user_id, created_at`,
-		accountID, key, value, valueType, reason, expiresAt, createdByUserID,
+		accountID, key, value, valueType, reason, expiresAt, createdBy,
 	).Scan(
 		&o.ID, &o.AccountID, &o.Key, &o.Value, &o.ValueType,
 		&o.Reason, &o.ExpiresAt, &o.CreatedByUserID, &o.CreatedAt,
