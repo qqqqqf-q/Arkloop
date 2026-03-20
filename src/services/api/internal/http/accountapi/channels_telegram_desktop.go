@@ -100,6 +100,7 @@ func StartTelegramDesktopPoller(ctx context.Context, deps TelegramDesktopPollerD
 	}
 
 	connector := telegramConnector{
+		channelsRepo:            deps.ChannelsRepo,
 		channelIdentitiesRepo:   deps.ChannelIdentitiesRepo,
 		channelBindCodesRepo:    deps.ChannelBindCodesRepo,
 		channelDMThreadsRepo:    deps.ChannelDMThreadsRepo,

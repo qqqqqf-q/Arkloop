@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	nethttp "net/http"
 	"regexp"
 	"strconv"
@@ -27,10 +28,19 @@ var telegramUserIDPattern = regexp.MustCompile(`^[0-9]{1,20}$`)
 
 const telegramRemoteRequestTimeout = 5 * time.Second
 
+// telegramPassiveIngestSyncForTest 为 true 时被动群消息在同线程落库（供集成测试断言）。
+var telegramPassiveIngestSyncForTest bool
+
+// SetTelegramPassiveIngestSyncForTest 仅测试使用。
+func SetTelegramPassiveIngestSyncForTest(sync bool) {
+	telegramPassiveIngestSyncForTest = sync
+}
+
 type telegramChannelConfig struct {
-	AllowedUserIDs []string `json:"allowed_user_ids"`
-	DefaultModel   string   `json:"default_model,omitempty"`
-	BotUsername    string   `json:"bot_username,omitempty"`
+	AllowedUserIDs    []string `json:"allowed_user_ids"`
+	DefaultModel      string   `json:"default_model,omitempty"`
+	BotUsername       string   `json:"bot_username,omitempty"`
+	TelegramBotUserID int64    `json:"telegram_bot_user_id,omitempty"`
 }
 
 type telegramUpdate struct {
@@ -319,6 +329,65 @@ func configureTelegramActivationRemote(
 	return configureTelegramPollingRemote(ctx, client, token)
 }
 
+func mergeTelegramBotUserIDIntoConfigJSON(raw json.RawMessage, botUserID int64) (json.RawMessage, error) {
+	if botUserID == 0 {
+		return nil, fmt.Errorf("telegram_bot_user_id must be non-zero")
+	}
+	if len(raw) == 0 {
+		raw = json.RawMessage(`{}`)
+	}
+	var generic map[string]any
+	if err := json.Unmarshal(raw, &generic); err != nil {
+		return nil, err
+	}
+	if generic == nil {
+		generic = map[string]any{}
+	}
+	generic["telegram_bot_user_id"] = botUserID
+	out, err := json.Marshal(generic)
+	if err != nil {
+		return nil, err
+	}
+	normalized, _, err := normalizeChannelConfigJSON("telegram", out)
+	if err != nil {
+		return nil, err
+	}
+	return normalized, nil
+}
+
+// syncTelegramBotUserIDToConfig 在启用频道后写入 getMe 得到的 Bot 数字 ID，供群聊「回复本条 Bot」判定。
+func syncTelegramBotUserIDToConfig(
+	ctx context.Context,
+	channelsRepo *data.ChannelsRepository,
+	accountID, channelID uuid.UUID,
+	client *telegrambot.Client,
+	token string,
+	current json.RawMessage,
+) error {
+	if channelsRepo == nil || client == nil || strings.TrimSpace(token) == "" {
+		return nil
+	}
+	cfg, err := resolveTelegramConfig("telegram", current)
+	if err != nil {
+		return nil
+	}
+	if cfg.TelegramBotUserID != 0 {
+		return nil
+	}
+	remoteCtx, cancel := context.WithTimeout(ctx, telegramRemoteRequestTimeout)
+	defer cancel()
+	info, err := client.GetMe(remoteCtx, strings.TrimSpace(token))
+	if err != nil || info == nil || info.ID == 0 {
+		return nil
+	}
+	merged, err := mergeTelegramBotUserIDIntoConfigJSON(current, info.ID)
+	if err != nil {
+		return err
+	}
+	_, err = channelsRepo.Update(ctx, channelID, accountID, data.ChannelUpdate{ConfigJSON: &merged})
+	return err
+}
+
 func disableTelegramActivationRemote(
 	ctx context.Context,
 	client *telegrambot.Client,
@@ -336,6 +405,7 @@ func disableTelegramActivationRemote(
 }
 
 type telegramConnector struct {
+	channelsRepo            *data.ChannelsRepository
 	channelIdentitiesRepo   *data.ChannelIdentitiesRepository
 	channelBindCodesRepo    *data.ChannelBindCodesRepository
 	channelDMThreadsRepo    *data.ChannelDMThreadsRepository
@@ -358,6 +428,110 @@ type telegramConnector struct {
 	attachmentStore         MessageAttachmentPutStore
 }
 
+func (c telegramConnector) refreshTelegramBotUserID(ctx context.Context, token string, ch *data.Channel) {
+	if c.channelsRepo == nil || c.telegramClient == nil || ch == nil || strings.TrimSpace(token) == "" {
+		return
+	}
+	cfg, err := resolveTelegramConfig("telegram", ch.ConfigJSON)
+	if err != nil || cfg.TelegramBotUserID != 0 {
+		return
+	}
+	remoteCtx, cancel := context.WithTimeout(ctx, telegramRemoteRequestTimeout)
+	defer cancel()
+	info, err := c.telegramClient.GetMe(remoteCtx, strings.TrimSpace(token))
+	if err != nil || info == nil || info.ID == 0 {
+		return
+	}
+	merged, err := mergeTelegramBotUserIDIntoConfigJSON(ch.ConfigJSON, info.ID)
+	if err != nil {
+		return
+	}
+	upd, err := c.channelsRepo.Update(ctx, ch.ID, ch.AccountID, data.ChannelUpdate{ConfigJSON: &merged})
+	if err != nil || upd == nil {
+		return
+	}
+	ch.ConfigJSON = upd.ConfigJSON
+}
+
+func (c telegramConnector) ingestTelegramGroupPassiveMessage(
+	ctx context.Context,
+	ch data.Channel,
+	token string,
+	incoming telegramIncomingMessage,
+	identity data.ChannelIdentity,
+	persona *data.Persona,
+) error {
+	if persona == nil {
+		return fmt.Errorf("telegram passive ingest: persona required")
+	}
+	if identity.UserID == nil {
+		return fmt.Errorf("telegram passive ingest: identity user id required")
+	}
+	tx, err := c.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	threadProjectID := derefUUID(persona.ProjectID)
+	threadID, err := c.resolveTelegramThreadID(ctx, tx, ch, persona.ID, threadProjectID, identity, incoming)
+	if err != nil {
+		return err
+	}
+	if c.channelLedgerRepo != nil {
+		ledgerMetadata, metaErr := json.Marshal(map[string]any{
+			"source":            "telegram",
+			"conversation_type": incoming.ChatType,
+			"mentions_bot":      incoming.MentionsBot,
+			"is_reply_to_bot":   incoming.IsReplyToBot,
+		})
+		if metaErr != nil {
+			return metaErr
+		}
+		if _, ledgerErr := c.channelLedgerRepo.WithTx(tx).Record(ctx, data.ChannelMessageLedgerRecordInput{
+			ChannelID:               ch.ID,
+			ChannelType:             ch.ChannelType,
+			Direction:               data.ChannelMessageDirectionInbound,
+			ThreadID:                &threadID,
+			PlatformConversationID:  incoming.PlatformChatID,
+			PlatformMessageID:       incoming.PlatformMsgID,
+			PlatformParentMessageID: incoming.ReplyToMsgID,
+			PlatformThreadID:        incoming.MessageThreadID,
+			SenderChannelIdentityID: &identity.ID,
+			MetadataJSON:            ledgerMetadata,
+		}); ledgerErr != nil {
+			return ledgerErr
+		}
+	}
+	content, contentJSON, metadataJSON, err := buildTelegramStructuredMessageWithMedia(
+		ctx,
+		c.telegramClient,
+		c.attachmentStore,
+		token,
+		ch.AccountID,
+		threadID,
+		*identity.UserID,
+		identity,
+		incoming,
+	)
+	if err != nil {
+		return err
+	}
+	if _, err := c.messageRepo.WithTx(tx).CreateStructuredWithMetadata(
+		ctx,
+		ch.AccountID,
+		threadID,
+		"user",
+		content,
+		contentJSON,
+		metadataJSON,
+		identity.UserID,
+	); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
 func (c telegramConnector) HandleUpdate(
 	ctx context.Context,
 	traceID string,
@@ -368,6 +542,7 @@ func (c telegramConnector) HandleUpdate(
 	if update.Message == nil || update.Message.From == nil {
 		return nil
 	}
+	c.refreshTelegramBotUserID(ctx, token, &ch)
 	cfg, err := resolveTelegramConfig(ch.ChannelType, ch.ConfigJSON)
 	if err != nil {
 		return fmt.Errorf("invalid channel config: %w", err)
@@ -376,7 +551,7 @@ func (c telegramConnector) HandleUpdate(
 	if err != nil {
 		return err
 	}
-	incoming, err := normalizeTelegramIncomingMessage(ch.ID, ch.ChannelType, rawPayload, update, cfg.BotUsername)
+	incoming, err := normalizeTelegramIncomingMessage(ch.ID, ch.ChannelType, rawPayload, update, cfg.BotUsername, cfg.TelegramBotUserID)
 	if err != nil {
 		return err
 	}
@@ -411,6 +586,10 @@ func (c telegramConnector) HandleUpdate(
 				initialGrant = v
 			}
 		}
+	}
+
+	if c.tryScheduleTelegramMediaGroup(ctx, traceID, ch, token, update, *incoming, persona) {
+		return nil
 	}
 
 	tx, err := c.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -492,6 +671,28 @@ func (c telegramConnector) HandleUpdate(
 		identity.UserID = &shadowUser.ID
 	}
 
+	if !incoming.IsPrivate() && !incoming.ShouldCreateRun() {
+		if err := tx.Commit(ctx); err != nil {
+			return err
+		}
+		inCopy := *incoming
+		chCopy := ch
+		idCopy := identity
+		pCopy := *persona
+		run := func() {
+			bgCtx := context.Background()
+			if err := c.ingestTelegramGroupPassiveMessage(bgCtx, chCopy, token, inCopy, idCopy, &pCopy); err != nil {
+				slog.Error("telegram_passive_ingest_failed", "channel_id", chCopy.ID.String(), "platform_msg_id", inCopy.PlatformMsgID, "err", err)
+			}
+		}
+		if telegramPassiveIngestSyncForTest {
+			run()
+		} else {
+			go run()
+		}
+		return nil
+	}
+
 	threadProjectID := derefUUID(persona.ProjectID)
 	threadID, err := c.resolveTelegramThreadID(ctx, tx, ch, persona.ID, threadProjectID, identity, *incoming)
 	if err != nil {
@@ -548,7 +749,8 @@ func (c telegramConnector) HandleUpdate(
 	); err != nil {
 		return err
 	}
-	if !incoming.ShouldCreateRun() {
+
+	if !channelAgentTriggerConsume(ch.ID) {
 		return tx.Commit(ctx)
 	}
 
@@ -615,6 +817,7 @@ func telegramWebhookEntry(
 		channelLedgerRepo = repo
 	}
 	connector := telegramConnector{
+		channelsRepo:            channelsRepo,
 		channelIdentitiesRepo:   channelIdentitiesRepo,
 		channelBindCodesRepo:    channelBindCodesRepo,
 		channelDMThreadsRepo:    channelDMThreadsRepo,

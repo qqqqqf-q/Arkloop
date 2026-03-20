@@ -63,6 +63,7 @@ func normalizeTelegramIncomingMessage(
 	rawPayload []byte,
 	update telegramUpdate,
 	botUsername string,
+	telegramBotUserID int64,
 ) (*telegramIncomingMessage, error) {
 	if update.Message == nil || update.Message.From == nil {
 		return nil, nil
@@ -90,7 +91,7 @@ func normalizeTelegramIncomingMessage(
 		MediaAttachments:  attachments,
 		ReplyToMsgID:      replyToMessageID,
 		MentionsBot:       telegramMessageMentionsBot(msg, botUsername),
-		IsReplyToBot:      telegramMessageRepliesToBot(msg),
+		IsReplyToBot:      telegramMessageRepliesToBot(msg, telegramBotUserID),
 		MessageThreadID:   messageThreadID,
 		RawPayload:        json.RawMessage(rawPayload),
 	}
@@ -135,8 +136,14 @@ func telegramMessageMentionsBot(msg *telegramMessage, botUsername string) bool {
 	return false
 }
 
-func telegramMessageRepliesToBot(msg *telegramMessage) bool {
-	return msg != nil && msg.ReplyToMessage != nil && msg.ReplyToMessage.From != nil && msg.ReplyToMessage.From.IsBot
+func telegramMessageRepliesToBot(msg *telegramMessage, telegramBotUserID int64) bool {
+	if msg == nil || msg.ReplyToMessage == nil || msg.ReplyToMessage.From == nil {
+		return false
+	}
+	if telegramBotUserID != 0 {
+		return msg.ReplyToMessage.From.ID == telegramBotUserID
+	}
+	return msg.ReplyToMessage.From.IsBot
 }
 
 func collectTelegramInboundAttachments(msg *telegramMessage) []telegramInboundAttachment {

@@ -1,0 +1,423 @@
+package accountapi
+
+import (
+	"context"
+	"encoding/json"
+	"log/slog"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"arkloop/services/api/internal/data"
+	"arkloop/services/shared/telegrambot"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+)
+
+const telegramMediaGroupDebounce = 750 * time.Millisecond
+
+var (
+	mediaGroupMu      sync.Mutex
+	mediaGroupBuckets = map[string]*mediaGroupBucket{}
+)
+
+type mediaGroupBucket struct {
+	mu      sync.Mutex
+	conn    telegramConnector
+	ch      data.Channel
+	token   string
+	traceID string
+	items   []telegramUpdate
+	timer   *time.Timer
+	persona *data.Persona
+}
+
+func telegramMediaGroupBucketKey(ch data.Channel, update telegramUpdate) string {
+	if update.Message == nil {
+		return ""
+	}
+	gid := strings.TrimSpace(update.Message.MediaGroupID)
+	if gid == "" {
+		return ""
+	}
+	return ch.ID.String() + ":" + strconv.FormatInt(update.Message.Chat.ID, 10) + ":" + gid
+}
+
+// tryScheduleTelegramMediaGroup 将相册多条 Webhook 合并为一次落库；返回 true 时表示本请求已入队，HandleUpdate 应直接结束。
+func (c telegramConnector) tryScheduleTelegramMediaGroup(
+	ctx context.Context,
+	traceID string,
+	ch data.Channel,
+	token string,
+	update telegramUpdate,
+	incoming telegramIncomingMessage,
+	persona *data.Persona,
+) bool {
+	_ = ctx
+	if persona == nil || update.Message == nil {
+		return false
+	}
+	if strings.TrimSpace(update.Message.MediaGroupID) == "" {
+		return false
+	}
+	if len(incoming.MediaAttachments) == 0 {
+		return false
+	}
+	key := telegramMediaGroupBucketKey(ch, update)
+	if key == "" {
+		return false
+	}
+
+	mediaGroupMu.Lock()
+	b, ok := mediaGroupBuckets[key]
+	if !ok {
+		b = &mediaGroupBucket{}
+		mediaGroupBuckets[key] = b
+	}
+	mediaGroupMu.Unlock()
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.conn = c
+	b.ch = ch
+	b.token = token
+	b.traceID = traceID
+	b.persona = persona
+	b.items = append(b.items, update)
+	if b.timer != nil {
+		b.timer.Stop()
+	}
+	b.timer = time.AfterFunc(telegramMediaGroupDebounce, func() {
+		flushTelegramMediaGroupBucket(key)
+	})
+	return true
+}
+
+func flushTelegramMediaGroupBucket(key string) {
+	mediaGroupMu.Lock()
+	b := mediaGroupBuckets[key]
+	delete(mediaGroupBuckets, key)
+	mediaGroupMu.Unlock()
+	if b == nil {
+		return
+	}
+	b.mu.Lock()
+	items := b.items
+	b.items = nil
+	if b.timer != nil {
+		b.timer.Stop()
+		b.timer = nil
+	}
+	conn := b.conn
+	ch := b.ch
+	token := b.token
+	traceID := b.traceID
+	persona := b.persona
+	b.mu.Unlock()
+
+	if len(items) == 0 || persona == nil {
+		return
+	}
+	sort.SliceStable(items, func(i, j int) bool {
+		var mi, mj int64
+		if items[i].Message != nil {
+			mi = items[i].Message.MessageID
+		}
+		if items[j].Message != nil {
+			mj = items[j].Message.MessageID
+		}
+		return mi < mj
+	})
+
+	cfg, err := resolveTelegramConfig("telegram", ch.ConfigJSON)
+	if err != nil {
+		slog.Error("telegram_media_group_flush", "phase", "config", "err", err)
+		return
+	}
+	merged, err := mergeTelegramAlbumIncoming(ch.ID, ch.ChannelType, items, cfg.BotUsername, cfg.TelegramBotUserID)
+	if err != nil || merged == nil {
+		slog.Error("telegram_media_group_flush", "phase", "merge", "err", err)
+		return
+	}
+	bgCtx := context.Background()
+	if err := conn.processTelegramMediaGroupMerged(bgCtx, traceID, ch, token, items, *merged, persona); err != nil {
+		slog.Error("telegram_media_group_flush", "phase", "persist", "err", err)
+	}
+}
+
+func mergeTelegramAlbumIncoming(
+	channelID uuid.UUID,
+	channelType string,
+	items []telegramUpdate,
+	botUsername string,
+	botUID int64,
+) (*telegramIncomingMessage, error) {
+	var merged *telegramIncomingMessage
+	for _, u := range items {
+		raw, err := json.Marshal(u)
+		if err != nil {
+			return nil, err
+		}
+		inc, err := normalizeTelegramIncomingMessage(channelID, channelType, raw, u, botUsername, botUID)
+		if err != nil {
+			return nil, err
+		}
+		if inc == nil {
+			continue
+		}
+		if merged == nil {
+			cp := *inc
+			merged = &cp
+			continue
+		}
+		if t := strings.TrimSpace(inc.Text); t != "" {
+			if strings.TrimSpace(merged.Text) != "" {
+				merged.Text = strings.TrimSpace(merged.Text) + "\n" + t
+			} else {
+				merged.Text = t
+			}
+		}
+		merged.MediaAttachments = append(merged.MediaAttachments, inc.MediaAttachments...)
+		if a, errA := strconv.ParseInt(inc.PlatformMsgID, 10, 64); errA == nil {
+			if b, errB := strconv.ParseInt(merged.PlatformMsgID, 10, 64); errB == nil && a > b {
+				merged.PlatformMsgID = inc.PlatformMsgID
+			}
+		}
+		if inc.ReplyToMsgID != nil {
+			merged.ReplyToMsgID = inc.ReplyToMsgID
+		}
+		if inc.MessageThreadID != nil {
+			merged.MessageThreadID = inc.MessageThreadID
+		}
+	}
+	if merged == nil || !merged.HasContent() {
+		return nil, nil
+	}
+	return merged, nil
+}
+
+func (c telegramConnector) processTelegramMediaGroupMerged(
+	ctx context.Context,
+	traceID string,
+	ch data.Channel,
+	token string,
+	originals []telegramUpdate,
+	incoming telegramIncomingMessage,
+	persona *data.Persona,
+) error {
+	personaRef := buildPersonaRef(*persona)
+	initialGrant := int64(1000)
+	if c.entitlementSvc != nil {
+		if value, entErr := c.entitlementSvc.Resolve(ctx, ch.AccountID, "credit.initial_grant"); entErr == nil {
+			if v := value.Int(); v > 0 {
+				initialGrant = v
+			}
+		}
+	}
+
+	tx, err := c.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	for _, u := range originals {
+		if u.Message == nil {
+			continue
+		}
+		pid := strconv.FormatInt(u.Message.MessageID, 10)
+		if _, err := c.channelReceiptsRepo.WithTx(tx).Record(ctx, ch.ID, incoming.PlatformChatID, pid); err != nil {
+			return err
+		}
+	}
+
+	last := originals[len(originals)-1].Message
+	if last == nil || last.From == nil {
+		return nil
+	}
+	identity, err := upsertTelegramIdentity(ctx, c.channelIdentitiesRepo.WithTx(tx), last.From)
+	if err != nil {
+		return err
+	}
+
+	if incoming.IsPrivate() {
+		trimmedCommandText := strings.TrimSpace(incoming.CommandText)
+		if handled, replyText, err := handleTelegramCommand(
+			ctx,
+			tx,
+			&ch,
+			identity,
+			trimmedCommandText,
+			c.channelBindCodesRepo,
+			c.channelIdentitiesRepo,
+			c.channelDMThreadsRepo,
+			c.threadRepo,
+			c.usersRepo,
+		); err != nil {
+			return err
+		} else if handled {
+			if err := tx.Commit(ctx); err != nil {
+				return err
+			}
+			if c.telegramClient != nil && strings.TrimSpace(token) != "" {
+				sendCtx, sendCancel := context.WithTimeout(ctx, telegramRemoteRequestTimeout)
+				_, _ = c.telegramClient.SendMessage(sendCtx, token, telegrambot.SendMessageRequest{
+					ChatID: incoming.PlatformChatID,
+					Text:   replyText,
+				})
+				sendCancel()
+			}
+			return nil
+		}
+	}
+
+	if !incoming.HasContent() {
+		return tx.Commit(ctx)
+	}
+
+	if identity.UserID == nil {
+		shadowUser, bootstrapErr := bootstrapTelegramShadowUser(
+			ctx,
+			tx,
+			c.usersRepo,
+			c.accountRepo,
+			c.membershipRepo,
+			c.projectRepo,
+			c.creditsRepo,
+			initialGrant,
+			last.From.ID,
+		)
+		if bootstrapErr != nil {
+			return bootstrapErr
+		}
+		if err := c.channelIdentitiesRepo.WithTx(tx).UpdateUserID(ctx, identity.ID, &shadowUser.ID); err != nil {
+			return err
+		}
+		identity.UserID = &shadowUser.ID
+	}
+
+	cfg, err := resolveTelegramConfig("telegram", ch.ConfigJSON)
+	if err != nil {
+		return err
+	}
+
+	if !incoming.IsPrivate() && !incoming.ShouldCreateRun() {
+		if err := tx.Commit(ctx); err != nil {
+			return err
+		}
+		inCopy := incoming
+		idCopy := identity
+		pCopy := *persona
+		run := func() {
+			bgCtx := context.Background()
+			if err := c.ingestTelegramGroupPassiveMessage(bgCtx, ch, token, inCopy, idCopy, &pCopy); err != nil {
+				slog.Error("telegram_passive_ingest_failed", "channel_id", ch.ID.String(), "platform_msg_id", inCopy.PlatformMsgID, "err", err)
+			}
+		}
+		if telegramPassiveIngestSyncForTest {
+			run()
+		} else {
+			go run()
+		}
+		return nil
+	}
+
+	threadProjectID := derefUUID(persona.ProjectID)
+	threadID, err := c.resolveTelegramThreadID(ctx, tx, ch, persona.ID, threadProjectID, identity, incoming)
+	if err != nil {
+		return err
+	}
+	if c.channelLedgerRepo != nil {
+		ledgerMetadata, metaErr := json.Marshal(map[string]any{
+			"source":            "telegram",
+			"conversation_type": incoming.ChatType,
+			"mentions_bot":      incoming.MentionsBot,
+			"is_reply_to_bot":   incoming.IsReplyToBot,
+			"media_group":       true,
+		})
+		if metaErr != nil {
+			return metaErr
+		}
+		if _, ledgerErr := c.channelLedgerRepo.WithTx(tx).Record(ctx, data.ChannelMessageLedgerRecordInput{
+			ChannelID:               ch.ID,
+			ChannelType:             ch.ChannelType,
+			Direction:               data.ChannelMessageDirectionInbound,
+			ThreadID:                &threadID,
+			PlatformConversationID:  incoming.PlatformChatID,
+			PlatformMessageID:       incoming.PlatformMsgID,
+			PlatformParentMessageID: incoming.ReplyToMsgID,
+			PlatformThreadID:        incoming.MessageThreadID,
+			SenderChannelIdentityID: &identity.ID,
+			MetadataJSON:            ledgerMetadata,
+		}); ledgerErr != nil {
+			return ledgerErr
+		}
+	}
+	content, contentJSON, metadataJSON, err := buildTelegramStructuredMessageWithMedia(
+		ctx,
+		c.telegramClient,
+		c.attachmentStore,
+		token,
+		ch.AccountID,
+		threadID,
+		*identity.UserID,
+		identity,
+		incoming,
+	)
+	if err != nil {
+		return err
+	}
+	if _, err := c.messageRepo.WithTx(tx).CreateStructuredWithMetadata(
+		ctx,
+		ch.AccountID,
+		threadID,
+		"user",
+		content,
+		contentJSON,
+		metadataJSON,
+		identity.UserID,
+	); err != nil {
+		return err
+	}
+
+	if !incoming.ShouldCreateRun() {
+		return tx.Commit(ctx)
+	}
+
+	if !channelAgentTriggerConsume(ch.ID) {
+		return tx.Commit(ctx)
+	}
+
+	runStartedData := buildTelegramRunStartedData(personaRef, cfg.DefaultModel)
+	run, _, err := c.runEventRepo.WithTx(tx).CreateRunWithStartedEvent(
+		ctx,
+		ch.AccountID,
+		threadID,
+		identity.UserID,
+		"run.started",
+		runStartedData,
+	)
+	if err != nil {
+		return err
+	}
+	jobPayload := map[string]any{
+		"source":           "telegram",
+		"channel_delivery": buildTelegramChannelDeliveryPayload(ch.ID, identity.ID, incoming),
+	}
+	if _, err := c.jobRepo.WithTx(tx).EnqueueRun(
+		ctx,
+		ch.AccountID,
+		run.ID,
+		traceID,
+		data.RunExecuteJobType,
+		jobPayload,
+		nil,
+	); err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
+}

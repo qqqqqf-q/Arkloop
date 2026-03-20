@@ -49,6 +49,9 @@ func setupTelegramChannelsTestEnv(t *testing.T, botClient *telegrambot.Client) t
 	}
 	t.Cleanup(pool.Close)
 
+	SetTelegramPassiveIngestSyncForTest(true)
+	t.Cleanup(func() { SetTelegramPassiveIngestSyncForTest(false) })
+
 	userRepo, err := data.NewUserRepository(pool)
 	if err != nil {
 		t.Fatalf("user repo: %v", err)

@@ -283,6 +283,7 @@ func createChannel(
 			httpkit.WriteError(w, nethttp.StatusBadGateway, "channels.telegram_remote_failed", err.Error(), traceID, nil)
 			return
 		}
+		_ = syncTelegramBotUserIDToConfig(r.Context(), channelsRepo, actor.AccountID, channelID, telegramClient, req.BotToken, ch.ConfigJSON)
 	}
 
 	httpkit.WriteJSON(w, traceID, nethttp.StatusCreated, toChannelResponse(ch))
@@ -562,6 +563,7 @@ func updateChannel(
 			httpkit.WriteError(w, nethttp.StatusBadGateway, "channels.telegram_remote_failed", err.Error(), traceID, nil)
 			return
 		}
+		_ = syncTelegramBotUserIDToConfig(r.Context(), channelsRepo, actor.AccountID, channelID, telegramClient, nextToken, updated.ConfigJSON)
 	}
 	if needsDeactivate {
 		if err := disableTelegramActivationRemote(r.Context(), telegramClient, nextToken, telegramMode); err != nil {
