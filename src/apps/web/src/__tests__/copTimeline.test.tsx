@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { SearchTimeline } from '../components/SearchTimeline'
+import { CopTimeline } from '../components/CopTimeline'
 import { LocaleProvider } from '../contexts/LocaleContext'
 import type { SubAgentRef, WebSource } from '../storage'
 import type { CodeExecution } from '../components/ThinkingBlock'
@@ -17,7 +17,7 @@ function renderTimeline(params: {
 }): string {
   return renderToStaticMarkup(
     <LocaleProvider>
-      <SearchTimeline
+      <CopTimeline
         steps={params.steps}
         sources={params.sources}
         narratives={params.narratives}
@@ -31,7 +31,7 @@ function renderTimeline(params: {
   )
 }
 
-describe('SearchTimeline', () => {
+describe('CopTimeline', () => {
   it('isComplete=true 时应默认收起内容', () => {
     const html = renderTimeline({
       isComplete: true,

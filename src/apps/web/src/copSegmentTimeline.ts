@@ -7,7 +7,7 @@ import type {
   WebFetchRef,
   WebSource,
 } from './storage'
-import type { SearchStep } from './components/SearchTimeline'
+import type { WebSearchPhaseStep } from './components/CopTimeline'
 
 type CopSegment = Extract<AssistantTurnSegment, { type: 'cop' }>
 
@@ -15,24 +15,24 @@ function sortBySeq<T extends { seq?: number }>(items: T[]): T[] {
   return [...items].sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0))
 }
 
-type SearchStepLike = Pick<MessageSearchStepRef, 'id' | 'kind' | 'label' | 'status' | 'queries' | 'seq'>
+type WebSearchPhaseStepLike = Pick<MessageSearchStepRef, 'id' | 'kind' | 'label' | 'status' | 'queries' | 'seq'>
 
 /**
- * 仅返回 SearchTimeline 已支持的数据子集（代码 / 子代理 / 文件 / 抓取 / 搜索步骤）。
+ * 仅返回 CopTimeline 已支持的数据子集（代码 / 子代理 / 文件 / 抓取 / 搜索阶段步骤）。
  * 其余 tool call 不生成任何 UI。
  */
-export function searchTimelinePayloadForCopSegment(
+export function copTimelinePayloadForSegment(
   segment: CopSegment,
   pools: {
     codeExecutions?: CodeExecutionRef[] | null
     fileOps?: FileOpRef[] | null
     webFetches?: WebFetchRef[] | null
     subAgents?: SubAgentRef[] | null
-    searchSteps?: SearchStepLike[] | null
+    searchSteps?: WebSearchPhaseStepLike[] | null
     sources: WebSource[]
   },
 ): {
-  steps: SearchStep[]
+  steps: WebSearchPhaseStep[]
   sources: WebSource[]
   codeExecutions?: CodeExecutionRef[]
   fileOps?: FileOpRef[]
@@ -47,7 +47,7 @@ export function searchTimelinePayloadForCopSegment(
   const webFetches = sortBySeq((pools.webFetches ?? []).filter((x) => ids.has(x.id)))
   const subAgents = sortBySeq((pools.subAgents ?? []).filter((x) => ids.has(x.id)))
 
-  const steps: SearchStep[] = sortBySeq(
+  const steps: WebSearchPhaseStep[] = sortBySeq(
     (pools.searchSteps ?? [])
       .filter((s) => ids.has(s.id))
       .map((s) => ({
@@ -82,22 +82,22 @@ export function searchTimelinePayloadForCopSegment(
   }
 }
 
-/** COP 段内已由 SearchTimeline 渲染的条目 id（与 allStreamItems 互斥，避免双份工具 UI） */
-export function toolCallIdsInCopSearchTimelines(
+/** COP 段内已由 CopTimeline 渲染的条目 id（与 allStreamItems 互斥，避免双份工具 UI） */
+export function toolCallIdsInCopTimelines(
   turn: AssistantTurnUi,
   pools: {
     codeExecutions?: CodeExecutionRef[] | null
     fileOps?: FileOpRef[] | null
     webFetches?: WebFetchRef[] | null
     subAgents?: SubAgentRef[] | null
-    searchSteps?: SearchStepLike[] | null
+    searchSteps?: WebSearchPhaseStepLike[] | null
     sources: WebSource[]
   },
 ): Set<string> {
   const ids = new Set<string>()
   for (const seg of turn.segments) {
     if (seg.type !== 'cop') continue
-    const payload = searchTimelinePayloadForCopSegment(seg, pools)
+    const payload = copTimelinePayloadForSegment(seg, pools)
     if (!payload) continue
     for (const s of payload.steps) ids.add(s.id)
     for (const c of payload.codeExecutions ?? []) ids.add(c.id)

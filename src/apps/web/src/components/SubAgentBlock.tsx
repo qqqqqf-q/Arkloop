@@ -4,7 +4,7 @@ import { ChevronRight, ChevronDown, Loader2 } from 'lucide-react'
 import { useLocale } from '../contexts/LocaleContext'
 import { useTypewriter } from '../hooks/useTypewriter'
 import { useSubAgentCop } from '../hooks/useSubAgentCop'
-import { SearchTimeline } from './SearchTimeline'
+import { CopTimeline } from './CopTimeline'
 
 type Props = {
   nickname?: string
@@ -130,7 +130,7 @@ export function SubAgentBlock({
           color: 'var(--c-text-muted)',
           transition: 'color 150ms ease',
         }}>
-          {displayedLabel}
+          {streamTw ? displayedLabel : rawLabel}
         </span>
         {expandable && (
           expanded
@@ -183,7 +183,7 @@ export function SubAgentBlock({
                     maxHeight: '120px',
                     overflowY: 'auto',
                   }}>
-                    {displayedInput}
+                    {streamTw ? displayedInput : inputTrimmed}
                   </pre>
                 </div>
               )}
@@ -197,7 +197,7 @@ export function SubAgentBlock({
                   marginRight: '10px',
                   marginBottom: '4px',
                 }}>
-                  <SearchTimeline
+                  <CopTimeline
                     steps={cop.steps}
                     sources={cop.sources}
                     isComplete={cop.isComplete}
@@ -245,7 +245,7 @@ export function SubAgentBlock({
                       whiteSpace: 'pre-wrap',
                       wordBreak: 'break-word',
                     }}>
-                      {displayedOutput}
+                      {streamTw ? displayedOutput : outputForTw}
                     </pre>
                   </div>
                 </div>

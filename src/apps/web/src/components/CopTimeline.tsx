@@ -10,7 +10,7 @@ import { useLocale } from '../contexts/LocaleContext'
 import { ExecutionCard } from './ExecutionCard'
 import { SubAgentBlock } from './SubAgentBlock'
 
-export type SearchStep = {
+export type WebSearchPhaseStep = {
   id: string
   kind: 'planning' | 'searching' | 'reviewing' | 'finished'
   label: string
@@ -26,7 +26,7 @@ export type SearchNarrative = {
 }
 
 type Props = {
-  steps: SearchStep[]
+  steps: WebSearchPhaseStep[]
   sources: WebSource[]
   narratives?: SearchNarrative[]
   isComplete: boolean
@@ -45,7 +45,7 @@ type Props = {
 
 function TypewriterText({ text, className, live }: { text: string; className?: string; live?: boolean }) {
   const displayed = useTypewriter(text, !live)
-  return <span className={className}>{displayed}</span>
+  return <span className={className}>{live ? displayed : text}</span>
 }
 
 function getDomain(url: string): string {
@@ -77,6 +77,7 @@ function isHttpUrl(url: string): boolean {
 
 function QueryPill({ text, live }: { text: string; live?: boolean }) {
   const displayed = useTypewriter(text, !live)
+  const shown = live ? displayed : text
   return (
     <span
       style={{
@@ -100,7 +101,7 @@ function QueryPill({ text, live }: { text: string; live?: boolean }) {
         }}
       >
         <Search size={11} style={{ flexShrink: 0, color: 'var(--c-text-muted)' }} />
-        {displayed}
+        {shown}
       </span>
     </span>
   )
@@ -120,7 +121,7 @@ function TimelineNarrativeBody({ text, tone = 'secondary', live }: { text: strin
         wordBreak: 'break-word',
       }}
     >
-      {displayed}
+      {live ? displayed : text}
     </div>
   )
 }
@@ -206,10 +207,12 @@ export function WebFetchItem({ fetch: f, live }: { fetch: WebFetchRef; live?: bo
   const shortName = isHttp ? getShortName(f.url) : (scheme || 'invalid')
   const primaryText = f.title || (isHttp ? domain : (f.url || 'Invalid URL'))
   const displayedPrimary = useTypewriter(primaryText, !live)
+  const primaryShown = live ? displayedPrimary : primaryText
   const secondaryText = typeof f.statusCode === 'number'
     ? `${f.statusCode}`
     : shortName
   const displayedSecondary = useTypewriter(secondaryText, !live)
+  const secondaryShown = live ? displayedSecondary : secondaryText
   const content = (
     <>
       <div
@@ -259,10 +262,10 @@ export function WebFetchItem({ fetch: f, live }: { fetch: WebFetchRef; live?: bo
           minWidth: 0,
         }}
       >
-        {displayedPrimary}
+        {primaryShown}
       </span>
       <span style={{ fontSize: '11px', color: 'var(--c-text-muted)', flexShrink: 0 }}>
-        {displayedSecondary}
+        {secondaryShown}
       </span>
     </>
   )
@@ -311,7 +314,7 @@ const SHELL_DOT_TOP = 9 + TIMELINE_DOT_NUDGE_Y
 // CodeExecutionCard: border(0.5) + padding(6) + icon-center(14) = 20.5 → dot top ≈ 16
 const PYTHON_DOT_TOP = 16 + TIMELINE_DOT_NUDGE_Y
 
-export function SearchTimeline({ steps, sources, narratives, isComplete, codeExecutions, onOpenCodeExecution, activeCodeExecutionId, subAgents, fileOps, webFetches, headerOverride, shimmer, live, accessToken, baseUrl }: Props) {
+export function CopTimeline({ steps, sources, narratives, isComplete, codeExecutions, onOpenCodeExecution, activeCodeExecutionId, subAgents, fileOps, webFetches, headerOverride, shimmer, live, accessToken, baseUrl }: Props) {
   const { t } = useLocale()
   const [collapsed, setCollapsed] = useState(() => isComplete)
   const prevIsCompleteRef = useRef(isComplete)
@@ -334,7 +337,7 @@ export function SearchTimeline({ steps, sources, narratives, isComplete, codeExe
   if (visibleSteps.length === 0 && textEntries.length === 0 && codeExecCount === 0 && subAgentCount === 0 && fileOpCount === 0 && webFetchCount === 0 && !headerOverride) return null
 
   type UEntry =
-    | { kind: 'step'; id: string; seq: number; item: SearchStep }
+    | { kind: 'step'; id: string; seq: number; item: WebSearchPhaseStep }
     | { kind: 'text'; id: string; seq: number; item: SearchNarrative }
     | { kind: 'code'; id: string; seq: number; item: CodeExecution }
     | { kind: 'agent'; id: string; seq: number; item: SubAgentRef }
@@ -386,7 +389,7 @@ export function SearchTimeline({ steps, sources, narratives, isComplete, codeExe
     : visibleSteps.length > 0
       ? (visibleSteps[visibleSteps.length - 1]?.label || 'Searching...')
       : effectiveStepCount > 0
-        ? t.searchTimelineLiveProgress
+        ? t.copTimelineLiveProgress
         : 'Searching...'
 
   const headerLabel = headerOverride ?? autoLabel

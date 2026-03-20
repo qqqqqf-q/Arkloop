@@ -416,8 +416,8 @@ export interface LocaleStrings {
   assistantCopDefaultTitle: string
   /** Enter 后、首条可见输出前，流式区占位（与 COP 默认标题区分） */
   assistantStreamThinkingPlaceholder: string
-  /** SearchTimeline：流式未完结、按代码/工具条目计数时的标题 */
-  searchTimelineLiveProgress: string
+  /** CopTimeline：流式未完结、按代码/工具条目计数时的标题 */
+  copTimelineLiveProgress: string
   // model config
   models: {
     addProvider: string

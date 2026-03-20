@@ -11,7 +11,7 @@ import { RunDetailPanel } from './RunDetailPanel'
 import { ThinkingBlock, CodeExecutionCard, type CodeExecution } from './ThinkingBlock'
 import { ExecutionCard } from './ExecutionCard'
 import { SubAgentBlock } from './SubAgentBlock'
-import { SearchTimeline, WebFetchItem, type SearchStep } from './SearchTimeline'
+import { CopTimeline, WebFetchItem, type WebSearchPhaseStep } from './CopTimeline'
 import { MarkdownRenderer } from './MarkdownRenderer'
 import { useTypewriter } from '../hooks/useTypewriter'
 import { ArtifactStreamBlock, extractPartialArtifactFields, type StreamingArtifactEntry } from './ArtifactStreamBlock'
@@ -64,7 +64,7 @@ import {
   type AssistantTurnSegment,
   type AssistantTurnUi,
 } from '../assistantTurnSegments'
-import { searchTimelinePayloadForCopSegment, toolCallIdsInCopSearchTimelines } from '../copSegmentTimeline'
+import { copTimelinePayloadForSegment, toolCallIdsInCopTimelines } from '../copSegmentTimeline'
 import { useLocale } from '../contexts/LocaleContext'
 import { apiBaseUrl } from '@arkloop/shared/api'
 import type { UserInputRequest, UserInputResponse, RequestedSchema } from '../userInputTypes'
@@ -193,10 +193,10 @@ type DocumentPanelState = {
 
 const SHOW_EXPLICIT_THINKING = false
 
-// finalizeSearchSteps converts live SearchStep[] to the storage format.
+// finalizeSearchSteps converts live WebSearchPhaseStep[] to the storage format.
 // Identical to finalizeBlockSteps but kept as a standalone function for the
 // legacy (non-COP) search path.
-function finalizeSearchSteps(steps: SearchStep[]): MessageSearchStepRef[] {
+function finalizeSearchSteps(steps: WebSearchPhaseStep[]): MessageSearchStepRef[] {
   return finalizeBlockSteps(steps)
 }
 
@@ -207,7 +207,7 @@ function patchLegacySearchSteps(steps: MessageSearchStepRef[]): { steps: Message
   return { steps, changed: false }
 }
 
-function finalizeBlockSteps(steps: SearchStep[]): MessageSearchStepRef[] {
+function finalizeBlockSteps(steps: WebSearchPhaseStep[]): MessageSearchStepRef[] {
   if (steps.length === 0) return []
   return steps.map((step) => ({
     id: step.id,
@@ -382,8 +382,8 @@ export function ChatPage() {
   // Search 时间轴缓存：messageId -> steps
   const [messageSearchStepsMap, setMessageSearchStepsMap] = useState<Map<string, MessageSearchStepRef[]>>(new Map())
   // Live search steps for the legacy (non-COP) search path
-  const [searchSteps, setSearchSteps] = useState<SearchStep[]>([])
-  const searchStepsRef = useRef<SearchStep[]>([])
+  const [searchSteps, setSearchSteps] = useState<WebSearchPhaseStep[]>([])
+  const searchStepsRef = useRef<WebSearchPhaseStep[]>([])
   const [messageAssistantTurnMap, setMessageAssistantTurnMap] = useState<Map<string, AssistantTurnUi>>(new Map())
   // show_widget 缓存：messageId -> WidgetRef[]
   const [messageWidgetsMap, setMessageWidgetsMap] = useState<Map<string, WidgetRef[]>>(new Map())
@@ -2197,11 +2197,9 @@ export function ChatPage() {
     return -1
   }, [messages])
 
-  useEffect(() => {
-    if (!userEnterMessageId) return
-    const t = window.setTimeout(() => setUserEnterMessageId(null), 600)
-    return () => window.clearTimeout(t)
-  }, [userEnterMessageId])
+  const clearUserEnterAnimation = useCallback(() => {
+    setUserEnterMessageId(null)
+  }, [])
 
   const resolvedMessageSources = useMemo(() => {
     return resolveMessageSourcesForRender(messages, messageSourcesMap)
@@ -2299,7 +2297,7 @@ export function ChatPage() {
 
   const copTimelineStreamHiddenIds = useMemo(() => {
     if (!isStreaming || !liveAssistantTurn) return new Set<string>()
-    return toolCallIdsInCopSearchTimelines(liveAssistantTurn, {
+    return toolCallIdsInCopTimelines(liveAssistantTurn, {
       codeExecutions: topLevelCodeExecutions,
       fileOps: topLevelFileOps,
       webFetches: topLevelWebFetches,
@@ -2505,7 +2503,7 @@ export function ChatPage() {
                           />
                         ) : (
                           (() => {
-                            const payload = searchTimelinePayloadForCopSegment(seg, {
+                            const payload = copTimelinePayloadForSegment(seg, {
                               codeExecutions: messageCodeExecutions,
                               fileOps: messageFileOps,
                               webFetches: messageWebFetches,
@@ -2519,7 +2517,7 @@ export function ChatPage() {
                             return (
                               <Fragment key={`${msg.id}-acw-${si}`}>
                                 {payload && (
-                                  <SearchTimeline
+                                  <CopTimeline
                                     steps={payload.steps}
                                     sources={payload.sources}
                                     isComplete
@@ -2553,7 +2551,7 @@ export function ChatPage() {
                   {msg.role === 'assistant' && !hasAssistantTurn && (timelineSteps.length > 0 || hasMessageCodeExecutions || (messageSubAgents && messageSubAgents.length > 0) || (messageFileOps && messageFileOps.length > 0) || (messageWebFetches && messageWebFetches.length > 0)) && (
                     <div style={{ marginBottom: '12px' }}>
                       {timelineSteps.length > 0 && (
-                        <SearchTimeline
+                        <CopTimeline
                           steps={timelineSteps}
                           sources={resolvedSources ?? []}
                           isComplete
@@ -2568,7 +2566,7 @@ export function ChatPage() {
                         />
                       )}
                       {timelineSteps.length === 0 && (hasMessageCodeExecutions || (messageSubAgents && messageSubAgents.length > 0) || (messageFileOps && messageFileOps.length > 0) || (messageWebFetches && messageWebFetches.length > 0)) && (
-                        <SearchTimeline
+                        <CopTimeline
                           steps={[]}
                           sources={[]}
                           isComplete
@@ -2590,6 +2588,7 @@ export function ChatPage() {
                       isStreaming && msg.role === 'assistant' && idx === messages.length - 1
                     }
                     animateUserEnter={msg.role === 'user' && msg.id === userEnterMessageId}
+                    onUserEnterAnimationEnd={msg.role === 'user' && msg.id === userEnterMessageId ? clearUserEnterAnimation : undefined}
                     onRetry={
                       msg.role === 'assistant' && idx === messages.length - 1 && !isStreaming && !sending
                         ? handleRetry
@@ -2721,7 +2720,7 @@ export function ChatPage() {
                 </motion.div>
               )}
 
-              {/* 流式：正文 Markdown + COP 用 SearchTimeline 点线 */}
+              {/* 流式：正文 Markdown + COP 用 CopTimeline 点线 */}
               {isStreaming && liveAssistantTurn && liveAssistantTurn.segments.length > 0 && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 0, maxWidth: '663px' }}>
                   {liveAssistantTurn.segments.map((seg, si) => {
@@ -2752,7 +2751,7 @@ export function ChatPage() {
                       />
                     ) : (
                       (() => {
-                        const payload = searchTimelinePayloadForCopSegment(seg, {
+                        const payload = copTimelinePayloadForSegment(seg, {
                           codeExecutions: topLevelCodeExecutions,
                           fileOps: topLevelFileOps,
                           webFetches: topLevelWebFetches,
@@ -2767,7 +2766,7 @@ export function ChatPage() {
                         return (
                           <Fragment key={`live-acw-${si}`}>
                             {payload && (
-                              <SearchTimeline
+                              <CopTimeline
                                 steps={payload.steps}
                                 sources={payload.sources}
                                 isComplete={copTimelineComplete}
@@ -2810,7 +2809,7 @@ export function ChatPage() {
                 </div>
               )}
 
-              {/* 流式：顶层代码 / 子代理 / 文件 / 抓取（已出现在 COP SearchTimeline 的 id 不再渲染） */}
+              {/* 流式：顶层代码 / 子代理 / 文件 / 抓取（已出现在 COP CopTimeline 的 id 不再渲染） */}
               {isStreaming && allStreamItemsForUi.length > 0 && (
                 <motion.div
                   initial={{ opacity: 0, y: 6 }}
@@ -2894,7 +2893,7 @@ export function ChatPage() {
               {/* 无 COP 时，顶层代码执行卡片独立渲染（仅流式结束后、run.completed 前的短暂窗口） */}
               {!isStreaming && (dedupedTopLevelCodeExecutions.length > 0 || topLevelSubAgents.length > 0 || topLevelFileOps.length > 0 || topLevelWebFetches.length > 0) && (
                 <div style={{ maxWidth: '663px' }}>
-                  <SearchTimeline
+                  <CopTimeline
                     steps={[]}
                     sources={[]}
                     isComplete

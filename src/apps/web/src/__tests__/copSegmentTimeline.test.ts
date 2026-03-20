@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { searchTimelinePayloadForCopSegment, toolCallIdsInCopSearchTimelines } from '../copSegmentTimeline'
+import { copTimelinePayloadForSegment, toolCallIdsInCopTimelines } from '../copSegmentTimeline'
 
-describe('searchTimelinePayloadForCopSegment', () => {
+describe('copTimelinePayloadForSegment', () => {
   it('无匹配富数据时返回 null', () => {
-    const r = searchTimelinePayloadForCopSegment(
+    const r = copTimelinePayloadForSegment(
       { type: 'cop', title: null, calls: [{ toolCallId: 'x', toolName: 'search_tools', arguments: {} }] },
       { sources: [] },
     )
@@ -11,7 +11,7 @@ describe('searchTimelinePayloadForCopSegment', () => {
   })
 
   it('按 tool_call_id 筛出代码执行', () => {
-    const r = searchTimelinePayloadForCopSegment(
+    const r = copTimelinePayloadForSegment(
       {
         type: 'cop',
         title: 't',
@@ -34,7 +34,7 @@ describe('searchTimelinePayloadForCopSegment', () => {
   })
 
   it('含 searching 步骤时附带 sources', () => {
-    const r = searchTimelinePayloadForCopSegment(
+    const r = copTimelinePayloadForSegment(
       {
         type: 'cop',
         title: null,
@@ -51,8 +51,8 @@ describe('searchTimelinePayloadForCopSegment', () => {
     expect(r!.sources).toHaveLength(1)
   })
 
-  it('toolCallIdsInCopSearchTimelines 汇总 COP 时间轴已占用的 id', () => {
-    const ids = toolCallIdsInCopSearchTimelines(
+  it('toolCallIdsInCopTimelines 汇总 COP 时间轴已占用的 id', () => {
+    const ids = toolCallIdsInCopTimelines(
       {
         segments: [
           {

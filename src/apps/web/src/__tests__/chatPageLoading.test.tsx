@@ -103,8 +103,8 @@ vi.mock('../components/ExecutionCard', () => ({
   ExecutionCard: () => <div />,
 }))
 
-vi.mock('../components/SearchTimeline', () => ({
-  SearchTimeline: () => <div />,
+vi.mock('../components/CopTimeline', () => ({
+  CopTimeline: () => <div />,
 }))
 
 vi.mock('../components/ShareModal', () => ({

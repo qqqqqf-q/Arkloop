@@ -566,7 +566,7 @@ button:not(:disabled) {
   margin-top: 0.65em !important;
 }
 
-/* turn 内正文紧接 SearchTimeline：覆盖内联 margin-bottom */
+/* turn 内正文紧接 CopTimeline：覆盖内联 margin-bottom */
 .md-content.md-content--trim-trailing > *:last-child {
   margin-bottom: 0 !important;
 }
@@ -874,7 +874,7 @@ button:not(:disabled) {
 
 @keyframes user-prompt-enter-dark {
   from {
-    transform: scale(1.06);
+    transform: scale(1.14);
     background-color: #1f1f1e;
     color: #8a8780;
   }
@@ -887,7 +887,7 @@ button:not(:disabled) {
 
 @keyframes user-prompt-enter-light {
   from {
-    transform: scale(1.06);
+    transform: scale(1.14);
     background-color: #d8d8d6;
     color: #6a6a68;
   }
@@ -905,7 +905,7 @@ button:not(:disabled) {
 
 .user-prompt-bubble-enter {
   transform-origin: right center;
-  animation: user-prompt-enter-dark 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: user-prompt-enter-dark 0.85s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 @media (prefers-reduced-motion: reduce) {

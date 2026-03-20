@@ -1,11 +1,11 @@
 import { useEffect, useReducer, useRef } from 'react'
 import { useSSE } from './useSSE'
-import type { SearchStep } from '../components/SearchTimeline'
+import type { WebSearchPhaseStep } from '../components/CopTimeline'
 import type { WebSource } from '../storage'
 import type { RunEvent } from '../sse'
 
 type CopState = {
-  steps: SearchStep[]
+  steps: WebSearchPhaseStep[]
   sources: WebSource[]
   isComplete: boolean
 }
@@ -24,11 +24,11 @@ function reducer(state: CopState, action: CopAction): CopState {
   switch (action.type) {
     case 'segment_start': {
       if (action.kind === 'search_planning') return state
-      const stepKind: SearchStep['kind'] =
+      const stepKind: WebSearchPhaseStep['kind'] =
         action.kind === 'search_queries' ? 'searching'
         : action.kind === 'search_reviewing' ? 'reviewing'
         : 'searching'
-      const step: SearchStep = {
+      const step: WebSearchPhaseStep = {
         id: action.segmentId,
         kind: stepKind,
         label: action.label,
@@ -49,7 +49,7 @@ function reducer(state: CopState, action: CopAction): CopState {
     case 'web_search_call': {
       // 只在没有 segment 覆盖时补一个 searching 步骤
       if (state.steps.some((s) => s.id === action.callId)) return state
-      const step: SearchStep = {
+      const step: WebSearchPhaseStep = {
         id: action.callId,
         kind: 'searching',
         label: 'Searching',

@@ -186,7 +186,7 @@ export function ExecutionCard({ variant, toolName, label, code, output, errorMes
           color: 'var(--c-text-muted)',
           transition: 'color 150ms ease',
         }}>
-          {previewTw}
+          {smooth ? previewTw : preview}
         </span>
         {expandable && (
           expanded
@@ -243,7 +243,7 @@ export function ExecutionCard({ variant, toolName, label, code, output, errorMes
                     overflowY: 'auto',
                     paddingRight: '34px',
                   }}>
-                    <span style={{ color: 'var(--c-text-muted)' }}>$ </span>{shellCodeTw}
+                    <span style={{ color: 'var(--c-text-muted)' }}>$ </span>{smooth ? shellCodeTw : (variant === 'shell' && code ? code.trim() : '')}
                   </pre>
                 </div>
               )}
@@ -289,7 +289,7 @@ export function ExecutionCard({ variant, toolName, label, code, output, errorMes
                         whiteSpace: 'pre-wrap',
                         wordBreak: 'break-word',
                       }}>
-                        {outputTw}
+                        {smooth ? outputTw : outputForTw}
                       </pre>
                     ) : (
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '20px' }}>

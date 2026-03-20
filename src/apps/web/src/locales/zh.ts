@@ -402,7 +402,7 @@ export const zh: LocaleStrings = {
   copyAction: "Copy",
   assistantCopDefaultTitle: "Processing…",
   assistantStreamThinkingPlaceholder: "Thinking",
-  searchTimelineLiveProgress: "In process",
+  copTimelineLiveProgress: "In process",
   editAction: "Edit",
   // model config
   models: {
