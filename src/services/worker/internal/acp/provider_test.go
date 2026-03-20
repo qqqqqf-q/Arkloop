@@ -109,3 +109,32 @@ func TestResolveProviderInvocationCommandArrayOverride(t *testing.T) {
 		t.Fatalf("args = %v", invocation.Provider.Args)
 	}
 }
+
+func TestResolveProviderInvocationExtraArgsAppended(t *testing.T) {
+	rt := &sharedtoolruntime.RuntimeSnapshot{ACPHostKind: "local"}
+	invocation, err := ResolveProviderInvocation("", map[string]sharedtoolruntime.ProviderConfig{
+		ProviderGroupACP: {
+			GroupName:    ProviderGroupACP,
+			ProviderName: DefaultProviderID,
+			ConfigJSON: map[string]any{
+				"command":    []any{"opencode", "acp"},
+				"extra_args": "--experimental-acp",
+			},
+		},
+	}, rt, "")
+	if err != nil {
+		t.Fatalf("ResolveProviderInvocation: %v", err)
+	}
+	if invocation.Provider.Command != "opencode" {
+		t.Fatalf("command = %q", invocation.Provider.Command)
+	}
+	want := []string{"acp", "--experimental-acp"}
+	if len(invocation.Provider.Args) != len(want) {
+		t.Fatalf("args = %v, want %v", invocation.Provider.Args, want)
+	}
+	for i := range want {
+		if invocation.Provider.Args[i] != want[i] {
+			t.Fatalf("args = %v, want %v", invocation.Provider.Args, want)
+		}
+	}
+}

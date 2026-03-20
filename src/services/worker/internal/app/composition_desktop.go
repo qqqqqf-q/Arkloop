@@ -35,8 +35,10 @@ import (
 	"arkloop/services/worker/internal/queue"
 	"arkloop/services/worker/internal/routing"
 	"arkloop/services/worker/internal/subagentctl"
+	"arkloop/services/worker/internal/toolprovider"
 	"arkloop/services/worker/internal/tools"
 	"arkloop/services/worker/internal/tools/builtin"
+	"arkloop/services/worker/internal/tools/builtin/acptool"
 	conversationtool "arkloop/services/worker/internal/tools/conversation"
 	"arkloop/services/worker/internal/tools/localshell"
 	memorytool "arkloop/services/worker/internal/tools/memory"
@@ -130,6 +132,9 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 	}
 
 	executors := builtin.Executors(nil, nil, nil)
+	if exec, ok := executors[acptool.AgentSpec.Name].(acptool.ToolExecutor); ok {
+		executors[acptool.AgentSpec.Name] = acptool.DesktopExecutorWithInject(exec, db)
+	}
 	var runtimeSnapshot *sharedtoolruntime.RuntimeSnapshot
 
 	if useVM {
@@ -399,6 +404,7 @@ func (e *DesktopEngine) Execute(ctx context.Context, run data.Run, traceID strin
 		desktopCancelGuard(),
 		desktopInputLoader(e.db, eventsRepo, e.messageAttachmentStore),
 		desktopToolInit(e.toolExecutors, e.allLlmSpecs, e.baseAllowlist, e.toolRegistry),
+		desktopToolProviderBindings(e.db),
 		pipeline.NewSpawnAgentMiddleware(),
 		desktopPersonaResolution(e.db, e.personaRegistry, runsRepo, eventsRepo),
 		desktopChannelContext(e.db),
@@ -456,6 +462,51 @@ func desktopMemoryInjection(db data.DesktopDB) pipeline.RunMiddleware {
 			}
 		}
 		// Ignore ErrNoRows / any DB errors — no memory is a valid state.
+		return next(ctx, rc)
+	}
+}
+
+func desktopToolProviderBindings(db data.DesktopDB) pipeline.RunMiddleware {
+	return func(ctx context.Context, rc *pipeline.RunContext, next pipeline.RunHandler) error {
+		if db == nil || rc == nil {
+			return next(ctx, rc)
+		}
+		platformCfgs, userCfgs, err := toolprovider.LoadDesktopActiveToolProviders(ctx, db, rc.Run.CreatedByUserID)
+		if err != nil {
+			return err
+		}
+		if len(platformCfgs) == 0 && len(userCfgs) == 0 {
+			return next(ctx, rc)
+		}
+		if rc.ActiveToolProviderByGroup == nil {
+			rc.ActiveToolProviderByGroup = map[string]string{}
+		}
+		if rc.ActiveToolProviderConfigsByGroup == nil {
+			rc.ActiveToolProviderConfigsByGroup = map[string]sharedtoolruntime.ProviderConfig{}
+		}
+		apply := func(cfg toolprovider.ActiveProviderConfig, override bool) {
+			g := strings.TrimSpace(cfg.GroupName)
+			pn := strings.TrimSpace(cfg.ProviderName)
+			if g == "" || pn == "" {
+				return
+			}
+			_, exists := rc.ActiveToolProviderByGroup[g]
+			if !exists {
+				rc.ActiveToolProviderByGroup[g] = pn
+				rc.ActiveToolProviderConfigsByGroup[g] = toolprovider.ToRuntimeProviderConfig(cfg)
+				return
+			}
+			if override {
+				rc.ActiveToolProviderByGroup[g] = pn
+				rc.ActiveToolProviderConfigsByGroup[g] = toolprovider.ToRuntimeProviderConfig(cfg)
+			}
+		}
+		for _, cfg := range platformCfgs {
+			apply(cfg, false)
+		}
+		for _, cfg := range userCfgs {
+			apply(cfg, true)
+		}
 		return next(ctx, rc)
 	}
 }

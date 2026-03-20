@@ -115,44 +115,74 @@ func applyCommandFromConfig(config map[string]any, provider *ResolvedProvider) {
 		return
 	}
 	raw, ok := config["command"]
+	if ok && raw != nil {
+		switch v := raw.(type) {
+		case string:
+			fields := strings.Fields(strings.TrimSpace(v))
+			if len(fields) > 0 {
+				provider.Command = fields[0]
+				if len(fields) > 1 {
+					provider.Args = append([]string(nil), fields[1:]...)
+				} else {
+					provider.Args = nil
+				}
+			}
+		case []any:
+			parts := make([]string, 0, len(v))
+			for _, item := range v {
+				s, ok := item.(string)
+				if !ok {
+					continue
+				}
+				if t := strings.TrimSpace(s); t != "" {
+					parts = append(parts, t)
+				}
+			}
+			if len(parts) > 0 {
+				provider.Command = parts[0]
+				if len(parts) > 1 {
+					provider.Args = append([]string(nil), parts[1:]...)
+				} else {
+					provider.Args = nil
+				}
+			}
+		}
+	}
+	appendExtraArgsFromConfig(config, provider)
+}
+
+func appendExtraArgsFromConfig(config map[string]any, provider *ResolvedProvider) {
+	if len(config) == 0 || provider == nil {
+		return
+	}
+	raw, ok := config["extra_args"]
 	if !ok || raw == nil {
 		return
 	}
+	var extra []string
 	switch v := raw.(type) {
 	case string:
-		fields := strings.Fields(strings.TrimSpace(v))
-		if len(fields) == 0 {
+		if strings.TrimSpace(v) == "" {
 			return
 		}
-		provider.Command = fields[0]
-		if len(fields) > 1 {
-			provider.Args = append([]string(nil), fields[1:]...)
-		} else {
-			provider.Args = nil
-		}
+		extra = strings.Fields(strings.TrimSpace(v))
 	case []any:
-		parts := make([]string, 0, len(v))
 		for _, item := range v {
 			s, ok := item.(string)
 			if !ok {
 				continue
 			}
 			if t := strings.TrimSpace(s); t != "" {
-				parts = append(parts, t)
+				extra = append(extra, t)
 			}
-		}
-		if len(parts) == 0 {
-			return
-		}
-		provider.Command = parts[0]
-		if len(parts) > 1 {
-			provider.Args = append([]string(nil), parts[1:]...)
-		} else {
-			provider.Args = nil
 		}
 	default:
 		return
 	}
+	if len(extra) == 0 {
+		return
+	}
+	provider.Args = append(append([]string(nil), provider.Args...), extra...)
 }
 
 func defaultHostKind(snapshot *sharedtoolruntime.RuntimeSnapshot) HostKind {

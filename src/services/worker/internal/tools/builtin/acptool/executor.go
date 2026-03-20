@@ -29,6 +29,8 @@ type ToolExecutor struct {
 	ConfigResolver  sharedconfig.Resolver
 	JWTSecret       string
 	LLMProxyBaseURL string
+	// InjectDesktopDelegateEnv optional (desktop): merge delegate_model_selector + llm_credentials into env.
+	InjectDesktopDelegateEnv func(ctx context.Context, execCtx tools.ExecutionContext, invocation acp.ResolvedInvocation, env map[string]string) *tools.ExecutionError
 }
 
 func (e ToolExecutor) llmProxyBaseURL() string {
@@ -86,6 +88,11 @@ func (e ToolExecutor) Execute(
 
 	env := copyStringMap(invocation.Env)
 	maybeInjectLocalOpenCodeConfigHome(invocation.Provider, execCtx.ActiveToolProviderConfigsByGroup, execCtx.RunID, env)
+	if e.InjectDesktopDelegateEnv != nil {
+		if terr := e.InjectDesktopDelegateEnv(ctx, execCtx, invocation, env); terr != nil {
+			return errResult(terr.ErrorClass, terr.Message, started)
+		}
+	}
 	profileName := ""
 	if rawProfile, ok := args["profile"].(string); ok {
 		profileName = strings.TrimSpace(rawProfile)
