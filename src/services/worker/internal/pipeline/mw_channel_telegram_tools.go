@@ -9,7 +9,7 @@ import (
 	"arkloop/services/worker/internal/tools/builtin/channel_telegram"
 )
 
-// NewChannelTelegramToolsMiddleware 在 Telegram Channel 的 run 上注入 telegram_react / telegram_reply；loader 为 nil 时跳过。
+// NewChannelTelegramToolsMiddleware 在 Telegram Channel 的 run 上注入 telegram_react / telegram_reply / telegram_send_file；loader 为 nil 时跳过。
 func NewChannelTelegramToolsMiddleware(loader channel_telegram.TokenLoader, telegram *telegrambot.Client) RunMiddleware {
 	return func(ctx context.Context, rc *RunContext, next RunHandler) error {
 		if loader == nil || rc == nil || rc.ChannelContext == nil {
@@ -40,6 +40,12 @@ func NewChannelTelegramToolsMiddleware(loader channel_telegram.TokenLoader, tele
 			rc.AllowlistSet[channel_telegram.ToolReply] = struct{}{}
 			rc.ToolSpecs = append(rc.ToolSpecs, channel_telegram.ReplyLlmSpec)
 			extraSpecs = append(extraSpecs, channel_telegram.ReplyAgentSpec)
+		}
+		if _, blocked := deny[channel_telegram.ToolSendFile]; !blocked {
+			rc.ToolExecutors[channel_telegram.ToolSendFile] = exec
+			rc.AllowlistSet[channel_telegram.ToolSendFile] = struct{}{}
+			rc.ToolSpecs = append(rc.ToolSpecs, channel_telegram.SendFileLlmSpec)
+			extraSpecs = append(extraSpecs, channel_telegram.SendFileAgentSpec)
 		}
 		if len(extraSpecs) > 0 {
 			rc.ToolRegistry = ForkRegistry(rc.ToolRegistry, extraSpecs)

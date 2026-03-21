@@ -189,6 +189,120 @@ func (c *Client) EditMessageText(ctx context.Context, token string, req EditMess
 	return c.callJSON(ctx, token, "editMessageText", req, nil)
 }
 
+// SendPhoto sends a photo by URL or file_id.
+func (c *Client) SendPhoto(ctx context.Context, token string, chatID, photo, caption, parseMode, messageThreadID string) (*SentMessage, error) {
+	req := map[string]any{"chat_id": chatID, "photo": photo}
+	if caption != "" {
+		req["caption"] = caption
+	}
+	if parseMode != "" {
+		req["parse_mode"] = parseMode
+	}
+	if messageThreadID != "" {
+		req["message_thread_id"] = messageThreadID
+	}
+	var result SentMessage
+	if err := c.callJSON(ctx, token, "sendPhoto", req, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// SendDocument sends a document by URL or file_id.
+func (c *Client) SendDocument(ctx context.Context, token string, chatID, document, caption, parseMode, messageThreadID string) (*SentMessage, error) {
+	req := map[string]any{"chat_id": chatID, "document": document}
+	if caption != "" {
+		req["caption"] = caption
+	}
+	if parseMode != "" {
+		req["parse_mode"] = parseMode
+	}
+	if messageThreadID != "" {
+		req["message_thread_id"] = messageThreadID
+	}
+	var result SentMessage
+	if err := c.callJSON(ctx, token, "sendDocument", req, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// SendAudio sends an audio file by URL or file_id.
+func (c *Client) SendAudio(ctx context.Context, token string, chatID, audio, caption, parseMode, messageThreadID string) (*SentMessage, error) {
+	req := map[string]any{"chat_id": chatID, "audio": audio}
+	if caption != "" {
+		req["caption"] = caption
+	}
+	if parseMode != "" {
+		req["parse_mode"] = parseMode
+	}
+	if messageThreadID != "" {
+		req["message_thread_id"] = messageThreadID
+	}
+	var result SentMessage
+	if err := c.callJSON(ctx, token, "sendAudio", req, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// SendVideo sends a video by URL or file_id.
+func (c *Client) SendVideo(ctx context.Context, token string, chatID, video, caption, parseMode, messageThreadID string) (*SentMessage, error) {
+	req := map[string]any{"chat_id": chatID, "video": video}
+	if caption != "" {
+		req["caption"] = caption
+	}
+	if parseMode != "" {
+		req["parse_mode"] = parseMode
+	}
+	if messageThreadID != "" {
+		req["message_thread_id"] = messageThreadID
+	}
+	var result SentMessage
+	if err := c.callJSON(ctx, token, "sendVideo", req, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// SendVoice sends a voice note by URL or file_id.
+func (c *Client) SendVoice(ctx context.Context, token string, chatID, voice, caption, parseMode, messageThreadID string) (*SentMessage, error) {
+	req := map[string]any{"chat_id": chatID, "voice": voice}
+	if caption != "" {
+		req["caption"] = caption
+	}
+	if parseMode != "" {
+		req["parse_mode"] = parseMode
+	}
+	if messageThreadID != "" {
+		req["message_thread_id"] = messageThreadID
+	}
+	var result SentMessage
+	if err := c.callJSON(ctx, token, "sendVoice", req, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// SendAnimation sends an animation (GIF) by URL or file_id.
+func (c *Client) SendAnimation(ctx context.Context, token string, chatID, animation, caption, parseMode, messageThreadID string) (*SentMessage, error) {
+	req := map[string]any{"chat_id": chatID, "animation": animation}
+	if caption != "" {
+		req["caption"] = caption
+	}
+	if parseMode != "" {
+		req["parse_mode"] = parseMode
+	}
+	if messageThreadID != "" {
+		req["message_thread_id"] = messageThreadID
+	}
+	var result SentMessage
+	if err := c.callJSON(ctx, token, "sendAnimation", req, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 func (c *Client) callJSON(ctx context.Context, token string, method string, body any, out any) error {
 	if strings.TrimSpace(token) == "" {
 		return fmt.Errorf("telegrambot: token must not be empty")

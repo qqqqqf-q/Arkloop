@@ -134,6 +134,8 @@ func (e *Executor) Execute(ctx context.Context, toolName string, args map[string
 		return e.react(ctx, args, surface, chatID, token, started)
 	case ToolReply:
 		return e.reply(ctx, args, surface, chatID, token, started)
+	case ToolSendFile:
+		return e.sendFile(ctx, args, surface, chatID, token, started)
 	default:
 		return tools.ExecutionResult{
 			Error:      &tools.ExecutionError{ErrorClass: tools.ErrorClassToolNotRegistered, Message: fmt.Sprintf("unknown tool %q", toolName)},
@@ -267,6 +269,88 @@ func (e *Executor) reply(
 
 	return tools.ExecutionResult{
 		ResultJSON: map[string]any{"ok": true, "message_ids": ids, "segments": len(segments)},
+		DurationMs: ms(),
+	}
+}
+
+func (e *Executor) sendFile(
+	ctx context.Context,
+	args map[string]any,
+	surface *tools.ChannelToolSurface,
+	chatID, token string,
+	started time.Time,
+) tools.ExecutionResult {
+	ms := func() int { return int(time.Since(started).Milliseconds()) }
+
+	fileURL := strings.TrimSpace(firstNonEmptyArgString(args, "file_url", "url", "file"))
+	if fileURL == "" {
+		return tools.ExecutionResult{
+			Error:      &tools.ExecutionError{ErrorClass: tools.ErrorClassToolExecutionFailed, Message: "file_url is required"},
+			DurationMs: ms(),
+		}
+	}
+
+	kind := strings.ToLower(strings.TrimSpace(firstNonEmptyArgString(args, "kind", "type")))
+	if kind == "" {
+		return tools.ExecutionResult{
+			Error:      &tools.ExecutionError{ErrorClass: tools.ErrorClassToolExecutionFailed, Message: "kind is required (photo, document, audio, video, voice, animation)"},
+			DurationMs: ms(),
+		}
+	}
+
+	caption := strings.TrimSpace(firstNonEmptyArgString(args, "caption", "text"))
+
+	// Process caption through Markdown -> HTML if it contains Markdown
+	processedCaption := caption
+	if caption != "" {
+		processedCaption = telegrambot.FormatAssistantMarkdownAsHTML(caption)
+	}
+
+	var sent *telegrambot.SentMessage
+	var err error
+
+	// Get message thread ID for forum topics
+	threadID := ""
+	if surface.MessageThreadID != nil {
+		threadID = strings.TrimSpace(*surface.MessageThreadID)
+	}
+
+	switch kind {
+	case "photo":
+		sent, err = e.tg.SendPhoto(ctx, token, chatID, fileURL, processedCaption, telegrambot.ParseModeHTML, threadID)
+	case "document":
+		sent, err = e.tg.SendDocument(ctx, token, chatID, fileURL, processedCaption, telegrambot.ParseModeHTML, threadID)
+	case "audio":
+		sent, err = e.tg.SendAudio(ctx, token, chatID, fileURL, processedCaption, telegrambot.ParseModeHTML, threadID)
+	case "video":
+		sent, err = e.tg.SendVideo(ctx, token, chatID, fileURL, processedCaption, telegrambot.ParseModeHTML, threadID)
+	case "voice":
+		sent, err = e.tg.SendVoice(ctx, token, chatID, fileURL, processedCaption, telegrambot.ParseModeHTML, threadID)
+	case "animation":
+		sent, err = e.tg.SendAnimation(ctx, token, chatID, fileURL, processedCaption, telegrambot.ParseModeHTML, threadID)
+	default:
+		return tools.ExecutionResult{
+			Error:      &tools.ExecutionError{ErrorClass: tools.ErrorClassToolExecutionFailed, Message: fmt.Sprintf("unknown media kind: %q (expected: photo, document, audio, video, voice, animation)", kind)},
+			DurationMs: ms(),
+		}
+	}
+
+	if err != nil {
+		return tools.ExecutionResult{
+			Error:      &tools.ExecutionError{ErrorClass: tools.ErrorClassToolExecutionFailed, Message: err.Error()},
+			DurationMs: ms(),
+		}
+	}
+
+	var msgID int64
+	if sent != nil {
+		msgID = sent.MessageID
+	}
+
+	return tools.ExecutionResult{
+		ResultJSON: map[string]any{
+			"ok": true, "message_id": msgID, "chat_id": chatID, "kind": kind,
+		},
 		DurationMs: ms(),
 	}
 }

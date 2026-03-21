@@ -6,8 +6,9 @@ import (
 )
 
 const (
-	ToolReact = "telegram_react"
-	ToolReply = "telegram_reply"
+	ToolReact    = "telegram_react"
+	ToolReply    = "telegram_reply"
+	ToolSendFile = "telegram_send_file"
 )
 
 func sp(s string) *string { return &s }
@@ -74,6 +75,42 @@ var ReplyLlmSpec = llm.ToolSpec{
 			},
 		},
 		"required":             []string{"text", "reply_to_message_id"},
+		"additionalProperties": false,
+	},
+}
+
+var SendFileAgentSpec = tools.AgentToolSpec{
+	Name:        ToolSendFile,
+	Version:     "1",
+	Description: "Send a media file (photo, document, audio, video, voice, animation) to the current Telegram chat",
+	RiskLevel:   tools.RiskLevelMedium,
+	SideEffects: true,
+}
+
+var SendFileLlmSpec = llm.ToolSpec{
+	Name: ToolSendFile,
+	Description: sp(
+		"Send a media file to the current Telegram chat. The file_url must be a publicly accessible URL (S3, CDN, etc.). " +
+			"Use kind to specify the media type: photo, document, audio, video, voice, or animation.",
+	),
+	JSONSchema: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"file_url": map[string]any{
+				"type":        "string",
+				"description": "Public URL to the file (S3, CDN, or any publicly accessible URL)",
+			},
+			"kind": map[string]any{
+				"type": "string",
+				"enum": []string{"photo", "document", "audio", "video", "voice", "animation"},
+				"description": "Media type: photo (images), document (files), audio (music/podcasts), video (video clips), voice (voice notes), animation (GIFs)",
+			},
+			"caption": map[string]any{
+				"type":        "string",
+				"description": "Optional caption text (supports Telegram HTML formatting)",
+			},
+		},
+		"required":             []string{"file_url", "kind"},
 		"additionalProperties": false,
 	},
 }
