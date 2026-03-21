@@ -791,8 +791,7 @@ func clearCompetingDefaultBindingKeys(ctx context.Context, querier defaultBindin
 		ctx,
 		`UPDATE shell_sessions
 		    SET default_binding_key = NULL,
-		        updated_at = now(),
-		        last_used_at = now()
+		        updated_at = now()
 		  WHERE account_id = $1
 		    AND profile_ref = $2
 		    AND session_type = $3
