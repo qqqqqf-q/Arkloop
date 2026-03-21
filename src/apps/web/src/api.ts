@@ -185,6 +185,7 @@ export type Persona = {
   preferred_credential?: string
   model?: string
   reasoning_mode: string
+  stream_thinking: boolean
   prompt_cache_control: string
   executor_type: string
   executor_config: Record<string, unknown>
@@ -1432,6 +1433,7 @@ export async function listAvailableModels(
 export type PatchPersonaRequest = {
   model?: string
   reasoning_mode?: string
+  stream_thinking?: boolean
   preferred_credential?: string
   budgets?: Record<string, unknown>
 }
