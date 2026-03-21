@@ -156,6 +156,19 @@ function PersonaRow({
     }
   }
 
+  const handleStreamThinking = async (value: boolean) => {
+    setSaving(true)
+    setErr('')
+    try {
+      await patchPersona(accessToken, persona.id, { stream_thinking: value }, persona.scope)
+      onUpdated()
+    } catch (e) {
+      setErr(isApiError(e) ? e.message : a.saveFailed)
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const handleBudgetChange = async (key: string, value: number) => {
     setSaving(true)
     setErr('')
@@ -191,6 +204,16 @@ function PersonaRow({
           onChange={(v) => handleChange('reasoning_mode', v)}
           options={REASONING_MODES.map((mode) => ({ value: mode, label: a.reasoningModes[mode] }))}
         />
+
+        <label className="flex cursor-pointer select-none flex-col gap-1">
+          <span className="text-xs text-[var(--c-text-muted)]">{a.streamThinking}</span>
+          <input
+            type="checkbox"
+            className="h-4 w-4 rounded border-[var(--c-border-subtle)]"
+            checked={persona.stream_thinking !== false}
+            onChange={(e) => void handleStreamThinking(e.target.checked)}
+          />
+        </label>
 
         {/* temperature */}
         <NumberField

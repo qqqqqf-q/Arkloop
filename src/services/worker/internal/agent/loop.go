@@ -87,6 +87,9 @@ type RunContext struct {
 	ToolOutputScanFunc func(toolName, text string) (string, bool)
 
 	Channel *tools.ChannelToolSurface
+
+	// StreamThinking 为 false 时不向客户端下发 channel: thinking 的 message.delta。
+	StreamThinking bool
 }
 
 type Loop struct {
@@ -143,6 +146,11 @@ func (l *Loop) Run(
 
 		hasToolCalls := len(turn.ToolCalls) > 0
 		for _, event := range turn.Events {
+			if event.Type == "message.delta" && !runCtx.StreamThinking {
+				if ch, _ := event.DataJSON["channel"].(string); ch == "thinking" {
+					continue
+				}
+			}
 			// 当 turn 同时产生了 tool calls 时，只丢弃看起来是 JSON 的非 thinking delta，
 			// 保留模型在调用工具前输出的简短说明文本
 			if hasToolCalls && event.Type == "message.delta" {
@@ -956,6 +964,9 @@ func (l *Loop) runSingleTurn(
 			return yieldOrStop(emitter.Emit("run.segment.end", typed.ToDataJSON(), nil, nil))
 		case llm.StreamMessageDelta:
 			if typed.ContentDelta == "" {
+				return nil
+			}
+			if typed.Channel != nil && *typed.Channel == "thinking" && !runCtx.StreamThinking {
 				return nil
 			}
 			// thinking 内容不计入对话上下文

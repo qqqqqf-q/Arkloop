@@ -166,6 +166,7 @@ func TestAdminExecutionGovernanceReturnsPersonaCentricView(t *testing.T) {
 		strPtrLocal("cred-custom"),
 		strPtrLocal("custom-cred^claude-3-7-sonnet"),
 		"high",
+		true,
 		"system_prompt",
 		"agent.simple",
 		nil,

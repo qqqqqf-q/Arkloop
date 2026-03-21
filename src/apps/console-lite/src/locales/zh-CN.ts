@@ -35,6 +35,7 @@ export const zhCN: LocaleStrings = {
     temperature: 'Temperature',
     maxOutputTokens: '最大输出 Tokens',
     reasoningMode: '推理模式',
+    streamThinking: '显示思维链',
     reasoningDisabled: '关闭',
     reasoningEnabled: '开启',
     deleteConfirm: '确定删除此智能体？',

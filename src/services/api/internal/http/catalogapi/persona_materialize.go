@@ -125,6 +125,12 @@ func materializeRepoPersonaForCreate(
 		reasoningMode = strings.TrimSpace(req.ReasoningMode)
 	}
 
+	streamThinkingPtr := repoPersona.StreamThinking
+	if req.StreamThinking != nil {
+		v := *req.StreamThinking
+		streamThinkingPtr = &v
+	}
+
 	promptCacheControl := strings.TrimSpace(repoPersona.PromptCacheControl)
 	if strings.TrimSpace(req.PromptCacheControl) != "" {
 		promptCacheControl = strings.TrimSpace(req.PromptCacheControl)
@@ -159,6 +165,7 @@ func materializeRepoPersonaForCreate(
 			PreferredCredential: preferredCredential,
 			Model:               model,
 			ReasoningMode:       reasoningMode,
+			StreamThinking:      streamThinkingPtr,
 			PromptCacheControl:  promptCacheControl,
 			ExecutorType:        executorType,
 			ExecutorConfigJSON:  executorConfigJSON,
@@ -187,6 +194,7 @@ func materializeRepoPersonaForCreate(
 		preferredCredential,
 		model,
 		reasoningMode,
+		data.NormalizePersonaStreamThinkingPtr(streamThinkingPtr),
 		promptCacheControl,
 		executorType,
 		executorConfigJSON,
@@ -221,6 +229,11 @@ func materializeRepoPersonaForLiteAgent(
 		reasoningMode = strings.TrimSpace(req.ReasoningMode)
 	}
 
+	streamThinking := data.NormalizePersonaStreamThinkingPtr(repoPersona.StreamThinking)
+	if req.StreamThinking != nil {
+		streamThinking = data.NormalizePersonaStreamThinkingPtr(req.StreamThinking)
+	}
+
 	executorType := strings.TrimSpace(repoPersona.ExecutorType)
 	if strings.TrimSpace(req.ExecutorType) != "" {
 		executorType = strings.TrimSpace(req.ExecutorType)
@@ -250,6 +263,7 @@ func materializeRepoPersonaForLiteAgent(
 		optionalTrimmedString(repoPersona.PreferredCredential),
 		model,
 		reasoningMode,
+		streamThinking,
 		"none",
 		executorType,
 		repoPersonaExecutorConfigJSON(repoPersona.ExecutorConfig),

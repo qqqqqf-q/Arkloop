@@ -1,13 +1,16 @@
-import { useState } from 'react'
+import { useState, useRef, useLayoutEffect } from 'react'
 import { useTypewriter } from '../hooks/useTypewriter'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion } from 'framer-motion'
 import { ChevronRight, Loader2, Code2, Terminal } from 'lucide-react'
 import { MarkdownRenderer } from './MarkdownRenderer'
 import { ExecutionCard } from './ExecutionCard'
 import type { CodeExecutionRef } from '../storage'
 import { codeExecutionAccentColor } from '../codeExecutionStatus'
+import { useLocale } from '../contexts/LocaleContext'
 
 export type CodeExecution = CodeExecutionRef
+
+const INNER_BODY_MAX_PX = 220
 
 export function CodeExecutionCard({ language, code, output, errorMessage, status, onOpen, isActive }: {
   language: 'python' | 'shell'
@@ -91,37 +94,139 @@ type Props = {
   onOpenCodeExecution?: (ce: CodeExecution) => void
 }
 
+function ThinkingBody({
+  content,
+  isStreaming,
+  codeExecutions,
+  onOpenCodeExecution,
+  displayedThinkingMd,
+  fadeToVar,
+}: {
+  content: string
+  isStreaming?: boolean
+  codeExecutions?: CodeExecution[]
+  onOpenCodeExecution?: (ce: CodeExecution) => void
+  displayedThinkingMd: string
+  /** 底部渐隐终点，与外层背景一致 */
+  fadeToVar?: string
+}) {
+  const { t } = useLocale()
+  const fadeEnd = fadeToVar ?? 'var(--c-bg-sub)'
+  const innerWrapRef = useRef<HTMLDivElement>(null)
+  const [innerExpanded, setInnerExpanded] = useState(false)
+  const [needsMore, setNeedsMore] = useState(false)
+
+  useLayoutEffect(() => {
+    if (innerExpanded) {
+      setNeedsMore(false)
+      return
+    }
+    const el = innerWrapRef.current
+    if (!el || !content.trim()) {
+      setNeedsMore(false)
+      return
+    }
+    setNeedsMore(el.scrollHeight > INNER_BODY_MAX_PX + 1)
+  }, [content, displayedThinkingMd, innerExpanded, isStreaming])
+
+  const codeBlock = codeExecutions && codeExecutions.length > 0 && (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: content.trim() ? '10px' : '0' }}>
+      {codeExecutions.map((ce) =>
+        ce.language === 'shell'
+          ? <ExecutionCard key={ce.id} variant="shell" code={ce.code} output={ce.output} status={ce.status} errorMessage={ce.errorMessage} smooth={!!isStreaming} />
+          : <CodeExecutionCard key={ce.id} language={ce.language} code={ce.code} output={ce.output} errorMessage={ce.errorMessage} status={ce.status} onOpen={() => onOpenCodeExecution?.(ce)} />,
+      )}
+    </div>
+  )
+
+  const hasCode = !!(codeExecutions && codeExecutions.length > 0)
+  const hasText = content.trim() !== ''
+  if (!hasText && !hasCode && !isStreaming) {
+    return null
+  }
+
+  return (
+    <div>
+      {(hasText || isStreaming) && (
+        <>
+          <div style={{ position: 'relative' }}>
+            <div
+              ref={innerWrapRef}
+              style={{
+                maxHeight: innerExpanded ? 'none' : INNER_BODY_MAX_PX,
+                overflow: innerExpanded ? 'visible' : 'hidden',
+                position: 'relative',
+                minHeight: isStreaming && !hasText ? 40 : undefined,
+              }}
+            >
+              {hasText ? (
+                <MarkdownRenderer content={displayedThinkingMd} disableMath />
+              ) : (
+                <span className="thinking-shimmer text-sm text-[var(--c-text-muted)]">
+                  {t.assistantStreamThinkingPlaceholder}
+                </span>
+              )}
+            </div>
+            {!innerExpanded && needsMore && (
+              <div
+                style={{
+                  pointerEvents: 'none',
+                  position: 'absolute',
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  height: 48,
+                  background: `linear-gradient(to bottom, transparent, ${fadeEnd})`,
+                }}
+              />
+            )}
+          </div>
+          {hasText && (needsMore || innerExpanded) && (
+            <button
+              type="button"
+              onClick={() => setInnerExpanded((v) => !v)}
+              className="mt-1 text-xs font-medium text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)]"
+            >
+              {innerExpanded ? t.thinkingShowLess : t.thinkingShowMore}
+            </button>
+          )}
+        </>
+      )}
+      {codeBlock}
+    </div>
+  )
+}
+
 export function ThinkingBlock({ label, mode, content, isStreaming, codeExecutions, onOpenCodeExecution }: Props) {
+  const { t } = useLocale()
   const [expanded, setExpanded] = useState(false)
   const displayedThinkingMd = useTypewriter(content, !isStreaming)
+  const headerLabel = label.trim() || t.assistantStreamThinkingPlaceholder
 
   if (mode === 'hidden') return null
 
   if (mode === 'visible') {
     return (
       <div style={{ maxWidth: '663px' }}>
-        <MarkdownRenderer content={displayedThinkingMd} disableMath />
-        {codeExecutions && codeExecutions.length > 0 && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '10px' }}>
-            {codeExecutions.map((ce) =>
-              ce.language === 'shell'
-                ? <ExecutionCard key={ce.id} variant="shell" code={ce.code} output={ce.output} status={ce.status} errorMessage={ce.errorMessage} smooth={!!isStreaming} />
-                : <CodeExecutionCard key={ce.id} language={ce.language} code={ce.code} output={ce.output} errorMessage={ce.errorMessage} status={ce.status} onOpen={() => onOpenCodeExecution?.(ce)} />
-            )}
-          </div>
-        )}
+        <ThinkingBody
+          content={content}
+          isStreaming={isStreaming}
+          codeExecutions={codeExecutions}
+          onOpenCodeExecution={onOpenCodeExecution}
+          displayedThinkingMd={displayedThinkingMd}
+          fadeToVar="var(--c-bg-page)"
+        />
       </div>
     )
   }
 
-  // collapsed mode
   return (
     <div
       style={{
         borderRadius: '8px',
         border: '0.5px solid var(--c-border-subtle)',
         background: 'var(--c-bg-sub)',
-        overflow: 'hidden',
+        overflow: expanded ? 'visible' : 'hidden',
         maxWidth: '663px',
       }}
     >
@@ -132,7 +237,7 @@ export function ThinkingBlock({ label, mode, content, isStreaming, codeExecution
           width: '100%',
           display: 'flex',
           alignItems: 'center',
-          gap: '6px',
+          gap: '8px',
           padding: '8px 12px',
           background: 'none',
           border: 'none',
@@ -141,50 +246,46 @@ export function ThinkingBlock({ label, mode, content, isStreaming, codeExecution
           fontSize: '13px',
         }}
       >
+        <span
+          style={{
+            width: '8px',
+            height: '8px',
+            borderRadius: '50%',
+            flexShrink: 0,
+            background: 'var(--c-text-muted)',
+          }}
+        />
         {isStreaming ? (
           <Loader2 size={13} className="animate-spin" style={{ flexShrink: 0, color: 'var(--c-text-muted)' }} />
         ) : (
           <motion.div
             animate={{ rotate: expanded ? 90 : 0 }}
             transition={{ duration: 0.2, ease: 'easeOut' }}
-            style={{ display: 'flex', flexShrink: 0 }}
+            style={{ display: 'flex', flexShrink: 0, marginLeft: '-2px' }}
           >
             <ChevronRight size={13} />
           </motion.div>
         )}
-        <span style={{ textAlign: 'left' }}>{label}</span>
+        <span style={{ textAlign: 'left', flex: 1 }}>{headerLabel}</span>
       </button>
 
-      <AnimatePresence initial={false}>
-        {expanded && (content || (codeExecutions && codeExecutions.length > 0)) && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
-            style={{ overflow: 'hidden' }}
-          >
-            <div
-              style={{
-                padding: '0 12px 10px',
-                borderTop: '0.5px solid var(--c-border-subtle)',
-                paddingTop: '8px',
-              }}
-            >
-              {content && <MarkdownRenderer content={displayedThinkingMd} disableMath />}
-              {codeExecutions && codeExecutions.length > 0 && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: content ? '10px' : '0' }}>
-                  {codeExecutions.map((ce) =>
-                    ce.language === 'shell'
-                      ? <ExecutionCard key={ce.id} variant="shell" code={ce.code} output={ce.output} status={ce.status} errorMessage={ce.errorMessage} smooth={!!isStreaming} />
-                      : <CodeExecutionCard key={ce.id} language={ce.language} code={ce.code} output={ce.output} errorMessage={ce.errorMessage} status={ce.status} onOpen={() => onOpenCodeExecution?.(ce)} />
-                  )}
-                </div>
-              )}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {expanded && (isStreaming || content.trim() !== '' || (codeExecutions && codeExecutions.length > 0)) && (
+        <div
+          style={{
+            padding: '0 12px 10px',
+            borderTop: '0.5px solid var(--c-border-subtle)',
+            paddingTop: '8px',
+          }}
+        >
+          <ThinkingBody
+            content={content}
+            isStreaming={isStreaming}
+            codeExecutions={codeExecutions}
+            onOpenCodeExecution={onOpenCodeExecution}
+            displayedThinkingMd={displayedThinkingMd}
+          />
+        </div>
+      )}
     </div>
   )
 }

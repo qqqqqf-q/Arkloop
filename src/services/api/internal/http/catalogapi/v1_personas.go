@@ -36,6 +36,7 @@ type createPersonaRequest struct {
 	PreferredCredential    *string         `json:"preferred_credential"`
 	Model                  *string         `json:"model"`
 	ReasoningMode          string          `json:"reasoning_mode"`
+	StreamThinking         *bool           `json:"stream_thinking,omitempty"`
 	PromptCacheControl     string          `json:"prompt_cache_control"`
 	ExecutorType           string          `json:"executor_type"`
 	ExecutorConfigJSON     json.RawMessage `json:"executor_config"`
@@ -55,6 +56,7 @@ type patchPersonaRequest struct {
 	PreferredCredential *string         `json:"preferred_credential"`
 	Model               *string         `json:"model"`
 	ReasoningMode       *string         `json:"reasoning_mode"`
+	StreamThinking      *bool           `json:"stream_thinking,omitempty"`
 	PromptCacheControl  *string         `json:"prompt_cache_control"`
 	ExecutorType        *string         `json:"executor_type"`
 	ExecutorConfigJSON  json.RawMessage `json:"executor_config"`
@@ -82,6 +84,7 @@ type personaResponse struct {
 	PreferredCredential *string         `json:"preferred_credential,omitempty"`
 	Model               *string         `json:"model,omitempty"`
 	ReasoningMode       string          `json:"reasoning_mode"`
+	StreamThinking      bool            `json:"stream_thinking"`
 	PromptCacheControl  string          `json:"prompt_cache_control"`
 	ExecutorType        string          `json:"executor_type"`
 	ExecutorConfigJSON  json.RawMessage `json:"executor_config"`
@@ -267,6 +270,7 @@ func createPersona(
 		req.PreferredCredential,
 		req.Model,
 		req.ReasoningMode,
+		data.NormalizePersonaStreamThinkingPtr(req.StreamThinking),
 		req.PromptCacheControl,
 		req.ExecutorType,
 		req.ExecutorConfigJSON,
@@ -530,6 +534,7 @@ func patchPersona(
 		PreferredCredential: req.PreferredCredential,
 		Model:               req.Model,
 		ReasoningMode:       req.ReasoningMode,
+		StreamThinking:      req.StreamThinking,
 		PromptCacheControl:  req.PromptCacheControl,
 		ExecutorType:        req.ExecutorType,
 		ExecutorConfigJSON:  req.ExecutorConfigJSON,
@@ -687,6 +692,7 @@ func toPersonaResponse(s data.Persona) personaResponse {
 		PreferredCredential: optionalTrimmedStringPtr(s.PreferredCredential),
 		Model:               optionalTrimmedStringPtr(s.Model),
 		ReasoningMode:       reasoningMode,
+		StreamThinking:      s.StreamThinking,
 		PromptCacheControl:  promptCacheControl,
 		ExecutorType:        executorType,
 		ExecutorConfigJSON:  executorConfig,
@@ -736,6 +742,10 @@ func toBuiltinPersonaResponse(s repopersonas.RepoPersona, scope string) personaR
 	if promptCacheControl == "" {
 		promptCacheControl = "none"
 	}
+	streamThinking := true
+	if s.StreamThinking != nil {
+		streamThinking = *s.StreamThinking
+	}
 
 	var description *string
 	if trimmed := strings.TrimSpace(s.Description); trimmed != "" {
@@ -763,6 +773,7 @@ func toBuiltinPersonaResponse(s repopersonas.RepoPersona, scope string) personaR
 		PreferredCredential: optionalTrimmedString(s.PreferredCredential),
 		Model:               optionalTrimmedString(s.Model),
 		ReasoningMode:       reasoningMode,
+		StreamThinking:      streamThinking,
 		PromptCacheControl:  promptCacheControl,
 		ExecutorType:        executorType,
 		ExecutorConfigJSON:  executorConfig,

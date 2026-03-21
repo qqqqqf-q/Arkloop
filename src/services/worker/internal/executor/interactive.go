@@ -133,6 +133,7 @@ func (e *InteractiveExecutor) Execute(
 		CancelSignal: func() bool {
 			return ctx.Err() != nil
 		},
+		StreamThinking: rc.StreamThinking,
 		PreIterHook: func(_ context.Context, iter int) error {
 			// 关闭上一轮 segment（第 2 轮开始时关闭第 1 轮）
 			if currentSegID != "" {

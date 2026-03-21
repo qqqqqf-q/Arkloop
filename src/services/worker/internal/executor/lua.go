@@ -1509,6 +1509,7 @@ func (rt *luaRuntime) runAgentLoop(
 		CancelSignal: func() bool {
 			return rt.ctx.Err() != nil
 		},
+		StreamThinking: rt.rc.StreamThinking,
 	}
 
 	capturedChunks := make([]string, 0, 16)

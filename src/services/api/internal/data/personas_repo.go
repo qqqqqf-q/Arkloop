@@ -24,7 +24,7 @@ const personaSelectColumns = `id, account_id, project_id, persona_key, version, 
 	    soul_md, user_selectable, selector_name, selector_order,
 	    prompt_md, tool_allowlist, tool_denylist, COALESCE(core_tools, '{}'), budgets_json, roles_json, title_summarize_json,
 	    is_active, created_at, updated_at,
-	    preferred_credential, model, reasoning_mode, prompt_cache_control,
+	    preferred_credential, model, reasoning_mode, stream_thinking, prompt_cache_control,
 	    executor_type, executor_config_json,
 	    sync_mode, mirrored_file_dir, last_synced_at`
 
@@ -32,7 +32,7 @@ const personaSelectColumnsQualified = `p.id, p.account_id, p.project_id, p.perso
 	    p.soul_md, p.user_selectable, p.selector_name, p.selector_order,
 	    p.prompt_md, p.tool_allowlist, p.tool_denylist, COALESCE(p.core_tools, '{}'), p.budgets_json, p.roles_json, p.title_summarize_json,
 	    p.is_active, p.created_at, p.updated_at,
-	    p.preferred_credential, p.model, p.reasoning_mode, p.prompt_cache_control,
+	    p.preferred_credential, p.model, p.reasoning_mode, p.stream_thinking, p.prompt_cache_control,
 	    p.executor_type, p.executor_config_json,
 	    p.sync_mode, p.mirrored_file_dir, p.last_synced_at`
 
@@ -74,6 +74,7 @@ type Persona struct {
 	PreferredCredential *string
 	Model               *string
 	ReasoningMode       string
+	StreamThinking      bool
 	PromptCacheControl  string
 	ExecutorType        string
 	ExecutorConfigJSON  json.RawMessage
@@ -95,6 +96,7 @@ type PersonaPatch struct {
 	PreferredCredential *string
 	Model               *string
 	ReasoningMode       *string
+	StreamThinking      *bool
 	PromptCacheControl  *string
 	ExecutorType        *string
 	ExecutorConfigJSON  json.RawMessage
@@ -119,6 +121,7 @@ type PlatformMirrorUpsertParams struct {
 	PreferredCredential *string
 	Model               *string
 	ReasoningMode       string
+	StreamThinking      *bool // nil: default true (SaaS / YAML omit)
 	PromptCacheControl  string
 	ExecutorType        string
 	ExecutorConfigJSON  json.RawMessage
@@ -165,7 +168,7 @@ func scanPersona(scanner personaScanner, persona *Persona) error {
 		&persona.SoulMD, &persona.UserSelectable, &persona.SelectorName, &persona.SelectorOrder,
 		&persona.PromptMD, &persona.ToolAllowlist, &persona.ToolDenylist, &persona.CoreTools, &persona.BudgetsJSON, &persona.RolesJSON, &persona.TitleSummarizeJSON,
 		&persona.IsActive, &persona.CreatedAt, &persona.UpdatedAt,
-		&persona.PreferredCredential, &persona.Model, &persona.ReasoningMode, &persona.PromptCacheControl,
+		&persona.PreferredCredential, &persona.Model, &persona.ReasoningMode, &persona.StreamThinking, &persona.PromptCacheControl,
 		&persona.ExecutorType, &persona.ExecutorConfigJSON,
 		&persona.SyncMode, &persona.MirroredFileDir, &persona.LastSyncedAt,
 	)
@@ -197,6 +200,7 @@ func (r *PersonasRepository) Create(
 	preferredCredential *string,
 	model *string,
 	reasoningMode string,
+	streamThinking bool,
 	promptCacheControl string,
 	executorType string,
 	executorConfigJSON json.RawMessage,
@@ -220,6 +224,7 @@ func (r *PersonasRepository) Create(
 		preferredCredential,
 		model,
 		reasoningMode,
+		streamThinking,
 		promptCacheControl,
 		executorType,
 		executorConfigJSON,
@@ -242,6 +247,7 @@ func (r *PersonasRepository) CreateInScope(
 	preferredCredential *string,
 	model *string,
 	reasoningMode string,
+	streamThinking bool,
 	promptCacheControl string,
 	executorType string,
 	executorConfigJSON json.RawMessage,
@@ -273,6 +279,7 @@ func (r *PersonasRepository) CreateInScope(
 		preferredCredential,
 		model,
 		reasoningMode,
+		streamThinking,
 		promptCacheControl,
 		executorType,
 		executorConfigJSON,
@@ -294,6 +301,7 @@ func (r *PersonasRepository) createWithProjectID(
 	preferredCredential *string,
 	model *string,
 	reasoningMode string,
+	streamThinking bool,
 	promptCacheControl string,
 	executorType string,
 	executorConfigJSON json.RawMessage,
@@ -359,14 +367,14 @@ func (r *PersonasRepository) createWithProjectID(
 		    (project_id, persona_key, version, display_name, description, soul_md,
 		     user_selectable, selector_name, selector_order,
 		     prompt_md, tool_allowlist, tool_denylist, budgets_json, roles_json, title_summarize_json,
-		     preferred_credential, model, reasoning_mode, prompt_cache_control,
+		     preferred_credential, model, reasoning_mode, stream_thinking, prompt_cache_control,
 		     executor_type, executor_config_json,
 		     sync_mode, mirrored_file_dir, updated_at)
-		 VALUES ($1, $2, $3, $4, $5, '', FALSE, NULL, NULL, $6, $7, $8, $9, $10, NULL, $11, $12, $13, $14, $15, $16, $17, $18, now())
+		 VALUES ($1, $2, $3, $4, $5, '', FALSE, NULL, NULL, $6, $7, $8, $9, $10, NULL, $11, $12, $13, $14, $15, $16, $17, $18, $19, now())
 		 RETURNING `+personaSelectColumns,
 		projectID, personaKey, version, displayName, description, promptMD,
 		toolAllowlist, toolDenylist, budgetsJSON, rolesJSON, preferredCredential,
-		model, reasoningMode, promptCacheControl,
+		model, reasoningMode, streamThinking, promptCacheControl,
 		executorType, executorConfigJSON, syncMode, mirroredFileDir,
 	)
 	err = scanPersona(row, &persona)
@@ -608,10 +616,10 @@ func (r *PersonasRepository) CloneToProject(ctx context.Context, projectID uuid.
 		    (project_id, persona_key, version, display_name, description, soul_md,
 		     user_selectable, selector_name, selector_order,
 		     prompt_md, tool_allowlist, tool_denylist, core_tools, budgets_json, roles_json, title_summarize_json,
-		     is_active, preferred_credential, model, reasoning_mode, prompt_cache_control,
+		     is_active, preferred_credential, model, reasoning_mode, stream_thinking, prompt_cache_control,
 		     executor_type, executor_config_json,
 		     sync_mode, mirrored_file_dir, updated_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, now())
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, now())
 		 RETURNING `+personaSelectColumns,
 		projectID,
 		source.PersonaKey,
@@ -633,6 +641,7 @@ func (r *PersonasRepository) CloneToProject(ctx context.Context, projectID uuid.
 		source.PreferredCredential,
 		source.Model,
 		normalizePersonaReasoningMode(source.ReasoningMode),
+		source.StreamThinking,
 		normalizePersonaPromptCacheControl(source.PromptCacheControl),
 		source.ExecutorType,
 		executorConfigJSON,
@@ -741,6 +750,11 @@ func (r *PersonasRepository) PatchInScope(ctx context.Context, projectID, id uui
 	if patch.ReasoningMode != nil {
 		setClauses = append(setClauses, fmt.Sprintf("reasoning_mode = $%d", argIdx))
 		args = append(args, normalizePersonaReasoningMode(*patch.ReasoningMode))
+		argIdx++
+	}
+	if patch.StreamThinking != nil {
+		setClauses = append(setClauses, fmt.Sprintf("stream_thinking = $%d", argIdx))
+		args = append(args, *patch.StreamThinking)
 		argIdx++
 	}
 	if patch.PromptCacheControl != nil {
@@ -886,6 +900,10 @@ func (r *PersonasRepository) UpsertPlatformMirror(ctx context.Context, params Pl
 	params.PreferredCredential = normalizeOptionalPersonaString(params.PreferredCredential)
 	params.Model = normalizeOptionalPersonaString(params.Model)
 	params.ReasoningMode = normalizePersonaReasoningMode(params.ReasoningMode)
+	streamThinking := true
+	if params.StreamThinking != nil {
+		streamThinking = *params.StreamThinking
+	}
 	params.PromptCacheControl = normalizePersonaPromptCacheControl(params.PromptCacheControl)
 	if strings.TrimSpace(params.ExecutorType) == "" {
 		params.ExecutorType = "agent.simple"
@@ -918,16 +936,16 @@ func (r *PersonasRepository) UpsertPlatformMirror(ctx context.Context, params Pl
 			account_id, persona_key, version, display_name, description, soul_md,
 			user_selectable, selector_name, selector_order,
 			prompt_md, tool_allowlist, tool_denylist, core_tools, budgets_json, roles_json, title_summarize_json,
-			preferred_credential, model, reasoning_mode, prompt_cache_control,
+			preferred_credential, model, reasoning_mode, stream_thinking, prompt_cache_control,
 			executor_type, executor_config_json,
 			is_active, sync_mode, mirrored_file_dir, last_synced_at, updated_at
 		) VALUES (
 			NULL, $1, $2, $3, $4, $5,
 			$6, $7, $8,
 			$9, $10, $11, $12, $13, $14, $15,
-			$16, $17, $18, $19,
-			$20, $21,
-			$22, $23, $24, $25, now()
+			$16, $17, $18, $19, $20,
+			$21, $22,
+			$23, $24, $25, $26, now()
 		)
 		ON CONFLICT (persona_key, version) WHERE project_id IS NULL
 		DO UPDATE SET
@@ -945,6 +963,7 @@ func (r *PersonasRepository) UpsertPlatformMirror(ctx context.Context, params Pl
 			roles_json = EXCLUDED.roles_json,
 			title_summarize_json = EXCLUDED.title_summarize_json,
 			reasoning_mode = EXCLUDED.reasoning_mode,
+			stream_thinking = EXCLUDED.stream_thinking,
 			prompt_cache_control = EXCLUDED.prompt_cache_control,
 			executor_type = EXCLUDED.executor_type,
 			executor_config_json = EXCLUDED.executor_config_json,
@@ -957,7 +976,7 @@ func (r *PersonasRepository) UpsertPlatformMirror(ctx context.Context, params Pl
 		params.PersonaKey, params.Version, params.DisplayName, params.Description, strings.TrimSpace(params.SoulMD),
 		params.UserSelectable, params.SelectorName, params.SelectorOrder,
 		strings.TrimSpace(params.PromptMD), params.ToolAllowlist, params.ToolDenylist, params.CoreTools, params.BudgetsJSON, params.RolesJSON, params.TitleSummarizeJSON,
-		params.PreferredCredential, params.Model, params.ReasoningMode, params.PromptCacheControl,
+		params.PreferredCredential, params.Model, params.ReasoningMode, streamThinking, params.PromptCacheControl,
 		params.ExecutorType, params.ExecutorConfigJSON,
 		params.IsActive, PersonaSyncModePlatformFileMirror, params.MirroredFileDir, params.LastSyncedAt,
 	), &persona)
@@ -1068,6 +1087,14 @@ func normalizePersonaReasoningMode(value string) string {
 	default:
 		return "auto"
 	}
+}
+
+// NormalizePersonaStreamThinkingPtr 将 API / YAML 省略值视为 true（默认向客户端下发思维链流）。
+func NormalizePersonaStreamThinkingPtr(value *bool) bool {
+	if value == nil {
+		return true
+	}
+	return *value
 }
 
 func normalizePersonaPromptCacheControl(value string) string {

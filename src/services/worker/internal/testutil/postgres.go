@@ -186,6 +186,7 @@ func initRunsSchema(t *testing.T, dsn string) error {
 			title_summarize_json JSONB       NULL,
 			model                TEXT        NULL,
 			reasoning_mode       TEXT        NOT NULL DEFAULT 'auto',
+			stream_thinking      BOOLEAN     NOT NULL DEFAULT TRUE,
 			prompt_cache_control TEXT        NOT NULL DEFAULT 'none',
 			executor_type        TEXT        NOT NULL DEFAULT 'agent.simple',
 			executor_config_json JSONB       NOT NULL DEFAULT '{}'::jsonb,

@@ -26,7 +26,7 @@ const personaSelectSQL = `SELECT persona_key, version, display_name, description
 	        prompt_md, tool_allowlist, tool_denylist, COALESCE(core_tools, '[]'), budgets_json,
 	        roles_json, title_summarize_json,
 	        executor_type, executor_config_json,
-	        preferred_credential, model, reasoning_mode, prompt_cache_control
+	        preferred_credential, model, reasoning_mode, COALESCE(stream_thinking, 1), prompt_cache_control
 	 FROM personas
 	 WHERE is_active = 1
 	 ORDER BY created_at ASC`
@@ -89,6 +89,7 @@ func scanPersonaRows(rows personaRowScanner) ([]Definition, error) {
 			preferredCredential *string
 			model               *string
 			reasoningMode       string
+			streamThinking      int
 			promptCacheControl  string
 		)
 		if err := rows.Scan(
@@ -97,7 +98,7 @@ func scanPersonaRows(rows personaRowScanner) ([]Definition, error) {
 			&promptMD, &toolAllowlistStr, &toolDenylistStr, &coreToolsStr, &budgetsStr,
 			&rolesStr, &titleSummarizeStr,
 			&executorType, &executorConfigStr,
-			&preferredCredential, &model, &reasoningMode, &promptCacheControl,
+			&preferredCredential, &model, &reasoningMode, &streamThinking, &promptCacheControl,
 		); err != nil {
 			return nil, err
 		}
@@ -168,6 +169,7 @@ func scanPersonaRows(rows personaRowScanner) ([]Definition, error) {
 			PreferredCredential: preferredCredential,
 			Model:               model,
 			ReasoningMode:       normalizePersonaReasoningMode(strPtrOrNil(reasoningMode)),
+			StreamThinking:      streamThinking != 0,
 			PromptCacheControl:  normalizePersonaPromptCacheControl(strPtrOrNil(promptCacheControl)),
 			Roles:               roles,
 			TitleSummarizer:     titleSummarizer,

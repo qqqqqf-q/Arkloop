@@ -1086,6 +1086,87 @@ func (g *dupToolCallCaptureGateway) Stream(ctx context.Context, request llm.Requ
 	return yield(llm.StreamRunCompleted{})
 }
 
+func TestAgentLoopOmitsThinkingDeltaWhenStreamThinkingFalse(t *testing.T) {
+	thinkingCh := "thinking"
+	gateway := &scriptedTurnsGateway{turns: [][]llm.StreamEvent{
+		{
+			llm.StreamMessageDelta{ContentDelta: "x", Role: "assistant", Channel: &thinkingCh},
+			llm.StreamMessageDelta{ContentDelta: "y", Role: "assistant"},
+			llm.StreamRunCompleted{},
+		},
+	}}
+	loop := NewLoop(gateway, nil)
+	runID := uuid.New()
+	emitter := events.NewEmitter("trace")
+	var got []events.RunEvent
+	err := loop.Run(context.Background(), RunContext{
+		RunID:               runID,
+		TraceID:             "trace",
+		InputJSON:           map[string]any{},
+		ReasoningIterations: 3,
+		StreamThinking:      false,
+		CancelSignal:        func() bool { return false },
+	}, llm.Request{Model: "stub"}, emitter, func(ev events.RunEvent) error {
+		got = append(got, ev)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("loop.Run: %v", err)
+	}
+	var deltas []map[string]any
+	for _, ev := range got {
+		if ev.Type == "message.delta" {
+			deltas = append(deltas, ev.DataJSON)
+		}
+	}
+	if len(deltas) != 1 {
+		t.Fatalf("want 1 message.delta, got %d: %#v", len(deltas), deltas)
+	}
+	if ch, _ := deltas[0]["channel"].(string); ch != "" {
+		t.Fatalf("unexpected channel: %q", ch)
+	}
+}
+
+func TestAgentLoopKeepsThinkingDeltaWhenStreamThinkingTrue(t *testing.T) {
+	thinkingCh := "thinking"
+	gateway := &scriptedTurnsGateway{turns: [][]llm.StreamEvent{
+		{
+			llm.StreamMessageDelta{ContentDelta: "x", Role: "assistant", Channel: &thinkingCh},
+			llm.StreamMessageDelta{ContentDelta: "y", Role: "assistant"},
+			llm.StreamRunCompleted{},
+		},
+	}}
+	loop := NewLoop(gateway, nil)
+	runID := uuid.New()
+	emitter := events.NewEmitter("trace")
+	var got []events.RunEvent
+	err := loop.Run(context.Background(), RunContext{
+		RunID:               runID,
+		TraceID:             "trace",
+		InputJSON:           map[string]any{},
+		ReasoningIterations: 3,
+		StreamThinking:      true,
+		CancelSignal:        func() bool { return false },
+	}, llm.Request{Model: "stub"}, emitter, func(ev events.RunEvent) error {
+		got = append(got, ev)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("loop.Run: %v", err)
+	}
+	var channels []string
+	for _, ev := range got {
+		if ev.Type != "message.delta" {
+			continue
+		}
+		ch, _ := ev.DataJSON["channel"].(string)
+		channels = append(channels, ch)
+	}
+	if len(channels) != 2 || channels[0] != "thinking" || channels[1] != "" {
+		t.Fatalf("unexpected channels: %#v", channels)
+	}
+}
+
 type scriptedTurnsGateway struct {
 	turns [][]llm.StreamEvent
 	calls int

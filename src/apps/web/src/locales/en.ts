@@ -408,6 +408,8 @@ export const en: LocaleStrings = {
   copyAction: "Copy",
   assistantCopDefaultTitle: "Processing…",
   assistantStreamThinkingPlaceholder: "Thinking",
+  thinkingShowMore: "Show more",
+  thinkingShowLess: "Show less",
   copTimelineLiveProgress: "In process",
   editAction: "Edit",
   // model config

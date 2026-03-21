@@ -403,6 +403,8 @@ export const zh: LocaleStrings = {
   copyAction: "Copy",
   assistantCopDefaultTitle: "Processing…",
   assistantStreamThinkingPlaceholder: "Thinking",
+  thinkingShowMore: "展开",
+  thinkingShowLess: "收起",
   copTimelineLiveProgress: "In process",
   editAction: "Edit",
   // model config

@@ -34,6 +34,11 @@ type EnumStringOverride struct {
 	Value string
 }
 
+type BoolOverride struct {
+	Set   bool
+	Value bool
+}
+
 type BudgetsOverride struct {
 	HasReasoningIterations    bool
 	ReasoningIterations       *int
@@ -64,6 +69,7 @@ type RoleOverride struct {
 	PreferredCredential OptionalStringOverride
 	Model               OptionalStringOverride
 	ReasoningMode       EnumStringOverride
+	StreamThinking      BoolOverride
 	PromptCacheControl  EnumStringOverride
 }
 
@@ -107,6 +113,7 @@ type Definition struct {
 	PreferredCredential     *string        // 偏好凭证名称，nil 表示不绑定
 	Model                   *string        // model selector，优先 provider^model，其次兼容裸 model
 	ReasoningMode           string
+	StreamThinking          bool // 是否向客户端下发 channel: thinking；默认 true
 	PromptCacheControl      string
 	Roles                   map[string]RoleOverride
 	TitleSummarizer         *TitleSummarizerConfig // nil 表示此 persona 不自动生成标题

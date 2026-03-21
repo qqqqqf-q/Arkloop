@@ -33,6 +33,7 @@ type DetailForm = {
   temperature: number
   maxOutputTokens: string
   reasoningMode: string
+  streamThinking: boolean
   systemPrompt: string
   toolSelectionMode: ToolSelectionMode
   tools: string[]
@@ -57,6 +58,7 @@ function agentToForm(agent: LiteAgent): DetailForm {
     temperature: agent.temperature ?? 0.7,
     maxOutputTokens: agent.max_output_tokens != null ? String(agent.max_output_tokens) : '',
     reasoningMode: agent.reasoning_mode || 'auto',
+    streamThinking: agent.stream_thinking !== false,
     systemPrompt: agent.prompt_md || '',
     toolSelectionMode: allowlist.length === 0 ? 'inherit' : 'custom',
     tools: allowlist,
@@ -329,6 +331,7 @@ export function AgentsPage() {
           temperature: form.temperature,
           max_output_tokens: form.maxOutputTokens ? Number(form.maxOutputTokens) : undefined,
           reasoning_mode: form.reasoningMode,
+          stream_thinking: form.streamThinking,
           tool_allowlist: form.toolSelectionMode === 'inherit' ? [] : form.tools,
           tool_denylist: form.toolSelectionMode === 'inherit' ? form.toolDenylist : [],
           core_tools: form.toolDiscoveryEnabled ? form.coreTools : [],
@@ -342,6 +345,7 @@ export function AgentsPage() {
           temperature: form.temperature,
           max_output_tokens: form.maxOutputTokens ? Number(form.maxOutputTokens) : undefined,
           reasoning_mode: form.reasoningMode,
+          stream_thinking: form.streamThinking,
           tool_allowlist: form.toolSelectionMode === 'inherit' ? [] : form.tools,
           tool_denylist: form.toolSelectionMode === 'inherit' ? form.toolDenylist : [],
           core_tools: form.toolDiscoveryEnabled ? form.coreTools : [],
@@ -620,6 +624,12 @@ export function AgentsPage() {
                       ))}
                     </select>
                   </FormField>
+
+                  <CheckboxField
+                    checked={form.streamThinking}
+                    onChange={(v) => setForm((prev) => prev && { ...prev, streamThinking: v })}
+                    label={ta.streamThinking}
+                  />
                 </>
               )}
 

@@ -254,6 +254,7 @@ Resolution Chain:
 | `budgets_json` | Runtime budgets such as temperature, output cap, and tool budgets |
 | `model` | Optional model selector, stored as `provider_name^model_name` or a bare `model` |
 | `reasoning_mode` | Reasoning mode |
+| `stream_thinking` | Whether to emit `message.delta` with `channel: thinking` to clients (default true; omitting the key in persona YAML means true) |
 | `prompt_cache_control` | Prompt cache policy |
 | `preferred_credential` | Fallback provider name when `model` is empty |
 

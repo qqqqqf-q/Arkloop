@@ -88,6 +88,7 @@ func (e *SimpleExecutor) Execute(
 		CancelSignal: func() bool {
 			return ctx.Err() != nil
 		},
+		StreamThinking: rc.StreamThinking,
 	}
 
 	loop := agent.NewLoop(rc.Gateway, rc.ToolExecutor)

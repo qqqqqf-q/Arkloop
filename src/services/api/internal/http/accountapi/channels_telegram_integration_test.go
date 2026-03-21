@@ -181,6 +181,7 @@ func setupTelegramChannelsTestEnv(t *testing.T, botClient *telegrambot.Client) t
 		nil,
 		nil,
 		"auto",
+		true,
 		"none",
 		"agent.simple",
 		nil,

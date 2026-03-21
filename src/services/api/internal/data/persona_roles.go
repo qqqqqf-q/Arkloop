@@ -78,6 +78,7 @@ func normalizePersonaRoleOverride(value any, label string) (map[string]any, erro
 		"preferred_credential": {},
 		"model":                {},
 		"reasoning_mode":       {},
+		"stream_thinking":      {},
 		"prompt_cache_control": {},
 	}
 	normalized := make(map[string]any, len(raw))
@@ -116,6 +117,12 @@ func normalizePersonaRoleOverride(value any, label string) (map[string]any, erro
 				return nil, fmt.Errorf("%s.reasoning_mode must be a string", label)
 			}
 			normalized[key] = normalizePersonaReasoningMode(text)
+		case "stream_thinking":
+			b, ok := rawValue.(bool)
+			if !ok {
+				return nil, fmt.Errorf("%s.stream_thinking must be a boolean", label)
+			}
+			normalized[key] = b
 		case "prompt_cache_control":
 			text, ok := rawValue.(string)
 			if !ok {

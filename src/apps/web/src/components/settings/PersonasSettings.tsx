@@ -39,6 +39,7 @@ type DetailForm = {
   temperature: number
   maxOutputTokens: string
   reasoningMode: string
+  streamThinking: boolean
   systemPrompt: string
   toolSelectionMode: ToolSelectionMode
   tools: string[]
@@ -62,6 +63,7 @@ function agentToForm(agent: LiteAgent): DetailForm {
     maxOutputTokens:
       agent.max_output_tokens != null ? String(agent.max_output_tokens) : '',
     reasoningMode: agent.reasoning_mode || 'auto',
+    streamThinking: agent.stream_thinking !== false,
     systemPrompt: agent.prompt_md || '',
     toolSelectionMode: allowlist.length === 0 ? 'inherit' : 'custom',
     tools: allowlist,
@@ -388,6 +390,7 @@ export function PersonasSettings({ accessToken }: Props) {
           ? Number(form.maxOutputTokens)
           : undefined,
         reasoning_mode: form.reasoningMode,
+        stream_thinking: form.streamThinking,
         tool_allowlist:
           form.toolSelectionMode === 'inherit' ? [] : form.tools,
         tool_denylist:
@@ -627,6 +630,14 @@ export function PersonasSettings({ accessToken }: Props) {
                   <option value="disabled">{a.reasoningDisabled}</option>
                 </select>
               </div>
+
+              <CheckboxField
+                checked={form.streamThinking}
+                onChange={(v) =>
+                  setForm((p) => p && { ...p, streamThinking: v })
+                }
+                label={a.streamThinking}
+              />
             </>
           )}
 

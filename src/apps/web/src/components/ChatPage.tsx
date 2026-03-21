@@ -195,8 +195,6 @@ type DocumentPanelState = {
   runId?: string
 }
 
-const SHOW_EXPLICIT_THINKING = false
-
 // finalizeSearchSteps converts live WebSearchPhaseStep[] to the storage format.
 // Identical to finalizeBlockSteps but kept as a standalone function for the
 // legacy (non-COP) search path.
@@ -393,7 +391,7 @@ export function ChatPage() {
   // streaming artifact 状态
   const streamingArtifactsRef = useRef<StreamingArtifactEntry[]>([])
   const [streamingArtifacts, setStreamingArtifacts] = useState<StreamingArtifactEntry[]>([])
-  const [, setMessageThinkingMap] = useState<Map<string, MessageThinkingRef>>(new Map())
+  const [messageThinkingMap, setMessageThinkingMap] = useState<Map<string, MessageThinkingRef>>(new Map())
   // Search 时间轴缓存：messageId -> steps
   const [messageSearchStepsMap, setMessageSearchStepsMap] = useState<Map<string, MessageSearchStepRef[]>>(new Map())
   // Live search steps for the legacy (non-COP) search path
@@ -768,6 +766,14 @@ export function ChatPage() {
   const disconnectSSE = sse.disconnect
 
   const isStreaming = activeRunId != null
+  const hasLiveStreamThinkingUi =
+    isStreaming &&
+    (thinkingDraft.trim() !== '' ||
+      segments.some(
+        (s) =>
+          s.mode !== 'hidden' &&
+          (s.isStreaming || s.content.trim() !== '' || s.label.trim() !== ''),
+      ))
   const canCancel =
     activeRunId != null &&
     (sse.state === 'connecting' || sse.state === 'connected' || sse.state === 'reconnecting')
@@ -1307,7 +1313,7 @@ export function ChatPage() {
           setThinkingDraft((prev) => prev + delta)
           continue
         }
-        if (activeSeg && SHOW_EXPLICIT_THINKING) {
+        if (activeSeg) {
           setSegments((prev) =>
             prev.map((s) =>
               s.segmentId === activeSeg && s.mode !== 'hidden'
@@ -1357,7 +1363,7 @@ export function ChatPage() {
           const entry: CodeExecution = codeExecutionCall.appended
           currentRunCodeExecutionsRef.current = codeExecutionCall.nextExecutions
           const activeSeg = activeSegmentIdRef.current
-          if (SHOW_EXPLICIT_THINKING && activeSeg) {
+          if (activeSeg) {
             setSegments((prev) =>
               prev.map((s) =>
                 s.segmentId === activeSeg
@@ -1895,7 +1901,7 @@ export function ChatPage() {
     bottomRef.current?.scrollIntoView({
       behavior: isStreaming || liveHandoffPaint ? 'instant' : 'smooth',
     })
-  }, [messages, liveAssistantTurn, segments, isStreaming])
+  }, [messages, liveAssistantTurn, segments, isStreaming, thinkingDraft])
 
   // COP 代码执行列表：新 item 添加时自动滚动到底部
   useEffect(() => {
@@ -2601,6 +2607,36 @@ export function ChatPage() {
                 const messageWebFetches = msg.role === 'assistant' ? messageWebFetchesMap.get(msg.id) : undefined
                 return (
                   <div key={msg.id} ref={idx === lastUserMsgIdx ? lastUserMsgRef : undefined}>
+                  {msg.role === 'assistant' && !isSearchThread && (() => {
+                    const th = messageThinkingMap.get(msg.id)
+                    if (!th || (th.thinkingText.trim() === '' && th.segments.length === 0)) {
+                      return null
+                    }
+                    return (
+                      <div className="mb-1.5 flex flex-col gap-2" style={{ maxWidth: '663px' }}>
+                        {th.segments.map((s) => (
+                          <ThinkingBlock
+                            key={s.segmentId}
+                            kind={s.kind}
+                            label={s.label}
+                            mode={s.mode as 'visible' | 'collapsed' | 'hidden'}
+                            content={s.content}
+                            isStreaming={false}
+                            onOpenCodeExecution={openCodePanel}
+                          />
+                        ))}
+                        {th.thinkingText.trim() !== '' && (
+                          <ThinkingBlock
+                            kind="thinking"
+                            label={t.assistantStreamThinkingPlaceholder}
+                            mode="collapsed"
+                            content={th.thinkingText}
+                            isStreaming={false}
+                          />
+                        )}
+                      </div>
+                    )
+                  })()}
                   {msg.role === 'assistant' && hasAssistantTurn && (
                     <div style={{ marginBottom: '6px', display: 'flex', flexDirection: 'column', gap: 0, maxWidth: '663px' }}>
                       {historicalTurn!.segments.map((seg, si) =>
@@ -2780,8 +2816,40 @@ export function ChatPage() {
                 )
               })}
 
+              {isStreaming && !isSearchThread && hasLiveStreamThinkingUi && (
+                <div className="mb-1.5 flex flex-col gap-2" style={{ maxWidth: '663px' }}>
+                  {segments
+                    .filter(
+                      (s) =>
+                        s.mode !== 'hidden' &&
+                        (s.label.trim() !== '' || s.content.trim() !== '' || s.isStreaming),
+                    )
+                    .map((seg) => (
+                      <ThinkingBlock
+                        key={seg.segmentId}
+                        kind={seg.kind}
+                        label={seg.label}
+                        mode={seg.mode as 'visible' | 'collapsed' | 'hidden'}
+                        content={seg.content}
+                        isStreaming={seg.isStreaming}
+                        codeExecutions={seg.codeExecutions}
+                        onOpenCodeExecution={openCodePanel}
+                      />
+                    ))}
+                  {thinkingDraft.trim() !== '' && (
+                    <ThinkingBlock
+                      kind="thinking"
+                      label={t.assistantStreamThinkingPlaceholder}
+                      mode="collapsed"
+                      content={thinkingDraft}
+                      isStreaming
+                    />
+                  )}
+                </div>
+              )}
+
               {/* 流式：首条 SSE 前占位（放在正文列之前）；收到任意 fresh 后 awaitingFirstSse=false */}
-              {isStreaming && awaitingFirstSse && (
+              {isStreaming && awaitingFirstSse && !hasLiveStreamThinkingUi && (
                 <motion.div
                   initial={{ opacity: 0, y: 6 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -2800,39 +2868,6 @@ export function ChatPage() {
                     }}
                   >
                     <span className="thinking-shimmer">{t.assistantStreamThinkingPlaceholder}</span>
-                  </div>
-                </motion.div>
-              )}
-
-              {isStreaming &&
-                !awaitingFirstSse &&
-                (!liveAssistantTurn || liveAssistantTurn.segments.length === 0) &&
-                segments.some((s) => s.label && s.mode !== 'hidden') && (
-                <motion.div
-                  initial={{ opacity: 0, y: 6 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.3, ease: 'easeOut' }}
-                  style={{ maxWidth: '663px' }}
-                >
-                  <div style={{ paddingLeft: '24px', paddingTop: '2px' }}>
-                    {segments.filter((s) => s.label && s.mode !== 'hidden').map((seg) => (
-                      <div
-                        key={seg.segmentId}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '6px',
-                          fontSize: '13px',
-                          color: 'var(--c-text-muted)',
-                          padding: '4px 0',
-                        }}
-                      >
-                        {seg.isStreaming && (
-                          <Loader2 size={12} className="animate-spin" style={{ flexShrink: 0, color: 'var(--c-text-muted)' }} />
-                        )}
-                        <span>{seg.label}</span>
-                      </div>
-                    ))}
                   </div>
                 </motion.div>
               )}
@@ -2981,30 +3016,6 @@ export function ChatPage() {
                     })}
                   </div>
                 </motion.div>
-              )}
-
-              {/* 非搜索模式：常规 segment 渲染 */}
-              {SHOW_EXPLICIT_THINKING && !isSearchThread && segments.map((seg) => (
-                <ThinkingBlock
-                  key={seg.segmentId}
-                  kind={seg.kind}
-                  label={seg.label}
-                  mode={seg.mode as 'visible' | 'collapsed' | 'hidden'}
-                  content={seg.content}
-                  isStreaming={seg.isStreaming}
-                  codeExecutions={seg.codeExecutions}
-                  onOpenCodeExecution={openCodePanel}
-                />
-              ))}
-
-              {SHOW_EXPLICIT_THINKING && thinkingDraft && (
-                <ThinkingBlock
-                  kind="thinking"
-                  label="thinking"
-                  mode="collapsed"
-                  content={thinkingDraft}
-                  isStreaming={!!activeRunId}
-                />
               )}
 
               {/* 无 live 助手块且无序列化顶层条时，用 CopTimeline 收束（与 allStreamItemsForUi 互斥） */}

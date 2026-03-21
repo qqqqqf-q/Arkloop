@@ -147,7 +147,7 @@ SSE Conventions:
 
 Note: External naming has migrated from `skills` to `personas` (`/v1/skills` -> `/v1/personas`, `skill_key/skill_id` -> `persona_key/persona_id`). Execution now reads model selectors directly from Persona, so there is no separate Agent Config or Prompt Template layer.
 
-Addendum: Persona management APIs accept an optional `roles` object. Each `roles.<role>` entry can override role-specific prompt additions, tool policy, budgets, `model`, `preferred_credential`, `reasoning_mode`, and `prompt_cache_control`, but cannot override executor type or executor config.
+Addendum: Persona management APIs accept an optional `roles` object. Each `roles.<role>` entry can override role-specific prompt additions, tool policy, budgets, `model`, `preferred_credential`, `reasoning_mode`, `stream_thinking`, and `prompt_cache_control`, but cannot override executor type or executor config.
 
 - `GET /v1/me/selectable-personas` -- Effective selectable personas for the current user, resolved as `org > platform > builtin`
 - `GET /v1/personas`
@@ -294,7 +294,9 @@ Shared across all events:
 
 | Type | Description |
 |------|------|
-| `message.delta` | Model streaming increment (`content_delta`, `role`) |
+| `message.delta` | Model streaming increment (`content_delta`, `role`; implicit reasoning may set `channel: thinking`) |
+
+When the persona for the run has `stream_thinking` set to false, the Worker does not yield or persist `message.delta` events with `channel: thinking`; they will not appear over SSE or in `run_events` replay.
 
 **Tool Calls:**
 

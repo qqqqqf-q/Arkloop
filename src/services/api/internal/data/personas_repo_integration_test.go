@@ -50,7 +50,7 @@ func TestPersonasRepositoryScopesRowsToProject(t *testing.T) {
 	}
 	projectID := project.ID
 
-	custom, err := repo.Create(ctx, projectID, "custom-only", "1", "Custom Only", nil, "prompt", nil, nil, nil, nil, nil, nil, "auto", "none", "agent.simple", nil)
+	custom, err := repo.Create(ctx, projectID, "custom-only", "1", "Custom Only", nil, "prompt", nil, nil, nil, nil, nil, nil, "auto", true, "none", "agent.simple", nil)
 	if err != nil {
 		t.Fatalf("create custom persona: %v", err)
 	}
@@ -137,7 +137,7 @@ func TestPersonasRepositoryRolesJSONRoundTrip(t *testing.T) {
 		t.Fatalf("create account: %v", err)
 	}
 	rolesJSON := json.RawMessage(`{"worker":{"prompt_md":"worker prompt","model":"worker^gpt-5-mini"}}`)
-	created, err := repo.Create(ctx, account.ID, "roleful", "1", "Roleful", nil, "prompt", nil, nil, nil, rolesJSON, nil, nil, "auto", "none", "agent.simple", nil)
+	created, err := repo.Create(ctx, account.ID, "roleful", "1", "Roleful", nil, "prompt", nil, nil, nil, rolesJSON, nil, nil, "auto", true, "none", "agent.simple", nil)
 	if err != nil {
 		t.Fatalf("create persona: %v", err)
 	}

@@ -79,6 +79,7 @@ func NewPersonaResolutionMiddleware(
 		rc.ToolBudget = map[string]any{}
 		rc.PerToolSoftLimits = tools.DefaultPerToolSoftLimits()
 		rc.ToolDenylist = nil
+		rc.StreamThinking = true
 		rc.PersonaDefinition = resolution.Definition
 		rc.AgentConfig = nil
 		rc.AgentConfigID = nil
@@ -107,6 +108,7 @@ func NewPersonaResolutionMiddleware(
 
 		if resolution.Definition != nil {
 			def := resolution.Definition
+			rc.StreamThinking = def.StreamThinking
 			rc.AgentConfig = &ResolvedAgentConfig{
 				Model:              def.Model,
 				PromptCacheControl: def.PromptCacheControl,

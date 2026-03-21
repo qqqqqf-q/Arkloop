@@ -28,6 +28,7 @@ type liteAgentResponse struct {
 	Temperature     *float64        `json:"temperature,omitempty"`
 	MaxOutputTokens *int            `json:"max_output_tokens,omitempty"`
 	ReasoningMode   string          `json:"reasoning_mode"`
+	StreamThinking  bool            `json:"stream_thinking"`
 	ToolPolicy      string          `json:"tool_policy"`
 	ToolAllowlist   []string        `json:"tool_allowlist"`
 	ToolDenylist    []string        `json:"tool_denylist"`
@@ -47,6 +48,7 @@ type createLiteAgentRequest struct {
 	Temperature            *float64 `json:"temperature"`
 	MaxOutputTokens        *int     `json:"max_output_tokens"`
 	ReasoningMode          string   `json:"reasoning_mode"`
+	StreamThinking         *bool    `json:"stream_thinking"`
 	ToolAllowlist          []string `json:"tool_allowlist"`
 	ToolDenylist           []string `json:"tool_denylist"`
 	ExecutorType           string   `json:"executor_type"`
@@ -60,6 +62,7 @@ type patchLiteAgentRequest struct {
 	Temperature     *float64  `json:"temperature"`
 	MaxOutputTokens *int      `json:"max_output_tokens"`
 	ReasoningMode   *string   `json:"reasoning_mode"`
+	StreamThinking  *bool     `json:"stream_thinking"`
 	ToolAllowlist   *[]string `json:"tool_allowlist"`
 	ToolDenylist    *[]string `json:"tool_denylist"`
 	CoreTools       *[]string `json:"core_tools"`
@@ -243,6 +246,7 @@ func createLiteAgent(
 		nil,
 		req.Model,
 		req.ReasoningMode,
+		data.NormalizePersonaStreamThinkingPtr(req.StreamThinking),
 		"none",
 		req.ExecutorType,
 		nil,
@@ -302,6 +306,7 @@ func patchLiteAgent(
 		IsActive:           req.IsActive,
 		Model:              req.Model,
 		ReasoningMode:      req.ReasoningMode,
+		StreamThinking:     req.StreamThinking,
 		PromptCacheControl: ptrString("none"),
 	}
 	if req.ToolAllowlist != nil {
@@ -406,6 +411,7 @@ func toLiteAgentFromDB(p data.Persona) liteAgentResponse {
 		Temperature:     temperature,
 		MaxOutputTokens: maxOutputTokens,
 		ReasoningMode:   reasoningMode,
+		StreamThinking:  p.StreamThinking,
 		ToolPolicy:      toolPolicy,
 		ToolAllowlist:   allowlist,
 		ToolDenylist:    denylist,
@@ -487,6 +493,7 @@ func toLiteAgentFromRepo(rp personas.RepoPersona, scope string) liteAgentRespons
 		Temperature:     temperature,
 		MaxOutputTokens: maxOutputTokens,
 		ReasoningMode:   reasoningMode,
+		StreamThinking:  data.NormalizePersonaStreamThinkingPtr(rp.StreamThinking),
 		ToolPolicy:      toolPolicy,
 		ToolAllowlist:   allowlist,
 		ToolDenylist:    denylist,

@@ -71,6 +71,7 @@ type mirrorPersonaYAML struct {
 	PreferredCredential string         `yaml:"preferred_credential,omitempty"`
 	Model               string         `yaml:"model,omitempty"`
 	ReasoningMode       string         `yaml:"reasoning_mode,omitempty"`
+	StreamThinking      *bool          `yaml:"stream_thinking,omitempty"`
 	PromptCacheControl  string         `yaml:"prompt_cache_control,omitempty"`
 	ExecutorType        string         `yaml:"executor_type,omitempty"`
 	ExecutorConfig      map[string]any `yaml:"executor_config,omitempty"`
@@ -313,6 +314,7 @@ func (m *Manager) applyFileToDB(ctx context.Context, snap fileSnapshot) error {
 		PreferredCredential: optionalStringPtr(snap.Persona.PreferredCredential),
 		Model:               optionalStringPtr(snap.Persona.Model),
 		ReasoningMode:       strings.TrimSpace(snap.Persona.ReasoningMode),
+		StreamThinking:      snap.Persona.StreamThinking,
 		PromptCacheControl:  strings.TrimSpace(snap.Persona.PromptCacheControl),
 		ExecutorType:        strings.TrimSpace(snap.Persona.ExecutorType),
 		ExecutorConfigJSON:  mustJSONRawNil(snap.Persona.ExecutorConfig),
@@ -426,6 +428,10 @@ func buildMirrorPersonaYAML(persona data.Persona) (mirrorPersonaYAML, string, er
 		ExecutorType:        strings.TrimSpace(persona.ExecutorType),
 		ExecutorConfig:      executorConfig,
 	}
+	if !persona.StreamThinking {
+		f := false
+		doc.StreamThinking = &f
+	}
 	if strings.TrimSpace(persona.SoulMD) != "" {
 		doc.SoulFile = "soul.md"
 	}
@@ -448,6 +454,7 @@ func repoPersonaHash(persona repopersonas.RepoPersona) (string, error) {
 		"budgets":              normalizeMap(persona.Budgets),
 		"title_summarize":      normalizeMap(persona.TitleSummarize),
 		"reasoning_mode":       strings.TrimSpace(persona.ReasoningMode),
+		"stream_thinking":      data.NormalizePersonaStreamThinkingPtr(persona.StreamThinking),
 		"prompt_cache_control": strings.TrimSpace(persona.PromptCacheControl),
 		"executor_type":        strings.TrimSpace(persona.ExecutorType),
 		"executor_config":      normalizeMap(persona.ExecutorConfig),
@@ -484,6 +491,7 @@ func dbPersonaHash(persona data.Persona) (string, error) {
 		"budgets":              budgets,
 		"title_summarize":      titleSummarize,
 		"reasoning_mode":       strings.TrimSpace(persona.ReasoningMode),
+		"stream_thinking":      persona.StreamThinking,
 		"prompt_cache_control": strings.TrimSpace(persona.PromptCacheControl),
 		"executor_type":        strings.TrimSpace(persona.ExecutorType),
 		"executor_config":      executorConfig,

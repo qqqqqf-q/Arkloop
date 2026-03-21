@@ -35,6 +35,7 @@ export const en: LocaleStrings = {
     temperature: 'Temperature',
     maxOutputTokens: 'Max Output Tokens',
     reasoningMode: 'Reasoning Mode',
+    streamThinking: 'Show thinking',
     reasoningDisabled: 'Disabled',
     reasoningEnabled: 'Enabled',
     deleteConfirm: 'Are you sure you want to delete this agent?',

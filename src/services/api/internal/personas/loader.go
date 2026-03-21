@@ -49,6 +49,7 @@ type RepoPersona struct {
 	PreferredCredential string         `yaml:"preferred_credential"`
 	Model               string         `yaml:"model"`
 	ReasoningMode       string         `yaml:"reasoning_mode"`
+	StreamThinking      *bool          `yaml:"stream_thinking,omitempty"`
 	PromptCacheControl  string         `yaml:"prompt_cache_control"`
 	ExecutorType        string         `yaml:"executor_type"`
 	ExecutorConfig      map[string]any `yaml:"executor_config"`

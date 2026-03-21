@@ -180,6 +180,7 @@ func loadSinglePersona(yamlPath string) (Definition, error) {
 	preferredCredential := asOptionalString(obj["preferred_credential"])
 	model := asOptionalString(obj["model"])
 	reasoningMode := normalizePersonaReasoningMode(asOptionalString(obj["reasoning_mode"]))
+	streamThinking := normalizePersonaStreamThinking(obj["stream_thinking"])
 	promptCacheControl := normalizePersonaPromptCacheControl(asOptionalString(obj["prompt_cache_control"]))
 	titleSummarizer, err := asTitleSummarizer(obj["title_summarize"])
 	if err != nil {
@@ -205,6 +206,7 @@ func loadSinglePersona(yamlPath string) (Definition, error) {
 		PreferredCredential: preferredCredential,
 		Model:               model,
 		ReasoningMode:       reasoningMode,
+		StreamThinking:      streamThinking,
 		PromptCacheControl:  promptCacheControl,
 		Roles:               roles,
 		TitleSummarizer:     titleSummarizer,
@@ -334,6 +336,17 @@ func normalizePersonaReasoningMode(value *string) string {
 	default:
 		return "auto"
 	}
+}
+
+func normalizePersonaStreamThinking(value any) bool {
+	if value == nil {
+		return true
+	}
+	b, ok := value.(bool)
+	if !ok {
+		return true
+	}
+	return b
 }
 
 func normalizePersonaPromptCacheControl(value *string) string {
@@ -485,7 +498,7 @@ func LoadFromDB(ctx context.Context, pool *pgxpool.Pool, projectID *uuid.UUID) (
 		        soul_md, user_selectable, selector_name, selector_order,
 		        prompt_md, tool_allowlist, COALESCE(tool_denylist, '{}'), COALESCE(core_tools, '{}'), budgets_json, COALESCE(roles_json, '{}'::jsonb), title_summarize_json,
 		        executor_type, executor_config_json,
-		        preferred_credential, model, reasoning_mode, prompt_cache_control,
+		        preferred_credential, model, reasoning_mode, stream_thinking, prompt_cache_control,
 		        updated_at
 		 FROM personas
 		 WHERE is_active = TRUE AND project_id = $1
@@ -520,13 +533,14 @@ func LoadFromDB(ctx context.Context, pool *pgxpool.Pool, projectID *uuid.UUID) (
 			preferredCredential *string
 			model               *string
 			reasoningMode       string
+			streamThinking      bool
 			promptCacheControl  string
 			updatedAt           time.Time
 		)
 		if err := rows.Scan(&personaKey, &version, &displayName, &description,
 			&soulMD, &userSelectable, &selectorName, &selectorOrder,
 			&promptMD, &toolAllowlist, &toolDenylist, &coreTools, &budgetsRaw, &rolesRaw, &titleSummarizeRaw,
-			&executorType, &executorConfigRaw, &preferredCredential, &model, &reasoningMode, &promptCacheControl, &updatedAt); err != nil {
+			&executorType, &executorConfigRaw, &preferredCredential, &model, &reasoningMode, &streamThinking, &promptCacheControl, &updatedAt); err != nil {
 			return nil, err
 		}
 
@@ -573,6 +587,7 @@ func LoadFromDB(ctx context.Context, pool *pgxpool.Pool, projectID *uuid.UUID) (
 			PreferredCredential: preferredCredential,
 			Model:               model,
 			ReasoningMode:       normalizePersonaReasoningMode(strPtrOrNil(reasoningMode)),
+			StreamThinking:      streamThinking,
 			PromptCacheControl:  normalizePersonaPromptCacheControl(strPtrOrNil(promptCacheControl)),
 			Roles:               roles,
 			TitleSummarizer:     titleSummarizer,

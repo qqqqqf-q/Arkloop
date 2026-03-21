@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 
+	"arkloop/services/api/internal/data"
 	repopersonas "arkloop/services/api/internal/personas"
 	"arkloop/services/shared/database"
 )
@@ -64,7 +65,7 @@ func insertPersona(ctx context.Context, db database.DB, p repopersonas.RepoPerso
 			prompt_md, tool_allowlist, tool_denylist, core_tools, budgets_json,
 			roles_json, title_summarize_json,
 			is_active, executor_type, executor_config_json,
-			preferred_credential, model, reasoning_mode, prompt_cache_control,
+			preferred_credential, model, reasoning_mode, stream_thinking, prompt_cache_control,
 			sync_mode, mirrored_file_dir, updated_at
 		) VALUES (
 			?, ?, ?, ?,
@@ -72,7 +73,7 @@ func insertPersona(ctx context.Context, db database.DB, p repopersonas.RepoPerso
 			?, ?, ?, ?, ?,
 			?, ?,
 			1, ?, ?,
-			?, ?, ?, ?,
+			?, ?, ?, ?, ?,
 			?, ?, datetime('now')
 		)`,
 		strings.TrimSpace(p.ID),
@@ -95,6 +96,7 @@ func insertPersona(ctx context.Context, db database.DB, p repopersonas.RepoPerso
 		seedNullableStr(p.PreferredCredential),
 		seedNullableStr(p.Model),
 		seedReasoningMode(p.ReasoningMode),
+		seedBoolInt(data.NormalizePersonaStreamThinkingPtr(p.StreamThinking)),
 		seedPromptCacheControl(p.PromptCacheControl),
 		"platform_file_mirror",
 		strings.TrimSpace(p.DirName),
@@ -115,7 +117,7 @@ func updatePersona(ctx context.Context, db database.DB, p repopersonas.RepoPerso
 			prompt_md = ?, tool_allowlist = ?, tool_denylist = ?, core_tools = ?, budgets_json = ?,
 			roles_json = ?, title_summarize_json = ?,
 			is_active = 1, executor_type = ?, executor_config_json = ?,
-			preferred_credential = ?, model = ?, reasoning_mode = ?, prompt_cache_control = ?,
+			preferred_credential = ?, model = ?, reasoning_mode = ?, stream_thinking = ?, prompt_cache_control = ?,
 			sync_mode = ?, mirrored_file_dir = ?, updated_at = datetime('now')
 		WHERE persona_key = ?`,
 		strings.TrimSpace(p.Version),
@@ -137,6 +139,7 @@ func updatePersona(ctx context.Context, db database.DB, p repopersonas.RepoPerso
 		seedNullableStr(p.PreferredCredential),
 		seedNullableStr(p.Model),
 		seedReasoningMode(p.ReasoningMode),
+		seedBoolInt(data.NormalizePersonaStreamThinkingPtr(p.StreamThinking)),
 		seedPromptCacheControl(p.PromptCacheControl),
 		"platform_file_mirror",
 		strings.TrimSpace(p.DirName),

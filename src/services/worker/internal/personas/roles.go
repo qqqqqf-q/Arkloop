@@ -61,6 +61,7 @@ func parseRoleOverride(value any, label string) (RoleOverride, error) {
 		"preferred_credential": {},
 		"model":                {},
 		"reasoning_mode":       {},
+		"stream_thinking":      {},
 		"prompt_cache_control": {},
 	}
 	for key := range raw {
@@ -130,6 +131,13 @@ func parseRoleOverride(value any, label string) (RoleOverride, error) {
 		}
 		out.ReasoningMode = parsed
 	}
+	if rawValue, ok := raw["stream_thinking"]; ok {
+		parsed, err := parseBoolOverride(rawValue, label+".stream_thinking")
+		if err != nil {
+			return RoleOverride{}, err
+		}
+		out.StreamThinking = parsed
+	}
 	if rawValue, ok := raw["prompt_cache_control"]; ok {
 		parsed, err := parseEnumOverride(rawValue, label+".prompt_cache_control", func(value string) string {
 			return normalizePersonaPromptCacheControl(&value)
@@ -171,6 +179,14 @@ func parseEnumOverride(value any, label string, normalize func(string) string) (
 		return EnumStringOverride{}, fmt.Errorf("%s must be a string", label)
 	}
 	return EnumStringOverride{Set: true, Value: normalize(text)}, nil
+}
+
+func parseBoolOverride(value any, label string) (BoolOverride, error) {
+	b, ok := value.(bool)
+	if !ok {
+		return BoolOverride{}, fmt.Errorf("%s must be a boolean", label)
+	}
+	return BoolOverride{Set: true, Value: b}, nil
 }
 
 func parseBudgetsOverride(value any, label string) (BudgetsOverride, error) {
@@ -249,6 +265,9 @@ func ApplyRoleOverride(def Definition, role string) (Definition, bool) {
 	}
 	if override.ReasoningMode.Set {
 		merged.ReasoningMode = override.ReasoningMode.Value
+	}
+	if override.StreamThinking.Set {
+		merged.StreamThinking = override.StreamThinking.Value
 	}
 	if override.PromptCacheControl.Set {
 		merged.PromptCacheControl = override.PromptCacheControl.Value
@@ -344,6 +363,7 @@ func cloneRoleOverrides(overrides map[string]RoleOverride) map[string]RoleOverri
 			PreferredCredential: cloneOptionalStringOverride(override.PreferredCredential),
 			Model:               cloneOptionalStringOverride(override.Model),
 			ReasoningMode:       override.ReasoningMode,
+			StreamThinking:      override.StreamThinking,
 			PromptCacheControl:  override.PromptCacheControl,
 		}
 	}

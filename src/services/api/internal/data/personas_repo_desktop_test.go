@@ -54,6 +54,7 @@ func TestPersonasRepositoryGetByIDForAccountWorksInDesktopMode(t *testing.T) {
 		nil,
 		nil,
 		"auto",
+		true,
 		"none",
 		"agent.simple",
 		nil,

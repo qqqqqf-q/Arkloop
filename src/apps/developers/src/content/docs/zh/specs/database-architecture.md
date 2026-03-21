@@ -254,6 +254,7 @@ Resolver 的优先级链（从高到低）：
 | `budgets_json` | 温度、输出上限、工具预算等运行预算 |
 | `model` | 可选 model selector，格式为 `provider_name^model_name` 或裸 `model` |
 | `reasoning_mode` | 推理模式 |
+| `stream_thinking` | 是否向客户端下发 `message.delta` 的 `channel: thinking`（默认 true；省略 persona YAML 键时视为 true） |
 | `prompt_cache_control` | prompt cache 控制策略 |
 | `preferred_credential` | 当 `model` 为空时的后备 Provider 名称 |
 

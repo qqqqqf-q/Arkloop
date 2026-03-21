@@ -40,6 +40,7 @@ export type LiteAgent = {
   temperature?: number
   max_output_tokens?: number
   reasoning_mode: string
+  stream_thinking: boolean
   tool_policy: string
   tool_allowlist: string[]
   tool_denylist: string[]
@@ -59,6 +60,7 @@ export type CreateLiteAgentRequest = {
   temperature?: number
   max_output_tokens?: number
   reasoning_mode?: string
+  stream_thinking?: boolean
   tool_allowlist?: string[]
   tool_denylist?: string[]
   executor_type?: string
@@ -72,6 +74,7 @@ export type PatchLiteAgentRequest = {
   temperature?: number
   max_output_tokens?: number
   reasoning_mode?: string
+  stream_thinking?: boolean
   tool_allowlist?: string[]
   tool_denylist?: string[]
   is_active?: boolean

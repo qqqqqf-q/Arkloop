@@ -39,6 +39,7 @@ export interface LocaleStrings {
     temperature: string
     maxOutputTokens: string
     reasoningMode: string
+    streamThinking: string
     reasoningDisabled: string
     reasoningEnabled: string
     deleteConfirm: string

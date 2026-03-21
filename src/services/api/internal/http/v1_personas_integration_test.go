@@ -150,6 +150,7 @@ func TestPersonasListCreateAndPatchUsePersonaFields(t *testing.T) {
 		nil,
 		strPtrPersonaLocal("custom-shadow^model"),
 		"high",
+		true,
 		"system_prompt",
 		"agent.simple",
 		nil,
@@ -172,6 +173,7 @@ func TestPersonasListCreateAndPatchUsePersonaFields(t *testing.T) {
 		strPtrPersonaLocal("cred-custom"),
 		strPtrPersonaLocal("custom-only^gpt-4.1-mini"),
 		"high",
+		true,
 		"system_prompt",
 		"agent.simple",
 		nil,
@@ -597,22 +599,22 @@ func TestSelectablePersonasEffectiveForMemberUser(t *testing.T) {
 	me := decodeJSONBody[meResponse](t, meResp.Body.Bytes())
 	accountID := uuid.MustParse(me.AccountID)
 
-	if _, err := personasRepo.CreateInScope(ctx, uuid.Nil, data.PersonaScopePlatform, "extended-search", "1", "Platform Search", nil, "platform search prompt", nil, nil, json.RawMessage(`{"temperature":0.4}`), nil, nil, strPtrPersonaLocal("platform^search"), "auto", "none", "agent.simple", nil); err != nil {
+	if _, err := personasRepo.CreateInScope(ctx, uuid.Nil, data.PersonaScopePlatform, "extended-search", "1", "Platform Search", nil, "platform search prompt", nil, nil, json.RawMessage(`{"temperature":0.4}`), nil, nil, strPtrPersonaLocal("platform^search"), "auto", true, "none", "agent.simple", nil); err != nil {
 		t.Fatalf("create platform search: %v", err)
 	}
-	if _, err := personasRepo.CreateInScope(ctx, uuid.Nil, data.PersonaScopePlatform, "hidden-builtin", "1", "Platform Hidden", nil, "platform hidden prompt", nil, nil, json.RawMessage(`{"temperature":0.4}`), nil, nil, strPtrPersonaLocal("platform^hidden"), "auto", "none", "agent.simple", nil); err != nil {
+	if _, err := personasRepo.CreateInScope(ctx, uuid.Nil, data.PersonaScopePlatform, "hidden-builtin", "1", "Platform Hidden", nil, "platform hidden prompt", nil, nil, json.RawMessage(`{"temperature":0.4}`), nil, nil, strPtrPersonaLocal("platform^hidden"), "auto", true, "none", "agent.simple", nil); err != nil {
 		t.Fatalf("create platform hidden: %v", err)
 	}
-	if _, err := personasRepo.CreateInScope(ctx, uuid.Nil, data.PersonaScopePlatform, "platform-custom", "1", "Platform Custom", nil, "platform custom prompt", nil, nil, json.RawMessage(`{"temperature":0.4}`), nil, nil, strPtrPersonaLocal("platform^custom"), "auto", "none", "agent.simple", nil); err != nil {
+	if _, err := personasRepo.CreateInScope(ctx, uuid.Nil, data.PersonaScopePlatform, "platform-custom", "1", "Platform Custom", nil, "platform custom prompt", nil, nil, json.RawMessage(`{"temperature":0.4}`), nil, nil, strPtrPersonaLocal("platform^custom"), "auto", true, "none", "agent.simple", nil); err != nil {
 		t.Fatalf("create platform custom: %v", err)
 	}
-	if _, err := personasRepo.CreateInScope(ctx, accountID, data.PersonaScopeProject, "normal", "1", "Account Normal", nil, "account normal prompt", nil, nil, json.RawMessage(`{"temperature":0.2}`), nil, nil, strPtrPersonaLocal("org^normal"), "high", "system_prompt", "agent.simple", nil); err != nil {
+	if _, err := personasRepo.CreateInScope(ctx, accountID, data.PersonaScopeProject, "normal", "1", "Account Normal", nil, "account normal prompt", nil, nil, json.RawMessage(`{"temperature":0.2}`), nil, nil, strPtrPersonaLocal("org^normal"), "high", true, "system_prompt", "agent.simple", nil); err != nil {
 		t.Fatalf("create org normal: %v", err)
 	}
-	if _, err := personasRepo.CreateInScope(ctx, accountID, data.PersonaScopeProject, "org-custom", "1", "Account Custom", nil, "account custom prompt", nil, nil, json.RawMessage(`{"temperature":0.2}`), nil, nil, strPtrPersonaLocal("org^custom"), "high", "system_prompt", "agent.simple", nil); err != nil {
+	if _, err := personasRepo.CreateInScope(ctx, accountID, data.PersonaScopeProject, "org-custom", "1", "Account Custom", nil, "account custom prompt", nil, nil, json.RawMessage(`{"temperature":0.2}`), nil, nil, strPtrPersonaLocal("org^custom"), "high", true, "system_prompt", "agent.simple", nil); err != nil {
 		t.Fatalf("create org custom: %v", err)
 	}
-	inactive, err := personasRepo.CreateInScope(ctx, accountID, data.PersonaScopeProject, "extended-search", "1", "Account Search Inactive", nil, "account inactive search prompt", nil, nil, json.RawMessage(`{"temperature":0.2}`), nil, nil, strPtrPersonaLocal("org^search"), "high", "system_prompt", "agent.simple", nil)
+	inactive, err := personasRepo.CreateInScope(ctx, accountID, data.PersonaScopeProject, "extended-search", "1", "Account Search Inactive", nil, "account inactive search prompt", nil, nil, json.RawMessage(`{"temperature":0.2}`), nil, nil, strPtrPersonaLocal("org^search"), "high", true, "system_prompt", "agent.simple", nil)
 	if err != nil {
 		t.Fatalf("create org search inactive: %v", err)
 	}
