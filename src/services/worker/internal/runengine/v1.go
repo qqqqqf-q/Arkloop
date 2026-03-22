@@ -215,6 +215,7 @@ func NewEngineV1(deps EngineV1Deps) (*EngineV1, error) {
 		pipeline.NewToolProviderMiddleware(deps.ToolProviderCache),
 		pipeline.NewPersonaResolutionMiddleware(deps.PersonaRegistryGetter, deps.DBPool, runsRepo, eventsRepo, releaseSlot),
 		pipeline.NewChannelContextMiddleware(deps.DBPool),
+		pipeline.NewChannelTelegramGroupUserMergeMiddleware(),
 		pipeline.NewChannelGroupContextTrimMiddleware(),
 		pipeline.NewChannelTelegramToolsMiddleware(deps.ChannelTelegramLoader, nil),
 		pipeline.NewSubAgentContextMiddleware(subagentctl.NewSnapshotStorage()),
