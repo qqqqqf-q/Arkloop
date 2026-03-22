@@ -105,7 +105,6 @@ func (l *Loop) Run(ctx context.Context) error {
 	var (
 		wg            sync.WaitGroup
 		activeWorkers atomic.Int32
-		errCh         = make(chan error, 1)
 	)
 
 	// spawnWorker starts one worker goroutine.
@@ -129,13 +128,7 @@ func (l *Loop) Run(ctx context.Context) error {
 
 				processed, err := l.RunOnce(ctx)
 				if err != nil {
-					if ctx.Err() != nil {
-						return
-					}
-					select {
-					case errCh <- err:
-					default:
-					}
+					// Only ctx cancellation reaches here; RunOnce swallows transient errors.
 					return
 				}
 
@@ -181,16 +174,10 @@ func (l *Loop) Run(ctx context.Context) error {
 		}
 	}()
 
-	var fatalErr error
-	select {
-	case <-ctx.Done():
-	case err := <-errCh:
-		fatalErr = err
-	}
-
+	<-ctx.Done()
 	<-scaleDone
 	wg.Wait()
-	return fatalErr
+	return nil
 }
 
 // evaluateScaling computes the new target worker count based on queue depth.
@@ -204,19 +191,26 @@ func (l *Loop) evaluateScaling(ctx context.Context, active int) int {
 
 	current := int(l.targetWorkers.Load())
 
-	denominator := active
-	if denominator <= 0 {
-		denominator = 1
+	if active <= 0 {
+		active = 1
 	}
-	perWorker := depth / denominator
 
 	now := time.Now()
 
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	if perWorker >= l.config.ScaleUpThreshold && current < l.config.MaxConcurrency && now.After(l.scaleCooldown) {
-		next := current + 1
+	// Scale up: use perWorker ratio as step multiplier to handle bursts.
+	// e.g. depth=20, active=4, threshold=3 → perWorker=5, step=1 (min of ratio/threshold and headroom)
+	if depth >= l.config.ScaleUpThreshold*active && current < l.config.MaxConcurrency && now.After(l.scaleCooldown) {
+		step := depth / (l.config.ScaleUpThreshold * active)
+		if step < 1 {
+			step = 1
+		}
+		next := current + step
+		if next > l.config.MaxConcurrency {
+			next = l.config.MaxConcurrency
+		}
 		l.scaleCooldown = now.Add(time.Duration(l.config.ScaleCooldownSecs * float64(time.Second)))
 		l.logger.Info("scaling up workers", app.LogFields{}, map[string]any{
 			"from":        current,
@@ -227,7 +221,8 @@ func (l *Loop) evaluateScaling(ctx context.Context, active int) int {
 		return next
 	}
 
-	if perWorker < l.config.ScaleDownThreshold && current > l.config.MinConcurrency && now.After(l.scaleCooldown) {
+	// Scale down: only when queue is genuinely below threshold*active (no integer division bias).
+	if depth < l.config.ScaleDownThreshold*active && current > l.config.MinConcurrency && now.After(l.scaleCooldown) {
 		next := current - 1
 		l.scaleCooldown = now.Add(time.Duration(l.config.ScaleCooldownSecs * float64(time.Second)))
 		l.logger.Info("scaling down workers", app.LogFields{}, map[string]any{
@@ -271,8 +266,10 @@ func (l *Loop) RunOnce(ctx context.Context) (bool, error) {
 		if ctx.Err() != nil {
 			return false, err
 		}
+		// Treat transient Lease errors (DB blip, pool timeout) as no-op so the
+		// worker goroutine backs off via waitForWork rather than fatally exits.
 		l.logger.Error("lease job 失败", app.LogFields{}, map[string]any{"error": err.Error()})
-		return false, err
+		return false, nil
 	}
 	if lease == nil {
 		return false, nil
