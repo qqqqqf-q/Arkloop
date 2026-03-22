@@ -42,6 +42,7 @@ export type OpenVikingDesktopConfig = {
 export type MemoryConfig = {
   enabled: boolean
   provider: MemoryProvider
+  memoryCommitEachTurn?: boolean
   openviking?: OpenVikingDesktopConfig
 }
 
@@ -78,5 +79,5 @@ export const DEFAULT_CONFIG: AppConfig = {
     fetch: { provider: 'jina' },
     search: { provider: 'duckduckgo' },
   },
-  memory: { enabled: true, provider: 'local' },
+  memory: { enabled: true, provider: 'local', memoryCommitEachTurn: true },
 }

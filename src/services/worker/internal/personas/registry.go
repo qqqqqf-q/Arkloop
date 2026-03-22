@@ -121,6 +121,10 @@ type Definition struct {
 	IsSystem                bool                   // 系统级 persona，不可被 DB 覆盖或删除
 	IsBuiltin               bool                   // 内置 persona，随代码分发
 	AllowPlatformDelegation bool                   // 允许 admin 用户调用 call_platform 委托平台管理操作
+
+	HeartbeatEnabled         bool   // 是否启用 LLM 心跳调度
+	HeartbeatIntervalMinutes int    // 心跳间隔（分钟），0 时取默认值 30
+	HeartbeatMD              string // heartbeat.md 内容，注入心跳 prompt；空则无
 }
 
 type Registry struct {

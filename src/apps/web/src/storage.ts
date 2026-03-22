@@ -688,7 +688,15 @@ function parseCopBlockItem(raw: unknown): CopBlockItem | null {
   if (o.kind === 'thinking') {
     if (typeof o.content !== 'string') return null
     const seq = typeof o.seq === 'number' ? o.seq : 0
-    return { kind: 'thinking', content: o.content, seq }
+    const startedAtMs = typeof o.startedAtMs === 'number' ? o.startedAtMs : undefined
+    const endedAtMs = typeof o.endedAtMs === 'number' ? o.endedAtMs : undefined
+    return {
+      kind: 'thinking',
+      content: o.content,
+      seq,
+      ...(startedAtMs != null ? { startedAtMs } : {}),
+      ...(endedAtMs != null ? { endedAtMs } : {}),
+    }
   }
   if (o.kind === 'assistant_text') {
     if (typeof o.content !== 'string') return null

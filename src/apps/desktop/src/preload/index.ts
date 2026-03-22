@@ -40,6 +40,7 @@ export type OpenVikingDesktopConfig = {
 export type MemoryConfig = {
   enabled: boolean
   provider: MemoryProvider
+  memoryCommitEachTurn?: boolean
   openviking?: OpenVikingDesktopConfig
 }
 

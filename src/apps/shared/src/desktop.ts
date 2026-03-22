@@ -42,6 +42,7 @@ export type OpenVikingDesktopConfig = {
 export type MemoryConfig = {
   enabled: boolean
   provider: MemoryProvider
+  memoryCommitEachTurn?: boolean
   openviking?: OpenVikingDesktopConfig
 }
 
@@ -70,6 +71,7 @@ export type SidecarRuntime = {
   port: number | null
   portMode: LocalPortMode
   lastError?: string
+
 }
 
 type DesktopInfo = {

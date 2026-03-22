@@ -14,6 +14,8 @@ function renderTimeline(params: {
   subAgents?: SubAgentRef[]
   fileOps?: Array<{ id: string; toolName: string; label: string; status: 'running' | 'success' | 'failed'; seq?: number }>
   webFetches?: Array<{ id: string; url: string; title?: string; status: 'fetching' | 'done' | 'failed'; statusCode?: number; seq?: number }>
+  thinkingRows?: Array<{ id: string; markdown: string; live?: boolean; seq: number; durationSec?: number }>
+  thinkingStartedAt?: number
 }): string {
   return renderToStaticMarkup(
     <LocaleProvider>
@@ -26,6 +28,8 @@ function renderTimeline(params: {
         subAgents={params.subAgents}
         fileOps={params.fileOps}
         webFetches={params.webFetches}
+        thinkingRows={params.thinkingRows}
+        thinkingStartedAt={params.thinkingStartedAt}
       />
     </LocaleProvider>,
   )
@@ -108,6 +112,56 @@ describe('CopTimeline', () => {
     expect(narrativeIndex).toBeGreaterThan(fileOpIndex)
     expect(stepIndex).toBeGreaterThan(narrativeIndex)
     expect(html).not.toContain('Finished')
+  })
+
+  it('交错 thinking 流式时显示单行预览触发器', () => {
+    const html = renderTimeline({
+      isComplete: false,
+      steps: [],
+      sources: [],
+      fileOps: [{ id: 'op1', toolName: 'grep', label: 'x', status: 'success', seq: 2 }],
+      thinkingRows: [{ id: 't1', markdown: 'hello world', live: true, seq: 1 }],
+    })
+    expect(html).toContain('cop-thinking-preview-trigger')
+    expect(html).not.toContain('cop-thinking-only-body')
+  })
+
+  it('thinking 结束后子行显示 Thought for Xs', () => {
+    const html = renderTimeline({
+      isComplete: false,
+      steps: [],
+      sources: [],
+      fileOps: [{ id: 'op1', toolName: 'grep', label: 'x', status: 'success', seq: 2 }],
+      thinkingRows: [{ id: 't1', markdown: 'done', live: false, seq: 1, durationSec: 8 }],
+    })
+    expect(html).toContain('cop-thinking-card-trigger')
+    expect(html).toMatch(/Thought for \d+s/)
+    expect(html).not.toContain('cop-thinking-preview-trigger')
+  })
+
+  it('仅 thinking 时也在时间轴圆点列内显示预览 Segment', () => {
+    const html = renderTimeline({
+      isComplete: false,
+      steps: [],
+      sources: [],
+      thinkingRows: [{ id: 't1', markdown: 'solo', live: true, seq: 1 }],
+    })
+    expect(html).toContain('cop-thinking-preview-trigger')
+    expect(html).toContain('left:-19px')
+    expect(html).not.toContain('cop-thinking-header-strip')
+  })
+
+  it('仅 thinking 且已结束时点旁直接展开正文，不用内层折叠卡片', () => {
+    const html = renderTimeline({
+      isComplete: true,
+      steps: [],
+      sources: [],
+      thinkingRows: [{ id: 't1', markdown: '内心独白一段', live: false, seq: 1, durationSec: 2 }],
+    })
+    expect(html).toContain('cop-thinking-output-md')
+    expect(html).toContain('内心独白一段')
+    expect(html).not.toContain('cop-thinking-block')
+    expect(html).not.toContain('cop-thinking-card-trigger')
   })
 
   it('web_fetch 遇到 file 地址时不应渲染坏掉的 favicon', () => {

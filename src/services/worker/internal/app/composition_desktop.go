@@ -409,6 +409,7 @@ func (e *DesktopEngine) Execute(ctx context.Context, run data.Run, traceID strin
 	middlewares := []pipeline.RunMiddleware{
 		desktopCancelGuard(),
 		desktopInputLoader(e.db, eventsRepo, e.messageAttachmentStore),
+		pipeline.NewHeartbeatScheduleMiddleware(e.db),
 		desktopToolInit(e.toolExecutors, e.allLlmSpecs, e.baseAllowlist, e.toolRegistry),
 		desktopToolProviderBindings(e.db),
 		pipeline.NewSpawnAgentMiddleware(),
@@ -428,6 +429,7 @@ func (e *DesktopEngine) Execute(ctx context.Context, run data.Run, traceID strin
 		desktopRouting(e.stubRouter, e.stubGateway, e.emitDebugEvents, e.db, runsRepo, eventsRepo),
 		pipeline.NewTitleSummarizerMiddleware(e.db, nil, e.stubGateway, e.emitDebugEvents, e.routingLoader),
 		pipeline.NewContextCompactMiddleware(e.db, data.MessagesRepository{}, data.DesktopRunEventsRepository{}, e.stubGateway, e.emitDebugEvents, e.routingLoader),
+		pipeline.NewLLMHeartbeatPrepareMiddleware(),
 		pipeline.NewToolBuildMiddleware(),
 		desktopChannelDelivery(e.db),
 	}
@@ -1416,7 +1418,7 @@ func desktopAgentLoop(
 				return err
 			}
 			content := strings.Join(w.assistantDeltas, "")
-			_, err := messagesRepo.InsertAssistantMessage(ctx, w.tx, rc.Run.AccountID, rc.Run.ThreadID, rc.Run.ID, content)
+			_, err := messagesRepo.InsertAssistantMessage(ctx, w.tx, rc.Run.AccountID, rc.Run.ThreadID, rc.Run.ID, content, false)
 			if err != nil {
 				slog.WarnContext(ctx, "desktop: insert assistant message failed", "err", err)
 			}

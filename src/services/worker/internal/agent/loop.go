@@ -15,6 +15,7 @@ import (
 	"arkloop/services/worker/internal/events"
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/memory"
+	"arkloop/services/worker/internal/pipeline"
 	"arkloop/services/worker/internal/security"
 	"arkloop/services/worker/internal/stablejson"
 	"arkloop/services/worker/internal/tools"
@@ -90,6 +91,9 @@ type RunContext struct {
 
 	// StreamThinking 为 false 时不向客户端下发 channel: thinking 的 message.delta。
 	StreamThinking bool
+
+	// PipelineRC 由 agent.simple 注入；Lua 等路径为 nil。
+	PipelineRC *pipeline.RunContext
 }
 
 type Loop struct {
@@ -532,6 +536,7 @@ func (l *Loop) executeToolCall(
 		PendingMemoryWrites:              runCtx.PendingMemoryWrites,
 		RuntimeSnapshot:                  runCtx.Runtime,
 		Channel:                          runCtx.Channel,
+		PipelineRC:                       runCtx.PipelineRC,
 	}
 	return runCtx.ToolExecutor.Execute(ctx, call.ToolName, copyMap(call.ArgumentsJSON), execCtx, call.ToolCallID)
 }

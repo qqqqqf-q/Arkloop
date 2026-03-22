@@ -406,6 +406,8 @@ export const zh: LocaleStrings = {
   copTimelineLiveProgress: "In process",
   copTimelineThinkingDoneNoDuration: "Thought",
   copTimelineThoughtForSeconds: (sec: number) => `Thought for ${sec}s`,
+  copThinkingInlineTitle: 'Thinking',
+  copThinkCardTitle: 'Think',
   editAction: "Edit",
   // model config
   models: {
@@ -796,6 +798,9 @@ export const zh: LocaleStrings = {
     memorySnapshotTitle: "记忆快照",
     memoryEnabled: "启用记忆",
     memoryEnabledDesc: "启用后 AI 将记住对话中的重要信息。",
+    memorySummarizeSectionTitle: "记忆总结",
+    memoryAutoSummarizeLabel: "自动总结对话",
+    memoryAutoSummarizeDesc: "自动从对话中提取并存储重要信息作为新记忆。",
     memorySystem: "记忆系统",
     memorySystemSimple: "简易记忆",
     memorySystemSimpleDesc: "轻量级本地记忆，存储于 SQLite，无需外部服务。",

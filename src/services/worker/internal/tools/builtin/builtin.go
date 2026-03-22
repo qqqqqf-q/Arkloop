@@ -8,6 +8,7 @@ import (
 	artifactguidelines "arkloop/services/worker/internal/tools/builtin/artifact_guidelines"
 	"arkloop/services/worker/internal/tools/builtin/askuser"
 	"arkloop/services/worker/internal/tools/builtin/edit"
+	"arkloop/services/worker/internal/tools/builtin/heartbeat_decision"
 	"arkloop/services/worker/internal/tools/builtin/fileops"
 	"arkloop/services/worker/internal/tools/builtin/glob"
 	"arkloop/services/worker/internal/tools/builtin/grep"
@@ -55,6 +56,7 @@ func AgentSpecs() []tools.AgentToolSpec {
 		acptool.AgentSpec,
 		showwidget.AgentSpec,
 		todowrite.AgentSpec,
+		heartbeat_decision.AgentSpec,
 	}
 }
 
@@ -77,6 +79,7 @@ func LlmSpecs() []llm.ToolSpec {
 		acptool.LlmSpec,
 		showwidget.LlmSpec,
 		todowrite.LlmSpec,
+		heartbeat_decision.Spec,
 	}
 }
 
@@ -105,5 +108,6 @@ func Executors(pool *pgxpool.Pool, rdb *redis.Client, resolver sharedconfig.Reso
 		acptool.AgentSpec.Name:            acptool.ToolExecutor{ConfigResolver: resolver},
 		showwidget.AgentSpec.Name:         showwidget.NewToolExecutor(),
 		todowrite.AgentSpec.Name:          &todowrite.Executor{},
+		heartbeat_decision.AgentSpec.Name: heartbeat_decision.New(),
 	}
 }

@@ -168,6 +168,11 @@ func AutoMigrate(ctx context.Context, dataSourceName string) (*Pool, error) {
 	if err != nil {
 		return nil, fmt.Errorf("sqliteadapter: open: %w", err)
 	}
+	// Pre-migration repair: fix any schema issues that would block migrations.
+	if err := repairSchemasPreMigration(ctx, pool.Unwrap()); err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("sqliteadapter: pre-migrate repair: %w", err)
+	}
 	_, err = Up(ctx, pool.Unwrap())
 	if err != nil {
 		pool.Close()

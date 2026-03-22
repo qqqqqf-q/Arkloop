@@ -45,6 +45,21 @@ func TestRuntimeSnapshotWithMergedBuiltinToolNames(t *testing.T) {
 	}
 }
 
+func TestResolveBuiltinMemoryToolsWithURLOnly(t *testing.T) {
+	resolved := ResolveBuiltin(ResolveInput{
+		Env: EnvConfig{MemoryBaseURL: "http://memory.internal"},
+	})
+	if resolved.MemoryBaseURL != "http://memory.internal" {
+		t.Fatalf("unexpected memory base url: %q", resolved.MemoryBaseURL)
+	}
+	if resolved.MemoryRootAPIKey != "" {
+		t.Fatalf("expected empty key, got %q", resolved.MemoryRootAPIKey)
+	}
+	if _, ok := resolved.ToolNameSet()["memory_search"]; !ok {
+		t.Fatal("memory_search should be available with URL only")
+	}
+}
+
 func TestResolveBuiltinUsesEnvAndProviders(t *testing.T) {
 	memoryBaseURL := " http://memory.internal "
 	memoryAPIKey := " provider-key "

@@ -163,6 +163,14 @@ export function ConnectionSettingsContent() {
     }
   }, [api])
 
+  useEffect(() => {
+    if (!api || mode !== 'local' || sidecarRuntime.status !== 'running') return
+    const id = window.setInterval(() => {
+      void api.sidecar.getRuntime().then(setSidecarRuntime)
+    }, 10000)
+    return () => window.clearInterval(id)
+  }, [api, mode, sidecarRuntime.status])
+
   const handleSave = useCallback(async () => {
     if (!api) return
 

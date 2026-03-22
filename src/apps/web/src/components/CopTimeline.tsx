@@ -1,6 +1,6 @@
-import { useState, useRef, useEffect, Fragment, type ReactNode } from 'react'
+import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, Fragment, type ReactNode } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ChevronRight, Globe, Loader2, Search } from 'lucide-react'
+import { ChevronDown, ChevronRight, Globe, Loader2, Search } from 'lucide-react'
 import { useTypewriter } from '../hooks/useTypewriter'
 import type { WebSource } from '../storage'
 import type { SubAgentRef, FileOpRef, WebFetchRef } from '../storage'
@@ -10,6 +10,7 @@ import { MarkdownRenderer } from './MarkdownRenderer'
 import { useLocale } from '../contexts/LocaleContext'
 import { ExecutionCard } from './ExecutionCard'
 import { SubAgentBlock } from './SubAgentBlock'
+import { markdownToSingleLinePreview } from '../copThinkingPlainPreview'
 
 /** CopTimeline 左轴点线几何；ChatPage 顶层条与之对齐 */
 export const COP_TIMELINE_DOT_NUDGE_Y = 1
@@ -20,6 +21,8 @@ export const COP_TIMELINE_PYTHON_DOT_TOP = 16 + COP_TIMELINE_DOT_NUDGE_Y
 export const COP_TIMELINE_LINE_LEFT_PX = -16
 export const COP_TIMELINE_DOT_LEFT_PX = -19
 export const COP_TIMELINE_CONTENT_PADDING_LEFT_PX = 24
+/** 仅 thinking 完结直出时正文行高，与 DOT 几何中心对齐：DOT_TOP + DOT_SIZE/2 − lh/2 */
+export const COP_TIMELINE_THINKING_PLAIN_LINE_HEIGHT_PX = 18
 
 export type WebSearchPhaseStep = {
   id: string
@@ -53,13 +56,17 @@ type Props = {
   accessToken?: string
   baseUrl?: string
   /** 与 tool 同序交错的多段 thinking（seq 与工具池子对齐排序） */
-  thinkingRows?: Array<{ id: string; markdown: string; live?: boolean; seq: number }> | null
+  thinkingRows?: Array<{ id: string; markdown: string; live?: boolean; seq: number; durationSec?: number }> | null
   /** COP 内可见短正文（与 thinking / 工具行同序） */
   copInlineTextRows?: Array<{ id: string; text: string; live?: boolean; seq: number }> | null
   /** 与 narrative / 工具行同一套 unified 点线，仅多一行 Markdown（无 thinkingRows 时的单块） */
   assistantThinking?: { markdown: string; live?: boolean } | null
-  /** thinking 阶段开始的 Unix ms 时间戳（流式用），用于完成后显示 "Thought for X seconds" */
+  /** 仅 pendingThinking 壳子用：无 thinkingRows 时配合 assistantThinking 估时长 */
   thinkingStartedAt?: number
+  /** 根节点下边距（如 COP 后紧跟正文段时与下文留白） */
+  marginBottomPx?: number
+  /** 后一段为助手正文且已有字符时收起本段 COP（不依赖 isStreaming，避免 run 结束帧错过） */
+  trailingAssistantTextPresent?: boolean
 }
 
 function TypewriterText({ text, className, live }: { text: string; className?: string; live?: boolean }) {
@@ -194,20 +201,221 @@ function QueryPill({ text, live }: { text: string; live?: boolean }) {
   )
 }
 
-export function AssistantThinkingMarkdown({ markdown, live }: { markdown: string; live: boolean }) {
+export function AssistantThinkingMarkdown({
+  markdown,
+  live,
+  variant = 'default',
+}: {
+  markdown: string
+  live: boolean
+  /** timeline-plain：时间轴内直出，较大字号并与圆点竖直对齐 */
+  variant?: 'default' | 'timeline-plain'
+}) {
   const displayed = useTypewriter(markdown, !live)
   const { t } = useLocale()
+  const rootClass =
+    variant === 'timeline-plain'
+      ? 'cop-thinking-output-md cop-thinking-output-md--timeline-plain'
+      : 'cop-thinking-output-md'
   return (
-    <div className="cop-timeline-thinking-wrap">
+    <div className={rootClass}>
       {!markdown.trim() && live ? (
-        <span className="thinking-shimmer cop-timeline-thinking-placeholder">
-          {t.assistantStreamThinkingPlaceholder}
-        </span>
+        <span className="thinking-shimmer cop-thinking-output-placeholder">{t.assistantStreamThinkingPlaceholder}</span>
       ) : (
-        <div className="cop-timeline-thinking-body">
-          <MarkdownRenderer content={live ? displayed : markdown} disableMath />
+        <MarkdownRenderer content={live ? displayed : markdown} disableMath trimTrailingMargin compact />
+      )}
+    </div>
+  )
+}
+
+const THINKING_EXPAND_TRANSITION = { duration: 0.25, ease: [0.4, 0, 0.2, 1] as const }
+
+function initialThinkingElapsedSec(
+  thinkingStartedAt: number | undefined,
+  thinkingRows: Array<{ live?: boolean }> | null | undefined,
+  assistantThinking: { markdown: string; live?: boolean } | null | undefined,
+): number {
+  if (!thinkingStartedAt) return 0
+  const list = thinkingRows ?? []
+  const anyLive = list.some((r) => r.live) || !!assistantThinking?.live
+  if (anyLive) return 0
+  const hasAny =
+    list.length > 0 ||
+    !!(assistantThinking && (assistantThinking.markdown.trim() !== '' || !!assistantThinking.live))
+  if (!hasAny) return 0
+  return Math.max(0, Math.round((Date.now() - thinkingStartedAt) / 1000))
+}
+
+function CopThinkingPreviewScrollArea({
+  live,
+  scrollKey,
+  className,
+  dataTestId,
+  children,
+}: {
+  live: boolean
+  scrollKey: string
+  className: string
+  dataTestId?: string
+  children: ReactNode
+}) {
+  const outerRef = useRef<HTMLDivElement>(null)
+  const innerRef = useRef<HTMLSpanElement>(null)
+  const scrollToEnd = useCallback(() => {
+    const outer = outerRef.current
+    if (!outer) return
+    outer.scrollLeft = outer.scrollWidth - outer.clientWidth
+  }, [])
+
+  useLayoutEffect(() => {
+    if (!live) return
+    scrollToEnd()
+  }, [live, scrollKey, scrollToEnd])
+
+  useEffect(() => {
+    if (!live) return
+    const inner = innerRef.current
+    const outer = outerRef.current
+    if (!inner || !outer) return
+    const ro = new ResizeObserver(() => {
+      outer.scrollLeft = outer.scrollWidth - outer.clientWidth
+    })
+    ro.observe(inner)
+    outer.scrollLeft = outer.scrollWidth - outer.clientWidth
+    return () => ro.disconnect()
+  }, [live, scrollKey, scrollToEnd])
+
+  return (
+    <div ref={outerRef} className={className} data-testid={dataTestId}>
+      <span ref={innerRef} className="cop-thinking-preview-scroll-inner">
+        {children}
+      </span>
+    </div>
+  )
+}
+
+type CopThinkingBlockProps = {
+  markdown: string
+  live: boolean
+  /** thinking 已结束时的秒数，用于折叠行与卡片顶栏「Thought for Xs」 */
+  thoughtDurationSeconds: number
+}
+
+function CopThinkingBlock({ markdown, live, thoughtDurationSeconds }: CopThinkingBlockProps) {
+  const { t } = useLocale()
+  const [expanded, setExpanded] = useState(false)
+  const cardScrollRef = useRef<HTMLDivElement>(null)
+  const plain = markdownToSingleLinePreview(markdown)
+  const displayedPreview = useTypewriter(plain, !live)
+  const previewShown = live ? displayedPreview : plain
+  const previewScrollKey = `${markdown.length}:${previewShown.length}`
+  const showInlinePreviewRow = live
+  const toggleExpanded = () => setExpanded((p) => !p)
+  const cardHeadline =
+    live
+      ? t.copThinkCardTitle
+      : thoughtDurationSeconds > 0
+        ? t.copTimelineThoughtForSeconds(thoughtDurationSeconds)
+        : t.copTimelineThinkingDoneNoDuration
+
+  useLayoutEffect(() => {
+    if (!live || !expanded) return
+    const el = cardScrollRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [live, expanded, markdown])
+
+  useEffect(() => {
+    if (!live || !expanded) return
+    const el = cardScrollRef.current
+    if (!el) return
+    const inner = el.firstElementChild
+    if (!inner) return
+    const ro = new ResizeObserver(() => {
+      el.scrollTop = el.scrollHeight
+    })
+    ro.observe(inner)
+    return () => ro.disconnect()
+  }, [live, expanded, markdown])
+
+  return (
+    <div className="cop-thinking-block" data-testid="cop-thinking-block">
+      {showInlinePreviewRow && (
+        <div
+          role="button"
+          tabIndex={0}
+          className="cop-thinking-preview-trigger"
+          data-testid="cop-thinking-preview-trigger"
+          onClick={toggleExpanded}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault()
+              toggleExpanded()
+            }
+          }}
+        >
+          <span className="cop-thinking-preview-title">{t.copThinkingInlineTitle}</span>
+          <CopThinkingPreviewScrollArea
+            live={live}
+            scrollKey={previewScrollKey}
+            className="cop-thinking-preview-text cop-thinking-preview-scroll"
+            data-testid="cop-thinking-preview-text"
+          >
+            {!markdown.trim() ? (
+              <span className="thinking-shimmer cop-thinking-preview-placeholder">{t.assistantStreamThinkingPlaceholder}</span>
+            ) : (
+              previewShown
+            )}
+          </CopThinkingPreviewScrollArea>
+          {expanded ? (
+            <ChevronDown size={13} style={{ flexShrink: 0, color: 'var(--c-text-muted)' }} strokeWidth={2} />
+          ) : (
+            <ChevronRight size={13} style={{ flexShrink: 0, color: 'var(--c-text-muted)' }} strokeWidth={2} />
+          )}
         </div>
       )}
+
+      {!showInlinePreviewRow && (
+        <div
+          role="button"
+          tabIndex={0}
+          className="cop-thinking-card-trigger"
+          data-testid="cop-thinking-card-trigger"
+          onClick={toggleExpanded}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault()
+              toggleExpanded()
+            }
+          }}
+        >
+          <span className="cop-thinking-card-trigger-label">{cardHeadline}</span>
+          {expanded ? (
+            <ChevronDown size={12} style={{ flexShrink: 0, color: 'var(--c-text-muted)' }} strokeWidth={2} />
+          ) : (
+            <ChevronRight size={12} style={{ flexShrink: 0, color: 'var(--c-text-muted)' }} strokeWidth={2} />
+          )}
+        </div>
+      )}
+
+      <AnimatePresence initial={false}>
+        {expanded && (
+          <motion.div
+            key="cop-thinking-expand"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={THINKING_EXPAND_TRANSITION}
+            style={{ overflow: 'hidden' }}
+          >
+            <div className="cop-thinking-card-outer">
+              <div className="cop-thinking-card-label">{cardHeadline}</div>
+              <div ref={cardScrollRef} className="cop-thinking-card-scroll">
+                <AssistantThinkingMarkdown markdown={markdown} live={live} />
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }
@@ -481,13 +689,8 @@ export function CopTimelineUnifiedRow({
   )
 }
 
-export function CopTimeline({ steps, sources, narratives, isComplete, codeExecutions, onOpenCodeExecution, activeCodeExecutionId, subAgents, fileOps, webFetches, headerOverride, shimmer, live, accessToken, baseUrl, thinkingRows, copInlineTextRows, assistantThinking, thinkingStartedAt }: Props) {
+export function CopTimeline({ steps, sources, narratives, isComplete, codeExecutions, onOpenCodeExecution, activeCodeExecutionId, subAgents, fileOps, webFetches, headerOverride, shimmer, live, accessToken, baseUrl, thinkingRows, copInlineTextRows, assistantThinking, thinkingStartedAt, marginBottomPx, trailingAssistantTextPresent }: Props) {
   const { t } = useLocale()
-  /** 首屏：历史已完结的 COP 默认收起；thinking 完成后自动收起 */
-  const [collapsed, setCollapsed] = useState(() => isComplete)
-  const [elapsedSeconds, setElapsedSeconds] = useState(
-    () => (isComplete && thinkingStartedAt ? Math.round((Date.now() - thinkingStartedAt) / 1000) : 0),
-  )
   const thinkingRowList = thinkingRows ?? []
   const copInlineList = copInlineTextRows ?? []
   const interleavedThinkingLive = thinkingRowList.some((r) => r.live)
@@ -496,17 +699,6 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
   const hasInterleavedThinking = thinkingRowList.length > 0
   const hasAnyThinking = hasInterleavedThinking || legacyThinkingVisible
   const anyThinkingLive = interleavedThinkingLive || legacyThinkingLive
-  const prevThinkingLive = useRef(anyThinkingLive)
-  useEffect(() => {
-    const isLive = anyThinkingLive
-    if (prevThinkingLive.current && !isLive && hasAnyThinking) {
-      setCollapsed(true)
-      if (thinkingStartedAt) {
-        setElapsedSeconds(Math.round((Date.now() - thinkingStartedAt) / 1000))
-      }
-    }
-    prevThinkingLive.current = isLive
-  }, [anyThinkingLive, hasAnyThinking, thinkingStartedAt])
 
   const visibleSteps = steps.filter((step) => step.kind !== 'finished')
   const textEntries = narratives ?? []
@@ -514,6 +706,55 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
   const subAgentCount = subAgents?.length ?? 0
   const fileOpCount = fileOps?.length ?? 0
   const webFetchCount = webFetches?.length ?? 0
+  const effectiveStepCount = visibleSteps.length || (codeExecCount + subAgentCount + fileOpCount + webFetchCount)
+  const hasThinkingOnly = hasAnyThinking && effectiveStepCount === 0 && sources.length === 0
+
+  /** 流式中展开；仅 thinking 无工具：后无正文时默认展开，已有正文段则默认收起 */
+  const [collapsed, setCollapsed] = useState(() => {
+    if (!isComplete) return false
+    if (thinkingRowList.some((r) => r.live) || legacyThinkingLive) return false
+    if (hasThinkingOnly) {
+      return !!trailingAssistantTextPresent
+    }
+    return true
+  })
+
+  /** 用户点过标题栏折叠开关后，不再用自动收起覆盖其选择 */
+  const userToggledCollapsedRef = useRef(false)
+
+  const prevCompleteRef = useRef<boolean | undefined>(undefined)
+  useEffect(() => {
+    if (userToggledCollapsedRef.current) {
+      prevCompleteRef.current = isComplete
+      return
+    }
+    if (prevCompleteRef.current === undefined) {
+      prevCompleteRef.current = isComplete
+      return
+    }
+    if (!prevCompleteRef.current && isComplete) {
+      setCollapsed(true)
+    }
+    prevCompleteRef.current = isComplete
+  }, [isComplete])
+
+  useEffect(() => {
+    if (userToggledCollapsedRef.current) return
+    if (trailingAssistantTextPresent) setCollapsed(true)
+  }, [trailingAssistantTextPresent])
+
+  const aggregatedDurationSec = useMemo(() => {
+    let sum = 0
+    for (const r of thinkingRowList) {
+      const d = r.durationSec
+      if (typeof d === 'number' && d > 0) sum += d
+    }
+    if (legacyThinkingVisible && thinkingRowList.length === 0) {
+      sum += initialThinkingElapsedSec(thinkingStartedAt, [], assistantThinking ?? null)
+    }
+    return sum
+  }, [thinkingRowList, legacyThinkingVisible, thinkingStartedAt, assistantThinking])
+
   const [hovered, setHovered] = useState(false)
   if (
     visibleSteps.length === 0 &&
@@ -530,7 +771,7 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
   }
 
   type UEntry =
-    | { kind: 'thinking'; id: string; seq: number; item: { markdown: string; live: boolean } }
+    | { kind: 'thinking'; id: string; seq: number; item: { markdown: string; live: boolean; durationSec?: number } }
     | { kind: 'copinline'; id: string; seq: number; item: { text: string; live: boolean } }
     | { kind: 'step'; id: string; seq: number; item: WebSearchPhaseStep }
     | { kind: 'text'; id: string; seq: number; item: SearchNarrative }
@@ -563,7 +804,7 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
       kind: 'thinking',
       id: row.id,
       seq: row.seq,
-      item: { markdown: row.markdown, live: !!row.live },
+      item: { markdown: row.markdown, live: !!row.live, durationSec: row.durationSec },
     })
   }
   for (const row of copInlineList) {
@@ -575,11 +816,20 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
     })
   }
   if (legacyThinkingVisible) {
+    const legacyDurationSec = initialThinkingElapsedSec(
+      thinkingStartedAt,
+      thinkingRowList,
+      assistantThinking ?? null,
+    )
     allUnified.push({
       kind: 'thinking',
       id: '_assistant_thinking',
       seq: Number.MIN_SAFE_INTEGER,
-      item: { markdown: assistantThinking!.markdown, live: !!assistantThinking!.live },
+      item: {
+        markdown: assistantThinking!.markdown,
+        live: !!assistantThinking!.live,
+        durationSec: legacyDurationSec,
+      },
     })
   }
   const totalUnifiableItems =
@@ -608,12 +858,19 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
     allUnified.sort((a, b) => a.seq - b.seq || priority[a.kind] - priority[b.kind] || a.id.localeCompare(b.id))
   }
 
-  const effectiveStepCount = visibleSteps.length || (codeExecCount + subAgentCount + fileOpCount + webFetchCount)
-  const hasThinkingOnly = hasAnyThinking && effectiveStepCount === 0 && sources.length === 0
+  const thinkingOnlyUnified =
+    useUnified &&
+    allUnified.length > 0 &&
+    copInlineList.length === 0 &&
+    allUnified.every((e) => e.kind === 'thinking')
+
+  /** 仅 thinking、无工具：流式结束后内层不再用折叠卡片，避免与标题重复「Thought for Xs」 */
+  const thinkingOnlyCompletedPlain =
+    thinkingOnlyUnified && isComplete && !anyThinkingLive && hasThinkingOnly
 
   const thoughtDurationLabel =
-    elapsedSeconds > 0
-      ? t.copTimelineThoughtForSeconds(elapsedSeconds)
+    aggregatedDurationSec > 0
+      ? t.copTimelineThoughtForSeconds(aggregatedDurationSec)
       : t.copTimelineThinkingDoneNoDuration
 
   const autoLabel = isComplete
@@ -629,17 +886,29 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
       : effectiveStepCount > 0
         ? t.copTimelineLiveProgress
         : hasThinkingOnly
-          ? t.assistantCopDefaultTitle
+          ? (anyThinkingLive
+              ? t.copThinkingInlineTitle
+              : (aggregatedDurationSec > 0 ? thoughtDurationLabel : t.copTimelineThinkingDoneNoDuration))
           : 'Searching...'
 
   const headerLabel = headerOverride ?? autoLabel
   const dottedStepCount = visibleSteps.length
 
   return (
-    <div className="cop-timeline-root" style={{ maxWidth: '663px' }}>
+    <div
+      className="cop-timeline-root"
+      style={{
+        maxWidth: '663px',
+        ...(marginBottomPx != null && marginBottomPx > 0 ? { marginBottom: marginBottomPx } : {}),
+      }}
+    >
       <button
         type="button"
-        onClick={() => { if (!hasContent && isComplete) return; setCollapsed((p) => !p) }}
+        onClick={() => {
+          if (!hasContent && isComplete) return
+          userToggledCollapsedRef.current = true
+          setCollapsed((p) => !p)
+        }}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
         style={{
@@ -658,6 +927,9 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
           fontSize: '13px',
           fontWeight: 400,
           transition: 'color 0.15s ease',
+          maxWidth: '100%',
+          minWidth: 0,
+          alignSelf: 'stretch',
         }}
       >
         <CopTimelineHeaderLabel text={headerLabel} live={!!live} shimmer={!!shimmer} />
@@ -889,7 +1161,26 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
                           </div>
                         )}
                         {entry.kind === 'thinking' && (
-                          <AssistantThinkingMarkdown markdown={entry.item.markdown} live={entry.item.live} />
+                          thinkingOnlyCompletedPlain ? (
+                            <div
+                              style={{
+                                paddingTop: Math.max(
+                                  0,
+                                  COP_TIMELINE_DOT_TOP +
+                                    COP_TIMELINE_DOT_SIZE / 2 -
+                                    COP_TIMELINE_THINKING_PLAIN_LINE_HEIGHT_PX / 2,
+                                ),
+                              }}
+                            >
+                              <AssistantThinkingMarkdown markdown={entry.item.markdown} live={false} variant="timeline-plain" />
+                            </div>
+                          ) : (
+                            <CopThinkingBlock
+                              markdown={entry.item.markdown}
+                              live={entry.item.live}
+                              thoughtDurationSeconds={entry.item.durationSec ?? 0}
+                            />
+                          )
                         )}
                         {entry.kind === 'copinline' && (
                           <TimelineNarrativeBody text={entry.item.text} tone="primary" live={entry.item.live} />

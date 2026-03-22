@@ -53,7 +53,7 @@ func NewMemoryProviderFactory() *MemoryProviderFactory {
 }
 
 func (f *MemoryProviderFactory) Resolve(snapshot sharedtoolruntime.RuntimeSnapshot) memorypkg.MemoryProvider {
-	if f == nil || snapshot.MemoryBaseURL == "" || snapshot.MemoryRootAPIKey == "" {
+	if f == nil || snapshot.MemoryBaseURL == "" {
 		return nil
 	}
 	key := snapshot.MemoryBaseURL + "|" + hashString(snapshot.MemoryRootAPIKey)
@@ -66,6 +66,9 @@ func (f *MemoryProviderFactory) Resolve(snapshot sharedtoolruntime.RuntimeSnapsh
 		BaseURL:    snapshot.MemoryBaseURL,
 		RootAPIKey: snapshot.MemoryRootAPIKey,
 	})
+	if provider == nil {
+		return nil
+	}
 	f.byID[key] = provider
 	return provider
 }
@@ -86,7 +89,7 @@ func NewMemoryExecutorFactory(pool *pgxpool.Pool, snapshots MemorySnapshotAppend
 }
 
 func (f *MemoryExecutorFactory) Resolve(snapshot sharedtoolruntime.RuntimeSnapshot, provider memorypkg.MemoryProvider) *memorytool.ToolExecutor {
-	if f == nil || provider == nil || snapshot.MemoryBaseURL == "" || snapshot.MemoryRootAPIKey == "" {
+	if f == nil || provider == nil || snapshot.MemoryBaseURL == "" {
 		return nil
 	}
 	key := snapshot.MemoryBaseURL + "|" + hashString(snapshot.MemoryRootAPIKey)

@@ -118,6 +118,7 @@ function normalizeMemory(raw: unknown): MemoryConfig {
     // default true to avoid breaking existing installs without the field
     enabled: r.enabled === false ? false : true,
     provider: normalizeMemoryProvider(r.provider),
+    memoryCommitEachTurn: r.memoryCommitEachTurn === false ? false : true,
     openviking: normalizeOpenVikingConfig(r.openviking),
   }
 }

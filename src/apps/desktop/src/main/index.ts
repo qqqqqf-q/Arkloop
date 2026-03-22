@@ -279,7 +279,7 @@ app.whenReady().then(async () => {
   registerIpcHandlers(getWindow, {
     applyConfigUpdate,
     restartLocalSidecar,
-    getSidecarRuntime,
+    getSidecarRuntime: async () => getSidecarRuntime(),
   })
 
   const config = loadConfig()

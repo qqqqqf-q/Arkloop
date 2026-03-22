@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ACP_DELEGATE_LAYER } from '@arkloop/shared'
 import {
   assistantTurnPlainText,
@@ -23,7 +23,24 @@ function ev(runId: string, seq: number, type: string, data?: unknown, errorClass
   }
 }
 
+const FINALIZE_NOW_MS = Date.parse('2026-03-21T00:00:00.000Z')
+const evMs = (seq: number) => Date.parse(`2026-03-20T00:00:${String(seq).padStart(2, '0')}.000Z`)
+
+function th(content: string, seq: number, endedByEventSeq?: number) {
+  const startedAtMs = evMs(seq)
+  const endedAtMs = endedByEventSeq == null ? FINALIZE_NOW_MS : evMs(endedByEventSeq)
+  return { kind: 'thinking' as const, content, seq, startedAtMs, endedAtMs }
+}
+
 describe('buildAssistantTurnFromRunEvents', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(FINALIZE_NOW_MS)
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   it('requestAssistantTurnThinkingBreak 将连续 thinking 拆成多项', () => {
     const state = createEmptyAssistantTurnFoldState()
     foldAssistantTurnEvent(state, ev('r1', 1, 'message.delta', { role: 'assistant', channel: 'thinking', content_delta: 'a' }))
@@ -34,10 +51,7 @@ describe('buildAssistantTurnFromRunEvents', () => {
       {
         type: 'cop',
         title: null,
-        items: [
-          { kind: 'thinking', content: 'a', seq: 1 },
-          { kind: 'thinking', content: 'b', seq: 2 },
-        ],
+        items: [th('a', 1), th('b', 2)],
       },
     ])
   })
@@ -50,7 +64,7 @@ describe('buildAssistantTurnFromRunEvents', () => {
     expect(turn.segments).toEqual([{ type: 'text', content: 'ab' }])
   })
 
-  it('thinking 后短正文并入同一段 cop（不 flush 成独立 text）', () => {
+  it('thinking 后主通道正文独立成 text 段（不并进 COP 时间轴）', () => {
     const turn = buildAssistantTurnFromRunEvents([
       ev('r1', 1, 'message.delta', { role: 'assistant', channel: 'thinking', content_delta: 't1' }),
       ev('r1', 2, 'message.delta', { role: 'assistant', content_delta: 'visible' }),
@@ -59,15 +73,13 @@ describe('buildAssistantTurnFromRunEvents', () => {
       {
         type: 'cop',
         title: null,
-        items: [
-          { kind: 'thinking', content: 't1', seq: 1 },
-          { kind: 'assistant_text', content: 'visible', seq: 2 },
-        ],
+        items: [th('t1', 1)],
       },
+      { type: 'text', content: 'visible' },
     ])
   })
 
-  it('工具后 thinking 与 tool 同一段 cop；首个 tool 前短正文留在上一段 cop', () => {
+  it('工具后 thinking：thinking 与 tool 前短句分段，首个 tool 起新 cop', () => {
     const turn = buildAssistantTurnFromRunEvents([
       ev('r1', 1, 'message.delta', { role: 'assistant', channel: 'thinking', content_delta: 'a' }),
       ev('r1', 2, 'message.delta', { role: 'assistant', content_delta: 'hi' }),
@@ -80,15 +92,19 @@ describe('buildAssistantTurnFromRunEvents', () => {
       {
         type: 'cop',
         title: null,
+        items: [th('a', 1)],
+      },
+      { type: 'text', content: 'hi' },
+      {
+        type: 'cop',
+        title: null,
         items: [
-          { kind: 'thinking', content: 'a', seq: 1 },
-          { kind: 'assistant_text', content: 'hi', seq: 2 },
           {
             kind: 'call',
-            call: { toolCallId: 'c1', toolName: 'read_file', arguments: {}, result: {} },
+            call: { toolCallId: 'c1', toolName: 'read_file', arguments: {}, result: {}, errorClass: undefined },
             seq: 3,
           },
-          { kind: 'thinking', content: 'b', seq: 5 },
+          th('b', 5),
         ],
       },
       { type: 'text', content: 'bye' },
@@ -96,7 +112,7 @@ describe('buildAssistantTurnFromRunEvents', () => {
     expect(assistantTurnPlainText(turn)).toBe('hibye')
   })
 
-  it('thinking、短可见句与首个 tool 同一段 cop', () => {
+  it('thinking 后短句与首个 tool：短句为独立 text，tool 为下一段 cop', () => {
     const turn = buildAssistantTurnFromRunEvents([
       ev('r1', 1, 'message.delta', { role: 'assistant', channel: 'thinking', content_delta: 'plan' }),
       ev('r1', 2, 'message.delta', { role: 'assistant', content_delta: '我来查一下。' }),
@@ -106,12 +122,22 @@ describe('buildAssistantTurnFromRunEvents', () => {
       {
         type: 'cop',
         title: null,
+        items: [th('plan', 1)],
+      },
+      { type: 'text', content: '我来查一下。' },
+      {
+        type: 'cop',
+        title: null,
         items: [
-          { kind: 'thinking', content: 'plan', seq: 1 },
-          { kind: 'assistant_text', content: '我来查一下。', seq: 2 },
           {
             kind: 'call',
-            call: { toolCallId: 'c1', toolName: 'read_file', arguments: {}, result: undefined },
+            call: {
+              toolCallId: 'c1',
+              toolName: 'read_file',
+              arguments: {},
+              result: undefined,
+              errorClass: undefined,
+            },
             seq: 3,
           },
         ],
@@ -129,7 +155,7 @@ describe('buildAssistantTurnFromRunEvents', () => {
         type: 'cop',
         title: null,
         items: [
-          { kind: 'thinking', content: 'plan', seq: 1 },
+          th('plan', 1, 2),
           {
             kind: 'call',
             call: { toolCallId: 'c1', toolName: 'read_file', arguments: {}, result: undefined },

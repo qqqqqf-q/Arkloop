@@ -16,7 +16,7 @@ import type { AppConfig, ApplyConfigUpdateOptions, ConnectorsConfig, MemoryConfi
 type DesktopController = {
   applyConfigUpdate: (config: AppConfig, options?: ApplyConfigUpdateOptions) => Promise<AppConfig>
   restartLocalSidecar: () => Promise<SidecarRuntime>
-  getSidecarRuntime: () => SidecarRuntime
+  getSidecarRuntime: () => Promise<SidecarRuntime>
 }
 
 export function registerIpcHandlers(
@@ -49,9 +49,7 @@ export function registerIpcHandlers(
     return getSidecarStatus()
   })
 
-  ipcMain.handle('arkloop:sidecar:runtime', () => {
-    return controller.getSidecarRuntime()
-  })
+  ipcMain.handle('arkloop:sidecar:runtime', async () => controller.getSidecarRuntime())
 
   ipcMain.handle('arkloop:sidecar:restart', async () => {
     await controller.restartLocalSidecar()

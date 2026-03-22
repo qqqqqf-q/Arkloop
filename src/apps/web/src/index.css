@@ -571,36 +571,25 @@ button:not(:disabled) {
   margin-bottom: 0 !important;
 }
 
-/*
- * COP 时间轴根：thinking 与工具行字重对齐（--c-cop-inline-weight），工具字色更浅、thinking 更深（随浅/深主题对调 token）。
- * MarkdownRenderer 在 p/ul/ol 上有内联样式，需 !important。
- */
+/* COP 时间轴根：thinking 预览与工具触发器字重（--c-cop-inline-weight）；工具字色更浅。 */
 .cop-timeline-root {
   --c-cop-inline-weight: 275;
   /* 等宽预览行：多数 mono 无 275，会落到 400，和 thinking 的 sans 275 不对齐 */
   --c-cop-tool-mono-preview-weight: 250;
   /* 默认按本站首段 :root = 深色 */
   --c-cop-tool-trigger-fg: var(--c-text-tertiary);
+  --c-cop-think-label-size: 11px;
+  --c-cop-think-label-lh: 16px;
+  --c-cop-think-label-fg: var(--c-text-muted);
+  --c-cop-think-card-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 }
-.cop-timeline-root .cop-timeline-thinking-wrap {
-  --c-cop-thinking-fg: var(--c-text-muted);
-  --c-cop-thinking-size: 13px;
-  --c-cop-thinking-weight: var(--c-cop-inline-weight);
-}
-
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]) .cop-timeline-root {
     --c-cop-tool-trigger-fg: var(--c-text-muted);
   }
-  :root:not([data-theme="dark"]) .cop-timeline-root .cop-timeline-thinking-wrap {
-    --c-cop-thinking-fg: var(--c-text-tertiary);
-  }
 }
 :root[data-theme="light"] .cop-timeline-root {
   --c-cop-tool-trigger-fg: var(--c-text-muted);
-}
-:root[data-theme="light"] .cop-timeline-root .cop-timeline-thinking-wrap {
-  --c-cop-thinking-fg: var(--c-text-tertiary);
 }
 
 .cop-timeline-root .shell-exec-trigger > span:first-of-type {
@@ -620,68 +609,218 @@ button:not(:disabled) {
   font-weight: var(--c-cop-inline-weight) !important;
   color: var(--c-cop-tool-trigger-fg) !important;
 }
-.cop-timeline-thinking-placeholder {
+.cop-timeline-root .cop-thinking-preview-placeholder {
+  font-size: var(--c-cop-think-label-size);
+  line-height: var(--c-cop-think-label-lh);
+  font-weight: var(--c-cop-inline-weight, 275);
+  color: var(--c-cop-think-label-fg);
+}
+.cop-timeline-root .cop-thinking-output-md {
+  min-width: 0;
+}
+.cop-timeline-root .cop-thinking-output-placeholder {
   display: inline-block;
-  font-size: var(--c-cop-thinking-size);
-  line-height: 1.55;
-  font-weight: var(--c-cop-thinking-weight);
-  color: var(--c-cop-thinking-fg);
+  font-family: var(--c-cop-think-card-mono);
+  font-size: 10.5px;
+  line-height: 1.4;
+  font-weight: 400;
+  color: var(--c-text-secondary);
 }
-.cop-timeline-thinking-body .md-content {
-  font-size: var(--c-cop-thinking-size) !important;
-  line-height: 1.55 !important;
-  font-weight: var(--c-cop-thinking-weight) !important;
-  color: var(--c-cop-thinking-fg) !important;
-}
-.cop-timeline-thinking-body .md-content p,
-.cop-timeline-thinking-body .md-content li,
-.cop-timeline-thinking-body .md-content ul,
-.cop-timeline-thinking-body .md-content ol,
-.cop-timeline-thinking-body .md-content td,
-.cop-timeline-thinking-body .md-content th {
-  color: var(--c-cop-thinking-fg) !important;
-  font-size: var(--c-cop-thinking-size) !important;
-  font-weight: var(--c-cop-thinking-weight) !important;
-  line-height: 1.55 !important;
-}
-.cop-timeline-thinking-body .md-content h1 {
-  color: var(--c-cop-thinking-fg) !important;
-  font-size: 15px !important;
-  font-weight: 300 !important;
+
+/* Think 卡片正文：对齐 shell 输出区（ExecutionCard output pre） */
+.cop-timeline-root .cop-thinking-output-md .md-content {
+  font-family: var(--c-cop-think-card-mono) !important;
+  font-size: 10.5px !important;
   line-height: 1.4 !important;
+  font-weight: 400 !important;
+  color: var(--c-text-secondary) !important;
 }
-.cop-timeline-thinking-body .md-content h2 {
-  color: var(--c-cop-thinking-fg) !important;
-  font-size: 14.5px !important;
-  font-weight: 300 !important;
+.cop-timeline-root .cop-thinking-output-md .md-content p,
+.cop-timeline-root .cop-thinking-output-md .md-content li,
+.cop-timeline-root .cop-thinking-output-md .md-content ul,
+.cop-timeline-root .cop-thinking-output-md .md-content ol,
+.cop-timeline-root .cop-thinking-output-md .md-content td,
+.cop-timeline-root .cop-thinking-output-md .md-content th {
+  font-size: 10.5px !important;
   line-height: 1.4 !important;
+  font-weight: 400 !important;
+  color: var(--c-text-secondary) !important;
 }
-.cop-timeline-thinking-body .md-content h3,
-.cop-timeline-thinking-body .md-content h4,
-.cop-timeline-thinking-body .md-content h5,
-.cop-timeline-thinking-body .md-content h6 {
-  color: var(--c-cop-thinking-fg) !important;
-  font-size: 14px !important;
-  font-weight: 300 !important;
+.cop-timeline-root .cop-thinking-output-md .md-content h1 {
+  font-size: 12px !important;
+  line-height: 1.35 !important;
+  font-weight: 400 !important;
+  color: var(--c-text-primary) !important;
+}
+.cop-timeline-root .cop-thinking-output-md .md-content h2 {
+  font-size: 11.5px !important;
+  line-height: 1.35 !important;
+  font-weight: 400 !important;
+  color: var(--c-text-primary) !important;
+}
+.cop-timeline-root .cop-thinking-output-md .md-content h3,
+.cop-timeline-root .cop-thinking-output-md .md-content h4,
+.cop-timeline-root .cop-thinking-output-md .md-content h5,
+.cop-timeline-root .cop-thinking-output-md .md-content h6 {
+  font-size: 11px !important;
   line-height: 1.4 !important;
+  font-weight: 400 !important;
+  color: var(--c-text-primary) !important;
 }
-.cop-timeline-thinking-body .md-content blockquote {
-  color: var(--c-cop-thinking-fg) !important;
-  font-size: var(--c-cop-thinking-size) !important;
-  font-weight: var(--c-cop-thinking-weight) !important;
+.cop-timeline-root .cop-thinking-output-md .md-content blockquote {
+  font-size: 10.5px !important;
+  line-height: 1.4 !important;
+  font-weight: 400 !important;
+  color: var(--c-text-muted) !important;
 }
-.cop-timeline-thinking-body .md-content strong {
-  color: var(--c-cop-thinking-fg) !important;
-  font-weight: 325 !important;
+.cop-timeline-root .cop-thinking-output-md .md-content strong {
+  color: var(--c-text-primary) !important;
+  font-weight: 500 !important;
 }
-.cop-timeline-thinking-body .md-content em {
-  color: var(--c-cop-thinking-fg) !important;
-  font-weight: var(--c-cop-thinking-weight) !important;
+.cop-timeline-root .cop-thinking-output-md .md-content em {
+  color: var(--c-text-muted) !important;
+  font-weight: 400 !important;
 }
-.cop-timeline-thinking-body .md-content a {
-  color: color-mix(in srgb, var(--c-cop-thinking-fg) 75%, var(--c-text-secondary) 25%) !important;
+.cop-timeline-root .cop-thinking-output-md .md-content a {
   font-size: inherit !important;
-  font-weight: var(--c-cop-thinking-weight) !important;
+  font-weight: 400 !important;
+  color: var(--c-text-secondary) !important;
+}
+.cop-timeline-root .cop-thinking-output-md .md-content :not(pre) > code {
+  font-size: 0.95em !important;
+}
+
+/* 时间轴内仅 thinking 完结直出：略小于正文、字色偏淡，行高与圆点对齐 */
+.cop-timeline-root .cop-thinking-output-md--timeline-plain .md-content {
+  font-size: 13px !important;
+  line-height: 18px !important;
+  color: var(--c-text-tertiary) !important;
+}
+.cop-timeline-root .cop-thinking-output-md--timeline-plain .md-content > :first-child {
+  margin-top: 0 !important;
+}
+.cop-timeline-root .cop-thinking-output-md--timeline-plain .md-content p,
+.cop-timeline-root .cop-thinking-output-md--timeline-plain .md-content li,
+.cop-timeline-root .cop-thinking-output-md--timeline-plain .md-content ul,
+.cop-timeline-root .cop-thinking-output-md--timeline-plain .md-content ol,
+.cop-timeline-root .cop-thinking-output-md--timeline-plain .md-content td,
+.cop-timeline-root .cop-thinking-output-md--timeline-plain .md-content th {
+  font-size: 13px !important;
+  line-height: 18px !important;
+  color: var(--c-text-tertiary) !important;
+}
+.cop-timeline-root .cop-thinking-output-md--timeline-plain .md-content h1 {
+  font-size: 15px !important;
+  line-height: 20px !important;
+  color: var(--c-text-secondary) !important;
+}
+.cop-timeline-root .cop-thinking-output-md--timeline-plain .md-content h2 {
+  font-size: 14px !important;
+  line-height: 19px !important;
+  color: var(--c-text-secondary) !important;
+}
+.cop-timeline-root .cop-thinking-output-md--timeline-plain .md-content h3,
+.cop-timeline-root .cop-thinking-output-md--timeline-plain .md-content h4,
+.cop-timeline-root .cop-thinking-output-md--timeline-plain .md-content h5,
+.cop-timeline-root .cop-thinking-output-md--timeline-plain .md-content h6 {
+  font-size: 13px !important;
+  line-height: 18px !important;
+  color: var(--c-text-secondary) !important;
+}
+.cop-timeline-root .cop-thinking-output-md--timeline-plain .md-content blockquote {
+  font-size: 13px !important;
+  line-height: 18px !important;
+  color: var(--c-text-muted) !important;
+}
+.cop-timeline-root .cop-thinking-output-md--timeline-plain .md-content strong {
+  color: var(--c-text-secondary) !important;
+}
+.cop-timeline-root .cop-thinking-output-md--timeline-plain .md-content em {
+  color: var(--c-text-muted) !important;
+}
+.cop-timeline-root .cop-thinking-output-md--timeline-plain .md-content a {
+  color: var(--c-text-tertiary) !important;
+}
+
+.cop-timeline-root .cop-thinking-preview-scroll {
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+.cop-timeline-root .cop-thinking-preview-scroll::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+.cop-timeline-root .cop-thinking-preview-scroll-inner {
+  display: inline-block;
+  white-space: nowrap;
+  font-family: var(--c-cop-think-card-mono);
+  font-size: var(--c-cop-think-label-size);
+  line-height: var(--c-cop-think-label-lh);
+  color: var(--c-cop-think-label-fg);
+  font-weight: var(--c-cop-inline-weight, 275);
+}
+.cop-timeline-root .cop-thinking-preview-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  padding: 2px 0;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.cop-timeline-root .cop-thinking-preview-title {
+  flex-shrink: 0;
+  font-size: var(--c-cop-think-label-size);
+  line-height: var(--c-cop-think-label-lh);
+  font-weight: var(--c-cop-inline-weight, 275);
+  color: var(--c-cop-think-label-fg);
+}
+.cop-timeline-root .cop-thinking-card-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 0;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  width: fit-content;
+  max-width: 100%;
+  background: transparent;
+  border: none;
+}
+.cop-timeline-root .cop-thinking-card-trigger-label {
+  font-size: 11px;
+  line-height: 16px;
+  font-weight: var(--c-cop-inline-weight, 275);
+  color: var(--c-text-muted);
+}
+.cop-timeline-root .cop-thinking-card-outer {
+  border-radius: 8px;
+  background: var(--c-attachment-bg);
+  overflow: hidden;
+  margin-top: 4px;
+}
+.cop-timeline-root .cop-thinking-card-label {
+  padding: 6px 10px 2px;
+  font-size: 10px;
+  color: var(--c-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-family: var(--c-cop-think-card-mono);
+  font-weight: var(--c-cop-inline-weight, 275);
+}
+.cop-timeline-root .cop-thinking-card-scroll {
+  max-height: 240px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 4px 10px 8px;
+  scrollbar-gutter: stable;
 }
 
 .md-content--compact .md-table {

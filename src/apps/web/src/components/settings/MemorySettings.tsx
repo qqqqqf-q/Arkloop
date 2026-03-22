@@ -886,8 +886,41 @@ export function MemorySettings({ accessToken }: Props) {
           </div>
 
           {/* ── OpenViking section ── */}
-          {!isLocal && (
+          {!isLocal && memConfig && (
             <div className="flex flex-col gap-4">
+              <div className="flex flex-col gap-2">
+                <p className="text-xs font-medium text-[var(--c-text-tertiary)]">{ds.memorySummarizeSectionTitle}</p>
+                <div
+                  className="flex items-center justify-between rounded-xl px-4 py-3"
+                  style={{ border: '1px solid var(--c-border-subtle)', background: 'var(--c-bg-menu)' }}
+                >
+                  <div className="flex-1 pr-4">
+                    <p className="text-sm font-medium text-[var(--c-text-heading)]">{ds.memoryAutoSummarizeLabel}</p>
+                    <p className="text-xs text-[var(--c-text-muted)]">{ds.memoryAutoSummarizeDesc}</p>
+                  </div>
+                  <label className="relative inline-flex shrink-0 cursor-pointer items-center">
+                    <input
+                      type="checkbox"
+                      checked={memConfig.memoryCommitEachTurn !== false}
+                      onChange={(e) => void saveConfig({ ...memConfig, memoryCommitEachTurn: e.target.checked })}
+                      className="peer sr-only"
+                    />
+                    <span
+                      className="h-5 w-9 rounded-full transition-colors"
+                      style={{
+                        background: memConfig.memoryCommitEachTurn !== false ? 'var(--c-btn-bg)' : 'var(--c-border-mid)',
+                      }}
+                    />
+                    <span
+                      className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full transition-transform peer-checked:translate-x-4"
+                      style={{
+                        background: memConfig.memoryCommitEachTurn !== false ? 'var(--c-btn-text)' : 'var(--c-bg-page)',
+                      }}
+                    />
+                  </label>
+                </div>
+              </div>
+
               {bridgeError && (
                 <div className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm" style={{ background: 'rgba(239,68,68,0.08)', color: '#ef4444' }}>
                   <XCircle size={14} />{bridgeError}

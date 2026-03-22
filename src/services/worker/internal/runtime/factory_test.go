@@ -33,3 +33,19 @@ func TestMemoryProviderFactory_ReusesBySignature(t *testing.T) {
 		t.Fatal("expected provider to switch after signature change")
 	}
 }
+
+func TestMemoryProviderFactory_URLWithoutKey(t *testing.T) {
+	factory := NewMemoryProviderFactory()
+	snapshot := sharedtoolruntime.RuntimeSnapshot{
+		MemoryBaseURL:    "http://memory.internal",
+		MemoryRootAPIKey: "",
+	}
+	p := factory.Resolve(snapshot)
+	if p == nil {
+		t.Fatal("expected provider with base URL only")
+	}
+	again := factory.Resolve(snapshot)
+	if again != p {
+		t.Fatal("expected same cached provider")
+	}
+}

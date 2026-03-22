@@ -89,6 +89,7 @@ func (e *SimpleExecutor) Execute(
 			return ctx.Err() != nil
 		},
 		StreamThinking: rc.StreamThinking,
+		PipelineRC:     rc,
 	}
 
 	loop := agent.NewLoop(rc.Gateway, rc.ToolExecutor)

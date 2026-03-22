@@ -187,6 +187,15 @@ func loadSinglePersona(yamlPath string) (Definition, error) {
 		return Definition{}, err
 	}
 
+	hbEnabled, hbInterval, err := parseHeartbeatBlock(obj["heartbeat"])
+	if err != nil {
+		return Definition{}, err
+	}
+	hbMD, err := loadOptionalPersonaMarkdown(personaDir, "heartbeat.md", false, "heartbeat.md")
+	if err != nil {
+		return Definition{}, err
+	}
+
 	return Definition{
 		ID:                  personaID,
 		Version:             version,
@@ -214,7 +223,38 @@ func loadSinglePersona(yamlPath string) (Definition, error) {
 		IsSystem:                asOptionalBool(obj["is_system"]),
 		IsBuiltin:               asOptionalBool(obj["is_builtin"]),
 		AllowPlatformDelegation: asOptionalBool(obj["allow_platform_delegation"]),
+
+		HeartbeatEnabled:         hbEnabled,
+		HeartbeatIntervalMinutes: hbInterval,
+		HeartbeatMD:              hbMD,
 	}, nil
+}
+
+// parseHeartbeatBlock 解析 persona.yaml 中的 heartbeat: 块。
+// 返回 (enabled, intervalMinutes, error)。
+func parseHeartbeatBlock(value any) (bool, int, error) {
+	if value == nil {
+		return false, 0, nil
+	}
+	m, ok := value.(map[string]any)
+	if !ok {
+		return false, 0, fmt.Errorf("heartbeat must be an object")
+	}
+	enabled := asOptionalBool(m["enabled"])
+	interval := 0
+	if raw, exists := m["interval_minutes"]; exists && raw != nil {
+		p, err := asOptionalInt(raw, "heartbeat.interval_minutes")
+		if err != nil {
+			return false, 0, err
+		}
+		if p != nil {
+			if *p <= 0 {
+				return false, 0, fmt.Errorf("heartbeat.interval_minutes must be a positive integer")
+			}
+			interval = *p
+		}
+	}
+	return enabled, interval, nil
 }
 
 func loadRequiredPersonaMarkdown(path string, label string) (string, error) {
@@ -647,6 +687,12 @@ func mergeDefinition(base Definition, override Definition) Definition {
 	merged.AllowPlatformDelegation = base.AllowPlatformDelegation
 	if len(merged.CoreTools) == 0 {
 		merged.CoreTools = base.CoreTools
+	}
+	// heartbeat 配置和任务清单 DB 无对应列，始终保留文件系统值
+	merged.HeartbeatEnabled = base.HeartbeatEnabled
+	merged.HeartbeatIntervalMinutes = base.HeartbeatIntervalMinutes
+	if strings.TrimSpace(merged.HeartbeatMD) == "" {
+		merged.HeartbeatMD = base.HeartbeatMD
 	}
 	return merged
 }

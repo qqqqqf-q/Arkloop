@@ -26,7 +26,8 @@ const personaSelectSQL = `SELECT persona_key, version, display_name, description
 	        prompt_md, tool_allowlist, tool_denylist, COALESCE(core_tools, '[]'), budgets_json,
 	        roles_json, title_summarize_json,
 	        executor_type, executor_config_json,
-	        preferred_credential, model, reasoning_mode, COALESCE(stream_thinking, 1), prompt_cache_control
+	        preferred_credential, model, reasoning_mode, COALESCE(stream_thinking, 1), prompt_cache_control,
+	        COALESCE(heartbeat_enabled, 0), COALESCE(heartbeat_interval_minutes, 30)
 	 FROM personas
 	 WHERE is_active = 1
 	 ORDER BY created_at ASC`
@@ -69,28 +70,30 @@ func scanPersonaRows(rows personaRowScanner) ([]Definition, error) {
 	var defs []Definition
 	for rows.Next() {
 		var (
-			personaKey          string
-			version             string
-			displayName         string
-			description         *string
-			soulMD              string
-			userSelectable      int
-			selectorName        *string
-			selectorOrder       *int
-			promptMD            string
-			toolAllowlistStr    string
-			toolDenylistStr     string
-			coreToolsStr        string
-			budgetsStr          string
-			rolesStr            *string
-			titleSummarizeStr   *string
-			executorType        string
-			executorConfigStr   string
-			preferredCredential *string
-			model               *string
-			reasoningMode       string
-			streamThinking      int
-			promptCacheControl  string
+			personaKey               string
+			version                  string
+			displayName              string
+			description              *string
+			soulMD                   string
+			userSelectable           int
+			selectorName             *string
+			selectorOrder            *int
+			promptMD                 string
+			toolAllowlistStr         string
+			toolDenylistStr          string
+			coreToolsStr             string
+			budgetsStr               string
+			rolesStr                 *string
+			titleSummarizeStr        *string
+			executorType             string
+			executorConfigStr        string
+			preferredCredential      *string
+			model                    *string
+			reasoningMode            string
+			streamThinking           int
+			promptCacheControl       string
+			heartbeatEnabled         int
+			heartbeatIntervalMinutes int
 		)
 		if err := rows.Scan(
 			&personaKey, &version, &displayName, &description,
@@ -99,6 +102,7 @@ func scanPersonaRows(rows personaRowScanner) ([]Definition, error) {
 			&rolesStr, &titleSummarizeStr,
 			&executorType, &executorConfigStr,
 			&preferredCredential, &model, &reasoningMode, &streamThinking, &promptCacheControl,
+			&heartbeatEnabled, &heartbeatIntervalMinutes,
 		); err != nil {
 			return nil, err
 		}
@@ -173,6 +177,9 @@ func scanPersonaRows(rows personaRowScanner) ([]Definition, error) {
 			PromptCacheControl:  normalizePersonaPromptCacheControl(strPtrOrNil(promptCacheControl)),
 			Roles:               roles,
 			TitleSummarizer:     titleSummarizer,
+
+			HeartbeatEnabled:         heartbeatEnabled != 0,
+			HeartbeatIntervalMinutes: heartbeatIntervalMinutes,
 		}
 		if description != nil && strings.TrimSpace(*description) != "" {
 			s := strings.TrimSpace(*description)

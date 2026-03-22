@@ -41,7 +41,7 @@ func TestMessagesRepository_ListByThreadDesktop_joinsOutputTokens(t *testing.T) 
 	if err := (UsageRecordsRepository{}).Insert(ctx, tx, accountID, runID, "test-model", 10, 4242, 0, 0, 0, 0.01); err != nil {
 		t.Fatalf("usage insert: %v", err)
 	}
-	if _, err = repo.InsertAssistantMessage(ctx, tx, accountID, threadID, runID, "assistant body"); err != nil {
+	if _, err = repo.InsertAssistantMessage(ctx, tx, accountID, threadID, runID, "assistant body", false); err != nil {
 		t.Fatalf("insert assistant: %v", err)
 	}
 	if err := tx.Commit(ctx); err != nil {

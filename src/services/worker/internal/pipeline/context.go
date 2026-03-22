@@ -187,4 +187,30 @@ type RunContext struct {
 	// 通过 sync.Once 保证底层 runlimit.Release 只执行一次。
 	// nil 时表示未启用（测试上下文或 sub-agent）。
 	ReleaseSlot func()
+
+	// -- LLM Heartbeat --
+	LLMHeartbeatRun      bool
+	HeartbeatToolOutcome *HeartbeatDecisionOutcome
+}
+
+// HeartbeatDecisionOutcome は heartbeat_decision tool の呼び出し結果。
+type HeartbeatDecisionOutcome struct {
+	ReplySilent bool
+	Fragments   []string
+}
+
+// SetHeartbeatDecisionOutcome implements tools/builtin/heartbeat_decision.PipelineBinding.
+func (rc *RunContext) SetHeartbeatDecisionOutcome(replySilent bool, fragments []string) {
+	if rc == nil {
+		return
+	}
+	rc.HeartbeatToolOutcome = &HeartbeatDecisionOutcome{
+		ReplySilent: replySilent,
+		Fragments:   fragments,
+	}
+}
+
+// IsHeartbeatRun implements tools/builtin/heartbeat_decision.PipelineBinding.
+func (rc *RunContext) IsHeartbeatRun() bool {
+	return rc != nil && rc.LLMHeartbeatRun
 }

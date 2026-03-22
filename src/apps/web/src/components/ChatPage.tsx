@@ -328,10 +328,18 @@ function liveTurnHasThinkingSegment(turn: AssistantTurnUi | null): boolean {
   )
 }
 
+function thinkingBlockDurationSec(
+  it: CopSegment['items'][number],
+): number {
+  if (it.kind !== 'thinking') return 0
+  if (it.startedAtMs == null || it.endedAtMs == null) return 0
+  return Math.max(0, Math.round((it.endedAtMs - it.startedAtMs) / 1000))
+}
+
 function thinkingRowsForCop(
   seg: CopSegment,
   opts: { live: boolean; segmentIndex: number; lastSegmentIndex: number },
-): Array<{ id: string; markdown: string; live?: boolean; seq: number }> {
+): Array<{ id: string; markdown: string; live?: boolean; seq: number; durationSec: number }> {
   let lastThinkIdx = -1
   for (let i = seg.items.length - 1; i >= 0; i--) {
     if (seg.items[i]?.kind === 'thinking') {
@@ -339,16 +347,21 @@ function thinkingRowsForCop(
       break
     }
   }
-  const out: Array<{ id: string; markdown: string; live?: boolean; seq: number }> = []
+  const tailKind = seg.items[seg.items.length - 1]?.kind
+  const out: Array<{ id: string; markdown: string; live?: boolean; seq: number; durationSec: number }> = []
   seg.items.forEach((it, itemIdx) => {
     if (it.kind !== 'thinking') return
     const rowLive =
-      opts.live && opts.segmentIndex === opts.lastSegmentIndex && itemIdx === lastThinkIdx
+      opts.live &&
+      opts.segmentIndex === opts.lastSegmentIndex &&
+      itemIdx === lastThinkIdx &&
+      tailKind === 'thinking'
     out.push({
       id: `think-${opts.segmentIndex}-${itemIdx}-${it.seq}`,
       markdown: it.content,
       seq: it.seq,
       live: rowLive,
+      durationSec: thinkingBlockDurationSec(it),
     })
   })
   return out
@@ -840,6 +853,16 @@ export function ChatPage() {
   useEffect(() => {
     if (!activeRunId) setCopThinkingStartedAtMs(undefined)
   }, [activeRunId])
+
+  useEffect(() => {
+    if (!activeRunId || !liveAssistantTurn) return
+    const hasThinking = liveAssistantTurn.segments.some(
+      (s) => s.type === 'cop' && s.items.some((i) => i.kind === 'thinking'),
+    )
+    if (hasThinking) {
+      setCopThinkingStartedAtMs((p) => p ?? Date.now())
+    }
+  }, [activeRunId, liveAssistantTurn])
 
   const canCancel =
     activeRunId != null &&
@@ -1435,9 +1458,8 @@ export function ChatPage() {
                   : s,
               ),
             )
-          } else {
-            setTopLevelCodeExecutions((prev) => [...prev, entry])
           }
+          setTopLevelCodeExecutions((prev) => [...prev, entry])
         }
         const browserCall = applyBrowserToolCall(currentRunBrowserActionsRef.current, event)
         if (browserCall.appended) {
@@ -2469,12 +2491,9 @@ export function ChatPage() {
 
   // COP step 计数：timeline 中所有非 finished 的点
   const dedupedTopLevelCodeExecutions = useMemo(() => {
-    const seen = new Set<string>()
-    return topLevelCodeExecutions.filter((ce) => {
-      if (seen.has(ce.id)) return false
-      seen.add(ce.id)
-      return true
-    })
+    const lastIdxById = new Map<string, number>()
+    topLevelCodeExecutions.forEach((ce, i) => lastIdxById.set(ce.id, i))
+    return topLevelCodeExecutions.filter((ce, i) => lastIdxById.get(ce.id) === i)
   }, [topLevelCodeExecutions])
 
   const allStreamItems = useMemo(() => [
@@ -2490,14 +2509,14 @@ export function ChatPage() {
   const copTimelineStreamHiddenIds = useMemo(() => {
     if (!liveAssistantTurn || liveAssistantTurn.segments.length === 0) return new Set<string>()
     return toolCallIdsInCopTimelines(liveAssistantTurn, {
-      codeExecutions: topLevelCodeExecutions,
+      codeExecutions: dedupedTopLevelCodeExecutions,
       fileOps: topLevelFileOps,
       webFetches: topLevelWebFetches,
       subAgents: topLevelSubAgents,
       searchSteps,
       sources: currentRunSourcesRef.current,
     })
-  }, [liveAssistantTurn, topLevelCodeExecutions, topLevelFileOps, topLevelWebFetches, topLevelSubAgents, searchSteps])
+  }, [liveAssistantTurn, dedupedTopLevelCodeExecutions, topLevelFileOps, topLevelWebFetches, topLevelSubAgents, searchSteps])
 
   const allStreamItemsForUi = useMemo(() => {
     if (copTimelineStreamHiddenIds.size === 0) return allStreamItems
@@ -2749,6 +2768,9 @@ export function ChatPage() {
                               return null
                             }
                             const timelineTitleOverride = seg.title?.trim() || undefined
+                            const histTrail = historicalTurn!.segments[si + 1]
+                            const histTrailingText =
+                              histTrail?.type === 'text' && histTrail.content.length > 0
                             return (
                               <Fragment key={`${msg.id}-acw-${si}`}>
                                 <CopTimeline
@@ -2764,6 +2786,8 @@ export function ChatPage() {
                                   headerOverride={timelineTitleOverride}
                                   thinkingRows={thinkingRowsHist.length > 0 ? thinkingRowsHist : undefined}
                                   copInlineTextRows={copInlineHist.length > 0 ? copInlineHist : undefined}
+                                  marginBottomPx={historicalTurn!.segments[si + 1]?.type === 'text' ? 10 : undefined}
+                                  trailingAssistantTextPresent={histTrailingText}
                                   accessToken={accessToken}
                                   baseUrl={baseUrl}
                                 />
@@ -2945,7 +2969,7 @@ export function ChatPage() {
                     ) : (
                       (() => {
                         const payload = copTimelinePayloadForSegment(seg, {
-                          codeExecutions: topLevelCodeExecutions,
+                          codeExecutions: dedupedTopLevelCodeExecutions,
                           fileOps: topLevelFileOps,
                           webFetches: topLevelWebFetches,
                           subAgents: topLevelSubAgents,
@@ -2978,6 +3002,9 @@ export function ChatPage() {
                           return null
                         }
                         const timelineTitleOverride = seg.title?.trim() || undefined
+                        const trailSeg = si + 1 <= lastSegIdx ? liveAssistantTurn.segments[si + 1] : undefined
+                        const trailingAssistantTextPresent =
+                          trailSeg?.type === 'text' && trailSeg.content.length > 0
                         return (
                           <Fragment key={`live-acw-${si}`}>
                             <CopTimeline
@@ -2996,6 +3023,8 @@ export function ChatPage() {
                                   shimmer={copTimelineLive}
                                   live={copTimelineLive}
                                   thinkingStartedAt={copThinkingStartedAtMs}
+                                  marginBottomPx={liveAssistantTurn.segments[si + 1]?.type === 'text' ? 10 : undefined}
+                                  trailingAssistantTextPresent={trailingAssistantTextPresent}
                                   accessToken={accessToken}
                                   baseUrl={baseUrl}
                             />

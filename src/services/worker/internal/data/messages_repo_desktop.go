@@ -39,6 +39,7 @@ func (MessagesRepository) InsertAssistantMessage(
 	threadID uuid.UUID,
 	runID uuid.UUID,
 	content string,
+	hidden bool,
 ) (uuid.UUID, error) {
 	if strings.TrimSpace(content) == "" {
 		return uuid.Nil, nil
@@ -55,9 +56,9 @@ func (MessagesRepository) InsertAssistantMessage(
 	err = tx.QueryRow(
 		ctx,
 		`INSERT INTO messages (
-			account_id, thread_id, created_by_user_id, role, content, metadata_json
+			account_id, thread_id, created_by_user_id, role, content, metadata_json, hidden
 		) VALUES (
-			$1, $2, NULL, $3, $4, $5::jsonb
+			$1, $2, NULL, $3, $4, $5::jsonb, $6
 		)
 		 RETURNING id`,
 		accountID,
@@ -65,6 +66,7 @@ func (MessagesRepository) InsertAssistantMessage(
 		"assistant",
 		content,
 		string(metadataRaw),
+		hidden,
 	).Scan(&messageID)
 	if err != nil {
 		return uuid.Nil, err

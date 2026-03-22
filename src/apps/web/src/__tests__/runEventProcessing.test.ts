@@ -534,6 +534,41 @@ describe('buildMessageCodeExecutionsFromRunEvents', () => {
     })
   })
 
+  it('终态同时带 running=true 与 exit_code 时应以 exit_code 为准', () => {
+    const events = [
+      makeRunEvent({
+        runId: 'run_1',
+        seq: 1,
+        type: 'tool.call',
+        data: { tool_name: 'exec_command', tool_call_id: 'call_exec', arguments: { command: 'pwd' } },
+      }),
+      makeRunEvent({
+        runId: 'run_1',
+        seq: 2,
+        type: 'tool.result',
+        data: {
+          tool_name: 'exec_command',
+          tool_call_id: 'call_exec',
+          result: {
+            session_id: 'sess_1',
+            running: true,
+            output: '/workspace\n',
+            exit_code: 0,
+          },
+        },
+      }),
+    ]
+
+    const executions = buildMessageCodeExecutionsFromRunEvents(events)
+    expect(executions).toHaveLength(1)
+    expect(executions[0]).toMatchObject({
+      id: 'call_exec',
+      language: 'shell',
+      status: 'success',
+      exitCode: 0,
+    })
+  })
+
   it('同一 run 中失败后重试成功时应保留两条状态独立的记录', () => {
     const events = [
       makeRunEvent({

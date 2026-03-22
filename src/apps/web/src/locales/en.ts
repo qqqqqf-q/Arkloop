@@ -411,6 +411,8 @@ export const en: LocaleStrings = {
   copTimelineLiveProgress: "In process",
   copTimelineThinkingDoneNoDuration: "Thought",
   copTimelineThoughtForSeconds: (sec: number) => `Thought for ${sec}s`,
+  copThinkingInlineTitle: 'Thinking',
+  copThinkCardTitle: 'Think',
   editAction: "Edit",
   // model config
   models: {
@@ -809,6 +811,10 @@ export const en: LocaleStrings = {
     // Memory enable + system selector
     memoryEnabled: "Enable Memory",
     memoryEnabledDesc: "When enabled, the AI will remember important information from conversations.",
+    memorySummarizeSectionTitle: "Memory distillation",
+    memoryAutoSummarizeLabel: "Summarize after each turn",
+    memoryAutoSummarizeDesc:
+      "Extract important information from conversations and keep it as durable memory.",
     memorySystem: "Memory System",
     memorySystemSimple: "Simple Memory",
     memorySystemSimpleDesc: "Lightweight local memory stored in SQLite. No external service required.",

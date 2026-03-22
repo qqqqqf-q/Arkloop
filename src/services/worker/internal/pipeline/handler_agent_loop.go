@@ -145,11 +145,27 @@ func NewAgentLoopHandler(
 			rc.ChannelTerminalNotice = writer.TerminalUserMessage()
 		}
 		if writer.Completed() {
-			if _, err := writer.InsertAssistantMessage(ctx, messagesRepo, rc.Run.AccountID, rc.Run.ThreadID); err != nil {
-				return err
+			skipHeartbeatInsert := false
+			if rc.LLMHeartbeatRun {
+				out := rc.HeartbeatToolOutcome
+				if out != nil && out.ReplySilent {
+					skipHeartbeatInsert = true
+				} else if out == nil && AssistantTextIsHeartbeatACK(writer.AssistantOutput()) {
+					skipHeartbeatInsert = true
+				}
 			}
-			rc.FinalAssistantOutput = writer.AssistantOutput()
-			rc.TelegramStreamDeliveryRemainder = writer.telegramStreamRemainder()
+			if !skipHeartbeatInsert {
+				if _, err := writer.InsertAssistantMessage(ctx, messagesRepo, rc.Run.AccountID, rc.Run.ThreadID, false); err != nil {
+					return err
+				}
+			}
+			if skipHeartbeatInsert {
+				rc.FinalAssistantOutput = ""
+				rc.TelegramStreamDeliveryRemainder = ""
+			} else {
+				rc.FinalAssistantOutput = writer.AssistantOutput()
+				rc.TelegramStreamDeliveryRemainder = writer.telegramStreamRemainder()
+			}
 		}
 		rc.RunToolCallCount = writer.toolCallCount
 		rc.RunIterationCount = writer.iterationCount
@@ -523,12 +539,13 @@ func (w *eventWriter) InsertAssistantMessage(
 	repo data.MessagesRepository,
 	accountID uuid.UUID,
 	threadID uuid.UUID,
+	hidden bool,
 ) (uuid.UUID, error) {
 	if err := w.ensureTx(ctx); err != nil {
 		return uuid.Nil, err
 	}
 	content := strings.Join(w.assistantDeltas, "")
-	messageID, err := repo.InsertAssistantMessage(ctx, w.tx, accountID, threadID, w.run.ID, content)
+	messageID, err := repo.InsertAssistantMessage(ctx, w.tx, accountID, threadID, w.run.ID, content, hidden)
 	if err != nil {
 		return uuid.Nil, err
 	}

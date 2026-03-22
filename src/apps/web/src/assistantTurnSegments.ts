@@ -11,7 +11,7 @@ export type TurnToolCallRef = {
 
 /** COP 段内有序项：与多 tool 同段，thinking 不单独成顶层 segment */
 export type CopBlockItem =
-  | { kind: 'thinking'; content: string; seq: number }
+  | { kind: 'thinking'; content: string; seq: number; startedAtMs?: number; endedAtMs?: number }
   | { kind: 'assistant_text'; content: string; seq: number }
   | { kind: 'call'; call: TurnToolCallRef; seq: number }
 
@@ -31,7 +31,9 @@ export type AssistantTurnFoldState = {
 
 const TIMELINE_TITLE_TOOL = 'timeline_title'
 
-/** 首个 tool 之前、可并入同一段 COP 的可见短正文累计上限（避免无工具时长文塞进 COP） */
+/**
+ * 无 tool 的 open cop 内可累计的可见短正文上限（thinking 之后的主通道正文已 flush 成 text，不进此项）。
+ */
 const MAX_COP_INLINE_ASSISTANT_CHARS = 512
 
 export function copSegmentCalls(segment: { type: 'cop'; items: CopBlockItem[] }): TurnToolCallRef[] {
@@ -52,6 +54,34 @@ function pickToolCallId(event: RunEvent): string {
 
 function sortRunEvents(events: readonly RunEvent[]): RunEvent[] {
   return [...events].sort((left, right) => left.seq - right.seq || left.ts.localeCompare(right.ts))
+}
+
+function runEventTimeMs(event: RunEvent): number {
+  const t = Date.parse(event.ts)
+  return Number.isFinite(t) ? t : Date.now()
+}
+
+/** flush / finalize：仍未结束的 thinking 用同一时刻收口 */
+function sealOpenThinkingInCop(items: CopBlockItem[], endMs: number): void {
+  for (const it of items) {
+    if (it.kind !== 'thinking' || it.endedAtMs != null) continue
+    if (it.startedAtMs == null) it.startedAtMs = endMs
+    it.endedAtMs = endMs
+  }
+}
+
+/**
+ * 新 tool call 已追加在 items 末尾时：从倒数第二项向前扫到「上一个 call」为止，
+ * 其间所有未结束的 thinking 打上 endedAt（覆盖 thinking → 短正文 → call）。
+ */
+function sealThinkingBeforeLatestCall(items: CopBlockItem[], endMs: number): void {
+  for (let i = items.length - 2; i >= 0; i--) {
+    const it = items[i]
+    if (it.kind === 'call') break
+    if (it.kind === 'thinking' && it.endedAtMs == null) {
+      it.endedAtMs = endMs
+    }
+  }
 }
 
 function extractArguments(data: unknown): Record<string, unknown> {
@@ -84,7 +114,13 @@ function cloneTurnToolCall(c: TurnToolCallRef): TurnToolCallRef {
 
 function cloneCopItem(i: CopBlockItem): CopBlockItem {
   if (i.kind === 'thinking') {
-    return { kind: 'thinking', content: i.content, seq: i.seq }
+    return {
+      kind: 'thinking',
+      content: i.content,
+      seq: i.seq,
+      ...(i.startedAtMs != null ? { startedAtMs: i.startedAtMs } : {}),
+      ...(i.endedAtMs != null ? { endedAtMs: i.endedAtMs } : {}),
+    }
   }
   if (i.kind === 'assistant_text') {
     return { kind: 'assistant_text', content: i.content, seq: i.seq }
@@ -149,6 +185,7 @@ export function foldAssistantTurnEvent(state: AssistantTurnFoldState, event: Run
   const flushCop = () => {
     if (currentCop == null) return
     if (!copIsEmpty(currentCop)) {
+      sealOpenThinkingInCop(currentCop.items, Date.now())
       segments.push({
         type: 'cop',
         title: currentCop.title,
@@ -180,7 +217,7 @@ export function foldAssistantTurnEvent(state: AssistantTurnFoldState, event: Run
     }
   }
 
-  const attachResultToCop = (toolCallId: string, toolName: string, result: unknown, errorClass?: string) => {
+    const attachResultToCop = (toolCallId: string, toolName: string, result: unknown, errorClass?: string) => {
     if (!currentCop) return
     for (const item of currentCop.items) {
       if (item.kind !== 'call') continue
@@ -189,6 +226,7 @@ export function foldAssistantTurnEvent(state: AssistantTurnFoldState, event: Run
       if (errorClass) item.call.errorClass = errorClass
       return
     }
+    const ts = runEventTimeMs(event)
     currentCop.items.push({
       kind: 'call',
       call: {
@@ -200,6 +238,7 @@ export function foldAssistantTurnEvent(state: AssistantTurnFoldState, event: Run
       },
       seq: event.seq,
     })
+    sealThinkingBeforeLatestCall(currentCop.items, ts)
   }
 
   if (event.type === 'message.delta') {
@@ -219,13 +258,15 @@ export function foldAssistantTurnEvent(state: AssistantTurnFoldState, event: Run
       const items = currentCop!.items
       const last = items[items.length - 1]
       const forceNew = state.thinkingMustBreakBeforeNext
+      const ts = runEventTimeMs(event)
       if (forceNew) {
         state.thinkingMustBreakBeforeNext = false
       }
       if (!forceNew && last?.kind === 'thinking') {
         last.content += delta
+        if (last.startedAtMs == null) last.startedAtMs = ts
       } else {
-        items.push({ kind: 'thinking', content: delta, seq: event.seq })
+        items.push({ kind: 'thinking', content: delta, seq: event.seq, startedAtMs: ts })
       }
       state.currentCop = currentCop
       return
@@ -248,6 +289,13 @@ export function foldAssistantTurnEvent(state: AssistantTurnFoldState, event: Run
     }
 
     if (currentCop != null && !hasCallsInOpenCop) {
+      const lastCopItem = currentCop.items[currentCop.items.length - 1]
+      // thinking 之后的主通道正文应是独立 text 段，不要并进 COP 时间轴（否则整段回复挂在「Thought」下面）
+      if (lastCopItem?.kind === 'thinking') {
+        appendAssistantDelta(delta)
+        state.currentCop = currentCop
+        return
+      }
       const inlineUsed = currentCop.items
         .filter((i): i is Extract<CopBlockItem, { kind: 'assistant_text' }> => i.kind === 'assistant_text')
         .reduce((n, i) => n + i.content.length, 0)
@@ -284,6 +332,7 @@ export function foldAssistantTurnEvent(state: AssistantTurnFoldState, event: Run
       return
     }
     ensureCop()
+    const ts = runEventTimeMs(event)
     currentCop!.items.push({
       kind: 'call',
       call: {
@@ -293,6 +342,7 @@ export function foldAssistantTurnEvent(state: AssistantTurnFoldState, event: Run
       },
       seq: event.seq,
     })
+    sealThinkingBeforeLatestCall(currentCop!.items, ts)
     state.thinkingMustBreakBeforeNext = true
     state.currentCop = currentCop
     return
@@ -320,6 +370,7 @@ export function foldAssistantTurnEvent(state: AssistantTurnFoldState, event: Run
 export function finalizeAssistantTurnFoldState(state: AssistantTurnFoldState): void {
   if (state.currentCop == null) return
   if (!copIsEmpty(state.currentCop)) {
+    sealOpenThinkingInCop(state.currentCop.items, Date.now())
     state.segments.push({
       type: 'cop',
       title: state.currentCop.title,

@@ -14,8 +14,17 @@ const (
 	desktopCompatAccountID = "00000000-0000-4000-8000-000000000002"
 )
 
+// repairSchemasPreMigration fixes schema issues that must be resolved before
+// goose migrations run, to prevent migrations from failing mid-execution.
+func repairSchemasPreMigration(ctx context.Context, db *sql.DB) error {
+	return repairScheduledTriggersSchema(ctx, db)
+}
+
 func repairLegacySchemas(ctx context.Context, db *sql.DB) error {
 	if err := repairLegacySecretsSchema(ctx, db); err != nil {
+		return err
+	}
+	if err := repairHeartbeatPersonaColumns(ctx, db); err != nil {
 		return err
 	}
 	needsChannelRepair, err := channelsNeedSecretsReferenceRepair(ctx, db)
@@ -503,4 +512,49 @@ func hasSQLiteColumns(columns map[string]struct{}, names ...string) bool {
 		}
 	}
 	return true
+}
+
+// repairScheduledTriggersSchema drops scheduled_triggers if it has the wrong schema,
+// so that migration 40 can recreate it correctly.
+// Runs BEFORE migrations.
+func repairScheduledTriggersSchema(ctx context.Context, db *sql.DB) error {
+	exists, err := sqliteTableExists(ctx, db, "scheduled_triggers")
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return nil
+	}
+	cols, err := sqliteTableColumns(ctx, db, "scheduled_triggers")
+	if err != nil {
+		return err
+	}
+	if hasSQLiteColumns(cols, "interval_min") {
+		return nil // schema already correct
+	}
+	// Wrong schema from old implementation; drop so migration 40 can recreate.
+	_, err = db.ExecContext(ctx, `DROP TABLE scheduled_triggers`)
+	return err
+}
+
+// repairHeartbeatPersonaColumns adds heartbeat columns to personas if missing.
+// Runs AFTER migrations (handles DBs that had old migration 38 applied).
+func repairHeartbeatPersonaColumns(ctx context.Context, db *sql.DB) error {
+	cols, err := sqliteTableColumns(ctx, db, "personas")
+	if err != nil {
+		return err
+	}
+	if !hasSQLiteColumns(cols, "heartbeat_enabled") {
+		if _, err := db.ExecContext(ctx,
+			`ALTER TABLE personas ADD COLUMN heartbeat_enabled INTEGER NOT NULL DEFAULT 0`); err != nil {
+			return fmt.Errorf("sqliteadapter: add heartbeat_enabled: %w", err)
+		}
+	}
+	if !hasSQLiteColumns(cols, "heartbeat_interval_minutes") {
+		if _, err := db.ExecContext(ctx,
+			`ALTER TABLE personas ADD COLUMN heartbeat_interval_minutes INTEGER NOT NULL DEFAULT 30`); err != nil {
+			return fmt.Errorf("sqliteadapter: add heartbeat_interval_minutes: %w", err)
+		}
+	}
+	return nil
 }

@@ -47,6 +47,8 @@ type ExecutionContext struct {
 	RuntimeSnapshot                  *sharedtoolruntime.RuntimeSnapshot
 	GenerativeUIReadMeSeen           bool
 	Channel                          *ChannelToolSurface
+	// PipelineRC 由 agent.simple 注入为 *pipeline.RunContext；其它路径为 nil。
+	PipelineRC any
 }
 
 type ExecutionError struct {

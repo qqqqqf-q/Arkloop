@@ -25,6 +25,7 @@ import (
 	"arkloop/services/api/internal/observability"
 	"arkloop/services/api/internal/personas"
 	"arkloop/services/api/internal/personasync"
+	"arkloop/services/api/internal/scheduler"
 	"arkloop/services/api/internal/skillseed"
 	"arkloop/services/shared/acptoken"
 	sharedconfig "arkloop/services/shared/config"
@@ -506,6 +507,9 @@ func (a *Application) Run(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+
+		hbSched := scheduler.NewLLMHeartbeat(pool, jobRepo, runEventRepo, threadRepo, runLimiter, a.logger)
+		go hbSched.Run(ctx)
 
 		emailVerifyTokenRepo, err = data.NewEmailVerificationTokenRepository(pool)
 		if err != nil {

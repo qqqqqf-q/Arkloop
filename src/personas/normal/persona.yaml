@@ -26,3 +26,6 @@ reasoning_mode: auto
 prompt_cache_control: none
 executor_type: agent.simple
 allow_platform_delegation: true
+heartbeat:
+  enabled: true
+  interval_minutes: 1

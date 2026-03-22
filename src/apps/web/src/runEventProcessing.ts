@@ -119,11 +119,12 @@ function resolveCodeExecutionStatus(params: {
   if (error.errorClass || error.errorMessage) {
     return 'failed'
   }
-  if (pickExecutionRunning(result)) {
-    return 'running'
-  }
+  // exit_code 表示会话已结束；部分后端在终态仍带 running=true，必须先认 exit_code
   if (exitCode != null) {
     return exitCode === 0 ? 'success' : 'failed'
+  }
+  if (pickExecutionRunning(result)) {
+    return 'running'
   }
   return 'completed'
 }
