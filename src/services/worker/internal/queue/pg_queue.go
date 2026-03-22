@@ -362,6 +362,30 @@ func (q *PgQueue) tryMarkDeadOne(ctx context.Context, jobTypes []string) (bool, 
 	return true, nil
 }
 
+func (q *PgQueue) QueueDepth(ctx context.Context, jobTypes []string) (int, error) {
+	chosenJobTypes := normalizeJobTypes(jobTypes)
+	if len(chosenJobTypes) == 0 {
+		return 0, nil
+	}
+
+	var count int
+	err := q.pool.QueryRow(ctx,
+		`SELECT COUNT(*)
+		 FROM jobs
+		 WHERE status = $1
+		   AND available_at <= now()
+		   AND job_type = ANY($2)
+		   AND worker_tags <@ $3`,
+		JobStatusQueued,
+		chosenJobTypes,
+		q.capabilities,
+	).Scan(&count)
+	if err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
 func (q *PgQueue) deadLetter(ctx context.Context, lease JobLease) error {
 	result, err := q.pool.Exec(
 		ctx,

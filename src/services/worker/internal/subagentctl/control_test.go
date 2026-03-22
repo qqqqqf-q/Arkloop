@@ -30,6 +30,7 @@ func (s *stubJobQueue) Lease(context.Context, int, []string) (*queue.JobLease, e
 func (s *stubJobQueue) Heartbeat(context.Context, queue.JobLease, int) error { return nil }
 func (s *stubJobQueue) Ack(context.Context, queue.JobLease) error            { return nil }
 func (s *stubJobQueue) Nack(context.Context, queue.JobLease, *int) error     { return nil }
+func (s *stubJobQueue) QueueDepth(context.Context, []string) (int, error)    { return 0, nil }
 
 func isolatedSpawnRequest(input string) SpawnRequest {
 	return SpawnRequest{
@@ -498,7 +499,7 @@ func completeSubAgentRun(t *testing.T, pool *pgxpool.Pool, subAgentID uuid.UUID,
 		t.Fatalf("transition terminal: %v", err)
 	}
 	accountID, threadID := mustRunContext(t, tx, subAgentID)
-	messageID, err := (data.MessagesRepository{}).InsertAssistantMessage(context.Background(), tx, accountID, threadID, runID, output)
+	messageID, err := (data.MessagesRepository{}).InsertAssistantMessage(context.Background(), tx, accountID, threadID, runID, output, false)
 	if err != nil {
 		t.Fatalf("insert assistant message: %v", err)
 	}

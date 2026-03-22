@@ -95,4 +95,8 @@ type JobQueue interface {
 	Heartbeat(ctx context.Context, lease JobLease, leaseSeconds int) error
 	Ack(ctx context.Context, lease JobLease) error
 	Nack(ctx context.Context, lease JobLease, delaySeconds *int) error
+
+	// QueueDepth returns the number of jobs currently ready to be processed
+	// (status=queued AND available_at <= now()) for the given job types.
+	QueueDepth(ctx context.Context, jobTypes []string) (int, error)
 }

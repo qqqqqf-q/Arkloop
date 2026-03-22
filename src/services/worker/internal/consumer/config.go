@@ -8,15 +8,29 @@ type Config struct {
 	LeaseSeconds     int
 	HeartbeatSeconds float64
 	QueueJobTypes    []string
+
+	// Adaptive scaling
+	MinConcurrency     int
+	MaxConcurrency     int
+	ScaleUpThreshold   int     // queue depth per worker to trigger scale-up
+	ScaleDownThreshold int     // queue depth per worker to trigger scale-down
+	ScaleIntervalSecs  float64 // how often to evaluate scaling
+	ScaleCooldownSecs  float64 // min time between scale decisions
 }
 
 func DefaultConfig() Config {
 	return Config{
-		Concurrency:      4,
-		PollSeconds:      5,
-		LeaseSeconds:     30,
-		HeartbeatSeconds: 10,
-		QueueJobTypes:    []string{"run.execute"},
+		Concurrency:        4,
+		PollSeconds:        5,
+		LeaseSeconds:       30,
+		HeartbeatSeconds:   10,
+		QueueJobTypes:      []string{"run.execute"},
+		MinConcurrency:     2,
+		MaxConcurrency:     16,
+		ScaleUpThreshold:   3,
+		ScaleDownThreshold: 1,
+		ScaleIntervalSecs:  5,
+		ScaleCooldownSecs:  30,
 	}
 }
 

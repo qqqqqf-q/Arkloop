@@ -52,8 +52,8 @@ func run() error {
 	defer cancelRun()
 
 	// advisory lock 每个并发 job 持有 1 个连接直到 job 完成，
-	// 加上 pipeline 各阶段并发的 BeginTx，pool 大小必须足够：concurrency * 3 + margin
-	poolMinConns := int32(cfg.Concurrency*3 + 8)
+	// 加上 pipeline 各阶段并发的 BeginTx，pool 大小必须足够：maxConcurrency * 3 + margin
+	poolMinConns := int32(cfg.MaxConcurrency*3 + 8)
 	poolCfg, err := pgxpool.ParseConfig(normalizePostgresDSN(databaseDSN))
 	if err != nil {
 		return err
@@ -151,7 +151,7 @@ func run() error {
 		reg, err = registration.NewManager(pool, rdb, registration.Config{
 			Version:        cfg.Version,
 			Capabilities:   cfg.Capabilities,
-			MaxConcurrency: cfg.Concurrency,
+			MaxConcurrency: cfg.MaxConcurrency,
 		}, logger)
 		if err != nil {
 			return fmt.Errorf("registration: %w", err)
@@ -168,11 +168,17 @@ func run() error {
 		handler,
 		locker,
 		consumer.Config{
-			Concurrency:      cfg.Concurrency,
-			PollSeconds:      cfg.PollSeconds,
-			LeaseSeconds:     cfg.LeaseSeconds,
-			HeartbeatSeconds: cfg.HeartbeatSeconds,
-			QueueJobTypes:    cfg.QueueJobTypes,
+			Concurrency:        cfg.Concurrency,
+			PollSeconds:        cfg.PollSeconds,
+			LeaseSeconds:       cfg.LeaseSeconds,
+			HeartbeatSeconds:   cfg.HeartbeatSeconds,
+			QueueJobTypes:      cfg.QueueJobTypes,
+			MinConcurrency:     cfg.MinConcurrency,
+			MaxConcurrency:     cfg.MaxConcurrency,
+			ScaleUpThreshold:   cfg.ScaleUpThreshold,
+			ScaleDownThreshold: cfg.ScaleDownThreshold,
+			ScaleIntervalSecs:  cfg.ScaleIntervalSecs,
+			ScaleCooldownSecs:  cfg.ScaleCooldownSecs,
 		},
 		logger,
 		notifier,

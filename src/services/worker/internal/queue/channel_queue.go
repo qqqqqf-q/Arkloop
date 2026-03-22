@@ -311,6 +311,29 @@ func (q *ChannelJobQueue) tryMarkDeadOne(jobTypes []string) bool {
 	return false
 }
 
+func (q *ChannelJobQueue) QueueDepth(_ context.Context, jobTypes []string) (int, error) {
+	typeSet := make(map[string]struct{}, len(jobTypes))
+	for _, jt := range normalizeJobTypes(jobTypes) {
+		typeSet[jt] = struct{}{}
+	}
+
+	now := time.Now()
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	count := 0
+	for _, id := range q.order {
+		job := q.jobs[id]
+		if _, ok := typeSet[job.jobType]; !ok {
+			continue
+		}
+		if job.status == JobStatusQueued && !job.availableAt.After(now) {
+			count++
+		}
+	}
+	return count, nil
+}
+
 // pruneTerminalJobsLocked removes all done/dead jobs from the order slice and
 // jobs map. Must be called while q.mu is held.
 func (q *ChannelJobQueue) pruneTerminalJobsLocked() {

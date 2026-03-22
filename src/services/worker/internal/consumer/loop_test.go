@@ -234,6 +234,7 @@ func (q *cancelLeaseQueue) Lease(ctx context.Context, _ int, _ []string) (*queue
 func (q *cancelLeaseQueue) Heartbeat(_ context.Context, _ queue.JobLease, _ int) error { return nil }
 func (q *cancelLeaseQueue) Ack(_ context.Context, _ queue.JobLease) error              { return nil }
 func (q *cancelLeaseQueue) Nack(_ context.Context, _ queue.JobLease, _ *int) error     { return nil }
+func (q *cancelLeaseQueue) QueueDepth(_ context.Context, _ []string) (int, error)      { return 0, nil }
 
 func (s *stubQueue) EnqueueRun(
 	_ context.Context,
@@ -291,6 +292,8 @@ func (s *stubQueue) Nack(_ context.Context, _ queue.JobLease, delay *int) error 
 	s.nackDelays = append(s.nackDelays, chosen)
 	return nil
 }
+
+func (s *stubQueue) QueueDepth(_ context.Context, _ []string) (int, error) { return 0, nil }
 
 type stubHandler struct {
 	called           int

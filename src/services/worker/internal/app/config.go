@@ -20,6 +20,13 @@ const (
 	mcpCacheTTLSecondsEnv          = "ARKLOOP_MCP_CACHE_TTL_SECONDS"
 	toolProviderCacheTTLSecondsEnv = "ARKLOOP_TOOL_PROVIDER_CACHE_TTL_SECONDS"
 	queueDriverEnv                 = "ARKLOOP_QUEUE_DRIVER"
+
+	workerMinConcurrencyEnv     = "ARKLOOP_WORKER_MIN_CONCURRENCY"
+	workerMaxConcurrencyEnv     = "ARKLOOP_WORKER_MAX_CONCURRENCY"
+	workerScaleUpThresholdEnv   = "ARKLOOP_WORKER_SCALE_UP_THRESHOLD"
+	workerScaleDownThresholdEnv = "ARKLOOP_WORKER_SCALE_DOWN_THRESHOLD"
+	workerScaleIntervalSecsEnv  = "ARKLOOP_WORKER_SCALE_INTERVAL_SECS"
+	workerScaleCooldownSecsEnv  = "ARKLOOP_WORKER_SCALE_COOLDOWN_SECS"
 )
 
 // Config aligns with worker loop behavior.
@@ -40,6 +47,14 @@ type Config struct {
 
 	// QueueDriver selects the job-queue implementation: "pg" (default) or "channel".
 	QueueDriver string
+
+	// Adaptive scaling
+	MinConcurrency     int
+	MaxConcurrency     int
+	ScaleUpThreshold   int
+	ScaleDownThreshold int
+	ScaleIntervalSecs  float64
+	ScaleCooldownSecs  float64
 }
 
 func DefaultConfig() Config {
@@ -54,6 +69,12 @@ func DefaultConfig() Config {
 		MCPCacheTTLSeconds:          60,
 		ToolProviderCacheTTLSeconds: 60,
 		QueueDriver:                 "pg",
+		MinConcurrency:              2,
+		MaxConcurrency:              16,
+		ScaleUpThreshold:            3,
+		ScaleDownThreshold:          1,
+		ScaleIntervalSecs:           5,
+		ScaleCooldownSecs:           30,
 	}
 }
 
@@ -121,6 +142,54 @@ func LoadConfigFromEnv() (Config, error) {
 
 	if raw, ok := lookupEnv(queueDriverEnv); ok {
 		cfg.QueueDriver = raw
+	}
+
+	if raw, ok := lookupEnv(workerMinConcurrencyEnv); ok {
+		value, err := parsePositiveInt(raw)
+		if err != nil {
+			return Config{}, fmt.Errorf("%s: %w", workerMinConcurrencyEnv, err)
+		}
+		cfg.MinConcurrency = value
+	}
+
+	if raw, ok := lookupEnv(workerMaxConcurrencyEnv); ok {
+		value, err := parsePositiveInt(raw)
+		if err != nil {
+			return Config{}, fmt.Errorf("%s: %w", workerMaxConcurrencyEnv, err)
+		}
+		cfg.MaxConcurrency = value
+	}
+
+	if raw, ok := lookupEnv(workerScaleUpThresholdEnv); ok {
+		value, err := parsePositiveInt(raw)
+		if err != nil {
+			return Config{}, fmt.Errorf("%s: %w", workerScaleUpThresholdEnv, err)
+		}
+		cfg.ScaleUpThreshold = value
+	}
+
+	if raw, ok := lookupEnv(workerScaleDownThresholdEnv); ok {
+		value, err := parseNonNegativeInt(raw)
+		if err != nil {
+			return Config{}, fmt.Errorf("%s: %w", workerScaleDownThresholdEnv, err)
+		}
+		cfg.ScaleDownThreshold = value
+	}
+
+	if raw, ok := lookupEnv(workerScaleIntervalSecsEnv); ok {
+		value, err := parsePositiveFloat(raw)
+		if err != nil {
+			return Config{}, fmt.Errorf("%s: %w", workerScaleIntervalSecsEnv, err)
+		}
+		cfg.ScaleIntervalSecs = value
+	}
+
+	if raw, ok := lookupEnv(workerScaleCooldownSecsEnv); ok {
+		value, err := parseNonNegativeFloat(raw)
+		if err != nil {
+			return Config{}, fmt.Errorf("%s: %w", workerScaleCooldownSecsEnv, err)
+		}
+		cfg.ScaleCooldownSecs = value
 	}
 
 	if raw, ok := lookupEnv(toolProviderCacheTTLSecondsEnv); ok {
@@ -200,6 +269,28 @@ func parseNonNegativeFloat(raw string) (float64, error) {
 	}
 	if value < 0 {
 		return 0, fmt.Errorf("must be greater than or equal to 0")
+	}
+	return value, nil
+}
+
+func parsePositiveFloat(raw string) (float64, error) {
+	value, err := strconv.ParseFloat(strings.TrimSpace(raw), 64)
+	if err != nil {
+		return 0, fmt.Errorf("must be a float")
+	}
+	if value <= 0 {
+		return 0, fmt.Errorf("must be greater than 0")
+	}
+	return value, nil
+}
+
+func parseNonNegativeInt(raw string) (int, error) {
+	value, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil {
+		return 0, fmt.Errorf("must be an integer")
+	}
+	if value < 0 {
+		return 0, fmt.Errorf("must be >= 0")
 	}
 	return value, nil
 }

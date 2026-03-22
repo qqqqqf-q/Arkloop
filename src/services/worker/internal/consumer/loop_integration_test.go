@@ -273,6 +273,10 @@ func (q *flakyHeartbeatQueue) Nack(ctx context.Context, lease queue.JobLease, de
 	return q.base.Nack(ctx, lease, delay)
 }
 
+func (q *flakyHeartbeatQueue) QueueDepth(ctx context.Context, jobTypes []string) (int, error) {
+	return q.base.QueueDepth(ctx, jobTypes)
+}
+
 func readStatusesByRunID(t *testing.T, pool *pgxpool.Pool, runID uuid.UUID) []string {
 	t.Helper()
 

@@ -31,6 +31,7 @@ func (s *stubJobQueue) Lease(context.Context, int, []string) (*queue.JobLease, e
 func (s *stubJobQueue) Heartbeat(context.Context, queue.JobLease, int) error { return nil }
 func (s *stubJobQueue) Ack(context.Context, queue.JobLease) error            { return nil }
 func (s *stubJobQueue) Nack(context.Context, queue.JobLease, *int) error     { return nil }
+func (s *stubJobQueue) QueueDepth(context.Context, []string) (int, error)    { return 0, nil }
 
 func TestEventWriterAppend_AppendsSubAgentCompletedEvent(t *testing.T) {
 	db := testutil.SetupPostgresDatabase(t, "arkloop_sub_agent_completed_event")

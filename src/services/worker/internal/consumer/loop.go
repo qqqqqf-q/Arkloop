@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"arkloop/services/worker/internal/app"
@@ -24,6 +26,12 @@ type Loop struct {
 	config   Config
 	logger   *app.JSONLogger
 	notifier WorkNotifier
+
+	// targetWorkers is the desired number of running goroutines. Accessed only
+	// via atomic operations. mu protects scaleCooldown exclusively.
+	targetWorkers atomic.Int32
+	mu            sync.Mutex
+	scaleCooldown time.Time
 }
 
 func NewLoop(
@@ -40,6 +48,30 @@ func NewLoop(
 	if handler == nil {
 		return nil, fmt.Errorf("handler must not be nil")
 	}
+
+	// Fill adaptive defaults for callers that don't set them.
+	if config.MinConcurrency <= 0 {
+		config.MinConcurrency = 2
+	}
+	if config.MaxConcurrency <= 0 {
+		config.MaxConcurrency = 16
+	}
+	if config.MaxConcurrency < config.MinConcurrency {
+		config.MaxConcurrency = config.MinConcurrency
+	}
+	if config.ScaleUpThreshold <= 0 {
+		config.ScaleUpThreshold = 3
+	}
+	if config.ScaleDownThreshold < 0 {
+		config.ScaleDownThreshold = 1
+	}
+	if config.ScaleIntervalSecs <= 0 {
+		config.ScaleIntervalSecs = 5
+	}
+	if config.ScaleCooldownSecs <= 0 {
+		config.ScaleCooldownSecs = 30
+	}
+
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
@@ -47,28 +79,48 @@ func NewLoop(
 		logger = app.NewJSONLogger("worker_go", nil)
 	}
 
-	return &Loop{
+	initial := config.Concurrency
+	if initial < config.MinConcurrency {
+		initial = config.MinConcurrency
+	}
+	if initial > config.MaxConcurrency {
+		initial = config.MaxConcurrency
+	}
+
+	l := &Loop{
 		queue:    queueClient,
 		handler:  handler,
 		locker:   locker,
 		config:   config,
 		logger:   logger,
 		notifier: notifier,
-	}, nil
+	}
+	l.targetWorkers.Store(int32(initial))
+	return l, nil
 }
 
+// Run starts the consumer loop with adaptive concurrency and blocks until ctx
+// is cancelled or a fatal error occurs.
 func (l *Loop) Run(ctx context.Context) error {
-	semaphore := make(chan struct{}, l.config.Concurrency)
-	errCh := make(chan error, l.config.Concurrency)
-	finished := make(chan struct{})
+	var (
+		wg            sync.WaitGroup
+		activeWorkers atomic.Int32
+		errCh         = make(chan error, 1)
+	)
 
-	for worker := 0; worker < l.config.Concurrency; worker++ {
-		semaphore <- struct{}{}
+	// spawnWorker starts one worker goroutine.
+	spawnWorker := func() {
+		activeWorkers.Add(1)
+		wg.Add(1)
 		go func() {
-			defer func() {
-				<-semaphore
-			}()
+			defer wg.Done()
+			defer activeWorkers.Add(-1)
 			for {
+				// Scale-down: exit if we are over the current target.
+				if int(activeWorkers.Load()) > int(l.targetWorkers.Load()) {
+					return
+				}
+
 				select {
 				case <-ctx.Done():
 					return
@@ -80,7 +132,10 @@ func (l *Loop) Run(ctx context.Context) error {
 					if ctx.Err() != nil {
 						return
 					}
-					errCh <- err
+					select {
+					case errCh <- err:
+					default:
+					}
 					return
 				}
 
@@ -88,29 +143,103 @@ func (l *Loop) Run(ctx context.Context) error {
 					continue
 				}
 
-				// 空闲等待：优先 NOTIFY 唤醒，fallback 定时轮询
 				l.waitForWork(ctx)
 			}
 		}()
 	}
 
+	// Spawn initial workers.
+	initial := int(l.targetWorkers.Load())
+	for i := 0; i < initial; i++ {
+		spawnWorker()
+	}
+
+	// Scale monitor goroutine.
+	scaleDone := make(chan struct{})
 	go func() {
+		defer close(scaleDone)
+		interval := time.Duration(l.config.ScaleIntervalSecs * float64(time.Second))
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
 		for {
-			if len(semaphore) == 0 {
-				close(finished)
+			select {
+			case <-ctx.Done():
 				return
+			case <-ticker.C:
+				active := int(activeWorkers.Load())
+				newTarget := l.evaluateScaling(ctx, active)
+				oldTarget := int(l.targetWorkers.Swap(int32(newTarget)))
+				// Spawn workers for any growth in target.
+				// Use the delta between old and new target, not activeWorkers,
+				// because self-exiting workers decrement activeWorkers asynchronously.
+				delta := newTarget - oldTarget
+				for i := 0; i < delta; i++ {
+					spawnWorker()
+				}
+				// Scale-down: existing goroutines self-exit on next iteration check.
 			}
-			time.Sleep(10 * time.Millisecond)
 		}
 	}()
 
+	var fatalErr error
 	select {
 	case <-ctx.Done():
-		<-finished
-		return nil
 	case err := <-errCh:
-		return err
+		fatalErr = err
 	}
+
+	<-scaleDone
+	wg.Wait()
+	return fatalErr
+}
+
+// evaluateScaling computes the new target worker count based on queue depth.
+// mu protects scaleCooldown to prevent concurrent scale decisions.
+func (l *Loop) evaluateScaling(ctx context.Context, active int) int {
+	depth, err := l.queue.QueueDepth(ctx, l.config.QueueJobTypes)
+	if err != nil {
+		l.logger.Error("queue depth query failed", app.LogFields{}, map[string]any{"error": err.Error()})
+		return int(l.targetWorkers.Load())
+	}
+
+	current := int(l.targetWorkers.Load())
+
+	denominator := active
+	if denominator <= 0 {
+		denominator = 1
+	}
+	perWorker := depth / denominator
+
+	now := time.Now()
+
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	if perWorker >= l.config.ScaleUpThreshold && current < l.config.MaxConcurrency && now.After(l.scaleCooldown) {
+		next := current + 1
+		l.scaleCooldown = now.Add(time.Duration(l.config.ScaleCooldownSecs * float64(time.Second)))
+		l.logger.Info("scaling up workers", app.LogFields{}, map[string]any{
+			"from":        current,
+			"to":          next,
+			"queue_depth": depth,
+			"active":      active,
+		})
+		return next
+	}
+
+	if perWorker < l.config.ScaleDownThreshold && current > l.config.MinConcurrency && now.After(l.scaleCooldown) {
+		next := current - 1
+		l.scaleCooldown = now.Add(time.Duration(l.config.ScaleCooldownSecs * float64(time.Second)))
+		l.logger.Info("scaling down workers", app.LogFields{}, map[string]any{
+			"from":        current,
+			"to":          next,
+			"queue_depth": depth,
+			"active":      active,
+		})
+		return next
+	}
+
+	return current
 }
 
 func (l *Loop) waitForWork(ctx context.Context) {

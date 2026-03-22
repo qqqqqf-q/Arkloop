@@ -65,6 +65,10 @@ func (s *lifecycleQueueStub) Nack(context.Context, queue.JobLease, *int) error {
 	return nil
 }
 
+func (s *lifecycleQueueStub) QueueDepth(context.Context, []string) (int, error) {
+	return 0, nil
+}
+
 func TestLifecycleBootstrapRecoversRecentRun(t *testing.T) {
 	ctx := context.Background()
 	db, cleanup := openLifecycleTestDB(t, ctx)
