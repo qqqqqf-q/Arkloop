@@ -47,8 +47,9 @@ func NewInputLoaderMiddleware(
 				return err
 			}
 			llmMessages = append(llmMessages, llm.Message{
-				Role:    msg.Role,
-				Content: parts,
+				Role:         msg.Role,
+				Content:      parts,
+				OutputTokens: msg.OutputTokens,
 			})
 			ids = append(ids, msg.ID)
 		}

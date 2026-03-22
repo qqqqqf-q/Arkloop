@@ -18,11 +18,12 @@ import (
 type MessagesRepository struct{}
 
 type ThreadMessage struct {
-	ID          uuid.UUID
-	Role        string
-	Content     string
-	ContentJSON json.RawMessage
-	CreatedAt   time.Time
+	ID           uuid.UUID
+	Role         string
+	Content      string
+	ContentJSON  json.RawMessage
+	CreatedAt    time.Time
+	OutputTokens *int64 // assistant 消息的实际 output tokens，从 usage_records JOIN
 }
 
 type ConversationSearchHit struct {
@@ -120,7 +121,8 @@ func (MessagesRepository) ListByThread(
 	}
 	rows, err := tx.Query(
 		ctx,
-		`SELECT id, role, content, content_json, created_at
+		`SELECT m.id, m.role, m.content, m.content_json, m.created_at,
+		        COALESCE(u.output_tokens, 0) as output_tokens
 		 FROM (
 			SELECT id, role, content, content_json, created_at
 			  FROM messages
@@ -132,7 +134,14 @@ func (MessagesRepository) ListByThread(
 			 ORDER BY created_at DESC, id DESC
 			 LIMIT $3
 		 ) recent
-		 ORDER BY created_at ASC, id ASC`,
+		 LEFT JOIN LATERAL (
+			SELECT output_tokens
+			  FROM usage_records
+			 WHERE run_id = (recent.metadata_json->>'run_id')::uuid
+			   AND usage_type = 'llm'
+			 LIMIT 1
+		 ) u ON true
+		 ORDER BY recent.created_at ASC, recent.id ASC`,
 		accountID,
 		threadID,
 		limit,
@@ -145,7 +154,7 @@ func (MessagesRepository) ListByThread(
 	out := []ThreadMessage{}
 	for rows.Next() {
 		var item ThreadMessage
-		if err := rows.Scan(&item.ID, &item.Role, &item.Content, &item.ContentJSON, &item.CreatedAt); err != nil {
+		if err := rows.Scan(&item.ID, &item.Role, &item.Content, &item.ContentJSON, &item.CreatedAt, &item.OutputTokens); err != nil {
 			return nil, err
 		}
 		item.Role = strings.TrimSpace(item.Role)
@@ -179,14 +188,22 @@ func (MessagesRepository) ListByIDs(
 	}
 	rows, err := tx.Query(
 		ctx,
-		`SELECT id, role, content, content_json, created_at
-		 FROM messages
-		 WHERE account_id = $1
-		   AND thread_id = $2
-		   AND id = ANY($3)
-		   AND hidden = FALSE
-		   AND deleted_at IS NULL
-		 ORDER BY created_at ASC, id ASC`,
+		`SELECT m.id, m.role, m.content, m.content_json, m.created_at,
+		        COALESCE(u.output_tokens, 0) as output_tokens
+		 FROM messages m
+		 LEFT JOIN LATERAL (
+			SELECT output_tokens
+			  FROM usage_records
+			 WHERE run_id = (m.metadata_json->>'run_id')::uuid
+			   AND usage_type = 'llm'
+			 LIMIT 1
+		 ) u ON true
+		 WHERE m.account_id = $1
+		   AND m.thread_id = $2
+		   AND m.id = ANY($3)
+		   AND m.hidden = FALSE
+		   AND m.deleted_at IS NULL
+		 ORDER BY m.created_at ASC, m.id ASC`,
 		accountID,
 		threadID,
 		messageIDs,
@@ -199,7 +216,7 @@ func (MessagesRepository) ListByIDs(
 	out := make([]ThreadMessage, 0, len(messageIDs))
 	for rows.Next() {
 		var item ThreadMessage
-		if err := rows.Scan(&item.ID, &item.Role, &item.Content, &item.ContentJSON, &item.CreatedAt); err != nil {
+		if err := rows.Scan(&item.ID, &item.Role, &item.Content, &item.ContentJSON, &item.CreatedAt, &item.OutputTokens); err != nil {
 			return nil, err
 		}
 		item.Role = strings.TrimSpace(item.Role)
@@ -233,9 +250,10 @@ func (MessagesRepository) ListRecentByThread(
 	}
 	rows, err := tx.Query(
 		ctx,
-		`SELECT id, role, content, content_json, created_at
+		`SELECT m.id, m.role, m.content, m.content_json, m.created_at,
+		        COALESCE(u.output_tokens, 0) as output_tokens
 		 FROM (
-		 	SELECT id, role, content, content_json, created_at
+		 	SELECT id, role, content, content_json, created_at, metadata_json
 		 	  FROM messages
 		 	 WHERE account_id = $1
 		 	   AND thread_id = $2
@@ -245,7 +263,14 @@ func (MessagesRepository) ListRecentByThread(
 		 	 ORDER BY created_at DESC, id DESC
 		 	 LIMIT $3
 		 ) recent
-		 ORDER BY created_at ASC, id ASC`,
+		 LEFT JOIN LATERAL (
+			SELECT output_tokens
+			  FROM usage_records
+			 WHERE run_id = (recent.metadata_json->>'run_id')::uuid
+			   AND usage_type = 'llm'
+			 LIMIT 1
+		 ) u ON true
+		 ORDER BY recent.created_at ASC, recent.id ASC`,
 		accountID,
 		threadID,
 		limit,
@@ -258,7 +283,7 @@ func (MessagesRepository) ListRecentByThread(
 	out := make([]ThreadMessage, 0, limit)
 	for rows.Next() {
 		var item ThreadMessage
-		if err := rows.Scan(&item.ID, &item.Role, &item.Content, &item.ContentJSON, &item.CreatedAt); err != nil {
+		if err := rows.Scan(&item.ID, &item.Role, &item.Content, &item.ContentJSON, &item.CreatedAt, &item.OutputTokens); err != nil {
 			return nil, err
 		}
 		item.Role = strings.TrimSpace(item.Role)

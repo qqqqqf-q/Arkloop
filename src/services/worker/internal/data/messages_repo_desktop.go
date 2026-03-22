@@ -17,11 +17,12 @@ import (
 type MessagesRepository struct{}
 
 type ThreadMessage struct {
-	ID          uuid.UUID
-	Role        string
-	Content     string
-	ContentJSON json.RawMessage
-	CreatedAt   time.Time
+	ID           uuid.UUID
+	Role         string
+	Content      string
+	ContentJSON   json.RawMessage
+	CreatedAt    time.Time
+	OutputTokens *int64 // nil for desktop (no usage_records)
 }
 
 type ConversationSearchHit struct {

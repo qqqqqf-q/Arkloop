@@ -171,9 +171,10 @@ func (c ToolCall) ToDataJSON() map[string]any {
 }
 
 type Message struct {
-	Role      string
-	Content   []ContentPart
-	ToolCalls []ToolCall
+	Role         string
+	Content      []ContentPart
+	ToolCalls    []ToolCall
+	OutputTokens *int64 // assistant 消息的实际 output tokens，用于上下文裁剪
 }
 
 func (m Message) ToJSON() map[string]any {

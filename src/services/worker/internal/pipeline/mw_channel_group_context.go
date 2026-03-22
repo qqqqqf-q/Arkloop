@@ -54,7 +54,7 @@ func trimRunContextMessagesToApproxTokens(rc *RunContext, maxTokens int) {
 	total := 0
 	start := len(msgs)
 	for i := len(msgs) - 1; i >= 0; i-- {
-		t := approxLLMMessageTokens(msgs[i])
+		t := messageTokens(&msgs[i])
 		if total+t > maxTokens {
 			if start == len(msgs) {
 				start = i
@@ -71,6 +71,16 @@ func trimRunContextMessagesToApproxTokens(rc *RunContext, maxTokens int) {
 	if alignedIDs {
 		rc.ThreadMessageIDs = ids[start:]
 	}
+}
+
+// messageTokens 返回消息的实际 token 消耗。
+// assistant 消息用真实的 output_tokens（从数据库 JOIN 来的），
+// 其他消息用 rune 估算（因为没有 output 记录）。
+func messageTokens(m *llm.Message) int {
+	if m.OutputTokens != nil && *m.OutputTokens > 0 {
+		return int(*m.OutputTokens)
+	}
+	return approxLLMMessageTokens(*m)
 }
 
 func approxLLMMessageTokens(m llm.Message) int {
