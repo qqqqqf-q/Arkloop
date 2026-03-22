@@ -346,6 +346,21 @@ func (e *ToolExecutor) executeExecCommand(
 		// auto-poll write_stdin so the model receives actual output instead of an
 		// empty running state that causes reasoning models to produce no response.
 		if resp.Running && strings.TrimSpace(resp.Output) == "" {
+			// Detect heredoc syntax and emit stdin_expected event
+			if strings.Contains(reqArgs.Command, "<<") {
+				toolName := "exec_command"
+				ev := execCtx.Emitter.Emit(
+					"terminal.stdin_expected",
+					map[string]any{
+						"session_ref": resolution.SessionRef,
+						"command":     reqArgs.Command,
+						"hint":        "heredoc command detected, use write_stdin to send content",
+					},
+					&toolName,
+					nil,
+				)
+				result.Events = append(result.Events, ev)
+			}
 			if polled := e.pollExecUntilOutputOrDone(ctx, execCtx, resolution, result.ResultJSON, reqArgs, started); polled != nil {
 				result = *polled
 			}
