@@ -10,7 +10,7 @@ import (
 	"arkloop/services/sandbox/internal/shell"
 )
 
-func handleSessionTranscript(shellSvc shell.Service) http.HandlerFunc {
+func handleSessionInfo(shellSvc shell.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if shellSvc == nil {
 			writeError(w, http.StatusServiceUnavailable, shell.CodeSessionNotFound, "shell service not configured")
@@ -18,11 +18,13 @@ func handleSessionTranscript(shellSvc shell.Service) http.HandlerFunc {
 		}
 
 		tail := strings.TrimPrefix(r.URL.Path, "/v1/sessions/")
-		if !strings.HasSuffix(tail, "/transcript") {
+		if !strings.HasSuffix(tail, "/transcript") && !strings.HasSuffix(tail, "/output_deltas") {
 			writeError(w, http.StatusNotFound, "sandbox.session_not_found", "session not found")
 			return
 		}
+		isTranscript := strings.HasSuffix(tail, "/transcript")
 		id := strings.TrimSuffix(tail, "/transcript")
+		id = strings.TrimSuffix(id, "/output_deltas")
 		id = strings.Trim(id, "/")
 		if id == "" || strings.Contains(id, "/") {
 			writeError(w, http.StatusBadRequest, "sandbox.missing_session_id", "session id is required")
@@ -30,16 +32,29 @@ func handleSessionTranscript(shellSvc shell.Service) http.HandlerFunc {
 		}
 
 		accountID := strings.TrimSpace(r.Header.Get("X-Account-ID"))
-		resp, err := shellSvc.DebugSnapshot(r.Context(), id, accountID)
-		if err != nil {
-			if shellErr, ok := err.(*shell.Error); ok {
-				writeError(w, shellErr.HTTPStatus, shellErr.Code, shellErr.Message)
+		if isTranscript {
+			resp, err := shellSvc.DebugSnapshot(r.Context(), id, accountID)
+			if err != nil {
+				if shellErr, ok := err.(*shell.Error); ok {
+					writeError(w, shellErr.HTTPStatus, shellErr.Code, shellErr.Message)
+					return
+				}
+				writeError(w, http.StatusInternalServerError, "sandbox.shell_error", err.Error())
 				return
 			}
-			writeError(w, http.StatusInternalServerError, "sandbox.shell_error", err.Error())
-			return
+			writeJSON(w, http.StatusOK, resp)
+		} else {
+			resp, err := shellSvc.ReadOutputDeltas(r.Context(), id, accountID)
+			if err != nil {
+				if shellErr, ok := err.(*shell.Error); ok {
+					writeError(w, shellErr.HTTPStatus, shellErr.Code, shellErr.Message)
+					return
+				}
+				writeError(w, http.StatusInternalServerError, "sandbox.shell_error", err.Error())
+				return
+			}
+			writeJSON(w, http.StatusOK, resp)
 		}
-		writeJSON(w, http.StatusOK, resp)
 	}
 }
 

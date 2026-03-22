@@ -424,6 +424,11 @@ func TestExecCommandAndWriteStdin_ShareDefaultSessionAcrossCalls(t *testing.T) {
 			json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "running", Cwd: "/workspace", Running: true})
 			return
 		}
+		if strings.HasSuffix(r.URL.Path, "/output_deltas") {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(outputDeltasResponse{Stdout: "", Stderr: "", Running: false})
+			return
+		}
 		var body writeStdinRequest
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Fatalf("decode body: %v", err)

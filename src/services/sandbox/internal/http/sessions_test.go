@@ -32,6 +32,10 @@ func (s *stubShellService) DebugSnapshot(ctx context.Context, sessionID, account
 	return &shell.DebugResponse{SessionID: sessionID, Status: shell.StatusIdle}, nil
 }
 
+func (s *stubShellService) ReadOutputDeltas(ctx context.Context, sessionID, accountID string) (*shell.OutputDeltasResponse, error) {
+	return &shell.OutputDeltasResponse{Stdout: "", Stderr: "", Running: false}, nil
+}
+
 func (s *stubShellService) ForkSession(ctx context.Context, req shell.ForkSessionRequest) (*shell.ForkSessionResponse, error) {
 	if s.forkFn != nil {
 		return s.forkFn(ctx, req)
@@ -47,7 +51,7 @@ func (s *stubShellService) Close(ctx context.Context, sessionID, accountID strin
 }
 
 func TestHandleSessionTranscript_OK(t *testing.T) {
-	handler := handleSessionTranscript(&stubShellService{debugFn: func(_ context.Context, sessionID, accountID string) (*shell.DebugResponse, error) {
+	handler := handleSessionInfo(&stubShellService{debugFn: func(_ context.Context, sessionID, accountID string) (*shell.DebugResponse, error) {
 		if sessionID != "sess-1" {
 			t.Fatalf("unexpected session id: %s", sessionID)
 		}
@@ -114,7 +118,7 @@ func TestHandleForkSession_OK(t *testing.T) {
 }
 
 func TestHandleSessionTranscript_NotFound(t *testing.T) {
-	handler := handleSessionTranscript(&stubShellService{debugFn: func(_ context.Context, _, _ string) (*shell.DebugResponse, error) {
+	handler := handleSessionInfo(&stubShellService{debugFn: func(_ context.Context, _, _ string) (*shell.DebugResponse, error) {
 		return nil, &shell.Error{Code: shell.CodeSessionNotFound, Message: "shell session not found", HTTPStatus: nethttp.StatusNotFound}
 	}})
 
@@ -128,7 +132,7 @@ func TestHandleSessionTranscript_NotFound(t *testing.T) {
 }
 
 func TestHandleSessionTranscript_AccountMismatch(t *testing.T) {
-	handler := handleSessionTranscript(&stubShellService{debugFn: func(_ context.Context, _, _ string) (*shell.DebugResponse, error) {
+	handler := handleSessionInfo(&stubShellService{debugFn: func(_ context.Context, _, _ string) (*shell.DebugResponse, error) {
 		return nil, &shell.Error{Code: shell.CodeAccountMismatch, Message: "session belongs to another account", HTTPStatus: nethttp.StatusForbidden}
 	}})
 

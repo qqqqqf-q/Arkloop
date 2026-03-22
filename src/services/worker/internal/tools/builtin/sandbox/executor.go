@@ -25,12 +25,13 @@ import (
 )
 
 const (
-	errorSandboxError       = "tool.sandbox_error"
-	errorSandboxUnavailable = "tool.sandbox_unavailable"
-	errorSandboxTimeout     = "tool.sandbox_timeout"
-	errorPermissionDenied   = "tool.permission_denied"
-	errorArgsInvalid        = "tool.args_invalid"
-	errorNotConfigured      = "config.missing"
+	errorSandboxError        = "tool.sandbox_error"
+	errorSandboxUnavailable  = "tool.sandbox_unavailable"
+	errorSandboxTimeout      = "tool.sandbox_timeout"
+	errorPermissionDenied    = "tool.permission_denied"
+	errorArgsInvalid         = "tool.args_invalid"
+	errorNotConfigured       = "config.missing"
+	errorMaxSessionsExceeded = "tool.max_sessions_exceeded"
 
 	defaultTimeoutMs  = 30_000
 	maxOutputBytes    = 32 * 1024
@@ -102,6 +103,12 @@ type execSessionResponse struct {
 	Artifacts       []artifactRef `json:"artifacts,omitempty"`
 	Restored        bool          `json:"restored,omitempty"`
 	RestoreRevision string        `json:"restore_revision,omitempty"`
+}
+
+type outputDeltasResponse struct {
+	Stdout  string `json:"stdout"`
+	Stderr  string `json:"stderr"`
+	Running bool   `json:"running"`
 }
 
 type execCommandArgs struct {
@@ -364,6 +371,50 @@ func (e *ToolExecutor) executeExecCommand(
 			if polled := e.pollExecUntilOutputOrDone(ctx, execCtx, resolution, result.ResultJSON, reqArgs, started); polled != nil {
 				result = *polled
 			}
+		}
+
+		// When command is still running after initial response, poll for output deltas
+		// and emit them as events for real-time streaming to the client.
+		if resp.Running {
+			var wg sync.WaitGroup
+			var deltaEvents []events.RunEvent
+			var deltaMu sync.Mutex
+
+			emitDelta := func(stream string, chunk string) {
+				deltaMu.Lock()
+				defer deltaMu.Unlock()
+				toolName := "exec_command"
+				ev := execCtx.Emitter.Emit(
+					"terminal."+stream+"_delta",
+					map[string]any{
+						"session_ref": resolution.SessionRef,
+						"chunk":       chunk,
+					},
+					&toolName,
+					nil,
+				)
+				deltaEvents = append(deltaEvents, ev)
+			}
+
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				e.pollOutputDeltas(ctx, resolution.SessionRef, request.AccountID, emitDelta)
+			}()
+
+			// Also poll for any remaining deltas after pollExecUntilOutputOrDone
+			if resp.Running {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					// Brief delay to capture any trailing output
+					time.Sleep(100 * time.Millisecond)
+					e.pollOutputDeltas(ctx, resolution.SessionRef, request.AccountID, emitDelta)
+				}()
+			}
+
+			wg.Wait()
+			result.Events = append(result.Events, deltaEvents...)
 		}
 	}
 	delete(result.ResultJSON, "session_id")
@@ -852,6 +903,63 @@ func (e *ToolExecutor) doJSONRequest(
 	return resp, nil
 }
 
+// pollOutputDeltas polls the sandbox for new output deltas and returns them.
+// It stops when ctx is cancelled, session finishes, or maxPolls is reached.
+func (e *ToolExecutor) pollOutputDeltas(
+	ctx context.Context,
+	sessionID, accountID string,
+	emit func(stream string, chunk string),
+) {
+	const maxPolls = 100
+	const pollInterval = 100 * time.Millisecond
+
+	for i := 0; i < maxPolls; i++ {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		resp, reqErr := e.doJSONRequest(ctx, http.MethodGet,
+			e.baseURL+"/v1/sessions/"+sessionID+"/output_deltas", nil, accountID)
+		if reqErr != nil {
+			return
+		}
+		resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			return
+		}
+
+		body, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			return
+		}
+
+		var deltas outputDeltasResponse
+		if err := json.Unmarshal(body, &deltas); err != nil {
+			return
+		}
+
+		if deltas.Stdout != "" {
+			emit("stdout", deltas.Stdout)
+		}
+		if deltas.Stderr != "" {
+			emit("stderr", deltas.Stderr)
+		}
+
+		if !deltas.Running {
+			return
+		}
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(pollInterval):
+		}
+	}
+}
+
 func parseExecCommandArgs(args map[string]any) (execCommandArgs, *tools.ExecutionError) {
 	if _, ok := args["session_id"]; ok {
 		return execCommandArgs{}, sandboxArgsError("parameter session_id is not supported; use session_ref")
@@ -1213,6 +1321,9 @@ func mapHTTPError(statusCode int, body []byte, started time.Time) tools.Executio
 	}
 	if statusCode == http.StatusServiceUnavailable || statusCode == http.StatusBadGateway {
 		errorClass = errorSandboxUnavailable
+	}
+	if strings.TrimSpace(parsed.Code) == "shell.max_sessions_exceeded" {
+		errorClass = errorMaxSessionsExceeded
 	}
 
 	message := parsed.Message

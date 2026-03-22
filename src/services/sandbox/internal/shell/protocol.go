@@ -111,12 +111,13 @@ type AgentStateResponse struct {
 }
 
 type AgentResponse struct {
-	Action  string                `json:"action"`
-	Session *AgentSessionResponse `json:"session,omitempty"`
-	Debug   *AgentDebugResponse   `json:"debug,omitempty"`
-	State   *AgentStateResponse   `json:"state,omitempty"`
-	Code    string                `json:"code,omitempty"`
-	Error   string                `json:"error,omitempty"`
+	Action     string                `json:"action"`
+	Session    *AgentSessionResponse `json:"session,omitempty"`
+	Debug      *AgentDebugResponse   `json:"debug,omitempty"`
+	State      *AgentStateResponse   `json:"state,omitempty"`
+	ExecOutput *OutputDeltasResponse `json:"exec_output,omitempty"`
+	Code       string                `json:"code,omitempty"`
+	Error      string                `json:"error,omitempty"`
 }
 
 type AgentSessionResponse struct {
@@ -139,6 +140,13 @@ type AgentDebugResponse struct {
 	PendingOutputTruncated bool            `json:"pending_output_truncated"`
 	Transcript             DebugTranscript `json:"transcript"`
 	Tail                   string          `json:"tail"`
+}
+
+// OutputDeltasResponse carries output deltas from a running command session.
+type OutputDeltasResponse struct {
+	Stdout  string `json:"stdout"`
+	Stderr  string `json:"stderr"`
+	Running bool   `json:"running"`
 }
 
 func NormalizeYieldTimeMs(value int) int {

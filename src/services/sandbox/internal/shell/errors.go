@@ -1,15 +1,19 @@
 package shell
 
-import "net/http"
+import (
+	"fmt"
+	"net/http"
+)
 
 const (
-	CodeSessionBusy     = "shell.session_busy"
-	CodeSessionNotFound = "shell.session_not_found"
-	CodeInvalidCursor   = "shell.invalid_cursor"
-	CodeNotRunning      = "shell.not_running"
-	CodeSignalFailed    = "shell.signal_failed"
-	CodeTimeoutTooLarge = "shell.timeout_too_large"
+	CodeSessionBusy         = "shell.session_busy"
+	CodeSessionNotFound     = "shell.session_not_found"
+	CodeInvalidCursor       = "shell.invalid_cursor"
+	CodeNotRunning          = "shell.not_running"
+	CodeSignalFailed        = "shell.signal_failed"
+	CodeTimeoutTooLarge     = "shell.timeout_too_large"
 	CodeAccountMismatch     = "sandbox.account_mismatch"
+	CodeMaxSessionsExceeded = "shell.max_sessions_exceeded"
 )
 
 type Error struct {
@@ -44,4 +48,8 @@ func timeoutTooLargeError() *Error {
 
 func accountMismatchError() *Error {
 	return newError(CodeAccountMismatch, "session belongs to another account", http.StatusForbidden)
+}
+
+func maxSessionsExceededError(maxSessions int) *Error {
+	return newError(CodeMaxSessionsExceeded, fmt.Sprintf("max shell sessions reached: %d", maxSessions), http.StatusServiceUnavailable)
 }

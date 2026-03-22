@@ -233,6 +233,11 @@ func (m *Manager) ActiveCount() int {
 	return len(m.sessions)
 }
 
+// MaxSessions 返回配置的最大 Session 数量。
+func (m *Manager) MaxSessions() int {
+	return m.cfg.MaxSessions
+}
+
 // SessionsByTier 返回各 tier 的活跃 session 数量。
 func (m *Manager) SessionsByTier() map[string]int {
 	m.mu.Lock()

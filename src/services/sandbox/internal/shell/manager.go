@@ -18,9 +18,18 @@ import (
 	"arkloop/services/shared/objectstore"
 )
 
+const (
+	// maxShellSessions is the maximum number of shell sessions allowed.
+	// When reached, LRU eviction is attempted before rejecting new sessions.
+	maxShellSessions = 64
+	// protectedRing is the number of most recently used sessions protected from LRU eviction.
+	protectedRing = 8
+)
+
 type Service interface {
 	ExecCommand(ctx context.Context, req ExecCommandRequest) (*Response, error)
 	WriteStdin(ctx context.Context, req WriteStdinRequest) (*Response, error)
+	ReadOutputDeltas(ctx context.Context, sessionID, accountID string) (*OutputDeltasResponse, error)
 	DebugSnapshot(ctx context.Context, sessionID, accountID string) (*DebugResponse, error)
 	ForkSession(ctx context.Context, req ForkSessionRequest) (*ForkSessionResponse, error)
 	Close(ctx context.Context, sessionID, accountID string) error
@@ -38,6 +47,10 @@ type Manager struct {
 
 	mu       sync.Mutex
 	sessions map[string]*managedSession
+	// lruOrder tracks session access order for LRU eviction.
+	// Most recently used is at the end; oldest is at the front.
+	// Only sessions with compute != nil are considered for eviction.
+	lruOrder []string
 }
 
 type managedSession struct {
@@ -170,7 +183,19 @@ func (m *Manager) openExecCommandSession(ctx context.Context, req ExecCommandReq
 		if strings.Contains(err.Error(), "account mismatch") {
 			return ExecCommandRequest{}, nil, false, "", false, accountMismatchError()
 		}
-		return ExecCommandRequest{}, nil, false, "", false, fmt.Errorf("get shell compute session: %w", err)
+		if strings.Contains(err.Error(), "max sessions reached:") {
+			// Attempt LRU eviction of oldest non-protected session before retrying.
+			if m.evictOldestNonProtected(ctx) {
+				computeSession, err = m.compute.GetOrCreate(ctx, req.SessionID, req.Tier, req.AccountID)
+				if err != nil {
+					return ExecCommandRequest{}, nil, false, "", false, maxSessionsExceededError(m.compute.MaxSessions())
+				}
+			} else {
+				return ExecCommandRequest{}, nil, false, "", false, maxSessionsExceededError(m.compute.MaxSessions())
+			}
+		} else {
+			return ExecCommandRequest{}, nil, false, "", false, fmt.Errorf("get shell compute session: %w", err)
+		}
 	}
 	entry.compute = computeSession
 	entry.accountID = computeSession.AccountID
@@ -267,6 +292,30 @@ func (m *Manager) DebugSnapshot(ctx context.Context, sessionID, accountID string
 	}
 
 	return m.toDebugResponse(sessionID, result), nil
+}
+
+func (m *Manager) ReadOutputDeltas(ctx context.Context, sessionID, accountID string) (*OutputDeltasResponse, error) {
+	entry, err := m.getExistingEntry(sessionID, accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	entry.mu.Lock()
+	defer entry.mu.Unlock()
+	if err := ensureAccount(entry.accountID, accountID); err != nil {
+		return nil, err
+	}
+
+	result, err := m.invokeReadOutputDeltas(ctx, entry)
+	if err != nil {
+		if _, ok := err.(*transportError); ok {
+			m.dropEntry(sessionID, entry)
+			return nil, notFoundError()
+		}
+		return nil, err
+	}
+
+	return result, nil
 }
 
 func (m *Manager) ForkSession(ctx context.Context, req ForkSessionRequest) (*ForkSessionResponse, error) {
@@ -370,10 +419,13 @@ func (m *Manager) getOrCreateEntry(sessionID, accountID string) (*managedSession
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if entry, ok := m.sessions[sessionID]; ok {
+		// Move to end of LRU order (most recently used).
+		m.moveToEndLRU(sessionID)
 		return entry, false
 	}
 	entry := &managedSession{accountID: accountID, artifactSeen: make(map[string]artifactVersion)}
 	m.sessions[sessionID] = entry
+	m.lruOrder = append(m.lruOrder, sessionID)
 	return entry, true
 }
 
@@ -395,7 +447,74 @@ func (m *Manager) dropEntry(sessionID string, entry *managedSession) {
 	defer m.mu.Unlock()
 	if current, ok := m.sessions[sessionID]; ok && current == entry {
 		delete(m.sessions, sessionID)
+		m.removeFromLRU(sessionID)
 	}
+}
+
+// moveToEndLRU moves sessionID to the end of lruOrder (most recently used).
+func (m *Manager) moveToEndLRU(sessionID string) {
+	for i, id := range m.lruOrder {
+		if id == sessionID {
+			m.lruOrder = append(m.lruOrder[:i], m.lruOrder[i+1:]...)
+			m.lruOrder = append(m.lruOrder, sessionID)
+			return
+		}
+	}
+}
+
+// removeFromLRU removes sessionID from lruOrder.
+func (m *Manager) removeFromLRU(sessionID string) {
+	for i, id := range m.lruOrder {
+		if id == sessionID {
+			m.lruOrder = append(m.lruOrder[:i], m.lruOrder[i+1:]...)
+			return
+		}
+	}
+}
+
+// evictOldestNonProtected evicts the oldest non-protected session to make room for a new one.
+// Returns true if eviction was performed, false if no evictable session was found.
+// Protected sessions are the most recently used ones (protectedRing count from end of lruOrder).
+func (m *Manager) evictOldestNonProtected(ctx context.Context) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Find oldest session that:
+	// 1. Has a compute session allocated
+	// 2. Is not in the protected ring (most recent protectedRing sessions)
+	// 3. Is not the current session being created (entry.compute == nil at this point)
+	for i, sessionID := range m.lruOrder {
+		// Protected ring starts from the end (most recently used).
+		protectedStart := len(m.lruOrder) - protectedRing
+		if i >= protectedStart {
+			// This session is protected.
+			continue
+		}
+		entry, ok := m.sessions[sessionID]
+		if !ok || entry == nil {
+			continue
+		}
+		entry.mu.Lock()
+		hasCompute := entry.compute != nil
+		entry.mu.Unlock()
+		if !hasCompute {
+			continue
+		}
+		// Evict this session.
+		m.logger.Info("shell_lru_evict", logging.LogFields{SessionID: &sessionID}, map[string]any{
+			"reason":          "max_sessions_reached",
+			"active_sessions": len(m.sessions),
+		})
+		if m.envManager != nil {
+			_ = m.envManager.FlushNow(ctx, sessionID)
+			m.envManager.Drop(sessionID)
+		}
+		_ = m.compute.DeleteSkipHook(ctx, sessionID, entry.accountID)
+		delete(m.sessions, sessionID)
+		m.lruOrder = append(m.lruOrder[:i], m.lruOrder[i+1:]...)
+		return true
+	}
+	return false
 }
 
 func (m *Manager) prepareExecCommandRequest(ctx context.Context, req ExecCommandRequest, entry *managedSession) (ExecCommandRequest, map[string]string, bool, string) {
@@ -608,6 +727,52 @@ func (m *Manager) invokeDebugSnapshot(ctx context.Context, entry *managedSession
 		return nil, &transportError{err: fmt.Errorf("debug response missing body")}
 	}
 	return resp.Debug, nil
+}
+
+func (m *Manager) invokeReadOutputDeltas(ctx context.Context, entry *managedSession) (*OutputDeltasResponse, error) {
+	if entry.compute == nil {
+		return nil, notFoundError()
+	}
+	entry.compute.TouchActivity()
+	callTimeout := 10 * time.Second
+	ctx, cancel := context.WithTimeout(ctx, callTimeout)
+	defer cancel()
+
+	conn, err := entry.compute.Dial(ctx)
+	if err != nil {
+		return nil, &transportError{err: fmt.Errorf("connect to agent: %w", err)}
+	}
+	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(callTimeout))
+
+	req := AgentRequest{Action: "exec_read_output"}
+	if err := json.NewEncoder(conn).Encode(req); err != nil {
+		return nil, &transportError{err: fmt.Errorf("send read output request: %w", err)}
+	}
+	respBody, err := io.ReadAll(conn)
+	if err != nil {
+		return nil, &transportError{err: fmt.Errorf("read output response: %w", err)}
+	}
+	var resp AgentResponse
+	if err := json.Unmarshal(respBody, &resp); err != nil {
+		return nil, &transportError{err: fmt.Errorf("decode output response: %w", err)}
+	}
+	if resp.Error != "" {
+		switch resp.Code {
+		case CodeSessionNotFound:
+			return nil, notFoundError()
+		default:
+			return nil, errors.New(resp.Error)
+		}
+	}
+	if resp.ExecOutput == nil {
+		return nil, &transportError{err: fmt.Errorf("exec_output response missing body")}
+	}
+	return &OutputDeltasResponse{
+		Stdout:  resp.ExecOutput.Stdout,
+		Stderr:  resp.ExecOutput.Stderr,
+		Running: resp.ExecOutput.Running,
+	}, nil
 }
 
 func (m *Manager) invokeSession(ctx context.Context, entry *managedSession, payload AgentRequest, timeoutMs, yieldTimeMs int) (*AgentSessionResponse, error) {
