@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import {
   Plus,
   Trash2,
@@ -276,9 +277,9 @@ function AddProviderModal({ accessToken, p, onClose, onCreated }: {
     fontFamily: 'inherit',
   } as const
 
-  return (
+  return createPortal(
     <div
-      className="overlay-fade-in fixed inset-0 z-50 flex items-center justify-center"
+      className="overlay-fade-in fixed inset-0 z-[60] flex items-center justify-center"
       style={{ background: 'var(--c-overlay)' }}
       onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
     >
@@ -338,7 +339,7 @@ function AddProviderModal({ accessToken, p, onClose, onCreated }: {
           </div>
         </div>
 
-        {err && <p className="text-xs text-[var(--c-status-error-text)]">{err}</p>}
+        {err && <p className="mt-3 text-xs text-[var(--c-status-error-text)]">{err}</p>}
 
         <div className="flex items-center justify-end gap-2">
           <button
@@ -358,7 +359,8 @@ function AddProviderModal({ accessToken, p, onClose, onCreated }: {
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { Plus, Trash2, Download, X, Loader2 } from 'lucide-react'
 import {
   type LlmProvider,
@@ -179,9 +180,9 @@ function AddProviderModal({ accessToken, onClose, onCreated }: {
     }
   }
 
-  return (
+  return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/45"
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/45"
       onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
     >
       <div className="flex w-[420px] flex-col gap-4 rounded-xl bg-[var(--c-bg-deep)] p-5 shadow-lg">
@@ -218,7 +219,7 @@ function AddProviderModal({ accessToken, onClose, onCreated }: {
           </FormField>
         </div>
 
-        {err && <p className="text-xs text-red-400">{err}</p>}
+        {err && <p className="mt-3 text-xs text-red-400">{err}</p>}
 
         <div className="flex items-center justify-end gap-2 pt-1">
           <button
@@ -236,7 +237,8 @@ function AddProviderModal({ accessToken, onClose, onCreated }: {
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 
