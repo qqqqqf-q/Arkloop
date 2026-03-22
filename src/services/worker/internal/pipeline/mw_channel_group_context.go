@@ -6,12 +6,36 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"unicode/utf8"
 
+	"arkloop/services/shared/messagecontent"
 	"arkloop/services/worker/internal/llm"
+
+	"github.com/pkoukk/tiktoken-go"
 )
 
-const defaultChannelGroupMaxContextTokens = 4096
+const defaultChannelGroupMaxContextTokens = 16384
+
+// 群聊截断在 Routing 之前执行，没有选定模型；用 o200k 统一估算正文，与 HistoryThreadPromptTokens 默认回退一致。
+// 每条里的图片单独加固定预算（PartPromptText 对 image 为空，不能仅靠正文 tiktoken）。
+const groupTrimVisionTokensPerImage = 1024
+
+var (
+	groupTrimEncOnce sync.Once
+	groupTrimEnc     *tiktoken.Tiktoken
+	groupTrimEncErr  error
+)
+
+func groupTrimEncoder() *tiktoken.Tiktoken {
+	groupTrimEncOnce.Do(func() {
+		groupTrimEnc, groupTrimEncErr = tiktoken.GetEncoding(tiktoken.MODEL_O200K_BASE)
+	})
+	if groupTrimEncErr != nil {
+		return nil
+	}
+	return groupTrimEnc
+}
 
 // NewChannelGroupContextTrimMiddleware 在 Channel 群聊 Run 上按近似 token 预算裁剪 Thread 历史（保留时间轴尾部）。
 func NewChannelGroupContextTrimMiddleware() RunMiddleware {
@@ -26,7 +50,7 @@ func NewChannelGroupContextTrimMiddleware() RunMiddleware {
 		if rc == nil || rc.ChannelContext == nil {
 			return next(ctx, rc)
 		}
-		if !isTelegramGroupLikeConversation(rc.ChannelContext.ConversationType) {
+		if !IsTelegramGroupLikeConversation(rc.ChannelContext.ConversationType) {
 			return next(ctx, rc)
 		}
 		trimRunContextMessagesToApproxTokens(rc, maxTokens)
@@ -34,7 +58,8 @@ func NewChannelGroupContextTrimMiddleware() RunMiddleware {
 	}
 }
 
-func isTelegramGroupLikeConversation(ct string) bool {
+// IsTelegramGroupLikeConversation 判断 Telegram 侧群 / 超级群 / 频道（非私信）。
+func IsTelegramGroupLikeConversation(ct string) bool {
 	switch strings.ToLower(strings.TrimSpace(ct)) {
 	case "group", "supergroup", "channel":
 		return true
@@ -73,17 +98,52 @@ func trimRunContextMessagesToApproxTokens(rc *RunContext, maxTokens int) {
 	}
 }
 
-// messageTokens 返回消息的实际 token 消耗。
-// assistant 消息用真实的 output_tokens（从数据库 JOIN 来的），
-// 其他消息用 rune 估算（因为没有 output 记录）。
+// messageTokens 估算单条在历史截断里的权重，顺序：
+// 1) assistant 且 usage_records.output_tokens>0（模型侧真实 completion，Desktop 与 Postgres 的 ListByThread 均已 JOIN）
+// 2) tiktoken o200k 估正文+tool；图按固定 vision 预算
+// 3) tiktoken 初始化失败则 legacy：rune/3
+//
+// user 等角色不能用 output_tokens：metadata 里同 run_id 会 JOIN 到同一条 usage，数值语义不是「本条 user 长度」。
 func messageTokens(m *llm.Message) int {
-	if m.OutputTokens != nil && *m.OutputTokens > 0 {
+	if m != nil && strings.EqualFold(strings.TrimSpace(m.Role), "assistant") &&
+		m.OutputTokens != nil && *m.OutputTokens > 0 {
 		return int(*m.OutputTokens)
+	}
+	if m == nil {
+		return 1
 	}
 	return approxLLMMessageTokens(*m)
 }
 
 func approxLLMMessageTokens(m llm.Message) int {
+	enc := groupTrimEncoder()
+	if enc == nil {
+		return approxLLMMessageTokensLegacy(m)
+	}
+	const tokensPerMessage = 3
+	n := tokensPerMessage
+	n += len(enc.Encode(m.Role, nil, nil))
+	body := messageText(m)
+	for _, tc := range m.ToolCalls {
+		body += "\n"
+		body += tc.ToolName
+		if b, err := json.Marshal(tc.ArgumentsJSON); err == nil {
+			body += string(b)
+		}
+	}
+	n += len(enc.Encode(body, nil, nil))
+	for _, p := range m.Content {
+		if p.Kind() == messagecontent.PartTypeImage {
+			n += groupTrimVisionTokensPerImage
+		}
+	}
+	if n < 1 {
+		return 1
+	}
+	return n
+}
+
+func approxLLMMessageTokensLegacy(m llm.Message) int {
 	n := 0
 	for _, p := range m.Content {
 		n += utf8.RuneCountInString(p.Text)
@@ -92,7 +152,11 @@ func approxLLMMessageTokens(m llm.Message) int {
 			n += 64
 		}
 		if len(p.Data) > 0 {
-			n += len(p.Data) / 4
+			raw := len(p.Data) / 4
+			if p.Kind() == messagecontent.PartTypeImage && raw > 3072 {
+				raw = 3072
+			}
+			n += raw
 		}
 	}
 	for _, tc := range m.ToolCalls {

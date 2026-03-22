@@ -752,7 +752,7 @@ type Formatter interface {
 |------|------|
 | `ARKLOOP_CHANNEL_RATE_LIMIT_PER_MIN` | 每 channel 每分钟最大 Agent 触发数（默认 30） |
 | `ARKLOOP_CHANNEL_BIND_CODE_TTL_SEC` | Bind code 有效期（默认 86400，即 24h） |
-| `ARKLOOP_CHANNEL_GROUP_MAX_CONTEXT_TOKENS` | 群聊 Run 最大上下文 token 数（默认 4096） |
+| `ARKLOOP_CHANNEL_GROUP_MAX_CONTEXT_TOKENS` | 群聊 Run 最大上下文 token 数（默认 16384） |
 | `ARKLOOP_CHANNEL_MESSAGE_SEGMENT_DELAY_MS` | 分段消息发送间隔（默认 50） |
 | `ARKLOOP_COMPACT_TRIGGER_THRESHOLD` | Compaction 触发阈值（token 数，默认 2x context budget） |
 

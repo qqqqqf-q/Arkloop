@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"arkloop/services/shared/messagecontent"
 	"arkloop/services/worker/internal/llm"
 
 	"github.com/google/uuid"
@@ -72,5 +73,40 @@ func TestNewChannelGroupContextTrimMiddleware_trimsSupergroup(t *testing.T) {
 	}
 	if rc.Messages[0].Content[0].Text != "tail" {
 		t.Fatalf("unexpected kept content")
+	}
+}
+
+func TestApproxLLMMessageTokens_imageDoesNotScaleWithBytes(t *testing.T) {
+	huge := make([]byte, 4*1024*1024)
+	m := llm.Message{
+		Content: []llm.ContentPart{{
+			Type:       messagecontent.PartTypeImage,
+			Attachment: &messagecontent.AttachmentRef{Filename: "huge.png"},
+			Data:       huge,
+		}},
+	}
+	tok := approxLLMMessageTokens(m)
+	if tok > 5000 {
+		t.Fatalf("image trim estimate should not grow with raw bytes, got %d", tok)
+	}
+}
+
+func TestMessageTokens_outputTokensOnlyForAssistant(t *testing.T) {
+	fiveHundred := int64(500)
+	u := &llm.Message{
+		Role:         "user",
+		OutputTokens: &fiveHundred,
+		Content:      []llm.ContentPart{{Type: "text", Text: strings.Repeat("x", 120)}},
+	}
+	if got := messageTokens(u); got == 500 {
+		t.Fatalf("user message must not use output_tokens as length, got %d", got)
+	}
+	a := &llm.Message{
+		Role:         "assistant",
+		OutputTokens: &fiveHundred,
+		Content:      []llm.ContentPart{{Type: "text", Text: "short"}},
+	}
+	if got := messageTokens(a); got != 500 {
+		t.Fatalf("assistant should use output_tokens, got %d want 500", got)
 	}
 }
