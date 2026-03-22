@@ -120,8 +120,6 @@ func (c *ShellController) WriteStdin(req shellapi.AgentWriteStdinRequest) (*shel
 			code, msg := mapShellError(err)
 			return nil, code, msg
 		}
-		// Auto-send EOF to signal end of stdin for heredoc commands
-		c.writeInput("")
 	}
 	return c.waitForDelivery(req.YieldTimeMs)
 }
@@ -466,19 +464,10 @@ func (c *ShellController) signalForegroundLocked(sig unix.Signal) error {
 func (c *ShellController) readLoop(file *os.File) {
 	buf := make([]byte, 4096)
 	for {
-		dataCh := make(chan []byte, 1)
-		errCh := make(chan error, 1)
-		go func() {
-			n, err := file.Read(buf)
-			if n > 0 {
-				dataCh <- buf[:n]
-			}
-			if err != nil {
-				errCh <- err
-			}
-		}()
-		select {
-		case data := <-dataCh:
+		n, err := file.Read(buf)
+		if n > 0 {
+			data := make([]byte, n)
+			copy(data, buf[:n])
 			c.mu.Lock()
 			if c.current != nil {
 				c.current.raw += string(data)
@@ -488,7 +477,8 @@ func (c *ShellController) readLoop(file *os.File) {
 			}
 			c.notifyLocked()
 			c.mu.Unlock()
-		case <-errCh:
+		}
+		if err != nil {
 			c.mu.Lock()
 			c.status = shellapi.StatusClosed
 			if c.current != nil && c.current.timer != nil {
@@ -497,17 +487,6 @@ func (c *ShellController) readLoop(file *os.File) {
 			c.current = nil
 			c.cmd = nil
 			c.ptyFile = nil
-			c.notifyLocked()
-			c.mu.Unlock()
-			return
-		case <-time.After(2 * time.Second):
-			// IO drain timeout - abort this read loop
-			c.mu.Lock()
-			c.status = shellapi.StatusClosed
-			if c.current != nil && c.current.timer != nil {
-				c.current.timer.Stop()
-			}
-			c.current = nil
 			c.notifyLocked()
 			c.mu.Unlock()
 			return
