@@ -216,13 +216,13 @@ func TestChannelDeliveryMiddlewarePersistsDeliveryAndLedger(t *testing.T) {
 	if deliveryCount != 1 || ledgerCount != 1 {
 		t.Fatalf("expected one delivery and one ledger row, got deliveries=%d ledger=%d", deliveryCount, ledgerCount)
 	}
-	if parentID == nil || *parentID != "55" {
+	if parentID != nil {
 		t.Fatalf("unexpected platform_parent_message_id: %#v", parentID)
 	}
 	if messageThread == nil || *messageThread != threadRef {
 		t.Fatalf("unexpected platform_thread_id: %#v", messageThread)
 	}
-	if sent.ReplyToMessageID != "55" || sent.MessageThreadID != threadRef {
+	if sent.ReplyToMessageID != "" || sent.MessageThreadID != threadRef {
 		t.Fatalf("unexpected telegram send payload: %#v", sent)
 	}
 
@@ -545,7 +545,7 @@ func TestChannelDeliveryMiddlewareSendsChannelTerminalNotice(t *testing.T) {
 	if !strings.Contains(sent.Text, "usage limit exceeded") {
 		t.Fatalf("expected notice in telegram text, got %q", sent.Text)
 	}
-	if sent.ReplyToMessageID != "55" || sent.MessageThreadID != threadRef {
+	if sent.ReplyToMessageID != "" || sent.MessageThreadID != threadRef {
 		t.Fatalf("unexpected telegram send payload: %#v", sent)
 	}
 }

@@ -26,34 +26,3 @@ func TestParseTelegramChannelUXExplicit(t *testing.T) {
 	}
 }
 
-func TestTelegramQuoteInboundDefaultPrivateOff(t *testing.T) {
-	ux := ParseTelegramChannelUX(nil)
-	if !ux.QuoteInboundForConversation("supergroup") {
-		t.Fatal("expected quote on for supergroup")
-	}
-	if ux.QuoteInboundForConversation("private") {
-		t.Fatal("expected no quote for private")
-	}
-	raw := []byte(`{"telegram_quote_inbound_message":true}`)
-	ux = ParseTelegramChannelUX(raw)
-	if !ux.QuoteInboundForConversation("private") {
-		t.Fatal("config override should force quote in private")
-	}
-}
-
-func TestResolveTelegramOutboundReplyTo(t *testing.T) {
-	tr := &ChannelMessageRef{MessageID: "7"}
-	rc := &RunContext{
-		ChannelContext: &ChannelContext{
-			ConversationType: "private",
-			TriggerMessage:   tr,
-		},
-	}
-	if ResolveTelegramOutboundReplyTo(rc, ParseTelegramChannelUX(nil)) != nil {
-		t.Fatal("private default: no reply ref")
-	}
-	rc.ChannelContext.ConversationType = "group"
-	if got := ResolveTelegramOutboundReplyTo(rc, ParseTelegramChannelUX(nil)); got != tr {
-		t.Fatalf("group: want trigger, got %#v", got)
-	}
-}

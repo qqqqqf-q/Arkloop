@@ -684,19 +684,17 @@ func desktopChannelDelivery(db data.DesktopDB) pipeline.RunMiddleware {
 		var streamFlush func(context.Context, string) error
 		if preloaded != nil && db != nil && rc != nil && rc.ChannelContext != nil && rc.ChannelContext.ChannelType == "telegram" &&
 			strings.TrimSpace(preloaded.Token) != "" {
-			uxReg := pipeline.ParseTelegramChannelUX(preloaded.ConfigJSON)
-			replyRef := pipeline.ResolveTelegramOutboundReplyTo(rc, uxReg)
 			sender := pipeline.NewTelegramChannelSenderWithClient(client, preloaded.Token, 50*time.Millisecond)
 			streamFlush = func(ctx2 context.Context, text string) error {
 				ids, sendErr := sender.SendText(ctx2, pipeline.ChannelDeliveryTarget{
 					ChannelType:  rc.ChannelContext.ChannelType,
 					Conversation: rc.ChannelContext.Conversation,
-					ReplyTo:      replyRef,
+					ReplyTo:      nil,
 				}, text)
 				if sendErr != nil {
 					return sendErr
 				}
-				if err := recordDesktopChannelDelivery(ctx2, db, rc.Run.ID, rc.Run.ThreadID, rc.ChannelContext.ChannelID, rc.ChannelContext.Conversation.Target, replyRef, rc.ChannelContext.Conversation.ThreadID, ids); err != nil {
+				if err := recordDesktopChannelDelivery(ctx2, db, rc.Run.ID, rc.Run.ThreadID, rc.ChannelContext.ChannelID, rc.ChannelContext.Conversation.Target, nil, rc.ChannelContext.Conversation.ThreadID, ids); err != nil {
 					return err
 				}
 				streamMidCount++
@@ -765,12 +763,11 @@ func desktopChannelDelivery(db data.DesktopDB) pipeline.RunMiddleware {
 
 		var finalRecordErr error
 		if output != "" {
-			replyTo := pipeline.ResolveTelegramOutboundReplyTo(rc, uxSend)
 			sender := pipeline.NewTelegramChannelSenderWithClient(client, channel.Token, 50*time.Millisecond)
 			messageIDs, sendErr := sender.SendText(ctx, pipeline.ChannelDeliveryTarget{
 				ChannelType:  rc.ChannelContext.ChannelType,
 				Conversation: rc.ChannelContext.Conversation,
-				ReplyTo:      replyTo,
+				ReplyTo:      nil,
 			}, output)
 			if sendErr != nil {
 				recordDesktopChannelDeliveryFailure(db, rc.Run.ID, sendErr)
@@ -784,7 +781,7 @@ func desktopChannelDelivery(db data.DesktopDB) pipeline.RunMiddleware {
 				rc.Run.ThreadID,
 				rc.ChannelContext.ChannelID,
 				rc.ChannelContext.Conversation.Target,
-				replyTo,
+				nil,
 				rc.ChannelContext.Conversation.ThreadID,
 				messageIDs,
 			)

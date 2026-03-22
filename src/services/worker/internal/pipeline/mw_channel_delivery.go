@@ -54,19 +54,17 @@ func NewChannelDeliveryMiddlewareWithOptions(pool *pgxpool.Pool, opts ChannelDel
 		var streamFlush func(context.Context, string) error
 		if preloaded != nil && pool != nil && rc != nil && rc.ChannelContext != nil && rc.ChannelContext.ChannelType == "telegram" &&
 			tgClient != nil && strings.TrimSpace(preloaded.Token) != "" {
-			uxReg := ParseTelegramChannelUX(preloaded.ConfigJSON)
-			replyRef := ResolveTelegramOutboundReplyTo(rc, uxReg)
 			sender := NewTelegramChannelSenderWithClient(tgClient, preloaded.Token, resolveSegmentDelay())
 			streamFlush = func(ctx2 context.Context, text string) error {
 				ids, sendErr := sender.SendText(ctx2, ChannelDeliveryTarget{
 					ChannelType:  rc.ChannelContext.ChannelType,
 					Conversation: rc.ChannelContext.Conversation,
-					ReplyTo:      replyRef,
+					ReplyTo:      nil,
 				}, text)
 				if sendErr != nil {
 					return sendErr
 				}
-				if err := recordChannelDeliverySuccess(ctx2, pool, repo, ledgerRepo, rc, replyRef, ids); err != nil {
+				if err := recordChannelDeliverySuccess(ctx2, pool, repo, ledgerRepo, rc, nil, ids); err != nil {
 					return err
 				}
 				streamMidCount++
@@ -136,19 +134,18 @@ func NewChannelDeliveryMiddlewareWithOptions(pool *pgxpool.Pool, opts ChannelDel
 
 		var finalRecordErr error
 		if output != "" {
-			replyTo := ResolveTelegramOutboundReplyTo(rc, uxSend)
 			sender := NewTelegramChannelSenderWithClient(tgClient, channel.Token, resolveSegmentDelay())
 			messageIDs, sendErr := sender.SendText(ctx, ChannelDeliveryTarget{
 				ChannelType:  rc.ChannelContext.ChannelType,
 				Conversation: rc.ChannelContext.Conversation,
-				ReplyTo:      replyTo,
+				ReplyTo:      nil,
 			}, output)
 			if sendErr != nil {
 				recordChannelDeliveryFailure(ctx, pool, rc.Run.ID, sendErr)
 				slog.WarnContext(ctx, "telegram channel delivery failed", "run_id", rc.Run.ID, "err", sendErr.Error())
 				return err
 			}
-			finalRecordErr = recordChannelDeliverySuccess(ctx, pool, repo, ledgerRepo, rc, replyTo, messageIDs)
+			finalRecordErr = recordChannelDeliverySuccess(ctx, pool, repo, ledgerRepo, rc, nil, messageIDs)
 			if finalRecordErr != nil {
 				recordChannelDeliveryFailure(ctx, pool, rc.Run.ID, finalRecordErr)
 				slog.WarnContext(ctx, "telegram channel delivery record failed", "run_id", rc.Run.ID, "err", finalRecordErr.Error())

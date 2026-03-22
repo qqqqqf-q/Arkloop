@@ -1048,8 +1048,8 @@ func TestDesktopChannelDeliveryPersistsLedgerRefs(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read request body: %v", err)
 		}
-		if !bytes.Contains(raw, []byte(`"reply_to_message_id":"88"`)) {
-			t.Fatalf("expected reply_to_message_id in request: %s", string(raw))
+		if bytes.Contains(raw, []byte(`"reply_to_message_id"`)) {
+			t.Fatalf("unexpected reply_to_message_id in request: %s", string(raw))
 		}
 		if !bytes.Contains(raw, []byte(`"message_thread_id":"thread-42"`)) {
 			t.Fatalf("expected message_thread_id in request: %s", string(raw))
@@ -1150,7 +1150,7 @@ func TestDesktopChannelDeliveryPersistsLedgerRefs(t *testing.T) {
 	if deliveryCount != 1 {
 		t.Fatalf("expected one delivery row, got %d", deliveryCount)
 	}
-	if parentID != "88" {
+	if parentID != "" {
 		t.Fatalf("unexpected platform_parent_message_id: %q", parentID)
 	}
 	if platformThread != threadRef {
