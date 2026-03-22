@@ -1,3 +1,4 @@
+import { redactDataUrlsInString } from './debugPayloadRedact'
 import { isACPDelegateEventData } from './runEventDelegate'
 
 export type RunEventRaw = {
@@ -122,9 +123,10 @@ function extractToolName(tool: Record<string, unknown>): string {
 
 function extractMessageText(msg: Record<string, unknown>): string {
   const content = msg.content
-  if (typeof content === 'string') return content
-  if (Array.isArray(content)) {
-    return content
+  let out: string
+  if (typeof content === 'string') out = content
+  else if (Array.isArray(content)) {
+    out = content
       .map((part: unknown) => {
         if (typeof part === 'string') return part
         if (typeof part === 'object' && part !== null) {
@@ -134,8 +136,10 @@ function extractMessageText(msg: Record<string, unknown>): string {
         return ''
       })
       .join('')
+  } else {
+    out = JSON.stringify(content)
   }
-  return JSON.stringify(content)
+  return redactDataUrlsInString(out)
 }
 
 function parseChannelEnvelope(text: string): { text: string; meta: Record<string, string> } | null {

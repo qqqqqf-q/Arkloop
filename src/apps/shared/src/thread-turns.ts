@@ -1,3 +1,5 @@
+import { redactDataUrlsInString } from './debugPayloadRedact'
+
 export type ThreadMessageContentPart = {
   type: string
   text?: string
@@ -23,14 +25,17 @@ export type ThreadTurn = {
 
 export function threadMessageTextContent(message: Pick<ThreadMessage, 'content' | 'content_json'>): string {
   const parts = message.content_json?.parts
+  let out: string
   if (parts?.length) {
-    return parts
+    out = parts
       .filter((part) => part.type === 'text')
       .map((part) => part.text ?? '')
       .join('\n\n')
       .trim()
+  } else {
+    out = message.content.trim()
   }
-  return message.content.trim()
+  return redactDataUrlsInString(out)
 }
 
 export function buildThreadTurns(

@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react'
 import { ChevronDown, ChevronRight } from 'lucide-react'
+import { jsonStringifyForDebugDisplay, redactDataUrlsInString } from '../debugPayloadRedact'
 
 type CollapseBlockProps = {
   label: string
@@ -40,9 +41,10 @@ export function CollapseBlock({ label, preview, defaultOpen = false, children, d
 }
 
 export function PreText({ text }: { text: string }) {
+  const safe = redactDataUrlsInString(text)
   return (
     <pre className="whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-[var(--c-text-secondary)]">
-      {text}
+      {safe}
     </pre>
   )
 }
@@ -50,7 +52,7 @@ export function PreText({ text }: { text: string }) {
 export function JsonBlock({ value }: { value: unknown }) {
   return (
     <pre className="whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-[var(--c-text-secondary)]">
-      {JSON.stringify(value, null, 2)}
+      {jsonStringifyForDebugDisplay(value, 2)}
     </pre>
   )
 }
