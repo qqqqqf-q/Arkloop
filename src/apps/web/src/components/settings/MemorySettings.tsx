@@ -748,7 +748,7 @@ export function MemorySettings({ accessToken }: Props) {
           const timeout = setTimeout(() => {
             if (done) return
             done = true
-            resolve()
+            reject(new Error('configure timeout'))
           }, 45_000)
           const stop = bridgeClient.streamOperation(operation_id, () => {}, (result) => {
             if (done) return
