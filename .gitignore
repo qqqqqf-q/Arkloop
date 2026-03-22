@@ -52,3 +52,4 @@ src/apps/desktop/resources/arkloop-sidecar
 /bin/
 /desktop
 .factory/settings.json
+src/services/desktop/desktop
