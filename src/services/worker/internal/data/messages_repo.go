@@ -121,10 +121,10 @@ func (MessagesRepository) ListByThread(
 	}
 	rows, err := tx.Query(
 		ctx,
-		`SELECT m.id, m.role, m.content, m.content_json, m.created_at,
+		`SELECT recent.id, recent.role, recent.content, recent.content_json, recent.created_at,
 		        COALESCE(u.output_tokens, 0) as output_tokens
 		 FROM (
-			SELECT id, role, content, content_json, created_at
+			SELECT id, role, content, content_json, created_at, metadata_json
 			  FROM messages
 			 WHERE account_id = $1
 			   AND thread_id = $2
@@ -250,7 +250,7 @@ func (MessagesRepository) ListRecentByThread(
 	}
 	rows, err := tx.Query(
 		ctx,
-		`SELECT m.id, m.role, m.content, m.content_json, m.created_at,
+		`SELECT recent.id, recent.role, recent.content, recent.content_json, recent.created_at,
 		        COALESCE(u.output_tokens, 0) as output_tokens
 		 FROM (
 		 	SELECT id, role, content, content_json, created_at, metadata_json
