@@ -140,13 +140,16 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 	fmt.Fprintf(os.Stderr, "[DEBUG] composition_desktop: sandboxAddr=%q authToken=%q\n", sandboxAddr, authToken)
 	shellExec := runtime.NewDynamicShellExecutor(sandboxAddr, authToken)
 
-	// Set initial mode based on environment and sandbox availability
-	if sandboxAddr != "" {
-		desktop.SetExecutionMode("vm")
-		fmt.Fprintf(os.Stderr, "[DEBUG] composition_desktop: sandbox available, setting mode to vm\n")
-	} else {
-		desktop.SetExecutionMode("local")
-		fmt.Fprintf(os.Stderr, "[DEBUG] composition_desktop: no sandbox, setting mode to local\n")
+	// 已有持久化或用户已选模式时不覆盖；否则按当前 sandbox 可用性设默认。
+	cur := strings.TrimSpace(desktop.GetExecutionMode())
+	if cur != "vm" && cur != "local" {
+		if sandboxAddr != "" {
+			desktop.SetExecutionMode("vm")
+			fmt.Fprintf(os.Stderr, "[DEBUG] composition_desktop: sandbox available, setting mode to vm\n")
+		} else {
+			desktop.SetExecutionMode("local")
+			fmt.Fprintf(os.Stderr, "[DEBUG] composition_desktop: no sandbox, setting mode to local\n")
+		}
 	}
 
 	// Bind both tool names to DynamicShellExecutor (they share the same names)

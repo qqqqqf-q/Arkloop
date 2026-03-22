@@ -60,8 +60,7 @@ func (a *Application) RunDesktop(ctx context.Context) error {
 	apiHandler := bridgehttp.NewHandler(registry, compose, operations, auditLog, adapter, modelDL, bridgeVersion)
 	apiHandler.RegisterRoutes(mux)
 
-	// Desktop-only: execution-mode endpoint
-	desktop.SetExecutionMode("local")
+	// Desktop-only: execution-mode endpoint（模式由侧car main 从磁盘恢复，此处不再强制 local）
 	// With the compose.yaml port mapping (127.0.0.1:19002), sandbox-docker
 	// is reachable at this address if it is running.
 	desktop.SetSandboxAddr("127.0.0.1:19002")
@@ -87,6 +86,9 @@ func (a *Application) RunDesktop(ctx context.Context) error {
 		}
 		oldMode := desktop.GetExecutionMode()
 		desktop.SetExecutionMode(req.Mode)
+		if err := desktop.PersistExecutionMode(req.Mode); err != nil {
+			fmt.Fprintf(os.Stderr, "execution-mode: persist: %v\n", err)
+		}
 		fmt.Fprintf(os.Stderr, "[DEBUG] execution-mode POST: %q -> %q (was %q)\n", r.RemoteAddr, req.Mode, oldMode)
 		json.NewEncoder(w).Encode(map[string]string{"mode": req.Mode})
 	})

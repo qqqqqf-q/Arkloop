@@ -35,6 +35,7 @@ func run() error {
 		cancelWorker()
 		return fmt.Errorf("init infra: %w", err)
 	}
+	desktop.RestoreExecutionModeFromDisk()
 	desktop.SetSidecarProcess(true)
 	defer func() {
 		if err := desktop.CloseRegisteredSQLite(); err != nil {
