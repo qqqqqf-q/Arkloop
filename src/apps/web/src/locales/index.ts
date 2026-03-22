@@ -483,6 +483,7 @@ export interface LocaleStrings {
     spawnProfileExplore: string
     spawnProfileTask: string
     spawnProfileStrong: string
+    streamThinking: string
   }
   // channels
   channels: {
@@ -700,9 +701,13 @@ export interface LocaleStrings {
     chatCompactSave: string;
     chatCompactSaving: string;
     chatCompactSaved: string;
+    chatCompactSaveError: string;
     chatCompactLoading: string;
     chatCompactBannerRunning: string;
     chatCompactBannerDone: string;
+    chatCompactExecutionModeLabel: string;
+    chatCompactExecutionModeTerminal: string;
+    chatCompactExecutionModeSandbox: string;
     // desktop connectors section
     desktopConnectorsTitle: string;
     desktopConnectorsDesc: string;
@@ -891,6 +896,7 @@ export interface LocaleStrings {
     saveFailed: string;
     noTools: string;
     toolSearch: string;
+    streamThinking: string;
   };
   // admin tools/connectors settings (ported from console-lite)
   adminTools: {

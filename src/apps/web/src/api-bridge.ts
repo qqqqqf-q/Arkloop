@@ -144,6 +144,25 @@ class BridgeClient {
       )
     })
   }
+
+  async getExecutionMode(): Promise<'local' | 'vm'> {
+    const resp = await fetch(`${this.baseUrl()}/v1/execution-mode`, {
+      signal: AbortSignal.timeout(3000),
+    })
+    if (!resp.ok) throw new Error(`Get execution mode failed: ${resp.status}`)
+    const data = (await resp.json()) as { mode: string }
+    return data.mode as 'local' | 'vm'
+  }
+
+  async setExecutionMode(mode: 'local' | 'vm'): Promise<void> {
+    const resp = await fetch(`${this.baseUrl()}/v1/execution-mode`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode }),
+      signal: AbortSignal.timeout(3000),
+    })
+    if (!resp.ok) throw new Error(`Set execution mode failed: ${resp.status}`)
+  }
 }
 
 function resolveBridgeBaseUrl(): string {

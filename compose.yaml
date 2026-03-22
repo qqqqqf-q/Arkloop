@@ -330,6 +330,8 @@ services:
     restart: unless-stopped
     profiles:
       - docker-sandbox
+    ports:
+      - "127.0.0.1:19002:19002"
     environment:
       ARKLOOP_DATABASE_URL: "postgresql://${ARKLOOP_POSTGRES_USER:-arkloop}:${ARKLOOP_POSTGRES_PASSWORD:?请在 .env 中设置 ARKLOOP_POSTGRES_PASSWORD}@postgres:5432/${ARKLOOP_POSTGRES_DB:-arkloop}"
       ARKLOOP_SANDBOX_ADDR: "0.0.0.0:19002"

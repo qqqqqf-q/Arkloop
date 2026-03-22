@@ -467,6 +467,7 @@ export const zh: LocaleStrings = {
     spawnProfileExplore: 'explore',
     spawnProfileTask: 'task',
     spawnProfileStrong: 'strong',
+    streamThinking: '流式思考',
   },
   channels: {
     title: '接入渠道',
@@ -730,7 +731,11 @@ export const zh: LocaleStrings = {
     chatCompactSave: "保存",
     chatCompactSaving: "保存中…",
     chatCompactSaved: "已保存",
+    chatCompactSaveError: "保存失败",
     chatCompactLoading: "加载中…",
+    chatCompactExecutionModeLabel: "执行模式",
+    chatCompactExecutionModeTerminal: "终端：命令在本地 Shell 运行",
+    chatCompactExecutionModeSandbox: "沙箱：命令在隔离的沙箱中运行",
     chatCompactBannerRunning: "正在压缩上下文",
     chatCompactBannerDone: "上下文已更新",
     desktopConnectorsTitle: "搜索与抓取",
@@ -916,6 +921,7 @@ export const zh: LocaleStrings = {
     saveFailed: "保存智能体失败",
     noTools: "暂无可用工具",
     toolSearch: "搜索工具...",
+    streamThinking: '流式思考',
   },
   adminTools: {
     title: "工具供应商",

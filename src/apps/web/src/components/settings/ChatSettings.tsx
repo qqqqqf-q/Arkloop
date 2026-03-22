@@ -1,10 +1,15 @@
 import { useState, useEffect, useCallback } from 'react'
+import { CheckCircle, XCircle } from 'lucide-react'
 import { useLocale } from '../../contexts/LocaleContext'
 import {
   getPlatformSetting,
   updatePlatformSetting,
 } from '../../api-admin'
+import { bridgeClient } from '../../api-bridge'
 import { SettingsPillToggle } from './_SettingsPillToggle'
+import { SpinnerIcon } from '@arkloop/shared/components/auth-ui'
+
+const EXEC_MODE_KEY = 'arkloop:desktop:execution_mode'
 
 /** 与 shared/config 注册表默认值一致（无 platform_settings 行时） */
 const DEFAULT_KEEP_LAST_MESSAGES = 40
@@ -60,6 +65,11 @@ export function ChatSettings({ accessToken }: Props) {
   const [thresholdPct, setThresholdPct] = useState(80)
   const [keepLast, setKeepLast] = useState(4)
 
+  const [executionMode, setExecutionMode] = useState<'local' | 'vm'>('local')
+  const [execModeLoading, setExecModeLoading] = useState(true)
+  const [execModeError, setExecModeError] = useState('')
+  const [execSaveResult, setExecSaveResult] = useState<'ok' | 'error' | null>(null)
+
   const load = useCallback(async () => {
     setLoadErr('')
     setLoading(true)
@@ -101,6 +111,47 @@ export function ChatSettings({ accessToken }: Props) {
   useEffect(() => {
     void load()
   }, [load])
+
+  const loadExecutionMode = useCallback(async () => {
+    setExecModeLoading(true)
+    setExecModeError('')
+    // Read from localStorage first (persists across restarts), then sync with bridge
+    const stored = localStorage.getItem(EXEC_MODE_KEY) as 'local' | 'vm' | null
+    if (stored === 'local' || stored === 'vm') {
+      setExecutionMode(stored)
+    }
+    try {
+      const mode = await bridgeClient.getExecutionMode()
+      setExecutionMode(mode)
+      localStorage.setItem(EXEC_MODE_KEY, mode)
+    } catch (e) {
+      if (!stored) {
+        setExecModeError(e instanceof Error ? e.message : 'Failed to load execution mode')
+      }
+    } finally {
+      setExecModeLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadExecutionMode()
+  }, [loadExecutionMode])
+
+  const handleExecutionModeToggle = useCallback(async (vm: boolean) => {
+    const newMode = vm ? 'vm' : 'local'
+    setExecModeError('')
+    setExecSaveResult(null)
+    setExecutionMode(newMode)
+    localStorage.setItem(EXEC_MODE_KEY, newMode)
+    try {
+      await bridgeClient.setExecutionMode(newMode)
+      setExecSaveResult('ok')
+      window.setTimeout(() => setExecSaveResult(null), 3000)
+    } catch (e) {
+      setExecModeError(e instanceof Error ? e.message : 'Failed to set execution mode')
+      setExecSaveResult('error')
+    }
+  }, [])
 
   const handleSave = useCallback(async () => {
     setSaveErr('')
@@ -218,19 +269,55 @@ export function ChatSettings({ accessToken }: Props) {
         </div>
       </div>
 
+      {/* Execution Mode */}
+      <div className={cardShell}>
+        <div className="flex items-center justify-between gap-4 px-4 py-4">
+          <div className="min-w-0 flex-1 pr-2">
+            <p className="text-sm font-medium text-[var(--c-text-heading)]">{st.chatCompactExecutionModeLabel}</p>
+            <p className="mt-0.5 text-xs text-[var(--c-text-muted)]">
+              {executionMode === 'vm' ? st.chatCompactExecutionModeSandbox : st.chatCompactExecutionModeTerminal}
+            </p>
+          </div>
+          <div className="shrink-0">
+            {execModeLoading ? (
+              <div className="h-6 w-12 animate-pulse rounded-full bg-[var(--c-bg-deep)]" />
+            ) : (
+              <SettingsPillToggle
+                checked={executionMode === 'vm'}
+                onChange={handleExecutionModeToggle}
+              />
+            )}
+          </div>
+        </div>
+        {(execModeError || execSaveResult) ? (
+          <div className="border-t border-[var(--c-border-subtle)] flex items-center gap-2 px-4 py-2 text-xs">
+            {execSaveResult === 'ok' && (
+              <span className="flex items-center gap-1.5 text-green-400"><CheckCircle size={13} />{st.chatCompactSaved}</span>
+            )}
+            {execSaveResult === 'error' && (
+              <span className="flex items-center gap-1.5 text-red-400"><XCircle size={13} />{st.chatCompactSaveError}</span>
+            )}
+            {execModeError && !execSaveResult && (
+              <span className="text-[var(--c-status-error)]">{execModeError}</span>
+            )}
+          </div>
+        ) : null}
+      </div>
+
       {saveErr ? (
         <p className="text-sm text-[var(--c-status-error)]">{saveErr}</p>
       ) : null}
       {savedHint ? (
-        <p className="text-sm text-[var(--c-status-success)]">{st.chatCompactSaved}</p>
+        <span className="flex items-center gap-1.5 text-sm text-green-400"><CheckCircle size={13} />{st.chatCompactSaved}</span>
       ) : null}
 
       <button
         type="button"
-        className="w-fit rounded-md bg-[var(--c-accent)] px-3.5 py-1.5 text-sm font-medium text-[var(--c-accent-fg)] transition-colors hover:opacity-90 disabled:opacity-50"
+        className="flex w-fit items-center gap-2 rounded-lg bg-[var(--c-btn-bg)] px-4 py-2 text-sm font-medium text-[var(--c-btn-text)] transition-opacity hover:opacity-90 disabled:opacity-50"
         disabled={saving}
         onClick={() => void handleSave()}
       >
+        {saving && <SpinnerIcon />}
         {saving ? st.chatCompactSaving : st.chatCompactSave}
       </button>
     </div>

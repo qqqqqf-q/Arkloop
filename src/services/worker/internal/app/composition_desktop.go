@@ -43,6 +43,7 @@ import (
 	"arkloop/services/worker/internal/tools/localshell"
 	memorytool "arkloop/services/worker/internal/tools/memory"
 	"arkloop/services/worker/internal/tools/sandboxshell"
+	"arkloop/services/worker/internal/runtime"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -112,17 +113,15 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 	useVM := isolationMode == "vm" && desktop.GetSandboxAddr() != ""
 	skillLayout := desktopSkillLayoutResolver(useVM)
 
-	if useVM {
-		for _, spec := range sandboxshell.AgentSpecs() {
-			if err := toolRegistry.Register(spec); err != nil {
-				slog.WarnContext(ctx, "desktop: skip tool registration", "name", spec.Name, "err", err)
-			}
+	// Always register both shell tool specs; DynamicShellExecutor chooses at runtime
+	for _, spec := range localshell.AgentSpecs() {
+		if err := toolRegistry.Register(spec); err != nil {
+			slog.WarnContext(ctx, "desktop: skip tool registration", "name", spec.Name, "err", err)
 		}
-	} else {
-		for _, spec := range localshell.AgentSpecs() {
-			if err := toolRegistry.Register(spec); err != nil {
-				slog.WarnContext(ctx, "desktop: skip tool registration", "name", spec.Name, "err", err)
-			}
+	}
+	for _, spec := range sandboxshell.AgentSpecs() {
+		if err := toolRegistry.Register(spec); err != nil {
+			slog.WarnContext(ctx, "desktop: skip tool registration", "name", spec.Name, "err", err)
 		}
 	}
 	for _, spec := range conversationtool.AgentSpecs() {
@@ -135,30 +134,38 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 	if exec, ok := executors[acptool.AgentSpec.Name].(acptool.ToolExecutor); ok {
 		executors[acptool.AgentSpec.Name] = acptool.DesktopExecutorWithInject(exec, db)
 	}
-	var runtimeSnapshot *sharedtoolruntime.RuntimeSnapshot
 
-	if useVM {
-		sandboxAddr := desktop.GetSandboxAddr()
-		authToken := strings.TrimSpace(os.Getenv("ARKLOOP_DESKTOP_TOKEN"))
-		vmExec := sandboxshell.NewExecutor("http://"+sandboxAddr, authToken)
-		executors[sandboxshell.ExecCommandAgentSpec.Name] = vmExec
-		executors[sandboxshell.WriteStdinAgentSpec.Name] = vmExec
+	sandboxAddr := desktop.GetSandboxAddr()
+	authToken := strings.TrimSpace(os.Getenv("ARKLOOP_DESKTOP_TOKEN"))
+	fmt.Fprintf(os.Stderr, "[DEBUG] composition_desktop: sandboxAddr=%q authToken=%q\n", sandboxAddr, authToken)
+	shellExec := runtime.NewDynamicShellExecutor(sandboxAddr, authToken)
+
+	// Set initial mode based on environment and sandbox availability
+	if sandboxAddr != "" {
+		desktop.SetExecutionMode("vm")
+		fmt.Fprintf(os.Stderr, "[DEBUG] composition_desktop: sandbox available, setting mode to vm\n")
+	} else {
+		desktop.SetExecutionMode("local")
+		fmt.Fprintf(os.Stderr, "[DEBUG] composition_desktop: no sandbox, setting mode to local\n")
+	}
+
+	// Bind both tool names to DynamicShellExecutor (they share the same names)
+	executors[localshell.ExecCommandAgentSpec.Name] = shellExec
+	executors[localshell.WriteStdinAgentSpec.Name] = shellExec
+
+	var runtimeSnapshot *sharedtoolruntime.RuntimeSnapshot
+	if sandboxAddr != "" {
 		runtimeSnapshot = &sharedtoolruntime.RuntimeSnapshot{
 			SandboxBaseURL:   "http://" + sandboxAddr,
 			SandboxAuthToken: authToken,
 			ACPHostKind:      "sandbox",
 		}
-		slog.Info("desktop: using VM isolation for shell execution", "sandbox_addr", sandboxAddr)
+		slog.Info("desktop: shell execution available (local + VM)", "sandbox_addr", sandboxAddr)
 	} else {
-		shellExec := localshell.NewExecutor()
-		executors[localshell.ExecCommandAgentSpec.Name] = shellExec
-		executors[localshell.WriteStdinAgentSpec.Name] = shellExec
 		runtimeSnapshot = &sharedtoolruntime.RuntimeSnapshot{
 			ACPHostKind: "local",
 		}
-		if isolationMode == "vm" {
-			slog.Warn("desktop: VM isolation requested but sandbox not available, falling back to trusted local shell")
-		}
+		slog.Info("desktop: shell execution available (local only, sandbox not available)")
 	}
 
 	convExec := conversationtool.NewToolExecutor(db, data.MessagesRepository{})
@@ -207,12 +214,8 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 		messageAttachmentStore = mas
 	}
 
-	var shellLlmSpecs []llm.ToolSpec
-	if useVM {
-		shellLlmSpecs = sandboxshell.LlmSpecs()
-	} else {
-		shellLlmSpecs = localshell.LlmSpecs()
-	}
+	// Use localshell specs for LLM; DynamicShellExecutor routes to correct backend at runtime
+	shellLlmSpecs := localshell.LlmSpecs()
 	allLlmSpecs := append(builtin.LlmSpecs(), shellLlmSpecs...)
 	allLlmSpecs = append(allLlmSpecs, conversationtool.LlmSpecs()...)
 	if memProvider != nil {

@@ -72,9 +72,9 @@ func run() error {
 		return fmt.Errorf("api failed during init: %w", err)
 	}
 
-	if strings.TrimSpace(os.Getenv("ARKLOOP_DESKTOP_ISOLATION")) == "vm" {
-		startEmbeddedSandbox(apiCtx)
-	}
+	// Always start the embedded sandbox so sandboxAddr is populated;
+	// if kernel/rootfs are not configured it falls back to trusted mode gracefully.
+	startEmbeddedSandbox(apiCtx)
 
 	workerErr := make(chan error, 1)
 	go func() {

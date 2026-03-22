@@ -15,6 +15,11 @@ import (
 // modules file or Docker unavailable), it logs the error and returns
 // without blocking the rest of the desktop application.
 func StartDesktop(ctx context.Context) error {
+	_, err := app.LoadDotenvIfEnabled(false)
+	if err != nil {
+		return fmt.Errorf("bridge dotenv: %w", err)
+	}
+
 	cfg, err := app.LoadConfigFromEnv()
 	if err != nil {
 		return fmt.Errorf("bridge config: %w", err)
@@ -26,5 +31,5 @@ func StartDesktop(ctx context.Context) error {
 		return fmt.Errorf("bridge init: %w", err)
 	}
 
-	return application.Run(ctx)
+	return application.RunDesktop(ctx)
 }

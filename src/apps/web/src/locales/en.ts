@@ -473,6 +473,7 @@ export const en: LocaleStrings = {
     spawnProfileExplore: 'explore',
     spawnProfileTask: 'task',
     spawnProfileStrong: 'strong',
+    streamThinking: 'Stream thinking',
   },
   channels: {
     title: 'Channels',
@@ -779,7 +780,11 @@ export const en: LocaleStrings = {
     chatCompactSave: "Save",
     chatCompactSaving: "Saving…",
     chatCompactSaved: "Saved",
+    chatCompactSaveError: "Failed to save",
     chatCompactLoading: "Loading…",
+    chatCompactExecutionModeLabel: "Execution Mode",
+    chatCompactExecutionModeTerminal: "Terminal: commands run in local shell",
+    chatCompactExecutionModeSandbox: "Sandbox: commands run in isolated VM",
     chatCompactBannerRunning: "Compressing context",
     chatCompactBannerDone: "Context updated",
     // Memory settings tab
@@ -932,6 +937,7 @@ export const en: LocaleStrings = {
     saveFailed: "Failed to save agent",
     noTools: "No tools available",
     toolSearch: "Search tools...",
+    streamThinking: "Stream thinking",
   },
   adminTools: {
     title: "Tool Providers",

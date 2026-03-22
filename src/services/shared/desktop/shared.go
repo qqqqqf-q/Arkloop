@@ -6,6 +6,7 @@ package desktop
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"time"
 
@@ -29,13 +30,14 @@ type JobEnqueuer interface {
 }
 
 var (
-	mu           sync.Mutex
-	jobEnqueuer  JobEnqueuer
-	eventBus     any
-	workNotifier any
-	sandboxAddr  string
-	ready        chan struct{}
-	apiReady     chan struct{}
+	mu            sync.Mutex
+	jobEnqueuer   JobEnqueuer
+	eventBus      any
+	workNotifier  any
+	sandboxAddr   string
+	executionMode string
+	ready         chan struct{}
+	apiReady      chan struct{}
 
 	sharedSQLitePool *sqlitepgx.Pool
 )
@@ -56,6 +58,9 @@ func GetWorkNotifier() any  { mu.Lock(); defer mu.Unlock(); return workNotifier 
 
 func SetSandboxAddr(addr string) { mu.Lock(); sandboxAddr = addr; mu.Unlock() }
 func GetSandboxAddr() string     { mu.Lock(); defer mu.Unlock(); return sandboxAddr }
+
+func SetExecutionMode(mode string) { mu.Lock(); executionMode = strings.TrimSpace(mode); mu.Unlock() }
+func GetExecutionMode() string     { mu.Lock(); defer mu.Unlock(); return strings.TrimSpace(executionMode) }
 
 // MarkReady 由 Worker 在共享资源初始化完成后调用，通知等待方可以继续。
 func MarkReady() {
