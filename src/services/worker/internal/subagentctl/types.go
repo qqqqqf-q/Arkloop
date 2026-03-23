@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"arkloop/services/shared/objectstore"
 	"arkloop/services/shared/skillstore"
 	"github.com/google/uuid"
 )
@@ -82,7 +83,8 @@ type WaitRequest struct {
 }
 
 type ResumeRequest struct {
-	SubAgentID uuid.UUID
+	SubAgentID    uuid.UUID
+	RolloutStore  objectstore.BlobStore // 可选，为 nil 时走原有 snapshot 逻辑
 }
 
 type CloseRequest struct {

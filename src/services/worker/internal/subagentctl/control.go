@@ -2,12 +2,15 @@ package subagentctl
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
 	"sync"
 	"time"
 
+	"arkloop/services/shared/objectstore"
+	"arkloop/services/shared/rollout"
 	"arkloop/services/worker/internal/data"
 	"arkloop/services/worker/internal/queue"
 
@@ -27,6 +30,7 @@ type Control interface {
 	Interrupt(ctx context.Context, req InterruptRequest) (StatusSnapshot, error)
 	GetStatus(ctx context.Context, subAgentID uuid.UUID) (StatusSnapshot, error)
 	ListChildren(ctx context.Context) ([]StatusSnapshot, error)
+	GetRolloutRecorder(subAgentID uuid.UUID) (*rollout.Recorder, bool)
 }
 
 type Service struct {
@@ -42,6 +46,8 @@ type Service struct {
 	snapshotBuilder  *SnapshotBuilder
 	snapshotStorage  *SnapshotStorage
 	governor         *SpawnGovernor
+	blobStore        objectstore.BlobStore
+	recorders        sync.Map // map[uuid.UUID]*rollout.Recorder, keyed by subAgentID
 }
 
 func CreateInitialRun(
@@ -55,12 +61,12 @@ func CreateInitialRun(
 	personaID string,
 	input string,
 ) error {
-	service := NewService(pool, rdb, jobQueue, parentRun, traceID, SubAgentLimits{}, BackpressureConfig{})
+	service := NewService(pool, rdb, jobQueue, parentRun, traceID, SubAgentLimits{}, BackpressureConfig{}, nil)
 	_, err := service.spawn(ctx, SpawnRequest{PersonaID: personaID, ContextMode: data.SubAgentContextModeIsolated, Input: input}, &forcedRunID)
 	return err
 }
 
-func NewService(pool data.DB, rdb *redis.Client, jobQueue queue.JobQueue, parentRun data.Run, traceID string, limits SubAgentLimits, bp BackpressureConfig) *Service {
+func NewService(pool data.DB, rdb *redis.Client, jobQueue queue.JobQueue, parentRun data.Run, traceID string, limits SubAgentLimits, bp BackpressureConfig, blobStore objectstore.BlobStore) *Service {
 	snapshotStorage := NewSnapshotStorage()
 	factory := NewSubAgentRunFactory(pool, snapshotStorage)
 	projector := NewSubAgentStateProjector(pool, rdb, jobQueue)
@@ -78,6 +84,7 @@ func NewService(pool data.DB, rdb *redis.Client, jobQueue queue.JobQueue, parent
 		snapshotBuilder:  NewSnapshotBuilder(),
 		snapshotStorage:  snapshotStorage,
 		governor:         NewSpawnGovernor(limits, bp),
+		blobStore:        blobStore,
 	}
 }
 
@@ -145,10 +152,21 @@ func (s *Service) spawn(ctx context.Context, req SpawnRequest, forcedRunID *uuid
 		}
 	}
 
-	if err := s.projector.EnqueueRun(ctx, s.parentRun.AccountID, childRunID, s.traceID, availableAt); err != nil {
+	// Build job payload with subAgentID for rollout recorder lookup
+	jobPayload := map[string]any{"sub_agent_id": record.ID.String()}
+
+	if err := s.projector.EnqueueRun(ctx, s.parentRun.AccountID, childRunID, s.traceID, availableAt, jobPayload); err != nil {
 		_ = s.projector.MarkRunFailed(context.Background(), childRunID, "failed to enqueue child run job")
 		return StatusSnapshot{}, fmt.Errorf("enqueue child run: %w", err)
 	}
+
+	// Create and start rollout recorder if blobStore is available (non-desktop mode)
+	if s.rdb != nil && s.blobStore != nil {
+		recorder := rollout.NewRecorder(s.blobStore, childRunID)
+		recorder.Start(ctx)
+		s.recorders.Store(record.ID, recorder)
+	}
+
 	if s.rdb != nil {
 		go s.startCompletionWatcher(record.ID, childRunID, record.ParentThreadID, s.parentRun.AccountID, record.Nickname)
 	}
@@ -226,6 +244,7 @@ func (s *Service) SendInput(ctx context.Context, req SendInputRequest) (StatusSn
 			plan.PrimaryEventType,
 			map[string]any{"interrupt": req.Interrupt},
 			nil,
+			nil,
 		)
 		if err != nil {
 			return StatusSnapshot{}, err
@@ -239,7 +258,8 @@ func (s *Service) SendInput(ctx context.Context, req SendInputRequest) (StatusSn
 		return StatusSnapshot{}, err
 	}
 	if childRunID != nil {
-		if err := s.projector.EnqueueRun(ctx, s.parentRun.AccountID, *childRunID, s.traceID, nil); err != nil {
+		jobPayload := map[string]any{"sub_agent_id": record.ID.String()}
+		if err := s.projector.EnqueueRun(ctx, s.parentRun.AccountID, *childRunID, s.traceID, nil, jobPayload); err != nil {
 			_ = s.projector.MarkRunFailed(context.Background(), *childRunID, "failed to enqueue child run job")
 			return StatusSnapshot{}, fmt.Errorf("enqueue child run: %w", err)
 		}
@@ -438,14 +458,41 @@ func (s *Service) Resume(ctx context.Context, req ResumeRequest) (StatusSnapshot
 	if err := s.governor.ValidateBackpressureForResume(ctx, tx, record.RootRunID); err != nil {
 		return StatusSnapshot{}, err
 	}
-	childRunID, err := s.factory.CreateRunForExistingSubAgent(ctx, tx, *record, "", nil, plan.PrimaryEventType, map[string]any{}, nil)
+
+	var reconstructedMessages []ContextSnapshotMessage
+	if req.RolloutStore != nil && record.LastCompletedRunID != nil {
+		items, readErr := rollout.NewReader(req.RolloutStore).ReadRollout(ctx, *record.LastCompletedRunID)
+		if readErr != nil {
+			slog.Warn("resume: failed to read rollout, falling back to snapshot", "err", readErr, "sub_agent_id", req.SubAgentID, "run_id", record.LastCompletedRunID)
+		} else {
+			state := rollout.NewReader(req.RolloutStore).Reconstruct(items)
+			reconstructedMessages = make([]ContextSnapshotMessage, 0, len(state.Messages))
+			for _, rawMsg := range state.Messages {
+				var assistant rollout.AssistantMessage
+				if err := json.Unmarshal(rawMsg, &assistant); err != nil {
+					slog.Warn("resume: failed to unmarshal assistant message, skipping", "err", err)
+					continue
+				}
+				reconstructedMessages = append(reconstructedMessages, ContextSnapshotMessage{
+					Role:        "assistant",
+					Content:     assistant.Content,
+					ContentJSON: assistant.ToolCalls,
+				})
+			}
+			slog.Info("resume: reconstructed messages from rollout", "count", len(reconstructedMessages), "sub_agent_id", req.SubAgentID)
+		}
+	}
+
+	childRunID, err := s.factory.CreateRunForExistingSubAgent(ctx, tx, *record, "", nil, plan.PrimaryEventType, map[string]any{}, nil, reconstructedMessages)
 	if err != nil {
 		return StatusSnapshot{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return StatusSnapshot{}, err
 	}
-	if err := s.projector.EnqueueRun(ctx, s.parentRun.AccountID, childRunID, s.traceID, nil); err != nil {
+	// Build job payload with subAgentID for rollout recorder lookup
+	jobPayload := map[string]any{"sub_agent_id": req.SubAgentID.String()}
+	if err := s.projector.EnqueueRun(ctx, s.parentRun.AccountID, childRunID, s.traceID, nil, jobPayload); err != nil {
 		_ = s.projector.MarkRunFailed(context.Background(), childRunID, "failed to enqueue child run job")
 		return StatusSnapshot{}, fmt.Errorf("enqueue resumed child run: %w", err)
 	}
@@ -720,6 +767,18 @@ func derefString(value *string) string {
 		return ""
 	}
 	return strings.TrimSpace(*value)
+}
+
+// GetRolloutRecorder returns the recorder for the given subAgentID, if any.
+func (s *Service) GetRolloutRecorder(subAgentID uuid.UUID) (*rollout.Recorder, bool) {
+	if s.blobStore == nil {
+		return nil, false
+	}
+	rec, ok := s.recorders.Load(subAgentID)
+	if !ok {
+		return nil, false
+	}
+	return rec.(*rollout.Recorder), true
 }
 
 var _ Control = (*Service)(nil)

@@ -104,13 +104,13 @@ func TestToolExecutorWaitReturnsOutput(t *testing.T) {
 	exec := &ToolExecutor{Control: stubControl{spawn: func(_ context.Context, _ subagentctl.SpawnRequest) (subagentctl.StatusSnapshot, error) {
 		return subagentctl.StatusSnapshot{}, nil
 	}, wait: func(_ context.Context, req subagentctl.WaitRequest) (subagentctl.StatusSnapshot, error) {
-		if req.SubAgentID != subAgentID || req.Timeout != 3*time.Second {
+		if len(req.SubAgentIDs) != 1 || req.SubAgentIDs[0] != subAgentID || req.Timeout != 3*time.Second {
 			t.Fatalf("unexpected wait request: %#v", req)
 		}
 		return subagentctl.StatusSnapshot{SubAgentID: subAgentID, ParentRunID: uuid.New(), RootRunID: uuid.New(), Depth: 1, Status: "completed", LastOutput: &output}, nil
 	}}}
 
-	result := exec.Execute(context.Background(), WaitAgentSpec.Name, map[string]any{"sub_agent_id": subAgentID.String(), "timeout_seconds": 3.0}, tools.ExecutionContext{}, "")
+	result := exec.Execute(context.Background(), WaitAgentSpec.Name, map[string]any{"ids": []any{subAgentID.String()}, "timeout_seconds": 3.0}, tools.ExecutionContext{}, "")
 	if result.Error != nil {
 		t.Fatalf("unexpected error: %+v", result.Error)
 	}
