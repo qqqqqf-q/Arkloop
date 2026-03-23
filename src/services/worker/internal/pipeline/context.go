@@ -188,8 +188,8 @@ type RunContext struct {
 	// nil 时表示未启用（测试上下文或 sub-agent）。
 	ReleaseSlot func()
 
-	// -- LLM Heartbeat --
-	LLMHeartbeatRun      bool
+	// -- Heartbeat --
+	HeartbeatRun         bool
 	HeartbeatToolOutcome *HeartbeatDecisionOutcome
 }
 
@@ -212,5 +212,5 @@ func (rc *RunContext) SetHeartbeatDecisionOutcome(replySilent bool, fragments []
 
 // IsHeartbeatRun implements tools/builtin/heartbeat_decision.PipelineBinding.
 func (rc *RunContext) IsHeartbeatRun() bool {
-	return rc != nil && rc.LLMHeartbeatRun
+	return rc != nil && rc.HeartbeatRun
 }

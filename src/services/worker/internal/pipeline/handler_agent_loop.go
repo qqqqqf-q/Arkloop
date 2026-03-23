@@ -146,7 +146,7 @@ func NewAgentLoopHandler(
 		}
 		if writer.Completed() {
 			skipHeartbeatInsert := false
-			if rc.LLMHeartbeatRun {
+			if rc.HeartbeatRun {
 				out := rc.HeartbeatToolOutcome
 				if out != nil && out.ReplySilent {
 					skipHeartbeatInsert = true

@@ -67,10 +67,10 @@ func heartbeatIntervalMinutes(input, job map[string]any) int {
 	return runkind.DefaultHeartbeatIntervalMinutes
 }
 
-// NewLLMHeartbeatPrepareMiddleware 为心跳 run 注入合成 user 消息，并在 next 返回后将
+// NewHeartbeatPrepareMiddleware 为心跳 run 注入合成 user 消息，并在 next 返回后将
 // heartbeat_decision 工具报告的 memory_fragments 提交到 MemoryProvider。
 // 非心跳 run 直接透传。
-func NewLLMHeartbeatPrepareMiddleware() RunMiddleware {
+func NewHeartbeatPrepareMiddleware() RunMiddleware {
 	return func(ctx context.Context, rc *RunContext, next RunHandler) error {
 		if rc == nil {
 			return next(ctx, rc)
@@ -79,7 +79,7 @@ func NewLLMHeartbeatPrepareMiddleware() RunMiddleware {
 			return next(ctx, rc)
 		}
 
-		rc.LLMHeartbeatRun = true
+		rc.HeartbeatRun = true
 		interval := heartbeatIntervalMinutes(rc.InputJSON, rc.JobPayload)
 		if rc.PersonaDefinition != nil && rc.PersonaDefinition.HeartbeatIntervalMinutes > 0 {
 			interval = rc.PersonaDefinition.HeartbeatIntervalMinutes

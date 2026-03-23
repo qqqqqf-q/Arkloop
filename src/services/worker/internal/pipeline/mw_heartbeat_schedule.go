@@ -6,12 +6,11 @@ import (
 	"strings"
 
 	"arkloop/services/worker/internal/data"
-
-	"github.com/google/uuid"
 )
 
 // NewHeartbeatScheduleMiddleware 在 run 结束后 upsert scheduled_triggers。
-// interval/model 从 channel_identities 读取（由 /heartbeat 命令设置）。
+// 以群的 channel identity（platform_chat_id 对应）为唯一键，
+// interval/model 从 channel_identities 的 heartbeat_* 列读取（由 /heartbeat 命令写入）。
 // heartbeat run 本身不执行（避免无限循环）。
 func NewHeartbeatScheduleMiddleware(db data.DB) RunMiddleware {
 	repo := data.ScheduledTriggersRepository{}
@@ -21,7 +20,7 @@ func NewHeartbeatScheduleMiddleware(db data.DB) RunMiddleware {
 		if err != nil || rc == nil || db == nil {
 			return err
 		}
-		if rc.LLMHeartbeatRun {
+		if rc.HeartbeatRun {
 			return nil
 		}
 		def := rc.PersonaDefinition
@@ -32,32 +31,39 @@ func NewHeartbeatScheduleMiddleware(db data.DB) RunMiddleware {
 			return nil
 		}
 
-		identityID := rc.ChannelContext.SenderChannelIdentityID
-		if identityID == uuid.Nil {
-			slog.WarnContext(ctx, "heartbeat_schedule: no sender channel identity id, skipping")
+		// 用群的 platform_chat_id 查群 identity（heartbeat 配置挂在群上，不是 sender）
+		platformChatID := strings.TrimSpace(rc.ChannelContext.Conversation.Target)
+		if platformChatID == "" {
+			slog.WarnContext(ctx, "heartbeat_schedule: no platform_chat_id, skipping")
+			return nil
+		}
+		channelType := strings.TrimSpace(rc.ChannelContext.ChannelType)
+		if channelType == "" {
+			channelType = "telegram"
+		}
+
+		identityID, cfg, cfgErr := data.GetGroupHeartbeatConfig(ctx, db, channelType, platformChatID)
+		if cfgErr != nil {
+			slog.WarnContext(ctx, "heartbeat_schedule: get group heartbeat config failed", "error", cfgErr)
+			return nil
+		}
+		if cfg == nil || !cfg.Enabled {
 			return nil
 		}
 
-		// 读 channel_identities 的 heartbeat 配置（interval/model 由用户通过 /heartbeat 命令设置）
-		iv := 30
-		model := ""
-		cfg, cfgErr := data.GetChannelIdentityHeartbeatConfig(ctx, db, identityID)
-		if cfgErr != nil {
-			slog.WarnContext(ctx, "heartbeat_schedule: get channel identity config failed", "error", cfgErr)
-		} else if cfg != nil {
-			if cfg.IntervalMinutes > 0 {
-				iv = cfg.IntervalMinutes
-			}
-			model = cfg.Model
+		iv := cfg.IntervalMinutes
+		if iv <= 0 {
+			iv = 30
 		}
+		model := strings.TrimSpace(cfg.Model)
 
 		// model fallback：InputJSON → PersonaDefinition
-		if strings.TrimSpace(model) == "" {
+		if model == "" {
 			if m, ok := rc.InputJSON["model"].(string); ok && strings.TrimSpace(m) != "" {
 				model = strings.TrimSpace(m)
 			}
 		}
-		if strings.TrimSpace(model) == "" && def.Model != nil {
+		if model == "" && def.Model != nil {
 			model = strings.TrimSpace(*def.Model)
 		}
 
