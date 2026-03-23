@@ -24,6 +24,7 @@ type ExecCommandRequest struct {
 	Command       string                     `json:"command"`
 	TimeoutMs     int                        `json:"timeout_ms,omitempty"`
 	YieldTimeMs   int                        `json:"yield_time_ms,omitempty"`
+	Env           map[string]string          `json:"env,omitempty"`
 }
 
 type WriteStdinRequest struct {

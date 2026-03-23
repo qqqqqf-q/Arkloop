@@ -97,6 +97,11 @@ var ExecCommandLlmSpec = llm.ToolSpec{
 				"maximum":     30000,
 				"description": "time to wait for incremental output before returning",
 			},
+			"env": map[string]any{
+				"type":                 "object",
+				"description":         "environment variable overrides for the command",
+				"additionalProperties": map[string]any{"type": "string"},
+			},
 		},
 		"required":             []string{"command"},
 		"additionalProperties": false,

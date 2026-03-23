@@ -72,6 +72,7 @@ type execCommandRequest struct {
 	Command       string                     `json:"command"`
 	TimeoutMs     int                        `json:"timeout_ms,omitempty"`
 	YieldTimeMs   int                        `json:"yield_time_ms,omitempty"`
+	Env           map[string]string          `json:"env,omitempty"`
 }
 
 type writeStdinRequest struct {
@@ -120,6 +121,7 @@ type execCommandArgs struct {
 	Command        string
 	TimeoutMs      int
 	YieldTimeMs    int
+	Env            map[string]string
 }
 
 type writeStdinArgs struct {
@@ -312,6 +314,7 @@ func (e *ToolExecutor) executeExecCommand(
 		Command:       command,
 		TimeoutMs:     reqArgs.TimeoutMs,
 		YieldTimeMs:   reqArgs.YieldTimeMs,
+		Env:           reqArgs.Env,
 	}
 	result := e.executeExecSessionRequest(ctx, e.baseURL+"/v1/exec_command", "exec_command", request, request.AccountID, execCtx.PerToolSoftLimits, started)
 	if result.Error != nil && isSessionUnavailable(result.Error) {
@@ -973,6 +976,7 @@ func parseExecCommandArgs(args map[string]any) (execCommandArgs, *tools.Executio
 		Command:        readStringArg(args, "command"),
 		TimeoutMs:      resolveTimeoutMs(args),
 		YieldTimeMs:    readIntArg(args, "yield_time_ms"),
+		Env:            readMapStringArg(args, "env"),
 	}
 	if strings.TrimSpace(request.Command) == "" {
 		return execCommandArgs{}, sandboxArgsError("parameter command is required")
@@ -1091,6 +1095,23 @@ func defaultExecSessionID(runID string) string {
 func readStringArg(args map[string]any, key string) string {
 	value, _ := args[key].(string)
 	return value
+}
+
+func readMapStringArg(args map[string]any, key string) map[string]string {
+	raw, ok := args[key].(map[string]any)
+	if !ok || len(raw) == 0 {
+		return nil
+	}
+	result := make(map[string]string, len(raw))
+	for k, v := range raw {
+		if s, ok := v.(string); ok {
+			result[k] = s
+		}
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
 }
 
 func readIntArg(args map[string]any, key string) int {

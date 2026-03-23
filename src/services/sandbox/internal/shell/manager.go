@@ -663,6 +663,15 @@ func shellQuote(value string) string {
 }
 
 func (m *Manager) invokeExecCommand(ctx context.Context, entry *managedSession, req ExecCommandRequest, shellEnv map[string]string) (*AgentSessionResponse, error) {
+	merged := shellEnv
+	if len(req.Env) > 0 {
+		if merged == nil {
+			merged = make(map[string]string, len(req.Env))
+		}
+		for k, v := range req.Env {
+			merged[k] = v
+		}
+	}
 	payload := AgentRequest{
 		Action: "exec_command",
 		ExecCommand: &AgentExecCommandRequest{
@@ -670,7 +679,7 @@ func (m *Manager) invokeExecCommand(ctx context.Context, entry *managedSession, 
 			Command:     req.Command,
 			TimeoutMs:   req.TimeoutMs,
 			YieldTimeMs: req.YieldTimeMs,
-			Env:         shellEnv,
+			Env:         merged,
 		},
 	}
 	return m.invokeSession(ctx, entry, payload, req.TimeoutMs, req.YieldTimeMs)

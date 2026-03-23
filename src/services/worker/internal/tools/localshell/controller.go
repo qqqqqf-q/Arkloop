@@ -85,12 +85,12 @@ func newShellController(workDir string) *shellController {
 	}
 }
 
-func (c *shellController) execCommand(command, cwd string, timeoutMs int) (*shellResponse, error) {
+func (c *shellController) execCommand(command, cwd string, timeoutMs int, env map[string]string) (*shellResponse, error) {
 	command = strings.TrimSpace(command)
 	if command == "" {
 		return nil, errors.New("command is required")
 	}
-	if err := c.ensureStarted(); err != nil {
+	if err := c.ensureStarted(env); err != nil {
 		return nil, err
 	}
 	tm := normalizeTimeoutMs(timeoutMs)
@@ -199,7 +199,7 @@ func (c *shellController) close() {
 	c.closeLocked()
 }
 
-func (c *shellController) ensureStarted() error {
+func (c *shellController) ensureStarted(env map[string]string) error {
 	c.mu.Lock()
 	if c.status != statusClosed && c.cmd != nil && c.ptyFile != nil {
 		c.mu.Unlock()
@@ -209,7 +209,13 @@ func (c *shellController) ensureStarted() error {
 	shellPath, args := resolveShell()
 	cmd := exec.Command(shellPath, args...)
 	cmd.Dir = c.workDir
-	cmd.Env = buildLocalShellEnv(c.workDir)
+	shellEnv := buildLocalShellEnv(c.workDir)
+	if len(env) > 0 {
+		for k, v := range env {
+			shellEnv = setEnvVar(shellEnv, k, v)
+		}
+	}
+	cmd.Env = shellEnv
 
 	file, err := pty.Start(cmd)
 	if err != nil {
@@ -611,6 +617,17 @@ func shellArgs(path string) []string {
 	default:
 		return []string{"-i"}
 	}
+}
+
+func setEnvVar(env []string, key, value string) []string {
+	prefix := key + "="
+	for i, entry := range env {
+		if strings.HasPrefix(entry, prefix) {
+			env[i] = prefix + value
+			return env
+		}
+	}
+	return append(env, prefix+value)
 }
 
 func buildLocalShellEnv(workDir string) []string {

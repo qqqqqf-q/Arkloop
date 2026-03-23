@@ -93,6 +93,8 @@ func (e *Executor) executeExecCommand(
 		"cwd", cwd,
 	)
 
+	env := readMapStringArg(args, "env")
+
 	payload := map[string]any{
 		"session_id":    sessionID,
 		"command":       command,
@@ -102,6 +104,9 @@ func (e *Executor) executeExecCommand(
 	}
 	if cwd != "" {
 		payload["cwd"] = cwd
+	}
+	if len(env) > 0 {
+		payload["env"] = env
 	}
 
 	resp, err := e.doPost(ctx, "/v1/exec_command", payload)
@@ -234,6 +239,23 @@ func durationMs(started time.Time) int {
 func readStringArg(args map[string]any, key string) string {
 	v, _ := args[key].(string)
 	return v
+}
+
+func readMapStringArg(args map[string]any, key string) map[string]string {
+	raw, ok := args[key].(map[string]any)
+	if !ok || len(raw) == 0 {
+		return nil
+	}
+	result := make(map[string]string, len(raw))
+	for k, v := range raw {
+		if s, ok := v.(string); ok {
+			result[k] = s
+		}
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
 }
 
 func readIntArg(args map[string]any, key string) int {

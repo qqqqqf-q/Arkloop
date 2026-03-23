@@ -43,6 +43,11 @@ var ExecCommandLlmSpec = llm.ToolSpec{
 				"maximum":     300000,
 				"description": "command timeout in milliseconds",
 			},
+			"env": map[string]any{
+				"type":                 "object",
+				"description":         "environment variable overrides for the command",
+				"additionalProperties": map[string]any{"type": "string"},
+			},
 		},
 		"required":             []string{"command"},
 		"additionalProperties": false,

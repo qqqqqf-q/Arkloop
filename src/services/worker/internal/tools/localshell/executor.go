@@ -90,6 +90,7 @@ func (e *Executor) executeExecCommand(
 
 	cwd := readStringArg(args, "cwd")
 	timeoutMs := readIntArg(args, "timeout_ms")
+	env := readMapStringArg(args, "env")
 
 	controller := e.getOrCreateController(execCtx.RunID.String(), execCtx.WorkDir)
 
@@ -103,7 +104,7 @@ func (e *Executor) executeExecCommand(
 		"cwd", cwd,
 	)
 
-	resp, err := controller.execCommand(command, cwd, timeoutMs)
+	resp, err := controller.execCommand(command, cwd, timeoutMs, env)
 	if err != nil {
 		return errResult(errorShellError, err.Error(), started)
 	}
@@ -213,6 +214,23 @@ func durationMs(started time.Time) int {
 func readStringArg(args map[string]any, key string) string {
 	v, _ := args[key].(string)
 	return v
+}
+
+func readMapStringArg(args map[string]any, key string) map[string]string {
+	raw, ok := args[key].(map[string]any)
+	if !ok || len(raw) == 0 {
+		return nil
+	}
+	result := make(map[string]string, len(raw))
+	for k, v := range raw {
+		if s, ok := v.(string); ok {
+			result[k] = s
+		}
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
 }
 
 func readIntArg(args map[string]any, key string) int {
