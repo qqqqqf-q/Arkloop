@@ -1011,7 +1011,7 @@ async function launchOnPort(port: number, portMode: LocalPortMode): Promise<Side
   const handleOutput = (stream: 'stdout' | 'stderr') => (chunk: Buffer) => {
     const text = chunk.toString()
     recentOutput = `${recentOutput}${text}`.slice(-4000)
-    process[stream].write(`[sidecar] ${text}`)
+    process[stream].write(text)
     if (isPortConflictText(text, port)) {
       launchError = setPortConflictError(port)
     }

@@ -4,7 +4,7 @@ package main
 
 import (
 	"context"
-	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"strings"
@@ -20,7 +20,7 @@ import (
 
 func main() {
 	if err := run(); err != nil {
-		_, _ = os.Stderr.WriteString(err.Error() + "\n")
+		slog.Error("desktop main error", "err", err)
 		os.Exit(1)
 	}
 }
@@ -33,13 +33,13 @@ func run() error {
 	if err := worker.InitDesktopInfra(); err != nil {
 		cancelAPI()
 		cancelWorker()
-		return fmt.Errorf("init infra: %w", err)
+		return err
 	}
 	desktop.RestoreExecutionModeFromDisk()
 	desktop.SetSidecarProcess(true)
 	defer func() {
 		if err := desktop.CloseRegisteredSQLite(); err != nil {
-			fmt.Fprintf(os.Stderr, "sqlite close: %v\n", err)
+			slog.Error("sqlite close", "err", err)
 		}
 	}()
 
@@ -65,12 +65,12 @@ func run() error {
 		if err != nil {
 			cancelAPI()
 			cancelWorker()
-			return fmt.Errorf("api init: %w", err)
+			return err
 		}
 	case err := <-apiErr:
 		cancelAPI()
 		cancelWorker()
-		return fmt.Errorf("api failed during init: %w", err)
+		return err
 	}
 
 	// Always start the embedded sandbox so sandboxAddr is populated;
@@ -84,7 +84,7 @@ func run() error {
 
 	go func() {
 		if err := bridge.StartDesktop(apiCtx); err != nil {
-			fmt.Fprintf(os.Stderr, "bridge: %v\n", err)
+			slog.Error("bridge error", "err", err)
 		}
 	}()
 
@@ -92,12 +92,12 @@ func run() error {
 	select {
 	case err := <-apiErr:
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "api: %v\n", err)
+			slog.Error("api error", "err", err)
 			firstErr = err
 		}
 		cancelWorker()
 		if werr := <-workerErr; werr != nil {
-			fmt.Fprintf(os.Stderr, "worker: %v\n", werr)
+			slog.Error("worker error", "err", werr)
 			if firstErr == nil {
 				firstErr = werr
 			}
@@ -105,13 +105,13 @@ func run() error {
 		cancelAPI()
 	case err := <-workerErr:
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "worker: %v\n", err)
+			slog.Error("worker error", "err", err)
 			firstErr = err
 		}
 		cancelWorker()
 		cancelAPI()
 		if aerr := <-apiErr; aerr != nil {
-			fmt.Fprintf(os.Stderr, "api: %v\n", aerr)
+			slog.Error("api error", "err", aerr)
 			if firstErr == nil {
 				firstErr = aerr
 			}
@@ -119,12 +119,12 @@ func run() error {
 	case <-sigCh:
 		cancelWorker()
 		if werr := <-workerErr; werr != nil {
-			fmt.Fprintf(os.Stderr, "worker: %v\n", werr)
+			slog.Error("worker error", "err", werr)
 			firstErr = werr
 		}
 		cancelAPI()
 		if aerr := <-apiErr; aerr != nil {
-			fmt.Fprintf(os.Stderr, "api: %v\n", aerr)
+			slog.Error("api error", "err", aerr)
 			if firstErr == nil {
 				firstErr = aerr
 			}
@@ -144,21 +144,21 @@ func startEmbeddedSandbox(ctx context.Context) {
 	socketDir := strings.TrimSpace(os.Getenv("ARKLOOP_SANDBOX_SOCKET_DIR"))
 
 	if kernelPath == "" || rootfsPath == "" {
-		fmt.Fprintf(os.Stderr, "sandbox: kernel/rootfs paths not configured, falling back to trusted mode\n")
+		slog.Warn("sandbox: kernel/rootfs paths not configured, falling back to trusted mode")
 		return
 	}
 
 	if _, err := os.Stat(kernelPath); err != nil {
-		fmt.Fprintf(os.Stderr, "sandbox: kernel not found (%s), falling back to trusted mode\n", kernelPath)
+		slog.Warn("sandbox: kernel not found, falling back to trusted mode", "path", kernelPath)
 		return
 	}
 	if _, err := os.Stat(rootfsPath); err != nil {
-		fmt.Fprintf(os.Stderr, "sandbox: rootfs not found (%s), falling back to trusted mode\n", rootfsPath)
+		slog.Warn("sandbox: rootfs not found, falling back to trusted mode", "path", rootfsPath)
 		return
 	}
 	if initrdPath != "" {
 		if _, err := os.Stat(initrdPath); err != nil {
-			fmt.Fprintf(os.Stderr, "sandbox: initrd not found (%s), proceeding without initrd\n", initrdPath)
+			slog.Warn("sandbox: initrd not found, proceeding without initrd", "path", initrdPath)
 			initrdPath = ""
 		}
 	}
@@ -181,16 +181,16 @@ func startEmbeddedSandbox(ctx context.Context) {
 
 	srv, err := desktopsandbox.New(cfg)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "sandbox: init failed, falling back to trusted mode: %v\n", err)
+		slog.Warn("sandbox: init failed, falling back to trusted mode", "err", err)
 		return
 	}
 
 	addr, err := srv.Start(ctx)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "sandbox: start failed, falling back to trusted mode: %v\n", err)
+		slog.Warn("sandbox: start failed, falling back to trusted mode", "err", err)
 		return
 	}
 
 	desktop.SetSandboxAddr(addr)
-	fmt.Fprintf(os.Stderr, "sandbox: embedded VZ sandbox listening on %s\n", addr)
+	slog.Info("sandbox: embedded VZ sandbox listening", "addr", addr)
 }

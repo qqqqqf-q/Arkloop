@@ -39,14 +39,14 @@ async function waitForVite(url, timeoutMs = 30000) {
 async function main() {
   const viteUrl = 'http://localhost:5173'
 
-  console.log('[dev] building desktop sidecar...')
+  console.log('building desktop sidecar...')
   mkdirSync(resolve(desktopBin, '..'), { recursive: true })
   await runStep('go', ['build', '-tags', 'desktop', '-o', desktopBin, './src/services/desktop/cmd/desktop'], {
     cwd: workspaceRoot,
   })
 
   // Start Vite directly with sidecar proxy target, overriding .env.local
-  console.log('[dev] starting vite dev server...')
+  console.log('starting vite dev server...')
   const vite = spawn('npx', ['vite'], {
     cwd: webRoot,
     stdio: 'inherit',
@@ -57,13 +57,13 @@ async function main() {
   })
 
   vite.on('error', (err) => {
-    console.error('[dev] vite failed to start:', err)
+    console.error('vite failed to start:', err)
     process.exit(1)
   })
 
-  console.log('[dev] waiting for vite dev server...')
+  console.log('waiting for vite dev server...')
   await waitForVite(viteUrl)
-  console.log('[dev] vite ready, compiling electron...')
+  console.log('vite ready, compiling electron...')
 
   const require = createRequire(import.meta.url)
   const tscPath = require.resolve('typescript/bin/tsc')
@@ -71,7 +71,7 @@ async function main() {
   await runStep('node', [tscPath, '-p', 'tsconfig.main.json'], { cwd: root })
   await runStep('node', [tscPath, '-p', 'tsconfig.preload.json'], { cwd: root })
 
-  console.log('[dev] starting electron...')
+  console.log('starting electron...')
 
   const electronPath = resolve(root, 'node_modules', '.bin', 'electron')
   const electron = spawn(electronPath, ['.'], {
