@@ -24,6 +24,7 @@ type ExecCommandRequest struct {
 	Command       string                     `json:"command"`
 	TimeoutMs     int                        `json:"timeout_ms,omitempty"`
 	YieldTimeMs   int                        `json:"yield_time_ms,omitempty"`
+	Background    bool                       `json:"background,omitempty"`
 	Env           map[string]string          `json:"env,omitempty"`
 }
 
@@ -96,6 +97,7 @@ type AgentExecCommandRequest struct {
 	Command     string            `json:"command"`
 	TimeoutMs   int               `json:"timeout_ms,omitempty"`
 	YieldTimeMs int               `json:"yield_time_ms,omitempty"`
+	Background  bool             `json:"background,omitempty"`
 	Env         map[string]string `json:"env,omitempty"`
 }
 

@@ -108,6 +108,7 @@ func (e *Executor) executeExecCommand(
 		"command":       command,
 		"timeout_ms":    timeoutMs,
 		"yield_time_ms": yieldTimeMs,
+		"background":    background,
 		"tier":          defaultTier,
 	}
 	if cwd != "" {

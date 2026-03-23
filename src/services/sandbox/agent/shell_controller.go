@@ -107,6 +107,12 @@ func (c *ShellController) ExecCommand(req shellapi.AgentExecCommandRequest) (*sh
 		code, msg := mapShellError(err)
 		return nil, code, msg
 	}
+	if req.Background {
+		c.mu.Lock()
+		resp := c.snapshotLocked(c.pendingCursor)
+		c.mu.Unlock()
+		return resp.response, "", ""
+	}
 	return c.waitForDelivery(req.YieldTimeMs)
 }
 

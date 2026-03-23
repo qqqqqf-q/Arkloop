@@ -72,6 +72,7 @@ type execCommandRequest struct {
 	Command       string                     `json:"command"`
 	TimeoutMs     int                        `json:"timeout_ms,omitempty"`
 	YieldTimeMs   int                        `json:"yield_time_ms,omitempty"`
+	Background    bool                       `json:"background,omitempty"`
 	Env           map[string]string          `json:"env,omitempty"`
 }
 
@@ -315,6 +316,7 @@ func (e *ToolExecutor) executeExecCommand(
 		Command:       command,
 		TimeoutMs:     reqArgs.TimeoutMs,
 		YieldTimeMs:   reqArgs.YieldTimeMs,
+		Background:    reqArgs.Background,
 		Env:           reqArgs.Env,
 	}
 	result := e.executeExecSessionRequest(ctx, e.baseURL+"/v1/exec_command", "exec_command", request, request.AccountID, execCtx.PerToolSoftLimits, started)

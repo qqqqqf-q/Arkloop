@@ -679,6 +679,7 @@ func (m *Manager) invokeExecCommand(ctx context.Context, entry *managedSession, 
 			Command:     req.Command,
 			TimeoutMs:   req.TimeoutMs,
 			YieldTimeMs: req.YieldTimeMs,
+			Background:  req.Background,
 			Env:         merged,
 		},
 	}
