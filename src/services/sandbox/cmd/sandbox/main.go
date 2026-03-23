@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"strings"
@@ -24,6 +25,7 @@ import (
 	"arkloop/services/sandbox/internal/snapshot"
 	"arkloop/services/sandbox/internal/storage"
 	"arkloop/services/sandbox/internal/template"
+	sharedlog "arkloop/services/shared/log"
 	"arkloop/services/shared/objectstore"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -39,6 +41,13 @@ func run() error {
 	if _, err := app.LoadDotenvIfEnabled(false); err != nil {
 		return err
 	}
+
+	// 统一 slog 输出格式
+	slog.SetDefault(sharedlog.New(sharedlog.Config{
+		Component: "sandbox",
+		Level:     slog.LevelDebug,
+		Output:    os.Stdout,
+	}))
 
 	cfg, err := app.LoadConfigFromEnv()
 	if err != nil {

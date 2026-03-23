@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -27,10 +28,10 @@ const (
 
 type Application struct {
 	config Config
-	logger *JSONLogger
+	logger *slog.Logger
 }
 
-func NewApplication(config Config, logger *JSONLogger) (*Application, error) {
+func NewApplication(config Config, logger *slog.Logger) (*Application, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
@@ -40,14 +41,18 @@ func NewApplication(config Config, logger *JSONLogger) (*Application, error) {
 	return &Application{config: config, logger: logger}, nil
 }
 
-// logAdapter bridges JSONLogger (Info(msg, LogFields, extra)) to the simpler
-// docker.Logger / bridgehttp.AppLogger interface (Info(msg, extra)).
+// logAdapter bridges slog.Logger to the simpler
+// docker.Logger / bridgehttp.AppLogger interface (Info(msg, extra), Error(msg, extra)).
 type logAdapter struct {
-	logger *JSONLogger
+	logger *slog.Logger
 }
 
-func (a *logAdapter) Info(msg string, extra map[string]any)  { a.logger.Info(msg, LogFields{}, extra) }
-func (a *logAdapter) Error(msg string, extra map[string]any) { a.logger.Error(msg, LogFields{}, extra) }
+func (a *logAdapter) Info(msg string, extra map[string]any) {
+	a.logger.Info(msg, "extra", extra)
+}
+func (a *logAdapter) Error(msg string, extra map[string]any) {
+	a.logger.Error(msg, "extra", extra)
+}
 
 func (a *Application) Run(ctx context.Context) error {
 	if ctx == nil {
@@ -121,13 +126,13 @@ func (a *Application) Run(ctx context.Context) error {
 		defer func() { _ = listener6.Close() }()
 	}
 
-	a.logger.Info("bridge started", LogFields{}, map[string]any{
-		"addr":        a.config.Addr,
-		"addr_v6":     err6 == nil,
-		"version":     bridgeVersion,
-		"project_dir": a.config.ProjectDir,
-		"modules":     a.config.ModulesFile,
-	})
+	a.logger.Info("bridge started",
+		"addr", a.config.Addr,
+		"addr_v6", err6 == nil,
+		"version", bridgeVersion,
+		"project_dir", a.config.ProjectDir,
+		"modules", a.config.ModulesFile,
+	)
 
 	server := &http.Server{
 		Handler:           handler,
