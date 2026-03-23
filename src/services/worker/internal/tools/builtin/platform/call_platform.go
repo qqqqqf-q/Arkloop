@@ -92,8 +92,8 @@ DurationMs: ms(started),
 
 // 同步等待 platform agent 完成
 waitResult, err := e.Control.Wait(ctx, subagentctl.WaitRequest{
-SubAgentID: snapshot.SubAgentID,
-Timeout:    5 * time.Minute,
+SubAgentIDs: []uuid.UUID{snapshot.SubAgentID},
+Timeout:     5 * time.Minute,
 })
 if err != nil {
 result := map[string]any{

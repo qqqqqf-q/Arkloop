@@ -17,6 +17,7 @@ import (
 	api "arkloop/services/api"
 	"arkloop/services/shared/database/sqlitepgx"
 	"arkloop/services/shared/desktop"
+	sharedlog "arkloop/services/shared/log"
 	"arkloop/services/shared/eventbus"
 	"arkloop/services/worker/internal/app"
 	"arkloop/services/worker/internal/consumer"
@@ -35,6 +36,13 @@ var _ pipeline.AgentExecutorBuilder = (*executor.Registry)(nil)
 // RunDesktop 启动桌面模式 Worker 消费循环。阻塞直到 ctx 取消或出错。
 // 前置条件：worker.InitDesktopInfra() 和 API migration 已完成。
 func RunDesktop(ctx context.Context) error {
+	// 统一 slog 输出格式（彩色终端或 JSON）
+	slog.SetDefault(sharedlog.New(sharedlog.Config{
+		Component: "worker",
+		Level:     slog.LevelDebug,
+		Output:    os.Stdout,
+	}))
+
 	if _, err := app.LoadDotenvIfEnabled(false); err != nil {
 		return err
 	}

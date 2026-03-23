@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"arkloop/services/shared/eventbus"
+	"arkloop/services/shared/rollout"
 	"arkloop/services/shared/skillstore"
 	sharedtoolruntime "arkloop/services/shared/toolruntime"
 	"arkloop/services/worker/internal/data"
@@ -191,6 +192,10 @@ type RunContext struct {
 	// -- Heartbeat --
 	HeartbeatRun         bool
 	HeartbeatToolOutcome *HeartbeatDecisionOutcome
+
+	// -- Rollout --
+	// RolloutRecorder 用于写入 rollout 日志，为 nil 时不记录
+	RolloutRecorder *rollout.Recorder
 }
 
 // HeartbeatDecisionOutcome 保存 heartbeat_decision 工具的调用结果。

@@ -90,6 +90,7 @@ func (e *SimpleExecutor) Execute(
 		},
 		StreamThinking: rc.StreamThinking,
 		PipelineRC:     rc,
+		RolloutRecorder: rc.RolloutRecorder,
 	}
 
 	loop := agent.NewLoop(rc.Gateway, rc.ToolExecutor)

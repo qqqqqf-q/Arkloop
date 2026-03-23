@@ -13,6 +13,7 @@ import (
 
 	sharedconfig "arkloop/services/shared/config"
 	sharedent "arkloop/services/shared/entitlement"
+	"arkloop/services/shared/objectstore"
 	"arkloop/services/shared/plugin"
 	"arkloop/services/shared/runlimit"
 	"arkloop/services/shared/skillstore"
@@ -55,6 +56,7 @@ type EngineV1 struct {
 	llmRetryBaseDelayMs   int
 	configResolver        sharedconfig.Resolver
 	releaseSlot           func(ctx context.Context, run data.Run)
+	rolloutBlobStore     objectstore.BlobStore
 }
 
 type ExecuteInput struct {
@@ -96,6 +98,7 @@ type EngineV1Deps struct {
 	MemoryProviderFactory  *workerruntime.MemoryProviderFactory
 	RoutingConfigLoader    *routing.ConfigLoader
 	MessageAttachmentStore pipeline.MessageAttachmentStore
+	RolloutBlobStore      objectstore.BlobStore // 用于创建 RolloutRecorder，非 desktop 模式下可选
 
 	// PlatformToolExecutor: platform_manage 的执行器，nil 时跳过注入
 	PlatformToolExecutor tools.Executor
@@ -228,6 +231,7 @@ func NewEngineV1(deps EngineV1Deps) (*EngineV1, error) {
 		llmRetryBaseDelayMs:   deps.LlmRetryBaseDelayMs,
 		configResolver:        cfgResolver,
 		releaseSlot:           releaseSlot,
+		rolloutBlobStore:     deps.RolloutBlobStore,
 	}, nil
 }
 
@@ -327,7 +331,7 @@ func (e *EngineV1) Execute(ctx context.Context, pool *pgxpool.Pool, run data.Run
 			QueueThreshold: resolveNonNegativeInt(ctx, e.configResolver, registry, "backpressure.queue_threshold", platformScope, 15),
 			Strategy:       resolveString(ctx, e.configResolver, registry, "backpressure.strategy", platformScope, "serial"),
 		}
-		rc.SubAgentControl = subagentctl.NewService(pool, e.broadcastRDB, e.jobQueue, run, traceID, subAgentLimits, bpConfig)
+		rc.SubAgentControl = subagentctl.NewService(pool, e.broadcastRDB, e.jobQueue, run, traceID, subAgentLimits, bpConfig, e.rolloutBlobStore)
 	}
 
 	// Per-run idempotent slot release; deferred as safety net for all exit paths.

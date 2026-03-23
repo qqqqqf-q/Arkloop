@@ -282,7 +282,7 @@ func (rt *luaRuntime) agentWait(L *lua.LState) int {
 		L.Push(lua.LString(err.Error()))
 		return 2
 	}
-	snapshot, err := rt.rc.SubAgentControl.Wait(rt.ctx, subagentctl.WaitRequest{SubAgentID: subAgentID, Timeout: timeout})
+	snapshot, err := rt.rc.SubAgentControl.Wait(rt.ctx, subagentctl.WaitRequest{SubAgentIDs: []uuid.UUID{subAgentID}, Timeout: timeout})
 	if err != nil {
 		L.Push(lua.LNil)
 		L.Push(lua.LString(err.Error()))

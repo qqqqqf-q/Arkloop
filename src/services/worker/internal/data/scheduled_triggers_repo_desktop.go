@@ -253,6 +253,31 @@ type HeartbeatIdentityConfig struct {
 	Model           string
 }
 
+// GetGroupHeartbeatConfig 通过 channel_type + platform_subject_id 查群 identity 的 heartbeat 配置（desktop）。
+// 返回 identityID 供 UpsertHeartbeat 使用。
+func GetGroupHeartbeatConfig(ctx context.Context, db DesktopDB, channelType, platformSubjectID string) (uuid.UUID, *HeartbeatIdentityConfig, error) {
+	var enabledInt, interval int
+	var model, idStr string
+	err := db.QueryRow(ctx,
+		`SELECT id, heartbeat_enabled, heartbeat_interval_minutes, heartbeat_model
+		   FROM channel_identities
+		  WHERE channel_type = $1 AND platform_subject_id = $2`,
+		channelType, platformSubjectID,
+	).Scan(&idStr, &enabledInt, &interval, &model)
+	if err != nil {
+		if isNoRows(err) {
+			return uuid.Nil, nil, nil
+		}
+		return uuid.Nil, nil, fmt.Errorf("get group heartbeat config: %w", err)
+	}
+	identityID, _ := uuid.Parse(idStr)
+	return identityID, &HeartbeatIdentityConfig{
+		Enabled:         enabledInt != 0,
+		IntervalMinutes: interval,
+		Model:           model,
+	}, nil
+}
+
 // GetChannelIdentityHeartbeatConfig 从 channel_identities 读取 heartbeat 配置（desktop）。
 func GetChannelIdentityHeartbeatConfig(ctx context.Context, db DesktopDB, identityID uuid.UUID) (*HeartbeatIdentityConfig, error) {
 	var enabledInt, interval int

@@ -73,7 +73,7 @@ func LlmSpecs() []llm.ToolSpec {
 		edit.LlmSpec,
 		glob.LlmSpec,
 		grep.LlmSpec,
-		// spawn_agent 由 NewSpawnAgentMiddleware 按需动态注入
+		// spawn_agent 由 NewToolProviderMiddleware 按需动态注入
 		summarizethread.LlmSpec,
 		askuser.LlmSpec,
 		acptool.LlmSpec,
