@@ -257,6 +257,64 @@ func (s *Service) Wait(ctx context.Context, req WaitRequest) (StatusSnapshot, er
 	}); err != nil {
 		return StatusSnapshot{}, err
 	}
+
+	// 首次查询，如果已经是终态直接返回
+	snapshot, err := s.GetStatus(waitCtx, req.SubAgentID)
+	if err != nil {
+		return StatusSnapshot{}, err
+	}
+	if waitResolved(snapshot.Status) {
+		return s.resolveWait(waitCtx, req, snapshot)
+	}
+
+	// 有 Redis 且有 currentRunID 时用事件驱动，否则回退轮询
+	if s.rdb != nil && snapshot.CurrentRunID != nil {
+		return s.waitByRedis(waitCtx, req, snapshot)
+	}
+	return s.waitByPoll(waitCtx, req, snapshot)
+}
+
+// waitByRedis 通过 Redis Subscribe 等待子代理的当前 run 终态通知。
+func (s *Service) waitByRedis(waitCtx context.Context, req WaitRequest, lastSnapshot StatusSnapshot) (StatusSnapshot, error) {
+	ch := fmt.Sprintf("run.child.%s.done", lastSnapshot.CurrentRunID.String())
+	sub := s.rdb.Subscribe(waitCtx, ch)
+	defer sub.Close()
+
+	// Subscribe 后立即重检，防止 Subscribe 前子 run 已完成导致事件遗漏
+	snapshot, err := s.GetStatus(waitCtx, req.SubAgentID)
+	if err != nil {
+		return lastSnapshot, err
+	}
+	lastSnapshot = snapshot
+	if waitResolved(snapshot.Status) {
+		return s.resolveWait(waitCtx, req, snapshot)
+	}
+
+	msgCh := sub.Channel()
+	for {
+		select {
+		case <-waitCtx.Done():
+			_ = s.appendLifecycleEvent(context.WithoutCancel(waitCtx), req.SubAgentID, data.SubAgentEventTypeWaitTimeout, map[string]any{
+				"status":     lastSnapshot.Status,
+				"timeout_ms": req.Timeout.Milliseconds(),
+			})
+			return lastSnapshot, waitCtx.Err()
+		case <-msgCh:
+		}
+
+		snapshot, err := s.GetStatus(waitCtx, req.SubAgentID)
+		if err != nil {
+			return lastSnapshot, err
+		}
+		lastSnapshot = snapshot
+		if waitResolved(snapshot.Status) {
+			return s.resolveWait(waitCtx, req, snapshot)
+		}
+	}
+}
+
+// waitByPoll 轮询等待子代理终态（desktop 模式，无 Redis）。
+func (s *Service) waitByPoll(waitCtx context.Context, req WaitRequest, lastSnapshot StatusSnapshot) (StatusSnapshot, error) {
 	interval := s.waitPollInterval
 	if interval <= 0 {
 		interval = defaultWaitInterval
@@ -264,31 +322,9 @@ func (s *Service) Wait(ctx context.Context, req WaitRequest) (StatusSnapshot, er
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	var lastSnapshot StatusSnapshot
 	for {
-		snapshot, err := s.GetStatus(waitCtx, req.SubAgentID)
-		if err != nil {
-			return lastSnapshot, err
-		}
-		lastSnapshot = snapshot
-		if waitResolved(snapshot.Status) {
-			payload := map[string]any{"status": snapshot.Status}
-			if snapshot.CurrentRunID != nil {
-				payload["run_id"] = snapshot.CurrentRunID.String()
-			} else if snapshot.LastCompletedRunID != nil {
-				payload["run_id"] = snapshot.LastCompletedRunID.String()
-			}
-			if snapshot.LastOutputRef != nil {
-				payload["last_output_ref"] = *snapshot.LastOutputRef
-			}
-			if err := s.appendLifecycleEvent(context.WithoutCancel(waitCtx), req.SubAgentID, data.SubAgentEventTypeWaitResolved, payload); err != nil {
-				return StatusSnapshot{}, err
-			}
-			return snapshot, nil
-		}
 		select {
 		case <-waitCtx.Done():
-			// 超时时记录生命周期事件，携带最后已知状态
 			_ = s.appendLifecycleEvent(context.WithoutCancel(waitCtx), req.SubAgentID, data.SubAgentEventTypeWaitTimeout, map[string]any{
 				"status":     lastSnapshot.Status,
 				"timeout_ms": req.Timeout.Milliseconds(),
@@ -296,7 +332,33 @@ func (s *Service) Wait(ctx context.Context, req WaitRequest) (StatusSnapshot, er
 			return lastSnapshot, waitCtx.Err()
 		case <-ticker.C:
 		}
+
+		snapshot, err := s.GetStatus(waitCtx, req.SubAgentID)
+		if err != nil {
+			return lastSnapshot, err
+		}
+		lastSnapshot = snapshot
+		if waitResolved(snapshot.Status) {
+			return s.resolveWait(waitCtx, req, snapshot)
+		}
 	}
+}
+
+// resolveWait 记录 wait_resolved 生命周期事件并返回快照。
+func (s *Service) resolveWait(waitCtx context.Context, req WaitRequest, snapshot StatusSnapshot) (StatusSnapshot, error) {
+	payload := map[string]any{"status": snapshot.Status}
+	if snapshot.CurrentRunID != nil {
+		payload["run_id"] = snapshot.CurrentRunID.String()
+	} else if snapshot.LastCompletedRunID != nil {
+		payload["run_id"] = snapshot.LastCompletedRunID.String()
+	}
+	if snapshot.LastOutputRef != nil {
+		payload["last_output_ref"] = *snapshot.LastOutputRef
+	}
+	if err := s.appendLifecycleEvent(context.WithoutCancel(waitCtx), req.SubAgentID, data.SubAgentEventTypeWaitResolved, payload); err != nil {
+		return StatusSnapshot{}, err
+	}
+	return snapshot, nil
 }
 
 func (s *Service) Resume(ctx context.Context, req ResumeRequest) (StatusSnapshot, error) {
