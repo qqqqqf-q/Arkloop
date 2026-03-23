@@ -6,6 +6,7 @@ import (
 	"context"
 	"time"
 
+	"arkloop/services/shared/runkind"
 	"arkloop/services/worker/internal/app"
 	"arkloop/services/worker/internal/data"
 	"arkloop/services/worker/internal/queue"
@@ -66,7 +67,7 @@ func desktopHeartbeatTick(
 
 		payload := map[string]any{
 			"source":                     "llm_heartbeat_scheduler",
-			"run_kind":                   "heartbeat",
+			"run_kind":                   runkind.Heartbeat,
 			"heartbeat_interval_minutes": row.IntervalMin,
 			"heartbeat_reason":           "interval",
 			"persona_key":                row.PersonaKey,

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"arkloop/services/shared/runkind"
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/memory"
 	heartbeattool "arkloop/services/worker/internal/tools/builtin/heartbeat_decision"
@@ -16,10 +17,10 @@ import (
 
 // isHeartbeatRun checks whether run_kind=heartbeat is set in InputJSON or JobPayload.
 func isHeartbeatRun(input, job map[string]any) bool {
-	if s, ok := stringField(input, "run_kind"); ok && strings.EqualFold(s, "heartbeat") {
+	if s, ok := stringField(input, "run_kind"); ok && strings.EqualFold(s, runkind.Heartbeat) {
 		return true
 	}
-	if s, ok := stringField(job, "run_kind"); ok && strings.EqualFold(s, "heartbeat") {
+	if s, ok := stringField(job, "run_kind"); ok && strings.EqualFold(s, runkind.Heartbeat) {
 		return true
 	}
 	return false

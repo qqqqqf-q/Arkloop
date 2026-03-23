@@ -9,6 +9,7 @@ import (
 
 	"arkloop/services/api/internal/data"
 	"arkloop/services/api/internal/observability"
+	"arkloop/services/shared/runkind"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -109,7 +110,7 @@ func (s *LLMHeartbeat) fireOne(ctx context.Context, row data.ScheduledTriggerRow
 
 	payload := map[string]any{
 		"source":                     "llm_heartbeat_scheduler",
-		"run_kind":                   "heartbeat",
+		"run_kind":                   runkind.Heartbeat,
 		"heartbeat_interval_minutes": row.IntervalMin,
 		"heartbeat_reason":           "interval",
 		"persona_key":                row.PersonaKey,
