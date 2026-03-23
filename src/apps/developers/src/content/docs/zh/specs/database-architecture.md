@@ -5,11 +5,13 @@
 
 本文描述 Arkloop 的数据库边界、核心表与权限/审计/计费的架构约束。生产形态以 PostgreSQL 为唯一目标后端。
 
-迁移工具：Goose（嵌入 `src/services/api/internal/migrate/migrations/`，80 个迁移文件）。
+迁移工具：Goose（嵌入 `src/services/api/internal/migrate/migrations/`，139 个迁移文件）。
+
+**注**：Organization 概念已通过 migration 00118 移除。Account 是唯一的租户单元。
 
 ## 1. 术语
 
-`org` 是**租户边界（tenant boundary）**：
+`account` 是**租户边界（tenant boundary）**：
 - 数据隔离边界（权限、导出、删除、保留策略）
 - 审计边界（日志归属与追责范围）
 - 计费与配额边界（预算、倍率、用量报表）
@@ -21,7 +23,7 @@
 
 ## 2. 顶层结构：`org / team / project`
 
-### 2.1 `orgs`（租户/公司）
+### 2.1 `accounts`（租户/公司）
 
 | 列 | 说明 |
 |----|------|
@@ -38,12 +40,12 @@
 | `username` | 用户名 |
 | `created_at` | 创建时间 |
 
-### 2.3 `org_memberships`（组织成员关系）
+### 2.3 `account_memberships`（组织成员关系）
 
 | 列 | 说明 |
 |----|------|
 | `id` | PK |
-| `org_id` | FK -> orgs |
+| `account_id` | FK -> accounts |
 | `user_id` | FK -> users |
 | `role` | 角色（owner / member） |
 
@@ -52,7 +54,7 @@
 | 列 | 说明 |
 |----|------|
 | `id` | PK |
-| `org_id` | FK -> orgs |
+| `account_id` | FK -> accounts |
 | `name` | 名称 |
 
 ### 2.5 `projects`（项目/协作域）
@@ -60,7 +62,7 @@
 | 列 | 说明 |
 |----|------|
 | `id` | PK |
-| `org_id` | FK -> orgs |
+| `account_id` | FK -> accounts |
 | `team_id` | FK -> teams（可选） |
 | `name` | 名称 |
 | `description` | 描述 |
@@ -74,7 +76,7 @@
 | 列 | 说明 |
 |----|------|
 | `id` | PK |
-| `org_id` | FK -> orgs |
+| `account_id` | FK -> accounts |
 | `created_by_user_id` | FK -> users |
 | `title` | 标题 |
 | `project_id` | FK -> projects（可选） |
@@ -88,7 +90,7 @@
 |----|------|
 | `id` | PK |
 | `thread_id` | FK -> threads |
-| `org_id` | FK -> orgs |
+| `account_id` | FK -> accounts |
 | `role` | user / assistant / system |
 | `content` | 文本内容 |
 | `content_json` | JSONB 结构化内容 |
@@ -102,7 +104,7 @@
 | 列 | 说明 |
 |----|------|
 | `id` | PK |
-| `org_id` | FK -> orgs |
+| `account_id` | FK -> accounts |
 | `thread_id` | FK -> threads |
 | `created_by_user_id` | FK -> users |
 | `status` | 状态机 |
@@ -138,7 +140,7 @@
 | 列 | 说明 |
 |----|------|
 | `id` | PK |
-| `org_id` | FK -> orgs（当前为 org 级资源） |
+| `account_id` | FK -> accounts（当前为 org 级资源） |
 | `provider` | 提供商标识 |
 | `name` | 显示名称 |
 | `secret_id` | FK -> secrets（加密存储） |
@@ -151,7 +153,7 @@
 | 列 | 说明 |
 |----|------|
 | `id` | PK |
-| `org_id` | FK -> orgs |
+| `account_id` | FK -> accounts |
 | `credential_id` | FK -> Provider 账号记录 |
 | `model` | 模型标识 |
 | `priority` | 优先级 |
@@ -167,7 +169,7 @@ AES-256-GCM 加密，密钥由 `ARKLOOP_ENCRYPTION_KEY` 提供。
 | 列 | 说明 |
 |----|------|
 | `id` | PK |
-| `org_id` | FK -> orgs（org scope 必填；platform scope 为 NULL） |
+| `account_id` | FK -> accounts（org scope 必填；platform scope 为 NULL） |
 | `scope` | `org` / `platform` |
 | `name` | 逻辑键（同 scope 内唯一） |
 | `encrypted_value` | 密文（base64） |
@@ -177,7 +179,7 @@ AES-256-GCM 加密，密钥由 `ARKLOOP_ENCRYPTION_KEY` 提供。
 | `updated_at` | 更新时间 |
 
 约束：
-- `scope='org'`：`(org_id, name)` 唯一
+- `scope='org'`：`(account_id, name)` 唯一
 - `scope='platform'`：`name` 全局唯一
 
 `secrets` 用途：
@@ -202,7 +204,7 @@ AES-256-GCM 加密，密钥由 `ARKLOOP_ENCRYPTION_KEY` 提供。
 
 | 列 | 说明 |
 |----|------|
-| `org_id` | FK -> orgs |
+| `account_id` | FK -> accounts |
 | `key` | 配置键 |
 | `value` | 配置值（非敏感） |
 | `updated_at` | 更新时间 |
@@ -220,7 +222,7 @@ Resolver 的优先级链（从高到低）：
 | 列 | 说明 |
 |----|------|
 | `id` | PK |
-| `org_id` | FK -> orgs（org scope 必填；platform scope 为 NULL） |
+| `account_id` | FK -> accounts（org scope 必填；platform scope 为 NULL） |
 | `scope` | `org` / `platform` |
 | `group_name` | Tool Group 名（LLM 看到的工具名，如 `web_search`） |
 | `provider_name` | Provider 名（内部工具名，如 `web_search.tavily`） |
@@ -243,7 +245,7 @@ Resolver 的优先级链（从高到低）：
 | 列 | 说明 |
 |----|------|
 | `id` | PK |
-| `org_id` | FK -> orgs |
+| `account_id` | FK -> accounts |
 | `persona_key` | 人格标识 |
 | `version` | 版本 |
 | `display_name` | 显示名称 |
@@ -274,7 +276,7 @@ Resolver 的优先级链（从高到低）：
 | 列 | 说明 |
 |----|------|
 | `id` | PK |
-| `org_id` | FK -> orgs |
+| `account_id` | FK -> accounts |
 | `plan_id` | FK -> plans |
 | `status` | 状态 |
 | `current_period_start` | 当前周期起 |
@@ -296,7 +298,7 @@ Resolver 的优先级链（从高到低）：
 | 列 | 说明 |
 |----|------|
 | `id` | PK |
-| `org_id` | FK -> orgs |
+| `account_id` | FK -> accounts |
 | `key` | 功能键 |
 | `value` | 覆盖值 |
 | `reason` | 原因 |
@@ -306,7 +308,7 @@ Resolver 的优先级链（从高到低）：
 
 | 表 | 关键列 |
 |----|--------|
-| `credits` | org_id, amount, balance |
+| `credits` | account_id, amount, balance |
 | `credit_transactions` | credits_id, amount, type |
 
 ### 7.6 `usage_records`（用量记录）
@@ -361,7 +363,7 @@ PostgreSQL 表 + Advisory Lock 实现的任务队列。
 | 列 | 说明 |
 |----|------|
 | `id` | PK |
-| `org_id` | FK -> orgs |
+| `account_id` | FK -> accounts |
 | `key_prefix` | 密钥前缀 |
 | `last_used_at` | 最后使用时间 |
 
@@ -390,7 +392,7 @@ PostgreSQL 表 + Advisory Lock 实现的任务队列。
 | 列 | 说明 |
 |----|------|
 | `id` | PK |
-| `org_id` | FK -> orgs |
+| `account_id` | FK -> accounts |
 | `name` | 服务器名称 |
 | `url` | 连接地址 |
 | `env_json` | 环境变量 |
@@ -404,7 +406,7 @@ PostgreSQL 表 + Advisory Lock 实现的任务队列。
 
 | 表 | 说明 |
 |----|------|
-| `user_memory_snapshots` | 用户记忆快照（org_id, data_json, hits_json），对接 OpenViking |
+| `user_memory_snapshots` | 用户记忆快照（account_id, data_json, hits_json），对接 OpenViking |
 | `platform_settings` | 全局平台配置（key-value JSONB） |
 | `feature_flags` | 功能开关 |
 | `redemption_codes` | 兑换码（value, usage_count, expires_at） |
@@ -419,4 +421,4 @@ PostgreSQL 表 + Advisory Lock 实现的任务队列。
 - **UUID**：主键使用 UUID（`pgcrypto` 扩展）
 - **任务队列**：PostgreSQL 表 + Advisory Lock（不依赖外部 MQ）
 - **实时推送**：PostgreSQL `LISTEN/NOTIFY` -> SSE
-- **凭证范围**：LLM Providers 支持 platform 级（`org_id` 为 NULL）和 org 级两种作用域
+- **凭证范围**：LLM Providers 支持 platform 级（`account_id` 为 NULL）和 org 级两种作用域

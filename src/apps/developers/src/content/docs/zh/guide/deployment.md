@@ -358,8 +358,8 @@ ARKLOOP_GATEWAY_UPSTREAM=http://host.docker.internal:19001 docker compose -f com
 | `ARKLOOP_GATEWAY_UPSTREAM` | `http://api:19001` | 上游 API 地址 |
 | `ARKLOOP_GATEWAY_PORT` | `19000` | 默认对外入口 |
 | `ARKLOOP_GATEWAY_TRUST_INCOMING_TRACE_ID` | `0` | 是否信任上游传入的 `X-Trace-Id` |
-| `ARKLOOP_RATELIMIT_CAPACITY` | `60` | 限流桶容量 |
-| `ARKLOOP_RATELIMIT_RATE_PER_MINUTE` | `60` | 每分钟补充速率 |
+| `ARKLOOP_RATELIMIT_CAPACITY` | `600` | 限流桶容量 |
+| `ARKLOOP_RATELIMIT_RATE_PER_MINUTE` | `300` | 每分钟补充速率 |
 
 ### Worker
 

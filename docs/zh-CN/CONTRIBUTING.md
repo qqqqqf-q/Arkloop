@@ -20,7 +20,7 @@ cd Arkloop
 # 启动最小基础设施
 docker compose up -d postgres redis
 
-# 可选：性能层
+# 可选：性能层（redis_gateway：可选 Gateway 热路径缓存，非默认配置）
 docker compose --profile performance up -d pgbouncer redis_gateway
 
 # 可选：S3 兼容对象存储

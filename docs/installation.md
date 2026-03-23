@@ -39,7 +39,7 @@ Expected output fields:
 | `docker_socket=<path>\|not-found` | Accessible Docker socket path |
 | `kvm=1\|0` | KVM device present (Linux only) |
 | `port_19000=free\|in-use` | Default gateway port availability |
-| `port_9000=free\|in-use` | MinIO port availability |
+| `port_9000=free\|in-use` | SeaweedFS S3 API port availability |
 
 If `docker=0` or `compose=0`, **stop here** and follow the [Docker prerequisite guide](#docker-not-available).
 

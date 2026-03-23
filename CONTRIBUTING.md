@@ -20,7 +20,7 @@ cd Arkloop
 # Start the minimal infrastructure
 docker compose up -d postgres redis
 
-# Optional performance layer
+# Optional performance layer (redis_gateway: optional Gateway hot-path cache, non-default)
 docker compose --profile performance up -d pgbouncer redis_gateway
 
 # Optional S3-compatible storage

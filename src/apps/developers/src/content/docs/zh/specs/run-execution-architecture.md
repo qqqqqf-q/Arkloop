@@ -67,19 +67,32 @@ Worker 使用中间件链模式处理 run，顺序执行：
 
 | 序号 | 中间件 | 职责 |
 |------|--------|------|
-| 1 | `mw_input_loader` | 加载 run 输入与线程消息 |
-| 2 | `mw_cancel_guard` | 处理取消信号（提前失败） |
+| 1 | `mw_cancel_guard` | 处理取消信号（提前失败） |
+| 2 | `mw_input_loader` | 加载 run 输入与线程消息 |
 | 3 | `mw_entitlement` | 检查配额/功能权限（例如 runs/tokens quota） |
-| 4 | `mw_mcp_discovery` | 发现 MCP 工具（org 级 + 缓存） |
-| 5 | `mw_spawn_agent` | 按需注入 `spawn_agent` 工具（父子 run） |
-| 6 | `mw_tool_provider` | 注入 Tool Provider（org 覆盖 platform）并绑定 executor |
-| 7 | `mw_agent_config` | 组装 Persona 运行时配置（model selector、reasoning mode、prompt cache control） |
-| 8 | `mw_persona_resolution` | 解析 persona_id、system prompt 与 persona 配置 |
-| 9 | `mw_memory` | 注入长期记忆（可选） |
-| 10 | `mw_routing` | LLM Provider 路由决策、构建 Gateway |
-| 11 | `mw_title_summarizer` | 生成会话标题（可选） |
-| 12 | `mw_tool_build` | 构建 ToolSpecs 与工具分发器（按 allowlist 过滤） |
-| 13 | `handler_agent_loop` | 主 Agent Loop（LLM 调用 + 工具执行） |
+| 4 | `mw_mcp_discovery` | 发现 MCP 工具（account 级 + 缓存） |
+| 5 | `mw_tool_provider` | 注入 Tool Provider（account 覆盖 platform）并绑定 executor |
+| 6 | `mw_persona_resolution` | 解析 persona_id、system prompt 与 persona 配置 |
+| 7 | `mw_channel_context` | 注入 channel context（Telegram group/user merge） |
+| 8 | `mw_heartbeat_schedule` | 为活跃 Telegram 群组调度心跳运行 |
+| 9 | `mw_channel_telegram_group_user_merge` | 合并 Telegram 群组和用户上下文 |
+| 10 | `mw_channel_group_context_trim` | 修剪 channel group context |
+| 11 | `mw_channel_telegram_tools` | 注入 Telegram 特定工具 |
+| 12 | `mw_subagent_context` | 注入子代理控制上下文 |
+| 13 | `mw_skill_context` | 将启用的 skills 注入运行时 |
+| 14 | `mw_memory` | 注入长期记忆（可选） |
+| 15 | `mw_trust_source` | Trust source 配置 |
+| 16 | `mw_injection_scan` | 扫描提示词注入攻击 |
+| 17 | `mw_routing` | LLM Provider 路由决策、构建 Gateway |
+| 18 | `mw_title_summarizer` | 生成会话标题（可选） |
+| 19 | `mw_context_compact` | 长会话的上下文压缩 |
+| 20 | `mw_heartbeat_prepare` | 准备心跳运行上下文 |
+| 21 | `mw_tool_description_override` | 从数据库覆盖工具描述 |
+| 22 | `mw_platform` | 注入平台管理工具 |
+| 23 | `mw_tool_build` | 构建 ToolSpecs 与工具分发器（按 allowlist 过滤） |
+| 24 | `mw_result_summarizer` | 汇总运行结果 |
+| 25 | `mw_channel_delivery` | 向 channel 投递运行事件 |
+| 26 | `handler_agent_loop` | 主 Agent Loop（LLM 调用 + 工具执行） |
 
 ### 4.1 中间件测试覆盖
 

@@ -12,7 +12,7 @@ Arkloop orchestrates all services via `compose.yaml`, enabling a full deployment
 | `postgres` | PostgreSQL 16 | 5432 |
 | `pgbouncer` | Optional connection pool | 5433 |
 | `redis` | Cache/Queue | 6379 |
-| `redis_gateway` | Optional Gateway hot-path Redis | — |
+| `redis_gateway` | Optional performance optimization: Gateway hot-path Redis cache | — |
 | `seaweedfs` | Optional S3-compatible object storage | 9000 |
 | `migrate` | Database Migrations (One-time, exits after completion) | — |
 | `api` | Control Plane API (Go) | 19001 |
@@ -21,7 +21,7 @@ Arkloop orchestrates all services via `compose.yaml`, enabling a full deployment
 | `sandbox` | Code Sandbox (Firecracker / Docker) | 19002 |
 | `openviking` | Vector Memory Service | 19010 |
 
-The default startup order is kept by `depends_on`: postgres → migrate → api/worker, redis → api/gateway/worker. Optional profiles add `pgbouncer`, `redis_gateway`, and `seaweedfs` only when you ask for them.
+The default startup order is kept by `depends_on`: postgres → migrate → api/worker, redis → api/gateway/worker. Optional profiles add `pgbouncer`, `redis_gateway` (optional performance optimization: Gateway hot-path cache), and `seaweedfs` only when you ask for them.
 
 ## Quick Start
 
@@ -344,8 +344,8 @@ ARKLOOP_GATEWAY_UPSTREAM=http://host.docker.internal:19001 docker compose -f com
 | `ARKLOOP_GATEWAY_UPSTREAM` | `http://api:19001` | Upstream API address |
 | `ARKLOOP_GATEWAY_PORT` | `19000` | Default public entry point |
 | `ARKLOOP_GATEWAY_TRUST_INCOMING_TRACE_ID` | `0` | Whether to trust upstream `X-Trace-Id` |
-| `ARKLOOP_RATELIMIT_CAPACITY` | `60` | Rate limit bucket capacity |
-| `ARKLOOP_RATELIMIT_RATE_PER_MINUTE` | `60` | Replenishment rate per minute |
+| `ARKLOOP_RATELIMIT_CAPACITY` | `600` | Rate limit bucket capacity |
+| `ARKLOOP_RATELIMIT_RATE_PER_MINUTE` | `300` | Replenishment rate per minute |
 
 ### Worker
 

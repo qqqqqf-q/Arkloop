@@ -1125,9 +1125,9 @@ run_doctor() {
     printf 'port_%s=free\n' "$gateway_port"
   fi
   if port_in_use 9000; then
-    printf 'port_9000=in-use\n'
+    printf 'port_9000=in-use (SeaweedFS S3 API)\n'
   else
-    printf 'port_9000=free\n'
+    printf 'port_9000=free (SeaweedFS S3 API)\n'
   fi
   printf 'started_modules='
   local first="1"

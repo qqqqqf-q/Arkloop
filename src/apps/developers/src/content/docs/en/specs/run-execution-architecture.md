@@ -67,19 +67,32 @@ Worker uses a middleware chain pattern to process runs, executing in order:
 
 | No. | Middleware | Responsibility |
 |------|--------|------|
-| 1 | `mw_input_loader` | Loading run inputs and thread messages |
-| 2 | `mw_cancel_guard` | Handling cancellation signals (fail early) |
+| 1 | `mw_cancel_guard` | Handling cancellation signals (fail early) |
+| 2 | `mw_input_loader` | Loading run inputs and thread messages |
 | 3 | `mw_entitlement` | Checking quota/feature permissions (e.g., runs/tokens quota) |
-| 4 | `mw_mcp_discovery` | Discovering MCP tools (org-level + cache) |
-| 5 | `mw_spawn_agent` | Injecting `spawn_agent` tool as needed (parent-child runs) |
-| 6 | `mw_tool_provider` | Injecting Tool Providers (org overrides platform) and binding executors |
-| 7 | `mw_agent_config` | Assembling Persona runtime config (model selector, reasoning mode, prompt cache control) |
-| 8 | `mw_persona_resolution` | Resolving persona_id, system prompt, and persona config |
-| 9 | `mw_memory` | Injecting long-term memory (optional) |
-| 10 | `mw_routing` | LLM Provider routing decisions, building Gateway |
-| 11 | `mw_title_summarizer` | Generating conversation titles (optional) |
-| 12 | `mw_tool_build` | Building ToolSpecs and tool dispatcher (filtering by allowlist) |
-| 13 | `handler_agent_loop` | Main Agent Loop (LLM calls + tool execution) |
+| 4 | `mw_mcp_discovery` | Discovering MCP tools (account-level + cache) |
+| 5 | `mw_tool_provider` | Injecting Tool Providers (account overrides platform) and binding executors |
+| 6 | `mw_persona_resolution` | Resolving persona_id, system prompt, and persona config |
+| 7 | `mw_channel_context` | Injecting channel context (Telegram group/user merge) |
+| 8 | `mw_heartbeat_schedule` | Scheduling heartbeat runs for active Telegram groups |
+| 9 | `mw_channel_telegram_group_user_merge` | Merging Telegram group and user contexts |
+| 10 | `mw_channel_group_context_trim` | Trimming channel group context |
+| 11 | `mw_channel_telegram_tools` | Injecting Telegram-specific tools |
+| 12 | `mw_subagent_context` | Injecting sub-agent control context |
+| 13 | `mw_skill_context` | Injecting enabled skills into runtime |
+| 14 | `mw_memory` | Injecting long-term memory (optional) |
+| 15 | `mw_trust_source` | Trust source configuration |
+| 16 | `mw_injection_scan` | Scanning for prompt injection attacks |
+| 17 | `mw_routing` | LLM Provider routing decisions, building Gateway |
+| 18 | `mw_title_summarizer` | Generating conversation titles (optional) |
+| 19 | `mw_context_compact` | Context compaction for long conversations |
+| 20 | `mw_heartbeat_prepare` | Preparing heartbeat run context |
+| 21 | `mw_tool_description_override` | Overriding tool descriptions from DB |
+| 22 | `mw_platform` | Injecting platform management tools |
+| 23 | `mw_tool_build` | Building ToolSpecs and tool dispatcher (filtering by allowlist) |
+| 24 | `mw_result_summarizer` | Summarizing run results |
+| 25 | `mw_channel_delivery` | Delivering run events to channel |
+| 26 | `handler_agent_loop` | Main Agent Loop (LLM calls + tool execution) |
 
 ### 4.1 Middleware Test Coverage
 

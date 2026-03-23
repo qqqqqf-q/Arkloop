@@ -78,7 +78,7 @@ See the full [installation guide](docs/installation.md) for configuration option
 | Web | React / TypeScript | User-facing chat interface |
 | Console | React / TypeScript | Administration dashboard |
 
-Infrastructure: PostgreSQL + PgBouncer, Redis, MinIO (S3-compatible), OpenViking (vector memory).
+Infrastructure: PostgreSQL + PgBouncer, Redis, SeaweedFS (S3-compatible) 或 filesystem (默认), OpenViking (vector memory).
 
 ## Development
 

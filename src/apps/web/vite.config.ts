@@ -9,7 +9,7 @@ export default defineConfig(({ mode }) => {
   const apiProxyTarget =
     process.env.ARKLOOP_API_PROXY_TARGET ??
     env.ARKLOOP_API_PROXY_TARGET ??
-    'http://127.0.0.1:19001'
+    'http://127.0.0.1:19000'
 
   return {
     plugins: [tailwindcss(), react()],

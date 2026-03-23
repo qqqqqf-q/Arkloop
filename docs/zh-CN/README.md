@@ -78,7 +78,7 @@ cd Arkloop
 | Web | React / TypeScript | 用户聊天界面 |
 | Console | React / TypeScript | 管理仪表板 |
 
-基础设施：PostgreSQL + PgBouncer、Redis、MinIO（S3 兼容存储）、OpenViking（向量记忆）。
+基础设施：PostgreSQL + PgBouncer、Redis、SeaweedFS（S3 兼容存储）或 filesystem（默认）、OpenViking（向量记忆）。
 
 ## 开发
 

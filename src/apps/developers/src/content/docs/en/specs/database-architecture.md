@@ -5,11 +5,13 @@
 
 This document describes Arkloop's database boundaries, core tables, and architectural constraints for permissions, auditing, and billing. The production environment uses PostgreSQL as the sole target backend.
 
-Migration Tool: Goose (embedded in `src/services/api/internal/migrate/migrations/`, with 80 migration files).
+Migration Tool: Goose (embedded in `src/services/api/internal/migrate/migrations/`, with 139 migration files).
+
+**Note**: Organization concept has been removed via migration 00118. Account is the sole tenant unit.
 
 ## 1. Terminology
 
-`org` is the **tenant boundary**:
+`account` is the **tenant boundary**:
 - Data isolation boundary (permissions, exports, deletion, retention policies).
 - Auditing boundary (log attribution and accountability scope).
 - Billing and quota boundary (budgets, multipliers, usage reports).
@@ -21,7 +23,7 @@ Migration Tool: Goose (embedded in `src/services/api/internal/migrate/migrations
 
 ## 2. Top-level Structure: `org / team / project`
 
-### 2.1 `orgs` (Tenants/Companies)
+### 2.1 `accounts` (Tenants/Companies)
 
 | Column | Description |
 |----|------|
@@ -38,12 +40,12 @@ Migration Tool: Goose (embedded in `src/services/api/internal/migrate/migrations
 | `username` | Username |
 | `created_at` | Creation time |
 
-### 2.3 `org_memberships` (Organization Memberships)
+### 2.3 `account_memberships` (Organization Memberships)
 
 | Column | Description |
 |----|------|
 | `id` | PK |
-| `org_id` | FK -> orgs |
+| `account_id` | FK -> accounts |
 | `user_id` | FK -> users |
 | `role` | Role (owner / member) |
 
@@ -52,7 +54,7 @@ Migration Tool: Goose (embedded in `src/services/api/internal/migrate/migrations
 | Column | Description |
 |----|------|
 | `id` | PK |
-| `org_id` | FK -> orgs |
+| `account_id` | FK -> accounts |
 | `name` | Name |
 
 ### 2.5 `projects` (Projects/Collaboration Domains)
@@ -60,7 +62,7 @@ Migration Tool: Goose (embedded in `src/services/api/internal/migrate/migrations
 | Column | Description |
 |----|------|
 | `id` | PK |
-| `org_id` | FK -> orgs |
+| `account_id` | FK -> accounts |
 | `team_id` | FK -> teams (optional) |
 | `name` | Name |
 | `description` | Description |
@@ -74,7 +76,7 @@ Migration Tool: Goose (embedded in `src/services/api/internal/migrate/migrations
 | Column | Description |
 |----|------|
 | `id` | PK |
-| `org_id` | FK -> orgs |
+| `account_id` | FK -> accounts |
 | `created_by_user_id` | FK -> users |
 | `title` | Title |
 | `project_id` | FK -> projects (optional) |
@@ -88,7 +90,7 @@ Migration Tool: Goose (embedded in `src/services/api/internal/migrate/migrations
 |----|------|
 | `id` | PK |
 | `thread_id` | FK -> threads |
-| `org_id` | FK -> orgs |
+| `account_id` | FK -> accounts |
 | `role` | user / assistant / system |
 | `content` | Text content |
 | `content_json` | JSONB structured content |
@@ -102,7 +104,7 @@ Migration Tool: Goose (embedded in `src/services/api/internal/migrate/migrations
 | Column | Description |
 |----|------|
 | `id` | PK |
-| `org_id` | FK -> orgs |
+| `account_id` | FK -> accounts |
 | `thread_id` | FK -> threads |
 | `created_by_user_id` | FK -> users |
 | `status` | State machine |
@@ -138,7 +140,7 @@ Key Constraints:
 | Column | Description |
 |----|------|
 | `id` | PK |
-| `org_id` | FK -> orgs (currently an org-level resource) |
+| `account_id` | FK -> accounts (currently an org-level resource) |
 | `provider` | Provider identifier |
 | `name` | Display name |
 | `secret_id` | FK -> secrets (stored encrypted) |
@@ -151,7 +153,7 @@ Key Constraints:
 | Column | Description |
 |----|------|
 | `id` | PK |
-| `org_id` | FK -> orgs |
+| `account_id` | FK -> accounts |
 | `credential_id` | FK -> provider account record |
 | `model` | Model identifier |
 | `priority` | Priority |
@@ -167,7 +169,7 @@ Encrypted with AES-256-GCM, using the key provided by `ARKLOOP_ENCRYPTION_KEY`.
 | Column | Description |
 |----|------|
 | `id` | PK |
-| `org_id` | FK -> orgs (required for org scope; NULL for platform scope) |
+| `account_id` | FK -> accounts (required for org scope; NULL for platform scope) |
 | `scope` | `org` / `platform` |
 | `name` | Logical key (unique within the same scope) |
 | `encrypted_value` | Encrypted value (base64) |
@@ -177,7 +179,7 @@ Encrypted with AES-256-GCM, using the key provided by `ARKLOOP_ENCRYPTION_KEY`.
 | `updated_at` | Update time |
 
 Constraints:
-- `scope='org'`: `(org_id, name)` must be unique.
+- `scope='org'`: `(account_id, name)` must be unique.
 - `scope='platform'`: `name` must be globally unique.
 
 `secrets` usage:
@@ -202,7 +204,7 @@ Used for Track A Config Resolver (key-value configuration), supporting platform 
 
 | Column | Description |
 |----|------|
-| `org_id` | FK -> orgs |
+| `account_id` | FK -> accounts |
 | `key` | Configuration key |
 | `value` | Configuration value (non-sensitive) |
 | `updated_at` | Update time |
@@ -220,7 +222,7 @@ Used for backend selection, credentials, and base_url configuration for Tool Gro
 | Column | Description |
 |----|------|
 | `id` | PK |
-| `org_id` | FK -> orgs (required for org scope; NULL for platform scope) |
+| `account_id` | FK -> accounts (required for org scope; NULL for platform scope) |
 | `scope` | `org` / `platform` |
 | `group_name` | Tool Group name (tool name as seen by LLM, e.g., `web_search`) |
 | `provider_name` | Provider name (internal tool name, e.g., `web_search.tavily`) |
@@ -243,7 +245,7 @@ Resolution Chain:
 | Column | Description |
 |----|------|
 | `id` | PK |
-| `org_id` | FK -> orgs |
+| `account_id` | FK -> accounts |
 | `persona_key` | Persona identifier |
 | `version` | Version |
 | `display_name` | Display name |
@@ -275,7 +277,7 @@ Persona now absorbs the executable configuration that previously lived in Agent 
 | Column | Description |
 |----|------|
 | `id` | PK |
-| `org_id` | FK -> orgs |
+| `account_id` | FK -> accounts |
 | `plan_id` | FK -> plans |
 | `status` | Status |
 | `current_period_start` | Current period start |
@@ -297,7 +299,7 @@ Persona now absorbs the executable configuration that previously lived in Agent 
 | Column | Description |
 |----|------|
 | `id` | PK |
-| `org_id` | FK -> orgs |
+| `account_id` | FK -> accounts |
 | `key` | Feature key |
 | `value` | Override value |
 | `reason` | Reason |
@@ -307,7 +309,7 @@ Persona now absorbs the executable configuration that previously lived in Agent 
 
 | Table | Key Columns |
 |----|--------|
-| `credits` | org_id, amount, balance |
+| `credits` | account_id, amount, balance |
 | `credit_transactions` | credits_id, amount, type |
 
 ### 7.6 `usage_records` (Usage Records)
@@ -362,7 +364,7 @@ Task queue implemented using a PostgreSQL table and Advisory Locks.
 | Column | Description |
 |----|------|
 | `id` | PK |
-| `org_id` | FK -> orgs |
+| `account_id` | FK -> accounts |
 | `key_prefix` | Key prefix |
 | `last_used_at` | Last used time |
 
@@ -391,7 +393,7 @@ Task queue implemented using a PostgreSQL table and Advisory Locks.
 | Column | Description |
 |----|------|
 | `id` | PK |
-| `org_id` | FK -> orgs |
+| `account_id` | FK -> accounts |
 | `name` | Server name |
 | `url` | Connection URL |
 | `env_json` | Environment variables |
@@ -405,7 +407,7 @@ Structure similar to provider secret storage, managed independently.
 
 | Table | Description |
 |----|------|
-| `user_memory_snapshots` | User memory snapshots (org_id, data_json, hits_json), interfaces with OpenViking |
+| `user_memory_snapshots` | User memory snapshots (account_id, data_json, hits_json), interfaces with OpenViking |
 | `platform_settings` | Global platform configuration (key-value JSONB) |
 | `feature_flags` | Feature flags |
 | `redemption_codes` | Redemption codes (value, usage_count, expires_at) |
@@ -420,4 +422,4 @@ Structure similar to provider secret storage, managed independently.
 - **UUID**: Primary keys use UUID (`pgcrypto` extension).
 - **Task Queue**: PostgreSQL table + Advisory Lock (no dependency on external MQ).
 - **Real-time Push**: PostgreSQL `LISTEN/NOTIFY` -> SSE.
-- **Credential Scopes**: LLM providers support both platform-level (`org_id` is NULL) and org-level scopes.
+- **Credential Scopes**: LLM providers support both platform-level (`account_id` is NULL) and org-level scopes.

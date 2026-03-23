@@ -555,7 +555,7 @@ type Formatter interface {
 - Webhook 注册：`POST https://api.telegram.org/bot{token}/setWebhook`
 - 验签：`X-Telegram-Bot-Api-Secret-Token` header
 - 消息发送：`POST /sendMessage`，支持 `reply_to_message_id` 和 `parse_mode: MarkdownV2`
-- 媒体：`getFile` 下载 -> 上传到 MinIO -> 作为 attachment 传入 Agent
+- 媒体：`getFile` 下载 -> 上传到 SeaweedFS 或 filesystem -> 作为 attachment 传入 Agent
 - Bot Commands：通过 `setMyCommands` 注册 `/start`、`/help`、`/bind`
 - Group Privacy：需关闭 privacy mode 才能收到所有群聊消息（BotFather 配置）
 
@@ -675,7 +675,7 @@ type Formatter interface {
 
 #### 3c: 媒体处理
 
-- 图片/语音/文件/视频: Telegram `getFile` API 下载 -> 上传到 MinIO -> 生成内部 URL
+- 图片/语音/文件/视频: Telegram `getFile` API 下载 -> 上传到 SeaweedFS 或 filesystem -> 生成内部 URL
 - 媒体作为 attachment 传入 Agent（复用现有 attachment 处理链路）
 - Sticker/GIF: 转为图片处理或忽略（按 config_json 配置）
 - 语音消息: 如启用 ASR，可选转文字后作为 text 传入
@@ -709,7 +709,7 @@ type Formatter interface {
 - `telegram_reply`: 回复引用特定消息（需 message_id）
 - `telegram_react`: 给消息添加 emoji reaction
 - `telegram_pin`: 置顶/取消置顶消息
-- `telegram_send_photo`: 发送图片（从 MinIO 或 URL）
+- `telegram_send_photo`: 发送图片（从 SeaweedFS/filesystem 或 URL）
 - `telegram_send_document`: 发送文件
 - ToolProvider 注册: 当 `RunContext.ChannelContext` 存在且 `ChannelType == "telegram"` 时自动注入
 - 工具执行: 通过 `ChannelContext` 获取 chat_id + bot token，直接调用 Telegram Bot API
