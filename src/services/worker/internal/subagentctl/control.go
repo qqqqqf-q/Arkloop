@@ -614,15 +614,24 @@ func (s *Service) appendLifecycleEvent(ctx context.Context, subAgentID uuid.UUID
 // startCompletionWatcher 订阅子代理 run 的 Redis done 事件，收到后向父线程注入系统消息。
 // 不阻塞调用方，不影响子代理生命周期。
 func (s *Service) startCompletionWatcher(subAgentID, childRunID, parentThreadID, accountID uuid.UUID, nickname *string) {
-	bg := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
 	ch := fmt.Sprintf("run.child.%s.done", childRunID.String())
-	sub := s.rdb.Subscribe(bg, ch)
+	sub := s.rdb.Subscribe(ctx, ch)
 	defer sub.Close()
+
+	// Subscribe 后立即重检，防止 done 消息在 Subscribe 前已发布导致永久等待。
+	snap, err := s.GetStatus(ctx, subAgentID)
+	if err == nil && waitResolved(snap.Status) {
+		s.injectCompletionMessage(ctx, subAgentID, parentThreadID, accountID, nickname, snap.Status)
+		return
+	}
 
 	msgCh := sub.Channel()
 	for {
 		select {
-		case <-bg.Done():
+		case <-ctx.Done():
 			return
 		case msg, ok := <-msgCh:
 			if !ok {
@@ -634,7 +643,7 @@ func (s *Service) startCompletionWatcher(subAgentID, childRunID, parentThreadID,
 			if i := strings.IndexByte(payload, '\n'); i >= 0 {
 				status = strings.TrimSpace(payload[:i])
 			}
-			s.injectCompletionMessage(bg, subAgentID, parentThreadID, accountID, nickname, status)
+			s.injectCompletionMessage(ctx, subAgentID, parentThreadID, accountID, nickname, status)
 			return
 		}
 	}
