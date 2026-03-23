@@ -17,6 +17,7 @@ import (
 	"arkloop/services/api/internal/entitlement"
 	httpkit "arkloop/services/api/internal/http/httpkit"
 	"arkloop/services/api/internal/observability"
+	"arkloop/services/shared/runkind"
 	"arkloop/services/shared/telegrambot"
 
 	"github.com/google/uuid"
@@ -1265,7 +1266,7 @@ func handleTelegramHeartbeatCommand(
 	switch sub {
 	case "on":
 		if intervalMin <= 0 {
-			intervalMin = 30
+			intervalMin = runkind.DefaultHeartbeatIntervalMinutes
 		}
 		if err := channelIdentitiesRepo.WithTx(tx).UpdateHeartbeatConfig(ctx, identity.ID, true, intervalMin, model); err != nil {
 			return "", err

@@ -64,7 +64,7 @@ func heartbeatIntervalMinutes(input, job map[string]any) int {
 			}
 		}
 	}
-	return 30
+	return runkind.DefaultHeartbeatIntervalMinutes
 }
 
 // NewLLMHeartbeatPrepareMiddleware 为心跳 run 注入合成 user 消息，并在 next 返回后将

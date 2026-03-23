@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"arkloop/services/shared/runkind"
 	"arkloop/services/shared/telegrambot"
 	"arkloop/services/worker/internal/tools"
 
@@ -204,7 +205,7 @@ func (e *Executor) getStatus(ctx context.Context, identityID uuid.UUID) (string,
 
 func (e *Executor) setEnabled(ctx context.Context, identityID uuid.UUID, enabled, interval int) (string, error) {
 	if interval == 0 {
-		interval = 30
+		interval = runkind.DefaultHeartbeatIntervalMinutes
 	}
 	_, err := e.db.Exec(ctx,
 		`UPDATE channel_identities

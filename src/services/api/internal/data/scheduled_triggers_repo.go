@@ -5,6 +5,8 @@ import (
 	"errors"
 	"time"
 
+	"arkloop/services/shared/runkind"
+
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -38,7 +40,7 @@ func (ScheduledTriggersRepository) UpsertHeartbeat(
 		return errors.New("channel_identity_id must not be empty")
 	}
 	if intervalMin <= 0 {
-		intervalMin = 30
+		intervalMin = runkind.DefaultHeartbeatIntervalMinutes
 	}
 	nextFire := time.Now().UTC().Add(time.Duration(intervalMin) * time.Minute)
 	_, err := db.Exec(ctx, `
