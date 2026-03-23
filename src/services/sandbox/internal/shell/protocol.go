@@ -9,7 +9,7 @@ const (
 
 	defaultYieldTimeMs = 1000
 	maxYieldTimeMs     = 30000
-	maxTimeoutMs       = 300000
+	maxTimeoutMs       = 1800000
 )
 
 type ExecCommandRequest struct {

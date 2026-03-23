@@ -29,7 +29,7 @@ const (
 	defaultYieldTimeMs    = 1000
 	maxYieldTimeMs        = 30000
 	defaultTimeoutMs      = 30000
-	maxTimeoutMs          = 300000
+	maxTimeoutMs          = 1800000
 	defaultControlTimeout = 5000
 
 	ringBufferSize   = 1 << 20 // 1 MiB

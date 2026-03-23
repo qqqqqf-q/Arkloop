@@ -40,7 +40,7 @@ var ExecCommandLlmSpec = llm.ToolSpec{
 			"timeout_ms": map[string]any{
 				"type":        "integer",
 				"minimum":     1000,
-				"maximum":     300000,
+				"maximum":     1800000,
 				"description": "command timeout in milliseconds",
 			},
 			"env": map[string]any{

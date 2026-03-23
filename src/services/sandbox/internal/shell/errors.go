@@ -43,7 +43,7 @@ func notRunningError() *Error {
 }
 
 func timeoutTooLargeError() *Error {
-	return newError(CodeTimeoutTooLarge, "timeout_ms must not exceed 300000", http.StatusBadRequest)
+	return newError(CodeTimeoutTooLarge, "timeout_ms must not exceed 1800000", http.StatusBadRequest)
 }
 
 func accountMismatchError() *Error {

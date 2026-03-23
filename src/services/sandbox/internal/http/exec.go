@@ -86,8 +86,8 @@ func handleExec(mgr *session.Manager, envMgr *environment.Manager, skillMgr *san
 		if req.TimeoutMs <= 0 {
 			req.TimeoutMs = 30_000
 		}
-		if req.TimeoutMs > 300_000 {
-			writeError(w, http.StatusBadRequest, "sandbox.timeout_too_large", "timeout_ms must not exceed 300000")
+		if req.TimeoutMs > 1_800_000 {
+			writeError(w, http.StatusBadRequest, "sandbox.timeout_too_large", "timeout_ms must not exceed 1800000")
 			return
 		}
 
