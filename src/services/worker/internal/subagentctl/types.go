@@ -77,8 +77,8 @@ type SendInputRequest struct {
 }
 
 type WaitRequest struct {
-	SubAgentID uuid.UUID
-	Timeout    time.Duration
+	SubAgentIDs []uuid.UUID
+	Timeout     time.Duration
 }
 
 type ResumeRequest struct {

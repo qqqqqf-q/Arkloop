@@ -196,10 +196,15 @@ var WaitAgentLlmSpec = llm.ToolSpec{
 	JSONSchema: map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"sub_agent_id":    map[string]any{"type": "string"},
+			"ids": map[string]any{
+				"type":        "array",
+				"items":       map[string]any{"type": "string"},
+				"minItems":    1,
+				"description": "One or more sub_agent_id values. Returns the first to reach a terminal state.",
+			},
 			"timeout_seconds": map[string]any{"type": "integer", "minimum": 1},
 		},
-		"required":             []string{"sub_agent_id"},
+		"required":             []string{"ids"},
 		"additionalProperties": false,
 	},
 }
@@ -474,9 +479,26 @@ func parseSendInputArgs(args map[string]any) (subagentctl.SendInputRequest, erro
 }
 
 func parseWaitArgs(args map[string]any) (subagentctl.WaitRequest, error) {
-	subAgentID, err := parseSubAgentIDArg(args)
-	if err != nil {
-		return subagentctl.WaitRequest{}, err
+	for key := range args {
+		if key != "ids" && key != "timeout_seconds" {
+			return subagentctl.WaitRequest{}, argsError("unknown parameter: " + key)
+		}
+	}
+	rawIDs, ok := args["ids"].([]any)
+	if !ok || len(rawIDs) == 0 {
+		return subagentctl.WaitRequest{}, argsError("ids must be a non-empty array of UUID strings")
+	}
+	ids := make([]uuid.UUID, 0, len(rawIDs))
+	for _, raw := range rawIDs {
+		s, ok := raw.(string)
+		if !ok || strings.TrimSpace(s) == "" {
+			return subagentctl.WaitRequest{}, argsError("each id must be a valid UUID string")
+		}
+		id, err := uuid.Parse(strings.TrimSpace(s))
+		if err != nil {
+			return subagentctl.WaitRequest{}, argsError("each id must be a valid UUID string")
+		}
+		ids = append(ids, id)
 	}
 	var timeout time.Duration
 	if raw, ok := args["timeout_seconds"]; ok {
@@ -486,7 +508,7 @@ func parseWaitArgs(args map[string]any) (subagentctl.WaitRequest, error) {
 		}
 		timeout = time.Duration(seconds) * time.Second
 	}
-	return subagentctl.WaitRequest{SubAgentID: subAgentID, Timeout: timeout}, nil
+	return subagentctl.WaitRequest{SubAgentIDs: ids, Timeout: timeout}, nil
 }
 
 func parseInterruptArgs(args map[string]any) (subagentctl.InterruptRequest, error) {
@@ -507,7 +529,7 @@ func parseInterruptArgs(args map[string]any) (subagentctl.InterruptRequest, erro
 
 func parseSubAgentIDArg(args map[string]any) (uuid.UUID, error) {
 	for key := range args {
-		if key != "sub_agent_id" && key != "timeout_seconds" && key != "input" && key != "interrupt" && key != "reason" {
+		if key != "sub_agent_id" && key != "input" && key != "interrupt" && key != "reason" {
 			return uuid.Nil, argsError("unknown parameter: " + key)
 		}
 	}
