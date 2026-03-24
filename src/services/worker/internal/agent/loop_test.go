@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -801,6 +802,181 @@ func TestAgentLoopIterHookOnlyRunsOnReasoningTurns(t *testing.T) {
 	if len(hooks) != 2 || hooks[0] != 1 || hooks[1] != 2 {
 		t.Fatalf("unexpected hook iterations: %v", hooks)
 	}
+}
+
+func TestAgentLoopSteeringConsumedBeforeCompletion(t *testing.T) {
+	gateway := &scriptedTurnsGateway{
+		turns: [][]llm.StreamEvent{
+			{llm.StreamRunCompleted{}},
+			{llm.StreamRunCompleted{}},
+		},
+	}
+	loop := NewLoop(gateway, buildEchoDispatcher(t))
+	emitter := events.NewEmitter("trace")
+
+	var seen []events.RunEvent
+	err := loop.Run(
+		context.Background(),
+		RunContext{
+			RunID:               uuid.New(),
+			TraceID:             "trace",
+			InputJSON:           map[string]any{},
+			ReasoningIterations: 1,
+			ToolExecutor:        buildEchoDispatcher(t),
+			PollSteeringInput:   makeSteeringPoll([]string{"first"}),
+			CancelSignal:        func() bool { return false },
+		},
+		llm.Request{Model: "stub"},
+		emitter,
+		func(ev events.RunEvent) error {
+			seen = append(seen, ev)
+			return nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("loop.Run failed: %v", err)
+	}
+	firstSteering := -1
+	firstCompleted := -1
+	for i, ev := range seen {
+		if ev.Type == "run.steering_injected" && firstSteering < 0 {
+			firstSteering = i
+		}
+		if ev.Type == "run.completed" {
+			firstCompleted = i
+			break
+		}
+	}
+	if firstSteering < 0 {
+		t.Fatalf("expected steering event, got %v", seen)
+	}
+	if firstCompleted < 0 {
+		t.Fatalf("expected run.completed, got %v", seen)
+	}
+	if firstCompleted < firstSteering {
+		t.Fatalf("run.completed occurred before steering drained: %v", seen)
+	}
+}
+
+func TestAgentLoopSteeringOrderAndToolRounds(t *testing.T) {
+	gateway := &scriptedTurnsGateway{
+		turns: [][]llm.StreamEvent{
+			{
+				llm.ToolCall{ToolCallID: "call-1", ToolName: "echo", ArgumentsJSON: map[string]any{"text": "a"}},
+				llm.StreamRunCompleted{},
+			},
+			{llm.StreamRunCompleted{}},
+		},
+	}
+	poll := makeSteeringPoll([]string{"first", "second"})
+	loop := NewLoop(gateway, buildEchoDispatcher(t))
+	emitter := events.NewEmitter("trace")
+
+	var injected []string
+	err := loop.Run(
+		context.Background(),
+		RunContext{
+			RunID:               uuid.New(),
+			TraceID:             "trace",
+			InputJSON:           map[string]any{},
+			ReasoningIterations: 2,
+			ToolExecutor:        buildEchoDispatcher(t),
+			PollSteeringInput:   poll,
+			CancelSignal:        func() bool { return false },
+		},
+		llm.Request{Model: "stub"},
+		emitter,
+		func(ev events.RunEvent) error {
+			if ev.Type == "run.steering_injected" {
+				if content, ok := ev.DataJSON["content"].(string); ok {
+					injected = append(injected, content)
+				}
+			}
+			return nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("loop.Run failed: %v", err)
+	}
+	if len(injected) != 2 {
+		t.Fatalf("expected two steering events, got %v", injected)
+	}
+	if injected[0] != "first" || injected[1] != "second" {
+		t.Fatalf("unexpected steering order: %v", injected)
+	}
+}
+
+func TestAgentLoopToolRoundDrainsSteeringBeforeNextTurn(t *testing.T) {
+	gateway := &scriptedTurnsGateway{
+		turns: [][]llm.StreamEvent{
+			{
+				llm.ToolCall{ToolCallID: "call-1", ToolName: "echo", ArgumentsJSON: map[string]any{"text": "trigger"}},
+				llm.StreamRunCompleted{},
+			},
+			{llm.StreamRunCompleted{}},
+		},
+	}
+	poll := makeSteeringPoll([]string{"after-tool"})
+	loop := NewLoop(gateway, buildEchoDispatcher(t))
+	emitter := events.NewEmitter("trace")
+
+	var saw bool
+	err := loop.Run(
+		context.Background(),
+		RunContext{
+			RunID:               uuid.New(),
+			TraceID:             "trace",
+			InputJSON:           map[string]any{},
+			ReasoningIterations: 2,
+			ToolExecutor:        buildEchoDispatcher(t),
+			PollSteeringInput:   poll,
+			CancelSignal:        func() bool { return false },
+		},
+		llm.Request{Model: "stub"},
+		emitter,
+		func(ev events.RunEvent) error {
+			if ev.Type == "run.steering_injected" {
+				saw = true
+			}
+			return nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("loop.Run failed: %v", err)
+	}
+	if !saw {
+		t.Fatalf("expected steering event after tool, none observed")
+	}
+}
+
+func makeSteeringPoll(inputs []string) func(ctx context.Context) (string, bool) {
+	var idx int
+	var mu sync.Mutex
+	return func(ctx context.Context) (string, bool) {
+		mu.Lock()
+		defer mu.Unlock()
+		if idx >= len(inputs) {
+			return "", false
+		}
+		val := inputs[idx]
+		idx++
+		return val, true
+	}
+}
+
+func buildEchoDispatcher(t *testing.T) *tools.DispatchingExecutor {
+	t.Helper()
+	registry := tools.NewRegistry()
+	if err := registry.Register(builtin.EchoAgentSpec); err != nil {
+		t.Fatalf("register echo: %v", err)
+	}
+	allowlist := tools.AllowlistFromNames([]string{"echo"})
+	policy := tools.NewPolicyEnforcer(registry, allowlist)
+	dispatcher := tools.NewDispatchingExecutor(registry, policy)
+	if err := dispatcher.Bind("echo", builtin.EchoExecutor{}); err != nil {
+		t.Fatalf("bind echo: %v", err)
+	}
+	return dispatcher
 }
 
 func TestAgentLoopContinuationLimitExceededReturnsToolResultError(t *testing.T) {

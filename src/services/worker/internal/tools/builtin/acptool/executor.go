@@ -155,7 +155,7 @@ func (e ToolExecutor) executeACPAgent(
 
 	// Try to reuse existing session
 	if entry := runtimeHandleRegistry.Get(runtimeSessionKey); entry != nil {
-		result, reused := e.tryReuse(ctx, host, cfg, runtimeSessionKey, entry, task, emitter, started)
+		result, reused := e.tryReuse(ctx, host, cfg, runtimeSessionKey, entry, task, emitter, execCtx, started)
 		if reused {
 			return result
 		}
@@ -165,7 +165,7 @@ func (e ToolExecutor) executeACPAgent(
 	}
 
 	// Fresh session
-	return e.runFresh(ctx, host, cfg, runtimeSessionKey, task, emitter, started)
+	return e.runFresh(ctx, host, cfg, runtimeSessionKey, task, emitter, execCtx, started)
 }
 
 func (e ToolExecutor) executeSpawnACP(
@@ -230,13 +230,13 @@ func (e ToolExecutor) executeSpawnACP(
 	handleID := uuid.New().String()
 
 	cfg := acp.BridgeConfig{
-		RuntimeSessionKey:    "spawn-acp|" + handleID,
-		AccountID:            accountID,
-		Command:              cmd,
-		Cwd:                  invocation.Cwd,
-		Env:                  env,
-		KillGraceMs:          5000,
-		CleanupDelayMs:       300000,
+		RuntimeSessionKey:        "spawn-acp|" + handleID,
+		AccountID:                accountID,
+		Command:                  cmd,
+		Cwd:                      invocation.Cwd,
+		Env:                      env,
+		KillGraceMs:              5000,
+		CleanupDelayMs:           300000,
 		StandardCancelCalibrated: true,
 	}
 
@@ -469,7 +469,35 @@ func (e ToolExecutor) executeWaitACP(
 	ticker := time.NewTicker(150 * time.Millisecond)
 	defer ticker.Stop()
 
+	drainCachedEvents := func() []events.RunEvent {
+		entry.evMu.Lock()
+		defer entry.evMu.Unlock()
+		if len(entry.cachedEvents) == 0 {
+			return nil
+		}
+		drained := make([]events.RunEvent, len(entry.cachedEvents))
+		copy(drained, entry.cachedEvents)
+		entry.cachedEvents = nil
+		return drained
+	}
+
+	emitCachedEvents := func() error {
+		for _, ev := range drainCachedEvents() {
+			if execCtx.StreamEvent != nil {
+				if err := execCtx.StreamEvent(ev); err != nil {
+					return err
+				}
+				continue
+			}
+			execCtx.Emitter.Emit(ev.Type, ev.DataJSON, ev.ToolName, ev.ErrorClass)
+		}
+		return nil
+	}
+
 	for {
+		if err := emitCachedEvents(); err != nil {
+			return errResult("tool.execution_failed", err.Error(), started)
+		}
 		entry.mu.Lock()
 		status := entry.status
 		output := entry.output
@@ -478,41 +506,39 @@ func (e ToolExecutor) executeWaitACP(
 
 		switch status {
 		case acpStatusIdle:
-			// turn 已完成，session 保活；对 LLM 呈现为 completed
-			entry.evMu.Lock()
-			cached := make([]events.RunEvent, len(entry.cachedEvents))
-			copy(cached, entry.cachedEvents)
-			entry.evMu.Unlock()
-			for _, ev := range cached {
-				execCtx.Emitter.Emit(ev.Type, ev.DataJSON, ev.ToolName, ev.ErrorClass)
+			if err := emitCachedEvents(); err != nil {
+				return errResult("tool.execution_failed", err.Error(), started)
 			}
 			return tools.ExecutionResult{
 				ResultJSON: map[string]any{"handle_id": handleID, "status": "completed", "output": output},
 				DurationMs: int(time.Since(started) / time.Millisecond),
 			}
 		case acpStatusCompleted:
-			entry.evMu.Lock()
-			cached := make([]events.RunEvent, len(entry.cachedEvents))
-			copy(cached, entry.cachedEvents)
-			entry.evMu.Unlock()
-			for _, ev := range cached {
-				execCtx.Emitter.Emit(ev.Type, ev.DataJSON, ev.ToolName, ev.ErrorClass)
+			if err := emitCachedEvents(); err != nil {
+				return errResult("tool.execution_failed", err.Error(), started)
 			}
 			return tools.ExecutionResult{
 				ResultJSON: map[string]any{"handle_id": handleID, "status": "completed", "output": output},
 				DurationMs: int(time.Since(started) / time.Millisecond),
 			}
 		case acpStatusFailed:
+			if err := emitCachedEvents(); err != nil {
+				return errResult("tool.execution_failed", err.Error(), started)
+			}
 			return tools.ExecutionResult{
 				ResultJSON: map[string]any{"handle_id": handleID, "status": "failed", "error": errMsg},
 				DurationMs: int(time.Since(started) / time.Millisecond),
 			}
 		case acpStatusInterrupted:
+			if err := emitCachedEvents(); err != nil {
+				return errResult("tool.execution_failed", err.Error(), started)
+			}
 			return tools.ExecutionResult{
 				ResultJSON: map[string]any{"handle_id": handleID, "status": "interrupted"},
 				DurationMs: int(time.Since(started) / time.Millisecond),
 			}
 		case acpStatusClosed:
+			emitCachedEvents()
 			return tools.ExecutionResult{
 				ResultJSON: map[string]any{"handle_id": handleID, "status": "closed"},
 				DurationMs: int(time.Since(started) / time.Millisecond),
@@ -526,6 +552,7 @@ func (e ToolExecutor) executeWaitACP(
 		case <-ctx.Done():
 			return errResult("tool.cancelled", "wait_acp cancelled", started)
 		case <-deadlineCh:
+			emitCachedEvents()
 			return tools.ExecutionResult{
 				ResultJSON: map[string]any{"handle_id": handleID, "status": "running", "timeout": true},
 				DurationMs: int(time.Since(started) / time.Millisecond),
@@ -620,6 +647,7 @@ func (e ToolExecutor) tryReuse(
 	entry *acp.RuntimeHandleEntry,
 	task string,
 	emitter events.Emitter,
+	execCtx tools.ExecutionContext,
 	started time.Time,
 ) (tools.ExecutionResult, bool) {
 	bridge := acp.NewBridge(host, cfg)
@@ -640,8 +668,15 @@ func (e ToolExecutor) tryReuse(
 	var outputParts []string
 	var summary string
 
+	streamed := false
 	err := bridge.EnsureAndRunTurn(ctx, task, emitter, func(ev events.RunEvent) error {
 		collectedEvents = append(collectedEvents, ev)
+		if execCtx.StreamEvent != nil {
+			if err := execCtx.StreamEvent(ev); err != nil {
+				return err
+			}
+			streamed = true
+		}
 		switch ev.Type {
 		case "message.delta":
 			if delta, ok := ev.DataJSON["content_delta"].(string); ok {
@@ -671,7 +706,7 @@ func (e ToolExecutor) tryReuse(
 		AgentVersion:      state.AgentVersion,
 	})
 
-	result := e.buildResult(collectedEvents, outputParts, summary, elapsed)
+	result := e.buildResult(collectedEvents, outputParts, summary, streamed, elapsed)
 	return result, true
 }
 
@@ -682,6 +717,7 @@ func (e ToolExecutor) runFresh(
 	runtimeSessionKey string,
 	task string,
 	emitter events.Emitter,
+	execCtx tools.ExecutionContext,
 	started time.Time,
 ) tools.ExecutionResult {
 	bridge := acp.NewBridge(host, cfg)
@@ -690,8 +726,15 @@ func (e ToolExecutor) runFresh(
 	var outputParts []string
 	var summary string
 
+	streamed := false
 	err := bridge.EnsureAndRunTurn(ctx, task, emitter, func(ev events.RunEvent) error {
 		collectedEvents = append(collectedEvents, ev)
+		if execCtx.StreamEvent != nil {
+			if err := execCtx.StreamEvent(ev); err != nil {
+				return err
+			}
+			streamed = true
+		}
 		switch ev.Type {
 		case "message.delta":
 			if delta, ok := ev.DataJSON["content_delta"].(string); ok {
@@ -716,6 +759,7 @@ func (e ToolExecutor) runFresh(
 			},
 			DurationMs: elapsed,
 			Events:     collectedEvents,
+			Streamed:   streamed,
 		}
 	}
 
@@ -737,7 +781,7 @@ func (e ToolExecutor) runFresh(
 		bridge.Close()
 	}
 
-	return e.buildResult(collectedEvents, outputParts, summary, elapsed)
+	return e.buildResult(collectedEvents, outputParts, summary, streamed, elapsed)
 }
 
 func (e ToolExecutor) injectProviderEnv(
@@ -821,6 +865,7 @@ func (e ToolExecutor) buildResult(
 	collectedEvents []events.RunEvent,
 	outputParts []string,
 	summary string,
+	streamed bool,
 	elapsed int,
 ) tools.ExecutionResult {
 	if len(collectedEvents) > 0 {
@@ -841,6 +886,7 @@ func (e ToolExecutor) buildResult(
 				},
 				DurationMs: elapsed,
 				Events:     collectedEvents,
+				Streamed:   streamed,
 			}
 		}
 	}
@@ -858,6 +904,7 @@ func (e ToolExecutor) buildResult(
 		ResultJSON: result,
 		DurationMs: elapsed,
 		Events:     collectedEvents,
+		Streamed:   streamed,
 	}
 }
 

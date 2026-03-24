@@ -19,14 +19,28 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// titleSummarizerDB 由 *pgxpool.Pool 与 desktop 的 data.DesktopDB 实现。
-type titleSummarizerDB interface {
+// TitleSummarizerDB 由 *pgxpool.Pool 与 desktop 的 data.DesktopDB 实现。
+type TitleSummarizerDB interface {
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
 	BeginTx(ctx context.Context, opts pgx.TxOptions) (pgx.Tx, error)
 }
 
 const titleSummarizerTimeout = 30 * time.Second
+
+type TitleGeneratorFunc func(context.Context, TitleSummarizerDB, *redis.Client, eventbus.EventBus, llm.Gateway, uuid.UUID, uuid.UUID, string, []llm.Message, string, int)
+
+var titleGenerator TitleGeneratorFunc = generateTitle
+
+// SetTitleSummarizerGeneratorForTest configures the async title generator for tests.
+func SetTitleSummarizerGeneratorForTest(fn TitleGeneratorFunc) {
+	titleGenerator = fn
+}
+
+// ResetTitleSummarizerGeneratorForTest restores the production generator.
+func ResetTitleSummarizerGeneratorForTest() {
+	titleGenerator = generateTitle
+}
 
 const settingTitleSummarizerModel = "title_summarizer.model"
 
@@ -43,7 +57,7 @@ func logTitleSummarizerDebug(ctx context.Context, step string, attrs ...slog.Att
 	slog.LogAttrs(ctx, slog.LevelInfo, "title_summarizer_debug", all...)
 }
 
-func NewTitleSummarizerMiddleware(db titleSummarizerDB, rdb *redis.Client, auxGateway llm.Gateway, emitDebugEvents bool, loaders ...*routing.ConfigLoader) RunMiddleware {
+func NewTitleSummarizerMiddleware(db TitleSummarizerDB, rdb *redis.Client, auxGateway llm.Gateway, emitDebugEvents bool, loaders ...*routing.ConfigLoader) RunMiddleware {
 	var configLoader *routing.ConfigLoader
 	if len(loaders) > 0 {
 		configLoader = loaders[0]
@@ -92,6 +106,11 @@ func NewTitleSummarizerMiddleware(db titleSummarizerDB, rdb *redis.Client, auxGa
 
 		bus := rc.EventBus
 		byok := rc.RoutingByokEnabled
+		err = next(ctx, rc)
+		if err != nil {
+			return err
+		}
+
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), titleSummarizerTimeout)
 			defer cancel()
@@ -116,16 +135,16 @@ func NewTitleSummarizerMiddleware(db titleSummarizerDB, rdb *redis.Client, auxGa
 				slog.String("run_id", runID.String()),
 				slog.String("model", model),
 			)
-			generateTitle(ctx, db, rdb, bus, gateway, runID, threadID, model, messages, prompt, maxTokens)
+			titleGenerator(ctx, db, rdb, bus, gateway, runID, threadID, model, messages, prompt, maxTokens)
 		}()
 
-		return next(ctx, rc)
+		return err
 	}
 }
 
 func resolveTitleGateway(
 	ctx context.Context,
-	pool titleSummarizerDB,
+	pool TitleSummarizerDB,
 	accountID *uuid.UUID,
 	fallbackGateway llm.Gateway,
 	fallbackModel string,
@@ -215,7 +234,7 @@ func resolveTitleGateway(
 	return gw, selected.Route.Model
 }
 
-func isFirstRunOfThread(ctx context.Context, pool titleSummarizerDB, threadID uuid.UUID) (bool, error) {
+func isFirstRunOfThread(ctx context.Context, pool TitleSummarizerDB, threadID uuid.UUID) (bool, error) {
 	var count int
 	err := pool.QueryRow(ctx,
 		`SELECT COUNT(*) FROM runs WHERE thread_id = $1 AND deleted_at IS NULL`,
@@ -229,7 +248,7 @@ func isFirstRunOfThread(ctx context.Context, pool titleSummarizerDB, threadID uu
 
 func generateTitle(
 	ctx context.Context,
-	pool titleSummarizerDB,
+	pool TitleSummarizerDB,
 	rdb *redis.Client,
 	bus eventbus.EventBus,
 	gateway llm.Gateway,
@@ -334,7 +353,7 @@ func generateTitle(
 
 func emitTitleEvent(
 	ctx context.Context,
-	pool titleSummarizerDB,
+	pool TitleSummarizerDB,
 	rdb *redis.Client,
 	bus eventbus.EventBus,
 	runID uuid.UUID,

@@ -183,16 +183,15 @@ func (l *Loop) Run(ctx context.Context) error {
 // evaluateScaling computes the new target worker count based on queue depth.
 // mu protects scaleCooldown to prevent concurrent scale decisions.
 func (l *Loop) evaluateScaling(ctx context.Context, active int) int {
-	depth, err := l.queue.QueueDepth(ctx, l.config.QueueJobTypes)
-	if err != nil {
-		l.logger.Error("queue depth query failed", "error", err.Error())
-		return int(l.targetWorkers.Load())
-	}
-
 	current := int(l.targetWorkers.Load())
-
 	if active <= 0 {
 		active = 1
+	}
+
+	stats, err := l.gatherQueueStats(ctx, active)
+	if err != nil {
+		l.logger.Error("queue stats query failed", "error", err.Error())
+		return current
 	}
 
 	now := time.Now()
@@ -200,41 +199,56 @@ func (l *Loop) evaluateScaling(ctx context.Context, active int) int {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	// Scale up: use perWorker ratio as step multiplier to handle bursts.
-	// e.g. depth=20, active=4, threshold=3 → perWorker=5, step=1 (min of ratio/threshold and headroom)
-	if depth >= l.config.ScaleUpThreshold*active && current < l.config.MaxConcurrency && now.After(l.scaleCooldown) {
-		step := depth / (l.config.ScaleUpThreshold * active)
-		if step < 1 {
-			step = 1
-		}
-		next := current + step
+	if stats.ReadyDepth > 0 && stats.InFlight >= active && current < l.config.MaxConcurrency && now.After(l.scaleCooldown) {
+		next := current + 1
 		if next > l.config.MaxConcurrency {
 			next = l.config.MaxConcurrency
 		}
+		if next == current {
+			return current
+		}
+
 		l.scaleCooldown = now.Add(time.Duration(l.config.ScaleCooldownSecs * float64(time.Second)))
 		l.logger.Info("scaling up workers",
 			"from", current,
 			"to", next,
-			"queue_depth", depth,
-			"active", active,
+			"ready_depth", stats.ReadyDepth,
+			"in_flight", stats.InFlight,
+			"oldest_ready_age", stats.OldestReadyAge,
 		)
 		return next
 	}
 
-	// Scale down: only when queue is genuinely below threshold*active (no integer division bias).
-	if depth < l.config.ScaleDownThreshold*active && current > l.config.MinConcurrency && now.After(l.scaleCooldown) {
+	if stats.ReadyDepth == 0 && stats.InFlight < active && current > l.config.MinConcurrency && now.After(l.scaleCooldown) {
 		next := current - 1
 		l.scaleCooldown = now.Add(time.Duration(l.config.ScaleCooldownSecs * float64(time.Second)))
 		l.logger.Info("scaling down workers",
 			"from", current,
 			"to", next,
-			"queue_depth", depth,
-			"active", active,
+			"ready_depth", stats.ReadyDepth,
+			"in_flight", stats.InFlight,
 		)
 		return next
 	}
 
 	return current
+}
+
+func (l *Loop) gatherQueueStats(ctx context.Context, active int) (queue.QueueStats, error) {
+	if provider, ok := l.queue.(queue.QueueStatsProvider); ok {
+		return provider.QueueStats(ctx, l.config.QueueJobTypes)
+	}
+	depth, err := l.queue.QueueDepth(ctx, l.config.QueueJobTypes)
+	if err != nil {
+		return queue.QueueStats{}, err
+	}
+	if active < 0 {
+		active = 0
+	}
+	return queue.QueueStats{
+		ReadyDepth: depth,
+		InFlight:   active,
+	}, nil
 }
 
 func (l *Loop) waitForWork(ctx context.Context) {

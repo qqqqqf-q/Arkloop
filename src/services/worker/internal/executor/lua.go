@@ -473,6 +473,7 @@ func (rt *luaRuntime) toolsCall(L *lua.LState) int {
 		PendingMemoryWrites:              rt.rc.PendingMemoryWrites,
 		RuntimeSnapshot:                  rt.rc.Runtime,
 		Channel:                          rt.rc.ChannelToolSurface,
+		StreamEvent:                      func(ev events.RunEvent) error { return rt.yield(ev) },
 	}
 	result := rt.rc.ToolExecutor.Execute(rt.ctx, toolName, args, execCtx, "")
 
@@ -1694,6 +1695,9 @@ func (rt *luaRuntime) toolsCallParallel(L *lua.LState) int {
 				PendingMemoryWrites:              rt.rc.PendingMemoryWrites,
 				RuntimeSnapshot:                  rt.rc.Runtime,
 				Channel:                          rt.rc.ChannelToolSurface,
+				StreamEvent: func(ev events.RunEvent) error {
+					return rt.yield(ev)
+				},
 			}
 			result := rt.rc.ToolExecutor.Execute(rt.ctx, c.name, c.args, execCtx, "")
 

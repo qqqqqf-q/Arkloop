@@ -61,8 +61,6 @@ func normalizeJobTypes(values []string) []string {
 	return deduped
 }
 
-
-
 type JobLease struct {
 	JobID       uuid.UUID
 	JobType     string
@@ -99,4 +97,18 @@ type JobQueue interface {
 	// QueueDepth returns the number of jobs currently ready to be processed
 	// (status=queued AND available_at <= now()) for the given job types.
 	QueueDepth(ctx context.Context, jobTypes []string) (int, error)
+}
+
+// QueueStats carries richer queue instrumentation that helps the consumer
+// decide when to scale workers.
+type QueueStats struct {
+	ReadyDepth     int           // jobs that can be leased immediately
+	InFlight       int           // jobs already leased (busy workers)
+	OldestReadyAge time.Duration // how long the oldest ready job has been waiting
+}
+
+// QueueStatsProvider exposes QueueStats for implementations that can report
+// additional metrics beyond QueueDepth.
+type QueueStatsProvider interface {
+	QueueStats(ctx context.Context, jobTypes []string) (QueueStats, error)
 }

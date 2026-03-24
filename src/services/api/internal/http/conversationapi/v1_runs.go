@@ -75,7 +75,7 @@ type threadRunResponse struct {
 
 type runResponse struct {
 	RunID           string   `json:"run_id"`
-	AccountID           string   `json:"account_id"`
+	AccountID       string   `json:"account_id"`
 	ThreadID        string   `json:"thread_id"`
 	CreatedByUserID *string  `json:"created_by_user_id"`
 	ParentRunID     *string  `json:"parent_run_id,omitempty"`
@@ -95,7 +95,7 @@ type submitInputResponse struct {
 
 type globalRunResponse struct {
 	RunID             string   `json:"run_id"`
-	AccountID             string   `json:"account_id"`
+	AccountID         string   `json:"account_id"`
 	ThreadID          string   `json:"thread_id"`
 	Status            string   `json:"status"`
 	Model             *string  `json:"model,omitempty"`
@@ -283,7 +283,7 @@ func createThreadRun(
 			return
 		}
 
-		run, _, err := runRepo.CreateRunWithStartedEvent(
+		run, _, err := runRepo.CreateRootRunWithClaim(
 			r.Context(),
 			thread.AccountID,
 			thread.ID,
@@ -292,11 +292,21 @@ func createThreadRun(
 			startedData,
 		)
 		if err != nil {
+			if errors.Is(err, data.ErrThreadBusy) {
+				httpkit.WriteError(w, nethttp.StatusConflict, "runs.thread_busy", "thread already running", traceID, nil)
+				return
+			}
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
 		}
 
-		_, err = jobRepo.EnqueueRun(
+		jobRepoTx := jobRepo.WithTx(tx)
+		if err != nil {
+			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			return
+		}
+
+		_, err = jobRepoTx.EnqueueRun(
 			r.Context(),
 			thread.AccountID,
 			run.ID,
@@ -636,7 +646,7 @@ func getRun(
 
 		httpkit.WriteJSON(w, traceID, nethttp.StatusOK, runResponse{
 			RunID:           run.ID.String(),
-			AccountID:           run.AccountID.String(),
+			AccountID:       run.AccountID.String(),
 			ThreadID:        run.ThreadID.String(),
 			CreatedByUserID: createdByUserID,
 			ParentRunID:     parentRunID,
@@ -1473,7 +1483,7 @@ func listGlobalRuns(
 		for _, rw := range runs {
 			item := globalRunResponse{
 				RunID:             rw.ID.String(),
-				AccountID:             rw.AccountID.String(),
+				AccountID:         rw.AccountID.String(),
 				ThreadID:          rw.ThreadID.String(),
 				Status:            rw.Status,
 				Model:             rw.Model,

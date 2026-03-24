@@ -692,6 +692,22 @@ func (c telegramConnector) HandleUpdate(
 		return err
 	}
 
+	var groupIdentity *data.ChannelIdentity
+	if !incoming.IsPrivate() && isTelegramGroupLikeChatType(incoming.ChatType) {
+		gi, err := c.channelIdentitiesRepo.WithTx(tx).Upsert(
+			ctx,
+			incoming.ChannelType,
+			incoming.PlatformChatID,
+			nil,
+			nil,
+			nil,
+		)
+		if err != nil {
+			return err
+		}
+		groupIdentity = &gi
+	}
+
 	if incoming.IsPrivate() {
 		trimmedCommandText := strings.TrimSpace(incoming.CommandText)
 		if handled, replyText, err := handleTelegramCommand(
@@ -760,7 +776,11 @@ func (c telegramConnector) HandleUpdate(
 			return nil
 		}
 		if ok && strings.HasPrefix(cmd, "/heartbeat") {
-			replyText, err := handleTelegramHeartbeatCommand(ctx, tx, identity, incoming.CommandText, c.channelIdentitiesRepo)
+			heartbeatIdentity := identity
+			if groupIdentity != nil {
+				heartbeatIdentity = *groupIdentity
+			}
+			replyText, err := handleTelegramHeartbeatCommand(ctx, tx, heartbeatIdentity, incoming.CommandText, c.channelIdentitiesRepo)
 			if err != nil {
 				return err
 			}

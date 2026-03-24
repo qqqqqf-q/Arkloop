@@ -397,6 +397,26 @@ func (c telegramConnector) processTelegramMediaGroupMerged(
 		return tx.Commit(ctx)
 	}
 
+	runRepoTx := c.runEventRepo.WithTx(tx)
+	if err := runRepoTx.LockThreadRow(ctx, threadID); err != nil {
+		return err
+	}
+	if activeRun, err := runRepoTx.GetActiveRootRunForThread(ctx, threadID); err != nil {
+		return err
+	} else if activeRun != nil {
+		delivered, err := c.deliverTelegramMessageToActiveRun(ctx, runRepoTx, activeRun, content, traceID)
+		if err != nil {
+			return err
+		}
+		if delivered {
+			if err := tx.Commit(ctx); err != nil {
+				return err
+			}
+			c.notifyActiveRunInput(ctx, activeRun.ID)
+			return nil
+		}
+	}
+
 	if !channelAgentTriggerConsume(ch.ID) {
 		return tx.Commit(ctx)
 	}

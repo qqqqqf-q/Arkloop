@@ -107,7 +107,7 @@ func TestLifecycleBootstrapRecoversRecentRun(t *testing.T) {
 	}
 }
 
-func TestLifecycleBootstrapReapsStaleRun(t *testing.T) {
+func TestLifecycleReapStaleRunUsesTwoStages(t *testing.T) {
 	ctx := context.Background()
 	db, cleanup := openLifecycleTestDB(t, ctx)
 	defer cleanup()
@@ -123,8 +123,8 @@ func TestLifecycleBootstrapReapsStaleRun(t *testing.T) {
 
 	q := &lifecycleQueueStub{}
 	manager := newLifecycleManager(db, q, nil)
-	if err := manager.Bootstrap(ctx); err != nil {
-		t.Fatalf("bootstrap failed: %v", err)
+	if err := manager.reapOnce(ctx); err != nil {
+		t.Fatalf("first reap failed: %v", err)
 	}
 	if len(q.calls) != 0 {
 		t.Fatalf("expected stale run not to recover, got %d queued runs", len(q.calls))
@@ -134,16 +134,46 @@ func TestLifecycleBootstrapReapsStaleRun(t *testing.T) {
 	if err := db.QueryRow(ctx, `SELECT status FROM runs WHERE id = $1`, runID).Scan(&status); err != nil {
 		t.Fatalf("query run status: %v", err)
 	}
-	if status != "failed" {
-		t.Fatalf("expected failed status, got %q", status)
+	if status != "running" {
+		t.Fatalf("expected run to remain running after cancel request, got %q", status)
 	}
 
-	var eventType, errorClass string
+	var eventType string
+	if err := db.QueryRow(ctx,
+		`SELECT type FROM run_events WHERE run_id = $1 ORDER BY seq DESC LIMIT 1`,
+		runID,
+	).Scan(&eventType); err != nil {
+		t.Fatalf("query latest run event after first reap: %v", err)
+	}
+	if eventType != "run.cancel_requested" {
+		t.Fatalf("expected latest event run.cancel_requested, got %q", eventType)
+	}
+
+	if _, err := db.Exec(ctx,
+		`UPDATE run_events SET ts = $2 WHERE run_id = $1 AND type = 'run.cancel_requested'`,
+		runID,
+		time.Now().UTC().Add(-(desktopStaleCancelGrace + time.Second)),
+	); err != nil {
+		t.Fatalf("age cancel_requested event: %v", err)
+	}
+
+	if err := manager.reapOnce(ctx); err != nil {
+		t.Fatalf("second reap failed: %v", err)
+	}
+
+	if err := db.QueryRow(ctx, `SELECT status FROM runs WHERE id = $1`, runID).Scan(&status); err != nil {
+		t.Fatalf("query run status after second reap: %v", err)
+	}
+	if status != "failed" {
+		t.Fatalf("expected failed status after grace window, got %q", status)
+	}
+
+	var errorClass string
 	if err := db.QueryRow(ctx,
 		`SELECT type, COALESCE(error_class, '') FROM run_events WHERE run_id = $1 ORDER BY seq DESC LIMIT 1`,
 		runID,
 	).Scan(&eventType, &errorClass); err != nil {
-		t.Fatalf("query latest run event: %v", err)
+		t.Fatalf("query latest run event after second reap: %v", err)
 	}
 	if eventType != "run.failed" {
 		t.Fatalf("expected latest event run.failed, got %q", eventType)

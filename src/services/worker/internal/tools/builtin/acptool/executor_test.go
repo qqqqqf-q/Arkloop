@@ -3,6 +3,7 @@ package acptool
 import (
 	"context"
 	"testing"
+	"time"
 
 	sharedtoolruntime "arkloop/services/shared/toolruntime"
 	"arkloop/services/worker/internal/acp"
@@ -93,6 +94,44 @@ func TestExecutor_UnknownProvider(t *testing.T) {
 	}, ctx, "tc-8")
 	if r.Error == nil || r.Error.ErrorClass != "tool.args_invalid" {
 		t.Fatalf("expected args_invalid for unknown provider, got %+v", r.Error)
+	}
+}
+
+func TestExecutor_WaitACPStreamsCachedEvents(t *testing.T) {
+	te := ToolExecutor{}
+	ctx := context.Background()
+	handleID := "wait-event-test"
+	entry := globalACPHandleStore.create(handleID, ctx, func() {})
+	entry.evMu.Lock()
+	entry.cachedEvents = []events.RunEvent{
+		{Type: "message.delta", DataJSON: map[string]any{"content_delta": "delta"}},
+	}
+	entry.evMu.Unlock()
+	entry.mu.Lock()
+	entry.status = acpStatusCompleted
+	entry.mu.Unlock()
+	defer func() {
+		globalACPHandleStore.mu.Lock()
+		delete(globalACPHandleStore.entries, handleID)
+		globalACPHandleStore.mu.Unlock()
+	}()
+
+	var streamCount int
+	execCtx := tools.ExecutionContext{
+		StreamEvent: func(ev events.RunEvent) error {
+			streamCount++
+			return nil
+		},
+		Emitter: events.NewEmitter("test"),
+	}
+
+	res := te.executeWaitACP(ctx, map[string]any{"handle_id": handleID}, execCtx, time.Now())
+	if streamCount != 1 {
+		t.Fatalf("expected StreamEvent invocation, got %d", streamCount)
+	}
+	status, _ := res.ResultJSON["status"].(string)
+	if status != "completed" {
+		t.Fatalf("expected completed status, got %v", res.ResultJSON)
 	}
 }
 

@@ -59,6 +59,8 @@ type RunEventRepository struct {
 	db Querier
 }
 
+var ErrThreadBusy = errors.New("thread has active root run")
+
 func (r *RunEventRepository) WithTx(tx pgx.Tx) *RunEventRepository {
 	return &RunEventRepository{db: tx}
 }
@@ -121,6 +123,25 @@ func (r *RunEventRepository) CreateRunWithStartedEvent(
 	}
 
 	return run, event, nil
+}
+
+func (r *RunEventRepository) CreateRootRunWithClaim(
+	ctx context.Context,
+	accountID uuid.UUID,
+	threadID uuid.UUID,
+	createdByUserID *uuid.UUID,
+	startedType string,
+	startedData map[string]any,
+) (Run, RunEvent, error) {
+	if err := r.LockThreadRow(ctx, threadID); err != nil {
+		return Run{}, RunEvent{}, err
+	}
+	if active, err := r.GetActiveRootRunForThread(ctx, threadID); err != nil {
+		return Run{}, RunEvent{}, err
+	} else if active != nil {
+		return Run{}, RunEvent{}, ErrThreadBusy
+	}
+	return r.CreateRunWithStartedEvent(ctx, accountID, threadID, createdByUserID, startedType, startedData)
 }
 
 func (r *RunEventRepository) GetRun(ctx context.Context, runID uuid.UUID) (*Run, error) {
@@ -252,6 +273,74 @@ func (r *RunEventRepository) ListRunsByThread(
 		return nil, err
 	}
 	return runs, nil
+}
+
+// GetActiveRootRunForThread 返回 thread 上按创建时间最新的 running/cancelling root run。
+func (r *RunEventRepository) GetActiveRootRunForThread(
+	ctx context.Context,
+	threadID uuid.UUID,
+) (*Run, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if threadID == uuid.Nil {
+		return nil, fmt.Errorf("thread_id must not be empty")
+	}
+	var run Run
+	err := r.db.QueryRow(
+		ctx,
+		`SELECT id, account_id, thread_id, created_by_user_id, status, created_at,
+		        parent_run_id, status_updated_at, completed_at, failed_at,
+		        duration_ms, total_input_tokens, total_output_tokens, total_cost_usd,
+		        model, persona_id, profile_ref, workspace_ref, deleted_at
+		   FROM runs
+		  WHERE thread_id = $1
+		    AND parent_run_id IS NULL
+		    AND status IN ('running', 'cancelling')
+		    AND deleted_at IS NULL
+		  ORDER BY created_at DESC, id DESC
+		  LIMIT 1`,
+		threadID,
+	).Scan(
+		&run.ID, &run.AccountID, &run.ThreadID, &run.CreatedByUserID, &run.Status, &run.CreatedAt,
+		&run.ParentRunID, &run.StatusUpdatedAt, &run.CompletedAt, &run.FailedAt,
+		&run.DurationMs, &run.TotalInputTokens, &run.TotalOutputTokens, &run.TotalCostUSD,
+		&run.Model, &run.PersonaID, &run.ProfileRef, &run.WorkspaceRef, &run.DeletedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &run, nil
+}
+
+// LockThreadRow 在调度阶段为 thread 加锁，避免多路并发创建 run。
+func (r *RunEventRepository) LockThreadRow(ctx context.Context, threadID uuid.UUID) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if threadID == uuid.Nil {
+		return fmt.Errorf("thread_id must not be empty")
+	}
+	var lockedID uuid.UUID
+	err := r.db.QueryRow(
+		ctx,
+		`SELECT id
+		 FROM threads
+		 WHERE id = $1
+		   AND deleted_at IS NULL
+		 FOR UPDATE`,
+		threadID,
+	).Scan(&lockedID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("thread not found: %s", threadID)
+		}
+		return err
+	}
+	return nil
 }
 
 func (r *RunEventRepository) GetLatestEventType(

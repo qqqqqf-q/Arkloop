@@ -183,6 +183,85 @@ func TestRun_ShutdownDoesNotReturnContextCanceled(t *testing.T) {
 	}
 }
 
+func TestEvaluateScalingScalesUpWhenWorkersBusy(t *testing.T) {
+	fakeQueue := &stubQueue{}
+	handler := &stubHandler{}
+	loop := newLoopForTest(t, fakeQueue, handler, nil, Config{
+		Concurrency:       1,
+		PollSeconds:       0,
+		LeaseSeconds:      30,
+		HeartbeatSeconds:  0,
+		QueueJobTypes:     []string{queue.RunExecuteJobType},
+		MinConcurrency:    1,
+		MaxConcurrency:    8,
+		ScaleIntervalSecs: 1,
+		ScaleCooldownSecs: 1,
+	})
+	fakeQueue.stats = queue.QueueStats{
+		ReadyDepth: 5,
+		InFlight:   1,
+	}
+	loop.targetWorkers.Store(1)
+
+	next := loop.evaluateScaling(context.Background(), 1)
+	if next != 2 {
+		t.Fatalf("expected target 2, got %d", next)
+	}
+}
+
+func TestEvaluateScalingScalesDownWhenIdle(t *testing.T) {
+	fakeQueue := &stubQueue{}
+	handler := &stubHandler{}
+	loop := newLoopForTest(t, fakeQueue, handler, nil, Config{
+		Concurrency:       3,
+		PollSeconds:       0,
+		LeaseSeconds:      30,
+		HeartbeatSeconds:  0,
+		QueueJobTypes:     []string{queue.RunExecuteJobType},
+		MinConcurrency:    1,
+		MaxConcurrency:    8,
+		ScaleIntervalSecs: 1,
+		ScaleCooldownSecs: 1,
+	})
+	fakeQueue.stats = queue.QueueStats{
+		ReadyDepth: 0,
+		InFlight:   1,
+	}
+	loop.targetWorkers.Store(3)
+
+	next := loop.evaluateScaling(context.Background(), 3)
+	if next != 2 {
+		t.Fatalf("expected target 2, got %d", next)
+	}
+}
+
+func TestEvaluateScalingRespectsCooldown(t *testing.T) {
+	fakeQueue := &stubQueue{}
+	handler := &stubHandler{}
+	loop := newLoopForTest(t, fakeQueue, handler, nil, Config{
+		Concurrency:       1,
+		PollSeconds:       0,
+		LeaseSeconds:      30,
+		HeartbeatSeconds:  0,
+		QueueJobTypes:     []string{queue.RunExecuteJobType},
+		MinConcurrency:    1,
+		MaxConcurrency:    8,
+		ScaleIntervalSecs: 1,
+		ScaleCooldownSecs: 10,
+	})
+	fakeQueue.stats = queue.QueueStats{
+		ReadyDepth: 5,
+		InFlight:   1,
+	}
+	loop.targetWorkers.Store(1)
+	loop.scaleCooldown = time.Now().Add(30 * time.Second)
+
+	next := loop.evaluateScaling(context.Background(), 1)
+	if next != 1 {
+		t.Fatalf("expected cooldown to hold, got %d", next)
+	}
+}
+
 func newLoopForTest(t *testing.T, q *stubQueue, h *stubHandler, locker RunLocker, cfg Config) *Loop {
 	t.Helper()
 	logger := slog.Default()
@@ -202,6 +281,7 @@ type stubQueue struct {
 	ackCount        int
 	nackCount       int
 	nackDelays      []int
+	stats           queue.QueueStats
 }
 
 type cancelLeaseQueue struct {
@@ -294,6 +374,10 @@ func (s *stubQueue) Nack(_ context.Context, _ queue.JobLease, delay *int) error 
 }
 
 func (s *stubQueue) QueueDepth(_ context.Context, _ []string) (int, error) { return 0, nil }
+
+func (s *stubQueue) QueueStats(_ context.Context, _ []string) (queue.QueueStats, error) {
+	return s.stats, nil
+}
 
 type stubHandler struct {
 	called           int

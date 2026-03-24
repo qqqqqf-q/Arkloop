@@ -150,3 +150,57 @@ func (ScheduledTriggersRepository) GetThreadByChannelIdentity(
 	}
 	return &t, nil
 }
+
+// GetThreadByHeartbeatTrigger 统一按 heartbeat identity + persona_key 定位目标 thread。
+func (ScheduledTriggersRepository) GetThreadByHeartbeatTrigger(
+	ctx context.Context,
+	db Querier,
+	row ScheduledTriggerRow,
+) (*Thread, error) {
+	var t Thread
+	err := db.QueryRow(ctx,
+		`WITH heartbeat_identity AS (
+		     SELECT platform_subject_id
+		       FROM channel_identities
+		      WHERE id = $1
+		 ),
+		 target_persona AS (
+		     SELECT id
+		       FROM personas
+		      WHERE account_id = $2
+		        AND key = $3
+		        AND deleted_at IS NULL
+		      ORDER BY created_at DESC
+		      LIMIT 1
+		 )
+		 SELECT id, account_id, created_by_user_id, deleted_at
+		   FROM (
+		         SELECT t.id, t.account_id, t.created_by_user_id, t.deleted_at, 0 AS ord
+		           FROM threads t
+		           JOIN channel_group_threads cgt ON cgt.thread_id = t.id
+		           JOIN heartbeat_identity hi ON hi.platform_subject_id = cgt.platform_chat_id
+		           JOIN target_persona tp ON tp.id = cgt.persona_id
+		          WHERE t.account_id = $2
+		            AND t.deleted_at IS NULL
+		         UNION ALL
+		         SELECT t.id, t.account_id, t.created_by_user_id, t.deleted_at, 1 AS ord
+		           FROM threads t
+		           JOIN channel_dm_threads cdt ON cdt.thread_id = t.id
+		          WHERE cdt.channel_identity_id = $1
+		            AND t.account_id = $2
+		            AND t.deleted_at IS NULL
+		        ) candidates
+		  ORDER BY ord ASC
+		  LIMIT 1`,
+		row.ChannelIdentityID,
+		row.AccountID,
+		row.PersonaKey,
+	).Scan(&t.ID, &t.AccountID, &t.CreatedByUserID, &t.DeletedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &t, nil
+}

@@ -240,7 +240,7 @@ func retryThread(
 			return
 		}
 
-		run, _, err := runRepo.CreateRunWithStartedEvent(
+		run, _, err := runRepo.CreateRootRunWithClaim(
 			r.Context(),
 			thread.AccountID,
 			thread.ID,
@@ -249,11 +249,16 @@ func retryThread(
 			map[string]any{"source": "retry"},
 		)
 		if err != nil {
+			if errors.Is(err, data.ErrThreadBusy) {
+				httpkit.WriteError(w, nethttp.StatusConflict, "runs.thread_busy", "thread already running", traceID, nil)
+				return
+			}
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
 		}
 
-		_, err = jobRepo.EnqueueRun(
+		jobRepoTx := jobRepo.WithTx(tx)
+		_, err = jobRepoTx.EnqueueRun(
 			r.Context(),
 			thread.AccountID,
 			run.ID,

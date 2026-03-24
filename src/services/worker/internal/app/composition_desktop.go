@@ -183,7 +183,7 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 
 	var memProvider memory.MemoryProvider
 	useOV := false
-	if memEnabled && ovURL != "" && ovKey != "" {
+	if memEnabled && ovURL != "" {
 		memProvider = openviking.NewProvider(openviking.Config{BaseURL: ovURL, RootAPIKey: ovKey})
 		useOV = true
 		slog.Info("desktop: using OpenViking memory provider", "url", ovURL)
@@ -1374,10 +1374,6 @@ func desktopAgentLoop(
 			projector:             projector,
 			telegramBoundaryFlush: rc.TelegramToolBoundaryFlush,
 		}
-		stopPeriodicFlush := w.startPeriodicFlush(ctx, desktopEventWriterFlushInterval)
-		defer stopPeriodicFlush()
-		defer w.close(ctx)
-
 		personaID := ""
 		if rc.PersonaDefinition != nil {
 			personaID = rc.PersonaDefinition.ID
@@ -1406,11 +1402,16 @@ func desktopAgentLoop(
 			}, nil, pipeline.StringPtr("internal.error"))
 			_ = w.append(ctx, rc.Run.ID, failed, "")
 			rc.ChannelTerminalNotice = strings.TrimSpace(w.terminalUserMessage)
-			return w.flush(ctx)
+			return nil
 		}
 
-		execErr := exec.Execute(ctx, rc, rc.Emitter, func(ev events.RunEvent) error {
-			return w.append(ctx, rc.Run.ID, ev, "")
+		execCtx, cancelExec := context.WithCancel(ctx)
+		defer cancelExec()
+		stopCancelWatch := startDesktopRunCancelWatcher(execCtx, db, rc.Run.ID, cancelExec)
+		defer stopCancelWatch()
+
+		execErr := exec.Execute(execCtx, rc, rc.Emitter, func(ev events.RunEvent) error {
+			return w.append(execCtx, rc.Run.ID, ev, "")
 		})
 		if execErr != nil && !errors.Is(execErr, errDesktopStopProcessing) {
 			return execErr
@@ -1422,12 +1423,7 @@ func desktopAgentLoop(
 		if w.completed {
 			content := strings.Join(w.assistantDeltas, "")
 			if !pipeline.ShouldSuppressHeartbeatOutput(rc, content) {
-				messagesRepo := data.MessagesRepository{}
-				if err := w.ensureTx(ctx); err != nil {
-					return err
-				}
-				_, err := messagesRepo.InsertAssistantMessage(ctx, w.tx, rc.Run.AccountID, rc.Run.ThreadID, rc.Run.ID, content, false)
-				if err != nil {
+				if err := desktopInsertAssistantMessage(ctx, db, rc.Run, content); err != nil {
 					slog.WarnContext(ctx, "desktop: insert assistant message failed", "err", err)
 				}
 				rc.FinalAssistantOutput = content
@@ -1436,51 +1432,34 @@ func desktopAgentLoop(
 		}
 		rc.RunToolCallCount = w.toolCallCount
 		rc.RunIterationCount = w.iterationCount
-		return w.flush(ctx)
+		return nil
 	}
 }
 
 var errDesktopStopProcessing = errors.New("desktop_stop_processing")
 
-var desktopStreamingEventTypes = map[string]struct{}{
-	"message.delta":      {},
-	"llm.response.chunk": {},
-	"run.segment.start":  {},
-	"run.segment.end":    {},
-	"tool.call.delta":    {},
-}
-
-const desktopEventWriterFlushInterval = 50 * time.Millisecond
-
-// desktopEventWriter batches event writes into transactions using DesktopDB.
+// desktopEventWriter writes one event per transaction to keep SQLite locks short.
 type desktopEventWriter struct {
 	mu sync.Mutex
 
-	db         data.DesktopDB
-	bus        eventbus.EventBus
-	run        data.Run
-	traceID    string
-	model      string
-	runsRepo   data.DesktopRunsRepository
-	eventsRepo data.DesktopRunEventsRepository
-	projector  *subagentctl.SubAgentStateProjector
-
-	tx                       pgx.Tx
-	pendingEventsSinceCommit int
-	lastCommitAt             time.Time
-	pendingEnqueueRunIDs     []uuid.UUID
-	assistantDeltas          []string
-	toolCallCount            int
-	iterationCount           int
-	completed                bool
-	hasTerminal              bool
-	terminalRunStatus        string
-	totalInputTokens         int64
-	totalOutputTokens        int64
-	totalCostUSD             float64
-	telegramBoundaryFlush    func(context.Context, string) error
-	telegramFlushSentDeltas  int
-	terminalUserMessage      string
+	db                      data.DesktopDB
+	bus                     eventbus.EventBus
+	run                     data.Run
+	traceID                 string
+	model                   string
+	runsRepo                data.DesktopRunsRepository
+	eventsRepo              data.DesktopRunEventsRepository
+	projector               *subagentctl.SubAgentStateProjector
+	assistantDeltas         []string
+	toolCallCount           int
+	iterationCount          int
+	completed               bool
+	totalInputTokens        int64
+	totalOutputTokens       int64
+	totalCostUSD            float64
+	telegramBoundaryFlush   func(context.Context, string) error
+	telegramFlushSentDeltas int
+	terminalUserMessage     string
 }
 
 func (w *desktopEventWriter) telegramStreamRemainder() string {
@@ -1496,117 +1475,58 @@ func (w *desktopEventWriter) telegramStreamRemainder() string {
 	return strings.TrimSpace(strings.Join(w.assistantDeltas[w.telegramFlushSentDeltas:], ""))
 }
 
-func (w *desktopEventWriter) startPeriodicFlush(ctx context.Context, interval time.Duration) func() {
-	if interval <= 0 {
-		return func() {}
-	}
-	loopCtx, cancel := context.WithCancel(ctx)
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-loopCtx.Done():
-				return
-			case <-ticker.C:
-				if err := w.flush(loopCtx); err != nil {
-					if loopCtx.Err() != nil || errors.Is(err, context.Canceled) {
-						return
-					}
-					slog.WarnContext(ctx, "desktop: periodic event writer flush failed", "run_id", w.run.ID, "err", err.Error())
-				}
-			}
-		}
-	}()
-	return func() {
-		cancel()
-		<-done
-	}
-}
-
-func (w *desktopEventWriter) ensureTx(ctx context.Context) error {
-	if w.tx != nil {
-		return nil
-	}
-	tx, err := w.db.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return err
-	}
-	w.tx = tx
-	w.lastCommitAt = time.Now()
-	return nil
-}
-
 func (w *desktopEventWriter) append(ctx context.Context, runID uuid.UUID, ev events.RunEvent, personaID string) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	if err := w.ensureTx(ctx); err != nil {
+	tx, err := w.db.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
 		return err
 	}
+	defer tx.Rollback(ctx) //nolint:errcheck
 
-	if err := w.runsRepo.LockRunRow(ctx, w.tx, runID); err != nil {
+	if err := w.runsRepo.LockRunRow(ctx, tx, runID); err != nil {
 		return err
 	}
 
 	if ev.Type == "run.route.selected" && personaID != "" {
-		_ = w.runsRepo.UpdateRunMetadata(ctx, w.tx, runID, w.model, personaID)
+		_ = w.runsRepo.UpdateRunMetadata(ctx, tx, runID, w.model, personaID)
 	}
 
-	// 检测取消
 	cancelTypes := []string{"run.cancel_requested", "run.cancelled"}
-	cancelType, err := w.eventsRepo.GetLatestEventType(ctx, w.tx, runID, cancelTypes)
+	cancelType, err := w.eventsRepo.GetLatestEventType(ctx, tx, runID, cancelTypes)
 	if err != nil {
 		return err
 	}
 	if cancelType == "run.cancelled" {
-		_ = w.commit(ctx)
+		if err := tx.Commit(ctx); err != nil {
+			return err
+		}
 		return errDesktopStopProcessing
 	}
 	if cancelType == "run.cancel_requested" {
-		emitter := events.NewEmitter(w.traceID)
-		cancelled := emitter.Emit("run.cancelled", map[string]any{}, nil, nil)
-		_, _ = w.eventsRepo.AppendRunEvent(ctx, w.tx, runID, cancelled)
-		if w.projector != nil {
-			nextRunID, err := w.projector.ProjectRunTerminal(ctx, w.tx, w.run, data.SubAgentStatusCancelled, map[string]any{"run_id": runID.String()}, nil)
-			if err != nil {
-				return err
-			}
-			if nextRunID != nil {
-				w.pendingEnqueueRunIDs = append(w.pendingEnqueueRunIDs, *nextRunID)
-			}
+		nextRunIDs, err := w.transitionCancelled(ctx, tx, runID)
+		if err != nil {
+			return err
 		}
-		_ = w.runsRepo.UpdateRunTerminalStatus(ctx, w.tx, runID, data.TerminalStatusUpdate{
-			Status: "cancelled", TotalInputTokens: w.totalInputTokens, TotalOutputTokens: w.totalOutputTokens, TotalCostUSD: w.totalCostUSD,
-		})
-		w.hasTerminal = true
-		w.terminalRunStatus = "cancelled"
-		_ = w.commit(ctx)
+		if err := tx.Commit(ctx); err != nil {
+			return err
+		}
+		w.publishRunEvents(ctx)
+		w.enqueueProjectedRuns(ctx, nextRunIDs)
 		return errDesktopStopProcessing
 	}
 
-	if _, err := w.eventsRepo.AppendRunEvent(ctx, w.tx, runID, ev); err != nil {
+	if _, err := w.eventsRepo.AppendRunEvent(ctx, tx, runID, ev); err != nil {
 		return err
 	}
-	w.pendingEventsSinceCommit++
 
 	w.accumUsage(ev.DataJSON)
 
+	flushChunk := ""
 	if ev.Type == "tool.call" {
 		if w.telegramBoundaryFlush != nil && len(w.assistantDeltas) > w.telegramFlushSentDeltas {
-			chunk := strings.Join(w.assistantDeltas[w.telegramFlushSentDeltas:], "")
-			if err := w.commit(ctx); err != nil {
-				return err
-			}
-			w.tx = nil
-			if trimmed := strings.TrimSpace(chunk); trimmed != "" {
-				if err := w.telegramBoundaryFlush(ctx, trimmed); err != nil {
-					return err
-				}
-			}
-			w.telegramFlushSentDeltas = len(w.assistantDeltas)
+			flushChunk = strings.TrimSpace(strings.Join(w.assistantDeltas[w.telegramFlushSentDeltas:], ""))
 		}
 		w.toolCallCount++
 	}
@@ -1621,6 +1541,7 @@ func (w *desktopEventWriter) append(ctx context.Context, runID uuid.UUID, ev eve
 		}
 	}
 
+	var nextRunIDs []uuid.UUID
 	if status, ok := desktopTerminalStatuses[ev.Type]; ok {
 		if status == "completed" {
 			w.completed = true
@@ -1628,84 +1549,78 @@ func (w *desktopEventWriter) append(ctx context.Context, runID uuid.UUID, ev eve
 		} else {
 			w.terminalUserMessage = pipeline.TerminalStatusMessage(ev.DataJSON)
 		}
-		_ = w.runsRepo.UpdateRunTerminalStatus(ctx, w.tx, runID, data.TerminalStatusUpdate{
+		if err := w.runsRepo.UpdateRunTerminalStatus(ctx, tx, runID, data.TerminalStatusUpdate{
 			Status: status, TotalInputTokens: w.totalInputTokens, TotalOutputTokens: w.totalOutputTokens, TotalCostUSD: w.totalCostUSD,
-		})
+		}); err != nil {
+			return err
+		}
 		if w.projector != nil {
-			nextRunID, err := w.projector.ProjectRunTerminal(ctx, w.tx, w.run, status, ev.DataJSON, ev.ErrorClass)
+			nextRunID, err := w.projector.ProjectRunTerminal(ctx, tx, w.run, status, ev.DataJSON, ev.ErrorClass)
 			if err != nil {
 				return err
 			}
 			if nextRunID != nil {
-				w.pendingEnqueueRunIDs = append(w.pendingEnqueueRunIDs, *nextRunID)
+				nextRunIDs = append(nextRunIDs, *nextRunID)
 			}
 		}
-		w.hasTerminal = true
-		w.terminalRunStatus = status
-		return nil
+	} else if err := w.runsRepo.TouchRunActivity(ctx, tx, w.run.ID); err != nil {
+		return err
 	}
 
-	if _, ok := desktopStreamingEventTypes[ev.Type]; !ok {
-		return w.commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return err
 	}
-
-	const batchSize = 20
-	const maxInterval = desktopEventWriterFlushInterval
-	if w.pendingEventsSinceCommit >= batchSize || time.Since(w.lastCommitAt) >= maxInterval {
-		return w.commit(ctx)
+	w.publishRunEvents(ctx)
+	if flushChunk != "" && w.telegramBoundaryFlush != nil {
+		if err := w.telegramBoundaryFlush(ctx, flushChunk); err != nil {
+			return err
+		}
+		w.telegramFlushSentDeltas = len(w.assistantDeltas)
 	}
+	w.enqueueProjectedRuns(ctx, nextRunIDs)
 	return nil
 }
 
-func (w *desktopEventWriter) commit(ctx context.Context) error {
-	if w.tx == nil {
-		return nil
-	}
-	if w.pendingEventsSinceCommit > 0 && !w.hasTerminal {
-		if err := w.runsRepo.TouchRunActivity(ctx, w.tx, w.run.ID); err != nil {
-			return err
-		}
-	}
-	if err := w.tx.Commit(ctx); err != nil {
-		return err
-	}
-	w.tx = nil
-	w.pendingEventsSinceCommit = 0
-	w.lastCommitAt = time.Now()
+func (w *desktopEventWriter) publishRunEvents(ctx context.Context) {
 	if w.bus != nil {
 		channel := fmt.Sprintf("run_events:%s", w.run.ID.String())
 		_ = w.bus.Publish(ctx, channel, "")
 	}
-	if w.hasTerminal {
-		for _, nextRunID := range w.pendingEnqueueRunIDs {
-			if w.projector == nil {
-				continue
-			}
-			if err := w.projector.EnqueueRun(ctx, w.run.AccountID, nextRunID, w.traceID, nil, nil); err != nil {
-				_ = w.projector.MarkRunFailed(context.Background(), nextRunID, "failed to enqueue child run job")
-			}
-		}
-		w.pendingEnqueueRunIDs = nil
-		w.hasTerminal = false
-		w.terminalRunStatus = ""
+}
+
+func (w *desktopEventWriter) transitionCancelled(ctx context.Context, tx pgx.Tx, runID uuid.UUID) ([]uuid.UUID, error) {
+	emitter := events.NewEmitter(w.traceID)
+	cancelled := emitter.Emit("run.cancelled", map[string]any{}, nil, nil)
+	if _, err := w.eventsRepo.AppendRunEvent(ctx, tx, runID, cancelled); err != nil {
+		return nil, err
 	}
-	return nil
+	var nextRunIDs []uuid.UUID
+	if w.projector != nil {
+		nextRunID, err := w.projector.ProjectRunTerminal(ctx, tx, w.run, data.SubAgentStatusCancelled, map[string]any{"run_id": runID.String()}, nil)
+		if err != nil {
+			return nil, err
+		}
+		if nextRunID != nil {
+			nextRunIDs = append(nextRunIDs, *nextRunID)
+		}
+	}
+	if err := w.runsRepo.UpdateRunTerminalStatus(ctx, tx, runID, data.TerminalStatusUpdate{
+		Status: "cancelled", TotalInputTokens: w.totalInputTokens, TotalOutputTokens: w.totalOutputTokens, TotalCostUSD: w.totalCostUSD,
+	}); err != nil {
+		return nil, err
+	}
+	w.terminalUserMessage = ""
+	return nextRunIDs, nil
 }
 
-func (w *desktopEventWriter) flush(ctx context.Context) error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-
-	return w.commit(ctx)
-}
-
-func (w *desktopEventWriter) close(ctx context.Context) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-
-	if w.tx != nil {
-		_ = w.tx.Rollback(ctx)
-		w.tx = nil
+func (w *desktopEventWriter) enqueueProjectedRuns(ctx context.Context, runIDs []uuid.UUID) {
+	for _, nextRunID := range runIDs {
+		if w.projector == nil {
+			continue
+		}
+		if err := w.projector.EnqueueRun(ctx, w.run.AccountID, nextRunID, w.traceID, nil, nil); err != nil {
+			_ = w.projector.MarkRunFailed(context.Background(), nextRunID, "failed to enqueue child run job")
+		}
 	}
 }
 
@@ -1761,6 +1676,70 @@ func desktopWriteFailure(
 		return err
 	}
 	if err := runsRepo.UpdateRunTerminalStatus(ctx, tx, run.ID, data.TerminalStatusUpdate{Status: "failed"}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func startDesktopRunCancelWatcher(
+	ctx context.Context,
+	db data.DesktopDB,
+	runID uuid.UUID,
+	cancel context.CancelFunc,
+) func() {
+	if db == nil || runID == uuid.Nil || cancel == nil {
+		return func() {}
+	}
+	watchCtx, stop := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		ticker := time.NewTicker(250 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-watchCtx.Done():
+				return
+			case <-ticker.C:
+				cancelType, err := readDesktopCancelEvent(watchCtx, db, runID)
+				if err != nil {
+					if watchCtx.Err() != nil {
+						return
+					}
+					continue
+				}
+				if cancelType == "run.cancel_requested" || cancelType == "run.cancelled" {
+					cancel()
+					return
+				}
+			}
+		}
+	}()
+	return func() {
+		stop()
+		<-done
+	}
+}
+
+func readDesktopCancelEvent(ctx context.Context, db data.DesktopDB, runID uuid.UUID) (string, error) {
+	tx, err := db.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	return (data.DesktopRunEventsRepository{}).GetLatestEventType(ctx, tx, runID, []string{"run.cancel_requested", "run.cancelled"})
+}
+
+func desktopInsertAssistantMessage(ctx context.Context, db data.DesktopDB, run data.Run, content string) error {
+	if db == nil || strings.TrimSpace(content) == "" {
+		return nil
+	}
+	tx, err := db.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	if _, err := (data.MessagesRepository{}).InsertAssistantMessage(ctx, tx, run.AccountID, run.ThreadID, run.ID, content, false); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

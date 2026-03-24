@@ -334,6 +334,57 @@ func (q *ChannelJobQueue) QueueDepth(_ context.Context, jobTypes []string) (int,
 	return count, nil
 }
 
+func (q *ChannelJobQueue) QueueStats(_ context.Context, jobTypes []string) (QueueStats, error) {
+	chosenJobTypes := normalizeJobTypes(jobTypes)
+	if len(chosenJobTypes) == 0 {
+		return QueueStats{}, nil
+	}
+
+	typeSet := make(map[string]struct{}, len(chosenJobTypes))
+	for _, jt := range chosenJobTypes {
+		typeSet[jt] = struct{}{}
+	}
+
+	now := time.Now()
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	readyDepth := 0
+	inFlight := 0
+	var oldestReadyAt time.Time
+	oldestReadyFound := false
+	for _, id := range q.order {
+		job := q.jobs[id]
+		if _, ok := typeSet[job.jobType]; !ok {
+			continue
+		}
+		if job.status == JobStatusQueued && !job.availableAt.After(now) {
+			readyDepth++
+			if !oldestReadyFound || job.availableAt.Before(oldestReadyAt) {
+				oldestReadyAt = job.availableAt
+				oldestReadyFound = true
+			}
+		}
+		if job.status == JobStatusLeased && !job.leasedUntil.IsZero() && job.leasedUntil.After(now) {
+			inFlight++
+		}
+	}
+
+	oldestReadyAge := time.Duration(0)
+	if oldestReadyFound {
+		oldestReadyAge = now.Sub(oldestReadyAt)
+		if oldestReadyAge < 0 {
+			oldestReadyAge = 0
+		}
+	}
+
+	return QueueStats{
+		ReadyDepth:     readyDepth,
+		InFlight:       inFlight,
+		OldestReadyAge: oldestReadyAge,
+	}, nil
+}
+
 // pruneTerminalJobsLocked removes all done/dead jobs from the order slice and
 // jobs map. Must be called while q.mu is held.
 func (q *ChannelJobQueue) pruneTerminalJobsLocked() {

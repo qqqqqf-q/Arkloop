@@ -56,13 +56,13 @@ func (q *PgQueue) EnqueueRun(
 	}
 
 	payloadJSON := map[string]any{
-		"v":        JobPayloadVersionV1,
-		"job_id":   jobID.String(),
-		"type":     RunExecuteJobType,
-		"trace_id": chosenTraceID,
-		"account_id":   accountID.String(),
-		"run_id":   runID.String(),
-		"payload":  payloadCopy,
+		"v":          JobPayloadVersionV1,
+		"job_id":     jobID.String(),
+		"type":       RunExecuteJobType,
+		"trace_id":   chosenTraceID,
+		"account_id": accountID.String(),
+		"run_id":     runID.String(),
+		"payload":    payloadCopy,
 	}
 
 	encoded, err := json.Marshal(payloadJSON)
@@ -384,6 +384,41 @@ func (q *PgQueue) QueueDepth(ctx context.Context, jobTypes []string) (int, error
 		return 0, err
 	}
 	return count, nil
+}
+
+func (q *PgQueue) QueueStats(ctx context.Context, jobTypes []string) (QueueStats, error) {
+	chosenJobTypes := normalizeJobTypes(jobTypes)
+	if len(chosenJobTypes) == 0 {
+		return QueueStats{}, nil
+	}
+
+	var stats QueueStats
+	var oldestReadyAgeSeconds int64
+	err := q.pool.QueryRow(ctx,
+		`SELECT
+		   COUNT(*) FILTER (WHERE status = $1 AND available_at <= now()),
+		   COUNT(*) FILTER (WHERE status = $2 AND leased_until > now()),
+		   COALESCE(
+		     EXTRACT(EPOCH FROM (
+		       now() - MIN(available_at) FILTER (
+		         WHERE status = $1 AND available_at <= now()
+		       )
+		     ))::bigint,
+		     0
+		   )
+		 FROM jobs
+		 WHERE job_type = ANY($3)
+		   AND worker_tags <@ $4`,
+		JobStatusQueued,
+		JobStatusLeased,
+		chosenJobTypes,
+		q.capabilities,
+	).Scan(&stats.ReadyDepth, &stats.InFlight, &oldestReadyAgeSeconds)
+	if err != nil {
+		return QueueStats{}, err
+	}
+	stats.OldestReadyAge = time.Duration(oldestReadyAgeSeconds) * time.Second
+	return stats, nil
 }
 
 func (q *PgQueue) deadLetter(ctx context.Context, lease JobLease) error {

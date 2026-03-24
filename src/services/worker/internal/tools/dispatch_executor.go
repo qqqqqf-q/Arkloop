@@ -48,7 +48,8 @@ type ExecutionContext struct {
 	GenerativeUIReadMeSeen           bool
 	Channel                          *ChannelToolSurface
 	// PipelineRC 由 agent.simple 注入为 *pipeline.RunContext；其它路径为 nil。
-	PipelineRC any
+	PipelineRC  any
+	StreamEvent func(events.RunEvent) error
 }
 
 type ExecutionError struct {
@@ -81,6 +82,7 @@ type ExecutionResult struct {
 	DurationMs int
 	Usage      map[string]any
 	Events     []events.RunEvent
+	Streamed   bool
 }
 
 type Executor interface {

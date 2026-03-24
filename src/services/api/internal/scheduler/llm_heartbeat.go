@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"os"
 	"strconv"
@@ -12,6 +13,7 @@ import (
 	"arkloop/services/api/internal/observability"
 	"arkloop/services/shared/runkind"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -76,13 +78,46 @@ func (s *LLMHeartbeat) tick(ctx context.Context) {
 }
 
 func (s *LLMHeartbeat) fireOne(ctx context.Context, row data.ScheduledTriggerRow) {
-	th, err := s.triggers.GetThreadByChannelIdentity(ctx, s.pool, row.ChannelIdentityID)
+	th, err := s.triggers.GetThreadByHeartbeatTrigger(ctx, s.pool, row)
 	if err != nil {
 		_ = s.triggers.PostponeHeartbeat(ctx, s.pool, row.ID, 2*time.Minute)
 		return
 	}
 	if th == nil || th.DeletedAt != nil {
 		_ = s.triggers.DeleteHeartbeat(ctx, s.pool, row.ChannelIdentityID)
+		return
+	}
+
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		slog.ErrorContext(ctx, "llm_heartbeat_tx_begin_failed", "error", err)
+		_ = s.triggers.PostponeHeartbeat(ctx, s.pool, row.ID, 2*time.Minute)
+		return
+	}
+	defer tx.Rollback(ctx)
+
+	runRepoTx := s.runs.WithTx(tx)
+	jobRepoTx := s.jobs.WithTx(tx)
+
+	run, _, err := runRepoTx.CreateRootRunWithClaim(
+		ctx,
+		th.AccountID,
+		th.ID,
+		th.CreatedByUserID,
+		"run.started",
+		map[string]any{"persona_id": row.PersonaKey, "model": row.Model},
+	)
+	if err != nil {
+		if errors.Is(err, data.ErrThreadBusy) {
+			delayMin := row.IntervalMin
+			if delayMin <= 0 {
+				delayMin = runkind.DefaultHeartbeatIntervalMinutes
+			}
+			_ = s.triggers.PostponeHeartbeat(ctx, s.pool, row.ID, time.Duration(delayMin)*time.Minute)
+			return
+		}
+		slog.ErrorContext(ctx, "llm_heartbeat_create_run_failed", "error", err)
+		_ = s.triggers.PostponeHeartbeat(ctx, s.pool, row.ID, 90*time.Second)
 		return
 	}
 
@@ -95,13 +130,6 @@ func (s *LLMHeartbeat) fireOne(ctx context.Context, row data.ScheduledTriggerRow
 	}
 
 	traceID := observability.NewTraceID()
-	started := map[string]any{"persona_id": row.PersonaKey, "model": row.Model}
-	run, _, err := s.runs.CreateRunWithStartedEvent(ctx, th.AccountID, th.ID, th.CreatedByUserID, "run.started", started)
-	if err != nil {
-		slog.ErrorContext(ctx, "llm_heartbeat_create_run_failed", "error", err)
-		_ = s.triggers.PostponeHeartbeat(ctx, s.pool, row.ID, 90*time.Second)
-		return
-	}
 
 	payload := map[string]any{
 		"source":                     "llm_heartbeat_scheduler",
@@ -111,8 +139,23 @@ func (s *LLMHeartbeat) fireOne(ctx context.Context, row data.ScheduledTriggerRow
 		"persona_key":                row.PersonaKey,
 		"model":                      row.Model,
 	}
-	if _, err := s.jobs.EnqueueRun(ctx, th.AccountID, run.ID, traceID, data.RunExecuteJobType, payload, nil); err != nil {
+	if _, err := jobRepoTx.EnqueueRun(
+		ctx,
+		th.AccountID,
+		run.ID,
+		traceID,
+		data.RunExecuteJobType,
+		payload,
+		nil,
+	); err != nil {
 		slog.ErrorContext(ctx, "llm_heartbeat_enqueue_failed", "error", err)
 		_ = s.triggers.PostponeHeartbeat(ctx, s.pool, row.ID, 90*time.Second)
+		return
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		slog.ErrorContext(ctx, "llm_heartbeat_commit_failed", "error", err)
+		_ = s.triggers.PostponeHeartbeat(ctx, s.pool, row.ID, 90*time.Second)
+		return
 	}
 }

@@ -4,6 +4,7 @@ package desktoprun
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"arkloop/services/worker/internal/data"
+	"arkloop/services/worker/internal/events"
 	"arkloop/services/worker/internal/queue"
 
 	"github.com/google/uuid"
@@ -23,6 +25,7 @@ const (
 	defaultDesktopRunTimeoutMinutes = 5
 	desktopReaperInterval           = time.Minute
 	desktopRecoveryGrace            = 3 * time.Second
+	desktopStaleCancelGrace         = 30 * time.Second
 )
 
 var desktopTerminalEventStatus = map[string]string{
@@ -127,7 +130,9 @@ func (m *lifecycleManager) reapOnce(ctx context.Context) error {
 	if m.db == nil || m.timeout <= 0 {
 		return nil
 	}
-	staleBefore := time.Now().UTC().Add(-m.timeout)
+	now := time.Now().UTC()
+	staleBefore := now.Add(-m.timeout)
+	cancelGraceBefore := now.Add(-desktopStaleCancelGrace)
 	runs, err := listRunningRuns(ctx, m.db)
 	if err != nil {
 		return err
@@ -141,17 +146,31 @@ func (m *lifecycleManager) reapOnce(ctx context.Context) error {
 				continue
 			}
 		}
+		if snapshot.LastEventType == "run.cancel_requested" {
+			if snapshot.LastActivity.Before(cancelGraceBefore) {
+				reaped, err := forceFailDesktopRun(ctx, m.db, snapshot.RunID)
+				if err != nil {
+					return err
+				}
+				if reaped && m.logger != nil {
+					runID := snapshot.RunID.String()
+					accountID := snapshot.AccountID.String()
+					m.logger.Info("desktop stale run reaped", "run_id", runID, "account_id", accountID)
+				}
+			}
+			continue
+		}
 		if snapshot.LastActivity.After(staleBefore) {
 			continue
 		}
-		reaped, err := forceFailDesktopRun(ctx, m.db, snapshot.RunID)
+		requested, err := requestCancelDesktopRun(ctx, m.db, snapshot.RunID, snapshot.LastTraceID)
 		if err != nil {
 			return err
 		}
-		if reaped && m.logger != nil {
+		if requested && m.logger != nil {
 			runID := snapshot.RunID.String()
 			accountID := snapshot.AccountID.String()
-			m.logger.Info("desktop stale run reaped", "run_id", runID, "account_id", accountID)
+			m.logger.Info("desktop stale run cancel requested", "run_id", runID, "account_id", accountID)
 		}
 	}
 	return nil
@@ -323,6 +342,49 @@ func forceFailDesktopRun(ctx context.Context, db data.DesktopDB, runID uuid.UUID
 
 	if err := tx.Commit(ctx); err != nil {
 		return false, fmt.Errorf("commit desktop force-fail tx: %w", err)
+	}
+	return true, nil
+}
+
+func requestCancelDesktopRun(ctx context.Context, db data.DesktopDB, runID uuid.UUID, traceID string) (bool, error) {
+	if runID == uuid.Nil {
+		return false, fmt.Errorf("run_id must not be empty")
+	}
+	tx, err := db.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return false, fmt.Errorf("begin desktop cancel tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	var status string
+	err = tx.QueryRow(ctx, `SELECT status FROM runs WHERE id = $1 FOR UPDATE`, runID).Scan(&status)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, nil
+		}
+		return false, fmt.Errorf("lock desktop run row: %w", err)
+	}
+	if status != "running" {
+		return false, nil
+	}
+
+	repo := data.DesktopRunEventsRepository{}
+	terminalType, err := repo.GetLatestEventType(ctx, tx, runID, []string{"run.cancel_requested", "run.cancelled"})
+	if err != nil {
+		return false, fmt.Errorf("fetch latest terminal event: %w", err)
+	}
+	if terminalType == "run.cancel_requested" || terminalType == "run.cancelled" {
+		return false, nil
+	}
+
+	emitter := events.NewEmitter(strings.TrimSpace(traceID))
+	event := emitter.Emit("run.cancel_requested", map[string]any{"reason": "stale run timeout"}, nil, nil)
+	if _, err := repo.AppendRunEvent(ctx, tx, runID, event); err != nil {
+		return false, fmt.Errorf("append cancel request event: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return false, fmt.Errorf("commit desktop cancel tx: %w", err)
 	}
 	return true, nil
 }

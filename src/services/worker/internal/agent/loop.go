@@ -155,6 +155,13 @@ func (l *Loop) Run(
 			}
 		}
 
+		if runCtx.PollSteeringInput != nil {
+			drained, err := drainSteeringMessages(ctx, runCtx.PollSteeringInput, emitter, yield)
+			if err != nil {
+				return err
+			}
+			messages = append(messages, drained...)
+		}
 		turnRequest := copyRequest(request, compactToolResults(messages))
 		turn, err := l.runTurnWithRetry(ctx, runCtx, turnRequest, emitter, yield, turnIndex)
 		if err != nil {
@@ -243,6 +250,16 @@ func (l *Loop) Run(
 		}
 
 		if len(turn.ToolCalls) == 0 {
+			if runCtx.PollSteeringInput != nil {
+				drained, err := drainSteeringMessages(ctx, runCtx.PollSteeringInput, emitter, yield)
+				if err != nil {
+					return err
+				}
+				if len(drained) > 0 {
+					messages = append(messages, drained...)
+					continue
+				}
+			}
 			reasoningTurnsUsed++
 			if runCtx.RolloutRecorder != nil {
 				appendRolloutSync(ctx, runCtx.RolloutRecorder, MakeRunEnd("completed"))
@@ -293,19 +310,21 @@ func (l *Loop) Run(
 				}
 				preparedPending = append(preparedPending, call)
 			}
-			executedCalls := l.executePendingToolCalls(ctx, runCtx, preparedPending, emitter, &continuationState)
+			executedCalls := l.executePendingToolCalls(ctx, runCtx, preparedPending, emitter, yield, &continuationState)
 			for _, executed := range executedCalls {
 				call := executed.Call
 				result := executed.Result
 				if isContinuationBudgetError(result.Error) {
 					continuationRejected = true
 				}
-				for _, ev := range result.Events {
-					if ev.Type == "tool.call" {
-						continue
-					}
-					if err := yield(ev); err != nil {
-						return err
+				if !result.Streamed {
+					for _, ev := range result.Events {
+						if ev.Type == "tool.call" {
+							continue
+						}
+						if err := yield(ev); err != nil {
+							return err
+						}
 					}
 				}
 
@@ -363,15 +382,11 @@ func (l *Loop) Run(
 
 		// 工具执行完成后，检查是否有 steering 消息
 		if runCtx.PollSteeringInput != nil {
-			if text, ok := runCtx.PollSteeringInput(ctx); ok && text != "" {
-				messages = append(messages, llm.Message{
-					Role:    "user",
-					Content: []llm.TextPart{{Text: text}},
-				})
-				if err := yield(emitter.Emit("run.steering_injected", map[string]any{"content": text}, nil, nil)); err != nil {
-					return err
-				}
+			drained, err := drainSteeringMessages(ctx, runCtx.PollSteeringInput, emitter, yield)
+			if err != nil {
+				return err
 			}
+			messages = append(messages, drained...)
 		}
 
 		// ask_user 拦截：不走 dispatcher，直接 yield 事件并阻塞等待用户输入
@@ -544,13 +559,14 @@ func (l *Loop) executePendingToolCalls(
 	runCtx RunContext,
 	pending []llm.ToolCall,
 	emitter events.Emitter,
+	yield func(events.RunEvent) error,
 	continuation *continuationBudgetState,
 ) []pendingToolExecution {
 	results := make([]pendingToolExecution, len(pending))
 	regularIndexes := make([]int, 0, len(pending))
 	for idx := range pending {
 		if isContinuationToolName(pending[idx].ToolName) {
-			result := l.executeContinuationToolCall(ctx, runCtx, pending[idx], emitter, continuation)
+			result := l.executeContinuationToolCall(ctx, runCtx, pending[idx], emitter, yield, continuation)
 			results[idx] = pendingToolExecution{Call: pending[idx], Result: result}
 			continue
 		}
@@ -564,7 +580,7 @@ func (l *Loop) executePendingToolCalls(
 		call := pending[idx]
 		go func() {
 			defer wg.Done()
-			result := l.executeToolCall(ctx, runCtx, call, emitter)
+			result := l.executeToolCall(ctx, runCtx, call, emitter, yield)
 			results[idx] = pendingToolExecution{
 				Call:   call,
 				Result: result,
@@ -583,6 +599,7 @@ func (l *Loop) executeToolCall(
 	runCtx RunContext,
 	call llm.ToolCall,
 	emitter events.Emitter,
+	yield func(events.RunEvent) error,
 ) tools.ExecutionResult {
 	// Rollout: 写入 ToolCall
 	if runCtx.RolloutRecorder != nil {
@@ -590,6 +607,9 @@ func (l *Loop) executeToolCall(
 		appendRollout(ctx, runCtx.RolloutRecorder, MakeToolCall(call.ToolCallID, call.ToolName, inputJSON))
 	}
 
+	streamEvent := func(ev events.RunEvent) error {
+		return yield(ev)
+	}
 	execCtx := tools.ExecutionContext{
 		RunID:                            runCtx.RunID,
 		TraceID:                          runCtx.TraceID,
@@ -616,6 +636,7 @@ func (l *Loop) executeToolCall(
 		RuntimeSnapshot:                  runCtx.Runtime,
 		Channel:                          runCtx.Channel,
 		PipelineRC:                       runCtx.PipelineRC,
+		StreamEvent:                      streamEvent,
 	}
 	return runCtx.ToolExecutor.Execute(ctx, call.ToolName, copyMap(call.ArgumentsJSON), execCtx, call.ToolCallID)
 }
@@ -653,6 +674,7 @@ func (l *Loop) executeContinuationToolCall(
 	runCtx RunContext,
 	call llm.ToolCall,
 	emitter events.Emitter,
+	yield func(events.RunEvent) error,
 	continuation *continuationBudgetState,
 ) tools.ExecutionResult {
 	sessionID := readContinuationSessionRef(call.ArgumentsJSON)
@@ -672,7 +694,7 @@ func (l *Loop) executeContinuationToolCall(
 	if continuation != nil {
 		continuation.Remaining--
 	}
-	result := l.executeToolCall(ctx, runCtx, call, emitter)
+	result := l.executeToolCall(ctx, runCtx, call, emitter, yield)
 	updateContinuationTracking(continuation, call, result)
 	return result
 }
@@ -700,6 +722,28 @@ func updateContinuationTracking(state *continuationBudgetState, call llm.ToolCal
 	if call.ToolName == "write_stdin" {
 		state.SessionCounts[sessionID] = state.SessionCounts[sessionID] + 1
 	}
+}
+
+func drainSteeringMessages(ctx context.Context, poll func(ctx context.Context) (string, bool), emitter events.Emitter, yield func(events.RunEvent) error) ([]llm.Message, error) {
+	if poll == nil {
+		return nil, nil
+	}
+	var out []llm.Message
+	for {
+		text, ok := poll(ctx)
+		if !ok || strings.TrimSpace(text) == "" {
+			break
+		}
+		msg := llm.Message{
+			Role:    "user",
+			Content: []llm.TextPart{{Text: text}},
+		}
+		out = append(out, msg)
+		if err := yield(emitter.Emit("run.steering_injected", map[string]any{"content": text}, nil, nil)); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
 }
 
 func trackedSessionID(call llm.ToolCall, result tools.ExecutionResult) string {

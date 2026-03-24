@@ -27,6 +27,7 @@ import (
 	"arkloop/services/shared/database/sqlitepgx"
 	"arkloop/services/shared/eventbus"
 	"arkloop/services/shared/objectstore"
+	"arkloop/services/shared/rollout"
 	"arkloop/services/shared/skillstore"
 	"arkloop/services/shared/workspaceblob"
 	"arkloop/services/worker/internal/data"
@@ -96,6 +97,9 @@ func (desktopNoopSubAgentControl) GetStatus(context.Context, uuid.UUID) (subagen
 }
 func (desktopNoopSubAgentControl) ListChildren(context.Context) ([]subagentctl.StatusSnapshot, error) {
 	return nil, nil
+}
+func (desktopNoopSubAgentControl) GetRolloutRecorder(uuid.UUID) (*rollout.Recorder, bool) {
+	return nil, false
 }
 
 func TestDesktopNormalPersonaSearchableIncludesSpawnAgent(t *testing.T) {
@@ -208,6 +212,55 @@ func TestComposeDesktopEngineRegistersArtifactTools(t *testing.T) {
 		if _, ok := specNames[toolName]; !ok {
 			t.Fatalf("expected tool spec %s in desktop llm specs", toolName)
 		}
+	}
+}
+
+func TestComposeDesktopEngineUsesOpenVikingWithBaseURLOnly(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	t.Setenv("ARKLOOP_DATA_DIR", dataDir)
+	t.Setenv("ARKLOOP_MEMORY_ENABLED", "true")
+	t.Setenv("ARKLOOP_OPENVIKING_BASE_URL", "http://127.0.0.1:19010")
+	t.Setenv("ARKLOOP_OPENVIKING_ROOT_API_KEY", "")
+
+	db, err := sqlitepgx.Open(filepath.Join(dataDir, "desktop.db"))
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	defer db.Close()
+
+	engine, err := ComposeDesktopEngine(ctx, db, eventbus.NewLocalEventBus(), executor.DefaultExecutorRegistry(), nil)
+	if err != nil {
+		t.Fatalf("compose desktop engine: %v", err)
+	}
+	if !engine.useOV {
+		t.Fatal("expected OpenViking provider when base url is configured")
+	}
+}
+
+func TestComposeDesktopEngineFallsBackToLocalWithoutBaseURL(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	t.Setenv("ARKLOOP_DATA_DIR", dataDir)
+	t.Setenv("ARKLOOP_MEMORY_ENABLED", "true")
+	t.Setenv("ARKLOOP_OPENVIKING_BASE_URL", "")
+	t.Setenv("ARKLOOP_OPENVIKING_ROOT_API_KEY", "test-key")
+
+	db, err := sqlitepgx.Open(filepath.Join(dataDir, "desktop.db"))
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	defer db.Close()
+
+	engine, err := ComposeDesktopEngine(ctx, db, eventbus.NewLocalEventBus(), executor.DefaultExecutorRegistry(), nil)
+	if err != nil {
+		t.Fatalf("compose desktop engine: %v", err)
+	}
+	if engine.useOV {
+		t.Fatal("expected local provider when base url is absent")
+	}
+	if engine.memProvider == nil {
+		t.Fatal("expected local memory provider to be configured")
 	}
 }
 
@@ -612,8 +665,12 @@ func TestDesktopEventWriterCommitsNonStreamingEventsBeforeToolExecution(t *testi
 	if err := writer.append(ctx, runID, completedTurn, "normal"); err != nil {
 		t.Fatalf("append non-streaming event: %v", err)
 	}
-	if writer.tx != nil {
-		t.Fatal("expected non-streaming event to commit writer transaction")
+	var committedEvents int
+	if err := db.QueryRow(ctx, `SELECT COUNT(1) FROM run_events WHERE run_id = $1`, runID).Scan(&committedEvents); err != nil {
+		t.Fatalf("count committed run events: %v", err)
+	}
+	if committedEvents != 1 {
+		t.Fatalf("expected non-streaming event to commit immediately, got %d committed events", committedEvents)
 	}
 
 	tx, err := db.BeginTx(ctx, pgx.TxOptions{})
@@ -633,6 +690,144 @@ func TestDesktopEventWriterCommitsNonStreamingEventsBeforeToolExecution(t *testi
 		ContextMode:    data.SubAgentContextModeIsolated,
 	}); err != nil {
 		t.Fatalf("create sub_agent after non-streaming commit: %v", err)
+	}
+}
+
+func TestDesktopEventWriterCommitsStreamingEventImmediately(t *testing.T) {
+	ctx := context.Background()
+
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "desktop.db"))
+	if err != nil {
+		t.Fatalf("auto migrate sqlite: %v", err)
+	}
+	defer sqlitePool.Close()
+
+	db := sqlitepgx.New(sqlitePool.Unwrap())
+
+	accountID := uuid.New()
+	projectID := uuid.New()
+	threadID := uuid.New()
+	runID := uuid.New()
+
+	for _, stmt := range []struct {
+		sql  string
+		args []any
+	}{
+		{
+			sql:  `INSERT INTO accounts (id, slug, name, type, status) VALUES ($1, $2, $3, 'personal', 'active')`,
+			args: []any{accountID, "desktop-writer-immediate-" + accountID.String(), "Desktop Writer Immediate"},
+		},
+		{
+			sql:  `INSERT INTO projects (id, account_id, name, visibility) VALUES ($1, $2, $3, 'private')`,
+			args: []any{projectID, accountID, "Writer Immediate Project"},
+		},
+		{
+			sql:  `INSERT INTO threads (id, account_id, project_id, is_private) VALUES ($1, $2, $3, TRUE)`,
+			args: []any{threadID, accountID, projectID},
+		},
+		{
+			sql:  `INSERT INTO runs (id, account_id, thread_id, status) VALUES ($1, $2, $3, 'running')`,
+			args: []any{runID, accountID, threadID},
+		},
+	} {
+		if _, err := db.Exec(ctx, stmt.sql, stmt.args...); err != nil {
+			t.Fatalf("seed data: %v", err)
+		}
+	}
+
+	writer := &desktopEventWriter{
+		db:         db,
+		run:        data.Run{ID: runID, AccountID: accountID, ThreadID: threadID},
+		traceID:    "immediate-trace",
+		runsRepo:   data.DesktopRunsRepository{},
+		eventsRepo: data.DesktopRunEventsRepository{},
+	}
+
+	ev := events.RunEvent{
+		Type: "message.delta",
+		DataJSON: map[string]any{
+			"role":  "assistant",
+			"delta": "hello",
+		},
+	}
+	if err := writer.append(ctx, runID, ev, "normal"); err != nil {
+		t.Fatalf("append streaming event: %v", err)
+	}
+
+	var count int
+	if err := db.QueryRow(ctx, `SELECT COUNT(1) FROM run_events WHERE run_id = $1`, runID).Scan(&count); err != nil {
+		t.Fatalf("count run events: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected streaming event to commit immediately, got %d", count)
+	}
+}
+
+func TestDesktopRunCancelWatcherCancelsOnRequestedEvent(t *testing.T) {
+	ctx := context.Background()
+
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "desktop.db"))
+	if err != nil {
+		t.Fatalf("auto migrate sqlite: %v", err)
+	}
+	defer sqlitePool.Close()
+
+	db := sqlitepgx.New(sqlitePool.Unwrap())
+
+	accountID := uuid.New()
+	projectID := uuid.New()
+	threadID := uuid.New()
+	runID := uuid.New()
+
+	for _, stmt := range []struct {
+		sql  string
+		args []any
+	}{
+		{
+			sql:  `INSERT INTO accounts (id, slug, name, type, status) VALUES ($1, $2, $3, 'personal', 'active')`,
+			args: []any{accountID, "desktop-cancel-watch-" + accountID.String(), "Desktop Cancel Watch"},
+		},
+		{
+			sql:  `INSERT INTO projects (id, account_id, name, visibility) VALUES ($1, $2, $3, 'private')`,
+			args: []any{projectID, accountID, "Cancel Watch Project"},
+		},
+		{
+			sql:  `INSERT INTO threads (id, account_id, project_id, is_private) VALUES ($1, $2, $3, TRUE)`,
+			args: []any{threadID, accountID, projectID},
+		},
+		{
+			sql:  `INSERT INTO runs (id, account_id, thread_id, status) VALUES ($1, $2, $3, 'running')`,
+			args: []any{runID, accountID, threadID},
+		},
+	} {
+		if _, err := db.Exec(ctx, stmt.sql, stmt.args...); err != nil {
+			t.Fatalf("seed data: %v", err)
+		}
+	}
+
+	watchCtx, cancelWatch := context.WithCancel(ctx)
+	defer cancelWatch()
+	stop := startDesktopRunCancelWatcher(watchCtx, db, runID, cancelWatch)
+	defer stop()
+
+	tx, err := db.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	cancelRequested := events.NewEmitter("watch-trace").Emit("run.cancel_requested", map[string]any{"reason": "test"}, nil, nil)
+	if _, err := (data.DesktopRunEventsRepository{}).AppendRunEvent(ctx, tx, runID, cancelRequested); err != nil {
+		t.Fatalf("append cancel_requested: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit cancel_requested: %v", err)
+	}
+
+	select {
+	case <-watchCtx.Done():
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected cancel watcher to cancel context")
 	}
 }
 
@@ -790,9 +985,6 @@ func TestDesktopEventWriterTouchesRunActivityOnNonTerminalCommit(t *testing.T) {
 	}
 	if err := writer.append(ctx, runID, ev, "normal"); err != nil {
 		t.Fatalf("append non-terminal event: %v", err)
-	}
-	if err := writer.flush(ctx); err != nil {
-		t.Fatalf("flush writer: %v", err)
 	}
 
 	var (
