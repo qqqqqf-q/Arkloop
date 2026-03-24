@@ -235,7 +235,7 @@ const DEFAULT_LIGHT: ThemeColorVars = {
   '--c-code-panel-bg': '#F6F4F2',
   '--c-code-panel-output-bg': 'rgba(0,0,0,0.04)',
   '--c-lightbox-overlay': 'rgba(255,255,255,0.55)',
-  '--c-attachment-bg': '#F0EEEC',
+  '--c-attachment-bg': '#FFFFFF',
   '--c-attachment-border': 'rgba(0,0,0,0.08)',
   '--c-attachment-border-hover': 'rgba(0,0,0,0.20)',
   '--c-attachment-close-bg': '#E5E5E3',

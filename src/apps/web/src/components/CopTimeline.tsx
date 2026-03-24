@@ -63,8 +63,6 @@ type Props = {
   assistantThinking?: { markdown: string; live?: boolean } | null
   /** 仅 pendingThinking 壳子用：无 thinkingRows 时配合 assistantThinking 估时长 */
   thinkingStartedAt?: number
-  /** 根节点下边距（如 COP 后紧跟正文段时与下文留白） */
-  marginBottomPx?: number
   /** 后一段为助手正文且已有字符时收起本段 COP（不依赖 isStreaming，避免 run 结束帧错过） */
   trailingAssistantTextPresent?: boolean
 }
@@ -408,7 +406,6 @@ function CopThinkingBlock({ markdown, live, thoughtDurationSeconds }: CopThinkin
             style={{ overflow: 'hidden' }}
           >
             <div className="cop-thinking-card-outer">
-              <div className="cop-thinking-card-label">{cardHeadline}</div>
               <div ref={cardScrollRef} className="cop-thinking-card-scroll">
                 <AssistantThinkingMarkdown markdown={markdown} live={live} />
               </div>
@@ -689,7 +686,7 @@ export function CopTimelineUnifiedRow({
   )
 }
 
-export function CopTimeline({ steps, sources, narratives, isComplete, codeExecutions, onOpenCodeExecution, activeCodeExecutionId, subAgents, fileOps, webFetches, headerOverride, shimmer, live, accessToken, baseUrl, thinkingRows, copInlineTextRows, assistantThinking, thinkingStartedAt, marginBottomPx, trailingAssistantTextPresent }: Props) {
+export function CopTimeline({ steps, sources, narratives, isComplete, codeExecutions, onOpenCodeExecution, activeCodeExecutionId, subAgents, fileOps, webFetches, headerOverride, shimmer, live, accessToken, baseUrl, thinkingRows, copInlineTextRows, assistantThinking, thinkingStartedAt, trailingAssistantTextPresent }: Props) {
   const { t } = useLocale()
   const thinkingRowList = thinkingRows ?? []
   const copInlineList = copInlineTextRows ?? []
@@ -899,7 +896,6 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
       className="cop-timeline-root"
       style={{
         maxWidth: '663px',
-        ...(marginBottomPx != null && marginBottomPx > 0 ? { marginBottom: marginBottomPx } : {}),
       }}
     >
       <button
@@ -915,7 +911,7 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
           display: 'flex',
           alignItems: 'center',
           gap: '6px',
-          padding: '6px 0',
+          padding: '4px 0 1px',
           background: 'none',
           border: 'none',
           cursor: (!hasContent && isComplete) ? 'default' : 'pointer',

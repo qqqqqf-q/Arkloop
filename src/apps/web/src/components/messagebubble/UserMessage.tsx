@@ -306,7 +306,7 @@ export function UserMessage({ message, onEdit, accessToken, animateEnter, onEnte
             ))}
           </div>
         )}
-        {((!accessToken && fileNames.length > 0) || (fileAttachments.length === 0 && imageAttachments.length === 0 && fileNames.length > 0)) && (
+        {((!accessToken && fileNames.length > 0) || (fileAttachments.length === 0 && imageAttachments.length === 0 && pastedAttachments.length === 0 && fileNames.length > 0)) && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', justifyContent: 'flex-end' }}>
             {fileNames.map((name) => (
               <div

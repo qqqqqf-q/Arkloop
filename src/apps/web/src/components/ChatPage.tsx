@@ -2824,7 +2824,6 @@ export function ChatPage() {
                                   headerOverride={timelineTitleOverride}
                                   thinkingRows={thinkingRowsHist.length > 0 ? thinkingRowsHist : undefined}
                                   copInlineTextRows={copInlineHist.length > 0 ? copInlineHist : undefined}
-                                  marginBottomPx={historicalTurn!.segments[si + 1]?.type === 'text' ? 10 : undefined}
                                   trailingAssistantTextPresent={histTrailingText}
                                   accessToken={accessToken}
                                   baseUrl={baseUrl}
@@ -3061,7 +3060,6 @@ export function ChatPage() {
                                   shimmer={copTimelineLive}
                                   live={copTimelineLive}
                                   thinkingStartedAt={copThinkingStartedAtMs}
-                                  marginBottomPx={liveAssistantTurn.segments[si + 1]?.type === 'text' ? 10 : undefined}
                                   trailingAssistantTextPresent={trailingAssistantTextPresent}
                                   accessToken={accessToken}
                                   baseUrl={baseUrl}

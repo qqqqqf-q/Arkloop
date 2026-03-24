@@ -140,6 +140,8 @@ describe('ExecutionCard shell variant', () => {
 
     expect(container.textContent).toContain('完成')
     expect(container.textContent).toContain('无输出')
+    expect(container.querySelector('.execution-card-status-inline')).not.toBeNull()
+    expect(container.querySelector('.execution-card-status-footer')).toBeNull()
 
     act(() => {
       root.unmount()
@@ -203,6 +205,8 @@ describe('ExecutionCard fileop variant', () => {
     expect(container.textContent).toContain('search_tools')
     expect(container.textContent).toContain('memory')
     expect(container.textContent).toContain('(no matches)')
+    expect(container.querySelector('.execution-card-status-inline')).not.toBeNull()
+    expect(container.querySelector('.execution-card-status-footer')).toBeNull()
 
     act(() => {
       root.unmount()

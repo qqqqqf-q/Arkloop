@@ -129,6 +129,7 @@ export function ExecutionCard({ variant, toolName, label, code, output, errorMes
   const hasFileOpInput = variant === 'fileop' && !!label?.trim()
   const hasInputBlock = hasShellInput || hasFileOpInput
   const expandable = !!(hasInputBlock || displayOutput || status === 'running')
+  const showInlineStatus = status !== 'running'
 
   const copyText = useCallback((text: string, setter: (v: boolean) => void) => {
     void navigator.clipboard.writeText(text)
@@ -210,7 +211,7 @@ export function ExecutionCard({ variant, toolName, label, code, output, errorMes
           >
             <div style={{
               borderRadius: '8px',
-              background: variant === 'fileop' ? 'var(--c-bg-menu)' : 'var(--c-attachment-bg)',
+              background: 'var(--c-attachment-bg)',
               overflow: 'hidden',
               marginTop: '4px',
             }}
@@ -289,7 +290,7 @@ export function ExecutionCard({ variant, toolName, label, code, output, errorMes
                       maxHeight: '240px',
                       overflowY: 'auto',
                       padding: '4px 10px 8px',
-                      paddingRight: '34px',
+                      paddingRight: showInlineStatus ? '72px' : '34px',
                       maskImage: mask,
                       WebkitMaskImage: mask,
                     }}
@@ -312,20 +313,60 @@ export function ExecutionCard({ variant, toolName, label, code, output, errorMes
                       </div>
                     )}
                   </div>
+                  {showInlineStatus && (
+                    <div
+                      className="execution-card-status-inline"
+                      style={{
+                        position: 'absolute',
+                        right: '10px',
+                        bottom: '8px',
+                        display: 'flex',
+                        justifyContent: 'flex-end',
+                        maxWidth: '56px',
+                        pointerEvents: 'none',
+                      }}
+                    >
+                      <StatusBadge status={status} />
+                    </div>
+                  )}
                 </div>
               )}
 
               {/* No output */}
               {!hasOutput && status !== 'running' && (
-                <div style={{ padding: '4px 10px 8px', fontSize: '10.5px', color: 'var(--c-text-muted)', fontStyle: 'italic', fontFamily: MONO }}>
-                  {t.shellNoOutput}
+                <div
+                  style={{
+                    position: 'relative',
+                    padding: '4px 72px 8px 10px',
+                    minHeight: '30px',
+                  }}
+                >
+                  <div style={{ fontSize: '10.5px', color: 'var(--c-text-muted)', fontStyle: 'italic', fontFamily: MONO }}>
+                    {t.shellNoOutput}
+                  </div>
+                  <div
+                    className="execution-card-status-inline"
+                    style={{
+                      position: 'absolute',
+                      right: '10px',
+                      bottom: '8px',
+                      display: 'flex',
+                      justifyContent: 'flex-end',
+                      maxWidth: '56px',
+                      pointerEvents: 'none',
+                    }}
+                  >
+                    <StatusBadge status={status} />
+                  </div>
                 </div>
               )}
 
               {/* Status */}
-              <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '0 10px 6px' }}>
-                <StatusBadge status={status} />
-              </div>
+              {status === 'running' && (
+                <div className="execution-card-status-footer" style={{ display: 'flex', justifyContent: 'flex-end', padding: '0 10px 6px' }}>
+                  <StatusBadge status={status} />
+                </div>
+              )}
             </div>
           </motion.div>
         )}

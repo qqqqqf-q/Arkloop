@@ -137,7 +137,7 @@ export const BUILTIN_PRESETS: Record<string, ThemeDefinition> = {
       '--c-lightbox-overlay': 'rgba(255,255,255,0.55)',
       '--c-modal-ring': 'rgba(0,0,0,0.09)',
       '--c-sidebar-btn-hover': 'rgba(0,0,0,0.10)',
-      '--c-attachment-bg': '#ECE9E2',
+      '--c-attachment-bg': '#FFFFFF',
       '--c-attachment-border': 'rgba(0,0,0,0.08)',
       '--c-attachment-border-hover': 'rgba(0,0,0,0.18)',
       '--c-attachment-close-bg': '#E0DDD6',
