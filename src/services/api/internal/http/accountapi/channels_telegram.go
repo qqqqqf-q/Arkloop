@@ -1487,17 +1487,20 @@ func (c telegramConnector) HandleUpdateForPoll(
 	}
 
 	// 群消息额外 upsert 群自身的 identity（heartbeat 配置挂在群上）
+	var groupIdentity *data.ChannelIdentity
 	if isTelegramGroupLikeChatType(incoming.ChatType) {
-		if _, err := c.channelIdentitiesRepo.WithTx(tx).Upsert(
+		gi, err := c.channelIdentitiesRepo.WithTx(tx).Upsert(
 			ctx,
 			incoming.ChannelType,
 			incoming.PlatformChatID,
 			nil,
 			nil,
 			nil,
-		); err != nil {
+		)
+		if err != nil {
 			return nil, err
 		}
+		groupIdentity = &gi
 	}
 
 	if incoming.IsPrivate() {
@@ -1568,7 +1571,11 @@ func (c telegramConnector) HandleUpdateForPoll(
 			return nil, nil
 		}
 		if ok && strings.HasPrefix(cmd, "/heartbeat") {
-			replyText, err := handleTelegramHeartbeatCommand(ctx, tx, identity, incoming.CommandText, c.channelIdentitiesRepo)
+			heartbeatIdentity := identity
+			if groupIdentity != nil {
+				heartbeatIdentity = *groupIdentity
+			}
+			replyText, err := handleTelegramHeartbeatCommand(ctx, tx, heartbeatIdentity, incoming.CommandText, c.channelIdentitiesRepo)
 			if err != nil {
 				return nil, err
 			}
