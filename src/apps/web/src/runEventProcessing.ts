@@ -721,9 +721,10 @@ type SubAgentToolResultPatch = {
   updated?: SubAgentRef
 }
 
-const SUB_AGENT_CALL_TOOL_NAMES = new Set(['spawn_agent', 'acp_agent'])
+const SUB_AGENT_CALL_TOOL_NAMES = new Set(['spawn_agent', 'acp_agent', 'spawn_acp'])
 const SUB_AGENT_RESULT_TOOL_NAMES = new Set([
-  'spawn_agent', 'acp_agent', 'send_input', 'wait_agent', 'resume_agent', 'close_agent', 'interrupt_agent',
+  'spawn_agent', 'acp_agent', 'spawn_acp', 'send_input', 'wait_agent', 'resume_agent', 'close_agent', 'interrupt_agent',
+  'send_acp', 'wait_acp', 'close_acp', 'interrupt_acp',
 ])
 
 function extractAcpAgentCallArgs(data: unknown): { task?: string; provider?: string } {
@@ -749,6 +750,45 @@ function extractSpawnArguments(data: unknown): Partial<SubAgentRef> {
     contextMode: typeof typed.context_mode === 'string' ? typed.context_mode : undefined,
     input: typeof typed.input === 'string' ? typed.input : undefined,
   }
+}
+
+function extractSpawnACPArgs(data: unknown): { task?: string; provider?: string } {
+  if (!data || typeof data !== 'object') return {}
+  const args = (data as { arguments?: unknown }).arguments
+  if (!args || typeof args !== 'object') return {}
+  const typed = args as Record<string, unknown>
+  return {
+    task: typeof typed.task === 'string' ? typed.task : undefined,
+    provider: typeof typed.provider === 'string' ? typed.provider : undefined,
+  }
+}
+
+function extractACPHandleId(result: Record<string, unknown>): string | undefined {
+  const handle = result.handle_id
+  return typeof handle === 'string' && handle.trim() ? handle : undefined
+}
+
+function resolveAcpStatus(
+  existing: SubAgentRef['status'],
+  resultStatus: string | undefined,
+  isError: boolean,
+): SubAgentRef['status'] {
+  if (isError) return 'failed'
+  switch (resultStatus) {
+    case 'completed':
+      return 'completed'
+    case 'closed':
+      return 'closed'
+    case 'failed':
+      return 'failed'
+    case 'running':
+      return 'active'
+    case 'interrupting':
+      return 'active'
+    case 'interrupted':
+      return 'failed'
+  }
+  return existing
 }
 
 function extractSubAgentResult(data: unknown): Record<string, unknown> {
@@ -791,13 +831,15 @@ export function applySubAgentToolCall(
   const toolName = pickToolName(event.data)
   if (!SUB_AGENT_CALL_TOOL_NAMES.has(toolName)) return { nextAgents: agents }
 
-  if (toolName === 'acp_agent') {
-    const { task, provider } = extractAcpAgentCallArgs(event.data)
+  if (toolName === 'acp_agent' || toolName === 'spawn_acp') {
+    const args = toolName === 'spawn_acp'
+      ? extractSpawnACPArgs(event.data)
+      : extractAcpAgentCallArgs(event.data)
     const appended: SubAgentRef = {
       id: pickToolCallId(event),
-      status: 'active',
-      input: task,
-      personaId: provider,
+      status: toolName === 'spawn_acp' ? 'spawning' : 'active',
+      input: args.task,
+      personaId: args.provider,
       sourceTool: 'acp_agent',
       seq: event.seq,
     }
@@ -832,9 +874,11 @@ export function applySubAgentToolResult(
   const errorMessage = extractSubAgentError(event.data)
   const isError = hasSubAgentError(event.data)
   const subAgentId = typeof result.sub_agent_id === 'string' ? result.sub_agent_id : undefined
+  const acpHandleId = extractACPHandleId(result)
   const output = typeof result.output === 'string' ? result.output : undefined
   const nickname = typeof result.nickname === 'string' ? result.nickname : undefined
   const depth = typeof result.depth === 'number' ? result.depth : undefined
+  const resultStatus = typeof result.status === 'string' ? result.status : undefined
 
   if (toolName === 'acp_agent') {
     const idx = findAgentByToolCallId(agents, toolCallId)
@@ -868,6 +912,48 @@ export function applySubAgentToolResult(
     return { updated, nextAgents: agents.map((a, i) => i === idx ? updated : a) }
   }
 
+  if (toolName === 'spawn_acp') {
+    const idx = findAgentByToolCallId(agents, toolCallId)
+    if (idx < 0) return { nextAgents: agents }
+    const updated: SubAgentRef = {
+      ...agents[idx],
+      subAgentId: acpHandleId ?? agents[idx].subAgentId,
+      output: output ?? agents[idx].output,
+      status: resolveAcpStatus(agents[idx].status, resultStatus, isError),
+      error: isError ? errorMessage : undefined,
+      depth,
+    }
+    return { updated, nextAgents: agents.map((a, i) => (i === idx ? updated : a)) }
+  }
+
+  if (toolName === 'send_acp' || toolName === 'wait_acp' || toolName === 'interrupt_acp' || toolName === 'close_acp') {
+    const idx = acpHandleId ? findAgentBySubAgentId(agents, acpHandleId) : -1
+    const nextError = errorMessage ?? (resultStatus === 'interrupted' ? 'interrupted' : undefined)
+
+    if (idx < 0) {
+      if (!acpHandleId) return { nextAgents: agents }
+      const appended: SubAgentRef = {
+        id: toolCallId,
+        subAgentId: acpHandleId,
+        output,
+        status: resolveAcpStatus('active', resultStatus, isError),
+        error: nextError,
+        sourceTool: 'acp_agent',
+        seq: event.seq,
+      }
+      return { updated: appended, nextAgents: [...agents, appended] }
+    }
+
+    const updated: SubAgentRef = {
+      ...agents[idx],
+      output: output ?? agents[idx].output,
+      status: resolveAcpStatus(agents[idx].status, resultStatus, isError),
+      error: nextError,
+      seq: event.seq,
+    }
+    return { updated, nextAgents: agents.map((a, i) => i === idx ? updated : a) }
+  }
+
   // For other tools, locate by sub_agent_id in result
   const targetIdx = subAgentId ? findAgentBySubAgentId(agents, subAgentId) : -1
 
@@ -894,7 +980,6 @@ export function applySubAgentToolResult(
 
   // wait_agent, send_input, resume_agent
   if (targetIdx < 0) return { nextAgents: agents }
-  const resultStatus = typeof result.status === 'string' ? result.status : undefined
   const resolvedStatus = isError
     ? 'failed' as const
     : resultStatus === 'completed' ? 'completed' as const : agents[targetIdx].status
@@ -1279,4 +1364,3 @@ export function buildMessageWebFetchesFromRunEvents(events: RunEvent[]): WebFetc
   }
   return fetches
 }
-

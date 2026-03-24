@@ -772,6 +772,97 @@ describe('buildMessageSubAgentsFromRunEvents', () => {
       output: '已完成\n\n详见文件 x.go',
     })
   })
+
+  it('应识别 spawn_acp 与 wait_acp，并把 handle 输出收敛到同一个 ACP 条目', () => {
+    const events = [
+      makeRunEvent({
+        runId: 'run_1',
+        seq: 1,
+        type: 'tool.call',
+        data: {
+          tool_name: 'spawn_acp',
+          tool_call_id: 'call_spawn_acp',
+          arguments: { task: '实现登录', provider: 'acp.opencode' },
+        },
+      }),
+      makeRunEvent({
+        runId: 'run_1',
+        seq: 2,
+        type: 'tool.result',
+        data: {
+          tool_name: 'spawn_acp',
+          tool_call_id: 'call_spawn_acp',
+          result: { handle_id: 'handle_1', status: 'running' },
+        },
+      }),
+      makeRunEvent({
+        runId: 'run_1',
+        seq: 3,
+        type: 'tool.result',
+        data: {
+          tool_name: 'wait_acp',
+          tool_call_id: 'call_wait_acp',
+          result: { handle_id: 'handle_1', status: 'completed', output: '任务完成' },
+        },
+      }),
+    ]
+
+    const agents = buildMessageSubAgentsFromRunEvents(events)
+    expect(agents).toHaveLength(1)
+    expect(agents[0]).toMatchObject({
+      id: 'call_spawn_acp',
+      sourceTool: 'acp_agent',
+      subAgentId: 'handle_1',
+      input: '实现登录',
+      personaId: 'acp.opencode',
+      output: '任务完成',
+      status: 'completed',
+    })
+  })
+
+  it('应识别 close_acp 并更新已有 ACP 条目的状态', () => {
+    const events = [
+      makeRunEvent({
+        runId: 'run_1',
+        seq: 1,
+        type: 'tool.call',
+        data: {
+          tool_name: 'spawn_acp',
+          tool_call_id: 'call_spawn_acp',
+          arguments: { task: '检查仓库', provider: 'acp.opencode' },
+        },
+      }),
+      makeRunEvent({
+        runId: 'run_1',
+        seq: 2,
+        type: 'tool.result',
+        data: {
+          tool_name: 'spawn_acp',
+          tool_call_id: 'call_spawn_acp',
+          result: { handle_id: 'handle_2', status: 'running' },
+        },
+      }),
+      makeRunEvent({
+        runId: 'run_1',
+        seq: 3,
+        type: 'tool.result',
+        data: {
+          tool_name: 'close_acp',
+          tool_call_id: 'call_close_acp',
+          result: { handle_id: 'handle_2', status: 'closed' },
+        },
+      }),
+    ]
+
+    const agents = buildMessageSubAgentsFromRunEvents(events)
+    expect(agents).toHaveLength(1)
+    expect(agents[0]).toMatchObject({
+      id: 'call_spawn_acp',
+      subAgentId: 'handle_2',
+      status: 'closed',
+      sourceTool: 'acp_agent',
+    })
+  })
 })
 
 describe('shouldReplayMessageCodeExecutions', () => {
@@ -1077,4 +1168,3 @@ describe('search_tools summary', () => {
     expect(result).toBe('2 matches: web_search, web_fetch')
   })
 })
-

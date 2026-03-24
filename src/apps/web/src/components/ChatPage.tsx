@@ -1174,9 +1174,13 @@ export function ChatPage() {
     seenFirstToolCallInRunRef.current = false
     setInjectionBlocked(null)
     injectionBlockedRunIdRef.current = null
+    setPendingThinking(false)
     setSegments([])
     activeSegmentIdRef.current = null
     setTopLevelCodeExecutions([])
+    setTopLevelSubAgents([])
+    setTopLevelFileOps([])
+    setTopLevelWebFetches([])
     setCancelSubmitting(false)
     setAwaitingInput(false)
     setPendingUserInput(null)
@@ -1188,18 +1192,26 @@ export function ChatPage() {
     currentRunCodeExecutionsRef.current = []
     currentRunBrowserActionsRef.current = []
     currentRunSubAgentsRef.current = []
+    currentRunFileOpsRef.current = []
+    currentRunWebFetchesRef.current = []
     setMessageSourcesMap(new Map())
     setMessageArtifactsMap(new Map())
     setMessageWidgetsMap(new Map())
     setMessageCodeExecutionsMap(new Map())
     setMessageBrowserActionsMap(new Map())
     setMessageSubAgentsMap(new Map())
+    setMessageFileOpsMap(new Map())
+    setMessageWebFetchesMap(new Map())
     setMessageThinkingMap(new Map())
     setMessageSearchStepsMap(new Map())
     setMessageAssistantTurnMap(new Map())
+    setMsgRunEventsMap(new Map())
     setSourcePanelMessageId(null)
     disconnectSSE()
     sse.clearEvents()
+    streamingArtifactsRef.current = []
+    setStreamingArtifacts([])
+    resetSearchSteps()
     // 不重置 processedEventCountRef: clearEvents 是异步的，若此处归零，
     // 同一 effects 阶段内事件处理 effect 会重放旧事件导致串线。
     // activeRunId effect 在新 run 启动时负责归零。
