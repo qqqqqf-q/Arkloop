@@ -163,7 +163,7 @@ var registry = []ToolMeta{
 		LLMDescription: "replace one occurrence of old_string with new_string in the specified file. " +
 			"old_string must match exactly once — include enough surrounding context (3-5 lines before and after) to ensure uniqueness. " +
 			"To create a new file: set old_string to empty. To delete content: set new_string to empty. " +
-			"Always read_file first to verify exact text before editing.",
+			"You must call read_file before editing an existing file (old_string non-empty); omitting it will return an error.",
 	},
 	{
 		Name:      "glob",
@@ -183,7 +183,8 @@ var registry = []ToolMeta{
 		LLMDescription: "search file contents for a regex pattern and return matching lines with file:line:content format. " +
 			"Uses ripgrep when available; falls back to Go regex walk. " +
 			"Use include to restrict to specific file types (e.g. *.go). Maximum 200 matches. " +
-			"Results are sorted by file modification time (newest first) in fallback mode.",
+			"Results are sorted by file modification time (newest first) in fallback mode. " +
+			"Use context_lines (0-10) to include surrounding lines with each match.",
 	},
 	// ── memory ──
 	{

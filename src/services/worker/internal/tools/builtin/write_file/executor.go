@@ -9,6 +9,8 @@ import (
 	"arkloop/services/worker/internal/tools/builtin/fileops"
 )
 
+const maxWriteSize = 5 * 1024 * 1024 // 5MB
+
 type Executor struct {
 	Tracker *fileops.FileTracker
 }
@@ -27,6 +29,10 @@ func (e *Executor) Execute(
 		return errResult("file_path is required", started)
 	}
 	content, _ := args["content"].(string)
+
+	if len(content) > maxWriteSize {
+		return errResult(fmt.Sprintf("content too large (%d bytes, max %d)", len(content), maxWriteSize), started)
+	}
 
 	backend := fileops.ResolveBackend(execCtx.RuntimeSnapshot, execCtx.WorkDir, execCtx.RunID.String(), resolveAccountID(execCtx), execCtx.ProfileRef, execCtx.WorkspaceRef)
 

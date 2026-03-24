@@ -56,38 +56,77 @@ func (e *Executor) Execute(
 	searchPath, _ := args["path"].(string)
 	include, _ := args["include"].(string)
 
+	contextLinesRaw, _ := args["context_lines"].(float64)
+	contextLines := int(contextLinesRaw)
+	if contextLines < 0 {
+		contextLines = 0
+	}
+	if contextLines > 10 {
+		contextLines = 10
+	}
+
 	backend := fileops.ResolveBackend(execCtx.RuntimeSnapshot, execCtx.WorkDir, execCtx.RunID.String(), resolveAccountID(execCtx), execCtx.ProfileRef, execCtx.WorkspaceRef)
 
-	matches, truncated, err := searchFiles(ctx, backend, pattern, searchPath, include)
+	matches, rawOutput, truncated, err := searchFiles(ctx, backend, pattern, searchPath, include, contextLines)
 	if err != nil {
 		return errResult(fmt.Sprintf("grep failed: %s", err.Error()), started)
 	}
 
-	lines := make([]string, 0, len(matches))
-	for _, m := range matches {
-		lines = append(lines, fmt.Sprintf("%s:%d:%s", m.file, m.line, m.text))
+	var matchStr string
+	var count int
+	if rawOutput != "" {
+		matchStr = rawOutput
+		for _, line := range strings.Split(rawOutput, "\n") {
+			if strings.Contains(line, ":") && !strings.HasPrefix(line, "--") {
+				count++
+			}
+		}
+	} else {
+		lines := make([]string, 0, len(matches))
+		for _, m := range matches {
+			lines = append(lines, fmt.Sprintf("%s:%d:%s", m.file, m.line, m.text))
+		}
+		matchStr = strings.Join(lines, "\n")
+		count = len(matches)
 	}
 
 	return tools.ExecutionResult{
 		ResultJSON: map[string]any{
-			"matches":   strings.Join(lines, "\n"),
-			"count":     len(matches),
+			"matches":   matchStr,
+			"count":     count,
 			"truncated": truncated,
 		},
 		DurationMs: durationMs(started),
 	}
 }
 
-func searchFiles(ctx context.Context, backend fileops.Backend, pattern, searchPath, include string) ([]grepMatch, bool, error) {
-	matches, err := searchWithRipgrep(ctx, backend, pattern, searchPath, include)
-	if err == nil {
-		truncated := len(matches) > maxMatches
-		if truncated {
-			matches = matches[:maxMatches]
+func searchFiles(ctx context.Context, backend fileops.Backend, pattern, searchPath, include string, contextLines int) (matches []grepMatch, rawOutput string, truncated bool, err error) {
+	if contextLines > 0 {
+		raw, rErr := searchWithRipgrepRaw(ctx, backend, pattern, searchPath, include, contextLines)
+		if rErr == nil {
+			return nil, raw, false, nil
 		}
-		return matches, truncated, nil
+		raw, rErr = searchWithContextFallback(searchPath, pattern, include, contextLines)
+		if rErr != nil {
+			return nil, "", false, rErr
+		}
+		return nil, raw, false, nil
 	}
 
+	// contextLines == 0: original structured path
+	m, trunc, sErr := searchFilesStructured(ctx, backend, pattern, searchPath, include)
+	return m, "", trunc, sErr
+}
+
+func searchFilesStructured(ctx context.Context, backend fileops.Backend, pattern, searchPath, include string) ([]grepMatch, bool, error) {
+	m, err := searchWithRipgrep(ctx, backend, pattern, searchPath, include)
+	if err == nil {
+		truncated := len(m) > maxMatches
+		if truncated {
+			m = m[:maxMatches]
+		}
+		return m, truncated, nil
+	}
 	return searchWithRegex(searchPath, pattern, include)
 }
 
@@ -123,6 +162,165 @@ func searchWithRipgrep(ctx context.Context, backend fileops.Backend, pattern, se
 		}
 	}
 	return matches, nil
+}
+
+func searchWithRipgrepRaw(ctx context.Context, backend fileops.Backend, pattern, searchPath, include string, contextLines int) (string, error) {
+	cmd := fmt.Sprintf("rg -H -n --max-count 1000 -C %d %s", contextLines, shellQuote(pattern))
+	if include != "" {
+		cmd += fmt.Sprintf(" -g %s", shellQuote(include))
+	}
+	if searchPath != "" {
+		cmd += " " + shellQuote(searchPath)
+	}
+	stdout, _, exitCode, err := backend.Exec(ctx, cmd)
+	if err != nil {
+		return "", err
+	}
+	if exitCode == 1 {
+		return "", nil
+	}
+	if exitCode != 0 && stdout == "" {
+		return "", fmt.Errorf("rg exited %d", exitCode)
+	}
+	return stdout, nil
+}
+
+func searchWithContextFallback(root, pattern, include string, contextLines int) (string, error) {
+	if root == "" {
+		root = "."
+	}
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return "", fmt.Errorf("invalid regex: %w", err)
+	}
+
+	var includeRe *regexp.Regexp
+	if include != "" {
+		includeRe = globToRegex(include)
+	}
+
+	var sb strings.Builder
+	firstFile := true
+
+	walkErr := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if info.IsDir() {
+			base := filepath.Base(path)
+			if strings.HasPrefix(base, ".") && base != "." {
+				return filepath.SkipDir
+			}
+			if _, skip := skipDirs[base]; skip {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if info.Size() > 1024*1024 {
+			return nil
+		}
+		rel, relErr := filepath.Rel(root, path)
+		if relErr != nil {
+			rel = path
+		}
+		if includeRe != nil && !includeRe.MatchString(filepath.Base(rel)) {
+			return nil
+		}
+
+		fileOutput := buildContextOutput(path, re, contextLines)
+		if fileOutput == "" {
+			return nil
+		}
+		if !firstFile {
+			sb.WriteString("\n")
+		}
+		firstFile = false
+		sb.WriteString(fileOutput)
+		return nil
+	})
+	if walkErr != nil && walkErr != filepath.SkipAll {
+		return "", walkErr
+	}
+
+	return sb.String(), nil
+}
+
+// buildContextOutput reads a file and returns context-aware grep output for it.
+// Match lines use "file:line:text", context lines use "file-line-text", blocks separated by "--".
+func buildContextOutput(path string, re *regexp.Regexp, contextLines int) string {
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+
+	var allLines []string
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		allLines = append(allLines, scanner.Text())
+	}
+
+	// find matching line indices (0-based)
+	type interval struct{ start, end int }
+	var intervals []interval
+	for i, line := range allLines {
+		if re.MatchString(line) {
+			s := i - contextLines
+			if s < 0 {
+				s = 0
+			}
+			e := i + contextLines
+			if e >= len(allLines) {
+				e = len(allLines) - 1
+			}
+			intervals = append(intervals, interval{s, e})
+		}
+	}
+	if len(intervals) == 0 {
+		return ""
+	}
+
+	// merge overlapping intervals
+	merged := []interval{intervals[0]}
+	for _, iv := range intervals[1:] {
+		last := &merged[len(merged)-1]
+		if iv.start <= last.end+1 {
+			if iv.end > last.end {
+				last.end = iv.end
+			}
+		} else {
+			merged = append(merged, iv)
+		}
+	}
+
+	// build output for matched line sets
+	matchSet := map[int]bool{}
+	for _, iv := range intervals {
+		for i := iv.start; i <= iv.end; i++ {
+			if re.MatchString(allLines[i]) {
+				matchSet[i] = true
+			}
+		}
+	}
+
+	var sb strings.Builder
+	firstBlock := true
+	for _, iv := range merged {
+		if !firstBlock {
+			sb.WriteString("--\n")
+		}
+		firstBlock = false
+		for i := iv.start; i <= iv.end; i++ {
+			lineNum := i + 1
+			if matchSet[i] {
+				sb.WriteString(fmt.Sprintf("%s:%d:%s\n", path, lineNum, allLines[i]))
+			} else {
+				sb.WriteString(fmt.Sprintf("%s-%d-%s\n", path, lineNum, allLines[i]))
+			}
+		}
+	}
+
+	return sb.String()
 }
 
 func parseRipgrepLine(line string) (grepMatch, bool) {

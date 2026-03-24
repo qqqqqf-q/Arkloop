@@ -32,6 +32,10 @@ var LlmSpec = llm.ToolSpec{
 				"type":        "string",
 				"description": "file glob to restrict search (e.g. *.go, *.ts)",
 			},
+			"context_lines": map[string]any{
+				"type":        "integer",
+				"description": "number of context lines to show before and after each match (0-10, default 0)",
+			},
 		},
 		"required":             []string{"pattern"},
 		"additionalProperties": false,
