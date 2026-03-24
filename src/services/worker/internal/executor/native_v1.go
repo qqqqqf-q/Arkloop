@@ -5,6 +5,7 @@ package executor
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"arkloop/services/worker/internal/app"
@@ -22,12 +23,12 @@ import (
 
 type NativeRunEngineV1Handler struct {
 	pool   *pgxpool.Pool
-	logger *app.JSONLogger
+	logger *slog.Logger
 	engine *runengine.EngineV1
 	queue  queue.JobQueue
 }
 
-func NewNativeRunEngineV1Handler(ctx context.Context, pool *pgxpool.Pool, directPool *pgxpool.Pool, logger *app.JSONLogger, rdb *redis.Client, q queue.JobQueue, cfg app.Config) (*NativeRunEngineV1Handler, error) {
+func NewNativeRunEngineV1Handler(ctx context.Context, pool *pgxpool.Pool, directPool *pgxpool.Pool, logger *slog.Logger, rdb *redis.Client, q queue.JobQueue, cfg app.Config) (*NativeRunEngineV1Handler, error) {
 	if pool == nil {
 		return nil, fmt.Errorf("pool must not be nil")
 	}
@@ -35,7 +36,7 @@ func NewNativeRunEngineV1Handler(ctx context.Context, pool *pgxpool.Pool, direct
 		ctx = context.Background()
 	}
 	if logger == nil {
-		logger = app.NewJSONLogger("worker_go", nil)
+		logger = slog.Default()
 	}
 	engine, err := app.ComposeNativeEngine(ctx, pool, directPool, rdb, cfg, DefaultExecutorRegistry(), q)
 	if err != nil {
@@ -55,7 +56,13 @@ func (h *NativeRunEngineV1Handler) Handle(ctx context.Context, lease queue.JobLe
 		return err
 	}
 
-	h.logger.Info("worker received job", payload.LogFields(lease), map[string]any{"job_type": payload.JobType})
+	h.logger.Info("worker received job",
+		"job_id", lease.JobID.String(),
+		"trace_id", payload.TraceID,
+		"account_id", payload.AccountID.String(),
+		"run_id", payload.RunID.String(),
+		"job_type", payload.JobType,
+	)
 
 	tx, err := h.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -71,14 +78,21 @@ func (h *NativeRunEngineV1Handler) Handle(ctx context.Context, lease queue.JobLe
 		return err
 	}
 	if run == nil {
-		h.logger.Info("run not found, skipped", payload.LogFields(lease), nil)
+		h.logger.Info("run not found, skipped",
+			"job_id", lease.JobID.String(),
+			"trace_id", payload.TraceID,
+			"account_id", payload.AccountID.String(),
+			"run_id", payload.RunID.String(),
+		)
 		return nil
 	}
 	if run.AccountID != payload.AccountID {
-		h.logger.Info(
-			"job.account_id does not match run.account_id, skipped",
-			payload.LogFields(lease),
-			map[string]any{"run_account_id": run.AccountID.String()},
+		h.logger.Info("job.account_id does not match run.account_id, skipped",
+			"job_id", lease.JobID.String(),
+			"trace_id", payload.TraceID,
+			"account_id", payload.AccountID.String(),
+			"run_id", payload.RunID.String(),
+			"run_account_id", run.AccountID.String(),
 		)
 		return nil
 	}
@@ -92,7 +106,13 @@ func (h *NativeRunEngineV1Handler) Handle(ctx context.Context, lease queue.JobLe
 		return err
 	}
 	if terminal != "" {
-		h.logger.Info("run already terminal, skipped", payload.LogFields(lease), map[string]any{"terminal_type": terminal})
+		h.logger.Info("run already terminal, skipped",
+			"job_id", lease.JobID.String(),
+			"trace_id", payload.TraceID,
+			"account_id", payload.AccountID.String(),
+			"run_id", payload.RunID.String(),
+			"terminal_type", terminal,
+		)
 		return nil
 	}
 
@@ -155,7 +175,12 @@ func (h *NativeRunEngineV1Handler) dispatchWebhooks(ctx context.Context, payload
 	}
 
 	if err := webhook.EnqueueDeliveries(ctx, h.pool, h.queue, run.AccountID, run.ID, payload.TraceID, eventType, runPayload); err != nil {
-		h.logger.Error("enqueue webhook deliveries failed", payload.LogFields(queue.JobLease{}), map[string]any{"error": err.Error()})
+		h.logger.Error("enqueue webhook deliveries failed",
+			"trace_id", payload.TraceID,
+			"account_id", payload.AccountID.String(),
+			"run_id", payload.RunID.String(),
+			"error", err.Error(),
+		)
 	}
 }
 
@@ -217,14 +242,4 @@ func parseWorkerPayload(payload map[string]any) (workerPayload, error) {
 		AccountID: accountID,
 		RunID:     runID,
 	}, nil
-}
-
-func (p workerPayload) LogFields(lease queue.JobLease) app.LogFields {
-	fields := app.LogFields{
-		JobID: stringPtr(lease.JobID.String()),
-	}
-	fields.TraceID = stringPtr(p.TraceID)
-	fields.AccountID = stringPtr(p.AccountID.String())
-	fields.RunID = stringPtr(p.RunID.String())
-	return fields
 }

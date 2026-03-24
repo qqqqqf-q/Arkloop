@@ -5,12 +5,12 @@ package desktoprun
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 
-	"arkloop/services/worker/internal/app"
 	"arkloop/services/worker/internal/data"
 	"arkloop/services/worker/internal/queue"
 
@@ -34,7 +34,7 @@ var desktopTerminalEventStatus = map[string]string{
 type lifecycleManager struct {
 	db      data.DesktopDB
 	queue   queue.JobQueue
-	logger  *app.JSONLogger
+	logger  *slog.Logger
 	timeout time.Duration
 }
 
@@ -46,7 +46,7 @@ type desktopRunSnapshot struct {
 	LastActivity  time.Time
 }
 
-func newLifecycleManager(db data.DesktopDB, q queue.JobQueue, logger *app.JSONLogger) *lifecycleManager {
+func newLifecycleManager(db data.DesktopDB, q queue.JobQueue, logger *slog.Logger) *lifecycleManager {
 	timeoutMinutes := defaultDesktopRunTimeoutMinutes
 	if raw := strings.TrimSpace(os.Getenv(desktopRunTimeoutEnv)); raw != "" {
 		if value, err := strconv.Atoi(raw); err == nil && value > 0 {
@@ -91,7 +91,7 @@ func (m *lifecycleManager) reaperLoop(ctx context.Context) {
 			return
 		case <-ticker.C:
 			if err := m.reapOnce(ctx); err != nil && m.logger != nil {
-				m.logger.Error("desktop stale run reap failed", app.LogFields{}, map[string]any{"error": err.Error()})
+				m.logger.Error("desktop stale run reap failed", "error", err.Error())
 			}
 		}
 	}
@@ -118,7 +118,7 @@ func (m *lifecycleManager) markLegacyRunJobsDead(ctx context.Context) error {
 		return fmt.Errorf("mark legacy desktop run jobs dead: %w", err)
 	}
 	if m.logger != nil && tag.RowsAffected() > 0 {
-		m.logger.Info("desktop legacy run jobs abandoned", app.LogFields{}, map[string]any{"rows": tag.RowsAffected()})
+		m.logger.Info("desktop legacy run jobs abandoned", "rows", tag.RowsAffected())
 	}
 	return nil
 }
@@ -151,7 +151,7 @@ func (m *lifecycleManager) reapOnce(ctx context.Context) error {
 		if reaped && m.logger != nil {
 			runID := snapshot.RunID.String()
 			accountID := snapshot.AccountID.String()
-			m.logger.Info("desktop stale run reaped", app.LogFields{RunID: &runID, AccountID: &accountID}, nil)
+			m.logger.Info("desktop stale run reaped", "run_id", runID, "account_id", accountID)
 		}
 	}
 	return nil
@@ -185,9 +185,9 @@ func (m *lifecycleManager) recoverRuns(ctx context.Context) error {
 		if m.logger != nil {
 			runID := snapshot.RunID.String()
 			accountID := snapshot.AccountID.String()
-			m.logger.Info("desktop run recovered", app.LogFields{RunID: &runID, AccountID: &accountID}, map[string]any{
-				"last_event_type": snapshot.LastEventType,
-			})
+			m.logger.Info("desktop run recovered", "run_id", runID, "account_id", accountID,
+				"last_event_type", snapshot.LastEventType,
+			)
 		}
 	}
 	return nil

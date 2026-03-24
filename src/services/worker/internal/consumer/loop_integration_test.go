@@ -5,12 +5,12 @@ package consumer
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"sort"
 	"sync"
 	"testing"
 	"time"
 
-	"arkloop/services/worker/internal/app"
 	"arkloop/services/worker/internal/queue"
 	"arkloop/services/worker/internal/testutil"
 	"github.com/google/uuid"
@@ -55,7 +55,7 @@ func TestLoopDedupesDuplicateRunJobsViaAdvisoryLock(t *testing.T) {
 		HeartbeatSeconds: 0,
 		QueueJobTypes:    []string{queue.RunExecuteJobType},
 	}
-	logger := app.NewJSONLogger("worker_go_test", nil)
+	logger := slog.Default()
 
 	loop1, err := NewLoop(fixture.queue, handler, fixture.locker, cfg, logger, nil)
 	if err != nil {
@@ -146,7 +146,7 @@ func TestLoopNacksWhenHeartbeatFailsRepeatedly(t *testing.T) {
 		HeartbeatSeconds: 0.01,
 		QueueJobTypes:    []string{queue.RunExecuteJobType},
 	}
-	logger := app.NewJSONLogger("worker_go_test", nil)
+	logger := slog.Default()
 
 	loop, err := NewLoop(flakyQueue, handler, fixture.locker, cfg, logger, nil)
 	if err != nil {

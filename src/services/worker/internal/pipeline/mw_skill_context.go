@@ -95,10 +95,10 @@ func buildExternalSkillPromptBlock(skills []skillstore.ExternalSkill) string {
 	for _, s := range skills {
 		sb.WriteString("- ")
 		sb.WriteString(s.Name)
-		sb.WriteString(" -> ")
-		sb.WriteString(s.Path)
-		sb.WriteString("/")
-		sb.WriteString(s.InstructionPath)
+		if s.Description != "" {
+			sb.WriteString(": ")
+			sb.WriteString(s.Description)
+		}
 		sb.WriteString("\n")
 	}
 	sb.WriteString("</external_skills>")

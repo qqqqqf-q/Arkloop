@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"strings"
@@ -13,6 +14,7 @@ import (
 
 	sharedconfig "arkloop/services/shared/config"
 	"arkloop/services/shared/eventbus"
+	sharedlog "arkloop/services/shared/log"
 	"arkloop/services/worker/internal/app"
 	"arkloop/services/worker/internal/consumer"
 	"arkloop/services/worker/internal/email"
@@ -35,7 +37,11 @@ func run() error {
 		return err
 	}
 
-	logger := app.NewJSONLogger("worker_go", os.Stdout)
+	logger := sharedlog.New(sharedlog.Config{
+		Component: "worker_go",
+		Level:     slog.LevelInfo,
+		Output:    os.Stdout,
+	})
 	databaseDSN := lookupDatabaseDSN()
 	if databaseDSN == "" {
 		application, err := app.NewApplication(cfg, logger)
@@ -81,7 +87,7 @@ func run() error {
 		defer dp.Close()
 		directPool = dp
 	} else {
-		logger.Warn("ARKLOOP_DATABASE_DIRECT_URL not set: LISTEN/NOTIFY uses main pool, breaks with PgBouncer", app.LogFields{}, nil)
+		logger.Warn("ARKLOOP_DATABASE_DIRECT_URL not set: LISTEN/NOTIFY uses main pool, breaks with PgBouncer")
 		directPool = pool
 	}
 
@@ -94,13 +100,13 @@ func run() error {
 	if redisURL := lookupRedisURL(); redisURL != "" {
 		rc, err := newRedisClient(runCtx, redisURL)
 		if err != nil {
-			logger.Error("redis connect failed, run limiter and registration disabled", app.LogFields{}, map[string]any{"error": err.Error()})
+			logger.Error("redis connect failed, run limiter and registration disabled", "error", err.Error())
 		} else {
 			defer rc.Close()
 			rdb = rc
 		}
 	} else {
-		logger.Info("ARKLOOP_REDIS_URL not set, worker registration disabled", app.LogFields{}, nil)
+		logger.Info("ARKLOOP_REDIS_URL not set, worker registration disabled")
 	}
 
 	var bus eventbus.EventBus
@@ -121,7 +127,7 @@ func run() error {
 		}
 		queueClient = cq
 		notifier = localNotifier
-		logger.Info("using channel job queue (in-process)", app.LogFields{}, nil)
+		logger.Info("using channel job queue (in-process)")
 	} else {
 		pq, err := queue.NewPgQueue(pool, 25, cfg.Capabilities)
 		if err != nil {
@@ -187,17 +193,17 @@ func run() error {
 		return err
 	}
 
-	logger.Info("worker_go entering consume mode", app.LogFields{}, nil)
+	logger.Info("worker_go entering consume mode")
 	runErr := loop.Run(runCtx)
 
 	if reg != nil {
 		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := reg.Drain(shutCtx); err != nil {
-			logger.Error("drain failed", app.LogFields{}, map[string]any{"error": err.Error()})
+			logger.Error("drain failed", "error", err.Error())
 		}
 		if err := reg.MarkDead(shutCtx); err != nil {
-			logger.Error("mark dead failed", app.LogFields{}, map[string]any{"error": err.Error()})
+			logger.Error("mark dead failed", "error", err.Error())
 		}
 	}
 
@@ -217,9 +223,9 @@ func newRedisClient(ctx context.Context, redisURL string) (*redis.Client, error)
 	return client, nil
 }
 
-func chooseHandler(ctx context.Context, logger *app.JSONLogger, pool *pgxpool.Pool, directPool *pgxpool.Pool, rdb *redis.Client, bus eventbus.EventBus, q queue.JobQueue, cfg app.Config) (consumer.Handler, error) {
+func chooseHandler(ctx context.Context, logger *slog.Logger, pool *pgxpool.Pool, directPool *pgxpool.Pool, rdb *redis.Client, bus eventbus.EventBus, q queue.JobQueue, cfg app.Config) (consumer.Handler, error) {
 	if logger == nil {
-		logger = app.NewJSONLogger("worker_go", nil)
+		logger = slog.Default()
 	}
 	if pool == nil {
 		return nil, fmt.Errorf("pool must not be nil")
@@ -240,13 +246,13 @@ func chooseHandler(ctx context.Context, logger *app.JSONLogger, pool *pgxpool.Po
 	if err != nil {
 		return nil, err
 	}
-	logger.Info("worker_go native handler enabled", app.LogFields{}, map[string]any{"job_type": queue.RunExecuteJobType})
+	logger.Info("worker_go native handler enabled", "job_type", queue.RunExecuteJobType)
 
 	delivery, err := webhook.NewDeliveryHandler(pool, q, logger)
 	if err != nil {
 		return nil, err
 	}
-	logger.Info("webhook delivery handler enabled", app.LogFields{}, map[string]any{"job_type": queue.WebhookDeliverJobType})
+	logger.Info("webhook delivery handler enabled", "job_type", queue.WebhookDeliverJobType)
 
 	emailHandler, err := email.NewSendHandler(configResolver, logger)
 	if err != nil {
@@ -255,9 +261,9 @@ func chooseHandler(ctx context.Context, logger *app.JSONLogger, pool *pgxpool.Po
 	emailHandler.SetSmtpProvider(email.NewPGSmtpProvider(pool))
 	from, _ := configResolver.Resolve(context.Background(), "email.from", sharedconfig.Scope{})
 	if strings.TrimSpace(from) != "" {
-		logger.Info("email send handler enabled", app.LogFields{}, map[string]any{"job_type": queue.EmailSendJobType, "from": strings.TrimSpace(from)})
+		logger.Info("email send handler enabled", "job_type", queue.EmailSendJobType, "from", strings.TrimSpace(from))
 	} else {
-		logger.Info("email send handler ready", app.LogFields{}, map[string]any{"job_type": queue.EmailSendJobType})
+		logger.Info("email send handler ready", "job_type", queue.EmailSendJobType)
 	}
 
 	return &dispatchHandler{

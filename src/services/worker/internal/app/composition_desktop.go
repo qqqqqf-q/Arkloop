@@ -272,6 +272,10 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 		routing.DefaultRoutingConfig(),
 	)
 
+	if err := cleanupOrphanSkillRuntimes(ctx, db); err != nil {
+		slog.WarnContext(ctx, "desktop: orphan skill runtime cleanup failed", "err", err.Error())
+	}
+
 	return &DesktopEngine{
 		db:                     db,
 		bus:                    bus,

@@ -1,8 +1,8 @@
 package app
 
 import (
-	"bytes"
 	"context"
+	"log/slog"
 	"strings"
 	"testing"
 	"time"
@@ -16,7 +16,7 @@ func TestNewApplicationRejectsNilLogger(t *testing.T) {
 }
 
 func TestApplicationRunStopsOnContextCancel(t *testing.T) {
-	logger := NewJSONLogger("worker_go", &bytes.Buffer{})
+	logger := slog.Default()
 	application, err := NewApplication(DefaultConfig(), logger)
 	if err != nil {
 		t.Fatalf("NewApplication returned error: %v", err)
@@ -51,7 +51,7 @@ func TestNewApplicationRejectsInvalidConfig(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Concurrency = 0
 
-	logger := NewJSONLogger("worker_go", &bytes.Buffer{})
+	logger := slog.Default()
 	_, err := NewApplication(cfg, logger)
 	if err == nil {
 		t.Fatal("expected error but got nil")

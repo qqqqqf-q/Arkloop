@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"html"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/netip"
@@ -17,7 +18,6 @@ import (
 
 	sharedoutbound "arkloop/services/shared/outboundurl"
 
-	"arkloop/services/worker/internal/app"
 	"arkloop/services/worker/internal/queue"
 
 	"github.com/google/uuid"
@@ -37,11 +37,11 @@ const (
 type DeliveryHandler struct {
 	pool       *pgxpool.Pool
 	queue      queue.JobQueue
-	logger     *app.JSONLogger
+	logger     *slog.Logger
 	httpClient *http.Client
 }
 
-func NewDeliveryHandler(pool *pgxpool.Pool, q queue.JobQueue, logger *app.JSONLogger) (*DeliveryHandler, error) {
+func NewDeliveryHandler(pool *pgxpool.Pool, q queue.JobQueue, logger *slog.Logger) (*DeliveryHandler, error) {
 	if pool == nil {
 		return nil, fmt.Errorf("pool must not be nil")
 	}
@@ -49,7 +49,7 @@ func NewDeliveryHandler(pool *pgxpool.Pool, q queue.JobQueue, logger *app.JSONLo
 		return nil, fmt.Errorf("queue must not be nil")
 	}
 	if logger == nil {
-		logger = app.NewJSONLogger("webhook", nil)
+		logger = slog.Default()
 	}
 	return &DeliveryHandler{
 		pool:       pool,
@@ -79,29 +79,27 @@ func isPrivateIP(ip net.IP) bool {
 func (h *DeliveryHandler) Handle(ctx context.Context, lease queue.JobLease) error {
 	p, err := parseDeliveryPayload(lease.PayloadJSON)
 	if err != nil {
-		h.logger.Error("invalid webhook.deliver payload", app.LogFields{JobID: strPtr(lease.JobID.String())}, map[string]any{"error": err.Error()})
+		h.logger.Error("invalid webhook.deliver payload", "job_id", lease.JobID.String(), "error", err.Error())
 		// 格式错误不重试，直接 ack（返回 nil）
 		return nil
 	}
 
-	fields := app.LogFields{
-		JobID: strPtr(lease.JobID.String()),
-		AccountID: strPtr(p.AccountID.String()),
-	}
+	jobID := lease.JobID.String()
+	accountID := p.AccountID.String()
 
 	// 查询端点配置
 	ep, disabled, err := getWebhookEndpoint(ctx, h.pool, p.EndpointID)
 	if err != nil {
-		h.logger.Error("fetch webhook endpoint failed", fields, map[string]any{"error": err.Error()})
+		h.logger.Error("fetch webhook endpoint failed", "job_id", jobID, "account_id", accountID, "error", err.Error())
 		return fmt.Errorf("get webhook endpoint: %w", err)
 	}
 	if ep == nil {
 		if disabled {
-			h.logger.Info("webhook endpoint disabled, skip", fields, nil)
+			h.logger.Info("webhook endpoint disabled, skip", "job_id", jobID, "account_id", accountID)
 		} else {
-			h.logger.Info("webhook endpoint not found, skip", fields, nil)
+			h.logger.Info("webhook endpoint not found, skip", "job_id", jobID, "account_id", accountID)
 			if err := markDeliveryFailed(ctx, h.pool, p.DeliveryID, lease.Attempts, nil, nil); err != nil {
-				h.logger.Error("mark delivery failed error", fields, map[string]any{"error": err.Error()})
+				h.logger.Error("mark delivery failed error", "job_id", jobID, "account_id", accountID, "error", err.Error())
 			}
 		}
 		return nil
@@ -118,8 +116,8 @@ func (h *DeliveryHandler) Handle(ctx context.Context, lease queue.JobLease) erro
 	// 发起 HTTP POST
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, ep.URL, strings.NewReader(string(payloadBytes)))
 	if err != nil {
-		h.logger.Error("create http request failed", fields, map[string]any{"error": err.Error()})
-		return h.handleFailure(ctx, p, lease, fields, nil, err.Error())
+		h.logger.Error("create http request failed", "job_id", jobID, "account_id", accountID, "error", err.Error())
+		return h.handleFailure(ctx, p, lease, jobID, accountID, nil, err.Error())
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Arkloop-Signature", "sha256="+signature)
@@ -129,28 +127,28 @@ func (h *DeliveryHandler) Handle(ctx context.Context, lease queue.JobLease) erro
 
 	resp, err := h.httpClient.Do(req)
 	if err != nil {
-		h.logger.Error("webhook http post failed", fields, map[string]any{"url": ep.URL, "error": err.Error()})
-		return h.handleFailure(ctx, p, lease, fields, nil, err.Error())
+		h.logger.Error("webhook http post failed", "job_id", jobID, "account_id", accountID, "url", ep.URL, "error", err.Error())
+		return h.handleFailure(ctx, p, lease, jobID, accountID, nil, err.Error())
 	}
 	defer resp.Body.Close()
 
 	bodyBytes, readErr := io.ReadAll(io.LimitReader(resp.Body, 4096))
 	if readErr != nil {
-		h.logger.Error("read webhook response body failed", fields, map[string]any{"error": readErr.Error()})
+		h.logger.Error("read webhook response body failed", "job_id", jobID, "account_id", accountID, "error", readErr.Error())
 	}
 	bodyStr := sanitizeWebhookResponseBody(bodyBytes)
 	statusCode := resp.StatusCode
 
 	if statusCode >= 200 && statusCode < 300 {
 		if err := markDeliveryDelivered(ctx, h.pool, p.DeliveryID, lease.Attempts+1, statusCode, bodyStr); err != nil {
-			h.logger.Error("mark delivery delivered failed", fields, map[string]any{"error": err.Error()})
+			h.logger.Error("mark delivery delivered failed", "job_id", jobID, "account_id", accountID, "error", err.Error())
 		}
-		h.logger.Info("webhook delivered", fields, map[string]any{"url": ep.URL, "status": statusCode})
+		h.logger.Info("webhook delivered", "job_id", jobID, "account_id", accountID, "url", ep.URL, "status", statusCode)
 		return nil
 	}
 
-	h.logger.Info("webhook non-2xx response", fields, map[string]any{"url": ep.URL, "status": statusCode})
-	return h.handleFailure(ctx, p, lease, fields, &statusCode, bodyStr)
+	h.logger.Info("webhook non-2xx response", "job_id", jobID, "account_id", accountID, "url", ep.URL, "status", statusCode)
+	return h.handleFailure(ctx, p, lease, jobID, accountID, &statusCode, bodyStr)
 }
 
 // handleFailure 在投递失败时决定是重试还是最终失败。
@@ -158,19 +156,20 @@ func (h *DeliveryHandler) handleFailure(
 	ctx context.Context,
 	p deliveryPayload,
 	lease queue.JobLease,
-	fields app.LogFields,
+	jobID string,
+	accountID string,
 	statusCode *int,
 	responseBody string,
 ) error {
 	attempts := lease.Attempts + 1
 	if err := updateDeliveryAttempt(ctx, h.pool, p.DeliveryID, attempts, statusCode, responseBody); err != nil {
-		h.logger.Error("update delivery attempt failed", fields, map[string]any{"error": err.Error()})
+		h.logger.Error("update delivery attempt failed", "job_id", jobID, "account_id", accountID, "error", err.Error())
 	}
 
 	if attempts >= maxDeliveryAttempts {
-		h.logger.Info("webhook max attempts reached, mark failed", fields, map[string]any{"attempts": attempts})
+		h.logger.Info("webhook max attempts reached, mark failed", "job_id", jobID, "account_id", accountID, "attempts", attempts)
 		if err := markDeliveryFailed(ctx, h.pool, p.DeliveryID, attempts, statusCode, &responseBody); err != nil {
-			h.logger.Error("mark delivery failed error", fields, map[string]any{"error": err.Error()})
+			h.logger.Error("mark delivery failed error", "job_id", jobID, "account_id", accountID, "error", err.Error())
 		}
 		return nil
 	}
@@ -189,9 +188,9 @@ func (h *DeliveryHandler) handleFailure(
 		"payload":     p.Payload,
 	}
 	if _, err := h.queue.EnqueueRun(ctx, p.AccountID, p.RunID, p.TraceID, DeliverJobType, newPayload, &availableAt); err != nil {
-		h.logger.Error("re-enqueue webhook deliver failed, marking delivery as failed", fields, map[string]any{"error": err.Error()})
+		h.logger.Error("re-enqueue webhook deliver failed, marking delivery as failed", "job_id", jobID, "account_id", accountID, "error", err.Error())
 		if markErr := markDeliveryFailed(ctx, h.pool, p.DeliveryID, attempts, statusCode, &responseBody); markErr != nil {
-			h.logger.Error("mark delivery failed error", fields, map[string]any{"error": markErr.Error()})
+			h.logger.Error("mark delivery failed error", "job_id", jobID, "account_id", accountID, "error", markErr.Error())
 		}
 	}
 	return nil
@@ -199,7 +198,7 @@ func (h *DeliveryHandler) handleFailure(
 
 // deliveryPayload 是 webhook.deliver job 的载荷结构。
 type deliveryPayload struct {
-	AccountID      uuid.UUID
+	AccountID  uuid.UUID
 	RunID      uuid.UUID
 	TraceID    string
 	EndpointID uuid.UUID
@@ -239,7 +238,7 @@ func parseDeliveryPayload(raw map[string]any) (deliveryPayload, error) {
 	payload, _ := inner["payload"].(map[string]any)
 
 	return deliveryPayload{
-		AccountID:      accountID,
+		AccountID:  accountID,
 		RunID:      runID,
 		TraceID:    traceID,
 		EndpointID: endpointID,
@@ -253,7 +252,7 @@ func sanitizeWebhookResponseBody(body []byte) string {
 	if len(body) == 0 {
 		return ""
 	}
-	normalized := strings.ToValidUTF8(string(body), "�")
+	normalized := strings.ToValidUTF8(string(body), "")
 	return html.EscapeString(normalized)
 }
 
@@ -279,8 +278,4 @@ func requiredUUID(values map[string]any, key string) (uuid.UUID, error) {
 		return uuid.Nil, fmt.Errorf("%s is not a valid UUID", key)
 	}
 	return id, nil
-}
-
-func strPtr(s string) *string {
-	return &s
 }

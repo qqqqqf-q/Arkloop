@@ -3,11 +3,11 @@ package email
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 
 	sharedconfig "arkloop/services/shared/config"
-	"arkloop/services/worker/internal/app"
 	"arkloop/services/worker/internal/queue"
 )
 
@@ -31,12 +31,12 @@ type SmtpDefaultProvider interface {
 type SendHandler struct {
 	resolver     sharedconfig.Resolver
 	smtpProvider SmtpDefaultProvider // 可选，nil 时仅使用 resolver
-	logger       *app.JSONLogger
+	logger       *slog.Logger
 }
 
-func NewSendHandler(resolver sharedconfig.Resolver, logger *app.JSONLogger) (*SendHandler, error) {
+func NewSendHandler(resolver sharedconfig.Resolver, logger *slog.Logger) (*SendHandler, error) {
 	if logger == nil {
-		logger = app.NewJSONLogger("email", nil)
+		logger = slog.Default()
 	}
 	return &SendHandler{resolver: resolver, logger: logger}, nil
 }
@@ -48,45 +48,44 @@ func (h *SendHandler) SetSmtpProvider(p SmtpDefaultProvider) {
 
 func (h *SendHandler) Handle(ctx context.Context, lease queue.JobLease) error {
 	jobID := lease.JobID.String()
-	fields := app.LogFields{JobID: &jobID}
 
 	msg, err := parseEmailPayload(lease.PayloadJSON)
 	if err != nil {
-		h.logger.Error("invalid email.send payload", fields, map[string]any{"error": err.Error()})
+		h.logger.Error("invalid email.send payload", "job_id", jobID, "error", err.Error())
 		return nil // 格式错误不重试
 	}
 
 	cfg, cfgErr := h.resolveConfig(ctx)
 	if cfgErr != nil {
-		h.logger.Error("email config load failed", fields, map[string]any{"error": cfgErr.Error(), "attempts": lease.Attempts})
+		h.logger.Error("email config load failed", "job_id", jobID, "error", cfgErr.Error(), "attempts", lease.Attempts)
 		if lease.Attempts+1 >= maxEmailAttempts {
-			h.logger.Error("email max attempts reached, dropping", fields, map[string]any{"to": msg.To})
+			h.logger.Error("email max attempts reached, dropping", "job_id", jobID, "to", msg.To)
 			return nil
 		}
 		return fmt.Errorf("email config: %w", cfgErr)
 	}
 
 	if !cfg.Enabled() {
-		h.logger.Warn("email.send dropped: no SMTP configured", fields, map[string]any{"to": msg.To})
+		h.logger.Warn("email.send dropped: no SMTP configured", "job_id", jobID, "to", msg.To)
 		return nil
 	}
 
 	mailer := NewMailer(cfg)
 	if err := mailer.Send(ctx, msg); err != nil {
-		h.logger.Error("email send failed", fields, map[string]any{
-			"to":       msg.To,
-			"subject":  msg.Subject,
-			"attempts": lease.Attempts,
-			"error":    err.Error(),
-		})
+		h.logger.Error("email send failed", "job_id", jobID,
+			"to", msg.To,
+			"subject", msg.Subject,
+			"attempts", lease.Attempts,
+			"error", err.Error(),
+		)
 		if lease.Attempts+1 >= maxEmailAttempts {
-			h.logger.Error("email max attempts reached, dropping", fields, map[string]any{"to": msg.To})
+			h.logger.Error("email max attempts reached, dropping", "job_id", jobID, "to", msg.To)
 			return nil
 		}
 		return fmt.Errorf("email send: %w", err)
 	}
 
-	h.logger.Info("email sent", fields, map[string]any{"to": msg.To, "subject": msg.Subject})
+	h.logger.Info("email sent", "job_id", jobID, "to", msg.To, "subject", msg.Subject)
 	return nil
 }
 

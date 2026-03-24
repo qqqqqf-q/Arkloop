@@ -6,9 +6,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"arkloop/services/shared/desktop"
 	"arkloop/services/shared/objectstore"
@@ -251,4 +253,102 @@ func atomicWriteDesktopFile(targetPath string, data []byte, mode os.FileMode) er
 		return err
 	}
 	return os.Rename(tempPath, targetPath)
+}
+
+func cleanupOrphanSkillRuntimes(ctx context.Context, db data.DesktopDB) error {
+	dataDir, err := desktop.ResolveDataDir("")
+	if err != nil {
+		return err
+	}
+	runtimeRoot := filepath.Join(dataDir, "runtime", "skills")
+	entries, err := os.ReadDir(runtimeRoot)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+
+	var dirNames []string
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		if _, err := uuid.Parse(e.Name()); err != nil {
+			continue
+		}
+		dirNames = append(dirNames, e.Name())
+	}
+	if len(dirNames) == 0 {
+		return nil
+	}
+
+	if db != nil {
+		activeIDs, err := queryActiveRunIDs(ctx, db, dirNames)
+		if err != nil {
+			slog.WarnContext(ctx, "desktop: orphan cleanup: db query failed, fallback to mtime", "err", err)
+			return cleanupOrphanByMtime(runtimeRoot, dirNames)
+		}
+		for _, name := range dirNames {
+			if _, active := activeIDs[name]; active {
+				continue
+			}
+			target := filepath.Join(runtimeRoot, name)
+			if err := os.RemoveAll(target); err != nil && !os.IsNotExist(err) {
+				slog.WarnContext(ctx, "desktop: remove orphan skill runtime", "dir", name, "err", err)
+			} else {
+				slog.InfoContext(ctx, "desktop: removed orphan skill runtime", "dir", name)
+			}
+		}
+		return nil
+	}
+	return cleanupOrphanByMtime(runtimeRoot, dirNames)
+}
+
+// queryActiveRunIDs 返回 ids 中状态为非终态的 run id 集合。
+// SQLite 不支持 ANY($1)，动态构建 IN 占位符。
+func queryActiveRunIDs(ctx context.Context, db data.DesktopDB, ids []string) (map[string]struct{}, error) {
+	placeholders := make([]string, len(ids))
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		placeholders[i] = fmt.Sprintf("$%d", i+1)
+		args[i] = id
+	}
+	query := fmt.Sprintf(
+		`SELECT id FROM runs WHERE id IN (%s) AND status NOT IN ('completed', 'failed', 'cancelled')`,
+		strings.Join(placeholders, ","),
+	)
+	rows, err := db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	active := make(map[string]struct{})
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		active[id] = struct{}{}
+	}
+	return active, rows.Err()
+}
+
+func cleanupOrphanByMtime(runtimeRoot string, dirNames []string) error {
+	cutoff := time.Now().Add(-24 * time.Hour)
+	for _, name := range dirNames {
+		target := filepath.Join(runtimeRoot, name)
+		info, err := os.Stat(target)
+		if err != nil {
+			continue
+		}
+		if info.ModTime().Before(cutoff) {
+			if err := os.RemoveAll(target); err != nil && !os.IsNotExist(err) {
+				slog.Warn("desktop: remove orphan skill runtime (mtime)", "dir", name, "err", err)
+			} else {
+				slog.Info("desktop: removed orphan skill runtime (mtime)", "dir", name)
+			}
+		}
+	}
+	return nil
 }

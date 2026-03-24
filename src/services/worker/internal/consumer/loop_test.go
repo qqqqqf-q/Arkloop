@@ -3,11 +3,11 @@ package consumer
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"sync"
 	"testing"
 	"time"
 
-	"arkloop/services/worker/internal/app"
 	"arkloop/services/worker/internal/queue"
 	"github.com/google/uuid"
 )
@@ -145,7 +145,7 @@ func TestRun_ShutdownDoesNotReturnContextCanceled(t *testing.T) {
 		fakeQueue := &cancelLeaseQueue{started: started}
 		handler := &stubHandler{}
 
-		logger := app.NewJSONLogger("worker_go_test", nil)
+		logger := slog.Default()
 		loop, err := NewLoop(fakeQueue, handler, nil, Config{
 			Concurrency:      1,
 			PollSeconds:      0,
@@ -185,7 +185,7 @@ func TestRun_ShutdownDoesNotReturnContextCanceled(t *testing.T) {
 
 func newLoopForTest(t *testing.T, q *stubQueue, h *stubHandler, locker RunLocker, cfg Config) *Loop {
 	t.Helper()
-	logger := app.NewJSONLogger("worker_go_test", nil)
+	logger := slog.Default()
 	loop, err := NewLoop(q, h, locker, cfg, logger, nil)
 	if err != nil {
 		t.Fatalf("NewLoop failed: %v", err)

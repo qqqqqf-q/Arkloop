@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -10,10 +11,10 @@ import (
 
 type Application struct {
 	config Config
-	logger *JSONLogger
+	logger *slog.Logger
 }
 
-func NewApplication(config Config, logger *JSONLogger) (*Application, error) {
+func NewApplication(config Config, logger *slog.Logger) (*Application, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}

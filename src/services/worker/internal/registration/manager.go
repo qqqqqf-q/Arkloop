@@ -4,11 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"sync/atomic"
 	"time"
-
-	"arkloop/services/worker/internal/app"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -37,10 +36,10 @@ type Manager struct {
 	currentLoad    atomic.Int32
 	pool           *pgxpool.Pool
 	rdb            *redis.Client
-	logger         *app.JSONLogger
+	logger         *slog.Logger
 }
 
-func NewManager(pool *pgxpool.Pool, rdb *redis.Client, cfg Config, logger *app.JSONLogger) (*Manager, error) {
+func NewManager(pool *pgxpool.Pool, rdb *redis.Client, cfg Config, logger *slog.Logger) (*Manager, error) {
 	if pool == nil {
 		return nil, fmt.Errorf("pool must not be nil")
 	}
@@ -48,7 +47,7 @@ func NewManager(pool *pgxpool.Pool, rdb *redis.Client, cfg Config, logger *app.J
 		return nil, fmt.Errorf("redis client must not be nil")
 	}
 	if logger == nil {
-		logger = app.NewJSONLogger("worker_go", nil)
+		logger = slog.Default()
 	}
 
 	hostname, err := os.Hostname()
@@ -129,11 +128,11 @@ func (m *Manager) Register(ctx context.Context) error {
 		return fmt.Errorf("register redis: %w", err)
 	}
 
-	m.logger.Info("worker registered", app.LogFields{}, map[string]any{
-		"worker_id":    m.workerID.String(),
-		"hostname":     m.hostname,
-		"capabilities": m.capabilities,
-	})
+	m.logger.Info("worker registered",
+		"worker_id", m.workerID.String(),
+		"hostname", m.hostname,
+		"capabilities", m.capabilities,
+	)
 	return nil
 }
 
@@ -152,7 +151,7 @@ func (m *Manager) heartbeatLoop(ctx context.Context) {
 			return
 		case <-ticker.C:
 			if err := m.heartbeat(ctx); err != nil {
-				m.logger.Error("heartbeat failed", app.LogFields{}, map[string]any{"error": err.Error()})
+				m.logger.Error("heartbeat failed", "error", err.Error())
 			}
 		}
 	}

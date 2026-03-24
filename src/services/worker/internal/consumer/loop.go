@@ -4,11 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"arkloop/services/worker/internal/app"
 	"arkloop/services/worker/internal/queue"
 	"github.com/google/uuid"
 )
@@ -24,7 +24,7 @@ type Loop struct {
 	handler  Handler
 	locker   RunLocker
 	config   Config
-	logger   *app.JSONLogger
+	logger   *slog.Logger
 	notifier WorkNotifier
 
 	// targetWorkers is the desired number of running goroutines. Accessed only
@@ -39,7 +39,7 @@ func NewLoop(
 	handler Handler,
 	locker RunLocker,
 	config Config,
-	logger *app.JSONLogger,
+	logger *slog.Logger,
 	notifier WorkNotifier,
 ) (*Loop, error) {
 	if queueClient == nil {
@@ -76,7 +76,7 @@ func NewLoop(
 		return nil, err
 	}
 	if logger == nil {
-		logger = app.NewJSONLogger("worker_go", nil)
+		logger = slog.Default()
 	}
 
 	initial := config.Concurrency
@@ -185,7 +185,7 @@ func (l *Loop) Run(ctx context.Context) error {
 func (l *Loop) evaluateScaling(ctx context.Context, active int) int {
 	depth, err := l.queue.QueueDepth(ctx, l.config.QueueJobTypes)
 	if err != nil {
-		l.logger.Error("queue depth query failed", app.LogFields{}, map[string]any{"error": err.Error()})
+		l.logger.Error("queue depth query failed", "error", err.Error())
 		return int(l.targetWorkers.Load())
 	}
 
@@ -212,12 +212,12 @@ func (l *Loop) evaluateScaling(ctx context.Context, active int) int {
 			next = l.config.MaxConcurrency
 		}
 		l.scaleCooldown = now.Add(time.Duration(l.config.ScaleCooldownSecs * float64(time.Second)))
-		l.logger.Info("scaling up workers", app.LogFields{}, map[string]any{
-			"from":        current,
-			"to":          next,
-			"queue_depth": depth,
-			"active":      active,
-		})
+		l.logger.Info("scaling up workers",
+			"from", current,
+			"to", next,
+			"queue_depth", depth,
+			"active", active,
+		)
 		return next
 	}
 
@@ -225,12 +225,12 @@ func (l *Loop) evaluateScaling(ctx context.Context, active int) int {
 	if depth < l.config.ScaleDownThreshold*active && current > l.config.MinConcurrency && now.After(l.scaleCooldown) {
 		next := current - 1
 		l.scaleCooldown = now.Add(time.Duration(l.config.ScaleCooldownSecs * float64(time.Second)))
-		l.logger.Info("scaling down workers", app.LogFields{}, map[string]any{
-			"from":        current,
-			"to":          next,
-			"queue_depth": depth,
-			"active":      active,
-		})
+		l.logger.Info("scaling down workers",
+			"from", current,
+			"to", next,
+			"queue_depth", depth,
+			"active", active,
+		)
 		return next
 	}
 
@@ -268,7 +268,7 @@ func (l *Loop) RunOnce(ctx context.Context) (bool, error) {
 		}
 		// Treat transient Lease errors (DB blip, pool timeout) as no-op so the
 		// worker goroutine backs off via waitForWork rather than fatally exits.
-		l.logger.Error("lease job 失败", app.LogFields{}, map[string]any{"error": err.Error()})
+		l.logger.Error("lease job 失败", "error", err.Error())
 		return false, nil
 	}
 	if lease == nil {
@@ -280,20 +280,23 @@ func (l *Loop) RunOnce(ctx context.Context) (bool, error) {
 }
 
 func (l *Loop) processLease(ctx context.Context, lease queue.JobLease) {
-	fields := fieldsFromLease(lease)
+	jobID := lease.JobID.String()
+	traceID := stringValue(lease.PayloadJSON, "trace_id")
+	accountID := stringValue(lease.PayloadJSON, "account_id")
+	runID := stringValue(lease.PayloadJSON, "run_id")
 
 	payloadType := stringValue(lease.PayloadJSON, "type")
 	if l.locker != nil && payloadType == queue.RunExecuteJobType {
-		runID, ok := extractRunID(lease.PayloadJSON)
+		parsedRunID, ok := extractRunID(lease.PayloadJSON)
 		if ok {
-			unlock, acquired, err := l.locker.TryAcquire(ctx, runID)
+			unlock, acquired, err := l.locker.TryAcquire(ctx, parsedRunID)
 			if err != nil {
-				l.logger.Error("acquire advisory lock failed", fields, map[string]any{"error": err.Error()})
+				l.logger.Error("acquire advisory lock failed", "job_id", jobID, "trace_id", traceID, "account_id", accountID, "run_id", runID, "error", err.Error())
 				l.safeNack(ctx, lease, nil)
 				return
 			}
 			if !acquired {
-				l.logger.Info("run already executing, deferring retry", fields, nil)
+				l.logger.Info("run already executing, deferring retry", "job_id", jobID, "trace_id", traceID, "account_id", accountID, "run_id", runID)
 				l.safeNack(ctx, lease, nil)
 				return
 			}
@@ -302,7 +305,7 @@ func (l *Loop) processLease(ctx context.Context, lease queue.JobLease) {
 					return
 				}
 				if err := unlock(context.Background()); err != nil {
-					l.logger.Error("release advisory lock failed", fields, map[string]any{"error": err.Error()})
+					l.logger.Error("release advisory lock failed", "job_id", jobID, "trace_id", traceID, "account_id", accountID, "run_id", runID, "error", err.Error())
 				}
 			}()
 		}
@@ -339,22 +342,26 @@ func (l *Loop) processLease(ctx context.Context, lease queue.JobLease) {
 		if reason == "lease_lost" {
 			return
 		}
-		l.logger.Error("heartbeat consecutive failures, stopped current job", fields, map[string]any{"reason": reason})
+		l.logger.Error("heartbeat consecutive failures, stopped current job", "job_id", jobID, "trace_id", traceID, "account_id", accountID, "run_id", runID, "reason", reason)
 		l.safeNack(ctx, lease, nil)
 	}
 }
 
 func (l *Loop) settleJob(ctx context.Context, lease queue.JobLease, runErr error) {
-	fields := fieldsFromLease(lease)
+	jobID := lease.JobID.String()
+	traceID := stringValue(lease.PayloadJSON, "trace_id")
+	accountID := stringValue(lease.PayloadJSON, "account_id")
+	runID := stringValue(lease.PayloadJSON, "run_id")
+
 	if runErr == nil {
 		l.safeAck(ctx, lease)
 		return
 	}
 	if errors.Is(runErr, context.Canceled) {
-		l.logger.Info("job cancelled", fields, nil)
+		l.logger.Info("job cancelled", "job_id", jobID, "trace_id", traceID, "account_id", accountID, "run_id", runID)
 		return
 	}
-	l.logger.Error("job execution failed, will nack for retry", fields, map[string]any{"error": runErr.Error()})
+	l.logger.Error("job execution failed, will nack for retry", "job_id", jobID, "trace_id", traceID, "account_id", accountID, "run_id", runID, "error", runErr.Error())
 	l.safeNack(ctx, lease, nil)
 }
 
@@ -363,10 +370,10 @@ func (l *Loop) heartbeatEnabled() bool {
 		return false
 	}
 	if l.config.HeartbeatSeconds >= float64(l.config.LeaseSeconds) {
-		l.logger.Info("heartbeat_seconds must be less than lease_seconds, auto-disabled", app.LogFields{}, map[string]any{
-			"heartbeat_seconds": l.config.HeartbeatSeconds,
-			"lease_seconds":     l.config.LeaseSeconds,
-		})
+		l.logger.Info("heartbeat_seconds must be less than lease_seconds, auto-disabled",
+			"heartbeat_seconds", l.config.HeartbeatSeconds,
+			"lease_seconds", l.config.LeaseSeconds,
+		)
 		return false
 	}
 	return true
@@ -382,7 +389,10 @@ func (l *Loop) heartbeatLoop(
 	defer ticker.Stop()
 
 	consecutiveErrors := 0
-	fields := fieldsFromLease(lease)
+	jobID := lease.JobID.String()
+	traceID := stringValue(lease.PayloadJSON, "trace_id")
+	accountID := stringValue(lease.PayloadJSON, "account_id")
+	runID := stringValue(lease.PayloadJSON, "run_id")
 
 	for {
 		select {
@@ -404,7 +414,7 @@ func (l *Loop) heartbeatLoop(
 			}
 
 			consecutiveErrors++
-			l.logger.Error("job heartbeat failed", fields, map[string]any{"error": err.Error()})
+			l.logger.Error("job heartbeat failed", "job_id", jobID, "trace_id", traceID, "account_id", accountID, "run_id", runID, "error", err.Error())
 			if consecutiveErrors >= heartbeatMaxConsecutiveErrors {
 				sendReason(reason, "too_many_errors")
 				return
@@ -427,10 +437,10 @@ func (l *Loop) safeAck(ctx context.Context, lease queue.JobLease) {
 	}
 	var leaseLost *queue.LeaseLostError
 	if errors.As(err, &leaseLost) {
-		l.logger.Info("ack failed: lease lost", fieldsFromLease(lease), nil)
+		l.logger.Info("ack failed: lease lost", "job_id", lease.JobID.String())
 		return
 	}
-	l.logger.Error("ack failed", fieldsFromLease(lease), map[string]any{"error": err.Error()})
+	l.logger.Error("ack failed", "job_id", lease.JobID.String(), "error", err.Error())
 }
 
 func (l *Loop) safeNack(ctx context.Context, lease queue.JobLease, delay *int) {
@@ -440,10 +450,10 @@ func (l *Loop) safeNack(ctx context.Context, lease queue.JobLease, delay *int) {
 	}
 	var leaseLost *queue.LeaseLostError
 	if errors.As(err, &leaseLost) {
-		l.logger.Info("nack failed: lease lost", fieldsFromLease(lease), nil)
+		l.logger.Info("nack failed: lease lost", "job_id", lease.JobID.String())
 		return
 	}
-	l.logger.Error("nack failed", fieldsFromLease(lease), map[string]any{"error": err.Error()})
+	l.logger.Error("nack failed", "job_id", lease.JobID.String(), "error", err.Error())
 }
 
 func extractRunID(payload map[string]any) (uuid.UUID, bool) {
@@ -462,20 +472,6 @@ func extractRunID(payload map[string]any) (uuid.UUID, bool) {
 	return runID, true
 }
 
-func fieldsFromLease(lease queue.JobLease) app.LogFields {
-	fields := app.LogFields{JobID: stringPtr(lease.JobID.String())}
-	if value := stringValue(lease.PayloadJSON, "trace_id"); value != "" {
-		fields.TraceID = stringPtr(value)
-	}
-	if value := stringValue(lease.PayloadJSON, "account_id"); value != "" {
-		fields.AccountID = stringPtr(value)
-	}
-	if value := stringValue(lease.PayloadJSON, "run_id"); value != "" {
-		fields.RunID = stringPtr(value)
-	}
-	return fields
-}
-
 func stringValue(values map[string]any, key string) string {
 	raw, ok := values[key]
 	if !ok {
@@ -486,9 +482,4 @@ func stringValue(values map[string]any, key string) string {
 		return ""
 	}
 	return text
-}
-
-func stringPtr(value string) *string {
-	copied := value
-	return &copied
 }

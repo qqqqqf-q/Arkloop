@@ -52,7 +52,7 @@ func RunDesktop(ctx context.Context) error {
 		return err
 	}
 
-	logger := app.NewJSONLogger("worker_go", os.Stdout)
+	logger := slog.Default()
 
 	bus, ok := desktop.GetEventBus().(eventbus.EventBus)
 	if !ok || bus == nil {
@@ -142,12 +142,12 @@ func RunDesktop(ctx context.Context) error {
 		return err
 	}
 
-	logger.Info("desktop worker entering consume mode", app.LogFields{}, map[string]any{
-		"concurrency":    concurrency,
-		"shared_sqlite":   !ownsDB,
-		"job_types":       cfg.QueueJobTypes,
-		"sqlite_path":     sqlitePath,
-	})
+	logger.Info("desktop worker entering consume mode",
+		"concurrency", concurrency,
+		"shared_sqlite", !ownsDB,
+		"job_types", cfg.QueueJobTypes,
+		"sqlite_path", sqlitePath,
+	)
 	return loop.Run(ctx)
 }
 
@@ -173,7 +173,7 @@ type desktopHandler struct {
 	db     data.DesktopDB
 	bus    eventbus.EventBus
 	engine *app.DesktopEngine
-	logger *app.JSONLogger
+	logger *slog.Logger
 }
 
 func (h *desktopHandler) Handle(ctx context.Context, lease queue.JobLease) error {
@@ -187,13 +187,7 @@ func (h *desktopHandler) Handle(ctx context.Context, lease queue.JobLease) error
 		return fmt.Errorf("parse run_id: %w", err)
 	}
 
-	fields := app.LogFields{
-		JobID:   strPtr(lease.JobID.String()),
-		TraceID: strPtr(traceID),
-		RunID:   strPtr(runIDStr),
-	}
-
-	h.logger.Info("desktop handler received job", fields, map[string]any{"job_type": jobType})
+	h.logger.Info("desktop handler received job", "job_id", lease.JobID.String(), "trace_id", traceID, "run_id", runIDStr, "job_type", jobType)
 	h.publishEvent(ctx, "worker.job.received", map[string]any{
 		"job_id":   lease.JobID.String(),
 		"job_type": jobType,
@@ -215,7 +209,7 @@ func (h *desktopHandler) Handle(ctx context.Context, lease queue.JobLease) error
 		return fmt.Errorf("get run: %w", err)
 	}
 	if run == nil {
-		h.logger.Info("run not found, skipped", fields, nil)
+		h.logger.Info("run not found, skipped", "job_id", lease.JobID.String(), "trace_id", traceID, "run_id", runIDStr)
 		return nil
 	}
 
@@ -226,7 +220,7 @@ func (h *desktopHandler) Handle(ctx context.Context, lease queue.JobLease) error
 		return fmt.Errorf("check terminal: %w", err)
 	}
 	if terminal != "" {
-		h.logger.Info("run already terminal, skipped", fields, map[string]any{"terminal_type": terminal})
+		h.logger.Info("run already terminal, skipped", "job_id", lease.JobID.String(), "trace_id", traceID, "run_id", runIDStr, "terminal_type", terminal)
 		return nil
 	}
 
@@ -259,7 +253,7 @@ func (h *desktopHandler) Handle(ctx context.Context, lease queue.JobLease) error
 		"run_id":   runIDStr,
 	})
 
-	h.logger.Info("desktop handler completed job", fields, nil)
+	h.logger.Info("desktop handler completed job", "job_id", lease.JobID.String(), "trace_id", traceID, "run_id", runIDStr)
 	return nil
 }
 
@@ -269,11 +263,6 @@ func (h *desktopHandler) publishEvent(ctx context.Context, topic string, payload
 		return
 	}
 	_ = h.bus.Publish(ctx, topic, string(raw))
-}
-
-func strPtr(v string) *string {
-	s := v
-	return &s
 }
 
 func leasePayloadMap(payloadJSON map[string]any) map[string]any {
