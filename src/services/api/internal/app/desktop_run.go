@@ -30,8 +30,8 @@ import (
 	"arkloop/services/shared/database/sqliteadapter"
 	"arkloop/services/shared/database/sqlitepgx"
 	"arkloop/services/shared/desktop"
+	sharedlog "arkloop/services/shared/log"
 	"arkloop/services/shared/objectstore"
-	"log/slog"
 )
 
 func desktopJWTSecretValue() string {
@@ -53,7 +53,7 @@ func RunDesktop(ctx context.Context) error {
 		return fmt.Errorf("load config: %w", err)
 	}
 
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	logger := sharedlog.New(sharedlog.Config{Component: "api"})
 
 	// ---- data directory ----
 
