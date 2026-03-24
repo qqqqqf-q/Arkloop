@@ -91,6 +91,18 @@ func (MemorySnapshotRepository) UpsertWithHits(ctx context.Context, pool *pgxpoo
 	return err
 }
 
+// Invalidate 清空快照内容与命中缓存，避免 prompt 继续引用已失真的旧视图。
+func (MemorySnapshotRepository) Invalidate(ctx context.Context, pool *pgxpool.Pool, accountID, userID uuid.UUID, agentID string) error {
+	_, err := pool.Exec(ctx,
+		`INSERT INTO user_memory_snapshots (account_id, user_id, agent_id, memory_block, hits_json, updated_at)
+		 VALUES ($1, $2, $3, '', NULL, now())
+		 ON CONFLICT (account_id, user_id, agent_id)
+		 DO UPDATE SET memory_block = '', hits_json = NULL, updated_at = now()`,
+		accountID, userID, agentID,
+	)
+	return err
+}
+
 // AppendMemoryLine 原子追加一条 memory 行，避免并发写互相覆盖。
 func (MemorySnapshotRepository) AppendMemoryLine(ctx context.Context, pool *pgxpool.Pool, accountID, userID uuid.UUID, agentID, line string) error {
 	if pool == nil {

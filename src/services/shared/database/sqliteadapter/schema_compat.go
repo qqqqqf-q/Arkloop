@@ -27,6 +27,9 @@ func repairLegacySchemas(ctx context.Context, db *sql.DB) error {
 	if err := repairHeartbeatPersonaColumns(ctx, db); err != nil {
 		return err
 	}
+	if err := repairChannelOwnerUserIDColumn(ctx, db); err != nil {
+		return err
+	}
 	needsChannelRepair, err := channelsNeedSecretsReferenceRepair(ctx, db)
 	if err != nil {
 		return err
@@ -42,6 +45,28 @@ func repairLegacySchemas(ctx context.Context, db *sql.DB) error {
 	}()
 	if err := rebuildChannelTablesForSecretsRepair(ctx, db); err != nil {
 		return err
+	}
+	return nil
+}
+
+func repairChannelOwnerUserIDColumn(ctx context.Context, db *sql.DB) error {
+	exists, err := sqliteTableExists(ctx, db, "channels")
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return nil
+	}
+	cols, err := sqliteTableColumns(ctx, db, "channels")
+	if err != nil {
+		return err
+	}
+	if hasSQLiteColumns(cols, "owner_user_id") {
+		return nil
+	}
+	if _, err := db.ExecContext(ctx,
+		`ALTER TABLE channels ADD COLUMN owner_user_id TEXT REFERENCES users(id) ON DELETE SET NULL`); err != nil {
+		return fmt.Errorf("sqliteadapter: add channels.owner_user_id: %w", err)
 	}
 	return nil
 }

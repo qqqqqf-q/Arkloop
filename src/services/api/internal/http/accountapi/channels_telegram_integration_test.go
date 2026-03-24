@@ -1003,6 +1003,14 @@ func TestTelegramWebhookGroupNewClearsBindingWhenBound(t *testing.T) {
 	}
 	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM channel_identities WHERE user_id IS NOT NULL`, 1)
 
+	updatedChannel, err := env.channelsRepo.GetByID(context.Background(), channel.ID)
+	if err != nil {
+		t.Fatalf("get channel owner: %v", err)
+	}
+	if updatedChannel == nil || updatedChannel.OwnerUserID == nil || *updatedChannel.OwnerUserID != env.userID {
+		t.Fatalf("expected channel owner to be env user, got %#v", updatedChannel.OwnerUserID)
+	}
+
 	active := map[string]any{
 		"message": map[string]any{
 			"message_id": 12,
@@ -1135,6 +1143,7 @@ func createActiveTelegramChannelWithConfig(t *testing.T, env telegramChannelsTes
 		"telegram",
 		&env.personaID,
 		&secret.ID,
+		&env.userID,
 		webhookSecret,
 		webhookURL,
 		configJSON,

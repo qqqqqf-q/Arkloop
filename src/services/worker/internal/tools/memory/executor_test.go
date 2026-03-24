@@ -68,9 +68,11 @@ func (m *mockProvider) Delete(_ context.Context, _ workermemory.MemoryIdentity, 
 }
 
 type snapshotMock struct {
-	appendErr error
-	called    bool
-	lines     []string
+	appendErr   error
+	invalidErr  error
+	called      bool
+	invalidated bool
+	lines       []string
 }
 
 func (s *snapshotMock) AppendMemoryLine(_ context.Context, _ *pgxpool.Pool, _ uuid.UUID, _ uuid.UUID, _ string, line string) error {
@@ -82,6 +84,14 @@ func (s *snapshotMock) AppendMemoryLine(_ context.Context, _ *pgxpool.Pool, _ uu
 	return nil
 }
 
+func (s *snapshotMock) Invalidate(_ context.Context, _ *pgxpool.Pool, _ uuid.UUID, _ uuid.UUID, _ string) error {
+	s.invalidated = true
+	if s.invalidErr != nil {
+		return s.invalidErr
+	}
+	return nil
+}
+
 // --- helpers ---
 
 func newExecCtx(userID *uuid.UUID) tools.ExecutionContext {
@@ -89,7 +99,7 @@ func newExecCtx(userID *uuid.UUID) tools.ExecutionContext {
 	return tools.ExecutionContext{
 		RunID:               uuid.New(),
 		TraceID:             "test-trace",
-		AccountID:               &accountID,
+		AccountID:           &accountID,
 		UserID:              userID,
 		AgentID:             "test-agent",
 		Emitter:             events.NewEmitter("test-trace"),
@@ -222,8 +232,15 @@ func TestMemoryExecutor_Write_Success(t *testing.T) {
 	if result.Error != nil {
 		t.Fatalf("unexpected error: %v", result.Error.Message)
 	}
-	if result.ResultJSON["status"] != "accepted" {
+	if result.ResultJSON["status"] != "queued" {
 		t.Fatalf("unexpected status: %v", result.ResultJSON["status"])
+	}
+	taskID, _ := result.ResultJSON["task_id"].(string)
+	if strings.TrimSpace(taskID) == "" {
+		t.Fatalf("expected non-empty task_id, got: %v", result.ResultJSON["task_id"])
+	}
+	if result.ResultJSON["snapshot_updated"] != true {
+		t.Fatalf("expected snapshot_updated=true, got: %v", result.ResultJSON["snapshot_updated"])
 	}
 	if !snapshots.called {
 		t.Fatal("expected snapshot append to be called")
@@ -292,8 +309,15 @@ func TestMemoryExecutor_Write_AgentScope(t *testing.T) {
 	if result.Error != nil {
 		t.Fatalf("unexpected error: %v", result.Error.Message)
 	}
-	if result.ResultJSON["status"] != "accepted" {
+	if result.ResultJSON["status"] != "queued" {
 		t.Fatalf("unexpected status: %v", result.ResultJSON["status"])
+	}
+	taskID, _ := result.ResultJSON["task_id"].(string)
+	if strings.TrimSpace(taskID) == "" {
+		t.Fatalf("expected non-empty task_id, got: %v", result.ResultJSON["task_id"])
+	}
+	if result.ResultJSON["snapshot_updated"] != true {
+		t.Fatalf("expected snapshot_updated=true, got: %v", result.ResultJSON["snapshot_updated"])
 	}
 	if len(snapshots.lines) != 1 || !strings.HasPrefix(snapshots.lines[0], "[agent/") {
 		t.Fatalf("expected agent scope prefix, got: %v", snapshots.lines)

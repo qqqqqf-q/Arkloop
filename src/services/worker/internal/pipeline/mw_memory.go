@@ -8,12 +8,14 @@ import (
 	"time"
 
 	"arkloop/services/worker/internal/data"
+	"arkloop/services/worker/internal/events"
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/memory"
 
 	sharedconfig "arkloop/services/shared/config"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -43,15 +45,10 @@ func NewMemoryMiddleware(provider memory.MemoryProvider, pool *pgxpool.Pool, con
 			return next(ctx, rc)
 		}
 
-		agentID := "default"
-		if rc.PersonaDefinition != nil && strings.TrimSpace(rc.PersonaDefinition.ID) != "" {
-			agentID = rc.PersonaDefinition.ID
-		}
-
 		ident := memory.MemoryIdentity{
 			AccountID: rc.Run.AccountID,
 			UserID:    *rc.UserID,
-			AgentID:   agentID,
+			AgentID:   StableAgentID(rc),
 		}
 
 		userQuery := lastUserMessageText(rc.Messages)
@@ -75,7 +72,7 @@ func flushPendingWritesAfterRun(ctx context.Context, provider memory.MemoryProvi
 		return
 	}
 	costPerWrite := resolveCommitCost(ctx, configResolver)
-	go flushPendingWrites(pending, provider, pool, rc.Run.AccountID, rc.Run.ID, costPerWrite)
+	go flushPendingWrites(pending, provider, pool, rc.Run.AccountID, rc.Run.ID, rc.TraceID, costPerWrite)
 }
 
 // injectFromCacheOrFind 优先从 PG 快照读取记忆，缓存缺失时降级到 OpenViking Find。
@@ -92,7 +89,7 @@ func injectFromCacheOrFind(ctx context.Context, rc *RunContext, provider memory.
 
 	findCtx, cancel := context.WithTimeout(ctx, memoryFindTimeout)
 	defer cancel()
-	block, hits := renderMemoryBlock(findCtx, provider, ident, memory.MemoryScopeUser, query)
+	block, hits := renderMemoryBlock(findCtx, provider, ident, memory.MemoryScopeAgent, query)
 	if block != "" {
 		rc.SystemPrompt += block
 		if pool != nil {
@@ -167,15 +164,18 @@ func buildMemoryBlock(lines []string) string {
 	return block
 }
 
-func flushPendingWrites(pending []memory.PendingWrite, provider memory.MemoryProvider, pool *pgxpool.Pool, accountID, runID uuid.UUID, costPerWrite float64) {
+func flushPendingWrites(pending []memory.PendingWrite, provider memory.MemoryProvider, pool *pgxpool.Pool, accountID, runID uuid.UUID, traceID string, costPerWrite float64) {
 	// 由 goroutine 调用，超出请求生命周期，需要独立 context
 	ctx, cancel := context.WithTimeout(context.Background(), memoryFlushTimeout)
 	defer cancel()
 
 	successfulQueries := map[memory.MemoryScope][]string{}
 	successCount := 0
+	hadFailure := false
+	emitter := events.NewEmitter(traceID)
 	for _, pendingWrite := range pending {
 		if err := provider.Write(ctx, pendingWrite.Ident, pendingWrite.Scope, pendingWrite.Entry); err != nil {
+			hadFailure = true
 			slog.Warn("memory: deferred write failed",
 				"account_id", pendingWrite.Ident.AccountID.String(),
 				"user_id", pendingWrite.Ident.UserID.String(),
@@ -183,30 +183,44 @@ func flushPendingWrites(pending []memory.PendingWrite, provider memory.MemoryPro
 				"scope", string(pendingWrite.Scope),
 				"err", err.Error(),
 			)
+			appendAsyncRunEvent(ctx, pool, runID, emitter.Emit("memory.write.failed", map[string]any{
+				"task_id":  strings.TrimSpace(pendingWrite.TaskID),
+				"scope":    string(pendingWrite.Scope),
+				"agent_id": pendingWrite.Ident.AgentID,
+				"message":  err.Error(),
+			}, stringPtr("memory_write"), stringPtr("tool.memory_provider_failure")))
 			continue
 		}
 		successCount++
+		appendAsyncRunEvent(ctx, pool, runID, emitter.Emit("memory.write.completed", map[string]any{
+			"task_id":  strings.TrimSpace(pendingWrite.TaskID),
+			"scope":    string(pendingWrite.Scope),
+			"agent_id": pendingWrite.Ident.AgentID,
+		}, stringPtr("memory_write"), nil))
 		query := strings.TrimSpace(pendingWrite.Entry.Content)
 		if query != "" {
 			successfulQueries[pendingWrite.Scope] = append(successfulQueries[pendingWrite.Scope], query)
 		}
 	}
-	if successCount == 0 {
-		return
-	}
 
-	if pool != nil {
+	if pool != nil && len(pending) > 0 {
 		ident := pending[0].Ident
-		if block, hits, ok := rebuildSnapshotBlock(ctx, provider, ident, successfulQueries); ok {
-			if err := snapshotRepo.UpsertWithHits(ctx, pool, ident.AccountID, ident.UserID, ident.AgentID, block, hitsToCache(hits)); err != nil {
-				slog.Warn("memory: snapshot rebuild upsert failed",
+		if hadFailure {
+			if err := snapshotRepo.Invalidate(ctx, pool, ident.AccountID, ident.UserID, ident.AgentID); err != nil {
+				slog.Warn("memory: snapshot invalidate failed",
 					"account_id", ident.AccountID.String(),
 					"user_id", ident.UserID.String(),
 					"agent_id", ident.AgentID,
 					"err", err.Error(),
 				)
 			}
+		} else if successCount > 0 {
+			refreshSnapshotFromQueries(ctx, pool, provider, ident, successfulQueries)
 		}
+	}
+
+	if successCount == 0 {
+		return
 	}
 
 	if costPerWrite > 0 && pool != nil {
@@ -257,6 +271,53 @@ func rebuildSnapshotBlock(ctx context.Context, provider memory.MemoryProvider, i
 		return "", nil, false
 	}
 	return block, allHits, true
+}
+
+func refreshSnapshotFromQueries(ctx context.Context, pool *pgxpool.Pool, provider memory.MemoryProvider, ident memory.MemoryIdentity, queries map[memory.MemoryScope][]string) {
+	if pool == nil {
+		return
+	}
+	block, hits, ok := rebuildSnapshotBlock(ctx, provider, ident, queries)
+	if !ok {
+		if err := snapshotRepo.Invalidate(ctx, pool, ident.AccountID, ident.UserID, ident.AgentID); err != nil {
+			slog.Warn("memory: snapshot invalidate failed",
+				"account_id", ident.AccountID.String(),
+				"user_id", ident.UserID.String(),
+				"agent_id", ident.AgentID,
+				"err", err.Error(),
+			)
+		}
+		return
+	}
+	if err := snapshotRepo.UpsertWithHits(ctx, pool, ident.AccountID, ident.UserID, ident.AgentID, block, hitsToCache(hits)); err != nil {
+		slog.Warn("memory: snapshot rebuild upsert failed",
+			"account_id", ident.AccountID.String(),
+			"user_id", ident.UserID.String(),
+			"agent_id", ident.AgentID,
+			"err", err.Error(),
+		)
+	}
+}
+
+func appendAsyncRunEvent(ctx context.Context, pool *pgxpool.Pool, runID uuid.UUID, ev events.RunEvent) {
+	if pool == nil || runID == uuid.Nil {
+		return
+	}
+	tx, err := pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		slog.Warn("memory: begin run event tx failed", "run_id", runID.String(), "err", err.Error())
+		return
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+	if _, err := (data.RunEventsRepository{}).AppendRunEvent(ctx, tx, runID, ev); err != nil {
+		slog.Warn("memory: append run event failed", "run_id", runID.String(), "event_type", ev.Type, "err", err.Error())
+		return
+	}
+	if err := tx.Commit(ctx); err != nil {
+		slog.Warn("memory: commit run event tx failed", "run_id", runID.String(), "event_type", ev.Type, "err", err.Error())
+	}
 }
 
 // hitsToCache 将 memory.MemoryHit 转换为 data.MemoryHitCache 用于 PG 存储。
@@ -351,7 +412,7 @@ func distillAfterRun(provider memory.MemoryProvider, pool *pgxpool.Pool, configR
 			if userQuery != "" {
 				snapCtx, snapCancel := context.WithTimeout(context.Background(), snapshotFindTimeout)
 				block, hits, ok := rebuildSnapshotBlock(snapCtx, provider, ident, map[memory.MemoryScope][]string{
-					memory.MemoryScopeUser: {userQuery},
+					memory.MemoryScopeAgent: {userQuery},
 				})
 				snapCancel()
 				if ok {
@@ -452,4 +513,12 @@ func resolveCommitCost(ctx context.Context, resolver sharedconfig.Resolver) floa
 		return 0
 	}
 	return value
+}
+
+func stringPtr(value string) *string {
+	cleaned := strings.TrimSpace(value)
+	if cleaned == "" {
+		return nil
+	}
+	return &cleaned
 }

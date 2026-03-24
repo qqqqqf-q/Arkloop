@@ -55,6 +55,10 @@ func RegisterTrackE(r *Registry) error {
 			Description: "启用 run 结束后的自动 Memory 提炼",
 			Sensitive:   false,
 			Scope:       ScopeBoth,
+			EnvKeys: []string{
+				"ARKLOOP_MEMORY_DISTILL_ENABLED",
+				"ARKLOOP_MEMORY_COMMIT_EACH_TURN",
+			},
 		},
 		{
 			Key:         "memory.distill_min_tool_calls",

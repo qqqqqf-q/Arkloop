@@ -18,6 +18,7 @@ type Channel struct {
 	ChannelType   string
 	PersonaID     *uuid.UUID
 	CredentialsID *uuid.UUID
+	OwnerUserID   *uuid.UUID
 	WebhookSecret *string
 	WebhookURL    *string
 	IsActive      bool
@@ -45,20 +46,21 @@ func ChannelSecretName(channelID uuid.UUID) string {
 	return fmt.Sprintf("channel_cred:%s", channelID.String())
 }
 
-var channelColumns = `id, account_id, channel_type, persona_id, credentials_id,
+var channelColumns = `id, account_id, channel_type, persona_id, credentials_id, owner_user_id,
 	webhook_secret, webhook_url, is_active, config_json, created_at, updated_at`
 
 func scanChannel(row interface{ Scan(dest ...any) error }) (Channel, error) {
 	var ch Channel
 	err := row.Scan(
 		&ch.ID, &ch.AccountID, &ch.ChannelType, &ch.PersonaID, &ch.CredentialsID,
+		&ch.OwnerUserID,
 		&ch.WebhookSecret, &ch.WebhookURL, &ch.IsActive, &ch.ConfigJSON,
 		&ch.CreatedAt, &ch.UpdatedAt,
 	)
 	return ch, err
 }
 
-func (r *ChannelsRepository) Create(ctx context.Context, id uuid.UUID, accountID uuid.UUID, channelType string, personaID *uuid.UUID, credentialsID *uuid.UUID, webhookSecret, webhookURL string, configJSON json.RawMessage) (Channel, error) {
+func (r *ChannelsRepository) Create(ctx context.Context, id uuid.UUID, accountID uuid.UUID, channelType string, personaID *uuid.UUID, credentialsID *uuid.UUID, ownerUserID *uuid.UUID, webhookSecret, webhookURL string, configJSON json.RawMessage) (Channel, error) {
 	if id == uuid.Nil {
 		id = uuid.New()
 	}
@@ -74,10 +76,10 @@ func (r *ChannelsRepository) Create(ctx context.Context, id uuid.UUID, accountID
 	}
 
 	ch, err := scanChannel(r.db.QueryRow(ctx,
-		`INSERT INTO channels (id, account_id, channel_type, persona_id, credentials_id, webhook_secret, webhook_url, config_json)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		`INSERT INTO channels (id, account_id, channel_type, persona_id, credentials_id, owner_user_id, webhook_secret, webhook_url, config_json)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		 RETURNING `+channelColumns,
-		id, accountID, channelType, personaID, credentialsID, webhookSecret, webhookURL, configJSON,
+		id, accountID, channelType, personaID, credentialsID, ownerUserID, webhookSecret, webhookURL, configJSON,
 	))
 	if err != nil {
 		return Channel{}, fmt.Errorf("channels.Create: %w", err)
@@ -161,6 +163,7 @@ func (r *ChannelsRepository) ListActiveByType(ctx context.Context, channelType s
 type ChannelUpdate struct {
 	PersonaID     **uuid.UUID
 	CredentialsID **uuid.UUID
+	OwnerUserID   **uuid.UUID
 	IsActive      *bool
 	ConfigJSON    *json.RawMessage
 }
@@ -178,6 +181,11 @@ func (r *ChannelsRepository) Update(ctx context.Context, id uuid.UUID, accountID
 	if upd.CredentialsID != nil {
 		sets = append(sets, fmt.Sprintf("credentials_id = $%d", idx))
 		args = append(args, *upd.CredentialsID)
+		idx++
+	}
+	if upd.OwnerUserID != nil {
+		sets = append(sets, fmt.Sprintf("owner_user_id = $%d", idx))
+		args = append(args, *upd.OwnerUserID)
 		idx++
 	}
 	if upd.IsActive != nil {

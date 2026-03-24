@@ -148,14 +148,10 @@ func NewHeartbeatPrepareMiddleware() RunMiddleware {
 }
 
 func commitHeartbeatFragments(ctx context.Context, rc *RunContext) {
-	agentID := "default"
-	if rc.PersonaDefinition != nil && rc.PersonaDefinition.ID != "" {
-		agentID = rc.PersonaDefinition.ID
-	}
 	ident := memory.MemoryIdentity{
 		AccountID: rc.Run.AccountID,
 		UserID:    *rc.UserID,
-		AgentID:   agentID,
+		AgentID:   StableAgentID(rc),
 	}
 	body := strings.Join(rc.HeartbeatToolOutcome.Fragments, "\n\n")
 	msgs := []memory.MemoryMessage{
@@ -166,5 +162,12 @@ func commitHeartbeatFragments(ctx context.Context, rc *RunContext) {
 	if err := rc.MemoryProvider.AppendSessionMessages(ctx, ident, sessionID, msgs); err != nil {
 		return
 	}
-	_ = rc.MemoryProvider.CommitSession(ctx, ident, sessionID)
+	if err := rc.MemoryProvider.CommitSession(ctx, ident, sessionID); err != nil {
+		return
+	}
+	if rc.Pool != nil && strings.TrimSpace(body) != "" {
+		refreshSnapshotFromQueries(ctx, rc.Pool, rc.MemoryProvider, ident, map[memory.MemoryScope][]string{
+			memory.MemoryScopeAgent: {body},
+		})
+	}
 }

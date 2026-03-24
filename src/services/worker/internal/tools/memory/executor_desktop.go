@@ -8,23 +8,31 @@ import (
 	"strings"
 	"time"
 
+	datarepo "arkloop/services/worker/internal/data"
+	"arkloop/services/worker/internal/events"
 	"arkloop/services/worker/internal/memory"
 	"arkloop/services/worker/internal/tools"
 
 	"github.com/google/uuid"
 )
 
-// ToolExecutor handles the four memory tools on Desktop using any MemoryProvider.
-// For local mode this is the SQLite-backed provider; for OpenViking mode it is
-// the HTTP client provider. No pending-write buffer is used.
 type ToolExecutor struct {
-	provider memory.MemoryProvider
+	provider  memory.MemoryProvider
+	db        datarepo.DesktopDB
+	snapshots desktopSnapshotAppender
 }
 
-// NewToolExecutor creates a desktop memory tool executor backed by the given
-// memory provider.
-func NewToolExecutor(provider memory.MemoryProvider) *ToolExecutor {
-	return &ToolExecutor{provider: provider}
+type desktopSnapshotAppender interface {
+	AppendMemoryLine(ctx context.Context, pool datarepo.DesktopDB, accountID, userID uuid.UUID, agentID, line string) error
+	Invalidate(ctx context.Context, pool datarepo.DesktopDB, accountID, userID uuid.UUID, agentID string) error
+}
+
+// NewToolExecutor creates a desktop memory tool executor backed by the given memory provider.
+func NewToolExecutor(provider memory.MemoryProvider, db datarepo.DesktopDB, snapshots desktopSnapshotAppender) *ToolExecutor {
+	if snapshots == nil {
+		snapshots = datarepo.MemorySnapshotRepository{}
+	}
+	return &ToolExecutor{provider: provider, db: db, snapshots: snapshots}
 }
 
 func (e *ToolExecutor) Execute(
@@ -53,7 +61,7 @@ func (e *ToolExecutor) Execute(
 	case "memory_read":
 		return e.read(ctx, args, ident, started)
 	case "memory_write":
-		return e.write(ctx, args, ident, started)
+		return e.write(ctx, args, ident, execCtx, started)
 	case "memory_forget":
 		return e.forget(ctx, args, ident, started)
 	default:
@@ -73,7 +81,10 @@ func (e *ToolExecutor) search(ctx context.Context, args map[string]any, ident me
 		return argError("query must be a non-empty string", started)
 	}
 
-	scope := memory.SearchScopeForDesktopLocal(args)
+	scope := parseScope(args)
+	if _, ok := e.provider.(memory.DesktopLocalMemoryWriteURI); ok {
+		scope = memory.SearchScopeForDesktopLocal(args)
+	}
 	limit := parseLimit(args, defaultSearchLimit)
 
 	hits, err := e.provider.Find(ctx, ident, scope, query, limit)
@@ -115,7 +126,7 @@ func (e *ToolExecutor) read(ctx context.Context, args map[string]any, ident memo
 	}
 }
 
-func (e *ToolExecutor) write(ctx context.Context, args map[string]any, ident memory.MemoryIdentity, started time.Time) tools.ExecutionResult {
+func (e *ToolExecutor) write(ctx context.Context, args map[string]any, ident memory.MemoryIdentity, execCtx tools.ExecutionContext, started time.Time) tools.ExecutionResult {
 	category, ok := args["category"].(string)
 	if !ok || strings.TrimSpace(category) == "" {
 		return argError("category must be a non-empty string", started)
@@ -144,12 +155,39 @@ func (e *ToolExecutor) write(ctx context.Context, args map[string]any, ident mem
 		}
 	}
 
-	if err := e.provider.Write(ctx, ident, scope, entry); err != nil {
-		return providerError("write", err, started)
+	if execCtx.PendingMemoryWrites == nil {
+		return stateError("pending memory buffer not available", started)
 	}
+	if e.db == nil {
+		return stateError("snapshot db not available", started)
+	}
+	if e.snapshots == nil {
+		return stateError("snapshot repository not available", started)
+	}
+	if err := e.snapshots.AppendMemoryLine(ctx, e.db, ident.AccountID, ident.UserID, ident.AgentID, writable); err != nil {
+		return snapshotError(err, started)
+	}
+	taskID := uuid.NewString()
+	execCtx.PendingMemoryWrites.Append(memory.PendingWrite{
+		TaskID: taskID,
+		Ident:  ident,
+		Scope:  scope,
+		Entry:  entry,
+	})
+	queued := execCtx.Emitter.Emit("memory.write.queued", map[string]any{
+		"task_id":          taskID,
+		"scope":            string(scope),
+		"agent_id":         ident.AgentID,
+		"snapshot_updated": true,
+	}, stringPtr("memory_write"), nil)
 	return tools.ExecutionResult{
-		ResultJSON: map[string]any{"status": "ok"},
+		ResultJSON: map[string]any{
+			"status":           "queued",
+			"task_id":          taskID,
+			"snapshot_updated": true,
+		},
 		DurationMs: durationMs(started),
+		Events:     []events.RunEvent{queued},
 	}
 }
 
@@ -161,6 +199,11 @@ func (e *ToolExecutor) forget(ctx context.Context, args map[string]any, ident me
 
 	if err := e.provider.Delete(ctx, ident, uri); err != nil {
 		return providerError("forget", err, started)
+	}
+	if _, ok := e.provider.(memory.DesktopLocalMemoryWriteURI); !ok && e.db != nil && e.snapshots != nil {
+		if err := e.snapshots.Invalidate(ctx, e.db, ident.AccountID, ident.UserID, ident.AgentID); err != nil {
+			return snapshotError(err, started)
+		}
 	}
 	return tools.ExecutionResult{
 		ResultJSON: map[string]any{"status": "ok"},
@@ -174,6 +217,8 @@ const (
 	errorArgsInvalid     = "tool.args_invalid"
 	errorProviderFailure = "tool.memory_provider_failure"
 	errorIdentityMissing = "tool.memory_identity_missing"
+	errorStateMissing    = "tool.memory_state_missing"
+	errorSnapshotFailed  = "tool.memory_snapshot_failed"
 
 	defaultSearchLimit = 5
 )
@@ -186,21 +231,20 @@ func buildIdentity(execCtx tools.ExecutionContext) (memory.MemoryIdentity, error
 	if execCtx.AccountID != nil {
 		accountID = *execCtx.AccountID
 	}
-	// Desktop local memory is user-level: all personas share a single bucket.
-	// Using a fixed agent_id ensures memories written by any persona are visible
-	// to all other personas and to the settings UI.
 	return memory.MemoryIdentity{
 		AccountID: accountID,
 		UserID:    *execCtx.UserID,
-		AgentID:   "default",
+		AgentID:   execCtx.AgentID,
 	}, nil
 }
 
 func parseScope(args map[string]any) memory.MemoryScope {
-	if s, ok := args["scope"].(string); ok && s == "agent" {
-		return memory.MemoryScopeAgent
+	if s, ok := args["scope"].(string); ok {
+		if strings.EqualFold(strings.TrimSpace(s), "user") {
+			return memory.MemoryScopeUser
+		}
 	}
-	return memory.MemoryScopeUser
+	return memory.MemoryScopeAgent
 }
 
 func parseLimit(args map[string]any, fallback int) int {
@@ -228,6 +272,23 @@ func buildWritableContent(scope memory.MemoryScope, category, key, content strin
 func argError(msg string, started time.Time) tools.ExecutionResult {
 	return tools.ExecutionResult{
 		Error: &tools.ExecutionError{ErrorClass: errorArgsInvalid, Message: msg},
+		DurationMs: durationMs(started),
+	}
+}
+
+func stateError(msg string, started time.Time) tools.ExecutionResult {
+	return tools.ExecutionResult{
+		Error: &tools.ExecutionError{ErrorClass: errorStateMissing, Message: msg},
+		DurationMs: durationMs(started),
+	}
+}
+
+func snapshotError(err error, started time.Time) tools.ExecutionResult {
+	return tools.ExecutionResult{
+		Error: &tools.ExecutionError{
+			ErrorClass: errorSnapshotFailed,
+			Message:    "memory snapshot update failed: " + err.Error(),
+		},
 		DurationMs: durationMs(started),
 	}
 }

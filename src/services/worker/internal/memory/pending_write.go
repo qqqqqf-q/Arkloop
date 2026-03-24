@@ -4,6 +4,7 @@ import "sync"
 
 // PendingWrite 表示一次待异步刷写到长期记忆的显式写入。
 type PendingWrite struct {
+	TaskID string
 	Ident MemoryIdentity
 	Scope MemoryScope
 	Entry MemoryEntry

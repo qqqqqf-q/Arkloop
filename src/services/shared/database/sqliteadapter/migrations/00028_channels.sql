@@ -10,6 +10,7 @@ CREATE TABLE channels (
     channel_type   TEXT NOT NULL,
     persona_id     TEXT REFERENCES personas(id) ON DELETE SET NULL,
     credentials_id TEXT REFERENCES secrets(id),
+    owner_user_id  TEXT REFERENCES users(id),
     webhook_secret TEXT,
     webhook_url    TEXT,
     is_active      INTEGER NOT NULL DEFAULT 0,

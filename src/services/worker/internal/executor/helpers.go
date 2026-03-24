@@ -45,10 +45,7 @@ func stringPtr(value string) *string {
 	return &cleaned
 }
 
-// agentIDFromPersona 从 RunContext 的 PersonaDefinition 中提取 agent_id。
+// agentIDFromPersona 返回当前 run 的稳定 memory bucket。
 func agentIDFromPersona(rc *pipeline.RunContext) string {
-	if rc.PersonaDefinition != nil && strings.TrimSpace(rc.PersonaDefinition.ID) != "" {
-		return rc.PersonaDefinition.ID
-	}
-	return "default"
+	return pipeline.StableAgentID(rc)
 }

@@ -259,6 +259,69 @@ func TestAutoMigrateRepairsLegacySecretsSchema(t *testing.T) {
 	if rotatedAt.Valid {
 		t.Fatalf("rotated_at = %#v, want NULL", rotatedAt)
 	}
+
+	channelColumns, err := sqliteTableColumns(ctx, repairedPool.Unwrap(), "channels")
+	if err != nil {
+		t.Fatalf("load repaired channels columns: %v", err)
+	}
+	if !hasSQLiteColumns(channelColumns, "owner_user_id") {
+		t.Fatalf("repaired channels table missing owner_user_id: %v", channelColumns)
+	}
+}
+
+func TestAutoMigrateRepairsLegacyChannelOwnerColumn(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "desktop.db")
+
+	pool, err := AutoMigrate(ctx, dbPath)
+	if err != nil {
+		t.Fatalf("auto migrate sqlite: %v", err)
+	}
+
+	for _, stmt := range []string{
+		`PRAGMA foreign_keys = OFF`,
+		`DROP INDEX IF EXISTS idx_channels_account_id`,
+		`DROP TABLE channels`,
+		`CREATE TABLE channels (
+			id             TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))),2) || '-' || substr('89ab',abs(random()) % 4 + 1, 1) || substr(lower(hex(randomblob(2))),2) || '-' || lower(hex(randomblob(6)))),
+			account_id     TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+			channel_type   TEXT NOT NULL,
+			persona_id     TEXT REFERENCES personas(id) ON DELETE SET NULL,
+			credentials_id TEXT REFERENCES secrets(id),
+			webhook_secret TEXT,
+			webhook_url    TEXT,
+			is_active      INTEGER NOT NULL DEFAULT 0,
+			config_json    TEXT NOT NULL DEFAULT '{}',
+			created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+			updated_at     TEXT NOT NULL DEFAULT (datetime('now')),
+			UNIQUE (account_id, channel_type)
+		)`,
+		`CREATE INDEX idx_channels_account_id ON channels(account_id)`,
+		`PRAGMA foreign_keys = ON`,
+	} {
+		if _, err := pool.Exec(ctx, stmt); err != nil {
+			t.Fatalf("prepare legacy channels schema: %v", err)
+		}
+	}
+	if err := pool.Close(); err != nil {
+		t.Fatalf("close sqlite before reopen: %v", err)
+	}
+
+	repairedPool, err := AutoMigrate(ctx, dbPath)
+	if err != nil {
+		t.Fatalf("repair auto migrate sqlite: %v", err)
+	}
+	defer repairedPool.Close()
+
+	channelColumns, err := sqliteTableColumns(ctx, repairedPool.Unwrap(), "channels")
+	if err != nil {
+		t.Fatalf("load repaired channels columns: %v", err)
+	}
+	if !hasSQLiteColumns(channelColumns, "owner_user_id") {
+		t.Fatalf("repaired channels table missing owner_user_id: %v", channelColumns)
+	}
 }
 
 func TestMigrations_UpDown(t *testing.T) {

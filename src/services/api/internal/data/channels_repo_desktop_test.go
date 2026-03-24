@@ -62,6 +62,7 @@ func TestChannelRepositoriesWorkInDesktopMode(t *testing.T) {
 		"telegram",
 		nil,
 		nil,
+		&auth.DesktopUserID,
 		"secret",
 		"http://127.0.0.1/webhook",
 		json.RawMessage(`{"allowed_user_ids":["12345"]}`),

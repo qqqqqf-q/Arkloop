@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	nethttp "net/http"
@@ -122,6 +123,96 @@ func TestDesktopChannelEndpointsReturnEmptyLists(t *testing.T) {
 				t.Fatalf("expected empty list, got %s", rec.Body.String())
 			}
 		})
+	}
+}
+
+func TestDesktopChannelResponsesIncludeOwnerUserID(t *testing.T) {
+	ctx := context.Background()
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "data.db"))
+	if err != nil {
+		t.Fatalf("auto migrate sqlite: %v", err)
+	}
+	defer sqlitePool.Close()
+
+	pool := sqlitepgx.New(sqlitePool.Unwrap())
+	if err := auth.SeedDesktopUser(ctx, pool); err != nil {
+		t.Fatalf("seed desktop user: %v", err)
+	}
+
+	handler := newDesktopChannelHandler(t, pool)
+
+	body, err := json.Marshal(map[string]any{
+		"channel_type": "telegram",
+		"bot_token":    "desktop-bot-token",
+		"config_json": map[string]any{
+			"allowed_user_ids": []string{"12345"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal create channel body: %v", err)
+	}
+
+	req := httptest.NewRequest(nethttp.MethodPost, "/v1/channels", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+auth.DesktopToken())
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != nethttp.StatusCreated {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+
+	var created map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode create response: %v", err)
+	}
+	ownerCreated, _ := created["owner_user_id"].(string)
+	if ownerCreated != auth.DesktopUserID.String() {
+		t.Fatalf("unexpected owner_user_id in create response: %s", rec.Body.String())
+	}
+
+	channelID, _ := created["id"].(string)
+
+	listReq := httptest.NewRequest(nethttp.MethodGet, "/v1/channels", nil)
+	listReq.Header.Set("Authorization", "Bearer "+auth.DesktopToken())
+	listRec := httptest.NewRecorder()
+
+	handler.ServeHTTP(listRec, listReq)
+
+	if listRec.Code != nethttp.StatusOK {
+		t.Fatalf("list status = %d, body = %s", listRec.Code, listRec.Body.String())
+	}
+
+	var channels []map[string]any
+	if err := json.Unmarshal(listRec.Body.Bytes(), &channels); err != nil {
+		t.Fatalf("decode list response: %v", err)
+	}
+	if len(channels) != 1 {
+		t.Fatalf("expected 1 channel, got %s", listRec.Body.String())
+	}
+	ownerListed, _ := channels[0]["owner_user_id"].(string)
+	if ownerListed != auth.DesktopUserID.String() {
+		t.Fatalf("unexpected owner_user_id in list response: %s", listRec.Body.String())
+	}
+
+	getReq := httptest.NewRequest(nethttp.MethodGet, fmt.Sprintf("/v1/channels/%s", channelID), nil)
+	getReq.Header.Set("Authorization", "Bearer "+auth.DesktopToken())
+	getRec := httptest.NewRecorder()
+
+	handler.ServeHTTP(getRec, getReq)
+
+	if getRec.Code != nethttp.StatusOK {
+		t.Fatalf("get status = %d, body = %s", getRec.Code, getRec.Body.String())
+	}
+
+	var fetched map[string]any
+	if err := json.Unmarshal(getRec.Body.Bytes(), &fetched); err != nil {
+		t.Fatalf("decode get response: %v", err)
+	}
+	ownerFetched, _ := fetched["owner_user_id"].(string)
+	if ownerFetched != auth.DesktopUserID.String() {
+		t.Fatalf("unexpected owner_user_id in get response: %s", getRec.Body.String())
 	}
 }
 

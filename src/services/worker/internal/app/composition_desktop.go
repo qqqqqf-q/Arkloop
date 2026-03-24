@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"arkloop/services/shared/desktop"
@@ -194,7 +195,7 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 	}
 
 	if memProvider != nil {
-		memExec := memorytool.NewToolExecutor(memProvider)
+		memExec := memorytool.NewToolExecutor(memProvider, db, nil)
 		for _, spec := range memorytool.AgentSpecs() {
 			executors[spec.Name] = memExec
 		}
@@ -1373,6 +1374,8 @@ func desktopAgentLoop(
 			projector:             projector,
 			telegramBoundaryFlush: rc.TelegramToolBoundaryFlush,
 		}
+		stopPeriodicFlush := w.startPeriodicFlush(ctx, desktopEventWriterFlushInterval)
+		defer stopPeriodicFlush()
 		defer w.close(ctx)
 
 		personaID := ""
@@ -1447,8 +1450,12 @@ var desktopStreamingEventTypes = map[string]struct{}{
 	"tool.call.delta":    {},
 }
 
+const desktopEventWriterFlushInterval = 50 * time.Millisecond
+
 // desktopEventWriter batches event writes into transactions using DesktopDB.
 type desktopEventWriter struct {
+	mu sync.Mutex
+
 	db         data.DesktopDB
 	bus        eventbus.EventBus
 	run        data.Run
@@ -1477,6 +1484,9 @@ type desktopEventWriter struct {
 }
 
 func (w *desktopEventWriter) telegramStreamRemainder() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
 	if w.telegramBoundaryFlush == nil {
 		return ""
 	}
@@ -1484,6 +1494,36 @@ func (w *desktopEventWriter) telegramStreamRemainder() string {
 		return ""
 	}
 	return strings.TrimSpace(strings.Join(w.assistantDeltas[w.telegramFlushSentDeltas:], ""))
+}
+
+func (w *desktopEventWriter) startPeriodicFlush(ctx context.Context, interval time.Duration) func() {
+	if interval <= 0 {
+		return func() {}
+	}
+	loopCtx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-loopCtx.Done():
+				return
+			case <-ticker.C:
+				if err := w.flush(loopCtx); err != nil {
+					if loopCtx.Err() != nil || errors.Is(err, context.Canceled) {
+						return
+					}
+					slog.WarnContext(ctx, "desktop: periodic event writer flush failed", "run_id", w.run.ID, "err", err.Error())
+				}
+			}
+		}
+	}()
+	return func() {
+		cancel()
+		<-done
+	}
 }
 
 func (w *desktopEventWriter) ensureTx(ctx context.Context) error {
@@ -1500,6 +1540,9 @@ func (w *desktopEventWriter) ensureTx(ctx context.Context) error {
 }
 
 func (w *desktopEventWriter) append(ctx context.Context, runID uuid.UUID, ev events.RunEvent, personaID string) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
 	if err := w.ensureTx(ctx); err != nil {
 		return err
 	}
@@ -1607,7 +1650,7 @@ func (w *desktopEventWriter) append(ctx context.Context, runID uuid.UUID, ev eve
 	}
 
 	const batchSize = 20
-	const maxInterval = 50 * time.Millisecond
+	const maxInterval = desktopEventWriterFlushInterval
 	if w.pendingEventsSinceCommit >= batchSize || time.Since(w.lastCommitAt) >= maxInterval {
 		return w.commit(ctx)
 	}
@@ -1650,10 +1693,16 @@ func (w *desktopEventWriter) commit(ctx context.Context) error {
 }
 
 func (w *desktopEventWriter) flush(ctx context.Context) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
 	return w.commit(ctx)
 }
 
 func (w *desktopEventWriter) close(ctx context.Context) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
 	if w.tx != nil {
 		_ = w.tx.Rollback(ctx)
 		w.tx = nil

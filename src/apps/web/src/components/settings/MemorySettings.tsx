@@ -522,8 +522,11 @@ function OVConfigForm({ ov, providers, loadingProviders, onChange, onSave, savin
 type Props = { accessToken?: string }
 
 export function MemorySettings({ accessToken }: Props) {
-  const { t } = useLocale()
+  const { t, locale } = useLocale()
   const ds = t.desktopSettings
+  const localMemoryToggleNote = locale === 'zh'
+    ? '桌面本地记忆模式会在每轮结束后自动提交，此开关只有在 OpenViking 模式下才生效。'
+    : 'Desktop local memory mode always commits each turn, so this switch only has an effect when OpenViking is selected.'
 
   const [memConfig, setMemConfigState] = useState<MemoryConfig | null>(null)
   const [entries, setEntries] = useState<MemoryEntry[]>([])
@@ -885,9 +888,8 @@ export function MemorySettings({ accessToken }: Props) {
             />
           </div>
 
-          {/* ── OpenViking section ── */}
-          {!isLocal && memConfig && (
-            <div className="flex flex-col gap-4">
+          {memConfig && (
+            <>
               <div className="flex flex-col gap-2">
                 <p className="text-xs font-medium text-[var(--c-text-tertiary)]">{ds.memorySummarizeSectionTitle}</p>
                 <div
@@ -898,11 +900,17 @@ export function MemorySettings({ accessToken }: Props) {
                     <p className="text-sm font-medium text-[var(--c-text-heading)]">{ds.memoryAutoSummarizeLabel}</p>
                     <p className="text-xs text-[var(--c-text-muted)]">{ds.memoryAutoSummarizeDesc}</p>
                   </div>
-                  <label className="relative inline-flex shrink-0 cursor-pointer items-center">
+                  <label
+                    className={`relative inline-flex shrink-0 items-center ${isLocal ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}
+                  >
                     <input
                       type="checkbox"
                       checked={memConfig.memoryCommitEachTurn !== false}
-                      onChange={(e) => void saveConfig({ ...memConfig, memoryCommitEachTurn: e.target.checked })}
+                      disabled={isLocal}
+                      onChange={(e) => {
+                        if (isLocal) return
+                        void saveConfig({ ...memConfig, memoryCommitEachTurn: e.target.checked })
+                      }}
                       className="peer sr-only"
                     />
                     <span
@@ -919,86 +927,94 @@ export function MemorySettings({ accessToken }: Props) {
                     />
                   </label>
                 </div>
+                {isLocal && (
+                  <p className="text-[10px] text-[var(--c-text-muted)]">{localMemoryToggleNote}</p>
+                )}
               </div>
 
-              {bridgeError && (
-                <div className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm" style={{ background: 'rgba(239,68,68,0.08)', color: '#ef4444' }}>
-                  <XCircle size={14} />{bridgeError}
+              {!isLocal && (
+                <div className="flex flex-col gap-4">
+                  {bridgeError && (
+                    <div className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm" style={{ background: 'rgba(239,68,68,0.08)', color: '#ef4444' }}>
+                      <XCircle size={14} />{bridgeError}
+                    </div>
+                  )}
+
+                  {/* Module card — mirrors ModulesSettings */}
+                  <OVModuleCard
+                    bridgeOnline={bridgeOnline}
+                    bridgeOfflineHint={ds.modulesOffline}
+                    module={ovModule}
+                    moduleListProbe={moduleListProbe}
+                    actionInProgress={actionInProgress}
+                    onAction={handleModuleAction}
+                    onRefreshModules={() => void loadBridge()}
+                    ds={ds}
+                  />
+
+                  {ovShowConfigure && (
+                    <OVConfigForm
+                      ov={ovDraft}
+                      providers={providers}
+                      loadingProviders={!providersLoaded}
+                      onChange={setOvDraft}
+                      onSave={handleConfigure}
+                      saving={configuring}
+                      saveResult={configureResult}
+                      ds={ds}
+                    />
+                  )}
                 </div>
               )}
-
-              {/* Module card — mirrors ModulesSettings */}
-              <OVModuleCard
-                bridgeOnline={bridgeOnline}
-                bridgeOfflineHint={ds.modulesOffline}
-                module={ovModule}
-                moduleListProbe={moduleListProbe}
-                actionInProgress={actionInProgress}
-                onAction={handleModuleAction}
-                onRefreshModules={() => void loadBridge()}
-                ds={ds}
-              />
-
-              {ovShowConfigure && (
-                <OVConfigForm
-                  ov={ovDraft}
-                  providers={providers}
-                  loadingProviders={!providersLoaded}
-                  onChange={setOvDraft}
-                  onSave={handleConfigure}
-                  saving={configuring}
-                  saveResult={configureResult}
-                  ds={ds}
-                />
-              )}
-            </div>
-          )}
-
-          {/* ── Memory content ── */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              {isLocal ? <Brain size={15} className="text-[var(--c-text-secondary)]" /> : <FileText size={15} className="text-[var(--c-text-secondary)]" />}
-              <h4 className="text-sm font-semibold text-[var(--c-text-heading)]">
-                {isLocal ? ds.memoryEntriesTitle : ds.memorySnapshotTitle}
-              </h4>
-              {isLocal && entries.length > 0 && (
-                <span className="inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium" style={{ background: 'var(--c-bg-deep)', color: 'var(--c-text-muted)' }}>
-                  {entries.length}
-                </span>
-              )}
-            </div>
-            <div className="flex items-center gap-2">
-              {isLocal && entries.length > 0 && (
-                <button onClick={() => setConfirmClearAll(true)} className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs text-red-400 transition-colors hover:bg-red-500/10">
-                  <Trash2 size={12} />{ds.memoryClearAll}
-                </button>
-              )}
-              <button onClick={() => void loadData(true)} disabled={refreshing} className="shrink-0 rounded-lg p-1.5 text-[var(--c-text-muted)] transition-colors hover:text-[var(--c-text-secondary)] disabled:opacity-40">
-                <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />
-              </button>
-            </div>
-          </div>
-
-          {isLocal ? (
-            entries.length === 0 ? (
-              <div className="flex flex-col items-center justify-center rounded-xl py-14" style={{ border: '1px solid var(--c-border-subtle)', background: 'var(--c-bg-menu)' }}>
-                <Brain size={28} className="mb-3 text-[var(--c-text-muted)]" />
-                <p className="text-sm font-medium text-[var(--c-text-heading)]">{ds.memoryEmptyTitle}</p>
-                <p className="mt-1 text-xs text-[var(--c-text-muted)]">{ds.memoryEmptyDesc}</p>
-              </div>
-            ) : (
-              <div className="flex flex-col gap-2">
-                {entries.map((e) => <EntryCard key={e.id} entry={e} onDelete={(id) => setConfirmDeleteId(id)} />)}
-              </div>
-            )
-          ) : (
-            <SnapshotView snapshot={snapshot} />
+            </>
           )}
         </>
       )}
 
-      <ConfirmDialog open={confirmDeleteId !== null} onClose={() => setConfirmDeleteId(null)} onConfirm={() => void handleDelete(confirmDeleteId!)} message={ds.memoryDeleteConfirm} confirmLabel="Delete" />
-      <ConfirmDialog open={confirmClearAll} onClose={() => setConfirmClearAll(false)} onConfirm={() => void handleClearAll()} message={ds.memoryClearAllConfirm} confirmLabel="Delete" />
+      {/* ── Memory content ── */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          {isLocal ? <Brain size={15} className="text-[var(--c-text-secondary)]" /> : <FileText size={15} className="text-[var(--c-text-secondary)]" />}
+          <h4 className="text-sm font-semibold text-[var(--c-text-heading)]">
+            {isLocal ? ds.memoryEntriesTitle : ds.memorySnapshotTitle}
+          </h4>
+          {isLocal && entries.length > 0 && (
+            <span className="inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium" style={{ background: 'var(--c-bg-deep)', color: 'var(--c-text-muted)' }}>
+              {entries.length}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          {isLocal && entries.length > 0 && (
+            <button onClick={() => setConfirmClearAll(true)} className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs text-red-400 transition-colors hover:bg-red-500/10">
+              <Trash2 size={12} />{ds.memoryClearAll}
+            </button>
+          )}
+          <button onClick={() => void loadData(true)} disabled={refreshing} className="shrink-0 rounded-lg p-1.5 text-[var(--c-text-muted)] transition-colors hover:text-[var(--c-text-secondary)] disabled:opacity-40">
+            <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />
+          </button>
+        </div>
+      </div>
+
+      {isLocal ? (
+        entries.length === 0 ? (
+          <div className="flex flex-col items-center justify-center rounded-xl py-14" style={{ border: '1px solid var(--c-border-subtle)', background: 'var(--c-bg-menu)' }}>
+            <Brain size={28} className="mb-3 text-[var(--c-text-muted)]" />
+            <p className="text-sm font-medium text-[var(--c-text-heading)]">{ds.memoryEmptyTitle}</p>
+            <p className="mt-1 text-xs text-[var(--c-text-muted)]">{ds.memoryEmptyDesc}</p>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {entries.map((e) => <EntryCard key={e.id} entry={e} onDelete={(id) => setConfirmDeleteId(id)} />)}
+          </div>
+        )
+      ) : (
+        <SnapshotView snapshot={snapshot} />
+      )}
+    </>
+  )}
+  <ConfirmDialog open={confirmDeleteId !== null} onClose={() => setConfirmDeleteId(null)} onConfirm={() => void handleDelete(confirmDeleteId!)} message={ds.memoryDeleteConfirm} confirmLabel="Delete" />
+  <ConfirmDialog open={confirmClearAll} onClose={() => setConfirmClearAll(false)} onConfirm={() => void handleClearAll()} message={ds.memoryClearAllConfirm} confirmLabel="Delete" />
     </div>
   )
 }

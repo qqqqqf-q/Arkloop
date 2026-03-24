@@ -10,6 +10,7 @@ import (
 	"time"
 
 	datarepo "arkloop/services/worker/internal/data"
+	"arkloop/services/worker/internal/events"
 	"arkloop/services/worker/internal/memory"
 	"arkloop/services/worker/internal/tools"
 
@@ -29,6 +30,7 @@ const (
 
 type snapshotAppender interface {
 	AppendMemoryLine(ctx context.Context, pool *pgxpool.Pool, accountID, userID uuid.UUID, agentID, line string) error
+	Invalidate(ctx context.Context, pool *pgxpool.Pool, accountID, userID uuid.UUID, agentID string) error
 }
 
 // ToolExecutor 实现 tools.Executor，将 memory_search/read/write/forget 分发到 MemoryProvider。
@@ -169,16 +171,29 @@ func (e *ToolExecutor) write(ctx context.Context, args map[string]any, ident mem
 	if err := e.snapshots.AppendMemoryLine(ctx, e.pool, ident.AccountID, ident.UserID, ident.AgentID, writable); err != nil {
 		return snapshotError(err, started)
 	}
+	taskID := uuid.NewString()
 
 	execCtx.PendingMemoryWrites.Append(memory.PendingWrite{
+		TaskID: taskID,
 		Ident: ident,
 		Scope: scope,
 		Entry: entry,
 	})
+	queued := execCtx.Emitter.Emit("memory.write.queued", map[string]any{
+		"task_id":          taskID,
+		"scope":            string(scope),
+		"agent_id":         ident.AgentID,
+		"snapshot_updated": true,
+	}, stringPtr("memory_write"), nil)
 
 	return tools.ExecutionResult{
-		ResultJSON: map[string]any{"status": "accepted"},
+		ResultJSON: map[string]any{
+			"status":           "queued",
+			"task_id":          taskID,
+			"snapshot_updated": true,
+		},
 		DurationMs: durationMs(started),
+		Events:     []events.RunEvent{queued},
 	}
 }
 
@@ -190,6 +205,11 @@ func (e *ToolExecutor) forget(ctx context.Context, args map[string]any, ident me
 
 	if err := e.provider.Delete(ctx, ident, uri); err != nil {
 		return providerError("forget", err, started)
+	}
+	if e.pool != nil && e.snapshots != nil {
+		if err := e.snapshots.Invalidate(ctx, e.pool, ident.AccountID, ident.UserID, ident.AgentID); err != nil {
+			return snapshotError(err, started)
+		}
 	}
 
 	return tools.ExecutionResult{
@@ -218,10 +238,12 @@ func buildIdentity(execCtx tools.ExecutionContext) (memory.MemoryIdentity, error
 }
 
 func parseScope(args map[string]any) memory.MemoryScope {
-	if s, ok := args["scope"].(string); ok && s == "agent" {
-		return memory.MemoryScopeAgent
+	if s, ok := args["scope"].(string); ok {
+		if strings.EqualFold(strings.TrimSpace(s), "user") {
+			return memory.MemoryScopeUser
+		}
 	}
-	return memory.MemoryScopeUser
+	return memory.MemoryScopeAgent
 }
 
 func parseLimit(args map[string]any, fallback int) int {

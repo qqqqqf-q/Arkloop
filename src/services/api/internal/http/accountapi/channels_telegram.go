@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -17,6 +18,7 @@ import (
 	"arkloop/services/api/internal/entitlement"
 	httpkit "arkloop/services/api/internal/http/httpkit"
 	"arkloop/services/api/internal/observability"
+	"arkloop/services/shared/pgnotify"
 	"arkloop/services/shared/runkind"
 	"arkloop/services/shared/telegrambot"
 
@@ -860,6 +862,26 @@ func (c telegramConnector) HandleUpdate(
 		return err
 	}
 
+	runRepoTx := c.runEventRepo.WithTx(tx)
+	if err := runRepoTx.LockThreadRow(ctx, threadID); err != nil {
+		return err
+	}
+	if activeRun, err := runRepoTx.GetActiveRootRunForThread(ctx, threadID); err != nil {
+		return err
+	} else if activeRun != nil {
+		delivered, err := c.deliverTelegramMessageToActiveRun(ctx, runRepoTx, activeRun, content, traceID)
+		if err != nil {
+			return err
+		}
+		if delivered {
+			if err := tx.Commit(ctx); err != nil {
+				return err
+			}
+			c.notifyActiveRunInput(ctx, activeRun.ID)
+			return nil
+		}
+	}
+
 	if !channelAgentTriggerConsume(ch.ID) {
 		return tx.Commit(ctx)
 	}
@@ -1069,6 +1091,37 @@ func (c telegramConnector) resolveTelegramThreadID(
 		return uuid.Nil, err
 	}
 	return thread.ID, nil
+}
+
+func (c telegramConnector) deliverTelegramMessageToActiveRun(
+	ctx context.Context,
+	repo *data.RunEventRepository,
+	run *data.Run,
+	content, traceID string,
+) (bool, error) {
+	if run == nil {
+		return false, nil
+	}
+	if strings.TrimSpace(content) == "" {
+		return false, nil
+	}
+	if _, err := repo.ProvideInput(ctx, run.ID, content, traceID); err != nil {
+		var notActive data.RunNotActiveError
+		if errors.As(err, &notActive) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
+func (c telegramConnector) notifyActiveRunInput(ctx context.Context, runID uuid.UUID) {
+	if c.pool == nil || runID == uuid.Nil {
+		return
+	}
+	if _, err := c.pool.Exec(ctx, "SELECT pg_notify($1, $2)", pgnotify.ChannelRunInput, runID.String()); err != nil {
+		slog.Warn("telegram_active_run_notify_failed", "run_id", runID.String(), "error", err)
+	}
 }
 
 func buildTelegramRunStartedData(personaRef string, defaultModel string) map[string]any {
@@ -1674,6 +1727,26 @@ func (c telegramConnector) HandleUpdateForPoll(
 		identity.UserID,
 	); err != nil {
 		return nil, err
+	}
+
+	runRepoTx := c.runEventRepo.WithTx(tx)
+	if err := runRepoTx.LockThreadRow(ctx, threadID); err != nil {
+		return nil, err
+	}
+	if activeRun, err := runRepoTx.GetActiveRootRunForThread(ctx, threadID); err != nil {
+		return nil, err
+	} else if activeRun != nil {
+		delivered, err := c.deliverTelegramMessageToActiveRun(ctx, runRepoTx, activeRun, content, traceID)
+		if err != nil {
+			return nil, err
+		}
+		if delivered {
+			if err := tx.Commit(ctx); err != nil {
+				return nil, err
+			}
+			c.notifyActiveRunInput(ctx, activeRun.ID)
+			return nil, nil
+		}
 	}
 
 	if !channelAgentTriggerConsume(ch.ID) {

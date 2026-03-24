@@ -34,6 +34,7 @@ type channelResponse struct {
 	ChannelType    string          `json:"channel_type"`
 	PersonaID      *string         `json:"persona_id"`
 	WebhookURL     *string         `json:"webhook_url"`
+	OwnerUserID    *string         `json:"owner_user_id"`
 	IsActive       bool            `json:"is_active"`
 	ConfigJSON     json.RawMessage `json:"config_json"`
 	HasCredentials bool            `json:"has_credentials"`
@@ -259,7 +260,8 @@ func createChannel(
 		credentialsID = &secret.ID
 	}
 
-	ch, err := channelsRepo.WithTx(tx).Create(r.Context(), channelID, actor.AccountID, req.ChannelType, personaID, credentialsID, webhookSecret, webhookURL, normalizedConfig)
+	ownerUserID := actor.UserID
+	ch, err := channelsRepo.WithTx(tx).Create(r.Context(), channelID, actor.AccountID, req.ChannelType, personaID, credentialsID, &ownerUserID, webhookSecret, webhookURL, normalizedConfig)
 	if err != nil {
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
@@ -675,6 +677,11 @@ func toChannelResponse(ch data.Channel) channelResponse {
 		s := ch.PersonaID.String()
 		personaID = &s
 	}
+	var ownerUserID *string
+	if ch.OwnerUserID != nil {
+		s := ch.OwnerUserID.String()
+		ownerUserID = &s
+	}
 	configJSON := ch.ConfigJSON
 	if configJSON == nil {
 		configJSON = json.RawMessage(`{}`)
@@ -685,6 +692,7 @@ func toChannelResponse(ch data.Channel) channelResponse {
 		ChannelType:    ch.ChannelType,
 		PersonaID:      personaID,
 		WebhookURL:     ch.WebhookURL,
+		OwnerUserID:    ownerUserID,
 		IsActive:       ch.IsActive,
 		ConfigJSON:     configJSON,
 		HasCredentials: ch.CredentialsID != nil,
