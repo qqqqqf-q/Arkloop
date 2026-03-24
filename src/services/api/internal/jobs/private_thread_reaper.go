@@ -2,10 +2,10 @@ package jobs
 
 import (
 	"context"
+	"log/slog"
 	"time"
 
 	"arkloop/services/api/internal/data"
-	"arkloop/services/api/internal/observability"
 )
 
 const privateReaperInterval = time.Hour
@@ -13,12 +13,12 @@ const privateReaperInterval = time.Hour
 // PrivateThreadReaper 定期硬删除已过期的私密 thread。
 type PrivateThreadReaper struct {
 	threadRepo *data.ThreadRepository
-	logger     *observability.JSONLogger
+	logger     *slog.Logger
 }
 
 func NewPrivateThreadReaper(
 	threadRepo *data.ThreadRepository,
-	logger *observability.JSONLogger,
+	logger *slog.Logger,
 ) *PrivateThreadReaper {
 	return &PrivateThreadReaper{
 		threadRepo: threadRepo,
@@ -45,14 +45,10 @@ func (r *PrivateThreadReaper) Run(ctx context.Context) {
 func (r *PrivateThreadReaper) reap(ctx context.Context) {
 	count, err := r.threadRepo.DeleteExpiredPrivate(ctx)
 	if err != nil {
-		r.logger.Error("private thread reap failed", observability.LogFields{}, map[string]any{
-			"error": err.Error(),
-		})
+		r.logger.Error("private thread reap failed", "error", err.Error())
 		return
 	}
 	if count > 0 {
-		r.logger.Info("private threads reaped", observability.LogFields{}, map[string]any{
-			"count": count,
-		})
+		r.logger.Info("private threads reaped", "count", count)
 	}
 }

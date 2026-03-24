@@ -5,11 +5,11 @@ package app
 import (
 	"context"
 	"io"
+	"log/slog"
 	"testing"
 
 	"arkloop/services/api/internal/auth"
 	"arkloop/services/api/internal/data"
-	"arkloop/services/api/internal/observability"
 
 	"github.com/google/uuid"
 )
@@ -83,7 +83,7 @@ func (s *stubBootstrapSettingsRepo) Set(ctx context.Context, key, value string) 
 func TestBootstrapPlatformAdminOnce(t *testing.T) {
 	t.Parallel()
 
-	logger := observability.NewJSONLogger("api", io.Discard)
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 
 	t.Run("首次执行成功并写入标记", func(t *testing.T) {
 		userID := uuid.New()

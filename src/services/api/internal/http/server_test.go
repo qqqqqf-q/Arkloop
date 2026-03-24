@@ -5,13 +5,15 @@ package http
 import (
 	"encoding/json"
 	"io"
+	"log/slog"
+
+	"arkloop/services/api/internal/observability"
 	"regexp"
 	"testing"
 
 	nethttp "net/http"
 	"net/http/httptest"
 
-	"arkloop/services/api/internal/observability"
 )
 
 // flusherRecorder is a test recorder that also implements http.Flusher,
@@ -27,7 +29,7 @@ func (f *flusherRecorder) Flush() {
 }
 
 func TestHealthz(t *testing.T) {
-	logger := observability.NewJSONLogger("test", io.Discard)
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	handler := NewHandler(HandlerConfig{Logger: logger})
 
 	req := httptest.NewRequest(nethttp.MethodGet, "/healthz", nil)
@@ -53,7 +55,7 @@ func TestHealthz(t *testing.T) {
 }
 
 func TestNotFoundReturnsEnvelope(t *testing.T) {
-	logger := observability.NewJSONLogger("test", io.Discard)
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	handler := NewHandler(HandlerConfig{Logger: logger})
 
 	req := httptest.NewRequest(nethttp.MethodGet, "/nope", nil)
@@ -88,7 +90,7 @@ func TestNotFoundReturnsEnvelope(t *testing.T) {
 }
 
 func TestReadyzRequiresDatabase(t *testing.T) {
-	logger := observability.NewJSONLogger("test", io.Discard)
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	handler := NewHandler(HandlerConfig{Logger: logger})
 
 	req := httptest.NewRequest(nethttp.MethodGet, "/readyz", nil)
@@ -121,7 +123,7 @@ func TestReadyzRequiresDatabase(t *testing.T) {
 // SSE/streaming depends on this; if the assertion fails, connections are established
 // but data gets buffered and never sent.
 func TestTraceMiddlewarePreservesHttpFlusher(t *testing.T) {
-	logger := observability.NewJSONLogger("test", io.Discard)
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 
 	var capturedWriter nethttp.ResponseWriter
 	inner := nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
@@ -144,7 +146,7 @@ func TestTraceMiddlewarePreservesHttpFlusher(t *testing.T) {
 }
 
 func TestTraceMiddlewareStoresTrustedRequestMetadata(t *testing.T) {
-	logger := observability.NewJSONLogger("test", io.Discard)
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 
 	inner := nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		ip := observability.ClientIPFromContext(r.Context())
@@ -172,7 +174,7 @@ func TestTraceMiddlewareStoresTrustedRequestMetadata(t *testing.T) {
 }
 
 func TestTraceMiddlewareIgnoresUntrustedForwardedMetadata(t *testing.T) {
-	logger := observability.NewJSONLogger("test", io.Discard)
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 
 	inner := nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		ip := observability.ClientIPFromContext(r.Context())
@@ -203,7 +205,7 @@ func TestTraceMiddlewareIgnoresUntrustedForwardedMetadata(t *testing.T) {
 // sub-resource paths don't return 422 due to uuid parse errors, proving the routing
 // split logic correctly identifies segments.
 func TestThreadSubResourceRouting(t *testing.T) {
-	logger := observability.NewJSONLogger("test", io.Discard)
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	handler := NewHandler(HandlerConfig{Logger: logger})
 
 	paths := []string{

@@ -5,9 +5,9 @@ package skillseed
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"arkloop/services/api/internal/data"
-	"arkloop/services/api/internal/observability"
 )
 
 // SeedDesktopSkills scans the built-in skills directory and synchronises any
@@ -19,7 +19,7 @@ func SeedDesktopSkills(
 	root string,
 	repo *data.SkillPackagesRepository,
 	store objectStore,
-	logger *observability.JSONLogger,
+	logger *slog.Logger,
 ) error {
 	if root == "" {
 		return fmt.Errorf("skills root must not be empty")

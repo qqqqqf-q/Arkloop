@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"mime/multipart"
 	nethttp "net/http"
 	"time"
@@ -30,19 +31,20 @@ func asrTranscribeEntry(
 	membershipRepo *data.AccountMembershipRepository,
 	asrCredRepo *data.AsrCredentialsRepository,
 	secretsRepo *data.SecretsRepository,
-	logger *observability.JSONLogger,
+	logger *slog.Logger,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
-	if logger == nil {
-		logger = observability.NewJSONLogger("asr", io.Discard)
-	}
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		traceID := observability.TraceIDFromContext(r.Context())
 		writeErr := func(status int, code, msg string, err error) {
-			logger.Error(msg, observability.LogFields{TraceID: &traceID}, map[string]any{"err": err.Error()})
+			if logger != nil {
+				logger.ErrorContext(r.Context(), msg, "trace_id", traceID, "err", err.Error())
+			}
 			httpkit.WriteError(w, status, code, msg, traceID, nil)
 		}
 		writeErrStr := func(status int, code, msg string) {
-			logger.Error(msg, observability.LogFields{TraceID: &traceID}, nil)
+			if logger != nil {
+				logger.ErrorContext(r.Context(), msg, "trace_id", traceID)
+			}
 			httpkit.WriteError(w, status, code, msg, traceID, nil)
 		}
 

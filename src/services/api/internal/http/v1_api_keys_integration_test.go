@@ -5,6 +5,7 @@ package http
 import (
 	"context"
 	"io"
+	"log/slog"
 	"testing"
 	"time"
 
@@ -14,7 +15,6 @@ import (
 	"arkloop/services/api/internal/auth"
 	"arkloop/services/api/internal/data"
 	"arkloop/services/api/internal/migrate"
-	"arkloop/services/api/internal/observability"
 	"arkloop/services/api/internal/testutil"
 	"github.com/google/uuid"
 )
@@ -46,7 +46,7 @@ func buildAPIKeyEnv(t *testing.T) apiKeyTestEnv {
 	}
 	t.Cleanup(pool.Close)
 
-	logger := observability.NewJSONLogger("test", io.Discard)
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	passwordHasher, err := auth.NewBcryptPasswordHasher(0)
 	if err != nil {
 		t.Fatalf("new password hasher: %v", err)
@@ -409,7 +409,7 @@ func TestAPIKeyAuditLog(t *testing.T) {
 	}
 	t.Cleanup(pool.Close)
 
-	logger := observability.NewJSONLogger("test", io.Discard)
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	passwordHasher, err := auth.NewBcryptPasswordHasher(0)
 	if err != nil {
 		t.Fatalf("new password hasher: %v", err)

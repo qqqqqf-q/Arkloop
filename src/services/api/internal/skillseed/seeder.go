@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path"
 	"path/filepath"
@@ -17,7 +18,6 @@ import (
 	"time"
 
 	"arkloop/services/api/internal/data"
-	"arkloop/services/api/internal/observability"
 	"arkloop/services/shared/objectstore"
 	"arkloop/services/shared/skillstore"
 	"arkloop/services/shared/workspaceblob"
@@ -49,11 +49,11 @@ type Seeder struct {
 	pool    *pgxpool.Pool
 	repo    *data.SkillPackagesRepository
 	store   objectStore
-	logger  *observability.JSONLogger
+	logger  *slog.Logger
 	trigger chan struct{}
 }
 
-func NewSeeder(root string, pool *pgxpool.Pool, repo *data.SkillPackagesRepository, store objectStore, logger *observability.JSONLogger) *Seeder {
+func NewSeeder(root string, pool *pgxpool.Pool, repo *data.SkillPackagesRepository, store objectStore, logger *slog.Logger) *Seeder {
 	return &Seeder{
 		root:    root,
 		pool:    pool,
@@ -67,7 +67,7 @@ func NewSeeder(root string, pool *pgxpool.Pool, repo *data.SkillPackagesReposito
 // NewSeederDirect creates a Seeder without a pgxpool.Pool. It can only be used
 // with SyncOnceDirect (no advisory-lock election). Intended for desktop mode
 // where there is always a single process and PostgreSQL is not available.
-func NewSeederDirect(root string, repo *data.SkillPackagesRepository, store objectStore, logger *observability.JSONLogger) *Seeder {
+func NewSeederDirect(root string, repo *data.SkillPackagesRepository, store objectStore, logger *slog.Logger) *Seeder {
 	return &Seeder{
 		root:    root,
 		repo:    repo,
@@ -470,23 +470,31 @@ func (s *Seeder) logInfo(msg string, extra map[string]any) {
 	if s.logger == nil {
 		return
 	}
-	s.logger.Info(msg, observability.LogFields{}, extra)
+	args := make([]any, 0, len(extra)*2)
+	for k, v := range extra {
+		args = append(args, k, v)
+	}
+	s.logger.Info(msg, args...)
 }
 
 func (s *Seeder) logWarn(msg string, extra map[string]any) {
 	if s.logger == nil {
 		return
 	}
-	s.logger.Warn(msg, observability.LogFields{}, extra)
+	args := make([]any, 0, len(extra)*2)
+	for k, v := range extra {
+		args = append(args, k, v)
+	}
+	s.logger.Warn(msg, args...)
 }
 
 func (s *Seeder) logError(msg string, err error, extra map[string]any) {
 	if s.logger == nil {
 		return
 	}
-	if extra == nil {
-		extra = map[string]any{}
+	args := []any{"error", err.Error()}
+	for k, v := range extra {
+		args = append(args, k, v)
 	}
-	extra["error"] = err.Error()
-	s.logger.Error(msg, observability.LogFields{}, extra)
+	s.logger.Error(msg, args...)
 }

@@ -1,12 +1,12 @@
 package catalogapi
 
 import (
+	"log/slog"
 	nethttp "net/http"
 
 	"arkloop/services/api/internal/audit"
 	"arkloop/services/api/internal/auth"
 	"arkloop/services/api/internal/data"
-	"arkloop/services/api/internal/observability"
 	repopersonas "arkloop/services/api/internal/personas"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -40,7 +40,7 @@ type Deps struct {
 	PersonaSyncTrigger           personaSyncTrigger
 	EffectiveToolCatalogCache    *EffectiveToolCatalogCache
 	ArtifactStoreAvailable       bool
-	Logger                       *observability.JSONLogger
+	Logger                       *slog.Logger
 }
 
 type personaSyncTrigger interface {

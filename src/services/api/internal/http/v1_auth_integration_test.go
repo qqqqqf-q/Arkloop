@@ -7,6 +7,9 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
+
+	"arkloop/services/api/internal/observability"
 	"regexp"
 	"strings"
 	"testing"
@@ -19,7 +22,6 @@ import (
 	"arkloop/services/api/internal/data"
 	"arkloop/services/api/internal/featureflag"
 	"arkloop/services/api/internal/migrate"
-	"arkloop/services/api/internal/observability"
 	"arkloop/services/api/internal/testutil"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -35,7 +37,7 @@ func TestAuthRegisterLoginRefreshLogoutFlow(t *testing.T) {
 	}
 	defer pool.Close()
 
-	logger := observability.NewJSONLogger("test", io.Discard)
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 
 	passwordHasher, err := auth.NewBcryptPasswordHasher(0)
 	if err != nil {
@@ -168,7 +170,7 @@ func TestAuthRefreshReplayDoesNotClearCanonicalCookie(t *testing.T) {
 	}
 	defer pool.Close()
 
-	logger := observability.NewJSONLogger("test", io.Discard)
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 
 	passwordHasher, err := auth.NewBcryptPasswordHasher(0)
 	if err != nil {
@@ -412,7 +414,7 @@ func TestAuthRegisterRejectsWeakPasswords(t *testing.T) {
 	}
 	defer pool.Close()
 
-	logger := observability.NewJSONLogger("test", io.Discard)
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	passwordHasher, err := auth.NewBcryptPasswordHasher(0)
 	if err != nil {
 		t.Fatalf("new password hasher: %v", err)
@@ -512,7 +514,7 @@ func TestAuthLoginAllowsLegacyWeakPassword(t *testing.T) {
 	}
 	defer pool.Close()
 
-	logger := observability.NewJSONLogger("test", io.Discard)
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	passwordHasher, err := auth.NewBcryptPasswordHasher(0)
 	if err != nil {
 		t.Fatalf("new password hasher: %v", err)
@@ -611,7 +613,7 @@ func TestAuthMeRequiresMembership(t *testing.T) {
 	}
 	defer pool.Close()
 
-	logger := observability.NewJSONLogger("test", io.Discard)
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 
 	passwordHasher, err := auth.NewBcryptPasswordHasher(0)
 	if err != nil {
@@ -702,7 +704,7 @@ func TestAuthLogoutThenReLoginNewTokenStillValid(t *testing.T) {
 	}
 	defer pool.Close()
 
-	logger := observability.NewJSONLogger("test", io.Discard)
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 
 	passwordHasher, err := auth.NewBcryptPasswordHasher(0)
 	if err != nil {
@@ -822,7 +824,7 @@ func TestAuthCookieIsolation(t *testing.T) {
 	}
 	defer pool.Close()
 
-	logger := observability.NewJSONLogger("test", io.Discard)
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	passwordHasher, err := auth.NewBcryptPasswordHasher(0)
 	if err != nil {
 		t.Fatalf("new password hasher: %v", err)
@@ -1073,7 +1075,7 @@ func newAuthResolveTestEnv(t *testing.T, dbName string) authResolveTestEnv {
 	}
 	t.Cleanup(pool.Close)
 
-	logger := observability.NewJSONLogger("test", io.Discard)
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	passwordHasher, err := auth.NewBcryptPasswordHasher(0)
 	if err != nil {
 		t.Fatalf("new password hasher: %v", err)

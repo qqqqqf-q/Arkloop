@@ -4,10 +4,10 @@ package main
 
 import (
 	"context"
+	"log/slog"
 	"os"
 
 	"arkloop/services/api/internal/app"
-	"arkloop/services/api/internal/observability"
 )
 
 func main() {
@@ -27,7 +27,7 @@ func run() error {
 		return err
 	}
 
-	logger := observability.NewJSONLogger("api", os.Stdout)
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	application, err := app.NewApplication(cfg, logger)
 	if err != nil {
 		return err

@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"os/signal"
@@ -22,7 +23,6 @@ import (
 	apihttp "arkloop/services/api/internal/http"
 	"arkloop/services/api/internal/jobs"
 	"arkloop/services/api/internal/migrate"
-	"arkloop/services/api/internal/observability"
 	"arkloop/services/api/internal/personas"
 	"arkloop/services/api/internal/personasync"
 	"arkloop/services/api/internal/scheduler"
@@ -39,10 +39,10 @@ import (
 
 type Application struct {
 	config Config
-	logger *observability.JSONLogger
+	logger *slog.Logger
 }
 
-func NewApplication(config Config, logger *observability.JSONLogger) (*Application, error) {
+func NewApplication(config Config, logger *slog.Logger) (*Application, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
@@ -91,17 +91,11 @@ func (a *Application) Run(ctx context.Context) error {
 
 		schemaVersion, vErr := repo.CurrentSchemaVersion(ctx)
 		if vErr != nil {
-			a.logger.Error("schema version check skipped",
-				observability.LogFields{},
-				map[string]any{"reason": vErr.Error()},
-			)
+			a.logger.Error("schema version check skipped", "reason", vErr.Error())
 		} else if schemaVersion != migrate.ExpectedVersion {
 			a.logger.Error("schema version mismatch",
-				observability.LogFields{},
-				map[string]any{
-					"current":  schemaVersion,
-					"expected": migrate.ExpectedVersion,
-				},
+				"current", schemaVersion,
+				"expected", migrate.ExpectedVersion,
 			)
 		}
 	}
@@ -123,7 +117,7 @@ func (a *Application) Run(ctx context.Context) error {
 		directPool = dp
 		defer directPool.Close()
 	} else if pool != nil {
-		a.logger.Warn("ARKLOOP_DATABASE_DIRECT_URL not set: LISTEN/NOTIFY uses main pool, breaks with PgBouncer", observability.LogFields{}, nil)
+		a.logger.Warn("ARKLOOP_DATABASE_DIRECT_URL not set: LISTEN/NOTIFY uses main pool, breaks with PgBouncer")
 		directPool = pool
 	}
 
@@ -144,7 +138,7 @@ func (a *Application) Run(ctx context.Context) error {
 		}
 		defer rc.Close()
 		redisClient = rc
-		a.logger.Info("redis connected", observability.LogFields{}, nil)
+		a.logger.Info("redis connected")
 	}
 
 	gatewayRedisClient := redisClient
@@ -157,7 +151,7 @@ func (a *Application) Run(ctx context.Context) error {
 		}
 		defer rc.Close()
 		gatewayRedisClient = rc
-		a.logger.Info("gateway redis connected", observability.LogFields{}, nil)
+		a.logger.Info("gateway redis connected")
 	}
 
 	var runLimiter *data.RunLimiter
@@ -167,9 +161,7 @@ func (a *Application) Run(ctx context.Context) error {
 			return fmt.Errorf("run limiter: %w", err)
 		}
 		runLimiter = rl
-		a.logger.Info("run limiter enabled", observability.LogFields{}, map[string]any{
-			"max_per_account": a.config.MaxConcurrentRunsPerAccount,
-		})
+		a.logger.Info("run limiter enabled", "max_per_account", a.config.MaxConcurrentRunsPerAccount)
 	}
 
 	configRegistry := sharedconfig.DefaultRegistry()
@@ -194,28 +186,28 @@ func (a *Application) Run(ctx context.Context) error {
 			return fmt.Errorf("objectstore: %w", err)
 		}
 		messageAttachmentStore = mainStore
-		a.logger.Info("objectstore connected", observability.LogFields{}, map[string]any{"bucket": a.config.S3Bucket})
+		a.logger.Info("objectstore connected", "bucket", a.config.S3Bucket)
 
 		as, err := bucketOpener.Open(ctx, objectstore.ArtifactBucket)
 		if err != nil {
 			return fmt.Errorf("artifact store: %w", err)
 		}
 		artifactStore = as
-		a.logger.Info("artifact store connected", observability.LogFields{}, nil)
+		a.logger.Info("artifact store connected")
 
 		es, err := bucketOpener.Open(ctx, objectstore.EnvironmentStateBucket)
 		if err != nil {
 			return fmt.Errorf("environment store: %w", err)
 		}
 		environmentStore = es
-		a.logger.Info("environment store connected", observability.LogFields{}, nil)
+		a.logger.Info("environment store connected")
 
 		ss, err := bucketOpener.Open(ctx, objectstore.SkillStoreBucket)
 		if err != nil {
 			return fmt.Errorf("skill store: %w", err)
 		}
 		skillStore = ss
-		a.logger.Info("skill store connected", observability.LogFields{}, nil)
+		a.logger.Info("skill store connected")
 	}
 
 	var (
@@ -528,10 +520,7 @@ func (a *Application) Run(ctx context.Context) error {
 				return err
 			}
 		} else {
-			a.logger.Error("encryption key not configured, secrets disabled",
-				observability.LogFields{},
-				map[string]any{"reason": keyRingErr.Error()},
-			)
+			a.logger.Error("encryption key not configured, secrets disabled", "reason", keyRingErr.Error())
 		}
 
 		warnUnsafeOutboundBaseURLs(ctx, pool, a.logger)
@@ -601,15 +590,15 @@ func (a *Application) Run(ctx context.Context) error {
 			if err != nil {
 				a.logger.Error(
 					"bootstrap platform admin invalid user_id",
-					observability.LogFields{},
-					map[string]any{"value": raw, "error": err.Error()},
+					"value", raw,
+					"error", err.Error(),
 				)
 			} else {
 				if err := bootstrapPlatformAdminOnce(ctx, credentialRepo, membershipRepo, platformSettingsRepo, userID, a.logger); err != nil {
 					a.logger.Error(
 						"bootstrap platform admin failed",
-						observability.LogFields{},
-						map[string]any{"user_id": userID.String(), "error": err.Error()},
+						"user_id", userID.String(),
+						"error", err.Error(),
 					)
 				}
 			}
@@ -654,7 +643,7 @@ func (a *Application) Run(ctx context.Context) error {
 		if deleted, err := personasRepo.DeleteInvalidLuaRuntimeRows(ctx); err != nil {
 			return err
 		} else if deleted > 0 {
-			a.logger.Warn("persona_runtime_rows_deleted", observability.LogFields{}, map[string]any{"rows": deleted})
+			a.logger.Warn("persona_runtime_rows_deleted", "rows", deleted)
 		}
 		personaSyncManager = personasync.NewManager(personasRoot, pool, personasRepo, a.logger)
 		if err := personaSyncManager.SyncNow(ctx); err != nil {
@@ -671,11 +660,11 @@ func (a *Application) Run(ctx context.Context) error {
 	if pool != nil && skillPackagesRepo != nil && skillStore != nil {
 		skillsRoot, skillsRootErr := skillseed.BuiltinSkillsRoot()
 		if skillsRootErr != nil {
-			a.logger.Warn("platform_skills_root_not_found", observability.LogFields{}, map[string]any{"error": skillsRootErr.Error()})
+			a.logger.Warn("platform_skills_root_not_found", "error", skillsRootErr.Error())
 		} else {
 			skillSeeder = skillseed.NewSeeder(skillsRoot, pool, skillPackagesRepo, skillStore, a.logger)
 			if err := skillSeeder.SyncNow(ctx); err != nil {
-				a.logger.Warn("platform_skills_sync_failed", observability.LogFields{}, map[string]any{"error": err.Error()})
+				a.logger.Warn("platform_skills_sync_failed", "error", err.Error())
 			}
 			go skillSeeder.Run(ctx)
 		}
@@ -829,7 +818,7 @@ func buildStorageBucketOpener(cfg Config) (objectstore.BucketOpener, error) {
 
 func startDBPoolStatsLogger(
 	ctx context.Context,
-	logger *observability.JSONLogger,
+	logger *slog.Logger,
 	pool *pgxpool.Pool,
 	poolName string,
 	interval time.Duration,
@@ -881,7 +870,7 @@ func startDBPoolStatsLogger(
 }
 
 func logDBPoolStats(
-	logger *observability.JSONLogger,
+	logger *slog.Logger,
 	poolName string,
 	stat *pgxpool.Stat,
 	deltaCount int64,
@@ -893,19 +882,16 @@ func logDBPoolStats(
 	}
 
 	logger.Info("db_pool",
-		observability.LogFields{},
-		map[string]any{
-			"pool":                      poolName,
-			"max_conns":                 stat.MaxConns(),
-			"total_conns":               stat.TotalConns(),
-			"acquired_conns":            stat.AcquiredConns(),
-			"idle_conns":                stat.IdleConns(),
-			"acquire_count_total":       stat.AcquireCount(),
-			"acquire_duration_ms_total": durationMs(stat.AcquireDuration()),
-			"acquire_count_delta":       deltaCount,
-			"acquire_duration_ms_delta": deltaDurationMs,
-			"acquire_avg_ms_delta":      avgMs,
-		},
+		"pool", poolName,
+		"max_conns", stat.MaxConns(),
+		"total_conns", stat.TotalConns(),
+		"acquired_conns", stat.AcquiredConns(),
+		"idle_conns", stat.IdleConns(),
+		"acquire_count_total", stat.AcquireCount(),
+		"acquire_duration_ms_total", durationMs(stat.AcquireDuration()),
+		"acquire_count_delta", deltaCount,
+		"acquire_duration_ms_delta", deltaDurationMs,
+		"acquire_avg_ms_delta", avgMs,
 	)
 }
 
@@ -936,7 +922,7 @@ func bootstrapPlatformAdminOnce(
 	membershipRepo bootstrapMembershipRepo,
 	settingsRepo bootstrapSettingsRepo,
 	userID uuid.UUID,
-	logger *observability.JSONLogger,
+	logger *slog.Logger,
 ) error {
 	if ctx == nil {
 		ctx = context.Background()
@@ -969,8 +955,8 @@ func bootstrapPlatformAdminOnce(
 	}
 	logger.Info(
 		"platform_admin bootstrapped",
-		observability.LogFields{},
-		map[string]any{"user_id": userID.String(), "login": cred.Login},
+		"user_id", userID.String(),
+		"login", cred.Login,
 	)
 	return nil
 }

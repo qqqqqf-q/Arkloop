@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	nethttp "net/http"
 	"testing"
 	"time"
@@ -13,7 +14,6 @@ import (
 	"arkloop/services/api/internal/auth"
 	apiCrypto "arkloop/services/api/internal/crypto"
 	"arkloop/services/api/internal/data"
-	"arkloop/services/api/internal/observability"
 )
 
 type toolProvidersListResponse struct {
@@ -46,7 +46,7 @@ func TestToolProvidersListActivateCredentialAndClear(t *testing.T) {
 	}
 	t.Cleanup(pool.Close)
 
-	logger := observability.NewJSONLogger("test", io.Discard)
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 
 	userRepo, err := data.NewUserRepository(pool)
 	if err != nil {

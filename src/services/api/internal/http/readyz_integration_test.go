@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"testing"
 
 	nethttp "net/http"
@@ -13,7 +14,6 @@ import (
 
 	"arkloop/services/api/internal/data"
 	"arkloop/services/api/internal/migrate"
-	"arkloop/services/api/internal/observability"
 )
 
 func TestReadyzOKWhenDatabaseReachable(t *testing.T) {
@@ -30,7 +30,7 @@ func TestReadyzOKWhenDatabaseReachable(t *testing.T) {
 		t.Fatalf("new repo: %v", err)
 	}
 
-	logger := observability.NewJSONLogger("test", io.Discard)
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	handler := NewHandler(HandlerConfig{Logger: logger, SchemaRepository: schemaRepo})
 
 	req := httptest.NewRequest(nethttp.MethodGet, "/readyz", nil)
@@ -77,7 +77,7 @@ func TestReadyz503WhenSchemaMismatch(t *testing.T) {
 		t.Fatalf("new repo: %v", err)
 	}
 
-	logger := observability.NewJSONLogger("test", io.Discard)
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	handler := NewHandler(HandlerConfig{Logger: logger, SchemaRepository: schemaRepo})
 
 	req := httptest.NewRequest(nethttp.MethodGet, "/readyz", nil)

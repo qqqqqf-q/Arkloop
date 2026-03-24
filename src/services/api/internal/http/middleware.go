@@ -2,6 +2,7 @@ package http
 
 import (
 	"fmt"
+	"log/slog"
 	"runtime/debug"
 	"time"
 
@@ -22,7 +23,7 @@ func requirePerm(a *httpkit.Actor, perm string, w nethttp.ResponseWriter, traceI
 	return false
 }
 
-func TraceMiddleware(next nethttp.Handler, logger *observability.JSONLogger, trustIncomingTraceID bool, trustXFF bool) nethttp.Handler {
+func TraceMiddleware(next nethttp.Handler, logger *slog.Logger, trustIncomingTraceID bool, trustXFF bool) nethttp.Handler {
 	if next == nil {
 		return nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
 			WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", "", nil)
@@ -58,20 +59,17 @@ func TraceMiddleware(next nethttp.Handler, logger *observability.JSONLogger, tru
 		}
 
 		durationMs := time.Since(start).Milliseconds()
-		logger.Info(
-			"http request",
-			observability.LogFields{TraceID: &traceID},
-			map[string]any{
-				"method":      r.Method,
-				"path":        r.URL.Path,
-				"status_code": recorder.StatusCode,
-				"duration_ms": durationMs,
-			},
+		logger.InfoContext(ctx, "http request",
+			"trace_id", traceID,
+			"method", r.Method,
+			"path", r.URL.Path,
+			"status_code", recorder.StatusCode,
+			"duration_ms", durationMs,
 		)
 	})
 }
 
-func RecoverMiddleware(next nethttp.Handler, logger *observability.JSONLogger) nethttp.Handler {
+func RecoverMiddleware(next nethttp.Handler, logger *slog.Logger) nethttp.Handler {
 	if next == nil {
 		return nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
 			WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", "", nil)
@@ -87,13 +85,10 @@ func RecoverMiddleware(next nethttp.Handler, logger *observability.JSONLogger) n
 				}
 
 				if logger != nil {
-					logger.Error(
-						"panic",
-						observability.LogFields{TraceID: &traceID},
-						map[string]any{
-							"panic": fmt.Sprint(value),
-							"stack": string(debug.Stack()),
-						},
+					logger.ErrorContext(r.Context(), "panic",
+						"trace_id", traceID,
+						"panic", fmt.Sprint(value),
+						"stack", string(debug.Stack()),
 					)
 				}
 

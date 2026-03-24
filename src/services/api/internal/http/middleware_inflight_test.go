@@ -5,17 +5,19 @@ package http
 import (
 	"encoding/json"
 	"io"
+	"log/slog"
+
+	"arkloop/services/api/internal/observability"
 	"sync/atomic"
 	"testing"
 
 	nethttp "net/http"
 	"net/http/httptest"
 
-	"arkloop/services/api/internal/observability"
 )
 
 func TestInFlightMiddlewareRejectsWhenBusy(t *testing.T) {
-	logger := observability.NewJSONLogger("test", io.Discard)
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 
 	firstEntered := make(chan struct{})
 	releaseFirst := make(chan struct{})
@@ -83,7 +85,7 @@ func TestInFlightMiddlewareRejectsWhenBusy(t *testing.T) {
 }
 
 func TestInFlightMiddlewareBypassPaths(t *testing.T) {
-	logger := observability.NewJSONLogger("test", io.Discard)
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 
 	var calls int64
 	firstEntered := make(chan struct{})

@@ -6,6 +6,9 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
+
+	"arkloop/services/api/internal/observability"
 	"net/http/httptest"
 	"testing"
 
@@ -14,7 +17,6 @@ import (
 	"arkloop/services/api/internal/audit"
 	"arkloop/services/api/internal/auth"
 	"arkloop/services/api/internal/data"
-	"arkloop/services/api/internal/observability"
 
 	"github.com/google/uuid"
 )
@@ -29,7 +31,7 @@ func TestThreadsCreateListGetPatchAndAudit(t *testing.T) {
 	}
 	defer pool.Close()
 
-	logger := observability.NewJSONLogger("test", io.Discard)
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 
 	passwordHasher, err := auth.NewBcryptPasswordHasher(0)
 	if err != nil {
@@ -179,7 +181,7 @@ func TestThreadsPatchDeleteOwnershipFallbacks(t *testing.T) {
 	}
 	defer pool.Close()
 
-	logger := observability.NewJSONLogger("test", io.Discard)
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 
 	passwordHasher, err := auth.NewBcryptPasswordHasher(0)
 	if err != nil {
@@ -440,7 +442,7 @@ func TestThreadListActiveRunID(t *testing.T) {
 	}
 	defer pool.Close()
 
-	logger := observability.NewJSONLogger("test", io.Discard)
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 
 	passwordHasher, err := auth.NewBcryptPasswordHasher(0)
 	if err != nil {

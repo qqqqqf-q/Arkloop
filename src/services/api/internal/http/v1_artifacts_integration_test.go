@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"log/slog"
 	"mime/multipart"
 	nethttp "net/http"
 	"net/http/httptest"
@@ -18,7 +19,6 @@ import (
 	"arkloop/services/api/internal/data"
 	"arkloop/services/api/internal/featureflag"
 	"arkloop/services/api/internal/migrate"
-	"arkloop/services/api/internal/observability"
 	"arkloop/services/api/internal/testutil"
 	"arkloop/services/shared/objectstore"
 
@@ -128,7 +128,7 @@ func buildArtifactEnv(t *testing.T) artifactTestEnv {
 	}
 	t.Cleanup(pool.Close)
 
-	logger := observability.NewJSONLogger("test", io.Discard)
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	passwordHasher, err := auth.NewBcryptPasswordHasher(0)
 	if err != nil {
 		t.Fatalf("new password hasher: %v", err)

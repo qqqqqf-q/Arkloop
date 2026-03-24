@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/hex"
 	"io"
+	"log/slog"
 	nethttp "net/http"
 	"testing"
 
@@ -13,7 +14,6 @@ import (
 	apicrypto "arkloop/services/api/internal/crypto"
 	"arkloop/services/api/internal/data"
 	"arkloop/services/api/internal/migrate"
-	"arkloop/services/api/internal/observability"
 	"arkloop/services/api/internal/testutil"
 )
 
@@ -30,7 +30,7 @@ func TestWebhookCreateStoresSecretReference(t *testing.T) {
 	}
 	defer pool.Close()
 
-	logger := observability.NewJSONLogger("test", io.Discard)
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	passwordHasher, err := auth.NewBcryptPasswordHasher(0)
 	if err != nil {
 		t.Fatalf("new password hasher: %v", err)

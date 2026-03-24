@@ -5,6 +5,7 @@ package http
 import (
 	"context"
 	nethttp "net/http"
+	"log/slog"
 	"os"
 	"time"
 
@@ -51,7 +52,7 @@ type HandlerConfig struct {
 	DirectPool               *pgxpool.Pool // LISTEN/NOTIFY 专用，不走 PgBouncer
 	InvalidationListenerCtx  context.Context
 	DirectPoolAcquireTimeout time.Duration
-	Logger                   *observability.JSONLogger
+	Logger                   *slog.Logger
 	SchemaRepository         *data.SchemaRepository
 	TrustIncomingTraceID     bool
 	TrustXForwardedFor       bool

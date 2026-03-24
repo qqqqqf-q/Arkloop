@@ -22,7 +22,6 @@ import (
 	"arkloop/services/api/internal/featureflag"
 	apihttp "arkloop/services/api/internal/http"
 	"arkloop/services/api/internal/http/accountapi"
-	"arkloop/services/api/internal/observability"
 	repopersonas "arkloop/services/api/internal/personas"
 	"arkloop/services/api/internal/personasync"
 	"arkloop/services/api/internal/skillseed"
@@ -32,6 +31,7 @@ import (
 	"arkloop/services/shared/database/sqlitepgx"
 	"arkloop/services/shared/desktop"
 	"arkloop/services/shared/objectstore"
+	"log/slog"
 )
 
 func desktopJWTSecretValue() string {
@@ -53,7 +53,7 @@ func RunDesktop(ctx context.Context) error {
 		return fmt.Errorf("load config: %w", err)
 	}
 
-	logger := observability.NewJSONLogger("api", os.Stdout)
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 
 	// ---- data directory ----
 
@@ -79,7 +79,7 @@ func RunDesktop(ctx context.Context) error {
 		desktop.ClearSharedSQLitePool()
 		if !desktop.SidecarProcess() {
 			if err := desktop.CloseRegisteredSQLite(); err != nil {
-				logger.Warn("desktop_sqlite_close", observability.LogFields{}, map[string]any{"error": err.Error()})
+				logger.Warn("desktop_sqlite_close", "error", err.Error())
 			}
 		}
 	}()
@@ -392,10 +392,10 @@ func RunDesktop(ctx context.Context) error {
 
 	skillsRoot, skillsRootErr := skillseed.BuiltinSkillsRoot()
 	if skillsRootErr != nil {
-		logger.Warn("platform_skills_root_not_found", observability.LogFields{}, map[string]any{"error": skillsRootErr.Error()})
+		logger.Warn("platform_skills_root_not_found", "error", skillsRootErr.Error())
 	} else {
 		if seedErr := skillseed.SeedDesktopSkills(ctx, skillsRoot, skillPackagesRepo, skillStore, logger); seedErr != nil {
-			logger.Warn("platform_skills_sync_failed", observability.LogFields{}, map[string]any{"error": seedErr.Error()})
+			logger.Warn("platform_skills_sync_failed", "error", seedErr.Error())
 		}
 	}
 
@@ -540,11 +540,11 @@ func RunDesktop(ctx context.Context) error {
 			errCh <- fmt.Errorf("listen %s: %w", srv.Addr, err)
 			return
 		}
-		logger.Info("desktop api listening", observability.LogFields{}, map[string]any{
-			"addr":    ln.Addr().String(),
-			"sqlite":  sqlitePath,
-			"storage": storageRoot,
-		})
+		logger.Info("desktop api listening",
+			"addr", ln.Addr().String(),
+			"sqlite", sqlitePath,
+			"storage", storageRoot,
+		)
 		desktop.MarkAPIReady()
 		errCh <- srv.Serve(ln)
 	}()
@@ -558,7 +558,7 @@ func RunDesktop(ctx context.Context) error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
-		logger.Warn("shutdown timeout", observability.LogFields{}, map[string]any{"error": err.Error()})
+		logger.Warn("shutdown timeout", "error", err.Error())
 	}
 	return nil
 }

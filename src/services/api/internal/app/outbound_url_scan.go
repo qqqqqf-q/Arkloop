@@ -2,15 +2,15 @@ package app
 
 import (
 	"context"
+	"log/slog"
 	"strings"
 
-	"arkloop/services/api/internal/observability"
 	sharedoutbound "arkloop/services/shared/outboundurl"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-func warnUnsafeOutboundBaseURLs(ctx context.Context, pool *pgxpool.Pool, logger *observability.JSONLogger) {
+func warnUnsafeOutboundBaseURLs(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger) {
 	if pool == nil || logger == nil {
 		return
 	}
@@ -42,19 +42,19 @@ func warnUnsafeOutboundBaseURLs(ctx context.Context, pool *pgxpool.Pool, logger 
 	for _, check := range checks {
 		rows, err := pool.Query(ctx, check.query)
 		if err != nil {
-			logger.Warn("outbound_base_url_scan_failed", observability.LogFields{}, map[string]any{"table": check.table, "error": err.Error()})
+			logger.Warn("outbound_base_url_scan_failed", "table", check.table, "error", err.Error())
 			continue
 		}
 		for rows.Next() {
 			var (
-				id       string
-				scope    string
+				id        string
+				scope     string
 				accountID string
-				provider string
-				baseURL  string
+				provider  string
+				baseURL   string
 			)
 			if err := rows.Scan(&id, &scope, &accountID, &provider, &baseURL); err != nil {
-				logger.Warn("outbound_base_url_scan_failed", observability.LogFields{}, map[string]any{"table": check.table, "error": err.Error()})
+				logger.Warn("outbound_base_url_scan_failed", "table", check.table, "error", err.Error())
 				continue
 			}
 			normalize := policy.NormalizeBaseURL
@@ -63,18 +63,18 @@ func warnUnsafeOutboundBaseURLs(ctx context.Context, pool *pgxpool.Pool, logger 
 				normalize = policy.NormalizeInternalBaseURL
 			}
 			if _, err := normalize(baseURL); err != nil {
-				logger.Warn("unsafe_outbound_base_url_configured", observability.LogFields{}, map[string]any{
-					"table":    check.table,
-					"id":       id,
-					"scope":    strings.TrimSpace(scope),
-					"account_id": strings.TrimSpace(accountID),
-					"provider": providerName,
-					"reason":   err.Error(),
-				})
+				logger.Warn("unsafe_outbound_base_url_configured",
+					"table", check.table,
+					"id", id,
+					"scope", strings.TrimSpace(scope),
+					"account_id", strings.TrimSpace(accountID),
+					"provider", providerName,
+					"reason", err.Error(),
+				)
 			}
 		}
 		if err := rows.Err(); err != nil {
-			logger.Warn("outbound_base_url_scan_failed", observability.LogFields{}, map[string]any{"table": check.table, "error": err.Error()})
+			logger.Warn("outbound_base_url_scan_failed", "table", check.table, "error", err.Error())
 		}
 		rows.Close()
 	}

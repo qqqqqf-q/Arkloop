@@ -7,6 +7,9 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
+
+	"arkloop/services/api/internal/observability"
 	"strings"
 	"testing"
 
@@ -15,7 +18,6 @@ import (
 	"arkloop/services/api/internal/audit"
 	"arkloop/services/api/internal/auth"
 	"arkloop/services/api/internal/data"
-	"arkloop/services/api/internal/observability"
 
 	"github.com/google/uuid"
 )
@@ -30,7 +32,7 @@ func TestRunsCreateListGetCancelAndEnqueue(t *testing.T) {
 	}
 	defer pool.Close()
 
-	logger := observability.NewJSONLogger("test", io.Discard)
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 
 	passwordHasher, err := auth.NewBcryptPasswordHasher(0)
 	if err != nil {
@@ -599,7 +601,7 @@ func TestStreamRunEvents(t *testing.T) {
 	}
 	defer pool.Close()
 
-	logger := observability.NewJSONLogger("test", io.Discard)
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 
 	passwordHasher, err := auth.NewBcryptPasswordHasher(0)
 	if err != nil {
@@ -808,7 +810,7 @@ func TestListGlobalRuns(t *testing.T) {
 	}
 	defer pool.Close()
 
-	logger := observability.NewJSONLogger("test", io.Discard)
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 
 	passwordHasher, err := auth.NewBcryptPasswordHasher(0)
 	if err != nil {

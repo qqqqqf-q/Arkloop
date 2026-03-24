@@ -5,13 +5,13 @@ package http
 import (
 	"context"
 	"io"
+	"log/slog"
 	nethttp "net/http"
 	"testing"
 
 	"arkloop/services/api/internal/audit"
 	"arkloop/services/api/internal/auth"
 	"arkloop/services/api/internal/data"
-	"arkloop/services/api/internal/observability"
 )
 
 func TestAdminUsersListSearchPatchAndForbidden(t *testing.T) {
@@ -24,7 +24,7 @@ func TestAdminUsersListSearchPatchAndForbidden(t *testing.T) {
 	}
 	defer pool.Close()
 
-	logger := observability.NewJSONLogger("test", io.Discard)
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 
 	passwordHasher, err := auth.NewBcryptPasswordHasher(0)
 	if err != nil {

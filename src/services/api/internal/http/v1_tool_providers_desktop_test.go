@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	nethttp "net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -15,7 +16,6 @@ import (
 	"arkloop/services/api/internal/auth"
 	apiCrypto "arkloop/services/api/internal/crypto"
 	"arkloop/services/api/internal/data"
-	"arkloop/services/api/internal/observability"
 	"arkloop/services/shared/database/sqliteadapter"
 	"arkloop/services/shared/database/sqlitepgx"
 )
@@ -107,7 +107,7 @@ func TestDesktopToolProvidersListActivateAndConfigACP(t *testing.T) {
 	}
 
 	handler := NewHandler(HandlerConfig{
-		Logger:                  observability.NewJSONLogger("api", io.Discard),
+		Logger:                  slog.New(slog.NewJSONHandler(io.Discard, nil)),
 		Pool:                    pool,
 		AuthService:             authService,
 		AccountMembershipRepo:   membershipRepo,

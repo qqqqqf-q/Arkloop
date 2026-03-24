@@ -5,6 +5,7 @@ package http
 import (
 	"context"
 	nethttp "net/http"
+	"log/slog"
 	"os"
 
 	"arkloop/services/api/internal/http/accountapi"
@@ -69,7 +70,7 @@ type skillStore interface {
 // repository interfaces or can accept nil gracefully.
 type HandlerConfig struct {
 	Pool                 data.DB // *sqlitepgx.Pool in desktop mode
-	Logger               *observability.JSONLogger
+	Logger               *slog.Logger
 	SchemaRepository     *data.SchemaRepository
 	TrustIncomingTraceID bool
 	TrustXForwardedFor   bool

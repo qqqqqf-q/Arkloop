@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	nethttp "net/http"
 	"net/http/httptest"
 	"os"
@@ -16,7 +17,6 @@ import (
 	"arkloop/services/api/internal/auth"
 	apiCrypto "arkloop/services/api/internal/crypto"
 	"arkloop/services/api/internal/data"
-	"arkloop/services/api/internal/observability"
 	sharedtoolmeta "arkloop/services/shared/toolmeta"
 
 	"github.com/google/uuid"
@@ -32,7 +32,7 @@ func TestToolCatalogSupportsPlatformAndOrgOverrides(t *testing.T) {
 	}
 	t.Cleanup(pool.Close)
 
-	logger := observability.NewJSONLogger("test", io.Discard)
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 
 	userRepo, err := data.NewUserRepository(pool)
 	if err != nil {
@@ -243,7 +243,7 @@ func TestToolCatalogScopePermissions(t *testing.T) {
 	}
 	t.Cleanup(pool.Close)
 
-	logger := observability.NewJSONLogger("test", io.Discard)
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	userRepo, err := data.NewUserRepository(pool)
 	if err != nil {
 		t.Fatalf("user repo: %v", err)
@@ -329,7 +329,7 @@ func TestEffectiveToolCatalogIncludesConditionalAndMCPTools(t *testing.T) {
 	}
 	t.Cleanup(pool.Close)
 
-	logger := observability.NewJSONLogger("test", io.Discard)
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	userRepo, _ := data.NewUserRepository(pool)
 	credRepo, _ := data.NewUserCredentialRepository(pool)
 	membershipRepo, _ := data.NewAccountMembershipRepository(pool)

@@ -3,10 +3,10 @@ package jobs
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"arkloop/services/api/internal/data"
-	"arkloop/services/api/internal/observability"
 
 	"github.com/google/uuid"
 )
@@ -21,7 +21,7 @@ type StaleRunReaper struct {
 	runLimiter   *data.RunLimiter
 	auditRepo    *data.AuditLogRepository
 	pool         data.Querier
-	logger       *observability.JSONLogger
+	logger       *slog.Logger
 	timeoutMin   int
 }
 
@@ -30,7 +30,7 @@ func NewStaleRunReaper(
 	runLimiter *data.RunLimiter,
 	auditRepo *data.AuditLogRepository,
 	pool data.Querier,
-	logger *observability.JSONLogger,
+	logger *slog.Logger,
 	timeoutMinutes int,
 ) *StaleRunReaper {
 	return &StaleRunReaper{
@@ -65,9 +65,7 @@ func (r *StaleRunReaper) reap(ctx context.Context) {
 
 	staleRuns, err := r.runEventRepo.ListStaleRunning(ctx, staleBefore)
 	if err != nil {
-		r.logger.Error("stale run scan failed", observability.LogFields{}, map[string]any{
-			"error": err.Error(),
-		})
+		r.logger.Error("stale run scan failed", "error", err.Error())
 		return
 	}
 	if len(staleRuns) == 0 {
@@ -82,26 +80,17 @@ func (r *StaleRunReaper) reap(ctx context.Context) {
 		affectedAccounts[run.AccountID] = struct{}{}
 
 		if reaped, err := r.runEventRepo.ForceFailRun(ctx, run.ID); err != nil {
-			runID := run.ID.String()
-			r.logger.Error("force fail run failed", observability.LogFields{RunID: &runID}, map[string]any{
-				"error": err.Error(),
-			})
+			r.logger.Error("force fail run failed", "run_id", run.ID.String(), "error", err.Error())
 			continue
 		} else if reaped {
 			r.writeAudit(ctx, run)
-
-			runID := run.ID.String()
-			accountID := run.AccountID.String()
-			r.logger.Info("stale run reaped", observability.LogFields{RunID: &runID, AccountID: &accountID}, nil)
+			r.logger.Info("stale run reaped", "run_id", run.ID.String(), "account_id", run.AccountID.String())
 		}
 	}
 
 	for accountID := range affectedAccounts {
 		if err := r.runLimiter.SyncFromDB(ctx, r.pool, accountID); err != nil {
-			aid := accountID.String()
-			r.logger.Error("sync run counter failed", observability.LogFields{AccountID: &aid}, map[string]any{
-				"error": err.Error(),
-			})
+			r.logger.Error("sync run counter failed", "account_id", accountID.String(), "error", err.Error())
 		}
 	}
 }
@@ -117,7 +106,7 @@ func (r *StaleRunReaper) writeAudit(ctx context.Context, run data.Run) {
 	accountID := run.AccountID
 
 	if err := r.auditRepo.Create(ctx, data.AuditLogCreateParams{
-		AccountID:      &accountID,
+		AccountID:  &accountID,
 		Action:     "runs.force_expired",
 		TargetType: &targetType,
 		TargetID:   &targetID,
@@ -128,9 +117,6 @@ func (r *StaleRunReaper) writeAudit(ctx context.Context, run data.Run) {
 			"timeout_min": r.timeoutMin,
 		},
 	}); err != nil {
-		r.logger.Error("reaper audit write failed", observability.LogFields{}, map[string]any{
-			"error":  err.Error(),
-			"run_id": run.ID.String(),
-		})
+		r.logger.Error("reaper audit write failed", "run_id", run.ID.String(), "error", err.Error())
 	}
 }

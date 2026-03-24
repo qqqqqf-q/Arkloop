@@ -5,6 +5,7 @@ package http
 import (
 	"context"
 	"io"
+	"log/slog"
 	nethttp "net/http"
 	"net/http/httptest"
 	"testing"
@@ -14,7 +15,6 @@ import (
 	apiCrypto "arkloop/services/api/internal/crypto"
 	"arkloop/services/api/internal/data"
 	"arkloop/services/api/internal/http/httpkit"
-	"arkloop/services/api/internal/observability"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -37,7 +37,7 @@ func setupLlmProvidersTestEnv(t *testing.T) llmProvidersTestEnv {
 	}
 	t.Cleanup(pool.Close)
 
-	logger := observability.NewJSONLogger("test", io.Discard)
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	userRepo, err := data.NewUserRepository(pool)
 	if err != nil {
 		t.Fatalf("user repo: %v", err)

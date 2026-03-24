@@ -2,11 +2,11 @@ package adminapi
 
 import (
 	nethttp "net/http"
+	"log/slog"
 
 	"arkloop/services/api/internal/audit"
 	"arkloop/services/api/internal/auth"
 	"arkloop/services/api/internal/data"
-	"arkloop/services/api/internal/observability"
 	repopersonas "arkloop/services/api/internal/personas"
 	sharedconfig "arkloop/services/shared/config"
 
@@ -32,7 +32,7 @@ type Deps struct {
 	RedemptionCodesRepo  *data.RedemptionCodesRepository
 	NotificationsRepo    *data.NotificationsRepository
 	Pool                 data.DB
-	Logger               *observability.JSONLogger
+	Logger               *slog.Logger
 	GatewayRedisClient   *redis.Client
 	PlatformSettingsRepo *data.PlatformSettingsRepository
 	ConfigResolver       sharedconfig.Resolver

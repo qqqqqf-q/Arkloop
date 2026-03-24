@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -14,7 +15,6 @@ import (
 	"time"
 
 	"arkloop/services/api/internal/data"
-	"arkloop/services/api/internal/observability"
 	repopersonas "arkloop/services/api/internal/personas"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -30,7 +30,7 @@ type Manager struct {
 	root   string
 	pool   *pgxpool.Pool
 	repo   *data.PersonasRepository
-	logger *observability.JSONLogger
+	logger *slog.Logger
 
 	trigger chan struct{}
 
@@ -77,7 +77,7 @@ type mirrorPersonaYAML struct {
 	ExecutorConfig      map[string]any `yaml:"executor_config,omitempty"`
 }
 
-func NewManager(root string, pool *pgxpool.Pool, repo *data.PersonasRepository, logger *observability.JSONLogger) *Manager {
+func NewManager(root string, pool *pgxpool.Pool, repo *data.PersonasRepository, logger *slog.Logger) *Manager {
 	return &Manager{
 		root:      strings.TrimSpace(root),
 		pool:      pool,
@@ -632,16 +632,20 @@ func (m *Manager) logWarn(msg string, extra map[string]any) {
 	if m.logger == nil {
 		return
 	}
-	m.logger.Warn(msg, observability.LogFields{}, extra)
+	args := make([]any, 0, len(extra)*2)
+	for k, v := range extra {
+		args = append(args, k, v)
+	}
+	m.logger.Warn(msg, args...)
 }
 
 func (m *Manager) logError(msg string, err error, extra map[string]any) {
 	if m.logger == nil {
 		return
 	}
-	if extra == nil {
-		extra = map[string]any{}
+	args := []any{"error", err.Error()}
+	for k, v := range extra {
+		args = append(args, k, v)
 	}
-	extra["error"] = err.Error()
-	m.logger.Error(msg, observability.LogFields{}, extra)
+	m.logger.Error(msg, args...)
 }

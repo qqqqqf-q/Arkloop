@@ -3,6 +3,7 @@ package adminapi
 import (
 	httpkit "arkloop/services/api/internal/http/httpkit"
 	"context"
+	"log/slog"
 	nethttp "net/http"
 	"strings"
 	"time"
@@ -60,7 +61,7 @@ func adminBroadcastsEntry(
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,
 	pool data.DB,
-	logger *observability.JSONLogger,
+	logger *slog.Logger,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		switch r.Method {
@@ -122,7 +123,7 @@ func createBroadcast(
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,
 	pool data.DB,
-	logger *observability.JSONLogger,
+	logger *slog.Logger,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		traceID := observability.TraceIDFromContext(r.Context())
@@ -192,7 +193,10 @@ func createBroadcast(
 			bgRepo, err := data.NewNotificationsRepository(pool)
 			if err != nil {
 				if logger != nil {
-					logger.Error("broadcast: failed to create bg repo", observability.LogFields{TraceID: &traceID}, map[string]any{"error": err.Error()})
+					logger.Error("broadcast: failed to create bg repo",
+						"trace_id", traceID,
+						"error", err.Error(),
+					)
 				}
 				return
 			}
@@ -209,19 +213,21 @@ func createBroadcast(
 			if execErr != nil {
 				status = "failed"
 				if logger != nil {
-					logger.Error("broadcast: execution failed", observability.LogFields{TraceID: &traceID}, map[string]any{
-						"broadcast_id": broadcast.ID.String(),
-						"error":        execErr.Error(),
-					})
+					logger.Error("broadcast: execution failed",
+						"trace_id", traceID,
+						"broadcast_id", broadcast.ID.String(),
+						"error", execErr.Error(),
+					)
 				}
 			}
 
 			if updateErr := bgRepo.UpdateBroadcastStatus(bgCtx, broadcast.ID, status, sentCount); updateErr != nil {
 				if logger != nil {
-					logger.Error("broadcast: status update failed", observability.LogFields{TraceID: &traceID}, map[string]any{
-						"broadcast_id": broadcast.ID.String(),
-						"error":        updateErr.Error(),
-					})
+					logger.Error("broadcast: status update failed",
+						"trace_id", traceID,
+						"broadcast_id", broadcast.ID.String(),
+						"error", updateErr.Error(),
+					)
 				}
 			}
 		}()

@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"time"
 
 	nethttp "net/http"
@@ -12,7 +13,7 @@ import (
 	"arkloop/services/api/internal/observability"
 )
 
-func readyz(schemaRepo *data.SchemaRepository, logger *observability.JSONLogger) func(nethttp.ResponseWriter, *nethttp.Request) {
+func readyz(schemaRepo *data.SchemaRepository, logger *slog.Logger) func(nethttp.ResponseWriter, *nethttp.Request) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		if r.Method != nethttp.MethodGet {
 			traceID := observability.TraceIDFromContext(r.Context())
@@ -23,10 +24,9 @@ func readyz(schemaRepo *data.SchemaRepository, logger *observability.JSONLogger)
 		traceID := observability.TraceIDFromContext(r.Context())
 		if schemaRepo == nil {
 			if logger != nil {
-				logger.Error(
-					"readyz failed",
-					observability.LogFields{TraceID: &traceID},
-					map[string]any{"reason": "schemaRepo is nil"},
+				logger.ErrorContext(r.Context(), "readyz failed",
+					"trace_id", traceID,
+					"reason", "schemaRepo is nil",
 				)
 			}
 			WriteError(w, nethttp.StatusServiceUnavailable, "health.not_ready", "service not ready", traceID, map[string]any{"dependency": "database"})
@@ -39,10 +39,10 @@ func readyz(schemaRepo *data.SchemaRepository, logger *observability.JSONLogger)
 		version, err := schemaRepo.CurrentSchemaVersion(ctx)
 		if err != nil {
 			if logger != nil {
-				logger.Error(
-					"readyz failed",
-					observability.LogFields{TraceID: &traceID},
-					map[string]any{"dependency": "database", "error": err.Error()},
+				logger.ErrorContext(r.Context(), "readyz failed",
+					"trace_id", traceID,
+					"dependency", "database",
+					"error", err.Error(),
 				)
 			}
 			WriteError(
@@ -61,10 +61,10 @@ func readyz(schemaRepo *data.SchemaRepository, logger *observability.JSONLogger)
 
 		if !match {
 			if logger != nil {
-				logger.Warn(
-					"readyz: schema version mismatch",
-					observability.LogFields{TraceID: &traceID},
-					map[string]any{"current": version, "expected": expected},
+				logger.WarnContext(r.Context(), "readyz: schema version mismatch",
+					"trace_id", traceID,
+					"current", version,
+					"expected", expected,
 				)
 			}
 			WriteError(

@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	nethttp "net/http"
 	"testing"
 
@@ -15,7 +16,6 @@ import (
 	"arkloop/services/api/internal/auth"
 	"arkloop/services/api/internal/data"
 	"arkloop/services/api/internal/migrate"
-	"arkloop/services/api/internal/observability"
 	"arkloop/services/api/internal/testutil"
 	sharedenvironmentref "arkloop/services/shared/environmentref"
 	"arkloop/services/shared/skillstore"
@@ -108,7 +108,7 @@ func buildSkillsEnv(t *testing.T) skillsTestEnv {
 		t.Fatalf("new pool: %v", err)
 	}
 	t.Cleanup(pool.Close)
-	logger := observability.NewJSONLogger("test", io.Discard)
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	passwordHasher, err := auth.NewBcryptPasswordHasher(0)
 	if err != nil {
 		t.Fatalf("new password hasher: %v", err)

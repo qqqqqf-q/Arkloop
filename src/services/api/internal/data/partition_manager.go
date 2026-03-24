@@ -3,9 +3,8 @@ package data
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
-
-	"arkloop/services/api/internal/observability"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -13,12 +12,12 @@ import (
 // PartitionManager 定期检查并创建/清理 run_events 的月分区。
 type PartitionManager struct {
 	pool            *pgxpool.Pool
-	logger          *observability.JSONLogger
+	logger          *slog.Logger
 	interval        time.Duration
 	retentionMonths int
 }
 
-func NewPartitionManager(pool *pgxpool.Pool, logger *observability.JSONLogger) *PartitionManager {
+func NewPartitionManager(pool *pgxpool.Pool, logger *slog.Logger) *PartitionManager {
 	return &PartitionManager{
 		pool:            pool,
 		logger:          logger,
@@ -27,7 +26,7 @@ func NewPartitionManager(pool *pgxpool.Pool, logger *observability.JSONLogger) *
 	}
 }
 
-func NewPartitionManagerWithRetention(pool *pgxpool.Pool, logger *observability.JSONLogger, retentionMonths int) *PartitionManager {
+func NewPartitionManagerWithRetention(pool *pgxpool.Pool, logger *slog.Logger, retentionMonths int) *PartitionManager {
 	if retentionMonths <= 0 {
 		retentionMonths = 3
 	}
@@ -58,10 +57,10 @@ func (pm *PartitionManager) Run(ctx context.Context) {
 
 func (pm *PartitionManager) ensure(ctx context.Context) {
 	if err := pm.EnsurePartitions(ctx); err != nil {
-		pm.logger.Error("partition check failed", observability.LogFields{}, map[string]any{"error": err.Error()})
+		pm.logger.Error("partition check failed", "error", err.Error())
 	}
 	if err := pm.DropOldPartitions(ctx); err != nil {
-		pm.logger.Error("partition drop failed", observability.LogFields{}, map[string]any{"error": err.Error()})
+		pm.logger.Error("partition drop failed", "error", err.Error())
 	}
 }
 
@@ -119,10 +118,10 @@ func (pm *PartitionManager) DropOldPartitions(ctx context.Context) error {
 
 	for _, name := range toDrop {
 		if _, err := pm.pool.Exec(ctx, fmt.Sprintf(`DROP TABLE IF EXISTS "%s"`, name)); err != nil {
-			pm.logger.Error("drop partition failed", observability.LogFields{}, map[string]any{"partition": name, "error": err.Error()})
+			pm.logger.Error("drop partition failed", "partition", name, "error", err.Error())
 			continue
 		}
-		pm.logger.Info("partition dropped", observability.LogFields{}, map[string]any{"partition": name})
+		pm.logger.Info("partition dropped", "partition", name)
 	}
 	return nil
 }
@@ -144,7 +143,7 @@ func (pm *PartitionManager) createPartitionIfNotExists(
 	}
 	// CommandTag 为 "CREATE TABLE" 时表示实际创建了新分区
 	if tag.String() == "CREATE TABLE" {
-		pm.logger.Info("partition created", observability.LogFields{}, map[string]any{"partition": name})
+		pm.logger.Info("partition created", "partition", name)
 	}
 	return nil
 }

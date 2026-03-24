@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"log/slog"
 	"strings"
 
 	"arkloop/services/api/internal/data"
@@ -15,13 +16,13 @@ import (
 type Writer struct {
 	auditRepo      *data.AuditLogRepository
 	membershipRepo *data.AccountMembershipRepository
-	logger         *observability.JSONLogger
+	logger         *slog.Logger
 }
 
 func NewWriter(
 	auditRepo *data.AuditLogRepository,
 	membershipRepo *data.AccountMembershipRepository,
-	logger *observability.JSONLogger,
+	logger *slog.Logger,
 ) *Writer {
 	return &Writer{
 		auditRepo:      auditRepo,
@@ -323,17 +324,16 @@ func (w *Writer) WriteAccessDenied(
 	if w.logger != nil {
 		w.logger.Info(
 			"access denied",
-			observability.LogFields{TraceID: &traceID, AccountID: &accountID},
-			map[string]any{
-				"action":                 action,
-				"target_type":            targetType,
-				"target_id":              targetID,
-				"deny_reason":            denyReason,
-				"actor_account_id":           actorAccountID.String(),
-				"actor_user_id":          actorUserID.String(),
-				"resource_account_id":        resourceAccountID.String(),
-				"resource_owner_user_id": owner,
-			},
+			"trace_id", traceID,
+			"account_id", accountID,
+			"action", action,
+			"target_type", targetType,
+			"target_id", targetID,
+			"deny_reason", denyReason,
+			"actor_account_id", actorAccountID.String(),
+			"actor_user_id", actorUserID.String(),
+			"resource_account_id", resourceAccountID.String(),
+			"resource_owner_user_id", owner,
 		)
 	}
 
@@ -1020,7 +1020,7 @@ func (w *Writer) logError(traceID string, msg string, err error) {
 	if w == nil || w.logger == nil || err == nil {
 		return
 	}
-	w.logger.Error(msg, observability.LogFields{TraceID: &traceID}, map[string]any{"error": err.Error()})
+	w.logger.Error(msg, "trace_id", traceID, "error", err.Error())
 }
 
 // requestMetaFromContext 从 context 提取 IP 和 User-Agent 供审计写入。

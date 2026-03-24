@@ -6,13 +6,13 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	nethttp "net/http"
 	"testing"
 
 	"arkloop/services/api/internal/audit"
 	"arkloop/services/api/internal/auth"
 	"arkloop/services/api/internal/data"
-	"arkloop/services/api/internal/observability"
 	repopersonas "arkloop/services/api/internal/personas"
 
 	"github.com/google/uuid"
@@ -28,7 +28,7 @@ func TestAdminExecutionGovernanceReturnsPersonaCentricView(t *testing.T) {
 	}
 	defer pool.Close()
 
-	logger := observability.NewJSONLogger("test", io.Discard)
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	passwordHasher, err := auth.NewBcryptPasswordHasher(0)
 	if err != nil {
 		t.Fatalf("new password hasher: %v", err)
