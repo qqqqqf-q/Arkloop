@@ -1575,6 +1575,12 @@ func (c telegramConnector) HandleUpdateForPoll(
 			if groupIdentity != nil {
 				heartbeatIdentity = *groupIdentity
 			}
+			slog.DebugContext(ctx, "heartbeat_cmd: dispatching",
+				"cmd", incoming.CommandText,
+				"group_identity_nil", groupIdentity == nil,
+				"heartbeat_identity_id", heartbeatIdentity.ID,
+				"chat_id", incoming.PlatformChatID,
+			)
 			replyText, err := handleTelegramHeartbeatCommand(ctx, tx, heartbeatIdentity, incoming.CommandText, c.channelIdentitiesRepo)
 			if err != nil {
 				return nil, err
