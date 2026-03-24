@@ -108,6 +108,85 @@ func TestCalcCreditDeduction_MixedCacheFamilyKeepsLegacy(t *testing.T) {
 	}
 }
 
+func TestExtractAssistantDeltaFiltersHeartbeatTerminalToken(t *testing.T) {
+	if got := extractAssistantDelta(map[string]any{
+		"role":          "assistant",
+		"content_delta": "<end_turn>",
+	}); got != "" {
+		t.Fatalf("expected empty delta, got %q", got)
+	}
+}
+
+func TestShouldSuppressHeartbeatOutput(t *testing.T) {
+	tests := []struct {
+		name   string
+		rc     *RunContext
+		output string
+		want   bool
+	}{
+		{
+			name:   "non heartbeat never suppresses",
+			rc:     &RunContext{},
+			output: "hello",
+			want:   false,
+		},
+		{
+			name: "tool explicit silent suppresses",
+			rc: &RunContext{
+				HeartbeatRun: true,
+				HeartbeatToolOutcome: &HeartbeatDecisionOutcome{
+					ReplySilent: true,
+				},
+			},
+			output: "hello",
+			want:   true,
+		},
+		{
+			name: "tool explicit reply keeps output",
+			rc: &RunContext{
+				HeartbeatRun: true,
+				HeartbeatToolOutcome: &HeartbeatDecisionOutcome{
+					ReplySilent: false,
+				},
+			},
+			output: "hello",
+			want:   false,
+		},
+		{
+			name: "blank heartbeat output suppresses",
+			rc: &RunContext{
+				HeartbeatRun: true,
+			},
+			output: "",
+			want:   true,
+		},
+		{
+			name: "heartbeat ack suppresses",
+			rc: &RunContext{
+				HeartbeatRun: true,
+			},
+			output: "HEARTBEAT_OK",
+			want:   true,
+		},
+		{
+			name: "real heartbeat text still sends when tool missing",
+			rc: &RunContext{
+				HeartbeatRun: true,
+			},
+			output: "请关注今天 18:00 的发布窗口。",
+			want:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ShouldSuppressHeartbeatOutput(tt.rc, tt.output); got != tt.want {
+				t.Fatalf("got %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func f64ptr(v float64) *float64 {
 	return &v
 }

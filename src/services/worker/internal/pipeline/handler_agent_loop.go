@@ -145,7 +145,7 @@ func NewAgentLoopHandler(
 			rc.ChannelTerminalNotice = writer.TerminalUserMessage()
 		}
 		if writer.Completed() {
-			if !shouldSuppressHeartbeatOutput(rc, writer.AssistantOutput()) {
+			if !ShouldSuppressHeartbeatOutput(rc, writer.AssistantOutput()) {
 				if _, err := writer.InsertAssistantMessage(ctx, messagesRepo, rc.Run.AccountID, rc.Run.ThreadID, false); err != nil {
 					return err
 				}
@@ -236,24 +236,24 @@ func newEventWriter(
 		multiplier = 1.0
 	}
 	return &eventWriter{
-		pool:                pool,
-		run:                 run,
-		traceID:             strings.TrimSpace(traceID),
-		lastCommitAt:        time.Now(),
-		runLimiterRDB:       runLimiterRDB,
-		eventBus:            bus,
-		jobQueue:            jobQueue,
-		projector:           subagentctl.NewSubAgentStateProjector(pool, runLimiterRDB, jobQueue),
-		model:               model,
-		personaID:           strings.TrimSpace(personaID),
-		usageRepo:           usageRepo,
-		creditsRepo:         creditsRepo,
-		creditsPerUSD:       creditsPerUSD,
-		multiplier:          multiplier,
-		costPer1kInput:      costPer1kInput,
-		costPer1kOutput:     costPer1kOutput,
-		costPer1kCacheWrite: costPer1kCacheWrite,
-		costPer1kCacheRead:  costPer1kCacheRead,
+		pool:                      pool,
+		run:                       run,
+		traceID:                   strings.TrimSpace(traceID),
+		lastCommitAt:              time.Now(),
+		runLimiterRDB:             runLimiterRDB,
+		eventBus:                  bus,
+		jobQueue:                  jobQueue,
+		projector:                 subagentctl.NewSubAgentStateProjector(pool, runLimiterRDB, jobQueue),
+		model:                     model,
+		personaID:                 strings.TrimSpace(personaID),
+		usageRepo:                 usageRepo,
+		creditsRepo:               creditsRepo,
+		creditsPerUSD:             creditsPerUSD,
+		multiplier:                multiplier,
+		costPer1kInput:            costPer1kInput,
+		costPer1kOutput:           costPer1kOutput,
+		costPer1kCacheWrite:       costPer1kCacheWrite,
+		costPer1kCacheRead:        costPer1kCacheRead,
 		policy:                    policy,
 		releaseSlot:               releaseSlot,
 		telegramToolBoundaryFlush: telegramToolBoundaryFlush,
@@ -570,7 +570,8 @@ func extractAssistantDelta(dataJSON map[string]any) string {
 	return delta
 }
 
-func shouldSuppressHeartbeatOutput(rc *RunContext, output string) bool {
+// ShouldSuppressHeartbeatOutput 判断 heartbeat 终态是否应跳过写 thread / 外发渠道。
+func ShouldSuppressHeartbeatOutput(rc *RunContext, output string) bool {
 	if rc == nil || !rc.HeartbeatRun {
 		return false
 	}

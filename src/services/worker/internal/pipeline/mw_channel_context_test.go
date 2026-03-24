@@ -25,6 +25,32 @@ func TestParseChannelContextRejectsInvalidChannelID(t *testing.T) {
 	}
 }
 
+func TestParseChannelContextAllowsHeartbeatWithoutInboundMessage(t *testing.T) {
+	channelID := uuid.New()
+	senderID := uuid.New()
+	got, err := parseChannelContext(map[string]any{
+		"channel_id":   channelID.String(),
+		"channel_type": "telegram",
+		"conversation_ref": map[string]any{
+			"target": "10001",
+		},
+		"sender_channel_identity_id": senderID.String(),
+		"conversation_type":          "supergroup",
+	})
+	if err != nil {
+		t.Fatalf("parseChannelContext: %v", err)
+	}
+	if got.ChannelID != channelID {
+		t.Fatalf("unexpected channel id: %s", got.ChannelID)
+	}
+	if got.InboundMessage.MessageID != "" {
+		t.Fatalf("expected empty inbound message id, got %q", got.InboundMessage.MessageID)
+	}
+	if got.SenderIdentityID != senderID {
+		t.Fatalf("unexpected sender identity id: %s", got.SenderIdentityID)
+	}
+}
+
 func TestChannelContextMiddlewareOverridesUserIDFromSenderIdentity(t *testing.T) {
 	db := testutil.SetupPostgresDatabase(t, "pipeline_channel_context")
 	pool, err := pgxpool.New(context.Background(), db.DSN)

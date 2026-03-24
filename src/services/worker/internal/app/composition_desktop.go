@@ -1417,12 +1417,12 @@ func desktopAgentLoop(
 			rc.ChannelTerminalNotice = strings.TrimSpace(w.terminalUserMessage)
 		}
 		if w.completed {
-			if !rc.HeartbeatSilent {
+			content := strings.Join(w.assistantDeltas, "")
+			if !pipeline.ShouldSuppressHeartbeatOutput(rc, content) {
 				messagesRepo := data.MessagesRepository{}
 				if err := w.ensureTx(ctx); err != nil {
 					return err
 				}
-				content := strings.Join(w.assistantDeltas, "")
 				_, err := messagesRepo.InsertAssistantMessage(ctx, w.tx, rc.Run.AccountID, rc.Run.ThreadID, rc.Run.ID, content, false)
 				if err != nil {
 					slog.WarnContext(ctx, "desktop: insert assistant message failed", "err", err)

@@ -9,8 +9,8 @@ import (
 	"arkloop/services/shared/runkind"
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/memory"
-	heartbeattool "arkloop/services/worker/internal/tools/builtin/heartbeat_decision"
 	"arkloop/services/worker/internal/tools"
+	heartbeattool "arkloop/services/worker/internal/tools/builtin/heartbeat_decision"
 
 	"github.com/google/uuid"
 )
