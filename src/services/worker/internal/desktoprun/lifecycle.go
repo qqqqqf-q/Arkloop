@@ -79,7 +79,7 @@ func (m *lifecycleManager) Start(ctx context.Context) {
 		return
 	}
 	go m.reaperLoop(ctx)
-	go startDesktopLLMHeartbeatScheduler(ctx, m.db, m.queue, m.logger)
+	go startDesktopLLMHeartbeatScheduler(ctx, m.db, m.queue)
 }
 
 func (m *lifecycleManager) reaperLoop(ctx context.Context) {

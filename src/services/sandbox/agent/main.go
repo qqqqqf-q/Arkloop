@@ -18,6 +18,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"log/slog"
 	"mime"
 	"net"
 	nethttp "net/http"
@@ -227,13 +228,13 @@ func run() error {
 		if err != nil {
 			return fmt.Errorf("tcp listen :%d: %w", listenPort, err)
 		}
-		fmt.Fprintf(os.Stderr, "sandbox-agent listening on tcp port %d\n", listenPort)
+		slog.Info("sandbox-agent: listening", "proto", "tcp", "port", listenPort)
 	} else {
 		l, err = vsock.Listen(listenPort, nil)
 		if err != nil {
 			return fmt.Errorf("vsock listen :%d: %w", listenPort, err)
 		}
-		fmt.Fprintf(os.Stderr, "sandbox-agent listening on vsock port %d\n", listenPort)
+		slog.Info("sandbox-agent: listening", "proto", "vsock", "port", listenPort)
 	}
 	defer l.Close()
 

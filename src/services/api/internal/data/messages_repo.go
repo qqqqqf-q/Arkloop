@@ -5,13 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
-
-var debugEnabled = true
 
 type Message struct {
 	ID              uuid.UUID
@@ -148,9 +147,7 @@ func (r *MessageRepository) CreateStructuredWithMetadata(
 	metadataJSON json.RawMessage,
 	createdByUserID *uuid.UUID,
 ) (Message, error) {
-	if debugEnabled {
-		fmt.Printf("[DEBUG-MSG-REPO] CreateStructuredWithMetadata: accountID=%s, threadID=%s, role=%s, content=%q\n", accountID, threadID, role, content)
-	}
+	slog.Debug("CreateStructuredWithMetadata", "accountID", accountID, "threadID", threadID, "role", role, "content", content)
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -219,17 +216,13 @@ func (r *MessageRepository) CreateStructuredWithMetadata(
 		&message.Hidden,
 	)
 	if err != nil {
-		if debugEnabled {
-			fmt.Printf("[DEBUG-MSG-REPO] CreateStructuredWithMetadata: query error=%v (type=%T)\n", err, err)
-		}
+		slog.Debug("CreateStructuredWithMetadata query error", "error", err, "errorType", fmt.Sprintf("%T", err))
 		if errors.Is(err, pgx.ErrNoRows) {
 			return Message{}, ThreadNotFoundError{ThreadID: threadID}
 		}
 		return Message{}, err
 	}
-	if debugEnabled {
-		fmt.Printf("[DEBUG-MSG-REPO] CreateStructuredWithMetadata: success, id=%s\n", message.ID)
-	}
+	slog.Debug("CreateStructuredWithMetadata success", "messageID", message.ID)
 
 	return message, nil
 }

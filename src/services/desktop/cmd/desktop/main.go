@@ -15,6 +15,7 @@ import (
 	bridge "arkloop/services/bridge"
 	desktopsandbox "arkloop/services/sandbox/desktopserver"
 	"arkloop/services/shared/desktop"
+	sharedlog "arkloop/services/shared/log"
 	worker "arkloop/services/worker"
 )
 
@@ -26,6 +27,10 @@ func main() {
 }
 
 func run() error {
+	slog.SetDefault(sharedlog.New(sharedlog.Config{
+		Component: "desktop",
+	}))
+
 	baseCtx := context.Background()
 	apiCtx, cancelAPI := context.WithCancel(baseCtx)
 	workerCtx, cancelWorker := context.WithCancel(baseCtx)

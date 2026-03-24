@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"log/slog"
 	"os"
 	"strconv"
 	"strings"
@@ -21,7 +22,6 @@ type LLMHeartbeat struct {
 	threads      *data.ThreadRepository
 	runLimiter   *data.RunLimiter
 	triggers     data.ScheduledTriggersRepository
-	logger       *observability.JSONLogger
 	tickInterval time.Duration
 }
 
@@ -31,11 +31,7 @@ func NewLLMHeartbeat(
 	runs *data.RunEventRepository,
 	threads *data.ThreadRepository,
 	runLimiter *data.RunLimiter,
-	logger *observability.JSONLogger,
 ) *LLMHeartbeat {
-	if logger == nil {
-		logger = observability.NewJSONLogger("llm_heartbeat_scheduler", nil)
-	}
 	interval := 30 * time.Second
 	if raw := strings.TrimSpace(os.Getenv("ARKLOOP_LLM_HEARTBEAT_TICK_SECONDS")); raw != "" {
 		if v, err := strconv.Atoi(raw); err == nil && v > 0 {
@@ -48,7 +44,6 @@ func NewLLMHeartbeat(
 		runs:         runs,
 		threads:      threads,
 		runLimiter:   runLimiter,
-		logger:       logger,
 		tickInterval: interval,
 	}
 }
@@ -72,7 +67,7 @@ func (s *LLMHeartbeat) Run(ctx context.Context) {
 func (s *LLMHeartbeat) tick(ctx context.Context) {
 	rows, err := s.triggers.ClaimDueHeartbeats(ctx, s.pool, 8)
 	if err != nil {
-		s.logger.Error("llm_heartbeat_claim_failed", observability.LogFields{}, map[string]any{"error": err.Error()})
+		slog.ErrorContext(ctx, "llm_heartbeat_claim_failed", "error", err)
 		return
 	}
 	for _, row := range rows {
@@ -103,7 +98,7 @@ func (s *LLMHeartbeat) fireOne(ctx context.Context, row data.ScheduledTriggerRow
 	started := map[string]any{"persona_id": row.PersonaKey, "model": row.Model}
 	run, _, err := s.runs.CreateRunWithStartedEvent(ctx, th.AccountID, th.ID, th.CreatedByUserID, "run.started", started)
 	if err != nil {
-		s.logger.Error("llm_heartbeat_create_run_failed", observability.LogFields{}, map[string]any{"error": err.Error()})
+		slog.ErrorContext(ctx, "llm_heartbeat_create_run_failed", "error", err)
 		_ = s.triggers.PostponeHeartbeat(ctx, s.pool, row.ID, 90*time.Second)
 		return
 	}
@@ -114,10 +109,10 @@ func (s *LLMHeartbeat) fireOne(ctx context.Context, row data.ScheduledTriggerRow
 		"heartbeat_interval_minutes": row.IntervalMin,
 		"heartbeat_reason":           "interval",
 		"persona_key":                row.PersonaKey,
-		"model":                     row.Model,
+		"model":                      row.Model,
 	}
 	if _, err := s.jobs.EnqueueRun(ctx, th.AccountID, run.ID, traceID, data.RunExecuteJobType, payload, nil); err != nil {
-		s.logger.Error("llm_heartbeat_enqueue_failed", observability.LogFields{}, map[string]any{"error": err.Error()})
+		slog.ErrorContext(ctx, "llm_heartbeat_enqueue_failed", "error", err)
 		_ = s.triggers.PostponeHeartbeat(ctx, s.pool, row.ID, 90*time.Second)
 	}
 }

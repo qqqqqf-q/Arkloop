@@ -88,9 +88,9 @@ func (a *Application) RunDesktop(ctx context.Context) error {
 		oldMode := desktop.GetExecutionMode()
 		desktop.SetExecutionMode(req.Mode)
 		if err := desktop.PersistExecutionMode(req.Mode); err != nil {
-			fmt.Fprintf(os.Stderr, "execution-mode: persist: %v\n", err)
+			slog.Error("execution-mode: persist", "error", err)
 		}
-		fmt.Fprintf(os.Stderr, "[DEBUG] execution-mode POST: %q -> %q (was %q)\n", r.RemoteAddr, req.Mode, oldMode)
+		slog.Debug("execution-mode POST", "remote", r.RemoteAddr, "mode", req.Mode, "was", oldMode)
 		json.NewEncoder(w).Encode(map[string]string{"mode": req.Mode})
 	})
 
@@ -119,13 +119,13 @@ func (a *Application) RunDesktop(ctx context.Context) error {
 		defer func() { _ = listener6.Close() }()
 	}
 
-	a.logger.Info("bridge started (desktop)", LogFields{}, map[string]any{
-		"addr":        a.config.Addr,
-		"addr_v6":     err6 == nil,
-		"version":     bridgeVersion,
-		"project_dir": a.config.ProjectDir,
-		"modules":     a.config.ModulesFile,
-	})
+	slog.Info("bridge started (desktop)",
+		"addr", a.config.Addr,
+		"addr_v6", err6 == nil,
+		"version", bridgeVersion,
+		"project_dir", a.config.ProjectDir,
+		"modules", a.config.ModulesFile,
+	)
 
 	srv := &http.Server{
 		Handler:           handler,
@@ -139,14 +139,14 @@ func (a *Application) RunDesktop(ctx context.Context) error {
 		go func() {
 			defer wg.Done()
 			if err := srv.Serve(listener4); err != nil && err != http.ErrServerClosed {
-				a.logger.Error("bridge serve error", LogFields{}, map[string]any{"error": err.Error()})
+				slog.Error("bridge serve error", "error", err)
 			}
 		}()
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			if err := srv.Serve(listener6); err != nil && err != http.ErrServerClosed {
-				a.logger.Error("bridge serve error (v6)", LogFields{}, map[string]any{"error": err.Error()})
+				slog.Error("bridge serve error (v6)", "error", err)
 			}
 		}()
 	} else {
@@ -154,7 +154,7 @@ func (a *Application) RunDesktop(ctx context.Context) error {
 		go func() {
 			defer wg.Done()
 			if err := srv.Serve(listener4); err != nil && err != http.ErrServerClosed {
-				a.logger.Error("bridge serve error", LogFields{}, map[string]any{"error": err.Error()})
+				slog.Error("bridge serve error", "error", err)
 			}
 		}()
 	}

@@ -1,10 +1,10 @@
 package conversationapi
 
 import (
-	"fmt"
 	httpkit "arkloop/services/api/internal/http/httpkit"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"strconv"
 	"strings"
 	"time"
@@ -36,7 +36,7 @@ func createThreadMessage(
 		}
 
 		traceID := observability.TraceIDFromContext(r.Context())
-		fmt.Printf("[DEBUG] createThreadMessage: threadID=%s\n", threadID)
+		slog.Debug("createThreadMessage", "thread_id", threadID)
 		if authService == nil {
 			httpkit.WriteAuthNotConfigured(w, traceID)
 			return
@@ -61,27 +61,27 @@ func createThreadMessage(
 		}
 		_, projection, contentJSON, err := normalizeCreateMessagePayload(body)
 		if err != nil {
-			fmt.Printf("[DEBUG] createThreadMessage: normalize failed: %v\n", err)
+			slog.Warn("createThreadMessage: normalize failed", "error", err)
 			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "request validation failed", traceID, map[string]any{"reason": err.Error()})
 			return
 		}
-		fmt.Printf("[DEBUG] createThreadMessage: payload normalized, projection=%q\n", projection)
+		slog.Debug("createThreadMessage: payload normalized", "projection", projection)
 
 		thread, err := threadRepo.GetByID(r.Context(), threadID)
 		if err != nil {
-			fmt.Printf("[DEBUG] createThreadMessage: GetByID error=%v\n", err)
+			slog.Error("createThreadMessage: GetByID failed", "thread_id", threadID, "error", err)
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
 		}
 		if thread == nil {
-			fmt.Printf("[DEBUG] createThreadMessage: thread nil\n")
+			slog.Warn("createThreadMessage: thread not found", "thread_id", threadID)
 			httpkit.WriteError(w, nethttp.StatusNotFound, "threads.not_found", "thread not found", traceID, nil)
 			return
 		}
-		fmt.Printf("[DEBUG] createThreadMessage: thread found, accountID=%s\n", thread.AccountID)
+		slog.Debug("createThreadMessage: thread found", "thread_id", threadID, "account_id", thread.AccountID)
 
 		authorized := authorizeThreadOrAudit(w, r, traceID, actor, "messages.create", thread, auditWriter)
-		fmt.Printf("[DEBUG] createThreadMessage: authorizeThreadOrAudit=%v\n", authorized)
+		slog.Debug("createThreadMessage: authorization check", "authorized", authorized)
 		if !authorized {
 			return
 		}
@@ -89,10 +89,10 @@ func createThreadMessage(
 		// Use thread.AccountID to ensure message is created with the same account_id as the thread.
 		// This is critical for desktop mode where actor.AccountID may differ from the thread's actual account_id
 		// due to how interceptDesktopActor resolves the actor from a dynamic desktop token.
-		fmt.Printf("[DEBUG] createThreadMessage: calling CreateStructured, accountID=%s, threadID=%s, role=user, projection=%q\n", thread.AccountID, threadID, projection)
+		slog.Debug("createThreadMessage: calling CreateStructured", "account_id", thread.AccountID, "thread_id", threadID, "role", "user", "projection", projection)
 		message, err := messageRepo.CreateStructured(r.Context(), thread.AccountID, threadID, "user", projection, contentJSON, &actor.UserID)
 		if err != nil {
-			fmt.Printf("[DEBUG] createThreadMessage: CreateStructured error=%v\n", err)
+			slog.Error("createThreadMessage: CreateStructured failed", "thread_id", threadID, "error", err)
 			var threadNotFound data.ThreadNotFoundError
 			if errors.As(err, &threadNotFound) {
 				httpkit.WriteError(w, nethttp.StatusNotFound, "threads.not_found", "thread not found", traceID, nil)
@@ -101,7 +101,7 @@ func createThreadMessage(
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
 		}
-		fmt.Printf("[DEBUG] createThreadMessage: success, messageID=%s\n", message.ID)
+		slog.Debug("createThreadMessage: success", "message_id", message.ID)
 
 		httpkit.WriteJSON(w, traceID, nethttp.StatusCreated, toMessageResponse(message))
 	}
