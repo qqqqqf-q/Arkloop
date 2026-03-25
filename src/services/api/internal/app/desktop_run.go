@@ -30,6 +30,7 @@ import (
 	"arkloop/services/shared/database/sqliteadapter"
 	"arkloop/services/shared/database/sqlitepgx"
 	"arkloop/services/shared/desktop"
+	"arkloop/services/shared/eventbus"
 	sharedlog "arkloop/services/shared/log"
 	"arkloop/services/shared/objectstore"
 )
@@ -499,6 +500,11 @@ func RunDesktop(ctx context.Context) error {
 		PersonaSyncTrigger: noopSyncTrigger{},
 	})
 
+	var desktopBus eventbus.EventBus
+	if b, ok := desktop.GetEventBus().(eventbus.EventBus); ok {
+		desktopBus = b
+	}
+
 	accountapi.StartTelegramDesktopPoller(ctx, accountapi.TelegramDesktopPollerDeps{
 		ChannelsRepo:            channelsRepo,
 		ChannelIdentitiesRepo:   channelIdentitiesRepo,
@@ -521,6 +527,7 @@ func RunDesktop(ctx context.Context) error {
 		EntitlementService:      entitlementService,
 		MessageAttachmentStore:  messageAttachmentStore,
 		TelegramMode:            "polling",
+		Bus:                     desktopBus,
 	})
 
 	// ---- HTTP server ----

@@ -106,6 +106,12 @@ func desktopHeartbeatTick(
 			continue
 		}
 
+		if err := tx.Commit(ctx); err != nil {
+			slog.ErrorContext(ctx, "desktop_heartbeat_commit_failed", "error", err)
+			_ = repo.PostponeHeartbeat(ctx, db, row.ID, 2*time.Minute)
+			continue
+		}
+
 		payload := map[string]any{
 			"source":                     "llm_heartbeat_scheduler",
 			"run_kind":                   runkind.Heartbeat,
@@ -129,13 +135,6 @@ func desktopHeartbeatTick(
 				"run_id", result.RunID.String(),
 				"error", err,
 			)
-			_ = tx.Rollback(ctx)
-			_ = repo.PostponeHeartbeat(ctx, db, row.ID, 2*time.Minute)
-			continue
-		}
-
-		if err := tx.Commit(ctx); err != nil {
-			slog.ErrorContext(ctx, "desktop_heartbeat_commit_failed", "error", err)
 			_ = repo.PostponeHeartbeat(ctx, db, row.ID, 2*time.Minute)
 			continue
 		}

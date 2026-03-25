@@ -12,6 +12,7 @@ import (
 	"arkloop/services/api/internal/http/accountapi"
 	shareddesktop "arkloop/services/shared/desktop"
 	sharedconfig "arkloop/services/shared/config"
+	"arkloop/services/shared/eventbus"
 	"arkloop/services/shared/objectstore"
 )
 
@@ -131,6 +132,11 @@ func TelegramDesktopPollerDepsForPool(pgxPool data.DB, keyRing *internalcrypto.K
 		return zero, fmt.Errorf("open message-attachments: %w", err)
 	}
 
+	var bus eventbus.EventBus
+	if b, ok := shareddesktop.GetEventBus().(eventbus.EventBus); ok {
+		bus = b
+	}
+
 	return accountapi.TelegramDesktopPollerDeps{
 		ChannelsRepo:            channelsRepo,
 		ChannelIdentitiesRepo:   channelIdentitiesRepo,
@@ -153,6 +159,7 @@ func TelegramDesktopPollerDepsForPool(pgxPool data.DB, keyRing *internalcrypto.K
 		EntitlementService:     entitlementService,
 		MessageAttachmentStore: msgAttach,
 		TelegramMode:            "polling",
+		Bus:                     bus,
 	}, nil
 }
 

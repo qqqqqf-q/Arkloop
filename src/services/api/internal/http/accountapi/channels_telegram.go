@@ -480,6 +480,7 @@ type telegramConnector struct {
 	entitlementSvc          *entitlement.Service
 	telegramClient          *telegrambot.Client
 	attachmentStore         MessageAttachmentPutStore
+	inputNotify             func(ctx context.Context, runID uuid.UUID)
 }
 
 func (c telegramConnector) refreshTelegramBotProfile(ctx context.Context, token string, ch *data.Channel) {
@@ -990,6 +991,11 @@ func telegramWebhookEntry(
 		entitlementSvc:          entitlementSvc,
 		telegramClient:          telegramClient,
 		attachmentStore:         messageAttachmentStore,
+		inputNotify: func(ctx context.Context, runID uuid.UUID) {
+			if _, err := pool.Exec(ctx, "SELECT pg_notify($1, $2)", pgnotify.ChannelRunInput, runID.String()); err != nil {
+				slog.Warn("telegram_active_run_notify_failed", "run_id", runID.String(), "error", err)
+			}
+		},
 	}
 
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
@@ -1136,12 +1142,10 @@ func (c telegramConnector) deliverTelegramMessageToActiveRun(
 }
 
 func (c telegramConnector) notifyActiveRunInput(ctx context.Context, runID uuid.UUID) {
-	if c.pool == nil || runID == uuid.Nil {
+	if c.inputNotify == nil || runID == uuid.Nil {
 		return
 	}
-	if _, err := c.pool.Exec(ctx, "SELECT pg_notify($1, $2)", pgnotify.ChannelRunInput, runID.String()); err != nil {
-		slog.Warn("telegram_active_run_notify_failed", "run_id", runID.String(), "error", err)
-	}
+	c.inputNotify(ctx, runID)
 }
 
 func buildTelegramRunStartedData(personaRef string, defaultModel string) map[string]any {

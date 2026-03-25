@@ -4,6 +4,7 @@ package accountapi
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"arkloop/services/api/internal/entitlement"
 	"arkloop/services/api/internal/observability"
 	shareddesktop "arkloop/services/shared/desktop"
+	"arkloop/services/shared/eventbus"
 	"arkloop/services/shared/telegrambot"
 
 	"github.com/google/uuid"
@@ -52,6 +54,7 @@ type TelegramDesktopPollerDeps struct {
 	PollLimit                int
 	// TelegramMode 为 webhook 时不启动桌面轮询；空视为 polling。
 	TelegramMode string
+	Bus          eventbus.EventBus
 }
 
 // StartTelegramDesktopPoller 启动 Telegram 长轮询；与 API / Worker 通过 TryAcquireTelegramDesktopPollLeader 互斥。
@@ -130,6 +133,14 @@ func StartTelegramDesktopPoller(ctx context.Context, deps TelegramDesktopPollerD
 		telegramForConnector = telegrambot.NewClient("", nil)
 	}
 
+	var busInputNotify func(ctx context.Context, runID uuid.UUID)
+	if deps.Bus != nil {
+		bus := deps.Bus
+		busInputNotify = func(ctx context.Context, runID uuid.UUID) {
+			_ = bus.Publish(ctx, fmt.Sprintf("run_events:%s", runID.String()), "")
+		}
+	}
+
 	connector := telegramConnector{
 		channelsRepo:            deps.ChannelsRepo,
 		channelIdentitiesRepo:   deps.ChannelIdentitiesRepo,
@@ -152,6 +163,7 @@ func StartTelegramDesktopPoller(ctx context.Context, deps TelegramDesktopPollerD
 		entitlementSvc:          deps.EntitlementService,
 		telegramClient:          telegramForConnector,
 		attachmentStore:         deps.MessageAttachmentStore,
+		inputNotify:             busInputNotify,
 	}
 
 	pollHTTP := &http.Client{Timeout: time.Duration(telegramLongPollSeconds+15) * time.Second}
