@@ -183,7 +183,7 @@ func (ScheduledTriggersRepository) ResolveHeartbeatThread(
 	var personaIDStr string
 	if strings.TrimSpace(row.PersonaKey) != "" {
 		if err := db.QueryRow(ctx,
-			`SELECT id FROM personas WHERE account_id = $1 AND key = $2 AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 1`,
+			`SELECT id FROM personas WHERE account_id = $1 AND persona_key = $2 ORDER BY created_at DESC LIMIT 1`,
 			row.AccountID.String(),
 			row.PersonaKey,
 		).Scan(&personaIDStr); err != nil && !isNoRows(err) {
