@@ -54,7 +54,7 @@ func (e *SimpleExecutor) Execute(
 		RunID:                            rc.Run.ID,
 		AccountID:                        &rc.Run.AccountID,
 		UserID:                           rc.UserID,
-		AgentID:                          agentIDFromPersona(rc),
+		AgentID:                          pipeline.StableAgentID(rc),
 		ThreadID:                         &rc.Run.ThreadID,
 		ProjectID:                        rc.Run.ProjectID,
 		ProfileRef:                       rc.ProfileRef,
@@ -89,8 +89,8 @@ func (e *SimpleExecutor) Execute(
 		CancelSignal: func() bool {
 			return ctx.Err() != nil
 		},
-		StreamThinking: rc.StreamThinking,
-		PipelineRC:     rc,
+		StreamThinking:  rc.StreamThinking,
+		PipelineRC:      rc,
 		RolloutRecorder: rc.RolloutRecorder,
 	}
 

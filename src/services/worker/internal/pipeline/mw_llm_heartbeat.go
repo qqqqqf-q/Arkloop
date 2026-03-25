@@ -167,7 +167,7 @@ func commitHeartbeatFragments(ctx context.Context, rc *RunContext) {
 	}
 	if rc.Pool != nil && strings.TrimSpace(body) != "" {
 		refreshSnapshotFromQueries(ctx, rc.Pool, rc.MemoryProvider, ident, map[memory.MemoryScope][]string{
-			memory.MemoryScopeAgent: {body},
+			memory.MemoryScopeUser: {body},
 		})
 	}
 }

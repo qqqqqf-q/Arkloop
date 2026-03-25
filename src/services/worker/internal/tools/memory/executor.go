@@ -175,9 +175,9 @@ func (e *ToolExecutor) write(ctx context.Context, args map[string]any, ident mem
 
 	execCtx.PendingMemoryWrites.Append(memory.PendingWrite{
 		TaskID: taskID,
-		Ident: ident,
-		Scope: scope,
-		Entry: entry,
+		Ident:  ident,
+		Scope:  scope,
+		Entry:  entry,
 	})
 	queued := execCtx.Emitter.Emit("memory.write.queued", map[string]any{
 		"task_id":          taskID,
@@ -231,19 +231,20 @@ func buildIdentity(execCtx tools.ExecutionContext) (memory.MemoryIdentity, error
 		accountID = *execCtx.AccountID
 	}
 	return memory.MemoryIdentity{
-		AccountID:   accountID,
-		UserID:  *execCtx.UserID,
-		AgentID: execCtx.AgentID,
+		AccountID: accountID,
+		UserID:    *execCtx.UserID,
+		AgentID:   "user_" + execCtx.UserID.String(),
 	}, nil
 }
 
 func parseScope(args map[string]any) memory.MemoryScope {
 	if s, ok := args["scope"].(string); ok {
-		if strings.EqualFold(strings.TrimSpace(s), "user") {
+		// User is the only long-term subject. Keep "agent" as a tolerated input.
+		if strings.EqualFold(strings.TrimSpace(s), "user") || strings.EqualFold(strings.TrimSpace(s), "agent") {
 			return memory.MemoryScopeUser
 		}
 	}
-	return memory.MemoryScopeAgent
+	return memory.MemoryScopeUser
 }
 
 func parseLimit(args map[string]any, fallback int) int {

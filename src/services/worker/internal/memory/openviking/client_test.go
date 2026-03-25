@@ -17,16 +17,16 @@ import (
 // --- test helpers ---
 
 var (
-	fixedAccountID   = uuid.MustParse("aaaaaaaa-0000-0000-0000-000000000001")
-	fixedUserID  = uuid.MustParse("bbbbbbbb-0000-0000-0000-000000000002")
-	fixedAgentID = "test-agent"
+	fixedAccountID = uuid.MustParse("aaaaaaaa-0000-0000-0000-000000000001")
+	fixedUserID    = uuid.MustParse("bbbbbbbb-0000-0000-0000-000000000002")
+	fixedAgentID   = "test-agent"
 )
 
 func newIdent() memory.MemoryIdentity {
 	return memory.MemoryIdentity{
-		AccountID:   fixedAccountID,
-		UserID:  fixedUserID,
-		AgentID: fixedAgentID,
+		AccountID: fixedAccountID,
+		UserID:    fixedUserID,
+		AgentID:   fixedAgentID,
 	}
 }
 
@@ -103,7 +103,7 @@ func TestClient_Find_AgentScope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if gotBody["target_uri"] != "viking://agent/"+fixedAgentID+"/memories/" {
+	if gotBody["target_uri"] != "viking://user/"+fixedUserID.String()+"/memories/" {
 		t.Fatalf("unexpected target_uri for agent scope: %v", gotBody["target_uri"])
 	}
 }
@@ -374,9 +374,9 @@ func TestClient_IdentityHeaders(t *testing.T) {
 	defer srv.Close()
 
 	ident := memory.MemoryIdentity{
-		AccountID:   uuid.MustParse("aaaaaaaa-0000-0000-0000-000000000001"),
-		UserID:  uuid.MustParse("bbbbbbbb-0000-0000-0000-000000000002"),
-		AgentID: "my-agent",
+		AccountID: uuid.MustParse("aaaaaaaa-0000-0000-0000-000000000001"),
+		UserID:    uuid.MustParse("bbbbbbbb-0000-0000-0000-000000000002"),
+		AgentID:   "my-agent",
 	}
 	c := newClient(srv.URL, "root-key-123")
 	_, err := c.Find(context.Background(), ident, memory.MemoryScopeUser, "q", 5)
@@ -398,7 +398,7 @@ func TestClient_IdentityHeaders(t *testing.T) {
 	}
 }
 
-func TestClient_AgentScope_Write_NoUserHeader(t *testing.T) {
+func TestClient_AgentScope_Write_StillUsesUserIdentity(t *testing.T) {
 	var sessionHeaders, msgHeaders http.Header
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -419,9 +419,9 @@ func TestClient_AgentScope_Write_NoUserHeader(t *testing.T) {
 	defer srv.Close()
 
 	ident := memory.MemoryIdentity{
-		AccountID:   uuid.New(),
-		UserID:  uuid.New(),
-		AgentID: "agent-001",
+		AccountID: uuid.New(),
+		UserID:    uuid.New(),
+		AgentID:   "agent-001",
 	}
 	c := newClient(srv.URL, "")
 	err := c.Write(context.Background(), ident, memory.MemoryScopeAgent, memory.MemoryEntry{Content: "agent pattern"})
@@ -429,13 +429,11 @@ func TestClient_AgentScope_Write_NoUserHeader(t *testing.T) {
 		t.Fatalf("Write failed: %v", err)
 	}
 
-	// agent scope: UserID 应为 uuid.Nil（全零）
-	nilUUID := uuid.Nil.String()
-	if sessionHeaders.Get("X-OpenViking-User") != nilUUID {
-		t.Errorf("expected X-OpenViking-User=%q for agent scope, got %q", nilUUID, sessionHeaders.Get("X-OpenViking-User"))
+	if sessionHeaders.Get("X-OpenViking-User") != ident.UserID.String() {
+		t.Errorf("expected X-OpenViking-User=%q for agent scope, got %q", ident.UserID.String(), sessionHeaders.Get("X-OpenViking-User"))
 	}
-	if msgHeaders != nil && msgHeaders.Get("X-OpenViking-User") != nilUUID {
-		t.Errorf("msg X-OpenViking-User should be nil UUID for agent scope, got %q", msgHeaders.Get("X-OpenViking-User"))
+	if msgHeaders != nil && msgHeaders.Get("X-OpenViking-User") != ident.UserID.String() {
+		t.Errorf("msg X-OpenViking-User should keep user id for agent scope, got %q", msgHeaders.Get("X-OpenViking-User"))
 	}
 }
 

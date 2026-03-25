@@ -3,14 +3,15 @@ package memory
 import "strings"
 
 // SearchScopeForDesktopLocal interprets memory_search "scope" for Desktop SQLite backend.
-// Missing or empty scope searches both user and agent rows; explicit "user" / "agent" filters.
+// User is the only memory subject. Legacy/explicit "agent" is accepted but normalized to user.
 func SearchScopeForDesktopLocal(args map[string]any) MemoryScope {
 	s, ok := args["scope"].(string)
 	if !ok || strings.TrimSpace(s) == "" {
-		return MemoryScope("")
+		return MemoryScopeUser
 	}
-	if strings.TrimSpace(s) == string(MemoryScopeAgent) {
-		return MemoryScopeAgent
+	// Keep accepting the old enum value, but route it to user scope.
+	if strings.EqualFold(strings.TrimSpace(s), string(MemoryScopeAgent)) {
+		return MemoryScopeUser
 	}
 	return MemoryScopeUser
 }

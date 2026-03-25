@@ -319,8 +319,12 @@ func TestMemoryExecutor_Write_AgentScope(t *testing.T) {
 	if result.ResultJSON["snapshot_updated"] != true {
 		t.Fatalf("expected snapshot_updated=true, got: %v", result.ResultJSON["snapshot_updated"])
 	}
-	if len(snapshots.lines) != 1 || !strings.HasPrefix(snapshots.lines[0], "[agent/") {
-		t.Fatalf("expected agent scope prefix, got: %v", snapshots.lines)
+	if len(snapshots.lines) != 1 || !strings.HasPrefix(snapshots.lines[0], "[user/") {
+		t.Fatalf("expected user scope prefix after normalization, got: %v", snapshots.lines)
+	}
+	pending := execCtx.PendingMemoryWrites.Drain()
+	if len(pending) != 1 || pending[0].Scope != workermemory.MemoryScopeUser {
+		t.Fatalf("expected pending write scope=user after normalization, got: %+v", pending)
 	}
 }
 

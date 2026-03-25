@@ -502,9 +502,9 @@ function buildMemoryEnv(): Record<string, string> {
 
   env.ARKLOOP_MEMORY_ENABLED = cfg.enabled ? 'true' : 'false'
   env.ARKLOOP_MEMORY_COMMIT_EACH_TURN = cfg.memoryCommitEachTurn === false ? 'false' : 'true'
-  if (cfg.enabled && cfg.provider === 'openviking' && cfg.openviking) {
+  if (cfg.enabled && cfg.provider === 'openviking') {
     env.ARKLOOP_OPENVIKING_BASE_URL = 'http://localhost:19010'
-    if (cfg.openviking.rootApiKey) {
+    if (cfg.openviking?.rootApiKey) {
       env.ARKLOOP_OPENVIKING_ROOT_API_KEY = cfg.openviking.rootApiKey
     }
   }

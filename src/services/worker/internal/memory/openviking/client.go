@@ -17,8 +17,6 @@ import (
 	sharedoutbound "arkloop/services/shared/outboundurl"
 
 	"arkloop/services/worker/internal/memory"
-
-	"github.com/google/uuid"
 )
 
 // retryBaseDelay 是重试的初始等待时间，每次翻倍。
@@ -41,12 +39,8 @@ func sanitizeAgentID(id string) string {
 // scopeURI 返回 Find 操作所需的完整 target_uri。
 // OpenViking 的 Find 端点不走 header 路由，必须在 URI 中包含身份信息。
 func scopeURI(scope memory.MemoryScope, ident memory.MemoryIdentity) string {
-	switch scope {
-	case memory.MemoryScopeAgent:
-		return fmt.Sprintf("viking://agent/%s/memories/", sanitizeAgentID(ident.AgentID))
-	default:
-		return fmt.Sprintf("viking://user/%s/memories/", ident.UserID.String())
-	}
+	_ = scope
+	return fmt.Sprintf("viking://user/%s/memories/", ident.UserID.String())
 }
 
 // setIdentityHeaders 附加 ROOT key 路线所需的多租户 header。
@@ -344,18 +338,14 @@ type createSessionResult struct {
 // Write 通过"建立专属 session → 写入内容 → commit 触发提取"将结构化记忆写入指定 scope。
 //
 // OpenViking 的 commit 会在服务端异步处理 LLM 提取和向量化；
-// scope 通过 identity headers 传递：user scope 发送 X-OpenViking-User，
-// agent scope 仅发送 X-OpenViking-Agent（不发送 User header），使 OpenViking 路由到 agent 命名空间。
+// 当前 Arkloop 的长期 memory 主体是 user，scope 仅用于内容组织，不改变 identity。
 func (c *client) Write(ctx context.Context, ident memory.MemoryIdentity, scope memory.MemoryScope, entry memory.MemoryEntry) error {
+	_ = scope
 	if strings.TrimSpace(entry.Content) == "" {
 		return errors.New("memory write: content is empty")
 	}
 
-	// agent scope 写入时使用独立 identity：清除 UserID，让 OpenViking 识别为 agent 命名空间
 	writeIdent := ident
-	if scope == memory.MemoryScopeAgent {
-		writeIdent.UserID = uuid.Nil
-	}
 
 	// 1. 创建临时 session
 	var createResp apiResponse

@@ -89,7 +89,7 @@ func injectFromCacheOrFind(ctx context.Context, rc *RunContext, provider memory.
 
 	findCtx, cancel := context.WithTimeout(ctx, memoryFindTimeout)
 	defer cancel()
-	block, hits := renderMemoryBlock(findCtx, provider, ident, memory.MemoryScopeAgent, query)
+	block, hits := renderMemoryBlock(findCtx, provider, ident, memory.MemoryScopeUser, query)
 	if block != "" {
 		rc.SystemPrompt += block
 		if pool != nil {
@@ -412,7 +412,7 @@ func distillAfterRun(provider memory.MemoryProvider, pool *pgxpool.Pool, configR
 			if userQuery != "" {
 				snapCtx, snapCancel := context.WithTimeout(context.Background(), snapshotFindTimeout)
 				block, hits, ok := rebuildSnapshotBlock(snapCtx, provider, ident, map[memory.MemoryScope][]string{
-					memory.MemoryScopeAgent: {userQuery},
+					memory.MemoryScopeUser: {userQuery},
 				})
 				snapCancel()
 				if ok {
