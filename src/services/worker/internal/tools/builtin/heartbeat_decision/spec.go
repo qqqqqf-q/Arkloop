@@ -43,7 +43,10 @@ func strPtr(s string) *string { return &s }
 
 // SystemProtocolSnippet 返回注入 system prompt 的心跳协议说明。
 func SystemProtocolSnippet() string {
-	return "You are in an LLM heartbeat turn. If nothing needs user attention, call `" + ToolName + "` with reply_silent=true. " +
+	return "You are in an LLM heartbeat turn. " +
+		"If nothing needs user attention, call `" + ToolName + "` with reply_silent=true. " +
 		"If you want to send a message to the user, reply normally and call `" + ToolName + "` with reply_silent=false. " +
+		"If this turn surfaced facts worth remembering long-term (user preferences, key decisions, follow-up items), " +
+		"include them as brief notes in memory_fragments. " +
 		"Call `" + ToolName + "` exactly once before finishing."
 }

@@ -110,10 +110,6 @@ func NewHeartbeatPrepareMiddleware() RunMiddleware {
 			sb.WriteString(strings.TrimSpace(rc.PersonaDefinition.HeartbeatMD))
 			sb.WriteString("\n---\n")
 		}
-		sb.WriteString("\n这是一次系统自动触发的 heartbeat 检查。\n")
-		sb.WriteString("如果 new_user_messages 为 0 且没有需要主动通知用户的事项，调用 `heartbeat_decision(reply_silent=true)`，不要输出占位文本。\n")
-		sb.WriteString("如果有需要通知用户的事项，只输出最终要发给用户的正文，再调用 `heartbeat_decision(reply_silent=false)`。\n")
-		sb.WriteString("如有值得长期记住的事实，再填写 `memory_fragments`。\n")
 
 		rc.Messages = append(rc.Messages, llm.Message{
 			Role:    "user",
