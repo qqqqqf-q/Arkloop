@@ -54,7 +54,7 @@ func idToURI(id string) string {
 
 // Find performs a simple text search across memory entries for a given user.
 // Returns up to limit hits ordered by most-recently created first.
-func (p *Provider) Find(ctx context.Context, ident memory.MemoryIdentity, scope memory.MemoryScope, query string, limit int) ([]memory.MemoryHit, error) {
+func (p *Provider) Find(ctx context.Context, ident memory.MemoryIdentity, _ string, query string, limit int) ([]memory.MemoryHit, error) {
 	if limit <= 0 {
 		limit = 10
 	}
@@ -65,12 +65,11 @@ func (p *Provider) Find(ctx context.Context, ident memory.MemoryIdentity, scope 
 		`SELECT id, scope, category, entry_key, content
 		 FROM desktop_memory_entries
 		 WHERE account_id = $1 AND user_id = $2 AND agent_id = $3
-		   AND ($4 = '' OR scope = $4)
-		   AND (content LIKE $5 OR category LIKE $5 OR entry_key LIKE $5)
+		   AND (content LIKE $4 OR category LIKE $4 OR entry_key LIKE $4)
 		 ORDER BY created_at DESC
-		 LIMIT $6`,
+		 LIMIT $5`,
 		ident.AccountID.String(), ident.UserID.String(), agentID(ident.AgentID),
-		scopeFilter(scope), pattern, limit,
+		pattern, limit,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("memory find query: %w", err)

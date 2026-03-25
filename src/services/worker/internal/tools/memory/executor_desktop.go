@@ -81,13 +81,9 @@ func (e *ToolExecutor) search(ctx context.Context, args map[string]any, ident me
 		return argError("query must be a non-empty string", started)
 	}
 
-	scope := parseScope(args)
-	if _, ok := e.provider.(memory.DesktopLocalMemoryWriteURI); ok {
-		scope = memory.SearchScopeForDesktopLocal(args)
-	}
 	limit := parseLimit(args, defaultSearchLimit)
 
-	hits, err := e.provider.Find(ctx, ident, scope, query, limit)
+	hits, err := e.provider.Find(ctx, ident, memory.SelfURI(ident.UserID.String()), query, limit)
 	if err != nil {
 		return providerError("search", err, started)
 	}
