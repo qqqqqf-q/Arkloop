@@ -27,7 +27,7 @@ func TestExecCommandBasic(t *testing.T) {
 	ctrl := newShellController(dir)
 	defer ctrl.close()
 
-	resp, err := ctrl.execCommand("echo hello_test_output", "", 10000)
+	resp, err := ctrl.execCommand("echo hello_test_output", "", 10000, 0, false, nil)
 	if err != nil {
 		t.Fatalf("exec failed: %v", err)
 	}
@@ -48,7 +48,7 @@ func TestExecCommandExitCode(t *testing.T) {
 	defer ctrl.close()
 
 	// Use false command which returns exit code 1
-	resp, err := ctrl.execCommand("false", "", 10000)
+	resp, err := ctrl.execCommand("false", "", 10000, 0, false, nil)
 	if err != nil {
 		t.Fatalf("exec failed: %v", err)
 	}
@@ -68,7 +68,7 @@ func TestExecCommandCatNoArgsDoesNotBlock(t *testing.T) {
 	ctrl := newShellController(dir)
 	defer ctrl.close()
 
-	resp, err := ctrl.execCommand("cat", "", 10000)
+	resp, err := ctrl.execCommand("cat", "", 10000, 0, false, nil)
 	if err != nil {
 		t.Fatalf("exec failed: %v", err)
 	}
@@ -85,7 +85,7 @@ func TestExecCommandExceedsTimeoutSetsTimedOut(t *testing.T) {
 	ctrl := newShellController(dir)
 	defer ctrl.close()
 
-	resp, err := ctrl.execCommand("sleep 60", "", 3000)
+	resp, err := ctrl.execCommand("sleep 60", "", 3000, 0, false, nil)
 	if err != nil {
 		t.Fatalf("exec failed: %v", err)
 	}
@@ -102,7 +102,7 @@ func TestExecCommandEmptyCommand(t *testing.T) {
 	ctrl := newShellController(dir)
 	defer ctrl.close()
 
-	_, err := ctrl.execCommand("", "", 10000)
+	_, err := ctrl.execCommand("", "", 10000, 0, false, nil)
 	if err == nil {
 		t.Error("expected error for empty command")
 	}
@@ -116,7 +116,7 @@ func TestNormalizeTimeoutMs(t *testing.T) {
 		{0, defaultTimeoutMs},
 		{-1, defaultTimeoutMs},
 		{5000, 5000},
-		{500000, maxTimeoutMs},
+		{2000000, maxTimeoutMs},
 	}
 	for _, tc := range tests {
 		got := normalizeTimeoutMs(tc.input)

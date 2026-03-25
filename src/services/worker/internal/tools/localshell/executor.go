@@ -101,7 +101,7 @@ func (e *Executor) executeExecCommand(
 		"cwd", reqArgs.Cwd,
 	)
 
-	resp, err := controller.execCommand(command, reqArgs.Cwd, reqArgs.TimeoutMs, reqArgs.Env)
+	resp, err := controller.execCommand(command, reqArgs.Cwd, reqArgs.TimeoutMs, reqArgs.YieldTimeMs, reqArgs.Background, reqArgs.Env)
 	if err != nil {
 		return errResult(errorShellError, err.Error(), started)
 	}

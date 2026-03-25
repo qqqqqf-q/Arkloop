@@ -85,7 +85,7 @@ func newShellController(workDir string) *shellController {
 	}
 }
 
-func (c *shellController) execCommand(command, cwd string, timeoutMs int, env map[string]string) (*shellResponse, error) {
+func (c *shellController) execCommand(command, cwd string, timeoutMs, yieldTimeMs int, background bool, env map[string]string) (*shellResponse, error) {
 	command = strings.TrimSpace(command)
 	if command == "" {
 		return nil, errors.New("command is required")
@@ -97,7 +97,10 @@ func (c *shellController) execCommand(command, cwd string, timeoutMs int, env ma
 	if err := c.startCommand(command, cwd, tm, false); err != nil {
 		return nil, err
 	}
-	first := c.waitForDelivery(defaultYieldTimeMs)
+	first := c.waitForDelivery(normalizeYieldTimeMs(yieldTimeMs))
+	if background {
+		return first, nil
+	}
 	return c.drainUntilIdle(first, tm), nil
 }
 
