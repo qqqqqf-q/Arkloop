@@ -53,6 +53,7 @@ func NewChannelDeliveryMiddlewareWithOptions(pool *pgxpool.Pool, opts ChannelDel
 		streamMidCount := 0
 		var streamFlush func(context.Context, string) error
 		if preloaded != nil && pool != nil && rc != nil && rc.ChannelContext != nil && rc.ChannelContext.ChannelType == "telegram" &&
+			!rc.HeartbeatRun &&
 			tgClient != nil && strings.TrimSpace(preloaded.Token) != "" {
 			sender := NewTelegramChannelSenderWithClient(tgClient, preloaded.Token, resolveSegmentDelay())
 			streamFlush = func(ctx2 context.Context, text string) error {
@@ -90,6 +91,9 @@ func NewChannelDeliveryMiddlewareWithOptions(pool *pgxpool.Pool, opts ChannelDel
 			return err
 		}
 		if pool == nil || rc.ChannelContext.ChannelType != "telegram" {
+			return err
+		}
+		if ShouldSuppressHeartbeatOutput(rc, rc.FinalAssistantOutput) {
 			return err
 		}
 

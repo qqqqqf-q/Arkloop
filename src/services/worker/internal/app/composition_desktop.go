@@ -404,8 +404,7 @@ func (e *DesktopEngine) Execute(ctx context.Context, run data.Run, traceID strin
 
 	var memMiddleware pipeline.RunMiddleware
 	if e.useOV {
-		// OpenViking: full semantic memory middleware (e.db enables snapshot cache for settings UI and post-distill updates)
-		memMiddleware = pipeline.NewMemoryMiddleware(e.memProvider, e.db.(*pgxpool.Pool), nil)
+		memMiddleware = pipeline.NewMemoryMiddleware(e.memProvider, desktopSnapshotPool(e.db), nil)
 	} else {
 		// Local SQLite: lightweight snapshot injection
 		memMiddleware = desktopMemoryInjection(e.db)
@@ -449,6 +448,11 @@ func resolveDesktopRunBindings(ctx context.Context, db data.DesktopDB, run data.
 		return run, fmt.Errorf("desktop db must not be nil")
 	}
 	return environmentbindings.ResolveAndPersistRun(ctx, db, run)
+}
+
+func desktopSnapshotPool(db data.DesktopDB) *pgxpool.Pool {
+	pool, _ := db.(*pgxpool.Pool)
+	return pool
 }
 
 // --------------- desktop middleware ---------------
@@ -694,6 +698,7 @@ func desktopChannelDelivery(db data.DesktopDB) pipeline.RunMiddleware {
 		streamMidCount := 0
 		var streamFlush func(context.Context, string) error
 		if preloaded != nil && db != nil && rc != nil && rc.ChannelContext != nil && rc.ChannelContext.ChannelType == "telegram" &&
+			!rc.HeartbeatRun &&
 			strings.TrimSpace(preloaded.Token) != "" {
 			sender := pipeline.NewTelegramChannelSenderWithClient(client, preloaded.Token, 50*time.Millisecond)
 			streamFlush = func(ctx2 context.Context, text string) error {
@@ -731,6 +736,9 @@ func desktopChannelDelivery(db data.DesktopDB) pipeline.RunMiddleware {
 			return err
 		}
 		if db == nil || rc.ChannelContext.ChannelType != "telegram" {
+			return err
+		}
+		if pipeline.ShouldSuppressHeartbeatOutput(rc, rc.FinalAssistantOutput) {
 			return err
 		}
 

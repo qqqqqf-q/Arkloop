@@ -42,6 +42,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func TestDesktopSubAgentSchemaAvailable(t *testing.T) {
@@ -1079,6 +1080,28 @@ func TestDesktopChannelContextOverridesUserIDFromPayload(t *testing.T) {
 	}
 }
 
+func TestDesktopSnapshotPoolReturnsNilForSQLitePool(t *testing.T) {
+	ctx := context.Background()
+
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "desktop.db"))
+	if err != nil {
+		t.Fatalf("auto migrate sqlite: %v", err)
+	}
+	defer sqlitePool.Close()
+
+	db := sqlitepgx.New(sqlitePool.Unwrap())
+	if got := desktopSnapshotPool(db); got != nil {
+		t.Fatalf("expected nil pgx pool for sqlite db, got %#v", got)
+	}
+}
+
+func TestDesktopSnapshotPoolReturnsNativePool(t *testing.T) {
+	pool := new(pgxpool.Pool)
+	if got := desktopSnapshotPool(pool); got != pool {
+		t.Fatalf("expected native pool passthrough")
+	}
+}
+
 func TestDesktopChannelDeliveryRecordsFailureWhenChannelMissing(t *testing.T) {
 	ctx := context.Background()
 
@@ -1153,7 +1176,12 @@ func TestDesktopChannelDeliveryRecordsFailureWhenChannelMissing(t *testing.T) {
 	}
 
 	mw := desktopChannelDelivery(db)
-	if err := mw(ctx, rc, func(_ context.Context, _ *pipeline.RunContext) error { return nil }); err != nil {
+	if err := mw(ctx, rc, func(_ context.Context, rc *pipeline.RunContext) error {
+		if rc.TelegramToolBoundaryFlush != nil {
+			t.Fatal("expected silent heartbeat to disable telegram boundary flush")
+		}
+		return nil
+	}); err != nil {
 		t.Fatalf("desktop channel delivery middleware failed: %v", err)
 	}
 
@@ -1325,7 +1353,7 @@ func TestDesktopChannelDeliveryPersistsLedgerRefs(t *testing.T) {
 
 	var (
 		deliveryCount  int
-		parentID       string
+		parentID       *string
 		platformThread string
 	)
 	if err := db.QueryRow(
@@ -1342,11 +1370,155 @@ func TestDesktopChannelDeliveryPersistsLedgerRefs(t *testing.T) {
 	if deliveryCount != 1 {
 		t.Fatalf("expected one delivery row, got %d", deliveryCount)
 	}
-	if parentID != "" {
-		t.Fatalf("unexpected platform_parent_message_id: %q", parentID)
+	if parentID != nil && *parentID != "" {
+		t.Fatalf("unexpected platform_parent_message_id: %q", *parentID)
 	}
 	if platformThread != threadRef {
 		t.Fatalf("unexpected platform_thread_id: %q", platformThread)
+	}
+}
+
+func TestDesktopChannelDeliverySuppressesSilentHeartbeat(t *testing.T) {
+	ctx := context.Background()
+
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "desktop.db"))
+	if err != nil {
+		t.Fatalf("auto migrate sqlite: %v", err)
+	}
+	defer sqlitePool.Close()
+
+	db := sqlitepgx.New(sqlitePool.Unwrap())
+
+	for _, stmt := range []string{
+		`CREATE TABLE IF NOT EXISTS channels (
+			id TEXT PRIMARY KEY,
+			channel_type TEXT NOT NULL,
+			credentials_id TEXT NULL,
+			is_active INTEGER NOT NULL DEFAULT 0,
+			config_json TEXT NOT NULL DEFAULT '{}'
+		)`,
+		`CREATE TABLE IF NOT EXISTS secrets (
+			id TEXT PRIMARY KEY,
+			encrypted_value TEXT NULL,
+			key_version INTEGER NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS channel_message_deliveries (
+			run_id TEXT NULL,
+			thread_id TEXT NULL,
+			channel_id TEXT NOT NULL,
+			platform_chat_id TEXT NOT NULL,
+			platform_message_id TEXT NOT NULL,
+			UNIQUE (channel_id, platform_chat_id, platform_message_id)
+		)`,
+		`CREATE TABLE IF NOT EXISTS channel_message_ledger (
+			channel_id TEXT NOT NULL,
+			channel_type TEXT NOT NULL,
+			direction TEXT NOT NULL,
+			thread_id TEXT NULL,
+			run_id TEXT NULL,
+			platform_conversation_id TEXT NOT NULL,
+			platform_message_id TEXT NOT NULL,
+			platform_parent_message_id TEXT NULL,
+			platform_thread_id TEXT NULL,
+			sender_channel_identity_id TEXT NULL,
+			metadata_json TEXT NOT NULL DEFAULT '{}',
+			UNIQUE (channel_id, direction, platform_conversation_id, platform_message_id)
+		)`,
+	} {
+		if _, err := db.Exec(ctx, stmt); err != nil {
+			t.Fatalf("create channel tables: %v", err)
+		}
+	}
+
+	sendCount := 0
+	server := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		sendCount++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":902,"chat":{"id":10001}}}`))
+	}))
+	defer server.Close()
+	t.Setenv("ARKLOOP_TELEGRAM_BOT_API_BASE_URL", server.URL)
+
+	keyBytes := [32]byte{}
+	for i := range keyBytes {
+		keyBytes[i] = byte(i + 21)
+	}
+	dataDir := t.TempDir()
+	t.Setenv("ARKLOOP_DATA_DIR", dataDir)
+	if err := os.WriteFile(filepath.Join(dataDir, "encryption.key"), []byte(hex.EncodeToString(keyBytes[:])), 0o600); err != nil {
+		t.Fatalf("write encryption key: %v", err)
+	}
+
+	accountID := uuid.New()
+	projectID := uuid.New()
+	threadID := uuid.New()
+	runID := uuid.New()
+	channelID := uuid.New()
+	secretID := uuid.New()
+
+	for _, stmt := range []struct {
+		sql  string
+		args []any
+	}{
+		{
+			sql:  `INSERT INTO accounts (id, slug, name, type, status) VALUES ($1, $2, $3, 'personal', 'active')`,
+			args: []any{accountID, "desktop-heartbeat-silent-" + accountID.String(), "Desktop Heartbeat Silent"},
+		},
+		{
+			sql:  `INSERT INTO projects (id, account_id, name, visibility) VALUES ($1, $2, $3, 'private')`,
+			args: []any{projectID, accountID, "Channel Project"},
+		},
+		{
+			sql:  `INSERT INTO threads (id, account_id, project_id, is_private) VALUES ($1, $2, $3, TRUE)`,
+			args: []any{threadID, accountID, projectID},
+		},
+		{
+			sql:  `INSERT INTO runs (id, account_id, thread_id, status) VALUES ($1, $2, $3, 'running')`,
+			args: []any{runID, accountID, threadID},
+		},
+		{
+			sql:  `INSERT INTO secrets (id, account_id, name, encrypted_value, key_version) VALUES ($1, $2, $3, $4, 1)`,
+			args: []any{secretID, accountID, "desktop-channel-token-" + channelID.String(), encryptDesktopChannelToken(t, keyBytes, "desktop-token")},
+		},
+		{
+			sql:  `INSERT INTO channels (id, account_id, channel_type, credentials_id, config_json, is_active) VALUES ($1, $2, 'telegram', $3, '{}', 1)`,
+			args: []any{channelID, accountID, secretID},
+		},
+	} {
+		if _, err := db.Exec(ctx, stmt.sql, stmt.args...); err != nil {
+			t.Fatalf("seed data: %v", err)
+		}
+	}
+
+	rc := &pipeline.RunContext{
+		Run:                  data.Run{ID: runID, AccountID: accountID, ThreadID: threadID},
+		HeartbeatRun:         true,
+		FinalAssistantOutput: "（静默心跳，没有需要跟进的事项）",
+		HeartbeatToolOutcome: &pipeline.HeartbeatDecisionOutcome{ReplySilent: true},
+		ChannelContext: &pipeline.ChannelContext{
+			ChannelID:   channelID,
+			ChannelType: "telegram",
+			Conversation: pipeline.ChannelConversationRef{
+				Target: "10001",
+			},
+		},
+	}
+
+	mw := desktopChannelDelivery(db)
+	if err := mw(ctx, rc, func(_ context.Context, _ *pipeline.RunContext) error { return nil }); err != nil {
+		t.Fatalf("desktop channel delivery middleware failed: %v", err)
+	}
+
+	if sendCount != 0 {
+		t.Fatalf("expected silent heartbeat to skip telegram send, got %d requests", sendCount)
+	}
+
+	var deliveryCount int
+	if err := db.QueryRow(ctx, `SELECT COUNT(*) FROM channel_message_deliveries`).Scan(&deliveryCount); err != nil {
+		t.Fatalf("count deliveries: %v", err)
+	}
+	if deliveryCount != 0 {
+		t.Fatalf("expected no delivery rows, got %d", deliveryCount)
 	}
 }
 
