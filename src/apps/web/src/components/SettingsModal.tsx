@@ -12,6 +12,7 @@ import {
   Radio,
   Wifi,
   Palette,
+  RefreshCw,
 } from 'lucide-react'
 import type { MeResponse } from '../api'
 import { useLocale } from '../contexts/LocaleContext'
@@ -26,9 +27,10 @@ import { AppearanceContent, LanguageContent, ThemeContent } from './settings/App
 import { InviteCodeContent } from './settings/InviteSettings'
 import { HelpContent, ReportFeedbackContent } from './settings/HelpSettings'
 import { CreditsContent } from './settings/CreditsSettings'
+import { UpdateSettingsContent } from './settings/UpdateSettings'
 import { isDesktop, isLocalMode } from '@arkloop/shared/desktop'
 
-export type SettingsTab = 'account' | 'appearance' | 'settings' | 'skills' | 'credits' | 'models' | 'agents' | 'channels' | 'connection'
+export type SettingsTab = 'account' | 'appearance' | 'settings' | 'skills' | 'credits' | 'models' | 'agents' | 'channels' | 'connection' | 'updates'
 
 type NavItem = { key: SettingsTab; icon: LucideIcon }
 
@@ -45,6 +47,7 @@ const BASE_NAV_ITEMS: NavItem[] = [
 
 const DESKTOP_NAV_ITEMS: NavItem[] = [
   ...BASE_NAV_ITEMS,
+  { key: 'updates',    icon: RefreshCw },
   { key: 'connection', icon: Wifi },
 ]
 
@@ -192,6 +195,9 @@ export function SettingsModal({ me, accessToken, initialTab = 'account', onClose
             )}
             {activeKey === 'connection' && (
               <ConnectionSettingsContent />
+            )}
+            {activeKey === 'updates' && isDesktop() && (
+              <UpdateSettingsContent />
             )}
           </div>
         </div>

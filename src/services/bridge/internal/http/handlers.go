@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -69,6 +70,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/modules", h.listModules)
 	mux.HandleFunc("GET /v1/modules/{id}", h.getModule)
 	mux.HandleFunc("POST /v1/modules/{id}/actions", h.moduleAction)
+	mux.HandleFunc("POST /v1/modules/{id}/upgrade", h.moduleUpgrade)
 	mux.HandleFunc("GET /v1/operations/{id}/stream", h.streamOperation)
 	mux.HandleFunc("POST /v1/operations/{id}/cancel", h.cancelOperation)
 	mux.HandleFunc("GET /v1/system/version", h.systemVersion)
@@ -194,6 +196,95 @@ func mapRawStatus(raw string) module.ModuleStatus {
 	default:
 		return module.StatusNotInstalled
 	}
+}
+
+// --- Module Upgrade ----------------------------------------------------
+
+type upgradeModuleRequest struct {
+	Image string `json:"image"`
+}
+
+func (h *Handler) moduleUpgrade(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	def, ok := h.registry.Get(id)
+	if !ok {
+		writeError(w, http.StatusNotFound, "module.not_found", fmt.Sprintf("module %q not found", id))
+		return
+	}
+	if def.ComposeService == "" {
+		writeError(w, http.StatusBadRequest, "module.no_service",
+			fmt.Sprintf("module %q has no compose service", id))
+		return
+	}
+
+	var req upgradeModuleRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "request.invalid", "invalid JSON body")
+		return
+	}
+	if req.Image == "" {
+		writeError(w, http.StatusBadRequest, "request.invalid", "image is required")
+		return
+	}
+
+	h.auditLog.LogAction("module_upgrade", id, map[string]string{"image": req.Image})
+
+	op := docker.NewOperation(id, "upgrade")
+	op.Status = docker.OperationRunning
+	h.operations.Add(op)
+
+	opCtx := context.WithoutCancel(r.Context())
+	go func() {
+		var opErr error
+		defer func() { op.Complete(opErr) }()
+
+		// 1. 拉取新镜像
+		op.AppendLog(fmt.Sprintf("Pulling image %s...", req.Image))
+		pullCmd := exec.CommandContext(opCtx, "docker", "pull", req.Image)
+		if out, err := pullCmd.CombinedOutput(); err != nil {
+			op.AppendLog(string(out))
+			op.AppendLog("ERROR: docker pull failed: " + err.Error())
+			opErr = err
+			return
+		}
+		op.AppendLog("Image pulled successfully")
+
+		// 2. 停止当前服务
+		op.AppendLog(fmt.Sprintf("Stopping service %s...", def.ComposeService))
+		stopOp, err := h.compose.Stop(opCtx, def.ComposeService)
+		if err != nil {
+			op.AppendLog("ERROR stopping service: " + err.Error())
+			opErr = err
+			return
+		}
+		if waitErr := stopOp.Wait(); waitErr != nil {
+			relayLogs(op, stopOp)
+			op.AppendLog("ERROR: stop failed: " + waitErr.Error())
+			opErr = waitErr
+			return
+		}
+		relayLogs(op, stopOp)
+		op.AppendLog("Service stopped")
+
+		// 3. 以 force-recreate 重启服务
+		op.AppendLog(fmt.Sprintf("Recreating service %s...", def.ComposeService))
+		installOp, err := h.compose.Install(opCtx, def.ComposeService, def.ComposeProfile)
+		if err != nil {
+			op.AppendLog("ERROR recreating service: " + err.Error())
+			opErr = err
+			return
+		}
+		if waitErr := installOp.Wait(); waitErr != nil {
+			relayLogs(op, installOp)
+			op.AppendLog("ERROR: recreate failed: " + waitErr.Error())
+			opErr = waitErr
+			return
+		}
+		relayLogs(op, installOp)
+		op.AppendLog("Module upgraded successfully")
+	}()
+
+	writeJSON(w, http.StatusAccepted, actionResponse{OperationID: op.ID})
 }
 
 // --- Actions -----------------------------------------------------------

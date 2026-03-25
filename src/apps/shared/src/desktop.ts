@@ -91,6 +91,20 @@ type DesktopInfo = {
   getMode?: () => ConnectionMode
 }
 
+export type UpdaterComponentStatus = {
+  current: string | null
+  latest: string | null
+  available: boolean
+}
+
+export type UpdaterStatus = {
+  sidecar: UpdaterComponentStatus
+  openviking: UpdaterComponentStatus
+  sandbox: { kernel: UpdaterComponentStatus; rootfs: UpdaterComponentStatus }
+}
+
+export type UpdaterComponent = 'sidecar' | 'openviking' | 'sandbox_kernel' | 'sandbox_rootfs'
+
 export type ArkloopDesktopApi = {
   isDesktop: true
   config: {
@@ -98,6 +112,11 @@ export type ArkloopDesktopApi = {
     set: (config: DesktopConfig) => Promise<{ ok: boolean }>
     getPath: () => Promise<string>
     onChanged: (callback: (config: DesktopConfig) => void) => () => void
+  }
+  updater?: {
+    check: () => Promise<UpdaterStatus>
+    apply: (opts: { component: UpdaterComponent }) => Promise<{ ok: boolean }>
+    onProgress: (callback: (data: { phase: string; percent: number; bytesDownloaded: number; bytesTotal: number; error?: string; component: UpdaterComponent }) => void) => () => void
   }
   connectors?: {
     get: () => Promise<ConnectorsConfig>

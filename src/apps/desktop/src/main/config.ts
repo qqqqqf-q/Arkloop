@@ -174,3 +174,34 @@ export function saveConfig(config: AppConfig): void {
 export function getConfigPath(): string {
   return CONFIG_PATH
 }
+
+const VERSIONS_FILE = path.join(CONFIG_DIR, 'versions.json')
+const LEGACY_SIDECAR_VERSION_FILE = path.join(CONFIG_DIR, 'bin', 'sidecar.version.json')
+
+export function initVersionsFile(): void {
+  if (fs.existsSync(VERSIONS_FILE)) return
+
+  let sidecarVersion: string | undefined
+  let downloadedAt: string | undefined
+  try {
+    const raw = fs.readFileSync(LEGACY_SIDECAR_VERSION_FILE, 'utf-8')
+    const legacy = JSON.parse(raw) as { version?: string; downloadedAt?: string }
+    sidecarVersion = legacy.version
+    downloadedAt = legacy.downloadedAt
+  } catch {
+    // 无旧文件，跳过迁移
+  }
+
+  if (!sidecarVersion) return
+
+  fs.mkdirSync(CONFIG_DIR, { recursive: true })
+  fs.writeFileSync(
+    VERSIONS_FILE,
+    JSON.stringify(
+      { sidecar: { version: sidecarVersion, updated_at: downloadedAt ?? new Date().toISOString() } },
+      null,
+      2,
+    ),
+    'utf-8',
+  )
+}

@@ -290,6 +290,132 @@ export async function downloadSidecar(
   }
 }
 
+const OPENCLI_GITHUB_API = 'https://api.github.com/repos/nashsu/opencli-rs/releases/latest'
+const OPENCLI_VERSION_FILE = path.join(os.homedir(), '.arkloop', 'bin', 'opencli.version.json')
+
+function getOpenCLIAssetName(): string {
+  const { platform, arch } = process
+  if (platform === 'win32') return 'opencli-rs-x86_64-pc-windows-msvc.zip'
+  if (platform === 'darwin') return arch === 'arm64' ? 'opencli-rs-aarch64-apple-darwin.tar.gz' : 'opencli-rs-x86_64-apple-darwin.tar.gz'
+  if (platform === 'linux') return arch === 'arm64' ? 'opencli-rs-aarch64-unknown-linux-musl.tar.gz' : 'opencli-rs-x86_64-unknown-linux-musl.tar.gz'
+  throw new Error(`unsupported platform: ${platform}`)
+}
+
+function getOpenCLIDestPath(): string {
+  return path.join(SIDECAR_DIR, process.platform === 'win32' ? 'opencli-rs.exe' : 'opencli-rs')
+}
+
+export async function downloadOpenCLI(onProgress?: (progress: DownloadProgress) => void): Promise<void> {
+  const emit = (progress: DownloadProgress) => onProgress?.(progress)
+  const destPath = getOpenCLIDestPath()
+  const tmpArchive = `${destPath}.archive.tmp`
+  const extractDir = `${destPath}.extract.tmp`
+
+  emit({ phase: 'connecting', percent: 0, bytesDownloaded: 0, bytesTotal: 0 })
+
+  try {
+    const releaseRes = await httpsGet(OPENCLI_GITHUB_API)
+    const releaseBody = await new Promise<string>((resolve, reject) => {
+      const chunks: Buffer[] = []
+      releaseRes.on('data', (chunk: Buffer) => chunks.push(chunk))
+      releaseRes.on('end', () => resolve(Buffer.concat(chunks).toString()))
+      releaseRes.on('error', reject)
+    })
+    if (releaseRes.statusCode !== 200) {
+      throw new Error(`failed to fetch opencli-rs release info: ${releaseRes.statusCode}`)
+    }
+
+    const release = JSON.parse(releaseBody) as {
+      tag_name?: string
+      assets?: Array<{ name: string; browser_download_url: string }>
+    }
+    const version = (release.tag_name as string)?.replace(/^v/, '')
+    if (!version) throw new Error('invalid opencli-rs release: missing tag_name')
+
+    const assetName = getOpenCLIAssetName()
+    const asset = (release.assets ?? []).find((a) => a.name === assetName)
+    if (!asset) throw new Error(`opencli-rs asset not found: ${assetName}`)
+
+    fs.mkdirSync(SIDECAR_DIR, { recursive: true })
+
+    const dlRes = await httpsGet(asset.browser_download_url)
+    if (dlRes.statusCode !== 200) {
+      dlRes.resume()
+      throw new Error(`opencli-rs download failed: ${dlRes.statusCode}`)
+    }
+
+    const bytesTotal = parseInt(dlRes.headers['content-length'] || '0', 10)
+    let bytesDownloaded = 0
+
+    emit({ phase: 'downloading', percent: 0, bytesDownloaded: 0, bytesTotal })
+
+    const ws = fs.createWriteStream(tmpArchive)
+    await new Promise<void>((resolve, reject) => {
+      dlRes.on('data', (chunk: Buffer) => {
+        bytesDownloaded += chunk.length
+        const percent = bytesTotal > 0 ? Math.round((bytesDownloaded / bytesTotal) * 100) : 0
+        emit({ phase: 'downloading', percent, bytesDownloaded, bytesTotal })
+      })
+      dlRes.pipe(ws)
+      ws.on('finish', resolve)
+      ws.on('error', reject)
+      dlRes.on('error', reject)
+    })
+
+    emit({ phase: 'verifying', percent: 100, bytesDownloaded, bytesTotal })
+
+    fs.mkdirSync(extractDir, { recursive: true })
+    try {
+      if (process.platform === 'win32') {
+        execFileSync('powershell', [
+          '-Command',
+          `Expand-Archive -Force -Path '${tmpArchive}' -DestinationPath '${extractDir}'`,
+        ])
+      } else {
+        execFileSync('tar', ['xzf', tmpArchive, '-C', extractDir])
+      }
+
+      const binaryName = process.platform === 'win32' ? 'opencli-rs.exe' : 'opencli-rs'
+      const extractedBin = path.join(extractDir, binaryName)
+      if (!fs.existsSync(extractedBin)) {
+        throw new Error(`extracted binary not found: ${extractedBin}`)
+      }
+
+      if (process.platform !== 'win32') {
+        fs.chmodSync(extractedBin, 0o755)
+      }
+      fs.renameSync(extractedBin, destPath)
+    } finally {
+      try { fs.rmSync(extractDir, { recursive: true, force: true }) } catch {}
+    }
+
+    fs.unlinkSync(tmpArchive)
+    fs.writeFileSync(OPENCLI_VERSION_FILE, JSON.stringify({
+      version,
+      downloadedAt: new Date().toISOString(),
+    }))
+
+    emit({ phase: 'done', percent: 100, bytesDownloaded, bytesTotal })
+  } catch (error) {
+    try { fs.unlinkSync(tmpArchive) } catch {}
+    try { fs.rmSync(extractDir, { recursive: true, force: true }) } catch {}
+    const message = error instanceof Error ? error.message : String(error)
+    emit({ phase: 'error', percent: 0, bytesDownloaded: 0, bytesTotal: 0, error: message })
+    throw error
+  }
+}
+
+export async function ensureOpenCLI(): Promise<void> {
+  try {
+    const destPath = getOpenCLIDestPath()
+    if (!fs.existsSync(destPath)) {
+      await downloadOpenCLI()
+    }
+  } catch (error) {
+    console.error('[sidecar] opencli-rs ensure failed:', error instanceof Error ? error.message : String(error))
+  }
+}
+
 function resolveBinaryPath(): string {
   const downloaded = getSidecarPath()
   if (fs.existsSync(downloaded)) return downloaded
@@ -687,7 +813,7 @@ async function bridgePostActionWithRetry(moduleId: string, action: string): Prom
   return null
 }
 
-async function waitForBridgeOperation(
+export async function waitForBridgeOperation(
   operationId: string,
   timeoutMs: number,
 ): Promise<{ ok: boolean; error?: string }> {

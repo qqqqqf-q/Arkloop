@@ -29,6 +29,7 @@ export interface LocaleStrings {
     agents: string;
     channels: string;
     connection: string;
+    updates: string;
   };
   // settings
   getHelp: string;
@@ -852,6 +853,7 @@ export interface LocaleStrings {
     toolModelDesc: string;
     toolModelPlatformDefault: string;
     toolModelSameAsChat: string;
+    checkForUpdates: string;
   };
 
   // admin providers/models settings (ported from console-lite)

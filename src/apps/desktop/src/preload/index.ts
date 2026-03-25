@@ -103,6 +103,20 @@ export type LocalFileEntry = {
 export type LocalDirResult = { entries: LocalFileEntry[] }
 export type LocalFileResult = { data: string; mime_type: string } | { error: string }
 
+export type UpdaterComponentStatus = {
+  current: string | null
+  latest: string | null
+  available: boolean
+}
+
+export type UpdaterStatus = {
+  sidecar: UpdaterComponentStatus
+  openviking: UpdaterComponentStatus
+  sandbox: { kernel: UpdaterComponentStatus; rootfs: UpdaterComponentStatus }
+}
+
+export type UpdaterComponent = 'sidecar' | 'openviking' | 'sandbox_kernel' | 'sandbox_rootfs'
+
 export type ArkloopDesktopApi = {
   isDesktop: true
   config: {
@@ -110,6 +124,11 @@ export type ArkloopDesktopApi = {
     set: (config: AppConfig) => Promise<{ ok: boolean }>
     getPath: () => Promise<string>
     onChanged: (callback: (config: AppConfig) => void) => () => void
+  }
+  updater: {
+    check: () => Promise<UpdaterStatus>
+    apply: (opts: { component: UpdaterComponent }) => Promise<{ ok: boolean }>
+    onProgress: (callback: (data: DownloadProgress & { component: UpdaterComponent }) => void) => () => void
   }
   dialog: {
     openFolder: () => Promise<string | null>
@@ -221,6 +240,16 @@ const api: ArkloopDesktopApi = {
       const handler = (_event: Electron.IpcRendererEvent, config: AppConfig) => callback(config)
       ipcRenderer.on('arkloop:config:changed', handler)
       return () => ipcRenderer.removeListener('arkloop:config:changed', handler)
+    },
+  },
+
+  updater: {
+    check: () => ipcRenderer.invoke('arkloop:updater:check'),
+    apply: (opts) => ipcRenderer.invoke('arkloop:updater:apply', opts),
+    onProgress: (callback) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: DownloadProgress & { component: UpdaterComponent }) => callback(data)
+      ipcRenderer.on('arkloop:updater:progress', handler)
+      return () => ipcRenderer.removeListener('arkloop:updater:progress', handler)
     },
   },
 

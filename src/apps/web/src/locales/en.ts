@@ -23,6 +23,7 @@ export const en: LocaleStrings = {
     agents: "Agents",
     channels: "Telegram",
     connection: "Connection",
+    updates: "Updates",
   },
   getHelp: "Get help",
   submitSuggestion: "Suggest",
@@ -892,6 +893,7 @@ export const en: LocaleStrings = {
     toolModelDesc: "Model used for background tasks such as title generation.",
     toolModelPlatformDefault: "Platform Default",
     toolModelSameAsChat: "Same as chat model",
+    checkForUpdates: "Check for Updates",
   },
 
   adminProviders: {

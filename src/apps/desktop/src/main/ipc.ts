@@ -6,11 +6,11 @@ import {
   getSidecarRuntime,
   downloadSidecar,
   isSidecarAvailable,
-  checkSidecarVersion,
   getDesktopAccessToken,
   getBridgeBaseUrl,
   type SidecarRuntime,
 } from './sidecar'
+import { checkForUpdates, applyUpdate } from './updater'
 import type { AppConfig, ApplyConfigUpdateOptions, ConnectorsConfig, MemoryConfig } from './types'
 
 type DesktopController = {
@@ -69,7 +69,19 @@ export function registerIpcHandlers(
   })
 
   ipcMain.handle('arkloop:sidecar:check-update', async () => {
-    return checkSidecarVersion()
+    return checkForUpdates()
+  })
+
+  ipcMain.handle('arkloop:updater:check', async () => {
+    return checkForUpdates()
+  })
+
+  ipcMain.handle('arkloop:updater:apply', async (_event, { component }: { component: 'sidecar' | 'openviking' | 'sandbox_kernel' | 'sandbox_rootfs' }) => {
+    const win = getWindow()
+    await applyUpdate(component, (progress) => {
+      if (win) win.webContents.send('arkloop:updater:progress', { component, ...progress })
+    })
+    return { ok: true }
   })
 
   ipcMain.handle('arkloop:onboarding:status', () => {

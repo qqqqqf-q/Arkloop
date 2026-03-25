@@ -12,10 +12,13 @@ import {
   getSidecarRuntime,
   getBridgeBaseUrl,
   stopBridgeOpenvikingIfNeeded,
+  ensureOpenCLI,
   type SidecarRuntime,
 } from './sidecar'
 import { createTray, registerGlobalShortcut, destroyTray } from './tray'
 import { registerIpcHandlers } from './ipc'
+import { initVersionsFile } from './config'
+import { setupAppUpdater } from './app-updater'
 import type { AppConfig, ApplyConfigUpdateOptions } from './types'
 
 let mainWindow: BrowserWindow | null = null
@@ -83,6 +86,7 @@ async function ensureLocalSidecar(config: AppConfig): Promise<AppConfig> {
 
   setConnectorsConfig(config.connectors)
   setMemoryConfig(config.memory)
+  void ensureOpenCLI()
 
   const runtime = await startSidecar(config.local.port, config.local.portMode)
   const next = mergeConfigWithRuntime(config, runtime)
@@ -266,6 +270,8 @@ let isQuitting = false
 let shutdownInProgress = false
 
 app.whenReady().then(async () => {
+  initVersionsFile()
+
   setStatusListener((status) => {
     mainWindow?.webContents.send('arkloop:sidecar:status-changed', status)
   })
@@ -299,6 +305,7 @@ app.whenReady().then(async () => {
 
   createTray(getWindow)
   registerGlobalShortcut(getWindow)
+  setupAppUpdater(getWindow)
 })
 
 app.on('window-all-closed', () => {

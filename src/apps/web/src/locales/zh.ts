@@ -23,6 +23,7 @@ export const zh: LocaleStrings = {
     agents: "智能体",
     channels: "接入渠道",
     connection: "连接",
+    updates: "更新",
   },
   getHelp: "获取帮助",
   submitSuggestion: "提建议",
@@ -876,6 +877,7 @@ export const zh: LocaleStrings = {
     toolModelDesc: "用于标题生成等后台轻量任务的模型。",
     toolModelPlatformDefault: "平台默认",
     toolModelSameAsChat: "与主对话相同",
+    checkForUpdates: "检查更新",
   },
 
 
