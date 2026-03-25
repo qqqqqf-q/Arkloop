@@ -629,7 +629,7 @@ export function CopTimelineUnifiedRow({
   multiItems,
   dotTop = COP_TIMELINE_DOT_TOP,
   dotColor,
-  paddingBottom = 6,
+  paddingBottom = 7,
   children,
 }: {
   isFirst: boolean
@@ -911,7 +911,7 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
           display: 'flex',
           alignItems: 'center',
           gap: '6px',
-          padding: '4px 0 1px',
+          padding: '4px 0 2px',
           background: 'none',
           border: 'none',
           cursor: (!hasContent && isComplete) ? 'default' : 'pointer',
@@ -954,7 +954,7 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
             transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
             style={{ overflow: 'hidden' }}
           >
-            <div style={{ position: 'relative', paddingLeft: visibleSteps.length > 0 || textEntries.length > 0 || codeExecCount > 0 || subAgentCount > 0 || webFetchCount > 0 || fileOpCount > 0 || hasAnyThinking || copInlineList.length > 0 ? `${COP_TIMELINE_CONTENT_PADDING_LEFT_PX}px` : undefined, paddingTop: '2px', paddingBottom: '2px' }}>
+            <div style={{ position: 'relative', paddingLeft: visibleSteps.length > 0 || textEntries.length > 0 || codeExecCount > 0 || subAgentCount > 0 || webFetchCount > 0 || fileOpCount > 0 || hasAnyThinking || copInlineList.length > 0 ? `${COP_TIMELINE_CONTENT_PADDING_LEFT_PX}px` : undefined, paddingTop: '3px', paddingBottom: '3px' }}>
 
               <AnimatePresence initial={false}>
               {!useUnified && visibleSteps.map((step, idx) => {

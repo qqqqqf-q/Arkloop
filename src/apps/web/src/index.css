@@ -624,7 +624,8 @@ button:not(:disabled) {
   font-size: 10px;
   line-height: 1.35;
   font-weight: 400;
-  letter-spacing: -0.025em;
+  letter-spacing: -0.03em;
+  word-spacing: -0.14em;
   color: var(--c-text-secondary);
 }
 
@@ -634,7 +635,8 @@ button:not(:disabled) {
   font-size: 10px !important;
   line-height: 1.35 !important;
   font-weight: 400 !important;
-  letter-spacing: -0.025em !important;
+  letter-spacing: -0.03em !important;
+  word-spacing: -0.14em !important;
   color: var(--c-text-secondary) !important;
 }
 .cop-timeline-root .cop-thinking-output-md .md-content p,
@@ -646,21 +648,24 @@ button:not(:disabled) {
   font-size: 10px !important;
   line-height: 1.35 !important;
   font-weight: 400 !important;
-  letter-spacing: -0.025em !important;
+  letter-spacing: -0.03em !important;
+  word-spacing: -0.14em !important;
   color: var(--c-text-secondary) !important;
 }
 .cop-timeline-root .cop-thinking-output-md .md-content h1 {
   font-size: 11.5px !important;
   line-height: 1.35 !important;
   font-weight: 400 !important;
-  letter-spacing: -0.025em !important;
+  letter-spacing: -0.03em !important;
+  word-spacing: -0.14em !important;
   color: var(--c-text-primary) !important;
 }
 .cop-timeline-root .cop-thinking-output-md .md-content h2 {
   font-size: 11px !important;
   line-height: 1.35 !important;
   font-weight: 400 !important;
-  letter-spacing: -0.025em !important;
+  letter-spacing: -0.03em !important;
+  word-spacing: -0.14em !important;
   color: var(--c-text-primary) !important;
 }
 .cop-timeline-root .cop-thinking-output-md .md-content h3,
@@ -670,14 +675,16 @@ button:not(:disabled) {
   font-size: 10.5px !important;
   line-height: 1.4 !important;
   font-weight: 400 !important;
-  letter-spacing: -0.025em !important;
+  letter-spacing: -0.03em !important;
+  word-spacing: -0.14em !important;
   color: var(--c-text-primary) !important;
 }
 .cop-timeline-root .cop-thinking-output-md .md-content blockquote {
   font-size: 10px !important;
   line-height: 1.35 !important;
   font-weight: 400 !important;
-  letter-spacing: -0.025em !important;
+  letter-spacing: -0.03em !important;
+  word-spacing: -0.14em !important;
   color: var(--c-text-muted) !important;
 }
 .cop-timeline-root .cop-thinking-output-md .md-content strong {
@@ -701,7 +708,8 @@ button:not(:disabled) {
 .cop-timeline-root .cop-thinking-output-md--timeline-plain .md-content {
   font-size: 12.5px !important;
   line-height: 17.5px !important;
-  letter-spacing: -0.02em !important;
+  letter-spacing: -0.025em !important;
+  word-spacing: -0.12em !important;
   color: var(--c-text-tertiary) !important;
 }
 .cop-timeline-root .cop-thinking-output-md--timeline-plain .md-content > :first-child {
@@ -715,19 +723,22 @@ button:not(:disabled) {
 .cop-timeline-root .cop-thinking-output-md--timeline-plain .md-content th {
   font-size: 12.5px !important;
   line-height: 17.5px !important;
-  letter-spacing: -0.02em !important;
+  letter-spacing: -0.025em !important;
+  word-spacing: -0.12em !important;
   color: var(--c-text-tertiary) !important;
 }
 .cop-timeline-root .cop-thinking-output-md--timeline-plain .md-content h1 {
   font-size: 14.5px !important;
   line-height: 19.5px !important;
-  letter-spacing: -0.02em !important;
+  letter-spacing: -0.025em !important;
+  word-spacing: -0.12em !important;
   color: var(--c-text-secondary) !important;
 }
 .cop-timeline-root .cop-thinking-output-md--timeline-plain .md-content h2 {
   font-size: 13.5px !important;
   line-height: 18.5px !important;
-  letter-spacing: -0.02em !important;
+  letter-spacing: -0.025em !important;
+  word-spacing: -0.12em !important;
   color: var(--c-text-secondary) !important;
 }
 .cop-timeline-root .cop-thinking-output-md--timeline-plain .md-content h3,
@@ -736,13 +747,15 @@ button:not(:disabled) {
 .cop-timeline-root .cop-thinking-output-md--timeline-plain .md-content h6 {
   font-size: 12.5px !important;
   line-height: 17.5px !important;
-  letter-spacing: -0.02em !important;
+  letter-spacing: -0.025em !important;
+  word-spacing: -0.12em !important;
   color: var(--c-text-secondary) !important;
 }
 .cop-timeline-root .cop-thinking-output-md--timeline-plain .md-content blockquote {
   font-size: 12.5px !important;
   line-height: 17.5px !important;
-  letter-spacing: -0.02em !important;
+  letter-spacing: -0.025em !important;
+  word-spacing: -0.12em !important;
   color: var(--c-text-muted) !important;
 }
 .cop-timeline-root .cop-thinking-output-md--timeline-plain .md-content strong {
@@ -798,7 +811,7 @@ button:not(:disabled) {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 2px 0 0;
+  padding: 2px 0 1px;
   cursor: pointer;
   user-select: none;
   -webkit-user-select: none;
@@ -817,13 +830,13 @@ button:not(:disabled) {
   border-radius: 8px;
   background: var(--c-attachment-bg);
   overflow: hidden;
-  margin-top: 2px;
+  margin-top: 3px;
 }
 .cop-timeline-root .cop-thinking-card-scroll {
   max-height: 240px;
   overflow-x: hidden;
   overflow-y: auto;
-  padding: 8px 10px 8px;
+  padding: 10px 10px 10px;
   scrollbar-gutter: stable;
 }
 
