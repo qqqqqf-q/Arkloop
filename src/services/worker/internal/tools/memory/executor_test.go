@@ -37,7 +37,7 @@ type mockProvider struct {
 	lastDeleteURI  string
 }
 
-func (m *mockProvider) Find(_ context.Context, _ workermemory.MemoryIdentity, _ workermemory.MemoryScope, _ string, _ int) ([]workermemory.MemoryHit, error) {
+func (m *mockProvider) Find(_ context.Context, _ workermemory.MemoryIdentity, _ string, _ string, _ int) ([]workermemory.MemoryHit, error) {
 	m.findCalled = true
 	return m.findHits, m.findErr
 }
