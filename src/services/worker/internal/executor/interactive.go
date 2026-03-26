@@ -134,6 +134,7 @@ func (e *InteractiveExecutor) Execute(
 			return ctx.Err() != nil
 		},
 		StreamThinking: rc.StreamThinking,
+		PipelineRC:     rc,
 		PreIterHook: func(_ context.Context, iter int) error {
 			// 关闭上一轮 segment（第 2 轮开始时关闭第 1 轮）
 			if currentSegID != "" {

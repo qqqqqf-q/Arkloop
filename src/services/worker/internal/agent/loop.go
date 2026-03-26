@@ -138,6 +138,13 @@ func (l *Loop) Run(
 		Remaining:     maxInt(runCtx.ToolContinuationBudget, 0),
 		SessionCounts: map[string]int{},
 	}
+	var pressureAnchor *pipeline.ContextCompactPressureAnchor
+	if runCtx.PipelineRC != nil && runCtx.PipelineRC.HasContextCompactAnchor {
+		pressureAnchor = &pipeline.ContextCompactPressureAnchor{
+			LastRealPromptTokens:             runCtx.PipelineRC.LastRealPromptTokens,
+			LastRequestContextEstimateTokens: runCtx.PipelineRC.LastRequestContextEstimateTokens,
+		}
+	}
 
 	// Rollout: 写入 RunMeta
 	if runCtx.RolloutRecorder != nil {
@@ -162,7 +169,37 @@ func (l *Loop) Run(
 			}
 			messages = append(messages, drained...)
 		}
-		turnRequest := copyRequest(request, compactToolResults(messages))
+		messages = compactToolResults(messages)
+		if turnIndex > 1 && runCtx.PipelineRC != nil {
+			beforeCompact := len(messages)
+			compacted, stats, changed, compactErr := pipeline.MaybeInlineCompactMessages(ctx, runCtx.PipelineRC, messages, pressureAnchor)
+			if compactErr != nil {
+				ev := emitter.Emit("run.context_compact", map[string]any{
+					"op":              "local",
+					"phase":           "llm_failed",
+					"messages_before": beforeCompact,
+					"llm_error":       compactErr.Error(),
+				}, nil, nil)
+				pipeline.ApplyContextCompactPressureFields(ev.DataJSON, stats)
+				if err := yield(ev); err != nil {
+					return err
+				}
+			} else if changed {
+				messages = compacted
+				ev := emitter.Emit("run.context_compact", map[string]any{
+					"op":              "local",
+					"phase":           "completed",
+					"messages_before": beforeCompact,
+					"messages_after":  len(messages),
+				}, nil, nil)
+				pipeline.ApplyContextCompactPressureFields(ev.DataJSON, stats)
+				if err := yield(ev); err != nil {
+					return err
+				}
+			}
+		}
+		turnRequest := copyRequest(request, messages)
+		turnRequestContextEstimateTokens := estimateTurnRequestContextTokens(runCtx, turnRequest.Messages)
 		turn, err := l.runTurnWithRetry(ctx, runCtx, turnRequest, emitter, yield, turnIndex)
 		if err != nil {
 			return err
@@ -237,6 +274,16 @@ func (l *Loop) Run(
 
 		// emit per-turn 完成事件，含 llm_call_id 和本轮 usage
 		if turn.CompletedDataJSON != nil {
+			attachContextPressureAnchor(turn.CompletedDataJSON, turnRequestContextEstimateTokens)
+			if anchor := pressureAnchorFromCompleted(turn.CompletedDataJSON); anchor != nil {
+				pressureAnchor = anchor
+				if runCtx.PipelineRC != nil {
+					runCtx.PipelineRC.SetContextCompactPressureAnchor(
+						anchor.LastRealPromptTokens,
+						anchor.LastRequestContextEstimateTokens,
+					)
+				}
+			}
 			if err := yield(emitter.Emit("llm.turn.completed", turn.CompletedDataJSON, nil, nil)); err != nil {
 				return err
 			}
@@ -1195,6 +1242,45 @@ func copyRequest(request llm.Request, messages []llm.Message) llm.Request {
 		MaxOutputTokens: request.MaxOutputTokens,
 		Tools:           append([]llm.ToolSpec{}, request.Tools...),
 		Metadata:        copyMap(request.Metadata),
+	}
+}
+
+func estimateTurnRequestContextTokens(runCtx RunContext, messages []llm.Message) int {
+	if runCtx.PipelineRC != nil {
+		return pipeline.HistoryThreadPromptTokensForRoute(runCtx.PipelineRC.SelectedRoute, messages)
+	}
+	return pipeline.HistoryThreadPromptTokensForRoute(nil, messages)
+}
+
+func attachContextPressureAnchor(data map[string]any, requestEstimateTokens int) {
+	if data == nil || requestEstimateTokens < 0 {
+		return
+	}
+	data["last_request_context_estimate_tokens"] = requestEstimateTokens
+	usage, _ := data["usage"].(map[string]any)
+	if usage == nil {
+		return
+	}
+	if inputTokens, ok := anyToInt64(usage["input_tokens"]); ok && inputTokens > 0 {
+		data["last_real_prompt_tokens"] = inputTokens
+	}
+}
+
+func pressureAnchorFromCompleted(data map[string]any) *pipeline.ContextCompactPressureAnchor {
+	if data == nil {
+		return nil
+	}
+	lastRealPromptTokens, ok := anyToInt64(data["last_real_prompt_tokens"])
+	if !ok || lastRealPromptTokens <= 0 {
+		return nil
+	}
+	lastRequestEstimate, ok := anyToInt64(data["last_request_context_estimate_tokens"])
+	if !ok || lastRequestEstimate < 0 {
+		return nil
+	}
+	return &pipeline.ContextCompactPressureAnchor{
+		LastRealPromptTokens:             int(lastRealPromptTokens),
+		LastRequestContextEstimateTokens: int(lastRequestEstimate),
 	}
 }
 

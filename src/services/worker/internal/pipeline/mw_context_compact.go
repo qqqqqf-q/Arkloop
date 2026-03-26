@@ -2,7 +2,6 @@ package pipeline
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,10 +19,10 @@ import (
 )
 
 const (
-	settingContextCompactionModel     = "context.compaction.model"
-	contextCompactStreamTimeout       = 60 * time.Second
-	contextCompactMaxOut              = 4096
-	contextCompactPostWriteTimeout    = 30 * time.Second
+	settingContextCompactionModel  = "context.compaction.model"
+	contextCompactStreamTimeout    = 60 * time.Second
+	contextCompactMaxOut           = 4096
+	contextCompactPostWriteTimeout = 30 * time.Second
 	defaultPersistKeepLastMessages = 40
 	// 发往压缩摘要 LLM 的用户块上限（tiktoken 用 HistoryThreadPromptTokens；单条超大时再按 rune 截断）。
 	contextCompactMaxLLMInputTokens = 120000
@@ -169,13 +168,18 @@ func NewContextCompactMiddleware(
 			if tailKeep < 1 {
 				tailKeep = 1
 			}
-			histTok := HistoryThreadPromptTokens(enc, msgs)
-			prevRunInput := prevCompletedRunInputTokens(ctx, pool, rc.Run.AccountID, rc.Run.ThreadID, rc.Run.ID)
-			effectiveHist := histTok
-			if prevRunInput > effectiveHist {
-				effectiveHist = prevRunInput
+			requestEstimate := HistoryThreadPromptTokens(enc, contextCompactRequestMessages(rc.SystemPrompt, msgs))
+			anchor, anchored := resolveContextCompactPressureAnchor(ctx, pool, rc)
+			if anchored {
+				rc.SetContextCompactPressureAnchor(anchor.LastRealPromptTokens, anchor.LastRequestContextEstimateTokens)
 			}
-			if effectiveHist >= trigger && len(ids) == len(msgs) {
+			pressure := ComputeContextCompactPressure(requestEstimate, func() *ContextCompactPressureAnchor {
+				if !anchored {
+					return nil
+				}
+				return &anchor
+			}())
+			if pressure.ContextPressureTokens >= trigger && len(ids) == len(msgs) {
 				split := stabilizeCompactStart(msgs, len(msgs)-tailKeep, 0)
 				if split > 0 {
 					gw, model := resolveCompactionGateway(ctx, pool, rc, auxGateway, emitDebugEvents, configLoader)
@@ -183,17 +187,15 @@ func NewContextCompactMiddleware(
 						slog.WarnContext(ctx, "context_compact", "phase", "gateway_nil", "run_id", rc.Run.ID.String())
 					} else {
 						persistStartedEvent = map[string]any{
-							"op":                       "persist",
-							"phase":                    "started",
-							"persist_split":            split,
-							"thread_tokens_tiktoken":   histTok,
-							"thread_tokens_effective":  effectiveHist,
-							"prev_run_input_tokens":    prevRunInput,
-							"trigger_tokens":           trigger,
-							"context_window_tokens":    window,
-							"trigger_context_pct":      cfg.PersistTriggerContextPct,
-							"tail_keep_effective":      tailKeep,
+							"op":                    "persist",
+							"phase":                 "started",
+							"persist_split":         split,
+							"trigger_tokens":        trigger,
+							"context_window_tokens": window,
+							"trigger_context_pct":   cfg.PersistTriggerContextPct,
+							"tail_keep_effective":   tailKeep,
 						}
+						ApplyContextCompactPressureFields(persistStartedEvent, pressure)
 
 						// Acquire file lock BEFORE LLM call to prevent concurrent compacts on Desktop.
 						// For PostgreSQL, advisory lock inside tx provides DB-level protection,
@@ -211,41 +213,39 @@ func NewContextCompactMiddleware(
 						}
 
 						// compact_summary 消息是线程的第一条，role=system，可以直接判断而不依赖内容特征。
-					// 普通对话消息 role 只会是 user/assistant/tool，不会是 system。
-					var previousSummary string
-					if len(msgs) > 0 && msgs[0].Role == "system" {
-						previousSummary = strings.TrimSpace(messageText(msgs[0]))
-					}
-					summary, sumErr := runContextCompactLLM(ctx, gw, model, msgs[:split], enc, previousSummary)
+						// 普通对话消息 role 只会是 user/assistant/tool，不会是 system。
+						var previousSummary string
+						if len(msgs) > 0 && msgs[0].Role == "system" {
+							previousSummary = strings.TrimSpace(messageText(msgs[0]))
+						}
+						summary, sumErr := runContextCompactLLM(ctx, gw, model, msgs[:split], enc, previousSummary)
 						if sumErr != nil {
 							slog.WarnContext(ctx, "context_compact", "phase", "llm", "err", sumErr.Error(), "run_id", rc.Run.ID.String())
 							persistFailed = true
 							persistFailedEvent = map[string]any{
-								"op":                     "persist",
-								"phase":                  "llm_failed",
-								"persist_split":          split,
-								"llm_error":              sumErr.Error(),
-								"thread_tokens_tiktoken": histTok,
-								"trigger_tokens":         trigger,
+								"op":             "persist",
+								"phase":          "llm_failed",
+								"persist_split":  split,
+								"llm_error":      sumErr.Error(),
+								"trigger_tokens": trigger,
 							}
+							ApplyContextCompactPressureFields(persistFailedEvent, pressure)
 						} else if strings.TrimSpace(summary) != "" {
 							persistSplit = split
 							persistSummary = strings.TrimSpace(summary)
 							persistPrefixIDs = append([]uuid.UUID(nil), ids[:split]...)
 							persistCompletedEvent = map[string]any{
-								"op":                      "persist",
-								"phase":                   "completed",
-								"persist_split":           split,
-								"messages_before":         beforeN,
-								"thread_tokens_tiktoken":  histTok,
-								"thread_tokens_effective": effectiveHist,
-								"prev_run_input_tokens":   prevRunInput,
-								"context_window_tokens":   window,
-								"trigger_tokens":          trigger,
-								"trigger_context_pct":     cfg.PersistTriggerContextPct,
-								"tail_keep_configured":    keep,
-								"tail_keep_effective":     tailKeep,
+								"op":                    "persist",
+								"phase":                 "completed",
+								"persist_split":         split,
+								"messages_before":       beforeN,
+								"context_window_tokens": window,
+								"trigger_tokens":        trigger,
+								"trigger_context_pct":   cfg.PersistTriggerContextPct,
+								"tail_keep_configured":  keep,
+								"tail_keep_effective":   tailKeep,
 							}
+							ApplyContextCompactPressureFields(persistCompletedEvent, pressure)
 							summaryMsg := llm.Message{
 								Role:    "system",
 								Content: []llm.TextPart{{Text: persistSummary}},
@@ -507,6 +507,78 @@ func compactPersistTriggerTokens(cfg ContextCompactSettings, windowFromRoute int
 	return trigger, window
 }
 
+func MaybeInlineCompactMessages(
+	ctx context.Context,
+	rc *RunContext,
+	msgs []llm.Message,
+	anchor *ContextCompactPressureAnchor,
+) ([]llm.Message, ContextCompactPressureStats, bool, error) {
+	if rc == nil {
+		return msgs, ContextCompactPressureStats{}, false, nil
+	}
+	cfg := rc.ContextCompact
+	if !cfg.PersistEnabled || rc.Gateway == nil || rc.SelectedRoute == nil || len(msgs) <= 1 {
+		estimate := HistoryThreadPromptTokensForRoute(rc.SelectedRoute, msgs)
+		stats := ComputeContextCompactPressure(estimate, anchor)
+		return msgs, stats, false, nil
+	}
+	enc, err := ResolveTiktokenForRoute(rc.SelectedRoute)
+	if err != nil || enc == nil {
+		enc, _ = tiktoken.GetEncoding(tiktoken.MODEL_O200K_BASE)
+	}
+	window := routing.RouteContextWindowTokens(rc.SelectedRoute.Route)
+	trigger, _ := compactPersistTriggerTokens(cfg, window)
+	estimate := HistoryThreadPromptTokens(enc, msgs)
+	stats := ComputeContextCompactPressure(estimate, anchor)
+	if stats.ContextPressureTokens < trigger {
+		return msgs, stats, false, nil
+	}
+	fixedPrefixCount := 0
+	if len(msgs) > 0 && msgs[0].Role == "system" {
+		fixedPrefixCount = 1
+	}
+	if len(msgs)-fixedPrefixCount <= 1 {
+		return msgs, stats, false, nil
+	}
+	prefix := append([]llm.Message(nil), msgs[:fixedPrefixCount]...)
+	compactBase := append([]llm.Message(nil), msgs[fixedPrefixCount:]...)
+	keep := cfg.PersistKeepLastMessages
+	if keep <= 0 {
+		keep = defaultPersistKeepLastMessages
+	}
+	tailKeep := keep
+	if tailKeep >= len(compactBase) {
+		tailKeep = len(compactBase) - 1
+	}
+	if tailKeep < 1 {
+		tailKeep = 1
+	}
+	split := stabilizeCompactStart(compactBase, len(compactBase)-tailKeep, 0)
+	if split <= 0 {
+		return msgs, stats, false, nil
+	}
+	var previousSummary string
+	if len(compactBase) > 0 && compactBase[0].Role == "system" {
+		previousSummary = strings.TrimSpace(messageText(compactBase[0]))
+	}
+	summary, err := runContextCompactLLM(ctx, rc.Gateway, rc.SelectedRoute.Route.Model, compactBase[:split], enc, previousSummary)
+	if err != nil {
+		return msgs, stats, false, err
+	}
+	summary = strings.TrimSpace(summary)
+	if summary == "" {
+		return msgs, stats, false, nil
+	}
+	summaryMsg := llm.Message{
+		Role:    "system",
+		Content: []llm.TextPart{{Text: summary}},
+	}
+	tail := make([]llm.Message, len(compactBase)-split)
+	copy(tail, compactBase[split:])
+	compactedBase := append([]llm.Message{summaryMsg}, tail...)
+	return append(prefix, compactedBase...), stats, true, nil
+}
+
 func runContextCompactLLM(ctx context.Context, gateway llm.Gateway, model string, prefix []llm.Message, enc *tiktoken.Tiktoken, previousSummary string) (string, error) {
 	if gateway == nil || strings.TrimSpace(model) == "" {
 		return "", fmt.Errorf("gateway or model missing")
@@ -568,31 +640,6 @@ func runContextCompactLLM(ctx context.Context, gateway llm.Gateway, model string
 		return "", err
 	}
 	return strings.TrimSpace(strings.Join(chunks, "")), nil
-}
-
-// prevCompletedRunInputTokens 同线程上一笔已完成 run 的 provider 累加 input（runs.total_input_tokens）。
-// 供本轮 persist 与 tiktoken 取较大者作触发分子，弥补线程文本估算低于真实负载的情况；首轮 run 为 0。
-func prevCompletedRunInputTokens(ctx context.Context, pool CompactPersistDB, accountID, threadID, currentRunID uuid.UUID) int {
-	if pool == nil || accountID == uuid.Nil || threadID == uuid.Nil || currentRunID == uuid.Nil {
-		return 0
-	}
-	var n sql.NullInt64
-	err := pool.QueryRow(ctx,
-		`SELECT total_input_tokens FROM runs
-		 WHERE account_id = $1 AND thread_id = $2 AND id <> $3
-		   AND status = 'completed'
-		   AND total_input_tokens IS NOT NULL AND total_input_tokens > 0
-		 ORDER BY COALESCE(completed_at, created_at) DESC
-		 LIMIT 1`,
-		accountID, threadID, currentRunID,
-	).Scan(&n)
-	if err != nil || !n.Valid {
-		return 0
-	}
-	if n.Int64 <= 0 || n.Int64 > 1<<50 {
-		return 0
-	}
-	return int(n.Int64)
 }
 
 func appendContextCompactRunEvent(

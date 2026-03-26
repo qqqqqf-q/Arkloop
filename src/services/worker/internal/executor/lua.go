@@ -1526,6 +1526,7 @@ func (rt *luaRuntime) runAgentLoop(
 			return rt.ctx.Err() != nil
 		},
 		StreamThinking: rt.rc.StreamThinking,
+		PipelineRC:     rt.rc,
 	}
 
 	capturedChunks := make([]string, 0, 16)

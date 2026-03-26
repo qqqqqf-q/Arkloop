@@ -55,6 +55,24 @@ func HistoryThreadPromptTokens(enc *tiktoken.Tiktoken, msgs []llm.Message) int {
 	return n
 }
 
+// HistoryThreadPromptTokensForRoute 按 route 选择编码后估算线程消息 token。
+// route 不可用或编码解析失败时回退 o200k_base，保持口径稳定。
+func HistoryThreadPromptTokensForRoute(sel *routing.SelectedProviderRoute, msgs []llm.Message) int {
+	if len(msgs) == 0 {
+		return 0
+	}
+	var enc *tiktoken.Tiktoken
+	if sel != nil {
+		if resolved, err := ResolveTiktokenForRoute(sel); err == nil {
+			enc = resolved
+		}
+	}
+	if enc == nil {
+		enc, _ = tiktoken.GetEncoding(tiktoken.MODEL_O200K_BASE)
+	}
+	return HistoryThreadPromptTokens(enc, msgs)
+}
+
 // TrimPrefixMessagesForCompactLLM 从头部丢掉最旧消息，直到 HistoryThreadPromptTokens 不超过 maxPromptTokens（至少保留一条）。
 func TrimPrefixMessagesForCompactLLM(enc *tiktoken.Tiktoken, prefix []llm.Message, maxPromptTokens int) []llm.Message {
 	if maxPromptTokens <= 0 || len(prefix) == 0 {

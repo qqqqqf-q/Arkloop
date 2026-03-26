@@ -82,6 +82,10 @@ type RunContext struct {
 
 	// -- EngineV1.Execute 注入：context compact（[middleware 内可能改写 Messages]） --
 	ContextCompact ContextCompactSettings
+	// 当前 run 已知的最近一次真实 request prompt 锚点，供 compact 压力判断复用。
+	HasContextCompactAnchor          bool
+	LastRealPromptTokens             int
+	LastRequestContextEstimateTokens int
 
 	// -- PersonaResolutionMiddleware 写入 --
 	AgentConfig     *ResolvedAgentConfig
@@ -223,4 +227,14 @@ func (rc *RunContext) SetHeartbeatDecisionOutcome(replySilent bool, fragments []
 // IsHeartbeatRun implements tools/builtin/heartbeat_decision.PipelineBinding.
 func (rc *RunContext) IsHeartbeatRun() bool {
 	return rc != nil && rc.HeartbeatRun
+}
+
+// SetContextCompactPressureAnchor 记录当前 run 内最近一次真实 request 的 compact 压力锚点。
+func (rc *RunContext) SetContextCompactPressureAnchor(lastRealPromptTokens, lastRequestContextEstimateTokens int) {
+	if rc == nil || lastRealPromptTokens <= 0 || lastRequestContextEstimateTokens <= 0 {
+		return
+	}
+	rc.HasContextCompactAnchor = true
+	rc.LastRealPromptTokens = lastRealPromptTokens
+	rc.LastRequestContextEstimateTokens = lastRequestContextEstimateTokens
 }

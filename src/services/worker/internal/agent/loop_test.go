@@ -11,6 +11,8 @@ import (
 
 	"arkloop/services/worker/internal/events"
 	"arkloop/services/worker/internal/llm"
+	"arkloop/services/worker/internal/pipeline"
+	"arkloop/services/worker/internal/routing"
 	"arkloop/services/worker/internal/tools"
 	"arkloop/services/worker/internal/tools/builtin"
 	"github.com/google/uuid"
@@ -364,6 +366,138 @@ func TestAgentLoopAggregatesUsageAcrossTurns(t *testing.T) {
 	}
 	if value := mustInt64(t, usage["cached_tokens"]); value != 10 {
 		t.Fatalf("expected cached_tokens=10, got %d", value)
+	}
+}
+
+func TestAgentLoopEmitsContextPressureAnchorOnTurnCompleted(t *testing.T) {
+	gateway := &usageScriptedGateway{}
+	loop := NewLoop(gateway, buildEchoDispatcher(t))
+	emitter := events.NewEmitter("trace")
+	requestMessages := []llm.Message{
+		{Role: "user", Content: []llm.TextPart{{Text: "hello compact"}}},
+	}
+
+	var got []events.RunEvent
+	err := loop.Run(
+		context.Background(),
+		RunContext{
+			RunID:               uuid.New(),
+			TraceID:             "trace",
+			InputJSON:           map[string]any{},
+			ReasoningIterations: 3,
+			ToolExecutor:        buildEchoDispatcher(t),
+			CancelSignal:        func() bool { return false },
+		},
+		llm.Request{Model: "stub", Messages: requestMessages},
+		emitter,
+		func(ev events.RunEvent) error {
+			got = append(got, ev)
+			return nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("loop.Run failed: %v", err)
+	}
+
+	var completed events.RunEvent
+	found := false
+	for _, ev := range got {
+		if ev.Type == "llm.turn.completed" {
+			completed = ev
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected llm.turn.completed")
+	}
+	if value := mustInt64(t, completed.DataJSON["last_real_prompt_tokens"]); value != 10 {
+		t.Fatalf("expected last_real_prompt_tokens=10, got %d", value)
+	}
+	wantEstimate := int64(pipeline.HistoryThreadPromptTokensForRoute(nil, requestMessages))
+	if value := mustInt64(t, completed.DataJSON["last_request_context_estimate_tokens"]); value != wantEstimate {
+		t.Fatalf("expected last_request_context_estimate_tokens=%d, got %d", wantEstimate, value)
+	}
+}
+
+func TestAgentLoopCompactsBeforeSecondTurnWhenToolOutputInflatesContext(t *testing.T) {
+	huge := strings.Repeat("x", 20_000)
+	gateway := &compactingGateway{toolText: huge}
+	loop := NewLoop(gateway, buildEchoDispatcher(t))
+	emitter := events.NewEmitter("trace")
+	requestMessages := []llm.Message{
+		{Role: "user", Content: []llm.TextPart{{Text: "hello compact"}}},
+	}
+	pipelineRC := &pipeline.RunContext{
+		Messages: requestMessages,
+		ContextCompact: pipeline.ContextCompactSettings{
+			PersistEnabled:              true,
+			PersistTriggerApproxTokens:  200,
+			FallbackContextWindowTokens: 1_000_000,
+			PersistKeepLastMessages:     1,
+		},
+		SelectedRoute: &routing.SelectedProviderRoute{
+			Route: routing.ProviderRouteRule{Model: "gpt-4o", ID: "route-1"},
+			Credential: routing.ProviderCredential{
+				ProviderKind: routing.ProviderKindOpenAI,
+			},
+		},
+	}
+	pipelineRC.Gateway = gateway
+
+	var got []events.RunEvent
+	err := loop.Run(
+		context.Background(),
+		RunContext{
+			RunID:               uuid.New(),
+			TraceID:             "trace",
+			InputJSON:           map[string]any{},
+			ReasoningIterations: 3,
+			ToolExecutor:        buildEchoDispatcher(t),
+			CancelSignal:        func() bool { return false },
+			PipelineRC:          pipelineRC,
+		},
+		llm.Request{Model: "gpt-4o", Messages: requestMessages},
+		emitter,
+		func(ev events.RunEvent) error {
+			got = append(got, ev)
+			return nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("loop.Run failed: %v", err)
+	}
+	if gateway.calls != 3 {
+		t.Fatalf("expected 3 gateway calls (turn, compact, turn), got %d", gateway.calls)
+	}
+	assertHasEvent(t, got, "run.context_compact")
+	var compactCompleted events.RunEvent
+	found := false
+	for _, ev := range got {
+		if ev.Type == "run.context_compact" && ev.DataJSON["phase"] == "completed" {
+			compactCompleted = ev
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected completed local compact event")
+	}
+	if compactCompleted.DataJSON["op"] != "local" {
+		t.Fatalf("expected local compact op, got %#v", compactCompleted.DataJSON["op"])
+	}
+	if mustInt64(t, compactCompleted.DataJSON["context_pressure_tokens"]) <= mustInt64(t, compactCompleted.DataJSON["context_estimate_tokens"]) {
+		t.Fatalf("expected anchored pressure to exceed estimate: %#v", compactCompleted.DataJSON)
+	}
+	secondTurn := gateway.requests[2]
+	if len(secondTurn.Messages) < 2 {
+		t.Fatalf("expected compacted second turn messages, got %d", len(secondTurn.Messages))
+	}
+	if secondTurn.Messages[0].Role != "system" {
+		t.Fatalf("expected summary system message at second turn head, got %q", secondTurn.Messages[0].Role)
+	}
+	if text := llm.PartPromptText(secondTurn.Messages[len(secondTurn.Messages)-1].Content[0]); strings.Contains(text, huge) {
+		t.Fatal("expected huge tool output to be compacted before second turn")
 	}
 }
 
@@ -1107,6 +1241,49 @@ func (g *usageScriptedGateway) Stream(ctx context.Context, request llm.Request, 
 			CachedTokens: intPtr(6),
 		},
 	})
+}
+
+type compactingGateway struct {
+	calls    int
+	toolText string
+	requests []llm.Request
+}
+
+func (g *compactingGateway) Stream(ctx context.Context, request llm.Request, yield func(llm.StreamEvent) error) error {
+	_ = ctx
+	g.requests = append(g.requests, request)
+	g.calls++
+	switch g.calls {
+	case 1:
+		if err := yield(llm.ToolCall{
+			ToolCallID:    "call_1",
+			ToolName:      "echo",
+			ArgumentsJSON: map[string]any{"text": g.toolText},
+		}); err != nil {
+			return err
+		}
+		return yield(llm.StreamRunCompleted{
+			Usage: &llm.Usage{
+				InputTokens:  intPtr(120),
+				OutputTokens: intPtr(3),
+			},
+		})
+	case 2:
+		if err := yield(llm.StreamMessageDelta{ContentDelta: "summary", Role: "assistant"}); err != nil {
+			return err
+		}
+		return yield(llm.StreamRunCompleted{})
+	default:
+		if err := yield(llm.StreamMessageDelta{ContentDelta: "done", Role: "assistant"}); err != nil {
+			return err
+		}
+		return yield(llm.StreamRunCompleted{
+			Usage: &llm.Usage{
+				InputTokens:  intPtr(80),
+				OutputTokens: intPtr(5),
+			},
+		})
+	}
 }
 
 type observedSlowExecutor struct {
