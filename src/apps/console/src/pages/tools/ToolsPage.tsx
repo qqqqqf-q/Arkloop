@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useMemo } from 'react'
 import { useOutletContext } from 'react-router-dom'
 import {
   Loader2, Save, CheckCircle2, Ban, Pencil, Trash2, RotateCcw,
@@ -79,7 +79,30 @@ type EditTarget = { group: string; provider: ToolProviderItem }
 type DescEditTarget = { toolName: string; label: string; description: string }
 
 function displayGroupName(group: string): string {
-  return group === 'sandbox' ? 'sandbox/browser' : group
+  if (group === 'sandbox') return 'sandbox/browser'
+  if (group === 'image_understanding') return 'Image understanding'
+  return group
+}
+
+function mergeGroupTabs(
+  catalogGroups: ToolCatalogGroup[],
+  providerGroups: ToolProviderGroup[],
+): string[] {
+  const seen = new Set<string>()
+  const tabs: string[] = []
+  catalogGroups.forEach((catalog) => {
+    if (!seen.has(catalog.group)) {
+      seen.add(catalog.group)
+      tabs.push(catalog.group)
+    }
+  })
+  providerGroups.forEach((provider) => {
+    if (!seen.has(provider.group_name)) {
+      seen.add(provider.group_name)
+      tabs.push(provider.group_name)
+    }
+  })
+  return tabs
 }
 
 function flatGet(obj: Record<string, unknown>, dotPath: string): string {
@@ -156,15 +179,22 @@ export function ToolsPage() {
 
   useEffect(() => { void fetchAll() }, [fetchAll])
 
+  const groupTabs = useMemo(() => mergeGroupTabs(catalogGroups, providerGroups), [catalogGroups, providerGroups])
+
   useEffect(() => {
-    if (catalogGroups.length === 0) {
-      setSelectedGroup('')
+    if (groupTabs.length === 0) {
+      if (selectedGroup !== '') {
+        setSelectedGroup('')
+      }
       return
     }
-    if (!catalogGroups.some((group) => group.group === selectedGroup)) {
-      setSelectedGroup(catalogGroups[0].group)
+    const desired = selectedGroup && groupTabs.includes(selectedGroup)
+      ? selectedGroup
+      : groupTabs[0]
+    if (selectedGroup !== desired) {
+      setSelectedGroup(desired)
     }
-  }, [catalogGroups, selectedGroup])
+  }, [groupTabs, selectedGroup])
 
   // load config form when selected group or provider data changes
   useEffect(() => {
@@ -415,23 +445,23 @@ export function ToolsPage() {
           {/* Left: group list */}
           <div className="w-[180px] shrink-0 overflow-y-auto border-r border-[var(--c-border-console)] p-2">
             <div className="flex flex-col gap-[3px]">
-              {catalogGroups.map((g) => {
-                const active = g.group === selectedGroup
-                return (
-                  <button
-                    key={g.group}
-                    onClick={() => setSelectedGroup(g.group)}
-                    className={[
-                      'flex h-[30px] items-center rounded-[5px] px-3 text-sm font-medium transition-colors',
-                      active
-                        ? 'bg-[var(--c-bg-sub)] text-[var(--c-text-primary)]'
-                        : 'text-[var(--c-text-tertiary)] hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-secondary)]',
-                    ].join(' ')}
-                  >
-                    {displayGroupName(g.group)}
-                  </button>
-                )
-              })}
+            {groupTabs.map((group) => {
+              const active = group === selectedGroup
+              return (
+                <button
+                  key={group}
+                  onClick={() => setSelectedGroup(group)}
+                  className={[
+                    'flex h-[30px] items-center rounded-[5px] px-3 text-sm font-medium transition-colors',
+                    active
+                      ? 'bg-[var(--c-bg-sub)] text-[var(--c-text-primary)]'
+                      : 'text-[var(--c-text-tertiary)] hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-secondary)]',
+                  ].join(' ')}
+                >
+                  {displayGroupName(group)}
+                </button>
+              )
+            })}
             </div>
           </div>
 

@@ -12,6 +12,7 @@ import {
   listStarredThreadIds,
   listThreadRuns,
   createRun,
+  cancelRun,
 } from '../api'
 import {
   writeMessageWidgets,
@@ -93,22 +94,34 @@ vi.mock('../components/ChatInput', () => ({
     onChange,
     onSubmit,
     isStreaming,
+    canCancel,
+    onCancel,
+    cancelSubmitting,
   }: {
     value: string
     onChange: (value: string) => void
     onSubmit: (e: { preventDefault: () => void }, personaKey: string, modelOverride?: string) => void
     isStreaming?: boolean
+    canCancel?: boolean
+    onCancel?: () => void
+    cancelSubmitting?: boolean
   }) => (
     <form onSubmit={(event) => onSubmit(event, 'default')}>
       <input
         aria-label="chat-input"
         value={value}
-        onChange={(event) => onChange(event.target.value)}
-      />
-      <button type="submit">send</button>
-      <div>{isStreaming ? 'streaming' : 'idle'}</div>
-    </form>
-  ),
+          onChange={(event) => onChange(event.target.value)}
+        />
+        <button type="submit">send</button>
+        {isStreaming && canCancel && (
+          <button type="button" aria-label="cancel-button" onClick={onCancel}>
+            cancel
+          </button>
+        )}
+        <div>{isStreaming ? 'streaming' : 'idle'}</div>
+        <div>{cancelSubmitting ? 'canceling' : 'ready'}</div>
+      </form>
+    ),
 }))
 
 vi.mock('../components/MessageBubble', () => ({
@@ -170,6 +183,7 @@ describe('ChatPage loading state', () => {
   const mockedListStarredThreadIds = vi.mocked(listStarredThreadIds)
   const mockedListThreadRuns = vi.mocked(listThreadRuns)
   const mockedCreateRun = vi.mocked(createRun)
+  const mockedCancelRun = vi.mocked(cancelRun)
   const mockedWriteMessageWidgets = vi.mocked(writeMessageWidgets)
   const actEnvironment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
   const originalActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT
@@ -198,6 +212,7 @@ describe('ChatPage loading state', () => {
     mockedListStarredThreadIds.mockResolvedValue([])
     mockedListThreadRuns.mockResolvedValue([])
     mockedCreateRun.mockResolvedValue({ run_id: 'run-created', trace_id: 'trace-1' })
+    mockedCancelRun.mockResolvedValue({ ok: true })
   })
 
   afterEach(() => {
@@ -422,6 +437,118 @@ describe('ChatPage loading state', () => {
       throw new Error('restored chat input not rendered')
     }
     expect(restoredInput.value).toBe('continue from here')
+
+    act(() => {
+      root.unmount()
+    })
+    container.remove()
+  })
+
+  it('manual cancel 应等待终态并保留排队输入', async () => {
+    mockedListThreadRuns.mockResolvedValue([
+      {
+        run_id: 'run-cancel',
+        status: 'running',
+        created_at: '2026-03-10T00:00:00Z',
+      },
+    ])
+    sseMock.state = 'connected'
+
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    const outletContext = {
+      accessToken: 'token',
+      onLoggedOut: vi.fn(),
+      onRunStarted: vi.fn(),
+      onRunEnded: vi.fn(),
+      onThreadCreated: vi.fn(),
+      onThreadTitleUpdated: vi.fn(),
+      refreshCredits: vi.fn(),
+      onOpenNotifications: vi.fn(),
+      notificationVersion: 0,
+      creditsBalance: 0,
+      isPrivateMode: false,
+      onTogglePrivateMode: vi.fn(),
+      privateThreadIds: new Set<string>(),
+      onSetPendingIncognito: vi.fn(),
+      onRightPanelChange: vi.fn(),
+      threads: [],
+      onThreadDeleted: vi.fn(),
+    }
+
+    const renderTree = () => (
+      <LocaleProvider>
+        <MemoryRouter initialEntries={['/t/thread-1']}>
+          <Routes>
+            <Route element={<OutletShell context={outletContext} />}>
+              <Route path="/t/:threadId" element={<ChatPage />} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </LocaleProvider>
+    )
+
+    await act(async () => {
+      root.render(renderTree())
+    })
+    await act(async () => {
+      await flushMicrotasks()
+    })
+
+    const input = container.querySelector('input[aria-label="chat-input"]') as HTMLInputElement | null
+    const form = container.querySelector('form')
+    const cancelButton = container.querySelector('button[aria-label="cancel-button"]')
+    if (!input || !form || !cancelButton) {
+      throw new Error('chat input controls not rendered')
+    }
+
+    await act(async () => {
+      const valueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+      valueSetter?.call(input, 'resume after cancel')
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await act(async () => {
+      form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+      await flushMicrotasks()
+    })
+
+    expect(container.textContent).toContain('resume after cancel')
+
+    await act(async () => {
+      cancelButton.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      await flushMicrotasks()
+    })
+
+    expect(mockedCancelRun).toHaveBeenCalledWith('token', 'run-cancel')
+    expect(container.textContent).toContain('streaming')
+    expect(container.textContent).toContain('canceling')
+    expect(container.textContent).toContain('resume after cancel')
+
+    sseMock.state = 'connected'
+    sseMock.events = [
+      {
+        event_id: 'evt-cancelled',
+        run_id: 'run-cancel',
+        seq: 1,
+        ts: '2026-03-10T00:00:01Z',
+        type: 'run.cancelled',
+        data: {},
+      },
+    ]
+
+    await act(async () => {
+      root.render(renderTree())
+      await flushMicrotasks()
+      await flushMicrotasks()
+    })
+
+    const restoredInput = container.querySelector('input[aria-label="chat-input"]') as HTMLInputElement | null
+    if (!restoredInput) {
+      throw new Error('restored input not rendered')
+    }
+    expect(restoredInput.value).toBe('resume after cancel')
+    expect(container.textContent).toContain('已停止生成')
 
     act(() => {
       root.unmount()

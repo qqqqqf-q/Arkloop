@@ -1344,6 +1344,7 @@ export function ChatPage() {
       injectionBlockedRunIdRef.current = null
       sse.disconnect()
       setActiveRunId(null)
+      setCancelSubmitting(false)
       setPendingThinking(false)
       setTopLevelCodeExecutions([])
       setTopLevelSubAgents([])
@@ -1814,6 +1815,7 @@ export function ChatPage() {
         setLiveAssistantTurn(runAssistantTurn.segments.length > 0 ? runAssistantTurn : null)
         sse.disconnect()
         setActiveRunId(null)
+        setCancelSubmitting(false)
         setPendingThinking(false)
 
         const runSearchSteps = finalizeSearchSteps(searchStepsRef.current)
@@ -2460,22 +2462,15 @@ export function ChatPage() {
       noResponseMsgIdRef.current = null
     }
 
-    disconnectSSE()
-    setActiveRunId(null)
-    setAwaitingInput(false)
-    setPendingUserInput(null)
-    setCheckInDraft('')
     setCancelSubmitting(true)
     setError(null)
     setInjectionBlocked(null)
-    pendingMessageRef.current = null
-    setQueuedDraft(null)
-    if (threadId) onRunEnded(threadId)
 
     void cancelRun(accessToken, runId).catch((err: unknown) => {
       setError(normalizeError(err))
+      setCancelSubmitting(false)
     })
-  }, [activeRunId, cancelSubmitting, disconnectSSE, accessToken, threadId, onRunEnded])
+  }, [activeRunId, cancelSubmitting, accessToken])
 
   const terminalSseError = useMemo(() => {
     if (!sse.error) return null

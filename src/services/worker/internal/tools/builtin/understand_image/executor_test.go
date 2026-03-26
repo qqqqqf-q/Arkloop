@@ -28,6 +28,10 @@ func (p *fakeProvider) DescribeImage(_ context.Context, req DescribeImageRequest
 	return p.resp, nil
 }
 
+func (p *fakeProvider) Name() string {
+	return "fake"
+}
+
 func TestToolExecutorSuccess(t *testing.T) {
 	t.Setenv(sharedoutbound.AllowLoopbackHTTPEnv, "true")
 	provider := &fakeProvider{
@@ -118,7 +122,12 @@ func TestToolExecutorMapsProviderError(t *testing.T) {
 	defer server.Close()
 
 	executor := NewToolExecutorWithProvider(&fakeProvider{
-		err: ProviderError{Message: "provider failed", StatusCode: 502, TraceID: "trace-test"},
+		err: ProviderError{
+			Message:    "provider failed",
+			StatusCode: 502,
+			TraceID:    "trace-test",
+			Provider:   ProviderNameMiniMax,
+		},
 	})
 	result := executor.Execute(context.Background(), "understand_image", map[string]any{
 		"url":    server.URL,
@@ -133,6 +142,9 @@ func TestToolExecutorMapsProviderError(t *testing.T) {
 	}
 	if got := result.Error.Details["trace_id"]; got != "trace-test" {
 		t.Fatalf("unexpected trace id: %#v", got)
+	}
+	if got := result.Error.Details["provider"]; got != ProviderNameMiniMax {
+		t.Fatalf("unexpected provider detail: %#v", got)
 	}
 }
 
@@ -174,12 +186,18 @@ func TestMiniMaxProviderDescribeImage(t *testing.T) {
 	if resp.Text != "图片里是一只小鸟" {
 		t.Fatalf("unexpected response text: %q", resp.Text)
 	}
+	if resp.Provider != ProviderNameMiniMax {
+		t.Fatalf("unexpected provider tag: %q", resp.Provider)
+	}
 	if resp.Model != DefaultMiniMaxModel {
 		t.Fatalf("unexpected model: %q", resp.Model)
 	}
 	rawURL, ok := captured["image_url"].(string)
 	if !ok || !strings.HasPrefix(rawURL, "data:image/png;base64,") {
 		t.Fatalf("unexpected image_url payload: %#v", captured["image_url"])
+	}
+	if model, ok := captured["model"].(string); !ok || model != DefaultMiniMaxModel {
+		t.Fatalf("unexpected model field: %#v", captured["model"])
 	}
 }
 
@@ -212,6 +230,47 @@ func TestMiniMaxProviderHTTPError(t *testing.T) {
 	}
 	if providerErr.TraceID != "trace-123" {
 		t.Fatalf("unexpected trace id: %q", providerErr.TraceID)
+	}
+	if providerErr.Provider != ProviderNameMiniMax {
+		t.Fatalf("unexpected provider tag: %q", providerErr.Provider)
+	}
+}
+
+func TestMiniMaxProviderHonorModelOverride(t *testing.T) {
+	t.Setenv(sharedoutbound.AllowLoopbackHTTPEnv, "true")
+	var captured map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"base_resp": map[string]any{
+				"status_code": 0,
+				"status_msg":  "ok",
+			},
+			"content": "override works",
+		})
+	}))
+	defer server.Close()
+
+	const customModel = "MiniMax-VL-02"
+	provider, err := NewMiniMaxProvider("test-key", server.URL, customModel)
+	if err != nil {
+		t.Fatalf("NewMiniMaxProvider: %v", err)
+	}
+	resp, err := provider.DescribeImage(context.Background(), DescribeImageRequest{
+		Prompt:   "prompt",
+		MimeType: "image/png",
+		Bytes:    testPNGBytes(t),
+	})
+	if err != nil {
+		t.Fatalf("DescribeImage: %v", err)
+	}
+	if resp.Model != customModel {
+		t.Fatalf("model mismatch: got %q", resp.Model)
+	}
+	if capturedModel, ok := captured["model"].(string); !ok || capturedModel != customModel {
+		t.Fatalf("unexpected model payload: %#v", captured["model"])
 	}
 }
 

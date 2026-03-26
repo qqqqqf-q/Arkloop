@@ -23,12 +23,14 @@ type DescribeImageResponse struct {
 
 type Provider interface {
 	DescribeImage(ctx context.Context, req DescribeImageRequest) (DescribeImageResponse, error)
+	Name() string
 }
 
 type ProviderError struct {
 	Message    string
 	StatusCode int
 	TraceID    string
+	Provider   string
 }
 
 func (e ProviderError) Error() string {

@@ -61,6 +61,7 @@ func (p *MiniMaxProvider) DescribeImage(ctx context.Context, req DescribeImageRe
 	}
 
 	body, err := json.Marshal(map[string]any{
+		"model":     p.model,
 		"prompt":    prompt,
 		"image_url": imageDataURL,
 	})
@@ -88,6 +89,7 @@ func (p *MiniMaxProvider) DescribeImage(ctx context.Context, req DescribeImageRe
 			Message:    buildMiniMaxHTTPError(resp, traceID),
 			StatusCode: resp.StatusCode,
 			TraceID:    traceID,
+			Provider:   p.Name(),
 		}
 	}
 
@@ -102,6 +104,7 @@ func (p *MiniMaxProvider) DescribeImage(ctx context.Context, req DescribeImageRe
 		return DescribeImageResponse{}, ProviderError{
 			Message: buildMiniMaxTraceMessage("minimax image understanding returned invalid JSON", traceID),
 			TraceID: traceID,
+			Provider: p.Name(),
 		}
 	}
 	if payload.BaseResp.StatusCode != 0 {
@@ -112,6 +115,7 @@ func (p *MiniMaxProvider) DescribeImage(ctx context.Context, req DescribeImageRe
 		return DescribeImageResponse{}, ProviderError{
 			Message: messageWithTrace(message, traceID),
 			TraceID: traceID,
+			Provider: p.Name(),
 		}
 	}
 
@@ -120,12 +124,13 @@ func (p *MiniMaxProvider) DescribeImage(ctx context.Context, req DescribeImageRe
 		return DescribeImageResponse{}, ProviderError{
 			Message: buildMiniMaxTraceMessage("minimax image understanding returned empty content", traceID),
 			TraceID: traceID,
+			Provider: p.Name(),
 		}
 	}
 
 	return DescribeImageResponse{
 		Text:     content,
-		Provider: "minimax",
+		Provider: p.Name(),
 		Model:    p.model,
 	}, nil
 }
@@ -153,6 +158,10 @@ func buildMiniMaxHTTPError(resp *http.Response, traceID string) string {
 
 func buildMiniMaxTraceMessage(message string, traceID string) string {
 	return messageWithTrace(strings.TrimSpace(message), traceID)
+}
+
+func (p *MiniMaxProvider) Name() string {
+	return ProviderNameMiniMax
 }
 
 func messageWithTrace(message string, traceID string) string {

@@ -318,7 +318,7 @@ func executionErrorFromProviderError(err error) *tools.ExecutionError {
 			Message:    "understand_image timed out",
 		}
 	}
-	details := map[string]any{"provider": "minimax"}
+	details := map[string]any{}
 	var providerErr ProviderError
 	if errors.As(err, &providerErr) {
 		if providerErr.StatusCode > 0 {
@@ -326,6 +326,9 @@ func executionErrorFromProviderError(err error) *tools.ExecutionError {
 		}
 		if strings.TrimSpace(providerErr.TraceID) != "" {
 			details["trace_id"] = providerErr.TraceID
+		}
+		if providerErr.Provider != "" {
+			details["provider"] = providerErr.Provider
 		}
 	}
 	details["reason"] = err.Error()

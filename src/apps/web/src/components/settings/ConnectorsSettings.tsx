@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useMemo } from 'react'
 import {
   Loader2,
   Shield,
@@ -41,7 +41,30 @@ type CredentialModal = { group: string; provider: ToolProviderItem } | null
 type DescEditTarget = { toolName: string; label: string; description: string } | null
 
 function displayGroupName(group: string): string {
-  return group === 'sandbox' ? 'sandbox / browser' : group
+  if (group === 'sandbox') return 'sandbox / browser'
+  if (group === 'image_understanding') return 'Image understanding'
+  return group
+}
+
+function mergeGroupTabs(
+  catalogGroups: { group: string }[],
+  providerGroups: { group_name: string }[],
+): string[] {
+  const seen = new Set<string>()
+  const tabs: string[] = []
+  catalogGroups.forEach((catalog) => {
+    if (!seen.has(catalog.group)) {
+      seen.add(catalog.group)
+      tabs.push(catalog.group)
+    }
+  })
+  providerGroups.forEach((provider) => {
+    if (!seen.has(provider.group_name)) {
+      seen.add(provider.group_name)
+      tabs.push(provider.group_name)
+    }
+  })
+  return tabs
 }
 
 function flatSet(
@@ -135,12 +158,20 @@ export function ConnectorsSettings({ accessToken }: Props) {
     void fetchAll()
   }, [fetchAll])
 
-  // Auto-select first group when data loads
+  const groupTabs = useMemo(() => mergeGroupTabs(catalog, groups), [catalog, groups])
+
   useEffect(() => {
-    if (catalog.length > 0 && !catalog.some((g) => g.group === selectedGroup)) {
-      setSelectedGroup(catalog[0].group)
+    if (groupTabs.length === 0) {
+      setSelectedGroup('')
+      return
     }
-  }, [catalog, selectedGroup])
+    setSelectedGroup((prev) => {
+      if (prev && groupTabs.includes(prev)) {
+        return prev
+      }
+      return groupTabs[0]
+    })
+  }, [groupTabs])
 
   // Load config_json for active provider when group changes
   useEffect(() => {
@@ -433,12 +464,12 @@ export function ConnectorsSettings({ accessToken }: Props) {
         {/* Left sidebar: group tabs */}
         <div className="w-[160px] shrink-0 overflow-y-auto border-r border-[var(--c-border-subtle)] bg-[var(--c-bg-menu)] p-2">
           <div className="flex flex-col gap-[3px]">
-            {catalog.map((g) => {
-              const active = g.group === selectedGroup
+            {groupTabs.map((group) => {
+              const active = group === selectedGroup
               return (
                 <button
-                  key={g.group}
-                  onClick={() => setSelectedGroup(g.group)}
+                  key={group}
+                  onClick={() => setSelectedGroup(group)}
                   className={[
                     'flex h-[30px] items-center rounded-md px-3 text-[13px] font-medium transition-colors',
                     active
@@ -446,7 +477,7 @@ export function ConnectorsSettings({ accessToken }: Props) {
                       : 'text-[var(--c-text-muted)] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-secondary)]',
                   ].join(' ')}
                 >
-                  {displayGroupName(g.group)}
+                  {displayGroupName(group)}
                 </button>
               )
             })}
