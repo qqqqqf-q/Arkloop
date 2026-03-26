@@ -185,13 +185,15 @@ func (g *OpenAIGateway) chatCompletions(ctx context.Context, request Request, yi
 	baseURL := g.cfg.BaseURL
 	path := "/chat/completions"
 	stats := ComputeRequestStats(request)
+	debugPayload, redactedHints := sanitizeDebugPayloadJSON(payload)
 	if err := yield(StreamLlmRequest{
 		LlmCallID:          llmCallID,
 		ProviderKind:       "openai",
 		APIMode:            "chat_completions",
 		BaseURL:            &baseURL,
 		Path:               &path,
-		PayloadJSON:        payload,
+		PayloadJSON:        debugPayload,
+		RedactedHints:      redactedHints,
 		SystemBytes:        stats.SystemBytes,
 		ToolsBytes:         stats.ToolsBytes,
 		MessagesBytes:      stats.MessagesBytes,
@@ -395,13 +397,15 @@ func (g *OpenAIGateway) responses(ctx context.Context, request Request, yield fu
 	baseURL := g.cfg.BaseURL
 	path := "/responses"
 	stats := ComputeRequestStats(request)
+	debugPayload, redactedHints := sanitizeDebugPayloadJSON(payload)
 	if err := yield(StreamLlmRequest{
 		LlmCallID:          llmCallID,
 		ProviderKind:       "openai",
 		APIMode:            "responses",
 		BaseURL:            &baseURL,
 		Path:               &path,
-		PayloadJSON:        payload,
+		PayloadJSON:        debugPayload,
+		RedactedHints:      redactedHints,
 		SystemBytes:        stats.SystemBytes,
 		ToolsBytes:         stats.ToolsBytes,
 		MessagesBytes:      stats.MessagesBytes,

@@ -294,6 +294,75 @@ func TestAnthropicGateway_Stream_DebugChunk_Truncated(t *testing.T) {
 	}
 }
 
+func TestAnthropicGateway_Stream_TextStartWithoutDelta(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(anthropicSSEBody([]string{
+			`{"type":"content_block_start","index":0,"content_block":{"type":"text","text":"hello"}}`,
+			`{"type":"content_block_stop","index":0}`,
+			`{"type":"message_stop"}`,
+		})))
+	}))
+	t.Cleanup(server.Close)
+
+	gateway := NewAnthropicGateway(AnthropicGatewayConfig{
+		APIKey:  "test",
+		BaseURL: server.URL,
+	})
+
+	var deltas []string
+	err := gateway.Stream(context.Background(), Request{
+		Model:    "claude-test",
+		Messages: []Message{{Role: "user", Content: []TextPart{{Text: "hi"}}}},
+	}, func(ev StreamEvent) error {
+		if delta, ok := ev.(StreamMessageDelta); ok {
+			deltas = append(deltas, delta.ContentDelta)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("stream failed: %v", err)
+	}
+	if strings.Join(deltas, "") != "hello" {
+		t.Fatalf("unexpected text deltas: %#v", deltas)
+	}
+}
+
+func TestAnthropicGateway_Stream_DoesNotDuplicateTextStartAndDelta(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(anthropicSSEBody([]string{
+			`{"type":"content_block_start","index":0,"content_block":{"type":"text","text":"hello"}}`,
+			`{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"hello"}}`,
+			`{"type":"content_block_stop","index":0}`,
+			`{"type":"message_stop"}`,
+		})))
+	}))
+	t.Cleanup(server.Close)
+
+	gateway := NewAnthropicGateway(AnthropicGatewayConfig{
+		APIKey:  "test",
+		BaseURL: server.URL,
+	})
+
+	var deltas []string
+	err := gateway.Stream(context.Background(), Request{
+		Model:    "claude-test",
+		Messages: []Message{{Role: "user", Content: []TextPart{{Text: "hi"}}}},
+	}, func(ev StreamEvent) error {
+		if delta, ok := ev.(StreamMessageDelta); ok {
+			deltas = append(deltas, delta.ContentDelta)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("stream failed: %v", err)
+	}
+	if strings.Join(deltas, "") != "hello" {
+		t.Fatalf("unexpected text deltas: %#v", deltas)
+	}
+}
+
 func TestAnthropicGateway_Stream_ErrorMessageExtracted(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

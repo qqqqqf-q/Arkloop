@@ -14,6 +14,12 @@ describe('redactDataUrlsInString', () => {
     expect(out).toMatch(/\[data:image\/jpeg;base64 redacted ~1[0-9]{2} chars\]/)
     expect(out).not.toContain('AAAA')
   })
+
+  it('redacts bare base64 payload', () => {
+    const s = 'QkFC'.repeat(40)
+    const out = redactDataUrlsInString(s)
+    expect(out).toBe('[base64 redacted ~160 chars]')
+  })
 })
 
 describe('jsonStringifyForDebugDisplay', () => {

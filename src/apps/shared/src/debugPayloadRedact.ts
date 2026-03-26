@@ -5,15 +5,28 @@ const DATA_URL_BASE64 =
 
 const MIN_BASE64_TO_REDACT = 80
 
+function stripWhitespace(input: string): string {
+  return input.replace(/\s+/g, '')
+}
+
+function redactBareBase64(input: string): string {
+  if (!input || input.length < 32) return input
+  const compact = stripWhitespace(input)
+  if (compact.length < MIN_BASE64_TO_REDACT) return input
+  if (!/^[A-Za-z0-9+/=]+$/.test(compact)) return input
+  return `[base64 redacted ~${compact.length} chars]`
+}
+
 export function redactDataUrlsInString(input: string): string {
   if (!input || input.length < 32) return input
-  return input.replace(DATA_URL_BASE64, (_full, mime: string, b64: string) => {
-    const compact = b64.replace(/\s+/g, '')
+  const redacted = input.replace(DATA_URL_BASE64, (_full, mime: string, b64: string) => {
+    const compact = stripWhitespace(b64)
     if (compact.length < MIN_BASE64_TO_REDACT) {
       return `data:${mime};base64,${b64}`
     }
     return `[data:${mime};base64 redacted ~${compact.length} chars]`
   })
+  return redactBareBase64(redacted)
 }
 
 export function jsonStringifyForDebugDisplay(value: unknown, space = 2): string {

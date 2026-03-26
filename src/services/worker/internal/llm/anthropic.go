@@ -194,13 +194,15 @@ func (g *AnthropicGateway) Stream(ctx context.Context, request Request, yield fu
 	baseURL := g.cfg.BaseURL
 	path := "/messages"
 	stats := ComputeRequestStats(request)
+	debugPayload, redactedHints := sanitizeDebugPayloadJSON(payload)
 	if err := yield(StreamLlmRequest{
 		LlmCallID:          llmCallID,
 		ProviderKind:       "anthropic",
 		APIMode:            "messages",
 		BaseURL:            &baseURL,
 		Path:               &path,
-		PayloadJSON:        payload,
+		PayloadJSON:        debugPayload,
+		RedactedHints:      redactedHints,
 		SystemBytes:        stats.SystemBytes,
 		ToolsBytes:         stats.ToolsBytes,
 		MessagesBytes:      stats.MessagesBytes,
@@ -727,9 +729,16 @@ type anthropicToolUseBuffer struct {
 	JSON strings.Builder
 }
 
+type anthropicTextBlockBuffer struct {
+	Channel  string
+	Pending  string
+	SawDelta bool
+}
+
 func (g *AnthropicGateway) streamAnthropicSSE(ctx context.Context, body io.Reader, llmCallID string, yield func(StreamEvent) error) error {
 	var usage *Usage
 	toolBuffers := map[int]*anthropicToolUseBuffer{}
+	textBuffers := map[int]*anthropicTextBlockBuffer{}
 	completed := false
 
 	err := forEachSSEData(ctx, body, func(data string) error {
@@ -783,16 +792,14 @@ func (g *AnthropicGateway) streamAnthropicSSE(ctx context.Context, body io.Reade
 			}
 			switch event.ContentBlock.Type {
 			case "text":
-				if strings.TrimSpace(event.ContentBlock.Text) == "" {
-					return nil
-				}
-				return yield(StreamMessageDelta{ContentDelta: event.ContentBlock.Text, Role: "assistant"})
+				textBuffers[idx] = &anthropicTextBlockBuffer{Pending: event.ContentBlock.Text}
+				return nil
 			case "thinking":
-				if strings.TrimSpace(event.ContentBlock.Thinking) == "" {
-					return nil
+				textBuffers[idx] = &anthropicTextBlockBuffer{
+					Channel: "thinking",
+					Pending: event.ContentBlock.Thinking,
 				}
-				channel := "thinking"
-				return yield(StreamMessageDelta{ContentDelta: event.ContentBlock.Thinking, Role: "assistant", Channel: &channel})
+				return nil
 			case "tool_use":
 				buffer := &anthropicToolUseBuffer{
 					ID:   strings.TrimSpace(event.ContentBlock.ID),
@@ -823,10 +830,18 @@ func (g *AnthropicGateway) streamAnthropicSSE(ctx context.Context, body io.Reade
 				if event.Delta.Text == "" {
 					return nil
 				}
+				if buffer := textBuffers[idx]; buffer != nil {
+					buffer.SawDelta = true
+					buffer.Pending = ""
+				}
 				return yield(StreamMessageDelta{ContentDelta: event.Delta.Text, Role: "assistant"})
 			case "thinking_delta":
 				if event.Delta.Thinking == "" {
 					return nil
+				}
+				if buffer := textBuffers[idx]; buffer != nil {
+					buffer.SawDelta = true
+					buffer.Pending = ""
 				}
 				channel := "thinking"
 				return yield(StreamMessageDelta{ContentDelta: event.Delta.Thinking, Role: "assistant", Channel: &channel})
@@ -844,6 +859,17 @@ func (g *AnthropicGateway) streamAnthropicSSE(ctx context.Context, body io.Reade
 				})
 			}
 		case "content_block_stop":
+			if buffer := textBuffers[idx]; buffer != nil {
+				delete(textBuffers, idx)
+				if strings.TrimSpace(buffer.Pending) == "" || buffer.SawDelta {
+					return nil
+				}
+				if buffer.Channel == "thinking" {
+					channel := "thinking"
+					return yield(StreamMessageDelta{ContentDelta: buffer.Pending, Role: "assistant", Channel: &channel})
+				}
+				return yield(StreamMessageDelta{ContentDelta: buffer.Pending, Role: "assistant"})
+			}
 			buffer := toolBuffers[idx]
 			if buffer == nil {
 				return nil

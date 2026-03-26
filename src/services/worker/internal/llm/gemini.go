@@ -18,10 +18,10 @@ import (
 )
 
 const (
-	defaultGeminiBaseURL          = "https://generativelanguage.googleapis.com/v1beta"
-	defaultGeminiThinkingBudget   = 8192
-	geminiMaxErrorBodyBytes        = 4096
-	geminiMaxDebugChunkBytes       = 8192
+	defaultGeminiBaseURL        = "https://generativelanguage.googleapis.com/v1beta"
+	defaultGeminiThinkingBudget = 8192
+	geminiMaxErrorBodyBytes     = 4096
+	geminiMaxDebugChunkBytes    = 8192
 )
 
 var geminiAdvancedJSONDenylist = map[string]struct{}{
@@ -104,13 +104,15 @@ func (g *GeminiGateway) Stream(ctx context.Context, request Request, yield func(
 	baseURL := g.cfg.BaseURL
 	path := fmt.Sprintf("/models/%s:streamGenerateContent", request.Model)
 	stats := ComputeRequestStats(request)
+	debugPayload, redactedHints := sanitizeDebugPayloadJSON(payload)
 	if err := yield(StreamLlmRequest{
 		LlmCallID:          llmCallID,
 		ProviderKind:       "gemini",
 		APIMode:            "generate_content",
 		BaseURL:            &baseURL,
 		Path:               &path,
-		PayloadJSON:        payload,
+		PayloadJSON:        debugPayload,
+		RedactedHints:      redactedHints,
 		SystemBytes:        stats.SystemBytes,
 		ToolsBytes:         stats.ToolsBytes,
 		MessagesBytes:      stats.MessagesBytes,
@@ -644,9 +646,9 @@ type geminiFunctionCall struct {
 }
 
 type geminiUsageMetadata struct {
-	PromptTokenCount      int `json:"promptTokenCount"`
-	CandidatesTokenCount  int `json:"candidatesTokenCount"`
-	TotalTokenCount       int `json:"totalTokenCount"`
+	PromptTokenCount        int `json:"promptTokenCount"`
+	CandidatesTokenCount    int `json:"candidatesTokenCount"`
+	TotalTokenCount         int `json:"totalTokenCount"`
 	CachedContentTokenCount int `json:"cachedContentTokenCount"`
 }
 

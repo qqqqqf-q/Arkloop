@@ -14,24 +14,24 @@ import (
 )
 
 const (
-	stubEnabledEnv            = "ARKLOOP_STUB_AGENT_ENABLED"
-	stubDeltaCountEnv         = "ARKLOOP_STUB_AGENT_DELTA_COUNT"
-	stubDeltaIntervalSeconds  = "ARKLOOP_STUB_AGENT_DELTA_INTERVAL_SECONDS"
-	llmDebugEventsEnv         = "ARKLOOP_LLM_DEBUG_EVENTS"
-	defaultStubEnabled        = true
-	defaultStubDeltaCount     = 3
-	defaultStubDeltaInterval  = 0.02
-	defaultStubProviderKind   = "stub"
-	defaultStubAPIMode        = "stub"
-	truthyValues              = "1,true,yes,y,on"
-	falsyValues               = "0,false,no,n,off"
+	stubEnabledEnv           = "ARKLOOP_STUB_AGENT_ENABLED"
+	stubDeltaCountEnv        = "ARKLOOP_STUB_AGENT_DELTA_COUNT"
+	stubDeltaIntervalSeconds = "ARKLOOP_STUB_AGENT_DELTA_INTERVAL_SECONDS"
+	llmDebugEventsEnv        = "ARKLOOP_LLM_DEBUG_EVENTS"
+	defaultStubEnabled       = true
+	defaultStubDeltaCount    = 3
+	defaultStubDeltaInterval = 0.02
+	defaultStubProviderKind  = "stub"
+	defaultStubAPIMode       = "stub"
+	truthyValues             = "1,true,yes,y,on"
+	falsyValues              = "0,false,no,n,off"
 )
 
 type AuxGatewayConfig struct {
-	Enabled           bool
-	DeltaCount        int
-	DeltaInterval     time.Duration
-	EmitDebugEvents   bool
+	Enabled         bool
+	DeltaCount      int
+	DeltaInterval   time.Duration
+	EmitDebugEvents bool
 }
 
 func AuxGatewayConfigFromEnv() (AuxGatewayConfig, error) {
@@ -100,11 +100,13 @@ func (g *AuxGateway) Stream(ctx context.Context, request Request, yield func(Str
 
 	llmCallID := uuid.NewString()
 	stats := ComputeRequestStats(request)
+	debugPayload, redactedHints := sanitizeDebugPayloadJSON(request.ToJSON())
 	if err := yield(StreamLlmRequest{
 		LlmCallID:          llmCallID,
 		ProviderKind:       defaultStubProviderKind,
 		APIMode:            defaultStubAPIMode,
-		PayloadJSON:        request.ToJSON(),
+		PayloadJSON:        debugPayload,
+		RedactedHints:      redactedHints,
 		SystemBytes:        stats.SystemBytes,
 		ToolsBytes:         stats.ToolsBytes,
 		MessagesBytes:      stats.MessagesBytes,
