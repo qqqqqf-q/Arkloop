@@ -38,6 +38,11 @@ type loadedRunInputs struct {
 
 type LoadedRunInputs = loadedRunInputs
 
+type resumeReplayInsertion struct {
+	AnchorMessageID uuid.UUID
+	Messages        []llm.Message
+}
+
 type resumeUnavailableError struct {
 	reason string
 }
@@ -146,10 +151,9 @@ func loadRunInputs(
 		return nil, err
 	}
 
-	replayedMessages := []llm.Message(nil)
-	tailStart := len(messages)
+	replayInsertions := []resumeReplayInsertion(nil)
 	if run.ResumeFromRunID != nil {
-		replayedMessages, tailStart, err = loadResumedReplay(ctx, tx, run, runsRepo, eventsRepo, rolloutStore, messages)
+		replayInsertions, err = loadResumedReplay(ctx, tx, run, runsRepo, eventsRepo, rolloutStore, messages)
 		if err != nil {
 			return nil, err
 		}
@@ -159,15 +163,16 @@ func loadRunInputs(
 		return nil, err
 	}
 
-	llmMessages := make([]llm.Message, 0, len(messages)+len(replayedMessages))
-	ids := make([]uuid.UUID, 0, len(messages)+len(replayedMessages))
-	for i, msg := range messages {
-		if i == tailStart && len(replayedMessages) > 0 {
-			llmMessages = append(llmMessages, replayedMessages...)
-			for range replayedMessages {
-				ids = append(ids, uuid.Nil)
-			}
-		}
+	replayCount := 0
+	replayByAnchor := make(map[uuid.UUID][]resumeReplayInsertion, len(replayInsertions))
+	for _, insertion := range replayInsertions {
+		replayByAnchor[insertion.AnchorMessageID] = append(replayByAnchor[insertion.AnchorMessageID], insertion)
+		replayCount += len(insertion.Messages)
+	}
+
+	llmMessages := make([]llm.Message, 0, len(messages)+replayCount)
+	ids := make([]uuid.UUID, 0, len(messages)+replayCount)
+	for _, msg := range messages {
 		if strings.TrimSpace(msg.Role) == "" {
 			continue
 		}
@@ -181,11 +186,11 @@ func loadRunInputs(
 			OutputTokens: msg.OutputTokens,
 		})
 		ids = append(ids, msg.ID)
-	}
-	if tailStart == len(messages) && len(replayedMessages) > 0 {
-		llmMessages = append(llmMessages, replayedMessages...)
-		for range replayedMessages {
-			ids = append(ids, uuid.Nil)
+		for _, insertion := range replayByAnchor[msg.ID] {
+			llmMessages = append(llmMessages, insertion.Messages...)
+			for range insertion.Messages {
+				ids = append(ids, uuid.Nil)
+			}
 		}
 	}
 
@@ -233,57 +238,35 @@ func loadResumedReplay(
 	eventsRepo runFirstEventLoader,
 	rolloutStore objectstore.BlobStore,
 	threadMessages []data.ThreadMessage,
-) ([]llm.Message, int, error) {
+) ([]resumeReplayInsertion, error) {
 	if run.ResumeFromRunID == nil {
-		return nil, len(threadMessages), nil
+		return nil, nil
 	}
 	if rolloutStore == nil {
-		return nil, 0, &resumeUnavailableError{reason: "resume rollout store is unavailable"}
+		return nil, &resumeUnavailableError{reason: "resume rollout store is unavailable"}
 	}
 	if runsRepo == nil {
-		return nil, 0, &resumeUnavailableError{reason: "resume run repository is unavailable"}
+		return nil, &resumeUnavailableError{reason: "resume run repository is unavailable"}
 	}
 	if eventsRepo == nil {
-		return nil, 0, &resumeUnavailableError{reason: "resume event repository is unavailable"}
+		return nil, &resumeUnavailableError{reason: "resume event repository is unavailable"}
 	}
 
-	parentRun, err := runsRepo.GetRun(ctx, tx, *run.ResumeFromRunID)
+	insertions, err := collectResumeReplayInsertions(
+		ctx,
+		tx,
+		run.ThreadID,
+		*run.ResumeFromRunID,
+		runsRepo,
+		eventsRepo,
+		rolloutStore,
+		threadMessages,
+		map[uuid.UUID]struct{}{},
+	)
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
-	if parentRun == nil {
-		return nil, 0, &resumeUnavailableError{reason: "resume source run does not exist"}
-	}
-	if parentRun.ThreadID != run.ThreadID {
-		return nil, 0, &resumeUnavailableError{reason: "resume source run does not belong to the thread"}
-	}
-	if parentRun.Status != "interrupted" && parentRun.Status != "cancelled" {
-		return nil, 0, &resumeUnavailableError{reason: "resume source run is not resumable"}
-	}
-
-	_, parentStartedData, err := eventsRepo.FirstEventData(ctx, tx, parentRun.ID)
-	if err != nil {
-		return nil, 0, err
-	}
-	anchorMessageID, err := resumeAnchorMessageID(parentStartedData)
-	if err != nil {
-		return nil, 0, err
-	}
-	tailStart, ok := trailingResumeUserBlockAfterMessage(threadMessages, anchorMessageID)
-	if !ok {
-		return nil, 0, &resumeUnavailableError{reason: "resume input block is missing"}
-	}
-
-	items, err := rollout.NewReader(rolloutStore).ReadRollout(ctx, *run.ResumeFromRunID)
-	if err != nil {
-		return nil, 0, &resumeUnavailableError{reason: "resume rollout is unavailable"}
-	}
-	state := rollout.NewReader(rolloutStore).Reconstruct(items)
-	replayedMessages, err := buildReplayMessages(state)
-	if err != nil {
-		return nil, 0, err
-	}
-	return replayedMessages, tailStart, nil
+	return insertions, nil
 }
 
 func resumeAnchorMessageID(dataJSON map[string]any) (uuid.UUID, error) {
@@ -322,6 +305,81 @@ func trailingResumeUserBlockAfterMessage(messages []data.ThreadMessage, anchorMe
 		}
 	}
 	return anchorIndex + 1, true
+}
+
+func collectResumeReplayInsertions(
+	ctx context.Context,
+	tx pgx.Tx,
+	threadID uuid.UUID,
+	runID uuid.UUID,
+	runsRepo runRecordLoader,
+	eventsRepo runFirstEventLoader,
+	rolloutStore objectstore.BlobStore,
+	threadMessages []data.ThreadMessage,
+	visited map[uuid.UUID]struct{},
+) ([]resumeReplayInsertion, error) {
+	if _, ok := visited[runID]; ok {
+		return nil, &resumeUnavailableError{reason: "resume source run chain has a cycle"}
+	}
+	visited[runID] = struct{}{}
+
+	parentRun, err := runsRepo.GetRun(ctx, tx, runID)
+	if err != nil {
+		return nil, err
+	}
+	if parentRun == nil {
+		return nil, &resumeUnavailableError{reason: "resume source run does not exist"}
+	}
+	if parentRun.ThreadID != threadID {
+		return nil, &resumeUnavailableError{reason: "resume source run does not belong to the thread"}
+	}
+	if parentRun.Status != "interrupted" && parentRun.Status != "cancelled" {
+		return nil, &resumeUnavailableError{reason: "resume source run is not resumable"}
+	}
+
+	insertions := []resumeReplayInsertion(nil)
+	if parentRun.ResumeFromRunID != nil {
+		insertions, err = collectResumeReplayInsertions(
+			ctx,
+			tx,
+			threadID,
+			*parentRun.ResumeFromRunID,
+			runsRepo,
+			eventsRepo,
+			rolloutStore,
+			threadMessages,
+			visited,
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	_, parentStartedData, err := eventsRepo.FirstEventData(ctx, tx, parentRun.ID)
+	if err != nil {
+		return nil, err
+	}
+	anchorMessageID, err := resumeAnchorMessageID(parentStartedData)
+	if err != nil {
+		return nil, err
+	}
+	if _, ok := trailingResumeUserBlockAfterMessage(threadMessages, anchorMessageID); !ok {
+		return nil, &resumeUnavailableError{reason: "resume input block is missing"}
+	}
+
+	items, err := rollout.NewReader(rolloutStore).ReadRollout(ctx, parentRun.ID)
+	if err != nil {
+		return nil, &resumeUnavailableError{reason: "resume rollout is unavailable"}
+	}
+	state := rollout.NewReader(rolloutStore).Reconstruct(items)
+	replayedMessages, err := buildReplayMessages(state)
+	if err != nil {
+		return nil, err
+	}
+	return append(insertions, resumeReplayInsertion{
+		AnchorMessageID: anchorMessageID,
+		Messages:        replayedMessages,
+	}), nil
 }
 
 func buildReplayMessages(state *rollout.ReconstructedState) ([]llm.Message, error) {
