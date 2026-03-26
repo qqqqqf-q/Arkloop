@@ -23,6 +23,7 @@ var runtimeManagedToolNames = map[string]struct{}{
 	"memory_search":       {},
 	"memory_write":        {},
 	"python_execute":      {},
+	"understand_image":    {},
 	"web_fetch":           {},
 	"web_search":          {},
 	"write_stdin":         {},

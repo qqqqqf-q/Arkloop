@@ -3,14 +3,15 @@ package toolmeta
 import "fmt"
 
 const (
-	GroupWebSearch     = "web_search"
-	GroupWebFetch      = "web_fetch"
-	GroupSandbox       = "sandbox"
-	GroupMemory        = "memory"
-	GroupDocument      = "document"
-	GroupOrchestration = "orchestration"
-	GroupDiscovery     = "discovery"
-	GroupFilesystem    = "filesystem"
+	GroupWebSearch          = "web_search"
+	GroupWebFetch           = "web_fetch"
+	GroupImageUnderstanding = "image_understanding"
+	GroupSandbox            = "sandbox"
+	GroupMemory             = "memory"
+	GroupDocument           = "document"
+	GroupOrchestration      = "orchestration"
+	GroupDiscovery          = "discovery"
+	GroupFilesystem         = "filesystem"
 
 	WebSearchDefaultMaxResults = 5
 	WebSearchMaxResultsLimit   = 20
@@ -35,6 +36,7 @@ var groupOrder = []string{
 	GroupDiscovery,
 	GroupWebSearch,
 	GroupWebFetch,
+	GroupImageUnderstanding,
 	GroupSandbox,
 	GroupFilesystem,
 	GroupMemory,
@@ -74,6 +76,13 @@ var registry = []ToolMeta{
 		Label:          "Web fetch",
 		ShortDesc:      "fetch a web page and return its content as text",
 		LLMDescription: "fetch a web page and return its title and body as plain text. Use when search snippets are insufficient and a specific page likely contains deeper information. Prefer official or authoritative sources. Batch-callable; do not re-fetch the same URL.",
+	},
+	{
+		Name:           "understand_image",
+		Group:          GroupImageUnderstanding,
+		Label:          "Understand image",
+		ShortDesc:      "fetch a remote image URL and return a text description",
+		LLMDescription: "fetch a remote image URL and return a textual understanding result. Use for screenshots, photos, diagrams, OCR, or image-only resources. This is not a web page reader and should not be used for normal HTML pages.",
 	},
 	// ── sandbox ──
 	{
@@ -200,18 +209,18 @@ var registry = []ToolMeta{
 			"Internal fields (uri, _ref) are system identifiers — never expose raw uri text to the user unless they explicitly need to copy it.",
 	},
 	{
-		Name:           "memory_read",
-		Group:          GroupMemory,
-		Label:          "Memory read",
-		ShortDesc:      "read the full content of a memory entry by URI",
+		Name:      "memory_read",
+		Group:     GroupMemory,
+		Label:     "Memory read",
+		ShortDesc: "read the full content of a memory entry by URI",
 		LLMDescription: "read the full content of a memory entry by URI copied from a memory_search hit or from memory_write.uri on Desktop. " +
 			"Local Desktop SQLite only accepts local://memory/<uuid>. viking:// URIs are for OpenViking. Never guess uri from category/key alone.",
 	},
 	{
-		Name:           "memory_write",
-		Group:          GroupMemory,
-		Label:          "Memory write",
-		ShortDesc:      "store knowledge in long-term memory",
+		Name:      "memory_write",
+		Group:     GroupMemory,
+		Label:     "Memory write",
+		ShortDesc: "store knowledge in long-term memory",
 		LLMDescription: "store knowledge in long-term memory for future reference. " +
 			"After success on Desktop local memory, the tool result includes uri — use that for memory_read. Then memory_search can find the entry by query keywords.",
 	},

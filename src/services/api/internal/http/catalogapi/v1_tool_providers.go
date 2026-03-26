@@ -177,7 +177,7 @@ func listToolProviders(
 		byProvider[cfg.ProviderName] = cfg
 	}
 
-	groupOrder := []string{"web_search", "web_fetch", "acp", "sandbox", "memory"}
+	groupOrder := []string{"web_search", "web_fetch", "image_understanding", "acp", "sandbox", "memory"}
 	groups := make([]toolProviderGroupResponse, 0, len(groupOrder))
 	for _, groupName := range groupOrder {
 		items := []toolProviderItemResponse{}

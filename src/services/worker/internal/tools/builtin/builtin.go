@@ -8,16 +8,17 @@ import (
 	artifactguidelines "arkloop/services/worker/internal/tools/builtin/artifact_guidelines"
 	"arkloop/services/worker/internal/tools/builtin/askuser"
 	"arkloop/services/worker/internal/tools/builtin/edit"
-	"arkloop/services/worker/internal/tools/builtin/heartbeat_decision"
 	"arkloop/services/worker/internal/tools/builtin/fileops"
 	"arkloop/services/worker/internal/tools/builtin/glob"
 	"arkloop/services/worker/internal/tools/builtin/grep"
+	"arkloop/services/worker/internal/tools/builtin/heartbeat_decision"
 	readfile "arkloop/services/worker/internal/tools/builtin/read_file"
 	searchtools "arkloop/services/worker/internal/tools/builtin/search_tools"
 	showwidget "arkloop/services/worker/internal/tools/builtin/show_widget"
 	spawnagent "arkloop/services/worker/internal/tools/builtin/spawn_agent"
 	summarizethread "arkloop/services/worker/internal/tools/builtin/summarize_thread"
 	todowrite "arkloop/services/worker/internal/tools/builtin/todo_write"
+	understandimage "arkloop/services/worker/internal/tools/builtin/understand_image"
 	visualizereadme "arkloop/services/worker/internal/tools/builtin/visualize_read_me"
 	webfetch "arkloop/services/worker/internal/tools/builtin/web_fetch"
 	websearch "arkloop/services/worker/internal/tools/builtin/web_search"
@@ -40,6 +41,8 @@ func AgentSpecs() []tools.AgentToolSpec {
 		webfetch.AgentSpecJina,
 		webfetch.AgentSpecFirecrawl,
 		webfetch.AgentSpecBasic,
+		understandimage.AgentSpec,
+		understandimage.AgentSpecMiniMax,
 		readfile.AgentSpec,
 		writefile.AgentSpec,
 		edit.AgentSpec,
@@ -73,6 +76,7 @@ func LlmSpecs() []llm.ToolSpec {
 		artifactguidelines.LlmSpec,
 		websearch.LlmSpec,
 		webfetch.LlmSpec,
+		understandimage.LlmSpec,
 		readfile.LlmSpec,
 		writefile.LlmSpec,
 		edit.LlmSpec,
@@ -98,31 +102,33 @@ func LlmSpecs() []llm.ToolSpec {
 func Executors(pool *pgxpool.Pool, rdb *redis.Client, resolver sharedconfig.Resolver) map[string]tools.Executor {
 	tracker := fileops.NewFileTracker()
 	return map[string]tools.Executor{
-		TimelineTitleAgentSpec.Name:       TimelineTitleExecutor{},
-		visualizereadme.AgentSpec.Name:    visualizereadme.NewToolExecutor(),
-		artifactguidelines.AgentSpec.Name: artifactguidelines.ToolExecutor{},
-		websearch.AgentSpec.Name:          websearch.NewToolExecutor(resolver),
-		websearch.AgentSpecTavily.Name:    websearch.NewTavilyExecutor(resolver),
-		websearch.AgentSpecSearxng.Name:   websearch.NewSearxngExecutor(resolver),
-		webfetch.AgentSpec.Name:           webfetch.NewToolExecutor(resolver),
-		webfetch.AgentSpecJina.Name:       webfetch.NewJinaExecutor(resolver),
-		webfetch.AgentSpecFirecrawl.Name:  webfetch.NewFirecrawlExecutor(resolver),
-		webfetch.AgentSpecBasic.Name:      webfetch.NewBasicExecutor(resolver),
-		readfile.AgentSpec.Name:           &readfile.Executor{Tracker: tracker},
-		writefile.AgentSpec.Name:          &writefile.Executor{Tracker: tracker},
-		edit.AgentSpec.Name:               &edit.Executor{Tracker: tracker},
-		glob.AgentSpec.Name:               &glob.Executor{},
-		grep.AgentSpec.Name:               &grep.Executor{},
-		summarizethread.AgentSpec.Name:    &summarizethread.ToolExecutor{Pool: pool, RDB: rdb},
-		askuser.AgentSpec.Name:            askuser.ToolExecutor{},
-		acptool.AgentSpec.Name:            acptool.ToolExecutor{ConfigResolver: resolver},
-		acptool.SpawnACPAgentSpec.Name:     acptool.ToolExecutor{ConfigResolver: resolver},
-		acptool.SendACPAgentSpec.Name:      acptool.ToolExecutor{ConfigResolver: resolver},
-		acptool.WaitACPAgentSpec.Name:      acptool.ToolExecutor{ConfigResolver: resolver},
-		acptool.InterruptACPAgentSpec.Name: acptool.ToolExecutor{ConfigResolver: resolver},
-		acptool.CloseACPAgentSpec.Name:     acptool.ToolExecutor{ConfigResolver: resolver},
-		showwidget.AgentSpec.Name:         showwidget.NewToolExecutor(),
-		todowrite.AgentSpec.Name:          &todowrite.Executor{},
-		heartbeat_decision.AgentSpec.Name: heartbeat_decision.New(),
+		TimelineTitleAgentSpec.Name:           TimelineTitleExecutor{},
+		visualizereadme.AgentSpec.Name:        visualizereadme.NewToolExecutor(),
+		artifactguidelines.AgentSpec.Name:     artifactguidelines.ToolExecutor{},
+		websearch.AgentSpec.Name:              websearch.NewToolExecutor(resolver),
+		websearch.AgentSpecTavily.Name:        websearch.NewTavilyExecutor(resolver),
+		websearch.AgentSpecSearxng.Name:       websearch.NewSearxngExecutor(resolver),
+		webfetch.AgentSpec.Name:               webfetch.NewToolExecutor(resolver),
+		webfetch.AgentSpecJina.Name:           webfetch.NewJinaExecutor(resolver),
+		webfetch.AgentSpecFirecrawl.Name:      webfetch.NewFirecrawlExecutor(resolver),
+		webfetch.AgentSpecBasic.Name:          webfetch.NewBasicExecutor(resolver),
+		understandimage.AgentSpec.Name:        understandimage.NewToolExecutor(),
+		understandimage.AgentSpecMiniMax.Name: understandimage.NewToolExecutor(),
+		readfile.AgentSpec.Name:               &readfile.Executor{Tracker: tracker},
+		writefile.AgentSpec.Name:              &writefile.Executor{Tracker: tracker},
+		edit.AgentSpec.Name:                   &edit.Executor{Tracker: tracker},
+		glob.AgentSpec.Name:                   &glob.Executor{},
+		grep.AgentSpec.Name:                   &grep.Executor{},
+		summarizethread.AgentSpec.Name:        &summarizethread.ToolExecutor{Pool: pool, RDB: rdb},
+		askuser.AgentSpec.Name:                askuser.ToolExecutor{},
+		acptool.AgentSpec.Name:                acptool.ToolExecutor{ConfigResolver: resolver},
+		acptool.SpawnACPAgentSpec.Name:        acptool.ToolExecutor{ConfigResolver: resolver},
+		acptool.SendACPAgentSpec.Name:         acptool.ToolExecutor{ConfigResolver: resolver},
+		acptool.WaitACPAgentSpec.Name:         acptool.ToolExecutor{ConfigResolver: resolver},
+		acptool.InterruptACPAgentSpec.Name:    acptool.ToolExecutor{ConfigResolver: resolver},
+		acptool.CloseACPAgentSpec.Name:        acptool.ToolExecutor{ConfigResolver: resolver},
+		showwidget.AgentSpec.Name:             showwidget.NewToolExecutor(),
+		todowrite.AgentSpec.Name:              &todowrite.Executor{},
+		heartbeat_decision.AgentSpec.Name:     heartbeat_decision.New(),
 	}
 }

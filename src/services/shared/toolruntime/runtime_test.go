@@ -154,6 +154,7 @@ func TestResolveBuiltinAddsWebToolsFromPlatformProviders(t *testing.T) {
 		PlatformProviders: []ProviderConfig{
 			{GroupName: "web_search", ProviderName: "web_search.searxng"},
 			{GroupName: "web_fetch", ProviderName: "web_fetch.jina"},
+			{GroupName: "image_understanding", ProviderName: "image_understanding.minimax"},
 		},
 	})
 	if _, ok := resolved.ToolNameSet()["web_search"]; !ok {
@@ -161,6 +162,9 @@ func TestResolveBuiltinAddsWebToolsFromPlatformProviders(t *testing.T) {
 	}
 	if _, ok := resolved.ToolNameSet()["web_fetch"]; !ok {
 		t.Fatal("web_fetch should be present with platform provider")
+	}
+	if _, ok := resolved.ToolNameSet()["understand_image"]; !ok {
+		t.Fatal("understand_image should be present with platform provider")
 	}
 }
 

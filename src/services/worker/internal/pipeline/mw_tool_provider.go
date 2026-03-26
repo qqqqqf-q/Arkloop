@@ -12,6 +12,7 @@ import (
 	"arkloop/services/worker/internal/toolprovider"
 	"arkloop/services/worker/internal/tools"
 	spawnagent "arkloop/services/worker/internal/tools/builtin/spawn_agent"
+	understandimage "arkloop/services/worker/internal/tools/builtin/understand_image"
 	webfetch "arkloop/services/worker/internal/tools/builtin/web_fetch"
 	websearch "arkloop/services/worker/internal/tools/builtin/web_search"
 )
@@ -211,6 +212,28 @@ func buildProviderExecutor(cfg toolprovider.ActiveProviderConfig) tools.Executor
 	case webfetch.AgentSpecBasic.Name:
 		provider := webfetch.NewBasicProvider()
 		return webfetch.NewToolExecutorWithProvider(provider)
+
+	case understandimage.ProviderNameMiniMax:
+		key := ""
+		if cfg.APIKeyValue != nil {
+			key = strings.TrimSpace(*cfg.APIKeyValue)
+		}
+		if key == "" {
+			return notConfiguredExecutor{groupName: groupName, providerName: providerName, missing: []string{"api_key"}}
+		}
+		baseURL := ""
+		if cfg.BaseURL != nil {
+			baseURL = strings.TrimSpace(*cfg.BaseURL)
+		}
+		model := understandimage.DefaultMiniMaxModel
+		if rawModel, ok := cfg.ConfigJSON["model"].(string); ok && strings.TrimSpace(rawModel) != "" {
+			model = strings.TrimSpace(rawModel)
+		}
+		provider, err := understandimage.NewMiniMaxProvider(key, baseURL, model)
+		if err != nil {
+			return notConfiguredExecutor{groupName: groupName, providerName: providerName, reason: err.Error()}
+		}
+		return understandimage.NewToolExecutorWithProvider(provider)
 	}
 
 	return nil

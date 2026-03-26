@@ -195,6 +195,9 @@ func ResolveBuiltin(input ResolveInput) BuiltinAvailability {
 	if webFetchEnvConfigured(input.Env) || findProvider(input.PlatformProviders, "web_fetch") != nil {
 		available["web_fetch"] = struct{}{}
 	}
+	if findProvider(input.PlatformProviders, "image_understanding") != nil {
+		available["understand_image"] = struct{}{}
+	}
 
 	if input.HasConversationSearch {
 		available["conversation_search"] = struct{}{}
