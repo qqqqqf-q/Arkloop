@@ -1740,6 +1740,24 @@ export type ChannelIdentityResponse = {
   created_at: string
 }
 
+export type ChannelBindingResponse = {
+  binding_id: string
+  channel_identity_id: string
+  display_name: string | null
+  platform_subject_id: string
+  is_owner: boolean
+  heartbeat_enabled: boolean
+  heartbeat_interval_minutes: number
+  heartbeat_model: string | null
+}
+
+export type UpdateChannelBindingRequest = {
+  make_owner?: boolean
+  heartbeat_enabled?: boolean
+  heartbeat_interval_minutes?: number
+  heartbeat_model?: string | null
+}
+
 export async function createChannelBindCode(accessToken: string, channelType?: string): Promise<BindCodeResponse> {
   return apiFetch<BindCodeResponse>('/v1/me/channel-binds', {
     method: 'POST',
@@ -1754,6 +1772,32 @@ export async function listMyChannelIdentities(accessToken: string): Promise<Chan
 
 export async function unbindChannelIdentity(accessToken: string, id: string): Promise<void> {
   await apiFetch<void>(`/v1/me/channel-identities/${id}`, {
+    method: 'DELETE',
+    accessToken,
+  })
+}
+
+export async function listChannelBindings(accessToken: string, channelID: string): Promise<ChannelBindingResponse[]> {
+  return apiFetch<ChannelBindingResponse[]>(`/v1/channels/${channelID}/bindings`, {
+    accessToken,
+  })
+}
+
+export async function updateChannelBinding(
+  accessToken: string,
+  channelID: string,
+  bindingID: string,
+  req: UpdateChannelBindingRequest,
+): Promise<ChannelBindingResponse> {
+  return apiFetch<ChannelBindingResponse>(`/v1/channels/${channelID}/bindings/${bindingID}`, {
+    method: 'PATCH',
+    accessToken,
+    body: JSON.stringify(req),
+  })
+}
+
+export async function deleteChannelBinding(accessToken: string, channelID: string, bindingID: string): Promise<void> {
+  await apiFetch<void>(`/v1/channels/${channelID}/bindings/${bindingID}`, {
     method: 'DELETE',
     accessToken,
   })

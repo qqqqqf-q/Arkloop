@@ -542,6 +542,13 @@ export interface LocaleStrings {
     unbindConfirm: string
     unbindFailed: string
     bindingBotAdmin: string
+    bindingOwner: string
+    bindingAdmin: string
+    setOwner: string
+    heartbeatEnabled: string
+    heartbeatInterval: string
+    heartbeatModel: string
+    ownerUnbindBlocked: string
   }
   // model picker (chat input)
   modelPicker: {

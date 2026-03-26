@@ -466,6 +466,7 @@ func disableTelegramActivationRemote(
 type telegramConnector struct {
 	channelsRepo            *data.ChannelsRepository
 	channelIdentitiesRepo   *data.ChannelIdentitiesRepository
+	channelIdentityLinksRepo *data.ChannelIdentityLinksRepository
 	channelBindCodesRepo    *data.ChannelBindCodesRepository
 	channelDMThreadsRepo    *data.ChannelDMThreadsRepository
 	channelGroupThreadsRepo *data.ChannelGroupThreadsRepository
@@ -724,6 +725,7 @@ func (c telegramConnector) HandleUpdate(
 			trimmedCommandText,
 			c.channelBindCodesRepo,
 			c.channelIdentitiesRepo,
+			c.channelIdentityLinksRepo,
 			c.channelDMThreadsRepo,
 			c.threadRepo,
 		); err != nil {
@@ -946,6 +948,7 @@ func (c telegramConnector) HandleUpdate(
 func telegramWebhookEntry(
 	channelsRepo *data.ChannelsRepository,
 	channelIdentitiesRepo *data.ChannelIdentitiesRepository,
+	channelIdentityLinksRepo *data.ChannelIdentityLinksRepository,
 	channelBindCodesRepo *data.ChannelBindCodesRepository,
 	channelDMThreadsRepo *data.ChannelDMThreadsRepository,
 	channelGroupThreadsRepo *data.ChannelGroupThreadsRepository,
@@ -977,6 +980,7 @@ func telegramWebhookEntry(
 	connector := telegramConnector{
 		channelsRepo:            channelsRepo,
 		channelIdentitiesRepo:   channelIdentitiesRepo,
+		channelIdentityLinksRepo: channelIdentityLinksRepo,
 		channelBindCodesRepo:    channelBindCodesRepo,
 		channelDMThreadsRepo:    channelDMThreadsRepo,
 		channelGroupThreadsRepo: channelGroupThreadsRepo,
@@ -1009,7 +1013,7 @@ func telegramWebhookEntry(
 			httpkit.WriteMethodNotAllowed(w, r)
 			return
 		}
-		if channelsRepo == nil || channelIdentitiesRepo == nil || channelBindCodesRepo == nil || channelDMThreadsRepo == nil || channelReceiptsRepo == nil ||
+		if channelsRepo == nil || channelIdentitiesRepo == nil || channelIdentityLinksRepo == nil || channelBindCodesRepo == nil || channelDMThreadsRepo == nil || channelReceiptsRepo == nil ||
 			secretsRepo == nil || personasRepo == nil || usersRepo == nil || accountRepo == nil || membershipRepo == nil ||
 			projectRepo == nil || threadRepo == nil || messageRepo == nil || runEventRepo == nil || jobRepo == nil || creditsRepo == nil || pool == nil {
 			httpkit.WriteError(w, nethttp.StatusServiceUnavailable, "database.not_configured", "database not configured", traceID, nil)
@@ -1277,6 +1281,7 @@ func handleTelegramCommand(
 	text string,
 	channelBindCodesRepo *data.ChannelBindCodesRepository,
 	channelIdentitiesRepo *data.ChannelIdentitiesRepository,
+	channelIdentityLinksRepo *data.ChannelIdentityLinksRepository,
 	channelDMThreadsRepo *data.ChannelDMThreadsRepository,
 	threadRepo *data.ThreadRepository,
 ) (bool, string, error) {
@@ -1293,7 +1298,7 @@ func handleTelegramCommand(
 		return true, "可用命令：/start /help /bind <code> /new", nil
 	case command == "/start":
 		if len(parts) > 1 && strings.HasPrefix(parts[1], "bind_") {
-			replyText, err := bindTelegramIdentity(ctx, tx, channel, identity, strings.TrimPrefix(parts[1], "bind_"), channelBindCodesRepo, channelIdentitiesRepo, channelDMThreadsRepo, threadRepo)
+			replyText, err := bindTelegramIdentity(ctx, tx, channel, identity, strings.TrimPrefix(parts[1], "bind_"), channelBindCodesRepo, channelIdentitiesRepo, channelIdentityLinksRepo, channelDMThreadsRepo, threadRepo)
 			return true, replyText, err
 		}
 		return true, "已连接 Arkloop。使用 /bind <code> 绑定账号；私聊可用 /new 开新会话，群内已绑定账号可用 /new 重置群会话。", nil
@@ -1301,7 +1306,7 @@ func handleTelegramCommand(
 		if len(parts) < 2 {
 			return true, "用法：/bind <code>", nil
 		}
-		replyText, err := bindTelegramIdentity(ctx, tx, channel, identity, parts[1], channelBindCodesRepo, channelIdentitiesRepo, channelDMThreadsRepo, threadRepo)
+		replyText, err := bindTelegramIdentity(ctx, tx, channel, identity, parts[1], channelBindCodesRepo, channelIdentitiesRepo, channelIdentityLinksRepo, channelDMThreadsRepo, threadRepo)
 		return true, replyText, err
 	case command == "/new":
 		if channel == nil || channel.PersonaID == nil || *channel.PersonaID == uuid.Nil {
@@ -1396,6 +1401,7 @@ func bindTelegramIdentity(
 	code string,
 	channelBindCodesRepo *data.ChannelBindCodesRepository,
 	channelIdentitiesRepo *data.ChannelIdentitiesRepository,
+	channelIdentityLinksRepo *data.ChannelIdentityLinksRepository,
 	channelDMThreadsRepo *data.ChannelDMThreadsRepository,
 	threadRepo *data.ThreadRepository,
 ) (string, error) {
@@ -1417,6 +1423,11 @@ func bindTelegramIdentity(
 		if _, err := channelBindCodesRepo.WithTx(tx).ConsumeForChannel(ctx, code, identity.ID, channel.ChannelType); err != nil {
 			return "", err
 		}
+		if channelIdentityLinksRepo != nil {
+			if _, err := channelIdentityLinksRepo.WithTx(tx).Upsert(ctx, channel.ID, identity.ID); err != nil {
+				return "", err
+			}
+		}
 		return "账号已绑定。", nil
 	}
 
@@ -1429,6 +1440,11 @@ func bindTelegramIdentity(
 	}
 	if err := channelIdentitiesRepo.WithTx(tx).UpdateUserID(ctx, identity.ID, &consumed.IssuedByUserID); err != nil {
 		return "", err
+	}
+	if channelIdentityLinksRepo != nil {
+		if _, err := channelIdentityLinksRepo.WithTx(tx).Upsert(ctx, channel.ID, identity.ID); err != nil {
+			return "", err
+		}
 	}
 	threadMappings, err := channelDMThreadsRepo.WithTx(tx).ListByChannelIdentity(ctx, channel.ID, identity.ID)
 	if err != nil {
@@ -1595,6 +1611,7 @@ func (c telegramConnector) HandleUpdateForPoll(
 			trimmedCommandText,
 			c.channelBindCodesRepo,
 			c.channelIdentitiesRepo,
+			c.channelIdentityLinksRepo,
 			c.channelDMThreadsRepo,
 			c.threadRepo,
 		); err != nil {

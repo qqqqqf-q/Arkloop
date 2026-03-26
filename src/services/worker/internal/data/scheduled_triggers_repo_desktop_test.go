@@ -100,6 +100,200 @@ func TestScheduledTriggersRepositoryResolveHeartbeatThreadUsesPersonaKeyColumn(t
 	}
 }
 
+func TestScheduledTriggersRepositoryResolveHeartbeatThreadUsesDMBindingForDiscordIdentity(t *testing.T) {
+	ctx := context.Background()
+
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "desktop.db"))
+	if err != nil {
+		t.Fatalf("auto migrate sqlite: %v", err)
+	}
+	defer sqlitePool.Close()
+
+	db := sqlitepgx.New(sqlitePool.Unwrap())
+
+	accountID := uuid.New()
+	projectID := uuid.New()
+	threadID := uuid.New()
+	channelID := uuid.New()
+	identityID := uuid.New()
+	personaID := uuid.New()
+	personaKey := "discord-heartbeat-agent"
+
+	seedDesktopAccount(t, db, accountID)
+	seedDesktopProject(t, db, accountID, projectID)
+	seedDesktopThread(t, db, accountID, projectID, threadID)
+
+	if _, err := db.Exec(ctx,
+		`INSERT INTO personas (id, account_id, persona_key, version, display_name, prompt_md, tool_allowlist, tool_denylist, budgets_json, is_active)
+		 VALUES ($1, $2, $3, '1', 'Discord Heartbeat Agent', 'prompt', '[]', '[]', '{}', 1)`,
+		personaID,
+		accountID,
+		personaKey,
+	); err != nil {
+		t.Fatalf("insert persona: %v", err)
+	}
+
+	if _, err := db.Exec(ctx,
+		`INSERT INTO channels (id, account_id, channel_type, persona_id, is_active, config_json)
+		 VALUES ($1, $2, 'discord', $3, 1, '{}')`,
+		channelID,
+		accountID,
+		personaID,
+	); err != nil {
+		t.Fatalf("insert channel: %v", err)
+	}
+
+	if _, err := db.Exec(ctx,
+		`INSERT INTO channel_identities (id, channel_type, platform_subject_id, metadata)
+		 VALUES ($1, 'discord', 'discord-user-1001', '{}')`,
+		identityID,
+	); err != nil {
+		t.Fatalf("insert channel identity: %v", err)
+	}
+
+	if _, err := db.Exec(ctx,
+		`INSERT INTO channel_dm_threads (channel_id, channel_identity_id, persona_id, thread_id)
+		 VALUES ($1, $2, $3, $4)`,
+		channelID,
+		identityID,
+		personaID,
+		threadID,
+	); err != nil {
+		t.Fatalf("insert channel dm thread: %v", err)
+	}
+
+	row := ScheduledTriggerRow{
+		ID:                uuid.New(),
+		ChannelIdentityID: identityID,
+		PersonaKey:        personaKey,
+		AccountID:         accountID,
+	}
+
+	got, err := (ScheduledTriggersRepository{}).ResolveHeartbeatThread(ctx, db, row)
+	if err != nil {
+		t.Fatalf("resolve heartbeat thread: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected heartbeat context")
+	}
+	if got.ThreadID != threadID {
+		t.Fatalf("unexpected thread id: got %s want %s", got.ThreadID, threadID)
+	}
+	if got.ChannelID != channelID.String() {
+		t.Fatalf("unexpected channel id: got %s want %s", got.ChannelID, channelID)
+	}
+	if got.ChannelType != "discord" {
+		t.Fatalf("unexpected channel type: %q", got.ChannelType)
+	}
+	if got.PlatformChatID != "discord-user-1001" {
+		t.Fatalf("unexpected platform chat id: %q", got.PlatformChatID)
+	}
+	if got.ConversationType != "private" {
+		t.Fatalf("unexpected conversation type: %q", got.ConversationType)
+	}
+}
+
+func TestDesktopCreateHeartbeatRunUsesDiscordDMThreadContext(t *testing.T) {
+	ctx := context.Background()
+
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "desktop.db"))
+	if err != nil {
+		t.Fatalf("auto migrate sqlite: %v", err)
+	}
+	defer sqlitePool.Close()
+
+	db := sqlitepgx.New(sqlitePool.Unwrap())
+
+	accountID := uuid.New()
+	projectID := uuid.New()
+	threadID := uuid.New()
+	channelID := uuid.New()
+	identityID := uuid.New()
+	personaID := uuid.New()
+	personaKey := "discord-heartbeat-run"
+
+	seedDesktopAccount(t, db, accountID)
+	seedDesktopProject(t, db, accountID, projectID)
+	seedDesktopThread(t, db, accountID, projectID, threadID)
+
+	if _, err := db.Exec(ctx,
+		`INSERT INTO personas (id, account_id, persona_key, version, display_name, prompt_md, tool_allowlist, tool_denylist, budgets_json, is_active)
+		 VALUES ($1, $2, $3, '1', 'Discord Heartbeat Run', 'prompt', '[]', '[]', '{}', 1)`,
+		personaID,
+		accountID,
+		personaKey,
+	); err != nil {
+		t.Fatalf("insert persona: %v", err)
+	}
+
+	if _, err := db.Exec(ctx,
+		`INSERT INTO channels (id, account_id, channel_type, persona_id, is_active, config_json)
+		 VALUES ($1, $2, 'discord', $3, 1, '{}')`,
+		channelID,
+		accountID,
+		personaID,
+	); err != nil {
+		t.Fatalf("insert channel: %v", err)
+	}
+
+	if _, err := db.Exec(ctx,
+		`INSERT INTO channel_identities (id, channel_type, platform_subject_id, metadata)
+		 VALUES ($1, 'discord', 'discord-user-2001', '{}')`,
+		identityID,
+	); err != nil {
+		t.Fatalf("insert channel identity: %v", err)
+	}
+
+	if _, err := db.Exec(ctx,
+		`INSERT INTO channel_dm_threads (channel_id, channel_identity_id, persona_id, thread_id)
+		 VALUES ($1, $2, $3, $4)`,
+		channelID,
+		identityID,
+		personaID,
+		threadID,
+	); err != nil {
+		t.Fatalf("insert channel dm thread: %v", err)
+	}
+
+	row := ScheduledTriggerRow{
+		ID:                uuid.New(),
+		ChannelIdentityID: identityID,
+		PersonaKey:        personaKey,
+		AccountID:         accountID,
+		Model:             "discord-model",
+		IntervalMin:       15,
+		NextFireAt:        time.Now().UTC(),
+	}
+
+	result, err := DesktopCreateHeartbeatRun(ctx, db, row, "discord-model")
+	if err != nil {
+		t.Fatalf("desktop create heartbeat run: %v", err)
+	}
+	if result.ChannelType != "discord" {
+		t.Fatalf("unexpected channel type: %q", result.ChannelType)
+	}
+	if result.ChannelID != channelID.String() {
+		t.Fatalf("unexpected channel id: %q", result.ChannelID)
+	}
+	if result.PlatformChatID != "discord-user-2001" {
+		t.Fatalf("unexpected platform chat id: %q", result.PlatformChatID)
+	}
+	if result.IdentityID != identityID.String() {
+		t.Fatalf("unexpected identity id: %q", result.IdentityID)
+	}
+	if result.ConversationType != "private" {
+		t.Fatalf("unexpected conversation type: %q", result.ConversationType)
+	}
+
+	var runThreadID string
+	if err := db.QueryRow(ctx, `SELECT thread_id FROM runs WHERE id = $1`, result.RunID.String()).Scan(&runThreadID); err != nil {
+		t.Fatalf("load created run: %v", err)
+	}
+	if runThreadID != threadID.String() {
+		t.Fatalf("unexpected run thread id: %q", runThreadID)
+	}
+}
+
 func TestScheduledTriggersRepositoryUpsertHeartbeatPreservesNextFireAtOnConflict(t *testing.T) {
 	ctx := context.Background()
 

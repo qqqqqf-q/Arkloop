@@ -114,6 +114,7 @@ type HandlerConfig struct {
 	WebhookRepo                  *data.WebhookEndpointRepository
 	ChannelsRepo                 *data.ChannelsRepository
 	ChannelIdentitiesRepo        *data.ChannelIdentitiesRepository
+	ChannelIdentityLinksRepo     *data.ChannelIdentityLinksRepository
 	ChannelBindCodesRepo         *data.ChannelBindCodesRepository
 	ChannelDMThreadsRepo         *data.ChannelDMThreadsRepository
 	ChannelGroupThreadsRepo      *data.ChannelGroupThreadsRepository
@@ -317,6 +318,7 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 		LlmRoutesRepo:           cfg.LlmRoutesRepo,
 		ChannelsRepo:            cfg.ChannelsRepo,
 		ChannelIdentitiesRepo:   cfg.ChannelIdentitiesRepo,
+		ChannelIdentityLinksRepo: cfg.ChannelIdentityLinksRepo,
 		ChannelBindCodesRepo:    cfg.ChannelBindCodesRepo,
 		ChannelDMThreadsRepo:    cfg.ChannelDMThreadsRepo,
 		ChannelGroupThreadsRepo: cfg.ChannelGroupThreadsRepo,

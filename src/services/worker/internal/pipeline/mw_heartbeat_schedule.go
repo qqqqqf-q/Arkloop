@@ -12,7 +12,7 @@ import (
 )
 
 // NewHeartbeatScheduleMiddleware 在 run 结束后 upsert scheduled_triggers。
-// 以群的 channel identity（platform_chat_id 对应）为唯一键，
+// 群聊以群 identity（platform_chat_id 对应）为唯一键，私聊以 sender identity 为唯一键，
 // interval/model 从 channel_identities 的 heartbeat_* 列读取（由 /heartbeat 命令写入）。
 // heartbeat run 本身不执行（避免无限循环）。
 func NewHeartbeatScheduleMiddleware(db data.DB) RunMiddleware {
@@ -27,25 +27,17 @@ func NewHeartbeatScheduleMiddleware(db data.DB) RunMiddleware {
 			slog.DebugContext(ctx, "heartbeat_schedule: skip heartbeat run")
 			return nil
 		}
-		if rc.ChannelContext == nil || !IsTelegramGroupLikeConversation(rc.ChannelContext.ConversationType) {
-			slog.DebugContext(ctx, "heartbeat_schedule: not a telegram group conversation")
+		if rc.ChannelContext == nil {
+			slog.DebugContext(ctx, "heartbeat_schedule: no channel context")
 			return nil
 		}
-
-		// 用群的 platform_chat_id 查群 identity（heartbeat 配置挂在群上，不是 sender）
-		platformChatID := strings.TrimSpace(rc.ChannelContext.Conversation.Target)
-		if platformChatID == "" {
-			slog.WarnContext(ctx, "heartbeat_schedule: no platform_chat_id, skipping")
+		identityID, cfg, targetKind, lookupKey := resolveHeartbeatIdentityConfig(ctx, db, rc)
+		if identityID == uuid.Nil && cfg == nil {
+			slog.DebugContext(ctx, "heartbeat_schedule: no heartbeat target", "conversation_type", strings.TrimSpace(rc.ChannelContext.ConversationType))
 			return nil
 		}
-		channelType := strings.TrimSpace(rc.ChannelContext.ChannelType)
-		if channelType == "" {
-			channelType = "telegram"
-		}
-
-		identityID, cfg, cfgErr := data.GetGroupHeartbeatConfig(ctx, db, channelType, platformChatID)
-		if cfgErr != nil {
-			slog.WarnContext(ctx, "heartbeat_schedule: get group heartbeat config failed", "error", cfgErr)
+		if cfg == nil {
+			slog.DebugContext(ctx, "heartbeat_schedule: target identity has no heartbeat config", "identity_id", identityID, "target_kind", targetKind)
 			return nil
 		}
 
@@ -86,8 +78,8 @@ func NewHeartbeatScheduleMiddleware(db data.DB) RunMiddleware {
 					}
 					return cfg.Enabled
 				}(),
-				"platform_chat_id", platformChatID,
-				"channel_type", channelType,
+				"lookup_key", lookupKey,
+				"target_kind", targetKind,
 			)
 			return nil
 		}
@@ -148,6 +140,52 @@ func NewHeartbeatScheduleMiddleware(db data.DB) RunMiddleware {
 		}
 		slog.DebugContext(ctx, "heartbeat_schedule: trigger unchanged", "identity_id", identityID)
 		return nil
+	}
+}
+
+func resolveHeartbeatIdentityConfig(ctx context.Context, db data.DB, rc *RunContext) (uuid.UUID, *data.HeartbeatIdentityConfig, string, string) {
+	if rc == nil || rc.ChannelContext == nil || db == nil {
+		return uuid.Nil, nil, "", ""
+	}
+	channelType := strings.TrimSpace(rc.ChannelContext.ChannelType)
+	if channelType == "" {
+		channelType = "telegram"
+	}
+	if IsTelegramGroupLikeConversation(rc.ChannelContext.ConversationType) {
+		platformChatID := strings.TrimSpace(rc.ChannelContext.Conversation.Target)
+		if platformChatID == "" {
+			slog.WarnContext(ctx, "heartbeat_schedule: no platform_chat_id for group conversation")
+			return uuid.Nil, nil, "group", ""
+		}
+		identityID, cfg, err := data.GetGroupHeartbeatConfig(ctx, db, channelType, platformChatID)
+		if err != nil {
+			slog.WarnContext(ctx, "heartbeat_schedule: get group heartbeat config failed", "error", err)
+			return uuid.Nil, nil, "group", platformChatID
+		}
+		return identityID, cfg, "group", platformChatID
+	}
+	if isPrivateChannelConversation(rc.ChannelContext.ConversationType) {
+		identityID := rc.ChannelContext.SenderChannelIdentityID
+		if identityID == uuid.Nil {
+			slog.WarnContext(ctx, "heartbeat_schedule: no sender identity for private conversation")
+			return uuid.Nil, nil, "direct", ""
+		}
+		cfg, err := data.GetChannelIdentityHeartbeatConfig(ctx, db, identityID)
+		if err != nil {
+			slog.WarnContext(ctx, "heartbeat_schedule: get direct heartbeat config failed", "identity_id", identityID, "error", err)
+			return uuid.Nil, nil, "direct", identityID.String()
+		}
+		return identityID, cfg, "direct", identityID.String()
+	}
+	return uuid.Nil, nil, "", ""
+}
+
+func isPrivateChannelConversation(ct string) bool {
+	switch strings.ToLower(strings.TrimSpace(ct)) {
+	case "private", "dm":
+		return true
+	default:
+		return false
 	}
 }
 

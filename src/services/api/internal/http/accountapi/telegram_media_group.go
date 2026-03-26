@@ -246,6 +246,7 @@ func (c telegramConnector) processTelegramMediaGroupMerged(
 			trimmedCommandText,
 			c.channelBindCodesRepo,
 			c.channelIdentitiesRepo,
+			c.channelIdentityLinksRepo,
 			c.channelDMThreadsRepo,
 			c.threadRepo,
 		); err != nil {

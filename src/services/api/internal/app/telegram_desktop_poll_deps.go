@@ -74,6 +74,10 @@ func TelegramDesktopPollerDepsForPool(pgxPool data.DB, keyRing *internalcrypto.K
 	if err != nil {
 		return zero, fmt.Errorf("init channel identities repo: %w", err)
 	}
+	channelIdentityLinksRepo, err := data.NewChannelIdentityLinksRepository(pgxPool)
+	if err != nil {
+		return zero, fmt.Errorf("init channel identity links repo: %w", err)
+	}
 	channelBindCodesRepo, err := data.NewChannelBindCodesRepository(pgxPool)
 	if err != nil {
 		return zero, fmt.Errorf("init channel bind codes repo: %w", err)
@@ -140,6 +144,7 @@ func TelegramDesktopPollerDepsForPool(pgxPool data.DB, keyRing *internalcrypto.K
 	return accountapi.TelegramDesktopPollerDeps{
 		ChannelsRepo:            channelsRepo,
 		ChannelIdentitiesRepo:   channelIdentitiesRepo,
+		ChannelIdentityLinksRepo: channelIdentityLinksRepo,
 		ChannelBindCodesRepo:    channelBindCodesRepo,
 		ChannelDMThreadsRepo:    channelDMThreadsRepo,
 		ChannelGroupThreadsRepo: channelGroupThreadsRepo,

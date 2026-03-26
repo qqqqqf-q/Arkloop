@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Check, ChevronDown, Eye, EyeOff, Link2, Loader2, Plus, X } from 'lucide-react'
-import type { ChannelIdentityResponse, ChannelResponse, LlmProvider, Persona } from '../../api'
+import type { ChannelBindingResponse, ChannelResponse, LlmProvider, Persona } from '../../api'
 import { DEFAULT_PERSONA_KEY } from '../../storage'
 
 export type ModelOption = { value: string; label: string }
@@ -266,30 +266,256 @@ export function ListField({
   )
 }
 
+function BindingRoleBadge({
+  active,
+  label,
+}: {
+  active: boolean
+  label: string
+}) {
+  return (
+    <span
+      className="rounded-md px-2 py-0.5 text-[11px] font-medium"
+      style={{
+        border: '0.5px solid var(--c-border-subtle)',
+        background: active ? 'var(--c-status-success-bg, rgba(34,197,94,0.1))' : 'var(--c-bg-deep)',
+        color: active ? 'var(--c-status-success, #22c55e)' : 'var(--c-text-secondary)',
+      }}
+    >
+      {label}
+    </span>
+  )
+}
+
+function BindingHeartbeatEditor({
+  binding,
+  modelOptions,
+  enabledLabel,
+  intervalLabel,
+  modelLabel,
+  saveLabel,
+  savingLabel,
+  ownerLabel,
+  adminLabel,
+  setOwnerLabel,
+  unbindLabel,
+  onSaveHeartbeat,
+  onMakeOwner,
+  onUnbind,
+  onOwnerUnbindAttempt,
+}: {
+  binding: ChannelBindingResponse
+  modelOptions: ModelOption[]
+  enabledLabel: string
+  intervalLabel: string
+  modelLabel: string
+  saveLabel: string
+  savingLabel: string
+  ownerLabel: string
+  adminLabel: string
+  setOwnerLabel: string
+  unbindLabel: string
+  onSaveHeartbeat: (binding: ChannelBindingResponse, next: { enabled: boolean; interval: number; model: string }) => Promise<void>
+  onMakeOwner: (binding: ChannelBindingResponse) => Promise<void>
+  onUnbind: (binding: ChannelBindingResponse) => Promise<void>
+  onOwnerUnbindAttempt: () => void
+}) {
+  const [heartbeatEnabled, setHeartbeatEnabled] = useState(binding.heartbeat_enabled)
+  const [heartbeatInterval, setHeartbeatInterval] = useState(String(binding.heartbeat_interval_minutes || 0))
+  const [heartbeatModel, setHeartbeatModel] = useState(binding.heartbeat_model ?? '')
+  const [savingHeartbeat, setSavingHeartbeat] = useState(false)
+  const [promotingOwner, setPromotingOwner] = useState(false)
+
+  useEffect(() => {
+    setHeartbeatEnabled(binding.heartbeat_enabled)
+    setHeartbeatInterval(String(binding.heartbeat_interval_minutes || 0))
+    setHeartbeatModel(binding.heartbeat_model ?? '')
+  }, [binding])
+
+  const parsedInterval = Number.parseInt(heartbeatInterval, 10)
+  const dirty =
+    heartbeatEnabled !== binding.heartbeat_enabled ||
+    (Number.isNaN(parsedInterval) ? binding.heartbeat_interval_minutes : parsedInterval) !== binding.heartbeat_interval_minutes ||
+    heartbeatModel !== (binding.heartbeat_model ?? '')
+
+  return (
+    <div
+      data-binding-id={binding.binding_id}
+      className="rounded-xl px-4 py-4"
+      style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-page)' }}
+    >
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="truncate text-sm font-medium text-[var(--c-text-heading)]">
+                {binding.display_name || binding.platform_subject_id}
+              </div>
+              <BindingRoleBadge active={binding.is_owner} label={binding.is_owner ? ownerLabel : adminLabel} />
+            </div>
+            <div className="mt-1 truncate text-xs text-[var(--c-text-muted)]">
+              {binding.platform_subject_id}
+            </div>
+          </div>
+
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            {!binding.is_owner && (
+              <button
+                type="button"
+                disabled={promotingOwner}
+                aria-label={`${setOwnerLabel} ${binding.display_name || binding.platform_subject_id}`}
+                onClick={async () => {
+                  setPromotingOwner(true)
+                  try {
+                    await onMakeOwner(binding)
+                  } finally {
+                    setPromotingOwner(false)
+                  }
+                }}
+                className="rounded-md px-2.5 py-1 text-xs font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)]"
+              >
+                {setOwnerLabel}
+              </button>
+            )}
+            <button
+              type="button"
+              aria-label={`${unbindLabel} ${binding.display_name || binding.platform_subject_id}`}
+              onClick={() => {
+                if (binding.is_owner) {
+                  onOwnerUnbindAttempt()
+                  return
+                }
+                void onUnbind(binding)
+              }}
+              className="rounded-md px-2.5 py-1 text-xs font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)]"
+            >
+              {unbindLabel}
+            </button>
+          </div>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-[auto_minmax(0,140px)_minmax(0,1fr)_auto] md:items-end">
+          <div className="flex items-center gap-3">
+            <div className="min-w-0">
+              <div className="text-xs font-medium text-[var(--c-text-secondary)]">{enabledLabel}</div>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={heartbeatEnabled}
+              onClick={() => setHeartbeatEnabled((current) => !current)}
+              className={[
+                'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
+                heartbeatEnabled ? 'bg-[var(--c-btn-bg)]' : 'bg-[var(--c-bg-deep)]',
+              ].join(' ')}
+            >
+              <span
+                className={[
+                  'inline-block h-5 w-5 transform rounded-full bg-white transition-transform',
+                  heartbeatEnabled ? 'translate-x-5' : 'translate-x-1',
+                ].join(' ')}
+              />
+            </button>
+          </div>
+
+          <div>
+            <label className="mb-1.5 block text-xs font-medium text-[var(--c-text-secondary)]">
+              {intervalLabel}
+            </label>
+            <input
+              type="number"
+              min={1}
+              value={heartbeatInterval}
+              onChange={(event) => setHeartbeatInterval(event.target.value)}
+              className={inputCls}
+            />
+          </div>
+
+          <div>
+            <label className="mb-1.5 block text-xs font-medium text-[var(--c-text-secondary)]">
+              {modelLabel}
+            </label>
+            <ModelDropdown
+              value={heartbeatModel}
+              options={modelOptions}
+              placeholder={modelLabel}
+              disabled={savingHeartbeat}
+              onChange={setHeartbeatModel}
+            />
+          </div>
+
+          <button
+            type="button"
+            disabled={savingHeartbeat || !dirty || Number.isNaN(parsedInterval) || parsedInterval <= 0}
+            onClick={async () => {
+              setSavingHeartbeat(true)
+              try {
+                await onSaveHeartbeat(binding, {
+                  enabled: heartbeatEnabled,
+                  interval: parsedInterval,
+                  model: heartbeatModel,
+                })
+              } finally {
+                setSavingHeartbeat(false)
+              }
+            }}
+            className={primaryButtonCls}
+            style={{ background: 'var(--c-btn-bg)', color: 'var(--c-btn-text)' }}
+          >
+            {savingHeartbeat ? savingLabel : saveLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function BindingsCard({
   title,
-  identities,
+  bindings,
   bindCode,
   generating,
   generateLabel,
   regenerateLabel,
   emptyLabel,
+  ownerLabel,
   adminLabel,
+  setOwnerLabel,
   unbindLabel,
+  heartbeatEnabledLabel,
+  heartbeatIntervalLabel,
+  heartbeatModelLabel,
+  heartbeatSaveLabel,
+  heartbeatSavingLabel,
+  modelOptions,
   onGenerate,
   onUnbind,
+  onMakeOwner,
+  onSaveHeartbeat,
+  onOwnerUnbindAttempt,
 }: {
   title: string
-  identities: ChannelIdentityResponse[]
+  bindings: ChannelBindingResponse[]
   bindCode: string | null
   generating: boolean
   generateLabel: string
   regenerateLabel: string
   emptyLabel: string
+  ownerLabel: string
   adminLabel: string
+  setOwnerLabel: string
   unbindLabel: string
+  heartbeatEnabledLabel: string
+  heartbeatIntervalLabel: string
+  heartbeatModelLabel: string
+  heartbeatSaveLabel: string
+  heartbeatSavingLabel: string
+  modelOptions: ModelOption[]
   onGenerate: () => void
-  onUnbind: (identityID: string) => void
+  onUnbind: (binding: ChannelBindingResponse) => Promise<void>
+  onMakeOwner: (binding: ChannelBindingResponse) => Promise<void>
+  onSaveHeartbeat: (binding: ChannelBindingResponse, next: { enabled: boolean; interval: number; model: string }) => Promise<void>
+  onOwnerUnbindAttempt: () => void
 }) {
   return (
     <div
@@ -324,40 +550,29 @@ export function BindingsCard({
           </button>
         </div>
 
-        {identities.length === 0 ? (
+        {bindings.length === 0 ? (
           <p className="text-sm text-[var(--c-text-muted)]">{emptyLabel}</p>
         ) : (
-          <div className="flex flex-col gap-2">
-            {identities.map((identity) => (
-              <div
-                key={identity.id}
-                className="flex items-center justify-between gap-3 rounded-xl px-4 py-3"
-                style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-page)' }}
-              >
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-medium text-[var(--c-text-heading)]">
-                    {identity.display_name || identity.platform_subject_id}
-                  </div>
-                  <div className="truncate text-xs text-[var(--c-text-muted)]">
-                    {identity.platform_subject_id}
-                  </div>
-                </div>
-                <div className="flex shrink-0 items-center gap-2">
-                  <span
-                    className="rounded-md px-2 py-0.5 text-[11px] font-medium text-[var(--c-text-secondary)]"
-                    style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-deep)' }}
-                  >
-                    {adminLabel}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => onUnbind(identity.id)}
-                    className="rounded-md px-2.5 py-1 text-xs font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)]"
-                  >
-                    {unbindLabel}
-                  </button>
-                </div>
-              </div>
+          <div className="flex flex-col gap-3">
+            {bindings.map((binding) => (
+              <BindingHeartbeatEditor
+                key={binding.binding_id}
+                binding={binding}
+                modelOptions={modelOptions}
+                enabledLabel={heartbeatEnabledLabel}
+                intervalLabel={heartbeatIntervalLabel}
+                modelLabel={heartbeatModelLabel}
+                saveLabel={heartbeatSaveLabel}
+                savingLabel={heartbeatSavingLabel}
+                ownerLabel={ownerLabel}
+                adminLabel={adminLabel}
+                setOwnerLabel={setOwnerLabel}
+                unbindLabel={unbindLabel}
+                onSaveHeartbeat={onSaveHeartbeat}
+                onMakeOwner={onMakeOwner}
+                onUnbind={onUnbind}
+                onOwnerUnbindAttempt={onOwnerUnbindAttempt}
+              />
             ))}
           </div>
         )}

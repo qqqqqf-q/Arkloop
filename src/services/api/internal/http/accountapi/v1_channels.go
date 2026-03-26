@@ -86,6 +86,8 @@ func channelEntry(
 	authService *auth.Service,
 	membershipRepo *data.AccountMembershipRepository,
 	channelsRepo *data.ChannelsRepository,
+	channelIdentityLinksRepo *data.ChannelIdentityLinksRepository,
+	channelIdentitiesRepo *data.ChannelIdentitiesRepository,
 	personasRepo *data.PersonasRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	secretsRepo *data.SecretsRepository,
@@ -97,22 +99,23 @@ func channelEntry(
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		traceID := observability.TraceIDFromContext(r.Context())
 
-		tail := strings.TrimPrefix(r.URL.Path, "/v1/channels/")
-		tail = strings.Trim(tail, "/")
+		tail := strings.Trim(strings.TrimPrefix(r.URL.Path, "/v1/channels/"), "/")
 		if tail == "" {
 			httpkit.WriteNotFound(w, r)
 			return
 		}
+		parts := strings.Split(tail, "/")
+		if len(parts) == 0 || strings.TrimSpace(parts[0]) == "" {
+			httpkit.WriteNotFound(w, r)
+			return
+		}
+		channelID, err := uuid.Parse(parts[0])
+		if err != nil {
+			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "invalid channel id", traceID, nil)
+			return
+		}
 
-		// Sub-action: {id}/verify
-		if strings.HasSuffix(tail, "/verify") {
-			channelIDStr := strings.TrimSuffix(tail, "/verify")
-			channelIDStr = strings.Trim(channelIDStr, "/")
-			channelID, err := uuid.Parse(channelIDStr)
-			if err != nil {
-				httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "invalid channel id", traceID, nil)
-				return
-			}
+		if len(parts) == 2 && parts[1] == "verify" {
 			if r.Method != nethttp.MethodPost {
 				httpkit.WriteMethodNotAllowed(w, r)
 				return
@@ -120,10 +123,38 @@ func channelEntry(
 			verifyChannel(w, r, traceID, channelID, authService, membershipRepo, channelsRepo, apiKeysRepo, secretsRepo, telegramClient, discordClient)
 			return
 		}
-
-		channelID, err := uuid.Parse(tail)
-		if err != nil {
-			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "invalid channel id", traceID, nil)
+		if len(parts) >= 2 && parts[1] == "bindings" {
+			var bindingID *uuid.UUID
+			if len(parts) == 3 {
+				parsedBindingID, parseErr := uuid.Parse(parts[2])
+				if parseErr != nil {
+					httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "invalid binding id", traceID, nil)
+					return
+				}
+				bindingID = &parsedBindingID
+			} else if len(parts) > 3 {
+				httpkit.WriteNotFound(w, r)
+				return
+			}
+			if handled := handleChannelBindingsSubresource(
+				w,
+				r,
+				traceID,
+				channelID,
+				bindingID,
+				authService,
+				membershipRepo,
+				channelsRepo,
+				channelIdentityLinksRepo,
+				channelIdentitiesRepo,
+				apiKeysRepo,
+				pool,
+			); handled {
+				return
+			}
+		}
+		if len(parts) > 1 {
+			httpkit.WriteNotFound(w, r)
 			return
 		}
 

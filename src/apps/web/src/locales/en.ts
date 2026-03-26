@@ -526,7 +526,14 @@ export const en: LocaleStrings = {
     unbinding: 'Unlinking...',
     unbindConfirm: 'Are you sure you want to unlink this account?',
     unbindFailed: 'Failed to unlink',
-    bindingBotAdmin: 'Bot admin',
+    bindingOwner: 'Owner',
+    bindingAdmin: 'Admin',
+    bindingBotAdmin: 'Admin',
+    setOwner: 'Set owner',
+    heartbeatEnabled: 'Heartbeat',
+    heartbeatInterval: 'Interval (min)',
+    heartbeatModel: 'Heartbeat model',
+    ownerUnbindBlocked: 'Owner cannot be unlinked directly',
   },
   // model picker
   modelPicker: {

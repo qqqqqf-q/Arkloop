@@ -25,6 +25,7 @@ import (
 type DiscordIngressRunnerDeps struct {
 	ChannelsRepo          *data.ChannelsRepository
 	ChannelIdentitiesRepo *data.ChannelIdentitiesRepository
+	ChannelIdentityLinksRepo *data.ChannelIdentityLinksRepository
 	ChannelBindCodesRepo  *data.ChannelBindCodesRepository
 	ChannelDMThreadsRepo  *data.ChannelDMThreadsRepository
 	ChannelReceiptsRepo   *data.ChannelMessageReceiptsRepository
@@ -58,6 +59,7 @@ type discordIngressManager struct {
 type discordConnector struct {
 	channelsRepo          *data.ChannelsRepository
 	channelIdentitiesRepo *data.ChannelIdentitiesRepository
+	channelIdentityLinksRepo *data.ChannelIdentityLinksRepository
 	channelBindCodesRepo  *data.ChannelBindCodesRepository
 	channelDMThreadsRepo  *data.ChannelDMThreadsRepository
 	channelReceiptsRepo   *data.ChannelMessageReceiptsRepository
@@ -89,7 +91,7 @@ type discordMessageContext struct {
 }
 
 func StartDiscordIngressRunner(ctx context.Context, deps DiscordIngressRunnerDeps) {
-	if ctx == nil || deps.ChannelsRepo == nil || deps.ChannelIdentitiesRepo == nil ||
+	if ctx == nil || deps.ChannelsRepo == nil || deps.ChannelIdentitiesRepo == nil || deps.ChannelIdentityLinksRepo == nil ||
 		deps.ChannelBindCodesRepo == nil || deps.ChannelDMThreadsRepo == nil ||
 		deps.ChannelReceiptsRepo == nil || deps.SecretsRepo == nil || deps.PersonasRepo == nil ||
 		deps.ThreadRepo == nil || deps.MessageRepo == nil || deps.RunEventRepo == nil ||
@@ -221,6 +223,7 @@ func (m *discordIngressManager) runSession(ctx context.Context, channelID uuid.U
 	connector := discordConnector{
 		channelsRepo:          m.deps.ChannelsRepo,
 		channelIdentitiesRepo: m.deps.ChannelIdentitiesRepo,
+		channelIdentityLinksRepo: m.deps.ChannelIdentityLinksRepo,
 		channelBindCodesRepo:  m.deps.ChannelBindCodesRepo,
 		channelDMThreadsRepo:  m.deps.ChannelDMThreadsRepo,
 		channelReceiptsRepo:   m.deps.ChannelReceiptsRepo,
@@ -498,7 +501,7 @@ func (c discordConnector) HandleInteraction(
 		return nil, err
 	}
 
-	reply, err := handleDiscordCommand(ctx, tx, ch, identity, event, c.channelBindCodesRepo, c.channelIdentitiesRepo, c.channelDMThreadsRepo, c.threadRepo)
+	reply, err := handleDiscordCommand(ctx, tx, ch, identity, event, c.channelBindCodesRepo, c.channelIdentitiesRepo, c.channelIdentityLinksRepo, c.channelDMThreadsRepo, c.threadRepo)
 	if err != nil {
 		return nil, err
 	}
@@ -658,6 +661,7 @@ func handleDiscordCommand(
 	evt *discordgo.InteractionCreate,
 	channelBindCodesRepo *data.ChannelBindCodesRepository,
 	channelIdentitiesRepo *data.ChannelIdentitiesRepository,
+	channelIdentityLinksRepo *data.ChannelIdentityLinksRepository,
 	channelDMThreadsRepo *data.ChannelDMThreadsRepository,
 	threadRepo *data.ThreadRepository,
 ) (*discordInteractionReply, error) {
@@ -670,7 +674,7 @@ func handleDiscordCommand(
 		if len(data.Options) > 0 {
 			code = strings.TrimSpace(data.Options[0].StringValue())
 		}
-		replyText, err := bindDiscordIdentity(ctx, tx, channel, identity, code, channelBindCodesRepo, channelIdentitiesRepo, channelDMThreadsRepo, threadRepo)
+		replyText, err := bindDiscordIdentity(ctx, tx, channel, identity, code, channelBindCodesRepo, channelIdentitiesRepo, channelIdentityLinksRepo, channelDMThreadsRepo, threadRepo)
 		if err != nil {
 			return nil, err
 		}
@@ -699,6 +703,7 @@ func bindDiscordIdentity(
 	code string,
 	channelBindCodesRepo *data.ChannelBindCodesRepository,
 	channelIdentitiesRepo *data.ChannelIdentitiesRepository,
+	channelIdentityLinksRepo *data.ChannelIdentityLinksRepository,
 	channelDMThreadsRepo *data.ChannelDMThreadsRepository,
 	threadRepo *data.ThreadRepository,
 ) (string, error) {
@@ -720,6 +725,11 @@ func bindDiscordIdentity(
 		if _, err := channelBindCodesRepo.WithTx(tx).ConsumeForChannel(ctx, code, identity.ID, channel.ChannelType); err != nil {
 			return "", err
 		}
+		if channelIdentityLinksRepo != nil {
+			if _, err := channelIdentityLinksRepo.WithTx(tx).Upsert(ctx, channel.ID, identity.ID); err != nil {
+				return "", err
+			}
+		}
 		return "账号已绑定。", nil
 	}
 
@@ -732,6 +742,11 @@ func bindDiscordIdentity(
 	}
 	if err := channelIdentitiesRepo.WithTx(tx).UpdateUserID(ctx, identity.ID, &consumed.IssuedByUserID); err != nil {
 		return "", err
+	}
+	if channelIdentityLinksRepo != nil {
+		if _, err := channelIdentityLinksRepo.WithTx(tx).Upsert(ctx, channel.ID, identity.ID); err != nil {
+			return "", err
+		}
 	}
 	threadMappings, err := channelDMThreadsRepo.WithTx(tx).ListByChannelIdentity(ctx, channel.ID, identity.ID)
 	if err != nil {

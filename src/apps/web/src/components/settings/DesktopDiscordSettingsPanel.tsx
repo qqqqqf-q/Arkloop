@@ -1,15 +1,17 @@
 import { useEffect, useMemo, useState } from 'react'
 import { MessageCircleMore } from 'lucide-react'
 import {
-  type ChannelIdentityResponse,
+  type ChannelBindingResponse,
   type ChannelResponse,
   type LlmProvider,
   type Persona,
   createChannel,
   createChannelBindCode,
+  deleteChannelBinding,
   isApiError,
-  unbindChannelIdentity,
+  listChannelBindings,
   updateChannel,
+  updateChannelBinding,
   verifyChannel,
 } from '../../api'
 import { useLocale } from '../../contexts/LocaleContext'
@@ -32,7 +34,6 @@ type Props = {
   accessToken: string
   channel: ChannelResponse | null
   personas: Persona[]
-  identities: ChannelIdentityResponse[]
   providers: LlmProvider[]
   reload: () => Promise<void>
 }
@@ -41,7 +42,6 @@ export function DesktopDiscordSettingsPanel({
   accessToken,
   channel,
   personas,
-  identities,
   providers,
   reload,
 }: Props) {
@@ -64,6 +64,7 @@ export function DesktopDiscordSettingsPanel({
   const [verifyResult, setVerifyResult] = useState<{ ok: boolean; message: string } | null>(null)
   const [bindCode, setBindCode] = useState<string | null>(null)
   const [generatingCode, setGeneratingCode] = useState(false)
+  const [bindings, setBindings] = useState<ChannelBindingResponse[]>([])
 
   useEffect(() => {
     setEnabled(channel?.is_active ?? false)
@@ -76,6 +77,24 @@ export function DesktopDiscordSettingsPanel({
     setAllowedChannelInput('')
     setVerifyResult(null)
   }, [channel, personas])
+
+  useEffect(() => {
+    if (!channel?.id) {
+      setBindings([])
+      return
+    }
+    let cancelled = false
+    listChannelBindings(accessToken, channel.id)
+      .then((items) => {
+        if (!cancelled) setBindings(items)
+      })
+      .catch(() => {
+        if (!cancelled) setBindings([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [accessToken, channel?.id])
 
   const modelOptions = useMemo(() => buildModelOptions(providers), [providers])
   const persistedAllowedServerIDs = useMemo(() => readStringArrayConfig(channel, 'allowed_server_ids'), [channel])
@@ -241,13 +260,46 @@ export function DesktopDiscordSettingsPanel({
     }
   }
 
-  const handleUnbind = async (identityID: string) => {
+  const handleUnbind = async (binding: ChannelBindingResponse) => {
+    if (!channel) return
     if (!confirm(ct.unbindConfirm)) return
     try {
-      await unbindChannelIdentity(accessToken, identityID)
-      await reload()
+      await deleteChannelBinding(accessToken, channel.id, binding.binding_id)
+      const nextBindings = await listChannelBindings(accessToken, channel.id)
+      setBindings(nextBindings)
     } catch {
       setError(ct.unbindFailed)
+    }
+  }
+
+  const handleMakeOwner = async (binding: ChannelBindingResponse) => {
+    if (!channel) return
+    setError('')
+    try {
+      await updateChannelBinding(accessToken, channel.id, binding.binding_id, { make_owner: true })
+      const nextBindings = await listChannelBindings(accessToken, channel.id)
+      setBindings(nextBindings)
+    } catch {
+      setError(ct.saveFailed)
+    }
+  }
+
+  const handleSaveHeartbeat = async (
+    binding: ChannelBindingResponse,
+    next: { enabled: boolean; interval: number; model: string },
+  ) => {
+    if (!channel) return
+    setError('')
+    try {
+      await updateChannelBinding(accessToken, channel.id, binding.binding_id, {
+        heartbeat_enabled: next.enabled,
+        heartbeat_interval_minutes: next.interval,
+        heartbeat_model: next.model || null,
+      })
+      const nextBindings = await listChannelBindings(accessToken, channel.id)
+      setBindings(nextBindings)
+    } catch {
+      setError(ct.saveFailed)
     }
   }
 
@@ -401,16 +453,27 @@ export function DesktopDiscordSettingsPanel({
 
       <BindingsCard
         title={ct.bindingsTitle}
-        identities={identities}
+        bindings={bindings}
         bindCode={bindCode}
         generating={generatingCode}
         generateLabel={generatingCode ? ct.generating : ct.generateCode}
         regenerateLabel={ds.connectorRegenerateCode}
         emptyLabel={ct.bindingsEmpty}
-        adminLabel={ct.bindingBotAdmin}
+        ownerLabel={ct.bindingOwner}
+        adminLabel={ct.bindingAdmin}
+        setOwnerLabel={ct.setOwner}
         unbindLabel={ct.unbind}
+        heartbeatEnabledLabel={ct.heartbeatEnabled}
+        heartbeatIntervalLabel={ct.heartbeatInterval}
+        heartbeatModelLabel={ct.heartbeatModel}
+        heartbeatSaveLabel={ct.save}
+        heartbeatSavingLabel={ct.saving}
+        modelOptions={modelOptions}
         onGenerate={() => void handleGenerateBindCode()}
-        onUnbind={(identityID) => void handleUnbind(identityID)}
+        onUnbind={(binding) => handleUnbind(binding)}
+        onMakeOwner={(binding) => handleMakeOwner(binding)}
+        onSaveHeartbeat={(binding, next) => handleSaveHeartbeat(binding, next)}
+        onOwnerUnbindAttempt={() => setError(ct.ownerUnbindBlocked)}
       />
 
       <SaveActions

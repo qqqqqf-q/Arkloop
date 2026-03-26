@@ -255,6 +255,10 @@ func RunDesktop(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("init channel identities repo: %w", err)
 	}
+	channelIdentityLinksRepo, err := data.NewChannelIdentityLinksRepository(pgxPool)
+	if err != nil {
+		return fmt.Errorf("init channel identity links repo: %w", err)
+	}
 	channelBindCodesRepo, err := data.NewChannelBindCodesRepository(pgxPool)
 	if err != nil {
 		return fmt.Errorf("init channel bind codes repo: %w", err)
@@ -454,6 +458,7 @@ func RunDesktop(ctx context.Context) error {
 		WebhookRepo:                  webhookRepo,
 		ChannelsRepo:                 channelsRepo,
 		ChannelIdentitiesRepo:        channelIdentitiesRepo,
+		ChannelIdentityLinksRepo:     channelIdentityLinksRepo,
 		ChannelBindCodesRepo:         channelBindCodesRepo,
 		ChannelDMThreadsRepo:         channelDMThreadsRepo,
 		ChannelGroupThreadsRepo:      channelGroupThreadsRepo,
@@ -515,6 +520,7 @@ func RunDesktop(ctx context.Context) error {
 	accountapi.StartTelegramDesktopPoller(ctx, accountapi.TelegramDesktopPollerDeps{
 		ChannelsRepo:            channelsRepo,
 		ChannelIdentitiesRepo:   channelIdentitiesRepo,
+		ChannelIdentityLinksRepo: channelIdentityLinksRepo,
 		ChannelBindCodesRepo:    channelBindCodesRepo,
 		ChannelDMThreadsRepo:    channelDMThreadsRepo,
 		ChannelGroupThreadsRepo: channelGroupThreadsRepo,
@@ -539,6 +545,7 @@ func RunDesktop(ctx context.Context) error {
 	accountapi.StartDiscordIngressRunner(ctx, accountapi.DiscordIngressRunnerDeps{
 		ChannelsRepo:          channelsRepo,
 		ChannelIdentitiesRepo: channelIdentitiesRepo,
+		ChannelIdentityLinksRepo: channelIdentityLinksRepo,
 		ChannelBindCodesRepo:  channelBindCodesRepo,
 		ChannelDMThreadsRepo:  channelDMThreadsRepo,
 		ChannelReceiptsRepo:   channelReceiptsRepo,

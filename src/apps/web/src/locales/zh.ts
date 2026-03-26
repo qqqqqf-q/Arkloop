@@ -520,7 +520,14 @@ export const zh: LocaleStrings = {
     unbinding: '解除中...',
     unbindConfirm: '确定要解除此关联吗？',
     unbindFailed: '解除关联失败',
-    bindingBotAdmin: '机器人管理员',
+    bindingOwner: 'Owner',
+    bindingAdmin: 'Admin',
+    bindingBotAdmin: 'Admin',
+    setOwner: '设为 Owner',
+    heartbeatEnabled: 'Heartbeat',
+    heartbeatInterval: '间隔（分钟）',
+    heartbeatModel: 'Heartbeat 模型',
+    ownerUnbindBlocked: 'Owner 不能直接解除关联',
   },
   // model picker
   modelPicker: {

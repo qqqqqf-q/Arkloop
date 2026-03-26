@@ -30,6 +30,7 @@ var logTelegramPollNoActiveChannels sync.Once
 type TelegramDesktopPollerDeps struct {
 	ChannelsRepo            *data.ChannelsRepository
 	ChannelIdentitiesRepo   *data.ChannelIdentitiesRepository
+	ChannelIdentityLinksRepo *data.ChannelIdentityLinksRepository
 	ChannelBindCodesRepo    *data.ChannelBindCodesRepository
 	ChannelDMThreadsRepo    *data.ChannelDMThreadsRepository
 	ChannelGroupThreadsRepo *data.ChannelGroupThreadsRepository
@@ -67,6 +68,8 @@ func StartTelegramDesktopPoller(ctx context.Context, deps TelegramDesktopPollerD
 		abort = "nil_channels_repo"
 	case deps.ChannelIdentitiesRepo == nil:
 		abort = "nil_channel_identities_repo"
+	case deps.ChannelIdentityLinksRepo == nil:
+		abort = "nil_channel_identity_links_repo"
 	case deps.ChannelBindCodesRepo == nil:
 		abort = "nil_channel_bind_codes_repo"
 	case deps.ChannelDMThreadsRepo == nil:
@@ -144,6 +147,7 @@ func StartTelegramDesktopPoller(ctx context.Context, deps TelegramDesktopPollerD
 	connector := telegramConnector{
 		channelsRepo:            deps.ChannelsRepo,
 		channelIdentitiesRepo:   deps.ChannelIdentitiesRepo,
+		channelIdentityLinksRepo: deps.ChannelIdentityLinksRepo,
 		channelBindCodesRepo:    deps.ChannelBindCodesRepo,
 		channelDMThreadsRepo:    deps.ChannelDMThreadsRepo,
 		channelGroupThreadsRepo: deps.ChannelGroupThreadsRepo,

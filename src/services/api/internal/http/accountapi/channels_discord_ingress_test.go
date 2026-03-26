@@ -32,6 +32,7 @@ type discordChannelsTestEnv struct {
 	projectID             uuid.UUID
 	channelsRepo          *data.ChannelsRepository
 	channelIdentitiesRepo *data.ChannelIdentitiesRepository
+	channelIdentityLinksRepo *data.ChannelIdentityLinksRepository
 	channelBindCodesRepo  *data.ChannelBindCodesRepository
 	channelDMThreadsRepo  *data.ChannelDMThreadsRepository
 	channelReceiptsRepo   *data.ChannelMessageReceiptsRepository
@@ -97,6 +98,10 @@ func setupDiscordChannelsTestEnv(t *testing.T, botClient *discordbot.Client) dis
 	channelIdentitiesRepo, err := data.NewChannelIdentitiesRepository(pool)
 	if err != nil {
 		t.Fatalf("channel identities repo: %v", err)
+	}
+	channelIdentityLinksRepo, err := data.NewChannelIdentityLinksRepository(pool)
+	if err != nil {
+		t.Fatalf("channel identity links repo: %v", err)
 	}
 	channelBindCodesRepo, err := data.NewChannelBindCodesRepository(pool)
 	if err != nil {
@@ -221,6 +226,7 @@ func setupDiscordChannelsTestEnv(t *testing.T, botClient *discordbot.Client) dis
 		SecretsRepo:             secretsRepo,
 		ChannelsRepo:            channelsRepo,
 		ChannelIdentitiesRepo:   channelIdentitiesRepo,
+		ChannelIdentityLinksRepo: channelIdentityLinksRepo,
 		ChannelBindCodesRepo:    channelBindCodesRepo,
 		ChannelDMThreadsRepo:    channelDMThreadsRepo,
 		ChannelGroupThreadsRepo: channelGroupThreadsRepo,
@@ -245,6 +251,7 @@ func setupDiscordChannelsTestEnv(t *testing.T, botClient *discordbot.Client) dis
 		projectID:             project.ID,
 		channelsRepo:          channelsRepo,
 		channelIdentitiesRepo: channelIdentitiesRepo,
+		channelIdentityLinksRepo: channelIdentityLinksRepo,
 		channelBindCodesRepo:  channelBindCodesRepo,
 		channelDMThreadsRepo:  channelDMThreadsRepo,
 		channelReceiptsRepo:   channelReceiptsRepo,
@@ -263,6 +270,7 @@ func (e discordChannelsTestEnv) connector() discordConnector {
 	return discordConnector{
 		channelsRepo:          e.channelsRepo,
 		channelIdentitiesRepo: e.channelIdentitiesRepo,
+		channelIdentityLinksRepo: e.channelIdentityLinksRepo,
 		channelBindCodesRepo:  e.channelBindCodesRepo,
 		channelDMThreadsRepo:  e.channelDMThreadsRepo,
 		channelReceiptsRepo:   e.channelReceiptsRepo,

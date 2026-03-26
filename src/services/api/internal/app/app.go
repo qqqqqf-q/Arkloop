@@ -246,6 +246,7 @@ func (a *Application) Run(ctx context.Context) error {
 		webhookRepo                  *data.WebhookEndpointRepository
 		channelsRepo                 *data.ChannelsRepository
 		channelIdentitiesRepo        *data.ChannelIdentitiesRepository
+		channelIdentityLinksRepo     *data.ChannelIdentityLinksRepository
 		channelBindCodesRepo         *data.ChannelBindCodesRepository
 		channelDMThreadsRepo         *data.ChannelDMThreadsRepository
 		channelGroupThreadsRepo      *data.ChannelGroupThreadsRepository
@@ -412,6 +413,10 @@ func (a *Application) Run(ctx context.Context) error {
 			return err
 		}
 		channelIdentitiesRepo, err = data.NewChannelIdentitiesRepository(pool)
+		if err != nil {
+			return err
+		}
+		channelIdentityLinksRepo, err = data.NewChannelIdentityLinksRepository(pool)
 		if err != nil {
 			return err
 		}
@@ -677,13 +682,14 @@ func (a *Application) Run(ctx context.Context) error {
 		}
 	}
 	discordClient := discordbot.NewClient("", nil)
-	if channelsRepo != nil && channelIdentitiesRepo != nil && channelBindCodesRepo != nil &&
+	if channelsRepo != nil && channelIdentitiesRepo != nil && channelIdentityLinksRepo != nil && channelBindCodesRepo != nil &&
 		channelDMThreadsRepo != nil && channelReceiptsRepo != nil && secretsRepo != nil &&
 		personasRepo != nil && threadRepo != nil && messageRepo != nil &&
 		runEventRepo != nil && jobRepo != nil && creditsRepo != nil && pool != nil {
 		accountapi.StartDiscordIngressRunner(ctx, accountapi.DiscordIngressRunnerDeps{
 			ChannelsRepo:          channelsRepo,
 			ChannelIdentitiesRepo: channelIdentitiesRepo,
+			ChannelIdentityLinksRepo: channelIdentityLinksRepo,
 			ChannelBindCodesRepo:  channelBindCodesRepo,
 			ChannelDMThreadsRepo:  channelDMThreadsRepo,
 			ChannelReceiptsRepo:   channelReceiptsRepo,
@@ -744,6 +750,7 @@ func (a *Application) Run(ctx context.Context) error {
 			WebhookRepo:                  webhookRepo,
 			ChannelsRepo:                 channelsRepo,
 			ChannelIdentitiesRepo:        channelIdentitiesRepo,
+			ChannelIdentityLinksRepo:     channelIdentityLinksRepo,
 			ChannelBindCodesRepo:         channelBindCodesRepo,
 			ChannelDMThreadsRepo:         channelDMThreadsRepo,
 			ChannelGroupThreadsRepo:      channelGroupThreadsRepo,
