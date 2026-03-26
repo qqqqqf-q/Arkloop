@@ -3,6 +3,7 @@ package data
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"arkloop/services/shared/runkind"
@@ -20,11 +21,18 @@ type ScheduledTriggerRow struct {
 	AccountID         uuid.UUID
 	Model             string
 	IntervalMin       int
-	NextFireAt       time.Time
+	NextFireAt        time.Time
 }
 
 // ScheduledTriggersRepository provides heartbeat scheduling operations.
 type ScheduledTriggersRepository struct{}
+
+func normalizeHeartbeatInterval(intervalMin int) int {
+	if intervalMin <= 0 {
+		return runkind.DefaultHeartbeatIntervalMinutes
+	}
+	return intervalMin
+}
 
 // UpsertHeartbeat registers or updates a heartbeat schedule for a channel identity.
 func (ScheduledTriggersRepository) UpsertHeartbeat(
@@ -39,9 +47,7 @@ func (ScheduledTriggersRepository) UpsertHeartbeat(
 	if channelIdentityID == uuid.Nil {
 		return errors.New("channel_identity_id must not be empty")
 	}
-	if intervalMin <= 0 {
-		intervalMin = runkind.DefaultHeartbeatIntervalMinutes
-	}
+	intervalMin = normalizeHeartbeatInterval(intervalMin)
 	nextFire := time.Now().UTC().Add(time.Duration(intervalMin) * time.Minute)
 	_, err := db.Exec(ctx, `
 		INSERT INTO scheduled_triggers
@@ -52,11 +58,102 @@ func (ScheduledTriggersRepository) UpsertHeartbeat(
 		        account_id    = excluded.account_id,
 		        model         = excluded.model,
 		        interval_min  = excluded.interval_min,
-		        next_fire_at  = excluded.next_fire_at,
 		        updated_at    = now()`,
 		channelIdentityID, personaKey, accountID, model, intervalMin, nextFire,
 	)
 	return err
+}
+
+// GetHeartbeat returns the existing trigger for a channel identity.
+func (ScheduledTriggersRepository) GetHeartbeat(
+	ctx context.Context,
+	db Querier,
+	channelIdentityID uuid.UUID,
+) (*ScheduledTriggerRow, error) {
+	if channelIdentityID == uuid.Nil {
+		return nil, errors.New("channel_identity_id must not be empty")
+	}
+
+	var row ScheduledTriggerRow
+	err := db.QueryRow(ctx, `
+		SELECT id, channel_identity_id, persona_key, account_id, model, interval_min, next_fire_at
+		  FROM scheduled_triggers
+		 WHERE channel_identity_id = $1`,
+		channelIdentityID,
+	).Scan(
+		&row.ID,
+		&row.ChannelIdentityID,
+		&row.PersonaKey,
+		&row.AccountID,
+		&row.Model,
+		&row.IntervalMin,
+		&row.NextFireAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &row, nil
+}
+
+// ResetHeartbeatNextFire sets next_fire_at to now + interval_min for the provided channel identity.
+func (ScheduledTriggersRepository) ResetHeartbeatNextFire(
+	ctx context.Context,
+	db Querier,
+	channelIdentityID uuid.UUID,
+	intervalMin int,
+) (time.Time, error) {
+	if channelIdentityID == uuid.Nil {
+		return time.Time{}, errors.New("channel_identity_id must not be empty")
+	}
+	intervalMin = normalizeHeartbeatInterval(intervalMin)
+	nextFire := time.Now().UTC().Add(time.Duration(intervalMin) * time.Minute)
+	cmd, err := db.Exec(ctx, `
+		UPDATE scheduled_triggers
+		   SET interval_min = $1,
+		       next_fire_at = $2,
+		       updated_at = now()
+		 WHERE channel_identity_id = $3`,
+		intervalMin, nextFire, channelIdentityID,
+	)
+	if err != nil {
+		return time.Time{}, err
+	}
+	if cmd.RowsAffected() == 0 {
+		return time.Time{}, fmt.Errorf("reset heartbeat next fire: channel_identity_id %s not found", channelIdentityID)
+	}
+	return nextFire, nil
+}
+
+// RescheduleHeartbeatNextFireAt forces next_fire_at to the provided time for the given trigger ID.
+func (ScheduledTriggersRepository) RescheduleHeartbeatNextFireAt(
+	ctx context.Context,
+	db Querier,
+	id uuid.UUID,
+	nextFireAt time.Time,
+) error {
+	if id == uuid.Nil {
+		return errors.New("id must not be empty")
+	}
+	if nextFireAt.IsZero() {
+		return errors.New("next_fire_at must not be zero")
+	}
+	cmd, err := db.Exec(ctx, `
+		UPDATE scheduled_triggers
+		   SET next_fire_at = $1,
+		       updated_at = now()
+		 WHERE id = $2`,
+		nextFireAt, id,
+	)
+	if err != nil {
+		return err
+	}
+	if cmd.RowsAffected() == 0 {
+		return fmt.Errorf("reschedule heartbeat: id %s not found", id)
+	}
+	return nil
 }
 
 // DeleteHeartbeat removes a channel identity's heartbeat schedule.
@@ -72,8 +169,29 @@ func (ScheduledTriggersRepository) DeleteHeartbeat(
 	return err
 }
 
+// GetEarliestHeartbeatDue returns the earliest scheduled next_fire_at.
+func (ScheduledTriggersRepository) GetEarliestHeartbeatDue(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+) (*time.Time, error) {
+	var next time.Time
+	err := pool.QueryRow(ctx, `
+		SELECT next_fire_at
+		  FROM scheduled_triggers
+		 ORDER BY next_fire_at ASC
+		 LIMIT 1`,
+	).Scan(&next)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &next, nil
+}
+
 // ClaimDueHeartbeats fetches up to limit rows whose next_fire_at is due,
-// advances next_fire_at by interval_min, and returns the claimed rows.
+// advances next_fire_at based on the original schedule, and returns the claimed rows.
 func (ScheduledTriggersRepository) ClaimDueHeartbeats(
 	ctx context.Context,
 	pool *pgxpool.Pool,
@@ -83,17 +201,38 @@ func (ScheduledTriggersRepository) ClaimDueHeartbeats(
 		limit = 8
 	}
 	rows, err := pool.Query(ctx, `
-		UPDATE scheduled_triggers
-		   SET next_fire_at = now() + (interval_min * interval '1 minute'),
-		       updated_at   = now()
-		 WHERE id IN (
-		     SELECT id FROM scheduled_triggers
-		      WHERE next_fire_at <= now()
-		      ORDER BY next_fire_at ASC
-		      LIMIT $1
-		      FOR UPDATE SKIP LOCKED
-		 )
-		RETURNING id, channel_identity_id, persona_key, account_id, model, interval_min, next_fire_at`,
+        WITH due AS (
+             SELECT id,
+                    channel_identity_id,
+                    persona_key,
+                    account_id,
+                    model,
+                    interval_min,
+                    next_fire_at,
+                    GREATEST(interval_min, 1) AS effective_interval
+               FROM scheduled_triggers
+              WHERE next_fire_at <= now()
+              ORDER BY next_fire_at ASC
+              LIMIT $1
+              FOR UPDATE SKIP LOCKED
+        ),
+        due_with_steps AS (
+             SELECT *,
+                    1 + CAST(FLOOR(EXTRACT(EPOCH FROM now() - next_fire_at) / (effective_interval * 60.0)) AS INT) AS intervals
+               FROM due
+        )
+        UPDATE scheduled_triggers
+           SET next_fire_at = due_with_steps.next_fire_at + (due_with_steps.effective_interval * due_with_steps.intervals) * interval '1 minute',
+               updated_at   = now()
+          FROM due_with_steps
+         WHERE scheduled_triggers.id = due_with_steps.id
+        RETURNING scheduled_triggers.id,
+                  scheduled_triggers.channel_identity_id,
+                  scheduled_triggers.persona_key,
+                  scheduled_triggers.account_id,
+                  scheduled_triggers.model,
+                  scheduled_triggers.interval_min,
+                  scheduled_triggers.next_fire_at`,
 		limit,
 	)
 	if err != nil {

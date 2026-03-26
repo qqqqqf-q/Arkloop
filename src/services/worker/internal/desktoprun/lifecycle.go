@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"arkloop/services/shared/eventbus"
 	"arkloop/services/worker/internal/data"
 	"arkloop/services/worker/internal/events"
 	"arkloop/services/worker/internal/queue"
@@ -37,6 +38,7 @@ var desktopTerminalEventStatus = map[string]string{
 type lifecycleManager struct {
 	db      data.DesktopDB
 	queue   queue.JobQueue
+	bus     eventbus.EventBus
 	logger  *slog.Logger
 	timeout time.Duration
 }
@@ -49,7 +51,7 @@ type desktopRunSnapshot struct {
 	LastActivity  time.Time
 }
 
-func newLifecycleManager(db data.DesktopDB, q queue.JobQueue, logger *slog.Logger) *lifecycleManager {
+func newLifecycleManager(db data.DesktopDB, q queue.JobQueue, bus eventbus.EventBus, logger *slog.Logger) *lifecycleManager {
 	timeoutMinutes := defaultDesktopRunTimeoutMinutes
 	if raw := strings.TrimSpace(os.Getenv(desktopRunTimeoutEnv)); raw != "" {
 		if value, err := strconv.Atoi(raw); err == nil && value > 0 {
@@ -59,6 +61,7 @@ func newLifecycleManager(db data.DesktopDB, q queue.JobQueue, logger *slog.Logge
 	return &lifecycleManager{
 		db:      db,
 		queue:   q,
+		bus:     bus,
 		logger:  logger,
 		timeout: time.Duration(timeoutMinutes) * time.Minute,
 	}
@@ -82,7 +85,7 @@ func (m *lifecycleManager) Start(ctx context.Context) {
 		return
 	}
 	go m.reaperLoop(ctx)
-	go startDesktopLLMHeartbeatScheduler(ctx, m.db, m.queue)
+	go startDesktopLLMHeartbeatScheduler(ctx, m.db, m.queue, m.bus)
 }
 
 func (m *lifecycleManager) reaperLoop(ctx context.Context) {

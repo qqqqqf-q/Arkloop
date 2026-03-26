@@ -4,49 +4,47 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"os"
-	"strconv"
-	"strings"
 	"time"
 
 	"arkloop/services/api/internal/data"
 	"arkloop/services/api/internal/observability"
+	"arkloop/services/shared/pgnotify"
 	"arkloop/services/shared/runkind"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+const heartbeatSchedulerReconnectDelay = 2 * time.Second
+
 type LLMHeartbeat struct {
-	pool         *pgxpool.Pool
-	jobs         *data.JobRepository
-	runs         *data.RunEventRepository
-	threads      *data.ThreadRepository
-	runLimiter   *data.RunLimiter
-	triggers     data.ScheduledTriggersRepository
-	tickInterval time.Duration
+	pool       *pgxpool.Pool
+	notifyPool *pgxpool.Pool
+	jobs       *data.JobRepository
+	runs       *data.RunEventRepository
+	threads    *data.ThreadRepository
+	runLimiter *data.RunLimiter
+	triggers   data.ScheduledTriggersRepository
 }
 
 func NewLLMHeartbeat(
 	pool *pgxpool.Pool,
+	notifyPool *pgxpool.Pool,
 	jobs *data.JobRepository,
 	runs *data.RunEventRepository,
 	threads *data.ThreadRepository,
 	runLimiter *data.RunLimiter,
 ) *LLMHeartbeat {
-	interval := 30 * time.Second
-	if raw := strings.TrimSpace(os.Getenv("ARKLOOP_LLM_HEARTBEAT_TICK_SECONDS")); raw != "" {
-		if v, err := strconv.Atoi(raw); err == nil && v > 0 {
-			interval = time.Duration(v) * time.Second
-		}
+	if notifyPool == nil {
+		notifyPool = pool
 	}
 	return &LLMHeartbeat{
-		pool:         pool,
-		jobs:         jobs,
-		runs:         runs,
-		threads:      threads,
-		runLimiter:   runLimiter,
-		tickInterval: interval,
+		pool:       pool,
+		notifyPool: notifyPool,
+		jobs:       jobs,
+		runs:       runs,
+		threads:    threads,
+		runLimiter: runLimiter,
 	}
 }
 
@@ -54,27 +52,129 @@ func (s *LLMHeartbeat) Run(ctx context.Context) {
 	if s.pool == nil || s.jobs == nil || s.runs == nil || s.threads == nil {
 		return
 	}
-	ticker := time.NewTicker(s.tickInterval)
-	defer ticker.Stop()
+
+	wakeCh := make(chan struct{}, 1)
+	s.signalWake(wakeCh)
+	if s.notifyPool != nil {
+		go s.listenForWake(ctx, wakeCh)
+	}
+
 	for {
+		dueAt, err := s.triggers.GetEarliestHeartbeatDue(ctx, s.pool)
+		if err != nil {
+			slog.ErrorContext(ctx, "llm_heartbeat_due_lookup_failed", "error", err)
+			if !waitForWake(ctx, wakeCh, heartbeatSchedulerReconnectDelay) {
+				return
+			}
+			continue
+		}
+		hasSchedule := dueAt != nil
+		slog.DebugContext(ctx, "llm_heartbeat_next_scheduled", "next_fire_at", formatNextFire(dueAt), "has_schedule", hasSchedule)
+
+		if dueAt == nil {
+			slog.DebugContext(ctx, "llm_heartbeat_waiting", "state", "idle")
+			select {
+			case <-ctx.Done():
+				return
+			case <-wakeCh:
+				continue
+			}
+		}
+
+		delay := time.Until(dueAt.UTC())
+		if delay < 0 {
+			delay = 0
+		}
+		slog.DebugContext(ctx, "llm_heartbeat_timer_armed", "next_fire_at", dueAt.UTC(), "delay", delay)
+		timer := time.NewTimer(delay)
 		select {
 		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
 			return
-		case <-ticker.C:
-			s.tick(ctx)
+		case <-wakeCh:
+			if !timer.Stop() {
+				<-timer.C
+			}
+			continue
+		case <-timer.C:
+		}
+
+		rows, err := s.triggers.ClaimDueHeartbeats(ctx, s.pool, 8)
+		if err != nil {
+			slog.ErrorContext(ctx, "llm_heartbeat_claim_failed", "error", err)
+			continue
+		}
+		if len(rows) > 0 {
+			slog.InfoContext(ctx, "llm_heartbeat_due_claimed", "count", len(rows))
+		}
+		for _, row := range rows {
+			s.fireOne(ctx, row)
 		}
 	}
 }
 
-func (s *LLMHeartbeat) tick(ctx context.Context) {
-	rows, err := s.triggers.ClaimDueHeartbeats(ctx, s.pool, 8)
+func (s *LLMHeartbeat) listenForWake(ctx context.Context, wakeCh chan<- struct{}) {
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+		if err := s.listenOnce(ctx, wakeCh); err != nil && ctx.Err() == nil {
+			slog.WarnContext(ctx, "llm_heartbeat_notify_lost", "error", err)
+		}
+		s.signalWake(wakeCh)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(heartbeatSchedulerReconnectDelay):
+		}
+	}
+}
+
+func (s *LLMHeartbeat) listenOnce(ctx context.Context, wakeCh chan<- struct{}) error {
+	conn, err := s.notifyPool.Acquire(ctx)
 	if err != nil {
-		slog.ErrorContext(ctx, "llm_heartbeat_claim_failed", "error", err)
-		return
+		return err
 	}
-	for _, row := range rows {
-		s.fireOne(ctx, row)
+	defer conn.Release()
+
+	if _, err := conn.Exec(ctx, `LISTEN "`+pgnotify.ChannelHeartbeat+`"`); err != nil {
+		return err
 	}
+	for {
+		if _, err := conn.Conn().WaitForNotification(ctx); err != nil {
+			return err
+		}
+		s.signalWake(wakeCh)
+	}
+}
+
+func (s *LLMHeartbeat) signalWake(wakeCh chan<- struct{}) {
+	select {
+	case wakeCh <- struct{}{}:
+	default:
+	}
+}
+
+func waitForWake(ctx context.Context, wakeCh <-chan struct{}, delay time.Duration) bool {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-wakeCh:
+		return true
+	case <-timer.C:
+		return true
+	}
+}
+
+func formatNextFire(next *time.Time) any {
+	if next == nil {
+		return nil
+	}
+	return next.UTC()
 }
 
 func (s *LLMHeartbeat) fireOne(ctx context.Context, row data.ScheduledTriggerRow) {
@@ -94,7 +194,7 @@ func (s *LLMHeartbeat) fireOne(ctx context.Context, row data.ScheduledTriggerRow
 		_ = s.triggers.PostponeHeartbeat(ctx, s.pool, row.ID, 2*time.Minute)
 		return
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback(ctx) //nolint:errcheck
 
 	runRepoTx := s.runs.WithTx(tx)
 	jobRepoTx := s.jobs.WithTx(tx)
@@ -130,7 +230,6 @@ func (s *LLMHeartbeat) fireOne(ctx context.Context, row data.ScheduledTriggerRow
 	}
 
 	traceID := observability.NewTraceID()
-
 	payload := map[string]any{
 		"source":                     "llm_heartbeat_scheduler",
 		"run_kind":                   runkind.Heartbeat,

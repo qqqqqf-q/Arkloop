@@ -7,6 +7,9 @@ import (
 	"fmt"
 	"time"
 
+	"arkloop/services/shared/pgnotify"
+	"arkloop/services/shared/runkind"
+
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
@@ -151,6 +154,9 @@ func (r *ChannelIdentitiesRepository) UpdateHeartbeatConfig(ctx context.Context,
 	if enabled {
 		enabledInt = 1
 	}
+	if intervalMinutes <= 0 {
+		intervalMinutes = runkind.DefaultHeartbeatIntervalMinutes
+	}
 	tag, err := r.db.Exec(ctx,
 		`UPDATE channel_identities
 		    SET heartbeat_enabled = $2,
@@ -166,6 +172,36 @@ func (r *ChannelIdentitiesRepository) UpdateHeartbeatConfig(ctx context.Context,
 	if tag.RowsAffected() == 0 {
 		return fmt.Errorf("channel_identities.UpdateHeartbeatConfig: not found")
 	}
+
+	now := time.Now().UTC()
+	if !enabled {
+		if _, err := r.db.Exec(ctx,
+			`DELETE FROM scheduled_triggers WHERE channel_identity_id = $1`,
+			id,
+		); err != nil {
+			return fmt.Errorf("channel_identities.UpdateHeartbeatConfig: delete trigger: %w", err)
+		}
+	} else {
+		nextFire := now.Add(time.Duration(intervalMinutes) * time.Minute)
+		if _, err := r.db.Exec(ctx, `
+			UPDATE scheduled_triggers
+			   SET interval_min = $2,
+			       model = $3,
+			       next_fire_at = CASE
+			           WHEN interval_min <> $2 THEN $4
+			           ELSE next_fire_at
+			       END,
+			       updated_at = now()
+			 WHERE channel_identity_id = $1`,
+			id,
+			intervalMinutes,
+			model,
+			nextFire,
+		); err != nil {
+			return fmt.Errorf("channel_identities.UpdateHeartbeatConfig: sync trigger: %w", err)
+		}
+	}
+	_, _ = r.db.Exec(ctx, "SELECT pg_notify($1, '')", pgnotify.ChannelHeartbeat)
 	return nil
 }
 

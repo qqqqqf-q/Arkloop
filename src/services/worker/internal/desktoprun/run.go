@@ -17,8 +17,8 @@ import (
 	api "arkloop/services/api"
 	"arkloop/services/shared/database/sqlitepgx"
 	"arkloop/services/shared/desktop"
-	sharedlog "arkloop/services/shared/log"
 	"arkloop/services/shared/eventbus"
+	sharedlog "arkloop/services/shared/log"
 	"arkloop/services/worker/internal/app"
 	"arkloop/services/worker/internal/consumer"
 	"arkloop/services/worker/internal/data"
@@ -101,7 +101,7 @@ func RunDesktop(ctx context.Context) error {
 		return fmt.Errorf("compose desktop engine: %w", err)
 	}
 
-	lifecycle := newLifecycleManager(db, cq, logger)
+	lifecycle := newLifecycleManager(db, cq, bus, logger)
 	if err := lifecycle.Bootstrap(ctx); err != nil {
 		return fmt.Errorf("desktop lifecycle bootstrap: %w", err)
 	}

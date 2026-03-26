@@ -11,6 +11,9 @@ import (
 	"strings"
 	"time"
 
+	shareddesktop "arkloop/services/shared/desktop"
+	"arkloop/services/shared/eventbus"
+	"arkloop/services/shared/pgnotify"
 	"arkloop/services/shared/runkind"
 	"arkloop/services/shared/telegrambot"
 	"arkloop/services/worker/internal/tools"
@@ -188,8 +191,8 @@ func (e *Executor) Execute(ctx context.Context, toolName string, args map[string
 
 	return tools.ExecutionResult{
 		ResultJSON: map[string]any{
-			"ok":     true,
-			"action": action,
+			"ok":      true,
+			"action":  action,
 			"message": replyText,
 		},
 		DurationMs: ms(),
@@ -233,6 +236,15 @@ func (e *Executor) setEnabled(ctx context.Context, identityID uuid.UUID, enabled
 	if err != nil {
 		return "", fmt.Errorf("update heartbeat enabled: %w", err)
 	}
+	if enabled == 0 {
+		if _, err := e.db.Exec(ctx,
+			`DELETE FROM scheduled_triggers WHERE channel_identity_id = $1`,
+			identityID.String(),
+		); err != nil {
+			return "", fmt.Errorf("delete heartbeat trigger: %w", err)
+		}
+		e.notifyHeartbeatScheduler(ctx)
+	}
 	status := "disabled"
 	if enabled == 1 {
 		status = fmt.Sprintf("enabled (interval: %d min)", interval)
@@ -248,6 +260,20 @@ func (e *Executor) setInterval(ctx context.Context, identityID uuid.UUID, interv
 	if err != nil {
 		return "", fmt.Errorf("update heartbeat interval: %w", err)
 	}
+	if _, err := e.db.Exec(ctx,
+		`UPDATE scheduled_triggers
+		    SET interval_min = $1,
+		        next_fire_at = $2,
+		        updated_at = $3
+		  WHERE channel_identity_id = $4`,
+		interval,
+		time.Now().UTC().Add(time.Duration(interval)*time.Minute).Format(time.RFC3339Nano),
+		time.Now().UTC().Format(time.RFC3339Nano),
+		identityID.String(),
+	); err != nil {
+		return "", fmt.Errorf("update heartbeat trigger interval: %w", err)
+	}
+	e.notifyHeartbeatScheduler(ctx)
 	return fmt.Sprintf("Heartbeat interval set to %d minutes", interval), nil
 }
 
@@ -259,11 +285,31 @@ func (e *Executor) setModel(ctx context.Context, identityID uuid.UUID, model str
 	if err != nil {
 		return "", fmt.Errorf("update heartbeat model: %w", err)
 	}
+	if _, err := e.db.Exec(ctx,
+		`UPDATE scheduled_triggers
+		    SET model = $1,
+		        updated_at = $2
+		  WHERE channel_identity_id = $3`,
+		model,
+		time.Now().UTC().Format(time.RFC3339Nano),
+		identityID.String(),
+	); err != nil {
+		return "", fmt.Errorf("update heartbeat trigger model: %w", err)
+	}
+	e.notifyHeartbeatScheduler(ctx)
 	modelDisplay := "(follow conversation)"
 	if model != "" {
 		modelDisplay = model
 	}
 	return fmt.Sprintf("Heartbeat model set to %s", modelDisplay), nil
+}
+
+func (e *Executor) notifyHeartbeatScheduler(ctx context.Context) {
+	bus, ok := shareddesktop.GetEventBus().(eventbus.EventBus)
+	if !ok || bus == nil {
+		return
+	}
+	_ = bus.Publish(ctx, pgnotify.ChannelHeartbeat, "")
 }
 
 // getGroupIdentityID 通过 channel_type + platform_subject_id 查群的 channel_identities.id。

@@ -500,7 +500,7 @@ func (a *Application) Run(ctx context.Context) error {
 			return err
 		}
 
-		hbSched := scheduler.NewLLMHeartbeat(pool, jobRepo, runEventRepo, threadRepo, runLimiter)
+		hbSched := scheduler.NewLLMHeartbeat(pool, directPool, jobRepo, runEventRepo, threadRepo, runLimiter)
 		go hbSched.Run(ctx)
 
 		emailVerifyTokenRepo, err = data.NewEmailVerificationTokenRepository(pool)

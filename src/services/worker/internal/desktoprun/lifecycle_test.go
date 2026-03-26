@@ -84,7 +84,7 @@ func TestLifecycleBootstrapRecoversRecentRun(t *testing.T) {
 	})
 
 	q := &lifecycleQueueStub{}
-	manager := newLifecycleManager(db, q, nil)
+	manager := newLifecycleManager(db, q, nil, nil)
 	if err := manager.Bootstrap(ctx); err != nil {
 		t.Fatalf("bootstrap failed: %v", err)
 	}
@@ -122,7 +122,7 @@ func TestLifecycleReapStaleRunUsesTwoStages(t *testing.T) {
 	})
 
 	q := &lifecycleQueueStub{}
-	manager := newLifecycleManager(db, q, nil)
+	manager := newLifecycleManager(db, q, nil, nil)
 	if err := manager.reapOnce(ctx); err != nil {
 		t.Fatalf("first reap failed: %v", err)
 	}
@@ -198,7 +198,7 @@ func TestLifecycleBootstrapSyncsTerminalStatusFromEvents(t *testing.T) {
 	})
 
 	q := &lifecycleQueueStub{}
-	manager := newLifecycleManager(db, q, nil)
+	manager := newLifecycleManager(db, q, nil, nil)
 	if err := manager.Bootstrap(ctx); err != nil {
 		t.Fatalf("bootstrap failed: %v", err)
 	}

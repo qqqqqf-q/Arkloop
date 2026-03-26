@@ -32,6 +32,13 @@ type ScheduledTriggerRow struct {
 // ScheduledTriggersRepository 是 SQLite 实现（desktop）。
 type ScheduledTriggersRepository struct{}
 
+func normalizeHeartbeatInterval(intervalMin int) int {
+	if intervalMin <= 0 {
+		return runkind.DefaultHeartbeatIntervalMinutes
+	}
+	return intervalMin
+}
+
 // HeartbeatThreadContext 保存心跳 run 所需的线程/渠道上下文。
 type HeartbeatThreadContext struct {
 	ThreadID         uuid.UUID
@@ -56,9 +63,7 @@ func (ScheduledTriggersRepository) UpsertHeartbeat(
 	if channelIdentityID == uuid.Nil {
 		return fmt.Errorf("channel_identity_id must not be empty")
 	}
-	if intervalMin <= 0 {
-		intervalMin = runkind.DefaultHeartbeatIntervalMinutes
-	}
+	intervalMin = normalizeHeartbeatInterval(intervalMin)
 	now := time.Now().UTC()
 	nextFire := now.Add(time.Duration(intervalMin) * time.Minute)
 	id := uuid.New()
@@ -71,13 +76,110 @@ func (ScheduledTriggersRepository) UpsertHeartbeat(
 		        account_id    = excluded.account_id,
 		        model         = excluded.model,
 		        interval_min  = excluded.interval_min,
-		        next_fire_at  = excluded.next_fire_at,
 		        updated_at    = excluded.updated_at`,
 		id, channelIdentityID, personaKey, accountID, model, intervalMin,
 		nextFire.Format(time.RFC3339Nano),
 		now.Format(time.RFC3339Nano),
 	)
 	return err
+}
+
+// GetHeartbeat returns the existing trigger for a channel identity.
+func (ScheduledTriggersRepository) GetHeartbeat(
+	ctx context.Context,
+	db DesktopDB,
+	channelIdentityID uuid.UUID,
+) (*ScheduledTriggerRow, error) {
+	if channelIdentityID == uuid.Nil {
+		return nil, fmt.Errorf("channel_identity_id must not be empty")
+	}
+
+	var row ScheduledTriggerRow
+	var idStr, identityStr, accountStr, nextFireRaw string
+	err := db.QueryRow(ctx, `
+		SELECT id, channel_identity_id, persona_key, account_id, model, interval_min, next_fire_at
+		  FROM scheduled_triggers
+		 WHERE channel_identity_id = $1`,
+		channelIdentityID.String(),
+	).Scan(&idStr, &identityStr, &row.PersonaKey, &accountStr, &row.Model, &row.IntervalMin, &nextFireRaw)
+	if err != nil {
+		if isNoRows(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	row.ID, _ = uuid.Parse(idStr)
+	row.ChannelIdentityID, _ = uuid.Parse(identityStr)
+	row.AccountID, _ = uuid.Parse(accountStr)
+	row.NextFireAt, err = time.Parse(time.RFC3339Nano, nextFireRaw)
+	if err != nil {
+		return nil, fmt.Errorf("parse next_fire_at: %w", err)
+	}
+	return &row, nil
+}
+
+// ResetHeartbeatNextFire sets next_fire_at to now + interval_min for the provided channel identity.
+func (ScheduledTriggersRepository) ResetHeartbeatNextFire(
+	ctx context.Context,
+	db DesktopDB,
+	channelIdentityID uuid.UUID,
+	intervalMin int,
+) (time.Time, error) {
+	if channelIdentityID == uuid.Nil {
+		return time.Time{}, fmt.Errorf("channel_identity_id must not be empty")
+	}
+	intervalMin = normalizeHeartbeatInterval(intervalMin)
+	nextFire := time.Now().UTC().Add(time.Duration(intervalMin) * time.Minute)
+	tag, err := db.Exec(ctx, `
+		UPDATE scheduled_triggers
+		   SET interval_min = $1,
+		       next_fire_at = $2,
+		       updated_at = $3
+		 WHERE channel_identity_id = $4`,
+		intervalMin,
+		nextFire.Format(time.RFC3339Nano),
+		time.Now().UTC().Format(time.RFC3339Nano),
+		channelIdentityID.String(),
+	)
+	if err != nil {
+		return time.Time{}, err
+	}
+	if tag.RowsAffected() == 0 {
+		return time.Time{}, fmt.Errorf("reset heartbeat next fire: channel_identity_id %s not found", channelIdentityID)
+	}
+	return nextFire, nil
+}
+
+// RescheduleHeartbeatNextFireAt forces next_fire_at to the provided timestamp.
+func (ScheduledTriggersRepository) RescheduleHeartbeatNextFireAt(
+	ctx context.Context,
+	db DesktopDB,
+	id uuid.UUID,
+	nextFireAt time.Time,
+) error {
+	if id == uuid.Nil {
+		return fmt.Errorf("id must not be empty")
+	}
+	if nextFireAt.IsZero() {
+		return fmt.Errorf("next_fire_at must not be zero")
+	}
+	ts := nextFireAt.UTC().Format(time.RFC3339Nano)
+	tag, err := db.Exec(ctx, `
+		UPDATE scheduled_triggers
+		   SET next_fire_at = $1,
+		       updated_at = $2
+		 WHERE id = $3`,
+		ts,
+		time.Now().UTC().Format(time.RFC3339Nano),
+		id,
+	)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("reschedule heartbeat: id %s not found", id)
+	}
+	return nil
 }
 
 // DeleteHeartbeat 删除某个 channel identity 的 heartbeat 调度。
@@ -105,7 +207,7 @@ func (ScheduledTriggersRepository) ClaimDueHeartbeats(
 	}
 	now := time.Now().UTC()
 	rows, err := db.Query(ctx, `
-		SELECT id, channel_identity_id, persona_key, account_id, model, interval_min
+		SELECT id, channel_identity_id, persona_key, account_id, model, interval_min, next_fire_at
 		  FROM scheduled_triggers
 		 WHERE next_fire_at <= $1
 		 ORDER BY next_fire_at ASC
@@ -117,35 +219,82 @@ func (ScheduledTriggersRepository) ClaimDueHeartbeats(
 	}
 	defer rows.Close()
 
-	var out []ScheduledTriggerRow
+	var pending []ScheduledTriggerRow
+	var pendingRaw []string
 	for rows.Next() {
 		var r ScheduledTriggerRow
-		var idStr, identityStr, accountStr string
-		if err := rows.Scan(&idStr, &identityStr, &r.PersonaKey, &accountStr, &r.Model, &r.IntervalMin); err != nil {
+		var idStr, identityStr, accountStr, nextFireRaw string
+		if err := rows.Scan(&idStr, &identityStr, &r.PersonaKey, &accountStr, &r.Model, &r.IntervalMin, &nextFireRaw); err != nil {
 			return nil, err
 		}
 		r.ID, _ = uuid.Parse(idStr)
 		r.ChannelIdentityID, _ = uuid.Parse(identityStr)
 		r.AccountID, _ = uuid.Parse(accountStr)
-		out = append(out, r)
+		r.NextFireAt, err = time.Parse(time.RFC3339Nano, nextFireRaw)
+		if err != nil {
+			return nil, fmt.Errorf("parse next_fire_at: %w", err)
+		}
+		pending = append(pending, r)
+		pendingRaw = append(pendingRaw, nextFireRaw)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
+	rows.Close()
 
-	// 将已取出的行的 next_fire_at 延后，防止重复投递
-	for _, r := range out {
-		next := now.Add(time.Duration(r.IntervalMin) * time.Minute)
-		if _, err := db.Exec(ctx,
-			`UPDATE scheduled_triggers SET next_fire_at = $1, updated_at = $2 WHERE id = $3 AND next_fire_at <= $1`,
+	var out []ScheduledTriggerRow
+	for i, r := range pending {
+		next := advanceHeartbeatNextFireAt(r.NextFireAt, now, r.IntervalMin)
+		tag, err := db.Exec(ctx,
+			`UPDATE scheduled_triggers
+			    SET next_fire_at = $1,
+			        updated_at = $2
+			  WHERE id = $3
+			    AND next_fire_at = $4
+			    AND interval_min = $5
+			    AND model = $6`,
 			next.Format(time.RFC3339Nano),
 			now.Format(time.RFC3339Nano),
 			r.ID,
-		); err != nil {
+			pendingRaw[i],
+			r.IntervalMin,
+			r.Model,
+		)
+		if err != nil {
 			return nil, err
 		}
+		if tag.RowsAffected() == 0 {
+			continue
+		}
+		r.NextFireAt = next
+		out = append(out, r)
 	}
 	return out, nil
+}
+
+// GetEarliestHeartbeatDue returns the earliest scheduled next_fire_at.
+func (ScheduledTriggersRepository) GetEarliestHeartbeatDue(
+	ctx context.Context,
+	db DesktopDB,
+) (*time.Time, error) {
+	var raw string
+	err := db.QueryRow(ctx,
+		`SELECT next_fire_at
+		   FROM scheduled_triggers
+		  ORDER BY next_fire_at ASC
+		  LIMIT 1`,
+	).Scan(&raw)
+	if err != nil {
+		if isNoRows(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	next, err := time.Parse(time.RFC3339Nano, raw)
+	if err != nil {
+		return nil, fmt.Errorf("parse next_fire_at: %w", err)
+	}
+	return &next, nil
 }
 
 // PostponeHeartbeat 将指定 ID 的 next_fire_at 延后 delay（出错时用于退避重试）。
@@ -161,6 +310,19 @@ func (ScheduledTriggersRepository) PostponeHeartbeat(
 		next.Format(time.RFC3339Nano), id,
 	)
 	return err
+}
+
+func advanceHeartbeatNextFireAt(oldNextFireAt, now time.Time, intervalMin int) time.Time {
+	intervalMin = normalizeHeartbeatInterval(intervalMin)
+	step := time.Duration(intervalMin) * time.Minute
+	next := oldNextFireAt.UTC()
+	if next.IsZero() {
+		next = now.UTC()
+	}
+	for !next.After(now) {
+		next = next.Add(step)
+	}
+	return next
 }
 
 func (ScheduledTriggersRepository) ResolveHeartbeatThread(
