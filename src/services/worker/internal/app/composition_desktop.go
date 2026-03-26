@@ -716,7 +716,18 @@ func desktopChannelDelivery(db data.DesktopDB) pipeline.RunMiddleware {
 				if sendErr != nil {
 					return sendErr
 				}
-				if err := recordDesktopChannelDelivery(ctx2, db, rc.Run.ID, rc.Run.ThreadID, rc.ChannelContext.ChannelID, rc.ChannelContext.Conversation.Target, nil, rc.ChannelContext.Conversation.ThreadID, ids); err != nil {
+				if err := recordDesktopChannelDelivery(
+					ctx2,
+					db,
+					rc.Run.ID,
+					rc.Run.ThreadID,
+					rc.ChannelContext.ChannelID,
+					rc.ChannelContext.ChannelType,
+					rc.ChannelContext.Conversation.Target,
+					nil,
+					rc.ChannelContext.Conversation.ThreadID,
+					ids,
+				); err != nil {
 					return err
 				}
 				streamMidCount++

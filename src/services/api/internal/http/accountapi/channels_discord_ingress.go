@@ -305,8 +305,11 @@ func (m *discordIngressManager) ensureCommands(ctx context.Context, channelID uu
 		}
 	}
 	commands := discordCommands()
-	if err := m.deps.DiscordClient.RegisterGlobalCommands(ctx, token, info.ApplicationID, commands); err != nil {
-		return err
+	if len(cfg.AllowedServerIDs) == 0 {
+		if err := m.deps.DiscordClient.RegisterGlobalCommands(ctx, token, info.ApplicationID, commands); err != nil {
+			return err
+		}
+		return nil
 	}
 	for _, guildID := range cfg.AllowedServerIDs {
 		if err := m.deps.DiscordClient.RegisterGuildCommands(ctx, token, info.ApplicationID, guildID, commands); err != nil {
