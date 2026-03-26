@@ -32,7 +32,6 @@ func startDesktopLLMHeartbeatScheduler(
 	}
 
 	wakeCh := make(chan struct{}, 1)
-	signalDesktopHeartbeatWake(wakeCh)
 	if bus != nil {
 		go listenDesktopHeartbeatWake(ctx, bus, wakeCh)
 	}
