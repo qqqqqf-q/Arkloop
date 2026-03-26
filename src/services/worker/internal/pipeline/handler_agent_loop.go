@@ -576,11 +576,13 @@ func ShouldSuppressHeartbeatOutput(rc *RunContext, output string) bool {
 	if rc == nil || !rc.HeartbeatRun {
 		return false
 	}
-	if rc.HeartbeatToolOutcome != nil {
-		// 明确 false 才发，true 或未设置均 suppress
-		return !rc.HeartbeatToolOutcome.ReplySilent
+	trimmed := strings.TrimSpace(output)
+	if trimmed == "" || trimmed == "HEARTBEAT_OK" || trimmed == "[No substantive content to send]" {
+		return true
 	}
-	// 未调用工具，suppress
+	if rc.HeartbeatToolOutcome != nil {
+		return rc.HeartbeatToolOutcome.ReplySilent
+	}
 	return true
 }
 

@@ -169,9 +169,31 @@ func TestShouldSuppressHeartbeatOutput(t *testing.T) {
 			want:   true,
 		},
 		{
-			name: "real heartbeat text still sends when tool missing",
+			name: "real heartbeat text still suppresses when tool missing",
 			rc: &RunContext{
 				HeartbeatRun: true,
+			},
+			output: "请关注今天 18:00 的发布窗口。",
+			want:   true,
+		},
+		{
+			name: "reply_silent=false but no substantive content suppresses",
+			rc: &RunContext{
+				HeartbeatRun: true,
+				HeartbeatToolOutcome: &HeartbeatDecisionOutcome{
+					ReplySilent: false,
+				},
+			},
+			output: "[No substantive content to send]",
+			want:   true,
+		},
+		{
+			name: "reply_silent=false with real text keeps output",
+			rc: &RunContext{
+				HeartbeatRun: true,
+				HeartbeatToolOutcome: &HeartbeatDecisionOutcome{
+					ReplySilent: false,
+				},
 			},
 			output: "请关注今天 18:00 的发布窗口。",
 			want:   false,
