@@ -207,7 +207,7 @@ func ServerConfigFromInstall(install EnabledInstall, headers map[string]string, 
 		}
 	}
 	if strings.TrimSpace(install.Transport) != "" {
-		if _, ok := spec["transport"]; !ok {
+		if rawTransport, ok := spec["transport"]; !ok || strings.TrimSpace(asString(rawTransport)) == "" {
 			spec["transport"] = strings.TrimSpace(install.Transport)
 		}
 	}
@@ -229,6 +229,54 @@ func ServerConfigFromInstall(install EnabledInstall, headers map[string]string, 
 		}
 	}
 	return server, nil
+}
+
+type InstallSecretDecryptor func(ctx context.Context, encrypted string, keyVersion *int) ([]byte, error)
+
+func ServerConfigsFromInstalls(ctx context.Context, installs []EnabledInstall, decrypt InstallSecretDecryptor, defaultTimeoutMs int) []ServerConfig {
+	servers := make([]ServerConfig, 0, len(installs))
+	for _, install := range installs {
+		headers, ok := decryptInstallHeaders(ctx, install, decrypt)
+		if !ok {
+			continue
+		}
+		server, err := ServerConfigFromInstall(install, headers, defaultTimeoutMs)
+		if err != nil {
+			continue
+		}
+		if err := CheckHostRequirement(server, install.HostRequirement); err != nil {
+			continue
+		}
+		servers = append(servers, server)
+	}
+	return servers
+}
+
+func decryptInstallHeaders(ctx context.Context, install EnabledInstall, decrypt InstallSecretDecryptor) (map[string]string, bool) {
+	headers := map[string]string{}
+	if install.EncryptedValue == nil {
+		if install.KeyVersion != nil {
+			return nil, false
+		}
+		return headers, true
+	}
+	if decrypt == nil {
+		return nil, false
+	}
+	payload, err := decrypt(ctx, *install.EncryptedValue, install.KeyVersion)
+	if err != nil {
+		return nil, false
+	}
+	if len(payload) == 0 {
+		return headers, true
+	}
+	if err := json.Unmarshal(payload, &headers); err != nil {
+		token := strings.TrimSpace(string(payload))
+		if token != "" {
+			headers["Authorization"] = "Bearer " + token
+		}
+	}
+	return headers, true
 }
 
 func CheckHostRequirement(server ServerConfig, requirement string) error {
