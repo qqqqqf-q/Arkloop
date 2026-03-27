@@ -22,7 +22,7 @@ const (
 
 const personaSelectColumns = `id, account_id, project_id, persona_key, version, display_name, description,
 	    soul_md, user_selectable, selector_name, selector_order,
-	    prompt_md, tool_allowlist, tool_denylist, COALESCE(core_tools, '{}'), budgets_json, roles_json, title_summarize_json,
+	    prompt_md, tool_allowlist, tool_denylist, COALESCE(core_tools, '{}'), budgets_json, roles_json, title_summarize_json, conditional_tools_json,
 	    is_active, created_at, updated_at,
 	    preferred_credential, model, reasoning_mode, stream_thinking, prompt_cache_control,
 	    executor_type, executor_config_json,
@@ -30,7 +30,7 @@ const personaSelectColumns = `id, account_id, project_id, persona_key, version, 
 
 const personaSelectColumnsQualified = `p.id, p.account_id, p.project_id, p.persona_key, p.version, p.display_name, p.description,
 	    p.soul_md, p.user_selectable, p.selector_name, p.selector_order,
-	    p.prompt_md, p.tool_allowlist, p.tool_denylist, COALESCE(p.core_tools, '{}'), p.budgets_json, p.roles_json, p.title_summarize_json,
+	    p.prompt_md, p.tool_allowlist, p.tool_denylist, COALESCE(p.core_tools, '{}'), p.budgets_json, p.roles_json, p.title_summarize_json, p.conditional_tools_json,
 	    p.is_active, p.created_at, p.updated_at,
 	    p.preferred_credential, p.model, p.reasoning_mode, p.stream_thinking, p.prompt_cache_control,
 	    p.executor_type, p.executor_config_json,
@@ -50,84 +50,87 @@ func (e PersonaConflictError) Error() string {
 }
 
 type Persona struct {
-	ID                  uuid.UUID
-	AccountID           *uuid.UUID
-	ProjectID           *uuid.UUID
-	PersonaKey          string
-	Version             string
-	DisplayName         string
-	Description         *string
-	SoulMD              string
-	UserSelectable      bool
-	SelectorName        *string
-	SelectorOrder       *int
-	PromptMD            string
-	ToolAllowlist       []string
-	ToolDenylist        []string
-	CoreTools           []string
-	BudgetsJSON         json.RawMessage
-	RolesJSON           json.RawMessage
-	TitleSummarizeJSON  json.RawMessage
-	IsActive            bool
-	CreatedAt           time.Time
-	UpdatedAt           time.Time
-	PreferredCredential *string
-	Model               *string
-	ReasoningMode       string
-	StreamThinking      bool
-	PromptCacheControl  string
-	ExecutorType        string
-	ExecutorConfigJSON  json.RawMessage
-	SyncMode            string
-	MirroredFileDir     *string
-	LastSyncedAt        *time.Time
+	ID                   uuid.UUID
+	AccountID            *uuid.UUID
+	ProjectID            *uuid.UUID
+	PersonaKey           string
+	Version              string
+	DisplayName          string
+	Description          *string
+	SoulMD               string
+	UserSelectable       bool
+	SelectorName         *string
+	SelectorOrder        *int
+	PromptMD             string
+	ToolAllowlist        []string
+	ToolDenylist         []string
+	CoreTools            []string
+	BudgetsJSON          json.RawMessage
+	RolesJSON            json.RawMessage
+	TitleSummarizeJSON   json.RawMessage
+	ConditionalToolsJSON json.RawMessage
+	IsActive             bool
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
+	PreferredCredential  *string
+	Model                *string
+	ReasoningMode        string
+	StreamThinking       bool
+	PromptCacheControl   string
+	ExecutorType         string
+	ExecutorConfigJSON   json.RawMessage
+	SyncMode             string
+	MirroredFileDir      *string
+	LastSyncedAt         *time.Time
 }
 
 type PersonaPatch struct {
-	DisplayName         *string
-	Description         *string
-	PromptMD            *string
-	ToolAllowlist       []string
-	ToolDenylist        []string
-	CoreTools           []string
-	BudgetsJSON         json.RawMessage
-	RolesJSON           json.RawMessage
-	IsActive            *bool
-	PreferredCredential *string
-	Model               *string
-	ReasoningMode       *string
-	StreamThinking      *bool
-	PromptCacheControl  *string
-	ExecutorType        *string
-	ExecutorConfigJSON  json.RawMessage
+	DisplayName          *string
+	Description          *string
+	PromptMD             *string
+	ToolAllowlist        []string
+	ToolDenylist         []string
+	CoreTools            []string
+	BudgetsJSON          json.RawMessage
+	RolesJSON            json.RawMessage
+	ConditionalToolsJSON json.RawMessage
+	IsActive             *bool
+	PreferredCredential  *string
+	Model                *string
+	ReasoningMode        *string
+	StreamThinking       *bool
+	PromptCacheControl   *string
+	ExecutorType         *string
+	ExecutorConfigJSON   json.RawMessage
 }
 
 type PlatformMirrorUpsertParams struct {
-	PersonaKey          string
-	Version             string
-	DisplayName         string
-	Description         *string
-	SoulMD              string
-	UserSelectable      bool
-	SelectorName        *string
-	SelectorOrder       *int
-	PromptMD            string
-	ToolAllowlist       []string
-	ToolDenylist        []string
-	CoreTools           []string
-	BudgetsJSON         json.RawMessage
-	RolesJSON           json.RawMessage
-	TitleSummarizeJSON  json.RawMessage
-	PreferredCredential *string
-	Model               *string
-	ReasoningMode       string
-	StreamThinking      *bool // nil: default true (SaaS / YAML omit)
-	PromptCacheControl  string
-	ExecutorType        string
-	ExecutorConfigJSON  json.RawMessage
-	IsActive            bool
-	MirroredFileDir     string
-	LastSyncedAt        *time.Time
+	PersonaKey           string
+	Version              string
+	DisplayName          string
+	Description          *string
+	SoulMD               string
+	UserSelectable       bool
+	SelectorName         *string
+	SelectorOrder        *int
+	PromptMD             string
+	ToolAllowlist        []string
+	ToolDenylist         []string
+	CoreTools            []string
+	BudgetsJSON          json.RawMessage
+	RolesJSON            json.RawMessage
+	TitleSummarizeJSON   json.RawMessage
+	ConditionalToolsJSON json.RawMessage
+	PreferredCredential  *string
+	Model                *string
+	ReasoningMode        string
+	StreamThinking       *bool // nil: default true (SaaS / YAML omit)
+	PromptCacheControl   string
+	ExecutorType         string
+	ExecutorConfigJSON   json.RawMessage
+	IsActive             bool
+	MirroredFileDir      string
+	LastSyncedAt         *time.Time
 }
 
 type PersonasRepository struct {
@@ -166,7 +169,7 @@ func scanPersona(scanner personaScanner, persona *Persona) error {
 		&persona.ID, &persona.AccountID, &persona.ProjectID, &persona.PersonaKey, &persona.Version,
 		&persona.DisplayName, &persona.Description,
 		&persona.SoulMD, &persona.UserSelectable, &persona.SelectorName, &persona.SelectorOrder,
-		&persona.PromptMD, &persona.ToolAllowlist, &persona.ToolDenylist, &persona.CoreTools, &persona.BudgetsJSON, &persona.RolesJSON, &persona.TitleSummarizeJSON,
+		&persona.PromptMD, &persona.ToolAllowlist, &persona.ToolDenylist, &persona.CoreTools, &persona.BudgetsJSON, &persona.RolesJSON, &persona.TitleSummarizeJSON, &persona.ConditionalToolsJSON,
 		&persona.IsActive, &persona.CreatedAt, &persona.UpdatedAt,
 		&persona.PreferredCredential, &persona.Model, &persona.ReasoningMode, &persona.StreamThinking, &persona.PromptCacheControl,
 		&persona.ExecutorType, &persona.ExecutorConfigJSON,
@@ -197,6 +200,7 @@ func (r *PersonasRepository) Create(
 	toolDenylist []string,
 	budgetsJSON json.RawMessage,
 	rolesJSON json.RawMessage,
+	conditionalToolsJSON json.RawMessage,
 	preferredCredential *string,
 	model *string,
 	reasoningMode string,
@@ -221,6 +225,7 @@ func (r *PersonasRepository) Create(
 		toolDenylist,
 		budgetsJSON,
 		rolesJSON,
+		conditionalToolsJSON,
 		preferredCredential,
 		model,
 		reasoningMode,
@@ -244,6 +249,7 @@ func (r *PersonasRepository) CreateInScope(
 	toolDenylist []string,
 	budgetsJSON json.RawMessage,
 	rolesJSON json.RawMessage,
+	conditionalToolsJSON json.RawMessage,
 	preferredCredential *string,
 	model *string,
 	reasoningMode string,
@@ -276,6 +282,7 @@ func (r *PersonasRepository) CreateInScope(
 		toolDenylist,
 		budgetsJSON,
 		rolesJSON,
+		conditionalToolsJSON,
 		preferredCredential,
 		model,
 		reasoningMode,
@@ -298,6 +305,7 @@ func (r *PersonasRepository) createWithProjectID(
 	toolDenylist []string,
 	budgetsJSON json.RawMessage,
 	rolesJSON json.RawMessage,
+	conditionalToolsJSON json.RawMessage,
 	preferredCredential *string,
 	model *string,
 	reasoningMode string,
@@ -328,6 +336,11 @@ func (r *PersonasRepository) createWithProjectID(
 	if len(rolesJSON) == 0 {
 		rolesJSON = json.RawMessage("{}")
 	}
+	validatedConditionalToolsJSON, err := validateConditionalToolsJSON(conditionalToolsJSON)
+	if err != nil {
+		return Persona{}, err
+	}
+	conditionalToolsJSON = validatedConditionalToolsJSON
 	if toolAllowlist == nil {
 		toolAllowlist = []string{}
 	}
@@ -366,14 +379,14 @@ func (r *PersonasRepository) createWithProjectID(
 		`INSERT INTO personas
 		    (project_id, persona_key, version, display_name, description, soul_md,
 		     user_selectable, selector_name, selector_order,
-		     prompt_md, tool_allowlist, tool_denylist, budgets_json, roles_json, title_summarize_json,
+		     prompt_md, tool_allowlist, tool_denylist, budgets_json, roles_json, title_summarize_json, conditional_tools_json,
 		     preferred_credential, model, reasoning_mode, stream_thinking, prompt_cache_control,
 		     executor_type, executor_config_json,
 		     sync_mode, mirrored_file_dir, updated_at)
-		 VALUES ($1, $2, $3, $4, $5, '', FALSE, NULL, NULL, $6, $7, $8, $9, $10, NULL, $11, $12, $13, $14, $15, $16, $17, $18, $19, now())
+		 VALUES ($1, $2, $3, $4, $5, '', FALSE, NULL, NULL, $6, $7, $8, $9, $10, NULL, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, now())
 		 RETURNING `+personaSelectColumns,
 		projectID, personaKey, version, displayName, description, promptMD,
-		toolAllowlist, toolDenylist, budgetsJSON, rolesJSON, preferredCredential,
+		toolAllowlist, toolDenylist, budgetsJSON, rolesJSON, conditionalToolsJSON, preferredCredential,
 		model, reasoningMode, streamThinking, promptCacheControl,
 		executorType, executorConfigJSON, syncMode, mirroredFileDir,
 	)
@@ -599,6 +612,10 @@ func (r *PersonasRepository) CloneToProject(ctx context.Context, projectID uuid.
 	if len(rolesJSON) == 0 {
 		rolesJSON = json.RawMessage("{}")
 	}
+	conditionalToolsJSON, err := validateConditionalToolsJSON(source.ConditionalToolsJSON)
+	if err != nil {
+		return Persona{}, err
+	}
 	executorConfigJSON := source.ExecutorConfigJSON
 	if len(executorConfigJSON) == 0 {
 		executorConfigJSON = json.RawMessage("{}")
@@ -610,16 +627,16 @@ func (r *PersonasRepository) CloneToProject(ctx context.Context, projectID uuid.
 	}
 
 	var persona Persona
-	err := scanPersona(r.db.QueryRow(
+	err = scanPersona(r.db.QueryRow(
 		ctx,
 		`INSERT INTO personas
 		    (project_id, persona_key, version, display_name, description, soul_md,
 		     user_selectable, selector_name, selector_order,
-		     prompt_md, tool_allowlist, tool_denylist, core_tools, budgets_json, roles_json, title_summarize_json,
+		     prompt_md, tool_allowlist, tool_denylist, core_tools, budgets_json, roles_json, title_summarize_json, conditional_tools_json,
 		     is_active, preferred_credential, model, reasoning_mode, stream_thinking, prompt_cache_control,
 		     executor_type, executor_config_json,
 		     sync_mode, mirrored_file_dir, updated_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, now())
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, now())
 		 RETURNING `+personaSelectColumns,
 		projectID,
 		source.PersonaKey,
@@ -637,6 +654,7 @@ func (r *PersonasRepository) CloneToProject(ctx context.Context, projectID uuid.
 		budgetsJSON,
 		rolesJSON,
 		titleSummarizeJSON,
+		conditionalToolsJSON,
 		source.IsActive,
 		source.PreferredCredential,
 		source.Model,
@@ -720,6 +738,15 @@ func (r *PersonasRepository) PatchInScope(ctx context.Context, projectID, id uui
 		}
 		setClauses = append(setClauses, fmt.Sprintf("roles_json = $%d", argIdx))
 		args = append(args, validatedRolesJSON)
+		argIdx++
+	}
+	if len(patch.ConditionalToolsJSON) > 0 {
+		validatedConditionalToolsJSON, err := validateConditionalToolsJSON(patch.ConditionalToolsJSON)
+		if err != nil {
+			return nil, err
+		}
+		setClauses = append(setClauses, fmt.Sprintf("conditional_tools_json = $%d", argIdx))
+		args = append(args, validatedConditionalToolsJSON)
 		argIdx++
 	}
 	if patch.IsActive != nil {
@@ -897,6 +924,11 @@ func (r *PersonasRepository) UpsertPlatformMirror(ctx context.Context, params Pl
 	if len(params.RolesJSON) == 0 {
 		params.RolesJSON = json.RawMessage("{}")
 	}
+	validatedConditionalToolsJSON, err := validateConditionalToolsJSON(params.ConditionalToolsJSON)
+	if err != nil {
+		return nil, err
+	}
+	params.ConditionalToolsJSON = validatedConditionalToolsJSON
 	params.PreferredCredential = normalizeOptionalPersonaString(params.PreferredCredential)
 	params.Model = normalizeOptionalPersonaString(params.Model)
 	params.ReasoningMode = normalizePersonaReasoningMode(params.ReasoningMode)
@@ -935,17 +967,17 @@ func (r *PersonasRepository) UpsertPlatformMirror(ctx context.Context, params Pl
 		`INSERT INTO personas (
 			account_id, persona_key, version, display_name, description, soul_md,
 			user_selectable, selector_name, selector_order,
-			prompt_md, tool_allowlist, tool_denylist, core_tools, budgets_json, roles_json, title_summarize_json,
+			prompt_md, tool_allowlist, tool_denylist, core_tools, budgets_json, roles_json, title_summarize_json, conditional_tools_json,
 			preferred_credential, model, reasoning_mode, stream_thinking, prompt_cache_control,
 			executor_type, executor_config_json,
 			is_active, sync_mode, mirrored_file_dir, last_synced_at, updated_at
 		) VALUES (
 			NULL, $1, $2, $3, $4, $5,
 			$6, $7, $8,
-			$9, $10, $11, $12, $13, $14, $15,
-			$16, $17, $18, $19, $20,
-			$21, $22,
-			$23, $24, $25, $26, now()
+			$9, $10, $11, $12, $13, $14, $15, $16,
+			$17, $18, $19, $20, $21,
+			$22, $23,
+			$24, $25, $26, $27, now()
 		)
 		ON CONFLICT (persona_key, version) WHERE project_id IS NULL
 		DO UPDATE SET
@@ -962,6 +994,7 @@ func (r *PersonasRepository) UpsertPlatformMirror(ctx context.Context, params Pl
 			budgets_json = EXCLUDED.budgets_json,
 			roles_json = EXCLUDED.roles_json,
 			title_summarize_json = EXCLUDED.title_summarize_json,
+			conditional_tools_json = EXCLUDED.conditional_tools_json,
 			reasoning_mode = EXCLUDED.reasoning_mode,
 			stream_thinking = EXCLUDED.stream_thinking,
 			prompt_cache_control = EXCLUDED.prompt_cache_control,
@@ -975,7 +1008,7 @@ func (r *PersonasRepository) UpsertPlatformMirror(ctx context.Context, params Pl
 		RETURNING `+personaSelectColumns,
 		params.PersonaKey, params.Version, params.DisplayName, params.Description, strings.TrimSpace(params.SoulMD),
 		params.UserSelectable, params.SelectorName, params.SelectorOrder,
-		strings.TrimSpace(params.PromptMD), params.ToolAllowlist, params.ToolDenylist, params.CoreTools, params.BudgetsJSON, params.RolesJSON, params.TitleSummarizeJSON,
+		strings.TrimSpace(params.PromptMD), params.ToolAllowlist, params.ToolDenylist, params.CoreTools, params.BudgetsJSON, params.RolesJSON, params.TitleSummarizeJSON, params.ConditionalToolsJSON,
 		params.PreferredCredential, params.Model, params.ReasoningMode, streamThinking, params.PromptCacheControl,
 		params.ExecutorType, params.ExecutorConfigJSON,
 		params.IsActive, PersonaSyncModePlatformFileMirror, params.MirroredFileDir, params.LastSyncedAt,
@@ -1118,6 +1151,73 @@ func normalizePersonaPromptCacheControl(value string) string {
 	default:
 		return "none"
 	}
+}
+
+type conditionalToolRulePayload struct {
+	When  conditionalToolWhenPayload `json:"when"`
+	Tools []string                   `json:"tools"`
+}
+
+type conditionalToolWhenPayload struct {
+	LacksInputModalities []string `json:"lacks_input_modalities,omitempty"`
+}
+
+func validateConditionalToolsJSON(raw json.RawMessage) (json.RawMessage, error) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil, nil
+	}
+	var rules []conditionalToolRulePayload
+	if err := json.Unmarshal(raw, &rules); err != nil {
+		return nil, fmt.Errorf("conditional_tools must be valid json array: %w", err)
+	}
+	normalized := make([]conditionalToolRulePayload, 0, len(rules))
+	for i, rule := range rules {
+		tools, err := normalizeConditionalItems(rule.Tools, fmt.Sprintf("conditional_tools[%d].tools", i))
+		if err != nil {
+			return nil, err
+		}
+		modalities, err := normalizeConditionalItems(rule.When.LacksInputModalities, fmt.Sprintf("conditional_tools[%d].when.lacks_input_modalities", i))
+		if err != nil {
+			return nil, err
+		}
+		normalized = append(normalized, conditionalToolRulePayload{
+			When: conditionalToolWhenPayload{
+				LacksInputModalities: modalities,
+			},
+			Tools: tools,
+		})
+	}
+	if len(normalized) == 0 {
+		return json.RawMessage("[]"), nil
+	}
+	encoded, err := json.Marshal(normalized)
+	if err != nil {
+		return nil, err
+	}
+	return encoded, nil
+}
+
+func normalizeConditionalItems(items []string, field string) ([]string, error) {
+	if len(items) == 0 {
+		return nil, fmt.Errorf("%s must not be empty", field)
+	}
+	out := make([]string, 0, len(items))
+	seen := make(map[string]struct{}, len(items))
+	for _, item := range items {
+		cleaned := strings.TrimSpace(item)
+		if cleaned == "" {
+			continue
+		}
+		if _, exists := seen[cleaned]; exists {
+			continue
+		}
+		seen[cleaned] = struct{}{}
+		out = append(out, cleaned)
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("%s must not be empty", field)
+	}
+	return out, nil
 }
 
 func validateRuntimeExecutorConfigJSON(executorType string, raw json.RawMessage) (json.RawMessage, error) {

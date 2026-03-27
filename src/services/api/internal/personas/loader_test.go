@@ -140,6 +140,33 @@ func TestLoadFromDirParsesRoles(t *testing.T) {
 	}
 }
 
+func TestLoadFromDirParsesConditionalTools(t *testing.T) {
+	root := t.TempDir()
+	writeRepoPersonaFiles(t, root, "conditional-persona",
+		"id: conditional-persona\nversion: \"1\"\ntitle: Conditional Persona\nconditional_tools:\n  - when:\n      lacks_input_modalities:\n        - image\n    tools:\n      - understand_image\n",
+		"",
+		"persona prompt",
+	)
+
+	personas, err := LoadFromDir(root)
+	if err != nil {
+		t.Fatalf("LoadFromDir failed: %v", err)
+	}
+	if len(personas) != 1 {
+		t.Fatalf("expected 1 persona, got %d", len(personas))
+	}
+	if len(personas[0].ConditionalTools) != 1 {
+		t.Fatalf("expected 1 conditional tool rule, got %d", len(personas[0].ConditionalTools))
+	}
+	rule := personas[0].ConditionalTools[0]
+	if len(rule.When.LacksInputModalities) != 1 || rule.When.LacksInputModalities[0] != "image" {
+		t.Fatalf("unexpected modalities: %#v", rule.When.LacksInputModalities)
+	}
+	if len(rule.Tools) != 1 || rule.Tools[0] != "understand_image" {
+		t.Fatalf("unexpected tools: %#v", rule.Tools)
+	}
+}
+
 func TestLoadFromDirRejectsUnsupportedRoleField(t *testing.T) {
 	root := t.TempDir()
 	writeRepoPersonaFiles(t, root, "bad-role",

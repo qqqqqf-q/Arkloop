@@ -50,7 +50,7 @@ func TestPersonasRepositoryScopesRowsToProject(t *testing.T) {
 	}
 	projectID := project.ID
 
-	custom, err := repo.Create(ctx, projectID, "custom-only", "1", "Custom Only", nil, "prompt", nil, nil, nil, nil, nil, nil, "auto", true, "none", "agent.simple", nil)
+	custom, err := repo.Create(ctx, projectID, "custom-only", "1", "Custom Only", nil, "prompt", nil, nil, nil, nil, nil, nil, nil, "auto", true, "none", "agent.simple", nil)
 	if err != nil {
 		t.Fatalf("create custom persona: %v", err)
 	}
@@ -137,7 +137,7 @@ func TestPersonasRepositoryRolesJSONRoundTrip(t *testing.T) {
 		t.Fatalf("create account: %v", err)
 	}
 	rolesJSON := json.RawMessage(`{"worker":{"prompt_md":"worker prompt","model":"worker^gpt-5-mini"}}`)
-	created, err := repo.Create(ctx, account.ID, "roleful", "1", "Roleful", nil, "prompt", nil, nil, nil, rolesJSON, nil, nil, "auto", true, "none", "agent.simple", nil)
+	created, err := repo.Create(ctx, account.ID, "roleful", "1", "Roleful", nil, "prompt", nil, nil, nil, rolesJSON, nil, nil, nil, "auto", true, "none", "agent.simple", nil)
 	if err != nil {
 		t.Fatalf("create persona: %v", err)
 	}
@@ -179,23 +179,86 @@ func TestPersonasRepositoryUpsertPlatformMirrorStoresRolesJSON(t *testing.T) {
 
 	rolesJSON := json.RawMessage(`{"worker":{"prompt_md":"worker prompt"}}`)
 	persona, err := repo.UpsertPlatformMirror(ctx, PlatformMirrorUpsertParams{
-		PersonaKey:         "builtin-roleful",
-		Version:            "1",
-		DisplayName:        "Builtin Roleful",
-		PromptMD:           "prompt",
-		ToolAllowlist:      []string{},
-		ToolDenylist:       []string{},
-		BudgetsJSON:        json.RawMessage(`{}`),
-		RolesJSON:          rolesJSON,
-		ExecutorType:       "agent.simple",
-		ExecutorConfigJSON: json.RawMessage(`{}`),
-		IsActive:           true,
-		MirroredFileDir:    "builtin-roleful",
+		PersonaKey:           "builtin-roleful",
+		Version:              "1",
+		DisplayName:          "Builtin Roleful",
+		PromptMD:             "prompt",
+		ToolAllowlist:        []string{},
+		ToolDenylist:         []string{},
+		BudgetsJSON:          json.RawMessage(`{}`),
+		RolesJSON:            rolesJSON,
+		ConditionalToolsJSON: nil,
+		ExecutorType:         "agent.simple",
+		ExecutorConfigJSON:   json.RawMessage(`{}`),
+		IsActive:             true,
+		MirroredFileDir:      "builtin-roleful",
 	})
 	if err != nil {
 		t.Fatalf("upsert mirror: %v", err)
 	}
 	assertJSONEqual(t, persona.RolesJSON, rolesJSON)
+}
+
+func TestPersonasRepositoryConditionalToolsJSONRoundTrip(t *testing.T) {
+	db := testutil.SetupPostgresDatabase(t, "api_go_personas_repo_conditional_tools")
+	ctx := context.Background()
+
+	if _, err := migrate.Up(ctx, db.DSN); err != nil {
+		t.Fatalf("migrate up: %v", err)
+	}
+
+	pool, err := NewPool(ctx, db.DSN, PoolLimits{MaxConns: 32, MinConns: 0})
+	if err != nil {
+		t.Fatalf("new pool: %v", err)
+	}
+	defer pool.Close()
+
+	repo, err := NewPersonasRepository(pool)
+	if err != nil {
+		t.Fatalf("new repo: %v", err)
+	}
+	accountRepo, err := NewAccountRepository(pool)
+	if err != nil {
+		t.Fatalf("new account repo: %v", err)
+	}
+
+	account, err := accountRepo.Create(ctx, "persona-conditional-org", "Persona Conditional Org", "personal")
+	if err != nil {
+		t.Fatalf("create account: %v", err)
+	}
+	conditionalToolsJSON := json.RawMessage(`[{"when":{"lacks_input_modalities":["image"]},"tools":["understand_image"]}]`)
+	created, err := repo.Create(ctx, account.ID, "conditional", "1", "Conditional", nil, "prompt", nil, nil, nil, nil, conditionalToolsJSON, nil, nil, "auto", true, "none", "agent.simple", nil)
+	if err != nil {
+		t.Fatalf("create persona: %v", err)
+	}
+	assertJSONEqual(t, created.ConditionalToolsJSON, conditionalToolsJSON)
+
+	patchedJSON := json.RawMessage(`[]`)
+	patched, err := repo.Patch(ctx, account.ID, created.ID, PersonaPatch{ConditionalToolsJSON: patchedJSON})
+	if err != nil {
+		t.Fatalf("patch persona: %v", err)
+	}
+	assertJSONEqual(t, patched.ConditionalToolsJSON, patchedJSON)
+
+	persona, err := repo.UpsertPlatformMirror(ctx, PlatformMirrorUpsertParams{
+		PersonaKey:           "builtin-conditional",
+		Version:              "1",
+		DisplayName:          "Builtin Conditional",
+		PromptMD:             "prompt",
+		ToolAllowlist:        []string{},
+		ToolDenylist:         []string{},
+		BudgetsJSON:          json.RawMessage(`{}`),
+		RolesJSON:            json.RawMessage(`{}`),
+		ConditionalToolsJSON: conditionalToolsJSON,
+		ExecutorType:         "agent.simple",
+		ExecutorConfigJSON:   json.RawMessage(`{}`),
+		IsActive:             true,
+		MirroredFileDir:      "builtin-conditional",
+	})
+	if err != nil {
+		t.Fatalf("upsert mirror: %v", err)
+	}
+	assertJSONEqual(t, persona.ConditionalToolsJSON, conditionalToolsJSON)
 }
 
 func assertJSONEqual(t *testing.T, got json.RawMessage, want json.RawMessage) {

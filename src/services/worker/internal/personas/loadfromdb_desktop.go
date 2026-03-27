@@ -24,7 +24,7 @@ type pgxQuerier interface {
 const personaSelectSQL = `SELECT persona_key, version, display_name, description,
 	        soul_md, user_selectable, selector_name, selector_order,
 	        prompt_md, tool_allowlist, tool_denylist, COALESCE(core_tools, '[]'), budgets_json,
-	        roles_json, title_summarize_json,
+	        roles_json, title_summarize_json, conditional_tools_json,
 	        executor_type, executor_config_json,
 	        preferred_credential, model, reasoning_mode, COALESCE(stream_thinking, 1), prompt_cache_control,
 	        COALESCE(heartbeat_enabled, 0), COALESCE(heartbeat_interval_minutes, 30)
@@ -85,6 +85,7 @@ func scanPersonaRows(rows personaRowScanner) ([]Definition, error) {
 			budgetsStr               string
 			rolesStr                 *string
 			titleSummarizeStr        *string
+			conditionalToolsStr      *string
 			executorType             string
 			executorConfigStr        string
 			preferredCredential      *string
@@ -99,7 +100,7 @@ func scanPersonaRows(rows personaRowScanner) ([]Definition, error) {
 			&personaKey, &version, &displayName, &description,
 			&soulMD, &userSelectable, &selectorName, &selectorOrder,
 			&promptMD, &toolAllowlistStr, &toolDenylistStr, &coreToolsStr, &budgetsStr,
-			&rolesStr, &titleSummarizeStr,
+			&rolesStr, &titleSummarizeStr, &conditionalToolsStr,
 			&executorType, &executorConfigStr,
 			&preferredCredential, &model, &reasoningMode, &streamThinking, &promptCacheControl,
 			&heartbeatEnabled, &heartbeatIntervalMinutes,
@@ -141,6 +142,14 @@ func scanPersonaRows(rows personaRowScanner) ([]Definition, error) {
 		if err != nil {
 			return nil, fmt.Errorf("persona %q title_summarize_json: %w", personaKey, err)
 		}
+		var conditionalToolsRaw []byte
+		if conditionalToolsStr != nil {
+			conditionalToolsRaw = []byte(*conditionalToolsStr)
+		}
+		conditionalTools, err := parseConditionalToolsJSON(conditionalToolsRaw)
+		if err != nil {
+			return nil, fmt.Errorf("persona %q conditional_tools_json: %w", personaKey, err)
+		}
 
 		var rolesRaw []byte
 		if rolesStr != nil {
@@ -164,6 +173,7 @@ func scanPersonaRows(rows personaRowScanner) ([]Definition, error) {
 			SelectorOrder:       selectorOrder,
 			ToolAllowlist:       toolAllowlist,
 			ToolDenylist:        toolDenylist,
+			ConditionalTools:    conditionalTools,
 			CoreTools:           coreTools,
 			Budgets:             budgets,
 			SoulMD:              strings.TrimSpace(soulMD),

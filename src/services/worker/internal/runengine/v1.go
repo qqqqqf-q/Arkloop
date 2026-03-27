@@ -554,6 +554,7 @@ func buildRoutingLayer(
 func buildToolFinalizeLayer(deps EngineV1Deps) []pipeline.RunMiddleware {
 	return []pipeline.RunMiddleware{
 		pipeline.NewHeartbeatPrepareMiddleware(),
+		pipeline.NewConditionalToolsMiddleware(),
 		pipeline.NewToolDescriptionOverrideMiddleware(deps.ToolDescriptionOverridesRepo),
 		pipeline.NewPlatformMiddleware(deps.PlatformToolExecutor),
 		pipeline.NewToolBuildMiddleware(),

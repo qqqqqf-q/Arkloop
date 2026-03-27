@@ -102,6 +102,7 @@ type Definition struct {
 	SelectorOrder           *int
 	ToolAllowlist           []string
 	ToolDenylist            []string
+	ConditionalTools        []ConditionalToolRule
 	CoreTools               []string // tools always visible in request.Tools; nil = all tools are core (backward compatible)
 	Budgets                 Budgets
 	SoulMD                  string

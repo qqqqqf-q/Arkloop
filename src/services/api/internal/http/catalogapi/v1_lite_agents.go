@@ -244,6 +244,7 @@ func createLiteAgent(
 		mergeLiteAgentBudgets(nil, req.Temperature, req.MaxOutputTokens),
 		nil,
 		nil,
+		nil,
 		req.Model,
 		req.ReasoningMode,
 		data.NormalizePersonaStreamThinkingPtr(req.StreamThinking),

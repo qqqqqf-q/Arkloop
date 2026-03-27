@@ -6,13 +6,20 @@ soul_file: soul.md
 user_selectable: false
 selector_name: Normal
 selector_order: 1
+tool_denylist:
+    - understand_image
+conditional_tools:
+    - when:
+          lacks_input_modalities:
+              - image
+      tools:
+          - understand_image
 core_tools:
     - timeline_title
     - ask_user
     - todo_write
     - web_search
     - web_fetch
-    - understand_image
     - python_execute
     - exec_command
     - document_write
