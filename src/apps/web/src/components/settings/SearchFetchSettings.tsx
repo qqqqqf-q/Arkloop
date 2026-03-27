@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useEffect, useRef, type ReactNode } from 'react'
 import {
   Globe,
   Search,
@@ -11,7 +11,8 @@ import {
   Link,
 } from 'lucide-react'
 import { useLocale } from '../../contexts/LocaleContext'
-import { getDesktopApi } from '@arkloop/shared/desktop'
+import { listToolProviders } from '../../api-admin'
+import { getDesktopAccessToken, getDesktopApi } from '@arkloop/shared/desktop'
 import type { ConnectorsConfig, FetchProvider, SearchProvider } from '@arkloop/shared/desktop'
 
 // ---------------------------------------------------------------------------
@@ -89,10 +90,11 @@ interface ProviderCardProps {
   selected: boolean
   onSelect: () => void
   children?: React.ReactNode
+  status?: ReactNode
   t: BadgeT
 }
 
-function ProviderCard({ icon, title, description, badge, selected, onSelect, children, t }: ProviderCardProps) {
+function ProviderCard({ icon, title, description, badge, selected, onSelect, children, status, t }: ProviderCardProps) {
   return (
     <div
       className="rounded-xl transition-[border-color] duration-150"
@@ -123,6 +125,7 @@ function ProviderCard({ icon, title, description, badge, selected, onSelect, chi
             <StatusBadge variant={badge} t={t} />
           </div>
           <p className="mt-0.5 text-xs leading-relaxed text-[var(--c-text-muted)]">{description}</p>
+          {status && <div className="mt-1">{status}</div>}
         </div>
 
         {/* Radio knob */}
@@ -208,6 +211,9 @@ export function SearchFetchSettings() {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [restarting, setRestarting] = useState(false)
+  const [runtimeProviders, setRuntimeProviders] = useState<
+    Record<string, { runtime_state?: string; runtime_reason?: string }>
+  >({})
 
   // Track the last-saved config so dirty = current !== saved
   const savedConfigRef = useRef<ConnectorsConfig | null>(null)
@@ -223,10 +229,54 @@ export function SearchFetchSettings() {
     }).catch(() => setLoading(false))
   }, [api])
 
+  useEffect(() => {
+    let canceled = false
+    const load = async () => {
+      const accessToken = getDesktopAccessToken()
+      if (!accessToken) {
+        if (!canceled) {
+          setRuntimeProviders({})
+        }
+        return
+      }
+      try {
+        const groups = await listToolProviders(accessToken)
+        if (canceled) return
+        const next: Record<string, { runtime_state?: string; runtime_reason?: string }> = {}
+        groups.forEach((group) => {
+          group.providers.forEach((provider) => {
+            next[provider.provider_name] = {
+              runtime_state: provider.runtime_state,
+              runtime_reason: provider.runtime_reason,
+            }
+          })
+        })
+        setRuntimeProviders(next)
+      } catch {
+        if (!canceled) {
+          setRuntimeProviders({})
+        }
+      }
+    }
+    void load()
+    return () => { canceled = true }
+  }, [saved])
+
   // dirty = config differs from the last saved snapshot
   const dirty = config !== null
     && savedConfigRef.current !== null
     && !configEqual(config, savedConfigRef.current)
+
+  const runtimeStatusForName = (providerName?: string, fallbackReason?: string) => {
+    const runtime = providerName ? runtimeProviders[providerName] : undefined
+    if (runtime && (runtime.runtime_state || runtime.runtime_reason)) {
+      return runtime
+    }
+    return {
+      runtime_state: 'inactive',
+      runtime_reason: fallbackReason,
+    }
+  }
 
   const handleSave = useCallback(async () => {
     if (!config || !api?.connectors) return
@@ -252,6 +302,17 @@ export function SearchFetchSettings() {
     setSaved(false)
     setConfig((prev) => prev ? { ...prev, search: { ...prev.search, ...patch } } : prev)
   }, [])
+
+  const fetchRuntimeStatus = {
+    jina: runtimeStatusForName('web_fetch.jina'),
+    basic: runtimeStatusForName('web_fetch.basic'),
+    firecrawl: runtimeStatusForName('web_fetch.firecrawl'),
+  }
+  const searchRuntimeStatus = {
+    duckduckgo: runtimeStatusForName(undefined, 'legacy_provider'),
+    tavily: runtimeStatusForName('web_search.tavily'),
+    searxng: runtimeStatusForName('web_search.searxng'),
+  }
 
   if (loading) {
     return (
@@ -300,6 +361,7 @@ export function SearchFetchSettings() {
           badge={config.fetch.jinaApiKey ? 'configured' : 'free'}
           selected={fetchP === 'jina'}
           onSelect={() => patchFetch({ provider: 'jina' as FetchProvider })}
+          status={<RuntimeStatusLabel state={fetchRuntimeStatus.jina.runtime_state} reason={fetchRuntimeStatus.jina.runtime_reason} />}
           t={badgeT}
         >
           <div>
@@ -319,6 +381,7 @@ export function SearchFetchSettings() {
           badge="always"
           selected={fetchP === 'basic'}
           onSelect={() => patchFetch({ provider: 'basic' as FetchProvider })}
+          status={<RuntimeStatusLabel state={fetchRuntimeStatus.basic.runtime_state} reason={fetchRuntimeStatus.basic.runtime_reason} />}
           t={badgeT}
         />
 
@@ -329,6 +392,7 @@ export function SearchFetchSettings() {
           badge={fetchP === 'firecrawl' ? (config.fetch.firecrawlApiKey ? 'configured' : 'missing') : 'missing'}
           selected={fetchP === 'firecrawl'}
           onSelect={() => patchFetch({ provider: 'firecrawl' as FetchProvider })}
+          status={<RuntimeStatusLabel state={fetchRuntimeStatus.firecrawl.runtime_state} reason={fetchRuntimeStatus.firecrawl.runtime_reason} />}
           t={badgeT}
         >
           <div className="space-y-3">
@@ -362,6 +426,7 @@ export function SearchFetchSettings() {
           badge="free"
           selected={searchP === 'duckduckgo'}
           onSelect={() => patchSearch({ provider: 'duckduckgo' as SearchProvider })}
+          status={<RuntimeStatusLabel state={searchRuntimeStatus.duckduckgo.runtime_state} reason={searchRuntimeStatus.duckduckgo.runtime_reason} />}
           t={badgeT}
         />
 
@@ -372,6 +437,7 @@ export function SearchFetchSettings() {
           badge={searchP === 'tavily' ? (config.search.tavilyApiKey ? 'configured' : 'missing') : 'missing'}
           selected={searchP === 'tavily'}
           onSelect={() => patchSearch({ provider: 'tavily' as SearchProvider })}
+          status={<RuntimeStatusLabel state={searchRuntimeStatus.tavily.runtime_state} reason={searchRuntimeStatus.tavily.runtime_reason} />}
           t={badgeT}
         >
           <div>
@@ -391,6 +457,7 @@ export function SearchFetchSettings() {
           badge={searchP === 'searxng' ? (config.search.searxngBaseUrl ? 'configured' : 'missing') : 'missing'}
           selected={searchP === 'searxng'}
           onSelect={() => patchSearch({ provider: 'searxng' as SearchProvider })}
+          status={<RuntimeStatusLabel state={searchRuntimeStatus.searxng.runtime_state} reason={searchRuntimeStatus.searxng.runtime_reason} />}
           t={badgeT}
         >
           <div>
@@ -439,4 +506,38 @@ import { SettingsSectionHeader } from './_SettingsSectionHeader'
 
 function PageHeader({ ds }: { ds: { desktopConnectorsTitle: string; desktopConnectorsDesc: string } }) {
   return <SettingsSectionHeader title={ds.desktopConnectorsTitle} description={ds.desktopConnectorsDesc} />
+}
+
+function RuntimeStatusLabel({ state, reason }: { state?: string; reason?: string }) {
+  const info = runtimeStateInfo(state)
+  return (
+    <span className={`inline-flex items-center gap-1 text-[10px] font-medium ${info.text}`}>
+      <span className={`inline-block h-1.5 w-1.5 rounded-full ${info.dot}`} />
+      <span>{info.label}</span>
+      {reason ? <span className="text-[var(--c-text-muted)]">({formatRuntimeReason(reason)})</span> : null}
+    </span>
+  )
+}
+
+function runtimeStateInfo(state?: string) {
+  const normalized = state ?? 'inactive'
+  switch (normalized) {
+  case 'ready':
+    return { label: 'Ready', dot: 'bg-green-400', text: 'text-green-400' }
+  case 'missing_config':
+    return { label: 'Missing config', dot: 'bg-amber-400', text: 'text-amber-400' }
+  case 'decrypt_failed':
+    return { label: 'Decrypt failed', dot: 'bg-rose-400', text: 'text-rose-400' }
+  case 'invalid_config':
+    return { label: 'Invalid config', dot: 'bg-rose-400', text: 'text-rose-400' }
+  default:
+    return { label: 'Inactive', dot: 'bg-[var(--c-text-muted)]', text: 'text-[var(--c-text-muted)]' }
+  }
+}
+
+function formatRuntimeReason(reason: string) {
+  return reason
+    .split('_')
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join(' ')
 }

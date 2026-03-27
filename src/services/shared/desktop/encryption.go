@@ -20,8 +20,12 @@ type KeyRingOptions struct {
 }
 
 func LoadEncryptionKeyRing(opts KeyRingOptions) (*sharedencryption.KeyRing, error) {
-	if kr, err := sharedencryption.NewKeyRingFromEnv(); err == nil {
-		return kr, nil
+	if raw, ok := os.LookupEnv(sharedencryption.EncryptionKeyEnv); ok {
+		trimmed := strings.TrimSpace(raw)
+		if trimmed == "" {
+			return nil, fmt.Errorf("crypto: %s must not be empty", sharedencryption.EncryptionKeyEnv)
+		}
+		return sharedencryption.NewKeyRingFromEnv()
 	}
 
 	dataDir, err := ResolveDataDir(opts.DataDir)

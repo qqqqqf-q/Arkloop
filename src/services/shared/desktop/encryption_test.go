@@ -123,3 +123,20 @@ func TestLoadEncryptionKeyRingRejectsInvalidFile(t *testing.T) {
 		t.Fatal("expected invalid encryption.key to fail")
 	}
 }
+
+func TestLoadEncryptionKeyRingRejectsInvalidEnvWithoutFileFallback(t *testing.T) {
+	dataDir := t.TempDir()
+	t.Setenv("ARKLOOP_DATA_DIR", dataDir)
+	t.Setenv(sharedencryption.EncryptionKeyEnv, "invalid")
+	validFileKey := make([]byte, 32)
+	for i := range validFileKey {
+		validFileKey[i] = byte(i + 17)
+	}
+	if err := os.WriteFile(filepath.Join(dataDir, "encryption.key"), []byte(hex.EncodeToString(validFileKey)), 0o600); err != nil {
+		t.Fatalf("write encryption key: %v", err)
+	}
+
+	if _, err := LoadEncryptionKeyRing(KeyRingOptions{}); err == nil {
+		t.Fatal("expected invalid env key to fail")
+	}
+}
