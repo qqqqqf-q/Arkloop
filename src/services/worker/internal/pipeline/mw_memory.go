@@ -369,6 +369,10 @@ func lastUserMessageText(messages []llm.Message) string {
 // 条件：tool call >= min_tool_calls OR 迭代轮数 >= min_rounds，且 FinalAssistantOutput 非空。
 // 异步执行，不阻塞 run 返回。
 func distillAfterRun(provider memory.MemoryProvider, pool *pgxpool.Pool, configResolver sharedconfig.Resolver, rc *RunContext, ident memory.MemoryIdentity, baseUserMsgs []memory.MemoryMessage) {
+	// heartbeat 是否写 memory 由 heartbeat_decision 决定，这里不再额外自动 distill。
+	if rc.HeartbeatRun {
+		return
+	}
 	emitter := events.NewEmitter(rc.TraceID)
 	sessionID := rc.Run.ThreadID.String()
 	if strings.TrimSpace(rc.FinalAssistantOutput) == "" {
