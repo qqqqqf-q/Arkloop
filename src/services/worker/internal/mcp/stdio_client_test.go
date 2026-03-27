@@ -179,7 +179,7 @@ func TestDiscoverFromEnvRegistersToolsAndExecutes(t *testing.T) {
 }
 
 func TestToolExecutorTimeout(t *testing.T) {
-	configPath := writeTestMcpConfig(t, map[string]any{"callTimeoutMs": 50})
+	configPath := writeTestMcpConfig(t, map[string]any{"callTimeoutMs": 200})
 	t.Setenv(mcpConfigFileEnv, configPath)
 
 	pool := NewPool()

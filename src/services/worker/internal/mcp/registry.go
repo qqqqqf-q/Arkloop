@@ -14,7 +14,6 @@ import (
 	"arkloop/services/worker/internal/tools"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 var toolNameSafeRegex = regexp.MustCompile(`[^A-Za-z0-9_]+`)
@@ -27,8 +26,8 @@ type Registration struct {
 
 // DiscoverFromDB 按 account_id 从数据库加载 MCP 配置并发现工具。
 // 若该 account 无活跃配置，返回空 Registration（不报错）。
-func DiscoverFromDB(ctx context.Context, dbPool *pgxpool.Pool, accountID uuid.UUID, mcpPool *Pool) (Registration, error) {
-	cfg, err := LoadConfigFromDB(ctx, dbPool, accountID)
+func DiscoverFromDB(ctx context.Context, dbPool DiscoveryQueryer, accountID uuid.UUID, profileRef string, workspaceRef string, mcpPool *Pool) (Registration, error) {
+	cfg, err := LoadConfigFromDB(ctx, dbPool, accountID, profileRef, workspaceRef)
 	if err != nil {
 		return Registration{}, err
 	}

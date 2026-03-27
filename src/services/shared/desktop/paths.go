@@ -29,3 +29,11 @@ func ResolveDataDir(explicit string) (string, error) {
 func StorageRoot(dataDir string) string {
 	return filepath.Join(strings.TrimSpace(dataDir), "storage")
 }
+
+func MCPRoot(dataDir string) string {
+	return filepath.Join(strings.TrimSpace(dataDir), "mcp")
+}
+
+func MCPServersPath(dataDir string) string {
+	return filepath.Join(MCPRoot(dataDir), "servers.json")
+}

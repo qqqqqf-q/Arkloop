@@ -24,6 +24,7 @@ import (
 
 	apicrypto "arkloop/services/api/internal/crypto"
 	"arkloop/services/api/internal/data"
+	sharedenvironmentref "arkloop/services/shared/environmentref"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -61,12 +62,13 @@ func (c *effectiveToolCatalogCache) GetEnv(ctx context.Context) ([]toolCatalogIt
 	})
 }
 
-func (c *effectiveToolCatalogCache) GetAccount(ctx context.Context, pool data.DB, accountID uuid.UUID) ([]toolCatalogItem, error) {
-	if accountID == uuid.Nil {
+func (c *effectiveToolCatalogCache) GetAccount(ctx context.Context, pool data.DB, accountID uuid.UUID, userID uuid.UUID) ([]toolCatalogItem, error) {
+	if accountID == uuid.Nil || userID == uuid.Nil {
 		return nil, nil
 	}
-	return c.get(ctx, accountID.String(), func(context.Context) ([]toolCatalogItem, error) {
-		servers, err := loadEffectiveMCPConfigFromDB(ctx, pool, accountID)
+	cacheKey := accountID.String() + "|" + userID.String()
+	return c.get(ctx, cacheKey, func(context.Context) ([]toolCatalogItem, error) {
+		servers, err := loadEffectiveMCPConfigFromDB(ctx, pool, accountID, userID)
 		if err != nil {
 			return nil, err
 		}
@@ -96,7 +98,17 @@ func (c *effectiveToolCatalogCache) Invalidate(key string) {
 	if c == nil {
 		return
 	}
-	c.entries.Delete(key)
+	prefix := strings.TrimSpace(key)
+	if prefix == "" {
+		return
+	}
+	c.entries.Range(func(key, _ any) bool {
+		text, ok := key.(string)
+		if ok && (text == prefix || strings.HasPrefix(text, prefix+"|")) {
+			c.entries.Delete(key)
+		}
+		return true
+	})
 }
 
 func (c *effectiveToolCatalogCache) StartInvalidationListener(ctx context.Context, directPool *pgxpool.Pool) {
@@ -159,10 +171,10 @@ func (c *effectiveToolCatalogCache) listenOnce(ctx context.Context, directPool *
 
 type effectiveMCPServerConfig struct {
 	ServerID      string
-	AccountID         string
+	AccountID     string
 	Transport     string
 	URL           string
-	BearerToken   *string
+	Headers       map[string]string
 	Command       string
 	Args          []string
 	Cwd           *string
@@ -227,22 +239,45 @@ func loadEffectiveMCPConfigFromEnv() ([]effectiveMCPServerConfig, error) {
 	return servers, nil
 }
 
-func loadEffectiveMCPConfigFromDB(ctx context.Context, pool data.DB, accountID uuid.UUID) ([]effectiveMCPServerConfig, error) {
-	if pool == nil || accountID == uuid.Nil {
+func loadEffectiveMCPConfigFromDB(ctx context.Context, pool data.DB, accountID uuid.UUID, userID uuid.UUID) ([]effectiveMCPServerConfig, error) {
+	if pool == nil || accountID == uuid.Nil || userID == uuid.Nil {
 		return nil, nil
 	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	profileRepo, err := data.NewProfileRegistriesRepository(pool)
+	if err != nil {
+		return nil, fmt.Errorf("mcp effective catalog: init profile repo: %w", err)
+	}
+	workspaceRepo, err := data.NewWorkspaceRegistriesRepository(pool)
+	if err != nil {
+		return nil, fmt.Errorf("mcp effective catalog: init workspace repo: %w", err)
+	}
+	profileRef := sharedenvironmentref.BuildProfileRef(accountID, &userID)
+	workspaceRef, err := ensureDefaultWorkspaceForProfile(ctx, profileRepo, workspaceRepo, accountID, userID, profileRef)
+	if err != nil {
+		return nil, fmt.Errorf("mcp effective catalog: resolve workspace: %w", err)
+	}
+	if strings.TrimSpace(workspaceRef) == "" {
+		return nil, nil
+	}
 	rows, err := pool.Query(ctx, `
-		SELECT m.name, m.transport, m.url, m.command,
-		       m.args_json, m.cwd, m.env_json, m.call_timeout_ms,
+		SELECT i.id, i.install_key, i.display_name, i.source_kind, i.source_uri, i.sync_mode,
+		       i.transport, i.launch_spec_json, i.auth_headers_secret_id, i.host_requirement,
+		       i.discovery_status, i.last_error_code, i.last_error_message, i.last_checked_at,
 		       s.encrypted_value, s.key_version
-		FROM mcp_configs m
-		LEFT JOIN secrets s ON s.id = m.auth_secret_id
-		WHERE m.account_id = $1 AND m.is_active = TRUE
-		ORDER BY m.created_at ASC
-	`, accountID)
+		  FROM workspace_mcp_enablements w
+		  JOIN profile_mcp_installs i
+		    ON i.id = w.install_id
+		   AND i.account_id = w.account_id
+		  LEFT JOIN secrets s ON s.id = i.auth_headers_secret_id
+		 WHERE w.account_id = $1
+		   AND w.workspace_ref = $2
+		   AND w.enabled = TRUE
+		   AND i.profile_ref = $3
+		 ORDER BY i.created_at ASC
+	`, accountID, workspaceRef, profileRef)
 	if err != nil {
 		return nil, fmt.Errorf("mcp effective catalog: query db: %w", err)
 	}
@@ -252,58 +287,50 @@ func loadEffectiveMCPConfigFromDB(ctx context.Context, pool data.DB, accountID u
 	servers := []effectiveMCPServerConfig{}
 	for rows.Next() {
 		var (
-			name          string
-			transport     string
-			urlValue      *string
-			command       *string
-			argsJSON      []byte
-			cwd           *string
-			envJSON       []byte
-			callTimeoutMs int
-			encrypted     *string
-			keyVersion    *int
+			item       data.ProfileMCPInstall
+			encrypted  *string
+			keyVersion *int
 		)
-		if err := rows.Scan(&name, &transport, &urlValue, &command, &argsJSON, &cwd, &envJSON, &callTimeoutMs, &encrypted, &keyVersion); err != nil {
+		if err := rows.Scan(
+			&item.ID,
+			&item.InstallKey,
+			&item.DisplayName,
+			&item.SourceKind,
+			&item.SourceURI,
+			&item.SyncMode,
+			&item.Transport,
+			&item.LaunchSpecJSON,
+			&item.AuthHeadersSecretID,
+			&item.HostRequirement,
+			&item.DiscoveryStatus,
+			&item.LastErrorCode,
+			&item.LastErrorMessage,
+			&item.LastCheckedAt,
+			&encrypted,
+			&keyVersion,
+		); err != nil {
 			return nil, fmt.Errorf("mcp effective catalog: scan db: %w", err)
 		}
-		server := effectiveMCPServerConfig{
-			ServerID:      strings.TrimSpace(name),
-			AccountID:         accountID.String(),
-			Transport:     strings.TrimSpace(transport),
-			CallTimeoutMs: callTimeoutMs,
-			Env:           map[string]string{},
-		}
+		item.AccountID = accountID
+		item.ProfileRef = profileRef
+		headers := map[string]string{}
 		if encrypted != nil && keyVersion != nil && keyRing != nil {
 			plain, err := keyRing.Decrypt(*encrypted, *keyVersion)
 			if err == nil {
-				text := string(plain)
-				server.BearerToken = &text
+				if err := json.Unmarshal([]byte(string(plain)), &headers); err != nil {
+					token := strings.TrimSpace(string(plain))
+					if token != "" {
+						headers["Authorization"] = "Bearer " + token
+					}
+				}
 			}
 		}
-		switch server.Transport {
-		case "http_sse", "streamable_http":
-			if urlValue == nil || strings.TrimSpace(*urlValue) == "" {
-				continue
-			}
-			server.URL = strings.TrimSpace(*urlValue)
-		case "stdio", "":
-			server.Transport = "stdio"
-			if command == nil || strings.TrimSpace(*command) == "" {
-				continue
-			}
-			server.Command = strings.TrimSpace(*command)
-			if len(argsJSON) > 0 {
-				_ = json.Unmarshal(argsJSON, &server.Args)
-			}
-			server.Cwd = cwd
-			if len(envJSON) > 0 {
-				_ = json.Unmarshal(envJSON, &server.Env)
-			}
-		default:
+		server, err := effectiveServerConfigFromInstall(item, headers)
+		if err != nil {
 			continue
 		}
-		if server.CallTimeoutMs <= 0 {
-			server.CallTimeoutMs = effectiveMCPDefaultTimeoutMs
+		if err := checkEffectiveMCPHostRequirement(server, strings.TrimSpace(item.HostRequirement)); err != nil {
+			continue
 		}
 		servers = append(servers, server)
 	}
@@ -341,6 +368,7 @@ func parseEffectiveMCPServerConfig(serverID string, payload map[string]any) (eff
 		Transport:     transport,
 		CallTimeoutMs: timeout,
 		Env:           map[string]string{},
+		Headers:       map[string]string{},
 	}
 	switch transport {
 	case "http_sse", "streamable_http":
@@ -349,7 +377,12 @@ func parseEffectiveMCPServerConfig(serverID string, payload map[string]any) (eff
 			return effectiveMCPServerConfig{}, fmt.Errorf("mcp effective catalog: server %q missing url", cleanedID)
 		}
 		if token := effectiveMCPOptionalString(payload["bearer_token"]); token != nil {
-			server.BearerToken = token
+			server.Headers["Authorization"] = "Bearer " + strings.TrimSpace(*token)
+		}
+		if rawHeaders, ok := payload["headers"].(map[string]any); ok {
+			for key, value := range rawHeaders {
+				server.Headers[strings.TrimSpace(key)] = strings.TrimSpace(effectiveMCPAsString(value))
+			}
 		}
 	case "stdio":
 		server.Command = strings.TrimSpace(effectiveMCPAsString(payload["command"]))
@@ -480,8 +513,11 @@ func listEffectiveMCPHTTPTools(ctx context.Context, server effectiveMCPServerCon
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json, text/event-stream")
-	if server.BearerToken != nil && strings.TrimSpace(*server.BearerToken) != "" {
-		req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(*server.BearerToken))
+	for key, value := range server.Headers {
+		if strings.TrimSpace(key) == "" || strings.TrimSpace(value) == "" {
+			continue
+		}
+		req.Header.Set(strings.TrimSpace(key), strings.TrimSpace(value))
 	}
 	resp, err := newEffectiveMCPHTTPClient().Do(req)
 	if err != nil {

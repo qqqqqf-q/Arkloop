@@ -10,7 +10,7 @@ import { useToast } from '@arkloop/shared'
 import { isApiError } from '../api'
 import { useLocale } from '../contexts/LocaleContext'
 import { RunDetailPanel } from '../components/RunDetailPanel'
-import { listRuns, cancelRun, fetchRunEventsOnce, type GlobalRun } from '../api/runs'
+import { listRuns, cancelRun, fetchRunEventsOnce, type GlobalRun, type RunEventRaw } from '../api/runs'
 
 const PAGE_SIZE = 50
 

@@ -228,6 +228,8 @@ func (a *Application) Run(ctx context.Context) error {
 		llmCredRepo                  *data.LlmCredentialsRepository
 		llmRoutesRepo                *data.LlmRoutesRepository
 		mcpConfigsRepo               *data.MCPConfigsRepository
+		profileMCPInstallsRepo       *data.ProfileMCPInstallsRepository
+		workspaceMCPEnableRepo       *data.WorkspaceMCPEnablementsRepository
 		toolProviderConfigsRepo      *data.ToolProviderConfigsRepository
 		toolDescriptionOverridesRepo *data.ToolDescriptionOverridesRepository
 		personasRepo                 *data.PersonasRepository
@@ -345,6 +347,14 @@ func (a *Application) Run(ctx context.Context) error {
 			return err
 		}
 		mcpConfigsRepo, err = data.NewMCPConfigsRepository(pool)
+		if err != nil {
+			return err
+		}
+		profileMCPInstallsRepo, err = data.NewProfileMCPInstallsRepository(pool)
+		if err != nil {
+			return err
+		}
+		workspaceMCPEnableRepo, err = data.NewWorkspaceMCPEnablementsRepository(pool)
 		if err != nil {
 			return err
 		}
@@ -697,6 +707,8 @@ func (a *Application) Run(ctx context.Context) error {
 			LlmRoutesRepo:                llmRoutesRepo,
 			SecretsRepo:                  secretsRepo,
 			MCPConfigsRepo:               mcpConfigsRepo,
+			ProfileMCPInstallsRepo:       profileMCPInstallsRepo,
+			WorkspaceMCPEnableRepo:       workspaceMCPEnableRepo,
 			ToolProviderConfigsRepo:      toolProviderConfigsRepo,
 			ToolDescriptionOverridesRepo: toolDescriptionOverridesRepo,
 			PersonasRepo:                 personasRepo,
@@ -754,6 +766,7 @@ func (a *Application) Run(ctx context.Context) error {
 			ConfigResolver:               configResolver,
 			ConfigInvalidator:            configResolver,
 			ConfigRegistry:               configRegistry,
+			MCPDiscoveryService:          nil,
 			SSEConfig: apihttp.SSEConfig{
 				HeartbeatSeconds: a.config.SSE.HeartbeatSeconds,
 				BatchLimit:       a.config.SSE.BatchLimit,

@@ -80,7 +80,7 @@ func buildEffectiveToolCatalog(
 		} else {
 			slog.WarnContext(ctx, "effective tool catalog: env mcp discovery failed", "err", err.Error())
 		}
-		if accountTools, err := mcpCache.GetAccount(ctx, pool, accountID); err == nil {
+		if accountTools, err := mcpCache.GetAccount(ctx, pool, accountID, userID); err == nil {
 			mcpTools = append(mcpTools, accountTools...)
 		} else {
 			slog.WarnContext(ctx, "effective tool catalog: account mcp discovery failed", "account_id", accountID, "err", err.Error())

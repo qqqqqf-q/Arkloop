@@ -12,7 +12,7 @@ import (
 	workerCrypto "arkloop/services/worker/internal/crypto"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5"
 )
 
 const mcpConfigFileEnv = "ARKLOOP_MCP_CONFIG_FILE"
@@ -24,8 +24,8 @@ type ServerConfig struct {
 	AccountID string // 用于 pool 隔离；全局（env 加载）工具为空字符串
 	Transport string // stdio / http_sse / streamable_http
 	// HTTP 传输字段
-	URL         string
-	BearerToken *string
+	URL     string
+	Headers map[string]string
 	// stdio 传输字段
 	Command          string
 	Args             []string
@@ -137,7 +137,15 @@ func parseServerConfig(serverID string, payload map[string]any) (ServerConfig, e
 		if url == "" {
 			return ServerConfig{}, fmt.Errorf("MCP server %q missing url for %s transport", cleanedID, transport)
 		}
-		var bearerToken *string
+		headers := map[string]string{}
+		if rawHeaders, ok := payload["headers"].(map[string]any); ok {
+			for key, value := range rawHeaders {
+				if strings.TrimSpace(key) == "" {
+					continue
+				}
+				headers[strings.TrimSpace(key)] = asString(value)
+			}
+		}
 		if raw, ok := payload["bearer_token"]; ok && raw != nil {
 			token, ok := raw.(string)
 			if !ok {
@@ -145,14 +153,14 @@ func parseServerConfig(serverID string, payload map[string]any) (ServerConfig, e
 			}
 			cleaned := strings.TrimSpace(token)
 			if cleaned != "" {
-				bearerToken = &cleaned
+				headers["Authorization"] = "Bearer " + cleaned
 			}
 		}
 		return ServerConfig{
 			ServerID:      cleanedID,
 			Transport:     transport,
 			URL:           url,
-			BearerToken:   bearerToken,
+			Headers:       headers,
 			CallTimeoutMs: timeout,
 		}, nil
 	default:
@@ -221,52 +229,61 @@ func parseServerConfig(serverID string, payload map[string]any) (ServerConfig, e
 	}, nil
 }
 
-// LoadConfigFromDB 按 account_id 从数据库加载 MCP 配置，JOIN secrets 解密 bearer token。
-// 返回 nil 表示该 account 没有活跃配置。
-func LoadConfigFromDB(ctx context.Context, pool *pgxpool.Pool, accountID uuid.UUID) (*Config, error) {
+type DiscoveryQueryer interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+}
+
+// LoadConfigFromDB 按 account/profile/workspace 从数据库加载已启用的 MCP install。
+// 返回 nil 表示当前 workspace 没有已启用配置。
+func LoadConfigFromDB(ctx context.Context, pool DiscoveryQueryer, accountID uuid.UUID, profileRef string, workspaceRef string) (*Config, error) {
 	if pool == nil {
 		return nil, fmt.Errorf("mcp: pool must not be nil")
 	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	profileRef = strings.TrimSpace(profileRef)
+	workspaceRef = strings.TrimSpace(workspaceRef)
+	if accountID == uuid.Nil || profileRef == "" || workspaceRef == "" {
+		return nil, nil
+	}
 
 	rows, err := pool.Query(ctx, `
-		SELECT m.id, m.name, m.transport, m.url, m.command,
-		       m.args_json, m.cwd, m.env_json, m.inherit_parent_env, m.call_timeout_ms,
-		       s.encrypted_value, s.key_version
-		FROM mcp_configs m
-		LEFT JOIN secrets s ON s.id = m.auth_secret_id
-		WHERE m.account_id = $1 AND m.is_active = TRUE
-		ORDER BY m.created_at ASC
-	`, accountID)
+		SELECT i.id, i.install_key, i.transport, i.launch_spec_json, i.host_requirement,
+		       i.discovery_status, s.encrypted_value, s.key_version
+		  FROM workspace_mcp_enablements w
+		  JOIN profile_mcp_installs i
+		    ON i.id = w.install_id
+		   AND i.account_id = w.account_id
+		 LEFT JOIN secrets s ON s.id = i.auth_headers_secret_id
+		 WHERE w.account_id = $1
+		   AND w.workspace_ref = $2
+		   AND w.enabled = TRUE
+		   AND i.profile_ref = $3
+		 ORDER BY i.created_at ASC
+	`, accountID, workspaceRef, profileRef)
 	if err != nil {
 		return nil, fmt.Errorf("mcp: query db: %w", err)
 	}
 	defer rows.Close()
 
 	type rowData struct {
-		id               uuid.UUID
-		name             string
-		transport        string
-		url              *string
-		command          *string
-		argsJSON         []byte
-		cwd              *string
-		envJSON          []byte
-		inheritParentEnv bool
-		callTimeoutMs    int
-		encryptedValue   *string
-		keyVersion       *int
+		id             uuid.UUID
+		installKey     string
+		transport      string
+		launchSpecJSON []byte
+		hostRequirement string
+		discoveryStatus string
+		encryptedValue *string
+		keyVersion     *int
 	}
 
 	var allRows []rowData
 	for rows.Next() {
 		var rd rowData
 		if err := rows.Scan(
-			&rd.id, &rd.name, &rd.transport, &rd.url, &rd.command,
-			&rd.argsJSON, &rd.cwd, &rd.envJSON, &rd.inheritParentEnv, &rd.callTimeoutMs,
-			&rd.encryptedValue, &rd.keyVersion,
+			&rd.id, &rd.installKey, &rd.transport, &rd.launchSpecJSON, &rd.hostRequirement,
+			&rd.discoveryStatus, &rd.encryptedValue, &rd.keyVersion,
 		); err != nil {
 			return nil, fmt.Errorf("mcp: scan: %w", err)
 		}
@@ -282,48 +299,63 @@ func LoadConfigFromDB(ctx context.Context, pool *pgxpool.Pool, accountID uuid.UU
 	servers := make([]ServerConfig, 0, len(allRows))
 	for _, rd := range allRows {
 		server := ServerConfig{
-			ServerID:      rd.name, // 用 name 保证工具名可读，和 env 文件行为一致
+			ServerID:      rd.installKey,
 			AccountID:     accountID.String(),
 			Transport:     rd.transport,
-			CallTimeoutMs: rd.callTimeoutMs,
+			CallTimeoutMs: defaultCallTimeoutMs,
+			Headers:       map[string]string{},
 		}
 
 		if rd.encryptedValue != nil && rd.keyVersion != nil {
 			plainBytes, err := workerCrypto.DecryptGCM(*rd.encryptedValue)
 			if err != nil {
-				// 解密失败时跳过此配置，避免单个错误影响所有工具
 				continue
 			}
-			plaintext := string(plainBytes)
-			server.BearerToken = &plaintext
+			var headers map[string]string
+			if err := json.Unmarshal(plainBytes, &headers); err == nil {
+				server.Headers = headers
+			} else {
+				plaintext := strings.TrimSpace(string(plainBytes))
+				if plaintext != "" {
+					server.Headers["Authorization"] = "Bearer " + plaintext
+				}
+			}
 		}
 
+		launch := map[string]any{}
+		if len(rd.launchSpecJSON) > 0 {
+			if err := json.Unmarshal(rd.launchSpecJSON, &launch); err != nil {
+				continue
+			}
+		}
+		if timeout := intFromAny(launch["call_timeout_ms"]); timeout > 0 {
+			server.CallTimeoutMs = timeout
+		}
 		switch rd.transport {
 		case "http_sse", "streamable_http":
-			if rd.url == nil {
+			urlValue := strings.TrimSpace(asString(launch["url"]))
+			if urlValue == "" {
 				continue
 			}
-			server.URL = *rd.url
+			server.URL = urlValue
 		case "stdio":
-			if rd.command == nil {
+			command := strings.TrimSpace(asString(launch["command"]))
+			if command == "" {
 				continue
 			}
-			server.Command = *rd.command
+			server.Command = command
 
-			var args []string
-			if len(rd.argsJSON) > 0 {
-				_ = json.Unmarshal(rd.argsJSON, &args)
-			}
-			server.Args = args
-
-			server.Cwd = rd.cwd
+			server.Args = toStringSlice(launch["args"])
+			server.Cwd = optionalStringPtr(launch["cwd"])
 			server.InheritParentEnv = false
 
 			env := map[string]string{}
-			if len(rd.envJSON) > 0 {
-				var rawEnv map[string]string
-				if err := json.Unmarshal(rd.envJSON, &rawEnv); err == nil {
-					env = rawEnv
+			if rawEnv, ok := launch["env"].(map[string]any); ok {
+				for key, value := range rawEnv {
+					if strings.TrimSpace(key) == "" {
+						continue
+					}
+					env[strings.TrimSpace(key)] = asString(value)
 				}
 			}
 			server.Env = env
@@ -338,6 +370,42 @@ func LoadConfigFromDB(ctx context.Context, pool *pgxpool.Pool, accountID uuid.UU
 		return nil, nil
 	}
 	return &Config{Servers: servers}, nil
+}
+
+func toStringSlice(value any) []string {
+	items, ok := value.([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		text := strings.TrimSpace(asString(item))
+		if text != "" {
+			out = append(out, text)
+		}
+	}
+	return out
+}
+
+func optionalStringPtr(value any) *string {
+	text := strings.TrimSpace(asString(value))
+	if text == "" {
+		return nil
+	}
+	return &text
+}
+
+func intFromAny(value any) int {
+	switch typed := value.(type) {
+	case float64:
+		return int(typed)
+	case int:
+		return typed
+	case int64:
+		return int(typed)
+	default:
+		return 0
+	}
 }
 
 func asString(value any) string {

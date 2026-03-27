@@ -316,6 +316,9 @@ export interface LocaleStrings {
       colName: string
       colTransport: string
       colActive: string
+      colWorkspace: string
+      colStatus: string
+      colSource: string
       colCreatedAt: string
       // empty state
       empty: string
@@ -323,18 +326,47 @@ export interface LocaleStrings {
       modalTitleCreate: string
       modalTitleEdit: string
       fieldName: string
+      fieldInstallKey: string
+      fieldInstallKeyPlaceholder: string
       fieldTransport: string
+      fieldTimeout: string
       fieldUrl: string
       fieldBearerToken: string
       fieldBearerTokenPlaceholder: string
       fieldBearerTokenSet: string
       fieldCommand: string
       fieldArgs: string
+      fieldCwd: string
+      fieldEnvJson: string
+      fieldHeaders: string
+      fieldHostRequirement: string
+      fieldSourceKind: string
+      fieldSourceUri: string
+      fieldSyncMode: string
+      fieldWorkspaceEnabled: string
       fieldIsActive: string
+      enabledLabel: string
+      disabledLabel: string
+      actionCheck: string
+      actionEnable: string
+      actionDisable: string
+      discoveryTitle: string
+      discoveryWorkspaceRoot: string
+      discoveryWorkspaceRootPlaceholder: string
+      discoveryPath: string
+      discoveryPathPlaceholder: string
+      discoveryScan: string
+      discoveryScanning: string
+      discoveryEmpty: string
+      discoveryInstallable: string
+      discoveryNeedsAttention: string
+      discoveryImport: string
       // buttons
       cancel: string
       create: string
       save: string
+      saving: string
+      deleting: string
       // delete dialog
       deleteTitle: string
       deleteMessage: (name: string) => string
@@ -343,13 +375,22 @@ export interface LocaleStrings {
       errRequired: string
       errUrlRequired: string
       errCommandRequired: string
+      errTimeoutInvalid: string
+      errEnvJsonInvalid: string
+      errHeadersInvalid: string
       // toasts
       toastCreated: string
       toastUpdated: string
       toastDeleted: string
+      toastChecked: string
+      toastImported: string
       toastLoadFailed: string
       toastSaveFailed: string
       toastDeleteFailed: string
+      toastToggleFailed: string
+      toastCheckFailed: string
+      toastDiscoveryFailed: string
+      toastImportFailed: string
     }
     agents: {
       title: string

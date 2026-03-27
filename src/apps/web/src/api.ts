@@ -1800,3 +1800,132 @@ export async function setExternalDirs(accessToken: string, dirs: string[]): Prom
     { method: 'PUT', accessToken, body: JSON.stringify({ value: JSON.stringify(dirs) }) },
   )
 }
+
+export type MCPInstall = {
+  id: string
+  install_key: string
+  account_id: string
+  profile_ref: string
+  display_name: string
+  source_kind: string
+  source_uri?: string
+  sync_mode: string
+  transport: 'stdio' | 'http_sse' | 'streamable_http'
+  launch_spec: Record<string, unknown>
+  has_auth: boolean
+  host_requirement: string
+  discovery_status: string
+  last_error_code?: string
+  last_error_message?: string
+  last_checked_at?: string
+  created_at: string
+  updated_at: string
+  workspace_state?: {
+    workspace_ref: string
+    enabled: boolean
+    enabled_at?: string
+  }
+}
+
+export type MCPDiscoveryProposal = {
+  install_key: string
+  display_name: string
+  transport: 'stdio' | 'http_sse' | 'streamable_http'
+  launch_spec: Record<string, unknown>
+  host_requirement: string
+}
+
+export type MCPDiscoverySource = {
+  source_uri: string
+  source_kind: string
+  installable: boolean
+  validation_errors: string[]
+  host_warnings: string[]
+  proposed_installs: MCPDiscoveryProposal[]
+}
+
+export type UpsertMCPInstallRequest = {
+  install_key?: string
+  display_name?: string
+  source_kind?: string
+  source_uri?: string
+  sync_mode?: string
+  transport?: 'stdio' | 'http_sse' | 'streamable_http'
+  launch_spec?: Record<string, unknown>
+  auth_headers?: Record<string, string>
+  bearer_token?: string
+  host_requirement?: string
+}
+
+export async function listMCPInstalls(accessToken: string): Promise<MCPInstall[]> {
+  return apiFetch<MCPInstall[]>('/v1/mcp-installs', { accessToken })
+}
+
+export async function createMCPInstall(
+  accessToken: string,
+  req: UpsertMCPInstallRequest,
+): Promise<MCPInstall> {
+  return apiFetch<MCPInstall>('/v1/mcp-installs', {
+    method: 'POST',
+    accessToken,
+    body: JSON.stringify(req),
+  })
+}
+
+export async function updateMCPInstall(
+  accessToken: string,
+  id: string,
+  req: UpsertMCPInstallRequest,
+): Promise<MCPInstall> {
+  return apiFetch<MCPInstall>(`/v1/mcp-installs/${id}`, {
+    method: 'PATCH',
+    accessToken,
+    body: JSON.stringify(req),
+  })
+}
+
+export async function deleteMCPInstall(accessToken: string, id: string): Promise<void> {
+  await apiFetch<void>(`/v1/mcp-installs/${id}`, {
+    method: 'DELETE',
+    accessToken,
+  })
+}
+
+export async function checkMCPInstall(accessToken: string, id: string): Promise<MCPInstall> {
+  return apiFetch<MCPInstall>(`/v1/mcp-installs/${id}:check`, {
+    method: 'POST',
+    accessToken,
+  })
+}
+
+export async function setWorkspaceMCPEnablement(
+  accessToken: string,
+  req: { workspace_ref?: string; install_key: string; enabled: boolean },
+): Promise<void> {
+  await apiFetch<void>('/v1/workspace-mcp-enablements', {
+    method: 'PUT',
+    accessToken,
+    body: JSON.stringify(req),
+  })
+}
+
+export async function listMCPDiscoverySources(
+  accessToken: string,
+  options?: { workspaceRoot?: string; paths?: string[] },
+): Promise<MCPDiscoverySource[]> {
+  const params = new URLSearchParams()
+  if (options?.workspaceRoot?.trim()) {
+    params.set('workspace_root', options.workspaceRoot.trim())
+  }
+  for (const path of options?.paths ?? []) {
+    if (path.trim()) {
+      params.append('path', path.trim())
+    }
+  }
+  const query = params.toString()
+  const response = await apiFetch<{ items: MCPDiscoverySource[] }>(
+    `/v1/mcp-discovery-sources${query ? `?${query}` : ''}`,
+    { accessToken },
+  )
+  return response.items ?? []
+}

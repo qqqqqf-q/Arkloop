@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -13,6 +14,10 @@ import (
 type cacheEntry struct {
 	registration Registration
 	cachedAt     time.Time
+}
+
+func discoveryCacheKey(accountID uuid.UUID, profileRef string, workspaceRef string) string {
+	return accountID.String() + "|" + strings.TrimSpace(profileRef) + "|" + strings.TrimSpace(workspaceRef)
 }
 
 // DiscoveryCache 按 accountID 缓存 DiscoverFromDB 的结果。
@@ -33,9 +38,10 @@ func NewDiscoveryCache(ttl time.Duration, mcpPool *Pool) *DiscoveryCache {
 
 // Get 返回 accountID 对应的 MCP Registration。
 // 缓存命中且未过期时直接返回，否则调 DiscoverFromDB 并回填缓存。
-func (c *DiscoveryCache) Get(ctx context.Context, pool *pgxpool.Pool, accountID uuid.UUID) (Registration, error) {
+func (c *DiscoveryCache) Get(ctx context.Context, pool DiscoveryQueryer, accountID uuid.UUID, profileRef string, workspaceRef string) (Registration, error) {
+	cacheKey := discoveryCacheKey(accountID, profileRef, workspaceRef)
 	if c.ttl > 0 {
-		if raw, ok := c.entries.Load(accountID.String()); ok {
+		if raw, ok := c.entries.Load(cacheKey); ok {
 			entry := raw.(cacheEntry)
 			if time.Since(entry.cachedAt) < c.ttl {
 				return entry.registration, nil
@@ -43,13 +49,13 @@ func (c *DiscoveryCache) Get(ctx context.Context, pool *pgxpool.Pool, accountID 
 		}
 	}
 
-	reg, err := DiscoverFromDB(ctx, pool, accountID, c.mcpPool)
+	reg, err := DiscoverFromDB(ctx, pool, accountID, profileRef, workspaceRef, c.mcpPool)
 	if err != nil {
 		return Registration{}, err
 	}
 
 	if c.ttl > 0 {
-		c.entries.Store(accountID.String(), cacheEntry{
+		c.entries.Store(cacheKey, cacheEntry{
 			registration: reg,
 			cachedAt:     time.Now(),
 		})
@@ -60,7 +66,14 @@ func (c *DiscoveryCache) Get(ctx context.Context, pool *pgxpool.Pool, accountID 
 
 // Invalidate 删除指定 account 的缓存条目。
 func (c *DiscoveryCache) Invalidate(accountID uuid.UUID) {
-	c.entries.Delete(accountID.String())
+	prefix := accountID.String() + "|"
+	c.entries.Range(func(key, _ any) bool {
+		text, ok := key.(string)
+		if ok && strings.HasPrefix(text, prefix) {
+			c.entries.Delete(key)
+		}
+		return true
+	})
 }
 
 // StartInvalidationListener 启动后台 goroutine，LISTEN mcp_config_changed，
@@ -134,8 +147,8 @@ func (c *DiscoveryCache) listenOnce(ctx context.Context, directPool *pgxpool.Poo
 }
 
 // store 预填缓存条目，仅供测试使用。
-func (c *DiscoveryCache) store(accountID uuid.UUID, reg Registration) {
-	c.entries.Store(accountID.String(), cacheEntry{
+func (c *DiscoveryCache) store(accountID uuid.UUID, profileRef string, workspaceRef string, reg Registration) {
+	c.entries.Store(discoveryCacheKey(accountID, profileRef, workspaceRef), cacheEntry{
 		registration: reg,
 		cachedAt:     time.Now(),
 	})
