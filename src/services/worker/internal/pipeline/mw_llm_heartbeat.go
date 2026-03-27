@@ -3,16 +3,25 @@ package pipeline
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
 	"arkloop/services/shared/runkind"
+	"arkloop/services/worker/internal/events"
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/memory"
 	"arkloop/services/worker/internal/tools"
 	heartbeattool "arkloop/services/worker/internal/tools/builtin/heartbeat_decision"
 
 	"github.com/google/uuid"
+)
+
+const (
+	eventTypeMemoryHeartbeatStarted      = "memory.heartbeat.started"
+	eventTypeMemoryHeartbeatAppendFailed = "memory.heartbeat.append_failed"
+	eventTypeMemoryHeartbeatCommitFailed = "memory.heartbeat.commit_failed"
+	eventTypeMemoryHeartbeatCommitted    = "memory.heartbeat.committed"
 )
 
 // isHeartbeatRun checks whether run_kind=heartbeat is set in InputJSON or JobPayload.
@@ -179,15 +188,49 @@ func commitHeartbeatFragments(ctx context.Context, rc *RunContext) {
 		{Role: "assistant", Content: "Noted."},
 	}
 	sessionID := rc.Run.ThreadID.String()
-	if err := rc.MemoryProvider.AppendSessionMessages(ctx, ident, sessionID, msgs); err != nil {
-		return
-	}
-	if err := rc.MemoryProvider.CommitSession(ctx, ident, sessionID); err != nil {
-		return
-	}
-	if rc.Pool != nil && strings.TrimSpace(body) != "" {
-		refreshSnapshotFromQueries(ctx, rc.Pool, rc.MemoryProvider, ident, map[string][]string{
-			string(memory.MemoryScopeUser): {body},
-		})
-	}
+	appendAsyncRunEvent(context.Background(), rc.Pool, rc.Run.ID, events.NewEmitter(rc.TraceID).Emit(eventTypeMemoryHeartbeatStarted, map[string]any{
+		"kind":          "heartbeat",
+		"session_id":    sessionID,
+		"message_count": 1,
+	}, nil, nil))
+	go func() {
+		runCtx, cancel := context.WithTimeout(context.Background(), memoryFlushTimeout)
+		defer cancel()
+
+		if err := rc.MemoryProvider.AppendSessionMessages(runCtx, ident, sessionID, msgs); err != nil {
+			slog.Warn("memory: heartbeat append failed",
+				"account_id", rc.Run.AccountID.String(),
+				"session_id", sessionID,
+				"err", err.Error(),
+			)
+			appendAsyncRunEvent(context.Background(), rc.Pool, rc.Run.ID, events.NewEmitter(rc.TraceID).Emit(eventTypeMemoryHeartbeatAppendFailed, map[string]any{
+				"kind":       "heartbeat",
+				"session_id": sessionID,
+				"message":    err.Error(),
+			}, nil, nil))
+			return
+		}
+		if err := rc.MemoryProvider.CommitSession(runCtx, ident, sessionID); err != nil {
+			slog.Warn("memory: heartbeat commit failed",
+				"account_id", rc.Run.AccountID.String(),
+				"session_id", sessionID,
+				"err", err.Error(),
+			)
+			appendAsyncRunEvent(context.Background(), rc.Pool, rc.Run.ID, events.NewEmitter(rc.TraceID).Emit(eventTypeMemoryHeartbeatCommitFailed, map[string]any{
+				"kind":       "heartbeat",
+				"session_id": sessionID,
+				"message":    err.Error(),
+			}, nil, nil))
+			return
+		}
+		appendAsyncRunEvent(context.Background(), rc.Pool, rc.Run.ID, events.NewEmitter(rc.TraceID).Emit(eventTypeMemoryHeartbeatCommitted, map[string]any{
+			"kind":       "heartbeat",
+			"session_id": sessionID,
+		}, nil, nil))
+		if rc.Pool != nil && strings.TrimSpace(body) != "" {
+			scheduleSnapshotRefresh(rc.MemoryProvider, rc.Pool, rc.Run.ID, rc.TraceID, ident, sessionID, map[string][]string{
+				string(memory.MemoryScopeUser): {body},
+			}, "memory.heartbeat", "heartbeat")
+		}
+	}()
 }

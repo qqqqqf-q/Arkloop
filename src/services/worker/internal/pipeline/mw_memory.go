@@ -30,6 +30,24 @@ const (
 
 var snapshotRepo = data.MemorySnapshotRepository{}
 var usageRepo = data.UsageRecordsRepository{}
+var snapshotRefreshWindow = 5 * time.Minute
+var snapshotRefreshRetryInterval = 10 * time.Second
+var snapshotRefreshMaxAttempts = 30
+
+const (
+	eventTypeMemoryDistillSkipped         = "memory.distill.skipped"
+	eventTypeMemoryDistillStarted         = "memory.distill.started"
+	eventTypeMemoryDistillAppendFailed    = "memory.distill.append_failed"
+	eventTypeMemoryDistillCommitFailed    = "memory.distill.commit_failed"
+	eventTypeMemoryDistillCommitted       = "memory.distill.committed"
+	eventTypeMemoryDistillSnapshotUpdated = "memory.distill.snapshot_updated"
+	eventTypeMemoryDistillSnapshotPending = "memory.distill.snapshot_pending"
+
+	distillSkipReasonDisabled           = "disabled"
+	distillSkipReasonBelowThreshold     = "below_threshold"
+	distillSkipReasonNoAssistantOutput  = "no_assistant_output"
+	distillSkipReasonNoIncrementalInput = "no_incremental_messages"
+)
 
 // NewMemoryMiddleware 在 run 前注入长期记忆到 SystemPrompt，run 后异步刷写显式 memory_write。
 // provider 为 nil 时整个 middleware 为 no-op。
@@ -55,10 +73,11 @@ func NewMemoryMiddleware(provider memory.MemoryProvider, pool *pgxpool.Pool, con
 		if userQuery != "" {
 			injectFromCacheOrFind(ctx, rc, activeProvider, pool, ident, userQuery)
 		}
+		baseDistillUserMsgs := collectTrailingRealUserMessages(rc.Messages, rc.ThreadMessageIDs)
 
 		err := next(ctx, rc)
 		flushPendingWritesAfterRun(ctx, activeProvider, pool, configResolver, rc)
-		distillAfterRun(activeProvider, pool, configResolver, rc, ident)
+		distillAfterRun(activeProvider, pool, configResolver, rc, ident, baseDistillUserMsgs)
 		return err
 	}
 }
@@ -174,11 +193,9 @@ func flushPendingWrites(pending []memory.PendingWrite, provider memory.MemoryPro
 
 	successfulQueries := map[string][]string{}
 	successCount := 0
-	hadFailure := false
 	emitter := events.NewEmitter(traceID)
 	for _, pendingWrite := range pending {
 		if err := provider.Write(ctx, pendingWrite.Ident, pendingWrite.Scope, pendingWrite.Entry); err != nil {
-			hadFailure = true
 			slog.Warn("memory: deferred write failed",
 				"account_id", pendingWrite.Ident.AccountID.String(),
 				"user_id", pendingWrite.Ident.UserID.String(),
@@ -206,20 +223,9 @@ func flushPendingWrites(pending []memory.PendingWrite, provider memory.MemoryPro
 		}
 	}
 
-	if pool != nil && len(pending) > 0 {
+	if pool != nil && len(pending) > 0 && successCount > 0 {
 		ident := pending[0].Ident
-		if hadFailure {
-			if err := snapshotRepo.Invalidate(ctx, pool, ident.AccountID, ident.UserID, ident.AgentID); err != nil {
-				slog.Warn("memory: snapshot invalidate failed",
-					"account_id", ident.AccountID.String(),
-					"user_id", ident.UserID.String(),
-					"agent_id", ident.AgentID,
-					"err", err.Error(),
-				)
-			}
-		} else if successCount > 0 {
-			refreshSnapshotFromQueries(ctx, pool, provider, ident, successfulQueries)
-		}
+		scheduleSnapshotRefresh(provider, pool, runID, traceID, ident, "", successfulQueries, "", "write")
 	}
 
 	if successCount == 0 {
@@ -275,23 +281,22 @@ func rebuildSnapshotBlock(ctx context.Context, provider memory.MemoryProvider, i
 	return block, allHits, true
 }
 
-func refreshSnapshotFromQueries(ctx context.Context, pool *pgxpool.Pool, provider memory.MemoryProvider, ident memory.MemoryIdentity, queries map[string][]string) {
+func tryRefreshSnapshotFromQueries(ctx context.Context, pool *pgxpool.Pool, provider memory.MemoryProvider, ident memory.MemoryIdentity, queries map[string][]string) (bool, error) {
 	if pool == nil {
-		return
+		return false, nil
 	}
 	block, hits, ok := rebuildSnapshotBlock(ctx, provider, ident, queries)
 	if !ok {
-		if err := snapshotRepo.Invalidate(ctx, pool, ident.AccountID, ident.UserID, ident.AgentID); err != nil {
-			slog.Warn("memory: snapshot invalidate failed",
-				"account_id", ident.AccountID.String(),
-				"user_id", ident.UserID.String(),
-				"agent_id", ident.AgentID,
-				"err", err.Error(),
-			)
-		}
-		return
+		return false, nil
 	}
 	if err := snapshotRepo.UpsertWithHits(ctx, pool, ident.AccountID, ident.UserID, ident.AgentID, block, hitsToCache(hits)); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func refreshSnapshotFromQueries(ctx context.Context, pool *pgxpool.Pool, provider memory.MemoryProvider, ident memory.MemoryIdentity, queries map[string][]string) {
+	if _, err := tryRefreshSnapshotFromQueries(ctx, pool, provider, ident, queries); err != nil {
 		slog.Warn("memory: snapshot rebuild upsert failed",
 			"account_id", ident.AccountID.String(),
 			"user_id", ident.UserID.String(),
@@ -363,28 +368,52 @@ func lastUserMessageText(messages []llm.Message) string {
 // distillAfterRun 在 run 完成后判断是否触发 Memory 提炼。
 // 条件：tool call >= min_tool_calls OR 迭代轮数 >= min_rounds，且 FinalAssistantOutput 非空。
 // 异步执行，不阻塞 run 返回。
-func distillAfterRun(provider memory.MemoryProvider, pool *pgxpool.Pool, configResolver sharedconfig.Resolver, rc *RunContext, ident memory.MemoryIdentity) {
+func distillAfterRun(provider memory.MemoryProvider, pool *pgxpool.Pool, configResolver sharedconfig.Resolver, rc *RunContext, ident memory.MemoryIdentity, baseUserMsgs []memory.MemoryMessage) {
+	emitter := events.NewEmitter(rc.TraceID)
+	sessionID := rc.Run.ThreadID.String()
 	if strings.TrimSpace(rc.FinalAssistantOutput) == "" {
+		appendAsyncRunEvent(context.Background(), pool, rc.Run.ID, emitter.Emit(eventTypeMemoryDistillSkipped, map[string]any{
+			"kind":   "distill",
+			"reason": distillSkipReasonNoAssistantOutput,
+		}, nil, nil))
 		return
 	}
 
 	enabled, minToolCalls, minRounds := resolveDistillConfig(context.Background(), configResolver)
 	if !enabled {
+		appendAsyncRunEvent(context.Background(), pool, rc.Run.ID, emitter.Emit(eventTypeMemoryDistillSkipped, map[string]any{
+			"kind":   "distill",
+			"reason": distillSkipReasonDisabled,
+		}, nil, nil))
 		return
 	}
 	if rc.RunToolCallCount < minToolCalls && rc.RunIterationCount < minRounds {
+		appendAsyncRunEvent(context.Background(), pool, rc.Run.ID, emitter.Emit(eventTypeMemoryDistillSkipped, map[string]any{
+			"kind":   "distill",
+			"reason": distillSkipReasonBelowThreshold,
+		}, nil, nil))
 		return
 	}
 
-	msgs := buildDistillMessages(rc)
+	msgs := buildDistillMessages(baseUserMsgs, rc.runtimeUserMessages, rc.FinalAssistantOutput)
 	if len(msgs) == 0 {
+		appendAsyncRunEvent(context.Background(), pool, rc.Run.ID, emitter.Emit(eventTypeMemoryDistillSkipped, map[string]any{
+			"kind":   "distill",
+			"reason": distillSkipReasonNoIncrementalInput,
+		}, nil, nil))
 		return
 	}
 
-	sessionID := rc.Run.ThreadID.String()
 	costPerCommit := resolveCommitCost(context.Background(), configResolver)
 	accountID := rc.Run.AccountID
 	runID := rc.Run.ID
+	appendAsyncRunEvent(context.Background(), pool, runID, emitter.Emit(eventTypeMemoryDistillStarted, map[string]any{
+		"kind":            "distill",
+		"session_id":      sessionID,
+		"message_count":   len(msgs) - 1,
+		"tool_call_count": rc.RunToolCallCount,
+		"iteration_count": rc.RunIterationCount,
+	}, nil, nil))
 
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), memoryFlushTimeout)
@@ -396,6 +425,11 @@ func distillAfterRun(provider memory.MemoryProvider, pool *pgxpool.Pool, configR
 				"session_id", sessionID,
 				"err", err.Error(),
 			)
+			appendAsyncRunEvent(context.Background(), pool, runID, emitter.Emit(eventTypeMemoryDistillAppendFailed, map[string]any{
+				"kind":       "distill",
+				"session_id": sessionID,
+				"message":    err.Error(),
+			}, nil, nil))
 			return
 		}
 
@@ -405,31 +439,19 @@ func distillAfterRun(provider memory.MemoryProvider, pool *pgxpool.Pool, configR
 				"session_id", sessionID,
 				"err", err.Error(),
 			)
+			appendAsyncRunEvent(context.Background(), pool, runID, emitter.Emit(eventTypeMemoryDistillCommitFailed, map[string]any{
+				"kind":       "distill",
+				"session_id": sessionID,
+				"message":    err.Error(),
+			}, nil, nil))
 			return
 		}
+		appendAsyncRunEvent(context.Background(), pool, runID, emitter.Emit(eventTypeMemoryDistillCommitted, map[string]any{
+			"kind":       "distill",
+			"session_id": sessionID,
+		}, nil, nil))
 
-		// distill 成功后用最后一条 user 消息做 query 重建快照
-		if pool != nil {
-			userQuery := lastUserMessageText(rc.Messages)
-			if userQuery != "" {
-				snapCtx, snapCancel := context.WithTimeout(context.Background(), snapshotFindTimeout)
-				block, hits, ok := rebuildSnapshotBlock(snapCtx, provider, ident, map[string][]string{
-					"user": {userQuery},
-				})
-				snapCancel()
-				if ok {
-					uCtx, uCancel := context.WithTimeout(context.Background(), 5*time.Second)
-					defer uCancel()
-					if err := snapshotRepo.UpsertWithHits(uCtx, pool, ident.AccountID, ident.UserID, ident.AgentID, block, hitsToCache(hits)); err != nil {
-						slog.Warn("memory: distill snapshot upsert failed",
-							"account_id", accountID.String(),
-							"session_id", sessionID,
-							"err", err.Error(),
-						)
-					}
-				}
-			}
-		}
+		scheduleSnapshotRefresh(provider, pool, runID, rc.TraceID, ident, sessionID, userMessagesToQueries(msgs), "memory.distill", "distill")
 
 		if costPerCommit > 0 && pool != nil {
 			uCtx, uCancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -475,30 +497,127 @@ func resolveDistillConfig(ctx context.Context, resolver sharedconfig.Resolver) (
 	return
 }
 
-// buildDistillMessages 从 RunContext 提取用于提炼的消息。
-func buildDistillMessages(rc *RunContext) []memory.MemoryMessage {
-	var msgs []memory.MemoryMessage
+// buildDistillMessages 只提取本 run 的增量人类输入和最终助手输出。
+func buildDistillMessages(baseUserMsgs []memory.MemoryMessage, runtimeUserMsgs []memory.MemoryMessage, assistantOutput string) []memory.MemoryMessage {
+	msgs := make([]memory.MemoryMessage, 0, len(baseUserMsgs)+len(runtimeUserMsgs)+1)
+	msgs = append(msgs, baseUserMsgs...)
+	msgs = append(msgs, runtimeUserMsgs...)
 
-	for _, msg := range rc.Messages {
-		if msg.Role != "user" {
-			continue
-		}
-		var parts []string
-		for _, part := range msg.Content {
-			if t := strings.TrimSpace(llm.PartPromptText(part)); t != "" {
-				parts = append(parts, t)
-			}
-		}
-		if text := strings.Join(parts, "\n"); text != "" {
-			msgs = append(msgs, memory.MemoryMessage{Role: "user", Content: text})
-		}
-	}
-
-	if text := strings.TrimSpace(rc.FinalAssistantOutput); text != "" {
+	if text := strings.TrimSpace(assistantOutput); text != "" && len(msgs) > 0 {
 		msgs = append(msgs, memory.MemoryMessage{Role: "assistant", Content: text})
 	}
 
 	return msgs
+}
+
+func collectTrailingRealUserMessages(messages []llm.Message, ids []uuid.UUID) []memory.MemoryMessage {
+	lastAssistantIdx := -1
+	for i := len(messages) - 1; i >= 0; i-- {
+		if i < len(ids) && ids[i] != uuid.Nil && messages[i].Role == "assistant" {
+			lastAssistantIdx = i
+			break
+		}
+	}
+
+	var out []memory.MemoryMessage
+	for i := lastAssistantIdx + 1; i < len(messages); i++ {
+		if i >= len(ids) || ids[i] == uuid.Nil || messages[i].Role != "user" {
+			continue
+		}
+		var parts []string
+		for _, part := range messages[i].Content {
+			if text := strings.TrimSpace(llm.PartPromptText(part)); text != "" {
+				parts = append(parts, text)
+			}
+		}
+		if text := strings.Join(parts, "\n"); text != "" {
+			out = append(out, memory.MemoryMessage{Role: "user", Content: text})
+		}
+	}
+	return out
+}
+
+func userMessagesToQueries(msgs []memory.MemoryMessage) map[string][]string {
+	queries := map[string][]string{}
+	for _, msg := range msgs {
+		if msg.Role != "user" {
+			continue
+		}
+		if text := strings.TrimSpace(msg.Content); text != "" {
+			queries[string(memory.MemoryScopeUser)] = append(queries[string(memory.MemoryScopeUser)], text)
+		}
+	}
+	return queries
+}
+
+func scheduleSnapshotRefresh(
+	provider memory.MemoryProvider,
+	pool *pgxpool.Pool,
+	runID uuid.UUID,
+	traceID string,
+	ident memory.MemoryIdentity,
+	sessionID string,
+	queries map[string][]string,
+	eventPrefix string,
+	kind string,
+) {
+	if provider == nil || pool == nil || runID == uuid.Nil || len(queries) == 0 {
+		return
+	}
+
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), snapshotRefreshWindow)
+		defer cancel()
+
+		var lastErr error
+		for attempt := 1; attempt <= snapshotRefreshMaxAttempts; attempt++ {
+			updated, err := tryRefreshSnapshotFromQueries(ctx, pool, provider, ident, queries)
+			if err != nil {
+				lastErr = err
+				slog.Warn("memory: snapshot refresh failed",
+					"run_id", runID.String(),
+					"kind", kind,
+					"attempt", attempt,
+					"err", err.Error(),
+				)
+			} else if updated {
+				emitOptionalMemoryLifecycleEvent(pool, runID, traceID, eventPrefix, ".snapshot_updated", map[string]any{
+					"kind":       kind,
+					"session_id": sessionID,
+					"attempt":    attempt,
+				})
+				return
+			}
+
+			if attempt == snapshotRefreshMaxAttempts || ctx.Err() != nil {
+				break
+			}
+
+			timer := time.NewTimer(snapshotRefreshRetryInterval)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				attempt = snapshotRefreshMaxAttempts
+			case <-timer.C:
+			}
+		}
+
+		data := map[string]any{
+			"kind":       kind,
+			"session_id": sessionID,
+		}
+		if lastErr != nil {
+			data["message"] = lastErr.Error()
+		}
+		emitOptionalMemoryLifecycleEvent(pool, runID, traceID, eventPrefix, ".snapshot_pending", data)
+	}()
+}
+
+func emitOptionalMemoryLifecycleEvent(pool *pgxpool.Pool, runID uuid.UUID, traceID, eventPrefix, suffix string, data map[string]any) {
+	if strings.TrimSpace(eventPrefix) == "" {
+		return
+	}
+	appendAsyncRunEvent(context.Background(), pool, runID, events.NewEmitter(traceID).Emit(eventPrefix+suffix, data, nil, nil))
 }
 
 // resolveCommitCost 从配置中获取每次 commit 的费用（USD），解析失败或未配置时返回 0。
