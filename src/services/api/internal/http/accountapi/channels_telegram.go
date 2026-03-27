@@ -39,10 +39,12 @@ func SetTelegramPassiveIngestSyncForTest(sync bool) {
 }
 
 type telegramChannelConfig struct {
-	AllowedUserIDs    []string `json:"allowed_user_ids"`
-	DefaultModel      string   `json:"default_model,omitempty"`
-	BotUsername       string   `json:"bot_username,omitempty"`
-	TelegramBotUserID int64    `json:"telegram_bot_user_id,omitempty"`
+	AllowedUserIDs        []string `json:"allowed_user_ids"`
+	DefaultModel          string   `json:"default_model,omitempty"`
+	BotUsername           string   `json:"bot_username,omitempty"`
+	TelegramBotUserID     int64    `json:"telegram_bot_user_id,omitempty"`
+	TelegramTypingSignal  *bool    `json:"telegram_typing_indicator,omitempty"`
+	TelegramReactionEmoji string   `json:"telegram_reaction_emoji,omitempty"`
 }
 
 type telegramUpdate struct {
@@ -178,6 +180,7 @@ func normalizeChannelConfigJSON(channelType string, raw json.RawMessage) (json.R
 	cfg.AllowedUserIDs = normalizedIDs
 	cfg.DefaultModel = strings.TrimSpace(cfg.DefaultModel)
 	cfg.BotUsername = strings.TrimSpace(strings.TrimPrefix(cfg.BotUsername, "@"))
+	cfg.TelegramReactionEmoji = strings.TrimSpace(cfg.TelegramReactionEmoji)
 	normalized, err := json.Marshal(cfg)
 	if err != nil {
 		return nil, nil, err
@@ -221,6 +224,48 @@ func resolveTelegramConfig(channelType string, raw json.RawMessage) (telegramCha
 		return telegramChannelConfig{}, nil
 	}
 	return *cfg, nil
+}
+
+func telegramTypingEnabled(cfg telegramChannelConfig) bool {
+	if cfg.TelegramTypingSignal == nil {
+		return true
+	}
+	return *cfg.TelegramTypingSignal
+}
+
+func shouldSendTelegramImmediateTyping(incoming *telegramIncomingMessage) bool {
+	if incoming == nil || !incoming.HasContent() {
+		return false
+	}
+	cmd, ok := telegramCommandBase(strings.TrimSpace(incoming.CommandText), "")
+	if ok && strings.HasPrefix(cmd, "/heartbeat") {
+		return false
+	}
+	return incoming.ShouldCreateRun()
+}
+
+func maybeSendTelegramImmediateTyping(
+	ctx context.Context,
+	client *telegrambot.Client,
+	token string,
+	chatID string,
+	cfg telegramChannelConfig,
+	incoming *telegramIncomingMessage,
+) {
+	if client == nil || strings.TrimSpace(token) == "" || strings.TrimSpace(chatID) == "" {
+		return
+	}
+	if !telegramTypingEnabled(cfg) || !shouldSendTelegramImmediateTyping(incoming) {
+		return
+	}
+	sendCtx, sendCancel := context.WithTimeout(ctx, telegramRemoteRequestTimeout)
+	defer sendCancel()
+	if err := client.SendChatAction(sendCtx, token, telegrambot.SendChatActionRequest{
+		ChatID: strings.TrimSpace(chatID),
+		Action: "typing",
+	}); err != nil {
+		slog.DebugContext(ctx, "telegram_immediate_typing_failed", "chat_id", strings.TrimSpace(chatID), "err", err)
+	}
 }
 
 func mustValidateTelegramActivation(
@@ -687,6 +732,8 @@ func (c telegramConnector) HandleUpdate(
 	if !accepted {
 		return tx.Commit(ctx)
 	}
+
+	maybeSendTelegramImmediateTyping(ctx, c.telegramClient, token, incoming.PlatformChatID, cfg, incoming)
 
 	identity, err := upsertTelegramIdentity(ctx, c.channelIdentitiesRepo.WithTx(tx), update.Message.From)
 	if err != nil {
@@ -1557,6 +1604,8 @@ func (c telegramConnector) HandleUpdateForPoll(
 	if !accepted {
 		return nil, tx.Commit(ctx)
 	}
+
+	maybeSendTelegramImmediateTyping(ctx, c.telegramClient, token, incoming.PlatformChatID, cfg, incoming)
 
 	identity, err := upsertTelegramIdentity(ctx, c.channelIdentitiesRepo.WithTx(tx), update.Message.From)
 	if err != nil {
