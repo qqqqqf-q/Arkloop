@@ -1,19 +1,17 @@
-//go:build !desktop
+//go:build desktop
 
 package crypto
 
 import (
 	"fmt"
 
-	sharedencryption "arkloop/services/shared/encryption"
+	"arkloop/services/shared/desktop"
 )
 
-const EncryptionKeyEnv = sharedencryption.EncryptionKeyEnv
-
 func DecryptGCM(encoded string) ([]byte, error) {
-	keyRing, err := sharedencryption.NewKeyRingFromEnv()
+	keyRing, err := desktop.LoadEncryptionKeyRing(desktop.KeyRingOptions{})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("crypto: load encryption key: %w", err)
 	}
 	plaintext, err := keyRing.Decrypt(encoded, 1)
 	if err != nil {
