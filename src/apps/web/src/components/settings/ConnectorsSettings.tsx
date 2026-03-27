@@ -40,6 +40,14 @@ type Props = {
 type CredentialModal = { group: string; provider: ToolProviderItem } | null
 type DescEditTarget = { toolName: string; label: string; description: string } | null
 
+function isEffectivelyActive(provider: ToolProviderItem): boolean {
+  return provider.effective_is_active ?? provider.is_active
+}
+
+function providerScope(provider: ToolProviderItem): 'platform' | 'project' {
+  return provider.effective_scope ?? 'platform'
+}
+
 function displayGroupName(group: string): string {
   if (group === 'sandbox') return 'sandbox / browser'
   if (group === 'image_understanding') return 'Image understanding'
@@ -192,7 +200,7 @@ export function ConnectorsSettings({ accessToken }: Props) {
   // ---- Derived state ----
 
   const activeGroup = groups.find((g) => g.group_name === selectedGroup)
-  const activeProvider = activeGroup?.providers.find((p) => p.is_active)
+  const activeProvider = activeGroup?.providers.find(isEffectivelyActive)
   const catalogGroup = catalog.find((g) => g.group === selectedGroup)
   const configFields = activeProvider?.config_fields ?? []
   const configDirty = Object.keys(configForm).some(
@@ -229,7 +237,12 @@ export function ConnectorsSettings({ accessToken }: Props) {
       if (mutating) return
       setMutating(true)
       try {
-        await activateToolProvider(accessToken, groupName, providerName)
+        const group = groups.find((item) => item.group_name === groupName)
+        const activeProviders = group?.providers.filter(isEffectivelyActive) ?? []
+        for (const active of activeProviders) {
+          await deactivateToolProvider(accessToken, groupName, active.provider_name, providerScope(active))
+        }
+        await activateToolProvider(accessToken, groupName, providerName, 'platform')
         await fetchAll()
       } catch {
         /* ignore */
@@ -237,15 +250,15 @@ export function ConnectorsSettings({ accessToken }: Props) {
         setMutating(false)
       }
     },
-    [mutating, accessToken, fetchAll],
+    [mutating, accessToken, fetchAll, groups],
   )
 
   const handleDeactivate = useCallback(
-    async (groupName: string, providerName: string) => {
+    async (groupName: string, provider: ToolProviderItem) => {
       if (mutating) return
       setMutating(true)
       try {
-        await deactivateToolProvider(accessToken, groupName, providerName)
+        await deactivateToolProvider(accessToken, groupName, provider.provider_name, providerScope(provider))
         await fetchAll()
       } catch {
         /* ignore */
@@ -288,6 +301,7 @@ export function ConnectorsSettings({ accessToken }: Props) {
         credentialModal.group,
         credentialModal.provider.provider_name,
         payload,
+        providerScope(credentialModal.provider),
       )
       setCredentialModal(null)
       await fetchAll()
@@ -306,6 +320,7 @@ export function ConnectorsSettings({ accessToken }: Props) {
         accessToken,
         clearTarget.group,
         clearTarget.provider.provider_name,
+        providerScope(clearTarget.provider),
       )
       setClearTarget(null)
       await fetchAll()
@@ -329,6 +344,7 @@ export function ConnectorsSettings({ accessToken }: Props) {
         selectedGroup,
         activeProvider.provider_name,
         configJSON,
+        providerScope(activeProvider),
       )
       setConfigSaved({ ...configForm })
     } catch {
@@ -513,10 +529,10 @@ export function ConnectorsSettings({ accessToken }: Props) {
                         <span className="font-mono text-xs text-[var(--c-text-primary)]">
                           {p.provider_name}
                         </span>
-                        <StatusBadge provider={p} tt={tt} />
+                        <StatusBadge provider={p} />
                       </div>
                       <div className="flex items-center gap-1">
-                        {!p.is_active ? (
+                        {!isEffectivelyActive(p) ? (
                           <button
                             disabled={mutating}
                             onClick={() =>
@@ -531,7 +547,7 @@ export function ConnectorsSettings({ accessToken }: Props) {
                           <button
                             disabled={mutating}
                             onClick={() =>
-                              handleDeactivate(p.group_name, p.provider_name)
+                              handleDeactivate(p.group_name, p)
                             }
                             className={btnIcon}
                             title={tt.deactivate}
@@ -808,35 +824,42 @@ export function ConnectorsSettings({ accessToken }: Props) {
 // Sub-components
 // ---------------------------------------------------------------------------
 
-function StatusBadge({
-  provider,
-  tt,
-}: {
-  provider: ToolProviderItem
-  tt: { configured: string; unconfigured: string; activate: string; deactivate: string }
-}) {
-  if (provider.is_active && provider.configured) {
-    return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-green-500/10 px-1.5 py-0.5 text-[10px] font-medium text-green-400">
-        <span className="inline-block h-1.5 w-1.5 rounded-full bg-green-400" />
-        Active
-      </span>
-    )
-  }
-  if (provider.is_active && !provider.configured) {
-    return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-yellow-500/10 px-1.5 py-0.5 text-[10px] font-medium text-yellow-400">
-        <span className="inline-block h-1.5 w-1.5 rounded-full bg-yellow-400" />
-        {tt.unconfigured}
-      </span>
-    )
-  }
+function StatusBadge({ provider }: { provider: ToolProviderItem }) {
+  const state = provider.runtime_state ?? (provider.is_active ? 'ready' : 'inactive')
+  const info = runtimeStateInfo(state)
+  const reason = provider.runtime_reason ? formatRuntimeReason(provider.runtime_reason) : ''
   return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-[var(--c-bg-deep)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--c-text-muted)]">
-      <span className="inline-block h-1.5 w-1.5 rounded-full bg-[var(--c-text-muted)]" />
-      Inactive
+    <span className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${info.bg}`}>
+      <span className={`inline-block h-1.5 w-1.5 rounded-full ${info.dot}`} />
+      <span className={info.text}>{info.label}</span>
+      {reason ? (
+        <span className="ml-1 text-[var(--c-text-muted)]">({reason})</span>
+      ) : null}
     </span>
   )
+}
+
+function runtimeStateInfo(state?: string) {
+  const normalized = state ?? 'inactive'
+  switch (normalized) {
+  case 'ready':
+    return { label: 'Ready', bg: 'bg-green-500/10 text-green-400', dot: 'bg-green-400', text: 'text-green-400' }
+  case 'missing_config':
+    return { label: 'Missing config', bg: 'bg-amber-500/10 text-amber-400', dot: 'bg-amber-400', text: 'text-amber-400' }
+  case 'decrypt_failed':
+    return { label: 'Decrypt failed', bg: 'bg-rose-500/10 text-rose-400', dot: 'bg-rose-400', text: 'text-rose-400' }
+  case 'invalid_config':
+    return { label: 'Invalid config', bg: 'bg-rose-500/10 text-rose-400', dot: 'bg-rose-400', text: 'text-rose-400' }
+  default:
+    return { label: 'Inactive', bg: 'bg-[var(--c-bg-deep)] text-[var(--c-text-muted)]', dot: 'bg-[var(--c-text-muted)]', text: 'text-[var(--c-text-muted)]' }
+  }
+}
+
+function formatRuntimeReason(reason: string) {
+  return reason
+    .split('_')
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join(' ')
 }
 
 function ToolRow({

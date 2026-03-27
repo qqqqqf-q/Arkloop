@@ -138,11 +138,15 @@ export type ToolProviderItem = {
   group_name: string
   provider_name: string
   is_active: boolean
+  effective_is_active?: boolean
+  effective_scope?: AgentScope
   key_prefix?: string
   base_url?: string
   requires_api_key: boolean
   requires_base_url: boolean
   configured: boolean
+  runtime_state?: string
+  runtime_reason?: string
   config_json?: Record<string, unknown>
   config_fields?: ToolProviderConfigField[]
   default_base_url?: string
@@ -187,20 +191,85 @@ export type ToolCatalogGroup = {
 export async function listToolProviders(
   accessToken: string,
 ): Promise<ToolProviderGroup[]> {
-  const res = await apiFetch<{ groups: ToolProviderGroup[] }>(
-    scopedPath('/v1/tool-providers'),
-    { accessToken },
-  )
-  return res.groups
+  const [platformRes, userRes] = await Promise.all([
+    apiFetch<{ groups: ToolProviderGroup[] }>(scopedPath('/v1/tool-providers'), {
+      accessToken,
+    }),
+    apiFetch<{ groups: ToolProviderGroup[] }>(withScope('/v1/tool-providers', 'project'), {
+      accessToken,
+    }).catch(() => ({ groups: [] as ToolProviderGroup[] })),
+  ])
+  return mergeToolProviderGroups(platformRes.groups, userRes.groups)
+}
+
+function mergeToolProviderGroups(
+  platformGroups: ToolProviderGroup[],
+  userGroups: ToolProviderGroup[],
+): ToolProviderGroup[] {
+  const userByGroup = new Map(userGroups.map((group) => [group.group_name, group]))
+  return platformGroups.map((platformGroup) => {
+    const userGroup = userByGroup.get(platformGroup.group_name)
+    const userByProvider = new Map(userGroup?.providers.map((provider) => [provider.provider_name, provider]) ?? [])
+    const activeUserProvider = userGroup?.providers.find((provider) => provider.is_active)
+    const activePlatformProvider = platformGroup.providers.find((provider) => provider.is_active)
+    const effectiveActiveProvider = activeUserProvider ?? activePlatformProvider
+    return {
+      ...platformGroup,
+      providers: platformGroup.providers.map((provider) => {
+        const userProvider = userByProvider.get(provider.provider_name)
+        const effectiveRuntime = pickPreferredRuntimeProvider(provider, userProvider)
+        return {
+          ...provider,
+          effective_is_active: effectiveActiveProvider?.provider_name === provider.provider_name,
+          effective_scope: effectiveActiveProvider?.provider_name === provider.provider_name
+            ? (activeUserProvider?.provider_name === provider.provider_name ? 'project' : 'platform')
+            : undefined,
+          runtime_state: effectiveRuntime?.runtime_state ?? provider.runtime_state,
+          runtime_reason: effectiveRuntime?.runtime_reason ?? provider.runtime_reason,
+        }
+      }),
+    }
+  })
+}
+
+function pickPreferredRuntimeProvider(
+  platformProvider: ToolProviderItem,
+  userProvider?: ToolProviderItem,
+): ToolProviderItem | undefined {
+  if (!userProvider) {
+    return platformProvider
+  }
+  if (runtimeSeverity(userProvider.runtime_state) > runtimeSeverity(platformProvider.runtime_state)) {
+    return userProvider
+  }
+  return platformProvider
+}
+
+function runtimeSeverity(state?: string): number {
+  switch (state) {
+  case 'ready':
+    return 5
+  case 'invalid_config':
+    return 4
+  case 'decrypt_failed':
+    return 3
+  case 'missing_config':
+    return 2
+  case 'inactive':
+    return 1
+  default:
+    return 0
+  }
 }
 
 export async function activateToolProvider(
   accessToken: string,
   group: string,
   provider: string,
+  scope: AgentScope = 'platform',
 ): Promise<void> {
   await apiFetch<void>(
-    scopedPath(`/v1/tool-providers/${group}/${provider}/activate`),
+    withScope(`/v1/tool-providers/${group}/${provider}/activate`, scope),
     { method: 'PUT', accessToken },
   )
 }
@@ -209,9 +278,10 @@ export async function deactivateToolProvider(
   accessToken: string,
   group: string,
   provider: string,
+  scope: AgentScope = 'platform',
 ): Promise<void> {
   await apiFetch<void>(
-    scopedPath(`/v1/tool-providers/${group}/${provider}/deactivate`),
+    withScope(`/v1/tool-providers/${group}/${provider}/deactivate`, scope),
     { method: 'PUT', accessToken },
   )
 }
@@ -221,9 +291,10 @@ export async function updateToolProviderCredential(
   group: string,
   provider: string,
   payload: Record<string, string>,
+  scope: AgentScope = 'platform',
 ): Promise<void> {
   await apiFetch<void>(
-    scopedPath(`/v1/tool-providers/${group}/${provider}/credential`),
+    withScope(`/v1/tool-providers/${group}/${provider}/credential`, scope),
     { method: 'PUT', body: JSON.stringify(payload), accessToken },
   )
 }
@@ -232,9 +303,10 @@ export async function clearToolProviderCredential(
   accessToken: string,
   group: string,
   provider: string,
+  scope: AgentScope = 'platform',
 ): Promise<void> {
   await apiFetch<void>(
-    scopedPath(`/v1/tool-providers/${group}/${provider}/credential`),
+    withScope(`/v1/tool-providers/${group}/${provider}/credential`, scope),
     { method: 'DELETE', accessToken },
   )
 }
@@ -244,9 +316,10 @@ export async function updateToolProviderConfig(
   group: string,
   provider: string,
   configJSON: Record<string, unknown>,
+  scope: AgentScope = 'platform',
 ): Promise<void> {
   await apiFetch<void>(
-    scopedPath(`/v1/tool-providers/${group}/${provider}/config`),
+    withScope(`/v1/tool-providers/${group}/${provider}/config`, scope),
     { method: 'PUT', body: JSON.stringify(configJSON), accessToken },
   )
 }
