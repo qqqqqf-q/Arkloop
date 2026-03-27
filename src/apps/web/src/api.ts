@@ -1833,6 +1833,7 @@ export type MCPDiscoveryProposal = {
   transport: 'stdio' | 'http_sse' | 'streamable_http'
   launch_spec: Record<string, unknown>
   host_requirement: string
+  has_auth?: boolean
 }
 
 export type MCPDiscoverySource = {
@@ -1847,14 +1848,12 @@ export type MCPDiscoverySource = {
 export type UpsertMCPInstallRequest = {
   install_key?: string
   display_name?: string
-  source_kind?: string
-  source_uri?: string
-  sync_mode?: string
   transport?: 'stdio' | 'http_sse' | 'streamable_http'
   launch_spec?: Record<string, unknown>
   auth_headers?: Record<string, string>
   bearer_token?: string
   host_requirement?: string
+  clear_auth?: boolean
 }
 
 export async function listMCPInstalls(accessToken: string): Promise<MCPInstall[]> {
@@ -1900,10 +1899,21 @@ export async function checkMCPInstall(accessToken: string, id: string): Promise<
 
 export async function setWorkspaceMCPEnablement(
   accessToken: string,
-  req: { workspace_ref?: string; install_key: string; enabled: boolean },
+  req: { workspace_ref?: string; install_id: string; enabled: boolean },
 ): Promise<void> {
   await apiFetch<void>('/v1/workspace-mcp-enablements', {
     method: 'PUT',
+    accessToken,
+    body: JSON.stringify(req),
+  })
+}
+
+export async function importMCPInstall(
+  accessToken: string,
+  req: { workspace_ref?: string; source_uri: string; install_key: string },
+): Promise<MCPInstall> {
+  return apiFetch<MCPInstall>('/v1/mcp-installs/import', {
+    method: 'POST',
     accessToken,
     body: JSON.stringify(req),
   })

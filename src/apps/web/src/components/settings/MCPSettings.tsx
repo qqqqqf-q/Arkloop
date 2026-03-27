@@ -3,6 +3,7 @@ import {
   checkMCPInstall,
   createMCPInstall,
   deleteMCPInstall,
+  importMCPInstall,
   listMCPDiscoverySources,
   listMCPInstalls,
   setWorkspaceMCPEnablement,
@@ -33,9 +34,6 @@ type FormState = {
   headersJson: string
   bearerToken: string
   timeoutMs: string
-  sourceKind: string
-  sourceUri: string
-  syncMode: string
 }
 
 function emptyForm(): FormState {
@@ -51,9 +49,6 @@ function emptyForm(): FormState {
     headersJson: '{}',
     bearerToken: '',
     timeoutMs: '',
-    sourceKind: 'manual_console',
-    sourceUri: '',
-    syncMode: 'none',
   }
 }
 
@@ -101,9 +96,6 @@ function formFromInstall(install: MCPInstall): FormState {
     headersJson: formatJson(launch.headers),
     bearerToken: asBearerToken(launch.headers),
     timeoutMs: typeof launch.call_timeout_ms === 'number' ? String(launch.call_timeout_ms) : '',
-    sourceKind: install.source_kind,
-    sourceUri: install.source_uri ?? '',
-    syncMode: install.sync_mode,
   }
 }
 
@@ -175,9 +167,6 @@ function buildRequest(form: FormState): UpsertMCPInstallRequest {
     auth_headers: Object.keys(headers).length > 0 ? headers : undefined,
     bearer_token: bearerToken || undefined,
     host_requirement: form.hostRequirement,
-    source_kind: form.sourceKind.trim() || 'manual_console',
-    source_uri: form.sourceUri.trim() || undefined,
-    sync_mode: form.syncMode.trim() || 'none',
   }
 }
 
@@ -432,7 +421,7 @@ export function MCPSettings({ accessToken }: Props) {
     setBusyID(install.id)
     try {
       await setWorkspaceMCPEnablement(accessToken, {
-        install_key: install.install_key,
+        install_id: install.id,
         enabled: !install.workspace_state?.enabled,
       })
       await loadInstalls()
@@ -475,15 +464,9 @@ export function MCPSettings({ accessToken }: Props) {
   const handleImport = useCallback(async (source: MCPDiscoverySource, proposal: MCPDiscoveryProposal) => {
     setSaving(true)
     try {
-      await createMCPInstall(accessToken, {
-        display_name: proposal.display_name,
-        install_key: proposal.install_key,
-        source_kind: source.source_kind,
+      await importMCPInstall(accessToken, {
         source_uri: source.source_uri,
-        sync_mode: source.source_kind === 'desktop_file' ? 'desktop_file_bidirectional' : 'none',
-        transport: proposal.transport,
-        launch_spec: proposal.launch_spec,
-        host_requirement: proposal.host_requirement,
+        install_key: proposal.install_key,
       })
       setNotice(copy.toastImported)
       await loadInstalls()
@@ -540,7 +523,11 @@ export function MCPSettings({ accessToken }: Props) {
             </label>
             <label className="flex flex-col gap-1 text-sm text-[var(--c-text-secondary)]">
               {copy.fieldTransport}
-              <select className={inputClass} value={form.transport} onChange={(event) => setField('transport', event.target.value as Transport)}>
+              <select className={inputClass} value={form.transport} onChange={(event) => {
+                const transport = event.target.value as Transport
+                setField('transport', transport)
+                setField('hostRequirement', normalizeHostRequirement(transport))
+              }}>
                 <option value="http_sse">http_sse</option>
                 <option value="streamable_http">streamable_http</option>
                 <option value="stdio">stdio</option>
@@ -591,21 +578,6 @@ export function MCPSettings({ accessToken }: Props) {
             <label className="flex flex-col gap-1 text-sm text-[var(--c-text-secondary)]">
               {copy.fieldToken}
               <input className={inputClass} value={form.bearerToken} onChange={(event) => setField('bearerToken', event.target.value)} />
-            </label>
-            <label className="flex flex-col gap-1 text-sm text-[var(--c-text-secondary)]">
-              {copy.fieldSourceKind}
-              <input className={inputClass} value={form.sourceKind} onChange={(event) => setField('sourceKind', event.target.value)} />
-            </label>
-            <label className="flex flex-col gap-1 text-sm text-[var(--c-text-secondary)]">
-              {copy.fieldSourceURI}
-              <input className={inputClass} value={form.sourceUri} onChange={(event) => setField('sourceUri', event.target.value)} />
-            </label>
-            <label className="flex flex-col gap-1 text-sm text-[var(--c-text-secondary)]">
-              {copy.fieldSyncMode}
-              <select className={inputClass} value={form.syncMode} onChange={(event) => setField('syncMode', event.target.value)}>
-                <option value="none">none</option>
-                <option value="desktop_file_bidirectional">desktop_file_bidirectional</option>
-              </select>
             </label>
           </div>
           {formError ? <p className="mt-3 text-sm text-rose-600">{formError}</p> : null}

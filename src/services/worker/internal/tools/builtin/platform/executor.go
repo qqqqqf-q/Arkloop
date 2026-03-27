@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -17,10 +18,10 @@ import (
 )
 
 const (
-	errArgsInvalid      = "tool.args_invalid"
-	errAPICall          = "tool.api_call_failed"
-	errHTTP             = "tool.http_error"
-	errUnauthorized     = "tool.unauthorized"
+	errArgsInvalid       = "tool.args_invalid"
+	errAPICall           = "tool.api_call_failed"
+	errHTTP              = "tool.http_error"
+	errUnauthorized      = "tool.unauthorized"
 	errBridgeUnavailable = "tool.bridge_unavailable"
 )
 
@@ -133,14 +134,20 @@ func (e *Executor) Execute(
 		return e.requireDelete(ctx, args, "/v1/skill-packages/", t)
 
 	// --- mcp ---
-	case "list_mcp_configs":
-		return e.get(ctx, "/v1/mcp-configs", t)
-	case "add_mcp_config":
+	case "list_mcp_installs":
+		return e.get(ctx, "/v1/mcp-installs", t)
+	case "add_mcp_install":
 		return e.addMCPConfig(ctx, args, t)
-	case "update_mcp_config":
+	case "update_mcp_install":
 		return e.updateMCPConfig(ctx, args, t)
-	case "delete_mcp_config":
-		return e.requireDelete(ctx, args, "/v1/mcp-configs/", t)
+	case "delete_mcp_install":
+		return e.requireDelete(ctx, args, "/v1/mcp-installs/", t)
+	case "check_mcp_install":
+		return e.checkMCPInstall(ctx, args, t)
+	case "list_workspace_mcp_enablements":
+		return e.listWorkspaceMCPEnablements(ctx, args, t)
+	case "set_workspace_mcp_enablement":
+		return e.setWorkspaceMCPEnablement(ctx, args, t)
 	case "list_tool_providers":
 		return e.get(ctx, "/v1/tool-providers", t)
 	case "add_tool_provider":
@@ -411,8 +418,8 @@ func (e *Executor) installSkillGithub(ctx context.Context, a map[string]any, t t
 // ============================================================
 
 func (e *Executor) addMCPConfig(ctx context.Context, a map[string]any, t time.Time) tools.ExecutionResult {
-	if str(a, "name") == "" {
-		return argErr("name is required", t)
+	if str(a, "display_name") == "" {
+		return argErr("display_name is required", t)
 	}
 	transport := str(a, "transport")
 	if transport != "stdio" && transport != "http_sse" && transport != "streamable_http" {
@@ -425,21 +432,31 @@ func (e *Executor) addMCPConfig(ctx context.Context, a map[string]any, t time.Ti
 		return argErr("url is required for "+transport+" transport", t)
 	}
 
-	body := map[string]any{"name": a["name"], "transport": transport}
-	for _, k := range []string{"url", "command", "bearer_token", "cwd"} {
+	launchSpec := map[string]any{}
+	for _, k := range []string{"url", "command", "cwd"} {
 		if v := str(a, k); v != "" {
-			body[k] = v
+			launchSpec[k] = v
 		}
 	}
-	for _, k := range []string{"args", "env", "inherit_parent_env"} {
+	for _, k := range []string{"args", "env"} {
 		if v, ok := a[k]; ok {
-			body[k] = v
+			launchSpec[k] = v
 		}
 	}
 	if v, ok := intVal(a["call_timeout_ms"]); ok {
-		body["call_timeout_ms"] = v
+		launchSpec["call_timeout_ms"] = v
 	}
-	return e.post(ctx, "/v1/mcp-configs", body, t)
+	body := map[string]any{
+		"display_name": a["display_name"],
+		"transport":    transport,
+		"launch_spec":  launchSpec,
+	}
+	for _, k := range []string{"host_requirement", "auth_headers", "bearer_token"} {
+		if v, ok := a[k]; ok && v != nil {
+			body[k] = v
+		}
+	}
+	return e.post(ctx, "/v1/mcp-installs", body, t)
 }
 
 func (e *Executor) updateMCPConfig(ctx context.Context, a map[string]any, t time.Time) tools.ExecutionResult {
@@ -448,21 +465,55 @@ func (e *Executor) updateMCPConfig(ctx context.Context, a map[string]any, t time
 		return argErr("id is required", t)
 	}
 	body := make(map[string]any)
-	for _, k := range []string{"name", "url", "bearer_token"} {
-		if v := str(a, k); v != "" {
+	if v := str(a, "display_name"); v != "" {
+		body["display_name"] = v
+	}
+	if v, ok := a["launch_spec"]; ok && v != nil {
+		body["launch_spec"] = v
+	}
+	for _, k := range []string{"host_requirement", "auth_headers", "bearer_token", "clear_auth"} {
+		if v, ok := a[k]; ok {
 			body[k] = v
 		}
-	}
-	if v, ok := intVal(a["call_timeout_ms"]); ok {
-		body["call_timeout_ms"] = v
-	}
-	if v, ok := a["is_active"]; ok {
-		body["is_active"] = v
 	}
 	if err := validatePathSegment("id", id); err != nil {
 		return argErr(err.Error(), t)
 	}
-	return e.patch(ctx, "/v1/mcp-configs/"+id, body, t)
+	return e.patch(ctx, "/v1/mcp-installs/"+id, body, t)
+}
+
+func (e *Executor) checkMCPInstall(ctx context.Context, a map[string]any, t time.Time) tools.ExecutionResult {
+	id := str(a, "id")
+	if id == "" {
+		return argErr("id is required", t)
+	}
+	if !uuidRe.MatchString(id) {
+		return argErr("id must be a valid UUID", t)
+	}
+	return e.post(ctx, "/v1/mcp-installs/"+id+":check", map[string]any{}, t)
+}
+
+func (e *Executor) listWorkspaceMCPEnablements(ctx context.Context, a map[string]any, t time.Time) tools.ExecutionResult {
+	path := "/v1/workspace-mcp-enablements"
+	if workspaceRef := str(a, "workspace_ref"); workspaceRef != "" {
+		path += "?workspace_ref=" + url.QueryEscape(workspaceRef)
+	}
+	return e.get(ctx, path, t)
+}
+
+func (e *Executor) setWorkspaceMCPEnablement(ctx context.Context, a map[string]any, t time.Time) tools.ExecutionResult {
+	installID := str(a, "install_id")
+	if installID == "" {
+		return argErr("install_id is required", t)
+	}
+	body := map[string]any{
+		"install_id": installID,
+		"enabled":    a["enabled"],
+	}
+	if workspaceRef := str(a, "workspace_ref"); workspaceRef != "" {
+		body["workspace_ref"] = workspaceRef
+	}
+	return e.put(ctx, "/v1/workspace-mcp-enablements", body, t)
 }
 
 func (e *Executor) addToolProvider(ctx context.Context, a map[string]any, t time.Time) tools.ExecutionResult {

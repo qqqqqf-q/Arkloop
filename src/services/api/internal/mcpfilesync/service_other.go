@@ -18,14 +18,26 @@ type DiscoveryRequest struct {
 }
 
 type ProposedInstall struct {
-	InstallKey      string          `json:"install_key"`
-	DisplayName     string          `json:"display_name"`
-	Transport       string          `json:"transport"`
-	LaunchSpecJSON  json.RawMessage `json:"launch_spec_json"`
-	HostRequirement string          `json:"host_requirement"`
-	SourceKind      string          `json:"source_kind"`
-	SourceURI       string          `json:"source_uri"`
-	SyncMode        string          `json:"sync_mode"`
+	InstallKey      string            `json:"install_key"`
+	DisplayName     string            `json:"display_name"`
+	Transport       string            `json:"transport"`
+	LaunchSpecJSON  json.RawMessage   `json:"launch_spec_json"`
+	HostRequirement string            `json:"host_requirement"`
+	SourceKind      string            `json:"source_kind"`
+	SourceURI       string            `json:"source_uri"`
+	SyncMode        string            `json:"sync_mode"`
+	HasAuth         bool              `json:"has_auth"`
+	AuthHeaders     map[string]string `json:"-"`
+}
+
+type ImportRequest struct {
+	SourceURI  string
+	InstallKey string
+}
+
+type ImportedInstall struct {
+	Install     data.ProfileMCPInstall
+	AuthHeaders map[string]string
 }
 
 type DiscoverySource struct {
@@ -43,7 +55,7 @@ type DiscoveryResponse struct {
 
 type Service struct{}
 
-func NewService(_ string, _ *data.ProfileMCPInstallsRepository, _ *data.SecretsRepository) (*Service, error) {
+func NewService(_ string, _ *data.ProfileMCPInstallsRepository, _ *data.SecretsRepository, _ data.DB) (*Service, error) {
 	return &Service{}, nil
 }
 
@@ -53,6 +65,14 @@ func (s *Service) SyncDesktopMirror(_ context.Context, _ uuid.UUID, _ string) er
 
 func (s *Service) DiscoverSources(_ context.Context, _ DiscoveryRequest) (DiscoveryResponse, error) {
 	return DiscoveryResponse{}, nil
+}
+
+func (s *Service) ResolveImport(_ context.Context, _, _ string) (*ProposedInstall, error) {
+	return nil, ErrDesktopOnly()
+}
+
+func (s *Service) LoadInstallFromSource(_ context.Context, _ ImportRequest) (*ImportedInstall, error) {
+	return nil, ErrDesktopOnly()
 }
 
 func (s *Service) StartWatcher(_ context.Context, _ uuid.UUID, _ string, _ interface{}) {

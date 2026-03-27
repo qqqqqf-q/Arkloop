@@ -411,7 +411,7 @@ func RunDesktop(ctx context.Context) error {
 	// ---- HTTP handler ----
 
 	profileRef := sharedenvironmentref.BuildProfileRef(auth.DesktopAccountID, &auth.DesktopUserID)
-	mcpDiscoveryService, err := mcpfilesync.NewService(cfg.DataDir, profileMCPInstallsRepo, secretsRepo)
+	mcpDiscoveryService, err := mcpfilesync.NewService(cfg.DataDir, profileMCPInstallsRepo, secretsRepo, pool)
 	if err != nil {
 		return fmt.Errorf("init desktop mcp discovery service: %w", err)
 	}

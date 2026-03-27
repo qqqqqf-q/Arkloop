@@ -159,7 +159,7 @@ function App() {
           <Route path="reports" element={<ReportsPage />} />
           {/* Configuration */}
           <Route path="providers" element={<ProvidersPage />} />
-          <Route path="mcp-configs" element={<MCPConfigsPage />} />
+          <Route path="mcp-installs" element={<MCPConfigsPage />} />
           <Route path="tools" element={<ToolsPage />} />
           <Route path="personas" element={<PersonasPage />} />
           <Route path="asr-credentials" element={<AsrCredentialsPage />} />

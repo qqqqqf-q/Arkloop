@@ -2,11 +2,10 @@ package catalogapi
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 	"strings"
 
 	"arkloop/services/api/internal/data"
+	sharedmcpinstall "arkloop/services/shared/mcpinstall"
 )
 
 func runMCPInstallCheck(ctx context.Context, item data.ProfileMCPInstall, headers map[string]string) (string, string, string) {
@@ -36,62 +35,26 @@ func runMCPInstallCheck(ctx context.Context, item data.ProfileMCPInstall, header
 }
 
 func effectiveServerConfigFromInstall(item data.ProfileMCPInstall, headers map[string]string) (effectiveMCPServerConfig, error) {
-	server := effectiveMCPServerConfig{
-		ServerID:      strings.TrimSpace(item.InstallKey),
-		AccountID:     item.AccountID.String(),
-		Transport:     strings.TrimSpace(item.Transport),
-		CallTimeoutMs: effectiveMCPDefaultTimeoutMs,
-		Env:           map[string]string{},
-		Headers:       map[string]string{},
+	install := sharedmcpinstall.EnabledInstall{
+		ID:               item.ID,
+		AccountID:        item.AccountID,
+		ProfileRef:       item.ProfileRef,
+		InstallKey:       item.InstallKey,
+		DisplayName:      item.DisplayName,
+		SourceKind:       item.SourceKind,
+		SourceURI:        item.SourceURI,
+		SyncMode:         item.SyncMode,
+		Transport:        item.Transport,
+		LaunchSpecJSON:   item.LaunchSpecJSON,
+		HostRequirement:  item.HostRequirement,
+		DiscoveryStatus:  item.DiscoveryStatus,
+		LastErrorCode:    item.LastErrorCode,
+		LastErrorMessage: item.LastErrorMessage,
+		LastCheckedAt:    item.LastCheckedAt,
 	}
-	if len(headers) > 0 {
-		for key, value := range headers {
-			server.Headers[strings.TrimSpace(key)] = value
-		}
-	}
-	if len(item.LaunchSpecJSON) == 0 {
-		return server, fmt.Errorf("launch spec missing")
-	}
-	var spec map[string]any
-	if err := json.Unmarshal(item.LaunchSpecJSON, &spec); err != nil {
-		return server, fmt.Errorf("launch spec is invalid")
-	}
-	parsed, err := parseEffectiveMCPServerConfig(server.ServerID, spec)
-	if err != nil {
-		return server, err
-	}
-	parsed.AccountID = server.AccountID
-	for key, value := range server.Headers {
-		if parsed.Headers == nil {
-			parsed.Headers = map[string]string{}
-		}
-		parsed.Headers[key] = value
-	}
-	return parsed, nil
+	return sharedmcpinstall.ServerConfigFromInstall(install, headers, effectiveMCPDefaultTimeoutMs)
 }
 
 func checkEffectiveMCPHostRequirement(server effectiveMCPServerConfig, requirement string) error {
-	requirement = strings.TrimSpace(requirement)
-	if requirement == "" {
-		return nil
-	}
-	switch requirement {
-	case "remote_http":
-		if server.Transport == "stdio" {
-			return fmt.Errorf("remote_http host does not support stdio launch specs")
-		}
-		return nil
-	case "cloud_worker":
-		if server.Transport != "stdio" {
-			return nil
-		}
-		if server.Command == "" {
-			return fmt.Errorf("stdio command missing")
-		}
-		return nil
-	case "desktop_local", "desktop_sidecar":
-		return nil
-	default:
-		return nil
-	}
+	return sharedmcpinstall.CheckHostRequirement(server, requirement)
 }
