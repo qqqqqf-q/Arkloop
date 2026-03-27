@@ -26,6 +26,7 @@ type desktopTPList struct {
 		Providers []struct {
 			ProviderName    string          `json:"provider_name"`
 			IsActive        bool            `json:"is_active"`
+			RuntimeState    string          `json:"runtime_state"`
 			ConfigJSON      json.RawMessage `json:"config_json,omitempty"`
 			RequiresAPIKey  bool            `json:"requires_api_key"`
 			RequiresBaseURL bool            `json:"requires_base_url"`
@@ -196,6 +197,9 @@ func TestDesktopToolProvidersListActivateAndConfigACP(t *testing.T) {
 			found = true
 			if !p.IsActive {
 				t.Fatal("expected acp.opencode active")
+			}
+			if p.RuntimeState != "ready" {
+				t.Fatalf("expected runtime_state=ready, got %q", p.RuntimeState)
 			}
 			var parsed map[string]any
 			if err := json.Unmarshal(p.ConfigJSON, &parsed); err != nil {

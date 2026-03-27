@@ -150,6 +150,9 @@ export function normalizeConfig(config: Partial<AppConfig> | null | undefined): 
     onboarding_completed: typeof parsed.onboarding_completed === 'boolean'
       ? parsed.onboarding_completed
       : DEFAULT_CONFIG.onboarding_completed,
+    connectors_migrated: typeof parsed.connectors_migrated === 'boolean'
+      ? parsed.connectors_migrated
+      : DEFAULT_CONFIG.connectors_migrated,
     connectors: normalizeConnectors(parsed.connectors),
     memory: normalizeMemory(parsed.memory),
     voice: normalizeVoice(parsed.voice),

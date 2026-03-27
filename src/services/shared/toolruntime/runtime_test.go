@@ -69,12 +69,11 @@ func TestResolveBuiltinUsesEnvAndProviders(t *testing.T) {
 		ArtifactStoreAvailable: true,
 		BrowserEnabled:         true,
 		Env: EnvConfig{
-			MemoryBaseURL:     memoryBaseURL,
-			WebSearchProvider: "searxng",
-			WebSearchBaseURL:  "http://searxng:8080",
-			WebFetchProvider:  "basic",
+			MemoryBaseURL: memoryBaseURL,
 		},
 		PlatformProviders: []ProviderConfig{
+			{GroupName: "web_search", ProviderName: "web_search.searxng", BaseURL: strPtr("http://searxng:8080")},
+			{GroupName: "web_fetch", ProviderName: "web_fetch.basic"},
 			{GroupName: "memory", ProviderName: "memory.openviking", APIKeyValue: &memoryAPIKey},
 			{GroupName: "sandbox", ProviderName: "sandbox.docker", BaseURL: &sandboxBaseURL},
 		},
@@ -172,29 +171,17 @@ func TestResolveBuiltinAddsWebToolsFromPlatformProviders(t *testing.T) {
 	}
 }
 
-func TestResolveBuiltinAddsWebToolsFromEnv(t *testing.T) {
+func TestResolveBuiltinDoesNotAddWebToolsFromEnv(t *testing.T) {
 	resolved := ResolveBuiltin(ResolveInput{
 		Env: EnvConfig{
-			WebSearchProvider: "tavily",
-			WebSearchAPIKey:   "tvly-test-key",
+			MemoryBaseURL: "http://memory.internal",
 		},
 	})
-	if _, ok := resolved.ToolNameSet()["web_search"]; !ok {
-		t.Fatal("web_search should be present with env provider")
+	if _, ok := resolved.ToolNameSet()["web_search"]; ok {
+		t.Fatal("web_search should not be present from env only")
 	}
 	if _, ok := resolved.ToolNameSet()["web_fetch"]; ok {
 		t.Fatal("web_fetch should be absent without configuration")
-	}
-}
-
-func TestResolveBuiltinAddsWebSearchDuckduckgoWithoutExtraEnv(t *testing.T) {
-	resolved := ResolveBuiltin(ResolveInput{
-		Env: EnvConfig{
-			WebSearchProvider: "duckduckgo",
-		},
-	})
-	if _, ok := resolved.ToolNameSet()["web_search"]; !ok {
-		t.Fatal("web_search should be present when ARKLOOP_WEB_SEARCH_PROVIDER=duckduckgo")
 	}
 }
 
@@ -213,18 +200,14 @@ func TestRuntimeSnapshotMergeBuiltinToolNamesFromPreservesStubAndAddsBuiltins(t 
 	}
 }
 
-func TestResolveBuiltinWebFetchJinaWorksWithoutAPIKey(t *testing.T) {
+func TestResolveBuiltinWebFetchJinaRequiresProviderConfig(t *testing.T) {
 	resolved := ResolveBuiltin(ResolveInput{
-		Env: EnvConfig{
-			WebSearchProvider: "tavily",
-			WebFetchProvider:  "jina",
+		PlatformProviders: []ProviderConfig{
+			{GroupName: "web_fetch", ProviderName: "web_fetch.jina", APIKeyValue: strPtr("jina-key")},
 		},
 	})
-	if _, ok := resolved.ToolNameSet()["web_search"]; ok {
-		t.Fatal("web_search should be absent when tavily has no API key")
-	}
 	if _, ok := resolved.ToolNameSet()["web_fetch"]; !ok {
-		t.Fatal("web_fetch should be present when jina provider is selected without API key")
+		t.Fatal("web_fetch should be present when jina provider is configured")
 	}
 }
 

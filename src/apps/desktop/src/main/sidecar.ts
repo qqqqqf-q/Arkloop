@@ -7,7 +7,7 @@ import * as net from 'net'
 import * as os from 'os'
 import * as path from 'path'
 import { app } from 'electron'
-import type { ConnectorsConfig, LocalPortMode, MemoryConfig } from './types'
+import type { LocalPortMode, MemoryConfig } from './types'
 
 export type SidecarStatus = 'stopped' | 'starting' | 'running' | 'crashed'
 
@@ -74,15 +74,10 @@ let runtime: SidecarRuntime = {
   portMode: 'auto',
 }
 let bridgeBaseUrl = `http://127.0.0.1:${DEFAULT_BRIDGE_PORT}`
-let connectorsConfig: ConnectorsConfig | null = null
 let memoryConfig: MemoryConfig | null = null
 
 export function getSidecarStatus(): SidecarStatus {
   return runtime.status
-}
-
-export function setConnectorsConfig(config: ConnectorsConfig): void {
-  connectorsConfig = config
 }
 
 export function setMemoryConfig(config: MemoryConfig): void {
@@ -591,33 +586,6 @@ function buildWorkspaceEnv(projectDir: string | null): Record<string, string> {
   if (!readEnvVar('ARKLOOP_WORKING_DIR')) {
     env.ARKLOOP_WORKING_DIR = workspaceRoot
   }
-  return env
-}
-
-function buildConnectorsEnv(): Record<string, string> {
-  const env: Record<string, string> = {}
-  const cfg = connectorsConfig
-  if (!cfg) return env
-
-  // Fetch connector
-  env.ARKLOOP_WEB_FETCH_PROVIDER = cfg.fetch.provider
-  if (cfg.fetch.provider === 'jina' && cfg.fetch.jinaApiKey) {
-    env.ARKLOOP_WEB_FETCH_JINA_API_KEY = cfg.fetch.jinaApiKey
-  }
-  if (cfg.fetch.provider === 'firecrawl') {
-    if (cfg.fetch.firecrawlApiKey) env.ARKLOOP_WEB_FETCH_FIRECRAWL_API_KEY = cfg.fetch.firecrawlApiKey
-    if (cfg.fetch.firecrawlBaseUrl) env.ARKLOOP_WEB_FETCH_FIRECRAWL_BASE_URL = cfg.fetch.firecrawlBaseUrl
-  }
-
-  // Search connector
-  env.ARKLOOP_WEB_SEARCH_PROVIDER = cfg.search.provider
-  if (cfg.search.provider === 'tavily' && cfg.search.tavilyApiKey) {
-    env.ARKLOOP_WEB_SEARCH_TAVILY_API_KEY = cfg.search.tavilyApiKey
-  }
-  if (cfg.search.provider === 'searxng' && cfg.search.searxngBaseUrl) {
-    env.ARKLOOP_WEB_SEARCH_SEARXNG_BASE_URL = cfg.search.searxngBaseUrl
-  }
-
   return env
 }
 
@@ -1142,7 +1110,6 @@ async function launchOnPort(port: number, portMode: LocalPortMode): Promise<Side
       ...buildRuntimeResourceEnv(projectDir),
       ...buildWorkspaceEnv(projectDir),
       ...buildBridgeEnv(bridgePort, projectDir),
-      ...buildConnectorsEnv(),
       ...buildMemoryEnv(projectDir),
       ARKLOOP_DESKTOP_TITLE_DEBUG: desktopTitleDebugFlag(),
     },
