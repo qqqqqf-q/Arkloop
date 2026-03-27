@@ -29,6 +29,8 @@ type refreshProviderStub struct {
 	appendDelay time.Duration
 	commitDelay time.Duration
 	commitDone  chan struct{}
+	appendCount int
+	commitCount int
 }
 
 func newRefreshProviderStub() *refreshProviderStub {
@@ -66,6 +68,9 @@ func (p *refreshProviderStub) Content(_ context.Context, _ memory.MemoryIdentity
 }
 
 func (p *refreshProviderStub) AppendSessionMessages(_ context.Context, _ memory.MemoryIdentity, _ string, _ []memory.MemoryMessage) error {
+	p.mu.Lock()
+	p.appendCount++
+	p.mu.Unlock()
 	if p.appendDelay > 0 {
 		time.Sleep(p.appendDelay)
 	}
@@ -73,6 +78,9 @@ func (p *refreshProviderStub) AppendSessionMessages(_ context.Context, _ memory.
 }
 
 func (p *refreshProviderStub) CommitSession(_ context.Context, _ memory.MemoryIdentity, _ string) error {
+	p.mu.Lock()
+	p.commitCount++
+	p.mu.Unlock()
 	if p.commitDelay > 0 {
 		time.Sleep(p.commitDelay)
 	}
@@ -276,6 +284,45 @@ func TestDistillAfterRunEmitsSkippedWhenNoIncrementalMessages(t *testing.T) {
 	}
 	if reason != distillSkipReasonNoIncrementalInput {
 		t.Fatalf("unexpected skip reason: %q", reason)
+	}
+}
+
+func TestDistillAfterRunSkipsHeartbeatRuns(t *testing.T) {
+	pool, run, ident := setupMemoryRun(t, "memory_distill_heartbeat_skip")
+	provider := newRefreshProviderStub()
+	rc := &RunContext{
+		Run:                  run,
+		Pool:                 pool,
+		TraceID:              "trace-heartbeat-skip",
+		HeartbeatRun:         true,
+		FinalAssistantOutput: "assistant reply",
+		RunToolCallCount:     3,
+	}
+
+	distillAfterRun(provider, pool, nil, rc, ident, []memory.MemoryMessage{
+		{Role: "user", Content: "heartbeat payload"},
+	})
+
+	time.Sleep(80 * time.Millisecond)
+
+	provider.mu.Lock()
+	appendCount := provider.appendCount
+	commitCount := provider.commitCount
+	provider.mu.Unlock()
+	if appendCount != 0 || commitCount != 0 {
+		t.Fatalf("expected heartbeat run to skip auto distill, append=%d commit=%d", appendCount, commitCount)
+	}
+
+	var count int
+	if err := pool.QueryRow(context.Background(), `
+		SELECT COUNT(*)
+		  FROM run_events
+		 WHERE run_id = $1
+	`, run.ID).Scan(&count); err != nil {
+		t.Fatalf("count run events: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("expected no distill events for heartbeat run, got %d", count)
 	}
 }
 

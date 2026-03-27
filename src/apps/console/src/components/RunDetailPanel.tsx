@@ -108,6 +108,12 @@ type Props = {
 
 type TabKey = 'thread' | 'execution' | 'events' | 'overview'
 
+type MemoryDebugFlow = {
+  kind: 'distill' | 'heartbeat'
+  latestEvent: RunEventRaw
+  total: number
+}
+
 function ThreadTurnCard({ turn, index }: { turn: ThreadTurn; index: number }) {
   return (
     <div
@@ -266,6 +272,8 @@ export function RunDetailPanel({ run, accessToken, onClose }: Props) {
   const executionTurns = turns
   const threadLabel = locale.startsWith('zh') ? '对话线程' : 'Thread'
   const executionLabel = locale.startsWith('zh') ? '本轮执行' : 'Execution'
+  const memoryDebugLabel = locale.startsWith('zh') ? 'Memory 调试' : 'Memory Debug'
+  const memoryDebugEmpty = locale.startsWith('zh') ? '无 memory 生命周期事件' : 'No memory lifecycle events'
 
   const executionBadge =
     events !== null
@@ -279,6 +287,11 @@ export function RunDetailPanel({ run, accessToken, onClose }: Props) {
         : undefined
 
   const rawEventsBadge = d ? `${d.events_stats.total} events` : undefined
+  const memoryDebugFlows = useMemo(() => summarizeMemoryDebugFlows(events), [events])
+  const memoryDebugBadge =
+    events !== null && memoryDebugFlows.length > 0
+      ? `${memoryDebugFlows.length} flow${memoryDebugFlows.length === 1 ? '' : 's'}`
+      : undefined
 
   // Browser activity summary from turns
   const browserSummary = useMemo(() => {
@@ -449,6 +462,27 @@ export function RunDetailPanel({ run, accessToken, onClose }: Props) {
                 )}
               </div>
             </div>
+          </Section>
+
+          <Section
+            title={memoryDebugLabel}
+            badge={memoryDebugBadge}
+            defaultOpen={false}
+            onOpen={loadEvents}
+          >
+            {eventsLoading && (
+              <p className="py-2 text-xs text-[var(--c-text-muted)]">{rt.loading}</p>
+            )}
+            {!eventsLoading && events !== null && memoryDebugFlows.length === 0 && (
+              <p className="py-2 text-xs text-[var(--c-text-muted)]">{memoryDebugEmpty}</p>
+            )}
+            {memoryDebugFlows.length > 0 && (
+              <div className="space-y-3">
+                {memoryDebugFlows.map((flow) => (
+                  <MemoryDebugCard key={flow.kind} flow={flow} locale={locale} />
+                ))}
+              </div>
+            )}
           </Section>
 
           {/* USAGE BREAKDOWN */}
@@ -803,6 +837,122 @@ function RawEventRow({ event }: RawEventRowProps) {
           </pre>
         </div>
       )}
+    </div>
+  )
+}
+
+function summarizeMemoryDebugFlows(events: RunEventRaw[] | null): MemoryDebugFlow[] {
+  if (!events || events.length === 0) {
+    return []
+  }
+
+  const flows: MemoryDebugFlow[] = []
+  for (const kind of ['distill', 'heartbeat'] as const) {
+    const matched = events.filter((event) => event.type.startsWith(`memory.${kind}.`))
+    if (matched.length === 0) {
+      continue
+    }
+    flows.push({
+      kind,
+      latestEvent: matched[matched.length - 1],
+      total: matched.length,
+    })
+  }
+  return flows
+}
+
+function memoryDebugStatus(locale: string, eventType: string): string {
+  const zh = locale.startsWith('zh')
+  switch (eventType) {
+    case 'memory.distill.skipped':
+      return zh ? '已跳过' : 'Skipped'
+    case 'memory.distill.started':
+    case 'memory.heartbeat.started':
+      return zh ? '已开始' : 'Started'
+    case 'memory.distill.append_failed':
+    case 'memory.heartbeat.append_failed':
+      return zh ? '追加失败' : 'Append failed'
+    case 'memory.distill.commit_failed':
+    case 'memory.heartbeat.commit_failed':
+      return zh ? '提交失败' : 'Commit failed'
+    case 'memory.distill.committed':
+    case 'memory.heartbeat.committed':
+      return zh ? '已提交' : 'Committed'
+    case 'memory.distill.snapshot_updated':
+    case 'memory.heartbeat.snapshot_updated':
+      return zh ? '快照已更新' : 'Snapshot updated'
+    case 'memory.distill.snapshot_pending':
+    case 'memory.heartbeat.snapshot_pending':
+      return zh ? '快照等待刷新' : 'Snapshot pending'
+    default:
+      return eventType
+  }
+}
+
+function memoryDebugTitle(locale: string, kind: MemoryDebugFlow['kind']): string {
+  if (!locale.startsWith('zh')) {
+    return kind === 'distill' ? 'Auto Distill' : 'Heartbeat Memory'
+  }
+  return kind === 'distill' ? '自动 Distill' : 'Heartbeat 记忆'
+}
+
+function memoryDebugDetail(locale: string, event: RunEventRaw): string | null {
+  const reason = typeof event.data.reason === 'string' ? event.data.reason : ''
+  const message = typeof event.data.message === 'string' ? event.data.message : ''
+  const attempt = typeof event.data.attempt === 'number' ? event.data.attempt : null
+
+  if (reason) {
+    return locale.startsWith('zh') ? `原因: ${reason}` : `Reason: ${reason}`
+  }
+  if (message) {
+    return locale.startsWith('zh') ? `消息: ${message}` : `Message: ${message}`
+  }
+  if (attempt != null) {
+    return locale.startsWith('zh') ? `尝试次数: ${attempt}` : `Attempt: ${attempt}`
+  }
+  return null
+}
+
+function MemoryDebugCard({ flow, locale }: { flow: MemoryDebugFlow; locale: string }) {
+  const sessionID = typeof flow.latestEvent.data.session_id === 'string' ? flow.latestEvent.data.session_id : ''
+  const detail = memoryDebugDetail(locale, flow.latestEvent)
+  const countLabel = locale.startsWith('zh') ? `事件数 ${flow.total}` : `${flow.total} events`
+  const lastLabel = locale.startsWith('zh') ? '最近记录' : 'Last recorded'
+  const sessionLabel = locale.startsWith('zh') ? 'Session' : 'Session'
+
+  return (
+    <div className="rounded-lg border border-[var(--c-border)] bg-[var(--c-bg-deep)] p-3">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-wider text-[var(--c-text-muted)]">
+            {memoryDebugTitle(locale, flow.kind)}
+          </div>
+          <div className="mt-1 text-sm font-medium text-[var(--c-text-primary)]">
+            {memoryDebugStatus(locale, flow.latestEvent.type)}
+          </div>
+        </div>
+        <span className="rounded bg-[var(--c-bg-sub)] px-2 py-1 text-[11px] text-[var(--c-text-secondary)]">
+          {countLabel}
+        </span>
+      </div>
+      <div className="mt-3 space-y-1 text-xs text-[var(--c-text-secondary)]">
+        <div className="flex items-baseline gap-2">
+          <span className="w-24 shrink-0 text-[var(--c-text-muted)]">{lastLabel}</span>
+          <span>{formatEventTime(flow.latestEvent.ts)}</span>
+        </div>
+        {sessionID && (
+          <div className="flex items-baseline gap-2">
+            <span className="w-24 shrink-0 text-[var(--c-text-muted)]">{sessionLabel}</span>
+            <span className="font-mono break-all">{sessionID}</span>
+          </div>
+        )}
+        {detail && (
+          <div className="flex items-baseline gap-2">
+            <span className="w-24 shrink-0 text-[var(--c-text-muted)]">{locale.startsWith('zh') ? '详情' : 'Detail'}</span>
+            <span className="break-words">{detail}</span>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
