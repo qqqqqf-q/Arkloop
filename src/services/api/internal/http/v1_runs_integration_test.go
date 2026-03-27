@@ -167,8 +167,14 @@ func TestRunsCreateListGetCancelAndEnqueue(t *testing.T) {
 	if err := json.Unmarshal(startedJSON, &startedData); err != nil {
 		t.Fatalf("decode started json: %v raw=%s", err, string(startedJSON))
 	}
-	if len(startedData) != 0 {
-		t.Fatalf("unexpected started data: %#v", startedData)
+	if got, _ := startedData["continuation_source"].(string); got != "none" {
+		t.Fatalf("unexpected continuation_source: %#v", got)
+	}
+	if loop, ok := startedData["continuation_loop"].(bool); !ok || loop {
+		t.Fatalf("unexpected continuation_loop: %#v", startedData["continuation_loop"])
+	}
+	if _, ok := startedData["continuation_response"]; ok {
+		t.Fatalf("unexpected continuation_response in first run: %#v", startedData["continuation_response"])
 	}
 
 	runWithOutputRouteResp := doJSON(
@@ -543,7 +549,12 @@ func TestRunsCreateListGetCancelAndEnqueue(t *testing.T) {
 		t.Fatalf("missing trace_id in payload: %#v", getRunPayload)
 	}
 
-	cancelResp := doJSON(handler, nethttp.MethodPost, "/v1/runs/"+runPayload.RunID+":cancel", nil, aliceHeaders)
+	cancelTime := time.Date(2025, time.March, 4, 5, 6, 7, 0, time.UTC).Format(time.RFC3339Nano)
+	cancelRequestBody := map[string]any{
+		"last_seen_seq":       5,
+		"client_cancelled_at": cancelTime,
+	}
+	cancelResp := doJSON(handler, nethttp.MethodPost, "/v1/runs/"+runPayload.RunID+":cancel", cancelRequestBody, aliceHeaders)
 	if cancelResp.Code != nethttp.StatusOK {
 		t.Fatalf("unexpected cancel status: %d body=%s", cancelResp.Code, cancelResp.Body.String())
 	}
@@ -552,7 +563,7 @@ func TestRunsCreateListGetCancelAndEnqueue(t *testing.T) {
 		t.Fatalf("unexpected cancel payload: %#v", cancelPayload)
 	}
 
-	cancelAgain := doJSON(handler, nethttp.MethodPost, "/v1/runs/"+runPayload.RunID+":cancel", nil, aliceHeaders)
+	cancelAgain := doJSON(handler, nethttp.MethodPost, "/v1/runs/"+runPayload.RunID+":cancel", cancelRequestBody, aliceHeaders)
 	if cancelAgain.Code != nethttp.StatusOK {
 		t.Fatalf("unexpected cancel again status: %d body=%s", cancelAgain.Code, cancelAgain.Body.String())
 	}
@@ -566,6 +577,36 @@ func TestRunsCreateListGetCancelAndEnqueue(t *testing.T) {
 	}
 	if cancelRequestedCount != 1 {
 		t.Fatalf("unexpected cancel_requested count: %d", cancelRequestedCount)
+	}
+
+	var cancelJSON []byte
+	if err := pool.QueryRow(ctx,
+		`SELECT data_json FROM run_events WHERE run_id = $1 AND type = 'run.cancel_requested' LIMIT 1`,
+		createdRunID,
+	).Scan(&cancelJSON); err != nil {
+		t.Fatalf("load cancel event json: %v", err)
+	}
+
+	var cancelData map[string]any
+	if err := json.Unmarshal(cancelJSON, &cancelData); err != nil {
+		t.Fatalf("decode cancel event json: %v", err)
+	}
+	if got, ok := cancelData["visible_seq_cutoff"].(float64); !ok || int64(got) != 5 {
+		t.Fatalf("unexpected visible_seq_cutoff: %#v", cancelData["visible_seq_cutoff"])
+	}
+	if got, ok := cancelData["last_seen_seq"].(float64); !ok || int64(got) != 5 {
+		t.Fatalf("unexpected last_seen_seq: %#v", cancelData["last_seen_seq"])
+	}
+	if got, ok := cancelData["client_cancelled_at"].(string); !ok || got != cancelTime {
+		t.Fatalf("unexpected client_cancelled_at: %#v", cancelData["client_cancelled_at"])
+	}
+
+	var runStatus string
+	if err := pool.QueryRow(ctx, `SELECT status FROM runs WHERE id = $1`, createdRunID).Scan(&runStatus); err != nil {
+		t.Fatalf("load run status: %v", err)
+	}
+	if runStatus != "cancelling" {
+		t.Fatalf("unexpected run status after cancel: %s", runStatus)
 	}
 
 	bobRegister := doJSON(
@@ -765,6 +806,27 @@ func TestRunsCreateAutoResumesInterruptedRootRun(t *testing.T) {
 	if resumeFromRunID == nil || *resumeFromRunID != firstRunID {
 		t.Fatalf("unexpected resume_from_run_id: %#v want %s", resumeFromRunID, firstRunID)
 	}
+
+	var resumedStartedJSON []byte
+	if err := pool.QueryRow(ctx,
+		`SELECT data_json FROM run_events WHERE run_id = $1 AND type = 'run.started' LIMIT 1`,
+		resumedRunID,
+	).Scan(&resumedStartedJSON); err != nil {
+		t.Fatalf("load resumed run started event: %v", err)
+	}
+	var resumedStartedData map[string]any
+	if err := json.Unmarshal(resumedStartedJSON, &resumedStartedData); err != nil {
+		t.Fatalf("decode resumed started json: %v", err)
+	}
+	if resumedStartedData["continuation_source"] != "user_followup" {
+		t.Fatalf("unexpected resumed continuation_source: %#v", resumedStartedData["continuation_source"])
+	}
+	if loop, ok := resumedStartedData["continuation_loop"].(bool); !ok || !loop {
+		t.Fatalf("unexpected resumed continuation_loop: %#v", resumedStartedData["continuation_loop"])
+	}
+	if resp, ok := resumedStartedData["continuation_response"].(bool); !ok || !resp {
+		t.Fatalf("unexpected resumed continuation_response: %#v", resumedStartedData["continuation_response"])
+	}
 }
 
 func TestRunsCreateDoesNotAutoResumeWithoutNewUserInput(t *testing.T) {
@@ -928,6 +990,27 @@ func TestRunsCreateDoesNotAutoResumeWithoutNewUserInput(t *testing.T) {
 	}
 	if resumeFromRunID != nil {
 		t.Fatalf("did not expect resume_from_run_id without new user input, got %s", *resumeFromRunID)
+	}
+
+	var nextStartedJSON []byte
+	if err := pool.QueryRow(ctx,
+		`SELECT data_json FROM run_events WHERE run_id = $1 AND type = 'run.started' LIMIT 1`,
+		nextRunID,
+	).Scan(&nextStartedJSON); err != nil {
+		t.Fatalf("load next run started event: %v", err)
+	}
+	var nextStartedData map[string]any
+	if err := json.Unmarshal(nextStartedJSON, &nextStartedData); err != nil {
+		t.Fatalf("decode next run started json: %v", err)
+	}
+	if nextStartedData["continuation_source"] != "none" {
+		t.Fatalf("unexpected next continuation_source: %#v", nextStartedData["continuation_source"])
+	}
+	if loop, ok := nextStartedData["continuation_loop"].(bool); !ok || loop {
+		t.Fatalf("unexpected next continuation_loop: %#v", nextStartedData["continuation_loop"])
+	}
+	if _, ok := nextStartedData["continuation_response"]; ok {
+		t.Fatalf("unexpected next continuation_response: %#v", nextStartedData["continuation_response"])
 	}
 }
 

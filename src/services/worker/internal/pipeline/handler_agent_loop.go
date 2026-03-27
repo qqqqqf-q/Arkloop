@@ -12,6 +12,7 @@ import (
 	"arkloop/services/shared/creditpolicy"
 	sharedent "arkloop/services/shared/entitlement"
 	"arkloop/services/shared/eventbus"
+	"arkloop/services/shared/objectstore"
 	"arkloop/services/worker/internal/data"
 	"arkloop/services/worker/internal/events"
 	"arkloop/services/worker/internal/queue"

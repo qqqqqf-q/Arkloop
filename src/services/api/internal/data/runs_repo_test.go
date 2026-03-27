@@ -40,3 +40,36 @@ func TestShouldResumeFromRun(t *testing.T) {
 		t.Fatalf("did not expect heartbeat runs to become resume sources, got %v", got)
 	}
 }
+
+func TestApplyContinuationMetadata(t *testing.T) {
+	resumeID := uuid.New()
+
+	t.Run("none", func(t *testing.T) {
+		meta := applyContinuationMetadata(nil, nil)
+		if meta["continuation_source"] != "none" {
+			t.Fatalf("expected continuation_source none, got %#v", meta["continuation_source"])
+		}
+		if loop, ok := meta["continuation_loop"].(bool); !ok || loop {
+			t.Fatalf("expected continuation_loop false, got %#v", meta["continuation_loop"])
+		}
+		if _, ok := meta["continuation_response"]; ok {
+			t.Fatalf("did not expect continuation_response for nil resume, got %#v", meta["continuation_response"])
+		}
+	})
+
+	t.Run("user followup", func(t *testing.T) {
+		meta := applyContinuationMetadata(map[string]any{"foo": "bar"}, &resumeID)
+		if meta["continuation_source"] != "user_followup" {
+			t.Fatalf("expected continuation_source user_followup, got %#v", meta["continuation_source"])
+		}
+		if loop, ok := meta["continuation_loop"].(bool); !ok || !loop {
+			t.Fatalf("expected continuation_loop true, got %#v", meta["continuation_loop"])
+		}
+		if response, ok := meta["continuation_response"].(bool); !ok || !response {
+			t.Fatalf("expected continuation_response true, got %#v", meta["continuation_response"])
+		}
+		if meta["foo"] != "bar" {
+			t.Fatalf("expected existing keys preserved, got %#v", meta)
+		}
+	})
+}

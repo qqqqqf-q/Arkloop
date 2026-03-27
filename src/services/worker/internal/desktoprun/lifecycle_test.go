@@ -4,12 +4,16 @@ package desktoprun
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"arkloop/services/shared/database/sqliteadapter"
 	"arkloop/services/shared/database/sqlitepgx"
+	"arkloop/services/shared/desktop"
+	"arkloop/services/shared/objectstore"
 	"arkloop/services/worker/internal/data"
 	"arkloop/services/worker/internal/events"
 	"arkloop/services/worker/internal/queue"
@@ -82,6 +86,7 @@ func TestLifecycleBootstrapRecoversRecentRun(t *testing.T) {
 			"trace_id": "trace-recover",
 		},
 	})
+	seedRolloutMaterial(t, runID)
 
 	q := &lifecycleQueueStub{}
 	manager := newLifecycleManager(db, q, nil, nil)
@@ -104,6 +109,31 @@ func TestLifecycleBootstrapRecoversRecentRun(t *testing.T) {
 	}
 	if got, _ := call.payload["source"].(string); got != "desktop_recovery" {
 		t.Fatalf("unexpected recovery payload: %#v", call.payload)
+	}
+}
+
+func TestLifecycleBootstrapSkipsRunWithoutRecoveryMaterial(t *testing.T) {
+	ctx := context.Background()
+	db, cleanup := openLifecycleTestDB(t, ctx)
+	defer cleanup()
+
+	_, _, _, runID := seedLifecycleRun(t, ctx, db)
+	appendLifecycleEvent(t, ctx, db, runID, events.RunEvent{
+		Type:       "llm.turn.completed",
+		OccurredAt: time.Now().UTC().Add(-10 * time.Second),
+		DataJSON: map[string]any{
+			"trace_id": "trace-recover",
+		},
+	})
+
+	q := &lifecycleQueueStub{}
+	manager := newLifecycleManager(db, q, nil, nil)
+	if err := manager.Bootstrap(ctx); err != nil {
+		t.Fatalf("bootstrap failed: %v", err)
+	}
+
+	if len(q.calls) != 0 {
+		t.Fatalf("expected no recovered runs without runtime state, got %d", len(q.calls))
 	}
 }
 
@@ -294,6 +324,12 @@ func TestLifecycleBootstrapSyncsTerminalStatusFromEvents(t *testing.T) {
 func openLifecycleTestDB(t *testing.T, ctx context.Context) (data.DesktopDB, func()) {
 	t.Helper()
 
+	dataDir := filepath.Join(t.TempDir(), "desktop-data")
+	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+		t.Fatalf("mkdir data dir: %v", err)
+	}
+	t.Setenv("ARKLOOP_DATA_DIR", dataDir)
+
 	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "desktop.db"))
 	if err != nil {
 		t.Fatalf("auto migrate sqlite: %v", err)
@@ -354,5 +390,29 @@ func appendLifecycleEvent(t *testing.T, ctx context.Context, db data.DesktopDB, 
 	}
 	if err := tx.Commit(ctx); err != nil {
 		t.Fatalf("commit lifecycle event: %v", err)
+	}
+}
+
+func seedRolloutMaterial(t *testing.T, runID uuid.UUID) {
+	t.Helper()
+
+	ctx := context.Background()
+	dataDir, err := desktop.ResolveDataDir("")
+	if err != nil {
+		t.Fatalf("resolve desktop data dir: %v", err)
+	}
+
+	opener := objectstore.NewFilesystemOpener(desktop.StorageRoot(dataDir))
+	store, err := opener.Open(ctx, objectstore.RolloutBucket)
+	if err != nil {
+		t.Fatalf("open rollout store: %v", err)
+	}
+	blobStore, ok := store.(objectstore.BlobStore)
+	if !ok {
+		t.Fatalf("rollout store does not implement blob store")
+	}
+	key := fmt.Sprintf("run/%s.jsonl", runID.String())
+	if err := blobStore.Put(ctx, key, []byte("{}\n")); err != nil {
+		t.Fatalf("put rollout material: %v", err)
 	}
 }

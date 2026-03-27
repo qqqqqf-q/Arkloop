@@ -520,7 +520,7 @@ describe('ChatPage loading state', () => {
       await flushMicrotasks()
     })
 
-    expect(mockedCancelRun).toHaveBeenCalledWith('token', 'run-cancel')
+    expect(mockedCancelRun).toHaveBeenCalledWith('token', 'run-cancel', 0)
     expect(container.textContent).toContain('streaming')
     expect(container.textContent).toContain('canceling')
     expect(container.textContent).toContain('resume after cancel')
@@ -528,9 +528,20 @@ describe('ChatPage loading state', () => {
     sseMock.state = 'connected'
     sseMock.events = [
       {
-        event_id: 'evt-cancelled',
+        event_id: 'evt-delta',
         run_id: 'run-cancel',
         seq: 1,
+        ts: '2026-03-10T00:00:00Z',
+        type: 'message.delta',
+        data: {
+          role: 'assistant',
+          content_delta: '正在查看 mirrorflow',
+        },
+      },
+      {
+        event_id: 'evt-cancelled',
+        run_id: 'run-cancel',
+        seq: 2,
         ts: '2026-03-10T00:00:01Z',
         type: 'run.cancelled',
         data: {},
@@ -548,7 +559,87 @@ describe('ChatPage loading state', () => {
       throw new Error('restored input not rendered')
     }
     expect(restoredInput.value).toBe('resume after cancel')
-    expect(container.textContent).toContain('已停止生成')
+    expect(container.textContent).not.toContain('正在查看 mirrorflow')
+    expect(container.textContent).not.toContain('已停止生成')
+
+    act(() => {
+      root.unmount()
+    })
+    container.remove()
+  })
+
+  it('run.cancelled 后会尝试刷新消息列表', async () => {
+    mockedListThreadRuns.mockResolvedValue([
+      {
+        run_id: 'run-1',
+        status: 'running',
+        created_at: '2026-03-10T00:00:00Z',
+      },
+    ])
+
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    const outletContext = {
+      accessToken: 'token',
+      onLoggedOut: vi.fn(),
+      onRunStarted: vi.fn(),
+      onRunEnded: vi.fn(),
+      onThreadCreated: vi.fn(),
+      onThreadTitleUpdated: vi.fn(),
+      refreshCredits: vi.fn(),
+      onOpenNotifications: vi.fn(),
+      notificationVersion: 0,
+      creditsBalance: 0,
+      isPrivateMode: false,
+      onTogglePrivateMode: vi.fn(),
+      privateThreadIds: new Set<string>(),
+      onSetPendingIncognito: vi.fn(),
+      onRightPanelChange: vi.fn(),
+      threads: [],
+      onThreadDeleted: vi.fn(),
+    }
+
+    const renderTree = () => (
+      <LocaleProvider>
+        <MemoryRouter initialEntries={['/t/thread-1']}>
+          <Routes>
+            <Route element={<OutletShell context={outletContext} />}>
+              <Route path="/t/:threadId" element={<ChatPage />} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </LocaleProvider>
+    )
+
+    await act(async () => {
+      root.render(renderTree())
+    })
+    await act(async () => {
+      await flushMicrotasks()
+    })
+
+    mockedListMessages.mockClear()
+
+    sseMock.state = 'connected'
+    sseMock.events = [
+      {
+        event_id: 'evt-cancelled',
+        run_id: 'run-1',
+        seq: 3,
+        ts: '2026-03-10T00:00:02Z',
+        type: 'run.cancelled',
+        data: {},
+      },
+    ]
+
+    await act(async () => {
+      root.render(renderTree())
+      await flushMicrotasks()
+      await flushMicrotasks()
+    })
+
+    expect(mockedListMessages).toHaveBeenCalled()
 
     act(() => {
       root.unmount()
