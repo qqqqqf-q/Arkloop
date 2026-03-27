@@ -417,12 +417,8 @@ func collectResumeReplayInsertions(
 		return nil, err
 	}
 	if !threadHasAssistantMessageForRun(threadMessages, parentRun.ID) {
-		draft, err := readResponseDraft(ctx, rolloutStore, parentRun.ID)
-		if err != nil {
-			return nil, &resumeUnavailableError{reason: "response draft is unavailable"}
-		}
-		if draft != nil {
-			replayedMessages = append(replayedMessages, responseDraftMessage(draft.Content))
+		if err := appendVisibleRecoveryDraft(ctx, tx, parentRun.ID, rolloutStore, &replayedMessages); err != nil {
+			return nil, err
 		}
 	}
 	return append(insertions, resumeReplayInsertion{
@@ -460,12 +456,8 @@ func loadRuntimeRecoveryReplay(
 		return nil, err
 	}
 	if !threadHasAssistantMessageForRun(threadMessages, run.ID) {
-		draft, err := readResponseDraft(ctx, rolloutStore, run.ID)
-		if err != nil {
-			return nil, &resumeUnavailableError{reason: "runtime recovery response draft is unavailable"}
-		}
-		if draft != nil {
-			replayedMessages = append(replayedMessages, responseDraftMessage(draft.Content))
+		if err := appendVisibleRecoveryDraft(ctx, tx, run.ID, rolloutStore, &replayedMessages); err != nil {
+			return nil, err
 		}
 	}
 	if len(replayedMessages) == 0 {
@@ -641,4 +633,133 @@ func fallbackTextParts(content string) []llm.ContentPart {
 		return nil
 	}
 	return []llm.ContentPart{{Type: messagecontent.PartTypeText, Text: content}}
+}
+
+func loadVisibleSeqCutoff(ctx context.Context, tx pgx.Tx, runID uuid.UUID) (int64, bool, error) {
+	var raw []byte
+	err := tx.QueryRow(ctx,
+		`SELECT data_json FROM run_events
+		 WHERE run_id = $1 AND type = 'run.cancel_requested'
+		 ORDER BY seq DESC LIMIT 1`,
+		runID,
+	).Scan(&raw)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, false, nil
+		}
+		return 0, false, err
+	}
+	if len(raw) == 0 {
+		return 0, true, nil
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return 0, true, nil
+	}
+	switch value := payload["visible_seq_cutoff"].(type) {
+	case float64:
+		return int64(value), true, nil
+	case json.Number:
+		i, err := value.Int64()
+		if err != nil {
+			return 0, true, nil
+		}
+		return i, true, nil
+	case int64:
+		return value, true, nil
+	case int:
+		return int64(value), true, nil
+	default:
+		return 0, true, nil
+	}
+}
+
+func loadVisibleAssistantOutput(ctx context.Context, tx pgx.Tx, runID uuid.UUID, cutoff int64) (string, error) {
+	if cutoff <= 0 {
+		return "", nil
+	}
+	query := `
+		SELECT data_json FROM run_events
+		WHERE run_id = $1 AND type = 'message.delta' AND seq <= $2
+		ORDER BY seq ASC
+	`
+	rows, err := tx.Query(ctx, query, runID, cutoff)
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+
+	var builder strings.Builder
+	for rows.Next() {
+		var raw []byte
+		if err := rows.Scan(&raw); err != nil {
+			return "", err
+		}
+		if len(raw) == 0 {
+			continue
+		}
+		var payload map[string]any
+		if err := json.Unmarshal(raw, &payload); err != nil {
+			continue
+		}
+		if delta := extractVisibleAssistantDelta(payload); delta != "" {
+			builder.WriteString(delta)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return "", err
+	}
+	return builder.String(), nil
+}
+
+func extractVisibleAssistantDelta(payload map[string]any) string {
+	if payload == nil {
+		return ""
+	}
+	channel, _ := payload["channel"].(string)
+	if strings.TrimSpace(channel) != "" {
+		return ""
+	}
+	if role, _ := payload["role"].(string); role != "" && role != "assistant" {
+		return ""
+	}
+	delta, _ := payload["content_delta"].(string)
+	if strings.TrimSpace(delta) == "" || strings.TrimSpace(delta) == "<end_turn>" {
+		return ""
+	}
+	return delta
+}
+
+func appendVisibleRecoveryDraft(
+	ctx context.Context,
+	tx pgx.Tx,
+	runID uuid.UUID,
+	rolloutStore objectstore.BlobStore,
+	messages *[]llm.Message,
+) error {
+	cutoff, hasCutoff, err := loadVisibleSeqCutoff(ctx, tx, runID)
+	if err != nil {
+		return err
+	}
+	if hasCutoff {
+		visibleContent, err := loadVisibleAssistantOutput(ctx, tx, runID, cutoff)
+		if err != nil {
+			return err
+		}
+		if visibleContent != "" {
+			*messages = append(*messages, responseDraftMessage(visibleContent))
+		}
+		return nil
+	}
+	if rolloutStore == nil {
+		return &resumeUnavailableError{reason: "response draft is unavailable"}
+	}
+	draft, err := readResponseDraft(ctx, rolloutStore, runID)
+	if err != nil {
+		return &resumeUnavailableError{reason: "response draft is unavailable"}
+	}
+	if draft != nil {
+		*messages = append(*messages, responseDraftMessage(draft.Content))
+	}
+	return nil
 }
