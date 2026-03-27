@@ -108,8 +108,10 @@ func userIDPtr() *uuid.UUID {
 
 func buildMemRC(userID *uuid.UUID, userMsg string, assistantOutput string) *pipeline.RunContext {
 	var msgs []llm.Message
+	var ids []uuid.UUID
 	if userMsg != "" {
 		msgs = []llm.Message{{Role: "user", Content: []llm.TextPart{{Text: userMsg}}}}
+		ids = []uuid.UUID{uuid.New()}
 	}
 	return &pipeline.RunContext{
 		Run: data.Run{
@@ -119,6 +121,7 @@ func buildMemRC(userID *uuid.UUID, userMsg string, assistantOutput string) *pipe
 		},
 		UserID:               userID,
 		Messages:             msgs,
+		ThreadMessageIDs:     ids,
 		FinalAssistantOutput: assistantOutput,
 		PendingMemoryWrites:  memory.NewPendingWriteBuffer(),
 	}
@@ -426,6 +429,43 @@ func TestMemoryMiddleware_DistillTriggeredByIterations(t *testing.T) {
 	defer mp.mu.Unlock()
 	if !mp.commitCalled {
 		t.Fatal("expected CommitSession to be called")
+	}
+}
+
+func TestMemoryMiddleware_DistillIncludesRuntimeUserMessages(t *testing.T) {
+	mp := newMemMock()
+	mw := pipeline.NewMemoryMiddleware(mp, nil, nil)
+
+	rc := buildMemRC(userIDPtr(), "first prompt", "final answer")
+	rc.RunToolCallCount = 3
+
+	h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(_ context.Context, rc *pipeline.RunContext) error {
+		rc.AppendRuntimeUserMessage("follow-up prompt")
+		return nil
+	})
+	if err := h(context.Background(), rc); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	select {
+	case <-mp.distillDone:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timeout waiting for distill commit")
+	}
+
+	mp.mu.Lock()
+	defer mp.mu.Unlock()
+	gotUsers := []string{}
+	for _, msg := range mp.appendMsgs {
+		if msg.Role == "user" {
+			gotUsers = append(gotUsers, msg.Content)
+		}
+	}
+	if len(gotUsers) != 2 {
+		t.Fatalf("expected 2 user messages, got %#v", gotUsers)
+	}
+	if gotUsers[0] != "first prompt" || gotUsers[1] != "follow-up prompt" {
+		t.Fatalf("unexpected distill users: %#v", gotUsers)
 	}
 }
 

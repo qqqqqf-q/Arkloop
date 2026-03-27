@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"context"
+	"strings"
 
 	"arkloop/services/shared/eventbus"
 	"arkloop/services/shared/objectstore"
@@ -164,6 +165,8 @@ type RunContext struct {
 	MemoryProvider memory.MemoryProvider
 	// -- 当前 run 内显式 memory_write 的待刷写缓冲区 --
 	PendingMemoryWrites *memory.PendingWriteBuffer
+	// -- 当前 run 内新增的人类输入，供 memory distill 构造增量归档内容 --
+	runtimeUserMessages []memory.MemoryMessage
 
 	// -- LLM 重试，由 EngineV1.Execute 注入 --
 	LlmRetryMaxAttempts int
@@ -230,6 +233,21 @@ func (rc *RunContext) SetHeartbeatDecisionOutcome(replySilent bool, fragments []
 // IsHeartbeatRun implements tools/builtin/heartbeat_decision.PipelineBinding.
 func (rc *RunContext) IsHeartbeatRun() bool {
 	return rc != nil && rc.HeartbeatRun
+}
+
+// AppendRuntimeUserMessage records a real user input added during the current run.
+func (rc *RunContext) AppendRuntimeUserMessage(text string) {
+	if rc == nil {
+		return
+	}
+	cleaned := strings.TrimSpace(text)
+	if cleaned == "" {
+		return
+	}
+	rc.runtimeUserMessages = append(rc.runtimeUserMessages, memory.MemoryMessage{
+		Role:    "user",
+		Content: cleaned,
+	})
 }
 
 // SetContextCompactPressureAnchor 记录当前 run 内最近一次真实 request 的 compact 压力锚点。

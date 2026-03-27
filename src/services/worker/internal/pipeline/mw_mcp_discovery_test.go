@@ -9,12 +9,12 @@ import (
 	"arkloop/services/worker/internal/pipeline"
 	"arkloop/services/worker/internal/tools"
 	builtin "arkloop/services/worker/internal/tools/builtin"
-
 )
 
 func TestMCPDiscoveryMiddleware_NoCachePassThrough(t *testing.T) {
 	mw := pipeline.NewMCPDiscoveryMiddleware(
 		nil, // no cache
+		nil, // no queryer
 		map[string]tools.Executor{"echo": builtin.EchoExecutor{}},
 		[]llm.ToolSpec{builtin.EchoLlmSpec},
 		map[string]struct{}{"echo": {}},
@@ -43,4 +43,3 @@ func TestMCPDiscoveryMiddleware_NoCachePassThrough(t *testing.T) {
 		t.Fatal("terminal handler was not called")
 	}
 }
-
