@@ -387,6 +387,7 @@ func (e *DesktopEngine) Execute(ctx context.Context, run data.Run, traceID strin
 		recorder := rollout.NewRecorder(e.rolloutStore, run.ID)
 		recorder.Start(ctx)
 		rc.RolloutRecorder = recorder
+		rc.ResponseDraftStore = e.rolloutStore
 		defer recorder.Close(context.Background())
 	}
 	if !e.useVM {
@@ -507,7 +508,8 @@ func desktopToolProviderBindings(db data.DesktopDB) pipeline.RunMiddleware {
 		}
 		platformCfgs, userCfgs, err := toolprovider.LoadDesktopActiveToolProviders(ctx, db, rc.Run.CreatedByUserID)
 		if err != nil {
-			return err
+			slog.WarnContext(ctx, "desktop: failed to load tool providers, skipping", "err", err)
+			return next(ctx, rc)
 		}
 		if len(platformCfgs) == 0 && len(userCfgs) == 0 {
 			return next(ctx, rc)
@@ -575,7 +577,7 @@ func desktopInputLoader(
 		if messageLimit <= 0 {
 			messageLimit = 200
 		}
-		loaded, err := pipeline.LoadRunInputs(ctx, db, rc.Run, runsRepo, eventsRepo, data.MessagesRepository{}, attachmentStore, rolloutStore, messageLimit)
+		loaded, err := pipeline.LoadRunInputs(ctx, db, rc.Run, rc.JobPayload, runsRepo, eventsRepo, data.MessagesRepository{}, attachmentStore, rolloutStore, messageLimit)
 		if err != nil {
 			if pipeline.IsResumeUnavailableError(err) {
 				return desktopWriteFailure(ctx, db, rc.Run, rc.Emitter, data.DesktopRunsRepository{}, data.DesktopRunEventsRepository{}, pipeline.ResumeUnavailableErrorClass, "resume context is unavailable", nil)
@@ -1352,6 +1354,7 @@ func desktopAgentLoop(
 			runsRepo:              runsRepo,
 			eventsRepo:            eventsRepo,
 			projector:             projector,
+			responseDraftStore:    rc.ResponseDraftStore,
 			telegramBoundaryFlush: rc.TelegramToolBoundaryFlush,
 		}
 		personaID := ""
@@ -1409,12 +1412,24 @@ func desktopAgentLoop(
 		if !w.completed {
 			rc.ChannelTerminalNotice = strings.TrimSpace(w.terminalUserMessage)
 		}
-		if w.completed {
-			content := strings.Join(w.assistantDeltas, "")
-			if !pipeline.ShouldSuppressHeartbeatOutput(rc, content) {
-				if err := desktopInsertAssistantMessage(ctx, db, rc.Run, content); err != nil {
-					slog.WarnContext(ctx, "desktop: insert assistant message failed", "err", err)
-				}
+		content := w.visibleAssistantOutput()
+		shouldPersistAssistantOutput := (w.completed || w.terminalStatus == "cancelled" || w.terminalStatus == "interrupted") && strings.TrimSpace(content) != ""
+		if shouldPersistAssistantOutput && !pipeline.ShouldSuppressHeartbeatOutput(rc, content) {
+			metadata := map[string]any{
+				"completion_state": "incomplete",
+				"finish_reason":    w.terminalStatus,
+			}
+			if w.completed {
+				metadata["completion_state"] = "complete"
+				metadata["finish_reason"] = "completed"
+			}
+			if err := desktopInsertAssistantMessage(ctx, db, rc.Run, content, metadata); err != nil {
+				slog.WarnContext(ctx, "desktop: insert assistant message failed", "err", err)
+			}
+			if err := pipeline.DeleteResponseDraft(ctx, rc.ResponseDraftStore, rc.Run.ID); err != nil {
+				slog.WarnContext(ctx, "desktop: delete response draft failed", "err", err)
+			}
+			if w.completed {
 				rc.FinalAssistantOutput = content
 				rc.TelegramStreamDeliveryRemainder = w.telegramStreamRemainder()
 			}
@@ -1440,6 +1455,9 @@ type desktopEventWriter struct {
 	eventsRepo              data.DesktopRunEventsRepository
 	projector               *subagentctl.SubAgentStateProjector
 	assistantDeltas         []string
+	latestAssistantSeq      int64
+	lastDraftFlushAt        time.Time
+	responseDraftStore      objectstore.BlobStore
 	toolCallCount           int
 	iterationCount          int
 	completed               bool
@@ -1449,6 +1467,8 @@ type desktopEventWriter struct {
 	telegramBoundaryFlush   func(context.Context, string) error
 	telegramFlushSentDeltas int
 	terminalUserMessage     string
+	terminalStatus          string
+	visibleAssistantText    string
 }
 
 func (w *desktopEventWriter) telegramStreamRemainder() string {
@@ -1494,8 +1514,16 @@ func (w *desktopEventWriter) append(ctx context.Context, runID uuid.UUID, ev eve
 		return errDesktopStopProcessing
 	}
 	if cancelType == "run.cancel_requested" {
+		visibleOutput, err := loadDesktopVisibleAssistantOutput(ctx, tx, runID)
+		if err != nil {
+			return err
+		}
+		w.visibleAssistantText = visibleOutput
 		nextRunIDs, err := w.transitionCancelled(ctx, tx, runID)
 		if err != nil {
+			return err
+		}
+		if err := w.maybeFlushResponseDraft(ctx, true); err != nil {
 			return err
 		}
 		if err := tx.Commit(ctx); err != nil {
@@ -1506,7 +1534,8 @@ func (w *desktopEventWriter) append(ctx context.Context, runID uuid.UUID, ev eve
 		return errDesktopStopProcessing
 	}
 
-	if _, err := w.eventsRepo.AppendRunEvent(ctx, tx, runID, ev); err != nil {
+	eventSeq, err := w.eventsRepo.AppendRunEvent(ctx, tx, runID, ev)
+	if err != nil {
 		return err
 	}
 
@@ -1526,6 +1555,10 @@ func (w *desktopEventWriter) append(ctx context.Context, runID uuid.UUID, ev eve
 		if channel, _ := ev.DataJSON["channel"].(string); channel == "" {
 			if delta := desktopExtractDelta(ev.DataJSON); delta != "" {
 				w.assistantDeltas = append(w.assistantDeltas, delta)
+				w.latestAssistantSeq = eventSeq
+				if err := w.maybeFlushResponseDraft(ctx, false); err != nil {
+					return err
+				}
 			}
 		}
 	}
@@ -1537,7 +1570,12 @@ func (w *desktopEventWriter) append(ctx context.Context, runID uuid.UUID, ev eve
 			w.terminalUserMessage = ""
 		} else {
 			w.terminalUserMessage = pipeline.TerminalStatusMessage(ev.DataJSON)
+			w.visibleAssistantText = strings.Join(w.assistantDeltas, "")
+			if err := w.maybeFlushResponseDraft(ctx, true); err != nil {
+				return err
+			}
 		}
+		w.terminalStatus = status
 		if err := w.runsRepo.UpdateRunTerminalStatus(ctx, tx, runID, data.TerminalStatusUpdate{
 			Status: status, TotalInputTokens: w.totalInputTokens, TotalOutputTokens: w.totalOutputTokens, TotalCostUSD: w.totalCostUSD,
 		}); err != nil {
@@ -1599,7 +1637,32 @@ func (w *desktopEventWriter) transitionCancelled(ctx context.Context, tx pgx.Tx,
 		return nil, err
 	}
 	w.terminalUserMessage = ""
+	w.terminalStatus = "cancelled"
 	return nextRunIDs, nil
+}
+
+func (w *desktopEventWriter) visibleAssistantOutput() string {
+	if strings.TrimSpace(w.visibleAssistantText) != "" {
+		return w.visibleAssistantText
+	}
+	return strings.Join(w.assistantDeltas, "")
+}
+
+func (w *desktopEventWriter) maybeFlushResponseDraft(ctx context.Context, force bool) error {
+	if w.responseDraftStore == nil || w.run.ID == uuid.Nil || w.run.ThreadID == uuid.Nil {
+		return nil
+	}
+	if w.latestAssistantSeq <= 0 || len(w.assistantDeltas) == 0 {
+		return nil
+	}
+	if !force && !w.lastDraftFlushAt.IsZero() && time.Since(w.lastDraftFlushAt) < 400*time.Millisecond {
+		return nil
+	}
+	if err := pipeline.WriteResponseDraft(ctx, w.responseDraftStore, w.run.ID, w.run.ThreadID, strings.Join(w.assistantDeltas, ""), w.latestAssistantSeq); err != nil {
+		return err
+	}
+	w.lastDraftFlushAt = time.Now()
+	return nil
 }
 
 func (w *desktopEventWriter) finalizeCancelledIfRequested(ctx context.Context) (bool, error) {
@@ -1760,7 +1823,7 @@ func readDesktopCancelEvent(ctx context.Context, db data.DesktopDB, runID uuid.U
 	return (data.DesktopRunEventsRepository{}).GetLatestEventType(ctx, tx, runID, []string{"run.cancel_requested", "run.cancelled"})
 }
 
-func desktopInsertAssistantMessage(ctx context.Context, db data.DesktopDB, run data.Run, content string) error {
+func desktopInsertAssistantMessage(ctx context.Context, db data.DesktopDB, run data.Run, content string, metadata map[string]any) error {
 	if db == nil || strings.TrimSpace(content) == "" {
 		return nil
 	}
@@ -1769,7 +1832,7 @@ func desktopInsertAssistantMessage(ctx context.Context, db data.DesktopDB, run d
 		return err
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
-	if _, err := (data.MessagesRepository{}).InsertAssistantMessage(ctx, tx, run.AccountID, run.ThreadID, run.ID, content, false); err != nil {
+	if _, err := (data.MessagesRepository{}).InsertAssistantMessageWithMetadata(ctx, tx, run.AccountID, run.ThreadID, run.ID, content, false, metadata); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -1785,6 +1848,78 @@ func desktopExtractDelta(dataJSON map[string]any) string {
 		return ""
 	}
 	return delta
+}
+
+func loadDesktopVisibleAssistantOutput(ctx context.Context, tx pgx.Tx, runID uuid.UUID) (string, error) {
+	cutoff, err := loadDesktopVisibleSeqCutoff(ctx, tx, runID)
+	if err != nil {
+		return "", err
+	}
+	query := `SELECT data_json FROM run_events WHERE run_id = $1 AND type = 'message.delta'`
+	args := []any{runID}
+	if cutoff > 0 {
+		query += ` AND seq <= $2`
+		args = append(args, cutoff)
+	}
+	query += ` ORDER BY seq ASC`
+	rows, err := tx.Query(ctx, query, args...)
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+	var builder strings.Builder
+	for rows.Next() {
+		var raw []byte
+		if err := rows.Scan(&raw); err != nil {
+			return "", err
+		}
+		var payload map[string]any
+		if err := json.Unmarshal(raw, &payload); err != nil {
+			continue
+		}
+		if delta := desktopExtractDelta(payload); delta != "" {
+			builder.WriteString(delta)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return "", err
+	}
+	return builder.String(), nil
+}
+
+func loadDesktopVisibleSeqCutoff(ctx context.Context, tx pgx.Tx, runID uuid.UUID) (int64, error) {
+	var raw []byte
+	err := tx.QueryRow(ctx,
+		`SELECT data_json FROM run_events
+		 WHERE run_id = $1 AND type = 'run.cancel_requested'
+		 ORDER BY seq ASC LIMIT 1`,
+		runID,
+	).Scan(&raw)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	if len(raw) == 0 {
+		return 0, nil
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return 0, nil
+	}
+	switch value := payload["visible_seq_cutoff"].(type) {
+	case float64:
+		return int64(value), nil
+	case json.Number:
+		return value.Int64()
+	case int64:
+		return value, nil
+	case int:
+		return int64(value), nil
+	default:
+		return 0, nil
+	}
 }
 
 func toDesktopInt64(v any) (int64, bool) {

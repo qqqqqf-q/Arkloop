@@ -89,6 +89,11 @@ type cancelRunResponse struct {
 	OK bool `json:"ok"`
 }
 
+type cancelRunRequest struct {
+	LastSeenSeq       *int64  `json:"last_seen_seq"`
+	ClientCancelledAt *string `json:"client_cancelled_at"`
+}
+
 type submitInputResponse struct {
 	OK bool `json:"ok"`
 }
@@ -699,6 +704,27 @@ func cancelRun(
 			return
 		}
 
+		var cancelBody cancelRunRequest
+		if err := httpkit.DecodeJSON(r, &cancelBody); err != nil {
+			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "request validation failed", traceID, nil)
+			return
+		}
+		if cancelBody.LastSeenSeq == nil || *cancelBody.LastSeenSeq < 0 {
+			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "request validation failed", traceID, nil)
+			return
+		}
+		var clientCancelledAt *time.Time
+		if cancelBody.ClientCancelledAt != nil {
+			if trimmed := strings.TrimSpace(*cancelBody.ClientCancelledAt); trimmed != "" {
+				parsed, err := parseCancelTimestamp(trimmed)
+				if err != nil {
+					httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "request validation failed", traceID, nil)
+					return
+				}
+				clientCancelledAt = &parsed
+			}
+		}
+
 		tx, err := pool.BeginTx(r.Context(), pgx.TxOptions{})
 		if err != nil {
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
@@ -712,7 +738,7 @@ func cancelRun(
 			return
 		}
 
-		_, err = txRepo.RequestCancel(r.Context(), run.ID, &actor.UserID, traceID)
+		_, err = txRepo.RequestCancel(r.Context(), run.ID, &actor.UserID, traceID, *cancelBody.LastSeenSeq, clientCancelledAt)
 		if err != nil {
 			var notFound data.RunNotFoundError
 			if errors.As(err, &notFound) {
@@ -737,6 +763,13 @@ func cancelRun(
 
 		httpkit.WriteJSON(w, traceID, nethttp.StatusOK, cancelRunResponse{OK: true})
 	}
+}
+
+func parseCancelTimestamp(raw string) (time.Time, error) {
+	if parsed, err := time.Parse(time.RFC3339Nano, raw); err == nil {
+		return parsed, nil
+	}
+	return time.Parse(time.RFC3339, raw)
 }
 
 func submitRunInput(

@@ -10,7 +10,7 @@ import { useToast } from '@arkloop/shared'
 import { isApiError } from '../api'
 import { useLocale } from '../contexts/LocaleContext'
 import { RunDetailPanel } from '../components/RunDetailPanel'
-import { listRuns, cancelRun, type GlobalRun } from '../api/runs'
+import { listRuns, cancelRun, fetchRunEventsOnce, type GlobalRun } from '../api/runs'
 
 const PAGE_SIZE = 50
 
@@ -210,7 +210,18 @@ export function RunsPage() {
     if (!cancelTarget) return
     setCancelling(true)
     try {
-      await cancelRun(cancelTarget.run_id, accessToken)
+      let lastSeenSeq = 0
+      try {
+        const events = await fetchRunEventsOnce(cancelTarget.run_id, accessToken)
+        for (const event of events) {
+          if (event.seq > lastSeenSeq) {
+            lastSeenSeq = event.seq
+          }
+        }
+      } catch {
+        // best effort
+      }
+      await cancelRun(cancelTarget.run_id, accessToken, lastSeenSeq)
       setCancelTarget(null)
       void fetchRuns(appliedFilters, offset)
     } catch (err) {
@@ -218,7 +229,7 @@ export function RunsPage() {
     } finally {
       setCancelling(false)
     }
-  }, [cancelTarget, accessToken, fetchRuns, appliedFilters, offset, addToast, rt.toastCancelFailed])
+  }, [cancelTarget, accessToken, fetchRunEventsOnce, fetchRuns, appliedFilters, offset, addToast, rt.toastCancelFailed])
 
   const columns: Column<GlobalRun>[] = [
     {

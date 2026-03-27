@@ -157,6 +157,17 @@ import {
 const sidePanelWidth = 360
 const documentPanelWidth = 560
 
+const TERMINAL_RUN_EVENT_TYPES = new Set([
+  'run.completed',
+  'run.cancelled',
+  'run.failed',
+  'run.interrupted',
+])
+
+function isTerminalRunEventType(type: string): boolean {
+  return TERMINAL_RUN_EVENT_TYPES.has(type)
+}
+
 function normalizeError(error: unknown): AppError {
   if (isApiError(error)) {
     return { message: error.message, traceId: error.traceId, code: error.code }
@@ -725,6 +736,7 @@ export function ChatPage() {
   const documentPanelScrollFrameRef = useRef<number | null>(null)
   const wasLoadingRef = useRef(false)
   const processedEventCountRef = useRef(0)
+  const freezeCutoffRef = useRef<number | null>(null)
   const messageSyncVersionRef = useRef(0)
   // 仅在当前 run 的 SSE 确认进入过连接态后，才允许触发终端兜底。
   const sseTerminalFallbackRunIdRef = useRef<string | null>(null)
@@ -1275,6 +1287,7 @@ export function ChatPage() {
   // 连接 SSE
   useEffect(() => {
     if (!activeRunId) return
+    freezeCutoffRef.current = null
     injectionBlockedRunIdRef.current = null
     sseTerminalFallbackRunIdRef.current = activeRunId
     sseTerminalFallbackArmedRef.current = false
@@ -1341,6 +1354,7 @@ export function ChatPage() {
       restoreQueuedDraft?: boolean
       preserveSearchSteps?: boolean
     }) => {
+      freezeCutoffRef.current = null
       injectionBlockedRunIdRef.current = null
       sse.disconnect()
       setActiveRunId(null)
@@ -1383,6 +1397,15 @@ export function ChatPage() {
     })
     processedEventCountRef.current = nextProcessedCount
     for (const event of fresh) {
+      const freezeCutoff = freezeCutoffRef.current
+      if (
+        freezeCutoff != null &&
+        typeof event.seq === 'number' &&
+        event.seq > freezeCutoff &&
+        !isTerminalRunEventType(event.type)
+      ) {
+        continue
+      }
       if (shouldSuppressLiveRunEventAfterInjectionBlock({
         activeRunId,
         blockedRunId: injectionBlockedRunIdRef.current,
@@ -1789,6 +1812,7 @@ export function ChatPage() {
       }
 
       if (event.type === 'security.injection.blocked') {
+        freezeCutoffRef.current = null
         injectionBlockedRunIdRef.current = event.run_id
         sseTerminalFallbackArmedRef.current = false
         sseTerminalFallbackRunIdRef.current = null
@@ -1805,6 +1829,7 @@ export function ChatPage() {
 
       if (event.type === 'run.completed') {
         if (isACPDelegateEventData(event.data)) continue
+        freezeCutoffRef.current = null
         const completedRunId = event.run_id
         injectionBlockedRunIdRef.current = null
         noResponseMsgIdRef.current = null
@@ -1920,12 +1945,15 @@ export function ChatPage() {
 
       if (event.type === 'run.cancelled') {
         if (isACPDelegateEventData(event.data)) continue
+        freezeCutoffRef.current = null
         const blockedByInjection = injectionBlockedRunIdRef.current === event.run_id
         resetTerminalRunState({ restoreQueuedDraft: true, preserveSearchSteps: true })
         if (!blockedByInjection) {
-          const data = event.data as { trace_id?: unknown }
-          const traceId = typeof data?.trace_id === 'string' ? data.trace_id : undefined
-          setError({ message: '已停止生成', traceId })
+          setError(null)
+        }
+        if (event.run_id) {
+          void refreshMessages({ requiredCompletedRunId: event.run_id })
+            .finally(clearDeferredLiveRunUi)
         }
         continue
       }
@@ -1966,6 +1994,10 @@ export function ChatPage() {
           code: typeof obj?.code === 'string' ? obj.code : errorClass,
           details,
         })
+        if (event.run_id) {
+          void refreshMessages({ requiredCompletedRunId: event.run_id })
+            .finally(clearDeferredLiveRunUi)
+        }
         continue
       }
     }
@@ -2455,6 +2487,7 @@ export function ChatPage() {
   const handleCancel = useCallback(() => {
     if (!activeRunId || cancelSubmitting) return
     const runId = activeRunId
+    freezeCutoffRef.current = sse.lastSeq
 
     // 若模型还未响应，记录该消息 ID 供下次发送时替换
     if (noResponseMsgIdRef.current) {
@@ -2466,11 +2499,12 @@ export function ChatPage() {
     setError(null)
     setInjectionBlocked(null)
 
-    void cancelRun(accessToken, runId).catch((err: unknown) => {
+    void cancelRun(accessToken, runId, sse.lastSeq).catch((err: unknown) => {
       setError(normalizeError(err))
+      freezeCutoffRef.current = null
       setCancelSubmitting(false)
     })
-  }, [activeRunId, cancelSubmitting, accessToken])
+  }, [activeRunId, cancelSubmitting, accessToken, sse.lastSeq])
 
   const terminalSseError = useMemo(() => {
     if (!sse.error) return null

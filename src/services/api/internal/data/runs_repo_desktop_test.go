@@ -4,6 +4,7 @@ package data
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"path/filepath"
 	"testing"
@@ -72,6 +73,83 @@ func TestProvideInputRejectsCanceledRun(t *testing.T) {
 		if !errors.As(err, &notActive) {
 			t.Fatalf("expected RunNotActiveError, got %T", err)
 		}
+	}
+}
+
+func TestRequestCancelRecordsVisibleSeqCutoff(t *testing.T) {
+	ctx := context.Background()
+	db, cleanup := openRunsRepoTestDB(t, ctx)
+	defer cleanup()
+
+	runID := uuid.New()
+	accountID := uuid.New()
+	projectID := uuid.New()
+	threadID := uuid.New()
+
+	for _, stmt := range []struct {
+		sql  string
+		args []any
+	}{
+		{
+			sql:  `INSERT INTO accounts (id, slug, name, type, status) VALUES ($1, $2, $3, 'personal', 'active')`,
+			args: []any{accountID, "runs-cancel-" + accountID.String(), "Runs Cancel"},
+		},
+		{
+			sql:  `INSERT INTO projects (id, account_id, name, visibility) VALUES ($1, $2, $3, 'private')`,
+			args: []any{projectID, accountID, "Runs Project"},
+		},
+		{
+			sql:  `INSERT INTO threads (id, account_id, project_id, is_private) VALUES ($1, $2, $3, TRUE)`,
+			args: []any{threadID, accountID, projectID},
+		},
+		{
+			sql:  `INSERT INTO runs (id, account_id, thread_id, status) VALUES ($1, $2, $3, 'running')`,
+			args: []any{runID, accountID, threadID},
+		},
+	} {
+		if _, err := db.Exec(ctx, stmt.sql, stmt.args...); err != nil {
+			t.Fatalf("seed run data: %v", err)
+		}
+	}
+
+	repo, err := NewRunEventRepository(db)
+	if err != nil {
+		t.Fatalf("new run event repo: %v", err)
+	}
+
+	clientCancelledAt := time.Date(2025, 1, 2, 3, 4, 5, 0, time.UTC)
+	if _, err := repo.RequestCancel(ctx, runID, nil, "trace-123", 7, &clientCancelledAt); err != nil {
+		t.Fatalf("request cancel: %v", err)
+	}
+
+	var status string
+	if err := db.QueryRow(ctx, `SELECT status FROM runs WHERE id = $1`, runID).Scan(&status); err != nil {
+		t.Fatalf("load run status: %v", err)
+	}
+	if status != "cancelling" {
+		t.Fatalf("expected status cancelling, got %q", status)
+	}
+
+	var dataJSON []byte
+	if err := db.QueryRow(ctx,
+		`SELECT data_json FROM run_events WHERE run_id = $1 AND type = 'run.cancel_requested' LIMIT 1`,
+		runID,
+	).Scan(&dataJSON); err != nil {
+		t.Fatalf("load cancel event: %v", err)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(dataJSON, &payload); err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	if got, ok := payload["visible_seq_cutoff"].(float64); !ok || int64(got) != 7 {
+		t.Fatalf("unexpected visible_seq_cutoff: %#v", payload["visible_seq_cutoff"])
+	}
+	if got, ok := payload["last_seen_seq"].(float64); !ok || int64(got) != 7 {
+		t.Fatalf("unexpected last_seen_seq: %#v", payload["last_seen_seq"])
+	}
+	if got, ok := payload["client_cancelled_at"].(string); !ok || got != clientCancelledAt.Format(time.RFC3339Nano) {
+		t.Fatalf("unexpected client_cancelled_at: %#v", payload["client_cancelled_at"])
 	}
 }
 

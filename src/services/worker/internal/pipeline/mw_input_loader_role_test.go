@@ -5,6 +5,7 @@ package pipeline
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -38,7 +39,7 @@ func TestLoadRunInputsIncludesRoleFromFirstEvent(t *testing.T) {
 		t.Fatalf("insert run event: %v", err)
 	}
 
-	loaded, err := loadRunInputs(context.Background(), pool, data.Run{ID: runID, AccountID: accountID, ThreadID: threadID}, data.RunsRepository{}, data.RunEventsRepository{}, data.MessagesRepository{}, nil, nil, 20)
+	loaded, err := loadRunInputs(context.Background(), pool, data.Run{ID: runID, AccountID: accountID, ThreadID: threadID}, nil, data.RunsRepository{}, data.RunEventsRepository{}, data.MessagesRepository{}, nil, nil, 20)
 	if err != nil {
 		t.Fatalf("loadRunInputs failed: %v", err)
 	}
@@ -129,7 +130,7 @@ func TestLoadRunInputsReplaysInterruptedRunBeforeTrailingUserInput(t *testing.T)
 		AccountID:       accountID,
 		ThreadID:        threadID,
 		ResumeFromRunID: &parentRunID,
-	}, data.RunsRepository{}, data.RunEventsRepository{}, data.MessagesRepository{}, nil, blobStore, 20)
+	}, nil, data.RunsRepository{}, data.RunEventsRepository{}, data.MessagesRepository{}, nil, blobStore, 20)
 	if err != nil {
 		t.Fatalf("loadRunInputs failed: %v", err)
 	}
@@ -272,7 +273,7 @@ func TestLoadRunInputsReplaysResumeChainInThreadOrder(t *testing.T) {
 		AccountID:       accountID,
 		ThreadID:        threadID,
 		ResumeFromRunID: &runBID,
-	}, data.RunsRepository{}, data.RunEventsRepository{}, data.MessagesRepository{}, nil, blobStore, 20)
+	}, nil, data.RunsRepository{}, data.RunEventsRepository{}, data.MessagesRepository{}, nil, blobStore, 20)
 	if err != nil {
 		t.Fatalf("loadRunInputs failed: %v", err)
 	}
@@ -305,6 +306,74 @@ func TestLoadRunInputsReplaysResumeChainInThreadOrder(t *testing.T) {
 	}
 	if loaded.ThreadMessageIDs[0] != msg1ID || loaded.ThreadMessageIDs[2] != msg2ID || loaded.ThreadMessageIDs[5] != msg3ID {
 		t.Fatalf("unexpected preserved thread ids: %#v", loaded.ThreadMessageIDs)
+	}
+}
+
+func TestLoadRunInputsReplaysRuntimeRecoveryDraft(t *testing.T) {
+	ctx := context.Background()
+	db := testutil.SetupPostgresDatabase(t, "pipeline_input_loader_runtime_draft")
+	pool, err := pgxpool.New(ctx, db.DSN)
+	if err != nil {
+		t.Fatalf("pgxpool.New: %v", err)
+	}
+	t.Cleanup(pool.Close)
+
+	accountID := uuid.New()
+	projectID := uuid.New()
+	threadID := uuid.New()
+	runID := uuid.New()
+	threadTailID := uuid.New()
+
+	if _, err := pool.Exec(ctx, `INSERT INTO threads (id, account_id, project_id) VALUES ($1, $2, $3)`, threadID, accountID, projectID); err != nil {
+		t.Fatalf("insert thread: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO runs (id, account_id, thread_id, status) VALUES ($1, $2, $3, 'running')`, runID, accountID, threadID); err != nil {
+		t.Fatalf("insert run: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO run_events (run_id, seq, type, data_json) VALUES ($1, 1, 'run.started', $2::jsonb)`, runID, fmt.Sprintf(`{"thread_tail_message_id":"%s"}`, threadTailID)); err != nil {
+		t.Fatalf("insert run started event: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO messages (id, account_id, thread_id, role, content, metadata_json, hidden) VALUES ($1, $2, $3, 'user', $4, '{}'::jsonb, false)`, threadTailID, accountID, threadID, "hi there"); err != nil {
+		t.Fatalf("insert user message: %v", err)
+	}
+
+	storeRoot := t.TempDir()
+	store, err := objectstore.NewFilesystemOpener(storeRoot).Open(ctx, objectstore.RolloutBucket)
+	if err != nil {
+		t.Fatalf("open rollout store: %v", err)
+	}
+	blobStore, ok := store.(objectstore.BlobStore)
+	if !ok {
+		t.Fatal("expected blob store")
+	}
+	if err := WriteResponseDraft(ctx, blobStore, runID, threadID, "partial reply", 123); err != nil {
+		t.Fatalf("write response draft: %v", err)
+	}
+
+	jobPayload := map[string]any{"recovery_source": "runtime_recovery"}
+	loaded, err := loadRunInputs(ctx, pool, data.Run{
+		ID:        runID,
+		AccountID: accountID,
+		ThreadID:  threadID,
+	}, jobPayload, data.RunsRepository{}, data.RunEventsRepository{}, data.MessagesRepository{}, nil, blobStore, 20)
+	if err != nil {
+		t.Fatalf("loadRunInputs failed: %v", err)
+	}
+
+	if len(loaded.Messages) != 2 {
+		t.Fatalf("expected 2 messages, got %d", len(loaded.Messages))
+	}
+	if loaded.Messages[0].Role != "user" || loaded.Messages[0].Content[0].Text != "hi there" {
+		t.Fatalf("unexpected user message: %#v", loaded.Messages[0])
+	}
+	if loaded.Messages[1].Role != "assistant" || loaded.Messages[1].Content[0].Text != "partial reply" {
+		t.Fatalf("expected runtime draft assistant message, got %#v", loaded.Messages[1])
+	}
+	if len(loaded.ThreadMessageIDs) != 2 {
+		t.Fatalf("expected 2 thread ids, got %d", len(loaded.ThreadMessageIDs))
+	}
+	if loaded.ThreadMessageIDs[1] != uuid.Nil {
+		t.Fatalf("expected inserted draft to use nil thread id, got %s", loaded.ThreadMessageIDs[1])
 	}
 }
 

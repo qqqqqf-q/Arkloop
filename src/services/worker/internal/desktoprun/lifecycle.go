@@ -11,9 +11,12 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
+	"arkloop/services/shared/desktop"
 	"arkloop/services/shared/eventbus"
+	"arkloop/services/shared/objectstore"
 	"arkloop/services/worker/internal/data"
 	"arkloop/services/worker/internal/events"
 	"arkloop/services/worker/internal/queue"
@@ -38,11 +41,14 @@ var desktopTerminalEventStatus = map[string]string{
 }
 
 type lifecycleManager struct {
-	db      data.DesktopDB
-	queue   queue.JobQueue
-	bus     eventbus.EventBus
-	logger  *slog.Logger
-	timeout time.Duration
+	db              data.DesktopDB
+	queue           queue.JobQueue
+	bus             eventbus.EventBus
+	logger          *slog.Logger
+	timeout         time.Duration
+	rolloutOnce     sync.Once
+	rolloutStore    objectstore.BlobStore
+	rolloutStoreErr error
 }
 
 type desktopRunSnapshot struct {
@@ -205,6 +211,9 @@ func (m *lifecycleManager) recoverRuns(ctx context.Context) error {
 		if snapshot.LastEventType == "run.input_requested" || snapshot.LastEventType == "run.cancel_requested" {
 			continue
 		}
+		if !m.hasRecoveryMaterials(ctx, snapshot.RunID) {
+			continue
+		}
 		if _, err := m.queue.EnqueueRun(ctx, snapshot.AccountID, snapshot.RunID, snapshot.LastTraceID, queue.RunExecuteJobType, map[string]any{
 			"source": "desktop_recovery",
 		}, nil); err != nil {
@@ -219,6 +228,55 @@ func (m *lifecycleManager) recoverRuns(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+func (m *lifecycleManager) hasRecoveryMaterials(ctx context.Context, runID uuid.UUID) bool {
+	if runID == uuid.Nil {
+		return false
+	}
+	store, err := m.ensureRolloutStore(ctx)
+	if err != nil || store == nil {
+		if err != nil && m.logger != nil {
+			m.logger.Warn("desktop recovery storage unavailable", "err", err.Error())
+		}
+		return false
+	}
+	key := fmt.Sprintf("run/%s.jsonl", runID.String())
+	if _, err := store.Head(ctx, key); err != nil {
+		if !objectstore.IsNotFound(err) && m.logger != nil {
+			m.logger.Warn("desktop recovery material head failed", "run_id", runID, "err", err.Error())
+		}
+		return false
+	}
+	return true
+}
+
+func (m *lifecycleManager) ensureRolloutStore(ctx context.Context) (objectstore.BlobStore, error) {
+	m.rolloutOnce.Do(func() {
+		store, err := openDesktopRolloutBlobStore(ctx)
+		if err != nil {
+			m.rolloutStoreErr = err
+			return
+		}
+		m.rolloutStore = store
+	})
+	return m.rolloutStore, m.rolloutStoreErr
+}
+
+func openDesktopRolloutBlobStore(ctx context.Context) (objectstore.BlobStore, error) {
+	dataDir, err := desktop.ResolveDataDir("")
+	if err != nil {
+		return nil, err
+	}
+	store, err := objectstore.NewFilesystemOpener(desktop.StorageRoot(dataDir)).Open(ctx, objectstore.RolloutBucket)
+	if err != nil {
+		return nil, err
+	}
+	blobStore, ok := store.(objectstore.BlobStore)
+	if !ok {
+		return nil, fmt.Errorf("rollout store does not implement blob store")
+	}
+	return blobStore, nil
 }
 
 func listRunningRuns(ctx context.Context, db data.DesktopDB) ([]desktopRunSnapshot, error) {
@@ -250,7 +308,7 @@ func listRunningRuns(ctx context.Context, db data.DesktopDB) ([]desktopRunSnapsh
 		             WHERE re.run_id = r.id
 		               AND re.type = 'run.cancel_requested')
 		   FROM runs r
-		  WHERE r.status = 'running'
+		  WHERE r.status IN ('running', 'cancelling')
 		  ORDER BY r.created_at ASC`)
 	if err != nil {
 		return nil, fmt.Errorf("list running desktop runs: %w", err)
@@ -330,7 +388,7 @@ func syncRunStatusFromTerminalEvent(ctx context.Context, db data.DesktopDB, runI
 		        END,
 		        duration_ms = COALESCE(duration_ms, CAST((julianday('now') - julianday(created_at)) * 86400000 AS INTEGER))
 		  WHERE id = $1
-		    AND status = 'running'`,
+		    AND status IN ('running', 'cancelling')`,
 		runID,
 		status,
 	)
@@ -362,7 +420,7 @@ func forceFailDesktopRun(ctx context.Context, db data.DesktopDB, runID uuid.UUID
 		        failed_at = datetime('now'),
 		        status_updated_at = datetime('now')
 		  WHERE id = $1
-		    AND status = 'running'`,
+		    AND status IN ('running', 'cancelling')`,
 		runID,
 	)
 	if err != nil {

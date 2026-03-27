@@ -166,10 +166,13 @@ export async function listRuns(
 export async function cancelRun(
   runId: string,
   accessToken: string,
+  lastSeenSeq: number,
 ): Promise<{ ok: boolean }> {
+  const body = JSON.stringify({ last_seen_seq: Math.max(0, lastSeenSeq) })
   return apiFetch<{ ok: boolean }>(`/v1/runs/${runId}:cancel`, {
     method: 'POST',
     accessToken,
+    body,
   })
 }
 

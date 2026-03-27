@@ -20,7 +20,8 @@ type ThreadMessage struct {
 	ID           uuid.UUID
 	Role         string
 	Content      string
-	ContentJSON   json.RawMessage
+	ContentJSON  json.RawMessage
+	MetadataJSON json.RawMessage
 	CreatedAt    time.Time
 	OutputTokens *int64 // assistant：从 usage_records JOIN，与 Postgres 一致
 }
@@ -41,10 +42,26 @@ func (MessagesRepository) InsertAssistantMessage(
 	content string,
 	hidden bool,
 ) (uuid.UUID, error) {
+	return (MessagesRepository{}).InsertAssistantMessageWithMetadata(ctx, tx, accountID, threadID, runID, content, hidden, nil)
+}
+
+func (MessagesRepository) InsertAssistantMessageWithMetadata(
+	ctx context.Context,
+	tx pgx.Tx,
+	accountID uuid.UUID,
+	threadID uuid.UUID,
+	runID uuid.UUID,
+	content string,
+	hidden bool,
+	metadata map[string]any,
+) (uuid.UUID, error) {
 	if strings.TrimSpace(content) == "" {
 		return uuid.Nil, nil
 	}
 	metadataJSON := map[string]any{}
+	for key, value := range metadata {
+		metadataJSON[key] = value
+	}
 	if runID != uuid.Nil {
 		metadataJSON["run_id"] = runID.String()
 	}
@@ -122,7 +139,7 @@ func (MessagesRepository) ListByThread(
 	}
 	rows, err := tx.Query(
 		ctx,
-		`SELECT recent.id, recent.role, recent.content, recent.content_json, recent.created_at,
+		`SELECT recent.id, recent.role, recent.content, recent.content_json, recent.metadata_json, recent.created_at,
 		        COALESCE(u.output_tokens, 0) AS output_tokens
 		 FROM (
 			SELECT id, role, content, content_json, created_at, metadata_json
@@ -156,7 +173,7 @@ func (MessagesRepository) ListByThread(
 	for rows.Next() {
 		var item ThreadMessage
 		var outTok int64
-		if err := rows.Scan(&item.ID, &item.Role, &item.Content, &item.ContentJSON, &item.CreatedAt, &outTok); err != nil {
+		if err := rows.Scan(&item.ID, &item.Role, &item.Content, &item.ContentJSON, &item.MetadataJSON, &item.CreatedAt, &outTok); err != nil {
 			return nil, err
 		}
 		applyDesktopThreadMessageOutput(&item, outTok)
@@ -189,7 +206,7 @@ func (MessagesRepository) ListByIDs(
 	}
 	rows, err := tx.Query(
 		ctx,
-		`SELECT m.id, m.role, m.content, m.content_json, m.created_at,
+		`SELECT m.id, m.role, m.content, m.content_json, m.metadata_json, m.created_at,
 		        COALESCE(u.output_tokens, 0) AS output_tokens
 		 FROM messages m
 		 LEFT JOIN LATERAL (
@@ -218,7 +235,7 @@ func (MessagesRepository) ListByIDs(
 	for rows.Next() {
 		var item ThreadMessage
 		var outTok int64
-		if err := rows.Scan(&item.ID, &item.Role, &item.Content, &item.ContentJSON, &item.CreatedAt, &outTok); err != nil {
+		if err := rows.Scan(&item.ID, &item.Role, &item.Content, &item.ContentJSON, &item.MetadataJSON, &item.CreatedAt, &outTok); err != nil {
 			return nil, err
 		}
 		applyDesktopThreadMessageOutput(&item, outTok)
