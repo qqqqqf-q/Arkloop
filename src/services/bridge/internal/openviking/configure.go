@@ -8,26 +8,29 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 )
 
 // ConfigureParams holds the parameters for configuring OpenViking.
 type ConfigureParams struct {
 	// Embedding config
-	EmbeddingProvider  string `json:"embedding_provider"`
-	EmbeddingModel     string `json:"embedding_model"`
-	EmbeddingAPIKey    string `json:"embedding_api_key"`
-	EmbeddingAPIBase   string `json:"embedding_api_base"`
-	EmbeddingDimension flexInt `json:"embedding_dimension"`
+	EmbeddingProvider     string            `json:"embedding_provider"`
+	EmbeddingModel        string            `json:"embedding_model"`
+	EmbeddingAPIKey       string            `json:"embedding_api_key"`
+	EmbeddingAPIBase      string            `json:"embedding_api_base"`
+	EmbeddingExtraHeaders map[string]string `json:"embedding_extra_headers"`
+	EmbeddingDimension    flexInt           `json:"embedding_dimension"`
 
 	// VLM config
-	VLMProvider string `json:"vlm_provider"`
-	VLMModel    string `json:"vlm_model"`
-	VLMAPIKey   string `json:"vlm_api_key"`
-	VLMAPIBase  string `json:"vlm_api_base"`
+	VLMProvider     string            `json:"vlm_provider"`
+	VLMModel        string            `json:"vlm_model"`
+	VLMAPIKey       string            `json:"vlm_api_key"`
+	VLMAPIBase      string            `json:"vlm_api_base"`
+	VLMExtraHeaders map[string]string `json:"vlm_extra_headers"`
 
 	// Server config (optional overrides)
-	RootAPIKey string `json:"root_api_key,omitempty"`
+	RootAPIKey *string `json:"root_api_key"`
 }
 
 // flexInt unmarshals from both JSON numbers and strings (e.g. 1024 or "1024").
@@ -126,8 +129,15 @@ func RenderConfig(configPath string, params ConfigureParams) ([]byte, error) {
 	dense["api_key"] = params.EmbeddingAPIKey
 	dense["api_base"] = params.EmbeddingAPIBase
 	dense["dimension"] = dim
+	if len(params.EmbeddingExtraHeaders) > 0 {
+		dense["extra_headers"] = params.EmbeddingExtraHeaders
+	} else {
+		delete(dense, "extra_headers")
+	}
 	if params.EmbeddingProvider == "volcengine" {
 		dense["input"] = "multimodal"
+	} else {
+		delete(dense, "input")
 	}
 
 	// --- VLM ---
@@ -138,11 +148,16 @@ func RenderConfig(configPath string, params ConfigureParams) ([]byte, error) {
 	vlm["api_base"] = params.VLMAPIBase
 	vlm["temperature"] = 0.0
 	vlm["max_retries"] = 2
+	if len(params.VLMExtraHeaders) > 0 {
+		vlm["extra_headers"] = params.VLMExtraHeaders
+	} else {
+		delete(vlm, "extra_headers")
+	}
 
 	// --- Server ---
-	if params.RootAPIKey != "" {
-		srv := cfg["server"].(map[string]any)
-		srv["root_api_key"] = params.RootAPIKey
+	srv["root_api_key"] = nil
+	if params.RootAPIKey != nil && strings.TrimSpace(*params.RootAPIKey) != "" {
+		srv["root_api_key"] = strings.TrimSpace(*params.RootAPIKey)
 	}
 
 	return json.MarshalIndent(cfg, "", "  ")

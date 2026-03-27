@@ -22,8 +22,6 @@ type Props = {
   onMeUpdated?: (me: MeResponse) => void
 }
 
-const OPENVIKING_COMPATIBLE_PROVIDER = 'openai'
-
 export function GeneralSettings({ me, accessToken, onLogout, onMeUpdated: _onMeUpdated }: Props) {
   const { t, locale, setLocale } = useLocale()
   const ds = t.desktopSettings
@@ -57,6 +55,25 @@ export function GeneralSettings({ me, accessToken, onLogout, onMeUpdated: _onMeU
 
   const toolModelValue = toolProfile?.has_override ? toolProfile.resolved_model : ''
 
+  const buildOpenVikingConfigureParams = (
+    rootApiKey: string | undefined,
+    vlm: NonNullable<Awaited<ReturnType<typeof resolveOpenVikingConfig>>['vlm']>,
+    embedding: NonNullable<Awaited<ReturnType<typeof resolveOpenVikingConfig>>['embedding']>,
+  ): Record<string, unknown> => ({
+    embedding_provider: embedding.provider,
+    embedding_model: embedding.model,
+    embedding_api_key: embedding.api_key,
+    embedding_api_base: embedding.api_base,
+    embedding_extra_headers: embedding.extra_headers ?? {},
+    embedding_dimension: String(embedding.dimension),
+    vlm_provider: vlm.provider,
+    vlm_model: vlm.model,
+    vlm_api_key: vlm.api_key,
+    vlm_api_base: vlm.api_base,
+    vlm_extra_headers: vlm.extra_headers ?? {},
+    root_api_key: rootApiKey ?? null,
+  })
+
   const handleToolModelChange = async (value: string) => {
     setSavingTool(true)
     try {
@@ -89,7 +106,7 @@ export function GeneralSettings({ me, accessToken, onLogout, onMeUpdated: _onMeU
     const modelName = value.includes('^') ? value.split('^').slice(1).join('^') : ''
     const matchedProvider = providers.find((provider) => provider.name === providerName)
 
-    let nextOV = {
+    const nextOV = {
       ...currentOV,
       vlmSelector: value || undefined,
       vlmModel: modelName || undefined,
@@ -97,20 +114,19 @@ export function GeneralSettings({ me, accessToken, onLogout, onMeUpdated: _onMeU
       vlmApiKey: undefined,
       vlmApiBase: matchedProvider?.base_url ?? currentOV.vlmApiBase,
     }
-    await desktopApi.config.set({
-      ...currentConfig,
-      memory: {
-        ...currentConfig.memory,
-        openviking: nextOV,
-      },
-    })
 
     if (
       value === ''
       || !currentOV.embeddingSelector
-      || matchedProvider?.provider !== OPENVIKING_COMPATIBLE_PROVIDER
       || !(await checkBridgeAvailable().catch(() => false))
     ) {
+      await desktopApi.config.set({
+        ...currentConfig,
+        memory: {
+          ...currentConfig.memory,
+          openviking: nextOV,
+        },
+      })
       return
     }
 
@@ -124,21 +140,7 @@ export function GeneralSettings({ me, accessToken, onLogout, onMeUpdated: _onMeU
         return
       }
 
-      const params: Record<string, string> = {
-        embedding_provider: resolved.embedding.provider,
-        embedding_model: resolved.embedding.model,
-        embedding_api_key: resolved.embedding.api_key,
-        embedding_api_base: resolved.embedding.api_base,
-        embedding_dimension: String(resolved.embedding.dimension),
-        vlm_provider: resolved.vlm.provider,
-        vlm_model: resolved.vlm.model,
-        vlm_api_key: resolved.vlm.api_key,
-        vlm_api_base: resolved.vlm.api_base,
-      }
-      if (currentOV.rootApiKey) {
-        params.root_api_key = currentOV.rootApiKey
-      }
-
+      const params = buildOpenVikingConfigureParams(currentOV.rootApiKey, resolved.vlm, resolved.embedding)
       const { operation_id } = await bridgeClient.performAction('openviking', 'configure', params)
       await new Promise<void>((resolve, reject) => {
         let done = false
@@ -151,7 +153,7 @@ export function GeneralSettings({ me, accessToken, onLogout, onMeUpdated: _onMeU
         })
       })
 
-      nextOV = {
+      const syncedOV = {
         ...nextOV,
         vlmSelector: resolved.vlm.selector,
         vlmProvider: resolved.vlm.provider,
@@ -169,7 +171,7 @@ export function GeneralSettings({ me, accessToken, onLogout, onMeUpdated: _onMeU
         ...currentConfig,
         memory: {
           ...currentConfig.memory,
-          openviking: nextOV,
+          openviking: syncedOV,
         },
       })
     } catch {

@@ -19,12 +19,13 @@ type resolveOpenVikingConfigRequest struct {
 }
 
 type resolvedOpenVikingModelResponse struct {
-	Selector       string `json:"selector"`
-	CredentialName string `json:"credential_name"`
-	Provider       string `json:"provider"`
-	Model          string `json:"model"`
-	APIBase        string `json:"api_base"`
-	APIKey         string `json:"api_key"`
+	Selector       string            `json:"selector"`
+	CredentialName string            `json:"credential_name"`
+	Provider       string            `json:"provider"`
+	Model          string            `json:"model"`
+	APIBase        string            `json:"api_base"`
+	APIKey         string            `json:"api_key"`
+	ExtraHeaders   map[string]string `json:"extra_headers,omitempty"`
 }
 
 type resolvedOpenVikingEmbeddingResponse struct {
@@ -94,6 +95,7 @@ func openVikingResolveEntry(
 				Model:          resolved.Model,
 				APIBase:        resolved.APIBase,
 				APIKey:         resolved.APIKey,
+				ExtraHeaders:   resolved.ExtraHeaders,
 			}
 		}
 		if body.EmbeddingSelector != "" {
@@ -117,6 +119,7 @@ func openVikingResolveEntry(
 					Model:          resolved.Model,
 					APIBase:        resolved.APIBase,
 					APIKey:         resolved.APIKey,
+					ExtraHeaders:   resolved.ExtraHeaders,
 				},
 				Dimension: resolved.Dimension,
 			}

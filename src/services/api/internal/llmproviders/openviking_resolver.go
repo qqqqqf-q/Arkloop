@@ -28,6 +28,7 @@ type ResolvedOpenVikingModel struct {
 	Model          string
 	APIKey         string
 	APIBase        string
+	ExtraHeaders   map[string]string
 }
 
 type ResolvedOpenVikingEmbedding struct {
@@ -54,9 +55,13 @@ func (e SelectorAmbiguousError) Error() string {
 type UnsupportedOpenVikingProviderError struct {
 	Selector string
 	Provider string
+	Message  string
 }
 
 func (e UnsupportedOpenVikingProviderError) Error() string {
+	if strings.TrimSpace(e.Message) != "" {
+		return e.Message
+	}
 	return fmt.Sprintf("selector %q uses unsupported provider %q", e.Selector, e.Provider)
 }
 
@@ -89,6 +94,13 @@ func (s *Service) ResolveOpenVikingEmbedding(
 	resolved, err := s.ResolveOpenVikingModel(ctx, accountID, scope, userID, selector)
 	if err != nil {
 		return ResolvedOpenVikingEmbedding{}, err
+	}
+	if !IsSupportedOpenVikingEmbeddingBackend(resolved.Provider) {
+		return ResolvedOpenVikingEmbedding{}, UnsupportedOpenVikingProviderError{
+			Selector: selector,
+			Provider: resolved.Provider,
+			Message:  fmt.Sprintf("selector %q resolves to OpenViking backend %q, which is not supported for embedding models", selector, resolved.Provider),
+		}
 	}
 
 	dimension, err := probeOpenAIEmbeddingDimension(ctx, resolved.APIBase, resolved.APIKey, resolved.Model)
@@ -197,10 +209,12 @@ func buildResolvedOpenVikingModel(
 	route data.LlmRoute,
 	selector string,
 ) (ResolvedOpenVikingModel, error) {
-	if !strings.EqualFold(credential.Provider, "openai") {
+	backend := ResolveOpenVikingBackend(credential.Provider, credential.AdvancedJSON)
+	if backend == "" {
 		return ResolvedOpenVikingModel{}, UnsupportedOpenVikingProviderError{
 			Selector: selector,
 			Provider: credential.Provider,
+			Message:  fmt.Sprintf("selector %q has no OpenViking backend mapping; configure advanced_json.openviking_backend to one of openai, azure, volcengine, litellm", selector),
 		}
 	}
 	if credential.SecretID == nil {
@@ -218,10 +232,11 @@ func buildResolvedOpenVikingModel(
 	return ResolvedOpenVikingModel{
 		Selector:       strings.TrimSpace(selector),
 		CredentialName: credential.Name,
-		Provider:       "openai",
+		Provider:       backend,
 		Model:          route.Model,
 		APIKey:         strings.TrimSpace(*apiKey),
 		APIBase:        defaultModelBaseURL(credential),
+		ExtraHeaders:   OpenVikingExtraHeadersFromAdvancedJSON(credential.AdvancedJSON),
 	}, nil
 }
 

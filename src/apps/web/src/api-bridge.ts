@@ -75,7 +75,7 @@ class BridgeClient {
   async performAction(
     moduleId: string,
     action: ModuleAction,
-    params?: Record<string, string>,
+    params?: Record<string, unknown>,
   ): Promise<{ operation_id: string }> {
     const resp = await fetch(
       `${this.baseUrl()}/v1/modules/${encodeURIComponent(moduleId)}/actions`,
