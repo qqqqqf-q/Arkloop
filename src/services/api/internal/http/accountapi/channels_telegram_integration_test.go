@@ -778,6 +778,97 @@ func TestTelegramWebhookStoresStructuredInboundMessage(t *testing.T) {
 	}
 }
 
+func TestTelegramWebhookSendsImmediateTypingForReplyableMessage(t *testing.T) {
+	var paths []string
+	server := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		paths = append(paths, r.URL.Path)
+		_, _ = io.WriteString(w, `{"ok":true,"result":true}`)
+	}))
+	defer server.Close()
+
+	env := setupTelegramChannelsTestEnv(t, telegrambot.NewClient(server.URL, server.Client()))
+	channel := createActiveTelegramChannelWithConfig(t, env, "bot-token", map[string]any{
+		"allowed_user_ids":          []string{"10001"},
+		"telegram_typing_indicator": true,
+	})
+
+	resp := doJSONAccount(
+		env.handler,
+		nethttp.MethodPost,
+		"/v1/channels/telegram/"+channel.ID.String()+"/webhook",
+		map[string]any{
+			"message": map[string]any{
+				"message_id": 17,
+				"date":       1710000000,
+				"text":       "hello",
+				"chat": map[string]any{
+					"id":   10001,
+					"type": "private",
+				},
+				"from": map[string]any{
+					"id":         10001,
+					"is_bot":     false,
+					"first_name": "Alice",
+				},
+			},
+		},
+		map[string]string{"X-Telegram-Bot-Api-Secret-Token": derefString(t, channel.WebhookSecret)},
+	)
+	if resp.Code != nethttp.StatusOK {
+		t.Fatalf("webhook status: %d %s", resp.Code, resp.Body.String())
+	}
+	if len(paths) != 1 || paths[0] != "/botbot-token/sendChatAction" {
+		t.Fatalf("unexpected telegram calls: %#v", paths)
+	}
+}
+
+func TestTelegramWebhookHeartbeatCommandDoesNotSendImmediateTyping(t *testing.T) {
+	var paths []string
+	server := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		paths = append(paths, r.URL.Path)
+		_, _ = io.WriteString(w, `{"ok":true,"result":true}`)
+	}))
+	defer server.Close()
+
+	env := setupTelegramChannelsTestEnv(t, telegrambot.NewClient(server.URL, server.Client()))
+	channel := createActiveTelegramChannelWithConfig(t, env, "bot-token", map[string]any{
+		"allowed_user_ids":          []string{"10001"},
+		"telegram_typing_indicator": true,
+		"bot_username":              "arkloopbot",
+	})
+
+	resp := doJSONAccount(
+		env.handler,
+		nethttp.MethodPost,
+		"/v1/channels/telegram/"+channel.ID.String()+"/webhook",
+		map[string]any{
+			"message": map[string]any{
+				"message_id": 18,
+				"date":       1710000000,
+				"text":       "/heartbeat",
+				"chat": map[string]any{
+					"id":   10001,
+					"type": "private",
+				},
+				"from": map[string]any{
+					"id":         10001,
+					"is_bot":     false,
+					"first_name": "Alice",
+				},
+			},
+		},
+		map[string]string{"X-Telegram-Bot-Api-Secret-Token": derefString(t, channel.WebhookSecret)},
+	)
+	if resp.Code != nethttp.StatusOK {
+		t.Fatalf("webhook status: %d %s", resp.Code, resp.Body.String())
+	}
+	for _, path := range paths {
+		if path == "/botbot-token/sendChatAction" {
+			t.Fatalf("heartbeat command should not send immediate typing: %#v", paths)
+		}
+	}
+}
+
 func TestTelegramWebhookGroupMessagePassiveAndActive(t *testing.T) {
 	env := setupTelegramChannelsTestEnv(t, telegrambot.NewClient("https://api.telegram.org", nil))
 	channel := createActiveTelegramChannelWithConfig(t, env, "bot-token", map[string]any{

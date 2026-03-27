@@ -35,6 +35,35 @@ func TestMergeTelegramChannelConfigJSONPatch_preservesBotFieldsWhenPatchOmitsThe
 	}
 }
 
+func TestNormalizeChannelConfigJSON_preservesTelegramUXFields(t *testing.T) {
+	t.Helper()
+	raw := json.RawMessage(`{
+	  "allowed_user_ids": ["1"],
+	  "telegram_typing_indicator": false,
+	  "telegram_reaction_emoji": "👍"
+	}`)
+	out, cfg, err := normalizeChannelConfigJSON("telegram", raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg == nil || cfg.TelegramTypingSignal == nil || *cfg.TelegramTypingSignal {
+		t.Fatalf("typing flag: %#v", cfg)
+	}
+	if cfg.TelegramReactionEmoji != "👍" {
+		t.Fatalf("emoji: %q", cfg.TelegramReactionEmoji)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["telegram_typing_indicator"] != false {
+		t.Fatalf("typing indicator lost: %#v", got["telegram_typing_indicator"])
+	}
+	if got["telegram_reaction_emoji"] != "👍" {
+		t.Fatalf("reaction emoji lost: %#v", got["telegram_reaction_emoji"])
+	}
+}
+
 func TestMergeTelegramBotProfileFromGetMe_fillsMissingIDAndUsername(t *testing.T) {
 	t.Helper()
 	raw := json.RawMessage(`{"allowed_user_ids":["1"]}`)
