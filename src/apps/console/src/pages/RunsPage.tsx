@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo, type ReactNode } from 'react'
+import { useState, useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react'
 import { useOutletContext, useSearchParams } from 'react-router-dom'
 import { RefreshCw, Play } from 'lucide-react'
 import type { ConsoleOutletContext } from '../layouts/ConsoleLayout'
@@ -144,6 +144,7 @@ export function RunsPage() {
   const [cancelTarget, setCancelTarget] = useState<GlobalRun | null>(null)
   const [cancelling, setCancelling] = useState(false)
   const [selectedRun, setSelectedRun] = useState<GlobalRun | null>(null)
+  const lastSeenSeqByRunRef = useRef(new Map<string, number>())
 
   const fetchRuns = useCallback(
     async (filters: RunFilters, currentOffset: number) => {
@@ -210,7 +211,7 @@ export function RunsPage() {
     if (!cancelTarget) return
     setCancelling(true)
     try {
-      let lastSeenSeq = 0
+      let lastSeenSeq = lastSeenSeqByRunRef.current.get(cancelTarget.run_id) ?? 0
       try {
         const events = await fetchRunEventsOnce(cancelTarget.run_id, accessToken)
         for (const event of events) {
@@ -218,10 +219,12 @@ export function RunsPage() {
             lastSeenSeq = event.seq
           }
         }
+        lastSeenSeqByRunRef.current.set(cancelTarget.run_id, lastSeenSeq)
       } catch {
         // best effort
       }
       await cancelRun(cancelTarget.run_id, accessToken, lastSeenSeq)
+      lastSeenSeqByRunRef.current.delete(cancelTarget.run_id)
       setCancelTarget(null)
       void fetchRuns(appliedFilters, offset)
     } catch (err) {

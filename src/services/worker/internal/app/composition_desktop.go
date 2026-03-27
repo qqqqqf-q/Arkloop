@@ -580,6 +580,10 @@ func desktopInputLoader(
 		loaded, err := pipeline.LoadRunInputs(ctx, db, rc.Run, rc.JobPayload, runsRepo, eventsRepo, data.MessagesRepository{}, attachmentStore, rolloutStore, messageLimit)
 		if err != nil {
 			if pipeline.IsResumeUnavailableError(err) {
+				if pipeline.IsRuntimeRecoveryJob(rc.JobPayload) {
+					return desktopWriteTerminalEvent(ctx, db, rc.Run, rc.Emitter, data.DesktopRunsRepository{}, data.DesktopRunEventsRepository{},
+						"run.interrupted", "worker.recovery_unavailable", "runtime recovery state is unavailable", nil)
+				}
 				return desktopWriteFailure(ctx, db, rc.Run, rc.Emitter, data.DesktopRunsRepository{}, data.DesktopRunEventsRepository{}, pipeline.ResumeUnavailableErrorClass, "resume context is unavailable", nil)
 			}
 			return err
@@ -1469,6 +1473,8 @@ type desktopEventWriter struct {
 	terminalUserMessage     string
 	terminalStatus          string
 	visibleAssistantText    string
+	draftVisibleContent     string
+	draftUseVisible         bool
 }
 
 func (w *desktopEventWriter) telegramStreamRemainder() string {
@@ -1519,6 +1525,8 @@ func (w *desktopEventWriter) append(ctx context.Context, runID uuid.UUID, ev eve
 			return err
 		}
 		w.visibleAssistantText = visibleOutput
+		w.draftVisibleContent = visibleOutput
+		w.draftUseVisible = true
 		nextRunIDs, err := w.transitionCancelled(ctx, tx, runID)
 		if err != nil {
 			return err
@@ -1658,10 +1666,19 @@ func (w *desktopEventWriter) maybeFlushResponseDraft(ctx context.Context, force 
 	if !force && !w.lastDraftFlushAt.IsZero() && time.Since(w.lastDraftFlushAt) < 400*time.Millisecond {
 		return nil
 	}
-	if err := pipeline.WriteResponseDraft(ctx, w.responseDraftStore, w.run.ID, w.run.ThreadID, strings.Join(w.assistantDeltas, ""), w.latestAssistantSeq); err != nil {
+	content := strings.Join(w.assistantDeltas, "")
+	useVisible := force && w.draftUseVisible
+	if useVisible {
+		content = w.draftVisibleContent
+	}
+	if err := pipeline.WriteResponseDraft(ctx, w.responseDraftStore, w.run.ID, w.run.ThreadID, content, w.latestAssistantSeq); err != nil {
 		return err
 	}
 	w.lastDraftFlushAt = time.Now()
+	if useVisible {
+		w.draftUseVisible = false
+		w.draftVisibleContent = ""
+	}
 	return nil
 }
 
@@ -1750,6 +1767,21 @@ func desktopWriteFailure(
 	message string,
 	details map[string]any,
 ) error {
+	return desktopWriteTerminalEvent(ctx, db, run, emitter, runsRepo, eventsRepo, "run.failed", errorClass, message, details)
+}
+
+func desktopWriteTerminalEvent(
+	ctx context.Context,
+	db data.DesktopDB,
+	run data.Run,
+	emitter events.Emitter,
+	runsRepo data.DesktopRunsRepository,
+	eventsRepo data.DesktopRunEventsRepository,
+	eventType string,
+	errorClass string,
+	message string,
+	details map[string]any,
+) error {
 	payload := map[string]any{
 		"error_class": errorClass,
 		"message":     message,
@@ -1757,21 +1789,37 @@ func desktopWriteFailure(
 	if len(details) > 0 {
 		payload["details"] = details
 	}
-	failed := emitter.Emit("run.failed", payload, nil, pipeline.StringPtr(errorClass))
+	terminal := emitter.Emit(eventType, payload, nil, pipeline.StringPtr(errorClass))
 
 	tx, err := db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
-		return fmt.Errorf("desktop write failure: begin tx: %w", err)
+		return fmt.Errorf("desktop write %s: begin tx: %w", eventType, err)
 	}
 	defer tx.Rollback(ctx)
 
-	if _, err := eventsRepo.AppendRunEvent(ctx, tx, run.ID, failed); err != nil {
+	if _, err := eventsRepo.AppendRunEvent(ctx, tx, run.ID, terminal); err != nil {
 		return err
 	}
-	if err := runsRepo.UpdateRunTerminalStatus(ctx, tx, run.ID, data.TerminalStatusUpdate{Status: "failed"}); err != nil {
+	status := desktopTerminalStatusForEvent(eventType)
+	if err := runsRepo.UpdateRunTerminalStatus(ctx, tx, run.ID, data.TerminalStatusUpdate{Status: status}); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+func desktopTerminalStatusForEvent(eventType string) string {
+	switch eventType {
+	case "run.completed":
+		return "completed"
+	case "run.cancelled":
+		return "cancelled"
+	case "run.interrupted":
+		return "interrupted"
+	case "run.failed":
+		return "failed"
+	default:
+		return "failed"
+	}
 }
 
 func startDesktopRunCancelWatcher(
@@ -1839,6 +1887,9 @@ func desktopInsertAssistantMessage(ctx context.Context, db data.DesktopDB, run d
 }
 
 func desktopExtractDelta(dataJSON map[string]any) string {
+	if channel, _ := dataJSON["channel"].(string); strings.TrimSpace(channel) != "" {
+		return ""
+	}
 	role, ok := dataJSON["role"]
 	if ok && role != nil && role != "assistant" {
 		return ""
