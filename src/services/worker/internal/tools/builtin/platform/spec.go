@@ -17,7 +17,7 @@ var actions = []string{
 	"list_models", "configure_model",
 	"list_agents", "create_agent", "update_agent", "delete_agent", "get_agent",
 	"list_skills", "install_skill_market", "install_skill_github", "remove_skill",
-	"list_mcp_configs", "add_mcp_config", "update_mcp_config", "delete_mcp_config",
+	"list_mcp_installs", "add_mcp_install", "update_mcp_install", "delete_mcp_install", "check_mcp_install", "list_workspace_mcp_enablements", "set_workspace_mcp_enablement",
 	"list_tool_providers", "add_tool_provider", "update_tool_provider",
 	"list_ip_rules", "add_ip_rule", "delete_ip_rule",
 	"list_api_keys", "create_api_key", "revoke_api_key",
@@ -41,7 +41,7 @@ var LlmSpec = llm.ToolSpec{
 			"Providers: list_providers | add_provider{name,provider,api_key} | update_provider{id,...} | delete_provider{id} | list_models{provider_id} | configure_model{provider_id,model_id,config?}\n" +
 			"Agents: list_agents | create_agent{persona_key,display_name,prompt_md} | update_agent{id,...} | delete_agent{id} | get_agent{id}\n" +
 			"Skills: list_skills | install_skill_market{skill_id} | install_skill_github{url,ref?} | remove_skill{id}\n" +
-			"MCP: list_mcp_configs | add_mcp_config{name,transport,command?,url?} | update_mcp_config{id,...} | delete_mcp_config{id} | list_tool_providers | add_tool_provider{group,provider} | update_tool_provider{group,provider,config?}\n" +
+			"MCP: list_mcp_installs | add_mcp_install{display_name,transport,launch_spec,host_requirement?,auth_headers?} | update_mcp_install{id,...} | delete_mcp_install{id} | check_mcp_install{id} | list_workspace_mcp_enablements{workspace_ref?} | set_workspace_mcp_enablement{workspace_ref?,install_key,enabled} | list_tool_providers | add_tool_provider{group,provider} | update_tool_provider{group,provider,config?}\n" +
 			"Access: list_ip_rules | add_ip_rule{type,cidr} | delete_ip_rule{id} | list_api_keys | create_api_key{name} | revoke_api_key{id}\n" +
 			"Infra: get_status | list_modules | install_module{name} | trigger_update",
 	),

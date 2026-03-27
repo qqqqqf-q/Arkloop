@@ -177,8 +177,11 @@ func (c *HTTPClient) doRequest(ctx context.Context, method string, params map[st
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json, text/event-stream")
-	if c.server.BearerToken != nil && *c.server.BearerToken != "" {
-		req.Header.Set("Authorization", "Bearer "+*c.server.BearerToken)
+	for key, value := range c.server.Headers {
+		if strings.TrimSpace(key) == "" || strings.TrimSpace(value) == "" {
+			continue
+		}
+		req.Header.Set(key, value)
 	}
 
 	resp, err := c.httpClient.Do(req)

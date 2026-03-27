@@ -13,6 +13,7 @@ import (
 // NewMCPDiscoveryMiddleware 按 account 从 DB 加载 MCP 工具（带缓存），合并到 RunContext 的工具集。
 func NewMCPDiscoveryMiddleware(
 	discoveryCache *mcp.DiscoveryCache,
+	queryer func(*RunContext) mcp.DiscoveryQueryer,
 	baseToolExecutors map[string]tools.Executor,
 	baseAllLlmSpecs []llm.ToolSpec,
 	baseAllowlistSet map[string]struct{},
@@ -24,10 +25,20 @@ func NewMCPDiscoveryMiddleware(
 		runAllowlistSet := CopyStringSet(baseAllowlistSet)
 		runRegistry := baseRegistry
 
-		if discoveryCache != nil {
-			accountReg, accountErr := discoveryCache.Get(ctx, rc.Pool, rc.Run.AccountID)
+		var accountReg mcp.Registration
+		var accountErr error
+		db := mcp.DiscoveryQueryer(nil)
+		if queryer != nil {
+			db = queryer(rc)
+		}
+		if db != nil && discoveryCache != nil {
+			accountReg, accountErr = discoveryCache.Get(ctx, db, rc.Run.AccountID, rc.ProfileRef, rc.WorkspaceRef)
+		} else if db != nil {
+			accountReg, accountErr = mcp.DiscoverFromDB(ctx, db, rc.Run.AccountID, rc.ProfileRef, rc.WorkspaceRef, nil)
+		}
+		if db != nil {
 			if accountErr != nil {
-				slog.WarnContext(ctx, "mcp discovery failed, falling back to base tools", "account_id", rc.Run.AccountID, "err", accountErr)
+				slog.WarnContext(ctx, "mcp discovery failed, falling back to base tools", "account_id", rc.Run.AccountID, "profile_ref", rc.ProfileRef, "workspace_ref", rc.WorkspaceRef, "err", accountErr)
 			}
 			if accountErr == nil && len(accountReg.Executors) > 0 {
 				// 过滤与内置 spawn_agent 系列同名的 MCP 工具，避免后续注册冲突

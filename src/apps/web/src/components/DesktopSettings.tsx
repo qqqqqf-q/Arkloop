@@ -138,7 +138,7 @@ export function DesktopSettings({
         ].join(" ")}
       >
         <Icon size={16} />
-        <span>{ds[key as keyof typeof ds]}</span>
+        <span>{ds[key]}</span>
       </button>
     ));
 
@@ -168,7 +168,7 @@ export function DesktopSettings({
           <SkillsSettings accessToken={accessToken} onTrySkill={onTrySkill} />
         );
       case "mcp":
-        return <MCPSettings />;
+        return <MCPSettings accessToken={accessToken} />;
       case "connectors":
         return <ConnectorsSettings accessToken={accessToken} />;
       case "searchFetch":

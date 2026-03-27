@@ -22,6 +22,8 @@ type Deps struct {
 	DirectPool                   *pgxpool.Pool
 	AsrCredentialsRepo           *data.AsrCredentialsRepository
 	MCPConfigsRepo               *data.MCPConfigsRepository
+	ProfileMCPInstallsRepo       *data.ProfileMCPInstallsRepository
+	WorkspaceMCPEnableRepo       *data.WorkspaceMCPEnablementsRepository
 	ToolProviderConfigsRepo      *data.ToolProviderConfigsRepository
 	ToolDescriptionOverridesRepo *data.ToolDescriptionOverridesRepository
 	PersonasRepo                 *data.PersonasRepository
@@ -41,6 +43,7 @@ type Deps struct {
 	EffectiveToolCatalogCache    *EffectiveToolCatalogCache
 	ArtifactStoreAvailable       bool
 	Logger                       *slog.Logger
+	MCPDiscoveryService          MCPDiscoverySourceService
 }
 
 type personaSyncTrigger interface {
@@ -53,8 +56,10 @@ func RegisterRoutes(mux *nethttp.ServeMux, deps Deps) {
 	mux.HandleFunc("/v1/asr-credentials", asrCredentialsEntry(deps.AuthService, deps.AccountMembershipRepo, deps.AsrCredentialsRepo, deps.SecretsRepo, deps.Pool))
 	mux.HandleFunc("/v1/asr-credentials/", asrCredentialEntry(deps.AuthService, deps.AccountMembershipRepo, deps.AsrCredentialsRepo))
 	mux.HandleFunc("/v1/asr/transcribe", asrTranscribeEntry(deps.AuthService, deps.AccountMembershipRepo, deps.AsrCredentialsRepo, deps.SecretsRepo, deps.Logger))
-	mux.HandleFunc("/v1/mcp-configs", mcpConfigsEntry(deps.AuthService, deps.AccountMembershipRepo, deps.MCPConfigsRepo, deps.SecretsRepo, deps.Pool))
-	mux.HandleFunc("/v1/mcp-configs/", mcpConfigEntry(deps.AuthService, deps.AccountMembershipRepo, deps.MCPConfigsRepo, deps.SecretsRepo, deps.Pool))
+	mux.HandleFunc("/v1/mcp-installs", mcpInstallsEntry(deps.AuthService, deps.AccountMembershipRepo, deps.ProfileMCPInstallsRepo, deps.SecretsRepo, deps.Pool, deps.MCPDiscoveryService))
+	mux.HandleFunc("/v1/mcp-installs/", mcpInstallEntry(deps.AuthService, deps.AccountMembershipRepo, deps.ProfileMCPInstallsRepo, deps.SecretsRepo, deps.Pool, deps.MCPDiscoveryService))
+	mux.HandleFunc("/v1/workspace-mcp-enablements", workspaceMCPEnablementsEntry(deps.AuthService, deps.AccountMembershipRepo, deps.ProfileMCPInstallsRepo, deps.WorkspaceMCPEnableRepo, deps.WorkspaceRegistriesRepo, deps.ProfileRegistriesRepo, deps.Pool))
+	mux.HandleFunc("/v1/mcp-discovery-sources", mcpDiscoverySourcesEntry(deps.AuthService, deps.AccountMembershipRepo, deps.MCPDiscoveryService))
 	mux.HandleFunc("/v1/tool-catalog/effective", toolCatalogEffectiveEntry(deps.AuthService, deps.AccountMembershipRepo, deps.ToolDescriptionOverridesRepo, deps.Pool, deps.EffectiveToolCatalogCache, deps.ArtifactStoreAvailable, deps.ProjectRepo))
 	mux.HandleFunc("/v1/tool-catalog", toolCatalogEntry(deps.AuthService, deps.AccountMembershipRepo, deps.ToolDescriptionOverridesRepo, deps.ProjectRepo))
 	mux.HandleFunc("/v1/tool-catalog/", toolCatalogItemEntry(deps.AuthService, deps.AccountMembershipRepo, deps.ToolDescriptionOverridesRepo, deps.ProjectRepo))

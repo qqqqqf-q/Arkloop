@@ -78,6 +78,8 @@ type HandlerConfig struct {
 	SecretsRepo                  *data.SecretsRepository
 	AsrCredentialsRepo           *data.AsrCredentialsRepository
 	MCPConfigsRepo               *data.MCPConfigsRepository
+	ProfileMCPInstallsRepo       *data.ProfileMCPInstallsRepository
+	WorkspaceMCPEnableRepo       *data.WorkspaceMCPEnablementsRepository
 	ToolProviderConfigsRepo      *data.ToolProviderConfigsRepository
 	ToolDescriptionOverridesRepo *data.ToolDescriptionOverridesRepository
 	PersonasRepo                 *data.PersonasRepository
@@ -130,6 +132,7 @@ type HandlerConfig struct {
 	MessageAttachmentStore messageAttachmentStore
 	EnvironmentStore       environmentStore
 	SkillStore             skillStore
+	MCPDiscoveryService    catalogapi.MCPDiscoverySourceService
 
 	EmailFrom  string
 	AppBaseURL string
@@ -275,6 +278,8 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 		DirectPool:                   cfg.DirectPool,
 		AsrCredentialsRepo:           cfg.AsrCredentialsRepo,
 		MCPConfigsRepo:               cfg.MCPConfigsRepo,
+		ProfileMCPInstallsRepo:       cfg.ProfileMCPInstallsRepo,
+		WorkspaceMCPEnableRepo:       cfg.WorkspaceMCPEnableRepo,
 		ToolProviderConfigsRepo:      cfg.ToolProviderConfigsRepo,
 		ToolDescriptionOverridesRepo: cfg.ToolDescriptionOverridesRepo,
 		PersonasRepo:                 cfg.PersonasRepo,
@@ -294,6 +299,7 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 		EffectiveToolCatalogCache:    effectiveToolCatalogCache,
 		ArtifactStoreAvailable:       cfg.ArtifactStore != nil,
 		Logger:                       cfg.Logger,
+		MCPDiscoveryService:          cfg.MCPDiscoveryService,
 	})
 
 	billingapi.RegisterRoutes(mux, billingapi.Deps{
