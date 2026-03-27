@@ -56,25 +56,26 @@ type dbSnapshot struct {
 }
 
 type mirrorPersonaYAML struct {
-	ID                  string         `yaml:"id"`
-	Version             string         `yaml:"version,omitempty"`
-	Title               string         `yaml:"title"`
-	Description         string         `yaml:"description,omitempty"`
-	SoulFile            string         `yaml:"soul_file,omitempty"`
-	UserSelectable      bool           `yaml:"user_selectable,omitempty"`
-	SelectorName        string         `yaml:"selector_name,omitempty"`
-	SelectorOrder       *int           `yaml:"selector_order,omitempty"`
-	ToolAllowlist       []string       `yaml:"tool_allowlist,omitempty"`
-	ToolDenylist        []string       `yaml:"tool_denylist,omitempty"`
-	Budgets             map[string]any `yaml:"budgets,omitempty"`
-	TitleSummarize      map[string]any `yaml:"title_summarize,omitempty"`
-	PreferredCredential string         `yaml:"preferred_credential,omitempty"`
-	Model               string         `yaml:"model,omitempty"`
-	ReasoningMode       string         `yaml:"reasoning_mode,omitempty"`
-	StreamThinking      *bool          `yaml:"stream_thinking,omitempty"`
-	PromptCacheControl  string         `yaml:"prompt_cache_control,omitempty"`
-	ExecutorType        string         `yaml:"executor_type,omitempty"`
-	ExecutorConfig      map[string]any `yaml:"executor_config,omitempty"`
+	ID                  string                             `yaml:"id"`
+	Version             string                             `yaml:"version,omitempty"`
+	Title               string                             `yaml:"title"`
+	Description         string                             `yaml:"description,omitempty"`
+	SoulFile            string                             `yaml:"soul_file,omitempty"`
+	UserSelectable      bool                               `yaml:"user_selectable,omitempty"`
+	SelectorName        string                             `yaml:"selector_name,omitempty"`
+	SelectorOrder       *int                               `yaml:"selector_order,omitempty"`
+	ToolAllowlist       []string                           `yaml:"tool_allowlist,omitempty"`
+	ToolDenylist        []string                           `yaml:"tool_denylist,omitempty"`
+	ConditionalTools    []repopersonas.ConditionalToolRule `yaml:"conditional_tools,omitempty"`
+	Budgets             map[string]any                     `yaml:"budgets,omitempty"`
+	TitleSummarize      map[string]any                     `yaml:"title_summarize,omitempty"`
+	PreferredCredential string                             `yaml:"preferred_credential,omitempty"`
+	Model               string                             `yaml:"model,omitempty"`
+	ReasoningMode       string                             `yaml:"reasoning_mode,omitempty"`
+	StreamThinking      *bool                              `yaml:"stream_thinking,omitempty"`
+	PromptCacheControl  string                             `yaml:"prompt_cache_control,omitempty"`
+	ExecutorType        string                             `yaml:"executor_type,omitempty"`
+	ExecutorConfig      map[string]any                     `yaml:"executor_config,omitempty"`
 }
 
 func NewManager(root string, pool *pgxpool.Pool, repo *data.PersonasRepository, logger *slog.Logger) *Manager {
@@ -297,30 +298,31 @@ func (m *Manager) loadDBSnapshots(ctx context.Context) (map[string]dbSnapshot, e
 func (m *Manager) applyFileToDB(ctx context.Context, snap fileSnapshot) error {
 	now := time.Now().UTC()
 	persona, err := m.repo.UpsertPlatformMirror(ctx, data.PlatformMirrorUpsertParams{
-		PersonaKey:          snap.Persona.ID,
-		Version:             snap.Persona.Version,
-		DisplayName:         strings.TrimSpace(snap.Persona.Title),
-		Description:         optionalStringPtr(snap.Persona.Description),
-		SoulMD:              strings.TrimSpace(snap.Persona.SoulMD),
-		UserSelectable:      snap.Persona.UserSelectable,
-		SelectorName:        optionalStringPtr(snap.Persona.SelectorName),
-		SelectorOrder:       snap.Persona.SelectorOrder,
-		PromptMD:            strings.TrimSpace(snap.Persona.PromptMD),
-		ToolAllowlist:       cloneStrings(snap.Persona.ToolAllowlist),
-		ToolDenylist:        cloneStrings(snap.Persona.ToolDenylist),
-		CoreTools:           cloneStrings(snap.Persona.CoreTools),
-		BudgetsJSON:         mustJSONRaw(snap.Persona.Budgets),
-		TitleSummarizeJSON:  mustJSONRawNil(snap.Persona.TitleSummarize),
-		PreferredCredential: optionalStringPtr(snap.Persona.PreferredCredential),
-		Model:               optionalStringPtr(snap.Persona.Model),
-		ReasoningMode:       strings.TrimSpace(snap.Persona.ReasoningMode),
-		StreamThinking:      snap.Persona.StreamThinking,
-		PromptCacheControl:  strings.TrimSpace(snap.Persona.PromptCacheControl),
-		ExecutorType:        strings.TrimSpace(snap.Persona.ExecutorType),
-		ExecutorConfigJSON:  mustJSONRawNil(snap.Persona.ExecutorConfig),
-		IsActive:            true,
-		MirroredFileDir:     snap.DirName,
-		LastSyncedAt:        &now,
+		PersonaKey:           snap.Persona.ID,
+		Version:              snap.Persona.Version,
+		DisplayName:          strings.TrimSpace(snap.Persona.Title),
+		Description:          optionalStringPtr(snap.Persona.Description),
+		SoulMD:               strings.TrimSpace(snap.Persona.SoulMD),
+		UserSelectable:       snap.Persona.UserSelectable,
+		SelectorName:         optionalStringPtr(snap.Persona.SelectorName),
+		SelectorOrder:        snap.Persona.SelectorOrder,
+		PromptMD:             strings.TrimSpace(snap.Persona.PromptMD),
+		ToolAllowlist:        cloneStrings(snap.Persona.ToolAllowlist),
+		ToolDenylist:         cloneStrings(snap.Persona.ToolDenylist),
+		CoreTools:            cloneStrings(snap.Persona.CoreTools),
+		BudgetsJSON:          mustJSONRaw(snap.Persona.Budgets),
+		TitleSummarizeJSON:   mustJSONRawNil(snap.Persona.TitleSummarize),
+		ConditionalToolsJSON: mustJSONRawSliceNil(snap.Persona.ConditionalTools),
+		PreferredCredential:  optionalStringPtr(snap.Persona.PreferredCredential),
+		Model:                optionalStringPtr(snap.Persona.Model),
+		ReasoningMode:        strings.TrimSpace(snap.Persona.ReasoningMode),
+		StreamThinking:       snap.Persona.StreamThinking,
+		PromptCacheControl:   strings.TrimSpace(snap.Persona.PromptCacheControl),
+		ExecutorType:         strings.TrimSpace(snap.Persona.ExecutorType),
+		ExecutorConfigJSON:   mustJSONRawNil(snap.Persona.ExecutorConfig),
+		IsActive:             true,
+		MirroredFileDir:      snap.DirName,
+		LastSyncedAt:         &now,
 	})
 	if err != nil {
 		return err
@@ -394,6 +396,10 @@ func buildMirrorPersonaYAML(persona data.Persona) (mirrorPersonaYAML, string, er
 	if err != nil {
 		return mirrorPersonaYAML{}, "", err
 	}
+	conditionalTools, err := decodeConditionalTools(persona.ConditionalToolsJSON)
+	if err != nil {
+		return mirrorPersonaYAML{}, "", err
+	}
 
 	scriptBody := ""
 	if strings.TrimSpace(persona.ExecutorType) == "agent.lua" {
@@ -409,17 +415,18 @@ func buildMirrorPersonaYAML(persona data.Persona) (mirrorPersonaYAML, string, er
 	}
 
 	doc := mirrorPersonaYAML{
-		ID:                  strings.TrimSpace(persona.PersonaKey),
-		Version:             strings.TrimSpace(persona.Version),
-		Title:               strings.TrimSpace(persona.DisplayName),
-		Description:         derefString(persona.Description),
-		UserSelectable:      persona.UserSelectable,
-		SelectorName:        derefString(persona.SelectorName),
-		SelectorOrder:       persona.SelectorOrder,
-		ToolAllowlist:       cloneStrings(persona.ToolAllowlist),
-		ToolDenylist:        cloneStrings(persona.ToolDenylist),
-		Budgets:             budgets,
-		TitleSummarize:      titleSummarize,
+		ID:               strings.TrimSpace(persona.PersonaKey),
+		Version:          strings.TrimSpace(persona.Version),
+		Title:            strings.TrimSpace(persona.DisplayName),
+		Description:      derefString(persona.Description),
+		UserSelectable:   persona.UserSelectable,
+		SelectorName:     derefString(persona.SelectorName),
+		SelectorOrder:    persona.SelectorOrder,
+		ToolAllowlist:    cloneStrings(persona.ToolAllowlist),
+		ToolDenylist:     cloneStrings(persona.ToolDenylist),
+		ConditionalTools: conditionalTools,
+		Budgets:          budgets,
+		TitleSummarize:   titleSummarize,
 		// DB-only 字段，不写回 yaml
 		PreferredCredential: "",
 		Model:               "",
@@ -450,6 +457,7 @@ func repoPersonaHash(persona repopersonas.RepoPersona) (string, error) {
 		"prompt_md":            strings.TrimSpace(persona.PromptMD),
 		"tool_allowlist":       normalizeStringSlice(persona.ToolAllowlist),
 		"tool_denylist":        normalizeStringSlice(persona.ToolDenylist),
+		"conditional_tools":    persona.ConditionalTools,
 		"core_tools":           normalizeStringSlice(persona.CoreTools),
 		"budgets":              normalizeMap(persona.Budgets),
 		"title_summarize":      normalizeMap(persona.TitleSummarize),
@@ -476,6 +484,10 @@ func dbPersonaHash(persona data.Persona) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	conditionalTools, err := decodeConditionalTools(persona.ConditionalToolsJSON)
+	if err != nil {
+		return "", err
+	}
 	payload := map[string]any{
 		"version":              strings.TrimSpace(persona.Version),
 		"display_name":         strings.TrimSpace(persona.DisplayName),
@@ -487,6 +499,7 @@ func dbPersonaHash(persona data.Persona) (string, error) {
 		"prompt_md":            strings.TrimSpace(persona.PromptMD),
 		"tool_allowlist":       normalizeStringSlice(persona.ToolAllowlist),
 		"tool_denylist":        normalizeStringSlice(persona.ToolDenylist),
+		"conditional_tools":    conditionalTools,
 		"core_tools":           normalizeStringSlice(persona.CoreTools),
 		"budgets":              budgets,
 		"title_summarize":      titleSummarize,
@@ -521,6 +534,17 @@ func decodeRawMap(raw json.RawMessage) (map[string]any, error) {
 		return map[string]any{}, nil
 	}
 	return obj, nil
+}
+
+func decodeConditionalTools(raw json.RawMessage) ([]repopersonas.ConditionalToolRule, error) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil, nil
+	}
+	var rules []repopersonas.ConditionalToolRule
+	if err := json.Unmarshal(raw, &rules); err != nil {
+		return nil, err
+	}
+	return repopersonas.NormalizeConditionalToolRules(rules)
 }
 
 func normalizeMap(raw map[string]any) map[string]any {
@@ -602,6 +626,17 @@ func mustJSONRaw(raw map[string]any) json.RawMessage {
 }
 
 func mustJSONRawNil(raw map[string]any) json.RawMessage {
+	if len(raw) == 0 {
+		return nil
+	}
+	encoded, err := json.Marshal(raw)
+	if err != nil {
+		return nil
+	}
+	return encoded
+}
+
+func mustJSONRawSliceNil[T any](raw []T) json.RawMessage {
 	if len(raw) == 0 {
 		return nil
 	}

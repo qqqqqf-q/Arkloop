@@ -33,6 +33,7 @@ type createPersonaRequest struct {
 	CoreTools              []string        `json:"core_tools"`
 	BudgetsJSON            json.RawMessage `json:"budgets"`
 	RolesJSON              json.RawMessage `json:"roles"`
+	ConditionalToolsJSON   json.RawMessage `json:"conditional_tools"`
 	PreferredCredential    *string         `json:"preferred_credential"`
 	Model                  *string         `json:"model"`
 	ReasoningMode          string          `json:"reasoning_mode"`
@@ -44,54 +45,56 @@ type createPersonaRequest struct {
 }
 
 type patchPersonaRequest struct {
-	DisplayName         *string         `json:"display_name"`
-	Description         *string         `json:"description"`
-	PromptMD            *string         `json:"prompt_md"`
-	ToolAllowlist       []string        `json:"tool_allowlist"`
-	ToolDenylist        []string        `json:"tool_denylist"`
-	CoreTools           []string        `json:"core_tools"`
-	BudgetsJSON         json.RawMessage `json:"budgets"`
-	RolesJSON           json.RawMessage `json:"roles"`
-	IsActive            *bool           `json:"is_active"`
-	PreferredCredential *string         `json:"preferred_credential"`
-	Model               *string         `json:"model"`
-	ReasoningMode       *string         `json:"reasoning_mode"`
-	StreamThinking      *bool           `json:"stream_thinking,omitempty"`
-	PromptCacheControl  *string         `json:"prompt_cache_control"`
-	ExecutorType        *string         `json:"executor_type"`
-	ExecutorConfigJSON  json.RawMessage `json:"executor_config"`
+	DisplayName          *string         `json:"display_name"`
+	Description          *string         `json:"description"`
+	PromptMD             *string         `json:"prompt_md"`
+	ToolAllowlist        []string        `json:"tool_allowlist"`
+	ToolDenylist         []string        `json:"tool_denylist"`
+	CoreTools            []string        `json:"core_tools"`
+	BudgetsJSON          json.RawMessage `json:"budgets"`
+	RolesJSON            json.RawMessage `json:"roles"`
+	ConditionalToolsJSON json.RawMessage `json:"conditional_tools"`
+	IsActive             *bool           `json:"is_active"`
+	PreferredCredential  *string         `json:"preferred_credential"`
+	Model                *string         `json:"model"`
+	ReasoningMode        *string         `json:"reasoning_mode"`
+	StreamThinking       *bool           `json:"stream_thinking,omitempty"`
+	PromptCacheControl   *string         `json:"prompt_cache_control"`
+	ExecutorType         *string         `json:"executor_type"`
+	ExecutorConfigJSON   json.RawMessage `json:"executor_config"`
 }
 
 type personaResponse struct {
-	ID                  string          `json:"id"`
-	ProjectID           *string         `json:"project_id"`
-	Scope               string          `json:"scope"`
-	PersonaKey          string          `json:"persona_key"`
-	Version             string          `json:"version"`
-	DisplayName         string          `json:"display_name"`
-	Description         *string         `json:"description,omitempty"`
-	UserSelectable      bool            `json:"user_selectable"`
-	SelectorName        *string         `json:"selector_name,omitempty"`
-	SelectorOrder       *int            `json:"selector_order,omitempty"`
-	PromptMD            string          `json:"prompt_md"`
-	ToolAllowlist       []string        `json:"tool_allowlist"`
-	ToolDenylist        []string        `json:"tool_denylist"`
-	CoreTools           []string        `json:"core_tools"`
-	BudgetsJSON         json.RawMessage `json:"budgets"`
-	RolesJSON           json.RawMessage `json:"roles"`
-	IsActive            bool            `json:"is_active"`
-	CreatedAt           string          `json:"created_at"`
-	PreferredCredential *string         `json:"preferred_credential,omitempty"`
-	Model               *string         `json:"model,omitempty"`
-	ReasoningMode       string          `json:"reasoning_mode"`
-	StreamThinking      bool            `json:"stream_thinking"`
-	PromptCacheControl  string          `json:"prompt_cache_control"`
-	ExecutorType        string          `json:"executor_type"`
-	ExecutorConfigJSON  json.RawMessage `json:"executor_config"`
-	SyncMode            string          `json:"sync_mode,omitempty"`
-	MirroredFilePath    *string         `json:"mirrored_file_path,omitempty"`
-	LastSyncedAt        *string         `json:"last_synced_at,omitempty"`
-	Source              string          `json:"source"`
+	ID                   string          `json:"id"`
+	ProjectID            *string         `json:"project_id"`
+	Scope                string          `json:"scope"`
+	PersonaKey           string          `json:"persona_key"`
+	Version              string          `json:"version"`
+	DisplayName          string          `json:"display_name"`
+	Description          *string         `json:"description,omitempty"`
+	UserSelectable       bool            `json:"user_selectable"`
+	SelectorName         *string         `json:"selector_name,omitempty"`
+	SelectorOrder        *int            `json:"selector_order,omitempty"`
+	PromptMD             string          `json:"prompt_md"`
+	ToolAllowlist        []string        `json:"tool_allowlist"`
+	ToolDenylist         []string        `json:"tool_denylist"`
+	CoreTools            []string        `json:"core_tools"`
+	BudgetsJSON          json.RawMessage `json:"budgets"`
+	RolesJSON            json.RawMessage `json:"roles"`
+	ConditionalToolsJSON json.RawMessage `json:"conditional_tools"`
+	IsActive             bool            `json:"is_active"`
+	CreatedAt            string          `json:"created_at"`
+	PreferredCredential  *string         `json:"preferred_credential,omitempty"`
+	Model                *string         `json:"model,omitempty"`
+	ReasoningMode        string          `json:"reasoning_mode"`
+	StreamThinking       bool            `json:"stream_thinking"`
+	PromptCacheControl   string          `json:"prompt_cache_control"`
+	ExecutorType         string          `json:"executor_type"`
+	ExecutorConfigJSON   json.RawMessage `json:"executor_config"`
+	SyncMode             string          `json:"sync_mode,omitempty"`
+	MirroredFilePath     *string         `json:"mirrored_file_path,omitempty"`
+	LastSyncedAt         *string         `json:"last_synced_at,omitempty"`
+	Source               string          `json:"source"`
 }
 
 func personasEntry(
@@ -267,6 +270,7 @@ func createPersona(
 		req.ToolDenylist,
 		req.BudgetsJSON,
 		req.RolesJSON,
+		req.ConditionalToolsJSON,
 		req.PreferredCredential,
 		req.Model,
 		req.ReasoningMode,
@@ -522,22 +526,23 @@ func patchPersona(
 	}
 
 	patch := data.PersonaPatch{
-		DisplayName:         req.DisplayName,
-		Description:         req.Description,
-		PromptMD:            req.PromptMD,
-		ToolAllowlist:       req.ToolAllowlist,
-		ToolDenylist:        req.ToolDenylist,
-		CoreTools:           req.CoreTools,
-		BudgetsJSON:         req.BudgetsJSON,
-		RolesJSON:           req.RolesJSON,
-		IsActive:            req.IsActive,
-		PreferredCredential: req.PreferredCredential,
-		Model:               req.Model,
-		ReasoningMode:       req.ReasoningMode,
-		StreamThinking:      req.StreamThinking,
-		PromptCacheControl:  req.PromptCacheControl,
-		ExecutorType:        req.ExecutorType,
-		ExecutorConfigJSON:  req.ExecutorConfigJSON,
+		DisplayName:          req.DisplayName,
+		Description:          req.Description,
+		PromptMD:             req.PromptMD,
+		ToolAllowlist:        req.ToolAllowlist,
+		ToolDenylist:         req.ToolDenylist,
+		CoreTools:            req.CoreTools,
+		BudgetsJSON:          req.BudgetsJSON,
+		RolesJSON:            req.RolesJSON,
+		ConditionalToolsJSON: req.ConditionalToolsJSON,
+		IsActive:             req.IsActive,
+		PreferredCredential:  req.PreferredCredential,
+		Model:                req.Model,
+		ReasoningMode:        req.ReasoningMode,
+		StreamThinking:       req.StreamThinking,
+		PromptCacheControl:   req.PromptCacheControl,
+		ExecutorType:         req.ExecutorType,
+		ExecutorConfigJSON:   req.ExecutorConfigJSON,
 	}
 	if err := validateRuntimeExecutorConfigRequest(ptrStringValue(req.ExecutorType), req.ExecutorConfigJSON); err != nil {
 		httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", err.Error(), traceID, nil)
@@ -647,6 +652,10 @@ func toPersonaResponse(s data.Persona) personaResponse {
 	if len(roles) == 0 {
 		roles = json.RawMessage("{}")
 	}
+	conditionalTools := s.ConditionalToolsJSON
+	if len(conditionalTools) == 0 {
+		conditionalTools = json.RawMessage("[]")
+	}
 	executorConfig := s.ExecutorConfigJSON
 	if len(executorConfig) == 0 {
 		executorConfig = json.RawMessage("{}")
@@ -671,35 +680,36 @@ func toPersonaResponse(s data.Persona) personaResponse {
 	}
 
 	return personaResponse{
-		ID:                  s.ID.String(),
-		ProjectID:           projectIDStr,
-		Scope:               personaScopeFromProjectID(s.ProjectID),
-		PersonaKey:          s.PersonaKey,
-		Version:             s.Version,
-		DisplayName:         s.DisplayName,
-		Description:         s.Description,
-		UserSelectable:      s.UserSelectable,
-		SelectorName:        optionalTrimmedStringPtr(s.SelectorName),
-		SelectorOrder:       s.SelectorOrder,
-		PromptMD:            s.PromptMD,
-		ToolAllowlist:       allowlist,
-		ToolDenylist:        denylist,
-		CoreTools:           orEmptyStringSlice(s.CoreTools),
-		BudgetsJSON:         budgets,
-		RolesJSON:           roles,
-		IsActive:            s.IsActive,
-		CreatedAt:           s.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
-		PreferredCredential: optionalTrimmedStringPtr(s.PreferredCredential),
-		Model:               optionalTrimmedStringPtr(s.Model),
-		ReasoningMode:       reasoningMode,
-		StreamThinking:      s.StreamThinking,
-		PromptCacheControl:  promptCacheControl,
-		ExecutorType:        executorType,
-		ExecutorConfigJSON:  executorConfig,
-		SyncMode:            strings.TrimSpace(s.SyncMode),
-		MirroredFilePath:    mirroredPersonaFilePath(s.SyncMode, s.MirroredFileDir),
-		LastSyncedAt:        optionalTimeString(s.LastSyncedAt),
-		Source:              "custom",
+		ID:                   s.ID.String(),
+		ProjectID:            projectIDStr,
+		Scope:                personaScopeFromProjectID(s.ProjectID),
+		PersonaKey:           s.PersonaKey,
+		Version:              s.Version,
+		DisplayName:          s.DisplayName,
+		Description:          s.Description,
+		UserSelectable:       s.UserSelectable,
+		SelectorName:         optionalTrimmedStringPtr(s.SelectorName),
+		SelectorOrder:        s.SelectorOrder,
+		PromptMD:             s.PromptMD,
+		ToolAllowlist:        allowlist,
+		ToolDenylist:         denylist,
+		CoreTools:            orEmptyStringSlice(s.CoreTools),
+		BudgetsJSON:          budgets,
+		RolesJSON:            roles,
+		ConditionalToolsJSON: conditionalTools,
+		IsActive:             s.IsActive,
+		CreatedAt:            s.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
+		PreferredCredential:  optionalTrimmedStringPtr(s.PreferredCredential),
+		Model:                optionalTrimmedStringPtr(s.Model),
+		ReasoningMode:        reasoningMode,
+		StreamThinking:       s.StreamThinking,
+		PromptCacheControl:   promptCacheControl,
+		ExecutorType:         executorType,
+		ExecutorConfigJSON:   executorConfig,
+		SyncMode:             strings.TrimSpace(s.SyncMode),
+		MirroredFilePath:     mirroredPersonaFilePath(s.SyncMode, s.MirroredFileDir),
+		LastSyncedAt:         optionalTimeString(s.LastSyncedAt),
+		Source:               "custom",
 	}
 }
 
@@ -722,6 +732,12 @@ func toBuiltinPersonaResponse(s repopersonas.RepoPersona, scope string) personaR
 	if len(s.Roles) > 0 {
 		if encoded, err := json.Marshal(s.Roles); err == nil {
 			roles = encoded
+		}
+	}
+	conditionalTools := json.RawMessage("[]")
+	if len(s.ConditionalTools) > 0 {
+		if encoded, err := json.Marshal(s.ConditionalTools); err == nil {
+			conditionalTools = encoded
 		}
 	}
 	executorConfig := json.RawMessage("{}")
@@ -753,31 +769,32 @@ func toBuiltinPersonaResponse(s repopersonas.RepoPersona, scope string) personaR
 	}
 
 	return personaResponse{
-		ID:                  "builtin:" + s.ID + ":" + s.Version,
-		Scope:               personaScopeFromScope(scope),
-		PersonaKey:          s.ID,
-		Version:             s.Version,
-		DisplayName:         s.Title,
-		Description:         description,
-		UserSelectable:      s.UserSelectable,
-		SelectorName:        optionalTrimmedString(s.SelectorName),
-		SelectorOrder:       s.SelectorOrder,
-		PromptMD:            s.PromptMD,
-		ToolAllowlist:       allowlist,
-		ToolDenylist:        denylist,
-		CoreTools:           orEmptyStringSlice(s.CoreTools),
-		BudgetsJSON:         budgets,
-		RolesJSON:           roles,
-		IsActive:            true,
-		CreatedAt:           "",
-		PreferredCredential: optionalTrimmedString(s.PreferredCredential),
-		Model:               optionalTrimmedString(s.Model),
-		ReasoningMode:       reasoningMode,
-		StreamThinking:      streamThinking,
-		PromptCacheControl:  promptCacheControl,
-		ExecutorType:        executorType,
-		ExecutorConfigJSON:  executorConfig,
-		Source:              "builtin",
+		ID:                   "builtin:" + s.ID + ":" + s.Version,
+		Scope:                personaScopeFromScope(scope),
+		PersonaKey:           s.ID,
+		Version:              s.Version,
+		DisplayName:          s.Title,
+		Description:          description,
+		UserSelectable:       s.UserSelectable,
+		SelectorName:         optionalTrimmedString(s.SelectorName),
+		SelectorOrder:        s.SelectorOrder,
+		PromptMD:             s.PromptMD,
+		ToolAllowlist:        allowlist,
+		ToolDenylist:         denylist,
+		CoreTools:            orEmptyStringSlice(s.CoreTools),
+		BudgetsJSON:          budgets,
+		RolesJSON:            roles,
+		ConditionalToolsJSON: conditionalTools,
+		IsActive:             true,
+		CreatedAt:            "",
+		PreferredCredential:  optionalTrimmedString(s.PreferredCredential),
+		Model:                optionalTrimmedString(s.Model),
+		ReasoningMode:        reasoningMode,
+		StreamThinking:       streamThinking,
+		PromptCacheControl:   promptCacheControl,
+		ExecutorType:         executorType,
+		ExecutorConfigJSON:   executorConfig,
+		Source:               "builtin",
 	}
 }
 

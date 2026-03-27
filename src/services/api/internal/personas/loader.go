@@ -34,32 +34,33 @@ func BuiltinPersonasRoot() (string, error) {
 }
 
 type RepoPersona struct {
-	ID                  string         `yaml:"id"`
-	Version             string         `yaml:"version"`
-	Title               string         `yaml:"title"`
-	Description         string         `yaml:"description"`
-	UserSelectable      bool           `yaml:"user_selectable"`
-	SelectorName        string         `yaml:"selector_name"`
-	SelectorOrder       *int           `yaml:"selector_order"`
-	ToolAllowlist       []string       `yaml:"tool_allowlist"`
-	ToolDenylist        []string       `yaml:"tool_denylist"`
-	CoreTools           []string       `yaml:"core_tools"`
-	Budgets             map[string]any `yaml:"budgets"`
-	TitleSummarize      map[string]any `yaml:"title_summarize"`
-	PreferredCredential string         `yaml:"preferred_credential"`
-	Model               string         `yaml:"model"`
-	ReasoningMode       string         `yaml:"reasoning_mode"`
-	StreamThinking      *bool          `yaml:"stream_thinking,omitempty"`
-	PromptCacheControl  string         `yaml:"prompt_cache_control"`
-	ExecutorType        string         `yaml:"executor_type"`
-	ExecutorConfig      map[string]any `yaml:"executor_config"`
-	Roles               map[string]any `yaml:"roles"`
-	SoulFile            string         `yaml:"soul_file"`
-	IsSystem            bool           `yaml:"is_system"`
-	IsBuiltin           bool           `yaml:"is_builtin"`
-	DirName             string         `yaml:"-"`
-	SoulMD              string         `yaml:"-"`
-	PromptMD            string         `yaml:"-"`
+	ID                  string                `yaml:"id"`
+	Version             string                `yaml:"version"`
+	Title               string                `yaml:"title"`
+	Description         string                `yaml:"description"`
+	UserSelectable      bool                  `yaml:"user_selectable"`
+	SelectorName        string                `yaml:"selector_name"`
+	SelectorOrder       *int                  `yaml:"selector_order"`
+	ToolAllowlist       []string              `yaml:"tool_allowlist"`
+	ToolDenylist        []string              `yaml:"tool_denylist"`
+	ConditionalTools    []ConditionalToolRule `yaml:"conditional_tools,omitempty"`
+	CoreTools           []string              `yaml:"core_tools"`
+	Budgets             map[string]any        `yaml:"budgets"`
+	TitleSummarize      map[string]any        `yaml:"title_summarize"`
+	PreferredCredential string                `yaml:"preferred_credential"`
+	Model               string                `yaml:"model"`
+	ReasoningMode       string                `yaml:"reasoning_mode"`
+	StreamThinking      *bool                 `yaml:"stream_thinking,omitempty"`
+	PromptCacheControl  string                `yaml:"prompt_cache_control"`
+	ExecutorType        string                `yaml:"executor_type"`
+	ExecutorConfig      map[string]any        `yaml:"executor_config"`
+	Roles               map[string]any        `yaml:"roles"`
+	SoulFile            string                `yaml:"soul_file"`
+	IsSystem            bool                  `yaml:"is_system"`
+	IsBuiltin           bool                  `yaml:"is_builtin"`
+	DirName             string                `yaml:"-"`
+	SoulMD              string                `yaml:"-"`
+	PromptMD            string                `yaml:"-"`
 }
 
 func LoadFromDir(root string) ([]RepoPersona, error) {
@@ -100,6 +101,10 @@ func LoadFromDir(root string) ([]RepoPersona, error) {
 		p.DirName = entry.Name()
 		if p.Version == "" {
 			p.Version = "1"
+		}
+		p.ConditionalTools, err = NormalizeConditionalToolRules(p.ConditionalTools)
+		if err != nil {
+			return nil, fmt.Errorf("persona %s conditional_tools: %w", p.ID, err)
 		}
 		roles, err := data.NormalizePersonaRolesValue(rawObj["roles"])
 		if err != nil {

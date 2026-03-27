@@ -180,6 +180,7 @@ func setupTelegramChannelsTestEnv(t *testing.T, botClient *telegrambot.Client) t
 		json.RawMessage(`{}`),
 		nil,
 		nil,
+		nil,
 		"auto",
 		true,
 		"none",

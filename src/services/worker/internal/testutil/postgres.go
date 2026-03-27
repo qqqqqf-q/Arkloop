@@ -184,6 +184,7 @@ func initRunsSchema(t *testing.T, dsn string) error {
 			budgets_json         JSONB       NOT NULL DEFAULT '{}'::jsonb,
 			roles_json           JSONB       NOT NULL DEFAULT '{}'::jsonb,
 			title_summarize_json JSONB       NULL,
+			conditional_tools_json JSONB     NULL,
 			model                TEXT        NULL,
 			reasoning_mode       TEXT        NOT NULL DEFAULT 'auto',
 			stream_thinking      BOOLEAN     NOT NULL DEFAULT TRUE,

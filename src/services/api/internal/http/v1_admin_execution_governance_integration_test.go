@@ -78,13 +78,13 @@ func TestAdminExecutionGovernanceReturnsPersonaCentricView(t *testing.T) {
 	auditWriter := audit.NewWriter(auditRepo, membershipRepo, logger)
 
 	handler := NewHandler(HandlerConfig{
-		Pool:                pool,
-		Logger:              logger,
-		AuthService:         authService,
-		RegistrationService: registrationService,
-		AuditWriter:         auditWriter,
-		AccountMembershipRepo:   membershipRepo,
-		PersonasRepo:        personasRepo,
+		Pool:                  pool,
+		Logger:                logger,
+		AuthService:           authService,
+		RegistrationService:   registrationService,
+		AuditWriter:           auditWriter,
+		AccountMembershipRepo: membershipRepo,
+		PersonasRepo:          personasRepo,
 		RepoPersonas: []repopersonas.RepoPersona{
 			{
 				ID:                  "builtin-ops",
@@ -162,6 +162,7 @@ func TestAdminExecutionGovernanceReturnsPersonaCentricView(t *testing.T) {
 		nil,
 		nil,
 		customBudgets,
+		nil,
 		nil,
 		strPtrLocal("cred-custom"),
 		strPtrLocal("custom-cred^claude-3-7-sonnet"),

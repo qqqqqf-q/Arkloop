@@ -150,6 +150,33 @@ func TestLoadPersonaWithSelectorFields(t *testing.T) {
 	}
 }
 
+func TestLoadPersonaWithConditionalTools(t *testing.T) {
+	dir := t.TempDir()
+	writePersonaFiles(t, dir, "conditional_persona",
+		"id: conditional_persona\nversion: \"1\"\ntitle: Conditional\nconditional_tools:\n  - when:\n      lacks_input_modalities:\n        - image\n    tools:\n      - understand_image\n",
+		"# prompt",
+	)
+
+	registry, err := LoadRegistry(dir)
+	if err != nil {
+		t.Fatalf("LoadRegistry failed: %v", err)
+	}
+	def, ok := registry.Get("conditional_persona")
+	if !ok {
+		t.Fatalf("expected conditional_persona loaded")
+	}
+	if len(def.ConditionalTools) != 1 {
+		t.Fatalf("expected 1 conditional tool rule, got %d", len(def.ConditionalTools))
+	}
+	rule := def.ConditionalTools[0]
+	if len(rule.When.LacksInputModalities) != 1 || rule.When.LacksInputModalities[0] != "image" {
+		t.Fatalf("unexpected modalities: %#v", rule.When.LacksInputModalities)
+	}
+	if len(rule.Tools) != 1 || rule.Tools[0] != "understand_image" {
+		t.Fatalf("unexpected tools: %#v", rule.Tools)
+	}
+}
+
 func TestLoadPersonaWithoutSelectorFieldsUsesDefaults(t *testing.T) {
 	dir := t.TempDir()
 	writePersonaFiles(t, dir, "default_selector_persona",

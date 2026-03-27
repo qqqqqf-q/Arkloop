@@ -46,6 +46,17 @@ func repoPersonaRolesJSON(raw map[string]any) json.RawMessage {
 	return encoded
 }
 
+func repoPersonaConditionalToolsJSON(raw []repopersonas.ConditionalToolRule) json.RawMessage {
+	if len(raw) == 0 {
+		return nil
+	}
+	encoded, err := json.Marshal(raw)
+	if err != nil {
+		return nil
+	}
+	return encoded
+}
+
 func repoPersonaExecutorConfigJSON(raw map[string]any) json.RawMessage {
 	if len(raw) == 0 {
 		return nil
@@ -109,6 +120,10 @@ func materializeRepoPersonaForCreate(
 	if len(req.RolesJSON) > 0 {
 		rolesJSON = req.RolesJSON
 	}
+	conditionalToolsJSON := repoPersonaConditionalToolsJSON(repoPersona.ConditionalTools)
+	if len(req.ConditionalToolsJSON) > 0 {
+		conditionalToolsJSON = req.ConditionalToolsJSON
+	}
 
 	preferredCredential := optionalTrimmedString(repoPersona.PreferredCredential)
 	if req.PreferredCredential != nil {
@@ -148,29 +163,30 @@ func materializeRepoPersonaForCreate(
 
 	if scope == data.PersonaScopePlatform {
 		persona, err := personasRepo.UpsertPlatformMirror(ctx, data.PlatformMirrorUpsertParams{
-			PersonaKey:          repoPersona.ID,
-			Version:             repoPersona.Version,
-			DisplayName:         displayName,
-			Description:         description,
-			SoulMD:              strings.TrimSpace(repoPersona.SoulMD),
-			UserSelectable:      repoPersona.UserSelectable,
-			SelectorName:        optionalTrimmedString(repoPersona.SelectorName),
-			SelectorOrder:       repoPersona.SelectorOrder,
-			PromptMD:            promptMD,
-			ToolAllowlist:       toolAllowlist,
-			ToolDenylist:        toolDenylist,
-			BudgetsJSON:         budgetsJSON,
-			RolesJSON:           rolesJSON,
-			TitleSummarizeJSON:  repoPersonaTitleSummarizeJSON(repoPersona.TitleSummarize),
-			PreferredCredential: preferredCredential,
-			Model:               model,
-			ReasoningMode:       reasoningMode,
-			StreamThinking:      streamThinkingPtr,
-			PromptCacheControl:  promptCacheControl,
-			ExecutorType:        executorType,
-			ExecutorConfigJSON:  executorConfigJSON,
-			IsActive:            true,
-			MirroredFileDir:     repoPersona.ID,
+			PersonaKey:           repoPersona.ID,
+			Version:              repoPersona.Version,
+			DisplayName:          displayName,
+			Description:          description,
+			SoulMD:               strings.TrimSpace(repoPersona.SoulMD),
+			UserSelectable:       repoPersona.UserSelectable,
+			SelectorName:         optionalTrimmedString(repoPersona.SelectorName),
+			SelectorOrder:        repoPersona.SelectorOrder,
+			PromptMD:             promptMD,
+			ToolAllowlist:        toolAllowlist,
+			ToolDenylist:         toolDenylist,
+			BudgetsJSON:          budgetsJSON,
+			RolesJSON:            rolesJSON,
+			TitleSummarizeJSON:   repoPersonaTitleSummarizeJSON(repoPersona.TitleSummarize),
+			ConditionalToolsJSON: conditionalToolsJSON,
+			PreferredCredential:  preferredCredential,
+			Model:                model,
+			ReasoningMode:        reasoningMode,
+			StreamThinking:       streamThinkingPtr,
+			PromptCacheControl:   promptCacheControl,
+			ExecutorType:         executorType,
+			ExecutorConfigJSON:   executorConfigJSON,
+			IsActive:             true,
+			MirroredFileDir:      repoPersona.ID,
 		})
 		if err != nil {
 			return data.Persona{}, err
@@ -191,6 +207,7 @@ func materializeRepoPersonaForCreate(
 		toolDenylist,
 		budgetsJSON,
 		rolesJSON,
+		conditionalToolsJSON,
 		preferredCredential,
 		model,
 		reasoningMode,
@@ -246,6 +263,7 @@ func materializeRepoPersonaForLiteAgent(
 
 	budgetsJSON := mergeLiteAgentBudgets(repoPersonaBudgetsJSON(repoPersona.Budgets), req.Temperature, req.MaxOutputTokens)
 	rolesJSON := repoPersonaRolesJSON(repoPersona.Roles)
+	conditionalToolsJSON := repoPersonaConditionalToolsJSON(repoPersona.ConditionalTools)
 
 	return personasRepo.CreateInScope(
 		ctx,
@@ -260,6 +278,7 @@ func materializeRepoPersonaForLiteAgent(
 		repoPersona.ToolDenylist,
 		budgetsJSON,
 		rolesJSON,
+		conditionalToolsJSON,
 		optionalTrimmedString(repoPersona.PreferredCredential),
 		model,
 		reasoningMode,

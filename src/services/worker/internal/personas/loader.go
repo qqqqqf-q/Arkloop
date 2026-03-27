@@ -141,6 +141,10 @@ func loadSinglePersona(yamlPath string) (Definition, error) {
 	if err != nil {
 		return Definition{}, err
 	}
+	conditionalTools, err := parseConditionalTools(obj["conditional_tools"])
+	if err != nil {
+		return Definition{}, err
+	}
 	budgets, err := asBudgets(obj["budgets"])
 	if err != nil {
 		return Definition{}, err
@@ -206,6 +210,7 @@ func loadSinglePersona(yamlPath string) (Definition, error) {
 		SelectorOrder:       selectorOrder,
 		ToolAllowlist:       allowlist,
 		ToolDenylist:        denylist,
+		ConditionalTools:    conditionalTools,
 		CoreTools:           coreTools,
 		Budgets:             budgets,
 		SoulMD:              soulMD,
@@ -545,7 +550,7 @@ func LoadFromDB(ctx context.Context, pool *pgxpool.Pool, projectID *uuid.UUID) (
 
 	query := `SELECT persona_key, version, display_name, description,
 		        soul_md, user_selectable, selector_name, selector_order,
-		        prompt_md, tool_allowlist, COALESCE(tool_denylist, '{}'), COALESCE(core_tools, '{}'), budgets_json, COALESCE(roles_json, '{}'::jsonb), title_summarize_json,
+		        prompt_md, tool_allowlist, COALESCE(tool_denylist, '{}'), COALESCE(core_tools, '{}'), budgets_json, COALESCE(roles_json, '{}'::jsonb), title_summarize_json, conditional_tools_json,
 		        executor_type, executor_config_json,
 		        preferred_credential, model, reasoning_mode, stream_thinking, prompt_cache_control,
 		        updated_at
@@ -577,6 +582,7 @@ func LoadFromDB(ctx context.Context, pool *pgxpool.Pool, projectID *uuid.UUID) (
 			budgetsRaw          []byte
 			rolesRaw            []byte
 			titleSummarizeRaw   []byte
+			conditionalToolsRaw []byte
 			executorType        string
 			executorConfigRaw   []byte
 			preferredCredential *string
@@ -588,7 +594,7 @@ func LoadFromDB(ctx context.Context, pool *pgxpool.Pool, projectID *uuid.UUID) (
 		)
 		if err := rows.Scan(&personaKey, &version, &displayName, &description,
 			&soulMD, &userSelectable, &selectorName, &selectorOrder,
-			&promptMD, &toolAllowlist, &toolDenylist, &coreTools, &budgetsRaw, &rolesRaw, &titleSummarizeRaw,
+			&promptMD, &toolAllowlist, &toolDenylist, &coreTools, &budgetsRaw, &rolesRaw, &titleSummarizeRaw, &conditionalToolsRaw,
 			&executorType, &executorConfigRaw, &preferredCredential, &model, &reasoningMode, &streamThinking, &promptCacheControl, &updatedAt); err != nil {
 			return nil, err
 		}
@@ -609,6 +615,10 @@ func LoadFromDB(ctx context.Context, pool *pgxpool.Pool, projectID *uuid.UUID) (
 		if err != nil {
 			return nil, fmt.Errorf("persona %q title_summarize_json: %w", personaKey, err)
 		}
+		conditionalTools, err := parseConditionalToolsJSON(conditionalToolsRaw)
+		if err != nil {
+			return nil, fmt.Errorf("persona %q conditional_tools_json: %w", personaKey, err)
+		}
 		roles, err := parseRoleOverridesJSON(rolesRaw)
 		if err != nil {
 			return nil, fmt.Errorf("persona %q roles_json: %w", personaKey, err)
@@ -627,6 +637,7 @@ func LoadFromDB(ctx context.Context, pool *pgxpool.Pool, projectID *uuid.UUID) (
 			SelectorOrder:       selectorOrder,
 			ToolAllowlist:       toolAllowlist,
 			ToolDenylist:        toolDenylist,
+			ConditionalTools:    conditionalTools,
 			CoreTools:           coreTools,
 			Budgets:             budgets,
 			SoulMD:              strings.TrimSpace(soulMD),
@@ -687,6 +698,9 @@ func mergeDefinition(base Definition, override Definition) Definition {
 	merged.AllowPlatformDelegation = base.AllowPlatformDelegation
 	if len(merged.CoreTools) == 0 {
 		merged.CoreTools = base.CoreTools
+	}
+	if len(merged.ConditionalTools) == 0 {
+		merged.ConditionalTools = append([]ConditionalToolRule(nil), base.ConditionalTools...)
 	}
 	// heartbeat 配置和任务清单 DB 无对应列，始终保留文件系统值
 	merged.HeartbeatEnabled = base.HeartbeatEnabled
