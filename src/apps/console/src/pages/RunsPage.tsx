@@ -97,6 +97,17 @@ function normalizeFilters(filters: RunFilters): RunFilters {
   }
 }
 
+function isVisibleAssistantDelta(event: RunEventRaw): boolean {
+  if (event.type !== 'message.delta') return false
+  const role = event.data.role
+  if (role != null && role !== 'assistant') return false
+  const channel = typeof event.data.channel === 'string' ? event.data.channel : ''
+  if (channel.trim() !== '') return false
+  const delta = typeof event.data.content_delta === 'string' ? event.data.content_delta.trim() : ''
+  if (delta === '' || delta === '<end_turn>') return false
+  return typeof event.seq === 'number'
+}
+
 function toRFC3339(value: string): string | undefined {
   if (!value.trim()) return undefined
   const parsed = new Date(value)
@@ -145,6 +156,15 @@ export function RunsPage() {
   const [cancelling, setCancelling] = useState(false)
   const [selectedRun, setSelectedRun] = useState<GlobalRun | null>(null)
   const lastSeenSeqByRunRef = useRef(new Map<string, number>())
+  const deriveVisibleLastSeq = useCallback((events: RunEventRaw[]) => {
+    let visibleSeq = 0
+    for (const event of events) {
+      if (isVisibleAssistantDelta(event) && event.seq > visibleSeq) {
+        visibleSeq = event.seq
+      }
+    }
+    return visibleSeq
+  }, [])
 
   const fetchRuns = useCallback(
     async (filters: RunFilters, currentOffset: number) => {
@@ -214,11 +234,8 @@ export function RunsPage() {
       let lastSeenSeq = lastSeenSeqByRunRef.current.get(cancelTarget.run_id) ?? 0
       try {
         const events = await fetchRunEventsOnce(cancelTarget.run_id, accessToken)
-        for (const event of events) {
-          if (event.seq > lastSeenSeq) {
-            lastSeenSeq = event.seq
-          }
-        }
+        const visibleSeq = deriveVisibleLastSeq(events)
+        lastSeenSeq = Math.max(lastSeenSeq, visibleSeq)
         lastSeenSeqByRunRef.current.set(cancelTarget.run_id, lastSeenSeq)
       } catch {
         // best effort

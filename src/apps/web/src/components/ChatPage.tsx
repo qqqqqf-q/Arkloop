@@ -789,6 +789,11 @@ export function ChatPage() {
     pendingSearchSteps?: MessageSearchStepRef[] | null
   }
 
+  type PersistRunDataOptions = {
+    persistThinking?: boolean
+    persistAssistantTurn?: boolean
+  }
+
   const captureTerminalRunCache = (): TerminalRunCache => ({
     runSources: [...currentRunSourcesRef.current],
     runArtifacts: [...currentRunArtifactsRef.current],
@@ -805,7 +810,13 @@ export function ChatPage() {
   })
 
   const persistRunDataToMessage = useCallback(
-    (messageId: string, runData: TerminalRunCache, runEvents: MsgRunEvent[]) => {
+    (
+      messageId: string,
+      runData: TerminalRunCache,
+      runEvents: MsgRunEvent[],
+      options?: PersistRunDataOptions,
+    ) => {
+      const persistAssistantTurn = options?.persistAssistantTurn ?? true
       if (runData.runWidgets.length > 0) {
         writeMessageWidgets(messageId, runData.runWidgets)
         setMessageWidgetsMap((prev) => new Map(prev).set(messageId, runData.runWidgets))
@@ -818,7 +829,7 @@ export function ChatPage() {
         writeMessageSearchSteps(messageId, runData.pendingSearchSteps)
         setMessageSearchStepsMap((prev) => new Map(prev).set(messageId, runData.pendingSearchSteps!))
       }
-      if (runData.runAssistantTurn.segments.length > 0) {
+      if (persistAssistantTurn && runData.runAssistantTurn.segments.length > 0) {
         writeMessageAssistantTurn(messageId, runData.runAssistantTurn)
         setMessageAssistantTurnMap((prev) => new Map(prev).set(messageId, runData.runAssistantTurn))
       }
@@ -1450,6 +1461,12 @@ export function ChatPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeRunId, baseUrl, resetAssistantTurnLive])
 
+  useEffect(() => {
+    if (!activeRunId) {
+      lastVisibleNonTerminalSeqRef.current = 0
+    }
+  }, [activeRunId])
+
   // 避免上一轮 run 的 closed/error 状态误触发当前 run 的终端兜底。
   useEffect(() => {
     if (!activeRunId) {
@@ -1560,10 +1577,6 @@ export function ChatPage() {
       })) {
         continue
       }
-      if (!isTerminalRunEventType(event.type) && typeof event.seq === 'number') {
-        lastVisibleNonTerminalSeqRef.current = Math.max(lastVisibleNonTerminalSeqRef.current, event.seq)
-      }
-
       const nextWebSearchSteps = applyRunEventToWebSearchSteps(searchStepsRef.current, event)
       if (nextWebSearchSteps !== searchStepsRef.current) {
         searchStepsRef.current = nextWebSearchSteps
@@ -1662,7 +1675,14 @@ export function ChatPage() {
         if (obj.role != null && obj.role !== 'assistant') continue
         if (typeof obj.content_delta !== 'string' || !obj.content_delta) continue
         const delta = obj.content_delta
-        const isThinking = obj.channel === 'thinking'
+        const channel = typeof obj.channel === 'string' ? obj.channel : ''
+        const isThinking = channel === 'thinking'
+        const eventSeq = typeof event.seq === 'number' ? event.seq : 0
+        if (!isThinking && channel.trim() === '') {
+          if (eventSeq > lastVisibleNonTerminalSeqRef.current) {
+            lastVisibleNonTerminalSeqRef.current = eventSeq
+          }
+        }
         const activeSeg = activeSegmentIdRef.current
         if (isThinking) {
           setPendingThinking(false)
@@ -2078,7 +2098,9 @@ export function ChatPage() {
             .then((items) => {
               const assistant = findAssistantMessageForRun(items, runId)
               if (assistant) {
-                persistRunDataToMessage(assistant.id, runCache, runEventsForMessage)
+                persistRunDataToMessage(assistant.id, runCache, runEventsForMessage, {
+                  persistAssistantTurn: false,
+                })
               }
             })
             .finally(clearDeferredLiveRunUi)
@@ -2145,7 +2167,9 @@ export function ChatPage() {
             .then((items) => {
               const assistant = findAssistantMessageForRun(items, runId!)
               if (assistant) {
-                persistRunDataToMessage(assistant.id, runCache, runEventsForMessage)
+                persistRunDataToMessage(assistant.id, runCache, runEventsForMessage, {
+                  persistAssistantTurn: false,
+                })
               }
             })
             .finally(clearDeferredLiveRunUi)
@@ -2198,9 +2222,11 @@ export function ChatPage() {
     void refreshMessages({ requiredCompletedRunId: terminalRunId })
       .then((items) => {
         const completedAssistant = findAssistantMessageForRun(items, terminalRunId)
-        if (completedAssistant) {
-          persistRunDataToMessage(completedAssistant.id, terminalCache, runEventsForMessage)
-        }
+          if (completedAssistant) {
+            persistRunDataToMessage(completedAssistant.id, terminalCache, runEventsForMessage, {
+              persistAssistantTurn: false,
+            })
+          }
       })
       .finally(clearDeferredLiveRunUi)
   }, [activeRunId, sse.state, clearDeferredLiveRunUi, persistRunDataToMessage]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -2599,7 +2625,8 @@ export function ChatPage() {
   const handleCancel = useCallback(() => {
     if (!activeRunId || cancelSubmitting) return
     const runId = activeRunId
-    freezeCutoffRef.current = sse.lastSeq
+    const cancelBoundary = Math.max(0, lastVisibleNonTerminalSeqRef.current)
+    freezeCutoffRef.current = cancelBoundary
 
     // 若模型还未响应，记录该消息 ID 供下次发送时替换
     if (noResponseMsgIdRef.current) {
@@ -2612,7 +2639,7 @@ export function ChatPage() {
     setInjectionBlocked(null)
 
     let cancelSucceeded = false
-    void cancelRun(accessToken, runId, sse.lastSeq)
+    void cancelRun(accessToken, runId, cancelBoundary)
       .then(() => {
         cancelSucceeded = true
       })
@@ -2625,7 +2652,7 @@ export function ChatPage() {
           setCancelSubmitting(false)
         }
       })
-  }, [activeRunId, cancelSubmitting, accessToken, sse.lastSeq])
+  }, [activeRunId, cancelSubmitting, accessToken])
 
   const terminalSseError = useMemo(() => {
     if (!sse.error) return null
