@@ -20,7 +20,7 @@
 |------|------|
 | 基础 | Webhook 或 Desktop `getUpdates`、DM thread、`/new`、`run.started` 模型、`channel_message_ledger` 入站 |
 | 投递 | `sendMessage`、`reply_to_message_id`、分段、`channel_message_deliveries` + 出站 ledger |
-| 交互 | `sendChatAction`（typing，可 `config_json.telegram_typing_indicator` 关闭）、`setMessageReaction`（`telegram_reaction_emoji`，空则关）；`editMessageText` 已在共享 `telegrambot.Client` 暴露，Agent loop 流式编辑未接 |
+| 交互 | `sendChatAction`（typing，可 `config_json.telegram_typing_indicator` 关闭；API 在可回复入站上先发一次，Worker 处理期续发）、`setMessageReaction`（`telegram_reaction_emoji`，空则关）；`editMessageText` 已在共享 `telegrambot.Client` 暴露，Agent loop 流式编辑未接 |
 | 登记读 | Worker `LookupByPlatformMessage(channel_id, platform_conversation_id, platform_message_id)` |
 
 ## 2. 术语
@@ -101,7 +101,7 @@ CREATE TABLE channels (
 }
 ```
 
-- `telegram_typing_indicator`：缺省按 `true`；`false` 时不发 typing。
+- `telegram_typing_indicator`：缺省按 `true`；`false` 时不发 typing。开启时 API 在可回复入站到达后先发一次 `typing`，随后由 Worker 在执行期间续发。
 - `telegram_reaction_emoji`：非空时在成功投递后对**用户入站消息**调用 `setMessageReaction`；空字符串表示关闭。
 
 ### 4.2 `channel_identities`
