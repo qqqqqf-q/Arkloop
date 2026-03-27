@@ -80,7 +80,11 @@ func (e *InteractiveExecutor) Execute(
 			},
 		}, messages...)
 	}
-	messages = applyImageFilter(rc.SelectedRoute, messages)
+	var searchableSpecs map[string]llm.ToolSpec
+	if rc.ToolExecutor != nil {
+		searchableSpecs = rc.ToolExecutor.SearchableSpecs()
+	}
+	messages = applyImageFilter(rc.SelectedRoute, messages, rc.FinalSpecs, searchableSpecs)
 
 	agentRequest := llm.Request{
 		Model:           rc.SelectedRoute.Route.Model,

@@ -48,18 +48,18 @@ func buildEffectiveBuiltinToolNameSet(
 		HasConversationSearch:  effectiveCatalogPoolReady(pool),
 		ArtifactStoreAvailable: artifactStoreAvailable,
 		LoadPlatformProviders: func(loadCtx context.Context) ([]sharedtoolruntime.ProviderConfig, error) {
-			if pgxPool, ok := pool.(*pgxpool.Pool); ok && pgxPool != nil {
-				platformProviders, err := sharedtoolruntime.LoadPlatformProviders(loadCtx, pgxPool, decryptPlatformProviderSecret)
-				if err != nil {
-					return nil, err
-				}
-				userProviders, err := sharedtoolruntime.LoadUserProviders(loadCtx, pgxPool, userID, decryptPlatformProviderSecret)
-				if err != nil {
-					return nil, err
-				}
-				return append(platformProviders, userProviders...), nil
+			if pool == nil {
+				return nil, nil
 			}
-			return nil, nil
+			platformProviders, err := sharedtoolruntime.LoadPlatformProviders(loadCtx, pool, decryptPlatformProviderSecret)
+			if err != nil {
+				return nil, err
+			}
+			userProviders, err := sharedtoolruntime.LoadUserProviders(loadCtx, pool, userID, decryptPlatformProviderSecret)
+			if err != nil {
+				return nil, err
+			}
+			return append(platformProviders, userProviders...), nil
 		},
 	})
 	if err != nil {

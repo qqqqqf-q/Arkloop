@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	sharedtoolmeta "arkloop/services/shared/toolmeta"
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/tools"
 )
@@ -145,6 +146,20 @@ func ResolveToolGroupName(registry *tools.Registry, toolName string) string {
 	return cleaned
 }
 
+func resolveProviderBindingGroup(registry *tools.Registry, toolName string) string {
+	logicalName := ResolveToolGroupName(registry, toolName)
+	if logicalName == "" {
+		return ""
+	}
+	if meta, ok := sharedtoolmeta.Lookup(logicalName); ok {
+		switch meta.Group {
+		case sharedtoolmeta.GroupWebSearch, sharedtoolmeta.GroupWebFetch, sharedtoolmeta.GroupImageUnderstanding:
+			return meta.Group
+		}
+	}
+	return logicalName
+}
+
 // ToolAllowed 判断 toolName 是否在 allowlistSet 中可用：
 // - toolName 本身在 set 中：允许
 // - toolName 为 provider 且其 group（LlmName）在 set 中：允许
@@ -159,19 +174,15 @@ func ToolAllowed(allowlistSet map[string]struct{}, registry *tools.Registry, too
 	if _, ok := allowlistSet[cleaned]; ok {
 		return true
 	}
-	group := ResolveToolGroupName(registry, cleaned)
+	group := resolveProviderBindingGroup(registry, cleaned)
 	if group == "" {
 		return false
 	}
 	if _, ok := allowlistSet[group]; ok {
 		return true
 	}
-	if group != cleaned || registry == nil {
-		return false
-	}
-
 	for name := range allowlistSet {
-		if ResolveToolGroupName(registry, name) == group {
+		if resolveProviderBindingGroup(registry, name) == group {
 			return true
 		}
 	}
@@ -188,21 +199,30 @@ func RemoveToolOrGroup(allowlistSet map[string]struct{}, registry *tools.Registr
 	}
 	delete(allowlistSet, cleaned)
 
-	group := ResolveToolGroupName(registry, cleaned)
-	if group == "" || group != cleaned || registry == nil {
+	group := resolveProviderBindingGroup(registry, cleaned)
+	if group == "" {
 		return
 	}
 
+	for name := range CopyStringSet(allowlistSet) {
+		if resolveProviderBindingGroup(registry, name) == group {
+			delete(allowlistSet, name)
+		}
+	}
+
+	if registry == nil {
+		return
+	}
 	for _, name := range registry.ListNames() {
-		if ResolveToolGroupName(registry, name) == group {
+		if resolveProviderBindingGroup(registry, name) == group {
 			delete(allowlistSet, name)
 		}
 	}
 }
 
 type toolGroupCandidateState struct {
-	legacyAllowed bool
-	providers     []string
+	legacyName string
+	providers  []string
 }
 
 // ResolveProviderAllowlist 把 allowlist（可能包含 group / provider 混合）解析为最终可执行的集合。
@@ -219,7 +239,7 @@ func ResolveProviderAllowlist(
 
 	groups := map[string]*toolGroupCandidateState{}
 	for name := range effectiveAllowlist {
-		group := ResolveToolGroupName(registry, name)
+		group := resolveProviderBindingGroup(registry, name)
 		if group == "" {
 			continue
 		}
@@ -240,8 +260,16 @@ func ResolveProviderAllowlist(
 			state.providers = append(state.providers, name)
 			continue
 		}
-		if name == group {
-			state.legacyAllowed = true
+		if registry != nil {
+			if _, ok := registry.Get(name); ok {
+				if state.legacyName == "" {
+					state.legacyName = name
+				}
+				continue
+			}
+		}
+		if state.legacyName == "" {
+			state.legacyName = name
 		}
 	}
 
@@ -269,8 +297,8 @@ func ResolveProviderAllowlist(
 			continue
 		}
 
-		if state.legacyAllowed {
-			resolved[group] = struct{}{}
+		if strings.TrimSpace(state.legacyName) != "" {
+			resolved[state.legacyName] = struct{}{}
 			continue
 		}
 

@@ -395,6 +395,7 @@ function ModelsSection({
   const m = t.models
   const [available, setAvailable] = useState<AvailableModel[] | null>(null)
   const [loadingAvailable, setLoadingAvailable] = useState(false)
+  const [availableError, setAvailableError] = useState('')
   const [importing, setImporting] = useState(false)
   const [deletingAll, setDeletingAll] = useState(false)
   const [addingModel, setAddingModel] = useState(false)
@@ -405,15 +406,17 @@ function ModelsSection({
 
   const loadAvailable = useCallback(async () => {
     setLoadingAvailable(true)
+    setAvailableError('')
     try {
       const res = await listAvailableModels(accessToken, provider.id)
       setAvailable(res.models)
-    } catch {
-      // upstream unavailable
+    } catch (e) {
+      const message = isApiError(e) ? e.message : m.availableFetchFailed
+      setAvailableError(message)
     } finally {
       setLoadingAvailable(false)
     }
-  }, [accessToken, provider.id])
+  }, [accessToken, provider.id, m.availableFetchFailed])
 
   useEffect(() => { void loadAvailable() }, [loadAvailable])
 
@@ -575,6 +578,9 @@ function ModelsSection({
           </button>
         </div>
       </div>
+      {availableError && (
+        <p className="mt-1 text-xs text-red-400">{availableError}</p>
+      )}
 
       {addingModel && (
         <div className="mt-3 flex items-center gap-2">
@@ -681,6 +687,7 @@ function ModelsSection({
           reset: m.reset,
           invalidJson: m.invalidJson,
           invalidNumber: m.invalidNumber,
+          visionBridgeHint: m.visionBridgeHint,
         }}
         onClose={() => setEditingModel(null)}
         onSave={handleSaveModelOptions}

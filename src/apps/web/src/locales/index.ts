@@ -23,6 +23,7 @@ export interface LocaleStrings {
     account: string;
     appearance: string;
     settings: string;
+    connectors: string;
     skills: string;
     credits: string;
     models: string;
@@ -483,6 +484,8 @@ export interface LocaleStrings {
     reset: string
     invalidJson: string
     invalidNumber: string
+    availableFetchFailed: string
+    visionBridgeHint: string
   }
   // agent settings
   agentSettings: {

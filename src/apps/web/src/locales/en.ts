@@ -17,6 +17,7 @@ export const en: LocaleStrings = {
     account: "Account",
     appearance: "Appearance",
     settings: "Settings",
+    connectors: "Connectors",
     skills: "Skills",
     credits: "Credits",
     models: "Models",
@@ -470,6 +471,8 @@ export const en: LocaleStrings = {
     reset: "Reset",
     invalidJson: "Provider options must be a JSON object",
     invalidNumber: "Context window and max output tokens must be positive integers",
+    availableFetchFailed: "Failed to load available models",
+    visionBridgeHint: "Vision routing needs a configured image connector; adjust it in Connectors settings.",
   },
   agentSettings: {
     title: "Agents",

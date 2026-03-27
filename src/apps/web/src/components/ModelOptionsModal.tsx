@@ -27,6 +27,7 @@ type Labels = {
   reset: string
   invalidJson: string
   invalidNumber: string
+  visionBridgeHint: string
 }
 
 type Props = {
@@ -161,17 +162,32 @@ export function ModelOptionsModal({
     if (!model) return
     const current = deriveDraft(model)
     const restJSON = current.providerOptionsJSON
-    const autoInput = Array.isArray(autoCatalog?.input_modalities) ? autoCatalog.input_modalities : []
-    const autoOutput = Array.isArray(autoCatalog?.output_modalities) ? autoCatalog.output_modalities : []
-    const matched = availableModels?.find((item) => item.id.toLowerCase() === model.model.toLowerCase())
-    setDraft({
-      vision: autoInput.includes('image'),
-      imageOutput: autoOutput.includes('image'),
-      embedding: matched?.type === 'embedding',
-      contextWindow: typeof autoCatalog?.context_length === 'number' ? String(autoCatalog.context_length) : '',
-      maxOutputTokens: typeof autoCatalog?.max_output_tokens === 'number' ? String(autoCatalog.max_output_tokens) : '',
-      providerOptionsJSON: restJSON,
-    })
+    const nextDraft: DraftState = { ...current, providerOptionsJSON: restJSON }
+    if (autoCatalog) {
+      const autoInput = Array.isArray(autoCatalog.input_modalities)
+        ? autoCatalog.input_modalities
+        : []
+      const autoOutput = Array.isArray(autoCatalog.output_modalities)
+        ? autoCatalog.output_modalities
+        : []
+      nextDraft.vision = autoInput.includes('image')
+      nextDraft.imageOutput = autoOutput.includes('image')
+      if (typeof autoCatalog.context_length === 'number') {
+        nextDraft.contextWindow = String(autoCatalog.context_length)
+      }
+      if (typeof autoCatalog.max_output_tokens === 'number') {
+        nextDraft.maxOutputTokens = String(autoCatalog.max_output_tokens)
+      }
+    }
+    if (availableModels) {
+      const matched = availableModels.find(
+        (item) => item.id.toLowerCase() === model.model.toLowerCase(),
+      )
+      if (matched) {
+        nextDraft.embedding = matched.type === 'embedding'
+      }
+    }
+    setDraft(nextDraft)
     setError('')
   }
 
@@ -278,6 +294,7 @@ export function ModelOptionsModal({
               </FormField>
             </div>
           </section>
+          <p className="text-xs text-[var(--c-text-muted)]">{labels.visionBridgeHint}</p>
 
           <FormField label={labels.providerOptionsJson} error={error}>
             <textarea

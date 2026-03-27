@@ -85,6 +85,22 @@ function flatSet(
   return root
 }
 
+function flattenConfig(
+  obj: Record<string, unknown>,
+  prefix = '',
+  target: Record<string, string> = {},
+): Record<string, string> {
+  for (const [key, value] of Object.entries(obj)) {
+    const path = prefix ? `${prefix}.${key}` : key
+    if (value != null && typeof value === 'object' && !Array.isArray(value)) {
+      flattenConfig(value as Record<string, unknown>, path, target)
+    } else {
+      target[path] = value != null ? String(value) : ''
+    }
+  }
+  return target
+}
+
 // ---------------------------------------------------------------------------
 // Styles
 // ---------------------------------------------------------------------------
@@ -173,45 +189,38 @@ export function ConnectorsSettings({ accessToken }: Props) {
     })
   }, [groupTabs])
 
-  // Load config_json for active provider when group changes
-  useEffect(() => {
-    const grp = groups.find((g) => g.group_name === selectedGroup)
-    if (!grp) {
-      setConfigForm({})
-      setConfigSaved({})
-      return
-    }
-    const active = grp.providers.find((p) => p.is_active)
-    if (!active || !active.config_json) {
-      setConfigForm({})
-      setConfigSaved({})
-      return
-    }
-    const cfg = active.config_json
-    const form: Record<string, string> = {}
-    const flatten = (obj: Record<string, unknown>, prefix = '') => {
-      for (const [k, v] of Object.entries(obj)) {
-        const key = prefix ? `${prefix}.${k}` : k
-        if (v != null && typeof v === 'object' && !Array.isArray(v)) {
-          flatten(v as Record<string, unknown>, key)
-        } else {
-          form[key] = v != null ? String(v) : ''
-        }
-      }
-    }
-    flatten(cfg)
-    setConfigForm(form)
-    setConfigSaved({ ...form })
-  }, [selectedGroup, groups])
-
   // ---- Derived state ----
 
   const activeGroup = groups.find((g) => g.group_name === selectedGroup)
   const activeProvider = activeGroup?.providers.find((p) => p.is_active)
   const catalogGroup = catalog.find((g) => g.group === selectedGroup)
+  const configFields = activeProvider?.config_fields ?? []
   const configDirty = Object.keys(configForm).some(
     (k) => configForm[k] !== configSaved[k],
   )
+
+  useEffect(() => {
+    if (!activeProvider || !activeProvider.config_fields?.length) {
+      setConfigForm({})
+      setConfigSaved({})
+      return
+    }
+    const fields = activeProvider.config_fields
+    const flattened = flattenConfig(activeProvider.config_json ?? {})
+    const form: Record<string, string> = {}
+    fields.forEach((field) => {
+      const baseValue =
+        flattened[field.key] ??
+        (field.key === 'base_url' && activeProvider.default_base_url
+          ? activeProvider.default_base_url
+          : undefined) ??
+        field.default ??
+        ''
+      form[field.key] = baseValue
+    })
+    setConfigForm(form)
+    setConfigSaved({ ...form })
+  }, [activeProvider])
 
   // ---- Handlers ----
 
@@ -560,49 +569,92 @@ export function ConnectorsSettings({ accessToken }: Props) {
               </div>
             )}
 
-            {/* Config section (for providers with config_json fields) */}
-            {activeProvider &&
-              Object.keys(configForm).length > 0 && (
-                <div className={sectionCls}>
-                  <h4 className="flex items-center gap-2 text-sm font-medium text-[var(--c-text-heading)]">
-                    <Settings size={14} />
-                    {tt.configSection}
-                  </h4>
-                  <div className="mt-3 space-y-3">
-                    {Object.entries(configForm).map(([key, value]) => (
-                      <div key={key}>
-                        <label className={labelCls}>{key}</label>
-                        <input
-                          type="text"
-                          className={inputCls}
-                          value={value}
-                          onChange={setConfig(key)}
-                        />
+            {/* Configuration fields */}
+            {activeProvider && configFields.length > 0 && (
+              <div className={sectionCls}>
+                <h4 className="flex items-center gap-2 text-sm font-medium text-[var(--c-text-heading)]">
+                  <Settings size={14} />
+                  {tt.configSection}
+                </h4>
+                {activeProvider.default_base_url && (
+                  <p className="mt-2 text-xs text-[var(--c-text-muted)]">
+                    {tt.baseUrl}: {activeProvider.default_base_url}
+                  </p>
+                )}
+                <div className="mt-3 space-y-3">
+                  {configFields.map((field) => {
+                    const value = configForm[field.key] ?? ''
+                    const inputType =
+                      field.type === 'password'
+                        ? 'password'
+                        : field.type === 'number'
+                        ? 'number'
+                        : 'text'
+                    return (
+                      <div key={field.key}>
+                        <div className="flex items-center justify-between">
+                          <label className={labelCls}>
+                            {field.label}
+                            {field.required && ' *'}
+                          </label>
+                          {field.group && (
+                            <span className="text-[11px] text-[var(--c-text-muted)]">
+                              {field.group}
+                            </span>
+                          )}
+                        </div>
+                        {field.type === 'select' ? (
+                          <select
+                            className={inputCls}
+                            value={value}
+                            onChange={setConfig(field.key)}
+                          >
+                            {(field.options ?? []).map((option) => (
+                              <option key={option} value={option}>
+                                {option}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <input
+                            type={inputType}
+                            inputMode={field.type === 'number' ? 'numeric' : undefined}
+                            placeholder={field.placeholder ?? field.default ?? ''}
+                            className={inputCls}
+                            value={value}
+                            onChange={setConfig(field.key)}
+                          />
+                        )}
+                        {field.placeholder && field.type !== 'select' && (
+                          <p className="text-[11px] text-[var(--c-text-muted)]">
+                            {field.placeholder}
+                          </p>
+                        )}
                       </div>
-                    ))}
-                  </div>
-                  <div className="mt-4 flex items-center gap-2">
-                    <button
-                      onClick={handleSaveConfig}
-                      disabled={configSaving || !configDirty}
-                      className="inline-flex items-center gap-1.5 rounded-md border border-[var(--c-border-subtle)] px-3 py-1.5 text-xs font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)] disabled:opacity-50"
-                    >
-                      {configSaving ? (
-                        <Loader2 size={12} className="animate-spin" />
-                      ) : (
-                        <Check size={12} />
-                      )}
-                      {configSaving ? tt.applying : tt.applyConfig}
-                    </button>
-                    {!configDirty &&
-                      Object.keys(configSaved).length > 0 && (
-                        <span className="text-xs text-[var(--c-text-muted)]">
-                          ✓ {tt.applied}
-                        </span>
-                      )}
-                  </div>
+                    )
+                  })}
                 </div>
-              )}
+                <div className="mt-4 flex items-center gap-2">
+                  <button
+                    onClick={handleSaveConfig}
+                    disabled={configSaving || !configDirty}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-[var(--c-border-subtle)] px-3 py-1.5 text-xs font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)] disabled:opacity-50"
+                  >
+                    {configSaving ? (
+                      <Loader2 size={12} className="animate-spin" />
+                    ) : (
+                      <Check size={12} />
+                    )}
+                    {configSaving ? tt.applying : tt.applyConfig}
+                  </button>
+                  {!configDirty && Object.keys(configSaved).length > 0 && (
+                    <span className="text-xs text-[var(--c-text-muted)]">
+                      ✓ {tt.applied}
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* Tool catalog */}
             {catalogGroup && catalogGroup.tools.length > 0 && (
