@@ -260,40 +260,23 @@ func loadEffectiveMCPConfigFromDB(ctx context.Context, pool data.DB, accountID u
 		keyRing    catalogKeyRing
 		keyRingErr error
 	)
-	servers := make([]effectiveMCPServerConfig, 0, len(installs))
-	for _, item := range installs {
-		headers := map[string]string{}
-		if item.EncryptedValue != nil {
-			version, vErr := keyVersionFromPointer(item.KeyVersion)
-			if vErr != nil {
-				continue
-			}
-			if keyRing == nil {
-				keyRing, keyRingErr = newEffectiveCatalogKeyRing()
-			}
-			if keyRingErr != nil || keyRing == nil {
-				continue
-			}
-			plain, decErr := keyRing.Decrypt(*item.EncryptedValue, version)
-			if decErr != nil {
-				continue
-			}
-			if err := json.Unmarshal([]byte(string(plain)), &headers); err != nil {
-				token := strings.TrimSpace(string(plain))
-				if token != "" {
-					headers["Authorization"] = "Bearer " + token
-				}
-			}
+	decrypt := func(_ context.Context, encrypted string, keyVersion *int) ([]byte, error) {
+		if keyVersion == nil {
+			return nil, fmt.Errorf("tool_catalog_effective_mcp: missing key version")
 		}
-		server, err := sharedmcpinstall.ServerConfigFromInstall(item, headers, effectiveMCPDefaultTimeoutMs)
-		if err != nil {
-			continue
+		if keyRing == nil && keyRingErr == nil {
+			keyRing, keyRingErr = newEffectiveCatalogKeyRing()
 		}
-		if err := sharedmcpinstall.CheckHostRequirement(server, strings.TrimSpace(item.HostRequirement)); err != nil {
-			continue
+		if keyRingErr != nil {
+			return nil, keyRingErr
 		}
-		servers = append(servers, server)
+		if keyRing == nil {
+			return nil, fmt.Errorf("tool_catalog_effective_mcp: key ring missing")
+		}
+		return keyRing.Decrypt(encrypted, *keyVersion)
 	}
+
+	servers := sharedmcpinstall.ServerConfigsFromInstalls(ctx, installs, decrypt, effectiveMCPDefaultTimeoutMs)
 	return servers, nil
 }
 
