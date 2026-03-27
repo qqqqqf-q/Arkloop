@@ -100,15 +100,18 @@ export function registerIpcHandlers(
     return { ok: true }
   })
 
-  ipcMain.handle('arkloop:connectors:get', () => {
+  ipcMain.handle('arkloop:connectors:get', async () => {
     const config = loadConfig()
-    return config.connectors
+    await migrateLegacyConnectorsIfNeeded(config)
+    const providerGroups = await fetchToolProviders()
+    return connectorsFromProviderGroups(providerGroups, config.connectors)
   })
 
   ipcMain.handle('arkloop:connectors:set', async (_event, connectors: ConnectorsConfig) => {
     const config = loadConfig()
     const next: AppConfig = { ...config, connectors }
-    await controller.applyConfigUpdate(next)
+    saveConfig(next)
+    await applyConnectorConfig(connectors)
     return { ok: true }
   })
 
@@ -270,7 +273,196 @@ function getLocalApiBaseUrl(): string | null {
   return `http://127.0.0.1:${runtime.port}`
 }
 
+type ToolProviderItem = {
+  group_name: string
+  provider_name: string
+  is_active: boolean
+  base_url?: string
+}
+
+type ToolProviderGroup = {
+  group_name: string
+  providers: ToolProviderItem[]
+}
+
+async function fetchToolProviders(): Promise<ToolProviderGroup[]> {
+  const apiBaseUrl = getLocalApiBaseUrl()
+  if (!apiBaseUrl) return []
+  const token = getDesktopAccessToken()
+  const resp = await makeApiRequest(`${apiBaseUrl}/v1/tool-providers`, 'GET', token)
+  if (!resp || typeof resp !== 'object' || !Array.isArray((resp as { groups?: unknown[] }).groups)) {
+    return []
+  }
+  return ((resp as { groups: ToolProviderGroup[] }).groups ?? [])
+}
+
+function findProviderGroup(groups: ToolProviderGroup[], groupName: string): ToolProviderGroup | undefined {
+  return groups.find((group) => group.group_name === groupName)
+}
+
+function connectorsFromProviderGroups(groups: ToolProviderGroup[], fallback: ConnectorsConfig): ConnectorsConfig {
+  const fetchGroup = findProviderGroup(groups, 'web_fetch')
+  const searchGroup = findProviderGroup(groups, 'web_search')
+
+  const activeFetch = fetchGroup?.providers.find((provider) => provider.is_active)
+  const activeSearch = searchGroup?.providers.find((provider) => provider.is_active)
+
+  return {
+    fetch: {
+      ...fallback.fetch,
+      provider: activeFetch
+        ? providerNameToFetch(activeFetch.provider_name)
+        : fallback.fetch.provider,
+      firecrawlBaseUrl: activeFetch?.provider_name === 'web_fetch.firecrawl'
+        ? activeFetch.base_url ?? fallback.fetch.firecrawlBaseUrl
+        : fallback.fetch.firecrawlBaseUrl,
+    },
+    search: {
+      ...fallback.search,
+      provider: activeSearch
+        ? providerNameToSearch(activeSearch.provider_name)
+        : fallback.search.provider,
+      searxngBaseUrl: activeSearch?.provider_name === 'web_search.searxng'
+        ? activeSearch.base_url ?? fallback.search.searxngBaseUrl
+        : fallback.search.searxngBaseUrl,
+    },
+  }
+}
+
+function providerNameToFetch(providerName: string): ConnectorsConfig['fetch']['provider'] {
+  switch (providerName) {
+    case 'web_fetch.basic':
+      return 'basic'
+    case 'web_fetch.firecrawl':
+      return 'firecrawl'
+    case 'web_fetch.jina':
+    default:
+      return 'jina'
+  }
+}
+
+function providerNameToSearch(providerName: string): ConnectorsConfig['search']['provider'] {
+  switch (providerName) {
+    case 'web_search.searxng':
+      return 'searxng'
+    case 'web_search.tavily':
+      return 'tavily'
+    default:
+      return 'duckduckgo'
+  }
+}
+
+async function migrateLegacyConnectorsIfNeeded(config: AppConfig): Promise<void> {
+  if (config.connectors_migrated) {
+    return
+  }
+  const providerGroups = await fetchToolProviders()
+  const searchGroup = findProviderGroup(providerGroups, 'web_search')
+  const fetchGroup = findProviderGroup(providerGroups, 'web_fetch')
+
+  if (!searchGroup?.providers.some((provider) => provider.is_active) && hasLegacySearchConfig(config.connectors)) {
+    await applySearchConnector(config.connectors.search)
+  }
+  if (!fetchGroup?.providers.some((provider) => provider.is_active) && hasLegacyFetchConfig(config.connectors)) {
+    await applyFetchConnector(config.connectors.fetch)
+  }
+  saveConfig({ ...config, connectors_migrated: true })
+}
+
+function hasLegacySearchConfig(connectors: ConnectorsConfig): boolean {
+  return (connectors.search.provider === 'tavily' && Boolean(connectors.search.tavilyApiKey))
+    || (connectors.search.provider === 'searxng' && Boolean(connectors.search.searxngBaseUrl))
+}
+
+function hasLegacyFetchConfig(connectors: ConnectorsConfig): boolean {
+  return (connectors.fetch.provider === 'firecrawl' && Boolean(connectors.fetch.firecrawlBaseUrl))
+    || (connectors.fetch.provider === 'jina' && Boolean(connectors.fetch.jinaApiKey))
+}
+
+async function applyConnectorConfig(connectors: ConnectorsConfig): Promise<void> {
+  await applySearchConnector(connectors.search)
+  await applyFetchConnector(connectors.fetch)
+}
+
+async function applySearchConnector(search: ConnectorsConfig['search']): Promise<void> {
+  if (search.provider === 'tavily') {
+    await activateToolProvider('web_search', 'web_search.tavily')
+    await upsertToolProviderCredential('web_search', 'web_search.tavily', {
+      api_key: search.tavilyApiKey ?? '',
+    })
+    return
+  }
+  if (search.provider === 'searxng') {
+    await activateToolProvider('web_search', 'web_search.searxng')
+    await upsertToolProviderCredential('web_search', 'web_search.searxng', {
+      base_url: search.searxngBaseUrl ?? '',
+    })
+    return
+  }
+  await deactivateToolProviderGroup('web_search')
+}
+
+async function applyFetchConnector(fetch: ConnectorsConfig['fetch']): Promise<void> {
+  if (fetch.provider === 'basic') {
+    await activateToolProvider('web_fetch', 'web_fetch.basic')
+    return
+  }
+  if (fetch.provider === 'jina') {
+    await activateToolProvider('web_fetch', 'web_fetch.jina')
+    await upsertToolProviderCredential('web_fetch', 'web_fetch.jina', {
+      api_key: fetch.jinaApiKey ?? '',
+    })
+    return
+  }
+  if (fetch.provider === 'firecrawl') {
+    await activateToolProvider('web_fetch', 'web_fetch.firecrawl')
+    await upsertToolProviderCredential('web_fetch', 'web_fetch.firecrawl', {
+      api_key: fetch.firecrawlApiKey ?? '',
+      base_url: fetch.firecrawlBaseUrl ?? '',
+    })
+  }
+}
+
+async function deactivateToolProviderGroup(groupName: string): Promise<void> {
+  const groups = await fetchToolProviders()
+  const group = findProviderGroup(groups, groupName)
+  if (!group) return
+  for (const provider of group.providers) {
+    if (!provider.is_active) continue
+    await requestToolProvider(`/v1/tool-providers/${groupName}/${provider.provider_name}/deactivate`, 'PUT')
+  }
+}
+
+async function activateToolProvider(groupName: string, providerName: string): Promise<void> {
+  await requestToolProvider(`/v1/tool-providers/${groupName}/${providerName}/activate`, 'PUT')
+}
+
+async function upsertToolProviderCredential(groupName: string, providerName: string, payload: Record<string, string>): Promise<void> {
+  const body = JSON.stringify(payload)
+  await requestToolProvider(`/v1/tool-providers/${groupName}/${providerName}/credential`, 'PUT', body)
+}
+
+async function requestToolProvider(pathname: string, method: string, body?: string): Promise<void> {
+  const apiBaseUrl = getLocalApiBaseUrl()
+  if (!apiBaseUrl) {
+    throw new Error('sidecar not running')
+  }
+  const token = getDesktopAccessToken()
+  const url = `${apiBaseUrl}${pathname}`
+  await makeApiRequestRaw(url, method, token, body)
+}
+
 async function makeApiRequest(url: string, method: string, token: string): Promise<unknown> {
+  const result = await makeApiRequestRaw(url, method, token)
+  if (!result.body) return { raw: '' }
+  try {
+    return JSON.parse(result.body)
+  } catch {
+    return { raw: result.body }
+  }
+}
+
+async function makeApiRequestRaw(url: string, method: string, token: string, body?: string): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {
     const parsed = new URL(url)
     const options = {
@@ -285,17 +477,21 @@ async function makeApiRequest(url: string, method: string, token: string): Promi
     }
     const http = require('http') as typeof import('http')
     const req = http.request(options, (res) => {
-      let body = ''
-      res.on('data', (chunk: Buffer) => { body += chunk.toString() })
+      let responseBody = ''
+      res.on('data', (chunk: Buffer) => { responseBody += chunk.toString() })
       res.on('end', () => {
-        try {
-          resolve(JSON.parse(body))
-        } catch {
-          resolve({ raw: body })
+        const status = res.statusCode ?? 0
+        if (status >= 400) {
+          reject(new Error(responseBody || `request failed: ${status}`))
+          return
         }
+        resolve({ status, body: responseBody })
       })
     })
     req.on('error', reject)
+    if (body) {
+      req.write(body)
+    }
     req.end()
   })
 }

@@ -169,7 +169,7 @@ func TestToolBuildMiddleware_EmptyAllowlist(t *testing.T) {
 	}
 }
 
-func TestToolBuildMiddleware_ResolveProviderAllowlistError(t *testing.T) {
+func TestToolBuildMiddleware_SkipsProviderManagedGroupWithoutActiveProvider(t *testing.T) {
 	registry := tools.NewRegistry()
 	if err := registry.Register(tools.AgentToolSpec{
 		Name:        "web_search.tavily",
@@ -206,14 +206,15 @@ func TestToolBuildMiddleware_ResolveProviderAllowlistError(t *testing.T) {
 
 	mw := pipeline.NewToolBuildMiddleware()
 
-	h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(_ context.Context, _ *pipeline.RunContext) error {
-		t.Fatal("should not reach terminal")
+	h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(_ context.Context, rc *pipeline.RunContext) error {
+		if len(rc.FinalSpecs) != 0 {
+			t.Fatalf("expected no final specs, got %d", len(rc.FinalSpecs))
+		}
 		return nil
 	})
 
-	err := h(context.Background(), rc)
-	if err == nil {
-		t.Fatal("expected error from ambiguous providers")
+	if err := h(context.Background(), rc); err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
@@ -318,13 +319,13 @@ func TestToolBuildMiddleware_UnderstandImageSearchableWhenNotCore(t *testing.T) 
 	}
 
 	rc := &pipeline.RunContext{
-		Run:                      data.Run{ID: uuid.New()},
-		Emitter:                  events.NewEmitter("test"),
-		ToolRegistry:             registry,
-		ToolExecutors:            executors,
-		AllowlistSet:             map[string]struct{}{"understand_image": {}},
-		ToolSpecs:                []llm.ToolSpec{understandimage.LlmSpec},
-		PersonaDefinition:        &personas.Definition{CoreTools: []string{"timeline_title"}},
+		Run:                       data.Run{ID: uuid.New()},
+		Emitter:                   events.NewEmitter("test"),
+		ToolRegistry:              registry,
+		ToolExecutors:             executors,
+		AllowlistSet:              map[string]struct{}{"understand_image": {}},
+		ToolSpecs:                 []llm.ToolSpec{understandimage.LlmSpec},
+		PersonaDefinition:         &personas.Definition{CoreTools: []string{"timeline_title"}},
 		ActiveToolProviderByGroup: nil,
 	}
 
@@ -360,13 +361,13 @@ func TestToolBuildMiddleware_UnderstandImageUnavailableWhenNotConfigured(t *test
 	}
 
 	rc := &pipeline.RunContext{
-		Run:                      data.Run{ID: uuid.New()},
-		Emitter:                  events.NewEmitter("test"),
-		ToolRegistry:             registry,
-		ToolExecutors:            executors,
-		AllowlistSet:             map[string]struct{}{"understand_image": {}},
-		ToolSpecs:                []llm.ToolSpec{understandimage.LlmSpec},
-		PersonaDefinition:        &personas.Definition{CoreTools: []string{"timeline_title"}},
+		Run:                       data.Run{ID: uuid.New()},
+		Emitter:                   events.NewEmitter("test"),
+		ToolRegistry:              registry,
+		ToolExecutors:             executors,
+		AllowlistSet:              map[string]struct{}{"understand_image": {}},
+		ToolSpecs:                 []llm.ToolSpec{understandimage.LlmSpec},
+		PersonaDefinition:         &personas.Definition{CoreTools: []string{"timeline_title"}},
 		ActiveToolProviderByGroup: nil,
 	}
 

@@ -7,7 +7,6 @@ import {
   setStatusListener,
   setRuntimeListener,
   setBridgeUrlListener,
-  setConnectorsConfig,
   setMemoryConfig,
   getSidecarRuntime,
   getBridgeBaseUrl,
@@ -84,7 +83,6 @@ async function ensureLocalSidecar(config: AppConfig): Promise<AppConfig> {
     return config
   }
 
-  setConnectorsConfig(config.connectors)
   setMemoryConfig(config.memory)
   void ensureOpenCLI()
 
@@ -95,10 +93,6 @@ async function ensureLocalSidecar(config: AppConfig): Promise<AppConfig> {
     saveConfig(next)
   }
   return next
-}
-
-function connectorsChanged(a: AppConfig, b: AppConfig): boolean {
-  return JSON.stringify(a.connectors) !== JSON.stringify(b.connectors)
 }
 
 function memoryChanged(a: AppConfig, b: AppConfig): boolean {
@@ -117,7 +111,6 @@ async function applyConfigUpdate(
   const needsRestart = previous.mode !== candidate.mode
     || previous.local.port !== candidate.local.port
     || previous.local.portMode !== candidate.local.portMode
-    || connectorsChanged(previous, candidate)
     || memoryChanged(previous, candidate)
     || forceLocalReload
 

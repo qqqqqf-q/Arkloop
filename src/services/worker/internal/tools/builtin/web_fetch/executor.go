@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	sharedconfig "arkloop/services/shared/config"
 	sharedtoolmeta "arkloop/services/shared/toolmeta"
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/tools"
@@ -75,41 +74,24 @@ var LlmSpec = llm.ToolSpec{
 }
 
 type ToolExecutor struct {
-	provider   Provider
-	resolver   sharedconfig.Resolver
-	timeout    time.Duration
-	forcedKind ProviderKind
+	provider Provider
+	timeout  time.Duration
 }
 
-func NewToolExecutor(resolver sharedconfig.Resolver) *ToolExecutor {
-	return &ToolExecutor{
-		resolver: resolver,
-		timeout:  defaultTimeout,
-	}
+func NewToolExecutor(_ any) *ToolExecutor {
+	return &ToolExecutor{timeout: defaultTimeout}
 }
 
-func NewBasicExecutor(resolver sharedconfig.Resolver) *ToolExecutor {
-	return &ToolExecutor{
-		resolver:   resolver,
-		timeout:    defaultTimeout,
-		forcedKind: ProviderKindBasic,
-	}
+func NewBasicExecutor(_ any) *ToolExecutor {
+	return &ToolExecutor{timeout: defaultTimeout}
 }
 
-func NewFirecrawlExecutor(resolver sharedconfig.Resolver) *ToolExecutor {
-	return &ToolExecutor{
-		resolver:   resolver,
-		timeout:    defaultTimeout,
-		forcedKind: ProviderKindFirecrawl,
-	}
+func NewFirecrawlExecutor(_ any) *ToolExecutor {
+	return &ToolExecutor{timeout: defaultTimeout}
 }
 
-func NewJinaExecutor(resolver sharedconfig.Resolver) *ToolExecutor {
-	return &ToolExecutor{
-		resolver:   resolver,
-		timeout:    defaultTimeout,
-		forcedKind: ProviderKindJina,
-	}
+func NewJinaExecutor(_ any) *ToolExecutor {
+	return &ToolExecutor{timeout: defaultTimeout}
 }
 
 func NewToolExecutorWithProvider(provider Provider) *ToolExecutor {
@@ -120,13 +102,7 @@ func NewToolExecutorWithProvider(provider Provider) *ToolExecutor {
 }
 
 func (e *ToolExecutor) IsNotConfigured() bool {
-	if e.provider != nil {
-		return false
-	}
-	if e.forcedKind == "" || e.forcedKind == ProviderKindBasic {
-		return false
-	}
-	return e.resolver == nil
+	return e == nil || e.provider == nil
 }
 
 func (e *ToolExecutor) Execute(
@@ -149,33 +125,12 @@ func (e *ToolExecutor) Execute(
 
 	provider := e.provider
 	if provider == nil {
-		built, err := e.loadProvider(ctx, execCtx)
-		if err != nil {
-			return tools.ExecutionResult{
-				Error: &tools.ExecutionError{
-					ErrorClass: errorNotConfigured,
-					Message:    "web_fetch configuration invalid",
-					Details:    map[string]any{"reason": err.Error()},
-				},
-				DurationMs: durationMs(started),
-			}
-		}
-		if built == nil {
-			if e.forcedKind != "" && e.forcedKind != ProviderKindBasic {
-				return tools.ExecutionResult{
-					Error: &tools.ExecutionError{
-						ErrorClass: errorNotConfigured,
-						Message:    "web_fetch backend not configured",
-					},
-					DurationMs: durationMs(started),
-				}
-			}
-			// Default: anonymous Jina (free tier) with silent fallback to basic.
-			// Jina converts pages to clean markdown without requiring an account.
-			jinaProvider, _ := NewJinaProvider("")
-			provider = &jinaWithBasicFallback{jina: jinaProvider, basic: NewBasicProvider()}
-		} else {
-			provider = built
+		return tools.ExecutionResult{
+			Error: &tools.ExecutionError{
+				ErrorClass: errorNotConfigured,
+				Message:    "web_fetch backend not configured",
+			},
+			DurationMs: durationMs(started),
 		}
 	}
 
@@ -256,63 +211,6 @@ func (e *ToolExecutor) Execute(
 		ResultJSON: result.ToJSON(),
 		DurationMs: durationMs(started),
 	}
-}
-
-func (e *ToolExecutor) loadProvider(ctx context.Context, execCtx tools.ExecutionContext) (Provider, error) {
-	if e.resolver == nil {
-		return nil, nil
-	}
-	scope := sharedconfig.Scope{}
-	m, err := e.resolver.ResolvePrefix(ctx, "web_fetch.", scope)
-	if err != nil {
-		return nil, err
-	}
-
-	cfg, ok, err := configFromSettings(m, e.forcedKind)
-	if err != nil {
-		return nil, err
-	}
-	if !ok {
-		return nil, nil
-	}
-	return buildProvider(cfg)
-}
-
-func buildProvider(cfg *Config) (Provider, error) {
-	switch cfg.ProviderKind {
-	case ProviderKindBasic:
-		return NewBasicProvider(), nil
-	case ProviderKindFirecrawl:
-		return NewFirecrawlProvider(cfg.FirecrawlAPIKey, cfg.FirecrawlBaseURL), nil
-	case ProviderKindJina:
-		return NewJinaProvider(cfg.JinaAPIKey)
-	default:
-		return nil, fmt.Errorf("web_fetch provider not implemented")
-	}
-}
-
-func configFromSettings(m map[string]string, forcedKind ProviderKind) (*Config, bool, error) {
-	kind := forcedKind
-	if kind == "" {
-		raw := strings.TrimSpace(m[settingProvider])
-		if raw == "" {
-			return nil, false, nil
-		}
-
-		parsed, err := parseProviderKind(raw)
-		if err != nil {
-			return nil, false, err
-		}
-		kind = parsed
-	}
-
-	cfg := &Config{
-		ProviderKind:     kind,
-		FirecrawlAPIKey:  strings.TrimSpace(m[settingFirecrawlKey]),
-		FirecrawlBaseURL: strings.TrimRight(strings.TrimSpace(m[settingFirecrawlURL]), "/"),
-		JinaAPIKey:       strings.TrimSpace(m[settingJinaKey]),
-	}
-	return cfg, true, nil
 }
 
 func parseArgs(args map[string]any) (string, int, *tools.ExecutionError) {

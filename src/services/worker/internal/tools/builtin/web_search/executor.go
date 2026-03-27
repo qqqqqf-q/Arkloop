@@ -10,7 +10,6 @@ import (
 	"sync"
 	"time"
 
-	sharedconfig "arkloop/services/shared/config"
 	sharedtoolmeta "arkloop/services/shared/toolmeta"
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/tools"
@@ -85,22 +84,20 @@ var LlmSpec = llm.ToolSpec{
 }
 
 type ToolExecutor struct {
-	provider   Provider
-	resolver   sharedconfig.Resolver
-	timeout    time.Duration
-	forcedKind ProviderKind
+	provider Provider
+	timeout  time.Duration
 }
 
-func NewToolExecutor(resolver sharedconfig.Resolver) *ToolExecutor {
-	return &ToolExecutor{resolver: resolver, timeout: defaultTimeout}
+func NewToolExecutor(_ any) *ToolExecutor {
+	return &ToolExecutor{timeout: defaultTimeout}
 }
 
-func NewSearxngExecutor(resolver sharedconfig.Resolver) *ToolExecutor {
-	return &ToolExecutor{resolver: resolver, timeout: defaultTimeout, forcedKind: ProviderKindSearxng}
+func NewSearxngExecutor(_ any) *ToolExecutor {
+	return &ToolExecutor{timeout: defaultTimeout}
 }
 
-func NewTavilyExecutor(resolver sharedconfig.Resolver) *ToolExecutor {
-	return &ToolExecutor{resolver: resolver, timeout: defaultTimeout, forcedKind: ProviderKindTavily}
+func NewTavilyExecutor(_ any) *ToolExecutor {
+	return &ToolExecutor{timeout: defaultTimeout}
 }
 
 func NewToolExecutorWithProvider(provider Provider) *ToolExecutor {
@@ -108,15 +105,7 @@ func NewToolExecutorWithProvider(provider Provider) *ToolExecutor {
 }
 
 func (e *ToolExecutor) IsNotConfigured() bool {
-	if e.provider != nil {
-		return false
-	}
-	if e.resolver != nil {
-		return false
-	}
-	// No resolver: check env-based config as fallback (Desktop mode).
-	cfg, err := ConfigFromEnv(false)
-	return err != nil || cfg == nil
+	return e == nil || e.provider == nil
 }
 
 func (e *ToolExecutor) Execute(
@@ -139,27 +128,13 @@ func (e *ToolExecutor) Execute(
 
 	provider := e.provider
 	if provider == nil {
-		built, err := e.loadProvider(ctx, execCtx)
-		if err != nil {
-			return tools.ExecutionResult{
-				Error: &tools.ExecutionError{
-					ErrorClass: errorNotConfigured,
-					Message:    "web_search configuration invalid",
-					Details:    map[string]any{"reason": err.Error()},
-				},
-				DurationMs: durationMs(started),
-			}
+		return tools.ExecutionResult{
+			Error: &tools.ExecutionError{
+				ErrorClass: errorNotConfigured,
+				Message:    "web_search backend not configured",
+			},
+			DurationMs: durationMs(started),
 		}
-		if built == nil {
-			return tools.ExecutionResult{
-				Error: &tools.ExecutionError{
-					ErrorClass: errorNotConfigured,
-					Message:    "web_search backend not configured",
-				},
-				DurationMs: durationMs(started),
-			}
-		}
-		provider = built
 	}
 
 	timeout := e.timeout
@@ -180,78 +155,6 @@ func (e *ToolExecutor) Execute(
 	}
 
 	return tools.ExecutionResult{ResultJSON: payload, DurationMs: durationMs(started)}
-}
-
-func (e *ToolExecutor) loadProvider(ctx context.Context, execCtx tools.ExecutionContext) (Provider, error) {
-	if e.resolver == nil {
-		// No resolver: fall back to env vars (Desktop mode).
-		cfg, err := ConfigFromEnv(false)
-		if err != nil || cfg == nil {
-			return nil, nil
-		}
-		return buildProvider(cfg)
-	}
-	scope := sharedconfig.Scope{}
-	m, err := e.resolver.ResolvePrefix(ctx, "web_search.", scope)
-	if err != nil {
-		return nil, err
-	}
-
-	cfg, ok, err := configFromSettings(m, e.forcedKind)
-	if err != nil {
-		return nil, err
-	}
-	if !ok {
-		return nil, nil
-	}
-	return buildProvider(cfg)
-}
-
-func buildProvider(cfg *Config) (Provider, error) {
-	switch cfg.ProviderKind {
-	case ProviderKindSearxng:
-		if strings.TrimSpace(cfg.SearxngBaseURL) == "" {
-			return nil, fmt.Errorf("searxng base_url not configured")
-		}
-		return NewSearxngProvider(cfg.SearxngBaseURL), nil
-	case ProviderKindTavily:
-		if strings.TrimSpace(cfg.TavilyAPIKey) == "" {
-			return nil, fmt.Errorf("tavily api_key not configured")
-		}
-		return NewTavilyProvider(cfg.TavilyAPIKey), nil
-	case ProviderKindSerper:
-		return nil, nil // not yet implemented
-	case ProviderKindDuckduckgo:
-		return NewDuckduckgoProvider(), nil
-	default:
-		return nil, fmt.Errorf("web_search provider not implemented")
-	}
-}
-
-func configFromSettings(m map[string]string, forcedKind ProviderKind) (*Config, bool, error) {
-	kind := forcedKind
-	if kind == "" {
-		raw := strings.TrimSpace(m[settingProvider])
-		if raw == "" {
-			return nil, false, nil
-		}
-		parsed, err := parseProviderKind(raw)
-		if err != nil {
-			return nil, false, err
-		}
-		kind = parsed
-	}
-
-	if kind == ProviderKindSerper {
-		return nil, false, nil // not yet implemented
-	}
-
-	cfg := &Config{
-		ProviderKind:   kind,
-		SearxngBaseURL: strings.TrimRight(strings.TrimSpace(m[settingSearxngURL]), "/"),
-		TavilyAPIKey:   strings.TrimSpace(m[settingTavilyKey]),
-	}
-	return cfg, true, nil
 }
 
 func resultsToJSON(results []Result) []map[string]any {

@@ -4,9 +4,7 @@ package toolprovider
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"strings"
 
 	sharedtoolruntime "arkloop/services/shared/toolruntime"
 	workerCrypto "arkloop/services/worker/internal/crypto"
@@ -35,92 +33,45 @@ func LoadActiveUserProviders(ctx context.Context, pool *pgxpool.Pool, userID uui
 	if userID == uuid.Nil {
 		return nil, fmt.Errorf("user_id must not be empty")
 	}
-
-	rows, err := pool.Query(ctx, `
-		SELECT c.owner_kind, c.group_name, c.provider_name, c.key_prefix, c.base_url, c.config_json,
-		       s.encrypted_value, s.key_version
-		FROM tool_provider_configs c
-		LEFT JOIN secrets s ON s.id = c.secret_id
-		WHERE c.owner_kind = 'user' AND c.owner_user_id = $1 AND c.is_active = TRUE
-		ORDER BY c.updated_at DESC
-	`, userID)
-	if err != nil {
-		return nil, fmt.Errorf("tool_provider_configs query: %w", err)
-	}
-	defer rows.Close()
-
-	out := []ActiveProviderConfig{}
-	for rows.Next() {
-		var (
-			ownerKind    string
-			groupName    string
-			providerName string
-			keyPrefix    *string
-			baseURL      *string
-			configJSON   []byte
-			encrypted    *string
-			keyVersion   *int
-		)
-		if err := rows.Scan(&ownerKind, &groupName, &providerName, &keyPrefix, &baseURL, &configJSON, &encrypted, &keyVersion); err != nil {
-			return nil, fmt.Errorf("tool_provider_configs scan: %w", err)
-		}
-		_ = keyVersion
-
-		cfg := ActiveProviderConfig{
-			OwnerKind:    strings.TrimSpace(ownerKind),
-			GroupName:    strings.TrimSpace(groupName),
-			ProviderName: strings.TrimSpace(providerName),
-			KeyPrefix:    keyPrefix,
-			BaseURL:      baseURL,
-			ConfigJSON:   map[string]any{},
-		}
-
-		if len(configJSON) > 0 {
-			_ = json.Unmarshal(configJSON, &cfg.ConfigJSON)
-		}
-
-		if encrypted != nil && strings.TrimSpace(*encrypted) != "" {
-			plainBytes, err := workerCrypto.DecryptGCM(*encrypted)
-			if err != nil {
-				return nil, fmt.Errorf("tool_provider_configs decrypt: %w", err)
-			}
-			plaintext := string(plainBytes)
-			cfg.APIKeyValue = &plaintext
-		}
-
-		out = append(out, cfg)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("tool_provider_configs rows: %w", err)
-	}
-
-	return out, nil
-}
-
-func LoadActivePlatformProviders(ctx context.Context, pool *pgxpool.Pool) ([]ActiveProviderConfig, error) {
-	providers, err := sharedtoolruntime.LoadPlatformProviders(ctx, pool, decryptPlatformProviderSecret)
+	statuses, err := sharedtoolruntime.LoadUserProviderStatuses(ctx, pool, userID, decryptPlatformProviderSecret)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]ActiveProviderConfig, 0, len(providers))
-	for _, provider := range providers {
+	return activeConfigsFromStatuses(statuses), nil
+}
+
+func LoadActivePlatformProviders(ctx context.Context, pool *pgxpool.Pool) ([]ActiveProviderConfig, error) {
+	statuses, err := sharedtoolruntime.LoadPlatformProviderStatuses(ctx, pool, decryptPlatformProviderSecret)
+	if err != nil {
+		return nil, err
+	}
+	return activeConfigsFromStatuses(statuses), nil
+}
+
+func activeConfigsFromStatuses(statuses []sharedtoolruntime.ProviderRuntimeStatus) []ActiveProviderConfig {
+	out := make([]ActiveProviderConfig, 0, len(statuses))
+	for _, status := range statuses {
+		if !status.Ready() {
+			continue
+		}
 		out = append(out, ActiveProviderConfig{
-			OwnerKind:    "platform",
-			GroupName:    provider.GroupName,
-			ProviderName: provider.ProviderName,
-			APIKeyValue:  provider.APIKeyValue,
-			BaseURL:      provider.BaseURL,
-			ConfigJSON:   provider.ConfigJSON,
+			OwnerKind:    status.OwnerKind,
+			GroupName:    status.GroupName,
+			ProviderName: status.ProviderName,
+			APIKeyValue:  status.APIKeyValue,
+			KeyPrefix:    status.KeyPrefix,
+			BaseURL:      status.BaseURL,
+			ConfigJSON:   status.ConfigJSON,
 		})
 	}
-	return out, nil
+	return out
 }
 
 func decryptPlatformProviderSecret(ctx context.Context, encrypted string, keyVersion *int, providerName string) (*string, error) {
 	_ = ctx
-	_ = keyVersion
-	_ = providerName
+	if keyVersion == nil {
+		return nil, fmt.Errorf("tool_provider_configs decrypt: missing key version for %s", providerName)
+	}
 	plainBytes, err := workerCrypto.DecryptGCM(encrypted)
 	if err != nil {
 		return nil, fmt.Errorf("tool_provider_configs decrypt: %w", err)

@@ -4,8 +4,6 @@ package app
 
 import (
 	"context"
-	cryptorand "crypto/rand"
-	"encoding/hex"
 	"fmt"
 	"net"
 	nethttp "net/http"
@@ -22,6 +20,7 @@ import (
 	"arkloop/services/api/internal/featureflag"
 	apihttp "arkloop/services/api/internal/http"
 	"arkloop/services/api/internal/http/accountapi"
+	"arkloop/services/api/internal/mcpfilesync"
 	repopersonas "arkloop/services/api/internal/personas"
 	"arkloop/services/api/internal/personasync"
 	"arkloop/services/api/internal/skillseed"
@@ -30,6 +29,7 @@ import (
 	"arkloop/services/shared/database/sqliteadapter"
 	"arkloop/services/shared/database/sqlitepgx"
 	"arkloop/services/shared/desktop"
+	sharedenvironmentref "arkloop/services/shared/environmentref"
 	"arkloop/services/shared/eventbus"
 	sharedlog "arkloop/services/shared/log"
 	"arkloop/services/shared/objectstore"
@@ -189,6 +189,14 @@ func RunDesktop(ctx context.Context) error {
 	mcpConfigsRepo, err := data.NewMCPConfigsRepository(pgxPool)
 	if err != nil {
 		return fmt.Errorf("init mcp configs repo: %w", err)
+	}
+	profileMCPInstallsRepo, err := data.NewProfileMCPInstallsRepository(pgxPool)
+	if err != nil {
+		return fmt.Errorf("init profile mcp installs repo: %w", err)
+	}
+	workspaceMCPEnableRepo, err := data.NewWorkspaceMCPEnablementsRepository(pgxPool)
+	if err != nil {
+		return fmt.Errorf("init workspace mcp enable repo: %w", err)
 	}
 	toolProviderConfigsRepo, err := data.NewToolProviderConfigsRepository(pgxPool)
 	if err != nil {
@@ -402,6 +410,19 @@ func RunDesktop(ctx context.Context) error {
 
 	// ---- HTTP handler ----
 
+	profileRef := sharedenvironmentref.BuildProfileRef(auth.DesktopAccountID, &auth.DesktopUserID)
+	mcpDiscoveryService, err := mcpfilesync.NewService(cfg.DataDir, profileMCPInstallsRepo, secretsRepo)
+	if err != nil {
+		return fmt.Errorf("init desktop mcp discovery service: %w", err)
+	}
+	if err := mcpDiscoveryService.SyncDesktopMirror(ctx, auth.DesktopAccountID, profileRef); err != nil {
+		logger.Warn("desktop_mcp_sync_initial_failed", "error", err.Error())
+	}
+	if err := mcpDiscoveryService.SyncFromOfficialFile(ctx, auth.DesktopAccountID, profileRef); err != nil {
+		logger.Warn("desktop_mcp_import_initial_failed", "error", err.Error())
+	}
+	mcpDiscoveryService.StartWatcher(ctx, auth.DesktopAccountID, profileRef, 3*time.Second)
+
 	handler := apihttp.NewHandler(apihttp.HandlerConfig{
 		Logger:               logger,
 		SchemaRepository:     nil,
@@ -432,6 +453,8 @@ func RunDesktop(ctx context.Context) error {
 		SecretsRepo:                  secretsRepo,
 		AsrCredentialsRepo:           asrCredentialsRepo,
 		MCPConfigsRepo:               mcpConfigsRepo,
+		ProfileMCPInstallsRepo:       profileMCPInstallsRepo,
+		WorkspaceMCPEnableRepo:       workspaceMCPEnableRepo,
 		ToolProviderConfigsRepo:      toolProviderConfigsRepo,
 		ToolDescriptionOverridesRepo: toolDescOverridesRepo,
 		PersonasRepo:                 personasRepo,
@@ -484,6 +507,7 @@ func RunDesktop(ctx context.Context) error {
 		MessageAttachmentStore: messageAttachmentStore,
 		EnvironmentStore:       environmentStore,
 		SkillStore:             skillStore,
+		MCPDiscoveryService:    mcpDiscoveryService,
 
 		RunLimiter: nil,
 
@@ -572,28 +596,10 @@ func RunDesktop(ctx context.Context) error {
 
 // desktopKeyRing loads or generates the encryption key for desktop mode.
 func desktopKeyRing(dataDir string) (*internalcrypto.KeyRing, error) {
-	if kr, err := internalcrypto.NewKeyRingFromEnv(); err == nil {
-		return kr, nil
-	}
-
-	keyPath := filepath.Join(dataDir, "encryption.key")
-	raw, err := os.ReadFile(keyPath)
-	if err == nil {
-		decoded, err := hex.DecodeString(string(raw))
-		if err == nil && len(decoded) == 32 {
-			return internalcrypto.NewKeyRing(map[int][]byte{1: decoded})
-		}
-	}
-
-	key := make([]byte, 32)
-	if _, err := cryptorand.Read(key); err != nil {
-		return nil, fmt.Errorf("generate key: %w", err)
-	}
-	encoded := hex.EncodeToString(key)
-	if err := os.WriteFile(keyPath, []byte(encoded), 0o600); err != nil {
-		return nil, fmt.Errorf("save key: %w", err)
-	}
-	return internalcrypto.NewKeyRing(map[int][]byte{1: key})
+	return desktop.LoadEncryptionKeyRing(desktop.KeyRingOptions{
+		DataDir:           dataDir,
+		GenerateIfMissing: true,
+	})
 }
 
 type noopSyncTrigger struct{}

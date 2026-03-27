@@ -4,10 +4,6 @@ package app
 
 import (
 	"context"
-	"crypto/aes"
-	"crypto/cipher"
-	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,6 +15,7 @@ import (
 	"time"
 
 	"arkloop/services/shared/desktop"
+	sharedencryption "arkloop/services/shared/encryption"
 	"arkloop/services/shared/eventbus"
 	sharedexec "arkloop/services/shared/executionconfig"
 	"arkloop/services/shared/objectstore"
@@ -29,6 +26,7 @@ import (
 	"arkloop/services/worker/internal/environmentbindings"
 	"arkloop/services/worker/internal/events"
 	"arkloop/services/worker/internal/llm"
+	"arkloop/services/worker/internal/mcp"
 	"arkloop/services/worker/internal/memory"
 	localmemory "arkloop/services/worker/internal/memory/local"
 	"arkloop/services/worker/internal/memory/openviking"
@@ -430,7 +428,14 @@ func (e *DesktopEngine) Execute(ctx context.Context, run data.Run, traceID strin
 		desktopCancelGuard(),
 		desktopInputLoader(e.db, runsRepo, eventsRepo, e.messageAttachmentStore, e.rolloutStore),
 		pipeline.NewHeartbeatScheduleMiddleware(e.db),
-		desktopToolInit(e.toolExecutors, e.allLlmSpecs, e.baseAllowlist, e.toolRegistry),
+		pipeline.NewMCPDiscoveryMiddleware(
+			nil,
+			func(*pipeline.RunContext) mcp.DiscoveryQueryer { return e.db },
+			e.toolExecutors,
+			e.allLlmSpecs,
+			e.baseAllowlist,
+			e.toolRegistry,
+		),
 		desktopToolProviderBindings(e.db),
 		pipeline.NewSpawnAgentMiddleware(),
 		desktopPersonaResolution(e.db, e.personaRegistry, runsRepo, eventsRepo),
@@ -842,11 +847,11 @@ func loadDesktopDeliveryChannel(ctx context.Context, db data.DesktopDB, channelI
 	if encryptedValue == nil || strings.TrimSpace(*encryptedValue) == "" || keyVersion == nil {
 		return nil, fmt.Errorf("desktop channel lookup: missing telegram token")
 	}
-	keyRing, err := loadDesktopKeyRing()
+	keyRing, err := desktop.LoadEncryptionKeyRing(desktop.KeyRingOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("desktop channel lookup: load encryption key: %w", err)
 	}
-	token, err := decryptAESGCM(keyRing, *encryptedValue, *keyVersion)
+	token, err := decryptDesktopCiphertext(keyRing, *encryptedValue, *keyVersion)
 	if err != nil {
 		return nil, fmt.Errorf("desktop channel lookup: decrypt token: %w", err)
 	}
@@ -2062,7 +2067,7 @@ func splitDesktopModelSelector(selector string) (string, string, bool) {
 // All queries run inside a single read-only transaction to avoid deadlocking
 // the single SQLite connection (MaxOpenConns=1).
 func loadDesktopRoutingConfig(ctx context.Context, db data.DesktopDB) (routing.ProviderRoutingConfig, error) {
-	keyRing, err := loadDesktopKeyRing()
+	keyRing, err := desktop.LoadEncryptionKeyRing(desktop.KeyRingOptions{})
 	if err != nil {
 		return routing.ProviderRoutingConfig{}, fmt.Errorf("load encryption key: %w", err)
 	}
@@ -2105,7 +2110,7 @@ func loadDesktopRoutingConfig(ctx context.Context, db data.DesktopDB) (routing.P
 				slog.WarnContext(ctx, "desktop: skip credential, secret not found", "cred_id", c.id, "err", err)
 				continue
 			}
-			plain, err := decryptAESGCM(keyRing, encVal, keyVer)
+			plain, err := decryptDesktopCiphertext(keyRing, encVal, keyVer)
 			if err != nil {
 				slog.WarnContext(ctx, "desktop: skip credential, decrypt failed", "cred_id", c.id, "err", err)
 				continue
@@ -2192,48 +2197,13 @@ func loadDesktopRoutingConfig(ctx context.Context, db data.DesktopDB) (routing.P
 	}, nil
 }
 
-func decryptAESGCM(key [32]byte, encoded string, keyVersion int) (string, error) {
-	if keyVersion != 1 {
-		return "", fmt.Errorf("unsupported key version %d", keyVersion)
+func decryptDesktopCiphertext(keyRing *sharedencryption.KeyRing, encoded string, keyVersion int) (string, error) {
+	if keyRing == nil {
+		return "", fmt.Errorf("desktop key ring must not be nil")
 	}
-	raw, err := base64.StdEncoding.DecodeString(encoded)
-	if err != nil {
-		return "", err
-	}
-	if len(raw) < 12 {
-		return "", fmt.Errorf("ciphertext too short")
-	}
-	block, err := aes.NewCipher(key[:])
-	if err != nil {
-		return "", err
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return "", err
-	}
-	plain, err := gcm.Open(nil, raw[:12], raw[12:], nil)
+	plain, err := keyRing.Decrypt(encoded, keyVersion)
 	if err != nil {
 		return "", err
 	}
 	return string(plain), nil
-}
-
-func loadDesktopKeyRing() ([32]byte, error) {
-	dataDir, err := desktop.ResolveDataDir("")
-	if err != nil {
-		return [32]byte{}, err
-	}
-	raw, err := os.ReadFile(filepath.Join(dataDir, "encryption.key"))
-	if err != nil {
-		return [32]byte{}, fmt.Errorf("read encryption.key: %w", err)
-	}
-
-	decoded, err := hex.DecodeString(strings.TrimSpace(string(raw)))
-	if err != nil || len(decoded) != 32 {
-		return [32]byte{}, fmt.Errorf("invalid encryption.key (expected 64 hex chars)")
-	}
-
-	var key [32]byte
-	copy(key[:], decoded)
-	return key, nil
 }

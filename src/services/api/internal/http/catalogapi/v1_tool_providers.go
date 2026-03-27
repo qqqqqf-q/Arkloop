@@ -12,6 +12,7 @@ import (
 	"arkloop/services/api/internal/auth"
 	"arkloop/services/api/internal/data"
 	"arkloop/services/api/internal/observability"
+	sharedtoolruntime "arkloop/services/shared/toolruntime"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -32,7 +33,7 @@ func toolProvidersEntry(
 		traceID := observability.TraceIDFromContext(r.Context())
 		switch r.Method {
 		case nethttp.MethodGet:
-			listToolProviders(w, r, traceID, authService, membershipRepo, toolProvidersRepo, projectRepo)
+			listToolProviders(w, r, traceID, authService, membershipRepo, toolProvidersRepo, pool, projectRepo)
 		default:
 			httpkit.WriteMethodNotAllowed(w, r)
 		}
@@ -145,6 +146,7 @@ func listToolProviders(
 	authService *auth.Service,
 	membershipRepo *data.AccountMembershipRepository,
 	toolProvidersRepo *data.ToolProviderConfigsRepository,
+	pool data.DB,
 	projectRepo *data.ProjectRepository,
 ) {
 	if authService == nil {
@@ -167,6 +169,11 @@ func listToolProviders(
 	}
 
 	configs, err := toolProvidersRepo.ListByOwner(r.Context(), ownerKind, ownerUserID)
+	if err != nil {
+		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+		return
+	}
+	runtimeByProvider, err := loadToolProviderRuntimeStatusMap(r.Context(), pool, ownerKind, ownerUserID)
 	if err != nil {
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
@@ -196,6 +203,7 @@ func listToolProviders(
 				RequiresAPIKey:  def.RequiresAPIKey,
 				RequiresBaseURL: def.RequiresBaseURL,
 				Configured:      false,
+				RuntimeState:    string(sharedtoolruntime.ProviderRuntimeStateInactive),
 				ConfigFields:    def.ConfigFields,
 				DefaultBaseURL:  def.DefaultBaseURL,
 			}
@@ -216,6 +224,10 @@ func listToolProviders(
 			}
 
 			item.Configured = (!def.RequiresAPIKey || secretConfigured) && (!def.RequiresBaseURL || baseURLConfigured)
+			if status, ok := runtimeByProvider[def.ProviderName]; ok && item.IsActive {
+				item.RuntimeState = string(status.RuntimeState)
+				item.RuntimeReason = status.RuntimeReason
+			}
 			items = append(items, item)
 		}
 		groups = append(groups, toolProviderGroupResponse{

@@ -42,6 +42,8 @@ type toolProviderItemResponse struct {
 	RequiresAPIKey  bool             `json:"requires_api_key"`
 	RequiresBaseURL bool             `json:"requires_base_url"`
 	Configured      bool             `json:"configured"`
+	RuntimeState    string           `json:"runtime_state"`
+	RuntimeReason   string           `json:"runtime_reason,omitempty"`
 	ConfigJSON      json.RawMessage  `json:"config_json,omitempty"`
 	ConfigFields    []ConfigFieldDef `json:"config_fields,omitempty"`
 	DefaultBaseURL  string           `json:"default_base_url,omitempty"`

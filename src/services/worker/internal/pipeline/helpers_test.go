@@ -38,7 +38,7 @@ func TestFilterToolSpecsDedupesToLlmGroupName(t *testing.T) {
 	}
 }
 
-func TestResolveProviderAllowlistAmbiguousProviders(t *testing.T) {
+func TestResolveProviderAllowlistSkipsProviderManagedGroupWithoutActiveProvider(t *testing.T) {
 	registry := tools.NewRegistry()
 	for _, spec := range []tools.AgentToolSpec{
 		{
@@ -66,9 +66,12 @@ func TestResolveProviderAllowlistAmbiguousProviders(t *testing.T) {
 		"web_search.searxng": {},
 	}
 
-	_, err := pipeline.ResolveProviderAllowlist(allow, registry, nil)
-	if err == nil {
-		t.Fatal("expected error, got nil")
+	resolved, err := pipeline.ResolveProviderAllowlist(allow, registry, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resolved) != 0 {
+		t.Fatalf("expected provider-managed group to be skipped without active provider, got %+v", resolved)
 	}
 }
 
