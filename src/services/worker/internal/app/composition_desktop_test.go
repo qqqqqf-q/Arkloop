@@ -1934,6 +1934,79 @@ func TestEnsureSkillExtractedExtractsWhenHashFileMissing(t *testing.T) {
 	}
 }
 
+func TestDesktopExtractDeltaSkipsThinkingChannel(t *testing.T) {
+	payload := map[string]any{
+		"role":          "assistant",
+		"channel":       "thinking",
+		"content_delta": "hidden reasoning",
+	}
+	if got := desktopExtractDelta(payload); got != "" {
+		t.Fatalf("expected thinking delta ignored, got %q", got)
+	}
+	payload["channel"] = ""
+	if got := desktopExtractDelta(payload); got != "hidden reasoning" {
+		t.Fatalf("expected visible delta returned, got %q", got)
+	}
+}
+
+func TestDesktopMaybeFlushResponseDraftHonorsVisibleCutoff(t *testing.T) {
+	ctx := context.Background()
+	store := &testBlobStore{}
+	runID := uuid.New()
+	writer := &desktopEventWriter{
+		run:                data.Run{ID: runID, ThreadID: uuid.New(), AccountID: uuid.New()},
+		responseDraftStore: store,
+		assistantDeltas:    []string{"hidden"},
+		latestAssistantSeq: 7,
+	}
+	writer.draftUseVisible = true
+	writer.draftVisibleContent = "visible text"
+	if err := writer.maybeFlushResponseDraft(ctx, true); err != nil {
+		t.Fatalf("flush draft: %v", err)
+	}
+	if len(store.lastValue) == 0 {
+		t.Fatalf("expected response draft to be written")
+	}
+	var recorded map[string]any
+	if err := json.Unmarshal(store.lastValue, &recorded); err != nil {
+		t.Fatalf("decode draft: %v", err)
+	}
+	if content, _ := recorded["content"].(string); content != "visible text" {
+		t.Fatalf("unexpected draft content: %q", content)
+	}
+	if got, ok := recorded["last_seq"].(float64); !ok || int64(got) != writer.latestAssistantSeq {
+		t.Fatalf("unexpected last_seq: %#v", recorded["last_seq"])
+	}
+	if writer.draftUseVisible {
+		t.Fatal("draft flag should be cleared after flush")
+	}
+}
+
+type testBlobStore struct {
+	lastKey   string
+	lastValue []byte
+}
+
+func (s *testBlobStore) Put(context.Context, string, []byte) error                 { return nil }
+func (s *testBlobStore) PutIfAbsent(context.Context, string, []byte) (bool, error) { return false, nil }
+func (s *testBlobStore) Get(context.Context, string) ([]byte, error)               { return nil, nil }
+func (s *testBlobStore) Head(context.Context, string) (objectstore.ObjectInfo, error) {
+	return objectstore.ObjectInfo{}, nil
+}
+func (s *testBlobStore) Delete(context.Context, string) error { return nil }
+func (s *testBlobStore) ListPrefix(context.Context, string) ([]objectstore.ObjectInfo, error) {
+	return nil, nil
+}
+func (s *testBlobStore) WriteJSONAtomic(_ context.Context, key string, value any) error {
+	s.lastKey = key
+	data, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+	s.lastValue = append([]byte(nil), data...)
+	return nil
+}
+
 func seedDesktopRunBindingAccount(t *testing.T, db data.DB, accountID, userID uuid.UUID) {
 	t.Helper()
 	if _, err := db.Exec(
