@@ -14,7 +14,7 @@ import (
 
 type Deps struct {
 	AuthService                  *auth.Service
-	AccountMembershipRepo            *data.AccountMembershipRepository
+	AccountMembershipRepo        *data.AccountMembershipRepository
 	LlmCredentialsRepo           *data.LlmCredentialsRepository
 	LlmRoutesRepo                *data.LlmRoutesRepository
 	SecretsRepo                  *data.SecretsRepository
@@ -58,8 +58,13 @@ func RegisterRoutes(mux *nethttp.ServeMux, deps Deps) {
 	mux.HandleFunc("/v1/asr/transcribe", asrTranscribeEntry(deps.AuthService, deps.AccountMembershipRepo, deps.AsrCredentialsRepo, deps.SecretsRepo, deps.Logger))
 	mux.HandleFunc("/v1/mcp-installs", mcpInstallsEntry(deps.AuthService, deps.AccountMembershipRepo, deps.ProfileMCPInstallsRepo, deps.SecretsRepo, deps.Pool, deps.MCPDiscoveryService))
 	mux.HandleFunc("/v1/mcp-installs/", mcpInstallEntry(deps.AuthService, deps.AccountMembershipRepo, deps.ProfileMCPInstallsRepo, deps.SecretsRepo, deps.Pool, deps.MCPDiscoveryService))
+	if deps.MCPDiscoveryService != nil {
+		mux.HandleFunc("/v1/mcp-installs/import", mcpInstallImportEntry(deps.AuthService, deps.AccountMembershipRepo, deps.ProfileMCPInstallsRepo, deps.SecretsRepo, deps.WorkspaceMCPEnableRepo, deps.WorkspaceRegistriesRepo, deps.ProfileRegistriesRepo, deps.Pool, deps.MCPDiscoveryService))
+	}
 	mux.HandleFunc("/v1/workspace-mcp-enablements", workspaceMCPEnablementsEntry(deps.AuthService, deps.AccountMembershipRepo, deps.ProfileMCPInstallsRepo, deps.WorkspaceMCPEnableRepo, deps.WorkspaceRegistriesRepo, deps.ProfileRegistriesRepo, deps.Pool))
-	mux.HandleFunc("/v1/mcp-discovery-sources", mcpDiscoverySourcesEntry(deps.AuthService, deps.AccountMembershipRepo, deps.MCPDiscoveryService))
+	if deps.MCPDiscoveryService != nil {
+		mux.HandleFunc("/v1/mcp-discovery-sources", mcpDiscoverySourcesEntry(deps.AuthService, deps.AccountMembershipRepo, deps.MCPDiscoveryService))
+	}
 	mux.HandleFunc("/v1/tool-catalog/effective", toolCatalogEffectiveEntry(deps.AuthService, deps.AccountMembershipRepo, deps.ToolDescriptionOverridesRepo, deps.Pool, deps.EffectiveToolCatalogCache, deps.ArtifactStoreAvailable, deps.ProjectRepo))
 	mux.HandleFunc("/v1/tool-catalog", toolCatalogEntry(deps.AuthService, deps.AccountMembershipRepo, deps.ToolDescriptionOverridesRepo, deps.ProjectRepo))
 	mux.HandleFunc("/v1/tool-catalog/", toolCatalogItemEntry(deps.AuthService, deps.AccountMembershipRepo, deps.ToolDescriptionOverridesRepo, deps.ProjectRepo))

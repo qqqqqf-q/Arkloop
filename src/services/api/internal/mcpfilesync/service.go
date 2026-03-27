@@ -26,14 +26,26 @@ type DiscoveryRequest struct {
 }
 
 type ProposedInstall struct {
-	InstallKey      string          `json:"install_key"`
-	DisplayName     string          `json:"display_name"`
-	Transport       string          `json:"transport"`
-	LaunchSpecJSON  json.RawMessage `json:"launch_spec_json"`
-	HostRequirement string          `json:"host_requirement"`
-	SourceKind      string          `json:"source_kind"`
-	SourceURI       string          `json:"source_uri"`
-	SyncMode        string          `json:"sync_mode"`
+	InstallKey      string            `json:"install_key"`
+	DisplayName     string            `json:"display_name"`
+	Transport       string            `json:"transport"`
+	LaunchSpecJSON  json.RawMessage   `json:"launch_spec_json"`
+	HostRequirement string            `json:"host_requirement"`
+	SourceKind      string            `json:"source_kind"`
+	SourceURI       string            `json:"source_uri"`
+	SyncMode        string            `json:"sync_mode"`
+	HasAuth         bool              `json:"has_auth"`
+	AuthHeaders     map[string]string `json:"-"`
+}
+
+type ImportRequest struct {
+	SourceURI  string
+	InstallKey string
+}
+
+type ImportedInstall struct {
+	Install     data.ProfileMCPInstall
+	AuthHeaders map[string]string
 }
 
 type DiscoverySource struct {
@@ -52,19 +64,21 @@ type DiscoveryResponse struct {
 type Service struct {
 	installsRepo *data.ProfileMCPInstallsRepository
 	secretsRepo  *data.SecretsRepository
+	pool         data.DB
 	dataDir      string
 
 	mu           sync.Mutex
 	lastModified time.Time
 }
 
-func NewService(dataDir string, installsRepo *data.ProfileMCPInstallsRepository, secretsRepo *data.SecretsRepository) (*Service, error) {
+func NewService(dataDir string, installsRepo *data.ProfileMCPInstallsRepository, secretsRepo *data.SecretsRepository, pool data.DB) (*Service, error) {
 	if installsRepo == nil {
 		return nil, fmt.Errorf("installsRepo must not be nil")
 	}
 	return &Service{
 		installsRepo: installsRepo,
 		secretsRepo:  secretsRepo,
+		pool:         pool,
 		dataDir:      strings.TrimSpace(dataDir),
 	}, nil
 }
@@ -181,6 +195,55 @@ func (s *Service) DiscoverSources(ctx context.Context, req DiscoveryRequest) (Di
 	return DiscoveryResponse{Sources: sources}, nil
 }
 
+func (s *Service) ResolveImport(ctx context.Context, sourceURI string, installKey string) (*ProposedInstall, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	cleanedURI := strings.TrimSpace(sourceURI)
+	cleanedKey := strings.TrimSpace(installKey)
+	if cleanedURI == "" || cleanedKey == "" {
+		return nil, fmt.Errorf("source_uri and install_key are required")
+	}
+	servers, err := loadMCPServerMap(cleanedURI)
+	if err != nil {
+		return nil, err
+	}
+	for name, raw := range servers {
+		proposal, validationErrors, _ := proposedInstallFromRaw(cleanedURI, classifySourceKind(cleanedURI, s.dataDir), name, raw)
+		if len(validationErrors) > 0 {
+			continue
+		}
+		if proposal.InstallKey == cleanedKey {
+			return &proposal, nil
+		}
+	}
+	return nil, fmt.Errorf("install not found in source")
+}
+
+func (s *Service) LoadInstallFromSource(ctx context.Context, req ImportRequest) (*ImportedInstall, error) {
+	proposal, err := s.ResolveImport(ctx, req.SourceURI, req.InstallKey)
+	if err != nil {
+		return nil, err
+	}
+	sourceURI := strings.TrimSpace(req.SourceURI)
+	if sourceURI == "" || proposal == nil {
+		return nil, fmt.Errorf("install not found in source")
+	}
+	return &ImportedInstall{
+		Install: data.ProfileMCPInstall{
+			InstallKey:      proposal.InstallKey,
+			DisplayName:     proposal.DisplayName,
+			SourceKind:      proposal.SourceKind,
+			SourceURI:       &proposal.SourceURI,
+			SyncMode:        proposal.SyncMode,
+			Transport:       proposal.Transport,
+			LaunchSpecJSON:  proposal.LaunchSpecJSON,
+			HostRequirement: proposal.HostRequirement,
+		},
+		AuthHeaders: cloneHeaders(proposal.AuthHeaders),
+	}, nil
+}
+
 func (s *Service) StartWatcher(ctx context.Context, accountID uuid.UUID, profileRef string, pollInterval time.Duration) {
 	if s == nil || pollInterval <= 0 {
 		return
@@ -250,9 +313,12 @@ func (s *Service) SyncFromOfficialFile(ctx context.Context, accountID uuid.UUID,
 				LastErrorMessage: stringPtr(""),
 				LastCheckedAt:    &now,
 			}
-			if headersSecretID, err := s.upsertAuthHeadersSecret(ctx, proposal); err == nil {
-				patch.AuthHeadersSecretID = headersSecretID
+			headersSecretID, err := s.upsertAuthHeadersSecret(ctx, proposal)
+			if err != nil {
+				return err
 			}
+			patch.AuthHeadersSecretID = headersSecretID
+			patch.ClearAuthHeaders = headersSecretID == nil
 			if _, err := s.installsRepo.Patch(ctx, accountID, current.ID, patch); err != nil {
 				return err
 			}
@@ -273,18 +339,24 @@ func (s *Service) SyncFromOfficialFile(ctx context.Context, accountID uuid.UUID,
 			DiscoveryStatus: data.MCPDiscoveryStatusNeedsCheck,
 			LastCheckedAt:   &now,
 		}
-		if headersSecretID, err := s.upsertAuthHeadersSecret(ctx, proposal); err == nil {
-			install.AuthHeadersSecretID = headersSecretID
+		headersSecretID, err := s.upsertAuthHeadersSecret(ctx, proposal)
+		if err != nil {
+			return err
 		}
+		install.AuthHeadersSecretID = headersSecretID
 		if _, err := s.installsRepo.Create(ctx, install); err != nil {
 			return err
 		}
 	}
 	for _, install := range byKey {
+		if s.secretsRepo != nil {
+			_ = s.secretsRepo.Delete(ctx, auth.DesktopUserID, "mcp_auth_headers:"+install.InstallKey)
+		}
 		if err := s.installsRepo.Delete(ctx, accountID, install.ID); err != nil {
 			return err
 		}
 	}
+	s.notifyChanged(ctx, accountID)
 	s.recordMTime(path)
 	return nil
 }
@@ -393,20 +465,17 @@ func proposedInstallFromRaw(path, sourceKind, serverName string, raw map[string]
 	} else if timeout := intFromAny(raw["callTimeoutMs"]); timeout > 0 {
 		launch["call_timeout_ms"] = timeout
 	}
+	authHeaders := map[string]string{}
 	if headers, ok := raw["headers"].(map[string]any); ok && len(headers) > 0 {
-		parsed := map[string]string{}
 		for key, value := range headers {
 			if strings.TrimSpace(key) == "" {
 				continue
 			}
-			parsed[strings.TrimSpace(key)] = asString(value)
-		}
-		if len(parsed) > 0 {
-			launch["headers"] = parsed
+			authHeaders[strings.TrimSpace(key)] = asString(value)
 		}
 	}
 	if token := strings.TrimSpace(asString(raw["bearer_token"])); token != "" {
-		launch["bearer_token"] = token
+		authHeaders["Authorization"] = "Bearer " + token
 	}
 	launchJSON, _ := json.Marshal(launch)
 	return ProposedInstall{
@@ -418,6 +487,8 @@ func proposedInstallFromRaw(path, sourceKind, serverName string, raw map[string]
 		SourceKind:      sourceKind,
 		SourceURI:       path,
 		SyncMode:        syncModeForSource(sourceKind),
+		HasAuth:         len(authHeaders) > 0,
+		AuthHeaders:     authHeaders,
 	}, validationErrors, hostWarnings
 }
 
@@ -462,30 +533,48 @@ func (s *Service) upsertAuthHeadersSecret(ctx context.Context, proposal Proposed
 	if s.secretsRepo == nil {
 		return nil, nil
 	}
-	var launch map[string]any
-	if err := json.Unmarshal(proposal.LaunchSpecJSON, &launch); err != nil {
-		return nil, err
-	}
-	headers := map[string]string{}
-	if rawHeaders, ok := launch["headers"].(map[string]any); ok {
-		for key, value := range rawHeaders {
-			headers[key] = asString(value)
-		}
-	} else if rawHeaders, ok := launch["headers"].(map[string]string); ok {
-		headers = rawHeaders
-	}
-	if token := strings.TrimSpace(asString(launch["bearer_token"])); token != "" {
-		headers["Authorization"] = "Bearer " + token
-	}
+	headers := proposal.AuthHeaders
 	if len(headers) == 0 {
 		return nil, nil
 	}
 	encoded, _ := json.Marshal(headers)
-	secret, err := s.secretsRepo.Upsert(ctx, auth.DesktopUserID, "mcp_headers:"+proposal.InstallKey, string(encoded))
+	secret, err := s.secretsRepo.Upsert(ctx, auth.DesktopUserID, "mcp_auth_headers:"+proposal.InstallKey, string(encoded))
 	if err != nil {
 		return nil, err
 	}
 	return &secret.ID, nil
+}
+
+func (s *Service) notifyChanged(ctx context.Context, accountID uuid.UUID) {
+	if s == nil || s.pool == nil || accountID == uuid.Nil {
+		return
+	}
+	_, _ = s.pool.Exec(ctx, "SELECT pg_notify('mcp_config_changed', $1)", accountID.String())
+}
+
+func cloneHeaders(input map[string]string) map[string]string {
+	if len(input) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(input))
+	for key, value := range input {
+		out[key] = value
+	}
+	return out
+}
+
+func classifySourceKind(path string, dataDir string) string {
+	cleaned := strings.TrimSpace(path)
+	if cleaned == "" {
+		return data.MCPSourceKindExternalImport
+	}
+	if cleaned == shareddesktop.MCPServersPath(dataDir) {
+		return data.MCPSourceKindDesktopFile
+	}
+	if strings.HasSuffix(cleaned, ".mcp.json") || strings.HasSuffix(cleaned, string(filepath.Separator)+".vscode"+string(filepath.Separator)+"mcp.json") {
+		return data.MCPSourceKindProjectImport
+	}
+	return data.MCPSourceKindExternalImport
 }
 
 func asString(value any) string {

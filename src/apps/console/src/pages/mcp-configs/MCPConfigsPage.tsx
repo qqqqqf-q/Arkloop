@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
-import { CheckCircle2, Pencil, Plus, RefreshCw, Server, ToggleLeft, ToggleRight, Trash2, Upload } from 'lucide-react'
+import { Pencil, Plus, RefreshCw, Server, ToggleLeft, ToggleRight, Trash2 } from 'lucide-react'
 import { useToast } from '@arkloop/shared'
 import type { ConsoleOutletContext } from '../../layouts/ConsoleLayout'
 import { PageHeader } from '../../components/PageHeader'
@@ -15,12 +15,9 @@ import {
   checkMCPInstall,
   createMCPInstall,
   deleteMCPInstall,
-  listMCPDiscoverySources,
   listMCPInstalls,
   setWorkspaceMCPEnablement,
   type CreateMCPInstallRequest,
-  type MCPDiscoverySource,
-  type MCPDiscoverySourceSpec,
   type MCPInstall,
   updateMCPInstall,
 } from '../../api/mcp-installs'
@@ -41,9 +38,6 @@ type FormState = {
   headersJson: string
   bearerToken: string
   timeoutMs: string
-  sourceKind: string
-  sourceUri: string
-  syncMode: string
 }
 
 type DeleteTarget = {
@@ -64,9 +58,6 @@ function emptyForm(): FormState {
     headersJson: '{}',
     bearerToken: '',
     timeoutMs: '',
-    sourceKind: 'manual_console',
-    sourceUri: '',
-    syncMode: 'none',
   }
 }
 
@@ -92,9 +83,6 @@ function formFromInstall(install: MCPInstall): FormState {
     headersJson: formatJson(headers),
     bearerToken: asBearerToken(headers),
     timeoutMs: typeof launch.call_timeout_ms === 'number' ? String(launch.call_timeout_ms) : '',
-    sourceKind: install.source_kind,
-    sourceUri: install.source_uri ?? '',
-    syncMode: install.sync_mode,
   }
 }
 
@@ -187,39 +175,12 @@ function buildRequest(form: FormState): CreateMCPInstallRequest {
   }
   return {
     display_name: displayName,
-    source_kind: form.sourceKind.trim() || 'manual_console',
-    source_uri: form.sourceUri.trim() || undefined,
-    sync_mode: form.syncMode.trim() || 'none',
     transport: form.transport,
     launch_spec: launchSpec,
     auth_headers: Object.keys(headers).length > 0 ? headers : undefined,
     bearer_token: bearerToken || undefined,
     host_requirement: form.hostRequirement,
   }
-}
-
-function splitAuthFromLaunchSpec(launchSpec: Record<string, unknown>) {
-  const next = { ...launchSpec }
-  let bearerToken = ''
-  const authHeaders: Record<string, string> = {}
-  if (next.headers && typeof next.headers === 'object' && !Array.isArray(next.headers)) {
-    for (const [key, value] of Object.entries(next.headers as Record<string, unknown>)) {
-      if (typeof value === 'string' && key.trim()) {
-        authHeaders[key.trim()] = value
-      }
-    }
-    delete next.headers
-  }
-  const authorization = authHeaders.Authorization
-  if (typeof authorization === 'string' && authorization.startsWith('Bearer ')) {
-    bearerToken = authorization.slice(7)
-    delete authHeaders.Authorization
-  }
-  if (typeof next.bearer_token === 'string' && next.bearer_token.trim()) {
-    bearerToken = next.bearer_token.trim()
-    delete next.bearer_token
-  }
-  return { launchSpec: next, authHeaders, bearerToken }
 }
 
 function statusVariant(status: string): 'success' | 'warning' | 'error' | 'neutral' {
@@ -256,10 +217,6 @@ export function MCPConfigsPage() {
   const [saving, setSaving] = useState(false)
   const [checkingID, setCheckingID] = useState<string | null>(null)
   const [toggleID, setToggleID] = useState<string | null>(null)
-  const [scanOpen, setScanOpen] = useState(false)
-  const [scanPath, setScanPath] = useState('')
-  const [scanLoading, setScanLoading] = useState(false)
-  const [scanItems, setScanItems] = useState<MCPDiscoverySource[]>([])
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -364,7 +321,7 @@ export function MCPConfigsPage() {
     try {
       await setWorkspaceMCPEnablement({
         workspace_ref: install.workspace_state?.workspace_ref,
-        install_key: install.install_key,
+        install_id: install.id,
         enabled: !install.workspace_state?.enabled,
       }, accessToken)
       notifyToolCatalogChanged()
@@ -393,46 +350,6 @@ export function MCPConfigsPage() {
       setSaving(false)
     }
   }, [accessToken, addToast, deleteTarget, refresh, tc.toastDeleteFailed, tc.toastDeleted])
-
-  const handleScan = useCallback(async () => {
-    setScanLoading(true)
-    try {
-      const items = await listMCPDiscoverySources(accessToken, {
-        paths: scanPath.trim() ? [scanPath.trim()] : [],
-      })
-      setScanItems(items)
-    } catch {
-      addToast(tc.toastDiscoveryFailed, 'error')
-    } finally {
-      setScanLoading(false)
-    }
-  }, [accessToken, addToast, scanPath, tc.toastDiscoveryFailed])
-
-  const handleImport = useCallback(async (source: MCPDiscoverySource, install: MCPDiscoverySourceSpec) => {
-    setSaving(true)
-    try {
-      const split = splitAuthFromLaunchSpec(install.launch_spec)
-      await createMCPInstall({
-        display_name: install.display_name,
-        install_key: install.install_key,
-        source_kind: source.source_kind,
-        source_uri: source.source_uri,
-        sync_mode: source.source_kind === 'desktop_file' ? 'desktop_file_bidirectional' : 'none',
-        transport: install.transport,
-        launch_spec: split.launchSpec,
-        auth_headers: Object.keys(split.authHeaders).length > 0 ? split.authHeaders : undefined,
-        bearer_token: split.bearerToken || undefined,
-        host_requirement: install.host_requirement,
-      }, accessToken)
-      notifyToolCatalogChanged()
-      await refresh()
-      addToast(tc.toastImported, 'success')
-    } catch {
-      addToast(tc.toastImportFailed, 'error')
-    } finally {
-      setSaving(false)
-    }
-  }, [accessToken, addToast, refresh, tc.toastImportFailed, tc.toastImported])
 
   const columns = useMemo<Column<MCPInstall>[]>(() => [
     {
@@ -532,13 +449,6 @@ export function MCPConfigsPage() {
         actions={(
           <div className="flex items-center gap-2">
             <button
-              onClick={() => setScanOpen(true)}
-              className="flex items-center gap-1.5 rounded-lg border border-[var(--c-border)] px-3 py-1.5 text-xs font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-sub)]"
-            >
-              <Upload size={13} />
-              {tc.discoveryTitle}
-            </button>
-            <button
               onClick={openCreate}
               className="flex items-center gap-1.5 rounded-lg bg-[var(--c-bg-tag)] px-3 py-1.5 text-xs font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-sub)]"
             >
@@ -628,18 +538,6 @@ export function MCPConfigsPage() {
           <FormField label={tc.fieldHeaders}>
             <textarea className={textareaCls} value={form.headersJson} onChange={(event) => setField('headersJson', event.target.value)} />
           </FormField>
-          <FormField label={tc.fieldSourceKind}>
-            <input className={inputCls} value={form.sourceKind} onChange={(event) => setField('sourceKind', event.target.value)} />
-          </FormField>
-          <FormField label={tc.fieldSourceUri}>
-            <input className={inputCls} value={form.sourceUri} onChange={(event) => setField('sourceUri', event.target.value)} />
-          </FormField>
-          <FormField label={tc.fieldSyncMode}>
-            <select className={inputCls} value={form.syncMode} onChange={(event) => setField('syncMode', event.target.value)}>
-              <option value="none">none</option>
-              <option value="desktop_file_bidirectional">desktop_file_bidirectional</option>
-            </select>
-          </FormField>
         </div>
         {formError && <p className="mt-3 text-xs text-[var(--c-status-error-text)]">{formError}</p>}
         {editTarget?.last_error_message && (
@@ -652,59 +550,6 @@ export function MCPConfigsPage() {
           <button onClick={() => void handleSave()} disabled={saving} className="rounded-lg bg-[var(--c-bg-tag)] px-3.5 py-1.5 text-sm font-medium text-[var(--c-text-primary)] transition-colors hover:bg-[var(--c-bg-sub)] disabled:opacity-50">
             {saving ? '...' : editTarget ? tc.save : tc.create}
           </button>
-        </div>
-      </Modal>
-
-      <Modal open={scanOpen} onClose={() => setScanOpen(false)} title={tc.discoveryTitle} width="760px">
-        <div className="flex items-end gap-3">
-          <FormField label={tc.discoveryPath}>
-            <input className={inputCls} value={scanPath} onChange={(event) => setScanPath(event.target.value)} placeholder={tc.discoveryPathPlaceholder} />
-          </FormField>
-          <button onClick={() => void handleScan()} disabled={scanLoading} className="mb-0.5 rounded-lg border border-[var(--c-border)] px-3.5 py-1.5 text-sm text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-sub)] disabled:opacity-50">
-            {scanLoading ? tc.discoveryScanning : tc.discoveryScan}
-          </button>
-        </div>
-        <div className="mt-4 flex max-h-[420px] flex-col gap-3 overflow-auto">
-          {scanItems.length === 0 ? (
-            <div className="rounded-xl border border-[var(--c-border)] bg-[var(--c-bg-sub)] px-4 py-6 text-sm text-[var(--c-text-muted)]">
-              {tc.discoveryEmpty}
-            </div>
-          ) : scanItems.map((source) => (
-            <div key={`${source.source_kind}:${source.source_uri}`} className="rounded-xl border border-[var(--c-border)] bg-[var(--c-bg-sub)] p-4">
-              <div className="flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <Badge variant={source.installable ? 'success' : 'warning'}>{source.installable ? tc.discoveryInstallable : tc.discoveryNeedsAttention}</Badge>
-                    <span className="truncate text-sm font-medium text-[var(--c-text-primary)]">{source.source_uri}</span>
-                  </div>
-                  {source.validation_errors.length > 0 && (
-                    <p className="mt-2 text-xs text-[var(--c-status-error-text)]">{source.validation_errors.join(' | ')}</p>
-                  )}
-                  {source.host_warnings.length > 0 && (
-                    <p className="mt-2 text-xs text-[var(--c-text-muted)]">{source.host_warnings.join(' | ')}</p>
-                  )}
-                </div>
-              </div>
-              <div className="mt-3 flex flex-col gap-2">
-                {source.proposed_installs.map((install) => (
-                  <div key={install.install_key} className="flex items-center justify-between gap-3 rounded-lg border border-[var(--c-border)] bg-[var(--c-bg-page)] px-3 py-2">
-                    <div className="min-w-0">
-                      <div className="text-sm font-medium text-[var(--c-text-primary)]">{install.display_name}</div>
-                      <div className="text-xs text-[var(--c-text-muted)]">{install.transport} · {install.host_requirement}</div>
-                    </div>
-                    <button
-                      onClick={() => void handleImport(source, install)}
-                      disabled={!source.installable || saving}
-                      className="flex shrink-0 items-center gap-1.5 rounded-lg bg-[var(--c-bg-tag)] px-3 py-1.5 text-xs font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-sub)] disabled:opacity-50"
-                    >
-                      <CheckCircle2 size={13} />
-                      {tc.discoveryImport}
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
         </div>
       </Modal>
 

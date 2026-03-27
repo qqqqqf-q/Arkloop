@@ -13,10 +13,10 @@ import (
 )
 
 const (
-	MCPSourceKindManualConsole = "manual_console"
-	MCPSourceKindSetupSeed     = "setup_seed"
-	MCPSourceKindDesktopFile   = "desktop_file"
-	MCPSourceKindProjectImport = "project_import"
+	MCPSourceKindManualConsole  = "manual_console"
+	MCPSourceKindSetupSeed      = "setup_seed"
+	MCPSourceKindDesktopFile    = "desktop_file"
+	MCPSourceKindProjectImport  = "project_import"
 	MCPSourceKindExternalImport = "external_import"
 
 	MCPSyncModeNone                     = "none"
@@ -66,6 +66,7 @@ type MCPInstallPatch struct {
 	Transport           *string
 	LaunchSpecJSON      *json.RawMessage
 	AuthHeadersSecretID *uuid.UUID
+	ClearAuthHeaders    bool
 	HostRequirement     *string
 	DiscoveryStatus     *string
 	LastErrorCode       *string
@@ -231,7 +232,9 @@ func (r *ProfileMCPInstallsRepository) Patch(ctx context.Context, accountID, id 
 		args = append(args, *patch.LaunchSpecJSON)
 		argIdx++
 	}
-	if patch.AuthHeadersSecretID != nil {
+	if patch.ClearAuthHeaders {
+		setClauses = append(setClauses, "auth_headers_secret_id = NULL")
+	} else if patch.AuthHeadersSecretID != nil {
 		setClauses = append(setClauses, fmt.Sprintf("auth_headers_secret_id = $%d", argIdx))
 		args = append(args, *patch.AuthHeadersSecretID)
 		argIdx++
@@ -298,27 +301,27 @@ func (r *ProfileMCPInstallsRepository) Delete(ctx context.Context, accountID, id
 }
 
 type WorkspaceMCPEnablement struct {
-	WorkspaceRef      string
-	AccountID         uuid.UUID
-	InstallID         uuid.UUID
-	InstallKey        string
-	EnabledByUserID   uuid.UUID
-	Enabled           bool
-	EnabledAt         *time.Time
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
-	DisplayName       string
-	ProfileRef        string
-	SourceKind        string
-	SourceURI         *string
-	SyncMode          string
-	Transport         string
-	HostRequirement   string
-	DiscoveryStatus   string
-	LastErrorCode     *string
-	LastErrorMessage  *string
-	LastCheckedAt     *time.Time
-	LaunchSpecJSON    json.RawMessage
+	WorkspaceRef     string
+	AccountID        uuid.UUID
+	InstallID        uuid.UUID
+	InstallKey       string
+	EnabledByUserID  uuid.UUID
+	Enabled          bool
+	EnabledAt        *time.Time
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+	DisplayName      string
+	ProfileRef       string
+	SourceKind       string
+	SourceURI        *string
+	SyncMode         string
+	Transport        string
+	HostRequirement  string
+	DiscoveryStatus  string
+	LastErrorCode    *string
+	LastErrorMessage *string
+	LastCheckedAt    *time.Time
+	LaunchSpecJSON   json.RawMessage
 }
 
 type WorkspaceMCPEnablementsRepository struct {
@@ -411,17 +414,17 @@ func (r *WorkspaceMCPEnablementsRepository) ListByWorkspace(ctx context.Context,
 	return items, rows.Err()
 }
 
-func (r *WorkspaceMCPEnablementsRepository) Set(ctx context.Context, accountID uuid.UUID, workspaceRef, installKey string, enabledByUserID *uuid.UUID, enabled bool) error {
+func (r *WorkspaceMCPEnablementsRepository) Set(ctx context.Context, accountID uuid.UUID, profileRef, workspaceRef string, installID uuid.UUID, enabledByUserID *uuid.UUID, enabled bool) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	if accountID == uuid.Nil {
 		return fmt.Errorf("account_id must not be empty")
 	}
+	profileRef = strings.TrimSpace(profileRef)
 	workspaceRef = strings.TrimSpace(workspaceRef)
-	installKey = strings.TrimSpace(installKey)
-	if workspaceRef == "" || installKey == "" {
-		return fmt.Errorf("workspace_ref and install_key must not be empty")
+	if profileRef == "" || workspaceRef == "" || installID == uuid.Nil {
+		return fmt.Errorf("profile_ref, workspace_ref and install_id must not be empty")
 	}
 	if enabled {
 		if enabledByUserID == nil || *enabledByUserID == uuid.Nil {
@@ -430,24 +433,24 @@ func (r *WorkspaceMCPEnablementsRepository) Set(ctx context.Context, accountID u
 		_, err := r.db.Exec(
 			ctx,
 			`INSERT INTO workspace_mcp_enablements (workspace_ref, account_id, install_id, install_key, enabled_by_user_id, enabled, enabled_at)
-			 SELECT $1, i.account_id, i.id, i.install_key, $4, TRUE, now()
-			   FROM profile_mcp_installs i
-			  WHERE i.account_id = $2 AND i.install_key = $3
-			 ON CONFLICT (workspace_ref, install_id) DO UPDATE
-			     SET install_key = EXCLUDED.install_key,
-			         enabled_by_user_id = EXCLUDED.enabled_by_user_id,
-			         enabled = TRUE,
-			         enabled_at = now(),
-			         updated_at = now()`,
-			workspaceRef, accountID, installKey, *enabledByUserID,
+				 SELECT $1, i.account_id, i.id, i.install_key, $5, TRUE, now()
+				   FROM profile_mcp_installs i
+				  WHERE i.account_id = $2 AND i.profile_ref = $3 AND i.id = $4
+				 ON CONFLICT (workspace_ref, install_id) DO UPDATE
+				     SET install_key = EXCLUDED.install_key,
+				         enabled_by_user_id = EXCLUDED.enabled_by_user_id,
+				         enabled = TRUE,
+				         enabled_at = now(),
+				         updated_at = now()`,
+			workspaceRef, accountID, profileRef, installID, *enabledByUserID,
 		)
 		return err
 	}
 	_, err := r.db.Exec(
 		ctx,
 		`DELETE FROM workspace_mcp_enablements
-		  WHERE account_id = $1 AND workspace_ref = $2 AND install_key = $3`,
-		accountID, workspaceRef, installKey,
+		  WHERE account_id = $1 AND workspace_ref = $2 AND install_id = $3`,
+		accountID, workspaceRef, installID,
 	)
 	return err
 }

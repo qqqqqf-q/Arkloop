@@ -16,7 +16,7 @@ export const en: LocaleStrings = {
     auditLogs: 'Audit Logs',
     credentials: 'LLM Providers',
     toolProviders: 'Tool Providers',
-    mcpConfigs: 'MCP Configs',
+    mcpConfigs: 'MCP Installs',
     agents: 'Agents',
     apiKeys: 'API Keys',
     webhooks: 'Webhooks',
@@ -290,7 +290,7 @@ export const en: LocaleStrings = {
       toastSaveFailed: 'Failed to save',
     },
     mcpConfigs: {
-      title: 'MCP Servers',
+      title: 'MCP Installs',
       addConfig: 'Add Server',
       colName: 'Name',
       colTransport: 'Transport',

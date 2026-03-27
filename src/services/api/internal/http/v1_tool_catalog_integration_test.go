@@ -17,6 +17,7 @@ import (
 	"arkloop/services/api/internal/auth"
 	apiCrypto "arkloop/services/api/internal/crypto"
 	"arkloop/services/api/internal/data"
+	sharedenvironmentref "arkloop/services/shared/environmentref"
 	sharedtoolmeta "arkloop/services/shared/toolmeta"
 
 	"github.com/google/uuid"
@@ -334,7 +335,8 @@ func TestEffectiveToolCatalogIncludesConditionalAndMCPTools(t *testing.T) {
 	credRepo, _ := data.NewUserCredentialRepository(pool)
 	membershipRepo, _ := data.NewAccountMembershipRepository(pool)
 	refreshTokenRepo, _ := data.NewRefreshTokenRepository(pool)
-	mcpRepo, _ := data.NewMCPConfigsRepository(pool)
+	installRepo, _ := data.NewProfileMCPInstallsRepository(pool)
+	enableRepo, _ := data.NewWorkspaceMCPEnablementsRepository(pool)
 	toolProvidersRepo, _ := data.NewToolProviderConfigsRepository(pool)
 	overridesRepo, _ := data.NewToolDescriptionOverridesRepository(pool)
 	orgRepo, _ := data.NewAccountRepository(pool)
@@ -389,8 +391,32 @@ func TestEffectiveToolCatalogIncludesConditionalAndMCPTools(t *testing.T) {
 		t.Fatalf("issue token: %v", err)
 	}
 
-	if _, err := mcpRepo.Create(ctx, accountID, "org-demo", "streamable_http", strPtrCatalogTest(mcpServer.URL), nil, nil, nil, nil, nil, false, 3000); err != nil {
-		t.Fatalf("create org mcp config: %v", err)
+	profileRef := sharedenvironmentref.BuildProfileRef(accountID, &user.ID)
+	workspaceRef := "ws_effective_tools"
+	launchSpec, err := json.Marshal(map[string]any{
+		"transport": "streamable_http",
+		"url":       mcpServer.URL,
+	})
+	if err != nil {
+		t.Fatalf("marshal mcp launch spec: %v", err)
+	}
+	install, err := installRepo.Create(ctx, data.ProfileMCPInstall{
+		AccountID:       accountID,
+		ProfileRef:      profileRef,
+		InstallKey:      "org-demo",
+		DisplayName:     "Org Demo",
+		SourceKind:      data.MCPSourceKindManualConsole,
+		SyncMode:        data.MCPSyncModeNone,
+		Transport:       "streamable_http",
+		LaunchSpecJSON:  launchSpec,
+		HostRequirement: data.MCPHostRequirementRemoteHTTP,
+		DiscoveryStatus: data.MCPDiscoveryStatusNeedsCheck,
+	})
+	if err != nil {
+		t.Fatalf("create mcp install: %v", err)
+	}
+	if err := enableRepo.Set(ctx, accountID, profileRef, workspaceRef, install.ID, &user.ID, true); err != nil {
+		t.Fatalf("enable workspace mcp install: %v", err)
 	}
 	listenerCtx, cancelListener := context.WithCancel(ctx)
 	t.Cleanup(cancelListener)
@@ -407,7 +433,7 @@ func TestEffectiveToolCatalogIncludesConditionalAndMCPTools(t *testing.T) {
 		ArtifactStore:                newFakeHTTPArtifactStore(),
 	})
 
-	resp := doJSON(handler, nethttp.MethodGet, "/v1/tool-catalog/effective", nil, authHeader(token))
+	resp := doJSON(handler, nethttp.MethodGet, "/v1/tool-catalog/effective?workspace_ref="+workspaceRef, nil, authHeader(token))
 	if resp.Code != nethttp.StatusOK {
 		t.Fatalf("effective catalog: %d %s", resp.Code, resp.Body.String())
 	}
@@ -431,11 +457,20 @@ func TestEffectiveToolCatalogIncludesConditionalAndMCPTools(t *testing.T) {
 		t.Fatalf("unexpected mcp label: %s", item.Label)
 	}
 
+	otherResp := doJSON(handler, nethttp.MethodGet, "/v1/tool-catalog/effective?workspace_ref=ws_other", nil, authHeader(token))
+	if otherResp.Code != nethttp.StatusOK {
+		t.Fatalf("effective catalog other workspace: %d %s", otherResp.Code, otherResp.Body.String())
+	}
+	otherCatalog := decodeJSONBody[toolCatalogResponse](t, otherResp.Body.Bytes())
+	if _, ok := findCatalogTool(otherCatalog, "mcp", "mcp__org_demo__tools_list_tool"); ok {
+		t.Fatal("workspace-specific mcp tool should not leak into another workspace cache entry")
+	}
+
 	if err := overridesRepo.SetDisabled(ctx, "document_write", true); err != nil {
 		t.Fatalf("disable document_write: %v", err)
 	}
 
-	resp = doJSON(handler, nethttp.MethodGet, "/v1/tool-catalog/effective", nil, authHeader(token))
+	resp = doJSON(handler, nethttp.MethodGet, "/v1/tool-catalog/effective?workspace_ref="+workspaceRef, nil, authHeader(token))
 	if resp.Code != nethttp.StatusOK {
 		t.Fatalf("effective catalog after disable: %d %s", resp.Code, resp.Body.String())
 	}
@@ -448,7 +483,15 @@ func TestEffectiveToolCatalogIncludesConditionalAndMCPTools(t *testing.T) {
 func TestBuildEffectiveToolCatalogOmitsStoredArtifactsWithoutArtifactStore(t *testing.T) {
 	t.Setenv("ARKLOOP_S3_ENDPOINT", "http://seaweedfs.internal")
 
-	catalog, err := buildEffectiveToolCatalog(context.Background(), uuid.Nil, uuid.Nil, uuid.Nil, nil, nil, nil, false)
+	db := setupTestDatabase(t, "api_go_tool_catalog_effective_without_artifacts")
+	ctx := context.Background()
+	pool, err := data.NewPool(ctx, db.DSN, data.PoolLimits{MaxConns: 8, MinConns: 0})
+	if err != nil {
+		t.Fatalf("new pool: %v", err)
+	}
+	t.Cleanup(pool.Close)
+
+	catalog, err := buildEffectiveToolCatalog(ctx, uuid.Nil, uuid.Nil, "", uuid.Nil, nil, pool, nil, false)
 	if err != nil {
 		t.Fatalf("build effective tool catalog: %v", err)
 	}

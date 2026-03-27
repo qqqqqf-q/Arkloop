@@ -16,7 +16,7 @@ export const zh: LocaleStrings = {
     auditLogs: '审计日志',
     credentials: 'LLM 提供方',
     toolProviders: '工具提供方',
-    mcpConfigs: 'MCP 配置',
+    mcpConfigs: 'MCP 安装',
     agents: '智能体',
     apiKeys: 'API 密钥',
     webhooks: 'Webhooks',
@@ -290,7 +290,7 @@ export const zh: LocaleStrings = {
       toastSaveFailed: '保存失败',
     },
     mcpConfigs: {
-      title: 'MCP 服务器',
+      title: 'MCP 安装',
       addConfig: '添加服务器',
       colName: '名称',
       colTransport: '传输类型',
