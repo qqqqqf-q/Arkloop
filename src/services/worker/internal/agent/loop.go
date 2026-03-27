@@ -168,6 +168,7 @@ func (l *Loop) Run(
 				return err
 			}
 			messages = append(messages, drained...)
+			recordRuntimeUserMessages(runCtx.PipelineRC, drained)
 		}
 		messages = compactToolResults(messages)
 		if turnIndex > 1 && runCtx.PipelineRC != nil {
@@ -432,6 +433,7 @@ func (l *Loop) Run(
 				return err
 			}
 			messages = append(messages, drained...)
+			recordRuntimeUserMessages(runCtx.PipelineRC, drained)
 		}
 
 		// ask_user 拦截：不走 dispatcher，直接 yield 事件并阻塞等待用户输入
@@ -495,6 +497,9 @@ func (l *Loop) Run(
 							ToolName:   askUserToolName,
 							ResultJSON: map[string]any{"user_response": text},
 						}
+					}
+					if runCtx.PipelineRC != nil {
+						runCtx.PipelineRC.AppendRuntimeUserMessage(text)
 					}
 				} else {
 					answerResult = llm.StreamToolResult{
@@ -566,6 +571,9 @@ func (l *Loop) Run(
 					Role:    "user",
 					Content: []llm.TextPart{{Text: injected}},
 				})
+				if runCtx.PipelineRC != nil {
+					runCtx.PipelineRC.AppendRuntimeUserMessage(injected)
+				}
 			}
 		}
 	}
@@ -794,6 +802,24 @@ func drainSteeringMessages(ctx context.Context, poll func(ctx context.Context) (
 		}
 	}
 	return out, nil
+}
+
+func recordRuntimeUserMessages(rc *pipeline.RunContext, messages []llm.Message) {
+	if rc == nil {
+		return
+	}
+	for _, msg := range messages {
+		if msg.Role != "user" {
+			continue
+		}
+		var parts []string
+		for _, part := range msg.Content {
+			if text := strings.TrimSpace(llm.PartPromptText(part)); text != "" {
+				parts = append(parts, text)
+			}
+		}
+		rc.AppendRuntimeUserMessage(strings.Join(parts, "\n"))
+	}
 }
 
 func trackedSessionID(call llm.ToolCall, result tools.ExecutionResult) string {
