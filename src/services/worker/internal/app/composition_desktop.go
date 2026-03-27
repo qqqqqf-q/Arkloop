@@ -1392,6 +1392,15 @@ func desktopAgentLoop(
 		execErr := exec.Execute(execCtx, rc, rc.Emitter, func(ev events.RunEvent) error {
 			return w.append(execCtx, rc.Run.ID, ev, "")
 		})
+		if errors.Is(execErr, context.Canceled) {
+			stopped, stopErr := w.finalizeCancelledIfRequested(ctx)
+			if stopErr != nil {
+				return stopErr
+			}
+			if stopped {
+				execErr = errDesktopStopProcessing
+			}
+		}
 		if execErr != nil && !errors.Is(execErr, errDesktopStopProcessing) {
 			return execErr
 		}
@@ -1590,6 +1599,47 @@ func (w *desktopEventWriter) transitionCancelled(ctx context.Context, tx pgx.Tx,
 	}
 	w.terminalUserMessage = ""
 	return nextRunIDs, nil
+}
+
+func (w *desktopEventWriter) finalizeCancelledIfRequested(ctx context.Context) (bool, error) {
+	if w == nil || w.db == nil || w.run.ID == uuid.Nil {
+		return false, nil
+	}
+
+	tx, err := w.db.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	if err := w.runsRepo.LockRunRow(ctx, tx, w.run.ID); err != nil {
+		return false, err
+	}
+
+	cancelType, err := w.eventsRepo.GetLatestEventType(ctx, tx, w.run.ID, []string{"run.cancel_requested", "run.cancelled"})
+	if err != nil {
+		return false, err
+	}
+	switch cancelType {
+	case "run.cancelled":
+		if err := tx.Commit(ctx); err != nil {
+			return false, err
+		}
+		return true, nil
+	case "run.cancel_requested":
+		nextRunIDs, err := w.transitionCancelled(ctx, tx, w.run.ID)
+		if err != nil {
+			return false, err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return false, err
+		}
+		w.publishRunEvents(ctx)
+		w.enqueueProjectedRuns(ctx, nextRunIDs)
+		return true, nil
+	default:
+		return false, nil
+	}
 }
 
 func (w *desktopEventWriter) enqueueProjectedRuns(ctx context.Context, runIDs []uuid.UUID) {

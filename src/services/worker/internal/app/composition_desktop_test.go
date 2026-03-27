@@ -943,6 +943,99 @@ func TestDesktopRunCancelWatcherCancelsOnRequestedEvent(t *testing.T) {
 	}
 }
 
+func TestDesktopEventWriterFinalizeCancelledIfRequested(t *testing.T) {
+	ctx := context.Background()
+
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "desktop.db"))
+	if err != nil {
+		t.Fatalf("auto migrate sqlite: %v", err)
+	}
+	defer sqlitePool.Close()
+
+	db := sqlitepgx.New(sqlitePool.Unwrap())
+
+	accountID := uuid.New()
+	projectID := uuid.New()
+	threadID := uuid.New()
+	runID := uuid.New()
+
+	for _, stmt := range []struct {
+		sql  string
+		args []any
+	}{
+		{
+			sql:  `INSERT INTO accounts (id, slug, name, type, status) VALUES ($1, $2, $3, 'personal', 'active')`,
+			args: []any{accountID, "desktop-finalize-" + accountID.String(), "Desktop Finalize"},
+		},
+		{
+			sql:  `INSERT INTO projects (id, account_id, name, visibility) VALUES ($1, $2, $3, 'private')`,
+			args: []any{projectID, accountID, "Finalize Project"},
+		},
+		{
+			sql:  `INSERT INTO threads (id, account_id, project_id, is_private) VALUES ($1, $2, $3, TRUE)`,
+			args: []any{threadID, accountID, projectID},
+		},
+		{
+			sql:  `INSERT INTO runs (id, account_id, thread_id, status) VALUES ($1, $2, $3, 'running')`,
+			args: []any{runID, accountID, threadID},
+		},
+	} {
+		if _, err := db.Exec(ctx, stmt.sql, stmt.args...); err != nil {
+			t.Fatalf("seed data: %v", err)
+		}
+	}
+
+	tx, err := db.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	cancelRequested := events.NewEmitter("finalize-trace").Emit("run.cancel_requested", map[string]any{"reason": "test"}, nil, nil)
+	if _, err := (data.DesktopRunEventsRepository{}).AppendRunEvent(ctx, tx, runID, cancelRequested); err != nil {
+		t.Fatalf("append cancel_requested: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit cancel_requested: %v", err)
+	}
+
+	writer := &desktopEventWriter{
+		db:         db,
+		run:        data.Run{ID: runID, AccountID: accountID, ThreadID: threadID},
+		traceID:    "finalize-trace",
+		runsRepo:   data.DesktopRunsRepository{},
+		eventsRepo: data.DesktopRunEventsRepository{},
+	}
+
+	stopped, err := writer.finalizeCancelledIfRequested(ctx)
+	if err != nil {
+		t.Fatalf("finalizeCancelledIfRequested: %v", err)
+	}
+	if !stopped {
+		t.Fatal("expected cancellation finalization to stop processing")
+	}
+
+	checkTx, err := db.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		t.Fatalf("begin check tx: %v", err)
+	}
+	defer checkTx.Rollback(ctx) //nolint:errcheck
+
+	eventType, err := (data.DesktopRunEventsRepository{}).GetLatestEventType(ctx, checkTx, runID, []string{"run.cancelled"})
+	if err != nil {
+		t.Fatalf("load latest cancelled event: %v", err)
+	}
+	if eventType != "run.cancelled" {
+		t.Fatalf("expected latest cancel event run.cancelled, got %q", eventType)
+	}
+
+	run, err := (data.DesktopRunsRepository{}).GetRun(ctx, checkTx, runID)
+	if err != nil {
+		t.Fatalf("load run: %v", err)
+	}
+	if run == nil || run.Status != "cancelled" {
+		t.Fatalf("expected run status cancelled, got %#v", run)
+	}
+}
+
 func TestDesktopSubAgentContextRestoresRoutingFromSnapshotFallback(t *testing.T) {
 	ctx := context.Background()
 
