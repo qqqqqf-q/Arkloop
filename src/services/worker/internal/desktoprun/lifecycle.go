@@ -4,6 +4,7 @@ package desktoprun
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -45,11 +46,12 @@ type lifecycleManager struct {
 }
 
 type desktopRunSnapshot struct {
-	RunID         uuid.UUID
-	AccountID     uuid.UUID
-	LastEventType string
-	LastTraceID   string
-	LastActivity  time.Time
+	RunID               uuid.UUID
+	AccountID           uuid.UUID
+	LastEventType       string
+	LastTraceID         string
+	LastActivity        time.Time
+	LastCancelRequested sql.NullTime
 }
 
 func newLifecycleManager(db data.DesktopDB, q queue.JobQueue, bus eventbus.EventBus, logger *slog.Logger) *lifecycleManager {
@@ -150,8 +152,8 @@ func (m *lifecycleManager) reapOnce(ctx context.Context) error {
 				continue
 			}
 		}
-		if snapshot.LastEventType == "run.cancel_requested" {
-			if snapshot.LastActivity.Before(cancelGraceBefore) {
+		if snapshot.LastCancelRequested.Valid {
+			if snapshot.LastCancelRequested.Time.Before(cancelGraceBefore) {
 				reaped, err := forceFailDesktopRun(ctx, m.db, snapshot.RunID)
 				if err != nil {
 					return err
@@ -197,6 +199,9 @@ func (m *lifecycleManager) recoverRuns(ctx context.Context) error {
 		if _, ok := desktopTerminalEventStatus[snapshot.LastEventType]; ok {
 			continue
 		}
+		if snapshot.LastCancelRequested.Valid {
+			continue
+		}
 		if snapshot.LastEventType == "run.input_requested" || snapshot.LastEventType == "run.cancel_requested" {
 			continue
 		}
@@ -239,7 +244,11 @@ func listRunningRuns(ctx context.Context, db data.DesktopDB) ([]desktopRunSnapsh
 		            SELECT MAX(ts)
 		              FROM run_events re
 		             WHERE re.run_id = r.id
-		        ), r.created_at)
+		        ), r.created_at),
+		        (SELECT MAX(ts)
+		              FROM run_events re
+		             WHERE re.run_id = r.id
+		               AND re.type = 'run.cancel_requested')
 		   FROM runs r
 		  WHERE r.status = 'running'
 		  ORDER BY r.created_at ASC`)
@@ -251,14 +260,23 @@ func listRunningRuns(ctx context.Context, db data.DesktopDB) ([]desktopRunSnapsh
 	snapshots := make([]desktopRunSnapshot, 0)
 	for rows.Next() {
 		var snapshot desktopRunSnapshot
+		var rawCancel sql.NullString
 		if err := rows.Scan(
 			&snapshot.RunID,
 			&snapshot.AccountID,
 			&snapshot.LastEventType,
 			&snapshot.LastTraceID,
 			&snapshot.LastActivity,
+			&rawCancel,
 		); err != nil {
 			return nil, fmt.Errorf("scan running desktop run: %w", err)
+		}
+		if rawCancel.Valid {
+			parsed, err := parseDesktopEventTimestamp(rawCancel.String)
+			if err != nil {
+				return nil, fmt.Errorf("parse cancel_requested ts: %w", err)
+			}
+			snapshot.LastCancelRequested = sql.NullTime{Time: parsed, Valid: true}
 		}
 		snapshots = append(snapshots, snapshot)
 	}
@@ -266,6 +284,26 @@ func listRunningRuns(ctx context.Context, db data.DesktopDB) ([]desktopRunSnapsh
 		return nil, fmt.Errorf("iterate running desktop runs: %w", err)
 	}
 	return snapshots, nil
+}
+
+func parseDesktopEventTimestamp(raw string) (time.Time, error) {
+	cleaned := strings.TrimSpace(raw)
+	if cleaned == "" {
+		return time.Time{}, fmt.Errorf("empty timestamp")
+	}
+	layouts := []string{
+		time.RFC3339Nano,
+		"2006-01-02 15:04:05.999999999 -0700 MST",
+		"2006-01-02 15:04:05.999999999 -0700",
+		"2006-01-02 15:04:05.999999999",
+		"2006-01-02 15:04:05",
+	}
+	for _, layout := range layouts {
+		if parsed, err := time.Parse(layout, cleaned); err == nil {
+			return parsed.UTC(), nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("unsupported timestamp format: %s", cleaned)
 }
 
 func syncRunStatusFromTerminalEvent(ctx context.Context, db data.DesktopDB, runID uuid.UUID, status string) error {

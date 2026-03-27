@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"arkloop/services/shared/runkind"
+
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
@@ -63,6 +65,7 @@ type RunEventRepository struct {
 var ErrThreadBusy = errors.New("thread has active root run")
 
 const runStartedThreadTailMessageIDKey = "thread_tail_message_id"
+const runStartedRunKindKey = "run_kind"
 
 func (r *RunEventRepository) WithTx(tx pgx.Tx) *RunEventRepository {
 	return &RunEventRepository{db: tx}
@@ -184,6 +187,7 @@ func (r *RunEventRepository) CreateRootRunWithClaimFrom(
 		latestRootRun,
 		latestThreadMessage,
 		threadTailMessageIDFromData(latestRootRunStartedData),
+		runKindFromData(latestRootRunStartedData),
 	)
 	return r.createRunWithStartedEvent(ctx, accountID, threadID, createdByUserID, startedType, startedData, resumeFromRunID)
 }
@@ -193,7 +197,7 @@ type threadTailMessage struct {
 	Role string
 }
 
-func shouldResumeFromRun(run *Run, latestMessage *threadTailMessage, previousTailMessageID string) *uuid.UUID {
+func shouldResumeFromRun(run *Run, latestMessage *threadTailMessage, previousTailMessageID string, previousRunKind string) *uuid.UUID {
 	if run == nil || latestMessage == nil {
 		return nil
 	}
@@ -204,6 +208,9 @@ func shouldResumeFromRun(run *Run, latestMessage *threadTailMessage, previousTai
 		return nil
 	}
 	if latestMessage.ID.String() == previousTailMessageID {
+		return nil
+	}
+	if strings.EqualFold(strings.TrimSpace(previousRunKind), runkind.Heartbeat) {
 		return nil
 	}
 	switch run.Status {
@@ -219,6 +226,14 @@ func threadTailMessageIDFromData(data map[string]any) string {
 		return ""
 	}
 	raw, _ := data[runStartedThreadTailMessageIDKey].(string)
+	return strings.TrimSpace(raw)
+}
+
+func runKindFromData(data map[string]any) string {
+	if data == nil {
+		return ""
+	}
+	raw, _ := data[runStartedRunKindKey].(string)
 	return strings.TrimSpace(raw)
 }
 
@@ -796,6 +811,14 @@ func (r *RunEventRepository) ProvideInput(
 		return nil, err
 	}
 	if terminal != "" {
+		return nil, RunNotActiveError{RunID: runID}
+	}
+
+	cancelType, err := r.GetLatestEventType(ctx, runID, []string{"run.cancel_requested", "run.cancelled"})
+	if err != nil {
+		return nil, err
+	}
+	if cancelType == "run.cancel_requested" || cancelType == "run.cancelled" {
 		return nil, RunNotActiveError{RunID: runID}
 	}
 
