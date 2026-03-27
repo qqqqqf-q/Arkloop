@@ -1477,7 +1477,7 @@ export async function patchProviderModel(
   accessToken: string,
   providerId: string,
   modelId: string,
-  data: { show_in_picker?: boolean; tags?: string[] },
+  data: { show_in_picker?: boolean; tags?: string[]; advanced_json?: Record<string, unknown> | null },
 ): Promise<LlmProviderModel> {
   return await apiFetch<LlmProviderModel>(
     withScope(`/v1/llm-providers/${providerId}/models/${modelId}`, BYOK_SCOPE),

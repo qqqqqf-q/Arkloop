@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
-import { Plus, Trash2, Download, X, Loader2 } from 'lucide-react'
+import { Plus, Trash2, Download, X, Loader2, SlidersHorizontal } from 'lucide-react'
 import {
   type LlmProvider,
   type LlmProviderModel,
@@ -17,6 +17,7 @@ import {
 } from '../api'
 import { routeAdvancedJsonFromAvailableCatalog } from '@arkloop/shared/llm/available-catalog-advanced-json'
 import { useLocale } from '../contexts/LocaleContext'
+import { ModelOptionsModal } from './ModelOptionsModal'
 
 const inputCls = 'w-full rounded-md border border-[var(--c-border-subtle)] bg-[var(--c-bg-input)] px-3 py-1.5 text-sm text-[var(--c-text-primary)] outline-none placeholder:text-[var(--c-text-muted)] focus:border-[var(--c-border)]'
 
@@ -400,6 +401,7 @@ function ModelsSection({
   const [newModel, setNewModel] = useState('')
   const [err, setErr] = useState('')
   const [search, setSearch] = useState('')
+  const [editingModel, setEditingModel] = useState<LlmProviderModel | null>(null)
 
   const loadAvailable = useCallback(async () => {
     setLoadingAvailable(true)
@@ -515,6 +517,23 @@ function ModelsSection({
     }
   }
 
+  const handleSaveModelOptions = useCallback(async (payload: {
+    advancedJSON: Record<string, unknown> | null
+    tags: string[]
+  }) => {
+    if (!editingModel) return
+    try {
+      await patchProviderModel(accessToken, provider.id, editingModel.id, {
+        advanced_json: payload.advancedJSON,
+        tags: payload.tags,
+      })
+      setEditingModel(null)
+      onChanged()
+    } catch (e) {
+      throw new Error(isApiError(e) ? e.message : m.saveFailed)
+    }
+  }, [accessToken, editingModel, m.saveFailed, onChanged, provider.id])
+
   const unconfiguredCount = available?.filter((am) => !am.configured).length ?? 0
   const filteredModels = search.trim()
     ? provider.models.filter((pm) => pm.model.toLowerCase().includes(search.trim().toLowerCase()))
@@ -624,6 +643,13 @@ function ModelsSection({
                   />
                 </label>
                 <button
+                  onClick={() => setEditingModel(pm)}
+                  className="rounded p-1.5 text-[var(--c-text-muted)] transition-colors hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-secondary)]"
+                  title={m.modelOptionsTitle}
+                >
+                  <SlidersHorizontal size={14} />
+                </button>
+                <button
                   onClick={() => void handleDeleteModel(pm.id)}
                   className="rounded p-1.5 text-[var(--c-text-muted)] transition-colors hover:bg-[var(--c-bg-sub)] hover:text-red-500"
                 >
@@ -634,6 +660,31 @@ function ModelsSection({
           ))
         )}
       </div>
+
+      <ModelOptionsModal
+        open={editingModel !== null}
+        model={editingModel}
+        availableModels={available}
+        labels={{
+          modelOptionsTitle: m.modelOptionsTitle,
+          modelOptionsFor: m.modelOptionsFor,
+          modelCapabilities: m.modelCapabilities,
+          vision: m.vision,
+          imageOutput: m.imageOutput,
+          embedding: m.embedding,
+          contextWindow: m.contextWindow,
+          maxOutputTokens: m.maxOutputTokens,
+          providerOptionsJson: m.providerOptionsJson,
+          providerOptionsHint: m.providerOptionsHint,
+          save: m.save,
+          cancel: m.cancel,
+          reset: m.reset,
+          invalidJson: m.invalidJson,
+          invalidNumber: m.invalidNumber,
+        }}
+        onClose={() => setEditingModel(null)}
+        onSave={handleSaveModelOptions}
+      />
     </div>
   )
 }
