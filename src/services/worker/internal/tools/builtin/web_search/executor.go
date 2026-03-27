@@ -53,6 +53,15 @@ var AgentSpecTavily = tools.AgentToolSpec{
 	SideEffects: false,
 }
 
+var AgentSpecDuckduckgo = tools.AgentToolSpec{
+	Name:        "web_search.duckduckgo",
+	LlmName:     "web_search",
+	Version:     "1",
+	Description: "search the internet and return summary results",
+	RiskLevel:   tools.RiskLevelLow,
+	SideEffects: false,
+}
+
 var LlmSpec = llm.ToolSpec{
 	Name:        "web_search",
 	Description: stringPtr(sharedtoolmeta.Must("web_search").LLMDescription),

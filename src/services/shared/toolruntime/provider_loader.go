@@ -184,10 +184,9 @@ func evaluateProviderRuntimeStatus(status ProviderRuntimeStatus) (ProviderRuntim
 		return ProviderRuntimeStateReady, ""
 	case "web_search.searxng":
 		return validateInternalBaseURL(status.BaseURL)
+	case "web_search.duckduckgo":
+		return ProviderRuntimeStateReady, ""
 	case "web_fetch.jina":
-		if blankPtr(status.APIKeyValue) {
-			return ProviderRuntimeStateMissingConfig, "missing_api_key"
-		}
 		return ProviderRuntimeStateReady, ""
 	case "web_fetch.firecrawl":
 		return validateInternalBaseURL(status.BaseURL)

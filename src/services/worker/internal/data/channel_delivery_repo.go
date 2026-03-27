@@ -59,26 +59,27 @@ func (ChannelDeliveryRepository) GetChannel(ctx context.Context, pool *pgxpool.P
 	var (
 		item           DeliveryChannelRecord
 		encryptedValue *string
+		keyVersion     *int
 		configJSON     []byte
 	)
 	err := pool.QueryRow(
 		ctx,
-		`SELECT c.id, c.channel_type, s.encrypted_value, COALESCE(c.config_json, '{}'::jsonb)
+		`SELECT c.id, c.channel_type, s.encrypted_value, s.key_version, COALESCE(c.config_json, '{}'::jsonb)
 		 FROM channels c
 		 LEFT JOIN secrets s ON s.id = c.credentials_id
 		 WHERE c.id = $1 AND c.is_active = true`,
 		channelID,
-	).Scan(&item.ID, &item.ChannelType, &encryptedValue, &configJSON)
+	).Scan(&item.ID, &item.ChannelType, &encryptedValue, &keyVersion, &configJSON)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("channel_delivery.GetChannel: %w", err)
 	}
-	if encryptedValue == nil || *encryptedValue == "" {
+	if encryptedValue == nil || *encryptedValue == "" || keyVersion == nil {
 		return nil, fmt.Errorf("channel_delivery.GetChannel: missing telegram token")
 	}
-	plaintext, err := workercrypto.DecryptGCM(*encryptedValue)
+	plaintext, err := workercrypto.DecryptWithKeyVersion(*encryptedValue, *keyVersion)
 	if err != nil {
 		return nil, fmt.Errorf("channel_delivery.GetChannel: decrypt token: %w", err)
 	}

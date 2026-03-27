@@ -309,7 +309,7 @@ export function SearchFetchSettings() {
     firecrawl: runtimeStatusForName('web_fetch.firecrawl'),
   }
   const searchRuntimeStatus = {
-    duckduckgo: runtimeStatusForName(undefined, 'legacy_provider'),
+    duckduckgo: runtimeStatusForName('web_search.duckduckgo'),
     tavily: runtimeStatusForName('web_search.tavily'),
     searxng: runtimeStatusForName('web_search.searxng'),
   }

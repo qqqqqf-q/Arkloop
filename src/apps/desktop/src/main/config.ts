@@ -47,13 +47,15 @@ function normalizeLocalConfig(local: unknown): LocalConfig {
 }
 
 function normalizeFetchProvider(p: unknown): FetchProvider {
-  return p === 'basic' || p === 'firecrawl' ? p : 'jina'
+  return p === 'none' || p === 'jina' || p === 'basic' || p === 'firecrawl'
+    ? p
+    : DEFAULT_CONFIG.connectors.fetch.provider
 }
 
 function normalizeSearchProvider(p: unknown): SearchProvider {
   if (p === 'browser') return 'duckduckgo'
-  if (p === 'tavily' || p === 'searxng' || p === 'duckduckgo') return p
-  return 'duckduckgo'
+  if (p === 'none' || p === 'tavily' || p === 'searxng' || p === 'duckduckgo') return p
+  return DEFAULT_CONFIG.connectors.search.provider
 }
 
 function normalizeFetchConnector(raw: unknown): FetchConnectorConfig {

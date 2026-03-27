@@ -256,10 +256,10 @@ func loadEffectiveMCPConfigFromDB(ctx context.Context, pool data.DB, accountID u
 		return nil, fmt.Errorf("mcp effective catalog: load enabled installs: %w", err)
 	}
 
-	keyRing, err := newEffectiveCatalogKeyRing()
-	if err != nil {
-		return nil, fmt.Errorf("mcp effective catalog: %w", err)
-	}
+	var (
+		keyRing    catalogKeyRing
+		keyRingErr error
+	)
 	servers := make([]effectiveMCPServerConfig, 0, len(installs))
 	for _, item := range installs {
 		headers := map[string]string{}
@@ -269,6 +269,9 @@ func loadEffectiveMCPConfigFromDB(ctx context.Context, pool data.DB, accountID u
 				continue
 			}
 			if keyRing == nil {
+				keyRing, keyRingErr = newEffectiveCatalogKeyRing()
+			}
+			if keyRingErr != nil || keyRing == nil {
 				continue
 			}
 			plain, decErr := keyRing.Decrypt(*item.EncryptedValue, version)

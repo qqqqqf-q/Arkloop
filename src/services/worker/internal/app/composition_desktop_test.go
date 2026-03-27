@@ -256,14 +256,14 @@ func TestDesktopToolProviderBindingsInjectsImageUnderstandingExecutor(t *testing
 			args: []any{accountID, userID},
 		},
 		{
-			sql:  `INSERT INTO secrets (id, account_id, owner_kind, owner_user_id, name, encrypted_value, key_version) VALUES ($1, $2, 'user', $3, 'desktop-image-understanding', $4, 1)`,
-			args: []any{secretID, accountID, userID, encryptDesktopChannelToken(t, keyBytes, "minimax-test-key")},
+			sql:  `INSERT INTO secrets (id, account_id, owner_kind, name, encrypted_value, key_version) VALUES ($1, $2, 'platform', 'desktop-image-understanding', $3, 1)`,
+			args: []any{secretID, accountID, encryptDesktopChannelToken(t, keyBytes, "minimax-test-key")},
 		},
 		{
 			sql: `INSERT INTO tool_provider_configs (
-				account_id, owner_kind, owner_user_id, group_name, provider_name, is_active, secret_id
-			) VALUES ($1, 'user', $2, 'image_understanding', $3, 1, $4)`,
-			args: []any{accountID.String(), userID.String(), understandimage.ProviderNameMiniMax, secretID},
+					account_id, owner_kind, group_name, provider_name, is_active, secret_id
+				) VALUES ($1, 'platform', 'image_understanding', $2, 1, $3)`,
+			args: []any{accountID.String(), understandimage.ProviderNameMiniMax, secretID},
 		},
 	} {
 		if _, err := db.Exec(ctx, stmt.sql, stmt.args...); err != nil {

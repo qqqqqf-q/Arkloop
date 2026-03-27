@@ -24,13 +24,14 @@ type endpointRow struct {
 func getWebhookEndpoint(ctx context.Context, pool *pgxpool.Pool, id uuid.UUID) (*endpointRow, bool, error) {
 	var ep endpointRow
 	var encryptedValue *string
+	var keyVersion *int
 	err := pool.QueryRow(ctx,
-		`SELECT e.id, e.url, s.encrypted_value, e.events, e.enabled
+		`SELECT e.id, e.url, s.encrypted_value, s.key_version, e.events, e.enabled
 		 FROM webhook_endpoints e
 		 LEFT JOIN secrets s ON s.id = e.secret_id
 		 WHERE e.id = $1`,
 		id,
-	).Scan(&ep.ID, &ep.URL, &encryptedValue, &ep.Events, &ep.Enabled)
+	).Scan(&ep.ID, &ep.URL, &encryptedValue, &keyVersion, &ep.Events, &ep.Enabled)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, false, nil
 	}
@@ -40,7 +41,7 @@ func getWebhookEndpoint(ctx context.Context, pool *pgxpool.Pool, id uuid.UUID) (
 	if !ep.Enabled {
 		return nil, true, nil
 	}
-	if err := hydrateWebhookSigningSecret(&ep, encryptedValue); err != nil {
+	if err := hydrateWebhookSigningSecret(&ep, encryptedValue, keyVersion); err != nil {
 		return nil, false, err
 	}
 	return &ep, false, nil
@@ -49,7 +50,7 @@ func getWebhookEndpoint(ctx context.Context, pool *pgxpool.Pool, id uuid.UUID) (
 // listEndpointsForEvent 返回指定 account 中订阅了给定事件类型的所有启用端点。
 func listEndpointsForEvent(ctx context.Context, pool *pgxpool.Pool, accountID uuid.UUID, eventType string) ([]endpointRow, error) {
 	rows, err := pool.Query(ctx,
-		`SELECT e.id, e.url, s.encrypted_value, e.events, e.enabled
+		`SELECT e.id, e.url, s.encrypted_value, s.key_version, e.events, e.enabled
 		 FROM webhook_endpoints e
 		 LEFT JOIN secrets s ON s.id = e.secret_id
 		 WHERE e.account_id = $1
@@ -66,10 +67,11 @@ func listEndpointsForEvent(ctx context.Context, pool *pgxpool.Pool, accountID uu
 	for rows.Next() {
 		var ep endpointRow
 		var encryptedValue *string
-		if err := rows.Scan(&ep.ID, &ep.URL, &encryptedValue, &ep.Events, &ep.Enabled); err != nil {
+		var keyVersion *int
+		if err := rows.Scan(&ep.ID, &ep.URL, &encryptedValue, &keyVersion, &ep.Events, &ep.Enabled); err != nil {
 			return nil, err
 		}
-		if err := hydrateWebhookSigningSecret(&ep, encryptedValue); err != nil {
+		if err := hydrateWebhookSigningSecret(&ep, encryptedValue, keyVersion); err != nil {
 			return nil, err
 		}
 		endpoints = append(endpoints, ep)
@@ -77,12 +79,15 @@ func listEndpointsForEvent(ctx context.Context, pool *pgxpool.Pool, accountID uu
 	return endpoints, rows.Err()
 }
 
-func hydrateWebhookSigningSecret(ep *endpointRow, encryptedValue *string) error {
+func hydrateWebhookSigningSecret(ep *endpointRow, encryptedValue *string, keyVersion *int) error {
 	if ep == nil {
 		return nil
 	}
 	if encryptedValue != nil && *encryptedValue != "" {
-		plaintext, err := workercrypto.DecryptGCM(*encryptedValue)
+		if keyVersion == nil {
+			return fmt.Errorf("webhook: missing key version")
+		}
+		plaintext, err := workercrypto.DecryptWithKeyVersion(*encryptedValue, *keyVersion)
 		if err != nil {
 			return err
 		}

@@ -73,7 +73,7 @@ func splitDelegateSelector(sel string) (credentialID uuid.UUID, model string, ok
 
 func applyCredentialModelToEnv(ctx context.Context, db data.DesktopDB, credID uuid.UUID, modelName string, env map[string]string) *tools.ExecutionError {
 	row := db.QueryRow(ctx, `
-		SELECT c.provider, c.base_url, s.encrypted_value
+		SELECT c.provider, c.base_url, s.encrypted_value, s.key_version
 		FROM llm_credentials c
 		LEFT JOIN secrets s ON s.id = c.secret_id
 		WHERE c.id = $1 AND c.revoked_at IS NULL
@@ -81,16 +81,17 @@ func applyCredentialModelToEnv(ctx context.Context, db data.DesktopDB, credID uu
 	)
 	var provider, baseURL *string
 	var enc *string
-	if err := row.Scan(&provider, &baseURL, &enc); err != nil {
+	var keyVersion *int
+	if err := row.Scan(&provider, &baseURL, &enc, &keyVersion); err != nil {
 		if err == pgx.ErrNoRows {
 			return &tools.ExecutionError{ErrorClass: "tool.config_invalid", Message: "llm credential not found for delegate_model_selector"}
 		}
 		return &tools.ExecutionError{ErrorClass: "tool.execution_failed", Message: fmt.Sprintf("load credential: %v", err)}
 	}
-	if enc == nil || strings.TrimSpace(*enc) == "" {
+	if enc == nil || strings.TrimSpace(*enc) == "" || keyVersion == nil {
 		return &tools.ExecutionError{ErrorClass: "tool.config_invalid", Message: "llm credential has no secret"}
 	}
-	plain, err := workerCrypto.DecryptGCM(*enc)
+	plain, err := workerCrypto.DecryptWithKeyVersion(*enc, *keyVersion)
 	if err != nil {
 		return &tools.ExecutionError{ErrorClass: "tool.execution_failed", Message: fmt.Sprintf("decrypt credential: %v", err)}
 	}

@@ -151,7 +151,7 @@ func TestResolveBuiltinHidesWebToolsWhenNotConfigured(t *testing.T) {
 func TestResolveBuiltinAddsWebToolsFromPlatformProviders(t *testing.T) {
 	resolved := ResolveBuiltin(ResolveInput{
 		PlatformProviders: []ProviderConfig{
-			{GroupName: "web_search", ProviderName: "web_search.searxng"},
+			{GroupName: "web_search", ProviderName: "web_search.duckduckgo"},
 			{GroupName: "web_fetch", ProviderName: "web_fetch.jina"},
 			{
 				GroupName:    "image_understanding",
@@ -203,7 +203,7 @@ func TestRuntimeSnapshotMergeBuiltinToolNamesFromPreservesStubAndAddsBuiltins(t 
 func TestResolveBuiltinWebFetchJinaRequiresProviderConfig(t *testing.T) {
 	resolved := ResolveBuiltin(ResolveInput{
 		PlatformProviders: []ProviderConfig{
-			{GroupName: "web_fetch", ProviderName: "web_fetch.jina", APIKeyValue: strPtr("jina-key")},
+			{GroupName: "web_fetch", ProviderName: "web_fetch.jina"},
 		},
 	})
 	if _, ok := resolved.ToolNameSet()["web_fetch"]; !ok {

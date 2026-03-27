@@ -39,7 +39,7 @@ type CredentialScope string
 
 const (
 	CredentialScopePlatform CredentialScope = "platform"
-	CredentialScopeUser  CredentialScope = "user"
+	CredentialScopeUser     CredentialScope = "user"
 )
 
 type ProviderCredential struct {
@@ -58,7 +58,7 @@ func (c ProviderCredential) ToPublicJSON() map[string]any {
 	payload := map[string]any{
 		"credential_id":   c.ID,
 		"credential_name": c.Name,
-		"owner_kind":       string(c.OwnerKind),
+		"owner_kind":      string(c.OwnerKind),
 		"provider_kind":   string(c.ProviderKind),
 	}
 	if c.BaseURL != nil {
@@ -580,7 +580,7 @@ func LoadRoutingConfigFromDB(ctx context.Context, pool *pgxpool.Pool, accountID 
 	}
 	defer rows.Close()
 
-		type rowData struct {
+	type rowData struct {
 		routeID             uuid.UUID
 		credentialID        uuid.UUID
 		model               string
@@ -590,13 +590,13 @@ func LoadRoutingConfigFromDB(ctx context.Context, pool *pgxpool.Pool, accountID 
 		multiplier          float64
 		costPer1kInput      *float64
 		costPer1kOutput     *float64
-			costPer1kCacheWrite *float64
-			costPer1kCacheRead  *float64
-			priority            int
-			accountID           *uuid.UUID
-			credID              uuid.UUID
-			ownerKind           string
-			credName            string
+		costPer1kCacheWrite *float64
+		costPer1kCacheRead  *float64
+		priority            int
+		accountID           *uuid.UUID
+		credID              uuid.UUID
+		ownerKind           string
+		credName            string
 		provider            string
 		baseURL             *string
 		openaiAPIMode       *string
@@ -666,8 +666,11 @@ func LoadRoutingConfigFromDB(ctx context.Context, pool *pgxpool.Pool, accountID 
 		}
 
 		var apiKeyValue *string
-		if rd.encryptedValue != nil && rd.keyVersion != nil {
-			plainBytes, err := workerCrypto.DecryptGCM(*rd.encryptedValue)
+		if rd.encryptedValue != nil {
+			if rd.keyVersion == nil {
+				return ProviderRoutingConfig{}, fmt.Errorf("routing: missing key version for credential %s", credIDStr)
+			}
+			plainBytes, err := workerCrypto.DecryptWithKeyVersion(*rd.encryptedValue, *rd.keyVersion)
 			if err != nil {
 				return ProviderRoutingConfig{}, fmt.Errorf("routing: decrypt credential %s: %w", credIDStr, err)
 			}
