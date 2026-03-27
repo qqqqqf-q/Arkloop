@@ -44,7 +44,6 @@ import {
   applyTerminalDelta,
   buildMessageCodeExecutionsFromRunEvents,
   patchCodeExecutionList,
-  buildMessageThinkingFromRunEvents,
   buildMessageWidgetsFromRunEvents,
   findAssistantMessageForRun,
   selectFreshRunEvents,
@@ -65,7 +64,6 @@ import {
 } from '../runEventProcessing'
 import {
   assistantTurnPlainText,
-  assistantTurnThinkingPlainText,
   buildAssistantTurnFromRunEvents,
   copSegmentCalls,
   createEmptyAssistantTurnFoldState,
@@ -119,8 +117,6 @@ import {
   writeMessageArtifacts,
   readMessageCodeExecutions,
   writeMessageCodeExecutions,
-  readMessageThinking,
-  writeMessageThinking,
   readMessageBrowserActions,
   writeMessageBrowserActions,
 
@@ -179,6 +175,57 @@ function normalizeError(error: unknown): AppError {
     return { message: error.message }
   }
   return { message: '请求失败' }
+}
+
+function stripThinkingFromAssistantTurn(turn: AssistantTurnUi): AssistantTurnUi {
+  const segments: AssistantTurnSegment[] = []
+  for (const segment of turn.segments) {
+    if (segment.type === 'text') {
+      if (segment.content !== '') {
+        segments.push(segment)
+      }
+      continue
+    }
+    const items = segment.items.filter((item) => item.kind !== 'thinking')
+    if (items.length === 0) {
+      continue
+    }
+    segments.push({ ...segment, items })
+  }
+  return {
+    segments,
+  }
+}
+
+function interruptedErrorFromRunEvents(
+  events: ReadonlyArray<{ type: string; data: unknown }>,
+  fallbackMessage: string,
+): AppError {
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const event = events[i]
+    if (!event || event.type !== 'run.interrupted') {
+      continue
+    }
+    const data = event.data
+    const payload = data && typeof data === 'object' && !Array.isArray(data)
+      ? data as Record<string, unknown>
+      : {}
+    const details = payload.details && typeof payload.details === 'object' && !Array.isArray(payload.details)
+      ? payload.details as Record<string, unknown>
+      : undefined
+    return {
+      message: typeof payload.message === 'string' && payload.message.trim() !== ''
+        ? payload.message
+        : fallbackMessage,
+      code: typeof payload.code === 'string'
+        ? payload.code
+        : typeof payload.error_class === 'string'
+          ? payload.error_class
+          : undefined,
+      details,
+    }
+  }
+  return { message: fallbackMessage }
 }
 
 type OutletContext = {
@@ -729,6 +776,94 @@ export function ChatPage() {
     resetSearchSteps()
   }, [resetSearchSteps])
 
+  type TerminalRunCache = {
+    runSources: WebSource[]
+    runArtifacts: ArtifactRef[]
+    runWidgets: WidgetRef[]
+    runCodeExecs: CodeExecutionRef[]
+    runBrowserActions: BrowserActionRef[]
+    runSubAgents: SubAgentRef[]
+    runFileOps: FileOpRef[]
+    runWebFetches: WebFetchRef[]
+    runAssistantTurn: AssistantTurnUi
+    pendingSearchSteps?: MessageSearchStepRef[] | null
+  }
+
+  const captureTerminalRunCache = (): TerminalRunCache => ({
+    runSources: [...currentRunSourcesRef.current],
+    runArtifacts: [...currentRunArtifactsRef.current],
+    runWidgets: collectCompletedWidgets(streamingArtifactsRef.current),
+    runCodeExecs: [...currentRunCodeExecutionsRef.current],
+    runBrowserActions: [...currentRunBrowserActionsRef.current],
+    runSubAgents: [...currentRunSubAgentsRef.current],
+    runFileOps: [...currentRunFileOpsRef.current],
+    runWebFetches: [...currentRunWebFetchesRef.current],
+    runAssistantTurn: stripThinkingFromAssistantTurn(
+      drainAssistantTurnForPersist(assistantTurnFoldStateRef.current),
+    ),
+    pendingSearchSteps: pendingSearchStepsRef.current,
+  })
+
+  const persistRunDataToMessage = useCallback(
+    (messageId: string, runData: TerminalRunCache, runEvents: MsgRunEvent[]) => {
+      if (runData.runWidgets.length > 0) {
+        writeMessageWidgets(messageId, runData.runWidgets)
+        setMessageWidgetsMap((prev) => new Map(prev).set(messageId, runData.runWidgets))
+      }
+      if (runData.runSources.length > 0) {
+        writeMessageSources(messageId, runData.runSources)
+        setMessageSourcesMap((prev) => new Map(prev).set(messageId, runData.runSources))
+      }
+      if (runData.pendingSearchSteps && runData.pendingSearchSteps.length > 0) {
+        writeMessageSearchSteps(messageId, runData.pendingSearchSteps)
+        setMessageSearchStepsMap((prev) => new Map(prev).set(messageId, runData.pendingSearchSteps!))
+      }
+      if (runData.runAssistantTurn.segments.length > 0) {
+        writeMessageAssistantTurn(messageId, runData.runAssistantTurn)
+        setMessageAssistantTurnMap((prev) => new Map(prev).set(messageId, runData.runAssistantTurn))
+      }
+      if (runData.runArtifacts.length > 0) {
+        writeMessageArtifacts(messageId, runData.runArtifacts)
+        setMessageArtifactsMap((prev) => new Map(prev).set(messageId, runData.runArtifacts))
+      }
+      writeMessageCodeExecutions(messageId, runData.runCodeExecs)
+      setMessageCodeExecutionsMap((prev) => new Map(prev).set(messageId, runData.runCodeExecs))
+      if (runData.runBrowserActions.length > 0) {
+        writeMessageBrowserActions(messageId, runData.runBrowserActions)
+        setMessageBrowserActionsMap((prev) => new Map(prev).set(messageId, runData.runBrowserActions))
+      }
+      if (runData.runSubAgents.length > 0) {
+        writeMessageSubAgents(messageId, runData.runSubAgents)
+        setMessageSubAgentsMap((prev) => new Map(prev).set(messageId, runData.runSubAgents))
+      }
+      if (runData.runFileOps.length > 0) {
+        writeMessageFileOps(messageId, runData.runFileOps)
+        setMessageFileOpsMap((prev) => new Map(prev).set(messageId, runData.runFileOps))
+      }
+      if (runData.runWebFetches.length > 0) {
+        writeMessageWebFetches(messageId, runData.runWebFetches)
+        setMessageWebFetchesMap((prev) => new Map(prev).set(messageId, runData.runWebFetches))
+      }
+      if (runEvents.length > 0) {
+        writeMsgRunEvents(messageId, runEvents)
+        setMsgRunEventsMap((prev) => new Map(prev).set(messageId, runEvents))
+      }
+    },
+    [
+      setMessageArtifactsMap,
+      setMessageAssistantTurnMap,
+      setMessageBrowserActionsMap,
+      setMessageCodeExecutionsMap,
+      setMessageFileOpsMap,
+      setMessageSearchStepsMap,
+      setMessageSourcesMap,
+      setMessageSubAgentsMap,
+      setMessageWebFetchesMap,
+      setMessageWidgetsMap,
+      setMsgRunEventsMap,
+    ],
+  )
+
   const bottomRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const copCodeExecScrollRef = useRef<HTMLDivElement>(null)
@@ -737,6 +872,7 @@ export function ChatPage() {
   const wasLoadingRef = useRef(false)
   const processedEventCountRef = useRef(0)
   const freezeCutoffRef = useRef<number | null>(null)
+  const lastVisibleNonTerminalSeqRef = useRef(0)
   const messageSyncVersionRef = useRef(0)
   // 仅在当前 run 的 SSE 确认进入过连接态后，才允许触发终端兜底。
   const sseTerminalFallbackRunIdRef = useRef<string | null>(null)
@@ -835,27 +971,6 @@ export function ChatPage() {
       if (documentPanelScrollFrameRef.current !== null) {
         cancelAnimationFrame(documentPanelScrollFrameRef.current)
       }
-    }
-  }, [])
-
-  const buildLiveThinkingSnapshot = useCallback((): MessageThinkingRef | null => {
-    const snap = snapshotAssistantTurn(assistantTurnFoldStateRef.current)
-    const fromTurn = assistantTurnThinkingPlainText(snap)
-    const liveSegments = segmentsRef.current
-      .filter((s) => s.mode !== 'hidden' && s.content.trim() !== '')
-      .map((s) => ({
-        segmentId: s.segmentId,
-        kind: s.kind,
-        mode: s.mode,
-        label: s.label,
-        content: s.content,
-      }))
-    if (liveSegments.length === 0 && fromTurn.trim() === '') {
-      return null
-    }
-    return {
-      thinkingText: fromTurn,
-      segments: liveSegments,
     }
   }, [])
 
@@ -1018,9 +1133,9 @@ export function ChatPage() {
 
         loadedItems = items
         setMessages(items)
-        if (latest?.status === 'interrupted') {
-          setError({ message: t.runInterrupted })
-        }
+        let interruptedError = latest?.status === 'interrupted'
+          ? { message: t.runInterrupted }
+          : null
 
         // 加载各消息缓存的 web 来源
         const sourcesMap = new Map<string, WebSource[]>()
@@ -1055,8 +1170,6 @@ export function ChatPage() {
           if (cachedFileOps) fileOpsMap.set(msg.id, cachedFileOps)
           const cachedWebFetches = readMessageWebFetches(msg.id)
           if (cachedWebFetches) webFetchesMap.set(msg.id, cachedWebFetches)
-          const cachedThinking = readMessageThinking(msg.id)
-          if (cachedThinking) thinkingMap.set(msg.id, cachedThinking)
           const cachedSearchSteps = readMessageSearchSteps(msg.id)
           if (cachedSearchSteps) {
             const patched = patchLegacySearchSteps(cachedSearchSteps)
@@ -1065,16 +1178,22 @@ export function ChatPage() {
           }
 
           const cachedRunEvents = readMsgRunEvents(msg.id)
-          if (cachedRunEvents) runEventsMap.set(msg.id, cachedRunEvents)
+          if (cachedRunEvents) {
+            runEventsMap.set(msg.id, cachedRunEvents)
+            if (latest?.status === 'interrupted' && latest.run_id && msg.run_id === latest.run_id) {
+              interruptedError = interruptedErrorFromRunEvents(cachedRunEvents, t.runInterrupted)
+            }
+          }
           const cachedTurn = readMessageAssistantTurn(msg.id)
-          if (cachedTurn) assistantTurnMap.set(msg.id, cachedTurn)
+          if (cachedTurn) {
+            assistantTurnMap.set(msg.id, stripThinkingFromAssistantTurn(cachedTurn))
+          }
         }
 
-        // 服务端回放：补齐最新一轮的 thinking / 代码执行缓存
+        // 服务端回放：补齐最新一轮的运行缓存
         const lastAssistant = latest
           ? findAssistantMessageForRun(items, latest.run_id)
           : [...items].reverse().find((m) => m.role === 'assistant')
-        const replayThinkingNeeded = !!(lastAssistant && !thinkingMap.has(lastAssistant.id))
         const replayWidgetsNeeded = !!(lastAssistant && !widgetsMap.has(lastAssistant.id))
         const replayCodeExecNeeded = !!(lastAssistant && shouldReplayMessageCodeExecutions(codeExecMap.get(lastAssistant.id)))
         const replayBrowserActionsNeeded = !!(lastAssistant && !browserActionsMap.has(lastAssistant.id))
@@ -1082,58 +1201,69 @@ export function ChatPage() {
         const replayFileOpsNeeded = !!(lastAssistant && !fileOpsMap.has(lastAssistant.id))
         const replayWebFetchesNeeded = !!(lastAssistant && !webFetchesMap.has(lastAssistant.id))
         const replayAssistantTurnNeeded = !!(lastAssistant && !assistantTurnMap.has(lastAssistant.id))
-        if (latest && latest.status !== 'running' && lastAssistant && (replayThinkingNeeded || replayWidgetsNeeded || replayCodeExecNeeded || replayBrowserActionsNeeded || replaySubAgentsNeeded || replayFileOpsNeeded || replayWebFetchesNeeded || replayAssistantTurnNeeded)) {
+        const shouldReplayLatestRun =
+          !!latest &&
+          latest.status !== 'running' &&
+          (
+            latest.status === 'interrupted' ||
+            (lastAssistant != null && (
+              replayWidgetsNeeded ||
+              replayCodeExecNeeded ||
+              replayBrowserActionsNeeded ||
+              replaySubAgentsNeeded ||
+              replayFileOpsNeeded ||
+              replayWebFetchesNeeded ||
+              replayAssistantTurnNeeded
+            ))
+          )
+        if (shouldReplayLatestRun && latest) {
           try {
             const replayEvents = await listRunEvents(accessToken, latest.run_id, { follow: false })
-            if (replayThinkingNeeded) {
-              const thinking = buildMessageThinkingFromRunEvents(replayEvents)
-              if (thinking) {
-                thinkingMap.set(lastAssistant.id, thinking)
-                writeMessageThinking(lastAssistant.id, thinking)
-              }
+            if (latest.status === 'interrupted') {
+              interruptedError = interruptedErrorFromRunEvents(replayEvents, t.runInterrupted)
             }
-            if (replayWidgetsNeeded) {
+            if (lastAssistant && replayWidgetsNeeded) {
               const replayWidgets = buildMessageWidgetsFromRunEvents(replayEvents)
               if (replayWidgets.length > 0) {
                 widgetsMap.set(lastAssistant.id, replayWidgets)
                 writeMessageWidgets(lastAssistant.id, replayWidgets)
               }
             }
-            if (replayCodeExecNeeded) {
+            if (lastAssistant && replayCodeExecNeeded) {
               const replayExecs = buildMessageCodeExecutionsFromRunEvents(replayEvents)
               codeExecMap.set(lastAssistant.id, replayExecs)
               writeMessageCodeExecutions(lastAssistant.id, replayExecs)
             }
-            if (replayBrowserActionsNeeded) {
+            if (lastAssistant && replayBrowserActionsNeeded) {
               const replayActions = buildMessageBrowserActionsFromRunEvents(replayEvents)
               if (replayActions.length > 0) {
                 browserActionsMap.set(lastAssistant.id, replayActions)
                 writeMessageBrowserActions(lastAssistant.id, replayActions)
               }
             }
-            if (replaySubAgentsNeeded) {
+            if (lastAssistant && replaySubAgentsNeeded) {
               const replayAgents = buildMessageSubAgentsFromRunEvents(replayEvents)
               if (replayAgents.length > 0) {
                 subAgentsMap.set(lastAssistant.id, replayAgents)
                 writeMessageSubAgents(lastAssistant.id, replayAgents)
               }
             }
-            if (replayFileOpsNeeded) {
+            if (lastAssistant && replayFileOpsNeeded) {
               const replayFileOps = buildMessageFileOpsFromRunEvents(replayEvents)
               if (replayFileOps.length > 0) {
                 fileOpsMap.set(lastAssistant.id, replayFileOps)
                 writeMessageFileOps(lastAssistant.id, replayFileOps)
               }
             }
-            if (replayWebFetchesNeeded) {
+            if (lastAssistant && replayWebFetchesNeeded) {
               const replayWebFetches = buildMessageWebFetchesFromRunEvents(replayEvents)
               if (replayWebFetches.length > 0) {
                 webFetchesMap.set(lastAssistant.id, replayWebFetches)
                 writeMessageWebFetches(lastAssistant.id, replayWebFetches)
               }
             }
-            if (replayAssistantTurnNeeded) {
-              const replayTurn = buildAssistantTurnFromRunEvents(replayEvents)
+            if (lastAssistant && replayAssistantTurnNeeded) {
+              const replayTurn = stripThinkingFromAssistantTurn(buildAssistantTurnFromRunEvents(replayEvents))
               if (replayTurn.segments.length > 0) {
                 assistantTurnMap.set(lastAssistant.id, replayTurn)
                 writeMessageAssistantTurn(lastAssistant.id, replayTurn)
@@ -1157,6 +1287,9 @@ export function ChatPage() {
         setMsgRunEventsMap(runEventsMap)
         setMessageAssistantTurnMap(assistantTurnMap)
         setMessageWebFetchesMap(webFetchesMap)
+        if (interruptedError) {
+          setError(interruptedError)
+        }
 
         // 若 location state 已提供 initialRunId，优先使用（来自 WelcomePage 新建后导航）
         // 必须显式调用 setActiveRunId，因为 React Router 复用组件实例，useState 初始值不会重新求值
@@ -1295,6 +1428,7 @@ export function ChatPage() {
     sse.reset()
     sse.connect()
     processedEventCountRef.current = 0
+    lastVisibleNonTerminalSeqRef.current = 0
     currentRunSourcesRef.current = []
     currentRunArtifactsRef.current = []
     currentRunCodeExecutionsRef.current = []
@@ -1353,6 +1487,7 @@ export function ChatPage() {
     const resetTerminalRunState = (options?: {
       restoreQueuedDraft?: boolean
       preserveSearchSteps?: boolean
+      handoffRunCache?: TerminalRunCache
     }) => {
       freezeCutoffRef.current = null
       injectionBlockedRunIdRef.current = null
@@ -1360,27 +1495,39 @@ export function ChatPage() {
       setActiveRunId(null)
       setCancelSubmitting(false)
       setPendingThinking(false)
-      setTopLevelCodeExecutions([])
-      setTopLevelSubAgents([])
-      setTopLevelFileOps([])
-      setTopLevelWebFetches([])
+      const handoffRunCache = options?.handoffRunCache
+      if (handoffRunCache) {
+        setLiveAssistantTurn(
+          handoffRunCache.runAssistantTurn.segments.length > 0
+            ? handoffRunCache.runAssistantTurn
+            : null,
+        )
+      } else {
+        setLiveAssistantTurn(null)
+        setTopLevelCodeExecutions([])
+        setTopLevelSubAgents([])
+        setTopLevelFileOps([])
+        setTopLevelWebFetches([])
+      }
       if (options?.restoreQueuedDraft) {
         restoreQueuedDraftToInput()
       } else {
         clearQueuedDraft()
       }
-      streamingArtifactsRef.current = []
-      setStreamingArtifacts([])
-      setSegments([])
-      resetAssistantTurnLive()
-      activeSegmentIdRef.current = null
-      currentRunSourcesRef.current = []
-      currentRunArtifactsRef.current = []
-      currentRunCodeExecutionsRef.current = []
-      currentRunBrowserActionsRef.current = []
-      currentRunSubAgentsRef.current = []
-      currentRunFileOpsRef.current = []
-      currentRunWebFetchesRef.current = []
+      if (!handoffRunCache) {
+        streamingArtifactsRef.current = []
+        setStreamingArtifacts([])
+        setSegments([])
+        resetAssistantTurnLive()
+        activeSegmentIdRef.current = null
+        currentRunSourcesRef.current = []
+        currentRunArtifactsRef.current = []
+        currentRunCodeExecutionsRef.current = []
+        currentRunBrowserActionsRef.current = []
+        currentRunSubAgentsRef.current = []
+        currentRunFileOpsRef.current = []
+        currentRunWebFetchesRef.current = []
+      }
       if (!options?.preserveSearchSteps) {
         resetSearchSteps()
       }
@@ -1412,6 +1559,9 @@ export function ChatPage() {
         event,
       })) {
         continue
+      }
+      if (!isTerminalRunEventType(event.type) && typeof event.seq === 'number') {
+        lastVisibleNonTerminalSeqRef.current = Math.max(lastVisibleNonTerminalSeqRef.current, event.seq)
       }
 
       const nextWebSearchSteps = applyRunEventToWebSearchSteps(searchStepsRef.current, event)
@@ -1829,15 +1979,14 @@ export function ChatPage() {
 
       if (event.type === 'run.completed') {
         if (isACPDelegateEventData(event.data)) continue
+        const visibleNonTerminalSeqCutoff = freezeCutoffRef.current ?? lastVisibleNonTerminalSeqRef.current
         freezeCutoffRef.current = null
         const completedRunId = event.run_id
         injectionBlockedRunIdRef.current = null
         noResponseMsgIdRef.current = null
         replaceOnCancelRef.current = null
-        const runThinking = buildLiveThinkingSnapshot()
-        const runWidgets = collectCompletedWidgets(streamingArtifactsRef.current)
-        const runAssistantTurn = drainAssistantTurnForPersist(assistantTurnFoldStateRef.current)
-        setLiveAssistantTurn(runAssistantTurn.segments.length > 0 ? runAssistantTurn : null)
+        const runCache = captureTerminalRunCache()
+        setLiveAssistantTurn(runCache.runAssistantTurn.segments.length > 0 ? runCache.runAssistantTurn : null)
         sse.disconnect()
         setActiveRunId(null)
         setCancelSubmitting(false)
@@ -1851,69 +2000,25 @@ export function ChatPage() {
         setCheckInDraft('')
         if (threadId) onRunEnded(threadId)
         refreshCredits()
-        const runSources = [...currentRunSourcesRef.current]
-        const runArtifacts = [...currentRunArtifactsRef.current]
-        const runCodeExecs = [...currentRunCodeExecutionsRef.current]
-        const runBrowserActions = [...currentRunBrowserActionsRef.current]
-        const runSubAgents = [...currentRunSubAgentsRef.current]
-        const runFileOps = [...currentRunFileOpsRef.current]
-        const runWebFetches = [...currentRunWebFetchesRef.current]
+        const runEventsForMessage = (sse.events as MsgRunEvent[]).filter((e) => {
+          if (e.run_id !== completedRunId || typeof e.seq !== 'number') {
+            return false
+          }
+          if (isTerminalRunEventType(e.type)) {
+            return e.seq <= event.seq
+          }
+          return e.seq <= visibleNonTerminalSeqCutoff
+        })
         void refreshMessages({ requiredCompletedRunId: completedRunId })
           .then((items) => {
             const completedAssistant = findAssistantMessageForRun(items, completedRunId)
             if (completedAssistant) {
-              if (runWidgets.length > 0) {
-                writeMessageWidgets(completedAssistant.id, runWidgets)
-                setMessageWidgetsMap((prev) => new Map(prev).set(completedAssistant.id, runWidgets))
-              }
-              if (runSources.length > 0) {
-                writeMessageSources(completedAssistant.id, runSources)
-                setMessageSourcesMap((prev) => new Map(prev).set(completedAssistant.id, runSources))
-              }
               const pendingSearchSteps = pendingSearchStepsRef.current
               pendingSearchStepsRef.current = null
-              if (pendingSearchSteps && pendingSearchSteps.length > 0) {
-                writeMessageSearchSteps(completedAssistant.id, pendingSearchSteps)
-                setMessageSearchStepsMap((prev) => new Map(prev).set(completedAssistant.id, pendingSearchSteps))
-              }
-              if (runAssistantTurn.segments.length > 0) {
-                writeMessageAssistantTurn(completedAssistant.id, runAssistantTurn)
-                setMessageAssistantTurnMap((prev) => new Map(prev).set(completedAssistant.id, runAssistantTurn))
-              }
-              if (runArtifacts.length > 0) {
-                writeMessageArtifacts(completedAssistant.id, runArtifacts)
-                setMessageArtifactsMap((prev) => new Map(prev).set(completedAssistant.id, runArtifacts))
-              }
-              writeMessageCodeExecutions(completedAssistant.id, runCodeExecs)
-              setMessageCodeExecutionsMap((prev) => new Map(prev).set(completedAssistant.id, runCodeExecs))
-              if (runBrowserActions.length > 0) {
-                writeMessageBrowserActions(completedAssistant.id, runBrowserActions)
-                setMessageBrowserActionsMap((prev) => new Map(prev).set(completedAssistant.id, runBrowserActions))
-              }
-              if (runSubAgents.length > 0) {
-                writeMessageSubAgents(completedAssistant.id, runSubAgents)
-                setMessageSubAgentsMap((prev) => new Map(prev).set(completedAssistant.id, runSubAgents))
-              }
-              if (runFileOps.length > 0) {
-                writeMessageFileOps(completedAssistant.id, runFileOps)
-                setMessageFileOpsMap((prev) => new Map(prev).set(completedAssistant.id, runFileOps))
-              }
-              if (runWebFetches.length > 0) {
-                writeMessageWebFetches(completedAssistant.id, runWebFetches)
-                setMessageWebFetchesMap((prev) => new Map(prev).set(completedAssistant.id, runWebFetches))
-              }
-              if (runThinking) {
-                writeMessageThinking(completedAssistant.id, runThinking)
-                setMessageThinkingMap((prev) => new Map(prev).set(completedAssistant.id, runThinking))
-              }
-
-              const completedRunEvents = (sse.events as MsgRunEvent[]).filter(
-                (e) => e.run_id === completedRunId,
-              )
-              if (completedRunEvents.length > 0) {
-                writeMsgRunEvents(completedAssistant.id, completedRunEvents)
-                setMsgRunEventsMap((prev) => new Map(prev).set(completedAssistant.id, completedRunEvents))
-              }
+              persistRunDataToMessage(completedAssistant.id, {
+                ...runCache,
+                pendingSearchSteps,
+              }, runEventsForMessage)
             }
             const pending = pendingMessageRef.current
             if (pending) {
@@ -1945,14 +2050,37 @@ export function ChatPage() {
 
       if (event.type === 'run.cancelled') {
         if (isACPDelegateEventData(event.data)) continue
-        freezeCutoffRef.current = null
         const blockedByInjection = injectionBlockedRunIdRef.current === event.run_id
-        resetTerminalRunState({ restoreQueuedDraft: true, preserveSearchSteps: true })
+        const runCache = captureTerminalRunCache()
+        const runId = event.run_id
+        const visibleNonTerminalSeqCutoff = freezeCutoffRef.current ?? lastVisibleNonTerminalSeqRef.current
+        const runEventsForMessage = runId
+          ? (sse.events as MsgRunEvent[]).filter((e) => {
+            if (e.run_id !== runId || typeof e.seq !== 'number') {
+              return false
+            }
+            if (isTerminalRunEventType(e.type)) {
+              return e.seq <= event.seq
+            }
+            return e.seq <= visibleNonTerminalSeqCutoff
+          })
+          : []
+        resetTerminalRunState({
+          restoreQueuedDraft: true,
+          preserveSearchSteps: true,
+          handoffRunCache: runCache,
+        })
         if (!blockedByInjection) {
           setError(null)
         }
-        if (event.run_id) {
-          void refreshMessages({ requiredCompletedRunId: event.run_id })
+        if (runId) {
+          void refreshMessages({ requiredCompletedRunId: runId })
+            .then((items) => {
+              const assistant = findAssistantMessageForRun(items, runId)
+              if (assistant) {
+                persistRunDataToMessage(assistant.id, runCache, runEventsForMessage)
+              }
+            })
             .finally(clearDeferredLiveRunUi)
         }
         continue
@@ -1982,7 +2110,25 @@ export function ChatPage() {
 
       if (event.type === 'run.interrupted') {
         if (isACPDelegateEventData(event.data)) continue
-        resetTerminalRunState({ restoreQueuedDraft: true, preserveSearchSteps: true })
+        const runCache = captureTerminalRunCache()
+        const runId = event.run_id
+        const visibleNonTerminalSeqCutoff = freezeCutoffRef.current ?? lastVisibleNonTerminalSeqRef.current
+        const runEventsForMessage = runId
+          ? (sse.events as MsgRunEvent[]).filter((e) => {
+            if (e.run_id !== runId || typeof e.seq !== 'number') {
+              return false
+            }
+            if (isTerminalRunEventType(e.type)) {
+              return e.seq <= event.seq
+            }
+            return e.seq <= visibleNonTerminalSeqCutoff
+          })
+          : []
+        resetTerminalRunState({
+          restoreQueuedDraft: true,
+          preserveSearchSteps: true,
+          handoffRunCache: runCache,
+        })
         const obj = event.data as { message?: unknown; error_class?: unknown; code?: unknown; details?: unknown }
         const errorClass = typeof obj?.error_class === 'string' ? obj.error_class : undefined
         const details = (obj?.details && typeof obj.details === 'object' && !Array.isArray(obj.details))
@@ -1995,7 +2141,13 @@ export function ChatPage() {
           details,
         })
         if (event.run_id) {
-          void refreshMessages({ requiredCompletedRunId: event.run_id })
+          void refreshMessages({ requiredCompletedRunId: runId! })
+            .then((items) => {
+              const assistant = findAssistantMessageForRun(items, runId!)
+              if (assistant) {
+                persistRunDataToMessage(assistant.id, runCache, runEventsForMessage)
+              }
+            })
             .finally(clearDeferredLiveRunUi)
         }
         continue
@@ -2025,17 +2177,8 @@ export function ChatPage() {
     // 到达此处说明 SSE 关闭时确实没有处理过终端事件。
     sseTerminalFallbackArmedRef.current = false
     sseTerminalFallbackRunIdRef.current = null
-    const runThinking = buildLiveThinkingSnapshot()
-    const runSources = [...currentRunSourcesRef.current]
-    const runArtifacts = [...currentRunArtifactsRef.current]
-    const runWidgets = collectCompletedWidgets(streamingArtifactsRef.current)
-    const runAssistantTurn = drainAssistantTurnForPersist(assistantTurnFoldStateRef.current)
-    setLiveAssistantTurn(runAssistantTurn.segments.length > 0 ? runAssistantTurn : null)
-    const runCodeExecs = [...currentRunCodeExecutionsRef.current]
-    const runBrowserActions = [...currentRunBrowserActionsRef.current]
-    const runSubAgents = [...currentRunSubAgentsRef.current]
-    const runFileOps = [...currentRunFileOpsRef.current]
-    const runWebFetches2 = [...currentRunWebFetchesRef.current]
+    const terminalCache = captureTerminalRunCache()
+    setLiveAssistantTurn(terminalCache.runAssistantTurn.segments.length > 0 ? terminalCache.runAssistantTurn : null)
 
     setActiveRunId(null)
     setPendingThinking(false)
@@ -2046,52 +2189,21 @@ export function ChatPage() {
     if (threadId) onRunEnded(threadId)
     refreshCredits()
 
+    const visibleNonTerminalSeqCutoff = freezeCutoffRef.current ?? lastVisibleNonTerminalSeqRef.current
+    const runEventsForMessage = (sse.events as MsgRunEvent[]).filter((e) =>
+      e.run_id === terminalRunId &&
+      typeof e.seq === 'number' &&
+      e.seq <= visibleNonTerminalSeqCutoff,
+    )
     void refreshMessages({ requiredCompletedRunId: terminalRunId })
       .then((items) => {
         const completedAssistant = findAssistantMessageForRun(items, terminalRunId)
         if (completedAssistant) {
-          if (runWidgets.length > 0) {
-            writeMessageWidgets(completedAssistant.id, runWidgets)
-            setMessageWidgetsMap((prev) => new Map(prev).set(completedAssistant.id, runWidgets))
-          }
-          if (runSources.length > 0) {
-            writeMessageSources(completedAssistant.id, runSources)
-            setMessageSourcesMap((prev) => new Map(prev).set(completedAssistant.id, runSources))
-          }
-          if (runAssistantTurn.segments.length > 0) {
-            writeMessageAssistantTurn(completedAssistant.id, runAssistantTurn)
-            setMessageAssistantTurnMap((prev) => new Map(prev).set(completedAssistant.id, runAssistantTurn))
-          }
-          if (runArtifacts.length > 0) {
-            writeMessageArtifacts(completedAssistant.id, runArtifacts)
-            setMessageArtifactsMap((prev) => new Map(prev).set(completedAssistant.id, runArtifacts))
-          }
-          writeMessageCodeExecutions(completedAssistant.id, runCodeExecs)
-          setMessageCodeExecutionsMap((prev) => new Map(prev).set(completedAssistant.id, runCodeExecs))
-          if (runBrowserActions.length > 0) {
-            writeMessageBrowserActions(completedAssistant.id, runBrowserActions)
-            setMessageBrowserActionsMap((prev) => new Map(prev).set(completedAssistant.id, runBrowserActions))
-          }
-          if (runSubAgents.length > 0) {
-            writeMessageSubAgents(completedAssistant.id, runSubAgents)
-            setMessageSubAgentsMap((prev) => new Map(prev).set(completedAssistant.id, runSubAgents))
-          }
-          if (runFileOps.length > 0) {
-            writeMessageFileOps(completedAssistant.id, runFileOps)
-            setMessageFileOpsMap((prev) => new Map(prev).set(completedAssistant.id, runFileOps))
-          }
-          if (runWebFetches2.length > 0) {
-            writeMessageWebFetches(completedAssistant.id, runWebFetches2)
-            setMessageWebFetchesMap((prev) => new Map(prev).set(completedAssistant.id, runWebFetches2))
-          }
-          if (runThinking) {
-            writeMessageThinking(completedAssistant.id, runThinking)
-            setMessageThinkingMap((prev) => new Map(prev).set(completedAssistant.id, runThinking))
-          }
+          persistRunDataToMessage(completedAssistant.id, terminalCache, runEventsForMessage)
         }
       })
       .finally(clearDeferredLiveRunUi)
-  }, [activeRunId, sse.state, buildLiveThinkingSnapshot, clearDeferredLiveRunUi]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeRunId, sse.state, clearDeferredLiveRunUi, persistRunDataToMessage]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // 初始加载完成后，将最后一条 user 消息滚动至顶部
   useEffect(() => {
@@ -2499,11 +2611,20 @@ export function ChatPage() {
     setError(null)
     setInjectionBlocked(null)
 
-    void cancelRun(accessToken, runId, sse.lastSeq).catch((err: unknown) => {
-      setError(normalizeError(err))
-      freezeCutoffRef.current = null
-      setCancelSubmitting(false)
-    })
+    let cancelSucceeded = false
+    void cancelRun(accessToken, runId, sse.lastSeq)
+      .then(() => {
+        cancelSucceeded = true
+      })
+      .catch((err: unknown) => {
+        setError(normalizeError(err))
+      })
+      .finally(() => {
+        if (!cancelSucceeded) {
+          freezeCutoffRef.current = null
+          setCancelSubmitting(false)
+        }
+      })
   }, [activeRunId, cancelSubmitting, accessToken, sse.lastSeq])
 
   const terminalSseError = useMemo(() => {

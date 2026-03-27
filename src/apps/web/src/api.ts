@@ -920,13 +920,13 @@ export async function cancelRun(
   runId: string,
   lastSeenSeq?: number,
 ): Promise<CancelRunResponse> {
-  const body = typeof lastSeenSeq === 'number'
-    ? JSON.stringify({ last_seen_seq: lastSeenSeq })
-    : undefined
+  const normalizedSeq = typeof lastSeenSeq === 'number' && Number.isFinite(lastSeenSeq)
+    ? Math.max(0, lastSeenSeq)
+    : 0
   return await apiFetch<CancelRunResponse>(`/v1/runs/${runId}:cancel`, {
     method: 'POST',
     accessToken,
-    body,
+    body: JSON.stringify({ last_seen_seq: normalizedSeq }),
   })
 }
 

@@ -86,7 +86,7 @@ func NewInputLoaderMiddleware(
 				errorClass := resumeUnavailableErrorClass
 				eventType := "run.failed"
 				message := "resume context is unavailable"
-				if isRuntimeRecoveryJob(rc.JobPayload) {
+				if IsRuntimeRecoveryJob(rc.JobPayload) {
 					errorClass = "worker.recovery_unavailable"
 					eventType = "run.interrupted"
 					message = "runtime recovery state is unavailable"
@@ -173,7 +173,7 @@ func loadRunInputs(
 	}
 
 	replayInsertions := []resumeReplayInsertion(nil)
-	if isRuntimeRecoveryJob(jobPayload) {
+	if IsRuntimeRecoveryJob(jobPayload) {
 		replayInsertions, err = loadRuntimeRecoveryReplay(ctx, tx, run, eventsRepo, rolloutStore, messages)
 		if err != nil {
 			return nil, err
@@ -296,7 +296,7 @@ func loadResumedReplay(
 	return insertions, nil
 }
 
-func isRuntimeRecoveryJob(jobPayload map[string]any) bool {
+func IsRuntimeRecoveryJob(jobPayload map[string]any) bool {
 	if len(jobPayload) == 0 {
 		return false
 	}
