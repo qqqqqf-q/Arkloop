@@ -159,6 +159,10 @@ func BuildProviderExecutor(cfg toolprovider.ActiveProviderConfig) tools.Executor
 	providerName := strings.TrimSpace(cfg.ProviderName)
 
 	switch providerName {
+	case websearch.AgentSpecDuckduckgo.Name:
+		provider := websearch.NewDuckduckgoProvider()
+		return websearch.NewToolExecutorWithProvider(provider)
+
 	case websearch.AgentSpecTavily.Name:
 		key := ""
 		if cfg.APIKeyValue != nil {
@@ -185,9 +189,6 @@ func BuildProviderExecutor(cfg toolprovider.ActiveProviderConfig) tools.Executor
 		key := ""
 		if cfg.APIKeyValue != nil {
 			key = strings.TrimSpace(*cfg.APIKeyValue)
-		}
-		if key == "" {
-			return notConfiguredExecutor{groupName: groupName, providerName: providerName, missing: []string{"api_key"}}
 		}
 		provider, err := webfetch.NewJinaProvider(key)
 		if err != nil {

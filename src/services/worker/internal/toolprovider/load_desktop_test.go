@@ -64,12 +64,9 @@ func TestLoadDesktopActiveToolProvidersPlatformRow(t *testing.T) {
 		t.Fatalf("insert tool_provider_configs: %v", err)
 	}
 
-	platform, user, err := LoadDesktopActiveToolProviders(ctx, db, nil)
+	platform, err := LoadDesktopActiveToolProviders(ctx, db)
 	if err != nil {
 		t.Fatalf("load: %v", err)
-	}
-	if len(user) != 0 {
-		t.Fatalf("expected no user rows, got %d", len(user))
 	}
 	if len(platform) != 1 {
 		t.Fatalf("expected 1 platform row, got %d", len(platform))
@@ -154,7 +151,7 @@ func TestLoadDesktopActiveToolProvidersDecryptsWithEncryptionFile(t *testing.T) 
 		t.Fatalf("seed tool provider: %v", err)
 	}
 
-	platform, _, err := LoadDesktopActiveToolProviders(ctx, db, nil)
+	platform, err := LoadDesktopActiveToolProviders(ctx, db)
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}

@@ -511,12 +511,12 @@ func desktopToolProviderBindings(db data.DesktopDB) pipeline.RunMiddleware {
 		if db == nil || rc == nil {
 			return next(ctx, rc)
 		}
-		platformCfgs, userCfgs, err := toolprovider.LoadDesktopActiveToolProviders(ctx, db, rc.Run.CreatedByUserID)
+		platformCfgs, err := toolprovider.LoadDesktopActiveToolProviders(ctx, db)
 		if err != nil {
 			slog.WarnContext(ctx, "desktop: failed to load tool providers, skipping", "err", err)
 			return next(ctx, rc)
 		}
-		if len(platformCfgs) == 0 && len(userCfgs) == 0 {
+		if len(platformCfgs) == 0 {
 			return next(ctx, rc)
 		}
 		if rc.ActiveToolProviderByGroup == nil {
@@ -525,32 +525,21 @@ func desktopToolProviderBindings(db data.DesktopDB) pipeline.RunMiddleware {
 		if rc.ActiveToolProviderConfigsByGroup == nil {
 			rc.ActiveToolProviderConfigsByGroup = map[string]sharedtoolruntime.ProviderConfig{}
 		}
-		apply := func(cfg toolprovider.ActiveProviderConfig, override bool) {
+		apply := func(cfg toolprovider.ActiveProviderConfig) {
 			g := strings.TrimSpace(cfg.GroupName)
 			pn := strings.TrimSpace(cfg.ProviderName)
 			if g == "" || pn == "" {
 				return
 			}
 			exec := pipeline.BuildProviderExecutor(cfg)
-			_, exists := rc.ActiveToolProviderByGroup[g]
-			if exists && override {
-				if nc, ok := exec.(tools.NotConfiguredChecker); ok && nc.IsNotConfigured() {
-					return
-				}
-			}
-			if !exists || override {
-				rc.ActiveToolProviderByGroup[g] = pn
-				rc.ActiveToolProviderConfigsByGroup[g] = toolprovider.ToRuntimeProviderConfig(cfg)
-			}
+			rc.ActiveToolProviderByGroup[g] = pn
+			rc.ActiveToolProviderConfigsByGroup[g] = toolprovider.ToRuntimeProviderConfig(cfg)
 			if exec != nil {
 				rc.ToolExecutors[pn] = exec
 			}
 		}
 		for _, cfg := range platformCfgs {
-			apply(cfg, false)
-		}
-		for _, cfg := range userCfgs {
-			apply(cfg, true)
+			apply(cfg)
 		}
 		return next(ctx, rc)
 	}

@@ -49,18 +49,7 @@ func buildEffectiveBuiltinToolNameSet(
 			if pool == nil {
 				return nil, nil
 			}
-			decrypt := toolProviderSecretDecrypter()
-			platformStatuses, err := sharedtoolruntime.LoadPlatformProviderStatuses(loadCtx, pool, decrypt)
-			if err != nil {
-				return nil, err
-			}
-			userStatuses, err := sharedtoolruntime.LoadUserProviderStatuses(loadCtx, pool, userID, decrypt)
-			if err != nil {
-				return nil, err
-			}
-			providers := sharedtoolruntime.ReadyProvidersFromStatuses(platformStatuses)
-			providers = append(providers, sharedtoolruntime.ReadyProvidersFromStatuses(userStatuses)...)
-			return providers, nil
+			return loadEffectiveBuiltinProviders(loadCtx, pool, userID, toolProviderSecretDecrypter())
 		},
 	})
 	if err != nil {

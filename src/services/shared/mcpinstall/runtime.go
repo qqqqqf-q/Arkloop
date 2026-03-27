@@ -206,6 +206,11 @@ func ServerConfigFromInstall(install EnabledInstall, headers map[string]string, 
 			return ServerConfig{}, fmt.Errorf("launch spec is invalid")
 		}
 	}
+	if strings.TrimSpace(install.Transport) != "" {
+		if _, ok := spec["transport"]; !ok {
+			spec["transport"] = strings.TrimSpace(install.Transport)
+		}
+	}
 	server, err := ParseServerConfig(install.InstallKey, spec, defaultTimeoutMs)
 	if err != nil {
 		return ServerConfig{}, err

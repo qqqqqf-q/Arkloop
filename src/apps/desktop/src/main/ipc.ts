@@ -104,7 +104,7 @@ export function registerIpcHandlers(
   ipcMain.handle('arkloop:connectors:get', async () => {
     const config = loadConfig()
     await migrateLegacyConnectorsIfNeeded(config)
-    const providerGroups = await fetchEffectiveToolProviders()
+    const providerGroups = await fetchToolProviders()
     return connectorsFromProviderGroups(providerGroups)
   })
 
@@ -285,60 +285,15 @@ type ToolProviderGroup = {
   providers: ToolProviderItem[]
 }
 
-type ToolProviderScope = 'platform' | 'user'
-
-async function fetchToolProviders(scope: ToolProviderScope = 'platform'): Promise<ToolProviderGroup[]> {
+async function fetchToolProviders(): Promise<ToolProviderGroup[]> {
   const apiBaseUrl = getLocalApiBaseUrl()
   if (!apiBaseUrl) return []
   const token = getDesktopAccessToken()
-  const resp = await makeApiRequest(`${apiBaseUrl}/v1/tool-providers?scope=${scope}`, 'GET', token)
+  const resp = await makeApiRequest(`${apiBaseUrl}/v1/tool-providers?scope=platform`, 'GET', token)
   if (!resp || typeof resp !== 'object' || !Array.isArray((resp as { groups?: unknown[] }).groups)) {
     return []
   }
   return ((resp as { groups: ToolProviderGroup[] }).groups ?? [])
-}
-
-async function fetchEffectiveToolProviders(): Promise<ToolProviderGroup[]> {
-  const [platformGroups, userGroups] = await Promise.all([
-    fetchToolProviders('platform'),
-    fetchToolProviders('user').catch(() => []),
-  ])
-  return mergeEffectiveToolProviderGroups(platformGroups, userGroups)
-}
-
-function mergeEffectiveToolProviderGroups(
-  platformGroups: ToolProviderGroup[],
-  userGroups: ToolProviderGroup[],
-): ToolProviderGroup[] {
-  const userByGroup = new Map(userGroups.map((group) => [group.group_name, group]))
-  return platformGroups.map((platformGroup) => {
-    const userGroup = userByGroup.get(platformGroup.group_name)
-    const userByProvider = new Map(userGroup?.providers.map((provider) => [provider.provider_name, provider]) ?? [])
-    const activeUserProvider = pickEffectiveActiveProvider(userGroup?.providers ?? [])
-    const activePlatformProvider = pickEffectiveActiveProvider(platformGroup.providers)
-    const effectiveActive = activeUserProvider ?? activePlatformProvider
-
-    return {
-      ...platformGroup,
-      providers: platformGroup.providers.map((provider) => {
-        const userProvider = userByProvider.get(provider.provider_name)
-        const base = userProvider?.is_active ? userProvider : provider
-        return {
-          ...provider,
-          is_active: effectiveActive?.provider_name === provider.provider_name,
-          base_url: base.base_url ?? provider.base_url,
-        }
-      }),
-    }
-  })
-}
-
-function pickEffectiveActiveProvider(providers: ToolProviderItem[]): ToolProviderItem | undefined {
-  const readyActive = providers.find((provider) => provider.is_active && provider.runtime_state === 'ready')
-  if (readyActive) {
-    return readyActive
-  }
-  return providers.find((provider) => provider.is_active)
 }
 
 function findProviderGroup(groups: ToolProviderGroup[], groupName: string): ToolProviderGroup | undefined {
@@ -387,6 +342,8 @@ function providerNameToFetch(providerName: string): ConnectorsConfig['fetch']['p
 
 function providerNameToSearch(providerName: string): ConnectorsConfig['search']['provider'] {
   switch (providerName) {
+    case 'web_search.duckduckgo':
+      return 'duckduckgo'
     case 'web_search.searxng':
       return 'searxng'
     case 'web_search.tavily':
@@ -400,7 +357,7 @@ async function migrateLegacyConnectorsIfNeeded(config: AppConfig): Promise<void>
   if (config.connectors_migrated) {
     return
   }
-  const providerGroups = await fetchEffectiveToolProviders()
+  const providerGroups = await fetchToolProviders()
   const searchGroup = findProviderGroup(providerGroups, 'web_search')
   const fetchGroup = findProviderGroup(providerGroups, 'web_fetch')
 
@@ -414,7 +371,8 @@ async function migrateLegacyConnectorsIfNeeded(config: AppConfig): Promise<void>
 }
 
 function hasLegacySearchConfig(connectors: ConnectorsConfig): boolean {
-  return (connectors.search.provider === 'tavily' && Boolean(connectors.search.tavilyApiKey))
+  return connectors.search.provider === 'duckduckgo'
+    || (connectors.search.provider === 'tavily' && Boolean(connectors.search.tavilyApiKey))
     || (connectors.search.provider === 'searxng' && Boolean(connectors.search.searxngBaseUrl))
 }
 
@@ -430,79 +388,80 @@ async function applyConnectorConfig(connectors: ConnectorsConfig): Promise<void>
 }
 
 async function applySearchConnector(search: ConnectorsConfig['search']): Promise<void> {
-  await deactivateToolProviderGroup('web_search', 'user')
-  await deactivateToolProviderGroup('web_search', 'platform')
+  await deactivateToolProviderGroup('web_search')
+  if (search.provider === 'duckduckgo') {
+    await activateToolProvider('web_search', 'web_search.duckduckgo')
+    return
+  }
   if (search.provider === 'tavily') {
-    await activateToolProvider('web_search', 'web_search.tavily', 'platform')
+    await activateToolProvider('web_search', 'web_search.tavily')
     await upsertToolProviderCredential('web_search', 'web_search.tavily', {
       api_key: search.tavilyApiKey ?? '',
-    }, 'platform')
+    })
     return
   }
   if (search.provider === 'searxng') {
-    await activateToolProvider('web_search', 'web_search.searxng', 'platform')
+    await activateToolProvider('web_search', 'web_search.searxng')
     await upsertToolProviderCredential('web_search', 'web_search.searxng', {
       base_url: search.searxngBaseUrl ?? '',
-    }, 'platform')
+    })
     return
   }
 }
 
 async function applyFetchConnector(fetch: ConnectorsConfig['fetch']): Promise<void> {
-  await deactivateToolProviderGroup('web_fetch', 'user')
-  await deactivateToolProviderGroup('web_fetch', 'platform')
+  await deactivateToolProviderGroup('web_fetch')
   if (fetch.provider === 'basic') {
-    await activateToolProvider('web_fetch', 'web_fetch.basic', 'platform')
+    await activateToolProvider('web_fetch', 'web_fetch.basic')
     return
   }
   if (fetch.provider === 'jina') {
-    await activateToolProvider('web_fetch', 'web_fetch.jina', 'platform')
+    await activateToolProvider('web_fetch', 'web_fetch.jina')
     await upsertToolProviderCredential('web_fetch', 'web_fetch.jina', {
       api_key: fetch.jinaApiKey ?? '',
-    }, 'platform')
+    })
     return
   }
   if (fetch.provider === 'firecrawl') {
-    await activateToolProvider('web_fetch', 'web_fetch.firecrawl', 'platform')
+    await activateToolProvider('web_fetch', 'web_fetch.firecrawl')
     await upsertToolProviderCredential('web_fetch', 'web_fetch.firecrawl', {
       api_key: fetch.firecrawlApiKey ?? '',
       base_url: fetch.firecrawlBaseUrl ?? '',
-    }, 'platform')
+    })
   }
 }
 
-async function deactivateToolProviderGroup(groupName: string, scope: ToolProviderScope): Promise<void> {
-  const groups = await fetchToolProviders(scope)
+async function deactivateToolProviderGroup(groupName: string): Promise<void> {
+  const groups = await fetchToolProviders()
   const group = findProviderGroup(groups, groupName)
   if (!group) return
   for (const provider of group.providers) {
     if (!provider.is_active) continue
-    await requestToolProvider(`/v1/tool-providers/${groupName}/${provider.provider_name}/deactivate`, 'PUT', undefined, scope)
+    await requestToolProvider(`/v1/tool-providers/${groupName}/${provider.provider_name}/deactivate`, 'PUT')
   }
 }
 
-async function activateToolProvider(groupName: string, providerName: string, scope: ToolProviderScope): Promise<void> {
-  await requestToolProvider(`/v1/tool-providers/${groupName}/${providerName}/activate`, 'PUT', undefined, scope)
+async function activateToolProvider(groupName: string, providerName: string): Promise<void> {
+  await requestToolProvider(`/v1/tool-providers/${groupName}/${providerName}/activate`, 'PUT')
 }
 
 async function upsertToolProviderCredential(
   groupName: string,
   providerName: string,
   payload: Record<string, string>,
-  scope: ToolProviderScope,
 ): Promise<void> {
   const body = JSON.stringify(payload)
-  await requestToolProvider(`/v1/tool-providers/${groupName}/${providerName}/credential`, 'PUT', body, scope)
+  await requestToolProvider(`/v1/tool-providers/${groupName}/${providerName}/credential`, 'PUT', body)
 }
 
-async function requestToolProvider(pathname: string, method: string, body?: string, scope: ToolProviderScope = 'platform'): Promise<void> {
+async function requestToolProvider(pathname: string, method: string, body?: string): Promise<void> {
   const apiBaseUrl = getLocalApiBaseUrl()
   if (!apiBaseUrl) {
     throw new Error('sidecar not running')
   }
   const token = getDesktopAccessToken()
   const sep = pathname.includes('?') ? '&' : '?'
-  const url = `${apiBaseUrl}${pathname}${sep}scope=${scope}`
+  const url = `${apiBaseUrl}${pathname}${sep}scope=platform`
   await makeApiRequestRaw(url, method, token, body)
 }
 

@@ -40,14 +40,6 @@ type Props = {
 type CredentialModal = { group: string; provider: ToolProviderItem } | null
 type DescEditTarget = { toolName: string; label: string; description: string } | null
 
-function isEffectivelyActive(provider: ToolProviderItem): boolean {
-  return provider.effective_is_active ?? provider.is_active
-}
-
-function providerScope(provider: ToolProviderItem): 'platform' | 'project' {
-  return provider.effective_scope ?? 'platform'
-}
-
 function displayGroupName(group: string): string {
   if (group === 'sandbox') return 'sandbox / browser'
   if (group === 'image_understanding') return 'Image understanding'
@@ -200,7 +192,7 @@ export function ConnectorsSettings({ accessToken }: Props) {
   // ---- Derived state ----
 
   const activeGroup = groups.find((g) => g.group_name === selectedGroup)
-  const activeProvider = activeGroup?.providers.find(isEffectivelyActive)
+  const activeProvider = activeGroup?.providers.find((provider) => provider.is_active)
   const catalogGroup = catalog.find((g) => g.group === selectedGroup)
   const configFields = activeProvider?.config_fields ?? []
   const configDirty = Object.keys(configForm).some(
@@ -237,12 +229,7 @@ export function ConnectorsSettings({ accessToken }: Props) {
       if (mutating) return
       setMutating(true)
       try {
-        const group = groups.find((item) => item.group_name === groupName)
-        const activeProviders = group?.providers.filter(isEffectivelyActive) ?? []
-        for (const active of activeProviders) {
-          await deactivateToolProvider(accessToken, groupName, active.provider_name, providerScope(active))
-        }
-        await activateToolProvider(accessToken, groupName, providerName, 'platform')
+        await activateToolProvider(accessToken, groupName, providerName)
         await fetchAll()
       } catch {
         /* ignore */
@@ -250,15 +237,15 @@ export function ConnectorsSettings({ accessToken }: Props) {
         setMutating(false)
       }
     },
-    [mutating, accessToken, fetchAll, groups],
+    [mutating, accessToken, fetchAll],
   )
 
   const handleDeactivate = useCallback(
-    async (groupName: string, provider: ToolProviderItem) => {
+    async (groupName: string, providerName: string) => {
       if (mutating) return
       setMutating(true)
       try {
-        await deactivateToolProvider(accessToken, groupName, provider.provider_name, providerScope(provider))
+        await deactivateToolProvider(accessToken, groupName, providerName)
         await fetchAll()
       } catch {
         /* ignore */
@@ -301,7 +288,6 @@ export function ConnectorsSettings({ accessToken }: Props) {
         credentialModal.group,
         credentialModal.provider.provider_name,
         payload,
-        providerScope(credentialModal.provider),
       )
       setCredentialModal(null)
       await fetchAll()
@@ -320,7 +306,6 @@ export function ConnectorsSettings({ accessToken }: Props) {
         accessToken,
         clearTarget.group,
         clearTarget.provider.provider_name,
-        providerScope(clearTarget.provider),
       )
       setClearTarget(null)
       await fetchAll()
@@ -344,7 +329,6 @@ export function ConnectorsSettings({ accessToken }: Props) {
         selectedGroup,
         activeProvider.provider_name,
         configJSON,
-        providerScope(activeProvider),
       )
       setConfigSaved({ ...configForm })
     } catch {
@@ -532,7 +516,7 @@ export function ConnectorsSettings({ accessToken }: Props) {
                         <StatusBadge provider={p} />
                       </div>
                       <div className="flex items-center gap-1">
-                        {!isEffectivelyActive(p) ? (
+                        {!p.is_active ? (
                           <button
                             disabled={mutating}
                             onClick={() =>
@@ -547,7 +531,7 @@ export function ConnectorsSettings({ accessToken }: Props) {
                           <button
                             disabled={mutating}
                             onClick={() =>
-                              handleDeactivate(p.group_name, p)
+                              handleDeactivate(p.group_name, p.provider_name)
                             }
                             className={btnIcon}
                             title={tt.deactivate}
