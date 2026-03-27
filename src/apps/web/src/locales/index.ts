@@ -914,6 +914,12 @@ export interface LocaleStrings {
     vendorOpenaiChat: string;
     vendorAnthropic: string;
     vendorGemini: string;
+    openVikingBackend: string;
+    openVikingBackendHint: string;
+    openVikingBackendOpenAI: string;
+    openVikingBackendAzure: string;
+    openVikingBackendVolcengine: string;
+    openVikingBackendLiteLLM: string;
     advancedConfig: string;
     searchProviders: string;
     deleteAll?: string;

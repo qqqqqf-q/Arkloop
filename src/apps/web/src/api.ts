@@ -1364,6 +1364,7 @@ export type CreateLlmProviderRequest = {
   api_key: string
   base_url?: string
   openai_api_mode?: string
+  advanced_json?: Record<string, unknown>
 }
 
 export type UpdateLlmProviderRequest = {
@@ -1373,6 +1374,7 @@ export type UpdateLlmProviderRequest = {
   api_key?: string
   base_url?: string | null
   openai_api_mode?: string | null
+  advanced_json?: Record<string, unknown> | null
 }
 
 export type CreateModelRequest = {
@@ -1612,6 +1614,7 @@ export type ResolvedOpenVikingModel = {
   model: string
   api_base: string
   api_key: string
+  extra_headers?: Record<string, string>
 }
 
 export type ResolvedOpenVikingEmbedding = ResolvedOpenVikingModel & {

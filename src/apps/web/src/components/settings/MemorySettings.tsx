@@ -330,8 +330,6 @@ function OVModuleCard({
 // OpenViking configure form
 // ---------------------------------------------------------------------------
 
-const OPENVIKING_COMPATIBLE_PROVIDER = 'openai'
-
 type ProviderModelOption = {
   value: string
   label: string
@@ -363,6 +361,27 @@ function buildOpenVikingModelOptions(
         apiBase: provider.base_url ?? undefined,
       })),
   )
+}
+
+function buildOpenVikingConfigureParams(
+  ov: OpenVikingDesktopConfig,
+  vlm: NonNullable<Awaited<ReturnType<typeof resolveOpenVikingConfig>>['vlm']>,
+  embedding: NonNullable<Awaited<ReturnType<typeof resolveOpenVikingConfig>>['embedding']>,
+): Record<string, unknown> {
+  return {
+    embedding_provider: embedding.provider,
+    embedding_model: embedding.model,
+    embedding_api_key: embedding.api_key,
+    embedding_api_base: embedding.api_base,
+    embedding_extra_headers: embedding.extra_headers ?? {},
+    embedding_dimension: String(embedding.dimension),
+    vlm_provider: vlm.provider,
+    vlm_model: vlm.model,
+    vlm_api_key: vlm.api_key,
+    vlm_api_base: vlm.api_base,
+    vlm_extra_headers: vlm.extra_headers ?? {},
+    root_api_key: ov.rootApiKey ?? null,
+  }
 }
 
 function resolveCurrentSelector(
@@ -403,7 +422,7 @@ function applySelectedOption(
     ...ov,
     [field.selector]: value,
     [field.model]: option?.model ?? value.split('^').slice(1).join('^'),
-    [field.provider]: option?.providerKind ?? OPENVIKING_COMPATIBLE_PROVIDER,
+    [field.provider]: option?.providerKind ?? undefined,
     [field.apiKey]: undefined,
     [field.apiBase]: option?.apiBase ?? undefined,
   }
@@ -423,17 +442,12 @@ type OVConfigFormProps = {
 function OVConfigForm({ ov, providers, loadingProviders, onChange, onSave, saving, saveResult, ds }: OVConfigFormProps) {
   const vlmOptions = buildOpenVikingModelOptions(
     providers,
-    (provider, model) =>
-      provider.provider === OPENVIKING_COMPATIBLE_PROVIDER
-      && model.show_in_picker
-      && !model.tags.includes('embedding'),
+    (_provider, model) => !model.tags.includes('embedding'),
   )
 
   const embeddingOptions = buildOpenVikingModelOptions(
     providers,
-    (provider, model) =>
-      provider.provider === OPENVIKING_COMPATIBLE_PROVIDER
-      && model.tags.includes('embedding'),
+    (_provider, model) => model.tags.includes('embedding'),
   )
 
   const currentVlm = resolveCurrentSelector(ov.vlmSelector, ov.vlmModel, vlmOptions)
@@ -608,16 +622,11 @@ export function MemorySettings({ accessToken }: Props) {
   const syncLegacySelectors = useCallback((draft: OpenVikingDesktopConfig): OpenVikingDesktopConfig => {
     const vlmOptions = buildOpenVikingModelOptions(
       providers,
-      (provider, model) =>
-        provider.provider === OPENVIKING_COMPATIBLE_PROVIDER
-        && model.show_in_picker
-        && !model.tags.includes('embedding'),
+      (_provider, model) => !model.tags.includes('embedding'),
     )
     const embeddingOptions = buildOpenVikingModelOptions(
       providers,
-      (provider, model) =>
-        provider.provider === OPENVIKING_COMPATIBLE_PROVIDER
-        && model.tags.includes('embedding'),
+      (_provider, model) => model.tags.includes('embedding'),
     )
 
     let next = draft
@@ -707,16 +716,11 @@ export function MemorySettings({ accessToken }: Props) {
 
         const vlmOptions = buildOpenVikingModelOptions(
           providers,
-          (provider, model) =>
-            provider.provider === OPENVIKING_COMPATIBLE_PROVIDER
-            && model.show_in_picker
-            && !model.tags.includes('embedding'),
+          (_provider, model) => !model.tags.includes('embedding'),
         )
         const embeddingOptions = buildOpenVikingModelOptions(
           providers,
-          (provider, model) =>
-            provider.provider === OPENVIKING_COMPATIBLE_PROVIDER
-            && model.tags.includes('embedding'),
+          (_provider, model) => model.tags.includes('embedding'),
         )
         const vlmSelector = resolveCurrentSelector(ovDraft.vlmSelector, ovDraft.vlmModel, vlmOptions)
         const embeddingSelector = resolveCurrentSelector(ovDraft.embeddingSelector, ovDraft.embeddingModel, embeddingOptions)
@@ -733,18 +737,7 @@ export function MemorySettings({ accessToken }: Props) {
           throw new Error(ds.memoryConfigureError)
         }
 
-        const params: Record<string, string> = {}
-        params.embedding_provider = resolved.embedding.provider
-        params.embedding_model = resolved.embedding.model
-        params.embedding_api_key = resolved.embedding.api_key
-        params.embedding_api_base = resolved.embedding.api_base
-        params.embedding_dimension = String(resolved.embedding.dimension)
-        params.vlm_provider = resolved.vlm.provider
-        params.vlm_model = resolved.vlm.model
-        params.vlm_api_key = resolved.vlm.api_key
-        params.vlm_api_base = resolved.vlm.api_base
-        if (ovDraft.rootApiKey) params.root_api_key = ovDraft.rootApiKey
-
+        const params = buildOpenVikingConfigureParams(ovDraft, resolved.vlm, resolved.embedding)
         const { operation_id } = await bridgeClient.performAction('openviking', 'configure', params)
         await new Promise<void>((resolve, reject) => {
           let done = false
