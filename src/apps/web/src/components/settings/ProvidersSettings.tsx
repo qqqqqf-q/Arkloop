@@ -8,6 +8,7 @@ import {
   Loader2,
   ChevronDown,
   Check,
+  SlidersHorizontal,
 } from 'lucide-react'
 import {
   type LlmProvider,
@@ -25,6 +26,7 @@ import {
 } from '../../api'
 import { routeAdvancedJsonFromAvailableCatalog } from '@arkloop/shared/llm/available-catalog-advanced-json'
 import { useLocale } from '../../contexts/LocaleContext'
+import { ModelOptionsModal } from '../ModelOptionsModal'
 
 const VENDOR_PRESETS = [
   { key: 'openai_responses', provider: 'openai', openai_api_mode: 'responses' },
@@ -484,6 +486,7 @@ function ModelsSection({ provider, accessToken, onChanged, p }: {
   const [newModel, setNewModel] = useState('')
   const [err, setErr] = useState('')
   const [search, setSearch] = useState('')
+  const [editingModel, setEditingModel] = useState<LlmProviderModel | null>(null)
 
   const loadAvailable = useCallback(async () => {
     setLoadingAvailable(true)
@@ -579,6 +582,23 @@ function ModelsSection({ provider, accessToken, onChanged, p }: {
     }
   }
 
+  const handleSaveModelOptions = useCallback(async (payload: {
+    advancedJSON: Record<string, unknown> | null
+    tags: string[]
+  }) => {
+    if (!editingModel) return
+    try {
+      await patchProviderModel(accessToken, provider.id, editingModel.id, {
+        advanced_json: payload.advancedJSON,
+        tags: payload.tags,
+      })
+      setEditingModel(null)
+      onChanged()
+    } catch (e) {
+      throw new Error(isApiError(e) ? e.message : p.saveFailed)
+    }
+  }, [accessToken, editingModel, onChanged, p.saveFailed, provider.id])
+
   const unconfiguredCount = available?.filter((am) => !am.configured).length ?? 0
   const filteredModels = search.trim()
     ? provider.models.filter((pm) => pm.model.toLowerCase().includes(search.trim().toLowerCase()))
@@ -644,6 +664,13 @@ function ModelsSection({ provider, accessToken, onChanged, p }: {
                   <span className="h-5 w-9 rounded-full transition-colors" style={{ background: pm.show_in_picker ? 'var(--c-btn-bg)' : 'var(--c-border-mid)' }} />
                   <span className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full transition-transform peer-checked:translate-x-4" style={{ background: pm.show_in_picker ? 'var(--c-btn-text)' : 'var(--c-bg-page)' }} />
                 </label>
+                <button
+                  onClick={() => setEditingModel(pm)}
+                  className="rounded p-1.5 text-[var(--c-text-muted)] transition-colors hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-secondary)]"
+                  title={p.modelOptionsTitle ?? 'Model Options'}
+                >
+                  <SlidersHorizontal size={14} />
+                </button>
                 {/* Delete */}
                 <button onClick={() => void handleDeleteModel(pm.id)} className="rounded p-1.5 text-[var(--c-text-muted)] transition-colors hover:bg-[var(--c-bg-sub)] hover:text-red-500">
                   <Trash2 size={14} />
@@ -653,6 +680,31 @@ function ModelsSection({ provider, accessToken, onChanged, p }: {
           ))
         )}
       </div>
+
+      <ModelOptionsModal
+        open={editingModel !== null}
+        model={editingModel}
+        availableModels={available}
+        labels={{
+          modelOptionsTitle: p.modelOptionsTitle ?? 'Model Options',
+          modelOptionsFor: p.modelOptionsFor ?? 'Configure options for',
+          modelCapabilities: p.modelCapabilities ?? 'Model Capabilities',
+          vision: p.vision ?? 'Vision',
+          imageOutput: p.imageOutput ?? 'Image Output',
+          embedding: p.embedding ?? 'Embedding',
+          contextWindow: p.contextWindow ?? 'Context Window',
+          maxOutputTokens: p.maxOutputTokens ?? 'Max Output Tokens',
+          providerOptionsJson: p.providerOptionsJson ?? 'Provider Options (JSON)',
+          providerOptionsHint: p.providerOptionsHint ?? 'Only provider-specific fields belong here. Model capability fields are managed above.',
+          save: p.save,
+          cancel: p.cancel,
+          reset: p.reset ?? 'Reset',
+          invalidJson: p.invalidJson ?? 'Provider options must be a JSON object',
+          invalidNumber: p.invalidNumber ?? 'Context window and max output tokens must be positive integers',
+        }}
+        onClose={() => setEditingModel(null)}
+        onSave={handleSaveModelOptions}
+      />
     </div>
   )
 }

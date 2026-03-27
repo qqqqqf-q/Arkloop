@@ -470,6 +470,19 @@ export interface LocaleStrings {
     hideFromPicker: string
     embeddingTagAdd: string
     embeddingTagRemove: string
+    modelOptionsTitle: string
+    modelOptionsFor: string
+    modelCapabilities: string
+    vision: string
+    imageOutput: string
+    embedding: string
+    contextWindow: string
+    maxOutputTokens: string
+    providerOptionsJson: string
+    providerOptionsHint: string
+    reset: string
+    invalidJson: string
+    invalidNumber: string
   }
   // agent settings
   agentSettings: {
@@ -902,6 +915,19 @@ export interface LocaleStrings {
     searchProviders: string;
     deleteAll?: string;
     importAll?: string;
+    modelOptionsTitle?: string;
+    modelOptionsFor?: string;
+    modelCapabilities?: string;
+    vision?: string;
+    imageOutput?: string;
+    embedding?: string;
+    contextWindow?: string;
+    maxOutputTokens?: string;
+    providerOptionsJson?: string;
+    providerOptionsHint?: string;
+    reset?: string;
+    invalidJson?: string;
+    invalidNumber?: string;
   };
   // admin agents settings (ported from console-lite)
   adminAgents: {

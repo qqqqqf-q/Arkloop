@@ -35,3 +35,35 @@ export function routeAdvancedJsonFromAvailableCatalog(am: AvailableModelCatalogI
     [AVAILABLE_CATALOG_ADVANCED_KEY]: cat,
   }
 }
+
+export function getAvailableCatalogFromAdvancedJson(
+  advancedJSON?: Record<string, unknown> | null,
+): Record<string, unknown> | null {
+  if (!advancedJSON) return null
+  const raw = advancedJSON[AVAILABLE_CATALOG_ADVANCED_KEY]
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  return { ...(raw as Record<string, unknown>) }
+}
+
+export function stripAvailableCatalogFromAdvancedJson(
+  advancedJSON?: Record<string, unknown> | null,
+): Record<string, unknown> {
+  if (!advancedJSON) return {}
+  const next: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(advancedJSON)) {
+    if (key === AVAILABLE_CATALOG_ADVANCED_KEY) continue
+    next[key] = value
+  }
+  return next
+}
+
+export function mergeAvailableCatalogIntoAdvancedJson(
+  catalog: Record<string, unknown> | null,
+  rest?: Record<string, unknown> | null,
+): Record<string, unknown> | null {
+  const next: Record<string, unknown> = { ...(rest ?? {}) }
+  if (catalog && Object.keys(catalog).length > 0) {
+    next[AVAILABLE_CATALOG_ADVANCED_KEY] = catalog
+  }
+  return Object.keys(next).length > 0 ? next : null
+}
