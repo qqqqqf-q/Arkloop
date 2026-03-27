@@ -291,6 +291,7 @@ func (e *EngineV1) Execute(ctx context.Context, pool *pgxpool.Pool, run data.Run
 		recorder := rollout.NewRecorder(e.rolloutBlobStore, run.ID)
 		recorder.Start(ctx)
 		rc.RolloutRecorder = recorder
+		rc.ResponseDraftStore = e.rolloutBlobStore
 		defer recorder.Close(context.Background())
 	}
 

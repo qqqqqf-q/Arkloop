@@ -205,7 +205,7 @@ func (s *LLMHeartbeat) fireOne(ctx context.Context, row data.ScheduledTriggerRow
 		th.ID,
 		th.CreatedByUserID,
 		"run.started",
-		map[string]any{"persona_id": row.PersonaKey, "model": row.Model},
+		map[string]any{"persona_id": row.PersonaKey, "model": row.Model, "run_kind": runkind.Heartbeat},
 	)
 	if err != nil {
 		if errors.Is(err, data.ErrThreadBusy) {

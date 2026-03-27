@@ -55,10 +55,13 @@ func (e *resumeUnavailableError) Error() string {
 }
 
 const (
-	resumeUnavailableErrorClass      = "resume.unavailable"
-	interruptedToolErrorClass        = "tool.interrupted"
-	interruptedToolErrorMessage      = "tool execution interrupted before result was recorded"
-	runStartedThreadTailMessageIDKey = "thread_tail_message_id"
+	resumeUnavailableErrorClass       = "resume.unavailable"
+	interruptedToolErrorClass         = "tool.interrupted"
+	interruptedToolErrorMessage       = "tool execution interrupted before result was recorded"
+	runStartedThreadTailMessageIDKey  = "thread_tail_message_id"
+	runStartedContinuationSourceKey   = "continuation_source"
+	runStartedContinuationLoopKey     = "continuation_loop"
+	runStartedContinuationResponseKey = "continuation_response"
 )
 
 const ResumeUnavailableErrorClass = resumeUnavailableErrorClass
@@ -76,15 +79,23 @@ func NewInputLoaderMiddleware(
 		if messageLimit <= 0 {
 			messageLimit = 200
 		}
-		loaded, err := loadRunInputs(ctx, rc.Pool, rc.Run, runsRepo, eventsRepo, messagesRepo, attachmentStore, rolloutStore, messageLimit)
+		loaded, err := loadRunInputs(ctx, rc.Pool, rc.Run, rc.JobPayload, runsRepo, eventsRepo, messagesRepo, attachmentStore, rolloutStore, messageLimit)
 		if err != nil {
 			var resumeErr *resumeUnavailableError
 			if errors.As(err, &resumeErr) {
-				failed := rc.Emitter.Emit("run.failed", map[string]any{
-					"error_class": resumeUnavailableErrorClass,
-					"message":     "resume context is unavailable",
-				}, nil, StringPtr(resumeUnavailableErrorClass))
-				return appendAndCommitSingle(ctx, rc.Pool, rc.Run, runsRepo, eventsRepo, failed, rc.ReleaseSlot, rc.BroadcastRDB, rc.EventBus)
+				errorClass := resumeUnavailableErrorClass
+				eventType := "run.failed"
+				message := "resume context is unavailable"
+				if isRuntimeRecoveryJob(rc.JobPayload) {
+					errorClass = "worker.recovery_unavailable"
+					eventType = "run.interrupted"
+					message = "runtime recovery state is unavailable"
+				}
+				terminal := rc.Emitter.Emit(eventType, map[string]any{
+					"error_class": errorClass,
+					"message":     message,
+				}, nil, StringPtr(errorClass))
+				return appendAndCommitSingle(ctx, rc.Pool, rc.Run, runsRepo, eventsRepo, terminal, rc.ReleaseSlot, rc.BroadcastRDB, rc.EventBus)
 			}
 			return err
 		}
@@ -103,6 +114,7 @@ func loadRunInputs(
 		BeginTx(ctx context.Context, txOptions pgx.TxOptions) (pgx.Tx, error)
 	},
 	run data.Run,
+	jobPayload map[string]any,
 	runsRepo runRecordLoader,
 	eventsRepo runFirstEventLoader,
 	messagesRepo data.MessagesRepository,
@@ -144,6 +156,15 @@ func loadRunInputs(
 		if rawWorkDir, ok := dataJSON["work_dir"].(string); ok && strings.TrimSpace(rawWorkDir) != "" {
 			inputJSON["work_dir"] = strings.TrimSpace(rawWorkDir)
 		}
+		if rawContinuationSource, ok := dataJSON[runStartedContinuationSourceKey].(string); ok && strings.TrimSpace(rawContinuationSource) != "" {
+			inputJSON[runStartedContinuationSourceKey] = strings.TrimSpace(rawContinuationSource)
+		}
+		if rawContinuationLoop, ok := dataJSON[runStartedContinuationLoopKey].(bool); ok {
+			inputJSON[runStartedContinuationLoopKey] = rawContinuationLoop
+		}
+		if rawContinuationResponse, ok := dataJSON[runStartedContinuationResponseKey].(bool); ok {
+			inputJSON[runStartedContinuationResponseKey] = rawContinuationResponse
+		}
 	}
 
 	messages, err := messagesRepo.ListByThread(ctx, tx, run.AccountID, run.ThreadID, messageLimit)
@@ -152,7 +173,12 @@ func loadRunInputs(
 	}
 
 	replayInsertions := []resumeReplayInsertion(nil)
-	if run.ResumeFromRunID != nil {
+	if isRuntimeRecoveryJob(jobPayload) {
+		replayInsertions, err = loadRuntimeRecoveryReplay(ctx, tx, run, eventsRepo, rolloutStore, messages)
+		if err != nil {
+			return nil, err
+		}
+	} else if run.ResumeFromRunID != nil {
 		replayInsertions, err = loadResumedReplay(ctx, tx, run, runsRepo, eventsRepo, rolloutStore, messages)
 		if err != nil {
 			return nil, err
@@ -215,6 +241,7 @@ func LoadRunInputs(
 		BeginTx(ctx context.Context, txOptions pgx.TxOptions) (pgx.Tx, error)
 	},
 	run data.Run,
+	jobPayload map[string]any,
 	runsRepo runRecordLoader,
 	eventsRepo runFirstEventLoader,
 	messagesRepo data.MessagesRepository,
@@ -222,7 +249,7 @@ func LoadRunInputs(
 	rolloutStore objectstore.BlobStore,
 	messageLimit int,
 ) (*LoadedRunInputs, error) {
-	return loadRunInputs(ctx, pool, run, runsRepo, eventsRepo, messagesRepo, attachmentStore, rolloutStore, messageLimit)
+	return loadRunInputs(ctx, pool, run, jobPayload, runsRepo, eventsRepo, messagesRepo, attachmentStore, rolloutStore, messageLimit)
 }
 
 func IsResumeUnavailableError(err error) bool {
@@ -267,6 +294,19 @@ func loadResumedReplay(
 		return nil, err
 	}
 	return insertions, nil
+}
+
+func isRuntimeRecoveryJob(jobPayload map[string]any) bool {
+	if len(jobPayload) == 0 {
+		return false
+	}
+	if raw, _ := jobPayload["recovery_source"].(string); strings.TrimSpace(raw) == "runtime_recovery" {
+		return true
+	}
+	if raw, _ := jobPayload["source"].(string); strings.TrimSpace(raw) == "desktop_recovery" {
+		return true
+	}
+	return false
 }
 
 func resumeAnchorMessageID(dataJSON map[string]any) (uuid.UUID, error) {
@@ -376,10 +416,86 @@ func collectResumeReplayInsertions(
 	if err != nil {
 		return nil, err
 	}
+	if !threadHasAssistantMessageForRun(threadMessages, parentRun.ID) {
+		draft, err := readResponseDraft(ctx, rolloutStore, parentRun.ID)
+		if err != nil {
+			return nil, &resumeUnavailableError{reason: "response draft is unavailable"}
+		}
+		if draft != nil {
+			replayedMessages = append(replayedMessages, responseDraftMessage(draft.Content))
+		}
+	}
 	return append(insertions, resumeReplayInsertion{
 		AnchorMessageID: anchorMessageID,
 		Messages:        replayedMessages,
 	}), nil
+}
+
+func loadRuntimeRecoveryReplay(
+	ctx context.Context,
+	tx pgx.Tx,
+	run data.Run,
+	eventsRepo runFirstEventLoader,
+	rolloutStore objectstore.BlobStore,
+	threadMessages []data.ThreadMessage,
+) ([]resumeReplayInsertion, error) {
+	if rolloutStore == nil {
+		return nil, &resumeUnavailableError{reason: "runtime recovery store is unavailable"}
+	}
+	_, startedData, err := eventsRepo.FirstEventData(ctx, tx, run.ID)
+	if err != nil {
+		return nil, err
+	}
+	anchorMessageID, err := resumeAnchorMessageID(startedData)
+	if err != nil {
+		return nil, err
+	}
+	items, err := rollout.NewReader(rolloutStore).ReadRollout(ctx, run.ID)
+	if err != nil && !objectstore.IsNotFound(err) {
+		return nil, &resumeUnavailableError{reason: "runtime recovery rollout is unavailable"}
+	}
+	state := rollout.NewReader(rolloutStore).Reconstruct(items)
+	replayedMessages, err := buildReplayMessages(state)
+	if err != nil {
+		return nil, err
+	}
+	if !threadHasAssistantMessageForRun(threadMessages, run.ID) {
+		draft, err := readResponseDraft(ctx, rolloutStore, run.ID)
+		if err != nil {
+			return nil, &resumeUnavailableError{reason: "runtime recovery response draft is unavailable"}
+		}
+		if draft != nil {
+			replayedMessages = append(replayedMessages, responseDraftMessage(draft.Content))
+		}
+	}
+	if len(replayedMessages) == 0 {
+		return nil, &resumeUnavailableError{reason: "runtime recovery state is unavailable"}
+	}
+	return []resumeReplayInsertion{{
+		AnchorMessageID: anchorMessageID,
+		Messages:        replayedMessages,
+	}}, nil
+}
+
+func threadHasAssistantMessageForRun(messages []data.ThreadMessage, runID uuid.UUID) bool {
+	if runID == uuid.Nil {
+		return false
+	}
+	want := runID.String()
+	for _, msg := range messages {
+		if msg.Role != "assistant" || len(msg.MetadataJSON) == 0 {
+			continue
+		}
+		var metadata map[string]any
+		if err := json.Unmarshal(msg.MetadataJSON, &metadata); err != nil {
+			continue
+		}
+		rawRunID, _ := metadata["run_id"].(string)
+		if strings.TrimSpace(rawRunID) == want {
+			return true
+		}
+	}
+	return false
 }
 
 func buildReplayMessages(state *rollout.ReconstructedState) ([]llm.Message, error) {

@@ -189,6 +189,7 @@ func (r *RunEventRepository) CreateRootRunWithClaimFrom(
 		threadTailMessageIDFromData(latestRootRunStartedData),
 		runKindFromData(latestRootRunStartedData),
 	)
+	startedData = applyContinuationMetadata(startedData, resumeFromRunID)
 	return r.createRunWithStartedEvent(ctx, accountID, threadID, createdByUserID, startedType, startedData, resumeFromRunID)
 }
 
@@ -235,6 +236,22 @@ func runKindFromData(data map[string]any) string {
 	}
 	raw, _ := data[runStartedRunKindKey].(string)
 	return strings.TrimSpace(raw)
+}
+
+func applyContinuationMetadata(data map[string]any, resumeFromRunID *uuid.UUID) map[string]any {
+	if data == nil {
+		data = map[string]any{}
+	}
+	if resumeFromRunID == nil {
+		data["continuation_source"] = "none"
+		data["continuation_loop"] = false
+		delete(data, "continuation_response")
+		return data
+	}
+	data["continuation_source"] = "user_followup"
+	data["continuation_loop"] = true
+	data["continuation_response"] = true
+	return data
 }
 
 func (r *RunEventRepository) withThreadTailMessage(
@@ -591,12 +608,17 @@ func (r *RunEventRepository) RequestCancel(
 	runID uuid.UUID,
 	requestedByUserID *uuid.UUID,
 	traceID string,
+	lastSeenSeq int64,
+	clientCancelledAt *time.Time,
 ) (*RunEvent, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	if runID == uuid.Nil {
 		return nil, fmt.Errorf("run_id must not be empty")
+	}
+	if lastSeenSeq < 0 {
+		return nil, fmt.Errorf("last_seen_seq must be non-negative")
 	}
 
 	if err := r.lockRunRow(ctx, runID); err != nil {
@@ -619,9 +641,28 @@ func (r *RunEventRepository) RequestCancel(
 		return nil, nil
 	}
 
-	dataJSON := map[string]any{"trace_id": traceID}
+	dataJSON := map[string]any{
+		"trace_id":           traceID,
+		"last_seen_seq":      lastSeenSeq,
+		"visible_seq_cutoff": lastSeenSeq,
+	}
 	if requestedByUserID != nil && *requestedByUserID != uuid.Nil {
 		dataJSON["requested_by_user_id"] = requestedByUserID.String()
+	}
+	if clientCancelledAt != nil {
+		dataJSON["client_cancelled_at"] = clientCancelledAt.UTC().Format(time.RFC3339Nano)
+	}
+
+	now := time.Now().UTC()
+	if _, err := r.db.Exec(ctx,
+		`UPDATE runs
+		 SET status = 'cancelling',
+		     status_updated_at = $2
+		 WHERE id = $1`,
+		runID,
+		now,
+	); err != nil {
+		return nil, err
 	}
 
 	event, err := r.insertEvent(ctx, runID, "run.cancel_requested", dataJSON, nil, nil)
@@ -1017,7 +1058,7 @@ func (r *RunEventRepository) CountAll(ctx context.Context) (int64, error) {
 	return count, nil
 }
 
-// ListStaleRunning 查询所有 status='running' 且最后活跃时间早于 staleBefore 的 run。
+// ListStaleRunning 查询所有 status='running'/'cancelling' 且最后活跃时间早于 staleBefore 的 run。
 func (r *RunEventRepository) ListStaleRunning(ctx context.Context, staleBefore time.Time) ([]Run, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -1030,7 +1071,7 @@ func (r *RunEventRepository) ListStaleRunning(ctx context.Context, staleBefore t
 		        duration_ms, total_input_tokens, total_output_tokens, total_cost_usd,
 		        model, persona_id, deleted_at
 		 FROM runs
-		 WHERE status = 'running'
+		 WHERE status IN ('running', 'cancelling')
 		   AND COALESCE(status_updated_at, created_at) < $1`,
 		staleBefore.UTC(),
 	)
@@ -1083,8 +1124,8 @@ func (r *RunEventRepository) ListChildRunIDs(ctx context.Context, parentRunID uu
 	return ids, rows.Err()
 }
 
-// ForceFailRun 原子地将一个 running 的 run 标记为 failed 并写入 run.failed 事件。
-// 返回 (true, nil) 表示实际执行了更新；(false, nil) 表示 run 已不在 running 状态（no-op）。
+// ForceFailRun 原子地将一个 running/cancelling 的 run 标记为 failed 并写入 run.failed 事件。
+// 返回 (true, nil) 表示实际执行了更新；(false, nil) 表示 run 已不在运行态（no-op）。
 func (r *RunEventRepository) ForceFailRun(ctx context.Context, runID uuid.UUID) (bool, error) {
 	if runID == uuid.Nil {
 		return false, fmt.Errorf("run_id must not be empty")
@@ -1099,7 +1140,7 @@ func (r *RunEventRepository) ForceFailRun(ctx context.Context, runID uuid.UUID) 
 		         failed_at = now(),
 		         status_updated_at = now()
 		     WHERE id = $1
-		       AND status = 'running'
+		       AND status IN ('running', 'cancelling')
 		     RETURNING id
 		 ),
 		 next_seq AS (

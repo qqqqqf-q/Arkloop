@@ -534,7 +534,7 @@ func (ScheduledTriggersRepository) InsertHeartbeatRunInTx(
 
 	repo := DesktopRunEventsRepository{}
 	if _, err := repo.AppendEvent(ctx, tx, runID, "run.started",
-		map[string]any{"persona_id": row.PersonaKey, "model": model},
+		map[string]any{"persona_id": row.PersonaKey, "model": model, "run_kind": runkind.Heartbeat},
 		nil, nil,
 	); err != nil {
 		return HeartbeatRunResult{}, fmt.Errorf("append run.started: %w", err)
