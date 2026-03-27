@@ -297,6 +297,13 @@ func ResolveProviderAllowlist(
 			continue
 		}
 
+		if meta, ok := sharedtoolmeta.Lookup(group); ok {
+			switch meta.Group {
+			case sharedtoolmeta.GroupWebSearch, sharedtoolmeta.GroupWebFetch, sharedtoolmeta.GroupImageUnderstanding:
+				continue
+			}
+		}
+
 		if strings.TrimSpace(state.legacyName) != "" {
 			resolved[state.legacyName] = struct{}{}
 			continue

@@ -18,15 +18,9 @@ type ProviderConfig struct {
 }
 
 type EnvConfig struct {
-	SandboxBaseURL    string
-	MemoryBaseURL     string
-	MemoryRootAPIKey  string
-	WebSearchProvider string
-	WebSearchBaseURL  string
-	WebSearchAPIKey   string
-	WebFetchProvider  string
-	WebFetchBaseURL   string
-	WebFetchAPIKey    string
+	SandboxBaseURL   string
+	MemoryBaseURL    string
+	MemoryRootAPIKey string
 }
 
 type ResolveInput struct {
@@ -84,26 +78,14 @@ func BuildRuntimeSnapshot(ctx context.Context, input SnapshotInput) (RuntimeSnap
 
 	browserEnabled := resolveBrowserEnabled(ctx, input.ConfigResolver)
 
-	webSearchProvider := strings.TrimSpace(os.Getenv("ARKLOOP_WEB_SEARCH_PROVIDER"))
-	webSearchBaseURL, webSearchAPIKey := resolveWebSearchEnv(webSearchProvider)
-
-	webFetchProvider := strings.TrimSpace(os.Getenv("ARKLOOP_WEB_FETCH_PROVIDER"))
-	webFetchBaseURL, webFetchAPIKey := resolveWebFetchEnv(webFetchProvider)
-
 	availability := ResolveBuiltin(ResolveInput{
 		HasConversationSearch:  input.HasConversationSearch,
 		ArtifactStoreAvailable: input.ArtifactStoreAvailable,
 		BrowserEnabled:         browserEnabled,
 		Env: EnvConfig{
-			SandboxBaseURL:    strings.TrimSpace(os.Getenv("ARKLOOP_SANDBOX_BASE_URL")),
-			MemoryBaseURL:     strings.TrimSpace(os.Getenv("ARKLOOP_OPENVIKING_BASE_URL")),
-			MemoryRootAPIKey:  strings.TrimSpace(os.Getenv("ARKLOOP_OPENVIKING_ROOT_API_KEY")),
-			WebSearchProvider: webSearchProvider,
-			WebSearchBaseURL:  webSearchBaseURL,
-			WebSearchAPIKey:   webSearchAPIKey,
-			WebFetchProvider:  webFetchProvider,
-			WebFetchBaseURL:   webFetchBaseURL,
-			WebFetchAPIKey:    webFetchAPIKey,
+			SandboxBaseURL:   strings.TrimSpace(os.Getenv("ARKLOOP_SANDBOX_BASE_URL")),
+			MemoryBaseURL:    strings.TrimSpace(os.Getenv("ARKLOOP_OPENVIKING_BASE_URL")),
+			MemoryRootAPIKey: strings.TrimSpace(os.Getenv("ARKLOOP_OPENVIKING_ROOT_API_KEY")),
 		},
 		PlatformProviders: providers,
 	})
@@ -189,10 +171,10 @@ func ResolveBuiltin(input ResolveInput) BuiltinAvailability {
 		"write_file":          {},
 	}
 
-	if webSearchEnvConfigured(input.Env) || findProvider(input.PlatformProviders, "web_search") != nil {
+	if findProvider(input.PlatformProviders, "web_search") != nil {
 		available["web_search"] = struct{}{}
 	}
-	if webFetchEnvConfigured(input.Env) || findProvider(input.PlatformProviders, "web_fetch") != nil {
+	if findProvider(input.PlatformProviders, "web_fetch") != nil {
 		available["web_fetch"] = struct{}{}
 	}
 	if findProvider(input.PlatformProviders, "image_understanding") != nil {
@@ -381,55 +363,4 @@ func normalizedACPHostKind(config map[string]any) string {
 
 func normalizeBaseURL(raw string) string {
 	return strings.TrimRight(strings.TrimSpace(raw), "/")
-}
-
-func webSearchEnvConfigured(env EnvConfig) bool {
-	switch strings.ToLower(env.WebSearchProvider) {
-	case "searxng":
-		return env.WebSearchBaseURL != ""
-	case "tavily":
-		return env.WebSearchAPIKey != ""
-	case "duckduckgo":
-		return true
-	case "browser":
-		// 与 worker parse 一致：遗留 provider 名视为 DuckDuckGo 档位
-		return true
-	default:
-		return false
-	}
-}
-
-func webFetchEnvConfigured(env EnvConfig) bool {
-	switch strings.ToLower(env.WebFetchProvider) {
-	case "basic":
-		return true
-	case "firecrawl":
-		return env.WebFetchBaseURL != ""
-	case "jina":
-		// Reader 匿名档可不带 key（见 web_fetch.JinaProvider）；key 仅用于提高限额
-		return true
-	default:
-		return false
-	}
-}
-
-func resolveWebSearchEnv(provider string) (baseURL, apiKey string) {
-	switch strings.ToLower(provider) {
-	case "searxng":
-		baseURL = strings.TrimSpace(os.Getenv("ARKLOOP_WEB_SEARCH_SEARXNG_BASE_URL"))
-	case "tavily":
-		apiKey = strings.TrimSpace(os.Getenv("ARKLOOP_WEB_SEARCH_TAVILY_API_KEY"))
-	}
-	return
-}
-
-func resolveWebFetchEnv(provider string) (baseURL, apiKey string) {
-	switch strings.ToLower(provider) {
-	case "firecrawl":
-		baseURL = strings.TrimSpace(os.Getenv("ARKLOOP_WEB_FETCH_FIRECRAWL_BASE_URL"))
-		apiKey = strings.TrimSpace(os.Getenv("ARKLOOP_WEB_FETCH_FIRECRAWL_API_KEY"))
-	case "jina":
-		apiKey = strings.TrimSpace(os.Getenv("ARKLOOP_WEB_FETCH_JINA_API_KEY"))
-	}
-	return
 }

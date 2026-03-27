@@ -2,11 +2,9 @@ package catalogapi
 
 import (
 	"context"
-	"fmt"
 
 	"arkloop/services/api/internal/data"
 
-	apicrypto "arkloop/services/api/internal/crypto"
 	sharedconfig "arkloop/services/shared/config"
 	sharedtoolruntime "arkloop/services/shared/toolruntime"
 
@@ -51,15 +49,18 @@ func buildEffectiveBuiltinToolNameSet(
 			if pool == nil {
 				return nil, nil
 			}
-			platformProviders, err := sharedtoolruntime.LoadPlatformProviders(loadCtx, pool, decryptPlatformProviderSecret)
+			decrypt := toolProviderSecretDecrypter()
+			platformStatuses, err := sharedtoolruntime.LoadPlatformProviderStatuses(loadCtx, pool, decrypt)
 			if err != nil {
 				return nil, err
 			}
-			userProviders, err := sharedtoolruntime.LoadUserProviders(loadCtx, pool, userID, decryptPlatformProviderSecret)
+			userStatuses, err := sharedtoolruntime.LoadUserProviderStatuses(loadCtx, pool, userID, decrypt)
 			if err != nil {
 				return nil, err
 			}
-			return append(platformProviders, userProviders...), nil
+			providers := sharedtoolruntime.ReadyProvidersFromStatuses(platformStatuses)
+			providers = append(providers, sharedtoolruntime.ReadyProvidersFromStatuses(userStatuses)...)
+			return providers, nil
 		},
 	})
 	if err != nil {
@@ -67,21 +68,4 @@ func buildEffectiveBuiltinToolNameSet(
 		return map[string]struct{}{}
 	}
 	return snapshot.BuiltinToolNameSet()
-}
-
-func decryptPlatformProviderSecret(ctx context.Context, encrypted string, keyVersion *int, providerName string) (*string, error) {
-	_ = ctx
-	if keyVersion == nil {
-		return nil, fmt.Errorf("tool_provider_configs decrypt: missing key version for %s", providerName)
-	}
-	keyRing, err := apicrypto.NewKeyRingFromEnv()
-	if err != nil {
-		return nil, fmt.Errorf("tool_provider_configs decrypt: %w", err)
-	}
-	plaintext, err := keyRing.Decrypt(encrypted, *keyVersion)
-	if err != nil {
-		return nil, fmt.Errorf("tool_provider_configs decrypt: %w", err)
-	}
-	value := string(plaintext)
-	return &value, nil
 }

@@ -233,7 +233,11 @@ func TestDesktopToolProviderBindingsInjectsImageUnderstandingExecutor(t *testing
 	for i := range keyBytes {
 		keyBytes[i] = byte(i + 7)
 	}
-	t.Setenv("ARKLOOP_ENCRYPTION_KEY", hex.EncodeToString(keyBytes[:]))
+	dataDir := t.TempDir()
+	t.Setenv("ARKLOOP_DATA_DIR", dataDir)
+	if err := os.WriteFile(filepath.Join(dataDir, "encryption.key"), []byte(hex.EncodeToString(keyBytes[:])), 0o600); err != nil {
+		t.Fatalf("write encryption key: %v", err)
+	}
 
 	accountID := uuid.MustParse("00000000-0000-4000-8000-000000000101")
 	userID := uuid.MustParse("00000000-0000-4000-8000-000000000102")
@@ -252,8 +256,8 @@ func TestDesktopToolProviderBindingsInjectsImageUnderstandingExecutor(t *testing
 			args: []any{accountID, userID},
 		},
 		{
-			sql:  `INSERT INTO secrets (id, account_id, name, encrypted_value, key_version) VALUES ($1, $2, 'desktop-image-understanding', $3, 1)`,
-			args: []any{secretID, accountID, encryptDesktopChannelToken(t, keyBytes, "minimax-test-key")},
+			sql:  `INSERT INTO secrets (id, account_id, owner_kind, owner_user_id, name, encrypted_value, key_version) VALUES ($1, $2, 'user', $3, 'desktop-image-understanding', $4, 1)`,
+			args: []any{secretID, accountID, userID, encryptDesktopChannelToken(t, keyBytes, "minimax-test-key")},
 		},
 		{
 			sql: `INSERT INTO tool_provider_configs (

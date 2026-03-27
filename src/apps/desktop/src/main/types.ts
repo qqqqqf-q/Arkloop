@@ -69,6 +69,7 @@ export type AppConfig = {
   local: LocalConfig
   window: { width: number; height: number }
   onboarding_completed: boolean
+  connectors_migrated: boolean
   connectors: ConnectorsConfig
   memory: MemoryConfig
   voice?: VoiceConfig
@@ -81,6 +82,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   local: { port: 19001, portMode: 'auto' },
   window: { width: 1280, height: 800 },
   onboarding_completed: false,
+  connectors_migrated: false,
   connectors: {
     fetch: { provider: 'jina' },
     search: { provider: 'duckduckgo' },

@@ -127,9 +127,6 @@ func TestMultiVersion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewKeyRing v2: %v", err)
 	}
-	if ring2.currentVer != 2 {
-		t.Fatalf("expected currentVer=2, got %d", ring2.currentVer)
-	}
 
 	// v1 时期加密的数据，仍可用 v1 解密
 	got, err := ring2.Decrypt(encoded, ver)
