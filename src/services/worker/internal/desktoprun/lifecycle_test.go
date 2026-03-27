@@ -183,6 +183,82 @@ func TestLifecycleReapStaleRunUsesTwoStages(t *testing.T) {
 	}
 }
 
+func TestLifecycleReapCanceledRunEvenIfInputAfter(t *testing.T) {
+	ctx := context.Background()
+	db, cleanup := openLifecycleTestDB(t, ctx)
+	defer cleanup()
+
+	_, _, _, runID := seedLifecycleRun(t, ctx, db)
+	appendLifecycleEvent(t, ctx, db, runID, events.RunEvent{
+		Type:       "run.cancel_requested",
+		OccurredAt: time.Now().UTC().Add(-(desktopStaleCancelGrace + time.Minute)),
+	})
+	appendLifecycleEvent(t, ctx, db, runID, events.RunEvent{
+		Type:       "run.input_provided",
+		OccurredAt: time.Now().UTC(),
+		DataJSON: map[string]any{
+			"content": "still waiting",
+		},
+	})
+
+	q := &lifecycleQueueStub{}
+	manager := newLifecycleManager(db, q, nil, nil)
+	if err := manager.reapOnce(ctx); err != nil {
+		t.Fatalf("reap failed: %v", err)
+	}
+
+	var status string
+	if err := db.QueryRow(ctx, `SELECT status FROM runs WHERE id = $1`, runID).Scan(&status); err != nil {
+		t.Fatalf("query run status after reap: %v", err)
+	}
+	if status != "failed" {
+		t.Fatalf("expected failed status, got %q", status)
+	}
+
+	var eventType string
+	if err := db.QueryRow(ctx,
+		`SELECT type FROM run_events WHERE run_id = $1 ORDER BY seq DESC LIMIT 1`,
+		runID,
+	).Scan(&eventType); err != nil {
+		t.Fatalf("query latest event after reap: %v", err)
+	}
+	if eventType != "run.failed" {
+		t.Fatalf("expected run.failed event, got %q", eventType)
+	}
+}
+
+func TestLifecycleRecoverSkipsRunWithHistoricalCancelRequest(t *testing.T) {
+	ctx := context.Background()
+	db, cleanup := openLifecycleTestDB(t, ctx)
+	defer cleanup()
+
+	_, _, _, runID := seedLifecycleRun(t, ctx, db)
+	appendLifecycleEvent(t, ctx, db, runID, events.RunEvent{
+		Type:       "run.cancel_requested",
+		OccurredAt: time.Now().UTC().Add(-2 * time.Minute),
+		DataJSON: map[string]any{
+			"trace_id": "trace-cancel",
+		},
+	})
+	appendLifecycleEvent(t, ctx, db, runID, events.RunEvent{
+		Type:       "run.input_provided",
+		OccurredAt: time.Now().UTC().Add(-90 * time.Second),
+		DataJSON: map[string]any{
+			"content":  "late input",
+			"trace_id": "trace-input",
+		},
+	})
+
+	q := &lifecycleQueueStub{}
+	manager := newLifecycleManager(db, q, nil, nil)
+	if err := manager.recoverRuns(ctx); err != nil {
+		t.Fatalf("recover runs failed: %v", err)
+	}
+	if len(q.calls) != 0 {
+		t.Fatalf("expected run with historical cancel request not to recover, got %d queued runs", len(q.calls))
+	}
+}
+
 func TestLifecycleBootstrapSyncsTerminalStatusFromEvents(t *testing.T) {
 	ctx := context.Background()
 	db, cleanup := openLifecycleTestDB(t, ctx)
