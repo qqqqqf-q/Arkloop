@@ -209,10 +209,10 @@ export function ProvidersSettings({ accessToken }: Props) {
             key={selected.id}
             provider={selected}
             accessToken={accessToken}
-            onUpdated={load}
-            onDeleted={load}
-            p={p}
-          />
+          onUpdated={load}
+          onDeleted={load}
+          p={p}
+        />
         ) : (
           <div className="flex h-full items-center justify-center">
             <p className="text-sm text-[var(--c-text-muted)]">{p.noProviders}</p>
@@ -478,8 +478,10 @@ function ModelsSection({ provider, accessToken, onChanged, p }: {
   onChanged: () => void
   p: ReturnType<typeof useLocale>['t']['adminProviders']
 }) {
+  const { t } = useLocale()
   const [available, setAvailable] = useState<AvailableModel[] | null>(null)
   const [loadingAvailable, setLoadingAvailable] = useState(false)
+  const [availableError, setAvailableError] = useState('')
   const [importing, setImporting] = useState(false)
   const [deletingAll, setDeletingAll] = useState(false)
   const [addingModel, setAddingModel] = useState(false)
@@ -490,13 +492,17 @@ function ModelsSection({ provider, accessToken, onChanged, p }: {
 
   const loadAvailable = useCallback(async () => {
     setLoadingAvailable(true)
+    setAvailableError('')
     try {
       const res = await listAvailableModels(accessToken, provider.id)
       setAvailable(res.models)
-    } catch { /* upstream unavailable */ } finally {
+    } catch (e) {
+      const message = isApiError(e) ? e.message : t.models.availableFetchFailed
+      setAvailableError(message)
+    } finally {
       setLoadingAvailable(false)
     }
-  }, [accessToken, provider.id])
+  }, [accessToken, provider.id, t.models.availableFetchFailed])
 
   useEffect(() => { void loadAvailable() }, [loadAvailable])
 
@@ -636,6 +642,7 @@ function ModelsSection({ provider, accessToken, onChanged, p }: {
       )}
 
       {err && <p className="mt-2 text-xs text-red-400">{err}</p>}
+      {availableError && <p className="mt-2 text-xs text-red-400">{availableError}</p>}
 
       {provider.models.length > 0 && (
         <div className="mt-3">
@@ -701,6 +708,7 @@ function ModelsSection({ provider, accessToken, onChanged, p }: {
           reset: p.reset ?? 'Reset',
           invalidJson: p.invalidJson ?? 'Provider options must be a JSON object',
           invalidNumber: p.invalidNumber ?? 'Context window and max output tokens must be positive integers',
+          visionBridgeHint: t.models.visionBridgeHint,
         }}
         onClose={() => setEditingModel(null)}
         onSave={handleSaveModelOptions}

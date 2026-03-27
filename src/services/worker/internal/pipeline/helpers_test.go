@@ -6,6 +6,7 @@ import (
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/pipeline"
 	"arkloop/services/worker/internal/tools"
+	understandimage "arkloop/services/worker/internal/tools/builtin/understand_image"
 )
 
 func TestFilterToolSpecsDedupesToLlmGroupName(t *testing.T) {
@@ -107,5 +108,33 @@ func TestResolveProviderAllowlistDbActiveOverridesLegacyGroup(t *testing.T) {
 	}
 	if len(resolved) != 1 {
 		t.Fatalf("expected 1 resolved tool, got %d", len(resolved))
+	}
+}
+
+func TestResolveProviderAllowlistMapsUnderstandImageToolToProviderGroup(t *testing.T) {
+	registry := tools.NewRegistry()
+	if err := registry.Register(understandimage.AgentSpec); err != nil {
+		t.Fatalf("register legacy: %v", err)
+	}
+	if err := registry.Register(understandimage.AgentSpecMiniMax); err != nil {
+		t.Fatalf("register provider: %v", err)
+	}
+
+	allow := map[string]struct{}{
+		"understand_image": {},
+	}
+	active := map[string]string{
+		"image_understanding": understandimage.ProviderNameMiniMax,
+	}
+
+	resolved, err := pipeline.ResolveProviderAllowlist(allow, registry, active)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, ok := resolved[understandimage.ProviderNameMiniMax]; !ok {
+		t.Fatalf("expected %s in resolved allowlist, got %+v", understandimage.ProviderNameMiniMax, resolved)
+	}
+	if !pipeline.ToolAllowed(allow, registry, understandimage.ProviderNameMiniMax) {
+		t.Fatalf("expected provider tool to be allowed via understand_image group")
 	}
 }

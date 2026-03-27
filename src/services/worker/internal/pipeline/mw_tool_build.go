@@ -206,7 +206,7 @@ func filterAllowlistByRuntime(allowlistSet map[string]struct{}, snapshot *shared
 		if snapshot.BuiltinAvailable(name) {
 			continue
 		}
-		group := ResolveToolGroupName(registry, name)
+		group := resolveProviderBindingGroup(registry, name)
 		if group != "" {
 			if _, ok := activeByGroup[group]; ok {
 				continue

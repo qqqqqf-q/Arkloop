@@ -11,6 +11,7 @@ import {
   Bot,
   Radio,
   Wifi,
+  Plug,
   Palette,
   RefreshCw,
 } from 'lucide-react'
@@ -28,9 +29,10 @@ import { InviteCodeContent } from './settings/InviteSettings'
 import { HelpContent, ReportFeedbackContent } from './settings/HelpSettings'
 import { CreditsContent } from './settings/CreditsSettings'
 import { UpdateSettingsContent } from './settings/UpdateSettings'
+import { ConnectorsSettings } from './settings/ConnectorsSettings'
 import { isDesktop, isLocalMode } from '@arkloop/shared/desktop'
 
-export type SettingsTab = 'account' | 'appearance' | 'settings' | 'skills' | 'credits' | 'models' | 'agents' | 'channels' | 'connection' | 'updates'
+export type SettingsTab = 'account' | 'appearance' | 'settings' | 'connectors' | 'skills' | 'credits' | 'models' | 'agents' | 'channels' | 'connection' | 'updates'
 
 type NavItem = { key: SettingsTab; icon: LucideIcon }
 
@@ -38,6 +40,7 @@ const BASE_NAV_ITEMS: NavItem[] = [
   { key: 'account',    icon: User },
   { key: 'appearance', icon: Palette },
   { key: 'settings',   icon: Settings },
+  { key: 'connectors', icon: Plug },
   { key: 'skills',     icon: Puzzle },
   { key: 'models',     icon: Cpu },
   { key: 'agents',     icon: Bot },
@@ -177,6 +180,9 @@ export function SettingsModal({ me, accessToken, initialTab = 'account', onClose
                   <ReportFeedbackContent accessToken={accessToken} />
                 </div>
               </div>
+            )}
+            {activeKey === 'connectors' && (
+              <ConnectorsSettings accessToken={accessToken} />
             )}
             {activeKey === 'skills' && (
               <SkillsSettingsContent accessToken={accessToken} onTrySkill={(prompt) => { onClose(); onTrySkill?.(prompt) }} />

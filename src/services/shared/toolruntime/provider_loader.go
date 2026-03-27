@@ -7,12 +7,16 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5"
 )
+
+type providerQuerier interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+}
 
 type ProviderSecretDecrypter func(ctx context.Context, encrypted string, keyVersion *int, providerName string) (*string, error)
 
-func LoadPlatformProviders(ctx context.Context, pool *pgxpool.Pool, decrypt ProviderSecretDecrypter) ([]ProviderConfig, error) {
+func LoadPlatformProviders(ctx context.Context, pool providerQuerier, decrypt ProviderSecretDecrypter) ([]ProviderConfig, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -74,7 +78,7 @@ func LoadPlatformProviders(ctx context.Context, pool *pgxpool.Pool, decrypt Prov
 	return providers, nil
 }
 
-func LoadUserProviders(ctx context.Context, pool *pgxpool.Pool, userID uuid.UUID, decrypt ProviderSecretDecrypter) ([]ProviderConfig, error) {
+func LoadUserProviders(ctx context.Context, pool providerQuerier, userID uuid.UUID, decrypt ProviderSecretDecrypter) ([]ProviderConfig, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}

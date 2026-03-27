@@ -17,6 +17,7 @@ export const zh: LocaleStrings = {
     account: "账户",
     appearance: "外观",
     settings: "设置",
+    connectors: "连接器",
     skills: "技能",
     credits: "积分",
     models: "模型配置",
@@ -464,6 +465,8 @@ export const zh: LocaleStrings = {
     reset: "重置",
     invalidJson: "Provider 选项必须是 JSON 对象",
     invalidNumber: "上下文窗口和最大输出 Token 必须是正整数",
+    availableFetchFailed: "加载可用模型失败",
+    visionBridgeHint: "视觉能力依赖已配置的图片桥接连接器，请前往连接器设置。",
   },
   agentSettings: {
     title: "智能体",

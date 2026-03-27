@@ -144,6 +144,19 @@ export type ToolProviderItem = {
   requires_base_url: boolean
   configured: boolean
   config_json?: Record<string, unknown>
+  config_fields?: ToolProviderConfigField[]
+  default_base_url?: string
+}
+
+export type ToolProviderConfigField = {
+  key: string
+  label: string
+  type: 'string' | 'number' | 'select' | 'password'
+  required: boolean
+  default?: string
+  options?: string[]
+  group?: string
+  placeholder?: string
 }
 
 export type ToolProviderGroup = {
