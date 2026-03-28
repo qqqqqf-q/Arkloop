@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { CheckCircle, XCircle } from 'lucide-react'
 import { useLocale } from '../../contexts/LocaleContext'
 import {
@@ -7,7 +7,7 @@ import {
 } from '../../api-admin'
 import { bridgeClient } from '../../api-bridge'
 import { SettingsPillToggle } from './_SettingsPillToggle'
-import { SpinnerIcon } from '@arkloop/shared/components/auth-ui'
+import { useToast } from '@arkloop/shared'
 
 const EXEC_MODE_KEY = 'arkloop:desktop:execution_mode'
 
@@ -54,12 +54,10 @@ function parsePositiveInt(raw: string | undefined, fallback: number): number {
 export function ChatSettings({ accessToken }: Props) {
   const { t } = useLocale()
   const st = t.desktopSettings
+  const { addToast } = useToast()
 
   const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
   const [loadErr, setLoadErr] = useState('')
-  const [saveErr, setSaveErr] = useState('')
-  const [savedHint, setSavedHint] = useState(false)
 
   const [autoOn, setAutoOn] = useState(false)
   const [thresholdPct, setThresholdPct] = useState(80)
@@ -69,6 +67,9 @@ export function ChatSettings({ accessToken }: Props) {
   const [execModeLoading, setExecModeLoading] = useState(true)
   const [execModeError, setExecModeError] = useState('')
   const [execSaveResult, setExecSaveResult] = useState<'ok' | 'error' | null>(null)
+
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const initializedRef = useRef(false)
 
   const load = useCallback(async () => {
     setLoadErr('')
@@ -105,12 +106,44 @@ export function ChatSettings({ accessToken }: Props) {
       setLoadErr(e instanceof Error ? e.message : t.requestFailed)
     } finally {
       setLoading(false)
+      initializedRef.current = true
     }
   }, [accessToken, t.requestFailed])
 
   useEffect(() => {
     void load()
   }, [load])
+
+  const handleSave = useCallback(async () => {
+    const keepClamped = Math.min(50, Math.max(2, Math.floor(keepLast)))
+    if (keepClamped !== keepLast) setKeepLast(keepClamped)
+
+    const pctClamped = Math.min(100, Math.max(5, Math.round(thresholdPct)))
+    if (pctClamped !== thresholdPct) setThresholdPct(pctClamped)
+
+    try {
+      const enStr = autoOn ? 'true' : 'false'
+      const keepStr = String(keepClamped)
+      await updatePlatformSetting(accessToken, KEY_ENABLED, enStr)
+      await updatePlatformSetting(accessToken, KEY_PERSIST, enStr)
+      await updatePlatformSetting(accessToken, KEY_PCT, String(pctClamped))
+      await updatePlatformSetting(accessToken, KEY_KEEP, keepStr)
+      addToast({ type: 'success', message: st.chatCompactSaved })
+    } catch (e) {
+      addToast({ type: 'error', message: e instanceof Error ? e.message : t.requestFailed })
+    }
+  }, [accessToken, autoOn, keepLast, thresholdPct, t.requestFailed, st.chatCompactSaved, addToast])
+
+  useEffect(() => {
+    if (!initializedRef.current) return
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current)
+    debounceTimerRef.current = setTimeout(() => {
+      void handleSave()
+    }, 500)
+    return () => {
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current)
+    }
+  }, [autoOn, thresholdPct, keepLast, handleSave])
 
   const loadExecutionMode = useCallback(async () => {
     setExecModeLoading(true)
@@ -152,32 +185,6 @@ export function ChatSettings({ accessToken }: Props) {
       setExecSaveResult('error')
     }
   }, [])
-
-  const handleSave = useCallback(async () => {
-    setSaveErr('')
-    setSavedHint(false)
-    const keepClamped = Math.min(50, Math.max(2, Math.floor(keepLast)))
-    if (keepClamped !== keepLast) setKeepLast(keepClamped)
-
-    const pctClamped = Math.min(100, Math.max(5, Math.round(thresholdPct)))
-    if (pctClamped !== thresholdPct) setThresholdPct(pctClamped)
-
-    setSaving(true)
-    try {
-      const enStr = autoOn ? 'true' : 'false'
-      const keepStr = String(keepClamped)
-      await updatePlatformSetting(accessToken, KEY_ENABLED, enStr)
-      await updatePlatformSetting(accessToken, KEY_PERSIST, enStr)
-      await updatePlatformSetting(accessToken, KEY_PCT, String(pctClamped))
-      await updatePlatformSetting(accessToken, KEY_KEEP, keepStr)
-      setSavedHint(true)
-      window.setTimeout(() => setSavedHint(false), 2000)
-    } catch (e) {
-      setSaveErr(e instanceof Error ? e.message : t.requestFailed)
-    } finally {
-      setSaving(false)
-    }
-  }, [accessToken, autoOn, keepLast, thresholdPct, t.requestFailed])
 
   if (loading) {
     return (
@@ -303,23 +310,6 @@ export function ChatSettings({ accessToken }: Props) {
           </div>
         ) : null}
       </div>
-
-      {saveErr ? (
-        <p className="text-sm text-[var(--c-status-error)]">{saveErr}</p>
-      ) : null}
-      {savedHint ? (
-        <span className="flex items-center gap-1.5 text-sm text-green-400"><CheckCircle size={13} />{st.chatCompactSaved}</span>
-      ) : null}
-
-      <button
-        type="button"
-        className="flex w-fit items-center gap-2 rounded-lg bg-[var(--c-btn-bg)] px-4 py-2 text-sm font-medium text-[var(--c-btn-text)] transition-opacity hover:opacity-90 disabled:opacity-50"
-        disabled={saving}
-        onClick={() => void handleSave()}
-      >
-        {saving && <SpinnerIcon />}
-        {saving ? st.chatCompactSaving : st.chatCompactSave}
-      </button>
     </div>
   )
 }

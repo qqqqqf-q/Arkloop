@@ -14,7 +14,7 @@ import {
   Ban,
   Plug,
 } from 'lucide-react'
-import { Modal, ConfirmDialog } from '@arkloop/shared'
+import { Modal, ConfirmDialog, useToast } from '@arkloop/shared'
 import { useLocale } from '../../contexts/LocaleContext'
 import {
   type ToolProviderGroup,
@@ -121,6 +121,7 @@ export function ConnectorsSettings({ accessToken }: Props) {
   const { t } = useLocale()
   const ds = t.desktopSettings
   const tt = t.adminTools
+  const { addToast } = useToast()
 
   // Data
   const [groups, setGroups] = useState<ToolProviderGroup[]>([])
@@ -290,13 +291,25 @@ export function ConnectorsSettings({ accessToken }: Props) {
         payload,
       )
       setCredentialModal(null)
+      addToast({ type: 'success', message: tt.save })
       await fetchAll()
     } catch {
-      /* ignore */
+      addToast({ type: 'error', message: tt.saving })
     } finally {
       setCredSaving(false)
     }
-  }, [credentialModal, credentialForm, accessToken, fetchAll])
+  }, [credentialModal, credentialForm, accessToken, fetchAll, tt.save, tt.saving, addToast])
+
+  const handleCloseCredentialModal = useCallback(async () => {
+    if (credSaving) return
+    const trimmedKey = credentialForm.apiKey.trim()
+    const trimmedBase = credentialForm.baseUrl.trim()
+    if (trimmedKey || trimmedBase) {
+      await handleSaveCredential()
+    } else {
+      setCredentialModal(null)
+    }
+  }, [credSaving, credentialForm, handleSaveCredential])
 
   const handleClearCredential = useCallback(async () => {
     if (!clearTarget) return
@@ -344,13 +357,23 @@ export function ConnectorsSettings({ accessToken }: Props) {
     try {
       await updateToolDescription(accessToken, descEdit.toolName, descText)
       setDescEdit(null)
+      addToast({ type: 'success', message: tt.save })
       await fetchAll()
     } catch {
-      /* ignore */
+      addToast({ type: 'error', message: tt.saving })
     } finally {
       setDescSaving(false)
     }
-  }, [descEdit, descText, accessToken, fetchAll])
+  }, [descEdit, descText, accessToken, fetchAll, tt.save, tt.saving, addToast])
+
+  const handleCloseDescModal = useCallback(async () => {
+    if (descSaving) return
+    if (descText.trim() && descEdit && descText.trim() !== descEdit.description.trim()) {
+      await handleSaveDescription()
+    } else {
+      setDescEdit(null)
+    }
+  }, [descSaving, descText, descEdit, handleSaveDescription])
 
   const handleResetDescription = useCallback(
     async (toolName: string) => {
@@ -691,7 +714,7 @@ export function ConnectorsSettings({ accessToken }: Props) {
       {/* ---- Credential Modal ---- */}
       <Modal
         open={!!credentialModal}
-        onClose={closeCredentialModal}
+        onClose={() => void handleCloseCredentialModal()}
         title={credentialModal ? `${tt.editCredentials}: ${credentialModal.provider.provider_name}` : ''}
         width="440px"
       >
@@ -735,22 +758,12 @@ export function ConnectorsSettings({ accessToken }: Props) {
                 />
               </div>
             )}
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={closeCredentialModal}
-                disabled={credSaving}
-                className="rounded-md border border-[var(--c-border-subtle)] px-3 py-1.5 text-sm text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)] disabled:opacity-50"
-              >
-                {tt.cancel}
-              </button>
-              <button
-                onClick={handleSaveCredential}
-                disabled={credSaving}
-                className="rounded-md bg-[var(--c-bg-deep)] px-3 py-1.5 text-sm font-medium text-[var(--c-text-primary)] transition-colors hover:opacity-80 disabled:opacity-50"
-              >
-                {credSaving ? tt.saving : tt.save}
-              </button>
-            </div>
+            {credSaving && (
+              <div className="flex items-center gap-1.5 text-xs text-[var(--c-text-muted)]">
+                <Loader2 size={12} className="animate-spin" />
+                {tt.saving}
+              </div>
+            )}
           </div>
         )}
       </Modal>
@@ -769,7 +782,7 @@ export function ConnectorsSettings({ accessToken }: Props) {
       {/* ---- Description Edit Modal ---- */}
       <Modal
         open={!!descEdit}
-        onClose={() => { if (!descSaving) setDescEdit(null) }}
+        onClose={() => void handleCloseDescModal()}
         title={descEdit ? `${tt.editDescription}: ${descEdit.label}` : ''}
         width="560px"
       >
@@ -781,22 +794,12 @@ export function ConnectorsSettings({ accessToken }: Props) {
               rows={8}
               className={`${inputCls} resize-y`}
             />
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => setDescEdit(null)}
-                disabled={descSaving}
-                className="rounded-md border border-[var(--c-border-subtle)] px-3 py-1.5 text-sm text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)] disabled:opacity-50"
-              >
-                {tt.cancel}
-              </button>
-              <button
-                onClick={handleSaveDescription}
-                disabled={descSaving || !descText.trim()}
-                className="rounded-md bg-[var(--c-bg-deep)] px-3 py-1.5 text-sm font-medium text-[var(--c-text-primary)] transition-colors hover:opacity-80 disabled:opacity-50"
-              >
-                {descSaving ? tt.saving : tt.save}
-              </button>
-            </div>
+            {descSaving && (
+              <div className="flex items-center gap-1.5 text-xs text-[var(--c-text-muted)]">
+                <Loader2 size={12} className="animate-spin" />
+                {tt.saving}
+              </div>
+            )}
           </div>
         )}
       </Modal>

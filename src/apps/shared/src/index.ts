@@ -109,3 +109,6 @@ export { ACP_DELEGATE_LAYER, isACPDelegateEventData } from './runEventDelegate'
 export { buildThreadTurns, threadMessageTextContent } from './thread-turns'
 export type { ThreadMessage, ThreadTurn } from './thread-turns'
 export { redactDataUrlsInString, jsonStringifyForDebugDisplay } from './debugPayloadRedact'
+
+export { Button } from './components/Button'
+export type { ButtonProps } from './components/Button'

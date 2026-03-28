@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { LogOut, Pencil, Copy, Check } from 'lucide-react'
 import {
   type MeResponse,
@@ -7,6 +7,7 @@ import {
   confirmEmailVerification,
 } from '../../api'
 import { useLocale } from '../../contexts/LocaleContext'
+import { useToast } from '@arkloop/shared'
 
 export function AccountContent({
   me,
@@ -100,9 +101,9 @@ export function ProfileContent({
   onMeUpdated?: (me: MeResponse) => void
 }) {
   const { t } = useLocale()
+  const { addToast } = useToast()
   const [displayName, setDisplayName] = useState(me?.username ?? '')
   const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
   const [copied, setCopied] = useState(false)
   const [sendingVerify, setSendingVerify] = useState(false)
   const [verifySent, setVerifySent] = useState(false)
@@ -117,18 +118,24 @@ export function ProfileContent({
     const name = displayName.trim()
     if (!name || !isDirty) return
     setSaving(true)
-    setError('')
     try {
       const res = await updateMe(accessToken, name)
       if (me && onMeUpdated) {
         onMeUpdated({ ...me, username: res.username })
       }
+      addToast(t.profileSaved, 'success')
     } catch {
-      setError(t.requestFailed)
+      addToast(t.requestFailed, 'error')
     } finally {
       setSaving(false)
     }
-  }, [accessToken, displayName, isDirty, me, onMeUpdated, t])
+  }, [accessToken, displayName, isDirty, me, onMeUpdated, t, addToast])
+
+  useEffect(() => {
+    if (!isDirty) return
+    const timer = setTimeout(() => void handleSave(), 500)
+    return () => clearTimeout(timer)
+  }, [displayName, isDirty, handleSave])
 
   const handleCopyId = useCallback(async () => {
     if (!me?.id) return
@@ -193,20 +200,7 @@ export function ProfileContent({
               disabled={saving}
               maxLength={256}
             />
-            {isDirty && (
-              <button
-                onClick={() => void handleSave()}
-                disabled={saving || !displayName.trim()}
-                className="flex h-9 items-center rounded-lg px-3 text-sm font-medium text-[var(--c-text-heading)] transition-colors hover:bg-[var(--c-bg-deep)] disabled:opacity-50"
-                style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-page)' }}
-              >
-                {saving ? '...' : t.profileSave}
-              </button>
-            )}
           </div>
-          {error && (
-            <p className="text-xs text-[var(--c-status-error-text)]">{error}</p>
-          )}
         </div>
       </div>
 

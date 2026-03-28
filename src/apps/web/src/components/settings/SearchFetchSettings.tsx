@@ -2,7 +2,6 @@ import { useState, useCallback, useEffect, useRef, type ReactNode } from 'react'
 import {
   Globe,
   Search,
-  Check,
   Loader2,
   Eye,
   EyeOff,
@@ -14,6 +13,7 @@ import { useLocale } from '../../contexts/LocaleContext'
 import { listToolProviders } from '../../api-admin'
 import { getDesktopAccessToken, getDesktopApi } from '@arkloop/shared/desktop'
 import type { ConnectorsConfig, FetchProvider, SearchProvider } from '@arkloop/shared/desktop'
+import { useToast } from '@arkloop/shared'
 
 // ---------------------------------------------------------------------------
 // Shared styles — all colours use CSS variables so they adapt to dark/light
@@ -29,10 +29,6 @@ const labelCls = 'mb-1.5 block text-xs font-medium text-[var(--c-text-secondary)
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function configEqual(a: ConnectorsConfig, b: ConnectorsConfig): boolean {
-  return JSON.stringify(a) === JSON.stringify(b)
-}
 
 // ---------------------------------------------------------------------------
 // Status badge
@@ -205,18 +201,18 @@ function PasswordInput({ value, onChange, placeholder }: {
 export function SearchFetchSettings() {
   const { t } = useLocale()
   const ds = t.desktopSettings
+  const { addToast } = useToast()
 
   const [config, setConfig] = useState<ConnectorsConfig | null>(null)
   const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
-  const [saved, setSaved] = useState(false)
-  const [restarting, setRestarting] = useState(false)
+  const [savedAt, setSavedAt] = useState(0)
   const [runtimeProviders, setRuntimeProviders] = useState<
     Record<string, { runtime_state?: string; runtime_reason?: string }>
   >({})
 
-  // Track the last-saved config so dirty = current !== saved
   const savedConfigRef = useRef<ConnectorsConfig | null>(null)
+  const initializedRef = useRef(false)
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const api = getDesktopApi()
 
@@ -226,6 +222,7 @@ export function SearchFetchSettings() {
       setConfig(c)
       savedConfigRef.current = c
       setLoading(false)
+      initializedRef.current = true
     }).catch(() => setLoading(false))
   }, [api])
 
@@ -234,9 +231,7 @@ export function SearchFetchSettings() {
     const load = async () => {
       const accessToken = getDesktopAccessToken()
       if (!accessToken) {
-        if (!canceled) {
-          setRuntimeProviders({})
-        }
+        if (!canceled) setRuntimeProviders({})
         return
       }
       try {
@@ -253,19 +248,12 @@ export function SearchFetchSettings() {
         })
         setRuntimeProviders(next)
       } catch {
-        if (!canceled) {
-          setRuntimeProviders({})
-        }
+        if (!canceled) setRuntimeProviders({})
       }
     }
     void load()
     return () => { canceled = true }
-  }, [saved])
-
-  // dirty = config differs from the last saved snapshot
-  const dirty = config !== null
-    && savedConfigRef.current !== null
-    && !configEqual(config, savedConfigRef.current)
+  }, [savedAt])
 
   const runtimeStatusForName = (providerName?: string, fallbackReason?: string) => {
     const runtime = providerName ? runtimeProviders[providerName] : undefined
@@ -278,30 +266,43 @@ export function SearchFetchSettings() {
     }
   }
 
-  const handleSave = useCallback(async () => {
-    if (!config || !api?.connectors) return
-    setSaving(true)
+  const handleSave = useCallback(async (cfg: ConnectorsConfig) => {
+    if (!api?.connectors) return
     try {
-      await api.connectors.set(config)
-      savedConfigRef.current = config
-      setSaved(true)
-      setRestarting(true)
-      setTimeout(() => setSaved(false), 3000)
-      setTimeout(() => setRestarting(false), 5000)
-    } finally {
-      setSaving(false)
+      await api.connectors.set(cfg)
+      savedConfigRef.current = cfg
+      setSavedAt(Date.now())
+      addToast(ds.connectorSaved, 'success')
+    } catch {
+      addToast(ds.connectorSaveError ?? 'Save failed', 'error')
     }
-  }, [config, api])
+  }, [api, addToast, ds.connectorSaved, ds.connectorSaveError])
+
+  const scheduleAutoSave = useCallback((cfg: ConnectorsConfig) => {
+    if (!initializedRef.current) return
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => {
+      void handleSave(cfg)
+    }, 500)
+  }, [handleSave])
 
   const patchFetch = useCallback((patch: Partial<ConnectorsConfig['fetch']>) => {
-    setSaved(false)
-    setConfig((prev) => prev ? { ...prev, fetch: { ...prev.fetch, ...patch } } : prev)
-  }, [])
+    setConfig((prev) => {
+      if (!prev) return prev
+      const next = { ...prev, fetch: { ...prev.fetch, ...patch } }
+      scheduleAutoSave(next)
+      return next
+    })
+  }, [scheduleAutoSave])
 
   const patchSearch = useCallback((patch: Partial<ConnectorsConfig['search']>) => {
-    setSaved(false)
-    setConfig((prev) => prev ? { ...prev, search: { ...prev.search, ...patch } } : prev)
-  }, [])
+    setConfig((prev) => {
+      if (!prev) return prev
+      const next = { ...prev, search: { ...prev.search, ...patch } }
+      scheduleAutoSave(next)
+      return next
+    })
+  }, [scheduleAutoSave])
 
   const fetchRuntimeStatus = {
     jina: runtimeStatusForName('web_fetch.jina'),
@@ -469,35 +470,6 @@ export function SearchFetchSettings() {
           </div>
         </ProviderCard>
       </Section>
-
-      {/* ── Save bar ── */}
-      <div className="flex items-center gap-3 border-t border-[var(--c-border-subtle)] pt-4">
-        <button
-          onClick={() => void handleSave()}
-          disabled={saving || !dirty}
-          className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-[background,color,opacity] duration-150 disabled:pointer-events-none disabled:opacity-40"
-          style={{
-            background: dirty ? 'var(--c-accent)' : 'var(--c-bg-deep)',
-            color: dirty ? 'var(--c-accent-fg)' : 'var(--c-text-muted)',
-          }}
-        >
-          {saving && <Loader2 size={13} className="animate-spin" />}
-          {!saving && saved && <Check size={13} />}
-          {saving ? ds.connectorSaving : ds.connectorSaveBtn}
-        </button>
-        {saved && !dirty && (
-          <span className="flex items-center gap-1 text-xs text-green-400">
-            <Check size={11} />
-            {ds.connectorSaved}
-          </span>
-        )}
-        {restarting && (
-          <span className="flex items-center gap-1 text-xs text-[var(--c-text-muted)]">
-            <Loader2 size={11} className="animate-spin" />
-            {ds.connectorRestarting}
-          </span>
-        )}
-      </div>
     </div>
   )
 }
