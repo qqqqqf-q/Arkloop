@@ -11,10 +11,12 @@ import {
   listRunEvents,
   listStarredThreadIds,
   listThreadRuns,
+  createMessage,
   createRun,
   cancelRun,
 } from '../api'
 import {
+  writeMessageAssistantTurn,
   writeMessageWidgets,
 } from '../storage'
 
@@ -125,7 +127,9 @@ vi.mock('../components/ChatInput', () => ({
 }))
 
 vi.mock('../components/MessageBubble', () => ({
-  MessageBubble: ({ message }: { message: { content: string } }) => <div>{message.content}</div>,
+  MessageBubble: ({ message, contentOverride }: { message: { content: string }; contentOverride?: string }) => (
+    <div>{contentOverride ?? message.content}</div>
+  ),
 }))
 
 vi.mock('../components/ExecutionCard', () => ({
@@ -133,13 +137,54 @@ vi.mock('../components/ExecutionCard', () => ({
 }))
 
 vi.mock('../components/CopTimeline', () => ({
-  CopTimeline: ({ steps }: { steps?: Array<{ id: string; label: string; status?: string }> }) => (
+  CopTimeline: ({
+    steps,
+    codeExecutions,
+    headerOverride,
+    isComplete,
+    copInlineTextRows,
+    thinkingRows,
+    assistantThinking,
+  }: {
+    steps?: Array<{ id: string; label: string; status?: string }>
+    codeExecutions?: Array<{ id: string; code: string }>
+    headerOverride?: string
+    isComplete?: boolean
+    copInlineTextRows?: Array<{ id: string; text: string }>
+    thinkingRows?: Array<{ id: string; markdown: string }>
+    assistantThinking?: { markdown: string }
+  }) => {
+    const inlineEntries = copInlineTextRows?.map((row) => `cop-inline:${row.text}`) ?? []
+    const thinkingEntries = thinkingRows?.map((row) => `thinking:${row.markdown}`) ?? []
+    const entries = [
+      ...(steps?.map((step) => step.label) ?? []),
+      ...(codeExecutions?.map((item) => item.code) ?? []),
+    ]
+    const autoHeader =
+      headerOverride ??
+      (entries.length > 0
+        ? (isComplete ? `${entries.length} steps completed` : 'In process')
+        : undefined)
+
+    return (
     <div>
+      {autoHeader ? <span>{autoHeader}</span> : null}
       {steps?.map((step) => (
         <span key={step.id}>{step.label}</span>
       ))}
+      {assistantThinking ? <span>{`assistant-thinking:${assistantThinking.markdown}`}</span> : null}
+      {thinkingEntries.map((entry, index) => (
+        <span key={`${entry}-${index}`}>{entry}</span>
+      ))}
+      {inlineEntries.map((entry, index) => (
+        <span key={`${entry}-${index}`}>{entry}</span>
+      ))}
+      {codeExecutions?.map((item) => (
+        <span key={item.id}>{item.code}</span>
+      ))}
     </div>
-  ),
+    )
+  },
 }))
 
 vi.mock('../components/ShareModal', () => ({
@@ -173,6 +218,10 @@ function flushMicrotasks(): Promise<void> {
     .then(() => Promise.resolve())
 }
 
+function countMatches(text: string, needle: string): number {
+  return text.split(needle).length - 1
+}
+
 function OutletShell({ context }: { context: Record<string, unknown> }) {
   return <Outlet context={context} />
 }
@@ -182,8 +231,10 @@ describe('ChatPage loading state', () => {
   const mockedListRunEvents = vi.mocked(listRunEvents)
   const mockedListStarredThreadIds = vi.mocked(listStarredThreadIds)
   const mockedListThreadRuns = vi.mocked(listThreadRuns)
+  const mockedCreateMessage = vi.mocked(createMessage)
   const mockedCreateRun = vi.mocked(createRun)
   const mockedCancelRun = vi.mocked(cancelRun)
+  const mockedWriteMessageAssistantTurn = vi.mocked(writeMessageAssistantTurn)
   const mockedWriteMessageWidgets = vi.mocked(writeMessageWidgets)
   const actEnvironment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
   const originalActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT
@@ -211,6 +262,15 @@ describe('ChatPage loading state', () => {
     mockedListRunEvents.mockResolvedValue([])
     mockedListStarredThreadIds.mockResolvedValue([])
     mockedListThreadRuns.mockResolvedValue([])
+    mockedCreateMessage.mockResolvedValue({
+      id: 'msg-created',
+      role: 'user',
+      content: 'created',
+      account_id: 'acc-1',
+      thread_id: 'thread-1',
+      created_by_user_id: 'user-1',
+      created_at: '2026-03-10T00:00:02Z',
+    })
     mockedCreateRun.mockResolvedValue({ run_id: 'run-created', trace_id: 'trace-1' })
     mockedCancelRun.mockResolvedValue({ ok: true })
   })
@@ -513,6 +573,27 @@ describe('ChatPage loading state', () => {
       await flushMicrotasks()
     })
 
+    sseMock.state = 'connected'
+    sseMock.events = [
+      {
+        event_id: 'evt-delta',
+        run_id: 'run-cancel',
+        seq: 1,
+        ts: '2026-03-10T00:00:00Z',
+        type: 'message.delta',
+        data: {
+          role: 'assistant',
+          content_delta: '正在查看 mirrorflow',
+        },
+      },
+    ]
+
+    await act(async () => {
+      root.render(renderTree())
+      await flushMicrotasks()
+      await flushMicrotasks()
+    })
+
     expect(container.textContent).toContain('resume after cancel')
 
     await act(async () => {
@@ -520,12 +601,11 @@ describe('ChatPage loading state', () => {
       await flushMicrotasks()
     })
 
-    expect(mockedCancelRun).toHaveBeenCalledWith('token', 'run-cancel', 0)
+    expect(mockedCancelRun).toHaveBeenCalledWith('token', 'run-cancel', 1)
     expect(container.textContent).toContain('streaming')
     expect(container.textContent).toContain('canceling')
     expect(container.textContent).toContain('resume after cancel')
 
-    sseMock.state = 'connected'
     sseMock.events = [
       {
         event_id: 'evt-delta',
@@ -559,7 +639,6 @@ describe('ChatPage loading state', () => {
       throw new Error('restored input not rendered')
     }
     expect(restoredInput.value).toBe('resume after cancel')
-    expect(container.textContent).not.toContain('正在查看 mirrorflow')
     expect(container.textContent).not.toContain('已停止生成')
 
     act(() => {
@@ -640,6 +719,662 @@ describe('ChatPage loading state', () => {
     })
 
     expect(mockedListMessages).toHaveBeenCalled()
+
+    act(() => {
+      root.unmount()
+    })
+    container.remove()
+  })
+
+  it.each([
+    ['run.completed', 'run-completed-structure'],
+    ['run.interrupted', 'run-interrupt-structure'],
+  ] as const)('%s 后当前 run 应继续保留 handoff 结构而不是落入 compact summary', async (terminalType, runId) => {
+    mockedListMessages
+      .mockResolvedValueOnce([
+        {
+          id: 'msg-1',
+          role: 'user',
+          content: 'hello',
+          account_id: 'acc-1',
+          thread_id: 'thread-1',
+          created_by_user_id: 'user-1',
+          created_at: '2026-03-10T00:00:00Z',
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          id: 'msg-1',
+          role: 'user',
+          content: 'hello',
+          account_id: 'acc-1',
+          thread_id: 'thread-1',
+          created_by_user_id: 'user-1',
+          created_at: '2026-03-10T00:00:00Z',
+        },
+        {
+          id: 'msg-2',
+          role: 'assistant',
+          content: '我要先再继续',
+          run_id: runId,
+          account_id: 'acc-1',
+          thread_id: 'thread-1',
+          created_by_user_id: 'user-1',
+          created_at: '2026-03-10T00:00:01Z',
+        },
+      ])
+    mockedListThreadRuns.mockResolvedValue([
+      {
+        run_id: runId,
+        status: 'running',
+        created_at: '2026-03-10T00:00:00Z',
+      },
+    ])
+
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    const outletContext = {
+      accessToken: 'token',
+      onLoggedOut: vi.fn(),
+      onRunStarted: vi.fn(),
+      onRunEnded: vi.fn(),
+      onThreadCreated: vi.fn(),
+      onThreadTitleUpdated: vi.fn(),
+      refreshCredits: vi.fn(),
+      onOpenNotifications: vi.fn(),
+      notificationVersion: 0,
+      creditsBalance: 0,
+      isPrivateMode: false,
+      onTogglePrivateMode: vi.fn(),
+      privateThreadIds: new Set<string>(),
+      onSetPendingIncognito: vi.fn(),
+      onRightPanelChange: vi.fn(),
+      threads: [],
+      onThreadDeleted: vi.fn(),
+    }
+
+    const renderTree = () => (
+      <LocaleProvider>
+        <MemoryRouter initialEntries={['/t/thread-1']}>
+          <Routes>
+            <Route element={<OutletShell context={outletContext} />}>
+              <Route path="/t/:threadId" element={<ChatPage />} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </LocaleProvider>
+    )
+
+    await act(async () => {
+      root.render(renderTree())
+    })
+    await act(async () => {
+      await flushMicrotasks()
+    })
+
+    sseMock.state = 'connected'
+    sseMock.events = [
+      {
+        event_id: 'evt-1',
+        run_id: runId,
+        seq: 1,
+        ts: '2026-03-10T00:00:00Z',
+        type: 'message.delta',
+        data: {
+          role: 'assistant',
+          content_delta: '我要先',
+        },
+      },
+      {
+        event_id: 'evt-2',
+        run_id: runId,
+        seq: 2,
+        ts: '2026-03-10T00:00:00Z',
+        type: 'tool.call',
+        data: {
+          tool_name: 'exec_command',
+          tool_call_id: 'call-pwd',
+          arguments: {
+            command: 'pwd',
+          },
+        },
+      },
+      {
+        event_id: 'evt-3',
+        run_id: runId,
+        seq: 3,
+        ts: '2026-03-10T00:00:00Z',
+        type: 'tool.result',
+        data: {
+          tool_name: 'exec_command',
+          tool_call_id: 'call-pwd',
+          result: {
+            output: '/workspace',
+          },
+        },
+      },
+      {
+        event_id: 'evt-4',
+        run_id: runId,
+        seq: 4,
+        ts: '2026-03-10T00:00:00Z',
+        type: 'message.delta',
+        data: {
+          role: 'assistant',
+          content_delta: '再继续',
+        },
+      },
+      {
+        event_id: 'evt-5',
+        run_id: runId,
+        seq: 5,
+        ts: '2026-03-10T00:00:00Z',
+        type: 'tool.call',
+        data: {
+          tool_name: 'exec_command',
+          tool_call_id: 'call-ls',
+          arguments: {
+            command: 'ls',
+          },
+        },
+      },
+      {
+        event_id: 'evt-6',
+        run_id: runId,
+        seq: 6,
+        ts: '2026-03-10T00:00:00Z',
+        type: 'tool.result',
+        data: {
+          tool_name: 'exec_command',
+          tool_call_id: 'call-ls',
+          result: {
+            output: 'a\nb',
+          },
+        },
+      },
+      {
+        event_id: 'evt-7',
+        run_id: runId,
+        seq: 7,
+        ts: '2026-03-10T00:00:01Z',
+        type: terminalType,
+        data: {},
+      },
+    ]
+
+    await act(async () => {
+      root.render(renderTree())
+      await flushMicrotasks()
+      await flushMicrotasks()
+    })
+
+    const text = container.textContent ?? ''
+    expect(text).toContain('我要先')
+    expect(text).toContain('再继续')
+    expect(container.querySelector('[data-testid="current-run-handoff"]')).not.toBeNull()
+    expect(text).not.toContain('2 steps completed')
+    expect(text.indexOf('我要先')).toBeGreaterThanOrEqual(0)
+    expect(text.indexOf('pwd')).toBeGreaterThan(text.indexOf('我要先'))
+    expect(text.indexOf('再继续')).toBeGreaterThan(text.indexOf('pwd'))
+    expect(text.indexOf('ls')).toBeGreaterThan(text.indexOf('再继续'))
+
+    act(() => {
+      root.unmount()
+    })
+    container.remove()
+  })
+
+  it('assistant 前导文本应并入紧邻 exec cop，而不是单独挂在工具块上方', async () => {
+    const runId = 'run-inline-intro'
+    mockedListMessages.mockResolvedValue([
+      {
+        id: 'msg-1',
+        role: 'user',
+        content: 'hello',
+        account_id: 'acc-1',
+        thread_id: 'thread-1',
+        created_by_user_id: 'user-1',
+        created_at: '2026-03-10T00:00:00Z',
+      },
+    ])
+    mockedListThreadRuns.mockResolvedValue([
+      {
+        run_id: runId,
+        status: 'running',
+        created_at: '2026-03-10T00:00:00Z',
+      },
+    ])
+
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    const outletContext = {
+      accessToken: 'token',
+      onLoggedOut: vi.fn(),
+      onRunStarted: vi.fn(),
+      onRunEnded: vi.fn(),
+      onThreadCreated: vi.fn(),
+      onThreadTitleUpdated: vi.fn(),
+      refreshCredits: vi.fn(),
+      onOpenNotifications: vi.fn(),
+      notificationVersion: 0,
+      creditsBalance: 0,
+      isPrivateMode: false,
+      onTogglePrivateMode: vi.fn(),
+      privateThreadIds: new Set<string>(),
+      onSetPendingIncognito: vi.fn(),
+      onRightPanelChange: vi.fn(),
+      threads: [],
+      onThreadDeleted: vi.fn(),
+    }
+
+    const renderTree = () => (
+      <LocaleProvider>
+        <MemoryRouter initialEntries={['/t/thread-1']}>
+          <Routes>
+            <Route element={<OutletShell context={outletContext} />}>
+              <Route path="/t/:threadId" element={<ChatPage />} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </LocaleProvider>
+    )
+
+    await act(async () => {
+      root.render(renderTree())
+      await flushMicrotasks()
+      await flushMicrotasks()
+    })
+
+    sseMock.state = 'connected'
+    sseMock.events = [
+      {
+        event_id: 'evt-1',
+        run_id: runId,
+        seq: 1,
+        ts: '2026-03-10T00:00:00Z',
+        type: 'message.delta',
+        data: {
+          role: 'assistant',
+          content_delta: '我来帮你看看这个文件夹的内容。',
+        },
+      },
+      {
+        event_id: 'evt-2',
+        run_id: runId,
+        seq: 2,
+        ts: '2026-03-10T00:00:00Z',
+        type: 'tool.call',
+        data: {
+          tool_name: 'exec_command',
+          tool_call_id: 'call-ls',
+          arguments: {
+            command: 'ls -la ~/Documents/mirrorflow',
+          },
+        },
+      },
+      {
+        event_id: 'evt-3',
+        run_id: runId,
+        seq: 3,
+        ts: '2026-03-10T00:00:00Z',
+        type: 'tool.result',
+        data: {
+          tool_name: 'exec_command',
+          tool_call_id: 'call-ls',
+          result: {
+            output: 'README.md',
+          },
+        },
+      },
+    ]
+
+    await act(async () => {
+      root.render(renderTree())
+      await flushMicrotasks()
+      await flushMicrotasks()
+    })
+
+    const text = container.textContent ?? ''
+    expect(text).toContain('cop-inline:我来帮你看看这个文件夹的内容。')
+    expect(text).toContain('ls -la ~/Documents/mirrorflow')
+    expect(countMatches(text, '我来帮你看看这个文件夹的内容。')).toBe(1)
+    expect(text.indexOf('cop-inline:我来帮你看看这个文件夹的内容。')).toBeLessThan(text.indexOf('ls -la ~/Documents/mirrorflow'))
+
+    act(() => {
+      root.unmount()
+    })
+    container.remove()
+  })
+
+  it('run.cancelled 后应保留 handoff 的展开态与 thinking，且不写入 assistant turn 持久化', async () => {
+    mockedListMessages
+      .mockResolvedValueOnce([
+        {
+          id: 'msg-1',
+          role: 'user',
+          content: 'hello',
+          account_id: 'acc-1',
+          thread_id: 'thread-1',
+          created_by_user_id: 'user-1',
+          created_at: '2026-03-10T00:00:00Z',
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          id: 'msg-1',
+          role: 'user',
+          content: 'hello',
+          account_id: 'acc-1',
+          thread_id: 'thread-1',
+          created_by_user_id: 'user-1',
+          created_at: '2026-03-10T00:00:00Z',
+        },
+        {
+          id: 'msg-2',
+          role: 'assistant',
+          content: '我要先再继续',
+          run_id: 'run-cancel-closed',
+          account_id: 'acc-1',
+          thread_id: 'thread-1',
+          created_by_user_id: 'user-1',
+          created_at: '2026-03-10T00:00:01Z',
+        },
+      ])
+    mockedListThreadRuns.mockResolvedValue([
+      {
+        run_id: 'run-cancel-closed',
+        status: 'running',
+        created_at: '2026-03-10T00:00:00Z',
+      },
+    ])
+
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    const outletContext = {
+      accessToken: 'token',
+      onLoggedOut: vi.fn(),
+      onRunStarted: vi.fn(),
+      onRunEnded: vi.fn(),
+      onThreadCreated: vi.fn(),
+      onThreadTitleUpdated: vi.fn(),
+      refreshCredits: vi.fn(),
+      onOpenNotifications: vi.fn(),
+      notificationVersion: 0,
+      creditsBalance: 0,
+      isPrivateMode: false,
+      onTogglePrivateMode: vi.fn(),
+      privateThreadIds: new Set<string>(),
+      onSetPendingIncognito: vi.fn(),
+      onRightPanelChange: vi.fn(),
+      threads: [],
+      onThreadDeleted: vi.fn(),
+    }
+
+    const renderTree = () => (
+      <LocaleProvider>
+        <MemoryRouter initialEntries={['/t/thread-1']}>
+          <Routes>
+            <Route element={<OutletShell context={outletContext} />}>
+              <Route path="/t/:threadId" element={<ChatPage />} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </LocaleProvider>
+    )
+
+    await act(async () => {
+      root.render(renderTree())
+    })
+    await act(async () => {
+      await flushMicrotasks()
+    })
+
+    sseMock.state = 'connected'
+    sseMock.events = [
+      {
+        event_id: 'evt-1',
+        run_id: 'run-cancel-closed',
+        seq: 1,
+        ts: '2026-03-10T00:00:00Z',
+        type: 'message.delta',
+        data: {
+          role: 'assistant',
+          channel: 'thinking',
+          content_delta: '先想一下',
+        },
+      },
+      {
+        event_id: 'evt-2',
+        run_id: 'run-cancel-closed',
+        seq: 2,
+        ts: '2026-03-10T00:00:00Z',
+        type: 'message.delta',
+        data: {
+          role: 'assistant',
+          content_delta: '我要先',
+        },
+      },
+      {
+        event_id: 'evt-3',
+        run_id: 'run-cancel-closed',
+        seq: 3,
+        ts: '2026-03-10T00:00:00Z',
+        type: 'tool.call',
+        data: {
+          tool_name: 'exec_command',
+          tool_call_id: 'call-pwd',
+          arguments: {
+            command: 'pwd',
+          },
+        },
+      },
+      {
+        event_id: 'evt-4',
+        run_id: 'run-cancel-closed',
+        seq: 4,
+        ts: '2026-03-10T00:00:00Z',
+        type: 'tool.result',
+        data: {
+          tool_name: 'exec_command',
+          tool_call_id: 'call-pwd',
+          result: {
+            output: '/workspace',
+          },
+        },
+      },
+      {
+        event_id: 'evt-5',
+        run_id: 'run-cancel-closed',
+        seq: 5,
+        ts: '2026-03-10T00:00:00Z',
+        type: 'message.delta',
+        data: {
+          role: 'assistant',
+          content_delta: '再继续',
+        },
+      },
+      {
+        event_id: 'evt-6',
+        run_id: 'run-cancel-closed',
+        seq: 6,
+        ts: '2026-03-10T00:00:00Z',
+        type: 'tool.call',
+        data: {
+          tool_name: 'exec_command',
+          tool_call_id: 'call-ls',
+          arguments: {
+            command: 'ls',
+          },
+        },
+      },
+      {
+        event_id: 'evt-7',
+        run_id: 'run-cancel-closed',
+        seq: 7,
+        ts: '2026-03-10T00:00:00Z',
+        type: 'tool.result',
+        data: {
+          tool_name: 'exec_command',
+          tool_call_id: 'call-ls',
+          result: {
+            output: 'a\\nb',
+          },
+        },
+      },
+      {
+        event_id: 'evt-8',
+        run_id: 'run-cancel-closed',
+        seq: 8,
+        ts: '2026-03-10T00:00:01Z',
+        type: 'run.cancelled',
+        data: {},
+      },
+    ]
+
+    await act(async () => {
+      root.render(renderTree())
+      await flushMicrotasks()
+      await flushMicrotasks()
+    })
+
+    const text = container.textContent ?? ''
+    expect(container.querySelector('[data-testid="current-run-handoff"]')).not.toBeNull()
+    expect(text).toContain('thinking:先想一下')
+    expect(text).toContain('我要先')
+    expect(text).toContain('再继续')
+    expect(countMatches(text, 'In process')).toBe(1)
+    expect(text.lastIndexOf('In process')).toBeGreaterThan(text.indexOf('pwd'))
+    expect(text.lastIndexOf('In process')).toBeLessThan(text.indexOf('再继续'))
+    expect(mockedWriteMessageAssistantTurn).not.toHaveBeenCalled()
+
+    act(() => {
+      root.unmount()
+    })
+    container.remove()
+  })
+
+  it('run.cancelled 的 handoff 只会在下一次真正发送后整体收起', async () => {
+    mockedListThreadRuns.mockResolvedValue([
+      {
+        run_id: 'run-cancel-next',
+        status: 'running',
+        created_at: '2026-03-10T00:00:00Z',
+      },
+    ])
+    mockedCreateMessage.mockResolvedValueOnce({
+      id: 'msg-next-user',
+      role: 'user',
+      content: 'resume after cancel',
+      account_id: 'acc-1',
+      thread_id: 'thread-1',
+      created_by_user_id: 'user-1',
+      created_at: '2026-03-10T00:00:03Z',
+    })
+    mockedCreateRun.mockResolvedValueOnce({ run_id: 'run-next', trace_id: 'trace-next' })
+    sseMock.state = 'connected'
+
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    const outletContext = {
+      accessToken: 'token',
+      onLoggedOut: vi.fn(),
+      onRunStarted: vi.fn(),
+      onRunEnded: vi.fn(),
+      onThreadCreated: vi.fn(),
+      onThreadTitleUpdated: vi.fn(),
+      refreshCredits: vi.fn(),
+      onOpenNotifications: vi.fn(),
+      notificationVersion: 0,
+      creditsBalance: 0,
+      isPrivateMode: false,
+      onTogglePrivateMode: vi.fn(),
+      privateThreadIds: new Set<string>(),
+      onSetPendingIncognito: vi.fn(),
+      onRightPanelChange: vi.fn(),
+      threads: [],
+      onThreadDeleted: vi.fn(),
+    }
+
+    const renderTree = () => (
+      <LocaleProvider>
+        <MemoryRouter initialEntries={['/t/thread-1']}>
+          <Routes>
+            <Route element={<OutletShell context={outletContext} />}>
+              <Route path="/t/:threadId" element={<ChatPage />} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </LocaleProvider>
+    )
+
+    await act(async () => {
+      root.render(renderTree())
+    })
+    await act(async () => {
+      await flushMicrotasks()
+    })
+
+    const input = container.querySelector('input[aria-label="chat-input"]') as HTMLInputElement | null
+    const form = container.querySelector('form')
+    const cancelButton = container.querySelector('button[aria-label="cancel-button"]')
+    if (!input || !form || !cancelButton) {
+      throw new Error('chat input controls not rendered')
+    }
+
+    await act(async () => {
+      const valueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+      valueSetter?.call(input, 'resume after cancel')
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await act(async () => {
+      form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+      await flushMicrotasks()
+    })
+
+    sseMock.events = [
+      {
+        event_id: 'evt-1',
+        run_id: 'run-cancel-next',
+        seq: 1,
+        ts: '2026-03-10T00:00:00Z',
+        type: 'message.delta',
+        data: {
+          role: 'assistant',
+          channel: 'thinking',
+          content_delta: '先想一下',
+        },
+      },
+      {
+        event_id: 'evt-2',
+        run_id: 'run-cancel-next',
+        seq: 2,
+        ts: '2026-03-10T00:00:01Z',
+        type: 'run.cancelled',
+        data: {},
+      },
+    ]
+
+    await act(async () => {
+      root.render(renderTree())
+      await flushMicrotasks()
+      await flushMicrotasks()
+    })
+
+    expect(container.querySelector('[data-testid="current-run-handoff"]')).not.toBeNull()
+
+    await act(async () => {
+      form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+      await flushMicrotasks()
+      await flushMicrotasks()
+    })
+
+    expect(mockedCreateMessage).toHaveBeenCalled()
+    expect(mockedCreateRun).toHaveBeenCalledWith('token', 'thread-1', 'default', undefined, undefined)
+    expect(container.querySelector('[data-testid="current-run-handoff"]')).toBeNull()
 
     act(() => {
       root.unmount()
