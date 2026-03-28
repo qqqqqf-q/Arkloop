@@ -18,6 +18,7 @@ import (
 	"arkloop/services/api/internal/data"
 	"arkloop/services/api/internal/migrate"
 	"arkloop/services/api/internal/testutil"
+	"arkloop/services/shared/objectstore"
 	"arkloop/services/shared/telegrambot"
 
 	"github.com/google/uuid"
@@ -37,6 +38,24 @@ type telegramChannelsTestEnv struct {
 }
 
 func setupTelegramChannelsTestEnv(t *testing.T, botClient *telegrambot.Client) telegramChannelsTestEnv {
+	return setupTelegramChannelsTestEnvWithAttachmentStore(t, botClient, nil)
+}
+
+type failingAttachmentPutStore struct{}
+
+func (failingAttachmentPutStore) PutObject(ctx context.Context, key string, data []byte, options objectstore.PutOptions) error {
+	_ = ctx
+	_ = key
+	_ = data
+	_ = options
+	return io.ErrUnexpectedEOF
+}
+
+func setupTelegramChannelsTestEnvWithAttachmentStore(
+	t *testing.T,
+	botClient *telegrambot.Client,
+	attachmentStore MessageAttachmentPutStore,
+) telegramChannelsTestEnv {
 	t.Helper()
 
 	db := testutil.SetupPostgresDatabase(t, "api_go_channels_telegram")
@@ -220,6 +239,7 @@ func setupTelegramChannelsTestEnv(t *testing.T, botClient *telegrambot.Client) t
 		PersonasRepo:            personasRepo,
 		AppBaseURL:              "https://app.example",
 		TelegramBotClient:       botClient,
+		MessageAttachmentStore:  attachmentStore,
 	})
 
 	return telegramChannelsTestEnv{
@@ -993,6 +1013,62 @@ func TestTelegramWebhookGroupMessagePassiveAndActive(t *testing.T) {
 	}
 }
 
+func TestTelegramWebhookPassiveMediaFailureDoesNotPersistReceipt(t *testing.T) {
+	png := []byte{0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00}
+	server := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/getFile") && r.Method == nethttp.MethodPost:
+			_, _ = io.WriteString(w, `{"ok":true,"result":{"file_path":"photos/a.png"}}`)
+		case strings.HasPrefix(r.URL.Path, "/file/bot"):
+			w.Header().Set("Content-Type", "image/png")
+			_, _ = w.Write(png)
+		default:
+			nethttp.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	env := setupTelegramChannelsTestEnvWithAttachmentStore(
+		t,
+		telegrambot.NewClient(server.URL, server.Client()),
+		failingAttachmentPutStore{},
+	)
+	channel := createActiveTelegramChannelWithConfig(t, env, "bot-token", map[string]any{
+		"bot_username":         "arkloopbot",
+		"telegram_bot_user_id": 999,
+	})
+	headers := map[string]string{"X-Telegram-Bot-Api-Secret-Token": derefString(t, channel.WebhookSecret)}
+
+	passive := map[string]any{
+		"message": map[string]any{
+			"message_id": 31,
+			"date":       1710000200,
+			"caption":    "图来了",
+			"photo": []map[string]any{
+				{"file_id": "fid", "width": 10, "height": 10, "file_size": len(png)},
+			},
+			"chat": map[string]any{
+				"id":    -20003,
+				"type":  "supergroup",
+				"title": "Arkloop Group",
+			},
+			"from": map[string]any{
+				"id":         10001,
+				"is_bot":     false,
+				"first_name": "Alice",
+			},
+		},
+	}
+	resp := doJSONAccount(env.handler, nethttp.MethodPost, "/v1/channels/telegram/"+channel.ID.String()+"/webhook", passive, headers)
+	if resp.Code != nethttp.StatusInternalServerError {
+		t.Fatalf("passive webhook status: %d %s", resp.Code, resp.Body.String())
+	}
+
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM channel_message_receipts`, 0)
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM channel_message_ledger WHERE direction = 'inbound'`, 0)
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM messages`, 0)
+}
+
 func TestTelegramWebhookActiveRunSecondMessageUsesProvidedInput(t *testing.T) {
 	env := setupTelegramChannelsTestEnv(t, telegrambot.NewClient("https://api.telegram.org", nil))
 	channel := createActiveTelegramChannel(t, env, "tg-token-active-run", nil, "")
@@ -1054,6 +1130,118 @@ func TestTelegramWebhookActiveRunSecondMessageUsesProvidedInput(t *testing.T) {
 	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM jobs`, 1)
 	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM messages`, 2)
 	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM run_events WHERE type = 'run.input_provided'`, 1)
+}
+
+func TestTelegramPollPassiveMediaFailureDoesNotPersistReceipt(t *testing.T) {
+	png := []byte{0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00}
+	server := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/getFile") && r.Method == nethttp.MethodPost:
+			_, _ = io.WriteString(w, `{"ok":true,"result":{"file_path":"photos/a.png"}}`)
+		case strings.HasPrefix(r.URL.Path, "/file/bot"):
+			w.Header().Set("Content-Type", "image/png")
+			_, _ = w.Write(png)
+		default:
+			nethttp.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	env := setupTelegramChannelsTestEnv(t, telegrambot.NewClient("https://api.telegram.org", nil))
+	channel := createActiveTelegramChannelWithConfig(t, env, "bot-token", map[string]any{
+		"bot_username":         "arkloopbot",
+		"telegram_bot_user_id": 999,
+	})
+
+	channelIdentitiesRepo, err := data.NewChannelIdentitiesRepository(env.pool)
+	if err != nil {
+		t.Fatalf("channel identities repo: %v", err)
+	}
+	channelGroupThreadsRepo, err := data.NewChannelGroupThreadsRepository(env.pool)
+	if err != nil {
+		t.Fatalf("channel group threads repo: %v", err)
+	}
+	channelReceiptsRepo, err := data.NewChannelMessageReceiptsRepository(env.pool)
+	if err != nil {
+		t.Fatalf("channel receipts repo: %v", err)
+	}
+	channelLedgerRepo, err := data.NewChannelMessageLedgerRepository(env.pool)
+	if err != nil {
+		t.Fatalf("channel ledger repo: %v", err)
+	}
+	threadRepo, err := data.NewThreadRepository(env.pool)
+	if err != nil {
+		t.Fatalf("thread repo: %v", err)
+	}
+	messageRepo, err := data.NewMessageRepository(env.pool)
+	if err != nil {
+		t.Fatalf("message repo: %v", err)
+	}
+	runEventRepo, err := data.NewRunEventRepository(env.pool)
+	if err != nil {
+		t.Fatalf("run event repo: %v", err)
+	}
+	jobRepo, err := data.NewJobRepository(env.pool)
+	if err != nil {
+		t.Fatalf("job repo: %v", err)
+	}
+	personasRepo, err := data.NewPersonasRepository(env.pool)
+	if err != nil {
+		t.Fatalf("personas repo: %v", err)
+	}
+
+	connector := telegramConnector{
+		channelsRepo:            env.channelsRepo,
+		channelIdentitiesRepo:   channelIdentitiesRepo,
+		channelGroupThreadsRepo: channelGroupThreadsRepo,
+		channelReceiptsRepo:     channelReceiptsRepo,
+		channelLedgerRepo:       channelLedgerRepo,
+		personasRepo:            personasRepo,
+		threadRepo:              threadRepo,
+		messageRepo:             messageRepo,
+		runEventRepo:            runEventRepo,
+		jobRepo:                 jobRepo,
+		pool:                    env.pool,
+		telegramClient:          telegrambot.NewClient(server.URL, server.Client()),
+		attachmentStore:         failingAttachmentPutStore{},
+	}
+
+	update := telegramUpdate{
+		UpdateID: 1,
+		Message: &telegramMessage{
+			MessageID: 41,
+			Date:      1710000300,
+			Caption:   "图来了",
+			Photo: []telegramPhotoSize{
+				{FileID: "fid", Width: 10, Height: 10, FileSize: int64(len(png))},
+			},
+			Chat: telegramChat{
+				ID:   -20004,
+				Type: "supergroup",
+				Title: func() *string {
+					value := "Arkloop Group"
+					return &value
+				}(),
+			},
+			From: &telegramUser{
+				ID:    10001,
+				IsBot: false,
+				FirstName: func() *string {
+					value := "Alice"
+					return &value
+				}(),
+			},
+		},
+	}
+
+	err = connector.HandleUpdateForPoll(context.Background(), uuid.NewString(), channel, "bot-token", update)
+	if err == nil {
+		t.Fatal("expected poll passive media failure")
+	}
+
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM channel_message_receipts`, 0)
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM channel_message_ledger WHERE direction = 'inbound'`, 0)
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM messages`, 0)
 }
 
 func TestTelegramWebhookGroupNewDeniedWithoutBind(t *testing.T) {

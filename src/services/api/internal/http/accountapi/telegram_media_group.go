@@ -315,24 +315,10 @@ func (c telegramConnector) processTelegramMediaGroupMerged(
 	}
 
 	if !incoming.IsPrivate() && !incoming.ShouldCreateRun() {
-		if err := tx.Commit(ctx); err != nil {
+		if _, err := c.persistTelegramGroupPassiveMessageTx(ctx, tx, ch, token, incoming, identity, persona); err != nil {
 			return err
 		}
-		inCopy := incoming
-		idCopy := identity
-		pCopy := *persona
-		run := func() {
-			bgCtx := context.Background()
-			if err := c.ingestTelegramGroupPassiveMessage(bgCtx, ch, token, inCopy, idCopy, &pCopy); err != nil {
-				slog.Error("telegram_passive_ingest_failed", "channel_id", ch.ID.String(), "platform_msg_id", inCopy.PlatformMsgID, "err", err)
-			}
-		}
-		if telegramPassiveIngestSyncForTest {
-			run()
-		} else {
-			go run()
-		}
-		return nil
+		return tx.Commit(ctx)
 	}
 
 	threadProjectID := derefUUID(persona.ProjectID)

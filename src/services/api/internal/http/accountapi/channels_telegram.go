@@ -30,7 +30,7 @@ var telegramUserIDPattern = regexp.MustCompile(`^[0-9]{1,20}$`)
 
 const telegramRemoteRequestTimeout = 5 * time.Second
 
-// telegramPassiveIngestSyncForTest 为 true 时被动群消息在同线程落库（供集成测试断言）。
+// telegramPassiveIngestSyncForTest 保留给旧测试入口；当前被动群消息默认同步落库。
 var telegramPassiveIngestSyncForTest bool
 
 // SetTelegramPassiveIngestSyncForTest 仅测试使用。
@@ -587,27 +587,26 @@ func telegramCommandBase(text, botUsername string) (cmd string, ok bool) {
 	return parts[0], true
 }
 
-func (c telegramConnector) ingestTelegramGroupPassiveMessage(
+func (c telegramConnector) persistTelegramGroupPassiveMessageTx(
 	ctx context.Context,
+	tx pgx.Tx,
 	ch data.Channel,
 	token string,
 	incoming telegramIncomingMessage,
 	identity data.ChannelIdentity,
 	persona *data.Persona,
-) error {
+) (uuid.UUID, error) {
 	if persona == nil {
-		return fmt.Errorf("telegram passive ingest: persona required")
+		return uuid.Nil, fmt.Errorf("telegram passive ingest: persona required")
 	}
-	tx, err := c.pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return err
+	if tx == nil {
+		return uuid.Nil, fmt.Errorf("telegram passive ingest: tx required")
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
 
 	threadProjectID := derefUUID(persona.ProjectID)
 	threadID, err := c.resolveTelegramThreadID(ctx, tx, ch, persona.ID, threadProjectID, identity, incoming)
 	if err != nil {
-		return err
+		return uuid.Nil, err
 	}
 	if c.channelLedgerRepo != nil {
 		ledgerMetadata, metaErr := json.Marshal(map[string]any{
@@ -617,7 +616,7 @@ func (c telegramConnector) ingestTelegramGroupPassiveMessage(
 			"is_reply_to_bot":   incoming.IsReplyToBot,
 		})
 		if metaErr != nil {
-			return metaErr
+			return uuid.Nil, metaErr
 		}
 		if _, ledgerErr := c.channelLedgerRepo.WithTx(tx).Record(ctx, data.ChannelMessageLedgerRecordInput{
 			ChannelID:               ch.ID,
@@ -631,7 +630,7 @@ func (c telegramConnector) ingestTelegramGroupPassiveMessage(
 			SenderChannelIdentityID: &identity.ID,
 			MetadataJSON:            ledgerMetadata,
 		}); ledgerErr != nil {
-			return ledgerErr
+			return uuid.Nil, ledgerErr
 		}
 	}
 	content, contentJSON, metadataJSON, err := buildTelegramStructuredMessageWithMedia(
@@ -646,7 +645,7 @@ func (c telegramConnector) ingestTelegramGroupPassiveMessage(
 		incoming,
 	)
 	if err != nil {
-		return err
+		return uuid.Nil, err
 	}
 	if _, err := c.messageRepo.WithTx(tx).CreateStructuredWithMetadata(
 		ctx,
@@ -658,9 +657,9 @@ func (c telegramConnector) ingestTelegramGroupPassiveMessage(
 		metadataJSON,
 		identity.UserID,
 	); err != nil {
-		return err
+		return uuid.Nil, err
 	}
-	return tx.Commit(ctx)
+	return threadID, nil
 }
 
 func (c telegramConnector) HandleUpdate(
@@ -852,25 +851,10 @@ func (c telegramConnector) HandleUpdate(
 	}
 
 	if !incoming.IsPrivate() && !incoming.ShouldCreateRun() {
-		if err := tx.Commit(ctx); err != nil {
+		if _, err := c.persistTelegramGroupPassiveMessageTx(ctx, tx, ch, token, *incoming, identity, persona); err != nil {
 			return err
 		}
-		inCopy := *incoming
-		chCopy := ch
-		idCopy := identity
-		pCopy := *persona
-		run := func() {
-			bgCtx := context.Background()
-			if err := c.ingestTelegramGroupPassiveMessage(bgCtx, chCopy, token, inCopy, idCopy, &pCopy); err != nil {
-				slog.Error("telegram_passive_ingest_failed", "channel_id", chCopy.ID.String(), "platform_msg_id", inCopy.PlatformMsgID, "err", err)
-			}
-		}
-		if telegramPassiveIngestSyncForTest {
-			run()
-		} else {
-			go run()
-		}
-		return nil
+		return tx.Commit(ctx)
 	}
 
 	threadProjectID := derefUUID(persona.ProjectID)
@@ -1518,51 +1502,32 @@ func derefUUID(value *uuid.UUID) uuid.UUID {
 	return *value
 }
 
-// telegramPassiveTask 收集 passive 群消息所需参数。threadID 在 resolvePassiveThreadIDs 后填充。
-type telegramPassiveTask struct {
-	ch       data.Channel
-	token    string
-	incoming telegramIncomingMessage
-	identity data.ChannelIdentity
-	persona  data.Persona
-	threadID uuid.UUID
-}
-
-// preparedPassiveMessage 保存媒体下载完成后的消息内容，等待批量写入。
-type preparedPassiveMessage struct {
-	task         telegramPassiveTask
-	content      string
-	contentJSON  json.RawMessage
-	metadataJSON json.RawMessage
-}
-
-// HandleUpdateForPoll 是 HandleUpdate 的轮询路径变体：passive 群消息不立即写库，
-// 而是以 telegramPassiveTask 形式返回，由调用方批量处理。
+// HandleUpdateForPoll 是 HandleUpdate 的轮询路径变体。
 func (c telegramConnector) HandleUpdateForPoll(
 	ctx context.Context,
 	traceID string,
 	ch data.Channel,
 	token string,
 	update telegramUpdate,
-) (*telegramPassiveTask, error) {
+) error {
 	if update.Message == nil || update.Message.From == nil {
-		return nil, nil
+		return nil
 	}
 	c.refreshTelegramBotProfile(ctx, token, &ch)
 	cfg, err := resolveTelegramConfig(ch.ChannelType, ch.ConfigJSON)
 	if err != nil {
-		return nil, fmt.Errorf("invalid channel config: %w", err)
+		return fmt.Errorf("invalid channel config: %w", err)
 	}
 	rawPayload, err := json.Marshal(update)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	incoming, err := normalizeTelegramIncomingMessage(ch.ID, ch.ChannelType, rawPayload, update, cfg.BotUsername, cfg.TelegramBotUserID)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if incoming == nil {
-		return nil, nil
+		return nil
 	}
 
 	if !telegramUserAllowed(cfg.AllowedUserIDs, incoming.PlatformUserID) {
@@ -1574,21 +1539,21 @@ func (c telegramConnector) HandleUpdateForPoll(
 			})
 			sendCancel()
 		}
-		return nil, nil
+		return nil
 	}
 
 	persona, personaRef, _, err := mustValidateTelegramActivation(ctx, ch.AccountID, c.personasRepo, ch.PersonaID, ch.ConfigJSON)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	if c.tryScheduleTelegramMediaGroup(ctx, traceID, ch, token, update, *incoming, persona) {
-		return nil, nil
+		return nil
 	}
 
 	tx, err := c.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 
@@ -1599,17 +1564,17 @@ func (c telegramConnector) HandleUpdateForPoll(
 		incoming.PlatformMsgID,
 	)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if !accepted {
-		return nil, tx.Commit(ctx)
+		return tx.Commit(ctx)
 	}
 
 	maybeSendTelegramImmediateTyping(ctx, c.telegramClient, token, incoming.PlatformChatID, cfg, incoming)
 
 	identity, err := upsertTelegramIdentity(ctx, c.channelIdentitiesRepo.WithTx(tx), update.Message.From)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	// 群消息额外 upsert 群自身的 identity（heartbeat 配置挂在群上）
@@ -1624,7 +1589,7 @@ func (c telegramConnector) HandleUpdateForPoll(
 			nil,
 		)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		groupIdentity = &gi
 	}
@@ -1642,10 +1607,10 @@ func (c telegramConnector) HandleUpdateForPoll(
 			c.channelDMThreadsRepo,
 			c.threadRepo,
 		); err != nil {
-			return nil, err
+			return err
 		} else if handled {
 			if err := tx.Commit(ctx); err != nil {
-				return nil, err
+				return err
 			}
 			if c.telegramClient != nil && strings.TrimSpace(token) != "" {
 				sendCtx, sendCancel := context.WithTimeout(ctx, telegramRemoteRequestTimeout)
@@ -1655,7 +1620,7 @@ func (c telegramConnector) HandleUpdateForPoll(
 				})
 				sendCancel()
 			}
-			return nil, nil
+			return nil
 		}
 	}
 
@@ -1676,7 +1641,7 @@ func (c telegramConnector) HandleUpdateForPoll(
 				if err != nil || member == nil || (member.Status != "creator" && member.Status != "administrator") {
 					replyText = "无权限。"
 				} else if err := c.channelGroupThreadsRepo.WithTx(tx).DeleteByBinding(ctx, ch.ID, incoming.PlatformChatID, *ch.PersonaID); err != nil {
-					return nil, err
+					return err
 				} else {
 					replyText = "已开启新会话。"
 				}
@@ -1684,7 +1649,7 @@ func (c telegramConnector) HandleUpdateForPoll(
 				replyText = "已开启新会话。"
 			}
 			if err := tx.Commit(ctx); err != nil {
-				return nil, err
+				return err
 			}
 			if c.telegramClient != nil && strings.TrimSpace(token) != "" {
 				sendCtx, sendCancel := context.WithTimeout(ctx, telegramRemoteRequestTimeout)
@@ -1694,7 +1659,7 @@ func (c telegramConnector) HandleUpdateForPoll(
 				})
 				sendCancel()
 			}
-			return nil, nil
+			return nil
 		}
 		if ok && strings.HasPrefix(cmd, "/heartbeat") {
 			heartbeatIdentity := identity
@@ -1709,10 +1674,10 @@ func (c telegramConnector) HandleUpdateForPoll(
 			)
 			replyText, err := handleTelegramHeartbeatCommand(ctx, tx, heartbeatIdentity, incoming.CommandText, c.channelIdentitiesRepo)
 			if err != nil {
-				return nil, err
+				return err
 			}
 			if err := tx.Commit(ctx); err != nil {
-				return nil, err
+				return err
 			}
 			if c.telegramClient != nil && strings.TrimSpace(token) != "" {
 				sendCtx, sendCancel := context.WithTimeout(ctx, telegramRemoteRequestTimeout)
@@ -1722,33 +1687,26 @@ func (c telegramConnector) HandleUpdateForPoll(
 				})
 				sendCancel()
 			}
-			return nil, nil
+			return nil
 		}
 	}
 
 	if !incoming.HasContent() {
-		return nil, tx.Commit(ctx)
+		return tx.Commit(ctx)
 	}
 
-	// passive 群消息：提交 receipt+identity，返回 task 由调用方批量处理
 	if !incoming.IsPrivate() && !incoming.ShouldCreateRun() {
-		if err := tx.Commit(ctx); err != nil {
-			return nil, err
+		if _, err := c.persistTelegramGroupPassiveMessageTx(ctx, tx, ch, token, *incoming, identity, persona); err != nil {
+			return err
 		}
-		return &telegramPassiveTask{
-			ch:       ch,
-			token:    token,
-			incoming: *incoming,
-			identity: identity,
-			persona:  *persona,
-		}, nil
+		return tx.Commit(ctx)
 	}
 
 	// active 路径：与 HandleUpdate 完全一致
 	threadProjectID := derefUUID(persona.ProjectID)
 	threadID, err := c.resolveTelegramThreadID(ctx, tx, ch, persona.ID, threadProjectID, identity, *incoming)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if c.channelLedgerRepo != nil {
 		ledgerMetadata, metaErr := json.Marshal(map[string]any{
@@ -1758,7 +1716,7 @@ func (c telegramConnector) HandleUpdateForPoll(
 			"is_reply_to_bot":   incoming.IsReplyToBot,
 		})
 		if metaErr != nil {
-			return nil, metaErr
+			return metaErr
 		}
 		if _, ledgerErr := c.channelLedgerRepo.WithTx(tx).Record(ctx, data.ChannelMessageLedgerRecordInput{
 			ChannelID:               ch.ID,
@@ -1772,7 +1730,7 @@ func (c telegramConnector) HandleUpdateForPoll(
 			SenderChannelIdentityID: &identity.ID,
 			MetadataJSON:            ledgerMetadata,
 		}); ledgerErr != nil {
-			return nil, ledgerErr
+			return ledgerErr
 		}
 	}
 	content, contentJSON, metadataJSON, err := buildTelegramStructuredMessageWithMedia(
@@ -1787,7 +1745,7 @@ func (c telegramConnector) HandleUpdateForPoll(
 		*incoming,
 	)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if _, err := c.messageRepo.WithTx(tx).CreateStructuredWithMetadata(
 		ctx,
@@ -1799,31 +1757,31 @@ func (c telegramConnector) HandleUpdateForPoll(
 		metadataJSON,
 		identity.UserID,
 	); err != nil {
-		return nil, err
+		return err
 	}
 
 	runRepoTx := c.runEventRepo.WithTx(tx)
 	if err := runRepoTx.LockThreadRow(ctx, threadID); err != nil {
-		return nil, err
+		return err
 	}
 	if activeRun, err := runRepoTx.GetActiveRootRunForThread(ctx, threadID); err != nil {
-		return nil, err
+		return err
 	} else if activeRun != nil {
 		delivered, err := c.deliverTelegramMessageToActiveRun(ctx, runRepoTx, activeRun, content, traceID)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		if delivered {
 			if err := tx.Commit(ctx); err != nil {
-				return nil, err
+				return err
 			}
 			c.notifyActiveRunInput(ctx, activeRun.ID)
-			return nil, nil
+			return nil
 		}
 	}
 
 	if !channelAgentTriggerConsume(ch.ID) {
-		return nil, tx.Commit(ctx)
+		return tx.Commit(ctx)
 	}
 
 	runStartedData := buildTelegramRunStartedData(personaRef, cfg.DefaultModel)
@@ -1836,7 +1794,7 @@ func (c telegramConnector) HandleUpdateForPoll(
 		runStartedData,
 	)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	jobPayload := map[string]any{
 		"source":           "telegram",
@@ -1851,94 +1809,8 @@ func (c telegramConnector) HandleUpdateForPoll(
 		jobPayload,
 		nil,
 	); err != nil {
-		return nil, err
-	}
-
-	return nil, tx.Commit(ctx)
-}
-
-// resolvePassiveThreadIDs 为 passive task 列表预解析 thread IDs。
-// 按 (channel_id, platform_chat_id, persona_id) 分组，每组一个短事务立即 commit。
-// 解析失败的 task 的 threadID 保持 uuid.Nil，调用方跳过该 task。
-func (c telegramConnector) resolvePassiveThreadIDs(ctx context.Context, tasks []telegramPassiveTask) {
-	type groupKey struct{ channelID, chatID, personaID string }
-	cache := map[groupKey]uuid.UUID{}
-	for i := range tasks {
-		t := &tasks[i]
-		key := groupKey{t.ch.ID.String(), t.incoming.PlatformChatID, t.persona.ID.String()}
-		if id, ok := cache[key]; ok {
-			t.threadID = id
-			continue
-		}
-		tx, err := c.pool.BeginTx(ctx, pgx.TxOptions{})
-		if err != nil {
-			slog.Error("telegram_passive_resolve_thread_begin", "err", err)
-			continue
-		}
-		id, err := c.resolveTelegramThreadID(ctx, tx, t.ch, t.persona.ID,
-			derefUUID(t.persona.ProjectID), t.identity, t.incoming)
-		if err != nil {
-			tx.Rollback(ctx) //nolint:errcheck
-			slog.Error("telegram_passive_resolve_thread", "err", err)
-			continue
-		}
-		if err := tx.Commit(ctx); err != nil {
-			slog.Error("telegram_passive_resolve_thread_commit", "err", err)
-			continue
-		}
-		cache[key] = id
-		t.threadID = id
-	}
-}
-
-// batchWritePassiveMessages 在单个事务内批量写入所有已准备好的 passive 消息。
-func (c telegramConnector) batchWritePassiveMessages(ctx context.Context, prepared []preparedPassiveMessage) error {
-	if len(prepared) == 0 {
-		return nil
-	}
-	tx, err := c.pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
-	for _, p := range prepared {
-		if c.channelLedgerRepo != nil {
-			ledgerMeta, metaErr := json.Marshal(map[string]any{
-				"source":            "telegram",
-				"conversation_type": p.task.incoming.ChatType,
-				"mentions_bot":      p.task.incoming.MentionsBot,
-				"is_reply_to_bot":   p.task.incoming.IsReplyToBot,
-			})
-			if metaErr != nil {
-				return metaErr
-			}
-			if _, ledgerErr := c.channelLedgerRepo.WithTx(tx).Record(ctx, data.ChannelMessageLedgerRecordInput{
-				ChannelID:               p.task.ch.ID,
-				ChannelType:             p.task.ch.ChannelType,
-				Direction:               data.ChannelMessageDirectionInbound,
-				ThreadID:                &p.task.threadID,
-				PlatformConversationID:  p.task.incoming.PlatformChatID,
-				PlatformMessageID:       p.task.incoming.PlatformMsgID,
-				PlatformParentMessageID: p.task.incoming.ReplyToMsgID,
-				PlatformThreadID:        p.task.incoming.MessageThreadID,
-				SenderChannelIdentityID: &p.task.identity.ID,
-				MetadataJSON:            ledgerMeta,
-			}); ledgerErr != nil {
-				return ledgerErr
-			}
-		}
-		if _, err := c.messageRepo.WithTx(tx).CreateStructuredWithMetadata(
-			ctx,
-			p.task.ch.AccountID,
-			p.task.threadID,
-			"user",
-			p.content,
-			p.contentJSON,
-			p.metadataJSON,
-			p.task.identity.UserID,
-		); err != nil {
-			return err
-		}
-	}
+
 	return tx.Commit(ctx)
 }
