@@ -9,22 +9,14 @@ import (
 	"arkloop/services/worker/internal/routing"
 )
 
-type imageToolVisibility int
-
-const (
-	imageToolUnavailable imageToolVisibility = iota
-	imageToolDirectVisible
-	imageToolSearchableOnly
-)
-
-func filterImagePartsForRoute(selected *routing.SelectedProviderRoute, parts []llm.ContentPart, visibility imageToolVisibility) []llm.ContentPart {
+func filterImagePartsForRoute(selected *routing.SelectedProviderRoute, parts []llm.ContentPart, readImageSourcesVisible bool) []llm.ContentPart {
 	if supportsImageInput(selected) {
 		return parts
 	}
 	out := make([]llm.ContentPart, 0, len(parts))
 	for _, part := range parts {
 		if part.Kind() == messagecontent.PartTypeImage {
-			out = append(out, llm.ContentPart{Type: messagecontent.PartTypeText, Text: imagePlaceholder(part, visibility)})
+			out = append(out, llm.ContentPart{Type: messagecontent.PartTypeText, Text: imagePlaceholder(part, readImageSourcesVisible)})
 			continue
 		}
 		out = append(out, part)
@@ -40,8 +32,8 @@ func supportsImageInput(selected *routing.SelectedProviderRoute) bool {
 	return caps.SupportsInputModality("image")
 }
 
-func imagePlaceholder(part llm.ContentPart, visibility imageToolVisibility) string {
-	suffix := imagePlaceholderSuffix(visibility)
+func imagePlaceholder(part llm.ContentPart, readImageSourcesVisible bool) string {
+	suffix := imagePlaceholderSuffix(readImageSourcesVisible)
 	if part.Attachment != nil {
 		if name := strings.TrimSpace(part.Attachment.Filename); name != "" {
 			return fmt.Sprintf("[图片: %s] %s", name, suffix)
@@ -50,51 +42,24 @@ func imagePlaceholder(part llm.ContentPart, visibility imageToolVisibility) stri
 	return "[图片] " + suffix
 }
 
-func imagePlaceholderSuffix(visibility imageToolVisibility) string {
-	switch visibility {
-	case imageToolDirectVisible:
-		return "当前模型不能直接查看图片；如需理解图片内容，请直接调用 understand_image 工具。"
-	case imageToolSearchableOnly:
-		return "当前模型不能直接查看图片；如需理解图片内容，请先调用 search_tools 查找并激活 understand_image 工具。"
-	default:
-		return "当前模型不能直接查看图片；当前未配置可用的图片理解工具。"
+func imagePlaceholderSuffix(readImageSourcesVisible bool) string {
+	if readImageSourcesVisible {
+		return "当前模型不能直接查看图片；如需理解图片内容，请调用 read 工具读取该图片。"
 	}
-}
-
-func resolveImageToolVisibility(finalSpecs []llm.ToolSpec, searchable map[string]llm.ToolSpec) imageToolVisibility {
-	if toolSpecVisible(finalSpecs, "understand_image") {
-		return imageToolDirectVisible
-	}
-	if searchable != nil {
-		if _, ok := searchable["understand_image"]; ok {
-			return imageToolSearchableOnly
-		}
-	}
-	return imageToolUnavailable
-}
-
-func toolSpecVisible(specs []llm.ToolSpec, toolName string) bool {
-	for _, spec := range specs {
-		if spec.Name == toolName {
-			return true
-		}
-	}
-	return false
+	return "当前模型不能直接查看图片；当前未配置可用的图片读取能力。"
 }
 
 func applyImageFilter(
 	route *routing.SelectedProviderRoute,
 	messages []llm.Message,
-	finalSpecs []llm.ToolSpec,
-	searchable map[string]llm.ToolSpec,
+	readImageSourcesVisible bool,
 ) []llm.Message {
 	if len(messages) == 0 {
 		return messages
 	}
-	visibility := resolveImageToolVisibility(finalSpecs, searchable)
 	out := make([]llm.Message, 0, len(messages))
 	for _, msg := range messages {
-		parts := filterImagePartsForRoute(route, msg.Content, visibility)
+		parts := filterImagePartsForRoute(route, msg.Content, readImageSourcesVisible)
 		out = append(out, llm.Message{
 			Role:         msg.Role,
 			Content:      parts,

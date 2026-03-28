@@ -159,7 +159,7 @@ func ResolveBuiltin(input ResolveInput) BuiltinAvailability {
 		"glob":                {},
 		"interrupt_agent":     {},
 		"grep":                {},
-		"read_file":           {},
+		"read":                {},
 		"resume_agent":        {},
 		"send_input":          {},
 		"show_widget":         {},
@@ -177,10 +177,6 @@ func ResolveBuiltin(input ResolveInput) BuiltinAvailability {
 	if findProvider(input.PlatformProviders, "web_fetch") != nil {
 		available["web_fetch"] = struct{}{}
 	}
-	if findProvider(input.PlatformProviders, "image_understanding") != nil {
-		available["understand_image"] = struct{}{}
-	}
-
 	if input.HasConversationSearch {
 		available["conversation_search"] = struct{}{}
 	}

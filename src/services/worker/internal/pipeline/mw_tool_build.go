@@ -23,7 +23,6 @@ var runtimeManagedToolNames = map[string]struct{}{
 	"memory_search":       {},
 	"memory_write":        {},
 	"python_execute":      {},
-	"understand_image":    {},
 	"web_fetch":           {},
 	"web_search":          {},
 	"write_stdin":         {},
@@ -86,6 +85,8 @@ func NewToolBuildMiddleware() RunMiddleware {
 		dispatchRef = executor
 
 		allSpecs := FilterToolSpecs(rc.ToolSpecs, filteredAllowlist, rc.ToolRegistry)
+		readImageBridgeEnabled := hasImageBridgeProvider(rc.ActiveToolProviderByGroup)
+		allSpecs = ApplyReadImageSourceVisibility(allSpecs, readImageBridgeEnabled)
 
 		// Ensure search_tools LLM spec is present when core_tools is active.
 		// It might be missing if the persona's tool_allowlist narrowed ToolSpecs earlier.
@@ -131,6 +132,11 @@ func NewToolBuildMiddleware() RunMiddleware {
 
 		rc.ToolExecutor = executor
 		rc.FinalSpecs = allSpecs
+		rc.ReadCapabilities = ResolveReadCapabilities(
+			rc.SelectedRoute,
+			rc.FinalSpecs,
+			rc.ActiveToolProviderByGroup,
+		)
 
 		return next(ctx, rc)
 	}

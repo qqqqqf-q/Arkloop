@@ -39,7 +39,7 @@ func (e *Executor) Execute(
 	}
 
 	if !e.Tracker.HasBeenRead(filePath) {
-		return errResult("must read the file before editing; use read_file first", started)
+		return errResult("must read the file before editing; use read with source.kind=file_path first", started)
 	}
 
 	data, err := backend.ReadFile(ctx, filePath)
@@ -81,10 +81,10 @@ func (e *Executor) Execute(
 	additions, removals := fileops.CountDiffLines(content, newContent)
 	return tools.ExecutionResult{
 		ResultJSON: map[string]any{
-			"file_path":  filePath,
-			"status":     "edited",
-			"additions":  additions,
-			"removals":   removals,
+			"file_path": filePath,
+			"status":    "edited",
+			"additions": additions,
+			"removals":  removals,
 		},
 		DurationMs: durationMs(started),
 	}
@@ -103,9 +103,9 @@ func (e *Executor) createFile(ctx context.Context, backend fileops.Backend, file
 	lines := strings.Count(content, "\n") + 1
 	return tools.ExecutionResult{
 		ResultJSON: map[string]any{
-			"file_path":  filePath,
-			"status":     "created",
-			"additions":  lines,
+			"file_path": filePath,
+			"status":    "created",
+			"additions": lines,
 		},
 		DurationMs: durationMs(started),
 	}

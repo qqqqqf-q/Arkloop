@@ -4,13 +4,8 @@ title: Claw
 description: 面向多步任务执行的自主 Agent 模式。
 user_selectable: false
 soul_file: soul.md
-conditional_tools:
-  - when:
-      lacks_input_modalities:
-        - image
-    tools:
-      - understand_image
 tool_allowlist:
+  - read
   - web_search
   - web_fetch
   - exec_command

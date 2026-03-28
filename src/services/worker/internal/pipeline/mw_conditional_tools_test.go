@@ -17,12 +17,12 @@ func TestConditionalToolsMiddlewareAddsToolWhenRouteLacksImage(t *testing.T) {
 					When: personas.ConditionalToolWhen{
 						LacksInputModalities: []string{"image"},
 					},
-					Tools: []string{"understand_image"},
+					Tools: []string{"read"},
 				},
 			},
 		},
 		AllowlistSet: map[string]struct{}{},
-		ToolDenylist: []string{"understand_image"},
+		ToolDenylist: []string{"read"},
 		SelectedRoute: &routing.SelectedProviderRoute{
 			Route: routing.ProviderRouteRule{
 				AdvancedJSON: map[string]any{
@@ -36,8 +36,8 @@ func TestConditionalToolsMiddlewareAddsToolWhenRouteLacksImage(t *testing.T) {
 
 	mw := pipeline.NewConditionalToolsMiddleware()
 	h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(_ context.Context, rc *pipeline.RunContext) error {
-		if _, ok := rc.AllowlistSet["understand_image"]; !ok {
-			t.Fatal("expected understand_image added to allowlist")
+		if _, ok := rc.AllowlistSet["read"]; !ok {
+			t.Fatal("expected read added to allowlist")
 		}
 		if len(rc.ToolDenylist) != 0 {
 			t.Fatalf("expected denylist cleared, got %#v", rc.ToolDenylist)
@@ -58,12 +58,12 @@ func TestConditionalToolsMiddlewareSkipsToolWhenRouteSupportsImage(t *testing.T)
 					When: personas.ConditionalToolWhen{
 						LacksInputModalities: []string{"image"},
 					},
-					Tools: []string{"understand_image"},
+					Tools: []string{"read"},
 				},
 			},
 		},
 		AllowlistSet: map[string]struct{}{},
-		ToolDenylist: []string{"understand_image"},
+		ToolDenylist: []string{"read"},
 		SelectedRoute: &routing.SelectedProviderRoute{
 			Route: routing.ProviderRouteRule{
 				AdvancedJSON: map[string]any{
@@ -77,10 +77,10 @@ func TestConditionalToolsMiddlewareSkipsToolWhenRouteSupportsImage(t *testing.T)
 
 	mw := pipeline.NewConditionalToolsMiddleware()
 	h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(_ context.Context, rc *pipeline.RunContext) error {
-		if _, ok := rc.AllowlistSet["understand_image"]; ok {
-			t.Fatal("did not expect understand_image added to allowlist")
+		if _, ok := rc.AllowlistSet["read"]; ok {
+			t.Fatal("did not expect read added to allowlist")
 		}
-		if len(rc.ToolDenylist) != 1 || rc.ToolDenylist[0] != "understand_image" {
+		if len(rc.ToolDenylist) != 1 || rc.ToolDenylist[0] != "read" {
 			t.Fatalf("unexpected denylist: %#v", rc.ToolDenylist)
 		}
 		return nil

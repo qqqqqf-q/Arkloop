@@ -54,7 +54,7 @@ var registry = []ToolMeta{
 		LLMDescription: "search available tools by name or keyword and return their full parameter schema. " +
 			"Use when you need a tool that is not in your current tool set. " +
 			"Pass multiple queries in one call to batch-load several tools at once — never call this tool twice in a row for related tools. " +
-			"Think ahead: if you know you will need a group of tools together (e.g. spawn_agent + wait_agent, read_file + edit), load all of them in a single call. " +
+			"Think ahead: if you know you will need a group of tools together (e.g. spawn_agent + wait_agent, read + edit), load all of them in a single call. " +
 			"After this call succeeds, matched tools may be injected into the real tool list in later phases of the same reasoning loop. " +
 			"Only call them after they actually appear there.",
 	},
@@ -76,13 +76,6 @@ var registry = []ToolMeta{
 		Label:          "Web fetch",
 		ShortDesc:      "fetch a web page and return its content as text",
 		LLMDescription: "fetch a web page and return its title and body as plain text. Use when search snippets are insufficient and a specific page likely contains deeper information. Prefer official or authoritative sources. Batch-callable; do not re-fetch the same URL.",
-	},
-	{
-		Name:           "understand_image",
-		Group:          GroupImageUnderstanding,
-		Label:          "Understand image",
-		ShortDesc:      "fetch a remote image URL and return a text description",
-		LLMDescription: "fetch a remote image URL and return a textual understanding result. Use for screenshots, photos, diagrams, OCR, or image-only resources. This is not a web page reader and should not be used for normal HTML pages.",
 	},
 	// ── sandbox ──
 	{
@@ -110,7 +103,7 @@ var registry = []ToolMeta{
 			"Reuse the session_ref returned by the first call; do not issue a new exec_command to poll a busy session — use write_stdin instead. " +
 			"The shell keeps its state across calls. When you only need to change directories, prefer the cwd parameter instead of prefixing the command with cd &&. " +
 			"If the result shows running=true or only control sequences, continue with write_stdin. " +
-			"Do not use for file operations — use read_file/write_file/edit/grep instead. " +
+			"Do not use for file operations — use read/write_file/edit/grep instead. " +
 			"Working files go to /workspace/; final user-visible files go to /tmp/output/ (auto-uploaded as artifacts). " +
 			"Two distinct reference formats — use the correct one:\n" +
 			"  • /tmp/output/ files appear in result.artifacts → reference as artifact:<key>\n" +
@@ -146,14 +139,14 @@ var registry = []ToolMeta{
 	},
 	// ── filesystem ──
 	{
-		Name:      "read_file",
+		Name:      "read",
 		Group:     GroupFilesystem,
-		Label:     "Read file",
-		ShortDesc: "read file content with line numbers and optional range",
-		LLMDescription: "read the contents of a file and return them with line numbers. " +
-			"Use offset and limit to page through large files. Default limit is 2000 lines. " +
-			"Files larger than 256 KB are rejected; use offset/limit to read in sections. " +
-			"Always read a file before editing it.",
+		Label:     "Read",
+		ShortDesc: "read files or image sources and return textual output",
+		LLMDescription: "read content from source.kind=file_path, message_attachment, or remote_url. " +
+			"For file_path: return file content with line numbers using offset and limit. Default limit is 2000 lines; files larger than 256 KB are rejected. " +
+			"For message_attachment and remote_url: read image bytes and return textual understanding from prompt. " +
+			"Use prompt only for image sources. Always read a file before editing it.",
 	},
 	{
 		Name:      "write_file",
@@ -172,7 +165,7 @@ var registry = []ToolMeta{
 		LLMDescription: "replace one occurrence of old_string with new_string in the specified file. " +
 			"old_string must match exactly once — include enough surrounding context (3-5 lines before and after) to ensure uniqueness. " +
 			"To create a new file: set old_string to empty. To delete content: set new_string to empty. " +
-			"You must call read_file before editing an existing file (old_string non-empty); omitting it will return an error.",
+			"You must call read with source.kind=file_path before editing an existing file (old_string non-empty); omitting it will return an error.",
 	},
 	{
 		Name:      "glob",

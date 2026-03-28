@@ -3,36 +3,25 @@ package understandimage
 import (
 	"context"
 	"errors"
-	"fmt"
-	"sort"
-	"strings"
-	"time"
 
-	sharedoutbound "arkloop/services/shared/outboundurl"
-	sharedtoolmeta "arkloop/services/shared/toolmeta"
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/tools"
+	read "arkloop/services/worker/internal/tools/builtin/read"
 )
 
 const (
-	errorArgsInvalid      = "tool.args_invalid"
-	errorFetchFailed      = "tool.fetch_failed"
-	errorNotConfigured    = "config.missing"
-	errorProviderFailed   = "external_provider.failed"
-	errorTimeout          = "tool.timeout"
-	errorTooLarge         = "tool.payload_too_large"
 	errorUnsupportedMedia = "tool.unsupported_media_type"
-	errorURLDenied        = "tool.url_denied"
-	defaultTimeout        = 30 * time.Second
-	defaultMaxBytes       = 20 * 1024 * 1024
-	maxTimeoutMs          = 120000
+	errorTooLarge         = "tool.payload_too_large"
+	errorProviderFailed   = "external_provider.failed"
 )
 
+// Legacy compatibility surface for internal imports.
+// Product entrypoints now use the unified read tool.
 var AgentSpec = tools.AgentToolSpec{
 	Name:        "understand_image",
 	Version:     "1",
-	Description: "fetch a remote image and return a textual understanding result",
-	RiskLevel:   tools.RiskLevelMedium,
+	Description: "legacy alias of read for remote image URLs",
+	RiskLevel:   tools.RiskLevelLow,
 	SideEffects: false,
 }
 
@@ -40,14 +29,14 @@ var AgentSpecMiniMax = tools.AgentToolSpec{
 	Name:        ProviderNameMiniMax,
 	LlmName:     "understand_image",
 	Version:     "1",
-	Description: "fetch a remote image and return a textual understanding result",
-	RiskLevel:   tools.RiskLevelMedium,
+	Description: "legacy minimax alias of read",
+	RiskLevel:   tools.RiskLevelLow,
 	SideEffects: false,
 }
 
 var LlmSpec = llm.ToolSpec{
 	Name:        "understand_image",
-	Description: stringPtr(sharedtoolmeta.Must("understand_image").LLMDescription),
+	Description: strPtr("legacy alias of read for remote image URL understanding"),
 	JSONSchema: map[string]any{
 		"type": "object",
 		"properties": map[string]any{
@@ -61,16 +50,16 @@ var LlmSpec = llm.ToolSpec{
 			},
 			"max_bytes": map[string]any{
 				"type":        "integer",
-				"description": fmt.Sprintf("maximum image size in bytes (default %d)", defaultMaxBytes),
-				"default":     defaultMaxBytes,
+				"description": "maximum image size in bytes (default 20971520)",
+				"default":     20971520,
 				"minimum":     1,
-				"maximum":     defaultMaxBytes,
+				"maximum":     20971520,
 			},
 			"timeout_ms": map[string]any{
 				"type":        "integer",
 				"description": "optional timeout override in milliseconds",
 				"minimum":     1,
-				"maximum":     maxTimeoutMs,
+				"maximum":     120000,
 			},
 		},
 		"required":             []string{"url", "prompt"},
@@ -79,20 +68,19 @@ var LlmSpec = llm.ToolSpec{
 }
 
 type ToolExecutor struct {
-	provider Provider
-	timeout  time.Duration
+	delegate *read.Executor
 }
 
 func NewToolExecutor() *ToolExecutor {
-	return &ToolExecutor{timeout: defaultTimeout}
+	return &ToolExecutor{delegate: read.NewToolExecutor()}
 }
 
 func NewToolExecutorWithProvider(provider Provider) *ToolExecutor {
-	return &ToolExecutor{provider: provider, timeout: defaultTimeout}
+	return &ToolExecutor{delegate: read.NewToolExecutorWithProvider(providerAdapter{inner: provider})}
 }
 
 func (e *ToolExecutor) IsNotConfigured() bool {
-	return e == nil || e.provider == nil
+	return e == nil || e.delegate == nil
 }
 
 func (e *ToolExecutor) Execute(
@@ -100,257 +88,69 @@ func (e *ToolExecutor) Execute(
 	toolName string,
 	args map[string]any,
 	execCtx tools.ExecutionContext,
-	_ string,
+	toolCallID string,
 ) tools.ExecutionResult {
 	_ = toolName
-	started := time.Now()
-
-	targetURL, prompt, maxBytes, timeoutOverride, argErr := parseArgs(args)
-	if argErr != nil {
-		return tools.ExecutionResult{Error: argErr, DurationMs: durationMs(started)}
-	}
-	if e == nil || e.provider == nil {
+	if e == nil || e.delegate == nil {
 		return tools.ExecutionResult{
 			Error: &tools.ExecutionError{
-				ErrorClass: errorNotConfigured,
+				ErrorClass: "config.missing",
 				Message:    "understand_image backend not configured",
 				Details:    map[string]any{"group_name": GroupName},
 			},
-			DurationMs: durationMs(started),
 		}
 	}
 
-	if err := sharedoutbound.DefaultPolicy().ValidateRequestURL(targetURL); err != nil {
-		return tools.ExecutionResult{
-			Error:      executionErrorFromFetchError(err),
-			DurationMs: durationMs(started),
-		}
+	translated := map[string]any{
+		"source": map[string]any{
+			"kind": "remote_url",
+			"url":  args["url"],
+		},
+		"prompt": args["prompt"],
 	}
-
-	timeout := resolveTimeout(e.timeout, execCtx.TimeoutMs, timeoutOverride)
-	runCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	image, err := fetchRemoteImage(runCtx, targetURL, maxBytes)
-	if err != nil {
-		return tools.ExecutionResult{
-			Error:      executionErrorFromFetchError(err),
-			DurationMs: durationMs(started),
-		}
+	if raw, ok := args["max_bytes"]; ok {
+		translated["max_bytes"] = raw
 	}
+	if raw, ok := args["timeout_ms"]; ok {
+		translated["timeout_ms"] = raw
+	}
+	return e.delegate.Execute(ctx, "read", translated, execCtx, toolCallID)
+}
 
-	description, err := e.provider.DescribeImage(runCtx, DescribeImageRequest{
-		Prompt:    prompt,
-		SourceURL: image.FinalURL,
-		MimeType:  image.MimeType,
-		Bytes:     image.Bytes,
+type providerAdapter struct {
+	inner Provider
+}
+
+func (p providerAdapter) DescribeImage(ctx context.Context, req read.DescribeImageRequest) (read.DescribeImageResponse, error) {
+	resp, err := p.inner.DescribeImage(ctx, DescribeImageRequest{
+		Prompt:    req.Prompt,
+		SourceURL: req.SourceURL,
+		MimeType:  req.MimeType,
+		Bytes:     req.Bytes,
 	})
 	if err != nil {
-		return tools.ExecutionResult{
-			Error:      executionErrorFromProviderError(err),
-			DurationMs: durationMs(started),
-		}
-	}
-
-	return tools.ExecutionResult{
-		ResultJSON: map[string]any{
-			"text":       description.Text,
-			"provider":   description.Provider,
-			"model":      description.Model,
-			"source_url": image.FinalURL,
-			"mime_type":  image.MimeType,
-			"bytes":      len(image.Bytes),
-		},
-		DurationMs: durationMs(started),
-	}
-}
-
-func parseArgs(args map[string]any) (string, string, int, *int, *tools.ExecutionError) {
-	unknown := make([]string, 0)
-	for key := range args {
-		if key != "url" && key != "prompt" && key != "max_bytes" && key != "timeout_ms" {
-			unknown = append(unknown, key)
-		}
-	}
-	if len(unknown) > 0 {
-		sort.Strings(unknown)
-		return "", "", 0, nil, &tools.ExecutionError{
-			ErrorClass: errorArgsInvalid,
-			Message:    "tool arguments do not allow extra fields",
-			Details:    map[string]any{"unknown_fields": unknown},
-		}
-	}
-
-	targetURL, ok := args["url"].(string)
-	if !ok || strings.TrimSpace(targetURL) == "" {
-		return "", "", 0, nil, requiredStringArgError("url")
-	}
-	prompt, ok := args["prompt"].(string)
-	if !ok || strings.TrimSpace(prompt) == "" {
-		return "", "", 0, nil, requiredStringArgError("prompt")
-	}
-
-	maxBytes := defaultMaxBytes
-	if raw, exists := args["max_bytes"]; exists {
-		value, ok := intArg(raw)
-		if !ok || value <= 0 || value > defaultMaxBytes {
-			return "", "", 0, nil, &tools.ExecutionError{
-				ErrorClass: errorArgsInvalid,
-				Message:    fmt.Sprintf("parameter max_bytes must be in range 1..%d", defaultMaxBytes),
-				Details:    map[string]any{"field": "max_bytes", "max": defaultMaxBytes},
+		var providerErr ProviderError
+		if errors.As(err, &providerErr) {
+			return read.DescribeImageResponse{}, read.ProviderError{
+				Message:    providerErr.Message,
+				StatusCode: providerErr.StatusCode,
+				TraceID:    providerErr.TraceID,
+				Provider:   providerErr.Provider,
 			}
 		}
-		maxBytes = value
+		return read.DescribeImageResponse{}, err
 	}
-
-	var timeoutOverride *int
-	if raw, exists := args["timeout_ms"]; exists {
-		value, ok := intArg(raw)
-		if !ok || value <= 0 || value > maxTimeoutMs {
-			return "", "", 0, nil, &tools.ExecutionError{
-				ErrorClass: errorArgsInvalid,
-				Message:    fmt.Sprintf("parameter timeout_ms must be in range 1..%d", maxTimeoutMs),
-				Details:    map[string]any{"field": "timeout_ms", "max": maxTimeoutMs},
-			}
-		}
-		timeoutOverride = &value
-	}
-
-	return strings.TrimSpace(targetURL), strings.TrimSpace(prompt), maxBytes, timeoutOverride, nil
+	return read.DescribeImageResponse{
+		Text:     resp.Text,
+		Provider: resp.Provider,
+		Model:    resp.Model,
+	}, nil
 }
 
-func requiredStringArgError(field string) *tools.ExecutionError {
-	return &tools.ExecutionError{
-		ErrorClass: errorArgsInvalid,
-		Message:    fmt.Sprintf("parameter %s must be a non-empty string", field),
-		Details:    map[string]any{"field": field},
-	}
+func (p providerAdapter) Name() string {
+	return p.inner.Name()
 }
 
-func intArg(raw any) (int, bool) {
-	switch value := raw.(type) {
-	case int:
-		return value, true
-	case float64:
-		if value != float64(int(value)) {
-			return 0, false
-		}
-		return int(value), true
-	default:
-		return 0, false
-	}
-}
-
-func resolveTimeout(base time.Duration, inherited *int, override *int) time.Duration {
-	timeout := base
-	if inherited != nil && *inherited > 0 {
-		timeout = time.Duration(*inherited) * time.Millisecond
-	}
-	if override != nil && *override > 0 {
-		overrideDuration := time.Duration(*override) * time.Millisecond
-		if timeout <= 0 || overrideDuration < timeout {
-			timeout = overrideDuration
-		}
-	}
-	return timeout
-}
-
-func executionErrorFromFetchError(err error) *tools.ExecutionError {
-	if err == nil {
-		return nil
-	}
-	var denied sharedoutbound.DeniedError
-	if errors.As(err, &denied) {
-		details := map[string]any{"reason": denied.Reason}
-		for key, value := range denied.Details {
-			details[key] = value
-		}
-		return &tools.ExecutionError{
-			ErrorClass: errorURLDenied,
-			Message:    "understand_image URL denied by security policy",
-			Details:    details,
-		}
-	}
-	if errors.Is(err, context.DeadlineExceeded) {
-		return &tools.ExecutionError{
-			ErrorClass: errorTimeout,
-			Message:    "understand_image timed out",
-		}
-	}
-	var tooLarge imageTooLargeError
-	if errors.As(err, &tooLarge) {
-		return &tools.ExecutionError{
-			ErrorClass: errorTooLarge,
-			Message:    "image exceeds max_bytes limit",
-			Details:    map[string]any{"max_bytes": tooLarge.MaxBytes},
-		}
-	}
-	var unsupported unsupportedMediaTypeError
-	if errors.As(err, &unsupported) {
-		return &tools.ExecutionError{
-			ErrorClass: errorUnsupportedMedia,
-			Message:    "URL did not resolve to a supported image",
-			Details:    map[string]any{"mime_type": unsupported.DetectedMimeType},
-		}
-	}
-	var statusErr httpStatusError
-	if errors.As(err, &statusErr) {
-		return &tools.ExecutionError{
-			ErrorClass: errorFetchFailed,
-			Message:    "understand_image request failed",
-			Details:    map[string]any{"status_code": statusErr.StatusCode},
-		}
-	}
-	return &tools.ExecutionError{
-		ErrorClass: errorFetchFailed,
-		Message:    "understand_image fetch failed",
-		Details:    map[string]any{"reason": err.Error()},
-	}
-}
-
-func executionErrorFromProviderError(err error) *tools.ExecutionError {
-	if err == nil {
-		return nil
-	}
-	if errors.Is(err, context.DeadlineExceeded) {
-		return &tools.ExecutionError{
-			ErrorClass: errorTimeout,
-			Message:    "understand_image timed out",
-		}
-	}
-	details := map[string]any{}
-	var providerErr ProviderError
-	if errors.As(err, &providerErr) {
-		if providerErr.StatusCode > 0 {
-			details["status_code"] = providerErr.StatusCode
-		}
-		if strings.TrimSpace(providerErr.TraceID) != "" {
-			details["trace_id"] = providerErr.TraceID
-		}
-		if providerErr.Provider != "" {
-			details["provider"] = providerErr.Provider
-		}
-	}
-	details["reason"] = err.Error()
-	return &tools.ExecutionError{
-		ErrorClass: errorProviderFailed,
-		Message:    "image understanding provider failed",
-		Details:    details,
-	}
-}
-
-func stringPtr(value string) *string {
-	cleaned := strings.TrimSpace(value)
-	if cleaned == "" {
-		return nil
-	}
-	return &cleaned
-}
-
-func durationMs(started time.Time) int {
-	elapsed := time.Since(started)
-	if elapsed < 0 {
-		return 0
-	}
-	return int(elapsed / time.Millisecond)
+func strPtr(value string) *string {
+	return &value
 }

@@ -1,7 +1,6 @@
 package readfile
 
 import (
-	sharedtoolmeta "arkloop/services/shared/toolmeta"
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/tools"
 )
@@ -16,7 +15,7 @@ var AgentSpec = tools.AgentToolSpec{
 
 var LlmSpec = llm.ToolSpec{
 	Name:        "read_file",
-	Description: strPtr(sharedtoolmeta.Must("read_file").LLMDescription),
+	Description: strPtr("legacy file read tool; use read with source.kind=file_path"),
 	JSONSchema: map[string]any{
 		"type": "object",
 		"properties": map[string]any{

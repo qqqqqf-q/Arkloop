@@ -109,7 +109,7 @@ func TestResolveBuiltinUsesEnvAndProviders(t *testing.T) {
 		"memory_search",
 		"memory_write",
 		"python_execute",
-		"read_file",
+		"read",
 		"resume_agent",
 		"send_input",
 		"show_widget",
@@ -166,8 +166,8 @@ func TestResolveBuiltinAddsWebToolsFromPlatformProviders(t *testing.T) {
 	if _, ok := resolved.ToolNameSet()["web_fetch"]; !ok {
 		t.Fatal("web_fetch should be present with platform provider")
 	}
-	if _, ok := resolved.ToolNameSet()["understand_image"]; !ok {
-		t.Fatal("understand_image should be present with platform provider")
+	if _, ok := resolved.ToolNameSet()["read"]; !ok {
+		t.Fatal("read should be present with platform provider")
 	}
 }
 
@@ -231,7 +231,7 @@ func TestResolveBuiltinAddsACPFromProviderConfig(t *testing.T) {
 	}
 }
 
-func TestResolveBuiltinSkipsImageUnderstandingWithoutAPIKey(t *testing.T) {
+func TestResolveBuiltinKeepsReadToolWithoutImageProviderAPIKey(t *testing.T) {
 	resolved := ResolveBuiltin(ResolveInput{
 		PlatformProviders: []ProviderConfig{
 			{
@@ -240,8 +240,8 @@ func TestResolveBuiltinSkipsImageUnderstandingWithoutAPIKey(t *testing.T) {
 			},
 		},
 	})
-	if _, ok := resolved.ToolNameSet()["understand_image"]; ok {
-		t.Fatal("understand_image should be absent without API key")
+	if _, ok := resolved.ToolNameSet()["read"]; !ok {
+		t.Fatal("read should remain available without image provider API key")
 	}
 
 	apiKey := "key"
@@ -254,8 +254,8 @@ func TestResolveBuiltinSkipsImageUnderstandingWithoutAPIKey(t *testing.T) {
 			},
 		},
 	})
-	if _, ok := resolved.ToolNameSet()["understand_image"]; !ok {
-		t.Fatal("understand_image should be present when image_understanding provider has API key")
+	if _, ok := resolved.ToolNameSet()["read"]; !ok {
+		t.Fatal("read should remain available when image_understanding provider has API key")
 	}
 }
 

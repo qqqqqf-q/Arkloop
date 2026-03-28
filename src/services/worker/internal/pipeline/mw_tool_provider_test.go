@@ -13,6 +13,7 @@ import (
 	"arkloop/services/worker/internal/pipeline"
 	"arkloop/services/worker/internal/toolprovider"
 	"arkloop/services/worker/internal/tools"
+	readtool "arkloop/services/worker/internal/tools/builtin/read"
 
 	"arkloop/services/worker/internal/testutil"
 	"github.com/google/uuid"
@@ -123,4 +124,21 @@ func encryptGCM(t *testing.T, key []byte, plaintext string) string {
 	ciphertext := gcm.Seal(nil, nonce, []byte(plaintext), nil)
 	buf := append(nonce, ciphertext...)
 	return base64.StdEncoding.EncodeToString(buf)
+}
+
+func TestBuildProviderExecutor_ImageMiniMaxUsesReadExecutor(t *testing.T) {
+	key := "minimax-test-key"
+	cfg := toolprovider.ActiveProviderConfig{
+		GroupName:    "image_understanding",
+		ProviderName: readtool.ProviderNameMiniMax,
+		APIKeyValue:  &key,
+	}
+
+	exec := pipeline.BuildProviderExecutor(cfg)
+	if exec == nil {
+		t.Fatal("expected executor")
+	}
+	if _, ok := exec.(*readtool.Executor); !ok {
+		t.Fatalf("expected *read.Executor, got %T", exec)
+	}
 }

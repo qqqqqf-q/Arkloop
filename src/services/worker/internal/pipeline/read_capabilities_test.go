@@ -1,0 +1,153 @@
+package pipeline
+
+import (
+	"testing"
+
+	sharedtoolmeta "arkloop/services/shared/toolmeta"
+	"arkloop/services/worker/internal/llm"
+	"arkloop/services/worker/internal/routing"
+)
+
+func TestApplyReadImageSourceVisibility_RemovesImageKindsFromEnum(t *testing.T) {
+	specs := []llm.ToolSpec{
+		{
+			Name: "read",
+			JSONSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"prompt":     map[string]any{"type": "string"},
+					"max_bytes":  map[string]any{"type": "integer"},
+					"timeout_ms": map[string]any{"type": "integer"},
+					"source": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"kind": map[string]any{
+								"type": "string",
+								"enum": []any{"file_path", "message_attachment", "remote_url"},
+							},
+							"file_path":      map[string]any{"type": "string"},
+							"attachment_key": map[string]any{"type": "string"},
+							"url":            map[string]any{"type": "string"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	patched := ApplyReadImageSourceVisibility(specs, false)
+	readSpec, ok := findToolSpec(patched, "read")
+	if !ok {
+		t.Fatal("expected read spec")
+	}
+
+	source := nestedObject(readSpec.JSONSchema, "properties", "source")
+	kind := nestedObject(source, "properties", "kind")
+	enum, _ := kind["enum"].([]any)
+	if len(enum) != 1 || enum[0] != "file_path" {
+		t.Fatalf("expected only file_path after pruning, got %#v", enum)
+	}
+	props := nestedObject(readSpec.JSONSchema, "properties")
+	if _, ok := props["prompt"]; ok {
+		t.Fatal("did not expect prompt when image sources are hidden")
+	}
+	if _, ok := props["max_bytes"]; ok {
+		t.Fatal("did not expect max_bytes when image sources are hidden")
+	}
+	if _, ok := props["timeout_ms"]; ok {
+		t.Fatal("did not expect timeout_ms when image sources are hidden")
+	}
+	sourceProps := nestedObject(source, "properties")
+	if _, ok := sourceProps["attachment_key"]; ok {
+		t.Fatal("did not expect attachment_key when image sources are hidden")
+	}
+	if _, ok := sourceProps["url"]; ok {
+		t.Fatal("did not expect url when image sources are hidden")
+	}
+}
+
+func TestResolveReadCapabilities_UsesRouteAndReadSpec(t *testing.T) {
+	route := &routing.SelectedProviderRoute{
+		Route: routing.ProviderRouteRule{
+			AdvancedJSON: map[string]any{
+				"available_catalog": map[string]any{
+					"input_modalities": []string{"text"},
+				},
+			},
+		},
+	}
+	readSpec := llm.ToolSpec{
+		Name: "read",
+		JSONSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"source": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"kind": map[string]any{
+							"type": "string",
+							"enum": []any{"file_path", "message_attachment", "remote_url"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	caps := ResolveReadCapabilities(
+		route,
+		[]llm.ToolSpec{readSpec},
+		map[string]string{sharedtoolmeta.GroupImageUnderstanding: "image_understanding.minimax"},
+	)
+	if caps.NativeImageInput {
+		t.Fatal("expected native image input to be false")
+	}
+	if !caps.ImageBridgeEnabled {
+		t.Fatal("expected image bridge to be true")
+	}
+	if !caps.ReadImageSourcesVisible {
+		t.Fatal("expected read image sources to be visible")
+	}
+}
+
+func TestResolveReadCapabilities_NativeImageInputBypassesPlaceholderPath(t *testing.T) {
+	route := &routing.SelectedProviderRoute{
+		Route: routing.ProviderRouteRule{
+			AdvancedJSON: map[string]any{
+				"available_catalog": map[string]any{
+					"input_modalities": []string{"text", "image"},
+				},
+			},
+		},
+	}
+	caps := ResolveReadCapabilities(route, nil, nil)
+	if !caps.NativeImageInput {
+		t.Fatal("expected native image input true")
+	}
+	if caps.ReadImageSourcesVisible {
+		t.Fatal("expected read image sources hidden")
+	}
+}
+
+func TestResolveReadCapabilities_DoesNotUseSearchableReadSpec(t *testing.T) {
+	route := &routing.SelectedProviderRoute{
+		Route: routing.ProviderRouteRule{
+			AdvancedJSON: map[string]any{
+				"available_catalog": map[string]any{
+					"input_modalities": []string{"text"},
+				},
+			},
+		},
+	}
+	caps := ResolveReadCapabilities(
+		route,
+		nil,
+		map[string]string{sharedtoolmeta.GroupImageUnderstanding: "image_understanding.minimax"},
+	)
+	if caps.ReadImageSourcesVisible {
+		t.Fatal("expected read image sources hidden when read is not in final specs")
+	}
+	if !caps.ImageBridgeEnabled {
+		t.Fatal("expected bridge enabled from active provider")
+	}
+}

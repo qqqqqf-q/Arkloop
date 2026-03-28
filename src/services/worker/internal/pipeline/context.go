@@ -40,6 +40,13 @@ type ResolvedAgentConfig struct {
 	ReasoningMode      string // "auto" | "enabled" | "disabled" | "none"
 }
 
+// ReadCapabilities 保存当前 run 的统一 read 能力事实来源。
+type ReadCapabilities struct {
+	NativeImageInput        bool // 当前主模型是否原生支持 image 输入
+	ImageBridgeEnabled      bool // 当前 run 是否具备图片桥接读取能力
+	ReadImageSourcesVisible bool // 当前 run 的 read schema 是否暴露了图片 source
+}
+
 // RunContext 承载单次 Execute 调用的全部运行时状态，在 Pipeline 各中间件间共享。
 type RunContext struct {
 	// -- 初始化时写入 --
@@ -133,6 +140,8 @@ type RunContext struct {
 	ResolveGatewayForRouteID func(ctx context.Context, routeID string) (llm.Gateway, *routing.SelectedProviderRoute, error)
 	// ResolveGatewayForAgentName 按 Agent 配置名称构建目标 Gateway，用于 Lua 中直接按 agent 名称切换输出模型。
 	ResolveGatewayForAgentName func(ctx context.Context, agentName string) (llm.Gateway, *routing.SelectedProviderRoute, error)
+	// -- ToolBuildMiddleware 写入：统一 read 能力事实（提示注入/占位引导仅依赖此对象） --
+	ReadCapabilities ReadCapabilities
 
 	// -- ToolBuildMiddleware 写入 --
 	ToolExecutor *tools.DispatchingExecutor
@@ -261,4 +270,15 @@ func (rc *RunContext) SetContextCompactPressureAnchor(lastRealPromptTokens, last
 	rc.HasContextCompactAnchor = true
 	rc.LastRealPromptTokens = lastRealPromptTokens
 	rc.LastRequestContextEstimateTokens = lastRequestContextEstimateTokens
+}
+
+// ReadToolMessages exposes a stable read-only message snapshot for tools that
+// need access to already loaded conversation parts (e.g. image attachments).
+func (rc *RunContext) ReadToolMessages() []llm.Message {
+	if rc == nil || len(rc.Messages) == 0 {
+		return nil
+	}
+	out := make([]llm.Message, len(rc.Messages))
+	copy(out, rc.Messages)
+	return out
 }
