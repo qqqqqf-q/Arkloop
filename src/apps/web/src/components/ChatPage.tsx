@@ -4,22 +4,13 @@ import { createPortal } from 'react-dom'
 import { motion } from 'framer-motion'
 import { ArrowDown, Check, ChevronDown, Glasses, Loader2, Pencil, Share2, Star, Trash2, X, AlertCircle } from 'lucide-react'
 import { isDesktop } from '@arkloop/shared/desktop'
-import { codeExecutionAccentColor } from '../codeExecutionStatus'
 import { ChatInput, type Attachment } from './ChatInput'
 import { MessageBubble } from './MessageBubble'
 import { RunDetailPanel } from './RunDetailPanel'
 import type { CodeExecution } from './CodeExecutionCard'
-import { CodeExecutionCard } from './CodeExecutionCard'
-import { ExecutionCard } from './ExecutionCard'
-import { SubAgentBlock } from './SubAgentBlock'
 import {
   CopTimeline,
-  CopTimelineUnifiedRow,
-  WebFetchItem,
   type WebSearchPhaseStep,
-  COP_TIMELINE_CONTENT_PADDING_LEFT_PX,
-  COP_TIMELINE_DOT_TOP,
-  COP_TIMELINE_PYTHON_DOT_TOP,
 } from './CopTimeline'
 import { MarkdownRenderer } from './MarkdownRenderer'
 import { useTypewriter } from '../hooks/useTypewriter'
@@ -67,7 +58,6 @@ import {
   buildAssistantTurnFromRunEvents,
   copSegmentCalls,
   createEmptyAssistantTurnFoldState,
-  drainAssistantTurnForPersist,
   foldAssistantTurnEvent,
   requestAssistantTurnThinkingBreak,
   snapshotAssistantTurn,
@@ -195,6 +185,32 @@ function stripThinkingFromAssistantTurn(turn: AssistantTurnUi): AssistantTurnUi 
   return {
     segments,
   }
+}
+
+function mergeVisibleSegmentsIntoAssistantTurn(
+  turn: AssistantTurnUi,
+  liveSegments: Array<{ mode: string; content: string }>,
+): AssistantTurnUi {
+  const merged = [...turn.segments]
+  for (const segment of liveSegments) {
+    if (segment.mode === 'hidden') continue
+    if (segment.content.trim() === '') continue
+    const last = merged[merged.length - 1]
+    if (last?.type === 'text') {
+      last.content += segment.content
+      continue
+    }
+    merged.push({ type: 'text', content: segment.content })
+  }
+  return { segments: merged }
+}
+
+function buildFrozenAssistantTurnFromRunEvents(events: MsgRunEvent[]): AssistantTurnUi {
+  return buildAssistantTurnFromRunEvents(events)
+}
+
+function buildPersistedAssistantTurnFromRunEvents(events: MsgRunEvent[]): AssistantTurnUi {
+  return stripThinkingFromAssistantTurn(buildFrozenAssistantTurnFromRunEvents(events))
 }
 
 function interruptedErrorFromRunEvents(
@@ -451,6 +467,43 @@ function copInlineTextRowsForCop(
   return out
 }
 
+function textSegmentShouldRenderInsideFollowingCop(
+  segments: AssistantTurnSegment[],
+  segmentIndex: number,
+): boolean {
+  const segment = segments[segmentIndex]
+  if (segment?.type !== 'text') return false
+  if (segment.content === '') return false
+  return segments[segmentIndex + 1]?.type === 'cop'
+}
+
+function leadingTextRowForCop(
+  segments: AssistantTurnSegment[],
+  segmentIndex: number,
+): { id: string; text: string; seq: number } | null {
+  const previous = segments[segmentIndex - 1]
+  const current = segments[segmentIndex]
+  if (previous?.type !== 'text' || current?.type !== 'cop') return null
+  if (previous.content === '') return null
+  const firstItemSeq = current.items[0]?.seq
+  return {
+    id: `lead-${segmentIndex}`,
+    text: previous.content,
+    seq: firstItemSeq != null ? firstItemSeq - 0.5 : Number.MIN_SAFE_INTEGER,
+  }
+}
+
+function copInlineRowsWithLeadingText(
+  segments: AssistantTurnSegment[],
+  seg: CopSegment,
+  opts: { live: boolean; segmentIndex: number; lastSegmentIndex: number },
+): Array<{ id: string; text: string; live?: boolean; seq: number }> {
+  const rows = copInlineTextRowsForCop(seg, opts)
+  const leadingText = leadingTextRowForCop(segments, opts.segmentIndex)
+  if (!leadingText) return rows
+  return [{ ...leadingText, live: false }, ...rows]
+}
+
 function turnHasCopThinkingItems(turn: AssistantTurnUi): boolean {
   return turn.segments.some(
     (s) => s.type === 'cop' && s.items.some((i) => i.kind === 'thinking'),
@@ -480,6 +533,9 @@ export function ChatPage() {
   const [attachments, setAttachments] = useState<Attachment[]>([])
   const assistantTurnFoldStateRef = useRef(createEmptyAssistantTurnFoldState())
   const [liveAssistantTurn, setLiveAssistantTurn] = useState<AssistantTurnUi | null>(null)
+  const [preserveLiveRunUi, setPreserveLiveRunUi] = useState(false)
+  const [terminalRunDisplayId, setTerminalRunDisplayId] = useState<string | null>(null)
+  const [terminalRunHandoffStatus, setTerminalRunHandoffStatus] = useState<'completed' | 'cancelled' | 'interrupted' | null>(null)
   const seenFirstToolCallInRunRef = useRef(false)
   const [activeRunId, setActiveRunId] = useState<string | null>(
     locationState?.initialRunId ?? null,
@@ -699,7 +755,10 @@ export function ChatPage() {
 
   const resetAssistantTurnLive = useCallback(() => {
     assistantTurnFoldStateRef.current = createEmptyAssistantTurnFoldState()
+    setPreserveLiveRunUi(false)
     setLiveAssistantTurn(null)
+    setTerminalRunDisplayId(null)
+    setTerminalRunHandoffStatus(null)
   }, [])
   const bumpAssistantTurnSnapshot = useCallback(() => {
     setLiveAssistantTurn(snapshotAssistantTurn(assistantTurnFoldStateRef.current))
@@ -717,6 +776,7 @@ export function ChatPage() {
   const pendingMessageRef = useRef<string | null>(null)
   const clearQueuedDraft = useCallback(() => {
     pendingMessageRef.current = null
+    setPreserveLiveRunUi(false)
     setQueuedDraft(null)
   }, [])
   const restoreQueuedDraftToInput = useCallback(() => {
@@ -756,26 +816,6 @@ export function ChatPage() {
     setCheckInDraft('')
   }, [clearLiveRunTransientState, resetAssistantTurnLive, resetSearchSteps])
 
-  /** run 结束后等 refreshMessages 落盘再清；避免「流式 DOM 拆掉、助手消息尚未进列表」的一帧空洞 */
-  const clearDeferredLiveRunUi = useCallback(() => {
-    setLiveAssistantTurn(null)
-    setTopLevelCodeExecutions([])
-    setTopLevelSubAgents([])
-    setTopLevelFileOps([])
-    setTopLevelWebFetches([])
-    streamingArtifactsRef.current = []
-    setStreamingArtifacts([])
-    setSegments([])
-    activeSegmentIdRef.current = null
-    currentRunArtifactsRef.current = []
-    currentRunCodeExecutionsRef.current = []
-    currentRunBrowserActionsRef.current = []
-    currentRunSubAgentsRef.current = []
-    currentRunFileOpsRef.current = []
-    currentRunWebFetchesRef.current = []
-    resetSearchSteps()
-  }, [resetSearchSteps])
-
   type TerminalRunCache = {
     runSources: WebSource[]
     runArtifacts: ArtifactRef[]
@@ -786,28 +826,35 @@ export function ChatPage() {
     runFileOps: FileOpRef[]
     runWebFetches: WebFetchRef[]
     runAssistantTurn: AssistantTurnUi
+    handoffAssistantTurn: AssistantTurnUi
     pendingSearchSteps?: MessageSearchStepRef[] | null
   }
 
   type PersistRunDataOptions = {
     persistThinking?: boolean
     persistAssistantTurn?: boolean
+    cacheAssistantTurn?: boolean
   }
 
-  const captureTerminalRunCache = (): TerminalRunCache => ({
-    runSources: [...currentRunSourcesRef.current],
-    runArtifacts: [...currentRunArtifactsRef.current],
-    runWidgets: collectCompletedWidgets(streamingArtifactsRef.current),
-    runCodeExecs: [...currentRunCodeExecutionsRef.current],
-    runBrowserActions: [...currentRunBrowserActionsRef.current],
-    runSubAgents: [...currentRunSubAgentsRef.current],
-    runFileOps: [...currentRunFileOpsRef.current],
-    runWebFetches: [...currentRunWebFetchesRef.current],
-    runAssistantTurn: stripThinkingFromAssistantTurn(
-      drainAssistantTurnForPersist(assistantTurnFoldStateRef.current),
-    ),
-    pendingSearchSteps: pendingSearchStepsRef.current,
-  })
+  const captureTerminalRunCache = (): TerminalRunCache => {
+    const handoffAssistantTurn = mergeVisibleSegmentsIntoAssistantTurn(
+      snapshotAssistantTurn(assistantTurnFoldStateRef.current),
+      segmentsRef.current,
+    )
+    return {
+      runSources: [...currentRunSourcesRef.current],
+      runArtifacts: [...currentRunArtifactsRef.current],
+      runWidgets: collectCompletedWidgets(streamingArtifactsRef.current),
+      runCodeExecs: [...currentRunCodeExecutionsRef.current],
+      runBrowserActions: [...currentRunBrowserActionsRef.current],
+      runSubAgents: [...currentRunSubAgentsRef.current],
+      runFileOps: [...currentRunFileOpsRef.current],
+      runWebFetches: [...currentRunWebFetchesRef.current],
+      runAssistantTurn: stripThinkingFromAssistantTurn(handoffAssistantTurn),
+      handoffAssistantTurn,
+      pendingSearchSteps: pendingSearchStepsRef.current,
+    }
+  }
 
   const persistRunDataToMessage = useCallback(
     (
@@ -817,6 +864,7 @@ export function ChatPage() {
       options?: PersistRunDataOptions,
     ) => {
       const persistAssistantTurn = options?.persistAssistantTurn ?? true
+      const cacheAssistantTurn = options?.cacheAssistantTurn ?? true
       if (runData.runWidgets.length > 0) {
         writeMessageWidgets(messageId, runData.runWidgets)
         setMessageWidgetsMap((prev) => new Map(prev).set(messageId, runData.runWidgets))
@@ -829,9 +877,13 @@ export function ChatPage() {
         writeMessageSearchSteps(messageId, runData.pendingSearchSteps)
         setMessageSearchStepsMap((prev) => new Map(prev).set(messageId, runData.pendingSearchSteps!))
       }
-      if (persistAssistantTurn && runData.runAssistantTurn.segments.length > 0) {
-        writeMessageAssistantTurn(messageId, runData.runAssistantTurn)
-        setMessageAssistantTurnMap((prev) => new Map(prev).set(messageId, runData.runAssistantTurn))
+      if (runData.runAssistantTurn.segments.length > 0) {
+        if (persistAssistantTurn) {
+          writeMessageAssistantTurn(messageId, runData.runAssistantTurn)
+        }
+        if (cacheAssistantTurn) {
+          setMessageAssistantTurnMap((prev) => new Map(prev).set(messageId, runData.runAssistantTurn))
+        }
       }
       if (runData.runArtifacts.length > 0) {
         writeMessageArtifacts(messageId, runData.runArtifacts)
@@ -1010,6 +1062,8 @@ export function ChatPage() {
   const disconnectSSE = sse.disconnect
 
   const isStreaming = activeRunId != null
+  const liveRunUiVisible = isStreaming || preserveLiveRunUi
+  const liveRunUiActive = isStreaming || (preserveLiveRunUi && terminalRunHandoffStatus !== 'cancelled')
 
   useEffect(() => {
     if (!activeRunId) setCopThinkingStartedAtMs(undefined)
@@ -1433,6 +1487,7 @@ export function ChatPage() {
     if (!activeRunId) return
     freezeCutoffRef.current = null
     injectionBlockedRunIdRef.current = null
+    setPreserveLiveRunUi(false)
     sseTerminalFallbackRunIdRef.current = activeRunId
     sseTerminalFallbackArmedRef.current = false
     seenFirstToolCallInRunRef.current = false
@@ -1440,6 +1495,7 @@ export function ChatPage() {
     sse.connect()
     processedEventCountRef.current = 0
     lastVisibleNonTerminalSeqRef.current = 0
+    setPreserveLiveRunUi(false)
     currentRunSourcesRef.current = []
     currentRunArtifactsRef.current = []
     currentRunCodeExecutionsRef.current = []
@@ -1464,7 +1520,10 @@ export function ChatPage() {
   useEffect(() => {
     if (!activeRunId) {
       lastVisibleNonTerminalSeqRef.current = 0
+      return
     }
+    setTerminalRunDisplayId(null)
+    setTerminalRunHandoffStatus(null)
   }, [activeRunId])
 
   // 避免上一轮 run 的 closed/error 状态误触发当前 run 的终端兜底。
@@ -1514,12 +1573,14 @@ export function ChatPage() {
       setPendingThinking(false)
       const handoffRunCache = options?.handoffRunCache
       if (handoffRunCache) {
+        setPreserveLiveRunUi(true)
         setLiveAssistantTurn(
-          handoffRunCache.runAssistantTurn.segments.length > 0
-            ? handoffRunCache.runAssistantTurn
+          handoffRunCache.handoffAssistantTurn.segments.length > 0
+            ? handoffRunCache.handoffAssistantTurn
             : null,
         )
       } else {
+        setPreserveLiveRunUi(false)
         setLiveAssistantTurn(null)
         setTopLevelCodeExecutions([])
         setTopLevelSubAgents([])
@@ -2005,8 +2066,11 @@ export function ChatPage() {
         injectionBlockedRunIdRef.current = null
         noResponseMsgIdRef.current = null
         replaceOnCancelRef.current = null
+        setPreserveLiveRunUi(true)
+        setTerminalRunDisplayId(completedRunId)
+        setTerminalRunHandoffStatus('completed')
         const runCache = captureTerminalRunCache()
-        setLiveAssistantTurn(runCache.runAssistantTurn.segments.length > 0 ? runCache.runAssistantTurn : null)
+        setLiveAssistantTurn(runCache.handoffAssistantTurn.segments.length > 0 ? runCache.handoffAssistantTurn : null)
         sse.disconnect()
         setActiveRunId(null)
         setCancelSubmitting(false)
@@ -2046,7 +2110,6 @@ export function ChatPage() {
               void sendMessageRef.current(pending)
             }
           })
-          .finally(clearDeferredLiveRunUi)
         // 标题 summarizer 在 worker 内异步跑，超时约 30s；SSE 在 run.completed 已断，只能靠轮询对齐侧栏
         if (threadId) {
           const tid = threadId
@@ -2071,8 +2134,9 @@ export function ChatPage() {
       if (event.type === 'run.cancelled') {
         if (isACPDelegateEventData(event.data)) continue
         const blockedByInjection = injectionBlockedRunIdRef.current === event.run_id
-        const runCache = captureTerminalRunCache()
         const runId = event.run_id
+        setTerminalRunDisplayId(runId)
+        setTerminalRunHandoffStatus('cancelled')
         const visibleNonTerminalSeqCutoff = freezeCutoffRef.current ?? lastVisibleNonTerminalSeqRef.current
         const runEventsForMessage = runId
           ? (sse.events as MsgRunEvent[]).filter((e) => {
@@ -2085,6 +2149,11 @@ export function ChatPage() {
             return e.seq <= visibleNonTerminalSeqCutoff
           })
           : []
+        const runCache = captureTerminalRunCache()
+        if (runCache.handoffAssistantTurn.segments.length === 0 && runEventsForMessage.length > 0) {
+          runCache.handoffAssistantTurn = buildFrozenAssistantTurnFromRunEvents(runEventsForMessage)
+          runCache.runAssistantTurn = stripThinkingFromAssistantTurn(runCache.handoffAssistantTurn)
+        }
         resetTerminalRunState({
           restoreQueuedDraft: true,
           preserveSearchSteps: true,
@@ -2100,16 +2169,18 @@ export function ChatPage() {
               if (assistant) {
                 persistRunDataToMessage(assistant.id, runCache, runEventsForMessage, {
                   persistAssistantTurn: false,
+                  cacheAssistantTurn: true,
                 })
               }
             })
-            .finally(clearDeferredLiveRunUi)
         }
         continue
       }
 
       if (event.type === 'run.failed') {
         if (isACPDelegateEventData(event.data)) continue
+        setTerminalRunDisplayId(null)
+        setTerminalRunHandoffStatus(null)
         resetTerminalRunState({ restoreQueuedDraft: true, preserveSearchSteps: true })
         const obj = event.data as { message?: unknown; error_class?: unknown; code?: unknown; details?: unknown }
         const errorClass = typeof obj?.error_class === 'string' ? obj.error_class : undefined
@@ -2132,8 +2203,9 @@ export function ChatPage() {
 
       if (event.type === 'run.interrupted') {
         if (isACPDelegateEventData(event.data)) continue
-        const runCache = captureTerminalRunCache()
         const runId = event.run_id
+        setTerminalRunDisplayId(runId)
+        setTerminalRunHandoffStatus('interrupted')
         const visibleNonTerminalSeqCutoff = freezeCutoffRef.current ?? lastVisibleNonTerminalSeqRef.current
         const runEventsForMessage = runId
           ? (sse.events as MsgRunEvent[]).filter((e) => {
@@ -2146,6 +2218,11 @@ export function ChatPage() {
             return e.seq <= visibleNonTerminalSeqCutoff
           })
           : []
+        const runCache = captureTerminalRunCache()
+        if (runCache.handoffAssistantTurn.segments.length === 0 && runEventsForMessage.length > 0) {
+          runCache.handoffAssistantTurn = buildFrozenAssistantTurnFromRunEvents(runEventsForMessage)
+          runCache.runAssistantTurn = stripThinkingFromAssistantTurn(runCache.handoffAssistantTurn)
+        }
         resetTerminalRunState({
           restoreQueuedDraft: true,
           preserveSearchSteps: true,
@@ -2169,15 +2246,15 @@ export function ChatPage() {
               if (assistant) {
                 persistRunDataToMessage(assistant.id, runCache, runEventsForMessage, {
                   persistAssistantTurn: false,
+                  cacheAssistantTurn: true,
                 })
               }
             })
-            .finally(clearDeferredLiveRunUi)
         }
         continue
       }
     }
-  }, [activeRunId, clearContextCompactHideTimer, clearDeferredLiveRunUi, clearLiveRunSecurityArtifacts, clearQueuedDraft, refreshMessages, refreshCredits, resetSearchSteps, restoreQueuedDraftToInput, sse.events]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeRunId, clearContextCompactHideTimer, clearLiveRunSecurityArtifacts, clearQueuedDraft, refreshMessages, refreshCredits, resetSearchSteps, restoreQueuedDraftToInput, sse.events]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // 401 SSE 错误时登出
   useEffect(() => {
@@ -2201,8 +2278,21 @@ export function ChatPage() {
     // 到达此处说明 SSE 关闭时确实没有处理过终端事件。
     sseTerminalFallbackArmedRef.current = false
     sseTerminalFallbackRunIdRef.current = null
+    const visibleNonTerminalSeqCutoff = freezeCutoffRef.current ?? lastVisibleNonTerminalSeqRef.current
+    const runEventsForMessage = (sse.events as MsgRunEvent[]).filter((e) =>
+      e.run_id === terminalRunId &&
+      typeof e.seq === 'number' &&
+      e.seq <= visibleNonTerminalSeqCutoff,
+    )
     const terminalCache = captureTerminalRunCache()
-    setLiveAssistantTurn(terminalCache.runAssistantTurn.segments.length > 0 ? terminalCache.runAssistantTurn : null)
+    if (terminalCache.handoffAssistantTurn.segments.length === 0 && runEventsForMessage.length > 0) {
+      terminalCache.handoffAssistantTurn = buildFrozenAssistantTurnFromRunEvents(runEventsForMessage)
+      terminalCache.runAssistantTurn = buildPersistedAssistantTurnFromRunEvents(runEventsForMessage)
+    }
+    setTerminalRunDisplayId(terminalRunId)
+    setPreserveLiveRunUi(true)
+    setTerminalRunHandoffStatus('interrupted')
+    setLiveAssistantTurn(terminalCache.handoffAssistantTurn.segments.length > 0 ? terminalCache.handoffAssistantTurn : null)
 
     setActiveRunId(null)
     setPendingThinking(false)
@@ -2213,23 +2303,17 @@ export function ChatPage() {
     if (threadId) onRunEnded(threadId)
     refreshCredits()
 
-    const visibleNonTerminalSeqCutoff = freezeCutoffRef.current ?? lastVisibleNonTerminalSeqRef.current
-    const runEventsForMessage = (sse.events as MsgRunEvent[]).filter((e) =>
-      e.run_id === terminalRunId &&
-      typeof e.seq === 'number' &&
-      e.seq <= visibleNonTerminalSeqCutoff,
-    )
     void refreshMessages({ requiredCompletedRunId: terminalRunId })
       .then((items) => {
         const completedAssistant = findAssistantMessageForRun(items, terminalRunId)
-          if (completedAssistant) {
-            persistRunDataToMessage(completedAssistant.id, terminalCache, runEventsForMessage, {
-              persistAssistantTurn: false,
-            })
-          }
+        if (completedAssistant) {
+          persistRunDataToMessage(completedAssistant.id, terminalCache, runEventsForMessage, {
+            persistAssistantTurn: false,
+            cacheAssistantTurn: true,
+          })
+        }
       })
-      .finally(clearDeferredLiveRunUi)
-  }, [activeRunId, sse.state, clearDeferredLiveRunUi, persistRunDataToMessage]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeRunId, sse.state, persistRunDataToMessage]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // 初始加载完成后，将最后一条 user 消息滚动至顶部
   useEffect(() => {
@@ -2250,9 +2334,9 @@ export function ChatPage() {
     const liveHandoffPaint =
       liveAssistantTurn != null && liveAssistantTurn.segments.length > 0
     bottomRef.current?.scrollIntoView({
-      behavior: isStreaming || liveHandoffPaint ? 'instant' : 'smooth',
+      behavior: liveRunUiVisible || liveHandoffPaint ? 'instant' : 'smooth',
     })
-  }, [messages, liveAssistantTurn, isStreaming])
+  }, [messages, liveAssistantTurn, liveRunUiVisible])
 
   // COP 代码执行列表：新 item 添加时自动滚动到底部
   useEffect(() => {
@@ -2777,6 +2861,39 @@ export function ChatPage() {
     if (copTimelineStreamHiddenIds.size === 0) return allStreamItems
     return allStreamItems.filter((e) => !copTimelineStreamHiddenIds.has(e.id))
   }, [allStreamItems, copTimelineStreamHiddenIds])
+  const hasCurrentRunHandoffUi =
+    preserveLiveRunUi &&
+    terminalRunDisplayId != null &&
+    (
+      (liveAssistantTurn?.segments.length ?? 0) > 0 ||
+      allStreamItemsForUi.length > 0 ||
+      streamingArtifacts.length > 0
+    )
+
+  const currentRunCopHeaderOverride = useCallback((params: {
+    title?: string | null
+    steps: WebSearchPhaseStep[]
+    hasCodeExecutions: boolean
+    hasSubAgents: boolean
+    hasFileOps: boolean
+    hasWebFetches: boolean
+    hasThinking: boolean
+  }): string | undefined => {
+    const explicitTitle = params.title?.trim()
+    if (explicitTitle) {
+      return explicitTitle
+    }
+    if (params.steps.length > 0) {
+      return params.steps[params.steps.length - 1]?.label || t.copTimelineLiveProgress
+    }
+    if (params.hasCodeExecutions || params.hasSubAgents || params.hasFileOps || params.hasWebFetches) {
+      return t.copTimelineLiveProgress
+    }
+    if (params.hasThinking) {
+      return t.copThinkingInlineTitle
+    }
+    return undefined
+  }, [t])
 
   return (
     <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-[var(--c-bg-page)]">
@@ -2939,10 +3056,23 @@ export function ChatPage() {
                 />
               )}
               {messages.map((msg, idx) => {
+                const hideTerminalRunMessage =
+                  msg.role === 'assistant' &&
+                  hasCurrentRunHandoffUi &&
+                  terminalRunDisplayId != null &&
+                  msg.run_id === terminalRunDisplayId
+                if (hideTerminalRunMessage) {
+                  return null
+                }
                 const resolvedSources = msg.role === 'assistant' ? resolvedMessageSources.get(msg.id) : undefined
+                const isCurrentTerminalRunMessage =
+                  msg.role === 'assistant' &&
+                  terminalRunDisplayId != null &&
+                  msg.run_id === terminalRunDisplayId
                 const canShowSources = !!(resolvedSources && resolvedSources.length > 0)
                 const historicalTurn = msg.role === 'assistant' ? messageAssistantTurnMap.get(msg.id) : undefined
                 const hasAssistantTurn = !!(historicalTurn && historicalTurn.segments.length > 0)
+                const historicalSegments = historicalTurn?.segments ?? []
                 const msgWidgetsRaw =
                   msg.role === 'assistant' ? (messageWidgetsMap.get(msg.id) ?? readMessageWidgets(msg.id) ?? undefined) : undefined
                 const bubbleWidgets =
@@ -2976,21 +3106,25 @@ export function ChatPage() {
                           baseUrl={baseUrl}
                         />
                       )}
-                      {historicalTurn!.segments.map((seg, si) =>
+                      {historicalSegments.map((seg, si) =>
                         seg.type === 'text' ? (
-                          <MarkdownRenderer
-                            key={`${msg.id}-at-${si}`}
-                            content={seg.content}
-                            webSources={resolvedSources}
-                            artifacts={messageArtifactsMap.get(msg.id)}
-                            accessToken={accessToken}
-                            runId={msg.run_id ?? undefined}
-                            onOpenDocument={openDocumentPanel}
-                            trimTrailingMargin={
-                              historicalTurn!.segments[si + 1] == null ||
-                              historicalTurn!.segments[si + 1]?.type === 'cop'
-                            }
-                          />
+                          textSegmentShouldRenderInsideFollowingCop(historicalSegments, si)
+                            ? null
+                            : (
+                              <MarkdownRenderer
+                                key={`${msg.id}-at-${si}`}
+                                content={seg.content}
+                                webSources={resolvedSources}
+                                artifacts={messageArtifactsMap.get(msg.id)}
+                                accessToken={accessToken}
+                                runId={msg.run_id ?? undefined}
+                                onOpenDocument={openDocumentPanel}
+                                trimTrailingMargin={
+                                  historicalSegments[si + 1] == null ||
+                                  historicalSegments[si + 1]?.type === 'cop'
+                                }
+                              />
+                            )
                         ) : (
                           (() => {
                             const payload = copTimelinePayloadForSegment(seg, {
@@ -3010,10 +3144,10 @@ export function ChatPage() {
                                 })
                               : []
                             const copInlineHist = !isSearchThread
-                              ? copInlineTextRowsForCop(seg, {
+                              ? copInlineRowsWithLeadingText(historicalSegments, seg, {
                                   live: false,
                                   segmentIndex: si,
-                                  lastSegmentIndex: historicalTurn!.segments.length - 1,
+                                  lastSegmentIndex: historicalSegments.length - 1,
                                 })
                               : []
                             if (
@@ -3024,8 +3158,18 @@ export function ChatPage() {
                             ) {
                               return null
                             }
-                            const timelineTitleOverride = seg.title?.trim() || undefined
-                            const histTrail = historicalTurn!.segments[si + 1]
+                            const timelineTitleOverride = isCurrentTerminalRunMessage
+                              ? currentRunCopHeaderOverride({
+                                  title: seg.title,
+                                  steps: payload.steps,
+                                  hasCodeExecutions: !!(payload.codeExecutions && payload.codeExecutions.length > 0),
+                                  hasSubAgents: !!(payload.subAgents && payload.subAgents.length > 0),
+                                  hasFileOps: !!(payload.fileOps && payload.fileOps.length > 0),
+                                  hasWebFetches: !!(payload.webFetches && payload.webFetches.length > 0),
+                                  hasThinking: thinkingRowsHist.length > 0 || copInlineHist.length > 0,
+                                })
+                              : seg.title?.trim() || undefined
+                            const histTrail = historicalSegments[si + 1]
                             const histTrailingText =
                               histTrail?.type === 'text' && histTrail.content.length > 0
                             return (
@@ -3180,7 +3324,7 @@ export function ChatPage() {
 
               {/* 流式：正文 Markdown + COP 用 CopTimeline 点线 */}
               {liveAssistantTurn && liveAssistantTurn.segments.length > 0 && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 0, maxWidth: '663px' }}>
+                <div data-testid={preserveLiveRunUi ? 'current-run-handoff' : undefined} style={{ display: 'flex', flexDirection: 'column', gap: 0, maxWidth: '663px' }}>
                   {/* pending thinking shimmer: Enter 后 thinking 内容到达前显示 */}
                   {pendingThinking && !liveTurnHasThinkingSegment(liveAssistantTurn) && (
                     <CopTimeline
@@ -3199,29 +3343,40 @@ export function ChatPage() {
                   {liveAssistantTurn.segments.map((seg, si) => {
                     const lastSegIdx = liveAssistantTurn.segments.length - 1
                     const lastTurnSeg = liveAssistantTurn.segments[lastSegIdx]
+                    const cancelFrozenOpen =
+                      preserveLiveRunUi &&
+                      !isStreaming &&
+                      terminalRunHandoffStatus === 'cancelled' &&
+                      si === lastSegIdx
                     const mdTypewriterDone =
-                      !isStreaming ||
+                      !liveRunUiActive ||
                       lastTurnSeg?.type !== 'text' ||
                       si !== lastSegIdx
                     const copClosedByFollowingSeg = si < lastSegIdx
-                    const copTimelineComplete = !isStreaming || copClosedByFollowingSeg
-                    const copTimelineLive = isStreaming && !copClosedByFollowingSeg
+                    const copTimelineComplete =
+                      copClosedByFollowingSeg ||
+                      (!liveRunUiActive && !cancelFrozenOpen)
+                    const copTimelineLive = liveRunUiActive && !copClosedByFollowingSeg
 
                     return seg.type === 'text' ? (
-                      <LiveTurnMarkdown
-                        key={`live-at-${si}`}
-                        content={seg.content}
-                        typewriterDone={mdTypewriterDone}
-                        webSources={currentRunSourcesRef.current.length > 0 ? currentRunSourcesRef.current : undefined}
-                        artifacts={currentRunArtifactsRef.current.length > 0 ? currentRunArtifactsRef.current : undefined}
-                        accessToken={accessToken}
-                        runId={activeRunId ?? undefined}
-                        onOpenDocument={openDocumentPanel}
-                        trimTrailingMargin={
-                          liveAssistantTurn.segments[si + 1] == null ||
-                          liveAssistantTurn.segments[si + 1]?.type === 'cop'
-                        }
-                      />
+                      textSegmentShouldRenderInsideFollowingCop(liveAssistantTurn.segments, si)
+                        ? null
+                        : (
+                          <LiveTurnMarkdown
+                            key={`live-at-${si}`}
+                            content={seg.content}
+                            typewriterDone={mdTypewriterDone}
+                            webSources={currentRunSourcesRef.current.length > 0 ? currentRunSourcesRef.current : undefined}
+                            artifacts={currentRunArtifactsRef.current.length > 0 ? currentRunArtifactsRef.current : undefined}
+                            accessToken={accessToken}
+                            runId={activeRunId ?? undefined}
+                            onOpenDocument={openDocumentPanel}
+                            trimTrailingMargin={
+                              liveAssistantTurn.segments[si + 1] == null ||
+                              liveAssistantTurn.segments[si + 1]?.type === 'cop'
+                            }
+                          />
+                        )
                     ) : (
                       (() => {
                         const payload = copTimelinePayloadForSegment(seg, {
@@ -3236,14 +3391,14 @@ export function ChatPage() {
                         const liveArts = liveInlineArtifactEntriesForCop(seg, streamingArtifacts)
                         const thinkingRowsLive = !isSearchThread
                           ? thinkingRowsForCop(seg, {
-                              live: isStreaming,
+                              live: liveRunUiActive,
                               segmentIndex: si,
                               lastSegmentIndex: lastSegIdx,
                             })
                           : []
                         const copInlineLive = !isSearchThread
-                          ? copInlineTextRowsForCop(seg, {
-                              live: isStreaming,
+                          ? copInlineRowsWithLeadingText(liveAssistantTurn.segments, seg, {
+                              live: liveRunUiActive,
                               segmentIndex: si,
                               lastSegmentIndex: lastSegIdx,
                             })
@@ -3257,7 +3412,18 @@ export function ChatPage() {
                         ) {
                           return null
                         }
-                        const timelineTitleOverride = seg.title?.trim() || undefined
+                        const timelineTitleOverride =
+                          preserveLiveRunUi && !isStreaming && !copTimelineComplete
+                            ? currentRunCopHeaderOverride({
+                                title: seg.title,
+                                steps: payload.steps,
+                                hasCodeExecutions: !!(payload.codeExecutions && payload.codeExecutions.length > 0),
+                                hasSubAgents: !!(payload.subAgents && payload.subAgents.length > 0),
+                                hasFileOps: !!(payload.fileOps && payload.fileOps.length > 0),
+                                hasWebFetches: !!(payload.webFetches && payload.webFetches.length > 0),
+                                hasThinking: thinkingRowsLive.length > 0 || copInlineLive.length > 0,
+                              })
+                            : seg.title?.trim() || undefined
                         const trailSeg = si + 1 <= lastSegIdx ? liveAssistantTurn.segments[si + 1] : undefined
                         const trailingAssistantTextPresent =
                           trailSeg?.type === 'text' && trailSeg.content.length > 0
@@ -3309,75 +3475,8 @@ export function ChatPage() {
                 </div>
               )}
 
-              {allStreamItemsForUi.length > 0 && (
-                <motion.div
-                  className="cop-timeline-root"
-                  initial={{ opacity: 0, y: 6 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.3, ease: 'easeOut' }}
-                  style={{ maxWidth: '663px' }}
-                >
-                  <div
-                    ref={copCodeExecScrollRef}
-                    style={{
-                      paddingLeft: COP_TIMELINE_CONTENT_PADDING_LEFT_PX,
-                      paddingTop: '6px',
-                      display: 'flex',
-                      flexDirection: 'column',
-                    }}
-                  >
-                    {allStreamItemsForUi.map((entry, idx) => {
-                      const total = allStreamItemsForUi.length
-                      const isFirst = idx === 0
-                      const isLast = idx === total - 1
-                      const multiItems = total >= 2
-                      const dotTop =
-                        entry.kind === 'code' && entry.item.language !== 'shell'
-                          ? COP_TIMELINE_PYTHON_DOT_TOP
-                          : COP_TIMELINE_DOT_TOP
-                      const dotColor = entry.kind === 'code'
-                        ? codeExecutionAccentColor(entry.item.status)
-                        : entry.kind === 'agent'
-                          ? entry.item.status === 'completed' ? 'var(--c-text-muted)' : entry.item.status === 'failed' ? 'var(--c-status-error-text, #ef4444)' : 'var(--c-text-secondary)'
-                          : entry.kind === 'fileop'
-                            ? entry.item.status === 'failed' ? 'var(--c-status-error-text, #ef4444)' : entry.item.status === 'running' ? 'var(--c-text-secondary)' : 'var(--c-text-muted)'
-                            : entry.item.status === 'failed' ? 'var(--c-status-error-text, #ef4444)' : entry.item.status === 'fetching' ? 'var(--c-text-secondary)' : 'var(--c-text-muted)'
-                      const isShell = entry.kind === 'code' && entry.item.language === 'shell'
-                      return (
-                        <motion.div
-                          key={entry.id}
-                          initial={{ opacity: 0, y: 6 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ duration: 0.25, ease: 'easeOut' }}
-                        >
-                          <CopTimelineUnifiedRow
-                            isFirst={isFirst}
-                            isLast={isLast}
-                            multiItems={multiItems}
-                            dotTop={dotTop}
-                            dotColor={dotColor}
-                          >
-                            {entry.kind === 'code' && (isShell
-                              ? <ExecutionCard variant="shell" code={entry.item.code} output={entry.item.output} status={entry.item.status} errorMessage={entry.item.errorMessage} smooth />
-                              : <CodeExecutionCard language={entry.item.language} code={entry.item.code} output={entry.item.output} errorMessage={entry.item.errorMessage} status={entry.item.status} onOpen={() => openCodePanel(entry.item as CodeExecution)} isActive={codePanelExecution?.id === entry.item.id} />
-                            )}
-                            {entry.kind === 'agent' && (
-                              <SubAgentBlock sourceTool={entry.item.sourceTool} nickname={entry.item.nickname} personaId={entry.item.personaId} input={entry.item.input} output={entry.item.output} status={entry.item.status} error={entry.item.error} live={isStreaming} currentRunId={entry.item.currentRunId} accessToken={accessToken} baseUrl={baseUrl} />
-                            )}
-                            {entry.kind === 'fileop' && (
-                              <ExecutionCard variant="fileop" toolName={entry.item.toolName} label={entry.item.label} output={entry.item.output} status={entry.item.status} errorMessage={entry.item.errorMessage} smooth />
-                            )}
-                            {entry.kind === 'fetch' && <WebFetchItem fetch={entry.item} live />}
-                          </CopTimelineUnifiedRow>
-                        </motion.div>
-                      )
-                    })}
-                  </div>
-                </motion.div>
-              )}
-
               {/* 无 live 助手块且无序列化顶层条时，用 CopTimeline 收束（与 allStreamItemsForUi 互斥） */}
-              {!isStreaming &&
+              {!liveRunUiVisible &&
                 liveAssistantTurn == null &&
                 allStreamItemsForUi.length === 0 &&
                 (dedupedTopLevelCodeExecutions.length > 0 || topLevelSubAgents.length > 0 || topLevelFileOps.length > 0 || topLevelWebFetches.length > 0) && (
@@ -3511,7 +3610,7 @@ export function ChatPage() {
             cursor: 'pointer',
           }}
         >
-          <ArrowDown size={16} className={isStreaming && !isAtBottom ? 'arrow-breathe' : ''} />
+          <ArrowDown size={16} className={liveRunUiActive && !isAtBottom ? 'arrow-breathe' : ''} />
         </button>
         {queuedDraft && (
           <div
