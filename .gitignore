@@ -48,6 +48,7 @@ src/services/desktop/bin/
 src/apps/desktop/dist/
 src/apps/desktop/release/
 src/apps/desktop/sidecar-bin/
+src/apps/desktop/*.tgz
 src/apps/desktop/resources/arkloop-sidecar
 /bin/
 /desktop

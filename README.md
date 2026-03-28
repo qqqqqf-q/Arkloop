@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://cdn.nodeimage.com/i/WEaHFl5O8ZuWtaXykH4mOvJHxu8R3543.png" alt="Arkloop" />
+  <img src="https://cdn.nodeimage.com/i/rvRvQavXMOx1ostIUyAqBc3mfy9SOGM4.png" alt="Arkloop" />
 </p>
 
 <h3 align="center">AI agents, without the clutter.</h3>
