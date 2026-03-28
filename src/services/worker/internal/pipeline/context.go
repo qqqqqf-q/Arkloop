@@ -19,6 +19,7 @@ import (
 	"arkloop/services/worker/internal/tools"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 )
@@ -40,10 +41,17 @@ type ResolvedAgentConfig struct {
 	ReasoningMode      string // "auto" | "enabled" | "disabled" | "none"
 }
 
+type RunStatusUpdater interface {
+	LockRunRow(ctx context.Context, tx pgx.Tx, runID uuid.UUID) error
+	UpdateRunTerminalStatus(ctx context.Context, tx pgx.Tx, runID uuid.UUID, u data.TerminalStatusUpdate) error
+}
+
 // RunContext 承载单次 Execute 调用的全部运行时状态，在 Pipeline 各中间件间共享。
 type RunContext struct {
 	// -- 初始化时写入 --
 	Run          data.Run
+	DB           data.DB
+	RunStatusDB  RunStatusUpdater
 	Pool         *pgxpool.Pool
 	DirectPool   *pgxpool.Pool     // LISTEN/NOTIFY 专用直连，不走 PgBouncer；由 Execute 保证非 nil
 	BroadcastRDB *redis.Client     // 跨实例 SSE 广播，nil 时仅走 pg_notify

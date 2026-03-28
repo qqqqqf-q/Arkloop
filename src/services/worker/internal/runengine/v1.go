@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -14,11 +13,11 @@ import (
 	sharedconfig "arkloop/services/shared/config"
 	sharedent "arkloop/services/shared/entitlement"
 	"arkloop/services/shared/objectstore"
-	"arkloop/services/shared/plugin"
 	"arkloop/services/shared/rollout"
 	"arkloop/services/shared/runlimit"
 	"arkloop/services/shared/skillstore"
 	sharedtoolruntime "arkloop/services/shared/toolruntime"
+	promptinjection "arkloop/services/worker/internal/app/promptinjection"
 	"arkloop/services/worker/internal/data"
 	"arkloop/services/worker/internal/events"
 	"arkloop/services/worker/internal/llm"
@@ -29,7 +28,7 @@ import (
 	"arkloop/services/worker/internal/queue"
 	"arkloop/services/worker/internal/routing"
 	workerruntime "arkloop/services/worker/internal/runtime"
-	"arkloop/services/worker/internal/security"
+	"arkloop/services/worker/internal/securitycap"
 	"arkloop/services/worker/internal/subagentctl"
 	"arkloop/services/worker/internal/toolprovider"
 	"arkloop/services/worker/internal/tools"
@@ -172,34 +171,15 @@ func NewEngineV1(deps EngineV1Deps) (*EngineV1, error) {
 		resolver = sharedent.NewResolver(deps.DBPool, rdb)
 	}
 
-	cfgResolver := deps.ConfigResolver
-	if cfgResolver == nil {
-		registry := sharedconfig.DefaultRegistry()
-		fallback, _ := sharedconfig.NewResolver(registry, sharedconfig.NewPGXStore(deps.DBPool), nil, 0)
-		cfgResolver = fallback
+	promptInjection, err := promptinjection.Build(promptinjection.BuilderDeps{
+		Resolver: deps.ConfigResolver,
+		Store:    sharedconfig.NewPGXStore(deps.DBPool),
+		AuditDB:  deps.DBPool,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("init prompt injection capability: %w", err)
 	}
-
-	var injectionScanner *security.RegexScanner
-	if scanner, err := security.NewRegexScanner(security.DefaultPatterns()); err == nil {
-		injectionScanner = scanner
-	} else {
-		slog.Error("failed to initialize injection scanner", "error", err)
-	}
-
-	semanticScanner := security.NewRuntimeSemanticScanner(
-		cfgResolver,
-		os.Getenv("ARKLOOP_PROMPT_GUARD_MODEL_DIR"),
-		os.Getenv("ARKLOOP_ONNX_RUNTIME_LIB"),
-	)
-
-	compositeScanner := security.NewCompositeScanner(injectionScanner, semanticScanner)
-
-	var injectionAuditor *security.SecurityAuditor
-	if dbSink, err := plugin.NewDBSink(deps.DBPool); err == nil {
-		injectionAuditor = security.NewSecurityAuditor(dbSink)
-	} else {
-		slog.Error("failed to initialize security auditor", "error", err)
-	}
+	cfgResolver := promptInjection.Resolver
 
 	// 中间件执行顺序有隐含的前置条件依赖，不可随意调整：
 	//   CancelGuard     — 必须最先：建立取消监听和 WaitForInput，后续中间件依赖
@@ -214,7 +194,7 @@ func NewEngineV1(deps EngineV1Deps) (*EngineV1, error) {
 	//   Routing         — 在 ContextCompact/TitleSummarizer 前：后两者依赖 Gateway
 	//   ToolBuild       — 必须最后：依赖前面所有 mw 对 ToolRegistry/Specs 的修改
 	//   ChannelDelivery — 必须最后：包裹 handler，在 run 结束后执行投递
-	middlewares := buildPipeline(deps, runsRepo, eventsRepo, messagesRepo, resolver, cfgResolver, releaseSlot, compositeScanner, injectionAuditor, baseAllowlistSet)
+	middlewares := buildPipeline(deps, runsRepo, eventsRepo, messagesRepo, resolver, releaseSlot, promptInjection, baseAllowlistSet)
 
 	terminal := pipeline.NewAgentLoopHandler(runsRepo, eventsRepo, messagesRepo, deps.RunLimiterRDB, deps.JobQueue, usageRepo, creditsRepo, resolver)
 
@@ -268,6 +248,8 @@ func (e *EngineV1) Execute(ctx context.Context, pool *pgxpool.Pool, run data.Run
 	}
 	rc := &pipeline.RunContext{
 		Run:                 run,
+		DB:                  pool,
+		RunStatusDB:         data.RunsRepository{},
 		Pool:                pool,
 		DirectPool:          directPool,
 		BroadcastRDB:        e.broadcastRDB,
@@ -453,17 +435,15 @@ func buildPipeline(
 	eventsRepo data.RunEventsRepository,
 	messagesRepo data.MessagesRepository,
 	resolver *sharedent.Resolver,
-	cfgResolver sharedconfig.Resolver,
 	releaseSlot func(ctx context.Context, run data.Run),
-	compositeScanner *security.CompositeScanner,
-	injectionAuditor *security.SecurityAuditor,
+	promptInjection securitycap.Runtime,
 	baseAllowlistSet map[string]struct{},
 ) []pipeline.RunMiddleware {
 	var mws []pipeline.RunMiddleware
 	mws = append(mws, buildBaseLayer(runsRepo, eventsRepo, messagesRepo, deps.RunControlHub, deps.MessageAttachmentStore, deps.RolloutBlobStore, resolver, releaseSlot)...)
 	mws = append(mws, buildAgentConfigLayer(deps, runsRepo, eventsRepo, baseAllowlistSet, releaseSlot)...)
 	mws = append(mws, buildChannelLayer(deps)...)
-	mws = append(mws, buildCapabilityLayer(deps, cfgResolver, compositeScanner, injectionAuditor, eventsRepo)...)
+	mws = append(mws, buildCapabilityLayer(deps, promptInjection, eventsRepo)...)
 	mws = append(mws, buildRoutingLayer(deps, runsRepo, eventsRepo, messagesRepo, resolver, releaseSlot)...)
 	mws = append(mws, buildToolFinalizeLayer(deps)...)
 	mws = append(mws, buildDeliveryLayer(deps)...)
@@ -497,6 +477,7 @@ func buildAgentConfigLayer(
 	return []pipeline.RunMiddleware{
 		pipeline.NewMCPDiscoveryMiddleware(
 			deps.MCPDiscoveryCache,
+			func(*pipeline.RunContext) mcp.DiscoveryQueryer { return deps.DBPool },
 			deps.ToolExecutors,
 			deps.AllLlmToolSpecs,
 			baseAllowlistSet,
@@ -519,22 +500,20 @@ func buildChannelLayer(deps EngineV1Deps) []pipeline.RunMiddleware {
 
 func buildCapabilityLayer(
 	deps EngineV1Deps,
-	cfgResolver sharedconfig.Resolver,
-	compositeScanner *security.CompositeScanner,
-	injectionAuditor *security.SecurityAuditor,
+	promptInjection securitycap.Runtime,
 	eventsRepo data.RunEventsRepository,
 ) []pipeline.RunMiddleware {
-	return []pipeline.RunMiddleware{
+	mws := []pipeline.RunMiddleware{
 		pipeline.NewSubAgentContextMiddleware(subagentctl.NewSnapshotStorage()),
 		pipeline.NewSkillContextMiddleware(pipeline.SkillContextConfig{
 			Resolve: func(ctx context.Context, accountID uuid.UUID, profileRef, workspaceRef string) ([]skillstore.ResolvedSkill, error) {
 				return data.NewSkillsRepository(deps.DBPool).ResolveEnabledSkills(ctx, accountID, profileRef, workspaceRef)
 			},
 		}),
-		pipeline.NewMemoryMiddleware(nil, deps.DBPool, deps.ConfigResolver),
-		pipeline.NewTrustSourceMiddleware(cfgResolver),
-		pipeline.NewInjectionScanMiddleware(compositeScanner, injectionAuditor, cfgResolver, eventsRepo),
+		pipeline.NewMemoryMiddleware(nil, deps.DBPool, promptInjection.Resolver),
 	}
+	mws = append(mws, promptInjection.Middlewares(eventsRepo)...)
+	return mws
 }
 
 func buildRoutingLayer(

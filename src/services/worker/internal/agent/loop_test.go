@@ -1167,7 +1167,7 @@ func TestAgentLoopToolRoundDrainsSteeringBeforeNextTurn(t *testing.T) {
 				scanned = append(scanned, phase+":"+text)
 				return nil
 			},
-			CancelSignal:        func() bool { return false },
+			CancelSignal: func() bool { return false },
 		},
 		llm.Request{Model: "stub"},
 		emitter,

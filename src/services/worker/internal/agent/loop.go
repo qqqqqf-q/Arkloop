@@ -302,23 +302,23 @@ func (l *Loop) Run(
 		}
 
 		if len(turn.ToolCalls) == 0 {
-				if runCtx.PollSteeringInput != nil {
-					drained, err := drainSteeringMessages(ctx, runCtx.PollSteeringInput, runCtx.UserPromptScanFunc, emitter, yield)
-					if err != nil {
-						if errors.Is(err, security.ErrInputBlocked) {
-							if runCtx.RolloutRecorder != nil {
-								appendRolloutSync(ctx, runCtx.RolloutRecorder, MakeRunEnd("cancelled"))
-							}
-							return nil
+			if runCtx.PollSteeringInput != nil {
+				drained, err := drainSteeringMessages(ctx, runCtx.PollSteeringInput, runCtx.UserPromptScanFunc, emitter, yield)
+				if err != nil {
+					if errors.Is(err, security.ErrInputBlocked) {
+						if runCtx.RolloutRecorder != nil {
+							appendRolloutSync(ctx, runCtx.RolloutRecorder, MakeRunEnd("cancelled"))
 						}
-						return err
+						return nil
 					}
-					if len(drained) > 0 {
-						messages = append(messages, drained...)
-						recordRuntimeUserMessages(runCtx.PipelineRC, drained)
-						continue
-					}
+					return err
 				}
+				if len(drained) > 0 {
+					messages = append(messages, drained...)
+					recordRuntimeUserMessages(runCtx.PipelineRC, drained)
+					continue
+				}
+			}
 			reasoningTurnsUsed++
 			if runCtx.RolloutRecorder != nil {
 				appendRolloutSync(ctx, runCtx.RolloutRecorder, MakeRunEnd("completed"))
@@ -440,20 +440,20 @@ func (l *Loop) Run(
 		}
 
 		// 工具执行完成后，检查是否有 steering 消息
-			if runCtx.PollSteeringInput != nil {
-				drained, err := drainSteeringMessages(ctx, runCtx.PollSteeringInput, runCtx.UserPromptScanFunc, emitter, yield)
-				if err != nil {
-					if errors.Is(err, security.ErrInputBlocked) {
-						if runCtx.RolloutRecorder != nil {
-							appendRolloutSync(ctx, runCtx.RolloutRecorder, MakeRunEnd("cancelled"))
-						}
-						return nil
+		if runCtx.PollSteeringInput != nil {
+			drained, err := drainSteeringMessages(ctx, runCtx.PollSteeringInput, runCtx.UserPromptScanFunc, emitter, yield)
+			if err != nil {
+				if errors.Is(err, security.ErrInputBlocked) {
+					if runCtx.RolloutRecorder != nil {
+						appendRolloutSync(ctx, runCtx.RolloutRecorder, MakeRunEnd("cancelled"))
 					}
-					return err
+					return nil
 				}
-				messages = append(messages, drained...)
-				recordRuntimeUserMessages(runCtx.PipelineRC, drained)
+				return err
 			}
+			messages = append(messages, drained...)
+			recordRuntimeUserMessages(runCtx.PipelineRC, drained)
+		}
 
 		// ask_user 拦截：不走 dispatcher，直接 yield 事件并阻塞等待用户输入
 		if askUserCall != nil {

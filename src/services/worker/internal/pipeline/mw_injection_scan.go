@@ -28,7 +28,7 @@ func NewInjectionScanMiddleware(
 	composite *security.CompositeScanner,
 	auditor *security.SecurityAuditor,
 	configResolver sharedconfig.Resolver,
-	eventsRepo data.RunEventsRepository,
+	eventsRepo data.RunEventStore,
 ) RunMiddleware {
 	return func(ctx context.Context, rc *RunContext, next RunHandler) error {
 		if composite == nil {
@@ -127,7 +127,7 @@ func NewInjectionScanMiddleware(
 }
 
 // blockRun 拦截注入请求：写入 blocked 事件 + run.failed，更新 run 状态。
-func blockRun(ctx context.Context, rc *RunContext, eventsRepo data.RunEventsRepository, detectionData map[string]any) error {
+func blockRun(ctx context.Context, rc *RunContext, eventsRepo data.RunEventStore, detectionData map[string]any) error {
 	blockedData := withBlockedMessage(detectionData)
 	emitRunEvent(ctx, rc, eventsRepo, "security.injection.blocked", blockedData)
 
@@ -137,7 +137,11 @@ func blockRun(ctx context.Context, rc *RunContext, eventsRepo data.RunEventsRepo
 	}
 	failedEvent := rc.Emitter.Emit("run.failed", failedData, nil, StringPtr("security.injection_blocked"))
 
-	tx, err := rc.Pool.BeginTx(ctx, pgx.TxOptions{})
+	db := runEventDB(rc)
+	if db == nil {
+		return fmt.Errorf("injection block db unavailable")
+	}
+	tx, err := db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return fmt.Errorf("injection block tx: %w", err)
 	}
@@ -147,7 +151,10 @@ func blockRun(ctx context.Context, rc *RunContext, eventsRepo data.RunEventsRepo
 		return fmt.Errorf("injection block append event: %w", err)
 	}
 
-	runsRepo := data.RunsRepository{}
+	runsRepo := rc.RunStatusDB
+	if runsRepo == nil {
+		return fmt.Errorf("injection block run status db unavailable")
+	}
 	if err := runsRepo.UpdateRunTerminalStatus(ctx, tx, rc.Run.ID, data.TerminalStatusUpdate{
 		Status: "failed",
 	}); err != nil {
@@ -168,7 +175,7 @@ func buildToolOutputScanFunc(
 	composite *security.CompositeScanner,
 	regexEnabled, semanticEnabled bool,
 	auditor *security.SecurityAuditor,
-	eventsRepo data.RunEventsRepository,
+	eventsRepo data.RunEventStore,
 	rc *RunContext,
 ) func(string, string) (string, bool) {
 	scanOptions := security.CompositeScanOptions{
@@ -256,9 +263,14 @@ func buildToolOutputScanFunc(
 	}
 }
 
-func emitRunEvent(ctx context.Context, rc *RunContext, eventsRepo data.RunEventsRepository, eventType string, dataJSON map[string]any) {
+func emitRunEvent(ctx context.Context, rc *RunContext, eventsRepo data.RunEventStore, eventType string, dataJSON map[string]any) {
 	ev := rc.Emitter.Emit(eventType, dataJSON, nil, nil)
-	tx, err := rc.Pool.BeginTx(ctx, pgx.TxOptions{})
+	db := runEventDB(rc)
+	if db == nil {
+		slog.WarnContext(ctx, "injection scan event db unavailable")
+		return
+	}
+	tx, err := db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		slog.WarnContext(ctx, "injection scan event tx begin failed", "error", err)
 		return
@@ -391,7 +403,7 @@ func startSpeculativeUserPromptSemanticScan(
 	rc *RunContext,
 	composite *security.CompositeScanner,
 	auditor *security.SecurityAuditor,
-	eventsRepo data.RunEventsRepository,
+	eventsRepo data.RunEventStore,
 	texts []string,
 	blockingEnabled bool,
 	phase string,
@@ -491,18 +503,25 @@ func withBlockedMessage(data map[string]any) map[string]any {
 func cancelRunForSpeculativeInjectionBlock(
 	ctx context.Context,
 	rc *RunContext,
-	eventsRepo data.RunEventsRepository,
+	eventsRepo data.RunEventStore,
 	detectionData map[string]any,
 ) error {
 	emitRunEvent(ctx, rc, eventsRepo, "security.injection.blocked", withBlockedMessage(detectionData))
 
-	tx, err := rc.Pool.BeginTx(ctx, pgx.TxOptions{})
+	db := runEventDB(rc)
+	if db == nil {
+		return fmt.Errorf("speculative injection cancel db unavailable")
+	}
+	tx, err := db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return fmt.Errorf("speculative injection cancel tx: %w", err)
 	}
 	defer tx.Rollback(ctx)
 
-	runsRepo := data.RunsRepository{}
+	runsRepo := rc.RunStatusDB
+	if runsRepo == nil {
+		return fmt.Errorf("speculative injection cancel run status db unavailable")
+	}
 	if err := runsRepo.LockRunRow(ctx, tx, rc.Run.ID); err != nil {
 		return fmt.Errorf("speculative injection cancel lock run: %w", err)
 	}
@@ -545,7 +564,9 @@ func cancelRunForSpeculativeInjectionBlock(
 	}
 
 	notifyRunEventSubscribers(ctx, rc)
-	_, _ = rc.Pool.Exec(ctx, "SELECT pg_notify($1, $2)", pgnotify.ChannelRunCancel, rc.Run.ID.String())
+	if rc.Pool != nil {
+		_, _ = rc.Pool.Exec(ctx, "SELECT pg_notify($1, $2)", pgnotify.ChannelRunCancel, rc.Run.ID.String())
+	}
 	if rc.CancelFunc != nil {
 		rc.CancelFunc()
 	}
@@ -556,7 +577,7 @@ func buildUserPromptScanFunc(
 	composite *security.CompositeScanner,
 	auditor *security.SecurityAuditor,
 	configResolver sharedconfig.Resolver,
-	eventsRepo data.RunEventsRepository,
+	eventsRepo data.RunEventStore,
 	rc *RunContext,
 ) func(context.Context, string, string) error {
 	if composite == nil {
@@ -707,10 +728,28 @@ func dedupeScanResults(results []security.ScanResult) []security.ScanResult {
 
 func notifyRunEventSubscribers(ctx context.Context, rc *RunContext) {
 	channel := fmt.Sprintf("run_events:%s", rc.Run.ID.String())
-	_, _ = rc.Pool.Exec(ctx, "SELECT pg_notify($1, '')", channel)
+	if rc.Pool != nil {
+		_, _ = rc.Pool.Exec(ctx, "SELECT pg_notify($1, '')", channel)
+	}
+	if rc.EventBus != nil {
+		_ = rc.EventBus.Publish(ctx, channel, "")
+	}
 
 	if rc.BroadcastRDB != nil {
 		redisChannel := fmt.Sprintf("arkloop:sse:run_events:%s", rc.Run.ID.String())
 		_, _ = rc.BroadcastRDB.Publish(ctx, redisChannel, "").Result()
 	}
+}
+
+func runEventDB(rc *RunContext) data.DB {
+	if rc == nil {
+		return nil
+	}
+	if rc.DB != nil {
+		return rc.DB
+	}
+	if rc.Pool != nil {
+		return rc.Pool
+	}
+	return nil
 }

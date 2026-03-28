@@ -37,6 +37,25 @@ func (g *multiTurnGateway) Stream(_ context.Context, req llm.Request, yield func
 	return yield(llm.StreamRunCompleted{})
 }
 
+type captureGateway struct {
+	requests []llm.Request
+	events   [][]llm.StreamEvent
+}
+
+func (g *captureGateway) Stream(_ context.Context, req llm.Request, yield func(llm.StreamEvent) error) error {
+	g.requests = append(g.requests, req)
+	index := len(g.requests) - 1
+	if index >= len(g.events) {
+		index = len(g.events) - 1
+	}
+	for _, event := range g.events[index] {
+		if err := yield(event); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func buildMinimalToolExecutor() *tools.DispatchingExecutor {
 	reg := tools.NewRegistry()
 	enforcer := tools.NewPolicyEnforcer(reg, tools.AllowlistFromNames(nil))
@@ -143,6 +162,58 @@ func TestInteractiveExecutor_CheckIn_InjectsMessage(t *testing.T) {
 	}
 }
 
+func TestInteractiveExecutor_SteeringInputScannedBeforeInjection(t *testing.T) {
+	gw := &captureGateway{
+		events: [][]llm.StreamEvent{{llm.StreamRunCompleted{}}},
+	}
+	ex := &InteractiveExecutor{checkInEvery: 5, maxWaitSeconds: 5}
+	emitter := events.NewEmitter("trace")
+
+	rc := buildMinimalRC(gw, "", nil, nil)
+	rc.ToolExecutor = buildMinimalToolExecutor()
+	var polls int
+	var phases []string
+	rc.PollSteeringInput = func(_ context.Context) (string, bool) {
+		if polls > 0 {
+			return "", false
+		}
+		polls++
+		return "runtime steering", true
+	}
+	rc.UserPromptScanFunc = func(_ context.Context, text string, phase string) error {
+		if text != "runtime steering" {
+			t.Fatalf("unexpected scan text: %q", text)
+		}
+		phases = append(phases, phase)
+		return nil
+	}
+
+	if err := ex.Execute(context.Background(), rc, emitter, func(ev events.RunEvent) error { return nil }); err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+	if len(phases) != 1 || phases[0] != "steering_input" {
+		t.Fatalf("unexpected scan phases: %v", phases)
+	}
+	if len(gw.requests) != 1 {
+		t.Fatalf("expected one gateway request, got %d", len(gw.requests))
+	}
+
+	injectedFound := false
+	for _, msg := range gw.requests[0].Messages {
+		if msg.Role != "user" {
+			continue
+		}
+		for _, part := range msg.Content {
+			if part.Text == "runtime steering" {
+				injectedFound = true
+			}
+		}
+	}
+	if !injectedFound {
+		t.Fatalf("runtime steering message not found in first LLM request: %#v", gw.requests[0].Messages)
+	}
+}
+
 // TestInteractiveExecutor_NoCheckInBeforeThreshold 验证 check_in_every=5 时 iter=1 不触发。
 func TestInteractiveExecutor_NoCheckInBeforeThreshold(t *testing.T) {
 	gw := &multiTurnGateway{}
@@ -195,5 +266,58 @@ func TestInteractiveExecutor_SkipsWhenNoWaitForInput(t *testing.T) {
 		if typ == pipeline.EventTypeInputRequested {
 			t.Errorf("unexpected %s event when WaitForInput is nil", pipeline.EventTypeInputRequested)
 		}
+	}
+}
+
+func TestInteractiveExecutor_SteeringInjectedAfterTool(t *testing.T) {
+	var secondCallMessages []llm.Message
+	gw := &multiTurnGateway{
+		onSecondCall: func(req llm.Request) {
+			secondCallMessages = req.Messages
+		},
+	}
+
+	ex := &InteractiveExecutor{checkInEvery: 99, maxWaitSeconds: 5}
+	emitter := events.NewEmitter("trace")
+
+	rc := buildMinimalRC(gw, "", nil, nil)
+	rc.ToolExecutor = buildMinimalToolExecutor()
+
+	pollCount := 0
+	rc.PollSteeringInput = func(_ context.Context) (string, bool) {
+		pollCount++
+		if pollCount == 2 {
+			return "runtime steering", true
+		}
+		return "", false
+	}
+
+	var sawSteering bool
+	err := ex.Execute(context.Background(), rc, emitter, func(ev events.RunEvent) error {
+		if ev.Type == "run.steering_injected" {
+			sawSteering = true
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+	if !sawSteering {
+		t.Fatal("expected run.steering_injected event")
+	}
+
+	injectedFound := false
+	for _, msg := range secondCallMessages {
+		if msg.Role != "user" {
+			continue
+		}
+		for _, part := range msg.Content {
+			if part.Text == "runtime steering" {
+				injectedFound = true
+			}
+		}
+	}
+	if !injectedFound {
+		t.Fatalf("steering message not found in second LLM call: %#v", secondCallMessages)
 	}
 }
