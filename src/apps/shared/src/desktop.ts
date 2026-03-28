@@ -149,6 +149,10 @@ export type ArkloopDesktopApi = {
     quit: () => Promise<void>
     getOsUsername?: () => Promise<string>
   }
+  logs?: {
+    getDir: () => Promise<string>
+    getFiles: () => Promise<{ main: string; sidecar: string }>
+  }
   dialog?: {
     openFolder: () => Promise<string | null>
   }
