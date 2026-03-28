@@ -1,13 +1,19 @@
 import { Tray, Menu, nativeImage, app, BrowserWindow, globalShortcut } from 'electron'
+import * as fs from 'fs'
 import * as path from 'path'
 
 let tray: Tray | null = null
 
 function getTrayIcon(): Electron.NativeImage {
-  const iconName = process.platform === 'darwin' ? 'tray-icon.png' : 'tray-icon.png'
-  const iconPath = app.isPackaged
-    ? path.join(process.resourcesPath, iconName)
-    : path.join(__dirname, '..', '..', 'resources', iconName)
+  const candidates = app.isPackaged
+    ? [
+        path.join(process.resourcesPath, 'tray-icon.png'),
+        path.join(process.resourcesPath, 'app.asar', 'resources', 'tray-icon.png'),
+      ]
+    : [
+        path.join(__dirname, '..', '..', 'resources', 'tray-icon.png'),
+      ]
+  const iconPath = candidates.find((candidate) => fs.existsSync(candidate)) ?? candidates[0]
 
   try {
     const img = nativeImage.createFromPath(iconPath)

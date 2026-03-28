@@ -1,4 +1,5 @@
 import { app, BrowserWindow, Menu, nativeImage } from 'electron'
+import * as fs from 'fs'
 import * as path from 'path'
 import { loadConfig, normalizeConfig, saveConfig } from './config'
 import {
@@ -28,10 +29,32 @@ let mainWindow: BrowserWindow | null = null
 let activeSidecarPort: number | null = null
 
 function getAppIconPath(): string {
-  const iconName = process.platform === 'win32' ? 'icon.ico' : 'icon.png'
-  return app.isPackaged
-    ? path.join(process.resourcesPath, iconName)
-    : path.join(__dirname, '..', '..', 'resources', iconName)
+  const candidates = app.isPackaged
+    ? (
+      process.platform === 'darwin'
+        ? [
+            path.join(process.resourcesPath, 'icon.icns'),
+            path.join(process.resourcesPath, 'app.asar', 'resources', 'icon.png'),
+          ]
+        : process.platform === 'win32'
+          ? [
+              path.join(process.resourcesPath, 'icon.ico'),
+              path.join(process.resourcesPath, 'app.asar', 'resources', 'icon.ico'),
+            ]
+          : [
+              path.join(process.resourcesPath, 'icon.png'),
+              path.join(process.resourcesPath, 'app.asar', 'resources', 'icon.png'),
+            ]
+    )
+    : [
+        path.join(__dirname, '..', '..', 'resources', 'icon.png'),
+        path.join(__dirname, '..', '..', 'resources', 'icon.icns'),
+      ]
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return candidate
+  }
+  return candidates[0]
 }
 
 function applyAppIcon(): void {
@@ -40,6 +63,12 @@ function applyAppIcon(): void {
   if (process.platform === 'darwin') {
     app.dock?.setIcon(icon)
   }
+}
+
+function ensureDockPresence(): void {
+  if (process.platform !== 'darwin') return
+  app.setActivationPolicy('regular')
+  app.dock?.show()
 }
 
 function getWindow(): BrowserWindow | null {
@@ -294,6 +323,7 @@ app.whenReady().then(async () => {
     packaged: app.isPackaged,
     version: app.getVersion(),
   })
+  ensureDockPresence()
   initVersionsFile()
   applyAppIcon()
 
@@ -341,6 +371,7 @@ app.on('window-all-closed', () => {
 })
 
 app.on('activate', () => {
+  ensureDockPresence()
   if (mainWindow) {
     mainWindow.show()
     mainWindow.focus()
