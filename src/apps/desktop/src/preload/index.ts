@@ -233,6 +233,10 @@ ipcRenderer.on('arkloop:bridge:url-changed', (_event: Electron.IpcRendererEvent,
   bridgeBaseUrlSnapshot = bridgeBaseUrl
 })
 
+ipcRenderer.on('arkloop:app:open-settings', () => {
+  window.dispatchEvent(new CustomEvent('arkloop:app:open-settings'))
+})
+
 const api: ArkloopDesktopApi = {
   isDesktop: true,
 
