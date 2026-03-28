@@ -993,6 +993,69 @@ func TestTelegramWebhookGroupMessagePassiveAndActive(t *testing.T) {
 	}
 }
 
+func TestTelegramWebhookActiveRunSecondMessageUsesProvidedInput(t *testing.T) {
+	env := setupTelegramChannelsTestEnv(t, telegrambot.NewClient("https://api.telegram.org", nil))
+	channel := createActiveTelegramChannel(t, env, "tg-token-active-run", nil, "")
+	headers := map[string]string{"X-Telegram-Bot-Api-Secret-Token": derefString(t, channel.WebhookSecret)}
+
+	first := map[string]any{
+		"message": map[string]any{
+			"message_id": 21,
+			"date":       1710000100,
+			"text":       "@arkloopbot first",
+			"entities": []map[string]any{
+				{"type": "mention", "offset": 0, "length": 11},
+			},
+			"chat": map[string]any{
+				"id":    -20002,
+				"type":  "supergroup",
+				"title": "Arkloop Group",
+			},
+			"from": map[string]any{
+				"id":         10001,
+				"is_bot":     false,
+				"first_name": "Alice",
+			},
+		},
+	}
+	resp := doJSONAccount(env.handler, nethttp.MethodPost, "/v1/channels/telegram/"+channel.ID.String()+"/webhook", first, headers)
+	if resp.Code != nethttp.StatusOK {
+		t.Fatalf("first webhook status: %d %s", resp.Code, resp.Body.String())
+	}
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM runs`, 1)
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM jobs`, 1)
+
+	second := map[string]any{
+		"message": map[string]any{
+			"message_id": 22,
+			"date":       1710000101,
+			"text":       "@arkloopbot second",
+			"entities": []map[string]any{
+				{"type": "mention", "offset": 0, "length": 11},
+			},
+			"chat": map[string]any{
+				"id":    -20002,
+				"type":  "supergroup",
+				"title": "Arkloop Group",
+			},
+			"from": map[string]any{
+				"id":         10001,
+				"is_bot":     false,
+				"first_name": "Alice",
+			},
+		},
+	}
+	resp = doJSONAccount(env.handler, nethttp.MethodPost, "/v1/channels/telegram/"+channel.ID.String()+"/webhook", second, headers)
+	if resp.Code != nethttp.StatusOK {
+		t.Fatalf("second webhook status: %d %s", resp.Code, resp.Body.String())
+	}
+
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM runs`, 1)
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM jobs`, 1)
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM messages`, 2)
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM run_events WHERE type = 'run.input_provided'`, 1)
+}
+
 func TestTelegramWebhookGroupNewDeniedWithoutBind(t *testing.T) {
 	env := setupTelegramChannelsTestEnv(t, telegrambot.NewClient("https://api.telegram.org", nil))
 	channel := createActiveTelegramChannelWithConfig(t, env, "bot-token", map[string]any{
