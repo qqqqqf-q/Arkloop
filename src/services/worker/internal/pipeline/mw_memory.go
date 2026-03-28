@@ -44,7 +44,6 @@ const (
 	eventTypeMemoryDistillSnapshotPending = "memory.distill.snapshot_pending"
 
 	distillSkipReasonDisabled           = "disabled"
-	distillSkipReasonBelowThreshold     = "below_threshold"
 	distillSkipReasonNoAssistantOutput  = "no_assistant_output"
 	distillSkipReasonNoIncrementalInput = "no_incremental_messages"
 )
@@ -366,7 +365,7 @@ func lastUserMessageText(messages []llm.Message) string {
 }
 
 // distillAfterRun 在 run 完成后判断是否触发 Memory 提炼。
-// 条件：tool call >= min_tool_calls OR 迭代轮数 >= min_rounds，且 FinalAssistantOutput 非空。
+// 条件：开启 distill、非 heartbeat、存在 FinalAssistantOutput、且有本轮增量 user 输入。
 // 异步执行，不阻塞 run 返回。
 func distillAfterRun(provider memory.MemoryProvider, pool *pgxpool.Pool, configResolver sharedconfig.Resolver, rc *RunContext, ident memory.MemoryIdentity, baseUserMsgs []memory.MemoryMessage) {
 	// heartbeat 是否写 memory 由 heartbeat_decision 决定，这里不再额外自动 distill。
@@ -383,18 +382,11 @@ func distillAfterRun(provider memory.MemoryProvider, pool *pgxpool.Pool, configR
 		return
 	}
 
-	enabled, minToolCalls, minRounds := resolveDistillConfig(context.Background(), configResolver)
+	enabled := resolveDistillEnabled(context.Background(), configResolver)
 	if !enabled {
 		appendAsyncRunEvent(context.Background(), pool, rc.Run.ID, emitter.Emit(eventTypeMemoryDistillSkipped, map[string]any{
 			"kind":   "distill",
 			"reason": distillSkipReasonDisabled,
-		}, nil, nil))
-		return
-	}
-	if rc.RunToolCallCount < minToolCalls && rc.RunIterationCount < minRounds {
-		appendAsyncRunEvent(context.Background(), pool, rc.Run.ID, emitter.Emit(eventTypeMemoryDistillSkipped, map[string]any{
-			"kind":   "distill",
-			"reason": distillSkipReasonBelowThreshold,
 		}, nil, nil))
 		return
 	}
@@ -470,35 +462,18 @@ func distillAfterRun(provider memory.MemoryProvider, pool *pgxpool.Pool, configR
 	}()
 }
 
-// resolveDistillConfig 从配置中读取提炼触发条件。
-func resolveDistillConfig(ctx context.Context, resolver sharedconfig.Resolver) (enabled bool, minToolCalls int, minRounds int) {
-	enabled = true
-	minToolCalls = 2
-	minRounds = 3
-
+// resolveDistillEnabled 从配置中读取自动提炼开关。
+func resolveDistillEnabled(ctx context.Context, resolver sharedconfig.Resolver) bool {
 	if resolver == nil {
-		return
+		return true
 	}
 
 	if raw, err := resolver.Resolve(ctx, "memory.distill_enabled", sharedconfig.Scope{}); err == nil {
 		if strings.TrimSpace(strings.ToLower(raw)) == "false" {
-			enabled = false
+			return false
 		}
 	}
-
-	if raw, err := resolver.Resolve(ctx, "memory.distill_min_tool_calls", sharedconfig.Scope{}); err == nil {
-		if v, parseErr := strconv.Atoi(strings.TrimSpace(raw)); parseErr == nil && v > 0 {
-			minToolCalls = v
-		}
-	}
-
-	if raw, err := resolver.Resolve(ctx, "memory.distill_min_rounds", sharedconfig.Scope{}); err == nil {
-		if v, parseErr := strconv.Atoi(strings.TrimSpace(raw)); parseErr == nil && v > 0 {
-			minRounds = v
-		}
-	}
-
-	return
+	return true
 }
 
 // buildDistillMessages 只提取本 run 的增量人类输入和最终助手输出。

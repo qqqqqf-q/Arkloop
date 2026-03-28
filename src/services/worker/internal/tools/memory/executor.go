@@ -145,12 +145,6 @@ func (e *ToolExecutor) write(ctx context.Context, args map[string]any, ident mem
 	if execCtx.PendingMemoryWrites == nil {
 		return stateError("pending memory buffer not available", started)
 	}
-	if e.pool == nil {
-		return stateError("snapshot pool not available", started)
-	}
-	if e.snapshots == nil {
-		return stateError("snapshot repository not available", started)
-	}
 
 	category, ok := args["category"].(string)
 	if !ok || strings.TrimSpace(category) == "" {
@@ -168,9 +162,6 @@ func (e *ToolExecutor) write(ctx context.Context, args map[string]any, ident mem
 	scope := parseScope(args)
 	writable := buildWritableContent(scope, category, key, content)
 	entry := memory.MemoryEntry{Content: writable}
-	if err := e.snapshots.AppendMemoryLine(ctx, e.pool, ident.AccountID, ident.UserID, ident.AgentID, writable); err != nil {
-		return snapshotError(err, started)
-	}
 	taskID := uuid.NewString()
 
 	execCtx.PendingMemoryWrites.Append(memory.PendingWrite{
@@ -183,14 +174,14 @@ func (e *ToolExecutor) write(ctx context.Context, args map[string]any, ident mem
 		"task_id":          taskID,
 		"scope":            string(scope),
 		"agent_id":         ident.AgentID,
-		"snapshot_updated": true,
+		"snapshot_updated": false,
 	}, stringPtr("memory_write"), nil)
 
 	return tools.ExecutionResult{
 		ResultJSON: map[string]any{
 			"status":           "queued",
 			"task_id":          taskID,
-			"snapshot_updated": true,
+			"snapshot_updated": false,
 		},
 		DurationMs: durationMs(started),
 		Events:     []events.RunEvent{queued},

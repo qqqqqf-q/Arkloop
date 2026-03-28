@@ -150,7 +150,10 @@ export function registerIpcHandlers(
     const apiBaseUrl = getLocalApiBaseUrl()
     if (!apiBaseUrl) return { memory_block: '' }
     const token = getDesktopAccessToken()
-    const url = `${apiBaseUrl}/v1/desktop/memory/snapshot?agent_id=${encodeURIComponent(agentId ?? 'default')}`
+    const query = typeof agentId === 'string' && agentId.trim()
+      ? `?agent_id=${encodeURIComponent(agentId.trim())}`
+      : ''
+    const url = `${apiBaseUrl}/v1/desktop/memory/snapshot${query}`
     const resp = await makeApiRequest(url, 'GET', token)
     return resp
   })

@@ -361,13 +361,11 @@ func (s *configResolverStub) ResolvePrefix(_ context.Context, _ string, _ shared
 
 // --- distill tests ---
 
-func TestMemoryMiddleware_DistillTriggeredByToolCalls(t *testing.T) {
+func TestMemoryMiddleware_DistillTriggeredWithIncrementalUserInput(t *testing.T) {
 	mp := newMemMock()
 	mw := pipeline.NewMemoryMiddleware(mp, nil, nil)
 
 	rc := buildMemRC(userIDPtr(), "help me search", "found 3 results")
-	rc.RunToolCallCount = 3
-	rc.RunIterationCount = 1
 
 	h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(_ context.Context, _ *pipeline.RunContext) error { return nil })
 	if err := h(context.Background(), rc); err != nil {
@@ -406,13 +404,11 @@ func TestMemoryMiddleware_DistillTriggeredByToolCalls(t *testing.T) {
 	}
 }
 
-func TestMemoryMiddleware_DistillTriggeredByIterations(t *testing.T) {
+func TestMemoryMiddleware_DistillTriggeredWithoutToolOrIterationThreshold(t *testing.T) {
 	mp := newMemMock()
 	mw := pipeline.NewMemoryMiddleware(mp, nil, nil)
 
 	rc := buildMemRC(userIDPtr(), "complex question", "detailed answer")
-	rc.RunToolCallCount = 0
-	rc.RunIterationCount = 4
 
 	h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(_ context.Context, _ *pipeline.RunContext) error { return nil })
 	if err := h(context.Background(), rc); err != nil {
@@ -437,7 +433,6 @@ func TestMemoryMiddleware_DistillIncludesRuntimeUserMessages(t *testing.T) {
 	mw := pipeline.NewMemoryMiddleware(mp, nil, nil)
 
 	rc := buildMemRC(userIDPtr(), "first prompt", "final answer")
-	rc.RunToolCallCount = 3
 
 	h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(_ context.Context, rc *pipeline.RunContext) error {
 		rc.AppendRuntimeUserMessage("follow-up prompt")
@@ -469,13 +464,11 @@ func TestMemoryMiddleware_DistillIncludesRuntimeUserMessages(t *testing.T) {
 	}
 }
 
-func TestMemoryMiddleware_DistillSkippedBelowThreshold(t *testing.T) {
+func TestMemoryMiddleware_DistillSkippedWhenNoIncrementalInput(t *testing.T) {
 	mp := newMemMock()
 	mw := pipeline.NewMemoryMiddleware(mp, nil, nil)
 
-	rc := buildMemRC(userIDPtr(), "simple question", "simple answer")
-	rc.RunToolCallCount = 1
-	rc.RunIterationCount = 1
+	rc := buildMemRC(userIDPtr(), "", "simple answer")
 
 	h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(_ context.Context, _ *pipeline.RunContext) error { return nil })
 	if err := h(context.Background(), rc); err != nil {
@@ -486,10 +479,10 @@ func TestMemoryMiddleware_DistillSkippedBelowThreshold(t *testing.T) {
 	mp.mu.Lock()
 	defer mp.mu.Unlock()
 	if mp.appendCalled {
-		t.Fatal("AppendSessionMessages should not be called below threshold")
+		t.Fatal("AppendSessionMessages should not be called without incremental user input")
 	}
 	if mp.commitCalled {
-		t.Fatal("CommitSession should not be called below threshold")
+		t.Fatal("CommitSession should not be called without incremental user input")
 	}
 }
 
@@ -501,8 +494,6 @@ func TestMemoryMiddleware_DistillSkippedWhenDisabled(t *testing.T) {
 	mw := pipeline.NewMemoryMiddleware(mp, nil, resolver)
 
 	rc := buildMemRC(userIDPtr(), "query", "response")
-	rc.RunToolCallCount = 5
-	rc.RunIterationCount = 5
 
 	h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(_ context.Context, _ *pipeline.RunContext) error { return nil })
 	if err := h(context.Background(), rc); err != nil {
@@ -522,7 +513,6 @@ func TestMemoryMiddleware_DistillSkippedWhenNoAssistantOutput(t *testing.T) {
 	mw := pipeline.NewMemoryMiddleware(mp, nil, nil)
 
 	rc := buildMemRC(userIDPtr(), "query", "")
-	rc.RunToolCallCount = 5
 
 	h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(_ context.Context, _ *pipeline.RunContext) error { return nil })
 	if err := h(context.Background(), rc); err != nil {

@@ -249,7 +249,7 @@ func buildBlock(lines []string) string {
 func agentIDFromQuery(r *nethttp.Request) string {
 	id := strings.TrimSpace(r.URL.Query().Get("agent_id"))
 	if id == "" {
-		return "default"
+		return "user_" + auth.DesktopUserID.String()
 	}
 	return id
 }

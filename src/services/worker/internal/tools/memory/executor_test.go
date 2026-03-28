@@ -239,11 +239,11 @@ func TestMemoryExecutor_Write_Success(t *testing.T) {
 	if strings.TrimSpace(taskID) == "" {
 		t.Fatalf("expected non-empty task_id, got: %v", result.ResultJSON["task_id"])
 	}
-	if result.ResultJSON["snapshot_updated"] != true {
-		t.Fatalf("expected snapshot_updated=true, got: %v", result.ResultJSON["snapshot_updated"])
+	if result.ResultJSON["snapshot_updated"] != false {
+		t.Fatalf("expected snapshot_updated=false, got: %v", result.ResultJSON["snapshot_updated"])
 	}
-	if !snapshots.called {
-		t.Fatal("expected snapshot append to be called")
+	if snapshots.called {
+		t.Fatal("snapshot should not be updated before provider.Write succeeds")
 	}
 	if mp.writeCalled {
 		t.Fatal("provider.Write should not be called synchronously")
@@ -264,11 +264,11 @@ func TestMemoryExecutor_Write_SnapshotFailure(t *testing.T) {
 		"content":  "user prefers Go",
 	}, execCtx, "")
 
-	if result.Error == nil || result.Error.ErrorClass != errorSnapshotFailed {
-		t.Fatalf("expected snapshot_failed, got: %+v", result.Error)
+	if result.Error != nil {
+		t.Fatalf("did not expect snapshot error during queued write: %+v", result.Error)
 	}
-	if execCtx.PendingMemoryWrites.Len() != 0 {
-		t.Fatalf("expected no pending writes, got %d", execCtx.PendingMemoryWrites.Len())
+	if execCtx.PendingMemoryWrites.Len() != 1 {
+		t.Fatalf("expected queued pending write, got %d", execCtx.PendingMemoryWrites.Len())
 	}
 }
 
@@ -316,11 +316,11 @@ func TestMemoryExecutor_Write_AgentScope(t *testing.T) {
 	if strings.TrimSpace(taskID) == "" {
 		t.Fatalf("expected non-empty task_id, got: %v", result.ResultJSON["task_id"])
 	}
-	if result.ResultJSON["snapshot_updated"] != true {
-		t.Fatalf("expected snapshot_updated=true, got: %v", result.ResultJSON["snapshot_updated"])
+	if result.ResultJSON["snapshot_updated"] != false {
+		t.Fatalf("expected snapshot_updated=false, got: %v", result.ResultJSON["snapshot_updated"])
 	}
-	if len(snapshots.lines) != 1 || !strings.HasPrefix(snapshots.lines[0], "[user/") {
-		t.Fatalf("expected user scope prefix after normalization, got: %v", snapshots.lines)
+	if len(snapshots.lines) != 0 {
+		t.Fatalf("expected no optimistic snapshot lines, got: %v", snapshots.lines)
 	}
 	pending := execCtx.PendingMemoryWrites.Drain()
 	if len(pending) != 1 || pending[0].Scope != workermemory.MemoryScopeUser {

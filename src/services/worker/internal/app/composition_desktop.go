@@ -482,7 +482,8 @@ func desktopSnapshotPool(db data.DesktopDB) *pgxpool.Pool {
 // desktopMemoryInjection reads the saved memory_block from user_memory_snapshots
 // and appends it to the run's system prompt. This is the desktop equivalent of
 // NewMemoryMiddleware — lightweight and synchronous, no vector search required.
-// All desktop memories are stored under agent_id="default" (user-level, persona-agnostic).
+// Desktop memory is user-level and must read the same stable bucket that
+// memory tools write to.
 func desktopMemoryInjection(db data.DesktopDB) pipeline.RunMiddleware {
 	return func(ctx context.Context, rc *pipeline.RunContext, next pipeline.RunHandler) error {
 		if rc.UserID == nil {
@@ -491,8 +492,8 @@ func desktopMemoryInjection(db data.DesktopDB) pipeline.RunMiddleware {
 		var block string
 		err := db.QueryRow(ctx,
 			`SELECT memory_block FROM user_memory_snapshots
-			 WHERE account_id = $1 AND user_id = $2 AND agent_id = 'default'`,
-			rc.Run.AccountID.String(), rc.UserID.String(),
+			 WHERE account_id = $1 AND user_id = $2 AND agent_id = $3`,
+			rc.Run.AccountID.String(), rc.UserID.String(), pipeline.StableAgentID(rc),
 		).Scan(&block)
 		if err == nil && strings.TrimSpace(block) != "" {
 			if strings.TrimSpace(rc.SystemPrompt) != "" {
