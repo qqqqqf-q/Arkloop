@@ -17,7 +17,9 @@ function getTrayIcon(): Electron.NativeImage {
 
   try {
     const img = nativeImage.createFromPath(iconPath)
-    if (process.platform === 'darwin') img.setTemplateImage(true)
+    if (process.platform === 'darwin') {
+      return img.resize({ height: 18 })
+    }
     return img
   } catch {
     return nativeImage.createEmpty()
@@ -28,31 +30,37 @@ export function createTray(getWindow: () => BrowserWindow | null): Tray {
   tray = new Tray(getTrayIcon())
   tray.setToolTip('Arkloop')
 
+  const openWindow = () => {
+    const win = getWindow()
+    if (win) {
+      win.show()
+      win.focus()
+    }
+  }
+
   const contextMenu = Menu.buildFromTemplate([
     {
-      label: 'Show',
+      label: 'Show Arkloop',
+      click: () => openWindow(),
+    },
+    {
+      label: 'Settings',
       click: () => {
+        openWindow()
         const win = getWindow()
-        if (win) {
-          win.show()
-          win.focus()
-        }
+        win?.webContents.send('arkloop:app:open-settings')
       },
     },
     { type: 'separator' },
     {
-      label: 'Quit',
+      label: 'Quit Arkloop',
       click: () => app.quit(),
     },
   ])
   tray.setContextMenu(contextMenu)
 
   tray.on('double-click', () => {
-    const win = getWindow()
-    if (win) {
-      win.show()
-      win.focus()
-    }
+    openWindow()
   })
 
   return tray

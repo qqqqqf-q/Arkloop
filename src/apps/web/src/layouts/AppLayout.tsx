@@ -147,6 +147,18 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
     return () => cancelAnimationFrame(id)
   }, [location.pathname]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    if (!desktop) return
+    const openDesktopSettings = () => {
+      setDesktopSettingsSection('general')
+      setSettingsOpen(true)
+    }
+    window.addEventListener('arkloop:app:open-settings', openDesktopSettings as EventListener)
+    return () => {
+      window.removeEventListener('arkloop:app:open-settings', openDesktopSettings as EventListener)
+    }
+  }, [desktop])
+
   // Mouse 5 / 浏览器返回键：退出搜索模式而非离开页面
   useEffect(() => {
     const onPopState = () => {
