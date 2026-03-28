@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"arkloop/services/shared/rollout"
 	"arkloop/services/worker/internal/data"
 	"arkloop/services/worker/internal/events"
 	"arkloop/services/worker/internal/llm"
@@ -86,6 +87,10 @@ func (s stubSubAgentControl) ListChildren(ctx context.Context) ([]subagentctl.St
 	return s.list(ctx)
 }
 
+func (s stubSubAgentControl) GetRolloutRecorder(uuid.UUID) (*rollout.Recorder, bool) {
+	return nil, false
+}
+
 func newOutputControl(run func(personaID string, input string) (string, error)) stubSubAgentControl {
 	var (
 		mu      sync.Mutex
@@ -109,14 +114,18 @@ func newOutputControl(run func(personaID string, input string) (string, error)) 
 			}, nil
 		},
 		wait: func(_ context.Context, req subagentctl.WaitRequest) (subagentctl.StatusSnapshot, error) {
+			if len(req.SubAgentIDs) == 0 {
+				return subagentctl.StatusSnapshot{}, errors.New("missing sub_agent_ids")
+			}
+			subAgentID := req.SubAgentIDs[0]
 			mu.Lock()
-			output := outputs[req.SubAgentID]
-			err := errs[req.SubAgentID]
+			output := outputs[subAgentID]
+			err := errs[subAgentID]
 			mu.Unlock()
 			if err != nil {
 				return subagentctl.StatusSnapshot{}, err
 			}
-			return subagentctl.StatusSnapshot{SubAgentID: req.SubAgentID, Status: data.SubAgentStatusCompleted, LastOutput: &output}, nil
+			return subagentctl.StatusSnapshot{SubAgentID: subAgentID, Status: data.SubAgentStatusCompleted, LastOutput: &output}, nil
 		},
 	}
 }
@@ -347,9 +356,9 @@ func TestDefaultExecutorRegistry_ContainsAgentLua(t *testing.T) {
 func buildLuaRC(gateway llm.Gateway) *pipeline.RunContext {
 	rc := &pipeline.RunContext{
 		Run: data.Run{
-			ID:       uuid.New(),
-			AccountID:    uuid.New(),
-			ThreadID: uuid.New(),
+			ID:        uuid.New(),
+			AccountID: uuid.New(),
+			ThreadID:  uuid.New(),
 		},
 		TraceID:                "lua-test-trace",
 		InputJSON:              map[string]any{},
@@ -394,7 +403,7 @@ type luaMemMock struct {
 	deleteErr   error
 }
 
-func (m *luaMemMock) Find(_ context.Context, _ memory.MemoryIdentity, _ memory.MemoryScope, _ string, _ int) ([]memory.MemoryHit, error) {
+func (m *luaMemMock) Find(_ context.Context, _ memory.MemoryIdentity, _ string, _ string, _ int) ([]memory.MemoryHit, error) {
 	return m.findHits, m.findErr
 }
 
@@ -502,9 +511,12 @@ func TestLuaExecutor_SubAgentSpawnWait_Success(t *testing.T) {
 			}, nil
 		},
 		wait: func(_ context.Context, req subagentctl.WaitRequest) (subagentctl.StatusSnapshot, error) {
+			if len(req.SubAgentIDs) == 0 {
+				return subagentctl.StatusSnapshot{}, errors.New("missing sub_agent_ids")
+			}
 			output := "4"
 			return subagentctl.StatusSnapshot{
-				SubAgentID:  req.SubAgentID,
+				SubAgentID:  req.SubAgentIDs[0],
 				Status:      data.SubAgentStatusCompleted,
 				ContextMode: data.SubAgentContextModeIsolated,
 				LastOutput:  &output,
@@ -577,7 +589,10 @@ func TestLuaExecutor_SubAgentWait_TimeoutMs(t *testing.T) {
 	rc.SubAgentControl = stubSubAgentControl{
 		wait: func(_ context.Context, req subagentctl.WaitRequest) (subagentctl.StatusSnapshot, error) {
 			captured = req.Timeout
-			return subagentctl.StatusSnapshot{SubAgentID: req.SubAgentID, Status: data.SubAgentStatusCompleted}, nil
+			if len(req.SubAgentIDs) == 0 {
+				return subagentctl.StatusSnapshot{}, errors.New("missing sub_agent_ids")
+			}
+			return subagentctl.StatusSnapshot{SubAgentID: req.SubAgentIDs[0], Status: data.SubAgentStatusCompleted}, nil
 		},
 	}
 
@@ -1046,6 +1061,184 @@ context.set_output(out)
 	}
 	if usage["input_tokens"] != inputTokens || usage["output_tokens"] != outputTokens {
 		t.Fatalf("unexpected usage payload: %#v", usage)
+	}
+}
+
+func TestLuaExecutor_AgentLoop_SteeringInjectedAfterTool(t *testing.T) {
+	var secondCallMessages []llm.Message
+	var phases []string
+	gw := &multiTurnGateway{
+		onSecondCall: func(req llm.Request) {
+			secondCallMessages = req.Messages
+		},
+	}
+
+	ex, err := NewLuaExecutor(map[string]any{
+		"script": `
+local ok, loopErr = agent.loop("system", "query")
+if loopErr then error(loopErr) end
+`,
+	})
+	if err != nil {
+		t.Fatalf("NewLuaExecutor failed: %v", err)
+	}
+
+	rc := buildLuaRC(gw)
+	rc.ToolExecutor = buildMinimalToolExecutor()
+	rc.UserPromptScanFunc = func(_ context.Context, text string, phase string) error {
+		if text != "runtime steering" {
+			t.Fatalf("unexpected scan text: %q", text)
+		}
+		phases = append(phases, phase)
+		return nil
+	}
+
+	pollCount := 0
+	rc.PollSteeringInput = func(_ context.Context) (string, bool) {
+		pollCount++
+		if pollCount == 2 {
+			return "runtime steering", true
+		}
+		return "", false
+	}
+
+	emitter := events.NewEmitter("trace")
+	var got []events.RunEvent
+	err = ex.Execute(context.Background(), rc, emitter, func(ev events.RunEvent) error {
+		got = append(got, ev)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+
+	var sawSteering bool
+	for _, ev := range got {
+		if ev.Type == "run.steering_injected" {
+			sawSteering = true
+		}
+	}
+	if !sawSteering {
+		t.Fatal("expected run.steering_injected event")
+	}
+	if len(phases) != 1 || phases[0] != "steering_input" {
+		t.Fatalf("unexpected scan phases: %v", phases)
+	}
+
+	injectedFound := false
+	for _, msg := range secondCallMessages {
+		if msg.Role != "user" {
+			continue
+		}
+		for _, part := range msg.Content {
+			if part.Text == "runtime steering" {
+				injectedFound = true
+			}
+		}
+	}
+	if !injectedFound {
+		t.Fatalf("steering message not found in second LLM call: %#v", secondCallMessages)
+	}
+}
+
+func TestLuaExecutor_AgentLoop_AskUserUsesWaitForInputAndPromptScan(t *testing.T) {
+	userAnswer := `{"db":"postgres"}`
+	gw := &captureGateway{
+		events: [][]llm.StreamEvent{
+			{
+				llm.ToolCall{
+					ToolCallID: "call_ask_user",
+					ToolName:   "ask_user",
+					ArgumentsJSON: map[string]any{
+						"message": "Pick a database",
+						"fields": []any{
+							map[string]any{
+								"key":      "db",
+								"type":     "string",
+								"title":    "Database",
+								"enum":     []any{"postgres", "mysql"},
+								"required": true,
+							},
+						},
+					},
+				},
+				llm.StreamRunCompleted{},
+			},
+			{
+				llm.StreamMessageDelta{ContentDelta: "handled", Role: "assistant"},
+				llm.StreamRunCompleted{},
+			},
+		},
+	}
+
+	rc := buildLuaRC(gw)
+	waitCalls := 0
+	var phases []string
+	rc.WaitForInput = func(_ context.Context) (string, bool) {
+		waitCalls++
+		return userAnswer, true
+	}
+	rc.UserPromptScanFunc = func(_ context.Context, text string, phase string) error {
+		if text != userAnswer {
+			t.Fatalf("unexpected scan text: %q", text)
+		}
+		phases = append(phases, phase)
+		return nil
+	}
+
+	evs := runLuaScript(t, `
+local ok, err = agent.loop("system", "query")
+if err then error(err) end
+`, rc)
+
+	if waitCalls != 1 {
+		t.Fatalf("expected WaitForInput called once, got %d", waitCalls)
+	}
+	if len(phases) != 1 || phases[0] != "ask_user" {
+		t.Fatalf("unexpected scan phases: %v", phases)
+	}
+	if len(gw.requests) != 2 {
+		t.Fatalf("expected 2 gateway requests, got %d", len(gw.requests))
+	}
+
+	var inputRequested bool
+	var askUserToolResultOK bool
+	for _, ev := range evs {
+		switch ev.Type {
+		case "run.input_requested":
+			inputRequested = true
+		case "tool.result":
+			if ev.ToolName != nil && *ev.ToolName == "ask_user" && ev.ErrorClass == nil {
+				askUserToolResultOK = true
+			}
+		}
+	}
+	if !inputRequested {
+		t.Fatal("expected run.input_requested event")
+	}
+	if !askUserToolResultOK {
+		t.Fatalf("expected successful ask_user tool.result, got %#v", evs)
+	}
+
+	secondMessages := gw.requests[1].Messages
+	answered := false
+	for _, msg := range secondMessages {
+		if msg.Role != "tool" {
+			continue
+		}
+		for _, part := range msg.Content {
+			if strings.Contains(part.Text, `"tool_name":"ask_user"`) && strings.Contains(part.Text, `"db":"postgres"`) {
+				answered = true
+			}
+		}
+	}
+	if !answered {
+		t.Fatalf("ask_user response not forwarded into second LLM call: %#v", secondMessages)
+	}
+
+	deltas := deltaTexts(evs)
+	if len(deltas) == 0 || deltas[0] != "handled" {
+		t.Fatalf("expected follow-up assistant delta, got %v", deltas)
 	}
 }
 

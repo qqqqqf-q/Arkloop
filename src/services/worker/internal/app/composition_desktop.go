@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	sharedconfig "arkloop/services/shared/config"
 	"arkloop/services/shared/desktop"
 	sharedencryption "arkloop/services/shared/encryption"
 	"arkloop/services/shared/eventbus"
@@ -22,6 +23,7 @@ import (
 	"arkloop/services/shared/rollout"
 	"arkloop/services/shared/telegrambot"
 	sharedtoolruntime "arkloop/services/shared/toolruntime"
+	promptinjection "arkloop/services/worker/internal/app/promptinjection"
 	"arkloop/services/worker/internal/data"
 	"arkloop/services/worker/internal/environmentbindings"
 	"arkloop/services/worker/internal/events"
@@ -35,6 +37,7 @@ import (
 	"arkloop/services/worker/internal/queue"
 	"arkloop/services/worker/internal/routing"
 	"arkloop/services/worker/internal/runtime"
+	"arkloop/services/worker/internal/securitycap"
 	"arkloop/services/worker/internal/subagentctl"
 	"arkloop/services/worker/internal/toolprovider"
 	"arkloop/services/worker/internal/tools"
@@ -89,6 +92,7 @@ type DesktopEngine struct {
 	routingLoader          *routing.ConfigLoader
 	messageAttachmentStore objectstore.Store
 	rolloutStore           objectstore.BlobStore
+	promptInjection        securitycap.Runtime
 }
 
 // ComposeDesktopEngine assembles a DesktopEngine from environment configuration.
@@ -224,6 +228,14 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 		rolloutStore = rs
 	}
 
+	promptInjection, err := promptinjection.Build(promptinjection.BuilderDeps{
+		Store:   sharedconfig.NewPGXStoreQuerier(db),
+		AuditDB: db,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("desktop: init prompt injection capability: %w", err)
+	}
+
 	// Use localshell specs for LLM; DynamicShellExecutor routes to correct backend at runtime
 	shellLlmSpecs := localshell.LlmSpecs()
 	allLlmSpecs := append(builtin.LlmSpecs(), shellLlmSpecs...)
@@ -303,6 +315,7 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 		routingLoader:          routingLoader,
 		messageAttachmentStore: messageAttachmentStore,
 		rolloutStore:           rolloutStore,
+		promptInjection:        promptInjection,
 	}, nil
 }
 
@@ -353,13 +366,15 @@ func (e *DesktopEngine) Execute(ctx context.Context, run data.Run, traceID strin
 	eventsRepo := data.DesktopRunEventsRepository{}
 
 	rc := &pipeline.RunContext{
-		Run:      run,
-		Pool:     nil,
-		EventBus: e.bus,
-		TraceID:  traceID,
-		Emitter:  emitter,
-		Router:   e.auxRouter,
-		Runtime:  e.runtimeSnapshot,
+		Run:         run,
+		DB:          e.db,
+		RunStatusDB: runsRepo,
+		Pool:        nil,
+		EventBus:    e.bus,
+		TraceID:     traceID,
+		Emitter:     emitter,
+		Router:      e.auxRouter,
+		Runtime:     e.runtimeSnapshot,
 
 		ExecutorBuilder:     e.executorRegistry,
 		ToolBudget:          map[string]any{},
@@ -418,14 +433,14 @@ func (e *DesktopEngine) Execute(ctx context.Context, run data.Run, traceID strin
 
 	var memMiddleware pipeline.RunMiddleware
 	if e.useOV {
-		memMiddleware = pipeline.NewMemoryMiddleware(e.memProvider, desktopSnapshotPool(e.db), nil)
+		memMiddleware = pipeline.NewMemoryMiddleware(e.memProvider, desktopSnapshotPool(e.db), e.promptInjection.Resolver)
 	} else {
 		// Local SQLite: lightweight snapshot injection
 		memMiddleware = desktopMemoryInjection(e.db)
 	}
 
 	middlewares := []pipeline.RunMiddleware{
-		desktopCancelGuard(),
+		desktopCancelGuard(e.db, e.bus),
 		desktopInputLoader(e.db, runsRepo, eventsRepo, e.messageAttachmentStore, e.rolloutStore),
 		pipeline.NewHeartbeatScheduleMiddleware(e.db),
 		pipeline.NewMCPDiscoveryMiddleware(
@@ -450,7 +465,9 @@ func (e *DesktopEngine) Execute(ctx context.Context, run data.Run, traceID strin
 			LayoutResolver: e.skillLayout,
 			ExternalDirs:   desktopExternalSkillDirs(e.db),
 		}),
-		memMiddleware,
+	}
+	middlewares = append(middlewares, desktopCapabilityMiddlewares(memMiddleware, e.promptInjection, eventsRepo)...)
+	middlewares = append(middlewares,
 		desktopRouting(e.auxRouter, e.auxGateway, e.emitDebugEvents, e.db, runsRepo, eventsRepo),
 		pipeline.NewTitleSummarizerMiddleware(e.db, nil, e.auxGateway, e.emitDebugEvents, e.routingLoader),
 		pipeline.NewContextCompactMiddleware(e.db, data.MessagesRepository{}, data.DesktopRunEventsRepository{}, e.auxGateway, e.emitDebugEvents, e.routingLoader),
@@ -458,11 +475,20 @@ func (e *DesktopEngine) Execute(ctx context.Context, run data.Run, traceID strin
 		pipeline.NewConditionalToolsMiddleware(),
 		pipeline.NewToolBuildMiddleware(),
 		desktopChannelDelivery(e.db),
-	}
+	)
 	terminal := desktopAgentLoop(e.db, e.bus, e.jobQueue, runsRepo, eventsRepo)
 	handler := pipeline.Build(middlewares, terminal)
 
 	return handler(ctx, rc)
+}
+
+func desktopCapabilityMiddlewares(
+	memMiddleware pipeline.RunMiddleware,
+	promptInjection securitycap.Runtime,
+	eventsRepo data.RunEventStore,
+) []pipeline.RunMiddleware {
+	middlewares := []pipeline.RunMiddleware{memMiddleware}
+	return append(middlewares, promptInjection.Middlewares(eventsRepo)...)
 }
 
 func resolveDesktopRunBindings(ctx context.Context, db data.DesktopDB, run data.Run) (data.Run, error) {
@@ -545,16 +571,134 @@ func desktopToolProviderBindings(db data.DesktopDB) pipeline.RunMiddleware {
 	}
 }
 
-// desktopCancelGuard provides a cancellable context without LISTEN/NOTIFY.
-func desktopCancelGuard() pipeline.RunMiddleware {
+// desktopCancelGuard provides Desktop wait/poll hooks using SQLite run_events.
+func desktopCancelGuard(db data.DesktopDB, bus eventbus.EventBus) pipeline.RunMiddleware {
 	return func(ctx context.Context, rc *pipeline.RunContext, next pipeline.RunHandler) error {
 		execCtx, cancel := context.WithCancel(ctx)
 		rc.CancelFunc = cancel
+
 		done := make(chan struct{})
-		close(done)
+		wakeInput := make(chan struct{}, 1)
+		var sub eventbus.Subscription
+		if bus != nil && rc != nil && rc.Run.ID != uuid.Nil {
+			if subscribed, err := bus.Subscribe(execCtx, fmt.Sprintf("run_events:%s", rc.Run.ID.String())); err == nil {
+				sub = subscribed
+			}
+		}
+		go func() {
+			defer close(done)
+			if sub == nil {
+				<-execCtx.Done()
+				return
+			}
+			defer sub.Close()
+			for {
+				select {
+				case <-execCtx.Done():
+					return
+				case _, ok := <-sub.Channel():
+					if !ok {
+						return
+					}
+					select {
+					case wakeInput <- struct{}{}:
+					default:
+					}
+				}
+			}
+		}()
 		rc.ListenDone = done
-		defer cancel()
+
+		var mu sync.Mutex
+		var lastSeq int64
+		loadNextInput := func(ctx context.Context) (string, bool) {
+			if db == nil || rc == nil || rc.Run.ID == uuid.Nil {
+				return "", false
+			}
+			mu.Lock()
+			sinceSeq := lastSeq
+			mu.Unlock()
+			content, seq, ok := fetchLatestDesktopInput(ctx, db, rc.Run.ID, sinceSeq)
+			if !ok {
+				return "", false
+			}
+			mu.Lock()
+			if seq > lastSeq {
+				lastSeq = seq
+			}
+			mu.Unlock()
+			return content, true
+		}
+		rc.WaitForInput = func(ctx context.Context) (string, bool) {
+			for {
+				if content, ok := loadNextInput(ctx); ok {
+					return content, true
+				}
+				timer := time.NewTimer(250 * time.Millisecond)
+				select {
+				case <-ctx.Done():
+					stopDesktopTimer(timer)
+					return "", false
+				case <-wakeInput:
+					stopDesktopTimer(timer)
+				case <-timer.C:
+				}
+			}
+		}
+		rc.PollSteeringInput = func(ctx context.Context) (string, bool) {
+			return loadNextInput(ctx)
+		}
+		defer func() {
+			cancel()
+			<-done
+		}()
 		return next(execCtx, rc)
+	}
+}
+
+func fetchLatestDesktopInput(ctx context.Context, db data.DesktopDB, runID uuid.UUID, sinceSeq int64) (string, int64, bool) {
+	if db == nil || runID == uuid.Nil {
+		return "", 0, false
+	}
+	var rawJSON []byte
+	var seq int64
+	err := db.QueryRow(
+		ctx,
+		`SELECT data_json, seq
+		 FROM run_events
+		 WHERE run_id = $1
+		   AND type = $2
+		   AND seq > $3
+		 ORDER BY seq ASC
+		 LIMIT 1`,
+		runID,
+		pipeline.EventTypeInputProvided,
+		sinceSeq,
+	).Scan(&rawJSON, &seq)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", 0, false
+		}
+		return "", 0, false
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(rawJSON, &payload); err != nil {
+		return "", 0, false
+	}
+	content, _ := payload["content"].(string)
+	return content, seq, true
+}
+
+func stopDesktopTimer(timer *time.Timer) {
+	if timer == nil {
+		return
+	}
+	if !timer.Stop() {
+		select {
+		case <-timer.C:
+		default:
+		}
 	}
 }
 
