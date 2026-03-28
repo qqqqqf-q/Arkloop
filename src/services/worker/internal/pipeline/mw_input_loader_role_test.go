@@ -180,6 +180,448 @@ func TestLoadRunInputsReplaysInterruptedRunBeforeTrailingUserInput(t *testing.T)
 	}
 }
 
+func TestLoadRunInputsPrependsActiveCompactSnapshotBeforeResumeReplay(t *testing.T) {
+	ctx := context.Background()
+	db := testutil.SetupPostgresDatabase(t, "pipeline_input_loader_snapshot_resume")
+	pool, err := pgxpool.New(ctx, db.DSN)
+	if err != nil {
+		t.Fatalf("pgxpool.New: %v", err)
+	}
+	t.Cleanup(pool.Close)
+
+	accountID := uuid.New()
+	projectID := uuid.New()
+	threadID := uuid.New()
+	parentRunID := uuid.New()
+	resumedRunID := uuid.New()
+	firstMessageID := uuid.New()
+	continueMessageID := uuid.New()
+
+	if _, err := pool.Exec(ctx, `INSERT INTO accounts (id, type) VALUES ($1, 'personal')`, accountID); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO projects (id, account_id, name) VALUES ($1, $2, 'p')`, projectID, accountID); err != nil {
+		t.Fatalf("insert project: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO threads (id, account_id, project_id) VALUES ($1, $2, $3)`, threadID, accountID, projectID); err != nil {
+		t.Fatalf("insert thread: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO runs (id, account_id, thread_id, status) VALUES ($1, $2, $3, 'interrupted')`, parentRunID, accountID, threadID); err != nil {
+		t.Fatalf("insert parent run: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO runs (id, account_id, thread_id, status, resume_from_run_id) VALUES ($1, $2, $3, 'running', $4)`, resumedRunID, accountID, threadID, parentRunID); err != nil {
+		t.Fatalf("insert resumed run: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO run_events (run_id, seq, type, data_json) VALUES ($1, 1, 'run.started', $2::jsonb)`, parentRunID, `{"thread_tail_message_id":"`+firstMessageID.String()+`"}`); err != nil {
+		t.Fatalf("insert parent run started event: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO run_events (run_id, seq, type, data_json) VALUES ($1, 1, 'run.started', '{}'::jsonb)`, resumedRunID); err != nil {
+		t.Fatalf("insert resumed run started event: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO messages (id, account_id, thread_id, role, content, metadata_json, hidden) VALUES ($1, $2, $3, 'user', $4, '{}'::jsonb, false)`, firstMessageID, accountID, threadID, "find the file"); err != nil {
+		t.Fatalf("insert first user message: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO messages (id, account_id, thread_id, role, content, metadata_json, hidden) VALUES ($1, $2, $3, 'user', $4, '{}'::jsonb, false)`, continueMessageID, accountID, threadID, "continue"); err != nil {
+		t.Fatalf("insert trailing user message: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO thread_compaction_snapshots (account_id, thread_id, summary_text, metadata_json, is_active) VALUES ($1, $2, $3, '{}'::jsonb, true)`, accountID, threadID, "existing summary"); err != nil {
+		t.Fatalf("insert active snapshot: %v", err)
+	}
+
+	storeRoot := t.TempDir()
+	store, err := objectstore.NewFilesystemOpener(storeRoot).Open(ctx, objectstore.RolloutBucket)
+	if err != nil {
+		t.Fatalf("open rollout store: %v", err)
+	}
+	blobStore, ok := store.(objectstore.BlobStore)
+	if !ok {
+		t.Fatal("expected blob store")
+	}
+
+	rolloutBody := marshalRolloutJSONL(t,
+		map[string]any{"type": "turn_start", "payload": map[string]any{"turn_index": 1, "model": "stub"}},
+		map[string]any{"type": "assistant_message", "payload": map[string]any{"content": "I am checking"}},
+		map[string]any{"type": "run_end", "payload": map[string]any{"final_status": "interrupted"}},
+	)
+	if err := blobStore.Put(ctx, "run/"+parentRunID.String()+".jsonl", rolloutBody); err != nil {
+		t.Fatalf("write rollout: %v", err)
+	}
+
+	loaded, err := loadRunInputs(ctx, pool, data.Run{
+		ID:              resumedRunID,
+		AccountID:       accountID,
+		ThreadID:        threadID,
+		ResumeFromRunID: &parentRunID,
+	}, nil, data.RunsRepository{}, data.RunEventsRepository{}, data.MessagesRepository{}, nil, blobStore, 20)
+	if err != nil {
+		t.Fatalf("loadRunInputs failed: %v", err)
+	}
+	if !loaded.HasActiveCompactSnapshot {
+		t.Fatal("expected active compact snapshot")
+	}
+	if loaded.ActiveCompactSnapshotText != "existing summary" {
+		t.Fatalf("unexpected active snapshot text: %#v", loaded.ActiveCompactSnapshotText)
+	}
+	if len(loaded.Messages) != 4 {
+		t.Fatalf("expected 4 prompt messages, got %d", len(loaded.Messages))
+	}
+	if loaded.Messages[0].Role != "user" || loaded.Messages[0].Content[0].Text != formatCompactSnapshotText("existing summary") {
+		t.Fatalf("unexpected snapshot prompt message: %#v", loaded.Messages[0])
+	}
+	if loaded.Messages[1].Role != "user" || loaded.Messages[1].Content[0].Text != "find the file" {
+		t.Fatalf("unexpected first thread message: %#v", loaded.Messages[1])
+	}
+	if loaded.Messages[2].Role != "assistant" || loaded.Messages[2].Content[0].Text != "I am checking" {
+		t.Fatalf("unexpected replay message: %#v", loaded.Messages[2])
+	}
+	if loaded.Messages[3].Role != "user" || loaded.Messages[3].Content[0].Text != "continue" {
+		t.Fatalf("unexpected trailing user message: %#v", loaded.Messages[3])
+	}
+	if len(loaded.ThreadMessageIDs) != 4 {
+		t.Fatalf("expected 4 thread message ids, got %d", len(loaded.ThreadMessageIDs))
+	}
+	if loaded.ThreadMessageIDs[0] != uuid.Nil || loaded.ThreadMessageIDs[2] != uuid.Nil {
+		t.Fatalf("expected synthetic entries to use nil ids, got %#v", loaded.ThreadMessageIDs)
+	}
+	if loaded.ThreadMessageIDs[1] != firstMessageID || loaded.ThreadMessageIDs[3] != continueMessageID {
+		t.Fatalf("unexpected preserved thread message ids: %#v", loaded.ThreadMessageIDs)
+	}
+}
+
+func TestLoadRunInputsReplaysAfterSnapshotWhenAnchorMessageWasCompacted(t *testing.T) {
+	ctx := context.Background()
+	db := testutil.SetupPostgresDatabase(t, "pipeline_input_loader_snapshot_hidden_anchor")
+	pool, err := pgxpool.New(ctx, db.DSN)
+	if err != nil {
+		t.Fatalf("pgxpool.New: %v", err)
+	}
+	t.Cleanup(pool.Close)
+
+	accountID := uuid.New()
+	projectID := uuid.New()
+	threadID := uuid.New()
+	parentRunID := uuid.New()
+	resumedRunID := uuid.New()
+	anchorMessageID := uuid.New()
+	continueMessageID := uuid.New()
+
+	if _, err := pool.Exec(ctx, `INSERT INTO accounts (id, type) VALUES ($1, 'personal')`, accountID); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO projects (id, account_id, name) VALUES ($1, $2, 'p')`, projectID, accountID); err != nil {
+		t.Fatalf("insert project: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO threads (id, account_id, project_id) VALUES ($1, $2, $3)`, threadID, accountID, projectID); err != nil {
+		t.Fatalf("insert thread: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO runs (id, account_id, thread_id, status) VALUES ($1, $2, $3, 'interrupted')`, parentRunID, accountID, threadID); err != nil {
+		t.Fatalf("insert parent run: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO runs (id, account_id, thread_id, status, resume_from_run_id) VALUES ($1, $2, $3, 'running', $4)`, resumedRunID, accountID, threadID, parentRunID); err != nil {
+		t.Fatalf("insert resumed run: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO run_events (run_id, seq, type, data_json) VALUES ($1, 1, 'run.started', $2::jsonb)`, parentRunID, `{"thread_tail_message_id":"`+anchorMessageID.String()+`"}`); err != nil {
+		t.Fatalf("insert parent run started event: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO run_events (run_id, seq, type, data_json) VALUES ($1, 1, 'run.started', '{}'::jsonb)`, resumedRunID); err != nil {
+		t.Fatalf("insert resumed run started event: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO messages (id, account_id, thread_id, role, content, metadata_json, hidden, compacted) VALUES ($1, $2, $3, 'user', $4, '{}'::jsonb, true, true)`, anchorMessageID, accountID, threadID, "find the file"); err != nil {
+		t.Fatalf("insert compacted anchor message: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO messages (id, account_id, thread_id, role, content, metadata_json, hidden) VALUES ($1, $2, $3, 'user', $4, '{}'::jsonb, false)`, continueMessageID, accountID, threadID, "continue"); err != nil {
+		t.Fatalf("insert trailing user message: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO thread_compaction_snapshots (account_id, thread_id, summary_text, metadata_json, is_active) VALUES ($1, $2, $3, '{}'::jsonb, true)`, accountID, threadID, "existing summary"); err != nil {
+		t.Fatalf("insert active snapshot: %v", err)
+	}
+
+	storeRoot := t.TempDir()
+	store, err := objectstore.NewFilesystemOpener(storeRoot).Open(ctx, objectstore.RolloutBucket)
+	if err != nil {
+		t.Fatalf("open rollout store: %v", err)
+	}
+	blobStore, ok := store.(objectstore.BlobStore)
+	if !ok {
+		t.Fatal("expected blob store")
+	}
+
+	rolloutBody := marshalRolloutJSONL(t,
+		map[string]any{"type": "assistant_message", "payload": map[string]any{"content": "I am checking"}},
+		map[string]any{"type": "run_end", "payload": map[string]any{"final_status": "interrupted"}},
+	)
+	if err := blobStore.Put(ctx, "run/"+parentRunID.String()+".jsonl", rolloutBody); err != nil {
+		t.Fatalf("write rollout: %v", err)
+	}
+
+	loaded, err := loadRunInputs(ctx, pool, data.Run{
+		ID:              resumedRunID,
+		AccountID:       accountID,
+		ThreadID:        threadID,
+		ResumeFromRunID: &parentRunID,
+	}, nil, data.RunsRepository{}, data.RunEventsRepository{}, data.MessagesRepository{}, nil, blobStore, 20)
+	if err != nil {
+		t.Fatalf("loadRunInputs failed: %v", err)
+	}
+	if len(loaded.Messages) != 3 {
+		t.Fatalf("expected 3 prompt messages, got %d", len(loaded.Messages))
+	}
+	if loaded.Messages[0].Role != "user" || loaded.Messages[0].Content[0].Text != formatCompactSnapshotText("existing summary") {
+		t.Fatalf("unexpected snapshot prompt message: %#v", loaded.Messages[0])
+	}
+	if loaded.Messages[1].Role != "assistant" || loaded.Messages[1].Content[0].Text != "I am checking" {
+		t.Fatalf("unexpected replay message: %#v", loaded.Messages[1])
+	}
+	if loaded.Messages[2].Role != "user" || loaded.Messages[2].Content[0].Text != "continue" {
+		t.Fatalf("unexpected trailing user message: %#v", loaded.Messages[2])
+	}
+	if len(loaded.ThreadMessageIDs) != 3 {
+		t.Fatalf("expected 3 thread message ids, got %d", len(loaded.ThreadMessageIDs))
+	}
+	if loaded.ThreadMessageIDs[0] != uuid.Nil || loaded.ThreadMessageIDs[1] != uuid.Nil {
+		t.Fatalf("expected synthetic ids for snapshot and replay, got %#v", loaded.ThreadMessageIDs)
+	}
+	if loaded.ThreadMessageIDs[2] != continueMessageID {
+		t.Fatalf("unexpected preserved thread message ids: %#v", loaded.ThreadMessageIDs)
+	}
+}
+
+func TestLoadRunInputsReplaysResumeAfterCompactedAnchorUsingSnapshotPrefix(t *testing.T) {
+	ctx := context.Background()
+	db := testutil.SetupPostgresDatabase(t, "pipeline_input_loader_snapshot_hidden_anchor_resume")
+	pool, err := pgxpool.New(ctx, db.DSN)
+	if err != nil {
+		t.Fatalf("pgxpool.New: %v", err)
+	}
+	t.Cleanup(pool.Close)
+
+	accountID := uuid.New()
+	projectID := uuid.New()
+	threadID := uuid.New()
+	parentRunID := uuid.New()
+	resumedRunID := uuid.New()
+	anchorMessageID := uuid.New()
+	continueMessageID := uuid.New()
+
+	if _, err := pool.Exec(ctx, `INSERT INTO accounts (id, type) VALUES ($1, 'personal')`, accountID); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO projects (id, account_id, name) VALUES ($1, $2, 'p')`, projectID, accountID); err != nil {
+		t.Fatalf("insert project: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO threads (id, account_id, project_id) VALUES ($1, $2, $3)`, threadID, accountID, projectID); err != nil {
+		t.Fatalf("insert thread: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO runs (id, account_id, thread_id, status) VALUES ($1, $2, $3, 'interrupted')`, parentRunID, accountID, threadID); err != nil {
+		t.Fatalf("insert parent run: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO runs (id, account_id, thread_id, status, resume_from_run_id) VALUES ($1, $2, $3, 'running', $4)`, resumedRunID, accountID, threadID, parentRunID); err != nil {
+		t.Fatalf("insert resumed run: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO run_events (run_id, seq, type, data_json) VALUES ($1, 1, 'run.started', $2::jsonb)`, parentRunID, `{"thread_tail_message_id":"`+anchorMessageID.String()+`"}`); err != nil {
+		t.Fatalf("insert parent run started event: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO run_events (run_id, seq, type, data_json) VALUES ($1, 1, 'run.started', '{}'::jsonb)`, resumedRunID); err != nil {
+		t.Fatalf("insert resumed run started event: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO messages (id, account_id, thread_id, role, content, metadata_json, hidden, compacted) VALUES ($1, $2, $3, 'user', $4, '{}'::jsonb, true, true)`, anchorMessageID, accountID, threadID, "old hidden anchor"); err != nil {
+		t.Fatalf("insert hidden anchor: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO messages (id, account_id, thread_id, role, content, metadata_json, hidden) VALUES ($1, $2, $3, 'user', $4, '{}'::jsonb, false)`, continueMessageID, accountID, threadID, "continue after compact"); err != nil {
+		t.Fatalf("insert continue message: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO thread_compaction_snapshots (account_id, thread_id, summary_text, metadata_json, is_active) VALUES ($1, $2, $3, '{}'::jsonb, true)`, accountID, threadID, "rolled summary"); err != nil {
+		t.Fatalf("insert active snapshot: %v", err)
+	}
+
+	storeRoot := t.TempDir()
+	store, err := objectstore.NewFilesystemOpener(storeRoot).Open(ctx, objectstore.RolloutBucket)
+	if err != nil {
+		t.Fatalf("open rollout store: %v", err)
+	}
+	blobStore, ok := store.(objectstore.BlobStore)
+	if !ok {
+		t.Fatal("expected blob store")
+	}
+	rolloutBody := marshalRolloutJSONL(t,
+		map[string]any{"type": "assistant_message", "payload": map[string]any{"content": "assistant replay after hidden anchor"}},
+		map[string]any{"type": "run_end", "payload": map[string]any{"final_status": "interrupted"}},
+	)
+	if err := blobStore.Put(ctx, "run/"+parentRunID.String()+".jsonl", rolloutBody); err != nil {
+		t.Fatalf("write rollout: %v", err)
+	}
+
+	loaded, err := loadRunInputs(ctx, pool, data.Run{
+		ID:              resumedRunID,
+		AccountID:       accountID,
+		ThreadID:        threadID,
+		ResumeFromRunID: &parentRunID,
+	}, nil, data.RunsRepository{}, data.RunEventsRepository{}, data.MessagesRepository{}, nil, blobStore, 20)
+	if err != nil {
+		t.Fatalf("loadRunInputs failed: %v", err)
+	}
+	if len(loaded.Messages) != 3 {
+		t.Fatalf("expected snapshot + replay + visible tail, got %d", len(loaded.Messages))
+	}
+	if loaded.Messages[0].Role != "user" || loaded.Messages[0].Content[0].Text != formatCompactSnapshotText("rolled summary") {
+		t.Fatalf("unexpected snapshot message: %#v", loaded.Messages[0])
+	}
+	if loaded.Messages[1].Role != "assistant" || loaded.Messages[1].Content[0].Text != "assistant replay after hidden anchor" {
+		t.Fatalf("unexpected replay message: %#v", loaded.Messages[1])
+	}
+	if loaded.Messages[2].Role != "user" || loaded.Messages[2].Content[0].Text != "continue after compact" {
+		t.Fatalf("unexpected visible tail: %#v", loaded.Messages[2])
+	}
+	if loaded.ThreadMessageIDs[0] != uuid.Nil || loaded.ThreadMessageIDs[1] != uuid.Nil {
+		t.Fatalf("expected snapshot and replay to be synthetic: %#v", loaded.ThreadMessageIDs)
+	}
+	if loaded.ThreadMessageIDs[2] != continueMessageID {
+		t.Fatalf("unexpected visible tail id: %#v", loaded.ThreadMessageIDs)
+	}
+}
+
+func TestLoadRunInputsRuntimeRecoveryReplaysAfterCompactedAnchorUsingSnapshotPrefix(t *testing.T) {
+	ctx := context.Background()
+	db := testutil.SetupPostgresDatabase(t, "pipeline_input_loader_snapshot_hidden_anchor_recovery")
+	pool, err := pgxpool.New(ctx, db.DSN)
+	if err != nil {
+		t.Fatalf("pgxpool.New: %v", err)
+	}
+	t.Cleanup(pool.Close)
+
+	accountID := uuid.New()
+	projectID := uuid.New()
+	threadID := uuid.New()
+	runID := uuid.New()
+	anchorMessageID := uuid.New()
+	continueMessageID := uuid.New()
+
+	if _, err := pool.Exec(ctx, `INSERT INTO accounts (id, type) VALUES ($1, 'personal')`, accountID); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO projects (id, account_id, name) VALUES ($1, $2, 'p')`, projectID, accountID); err != nil {
+		t.Fatalf("insert project: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO threads (id, account_id, project_id) VALUES ($1, $2, $3)`, threadID, accountID, projectID); err != nil {
+		t.Fatalf("insert thread: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO runs (id, account_id, thread_id, status) VALUES ($1, $2, $3, 'running')`, runID, accountID, threadID); err != nil {
+		t.Fatalf("insert run: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO run_events (run_id, seq, type, data_json) VALUES ($1, 1, 'run.started', $2::jsonb)`, runID, `{"thread_tail_message_id":"`+anchorMessageID.String()+`"}`); err != nil {
+		t.Fatalf("insert run started event: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO messages (id, account_id, thread_id, role, content, metadata_json, hidden, compacted) VALUES ($1, $2, $3, 'user', $4, '{}'::jsonb, true, true)`, anchorMessageID, accountID, threadID, "old hidden anchor"); err != nil {
+		t.Fatalf("insert hidden anchor: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO messages (id, account_id, thread_id, role, content, metadata_json, hidden) VALUES ($1, $2, $3, 'user', $4, '{}'::jsonb, false)`, continueMessageID, accountID, threadID, "continue after recovery"); err != nil {
+		t.Fatalf("insert continue message: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO thread_compaction_snapshots (account_id, thread_id, summary_text, metadata_json, is_active) VALUES ($1, $2, $3, '{}'::jsonb, true)`, accountID, threadID, "rolled summary"); err != nil {
+		t.Fatalf("insert active snapshot: %v", err)
+	}
+
+	storeRoot := t.TempDir()
+	store, err := objectstore.NewFilesystemOpener(storeRoot).Open(ctx, objectstore.RolloutBucket)
+	if err != nil {
+		t.Fatalf("open rollout store: %v", err)
+	}
+	blobStore, ok := store.(objectstore.BlobStore)
+	if !ok {
+		t.Fatal("expected blob store")
+	}
+	rolloutBody := marshalRolloutJSONL(t,
+		map[string]any{"type": "assistant_message", "payload": map[string]any{"content": "recovered assistant"}},
+		map[string]any{"type": "run_end", "payload": map[string]any{"final_status": "interrupted"}},
+	)
+	if err := blobStore.Put(ctx, "run/"+runID.String()+".jsonl", rolloutBody); err != nil {
+		t.Fatalf("write rollout: %v", err)
+	}
+
+	loaded, err := loadRunInputs(ctx, pool, data.Run{
+		ID:        runID,
+		AccountID: accountID,
+		ThreadID:  threadID,
+	}, map[string]any{"source": "desktop_recovery"}, data.RunsRepository{}, data.RunEventsRepository{}, data.MessagesRepository{}, nil, blobStore, 20)
+	if err != nil {
+		t.Fatalf("loadRunInputs failed: %v", err)
+	}
+	if len(loaded.Messages) != 3 {
+		t.Fatalf("expected snapshot + replay + visible tail, got %d", len(loaded.Messages))
+	}
+	if loaded.Messages[1].Role != "assistant" || loaded.Messages[1].Content[0].Text != "recovered assistant" {
+		t.Fatalf("unexpected recovery replay message: %#v", loaded.Messages[1])
+	}
+}
+
+func TestLoadRunInputsFallsBackToThreadTranscriptWhenResumeReplayUnavailable(t *testing.T) {
+	ctx := context.Background()
+	db := testutil.SetupPostgresDatabase(t, "pipeline_input_loader_resume_fallback")
+	pool, err := pgxpool.New(ctx, db.DSN)
+	if err != nil {
+		t.Fatalf("pgxpool.New: %v", err)
+	}
+	t.Cleanup(pool.Close)
+
+	accountID := uuid.New()
+	projectID := uuid.New()
+	threadID := uuid.New()
+	parentRunID := uuid.New()
+	resumedRunID := uuid.New()
+	firstMessageID := uuid.New()
+	continueMessageID := uuid.New()
+
+	if _, err := pool.Exec(ctx, `INSERT INTO threads (id, account_id, project_id) VALUES ($1, $2, $3)`, threadID, accountID, projectID); err != nil {
+		t.Fatalf("insert thread: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO runs (id, account_id, thread_id, status) VALUES ($1, $2, $3, 'cancelled')`, parentRunID, accountID, threadID); err != nil {
+		t.Fatalf("insert parent run: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO runs (id, account_id, thread_id, status, resume_from_run_id) VALUES ($1, $2, $3, 'running', $4)`, resumedRunID, accountID, threadID, parentRunID); err != nil {
+		t.Fatalf("insert resumed run: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO run_events (run_id, seq, type, data_json) VALUES ($1, 1, 'run.started', $2::jsonb)`, parentRunID, `{"thread_tail_message_id":"`+firstMessageID.String()+`"}`); err != nil {
+		t.Fatalf("insert parent run started event: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO run_events (run_id, seq, type, data_json) VALUES ($1, 1, 'run.started', '{"continuation_source":"user_followup","continuation_loop":true,"continuation_response":true}'::jsonb)`, resumedRunID); err != nil {
+		t.Fatalf("insert resumed run started event: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO messages (id, account_id, thread_id, role, content, metadata_json, hidden) VALUES ($1, $2, $3, 'user', $4, '{}'::jsonb, false)`, firstMessageID, accountID, threadID, "find the file"); err != nil {
+		t.Fatalf("insert first user message: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO messages (id, account_id, thread_id, role, content, metadata_json, hidden) VALUES ($1, $2, $3, 'user', $4, '{}'::jsonb, false)`, continueMessageID, accountID, threadID, "刚才你在干什么"); err != nil {
+		t.Fatalf("insert trailing user message: %v", err)
+	}
+
+	loaded, err := loadRunInputs(ctx, pool, data.Run{
+		ID:              resumedRunID,
+		AccountID:       accountID,
+		ThreadID:        threadID,
+		ResumeFromRunID: &parentRunID,
+	}, nil, data.RunsRepository{}, data.RunEventsRepository{}, data.MessagesRepository{}, nil, nil, 20)
+	if err != nil {
+		t.Fatalf("loadRunInputs failed: %v", err)
+	}
+	if got := loaded.InputJSON[runStartedContinuationSourceKey]; got != "none" {
+		t.Fatalf("unexpected continuation_source: %#v", got)
+	}
+	if got := loaded.InputJSON[runStartedContinuationLoopKey]; got != false {
+		t.Fatalf("unexpected continuation_loop: %#v", got)
+	}
+	if _, ok := loaded.InputJSON[runStartedContinuationResponseKey]; ok {
+		t.Fatalf("unexpected continuation_response: %#v", loaded.InputJSON[runStartedContinuationResponseKey])
+	}
+	if len(loaded.Messages) != 2 {
+		t.Fatalf("expected 2 thread messages, got %d", len(loaded.Messages))
+	}
+	if loaded.Messages[0].Role != "user" || loaded.Messages[0].Content[0].Text != "find the file" {
+		t.Fatalf("unexpected first message: %#v", loaded.Messages[0])
+	}
+	if loaded.Messages[1].Role != "user" || loaded.Messages[1].Content[0].Text != "刚才你在干什么" {
+		t.Fatalf("unexpected trailing user message: %#v", loaded.Messages[1])
+	}
+}
+
 func TestLoadRunInputsReplaysResumeChainInThreadOrder(t *testing.T) {
 	ctx := context.Background()
 	db := testutil.SetupPostgresDatabase(t, "pipeline_input_loader_resume_chain")

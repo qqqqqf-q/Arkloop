@@ -364,50 +364,6 @@ func (MessagesRepository) InsertThreadMessage(
 	return messageID, nil
 }
 
-// InsertCompactSummaryMessage 写入线程级摘要（system role，metadata 标记 kind）。
-func (MessagesRepository) InsertCompactSummaryMessage(
-	ctx context.Context,
-	tx pgx.Tx,
-	accountID uuid.UUID,
-	threadID uuid.UUID,
-	content string,
-	metadata json.RawMessage,
-) (uuid.UUID, error) {
-	if tx == nil {
-		return uuid.Nil, fmt.Errorf("tx must not be nil")
-	}
-	if accountID == uuid.Nil || threadID == uuid.Nil {
-		return uuid.Nil, fmt.Errorf("account_id and thread_id must not be empty")
-	}
-	content = strings.TrimSpace(content)
-	if content == "" {
-		return uuid.Nil, fmt.Errorf("content must not be empty")
-	}
-	if len(metadata) == 0 {
-		metadata = []byte(`{}`)
-	}
-	emptyParts := json.RawMessage(`{"parts":[]}`)
-	var messageID uuid.UUID
-	err := tx.QueryRow(
-		ctx,
-		`INSERT INTO messages (
-			account_id, thread_id, created_by_user_id, role, content, content_json, metadata_json, hidden, compacted
-		) VALUES (
-			$1, $2, NULL, 'system', $3, $4, $5::jsonb, false, false
-		)
-		 RETURNING id`,
-		accountID,
-		threadID,
-		content,
-		emptyParts,
-		string(metadata),
-	).Scan(&messageID)
-	if err != nil {
-		return uuid.Nil, err
-	}
-	return messageID, nil
-}
-
 // MarkThreadMessagesCompacted 将消息标记为已压缩并从常规列表中隐藏。
 func (MessagesRepository) MarkThreadMessagesCompacted(
 	ctx context.Context,

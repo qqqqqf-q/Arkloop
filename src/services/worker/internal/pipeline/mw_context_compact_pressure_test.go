@@ -4,13 +4,17 @@ package pipeline
 
 import (
 	"context"
+	"errors"
 	"testing"
 
+	"arkloop/services/worker/internal/data"
+	"arkloop/services/worker/internal/events"
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/routing"
 	"arkloop/services/worker/internal/testutil"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -25,6 +29,12 @@ func (g *compactSummaryGateway) Stream(_ context.Context, request llm.Request, y
 		return err
 	}
 	return yield(llm.StreamRunCompleted{})
+}
+
+type failingCompactEventAppender struct{}
+
+func (failingCompactEventAppender) AppendRunEvent(_ context.Context, _ pgx.Tx, _ uuid.UUID, _ events.RunEvent) (int64, error) {
+	return 0, errors.New("append failed")
 }
 
 func TestMaybeInlineCompactMessagesUsesAnchorPressure(t *testing.T) {
@@ -73,8 +83,8 @@ func TestMaybeInlineCompactMessagesUsesAnchorPressure(t *testing.T) {
 	if len(out) != 2 {
 		t.Fatalf("expected summary plus tail, got %d messages", len(out))
 	}
-	if out[0].Role != "system" {
-		t.Fatalf("expected summary system message, got %q", out[0].Role)
+	if out[0].Role != "user" {
+		t.Fatalf("expected summary snapshot user message, got %q", out[0].Role)
 	}
 }
 
@@ -124,5 +134,97 @@ func TestResolveContextCompactPressureAnchorReadsNewestTurnAnchor(t *testing.T) 
 	}
 	if anchor.LastRequestContextEstimateTokens != 120 {
 		t.Fatalf("unexpected last request estimate: %d", anchor.LastRequestContextEstimateTokens)
+	}
+}
+
+func TestContextCompactPersistFailureDoesNotMarkTrimmedMessages(t *testing.T) {
+	ctx := context.Background()
+	db := testutil.SetupPostgresDatabase(t, "context_compact_persist_failure_trim")
+	pool, err := pgxpool.New(ctx, db.DSN)
+	if err != nil {
+		t.Fatalf("pgxpool.New: %v", err)
+	}
+	t.Cleanup(pool.Close)
+
+	accountID := uuid.New()
+	projectID := uuid.New()
+	threadID := uuid.New()
+	runID := uuid.New()
+	msg1ID := uuid.New()
+	msg2ID := uuid.New()
+	msg3ID := uuid.New()
+	msg4ID := uuid.New()
+
+	for _, stmt := range []struct {
+		sql  string
+		args []any
+	}{
+		{`INSERT INTO accounts (id, type) VALUES ($1, 'personal')`, []any{accountID}},
+		{`INSERT INTO projects (id, account_id, name) VALUES ($1, $2, 'p')`, []any{projectID, accountID}},
+		{`INSERT INTO threads (id, account_id, project_id) VALUES ($1, $2, $3)`, []any{threadID, accountID, projectID}},
+		{`INSERT INTO runs (id, account_id, thread_id, status) VALUES ($1, $2, $3, 'running')`, []any{runID, accountID, threadID}},
+	} {
+		if _, err := pool.Exec(ctx, stmt.sql, stmt.args...); err != nil {
+			t.Fatalf("seed data: %v", err)
+		}
+	}
+	for _, msg := range []struct {
+		id      uuid.UUID
+		role    string
+		content string
+	}{
+		{msg1ID, "user", "m1"},
+		{msg2ID, "assistant", "m2"},
+		{msg3ID, "user", "m3"},
+		{msg4ID, "user", "m4"},
+	} {
+		if _, err := pool.Exec(ctx,
+			`INSERT INTO messages (id, account_id, thread_id, role, content, metadata_json, hidden, compacted) VALUES ($1, $2, $3, $4, $5, '{}'::jsonb, false, false)`,
+			msg.id, accountID, threadID, msg.role, msg.content,
+		); err != nil {
+			t.Fatalf("insert message: %v", err)
+		}
+	}
+
+	rc := &RunContext{
+		Run: data.Run{ID: runID, AccountID: accountID, ThreadID: threadID},
+		Emitter: events.NewEmitter("trace"),
+		ContextCompact: ContextCompactSettings{
+			Enabled:                     true,
+			MaxMessages:                 1,
+			PersistEnabled:              true,
+			PersistTriggerApproxTokens:  1,
+			PersistTriggerContextPct:    0,
+			FallbackContextWindowTokens: 1_000_000,
+			PersistKeepLastMessages:     2,
+		},
+		Gateway: &compactSummaryGateway{summary: "persisted summary"},
+		SelectedRoute: &routing.SelectedProviderRoute{
+			Route: routing.ProviderRouteRule{Model: "gpt-4o", ID: "route-1"},
+			Credential: routing.ProviderCredential{ProviderKind: routing.ProviderKindOpenAI},
+		},
+		Messages: []llm.Message{
+			{Role: "user", Content: []llm.TextPart{{Text: "m1"}}},
+			{Role: "assistant", Content: []llm.TextPart{{Text: "m2"}}},
+			{Role: "user", Content: []llm.TextPart{{Text: "m3"}}},
+			{Role: "user", Content: []llm.TextPart{{Text: "m4"}}},
+		},
+		ThreadMessageIDs: []uuid.UUID{msg1ID, msg2ID, msg3ID, msg4ID},
+	}
+
+	mw := NewContextCompactMiddleware(pool, data.MessagesRepository{}, failingCompactEventAppender{}, rc.Gateway, false)
+	if err := mw(ctx, rc, func(_ context.Context, _ *RunContext) error { return nil }); err != nil {
+		t.Fatalf("middleware failed: %v", err)
+	}
+
+	var compacted, hidden bool
+	if err := pool.QueryRow(ctx,
+		`SELECT compacted, hidden FROM messages WHERE id = $1`,
+		msg3ID,
+	).Scan(&compacted, &hidden); err != nil {
+		t.Fatalf("query message 3: %v", err)
+	}
+	if compacted || hidden {
+		t.Fatalf("expected message 3 to stay visible after persist failure, compacted=%v hidden=%v", compacted, hidden)
 	}
 }

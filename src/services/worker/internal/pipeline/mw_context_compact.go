@@ -141,16 +141,19 @@ func NewContextCompactMiddleware(
 		beforeN := len(rc.Messages)
 		msgs := rc.Messages
 		ids := rc.ThreadMessageIDs
+		previousSummary := strings.TrimSpace(rc.ActiveCompactSnapshotText)
+		fixedPrefixCount := 0
+		if rc.HasActiveCompactSnapshot && len(msgs) > 0 {
+			fixedPrefixCount = 1
+		}
 		persistSplit := 0
-		persistFailed := false
-		persistSucceeded := false
 		var persistPrefixIDs []uuid.UUID
 		var persistSummary string
 		var persistStartedEvent map[string]any
 		var persistFailedEvent map[string]any
 		var persistCompletedEvent map[string]any
 
-		if cfg.PersistEnabled && pool != nil && rc.Gateway != nil && len(msgs) > 1 {
+		if cfg.PersistEnabled && pool != nil && rc.Gateway != nil && len(msgs[fixedPrefixCount:]) > 1 {
 			window := 0
 			if rc.SelectedRoute != nil {
 				window = routing.RouteContextWindowTokens(rc.SelectedRoute.Route)
@@ -180,7 +183,15 @@ func NewContextCompactMiddleware(
 				return &anchor
 			}())
 			if pressure.ContextPressureTokens >= trigger && len(ids) == len(msgs) {
-				split := stabilizeCompactStart(msgs, len(msgs)-tailKeep, 0)
+				compactBase := msgs[fixedPrefixCount:]
+				compactBaseIDs := ids[fixedPrefixCount:]
+				if tailKeep >= len(compactBase) {
+					tailKeep = len(compactBase) - 1
+				}
+				if tailKeep < 1 {
+					tailKeep = 1
+				}
+				split := stabilizeCompactStart(compactBase, len(compactBase)-tailKeep, 0)
 				if split > 0 {
 					gw, model := resolveCompactionGateway(ctx, pool, rc, auxGateway, emitDebugEvents, configLoader)
 					if gw == nil {
@@ -212,16 +223,9 @@ func NewContextCompactMiddleware(
 							}
 						}
 
-						// compact_summary 消息是线程的第一条，role=system，可以直接判断而不依赖内容特征。
-						// 普通对话消息 role 只会是 user/assistant/tool，不会是 system。
-						var previousSummary string
-						if len(msgs) > 0 && msgs[0].Role == "system" {
-							previousSummary = strings.TrimSpace(messageText(msgs[0]))
-						}
-						summary, sumErr := runContextCompactLLM(ctx, gw, model, msgs[:split], enc, previousSummary)
+						summary, sumErr := runContextCompactLLM(ctx, gw, model, compactBase[:split], enc, previousSummary)
 						if sumErr != nil {
 							slog.WarnContext(ctx, "context_compact", "phase", "llm", "err", sumErr.Error(), "run_id", rc.Run.ID.String())
-							persistFailed = true
 							persistFailedEvent = map[string]any{
 								"op":             "persist",
 								"phase":          "llm_failed",
@@ -233,7 +237,7 @@ func NewContextCompactMiddleware(
 						} else if strings.TrimSpace(summary) != "" {
 							persistSplit = split
 							persistSummary = strings.TrimSpace(summary)
-							persistPrefixIDs = append([]uuid.UUID(nil), ids[:split]...)
+							persistPrefixIDs = append([]uuid.UUID(nil), filterNonNilUUIDs(compactBaseIDs[:split])...)
 							persistCompletedEvent = map[string]any{
 								"op":                    "persist",
 								"phase":                 "completed",
@@ -246,16 +250,14 @@ func NewContextCompactMiddleware(
 								"tail_keep_effective":   tailKeep,
 							}
 							ApplyContextCompactPressureFields(persistCompletedEvent, pressure)
-							summaryMsg := llm.Message{
-								Role:    "system",
-								Content: []llm.TextPart{{Text: persistSummary}},
-							}
-							tail := make([]llm.Message, len(msgs)-split)
-							copy(tail, msgs[split:])
-							msgs = append([]llm.Message{summaryMsg}, tail...)
-							ids = append([]uuid.UUID{uuid.Nil}, ids[split:]...)
+							tail := make([]llm.Message, len(compactBase)-split)
+							copy(tail, compactBase[split:])
+							msgs = append([]llm.Message{makeCompactSnapshotMessage(persistSummary)}, tail...)
+							ids = append([]uuid.UUID{uuid.Nil}, compactBaseIDs[split:]...)
 							rc.Messages = msgs
 							rc.ThreadMessageIDs = ids
+							rc.HasActiveCompactSnapshot = true
+							rc.ActiveCompactSnapshotText = persistSummary
 						}
 					}
 				}
@@ -263,14 +265,10 @@ func NewContextCompactMiddleware(
 		}
 
 		var trimEvent map[string]any
-		var trimmedIDs []uuid.UUID
 		if cfg.Enabled && ContextCompactHasActiveBudget(cfg) {
 			beforeTrim := len(rc.Messages)
 			beforeTrimTok := HistoryThreadPromptTokens(enc, rc.Messages)
 			out, outIDs, dropped := CompactThreadMessages(rc.Messages, rc.ThreadMessageIDs, cfg, enc)
-			if dropped > 0 && len(rc.ThreadMessageIDs) >= dropped {
-				trimmedIDs = append([]uuid.UUID(nil), rc.ThreadMessageIDs[:dropped]...)
-			}
 			rc.Messages = out
 			rc.ThreadMessageIDs = outIDs
 			if dropped > 0 || len(out) != beforeTrim {
@@ -320,55 +318,73 @@ func NewContextCompactMiddleware(
 			}
 		}
 
-		if persistSplit > 0 && persistSummary != "" && len(persistPrefixIDs) > 0 && pool != nil {
+		if persistSplit > 0 && persistSummary != "" && pool != nil {
 			tx, txErr := pool.BeginTx(postCtx, pgx.TxOptions{})
 			if txErr != nil {
-				persistFailed = true
 				slog.WarnContext(ctx, "context_compact", "phase", "tx_begin", "err", txErr.Error(), "run_id", rc.Run.ID.String())
 			} else {
 				if lockErr := compactThreadCompactionAdvisoryXactLock(postCtx, tx, rc.Run.ThreadID); lockErr != nil {
 					_ = tx.Rollback(postCtx)
-					persistFailed = true
 					slog.WarnContext(ctx, "context_compact", "phase", "advisory_lock", "err", lockErr.Error(), "run_id", rc.Run.ID.String())
 				} else {
 					still, chkErr := compactPrefixMessagesStillUncompacted(postCtx, tx, rc.Run.AccountID, rc.Run.ThreadID, persistPrefixIDs)
 					if chkErr != nil {
 						_ = tx.Rollback(postCtx)
-						persistFailed = true
 						slog.WarnContext(ctx, "context_compact", "phase", "prefix_precheck", "err", chkErr.Error(), "run_id", rc.Run.ID.String())
 					} else if !still {
 						_ = tx.Rollback(postCtx)
-					} else if err := messagesRepo.MarkThreadMessagesCompacted(postCtx, tx, rc.Run.AccountID, rc.Run.ThreadID, persistPrefixIDs); err != nil {
-						_ = tx.Rollback(postCtx)
-						persistFailed = true
-						slog.WarnContext(ctx, "context_compact", "phase", "mark_compacted", "err", err.Error(), "run_id", rc.Run.ID.String())
+					} else if len(persistPrefixIDs) > 0 {
+						if err := messagesRepo.MarkThreadMessagesCompacted(postCtx, tx, rc.Run.AccountID, rc.Run.ThreadID, persistPrefixIDs); err != nil {
+							_ = tx.Rollback(postCtx)
+							slog.WarnContext(ctx, "context_compact", "phase", "mark_compacted", "err", err.Error(), "run_id", rc.Run.ID.String())
+						} else {
+							meta, _ := json.Marshal(map[string]string{"kind": "context_compact"})
+							snapshot, insErr := (data.ThreadCompactionSnapshotsRepository{}).ReplaceActive(postCtx, tx, rc.Run.AccountID, rc.Run.ThreadID, persistSummary, meta)
+							if insErr != nil {
+								_ = tx.Rollback(postCtx)
+								slog.WarnContext(ctx, "context_compact", "phase", "replace_snapshot", "err", insErr.Error(), "run_id", rc.Run.ID.String())
+							} else {
+								evOk := true
+								if persistCompletedEvent != nil && eventsRepo != nil {
+									ev := rc.Emitter.Emit("run.context_compact", persistCompletedEvent, nil, nil)
+									if _, evErr := eventsRepo.AppendRunEvent(postCtx, tx, rc.Run.ID, ev); evErr != nil {
+										_ = tx.Rollback(postCtx)
+										evOk = false
+										slog.WarnContext(ctx, "context_compact", "phase", "run_event", "err", evErr.Error(), "run_id", rc.Run.ID.String())
+									}
+								}
+								if evOk {
+									if err := tx.Commit(postCtx); err != nil {
+										slog.WarnContext(ctx, "context_compact", "phase", "tx_commit", "err", err.Error(), "run_id", rc.Run.ID.String())
+									} else {
+										rc.HasActiveCompactSnapshot = true
+										rc.ActiveCompactSnapshotText = snapshot.SummaryText
+									}
+								}
+							}
+						}
 					} else {
-						meta, _ := json.Marshal(map[string]string{"kind": "compact_summary"})
-						summaryID, insErr := messagesRepo.InsertCompactSummaryMessage(postCtx, tx, rc.Run.AccountID, rc.Run.ThreadID, persistSummary, meta)
+						meta, _ := json.Marshal(map[string]string{"kind": "context_compact"})
+						snapshot, insErr := (data.ThreadCompactionSnapshotsRepository{}).ReplaceActive(postCtx, tx, rc.Run.AccountID, rc.Run.ThreadID, persistSummary, meta)
 						if insErr != nil {
 							_ = tx.Rollback(postCtx)
-							persistFailed = true
-							slog.WarnContext(ctx, "context_compact", "phase", "insert_summary", "err", insErr.Error(), "run_id", rc.Run.ID.String())
+							slog.WarnContext(ctx, "context_compact", "phase", "replace_snapshot", "err", insErr.Error(), "run_id", rc.Run.ID.String())
 						} else {
 							evOk := true
 							if persistCompletedEvent != nil && eventsRepo != nil {
 								ev := rc.Emitter.Emit("run.context_compact", persistCompletedEvent, nil, nil)
 								if _, evErr := eventsRepo.AppendRunEvent(postCtx, tx, rc.Run.ID, ev); evErr != nil {
 									_ = tx.Rollback(postCtx)
-									persistFailed = true
 									evOk = false
 									slog.WarnContext(ctx, "context_compact", "phase", "run_event", "err", evErr.Error(), "run_id", rc.Run.ID.String())
 								}
 							}
 							if evOk {
 								if err := tx.Commit(postCtx); err != nil {
-									persistFailed = true
 									slog.WarnContext(ctx, "context_compact", "phase", "tx_commit", "err", err.Error(), "run_id", rc.Run.ID.String())
 								} else {
-									persistSucceeded = true
-									if len(rc.ThreadMessageIDs) > 0 && rc.ThreadMessageIDs[0] == uuid.Nil {
-										rc.ThreadMessageIDs[0] = summaryID
-									}
+									rc.HasActiveCompactSnapshot = true
+									rc.ActiveCompactSnapshotText = snapshot.SummaryText
 								}
 							}
 						}
@@ -380,23 +396,6 @@ func NewContextCompactMiddleware(
 		if trimEvent != nil {
 			if err := appendContextCompactRunEvent(postCtx, pool, eventsRepo, rc, trimEvent); err != nil {
 				slog.WarnContext(ctx, "context_compact", "phase", "run_event_trim", "err", err.Error(), "run_id", rc.Run.ID.String())
-			}
-		}
-
-		shouldMarkTrimmed := len(trimmedIDs) > 0 && (persistFailed || (persistSplit > 0 && !persistSucceeded))
-		if shouldMarkTrimmed && pool != nil {
-			validTrimmed := filterNonNilUUIDs(trimmedIDs)
-			if len(validTrimmed) > 0 {
-				tx, txErr := pool.BeginTx(postCtx, pgx.TxOptions{})
-				if txErr != nil {
-					slog.WarnContext(ctx, "context_compact", "phase", "tx_begin_trim_mark", "err", txErr.Error(), "run_id", rc.Run.ID.String())
-				} else if markErr := messagesRepo.MarkThreadMessagesCompacted(postCtx, tx, rc.Run.AccountID, rc.Run.ThreadID, validTrimmed); markErr != nil {
-					_ = tx.Rollback(postCtx)
-					slog.WarnContext(ctx, "context_compact", "phase", "mark_compacted_trim", "err", markErr.Error(), "run_id", rc.Run.ID.String())
-				} else if err := tx.Commit(postCtx); err != nil {
-					_ = tx.Rollback(postCtx)
-					slog.WarnContext(ctx, "context_compact", "phase", "tx_commit_trim_mark", "err", err.Error(), "run_id", rc.Run.ID.String())
-				}
 			}
 		}
 
@@ -420,7 +419,7 @@ func filterNonNilUUIDs(ids []uuid.UUID) []uuid.UUID {
 // compactPrefixMessagesStillUncompacted 事务内校验：待标记的 id 仍全部存在且未 compact，避免并发 persist 重复写。
 func compactPrefixMessagesStillUncompacted(ctx context.Context, tx pgx.Tx, accountID, threadID uuid.UUID, prefixIDs []uuid.UUID) (bool, error) {
 	if len(prefixIDs) == 0 {
-		return false, nil
+		return true, nil
 	}
 	var n int
 	err := tx.QueryRow(ctx,
@@ -534,13 +533,14 @@ func MaybeInlineCompactMessages(
 		return msgs, stats, false, nil
 	}
 	fixedPrefixCount := 0
-	if len(msgs) > 0 && msgs[0].Role == "system" {
+	previousSummary := ""
+	if rc.HasActiveCompactSnapshot && len(msgs) > 0 {
 		fixedPrefixCount = 1
+		previousSummary = strings.TrimSpace(rc.ActiveCompactSnapshotText)
 	}
 	if len(msgs)-fixedPrefixCount <= 1 {
 		return msgs, stats, false, nil
 	}
-	prefix := append([]llm.Message(nil), msgs[:fixedPrefixCount]...)
 	compactBase := append([]llm.Message(nil), msgs[fixedPrefixCount:]...)
 	keep := cfg.PersistKeepLastMessages
 	if keep <= 0 {
@@ -557,10 +557,6 @@ func MaybeInlineCompactMessages(
 	if split <= 0 {
 		return msgs, stats, false, nil
 	}
-	var previousSummary string
-	if len(compactBase) > 0 && compactBase[0].Role == "system" {
-		previousSummary = strings.TrimSpace(messageText(compactBase[0]))
-	}
 	summary, err := runContextCompactLLM(ctx, rc.Gateway, rc.SelectedRoute.Route.Model, compactBase[:split], enc, previousSummary)
 	if err != nil {
 		return msgs, stats, false, err
@@ -569,14 +565,10 @@ func MaybeInlineCompactMessages(
 	if summary == "" {
 		return msgs, stats, false, nil
 	}
-	summaryMsg := llm.Message{
-		Role:    "system",
-		Content: []llm.TextPart{{Text: summary}},
-	}
 	tail := make([]llm.Message, len(compactBase)-split)
 	copy(tail, compactBase[split:])
-	compactedBase := append([]llm.Message{summaryMsg}, tail...)
-	return append(prefix, compactedBase...), stats, true, nil
+	compactedBase := append([]llm.Message{makeCompactSnapshotMessage(summary)}, tail...)
+	return compactedBase, stats, true, nil
 }
 
 func runContextCompactLLM(ctx context.Context, gateway llm.Gateway, model string, prefix []llm.Message, enc *tiktoken.Tiktoken, previousSummary string) (string, error) {
@@ -674,7 +666,7 @@ func appendContextCompactRunEvent(
 }
 
 // serializeMessagesForCompact 将消息列表序列化为摘要 LLM 可读的纯文本。
-// system 消息（compact_summary）通过 previousSummary 路径单独传递，此处跳过。
+// active snapshot 通过 previousSummary 单独传递；这里仅处理真实对话与 replay 内容。
 // tool result 只提取 result/error 核心内容，tool calls 展开参数，避免噪声。
 func serializeMessagesForCompact(msgs []llm.Message) string {
 	parts := make([]string, 0, len(msgs))

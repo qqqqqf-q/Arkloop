@@ -31,9 +31,11 @@ type runRecordLoader interface {
 }
 
 type loadedRunInputs struct {
-	InputJSON        map[string]any
-	Messages         []llm.Message
-	ThreadMessageIDs []uuid.UUID
+	InputJSON                 map[string]any
+	Messages                  []llm.Message
+	ThreadMessageIDs          []uuid.UUID
+	HasActiveCompactSnapshot  bool
+	ActiveCompactSnapshotText string
 }
 
 type LoadedRunInputs = loadedRunInputs
@@ -103,6 +105,8 @@ func NewInputLoaderMiddleware(
 		rc.InputJSON = loaded.InputJSON
 		rc.Messages = loaded.Messages
 		rc.ThreadMessageIDs = loaded.ThreadMessageIDs
+		rc.HasActiveCompactSnapshot = loaded.HasActiveCompactSnapshot
+		rc.ActiveCompactSnapshotText = loaded.ActiveCompactSnapshotText
 
 		return next(ctx, rc)
 	}
@@ -171,17 +175,28 @@ func loadRunInputs(
 	if err != nil {
 		return nil, err
 	}
+	activeSnapshot, err := (data.ThreadCompactionSnapshotsRepository{}).GetActiveByThread(ctx, tx, run.AccountID, run.ThreadID)
+	if err != nil {
+		return nil, err
+	}
+	hasActiveSnapshot := activeSnapshot != nil && strings.TrimSpace(activeSnapshot.SummaryText) != ""
 
 	replayInsertions := []resumeReplayInsertion(nil)
 	if IsRuntimeRecoveryJob(jobPayload) {
-		replayInsertions, err = loadRuntimeRecoveryReplay(ctx, tx, run, eventsRepo, rolloutStore, messages)
+		replayInsertions, err = loadRuntimeRecoveryReplay(ctx, tx, run, eventsRepo, rolloutStore, messages, hasActiveSnapshot)
 		if err != nil {
 			return nil, err
 		}
 	} else if run.ResumeFromRunID != nil {
-		replayInsertions, err = loadResumedReplay(ctx, tx, run, runsRepo, eventsRepo, rolloutStore, messages)
+		replayInsertions, err = loadResumedReplay(ctx, tx, run, runsRepo, eventsRepo, rolloutStore, messages, hasActiveSnapshot)
 		if err != nil {
-			return nil, err
+			var resumeErr *resumeUnavailableError
+			if errors.As(err, &resumeErr) {
+				clearContinuationMetadata(inputJSON)
+				replayInsertions = nil
+			} else {
+				return nil, err
+			}
 		}
 	}
 
@@ -196,8 +211,20 @@ func loadRunInputs(
 		replayCount += len(insertion.Messages)
 	}
 
-	llmMessages := make([]llm.Message, 0, len(messages)+replayCount)
-	ids := make([]uuid.UUID, 0, len(messages)+replayCount)
+	activeSnapshotText := ""
+	llmMessages := make([]llm.Message, 0, len(messages)+replayCount+1)
+	ids := make([]uuid.UUID, 0, len(messages)+replayCount+1)
+	if hasActiveSnapshot {
+		activeSnapshotText = strings.TrimSpace(activeSnapshot.SummaryText)
+		llmMessages = append(llmMessages, makeCompactSnapshotMessage(activeSnapshotText))
+		ids = append(ids, uuid.Nil)
+		for _, insertion := range replayByAnchor[uuid.Nil] {
+			llmMessages = append(llmMessages, insertion.Messages...)
+			for range insertion.Messages {
+				ids = append(ids, uuid.Nil)
+			}
+		}
+	}
 	for _, msg := range messages {
 		if strings.TrimSpace(msg.Role) == "" {
 			continue
@@ -229,9 +256,11 @@ func loadRunInputs(
 	}
 
 	return &loadedRunInputs{
-		InputJSON:        inputJSON,
-		Messages:         llmMessages,
-		ThreadMessageIDs: ids,
+		InputJSON:                 inputJSON,
+		Messages:                  llmMessages,
+		ThreadMessageIDs:          ids,
+		HasActiveCompactSnapshot:  hasActiveSnapshot,
+		ActiveCompactSnapshotText: activeSnapshotText,
 	}, nil
 }
 
@@ -257,6 +286,15 @@ func IsResumeUnavailableError(err error) bool {
 	return errors.As(err, &resumeErr)
 }
 
+func clearContinuationMetadata(inputJSON map[string]any) {
+	if inputJSON == nil {
+		return
+	}
+	inputJSON[runStartedContinuationSourceKey] = "none"
+	inputJSON[runStartedContinuationLoopKey] = false
+	delete(inputJSON, runStartedContinuationResponseKey)
+}
+
 func loadResumedReplay(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -265,6 +303,7 @@ func loadResumedReplay(
 	eventsRepo runFirstEventLoader,
 	rolloutStore objectstore.BlobStore,
 	threadMessages []data.ThreadMessage,
+	hasActiveSnapshot bool,
 ) ([]resumeReplayInsertion, error) {
 	if run.ResumeFromRunID == nil {
 		return nil, nil
@@ -280,16 +319,18 @@ func loadResumedReplay(
 	}
 
 	insertions, err := collectResumeReplayInsertions(
-		ctx,
-		tx,
-		run.ThreadID,
-		*run.ResumeFromRunID,
-		runsRepo,
-		eventsRepo,
-		rolloutStore,
-		threadMessages,
-		map[uuid.UUID]struct{}{},
-	)
+			ctx,
+			tx,
+			run.AccountID,
+			run.ThreadID,
+			*run.ResumeFromRunID,
+			runsRepo,
+			eventsRepo,
+			rolloutStore,
+			threadMessages,
+			hasActiveSnapshot,
+			map[uuid.UUID]struct{}{},
+		)
 	if err != nil {
 		return nil, err
 	}
@@ -347,15 +388,58 @@ func trailingResumeUserBlockAfterMessage(messages []data.ThreadMessage, anchorMe
 	return anchorIndex + 1, true
 }
 
+func resumeInsertionAnchor(
+	ctx context.Context,
+	tx pgx.Tx,
+	accountID uuid.UUID,
+	threadID uuid.UUID,
+	visibleMessages []data.ThreadMessage,
+	anchorMessageID uuid.UUID,
+	hasActiveSnapshot bool,
+) (uuid.UUID, bool, error) {
+	if _, ok := trailingResumeUserBlockAfterMessage(visibleMessages, anchorMessageID); ok {
+		return anchorMessageID, true, nil
+	}
+	if !hasActiveSnapshot || tx == nil || accountID == uuid.Nil || threadID == uuid.Nil || anchorMessageID == uuid.Nil {
+		return uuid.Nil, false, nil
+	}
+	var hidden bool
+	err := tx.QueryRow(
+		ctx,
+		`SELECT hidden
+		   FROM messages
+		  WHERE account_id = $1
+		    AND thread_id = $2
+		    AND id = $3
+		    AND deleted_at IS NULL
+		  LIMIT 1`,
+		accountID,
+		threadID,
+		anchorMessageID,
+	).Scan(&hidden)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return uuid.Nil, false, nil
+		}
+		return uuid.Nil, false, err
+	}
+	if hidden {
+		return uuid.Nil, true, nil
+	}
+	return uuid.Nil, false, nil
+}
+
 func collectResumeReplayInsertions(
 	ctx context.Context,
 	tx pgx.Tx,
+	accountID uuid.UUID,
 	threadID uuid.UUID,
 	runID uuid.UUID,
 	runsRepo runRecordLoader,
 	eventsRepo runFirstEventLoader,
 	rolloutStore objectstore.BlobStore,
 	threadMessages []data.ThreadMessage,
+	hasActiveSnapshot bool,
 	visited map[uuid.UUID]struct{},
 ) ([]resumeReplayInsertion, error) {
 	if _, ok := visited[runID]; ok {
@@ -382,12 +466,14 @@ func collectResumeReplayInsertions(
 		insertions, err = collectResumeReplayInsertions(
 			ctx,
 			tx,
+			accountID,
 			threadID,
 			*parentRun.ResumeFromRunID,
 			runsRepo,
 			eventsRepo,
 			rolloutStore,
 			threadMessages,
+			hasActiveSnapshot,
 			visited,
 		)
 		if err != nil {
@@ -403,7 +489,11 @@ func collectResumeReplayInsertions(
 	if err != nil {
 		return nil, err
 	}
-	if _, ok := trailingResumeUserBlockAfterMessage(threadMessages, anchorMessageID); !ok {
+	insertionAnchorID, ok, err := resumeInsertionAnchor(ctx, tx, accountID, threadID, threadMessages, anchorMessageID, hasActiveSnapshot)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
 		return nil, &resumeUnavailableError{reason: "resume input block is missing"}
 	}
 
@@ -422,7 +512,7 @@ func collectResumeReplayInsertions(
 		}
 	}
 	return append(insertions, resumeReplayInsertion{
-		AnchorMessageID: anchorMessageID,
+		AnchorMessageID: insertionAnchorID,
 		Messages:        replayedMessages,
 	}), nil
 }
@@ -434,6 +524,7 @@ func loadRuntimeRecoveryReplay(
 	eventsRepo runFirstEventLoader,
 	rolloutStore objectstore.BlobStore,
 	threadMessages []data.ThreadMessage,
+	hasActiveSnapshot bool,
 ) ([]resumeReplayInsertion, error) {
 	if rolloutStore == nil {
 		return nil, &resumeUnavailableError{reason: "runtime recovery store is unavailable"}
@@ -445,6 +536,13 @@ func loadRuntimeRecoveryReplay(
 	anchorMessageID, err := resumeAnchorMessageID(startedData)
 	if err != nil {
 		return nil, err
+	}
+	insertionAnchorID, ok, err := resumeInsertionAnchor(ctx, tx, run.AccountID, run.ThreadID, threadMessages, anchorMessageID, hasActiveSnapshot)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, &resumeUnavailableError{reason: "runtime recovery input block is missing"}
 	}
 	items, err := rollout.NewReader(rolloutStore).ReadRollout(ctx, run.ID)
 	if err != nil && !objectstore.IsNotFound(err) {
@@ -464,7 +562,7 @@ func loadRuntimeRecoveryReplay(
 		return nil, &resumeUnavailableError{reason: "runtime recovery state is unavailable"}
 	}
 	return []resumeReplayInsertion{{
-		AnchorMessageID: anchorMessageID,
+		AnchorMessageID: insertionAnchorID,
 		Messages:        replayedMessages,
 	}}, nil
 }

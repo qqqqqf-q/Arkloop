@@ -588,6 +588,8 @@ func desktopInputLoader(
 		}
 		rc.Messages = loaded.Messages
 		rc.ThreadMessageIDs = loaded.ThreadMessageIDs
+		rc.HasActiveCompactSnapshot = loaded.HasActiveCompactSnapshot
+		rc.ActiveCompactSnapshotText = loaded.ActiveCompactSnapshotText
 
 		return next(ctx, rc)
 	}
