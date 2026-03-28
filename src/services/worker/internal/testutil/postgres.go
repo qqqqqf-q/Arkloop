@@ -346,6 +346,21 @@ func initRunsSchema(t *testing.T, dsn string) error {
 			updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 		)`,
 		`CREATE INDEX idx_sub_agent_context_snapshots_updated_at ON sub_agent_context_snapshots (updated_at)`,
+		`CREATE TABLE thread_compaction_snapshots (
+			id                     UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+			account_id             UUID        NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+			thread_id              UUID        NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
+			summary_text           TEXT        NOT NULL,
+			metadata_json          JSONB       NOT NULL DEFAULT '{}'::jsonb,
+			supersedes_snapshot_id UUID        NULL REFERENCES thread_compaction_snapshots(id) ON DELETE SET NULL,
+			is_active              BOOLEAN     NOT NULL DEFAULT TRUE,
+			created_at             TIMESTAMPTZ NOT NULL DEFAULT now()
+		)`,
+		`CREATE UNIQUE INDEX uq_thread_compaction_snapshots_active_thread
+		    ON thread_compaction_snapshots (thread_id)
+		 WHERE is_active = TRUE`,
+		`CREATE INDEX ix_thread_compaction_snapshots_thread_created_at
+		    ON thread_compaction_snapshots (thread_id, created_at DESC)`,
 		`CREATE TABLE default_workspace_bindings (
 			profile_ref       TEXT        NOT NULL,
 			owner_user_id     UUID        NULL,

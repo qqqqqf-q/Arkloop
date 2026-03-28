@@ -1014,6 +1014,439 @@ func TestRunsCreateDoesNotAutoResumeWithoutNewUserInput(t *testing.T) {
 	}
 }
 
+func TestRunsCreateAutoResumeWhenThreadHasActiveCompactSnapshot(t *testing.T) {
+	db := setupTestDatabase(t, "api_go_runs_resume_with_compact_snapshot")
+
+	ctx := context.Background()
+	pool, err := data.NewPool(ctx, db.DSN, data.PoolLimits{MaxConns: 32, MinConns: 0})
+	if err != nil {
+		t.Fatalf("new pool: %v", err)
+	}
+	defer pool.Close()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+
+	passwordHasher, err := auth.NewBcryptPasswordHasher(0)
+	if err != nil {
+		t.Fatalf("new password hasher: %v", err)
+	}
+	tokenService, err := auth.NewJwtAccessTokenService("test-secret-should-be-long-enough-32chars", 3600, 2592000)
+	if err != nil {
+		t.Fatalf("new token service: %v", err)
+	}
+
+	userRepo, err := data.NewUserRepository(pool)
+	if err != nil {
+		t.Fatalf("new user repo: %v", err)
+	}
+	credentialRepo, err := data.NewUserCredentialRepository(pool)
+	if err != nil {
+		t.Fatalf("new credential repo: %v", err)
+	}
+	membershipRepo, err := data.NewAccountMembershipRepository(pool)
+	if err != nil {
+		t.Fatalf("new membership repo: %v", err)
+	}
+	refreshTokenRepo, err := data.NewRefreshTokenRepository(pool)
+	if err != nil {
+		t.Fatalf("new refresh token repo: %v", err)
+	}
+	auditRepo, err := data.NewAuditLogRepository(pool)
+	if err != nil {
+		t.Fatalf("new audit repo: %v", err)
+	}
+	threadRepo, err := data.NewThreadRepository(pool)
+	if err != nil {
+		t.Fatalf("new thread repo: %v", err)
+	}
+	projectRepo, err := data.NewProjectRepository(pool)
+	if err != nil {
+		t.Fatalf("new project repo: %v", err)
+	}
+	runRepo, err := data.NewRunEventRepository(pool)
+	if err != nil {
+		t.Fatalf("new run repo: %v", err)
+	}
+
+	authService, err := auth.NewService(userRepo, credentialRepo, membershipRepo, passwordHasher, tokenService, refreshTokenRepo, nil, nil)
+	if err != nil {
+		t.Fatalf("new auth service: %v", err)
+	}
+	jobRepo, err := data.NewJobRepository(pool)
+	if err != nil {
+		t.Fatalf("new job repo: %v", err)
+	}
+	registrationService, err := auth.NewRegistrationService(pool, passwordHasher, tokenService, refreshTokenRepo, jobRepo)
+	if err != nil {
+		t.Fatalf("new registration service: %v", err)
+	}
+
+	auditWriter := audit.NewWriter(auditRepo, membershipRepo, logger)
+	handler := NewHandler(HandlerConfig{
+		Pool:                  pool,
+		Logger:                logger,
+		AuthService:           authService,
+		RegistrationService:   registrationService,
+		AccountMembershipRepo: membershipRepo,
+		ThreadRepo:            threadRepo,
+		ProjectRepo:           projectRepo,
+		RunEventRepo:          runRepo,
+		AuditWriter:           auditWriter,
+		TrustIncomingTraceID:  true,
+	})
+
+	aliceRegister := doJSON(
+		handler,
+		nethttp.MethodPost,
+		"/v1/auth/register",
+		map[string]any{"login": "alice_resume_snapshot", "password": "pwd12345", "email": "alice_resume_snapshot@test.com"},
+		nil,
+	)
+	if aliceRegister.Code != nethttp.StatusCreated {
+		t.Fatalf("register: %d body=%s", aliceRegister.Code, aliceRegister.Body.String())
+	}
+	alice := decodeJSONBody[registerResponse](t, aliceRegister.Body.Bytes())
+	aliceHeaders := authHeader(alice.AccessToken)
+
+	threadResp := doJSON(handler, nethttp.MethodPost, "/v1/threads", map[string]any{"title": "resume snapshot"}, aliceHeaders)
+	if threadResp.Code != nethttp.StatusCreated {
+		t.Fatalf("create thread: %d body=%s", threadResp.Code, threadResp.Body.String())
+	}
+	threadPayload := decodeJSONBody[threadResponse](t, threadResp.Body.Bytes())
+	accountID := uuid.MustParse(threadPayload.AccountID)
+	threadID := uuid.MustParse(threadPayload.ID)
+
+	initialMessageID := uuid.New()
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO messages (id, account_id, thread_id, created_by_user_id, role, content, metadata_json, hidden)
+		 VALUES ($1, $2, $3, $4, 'user', $5, '{}'::jsonb, false)`,
+		initialMessageID,
+		accountID,
+		threadID,
+		uuid.MustParse(alice.UserID),
+		"find the file",
+	); err != nil {
+		t.Fatalf("insert initial user message: %v", err)
+	}
+
+	firstRunResp := doJSON(handler, nethttp.MethodPost, "/v1/threads/"+threadPayload.ID+"/runs", nil, aliceHeaders)
+	if firstRunResp.Code != nethttp.StatusCreated {
+		t.Fatalf("create first run: %d body=%s", firstRunResp.Code, firstRunResp.Body.String())
+	}
+	firstRun := decodeJSONBody[createRunResponse](t, firstRunResp.Body.Bytes())
+	firstRunID := uuid.MustParse(firstRun.RunID)
+	interruptedAt := time.Now().UTC()
+
+	if _, err := pool.Exec(ctx,
+		`UPDATE runs
+		    SET status = 'interrupted',
+		        status_updated_at = $2,
+		        failed_at = $2
+		  WHERE id = $1`,
+		firstRunID,
+		interruptedAt,
+	); err != nil {
+		t.Fatalf("mark first run interrupted: %v", err)
+	}
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO run_events (run_id, seq, type, data_json, ts)
+		 VALUES ($1, 2, 'run.interrupted', '{}'::jsonb, $2)`,
+		firstRunID,
+		interruptedAt,
+	); err != nil {
+		t.Fatalf("insert interrupted event: %v", err)
+	}
+	if _, err := pool.Exec(ctx,
+		`UPDATE messages
+		    SET hidden = TRUE,
+		        compacted = TRUE
+		  WHERE id = $1`,
+		initialMessageID,
+	); err != nil {
+		t.Fatalf("compact initial message: %v", err)
+	}
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO thread_compaction_snapshots (account_id, thread_id, summary_text, metadata_json, is_active)
+		 VALUES ($1, $2, $3, '{}'::jsonb, TRUE)`,
+		accountID,
+		threadID,
+		"rolled summary",
+	); err != nil {
+		t.Fatalf("insert active compact snapshot: %v", err)
+	}
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO messages (account_id, thread_id, created_by_user_id, role, content, metadata_json, hidden, created_at)
+		 VALUES ($1, $2, $3, 'user', $4, '{}'::jsonb, false, $5)`,
+		accountID,
+		threadID,
+		uuid.MustParse(alice.UserID),
+		"continue after compact",
+		interruptedAt.Add(time.Second),
+	); err != nil {
+		t.Fatalf("insert trailing user message: %v", err)
+	}
+
+	resumedRunResp := doJSON(handler, nethttp.MethodPost, "/v1/threads/"+threadPayload.ID+"/runs", nil, aliceHeaders)
+	if resumedRunResp.Code != nethttp.StatusCreated {
+		t.Fatalf("create resumed run: %d body=%s", resumedRunResp.Code, resumedRunResp.Body.String())
+	}
+	resumedRun := decodeJSONBody[createRunResponse](t, resumedRunResp.Body.Bytes())
+	resumedRunID := uuid.MustParse(resumedRun.RunID)
+
+	var parentRunID *uuid.UUID
+	var resumeFromRunID *uuid.UUID
+	if err := pool.QueryRow(ctx,
+		`SELECT parent_run_id, resume_from_run_id FROM runs WHERE id = $1`,
+		resumedRunID,
+	).Scan(&parentRunID, &resumeFromRunID); err != nil {
+		t.Fatalf("load resumed run lineage: %v", err)
+	}
+	if parentRunID != nil {
+		t.Fatalf("expected resumed thread run to stay a root run, got parent_run_id=%s", *parentRunID)
+	}
+	if resumeFromRunID == nil || *resumeFromRunID != firstRunID {
+		t.Fatalf("unexpected resume_from_run_id: %#v want %s", resumeFromRunID, firstRunID)
+	}
+
+	var resumedStartedJSON []byte
+	if err := pool.QueryRow(ctx,
+		`SELECT data_json FROM run_events WHERE run_id = $1 AND type = 'run.started' LIMIT 1`,
+		resumedRunID,
+	).Scan(&resumedStartedJSON); err != nil {
+		t.Fatalf("load resumed run started event: %v", err)
+	}
+	var resumedStartedData map[string]any
+	if err := json.Unmarshal(resumedStartedJSON, &resumedStartedData); err != nil {
+		t.Fatalf("decode resumed started json: %v", err)
+	}
+	if resumedStartedData["continuation_source"] != "user_followup" {
+		t.Fatalf("unexpected resumed continuation_source: %#v", resumedStartedData["continuation_source"])
+	}
+	if loop, ok := resumedStartedData["continuation_loop"].(bool); !ok || !loop {
+		t.Fatalf("unexpected resumed continuation_loop: %#v", resumedStartedData["continuation_loop"])
+	}
+	if resp, ok := resumedStartedData["continuation_response"].(bool); !ok || !resp {
+		t.Fatalf("unexpected resumed continuation_response: %#v", resumedStartedData["continuation_response"])
+	}
+}
+
+func TestRunsCreateAutoResumesWithActiveCompactSnapshotPresent(t *testing.T) {
+	db := setupTestDatabase(t, "api_go_runs_resume_with_snapshot")
+
+	ctx := context.Background()
+	pool, err := data.NewPool(ctx, db.DSN, data.PoolLimits{MaxConns: 32, MinConns: 0})
+	if err != nil {
+		t.Fatalf("new pool: %v", err)
+	}
+	defer pool.Close()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+
+	passwordHasher, err := auth.NewBcryptPasswordHasher(0)
+	if err != nil {
+		t.Fatalf("new password hasher: %v", err)
+	}
+	tokenService, err := auth.NewJwtAccessTokenService("test-secret-should-be-long-enough-32chars", 3600, 2592000)
+	if err != nil {
+		t.Fatalf("new token service: %v", err)
+	}
+
+	userRepo, err := data.NewUserRepository(pool)
+	if err != nil {
+		t.Fatalf("new user repo: %v", err)
+	}
+	credentialRepo, err := data.NewUserCredentialRepository(pool)
+	if err != nil {
+		t.Fatalf("new credential repo: %v", err)
+	}
+	membershipRepo, err := data.NewAccountMembershipRepository(pool)
+	if err != nil {
+		t.Fatalf("new membership repo: %v", err)
+	}
+	refreshTokenRepo, err := data.NewRefreshTokenRepository(pool)
+	if err != nil {
+		t.Fatalf("new refresh token repo: %v", err)
+	}
+	auditRepo, err := data.NewAuditLogRepository(pool)
+	if err != nil {
+		t.Fatalf("new audit repo: %v", err)
+	}
+	threadRepo, err := data.NewThreadRepository(pool)
+	if err != nil {
+		t.Fatalf("new thread repo: %v", err)
+	}
+	projectRepo, err := data.NewProjectRepository(pool)
+	if err != nil {
+		t.Fatalf("new project repo: %v", err)
+	}
+	runRepo, err := data.NewRunEventRepository(pool)
+	if err != nil {
+		t.Fatalf("new run repo: %v", err)
+	}
+
+	authService, err := auth.NewService(userRepo, credentialRepo, membershipRepo, passwordHasher, tokenService, refreshTokenRepo, nil, nil)
+	if err != nil {
+		t.Fatalf("new auth service: %v", err)
+	}
+	jobRepo, err := data.NewJobRepository(pool)
+	if err != nil {
+		t.Fatalf("new job repo: %v", err)
+	}
+	registrationService, err := auth.NewRegistrationService(pool, passwordHasher, tokenService, refreshTokenRepo, jobRepo)
+	if err != nil {
+		t.Fatalf("new registration service: %v", err)
+	}
+
+	auditWriter := audit.NewWriter(auditRepo, membershipRepo, logger)
+	handler := NewHandler(HandlerConfig{
+		Pool:                  pool,
+		Logger:                logger,
+		AuthService:           authService,
+		RegistrationService:   registrationService,
+		AccountMembershipRepo: membershipRepo,
+		ThreadRepo:            threadRepo,
+		ProjectRepo:           projectRepo,
+		RunEventRepo:          runRepo,
+		AuditWriter:           auditWriter,
+		TrustIncomingTraceID:  true,
+	})
+
+	aliceRegister := doJSON(
+		handler,
+		nethttp.MethodPost,
+		"/v1/auth/register",
+		map[string]any{"login": "alice_resume_snapshot", "password": "pwd12345", "email": "alice_resume_snapshot@test.com"},
+		nil,
+	)
+	if aliceRegister.Code != nethttp.StatusCreated {
+		t.Fatalf("register: %d body=%s", aliceRegister.Code, aliceRegister.Body.String())
+	}
+	alice := decodeJSONBody[registerResponse](t, aliceRegister.Body.Bytes())
+	aliceHeaders := authHeader(alice.AccessToken)
+
+	threadResp := doJSON(handler, nethttp.MethodPost, "/v1/threads", map[string]any{"title": "resume"}, aliceHeaders)
+	if threadResp.Code != nethttp.StatusCreated {
+		t.Fatalf("create thread: %d body=%s", threadResp.Code, threadResp.Body.String())
+	}
+	threadPayload := decodeJSONBody[threadResponse](t, threadResp.Body.Bytes())
+	accountID := uuid.MustParse(threadPayload.AccountID)
+	threadID := uuid.MustParse(threadPayload.ID)
+	userID := uuid.MustParse(alice.UserID)
+
+	firstMessageID := uuid.New()
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO messages (id, account_id, thread_id, created_by_user_id, role, content, metadata_json, hidden)
+		 VALUES ($1, $2, $3, $4, 'user', $5, '{}'::jsonb, false)`,
+		firstMessageID,
+		accountID,
+		threadID,
+		userID,
+		"find the file",
+	); err != nil {
+		t.Fatalf("insert initial user message: %v", err)
+	}
+
+	firstRunResp := doJSON(handler, nethttp.MethodPost, "/v1/threads/"+threadPayload.ID+"/runs", nil, aliceHeaders)
+	if firstRunResp.Code != nethttp.StatusCreated {
+		t.Fatalf("create first run: %d body=%s", firstRunResp.Code, firstRunResp.Body.String())
+	}
+	firstRun := decodeJSONBody[createRunResponse](t, firstRunResp.Body.Bytes())
+	firstRunID := uuid.MustParse(firstRun.RunID)
+	interruptedAt := time.Now().UTC()
+
+	if _, err := pool.Exec(ctx,
+		`UPDATE runs
+		    SET status = 'interrupted',
+		        status_updated_at = $2,
+		        failed_at = $2
+		  WHERE id = $1`,
+		firstRunID,
+		interruptedAt,
+	); err != nil {
+		t.Fatalf("mark first run interrupted: %v", err)
+	}
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO run_events (run_id, seq, type, data_json, ts)
+		 VALUES ($1, 2, 'run.interrupted', '{}'::jsonb, $2)`,
+		firstRunID,
+		interruptedAt,
+	); err != nil {
+		t.Fatalf("insert interrupted event: %v", err)
+	}
+	if _, err := pool.Exec(ctx,
+		`UPDATE messages
+		    SET hidden = true,
+		        compacted = true
+		  WHERE id = $1`,
+		firstMessageID,
+	); err != nil {
+		t.Fatalf("mark first message compacted: %v", err)
+	}
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO thread_compaction_snapshots (account_id, thread_id, summary_text, metadata_json, is_active)
+		 VALUES ($1, $2, $3, '{}'::jsonb, true)`,
+		accountID,
+		threadID,
+		"existing summary",
+	); err != nil {
+		t.Fatalf("insert active snapshot: %v", err)
+	}
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO messages (account_id, thread_id, created_by_user_id, role, content, metadata_json, hidden, created_at)
+		 VALUES ($1, $2, $3, 'user', $4, '{}'::jsonb, false, $5)`,
+		accountID,
+		threadID,
+		userID,
+		"continue after compact",
+		interruptedAt.Add(time.Second),
+	); err != nil {
+		t.Fatalf("insert trailing user message: %v", err)
+	}
+
+	resumedRunResp := doJSON(handler, nethttp.MethodPost, "/v1/threads/"+threadPayload.ID+"/runs", nil, aliceHeaders)
+	if resumedRunResp.Code != nethttp.StatusCreated {
+		t.Fatalf("create resumed run: %d body=%s", resumedRunResp.Code, resumedRunResp.Body.String())
+	}
+	resumedRun := decodeJSONBody[createRunResponse](t, resumedRunResp.Body.Bytes())
+	resumedRunID := uuid.MustParse(resumedRun.RunID)
+
+	var parentRunID *uuid.UUID
+	var resumeFromRunID *uuid.UUID
+	if err := pool.QueryRow(ctx,
+		`SELECT parent_run_id, resume_from_run_id FROM runs WHERE id = $1`,
+		resumedRunID,
+	).Scan(&parentRunID, &resumeFromRunID); err != nil {
+		t.Fatalf("load resumed run lineage: %v", err)
+	}
+	if parentRunID != nil {
+		t.Fatalf("expected resumed thread run to stay a root run, got parent_run_id=%s", *parentRunID)
+	}
+	if resumeFromRunID == nil || *resumeFromRunID != firstRunID {
+		t.Fatalf("unexpected resume_from_run_id: %#v want %s", resumeFromRunID, firstRunID)
+	}
+
+	var resumedStartedJSON []byte
+	if err := pool.QueryRow(ctx,
+		`SELECT data_json FROM run_events WHERE run_id = $1 AND type = 'run.started' LIMIT 1`,
+		resumedRunID,
+	).Scan(&resumedStartedJSON); err != nil {
+		t.Fatalf("load resumed run started event: %v", err)
+	}
+	var resumedStartedData map[string]any
+	if err := json.Unmarshal(resumedStartedJSON, &resumedStartedData); err != nil {
+		t.Fatalf("decode resumed started json: %v", err)
+	}
+	if resumedStartedData["continuation_source"] != "user_followup" {
+		t.Fatalf("unexpected resumed continuation_source: %#v", resumedStartedData["continuation_source"])
+	}
+	if loop, ok := resumedStartedData["continuation_loop"].(bool); !ok || !loop {
+		t.Fatalf("unexpected resumed continuation_loop: %#v", resumedStartedData["continuation_loop"])
+	}
+	if resp, ok := resumedStartedData["continuation_response"].(bool); !ok || !resp {
+		t.Fatalf("unexpected resumed continuation_response: %#v", resumedStartedData["continuation_response"])
+	}
+}
+
 func TestStreamRunEvents(t *testing.T) {
 	db := setupTestDatabase(t, "api_go_sse")
 

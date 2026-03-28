@@ -719,6 +719,79 @@ func TestResolveDesktopRunBindingsIgnoresWorkDirForWorkspaceAndSkills(t *testing
 	}
 }
 
+func TestDesktopInputLoaderPropagatesActiveCompactSnapshotState(t *testing.T) {
+	ctx := context.Background()
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "desktop-snapshot.db"))
+	if err != nil {
+		t.Fatalf("auto migrate sqlite: %v", err)
+	}
+	defer sqlitePool.Close()
+
+	db := sqlitepgx.New(sqlitePool.Unwrap())
+	accountID := uuid.New()
+	projectID := uuid.New()
+	threadID := uuid.New()
+	runID := uuid.New()
+
+	for _, stmt := range []struct {
+		sql  string
+		args []any
+	}{
+		{
+			sql:  `INSERT INTO accounts (id, slug, name, type, status) VALUES ($1, $2, $3, 'personal', 'active')`,
+			args: []any{accountID, "desktop-snapshot-" + accountID.String(), "Desktop Snapshot"},
+		},
+		{
+			sql:  `INSERT INTO projects (id, account_id, name, visibility) VALUES ($1, $2, $3, 'private')`,
+			args: []any{projectID, accountID, "Snapshot Project"},
+		},
+		{
+			sql:  `INSERT INTO threads (id, account_id, project_id, is_private) VALUES ($1, $2, $3, TRUE)`,
+			args: []any{threadID, accountID, projectID},
+		},
+		{
+			sql:  `INSERT INTO runs (id, account_id, thread_id, status) VALUES ($1, $2, $3, 'running')`,
+			args: []any{runID, accountID, threadID},
+		},
+		{
+			sql:  `INSERT INTO run_events (run_id, seq, type, data_json) VALUES ($1, 1, 'run.started', '{}'::jsonb)`,
+			args: []any{runID},
+		},
+		{
+			sql:  `INSERT INTO thread_compaction_snapshots (account_id, thread_id, summary_text, metadata_json, is_active) VALUES ($1, $2, $3, '{}', 1)`,
+			args: []any{accountID, threadID, "desktop snapshot"},
+		},
+	} {
+		if _, err := db.Exec(ctx, stmt.sql, stmt.args...); err != nil {
+			t.Fatalf("seed data: %v", err)
+		}
+	}
+
+	loader := desktopInputLoader(db, data.DesktopRunsRepository{}, data.DesktopRunEventsRepository{}, nil, nil)
+	rc := &pipeline.RunContext{
+		Run: data.Run{
+			ID:        runID,
+			AccountID: accountID,
+			ThreadID:  threadID,
+		},
+		ThreadMessageHistoryLimit: 10,
+	}
+	if err := loader(ctx, rc, func(_ context.Context, got *pipeline.RunContext) error {
+		if !got.HasActiveCompactSnapshot {
+			t.Fatal("expected active compact snapshot")
+		}
+		if got.ActiveCompactSnapshotText != "desktop snapshot" {
+			t.Fatalf("unexpected snapshot text: %q", got.ActiveCompactSnapshotText)
+		}
+		if len(got.Messages) != 1 || got.Messages[0].Role != "user" {
+			t.Fatalf("unexpected prompt messages: %#v", got.Messages)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("desktopInputLoader failed: %v", err)
+	}
+}
+
 func TestDesktopEventWriterCommitsNonStreamingEventsBeforeToolExecution(t *testing.T) {
 	ctx := context.Background()
 
@@ -808,6 +881,7 @@ func TestDesktopEventWriterCommitsNonStreamingEventsBeforeToolExecution(t *testi
 		t.Fatalf("create sub_agent after non-streaming commit: %v", err)
 	}
 }
+
 
 func TestDesktopEventWriterCommitsStreamingEventImmediately(t *testing.T) {
 	ctx := context.Background()
