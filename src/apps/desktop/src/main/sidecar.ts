@@ -8,6 +8,7 @@ import * as os from 'os'
 import * as path from 'path'
 import { app } from 'electron'
 import type { LocalPortMode, MemoryConfig } from './types'
+import { appendSidecarLog, getDesktopLogPaths } from './logging'
 
 export type SidecarStatus = 'stopped' | 'starting' | 'running' | 'crashed'
 
@@ -131,6 +132,21 @@ export function getSidecarPath(): string {
 }
 
 export function isSidecarAvailable(): boolean {
+  if (app.isPackaged) {
+    const bundledName = process.platform === 'win32' ? 'desktop.exe' : 'desktop'
+    const bundledPath = path.join(process.resourcesPath, 'sidecar', bundledName)
+    try {
+      fs.accessSync(bundledPath, fs.constants.X_OK)
+      return true
+    } catch {}
+
+    try {
+      fs.accessSync(getSidecarPath(), fs.constants.X_OK)
+      return true
+    } catch {}
+    return false
+  }
+
   try {
     fs.accessSync(getSidecarPath(), fs.constants.X_OK)
     return true
@@ -142,15 +158,6 @@ export function isSidecarAvailable(): boolean {
     )
     try {
       fs.accessSync(devPath, fs.constants.X_OK)
-      return true
-    } catch {}
-  }
-
-  if (app.isPackaged) {
-    const bundledName = process.platform === 'win32' ? 'desktop.exe' : 'desktop'
-    const bundledPath = path.join(process.resourcesPath, 'sidecar', bundledName)
-    try {
-      fs.accessSync(bundledPath, fs.constants.X_OK)
       return true
     } catch {}
   }
@@ -412,6 +419,16 @@ export async function ensureOpenCLI(): Promise<void> {
 }
 
 function resolveBinaryPath(): string {
+  if (app.isPackaged) {
+    const bundledName = process.platform === 'win32' ? 'desktop.exe' : 'desktop'
+    const bundledPath = path.join(process.resourcesPath, 'sidecar', bundledName)
+    if (fs.existsSync(bundledPath)) return bundledPath
+
+    const downloaded = getSidecarPath()
+    if (fs.existsSync(downloaded)) return downloaded
+    return bundledPath
+  }
+
   const downloaded = getSidecarPath()
   if (fs.existsSync(downloaded)) return downloaded
 
@@ -651,6 +668,8 @@ function buildBridgeEnv(bridgePort: number, projectDir: string | null): Record<s
   env.ARKLOOP_POSTGRES_PASSWORD = process.env.ARKLOOP_POSTGRES_PASSWORD ?? 'arkloop_desktop'
   env.ARKLOOP_POSTGRES_DB = process.env.ARKLOOP_POSTGRES_DB ?? 'arkloop'
   env.ARKLOOP_REDIS_PASSWORD = process.env.ARKLOOP_REDIS_PASSWORD ?? 'arkloop_redis'
+  env.ARKLOOP_S3_ACCESS_KEY = process.env.ARKLOOP_S3_ACCESS_KEY ?? 'arkloop'
+  env.ARKLOOP_S3_SECRET_KEY = process.env.ARKLOOP_S3_SECRET_KEY ?? 'arkloop_s3'
 
   return env
 }
@@ -1093,6 +1112,14 @@ async function launchOnPort(port: number, portMode: LocalPortMode): Promise<Side
   const bridgePort = await resolveBridgePort(port)
   const projectDir = resolveProjectDir()
   setBridgeBaseUrl(`http://127.0.0.1:${bridgePort}`)
+  console.info('[sidecar] launch request', {
+    binPath,
+    port,
+    bridgePort,
+    projectDir,
+    logPath: getDesktopLogPaths().sidecar,
+    packaged: app.isPackaged,
+  })
 
   setRuntime({
     status: 'starting',
@@ -1120,6 +1147,7 @@ async function launchOnPort(port: number, portMode: LocalPortMode): Promise<Side
   const handleOutput = (stream: 'stdout' | 'stderr') => (chunk: Buffer) => {
     const text = chunk.toString()
     recentOutput = `${recentOutput}${text}`.slice(-4000)
+    appendSidecarLog(stream, text)
     process[stream].write(text)
     if (isPortConflictText(text, port)) {
       launchError = setPortConflictError(port)

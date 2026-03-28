@@ -65,6 +65,21 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
   const [pendingSkillPrompt, setPendingSkillPrompt] = useState<string | null>(null)
   const [appMode, setAppMode] = useState<AppMode>(readAppModeFromStorage)
   const desktop = isDesktop()
+  const usesHashRouting = window.location.protocol === 'file:'
+
+  const replaceQueryState = useCallback((params: URLSearchParams) => {
+    const qs = params.toString()
+    const basePath = window.location.pathname
+    const hash = usesHashRouting ? window.location.hash : ''
+    const next = `${basePath}${qs ? `?${qs}` : ''}${hash}`
+    window.history.replaceState(window.history.state, '', next)
+  }, [usesHashRouting])
+
+  const pushSearchModeState = useCallback(() => {
+    const basePath = window.location.pathname
+    const next = usesHashRouting ? `${basePath}${window.location.search}${window.location.hash}` : '/'
+    window.history.pushState({ searchMode: true }, '', next)
+  }, [usesHashRouting])
 
   const availableAppModes: AppMode[] = (desktop || me?.claw_enabled !== false) ? ['chat', 'claw'] : ['chat']
 
@@ -92,21 +107,18 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
     const params = new URLSearchParams(window.location.search)
     if (!params.has('notices')) {
       params.set('notices', '')
-      const next = `${window.location.pathname}?${params.toString()}`
-      window.history.replaceState(window.history.state, '', next)
+      replaceQueryState(params)
     }
-  }, [])
+  }, [replaceQueryState])
 
   const closeNotifications = useCallback(() => {
     setNotificationsOpen(false)
     const params = new URLSearchParams(window.location.search)
     if (params.has('notices')) {
       params.delete('notices')
-      const qs = params.toString()
-      const next = qs ? `${window.location.pathname}?${qs}` : window.location.pathname
-      window.history.replaceState(window.history.state, '', next)
+      replaceQueryState(params)
     }
-  }, [])
+  }, [replaceQueryState])
   const mountedRef = useRef(true)
 
   // 同步 ref，使 popstate 回调始终拿到最新值
@@ -401,7 +413,7 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
           />
         ) : (
           <main className="relative flex min-w-0 flex-1 flex-col overflow-y-auto" style={{ scrollbarGutter: 'stable' }}>
-            <Outlet context={{ accessToken, onLoggedOut, me, creditsBalance, onThreadCreated: handleThreadCreated, onRunStarted: handleRunStarted, onRunEnded: handleRunEnded, onThreadTitleUpdated: handleThreadTitleUpdated, refreshCredits, onOpenNotifications: openNotifications, notificationVersion, isPrivateMode, onTogglePrivateMode: handleTogglePrivateMode, privateThreadIds, isSearchMode, onEnterSearchMode: () => { window.history.pushState({ searchMode: true }, '', '/'); setIsSearchMode(true) }, onExitSearchMode: () => setIsSearchMode(false), onSetPendingIncognito: handleSetPendingIncognito, setTitleBarIncognitoClick, onRightPanelChange: setRightPanelOpen, threads, onThreadDeleted: handleThreadDeleted, pendingSkillPrompt, onConsumeSkillPrompt: () => setPendingSkillPrompt(null), onOpenSettings: (tab: SettingsTab | 'voice' = 'account') => { if (desktop) { const keyMap: Record<string, DesktopSettingsKey> = { account: 'general', settings: 'general', skills: 'skills', models: 'providers', agents: 'personas', channels: 'channels', connection: 'connection', voice: 'voice' }; setDesktopSettingsSection(keyMap[tab] ?? 'general'); setSettingsOpen(true) } else { setSettingsInitialTab(tab as SettingsTab); setSettingsOpen(true) } }, appMode, availableAppModes, onSetAppMode: handleSetAppMode }} />
+            <Outlet context={{ accessToken, onLoggedOut, me, creditsBalance, onThreadCreated: handleThreadCreated, onRunStarted: handleRunStarted, onRunEnded: handleRunEnded, onThreadTitleUpdated: handleThreadTitleUpdated, refreshCredits, onOpenNotifications: openNotifications, notificationVersion, isPrivateMode, onTogglePrivateMode: handleTogglePrivateMode, privateThreadIds, isSearchMode, onEnterSearchMode: () => { pushSearchModeState(); setIsSearchMode(true) }, onExitSearchMode: () => setIsSearchMode(false), onSetPendingIncognito: handleSetPendingIncognito, setTitleBarIncognitoClick, onRightPanelChange: setRightPanelOpen, threads, onThreadDeleted: handleThreadDeleted, pendingSkillPrompt, onConsumeSkillPrompt: () => setPendingSkillPrompt(null), onOpenSettings: (tab: SettingsTab | 'voice' = 'account') => { if (desktop) { const keyMap: Record<string, DesktopSettingsKey> = { account: 'general', settings: 'general', skills: 'skills', models: 'providers', agents: 'personas', channels: 'channels', connection: 'connection', voice: 'voice' }; setDesktopSettingsSection(keyMap[tab] ?? 'general'); setSettingsOpen(true) } else { setSettingsInitialTab(tab as SettingsTab); setSettingsOpen(true) } }, appMode, availableAppModes, onSetAppMode: handleSetAppMode }} />
             {notificationsOpen && (
               <NotificationsPanel accessToken={accessToken} onClose={closeNotifications} onMarkedRead={handleNotificationMarkedRead} />
             )}

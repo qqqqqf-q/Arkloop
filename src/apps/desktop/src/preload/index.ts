@@ -164,6 +164,10 @@ export type ArkloopDesktopApi = {
     quit: () => Promise<void>
     getOsUsername: () => Promise<string>
   }
+  logs: {
+    getDir: () => Promise<string>
+    getFiles: () => Promise<{ main: string; sidecar: string }>
+  }
   fs: {
     listDir: (folderPath: string, subPath?: string) => Promise<LocalDirResult>
     readFile: (folderPath: string, relativePath: string) => Promise<LocalFileResult>
@@ -299,6 +303,11 @@ const api: ArkloopDesktopApi = {
     getVersion: () => ipcRenderer.invoke('arkloop:app:version'),
     quit: () => ipcRenderer.invoke('arkloop:app:quit'),
     getOsUsername: () => ipcRenderer.invoke('arkloop:app:os-username'),
+  },
+
+  logs: {
+    getDir: () => ipcRenderer.invoke('arkloop:logs:dir'),
+    getFiles: () => ipcRenderer.invoke('arkloop:logs:files'),
   },
 
   dialog: {

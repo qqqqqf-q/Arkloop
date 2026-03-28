@@ -12,6 +12,7 @@ import {
 } from './sidecar'
 import { checkForUpdates, applyUpdate } from './updater'
 import { DEFAULT_CONFIG } from './types'
+import { getDesktopLogDir, getDesktopLogPaths } from './logging'
 import type { AppConfig, ApplyConfigUpdateOptions, ConnectorsConfig, MemoryConfig } from './types'
 
 type DesktopController = {
@@ -170,6 +171,14 @@ export function registerIpcHandlers(
     } catch {
       return os.hostname()
     }
+  })
+
+  ipcMain.handle('arkloop:logs:dir', () => {
+    return getDesktopLogDir()
+  })
+
+  ipcMain.handle('arkloop:logs:files', () => {
+    return getDesktopLogPaths()
   })
 
   ipcMain.handle('arkloop:dialog:open-folder', async (event) => {

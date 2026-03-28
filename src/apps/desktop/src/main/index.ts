@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu } from 'electron'
+import { app, BrowserWindow, Menu, nativeImage } from 'electron'
 import * as path from 'path'
 import { loadConfig, normalizeConfig, saveConfig } from './config'
 import {
@@ -18,10 +18,29 @@ import { createTray, registerGlobalShortcut, destroyTray } from './tray'
 import { registerIpcHandlers } from './ipc'
 import { initVersionsFile } from './config'
 import { setupAppUpdater } from './app-updater'
+import { setupMainProcessLogging, getDesktopLogDir } from './logging'
 import type { AppConfig, ApplyConfigUpdateOptions } from './types'
+
+app.setName('Arkloop')
+setupMainProcessLogging()
 
 let mainWindow: BrowserWindow | null = null
 let activeSidecarPort: number | null = null
+
+function getAppIconPath(): string {
+  const iconName = process.platform === 'win32' ? 'icon.ico' : 'icon.png'
+  return app.isPackaged
+    ? path.join(process.resourcesPath, iconName)
+    : path.join(__dirname, '..', '..', 'resources', iconName)
+}
+
+function applyAppIcon(): void {
+  const icon = nativeImage.createFromPath(getAppIconPath())
+  if (icon.isEmpty()) return
+  if (process.platform === 'darwin') {
+    app.dock?.setIcon(icon)
+  }
+}
 
 function getWindow(): BrowserWindow | null {
   return mainWindow
@@ -198,6 +217,7 @@ function attachRendererContextMenu(win: BrowserWindow): void {
 
 function createWindow(): BrowserWindow {
   const config = loadConfig()
+  const iconPath = getAppIconPath()
 
   const win = new BrowserWindow({
     width: config.window.width,
@@ -214,6 +234,12 @@ function createWindow(): BrowserWindow {
     },
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     trafficLightPosition: { x: 12, y: 12 },
+    ...(process.platform === 'linux' || process.platform === 'win32' ? { icon: iconPath } : {}),
+  })
+
+  win.on('page-title-updated', (event) => {
+    event.preventDefault()
+    win.setTitle('Arkloop')
   })
 
   // 窗口大小变化时持久化
@@ -263,7 +289,13 @@ let isQuitting = false
 let shutdownInProgress = false
 
 app.whenReady().then(async () => {
+  console.info('[desktop] app ready', {
+    logDir: getDesktopLogDir(),
+    packaged: app.isPackaged,
+    version: app.getVersion(),
+  })
   initVersionsFile()
+  applyAppIcon()
 
   setStatusListener((status) => {
     mainWindow?.webContents.send('arkloop:sidecar:status-changed', status)

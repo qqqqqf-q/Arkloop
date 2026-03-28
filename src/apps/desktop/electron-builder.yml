@@ -20,6 +20,8 @@ extraResources:
     to: arkloop-project/install/modules.yaml
   - from: ../../../config/searxng
     to: arkloop-project/config/searxng
+  - from: ../../../config/openviking
+    to: arkloop-project/config/openviking
   - from: ../../../config/firecrawl-postgres
     to: arkloop-project/config/firecrawl-postgres
   - from: ../../../src/services/sandbox
