@@ -3,6 +3,7 @@ package conversationapi
 import (
 	httpkit "arkloop/services/api/internal/http/httpkit"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	nethttp "net/http"
@@ -18,6 +19,10 @@ import (
 
 	"github.com/google/uuid"
 )
+
+// ErrUnsupportedAttachmentType 表示字节内容无法归类为受支持的图片或可索引文本附件。
+// Telegram 轮询等路径可用 errors.Is 识别并跳过 update（推进 getUpdates offset），避免同一消息无限重试。
+var ErrUnsupportedAttachmentType = errors.New("unsupported attachment type")
 
 // MessageAttachmentOwnerKind 与 thread 附件在对象存储中的 owner 标记一致。
 const MessageAttachmentOwnerKind = "message_attachment"
@@ -246,7 +251,7 @@ func buildAttachmentUploadPayload(filename string, declaredMime string, dataByte
 		return attachmentUploadPayload{kind: messagecontent.PartTypeImage, mimeType: mimeType, bytes: dataBytes}, nil
 	}
 	if !isSupportedTextAttachment(filename, mimeType) {
-		return attachmentUploadPayload{}, fmt.Errorf("unsupported attachment type")
+		return attachmentUploadPayload{}, fmt.Errorf("%w", ErrUnsupportedAttachmentType)
 	}
 	if len(dataBytes) > maxTextAttachmentBytes {
 		return attachmentUploadPayload{}, fmt.Errorf("text attachment too large")

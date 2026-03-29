@@ -1509,7 +1509,25 @@ func (c telegramConnector) HandleUpdateForPoll(
 	ch data.Channel,
 	token string,
 	update telegramUpdate,
-) error {
+) (err error) {
+	handleStart := time.Now()
+	txStarted := false
+	logPhase := func(phase string, extra ...any) {
+		fields := []any{
+			"phase",
+			phase,
+			"channel_id",
+			ch.ID.String(),
+			"trace_id",
+			traceID,
+			"update_id",
+			update.UpdateID,
+			"elapsed_ms",
+			int(time.Since(handleStart).Milliseconds()),
+		}
+		fields = append(fields, extra...)
+		slog.DebugContext(ctx, "telegram_poll_phase", fields...)
+	}
 	if update.Message == nil || update.Message.From == nil {
 		return nil
 	}
@@ -1555,7 +1573,19 @@ func (c telegramConnector) HandleUpdateForPoll(
 	if err != nil {
 		return err
 	}
+	txStarted = true
 	defer tx.Rollback(ctx) //nolint:errcheck
+	logPhase("tx_begin")
+	defer func() {
+		if !txStarted {
+			return
+		}
+		if err != nil {
+			logPhase("tx_rollback", "rollback_error", err.Error())
+		} else {
+			logPhase("tx_success")
+		}
+	}()
 
 	accepted, err := c.channelReceiptsRepo.WithTx(tx).Record(
 		ctx,

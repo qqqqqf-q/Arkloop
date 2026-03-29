@@ -29,10 +29,12 @@ func (c *pragmaConnector) Connect(ctx context.Context) (driver.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
+	// busy_timeout: desktop shares one SQLite file across worker + API + poll;
+	// 5s was too low when run.execute concurrency>1 and Telegram poll hold writes.
 	for _, p := range []string{
 		"PRAGMA journal_mode=WAL",
 		"PRAGMA foreign_keys=ON",
-		"PRAGMA busy_timeout=5000",
+		"PRAGMA busy_timeout=20000",
 		"PRAGMA synchronous=NORMAL",
 	} {
 		if err := sqliteExecPragma(ctx, conn, p); err != nil {

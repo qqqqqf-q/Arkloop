@@ -4,6 +4,7 @@ package accountapi
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 
 	"arkloop/services/api/internal/data"
 	"arkloop/services/api/internal/entitlement"
+	"arkloop/services/api/internal/http/conversationapi"
 	"arkloop/services/api/internal/observability"
 	shareddesktop "arkloop/services/shared/desktop"
 	"arkloop/services/shared/eventbus"
@@ -251,9 +253,11 @@ func pollTelegramDesktopOnce(
 		for _, update := range updates {
 			err := connector.HandleUpdateForPoll(ctx, observability.NewTraceID(), ch, strings.TrimSpace(*token), update)
 			if err != nil {
-				slog.Warn("telegram_poll_handle_update", "channel_id", ch.ID.String(), "err", err.Error())
-				lastErr = err
-				break
+				if !errors.Is(err, conversationapi.ErrUnsupportedAttachmentType) {
+					slog.Warn("telegram_poll_handle_update", "channel_id", ch.ID.String(), "err", err.Error())
+					lastErr = err
+					break
+				}
 			}
 			if candidate := update.UpdateID + 1; candidate > nextOffset {
 				nextOffset = candidate
