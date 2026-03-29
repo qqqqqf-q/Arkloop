@@ -513,6 +513,7 @@ func buildCapabilityLayer(
 			},
 		}),
 		pipeline.NewMemoryMiddleware(nil, pipeline.NewPgxMemorySnapshotStore(deps.DBPool), deps.DBPool, deps.ConfigResolver),
+		pipeline.NewRuntimeContextMiddleware(),
 	}
 	mws = append(mws, promptInjection.Middlewares(eventsRepo)...)
 	return mws

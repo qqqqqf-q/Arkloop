@@ -163,6 +163,8 @@ type RunContext struct {
 	ChannelContext *ChannelContext
 	// ChannelToolSurface 与 ChannelContext 同步，供工具 ExecutionContext 使用（避免 tools 依赖 pipeline.ChannelContext）
 	ChannelToolSurface *tools.ChannelToolSurface
+	// SenderIsAdmin 由 RuntimeContextMiddleware 写入：发送人是否持有 admin 角色
+	SenderIsAdmin bool
 	// TelegramToolBoundaryFlush 由 Channel 投递中间件注入：每个 tool.call 前发送尚未投递的 assistant 正文（nil 表示终态一次性投递）。
 	TelegramToolBoundaryFlush func(ctx context.Context, text string) error
 	// TelegramStreamDeliveryRemainder 由 AgentLoopHandler 写入：分段投递模式下终态只发此尾段（已 TrimSpace）。
