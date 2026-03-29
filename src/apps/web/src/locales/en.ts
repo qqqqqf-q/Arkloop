@@ -247,6 +247,7 @@ export const en: LocaleStrings = {
   profileUsername: "Username",
   profileUserId: "User ID",
   profileSave: "Save",
+  profileSaved: "Saved",
   profileEmail: "Email",
   emailUnverified: "Unverified",
   emailVerified: "Verified",

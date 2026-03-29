@@ -42,6 +42,7 @@ import {
   DesktopPromptInjectionSettings,
   ConnectorsSettings,
   VoiceSettings,
+  DesignTokensSettings,
 } from "./settings";
 
 export type DesktopSettingsKey =
@@ -62,7 +63,8 @@ export type DesktopSettingsKey =
   | "promptInjection"
   | "modules"
   | "extensions"
-  | "developer";
+  | "developer"
+  | "design-tokens";
 
 type NavItem = {
   key: DesktopSettingsKey;
@@ -138,7 +140,7 @@ export function DesktopSettings({
         ].join(" ")}
       >
         <Icon size={16} />
-        <span>{ds[key]}</span>
+        <span>{(ds as unknown as Record<string, string>)[key]}</span>
       </button>
     ));
 
@@ -188,7 +190,9 @@ export function DesktopSettings({
       case "extensions":
         return <ExtensionsSettings />;
       case "developer":
-        return <DeveloperSettings accessToken={accessToken} />;
+        return <DeveloperSettings accessToken={accessToken} onNavigate={handleTabChange} />;
+      case "design-tokens":
+        return <DesignTokensSettings />;
       default:
         return null;
     }

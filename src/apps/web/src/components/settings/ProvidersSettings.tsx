@@ -26,6 +26,7 @@ import {
 } from '../../api'
 import { routeAdvancedJsonFromAvailableCatalog } from '@arkloop/shared/llm/available-catalog-advanced-json'
 import { useLocale } from '../../contexts/LocaleContext'
+import { useToast } from '@arkloop/shared'
 import { ModelOptionsModal } from '../ModelOptionsModal'
 
 const VENDOR_PRESETS = [

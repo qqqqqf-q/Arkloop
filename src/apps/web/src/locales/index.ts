@@ -255,6 +255,7 @@ export interface LocaleStrings {
   profileUsername: string;
   profileUserId: string;
   profileSave: string;
+  profileSaved: string;
   profileEmail: string;
   emailUnverified: string;
   emailVerified: string;

@@ -5,15 +5,17 @@ import { useLocale } from '../../contexts/LocaleContext'
 import { readDeveloperShowRunEvents, writeDeveloperShowRunEvents } from '../../storage'
 import { RunsSettings } from './RunsSettings'
 import { SettingsPillToggle } from './_SettingsPillToggle'
+import type { DesktopSettingsKey } from '../DesktopSettings'
 
 type Props = {
   accessToken?: string
+  onNavigate?: (key: DesktopSettingsKey) => void
 }
 
 const devPanelBtn =
   'inline-flex items-center justify-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)] disabled:cursor-not-allowed disabled:opacity-40'
 
-export function DeveloperSettings({ accessToken }: Props) {
+export function DeveloperSettings({ accessToken, onNavigate }: Props) {
   const { t } = useLocale()
   const ds = t.desktopSettings
   const [appVersion, setAppVersion] = useState('')
@@ -113,6 +115,31 @@ export function DeveloperSettings({ accessToken }: Props) {
             {ds.runsHistoryOpen}
           </button>
         </div>
+
+        {/* Design Tokens */}
+        {onNavigate && (
+          <div
+            className="flex items-center justify-between rounded-xl bg-[var(--c-bg-menu)] px-4 py-3"
+            style={{ border: '0.5px solid var(--c-border-subtle)' }}
+          >
+            <div>
+              <div className="text-sm font-medium text-[var(--c-text-primary)]">
+                Design Tokens
+              </div>
+              <div className="text-xs text-[var(--c-text-muted)]">
+                All CSS variables resolved for the current theme.
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => onNavigate('design-tokens')}
+              className={devPanelBtn}
+              style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-page)' }}
+            >
+              查看
+            </button>
+          </div>
+        )}
 
         {/* Reset onboarding */}
         <div

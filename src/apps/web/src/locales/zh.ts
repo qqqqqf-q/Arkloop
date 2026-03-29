@@ -247,6 +247,7 @@ export const zh: LocaleStrings = {
   profileUsername: "用户名",
   profileUserId: "用户 ID",
   profileSave: "保存",
+  profileSaved: "已保存",
   profileEmail: "邮箱",
   emailUnverified: "未验证",
   emailVerified: "已验证",
