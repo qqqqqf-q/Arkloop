@@ -264,13 +264,15 @@ function ProviderCard({
 // Shared style constants — copied verbatim from each settings file
 // ---------------------------------------------------------------------------
 
+import { settingsInputCls } from './_SettingsInput'
+import { settingsLabelCls } from './_SettingsLabel'
+import { settingsSectionCls } from './_SettingsSection'
+
 // ProvidersSettings / ConnectorsSettings
-const INPUT_CLS =
-  'w-full rounded-md border border-[var(--c-border-subtle)] bg-[var(--c-bg-input)] px-3 py-1.5 text-sm text-[var(--c-text-primary)] outline-none placeholder:text-[var(--c-text-muted)] focus:border-[var(--c-border)]'
+const INPUT_CLS = settingsInputCls('sm')
 
 // SearchFetchSettings
-const INPUT_CLS_LG =
-  'w-full rounded-lg border border-[var(--c-border-subtle)] bg-[var(--c-bg-input)] px-3 py-2 text-sm text-[var(--c-text-primary)] outline-none placeholder:text-[var(--c-text-muted)] focus:border-[var(--c-border)] transition-colors duration-150'
+const INPUT_CLS_LG = settingsInputCls('md') + ' transition-colors duration-150'
 
 // ProvidersSettings AddProviderModal
 const FIELD_INPUT_CLS = 'w-full rounded-[10px] bg-[var(--c-bg-input)] text-[var(--c-text-primary)] outline-none placeholder:text-[var(--c-placeholder)]'
@@ -285,12 +287,12 @@ const FIELD_INPUT_STYLE = {
 const FIELD_LABEL_CLS = 'block text-[11px] font-medium text-[var(--c-placeholder)] mb-1 pl-[2px]'
 
 // ConnectorsSettings
-const LABEL_CLS = 'mb-1 block text-xs font-medium text-[var(--c-text-secondary)]'
-const SECTION_CLS = 'rounded-xl border border-[var(--c-border-subtle)] bg-[var(--c-bg-menu)] p-5'
+const LABEL_CLS = settingsLabelCls('sm')
+const SECTION_CLS = settingsSectionCls
 const BTN_ICON = 'rounded p-1 text-[var(--c-text-muted)] transition-colors hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-secondary)] disabled:opacity-40'
 
 // SearchFetchSettings
-const LABEL_CLS_LG = 'mb-1.5 block text-xs font-medium text-[var(--c-text-secondary)]'
+const LABEL_CLS_LG = settingsLabelCls('md')
 
 // ChatSettings
 const CARD_SHELL = 'overflow-hidden rounded-xl border-[0.5px] border-[var(--c-border-subtle)] bg-[var(--c-bg-menu)]'

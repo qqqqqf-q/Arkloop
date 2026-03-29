@@ -46,7 +46,9 @@ const LANGUAGES = [
   { value: 'de', label: 'Deutsch' },
 ]
 
-const sectionCls = 'rounded-xl border border-[var(--c-border-subtle)] bg-[var(--c-bg-menu)] p-5'
+import { settingsSectionCls } from './_SettingsSection'
+
+const sectionCls = settingsSectionCls
 
 const fieldLabelCls = 'block text-[11px] font-medium text-[var(--c-placeholder)] mb-1 pl-[2px]'
 const fieldInputStyle = {

@@ -112,8 +112,9 @@ function actionLabel(action: ModuleAction, ds: LocaleStrings['desktopSettings'])
   }
 }
 
-const inputCls =
-  'w-full rounded-lg border border-[var(--c-border-subtle)] bg-[var(--c-bg-input)] px-3 py-2 text-sm text-[var(--c-text-primary)] outline-none placeholder:text-[var(--c-text-muted)] focus:border-[var(--c-border)]'
+import { settingsInputCls } from './_SettingsInput'
+
+const inputCls = settingsInputCls('md')
 
 // ---------------------------------------------------------------------------
 // ModeCard — exact same pattern as ConnectionSettingsContent.tsx

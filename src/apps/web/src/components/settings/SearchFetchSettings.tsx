@@ -19,12 +19,13 @@ import { useToast } from '@arkloop/shared'
 // Shared styles — all colours use CSS variables so they adapt to dark/light
 // ---------------------------------------------------------------------------
 
-const inputCls =
-  'w-full rounded-lg border border-[var(--c-border-subtle)] bg-[var(--c-bg-input)] px-3 py-2 text-sm ' +
-  'text-[var(--c-text-primary)] outline-none placeholder:text-[var(--c-text-muted)] ' +
-  'focus:border-[var(--c-border)] transition-colors duration-150'
+import { settingsInputCls } from './_SettingsInput'
+import { settingsLabelCls } from './_SettingsLabel'
 
-const labelCls = 'mb-1.5 block text-xs font-medium text-[var(--c-text-secondary)]'
+const inputCls =
+  settingsInputCls('md') + ' transition-colors duration-150'
+
+const labelCls = settingsLabelCls('md')
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -274,9 +275,9 @@ export function SearchFetchSettings() {
       setSavedAt(Date.now())
       addToast(ds.connectorSaved, 'success')
     } catch {
-      addToast(ds.connectorSaveError ?? 'Save failed', 'error')
+      addToast('Save failed', 'error')
     }
-  }, [api, addToast, ds.connectorSaved, ds.connectorSaveError])
+  }, [api, addToast, ds.connectorSaved])
 
   const scheduleAutoSave = useCallback((cfg: ConnectorsConfig) => {
     if (!initializedRef.current) return

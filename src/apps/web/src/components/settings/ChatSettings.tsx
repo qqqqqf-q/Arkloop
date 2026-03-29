@@ -128,9 +128,9 @@ export function ChatSettings({ accessToken }: Props) {
       await updatePlatformSetting(accessToken, KEY_PERSIST, enStr)
       await updatePlatformSetting(accessToken, KEY_PCT, String(pctClamped))
       await updatePlatformSetting(accessToken, KEY_KEEP, keepStr)
-      addToast({ type: 'success', message: st.chatCompactSaved })
+      addToast(st.chatCompactSaved, 'success')
     } catch (e) {
-      addToast({ type: 'error', message: e instanceof Error ? e.message : t.requestFailed })
+      addToast(e instanceof Error ? e.message : t.requestFailed, 'error')
     }
   }, [accessToken, autoOn, keepLast, thresholdPct, t.requestFailed, st.chatCompactSaved, addToast])
 

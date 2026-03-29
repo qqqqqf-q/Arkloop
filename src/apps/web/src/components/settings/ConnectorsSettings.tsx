@@ -105,11 +105,13 @@ function flattenConfig(
 // Styles
 // ---------------------------------------------------------------------------
 
-const inputCls =
-  'w-full rounded-md border border-[var(--c-border-subtle)] bg-[var(--c-bg-input)] px-3 py-1.5 text-sm text-[var(--c-text-primary)] outline-none placeholder:text-[var(--c-text-muted)] focus:border-[var(--c-border)]'
-const labelCls = 'mb-1 block text-xs font-medium text-[var(--c-text-secondary)]'
-const sectionCls =
-  'rounded-xl border border-[var(--c-border-subtle)] bg-[var(--c-bg-menu)] p-5'
+import { settingsInputCls } from './_SettingsInput'
+import { settingsLabelCls } from './_SettingsLabel'
+import { settingsSectionCls } from './_SettingsSection'
+
+const inputCls = settingsInputCls('sm')
+const labelCls = settingsLabelCls('sm')
+const sectionCls = settingsSectionCls
 const btnIcon =
   'rounded p-1 text-[var(--c-text-muted)] transition-colors hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-secondary)] disabled:opacity-40'
 
@@ -266,11 +268,6 @@ export function ConnectorsSettings({ accessToken }: Props) {
     [],
   )
 
-  const closeCredentialModal = useCallback(() => {
-    if (credSaving) return
-    setCredentialModal(null)
-  }, [credSaving])
-
   const handleSaveCredential = useCallback(async () => {
     if (!credentialModal) return
     const trimmedKey = credentialForm.apiKey.trim()
@@ -291,10 +288,10 @@ export function ConnectorsSettings({ accessToken }: Props) {
         payload,
       )
       setCredentialModal(null)
-      addToast({ type: 'success', message: tt.save })
+      addToast(tt.save, 'success')
       await fetchAll()
     } catch {
-      addToast({ type: 'error', message: tt.saving })
+      addToast(tt.saving, 'error')
     } finally {
       setCredSaving(false)
     }
@@ -357,10 +354,10 @@ export function ConnectorsSettings({ accessToken }: Props) {
     try {
       await updateToolDescription(accessToken, descEdit.toolName, descText)
       setDescEdit(null)
-      addToast({ type: 'success', message: tt.save })
+      addToast(tt.save, 'success')
       await fetchAll()
     } catch {
-      addToast({ type: 'error', message: tt.saving })
+      addToast(tt.saving, 'error')
     } finally {
       setDescSaving(false)
     }

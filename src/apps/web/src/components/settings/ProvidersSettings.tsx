@@ -26,7 +26,6 @@ import {
 } from '../../api'
 import { routeAdvancedJsonFromAvailableCatalog } from '@arkloop/shared/llm/available-catalog-advanced-json'
 import { useLocale } from '../../contexts/LocaleContext'
-import { useToast } from '@arkloop/shared'
 import { ModelOptionsModal } from '../ModelOptionsModal'
 
 const VENDOR_PRESETS = [
@@ -105,8 +104,9 @@ function openVikingBackendLabel(
   return p[preset.labelKey]
 }
 
-const INPUT_CLS =
-  'w-full rounded-md border border-[var(--c-border-subtle)] bg-[var(--c-bg-input)] px-3 py-1.5 text-sm text-[var(--c-text-primary)] outline-none placeholder:text-[var(--c-text-muted)] focus:border-[var(--c-border)]'
+import { settingsInputCls } from './_SettingsInput'
+
+const INPUT_CLS = settingsInputCls('sm')
 
 function VendorDropdown({
   value,
