@@ -3,148 +3,326 @@ import BaseLayout from '@/layouts/BaseLayout.astro';
 ---
 
 <BaseLayout title="Arkloop Developers" description="Arkloop developer portal -- AI agents, without the clutter." locale="en" pathname="/en" alternatePath="/">
-  <div class="landing-split">
+  <div class="landing-wrap">
 
-    <!-- Left: SVG type specimen -->
-    <div class="split-left">
-      <div class="type-specimen" aria-label="Arkloop">
-        <svg class="type-svg" viewBox="0 0 526 210" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <g transform="translate(6, 0)">
-          <line x1="0" y1="15" x2="520" y2="15" stroke="var(--guide-line)" stroke-width="0.7" />
-          <text x="516" y="12" fill="var(--guide-label)" font-size="7" font-family="ui-monospace, monospace" text-anchor="end">cap height</text>
-          <line x1="0" y1="100" x2="520" y2="100" stroke="var(--guide-line)" stroke-width="0.7" />
-          <text x="516" y="97" fill="var(--guide-label)" font-size="7" font-family="ui-monospace, monospace" text-anchor="end">baseline</text>
+    <!-- Hero Card -->
+    <div class="landing-card">
 
-          <line x1="95" y1="6" x2="95" y2="108" stroke="var(--guide-line)" stroke-width="0.4" />
-          <line x1="180" y1="6" x2="180" y2="108" stroke="var(--guide-line)" stroke-width="0.4" />
-          <line x1="220" y1="6" x2="220" y2="108" stroke="var(--guide-line)" stroke-width="0.4" />
-          <line x1="270" y1="6" x2="270" y2="108" stroke="var(--guide-line)" stroke-width="0.4" />
-          <line x1="340" y1="6" x2="340" y2="108" stroke="var(--guide-line)" stroke-width="0.4" />
+      <!-- Left: SVG type specimen -->
+      <div class="split-left">
+        <div class="type-specimen" aria-label="Arkloop">
+          <svg class="type-svg" viewBox="0 0 526 210" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <g transform="translate(6, 0)">
+            <line x1="0" y1="15" x2="520" y2="15" stroke="var(--guide-line)" stroke-width="0.7" />
+            <text x="516" y="12" fill="var(--guide-label)" font-size="7" font-family="ui-monospace, monospace" text-anchor="end">cap height</text>
+            <line x1="0" y1="100" x2="520" y2="100" stroke="var(--guide-line)" stroke-width="0.7" />
+            <text x="516" y="97" fill="var(--guide-label)" font-size="7" font-family="ui-monospace, monospace" text-anchor="end">baseline</text>
+            <line x1="95" y1="6" x2="95" y2="108" stroke="var(--guide-line)" stroke-width="0.4" />
+            <line x1="180" y1="6" x2="180" y2="108" stroke="var(--guide-line)" stroke-width="0.4" />
+            <line x1="220" y1="6" x2="220" y2="108" stroke="var(--guide-line)" stroke-width="0.4" />
+            <line x1="270" y1="6" x2="270" y2="108" stroke="var(--guide-line)" stroke-width="0.4" />
+            <line x1="340" y1="6" x2="340" y2="108" stroke="var(--guide-line)" stroke-width="0.4" />
+            <line x1="137" y1="15" x2="97" y2="100" stroke="var(--construct-line)" stroke-width="0.7" stroke-dasharray="3 3" />
+            <line x1="137" y1="15" x2="177" y2="100" stroke="var(--construct-line)" stroke-width="0.7" stroke-dasharray="3 3" />
+            <circle cx="137" cy="15" r="2.5" fill="var(--guide-dot)" />
+            <line x1="113" y1="65" x2="161" y2="65" stroke="var(--construct-line)" stroke-width="0.5" stroke-dasharray="2 2" />
+            <line x1="283" y1="58" x2="332" y2="15" stroke="var(--construct-line)" stroke-width="0.6" stroke-dasharray="3 3" />
+            <line x1="283" y1="58" x2="337" y2="100" stroke="var(--construct-line)" stroke-width="0.6" stroke-dasharray="3 3" />
+            <circle cx="283" cy="58" r="2" fill="var(--guide-dot)" />
+            <line x1="118" y1="15" x2="118" y2="100" stroke="var(--dimension-line)" stroke-width="0.5" />
+            <line x1="116" y1="15" x2="121" y2="15" stroke="var(--dimension-line)" stroke-width="0.5" />
+            <line x1="116" y1="100" x2="121" y2="100" stroke="var(--dimension-line)" stroke-width="0.5" />
+            <text x="118" y="61" fill="var(--guide-label)" font-size="6.5" font-family="ui-monospace, monospace" text-anchor="middle" transform="rotate(-90, 118, 61)">87</text>
+            <line x1="385" y1="100" x2="385" y2="130" stroke="var(--dimension-line)" stroke-width="0.5" stroke-dasharray="2 4" />
+            <line x1="382" y1="100" x2="388" y2="100" stroke="var(--dimension-line)" stroke-width="0.5" />
+            <line x1="382" y1="130" x2="388" y2="130" stroke="var(--dimension-line)" stroke-width="0.5" />
+            <text x="394" y="118" fill="var(--guide-label)" font-size="6.5" font-family="ui-monospace, monospace">30</text>
+            <line x1="202" y1="130" x2="520" y2="130" stroke="var(--guide-line)" stroke-width="0.5" stroke-dasharray="3 4" />
+            <text x="516" y="127" fill="var(--guide-label)" font-size="7" font-family="ui-monospace, monospace" text-anchor="end">ascender</text>
+            <line x1="202" y1="147" x2="520" y2="147" stroke="var(--guide-line)" stroke-width="0.6" stroke-dasharray="2 3" />
+            <text x="516" y="144" fill="var(--guide-label)" font-size="7" font-family="ui-monospace, monospace" text-anchor="end">x-height</text>
+            <line x1="202" y1="190" x2="520" y2="190" stroke="var(--guide-line)" stroke-width="0.7" />
+            <text x="516" y="187" fill="var(--guide-label)" font-size="7" font-family="ui-monospace, monospace" text-anchor="end">baseline</text>
+            <line x1="202" y1="208" x2="520" y2="208" stroke="var(--guide-line)" stroke-width="0.5" stroke-dasharray="3 4" />
+            <text x="516" y="205" fill="var(--guide-label)" font-size="7" font-family="ui-monospace, monospace" text-anchor="end">descender</text>
+            <line x1="217" y1="122" x2="217" y2="196" stroke="var(--guide-line)" stroke-width="0.4" />
+            <line x1="272" y1="140" x2="272" y2="196" stroke="var(--guide-line)" stroke-width="0.4" />
+            <line x1="342" y1="140" x2="342" y2="196" stroke="var(--guide-line)" stroke-width="0.4" />
+            <line x1="410" y1="140" x2="410" y2="210" stroke="var(--guide-line)" stroke-width="0.4" />
+            <line x1="477" y1="140" x2="477" y2="210" stroke="var(--guide-line)" stroke-width="0.4" />
+            <circle cx="227" cy="130" r="2" fill="var(--guide-dot)" />
+            <circle cx="227" cy="190" r="2" fill="var(--guide-dot)" />
+            <circle cx="307" cy="168" r="23" stroke="var(--construct-line)" stroke-width="0.7" stroke-dasharray="3 3" />
+            <circle cx="307" cy="168" r="2" fill="var(--guide-dot)" />
+            <line x1="307" y1="142" x2="307" y2="194" stroke="var(--construct-line)" stroke-width="0.4" />
+            <line x1="281" y1="168" x2="333" y2="168" stroke="var(--construct-line)" stroke-width="0.4" />
+            <line x1="210" y1="108" x2="250" y2="108" stroke="var(--dimension-line)" stroke-width="0.5" />
+            <line x1="210" y1="106" x2="210" y2="111" stroke="var(--dimension-line)" stroke-width="0.5" />
+            <line x1="250" y1="106" x2="250" y2="111" stroke="var(--dimension-line)" stroke-width="0.5" />
+            <text x="230" y="117" fill="var(--guide-label)" font-size="6" font-family="ui-monospace, monospace" text-anchor="middle">40</text>
+            <text x="95" y="100" fill="var(--text-strong)" font-size="120" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-weight="600" letter-spacing="-0.04em">Ark</text>
+            <text x="217" y="190" fill="var(--text-strong)" font-size="82" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-weight="400" letter-spacing="-0.03em">loop</text>
+            </g>
+          </svg>
+        </div>
+      </div>
 
-          <line x1="137" y1="15" x2="97" y2="100" stroke="var(--construct-line)" stroke-width="0.7" stroke-dasharray="3 3" />
-          <line x1="137" y1="15" x2="177" y2="100" stroke="var(--construct-line)" stroke-width="0.7" stroke-dasharray="3 3" />
-          <circle cx="137" cy="15" r="2.5" fill="var(--guide-dot)" />
-          <line x1="113" y1="65" x2="161" y2="65" stroke="var(--construct-line)" stroke-width="0.5" stroke-dasharray="2 2" />
+      <!-- Right: content -->
+      <div class="split-right">
+        <h1 class="hero-title">Clean, powerful AI agents. Yours to own.</h1>
+        <p class="hero-desc">Multi-model routing, sandboxed execution, and persistent memory -- all behind a clean interface that stays out of your way. Available as a desktop app or self-hosted server.</p>
 
-          <line x1="283" y1="58" x2="332" y2="15" stroke="var(--construct-line)" stroke-width="0.6" stroke-dasharray="3 3" />
-          <line x1="283" y1="58" x2="337" y2="100" stroke="var(--construct-line)" stroke-width="0.6" stroke-dasharray="3 3" />
-          <circle cx="283" cy="58" r="2" fill="var(--guide-dot)" />
+        <div class="cta-block">
+          <a class="btn-download" id="btn-download-en" href="https://github.com/qqqqqf-q/Arkloop/releases">
+            Download for Desktop
+          </a>
+          <div class="btn-platform-row" id="btn-wrap-en">
+            <div class="btn-platform-trigger" id="platform-trigger-en" aria-expanded="false">
+              <svg class="platform-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <rect x="2" y="3" width="20" height="14" rx="2"/>
+                <path d="M8 21h8M12 17v4"/>
+              </svg>
+              <span class="btn-platform-label" id="platform-label-en">Mac · Apple Silicon</span>
+              <svg class="btn-platform-chevron" viewBox="0 0 10 6" fill="none">
+                <path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              <div class="platform-dropdown" id="platform-dropdown-en" role="listbox" aria-label="Select platform">
+                <button class="platform-option" data-value="darwin-arm64" role="option">Mac · Apple Silicon</button>
+                <button class="platform-option" data-value="darwin-x64" role="option">Mac · Intel</button>
+                <button class="platform-option" data-value="win32-x64" role="option">Windows · x64</button>
+                <button class="platform-option" data-value="linux-x64" role="option">Linux · x64</button>
+              </div>
+            </div>
+          </div>
+          <a class="link-docs" href="/en/docs/guide">Quick Start &amp; Documentation</a>
+        </div>
 
-          <line x1="118" y1="15" x2="118" y2="100" stroke="var(--dimension-line)" stroke-width="0.5" />
-          <line x1="116" y1="15" x2="121" y2="15" stroke="var(--dimension-line)" stroke-width="0.5" />
-          <line x1="116" y1="100" x2="121" y2="100" stroke="var(--dimension-line)" stroke-width="0.5" />
-          <text x="118" y="61" fill="var(--guide-label)" font-size="6.5" font-family="ui-monospace, monospace" text-anchor="middle" transform="rotate(-90, 118, 61)">87</text>
+        <div class="feat-grid">
+          <div class="feat-item">
+            <svg class="feat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+            </svg>
+            <h3 class="feat-title">Agent Loop</h3>
+            <p class="feat-desc">Multi-step autonomous execution with planning, reasoning, and tool orchestration. Persistent memory across sessions.</p>
+          </div>
+          <div class="feat-item">
+            <svg class="feat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <circle cx="12" cy="12" r="2.5"/>
+              <ellipse cx="12" cy="12" rx="10" ry="4" transform="rotate(0 12 12)"/>
+              <ellipse cx="12" cy="12" rx="10" ry="4" transform="rotate(60 12 12)"/>
+              <ellipse cx="12" cy="12" rx="10" ry="4" transform="rotate(120 12 12)"/>
+            </svg>
+            <h3 class="feat-title">Multi-Model</h3>
+            <p class="feat-desc">OpenAI, Anthropic, and any compatible interface. Priority routing with automatic rate-limit handling.</p>
+          </div>
+          <div class="feat-item">
+            <svg class="feat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <rect x="3" y="3" width="18" height="18" rx="2" stroke-dasharray="4 2"/>
+              <line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="3" x2="9" y2="9"/>
+            </svg>
+            <h3 class="feat-title">Sandbox</h3>
+            <p class="feat-desc">Firecracker microVMs or Docker isolation. Code execution with strict resource limits.</p>
+          </div>
+          <div class="feat-item">
+            <svg class="feat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+              <path d="M9 12l2 2 4-4" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <h3 class="feat-title">Security</h3>
+            <p class="feat-desc">Semantic-level prompt injection scanning. Detects and blocks attacks to protect agent execution.</p>
+          </div>
+          <div class="feat-item">
+            <svg class="feat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M18 8a3 3 0 010 6"/>
+              <path d="M10 8H6a2 2 0 00-2 2v4a2 2 0 002 2h4l5 4V4l-5 4z"/>
+              <path d="M22 5a9 9 0 010 14"/>
+            </svg>
+            <h3 class="feat-title">Channels</h3>
+            <p class="feat-desc">Connect agents to Telegram with full media handling and group context support.</p>
+          </div>
+          <div class="feat-item">
+            <svg class="feat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <circle cx="12" cy="12" r="10"/><path d="M2 12h20"/>
+              <path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/>
+            </svg>
+            <h3 class="feat-title">REST + SSE</h3>
+            <p class="feat-desc">40+ endpoints covering threads, runs, personas, and model providers. Cursor-based resumption.</p>
+          </div>
+        </div>
+      </div>
 
-          <line x1="385" y1="100" x2="385" y2="130" stroke="var(--dimension-line)" stroke-width="0.5" stroke-dasharray="2 4" />
-          <line x1="382" y1="100" x2="388" y2="100" stroke="var(--dimension-line)" stroke-width="0.5" />
-          <line x1="382" y1="130" x2="388" y2="130" stroke="var(--dimension-line)" stroke-width="0.5" />
-          <text x="394" y="118" fill="var(--guide-label)" font-size="6.5" font-family="ui-monospace, monospace">30</text>
+    </div>
 
-          <!-- loop guidelines -->
-          <line x1="202" y1="130" x2="520" y2="130" stroke="var(--guide-line)" stroke-width="0.5" stroke-dasharray="3 4" />
-          <text x="516" y="127" fill="var(--guide-label)" font-size="7" font-family="ui-monospace, monospace" text-anchor="end">ascender</text>
-          <line x1="202" y1="147" x2="520" y2="147" stroke="var(--guide-line)" stroke-width="0.6" stroke-dasharray="2 3" />
-          <text x="516" y="144" fill="var(--guide-label)" font-size="7" font-family="ui-monospace, monospace" text-anchor="end">x-height</text>
-          <line x1="202" y1="190" x2="520" y2="190" stroke="var(--guide-line)" stroke-width="0.7" />
-          <text x="516" y="187" fill="var(--guide-label)" font-size="7" font-family="ui-monospace, monospace" text-anchor="end">baseline</text>
-          <line x1="202" y1="208" x2="520" y2="208" stroke="var(--guide-line)" stroke-width="0.5" stroke-dasharray="3 4" />
-          <text x="516" y="205" fill="var(--guide-label)" font-size="7" font-family="ui-monospace, monospace" text-anchor="end">descender</text>
-
-          <line x1="217" y1="122" x2="217" y2="196" stroke="var(--guide-line)" stroke-width="0.4" />
-          <line x1="272" y1="140" x2="272" y2="196" stroke="var(--guide-line)" stroke-width="0.4" />
-          <line x1="342" y1="140" x2="342" y2="196" stroke="var(--guide-line)" stroke-width="0.4" />
-          <line x1="410" y1="140" x2="410" y2="210" stroke="var(--guide-line)" stroke-width="0.4" />
-          <line x1="477" y1="140" x2="477" y2="210" stroke="var(--guide-line)" stroke-width="0.4" />
-
-          <circle cx="227" cy="130" r="2" fill="var(--guide-dot)" />
-          <circle cx="227" cy="190" r="2" fill="var(--guide-dot)" />
-
-          <!-- o1 -->
-          <circle cx="307" cy="168" r="23" stroke="var(--construct-line)" stroke-width="0.7" stroke-dasharray="3 3" />
-          <circle cx="307" cy="168" r="2" fill="var(--guide-dot)" />
-          <line x1="307" y1="142" x2="307" y2="194" stroke="var(--construct-line)" stroke-width="0.4" />
-          <line x1="281" y1="168" x2="333" y2="168" stroke="var(--construct-line)" stroke-width="0.4" />
-
-          <line x1="210" y1="108" x2="250" y2="108" stroke="var(--dimension-line)" stroke-width="0.5" />
-          <line x1="210" y1="106" x2="210" y2="111" stroke="var(--dimension-line)" stroke-width="0.5" />
-          <line x1="250" y1="106" x2="250" y2="111" stroke="var(--dimension-line)" stroke-width="0.5" />
-          <text x="230" y="117" fill="var(--guide-label)" font-size="6" font-family="ui-monospace, monospace" text-anchor="middle">40</text>
-
-          <text x="95" y="100" fill="var(--text-strong)" font-size="120" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-weight="600" letter-spacing="-0.04em">Ark</text>
-          <text x="217" y="190" fill="var(--text-strong)" font-size="82" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-weight="400" letter-spacing="-0.03em">loop</text>
-          </g>
+    <!-- Section 2: Contributing -->
+    <div class="contrib-card">
+      <div class="contrib-left">
+        <svg class="contrib-icon" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/>
         </svg>
+        <div>
+          <h2 class="contrib-title">Contributing</h2>
+          <p class="contrib-desc">We welcome contributions of all kinds. Even if you're not a developer -- if something feels off, a bit of spacing, a color that doesn't sit right, any tiny detail or even a big-picture direction -- please open an issue. We take every UX detail seriously, and your feedback makes Arkloop better for everyone.</p>
+        </div>
+      </div>
+      <div class="contrib-actions">
+        <a class="contrib-btn contrib-btn-primary" href="https://github.com/qqqqqf-q/Arkloop" target="_blank" rel="noopener">GitHub</a>
+        <a class="contrib-btn contrib-btn-secondary" href="/en/docs/contributing">Contributing Guide</a>
       </div>
     </div>
 
-    <!-- Right: content -->
-    <div class="split-right">
-      <h1 class="hero-title">Arkloop: Your Unified AI Agent Platform</h1>
-      <p class="hero-desc">Build, deploy, and manage powerful AI agents. Clean, secure, and developer-first.</p>
-
-      <div class="cta-block">
-        <a class="btn-download" href="https://github.com/qqqqqf-q/Arkloop/releases">Download for Desktop</a>
-        <a class="link-docs" href="/en/docs/guide">Quick Start &amp; Documentation</a>
+    <!-- Section 3: How to use -->
+    <div class="section-grid">
+      <div class="section-card">
+        <div class="section-card-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <rect x="2" y="3" width="20" height="14" rx="2"/>
+            <path d="M8 21h8M12 17v4"/>
+          </svg>
+        </div>
+        <h2 class="section-card-title">Desktop App</h2>
+        <p class="section-card-desc">Native app built on Electron + Go sidecar, runs entirely locally. Ships with a complete runtime -- no Docker, no setup, open and go. Auto-updates via GitHub Releases.</p>
+        <div class="section-card-platforms">
+          <span>macOS</span>
+          <span>Linux</span>
+          <span>Windows</span>
+        </div>
       </div>
-
-      <div class="feat-grid">
-        <!-- Agent Loop -->
-        <div class="feat-item">
-          <svg class="feat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-            <path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+      <div class="section-card">
+        <div class="section-card-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/>
+            <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
+            <line x1="12" y1="22.08" x2="12" y2="12"/>
           </svg>
-          <h3 class="feat-title">Agent Loop</h3>
-          <p class="feat-desc">Multi-step autonomous execution with planning, reasoning, and tool orchestration. Persistent memory across sessions.</p>
         </div>
-        <!-- Multi-Model -->
-        <div class="feat-item">
-          <svg class="feat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-            <circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="8"/>
-            <line x1="12" y1="2" x2="12" y2="4"/><line x1="12" y1="20" x2="12" y2="22"/>
-            <line x1="2" y1="12" x2="4" y2="12"/><line x1="20" y1="12" x2="22" y2="12"/>
+        <h2 class="section-card-title">Self-hosted</h2>
+        <p class="section-card-desc">Full server-side deployment. One-command startup with Docker Compose, pre-built images ready for production. Requires 2+ CPU cores and 4+ GiB RAM.</p>
+        <div class="section-code">
+          <code>./setup.sh install</code>
+        </div>
+      </div>
+      <div class="section-card">
+        <div class="section-card-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/>
           </svg>
-          <h3 class="feat-title">Multi-Model</h3>
-          <p class="feat-desc">OpenAI, Anthropic, and any compatible interface. Priority routing with automatic rate-limit handling.</p>
         </div>
-        <!-- Sandbox -->
-        <div class="feat-item">
-          <svg class="feat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-            <rect x="3" y="3" width="18" height="18" rx="2" stroke-dasharray="4 2"/>
-            <line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="3" x2="9" y2="9"/>
-          </svg>
-          <h3 class="feat-title">Sandbox</h3>
-          <p class="feat-desc">Firecracker microVMs or Docker isolation. Code execution with strict resource limits.</p>
-        </div>
-        <!-- Security -->
-        <div class="feat-item">
-          <svg class="feat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-          </svg>
-          <h3 class="feat-title">Security</h3>
-          <p class="feat-desc">Semantic-level prompt injection scanning. Detects and blocks attacks to protect agent execution.</p>
-        </div>
-        <!-- Channels -->
-        <div class="feat-item">
-          <svg class="feat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-            <path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 015.19 12.7 19.79 19.79 0 012.12 4.07 2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/>
-          </svg>
-          <h3 class="feat-title">Channels</h3>
-          <p class="feat-desc">Connect agents to Telegram with full media handling and group context support.</p>
-        </div>
-        <!-- REST + SSE -->
-        <div class="feat-item">
-          <svg class="feat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-            <circle cx="12" cy="12" r="10"/><path d="M2 12h20"/>
-            <path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/>
-          </svg>
-          <h3 class="feat-title">REST + SSE</h3>
-          <p class="feat-desc">40+ endpoints covering threads, runs, personas, and model providers. Cursor-based resumption.</p>
-        </div>
+        <h2 class="section-card-title">Skill Ecosystem</h2>
+        <p class="section-card-desc">Search and import skills from ClawHub, compatible with the OpenClaw SKILL.md format. Custom Personas support independent system prompts, tool sets, and Lua scripts to customize the agent loop.</p>
+        <a class="section-card-link" href="/en/docs/skills">Explore the skill ecosystem</a>
       </div>
     </div>
 
   </div>
 </BaseLayout>
+
+<script>
+  const RELEASES_API = 'https://api.github.com/repos/qqqqqf-q/Arkloop/releases/latest';
+  const RELEASES_PAGE = 'https://github.com/qqqqqf-q/Arkloop/releases';
+
+  const PLATFORM_PATTERNS: Record<string, string[]> = {
+    'darwin-arm64': ['darwin-arm64', 'mac-arm64', 'macos-arm64', 'arm64.dmg', 'arm64.zip'],
+    'darwin-x64':   ['darwin-x64', 'mac-x64', 'macos-x64', 'x64.dmg', 'intel.dmg'],
+    'win32-x64':    ['win32-x64', 'windows-x64', 'win-x64', '.exe', 'setup.exe'],
+    'linux-x64':    ['linux-x64', 'linux-amd64', 'amd64.AppImage', 'linux-x86_64'],
+  };
+
+  const PLATFORM_LABELS: Record<string, string> = {
+    'darwin-arm64': 'Mac · Apple Silicon',
+    'darwin-x64':   'Mac · Intel',
+    'win32-x64':    'Windows · x64',
+    'linux-x64':    'Linux · x64',
+  };
+
+  function detectPlatform(): string {
+    const ua = navigator.userAgent;
+    const platform = navigator.platform || '';
+    if (platform.startsWith('Mac') || ua.includes('Mac OS X')) {
+      const uad = (navigator as any).userAgentData;
+      if (uad && uad.getHighEntropyValues) {
+        uad.getHighEntropyValues(['architecture']).then((data: any) => {
+          if (data.architecture === 'arm') updatePlatform('darwin-arm64');
+          else updatePlatform('darwin-x64');
+        }).catch(() => updatePlatform('darwin-arm64'));
+        return 'darwin-arm64';
+      }
+      return 'darwin-arm64';
+    }
+    if (platform.startsWith('Win') || ua.includes('Windows')) return 'win32-x64';
+    if (ua.includes('Linux')) return 'linux-x64';
+    return 'darwin-arm64';
+  }
+
+  let releaseAssets: Array<{ name: string; browser_download_url: string }> = [];
+  let currentPlatform = detectPlatform();
+
+  function findAsset(platform: string) {
+    const patterns = PLATFORM_PATTERNS[platform] ?? [];
+    return releaseAssets.find(a =>
+      patterns.some(p => a.name.toLowerCase().includes(p.toLowerCase()))
+    );
+  }
+
+  function updatePlatform(platform: string) {
+    currentPlatform = platform;
+    const btn = document.getElementById('btn-download-en') as HTMLAnchorElement | null;
+    const label = document.getElementById('platform-label-en');
+    if (label) label.textContent = PLATFORM_LABELS[platform] ?? platform;
+    document.querySelectorAll('#platform-dropdown-en .platform-option').forEach(el => {
+      const opt = el as HTMLButtonElement;
+      opt.setAttribute('aria-selected', opt.dataset.value === platform ? 'true' : 'false');
+    });
+    if (btn) {
+      const asset = findAsset(platform);
+      btn.href = asset ? asset.browser_download_url : RELEASES_PAGE;
+    }
+  }
+
+  async function initDownload() {
+    try {
+      const res = await fetch(RELEASES_API);
+      if (!res.ok) return;
+      const data = await res.json();
+      releaseAssets = data.assets ?? [];
+    } catch {
+      // network failure, fall back to releases page
+    }
+    updatePlatform(currentPlatform);
+  }
+
+  const trigger = document.getElementById('platform-trigger-en');
+  const dropdown = document.getElementById('platform-dropdown-en');
+  const wrap = document.getElementById('btn-wrap-en');
+
+  if (trigger && dropdown) {
+    trigger.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const isOpen = dropdown.classList.contains('open');
+      dropdown.classList.toggle('open', !isOpen);
+      trigger.setAttribute('aria-expanded', String(!isOpen));
+    });
+
+    dropdown.querySelectorAll('.platform-option').forEach(el => {
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const val = (el as HTMLButtonElement).dataset.value;
+        if (val) updatePlatform(val);
+        dropdown.classList.remove('open');
+        trigger.setAttribute('aria-expanded', 'false');
+      });
+    });
+
+    document.addEventListener('click', (e) => {
+      if (wrap && !wrap.contains(e.target as Node)) {
+        dropdown.classList.remove('open');
+        trigger.setAttribute('aria-expanded', 'false');
+      }
+    });
+  }
+
+  initDownload();
+</script>
 
 <style>
   :root {
@@ -153,6 +331,8 @@ import BaseLayout from '@/layouts/BaseLayout.astro';
     --guide-label: rgba(255, 255, 255, 0.25);
     --construct-line: rgba(255, 255, 255, 0.15);
     --dimension-line: rgba(255, 255, 255, 0.18);
+    --split-left-bg: var(--bg-surface-soft);
+    --card-bg: transparent;
   }
 
   :root[data-theme='light'] {
@@ -161,26 +341,46 @@ import BaseLayout from '@/layouts/BaseLayout.astro';
     --guide-label: rgba(0, 0, 0, 0.25);
     --construct-line: rgba(0, 0, 0, 0.15);
     --dimension-line: rgba(0, 0, 0, 0.18);
+    --split-left-bg: #F5F7F6;
+    --card-bg: #F5F7F6;
   }
 
-  .landing-split {
+  @keyframes dropdown-slide-in {
+    from { opacity: 0; transform: translateX(-50%) translateY(-4px); }
+    to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+  }
+
+  .landing-wrap {
     display: flex;
-    min-height: calc(100vh - 60px);
+    flex-direction: column;
+    align-items: center;
+    padding: 40px 24px 64px;
+    gap: 20px;
+  }
+
+  .landing-card {
+    display: flex;
+    width: 100%;
+    max-width: 1080px;
+    border: 1px solid var(--border-strong);
+    border-radius: 16px;
+    overflow: hidden;
+    min-height: 520px;
   }
 
   .split-left {
-    flex: 0 0 44%;
+    flex: 0 0 42%;
     display: flex;
     align-items: center;
     justify-content: center;
     border-right: 1px solid var(--border-primary);
-    background: var(--bg-surface-soft);
+    background: var(--split-left-bg);
     padding: 40px 32px;
   }
 
   .type-specimen {
     width: 100%;
-    max-width: 480px;
+    max-width: 380px;
   }
 
   .type-svg {
@@ -189,122 +389,444 @@ import BaseLayout from '@/layouts/BaseLayout.astro';
   }
 
   .split-right {
-    flex: 0 0 56%;
+    flex: 1;
     display: flex;
     flex-direction: column;
     justify-content: center;
-    padding: 48px 56px;
+    padding: 40px 48px;
     gap: 20px;
+    background: transparent;
+  }
+
+  :root[data-theme='light'] .split-right {
+    background: #ffffff;
   }
 
   .hero-title {
     margin: 0;
-    font-size: clamp(1.8rem, 3vw, 2.8rem);
+    font-size: clamp(2rem, 3vw, 3rem);
     font-weight: 700;
     letter-spacing: -0.04em;
     color: var(--text-strong);
-    line-height: 1.15;
+    line-height: 1.12;
   }
 
   .hero-desc {
     margin: 0;
-    font-size: 0.95rem;
-    line-height: 1.7;
+    font-size: 0.9rem;
+    line-height: 1.65;
     color: var(--text-secondary);
   }
 
   .cta-block {
     display: flex;
     flex-direction: column;
-    align-items: flex-start;
-    gap: 12px;
+    align-items: stretch;
+    gap: 8px;
   }
 
   .btn-download {
-    display: block;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     width: 100%;
-    max-width: 400px;
-    padding: 15px 24px;
+    padding: 13px 20px;
     background: var(--accent);
     color: var(--accent-contrast);
-    font-size: 1rem;
-    font-weight: 700;
-    border-radius: 12px;
-    text-align: center;
-    transition: opacity 140ms ease;
+    font-size: 0.95rem;
+    font-weight: 600;
+    border-radius: 10px;
+    white-space: nowrap;
+    transition: background 160ms ease;
   }
 
-  .btn-download:hover {
-    opacity: 0.88;
+  :root:not([data-theme='light']) .btn-download:hover {
+    background: #eeeeee;
+    color: #111;
+  }
+
+  :root[data-theme='light'] .btn-download:hover {
+    background: #383838;
+  }
+
+  .btn-platform-row {
+    display: flex;
+    justify-content: center;
+    position: relative;
+  }
+
+  .btn-platform-trigger {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    font-weight: 500;
+    user-select: none;
+    transition: background 120ms ease, color 120ms ease;
+    position: relative;
+  }
+
+  .btn-platform-trigger:hover {
+    background: var(--bg-surface-soft);
+    color: var(--text-strong);
+  }
+
+  :root[data-theme='light'] .btn-platform-trigger:hover {
+    background: #ebebeb;
+  }
+
+  .platform-icon {
+    width: 13px;
+    height: 13px;
+    opacity: 0.6;
+    flex-shrink: 0;
+  }
+
+  .btn-platform-label {
+    white-space: nowrap;
+  }
+
+  .btn-platform-chevron {
+    width: 9px;
+    height: 9px;
+    opacity: 0.5;
+    flex-shrink: 0;
+    transition: transform 160ms ease;
+  }
+
+  .btn-platform-trigger[aria-expanded='true'] .btn-platform-chevron {
+    transform: rotate(180deg);
+  }
+
+  .platform-dropdown {
+    display: none;
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    top: calc(100% + 4px);
+    z-index: 100;
+    min-width: 180px;
+    border: 0.5px solid var(--border-strong);
+    border-radius: 10px;
+    padding: 4px;
+    background: var(--bg-surface, #1e1e1e);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.18);
+  }
+
+  :root[data-theme='light'] .platform-dropdown {
+    background: #ffffff;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+  }
+
+  .platform-dropdown.open {
+    display: block;
+    animation: dropdown-slide-in 0.08s ease-out;
+  }
+
+  .platform-option {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    padding: 8px 12px;
+    font-size: 0.84rem;
+    border-radius: 7px;
+    color: var(--text-secondary);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    text-align: left;
+    transition: background 100ms ease;
+  }
+
+  .platform-option:hover {
+    background: var(--bg-surface-soft);
+  }
+
+  :root[data-theme='light'] .platform-option:hover {
+    background: #F5F7F6;
+  }
+
+  .platform-option[aria-selected='true'] {
+    color: var(--text-strong);
+    font-weight: 600;
   }
 
   .link-docs {
-    font-size: 0.88rem;
-    color: var(--text-secondary);
-    text-decoration: underline;
-    align-self: center;
-    max-width: 400px;
-    width: 100%;
+    font-size: 0.85rem;
+    color: #3b82f6;
+    text-decoration: none;
     text-align: center;
   }
 
   .link-docs:hover {
-    color: var(--text-primary);
+    color: #60a5fa;
   }
 
   .feat-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 20px 24px;
-    margin-top: 4px;
+    gap: 18px 20px;
+    margin-top: 2px;
   }
 
   .feat-item {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 5px;
   }
 
   .feat-icon {
-    width: 24px;
-    height: 24px;
+    width: 22px;
+    height: 22px;
     color: var(--text-secondary);
     flex-shrink: 0;
   }
 
   .feat-title {
     margin: 0;
-    font-size: 0.88rem;
+    font-size: 0.84rem;
     font-weight: 600;
     color: var(--text-strong);
   }
 
   .feat-desc {
     margin: 0;
-    font-size: 0.78rem;
+    font-size: 0.75rem;
     color: var(--text-secondary);
     line-height: 1.6;
   }
 
-  @media (max-width: 767px) {
-    .landing-split {
+  /* Contributing card */
+  .contrib-card {
+    width: 100%;
+    max-width: 1080px;
+    border: 1px solid var(--border-strong);
+    border-radius: 12px;
+    padding: 28px 32px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+    background: var(--card-bg);
+  }
+
+  .contrib-left {
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .contrib-icon {
+    width: 22px;
+    height: 22px;
+    color: var(--text-secondary);
+    flex-shrink: 0;
+    margin-top: 3px;
+  }
+
+  .contrib-title {
+    margin: 0 0 6px;
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-strong);
+  }
+
+  .contrib-desc {
+    margin: 0;
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+    line-height: 1.7;
+  }
+
+  .contrib-actions {
+    display: flex;
+    gap: 10px;
+    flex-shrink: 0;
+  }
+
+  .contrib-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 18px;
+    border-radius: 8px;
+    font-size: 0.84rem;
+    font-weight: 500;
+    text-decoration: none;
+    white-space: nowrap;
+    transition: opacity 140ms ease;
+  }
+
+  .contrib-btn:hover {
+    opacity: 0.75;
+  }
+
+  .contrib-btn-primary {
+    background: var(--text-strong);
+    color: var(--bg-page);
+  }
+
+  .contrib-btn-secondary {
+    border: 1px solid var(--border-strong);
+    color: var(--text-secondary);
+  }
+
+  /* Section grid */
+  .section-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    width: 100%;
+    max-width: 1080px;
+  }
+
+  .section-card {
+    border: 1px solid var(--border-strong);
+    border-radius: 12px;
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    background: var(--card-bg);
+  }
+
+  .section-card-icon {
+    width: 32px;
+    height: 32px;
+    color: var(--text-secondary);
+  }
+
+  .section-card-icon svg {
+    width: 100%;
+    height: 100%;
+  }
+
+  .section-card-title {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-strong);
+  }
+
+  .section-card-desc {
+    margin: 0;
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+    line-height: 1.65;
+    flex: 1;
+  }
+
+  .section-card-platforms {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  .section-card-platforms span {
+    font-size: 0.72rem;
+    padding: 2px 8px;
+    border: 1px solid var(--border-strong);
+    border-radius: 4px;
+    color: var(--text-secondary);
+  }
+
+  .section-code {
+    background: var(--bg-surface-soft);
+    border-radius: 6px;
+    padding: 8px 12px;
+  }
+
+  .section-code code {
+    font-size: 0.8rem;
+    font-family: ui-monospace, monospace;
+    color: var(--text-primary);
+  }
+
+  .section-card-link {
+    font-size: 0.82rem;
+    color: #3b82f6;
+    text-decoration: none;
+    margin-top: auto;
+  }
+
+  .section-card-link:hover {
+    color: #60a5fa;
+  }
+
+  @media (max-width: 900px) {
+    .section-grid {
+      grid-template-columns: 1fr 1fr;
+    }
+
+    .contrib-card {
       flex-direction: column;
+      align-items: flex-start;
+    }
+  }
+
+  @media (max-width: 767px) {
+    .landing-wrap {
+      padding: 16px 16px 48px;
+    }
+
+    .landing-card {
+      flex-direction: column;
+      min-height: unset;
     }
 
     .split-left {
       flex: none;
       border-right: none;
       border-bottom: 1px solid var(--border-primary);
-      padding: 32px 24px;
+      padding: 28px 24px;
     }
 
     .split-right {
       flex: none;
-      padding: 32px 24px;
+      padding: 28px 24px;
     }
 
     .feat-grid {
       grid-template-columns: repeat(2, 1fr);
+    }
+
+    .section-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .btn-download-wrap {
+      flex-wrap: wrap;
+    }
+
+    .btn-download {
+      flex: none;
+      width: 100%;
+      border-radius: 10px 10px 0 0;
+    }
+
+    .btn-platform-divider {
+      display: none;
+    }
+
+    .btn-platform-trigger {
+      width: 100%;
+      justify-content: center;
+      padding: 10px 16px;
+      border-top: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 0 0 10px 10px;
+    }
+
+    .platform-dropdown {
+      right: 0;
+      left: 0;
+      width: 100%;
+      min-width: unset;
     }
   }
 </style>

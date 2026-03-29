@@ -4,112 +4,64 @@ import BaseLayout from '@/layouts/BaseLayout.astro';
 
 <BaseLayout title="Arkloop Developers" description="Arkloop 开发者门户 -- 干净、强大、属于你的 AI Agent 平台。" locale="zh" pathname="/" alternatePath="/en">
   <div class="landing-wrap">
+
+    <!-- 主 Hero 卡片 -->
     <div class="landing-card">
 
       <!-- 左侧：SVG 字体展示 -->
       <div class="split-left">
         <div class="type-specimen" aria-label="Arkloop">
           <svg class="type-svg" viewBox="0 0 526 210" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <!--
-              Ark: Inter 600, 120px, x=95, baseline y=100
-              loop: Inter 400, 82px, x=217, baseline y=190
-              外层 translate(6)：整块再微调右移，viewBox 右扩以容纳
-            -->
             <g transform="translate(6, 0)">
-
-            <!-- === Ark 辅助线 === -->
             <line x1="0" y1="15" x2="520" y2="15" stroke="var(--guide-line)" stroke-width="0.7" />
             <text x="516" y="12" fill="var(--guide-label)" font-size="7" font-family="ui-monospace, monospace" text-anchor="end">cap height</text>
-
             <line x1="0" y1="100" x2="520" y2="100" stroke="var(--guide-line)" stroke-width="0.7" />
             <text x="516" y="97" fill="var(--guide-label)" font-size="7" font-family="ui-monospace, monospace" text-anchor="end">baseline</text>
-
-            <!-- Ark 垂直线 -->
             <line x1="95" y1="6" x2="95" y2="108" stroke="var(--guide-line)" stroke-width="0.4" />
             <line x1="180" y1="6" x2="180" y2="108" stroke="var(--guide-line)" stroke-width="0.4" />
             <line x1="220" y1="6" x2="220" y2="108" stroke="var(--guide-line)" stroke-width="0.4" />
             <line x1="270" y1="6" x2="270" y2="108" stroke="var(--guide-line)" stroke-width="0.4" />
             <line x1="340" y1="6" x2="340" y2="108" stroke="var(--guide-line)" stroke-width="0.4" />
-
-            <!-- A 三角构造 -->
             <line x1="137" y1="15" x2="97" y2="100" stroke="var(--construct-line)" stroke-width="0.7" stroke-dasharray="3 3" />
             <line x1="137" y1="15" x2="177" y2="100" stroke="var(--construct-line)" stroke-width="0.7" stroke-dasharray="3 3" />
             <circle cx="137" cy="15" r="2.5" fill="var(--guide-dot)" />
             <line x1="113" y1="65" x2="161" y2="65" stroke="var(--construct-line)" stroke-width="0.5" stroke-dasharray="2 2" />
-
-            <!-- k 对角构造 -->
             <line x1="283" y1="58" x2="332" y2="15" stroke="var(--construct-line)" stroke-width="0.6" stroke-dasharray="3 3" />
             <line x1="283" y1="58" x2="337" y2="100" stroke="var(--construct-line)" stroke-width="0.6" stroke-dasharray="3 3" />
             <circle cx="283" cy="58" r="2" fill="var(--guide-dot)" />
-
-            <!-- Ark 高度标注 -->
             <line x1="118" y1="15" x2="118" y2="100" stroke="var(--dimension-line)" stroke-width="0.5" />
             <line x1="116" y1="15" x2="121" y2="15" stroke="var(--dimension-line)" stroke-width="0.5" />
             <line x1="116" y1="100" x2="121" y2="100" stroke="var(--dimension-line)" stroke-width="0.5" />
             <text x="118" y="61" fill="var(--guide-label)" font-size="6.5" font-family="ui-monospace, monospace" text-anchor="middle" transform="rotate(-90, 118, 61)">87</text>
-
-            <!-- 行间距标注 -->
             <line x1="385" y1="100" x2="385" y2="130" stroke="var(--dimension-line)" stroke-width="0.5" stroke-dasharray="2 4" />
             <line x1="382" y1="100" x2="388" y2="100" stroke="var(--dimension-line)" stroke-width="0.5" />
             <line x1="382" y1="130" x2="388" y2="130" stroke="var(--dimension-line)" stroke-width="0.5" />
             <text x="394" y="118" fill="var(--guide-label)" font-size="6.5" font-family="ui-monospace, monospace">30</text>
-
-            <!-- === loop 辅助线 === -->
             <line x1="202" y1="130" x2="520" y2="130" stroke="var(--guide-line)" stroke-width="0.5" stroke-dasharray="3 4" />
             <text x="516" y="127" fill="var(--guide-label)" font-size="7" font-family="ui-monospace, monospace" text-anchor="end">ascender</text>
-
             <line x1="202" y1="147" x2="520" y2="147" stroke="var(--guide-line)" stroke-width="0.6" stroke-dasharray="2 3" />
             <text x="516" y="144" fill="var(--guide-label)" font-size="7" font-family="ui-monospace, monospace" text-anchor="end">x-height</text>
-
             <line x1="202" y1="190" x2="520" y2="190" stroke="var(--guide-line)" stroke-width="0.7" />
             <text x="516" y="187" fill="var(--guide-label)" font-size="7" font-family="ui-monospace, monospace" text-anchor="end">baseline</text>
-
             <line x1="202" y1="208" x2="520" y2="208" stroke="var(--guide-line)" stroke-width="0.5" stroke-dasharray="3 4" />
             <text x="516" y="205" fill="var(--guide-label)" font-size="7" font-family="ui-monospace, monospace" text-anchor="end">descender</text>
-
-            <!-- loop 垂直线 -->
             <line x1="217" y1="122" x2="217" y2="196" stroke="var(--guide-line)" stroke-width="0.4" />
             <line x1="272" y1="140" x2="272" y2="196" stroke="var(--guide-line)" stroke-width="0.4" />
             <line x1="342" y1="140" x2="342" y2="196" stroke="var(--guide-line)" stroke-width="0.4" />
             <line x1="410" y1="140" x2="410" y2="210" stroke="var(--guide-line)" stroke-width="0.4" />
             <line x1="477" y1="140" x2="477" y2="210" stroke="var(--guide-line)" stroke-width="0.4" />
-
-            <!-- l 端点 -->
             <circle cx="227" cy="130" r="2" fill="var(--guide-dot)" />
             <circle cx="227" cy="190" r="2" fill="var(--guide-dot)" />
-
-            <!-- o1 -->
             <circle cx="307" cy="168" r="23" stroke="var(--construct-line)" stroke-width="0.7" stroke-dasharray="3 3" />
             <circle cx="307" cy="168" r="2" fill="var(--guide-dot)" />
             <line x1="307" y1="142" x2="307" y2="194" stroke="var(--construct-line)" stroke-width="0.4" />
             <line x1="281" y1="168" x2="333" y2="168" stroke="var(--construct-line)" stroke-width="0.4" />
-
-            <!-- 字距标注: A-r -->
             <line x1="210" y1="108" x2="250" y2="108" stroke="var(--dimension-line)" stroke-width="0.5" />
             <line x1="210" y1="106" x2="210" y2="111" stroke="var(--dimension-line)" stroke-width="0.5" />
             <line x1="250" y1="106" x2="250" y2="111" stroke="var(--dimension-line)" stroke-width="0.5" />
             <text x="230" y="117" fill="var(--guide-label)" font-size="6" font-family="ui-monospace, monospace" text-anchor="middle">40</text>
-
-            <!-- === 文字 === -->
-            <text
-              x="95"
-              y="100"
-              fill="var(--text-strong)"
-              font-size="120"
-              font-family="Inter, ui-sans-serif, system-ui, sans-serif"
-              font-weight="600"
-              letter-spacing="-0.04em"
-            >Ark</text>
-
-            <text
-              x="217"
-              y="190"
-              fill="var(--text-strong)"
-              font-size="82"
-              font-family="Inter, ui-sans-serif, system-ui, sans-serif"
-              font-weight="400"
-              letter-spacing="-0.03em"
-            >loop</text>
+            <text x="95" y="100" fill="var(--text-strong)" font-size="120" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-weight="600" letter-spacing="-0.04em">Ark</text>
+            <text x="217" y="190" fill="var(--text-strong)" font-size="82" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-weight="400" letter-spacing="-0.03em">loop</text>
             </g>
           </svg>
         </div>
@@ -117,51 +69,52 @@ import BaseLayout from '@/layouts/BaseLayout.astro';
 
       <!-- 右侧：内容区 -->
       <div class="split-right">
-        <h1 class="hero-title">Arkloop：统一的 AI Agent 平台</h1>
-        <p class="hero-desc">构建、部署并管理强大的 AI Agent。简洁、安全、以开发者为先。</p>
+        <h1 class="hero-title">干净、强大，<br/>属于你的 AI Agent 平台</h1>
+        <p class="hero-desc">多模型路由、沙箱执行、持久记忆 -- 所有能力都在一个干净的界面背后，不会糊你一脸。提供桌面应用和自托管服务器两种使用方式。</p>
 
         <div class="cta-block">
-          <div class="btn-download-wrap">
-            <a class="btn-download" id="btn-download-zh" href="https://github.com/qqqqqf-q/Arkloop/releases">
-              <span class="btn-download-text">Download for Desktop</span>
-            </a>
-            <div class="btn-platform-divider"></div>
-            <div class="btn-platform-trigger" id="platform-trigger-zh" title="切换平台">
-              <span class="btn-platform-label" id="platform-label-zh">Apple Silicon</span>
+          <a class="btn-download" id="btn-download-zh" href="https://github.com/qqqqqf-q/Arkloop/releases">
+            Download for Desktop
+          </a>
+          <div class="btn-platform-row" id="btn-wrap-zh">
+            <div class="btn-platform-trigger" id="platform-trigger-zh" aria-expanded="false">
+              <svg class="platform-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <rect x="2" y="3" width="20" height="14" rx="2"/>
+                <path d="M8 21h8M12 17v4"/>
+              </svg>
+              <span class="btn-platform-label" id="platform-label-zh">Mac · Apple Silicon</span>
               <svg class="btn-platform-chevron" viewBox="0 0 10 6" fill="none">
                 <path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
               </svg>
-              <select class="platform-select-overlay" id="platform-select-zh" aria-label="选择平台">
-                <option value="darwin-arm64">macOS Apple Silicon</option>
-                <option value="darwin-x64">macOS Intel</option>
-                <option value="win32-x64">Windows x64</option>
-                <option value="linux-x64">Linux x64</option>
-              </select>
+              <div class="platform-dropdown" id="platform-dropdown-zh" role="listbox" aria-label="选择平台">
+                <button class="platform-option" data-value="darwin-arm64" role="option">Mac · Apple Silicon</button>
+                <button class="platform-option" data-value="darwin-x64" role="option">Mac · Intel</button>
+                <button class="platform-option" data-value="win32-x64" role="option">Windows · x64</button>
+                <button class="platform-option" data-value="linux-x64" role="option">Linux · x64</button>
+              </div>
             </div>
           </div>
           <a class="link-docs" href="/docs/guide">快速开始 &amp; 文档</a>
         </div>
 
         <div class="feat-grid">
-          <!-- Agent Loop -->
           <div class="feat-item">
             <svg class="feat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
               <path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
             </svg>
             <h3 class="feat-title">Agent Loop</h3>
-            <p class="feat-desc">多步自主执行，规则、推理与工具编排。跨会话持久化记忆。</p>
+            <p class="feat-desc">多步自主执行，规划、推理与工具编排。跨会话持久化记忆。</p>
           </div>
-          <!-- Multi-Model -->
           <div class="feat-item">
             <svg class="feat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="8"/>
-              <line x1="12" y1="2" x2="12" y2="4"/><line x1="12" y1="20" x2="12" y2="22"/>
-              <line x1="2" y1="12" x2="4" y2="12"/><line x1="20" y1="12" x2="22" y2="12"/>
+              <circle cx="12" cy="12" r="2.5"/>
+              <ellipse cx="12" cy="12" rx="10" ry="4" transform="rotate(0 12 12)"/>
+              <ellipse cx="12" cy="12" rx="10" ry="4" transform="rotate(60 12 12)"/>
+              <ellipse cx="12" cy="12" rx="10" ry="4" transform="rotate(120 12 12)"/>
             </svg>
             <h3 class="feat-title">Multi-Model</h3>
             <p class="feat-desc">OpenAI、Anthropic 及任何兼容接口。优先级路由，自动限流处理。</p>
           </div>
-          <!-- Sandbox -->
           <div class="feat-item">
             <svg class="feat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
               <rect x="3" y="3" width="18" height="18" rx="2" stroke-dasharray="4 2"/>
@@ -170,23 +123,23 @@ import BaseLayout from '@/layouts/BaseLayout.astro';
             <h3 class="feat-title">Sandbox</h3>
             <p class="feat-desc">Firecracker 微虚拟机或 Docker 隔离环境。代码执行，严格资源限制。</p>
           </div>
-          <!-- Security -->
           <div class="feat-item">
             <svg class="feat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
               <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+              <path d="M9 12l2 2 4-4" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
             <h3 class="feat-title">Security</h3>
             <p class="feat-desc">语义级 Prompt 注入扫描。检测并拦截攻击，保护 Agent 运行安全。</p>
           </div>
-          <!-- Channels -->
           <div class="feat-item">
             <svg class="feat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 015.19 12.7 19.79 19.79 0 012.12 4.07 2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/>
+              <path d="M18 8a3 3 0 010 6"/>
+              <path d="M10 8H6a2 2 0 00-2 2v4a2 2 0 002 2h4l5 4V4l-5 4z"/>
+              <path d="M22 5a9 9 0 010 14"/>
             </svg>
             <h3 class="feat-title">Channels</h3>
-            <p class="feat-desc">将 Agent 接入 Telegram，完整媒体处理与群组上下文支持。</p>
+            <p class="feat-desc">将 Agent 接入 Telegram，支持完整媒体处理与群组上下文。</p>
           </div>
-          <!-- REST + SSE -->
           <div class="feat-item">
             <svg class="feat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
               <circle cx="12" cy="12" r="10"/><path d="M2 12h20"/>
@@ -199,6 +152,68 @@ import BaseLayout from '@/layouts/BaseLayout.astro';
       </div>
 
     </div>
+
+    <!-- 第二区：贡献 -->
+    <div class="contrib-card">
+      <div class="contrib-left">
+        <svg class="contrib-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" fill="currentColor" stroke="none"/>
+        </svg>
+        <div>
+          <h2 class="contrib-title">贡献</h2>
+          <p class="contrib-desc">我们欢迎所有形式的贡献。即使你不是开发者，只是一个普通用户 -- 如果你在使用中感到任何不舒服的地方，哪怕只是一点间距、一个颜色、一个很小很小的细节，或者是一个很大很大的方向，都可以直接开一个 issue。我们认真对待每一个体验细节，你的反馈会让所有人的体验变得更好。</p>
+        </div>
+      </div>
+      <div class="contrib-actions">
+        <a class="contrib-btn contrib-btn-primary" href="https://github.com/qqqqqf-q/Arkloop" target="_blank" rel="noopener">GitHub</a>
+        <a class="contrib-btn contrib-btn-secondary" href="/docs/contributing">贡献指南</a>
+      </div>
+    </div>
+
+    <!-- 第三区：使用方式 -->
+    <div class="section-grid">
+      <div class="section-card">
+        <div class="section-card-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <rect x="2" y="3" width="20" height="14" rx="2"/>
+            <path d="M8 21h8M12 17v4"/>
+          </svg>
+        </div>
+        <h2 class="section-card-title">桌面应用</h2>
+        <p class="section-card-desc">基于 Electron + Go Sidecar 的原生应用，完全本地运行。内置完整运行环境 -- 无需 Docker，无需配置，打开即用。通过 GitHub Releases 自动更新。</p>
+        <div class="section-card-platforms">
+          <span>macOS</span>
+          <span>Linux</span>
+          <span>Windows</span>
+        </div>
+      </div>
+      <div class="section-card">
+        <div class="section-card-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/>
+            <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
+            <line x1="12" y1="22.08" x2="12" y2="12"/>
+          </svg>
+        </div>
+        <h2 class="section-card-title">自托管部署</h2>
+        <p class="section-card-desc">完整的服务器端部署方案。Docker Compose 一键启动，预构建镜像支持生产环境。需要 2+ CPU 核心，4+ GiB 内存。</p>
+        <div class="section-code">
+          <code>./setup.sh install</code>
+        </div>
+      </div>
+      <div class="section-card">
+        <div class="section-card-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/>
+          </svg>
+        </div>
+        <h2 class="section-card-title">技能生态</h2>
+        <p class="section-card-desc">从 ClawHub 搜索与导入技能，兼容 OpenClaw SKILL.md 格式。自定义 Persona 支持独立系统提示词、工具集和 Lua 脚本自定义 Agent Loop。</p>
+        <a class="section-card-link" href="/docs/skills">了解技能生态</a>
+      </div>
+    </div>
+
   </div>
 </BaseLayout>
 
@@ -206,7 +221,6 @@ import BaseLayout from '@/layouts/BaseLayout.astro';
   const RELEASES_API = 'https://api.github.com/repos/qqqqqf-q/Arkloop/releases/latest';
   const RELEASES_PAGE = 'https://github.com/qqqqqf-q/Arkloop/releases';
 
-  // 平台关键词 -> asset 文件名片段映射（按项目实际命名调整）
   const PLATFORM_PATTERNS: Record<string, string[]> = {
     'darwin-arm64': ['darwin-arm64', 'mac-arm64', 'macos-arm64', 'arm64.dmg', 'arm64.zip'],
     'darwin-x64':   ['darwin-x64', 'mac-x64', 'macos-x64', 'x64.dmg', 'intel.dmg'],
@@ -214,20 +228,24 @@ import BaseLayout from '@/layouts/BaseLayout.astro';
     'linux-x64':    ['linux-x64', 'linux-amd64', 'amd64.AppImage', 'linux-x86_64'],
   };
 
+  const PLATFORM_LABELS: Record<string, string> = {
+    'darwin-arm64': 'Mac · Apple Silicon',
+    'darwin-x64':   'Mac · Intel',
+    'win32-x64':    'Windows · x64',
+    'linux-x64':    'Linux · x64',
+  };
+
   function detectPlatform(): string {
     const ua = navigator.userAgent;
     const platform = navigator.platform || '';
     if (platform.startsWith('Mac') || ua.includes('Mac OS X')) {
-      // Apple Silicon: macOS 11+ 上的 arm64，无法从 UA 精确判断，尝试 canvas trick
-      // 保守做法：检查 navigator.userAgentData (Chrome/Edge) 或回退到 arm64 优先
       const uad = (navigator as any).userAgentData;
       if (uad && uad.getHighEntropyValues) {
-        // async，先返回 auto，异步更新
         uad.getHighEntropyValues(['architecture']).then((data: any) => {
           if (data.architecture === 'arm') updatePlatform('darwin-arm64');
           else updatePlatform('darwin-x64');
         }).catch(() => updatePlatform('darwin-arm64'));
-        return 'darwin-arm64'; // 默认 Apple Silicon
+        return 'darwin-arm64';
       }
       return 'darwin-arm64';
     }
@@ -235,13 +253,6 @@ import BaseLayout from '@/layouts/BaseLayout.astro';
     if (ua.includes('Linux')) return 'linux-x64';
     return 'darwin-arm64';
   }
-
-  const PLATFORM_LABELS: Record<string, string> = {
-    'darwin-arm64': 'Apple Silicon',
-    'darwin-x64':   'macOS Intel',
-    'win32-x64':    'Windows',
-    'linux-x64':    'Linux',
-  };
 
   let releaseAssets: Array<{ name: string; browser_download_url: string }> = [];
   let currentPlatform = detectPlatform();
@@ -257,9 +268,11 @@ import BaseLayout from '@/layouts/BaseLayout.astro';
     currentPlatform = platform;
     const btn = document.getElementById('btn-download-zh') as HTMLAnchorElement | null;
     const label = document.getElementById('platform-label-zh');
-    const sel = document.getElementById('platform-select-zh') as HTMLSelectElement | null;
     if (label) label.textContent = PLATFORM_LABELS[platform] ?? platform;
-    if (sel) sel.value = platform;
+    document.querySelectorAll('#platform-dropdown-zh .platform-option').forEach(el => {
+      const opt = el as HTMLButtonElement;
+      opt.setAttribute('aria-selected', opt.dataset.value === platform ? 'true' : 'false');
+    });
     if (btn) {
       const asset = findAsset(platform);
       btn.href = asset ? asset.browser_download_url : RELEASES_PAGE;
@@ -278,23 +291,37 @@ import BaseLayout from '@/layouts/BaseLayout.astro';
     updatePlatform(currentPlatform);
   }
 
-  // 平台选择器变化
-  const sel = document.getElementById('platform-select-zh') as HTMLSelectElement | null;
-  if (sel) {
-    sel.addEventListener('change', () => updatePlatform(sel.value));
-  }
+  const trigger = document.getElementById('platform-trigger-zh');
+  const dropdown = document.getElementById('platform-dropdown-zh');
+  const wrap = document.getElementById('btn-wrap-zh');
 
-  // 点击主按钮区域触发下载
-  const downloadBtn = document.getElementById('btn-download-zh') as HTMLAnchorElement | null;
-  if (downloadBtn) {
-    downloadBtn.addEventListener('click', (e) => {
-      // 如果点击在 platform trigger 区域内，阻止跳转（由 select 处理）
-      const trigger = document.getElementById('platform-trigger-zh');
-      if (trigger && trigger.contains(e.target as Node)) {
-        e.preventDefault();
+  if (trigger && dropdown) {
+    trigger.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const isOpen = dropdown.classList.contains('open');
+      dropdown.classList.toggle('open', !isOpen);
+      trigger.setAttribute('aria-expanded', String(!isOpen));
+    });
+
+    dropdown.querySelectorAll('.platform-option').forEach(el => {
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const val = (el as HTMLButtonElement).dataset.value;
+        if (val) updatePlatform(val);
+        dropdown.classList.remove('open');
+        trigger.setAttribute('aria-expanded', 'false');
+      });
+    });
+
+    document.addEventListener('click', (e) => {
+      if (wrap && !wrap.contains(e.target as Node)) {
+        dropdown.classList.remove('open');
+        trigger.setAttribute('aria-expanded', 'false');
       }
     });
   }
+
+  // downloadBtn 点击：如果点在 trigger 区域内则不跳转（由上面的 e.preventDefault 处理）
 
   initDownload();
 </script>
@@ -306,6 +333,8 @@ import BaseLayout from '@/layouts/BaseLayout.astro';
     --guide-label: rgba(255, 255, 255, 0.25);
     --construct-line: rgba(255, 255, 255, 0.15);
     --dimension-line: rgba(255, 255, 255, 0.18);
+    --split-left-bg: var(--bg-surface-soft);
+    --card-bg: transparent;
   }
 
   :root[data-theme='light'] {
@@ -314,22 +343,28 @@ import BaseLayout from '@/layouts/BaseLayout.astro';
     --guide-label: rgba(0, 0, 0, 0.25);
     --construct-line: rgba(0, 0, 0, 0.15);
     --dimension-line: rgba(0, 0, 0, 0.18);
+    --split-left-bg: #F5F7F6;
+    --card-bg: #F5F7F6;
   }
 
-  /* 页面级容器：垂直居中，限制宽度 */
+  @keyframes dropdown-slide-in {
+    from { opacity: 0; transform: translateX(-50%) translateY(-4px); }
+    to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+  }
+
   .landing-wrap {
     display: flex;
+    flex-direction: column;
     align-items: center;
-    justify-content: center;
-    min-height: calc(100vh - 60px);
-    padding: 32px 24px;
+    padding: 40px 24px 64px;
+    gap: 20px;
   }
 
-  /* 卡片：有描边，限制最大宽度 */
+  /* Hero card */
   .landing-card {
     display: flex;
     width: 100%;
-    max-width: 860px;
+    max-width: 1080px;
     border: 1px solid var(--border-strong);
     border-radius: 16px;
     overflow: hidden;
@@ -337,12 +372,12 @@ import BaseLayout from '@/layouts/BaseLayout.astro';
   }
 
   .split-left {
-    flex: 0 0 44%;
+    flex: 0 0 42%;
     display: flex;
     align-items: center;
     justify-content: center;
     border-right: 1px solid var(--border-primary);
-    background: var(--bg-surface-soft);
+    background: var(--split-left-bg);
     padding: 40px 32px;
   }
 
@@ -361,108 +396,185 @@ import BaseLayout from '@/layouts/BaseLayout.astro';
     display: flex;
     flex-direction: column;
     justify-content: center;
-    padding: 40px 44px;
+    padding: 40px 48px;
     gap: 20px;
+    background: transparent;
+  }
+
+  :root[data-theme='light'] .split-right {
+    background: #ffffff;
   }
 
   .hero-title {
     margin: 0;
-    font-size: clamp(1.6rem, 2.4vw, 2.4rem);
+    font-size: clamp(2rem, 3vw, 3rem);
     font-weight: 700;
     letter-spacing: -0.04em;
     color: var(--text-strong);
-    line-height: 1.15;
+    line-height: 1.12;
   }
 
   .hero-desc {
     margin: 0;
     font-size: 0.9rem;
-    line-height: 1.7;
+    line-height: 1.65;
     color: var(--text-secondary);
   }
 
+  /* CTA */
   .cta-block {
     display: flex;
     flex-direction: column;
-    align-items: flex-start;
-    gap: 10px;
+    align-items: stretch;
+    gap: 8px;
   }
 
-  /* Download 行：按钮 + 平台选择器 */
-  .download-row {
+  /* 整个下载按钮 — 独立一行 */
+  .btn-download {
     display: flex;
     align-items: center;
-    gap: 8px;
+    justify-content: center;
     width: 100%;
-  }
-
-  .btn-download {
-    flex: 1;
-    display: block;
     padding: 13px 20px;
     background: var(--accent);
     color: var(--accent-contrast);
     font-size: 0.95rem;
-    font-weight: 700;
+    font-weight: 600;
     border-radius: 10px;
-    text-align: center;
-    transition: opacity 140ms ease;
     white-space: nowrap;
+    transition: background 160ms ease;
   }
 
-  .btn-download:hover {
-    opacity: 0.88;
+  :root:not([data-theme='light']) .btn-download:hover {
+    background: #eeeeee;
+    color: #111;
   }
 
-  /* 平台选择器 */
-  .platform-picker {
+  :root[data-theme='light'] .btn-download:hover {
+    background: #383838;
+  }
+
+  /* 平台选择行 — 居中，相对定位供下拉使用 */
+  .btn-platform-row {
     display: flex;
-    align-items: center;
+    justify-content: center;
     position: relative;
   }
 
-  .platform-btn {
-    display: flex;
+  /* 平台 trigger — inline pill */
+  .btn-platform-trigger {
+    display: inline-flex;
     align-items: center;
-    gap: 4px;
-    padding: 0 10px;
-    height: 44px;
-    background: transparent;
-    border: 1px solid var(--border-strong);
-    border-radius: 10px;
+    gap: 5px;
+    padding: 4px 10px;
+    border-radius: 6px;
     cursor: pointer;
     color: var(--text-secondary);
-    font-size: 0.78rem;
-    white-space: nowrap;
+    font-size: 0.8rem;
+    font-weight: 500;
+    user-select: none;
+    transition: background 120ms ease, color 120ms ease;
     position: relative;
   }
 
-  .platform-btn:hover {
-    color: var(--text-primary);
-    border-color: var(--border-strong);
+  .btn-platform-trigger:hover {
+    background: var(--bg-surface-soft);
+    color: var(--text-strong);
   }
 
-  /* select 透明覆盖在 button 上 */
-  .platform-select {
+  :root[data-theme='light'] .btn-platform-trigger:hover {
+    background: #ebebeb;
+  }
+
+  .platform-icon {
+    width: 13px;
+    height: 13px;
+    opacity: 0.6;
+    flex-shrink: 0;
+  }
+
+  .btn-platform-label {
+    white-space: nowrap;
+  }
+
+  .btn-platform-chevron {
+    width: 9px;
+    height: 9px;
+    opacity: 0.5;
+    flex-shrink: 0;
+    transition: transform 160ms ease;
+  }
+
+  .btn-platform-trigger[aria-expanded='true'] .btn-platform-chevron {
+    transform: rotate(180deg);
+  }
+
+  /* 下拉菜单 — 居中对齐 trigger */
+  .platform-dropdown {
+    display: none;
     position: absolute;
-    inset: 0;
-    opacity: 0;
-    cursor: pointer;
+    left: 50%;
+    transform: translateX(-50%);
+    top: calc(100% + 4px);
+    z-index: 100;
+    min-width: 180px;
+    border: 0.5px solid var(--border-strong);
+    border-radius: 10px;
+    padding: 4px;
+    background: var(--bg-surface, #fff);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.18);
+  }
+
+  :root[data-theme='light'] .platform-dropdown {
+    background: #ffffff;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+  }
+
+  .platform-dropdown.open {
+    display: block;
+    animation: dropdown-slide-in 0.08s ease-out;
+  }
+
+  .platform-option {
+    display: flex;
     width: 100%;
-    height: 100%;
+    align-items: center;
+    padding: 8px 12px;
+    font-size: 0.84rem;
+    border-radius: 7px;
+    color: var(--text-secondary);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    text-align: left;
+    transition: background 100ms ease;
+  }
+
+  .platform-option:hover {
+    background: var(--bg-surface-soft);
+  }
+
+  :root[data-theme='light'] .platform-option:hover {
+    background: #F5F7F6;
+  }
+
+  .platform-option[aria-selected='true'] {
+    color: var(--text-strong);
+    font-weight: 600;
   }
 
   .link-docs {
     font-size: 0.85rem;
     color: #3b82f6;
     text-decoration: none;
-    padding-left: 2px;
+    text-align: center;
   }
 
   .link-docs:hover {
     color: #60a5fa;
   }
 
+  /* 功能列表 */
   .feat-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
@@ -497,10 +609,179 @@ import BaseLayout from '@/layouts/BaseLayout.astro';
     line-height: 1.6;
   }
 
+  /* 贡献 card */
+  .contrib-card {
+    width: 100%;
+    max-width: 1080px;
+    border: 1px solid var(--border-strong);
+    border-radius: 12px;
+    padding: 28px 32px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+    background: var(--card-bg);
+  }
+
+  .contrib-left {
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .contrib-icon {
+    width: 22px;
+    height: 22px;
+    color: var(--text-secondary);
+    flex-shrink: 0;
+    margin-top: 3px;
+  }
+
+  .contrib-title {
+    margin: 0 0 6px;
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-strong);
+  }
+
+  .contrib-desc {
+    margin: 0;
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+    line-height: 1.7;
+  }
+
+  .contrib-actions {
+    display: flex;
+    gap: 10px;
+    flex-shrink: 0;
+  }
+
+  .contrib-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 18px;
+    border-radius: 8px;
+    font-size: 0.84rem;
+    font-weight: 500;
+    text-decoration: none;
+    white-space: nowrap;
+    transition: opacity 140ms ease;
+  }
+
+  .contrib-btn:hover {
+    opacity: 0.75;
+  }
+
+  .contrib-btn-primary {
+    background: var(--text-strong);
+    color: var(--bg-page);
+  }
+
+  .contrib-btn-secondary {
+    border: 1px solid var(--border-strong);
+    color: var(--text-secondary);
+  }
+
+  /* 使用方式三列 */
+  .section-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    width: 100%;
+    max-width: 1080px;
+  }
+
+  .section-card {
+    border: 1px solid var(--border-strong);
+    border-radius: 12px;
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    background: var(--card-bg);
+  }
+
+  .section-card-icon {
+    width: 32px;
+    height: 32px;
+    color: var(--text-secondary);
+  }
+
+  .section-card-icon svg {
+    width: 100%;
+    height: 100%;
+  }
+
+  .section-card-title {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-strong);
+  }
+
+  .section-card-desc {
+    margin: 0;
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+    line-height: 1.65;
+    flex: 1;
+  }
+
+  .section-card-platforms {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  .section-card-platforms span {
+    font-size: 0.72rem;
+    padding: 2px 8px;
+    border: 1px solid var(--border-strong);
+    border-radius: 4px;
+    color: var(--text-secondary);
+  }
+
+  .section-code {
+    background: var(--bg-surface-soft);
+    border-radius: 6px;
+    padding: 8px 12px;
+  }
+
+  .section-code code {
+    font-size: 0.8rem;
+    font-family: ui-monospace, monospace;
+    color: var(--text-primary);
+  }
+
+  .section-card-link {
+    font-size: 0.82rem;
+    color: #3b82f6;
+    text-decoration: none;
+    margin-top: auto;
+  }
+
+  .section-card-link:hover {
+    color: #60a5fa;
+  }
+
+  @media (max-width: 900px) {
+    .section-grid {
+      grid-template-columns: 1fr 1fr;
+    }
+
+    .contrib-card {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+  }
+
   @media (max-width: 767px) {
     .landing-wrap {
-      padding: 16px;
-      align-items: flex-start;
+      padding: 16px 16px 48px;
     }
 
     .landing-card {
@@ -524,13 +805,37 @@ import BaseLayout from '@/layouts/BaseLayout.astro';
       grid-template-columns: repeat(2, 1fr);
     }
 
-    .download-row {
+    .section-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .btn-download-wrap {
       flex-wrap: wrap;
     }
 
     .btn-download {
       flex: none;
       width: 100%;
+      border-radius: 10px 10px 0 0;
+    }
+
+    .btn-platform-divider {
+      display: none;
+    }
+
+    .btn-platform-trigger {
+      width: 100%;
+      justify-content: center;
+      padding: 10px 16px;
+      border-top: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 0 0 10px 10px;
+    }
+
+    .platform-dropdown {
+      right: 0;
+      left: 0;
+      width: 100%;
+      min-width: unset;
     }
   }
 </style>
