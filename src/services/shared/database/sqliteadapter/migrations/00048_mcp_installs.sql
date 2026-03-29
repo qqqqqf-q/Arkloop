@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS workspace_mcp_enablements (
 CREATE INDEX IF NOT EXISTS idx_workspace_mcp_enablements_workspace
     ON workspace_mcp_enablements (account_id, workspace_ref, enabled);
 
+-- Legacy desktop DBs may lack UNIQUE(account_id, profile_ref, install_key); avoid ON CONFLICT.
 INSERT INTO profile_mcp_installs (
     install_key,
     account_id,
@@ -54,30 +55,50 @@ INSERT INTO profile_mcp_installs (
     discovery_status
 )
 SELECT
-    'legacy_' || substr(replace(lower(m.id), '-', ''), 1, 24),
-    m.account_id,
-    pr.profile_ref,
-    m.name,
-    'manual_console',
-    'none',
-    m.transport,
-    json_object(
-        'url', m.url,
-        'command', m.command,
-        'args', json(COALESCE(m.args_json, '[]')),
-        'cwd', m.cwd,
-        'env', json(COALESCE(m.env_json, '{}')),
-        'call_timeout_ms', m.call_timeout_ms
-    ),
-    m.auth_secret_id,
-    CASE
-        WHEN m.transport = 'stdio' THEN 'cloud_worker'
-        ELSE 'remote_http'
-    END,
-    'needs_check'
-FROM mcp_configs m
-JOIN profile_registries pr ON pr.account_id = m.account_id
-ON CONFLICT (account_id, profile_ref, install_key) DO NOTHING;
+    src.install_key,
+    src.account_id,
+    src.profile_ref,
+    src.display_name,
+    src.source_kind,
+    src.sync_mode,
+    src.transport,
+    src.launch_spec_json,
+    src.auth_headers_secret_id,
+    src.host_requirement,
+    src.discovery_status
+FROM (
+    SELECT
+        'legacy_' || substr(replace(lower(m.id), '-', ''), 1, 24) AS install_key,
+        m.account_id,
+        pr.profile_ref,
+        m.name AS display_name,
+        'manual_console' AS source_kind,
+        'none' AS sync_mode,
+        m.transport,
+        json_object(
+            'url', m.url,
+            'command', m.command,
+            'args', json(COALESCE(m.args_json, '[]')),
+            'cwd', m.cwd,
+            'env', json(COALESCE(m.env_json, '{}')),
+            'call_timeout_ms', m.call_timeout_ms
+        ) AS launch_spec_json,
+        m.auth_secret_id AS auth_headers_secret_id,
+        CASE
+            WHEN m.transport = 'stdio' THEN 'cloud_worker'
+            ELSE 'remote_http'
+        END AS host_requirement,
+        'needs_check' AS discovery_status
+    FROM mcp_configs m
+    JOIN profile_registries pr ON pr.account_id = m.account_id
+) AS src
+WHERE NOT EXISTS (
+    SELECT 1
+      FROM profile_mcp_installs e
+     WHERE e.account_id = src.account_id
+       AND e.profile_ref = src.profile_ref
+       AND e.install_key = src.install_key
+);
 
 INSERT INTO workspace_mcp_enablements (
     workspace_ref,
@@ -125,7 +146,12 @@ WHERE pr.default_workspace_ref IS NOT NULL
             LIMIT 1
         )
     ) IS NOT NULL
-ON CONFLICT (workspace_ref, install_id) DO NOTHING;
+  AND NOT EXISTS (
+    SELECT 1
+      FROM workspace_mcp_enablements w
+     WHERE w.workspace_ref = pr.default_workspace_ref
+       AND w.install_id = pi.id
+);
 
 -- +goose Down
 DROP INDEX IF EXISTS idx_workspace_mcp_enablements_workspace;
